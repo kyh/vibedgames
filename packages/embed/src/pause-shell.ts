@@ -33,7 +33,7 @@ export const PAUSE_OVERLAY_Z = 2_147_483_000;
  * press that triggered a pause can't instantly undo it). Call on show(), call
  * the returned stop on hide().
  */
-export function resumeOnPadPress(): () => void {
+export const resumeOnPadPress = (): (() => void) => {
   let raf = 0;
   let prev: readonly boolean[] | null = null;
   const poll = (): void => {
@@ -48,10 +48,11 @@ export function resumeOnPadPress(): () => void {
     }
     const cur = pad ? pad.buttons.map((b) => b.pressed) : null;
     if (cur && prev) {
-      for (let i = 0; i < cur.length; i++) {
+      for (let i = 0; i < cur.length; i += 1) {
         if (cur[i] === true && prev[i] !== true) {
           resumeGame();
-          return; // resumed — stop polling (hide() also cancels, harmlessly)
+          // resumed — stop polling (hide() also cancels, harmlessly)
+          return;
         }
       }
     }
@@ -60,7 +61,7 @@ export function resumeOnPadPress(): () => void {
   };
   raf = requestAnimationFrame(poll);
   return () => cancelAnimationFrame(raf);
-}
+};
 
 export interface PauseShellOptions {
   /**
@@ -97,21 +98,15 @@ export interface PauseShell {
   hide: () => void;
 }
 
-function isInteractive(target: EventTarget | null): boolean {
-  return (
-    target instanceof Element &&
-    target.closest("button, a, input, select, textarea, [data-pause-keep]") !== null
-  );
-}
+const isInteractive = (target: EventTarget | null): boolean =>
+  target instanceof Element &&
+  target.closest("button, a, input, select, textarea, [data-pause-keep]") !== null;
 
-function reducedMotion(): boolean {
-  return (
-    typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
-}
+const reducedMotion = (): boolean =>
+  typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /** Build a pause overlay with the shared behavior contract; see module doc. */
-export function createPauseShell(options: PauseShellOptions): PauseShell {
+export const createPauseShell = (options: PauseShellOptions): PauseShell => {
   let root: HTMLElement | null = null;
   let stopPadResume: (() => void) | null = null;
   const resumeKeys = new Set<string>();
@@ -133,17 +128,19 @@ export function createPauseShell(options: PauseShellOptions): PauseShell {
     resumeGame();
   };
 
-  function show(): void {
+  const show = (): void => {
     if (root) {
       return;
     }
-    if (options.css !== undefined && options.styleId !== undefined) {
-      if (!document.getElementById(options.styleId)) {
-        const style = document.createElement("style");
-        style.id = options.styleId;
-        style.textContent = options.css;
-        document.head.append(style);
-      }
+    if (
+      options.css !== undefined &&
+      options.styleId !== undefined &&
+      !document.querySelector(`#${options.styleId}`)
+    ) {
+      const style = document.createElement("style");
+      style.id = options.styleId;
+      style.textContent = options.css;
+      document.head.append(style);
     }
 
     root = document.createElement("div");
@@ -185,9 +182,9 @@ export function createPauseShell(options: PauseShellOptions): PauseShell {
     // same-node capture listeners survive that.
     window.addEventListener("keydown", onResumeKeydown, true);
     window.addEventListener("keyup", onResumeKeyup, true);
-  }
+  };
 
-  function hide(): void {
+  const hide = (): void => {
     window.removeEventListener("keydown", onResumeKeydown, true);
     window.removeEventListener("keyup", onResumeKeyup, true);
     resumeKeys.clear();
@@ -207,7 +204,7 @@ export function createPauseShell(options: PauseShellOptions): PauseShell {
     el.style.pointerEvents = "none";
     el.style.opacity = "0";
     window.setTimeout(() => el.remove(), fade + 40);
-  }
+  };
 
   return { hide, show };
-}
+};

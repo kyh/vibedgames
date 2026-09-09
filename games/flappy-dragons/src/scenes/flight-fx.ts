@@ -1,14 +1,12 @@
-import type Phaser from "phaser";
+import type { GameObjects, Scene } from "phaser";
 import { COURSE_H } from "../shared/constants";
 
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
 
-export function prefersReducedMotion(): boolean {
-  return REDUCED_MOTION.matches;
-}
+export const prefersReducedMotion = (): boolean => REDUCED_MOTION.matches;
 
 interface Ring {
-  image: Phaser.GameObjects.Image;
+  image: GameObjects.Image;
   age: number;
 }
 
@@ -19,16 +17,16 @@ const NOTICE_S = 1.5;
 
 /** Local flight decoration only. Fixed particle/ring budgets; no gameplay timers. */
 export class FlightFx {
-  private readonly air: Phaser.GameObjects.Particles.ParticleEmitter;
-  private readonly sparks: Phaser.GameObjects.Particles.ParticleEmitter;
-  private readonly leaves: Phaser.GameObjects.Particles.ParticleEmitter;
+  private readonly air: GameObjects.Particles.ParticleEmitter;
+  private readonly sparks: GameObjects.Particles.ParticleEmitter;
+  private readonly leaves: GameObjects.Particles.ParticleEmitter;
   private readonly rings: Ring[] = [];
-  private readonly notice: Phaser.GameObjects.Text;
+  private readonly notice: GameObjects.Text;
   private leafIn = 0;
   private trailIn = 0;
   private noticeLeft = 0;
 
-  constructor(scene: Phaser.Scene) {
+  constructor(scene: Scene) {
     // Phaser 4 checks maxParticles before reusing dead slots. Reserve the pool
     // and cap only live particles so a full burst can expire and fire again.
     this.air = scene.add
@@ -40,7 +38,7 @@ export class FlightFx {
         scale: { end: 0, start: 1 },
         speedX: { max: -30, min: -100 },
         speedY: { max: 100, min: 25 },
-        tint: 0xe7faff,
+        tint: 0xe7_fa_ff,
       })
       .reserve(36)
       .setDepth(9);
@@ -54,7 +52,7 @@ export class FlightFx {
         maxAliveParticles: 64,
         scale: { end: 0, start: 1 },
         speed: { max: 150, min: 45 },
-        tint: 0xffdc70,
+        tint: 0xff_dc_70,
       })
       .reserve(64)
       .setDepth(15);
@@ -68,11 +66,11 @@ export class FlightFx {
         scale: { end: 0.6, start: 1 },
         speedX: { max: -16, min: -34 },
         speedY: { max: 18, min: 8 },
-        tint: [0xa5cf78, 0xffe49b, 0xc4eab8],
+        tint: [0xa5_cf_78, 0xff_e4_9b, 0xc4_ea_b8],
       })
       .reserve(12)
       .setDepth(-1);
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 5; i += 1) {
       this.rings.push({
         age: 1,
         image: scene.add.image(0, 0, "flight-ring").setDepth(14).setVisible(false),
@@ -128,7 +126,7 @@ export class FlightFx {
     if (prefersReducedMotion()) {
       return;
     }
-    let ring = this.rings[0];
+    let [ring] = this.rings;
     for (const candidate of this.rings) {
       if (!candidate.image.visible) {
         ring = candidate;

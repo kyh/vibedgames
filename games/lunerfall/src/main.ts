@@ -1,4 +1,5 @@
-import Phaser from "phaser";
+import type { Types } from "phaser";
+import { Game, Scale, WEBGL } from "phaser";
 import { setPauseHandlers } from "@repo/embed";
 
 import { sfx } from "./audio/sfx";
@@ -10,22 +11,22 @@ import { GameScene } from "./scenes/game-scene";
 import { SelectScene } from "./scenes/select-scene";
 import { mountTouchHud } from "./touch-hud";
 
-const config: Phaser.Types.Core.GameConfig = {
+const config: Types.Core.GameConfig = {
   backgroundColor: "#05070b",
   parent: "game",
   pixelArt: true,
   roundPixels: true,
   scale: {
-    autoCenter: Phaser.Scale.CENTER_BOTH,
+    autoCenter: Scale.CENTER_BOTH,
     height: BASE_H,
-    mode: Phaser.Scale.FIT,
+    mode: Scale.FIT,
     width: BASE_W,
   },
   scene: [BootScene, SelectScene, GameScene],
-  type: Phaser.WEBGL,
+  type: WEBGL,
 };
 
-const game = new Phaser.Game(config);
+const game = new Game(config);
 // Debug handle for perf/inspection probes (see globalThis.__game).
 Reflect.set(globalThis, "__game", game);
 // __GAME_DIAGNOSTICS__ / __GAME_TEST_HOOKS__ for bot playtests (sys/diag.ts).
@@ -36,7 +37,10 @@ const params = new URLSearchParams(window.location.search);
 // Trailer mode (?trailer=1): hand the boot to the trailer director. Lazy import
 // so the trailer module never loads — and trailer code stays dead — in normal play.
 if (params.has("trailer")) {
-  void import("./trailer/trailer-director").then((m) => m.initTrailer(game));
+  void (async () => {
+    const m = await import("./trailer/trailer-director");
+    m.initTrailer(game);
+  })();
 }
 
 // The trailer rolls itself and the viewer is a dev tool with its own chrome;
@@ -57,6 +61,12 @@ const activeGame = (): GameScene | null => {
 let froze = false;
 const pauseOverlay = createLunerfallPauseOverlay();
 setPauseHandlers({
+  // Versus binds Escape to "leave the duel", and the hub's dialogs own Escape
+  // themselves — only a co-op/solo run pauses on it.
+  escapePauses: () => {
+    const scene = activeGame();
+    return scene !== null && !scene.isVersus();
+  },
   onPause: () => {
     sfx.setPaused(true);
     activeGame()?.setControlsPaused(true);
@@ -76,11 +86,5 @@ setPauseHandlers({
     }
     froze = false;
     game.loop.wake();
-  },
-  // Versus binds Escape to "leave the duel", and the hub's dialogs own Escape
-  // themselves — only a co-op/solo run pauses on it.
-  escapePauses: () => {
-    const scene = activeGame();
-    return scene !== null && !scene.isVersus();
   },
 });

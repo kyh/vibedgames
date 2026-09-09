@@ -8,21 +8,22 @@ const GRIT = 1037;
 const MASONRY = 961;
 
 /** Static dressing only. The caller retains the untouched collision grid. */
-export function buildMineWorld(
+export const buildMineWorld = (
   scene: Phaser.Scene,
   walls: Uint8Array,
   width: number,
   height: number,
-): void {
+): void => {
   const blocked = (x: number, y: number): boolean =>
     x < 0 || y < 0 || x >= width || y >= height || walls[y * width + x] === 1;
   const floor: number[][] = [];
   const stone: number[][] = [];
-  for (let y = 0; y < height; y++) {
+  for (let y = 0; y < height; y += 1) {
     const floorRow: number[] = [];
     const wallRow: number[] = [];
-    for (let x = 0; x < width; x++) {
+    for (let x = 0; x < width; x += 1) {
       // A coordinate hash keeps dressing independent of map and loot RNG.
+      // oxlint-disable-next-line no-bitwise -- the xor-mix and uint32 wrap ARE the hash
       const pattern = (Math.imul(x + 17, 73_856_093) ^ Math.imul(y + 31, 19_349_663)) >>> 0;
       floorRow.push(!blocked(x, y) && pattern % 13 === 0 ? GRIT : STONE);
       wallRow.push(blocked(x, y) ? MASONRY : -1);
@@ -55,18 +56,18 @@ export function buildMineWorld(
   // Shared wall edges receive neither a seam nor a second shadow.
   const shadow = scene.add.graphics().setDepth(DEPTH.ground + 0.5);
   const edge = scene.add.graphics().setDepth(DEPTH.entityBase + 0.1);
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
       if (!blocked(x, y)) {
         continue;
       }
       const px = x * TILE;
       const py = y * TILE;
       if (!blocked(x, y - 1)) {
-        edge.fillStyle(0x50566c).fillRect(px, py, TILE, 1);
+        edge.fillStyle(0x50_56_6c).fillRect(px, py, TILE, 1);
       }
       if (!blocked(x - 1, y)) {
-        edge.fillStyle(0x41485e).fillRect(px, py, 1, TILE);
+        edge.fillStyle(0x41_48_5e).fillRect(px, py, 1, TILE);
       }
       if (!blocked(x + 1, y)) {
         edge.fillStyle(0x15_19_23).fillRect(px + TILE - 1, py, 1, TILE);
@@ -80,4 +81,4 @@ export function buildMineWorld(
       }
     }
   }
-}
+};

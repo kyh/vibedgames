@@ -344,7 +344,8 @@ export class Telegraphs {
   clear(): void {
     this.zoneById.clear();
     this.free.length = 0;
-    this.frame = this.lastNow = 0;
+    this.lastNow = 0;
+    this.frame = 0;
     for (const [index, decal] of this.decals.entries()) {
       decal.mesh.visible = false;
       decal.zoneId = null;

@@ -14,20 +14,18 @@ const PORTRAIT_CROPS = {
 };
 
 /** Original avatar art; TNT and barrel retain their own tightly fitted sprites. */
-export function heroPortrait(defId: string, team: Team) {
+export const heroPortrait = (defId: string, team: Team) => {
   const sheet = HERO_BY_ID[defId]?.sheet ?? "warrior";
   const color = team === "radiant" ? "blue" : "red";
+  let texture = `portrait-${sheet}-${color}`;
+  if (sheet === "tnt" || sheet === "barrel") {
+    texture = `u-${sheet}-${color}`;
+  } else if (sheet === "torch") {
+    texture = "portrait-torch";
+  }
 
-  return {
-    crop: PORTRAIT_CROPS[sheet],
-    texture:
-      sheet === "tnt" || sheet === "barrel"
-        ? `u-${sheet}-${color}`
-        : sheet === "torch"
-          ? "portrait-torch"
-          : `portrait-${sheet}-${color}`,
-  };
-}
+  return { crop: PORTRAIT_CROPS[sheet], texture };
+};
 
 type Upgrade =
   | { kind: "available" }
@@ -37,7 +35,7 @@ type Upgrade =
   | { kind: "unavailable" };
 
 /** Reads the same cap as levelAbility; never spends an ability point. */
-export function abilityUpgrade(hero: HeroState, key: AbilityKey): Upgrade {
+export const abilityUpgrade = (hero: HeroState, key: AbilityKey): Upgrade => {
   const def = HERO_BY_ID[hero.defId]?.abilities[key];
   if (!def) {
     return { kind: "unavailable" };
@@ -47,7 +45,7 @@ export function abilityUpgrade(hero: HeroState, key: AbilityKey): Upgrade {
     return { kind: "max" };
   }
   if (rank >= abilityRankCap(key, hero.level)) {
-    for (let level = hero.level + 1; level <= MAX_LEVEL; level++) {
+    for (let level = hero.level + 1; level <= MAX_LEVEL; level += 1) {
       if (abilityRankCap(key, level) > rank) {
         return { kind: "level", level };
       }
@@ -55,7 +53,7 @@ export function abilityUpgrade(hero: HeroState, key: AbilityKey): Upgrade {
     return { kind: "max" };
   }
   return hero.abilityPoints > 0 ? { kind: "available" } : { kind: "points" };
-}
+};
 
 const TARGET_COPY = {
   none: "No target needed",
@@ -64,7 +62,24 @@ const TARGET_COPY = {
   unit: "Target a unit",
 } satisfies Record<Targeting, string>;
 
-export function abilityExplanation(hero: HeroState, key: AbilityKey) {
+const unlockText = (rank: number, upgrade: Upgrade): string => {
+  switch (upgrade.kind) {
+    case "level": {
+      return `${rank ? "Next rank" : "Unlocks"} at level ${upgrade.level}`;
+    }
+    case "available": {
+      return "Upgrade available · use + on the ability";
+    }
+    case "max": {
+      return "Maximum rank";
+    }
+    default: {
+      return "Earn an ability point to upgrade";
+    }
+  }
+};
+
+export const abilityExplanation = (hero: HeroState, key: AbilityKey) => {
   const def = HERO_BY_ID[hero.defId]?.abilities[key];
   if (!def) {
     return null;
@@ -72,14 +87,7 @@ export function abilityExplanation(hero: HeroState, key: AbilityKey) {
   const { rank } = hero.abilities[key];
   const previewRank = Math.max(1, rank);
   const upgrade = abilityUpgrade(hero, key);
-  const unlock =
-    upgrade.kind === "level"
-      ? `${rank ? "Next rank" : "Unlocks"} at level ${upgrade.level}`
-      : upgrade.kind === "available"
-        ? "Upgrade available · use + on the ability"
-        : upgrade.kind === "max"
-          ? "Maximum rank"
-          : "Earn an ability point to upgrade";
+  const unlock = unlockText(rank, upgrade);
   const costs =
     def.targeting === "passive"
       ? "No cast or mana cost"
@@ -93,10 +101,10 @@ export function abilityExplanation(hero: HeroState, key: AbilityKey) {
     rank: `${TARGET_COPY[def.targeting]} · ${rank > 0 ? `Rank ${rank}/${def.maxRank}` : "Rank 1 preview"}`,
     unlock,
   };
-}
+};
 
 /** XP is cumulative in the sim; the strip shows progress within this level. */
-export function experienceProgress(hero: HeroState) {
+export const experienceProgress = (hero: HeroState) => {
   if (hero.level >= MAX_LEVEL) {
     return { fraction: 1, text: "MAX LEVEL" };
   }
@@ -105,15 +113,19 @@ export function experienceProgress(hero: HeroState) {
   const total = Math.max(1, end - start);
   const earned = Math.max(0, Math.min(total, hero.xp - start));
   return { fraction: earned / total, text: `${Math.floor(earned)} / ${total} XP` };
-}
+};
 
 /** Kill.team is the credited team, including environmental deaths. */
-export function killFeedText(
+export const killFeedText = (
   event: { killer: string; victim: string; team: Team },
   localTeam: Team | null,
-): string {
-  const side = (team: Team): string =>
-    localTeam ? (team === localTeam ? "Ally" : "Enemy") : team === "radiant" ? "Radiant" : "Dire";
+): string => {
+  const side = (team: Team): string => {
+    if (localTeam) {
+      return team === localTeam ? "Ally" : "Enemy";
+    }
+    return team === "radiant" ? "Radiant" : "Dire";
+  };
   const victim = `${side(enemyOf(event.team))} ${event.victim}`;
   return event.killer ? `${side(event.team)} ${event.killer} → ${victim}` : `${victim} has fallen`;
-}
+};

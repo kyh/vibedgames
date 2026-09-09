@@ -18,7 +18,7 @@ type Availability = { kind: "available" } | { kind: "blocked"; reason: Unavailab
 
 /** HUD readiness before target acquisition. Read the same status predicates as
  * castAbility/dashHero; channels are not a lock and dash can break a channel. */
-export function actionAvailability(u: Unit, now: number, action: Action): Availability {
+export const actionAvailability = (u: Unit, now: number, action: Action): Availability => {
   const h = u.hero;
   if (!h) {
     return { kind: "blocked", reason: "unavailable" };
@@ -54,4 +54,4 @@ export function actionAvailability(u: Unit, now: number, action: Action): Availa
     return { kind: "blocked", reason: "mana" };
   }
   return { kind: "available" };
-}
+};

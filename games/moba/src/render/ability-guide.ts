@@ -59,11 +59,11 @@ export interface AbilityGuideOptions {
   onClose: () => void;
 }
 
-function el<K extends keyof HTMLElementTagNameMap>(
+const el = <K extends keyof HTMLElementTagNameMap>(
   tag: K,
   className = "",
   text = "",
-): HTMLElementTagNameMap[K] {
+): HTMLElementTagNameMap[K] => {
   const node = document.createElement(tag);
   if (className) {
     node.className = className;
@@ -72,13 +72,13 @@ function el<K extends keyof HTMLElementTagNameMap>(
     node.textContent = text;
   }
   return node;
-}
+};
 
-function button(className: string, text: string): HTMLButtonElement {
+const button = (className: string, text: string): HTMLButtonElement => {
   const node = el("button", className, text);
   node.type = "button";
   return node;
-}
+};
 
 export class AbilityGuide {
   private readonly root = el("div", "moba-ability-guide");
@@ -98,11 +98,12 @@ export class AbilityGuide {
   private readonly more = el("p", "guide-more", "Scroll for more ↓");
   private selected: AbilityKey = "Q";
   private signature = "";
+  private readonly gs: GameScene;
+  private readonly options: AbilityGuideOptions;
 
-  constructor(
-    private readonly gs: GameScene,
-    private readonly options: AbilityGuideOptions,
-  ) {
+  constructor(gs: GameScene, options: AbilityGuideOptions) {
+    this.gs = gs;
+    this.options = options;
     this.style.textContent = CSS;
     this.toggle.setAttribute("aria-expanded", "false");
     this.toggle.setAttribute("aria-controls", "moba-ability-panel");
@@ -175,8 +176,14 @@ export class AbilityGuide {
       }
       if (event.key === "Tab" && event.type === "keydown") {
         event.preventDefault();
-        const focusable = [this.close, ...this.tabs.map((tab) => tab.button), this.copy];
-        const current = focusable.findIndex((node) => node === document.activeElement);
+        const focusable: HTMLElement[] = [
+          this.close,
+          ...this.tabs.map((tab) => tab.button),
+          this.copy,
+        ];
+        const { activeElement } = document;
+        const current =
+          activeElement instanceof HTMLElement ? focusable.indexOf(activeElement) : -1;
         focusable[
           (current + (event.shiftKey ? -1 : 1) + focusable.length) % focusable.length
         ]?.focus();

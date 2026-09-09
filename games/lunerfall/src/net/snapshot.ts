@@ -9,7 +9,8 @@ import { isJsonObject } from "./json";
 import type { JsonValue } from "./json";
 import type { BossAction, EnemyAction } from "../data/actor-presentation";
 
-export interface NetPlayer {
+// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
+export type NetPlayer = {
   id: string;
   hero: string;
   x: number;
@@ -21,17 +22,19 @@ export interface NetPlayer {
   dashing: boolean;
   hurting: boolean;
   dead: boolean;
-  downed: boolean; // co-op last stand: frozen awaiting a revive
+  // co-op last stand: frozen awaiting a revive
+  downed: boolean;
   iframes: number;
   attackStep: number;
   swingId: number;
   specialActive: boolean;
   specialId: number;
-}
+};
 
 // Enemies/boss travel as the clip the host is already playing (read after its
 // render) so the guest just re-plays it — no state-enum re-derivation, no drift.
-export interface NetEnemy {
+// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
+export type NetEnemy = {
   id: number;
   name: string;
   clip: string;
@@ -42,8 +45,9 @@ export interface NetEnemy {
   flash: boolean;
   action?: EnemyAction;
   tint?: number;
-}
-export interface NetBoss {
+};
+// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
+export type NetBoss = {
   clip: string;
   x: number;
   y: number;
@@ -53,12 +57,13 @@ export interface NetBoss {
   telegraph: boolean;
   dead: boolean;
   action?: BossAction;
-}
+};
 
 // Guest → host input. Held state travels as booleans; each action carries a
 // monotonic counter so a press is never lost even if the net tick is slower than
 // the frame rate (the host derives an edge when a counter increments).
-export interface NetInput {
+// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
+export type NetInput = {
   left: boolean;
   right: boolean;
   up: boolean;
@@ -68,41 +73,50 @@ export interface NetInput {
   d: number;
   a: number;
   s: number;
-}
-export interface NetProj {
+};
+// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
+export type NetProj = {
   k: "arrow" | "shot" | "hazard";
   x: number;
   y: number;
   vx: number;
-}
+};
 
 // Co-op last stand: broadcast while a player is downed. bleed = seconds left on
 // the bleed-out clock; rev = 0..1 revive-hold progress. Which player is downed
 // travels on NetPlayer.downed; both clients render the marker from these.
-export interface NetLastStand {
+// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
+export type NetLastStand = {
   bleed: number;
   rev: number;
-}
+};
 
 // Online versus: the match state, broadcast every snapshot while in versus mode.
 // Sides are fixed (host = left duelist, guest = right) so hearts/scores never
 // need a player-id mapping on either client.
-export interface NetVersus {
+// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
+export type NetVersus = {
   phase: "waiting" | "countdown" | "fighting" | "roundEnd" | "matchEnd";
-  round: number; // 1-based; 0 while waiting for the challenger
-  t: number; // seconds left in the current timed phase
+  // 1-based; 0 while waiting for the challenger
+  round: number;
+  // seconds left in the current timed phase
+  t: number;
   hostHp: number;
   guestHp: number;
   hostScore: number;
   guestScore: number;
-  winner: "host" | "guest" | null; // round winner in roundEnd, match in matchEnd
-}
+  // round winner in roundEnd, match in matchEnd
+  winner: "host" | "guest" | null;
+};
 
-export interface Snapshot {
+// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
+export type Snapshot = {
   runId?: string;
   term?: number;
-  t: number; // host frame counter — interpolation + stall detection
-  room: number; // room seq; guest rebuilds its room when this changes
+  // host frame counter — interpolation + stall detection
+  t: number;
+  // room seq; guest rebuilds its room when this changes
+  room: number;
   players: NetPlayer[];
   enemies: NetEnemy[];
   boss: NetBoss | null;
@@ -114,22 +128,26 @@ export interface Snapshot {
   depth: number;
   cleared: boolean;
   lastStand: NetLastStand | null;
-  vs: NetVersus | null; // versus mode only; null in co-op
+  // versus mode only; null in co-op
+  vs: NetVersus | null;
   banner: string;
-}
+};
 
 // Full room layout — sent once per room (not per frame).
-export interface NetDoor {
+// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
+export type NetDoor = {
   index: number;
   x: number;
   y: number;
   type: string;
   label: string;
   danger: boolean;
-}
-export interface NetRoom {
+};
+// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
+export type NetRoom = {
   seq: number;
-  mode: string; // "coop" | "vs" — versus arenas mirror the guest spawn, no doors
+  // "coop" | "vs" — versus arenas mirror the guest spawn, no doors
+  mode: string;
   type: string;
   cols: number;
   rows: number;
@@ -139,12 +157,10 @@ export interface NetRoom {
   doors: NetDoor[];
   propKey: string;
   mustClear: boolean;
-}
+};
 
-export function isSnapshot(v: JsonValue | undefined): v is Snapshot {
-  return isJsonObject(v) && "players" in v && "t" in v && Array.isArray(v.players);
-}
+export const isSnapshot = (v: JsonValue | undefined): v is Snapshot =>
+  isJsonObject(v) && "players" in v && "t" in v && Array.isArray(v.players);
 
-export function isRoom(v: JsonValue | undefined): v is NetRoom {
-  return isJsonObject(v) && "cells" in v && "seq" in v && Array.isArray(v.cells);
-}
+export const isRoom = (v: JsonValue | undefined): v is NetRoom =>
+  isJsonObject(v) && "cells" in v && "seq" in v && Array.isArray(v.cells);

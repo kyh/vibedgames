@@ -15,7 +15,7 @@ interface SpecialBody {
 }
 
 /** The cast gates, read from either the local body or an accepted checkpoint. */
-export function specialReadiness(body: SpecialBody): SpecialReadiness {
+export const specialReadiness = (body: SpecialBody): SpecialReadiness => {
   if (body.dead || body.downed) {
     return { kind: "busy" };
   }
@@ -26,4 +26,4 @@ export function specialReadiness(body: SpecialBody): SpecialReadiness {
     return { kind: "busy" };
   }
   return { kind: "ready" };
-}
+};

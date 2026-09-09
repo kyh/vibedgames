@@ -1,4 +1,5 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { Scene, Scenes } from "phaser";
 import { notifyGameStarted, watchControlContext } from "@repo/embed";
 import { PhysicalGamepad } from "@vibedgames/gamepad/phaser";
 import { sfx } from "../audio/sfx";
@@ -20,10 +21,19 @@ import { HubView } from "../hub/hub-view";
 import { parseRoomCode, partyLink } from "../hub/party-link";
 import { isCoarse } from "../sys/screen";
 
+const CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+const randomCode = (): string => {
+  let code = "";
+  for (let i = 0; i < 4; i += 1) {
+    code += CODE_CHARS.charAt(Math.floor(Math.random() * CODE_CHARS.length));
+  }
+  return code;
+};
+
 /** Screen-space hub: the DOM (HubView) lays out and takes input, Phaser draws
  * the hero sprites over it. Only this scene resizes the game; the expedition
  * keeps its baked BASE_W/H camera. */
-export class SelectScene extends Phaser.Scene {
+export class SelectScene extends Scene {
   private index = 0;
   private sprites: Phaser.GameObjects.Sprite[] = [];
   private showcase: Phaser.GameObjects.Sprite | null = null;
@@ -63,7 +73,10 @@ export class SelectScene extends Phaser.Scene {
     const search = new URLSearchParams(location.search);
     const code = parseRoomCode(search.get("party") ?? "");
     this.code = code ?? "";
-    this.net = code ? (search.get("mode") === "vs" ? "vs" : "coop") : "off";
+    this.net = "off";
+    if (code) {
+      this.net = search.get("mode") === "vs" ? "vs" : "coop";
+    }
     this.recapRoom = this.recap && this.net !== "off" ? { code: this.code, mode: this.net } : null;
     this.syncRoomUrl();
     this.backdrop = this.add
@@ -87,7 +100,7 @@ export class SelectScene extends Phaser.Scene {
         forge: () => this.toggleShop(),
         go: () => this.go(),
         hero: (index) => this.pickHero(index),
-        join: (code) => this.joinRoom(code),
+        join: (room) => this.joinRoom(room),
         layout: this.layout,
         mode: (mode) => this.toggleNet(mode),
         offer: (index) => this.pickUpgrade(index),
@@ -100,7 +113,7 @@ export class SelectScene extends Phaser.Scene {
     kb?.on("keydown", this.keyDown);
     const unwatch = watchControlContext(() => this.refresh());
     window.addEventListener("resize", this.layout);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+    this.events.once(Scenes.Events.SHUTDOWN, () => {
       window.removeEventListener("resize", this.layout);
       unwatch();
       kb?.off("keydown", this.keyDown);
@@ -134,16 +147,16 @@ export class SelectScene extends Phaser.Scene {
     }
     this.backdrop?.setDisplaySize(rw, rh);
     this.shade?.setDisplaySize(rw, rh);
-    this.sprites.forEach((sprite, index) => {
+    for (const [index, sprite] of this.sprites.entries()) {
       const node = view.heroes[index];
       const name = HERO_ORDER[index];
       if (!node || !name) {
-        return;
+        continue;
       }
       const rect = node.getBoundingClientRect();
       const art = node.querySelector(".lf-hub-art")?.getBoundingClientRect();
       if (!art) {
-        return;
+        continue;
       }
       const selected = index === this.index;
       const scale = Math.min(rect.width / 32, art.height / 34, 2.4) * this.k;
@@ -154,9 +167,15 @@ export class SelectScene extends Phaser.Scene {
         .setPosition(x, y)
         .setScale(scale)
         .setVisible(rect.bottom > 0 && art.top < h);
-      sprite.setAlpha(selected ? 1 : locked ? 0.68 : 0.9);
+      let alpha = 0.9;
+      if (selected) {
+        alpha = 1;
+      } else if (locked) {
+        alpha = 0.68;
+      }
+      sprite.setAlpha(alpha);
       sprite.setTint(locked ? 0xaa_b2_c0 : 0xff_ff_ff);
-    });
+    }
     const hero = HERO_ORDER[this.index] ?? "axion";
     const stage = view.showcase.getBoundingClientRect();
     const scale = Math.min(stage.width / 58, stage.height / 38, 8) * this.k;
@@ -209,55 +228,40 @@ export class SelectScene extends Phaser.Scene {
       event.preventDefault();
     }
     sfx.unlock();
-    switch (event.code) {
-      case "ArrowLeft":
-      case "KeyA": {
-        this.move(-1);
-        break;
-      }
-      case "ArrowRight":
-      case "KeyD": {
-        this.move(1);
-        break;
-      }
-      case "ArrowUp":
-      case "KeyW": {
-        if (this.shopOpen) this.move(-1);
-        break;
-      }
-      case "ArrowDown":
-      case "KeyS": {
-        if (this.shopOpen) this.move(1);
-        break;
-      }
-      case "Space":
-      case "Enter":
-      case "KeyJ": {
-        this.confirm();
-        break;
-      }
-      case "KeyU": {
-        this.buyUnlock();
-        break;
-      }
-      case "KeyC": {
-        this.toggleNet("coop");
-        break;
-      }
-      case "KeyV": {
-        this.toggleNet("vs");
-        break;
-      }
-      case "KeyM": {
-        this.toggleShop();
-        break;
-      }
-      case "Escape": {
-        if (this.shopOpen) this.toggleShop();
-        break;
-      }
-    }
+    this.keyActions.get(event.code)?.();
   };
+
+  /** Up/Down and Escape only act inside the forge; every other key is global. */
+  private readonly keyActions = new Map<string, () => void>(
+    Object.entries({
+      ArrowDown: () => this.shopMove(1),
+      ArrowLeft: () => this.move(-1),
+      ArrowRight: () => this.move(1),
+      ArrowUp: () => this.shopMove(-1),
+      Enter: () => this.confirm(),
+      Escape: () => {
+        if (this.shopOpen) {
+          this.toggleShop();
+        }
+      },
+      KeyA: () => this.move(-1),
+      KeyC: () => this.toggleNet("coop"),
+      KeyD: () => this.move(1),
+      KeyJ: () => this.confirm(),
+      KeyM: () => this.toggleShop(),
+      KeyS: () => this.shopMove(1),
+      KeyU: () => this.buyUnlock(),
+      KeyV: () => this.toggleNet("vs"),
+      KeyW: () => this.shopMove(-1),
+      Space: () => this.confirm(),
+    }),
+  );
+
+  private shopMove(delta: number): void {
+    if (this.shopOpen) {
+      this.move(delta);
+    }
+  }
 
   private refresh(): void {
     this.view?.update({
@@ -430,13 +434,4 @@ export class SelectScene extends Phaser.Scene {
     notifyGameStarted();
     this.scene.start("game", { hero });
   }
-}
-
-const CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-function randomCode(): string {
-  let code = "";
-  for (let i = 0; i < 4; i++) {
-    code += CODE_CHARS.charAt(Math.floor(Math.random() * CODE_CHARS.length));
-  }
-  return code;
 }

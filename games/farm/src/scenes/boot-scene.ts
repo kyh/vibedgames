@@ -1,4 +1,5 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { Math as PhaserMath, Scene } from "phaser";
 import { CROP_ORDER } from "../data/crops";
 import { parseWorldMap } from "../world/worldmap";
 import { setWorldMap, getWorldMap } from "../world/map-store";
@@ -33,7 +34,7 @@ const SKEL = {
   walk: 8,
 } as const;
 
-export class BootScene extends Phaser.Scene {
+export class BootScene extends Scene {
   constructor() {
     super("Boot");
   }
@@ -147,7 +148,7 @@ export class BootScene extends Phaser.Scene {
     // frames would imply a delay that this enemy's contact damage does not have.
     this.anims.create({
       frameRate: (3 * 1000) / SKELETON_CONTACT_MS,
-      frames: this.anims.generateFrameNumbers("e-skel-attack", { start: 4, end: 6 }),
+      frames: this.anims.generateFrameNumbers("e-skel-attack", { end: 6, start: 4 }),
       key: "e-skel-contact",
       repeat: 0,
     });
@@ -167,10 +168,10 @@ export class BootScene extends Phaser.Scene {
     for (const [name, def] of Object.entries(worldMap.deco)) {
       if (def.frames > 1) {
         this.anims.create({
-          frameRate: Phaser.Math.Clamp(def.fps, 1, 30),
+          frameRate: PhaserMath.Clamp(def.fps, 1, 30),
           frames: Array.from({ length: def.frames }, (_, i) => ({
-            key: "deco-atlas",
             frame: `${name}/${i}`,
+            key: "deco-atlas",
           })),
           key: `deco-${name}`,
           repeat: -1,
@@ -226,23 +227,29 @@ export class BootScene extends Phaser.Scene {
     // trailer code stays out of the normal play path entirely; presence-check
     // only — importing trailer-shell here would hoist it into the main chunk)
     if (params.has("trailer")) {
-      void import("../trailer/trailer-director").then(({ startTrailer }) => {
-        startTrailer(this.game);
-      });
+      void this.startTrailer();
       return;
     }
     // ?gallery opens the asset-inspection page instead of the game
     // (lazy-loaded so gallery code stays out of the main chunk)
     if (params.has("gallery")) {
-      void import("./gallery-scene").then(({ GalleryScene }) => {
-        if (!this.scene.get("Gallery")) {
-          this.scene.add("Gallery", GalleryScene);
-        }
-        this.scene.start("Gallery");
-      });
+      void this.startGallery();
       return;
     }
     this.scene.start("Title");
+  }
+
+  private async startTrailer(): Promise<void> {
+    const { startTrailer } = await import("../trailer/trailer-director");
+    startTrailer(this.game);
+  }
+
+  private async startGallery(): Promise<void> {
+    const { GalleryScene } = await import("./gallery-scene");
+    if (!this.scene.get("Gallery")) {
+      this.scene.add("Gallery", GalleryScene);
+    }
+    this.scene.start("Gallery");
   }
 
   private makeIcon(

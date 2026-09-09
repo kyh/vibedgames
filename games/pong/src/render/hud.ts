@@ -30,6 +30,44 @@ const NET_INFO = {
   solo: "VS AI · FIRST TO 7",
 } satisfies Record<Link, string>;
 
+const el = (id: string): HTMLElement => {
+  const node = document.querySelector(`#${id}`);
+  if (!(node instanceof HTMLElement)) {
+    throw new Error(`missing #${id}`);
+  }
+  return node;
+};
+
+const setText = (node: HTMLElement, text: string): void => {
+  if (node.textContent !== text) {
+    node.textContent = text;
+  }
+};
+
+const matchPointLabel = (scoreYou: number, scoreAi: number): string => {
+  if (scoreYou === scoreAi) {
+    return "DECIDING POINT";
+  }
+  return scoreYou > scoreAi ? "YOUR MATCH POINT" : "DEFEND MATCH POINT";
+};
+
+const winnerTitle = (scoreYou: number, scoreAi: number, human: boolean): string => {
+  if (scoreYou > scoreAi) {
+    return "YOU WIN";
+  }
+  return human ? "RIVAL WINS" : "AI WINS";
+};
+
+const chargeLabel = (charge: ShotCharge, hits: number): string => {
+  if (charge.kind === "armed") {
+    return "POWER ARMED";
+  }
+  if (charge.kind === "ready") {
+    return "POWER READY";
+  }
+  return `POWER ${hits}/${CHARGE_HITS}`;
+};
+
 export class Hud {
   private readonly scoreYouEl = el("score-you");
   private readonly scoreAiEl = el("score-ai");
@@ -47,7 +85,8 @@ export class Hud {
   private readonly chargeEl = el("shot-charge");
   private readonly chargeFillEl = el("shot-charge-fill");
   private readonly chargeLabelEl = el("shot-charge-label");
-  private serveMeterShown = false; // cached so we only touch classList on transitions
+  // Cached so we only touch classList on transitions.
+  private serveMeterShown = false;
 
   constructor(onAction: () => void) {
     // A tap on the banner card must not double as a canvas serve.
@@ -64,13 +103,7 @@ export class Hud {
     const human = link === "live";
     setText(this.oppLabelEl, human ? "RIVAL" : "AI");
     const matchPoint = phase !== "won" && Math.max(scoreYou, scoreAi) === WIN_SCORE - 1;
-    const matchPointText = matchPoint
-      ? scoreYou === scoreAi
-        ? "DECIDING POINT"
-        : scoreYou > scoreAi
-          ? "YOUR MATCH POINT"
-          : "DEFEND MATCH POINT"
-      : "";
+    const matchPointText = matchPoint ? matchPointLabel(scoreYou, scoreAi) : "";
     setText(this.matchPointEl, matchPointText);
 
     // The action button stays mounted across states so a snapshot never steals its focus.
@@ -81,7 +114,7 @@ export class Hud {
       this.showBanner("PONG", "FIRST TO 7", "SERVE");
     } else if (phase === "won") {
       this.showBanner(
-        scoreYou > scoreAi ? "YOU WIN" : human ? "RIVAL WINS" : "AI WINS",
+        winnerTitle(scoreYou, scoreAi, human),
         `${scoreYou} — ${scoreAi} · LONGEST RALLY ${view.longestRally}`,
         "REMATCH",
       );
@@ -110,20 +143,14 @@ export class Hud {
     if (this.chargeEl.getAttribute("aria-valuenow") !== value) {
       this.chargeEl.setAttribute("aria-valuenow", value);
     }
-    setText(
-      this.chargeLabelEl,
-      charge.kind === "armed"
-        ? "POWER ARMED"
-        : charge.kind === "ready"
-          ? "POWER READY"
-          : `POWER ${hits}/${CHARGE_HITS}`,
-    );
+    setText(this.chargeLabelEl, chargeLabel(charge, hits));
   }
 
   popScore(side: "you" | "ai"): void {
     const node = side === "you" ? this.scoreYouEl : this.scoreAiEl;
     node.classList.remove("pop");
-    void node.offsetWidth; // restart the CSS animation
+    // Reading layout restarts the CSS animation.
+    void node.offsetWidth;
     node.classList.add("pop");
   }
 
@@ -142,7 +169,8 @@ export class Hud {
     this.comboEl.style.setProperty("--combo-tier", tier.toFixed(3));
     this.comboEl.style.opacity = "1";
     this.comboEl.classList.remove("pop");
-    void this.comboEl.offsetWidth; // restart the CSS pop
+    // Reading layout restarts the CSS pop.
+    void this.comboEl.offsetWidth;
     this.comboEl.classList.add("pop");
   }
 
@@ -169,19 +197,5 @@ export class Hud {
       this.serveMeterEl.classList.toggle("on", active);
       this.serveMeterShown = active;
     }
-  }
-}
-
-function el(id: string): HTMLElement {
-  const node = document.querySelector(`#${id}`);
-  if (!node) {
-    throw new Error(`missing #${id}`);
-  }
-  return node;
-}
-
-function setText(node: HTMLElement, text: string): void {
-  if (node.textContent !== text) {
-    node.textContent = text;
   }
 }

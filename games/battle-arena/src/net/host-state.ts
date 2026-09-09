@@ -15,7 +15,7 @@ export interface OnlineSeat {
   team: string;
 }
 
-export function humanRoster(world: World) {
+export const humanRoster = (world: World) => {
   const picks: Record<string, HeroPick> = {};
   const seats: Record<string, OnlineSeat> = {};
   for (const unit of world.units.values()) {
@@ -26,27 +26,27 @@ export function humanRoster(world: World) {
     seats[unit.ownerId] = { slot: unit.slot, team: unit.team };
   }
   return { picks, seats };
-}
+};
 
 /** Election transfers the accepted simulation in place. Only an absent
  * snapshot seeds a room; cloning keeps later host steps out of the SDK cache. */
-export function restoreHostState(world: World, snapshot: Snapshot | null) {
+export const restoreHostState = (world: World, snapshot: Snapshot | null) => {
   applySnapshot(
     world,
     snapshot ? structuredClone(snapshot) : encodeWorld(createWorld(ONLINE_SEED)),
   );
   world.fx.length = 0;
   return humanRoster(world);
-}
+};
 
 /** Grace connections retain their actual hero/seat. A new human replaces the
  * bot at one free human seat, never a different human or a fallback slot 0. */
-export function reconcileHostHeroes(
+export const reconcileHostHeroes = (
   world: World,
   players: PlayerMap,
   picks: Record<string, HeroPick>,
   seats: Record<string, OnlineSeat>,
-): void {
+): void => {
   if (world.phase !== "playing") {
     return;
   }
@@ -56,8 +56,9 @@ export function reconcileHostHeroes(
     }
     if (players[unit.ownerId]) {
       seats[unit.ownerId] = { slot: unit.slot, team: unit.team };
-      if (players[unit.ownerId]?.connected === false)
+      if (players[unit.ownerId]?.connected === false) {
         setHeroInput(unit, 0, 0, unit.aimX, unit.aimY, false);
+      }
     } else {
       world.units.delete(unit.id);
     }
@@ -66,7 +67,9 @@ export function reconcileHostHeroes(
     if (players[ownerId]) {
       continue;
     }
+    // oxlint-disable-next-line typescript/no-dynamic-delete -- the caller keeps these records by reference; the departed owner must vanish from its own object
     delete seats[ownerId];
+    // oxlint-disable-next-line typescript/no-dynamic-delete -- same shared-record contract as the seat above
     delete picks[ownerId];
   }
   const used = new Set(Object.values(seats).map((seat) => seat.slot));
@@ -104,4 +107,4 @@ export function reconcileHostHeroes(
     });
   }
   ensureBots(world);
-}
+};

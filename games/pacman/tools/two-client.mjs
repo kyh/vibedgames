@@ -10,18 +10,16 @@
 
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import path from "node:path";
+import { setTimeout as wait } from "node:timers/promises";
 
-const gameDir = resolve(import.meta.dirname, "..");
-const { chromium } = createRequire(join(gameDir, "package.json"))("playwright-core");
+const gameDir = path.resolve(import.meta.dirname, "..");
+const { chromium } = createRequire(path.join(gameDir, "package.json"))("playwright-core");
 
 const PARTY = "http://localhost:8787";
 const DEV_PORT = 5309;
 const SCORE_PELLET = 10;
-const wait = (ms) => new Promise((done) => setTimeout(done, ms));
-
-async function waitFor(page, fn, label, timeoutMs = 8000, arg) {
+const waitFor = async (page, fn, label, { timeoutMs = 8000, arg } = {}) => {
   const deadline = Date.now() + timeoutMs;
   let last;
   while (Date.now() < deadline) {
@@ -32,7 +30,7 @@ async function waitFor(page, fn, label, timeoutMs = 8000, arg) {
     await wait(100);
   }
   throw new Error(`timeout: ${label} (last=${JSON.stringify(last)})`);
-}
+};
 
 const snapshot = (page) =>
   page.evaluate(() => {
@@ -59,14 +57,14 @@ const snapshot = (page) =>
  *  The first step also eats the pellet under the pac, so two cells go. */
 const chompFrom = (page, col, row) =>
   page.evaluate(
-    ([col, row]) => {
+    ([x, z]) => {
       const { game } = window.__pacman;
       Object.assign(game.pac, {
         dir: "right",
         isMoving: false,
-        target: { x: col, z: row },
-        x: col,
-        z: row,
+        target: { x, z },
+        x,
+        z,
       });
       window.__pacman.chomp();
     },
@@ -74,14 +72,17 @@ const chompFrom = (page, col, row) =>
   );
 
 const eaten = (page, key) =>
-  waitFor(page, (k) => window.__pacman.game.appliedEaten.has(k), `eaten ${key}`, 4000, key);
+  waitFor(page, (k) => window.__pacman.game.appliedEaten.has(k), `eaten ${key}`, {
+    arg: key,
+    timeoutMs: 4000,
+  });
 
-async function startPlaying(page) {
+const startPlaying = async (page) => {
   await page.keyboard.press("Enter");
   await waitFor(page, () => window.__pacman.game.phase === "playing", "playing");
-}
+};
 
-async function openClient(browser, url, errors) {
+const openClient = async (browser, url, errors) => {
   const page = await browser.newPage({ viewport: { height: 600, width: 900 } });
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => {
@@ -97,12 +98,21 @@ async function openClient(browser, url, errors) {
     "connected",
   );
   return page;
-}
+};
 
-async function startVite() {
+const reachable = async (url) => {
+  try {
+    const r = await fetch(url);
+    return r.ok;
+  } catch {
+    return false;
+  }
+};
+
+const startVite = async () => {
   // The binary itself, not `pnpm exec`: kill() must reach vite, not a wrapper.
   const child = spawn(
-    join(gameDir, "node_modules/.bin/vite"),
+    path.join(gameDir, "node_modules/.bin/vite"),
     ["--port", String(DEV_PORT), "--strictPort"],
     {
       cwd: gameDir,
@@ -110,24 +120,19 @@ async function startVite() {
     },
   );
   const base = `http://localhost:${DEV_PORT}`;
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 100; i += 1) {
     await wait(200);
-    if (
-      await fetch(base).then(
-        (r) => r.ok,
-        () => false,
-      )
-    ) {
+    if (await reachable(base)) {
       return { base, child };
     }
   }
   child.kill();
   throw new Error("vite did not start");
-}
+};
 
-async function main() {
+const main = async () => {
   const urlArg = process.argv.indexOf("--url");
-  const dev = urlArg !== -1 ? { base: process.argv[urlArg + 1], child: null } : await startVite();
+  const dev = urlArg === -1 ? await startVite() : { base: process.argv[urlArg + 1], child: null };
   if (
     !(await fetch(PARTY).then(
       () => true,
@@ -219,7 +224,7 @@ async function main() {
     // and the (paused) host still arbitrates its claims.
     await host.keyboard.press("Escape");
     await waitFor(host, () => window.__pacman.game.paused, "host paused");
-    const gt = (await snapshot(guest)).t;
+    const { t: gt } = await snapshot(guest);
     await chompFrom(guest, 3, 1);
     await eaten(guest, "4,1");
     await waitFor(
@@ -236,7 +241,8 @@ async function main() {
     await host.keyboard.press("Escape");
     await waitFor(host, () => !window.__pacman.game.paused, "host resumed");
     await eaten(host, "4,1");
-    step("resumed host catches up", (await snapshot(host)).left === g.left, `${g.left} left`);
+    const resumed = await snapshot(host);
+    step("resumed host catches up", resumed.left === g.left, `${g.left} left`);
     await guest.keyboard.press("Escape");
     await waitFor(guest, () => window.__pacman.game.paused, "guest paused");
     await chompFrom(host, 5, 1);
@@ -250,9 +256,10 @@ async function main() {
     // for the host; R on the host starts a fresh shared round for both.
     await host.evaluate(() => {
       const { game } = window.__pacman;
-      for (let row = 0; row < 31; row++) {
-        for (let col = 0; col < 31; col++) {
-          if (game.appliedEaten.has(`${col},${row}`) || !game.parseEatKey(`${col},${row}`)) {
+      const eatable = (key) => game.constructor.parseEatKey(key);
+      for (let row = 0; row < 31; row += 1) {
+        for (let col = 0; col < 31; col += 1) {
+          if (game.appliedEaten.has(`${col},${row}`) || !eatable(`${col},${row}`)) {
             continue;
           }
           Object.assign(game.pac, { isMoving: false, target: { x: col, z: row }, x: col, z: row });
@@ -265,7 +272,8 @@ async function main() {
     step("shared maze empties into a win on both", true);
     await guest.keyboard.press("r");
     await wait(400);
-    step("guest R waits for the host", (await snapshot(guest)).phase === "win");
+    const waiting = await snapshot(guest);
+    step("guest R waits for the host", waiting.phase === "win");
     await host.keyboard.press("r");
     await waitFor(host, () => window.__pacman.game.phase === "playing", "host rematch");
     await waitFor(guest, () => window.__pacman.game.phase === "playing", "guest rematch");
@@ -281,7 +289,9 @@ async function main() {
     await chompFrom(host, 1, 1);
     await eaten(guest, "2,1");
     await host.close();
-    await waitFor(guest, () => window.__pacman.game.net.isHost, "guest promoted", 10_000);
+    await waitFor(guest, () => window.__pacman.game.net.isHost, "guest promoted", {
+      timeoutMs: 10_000,
+    });
     await waitFor(guest, () => window.__pacman.game.rivalIds.length === 0, "held seat ignored");
     g = await snapshot(guest);
     step(
@@ -317,9 +327,11 @@ async function main() {
     await browser.close();
     dev.child?.kill();
   }
-}
+};
 
-main().catch((error) => {
+try {
+  await main();
+} catch (error) {
   console.error(error);
   process.exit(1);
-});
+}

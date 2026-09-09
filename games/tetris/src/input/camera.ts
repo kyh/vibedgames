@@ -1,4 +1,5 @@
 import type { DrawingUtils, NormalizedLandmark, PoseLandmarker } from "@mediapipe/tasks-vision";
+import type * as VisionTasks from "@mediapipe/tasks-vision";
 
 import { isCoarsePointer } from "./touch";
 
@@ -21,7 +22,6 @@ import { isCoarsePointer } from "./touch";
 
 /** MediaPipe's wrapper JS is ~135 KB of the bundle and is dead weight until the
  *  player actually grants the camera, so it loads with the model, not at boot. */
-type VisionTasks = typeof import("@mediapipe/tasks-vision");
 
 const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm";
 const MODEL_URL =
@@ -77,12 +77,12 @@ const LANDMARK_NAMES = new Map<number, string>([
 ]);
 
 /** Convert MediaPipe normalized landmarks to pixel-coordinate keypoints. */
-function landmarksToKeypoints(
+const landmarksToKeypoints = (
   landmarks: NormalizedLandmark[],
   width: number,
   height: number,
-): Keypoint[] {
-  return landmarks
+): Keypoint[] =>
+  landmarks
     .map((lm, i) => {
       const name = LANDMARK_NAMES.get(i);
       if (!name) {
@@ -91,7 +91,6 @@ function landmarksToKeypoints(
       return { name, score: lm.visibility, x: lm.x * width, y: lm.y * height };
     })
     .filter((kp): kp is Keypoint => kp !== null);
-}
 
 export class PoseCamera {
   private readonly onPose: PoseHandler;
@@ -102,7 +101,7 @@ export class PoseCamera {
   private readonly status: HTMLDivElement;
   private landmarker: PoseLandmarker | null = null;
   private drawingUtils: DrawingUtils | null = null;
-  private tasks: VisionTasks | null = null;
+  private tasks: typeof VisionTasks | null = null;
   private stream: MediaStream | null = null;
   private releaseMediaEvents: (() => void) | null = null;
   private rafId: number | null = null;
@@ -155,7 +154,8 @@ export class PoseCamera {
     if (this.state !== "idle" && this.state !== "unavailable") {
       return;
     }
-    const attempt = ++this.attempt;
+    this.attempt += 1;
+    const { attempt } = this;
     this.state = "starting";
     this.setStatus("starting camera…");
     this.updateToggle();
@@ -227,7 +227,7 @@ export class PoseCamera {
     if (!this.current(attempt)) {
       return;
     }
-    this.attempt++;
+    this.attempt += 1;
     this.releaseCapture();
     this.state = "unavailable";
     this.setStatus(
@@ -307,7 +307,7 @@ export class PoseCamera {
 
       try {
         const result = landmarker.detectForVideo(video, timestamp);
-        const landmarks = result.landmarks[0];
+        const [landmarks] = result.landmarks;
         if (landmarks) {
           this.drawSkeleton(landmarks);
           const keypoints = landmarksToKeypoints(landmarks, video.videoWidth, video.videoHeight);
@@ -352,16 +352,19 @@ export class PoseCamera {
     });
   }
 
+  private toggleAction(expanded: boolean): string {
+    if (this.state === "unavailable") {
+      return "Retry body camera";
+    }
+    if (this.state === "idle") {
+      return "Enable body controls";
+    }
+    return expanded ? "Collapse body camera" : "Expand body camera";
+  }
+
   private updateToggle(): void {
     const expanded = this.panel.classList.contains("expanded");
-    const action =
-      this.state === "unavailable"
-        ? "Retry body camera"
-        : this.state === "idle"
-          ? "Enable body controls"
-          : expanded
-            ? "Collapse body camera"
-            : "Expand body camera";
+    const action = this.toggleAction(expanded);
     this.toggle.setAttribute("aria-label", action);
     this.toggle.setAttribute("aria-expanded", String(expanded));
   }

@@ -18,19 +18,19 @@ export interface BombStock {
 
 /** Active bombs stay occupied until shared state removes them, even once
  * their nominal fuse has elapsed — the host decides when a slot frees. */
-export function bombStock(
+export const bombStock = (
   bombs: Record<string, Bomb>,
   ownerId: string | null,
   capacity: number,
   now: number,
-): BombStock {
+): BombStock => {
   let active = 0;
   let earliest = Infinity;
   for (const bomb of Object.values(bombs)) {
     if (bomb.ownerId !== ownerId) {
       continue;
     }
-    active++;
+    active += 1;
     earliest = Math.min(earliest, bomb.placedAt);
   }
   const remaining = Math.max(0, earliest + FUSE_MS - now);
@@ -39,19 +39,36 @@ export function bombStock(
     capacity,
     next: active > 0 ? { progress: Math.max(0, 1 - remaining / FUSE_MS), remaining } : null,
   };
-}
+};
 
 const PLACEMENT_TIP_MS = 3600;
 
 /** Bomb stock, roster and the one-shot placement tip. Every write is guarded
  * by a change check because updateBombs runs every frame. */
+const fuseLabel = (next: BombStock["next"]): string => {
+  if (!next) {
+    return "";
+  }
+  if (next.remaining > 0) {
+    return ` Next fuse ends in ${(Math.ceil(next.remaining / 100) / 10).toFixed(1)} seconds.`;
+  }
+  return " Waiting for detonation.";
+};
+
+const fighterRole = (fighter: HudFighter): string => {
+  if (fighter.isLocal) {
+    return ", you";
+  }
+  return fighter.isBot ? ", computer" : "";
+};
+
 export class RoundHud {
   private readonly stockEl = document.querySelector("#stat-bomb");
   private readonly bombEl = document.querySelector("#bomb-availability");
-  private readonly refillEl = document.querySelector("#bomb-refill");
-  private readonly refillFill = document.querySelector("#bomb-refill-fill");
+  private readonly refillEl = document.querySelector<HTMLElement>("#bomb-refill");
+  private readonly refillFill = document.querySelector<HTMLElement>("#bomb-refill-fill");
   private readonly playersEl = document.querySelector("#players");
-  private readonly tipEl = document.querySelector("#placement-tip");
+  private readonly tipEl = document.querySelector<HTMLElement>("#placement-tip");
   private stockText = "";
   private stockLabel = "";
   private refillPercent = -1;
@@ -69,11 +86,7 @@ export class RoundHud {
       }
       this.bombEl?.classList.toggle("empty", stock.available === 0);
     }
-    const fuse = stock.next
-      ? stock.next.remaining > 0
-        ? ` Next fuse ends in ${(Math.ceil(stock.next.remaining / 100) / 10).toFixed(1)} seconds.`
-        : " Waiting for detonation."
-      : "";
+    const fuse = fuseLabel(stock.next);
     const label = `${stock.available} of ${stock.capacity} bombs available.${fuse}`;
     if (label !== this.stockLabel) {
       this.stockLabel = label;
@@ -112,7 +125,7 @@ export class RoundHud {
       chip.dataset.player = fighter.id;
       chip.setAttribute(
         "aria-label",
-        `${fighter.label}${fighter.isLocal ? ", you" : fighter.isBot ? ", computer" : ""}, ${fighter.alive ? "alive" : "out"}`,
+        `${fighter.label}${fighterRole(fighter)}, ${fighter.alive ? "alive" : "out"}`,
       );
       const dot = document.createElement("i");
       dot.className = "roster-dot";
@@ -152,7 +165,9 @@ export class RoundHud {
   reset(): void {
     this.tipUntil = 0;
     this.taughtPlacement = false;
-    this.stockText = this.stockLabel = this.rosterSignature = "";
+    this.stockText = "";
+    this.stockLabel = "";
+    this.rosterSignature = "";
     this.refillPercent = -1;
     if (this.tipEl) {
       this.tipEl.hidden = true;

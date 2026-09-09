@@ -184,7 +184,7 @@ test("sim clock freezes while paused, calibrates to host sim time, ignores jitte
   assert.ok(now() - Date.now() > 4900);
   pauseClock();
   const frozen = now();
-  for (let i = 0; i < 1000; i++) {
+  for (let i = 0; i < 1000; i += 1) {
     assert.equal(now(), frozen);
   }
   resumeClock();

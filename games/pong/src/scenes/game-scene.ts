@@ -127,6 +127,169 @@ interface Arc {
   toY: number;
 }
 
+// ---- module helpers (pure) --------------------------------------------------
+
+const UNIT_SCALE = new THREE.Vector3(1, 1, 1);
+const V3_ZERO = new THREE.Vector3(0, 0, 0);
+const SCRATCH_M4 = new THREE.Matrix4();
+
+const clamp = (v: number, min: number, max: number): number => Math.min(max, Math.max(min, v));
+
+/**
+ * Vertical fov (deg) for the current aspect. Landscape keeps the authored
+ * CAM_FOV; below CAM_MIN_LANDSCAPE_ASPECT the HORIZONTAL fov of that
+ * narrowest-landscape framing is held constant instead ("Hor+"), so portrait
+ * phones widen vertically rather than cropping the paddle's ±PADDLE_X_MAX
+ * travel out of frame. Continuous at the threshold. The guest's 180° view
+ * flip only negates rendered x/y — framing is symmetric, so no special case.
+ */
+const fovForAspect = (aspect: number): number => {
+  if (aspect >= CAM_MIN_LANDSCAPE_ASPECT) {
+    return CAM_FOV;
+  }
+  const tanHalfH = Math.tan(THREE.MathUtils.degToRad(CAM_FOV / 2)) * CAM_MIN_LANDSCAPE_ASPECT;
+  return THREE.MathUtils.radToDeg(2 * Math.atan(tanHalfH / aspect));
+};
+
+/** Read a numeric field from an opaque shared-state record, or null. */
+const numField = (s: JsonObject, key: string): number | null => {
+  const v = s[key];
+  return isJsonNumber(v) ? v : null;
+};
+
+/** The host sequence number carried by the room's shared state (-1 when none). */
+const sharedSeq = (s: JsonObject | null): number => {
+  const seq = s === null ? null : numField(s, "seq");
+  return seq !== null && Number.isSafeInteger(seq) ? seq : -1;
+};
+
+/** Convert a legacy per-frame (60fps) lerp factor into a dt-correct one. */
+const frameLerp = (perFrame: number, dt: number): number => 1 - (1 - perFrame) ** (dt * LEGACY_FPS);
+
+/**
+ * One step of a critically-damped spring toward `target` (Game Programming
+ * Gems 4). Frame-rate independent; `omega` is the natural frequency (rad/s) —
+ * higher snaps faster. Returns the new position and its carried velocity in a
+ * shared scratch object (no per-frame allocation) — consume before calling again.
+ */
+const DAMP_OUT = { pos: 0, vel: 0 };
+const smoothDamp = (current: number, target: number, vel: number, omega: number, dt: number) => {
+  const x = omega * dt;
+  const exp = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
+  const change = current - target;
+  const temp = (vel + omega * change) * dt;
+  DAMP_OUT.pos = target + (change + temp) * exp;
+  DAMP_OUT.vel = (vel - omega * temp) * exp;
+  return DAMP_OUT;
+};
+
+const flashMaterial = (): THREE.MeshBasicMaterial =>
+  // depthWrite off, like the shadow/ring overlays: the bars sit 0.004 above the
+  // table and are usually invisible (opacity 0) — letting them write depth would
+  // let the distance sort against the goal shockwave ring (spawned at the same
+  // goal line, z 0.015) flip under camera breath/shake and flicker through the
+  // dither pass.
+  new THREE.MeshBasicMaterial({
+    color: INK,
+    depthWrite: false,
+    opacity: 0,
+    transparent: true,
+  });
+
+const hitsPaddle = (ball: THREE.Vector2, paddleX: number, paddleY: number): boolean =>
+  // Hitbox deliberately larger than the visible ring — keep it generous.
+  Math.abs(ball.y - paddleY) < HIT_HALF_Y && Math.abs(ball.x - paddleX) < HIT_HALF_X;
+
+/**
+ * Paddle return: the lateral component scales linearly with the hit's x
+ * offset from paddle center — dead-center returns straight, a full-edge
+ * graze leaves MIN_VY_FRAC of the speed pointing at the opponent. Derived
+ * from x alone: the y penetration depth at the detection frame varies with
+ * frame rate and must not steer the ball (the legacy atan2-of-penetration
+ * formula made the same hit return steep at 144Hz and shallow at 30Hz).
+ * Speed stays exactly the given rally speed.
+ */
+const reflectOffPaddle = (
+  ballX: number,
+  paddleX: number,
+  towardY: 1 | -1,
+  speed: number,
+): THREE.Vector2 => {
+  const offset = clamp((ballX - paddleX) / HIT_HALF_X, -1, 1);
+  const maxVxFrac = Math.sqrt(1 - MIN_VY_FRAC * MIN_VY_FRAC);
+  const vx = offset * maxVxFrac * speed;
+  const vy = towardY * Math.sqrt(speed * speed - vx * vx);
+  return new THREE.Vector2(vx, vy);
+};
+
+/** Smooth ±1 pseudo-noise: two incommensurate sines, decorrelated per seed. */
+const noise = (t: number, seed: number): number =>
+  0.6 * Math.sin(t + seed * 17.31) + 0.4 * Math.sin(t * 2.3 + seed * 31.7);
+
+/** Radial ink→transparent gradient — a soft blob the dither pass speckles. */
+const softCircleTexture = (): THREE.CanvasTexture => {
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    throw new Error("2d canvas unsupported");
+  }
+  const half = size / 2;
+  const grad = ctx.createRadialGradient(half, half, size * 0.06, half, half, half);
+  grad.addColorStop(0, "rgba(0,0,0,1)");
+  grad.addColorStop(0.55, "rgba(0,0,0,0.55)");
+  grad.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  return new THREE.CanvasTexture(canvas);
+};
+
+/** "#rrggbb" for a 24-bit hex color number. */
+const cssHex = (hex: number): string => `#${hex.toString(16).padStart(6, "0")}`;
+
+/**
+ * Vertical sRGB gradient (plane top → bottom) for the backdrop wall. Marked
+ * sRGB so its grey values linearize the same way THREE.Color does — keeping the
+ * dither remap (t = lum / lum(BG)) matched to the intended halftone density.
+ */
+const verticalGradientTexture = (topHex: number, bottomHex: number): THREE.CanvasTexture => {
+  const w = 4;
+  const h = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    throw new Error("2d canvas unsupported");
+  }
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, cssHex(topHex));
+  grad.addColorStop(1, cssHex(bottomHex));
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+};
+
+const arcProgress = (arc: Arc, y: number): number =>
+  clamp((y - arc.fromY) / (arc.toY - arc.fromY), 0, 1);
+
+/** Parabola peaking at ARC_PEAK halfway through the hop. */
+const arcHeight = (arc: Arc, y: number): number => {
+  const p = arcProgress(arc, y);
+  return 4 * ARC_PEAK * p * (1 - p);
+};
+
+const pointCallout = (won: boolean, iScored: boolean): string => {
+  if (won) {
+    return "";
+  }
+  return iScored ? "YOU SCORE" : "RIVAL SCORES";
+};
+
 export class GameScene {
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
@@ -143,12 +306,15 @@ export class GameScene {
   private arc: Arc | null = null;
   private playerX = 0;
   private aiX = 0;
-  private scoreYou = 0; // local player's score (host: slot A, guest: slot B)
-  private scoreAi = 0; // opponent's score
+  // Local player's score (host: slot A, guest: slot B).
+  private scoreYou = 0;
+  // Opponent's score.
+  private scoreAi = 0;
   private rallySpeed = RALLY_SPEED_BASE;
   private rallyHits = 0;
   private longestRally = 0;
-  private serveAt: number | null = null; // elapsed time of the next auto-serve
+  // Elapsed time of the next auto-serve.
+  private serveAt: number | null = null;
   private spin: Spin = null;
   // Power charge per slot. A guest arms/cancels its own (slot B) through the
   // host, which owns both; `shotRally` tags those requests so one from a
@@ -157,21 +323,29 @@ export class GameScene {
   private chargeB: ShotCharge = { hits: 0, kind: "charging" };
   private shotRally = 0;
   private chargeOpponentId: string | null = null;
-  private shotLift = 1; // topspin dips the visual hop
+  // Topspin dips the visual hop.
+  private shotLift = 1;
   private powerShots = 0;
   private frame = 0;
   private spinShots = 0;
-  private random = Math.random; // seedable for the playtest hooks
+  // Seedable for the playtest hooks.
+  private random = Math.random;
 
   // ---- multiplayer -----------------------------------------------------------
   private net: NetSession;
-  private netAcc = 0; // host: seconds since the last shared-state broadcast
-  private paddleAcc = 0; // seconds since the last paddle broadcast
-  private hostSeq = 0; // host: monotonically increases each shared broadcast
-  private lastSeq = -1; // guest: last applied host sequence number
+  // Host: seconds since the last shared-state broadcast.
+  private netAcc = 0;
+  // Seconds since the last paddle broadcast.
+  private paddleAcc = 0;
+  // Host: monotonically increases each shared broadcast.
+  private hostSeq = 0;
+  // Guest: last applied host sequence number.
+  private lastSeq = -1;
   private connectedBefore = false;
-  private connWas = false; // tracks the connecting→live transition for the HUD
-  private oppWas = false; // tracks opponent join/leave for the HUD
+  // Tracks the connecting→live transition for the HUD.
+  private connWas = false;
+  // Tracks opponent join/leave for the HUD.
+  private oppWas = false;
   private role: AdmittedRole = "pending";
 
   // ---- wrapper pause -----------------------------------------------------
@@ -182,18 +356,26 @@ export class GameScene {
 
   // ---- feel state ------------------------------------------------------------
   private elapsed = 0;
-  private freeze = 0; // hit-stop: sim halts, rendering continues
+  // Hit-stop: sim halts, rendering continues.
+  private freeze = 0;
   private playerPulse = 0;
   private aiPulse = 0;
   private camKick = new THREE.Vector3();
-  private camParallax = 0; // paddle-follow camera x offset (own field, smoothed)
-  private camParallaxVel = 0; // carried velocity for the critically-damped spring
-  private camDip = 0; // camera z duck, eased toward a target set by ball proximity
-  private trauma = 0; // 0-1; shake amplitude = trauma²
+  // Paddle-follow camera x offset (own field, smoothed).
+  private camParallax = 0;
+  // Carried velocity for the critically-damped spring.
+  private camParallaxVel = 0;
+  // Camera z duck, eased toward a target set by ball proximity.
+  private camDip = 0;
+  // 0-1; shake amplitude = trauma².
+  private trauma = 0;
   private shakeTime = 0;
-  private invertFlash = 0; // seconds left of full-screen ink/paper swap
-  private flashNear = 0; // player's goal line (conceded to AI)
-  private flashFar = 0; // AI's goal line (conceded to player)
+  // Seconds left of full-screen ink/paper swap.
+  private invertFlash = 0;
+  // Player's goal line (conceded to AI).
+  private flashNear = 0;
+  // AI's goal line (conceded to player).
+  private flashFar = 0;
   private trailAcc = 0;
   private particles: ParticlePool;
   private rings: RingPool;
@@ -268,7 +450,8 @@ export class GameScene {
       new THREE.EdgesGeometry(tablePlane),
       new THREE.LineBasicMaterial({ color: INK }),
     );
-    tablePlane.dispose(); // EdgesGeometry copied the source; it never joins the scene.
+    // EdgesGeometry copied the source; it never joins the scene.
+    tablePlane.dispose();
     this.scene.add(table);
 
     // Dashed net across mid-court — the classic Pong read, one InstancedMesh of
@@ -279,7 +462,7 @@ export class GameScene {
       NET_DASH.count,
     );
     const netSpan = COURT_W - NET_DASH.w;
-    for (let i = 0; i < NET_DASH.count; i++) {
+    for (let i = 0; i < NET_DASH.count; i += 1) {
       const x = -netSpan / 2 + (netSpan * i) / (NET_DASH.count - 1);
       net.setMatrixAt(i, SCRATCH_M4.makeTranslation(x, 0, 0.004));
     }
@@ -327,7 +510,7 @@ export class GameScene {
     // highlight gives the sphere a dithered glint that sells the form.
     this.ball = new THREE.Mesh(
       new THREE.SphereGeometry(BALL_R, 16, 16),
-      new THREE.MeshPhongMaterial({ color: 0x111111, shininess: 40, specular: 0xbbbbbb }),
+      new THREE.MeshPhongMaterial({ color: 0x11_11_11, shininess: 40, specular: 0xbb_bb_bb }),
     );
     this.ball.position.z = BALL_R;
     this.scene.add(this.ball);
@@ -369,11 +552,18 @@ export class GameScene {
     return this.role === "guest";
   }
 
+  private admittedRole(): AdmittedRole {
+    if (this.net.offline) {
+      return "solo";
+    }
+    return this.net.isHost ? "host" : "guest";
+  }
+
   private admitRole(): void {
     if (!this.net.live) {
       return;
     }
-    const next: AdmittedRole = this.net.offline ? "solo" : this.net.isHost ? "host" : "guest";
+    const next = this.admittedRole();
     const previous = this.role;
     this.role = next;
     if (previous === "guest" && next === "host") {
@@ -442,13 +632,15 @@ export class GameScene {
    *  MEANS on screen (the view flip negates x) — remap so nothing teleports,
    *  then restart the point from a clean serve on our own clock. */
   private becomeHost(): void {
-    this.chargeA = cancelCharge(this.chargeB); // our earned charge follows us into slot A
+    // Our earned charge follows us into slot A.
+    this.chargeA = cancelCharge(this.chargeB);
     this.chargeB = { hits: 0, kind: "charging" };
     this.shotRally += 1;
     this.spin = null;
     this.swapSlots();
     if (this.phase === "won") {
-      this.serveAt = null; // rematch waits for confirm, as usual
+      // Rematch waits for confirm, as usual.
+      this.serveAt = null;
     } else {
       // The rally state (ball, streak, serve clock) was the old host's; the
       // serve clock in particular was in ITS `elapsed` timeline, which can sit
@@ -537,7 +729,8 @@ export class GameScene {
     }
     if (this.dragging) {
       if (e.buttons === 0) {
-        this.dragging = false; // button released outside the window
+        // Button released outside the window.
+        this.dragging = false;
       } else {
         this.camDrag.x -= (e.clientX - this.lastPointer.x) * DRAG_PAN_SCALE;
         this.camDrag.y += (e.clientY - this.lastPointer.y) * DRAG_PAN_SCALE;
@@ -546,12 +739,10 @@ export class GameScene {
         return;
       }
     }
-    if (this.currentHandX() !== null) {
+    // A hand in frame or a deflected stick owns the paddle.
+    if (this.currentHandX() !== null || this.padSteerX() !== null) {
       return;
-    } // hand owns the paddle
-    if (this.padSteerX() !== null) {
-      return;
-    } // deflected stick owns the paddle
+    }
     const x = this.pointerToTableX(e);
     if (x !== null) {
       this.myPaddle = x;
@@ -692,7 +883,8 @@ export class GameScene {
     this.serveAt = null;
     this.hud.setPoint("");
     this.pointUntil = 0;
-    this.hud.hideCombo(); // the rally counter resets with the new rally
+    // The rally counter resets with the new rally.
+    this.hud.hideCombo();
     this.ballVel.set(Math.cos(angle) * this.rallySpeed, Math.sin(angle) * this.rallySpeed);
     this.phase = "rally";
     sfx.serve();
@@ -708,14 +900,7 @@ export class GameScene {
     }
     this.frame += 1;
     this.elapsed += dt;
-    if (this.shotUntil > 0 && this.elapsed >= this.shotUntil) {
-      this.shotUntil = 0;
-      this.hud.hideShot();
-    }
-    if (this.pointUntil > 0 && this.elapsed >= this.pointUntil) {
-      this.pointUntil = 0;
-      this.hud.setPoint("");
-    }
+    this.expireCallouts();
     this.invertFlash = Math.max(0, this.invertFlash - dt);
     this.net.tick();
     this.admitRole();
@@ -728,33 +913,7 @@ export class GameScene {
       this.confirm();
     }
 
-    if (this.net.live && !this.net.offline) {
-      this.connectedBefore = true;
-    }
-
-    // Reflect connecting→live and opponent join/leave in the HUD once each.
-    if (this.net.live !== this.connWas) {
-      this.connWas = this.net.live;
-      this.syncHud();
-    }
-    const opp = this.net.live && this.hasOpponent();
-    if (opp !== this.oppWas) {
-      this.oppWas = opp;
-      this.syncHud();
-    }
-    // A new peer in the other seat starts uncharged (a transport gap keeps the
-    // same peer, so an opponent's earned charge survives a reconnect).
-    const opponentId = this.net.otherPlayer()?.id ?? null;
-    if (this.net.live && opponentId !== this.chargeOpponentId) {
-      this.chargeOpponentId = opponentId;
-      this.clearQueuedPower();
-      if (this.mySlotA) {
-        this.chargeB = { kind: "charging", hits: 0 };
-      } else {
-        this.chargeA = { kind: "charging", hits: 0 };
-      }
-      this.syncHud();
-    }
+    this.syncLinkState();
     if (!this.net.live) {
       // Still handshaking with the party server: render an idle court rather
       // than a frozen black frame.
@@ -783,21 +942,67 @@ export class GameScene {
       // dead-reckoned between the ~30 Hz snapshots so it stays smooth.
       this.applyGuestShared(dt);
     } else {
-      // Host / solo: the authoritative simulation.
-      if (this.phase === "serving" && this.serveAt !== null && this.elapsed >= this.serveAt) {
-        this.serve();
-      }
-      if (this.phase === "rally") {
-        if (!this.hasOpponent()) {
-          this.updateAi(dt);
-        } // AI fills in until a human joins
-        this.updateBall(dt);
-      }
-      this.broadcastShared(dt);
+      this.updateAuthoritative(dt);
     }
 
     this.broadcastPaddle(dt);
     this.updateVisuals(dt);
+  }
+
+  /** Shot / point callouts clear themselves on the sim clock. */
+  private expireCallouts(): void {
+    if (this.shotUntil > 0 && this.elapsed >= this.shotUntil) {
+      this.shotUntil = 0;
+      this.hud.hideShot();
+    }
+    if (this.pointUntil > 0 && this.elapsed >= this.pointUntil) {
+      this.pointUntil = 0;
+      this.hud.setPoint("");
+    }
+  }
+
+  /** Reflect connecting→live and opponent join/leave in the HUD once each. */
+  private syncLinkState(): void {
+    if (this.net.live && !this.net.offline) {
+      this.connectedBefore = true;
+    }
+    if (this.net.live !== this.connWas) {
+      this.connWas = this.net.live;
+      this.syncHud();
+    }
+    const opp = this.net.live && this.hasOpponent();
+    if (opp !== this.oppWas) {
+      this.oppWas = opp;
+      this.syncHud();
+    }
+    // A new peer in the other seat starts uncharged (a transport gap keeps the
+    // same peer, so an opponent's earned charge survives a reconnect).
+    const opponentId = this.net.otherPlayer()?.id ?? null;
+    if (this.net.live && opponentId !== this.chargeOpponentId) {
+      this.chargeOpponentId = opponentId;
+      this.clearQueuedPower();
+      if (this.mySlotA) {
+        this.chargeB = { hits: 0, kind: "charging" };
+      } else {
+        this.chargeA = { hits: 0, kind: "charging" };
+      }
+      this.syncHud();
+    }
+  }
+
+  /** Host / solo: the authoritative simulation. */
+  private updateAuthoritative(dt: number): void {
+    if (this.phase === "serving" && this.serveAt !== null && this.elapsed >= this.serveAt) {
+      this.serve();
+    }
+    if (this.phase === "rally") {
+      // AI fills in until a human joins.
+      if (!this.hasOpponent()) {
+        this.updateAi(dt);
+      }
+      this.updateBall(dt);
+    }
+    this.broadcastShared(dt);
   }
 
   /** Webcam-hand / controller paddle control, routed to the owned slot. The
@@ -883,7 +1088,8 @@ export class GameScene {
     // Side walls.
     if (Math.abs(pos.x) >= WALL_X && Math.sign(vel.x) === Math.sign(pos.x)) {
       vel.x = -vel.x;
-      this.spin = null; // a bank ends the curve; no hidden second bend off the rail
+      // A bank ends the curve; no hidden second bend off the rail.
+      this.spin = null;
       pos.x = clamp(pos.x, -WALL_X, WALL_X);
       this.wallFx(pos.x, pos.y);
       this.emitBeat("wall", { x: pos.x, y: pos.y });
@@ -1025,16 +1231,16 @@ export class GameScene {
         y: sy,
       });
       this.particles.burst({
+        dirX: spin * flip,
+        dirY: spin === 0 ? Math.sign(cvy) * flip : 0,
         x: sx,
         y: sy,
         z: this.ballHeight(),
-        dirX: spin * flip,
-        dirY: spin === 0 ? Math.sign(cvy) * flip : 0,
         ...BURST_PADDLE,
         count: powered ? 8 : 5,
-        spread: 0.35,
         life: 0.2,
         size: 0.045,
+        spread: 0.35,
       });
     }
     sfx.paddleHit(rallyHits);
@@ -1092,11 +1298,12 @@ export class GameScene {
     this.trauma = Math.min(1, this.trauma + TRAUMA_GOAL);
     this.particles.burst({ dirY: -Math.sign(cy) * flip, x: sx, y: sy, z: BALL_R, ...BURST_GOAL });
     this.rings.spawn({ x: sx, y: sy, ...RING_GOAL });
-    this.hud.hideCombo(); // the rally is over
+    // The rally is over.
+    this.hud.hideCombo();
     this.hud.hideShot();
     this.shotUntil = 0;
 
-    this.hud.setPoint(won ? "" : iScored ? "YOU SCORE" : "RIVAL SCORES");
+    this.hud.setPoint(pointCallout(won, iScored));
     this.pointUntil = won ? 0 : this.elapsed + AUTO_SERVE_S;
     if (won) {
       sfx.win(iScored);
@@ -1189,6 +1396,9 @@ export class GameScene {
         sfx.serve();
         break;
       }
+      default: {
+        break;
+      }
     }
   }
 
@@ -1205,31 +1415,31 @@ export class GameScene {
       return;
     }
     this.netAcc = 0;
-    this.hostSeq++;
+    this.hostSeq += 1;
     this.net.patchShared({
-      seq: this.hostSeq,
-      bx: this.ballPos.x,
-      by: this.ballPos.y,
-      bvx: this.ballVel.x,
-      bvy: this.ballVel.y,
-      spin: this.spin?.strength ?? 0,
-      spinLeft: this.spin?.left ?? 0,
-      shotLift: this.shotLift,
-      shotRally: this.shotRally,
-      chargeA: chargeHits(this.chargeA),
-      chargeB: chargeHits(this.chargeB),
+      arcFrom: this.arc ? this.arc.fromY : null,
+      arcTo: this.arc ? this.arc.toY : null,
       armedA: this.chargeA.kind === "armed",
       armedB: this.chargeB.kind === "armed",
+      bvx: this.ballVel.x,
+      bvy: this.ballVel.y,
+      bx: this.ballPos.x,
+      by: this.ballPos.y,
+      chargeA: chargeHits(this.chargeA),
+      chargeB: chargeHits(this.chargeB),
+      longestRally: this.longestRally,
       phase: this.phase,
       rally: this.rallyHits,
-      longestRally: this.longestRally,
+      scoreA: this.scoreYou,
+      scoreB: this.scoreAi,
+      seq: this.hostSeq,
       // Remaining time, not the absolute deadline: `serveAt` lives in OUR
       // `elapsed` timeline, which the guest's clock has no relation to.
       serveLeft: this.serveAt === null ? null : Math.max(0, this.serveAt - this.elapsed),
-      scoreA: this.scoreYou,
-      scoreB: this.scoreAi,
-      arcFrom: this.arc ? this.arc.fromY : null,
-      arcTo: this.arc ? this.arc.toY : null,
+      shotLift: this.shotLift,
+      shotRally: this.shotRally,
+      spin: this.spin?.strength ?? 0,
+      spinLeft: this.spin?.left ?? 0,
     });
   }
 
@@ -1260,43 +1470,13 @@ export class GameScene {
     // once per snapshot (not every frame; this also skips re-allocating the arc).
     if (fresh && seq !== null) {
       this.lastSeq = seq;
-      this.chargeA = readCharge(s["chargeA"], s["armedA"]) ?? this.chargeA;
-      this.chargeB = readCharge(s["chargeB"], s["armedB"]) ?? this.chargeB;
-      const rally = numField(s, "shotRally");
-      if (rally !== null && Number.isSafeInteger(rally) && rally >= 0) {
-        this.shotRally = rally;
-      }
-      this.shotLift = clamp(numField(s, "shotLift") ?? 1, 0.55, 1);
-      this.ballVel.set(numField(s, "bvx") ?? 0, numField(s, "bvy") ?? 0);
-      const strength = clamp(numField(s, "spin") ?? 0, -1, 1);
-      const left = clamp(numField(s, "spinLeft") ?? 0, 0, SPIN_LIFE);
-      this.spin = strength !== 0 && left > 0 ? { left, strength } : null;
-      this.rallySpeed = this.ballVel.length() || RALLY_SPEED_BASE;
-      this.rallyHits = numField(s, "rally") ?? 0;
-      // Authoritative match statistic: repeated FX packets never add contacts.
-      this.longestRally = Math.max(0, Math.floor(numField(s, "longestRally") ?? 0));
+      this.adoptShot(s);
+      this.adoptBall(s);
       // Re-anchor the host's remaining serve time in OUR timeline (only on a
       // fresh snapshot — re-anchoring stale data would freeze the meter).
       const sl = numField(s, "serveLeft");
       this.serveAt = sl === null ? null : this.elapsed + sl;
-
-      // Slots A/B map to opponent/me for a guest.
-      const prevYou = this.scoreYou;
-      const prevAi = this.scoreAi;
-      this.scoreYou = numField(s, "scoreB") ?? 0;
-      this.scoreAi = numField(s, "scoreA") ?? 0;
-      if (this.scoreYou !== prevYou) {
-        this.hud.popScore("you");
-      }
-      if (this.scoreAi !== prevAi) {
-        this.hud.popScore("ai");
-      }
-
-      const af = numField(s, "arcFrom");
-      const at = numField(s, "arcTo");
-      this.arc = af !== null && at !== null ? { fromY: af, toY: at } : null;
-
-      this.ballPos.set(numField(s, "bx") ?? 0, numField(s, "by") ?? 0);
+      this.adoptScores(s);
     } else if (this.phase === "rally") {
       this.spin = curveVelocity(this.ballVel, this.spin, dt, MIN_VY_FRAC);
       this.ballPos.addScaledVector(this.ballVel, dt);
@@ -1310,6 +1490,45 @@ export class GameScene {
         notifyGameStarted();
       }
       this.syncHud();
+    }
+  }
+
+  private adoptShot(s: JsonObject): void {
+    this.chargeA = readCharge(s["chargeA"], s["armedA"]) ?? this.chargeA;
+    this.chargeB = readCharge(s["chargeB"], s["armedB"]) ?? this.chargeB;
+    const rally = numField(s, "shotRally");
+    if (rally !== null && Number.isSafeInteger(rally) && rally >= 0) {
+      this.shotRally = rally;
+    }
+    this.shotLift = clamp(numField(s, "shotLift") ?? 1, 0.55, 1);
+  }
+
+  private adoptBall(s: JsonObject): void {
+    this.ballVel.set(numField(s, "bvx") ?? 0, numField(s, "bvy") ?? 0);
+    const strength = clamp(numField(s, "spin") ?? 0, -1, 1);
+    const left = clamp(numField(s, "spinLeft") ?? 0, 0, SPIN_LIFE);
+    this.spin = strength !== 0 && left > 0 ? { left, strength } : null;
+    this.rallySpeed = this.ballVel.length() || RALLY_SPEED_BASE;
+    this.rallyHits = numField(s, "rally") ?? 0;
+    // Authoritative match statistic: repeated FX packets never add contacts.
+    this.longestRally = Math.max(0, Math.floor(numField(s, "longestRally") ?? 0));
+    const af = numField(s, "arcFrom");
+    const at = numField(s, "arcTo");
+    this.arc = af !== null && at !== null ? { fromY: af, toY: at } : null;
+    this.ballPos.set(numField(s, "bx") ?? 0, numField(s, "by") ?? 0);
+  }
+
+  /** Slots A/B map to opponent/me for a guest. */
+  private adoptScores(s: JsonObject): void {
+    const prevYou = this.scoreYou;
+    const prevAi = this.scoreAi;
+    this.scoreYou = numField(s, "scoreB") ?? 0;
+    this.scoreAi = numField(s, "scoreA") ?? 0;
+    if (this.scoreYou !== prevYou) {
+      this.hud.popScore("you");
+    }
+    if (this.scoreAi !== prevAi) {
+      this.hud.popScore("ai");
     }
   }
 
@@ -1360,7 +1579,7 @@ export class GameScene {
       this.trailAcc += dt * TRAIL_RATE;
       const ghosts = Math.floor(this.trailAcc);
       this.trailAcc -= ghosts;
-      for (let i = 0; i < ghosts; i++) {
+      for (let i = 0; i < ghosts; i += 1) {
         const back = (i + this.trailAcc) / TRAIL_RATE;
         this.particles.ghost(
           flip * (this.ballPos.x - this.ballVel.x * back),
@@ -1575,8 +1794,10 @@ export class GameScene {
 
   /** Dev/test-only callers use this to restart a reproducible solo run. */
   seed(seed: number): void {
+    // oxlint-disable-next-line no-bitwise -- LCG state must wrap to uint32.
     let value = seed >>> 0;
     this.random = () => {
+      // oxlint-disable-next-line no-bitwise -- LCG state must wrap to uint32.
       value = (Math.imul(value, 1_664_525) + 1_013_904_223) >>> 0;
       return value / 4_294_967_296;
     };
@@ -1652,170 +1873,4 @@ export class GameScene {
     const active = this.phase === "serving" && serveAt !== null;
     this.hud.serveMeter(active ? Math.max(0, serveAt - this.elapsed) : null);
   }
-}
-
-// ---- module helpers (pure) --------------------------------------------------
-
-const UNIT_SCALE = new THREE.Vector3(1, 1, 1);
-const V3_ZERO = new THREE.Vector3(0, 0, 0);
-const SCRATCH_M4 = new THREE.Matrix4();
-
-function clamp(v: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, v));
-}
-
-/**
- * Vertical fov (deg) for the current aspect. Landscape keeps the authored
- * CAM_FOV; below CAM_MIN_LANDSCAPE_ASPECT the HORIZONTAL fov of that
- * narrowest-landscape framing is held constant instead ("Hor+"), so portrait
- * phones widen vertically rather than cropping the paddle's ±PADDLE_X_MAX
- * travel out of frame. Continuous at the threshold. The guest's 180° view
- * flip only negates rendered x/y — framing is symmetric, so no special case.
- */
-function fovForAspect(aspect: number): number {
-  if (aspect >= CAM_MIN_LANDSCAPE_ASPECT) {
-    return CAM_FOV;
-  }
-  const tanHalfH = Math.tan(THREE.MathUtils.degToRad(CAM_FOV / 2)) * CAM_MIN_LANDSCAPE_ASPECT;
-  return THREE.MathUtils.radToDeg(2 * Math.atan(tanHalfH / aspect));
-}
-
-/** Read a numeric field from an opaque shared-state record, or null. */
-function numField(s: JsonObject, key: string): number | null {
-  const v = s[key];
-  return isJsonNumber(v) ? v : null;
-}
-
-/** The host sequence number carried by the room's shared state (-1 when none). */
-function sharedSeq(s: JsonObject | null): number {
-  const seq = s === null ? null : numField(s, "seq");
-  return seq !== null && Number.isSafeInteger(seq) ? seq : -1;
-}
-
-/** Convert a legacy per-frame (60fps) lerp factor into a dt-correct one. */
-function frameLerp(perFrame: number, dt: number): number {
-  return 1 - (1 - perFrame) ** (dt * LEGACY_FPS);
-}
-
-/**
- * One step of a critically-damped spring toward `target` (Game Programming
- * Gems 4). Frame-rate independent; `omega` is the natural frequency (rad/s) —
- * higher snaps faster. Returns the new position and its carried velocity in a
- * shared scratch object (no per-frame allocation) — consume before calling again.
- */
-const DAMP_OUT = { pos: 0, vel: 0 };
-function smoothDamp(current: number, target: number, vel: number, omega: number, dt: number) {
-  const x = omega * dt;
-  const exp = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
-  const change = current - target;
-  const temp = (vel + omega * change) * dt;
-  DAMP_OUT.pos = target + (change + temp) * exp;
-  DAMP_OUT.vel = (vel - omega * temp) * exp;
-  return DAMP_OUT;
-}
-
-function flashMaterial(): THREE.MeshBasicMaterial {
-  // depthWrite off, like the shadow/ring overlays: the bars sit 0.004 above the
-  // table and are usually invisible (opacity 0) — letting them write depth would
-  // let the distance sort against the goal shockwave ring (spawned at the same
-  // goal line, z 0.015) flip under camera breath/shake and flicker through the
-  // dither pass.
-  return new THREE.MeshBasicMaterial({
-    color: INK,
-    depthWrite: false,
-    opacity: 0,
-    transparent: true,
-  });
-}
-
-function hitsPaddle(ball: THREE.Vector2, paddleX: number, paddleY: number): boolean {
-  // Hitbox deliberately larger than the visible ring — keep it generous.
-  return Math.abs(ball.y - paddleY) < HIT_HALF_Y && Math.abs(ball.x - paddleX) < HIT_HALF_X;
-}
-
-/**
- * Paddle return: the lateral component scales linearly with the hit's x
- * offset from paddle center — dead-center returns straight, a full-edge
- * graze leaves MIN_VY_FRAC of the speed pointing at the opponent. Derived
- * from x alone: the y penetration depth at the detection frame varies with
- * frame rate and must not steer the ball (the legacy atan2-of-penetration
- * formula made the same hit return steep at 144Hz and shallow at 30Hz).
- * Speed stays exactly the given rally speed.
- */
-function reflectOffPaddle(
-  ballX: number,
-  paddleX: number,
-  towardY: 1 | -1,
-  speed: number,
-): THREE.Vector2 {
-  const offset = clamp((ballX - paddleX) / HIT_HALF_X, -1, 1);
-  const maxVxFrac = Math.sqrt(1 - MIN_VY_FRAC * MIN_VY_FRAC);
-  const vx = offset * maxVxFrac * speed;
-  const vy = towardY * Math.sqrt(speed * speed - vx * vx);
-  return new THREE.Vector2(vx, vy);
-}
-
-/** Smooth ±1 pseudo-noise: two incommensurate sines, decorrelated per seed. */
-function noise(t: number, seed: number): number {
-  return 0.6 * Math.sin(t + seed * 17.31) + 0.4 * Math.sin(t * 2.3 + seed * 31.7);
-}
-
-/** Radial ink→transparent gradient — a soft blob the dither pass speckles. */
-function softCircleTexture(): THREE.CanvasTexture {
-  const size = 128;
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    throw new Error("2d canvas unsupported");
-  }
-  const half = size / 2;
-  const grad = ctx.createRadialGradient(half, half, size * 0.06, half, half, half);
-  grad.addColorStop(0, "rgba(0,0,0,1)");
-  grad.addColorStop(0.55, "rgba(0,0,0,0.55)");
-  grad.addColorStop(1, "rgba(0,0,0,0)");
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, size, size);
-  return new THREE.CanvasTexture(canvas);
-}
-
-/**
- * Vertical sRGB gradient (plane top → bottom) for the backdrop wall. Marked
- * sRGB so its grey values linearize the same way THREE.Color does — keeping the
- * dither remap (t = lum / lum(BG)) matched to the intended halftone density.
- */
-function verticalGradientTexture(topHex: number, bottomHex: number): THREE.CanvasTexture {
-  const w = 4;
-  const h = 256;
-  const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    throw new Error("2d canvas unsupported");
-  }
-  const grad = ctx.createLinearGradient(0, 0, 0, h);
-  grad.addColorStop(0, cssHex(topHex));
-  grad.addColorStop(1, cssHex(bottomHex));
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, w, h);
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
-/** "#rrggbb" for a 24-bit hex color number. */
-function cssHex(hex: number): string {
-  return `#${hex.toString(16).padStart(6, "0")}`;
-}
-
-function arcProgress(arc: Arc, y: number): number {
-  return clamp((y - arc.fromY) / (arc.toY - arc.fromY), 0, 1);
-}
-
-/** Parabola peaking at ARC_PEAK halfway through the hop. */
-function arcHeight(arc: Arc, y: number): number {
-  const p = arcProgress(arc, y);
-  return 4 * ARC_PEAK * p * (1 - p);
 }

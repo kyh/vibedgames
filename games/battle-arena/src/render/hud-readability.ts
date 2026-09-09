@@ -23,10 +23,10 @@ export interface PlateCandidate {
 
 /** Greedy priority is stable across snapshot iteration order. Labels never
  * move away from their actor to find space; lower-priority clutter yields. */
-export function readablePlates(
+export const readablePlates = (
   candidates: PlateCandidate[],
   keepOut: readonly ScreenBox[],
-): PlateCandidate[] {
+): PlateCandidate[] => {
   const accepted: PlateCandidate[] = [];
   const occupied: ScreenBox[] = [...keepOut];
   // oxlint-disable-next-line unicorn/no-array-sort -- ES2022 target; sort only the copy.
@@ -55,7 +55,7 @@ export function readablePlates(
     occupied.push(box);
   }
   return accepted;
-}
+};
 
 type Block = "DEAD" | "LOCKED" | "STUN" | "SILENCE" | "HEX";
 export type AbilityReadiness =
@@ -65,7 +65,7 @@ export type AbilityReadiness =
 
 /** The cast admission gates, not target prediction. Ready does not promise
  * that a directional spell will find a target. Mana is not a cast gate here. */
-export function abilityReadiness(unit: Unit, key: AbilityKey, now: number): AbilityReadiness {
+export const abilityReadiness = (unit: Unit, key: AbilityKey, now: number): AbilityReadiness => {
   const queued = unit.alive && unit.queuedCast?.key === key && unit.queuedCast.until >= now;
   if (!unit.alive) {
     return { kind: "blocked", label: "DEAD", queued: false };
@@ -83,4 +83,4 @@ export function abilityReadiness(unit: Unit, key: AbilityKey, now: number): Abil
     }
   }
   return { kind: unit.abilities[key].readyAt > now ? "cooldown" : "available", queued };
-}
+};

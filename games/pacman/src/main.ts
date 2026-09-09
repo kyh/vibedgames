@@ -34,6 +34,14 @@ container.append(renderer.domElement);
 
 const game = new GameScene();
 
+const elOf = <T extends HTMLElement>(id: string, ctor: new () => T): T => {
+  const node = document.querySelector(`#${id}`);
+  if (!(node instanceof ctor)) {
+    throw new Error(`missing #${id}`);
+  }
+  return node;
+};
+
 // First tap/keypress unlocks the synth context and starts the lullaby loop.
 // Keeping the listeners around lets a suspended context resume after tab
 // switches. Face-only players get sound on their first click anywhere.
@@ -46,39 +54,56 @@ const webcamPanel = elOf("webcam", HTMLElement);
 const webcamToggle = elOf("webcam-toggle", HTMLButtonElement);
 const webcamCue = elOf("webcam-cue", HTMLElement);
 let cameraState: FaceCameraState = { kind: "idle" };
-function renderCameraState(): void {
+const cameraAction = (state: FaceCameraState, collapsed: boolean): string => {
+  if (state.kind === "unavailable") {
+    return "Retry face camera";
+  }
+  if (state.kind === "idle") {
+    return "Enable face controls";
+  }
+  return collapsed ? "Expand face camera" : "Collapse face camera";
+};
+const cameraStatus = (state: FaceCameraState): string => {
+  switch (state.kind) {
+    case "starting": {
+      return "Starting camera";
+    }
+    case "live": {
+      return state.tracking ? "Face ready" : "Find your face";
+    }
+    case "unavailable": {
+      return "Camera unavailable";
+    }
+    default: {
+      return "Camera off";
+    }
+  }
+};
+const cameraCue = (state: FaceCameraState): string => {
+  switch (state.kind) {
+    case "unavailable": {
+      return "📷 RETRY";
+    }
+    case "starting": {
+      return "📷 STARTING";
+    }
+    case "live": {
+      return state.tracking ? "📷 FACE READY" : "📷 FIND FACE";
+    }
+    default: {
+      return "📷 CAMERA";
+    }
+  }
+};
+const renderCameraState = (): void => {
   const collapsed = webcamPanel.classList.contains("collapsed");
   webcamToggle.setAttribute("aria-expanded", String(!collapsed));
-  const action =
-    cameraState.kind === "unavailable"
-      ? "Retry face camera"
-      : cameraState.kind === "idle"
-        ? "Enable face controls"
-        : collapsed
-          ? "Expand face camera"
-          : "Collapse face camera";
-  const status =
-    cameraState.kind === "starting"
-      ? "Starting camera"
-      : cameraState.kind === "live"
-        ? cameraState.tracking
-          ? "Face ready"
-          : "Find your face"
-        : cameraState.kind === "unavailable"
-          ? "Camera unavailable"
-          : "Camera off";
-  webcamToggle.setAttribute("aria-label", `${action}. ${status}`);
-  webcamCue.textContent =
-    cameraState.kind === "unavailable"
-      ? "📷 RETRY"
-      : cameraState.kind === "starting"
-        ? "📷 STARTING"
-        : cameraState.kind === "live"
-          ? cameraState.tracking
-            ? "📷 FACE READY"
-            : "📷 FIND FACE"
-          : "📷 CAMERA";
-}
+  webcamToggle.setAttribute(
+    "aria-label",
+    `${cameraAction(cameraState, collapsed)}. ${cameraStatus(cameraState)}`,
+  );
+  webcamCue.textContent = cameraCue(cameraState);
+};
 const face = new FaceCamera({
   onHeadTurnLeft: () => game.onHeadTurnLeft(),
   onHeadTurnRight: () => game.onHeadTurnRight(),
@@ -172,7 +197,7 @@ renderer.setAnimationLoop((time) => {
   const dt = Math.min(timer.getDelta(), MAX_DT);
   if (!paused) {
     game.update(dt);
-    diag.frame++;
+    diag.frame += 1;
   }
   renderer.render(game.scene, game.camera);
   diag.paused = paused;
@@ -194,12 +219,4 @@ if (import.meta.env.DEV) {
       turnRight: () => game.onHeadTurnRight(),
     },
   });
-}
-
-function elOf<T extends HTMLElement>(id: string, ctor: new () => T): T {
-  const node = document.querySelector(`#${id}`);
-  if (!(node instanceof ctor)) {
-    throw new Error(`missing #${id}`);
-  }
-  return node;
 }

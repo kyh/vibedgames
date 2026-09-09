@@ -12,7 +12,7 @@ const PRIORITY = { hero: 2, player: 0, target: 1 };
 /** Resolve only visible hero labels. Keep the local hero's marker anchored;
  * move colliding labels upward, with stable identity order to avoid swaps.
  * Units, picking and simulation positions never enter this layout. */
-export function layoutHeroPlates(plates: readonly HeroPlate[]) {
+export const layoutHeroPlates = (plates: readonly HeroPlate[]) => {
   const placed: (HeroPlate & { lift: number })[] = [];
   // oxlint-disable-next-line unicorn/no-array-sort -- ES2022 game; only this fresh copy is mutated.
   const ordered = [...plates].sort(
@@ -22,7 +22,7 @@ export function layoutHeroPlates(plates: readonly HeroPlate[]) {
     let { y } = plate;
     // Moving above one label may meet another. Each pass clears at least one
     // earlier label, so the visible hero count bounds the work.
-    for (let pass = 0; pass < placed.length; pass++) {
+    for (const _pass of placed) {
       let blocked = false;
       for (const other of placed) {
         if (
@@ -41,4 +41,4 @@ export function layoutHeroPlates(plates: readonly HeroPlate[]) {
     placed.push({ ...plate, lift: plate.y - y, y });
   }
   return placed;
-}
+};

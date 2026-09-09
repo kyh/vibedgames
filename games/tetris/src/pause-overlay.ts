@@ -134,7 +134,7 @@ export const { show, hide } = createPauseShell({
 let recovery: { root: HTMLElement; unseal: () => void } | null = null;
 
 /** Graphics cannot resume yet. This surface owns no shell keys or pad polling. */
-export function showRecovery(): void {
+export const showRecovery = (): void => {
   if (recovery) {
     return;
   }
@@ -154,13 +154,13 @@ export function showRecovery(): void {
   root.append(title, hint);
   recovery = { root, unseal: sealPointerEvents(root) };
   document.body.append(root);
-}
+};
 
-export function hideRecovery(): void {
+export const hideRecovery = (): void => {
   if (!recovery) {
     return;
   }
   recovery.unseal();
   recovery.root.remove();
   recovery = null;
-}
+};

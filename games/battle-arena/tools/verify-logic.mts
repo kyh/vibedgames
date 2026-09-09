@@ -20,13 +20,13 @@ import type { ParticleKind, ParticlePriority } from "../src/render/fx-particles.
 
 // ── host state ──
 
-function human(
+const human = (
   world: ReturnType<typeof createWorld>,
   ownerId: string,
   slot: number,
   champId = "knight",
-) {
-  return spawnHero(world, {
+) =>
+  spawnHero(world, {
     champId,
     id: `h-${ownerId}`,
     isBot: false,
@@ -35,9 +35,8 @@ function human(
     slot,
     team: ownerId,
   });
-}
 
-function playingFixture() {
+const playingFixture = () => {
   const world = createWorld(91);
   const local = human(world, "local", 3, "mage");
   human(world, "peer", 1, "ranger");
@@ -53,11 +52,11 @@ function playingFixture() {
   world.campRespawnAt["held"] = 93;
   world.seq = 122;
   return world;
-}
+};
 
 test("host promotion adopts the snapshot in place and keeps stepping identically", () => {
   const world = playingFixture();
-  for (let i = 0; i < 600; i++) {
+  for (let i = 0; i < 600; i += 1) {
     step(world);
   }
   const wire = structuredClone(encodeWorld(world));
@@ -69,7 +68,7 @@ test("host promotion adopts the snapshot in place and keeps stepping identically
   assert.deepEqual(roster.seats.local, { slot: 3, team: "local" });
   assert.deepEqual(roster.picks.local, { champId: "mage", name: "local" });
   const before = structuredClone(wire);
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < 60; i += 1) {
     step(world);
     step(promoted);
   }
@@ -128,7 +127,7 @@ test("late humans replace one bot seat; grace humans keep their hero and go neut
 
 // ── objectives + hints ──
 
-function soloFixture() {
+const soloFixture = () => {
   const world = createWorld(724);
   const me = spawnHero(world, {
     champId: "knight",
@@ -140,10 +139,17 @@ function soloFixture() {
     team: "local",
   });
   return { me, world };
-}
-function coin(id: string, x = 0): Coin {
-  return { expireAt: 9900, fromX: 0, fromY: 0, gold: 300, id, landAt: 900, x, y: 0 };
-}
+};
+const coin = (id: string, x = 0): Coin => ({
+  expireAt: 9900,
+  fromX: 0,
+  fromY: 0,
+  gold: 300,
+  id,
+  landAt: 900,
+  x,
+  y: 0,
+});
 
 test("loot never becomes the boss objective; landing and expiry follow the sim clock", () => {
   const { world, me } = soloFixture();
@@ -162,7 +168,8 @@ test("loot never becomes the boss objective; landing and expiry follow the sim c
 
 test("nearest objective stays retained until removed; snapshot order cannot flip it", () => {
   const { world, me } = soloFixture();
-  me.x = me.y = 0;
+  me.y = 0;
+  me.x = 0;
   const close = coin("a", 2);
   const far = coin("b", 8);
   world.coins = [far, close];
@@ -176,7 +183,7 @@ test("nearest objective stays retained until removed; snapshot order cannot flip
 
 test("full belt explains delivery gold; expired and claimed drops lose their target", () => {
   const { world, me } = soloFixture();
-  world.deliveries.push({ expireAt: 30000, id: "drop", x: 0, y: 0 });
+  world.deliveries.push({ expireAt: 30_000, id: "drop", x: 0, y: 0 });
   assert.equal(deliveryObjective(world, me).text, "▣ ITEM 30s LEFT");
   me.items = ["one", "two", "three", "four", "five", "six"];
   assert.equal(deliveryObjective(world, me).text, "▣ GOLD 30s LEFT");
@@ -188,9 +195,11 @@ test("full belt explains delivery gold; expired and claimed drops lose their tar
 
 test("creep loot does not retire the first boss-coin lesson; rematch keeps it learned", () => {
   const { world, me } = soloFixture();
-  me.x = me.y = 100;
+  me.y = 100;
+  me.x = 100;
   me.gold = 0;
-  me.lastAttackAt = me.lastCastAt = 1;
+  me.lastCastAt = 1;
+  me.lastAttackAt = 1;
   const messages: string[] = [];
   const hints = new Hints(
     () => false,
@@ -208,7 +217,7 @@ test("creep loot does not retire the first boss-coin lesson; rematch keeps it le
   );
   world.gameTime = 8.1;
   world.now = 8100;
-  world.coins = [{ ...coin("boss"), expireAt: 17900, landAt: 8900 }];
+  world.coins = [{ ...coin("boss"), expireAt: 17_900, landAt: 8900 }];
   hints.update(world, me);
   assert.equal(messages.filter((message) => message.includes("Golem")).length, 1);
   world.coins = [];
@@ -216,7 +225,7 @@ test("creep loot does not retire the first boss-coin lesson; rematch keeps it le
   assert.equal(messages.at(-1), "");
   world.gameTime = 20;
   world.now = 20_000;
-  world.coins = [{ ...coin("boss2"), expireAt: 29900, landAt: 20900 }];
+  world.coins = [{ ...coin("boss2"), expireAt: 29_900, landAt: 20_900 }];
   hints.update(world, me);
   assert.equal(messages.filter((message) => message.includes("Golem")).length, 1);
   hints.resetMatch();
@@ -231,10 +240,12 @@ test("observing the economy never alters coin schedules or payouts", () => {
   const control = soloFixture();
   const hints = new Hints(
     () => false,
-    () => {},
+    () => {
+      /* empty */
+    },
   );
   let lastCoin: string | null = null;
-  for (let i = 0; i < 1200; i++) {
+  for (let i = 0; i < 1200; i += 1) {
     step(observed.world);
     step(control.world);
     lastCoin = coinObjective(observed.world, observed.me, lastCoin).target?.id ?? null;
@@ -246,7 +257,7 @@ test("observing the economy never alters coin schedules or payouts", () => {
 
 // ── HUD readability ──
 
-function duel(champId = "knight") {
+const duel = (champId = "knight") => {
   const world = createWorld(41);
   world.units.clear();
   world.now = 5000;
@@ -271,7 +282,7 @@ function duel(champId = "knight") {
   Object.assign(me, { aimX: 1, aimY: 0, facing: 0, x: 0, y: 16 });
   Object.assign(enemy, { x: 2, y: 16 });
   return { me, world };
-}
+};
 
 test("all six kits: HUD availability agrees with the sim's cast admission gates", () => {
   for (const champion of CHAMPIONS) {
@@ -291,7 +302,7 @@ test("all six kits: HUD availability agrees with the sim's cast admission gates"
         me.abilities[key].readyAt = world.now + (gate === "cooldown" ? 1 : 0);
         me.alive = gate !== "dead";
         if (["stun", "silence", "hex", "root"].includes(gate)) {
-          me.statuses.push({ kind: gate, id: "gate", until: world.now + 1000 });
+          me.statuses.push({ id: "gate", kind: gate, until: world.now + 1000 });
         }
         const before = structuredClone(me);
         const readiness = abilityReadiness(me, key, world.now);
@@ -336,7 +347,7 @@ test("plate placement is iteration-independent, prioritizes local, never moves a
 
 // ── particle priority pools ──
 
-function meshFor(scene: THREE.Scene, kind: ParticleKind): THREE.InstancedMesh {
+const meshFor = (scene: THREE.Scene, kind: ParticleKind): THREE.InstancedMesh => {
   const mesh = scene.children.find(
     (child): child is THREE.InstancedMesh =>
       child instanceof THREE.InstancedMesh && child.renderOrder === (kind === "add" ? 11 : 10),
@@ -345,19 +356,19 @@ function meshFor(scene: THREE.Scene, kind: ParticleKind): THREE.InstancedMesh {
     throw new Error("particle mesh missing");
   }
   return mesh;
-}
+};
 
-function visiblePositions(mesh: THREE.InstancedMesh): number[] {
+const visiblePositions = (mesh: THREE.InstancedMesh): number[] => {
   const matrix = new THREE.Matrix4();
   const xs: number[] = [];
-  for (let i = 0; i < mesh.count; i++) {
+  for (let i = 0; i < mesh.count; i += 1) {
     mesh.getMatrixAt(i, matrix);
     if (matrix.determinant() > 0) {
       xs.push(matrix.elements[12] ?? 0);
     }
   }
   return xs;
-}
+};
 
 for (const { kind, cap, reserve } of [
   { cap: 512, kind: "add", reserve: 96 },
@@ -367,8 +378,8 @@ for (const { kind, cap, reserve } of [
     const scene = new THREE.Scene();
     const pools = new ParticlePools(scene);
     const spawn = (n: number, priority: ParticlePriority, x: number) => {
-      for (let i = 0; i < n; i++) {
-        pools.spawn(kind, { x, y: 1, z: 0, size: 1, life: 1, priority });
+      for (let i = 0; i < n; i += 1) {
+        pools.spawn(kind, { life: 1, priority, size: 1, x, y: 1, z: 0 });
       }
     };
     spawn(cap * 2, "ambient", 1);
@@ -387,12 +398,12 @@ for (const { kind, cap, reserve } of [
     assert.equal(visiblePositions(mesh).filter((x) => x === 3).length, 23);
     spawn(cap, "ambient", 4);
     assert.equal(pools.counts()[kind].major, 23);
-    for (let cycle = 0; cycle < 4; cycle++) {
+    for (let cycle = 0; cycle < 4; cycle += 1) {
       pools.update(2);
       assert.equal(pools.counts()[kind].active, 0);
       assert.equal(visiblePositions(mesh).length, 0);
-      for (let i = 0; i < cap; i++) {
-        pools.spawn(kind, { x: i + 100, y: 0, z: 0, life: 1, size: 1, priority: "impact" });
+      for (let i = 0; i < cap; i += 1) {
+        pools.spawn(kind, { life: 1, priority: "impact", size: 1, x: i + 100, y: 0, z: 0 });
       }
       assert.equal(pools.counts()[kind].active, cap);
       assert.equal(new Set(visiblePositions(mesh)).size, cap);
@@ -408,8 +419,8 @@ for (const { kind, cap, reserve } of [
 test("equal-priority saturation keeps the active major particles", () => {
   const scene = new THREE.Scene();
   const pools = new ParticlePools(scene);
-  for (let i = 0; i < 512; i++) {
-    pools.spawn("add", { x: i, y: 0, z: 0, size: 1, life: 2, priority: "major" });
+  for (let i = 0; i < 512; i += 1) {
+    pools.spawn("add", { life: 2, priority: "major", size: 1, x: i, y: 0, z: 0 });
   }
   pools.spawn("add", { life: 2, priority: "major", size: 1, x: 9999, y: 0, z: 0 });
   assert.equal(pools.counts().add.major, 512);
@@ -419,7 +430,7 @@ test("equal-priority saturation keeps the active major particles", () => {
 
 test("burst scratch resets priority between calls", () => {
   const pools = new ParticlePools(new THREE.Scene());
-  const burst = { color: 0xffffff, life: 1, speed: 1, x: 0, y: 0, z: 0 };
+  const burst = { color: 0xff_ff_ff, life: 1, speed: 1, x: 0, y: 0, z: 0 };
   pools.burst("add", 3, { ...burst, priority: "major" });
   pools.burst("add", 4, { ...burst, priority: "ambient" });
   pools.burst("add", 5, burst);

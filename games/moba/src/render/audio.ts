@@ -26,20 +26,20 @@ const FOLEY_FILES: readonly [FoleyKey, string][] = [
 
 // localStorage throws in some embeds (sandboxed iframes, blocked cookies,
 // private modes). The game must boot and run without persistence.
-function storageGet(key: string): string | null {
+const storageGet = (key: string): string | null => {
   try {
     return window.localStorage.getItem(key);
   } catch {
     return null;
   }
-}
-function storageSet(key: string, value: string): void {
+};
+const storageSet = (key: string, value: string): void => {
   try {
     window.localStorage.setItem(key, value);
   } catch {
     // Blocked store just loses persistence — never the run.
   }
-}
+};
 
 interface Bus {
   context: AudioContext;
@@ -88,18 +88,18 @@ const bedBuses = new Map<BedKind, GainNode>();
 
 const blocked = (): boolean => muted || paused;
 
-function setMaster(): void {
+const setMaster = (): void => {
   if (!bus) {
     return;
   }
   const t = bus.context.currentTime;
   bus.master.gain.cancelScheduledValues(t);
   bus.master.gain.setValueAtTime(blocked() ? 0 : MASTER_GAIN, t);
-}
+};
 
 /** One resume/suspend in flight at a time; a pause/mute that lands mid-flight
  *  is reconciled when the transition settles. */
-function reconcileContext(): void {
+const reconcileContext = (): void => {
   if (!bus || contextTransition) {
     return;
   }
@@ -109,28 +109,42 @@ function reconcileContext(): void {
     return;
   }
   const operation = shouldRun ? ctx.resume() : ctx.suspend();
-  contextTransition = operation;
-  const finish = (): void => {
+  const settle = async (): Promise<void> => {
+    try {
+      await operation;
+    } catch {
+      // A rejected resume/suspend still ends the flight; the state is re-read below.
+    }
     contextTransition = null;
     if (shouldRun !== !blocked()) {
       reconcileContext();
     }
   };
-  void operation.then(finish, finish);
-}
+  contextTransition = settle();
+};
+
+const fetchFoley = async (context: AudioContext, key: FoleyKey, file: string): Promise<void> => {
+  try {
+    const response = await fetch(file);
+    if (!response.ok) {
+      return;
+    }
+    const bytes = await response.arrayBuffer();
+    const buffer = await context.decodeAudioData(bytes);
+    foleyBufs.set(key, buffer);
+  } catch {
+    // Accents are optional: a missing or undecodable sample leaves the synth phrase alone.
+  }
+};
 
 // Accents are optional: until (or unless) a sample lands, the synth phrase plays alone.
-function loadFoley(context: AudioContext): void {
+const loadFoley = (context: AudioContext): void => {
   for (const [key, file] of FOLEY_FILES) {
-    void fetch(file)
-      .then((response) => (response.ok ? response.arrayBuffer() : Promise.reject(response)))
-      .then((bytes) => context.decodeAudioData(bytes))
-      .then((buffer) => foleyBufs.set(key, buffer))
-      .catch(() => {});
+    void fetchFoley(context, key, file);
   }
-}
+};
 
-function audio(): Bus | null {
+const audio = (): Bus | null => {
   if (blocked()) {
     return null;
   }
@@ -149,9 +163,9 @@ function audio(): Bus | null {
   reconcileContext();
   // Never queue notes behind the autoplay gate or an in-flight transition.
   return bus.context.state === "running" && !contextTransition ? bus : null;
-}
+};
 
-function release(voice: Voice, stop: boolean): void {
+const release = (voice: Voice, stop: boolean): void => {
   if (!voices.delete(voice)) {
     return;
   }
@@ -169,21 +183,23 @@ function release(voice: Voice, stop: boolean): void {
   for (const node of voice.nodes) {
     node.disconnect();
   }
-}
+};
 
-function stopPhrase(phrase: Phrase): void {
+const stopPhrase = (phrase: Phrase): void => {
   for (const voice of phrase.voices) {
     release(voice, true);
   }
-}
+};
 
-function stopBackground(kind?: BedKind): void {
+const stopBackground = (kind?: BedKind): void => {
   for (const voice of voices) {
-    if (voice.phrase.kind !== "sfx" && (!kind || voice.phrase.kind === kind)) release(voice, true);
+    if (voice.phrase.kind !== "sfx" && (!kind || voice.phrase.kind === kind)) {
+      release(voice, true);
+    }
   }
-}
+};
 
-function stopAll(): void {
+const stopAll = (): void => {
   for (const voice of voices) {
     release(voice, true);
   }
@@ -192,53 +208,51 @@ function stopAll(): void {
     gain.gain.cancelScheduledValues(now);
     gain.gain.setValueAtTime(1, now);
   }
-}
+};
 
-function applyIntent(): void {
+const applyIntent = (): void => {
   setMaster();
   if (blocked()) {
     stopAll();
   }
   reconcileContext();
-}
+};
 
-export function resumeAudio(): void {
+export const resumeAudio = (): void => {
   audio();
-}
+};
 
-export function isMuted(): boolean {
-  return muted;
-}
+export const isMuted = (): boolean => muted;
 
-export function setMuted(next: boolean): void {
+export const setMuted = (next: boolean): void => {
   muted = next;
   storageSet(SOUND_KEY, muted ? "0" : "1");
   applyIntent();
-}
+};
 
-export function toggleMute(): boolean {
+export const toggleMute = (): boolean => {
   setMuted(!muted);
   return muted;
-}
+};
 
 /** Session-only mute override: never persists, so the player's saved opt-in
  *  survives. Trailer mode uses this to unmute for its run. */
-export function setMutedTransient(next: boolean): void {
+export const setMutedTransient = (next: boolean): void => {
   muted = next;
   applyIntent();
-}
+};
 
-export function setSoundPaused(next: boolean): void {
+export const setSoundPaused = (next: boolean): void => {
   paused = next;
   applyIntent();
-}
+};
 
 /** Match/shot boundary: drop pending notes and gates; keep the user's intent. */
-export function resetSound(): void {
+export const resetSound = (): void => {
   stopAll();
   lastAt.clear();
   scoreClock.reset();
-}
+};
 
 const tone = (
   freq: number,
@@ -258,7 +272,7 @@ const noise = (
 
 // Decaying white noise is indistinguishable between calls: cache one buffer per
 // duration and replay it through a fresh (cheap) BufferSource each time.
-function noiseBuffer(ctx: AudioContext, dur: number): AudioBuffer {
+const noiseBuffer = (ctx: AudioContext, dur: number): AudioBuffer => {
   const cached = noiseBufs.get(dur);
   if (cached) {
     return cached;
@@ -266,66 +280,14 @@ function noiseBuffer(ctx: AudioContext, dur: number): AudioBuffer {
   const n = Math.floor(ctx.sampleRate * dur);
   const buffer = ctx.createBuffer(1, n, ctx.sampleRate);
   const data = buffer.getChannelData(0);
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < n; i += 1) {
     data[i] = (Math.random() * 2 - 1) * (1 - i / n);
   }
   noiseBufs.set(dur, buffer);
   return buffer;
-}
+};
 
-function play(
-  notes: readonly Note[],
-  { important = false, gain = 1 }: Reaction = {},
-  throttle?: Throttle,
-): void {
-  const level = Math.max(0, Math.min(1, gain));
-  if (level === 0 || notes.length === 0) {
-    return;
-  }
-  const target = audio();
-  if (!target) {
-    return;
-  }
-  // The player's own reaction is gated separately so a busy fight can't swallow it.
-  const gate = throttle && (important ? `${throttle.key}:local` : throttle.key);
-  const now = performance.now();
-  if (throttle && gate && (lastAt.get(gate) ?? -Infinity) + throttle.minMs > now) {
-    return;
-  }
-  // Background beds yield first; important sounds may then bump the oldest
-  // ordinary phrase, but nothing evicts another important sound.
-  const limit = important ? VOICE_LIMIT : ROUTINE_LIMIT;
-  while (voices.size + notes.length > limit) {
-    const victim =
-      phrases.find((p) => p.kind === "ambience") ??
-      phrases.find((p) => p.kind === "music") ??
-      (important ? phrases.find((p) => !p.essential) : undefined);
-    if (!victim) {
-      return;
-    }
-    stopPhrase(victim);
-  }
-  if (gate) {
-    lastAt.set(gate, now);
-  }
-  const phrase: Phrase = { essential: important, kind: "sfx", voices: new Set() };
-  phrases.push(phrase);
-  const t = target.context.currentTime;
-  if (important) {
-    // Duck the beds under the player's own feedback.
-    for (const [kind, bed] of bedBuses) {
-      bed.gain.cancelScheduledValues(t);
-      bed.gain.setValueAtTime(bed.gain.value, t);
-      bed.gain.linearRampToValueAtTime(kind === "music" ? 0.4 : 0.15, t + 0.015);
-      bed.gain.linearRampToValueAtTime(1, t + 0.28);
-    }
-  }
-  for (const note of notes) {
-    schedule(target, phrase, note, t, level);
-  }
-}
-
-function bedDestination(target: Bus, kind: BedKind): GainNode {
+const bedDestination = (target: Bus, kind: BedKind): GainNode => {
   const existing = bedBuses.get(kind);
   if (existing) {
     return existing;
@@ -334,62 +296,9 @@ function bedDestination(target: Bus, kind: BedKind): GainNode {
   gain.connect(target.master);
   bedBuses.set(kind, gain);
   return gain;
-}
+};
 
-function playBed(target: Bus, kind: BedKind, notes: readonly ScoreNote[]): void {
-  if (notes.length === 0) {
-    return;
-  }
-  let category = 0;
-  for (const voice of voices) {
-    if (voice.phrase.kind === kind) category++;
-  }
-  const limit = kind === "music" ? MUSIC_LIMIT : AMBIENCE_LIMIT;
-  if (category + notes.length > limit || voices.size + notes.length > ROUTINE_LIMIT) {
-    return;
-  }
-  const phrase: Phrase = { essential: false, kind, voices: new Set() };
-  phrases.push(phrase);
-  const now = target.context.currentTime + 0.015;
-  for (const note of notes) {
-    schedule(target, phrase, note, now, 1);
-  }
-}
-
-/** Call once per frame after the frame's SFX, with accepted simulation time.
- *  Muted or paused frames only advance the cursor — no old music waits for unlock. */
-export function updateSoundscape(frame: SoundscapeFrame): void {
-  const previous = scoreClock.mode;
-  const previousStep = scoreClock.step;
-  const rewound = scoreClock.isRewind(frame.time);
-  if (frame.kind === "silent" || frame.kind === "ended") {
-    scoreClock.observe(frame, false);
-    stopBackground();
-    return;
-  }
-  const target = audio();
-  const step = scoreClock.observe(frame, target !== null);
-  if (
-    scoreClock.mode === "silent" ||
-    rewound ||
-    (step && (step.step < previousStep || step.step > previousStep + 2))
-  ) {
-    stopBackground();
-  }
-  if (scoreClock.mode !== "quiet") {
-    stopBackground("ambience");
-  }
-  if (scoreClock.mode === "fallen" && previous !== "fallen") {
-    stopBackground("music");
-  }
-  if (!step || !target) {
-    return;
-  }
-  playBed(target, "music", step.music);
-  playBed(target, "ambience", step.ambience);
-}
-
-function schedule(target: Bus, phrase: Phrase, note: Note, now: number, level: number): void {
+const schedule = (target: Bus, phrase: Phrase, note: Note, now: number, level: number): void => {
   const { context: ctx, master } = target;
   const t = now + note.at;
   const gain = ctx.createGain();
@@ -470,17 +379,137 @@ function schedule(target: Bus, phrase: Phrase, note: Note, now: number, level: n
   if (note.kind === "tone" || note.kind === "score-tone") {
     source.stop(t + note.dur + 0.02);
   }
-}
+};
+
+/** Background beds yield first; important sounds may then bump the oldest
+ *  ordinary phrase, but nothing evicts another important sound. False when
+ *  the voices still don't fit. */
+const makeRoom = (count: number, important: boolean): boolean => {
+  const limit = important ? VOICE_LIMIT : ROUTINE_LIMIT;
+  while (voices.size + count > limit) {
+    const victim =
+      phrases.find((p) => p.kind === "ambience") ??
+      phrases.find((p) => p.kind === "music") ??
+      (important ? phrases.find((p) => !p.essential) : undefined);
+    if (!victim) {
+      return false;
+    }
+    stopPhrase(victim);
+  }
+  return true;
+};
+
+/** Duck the beds under the player's own feedback. */
+const duckBeds = (t: number): void => {
+  for (const [kind, bed] of bedBuses) {
+    bed.gain.cancelScheduledValues(t);
+    bed.gain.setValueAtTime(bed.gain.value, t);
+    bed.gain.linearRampToValueAtTime(kind === "music" ? 0.4 : 0.15, t + 0.015);
+    bed.gain.linearRampToValueAtTime(1, t + 0.28);
+  }
+};
+
+const play = (
+  notes: readonly Note[],
+  { important = false, gain = 1 }: Reaction = {},
+  throttle?: Throttle,
+): void => {
+  const level = Math.max(0, Math.min(1, gain));
+  if (level === 0 || notes.length === 0) {
+    return;
+  }
+  const target = audio();
+  if (!target) {
+    return;
+  }
+  // The player's own reaction is gated separately so a busy fight can't swallow it.
+  const gate = throttle && (important ? `${throttle.key}:local` : throttle.key);
+  const now = performance.now();
+  if (throttle && gate && (lastAt.get(gate) ?? -Infinity) + throttle.minMs > now) {
+    return;
+  }
+  if (!makeRoom(notes.length, important)) {
+    return;
+  }
+  if (gate) {
+    lastAt.set(gate, now);
+  }
+  const phrase: Phrase = { essential: important, kind: "sfx", voices: new Set() };
+  phrases.push(phrase);
+  const t = target.context.currentTime;
+  if (important) {
+    duckBeds(t);
+  }
+  for (const note of notes) {
+    schedule(target, phrase, note, t, level);
+  }
+};
+
+const playBed = (target: Bus, kind: BedKind, notes: readonly ScoreNote[]): void => {
+  if (notes.length === 0) {
+    return;
+  }
+  let category = 0;
+  for (const voice of voices) {
+    if (voice.phrase.kind === kind) {
+      category += 1;
+    }
+  }
+  const limit = kind === "music" ? MUSIC_LIMIT : AMBIENCE_LIMIT;
+  if (category + notes.length > limit || voices.size + notes.length > ROUTINE_LIMIT) {
+    return;
+  }
+  const phrase: Phrase = { essential: false, kind, voices: new Set() };
+  phrases.push(phrase);
+  const now = target.context.currentTime + 0.015;
+  for (const note of notes) {
+    schedule(target, phrase, note, now, 1);
+  }
+};
+
+/** Call once per frame after the frame's SFX, with accepted simulation time.
+ *  Muted or paused frames only advance the cursor — no old music waits for unlock. */
+export const updateSoundscape = (frame: SoundscapeFrame): void => {
+  const previous = scoreClock.mode;
+  const previousStep = scoreClock.step;
+  const rewound = scoreClock.isRewind(frame.time);
+  if (frame.kind === "silent" || frame.kind === "ended") {
+    scoreClock.observe(frame, false);
+    stopBackground();
+    return;
+  }
+  const target = audio();
+  const step = scoreClock.observe(frame, target !== null);
+  if (
+    scoreClock.mode === "silent" ||
+    rewound ||
+    (step && (step.step < previousStep || step.step > previousStep + 2))
+  ) {
+    stopBackground();
+  }
+  if (scoreClock.mode !== "quiet") {
+    stopBackground("ambience");
+  }
+  if (scoreClock.mode === "fallen" && previous !== "fallen") {
+    stopBackground("music");
+  }
+  if (!step || !target) {
+    return;
+  }
+  playBed(target, "music", step.music);
+  playBed(target, "ambience", step.ambience);
+};
 
 export const sfx = {
   ability(effect = "", gain = 1, local = false): void {
     const notes: Note[] = [...abilityNotes(effect)];
     const accent = abilityFoley(effect);
     const buffer = accent ? foleyBufs.get(accent.key) : undefined;
-    const first = notes[0];
+    const [first] = notes;
     // The recorded accent replaces the first synth voice rather than doubling it.
-    if (buffer && accent && first)
-      notes[0] = { kind: "sample", buffer, gain: accent.gain, at: first.at, dur: buffer.duration };
+    if (buffer && accent && first) {
+      notes[0] = { at: first.at, buffer, dur: buffer.duration, gain: accent.gain, kind: "sample" };
+    }
     play(notes, { gain, important: local }, { key: `ability:${effect}`, minMs: 90 });
   },
   death(reaction: Reaction = {}): void {
@@ -516,12 +545,10 @@ export const sfx = {
   },
 };
 
-export function soundDiagnostics() {
-  return {
-    context: bus?.context.state ?? "uncreated",
-    muted,
-    paused,
-    score: { mode: scoreClock.mode, step: scoreClock.step },
-    voices: voices.size,
-  };
-}
+export const soundDiagnostics = () => ({
+  context: bus?.context.state ?? "uncreated",
+  muted,
+  paused,
+  score: { mode: scoreClock.mode, step: scoreClock.step },
+  voices: voices.size,
+});

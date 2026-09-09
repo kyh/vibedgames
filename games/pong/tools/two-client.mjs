@@ -6,15 +6,14 @@
 
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import path from "node:path";
+import { setTimeout as wait } from "node:timers/promises";
 
-const gameDir = resolve(import.meta.dirname, "..");
-const { chromium } = createRequire(join(gameDir, "package.json"))("playwright-core");
+const gameDir = path.resolve(import.meta.dirname, "..");
+const { chromium } = createRequire(path.join(gameDir, "package.json"))("playwright-core");
 const PARTY = "http://localhost:8787";
 const PORT = 5399;
 const WIN_SCORE = 7;
-const wait = (ms) => new Promise((done) => setTimeout(done, ms));
 
 const urlFlag = process.argv.indexOf("--url");
 let vite = null;
@@ -23,37 +22,43 @@ if (!baseUrl) {
   throw new Error("--url needs a value");
 }
 
-async function reachable(url) {
-  return fetch(url).then(
-    () => true,
-    () => false,
-  );
-}
+const reachable = async (url) => {
+  try {
+    await fetch(url);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
-async function startVite() {
-  vite = spawn(join(gameDir, "node_modules/.bin/vite"), ["--port", String(PORT), "--strictPort"], {
-    cwd: gameDir,
-    stdio: "ignore",
-  });
-  for (let i = 0; i < 100; i++) {
+const startVite = async () => {
+  vite = spawn(
+    path.join(gameDir, "node_modules/.bin/vite"),
+    ["--port", String(PORT), "--strictPort"],
+    {
+      cwd: gameDir,
+      stdio: "ignore",
+    },
+  );
+  for (let i = 0; i < 100; i += 1) {
     if (await reachable(baseUrl)) {
       return;
     }
     await wait(100);
   }
   throw new Error(`vite did not come up on ${baseUrl}`);
-}
+};
 
 let failures = 0;
-function check(ok, label) {
+const check = (ok, label) => {
   console.log(`${ok ? "ok  " : "FAIL"} ${label}`);
   if (!ok) {
-    failures++;
+    failures += 1;
   }
-}
+};
 
 /** Poll `fn` (runs in the page) until truthy; returns its value or null on timeout. */
-async function until(page, fn, timeoutMs, arg) {
+const until = async (page, fn, timeoutMs, arg) => {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const value = await page.evaluate(fn, arg).catch(() => null);
@@ -63,16 +68,16 @@ async function until(page, fn, timeoutMs, arg) {
     await wait(50);
   }
   return null;
-}
+};
 
 const diag = (page) => page.evaluate(() => window.__GAME_DIAGNOSTICS__);
 const confirm = (page) => page.evaluate(() => window.__pong.handleGestureConfirm());
 const netInfo = (page) => page.evaluate(() => document.querySelector("#netinfo").textContent);
 /** Chase the ball with the local paddle (sim-frame, so it holds through host swaps). */
 const track = (page, on) =>
-  page.evaluate((on) => {
+  page.evaluate((enabled) => {
     clearInterval(window.__track);
-    if (on) {
+    if (enabled) {
       window.__track = setInterval(() => {
         window.__pong.myPaddle = window.__pong.ballPos.x;
       }, 16);
@@ -80,13 +85,13 @@ const track = (page, on) =>
   }, on);
 const rally = (page, ms) => until(page, () => window.__GAME_DIAGNOSTICS__.phase === "rally", ms);
 const moving = async (page, ms) => {
-  const a = (await diag(page)).ball;
+  const { ball: a } = await diag(page);
   await wait(ms);
-  const b = (await diag(page)).ball;
+  const { ball: b } = await diag(page);
   return a.x !== b.x || a.y !== b.y;
 };
 
-async function open(browser, name, room, errors) {
+const open = async (browser, name, room, errors) => {
   // hasTouch: COARSE_INPUT keeps the webcam hand tracker (no camera headless) off.
   const context = await browser.newContext({
     hasTouch: true,
@@ -101,24 +106,25 @@ async function open(browser, name, room, errors) {
   });
   await page.goto(`${baseUrl}/?room=${room}`);
   return { context, page };
-}
+};
 
-async function pauseKeepsSimRunning(page, other, label) {
+const pauseKeepsSimRunning = async (page, other, label) => {
   await page.keyboard.press("Escape");
   await wait(200);
-  const frozen = (await diag(page)).paused;
+  const { paused: frozen } = await diag(page);
   const ownMoves = await moving(page, 300);
   const otherMoves = await moving(other, 300);
   check(!frozen && ownMoves && otherMoves, `${label} pause (Escape) keeps the live rally running`);
   await page.keyboard.press("Escape");
   await wait(100);
-}
+};
 
 /** Force the current point to end the match, then rematch from `from`. */
-async function winThenRematch(host, guest, from, label) {
+const winThenRematch = async (host, guest, from, label) => {
   await track(guest, false);
+  // Park at the rail so the next ball gets past.
   await guest.evaluate(() => {
-    window.__pong.myPaddle = -4.5; // park at the rail so the next ball gets past
+    window.__pong.myPaddle = -4.5;
   });
   await host.evaluate((n) => {
     window.__pong.scoreYou = n;
@@ -139,9 +145,9 @@ async function winThenRematch(host, guest, from, label) {
     `rematch from ${label} restarts at 0-0 on both sides`,
   );
   await track(guest, true);
-}
+};
 
-async function main() {
+const main = async () => {
   if (!(await reachable(PARTY))) {
     throw new Error(`party server not reachable at ${PARTY}`);
   }
@@ -170,10 +176,8 @@ async function main() {
     );
     await confirm(host.page);
     check((await rally(host.page, 3000)) !== null, "host serves vs AI");
-    check(
-      (await netInfo(host.page)).includes("RIVAL CAN JOIN"),
-      "host HUD advertises the open seat",
-    );
+    const hostInfo = await netInfo(host.page);
+    check(hostInfo.includes("RIVAL CAN JOIN"), "host HUD advertises the open seat");
 
     // 2. Late join into the running match.
     const guest = await open(browser, "guest", room, errors);
@@ -186,16 +190,14 @@ async function main() {
       "guest picks up the running rally",
     );
     const liveHost = await until(host.page, () => window.__pong.hasLiveOpponent(), 3000);
-    check(
-      liveHost !== null && (await netInfo(guest.page)).includes("LIVE 1V1"),
-      "both sides see each other",
-    );
+    const guestInfo = await netInfo(guest.page);
+    check(liveHost !== null && guestInfo.includes("LIVE 1V1"), "both sides see each other");
 
     // 3. Paddle contacts cross the wire.
     await track(host.page, true);
     await track(guest.page, true);
     const hits = await until(host.page, () => window.__GAME_DIAGNOSTICS__.rallyHits >= 4, 15_000);
-    const guestHits = (await diag(guest.page)).rallyHits;
+    const { rallyHits: guestHits } = await diag(guest.page);
     check(
       hits !== null && guestHits >= 3,
       `rally hits reach the guest (host 4+, guest ${guestHits})`,
@@ -237,7 +239,7 @@ async function main() {
       const { client } = window.__pong.net;
       window.__send = client.send;
       client.send = (m) => (m.type === "heartbeat" ? undefined : window.__send.call(client, m));
-      window.__pong.update = () => {};
+      window.__pong.update = () => null;
     });
     const promoted = await until(guest.page, () => window.__pong.role === "host", 15_000);
     const guestAfter = await diag(guest.page);
@@ -300,14 +302,14 @@ async function main() {
     await browser.close();
   }
   check(errors.length === 0, `no console errors (${errors.length ? errors.join(" | ") : "clean"})`);
-}
+};
 
-main()
-  .catch((error) => {
-    console.error(error);
-    failures++;
-  })
-  .finally(() => {
-    vite?.kill();
-    process.exit(failures ? 1 : 0);
-  });
+try {
+  await main();
+} catch (error) {
+  console.error(error);
+  failures += 1;
+} finally {
+  vite?.kill();
+  process.exit(failures ? 1 : 0);
+}

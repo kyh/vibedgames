@@ -81,24 +81,23 @@ const CSS = `
 /** "Q W E R" / "X Y B RB" render as individual HUD-style keycaps; anything
  *  else ("←→↑↓", "L-STICK / D-PAD", "2ND FINGER") stays one chip. Shared with
  *  the menu's controls plaque so both surfaces split keycaps identically. */
-export function chipTexts(input: string): readonly string[] {
-  return /^[A-Z0-9]{1,2}( [A-Z0-9]{1,2})+$/.test(input) ? input.split(" ") : [input];
-}
+export const chipTexts = (input: string): readonly string[] =>
+  /^[A-Z0-9]{1,2}(?: [A-Z0-9]{1,2})+$/u.test(input) ? input.split(" ") : [input];
 
-function el(tag: string, className: string, text?: string): HTMLElement {
+const el = (tag: string, className: string, text?: string): HTMLElement => {
   const node = document.createElement(tag);
   node.className = className;
   if (text !== undefined) {
     node.textContent = text;
   }
   return node;
-}
+};
 
 // Kept across show/hide so onHide can back out the panel's .mp-in slide.
 let root: HTMLElement | null = null;
 let stopSettings: (() => void) | null = null;
 
-function settingsPanel(): HTMLElement {
+const settingsPanel = (): HTMLElement => {
   const section = el("div", "mp-settings");
   section.dataset.pauseKeep = "";
   section.setAttribute("role", "group");
@@ -156,9 +155,9 @@ function settingsPanel(): HTMLElement {
       setPresentationSettings({ ...presentationSettings(), view: close ? "close" : "standard" }),
   );
   return section;
-}
+};
 
-function renderPanel(overlay: HTMLElement): void {
+const renderPanel = (overlay: HTMLElement): void => {
   root = overlay;
   const syncMotion = () =>
     overlay.classList.toggle("mp-reduced", presentationSettings().motion === "reduced");
@@ -217,7 +216,7 @@ function renderPanel(overlay: HTMLElement): void {
 
   // Panel slide-up rides the same first frame as the shell's root fade.
   requestAnimationFrame(() => overlay.classList.add("mp-in"));
-}
+};
 
 const shell = createPauseShell({
   className: "mp-root",

@@ -32,7 +32,7 @@ type Tracking = "waiting" | "tracked" | "lost";
 
 export interface HandCamera {
   /** Start tracking. Idempotent — ignored once loading or live. */
-  enable(): void;
+  enable: () => void;
 }
 
 // One panel per page, so the state a control surface asks about is module
@@ -40,14 +40,67 @@ export interface HandCamera {
 // have to be handed a tracker reference to know if hands work.
 let state: HandCameraState = "off";
 
-export function handCameraState(): HandCameraState {
-  return state;
-}
+export const handCameraState = (): HandCameraState => state;
 
 // A held fist should confirm once, not re-fire every recognition frame.
 const FIST_COOLDOWN_MS = 800;
 
-export function createHandCamera(onWristX: (x: number) => void, onFist?: () => void): HandCamera {
+const PANEL_ARIA = {
+  error: "Retry hand control camera",
+  loading: "Starting hand control camera",
+  off: "Enable hand control",
+} satisfies Partial<Record<HandCameraState, string>>;
+
+const PANEL_LABEL = {
+  error: "RETRY CAMERA",
+  loading: "STARTING CAMERA",
+  off: "ENABLE HAND CONTROL",
+} satisfies Partial<Record<HandCameraState, string>>;
+
+const panelAria = (minimized: boolean, tracked: boolean): string => {
+  if (state !== "live") {
+    return PANEL_ARIA[state];
+  }
+  return `${minimized ? "Show" : "Minimize"} camera preview · ${tracked ? "hand tracked" : "show one hand"}`;
+};
+
+const panelLabel = (minimized: boolean, tracked: boolean): string => {
+  if (state !== "live") {
+    return PANEL_LABEL[state];
+  }
+  if (!minimized) {
+    return "CAMERA ON";
+  }
+  return tracked ? "HAND TRACKED" : "SHOW ONE HAND";
+};
+
+const statusText = (tracking: Tracking): string => {
+  if (state === "error") {
+    return "Camera unavailable. Tap to retry.";
+  }
+  if (state === "loading") {
+    return "Starting camera…";
+  }
+  if (state === "live" && tracking === "tracked") {
+    return "Hand tracked";
+  }
+  if (state === "live" && tracking === "lost") {
+    return "Hand lost · show one hand";
+  }
+  return "Show one hand to steer";
+};
+
+const trackingAt = (now: number, lastHandAt: number | null): Tracking => {
+  if (lastHandAt === null) {
+    return "waiting";
+  }
+  return now - lastHandAt <= HAND_TIMEOUT_MS ? "tracked" : "lost";
+};
+
+export const createHandCamera = (
+  onWristX: (x: number) => void,
+  onFist?: () => void,
+): HandCamera => {
   const panel = document.createElement("button");
   panel.type = "button";
   panel.id = "camera-panel";
@@ -66,49 +119,20 @@ export function createHandCamera(onWristX: (x: number) => void, onFist?: () => v
 
   let tracking: Tracking = "waiting";
 
-  function syncPanel(): void {
+  const syncPanel = (): void => {
     panel.dataset.state = state;
     const minimized = panel.dataset.min === "1";
     const tracked = tracking === "tracked";
-    panel.setAttribute(
-      "aria-label",
-      state === "off"
-        ? "Enable hand control"
-        : state === "error"
-          ? "Retry hand control camera"
-          : state === "loading"
-            ? "Starting hand control camera"
-            : `${minimized ? "Show" : "Minimize"} camera preview · ${tracked ? "hand tracked" : "show one hand"}`,
-    );
+    panel.setAttribute("aria-label", panelAria(minimized, tracked));
     panel.setAttribute("aria-busy", String(state === "loading"));
-    panel.dataset.label =
-      state === "off"
-        ? "ENABLE HAND CONTROL"
-        : state === "error"
-          ? "RETRY CAMERA"
-          : state === "loading"
-            ? "STARTING CAMERA"
-            : minimized
-              ? tracked
-                ? "HAND TRACKED"
-                : "SHOW ONE HAND"
-              : "CAMERA ON";
-    status.textContent =
-      state === "error"
-        ? "Camera unavailable. Tap to retry."
-        : state === "loading"
-          ? "Starting camera…"
-          : state === "live" && tracked
-            ? "Hand tracked"
-            : state === "live" && tracking === "lost"
-              ? "Hand lost · show one hand"
-              : "Show one hand to steer";
-  }
+    panel.dataset.label = panelLabel(minimized, tracked);
+    status.textContent = statusText(tracking);
+  };
 
-  function setState(next: HandCameraState): void {
+  const setState = (next: HandCameraState): void => {
     state = next;
     syncPanel();
-  }
+  };
   setState("off");
 
   // The panel sits over the court, whose only touch control is a drag on the
@@ -135,21 +159,6 @@ export function createHandCamera(onWristX: (x: number) => void, onFist?: () => v
     downAt = null;
     tapped = false;
   });
-  // Tap turns tracking on (or retries), then toggles between the live feed and
-  // the compact pill. Tracking keeps running while minimized; only the preview hides.
-  panel.addEventListener("click", (e) => {
-    if (e.detail !== 0 && !tapped) {
-      return;
-    }
-    tapped = false;
-    if (state === "off" || state === "error") {
-      enable();
-    } else if (state === "live") {
-      panel.dataset.min = panel.dataset.min === "1" ? "0" : "1";
-      syncPanel();
-    }
-  });
-
   // Resources of the running attempt. `release()` bumps `attempt`, so a start()
   // still awaiting the model or the camera cannot revive a failed/retried panel.
   let attempt = 0;
@@ -157,19 +166,21 @@ export function createHandCamera(onWristX: (x: number) => void, onFist?: () => v
   let stream: MediaStream | null = null;
   let recognizer: GestureRecognizer | null = null;
   let drawingUtils: DrawingUtils | null = null;
+  // Stream/video listeners of the running attempt; aborted wholesale on release.
+  let listeners = new AbortController();
 
-  function release(): void {
+  const release = (): void => {
     attempt += 1;
     if (rafId !== null) {
       cancelAnimationFrame(rafId);
     }
     rafId = null;
+    listeners.abort();
+    listeners = new AbortController();
     for (const track of stream?.getTracks() ?? []) {
-      track.removeEventListener("ended", onStreamEnded);
       track.stop();
     }
     stream = null;
-    video.removeEventListener("error", onVideoError);
     video.pause();
     video.srcObject = null;
     recognizer?.close();
@@ -177,23 +188,23 @@ export function createHandCamera(onWristX: (x: number) => void, onFist?: () => v
     drawingUtils?.close();
     drawingUtils = null;
     canvas.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
-  }
+  };
 
-  function fail(cause: unknown): void {
+  const fail = (cause: unknown): void => {
     console.error("Error starting hand tracking:", cause);
     release();
     setState("error");
-  }
-  function onStreamEnded(): void {
+  };
+  const onStreamEnded = (): void => {
     fail(new Error("Camera stream ended"));
-  }
-  function onVideoError(): void {
+  };
+  const onVideoError = (): void => {
     if (video.error) {
       fail(video.error);
     }
-  }
+  };
 
-  async function start(id: number): Promise<void> {
+  const start = async (id: number): Promise<void> => {
     const vision = await import("@mediapipe/tasks-vision");
     const fileset = await vision.FilesetResolver.forVisionTasks(WASM_BASE);
     if (id !== attempt) {
@@ -221,9 +232,9 @@ export function createHandCamera(onWristX: (x: number) => void, onFist?: () => v
     }
     stream = media;
     for (const track of media.getTracks()) {
-      track.addEventListener("ended", onStreamEnded);
+      track.addEventListener("ended", onStreamEnded, { signal: listeners.signal });
     }
-    video.addEventListener("error", onVideoError);
+    video.addEventListener("error", onVideoError, { signal: listeners.signal });
     video.srcObject = media;
     await video.play();
     if (id !== attempt) {
@@ -268,14 +279,14 @@ export function createHandCamera(onWristX: (x: number) => void, onFist?: () => v
             ctx.save();
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             // numHands is 1, so the first hand is the only hand.
-            const hand = results.landmarks[0];
+            const [hand] = results.landmarks;
             if (hand) {
               drawing.drawConnectors(hand, vision.GestureRecognizer.HAND_CONNECTIONS, {
                 color: "#00FF00",
                 lineWidth: 5,
               });
               drawing.drawLandmarks(hand, { color: "#FF0000", lineWidth: 2 });
-              const wrist = hand[0];
+              const [wrist] = hand;
               if (wrist) {
                 lastHandAt = now;
                 onWristX(wrist.x);
@@ -293,12 +304,7 @@ export function createHandCamera(onWristX: (x: number) => void, onFist?: () => v
             ctx.restore();
           }
         }
-        const next: Tracking =
-          lastHandAt === null
-            ? "waiting"
-            : now - lastHandAt <= HAND_TIMEOUT_MS
-              ? "tracked"
-              : "lost";
+        const next = trackingAt(now, lastHandAt);
         if (next !== tracking) {
           tracking = next;
           syncPanel();
@@ -309,9 +315,19 @@ export function createHandCamera(onWristX: (x: number) => void, onFist?: () => v
       }
     };
     predictWebcam();
-  }
+  };
 
-  function enable(): void {
+  const run = async (id: number): Promise<void> => {
+    try {
+      await start(id);
+    } catch (error) {
+      if (id === attempt) {
+        fail(error);
+      }
+    }
+  };
+
+  const enable = (): void => {
     if (state === "loading" || state === "live") {
       return;
     }
@@ -320,10 +336,23 @@ export function createHandCamera(onWristX: (x: number) => void, onFist?: () => v
     panel.dataset.min = "0";
     const id = attempt;
     setState("loading");
-    start(id).catch((error: unknown) => {
-      if (id === attempt) fail(error);
-    });
-  }
+    void run(id);
+  };
+
+  // Tap turns tracking on (or retries), then toggles between the live feed and
+  // the compact pill. Tracking keeps running while minimized; only the preview hides.
+  panel.addEventListener("click", (e) => {
+    if (e.detail !== 0 && !tapped) {
+      return;
+    }
+    tapped = false;
+    if (state === "off" || state === "error") {
+      enable();
+    } else if (state === "live") {
+      panel.dataset.min = panel.dataset.min === "1" ? "0" : "1";
+      syncPanel();
+    }
+  });
 
   return { enable };
-}
+};

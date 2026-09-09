@@ -10,8 +10,9 @@ import { ARENA_BOT_FILL, KILL_GOAL_FFA, SHOP_RADIUS, SIM_DT, SNAPSHOT_HZ } from 
 import { CHAMP_BY_ID, DEFAULT_CHAMP, valAt } from "../data/champions";
 import { HALF, isInThrone, SPAWNS } from "../data/map";
 import { terrainHeight } from "../data/terrain";
-import { ALL_ABILITY_KEYS, type AbilityKey, type Unit, type World } from "../sim/types";
-import { requestCast, useItemActive } from "../sim/abilities";
+import { ALL_ABILITY_KEYS } from "../sim/types";
+import type { AbilityKey, Unit, World } from "../sim/types";
+import { requestCast, activateItem } from "../sim/abilities";
 import {
   buyItem,
   createWorld,
@@ -21,18 +22,15 @@ import {
   step,
   tryJump,
 } from "../sim/world";
-import { INTENT_EVENT, MULTIPLAYER_HOST, PARTY, type Intent } from "../net/protocol";
+import { INTENT_EVENT, MULTIPLAYER_HOST, PARTY } from "../net/protocol";
+import type { Intent } from "../net/protocol";
 import { applySnapshot, emptyGuestWorld, encodeWorld, isSnapshot } from "../net/snapshot";
-import {
-  humanRoster,
-  reconcileHostHeroes,
-  restoreHostState,
-  type HeroPick,
-  type OnlineSeat,
-} from "../net/host-state";
+import { humanRoster, reconcileHostHeroes, restoreHostState } from "../net/host-state";
+import type { HeroPick, OnlineSeat } from "../net/host-state";
 import type { Vec2 } from "../sim/math";
-import { isJsonNumber, isJsonObject, isJsonString, type JsonValue } from "../data/json";
-import { Controls } from "../input/controls";
+import { isJsonNumber, isJsonObject, isJsonString } from "../data/json";
+import type { JsonObject, JsonValue } from "../data/json";
+import type { Controls } from "../input/controls";
 import type { TouchControls } from "../input/touch";
 import type { ModelLibrary } from "../render/models";
 import type { View } from "../render/view";
@@ -43,11 +41,16 @@ import type { Audio } from "../render/audio";
 import { Hud } from "../render/hud";
 import { Hints } from "../render/hints";
 
-const INTRO_S = 2.4; // camera fly-in length; solo holds the sim this long (NEVER online)
-const CAST_BUFFER_MS = 350; // mirror of the sim's cast-buffer window — deny-feedback only
-const MUSIC_SAMPLE_S = 0.25; // intensity driver runs at 4Hz
-const MUSIC_DROP_HYST_S = 4; // intensity only drops after 4s of sustained calm
-const JOINING_TEXT = `JOINING — FIRST TO ${KILL_GOAL_FFA} KILLS`; // online intro banner
+// camera fly-in length; solo holds the sim this long (NEVER online)
+const INTRO_S = 2.4;
+// mirror of the sim's cast-buffer window — deny-feedback only
+const CAST_BUFFER_MS = 350;
+// intensity driver runs at 4Hz
+const MUSIC_SAMPLE_S = 0.25;
+// intensity only drops after 4s of sustained calm
+const MUSIC_DROP_HYST_S = 4;
+// online intro banner
+const JOINING_TEXT = `JOINING — FIRST TO ${KILL_GOAL_FFA} KILLS`;
 
 export interface SceneOpts {
   champId: string;
@@ -65,6 +68,64 @@ type Online =
   | { kind: "host"; id: string; lastFxSeq: number | null; fxSeqOut: number };
 type Seated = Extract<Online, { kind: "guest" | "host" }>;
 
+const sharedCounter = (value: JsonValue | undefined): number =>
+  isJsonNumber(value) && Number.isSafeInteger(value) && value >= 0 ? value : 0;
+
+const clamp1 = (n: number): number => (n < -1 ? -1 : Math.min(1, n));
+const clampArena = (n: number): number => Math.min(HALF, Math.max(-HALF, n));
+const num = (n: JsonValue | undefined): number => (isJsonNumber(n) ? n : 0);
+const numArena = (n: JsonValue | undefined): number => clampArena(num(n));
+
+const countdownAt = (t: number): number => {
+  if (t < 0.8) {
+    return 3;
+  }
+  if (t < 1.6) {
+    return 2;
+  }
+  return t < INTRO_S ? 1 : 0;
+};
+
+const leaderUnit = (w: World): Unit | null => {
+  if (w.leaderId === null) {
+    return null;
+  }
+  for (const u of w.units.values()) {
+    if (u.kind === "hero" && u.team === w.leaderId) {
+      return u;
+    }
+  }
+  return null;
+};
+
+/** Which side of the result the local player is on (spectators are unassigned). */
+const matchOutcome = (me: Unit | null, winner: string | null): "won" | "lost" | "unassigned" => {
+  if (!me || !winner) {
+    return "unassigned";
+  }
+  return winner === me.team ? "won" : "lost";
+};
+
+/** Champion for quick-start boots: ?champ → localStorage["ba-champ"] → default.
+ *  Both sources are validated against the roster so a stale/typo'd id can never
+ *  crash the boot. The menu's START writes the localStorage key. */
+export const chosenChamp = (): string => {
+  const fromUrl = new URLSearchParams(location.search).get("champ");
+  if (fromUrl && CHAMP_BY_ID[fromUrl]) {
+    return fromUrl;
+  }
+  const stored = readPreference("ba-champ");
+  if (stored && CHAMP_BY_ID[stored]) {
+    return stored;
+  }
+  return DEFAULT_CHAMP;
+};
+
+interface MoveInput {
+  mv: Vec2;
+  attack: boolean;
+}
+
 export class GameScene {
   world: World;
   private net: MultiplayerClient | null = null;
@@ -76,7 +137,8 @@ export class GameScene {
   private acc = 0;
   private aimX = 0;
   private aimY = 1;
-  private aimInit = false; // seed the heading from spawn facing once
+  // seed the heading from spawn facing once
+  private aimInit = false;
   private champId: string;
   private name: string;
   private localId = "h-local";
@@ -84,7 +146,8 @@ export class GameScene {
   private hints: Hints;
   // intro fly-in + countdown (solo: 3-2-1-FIGHT; online: camera sweep only)
   private introTime = 0;
-  private lastCount = -1; // change-gate for count()/fight() one-shots
+  // change-gate for count()/fight() one-shots
+  private lastCount = -1;
   // music intensity driver (4Hz sample, 4s drop hysteresis)
   private musicClock = 0;
   private musicAcc = 0;
@@ -120,13 +183,20 @@ export class GameScene {
     }
   };
 
+  private view: View;
+  private controls: Controls;
+  private touch: TouchControls | null;
+
   constructor(
-    private view: View,
+    view: View,
     lib: ModelLibrary,
-    private controls: Controls,
+    controls: Controls,
     opts: SceneOpts,
-    private touch: TouchControls | null = null,
+    touch: TouchControls | null = null,
   ) {
+    this.view = view;
+    this.controls = controls;
+    this.touch = touch;
     this.champId = opts.champId;
     this.name = opts.name;
 
@@ -162,9 +232,11 @@ export class GameScene {
     this.worldView.setupBoss();
     this.environment = new Environment(view.scene, lib);
     this.environment.setup();
-    view.refreshShadows(); // scenery is final — bake the static shadow map once
+    // scenery is final — bake the static shadow map once
+    view.refreshShadows();
     this.fx = new Fx(view.scene, view);
-    this.fx.warm(view.renderer, view.camera); // compile the FX programs before the first cast
+    // compile the FX programs before the first cast
+    this.fx.warm(view.renderer, view.camera);
     this.fx.localId = this.localId;
     // ownerId flavor of the local identity ("local" offline, connId online —
     // refreshed per-frame in tickOnline once the connection knows itself)
@@ -204,7 +276,8 @@ export class GameScene {
     // NB: the old fixed-center crosshair div lived here; superseded by the
     // HUD's #ba-reticle (hit-confirm ticks, fed by fx.localHits).
 
-    view.startIntro(); // cinematic fly-in (both modes; only solo holds the sim)
+    // cinematic fly-in (both modes; only solo holds the sim)
+    view.startIntro();
     // Observe short transport gaps even when no render frame falls inside them.
     this.net?.subscribe(() => this.syncConnection());
   }
@@ -229,12 +302,14 @@ export class GameScene {
   // ── per-frame ──
   update(frameDt: number): void {
     this.guide.update(this.localUnit());
-    this.controls.update(this.controlsPaused || this.guide.open ? 0 : frameDt); // poll before any reads
+    // poll before any reads
+    this.controls.update(this.controlsPaused || this.guide.open ? 0 : frameDt);
     const inspect = this.controls.consumeGuide();
     if (inspect && !this.controlsPaused && !this.guide.open && this.world.phase === "playing") {
       this.guide.show(this.champId, this.localUnit());
     }
-    this.introTime += frameDt; // real-time clock for the fly-in/countdown
+    // real-time clock for the fly-in/countdown
+    this.introTime += frameDt;
     if (this.net) {
       this.tickOnline(frameDt);
     } else {
@@ -244,7 +319,8 @@ export class GameScene {
       this.guide.close();
     }
 
-    this.view.samplePerf(frameDt); // adaptive resolution (real, unscaled dt)
+    // adaptive resolution (real, unscaled dt)
+    this.view.samplePerf(frameDt);
     const me = this.localUnit();
     // Surviving guests can receive a fresh world after the host restarts. Clear
     // the old match's presentation before its first new FX batch is consumed.
@@ -266,7 +342,8 @@ export class GameScene {
       this.fx.audio.setListener(me.x, me.y, this.aimX, this.aimY);
       if (this.touch && me.champId !== this.boundChamp) {
         this.boundChamp = me.champId;
-        this.touch.bindChamp(me.champId); // icon backgrounds + keycaps, once
+        // icon backgrounds + keycaps, once
+        this.touch.bindChamp(me.champId);
       }
       this.feedTouchCooldowns(me);
     } else if (this.world.phase === "ended") {
@@ -294,10 +371,12 @@ export class GameScene {
       terrainHeight(cx, cy),
     );
     this.view.tickAura(this.world.gameTime);
-    this.environment.setLocalPos(cx, cy); // proximity-driven decor (fountain rims)
+    // proximity-driven decor (fountain rims)
+    this.environment.setLocalPos(cx, cy);
     if (me) {
       this.environment.setHomeSlot(me.slot);
-    } // own fountain never warns
+      // own fountain never warns
+    }
     this.environment.update(this.world.gameTime);
     this.view.render();
   }
@@ -339,7 +418,7 @@ export class GameScene {
     while (this.acc >= SIM_DT && n < 5 && this.world.phase === "playing") {
       step(this.world);
       this.acc -= SIM_DT;
-      n++;
+      n += 1;
     }
   }
 
@@ -349,14 +428,19 @@ export class GameScene {
     const t = this.introTime;
     if (t > INTRO_S + 1.2) {
       return;
-    } // countdown + FIGHT flash fully done
+      // countdown + FIGHT flash fully done
+    }
     if (this.net) {
       // online: the sim is live — no numerals, just the goal during the sweep
       this.hud.showIntro(t < 2 ? JOINING_TEXT : "");
       return;
     }
-    const n = t < 0.8 ? 3 : t < 1.6 ? 2 : t < INTRO_S ? 1 : 0;
-    this.hud.showIntro(n > 0 ? String(n) : t < INTRO_S + 0.5 ? "FIGHT!" : "");
+    const n = countdownAt(t);
+    if (n > 0) {
+      this.hud.showIntro(String(n));
+    } else {
+      this.hud.showIntro(t < INTRO_S + 0.5 ? "FIGHT!" : "");
+    }
     if (n !== this.lastCount) {
       this.lastCount = n;
       if (n > 0) {
@@ -374,9 +458,7 @@ export class GameScene {
     if (this.world.phase === "ended") {
       if (this.musicPhase !== "ended") {
         this.musicPhase = "ended";
-        this.fx.audio.resolveMatch(
-          me && this.world.winner ? (this.world.winner === me.team ? "won" : "lost") : "unassigned",
-        );
+        this.fx.audio.resolveMatch(matchOutcome(me, this.world.winner));
       }
       return;
     }
@@ -438,7 +520,7 @@ export class GameScene {
     if (w.leaderId !== null && w.leaderId === me.team) {
       return 2;
     }
-    const leader = this.leaderUnit(w);
+    const leader = leaderUnit(w);
     if (leader && leader.alive) {
       const dx = leader.x - me.x;
       const dy = leader.y - me.y;
@@ -471,18 +553,6 @@ export class GameScene {
     return false;
   }
 
-  private leaderUnit(w: World): Unit | null {
-    if (w.leaderId === null) {
-      return null;
-    }
-    for (const u of w.units.values()) {
-      if (u.kind === "hero" && u.team === w.leaderId) {
-        return u;
-      }
-    }
-    return null;
-  }
-
   /** Feed QWER cooldown sweeps to the touch buttons (int-percent change-gated). */
   private feedTouchCooldowns(me: Unit): void {
     const { touch } = this;
@@ -498,7 +568,8 @@ export class GameScene {
       touch.setReadiness(key, abilityReadiness(me, key, this.world.now));
       let pct = 0;
       if (slot.rank < 1) {
-        pct = 1; // locked reads as a full sweep (dimmed)
+        // locked reads as a full sweep (dimmed)
+        pct = 1;
       } else {
         const left = Math.max(0, (slot.readyAt - this.world.now) / 1000);
         if (left > 0) {
@@ -641,7 +712,7 @@ export class GameScene {
       while (this.acc >= SIM_DT && n < 5 && this.world.phase === "playing") {
         step(this.world);
         this.acc -= SIM_DT;
-        n++;
+        n += 1;
       }
       if (this.world.fx.length) {
         this.netFx.push(...this.world.fx);
@@ -696,43 +767,10 @@ export class GameScene {
       }
       return;
     }
-    let mv: Vec2;
-    let attack: boolean;
-    let castPoint: Vec2;
-
-    // FPS-centered aim for EVERY input source: heading comes from mouse turn,
-    // pad stick, or the touch look stick; the crosshair is dead center. The
-    // character faces the crosshair; camera trails behind.
-    if (!this.aimInit) {
-      this.controls.setYaw(Math.atan2(me.aimX, me.aimY));
-      this.aimInit = true;
-    }
-    if (this.touch?.active) {
-      // the right stick TURNS the view (pad-rate mapping into yaw/pitch)
-      // instead of aiming in screen space — so the camera tracks the aim
-      const look = this.touch.lookVec();
-      if (look) {
-        this.controls.applyStickLook(look.x, look.y, dt);
-      }
-    }
-    const yaw = this.controls.aimYaw();
-    this.aimX = Math.sin(yaw);
-    this.aimY = Math.cos(yaw);
-    if (this.touch?.active) {
-      const m = this.touch.moveVec(); // stick axes are y-down; up = forward
-      mv = this.rotateToAim(-m.y, m.x); // analog magnitude carries through
-      attack = this.touch.attackDown();
-    } else {
-      const { fwd, strafe } = this.controls.moveAxes();
-      mv = this.rotateToAim(fwd, strafe);
-      const l = Math.hypot(mv.x, mv.y);
-      if (l > 0) {
-        mv.x /= l;
-        mv.y /= l;
-      }
-      attack = this.controls.attackDown();
-    }
-    castPoint = { x: me.x + this.aimX * 8, y: me.y + this.aimY * 8 };
+    this.readAim(me, dt);
+    const { mv, attack: attackHeld } = this.readMove();
+    let attack = attackHeld;
+    const castPoint: Vec2 = { x: me.x + this.aimX * 8, y: me.y + this.aimY * 8 };
 
     // JUMP ability: while AIRBORNE an LMB-edge casts the leaping strike and
     // suppresses that frame's basic (a grounded click stays a normal attack).
@@ -745,22 +783,9 @@ export class GameScene {
     if (lmbJump || touchJump) {
       if (lmbJump) {
         attack = false;
-      } // resolve the ambiguous airborne LMB toward JUMP
-      if (host) {
-        requestCast(this.world, me, "JUMP", {
-          dir: { x: this.aimX, y: this.aimY },
-          point: castPoint,
-        });
-      } else {
-        this.net?.sendEvent(INTENT_EVENT, {
-          ax: this.aimX,
-          ay: this.aimY,
-          key: "JUMP",
-          kind: "cast",
-          px: castPoint.x,
-          py: castPoint.y,
-        } satisfies Intent);
+        // resolve the ambiguous airborne LMB toward JUMP
       }
+      this.dispatchCast(host, me, "JUMP", { x: this.aimX, y: this.aimY }, castPoint);
     }
 
     if (host) {
@@ -776,6 +801,68 @@ export class GameScene {
       } satisfies Intent);
     }
 
+    this.readAbilities(me, host, castPoint);
+    this.readHop(me, host);
+    this.readDash(me, host, mv, castPoint);
+    this.readItems(me, host, castPoint);
+    this.readBuy();
+  }
+
+  /** FPS-centered aim for EVERY input source: heading comes from mouse turn,
+   *  pad stick, or the touch look stick; the crosshair is dead center. The
+   *  character faces the crosshair; camera trails behind. */
+  private readAim(me: Unit, dt: number): void {
+    if (!this.aimInit) {
+      this.controls.setYaw(Math.atan2(me.aimX, me.aimY));
+      this.aimInit = true;
+    }
+    if (this.touch?.active) {
+      // the right stick TURNS the view (pad-rate mapping into yaw/pitch)
+      // instead of aiming in screen space — so the camera tracks the aim
+      const look = this.touch.lookVec();
+      if (look) {
+        this.controls.applyStickLook(look.x, look.y, dt);
+      }
+    }
+    const yaw = this.controls.aimYaw();
+    this.aimX = Math.sin(yaw);
+    this.aimY = Math.cos(yaw);
+  }
+
+  private readMove(): MoveInput {
+    if (this.touch?.active) {
+      // stick axes are y-down; up = forward
+      const m = this.touch.moveVec();
+      // analog magnitude carries through
+      return { attack: this.touch.attackDown(), mv: this.rotateToAim(-m.y, m.x) };
+    }
+    const { fwd, strafe } = this.controls.moveAxes();
+    const mv = this.rotateToAim(fwd, strafe);
+    const l = Math.hypot(mv.x, mv.y);
+    if (l > 0) {
+      mv.x /= l;
+      mv.y /= l;
+    }
+    return { attack: this.controls.attackDown(), mv };
+  }
+
+  /** Host casts through the sim's input buffer; a guest sends the intent. */
+  private dispatchCast(host: boolean, me: Unit, key: AbilityKey, dir: Vec2, point: Vec2): void {
+    if (host) {
+      requestCast(this.world, me, key, { dir, point });
+    } else {
+      this.net?.sendEvent(INTENT_EVENT, {
+        ax: dir.x,
+        ay: dir.y,
+        key,
+        kind: "cast",
+        px: point.x,
+        py: point.y,
+      } satisfies Intent);
+    }
+  }
+
+  private readAbilities(me: Unit, host: boolean, castPoint: Vec2): void {
     const keys = [...this.controls.consumeAbilities(), ...(this.touch?.consumeAbilities() ?? [])];
     for (const key of keys) {
       // deny feedback is a pre-check (locked / beyond the buffer window) — a
@@ -784,21 +871,12 @@ export class GameScene {
       if (this.wouldDeny(me, key)) {
         this.fx.audio.castDeny();
       }
-      if (host) {
-        requestCast(this.world, me, key, { dir: { x: this.aimX, y: this.aimY }, point: castPoint });
-      } else {
-        this.net?.sendEvent(INTENT_EVENT, {
-          ax: this.aimX,
-          ay: this.aimY,
-          key,
-          kind: "cast",
-          px: castPoint.x,
-          py: castPoint.y,
-        } satisfies Intent);
-      }
+      this.dispatchCast(host, me, key, { x: this.aimX, y: this.aimY }, castPoint);
     }
+  }
 
-    // Space / touch HOP: evasive hop (drain both edges every frame)
+  /** Space / touch HOP: evasive hop (drain both edges every frame). */
+  private readHop(me: Unit, host: boolean): void {
     const kbJump = this.controls.consumeJump();
     const tJump = this.touch?.consumeJump() ?? false;
     if (kbJump || tJump) {
@@ -808,47 +886,43 @@ export class GameScene {
         this.net?.sendEvent(INTENT_EVENT, { kind: "jump" } satisfies Intent);
       }
     }
+  }
 
-    // Shift / touch DASH: cast the hero's DASH ability (mobility + i-frames).
-    // It goes in the MOVEMENT (arrow) direction — where you're steering — and
-    // only falls back to the aim direction when standing still.
+  /** Shift / touch DASH: cast the hero's DASH ability (mobility + i-frames).
+   *  It goes in the MOVEMENT (arrow) direction — where you're steering — and
+   *  only falls back to the aim direction when standing still. */
+  private readDash(me: Unit, host: boolean, mv: Vec2, castPoint: Vec2): void {
     const dash = this.controls.consumeDash() || (this.touch?.consumeDash() ?? false);
     if (dash) {
       const dashDir = mv.x !== 0 || mv.y !== 0 ? mv : { x: this.aimX, y: this.aimY };
-      if (host) {
-        requestCast(this.world, me, "DASH", { dir: dashDir, point: castPoint });
-      } else {
-        this.net?.sendEvent(INTENT_EVENT, {
-          ax: dashDir.x,
-          ay: dashDir.y,
-          key: "DASH",
-          kind: "cast",
-          px: castPoint.x,
-          py: castPoint.y,
-        } satisfies Intent);
-      }
+      this.dispatchCast(host, me, "DASH", dashDir, castPoint);
     }
+  }
 
-    // item actives: 5–0 keys + belt-chip taps (the only touch path to items)
+  /** Item actives: 5–0 keys + belt-chip taps (the only touch path to items). */
+  private readItems(me: Unit, host: boolean, castPoint: Vec2): void {
     for (const slot of [...this.controls.consumeItems(), ...this.hud.consumeItemTaps()]) {
       if (host) {
-        useItemActive(this.world, me, slot, castPoint);
+        activateItem(this.world, me, slot, castPoint);
       } else {
         this.net?.sendEvent(INTENT_EVENT, {
           kind: "useItem",
-          slot,
           px: castPoint.x,
           py: castPoint.y,
+          slot,
         } satisfies Intent);
       }
     }
+  }
 
+  private readBuy(): void {
     const buy = this.controls.consumeBuy() || (this.touch?.consumeBuy() ?? false);
     if (buy && (this.canShop() || this.hud.isShopOpen)) {
       this.hud.toggleShop();
       if (this.hud.isShopOpen) {
         this.hints.notifyShopOpened();
-      } // early-dismiss the shop hint
+        // early-dismiss the shop hint
+      }
     }
   }
 
@@ -873,7 +947,7 @@ export class GameScene {
     if (this.amHost) {
       buyItem(this.world, me, itemId);
     } else {
-      this.net?.sendEvent(INTENT_EVENT, { kind: "buy", itemId } satisfies Intent);
+      this.net?.sendEvent(INTENT_EVENT, { itemId, kind: "buy" } satisfies Intent);
     }
   }
 
@@ -904,26 +978,35 @@ export class GameScene {
       }
       return;
     }
+    const u = this.intentUnit(net, from);
+    if (u) {
+      this.applyIntent(u, intent);
+    }
+  }
+
+  /** The hero a sender's gameplay intent may drive right now: only while this
+   *  client hosts a live round, the hero is alive, and (for the host's own
+   *  seat) the pause tablet is not up. */
+  private intentUnit(net: MultiplayerClient, from: string): Unit | null {
     if (!this.amHost || this.world.phase !== "playing") {
-      return;
+      return null;
     }
     if (from === net.playerId && this.controlsPaused) {
-      return;
+      return null;
     }
     const u = this.world.units.get(`h-${from}`);
-    if (!u || !u.alive) {
-      return;
-    }
-    const f = (n: JsonValue | undefined): number => (isJsonNumber(n) ? n : 0);
-    const fc = (n: JsonValue | undefined): number => clampArena(f(n));
+    return u && u.alive ? u : null;
+  }
+
+  private applyIntent(u: Unit, intent: JsonObject): void {
     switch (intent["kind"]) {
       case "input": {
         setHeroInput(
           u,
-          clamp1(f(intent["mx"])),
-          clamp1(f(intent["my"])),
-          clamp1(f(intent["ax"])),
-          clamp1(f(intent["ay"])),
+          clamp1(num(intent["mx"])),
+          clamp1(num(intent["my"])),
+          clamp1(num(intent["ax"])),
+          clamp1(num(intent["ay"])),
           intent["attack"] === true,
         );
         break;
@@ -936,8 +1019,8 @@ export class GameScene {
           break;
         }
         requestCast(this.world, u, key, {
-          dir: { x: clamp1(f(intent["ax"])), y: clamp1(f(intent["ay"])) },
-          point: { x: fc(intent["px"]), y: fc(intent["py"]) },
+          dir: { x: clamp1(num(intent["ax"])), y: clamp1(num(intent["ay"])) },
+          point: { x: numArena(intent["px"]), y: numArena(intent["py"]) },
         });
         break;
       }
@@ -949,14 +1032,17 @@ export class GameScene {
         break;
       }
       case "useItem": {
-        useItemActive(this.world, u, f(intent["slot"]), {
-          x: fc(intent["px"]),
-          y: fc(intent["py"]),
+        activateItem(this.world, u, num(intent["slot"]), {
+          x: numArena(intent["px"]),
+          y: numArena(intent["py"]),
         });
         break;
       }
       case "jump": {
         tryJump(this.world, u);
+        break;
+      }
+      default: {
         break;
       }
     }
@@ -979,7 +1065,8 @@ export class GameScene {
     }
     this.snapAcc = 0;
     seat.fxSeqOut += 1;
-    seat.lastFxSeq = seat.fxSeqOut; // our own rendered batch must never echo on reconnect
+    // our own rendered batch must never echo on reconnect
+    seat.lastFxSeq = seat.fxSeqOut;
     net.updateSharedState({
       fx: this.netFx,
       fxSeq: seat.fxSeqOut,
@@ -1084,12 +1171,12 @@ export class GameScene {
       setHeroInput(me, 0, 0, me.aimX, me.aimY, false);
     } else {
       this.net?.sendEvent(INTENT_EVENT, {
+        attack: false,
+        ax: me.aimX,
+        ay: me.aimY,
         kind: "input",
         mx: 0,
         my: 0,
-        ax: me.aimX,
-        ay: me.aimY,
-        attack: false,
       } satisfies Intent);
     }
     this.neutralPending = false;
@@ -1125,15 +1212,15 @@ export class GameScene {
       complete: this.world.phase === "ended",
       online: this.net
         ? {
-            connection: this.net.connectionStatus,
-            playerId: this.net.playerId,
-            hostId: this.net.hostId,
             authority: this.amHost,
+            connection: this.net.connectionStatus,
+            hostId: this.net.hostId,
             matchGeneration: this.matchGeneration,
+            playerId: this.net.playerId,
           }
         : null,
       phase: this.world.phase,
-      player: me ? { x: me.x, y: me.y, hp: me.hp, alive: me.alive } : null,
+      player: me ? { alive: me.alive, hp: me.hp, x: me.x, y: me.y } : null,
       score: me?.kills ?? 0,
     };
   }
@@ -1162,34 +1249,12 @@ export class GameScene {
   }
 }
 
-function sharedCounter(value: JsonValue | undefined): number {
-  return isJsonNumber(value) && Number.isSafeInteger(value) && value >= 0 ? value : 0;
-}
-
-const clamp1 = (n: number): number => (n < -1 ? -1 : Math.min(1, n));
-const clampArena = (n: number): number => (n < -HALF ? -HALF : n > HALF ? HALF : n);
-
-/** Champion for quick-start boots: ?champ → localStorage["ba-champ"] → default.
- *  Both sources are validated against the roster so a stale/typo'd id can never
- *  crash the boot. The menu's START writes the localStorage key. */
-export function chosenChamp(): string {
-  const fromUrl = new URLSearchParams(location.search).get("champ");
-  if (fromUrl && CHAMP_BY_ID[fromUrl]) {
-    return fromUrl;
-  }
-  const stored = readPreference("ba-champ");
-  if (stored && CHAMP_BY_ID[stored]) {
-    return stored;
-  }
-  return DEFAULT_CHAMP;
-}
-
 /** Player name for quick-start boots: ?name → localStorage["ba-name"] → "Player". */
-export function chosenName(): string {
+export const chosenName = (): string => {
   const fromUrl = new URLSearchParams(location.search).get("name")?.trim();
   if (fromUrl) {
     return fromUrl.slice(0, 14);
   }
   const stored = readPreference("ba-name")?.trim();
   return stored ? stored.slice(0, 14) : "Player";
-}
+};

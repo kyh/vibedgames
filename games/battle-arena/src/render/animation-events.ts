@@ -24,10 +24,10 @@ export class AnimationEvents {
     const cast = castChanged && this.cast > 0 && castAge >= 0 && castAge < 520;
     const attack = attackChanged && this.attack > 0 && attackAge >= 0 && attackAge < 340;
     if (cast && (!attack || this.cast >= this.attack)) {
-      return { kind: "cast", at: this.cast, age: castAge };
+      return { age: castAge, at: this.cast, kind: "cast" };
     }
     if (attack) {
-      return { kind: "attack", at: this.attack, age: attackAge };
+      return { age: attackAge, at: this.attack, kind: "attack" };
     }
     return null;
   }
@@ -36,11 +36,11 @@ export class AnimationEvents {
 /** Late snapshots enter the authored motion at its elapsed point. Remaining
  * ownership uses the original event deadline; playback then follows render dt
  * so intentional hit-stop still slows the character exactly as before. */
-export function animationWindow(duration: number, speed: number, event: AnimationEvent) {
+export const animationWindow = (duration: number, speed: number, event: AnimationEvent) => {
   const window = Math.min(2500, Math.max(240, (duration / speed) * 1000));
   return {
     offset: Math.min(duration, (event.age * speed) / 1000),
     remaining: Math.max(0, window - event.age),
     until: event.at + window,
   };
-}
+};

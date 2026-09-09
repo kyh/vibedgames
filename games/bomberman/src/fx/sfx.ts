@@ -2,6 +2,7 @@
 // user gesture; mute and pause silence every live voice rather than queue cues.
 import { RoundScore, scoreNotes } from "./round-score";
 import type { RoundScoreMode } from "./round-score";
+
 export type { RoundScoreMode } from "./round-score";
 
 const STORAGE_KEY = "bomberman:sound";
@@ -24,6 +25,20 @@ interface Voice {
   role: Role;
 }
 
+const RESULT_NOTES: Record<RoundOutcome, readonly number[]> = {
+  draw: [392, 440, 392],
+  lost: [330, 260, 196],
+  won: [440, 550, 660],
+};
+
+const readSoundPreference = (): boolean => {
+  try {
+    return localStorage.getItem(STORAGE_KEY) !== "1";
+  } catch {
+    return true;
+  }
+};
+
 let muted = readSoundPreference();
 let paused = false;
 let graph: Graph | null = null;
@@ -33,85 +48,20 @@ let scoreMode: RoundScoreMode = "silent";
 const score = new RoundScore();
 const voices = new Set<Voice>();
 
-function readSoundPreference(): boolean {
-  try {
-    return localStorage.getItem(STORAGE_KEY) !== "1";
-  } catch {
-    return true;
-  }
-}
-
-export function isMuted(): boolean {
-  return muted;
-}
-
-export function setMuted(value: boolean): void {
-  muted = value;
-  try {
-    localStorage.setItem(STORAGE_KEY, value ? "0" : "1");
-  } catch {
-    /* Optional persistence. */
-  }
-  syncContext();
-}
-
-export function pauseAudio(value: boolean): void {
-  paused = value;
-  syncContext();
-}
-
-/** Gesture entry point (Play): creates the context while activation is fresh. */
-export function unlockAudio(): void {
-  syncContext();
-}
-
-function syncContext(): void {
-  if (muted || paused) {
-    silence();
-  }
-  if (muted) {
+const release = (voice: Voice): void => {
+  if (!voices.delete(voice)) {
     return;
   }
-  if (!graph) {
-    // Creating a context outside user activation only logs an autoplay
-    // warning; the next unmute/Play tap creates it instead.
-    if (window.navigator.userActivation?.isActive === false || !("AudioContext" in window)) {
-      return;
-    }
-    try {
-      const context = new AudioContext();
-      const master = context.createGain();
-      master.connect(context.destination);
-      const buses = {
-        background: context.createGain(),
-        personal: context.createGain(),
-        result: context.createGain(),
-        routine: context.createGain(),
-      };
-      for (const bus of Object.values(buses)) {
-        bus.connect(master);
-      }
-      graph = { buses, context, master, noise: null };
-    } catch {
-      return;
-    }
+  // Every source has its end scheduled at creation and a second stop() throws,
+  // so a forced release only unplugs it: silent at once, reaped on schedule.
+  voice.source.disconnect();
+  for (const node of voice.nodes) {
+    node.disconnect();
   }
-  graph.master.gain.setValueAtTime(paused ? 0 : 1, graph.context.currentTime);
-  // Browsers hold a pre-activation resume() until the next gesture, which is the behaviour we want.
-  if (!paused && graph.context.state === "suspended") {
-    void graph.context.resume().catch(() => undefined);
-  }
-}
-
-export function resetRoundAudio(): void {
-  silence();
-  scoreMode = "silent";
-  lastBlast = -Infinity;
-  outcome = null;
-}
+};
 
 /** Stop every voice and clear bus automation (ducking) so nothing leaks past a mute/pause/reset. */
-function silence(): void {
+const silence = (): void => {
   for (const voice of voices) {
     release(voice);
   }
@@ -126,33 +76,102 @@ function silence(): void {
     bus.gain.cancelScheduledValues(at);
     bus.gain.setValueAtTime(1, at);
   }
-}
+};
 
-function release(voice: Voice): void {
-  if (!voices.delete(voice)) {
+const createGraph = (): Graph | null => {
+  try {
+    const context = new AudioContext();
+    const master = context.createGain();
+    master.connect(context.destination);
+    const buses = {
+      background: context.createGain(),
+      personal: context.createGain(),
+      result: context.createGain(),
+      routine: context.createGain(),
+    };
+    for (const bus of Object.values(buses)) {
+      bus.connect(master);
+    }
+    return { buses, context, master, noise: null };
+  } catch {
+    return null;
+  }
+};
+
+// Browsers hold a pre-activation resume() until the next gesture, which is the behaviour we want.
+const resume = async (context: AudioContext): Promise<void> => {
+  try {
+    await context.resume();
+  } catch {
+    // The next gesture retries.
+  }
+};
+
+const syncContext = (): void => {
+  if (muted || paused) {
+    silence();
+  }
+  if (muted) {
     return;
   }
-  // Every source has its end scheduled at creation and a second stop() throws,
-  // so a forced release only unplugs it: silent at once, reaped on schedule.
-  voice.source.disconnect();
-  for (const node of voice.nodes) {
-    node.disconnect();
+  if (!graph) {
+    // Creating a context outside user activation only logs an autoplay
+    // warning; the next unmute/Play tap creates it instead.
+    if (window.navigator.userActivation?.isActive === false || !("AudioContext" in window)) {
+      return;
+    }
+    graph = createGraph();
+    if (!graph) {
+      return;
+    }
   }
-}
+  graph.master.gain.setValueAtTime(paused ? 0 : 1, graph.context.currentTime);
+  if (!paused && graph.context.state === "suspended") {
+    void resume(graph.context);
+  }
+};
 
-function own(source: AudioScheduledSourceNode, nodes: AudioNode[], role: Role): void {
+export const isMuted = (): boolean => muted;
+
+export const setMuted = (value: boolean): void => {
+  muted = value;
+  try {
+    localStorage.setItem(STORAGE_KEY, value ? "0" : "1");
+  } catch {
+    /* Optional persistence. */
+  }
+  syncContext();
+};
+
+export const pauseAudio = (value: boolean): void => {
+  paused = value;
+  syncContext();
+};
+
+/** Gesture entry point (Play): creates the context while activation is fresh. */
+export const unlockAudio = (): void => {
+  syncContext();
+};
+
+export const resetRoundAudio = (): void => {
+  silence();
+  scoreMode = "silent";
+  lastBlast = -Infinity;
+  outcome = null;
+};
+
+const own = (source: AudioScheduledSourceNode, nodes: AudioNode[], role: Role): void => {
   const voice: Voice = { nodes, role, source };
   voices.add(voice);
   source.addEventListener("ended", () => release(voice), { once: true });
-}
+};
 
-function ready(): Graph | null {
-  return !muted && !paused && graph?.context.state === "running" ? graph : null;
-}
+const ready = (): Graph | null =>
+  !muted && !paused && graph?.context.state === "running" ? graph : null;
 
 /** Reserve a whole phrase before creating nodes. Personal and result cues
  * outrank ambience: they evict the oldest expendable voices to fit. */
-function admit(size: number, role: Role): Graph | null {
+const admit = (size: number, role: Role): Graph | null => {
   const current = ready();
   if (!current) {
     return null;
@@ -160,7 +179,9 @@ function admit(size: number, role: Role): Graph | null {
   if (role === "background") {
     let background = 0;
     for (const voice of voices) {
-      if (voice.role === "background") background++;
+      if (voice.role === "background") {
+        background += 1;
+      }
     }
     if (background + size > BACKGROUND_LIMIT) {
       return null;
@@ -183,15 +204,23 @@ function admit(size: number, role: Role): Graph | null {
     }
   }
   return current;
-}
+};
 
-function stopBackground(): void {
+const stopBackground = (): void => {
   for (const voice of voices) {
-    if (voice.role === "background") release(voice);
+    if (voice.role === "background") {
+      release(voice);
+    }
   }
-}
+};
 
-function route(current: Graph, gain: GainNode, nodes: AudioNode[], pan: number, role: Role): void {
+const route = (
+  current: Graph,
+  gain: GainNode,
+  nodes: AudioNode[],
+  pan: number,
+  role: Role,
+): void => {
   const bus = current.buses[role];
   if (pan === 0) {
     gain.connect(bus);
@@ -201,9 +230,9 @@ function route(current: Graph, gain: GainNode, nodes: AudioNode[], pan: number, 
   panner.pan.value = pan;
   nodes.push(panner);
   gain.connect(panner).connect(bus);
-}
+};
 
-function tone(
+const tone = (
   current: Graph,
   role: Role,
   frequency: number,
@@ -213,7 +242,7 @@ function tone(
   delay = 0,
   pan = 0,
   strength = 1,
-): void {
+): void => {
   const ac = current.context;
   const oscillator = ac.createOscillator();
   oscillator.type = "triangle";
@@ -230,14 +259,14 @@ function tone(
   own(oscillator, nodes, role);
   oscillator.start(at);
   oscillator.stop(at + duration + 0.01);
-}
+};
 
-function rumble(current: Graph, strength: number, pan: number): void {
+const rumble = (current: Graph, strength: number, pan: number): void => {
   const ac = current.context;
   if (!current.noise) {
     current.noise = ac.createBuffer(1, Math.ceil(ac.sampleRate * 0.24), ac.sampleRate);
     const data = current.noise.getChannelData(0);
-    for (let i = 0; i < data.length; i++) {
+    for (let i = 0; i < data.length; i += 1) {
       data[i] = Math.random() * 2 - 1;
     }
   }
@@ -255,56 +284,11 @@ function rumble(current: Graph, strength: number, pan: number): void {
   own(source, nodes, "routine");
   source.start();
   source.stop(ac.currentTime + 0.25);
-}
-
-export const sfx = {
-  blast(spatial: BlastSound): void {
-    const strength = Math.max(0, Math.min(1, spatial.strength));
-    const pan = Math.max(-1, Math.min(1, spatial.pan));
-    if (!ready() || strength === 0) return;
-    // One punch per render batch; a chain still reads as one detonation.
-    const now = performance.now();
-    if (now - lastBlast < 65) return;
-    lastBlast = now;
-    const current = admit(2, "routine");
-    if (!current) return;
-    tone(current, "routine", 95, 35, 0.2, 0.17, 0, pan, strength);
-    rumble(current, strength, pan);
-  },
-  death(): void {
-    const current = admit(1, "personal");
-    if (current) tone(current, "personal", 330, 55, 0.3, 0.12);
-  },
-  pickup(): void {
-    const current = admit(2, "personal");
-    if (!current) return;
-    tone(current, "personal", 660, 850, 0.07, 0.1);
-    tone(current, "personal", 990, 1320, 0.12, 0.08, 0.07);
-  },
-  place(local: boolean): void {
-    const role: Role = local ? "personal" : "routine";
-    const current = admit(1, role);
-    if (current) tone(current, role, 150, 75, 0.07, 0.1);
-  },
-  win(result: RoundOutcome): void {
-    if (outcome !== null) return;
-    outcome = result;
-    score.reset();
-    scoreMode = "silent";
-    stopBackground();
-    const current = admit(3, "result");
-    if (!current) return;
-    duckForResult(current);
-    const notes =
-      result === "won" ? [440, 550, 660] : result === "lost" ? [330, 260, 196] : [392, 440, 392];
-    for (const [index, note] of notes.entries())
-      tone(current, "result", note, note, 0.16, 0.09, index * 0.1);
-  },
 };
 
 /** The result lands before the finishing blast/death in render order, so bus
  * automation ducks cues that are already playing AND the ones admitted next. */
-function duckForResult(current: Graph): void {
+const duckForResult = (current: Graph): void => {
   const at = current.context.currentTime;
   for (const role of ["routine", "personal"] satisfies Role[]) {
     const { gain } = current.buses[role];
@@ -314,9 +298,69 @@ function duckForResult(current: Graph): void {
     gain.setValueAtTime(level, at + 0.45);
     gain.linearRampToValueAtTime(1, at + 0.9);
   }
-}
+};
 
-function scoreNote(current: Graph, frequency: number): void {
+export const sfx = {
+  blast(spatial: BlastSound): void {
+    const strength = Math.max(0, Math.min(1, spatial.strength));
+    const pan = Math.max(-1, Math.min(1, spatial.pan));
+    if (!ready() || strength === 0) {
+      return;
+    }
+    // One punch per render batch; a chain still reads as one detonation.
+    const now = performance.now();
+    if (now - lastBlast < 65) {
+      return;
+    }
+    lastBlast = now;
+    const current = admit(2, "routine");
+    if (!current) {
+      return;
+    }
+    tone(current, "routine", 95, 35, 0.2, 0.17, 0, pan, strength);
+    rumble(current, strength, pan);
+  },
+  death(): void {
+    const current = admit(1, "personal");
+    if (current) {
+      tone(current, "personal", 330, 55, 0.3, 0.12);
+    }
+  },
+  pickup(): void {
+    const current = admit(2, "personal");
+    if (!current) {
+      return;
+    }
+    tone(current, "personal", 660, 850, 0.07, 0.1);
+    tone(current, "personal", 990, 1320, 0.12, 0.08, 0.07);
+  },
+  place(local: boolean): void {
+    const role: Role = local ? "personal" : "routine";
+    const current = admit(1, role);
+    if (current) {
+      tone(current, role, 150, 75, 0.07, 0.1);
+    }
+  },
+  win(result: RoundOutcome): void {
+    if (outcome !== null) {
+      return;
+    }
+    outcome = result;
+    score.reset();
+    scoreMode = "silent";
+    stopBackground();
+    const current = admit(3, "result");
+    if (!current) {
+      return;
+    }
+    duckForResult(current);
+    for (const [index, note] of RESULT_NOTES[result].entries()) {
+      tone(current, "result", note, note, 0.16, 0.09, index * 0.1);
+    }
+  },
+};
+
+const scoreNote = (current: Graph, frequency: number): void => {
   const ac = current.context;
   const at = ac.currentTime;
   const oscillator = ac.createOscillator();
@@ -334,10 +378,10 @@ function scoreNote(current: Graph, frequency: number): void {
   own(oscillator, [filter, gain], "background");
   oscillator.start(at);
   oscillator.stop(at + 0.23);
-}
+};
 
 /** Once per frame from the scene. A finished round never restarts its bed. */
-export function updateRoundScore(mode: RoundScoreMode, nowMs: number): void {
+export const updateRoundScore = (mode: RoundScoreMode, nowMs: number): void => {
   const next = outcome === null ? mode : "silent";
   if (next !== scoreMode) {
     stopBackground();
@@ -368,16 +412,14 @@ export function updateRoundScore(mode: RoundScoreMode, nowMs: number): void {
   for (const frequency of notes) {
     scoreNote(admitted, frequency);
   }
-}
+};
 
 /** Dev-console view (`window.__bb.audio()`). */
-export function audioDiagnostics() {
-  return {
-    muted,
-    outcome,
-    paused,
-    scoreMode,
-    state: graph?.context.state ?? "locked",
-    voices: voices.size,
-  };
-}
+export const audioDiagnostics = () => ({
+  muted,
+  outcome,
+  paused,
+  scoreMode,
+  state: graph?.context.state ?? "locked",
+  voices: voices.size,
+});

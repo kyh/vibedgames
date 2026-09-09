@@ -1,4 +1,5 @@
-import Phaser from "phaser";
+import { Game, Scale, WEBGL } from "phaser";
+import type { Types } from "phaser";
 import { setPauseHandlers } from "@repo/embed";
 
 import { CONTROLS } from "./controls";
@@ -20,21 +21,21 @@ declare global {
   }
 }
 
-const config: Phaser.Types.Core.GameConfig = {
+const config: Types.Core.GameConfig = {
   backgroundColor: "#c6ecff",
   parent: "game",
   pixelArt: true,
   scale: {
     // Fill the window; GameScene re-lays-out the backdrop + HUD on resize.
-    mode: Phaser.Scale.RESIZE,
-    width: "100%",
     height: "100%",
+    mode: Scale.RESIZE,
+    width: "100%",
   },
   scene: [BootScene, GameScene],
-  type: Phaser.WEBGL,
+  type: WEBGL,
 };
 
-const game = new Phaser.Game(config);
+const game = new Game(config);
 
 // Scale.RESIZE can read stale parent bounds when a resize lands while the tab
 // is hidden or the browser throttles events (tab switch, phone rotation): the

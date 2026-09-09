@@ -1,4 +1,4 @@
-import Phaser from "phaser";
+import { Scene, Textures } from "phaser";
 import { ACTION_SHEETS } from "../render/character-action";
 
 /** Source frame size of the generated player walk sheets (2x2 grid in a 512² image). */
@@ -7,7 +7,7 @@ const PLAYER_FRAME = 256;
 const EXPLO_FRAME = 128;
 const EXPLO_FRAMES = 16;
 
-export class BootScene extends Phaser.Scene {
+export class BootScene extends Scene {
   constructor() {
     super("Boot");
   }
@@ -47,13 +47,13 @@ export class BootScene extends Phaser.Scene {
     // Smooth the painted v2 props at the follow camera's fractional zoom; the
     // pixel-art character sheets and fire keep NEAREST.
     for (const key of ["floor", "wall", "crate", "bomb", "pow-bomb", "pow-fire", "pow-speed"]) {
-      this.textures.get(key).setFilter(Phaser.Textures.FilterMode.LINEAR);
+      this.textures.get(key).setFilter(Textures.FilterMode.LINEAR);
     }
 
     const mk = (key: string, sheet: string) => {
       this.anims.create({
         frameRate: 9,
-        frames: this.anims.generateFrameNumbers(sheet, { start: 0, end: 3 }),
+        frames: this.anims.generateFrameNumbers(sheet, { end: 3, start: 0 }),
         key,
         repeat: -1,
       });
@@ -64,21 +64,21 @@ export class BootScene extends Phaser.Scene {
 
     for (const sheet of ACTION_SHEETS) {
       const texture = this.textures.get(sheet.key);
-      texture.setFilter(Phaser.Textures.FilterMode.NEAREST);
-      sheet.frames.forEach((cut, index) => {
+      texture.setFilter(Textures.FilterMode.NEAREST);
+      for (const [index, cut] of sheet.frames.entries()) {
         const frame = texture.add(index, 0, cut.x, cut.y, cut.width, cut.height);
         if (!frame) {
-          return;
+          continue;
         }
         frame.customPivot = true;
         frame.pivotX = cut.feetX / cut.width;
         frame.pivotY = cut.feetY / cut.height;
-      });
+      }
     }
 
     this.anims.create({
       frameRate: 32,
-      frames: this.anims.generateFrameNumbers("explosion", { start: 0, end: EXPLO_FRAMES - 1 }),
+      frames: this.anims.generateFrameNumbers("explosion", { end: EXPLO_FRAMES - 1, start: 0 }),
       key: "explode",
       repeat: 0,
     });
@@ -96,8 +96,8 @@ export class BootScene extends Phaser.Scene {
     g.clear();
 
     // Broad, shallow contact under square props, lit from the upper left.
-    for (let inset = 0; inset < 4; inset++) {
-      g.fillStyle(0x101b1b, 0.07).fillRoundedRect(
+    for (let inset = 0; inset < 4; inset += 1) {
+      g.fillStyle(0x10_1b_1b, 0.07).fillRoundedRect(
         2 + inset,
         3 + inset,
         68 - inset * 2,
@@ -109,7 +109,7 @@ export class BootScene extends Phaser.Scene {
     g.clear();
 
     // Soft round particle for poofs/sparkles (concentric falloff).
-    for (let i = 6; i >= 1; i--) {
+    for (let i = 6; i >= 1; i -= 1) {
       g.fillStyle(0xff_ff_ff, 0.18).fillCircle(16, 16, (i / 6) * 14);
     }
     g.generateTexture("spark", 32, 32);
@@ -126,7 +126,7 @@ export class BootScene extends Phaser.Scene {
     g.clear();
 
     // Radial glow disc (additive) for powerup pedestals and bomb tells.
-    for (let i = 16; i >= 1; i--) {
+    for (let i = 16; i >= 1; i -= 1) {
       g.fillStyle(0xff_ff_ff, 0.05).fillCircle(64, 64, (i / 16) * 62);
     }
     g.generateTexture("glow", 128, 128);

@@ -22,10 +22,10 @@ interface ActionSheet {
 // the authored crouch depth.
 const DOWN: ActionSheet = {
   frames: [
-    { x: 0, y: 0, width: 670, height: 586, feetX: 344, feetY: 572 },
-    { x: 670, y: 0, width: 671, height: 586, feetX: 327, feetY: 573 },
-    { x: 0, y: 586, width: 670, height: 587, feetX: 346, feetY: 554 },
-    { x: 670, y: 586, width: 671, height: 587, feetX: 326, feetY: 553 },
+    { feetX: 344, feetY: 572, height: 586, width: 670, x: 0, y: 0 },
+    { feetX: 327, feetY: 573, height: 586, width: 671, x: 670, y: 0 },
+    { feetX: 346, feetY: 554, height: 587, width: 670, x: 0, y: 586 },
+    { feetX: 326, feetY: 553, height: 587, width: 671, x: 670, y: 586 },
   ],
   key: "player-place-down",
   scale: 54 / 563,
@@ -33,10 +33,10 @@ const DOWN: ActionSheet = {
 };
 const UP: ActionSheet = {
   frames: [
-    { x: 0, y: 0, width: 627, height: 627, feetX: 320, feetY: 494 },
-    { x: 627, y: 0, width: 627, height: 627, feetX: 282, feetY: 484 },
-    { x: 0, y: 627, width: 627, height: 627, feetX: 319, feetY: 482 },
-    { x: 627, y: 627, width: 627, height: 627, feetX: 291, feetY: 475 },
+    { feetX: 320, feetY: 494, height: 627, width: 627, x: 0, y: 0 },
+    { feetX: 282, feetY: 484, height: 627, width: 627, x: 627, y: 0 },
+    { feetX: 319, feetY: 482, height: 627, width: 627, x: 0, y: 627 },
+    { feetX: 291, feetY: 475, height: 627, width: 627, x: 627, y: 627 },
   ],
   key: "player-place-up",
   scale: 54 / 408,
@@ -44,10 +44,10 @@ const UP: ActionSheet = {
 };
 const SIDE: ActionSheet = {
   frames: [
-    { x: 0, y: 0, width: 627, height: 627, feetX: 300, feetY: 589 },
-    { x: 627, y: 0, width: 627, height: 627, feetX: 281, feetY: 589 },
-    { x: 0, y: 627, width: 627, height: 627, feetX: 322, feetY: 557 },
-    { x: 627, y: 627, width: 627, height: 627, feetX: 320, feetY: 561 },
+    { feetX: 300, feetY: 589, height: 627, width: 627, x: 0, y: 0 },
+    { feetX: 281, feetY: 589, height: 627, width: 627, x: 627, y: 0 },
+    { feetX: 322, feetY: 557, height: 627, width: 627, x: 0, y: 627 },
+    { feetX: 320, feetY: 561, height: 627, width: 627, x: 627, y: 627 },
   ],
   key: "player-place-side",
   scale: 54 / 530,
@@ -55,10 +55,10 @@ const SIDE: ActionSheet = {
 };
 const VICTORY: ActionSheet = {
   frames: [
-    { x: 0, y: 0, width: 661, height: 560, feetX: 350, feetY: 517 },
-    { x: 661, y: 0, width: 661, height: 560, feetX: 310, feetY: 516 },
-    { x: 0, y: 560, width: 661, height: 630, feetX: 350, feetY: 577 },
-    { x: 661, y: 560, width: 661, height: 630, feetX: 303, feetY: 577 },
+    { feetX: 350, feetY: 517, height: 560, width: 661, x: 0, y: 0 },
+    { feetX: 310, feetY: 516, height: 560, width: 661, x: 661, y: 0 },
+    { feetX: 350, feetY: 577, height: 630, width: 661, x: 0, y: 560 },
+    { feetX: 303, feetY: 577, height: 630, width: 661, x: 661, y: 560 },
   ],
   key: "player-victory",
   scale: 54 / 497,
@@ -66,6 +66,17 @@ const VICTORY: ActionSheet = {
 };
 
 export const ACTION_SHEETS: readonly ActionSheet[] = [DOWN, UP, SIDE, VICTORY];
+
+/** Left and right share one sheet; the render flips it. */
+const walkSheet = (dir: Dir): ActionSheet => {
+  if (dir === "up") {
+    return UP;
+  }
+  if (dir === "down") {
+    return DOWN;
+  }
+  return SIDE;
+};
 export const PLACE_ACTION_MS = 280;
 export const VICTORY_ACTION_MS = 720;
 
@@ -150,14 +161,7 @@ export class CharacterAction {
       this.interrupt();
       return null;
     }
-    const sheet =
-      action.kind === "victory"
-        ? VICTORY
-        : pose.dir === "up"
-          ? UP
-          : pose.dir === "down"
-            ? DOWN
-            : SIDE;
+    const sheet = action.kind === "victory" ? VICTORY : walkSheet(pose.dir);
     const duration = action.kind === "place" ? PLACE_ACTION_MS : VICTORY_ACTION_MS;
     return {
       flip: action.kind === "place" && pose.dir === "left",

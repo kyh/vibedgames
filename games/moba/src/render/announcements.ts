@@ -1,7 +1,8 @@
 // The centre-screen objective banner: one notice shows at a time, higher
 // priorities interrupt, and a small queue holds the rest until they expire.
 
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { Math as PhaserMath } from "phaser";
 
 import type { ObjectiveNotice } from "../scenes/game-scene";
 import { FONT } from "./font";
@@ -14,6 +15,10 @@ const NOTICE_PRIORITY = { ending: 3, major: 2, objective: 1 } satisfies Record<
 const NOTICE_LIFETIME = 14_000;
 const SHOW_MS = 3900;
 const QUEUE_CAP = 3;
+const TONE_COLORS = { bad: "#ffb0a4", good: "#9bf0b4", neutral: "#fff3c4" } satisfies Record<
+  ObjectiveNotice["tone"],
+  string
+>;
 
 interface Announcement {
   entry: ObjectiveNotice;
@@ -26,8 +31,10 @@ export class AnnouncementBanner {
   private readonly text: Phaser.GameObjects.Text;
   private active: Announcement | null = null;
   private pending: Announcement[] = [];
+  private readonly scene: Phaser.Scene;
 
-  constructor(private readonly scene: Phaser.Scene) {
+  constructor(scene: Phaser.Scene) {
+    this.scene = scene;
     this.ribbon = scene.add
       .nineslice(0, 0, "ui-ribbon-blue", 0, 560, 76, 58, 58, 22, 22)
       .setOrigin(0.5)
@@ -133,7 +140,7 @@ export class AnnouncementBanner {
     const { text, tone } = active.entry;
     const W = this.scene.scale.width;
     const cy = this.scene.scale.height * 0.26;
-    const color = tone === "good" ? "#9bf0b4" : tone === "bad" ? "#ffb0a4" : "#fff3c4";
+    const color = TONE_COLORS[tone];
     if (this.text.text !== text) {
       this.text.setText(text);
     }
@@ -143,7 +150,7 @@ export class AnnouncementBanner {
     const fit = Math.min(1, (W - 56) / Math.max(1, this.text.width));
     const entrance = reducedMotion()
       ? 1
-      : 0.6 + 0.4 * Phaser.Math.Easing.Back.Out(Math.min(1, active.age / 320));
+      : 0.6 + 0.4 * PhaserMath.Easing.Back.Out(Math.min(1, active.age / 320));
     const alpha = Math.min(1, Math.max(0, (SHOW_MS - active.age) / 700));
     this.text
       .setPosition(W / 2, cy - 4)

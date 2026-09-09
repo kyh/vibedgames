@@ -32,6 +32,12 @@ const element = <K extends keyof HTMLElementTagNameMap>(tag: K, className: strin
   node.textContent = text;
   return node;
 };
+
+const CONNECTION_LABEL = {
+  coop: "DESCEND TOGETHER",
+  off: "",
+  vs: "FIRST TO 3 ROUNDS",
+} satisfies Record<HubState["net"], string>;
 const button = (text: string, action: () => void, className = "lf-hub-button") => {
   const node = element("button", className, text);
   node.type = "button";
@@ -271,11 +277,13 @@ export class HubView {
     this.observer.observe(this.showcase);
     this.observer.observe(grid);
     this.root.addEventListener("scroll", actions.layout);
-    void document.fonts.ready.then(() => {
+    const layoutAfterFonts = async (): Promise<void> => {
+      await document.fonts.ready;
       if (!this.disposed) {
         actions.layout();
       }
-    });
+    };
+    void layoutAfterFonts();
   }
 
   private readonly fenceKey = (event: KeyboardEvent): void => {
@@ -352,6 +360,95 @@ export class HubView {
     }
   }
 
+  private renderHeroes(state: HubState): void {
+    for (const [index, node] of this.heroes.entries()) {
+      const hero = HERO_ORDER[index];
+      if (!hero) {
+        continue;
+      }
+      const locked = !isUnlocked(state.meta, hero);
+      node.setAttribute("aria-pressed", String(index === state.index));
+      node.setAttribute(
+        "aria-label",
+        `${HEROES[hero].title}${locked ? `, locked, ${UNLOCK_COST[hero]} shards` : ""}`,
+      );
+      const cost = node.querySelector(".lf-hub-cost");
+      if (!cost) {
+        continue;
+      }
+      if (locked) {
+        cost.textContent = `${UNLOCK_COST[hero]} ✦`;
+      } else {
+        cost.textContent = index === state.index ? "SELECTED" : "";
+      }
+    }
+  }
+
+  private renderControls(coarse: boolean): void {
+    const groups = controlGroups(CONTROLS, { coarse });
+    const signature = JSON.stringify(groups);
+    if (signature === this.controlsSignature) {
+      return;
+    }
+    this.controlsSignature = signature;
+    this.controls.replaceChildren();
+    for (const group of groups) {
+      const line = element("p", "lf-hub-control-line");
+      const actions = new Map<string, string[]>();
+      for (const entry of group.entries) {
+        const inputs = actions.get(entry.action) ?? [];
+        if (!inputs.includes(entry.input)) {
+          inputs.push(entry.input);
+        }
+        actions.set(entry.action, inputs);
+      }
+      for (const [action, inputs] of actions) {
+        const pair = element("span", "");
+        pair.append(element("kbd", "", inputs.join(" / ")), document.createTextNode(` ${action}`));
+        line.append(pair);
+      }
+      this.controls.append(line);
+    }
+  }
+
+  private renderShop(state: HubState): void {
+    if (!state.shop) {
+      if (this.dialog.open) {
+        this.dialog.close();
+        this.forge.focus({ preventScroll: true });
+      }
+      return;
+    }
+    if (this.helpDialog.open) {
+      this.closeHelp();
+    }
+    this.forgeBank.textContent = `✦ ${state.meta.shards} SHARDS`;
+    for (const [index, up] of UPGRADES.entries()) {
+      const row = this.rows[index];
+      if (!row) {
+        continue;
+      }
+      const level = upgradeLevel(state.meta, up.id);
+      const maxed = level >= up.max;
+      row.setAttribute("aria-pressed", String(index === state.shop.index));
+      row.dataset.affordable = String(!maxed && state.meta.shards >= up.cost(level));
+      const texts = [
+        up.name,
+        maxed ? "MAX" : `${up.cost(level)} ✦`,
+        up.desc,
+        `${level} / ${up.max}`,
+      ];
+      for (const [i, child] of [...row.children].entries()) {
+        child.textContent = texts[i] ?? "";
+      }
+    }
+    if (!this.dialog.open) {
+      this.forgeStatus.textContent = "";
+      this.dialog.showModal();
+      this.dialog.focus({ preventScroll: true });
+    }
+  }
+
   update(state: HubState): void {
     const name = HERO_ORDER[state.index];
     if (!name) {
@@ -367,26 +464,7 @@ export class HubView {
     this.title.textContent = def.title;
     this.title.style.color = `#${def.color.toString(16).padStart(6, "0")}`;
     this.blurb.textContent = def.blurb;
-    for (const [index, node] of this.heroes.entries()) {
-      const hero = HERO_ORDER[index];
-      if (!hero) {
-        continue;
-      }
-      const locked = !isUnlocked(state.meta, hero);
-      node.setAttribute("aria-pressed", String(index === state.index));
-      node.setAttribute(
-        "aria-label",
-        `${HEROES[hero].title}${locked ? `, locked, ${UNLOCK_COST[hero]} shards` : ""}`,
-      );
-      const cost = node.querySelector(".lf-hub-cost");
-      if (cost) {
-        cost.textContent = locked
-          ? `${UNLOCK_COST[hero]} ✦`
-          : index === state.index
-            ? "SELECTED"
-            : "";
-      }
-    }
+    this.renderHeroes(state);
     this.go.textContent = unlocked ? "PLAY" : `UNLOCK · ${UNLOCK_COST[name]} ✦`;
     this.go.dataset.locked = String(!unlocked);
     this.solo.setAttribute("aria-pressed", String(state.net === "off"));
@@ -405,71 +483,13 @@ export class HubView {
       }
       this.linkFallback.hidden = true;
     }
-    this.connection.textContent =
-      state.net === "vs" ? "FIRST TO 3 ROUNDS" : state.net === "coop" ? "DESCEND TOGETHER" : "";
+    this.connection.textContent = CONNECTION_LABEL[state.net];
     this.connection.hidden = state.net === "off";
     this.hint.textContent = state.coarse
       ? "Use the on-screen controls during your descent."
       : "← → choose · SPACE / J play · U unlock · M forge · C / V online";
-    const groups = controlGroups(CONTROLS, { coarse: state.coarse });
-    const signature = JSON.stringify(groups);
-    if (signature !== this.controlsSignature) {
-      this.controlsSignature = signature;
-      this.controls.replaceChildren();
-      for (const group of groups) {
-        const line = element("p", "lf-hub-control-line");
-        const actions = new Map<string, string[]>();
-        for (const entry of group.entries) {
-          const inputs = actions.get(entry.action) ?? [];
-          if (!inputs.includes(entry.input)) {
-            inputs.push(entry.input);
-          }
-          actions.set(entry.action, inputs);
-        }
-        for (const [action, inputs] of actions) {
-          const pair = element("span", "");
-          pair.append(
-            element("kbd", "", inputs.join(" / ")),
-            document.createTextNode(` ${action}`),
-          );
-          line.append(pair);
-        }
-        this.controls.append(line);
-      }
-    }
-    if (state.shop) {
-      if (this.helpDialog.open) {
-        this.closeHelp();
-      }
-      this.forgeBank.textContent = `✦ ${state.meta.shards} SHARDS`;
-      for (const [index, up] of UPGRADES.entries()) {
-        const row = this.rows[index];
-        if (!row) {
-          continue;
-        }
-        const level = upgradeLevel(state.meta, up.id);
-        const maxed = level >= up.max;
-        row.setAttribute("aria-pressed", String(index === state.shop.index));
-        row.dataset.affordable = String(!maxed && state.meta.shards >= up.cost(level));
-        const texts = [
-          up.name,
-          maxed ? "MAX" : `${up.cost(level)} ✦`,
-          up.desc,
-          `${level} / ${up.max}`,
-        ];
-        for (const [i, child] of [...row.children].entries()) {
-          child.textContent = texts[i] ?? "";
-        }
-      }
-      if (!this.dialog.open) {
-        this.forgeStatus.textContent = "";
-        this.dialog.showModal();
-        this.dialog.focus({ preventScroll: true });
-      }
-    } else if (this.dialog.open) {
-      this.dialog.close();
-      this.forge.focus({ preventScroll: true });
-    }
+    this.renderControls(state.coarse);
+    this.renderShop(state);
   }
 
   focusSelection(): void {

@@ -79,6 +79,100 @@ export interface BurstOpts {
 /** Live media query: every motion gate in the game reads this one instance. */
 export const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
 
+// ---- helpers --------------------------------------------------------------------
+
+const makeInstanced = (
+  geo: THREE.BufferGeometry,
+  cap: number,
+  color = 0xff_ff_ff,
+): THREE.InstancedMesh => {
+  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.7 });
+  const mesh = new THREE.InstancedMesh(geo, mat, cap);
+  mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  mesh.count = 0;
+  mesh.frustumCulled = false;
+  return mesh;
+};
+
+const commit = (mesh: THREE.InstancedMesh, count: number): void => {
+  mesh.count = count;
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) {
+    mesh.instanceColor.needsUpdate = true;
+  }
+};
+
+/** Pop in fast (overshoot a touch), then fast-in-slow-out shrink to zero. */
+const scaleCurve = (t: number): number => {
+  if (t < POP_PORTION) {
+    const u = t / POP_PORTION;
+    return 1.08 * (1 - (1 - u) * (1 - u));
+  }
+  const u = (t - POP_PORTION) / (1 - POP_PORTION);
+  return 1.08 * (1 - u * u * (3 - 2 * u));
+};
+
+const softDotTexture = (): THREE.CanvasTexture => {
+  const canvas = document.createElement("canvas");
+  canvas.width = 32;
+  canvas.height = 32;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    const grad = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+    grad.addColorStop(0, "rgba(255,255,255,1)");
+    grad.addColorStop(0.6, "rgba(255,255,255,0.4)");
+    grad.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 32, 32);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+};
+
+/** Ambient dust motes drifting up through the maze air — quiet, constant. */
+const makeMotes = () => {
+  const positions = new Float32Array(MOTE_COUNT * 3);
+  // [vx, vy] per mote.
+  const velocities = new Float32Array(MOTE_COUNT * 2);
+  for (let i = 0; i < MOTE_COUNT; i += 1) {
+    positions[i * 3] = Math.random() * GRID_COLS;
+    positions[i * 3 + 1] = 0.15 + Math.random() * 2.5;
+    positions[i * 3 + 2] = Math.random() * GRID_ROWS;
+    velocities[i * 2] = (Math.random() - 0.5) * 0.08;
+    velocities[i * 2 + 1] = 0.06 + Math.random() * 0.1;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  // Blush-tinted: white motes measure ~0 contrast against the cream fog.
+  const mat = new THREE.PointsMaterial({
+    color: 0xf2_a9_bf,
+    depthWrite: false,
+    map: softDotTexture(),
+    opacity: 0.5,
+    size: 0.06,
+    sizeAttenuation: true,
+    transparent: true,
+  });
+  const points = new THREE.Points(geo, mat);
+  points.frustumCulled = false;
+  return { points, velocities };
+};
+
+const randomUnit = (): THREE.Vector3 => {
+  const v = new THREE.Vector3(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1);
+  return v.lengthSq() < 1e-6 ? v.set(0, 1, 0) : v.normalize();
+};
+
+const wrapX = (x: number): number => {
+  if (x < 0) {
+    return GRID_COLS;
+  }
+  return x > GRID_COLS ? 0 : x;
+};
+
+const rand = (min: number, max: number): number => min + Math.random() * (max - min);
+
 export class FxPool {
   private puffMesh: THREE.InstancedMesh;
   private heartMesh: THREE.InstancedMesh;
@@ -98,7 +192,7 @@ export class FxPool {
     this.confettiMesh = makeInstanced(new THREE.BoxGeometry(1, 0.25, 0.6), MAX_CONFETTI);
     scene.add(this.puffMesh, this.heartMesh, this.confettiMesh);
 
-    for (let i = 0; i < MAX_RINGS; i++) {
+    for (let i = 0; i < MAX_RINGS; i += 1) {
       const mat = new THREE.MeshBasicMaterial({
         color: COLORS.power,
         depthWrite: false,
@@ -122,7 +216,7 @@ export class FxPool {
   /** Soft round burst — the workhorse (pellet pops, ghost poofs, dust). */
   puff(at: THREE.Vector3, count: number, color: number, opts: BurstOpts = {}): void {
     const speed = opts.speed ?? 1.4;
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < count; i += 1) {
       if (this.puffs.length >= MAX_PUFFS) {
         this.puffs.shift();
       }
@@ -150,7 +244,7 @@ export class FxPool {
 
   /** Rising pink hearts — power pickups and eaten ghosts (healthcare!). */
   heartBurst(at: THREE.Vector3, count: number): void {
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < count; i += 1) {
       if (this.hearts.length >= MAX_HEARTS) {
         this.hearts.shift();
       }
@@ -174,7 +268,7 @@ export class FxPool {
   /** Pastel confetti rain over the whole maze (win celebration). */
   confettiRain(count: number): void {
     const palette = [COLORS.power, COLORS.pacman, ...GHOST_COLORS];
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < count; i += 1) {
       if (this.confetti.length >= MAX_CONFETTI) {
         this.confetti.shift();
       }
@@ -182,7 +276,7 @@ export class FxPool {
         age: 0,
         angle: Math.random() * Math.PI * 2,
         axis: randomUnit(),
-        color: new THREE.Color(palette[Math.floor(Math.random() * palette.length)] ?? 0xffffff),
+        color: new THREE.Color(palette[Math.floor(Math.random() * palette.length)] ?? 0xff_ff_ff),
         life: rand(2.4, 4),
         px: Math.random() * GRID_COLS,
         py: 4 + Math.random() * 3.5,
@@ -198,14 +292,25 @@ export class FxPool {
 
   /** Expanding floor ring, Cubic.Out, fades over RING_DUR_MS. */
   ring(x: number, z: number, r1: number, color: number): void {
-    const slot =
-      this.rings.find((r) => r.bornAt < 0) ??
-      this.rings.reduce((a, b) => (a.bornAt <= b.bornAt ? a : b));
+    const slot = this.rings.find((r) => r.bornAt < 0) ?? this.oldestRing();
     slot.bornAt = this.elapsed;
     slot.r1 = r1;
     slot.mat.color.setHex(color);
     slot.mesh.position.set(x, FLOOR_Y + 0.02, z);
     slot.mesh.visible = true;
+  }
+
+  private oldestRing(): Ring {
+    let [oldest] = this.rings;
+    if (!oldest) {
+      throw new Error("no ring slots");
+    }
+    for (const ring of this.rings) {
+      if (ring.bornAt < oldest.bornAt) {
+        oldest = ring;
+      }
+    }
+    return oldest;
   }
 
   update(dt: number): void {
@@ -244,7 +349,8 @@ export class FxPool {
       this.dummy.updateMatrix();
       mesh.setMatrixAt(w, this.dummy.matrix);
       mesh.setColorAt(w, p.color);
-      arr[w++] = p;
+      arr[w] = p;
+      w += 1;
     }
     arr.length = w;
     commit(mesh, w);
@@ -268,7 +374,8 @@ export class FxPool {
       this.dummy.scale.setScalar(Math.max(s, 1e-4));
       this.dummy.updateMatrix();
       mesh.setMatrixAt(w, this.dummy.matrix);
-      arr[w++] = h;
+      arr[w] = h;
+      w += 1;
     }
     arr.length = w;
     commit(mesh, w);
@@ -301,7 +408,8 @@ export class FxPool {
       this.dummy.updateMatrix();
       mesh.setMatrixAt(w, this.dummy.matrix);
       mesh.setColorAt(w, c.color);
-      arr[w++] = c;
+      arr[w] = c;
+      w += 1;
     }
     arr.length = w;
     commit(mesh, w);
@@ -334,100 +442,12 @@ export class FxPool {
     if (!(arr instanceof Float32Array)) {
       return;
     }
-    for (let i = 0; i < MOTE_COUNT; i++) {
+    for (let i = 0; i < MOTE_COUNT; i += 1) {
       const x = (arr[i * 3] ?? 0) + (this.moteVel[i * 2] ?? 0) * dt;
-      arr[i * 3] = x < 0 ? GRID_COLS : x > GRID_COLS ? 0 : x;
+      arr[i * 3] = wrapX(x);
       const y = (arr[i * 3 + 1] ?? 0) + (this.moteVel[i * 2 + 1] ?? 0) * dt;
       arr[i * 3 + 1] = y > 2.8 ? 0.15 : y;
     }
     pos.needsUpdate = true;
   }
-}
-
-// ---- helpers --------------------------------------------------------------------
-
-function makeInstanced(
-  geo: THREE.BufferGeometry,
-  cap: number,
-  color = 0xff_ff_ff,
-): THREE.InstancedMesh {
-  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.7 });
-  const mesh = new THREE.InstancedMesh(geo, mat, cap);
-  mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  mesh.count = 0;
-  mesh.frustumCulled = false;
-  return mesh;
-}
-
-function commit(mesh: THREE.InstancedMesh, count: number): void {
-  mesh.count = count;
-  mesh.instanceMatrix.needsUpdate = true;
-  if (mesh.instanceColor) {
-    mesh.instanceColor.needsUpdate = true;
-  }
-}
-
-/** Pop in fast (overshoot a touch), then fast-in-slow-out shrink to zero. */
-function scaleCurve(t: number): number {
-  if (t < POP_PORTION) {
-    const u = t / POP_PORTION;
-    return 1.08 * (1 - (1 - u) * (1 - u));
-  }
-  const u = (t - POP_PORTION) / (1 - POP_PORTION);
-  return 1.08 * (1 - u * u * (3 - 2 * u));
-}
-
-/** Ambient dust motes drifting up through the maze air — quiet, constant. */
-function makeMotes() {
-  const positions = new Float32Array(MOTE_COUNT * 3);
-  const velocities = new Float32Array(MOTE_COUNT * 2); // [vx, vy] per mote
-  for (let i = 0; i < MOTE_COUNT; i++) {
-    positions[i * 3] = Math.random() * GRID_COLS;
-    positions[i * 3 + 1] = 0.15 + Math.random() * 2.5;
-    positions[i * 3 + 2] = Math.random() * GRID_ROWS;
-    velocities[i * 2] = (Math.random() - 0.5) * 0.08;
-    velocities[i * 2 + 1] = 0.06 + Math.random() * 0.1;
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  // Blush-tinted: white motes measure ~0 contrast against the cream fog.
-  const mat = new THREE.PointsMaterial({
-    color: 0xf2a9bf,
-    depthWrite: false,
-    map: softDotTexture(),
-    opacity: 0.5,
-    size: 0.06,
-    sizeAttenuation: true,
-    transparent: true,
-  });
-  const points = new THREE.Points(geo, mat);
-  points.frustumCulled = false;
-  return { points, velocities };
-}
-
-function softDotTexture(): THREE.CanvasTexture {
-  const canvas = document.createElement("canvas");
-  canvas.width = 32;
-  canvas.height = 32;
-  const ctx = canvas.getContext("2d");
-  if (ctx) {
-    const grad = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
-    grad.addColorStop(0, "rgba(255,255,255,1)");
-    grad.addColorStop(0.6, "rgba(255,255,255,0.4)");
-    grad.addColorStop(1, "rgba(255,255,255,0)");
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 32, 32);
-  }
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
-function randomUnit(): THREE.Vector3 {
-  const v = new THREE.Vector3(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1);
-  return v.lengthSq() < 1e-6 ? v.set(0, 1, 0) : v.normalize();
-}
-
-function rand(min: number, max: number): number {
-  return min + Math.random() * (max - min);
 }

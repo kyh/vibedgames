@@ -321,7 +321,8 @@ export class VoidPool {
   clear(): void {
     for (const h of this.holes) {
       h.live = false;
-      h.t = h.life = 0;
+      h.life = 0;
+      h.t = 0;
       h.mesh.visible = false;
     }
   }

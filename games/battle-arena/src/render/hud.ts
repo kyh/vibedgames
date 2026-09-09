@@ -10,7 +10,6 @@ import { isOfflineRequested } from "@repo/embed";
 import { CHAMP_BY_ID, valAt } from "../data/champions";
 import { abilityIcon, champSigil, iconUrl, statusIcon } from "../data/icons";
 import { ITEMS, ITEM_BY_ID, MAX_ITEMS } from "../data/items";
-import type { ItemDef } from "../data/items";
 import { KILL_GOAL_FFA, LEVEL_CAP, XP_CURVE, respawnTime } from "../data/config";
 import { ARENA, HEX_R, OBSTACLES } from "../data/map";
 import { ALL_ABILITY_KEYS } from "../sim/types";
@@ -20,10 +19,12 @@ import type { Fx } from "./fx";
 import { LOCAL_COLOR, teamColor } from "./palette";
 import type { View } from "./view";
 import { abilityReadiness, readablePlates } from "./hud-readability";
-import type { PlateAnchor, PlateCandidate, ScreenBox } from "./hud-readability";
+import type { AbilityReadiness, PlateAnchor, PlateCandidate, ScreenBox } from "./hud-readability";
 import { coinObjective, deliveryObjective } from "./objective-state";
 import { HudNotices } from "./hud-notices";
 import { terrainHeight } from "../data/terrain";
+
+export { type ItemDef } from "../data/items";
 
 // Q/W/E/R map to number keys 1-4; DASH/JUMP are the flat util pair (Shift/Space).
 const KEYCAP = {
@@ -36,6 +37,206 @@ const KEYCAP = {
 } satisfies Record<AbilityKey, string>;
 /** The flat, always-unlocked mobility pair — no rank pips, no level lock. */
 const UTIL_KEYS = new Set<AbilityKey>(["DASH", "JUMP"]);
+const abilityTileClass = (key: AbilityKey): string => {
+  if (key === "R") {
+    return "ba-abil ult";
+  }
+  return UTIL_KEYS.has(key) ? "ba-abil util" : "ba-abil";
+};
+
+const hex = (n: number): string => `#${n.toString(16).padStart(6, "0")}`;
+
+const PLATE_KEEP_OUT_IDS = [
+  "ba-top",
+  "ba-goal-banner",
+  "ba-left",
+  "ba-abilities",
+  "ba-board",
+  "ba-menu-btn",
+  "ba-kit-btn",
+  "ba-minimap",
+];
+
+const plateNameColor = (u: Unit, me: Unit): string => {
+  if (u.kind === "creep") {
+    return "#b8c0d0";
+  }
+  return hex(u.id === me.id ? LOCAL_COLOR : teamColor(u.team));
+};
+
+const plateFillColor = (u: Unit, me: Unit): string => {
+  if (u.kind === "creep") {
+    return "#c8a0a0";
+  }
+  return u.team === me.team ? "#5dd66b" : "#ff5a52";
+};
+
+/** Plate readability order: you, then heroes in the fight, other heroes, creeps. */
+const platePriority = (u: Unit, local: boolean, distance: number, recent: boolean): number => {
+  if (local) {
+    return 0;
+  }
+  if (u.kind !== "hero") {
+    return 3;
+  }
+  return distance < 16 || recent ? 1 : 2;
+};
+
+/** Change-gated position/visibility writes for one placed plate. */
+const placePlate = (plate: Plate, candidate: PlateCandidate): void => {
+  plate.wrap.classList.toggle("compact", candidate.compact);
+  if (!plate.shown) {
+    plate.shown = true;
+    plate.wrap.style.display = "block";
+  }
+  const x = Math.round(candidate.x);
+  if (x !== plate.x) {
+    plate.x = x;
+    plate.wrap.style.left = `${x}px`;
+  }
+  const y = Math.round(candidate.y);
+  if (y !== plate.y) {
+    plate.y = y;
+    plate.wrap.style.top = `${y}px`;
+  }
+};
+
+const rankPips = (rank: number, maxRank: number): string => {
+  let pips = "";
+  for (let i = 0; i < maxRank; i += 1) {
+    pips += i < rank ? "<i class='on'></i>" : "<i></i>";
+  }
+  return pips;
+};
+
+const lockAbilityTile = (el: AbilityEl, key: AbilityKey): void => {
+  el.wrap.classList.add("locked");
+  if (el.lastCd !== 0) {
+    el.lastCd = 0;
+    el.wrap.style.setProperty("--cd", "0");
+  }
+  const text = key === "R" ? "Lv4" : "";
+  if (text !== el.lastText) {
+    el.lastText = text;
+    el.cdText.textContent = text;
+  }
+  el.wasOnCd = false;
+};
+
+const cooldownCountdown = (cdLeft: number): string => {
+  if (cdLeft <= 0) {
+    return "";
+  }
+  return cdLeft < 10 ? cdLeft.toFixed(1) : `${Math.ceil(cdLeft)}`;
+};
+
+const readinessLabel = (readiness: AbilityReadiness): string => {
+  if (readiness.queued) {
+    return "QUEUED";
+  }
+  return readiness.kind === "blocked" ? readiness.label : "";
+};
+
+/** Tile caption: a state label (QUEUED / block reason) over the countdown. */
+const abilityTileText = (readiness: AbilityReadiness, cdLeft: number): string => {
+  const countdown = cooldownCountdown(cdLeft);
+  const label = readinessLabel(readiness);
+  if (!label) {
+    return countdown;
+  }
+  return countdown ? `${label}\n${countdown}` : label;
+};
+
+/** One chip per active status kind (longest `until` wins), plus the synthetic
+ *  empower chip. Fills `chips` in place. */
+const collectBuffChips = (chips: { kind: string; until: number }[], w: World, me: Unit): void => {
+  chips.length = 0;
+  for (const s of me.statuses) {
+    if (s.until <= w.now) {
+      continue;
+    }
+    if (statusIcon(s.kind) === null && s.kind !== "hex") {
+      continue;
+      // silence etc: no chip
+    }
+    const existing = chips.find((c) => c.kind === s.kind);
+    if (existing) {
+      existing.until = Math.max(existing.until, s.until);
+    } else {
+      chips.push({ kind: s.kind, until: s.until });
+    }
+  }
+  if (me.empowerNext > 0) {
+    chips.push({ kind: "empower", until: -1 });
+  }
+};
+
+/** Status icon, or the mushroom glyph for the hex (which has no icon art). */
+const buffChipIcon = (kind: string): HTMLElement => {
+  const icon = statusIcon(kind);
+  if (icon === null) {
+    const glyph = document.createElement("span");
+    glyph.className = "ba-bglyph";
+    glyph.textContent = "🍄";
+    return glyph;
+  }
+  const img = document.createElement("img");
+  img.src = icon;
+  img.alt = "";
+  img.draggable = false;
+  return img;
+};
+
+const readBestKills = (): number => {
+  try {
+    return Number(localStorage.getItem("ba-best-kills") ?? "0") || 0;
+  } catch {
+    /* storage unavailable — skip the open loop */
+    return 0;
+  }
+};
+
+const writeBestKills = (kills: number): void => {
+  try {
+    localStorage.setItem("ba-best-kills", `${kills}`);
+  } catch {
+    /* ignore */
+  }
+};
+
+const endTitleClass = (me: Unit | null, won: boolean): string => {
+  if (!me) {
+    return "";
+  }
+  return won ? "win" : "loss";
+};
+
+const endTitle = (me: Unit | null, won: boolean): string => {
+  if (!me) {
+    return "MATCH COMPLETE";
+  }
+  return won ? "VICTORY" : "DEFEAT";
+};
+
+const winnerSigil = (winner: Unit | undefined): string =>
+  winner && winner.kind === "hero" && winner.champId
+    ? `<img class="ba-es" src="${champSigil(winner.champId)}" alt="">`
+    : "";
+
+/** Solid for 8s, then a 2s linear fade to gone. */
+const goalBannerOpacity = (t: number): string => {
+  if (t < 8) {
+    return "1";
+  }
+  return t < 10 ? ((10 - t) / 2).toFixed(2) : "0";
+};
+
+const hpTier = (frac: number): "hi" | "mid" | "low" => {
+  if (frac >= 0.55) {
+    return "hi";
+  }
+  return frac >= 0.3 ? "mid" : "low";
+};
 
 /** Status kinds rendered with a red (hostile) border in the buff row. */
 const DEBUFF_KINDS = new Set(["stun", "root", "slow", "dot", "damageAmp", "hex"]);
@@ -54,29 +255,24 @@ const TIPS: string[] = [
   "Kill streaks pay extra gold",
 ];
 
-function hex(n: number): string {
-  return `#${n.toString(16).padStart(6, "0")}`;
-}
-
 /** Player names cross the room boundary; render them as text in HUD markup. */
-function htmlText(value: string): string {
-  return value
+const htmlText = (value: string): string =>
+  value
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
-}
 
 export type MatchActions =
   | { kind: "offline" }
   | { kind: "online"; canRematch: () => boolean; rematch: () => void };
 
-function sealKitActivation(event: KeyboardEvent): void {
+const sealKitActivation = (event: KeyboardEvent): void => {
   if (event.key === "Enter" || event.key === " ") {
     event.stopPropagation();
   }
-}
+};
 
 export interface ShopCallbacks {
   buy: (itemId: string) => void;
@@ -125,1552 +321,31 @@ interface Plate {
   y: number;
   hp: string;
 }
-export class Hud {
-  private root: HTMLElement;
-  private plates = new Map<string, Plate>();
-  private plateAnchors: ((id: string) => PlateAnchor | null) | null = null;
-  private plateKeepOut: ScreenBox[] = [];
-  private plateKeepOutAt = 0;
-  private kitButton: HTMLButtonElement | null = null;
-  private kitAction: (() => void) | null = null;
-  private coinState: ReturnType<typeof coinObjective> | null = null;
-  private deliveryState: ReturnType<typeof deliveryObjective> | null = null;
-  private timerEl!: HTMLElement;
-  private goalEl!: HTMLElement;
-  private objCoinEl!: HTMLElement;
-  private objDropEl!: HTMLElement;
-  private boardEl!: HTMLElement;
-  private notices!: HudNotices;
-  private hpFill!: HTMLElement;
-  private hpGhostEl!: HTMLElement;
-  private hpTicksEl!: HTMLElement;
-  private hpText!: HTMLElement;
-  private xpFill!: HTMLElement;
-  private lvlBadge!: HTMLElement;
-  private lvlEl!: HTMLElement;
-  private goldEl!: HTMLElement;
-  private buffsEl!: HTMLElement;
-  private abilityEls = new Map<AbilityKey, AbilityEl>();
-  private respawnEl!: HTMLElement;
-  private respawnSlain!: HTMLElement;
-  private respawnRing!: HTMLElement;
-  private respawnTimer!: HTMLElement;
-  private respawnTip!: HTMLElement;
-  private itemsEl!: HTMLElement;
-  private itemSockets: ItemSocket[] = [];
-  private itemTaps: number[] = []; // belt-chip taps → item-use slots (touch path)
-  private itemSig = "";
-  private minimap!: HTMLCanvasElement;
-  private mmCtx!: CanvasRenderingContext2D;
-  private shopEl!: HTMLElement;
-  private shopOpen = false;
-  private endEl!: HTMLElement;
-  private shownEnd = false;
-  private goalBanner!: HTMLElement;
-  private hintEl!: HTMLElement;
-  private introEl!: HTMLElement;
-  private reticleEl!: HTMLElement;
-  private hitDirEl!: HTMLElement;
-  private menuBtn!: HTMLButtonElement;
-  private arrowCoin!: Arrow;
-  private arrowDelivery!: Arrow;
-  private lowHpEl: HTMLDivElement;
-  private lowHpEl2: HTMLDivElement;
-  private readonly remeasureTopBand = (): void => {
-    this.plateKeepOutAt = 0;
-  };
-
-  /** Set true by the scene for online matches — hides the HEROES button. */
-  online = false;
-
-  // ── change-gate caches ──
-  private champBound = "";
-  private lastReadySoundAt = 0;
-  private hpGhost = 1;
-  private lastNow = 0;
-  private lastLevel = 0;
-  private lastMaxHp = 0;
-  private lastHpStep = -1;
-  private lastGhostStep = -1;
-  private lastXpStep = -1;
-  private lastHpTextStr = "";
-  private lastHpTier = "";
-  private lastGoldStr = "";
-  private lastTimerStr = "";
-  private lastGoalStr = "";
-  private lastObjCoin = "";
-  private lastObjDrop = "";
-  private buffSeen = new Map<string, { seenAt: number; until: number }>();
-  private buffEls = new Map<string, BuffEl>();
-  private buffSig = "";
-  private buffScratch: { kind: string; until: number }[] = [];
-  private boardSig = "";
-  private boardForced = false;
-  private boardTapped = false; // timer-tap latch — the touch Tab
-  private lastAttackSeen = 0;
-  private fireUntil = 0;
-  private hitFlashUntil = 0;
-  private hitFlashCrit = false;
-  private reticleVisible = false;
-  private lastHitSeen = 0;
-  private hitDirUntil = 0;
-  private lastHitDirDeg = 1e9;
-  private lastHitDirOp = -1;
-  private respawnShown = false;
-  private respawnFor = 0;
-  private lastRespawnText = "";
-  private lastRespawnPct = -1;
-  private lastRespawnCeil = -1;
-  private introText = "";
-  private hintText = "";
-  private lastBannerOp = "";
-  private menuBtnHidden = false;
-  private bestStreak = 0;
-  private lastMe: Unit | null = null;
-  private lastLowOp = -1;
-  private lastLowOp2 = -1;
-  private hbPhase = -1;
-  private sawSuddenDeath = false;
-  private readonly onVisibilityChange = (): void => {
-    this.notices.setHidden(document.hidden);
-    this.showHint("");
-    this.showIntro("");
-  };
-  private readonly onMuteKey = (e: KeyboardEvent): void => {
-    if (e.code !== "KeyM" || e.repeat) {
-      return;
-    }
-    const t = e.target;
-    if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) {
-      return;
-    }
-    this.sfx.setMuted(!this.sfx.isMuted);
-  };
-
-  constructor(
-    private view: View,
-    private fx: Fx,
-    private shop: ShopCallbacks,
-    private matchActions: MatchActions = { kind: "offline" },
-  ) {
-    this.root = document.querySelector("#hud")!;
-    this.injectStyle();
-    this.build();
-    document.addEventListener("visibilitychange", this.onVisibilityChange);
-    // persistent low-HP danger vignette (two reused nodes; opacity only).
-    // Layer 1 = radial closing in from the corners, layer 2 = inset ring that
-    // pulses opposite-phase for a "walls closing" read.
-    this.lowHpEl = document.createElement("div");
-    this.lowHpEl.style.cssText =
-      "position:fixed;inset:0;pointer-events:none;z-index:7;opacity:0;transition:opacity .15s;" +
-      "background:radial-gradient(ellipse at center, transparent 45%, rgba(190,20,20,0.85) 130%)";
-    document.body.append(this.lowHpEl);
-    this.lowHpEl2 = document.createElement("div");
-    this.lowHpEl2.style.cssText =
-      "position:fixed;inset:0;pointer-events:none;z-index:7;opacity:0;transition:opacity .15s;" +
-      "box-shadow:inset 0 0 90px rgba(190,20,20,.55)";
-    document.body.append(this.lowHpEl2);
+const byId = (id: string): HTMLElement => {
+  const el = document.querySelector(`#${id}`);
+  if (!(el instanceof HTMLElement)) {
+    throw new Error(`hud: missing #${id}`);
   }
+  return el;
+};
 
-  private get presentationBlocked(): boolean {
-    return this.notices.blocked;
-  }
-
-  /** Shared Audio instance (owned by Fx) for the UI sound set. */
-  private get sfx(): Audio {
-    return this.fx.audio;
-  }
-
-  setPlateAnchors(read: (id: string) => PlateAnchor | null): void {
-    this.plateAnchors = read;
-  }
-
-  setKitAction(open: () => void): void {
-    this.kitAction = open;
-    if (this.kitButton) {
-      this.kitButton.hidden = false;
-    }
-  }
-
-  // ── markup ──
-  private build(): void {
-    this.root.innerHTML = `
-      <div id="ba-plates"></div>
-      <div id="ba-top">
-        <div id="ba-timer">8:00</div>
-        <div id="ba-goal"></div>
-        <div id="ba-objective"><span class="coin"></span><span class="drop"></span></div>
-      </div>
-      <div id="ba-board"></div>
-      <div id="ba-feed"></div>
-      <button id="ba-menu-btn">HEROES ▸</button>
-      <button id="ba-kit-btn" type="button" hidden>YOUR KIT</button>
-      <div id="ba-toasts"></div>
-      <div id="ba-bottom">
-        <div id="ba-left">
-        <div id="ba-hint"></div>
-        <div id="ba-buffs"></div>
-        <div id="ba-vitals">
-          <div id="ba-vrow">
-            <div id="ba-lvlbadge"><span id="ba-lvl">1</span></div>
-            <div class="ba-bar hp"><div id="ba-hpghost"></div><div id="ba-hpfill" class="hi"></div><div id="ba-ticks"></div><span id="ba-hptext"></span></div>
-          </div>
-          <div class="ba-bar xp"><div id="ba-xpfill"></div></div>
-        </div>
-        <div id="ba-items"></div>
-        <div id="ba-meta"><span id="ba-gold">0</span></div>
-        </div>
-        <div id="ba-abilities"></div>
-      </div>
-      <div id="ba-goal-banner"><b>REACH THE THRONE</b> · first to ${KILL_GOAL_FFA} kills</div>
-      <div id="ba-intro"></div>
-      <div id="ba-arrow-coin" class="ba-arrow">◆</div>
-      <div id="ba-arrow-delivery" class="ba-arrow">▲</div>
-      <div id="ba-reticle"><i></i><i></i><i></i><i></i><b></b></div>
-      <div id="ba-hitdir"></div>
-      <div id="ba-respawn" hidden>
-        <div class="ba-rtitle">YOU DIED</div>
-        <div class="ba-rslain"></div>
-        <div class="ba-rwrap"><div class="ba-rring"></div><div class="ba-rtimer"></div></div>
-        <div class="ba-rtip"></div>
-      </div>
-      <canvas id="ba-minimap" width="150" height="132"></canvas>
-      <div id="ba-shop" hidden></div>
-      <div id="ba-end" hidden></div>`;
-
-    this.timerEl = byId("ba-timer");
-    this.goalEl = byId("ba-goal");
-    window.addEventListener("resize", this.remeasureTopBand);
-    const obj = byId("ba-objective");
-    this.objCoinEl = obj.children[0] instanceof HTMLElement ? obj.children[0] : obj;
-    this.objDropEl = obj.children[1] instanceof HTMLElement ? obj.children[1] : obj;
-    this.boardEl = byId("ba-board");
-    this.notices = new HudNotices(this.fx, byId("ba-feed"), byId("ba-toasts"));
-    this.hpFill = byId("ba-hpfill");
-    this.hpGhostEl = byId("ba-hpghost");
-    this.hpTicksEl = byId("ba-ticks");
-    this.hpText = byId("ba-hptext");
-    this.xpFill = byId("ba-xpfill");
-    this.lvlBadge = byId("ba-lvlbadge");
-    this.lvlEl = byId("ba-lvl");
-    this.goldEl = byId("ba-gold");
-    this.buffsEl = byId("ba-buffs");
-    this.respawnEl = byId("ba-respawn");
-    this.respawnSlain = query(this.respawnEl, ".ba-rslain");
-    this.respawnRing = query(this.respawnEl, ".ba-rring");
-    this.respawnTimer = query(this.respawnEl, ".ba-rtimer");
-    this.respawnTip = query(this.respawnEl, ".ba-rtip");
-    this.itemsEl = byId("ba-items");
-    // SAFETY: #ba-minimap is the <canvas> in this HUD's own template markup.
-    this.minimap = byId("ba-minimap") as HTMLCanvasElement;
-    this.mmCtx = this.minimap.getContext("2d")!;
-    this.shopEl = byId("ba-shop");
-    this.endEl = byId("ba-end");
-    this.goalBanner = byId("ba-goal-banner");
-    this.hintEl = byId("ba-hint");
-    this.introEl = byId("ba-intro");
-    this.reticleEl = byId("ba-reticle");
-    this.hitDirEl = byId("ba-hitdir");
-    const menuBtn = byId("ba-menu-btn");
-    this.menuBtn =
-      menuBtn instanceof HTMLButtonElement ? menuBtn : document.createElement("button");
-    this.menuBtn.addEventListener("click", backToLobby);
-    const kit = document.querySelector("#ba-kit-btn");
-    if (kit instanceof HTMLButtonElement) {
-      this.kitButton = kit;
-      kit.addEventListener("click", (event) => {
-        event.stopPropagation();
-        if (!this.shownEnd && !this.presentationBlocked) {
-          this.kitAction?.();
-        }
-      });
-      for (const name of ["pointerdown", "pointerup"]) {
-        kit.addEventListener(name, (event) => event.stopPropagation());
-      }
-      kit.addEventListener("keydown", sealKitActivation);
-      kit.addEventListener("keyup", sealKitActivation);
-    }
-    this.arrowCoin = { el: arrowEl("ba-arrow-coin"), lastTf: "", on: false };
-    this.arrowDelivery = { el: arrowEl("ba-arrow-delivery"), lastTf: "", on: false };
-
-    // sound is muted by default (opt-in) — M is the one mute toggle
-    window.addEventListener("keydown", this.onMuteKey);
-
-    // touch path to the scoreboard (Tab-only on desktop): tapping the timer
-    // pins/unpins it
-    this.timerEl.addEventListener("pointerdown", (e) => {
-      e.preventDefault();
-      this.boardTapped = !this.boardTapped;
-    });
-
-    const abilEl = byId("ba-abilities");
-    for (const key of ALL_ABILITY_KEYS) {
-      // spacer splits the levelled 1/2/3/4 group from the flat ⇧/␣ util pair
-      if (key === "DASH") {
-        const gap = document.createElement("div");
-        gap.className = "ba-abil-gap";
-        abilEl.append(gap);
-      }
-      const util = UTIL_KEYS.has(key);
-      const wrap = document.createElement("div");
-      wrap.className = key === "R" ? "ba-abil ult" : util ? "ba-abil util" : "ba-abil";
-      const img = document.createElement("img");
-      img.className = "ba-ic";
-      img.alt = "";
-      img.draggable = false;
-      const cd = document.createElement("div");
-      cd.className = "ba-cd";
-      const keycap = document.createElement("div");
-      keycap.className = "ba-key";
-      keycap.textContent = KEYCAP[key];
-      const cdText = document.createElement("div");
-      cdText.className = "ba-cdtext";
-      const pips = document.createElement("div");
-      pips.className = "ba-pips";
-      wrap.append(img, cd, keycap, cdText, pips);
-      abilEl.append(wrap);
-      this.abilityEls.set(key, {
-        cdText,
-        img,
-        lastCd: -1,
-        lastRank: -1,
-        lastText: "",
-        pips,
-        wasOnCd: false,
-        wrap,
-      });
-    }
-
-    // item belt: 6 fixed sockets, filled by signature
-    for (let i = 0; i < MAX_ITEMS; i++) {
-      const chip = document.createElement("div");
-      chip.className = "ba-item-chip empty";
-      const img = document.createElement("img");
-      img.className = "ba-ii";
-      img.alt = "";
-      img.draggable = false;
-      const key = document.createElement("span");
-      key.className = "ba-ik";
-      key.textContent = this.ITEM_KEYS[i] ?? "";
-      const cd = document.createElement("div");
-      cd.className = "ba-icd";
-      chip.append(img, key, cd);
-      // tappable belt: pointerdown (not click — no 300ms delay, works mid-drag)
-      // queues the slot; game-scene drains alongside the 5–0 keys. This is the
-      // only way touch players can fire item actives.
-      const slot = i;
-      chip.addEventListener("pointerdown", (e) => {
-        e.preventDefault();
-        this.itemTaps.push(slot);
-      });
-      this.itemsEl.append(chip);
-      this.itemSockets.push({ cd, chip, img, lastPct: -1, lastRdy: false, lastText: "" });
-    }
-
-    this.buildShop();
-  }
-
-  private buildShop(): void {
-    const rows = ITEMS.map(
-      (it) =>
-        `<button class="ba-item${it.active ? " active-item" : ""}" data-id="${it.id}"><img class="ba-si" src="${iconUrl(it.icon)}" alt="" draggable="false"><span class="ba-icol"><span class="ba-iname">${it.name}</span><span class="ba-idesc">${it.desc}</span></span><span class="ba-icost">${it.cost}g</span></button>`,
-    ).join("");
-    this.shopEl.innerHTML = `<div class="ba-shop-head">SHOP <span class="ba-shop-hint">(B to close · only in base)</span></div><div class="ba-shop-grid">${rows}</div>`;
-    this.shopEl.querySelectorAll<HTMLButtonElement>(".ba-item").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const { id } = btn.dataset;
-        if (!id) {
-          return;
-        }
-        const it = ITEM_BY_ID[id];
-        const me = this.lastMe;
-        if (it && me && me.gold >= it.cost && me.items.length < MAX_ITEMS) {
-          this.sfx.uiBuy();
-        } else {
-          this.sfx.uiDeny();
-        }
-        this.shop.buy(id);
-      });
-    });
-  }
-
-  /** Drain belt-chip taps (slots 0-5). The touch complement to the 5–0 keys. */
-  consumeItemTaps(): number[] {
-    if (this.itemTaps.length === 0) {
-      return this.itemTaps;
-    }
-    const taps = this.itemTaps;
-    this.itemTaps = [];
-    return taps;
-  }
-
-  toggleShop(): void {
-    if (this.shownEnd) {
-      return;
-    }
-    this.shopOpen = !this.shopOpen;
-    this.shopEl.hidden = !this.shopOpen;
-    if (this.shopOpen) {
-      this.sfx.uiOpen();
-    } else {
-      this.sfx.uiClose();
-    }
-  }
-  get isShopOpen(): boolean {
-    return this.shopOpen;
-  }
-
-  // ── public onboarding surfaces (called by the scene) ──
-
-  /** Intro overlay: "3" / "2" / "1" / "FIGHT!" numerals or the online joining
-   *  banner (any short line). The scene drives timing; empty string hides.
-   *  Change-gated internally — safe to call every frame. */
-  showIntro(text: string): void {
-    if (this.shownEnd || this.presentationBlocked) {
-      text = "";
-    }
-    if (text === this.introText) {
-      return;
-    }
-    this.introText = text;
-    const el = this.introEl;
-    if (text === "") {
-      el.classList.remove("show");
-      return;
-    }
-    el.textContent = text;
-    el.classList.toggle("fight", text === "FIGHT!");
-    el.classList.toggle("small", text.length > 6);
-    el.classList.add("show");
-    el.classList.remove("pop");
-    void el.offsetWidth; // retrigger the pop animation per numeral
-    el.classList.add("pop");
-  }
-
-  /** Contextual hint slot (fed by render/hints.ts via the scene). Empty hides. */
-  showHint(text: string): void {
-    if (this.shownEnd || this.presentationBlocked) {
-      text = "";
-    }
-    if (text === this.hintText) {
-      return;
-    }
-    this.hintText = text;
-    if (text === "") {
-      this.hintEl.classList.remove("show");
-    } else {
-      this.hintEl.textContent = text;
-      this.hintEl.classList.add("show");
-    }
-  }
-
-  // ── per-frame update ──
-  update(
-    w: World,
-    me: Unit,
-    scoreHeld = false,
-    frameDt = Math.max(0, (w.now - this.lastNow) / 1000),
-  ): void {
-    // A snapshot/world replacement can leave the ended phase without reloading.
-    // Remove result masking and pending celebration before this world's frame.
-    if (this.shownEnd && (w.phase !== "ended" || !w.winner)) {
-      this.updateEnd(w, me);
-    }
-    this.notices.update(frameDt);
-    this.lastMe = me;
-    if (me.killStreak > this.bestStreak) {
-      this.bestStreak = me.killStreak;
-    }
-    if (w.phase === "ended") {
-      this.updateEnd(w, me);
-      this.notices.dropIncoming();
-      this.lastNow = w.now;
-      return;
-    }
-    if (w.suddenDeath && !this.sawSuddenDeath) {
-      this.notices.queue("SUDDEN DEATH", "sudden");
-    }
-    this.sawSuddenDeath = w.suddenDeath;
-    this.updateLowHp(w, me);
-    this.updatePlates(w, me);
-    this.updateVitals(w, me);
-    this.updateAbilities(w, me);
-    this.updateItems(w, me);
-    this.updateBuffs(w, me);
-    this.updateTop(w);
-    this.updateBoard(w, me, scoreHeld || this.boardTapped);
-    this.updateRespawn(w, me);
-    this.updateGoalBanner(w);
-    this.updateMenuBtn(w);
-    this.updateReticle(w, me);
-    this.updateHitDir(w, me);
-    this.updateArrows();
-    this.drawMinimap(w, me);
-    if (this.shownEnd) {
-      this.notices.dropIncoming();
-    } else {
-      this.notices.drain(w);
-    }
-    this.updateShop(me);
-    this.updateEnd(w, me);
-    this.lastNow = w.now;
-  }
-
-  /** A late visitor sees the accepted result without inventing a player seat. */
-  updateUnassigned(w: World, frameDt: number): void {
-    if (w.phase !== "ended") {
-      return;
-    }
-    this.notices.update(frameDt);
-    this.lastMe = null;
-    this.updateEnd(w, null);
-    this.notices.dropIncoming();
-    this.lastNow = w.now;
-  }
-
-  /** Only an accepted new match rewinds these sim-clock cursors. Baseline its
-   * observed hits; neither a stale ring nor a ready/respawn cue may replay. */
-  resetMatch(w: World, me: Unit | null): void {
-    this.coinState = null;
-    this.deliveryState = null;
-    this.plateKeepOutAt = 0;
-    this.notices.reset();
-    this.shownEnd = false;
-    this.endEl.hidden = true;
-    this.root.classList.remove("ba-ended");
-    this.shopOpen = false;
-    this.shopEl.hidden = true;
-    this.boardTapped = false;
-    this.boardForced = false;
-    this.boardSig = "";
-    this.boardEl.classList.remove("force");
-    this.boardEl.textContent = "";
-    for (const plate of this.plates.values()) {
-      plate.wrap.remove();
-    }
-    this.plates.clear();
-    for (const arrow of [this.arrowCoin, this.arrowDelivery]) {
-      arrow.on = false;
-      arrow.el.classList.remove("on");
-    }
-    this.itemTaps = [];
-    this.bestStreak = me?.killStreak ?? 0;
-    this.sawSuddenDeath = false;
-    this.lastMe = null;
-    this.lastNow = this.lastReadySoundAt = w.now;
-    this.lastAttackSeen = me?.lastAttackAt ?? 0;
-    this.lastHitSeen = me?.lastHitAt ?? 0;
-    this.fireUntil = this.hitFlashUntil = this.hitDirUntil = 0;
-    this.hitFlashCrit = false;
-    this.reticleVisible = false;
-    this.reticleEl.classList.remove("show", "fire", "hit", "hitcrit");
-    this.lastHitDirDeg = 1e9;
-    this.lastHitDirOp = 0;
-    this.hitDirEl.style.opacity = "0";
-    this.lowHpEl.style.opacity = this.lowHpEl2.style.opacity = "0";
-    this.lastLowOp = this.lastLowOp2 = 0;
-    this.hbPhase = -1;
-    this.lastLevel = 0;
-    this.lvlBadge.classList.remove("lvlup");
-    this.hpGhost = me ? Math.max(0, Math.min(1, me.hp / Math.max(1, me.maxHp))) : 1;
-    this.respawnShown = false;
-    this.respawnFor = 0;
-    this.lastRespawnCeil = -1;
-    this.respawnEl.hidden = true;
-    this.buffSeen.clear();
-    this.buffEls.clear();
-    this.buffScratch.length = 0;
-    this.buffSig = "";
-    this.buffsEl.textContent = "";
-    for (const el of this.abilityEls.values()) {
-      el.wasOnCd = false;
-      el.wrap.classList.remove("ready");
-    }
-    this.showHint("");
-    this.showIntro("");
-  }
-
-  setPaused(paused: boolean): void {
-    this.notices.setPaused(paused);
-    if (paused) {
-      this.showHint("");
-      this.showIntro("");
-    }
-  }
-
-  dispose(): void {
-    window.removeEventListener("resize", this.remeasureTopBand);
-    window.removeEventListener("keydown", this.onMuteKey);
-    document.removeEventListener("visibilitychange", this.onVisibilityChange);
-    this.lowHpEl.remove();
-    this.lowHpEl2.remove();
-  }
-
-  /** Red danger vignette that intensifies below 35% HP, with a heartbeat throb
-   *  under 20%. Two reused nodes; opacity only, writes gated to 0.01 steps. */
-  private updateLowHp(w: World, me: Unit): void {
-    const frac = me.alive ? me.hp / Math.max(1, me.maxHp) : 1;
-    let op = 0;
-    let op2 = 0;
-    if (frac < 0.35) {
-      const base = ((0.35 - frac) / 0.35) * 0.55;
-      op = base;
-      if (frac < 0.2) {
-        const s = Math.sin(w.now * 0.006);
-        op = base * (0.8 + 0.2 * s);
-        op2 = base * (0.8 - 0.2 * s); // opposite phase — "closing in"
-        // heartbeat thump, phase-locked to the same clock as the pulse
-        const phase = Math.floor(w.now / 900);
-        if (phase !== this.hbPhase) {
-          this.hbPhase = phase;
-          this.sfx.heartbeat();
-        }
-      }
-    }
-    const q = Math.round(op * 100);
-    if (q !== this.lastLowOp) {
-      this.lastLowOp = q;
-      this.lowHpEl.style.opacity = (q / 100).toFixed(2);
-    }
-    const q2 = Math.round(op2 * 100);
-    if (q2 !== this.lastLowOp2) {
-      this.lastLowOp2 = q2;
-      this.lowHpEl2.style.opacity = (q2 / 100).toFixed(2);
-    }
-  }
-
-  private drawMinimap(w: World, me: Unit): void {
-    const ctx = this.mmCtx;
-    const W = this.minimap.width;
-    const H = this.minimap.height;
-    const cx = W / 2;
-    const cy = H / 2;
-    const scale = (W / 2 - 5) / HEX_R; // uniform — the arena is a regular hex
-    const to = (x: number, y: number): [number, number] => [cx + x * scale, cy + y * scale];
-    // regular-hexagon path, vertices at k·60° (vertex on +x — mirrors the arena)
-    const hexPath = (r: number): void => {
-      ctx.beginPath();
-      for (let i = 0; i < 6; i++) {
-        const a = (i * Math.PI) / 3;
-        const px = cx + Math.cos(a) * r;
-        const py = cy + Math.sin(a) * r;
-        if (i === 0) {
-          ctx.moveTo(px, py);
-        } else {
-          ctx.lineTo(px, py);
-        }
-      }
-      ctx.closePath();
-    };
-    ctx.clearRect(0, 0, W, H);
-    const frameR = W / 2 - 3;
-    // arena slab
-    hexPath(frameR);
-    ctx.fillStyle = "rgba(14,18,28,0.78)";
-    ctx.fill();
-    ctx.strokeStyle = "rgba(120,140,180,0.5)";
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-    // gold frame + vertex ticks (frame read)
-    hexPath(frameR);
-    ctx.strokeStyle = "rgba(255,210,74,0.4)";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    ctx.strokeStyle = "rgba(255,210,74,0.5)";
-    for (let i = 0; i < 6; i++) {
-      const a = (i * Math.PI) / 3;
-      const ca = Math.cos(a);
-      const sa = Math.sin(a);
-      ctx.beginPath();
-      ctx.moveTo(cx + ca * (frameR - 7), cy + sa * (frameR - 7));
-      ctx.lineTo(cx + ca * (frameR - 1), cy + sa * (frameR - 1));
-      ctx.stroke();
-    }
-    // contents clip to the arena hex
-    ctx.save();
-    hexPath(frameR);
-    ctx.clip();
-    // throne aura + faint crown ring
-    const [tx, ty] = to(ARENA.throne.x, ARENA.throne.y);
-    ctx.beginPath();
-    ctx.arc(tx, ty, ARENA.throne.radius * scale, 0, Math.PI * 2);
-    ctx.strokeStyle = "rgba(255,210,74,0.7)";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(tx, ty, ARENA.throne.radius * scale + 2, 0, Math.PI * 2);
-    ctx.strokeStyle = "rgba(255,210,74,0.25)";
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    // pillars
-    ctx.fillStyle = "rgba(120,120,140,0.45)";
-    for (const o of OBSTACLES) {
-      const [px, py] = to(o.x, o.y);
-      ctx.fillRect(px - 1.5, py - 1.5, 3, 3);
-    }
-    // deliveries
-    for (const d of w.deliveries) {
-      const [dx, dy] = to(d.x, d.y);
-      ctx.fillStyle = "#66ffcc";
-      ctx.fillRect(dx - 2.5, dy - 2.5, 5, 5);
-    }
-    // coins
-    for (const coin of w.coins) {
-      const [cx, cy] = to(coin.x, coin.y);
-      ctx.beginPath();
-      ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
-      ctx.fillStyle = "#ffd24a";
-      ctx.fill();
-    }
-    // heroes
-    for (const u of w.units.values()) {
-      if (u.kind !== "hero" || !u.alive) {
-        continue;
-      }
-      const [ux, uy] = to(u.x, u.y);
-      const isLocal = u.id === me.id;
-      ctx.beginPath();
-      ctx.arc(ux, uy, isLocal ? 3.5 : 3, 0, Math.PI * 2);
-      ctx.fillStyle = isLocal ? hex(LOCAL_COLOR) : hex(teamColor(u.team));
-      ctx.fill();
-      if (w.leaderId === u.team) {
-        ctx.strokeStyle = "#ffd24a";
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-      }
-      if (isLocal) {
-        // heading wedge so the world-locked minimap relates to facing
-        const a = Math.atan2(u.aimX, u.aimY);
-        ctx.beginPath();
-        ctx.moveTo(ux + Math.sin(a) * 8, uy + Math.cos(a) * 8);
-        ctx.lineTo(ux + Math.sin(a + 2.5) * 4, uy + Math.cos(a + 2.5) * 4);
-        ctx.lineTo(ux + Math.sin(a - 2.5) * 4, uy + Math.cos(a - 2.5) * 4);
-        ctx.closePath();
-        ctx.fillStyle = hex(LOCAL_COLOR);
-        ctx.fill();
-      }
-    }
-    ctx.restore();
-  }
-
-  private updatePlates(w: World, me: Unit): void {
-    if (w.now >= this.plateKeepOutAt) {
-      this.plateKeepOutAt = w.now + 200;
-      this.plateKeepOut = [];
-      for (const id of [
-        "ba-top",
-        "ba-goal-banner",
-        "ba-left",
-        "ba-abilities",
-        "ba-board",
-        "ba-menu-btn",
-        "ba-kit-btn",
-        "ba-minimap",
-      ]) {
-        const element = document.querySelector(`#${id}`);
-        if (!element || element.hidden || (id === "ba-goal-banner" && w.gameTime >= 10)) {
-          continue;
-        }
-        const box = element.getBoundingClientRect();
-        if (box.width > 0 && box.height > 0) {
-          this.plateKeepOut.push({
-            left: box.left - 6,
-            top: box.top - 6,
-            right: box.right + 6,
-            bottom: box.bottom + 6,
-          });
-        }
-      }
-    }
-    const seen = new Set<string>();
-    const candidates: PlateCandidate[] = [];
-    for (const u of w.units.values()) {
-      if ((u.kind !== "hero" && u.kind !== "creep") || !u.alive) {
-        continue;
-      }
-      const stealthed = u.statuses.some((s) => s.kind === "stealth") && u.id !== me.id;
-      if (stealthed) {
-        continue;
-      }
-      // only show skeleton HP bars when they're near the player (avoid clutter)
-      const distance = Math.hypot(u.x - me.x, u.y - me.y);
-      if (u.kind === "creep" && distance > 22) {
-        continue;
-      }
-      seen.add(u.id);
-      let plate = this.plates.get(u.id);
-      if (!plate) {
-        const wrap = document.createElement("div");
-        wrap.className = `ba-plate${u.kind === "creep" ? " creep" : ""}`;
-        const isLocal = u.id === me.id;
-        const col =
-          u.kind === "creep" ? "#b8c0d0" : isLocal ? hex(LOCAL_COLOR) : hex(teamColor(u.team));
-        const name = document.createElement("div");
-        name.className = "ba-pname";
-        name.style.color = col;
-        name.textContent = u.kind === "creep" ? "" : u.name;
-        const bar = document.createElement("div");
-        bar.className = "ba-php";
-        const fill = document.createElement("div");
-        fill.className = "ba-phpfill";
-        fill.style.background =
-          u.kind === "creep" ? "#c8a0a0" : u.team === me.team ? "#5dd66b" : "#ff5a52";
-        bar.append(fill);
-        wrap.append(name, bar);
-        byId("ba-plates").append(wrap);
-        plate = { fill, hp: "", name, shown: true, wrap, x: NaN, y: NaN };
-        this.plates.set(u.id, plate);
-      }
-      const anchor = this.plateAnchors?.(u.id);
-      const s = anchor
-        ? this.view.worldToScreen(anchor.x, anchor.z, anchor.y)
-        : this.view.worldToScreen(u.x, u.y, terrainHeight(u.x, u.y) + 2);
-      if (
-        !s.visible ||
-        s.x < 8 ||
-        s.x > window.innerWidth - 8 ||
-        s.y < 4 ||
-        s.y > window.innerHeight - 8
-      ) {
-        continue;
-      }
-      const local = u.id === me.id;
-      const recent = w.now - u.lastHitAt < 2000 && u.lastHitAt > 0;
-      const compact = u.kind === "creep" || (!local && distance > 24 && !recent);
-      const halfWidth = compact ? 17 : 56;
-      const top = s.y - (compact ? 9 : 24);
-      if (s.x < halfWidth || s.x > window.innerWidth - halfWidth || top < 4) {
-        continue;
-      }
-      candidates.push({
-        compact,
-        distance,
-        id: u.id,
-        priority: local
-          ? 0
-          : u.kind === "hero" && (distance < 16 || recent)
-            ? 1
-            : u.kind === "hero"
-              ? 2
-              : 3,
-        x: s.x,
-        y: top,
-      });
-      const hp = `${Math.max(0, (u.hp / u.maxHp) * 100)}%`;
-      if (hp !== plate.hp) {
-        plate.hp = hp;
-        plate.fill.style.width = hp;
-      }
-    }
-    const placed = new Set<string>();
-    for (const candidate of readablePlates(candidates, this.plateKeepOut)) {
-      const plate = this.plates.get(candidate.id);
-      if (!plate) {
-        continue;
-      }
-      placed.add(candidate.id);
-      plate.wrap.classList.toggle("compact", candidate.compact);
-      if (!plate.shown) {
-        plate.shown = true;
-        plate.wrap.style.display = "block";
-      }
-      const x = Math.round(candidate.x);
-      if (x !== plate.x) {
-        plate.x = x;
-        plate.wrap.style.left = `${x}px`;
-      }
-      const y = Math.round(candidate.y);
-      if (y !== plate.y) {
-        plate.y = y;
-        plate.wrap.style.top = `${y}px`;
-      }
-    }
-    for (const [id, plate] of this.plates) {
-      if (!seen.has(id)) {
-        plate.wrap.remove();
-        this.plates.delete(id);
-      } else if (plate.shown && !placed.has(id)) {
-        plate.shown = false;
-        plate.wrap.style.display = "none";
-      }
-    }
-  }
-
-  /** HP bar (gradient tiers + damage ghost + 250-HP ticks), XP bar, level
-   *  badge, gold. All writes change-gated. */
-  private updateVitals(w: World, me: Unit): void {
-    const frac = Math.max(0, Math.min(1, me.hp / Math.max(1, me.maxHp)));
-    // damage ghost: snaps up with heals, bleeds down after damage
-    const dt = Math.min(0.1, Math.max(0, (w.now - this.lastNow) / 1000));
-    if (frac >= this.hpGhost) {
-      this.hpGhost = frac;
-    } else {
-      this.hpGhost = Math.max(frac, this.hpGhost - dt * 0.4);
-    }
-
-    const hpStep = Math.round(frac * 500); // 0.2% steps
-    if (hpStep !== this.lastHpStep) {
-      this.lastHpStep = hpStep;
-      this.hpFill.style.width = `${(hpStep / 5).toFixed(1)}%`;
-    }
-    const tier = frac >= 0.55 ? "hi" : frac >= 0.3 ? "mid" : "low";
-    if (tier !== this.lastHpTier) {
-      this.lastHpTier = tier;
-      this.hpFill.classList.remove("hi", "mid", "low");
-      this.hpFill.classList.add(tier);
-    }
-    const ghostStep = Math.round(this.hpGhost * 200); // 0.5% steps
-    if (ghostStep !== this.lastGhostStep) {
-      this.lastGhostStep = ghostStep;
-      this.hpGhostEl.style.width = `${(ghostStep / 2).toFixed(1)}%`;
-    }
-    const hpTextStr = `${Math.max(0, Math.ceil(me.hp))} / ${Math.ceil(me.maxHp)}`;
-    if (hpTextStr !== this.lastHpTextStr) {
-      this.lastHpTextStr = hpTextStr;
-      this.hpText.textContent = hpTextStr;
-    }
-    if (me.maxHp !== this.lastMaxHp) {
-      this.lastMaxHp = me.maxHp;
-      this.hpTicksEl.style.backgroundSize = `${(250 / Math.max(1, me.maxHp)) * 100}% 100%`;
-    }
-    // XP progress toward the next level (mana is dead sim data — no mana bar)
-    const lo = XP_CURVE[me.level - 1] ?? 0;
-    const hiXp = XP_CURVE[me.level] ?? lo + 1;
-    const xpFrac =
-      me.level >= LEVEL_CAP ? 1 : Math.max(0, Math.min(1, (me.xp - lo) / Math.max(1, hiXp - lo)));
-    const xpStep = Math.round(xpFrac * 200);
-    if (xpStep !== this.lastXpStep) {
-      this.lastXpStep = xpStep;
-      this.xpFill.style.width = `${(xpStep / 2).toFixed(1)}%`;
-    }
-    if (me.level !== this.lastLevel) {
-      const first = this.lastLevel === 0;
-      this.lastLevel = me.level;
-      this.lvlEl.textContent = `${me.level}`;
-      if (!first) {
-        this.lvlBadge.classList.remove("lvlup");
-        void this.lvlBadge.offsetWidth;
-        this.lvlBadge.classList.add("lvlup");
-      }
-    }
-    const goldStr = `${Math.floor(me.gold)}g`;
-    if (goldStr !== this.lastGoldStr) {
-      this.lastGoldStr = goldStr;
-      this.goldEl.textContent = goldStr;
-    }
-  }
-
-  private updateAbilities(w: World, me: Unit): void {
-    const def = CHAMP_BY_ID[me.champId];
-    if (!def) {
-      return;
-    }
-    if (me.champId !== this.champBound) {
-      this.champBound = me.champId;
-      for (const key of ALL_ABILITY_KEYS) {
-        const el = this.abilityEls.get(key)!;
-        el.img.src = abilityIcon(me.champId, key);
-        el.lastRank = -1; // force pip rebuild
-      }
-    }
-    for (const key of ALL_ABILITY_KEYS) {
-      const el = this.abilityEls.get(key)!;
-      const slot = me.abilities[key];
-      const ad = def.abilities[key];
-      const readiness = abilityReadiness(me, key, w.now);
-      el.wrap.classList.toggle("blocked", readiness.kind === "blocked");
-      el.wrap.classList.toggle("queued", readiness.queued);
-      // DASH/JUMP are flat (maxRank 1): no rank pips, never level-locked.
-      const util = UTIL_KEYS.has(key);
-      if (!util && slot.rank !== el.lastRank) {
-        el.lastRank = slot.rank;
-        let pips = "";
-        for (let i = 0; i < ad.maxRank; i++) {
-          pips += i < slot.rank ? "<i class='on'></i>" : "<i></i>";
-        }
-        el.pips.innerHTML = pips;
-      }
-      if (!util && slot.rank < 1) {
-        el.wrap.classList.add("locked");
-        if (el.lastCd !== 0) {
-          el.lastCd = 0;
-          el.wrap.style.setProperty("--cd", "0");
-        }
-        const text = key === "R" ? "Lv4" : "";
-        if (text !== el.lastText) {
-          el.lastText = text;
-          el.cdText.textContent = text;
-        }
-        el.wasOnCd = false;
-        continue;
-      }
-      el.wrap.classList.remove("locked");
-      const cdLeft = Math.max(0, (slot.readyAt - w.now) / 1000);
-      const cdTotal = Math.max(0.01, valAt(ad.cooldown, util ? 1 : slot.rank));
-      const frac = cdLeft > 0 ? Math.min(1, cdLeft / cdTotal) : 0;
-      const pct = Math.round(frac * 100);
-      if (pct !== el.lastCd) {
-        el.lastCd = pct;
-        el.wrap.style.setProperty("--cd", `${pct}`);
-      }
-      el.wrap.classList.toggle("oncd", frac > 0);
-      if (
-        el.wasOnCd &&
-        readiness.kind === "available" &&
-        !readiness.queued &&
-        !this.presentationBlocked
-      ) {
-        el.wrap.classList.remove("ready");
-        void el.wrap.offsetWidth;
-        el.wrap.classList.add("ready");
-        if (w.now - this.lastReadySoundAt > 150) {
-          this.lastReadySoundAt = w.now;
-          this.sfx.abilityReady();
-        }
-      }
-      el.wasOnCd = frac > 0;
-      const countdown =
-        cdLeft > 0 ? (cdLeft < 10 ? cdLeft.toFixed(1) : `${Math.ceil(cdLeft)}`) : "";
-      const label = readiness.queued
-        ? "QUEUED"
-        : readiness.kind === "blocked"
-          ? readiness.label
-          : "";
-      const text = label ? `${label}${countdown ? `\n${countdown}` : ""}` : countdown;
-      if (text !== el.lastText) {
-        el.lastText = text;
-        el.cdText.textContent = text;
-      }
-    }
-  }
-
-  private readonly ITEM_KEYS = ["5", "6", "7", "8", "9", "0"];
-  private updateItems(w: World, me: Unit): void {
-    const sig = `${this.shopOpen}:${me.items.join(",")}`;
-    if (sig !== this.itemSig) {
-      this.itemSig = sig;
-      for (let i = 0; i < MAX_ITEMS; i++) {
-        const sock = this.itemSockets[i]!;
-        const id = me.items[i];
-        const it = id ? ITEM_BY_ID[id] : undefined;
-        sock.chip.hidden = !it && !this.shopOpen;
-        if (it) {
-          sock.chip.className = `ba-item-chip${it.active ? " active" : ""}`;
-          sock.img.src = iconUrl(it.icon);
-        } else {
-          sock.chip.className = "ba-item-chip empty";
-        }
-        sock.lastPct = -1;
-        sock.lastText = "";
-        sock.lastRdy = false;
-        sock.cd.style.height = "0";
-        sock.cd.textContent = "";
-      }
-    }
-    // active-item cooldown overlays (vertical fill — long cds read better small)
-    for (let i = 0; i < MAX_ITEMS; i++) {
-      const id = me.items[i];
-      if (!id) {
-        continue;
-      }
-      const it = ITEM_BY_ID[id];
-      if (!it?.active) {
-        continue;
-      }
-      const sock = this.itemSockets[i]!;
-      const left = Math.max(0, ((me.itemReadyAt[id] ?? 0) - w.now) / 1000);
-      const pct =
-        it.active.cooldown > 0 ? Math.round(Math.min(1, left / it.active.cooldown) * 100) : 0;
-      if (pct !== sock.lastPct) {
-        sock.lastPct = pct;
-        sock.cd.style.height = `${pct}%`;
-      }
-      const text = left > 0 ? left.toFixed(0) : "";
-      if (text !== sock.lastText) {
-        sock.lastText = text;
-        sock.cd.textContent = text;
-      }
-      const rdy = left <= 0;
-      if (rdy !== sock.lastRdy) {
-        sock.lastRdy = rdy;
-        sock.chip.classList.toggle("rdy", rdy);
-      }
-    }
-  }
-
-  /** Buff/debuff chips from synced statuses (+ synthetic empower). DOM rebuild
-   *  gated on the kind-set signature; per-frame only the --t ring var and the
-   *  seconds text, both change-gated. Hex (no icon art) renders a 🍄 glyph —
-   *  it polymorphs you into a mushroom, so the glyph IS the read. */
-  private updateBuffs(w: World, me: Unit): void {
-    const chips = this.buffScratch;
-    chips.length = 0;
-    for (const s of me.statuses) {
-      if (s.until <= w.now) {
-        continue;
-      }
-      if (statusIcon(s.kind) === null && s.kind !== "hex") {
-        continue;
-      } // silence etc: no chip
-      const existing = chips.find((c) => c.kind === s.kind);
-      if (existing) {
-        existing.until = Math.max(existing.until, s.until);
-      } else {
-        chips.push({ kind: s.kind, until: s.until });
-      }
-    }
-    if (me.empowerNext > 0) {
-      chips.push({ kind: "empower", until: -1 });
-    }
-
-    // duration bookkeeping (statuses only carry `until`; track first-seen)
-    for (const c of chips) {
-      if (c.until < 0) {
-        continue;
-      }
-      const prev = this.buffSeen.get(c.kind);
-      if (!prev || c.until > prev.until) {
-        this.buffSeen.set(c.kind, { seenAt: w.now, until: c.until });
-      }
-    }
-    for (const kind of this.buffSeen.keys()) {
-      if (!chips.some((c) => c.kind === kind)) {
-        this.buffSeen.delete(kind);
-      }
-    }
-
-    let sig = "";
-    for (const c of chips) {
-      sig += c.kind + "|";
-    }
-    if (sig !== this.buffSig) {
-      this.buffSig = sig;
-      this.buffsEl.textContent = "";
-      this.buffEls.clear();
-      for (const c of chips) {
-        const chip = document.createElement("div");
-        chip.className = DEBUFF_KINDS.has(c.kind) ? "ba-buff debuff" : "ba-buff";
-        const icon = statusIcon(c.kind);
-        if (icon === null) {
-          const glyph = document.createElement("span");
-          glyph.className = "ba-bglyph";
-          glyph.textContent = "🍄";
-          chip.appendChild(glyph);
-        } else {
-          const img = document.createElement("img");
-          img.src = icon;
-          img.alt = "";
-          img.draggable = false;
-          chip.appendChild(img);
-        }
-        const ring = document.createElement("i");
-        ring.className = "ring";
-        const sec = document.createElement("b");
-        chip.append(ring, sec);
-        this.buffsEl.append(chip);
-        this.buffEls.set(c.kind, { lastSec: "", lastT: -1, ring, sec });
-      }
-    }
-    for (const c of chips) {
-      const el = this.buffEls.get(c.kind);
-      if (!el) {
-        continue;
-      }
-      let pct = 100;
-      let secStr = "";
-      if (c.until >= 0) {
-        const seen = this.buffSeen.get(c.kind);
-        const total = seen ? Math.max(1, c.until - seen.seenAt) : 1;
-        const remainMs = Math.max(0, c.until - w.now);
-        pct = Math.round(Math.min(1, remainMs / total) * 100);
-        const remainS = remainMs / 1000;
-        secStr = remainS >= 1 ? `${Math.ceil(remainS)}` : "";
-      }
-      if (pct !== el.lastT) {
-        el.lastT = pct;
-        el.ring.style.setProperty("--t", `${pct}`);
-      }
-      if (secStr !== el.lastSec) {
-        el.lastSec = secStr;
-        el.sec.textContent = secStr;
-      }
-    }
-  }
-
-  private updateTop(w: World): void {
-    const remain = Math.max(0, w.matchTime - w.gameTime);
-    const m = Math.floor(remain / 60);
-    const s = Math.floor(remain % 60);
-    const timerStr = `${m}:${s.toString().padStart(2, "0")}`;
-    if (timerStr !== this.lastTimerStr) {
-      this.lastTimerStr = timerStr;
-      this.timerEl.textContent = timerStr;
-      this.timerEl.classList.toggle("low", remain < 30);
-    }
-    const goalStr = w.suddenDeath ? "SUDDEN DEATH" : `FIRST TO ${w.killGoal}`;
-    if (goalStr !== this.lastGoalStr) {
-      this.lastGoalStr = goalStr;
-      this.goalEl.textContent = goalStr;
-    }
-    // Countdown and arrow share one retained, authoritative target.
-    this.coinState = coinObjective(w, this.lastMe, this.coinState?.target?.id ?? null);
-    const coinStr = this.coinState.text;
-    if (coinStr !== this.lastObjCoin) {
-      this.lastObjCoin = coinStr;
-      this.objCoinEl.textContent = coinStr;
-      this.objCoinEl.className = this.coinState.live ? "coin live" : "coin";
-    }
-    this.deliveryState = deliveryObjective(w, this.lastMe, this.deliveryState?.target?.id ?? null);
-    const dropStr = this.deliveryState.text;
-    if (dropStr !== this.lastObjDrop) {
-      this.lastObjDrop = dropStr;
-      this.objDropEl.textContent = dropStr;
-      this.objDropEl.className = this.deliveryState.live ? "drop live" : "drop";
-    }
-  }
-
-  /** Leaderboard. Tab (scoreHeld) forces it visible (even on mobile) and
-   *  expands rows to K/D/A · gold · item count. Rebuild is signature-gated. */
-  private updateBoard(w: World, me: Unit, scoreHeld: boolean): void {
-    if (scoreHeld !== this.boardForced) {
-      this.boardForced = scoreHeld;
-      this.boardEl.classList.toggle("force", scoreHeld);
-    }
-    const heroes = [...w.units.values()]
-      .filter((u) => u.kind === "hero")
-      .sort((a, b) => b.kills - a.kills || b.gold - a.gold)
-      .slice(0, 6);
-    let sig = scoreHeld ? "x" : "-";
-    for (const u of heroes) {
-      sig += `${u.id}:${u.kills}/${u.deaths}/${u.assists}/${Math.floor(u.gold)}/${u.items.length};`;
-    }
-    if (sig === this.boardSig) {
-      return;
-    }
-    this.boardSig = sig;
-    this.boardEl.innerHTML = heroes
-      .map((u) => {
-        const col = u.id === me.id ? hex(LOCAL_COLOR) : hex(teamColor(u.team));
-        const lead = w.leaderId === u.team ? "★" : "";
-        const kda = scoreHeld ? `${u.kills}/${u.deaths}/${u.assists}` : `${u.kills}/${u.deaths}`;
-        const extra = scoreHeld
-          ? `<span class="ba-rg">${Math.floor(u.gold)}g</span><span class="ba-ri">${u.items.length} it</span>`
-          : "";
-        return `<div class="ba-row${u.id === me.id ? " me" : ""}${scoreHeld ? " x" : ""}"><span class="ba-dot" style="background:${col}"></span><span class="ba-rn">${lead}${htmlText(u.name)}</span><span class="ba-rk">${kda}</span>${extra}</div>`;
-      })
-      .join("");
-  }
-
-  /** Death screen: killer attribution + rotating tip + conic respawn ring. */
-  private updateRespawn(w: World, me: Unit): void {
-    if (!me.alive && me.respawnAt > 0) {
-      const left = Math.max(0, (me.respawnAt - w.now) / 1000);
-      if (!this.respawnShown) {
-        this.respawnShown = true;
-        this.respawnEl.hidden = false;
-      }
-      if (this.respawnFor !== me.respawnAt) {
-        this.respawnFor = me.respawnAt;
-        this.respawnSlain.textContent = `Slain by ${this.fx.lastDeath?.killerName ?? "the arena"}`;
-        this.respawnTip.textContent = `TIP: ${TIPS[me.deaths % TIPS.length]}`;
-        this.lastRespawnCeil = -1;
-      }
-      const total = Math.max(0.1, respawnTime(me.level));
-      const pct = Math.round(Math.min(1, Math.max(0, 1 - left / total)) * 100);
-      if (pct !== this.lastRespawnPct) {
-        this.lastRespawnPct = pct;
-        this.respawnRing.style.setProperty("--cd", `${pct}`);
-      }
-      const text = `${left.toFixed(1)}s`;
-      if (text !== this.lastRespawnText) {
-        this.lastRespawnText = text;
-        this.respawnTimer.textContent = text;
-      }
-      const ceilLeft = Math.ceil(left);
-      if (ceilLeft !== this.lastRespawnCeil) {
-        this.lastRespawnCeil = ceilLeft;
-        if (ceilLeft >= 1 && ceilLeft <= 3) {
-          this.sfx.respawnTick();
-        }
-      }
-    } else if (this.respawnShown) {
-      this.respawnShown = false;
-      this.respawnEl.hidden = true;
-      if (me.alive) {
-        this.sfx.respawnGo();
-      }
-    }
-  }
-
-  /** ≤8-word goal banner, visible 0–8s, faded out by 10s. */
-  private updateGoalBanner(w: World): void {
-    const t = w.gameTime;
-    const op = t < 8 ? "1" : t < 10 ? ((10 - t) / 2).toFixed(2) : "0";
-    if (op !== this.lastBannerOp) {
-      this.lastBannerOp = op;
-      this.goalBanner.style.opacity = op;
-    }
-  }
-
-  /** "HEROES ▸" escape hatch to the lobby — solo only, first 20s. */
-  private updateMenuBtn(w: World): void {
-    const hide = this.online || w.gameTime > 20;
-    if (hide !== this.menuBtnHidden) {
-      this.menuBtnHidden = hide;
-      this.menuBtn.hidden = hide;
-    }
-  }
-
-  /** Center reticle: fire-expand on your swings, gold/crit flash on your hits
-   *  (fed by fx.localHits). Hidden while unlocked / shopping / dead. Touch is
-   *  FPS-framed too (look stick turns the view), so it keeps the crosshair. */
-  private updateReticle(w: World, me: Unit): void {
-    const touch = document.body.classList.contains("ba-touch-on");
-    const show = me.alive && !this.shopOpen && (touch || document.pointerLockElement !== null);
-    if (show !== this.reticleVisible) {
-      this.reticleVisible = show;
-      this.reticleEl.classList.toggle("show", show);
-    }
-    if (!show) {
-      return;
-    }
-    if (me.lastAttackAt !== this.lastAttackSeen) {
-      this.lastAttackSeen = me.lastAttackAt;
-      this.fireUntil = w.now + 120;
-      this.reticleEl.classList.add("fire");
-    } else if (this.fireUntil > 0 && w.now >= this.fireUntil) {
-      this.fireUntil = 0;
-      this.reticleEl.classList.remove("fire");
-    }
-    const hits = this.fx.localHits;
-    if (hits && hits.length > 0) {
-      let crit = false;
-      for (const h of hits) {
-        crit = crit || h.crit;
-      }
-      hits.length = 0;
-      this.hitFlashUntil = w.now + 150;
-      this.hitFlashCrit = crit;
-      this.reticleEl.classList.toggle("hit", !crit);
-      this.reticleEl.classList.toggle("hitcrit", crit);
-    } else if (this.hitFlashUntil > 0 && w.now >= this.hitFlashUntil) {
-      this.hitFlashUntil = 0;
-      this.reticleEl.classList.remove("hit", "hitcrit");
-    }
-  }
-
-  /** Conic ring segment pointing at whoever just hit you. Screen angle comes
-   *  from two worldToScreen projections — no View internals touched. */
-  private updateHitDir(w: World, me: Unit): void {
-    if (me.alive && me.lastHitAt > 0 && me.lastHitAt !== this.lastHitSeen) {
-      this.lastHitSeen = me.lastHitAt;
-      this.hitDirUntil = w.now + 600;
-      const s1 = this.view.worldToScreen(me.x, me.y);
-      const s2 = this.view.worldToScreen(me.x - me.lastHitDx * 4, me.y - me.lastHitDy * 4);
-      const ang = Math.atan2(s2.y - s1.y, s2.x - s1.x);
-      const deg = Math.round((ang * 180) / Math.PI + 90);
-      if (deg !== this.lastHitDirDeg) {
-        this.lastHitDirDeg = deg;
-        this.hitDirEl.style.setProperty("--a", `${deg}deg`);
-      }
-    }
-    const left = this.hitDirUntil - w.now;
-    const op = left > 0 ? 0.9 * (left / 600) : 0;
-    const q = Math.round(op * 50); // 0.02 steps
-    if (q !== this.lastHitDirOp) {
-      this.lastHitDirOp = q;
-      this.hitDirEl.style.opacity = (q / 50).toFixed(2);
-    }
-  }
-
-  /** Off-screen coin/delivery edge arrows: transform-only, 40px inset. */
-  private updateArrows(): void {
-    const coin = this.coinState?.target;
-    this.placeArrow(this.arrowCoin, coin?.x, coin?.y);
-    const drop = this.deliveryState?.target;
-    this.placeArrow(this.arrowDelivery, drop?.x, drop?.y);
-  }
-
-  private placeArrow(a: Arrow, x?: number, y?: number): void {
-    if (x === undefined || y === undefined) {
-      if (a.on) {
-        a.on = false;
-        a.el.classList.remove("on");
-      }
-      return;
-    }
-    const W = window.innerWidth;
-    const H = window.innerHeight;
-    const s = this.view.worldToScreen(x, y, terrainHeight(x, y) + 1.4);
-    const behind = !s.visible && s.x === 0 && s.y === 0;
-    const onScreen = s.visible && s.x >= 0 && s.x <= W && s.y >= 0 && s.y <= H;
-    if (onScreen) {
-      if (a.on) {
-        a.on = false;
-        a.el.classList.remove("on");
-      }
-      return;
-    }
-    // behind the camera: point down at the bottom edge (projection is useless)
-    const px = behind ? W / 2 : Math.max(40, Math.min(W - 40, s.x));
-    const py = behind ? H - 40 : Math.max(40, Math.min(H - 40, s.y));
-    const deg = behind
-      ? 180
-      : Math.round((Math.atan2(py - H / 2, px - W / 2) * 180) / Math.PI + 90);
-    const tf = `translate(${Math.round(px)}px,${Math.round(py)}px) translate(-50%,-50%) rotate(${deg}deg)`;
-    if (tf !== a.lastTf) {
-      a.lastTf = tf;
-      a.el.style.transform = tf;
-    }
-    if (!a.on) {
-      a.on = true;
-      a.el.classList.add("on");
-    }
-  }
-
-  private updateShop(me: Unit): void {
-    const inBase = this.shop.canShop();
-    if (this.shopOpen && !inBase) {
-      this.toggleShop();
-    }
-    if (!this.shopOpen) {
-      return;
-    }
-    this.shopEl.querySelectorAll<HTMLButtonElement>(".ba-item").forEach((btn) => {
-      const it = ITEM_BY_ID[btn.dataset.id ?? ""];
-      const owned = me.items.length >= MAX_ITEMS;
-      const afford = it ? me.gold >= it.cost : false;
-      btn.classList.toggle("afford", afford && !owned);
-      btn.disabled = !afford || owned;
-    });
-  }
-
-  /** Match-end card: title slam, winner sigil, your stat line, best-kills
-   *  open loop, PLAY AGAIN / CHANGE HERO. Win confetti reuses fx.fountain. */
-  private updateEnd(w: World, me: Unit | null): void {
-    if (w.phase !== "ended" || !w.winner) {
-      if (this.shownEnd) {
-        this.shownEnd = false;
-        this.endEl.hidden = true;
-        this.root.classList.remove("ba-ended");
-        this.notices.clear();
-        this.bestStreak = me?.killStreak ?? 0;
-        this.sawSuddenDeath = false;
-      }
-      return;
-    }
-    if (this.shownEnd) {
-      this.syncRematchAction();
-      return;
-    }
-    this.shownEnd = true;
-    this.notices.hold();
-    this.showHint("");
-    this.showIntro("");
-    this.shopOpen = false;
-    this.shopEl.hidden = true;
-    this.boardTapped = false;
-    this.itemTaps = [];
-    this.root.classList.add("ba-ended");
-    const won = me !== null && w.winner === me.team;
-    const winner = [...w.units.values()].find((u) => u.team === w.winner);
-    let best = 0;
-    try {
-      best = Number(localStorage.getItem("ba-best-kills") ?? "0") || 0;
-    } catch {
-      /* storage unavailable — skip the open loop */
-    }
-    const newBest = me !== null && me.kills > best;
-    if (newBest) {
-      try {
-        localStorage.setItem("ba-best-kills", `${me?.kills ?? 0}`);
-      } catch {
-        /* ignore */
-      }
-    }
-    const sigil =
-      winner && winner.kind === "hero" && winner.champId
-        ? `<img class="ba-es" src="${champSigil(winner.champId)}" alt="">`
-        : "";
-    this.endEl.hidden = false;
-    this.endEl.innerHTML = `
-      <div class="ba-end-card">
-        <div class="ba-end-title ${me ? (won ? "win" : "loss") : ""}">${me ? (won ? "VICTORY" : "DEFEAT") : "MATCH COMPLETE"}</div>
-        <div class="ba-end-sub">${sigil}${htmlText(winner?.name ?? "Someone")} takes the arena</div>
-        ${
-          me
-            ? `<div class="ba-end-stats">
-          <span><b>${me.kills}</b>K</span><span><b>${me.deaths}</b>D</span><span><b>${me.assists}</b>A</span>
-          <span><b>${Math.floor(me.gold)}</b><small>GOLD HELD</small></span><span><b>${me.level}</b>Lv</span><span><b>${Math.max(this.bestStreak, me.killStreak)}</b>streak</span>
-        </div>
-        <div class="ba-end-best${newBest ? " nb" : ""}">${newBest ? "NEW BEST!" : `BEST: ${Math.max(best, me.kills)}`}</div>`
-            : '<div class="ba-end-best">YOU JOINED AFTER THE FINAL BLOW</div>'
-        }
-        <div class="ba-end-btns"><button class="ba-end-btn" data-act="again">PLAY AGAIN</button><button class="ba-end-btn alt" data-act="hero">CHANGE HERO</button></div>
-      </div>`;
-    this.endEl.querySelectorAll<HTMLButtonElement>(".ba-end-btn").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        if (btn.dataset.act === "hero") {
-          backToLobby();
-        } else if (this.matchActions.kind === "online") {
-          this.matchActions.rematch();
-        } else {
-          location.reload();
-        }
-      });
-    });
-    this.syncRematchAction();
-    if (won && winner) {
-      this.notices.celebrate(winner.x, winner.y);
-    }
-  }
-
-  /** Server election may change while the result card is already visible. */
-  private syncRematchAction(): void {
-    if (this.matchActions.kind !== "online") {
-      return;
-    }
-    const button = this.endEl.querySelector<HTMLButtonElement>('[data-act="again"]');
-    if (!button) {
-      return;
-    }
-    const available = this.matchActions.canRematch();
-    const label = available ? "START REMATCH" : "WAITING FOR HOST";
-    if (button.textContent !== label) {
-      button.textContent = label;
-    }
-    button.disabled = !available;
-  }
-
-  // ── styles ──
-  private injectStyle(): void {
-    const s = document.createElement("style");
-    s.textContent = STYLE;
-    document.head.append(s);
-  }
-}
-
-function byId(id: string): HTMLElement {
-  return document.querySelector(`#${id}`)!;
-}
+/** Typed child lookup (build-time markup — always present). */
+const query = (root: HTMLElement, sel: string): HTMLElement => {
+  const el = root.querySelector(sel);
+  return el instanceof HTMLElement ? el : root;
+};
 
 /** Leave the match for champion select. `?offline=1` is a boot guarantee, not a
  *  match setting, so it survives the trip — otherwise the lobby it lands on
  *  offers PLAY ONLINE again and a session promised no socket can open one. */
-function backToLobby(): void {
+const backToLobby = (): void => {
   location.search = isOfflineRequested() ? "?menu&offline=1" : "?menu";
-}
+};
 
-/** Typed child lookup (build-time markup — always present). */
-function query(root: HTMLElement, sel: string): HTMLElement {
-  const el = root.querySelector(sel);
-  return el instanceof HTMLElement ? el : root;
-}
-
-function arrowEl(id: string): HTMLDivElement {
+const arrowEl = (id: string): HTMLDivElement => {
   const el = byId(id);
   return el instanceof HTMLDivElement ? el : document.createElement("div");
-}
+};
 
 const STYLE = `
 .ba-end-btn:disabled{opacity:.55;cursor:wait;transform:none;filter:none;}
@@ -1905,5 +580,1476 @@ body.ba-touch-on #ba-abilities{display:none}
 }
 `;
 
+const injectStyle = (): void => {
+  const s = document.createElement("style");
+  s.textContent = STYLE;
+  document.head.append(s);
+};
+
 // keep ItemDef referenced for tooling
-export type { ItemDef };
+
+export class Hud {
+  private root: HTMLElement;
+  private plates = new Map<string, Plate>();
+  private plateAnchors: ((id: string) => PlateAnchor | null) | null = null;
+  private plateKeepOut: ScreenBox[] = [];
+  private plateKeepOutAt = 0;
+  private kitButton: HTMLButtonElement | null = null;
+  private kitAction: (() => void) | null = null;
+  private coinState: ReturnType<typeof coinObjective> | null = null;
+  private deliveryState: ReturnType<typeof deliveryObjective> | null = null;
+  private timerEl!: HTMLElement;
+  private goalEl!: HTMLElement;
+  private objCoinEl!: HTMLElement;
+  private objDropEl!: HTMLElement;
+  private boardEl!: HTMLElement;
+  private notices!: HudNotices;
+  private hpFill!: HTMLElement;
+  private hpGhostEl!: HTMLElement;
+  private hpTicksEl!: HTMLElement;
+  private hpText!: HTMLElement;
+  private xpFill!: HTMLElement;
+  private lvlBadge!: HTMLElement;
+  private lvlEl!: HTMLElement;
+  private goldEl!: HTMLElement;
+  private buffsEl!: HTMLElement;
+  private abilityEls = new Map<AbilityKey, AbilityEl>();
+  private respawnEl!: HTMLElement;
+  private respawnSlain!: HTMLElement;
+  private respawnRing!: HTMLElement;
+  private respawnTimer!: HTMLElement;
+  private respawnTip!: HTMLElement;
+  private itemsEl!: HTMLElement;
+  private itemSockets: ItemSocket[] = [];
+  // belt-chip taps → item-use slots (touch path)
+  private itemTaps: number[] = [];
+  private itemSig = "";
+  private minimap!: HTMLCanvasElement;
+  private mmCtx!: CanvasRenderingContext2D;
+  private shopEl!: HTMLElement;
+  private shopOpen = false;
+  private endEl!: HTMLElement;
+  private shownEnd = false;
+  private goalBanner!: HTMLElement;
+  private hintEl!: HTMLElement;
+  private introEl!: HTMLElement;
+  private reticleEl!: HTMLElement;
+  private hitDirEl!: HTMLElement;
+  private menuBtn!: HTMLButtonElement;
+  private arrowCoin!: Arrow;
+  private arrowDelivery!: Arrow;
+  private lowHpEl: HTMLDivElement;
+  private lowHpEl2: HTMLDivElement;
+  private readonly remeasureTopBand = (): void => {
+    this.plateKeepOutAt = 0;
+  };
+
+  /** Set true by the scene for online matches — hides the HEROES button. */
+  online = false;
+
+  // ── change-gate caches ──
+  private champBound = "";
+  private lastReadySoundAt = 0;
+  private hpGhost = 1;
+  private lastNow = 0;
+  private lastLevel = 0;
+  private lastMaxHp = 0;
+  private lastHpStep = -1;
+  private lastGhostStep = -1;
+  private lastXpStep = -1;
+  private lastHpTextStr = "";
+  private lastHpTier = "";
+  private lastGoldStr = "";
+  private lastTimerStr = "";
+  private lastGoalStr = "";
+  private lastObjCoin = "";
+  private lastObjDrop = "";
+  private buffSeen = new Map<string, { seenAt: number; until: number }>();
+  private buffEls = new Map<string, BuffEl>();
+  private buffSig = "";
+  private buffScratch: { kind: string; until: number }[] = [];
+  private boardSig = "";
+  private boardForced = false;
+  // timer-tap latch — the touch Tab
+  private boardTapped = false;
+  private lastAttackSeen = 0;
+  private fireUntil = 0;
+  private hitFlashUntil = 0;
+  private hitFlashCrit = false;
+  private reticleVisible = false;
+  private lastHitSeen = 0;
+  private hitDirUntil = 0;
+  private lastHitDirDeg = 1e9;
+  private lastHitDirOp = -1;
+  private respawnShown = false;
+  private respawnFor = 0;
+  private lastRespawnText = "";
+  private lastRespawnPct = -1;
+  private lastRespawnCeil = -1;
+  private introText = "";
+  private hintText = "";
+  private lastBannerOp = "";
+  private menuBtnHidden = false;
+  private bestStreak = 0;
+  private lastMe: Unit | null = null;
+  private lastLowOp = -1;
+  private lastLowOp2 = -1;
+  private hbPhase = -1;
+  private sawSuddenDeath = false;
+  private readonly onVisibilityChange = (): void => {
+    this.notices.setHidden(document.hidden);
+    this.showHint("");
+    this.showIntro("");
+  };
+  private readonly onMuteKey = (e: KeyboardEvent): void => {
+    if (e.code !== "KeyM" || e.repeat) {
+      return;
+    }
+    const t = e.target;
+    if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) {
+      return;
+    }
+    this.sfx.setMuted(!this.sfx.isMuted);
+  };
+
+  private view: View;
+  private fx: Fx;
+  private shop: ShopCallbacks;
+  private matchActions: MatchActions;
+
+  constructor(view: View, fx: Fx, shop: ShopCallbacks, matchActions: MatchActions) {
+    this.view = view;
+    this.fx = fx;
+    this.shop = shop;
+    this.matchActions = matchActions;
+    this.root = byId("hud");
+    injectStyle();
+    this.build();
+    document.addEventListener("visibilitychange", this.onVisibilityChange);
+    // persistent low-HP danger vignette (two reused nodes; opacity only).
+    // Layer 1 = radial closing in from the corners, layer 2 = inset ring that
+    // pulses opposite-phase for a "walls closing" read.
+    this.lowHpEl = document.createElement("div");
+    this.lowHpEl.style.cssText =
+      "position:fixed;inset:0;pointer-events:none;z-index:7;opacity:0;transition:opacity .15s;" +
+      "background:radial-gradient(ellipse at center, transparent 45%, rgba(190,20,20,0.85) 130%)";
+    document.body.append(this.lowHpEl);
+    this.lowHpEl2 = document.createElement("div");
+    this.lowHpEl2.style.cssText =
+      "position:fixed;inset:0;pointer-events:none;z-index:7;opacity:0;transition:opacity .15s;" +
+      "box-shadow:inset 0 0 90px rgba(190,20,20,.55)";
+    document.body.append(this.lowHpEl2);
+  }
+
+  private get presentationBlocked(): boolean {
+    return this.notices.blocked;
+  }
+
+  /** Shared Audio instance (owned by Fx) for the UI sound set. */
+  private get sfx(): Audio {
+    return this.fx.audio;
+  }
+
+  setPlateAnchors(read: (id: string) => PlateAnchor | null): void {
+    this.plateAnchors = read;
+  }
+
+  setKitAction(open: () => void): void {
+    this.kitAction = open;
+    if (this.kitButton) {
+      this.kitButton.hidden = false;
+    }
+  }
+
+  // ── markup ──
+  private build(): void {
+    this.root.innerHTML = `
+      <div id="ba-plates"></div>
+      <div id="ba-top">
+        <div id="ba-timer">8:00</div>
+        <div id="ba-goal"></div>
+        <div id="ba-objective"><span class="coin"></span><span class="drop"></span></div>
+      </div>
+      <div id="ba-board"></div>
+      <div id="ba-feed"></div>
+      <button id="ba-menu-btn">HEROES ▸</button>
+      <button id="ba-kit-btn" type="button" hidden>YOUR KIT</button>
+      <div id="ba-toasts"></div>
+      <div id="ba-bottom">
+        <div id="ba-left">
+        <div id="ba-hint"></div>
+        <div id="ba-buffs"></div>
+        <div id="ba-vitals">
+          <div id="ba-vrow">
+            <div id="ba-lvlbadge"><span id="ba-lvl">1</span></div>
+            <div class="ba-bar hp"><div id="ba-hpghost"></div><div id="ba-hpfill" class="hi"></div><div id="ba-ticks"></div><span id="ba-hptext"></span></div>
+          </div>
+          <div class="ba-bar xp"><div id="ba-xpfill"></div></div>
+        </div>
+        <div id="ba-items"></div>
+        <div id="ba-meta"><span id="ba-gold">0</span></div>
+        </div>
+        <div id="ba-abilities"></div>
+      </div>
+      <div id="ba-goal-banner"><b>REACH THE THRONE</b> · first to ${KILL_GOAL_FFA} kills</div>
+      <div id="ba-intro"></div>
+      <div id="ba-arrow-coin" class="ba-arrow">◆</div>
+      <div id="ba-arrow-delivery" class="ba-arrow">▲</div>
+      <div id="ba-reticle"><i></i><i></i><i></i><i></i><b></b></div>
+      <div id="ba-hitdir"></div>
+      <div id="ba-respawn" hidden>
+        <div class="ba-rtitle">YOU DIED</div>
+        <div class="ba-rslain"></div>
+        <div class="ba-rwrap"><div class="ba-rring"></div><div class="ba-rtimer"></div></div>
+        <div class="ba-rtip"></div>
+      </div>
+      <canvas id="ba-minimap" width="150" height="132"></canvas>
+      <div id="ba-shop" hidden></div>
+      <div id="ba-end" hidden></div>`;
+
+    this.timerEl = byId("ba-timer");
+    this.goalEl = byId("ba-goal");
+    window.addEventListener("resize", this.remeasureTopBand);
+    const obj = byId("ba-objective");
+    this.objCoinEl = obj.children[0] instanceof HTMLElement ? obj.children[0] : obj;
+    this.objDropEl = obj.children[1] instanceof HTMLElement ? obj.children[1] : obj;
+    this.boardEl = byId("ba-board");
+    this.notices = new HudNotices(this.fx, byId("ba-feed"), byId("ba-toasts"));
+    this.hpFill = byId("ba-hpfill");
+    this.hpGhostEl = byId("ba-hpghost");
+    this.hpTicksEl = byId("ba-ticks");
+    this.hpText = byId("ba-hptext");
+    this.xpFill = byId("ba-xpfill");
+    this.lvlBadge = byId("ba-lvlbadge");
+    this.lvlEl = byId("ba-lvl");
+    this.goldEl = byId("ba-gold");
+    this.buffsEl = byId("ba-buffs");
+    this.respawnEl = byId("ba-respawn");
+    this.respawnSlain = query(this.respawnEl, ".ba-rslain");
+    this.respawnRing = query(this.respawnEl, ".ba-rring");
+    this.respawnTimer = query(this.respawnEl, ".ba-rtimer");
+    this.respawnTip = query(this.respawnEl, ".ba-rtip");
+    this.itemsEl = byId("ba-items");
+    const minimap = byId("ba-minimap");
+    if (!(minimap instanceof HTMLCanvasElement)) {
+      throw new Error("hud: #ba-minimap is not a canvas");
+    }
+    const mmCtx = minimap.getContext("2d");
+    if (!mmCtx) {
+      throw new Error("hud: minimap 2d context unavailable");
+    }
+    this.minimap = minimap;
+    this.mmCtx = mmCtx;
+    this.shopEl = byId("ba-shop");
+    this.endEl = byId("ba-end");
+    this.goalBanner = byId("ba-goal-banner");
+    this.hintEl = byId("ba-hint");
+    this.introEl = byId("ba-intro");
+    this.reticleEl = byId("ba-reticle");
+    this.hitDirEl = byId("ba-hitdir");
+    const menuBtn = byId("ba-menu-btn");
+    this.menuBtn =
+      menuBtn instanceof HTMLButtonElement ? menuBtn : document.createElement("button");
+    this.menuBtn.addEventListener("click", backToLobby);
+    const kit = document.querySelector("#ba-kit-btn");
+    if (kit instanceof HTMLButtonElement) {
+      this.kitButton = kit;
+      kit.addEventListener("click", (event) => {
+        event.stopPropagation();
+        if (!this.shownEnd && !this.presentationBlocked) {
+          this.kitAction?.();
+        }
+      });
+      for (const name of ["pointerdown", "pointerup"]) {
+        kit.addEventListener(name, (event) => event.stopPropagation());
+      }
+      kit.addEventListener("keydown", sealKitActivation);
+      kit.addEventListener("keyup", sealKitActivation);
+    }
+    this.arrowCoin = { el: arrowEl("ba-arrow-coin"), lastTf: "", on: false };
+    this.arrowDelivery = { el: arrowEl("ba-arrow-delivery"), lastTf: "", on: false };
+
+    // sound is muted by default (opt-in) — M is the one mute toggle
+    window.addEventListener("keydown", this.onMuteKey);
+
+    // touch path to the scoreboard (Tab-only on desktop): tapping the timer
+    // pins/unpins it
+    this.timerEl.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      this.boardTapped = !this.boardTapped;
+    });
+
+    const abilEl = byId("ba-abilities");
+    for (const key of ALL_ABILITY_KEYS) {
+      // spacer splits the levelled 1/2/3/4 group from the flat ⇧/␣ util pair
+      if (key === "DASH") {
+        const gap = document.createElement("div");
+        gap.className = "ba-abil-gap";
+        abilEl.append(gap);
+      }
+      const wrap = document.createElement("div");
+      wrap.className = abilityTileClass(key);
+      const img = document.createElement("img");
+      img.className = "ba-ic";
+      img.alt = "";
+      img.draggable = false;
+      const cd = document.createElement("div");
+      cd.className = "ba-cd";
+      const keycap = document.createElement("div");
+      keycap.className = "ba-key";
+      keycap.textContent = KEYCAP[key];
+      const cdText = document.createElement("div");
+      cdText.className = "ba-cdtext";
+      const pips = document.createElement("div");
+      pips.className = "ba-pips";
+      wrap.append(img, cd, keycap, cdText, pips);
+      abilEl.append(wrap);
+      this.abilityEls.set(key, {
+        cdText,
+        img,
+        lastCd: -1,
+        lastRank: -1,
+        lastText: "",
+        pips,
+        wasOnCd: false,
+        wrap,
+      });
+    }
+
+    // item belt: 6 fixed sockets, filled by signature
+    for (let i = 0; i < MAX_ITEMS; i += 1) {
+      const chip = document.createElement("div");
+      chip.className = "ba-item-chip empty";
+      const img = document.createElement("img");
+      img.className = "ba-ii";
+      img.alt = "";
+      img.draggable = false;
+      const key = document.createElement("span");
+      key.className = "ba-ik";
+      key.textContent = this.ITEM_KEYS[i] ?? "";
+      const cd = document.createElement("div");
+      cd.className = "ba-icd";
+      chip.append(img, key, cd);
+      // tappable belt: pointerdown (not click — no 300ms delay, works mid-drag)
+      // queues the slot; game-scene drains alongside the 5–0 keys. This is the
+      // only way touch players can fire item actives.
+      const slot = i;
+      chip.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        this.itemTaps.push(slot);
+      });
+      this.itemsEl.append(chip);
+      this.itemSockets.push({ cd, chip, img, lastPct: -1, lastRdy: false, lastText: "" });
+    }
+
+    this.buildShop();
+  }
+
+  private buildShop(): void {
+    const rows = ITEMS.map(
+      (it) =>
+        `<button class="ba-item${it.active ? " active-item" : ""}" data-id="${it.id}"><img class="ba-si" src="${iconUrl(it.icon)}" alt="" draggable="false"><span class="ba-icol"><span class="ba-iname">${it.name}</span><span class="ba-idesc">${it.desc}</span></span><span class="ba-icost">${it.cost}g</span></button>`,
+    ).join("");
+    this.shopEl.innerHTML = `<div class="ba-shop-head">SHOP <span class="ba-shop-hint">(B to close · only in base)</span></div><div class="ba-shop-grid">${rows}</div>`;
+    for (const btn of this.shopEl.querySelectorAll<HTMLButtonElement>(".ba-item")) {
+      btn.addEventListener("click", () => {
+        const { id } = btn.dataset;
+        if (!id) {
+          return;
+        }
+        const it = ITEM_BY_ID[id];
+        const me = this.lastMe;
+        if (it && me && me.gold >= it.cost && me.items.length < MAX_ITEMS) {
+          this.sfx.uiBuy();
+        } else {
+          this.sfx.uiDeny();
+        }
+        this.shop.buy(id);
+      });
+    }
+  }
+
+  /** Drain belt-chip taps (slots 0-5). The touch complement to the 5–0 keys. */
+  consumeItemTaps(): number[] {
+    if (this.itemTaps.length === 0) {
+      return this.itemTaps;
+    }
+    const taps = this.itemTaps;
+    this.itemTaps = [];
+    return taps;
+  }
+
+  toggleShop(): void {
+    if (this.shownEnd) {
+      return;
+    }
+    this.shopOpen = !this.shopOpen;
+    this.shopEl.hidden = !this.shopOpen;
+    if (this.shopOpen) {
+      this.sfx.uiOpen();
+    } else {
+      this.sfx.uiClose();
+    }
+  }
+  get isShopOpen(): boolean {
+    return this.shopOpen;
+  }
+
+  // ── public onboarding surfaces (called by the scene) ──
+
+  /** Intro overlay: "3" / "2" / "1" / "FIGHT!" numerals or the online joining
+   *  banner (any short line). The scene drives timing; empty string hides.
+   *  Change-gated internally — safe to call every frame. */
+  showIntro(requested: string): void {
+    const text = this.shownEnd || this.presentationBlocked ? "" : requested;
+    if (text === this.introText) {
+      return;
+    }
+    this.introText = text;
+    const el = this.introEl;
+    if (text === "") {
+      el.classList.remove("show");
+      return;
+    }
+    el.textContent = text;
+    el.classList.toggle("fight", text === "FIGHT!");
+    el.classList.toggle("small", text.length > 6);
+    el.classList.add("show");
+    el.classList.remove("pop");
+    // retrigger the pop animation per numeral
+    void el.offsetWidth;
+    el.classList.add("pop");
+  }
+
+  /** Contextual hint slot (fed by render/hints.ts via the scene). Empty hides. */
+  showHint(requested: string): void {
+    const text = this.shownEnd || this.presentationBlocked ? "" : requested;
+    if (text === this.hintText) {
+      return;
+    }
+    this.hintText = text;
+    if (text === "") {
+      this.hintEl.classList.remove("show");
+    } else {
+      this.hintEl.textContent = text;
+      this.hintEl.classList.add("show");
+    }
+  }
+
+  // ── per-frame update ──
+  update(
+    w: World,
+    me: Unit,
+    scoreHeld = false,
+    frameDt = Math.max(0, (w.now - this.lastNow) / 1000),
+  ): void {
+    // A snapshot/world replacement can leave the ended phase without reloading.
+    // Remove result masking and pending celebration before this world's frame.
+    if (this.shownEnd && (w.phase !== "ended" || !w.winner)) {
+      this.updateEnd(w, me);
+    }
+    this.notices.update(frameDt);
+    this.lastMe = me;
+    if (me.killStreak > this.bestStreak) {
+      this.bestStreak = me.killStreak;
+    }
+    if (w.phase === "ended") {
+      this.updateEnd(w, me);
+      this.notices.dropIncoming();
+      this.lastNow = w.now;
+      return;
+    }
+    if (w.suddenDeath && !this.sawSuddenDeath) {
+      this.notices.queue("SUDDEN DEATH", "sudden");
+    }
+    this.sawSuddenDeath = w.suddenDeath;
+    this.updateLowHp(w, me);
+    this.updatePlates(w, me);
+    this.updateVitals(w, me);
+    this.updateAbilities(w, me);
+    this.updateItems(w, me);
+    this.updateBuffs(w, me);
+    this.updateTop(w);
+    this.updateBoard(w, me, scoreHeld || this.boardTapped);
+    this.updateRespawn(w, me);
+    this.updateGoalBanner(w);
+    this.updateMenuBtn(w);
+    this.updateReticle(w, me);
+    this.updateHitDir(w, me);
+    this.updateArrows();
+    this.drawMinimap(w, me);
+    if (this.shownEnd) {
+      this.notices.dropIncoming();
+    } else {
+      this.notices.drain(w);
+    }
+    this.updateShop(me);
+    this.updateEnd(w, me);
+    this.lastNow = w.now;
+  }
+
+  /** A late visitor sees the accepted result without inventing a player seat. */
+  updateUnassigned(w: World, frameDt: number): void {
+    if (w.phase !== "ended") {
+      return;
+    }
+    this.notices.update(frameDt);
+    this.lastMe = null;
+    this.updateEnd(w, null);
+    this.notices.dropIncoming();
+    this.lastNow = w.now;
+  }
+
+  /** Only an accepted new match rewinds these sim-clock cursors. Baseline its
+   * observed hits; neither a stale ring nor a ready/respawn cue may replay. */
+  resetMatch(w: World, me: Unit | null): void {
+    this.coinState = null;
+    this.deliveryState = null;
+    this.plateKeepOutAt = 0;
+    this.notices.reset();
+    this.shownEnd = false;
+    this.endEl.hidden = true;
+    this.root.classList.remove("ba-ended");
+    this.shopOpen = false;
+    this.shopEl.hidden = true;
+    this.boardTapped = false;
+    this.boardForced = false;
+    this.boardSig = "";
+    this.boardEl.classList.remove("force");
+    this.boardEl.textContent = "";
+    for (const plate of this.plates.values()) {
+      plate.wrap.remove();
+    }
+    this.plates.clear();
+    for (const arrow of [this.arrowCoin, this.arrowDelivery]) {
+      arrow.on = false;
+      arrow.el.classList.remove("on");
+    }
+    this.itemTaps = [];
+    this.bestStreak = me?.killStreak ?? 0;
+    this.sawSuddenDeath = false;
+    this.lastMe = null;
+    this.lastReadySoundAt = w.now;
+    this.lastNow = w.now;
+    this.lastAttackSeen = me?.lastAttackAt ?? 0;
+    this.lastHitSeen = me?.lastHitAt ?? 0;
+    this.hitDirUntil = 0;
+    this.hitFlashUntil = 0;
+    this.fireUntil = 0;
+    this.hitFlashCrit = false;
+    this.reticleVisible = false;
+    this.reticleEl.classList.remove("show", "fire", "hit", "hitcrit");
+    this.lastHitDirDeg = 1e9;
+    this.lastHitDirOp = 0;
+    this.hitDirEl.style.opacity = "0";
+    this.lowHpEl2.style.opacity = "0";
+    this.lowHpEl.style.opacity = "0";
+    this.lastLowOp2 = 0;
+    this.lastLowOp = 0;
+    this.hbPhase = -1;
+    this.lastLevel = 0;
+    this.lvlBadge.classList.remove("lvlup");
+    this.hpGhost = me ? Math.max(0, Math.min(1, me.hp / Math.max(1, me.maxHp))) : 1;
+    this.respawnShown = false;
+    this.respawnFor = 0;
+    this.lastRespawnCeil = -1;
+    this.respawnEl.hidden = true;
+    this.buffSeen.clear();
+    this.buffEls.clear();
+    this.buffScratch.length = 0;
+    this.buffSig = "";
+    this.buffsEl.textContent = "";
+    for (const el of this.abilityEls.values()) {
+      el.wasOnCd = false;
+      el.wrap.classList.remove("ready");
+    }
+    this.showHint("");
+    this.showIntro("");
+  }
+
+  setPaused(paused: boolean): void {
+    this.notices.setPaused(paused);
+    if (paused) {
+      this.showHint("");
+      this.showIntro("");
+    }
+  }
+
+  dispose(): void {
+    window.removeEventListener("resize", this.remeasureTopBand);
+    window.removeEventListener("keydown", this.onMuteKey);
+    document.removeEventListener("visibilitychange", this.onVisibilityChange);
+    this.lowHpEl.remove();
+    this.lowHpEl2.remove();
+  }
+
+  /** Red danger vignette that intensifies below 35% HP, with a heartbeat throb
+   *  under 20%. Two reused nodes; opacity only, writes gated to 0.01 steps. */
+  private updateLowHp(w: World, me: Unit): void {
+    const frac = me.alive ? me.hp / Math.max(1, me.maxHp) : 1;
+    let op = 0;
+    let op2 = 0;
+    if (frac < 0.35) {
+      const base = ((0.35 - frac) / 0.35) * 0.55;
+      op = base;
+      if (frac < 0.2) {
+        const s = Math.sin(w.now * 0.006);
+        op = base * (0.8 + 0.2 * s);
+        // opposite phase — "closing in"
+        op2 = base * (0.8 - 0.2 * s);
+        // heartbeat thump, phase-locked to the same clock as the pulse
+        const phase = Math.floor(w.now / 900);
+        if (phase !== this.hbPhase) {
+          this.hbPhase = phase;
+          this.sfx.heartbeat();
+        }
+      }
+    }
+    const q = Math.round(op * 100);
+    if (q !== this.lastLowOp) {
+      this.lastLowOp = q;
+      this.lowHpEl.style.opacity = (q / 100).toFixed(2);
+    }
+    const q2 = Math.round(op2 * 100);
+    if (q2 !== this.lastLowOp2) {
+      this.lastLowOp2 = q2;
+      this.lowHpEl2.style.opacity = (q2 / 100).toFixed(2);
+    }
+  }
+
+  private drawMinimap(w: World, me: Unit): void {
+    const ctx = this.mmCtx;
+    const W = this.minimap.width;
+    const H = this.minimap.height;
+    const cx = W / 2;
+    const cy = H / 2;
+    // uniform — the arena is a regular hex
+    const scale = (W / 2 - 5) / HEX_R;
+    const to = (x: number, y: number): [number, number] => [cx + x * scale, cy + y * scale];
+    // regular-hexagon path, vertices at k·60° (vertex on +x — mirrors the arena)
+    const hexPath = (r: number): void => {
+      ctx.beginPath();
+      for (let i = 0; i < 6; i += 1) {
+        const a = (i * Math.PI) / 3;
+        const px = cx + Math.cos(a) * r;
+        const py = cy + Math.sin(a) * r;
+        if (i === 0) {
+          ctx.moveTo(px, py);
+        } else {
+          ctx.lineTo(px, py);
+        }
+      }
+      ctx.closePath();
+    };
+    ctx.clearRect(0, 0, W, H);
+    const frameR = W / 2 - 3;
+    // arena slab
+    hexPath(frameR);
+    ctx.fillStyle = "rgba(14,18,28,0.78)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(120,140,180,0.5)";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    // gold frame + vertex ticks (frame read)
+    hexPath(frameR);
+    ctx.strokeStyle = "rgba(255,210,74,0.4)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(255,210,74,0.5)";
+    for (let i = 0; i < 6; i += 1) {
+      const a = (i * Math.PI) / 3;
+      const ca = Math.cos(a);
+      const sa = Math.sin(a);
+      ctx.beginPath();
+      ctx.moveTo(cx + ca * (frameR - 7), cy + sa * (frameR - 7));
+      ctx.lineTo(cx + ca * (frameR - 1), cy + sa * (frameR - 1));
+      ctx.stroke();
+    }
+    // contents clip to the arena hex
+    ctx.save();
+    hexPath(frameR);
+    ctx.clip();
+    // throne aura + faint crown ring
+    const [tx, ty] = to(ARENA.throne.x, ARENA.throne.y);
+    ctx.beginPath();
+    ctx.arc(tx, ty, ARENA.throne.radius * scale, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(255,210,74,0.7)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(tx, ty, ARENA.throne.radius * scale + 2, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(255,210,74,0.25)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    // pillars
+    ctx.fillStyle = "rgba(120,120,140,0.45)";
+    for (const o of OBSTACLES) {
+      const [px, py] = to(o.x, o.y);
+      ctx.fillRect(px - 1.5, py - 1.5, 3, 3);
+    }
+    // deliveries
+    for (const d of w.deliveries) {
+      const [dx, dy] = to(d.x, d.y);
+      ctx.fillStyle = "#66ffcc";
+      ctx.fillRect(dx - 2.5, dy - 2.5, 5, 5);
+    }
+    // coins
+    for (const coin of w.coins) {
+      const [coinX, coinY] = to(coin.x, coin.y);
+      ctx.beginPath();
+      ctx.arc(coinX, coinY, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffd24a";
+      ctx.fill();
+    }
+    // heroes
+    for (const u of w.units.values()) {
+      if (u.kind !== "hero" || !u.alive) {
+        continue;
+      }
+      const [ux, uy] = to(u.x, u.y);
+      const isLocal = u.id === me.id;
+      ctx.beginPath();
+      ctx.arc(ux, uy, isLocal ? 3.5 : 3, 0, Math.PI * 2);
+      ctx.fillStyle = isLocal ? hex(LOCAL_COLOR) : hex(teamColor(u.team));
+      ctx.fill();
+      if (w.leaderId === u.team) {
+        ctx.strokeStyle = "#ffd24a";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+      if (isLocal) {
+        // heading wedge so the world-locked minimap relates to facing
+        const a = Math.atan2(u.aimX, u.aimY);
+        ctx.beginPath();
+        ctx.moveTo(ux + Math.sin(a) * 8, uy + Math.cos(a) * 8);
+        ctx.lineTo(ux + Math.sin(a + 2.5) * 4, uy + Math.cos(a + 2.5) * 4);
+        ctx.lineTo(ux + Math.sin(a - 2.5) * 4, uy + Math.cos(a - 2.5) * 4);
+        ctx.closePath();
+        ctx.fillStyle = hex(LOCAL_COLOR);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  /** Screen boxes the fixed HUD chrome occupies; plates are pushed out of them. */
+  private refreshPlateKeepOut(w: World): void {
+    if (w.now < this.plateKeepOutAt) {
+      return;
+    }
+    this.plateKeepOutAt = w.now + 200;
+    this.plateKeepOut = [];
+    for (const id of PLATE_KEEP_OUT_IDS) {
+      const element = document.querySelector<HTMLElement>(`#${id}`);
+      if (!element || element.hidden || (id === "ba-goal-banner" && w.gameTime >= 10)) {
+        continue;
+      }
+      const box = element.getBoundingClientRect();
+      if (box.width > 0 && box.height > 0) {
+        this.plateKeepOut.push({
+          bottom: box.bottom + 6,
+          left: box.left - 6,
+          right: box.right + 6,
+          top: box.top - 6,
+        });
+      }
+    }
+  }
+
+  private createPlate(u: Unit, me: Unit): Plate {
+    const wrap = document.createElement("div");
+    wrap.className = `ba-plate${u.kind === "creep" ? " creep" : ""}`;
+    const name = document.createElement("div");
+    name.className = "ba-pname";
+    name.style.color = plateNameColor(u, me);
+    name.textContent = u.kind === "creep" ? "" : u.name;
+    const bar = document.createElement("div");
+    bar.className = "ba-php";
+    const fill = document.createElement("div");
+    fill.className = "ba-phpfill";
+    fill.style.background = plateFillColor(u, me);
+    bar.append(fill);
+    wrap.append(name, bar);
+    byId("ba-plates").append(wrap);
+    const plate = { fill, hp: "", name, shown: true, wrap, x: Number.NaN, y: Number.NaN };
+    this.plates.set(u.id, plate);
+    return plate;
+  }
+
+  /** Where a unit's plate wants to sit on screen, or null when it is off-screen
+   *  or would clip the viewport edge. */
+  private plateCandidate(w: World, u: Unit, me: Unit, distance: number): PlateCandidate | null {
+    const anchor = this.plateAnchors?.(u.id);
+    const s = anchor
+      ? this.view.worldToScreen(anchor.x, anchor.z, anchor.y)
+      : this.view.worldToScreen(u.x, u.y, terrainHeight(u.x, u.y) + 2);
+    if (
+      !s.visible ||
+      s.x < 8 ||
+      s.x > window.innerWidth - 8 ||
+      s.y < 4 ||
+      s.y > window.innerHeight - 8
+    ) {
+      return null;
+    }
+    const local = u.id === me.id;
+    const recent = w.now - u.lastHitAt < 2000 && u.lastHitAt > 0;
+    const compact = u.kind === "creep" || (!local && distance > 24 && !recent);
+    const halfWidth = compact ? 17 : 56;
+    const top = s.y - (compact ? 9 : 24);
+    if (s.x < halfWidth || s.x > window.innerWidth - halfWidth || top < 4) {
+      return null;
+    }
+    return {
+      compact,
+      distance,
+      id: u.id,
+      priority: platePriority(u, local, distance, recent),
+      x: s.x,
+      y: top,
+    };
+  }
+
+  private updatePlates(w: World, me: Unit): void {
+    this.refreshPlateKeepOut(w);
+    const seen = new Set<string>();
+    const candidates: PlateCandidate[] = [];
+    for (const u of w.units.values()) {
+      if ((u.kind !== "hero" && u.kind !== "creep") || !u.alive) {
+        continue;
+      }
+      const stealthed = u.statuses.some((s) => s.kind === "stealth") && u.id !== me.id;
+      if (stealthed) {
+        continue;
+      }
+      // only show skeleton HP bars when they're near the player (avoid clutter)
+      const distance = Math.hypot(u.x - me.x, u.y - me.y);
+      if (u.kind === "creep" && distance > 22) {
+        continue;
+      }
+      seen.add(u.id);
+      const plate = this.plates.get(u.id) ?? this.createPlate(u, me);
+      const candidate = this.plateCandidate(w, u, me, distance);
+      if (!candidate) {
+        continue;
+      }
+      candidates.push(candidate);
+      const hp = `${Math.max(0, (u.hp / u.maxHp) * 100)}%`;
+      if (hp !== plate.hp) {
+        plate.hp = hp;
+        plate.fill.style.width = hp;
+      }
+    }
+    const placed = new Set<string>();
+    for (const candidate of readablePlates(candidates, this.plateKeepOut)) {
+      const plate = this.plates.get(candidate.id);
+      if (!plate) {
+        continue;
+      }
+      placed.add(candidate.id);
+      placePlate(plate, candidate);
+    }
+    for (const [id, plate] of this.plates) {
+      if (!seen.has(id)) {
+        plate.wrap.remove();
+        this.plates.delete(id);
+      } else if (plate.shown && !placed.has(id)) {
+        plate.shown = false;
+        plate.wrap.style.display = "none";
+      }
+    }
+  }
+
+  /** HP bar (gradient tiers + damage ghost + 250-HP ticks), XP bar, level
+   *  badge, gold. All writes change-gated. */
+  private updateVitals(w: World, me: Unit): void {
+    const frac = Math.max(0, Math.min(1, me.hp / Math.max(1, me.maxHp)));
+    // damage ghost: snaps up with heals, bleeds down after damage
+    const dt = Math.min(0.1, Math.max(0, (w.now - this.lastNow) / 1000));
+    this.hpGhost = frac >= this.hpGhost ? frac : Math.max(frac, this.hpGhost - dt * 0.4);
+
+    // 0.2% steps
+    const hpStep = Math.round(frac * 500);
+    if (hpStep !== this.lastHpStep) {
+      this.lastHpStep = hpStep;
+      this.hpFill.style.width = `${(hpStep / 5).toFixed(1)}%`;
+    }
+    const tier = hpTier(frac);
+    if (tier !== this.lastHpTier) {
+      this.lastHpTier = tier;
+      this.hpFill.classList.remove("hi", "mid", "low");
+      this.hpFill.classList.add(tier);
+    }
+    // 0.5% steps
+    const ghostStep = Math.round(this.hpGhost * 200);
+    if (ghostStep !== this.lastGhostStep) {
+      this.lastGhostStep = ghostStep;
+      this.hpGhostEl.style.width = `${(ghostStep / 2).toFixed(1)}%`;
+    }
+    const hpTextStr = `${Math.max(0, Math.ceil(me.hp))} / ${Math.ceil(me.maxHp)}`;
+    if (hpTextStr !== this.lastHpTextStr) {
+      this.lastHpTextStr = hpTextStr;
+      this.hpText.textContent = hpTextStr;
+    }
+    if (me.maxHp !== this.lastMaxHp) {
+      this.lastMaxHp = me.maxHp;
+      this.hpTicksEl.style.backgroundSize = `${(250 / Math.max(1, me.maxHp)) * 100}% 100%`;
+    }
+    // XP progress toward the next level (mana is dead sim data — no mana bar)
+    const lo = XP_CURVE[me.level - 1] ?? 0;
+    const hiXp = XP_CURVE[me.level] ?? lo + 1;
+    const xpFrac =
+      me.level >= LEVEL_CAP ? 1 : Math.max(0, Math.min(1, (me.xp - lo) / Math.max(1, hiXp - lo)));
+    const xpStep = Math.round(xpFrac * 200);
+    if (xpStep !== this.lastXpStep) {
+      this.lastXpStep = xpStep;
+      this.xpFill.style.width = `${(xpStep / 2).toFixed(1)}%`;
+    }
+    if (me.level !== this.lastLevel) {
+      const first = this.lastLevel === 0;
+      this.lastLevel = me.level;
+      this.lvlEl.textContent = `${me.level}`;
+      if (!first) {
+        this.lvlBadge.classList.remove("lvlup");
+        void this.lvlBadge.offsetWidth;
+        this.lvlBadge.classList.add("lvlup");
+      }
+    }
+    const goldStr = `${Math.floor(me.gold)}g`;
+    if (goldStr !== this.lastGoldStr) {
+      this.lastGoldStr = goldStr;
+      this.goldEl.textContent = goldStr;
+    }
+  }
+
+  private updateAbilities(w: World, me: Unit): void {
+    const def = CHAMP_BY_ID[me.champId];
+    if (!def) {
+      return;
+    }
+    if (me.champId !== this.champBound) {
+      this.champBound = me.champId;
+      for (const [key, el] of this.abilityEls) {
+        el.img.src = abilityIcon(me.champId, key);
+        // force pip rebuild
+        el.lastRank = -1;
+      }
+    }
+    for (const [key, el] of this.abilityEls) {
+      const slot = me.abilities[key];
+      const ad = def.abilities[key];
+      const readiness = abilityReadiness(me, key, w.now);
+      el.wrap.classList.toggle("blocked", readiness.kind === "blocked");
+      el.wrap.classList.toggle("queued", readiness.queued);
+      // DASH/JUMP are flat (maxRank 1): no rank pips, never level-locked.
+      const util = UTIL_KEYS.has(key);
+      if (!util && slot.rank !== el.lastRank) {
+        el.lastRank = slot.rank;
+        el.pips.innerHTML = rankPips(slot.rank, ad.maxRank);
+      }
+      if (!util && slot.rank < 1) {
+        lockAbilityTile(el, key);
+        continue;
+      }
+      el.wrap.classList.remove("locked");
+      const cdLeft = Math.max(0, (slot.readyAt - w.now) / 1000);
+      const cdTotal = Math.max(0.01, valAt(ad.cooldown, util ? 1 : slot.rank));
+      const frac = cdLeft > 0 ? Math.min(1, cdLeft / cdTotal) : 0;
+      const pct = Math.round(frac * 100);
+      if (pct !== el.lastCd) {
+        el.lastCd = pct;
+        el.wrap.style.setProperty("--cd", `${pct}`);
+      }
+      el.wrap.classList.toggle("oncd", frac > 0);
+      if (el.wasOnCd && readiness.kind === "available" && !readiness.queued) {
+        this.flashAbilityReady(el, w.now);
+      }
+      el.wasOnCd = frac > 0;
+      const text = abilityTileText(readiness, cdLeft);
+      if (text !== el.lastText) {
+        el.lastText = text;
+        el.cdText.textContent = text;
+      }
+    }
+  }
+
+  /** Off-cooldown pop + chime, rate-limited so a kit coming back at once plays one. */
+  private flashAbilityReady(el: AbilityEl, now: number): void {
+    if (this.presentationBlocked) {
+      return;
+    }
+    el.wrap.classList.remove("ready");
+    void el.wrap.offsetWidth;
+    el.wrap.classList.add("ready");
+    if (now - this.lastReadySoundAt > 150) {
+      this.lastReadySoundAt = now;
+      this.sfx.abilityReady();
+    }
+  }
+
+  private readonly ITEM_KEYS = ["5", "6", "7", "8", "9", "0"];
+  private updateItems(w: World, me: Unit): void {
+    const sig = `${this.shopOpen}:${me.items.join(",")}`;
+    if (sig !== this.itemSig) {
+      this.itemSig = sig;
+      for (const [i, sock] of this.itemSockets.entries()) {
+        const id = me.items[i];
+        const it = id ? ITEM_BY_ID[id] : undefined;
+        sock.chip.hidden = !it && !this.shopOpen;
+        if (it) {
+          sock.chip.className = `ba-item-chip${it.active ? " active" : ""}`;
+          sock.img.src = iconUrl(it.icon);
+        } else {
+          sock.chip.className = "ba-item-chip empty";
+        }
+        sock.lastPct = -1;
+        sock.lastText = "";
+        sock.lastRdy = false;
+        sock.cd.style.height = "0";
+        sock.cd.textContent = "";
+      }
+    }
+    // active-item cooldown overlays (vertical fill — long cds read better small)
+    for (let i = 0; i < MAX_ITEMS; i += 1) {
+      const id = me.items[i];
+      if (!id) {
+        continue;
+      }
+      const it = ITEM_BY_ID[id];
+      if (!it?.active) {
+        continue;
+      }
+      const sock = this.itemSockets[i];
+      if (!sock) {
+        continue;
+      }
+      const left = Math.max(0, ((me.itemReadyAt[id] ?? 0) - w.now) / 1000);
+      const pct =
+        it.active.cooldown > 0 ? Math.round(Math.min(1, left / it.active.cooldown) * 100) : 0;
+      if (pct !== sock.lastPct) {
+        sock.lastPct = pct;
+        sock.cd.style.height = `${pct}%`;
+      }
+      const text = left > 0 ? left.toFixed(0) : "";
+      if (text !== sock.lastText) {
+        sock.lastText = text;
+        sock.cd.textContent = text;
+      }
+      const rdy = left <= 0;
+      if (rdy !== sock.lastRdy) {
+        sock.lastRdy = rdy;
+        sock.chip.classList.toggle("rdy", rdy);
+      }
+    }
+  }
+
+  /** Buff/debuff chips from synced statuses (+ synthetic empower). DOM rebuild
+   *  gated on the kind-set signature; per-frame only the --t ring var and the
+   *  seconds text, both change-gated. Hex (no icon art) renders a 🍄 glyph —
+   *  it polymorphs you into a mushroom, so the glyph IS the read. */
+  private updateBuffs(w: World, me: Unit): void {
+    const chips = this.buffScratch;
+    collectBuffChips(chips, w, me);
+
+    // duration bookkeeping (statuses only carry `until`; track first-seen)
+    for (const c of chips) {
+      if (c.until < 0) {
+        continue;
+      }
+      const prev = this.buffSeen.get(c.kind);
+      if (!prev || c.until > prev.until) {
+        this.buffSeen.set(c.kind, { seenAt: w.now, until: c.until });
+      }
+    }
+    for (const kind of this.buffSeen.keys()) {
+      if (!chips.some((c) => c.kind === kind)) {
+        this.buffSeen.delete(kind);
+      }
+    }
+
+    let sig = "";
+    for (const c of chips) {
+      sig += `${c.kind}|`;
+    }
+    if (sig !== this.buffSig) {
+      this.buffSig = sig;
+      this.rebuildBuffChips(chips);
+    }
+    for (const c of chips) {
+      const el = this.buffEls.get(c.kind);
+      if (!el) {
+        continue;
+      }
+      let pct = 100;
+      let secStr = "";
+      if (c.until >= 0) {
+        const seen = this.buffSeen.get(c.kind);
+        const total = seen ? Math.max(1, c.until - seen.seenAt) : 1;
+        const remainMs = Math.max(0, c.until - w.now);
+        pct = Math.round(Math.min(1, remainMs / total) * 100);
+        const remainS = remainMs / 1000;
+        secStr = remainS >= 1 ? `${Math.ceil(remainS)}` : "";
+      }
+      if (pct !== el.lastT) {
+        el.lastT = pct;
+        el.ring.style.setProperty("--t", `${pct}`);
+      }
+      if (secStr !== el.lastSec) {
+        el.lastSec = secStr;
+        el.sec.textContent = secStr;
+      }
+    }
+  }
+
+  private rebuildBuffChips(chips: { kind: string; until: number }[]): void {
+    this.buffsEl.textContent = "";
+    this.buffEls.clear();
+    for (const c of chips) {
+      const chip = document.createElement("div");
+      chip.className = DEBUFF_KINDS.has(c.kind) ? "ba-buff debuff" : "ba-buff";
+      chip.append(buffChipIcon(c.kind));
+      const ring = document.createElement("i");
+      ring.className = "ring";
+      const sec = document.createElement("b");
+      chip.append(ring, sec);
+      this.buffsEl.append(chip);
+      this.buffEls.set(c.kind, { lastSec: "", lastT: -1, ring, sec });
+    }
+  }
+
+  private updateTop(w: World): void {
+    const remain = Math.max(0, w.matchTime - w.gameTime);
+    const m = Math.floor(remain / 60);
+    const s = Math.floor(remain % 60);
+    const timerStr = `${m}:${s.toString().padStart(2, "0")}`;
+    if (timerStr !== this.lastTimerStr) {
+      this.lastTimerStr = timerStr;
+      this.timerEl.textContent = timerStr;
+      this.timerEl.classList.toggle("low", remain < 30);
+    }
+    const goalStr = w.suddenDeath ? "SUDDEN DEATH" : `FIRST TO ${w.killGoal}`;
+    if (goalStr !== this.lastGoalStr) {
+      this.lastGoalStr = goalStr;
+      this.goalEl.textContent = goalStr;
+    }
+    // Countdown and arrow share one retained, authoritative target.
+    this.coinState = coinObjective(w, this.lastMe, this.coinState?.target?.id ?? null);
+    const coinStr = this.coinState.text;
+    if (coinStr !== this.lastObjCoin) {
+      this.lastObjCoin = coinStr;
+      this.objCoinEl.textContent = coinStr;
+      this.objCoinEl.className = this.coinState.live ? "coin live" : "coin";
+    }
+    this.deliveryState = deliveryObjective(w, this.lastMe, this.deliveryState?.target?.id ?? null);
+    const dropStr = this.deliveryState.text;
+    if (dropStr !== this.lastObjDrop) {
+      this.lastObjDrop = dropStr;
+      this.objDropEl.textContent = dropStr;
+      this.objDropEl.className = this.deliveryState.live ? "drop live" : "drop";
+    }
+  }
+
+  /** Leaderboard. Tab (scoreHeld) forces it visible (even on mobile) and
+   *  expands rows to K/D/A · gold · item count. Rebuild is signature-gated. */
+  private updateBoard(w: World, me: Unit, scoreHeld: boolean): void {
+    if (scoreHeld !== this.boardForced) {
+      this.boardForced = scoreHeld;
+      this.boardEl.classList.toggle("force", scoreHeld);
+    }
+    const heroes = [...w.units.values()]
+      .filter((u) => u.kind === "hero")
+      .toSorted((a, b) => b.kills - a.kills || b.gold - a.gold)
+      .slice(0, 6);
+    let sig = scoreHeld ? "x" : "-";
+    for (const u of heroes) {
+      sig += `${u.id}:${u.kills}/${u.deaths}/${u.assists}/${Math.floor(u.gold)}/${u.items.length};`;
+    }
+    if (sig === this.boardSig) {
+      return;
+    }
+    this.boardSig = sig;
+    this.boardEl.innerHTML = heroes
+      .map((u) => {
+        const col = u.id === me.id ? hex(LOCAL_COLOR) : hex(teamColor(u.team));
+        const lead = w.leaderId === u.team ? "★" : "";
+        const kda = scoreHeld ? `${u.kills}/${u.deaths}/${u.assists}` : `${u.kills}/${u.deaths}`;
+        const extra = scoreHeld
+          ? `<span class="ba-rg">${Math.floor(u.gold)}g</span><span class="ba-ri">${u.items.length} it</span>`
+          : "";
+        return `<div class="ba-row${u.id === me.id ? " me" : ""}${scoreHeld ? " x" : ""}"><span class="ba-dot" style="background:${col}"></span><span class="ba-rn">${lead}${htmlText(u.name)}</span><span class="ba-rk">${kda}</span>${extra}</div>`;
+      })
+      .join("");
+  }
+
+  /** Death screen: killer attribution + rotating tip + conic respawn ring. */
+  private updateRespawn(w: World, me: Unit): void {
+    if (!me.alive && me.respawnAt > 0) {
+      const left = Math.max(0, (me.respawnAt - w.now) / 1000);
+      if (!this.respawnShown) {
+        this.respawnShown = true;
+        this.respawnEl.hidden = false;
+      }
+      if (this.respawnFor !== me.respawnAt) {
+        this.respawnFor = me.respawnAt;
+        this.respawnSlain.textContent = `Slain by ${this.fx.lastDeath?.killerName ?? "the arena"}`;
+        this.respawnTip.textContent = `TIP: ${TIPS[me.deaths % TIPS.length]}`;
+        this.lastRespawnCeil = -1;
+      }
+      const total = Math.max(0.1, respawnTime(me.level));
+      const pct = Math.round(Math.min(1, Math.max(0, 1 - left / total)) * 100);
+      if (pct !== this.lastRespawnPct) {
+        this.lastRespawnPct = pct;
+        this.respawnRing.style.setProperty("--cd", `${pct}`);
+      }
+      const text = `${left.toFixed(1)}s`;
+      if (text !== this.lastRespawnText) {
+        this.lastRespawnText = text;
+        this.respawnTimer.textContent = text;
+      }
+      const ceilLeft = Math.ceil(left);
+      if (ceilLeft !== this.lastRespawnCeil) {
+        this.lastRespawnCeil = ceilLeft;
+        if (ceilLeft >= 1 && ceilLeft <= 3) {
+          this.sfx.respawnTick();
+        }
+      }
+    } else if (this.respawnShown) {
+      this.respawnShown = false;
+      this.respawnEl.hidden = true;
+      if (me.alive) {
+        this.sfx.respawnGo();
+      }
+    }
+  }
+
+  /** ≤8-word goal banner, visible 0–8s, faded out by 10s. */
+  private updateGoalBanner(w: World): void {
+    const t = w.gameTime;
+    const op = goalBannerOpacity(t);
+    if (op !== this.lastBannerOp) {
+      this.lastBannerOp = op;
+      this.goalBanner.style.opacity = op;
+    }
+  }
+
+  /** "HEROES ▸" escape hatch to the lobby — solo only, first 20s. */
+  private updateMenuBtn(w: World): void {
+    const hide = this.online || w.gameTime > 20;
+    if (hide !== this.menuBtnHidden) {
+      this.menuBtnHidden = hide;
+      this.menuBtn.hidden = hide;
+    }
+  }
+
+  /** Center reticle: fire-expand on your swings, gold/crit flash on your hits
+   *  (fed by fx.localHits). Hidden while unlocked / shopping / dead. Touch is
+   *  FPS-framed too (look stick turns the view), so it keeps the crosshair. */
+  private updateReticle(w: World, me: Unit): void {
+    const touch = document.body.classList.contains("ba-touch-on");
+    const show = me.alive && !this.shopOpen && (touch || document.pointerLockElement !== null);
+    if (show !== this.reticleVisible) {
+      this.reticleVisible = show;
+      this.reticleEl.classList.toggle("show", show);
+    }
+    if (!show) {
+      return;
+    }
+    if (me.lastAttackAt !== this.lastAttackSeen) {
+      this.lastAttackSeen = me.lastAttackAt;
+      this.fireUntil = w.now + 120;
+      this.reticleEl.classList.add("fire");
+    } else if (this.fireUntil > 0 && w.now >= this.fireUntil) {
+      this.fireUntil = 0;
+      this.reticleEl.classList.remove("fire");
+    }
+    const hits = this.fx.localHits;
+    if (hits && hits.length > 0) {
+      let crit = false;
+      for (const h of hits) {
+        crit ||= h.crit;
+      }
+      hits.length = 0;
+      this.hitFlashUntil = w.now + 150;
+      this.hitFlashCrit = crit;
+      this.reticleEl.classList.toggle("hit", !crit);
+      this.reticleEl.classList.toggle("hitcrit", crit);
+    } else if (this.hitFlashUntil > 0 && w.now >= this.hitFlashUntil) {
+      this.hitFlashUntil = 0;
+      this.reticleEl.classList.remove("hit", "hitcrit");
+    }
+  }
+
+  /** Conic ring segment pointing at whoever just hit you. Screen angle comes
+   *  from two worldToScreen projections — no View internals touched. */
+  private updateHitDir(w: World, me: Unit): void {
+    if (me.alive && me.lastHitAt > 0 && me.lastHitAt !== this.lastHitSeen) {
+      this.lastHitSeen = me.lastHitAt;
+      this.hitDirUntil = w.now + 600;
+      const s1 = this.view.worldToScreen(me.x, me.y);
+      const s2 = this.view.worldToScreen(me.x - me.lastHitDx * 4, me.y - me.lastHitDy * 4);
+      const ang = Math.atan2(s2.y - s1.y, s2.x - s1.x);
+      const deg = Math.round((ang * 180) / Math.PI + 90);
+      if (deg !== this.lastHitDirDeg) {
+        this.lastHitDirDeg = deg;
+        this.hitDirEl.style.setProperty("--a", `${deg}deg`);
+      }
+    }
+    const left = this.hitDirUntil - w.now;
+    const op = left > 0 ? 0.9 * (left / 600) : 0;
+    // 0.02 steps
+    const q = Math.round(op * 50);
+    if (q !== this.lastHitDirOp) {
+      this.lastHitDirOp = q;
+      this.hitDirEl.style.opacity = (q / 50).toFixed(2);
+    }
+  }
+
+  /** Off-screen coin/delivery edge arrows: transform-only, 40px inset. */
+  private updateArrows(): void {
+    const coin = this.coinState?.target;
+    this.placeArrow(this.arrowCoin, coin?.x, coin?.y);
+    const drop = this.deliveryState?.target;
+    this.placeArrow(this.arrowDelivery, drop?.x, drop?.y);
+  }
+
+  private placeArrow(a: Arrow, x?: number, y?: number): void {
+    if (x === undefined || y === undefined) {
+      if (a.on) {
+        a.on = false;
+        a.el.classList.remove("on");
+      }
+      return;
+    }
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    const s = this.view.worldToScreen(x, y, terrainHeight(x, y) + 1.4);
+    const behind = !s.visible && s.x === 0 && s.y === 0;
+    const onScreen = s.visible && s.x >= 0 && s.x <= W && s.y >= 0 && s.y <= H;
+    if (onScreen) {
+      if (a.on) {
+        a.on = false;
+        a.el.classList.remove("on");
+      }
+      return;
+    }
+    // behind the camera: point down at the bottom edge (projection is useless)
+    const px = behind ? W / 2 : Math.max(40, Math.min(W - 40, s.x));
+    const py = behind ? H - 40 : Math.max(40, Math.min(H - 40, s.y));
+    const deg = behind
+      ? 180
+      : Math.round((Math.atan2(py - H / 2, px - W / 2) * 180) / Math.PI + 90);
+    const tf = `translate(${Math.round(px)}px,${Math.round(py)}px) translate(-50%,-50%) rotate(${deg}deg)`;
+    if (tf !== a.lastTf) {
+      a.lastTf = tf;
+      a.el.style.transform = tf;
+    }
+    if (!a.on) {
+      a.on = true;
+      a.el.classList.add("on");
+    }
+  }
+
+  private updateShop(me: Unit): void {
+    const inBase = this.shop.canShop();
+    if (this.shopOpen && !inBase) {
+      this.toggleShop();
+    }
+    if (!this.shopOpen) {
+      return;
+    }
+    for (const btn of this.shopEl.querySelectorAll<HTMLButtonElement>(".ba-item")) {
+      const it = ITEM_BY_ID[btn.dataset.id ?? ""];
+      const owned = me.items.length >= MAX_ITEMS;
+      const afford = it ? me.gold >= it.cost : false;
+      btn.classList.toggle("afford", afford && !owned);
+      btn.disabled = !afford || owned;
+    }
+  }
+
+  /** Match-end card: title slam, winner sigil, your stat line, best-kills
+   *  open loop, PLAY AGAIN / CHANGE HERO. Win confetti reuses fx.fountain. */
+  private updateEnd(w: World, me: Unit | null): void {
+    if (w.phase !== "ended" || !w.winner) {
+      if (this.shownEnd) {
+        this.shownEnd = false;
+        this.endEl.hidden = true;
+        this.root.classList.remove("ba-ended");
+        this.notices.clear();
+        this.bestStreak = me?.killStreak ?? 0;
+        this.sawSuddenDeath = false;
+      }
+      return;
+    }
+    if (this.shownEnd) {
+      this.syncRematchAction();
+      return;
+    }
+    this.shownEnd = true;
+    this.notices.hold();
+    this.showHint("");
+    this.showIntro("");
+    this.shopOpen = false;
+    this.shopEl.hidden = true;
+    this.boardTapped = false;
+    this.itemTaps = [];
+    this.root.classList.add("ba-ended");
+    const won = me !== null && w.winner === me.team;
+    const winner = [...w.units.values()].find((u) => u.team === w.winner);
+    const best = readBestKills();
+    const newBest = me !== null && me.kills > best;
+    if (newBest) {
+      writeBestKills(me?.kills ?? 0);
+    }
+    this.endEl.hidden = false;
+    this.endEl.innerHTML = `
+      <div class="ba-end-card">
+        <div class="ba-end-title ${endTitleClass(me, won)}">${endTitle(me, won)}</div>
+        <div class="ba-end-sub">${winnerSigil(winner)}${htmlText(winner?.name ?? "Someone")} takes the arena</div>
+        ${me ? this.endStatLine(me, best, newBest) : '<div class="ba-end-best">YOU JOINED AFTER THE FINAL BLOW</div>'}
+        <div class="ba-end-btns"><button class="ba-end-btn" data-act="again">PLAY AGAIN</button><button class="ba-end-btn alt" data-act="hero">CHANGE HERO</button></div>
+      </div>`;
+    for (const btn of this.endEl.querySelectorAll<HTMLButtonElement>(".ba-end-btn")) {
+      btn.addEventListener("click", () => this.onEndButton(btn.dataset.act));
+    }
+    this.syncRematchAction();
+    if (won && winner) {
+      this.notices.celebrate(winner.x, winner.y);
+    }
+  }
+
+  private endStatLine(me: Unit, best: number, newBest: boolean): string {
+    const bestLine = newBest ? "NEW BEST!" : `BEST: ${Math.max(best, me.kills)}`;
+    return `<div class="ba-end-stats">
+          <span><b>${me.kills}</b>K</span><span><b>${me.deaths}</b>D</span><span><b>${me.assists}</b>A</span>
+          <span><b>${Math.floor(me.gold)}</b><small>GOLD HELD</small></span><span><b>${me.level}</b>Lv</span><span><b>${Math.max(this.bestStreak, me.killStreak)}</b>streak</span>
+        </div>
+        <div class="ba-end-best${newBest ? " nb" : ""}">${bestLine}</div>`;
+  }
+
+  private onEndButton(act: string | undefined): void {
+    if (act === "hero") {
+      backToLobby();
+    } else if (this.matchActions.kind === "online") {
+      this.matchActions.rematch();
+    } else {
+      location.reload();
+    }
+  }
+
+  /** Server election may change while the result card is already visible. */
+  private syncRematchAction(): void {
+    if (this.matchActions.kind !== "online") {
+      return;
+    }
+    const button = this.endEl.querySelector<HTMLButtonElement>('[data-act="again"]');
+    if (!button) {
+      return;
+    }
+    const available = this.matchActions.canRematch();
+    const label = available ? "START REMATCH" : "WAITING FOR HOST";
+    if (button.textContent !== label) {
+      button.textContent = label;
+    }
+    button.disabled = !available;
+  }
+}

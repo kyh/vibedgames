@@ -1,4 +1,5 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { Cameras, Math as PhaserMath, Scene, Scenes, TintModes } from "phaser";
 import { PhysicalGamepad } from "@vibedgames/gamepad";
 import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
 import {
@@ -22,6 +23,7 @@ import type { MineRecap } from "./game-scene";
 import { makeGameKeys, NUM_KEY_NAMES } from "../systems/keys";
 import type { MineKeys } from "../systems/keys";
 import { stickMove } from "../systems/stick";
+import type { StickMove } from "../systems/stick";
 import { isTap } from "../systems/touch";
 import type { OreId } from "../data/items";
 import { burst, floatText, shake } from "../render/fx";
@@ -30,6 +32,23 @@ import { buildMineWorld } from "../render/mine-world";
 
 const MW = 32;
 const MH = 24;
+
+const mineIdx = (tx: number, ty: number): number => ty * MW + tx;
+
+const oreKindFor = (roll: number): "stone" | OreId => {
+  if (roll > 0.92) {
+    return "crystal";
+  }
+  if (roll > 0.75) {
+    return "copper";
+  }
+  return roll > 0.55 ? "coal" : "stone";
+};
+
+const ORE_NAME = { coal: "Coal", copper: "Copper", crystal: "Crystal" } satisfies Record<
+  OreId,
+  string
+>;
 
 declare global {
   interface Window {
@@ -55,11 +74,22 @@ interface Enemy {
   hurt: number;
   contactUntil: number;
   dead: boolean;
+  // knockback velocity
   kx: number;
-  ky: number; // knockback velocity
+  ky: number;
 }
 
-export class MineScene extends Phaser.Scene {
+const skeletonAnim = (e: Enemy, now: number, moving: boolean): string => {
+  if (e.hurt > 0) {
+    return "e-skel-hurt";
+  }
+  if (now < e.contactUntil) {
+    return "e-skel-contact";
+  }
+  return moving ? "e-skel-walk" : "e-skel-idle";
+};
+
+export class MineScene extends Scene {
   depth = 1;
   private walls = new Uint8Array(MW * MH);
   /** Public for the trailer director (mirrors GameScene.player). */
@@ -145,7 +175,7 @@ export class MineScene extends Phaser.Scene {
     }
     this.onResizeHandler = () => cam.setZoom(this.baseZoom());
     this.scale.on("resize", this.onResizeHandler);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+    this.events.once(Scenes.Events.SHUTDOWN, () => {
       if (this.onResizeHandler) {
         this.scale.off("resize", this.onResizeHandler);
       }
@@ -163,7 +193,7 @@ export class MineScene extends Phaser.Scene {
     // Prime the pad so an A still held from entering the mine doesn't read as
     // a fresh press (and swing) on this scene's first frame.
     this.pad.update();
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, Sound.startMusic("mine"));
+    this.events.once(Scenes.Events.SHUTDOWN, Sound.startMusic("mine"));
     if (!this.scene.isActive("MineHud")) {
       this.scene.launch("MineHud");
     }
@@ -213,54 +243,62 @@ export class MineScene extends Phaser.Scene {
       cam.setZoom(this.baseZoom());
     };
     motion.addEventListener("change", changed);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () =>
-      motion.removeEventListener("change", changed),
-    );
+    this.events.once(Scenes.Events.SHUTDOWN, () => motion.removeEventListener("change", changed));
   }
 
   // ---------------------------------------------------------------- generation
 
-  private idx(tx: number, ty: number): number {
-    return ty * MW + tx;
-  }
   private isWall(tx: number, ty: number): boolean {
     if (tx < 0 || ty < 0 || tx >= MW || ty >= MH) {
       return true;
     }
-    return this.walls[this.idx(tx, ty)] === 1;
+    return this.walls[mineIdx(tx, ty)] === 1;
   }
 
   private generate(): NodeSeed[] {
-    const rng = Phaser.Math.RND;
+    this.carveWalls();
+    this.placeLadders();
+    const seeds = this.seedOre();
+    this.seedEnemies();
+    return seeds;
+  }
+
+  private carveWalls(): void {
+    const rng = PhaserMath.RND;
     this.walls.fill(0);
-    for (let tx = 0; tx < MW; tx++) {
-      for (let ty = 0; ty < MH; ty++) {
+    for (let tx = 0; tx < MW; tx += 1) {
+      for (let ty = 0; ty < MH; ty += 1) {
         if (tx === 0 || ty === 0 || tx === MW - 1 || ty === MH - 1) {
-          this.walls[this.idx(tx, ty)] = 1;
+          this.walls[mineIdx(tx, ty)] = 1;
         }
       }
     }
     // interior wall blobs (sparse, keep it open & connected)
     const blobs = 7 + this.depth;
-    for (let b = 0; b < blobs; b++) {
+    for (let b = 0; b < blobs; b += 1) {
       const cx = rng.between(3, MW - 4);
       const cy = rng.between(3, MH - 4);
       const r = rng.between(1, 2);
-      for (let dx = -r; dx <= r; dx++) {
-        for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx += 1) {
+        for (let dy = -r; dy <= r; dy += 1) {
           if (Math.abs(dx) + Math.abs(dy) <= r && rng.frac() < 0.7) {
-            const tx = cx + dx,
-              ty = cy + dy;
-            if (tx > 1 && ty > 1 && tx < MW - 2 && ty < MH - 2) this.walls[this.idx(tx, ty)] = 1;
+            const tx = cx + dx;
+            const ty = cy + dy;
+            if (tx > 1 && ty > 1 && tx < MW - 2 && ty < MH - 2) {
+              this.walls[mineIdx(tx, ty)] = 1;
+            }
           }
         }
       }
     }
+  }
 
-    this.ladderUp = { tx: (MW / 2) | 0, ty: 2 };
+  private placeLadders(): void {
+    const rng = PhaserMath.RND;
+    this.ladderUp = { tx: Math.trunc(MW / 2), ty: 2 };
     this.clearAround(this.ladderUp.tx, this.ladderUp.ty);
     // ladder down: a far open tile
-    for (let tries = 0; tries < 200; tries++) {
+    for (let tries = 0; tries < 200; tries += 1) {
       const tx = rng.between(3, MW - 4);
       const ty = rng.between(MH - 8, MH - 3);
       if (!this.isWall(tx, ty)) {
@@ -269,11 +307,14 @@ export class MineScene extends Phaser.Scene {
         break;
       }
     }
+  }
 
-    // ore nodes — deeper floors yield richer ore
+  // ore nodes — deeper floors yield richer ore
+  private seedOre(): NodeSeed[] {
+    const rng = PhaserMath.RND;
     const seeds: NodeSeed[] = [];
     const nodeCount = 10 + this.depth * 2;
-    for (let n = 0; n < nodeCount; n++) {
+    for (let n = 0; n < nodeCount; n += 1) {
       const tx = rng.between(2, MW - 3);
       const ty = rng.between(2, MH - 3);
       if (this.isWall(tx, ty) || seeds.some((s) => s.tx === tx && s.ty === ty)) {
@@ -282,21 +323,17 @@ export class MineScene extends Phaser.Scene {
       if (Math.abs(tx - this.ladderUp.tx) + Math.abs(ty - this.ladderUp.ty) < 3) {
         continue;
       }
-      const roll = rng.frac() + this.depth * 0.03;
-      let kind: "stone" | OreId = "stone";
-      if (roll > 0.92) {
-        kind = "crystal";
-      } else if (roll > 0.75) {
-        kind = "copper";
-      } else if (roll > 0.55) {
-        kind = "coal";
-      }
+      const kind = oreKindFor(rng.frac() + this.depth * 0.03);
       seeds.push({ hp: kind === "stone" ? 3 : 4, kind, tx, ty });
     }
+    return seeds;
+  }
 
-    // enemies — more & tougher deeper
+  // enemies — more & tougher deeper
+  private seedEnemies(): void {
+    const rng = PhaserMath.RND;
     const enemyCount = 2 + Math.floor(this.depth * 1.3);
-    for (let e = 0; e < enemyCount; e++) {
+    for (let e = 0; e < enemyCount; e += 1) {
       const tx = rng.between(2, MW - 3);
       const ty = rng.between(4, MH - 3);
       if (this.isWall(tx, ty)) {
@@ -307,7 +344,6 @@ export class MineScene extends Phaser.Scene {
       }
       this.spawnSkeleton(tx, ty, 4 + this.depth * 2);
     }
-    return seeds;
   }
 
   private spawnSkeleton(tx: number, ty: number, maxHp: number): void {
@@ -388,11 +424,13 @@ export class MineScene extends Phaser.Scene {
   }
 
   private clearAround(tx: number, ty: number): void {
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dy = -1; dy <= 1; dy++) {
-        const x = tx + dx,
-          y = ty + dy;
-        if (x > 0 && y > 0 && x < MW - 1 && y < MH - 1) this.walls[this.idx(x, y)] = 0;
+    for (let dx = -1; dx <= 1; dx += 1) {
+      for (let dy = -1; dy <= 1; dy += 1) {
+        const x = tx + dx;
+        const y = ty + dy;
+        if (x > 0 && y > 0 && x < MW - 1 && y < MH - 1) {
+          this.walls[mineIdx(x, y)] = 0;
+        }
       }
     }
   }
@@ -462,7 +500,9 @@ export class MineScene extends Phaser.Scene {
     for (const k of Object.values(this.keys)) {
       k.removeAllListeners();
     }
-    NUM_KEY_NAMES.forEach((name, i) => this.keys[name].on("down", () => store.inv.select(i)));
+    for (const [i, name] of NUM_KEY_NAMES.entries()) {
+      this.keys[name].on("down", () => store.inv.select(i));
+    }
     this.keys.SPACE.on("down", () => this.tryAction());
     this.keys.E.on("down", () => this.tryAction());
     this.input.on("pointerdown", (p: Phaser.Input.Pointer) => {
@@ -473,9 +513,10 @@ export class MineScene extends Phaser.Scene {
       if (p.wasTouch) {
         return;
       }
+      // hotbar tap
       if (this.hudHit(p)) {
         return;
-      } // hotbar tap
+      }
       this.tryAction();
     });
     // tap a cell: face it and swing; tapping the ladder underfoot climbs
@@ -483,34 +524,33 @@ export class MineScene extends Phaser.Scene {
       if (!p.wasTouch || this.transitioning) {
         return;
       }
+      // hotbar tap
       if (this.hudHit(p)) {
         return;
-      } // hotbar tap
+      }
+      // a drag was the stick, not a tap
       if (!isTap(p)) {
         return;
-      } // a drag was the stick, not a tap
+      }
       const wp = this.cameras.main.getWorldPoint(p.x, p.y);
       const tx = Math.floor(wp.x / TILE);
       const ty = Math.floor(wp.y / TILE);
       const f = this.feetTile();
       const onUp = f.tx === this.ladderUp.tx && f.ty === this.ladderUp.ty;
       const onDown = f.tx === this.ladderDown.tx && f.ty === this.ladderDown.ty;
-      if (tx === f.tx && ty === f.ty && (onUp || onDown)) {
-        if (onUp) {
-          this.exitToFarm();
-        } else {
-          this.descend();
-        }
+      const underfoot = tx === f.tx && ty === f.ty;
+      if (underfoot && onUp) {
+        this.exitToFarm();
+        return;
+      }
+      if (underfoot && onDown) {
+        this.descend();
         return;
       }
       const dx = tx - f.tx;
       const dy = ty - f.ty;
       if (dx !== 0 || dy !== 0) {
-        if (Math.abs(dx) >= Math.abs(dy)) {
-          this.facing = { x: Math.sign(dx), y: 0 };
-        } else {
-          this.facing = { x: 0, y: Math.sign(dy) };
-        }
+        this.faceDelta(dx, dy);
       }
       this.tryAction();
     });
@@ -551,16 +591,14 @@ export class MineScene extends Phaser.Scene {
     this.shadow.setPosition(this.player.x, this.player.y + 1).setVisible(this.player.visible);
   }
 
-  private handleMovement(dt: number): void {
-    // apply knockback decay
-    if (Math.abs(this.knock.x) > 1 || Math.abs(this.knock.y) > 1) {
-      this.moveBy(this.knock.x * dt, this.knock.y * dt);
-      this.knock.x *= 0.86;
-      this.knock.y *= 0.86;
-    }
-    if (this.acting) {
-      return;
-    }
+  private faceDelta(dx: number, dy: number): void {
+    this.facing =
+      Math.abs(dx) >= Math.abs(dy) ? { x: Math.sign(dx), y: 0 } : { x: 0, y: Math.sign(dy) };
+  }
+
+  /** Keyboard first; then the sticks (virtual touch, then physical pad) and
+   *  finally trailer choreography fill in while real input is silent. */
+  private moveIntent(): StickMove {
     const k = this.keys;
     let dx = 0;
     let dy = 0;
@@ -576,31 +614,35 @@ export class MineScene extends Phaser.Scene {
     if (k.S.isDown || k.DOWN.isDown) {
       dy += 1;
     }
-    // sticks (virtual touch, then physical pad) fill in when the keyboard is
-    // silent — they also set facing below, so an action lands toward the stick
-    let stickRun = false;
-    if (dx === 0 && dy === 0) {
-      const move =
-        (this.gamepad ? stickMove(this.gamepad.getStick()) : null) ??
-        stickMove(this.pad.getStick());
-      if (move) {
-        dx = move.dx;
-        dy = move.dy;
-        stickRun = move.run;
-      }
-    }
-    // trailer choreography fills in like a stick when real input is silent
-    if (dx === 0 && dy === 0 && this.trailerMove) {
-      dx = this.trailerMove.x;
-      dy = this.trailerMove.y;
-      stickRun = this.trailerMove.run;
-    }
     if (dx !== 0 || dy !== 0) {
-      if (Math.abs(dx) >= Math.abs(dy)) {
-        this.facing = { x: Math.sign(dx), y: 0 };
-      } else {
-        this.facing = { x: 0, y: Math.sign(dy) };
-      }
+      return { dx, dy, run: false };
+    }
+    const move =
+      (this.gamepad ? stickMove(this.gamepad.getStick()) : null) ?? stickMove(this.pad.getStick());
+    if (move) {
+      return move;
+    }
+    if (this.trailerMove) {
+      return { dx: this.trailerMove.x, dy: this.trailerMove.y, run: this.trailerMove.run };
+    }
+    return { dx: 0, dy: 0, run: false };
+  }
+
+  private handleMovement(dt: number): void {
+    // apply knockback decay
+    if (Math.abs(this.knock.x) > 1 || Math.abs(this.knock.y) > 1) {
+      this.moveBy(this.knock.x * dt, this.knock.y * dt);
+      this.knock.x *= 0.86;
+      this.knock.y *= 0.86;
+    }
+    if (this.acting) {
+      return;
+    }
+    const k = this.keys;
+    const { dx, dy, run: stickRun } = this.moveIntent();
+    if (dx !== 0 || dy !== 0) {
+      // the stick also sets facing, so an action lands toward the stick
+      this.faceDelta(dx, dy);
       const run = (k.SHIFT.isDown || stickRun) && store.energy > 0;
       const speed = run ? RUN_SPEED : WALK_SPEED;
       const len = Math.hypot(dx, dy) || 1;
@@ -629,8 +671,8 @@ export class MineScene extends Phaser.Scene {
   }
 
   private moveBy(mx: number, my: number): void {
-    const hh = 3,
-      hw = 4;
+    const hh = 3;
+    const hw = 4;
     const solid = (x: number, y: number) => {
       const tx = Math.floor(x / TILE);
       const ty = Math.floor(y / TILE);
@@ -728,7 +770,7 @@ export class MineScene extends Phaser.Scene {
   private hitEnemy(e: Enemy, dmg: number): void {
     e.hp -= dmg;
     e.hurt = SKELETON_HURT_MS / 1000;
-    e.spr.setTint(0xff_ff_ff).setTintMode(Phaser.TintModes.FILL);
+    e.spr.setTint(0xff_ff_ff).setTintMode(TintModes.FILL);
     Sound.mine();
     const kb = 140;
     e.kx = this.facing.x * kb + (this.facing.x === 0 ? 0 : 0);
@@ -737,7 +779,7 @@ export class MineScene extends Phaser.Scene {
       e.ky = -kb;
     }
     burst(this, e.spr.x, e.spr.y - 14, {
-      colors: [0xffffff, 0xffd34d],
+      colors: [0xff_ff_ff, 0xff_d3_4d],
       count: 6,
       matter: "spark",
       speed: 60,
@@ -769,7 +811,7 @@ export class MineScene extends Phaser.Scene {
   private awardCombatLoot(x: number, y: number): void {
     const xp = 14 + this.depth * 2;
     this.awardCombat(xp);
-    const coins = 5 + Phaser.Math.Between(0, this.depth * 4);
+    const coins = 5 + PhaserMath.Between(0, this.depth * 4);
     store.gold += coins;
     floatText(this, x, y - 22, `+${coins}g`, "#ffe27a");
     if (Math.random() < 0.5) {
@@ -805,7 +847,7 @@ export class MineScene extends Phaser.Scene {
     this.time.delayedCall(440, () => {
       node.hp -= 1;
       burst(this, node.spr.x, node.spr.y - 8, {
-        colors: [0xbfcad6, 0x8a98a8, 0xffffff],
+        colors: [0xbf_ca_d6, 0x8a_98_a8, 0xff_ff_ff],
         count: 7,
         matter: "spark",
         speed: 55,
@@ -846,7 +888,7 @@ export class MineScene extends Phaser.Scene {
     } else {
       const accepted = 1 + bonus - store.inv.add({ kind: "resource", res: node.kind }, 1 + bonus);
       this.visit.gathered += accepted;
-      const name = node.kind === "coal" ? "Coal" : node.kind === "copper" ? "Copper" : "Crystal";
+      const name = ORE_NAME[node.kind];
       const lv = store.skills.addXP("mining", 4);
       if (lv !== null) {
         floatText(this, this.player.x, this.player.y - 26, `Mining Lv.${lv}!`, "#ffe27a");
@@ -900,14 +942,7 @@ export class MineScene extends Phaser.Scene {
           e.contactUntil = now + SKELETON_CONTACT_MS;
         }
       }
-      const anim =
-        e.hurt > 0
-          ? "e-skel-hurt"
-          : now < e.contactUntil
-            ? "e-skel-contact"
-            : moving
-              ? "e-skel-walk"
-              : "e-skel-idle";
+      const anim = skeletonAnim(e, now, moving);
       if (e.spr.anims.currentAnim?.key !== anim) {
         e.spr.play(anim, true);
       }
@@ -938,7 +973,7 @@ export class MineScene extends Phaser.Scene {
     const d = Math.hypot(fromDx, fromDy) || 1;
     this.knock = { x: (-fromDx / d) * 180, y: (-fromDy / d) * 180 };
     // flash
-    this.player.setTint(0xff_44_44).setTintMode(Phaser.TintModes.FILL);
+    this.player.setTint(0xff_44_44).setTintMode(TintModes.FILL);
     this.tweens.add({
       alpha: 0.4,
       duration: 80,
@@ -990,7 +1025,7 @@ export class MineScene extends Phaser.Scene {
     this.transitioning = true;
     this.persist();
     this.cameras.main.fadeOut(350, 0, 0, 0);
-    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+    this.cameras.main.once(Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
       this.scene.restart({ depth: this.depth + 1 });
     });
   }
@@ -1003,7 +1038,7 @@ export class MineScene extends Phaser.Scene {
     this.persist();
     this.scene.stop("MineHud");
     this.cameras.main.fadeOut(450, 0, 0, 0);
-    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+    this.cameras.main.once(Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
       this.scene.start("Game", { fromMine: true, mineRecap: this.recap(false) });
     });
   }
@@ -1023,7 +1058,7 @@ export class MineScene extends Phaser.Scene {
     this.persist();
     this.scene.stop("MineHud");
     this.cameras.main.fadeOut(900, 0, 0, 0);
-    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+    this.cameras.main.once(Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
       this.scene.start("Game", { fainted: true, fromMine: true, mineRecap: this.recap(true) });
     });
   }

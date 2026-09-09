@@ -1,4 +1,5 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { Math as PhaserMath, Scenes } from "phaser";
 import { DEPTH } from "../config";
 import { itemIcon } from "../data/items";
 import type { Item } from "../data/items";
@@ -30,6 +31,18 @@ interface Reward {
   target: { x: number; y: number };
   age: number;
 }
+interface MatterBody {
+  spin: number;
+  /** Width and height as multiples of the requested size. */
+  w: number;
+  h: number;
+}
+const MATTER_BODY: Record<Matter, MatterBody> = {
+  droplet: { h: 1.8, spin: 0, w: 0.65 },
+  dust: { h: 1, spin: 75, w: 1 },
+  leaf: { h: 1, spin: 160, w: 1.7 },
+  spark: { h: 1.8, spin: 0, w: 1 },
+};
 const PARTICLE_CAP = 144;
 const REWARD_CAP = 8;
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -46,7 +59,10 @@ class SceneFx {
     this.particles = Array.from({ length: PARTICLE_CAP }, () => ({
       age: 0,
       gravity: 0,
-      image: scene.add.rectangle(0, 0, 2, 2, 0xffffff).setDepth(DEPTH.particles).setVisible(false),
+      image: scene.add
+        .rectangle(0, 0, 2, 2, 0xff_ff_ff)
+        .setDepth(DEPTH.particles)
+        .setVisible(false),
       life: 1,
       spin: 0,
       vx: 0,
@@ -63,10 +79,10 @@ class SceneFx {
       target: { x: 0, y: 0 },
     }));
     const update = (_time: number, delta: number): void => this.update(Math.min(delta, 50) / 1000);
-    scene.events.on(Phaser.Scenes.Events.POST_UPDATE, update);
+    scene.events.on(Scenes.Events.POST_UPDATE, update);
     // The display list destroys the rectangles on shutdown; a restart pools afresh.
-    scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      scene.events.off(Phaser.Scenes.Events.POST_UPDATE, update);
+    scene.events.once(Scenes.Events.SHUTDOWN, () => {
+      scene.events.off(Scenes.Events.POST_UPDATE, update);
       pools.delete(scene);
     });
   }
@@ -78,7 +94,10 @@ class SceneFx {
     const count = Math.min(PARTICLE_CAP, REDUCED_MOTION.matches ? 3 : (opts.count ?? 8));
     const size = opts.size ?? 2;
     const matter = opts.matter ?? "dust";
-    for (let i = 0; i < count; i++) {
+    const body = MATTER_BODY[matter];
+    const w = size * body.w;
+    const h = size * body.h;
+    for (let i = 0; i < count; i += 1) {
       const p = this.particles[this.cursor];
       this.cursor = (this.cursor + 1) % PARTICLE_CAP;
       if (!p) {
@@ -92,11 +111,9 @@ class SceneFx {
       p.vx = Math.cos(ang) * speed;
       p.vy = Math.sin(ang) * speed - (opts.up ? 30 : 0);
       p.gravity = opts.gravity ?? 120;
-      p.spin = matter === "leaf" ? 160 : matter === "dust" ? 75 : 0;
+      p.spin = body.spin;
       p.age = 0;
       p.life = Math.max(0.001, (opts.life ?? 520) / 1000);
-      const w = matter === "leaf" ? size * 1.7 : matter === "droplet" ? size * 0.65 : size;
-      const h = matter === "spark" || matter === "droplet" ? size * 1.8 : size;
       p.image
         .setPosition(x, y)
         .setSize(w, h)
@@ -157,10 +174,10 @@ class SceneFx {
       const reduced = REDUCED_MOTION.matches;
       r.image
         .setPosition(
-          reduced ? r.fromX : Phaser.Math.Linear(r.fromX, r.target.x, ease),
+          reduced ? r.fromX : PhaserMath.Linear(r.fromX, r.target.x, ease),
           reduced
             ? r.fromY - 12
-            : Phaser.Math.Linear(r.fromY, r.target.y - 14, ease) - Math.sin(t * Math.PI) * 24,
+            : PhaserMath.Linear(r.fromY, r.target.y - 14, ease) - Math.sin(t * Math.PI) * 24,
         )
         .setAlpha(Math.min(1, (1 - t) * 4))
         .setScale(reduced ? 1 : 1 + Math.sin(t * Math.PI) * 0.18);
@@ -168,7 +185,7 @@ class SceneFx {
   }
 }
 
-function poolFor(scene: Phaser.Scene): SceneFx {
+const poolFor = (scene: Phaser.Scene): SceneFx => {
   const existing = pools.get(scene);
   if (existing) {
     return existing;
@@ -176,22 +193,22 @@ function poolFor(scene: Phaser.Scene): SceneFx {
   const pool = new SceneFx(scene);
   pools.set(scene, pool);
   return pool;
-}
+};
 
 /** Render-only payoff; callers award inventory before requesting it. */
-export function rewardArc(
+export const rewardArc = (
   scene: Phaser.Scene,
   x: number,
   y: number,
   target: { x: number; y: number },
   item: Item,
-): void {
+): void => {
   poolFor(scene).reward(x, y, target, item);
-}
+};
 
 /** `size` (world pixels) and `life` (ms) default to every gameplay pop; a caller
  *  raises them only for a glyph that has to carry a beat on its own. */
-export function floatText(
+export const floatText = (
   scene: Phaser.Scene,
   x: number,
   y: number,
@@ -199,7 +216,7 @@ export function floatText(
   color = "#fff6d5",
   size = 11,
   life = 900,
-): void {
+): void => {
   const t = scene.add
     .text(x, y, text, {
       color,
@@ -219,25 +236,25 @@ export function floatText(
     targets: t,
     y: y - 22,
   });
-}
+};
 
 // burst of small colored squares (dust, leaves, sparks, droplets)
-export function burst(scene: Phaser.Scene, x: number, y: number, opts: BurstOptions): void {
+export const burst = (scene: Phaser.Scene, x: number, y: number, opts: BurstOptions): void => {
   poolFor(scene).burst(x, y, opts);
-}
+};
 
-export function shake(scene: Phaser.Scene, intensity = 0.004, duration = 120): void {
+export const shake = (scene: Phaser.Scene, intensity = 0.004, duration = 120): void => {
   if (REDUCED_MOTION.matches) {
     return;
   }
   scene.cameras.main.shake(duration, intensity);
-}
+};
 
 // a quick squash-stretch "pop" tween on a sprite
-export function pop(
+export const pop = (
   scene: Phaser.Scene,
   obj: Phaser.GameObjects.Components.Transform & { scaleX: number; scaleY: number },
-): void {
+): void => {
   if (REDUCED_MOTION.matches) {
     return;
   }
@@ -251,4 +268,4 @@ export function pop(
     targets: obj,
     yoyo: true,
   });
-}
+};

@@ -1,4 +1,5 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { TintModes } from "phaser";
 
 import { ENEMY_ORIGIN_Y, ENEMY_SCALE, interp } from "../config";
 import { showActorPose } from "../data/actor-animation";
@@ -13,7 +14,8 @@ import { EnemyBody } from "./enemy-body";
 export class Enemy {
   readonly body: EnemyBody;
   readonly sprite: Phaser.GameObjects.Sprite;
-  baseTint = 0xff_ff_ff; // affix recolour (elite enemies); restored after a hit-flash
+  // affix recolour (elite enemies); restored after a hit-flash
+  baseTint = 0xff_ff_ff;
   private flashing = false;
   private posed = false;
 
@@ -28,7 +30,10 @@ export class Enemy {
     const b = this.body;
     const n = this.body.kind.name;
     if (b.state === "dead") {
-      return n === "bomber" ? "explode" : n === "warrior" ? "dead" : "death";
+      if (n === "bomber") {
+        return "explode";
+      }
+      return n === "warrior" ? "dead" : "death";
     }
     if (b.state === "hurt") {
       return "hit";
@@ -49,6 +54,9 @@ export class Enemy {
       }
       case "bomber": {
         return b.state === "windup" ? "electrocute" : moving;
+      }
+      default: {
+        return moving;
       }
     }
   }
@@ -77,9 +85,10 @@ export class Enemy {
       case "spawn": {
         return 400;
       }
+      // idle / death keep authored timing
       default: {
         return undefined;
-      } // idle / death keep authored timing
+      }
     }
   }
 
@@ -88,9 +97,10 @@ export class Enemy {
       this.sprite.anims.resume();
       this.posed = false;
     }
+    // already looping this clip
     if (this.sprite.anims.currentAnim?.key === key) {
       return;
-    } // already looping this clip
+    }
     // timeScale, not duration: a play `duration` freezes per-frame-duration anims.
     this.sprite.play(key, true);
     const ms = this.clipMs(suffix);
@@ -125,10 +135,10 @@ export class Enemy {
     );
     const flash = b.hitFlash > 0;
     if (flash && !this.flashing) {
-      this.sprite.setTint(0xff_ff_ff).setTintMode(Phaser.TintModes.FILL);
+      this.sprite.setTint(0xff_ff_ff).setTintMode(TintModes.FILL);
       this.flashing = true;
     } else if (!flash && this.flashing) {
-      this.sprite.setTint(this.baseTint).setTintMode(Phaser.TintModes.MULTIPLY);
+      this.sprite.setTint(this.baseTint).setTintMode(TintModes.MULTIPLY);
       this.flashing = false;
     }
   }
@@ -151,7 +161,7 @@ export class Enemy {
     if (isActorTint(tint) && tint !== this.baseTint) {
       this.baseTint = tint;
       if (!this.flashing) {
-        this.sprite.setTint(tint).setTintMode(Phaser.TintModes.MULTIPLY);
+        this.sprite.setTint(tint).setTintMode(TintModes.MULTIPLY);
       }
     }
     this.sprite.setFlipX(flip);
@@ -162,10 +172,10 @@ export class Enemy {
       far ? y : this.sprite.y + (y - this.sprite.y) * blend,
     );
     if (flash && !this.flashing) {
-      this.sprite.setTint(0xff_ff_ff).setTintMode(Phaser.TintModes.FILL);
+      this.sprite.setTint(0xff_ff_ff).setTintMode(TintModes.FILL);
       this.flashing = true;
     } else if (!flash && this.flashing) {
-      this.sprite.setTint(this.baseTint).setTintMode(Phaser.TintModes.MULTIPLY);
+      this.sprite.setTint(this.baseTint).setTintMode(TintModes.MULTIPLY);
       this.flashing = false;
     }
   }

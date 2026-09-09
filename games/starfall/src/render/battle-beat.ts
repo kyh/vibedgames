@@ -15,7 +15,7 @@ const AFTERMATH_MS = 6000;
 
 /** Read the existing 90s wave phase without the unbounded difficulty ramp: once
  * gameplay intensity caps, its absolute value loses the trough entirely. */
-export function waveBattleBeat(tSec: number): Exclude<BattleBeat, "aftermath"> {
+export const waveBattleBeat = (tSec: number): Exclude<BattleBeat, "aftermath"> => {
   if (!Number.isFinite(tSec)) {
     return "quiet";
   }
@@ -23,8 +23,11 @@ export function waveBattleBeat(tSec: number): Exclude<BattleBeat, "aftermath"> {
   const phase = t % 90;
   const phasePeak = 1.2 * (1 + phase / 180);
   const pressure = (arenaIntensity(phase) / phasePeak) * wavePulse(t);
-  return pressure < 0.35 ? "quiet" : pressure >= 0.68 ? "crest" : "build";
-}
+  if (pressure < 0.35) {
+    return "quiet";
+  }
+  return pressure >= 0.68 ? "crest" : "build";
+};
 
 /** Music/backdrop mood with hysteresis; a boss defeat resolves into an aftermath. */
 export class BattleBeatDirector {
@@ -48,37 +51,55 @@ export class BattleBeatDirector {
     this.aftermathUntil = now + AFTERMATH_MS;
   }
 
-  update(input: BattleBeatInput): BattleBeat {
-    if (!Number.isFinite(input.now) || !Number.isFinite(input.epoch)) {
-      this.reset();
-      return this.beat;
-    }
+  /** True when the timeline is discontinuous and must be adopted, not replayed. */
+  private isTimelineBreak(input: BattleBeatInput): boolean {
     const p = this.previous;
-    const adopt =
+    return (
       p === null ||
       p.epoch !== input.epoch ||
       input.now < p.now ||
       input.now - p.now > GAP_MS ||
-      p.presenting !== input.presenting;
-    this.previous = input;
-    if (adopt || !input.presenting) {
-      this.aftermathUntil = 0;
-      this.candidate = null;
+      p.presenting !== input.presenting
+    );
+  }
+
+  private desiredBeat(input: BattleBeatInput): BattleBeat {
+    if (!input.presenting) {
+      return "quiet";
     }
-    const desired: BattleBeat = input.presenting
-      ? input.bossAlive
-        ? "crest"
-        : input.now < this.aftermathUntil
-          ? "aftermath"
-          : waveBattleBeat((input.now - input.epoch) / 1000)
-      : "quiet";
-    if (
+    if (input.bossAlive) {
+      return "crest";
+    }
+    if (input.now < this.aftermathUntil) {
+      return "aftermath";
+    }
+    return waveBattleBeat((input.now - input.epoch) / 1000);
+  }
+
+  /** Beats that take effect at once; everything else must settle first. */
+  private isImmediate(input: BattleBeatInput, adopt: boolean, desired: BattleBeat): boolean {
+    return (
       adopt ||
       !input.presenting ||
       input.bossAlive ||
       desired === "aftermath" ||
       (this.beat === "aftermath" && input.now >= this.aftermathUntil)
-    ) {
+    );
+  }
+
+  update(input: BattleBeatInput): BattleBeat {
+    if (!Number.isFinite(input.now) || !Number.isFinite(input.epoch)) {
+      this.reset();
+      return this.beat;
+    }
+    const adopt = this.isTimelineBreak(input);
+    this.previous = input;
+    if (adopt || !input.presenting) {
+      this.aftermathUntil = 0;
+      this.candidate = null;
+    }
+    const desired = this.desiredBeat(input);
+    if (this.isImmediate(input, adopt, desired)) {
       this.beat = desired;
       this.candidate = null;
     } else if (desired === this.beat) {

@@ -2,29 +2,30 @@
 // dispatch; only DOM drawing and the frame scheduler are inert fixtures.
 import assert from "node:assert/strict";
 
+const inert = () => {
+  /* inert fixture */
+};
+const noMatch = () => null;
+
 class Node extends EventTarget {
-  style = { setProperty() {} };
+  style = { setProperty: inert };
   children = [];
-  setAttribute() {}
+  setAttribute = inert;
   append(...children) {
     this.children.push(...children);
   }
-  remove() {}
-  closest() {
-    return null;
-  }
+  remove = inert;
+  closest = noMatch;
 }
-class WindowTarget extends EventTarget {
-  removeEventListener(type, listener, options) {
-    // Node ignores a boolean capture flag on removal; browsers accept both forms.
-    super.removeEventListener(
-      type,
-      listener,
-      options === true || options === false ? { capture: options } : options,
-    );
-  }
-}
-const win = new WindowTarget();
+const win = new EventTarget();
+const removeWindowListener = win.removeEventListener.bind(win);
+// Node ignores a boolean capture flag on removal; browsers accept both forms.
+win.removeEventListener = (type, listener, options) =>
+  removeWindowListener(
+    type,
+    listener,
+    options === true || options === false ? { capture: options } : options,
+  );
 win.parent = win;
 win.matchMedia = () => ({ matches: true });
 globalThis.window = win;
@@ -38,8 +39,9 @@ globalThis.document = {
 };
 const callbacks = new Map();
 let serial = 0;
-globalThis.requestAnimationFrame = (callback) => {
-  callbacks.set(++serial, callback);
+globalThis.requestAnimationFrame = (frame) => {
+  serial += 1;
+  callbacks.set(serial, frame);
   return serial;
 };
 globalThis.cancelAnimationFrame = (id) => callbacks.delete(id);
@@ -48,16 +50,16 @@ const { setPauseHandlers, notifyGameStarted, pauseGame, resumeGame, isPausable }
   await import("../src/game.ts");
 let modal = false;
 let resumes = 0;
-const shell = createPauseShell({ fadeMs: 0, modalOpen: () => modal, render() {} });
+const shell = createPauseShell({ fadeMs: 0, modalOpen: () => modal, render: inert });
 setPauseHandlers({
   onPause: shell.show,
   onResume: () => {
-    resumes++;
+    resumes += 1;
     shell.hide();
   },
 });
 notifyGameStarted();
-function key(type, code, repeat = false) {
+const key = (type, code, repeat = false) => {
   const event = new Event(type, { cancelable: true });
   Object.defineProperties(event, {
     code: { value: code },
@@ -66,7 +68,7 @@ function key(type, code, repeat = false) {
   });
   win.dispatchEvent(event);
   return event;
-}
+};
 key("keydown", "KeyD");
 key("keydown", "Escape");
 key("keyup", "Escape");
@@ -80,7 +82,7 @@ assert.equal(isPausable(), false, "fresh keydown stays gated");
 key("keyup", "KeyJ");
 assert.equal(isPausable(), true);
 assert.equal(resumes, 1);
-for (let cycle = 0; cycle < 3; cycle++) {
+for (let cycle = 0; cycle < 3; cycle += 1) {
   pauseGame();
   shell.show();
   key("keyup", "KeyJ");
@@ -108,7 +110,7 @@ assert.equal(resumes, 4);
 // canResume holds a pause the game cannot leave yet (tetris: lost graphics).
 let available = false;
 let guardedResumes = 0;
-function keyBlocked(type) {
+const keyBlocked = (type) => {
   const event = new Event(type);
   let blocked = false;
   event.stopPropagation = () => {
@@ -116,8 +118,13 @@ function keyBlocked(type) {
   };
   win.dispatchEvent(event);
   return blocked;
-}
-setPauseHandlers({ canResume: () => available, onResume: () => guardedResumes++ });
+};
+setPauseHandlers({
+  canResume: () => available,
+  onResume: () => {
+    guardedResumes += 1;
+  },
+});
 notifyGameStarted();
 pauseGame();
 resumeGame();
@@ -134,7 +141,11 @@ assert.equal(keyBlocked("keyup"), false);
 
 pauseGame();
 let newResumes = 0;
-setPauseHandlers({ onResume: () => newResumes++ });
+setPauseHandlers({
+  onResume: () => {
+    newResumes += 1;
+  },
+});
 resumeGame();
 assert.equal(newResumes, 1, "a replacement owner resumes by default");
 assert.equal(isPausable(), true);

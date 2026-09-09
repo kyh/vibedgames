@@ -1,26 +1,27 @@
 import { setPauseHandlers } from "@repo/embed";
-import Phaser from "phaser";
+import type { Types } from "phaser";
+import { Game, Scale, WEBGL } from "phaser";
 
 import { pauseAudio } from "./fx/sfx";
 import { createBombermanPauseOverlay } from "./pause-overlay";
 import { BootScene } from "./scenes/boot-scene";
 import { GameScene } from "./scenes/game-scene";
 
-const config: Phaser.Types.Core.GameConfig = {
+const config: Types.Core.GameConfig = {
   backgroundColor: "#0e1020",
   parent: "game",
   pixelArt: true,
+  // Fill the window; GameScene owns the follow-camera + zoom.
   scale: {
-    // Fill the window; GameScene owns the follow-camera + zoom.
-    mode: Phaser.Scale.RESIZE,
-    width: "100%",
     height: "100%",
+    mode: Scale.RESIZE,
+    width: "100%",
   },
   scene: [BootScene, GameScene],
-  type: Phaser.WEBGL,
+  type: WEBGL,
 };
 
-const game = new Phaser.Game(config);
+const game = new Game(config);
 
 // Scale.RESIZE can read stale parent bounds when a resize lands while the tab
 // is hidden or the browser throttles events (tab switch, phone rotation): the

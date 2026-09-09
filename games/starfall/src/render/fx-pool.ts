@@ -1,4 +1,5 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { BlendModes } from "phaser";
 
 import type { Vec } from "../shared/constants";
 import { BattleFx, REDUCED_MOTION } from "./battle-fx";
@@ -7,11 +8,11 @@ export type FxImportance = "common" | "important";
 
 /** Keep a quarter of a pool free for major beats: common traffic may replace
  * an older common effect, never a shield, progression or boss response. */
-function admitFx<T extends { importance: FxImportance }>(
+const admitFx = <T extends { importance: FxImportance }>(
   entries: T[],
   capacity: number,
   importance: FxImportance,
-): boolean {
+): boolean => {
   const limit = importance === "important" ? capacity : capacity - Math.ceil(capacity / 4);
   if (entries.length < limit) {
     return true;
@@ -22,7 +23,7 @@ function admitFx<T extends { importance: FxImportance }>(
   }
   entries.splice(expendable, 1);
   return true;
-}
+};
 
 // Pooled VFX (vfx skill rules): the two particle emitters are created ONCE and
 // fired with explode(); stroke-shatter groups, shockwave rings and converge
@@ -53,7 +54,8 @@ interface ShatterSeg {
   my: number;
   vx: number;
   vy: number;
-  rotV: number; // rad/s
+  /** rad/s */
+  rotV: number;
   rot: number;
 }
 
@@ -92,7 +94,8 @@ interface Converge {
 
 export interface SparkOpts {
   importance?: FxImportance;
-  angleMin?: number; // degrees
+  /** degrees */
+  angleMin?: number;
   angleMax?: number;
   speedMin?: number;
   speedMax?: number;
@@ -104,7 +107,7 @@ export interface SparkOpts {
 interface HullCue {
   x: number;
   y: number;
-  points: ReadonlyArray<Vec>;
+  points: readonly Vec[];
   rot: number;
   bornAt: number;
 }
@@ -136,7 +139,7 @@ export class FxPool {
     this.sparkAdd = scene.add.particles(0, 0, "spark", {
       alpha: { end: 0, start: 1 },
       angle: { max: 360, min: 0 },
-      blendMode: Phaser.BlendModes.ADD,
+      blendMode: BlendModes.ADD,
       emitting: false,
       lifespan: { max: 300, min: 150 },
       scale: { end: 0, start: 0.6 },
@@ -146,7 +149,7 @@ export class FxPool {
     this.debrisNormal = scene.add.particles(0, 0, "star", {
       alpha: { end: 0, start: 1 },
       angle: { max: 360, min: 0 },
-      blendMode: Phaser.BlendModes.NORMAL,
+      blendMode: BlendModes.NORMAL,
       emitting: false,
       lifespan: { max: 500, min: 300 },
       rotate: { max: 360, min: 0 },
@@ -155,7 +158,7 @@ export class FxPool {
     });
     this.debrisNormal.setDepth(14);
     this.shatterGfx = scene.add.graphics().setDepth(16);
-    this.ringGfx = scene.add.graphics().setDepth(21).setBlendMode(Phaser.BlendModes.ADD);
+    this.ringGfx = scene.add.graphics().setDepth(21).setBlendMode(BlendModes.ADD);
     const textStyle = { color: "#dce9f0", fontFamily: "monospace", fontSize: "10px" };
     this.hullText = scene.add
       .text(0, 0, "", textStyle)
@@ -284,7 +287,7 @@ export class FxPool {
     const cos = Math.cos(rot);
     const sin = Math.sin(rot);
     const segs: ShatterSeg[] = [];
-    for (let i = 0; i < points.length; i++) {
+    for (let i = 0; i < points.length; i += 1) {
       const a = points[i];
       const b = points[(i + 1) % points.length];
       if (!a || !b) {
@@ -382,7 +385,8 @@ export class FxPool {
     this.rings = this.rings.filter((r) => now - r.bornAt < r.durMs);
     for (const r of this.rings) {
       const t = (now - r.bornAt) / r.durMs;
-      const eased = 1 - (1 - t) ** 3; // Cubic.Out
+      // Cubic.Out
+      const eased = 1 - (1 - t) ** 3;
       const radius = r.r0 + (r.r1 - r.r0) * eased;
       rg.lineStyle(1, r.tint, r.alpha0 * (1 - t));
       rg.strokeCircle(r.x, r.y, radius);
@@ -392,7 +396,7 @@ export class FxPool {
       const t = (now - c.bornAt) / c.durMs;
       const dist = c.radius * (1 - t);
       rg.fillStyle(c.tint, 0.9 * (1 - t * 0.4));
-      for (let i = 0; i < c.count; i++) {
+      for (let i = 0; i < c.count; i += 1) {
         const ang = c.seed + (Math.PI * 2 * i) / c.count;
         rg.fillCircle(c.x + Math.cos(ang) * dist, c.y + Math.sin(ang) * dist, 1.5);
       }
@@ -411,7 +415,7 @@ export class FxPool {
       g.lineStyle(sw, 0xdc_e9_f0, alpha * 0.75);
       const cos = Math.cos(hull.rot) * scale;
       const sin = Math.sin(hull.rot) * scale;
-      for (let i = 0; i < hull.points.length; i++) {
+      for (let i = 0; i < hull.points.length; i += 1) {
         const a = hull.points[i];
         const b = hull.points[(i + 1) % hull.points.length];
         if (!a || !b) {
@@ -443,7 +447,7 @@ export class FxPool {
       const radius = REDUCED_MOTION.matches ? 74 : 58 + 30 * t;
       const g = this.ringGfx;
       g.lineStyle(sw, boss.tint, alpha * 0.8);
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < 4; i += 1) {
         const angle = Math.PI / 4 + (i * Math.PI) / 2;
         const x = boss.x + Math.cos(angle) * radius;
         const y = boss.y + Math.sin(angle) * radius;

@@ -10,9 +10,12 @@ import { CAMPS, isInThrone } from "../data/map";
 import type { Unit, World } from "../sim/types";
 import { liveBossCoins } from "./objective-state";
 
-const INTRO_S = 2.4; // solo fly-in length (view.startIntro) — move hint waits for it
-const SHOW_S = 4; // hint display time
-const GAP_S = 5; // minimum quiet time between hints
+// solo fly-in length (view.startIntro) — move hint waits for it
+const INTRO_S = 2.4;
+// hint display time
+const SHOW_S = 4;
+// minimum quiet time between hints
+const GAP_S = 5;
 
 interface HintState {
   spawnX: number;
@@ -26,14 +29,14 @@ interface Rule {
   id: string;
   text: string;
   touch: string;
-  when(w: World, me: Unit, st: HintState): boolean;
+  when: (w: World, me: Unit, st: HintState) => boolean;
   /** Early-dismiss (and "already learned — never show") condition. */
-  done?(w: World, me: Unit, st: HintState): boolean;
+  done?: (w: World, me: Unit, st: HintState) => boolean;
   /** A transient target disappearing dismisses a visible lesson, not an unseen one. */
-  dismiss?(w: World): boolean;
+  dismiss?: (w: World) => boolean;
 }
 
-function enemyWithin(w: World, me: Unit, r: number): boolean {
+const enemyWithin = (w: World, me: Unit, r: number): boolean => {
   const r2 = r * r;
   for (const u of w.units.values()) {
     if (!u.alive || u.team === me.team) {
@@ -49,9 +52,9 @@ function enemyWithin(w: World, me: Unit, r: number): boolean {
     }
   }
   return false;
-}
+};
 
-function nearAnyCamp(me: Unit, r: number): boolean {
+const nearAnyCamp = (me: Unit, r: number): boolean => {
   const r2 = r * r;
   for (const c of CAMPS) {
     const dx = c.x - me.x;
@@ -61,7 +64,7 @@ function nearAnyCamp(me: Unit, r: number): boolean {
     }
   }
   return false;
-}
+};
 
 const RULES: Rule[] = [
   {
@@ -138,8 +141,10 @@ const RULES: Rule[] = [
 export class Hints {
   private readonly shown = new Set<string>();
   private visible: Rule | null = null;
-  private visibleUntil = 0; // gameTime s
-  private nextAt = 0; // gameTime s — earliest next hint
+  // gameTime s
+  private visibleUntil = 0;
+  // gameTime s — earliest next hint
+  private nextAt = 0;
   private lastT = 0;
   private readonly st: HintState = {
     everInThrone: false,
@@ -149,10 +154,13 @@ export class Hints {
     spawnY: 0,
   };
 
-  constructor(
-    private readonly isTouch: () => boolean,
-    private readonly show: (text: string) => void,
-  ) {}
+  private readonly isTouch: () => boolean;
+  private readonly show: (text: string) => void;
+
+  constructor(isTouch: () => boolean, show: (text: string) => void) {
+    this.isTouch = isTouch;
+    this.show = show;
+  }
 
   /** Call every frame with the synced world + the local unit (null pre-spawn). */
   update(w: World, me: Unit | null): void {
@@ -161,26 +169,7 @@ export class Hints {
     }
     const t = w.gameTime;
     this.lastT = t;
-    if (!this.st.spawnSet && me.alive) {
-      this.st.spawnX = me.x;
-      this.st.spawnY = me.y;
-      this.st.spawnSet = true;
-    }
-    if (!this.st.everInThrone && isInThrone(me.x, me.y)) {
-      this.st.everInThrone = true;
-    }
-
-    // shop600 re-arms exactly once, at 1200g with a still-empty inventory
-    if (
-      !this.st.shopRearmed &&
-      this.shown.has("shop600") &&
-      this.visible?.id !== "shop600" &&
-      me.gold >= 1200 &&
-      me.items.length === 0
-    ) {
-      this.shown.delete("shop600");
-      this.st.shopRearmed = true;
-    }
+    this.track(me);
 
     if (this.visible) {
       const r = this.visible;
@@ -223,9 +212,34 @@ export class Hints {
   /** Keep learned rules across rematches, but never their old time deadlines. */
   resetMatch(): void {
     this.visible = null;
-    this.visibleUntil = this.nextAt = this.lastT = 0;
+    this.lastT = 0;
+    this.nextAt = 0;
+    this.visibleUntil = 0;
     this.st.spawnSet = false;
     this.show("");
+  }
+
+  private track(me: Unit): void {
+    if (!this.st.spawnSet && me.alive) {
+      this.st.spawnX = me.x;
+      this.st.spawnY = me.y;
+      this.st.spawnSet = true;
+    }
+    if (!this.st.everInThrone && isInThrone(me.x, me.y)) {
+      this.st.everInThrone = true;
+    }
+
+    // shop600 re-arms exactly once, at 1200g with a still-empty inventory
+    if (
+      !this.st.shopRearmed &&
+      this.shown.has("shop600") &&
+      this.visible?.id !== "shop600" &&
+      me.gold >= 1200 &&
+      me.items.length === 0
+    ) {
+      this.shown.delete("shop600");
+      this.st.shopRearmed = true;
+    }
   }
 
   private hide(): void {

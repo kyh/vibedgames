@@ -2,7 +2,10 @@
 // sound is rendered once into an AudioBuffer at init and replayed via pooled
 // BufferSource nodes with ±6% pitch jitter. Tuned CUTE — sines and triangles,
 // soft attacks, music-box registers; nothing buzzes or booms. Unlocked on the
-// first user gesture. Also hosts the looping background-music player.
+// first user gesture.
+
+import { music } from "./music";
+import { isSoundOn, rememberSound } from "./sound-pref";
 
 const SAMPLE_RATE = 44_100;
 /** Per-play pitch jitter: rate = 0.94 + rand·0.12 (±6%). */
@@ -12,43 +15,6 @@ const PITCH_JITTER_SPAN = 0.12;
 const DUCK_GAIN = 0.25;
 const DUCK_MS = 450;
 const MASTER_GAIN = 0.5;
-
-/** "1" = sound ON; anything else/absent = muted (sound is opt-in). */
-const SOUND_KEY = "pacman:sound";
-
-// localStorage throws in some embeds (sandboxed iframes, blocked cookies,
-// private modes). Audio prefs fall back to muted — never crash the game.
-function storageGet(key: string): string | null {
-  try {
-    return window.localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-function storageSet(key: string, value: string): void {
-  try {
-    window.localStorage.setItem(key, value);
-  } catch {
-    // Blocked store just loses persistence — never the game.
-  }
-}
-
-/** Muted by default; enabled only when the user previously opted in via M. */
-function initialSoundOn(): boolean {
-  return storageGet(SOUND_KEY) === "1";
-}
-
-let soundOn = initialSoundOn();
-
-function rememberSound(on: boolean): void {
-  soundOn = on;
-  storageSet(SOUND_KEY, on ? "1" : "0");
-}
-
-/** The persisted preference both engines follow — what a mute button reads. */
-export function isSoundOn(): boolean {
-  return soundOn;
-}
 
 const SFX_NAMES = [
   "chomp",
@@ -70,6 +36,142 @@ export interface PlayOpts {
   gain?: number;
   rate?: number;
 }
+
+// ---- synth engine (pure) --------------------------------------------------------
+
+interface Recipe {
+  durMs: number;
+  render: (t: number, dur: number, rng: () => number) => number;
+}
+
+const clampSample = (v: number): number => (v > 1 ? 1 : Math.max(-1, v));
+const makeNoise = (): (() => number) => () => Math.random() * 2 - 1;
+const renderBuffer = (ctx: AudioContext, recipe: Recipe): AudioBuffer => {
+  const frames = Math.max(1, Math.round((recipe.durMs / 1000) * SAMPLE_RATE));
+  const buffer = ctx.createBuffer(1, frames, SAMPLE_RATE);
+  const data = buffer.getChannelData(0);
+  const dur = recipe.durMs / 1000;
+  const rng = makeNoise();
+  for (let i = 0; i < frames; i += 1) {
+    data[i] = clampSample(recipe.render(i / SAMPLE_RATE, dur, rng));
+  }
+  return buffer;
+};
+
+const TAU = Math.PI * 2;
+
+const triangle = (phase: number): number => Math.asin(Math.sin(phase)) * (2 / Math.PI);
+
+/** Linear frequency slide f0→f1 over dur; returns integrated phase at t. */
+const slidePhase = (t: number, dur: number, f0: number, f1: number): number => {
+  const k = (f1 - f0) / dur;
+  return TAU * (f0 * t + 0.5 * k * t * t);
+};
+
+/** Simple decay envelope: 1 → 0 with optional attack. */
+const env = (t: number, dur: number, attack = 0.005, curve = 1.5): number => {
+  if (t < attack) {
+    return t / attack;
+  }
+  const rel = (t - attack) / Math.max(0.001, dur - attack);
+  return Math.max(0, 1 - rel) ** curve;
+};
+
+/** Music-box pluck: sine + soft 3rd harmonic, fast attack, ringing decay. */
+const pluck = (t: number, freq: number, dur: number): number => {
+  const body = Math.sin(TAU * freq * t) + 0.22 * Math.sin(TAU * freq * 3 * t);
+  return body * env(t, dur, 0.003, 2.2);
+};
+
+/** Evenly-spaced note sequence helper: returns the active note + local time. */
+const step = (t: number, dur: number, notes: readonly number[]) => {
+  const slice = dur / notes.length;
+  const idx = Math.min(notes.length - 1, Math.floor(t / slice));
+  return { f: notes[idx] ?? 440, local: t - idx * slice };
+};
+
+// ---- the sounds -----------------------------------------------------------------
+
+const RECIPES = {
+  // 70ms low "bonk" — chomped into a wall; clearly not the chomp boop.
+  bump: {
+    durMs: 70,
+    render: (t, dur) => 0.34 * Math.sin(slidePhase(t, dur, 170, 110)) * env(t, dur, 0.002, 2),
+  },
+  // 560ms gentle descending "ohh no" — triangle with slow vibrato, no boom.
+  caught: {
+    durMs: 560,
+    render: (t, dur) => {
+      const vibrato = 1 + 0.012 * Math.sin(TAU * 6 * t);
+      return 0.4 * triangle(slidePhase(t, dur, 392 * vibrato, 196)) * env(t, dur, 0.01, 1.3);
+    },
+  },
+  // 70ms soft "boop" — fires on every step, so it stays tiny and round.
+  chomp: {
+    durMs: 70,
+    render: (t, dur) => 0.3 * Math.sin(slidePhase(t, dur, 310, 240)) * env(t, dur, 0.004, 1.8),
+  },
+  // 700ms soft three-note descent (E5 C5 G4) — sad but encouraging.
+  gameover: {
+    durMs: 700,
+    render: (t, dur) => {
+      const { f, local } = step(t, dur, [659, 523, 392]);
+      return 0.34 * pluck(local, f, dur / 3);
+    },
+  },
+  // 240ms cute pop + chirp-up — a marshmallow being booped.
+  ghost_eaten: {
+    durMs: 240,
+    render: (t, dur, rng) => {
+      const pop = t < 0.018 ? 0.5 * rng() * (1 - t / 0.018) : 0;
+      const chirp = 0.34 * Math.sin(slidePhase(t, dur, 620, 1240)) * env(t, dur, 0.004, 1.8);
+      return pop * 0.4 + chirp;
+    },
+  },
+  // 110ms music-box pluck; the scene walks the rate up a pentatonic combo.
+  pellet: {
+    durMs: 110,
+    render: (t, dur) => 0.32 * pluck(t, 740, dur),
+  },
+  // 360ms rising 4-note sparkle arpeggio (C5 E5 G5 C6) with shimmer.
+  power: {
+    durMs: 360,
+    render: (t, dur) => {
+      const { f, local } = step(t, dur, [523, 659, 784, 1047]);
+      const shimmer = 0.85 + 0.15 * Math.sin(TAU * 12 * t);
+      return 0.34 * pluck(local, f, dur / 4) * shimmer;
+    },
+  },
+  // 200ms two-note "ding-ding" (E5 A5).
+  ready: {
+    durMs: 200,
+    render: (t, dur) => {
+      const { f, local } = step(t, dur, [659, 880]);
+      return 0.3 * pluck(local, f, dur / 2);
+    },
+  },
+  // 45ms steering tick — confirms the head-turn registered.
+  turn: {
+    durMs: 45,
+    render: (t, dur) => 0.22 * triangle(TAU * 520 * t) * env(t, dur, 0.002, 2.5),
+  },
+  // 260ms soft two-note "wearing off" warning (A5 E5) near power-mode end.
+  warn: {
+    durMs: 260,
+    render: (t, dur) => {
+      const { f, local } = step(t, dur, [880, 659]);
+      return 0.26 * pluck(local, f, dur / 2);
+    },
+  },
+  // 850ms five-note victory jingle (C E G C6 E6), music-box register.
+  win: {
+    durMs: 850,
+    render: (t, dur) => {
+      const { f, local } = step(t, dur, [523, 659, 784, 1047, 1319]);
+      return 0.36 * pluck(local, f, dur / 5);
+    },
+  },
+} satisfies Record<SfxName, Recipe>;
 
 /**
  * `sfx.play(name)` — fire-and-forget synth playback. Call `unlock()` from a
@@ -106,7 +208,7 @@ export class Sfx {
     const { ctx } = this;
     const { duckBus } = this;
     const { master } = this;
-    if (!ctx || !duckBus || !master || ctx.state !== "running" || this.paused || !soundOn) {
+    if (!ctx || !duckBus || !master || ctx.state !== "running" || this.paused || !isSoundOn()) {
       return;
     }
     const buffer = this.buffers.get(name);
@@ -139,7 +241,7 @@ export class Sfx {
   /** Muted/paused just zeroes the master gain — unlock/playback plumbing still runs. */
   sync(): void {
     if (this.master) {
-      this.master.gain.value = soundOn && !this.paused ? MASTER_GAIN : 0;
+      this.master.gain.value = isSoundOn() && !this.paused ? MASTER_GAIN : 0;
     }
   }
 
@@ -159,154 +261,6 @@ export class Sfx {
 
 export const sfx = new Sfx();
 
-// ---- background music -------------------------------------------------------------
-
-const MUSIC_TITLE_VOLUME = 0.16;
-const MUSIC_PLAY_VOLUME = 0.24;
-const MUSIC_POWER_VOLUME = 0.3;
-const MUSIC_CHASE_VOLUME = 0.32;
-const MUSIC_RESULT_VOLUME = 0.12;
-const MUSIC_DUCK_VOLUME = 0.1;
-const MUSIC_DUCK_MS = 1400;
-/** Power mode plays the lullaby a touch faster — gentle chipmunk urgency. */
-const MUSIC_POWER_RATE = 1.06;
-/** A ghost this close (maze cells) swells the music; it stays swollen a little further out. */
-const CHASE_ENTER_CELLS = 3;
-const CHASE_EXIT_CELLS = 4.2;
-const CHASE_ENTER_MS = 450;
-const CHASE_EXIT_MS = 900;
-
-export type MusicPhase = "title" | "ready" | "playing" | "win" | "gameover";
-
-/**
- * Looping ambient track (vg-generated music-box lullaby). Degrades silently
- * if the file is missing or autoplay is blocked; `start()` is only called
- * after the same gesture that unlocks the Sfx context.
- */
-export class Music {
-  private audio: HTMLAudioElement | null = null;
-  private paused = false;
-  private power = false;
-  private duckRemaining = 0;
-  /** Nearby-ghost tension swell, with hysteresis so it never flutters. */
-  private chasing = false;
-  private candidateMs = 0;
-  private volume = MUSIC_TITLE_VOLUME;
-  private phase: MusicPhase = "title";
-  /** Only a media error is permanent — a blocked autoplay retries on the next gesture. */
-  private failed = false;
-
-  start(url: string): void {
-    if (this.failed || !soundOn) {
-      return;
-    }
-    if (!this.audio) {
-      const audio = new Audio(url);
-      audio.loop = true;
-      audio.addEventListener("error", () => {
-        this.audio = null;
-        this.failed = true;
-      });
-      this.audio = audio;
-    }
-    this.sync();
-    this.play();
-  }
-
-  setPowerMode(on: boolean): void {
-    this.power = on;
-    this.sync();
-  }
-
-  /** Wrapper-requested pause: stop the loop, resumable in place. */
-  setPaused(paused: boolean): void {
-    this.paused = paused;
-    this.sync();
-    if (!paused) {
-      this.play();
-    }
-  }
-
-  /** Dip under the `caught` sting, restored by update(). */
-  duck(): void {
-    if (this.paused || !soundOn) {
-      return;
-    }
-    this.duckRemaining = MUSIC_DUCK_MS / 1000;
-    this.sync();
-  }
-
-  /** @param nearestDanger maze-cell distance to a threatening ghost; null while none can. */
-  update(dt: number, phase: MusicPhase, nearestDanger: number | null): void {
-    if (this.paused) {
-      return;
-    }
-    this.phase = phase;
-    if (phase !== "playing" || this.power) {
-      this.chasing = false;
-      this.candidateMs = 0;
-    } else {
-      const candidate =
-        nearestDanger !== null &&
-        nearestDanger < (this.chasing ? CHASE_EXIT_CELLS : CHASE_ENTER_CELLS);
-      if (candidate === this.chasing) {
-        this.candidateMs = 0;
-      } else {
-        this.candidateMs += dt * 1000;
-        if (this.candidateMs >= (candidate ? CHASE_ENTER_MS : CHASE_EXIT_MS)) {
-          this.chasing = candidate;
-          this.candidateMs = 0;
-        }
-      }
-    }
-    this.duckRemaining = Math.max(0, this.duckRemaining - dt);
-    this.volume += (this.targetVolume() - this.volume) * (1 - Math.exp(-dt * 3));
-    this.sync();
-  }
-
-  /** Push mute/pause/duck/power onto the element; muted or paused also halts it. */
-  sync(): void {
-    const { audio } = this;
-    if (!audio) {
-      return;
-    }
-    const silent = !soundOn || this.paused;
-    audio.volume = silent ? 0 : this.duckRemaining > 0 ? MUSIC_DUCK_VOLUME : this.volume;
-    audio.playbackRate = this.power ? MUSIC_POWER_RATE : 1;
-    if (silent) {
-      audio.pause();
-      this.duckRemaining = 0;
-    }
-  }
-
-  private play(): void {
-    const { audio } = this;
-    if (!audio || !soundOn || this.paused || !audio.paused) {
-      return;
-    }
-    // A pause or mute can land while play() is still pending; sync() halts it on settle.
-    void audio.play().then(
-      () => this.sync(),
-      () => {},
-    );
-  }
-
-  private targetVolume(): number {
-    if (this.phase === "title") {
-      return MUSIC_TITLE_VOLUME;
-    }
-    if (this.phase === "win" || this.phase === "gameover") {
-      return MUSIC_RESULT_VOLUME;
-    }
-    if (this.chasing) {
-      return MUSIC_CHASE_VOLUME;
-    }
-    return this.power ? MUSIC_POWER_VOLUME : MUSIC_PLAY_VOLUME;
-  }
-}
-
-export const music = new Music();
-
 /** Looping lullaby the music player starts once audio is unlocked. */
 const BGM_URL = "audio/bgm.m4a";
 
@@ -316,164 +270,21 @@ const BGM_URL = "audio/bgm.m4a";
  * window listeners never see because the cluster seals its own pointers).
  * Both calls are idempotent.
  */
-export function unlockAudio(): void {
+export const unlockAudio = (): void => {
   sfx.unlock();
   music.start(BGM_URL);
-}
+};
 
-export function setAudioPaused(paused: boolean): void {
+export const setAudioPaused = (paused: boolean): void => {
   sfx.setPaused(paused);
   music.setPaused(paused);
-}
+};
 
 /** M key / touch speaker — one toggle for music + sfx, persisted. Returns the new state. */
-export function toggleSound(): boolean {
-  rememberSound(!soundOn);
+export const toggleSound = (): boolean => {
+  const on = !isSoundOn();
+  rememberSound(on);
   sfx.sync();
   music.sync();
-  return soundOn;
-}
-
-// ---- synth engine (pure) --------------------------------------------------------
-
-interface Recipe {
-  durMs: number;
-  render: (t: number, dur: number, rng: () => number) => number;
-}
-
-function renderBuffer(ctx: AudioContext, recipe: Recipe): AudioBuffer {
-  const frames = Math.max(1, Math.round((recipe.durMs / 1000) * SAMPLE_RATE));
-  const buffer = ctx.createBuffer(1, frames, SAMPLE_RATE);
-  const data = buffer.getChannelData(0);
-  const dur = recipe.durMs / 1000;
-  const rng = makeNoise();
-  for (let i = 0; i < frames; i++) {
-    data[i] = clampSample(recipe.render(i / SAMPLE_RATE, dur, rng));
-  }
-  return buffer;
-}
-
-function clampSample(v: number): number {
-  return v > 1 ? 1 : Math.max(-1, v);
-}
-
-function makeNoise(): () => number {
-  return () => Math.random() * 2 - 1;
-}
-
-const TAU = Math.PI * 2;
-
-function triangle(phase: number): number {
-  return Math.asin(Math.sin(phase)) * (2 / Math.PI);
-}
-
-/** Linear frequency slide f0→f1 over dur; returns integrated phase at t. */
-function slidePhase(t: number, dur: number, f0: number, f1: number): number {
-  const k = (f1 - f0) / dur;
-  return TAU * (f0 * t + 0.5 * k * t * t);
-}
-
-/** Simple decay envelope: 1 → 0 with optional attack. */
-function env(t: number, dur: number, attack = 0.005, curve = 1.5): number {
-  if (t < attack) {
-    return t / attack;
-  }
-  const rel = (t - attack) / Math.max(0.001, dur - attack);
-  return Math.max(0, 1 - rel) ** curve;
-}
-
-/** Music-box pluck: sine + soft 3rd harmonic, fast attack, ringing decay. */
-function pluck(t: number, freq: number, dur: number): number {
-  const body = Math.sin(TAU * freq * t) + 0.22 * Math.sin(TAU * freq * 3 * t);
-  return body * env(t, dur, 0.003, 2.2);
-}
-
-/** Evenly-spaced note sequence helper: returns the active note + local time. */
-function step(t: number, dur: number, notes: readonly number[]) {
-  const slice = dur / notes.length;
-  const idx = Math.min(notes.length - 1, Math.floor(t / slice));
-  return { f: notes[idx] ?? 440, local: t - idx * slice };
-}
-
-// ---- the sounds -----------------------------------------------------------------
-
-const RECIPES = {
-  // 70ms soft "boop" — fires on every step, so it stays tiny and round.
-  chomp: {
-    durMs: 70,
-    render: (t, dur) => 0.3 * Math.sin(slidePhase(t, dur, 310, 240)) * env(t, dur, 0.004, 1.8),
-  },
-  // 110ms music-box pluck; the scene walks the rate up a pentatonic combo.
-  pellet: {
-    durMs: 110,
-    render: (t, dur) => 0.32 * pluck(t, 740, dur),
-  },
-  // 360ms rising 4-note sparkle arpeggio (C5 E5 G5 C6) with shimmer.
-  power: {
-    durMs: 360,
-    render: (t, dur) => {
-      const { f, local } = step(t, dur, [523, 659, 784, 1047]);
-      const shimmer = 0.85 + 0.15 * Math.sin(TAU * 12 * t);
-      return 0.34 * pluck(local, f, dur / 4) * shimmer;
-    },
-  },
-  // 240ms cute pop + chirp-up — a marshmallow being booped.
-  ghost_eaten: {
-    durMs: 240,
-    render: (t, dur, rng) => {
-      const pop = t < 0.018 ? 0.5 * rng() * (1 - t / 0.018) : 0;
-      const chirp = 0.34 * Math.sin(slidePhase(t, dur, 620, 1240)) * env(t, dur, 0.004, 1.8);
-      return pop * 0.4 + chirp;
-    },
-  },
-  // 560ms gentle descending "ohh no" — triangle with slow vibrato, no boom.
-  caught: {
-    durMs: 560,
-    render: (t, dur) => {
-      const vibrato = 1 + 0.012 * Math.sin(TAU * 6 * t);
-      return 0.4 * triangle(slidePhase(t, dur, 392 * vibrato, 196)) * env(t, dur, 0.01, 1.3);
-    },
-  },
-  // 200ms two-note "ding-ding" (E5 A5).
-  ready: {
-    durMs: 200,
-    render: (t, dur) => {
-      const { f, local } = step(t, dur, [659, 880]);
-      return 0.3 * pluck(local, f, dur / 2);
-    },
-  },
-  // 850ms five-note victory jingle (C E G C6 E6), music-box register.
-  win: {
-    durMs: 850,
-    render: (t, dur) => {
-      const { f, local } = step(t, dur, [523, 659, 784, 1047, 1319]);
-      return 0.36 * pluck(local, f, dur / 5);
-    },
-  },
-  // 700ms soft three-note descent (E5 C5 G4) — sad but encouraging.
-  gameover: {
-    durMs: 700,
-    render: (t, dur) => {
-      const { f, local } = step(t, dur, [659, 523, 392]);
-      return 0.34 * pluck(local, f, dur / 3);
-    },
-  },
-  // 70ms low "bonk" — chomped into a wall; clearly not the chomp boop.
-  bump: {
-    durMs: 70,
-    render: (t, dur) => 0.34 * Math.sin(slidePhase(t, dur, 170, 110)) * env(t, dur, 0.002, 2),
-  },
-  // 45ms steering tick — confirms the head-turn registered.
-  turn: {
-    durMs: 45,
-    render: (t, dur) => 0.22 * triangle(TAU * 520 * t) * env(t, dur, 0.002, 2.5),
-  },
-  // 260ms soft two-note "wearing off" warning (A5 E5) near power-mode end.
-  warn: {
-    durMs: 260,
-    render: (t, dur) => {
-      const { f, local } = step(t, dur, [880, 659]);
-      return 0.26 * pluck(local, f, dur / 2);
-    },
-  },
-} satisfies Record<SfxName, Recipe>;
+  return on;
+};

@@ -1,4 +1,5 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { BlendModes, Math as PhaserMath } from "phaser";
 import { FONT } from "./font";
 
 type Priority = "common" | "important";
@@ -78,17 +79,25 @@ export class CommonFx {
   private readonly labels: Slot<Phaser.GameObjects.Text, PlacedLabelFx>[];
   private serial = 0;
   private focused = false;
+  private readonly scene: Phaser.Scene;
 
-  constructor(private readonly scene: Phaser.Scene) {
+  private nextSerial(): number {
+    const { serial } = this;
+    this.serial += 1;
+    return serial;
+  }
+
+  constructor(scene: Phaser.Scene) {
+    this.scene = scene;
     if (!scene.textures.exists("fx-cleave")) {
       const blade = scene.add.graphics();
       blade.fillStyle(0xff_ff_ff, 1).beginPath();
       blade.moveTo(48 + Math.cos(-0.95) * 42, 48 + Math.sin(-0.95) * 42);
-      for (let i = 1; i <= 24; i++) {
+      for (let i = 1; i <= 24; i += 1) {
         const angle = -0.95 + (i / 24) * 1.9;
         blade.lineTo(48 + Math.cos(angle) * 42, 48 + Math.sin(angle) * 42);
       }
-      for (let i = 24; i >= 0; i--) {
+      for (let i = 24; i >= 0; i -= 1) {
         const angle = -0.95 + (i / 24) * 1.9;
         const radius = 42 - Math.sin((i / 24) * Math.PI) * 15;
         blade.lineTo(48 + Math.cos(angle) * radius, 48 + Math.sin(angle) * radius);
@@ -159,7 +168,7 @@ export class CommonFx {
     const important = recipe.priority === "important";
     const limit = important ? slots.length : Math.floor(slots.length * 0.75 * commonScale);
     let oldest: Slot<N, R> | null = null;
-    for (let i = 0; i < limit; i++) {
+    for (let i = 0; i < limit; i += 1) {
       const slot = slots[i];
       if (!slot) {
         continue;
@@ -187,7 +196,7 @@ export class CommonFx {
     if (!slot) {
       return;
     }
-    slot.live = { age: 0, recipe, serial: this.serial++ };
+    slot.live = { age: 0, recipe, serial: this.nextSerial() };
     slot.node
       .setTexture(recipe.texture)
       .setPosition(recipe.x, recipe.y)
@@ -196,7 +205,7 @@ export class CommonFx {
       .setRotation(recipe.rotation ?? 0)
       .setTint(recipe.tint ?? 0xff_ff_ff)
       .setAlpha(recipe.alpha ?? 1)
-      .setBlendMode(Phaser.BlendModes.ADD)
+      .setBlendMode(BlendModes.ADD)
       .setVisible(true);
   }
 
@@ -210,7 +219,7 @@ export class CommonFx {
       return;
     }
     slot.node.anims.stop();
-    slot.live = { age: -(recipe.delay ?? 0), recipe, serial: this.serial++ };
+    slot.live = { age: -(recipe.delay ?? 0), recipe, serial: this.nextSerial() };
     slot.node
       .setTexture(recipe.sheet, 0)
       .setPosition(recipe.x, recipe.y)
@@ -220,7 +229,7 @@ export class CommonFx {
       .setTint(recipe.tint ?? 0xff_ff_ff)
       .setAlpha(recipe.alpha ?? 1)
       .setFlipX(recipe.flip ?? false)
-      .setBlendMode(recipe.additive ? Phaser.BlendModes.ADD : Phaser.BlendModes.NORMAL)
+      .setBlendMode(recipe.additive ? BlendModes.ADD : BlendModes.NORMAL)
       .setVisible((recipe.delay ?? 0) === 0);
     // Inactive sprites are advanced exactly once below, using the view's delta.
     // No completion listeners or scene timers can fire after a slot is reused.
@@ -234,12 +243,14 @@ export class CommonFx {
     const occupied = new Set<number>();
     if (recipe.group) {
       for (const slot of this.labels) {
-        if (slot.live?.recipe.group === recipe.group) occupied.add(slot.live.recipe.lane);
+        if (slot.live?.recipe.group === recipe.group) {
+          occupied.add(slot.live.recipe.lane);
+        }
       }
     }
     let lane = 0;
     while (occupied.has(lane)) {
-      lane++;
+      lane += 1;
     }
     const placed = {
       ...recipe,
@@ -253,7 +264,7 @@ export class CommonFx {
     if (!slot) {
       return;
     }
-    slot.live = { age: 0, recipe: placed, serial: this.serial++ };
+    slot.live = { age: 0, recipe: placed, serial: this.nextSerial() };
     slot.node
       .setText(recipe.text)
       .setFontSize(recipe.size)
@@ -297,6 +308,12 @@ export class CommonFx {
   }
 
   update(dt: number): void {
+    this.updateImages(dt);
+    this.updateSprites(dt);
+    this.updateLabels(dt);
+  }
+
+  private updateImages(dt: number): void {
     for (const slot of this.images) {
       const { live } = slot;
       if (!live) {
@@ -306,7 +323,7 @@ export class CommonFx {
       const r = live.recipe;
       const t = Math.min(1, live.age / r.life);
       const eased = 1 - (1 - t) ** (r.ease === "cubic" ? 3 : 2);
-      const fade = Phaser.Math.Clamp(
+      const fade = PhaserMath.Clamp(
         (live.age - (r.hold ?? 0)) / Math.max(0.001, r.life - (r.hold ?? 0)),
         0,
         1,
@@ -326,6 +343,9 @@ export class CommonFx {
         slot.node.setVisible(false);
       }
     }
+  }
+
+  private updateSprites(dt: number): void {
     for (const slot of this.sprites) {
       const { live } = slot;
       if (!live) {
@@ -349,6 +369,9 @@ export class CommonFx {
         slot.node.setVisible(false);
       }
     }
+  }
+
+  private updateLabels(dt: number): void {
     for (const slot of this.labels) {
       const { live } = slot;
       if (!live) {

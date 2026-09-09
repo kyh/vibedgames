@@ -53,16 +53,24 @@ export const TALL_TARGET = new Map<string, number>([
 ]);
 
 const TAU = Math.PI * 2;
-const WARN_R = 7; // enemy-fountain guard radius (mirrors SPAWN_GUARD_RADIUS)
-const WARN_SEE = 14; // rim fades in within this range of the local player
+// enemy-fountain guard radius (mirrors SPAWN_GUARD_RADIUS)
+const WARN_R = 7;
+// rim fades in within this range of the local player
+const WARN_SEE = 14;
 
 // ── hex architecture constants (renderer-only) ──────────────────────────────
-const WALL_APOTHEM = APOTHEM + 1.5; // ground-story wall line (center→edge)
-const WALL_H = 4; // ground-story wall height (== ledge height)
-const STORY2_H = 3.6; // second-story wall height
-const LEDGE_APOTHEM = WALL_APOTHEM + 2; // ledge tile row (one 4u-deep ring)
-const STORY2_APOTHEM = WALL_APOTHEM + 4; // set-back second-story wall line
-const EDGE_N = 11; // wall pieces per ground-story edge
+// ground-story wall line (center→edge)
+const WALL_APOTHEM = APOTHEM + 1.5;
+// ground-story wall height (== ledge height)
+const WALL_H = 4;
+// second-story wall height
+const STORY2_H = 3.6;
+// ledge tile row (one 4u-deep ring)
+const LEDGE_APOTHEM = WALL_APOTHEM + 2;
+// set-back second-story wall line
+const STORY2_APOTHEM = WALL_APOTHEM + 4;
+// wall pieces per ground-story edge
+const EDGE_N = 11;
 
 /** Extra KayKit pieces this file loads itself (not in main.ts's registry). */
 const EXTRA_PIECES = [
@@ -96,6 +104,148 @@ interface GeoInfo {
   meshCount: number;
 }
 
+/** A soft radial-falloff dot texture for round additive particles (shared). */
+let dotTex: THREE.Texture | null = null;
+
+const softDot = (): THREE.Texture => {
+  if (dotTex) {
+    return dotTex;
+  }
+  const c = document.createElement("canvas");
+  c.height = 64;
+  c.width = 64;
+  const g = c.getContext("2d");
+  if (!g) {
+    dotTex = new THREE.Texture();
+    return dotTex;
+  }
+  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, "rgba(255,255,255,1)");
+  grad.addColorStop(0.4, "rgba(255,255,255,0.6)");
+  grad.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  dotTex = new THREE.CanvasTexture(c);
+  return dotTex;
+};
+
+interface Blob {
+  x: number;
+  y: number;
+  r: number;
+}
+type FloorBand = "flag" | "worn" | "dirt" | "grate";
+// x, z, y, rotY
+type Cell = [number, number, number, number];
+type CellBuckets = { [K in FloorBand]: Cell[] };
+
+const inAnyBlob = (gx: number, gz: number, blobs: Blob[]): boolean => {
+  for (const b of blobs) {
+    const dx = gx - b.x;
+    const dz = gz - b.y;
+    if (dx * dx + dz * dz <= b.r * b.r) {
+      return true;
+    }
+  }
+  return false;
+};
+
+/** Which floor tile a grid cell gets: a painted override (editor / custom map)
+ *  wins; the platform top stays pristine flagstone (the vertical wall hides
+ *  the step); then dirt blobs, worn-rock sprinkle, mid-field drainage grates
+ *  (the sample-render density layer), else flagstone. A band whose model is
+ *  missing falls through. */
+const floorBand = (
+  gx: number,
+  gz: number,
+  y: number,
+  blobs: Blob[],
+  have: { dirt: boolean; worn: boolean; grate: boolean },
+): FloorBand => {
+  const painted = FLOOR_OVERRIDES.get(floorKey(gx, gz));
+  if (painted) {
+    return painted;
+  }
+  if (y > 0) {
+    return "flag";
+  }
+  if (have.dirt && inAnyBlob(gx, gz, blobs)) {
+    return "dirt";
+  }
+  const r = Math.hypot(gx, gz);
+  const h = hash2(gx / 4, gz / 4);
+  if (have.worn && r > WALL_APOTHEM * 0.34 && h < 0.16) {
+    return "worn";
+  }
+  if (have.grate && r > WALL_APOTHEM * 0.39 && r < WALL_APOTHEM * 0.84 && h >= 0.16 && h < 0.205) {
+    return "grate";
+  }
+  return "flag";
+};
+
+/** Story-2 pier variety by hash: arched window, plain window, or solid wall. */
+const storyTwoWallModel = (h: number): string => {
+  if (h < 0.3) {
+    return "wall_archedwindow_open";
+  }
+  return h < 0.48 ? "wall_window_open" : "wall";
+};
+
+/** Authored default only: custom maps carry explicit models (their props
+ *  render via the decor override), so the index cycle never applies there. */
+const fallbackPillarModel = (i: number): string | null => {
+  if (hasCustomMap()) {
+    return null;
+  }
+  if (i % 3 === 0) {
+    return "pillar_decorated";
+  }
+  return i % 3 === 1 ? "column" : "pillar";
+};
+
+/** Compose a matrix that plants a piece (given its authored box) with its
+ *  base at `baseY` and its footprint CENTERED at (x,z) — KayKit pieces are
+ *  corner/edge-origined, so the rotated-box center is subtracted out. */
+const plantMatrix = (
+  box: THREE.Box3,
+  x: number,
+  z: number,
+  baseY: number,
+  rot: number,
+  sx: number,
+  sy: number,
+  sz: number,
+): THREE.Matrix4 => {
+  E_ROT.set(0, rot, 0);
+  Q_ROT.setFromEuler(E_ROT);
+  V_SCL.set(sx, sy, sz);
+  M_SCRATCH.compose(V_ZERO, Q_ROT, V_SCL);
+  BOX_SCRATCH.copy(box).applyMatrix4(M_SCRATCH);
+  V_POS.set(
+    x - (BOX_SCRATCH.min.x + BOX_SCRATCH.max.x) / 2,
+    baseY - BOX_SCRATCH.min.y,
+    z - (BOX_SCRATCH.min.z + BOX_SCRATCH.max.z) / 2,
+  );
+  return new THREE.Matrix4().compose(V_POS, Q_ROT, V_SCL);
+};
+
+/** Per-instance matrix replicating placeScaled's planting math exactly:
+ *  tall models scale-to-height, lie topples 90° on Z, base planted at
+ *  terrainHeight − rotated-box min.y, plus the optional `h` lift. */
+const decorMatrix = (d: Decor, box: THREE.Box3): THREE.Matrix4 => {
+  const tall = d.lie ? undefined : TALL_TARGET.get(d.model);
+  const bh = Math.max(0.01, box.max.y - box.min.y);
+  const s = tall === undefined ? d.scale : (tall * d.scale) / bh;
+  E_ROT.set(0, d.rot, d.lie ? Math.PI / 2 : 0);
+  Q_ROT.setFromEuler(E_ROT);
+  V_SCL.set(s, s, s);
+  M_SCRATCH.compose(V_ZERO, Q_ROT, V_SCL);
+  BOX_SCRATCH.copy(box).applyMatrix4(M_SCRATCH);
+  const y = terrainHeight(d.x, d.y) - BOX_SCRATCH.min.y + (d.h ?? 0);
+  V_POS.set(d.x, y, d.y);
+  return M_OUT.compose(V_POS, Q_ROT, V_SCL);
+};
+
 export class Environment {
   private materials = new ArenaMaterials();
   private readonly reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
@@ -128,14 +278,22 @@ export class Environment {
   private ownedGeos: THREE.BufferGeometry[] = [];
   private ownedMats: THREE.Material[] = [];
 
+  private scene: THREE.Scene;
+  private lib: ModelLibrary;
+  /** Editor hooks (game code passes nothing): decor=false skips the
+   *  set-dressing instancing; obstacles=false skips the obstacle models +
+   *  partition walls — the editor renders those itself as pickable objects. */
+  private opts: { decor?: boolean; obstacles?: boolean };
+
   constructor(
-    private scene: THREE.Scene,
-    private lib: ModelLibrary,
-    /** Editor hooks (game code passes nothing): decor=false skips the
-     *  set-dressing instancing; obstacles=false skips the obstacle models +
-     *  partition walls — the editor renders those itself as pickable objects. */
-    private opts: { decor?: boolean; obstacles?: boolean } = {},
-  ) {}
+    scene: THREE.Scene,
+    lib: ModelLibrary,
+    opts: { decor?: boolean; obstacles?: boolean } = {},
+  ) {
+    this.scene = scene;
+    this.lib = lib;
+    this.opts = opts;
+  }
 
   setup(): void {
     this.buildFloor();
@@ -146,28 +304,18 @@ export class Environment {
     // circles ("wall_run") are rendered as continuous wall segments instead —
     // see buildPartitions.
     if (this.opts.obstacles !== false) {
-      OBSTACLES.forEach((o, i) => {
+      for (const [i, o] of OBSTACLES.entries()) {
         if (o.model === "wall_run") {
-          return;
+          continue;
         }
-        // custom maps carry explicit models (their props render via the decor
-        // override) — the index-cycle fallback only fits the authored default
-        const name =
-          o.model ??
-          (hasCustomMap()
-            ? null
-            : i % 3 === 0
-              ? "pillar_decorated"
-              : i % 3 === 1
-                ? "column"
-                : "pillar");
+        const name = o.model ?? fallbackPillarModel(i);
         if (name === null) {
-          return;
+          continue;
         }
         // shrine statues gaze over their pad toward the throne
         const rot = o.model === "paladin_statue" ? Math.atan2(-o.x, -o.y) : i * 0.7;
         this.add(this.place(name, o.x, o.y, o.height, rot));
-      });
+      }
     }
 
     // data-driven set-dressing, grouped by model into InstancedMeshes
@@ -177,7 +325,7 @@ export class Environment {
 
     // torch ring around the throne, with warm atmosphere lights
     const torchN = 6;
-    for (let i = 0; i < torchN; i++) {
+    for (let i = 0; i < torchN; i += 1) {
       const a = (i / torchN) * TAU;
       const r = BOSS_PLATFORM_RADIUS + 1.6;
       const x = Math.cos(a) * r;
@@ -197,7 +345,7 @@ export class Environment {
 
     // a torch + team banner at each base for identity (no extra dynamic light
     // here — 12 point lights is too heavy; the throne ring carries the glow)
-    SPAWNS.forEach((sp) => {
+    for (const sp of SPAWNS) {
       const inward = Math.atan2(-sp.y, -sp.x);
       const ox = Math.cos(inward + Math.PI / 2) * 2.4;
       const oy = Math.sin(inward + Math.PI / 2) * 2.4;
@@ -221,7 +369,7 @@ export class Environment {
         this.ownedMats.push(cloned);
       });
       this.add(banner);
-    });
+    }
 
     this.buildGolemLair();
     this.buildMonolithGlow();
@@ -231,9 +379,7 @@ export class Environment {
 
     // perimeter architecture (both stories) + partition walls need the extra
     // pieces — load them, build, then re-bake the static shadow map.
-    void this.initArchitecture().catch((error: unknown) => {
-      console.error("[environment] architecture load failed", error);
-    });
+    void this.initArchitecture();
   }
 
   /** Load the extra KayKit pieces, then build the perimeter (two stories),
@@ -241,6 +387,25 @@ export class Environment {
    *  after boot — scene-graph additions after first render are fine because
    *  the shadow map re-bakes at the end. */
   private async initArchitecture(): Promise<void> {
+    try {
+      await this.loadExtras();
+    } catch (error) {
+      console.error("[environment] architecture load failed", error);
+      return;
+    }
+    if (this.disposed) {
+      // torn down while loading — free the templates
+      this.disposeExtras();
+      return;
+    }
+    this.buildPerimeter();
+    if (this.opts.obstacles !== false) {
+      this.buildPartitions();
+    }
+    refreshStaticShadows();
+  }
+
+  private async loadExtras(): Promise<void> {
     const loader = new GLTFLoader();
     await Promise.all(
       EXTRA_PIECES.map(async (name) => {
@@ -267,15 +432,6 @@ export class Environment {
         this.extras.set(name, gltf.scene);
       }),
     );
-    if (this.disposed) {
-      this.disposeExtras(); // torn down while loading — free the templates
-      return;
-    }
-    this.buildPerimeter();
-    if (this.opts.obstacles !== false) {
-      this.buildPartitions();
-    }
-    refreshStaticShadows();
   }
 
   /** Free the self-loaded architecture templates (never shared with the lib). */
@@ -321,7 +477,7 @@ export class Environment {
         meshes.push(o);
       }
     });
-    const mesh = meshes[0];
+    const [mesh] = meshes;
     if (!mesh) {
       return null;
     }
@@ -368,52 +524,11 @@ export class Environment {
     const inst = new THREE.InstancedMesh(info.geo, info.mat, mats.length);
     inst.castShadow = shadows;
     inst.receiveShadow = true;
-    mats.forEach((m, i) => inst.setMatrixAt(i, m));
+    for (const [i, m] of mats.entries()) {
+      inst.setMatrixAt(i, m);
+    }
     inst.instanceMatrix.needsUpdate = true;
     this.add(inst);
-  }
-
-  /** Compose a matrix that plants a piece (given its authored box) with its
-   *  base at `baseY` and its footprint CENTERED at (x,z) — KayKit pieces are
-   *  corner/edge-origined, so the rotated-box center is subtracted out. */
-  private plantMatrix(
-    box: THREE.Box3,
-    x: number,
-    z: number,
-    baseY: number,
-    rot: number,
-    sx: number,
-    sy: number,
-    sz: number,
-  ): THREE.Matrix4 {
-    E_ROT.set(0, rot, 0);
-    Q_ROT.setFromEuler(E_ROT);
-    V_SCL.set(sx, sy, sz);
-    M_SCRATCH.compose(V_ZERO, Q_ROT, V_SCL);
-    BOX_SCRATCH.copy(box).applyMatrix4(M_SCRATCH);
-    V_POS.set(
-      x - (BOX_SCRATCH.min.x + BOX_SCRATCH.max.x) / 2,
-      baseY - BOX_SCRATCH.min.y,
-      z - (BOX_SCRATCH.min.z + BOX_SCRATCH.max.z) / 2,
-    );
-    return new THREE.Matrix4().compose(V_POS, Q_ROT, V_SCL);
-  }
-
-  /** Per-instance matrix replicating placeScaled's planting math exactly:
-   *  tall models scale-to-height, lie topples 90° on Z, base planted at
-   *  terrainHeight − rotated-box min.y, plus the optional `h` lift. */
-  private decorMatrix(d: Decor, box: THREE.Box3): THREE.Matrix4 {
-    const tall = d.lie ? undefined : TALL_TARGET.get(d.model);
-    const bh = Math.max(0.01, box.max.y - box.min.y);
-    const s = tall === undefined ? d.scale : (tall * d.scale) / bh;
-    E_ROT.set(0, d.rot, d.lie ? Math.PI / 2 : 0);
-    Q_ROT.setFromEuler(E_ROT);
-    V_SCL.set(s, s, s);
-    M_SCRATCH.compose(V_ZERO, Q_ROT, V_SCL);
-    BOX_SCRATCH.copy(box).applyMatrix4(M_SCRATCH);
-    const y = terrainHeight(d.x, d.y) - BOX_SCRATCH.min.y + (d.h ?? 0);
-    V_POS.set(d.x, y, d.y);
-    return M_OUT.compose(V_POS, Q_ROT, V_SCL);
   }
 
   /** THE draw-call enabler: group buildDecor() by model — single-mesh templates
@@ -444,7 +559,9 @@ export class Environment {
       const inst = new THREE.InstancedMesh(info.geo, info.mat, items.length);
       inst.castShadow = true;
       inst.receiveShadow = true;
-      items.forEach((d, i) => inst.setMatrixAt(i, this.decorMatrix(d, info.box)));
+      for (const [i, d] of items.entries()) {
+        inst.setMatrixAt(i, decorMatrix(d, info.box));
+      }
       inst.instanceMatrix.needsUpdate = true;
       this.add(inst);
     }
@@ -477,10 +594,10 @@ export class Environment {
         ],
       },
     ];
-    ring.forEach((group, gi) => {
+    for (const [gi, group] of ring.entries()) {
       const info = this.geoOf(group.model);
       if (!info) {
-        return;
+        continue;
       }
       const mat = info.mat.clone();
       // heavy lerp — the rock swatch is charcoal-dark, so a light touch of
@@ -492,7 +609,7 @@ export class Environment {
       const inst = new THREE.InstancedMesh(info.geo, mat, group.specs.length);
       inst.castShadow = true;
       inst.receiveShadow = true;
-      group.specs.forEach((sp, i) => {
+      for (const [i, sp] of group.specs.entries()) {
         const x = camp.x + Math.cos(ang + sp.da) * sp.r;
         const y = camp.y + Math.sin(ang + sp.da) * sp.r;
         const d: Decor = {
@@ -502,11 +619,11 @@ export class Environment {
           x,
           y,
         };
-        inst.setMatrixAt(i, this.decorMatrix(d, info.box));
-      });
+        inst.setMatrixAt(i, decorMatrix(d, info.box));
+      }
       inst.instanceMatrix.needsUpdate = true;
       this.add(inst);
-    });
+    }
   }
 
   /** Dormant rune glow: one merged ring geometry over the 4 reserved rune
@@ -529,7 +646,7 @@ export class Environment {
     }
     const mat = new THREE.MeshBasicMaterial({
       blending: THREE.AdditiveBlending,
-      color: 0x66ccff,
+      color: 0x66_cc_ff,
       depthWrite: false,
       opacity: 0.12,
       transparent: true,
@@ -543,7 +660,8 @@ export class Environment {
    *  edge (the sun sits at (18, 34, 12) → edge 30°): 3 slanted additive cones,
    *  merged — one draw call, zero light budget. */
   private buildLightShafts(): void {
-    const edge = Math.PI / 6; // the sunward edge
+    // the sunward edge
+    const edge = Math.PI / 6;
     const spots: [number, number][] = [-9, 0, 9].map((t) => {
       const x = Math.cos(edge) * 31 - Math.sin(edge) * t;
       const y = Math.sin(edge) * 31 + Math.cos(edge) * t;
@@ -590,18 +708,18 @@ export class Environment {
     geo.rotateX(-Math.PI / 2);
     const mat = new THREE.MeshBasicMaterial({
       blending: THREE.AdditiveBlending,
-      color: 0xff4030,
+      color: 0xff_40_30,
       depthWrite: false,
       transparent: true,
     });
     const inst = new THREE.InstancedMesh(geo, mat, SPAWNS.length);
     this.warnLevels = new Float32Array(SPAWNS.length);
-    SPAWNS.forEach((sp, i) => {
+    for (const [i, sp] of SPAWNS.entries()) {
       // 0.10: tile tops are authored at +0.05 — 0.05 is coplanar (z-fighting)
       M_OUT.makeTranslation(sp.x, 0.1, sp.y);
       inst.setMatrixAt(i, M_OUT);
       inst.setColorAt(i, C_SCRATCH.setRGB(0, 0, 0));
-    });
+    }
     inst.instanceMatrix.needsUpdate = true;
     if (inst.instanceColor) {
       inst.instanceColor.needsUpdate = true;
@@ -623,11 +741,12 @@ export class Environment {
     this.emberVel = new Float32Array(EN * 3);
     this.emberLife = new Float32Array(EN);
     const ecol = new Float32Array(EN * 3);
-    for (let i = 0; i < EN; i++) {
+    for (let i = 0; i < EN; i += 1) {
       this.seedEmber(i);
       ecol[i * 3] = 1.4;
       ecol[i * 3 + 1] = 0.55;
-      ecol[i * 3 + 2] = 0.12; // warm HDR (blooms)
+      // warm HDR (blooms)
+      ecol[i * 3 + 2] = 0.12;
     }
     const eg = new THREE.BufferGeometry();
     eg.setAttribute("position", new THREE.BufferAttribute(this.emberPos, 3));
@@ -650,7 +769,7 @@ export class Environment {
     const GN = 40;
     this.goldPos = new Float32Array(GN * 3);
     const gcol = new Float32Array(GN * 3);
-    for (let i = 0; i < GN; i++) {
+    for (let i = 0; i < GN; i += 1) {
       const a = Math.random() * TAU;
       const r = Math.sqrt(Math.random()) * (PLATEAU_R - 0.5);
       this.goldPos[i * 3] = Math.cos(a) * r;
@@ -658,7 +777,8 @@ export class Environment {
       this.goldPos[i * 3 + 2] = Math.sin(a) * r;
       gcol[i * 3] = 1.5;
       gcol[i * 3 + 1] = 1.05;
-      gcol[i * 3 + 2] = 0.3; // HDR gold (blooms)
+      // HDR gold (blooms)
+      gcol[i * 3 + 2] = 0.3;
     }
     const gg = new THREE.BufferGeometry();
     gg.setAttribute("position", new THREE.BufferAttribute(this.goldPos, 3));
@@ -685,7 +805,7 @@ export class Environment {
     const MN = 180;
     this.motePos = new Float32Array(MN * 3);
     this.moteVel = new Float32Array(MN * 3);
-    for (let i = 0; i < MN; i++) {
+    for (let i = 0; i < MN; i += 1) {
       const a = Math.random() * TAU;
       const r = Math.sqrt(Math.random()) * APOTHEM;
       this.motePos[i * 3] = Math.cos(a) * r;
@@ -699,7 +819,7 @@ export class Environment {
     mg.setAttribute("position", new THREE.BufferAttribute(this.motePos, 3));
     const mm = new THREE.PointsMaterial({
       blending: THREE.AdditiveBlending,
-      color: 0x9fc6e0,
+      color: 0x9f_c6_e0,
       depthWrite: false,
       map: tex,
       opacity: 0.5,
@@ -730,7 +850,7 @@ export class Environment {
   /** Signed distance to the hex boundary (positive = outside the wall line). */
   private static hexDepth(x: number, y: number, apothem: number): number {
     let d = -Infinity;
-    for (let k = 0; k < 6; k++) {
+    for (let k = 0; k < 6; k += 1) {
       const a = Math.PI / 6 + (k * Math.PI) / 3;
       const v = x * Math.cos(a) + y * Math.sin(a) - apothem;
       if (v > d) {
@@ -749,7 +869,8 @@ export class Environment {
   rebuildFloor(): void {
     for (const m of this.floorMeshes) {
       this.scene.remove(m);
-      m.dispose(); // InstancedMesh.dispose frees its instance buffers only
+      // InstancedMesh.dispose frees its instance buffers only
+      m.dispose();
       const at = this.added.indexOf(m);
       if (at !== -1) {
         this.added.splice(at, 1);
@@ -784,29 +905,29 @@ export class Environment {
       }
       this.floorGeos.add(info.geo);
       const c = info.box.getCenter(V_POS);
-      info.geo.translate(-c.x, 0, -c.z); // center each tile on its origin
+      // center each tile on its origin
+      info.geo.translate(-c.x, 0, -c.z);
     }
     // organic dirt blobs: one under each camp/lair + hash-scattered patches
     // (scatter radii as APOTHEM fractions so the pattern survives resizes)
-    const blobs: { x: number; y: number; r: number }[] = CAMPS.map((c) => ({
+    const blobs: Blob[] = CAMPS.map((c) => ({
       r: c.id === "golem" ? 5.5 : 5,
       x: c.x,
       y: c.y,
     }));
-    for (let k = 0; k < 12; k++) {
+    for (let k = 0; k < 12; k += 1) {
       const a = hash2(k, 91) * TAU;
       const r = WALL_APOTHEM * (0.34 + hash2(k, 92) * 0.55);
       blobs.push({ r: 3.5 + hash2(k, 93) * 3, x: Math.cos(a) * r, y: Math.sin(a) * r });
     }
     const tile = 4;
-    type Cell = [number, number, number, number]; // x, z, y, rotY
-    type CellBuckets = { [K in "flag" | "worn" | "dirt" | "grate"]: Cell[] };
     const cells: CellBuckets = {
       dirt: [],
       flag: [],
       grate: [],
       worn: [],
     };
+    const have = { dirt: dirt !== null, grate: grate !== null, worn: worn !== null };
     const lim = Math.ceil((WALL_APOTHEM + 4) / tile) * tile;
     for (let gx = -lim; gx <= lim; gx += tile) {
       for (let gz = -lim; gz <= lim; gz += tile) {
@@ -814,47 +935,9 @@ export class Environment {
           continue;
         }
         const r2 = gx * gx + gz * gz;
-        const r = Math.sqrt(r2);
-        const h = hash2(gx / 4, gz / 4);
         const rot = Math.floor(hash2(gz / 4, gx / 4) * 4) * (Math.PI / 2);
         const y = r2 < PLATEAU_R * PLATEAU_R ? PLATEAU_H : 0;
-        // painted floor (editor / custom map) wins over the procedural bands
-        const painted = FLOOR_OVERRIDES.get(floorKey(gx, gz));
-        if (painted) {
-          cells[painted].push([gx, gz, y, rot]);
-          continue;
-        }
-        // platform top stays pristine flagstone (the vertical wall hides the step)
-        if (y > 0) {
-          cells.flag.push([gx, gz, y, rot]);
-          continue;
-        }
-        let inBlob = false;
-        for (const b of blobs) {
-          const dx = gx - b.x;
-          const dz = gz - b.y;
-          if (dx * dx + dz * dz <= b.r * b.r) {
-            inBlob = true;
-            break;
-          }
-        }
-        if (inBlob && dirt) {
-          cells.dirt.push([gx, gz, 0, rot]);
-        } else if (r > WALL_APOTHEM * 0.34 && h < 0.16 && worn) {
-          cells.worn.push([gx, gz, 0, rot]);
-        }
-        // rusted drainage grates mid-field — the sample-render density layer
-        else if (
-          r > WALL_APOTHEM * 0.39 &&
-          r < WALL_APOTHEM * 0.84 &&
-          h >= 0.16 &&
-          h < 0.205 &&
-          grate
-        ) {
-          cells.grate.push([gx, gz, 0, rot]);
-        } else {
-          cells.flag.push([gx, gz, 0, rot]);
-        }
+        cells[floorBand(gx, gz, y, blobs, have)].push([gx, gz, y, rot]);
       }
     }
     const bands: [GeoInfo | null, Cell[]][] = [
@@ -869,14 +952,14 @@ export class Environment {
       }
       const inst = new THREE.InstancedMesh(info.geo, info.mat, list.length);
       inst.receiveShadow = true;
-      list.forEach(([x, z, y, rot], i) => {
+      for (const [i, [x, z, y, rot]] of list.entries()) {
         E_ROT.set(0, rot, 0);
         Q_ROT.setFromEuler(E_ROT);
         V_POS.set(x, y, z);
         V_SCL.set(1, 1, 1);
         inst.setMatrixAt(i, M_OUT.compose(V_POS, Q_ROT, V_SCL));
         inst.setColorAt(i, floorVariation(x, z, C_SCRATCH));
-      });
+      }
       inst.instanceMatrix.needsUpdate = true;
       if (inst.instanceColor) {
         inst.instanceColor.needsUpdate = true;
@@ -933,26 +1016,26 @@ export class Environment {
     ): void => {
       const x = Math.cos(edgeA) * apothem - Math.sin(edgeA) * t;
       const z = Math.sin(edgeA) * apothem + Math.cos(edgeA) * t;
-      put(model, this.plantMatrix(boxOf(model), x, z, baseY, Math.PI / 2 - edgeA, sx, sy, 1));
+      put(model, plantMatrix(boxOf(model), x, z, baseY, Math.PI / 2 - edgeA, sx, sy, 1));
     };
 
-    for (let k = 0; k < 6; k++) {
+    for (let k = 0; k < 6; k += 1) {
       const A = Math.PI / 6 + (k * Math.PI) / 3;
       // ── ground story: EDGE_N pieces spanning the side ──
       const side1 = (2 * WALL_APOTHEM) / Math.sqrt(3);
       const piece1 = side1 / EDGE_N;
       const sx1 = (piece1 / wallW) * 1.02;
-      for (let i = 0; i < EDGE_N; i++) {
+      for (let i = 0; i < EDGE_N; i += 1) {
         const t = (i - (EDGE_N - 1) / 2) * piece1;
         const mid = i === (EDGE_N - 1) / 2;
         let model = "wall";
         if (mid) {
           model = "wall_gated";
-        } // the base gate
-        else if (i === (EDGE_N - 1) / 2 - 1 || i === (EDGE_N - 1) / 2 + 1) {
+          // the base gate
+        } else if (i === (EDGE_N - 1) / 2 - 1 || i === (EDGE_N - 1) / 2 + 1) {
           model = "wall_pillar";
-        } // gate flanks
-        else {
+          // gate flanks
+        } else {
           const h = hash2(k * 31 + i, 101);
           if (h < 0.14) {
             model = "wall_cracked";
@@ -974,13 +1057,13 @@ export class Environment {
       const ledgeBox = boxOf("floor_tile_large");
       const ledgeW = Math.max(0.01, ledgeBox.max.x - ledgeBox.min.x);
       const pieceL = sideL / (ledgeN + 1);
-      for (let i = 0; i < ledgeN; i++) {
+      for (let i = 0; i < ledgeN; i += 1) {
         const t = (i - (ledgeN - 1) / 2) * pieceL;
         const x = Math.cos(A) * LEDGE_APOTHEM - Math.sin(A) * t;
         const z = Math.sin(A) * LEDGE_APOTHEM + Math.cos(A) * t;
         put(
           "floor_tile_large",
-          this.plantMatrix(
+          plantMatrix(
             boxOf("floor_tile_large"),
             x,
             z,
@@ -1001,7 +1084,7 @@ export class Environment {
       const balBox = boxOf("barrier");
       const balW = Math.max(0.01, balBox.max.x - balBox.min.x);
       const pieceB = sideB / (balN + 1);
-      for (let i = 0; i < balN; i++) {
+      for (let i = 0; i < balN; i += 1) {
         const t = (i - (balN - 1) / 2) * pieceB;
         runPiece("barrier", A, balA, t, WALL_H, (pieceB / balW) * 1, 1);
       }
@@ -1014,10 +1097,10 @@ export class Environment {
       const piece2 = side2 / N2;
       const sx2 = (piece2 / wallW) * 1.02;
       const sy2 = STORY2_H / wallH;
-      for (let i = 0; i < N2; i++) {
+      for (let i = 0; i < N2; i += 1) {
         const t = (i - (N2 - 1) / 2) * piece2;
         const h = hash2(k * 47 + i, 103);
-        const model = h < 0.3 ? "wall_archedwindow_open" : h < 0.48 ? "wall_window_open" : "wall";
+        const model = storyTwoWallModel(h);
         runPiece(model, A, STORY2_APOTHEM, t, WALL_H, sx2, sy2);
         // hanging banner on every 4th story-2 pier
         if (i % 4 === 2 && h >= 0.48) {
@@ -1026,16 +1109,7 @@ export class Environment {
           const bz = Math.sin(A) * (STORY2_APOTHEM - 0.7) + Math.cos(A) * t;
           put(
             bModel,
-            this.plantMatrix(
-              boxOf(bModel),
-              bx,
-              bz,
-              WALL_H + 0.9,
-              Math.PI / 2 - A + Math.PI,
-              1,
-              1,
-              1,
-            ),
+            plantMatrix(boxOf(bModel), bx, bz, WALL_H + 0.9, Math.PI / 2 - A + Math.PI, 1, 1, 1),
           );
         }
       }
@@ -1050,12 +1124,12 @@ export class Environment {
     // ── vertex towers: chunky wall_pillar piers spanning both stories, plus
     //    a second filler pier at the set-back story-2 corner (the two edge
     //    walls meet at 120° and leave a sky wedge there otherwise) ──
-    for (let k = 0; k < 6; k++) {
+    for (let k = 0; k < 6; k += 1) {
       const a = (k * Math.PI) / 3;
       const vr = WALL_APOTHEM / Math.cos(Math.PI / 6) - 0.6;
       put(
         "wall_pillar",
-        this.plantMatrix(
+        plantMatrix(
           boxOf("wall_pillar"),
           Math.cos(a) * vr,
           Math.sin(a) * vr,
@@ -1069,7 +1143,7 @@ export class Environment {
       const vr2 = STORY2_APOTHEM / Math.cos(Math.PI / 6) - 0.7;
       put(
         "wall_pillar",
-        this.plantMatrix(
+        plantMatrix(
           boxOf("wall_pillar"),
           Math.cos(a) * vr2,
           Math.sin(a) * vr2,
@@ -1099,7 +1173,8 @@ export class Environment {
     }
     const segW = Math.max(0.01, seg.box.max.x - seg.box.min.x);
     const segH = Math.max(0.01, seg.box.max.y - seg.box.min.y);
-    const sy = 2.6 / segH; // low cover — champions stay readable over it
+    // low cover — champions stay readable over it
+    const sy = 2.6 / segH;
     const capH = cap ? Math.max(0.01, cap.box.max.y - cap.box.min.y) : 1;
     const capSy = cap ? 2.7 / capH : 1;
     const segMats: THREE.Matrix4[] = [];
@@ -1107,7 +1182,8 @@ export class Environment {
     for (const run of activePartitionRuns()) {
       const first = run.offsets[0] ?? 0;
       const last = run.offsets.at(-1) ?? 0;
-      const len = last - first + 2.2; // cover the collider row ends
+      // cover the collider row ends
+      const len = last - first + 2.2;
       // near-native piece width (wall tiles seamlessly at 4u — wall_half's
       // per-piece coping trim read as a row of separate stubs)
       const nSeg = Math.max(1, Math.round(len / segW));
@@ -1119,10 +1195,10 @@ export class Environment {
       const rot = Math.PI - run.dir;
       const tx = Math.cos(run.dir);
       const ty = Math.sin(run.dir);
-      for (let i = 0; i < nSeg; i++) {
+      for (let i = 0; i < nSeg; i += 1) {
         const t = first - 1.1 + (i + 0.5) * pieceW;
         segMats.push(
-          this.plantMatrix(
+          plantMatrix(
             seg.box,
             run.x + tx * t,
             run.y + ty * t,
@@ -1136,7 +1212,7 @@ export class Environment {
       }
       if (cap) {
         capMats.push(
-          this.plantMatrix(
+          plantMatrix(
             cap.box,
             run.x + tx * (last + 1.4),
             run.y + ty * (last + 1.4),
@@ -1146,7 +1222,7 @@ export class Environment {
             capSy,
             1,
           ),
-          this.plantMatrix(
+          plantMatrix(
             cap.box,
             run.x + tx * (first - 1.4),
             run.y + ty * (first - 1.4),
@@ -1169,85 +1245,120 @@ export class Environment {
    *  fountain warning rims. No per-frame allocations. */
   update(t: number): void {
     const reduced = this.reducedMotion?.matches ?? false;
-    for (let i = 0; i < this.flames.length; i++) {
+    this.flickerFlames(t, reduced);
+    const dt = reduced || this.lastT < 0 ? 0 : Math.min(0.05, Math.max(0, t - this.lastT));
+    this.lastT = t;
+    this.driftEmbers(dt);
+    this.driftMotes(dt);
+    this.driftGoldMotes(dt);
+    this.pulseWarnRims(t, reduced);
+  }
+
+  private flickerFlames(t: number, reduced: boolean): void {
+    for (let i = 0; i < this.flames.length; i += 1) {
       const f = this.flames[i];
       if (!f) {
         continue;
       }
-      const base = i < 6 ? 6 : 5; // index 6 = throne light (slow warm flicker)
+      // index 6 = throne light (slow warm flicker)
+      const base = i < 6 ? 6 : 5;
       f.intensity =
         base *
         (reduced ? 0.82 : 0.82 + Math.sin(t * 9 + i * 2.1) * 0.12 + Math.sin(t * 23 + i) * 0.06);
     }
-    const dt = reduced || this.lastT < 0 ? 0 : Math.min(0.05, Math.max(0, t - this.lastT));
-    this.lastT = t;
-    if (this.embers) {
-      const ep = this.emberPos;
-      const ev = this.emberVel;
-      const el = this.emberLife;
-      for (let i = 0; i < el.length; i++) {
-        if ((el[i] ?? 0) - dt <= 0) {
-          this.seedEmber(i);
-          continue;
-        }
-        el[i] = (el[i] ?? 0) - dt;
-        const o = i * 3;
-        ev[o + 1] = (ev[o + 1] ?? 0) + dt * 0.3; // gentle updraft
-        ep[o] = (ep[o] ?? 0) + (ev[o] ?? 0) * dt;
-        ep[o + 1] = (ep[o + 1] ?? 0) + (ev[o + 1] ?? 0) * dt;
-        ep[o + 2] = (ep[o + 2] ?? 0) + (ev[o + 2] ?? 0) * dt;
-      }
-      this.embers.geometry.getAttribute("position").needsUpdate = true;
+  }
+
+  private driftEmbers(dt: number): void {
+    if (!this.embers) {
+      return;
     }
-    if (this.motes) {
-      const mp = this.motePos;
-      const mv = this.moteVel;
-      for (let i = 0; i < mv.length / 3; i++) {
-        const o = i * 3;
-        mp[o] = (mp[o] ?? 0) + (mv[o] ?? 0) * dt;
-        mp[o + 1] = (mp[o + 1] ?? 0) + (mv[o + 1] ?? 0) * dt;
-        mp[o + 2] = (mp[o + 2] ?? 0) + (mv[o + 2] ?? 0) * dt;
-        if ((mp[o + 1] ?? 0) > 6) {
-          mp[o + 1] = 0.5;
-        } // wrap up→down
+    const ep = this.emberPos;
+    const ev = this.emberVel;
+    const el = this.emberLife;
+    for (let i = 0; i < el.length; i += 1) {
+      if ((el[i] ?? 0) - dt <= 0) {
+        this.seedEmber(i);
+        continue;
       }
-      this.motes.geometry.getAttribute("position").needsUpdate = true;
+      el[i] = (el[i] ?? 0) - dt;
+      const o = i * 3;
+      // gentle updraft
+      ev[o + 1] = (ev[o + 1] ?? 0) + dt * 0.3;
+      ep[o] = (ep[o] ?? 0) + (ev[o] ?? 0) * dt;
+      ep[o + 1] = (ep[o + 1] ?? 0) + (ev[o + 1] ?? 0) * dt;
+      ep[o + 2] = (ep[o + 2] ?? 0) + (ev[o + 2] ?? 0) * dt;
     }
-    if (this.goldMotes) {
-      const gp = this.goldPos;
-      for (let i = 0; i < gp.length / 3; i++) {
-        const o = i * 3;
-        const y = (gp[o + 1] ?? 0) + 0.5 * dt; // hoard glitter drifts upward
-        gp[o + 1] = y > 6.2 ? 2.2 : y;
-      }
-      this.goldMotes.geometry.getAttribute("position").needsUpdate = true;
+    this.embers.geometry.getAttribute("position").needsUpdate = true;
+  }
+
+  private driftMotes(dt: number): void {
+    if (!this.motes) {
+      return;
     }
-    if (this.warnRims) {
-      let dirty = false;
-      for (let i = 0; i < SPAWNS.length; i++) {
-        const sp = SPAWNS[i];
-        if (!sp) {
-          continue;
-        }
-        let level = 0.25; // graceful default until setLocalPos is wired (Wave 3)
-        if (i === this.homeSlot) {
-          level = 0;
-        } // your own fountain is not a threat
-        else if (this.hasLocal) {
-          const d = Math.hypot(this.localX - sp.x, this.localY - sp.y);
-          level = 0.4 * Math.max(0, 1 - d / WARN_SEE);
-        }
-        const v = level * (reduced ? 1 : 0.72 + 0.28 * Math.sin(t * 4 + i * 1.1));
-        if (Math.abs(v - (this.warnLevels[i] ?? 0)) < 0.005) {
-          continue;
-        }
-        this.warnLevels[i] = v;
-        this.warnRims.setColorAt(i, C_SCRATCH.setRGB(v, v, v));
-        dirty = true;
+    const mp = this.motePos;
+    const mv = this.moteVel;
+    for (let i = 0; i < mv.length / 3; i += 1) {
+      const o = i * 3;
+      mp[o] = (mp[o] ?? 0) + (mv[o] ?? 0) * dt;
+      mp[o + 1] = (mp[o + 1] ?? 0) + (mv[o + 1] ?? 0) * dt;
+      mp[o + 2] = (mp[o + 2] ?? 0) + (mv[o + 2] ?? 0) * dt;
+      if ((mp[o + 1] ?? 0) > 6) {
+        mp[o + 1] = 0.5;
+        // wrap up→down
       }
-      if (dirty && this.warnRims.instanceColor) {
-        this.warnRims.instanceColor.needsUpdate = true;
+    }
+    this.motes.geometry.getAttribute("position").needsUpdate = true;
+  }
+
+  private driftGoldMotes(dt: number): void {
+    if (!this.goldMotes) {
+      return;
+    }
+    const gp = this.goldPos;
+    for (let i = 0; i < gp.length / 3; i += 1) {
+      const o = i * 3;
+      // hoard glitter drifts upward
+      const y = (gp[o + 1] ?? 0) + 0.5 * dt;
+      gp[o + 1] = y > 6.2 ? 2.2 : y;
+    }
+    this.goldMotes.geometry.getAttribute("position").needsUpdate = true;
+  }
+
+  /** Threat level of each enemy fountain rim, seen from the local player. */
+  private warnLevelFor(i: number, sp: { x: number; y: number }): number {
+    if (i === this.homeSlot) {
+      // your own fountain is not a threat
+      return 0;
+    }
+    if (this.hasLocal) {
+      const d = Math.hypot(this.localX - sp.x, this.localY - sp.y);
+      return 0.4 * Math.max(0, 1 - d / WARN_SEE);
+    }
+    // graceful default until setLocalPos is wired (Wave 3)
+    return 0.25;
+  }
+
+  private pulseWarnRims(t: number, reduced: boolean): void {
+    if (!this.warnRims) {
+      return;
+    }
+    let dirty = false;
+    for (let i = 0; i < SPAWNS.length; i += 1) {
+      const sp = SPAWNS[i];
+      if (!sp) {
+        continue;
       }
+      const level = this.warnLevelFor(i, sp);
+      const v = level * (reduced ? 1 : 0.72 + 0.28 * Math.sin(t * 4 + i * 1.1));
+      if (Math.abs(v - (this.warnLevels[i] ?? 0)) < 0.005) {
+        continue;
+      }
+      this.warnLevels[i] = v;
+      this.warnRims.setColorAt(i, C_SCRATCH.setRGB(v, v, v));
+      dirty = true;
+    }
+    if (dirty && this.warnRims.instanceColor) {
+      this.warnRims.instanceColor.needsUpdate = true;
     }
   }
 
@@ -1279,7 +1390,8 @@ export class Environment {
     const s = targetHeight / h;
     obj.scale.setScalar(s);
     const box2 = new THREE.Box3().setFromObject(obj);
-    obj.position.set(x, terrainHeight(x, y) - box2.min.y, y); // plant on the terrain
+    // plant on the terrain
+    obj.position.set(x, terrainHeight(x, y) - box2.min.y, y);
     obj.rotation.y = rotY;
     obj.traverse((c) => {
       if (c instanceof THREE.Mesh) {
@@ -1294,7 +1406,8 @@ export class Environment {
    *  grand stairways climb up. Built to exact dimensions so the stairs really
    *  bridge the plaza→platform height. */
   private buildPlatform(): void {
-    const gapHalf = STAIR_HALF + 0.04; // visual gap — a touch wider than the walkable one
+    // visual gap — a touch wider than the walkable one
+    const gapHalf = STAIR_HALF + 0.04;
     const wallMat = new THREE.MeshStandardMaterial({
       color: 0x56_5b_68,
       roughness: 0.95,
@@ -1338,15 +1451,16 @@ export class Environment {
     const inst = new THREE.InstancedMesh(st.geo, st.mat, STAIR_ANGLES.length);
     inst.castShadow = true;
     inst.receiveShadow = true;
-    STAIR_ANGLES.forEach((a, i) => {
-      const rc = PLATEAU_R + STAIR_RUN / 2; // the run starts at the cliff and climbs outward
+    for (const [i, a] of STAIR_ANGLES.entries()) {
+      // the run starts at the cliff and climbs outward
+      const rc = PLATEAU_R + STAIR_RUN / 2;
       // steps ASCEND toward the throne: the model's climb axis points outward
       // from the center, so its yaw faces away from the throne
       E_ROT.set(0, Math.atan2(Math.cos(a), Math.sin(a)), 0);
       Q_ROT.setFromEuler(E_ROT);
       V_POS.set(Math.cos(a) * rc, 0, Math.sin(a) * rc);
       inst.setMatrixAt(i, M_OUT.compose(V_POS, Q_ROT, V_SCL));
-    });
+    }
     inst.instanceMatrix.needsUpdate = true;
     this.add(inst);
   }
@@ -1368,7 +1482,8 @@ export class Environment {
     obj.rotation.y = d.rot;
     if (d.lie) {
       obj.rotation.z = Math.PI / 2;
-    } // toppled debris
+      // toppled debris
+    }
     obj.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(obj);
     obj.position.set(d.x, terrainHeight(d.x, d.y) - box.min.y + (d.h ?? 0), d.y);
@@ -1420,27 +1535,4 @@ export class Environment {
   static get throneCenter() {
     return { r: ARENA.throne.radius, x: BOSS_POS.x, y: BOSS_POS.y };
   }
-}
-
-/** A soft radial-falloff dot texture for round additive particles (shared). */
-let dotTex: THREE.Texture | null = null;
-function softDot(): THREE.Texture {
-  if (dotTex) {
-    return dotTex;
-  }
-  const c = document.createElement("canvas");
-  c.width = c.height = 64;
-  const g = c.getContext("2d");
-  if (!g) {
-    dotTex = new THREE.Texture();
-    return dotTex;
-  }
-  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-  grad.addColorStop(0, "rgba(255,255,255,1)");
-  grad.addColorStop(0.4, "rgba(255,255,255,0.6)");
-  grad.addColorStop(1, "rgba(255,255,255,0)");
-  g.fillStyle = grad;
-  g.fillRect(0, 0, 64, 64);
-  dotTex = new THREE.CanvasTexture(c);
-  return dotTex;
 }

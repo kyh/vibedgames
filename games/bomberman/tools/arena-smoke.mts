@@ -5,11 +5,12 @@ import { createArena, readArena } from "../src/shared/arena";
 import type { Arena } from "../src/shared/arena";
 import { GRID_COLS, GRID_ROWS, SPAWN_POINTS } from "../src/shared/constants";
 
-function seeded(arena: Arena, seed: number) {
+const seeded = (arena: Arena, seed: number) => {
   const original = Math.random;
   let state = seed;
   const trace: number[] = [];
   Math.random = () => {
+    // oxlint-disable-next-line no-bitwise -- uint32 wrap for the LCG
     state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
     const value = state / 4_294_967_296;
     trace.push(value);
@@ -20,7 +21,7 @@ function seeded(arena: Arena, seed: number) {
   } finally {
     Math.random = original;
   }
-}
+};
 
 test("Classic preserves pre-variation grid hashes and all 161 random draws", () => {
   // Captured from the original newGrid before adding arena selection.
@@ -37,7 +38,7 @@ test("Classic preserves pre-variation grid hashes and all 161 random draws", () 
 });
 
 test("Crossroads only clears central-lane crates; walls, escapes and RNG stay identical", () => {
-  for (let seed = 1; seed <= 40; seed++) {
+  for (let seed = 1; seed <= 40; seed += 1) {
     const classic = seeded("classic", seed);
     const crossroads = seeded("crossroads", seed);
     assert.deepEqual(crossroads.trace, classic.trace);
@@ -49,7 +50,7 @@ test("Crossroads only clears central-lane crates; walls, escapes and RNG stay id
         const next = crossroads.grid[r]?.[c];
         if (cell.kind === "crate" && (r === 7 || c === 9)) {
           assert.deepEqual(next, { kind: "empty" });
-          cleared++;
+          cleared += 1;
         } else {
           assert.deepEqual(next, cell);
         }

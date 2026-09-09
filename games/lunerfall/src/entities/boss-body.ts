@@ -27,23 +27,26 @@ export type BossState =
   | "hurt"
   | "phase"
   | "dead";
-export interface Wave {
+// oxlint-disable-next-line typescript/consistent-type-definitions -- checkpointed over the JSON wire; interfaces get no implicit index signature
+export type Wave = {
   x: number;
   y: number;
   vx: number;
   dmg: number;
-}
-export interface Blast {
+};
+// oxlint-disable-next-line typescript/consistent-type-definitions -- checkpointed over the JSON wire; interfaces get no implicit index signature
+export type Blast = {
   x: number;
   y: number;
   r: number;
   dmg: number;
-}
-export interface Add {
+};
+// oxlint-disable-next-line typescript/consistent-type-definitions -- checkpointed over the JSON wire; interfaces get no implicit index signature
+export type Add = {
   x: number;
   y: number;
   name: EnemyName;
-}
+};
 
 const approach = (c: number, t: number, d: number): number =>
   c < t ? Math.min(c + d, t) : Math.max(c - d, t);
@@ -51,7 +54,8 @@ const approach = (c: number, t: number, d: number): number =>
 export class BossBody {
   x: number;
   y: number;
-  prevX = 0; // sim position one step ago — for render interpolation
+  // sim position one step ago — for render interpolation
+  prevX = 0;
   prevY = 0;
   vx = 0;
   vy = 0;
@@ -120,12 +124,10 @@ export class BossBody {
     this.pendingAdds = structuredClone(state.pendingAdds);
   }
 
-  constructor(
-    private grid: Grid,
-    x: number,
-    y: number,
-    biome: number,
-  ) {
+  private grid: Grid;
+
+  constructor(grid: Grid, x: number, y: number, biome: number) {
+    this.grid = grid;
     this.x = x;
     this.y = y;
     this.prevX = x;
@@ -231,20 +233,13 @@ export class BossBody {
       }
       case "intro": {
         this.vx = 0;
-        if (this.stateT >= 1.0) this.setState("idle");
+        if (this.stateT >= 1) {
+          this.setState("idle");
+        }
         break;
       }
       case "phase": {
-        this.vx = approach(this.vx, 0, 500 * dt);
-        if (this.stateT >= 0.8) {
-          const adds = this.kind.adds;
-          this.pendingAdds = adds.map((name, i) => ({
-            x: this.x + (i - (adds.length - 1) / 2) * 58,
-            y: this.y,
-            name,
-          }));
-          this.setState("idle");
-        }
+        this.phaseShift(dt);
         break;
       }
       case "idle": {
@@ -252,65 +247,111 @@ export class BossBody {
         break;
       }
       case "wave": {
-        this.vx = approach(this.vx, 0, 500 * dt);
-        if (this.stateT >= 0.5 && this.pendingWaves.length === 0 && this.stateT < 0.56) {
-          // Fan: `kind.fan` waves at staggered heights and speeds, spreading as
-          // they travel — a single wave for the Salamander, a spread for the rest.
-          const n = this.kind.fan;
-          for (let i = 0; i < n; i++) {
-            const s = n === 1 ? 0 : i - (n - 1) / 2;
-            this.pendingWaves.push({
-              x: this.x + this.facing * 20,
-              y: this.y - 8 - Math.abs(s) * 6,
-              vx: this.facing * (this.kind.waveSpeed + s * 22),
-              dmg: 1,
-            });
-          }
-        }
-        if (this.stateT >= 0.85) this.endAttack();
+        this.wave(dt);
         break;
       }
       case "jump": {
-        this.vx = approach(this.vx, 0, 400 * dt);
-        if (this.stateT >= 0.34) {
-          this.vy = -330;
-          this.vx = Math.sign(dx || this.facing) * 140;
-          this.grounded = false;
-          this.setState("slam");
-        }
+        this.jump(dt, dx);
         break;
       }
       case "slam": {
-        if (this.grounded && this.stateT > 0.05) {
-          this.pendingBlast = { x: this.x, y: this.y - 6, r: this.kind.slamR, dmg: 1 };
-          this.endAttack();
-        }
+        this.slam();
         break;
       }
       case "charge": {
-        // Wind up in place, lunge flat across the arena, then skid to a stop.
-        if (this.stateT < 0.4) this.vx = approach(this.vx, 0, 600 * dt);
-        else if (this.stateT < 0.82) this.vx = this.facing * CHARGE_SPEED;
-        else {
-          this.vx = approach(this.vx, 0, 900 * dt);
-          if (this.stateT >= 0.98) this.endAttack();
-        }
+        this.charge(dt);
         break;
       }
       case "punch": {
-        if (this.stateT >= 0.26 && this.stateT < 0.4) this.vx = this.facing * 90;
-        else this.vx = approach(this.vx, 0, 600 * dt);
-        if (this.stateT >= 0.6) this.endAttack();
+        this.punch(dt);
         break;
       }
       case "hurt": {
         this.vx = approach(this.vx, 0, 500 * dt);
-        if (this.stateT >= 0.2) this.setState("idle");
+        if (this.stateT >= 0.2) {
+          this.setState("idle");
+        }
+        break;
+      }
+      default: {
         break;
       }
     }
 
     this.applyPhysics(dt);
+  }
+
+  private phaseShift(dt: number) {
+    this.vx = approach(this.vx, 0, 500 * dt);
+    if (this.stateT >= 0.8) {
+      const { adds } = this.kind;
+      this.pendingAdds = adds.map((name, i) => ({
+        name,
+        x: this.x + (i - (adds.length - 1) / 2) * 58,
+        y: this.y,
+      }));
+      this.setState("idle");
+    }
+  }
+
+  private wave(dt: number) {
+    this.vx = approach(this.vx, 0, 500 * dt);
+    if (this.stateT >= 0.5 && this.pendingWaves.length === 0 && this.stateT < 0.56) {
+      // Fan: `kind.fan` waves at staggered heights and speeds, spreading as
+      // they travel — a single wave for the Salamander, a spread for the rest.
+      const n = this.kind.fan;
+      for (let i = 0; i < n; i += 1) {
+        const s = n === 1 ? 0 : i - (n - 1) / 2;
+        this.pendingWaves.push({
+          dmg: 1,
+          vx: this.facing * (this.kind.waveSpeed + s * 22),
+          x: this.x + this.facing * 20,
+          y: this.y - 8 - Math.abs(s) * 6,
+        });
+      }
+    }
+    if (this.stateT >= 0.85) {
+      this.endAttack();
+    }
+  }
+
+  private jump(dt: number, dx: number) {
+    this.vx = approach(this.vx, 0, 400 * dt);
+    if (this.stateT >= 0.34) {
+      this.vy = -330;
+      this.vx = Math.sign(dx || this.facing) * 140;
+      this.grounded = false;
+      this.setState("slam");
+    }
+  }
+
+  private slam() {
+    if (this.grounded && this.stateT > 0.05) {
+      this.pendingBlast = { dmg: 1, r: this.kind.slamR, x: this.x, y: this.y - 6 };
+      this.endAttack();
+    }
+  }
+
+  // Wind up in place, lunge flat across the arena, then skid to a stop.
+  private charge(dt: number) {
+    if (this.stateT < 0.4) {
+      this.vx = approach(this.vx, 0, 600 * dt);
+    } else if (this.stateT < 0.82) {
+      this.vx = this.facing * CHARGE_SPEED;
+    } else {
+      this.vx = approach(this.vx, 0, 900 * dt);
+      if (this.stateT >= 0.98) {
+        this.endAttack();
+      }
+    }
+  }
+
+  private punch(dt: number) {
+    this.vx =
+      this.stateT >= 0.26 && this.stateT < 0.4 ? this.facing * 90 : approach(this.vx, 0, 600 * dt);
+    if (this.stateT >= 0.6) {
+      this.endAttack();
+    }
   }
 
   private idle(dt: number, dx: number, dist: number, ty: number) {

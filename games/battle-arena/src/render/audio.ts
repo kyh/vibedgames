@@ -24,28 +24,38 @@ type BusName = "sfx" | "ui" | "amb";
 interface FilterOpts {
   type: BiquadFilterType;
   from: number;
-  to?: number; // exponential sweep across the voice duration
+  // exponential sweep across the voice duration
+  to?: number;
   q?: number;
-  lfo?: { freq: number; depth: number }; // wobbles filter.frequency (necro rasp)
+  // wobbles filter.frequency (necro rasp)
+  lfo?: { freq: number; depth: number };
 }
 
 interface VoiceOpts {
-  at?: number; // absolute AudioContext time; defaults to now
-  x?: number; // world position → spatialized (gain falloff + stereo pan)
+  // absolute AudioContext time; defaults to now
+  at?: number;
+  // world position → spatialized (gain falloff + stereo pan)
+  x?: number;
   y?: number;
-  pan?: number; // manual pan, or additive offset when spatialized
-  bus?: BusName; // defaults to sfx
+  // manual pan, or additive offset when spatialized
+  pan?: number;
+  // defaults to sfx
+  bus?: BusName;
   filter?: FilterOpts;
 }
 
 interface ToneOpts extends VoiceOpts {
   freq: number;
   dur: number;
-  type?: OscillatorType; // defaults to sine
+  // defaults to sine
+  type?: OscillatorType;
   gain: number;
-  slideTo?: number; // exponential pitch slide target
-  detune?: number; // cents
-  attack?: number; // envelope attack seconds (default 0.005)
+  // exponential pitch slide target
+  slideTo?: number;
+  // cents
+  detune?: number;
+  // envelope attack seconds (default 0.005)
+  attack?: number;
 }
 
 interface NoiseOpts extends VoiceOpts {
@@ -53,15 +63,18 @@ interface NoiseOpts extends VoiceOpts {
   gain: number;
 }
 
-const VOICE_CAP = 28; // distant spatial voices shed above this, before the pool caps
+// distant spatial voices shed above this, before the pool caps
+const VOICE_CAP = 28;
 
-function readMuted(): boolean {
+const jit = (): number => 0.92 + Math.random() * 0.16;
+
+const readMuted = (): boolean => {
   try {
     return localStorage.getItem("ba-muted") !== "0";
   } catch {
     return true;
   }
-}
+};
 
 // D-minor stinger pitch set
 const D3 = 146.83;
@@ -77,9 +90,9 @@ const CAST_MOD: CastMods = {
   DASH: { d: 0.5, p: 1.2 },
   E: { d: 1.1, p: 0.85 },
   JUMP: { d: 0.9, p: 0.85 },
-  Q: { d: 0.8, p: 1.0 },
+  Q: { d: 0.8, p: 1 },
   R: { d: 1.6, p: 0.7, ult: true },
-  W: { d: 1.0, p: 1.15 },
+  W: { d: 1, p: 1.15 },
 };
 
 export class Audio {
@@ -91,11 +104,13 @@ export class Audio {
   private amb: GainNode | null = null;
   private noiseBuf: AudioBuffer | null = null;
   private musicInst: Music | null = null;
-  private mutedOverride: boolean | null = null; // setMutedEphemeral — never persisted
+  // setMutedEphemeral — never persisted
+  private mutedOverride: boolean | null = null;
   private last: Record<string, number> = {};
   private voices = new VoicePool(48, 32);
   private ambience = new VoicePool(8, 8);
-  private group: VoiceGroup | null = null; // the phrase under construction
+  // the phrase under construction
+  private group: VoiceGroup | null = null;
   private preference = readMuted();
   private paused = false;
   private unlocked = false;
@@ -105,7 +120,8 @@ export class Audio {
   private ly = 0;
   private rx = 0;
   private ry = 1;
-  private hissFlip = false; // rogue alternating dagger pan
+  // rogue alternating dagger pan
+  private hissFlip = false;
   private ambStarted = false;
   private ambTimer: number | null = null;
   private ambNextPop = 0;
@@ -191,11 +207,18 @@ export class Audio {
     } else if (ctx.state === "running") {
       this.syncBeds();
     } else {
-      void ctx.resume().then(
-        () => this.syncBeds(),
-        () => undefined,
-      );
+      void this.resumeThenSyncBeds(ctx);
     }
+  }
+
+  /** A refused resume (no user gesture yet) is nothing to act on. */
+  private async resumeThenSyncBeds(ctx: AudioContext): Promise<void> {
+    try {
+      await ctx.resume();
+    } catch {
+      return;
+    }
+    this.syncBeds();
   }
 
   private syncBeds(): void {
@@ -277,12 +300,13 @@ export class Audio {
     };
     this.sfx = mkBus(0.65);
     this.ui = mkBus(0.5);
-    this.musicBus = mkBus(0.32); // Music.duck() restores to this baseline
+    // Music.duck() restores to this baseline
+    this.musicBus = mkBus(0.32);
     this.amb = mkBus(0.22);
     // one second of white noise for percussive voices
     const buf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
     const data = buf.getChannelData(0);
-    for (let i = 0; i < data.length; i++) {
+    for (let i = 0; i < data.length; i += 1) {
       data[i] = Math.random() * 2 - 1;
     }
     this.noiseBuf = buf;
@@ -306,10 +330,6 @@ export class Audio {
     return true;
   }
 
-  private jit(): number {
-    return 0.92 + Math.random() * 0.16;
-  }
-
   // ── listener / spatializer ──────────────────────────────────────────────────
 
   /** Per-frame listener update: local hero position + aim (for the pan basis). */
@@ -326,8 +346,10 @@ export class Audio {
     const d = Math.hypot(dx, dy);
     if (d > 55) {
       return null;
-    } // cull past ~half arena
-    const g = 1 / (1 + (d * d) / 100); // ref dist 10u
+      // cull past ~half arena
+    }
+    // ref dist 10u
+    const g = 1 / (1 + (d * d) / 100);
     const pan =
       d < 0.5 ? 0 : Math.max(-0.8, Math.min(0.8, ((dx * this.rx + dy * this.ry) / d) * 0.8));
     return { g: Math.max(0.06, g), pan };
@@ -398,7 +420,7 @@ export class Audio {
 
   /** Spatial gain/pan + voice-cap shedding. Returns null when the voice culls. */
   private mix(o: VoiceOpts, gain: number): { g: number; pan: number } | null {
-    let pan = o.pan ?? 0;
+    const pan = o.pan ?? 0;
     if (o.x !== undefined && o.y !== undefined) {
       const s = this.spatial(o.x, o.y);
       if (!s) {
@@ -406,9 +428,9 @@ export class Audio {
       }
       if (this.voices.count >= VOICE_CAP && s.g < 0.35) {
         return null;
-      } // shed distant first
-      gain *= s.g;
-      pan = Math.max(-1, Math.min(1, s.pan + pan));
+        // shed distant first
+      }
+      return { g: gain * s.g, pan: Math.max(-1, Math.min(1, s.pan + pan)) };
     }
     return { g: gain, pan };
   }
@@ -574,7 +596,7 @@ export class Audio {
     dtype: DamageType,
     p: number,
   ): void {
-    const j = this.jit();
+    const j = jit();
     if (dtype === "physical") {
       this.noise({
         at: t,
@@ -688,21 +710,21 @@ export class Audio {
         // bow twang + string snap + thwip
         this.tone({
           at: t,
+          dur: 0.035,
+          freq: 235,
+          gain: 0.14,
+          slideTo: 175,
+          type: "triangle",
           x,
           y,
-          freq: 235,
-          slideTo: 175,
-          dur: 0.035,
-          type: "triangle",
-          gain: 0.14,
         });
-        this.noise({ at: t, x, y, dur: 0.02, gain: 0.1, filter: { type: "highpass", from: 4500 } });
-        this.tone({ at: t, x, y, freq: 900, slideTo: 300, dur: 0.06, type: "sine", gain: 0.06 });
+        this.noise({ at: t, dur: 0.02, filter: { from: 4500, type: "highpass" }, gain: 0.1, x, y });
+        this.tone({ at: t, dur: 0.06, freq: 900, gain: 0.06, slideTo: 300, type: "sine", x, y });
         break;
       }
       case "mage": {
         this.atkMageBeat(t, x, y, 1, 0.08);
-        this.tone({ at: t, x, y, freq: 1860, dur: 0.04, type: "sine", gain: 0.05 });
+        this.tone({ at: t, dur: 0.04, freq: 1860, gain: 0.05, type: "sine", x, y });
         break;
       }
       case "blackknight": {
@@ -716,7 +738,7 @@ export class Audio {
       }
       default: {
         // creeps / skeletons
-        this.noise({ at: t, x, y, dur: 0.07, gain: 0.09, filter: { type: "lowpass", from: 1600 } });
+        this.noise({ at: t, dur: 0.07, filter: { from: 1600, type: "lowpass" }, gain: 0.09, x, y });
       }
     }
   }
@@ -794,7 +816,7 @@ export class Audio {
   ): void {
     this.tone({ at: t, dur: 0.18 * d, freq: 315 * p, gain, slideTo: 296 * p, type: "sine", x, y });
     this.tone({ at: t, dur: 0.18 * d, freq: 322 * p, gain, slideTo: 308 * p, type: "sine", x, y });
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 3; i += 1) {
       const f = (260 + Math.random() * 160) * p;
       this.tone({
         at: t + 0.02 + i * 0.055 * d,
@@ -839,7 +861,8 @@ export class Audio {
     this.castVoice(champId, t, x, y, m.p, m.d);
     if (key === "DASH") {
       this.dodge(x, y);
-    } // crisp air-whoosh on top of the zip
+      // crisp air-whoosh on top of the zip
+    }
     if (m.ult && this.gate(local ? "ult:local" : "ult", 300)) {
       this.tone({ at: t, dur: 0.4, freq: 55, gain: 0.22, slideTo: 38, type: "sine", x, y });
       this.noise({
@@ -869,38 +892,38 @@ export class Audio {
       case "ranger": {
         this.tone({
           at: t,
+          dur: 0.22 * d,
+          freq: 330 * p,
+          gain: 0.12,
+          slideTo: 660 * p,
+          type: "triangle",
           x,
           y,
-          freq: 330 * p,
-          slideTo: 660 * p,
-          dur: 0.22 * d,
-          type: "triangle",
-          gain: 0.12,
         });
         this.noise({
           at: t,
+          dur: 0.02,
+          filter: { from: 4500, type: "highpass" },
+          gain: 0.05,
           x,
           y,
-          dur: 0.02,
-          gain: 0.05,
-          filter: { type: "highpass", from: 4500 },
         });
         break;
       }
       case "mage": {
         this.tone({
           at: t,
+          dur: 0.22 * d,
+          freq: 320 * p,
+          gain: 0.14,
+          slideTo: 980 * p,
+          type: "sine",
           x,
           y,
-          freq: 320 * p,
-          slideTo: 980 * p,
-          dur: 0.22 * d,
-          type: "sine",
-          gain: 0.14,
         });
-        this.tone({ at: t, x, y, freq: 1560 * p, dur: 0.05, type: "sine", gain: 0.05 });
-        this.tone({ at: t + 0.04, x, y, freq: 1976 * p, dur: 0.05, type: "sine", gain: 0.05 });
-        this.tone({ at: t + 0.08, x, y, freq: 2349 * p, dur: 0.05, type: "sine", gain: 0.05 });
+        this.tone({ at: t, dur: 0.05, freq: 1560 * p, gain: 0.05, type: "sine", x, y });
+        this.tone({ at: t + 0.04, dur: 0.05, freq: 1976 * p, gain: 0.05, type: "sine", x, y });
+        this.tone({ at: t + 0.08, dur: 0.05, freq: 2349 * p, gain: 0.05, type: "sine", x, y });
         break;
       }
       case "rogue": {
@@ -919,13 +942,13 @@ export class Audio {
         // creeps / unknown: the original rising cast chirp
         this.tone({
           at: t,
+          dur: 0.18 * d,
+          freq: 320 * p * jit(),
+          gain: 0.14,
+          slideTo: 760 * p,
+          type: "sine",
           x,
           y,
-          freq: 320 * p * this.jit(),
-          slideTo: 760 * p,
-          dur: 0.18 * d,
-          type: "sine",
-          gain: 0.14,
         });
       }
     }
@@ -1161,15 +1184,15 @@ export class Audio {
   }
   coin(x?: number, y?: number): void {
     const t = this.now();
-    this.tone({ at: t, dur: 0.07, freq: 880 * this.jit(), gain: 0.2, type: "triangle", x, y });
+    this.tone({ at: t, dur: 0.07, freq: 880 * jit(), gain: 0.2, type: "triangle", x, y });
     this.tone({ at: t + 0.02, dur: 0.12, freq: 1320, gain: 0.18, type: "triangle", x, y });
   }
   levelup(): void {
     this.essential(() => {
       const t = this.now();
-      [523, 659, 784, 1046].forEach((f, i) =>
-        this.tone({ at: t + i * 0.07, dur: 0.14, freq: f, gain: 0.16, type: "triangle" }),
-      );
+      for (const [i, f] of [523, 659, 784, 1046].entries()) {
+        this.tone({ at: t + i * 0.07, dur: 0.14, freq: f, gain: 0.16, type: "triangle" });
+      }
     });
   }
   delivery(): void {
@@ -1189,9 +1212,9 @@ export class Audio {
   victory(): void {
     this.essential(() => {
       const t = this.now();
-      [523, 659, 784, 1046, 1318].forEach((f, i) =>
-        this.tone({ at: t + i * 0.11, dur: 0.2, freq: f, gain: 0.2, type: "triangle" }),
-      );
+      for (const [i, f] of [523, 659, 784, 1046, 1318].entries()) {
+        this.tone({ at: t + i * 0.11, dur: 0.2, freq: f, gain: 0.2, type: "triangle" });
+      }
     });
   }
 

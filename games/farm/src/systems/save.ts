@@ -46,13 +46,13 @@ export type SaveOutcome = { kind: "success" } | { kind: "disabled" } | { kind: "
 // Trailer mode (src/trailer/): a staged demo run must neither read nor write
 // the player's real save. Set once by the trailer director; dead in normal play.
 let savesDisabled = false;
-export function disableSaves(): void {
+export const disableSaves = (): void => {
   savesDisabled = true;
-}
+};
 
 // Structural check at the storage boundary: we only wrote v3 saves ourselves,
 // so verify the version tag plus the scalar/object skeleton (not every leaf).
-function isSaveData(v: JsonValue): v is JsonValue & SaveData {
+const isSaveData = (v: JsonValue): v is JsonValue & SaveData => {
   if (!isJsonObject(v) || v["v"] !== 3) {
     return false;
   }
@@ -66,9 +66,9 @@ function isSaveData(v: JsonValue): v is JsonValue & SaveData {
     isJsonObject(v["inv"]) &&
     isJsonObject(v["skills"])
   );
-}
+};
 
-export function loadSave(): SaveData | null {
+export const loadSave = (): SaveData | null => {
   if (savesDisabled) {
     return null;
   }
@@ -82,9 +82,9 @@ export function loadSave(): SaveData | null {
   } catch {
     return null;
   }
-}
+};
 
-export function writeSave(d: SaveData): SaveOutcome {
+export const writeSave = (d: SaveData): SaveOutcome => {
   if (savesDisabled) {
     return { kind: "disabled" };
   }
@@ -94,9 +94,9 @@ export function writeSave(d: SaveData): SaveOutcome {
   } catch {
     return { kind: "failure" };
   }
-}
+};
 
-export function clearSave(): void {
+export const clearSave = (): void => {
   if (savesDisabled) {
     return;
   }
@@ -105,4 +105,4 @@ export function clearSave(): void {
   } catch {
     /* ignore */
   }
-}
+};

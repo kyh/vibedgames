@@ -1,4 +1,5 @@
-import Phaser from "phaser";
+import type { Types } from "phaser";
+import { Game, Scale, WEBGL } from "phaser";
 import { setPauseHandlers } from "@repo/embed";
 
 import { hide as hidePauseOverlay, show as showPauseOverlay } from "./pause-overlay";
@@ -8,24 +9,24 @@ import { GameScene } from "./scenes/game-scene";
 import { HudScene } from "./scenes/hud-scene";
 import { MenuScene } from "./scenes/menu-scene";
 
-const config: Phaser.Types.Core.GameConfig = {
-  type: Phaser.WEBGL,
-  parent: "game",
+const config: Types.Core.GameConfig = {
   backgroundColor: "#0a0e16",
-  scale: {
-    height: "100%",
-    mode: Phaser.Scale.RESIZE,
-    width: "100%",
-  },
-  pixelArt: true,
-  roundPixels: true,
   // GameScene owns its own pointer handling; disable the right-click menu so
   // right-click can drive move orders the way a MOBA expects.
   disableContextMenu: true,
+  parent: "game",
+  pixelArt: true,
+  roundPixels: true,
+  scale: {
+    height: "100%",
+    mode: Scale.RESIZE,
+    width: "100%",
+  },
   // Dev surfaces (ShowcaseScene, GalleryScene) are lazy-added by BootScene /
   // gallery-nav via dev-scenes.ts — keep them out of this array so their code
   // stays out of the main chunk.
   scene: [BootScene, MenuScene, GameScene, HudScene],
+  type: WEBGL,
 };
 
 // The display font must be resolved before any Phaser Text is created, or those
@@ -33,17 +34,19 @@ const config: Phaser.Types.Core.GameConfig = {
 // never hold the game hostage.
 const fontReady = Promise.race([
   document.fonts.load('20px "Lilita One"'),
+  // oxlint-disable-next-line no-promise-executor-return, promise/avoid-new -- setTimeout sleep has no promise form in the browser
   new Promise((resolve) => setTimeout(resolve, 1500)),
 ]);
 declare global {
   interface Window {
     /** DEV-only hook for headless verification. */
-    __game?: Phaser.Game;
+    __game?: Game;
   }
 }
 
-void fontReady.then(() => {
-  const game = new Phaser.Game(config);
+const boot = async (): Promise<void> => {
+  await fontReady;
+  const game = new Game(config);
   const activeGame = (): GameScene | null => {
     const scene = game.scene.getScene("Game");
     return scene instanceof GameScene && game.scene.isActive("Game") ? scene : null;
@@ -86,6 +89,11 @@ void fontReady.then(() => {
   // input stops. `froze` ensures onResume only wakes what onPause put to sleep.
   let froze = false;
   setPauseHandlers({
+    // Escape closes an open shop/scoreboard/guide first; only a bare Escape pauses.
+    escapePauses: () => {
+      const hud = game.scene.getScene("Hud");
+      return !(hud instanceof HudScene && hud.escConsumed);
+    },
     onPause: () => {
       const scene = activeGame();
       scene?.setControlsPaused(true);
@@ -109,10 +117,7 @@ void fontReady.then(() => {
       game.loop.wake();
       game.sound.resumeAll();
     },
-    // Escape closes an open shop/scoreboard/guide first; only a bare Escape pauses.
-    escapePauses: () => {
-      const hud = game.scene.getScene("Hud");
-      return !(hud instanceof HudScene && hud.escConsumed);
-    },
   });
-});
+};
+
+void boot();

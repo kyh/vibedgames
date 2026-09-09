@@ -36,12 +36,12 @@ const profiles = new Map<string, Profile>([
 
 /** Instant spells begin at their release, never invent a wind-up before damage.
  * Channels hold a brace only while the accepted simulation still owns one. */
-export function spellPose(
+export const spellPose = (
   cue: SpellCue | null,
   channel: { effect: string; until: number } | null,
   now: number,
   facing: 1 | -1,
-) {
+) => {
   if (!Number.isFinite(now)) {
     return null;
   }
@@ -75,43 +75,46 @@ export function spellPose(
   switch (profile.gesture) {
     case "strike": {
       return {
-        x: f * 7 * settle,
-        y: 2 * settle,
         angle: f * 11 * settle,
+        frame: t,
         scaleX: 1 + 0.04 * settle,
         scaleY: 1 - 0.04 * settle,
-        frame: t,
+        x: f * 7 * settle,
+        y: 2 * settle,
       };
     }
     case "throw": {
       return {
-        x: f * 4 * settle,
-        y: -2 * settle,
         angle: f * 7 * settle,
+        frame: t,
         scaleX: 1,
         scaleY: 1 + 0.025 * settle,
-        frame: t,
+        x: f * 4 * settle,
+        y: -2 * settle,
       };
     }
     case "brace": {
       return {
-        x: -f * 2 * settle,
-        y: 2 * settle,
         angle: -f * 4 * settle,
+        frame: null,
         scaleX: 1 + 0.04 * settle,
         scaleY: 1 - 0.05 * settle,
-        frame: null,
+        x: -f * 2 * settle,
+        y: 2 * settle,
       };
     }
     case "blink": {
       return {
-        x: f * 3 * settle,
-        y: -3 * settle,
         angle: -f * 8 * settle,
+        frame: null,
         scaleX: 1 - 0.035 * settle,
         scaleY: 1 + 0.035 * settle,
-        frame: null,
+        x: f * 3 * settle,
+        y: -3 * settle,
       };
     }
+    default: {
+      return null;
+    }
   }
-}
+};

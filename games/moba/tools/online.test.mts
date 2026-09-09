@@ -68,13 +68,13 @@ test("promotion resumes the same deterministic simulation instead of resetting i
   const host = createWorld(987);
   spawnHero(host, "ironvow", "radiant", "a", true, 0);
   spawnHero(host, "emberhex", "dire", "b", true, 0);
-  for (let i = 0; i < 180; i++) {
+  for (let i = 0; i < 180; i += 1) {
     step(host, 1 / 30);
   }
   const promoted = emptyGuestWorld();
   restoreHostState(promoted, structuredClone(encodeWorld(host)));
   host.fx.length = 0;
-  for (let i = 0; i < 180; i++) {
+  for (let i = 0; i < 180; i += 1) {
     step(host, 1 / 30);
     step(promoted, 1 / 30);
   }
@@ -108,7 +108,7 @@ test("host adoption owns its mutable state without rewriting the accepted snapsh
   const before = structuredClone(accepted);
   const promoted = emptyGuestWorld();
   restoreHostState(promoted, accepted);
-  for (let i = 0; i < 180; i++) {
+  for (let i = 0; i < 180; i += 1) {
     step(promoted, 1 / 30);
   }
   assert.deepEqual(accepted, before);

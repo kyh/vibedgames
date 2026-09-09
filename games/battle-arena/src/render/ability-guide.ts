@@ -20,6 +20,31 @@ const TARGETS = {
   self: "Affects you or the area around you.",
 };
 
+const ensureStyle = (): void => {
+  if (document.querySelector("#ba-kit-style")) {
+    return;
+  }
+  const style = document.createElement("style");
+  style.id = "ba-kit-style";
+  style.textContent = `
+.ba-kit-guide{box-sizing:border-box;width:min(560px,calc(100vw - 24px));max-height:calc(100dvh - 24px);padding:16px;border:1px solid #a58a42;border-radius:14px;background:#111722;color:#f4efd9;font:14px/1.5 ui-monospace,monospace;box-shadow:0 18px 65px #000b;overflow:auto;overscroll-behavior:contain;touch-action:pan-y}
+.ba-kit-guide::backdrop{background:#030710b8}
+.ba-kit-header{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.ba-kit-header h2{font:800 18px/1.2 ui-monospace,monospace;margin:0;color:#ffd24a}
+.ba-kit-guide button{min-width:44px;min-height:44px;border:1px solid #647080;border-radius:8px;background:#1c2637;color:#fff;font:700 12px ui-monospace,monospace;cursor:pointer}
+.ba-kit-guide button:focus-visible{outline:3px solid #ffd24a;outline-offset:2px}
+.ba-kit-tabs{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;margin:16px 0 12px}
+.ba-kit-tabs button{display:flex;flex-direction:column;align-items:center;padding:6px 2px;gap:4px}
+.ba-kit-tabs img{width:32px;height:32px;border-radius:5px}
+.ba-kit-tabs span{font-size:10px;line-height:1.2}
+.ba-kit-tabs [aria-pressed=true]{border-color:#ffd24a;background:#3d3522}
+.ba-kit-copy h3{font-size:18px;color:#ffd24a;margin:8px 0}
+.ba-kit-copy p{margin:10px 0}.ba-kit-facts{color:#b9dcff}.ba-kit-note{font-size:11px;color:#b8c0cf}
+@media(max-height:480px){.ba-kit-guide{padding:12px}.ba-kit-tabs{margin:8px 0}.ba-kit-tabs img{width:24px;height:24px}.ba-kit-copy p{margin:6px 0}}
+`;
+  document.head.append(style);
+};
+
 /** A native modal owns inspection input; the arena clock keeps running. */
 export class AbilityGuide {
   private readonly dialog = document.createElement("dialog");
@@ -36,7 +61,10 @@ export class AbilityGuide {
   private returnFocus: HTMLElement | null = null;
   private closingKey: string | null = null;
 
-  constructor(private readonly onChange: (open: boolean) => void) {
+  private readonly onChange: (open: boolean) => void;
+
+  constructor(onChange: (open: boolean) => void) {
+    this.onChange = onChange;
     this.dialog.className = "ba-kit-guide";
     this.dialog.setAttribute("aria-label", "Champion abilities");
     const header = document.createElement("div");
@@ -142,12 +170,12 @@ export class AbilityGuide {
       this.close();
       return;
     }
-    const direction =
-      this.pad.justPressed("left") || this.pad.justPressed("lb")
-        ? -1
-        : this.pad.justPressed("right") || this.pad.justPressed("rb")
-          ? 1
-          : 0;
+    let direction = 0;
+    if (this.pad.justPressed("left") || this.pad.justPressed("lb")) {
+      direction = -1;
+    } else if (this.pad.justPressed("right") || this.pad.justPressed("rb")) {
+      direction = 1;
+    }
     if (direction) {
       const key =
         ALL_ABILITY_KEYS[
@@ -205,29 +233,4 @@ export class AbilityGuide {
     window.removeEventListener("keyup", this.onKeyUp, true);
     this.dialog.remove();
   }
-}
-
-function ensureStyle(): void {
-  if (document.querySelector("#ba-kit-style")) {
-    return;
-  }
-  const style = document.createElement("style");
-  style.id = "ba-kit-style";
-  style.textContent = `
-.ba-kit-guide{box-sizing:border-box;width:min(560px,calc(100vw - 24px));max-height:calc(100dvh - 24px);padding:16px;border:1px solid #a58a42;border-radius:14px;background:#111722;color:#f4efd9;font:14px/1.5 ui-monospace,monospace;box-shadow:0 18px 65px #000b;overflow:auto;overscroll-behavior:contain;touch-action:pan-y}
-.ba-kit-guide::backdrop{background:#030710b8}
-.ba-kit-header{display:flex;justify-content:space-between;align-items:center;gap:12px}
-.ba-kit-header h2{font:800 18px/1.2 ui-monospace,monospace;margin:0;color:#ffd24a}
-.ba-kit-guide button{min-width:44px;min-height:44px;border:1px solid #647080;border-radius:8px;background:#1c2637;color:#fff;font:700 12px ui-monospace,monospace;cursor:pointer}
-.ba-kit-guide button:focus-visible{outline:3px solid #ffd24a;outline-offset:2px}
-.ba-kit-tabs{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;margin:16px 0 12px}
-.ba-kit-tabs button{display:flex;flex-direction:column;align-items:center;padding:6px 2px;gap:4px}
-.ba-kit-tabs img{width:32px;height:32px;border-radius:5px}
-.ba-kit-tabs span{font-size:10px;line-height:1.2}
-.ba-kit-tabs [aria-pressed=true]{border-color:#ffd24a;background:#3d3522}
-.ba-kit-copy h3{font-size:18px;color:#ffd24a;margin:8px 0}
-.ba-kit-copy p{margin:10px 0}.ba-kit-facts{color:#b9dcff}.ba-kit-note{font-size:11px;color:#b8c0cf}
-@media(max-height:480px){.ba-kit-guide{padding:12px}.ba-kit-tabs{margin:8px 0}.ba-kit-tabs img{width:24px;height:24px}.ba-kit-copy p{margin:6px 0}}
-`;
-  document.head.append(style);
 }

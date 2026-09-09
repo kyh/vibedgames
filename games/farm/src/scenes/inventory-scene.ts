@@ -1,4 +1,5 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { Math as PhaserMath, Scene, Scenes } from "phaser";
 import { store } from "../systems/store";
 import { HOTBAR, TOTAL } from "../systems/inventory";
 import { itemIcon, itemName, sellValue, isSellable } from "../data/items";
@@ -14,7 +15,7 @@ const FONT = "ui-monospace, monospace";
 const SZ = 44;
 const GAP = 5;
 
-export class InventoryScene extends Phaser.Scene {
+export class InventoryScene extends Scene {
   private picked = -1;
   private cells: { x: number; y: number; idx: number }[] = [];
   private g!: Phaser.GameObjects.Graphics;
@@ -83,7 +84,7 @@ export class InventoryScene extends Phaser.Scene {
       fontSize: "13px",
     });
 
-    for (let i = 0; i < TOTAL; i++) {
+    for (let i = 0; i < TOTAL; i += 1) {
       this.icons.push(this.add.image(0, 0, "obj-stone").setVisible(false));
       this.qtys.push(
         this.add
@@ -121,7 +122,7 @@ export class InventoryScene extends Phaser.Scene {
     }
     this.onResize = () => this.layout();
     this.scale.on("resize", this.onResize);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+    this.events.once(Scenes.Events.SHUTDOWN, () => {
       if (this.onResize) {
         this.scale.off("resize", this.onResize);
       }
@@ -210,7 +211,7 @@ export class InventoryScene extends Phaser.Scene {
       this.skillPanel = { h: skillH, w: skillW, x: px, y: py + panelH + 12 };
     }
     const startX = px + 16 + sz / 2;
-    for (let i = 0; i < TOTAL; i++) {
+    for (let i = 0; i < TOTAL; i += 1) {
       const local = i < HOTBAR ? i : i - HOTBAR;
       const y0 = i < HOTBAR ? hotY0 : packY0;
       const r = Math.floor(local / perRow);
@@ -281,7 +282,13 @@ export class InventoryScene extends Phaser.Scene {
     for (const c of this.cells) {
       const sel = c.idx === this.picked;
       const isHot = c.idx < HOTBAR;
-      g.fillStyle(sel ? 0xff_e9_a8 : isHot ? 0xe8_d3_a6 : 0xdc_c5_96, 1);
+      let fill = 0xdc_c5_96;
+      if (sel) {
+        fill = 0xff_e9_a8;
+      } else if (isHot) {
+        fill = 0xe8_d3_a6;
+      }
+      g.fillStyle(fill, 1);
       g.fillRoundedRect(c.x - sz / 2, c.y - sz / 2, sz, sz, 6);
       g.lineStyle(2, sel ? 0xff_9d_3a : 0x8a_6a_35, 1);
       g.strokeRoundedRect(c.x - sz / 2, c.y - sz / 2, sz, sz, 6);
@@ -338,7 +345,7 @@ export class InventoryScene extends Phaser.Scene {
     for (const id of SKILL_IDS) {
       const s = store.skills.get(id);
       const need = xpToNext(s.level);
-      const frac = need === Infinity ? 1 : Phaser.Math.Clamp(s.xp / need, 0, 1);
+      const frac = need === Infinity ? 1 : PhaserMath.Clamp(s.xp / need, 0, 1);
       g.fillStyle(0x2a_1e_0e, 1);
       g.fillRoundedRect(x + 16, ry + 30, w - 32, 4, 2);
       g.fillStyle(0x5f_ae_3a, 1);
@@ -353,7 +360,7 @@ export class InventoryScene extends Phaser.Scene {
   private skillProgress: Phaser.GameObjects.Text[] = [];
   private renderSkillLabels(x: number, y: number): void {
     if (this.skillLabels.length === 0) {
-      for (let i = 0; i < SKILL_IDS.length; i++) {
+      for (const _id of SKILL_IDS) {
         this.skillLabels.push(
           this.add.text(0, 0, "", { color: "#3a2a14", fontFamily: FONT, fontSize: "11px" }),
         );
@@ -368,10 +375,10 @@ export class InventoryScene extends Phaser.Scene {
       }
     }
     let ry = y + 56;
-    SKILL_IDS.forEach((id, i) => {
+    for (const [i, id] of SKILL_IDS.entries()) {
       const lbl = this.skillLabels[i];
       if (!lbl) {
-        return;
+        continue;
       }
       const s = store.skills.get(id);
       const need = xpToNext(s.level);
@@ -381,6 +388,6 @@ export class InventoryScene extends Phaser.Scene {
         ?.setText(need === Infinity ? "MAX" : `${Math.floor(s.xp)}/${need} XP`)
         .setPosition(x + this.skillPanel.w - 16, ry + 1);
       ry += this.skillRow;
-    });
+    }
   }
 }

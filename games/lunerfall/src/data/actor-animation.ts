@@ -6,11 +6,11 @@ import type { ActorPose } from "./actor-presentation";
  * clock from racing the authoritative state clock (including through hit-stop).
  * No shared animation or texture is edited, and no delayed playback is owned.
  */
-export function showActorPose(
+export const showActorPose = (
   sprite: Phaser.GameObjects.Sprite,
   atlas: string,
   pose: ActorPose,
-): void {
+): void => {
   const key = `${atlas}:${pose.clip}`;
   if (sprite.anims.currentAnim?.key !== key) {
     sprite.play(key);
@@ -20,4 +20,4 @@ export function showActorPose(
   if (frame && sprite.anims.currentFrame !== frame) {
     sprite.anims.setCurrentFrame(frame);
   }
-}
+};

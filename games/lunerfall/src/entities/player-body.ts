@@ -38,8 +38,10 @@ const LAND_MIN = 130;
 const ATTACK_BUFFER = 0.12;
 const ATTACK_END_CD = 0.08;
 const ATTACK_MOVE_MULT = 0.78;
-const COMBO_GRACE = 0.32; // press within this long after a swing to chain the next hit
-const COMBO_CANCEL_FRAC = 0.5; // a queued next hit cancels the swing's tail at this fraction of dur (after the strike lands) so J-J-J chains snappily
+// press within this long after a swing to chain the next hit
+const COMBO_GRACE = 0.32;
+// a queued next hit cancels the swing's tail at this fraction of dur (after the strike lands) so J-J-J chains snappily
+const COMBO_CANCEL_FRAC = 0.5;
 const SPECIAL_BUFFER = 0.12;
 
 const HURT_IFRAMES = 0.9;
@@ -53,16 +55,19 @@ const EPS = 0.0001;
 
 // Melee hitbox extents (px), relative to the player's feet at (x, y). Exported so
 // the viewer's reach box can draw the ACTUAL hit area instead of an approximation.
-export const HIT_BACK = 8; // overlaps this far behind center so point-blank hits land
-export const HIT_UP = 34; // reaches up over the body
-export const HIT_DOWN = 6; // down to just past the feet (catches grounded enemies)
+// overlaps this far behind center so point-blank hits land
+export const HIT_BACK = 8;
+// reaches up over the body
+export const HIT_UP = 34;
+// down to just past the feet (catches grounded enemies)
+export const HIT_DOWN = 6;
 
 export const PLAYER_HALF_W = HW;
 export const PLAYER_BODY_H = BODY_H;
 
 const approach = (cur: number, target: number, maxDelta: number): number =>
   cur < target ? Math.min(cur + maxDelta, target) : Math.max(cur - maxDelta, target);
-const clamp = (v: number, a: number, b: number): number => (v < a ? a : v > b ? b : v);
+const clamp = (v: number, a: number, b: number): number => Math.min(Math.max(v, a), b);
 
 export interface BodyInput {
   left: boolean;
@@ -94,20 +99,22 @@ export interface Rect {
   bottom: number;
 }
 export type AttackBox = Rect & { dmg: number; kb: number };
-export interface PlayerShot {
+// oxlint-disable-next-line typescript/consistent-type-definitions -- checkpointed over the JSON wire; interfaces get no implicit index signature
+export type PlayerShot = {
   x: number;
   y: number;
   vx: number;
   vy: number;
   dmg: number;
-}
+};
 
 // Pure platformer physics + combat state (kit-driven). No Phaser, no rendering.
 // Deterministic given the same grid + input stream.
 export class PlayerBody {
   x: number;
   y: number;
-  prevX = 0; // sim position one step ago — for render interpolation
+  // sim position one step ago — for render interpolation
+  prevX = 0;
   prevY = 0;
   vx = 0;
   vy = 0;
@@ -116,7 +123,8 @@ export class PlayerBody {
   wallDir: -1 | 0 | 1 = 0;
   iframes = 0;
   dead = false;
-  downed = false; // co-op last stand: frozen + invulnerable awaiting a revive
+  // co-op last stand: frozen + invulnerable awaiting a revive
+  downed = false;
 
   attackStep = 0;
   swingId = 0;
@@ -129,8 +137,10 @@ export class PlayerBody {
   private attackBuf = 0;
   private attackCd = 0;
   private comboQueued = false;
-  private comboStage = 0; // last hit in the current chain (persists through comboGrace)
-  private comboGrace = 0; // window after a swing to press for the next hit
+  // last hit in the current chain (persists through comboGrace)
+  private comboStage = 0;
+  // window after a swing to press for the next hit
+  private comboGrace = 0;
 
   private specialBuf = 0;
   private specialCd = 0;
@@ -273,13 +283,14 @@ export class PlayerBody {
     this.specialBuf = 0;
   }
 
-  constructor(
-    private grid: Grid,
-    x: number,
-    y: number,
-    private kit: HeroKit,
-    private ev: BodyEvents = {},
-  ) {
+  private grid: Grid;
+  private kit: HeroKit;
+  private ev: BodyEvents;
+
+  constructor(grid: Grid, x: number, y: number, kit: HeroKit, ev: BodyEvents = {}) {
+    this.grid = grid;
+    this.kit = kit;
+    this.ev = ev;
     this.x = x;
     this.y = y;
   }
@@ -372,7 +383,8 @@ export class PlayerBody {
   down() {
     this.downed = true;
     this.vx = 0;
-    this.iframes = 0; // invulnerability comes from the downed guard, not i-frames
+    // invulnerability comes from the downed guard, not i-frames
+    this.iframes = 0;
     this.hurtStun = 0;
     this.attackStep = 0;
     this.attackTime = 0;
@@ -463,24 +475,46 @@ export class PlayerBody {
       return;
     }
     if (this.downed) {
-      // Last stand: crumpled in place — gravity + collision only; all buffered
-      // input is dropped so nothing fires on the frame a revive lands.
-      this.jumpBuf = 0;
-      this.dashBuf = 0;
-      this.attackBuf = 0;
-      this.specialBuf = 0;
-      this.vx = approach(this.vx, 0, GROUND_DECEL * dt);
-      if (!this.grounded) {
-        this.vy = Math.min(this.vy + G_FALL * dt, FALL_CAP);
-      }
-      this.moveX(this.vx * dt);
-      this.moveY(this.vy * dt);
-      this.updateContacts();
+      this.stepDowned(dt);
       return;
     }
     const busy = this.specialActive;
 
-    // ── special trigger ──
+    this.stepSpecialTrigger();
+    this.stepAttack(dt, busy);
+    this.stepSpecialProgress(dt);
+    this.stepMovement(dt, this.attackStep > 0, busy);
+    this.stepDash(busy);
+
+    const prevGrounded = this.grounded;
+    this.moveX(this.vx * dt);
+    this.moveY(this.vy * dt);
+    this.updateContacts();
+    if (!prevGrounded && this.grounded && this.landVy > LAND_MIN) {
+      this.ev.onSquash?.(1.3, 0.72, 150);
+      this.ev.onLand?.(this.landVy);
+    }
+
+    this.stepTimers(dt);
+  }
+
+  // Last stand: crumpled in place — gravity + collision only; all buffered input
+  // is dropped so nothing fires on the frame a revive lands.
+  private stepDowned(dt: number) {
+    this.jumpBuf = 0;
+    this.dashBuf = 0;
+    this.attackBuf = 0;
+    this.specialBuf = 0;
+    this.vx = approach(this.vx, 0, GROUND_DECEL * dt);
+    if (!this.grounded) {
+      this.vy = Math.min(this.vy + G_FALL * dt, FALL_CAP);
+    }
+    this.moveX(this.vx * dt);
+    this.moveY(this.vy * dt);
+    this.updateContacts();
+  }
+
+  private stepSpecialTrigger() {
     if (
       this.specialBuf > 0 &&
       this.specialCd <= 0 &&
@@ -492,8 +526,9 @@ export class PlayerBody {
       this.startSpecial();
       this.specialBuf = 0;
     }
+  }
 
-    // ── attack combo ──
+  private stepAttack(dt: number, busy: boolean) {
     if (
       !busy &&
       this.attackBuf > 0 &&
@@ -515,118 +550,137 @@ export class PlayerBody {
       }
     }
     if (this.attackStep > 0) {
-      this.attackTime += dt;
-      const cur = this.kit.swings[this.attackStep - 1];
-      if (
-        cur &&
-        this.comboQueued &&
-        this.attackStep < this.kit.swings.length &&
-        this.attackTime >= cur.dur * COMBO_CANCEL_FRAC
-      ) {
-        // Queued next hit + the strike has landed (dur*FRAC is well past a1):
-        // cancel this swing's recovery straight into the next slash.
-        this.startSwing(this.attackStep + 1);
-        this.comboQueued = false;
-      } else if (cur && this.attackTime >= cur.dur) {
-        // Uncanceled swing ran its full readable length → end, hold the chain
-        // open for one more tap.
-        this.attackStep = 0;
-        this.attackTime = 0;
-        this.attackCd = ATTACK_END_CD;
-        this.comboQueued = false;
-        this.comboGrace = COMBO_GRACE;
-      }
+      this.advanceSwing(dt);
     } else if (this.comboGrace > 0) {
       this.comboGrace -= dt;
+      // chain lapsed → next tap is hit 1
       if (this.comboGrace <= 0) {
         this.comboStage = 0;
-      } // chain lapsed → next tap is hit 1
-    }
-
-    // ── special progression ──
-    if (this.specialActive) {
-      this.specialElapsed += dt;
-      const sp = this.kit.special;
-      if (sp.kind === "projectile" && !this.specialFired && this.specialElapsed >= sp.fireAt) {
-        this.pendingShot = {
-          dmg: sp.dmg,
-          vx: this.facing * sp.speed,
-          vy: 0,
-          x: this.x + this.facing * 10,
-          y: this.y - 12,
-        };
-        this.specialFired = true;
-      }
-      if (this.specialElapsed >= this.specialDur) {
-        this.specialActive = false;
       }
     }
+  }
 
-    const swinging = this.attackStep > 0;
-    const rooted = busy;
+  private advanceSwing(dt: number) {
+    this.attackTime += dt;
+    const cur = this.kit.swings[this.attackStep - 1];
+    if (!cur) {
+      return;
+    }
+    if (
+      this.comboQueued &&
+      this.attackStep < this.kit.swings.length &&
+      this.attackTime >= cur.dur * COMBO_CANCEL_FRAC
+    ) {
+      // Queued next hit + the strike has landed (dur*FRAC is well past a1):
+      // cancel this swing's recovery straight into the next slash.
+      this.startSwing(this.attackStep + 1);
+      this.comboQueued = false;
+    } else if (this.attackTime >= cur.dur) {
+      // Uncanceled swing ran its full readable length → end, hold the chain
+      // open for one more tap.
+      this.attackStep = 0;
+      this.attackTime = 0;
+      this.attackCd = ATTACK_END_CD;
+      this.comboQueued = false;
+      this.comboGrace = COMBO_GRACE;
+    }
+  }
 
+  private stepSpecialProgress(dt: number) {
+    if (!this.specialActive) {
+      return;
+    }
+    this.specialElapsed += dt;
+    const sp = this.kit.special;
+    if (sp.kind === "projectile" && !this.specialFired && this.specialElapsed >= sp.fireAt) {
+      this.pendingShot = {
+        dmg: sp.dmg,
+        vx: this.facing * sp.speed,
+        vy: 0,
+        x: this.x + this.facing * 10,
+        y: this.y - 12,
+      };
+      this.specialFired = true;
+    }
+    if (this.specialElapsed >= this.specialDur) {
+      this.specialActive = false;
+    }
+  }
+
+  private stepMovement(dt: number, swinging: boolean, rooted: boolean) {
     if (this.dashTime > 0) {
       this.vx = this.dashDirX * DASH_SPEED;
       this.vy = this.dashDirY * DASH_SPEED;
-    } else {
-      const locked = this.wallLock > 0 || this.hurtStun > 0 || rooted;
-      const dir = locked ? 0 : (this.hRight ? 1 : 0) - (this.hLeft ? 1 : 0);
-      const speedMult = swinging ? ATTACK_MOVE_MULT : 1;
-      if (dir !== 0) {
-        // Turn freely even mid-swing — the hit lands in the first ~0.1s, so the
-        // long readable recovery shouldn't lock your facing (that read as sluggish).
-        this.facing = dir > 0 ? 1 : -1;
-        this.vx = approach(
-          this.vx,
-          dir * MAX_RUN * speedMult,
-          (this.grounded ? RUN_ACCEL : AIR_ACCEL) * dt,
-        );
-      } else if (this.hurtStun <= 0) {
-        this.vx = approach(this.vx, 0, (this.grounded ? GROUND_DECEL : AIR_DECEL) * dt);
-      }
-
-      if (this.jumpBuf > 0 && this.hurtStun <= 0 && !rooted) {
-        if (this.grounded || this.coyote > 0) {
-          this.vy = -JUMP_V;
-          this.grounded = false;
-          this.coyote = 0;
-          this.jumpBuf = 0;
-          this.jumping = true;
-          this.ev.onSquash?.(0.9, 1.15, 130);
-          this.ev.onJump?.();
-        } else if (this.wallDir !== 0) {
-          this.vy = -WALL_JUMP_VY;
-          this.vx = -this.wallDir * WALL_JUMP_VX;
-          this.facing = this.wallDir > 0 ? -1 : 1;
-          this.wallLock = WALL_LOCK;
-          this.jumpBuf = 0;
-          this.jumping = true;
-          this.ev.onJump?.();
-          this.ev.onWallJump?.(this.wallDir);
-        }
-      }
-      if (this.jumping && this.vy < 0 && !this.jumpHeld) {
-        this.vy *= JUMP_CUT;
-        this.jumping = false;
-      }
-      if (this.vy >= 0) {
-        this.jumping = false;
-      }
-
-      if (!this.grounded) {
-        let g = this.vy < 0 ? G_RISE : G_FALL;
-        if (this.jumpHeld && Math.abs(this.vy) < APEX_V) {
-          g *= APEX_MULT;
-        }
-        this.vy = Math.min(this.vy + g * dt, FALL_CAP);
-        const pressingWall =
-          (this.wallDir === 1 && this.hRight) || (this.wallDir === -1 && this.hLeft);
-        if (pressingWall && this.vy > WALL_SLIDE_MAX && this.hurtStun <= 0) {
-          this.vy = WALL_SLIDE_MAX;
-        }
-      }
+      return;
     }
+    this.applyRun(dt, swinging, rooted);
+    if (this.jumpBuf > 0 && this.hurtStun <= 0 && !rooted) {
+      this.tryJump();
+    }
+    if (this.jumping && this.vy < 0 && !this.jumpHeld) {
+      this.vy *= JUMP_CUT;
+      this.jumping = false;
+    }
+    if (this.vy >= 0) {
+      this.jumping = false;
+    }
+    if (!this.grounded) {
+      this.applyGravity(dt);
+    }
+  }
 
+  private applyRun(dt: number, swinging: boolean, rooted: boolean) {
+    const locked = this.wallLock > 0 || this.hurtStun > 0 || rooted;
+    const dir = locked ? 0 : (this.hRight ? 1 : 0) - (this.hLeft ? 1 : 0);
+    const speedMult = swinging ? ATTACK_MOVE_MULT : 1;
+    if (dir !== 0) {
+      // Turn freely even mid-swing — the hit lands in the first ~0.1s, so the
+      // long readable recovery shouldn't lock your facing (that read as sluggish).
+      this.facing = dir > 0 ? 1 : -1;
+      this.vx = approach(
+        this.vx,
+        dir * MAX_RUN * speedMult,
+        (this.grounded ? RUN_ACCEL : AIR_ACCEL) * dt,
+      );
+    } else if (this.hurtStun <= 0) {
+      this.vx = approach(this.vx, 0, (this.grounded ? GROUND_DECEL : AIR_DECEL) * dt);
+    }
+  }
+
+  private tryJump() {
+    if (this.grounded || this.coyote > 0) {
+      this.vy = -JUMP_V;
+      this.grounded = false;
+      this.coyote = 0;
+      this.jumpBuf = 0;
+      this.jumping = true;
+      this.ev.onSquash?.(0.9, 1.15, 130);
+      this.ev.onJump?.();
+    } else if (this.wallDir !== 0) {
+      this.vy = -WALL_JUMP_VY;
+      this.vx = -this.wallDir * WALL_JUMP_VX;
+      this.facing = this.wallDir > 0 ? -1 : 1;
+      this.wallLock = WALL_LOCK;
+      this.jumpBuf = 0;
+      this.jumping = true;
+      this.ev.onJump?.();
+      this.ev.onWallJump?.(this.wallDir);
+    }
+  }
+
+  private applyGravity(dt: number) {
+    let g = this.vy < 0 ? G_RISE : G_FALL;
+    if (this.jumpHeld && Math.abs(this.vy) < APEX_V) {
+      g *= APEX_MULT;
+    }
+    this.vy = Math.min(this.vy + g * dt, FALL_CAP);
+    const pressingWall = (this.wallDir === 1 && this.hRight) || (this.wallDir === -1 && this.hLeft);
+    if (pressingWall && this.vy > WALL_SLIDE_MAX && this.hurtStun <= 0) {
+      this.vy = WALL_SLIDE_MAX;
+    }
+  }
+
+  private stepDash(rooted: boolean) {
     if (
       this.dashBuf > 0 &&
       this.dashCd <= 0 &&
@@ -641,16 +695,9 @@ export class PlayerBody {
       this.vx = this.dashDirX * DASH_SPEED;
       this.vy = this.dashDirY * DASH_SPEED;
     }
+  }
 
-    const prevGrounded = this.grounded;
-    this.moveX(this.vx * dt);
-    this.moveY(this.vy * dt);
-    this.updateContacts();
-    if (!prevGrounded && this.grounded && this.landVy > LAND_MIN) {
-      this.ev.onSquash?.(1.3, 0.72, 150);
-      this.ev.onLand?.(this.landVy);
-    }
-
+  private stepTimers(dt: number) {
     if (this.grounded) {
       this.coyote = COYOTE;
       this.airDash = true;
@@ -685,7 +732,7 @@ export class PlayerBody {
     this.specialActive = true;
     this.specialElapsed = 0;
     this.specialFired = false;
-    this.specialId++;
+    this.specialId += 1;
     this.attackStep = 0;
     switch (sp.kind) {
       case "aoe": {
@@ -704,6 +751,9 @@ export class PlayerBody {
       case "blink": {
         this.specialDur = 0.24;
         this.doBlink(sp.dist, sp.iframes);
+        break;
+      }
+      default: {
         break;
       }
     }
@@ -736,7 +786,7 @@ export class PlayerBody {
   private startSwing(n: number) {
     this.attackStep = n;
     this.attackTime = 0;
-    this.swingId++;
+    this.swingId += 1;
     this.comboStage = n;
     const s = this.kit.swings[n - 1];
     if (s && this.grounded) {
@@ -749,7 +799,8 @@ export class PlayerBody {
     this.dashBuf = 0;
     this.attackStep = 0;
     this.comboQueued = false;
-    this.comboGrace = 0; // dashing cancels the chain → next tap is hit 1
+    // dashing cancels the chain → next tap is hit 1
+    this.comboGrace = 0;
     let dx = (this.hRight ? 1 : 0) - (this.hLeft ? 1 : 0);
     const dy = (this.hDown ? 1 : 0) - (this.hUp ? 1 : 0);
     if (dx === 0 && dy === 0) {
@@ -844,8 +895,7 @@ export class PlayerBody {
   }
 }
 
-export function rectsOverlap(a: Rect, b: Rect): boolean {
-  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
-}
+export const rectsOverlap = (a: Rect, b: Rect): boolean =>
+  a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 
 export type PlayerBodyCheckpoint = ReturnType<PlayerBody["checkpoint"]>;

@@ -7,24 +7,23 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import path from "node:path";
+import { setTimeout as wait } from "node:timers/promises";
 
-const gameDir = resolve(import.meta.dirname, "..");
-const { chromium } = createRequire(join(gameDir, "package.json"))("playwright-core");
-const wait = (ms) => new Promise((done) => setTimeout(done, ms));
+const gameDir = path.resolve(import.meta.dirname, "..");
+const { chromium } = createRequire(path.join(gameDir, "package.json"))("playwright-core");
 
 const argv = process.argv.slice(2);
 const option = (name, fallback) => {
   const index = argv.indexOf(name);
-  return index !== -1 ? argv[index + 1] : fallback;
+  return index === -1 ? fallback : argv[index + 1];
 };
 const port = Number(option("--port", "5384"));
 const room = `t${process.pid}-${Date.now().toString(36)}`;
 
-async function startVite() {
+const startVite = async () => {
   const child = spawn(
-    resolve(gameDir, "node_modules/.bin/vite"),
+    path.resolve(gameDir, "node_modules/.bin/vite"),
     ["--port", String(port), "--strictPort"],
     {
       cwd: gameDir,
@@ -32,7 +31,7 @@ async function startVite() {
     },
   );
   const url = `http://localhost:${port}`;
-  for (let attempt = 0; attempt < 100; attempt++) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
     if (child.exitCode !== null) {
       throw new Error(`vite exited ${child.exitCode}`);
     }
@@ -41,17 +40,17 @@ async function startVite() {
       () => false,
     );
     if (ok) {
-      return { url, stop: () => child.kill() };
+      return { stop: () => child.kill(), url };
     }
     await wait(200);
   }
   throw new Error("vite did not come up");
-}
+};
 
 /** Everything the assertions read, in one round trip. */
 const snapshot = () => {
   if (!window.__bb) {
-    return { status: "booting", bots: {}, players: [] };
+    return { bots: {}, players: [], status: "booting" };
   }
   const { scene, client, simNow } = window.__bb;
   const shared = client.sharedState;
@@ -59,35 +58,35 @@ const snapshot = () => {
     Object.values(shared.bots ?? {}).map((bot) => [bot.id, `${bot.col},${bot.row}`]),
   );
   return {
-    status: client.connectionStatus,
-    id: client.playerId,
+    arena: shared.arena ?? null,
+    blasts: Object.keys(shared.blasts ?? {}).length,
+    bombs: Object.values(shared.bombs ?? {}).map((bomb) => bomb.ownerId),
+    bots,
+    clock: shared.clock?.kind ?? null,
+    controlsPaused: scene.controlsPaused,
+    deaths: Object.keys(shared.deaths ?? {}),
+    frozen: scene.simulationFrozen,
     hostId: client.hostId,
+    id: client.playerId,
     isHost: client.isHost,
+    me: `${scene.myCol},${scene.myRow}`,
     // A departed peer's seat is held for the reconnect grace window; count live transports.
     players: Object.values(client.players)
       .filter((player) => player.connected !== false)
       .map((player) => player.id),
+    round: shared.startedAt ?? null,
     seats: Object.keys(client.players).length,
     seeded: Array.isArray(shared.grid),
-    arena: shared.arena ?? null,
-    round: shared.startedAt ?? null,
-    winner: shared.winner ?? null,
-    clock: shared.clock?.kind ?? null,
-    bombs: Object.values(shared.bombs ?? {}).map((bomb) => bomb.ownerId),
-    blasts: Object.keys(shared.blasts ?? {}).length,
-    deaths: Object.keys(shared.deaths ?? {}),
-    bots,
-    started: scene.started,
-    frozen: scene.simulationFrozen,
-    controlsPaused: scene.controlsPaused,
-    me: `${scene.myCol},${scene.myRow}`,
     simNow: simNow(),
+    started: scene.started,
+    status: client.connectionStatus,
+    winner: shared.winner ?? null,
   };
 };
 
 /** `skewMs` shifts this client's wall clock: machines disagree about Date.now(),
  * and the shared sim clock must follow the host's sim time regardless. */
-async function open(browser, url, name, errors, skewMs = 0) {
+const open = async (browser, url, name, errors, skewMs = 0) => {
   const context = await browser.newContext({ viewport: { height: 800, width: 1100 } });
   await context.addInitScript((skew) => {
     const real = Date.now;
@@ -120,7 +119,9 @@ async function open(browser, url, name, errors, skewMs = 0) {
       let last;
       while (Date.now() < deadline) {
         last = await this.snap();
-        if (predicate(last)) return last;
+        if (predicate(last)) {
+          return last;
+        }
         await wait(100);
       }
       throw new Error(`${name}: timed out waiting for ${label}: ${JSON.stringify(last)}`);
@@ -128,7 +129,7 @@ async function open(browser, url, name, errors, skewMs = 0) {
   };
   await client.until("connected + seeded", (s) => s.status === "connected" && s.seeded);
   return client;
-}
+};
 
 const botsMoved = (before, after) =>
   Object.keys(before).some((id) => after[id] !== undefined && after[id] !== before[id]);
@@ -156,7 +157,7 @@ const step = async (name, run) => {
   }
 };
 
-const server = option("--url") ? { stop() {}, url: option("--url") } : await startVite();
+const server = option("--url") ? { stop: () => null, url: option("--url") } : await startVite();
 const browser = await chromium.launch({
   args: [
     "--disable-background-timer-throttling",
@@ -180,7 +181,8 @@ try {
     await host.escape();
     const s = await host.until("frozen", (h) => h.frozen && h.clock === "paused");
     await wait(400);
-    assert.equal((await host.snap()).simNow, s.simNow, "frozen sim time must hold");
+    const held = await host.snap();
+    assert.equal(held.simNow, s.simNow, "frozen sim time must hold");
   });
   await step("joiner wakes the frozen host; both see each other; clocks align", async () => {
     guest = await open(browser, server.url, "guest", errors, 5000);
@@ -235,7 +237,8 @@ try {
     await host.restart();
     const g = await guest.until("new round", (s) => s.round !== before.round);
     assert.equal(g.arena, "classic");
-    assert.equal((await host.snap()).arena, "classic");
+    const h = await host.snap();
+    assert.equal(h.arena, "classic");
   });
   await step("host leaves: guest promoted, round kept, sim keeps running", async () => {
     const before = await guest.snap();
@@ -262,7 +265,7 @@ try {
     await guest.until("host accepted late bomb", (s) => s.bombs.includes(l.id));
     await late.until("late bomb detonates", (s) => s.blasts > 0 && !s.bombs.includes(l.id), 4000);
   });
-  await step("no console errors on any client", async () => {
+  await step("no console errors on any client", () => {
     assert.deepEqual(errors, []);
   });
 } catch (error) {

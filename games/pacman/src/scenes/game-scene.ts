@@ -20,7 +20,9 @@ import { PhysicalGamepad, stickDirection4 } from "@vibedgames/gamepad";
 import type { Dir4 } from "@vibedgames/gamepad";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 
-import { isSoundOn, music, sfx, toggleSound, unlockAudio } from "../audio/sfx";
+import { music } from "../audio/music";
+import { sfx, toggleSound, unlockAudio } from "../audio/sfx";
+import { isSoundOn } from "../audio/sound-pref";
 import { restartHint } from "../controls";
 import { IS_TOUCH } from "../input/input-mode";
 import { buildControls, ensureStyle as ensureControlsStyle } from "../pause-overlay";
@@ -208,6 +210,302 @@ export interface GameDiagnostics {
   powerMs: number;
 }
 
+/** Points a pellet cell is worth — from the map, never trusted from the wire. */
+const cellScore = (cell: { col: number; row: number }): number =>
+  MAP[cell.row]?.[cell.col] === 3 ? SCORE_POWER : SCORE_PELLET;
+
+const el = (id: string): HTMLElement => {
+  const node = document.querySelector(`#${id}`);
+  if (!(node instanceof HTMLElement)) {
+    throw new Error(`missing #${id}`);
+  }
+  return node;
+};
+/**
+ * Hor+ vertical FOV. `PerspectiveCamera.fov` is the VERTICAL angle, so holding
+ * BASE_FOV on a portrait phone collapses the horizontal field to ~39° — ghosts
+ * one corridor over are invisible until they touch you. Below square, solve the
+ * vertical angle that keeps the horizontal field at its square-aspect value
+ * (same construction as games/tetris/src/render/camera-rig.ts), capped so an
+ * extreme ratio stops widening rather than turning into a fish-eye.
+ */
+const fovForAspect = (aspect: number): number => {
+  if (aspect >= 1) {
+    return BASE_FOV;
+  }
+  const vertical = (Math.atan(Math.tan((BASE_FOV * Math.PI) / 360) / aspect) * 360) / Math.PI;
+  return Math.min(MAX_FOV, vertical);
+};
+/**
+ * Butter-yellow plush ball with the animated mouth wedge, plus a face you
+ * only meet in the selfie cam: lens eyes and blush cheeks. Face is on +x
+ * (the mouth wedge's home), matching the "right" rest orientation.
+ */
+const buildPacman = (): THREE.Group => {
+  const group = new THREE.Group();
+  group.name = "pacman";
+  const body = new THREE.Mesh(
+    new THREE.SphereGeometry(PAC_RADIUS, 32, 32),
+    new THREE.MeshStandardMaterial({ color: COLORS.pacman, roughness: 0.5 }),
+  );
+  body.castShadow = true;
+  group.add(body);
+
+  const mouth = new THREE.Mesh(
+    new THREE.SphereGeometry(MOUTH_RADIUS, 32, 32, MOUTH_PHI_START, MOUTH_PHI_LENGTH, 0, 0.001),
+    new THREE.MeshStandardMaterial({ color: COLORS.mouth, side: THREE.BackSide }),
+  );
+  mouth.name = "mouth";
+  mouth.visible = false;
+  group.add(mouth);
+
+  const eyeMat = new THREE.MeshStandardMaterial({ color: COLORS.eye, roughness: 0.3 });
+  for (const side of [1, -1]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 12), eyeMat);
+    eye.position.set(0.39, 0.2, 0.175 * side);
+    group.add(eye);
+  }
+  const blushMat = new THREE.MeshStandardMaterial({ color: COLORS.blush, roughness: 0.8 });
+  for (const side of [1, -1]) {
+    const blush = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 12), blushMat);
+    blush.position.set(0.34, 0.02, 0.34 * side);
+    blush.scale.set(0.4, 0.7, 1);
+    group.add(blush);
+  }
+  return group;
+};
+/**
+ * Ghost as a Baymax-style marshmallow: pastel capsule, two black lens eyes
+ * joined by a thin line, blush cheeks, and a hidden worried "o" mouth that
+ * appears while scared. Face is on -z; the bob group yaws toward travel.
+ */
+const buildGhost = (color: number) => {
+  const group = new THREE.Group();
+  const bob = new THREE.Group();
+  group.add(bob);
+
+  const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.6 });
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.34, 0.24, 6, 20), bodyMat);
+  body.castShadow = true;
+  bob.add(body);
+
+  const darkMat = new THREE.MeshStandardMaterial({ color: COLORS.eye, roughness: 0.3 });
+  for (const side of [1, -1]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 12), darkMat);
+    eye.position.set(0.13 * side, 0.1, -0.3);
+    bob.add(eye);
+  }
+  const line = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.26, 8), darkMat);
+  line.rotation.z = Math.PI / 2;
+  line.position.set(0, 0.1, -0.345);
+  bob.add(line);
+
+  const blushMat = new THREE.MeshStandardMaterial({ color: COLORS.blush, roughness: 0.8 });
+  for (const side of [1, -1]) {
+    const blush = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 12), blushMat);
+    blush.position.set(0.23 * side, -0.05, -0.245);
+    blush.scale.set(1, 0.6, 0.4);
+    bob.add(blush);
+  }
+
+  const worry = new THREE.Mesh(new THREE.TorusGeometry(0.04, 0.013, 8, 16), darkMat);
+  worry.position.set(0, -0.06, -0.33);
+  worry.visible = false;
+  bob.add(worry);
+
+  return { bob, bodyMat, group, worry };
+};
+/** Yaw (rotation.y) that points the -z face along a grid direction. */
+const dirYaw = (dir: Dir): number => {
+  switch (dir) {
+    case "up": {
+      return 0;
+    }
+    case "down": {
+      return Math.PI;
+    }
+    case "left": {
+      return Math.PI / 2;
+    }
+    case "right": {
+      return -Math.PI / 2;
+    }
+    // no default
+  }
+};
+/** Shortest-arc angle lerp. */
+const lerpAngle = (from: number, to: number, k: number): number => {
+  let delta = (to - from) % (Math.PI * 2);
+  if (delta > Math.PI) {
+    delta -= Math.PI * 2;
+  }
+  if (delta < -Math.PI) {
+    delta += Math.PI * 2;
+  }
+  return from + delta * k;
+};
+/** Deterministic per-cell hash in [0, 1) — stable tint/height/phase wobble. */
+const hash2 = (col: number, row: number): number => {
+  const n = Math.sin(col * 127.1 + row * 311.7) * 43_758.5453;
+  return n - Math.floor(n);
+};
+/** All MAP cells of a given type (1 wall, 2 pellet, 3 power heart). */
+const mapCells = (type: number): { col: number; row: number }[] => {
+  const cells: { col: number; row: number }[] = [];
+  for (let row = 0; row < GRID_ROWS; row += 1) {
+    for (let col = 0; col < GRID_COLS; col += 1) {
+      if (MAP[row]?.[col] === type) {
+        cells.push({ col, row });
+      }
+    }
+  }
+  return cells;
+};
+/** Restart a CSS animation by re-applying its class. */
+const retrigger = (node: HTMLElement, cls: string): void => {
+  node.classList.remove(cls);
+  void node.offsetWidth;
+  node.classList.add(cls);
+};
+const hexCss = (hex: number): string => `#${hex.toString(16).padStart(6, "0")}`;
+/** Cream weave with soft polka dots — repeats across the plush floor. */
+const polkaDotTexture = (): THREE.CanvasTexture => {
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    ctx.fillStyle = hexCss(COLORS.floor);
+    ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = hexCss(COLORS.floorDot);
+    const r = 11;
+    // Center dot + quarter dots in each corner = staggered diagonal grid.
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, r, 0, Math.PI * 2);
+    ctx.fill();
+    for (const [cx, cy] of [
+      [0, 0],
+      [size, 0],
+      [0, size],
+      [size, size],
+    ] as const) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+};
+/**
+ * Advance a ghost `dist` cells along its dir, re-deciding at every grid
+ * center via `decide` (null = stop). Movement is broken at cell boundaries so
+ * decisions land exactly on centers; no wraparound (out-of-bounds is wall).
+ */
+const stepGhost = (
+  g: { x: number; z: number; dir: Dir },
+  distance: number,
+  decide: (col: number, row: number) => Dir | null,
+): void => {
+  let dist = distance;
+  let guard = 16;
+  while (dist > EPS && guard > 0) {
+    guard -= 1;
+    const col = Math.round(g.x);
+    const row = Math.round(g.z);
+    if (Math.abs(g.x - col) < EPS && Math.abs(g.z - row) < EPS) {
+      g.x = col;
+      g.z = row;
+      const next = decide(col, row);
+      if (next === null) {
+        break;
+      }
+      g.dir = next;
+    }
+    const [dx, dz] = DIR_VECT[g.dir];
+    let step: number;
+    if (dx === 0) {
+      const target = dz > 0 ? Math.floor(g.z + EPS) + 1 : Math.ceil(g.z - EPS) - 1;
+      step = Math.min(dist, Math.abs(target - g.z));
+      g.z += dz * step;
+    } else {
+      const target = dx > 0 ? Math.floor(g.x + EPS) + 1 : Math.ceil(g.x - EPS) - 1;
+      step = Math.min(dist, Math.abs(target - g.x));
+      g.x += dx * step;
+    }
+    dist -= step;
+  }
+};
+const pick = <T>(arr: readonly T[]): T | undefined => arr[Math.floor(Math.random() * arr.length)];
+/**
+ * Ghost AI, evaluated at each grid center (legacy moveGhostsOnGrid): never
+ * reverse unless dead-ended; scared = uniform random; otherwise 70% greedy
+ * (random among strictly distance-reducing options, falling back to random)
+ * / 30% pure random.
+ */
+const chooseGhostDir = (
+  col: number,
+  row: number,
+  dir: Dir,
+  scared: boolean,
+  pacX: number,
+  pacZ: number,
+): Dir | null => {
+  const open = DIRS.filter((d) => {
+    const [dx, dz] = DIR_VECT[d];
+    return isOpen(col + dx, row + dz);
+  });
+  if (open.length === 0) {
+    return null;
+  }
+  const ahead = open.filter((d) => d !== OPPOSITE[dir]);
+  const options = ahead.length > 0 ? ahead : open;
+  if (scared) {
+    return pick(options) ?? null;
+  }
+  if (Math.random() < CHASE_CHANCE) {
+    const here = (col - pacX) ** 2 + (row - pacZ) ** 2;
+    const closer = options.filter((d) => {
+      const [dx, dz] = DIR_VECT[d];
+      return (col + dx - pacX) ** 2 + (row + dz - pacZ) ** 2 < here;
+    });
+    if (closer.length > 0) {
+      return pick(closer) ?? null;
+    }
+  }
+  return pick(options) ?? null;
+};
+const loadBest = (): number => {
+  try {
+    const raw = localStorage.getItem(BEST_KEY);
+    const n = raw === null ? 0 : Math.trunc(Number(raw));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+};
+const saveBest = (best: number): void => {
+  try {
+    localStorage.setItem(BEST_KEY, String(best));
+  } catch {
+    // storage unavailable (private mode) — best just won't persist
+  }
+};
+
+/** Ghost body tint: its own color normally, the scared blue while scared, and
+ *  the blink color on the warning strobe. */
+const scaredTint = (scared: boolean, blinkOut: boolean, own: number): number => {
+  if (!scared) {
+    return own;
+  }
+  return blinkOut ? COLORS.scaredBlink : COLORS.scared;
+};
+
 export class GameScene {
   /** Wrapper pause: the sim and every input path stand still. */
   private paused = false;
@@ -247,8 +545,10 @@ export class GameScene {
   private netAcc = 0;
   private boardRound = 0;
   private boardSig = "";
-  private hostEaten = new Set<string>(); // host: authoritative eaten cells
-  private appliedEaten = new Set<string>(); // cells already removed locally
+  /** Host: authoritative eaten cells. */
+  private hostEaten = new Set<string>();
+  /** Cells already removed locally. */
+  private appliedEaten = new Set<string>();
   /** At most one optimistic claim per maze cell, retired on rejection or reset. */
   private pendingClaims = new Set<string>();
   /** Last shared board object reconciled (patches replace it, so `===` detects change). */
@@ -284,7 +584,9 @@ export class GameScene {
     mute: {
       get: () => !isSoundOn(),
       set: (muted) => {
-        if (muted !== !isSoundOn()) this.toggleSound();
+        if (muted !== !isSoundOn()) {
+          this.toggleSound();
+        }
       },
     },
     styleId: "pacman-touch-controls-style",
@@ -359,7 +661,7 @@ export class GameScene {
   private teachingDoneAt = -1;
   private teachingBlockedUntil = -1;
   /** Bitset of what the teaching card last showed — skips the DOM writes while unchanged. */
-  private teachingShown = -1;
+  private teachingShown = "";
   private resultEl = el("result");
   private resultModeEl = el("result-mode");
   private resultScoreEl = el("result-score");
@@ -461,7 +763,7 @@ export class GameScene {
       if (p["round"] !== this.boardRound || p["to"] !== this.net.playerId || !isJsonString(key)) {
         return;
       }
-      const cell = this.parseEatKey(key);
+      const cell = GameScene.parseEatKey(key);
       if (!cell || !this.pendingClaims.delete(key)) {
         return;
       }
@@ -470,7 +772,7 @@ export class GameScene {
   }
 
   /** Parse a cell key into in-bounds integer coordinates. */
-  private parseCellKey(key: string): { col: number; row: number } | null {
+  private static parseCellKey(key: string): { col: number; row: number } | null {
     const parts = key.split(",");
     if (parts.length !== 2) {
       return null;
@@ -487,15 +789,16 @@ export class GameScene {
   }
 
   /** Parse + validate a wire cell key: it must be an in-bounds eatable cell. */
-  private parseEatKey(key: string): { col: number; row: number } | null {
-    const cell = this.parseCellKey(key);
+  private static parseEatKey(key: string): { col: number; row: number } | null {
+    const cell = GameScene.parseCellKey(key);
     if (!cell) {
       return null;
     }
     const type = MAP[cell.row]?.[cell.col];
+    // 2 = pellet, 3 = power.
     if (type !== 2 && type !== 3) {
       return null;
-    } // 2 = pellet, 3 = power
+    }
     return cell;
   }
 
@@ -506,15 +809,16 @@ export class GameScene {
    * amount is derived from the map, never trusted from the wire.
    */
   private hostArbitrate(key: string, claimer: string): void {
-    const cell = this.parseEatKey(key);
+    const cell = GameScene.parseEatKey(key);
+    // Malformed / out-of-bounds / not a pellet cell: drop it.
     if (!cell) {
       return;
-    } // malformed / out-of-bounds / not a pellet cell — drop it
+    }
     if (this.hostEaten.has(key)) {
       if (claimer === (this.net.playerId ?? "solo")) {
         this.addScore(-cellScore(cell));
       } else {
-        this.net.sendEvent("reject", { key, to: claimer, round: this.boardRound });
+        this.net.sendEvent("reject", { key, round: this.boardRound, to: claimer });
       }
       return;
     }
@@ -628,7 +932,7 @@ export class GameScene {
       this.hearts.delete(key);
       return;
     }
-    const cell = this.parseCellKey(key);
+    const cell = GameScene.parseCellKey(key);
     if (cell) {
       this.pelletField.collect(cell.col, cell.row);
     }
@@ -700,12 +1004,10 @@ export class GameScene {
   }
 
   private updateNetHud(): void {
-    const netInfo =
-      !this.net.live || this.net.offline
-        ? ""
-        : this.racing
-          ? `RACE · ${this.rivalIds.length + 1} PLAYERS`
-          : "ONLINE · WAITING";
+    let netInfo = "";
+    if (this.net.live && !this.net.offline) {
+      netInfo = this.racing ? `RACE · ${this.rivalIds.length + 1} PLAYERS` : "ONLINE · WAITING";
+    }
     if (netInfo !== this.netInfoText) {
       this.netInfoText = netInfo;
       this.netInfoEl.textContent = netInfo;
@@ -903,7 +1205,7 @@ export class GameScene {
     // translucency flips between "invisible" and "blended" depending on
     // which way the chase cam faces (measured 7.5× direction asymmetry).
     const wallMat = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
+      color: 0xff_ff_ff,
       depthWrite: false,
       opacity: WALL_OPACITY,
       roughness: 0.85,
@@ -912,7 +1214,7 @@ export class GameScene {
     const walls = new THREE.InstancedMesh(wallGeo, wallMat, cells.length);
     const dummy = new THREE.Object3D();
     const tint = new THREE.Color();
-    cells.forEach(({ col, row }, i) => {
+    for (const [i, { col, row }] of cells.entries()) {
       const h = hash2(col, row);
       dummy.position.set(col, 0.44, row);
       dummy.scale.set(1, 0.94 + h * 0.1, 1);
@@ -920,7 +1222,7 @@ export class GameScene {
       walls.setMatrixAt(i, dummy.matrix);
       tint.setHex(COLORS.wall).offsetHSL(0, 0, (h - 0.5) * 2 * WALL_TINT_WOBBLE);
       walls.setColorAt(i, tint);
-    });
+    }
     walls.castShadow = true;
     walls.receiveShadow = true;
     this.scene.add(walls);
@@ -932,8 +1234,8 @@ export class GameScene {
     }
     this.hearts.clear();
     const pearls: PelletCell[] = [];
-    for (let row = 0; row < GRID_ROWS; row++) {
-      for (let col = 0; col < GRID_COLS; col++) {
+    for (let row = 0; row < GRID_ROWS; row += 1) {
+      for (let col = 0; col < GRID_COLS; col += 1) {
         const cell = MAP[row]?.[col];
         const phase = hash2(col, row) * Math.PI * 2;
         if (cell === 2) {
@@ -1063,6 +1365,7 @@ export class GameScene {
         this.chomp();
         break;
       }
+      // no default
     }
   };
 
@@ -1201,7 +1504,8 @@ export class GameScene {
     // key-repeat spam from held arrows.
     if (this.t - this.lastTurnTickAt > 0.06) {
       this.lastTurnTickAt = this.t;
-      const rate = action === "left" ? 0.94 : action === "right" ? 1.06 : 0.85;
+      const rates = { left: 0.94, reverse: 0.85, right: 1.06 };
+      const rate = rates[action];
       sfx.play("turn", { gain: 0.5, rate });
     }
   }
@@ -1404,7 +1708,8 @@ export class GameScene {
     this.fx.puff(new THREE.Vector3(this.pac.x, 0.4, this.pac.z), 12, COLORS.power, {
       speed: 1.6,
     });
-    this.squashKick = 1.6; // deflate, Baymax-style
+    // Deflate, Baymax-style.
+    this.squashKick = 1.6;
     this.softFlash();
     sfx.play("caught");
     music.duck();
@@ -1472,16 +1777,16 @@ export class GameScene {
     this.comboIdx = 0;
     this.lastPelletAt = -Infinity;
     this.squashKick = 0;
-    this.ghosts.forEach((g, i) => {
+    for (const [i, g] of this.ghosts.entries()) {
       const spawn = GHOST_SPAWNS[i % GHOST_SPAWNS.length];
       if (!spawn) {
-        return;
+        continue;
       }
       g.x = spawn.col;
       g.z = spawn.row;
       g.dir = spawn.dir;
       g.spawnScale = 1;
-    });
+    }
   }
 
   private beginReady(): void {
@@ -1609,8 +1914,7 @@ export class GameScene {
       (this.phase === "ready" || this.phase === "playing") &&
       (this.teachingDoneAt < 0 || this.t - this.teachingDoneAt < 2);
     const blocked = this.t < this.teachingBlockedUntil;
-    const shown =
-      (visible ? 1 : 0) | (this.taughtStep ? 2 : 0) | (this.taughtTurn ? 4 : 0) | (blocked ? 8 : 0);
+    const shown = [visible, this.taughtStep, this.taughtTurn, blocked].join(",");
     if (shown === this.teachingShown) {
       return;
     }
@@ -1620,15 +1924,23 @@ export class GameScene {
     this.teachingTurnEl.textContent = this.taughtTurn ? "✓ TURN" : "2 · TURN";
     this.teachingStepEl.classList.toggle("done", this.taughtStep);
     this.teachingTurnEl.classList.toggle("done", this.taughtTurn);
-    this.teachingNoteEl.textContent = blocked
-      ? "Wall ahead · turn, then chomp"
-      : this.taughtStep && this.taughtTurn
-        ? "Got it! Chomp, turn, tidy the maze ♥"
-        : this.taughtTurn
-          ? "Now chomp · one open tile per bite"
-          : this.taughtStep
-            ? "Turn left or right · relative to your facing"
-            : "One chomp = one tile · turns follow your facing";
+    this.teachingNoteEl.textContent = this.teachingNote(blocked);
+  }
+
+  private teachingNote(blocked: boolean): string {
+    if (blocked) {
+      return "Wall ahead · turn, then chomp";
+    }
+    if (this.taughtStep && this.taughtTurn) {
+      return "Got it! Chomp, turn, tidy the maze ♥";
+    }
+    if (this.taughtTurn) {
+      return "Now chomp · one open tile per bite";
+    }
+    if (this.taughtStep) {
+      return "Turn left or right · relative to your facing";
+    }
+    return "One chomp = one tile · turns follow your facing";
   }
 
   // ---- rendering ---------------------------------------------------------------
@@ -1679,14 +1991,19 @@ export class GameScene {
     this.mouthAngle += (target - this.mouthAngle) * Math.min(dt * MOUTH_LERP_RATE, 1);
     this.syncMouth(this.pac.isMoving ? this.mouthAngle : 0);
 
-    // Ghosts: staggered bob, face toward travel direction, tremble + worry
-    // while scared (blinking pale in the final stretch), grow-in after respawn.
+    this.renderGhosts(dt, tMs);
+    this.renderHearts();
+  }
+
+  /** Ghosts: staggered bob, face toward travel direction, tremble + worry
+   *  while scared (blinking pale in the final stretch), grow-in after respawn. */
+  private renderGhosts(dt: number, tMs: number): void {
     const scared = this.scaredMs > 0 && this.phase === "playing";
     const blinkOut =
       scared &&
       this.scaredMs < SCARED_WARN_MS &&
       Math.floor(this.scaredMs / SCARED_BLINK_INTERVAL_MS) % 2 === 0;
-    this.ghosts.forEach((ghost, i) => {
+    for (const [i, ghost] of this.ghosts.entries()) {
       const phase = i * GHOST_BOB_STAGGER;
       const bobY = Math.sin(tMs * GHOST_BOB_FREQ + phase) * GHOST_BOB_AMP + GHOST_BOB_BASE;
       ghost.group.position.set(ghost.x, 0, ghost.z);
@@ -1696,18 +2013,18 @@ export class GameScene {
         : 0;
       ghost.yaw = lerpAngle(ghost.yaw, dirYaw(ghost.dir), Math.min(1, dt * GHOST_YAW_RATE));
       ghost.bob.rotation.y = ghost.yaw;
-      ghost.bodyMat.color.setHex(
-        scared ? (blinkOut ? COLORS.scaredBlink : COLORS.scared) : ghost.color,
-      );
+      ghost.bodyMat.color.setHex(scaredTint(scared, blinkOut, ghost.color));
       ghost.worry.visible = scared;
       ghost.spawnScale = Math.min(1, ghost.spawnScale + dt * 3);
       const grow = 1 - (1 - ghost.spawnScale) * (1 - ghost.spawnScale);
       const targetScale = (scared ? GHOST_SCARED_SCALE : 1) * grow;
       ghost.scale += (targetScale - ghost.scale) * Math.min(1, dt * 8);
       ghost.group.scale.setScalar(Math.max(ghost.scale, 1e-3));
-    });
+    }
+  }
 
-    // Pearls shimmer (instanced); power hearts breathe and twirl.
+  /** Pearls shimmer (instanced); power hearts breathe and twirl. */
+  private renderHearts(): void {
     this.pelletField.update(this.t);
     for (const heart of this.hearts.values()) {
       const pulse = 1 + HEART_PULSE_AMP * Math.sin(this.t * HEART_PULSE_FREQ + heart.phase);
@@ -1816,307 +2133,3 @@ export class GameScene {
 }
 
 // ---- pure helpers ---------------------------------------------------------------
-
-/** Points a pellet cell is worth — from the map, never trusted from the wire. */
-function cellScore(cell: { col: number; row: number }): number {
-  return MAP[cell.row]?.[cell.col] === 3 ? SCORE_POWER : SCORE_PELLET;
-}
-
-function el(id: string): HTMLElement {
-  const node = document.querySelector(`#${id}`);
-  if (!node) {
-    throw new Error(`missing #${id}`);
-  }
-  return node;
-}
-
-/**
- * Hor+ vertical FOV. `PerspectiveCamera.fov` is the VERTICAL angle, so holding
- * BASE_FOV on a portrait phone collapses the horizontal field to ~39° — ghosts
- * one corridor over are invisible until they touch you. Below square, solve the
- * vertical angle that keeps the horizontal field at its square-aspect value
- * (same construction as games/tetris/src/render/camera-rig.ts), capped so an
- * extreme ratio stops widening rather than turning into a fish-eye.
- */
-function fovForAspect(aspect: number): number {
-  if (aspect >= 1) {
-    return BASE_FOV;
-  }
-  const vertical = (Math.atan(Math.tan((BASE_FOV * Math.PI) / 360) / aspect) * 360) / Math.PI;
-  return Math.min(MAX_FOV, vertical);
-}
-
-/**
- * Butter-yellow plush ball with the animated mouth wedge, plus a face you
- * only meet in the selfie cam: lens eyes and blush cheeks. Face is on +x
- * (the mouth wedge's home), matching the "right" rest orientation.
- */
-function buildPacman(): THREE.Group {
-  const group = new THREE.Group();
-  group.name = "pacman";
-  const body = new THREE.Mesh(
-    new THREE.SphereGeometry(PAC_RADIUS, 32, 32),
-    new THREE.MeshStandardMaterial({ color: COLORS.pacman, roughness: 0.5 }),
-  );
-  body.castShadow = true;
-  group.add(body);
-
-  const mouth = new THREE.Mesh(
-    new THREE.SphereGeometry(MOUTH_RADIUS, 32, 32, MOUTH_PHI_START, MOUTH_PHI_LENGTH, 0, 0.001),
-    new THREE.MeshStandardMaterial({ color: COLORS.mouth, side: THREE.BackSide }),
-  );
-  mouth.name = "mouth";
-  mouth.visible = false;
-  group.add(mouth);
-
-  const eyeMat = new THREE.MeshStandardMaterial({ color: COLORS.eye, roughness: 0.3 });
-  for (const side of [1, -1]) {
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 12), eyeMat);
-    eye.position.set(0.39, 0.2, 0.175 * side);
-    group.add(eye);
-  }
-  const blushMat = new THREE.MeshStandardMaterial({ color: COLORS.blush, roughness: 0.8 });
-  for (const side of [1, -1]) {
-    const blush = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 12), blushMat);
-    blush.position.set(0.34, 0.02, 0.34 * side);
-    blush.scale.set(0.4, 0.7, 1);
-    group.add(blush);
-  }
-  return group;
-}
-
-/**
- * Ghost as a Baymax-style marshmallow: pastel capsule, two black lens eyes
- * joined by a thin line, blush cheeks, and a hidden worried "o" mouth that
- * appears while scared. Face is on -z; the bob group yaws toward travel.
- */
-function buildGhost(color: number) {
-  const group = new THREE.Group();
-  const bob = new THREE.Group();
-  group.add(bob);
-
-  const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.6 });
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.34, 0.24, 6, 20), bodyMat);
-  body.castShadow = true;
-  bob.add(body);
-
-  const darkMat = new THREE.MeshStandardMaterial({ color: COLORS.eye, roughness: 0.3 });
-  for (const side of [1, -1]) {
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 12), darkMat);
-    eye.position.set(0.13 * side, 0.1, -0.3);
-    bob.add(eye);
-  }
-  const line = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.26, 8), darkMat);
-  line.rotation.z = Math.PI / 2;
-  line.position.set(0, 0.1, -0.345);
-  bob.add(line);
-
-  const blushMat = new THREE.MeshStandardMaterial({ color: COLORS.blush, roughness: 0.8 });
-  for (const side of [1, -1]) {
-    const blush = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 12), blushMat);
-    blush.position.set(0.23 * side, -0.05, -0.245);
-    blush.scale.set(1, 0.6, 0.4);
-    bob.add(blush);
-  }
-
-  const worry = new THREE.Mesh(new THREE.TorusGeometry(0.04, 0.013, 8, 16), darkMat);
-  worry.position.set(0, -0.06, -0.33);
-  worry.visible = false;
-  bob.add(worry);
-
-  return { bob, bodyMat, group, worry };
-}
-
-/** Yaw (rotation.y) that points the -z face along a grid direction. */
-function dirYaw(dir: Dir): number {
-  switch (dir) {
-    case "up": {
-      return 0;
-    }
-    case "down": {
-      return Math.PI;
-    }
-    case "left": {
-      return Math.PI / 2;
-    }
-    case "right": {
-      return -Math.PI / 2;
-    }
-  }
-}
-
-/** Shortest-arc angle lerp. */
-function lerpAngle(from: number, to: number, k: number): number {
-  let delta = (to - from) % (Math.PI * 2);
-  if (delta > Math.PI) {
-    delta -= Math.PI * 2;
-  }
-  if (delta < -Math.PI) {
-    delta += Math.PI * 2;
-  }
-  return from + delta * k;
-}
-
-/** Deterministic per-cell hash in [0, 1) — stable tint/height/phase wobble. */
-function hash2(col: number, row: number): number {
-  const n = Math.sin(col * 127.1 + row * 311.7) * 43_758.5453;
-  return n - Math.floor(n);
-}
-
-/** All MAP cells of a given type (1 wall, 2 pellet, 3 power heart). */
-function mapCells(type: number): { col: number; row: number }[] {
-  const cells: { col: number; row: number }[] = [];
-  for (let row = 0; row < GRID_ROWS; row++) {
-    for (let col = 0; col < GRID_COLS; col++) {
-      if (MAP[row]?.[col] === type) {
-        cells.push({ col, row });
-      }
-    }
-  }
-  return cells;
-}
-
-/** Restart a CSS animation by re-applying its class. */
-function retrigger(el: HTMLElement, cls: string): void {
-  el.classList.remove(cls);
-  void el.offsetWidth;
-  el.classList.add(cls);
-}
-
-/** Cream weave with soft polka dots — repeats across the plush floor. */
-function polkaDotTexture(): THREE.CanvasTexture {
-  const size = 128;
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d");
-  if (ctx) {
-    ctx.fillStyle = hexCss(COLORS.floor);
-    ctx.fillRect(0, 0, size, size);
-    ctx.fillStyle = hexCss(COLORS.floorDot);
-    const r = 11;
-    // Center dot + quarter dots in each corner = staggered diagonal grid.
-    ctx.beginPath();
-    ctx.arc(size / 2, size / 2, r, 0, Math.PI * 2);
-    ctx.fill();
-    for (const [cx, cy] of [
-      [0, 0],
-      [size, 0],
-      [0, size],
-      [size, size],
-    ] as const) {
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
-  return tex;
-}
-
-function hexCss(hex: number): string {
-  return `#${hex.toString(16).padStart(6, "0")}`;
-}
-
-/**
- * Advance a ghost `dist` cells along its dir, re-deciding at every grid
- * center via `decide` (null = stop). Movement is broken at cell boundaries so
- * decisions land exactly on centers; no wraparound (out-of-bounds is wall).
- */
-function stepGhost(
-  g: { x: number; z: number; dir: Dir },
-  dist: number,
-  decide: (col: number, row: number) => Dir | null,
-): void {
-  let guard = 16;
-  while (dist > EPS && guard-- > 0) {
-    const col = Math.round(g.x);
-    const row = Math.round(g.z);
-    if (Math.abs(g.x - col) < EPS && Math.abs(g.z - row) < EPS) {
-      g.x = col;
-      g.z = row;
-      const next = decide(col, row);
-      if (next === null) {
-        break;
-      }
-      g.dir = next;
-    }
-    const [dx, dz] = DIR_VECT[g.dir];
-    let step: number;
-    if (dx === 0) {
-      const target = dz > 0 ? Math.floor(g.z + EPS) + 1 : Math.ceil(g.z - EPS) - 1;
-      step = Math.min(dist, Math.abs(target - g.z));
-      g.z += dz * step;
-    } else {
-      const target = dx > 0 ? Math.floor(g.x + EPS) + 1 : Math.ceil(g.x - EPS) - 1;
-      step = Math.min(dist, Math.abs(target - g.x));
-      g.x += dx * step;
-    }
-    dist -= step;
-  }
-}
-
-/**
- * Ghost AI, evaluated at each grid center (legacy moveGhostsOnGrid): never
- * reverse unless dead-ended; scared = uniform random; otherwise 70% greedy
- * (random among strictly distance-reducing options, falling back to random)
- * / 30% pure random.
- */
-function chooseGhostDir(
-  col: number,
-  row: number,
-  dir: Dir,
-  scared: boolean,
-  pacX: number,
-  pacZ: number,
-): Dir | null {
-  const open = DIRS.filter((d) => {
-    const [dx, dz] = DIR_VECT[d];
-    return isOpen(col + dx, row + dz);
-  });
-  if (open.length === 0) {
-    return null;
-  }
-  const ahead = open.filter((d) => d !== OPPOSITE[dir]);
-  const options = ahead.length > 0 ? ahead : open;
-  if (scared) {
-    return pick(options) ?? null;
-  }
-  if (Math.random() < CHASE_CHANCE) {
-    const here = (col - pacX) ** 2 + (row - pacZ) ** 2;
-    const closer = options.filter((d) => {
-      const [dx, dz] = DIR_VECT[d];
-      return (col + dx - pacX) ** 2 + (row + dz - pacZ) ** 2 < here;
-    });
-    if (closer.length > 0) {
-      return pick(closer) ?? null;
-    }
-  }
-  return pick(options) ?? null;
-}
-
-function pick<T>(arr: readonly T[]): T | undefined {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-
-function loadBest(): number {
-  try {
-    const raw = localStorage.getItem(BEST_KEY);
-    const n = raw === null ? 0 : Number.parseInt(raw, 10);
-    return Number.isFinite(n) && n > 0 ? n : 0;
-  } catch {
-    return 0;
-  }
-}
-
-function saveBest(best: number): void {
-  try {
-    localStorage.setItem(BEST_KEY, String(best));
-  } catch {
-    // storage unavailable (private mode) — best just won't persist
-  }
-}

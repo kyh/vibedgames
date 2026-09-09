@@ -1,8 +1,8 @@
-import Phaser from "phaser";
+import { Scene } from "phaser";
 
 import { BIRD_FLAP_FPS, DRAGON_SKINS } from "../shared/constants";
 
-export class BootScene extends Phaser.Scene {
+export class BootScene extends Scene {
   constructor() {
     super("Boot");
   }
@@ -11,20 +11,20 @@ export class BootScene extends Phaser.Scene {
     this.makeUtilTextures();
 
     // Game art, flat in public/ (loaded by relative URL).
-    for (let n = 1; n <= DRAGON_SKINS; n++) {
-      for (let f = 1; f <= 4; f++) {
+    for (let n = 1; n <= DRAGON_SKINS; n += 1) {
+      for (let f = 1; f <= 4; f += 1) {
         this.load.image(`dragon-${n}-${f}`, `dragon-${n}-${f}.png`);
       }
     }
-    for (let i = 1; i <= 4; i++) {
+    for (let i = 1; i <= 4; i += 1) {
       this.load.image(`bg-${i}`, `bg-${i}.png`);
     }
     this.load.image("tube-cap", "tube-cap.png");
     this.load.image("tube-body", "tube-body.png");
-    for (let i = 1; i <= 6; i++) {
+    for (let i = 1; i <= 6; i += 1) {
       this.load.image(`coin-${i}`, `coin-${i}.png`);
     }
-    for (let i = 1; i <= 8; i++) {
+    for (let i = 1; i <= 8; i += 1) {
       this.load.image(`burst-${i}`, `burst-${i}.png`);
     }
     this.load.spritesheet("digits", "digits.png", { frameHeight: 16, frameWidth: 16 });
@@ -41,7 +41,7 @@ export class BootScene extends Phaser.Scene {
 
   create(): void {
     // One wing cycle per skin across its four single-frame textures.
-    for (let n = 1; n <= DRAGON_SKINS; n++) {
+    for (let n = 1; n <= DRAGON_SKINS; n += 1) {
       this.anims.create({
         frameRate: BIRD_FLAP_FPS,
         frames: [1, 2, 3, 4].map((f) => ({ key: `dragon-${n}-${f}` })),

@@ -86,6 +86,12 @@ const CSS = `
 
 /** View-only expedition information. The scene still owns every action, clock,
  * purchase and relic; inspecting the safe-room build never mutates a run. */
+const setColor = (text: Phaser.GameObjects.Text, color: string): void => {
+  if (text.style.color !== color) {
+    text.setColor(color);
+  }
+};
+
 export class ExpeditionHud {
   private readonly special: Phaser.GameObjects.Text;
   private readonly boss: Phaser.GameObjects.Text;
@@ -103,11 +109,14 @@ export class ExpeditionHud {
   private inset = { bottom: 0, left: 0, right: 0, top: 0 };
   private visible = true;
 
-  constructor(
-    private readonly scene: Phaser.Scene,
-    private readonly hearts: Phaser.GameObjects.Text,
-    private readonly info: Phaser.GameObjects.Text,
-  ) {
+  private readonly scene: Phaser.Scene;
+  private readonly hearts: Phaser.GameObjects.Text;
+  private readonly info: Phaser.GameObjects.Text;
+
+  constructor(scene: Phaser.Scene, hearts: Phaser.GameObjects.Text, info: Phaser.GameObjects.Text) {
+    this.scene = scene;
+    this.hearts = hearts;
+    this.info = info;
     this.special = this.text("#34e5c8");
     this.boss = this.text("#d8dee6").setOrigin(0.5, 0);
     this.offerTitle = this.text("#ffd15c").setOrigin(0.5, 0);
@@ -235,6 +244,9 @@ export class ExpeditionHud {
         setColor(this.special, "#8b95a1");
         break;
       }
+      default: {
+        break;
+      }
     }
   }
 
@@ -314,12 +326,12 @@ export class ExpeditionHud {
       .setWordWrapWidth(column)
       .setPosition(x, y + this.offerTitle.height + 2)
       .setText(offer.desc);
-    const hint =
-      offer.kind === "affordable"
-        ? "Walk into the relic to buy"
-        : offer.kind === "unaffordable"
-          ? `Need ${missingGold} more gold`
-          : "Added to the shared build";
+    let hint = "Added to the shared build";
+    if (offer.kind === "affordable") {
+      hint = "Walk into the relic to buy";
+    } else if (offer.kind === "unaffordable") {
+      hint = `Need ${missingGold} more gold`;
+    }
     this.offerHint
       .setWordWrapWidth(column)
       .setPosition(x, this.offerEffect.y + this.offerEffect.height + 3)
@@ -368,10 +380,4 @@ export class ExpeditionHud {
       event.stopPropagation();
     }
   };
-}
-
-function setColor(text: Phaser.GameObjects.Text, color: string): void {
-  if (text.style.color !== color) {
-    text.setColor(color);
-  }
 }

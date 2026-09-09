@@ -33,20 +33,25 @@ declare global {
 
 // localStorage throws in some embeds (sandboxed iframes, blocked cookies,
 // private modes). The game must boot and run without persistence.
-function storageGet(key: string): string | null {
+const storageGet = (key: string): string | null => {
   try {
     return window.localStorage.getItem(key);
   } catch {
     return null;
   }
-}
-function storageSet(key: string, value: string): void {
+};
+const storageSet = (key: string, value: string): void => {
   try {
     window.localStorage.setItem(key, value);
   } catch {
     // Blocked store just loses persistence — never the sound toggle.
   }
-}
+};
+
+/** Music never cuts a personal cue; progression can retire lower-priority phrases. */
+const outranks = (incoming: VoiceKind, playing: VoiceKind): boolean =>
+  (playing === "routine" && incoming !== "routine") ||
+  (playing === "local" && incoming === "important");
 
 class SoundEngine {
   private ctx: AudioContext | null = null;
@@ -101,21 +106,24 @@ class SoundEngine {
       return;
     }
     if (c.state === "suspended") {
-      void c.resume().then(
-        () => {
-          if (this.ctx !== c) {
-            return undefined;
-          }
-          // A pause may have arrived while the browser was unlocking audio.
-          if (this.paused) {
-            this.suspendContext(c);
-          } else {
-            this.syncMusic();
-          }
-          return;
-        },
-        () => {},
-      );
+      void this.unlock(c);
+    } else {
+      this.syncMusic();
+    }
+  }
+
+  private async unlock(c: AudioContext): Promise<void> {
+    try {
+      await c.resume();
+    } catch {
+      return;
+    }
+    if (this.ctx !== c) {
+      return;
+    }
+    // A pause may have arrived while the browser was unlocking audio.
+    if (this.paused) {
+      this.suspendContext(c);
     } else {
       this.syncMusic();
     }
@@ -143,16 +151,19 @@ class SoundEngine {
     if (c.state === "closed") {
       return;
     }
-    void c.suspend().then(
-      () => {
-        // A quick resume can precede completion of the older suspend request.
-        if (this.ctx === c && !this.paused) {
-          this.resume();
-        }
-        return;
-      },
-      () => {},
-    );
+    void this.suspend(c);
+  }
+
+  private async suspend(c: AudioContext): Promise<void> {
+    try {
+      await c.suspend();
+    } catch {
+      return;
+    }
+    // A quick resume can precede completion of the older suspend request.
+    if (this.ctx === c && !this.paused) {
+      this.resume();
+    }
   }
 
   private syncMaster(): void {
@@ -169,36 +180,11 @@ class SoundEngine {
     if (this.muted || this.paused || !c || c.state !== "running") {
       return null;
     }
-    if (
-      (kind === "routine" && this.voices.size + count > ROUTINE_LIMIT) ||
-      (kind === "music" && this.musicVoiceCount() + count > MUSIC_LIMIT)
-    ) {
+    if (this.overBudget(kind, count)) {
       return null;
     }
-    const limit = kind === "local" ? LOCAL_LIMIT : MAX_VOICES;
-    const victims = new Set<Phrase>();
-    let remaining = this.voices.size;
-    // Reserve the entire cue before retiring anything. Music never cuts a
-    // personal cue; progression can retire lower-priority phrases as a unit.
-    for (const voice of this.voices) {
-      if (remaining + count <= limit) {
-        break;
-      }
-      const { phrase } = voice;
-      const lower =
-        (phrase.kind === "routine" && kind !== "routine") ||
-        (phrase.kind === "local" && kind === "important");
-      if (!lower || victims.has(phrase)) {
-        continue;
-      }
-      victims.add(phrase);
-      for (const owned of this.voices) {
-        if (owned.phrase === phrase) {
-          remaining--;
-        }
-      }
-    }
-    if (remaining + count > limit) {
+    const victims = this.retirable(kind, count);
+    if (!victims) {
       return null;
     }
     for (const voice of this.voices) {
@@ -207,6 +193,37 @@ class SoundEngine {
       }
     }
     return { context: c, kind };
+  }
+
+  private overBudget(kind: VoiceKind, count: number): boolean {
+    return (
+      (kind === "routine" && this.voices.size + count > ROUTINE_LIMIT) ||
+      (kind === "music" && this.musicVoiceCount() + count > MUSIC_LIMIT)
+    );
+  }
+
+  /** Reserve the entire cue before retiring anything: the lower-priority
+   *  phrases that make room for `count` voices, or null when they can't. */
+  private retirable(kind: VoiceKind, count: number): Set<Phrase> | null {
+    const limit = kind === "local" ? LOCAL_LIMIT : MAX_VOICES;
+    const victims = new Set<Phrase>();
+    let remaining = this.voices.size;
+    for (const voice of this.voices) {
+      if (remaining + count <= limit) {
+        break;
+      }
+      const { phrase } = voice;
+      if (!outranks(kind, phrase.kind) || victims.has(phrase)) {
+        continue;
+      }
+      victims.add(phrase);
+      for (const owned of this.voices) {
+        if (owned.phrase === phrase) {
+          remaining -= 1;
+        }
+      }
+    }
+    return remaining + count > limit ? null : victims;
   }
 
   private ownVoice(source: AudioScheduledSourceNode, nodes: AudioNode[], phrase: Phrase): void {
@@ -238,7 +255,9 @@ class SoundEngine {
   private musicVoiceCount(): number {
     let count = 0;
     for (const voice of this.voices) {
-      if (voice.phrase.kind === "music") count++;
+      if (voice.phrase.kind === "music") {
+        count += 1;
+      }
     }
     return count;
   }
@@ -297,7 +316,7 @@ class SoundEngine {
       const len = Math.floor(c.sampleRate * opts.dur);
       buf = c.createBuffer(1, len, c.sampleRate);
       const data = buf.getChannelData(0);
-      for (let i = 0; i < len; i++) {
+      for (let i = 0; i < len; i += 1) {
         data[i] = (Math.random() * 2 - 1) * (1 - i / len);
       }
       this.noiseBuffers.set(opts.dur, buf);
@@ -389,15 +408,9 @@ class SoundEngine {
     if (!phrase) {
       return;
     }
-    [880, 1175, 1568].forEach((f, i) =>
-      this.tone(phrase, {
-        delay: i * 0.06,
-        dur: 0.12,
-        freq: f,
-        type: "square",
-        vol: 0.12,
-      }),
-    );
+    for (const [i, f] of [880, 1175, 1568].entries()) {
+      this.tone(phrase, { delay: i * 0.06, dur: 0.12, freq: f, type: "square", vol: 0.12 });
+    }
   }
   click(priority: SoundPriority = "routine"): void {
     const phrase = this.admit(priority, 1);
@@ -419,15 +432,9 @@ class SoundEngine {
     if (!phrase) {
       return;
     }
-    [523, 659, 784, 1047].forEach((f, i) =>
-      this.tone(phrase, {
-        delay: i * 0.1,
-        dur: 0.28,
-        freq: f,
-        type: "triangle",
-        vol: 0.14,
-      }),
-    );
+    for (const [i, f] of [523, 659, 784, 1047].entries()) {
+      this.tone(phrase, { delay: i * 0.1, dur: 0.28, freq: f, type: "triangle", vol: 0.14 });
+    }
   }
 
   // ---- ambient music (procedural, looping) ----
@@ -500,7 +507,7 @@ class SoundEngine {
         this.musicNote(phrase, b, 0.05, stepDur * 2.2, "triangle");
       }
     }
-    session.step++;
+    session.step += 1;
     this.musicId = setTimeout(() => {
       if (this.music !== session) {
         return;

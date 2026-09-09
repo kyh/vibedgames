@@ -1,7 +1,7 @@
 import * as THREE from "three";
 
 /** Fade the existing open beam meshes at their silhouettes and height ends. */
-export function softLightMaterial(color: number, opacity: number): THREE.MeshBasicMaterial {
+export const softLightMaterial = (color: number, opacity: number): THREE.MeshBasicMaterial => {
   const material = new THREE.MeshBasicMaterial({
     blending: THREE.AdditiveBlending,
     color,
@@ -30,4 +30,4 @@ export function softLightMaterial(color: number, opacity: number): THREE.MeshBas
   };
   material.customProgramCacheKey = () => "arena-soft-light-v1";
   return material;
-}
+};

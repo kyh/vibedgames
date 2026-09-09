@@ -11,14 +11,37 @@ export type FlightHudState = Readonly<{
   mastery: WeaponMasteryState;
 }>;
 
+const masteryText = (mastery: WeaponMasteryState): string => {
+  if (mastery.phase === "idle") {
+    return "";
+  }
+  const rail = mastery.weapon === "RAILGUN";
+  if (mastery.completions > 0) {
+    return `${rail ? "Aligned shots" : "Return hits"}: ${mastery.completions}`;
+  }
+  return rail ? "Pierce two enemies with one shot." : "Hit the same enemy out and back.";
+};
+
+const setText = (node: HTMLElement | null, value: string): void => {
+  if (node && node.textContent !== value) {
+    node.textContent = value;
+  }
+};
+
+const setAttribute = (node: HTMLElement, name: string, value: string): void => {
+  if (node.getAttribute(name) !== value) {
+    node.setAttribute(name, value);
+  }
+};
+
 /** DOM view of level / XP / special-weapon time / mastery (index.html owns the nodes). */
 export class FlightHud {
-  private readonly progress = document.querySelector("#flight-progress");
-  private readonly level = document.querySelector("#flight-level");
-  private readonly xp = document.querySelector("#flight-xp");
-  private readonly fill = document.querySelector("#flight-xp-fill");
-  private readonly time = document.querySelector("#weapon-time");
-  private readonly mastery = document.querySelector("#weapon-mastery");
+  private readonly progress = document.querySelector<HTMLElement>("#flight-progress");
+  private readonly level = document.querySelector<HTMLElement>("#flight-level");
+  private readonly xp = document.querySelector<HTMLElement>("#flight-xp");
+  private readonly fill = document.querySelector<HTMLElement>("#flight-xp-fill");
+  private readonly time = document.querySelector<HTMLElement>("#weapon-time");
+  private readonly mastery = document.querySelector<HTMLElement>("#weapon-mastery");
 
   update(state: FlightHudState): void {
     if (!state.active) {
@@ -75,28 +98,5 @@ export class FlightHud {
       this.time.hidden = true;
       setText(this.time, "");
     }
-  }
-}
-
-function masteryText(mastery: WeaponMasteryState): string {
-  if (mastery.phase === "idle") {
-    return "";
-  }
-  const rail = mastery.weapon === "RAILGUN";
-  if (mastery.completions > 0) {
-    return `${rail ? "Aligned shots" : "Return hits"}: ${mastery.completions}`;
-  }
-  return rail ? "Pierce two enemies with one shot." : "Hit the same enemy out and back.";
-}
-
-function setText(node: HTMLElement | null, value: string): void {
-  if (node && node.textContent !== value) {
-    node.textContent = value;
-  }
-}
-
-function setAttribute(node: HTMLElement, name: string, value: string): void {
-  if (node.getAttribute(name) !== value) {
-    node.setAttribute(name, value);
   }
 }

@@ -181,8 +181,8 @@ const smooth = new BattleBeatDirector();
 let prior = smooth.update(frame(0));
 let candidateSince = -1;
 for (let t = 100; t <= 25_000; t += 100) {
-  const target = waveBattleBeat(t / 1000);
-  if (target !== prior && candidateSince < 0) {
+  const mood = waveBattleBeat(t / 1000);
+  if (mood !== prior && candidateSince < 0) {
     candidateSince = t;
   }
   const beat = smooth.update(frame(t));
@@ -240,19 +240,19 @@ console.log("PASS battle beat hysteresis, aftermath, gaps, rewinds and pauses");
 
 // ---- weapon mastery -------------------------------------------------------------------
 
-function active(mastery: WeaponMastery) {
+const active = (mastery: WeaponMastery) => {
   const { state } = mastery;
   assert.equal(state.phase, "active");
   if (state.phase !== "active") {
     throw new Error("unreachable");
   }
   return state;
-}
-function shot(mastery: WeaponMastery, weapon: string, now: number) {
+};
+const shot = (mastery: WeaponMastery, weapon: string, now: number) => {
   const value = mastery.shot(weapon, now);
   assert.ok(value);
   return value;
-}
+};
 
 const rail = new WeaponMastery();
 assert.equal(rail.shot("RAILGUN", 1000), null, "no window before pickup");
@@ -298,7 +298,7 @@ glaive.contact(blade, "a", true, 1401);
 assert.equal(active(glaive).completions, 1, "same beam, same target, out then back");
 assert.equal(active(glaive).contacts, 4);
 const held = active(glaive);
-for (let i = 0; i < 60; i++) {
+for (let i = 0; i < 60; i += 1) {
   glaive.advance(1500, true, "GLAIVE");
 }
 assert.deepEqual(glaive.state, held);
@@ -306,7 +306,7 @@ glaive.pickup("BLASTER", 1600, 21_600);
 assert.deepEqual(glaive.state, { phase: "idle" }, "non-mastery weapons clear the window");
 
 for (const end of [
-  { alive: true, now: 21000, weapon: "RAILGUN" },
+  { alive: true, now: 21_000, weapon: "RAILGUN" },
   { alive: false, now: 1100, weapon: "RAILGUN" },
   { alive: true, now: 1100, weapon: "GLAIVE" },
   { alive: true, now: 900, weapon: "RAILGUN" },

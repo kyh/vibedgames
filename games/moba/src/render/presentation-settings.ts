@@ -7,7 +7,7 @@ export interface PresentationSettings {
 const KEY = "moba:presentation";
 const listeners = new Set<() => void>();
 
-export function parsePresentationSettings(raw: string | null): PresentationSettings {
+export const parsePresentationSettings = (raw: string | null): PresentationSettings => {
   const defaults: PresentationSettings = { effects: "full", motion: "system", view: "standard" };
   try {
     const value: unknown = JSON.parse(raw ?? "null");
@@ -23,24 +23,22 @@ export function parsePresentationSettings(raw: string | null): PresentationSetti
   } catch {
     return defaults;
   }
-}
+};
 
-function storedSettings(): PresentationSettings {
+const storedSettings = (): PresentationSettings => {
   try {
     return parsePresentationSettings(window.localStorage.getItem(KEY));
   } catch {
     return parsePresentationSettings(null);
   }
-}
+};
 
 let settings = storedSettings();
 
-export function presentationSettings(): Readonly<PresentationSettings> {
-  return settings;
-}
+export const presentationSettings = (): Readonly<PresentationSettings> => settings;
 
 /** Blocked embed storage loses persistence, never the current preference. */
-export function setPresentationSettings(next: PresentationSettings): void {
+export const setPresentationSettings = (next: PresentationSettings): void => {
   settings = { ...next };
   try {
     window.localStorage.setItem(KEY, JSON.stringify(settings));
@@ -50,17 +48,17 @@ export function setPresentationSettings(next: PresentationSettings): void {
   for (const listener of listeners) {
     listener();
   }
-}
+};
 
-export function watchPresentationSettings(listener: () => void): () => void {
+export const watchPresentationSettings = (listener: () => void): (() => void) => {
   listeners.add(listener);
   return () => listeners.delete(listener);
-}
+};
 
 let reducedMotionQuery: MediaQueryList | null = null;
 
 /** The OS preference or the in-game motion setting: skip entrance/pulse motion. */
-export function reducedMotion(): boolean {
+export const reducedMotion = (): boolean => {
   reducedMotionQuery ??= window.matchMedia("(prefers-reduced-motion: reduce)");
   return reducedMotionQuery.matches || settings.motion === "reduced";
-}
+};

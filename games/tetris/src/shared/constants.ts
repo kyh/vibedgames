@@ -36,8 +36,9 @@ export const MAX_DT = 0.05;
 /** A cleared X-line is WELL_WIDTH cubes; a Z-line is WELL_DEPTH. Score adds
  *  the line length, then a combo bonus when both axes clear at once. */
 export const DOUBLE_CLEAR_BONUS = 50;
-export const HARD_DROP_POINTS = 2; // per cell fallen
-export const SOFT_DROP_POINTS = 1; // per cell fallen
+// Both per cell fallen.
+export const HARD_DROP_POINTS = 2;
+export const SOFT_DROP_POINTS = 1;
 
 // ---- charge / power-sweep ---------------------------------------------------
 
@@ -61,9 +62,9 @@ export interface PieceDef {
  * straight to an index. Rotation is rotateCW in the XZ plane (see board.ts).
  */
 export const PIECES: PieceDef[] = [
-  { color: 0x00e5ff, footprint: [[1, 1, 1, 1]], name: "I" },
+  { color: 0x00_e5_ff, footprint: [[1, 1, 1, 1]], name: "I" },
   {
-    color: 0xffd500,
+    color: 0xff_d5_00,
     footprint: [
       [1, 1],
       [1, 1],
@@ -71,7 +72,7 @@ export const PIECES: PieceDef[] = [
     name: "O",
   },
   {
-    color: 0xb15dff,
+    color: 0xb1_5d_ff,
     footprint: [
       [0, 1, 0],
       [1, 1, 1],
@@ -79,7 +80,7 @@ export const PIECES: PieceDef[] = [
     name: "T",
   },
   {
-    color: 0x32d74b,
+    color: 0x32_d7_4b,
     footprint: [
       [1, 1, 0],
       [0, 1, 1],
@@ -87,7 +88,7 @@ export const PIECES: PieceDef[] = [
     name: "S",
   },
   {
-    color: 0xff453a,
+    color: 0xff_45_3a,
     footprint: [
       [0, 1, 1],
       [1, 1, 0],
@@ -95,7 +96,7 @@ export const PIECES: PieceDef[] = [
     name: "Z",
   },
   {
-    color: 0xff9f0a,
+    color: 0xff_9f_0a,
     footprint: [
       [1, 1, 1],
       [1, 0, 0],
@@ -103,7 +104,7 @@ export const PIECES: PieceDef[] = [
     name: "L",
   },
   {
-    color: 0x4d7cff,
+    color: 0x4d_7c_ff,
     footprint: [
       [1, 1, 1],
       [0, 0, 1],
@@ -132,7 +133,8 @@ export const CAMERA_WOBBLE = 0.14;
  *  WITHOUT changing the logical corner or the camera-relative controls. */
 export const PEEK_YAW_MAX = 0.32;
 export const PEEK_PITCH_MAX = 0.06;
-export const PEEK_OMEGA = 9; // spring stiffness easing toward the swaying target
+// Spring stiffness easing toward the swaying target.
+export const PEEK_OMEGA = 9;
 /** Full back-and-forth period of the auto peek-sway. */
 export const AUTO_PEEK_PERIOD_MS = 7000;
 
@@ -160,7 +162,8 @@ export const POSE_TIMEOUT_MS = 600;
 export const HOLD_COOLDOWN_MS = 700;
 /** T-pose (both wrists out past the shoulders, at shoulder height) → power-sweep
  *  when the charge meter is full (edge-triggered). */
-export const TPOSE_WRIST_OUT = 0.18; // wrist must be this far (frac of width) outside the shoulder
+// Wrist must be this far (fraction of width) outside the shoulder.
+export const TPOSE_WRIST_OUT = 0.18;
 /** Vertical slack (frac of shoulder width) still counted as "shoulder height".
  *  The post-pause neutral gate needs the same number: a wrist inside this band
  *  is still a T-pose, so clearing the gate there would re-fire power at once. */
@@ -169,8 +172,9 @@ export const POWER_COOLDOWN_MS = 800;
 
 // ---- keyboard (DAS/ARR for held steering) -----------------------------------
 
-export const DAS_MS = 170; // delay before auto-repeat
-export const ARR_MS = 60; // auto-repeat interval
+// Delay before auto-repeat, then the auto-repeat interval.
+export const DAS_MS = 170;
+export const ARR_MS = 60;
 
 // ---- touch (on-screen gamepad) ------------------------------------------------
 

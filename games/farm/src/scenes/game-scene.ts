@@ -1,4 +1,5 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { Animations, Cameras, Math as PhaserMath, Scene, Scenes } from "phaser";
 import { PhysicalGamepad } from "@vibedgames/gamepad";
 import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
 import { notifyGameStarted } from "@repo/embed";
@@ -31,7 +32,7 @@ import { NetSession } from "../net/session";
 import { RemoteFarmers, farmerPose } from "../net/remote-farmers";
 import { packTiles, parseTileIntent, readPackedTile, tileSig } from "../net/tile-codec";
 import type { TileEdit, TileIntent } from "../net/tile-codec";
-import { World, GROUND, inBounds } from "../world/world";
+import { World, GROUND, inBounds, tileIdx } from "../world/world";
 import type { WorldObject } from "../world/world";
 import { hintFor } from "../ui/action-hints";
 import { tintFor } from "../render/night-tint";
@@ -51,7 +52,7 @@ import { store } from "../systems/store";
 import { CROPS, cropStage, isMature } from "../data/crops";
 import type { CropId } from "../data/crops";
 import { isSellable, sellValue } from "../data/items";
-import type { Item, ForageId } from "../data/items";
+import type { Item, ForageId, ToolId } from "../data/items";
 import { loadSave, writeSave } from "../systems/save";
 import type { SaveData } from "../systems/save";
 import { burst, floatText, shake, pop, rewardArc } from "../render/fx";
@@ -65,6 +66,7 @@ import { Fishing } from "../systems/fishing";
 import { makeGameKeys, NUM_KEY_NAMES } from "../systems/keys";
 import type { GameKeys } from "../systems/keys";
 import { stickMove } from "../systems/stick";
+import type { StickMove } from "../systems/stick";
 import { isTap } from "../systems/touch";
 import { syncTouchControls } from "../touch-controls";
 import { AnimalManager } from "../entities/animals";
@@ -96,9 +98,9 @@ const SAVE_FLUSH_SEC = 3;
 // Set once by the trailer director before the scene boots. Keeps a staged demo
 // run fully isolated: no co-op session, no HUD scene. Dead in normal play.
 let trailerStaging = false;
-export function enableTrailerStaging(): void {
+export const enableTrailerStaging = (): void => {
   trailerStaging = true;
-}
+};
 
 /** DEV-only room override (?room=): the two-client harness isolates each run
  *  so a stale room's farm can't leak into assertions. */
@@ -118,7 +120,7 @@ interface HintKey {
   item: Item | null;
 }
 
-export class GameScene extends Phaser.Scene {
+export class GameScene extends Scene {
   world!: World;
   day = 1;
   timeMin = DAY_START_MIN;
@@ -217,7 +219,8 @@ export class GameScene extends Phaser.Scene {
     return this.net ? this.net.isHost : true;
   }
 
-  // expose the store's inventory for HUD/other scenes
+  // The headless two-client harness reaches the inventory through window.__gs.
+  // oxlint-disable-next-line class-methods-use-this -- passthrough to the module store
   get inv(): Inventory {
     return store.inv;
   }
@@ -289,7 +292,7 @@ export class GameScene extends Phaser.Scene {
       .setScale(1.1, 1)
       .setAlpha(0.35);
     this.player = this.add.sprite(0, 0, "p-idle").setOrigin(0.5, CHAR_ORIGIN_Y).play("p-idle");
-    this.player.on(Phaser.Animations.Events.ANIMATION_START, () => {
+    this.player.on(Animations.Events.ANIMATION_START, () => {
       this.poseRevision += 1;
     });
     this.player.setPosition(this.pendingSpawn.x, this.pendingSpawn.y);
@@ -311,7 +314,7 @@ export class GameScene extends Phaser.Scene {
       this.cameras.main.setZoom(zoomForWidth(gs.width));
     };
     this.scale.on("resize", this.onResizeHandler);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+    this.events.once(Scenes.Events.SHUTDOWN, () => {
       if (this.onResizeHandler) {
         this.scale.off("resize", this.onResizeHandler);
       }
@@ -332,7 +335,7 @@ export class GameScene extends Phaser.Scene {
 
     this.setupInput();
     const releaseMusic = Sound.startMusic("farm");
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+    this.events.once(Scenes.Events.SHUTDOWN, () => {
       releaseMusic();
       this.ambience = null;
       this.collisionOverlay = null;
@@ -356,15 +359,7 @@ export class GameScene extends Phaser.Scene {
 
     if (data?.fromMine) {
       cam.fadeIn(400, 0, 0, 0);
-      const recap = data.mineRecap;
-      if (recap) {
-        this.time.delayedCall(420, () =>
-          this.toast(
-            `${recap.fainted ? "Rescued" : "Home"} · Floor ${recap.deepest} · ${recap.gathered} minerals · ${recap.defeated} defeated · ${recap.gold >= 0 ? "+" : ""}${recap.gold}g`,
-            recap.fainted ? "#ffb3b3" : "#d8ffb0",
-          ),
-        );
-      }
+      this.showMineRecap(data.mineRecap);
     } else {
       this.events.emit("daybanner", this.day, seasonOfDay(this.day), this.weather);
     }
@@ -389,6 +384,18 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ---------------------------------------------------------------- init
+
+  private showMineRecap(recap: MineRecap | undefined): void {
+    if (!recap) {
+      return;
+    }
+    this.time.delayedCall(420, () =>
+      this.toast(
+        `${recap.fainted ? "Rescued" : "Home"} · Floor ${recap.deepest} · ${recap.gathered} minerals · ${recap.defeated} defeated · ${recap.gold >= 0 ? "+" : ""}${recap.gold}g`,
+        recap.fainted ? "#ffb3b3" : "#d8ffb0",
+      ),
+    );
+  }
 
   private startNew(): void {
     // Fixed seed so every client builds the identical co-op farm (no seed
@@ -453,9 +460,9 @@ export class GameScene extends Phaser.Scene {
       syncTouchControls();
     });
 
-    NUM_KEY_NAMES.forEach((name, i) =>
-      this.keys[name].on("down", () => !this.controlsPaused && !this.uiOpen && store.inv.select(i)),
-    );
+    for (const [i, name] of NUM_KEY_NAMES.entries()) {
+      this.keys[name].on("down", () => !this.controlsPaused && !this.uiOpen && store.inv.select(i));
+    }
 
     this.keys.SPACE.on("down", () => this.tryAction());
     this.keys.E.on("down", () => this.tryAction());
@@ -487,9 +494,10 @@ export class GameScene extends Phaser.Scene {
         return;
       }
       const hud = this.scene.get("Hud");
+      // hotbar click
       if (hud.input.hitTestPointer(p).length > 0) {
         return;
-      } // hotbar click
+      }
       if (this.fishing.active) {
         this.tryAction();
         return;
@@ -506,12 +514,14 @@ export class GameScene extends Phaser.Scene {
         return;
       }
       const hud = this.scene.get("Hud");
+      // hotbar tap
       if (hud.input.hitTestPointer(p).length > 0) {
         return;
-      } // hotbar tap
+      }
+      // a drag was the stick, not a tap
       if (!isTap(p)) {
         return;
-      } // a drag was the stick, not a tap
+      }
       actOrWalk(p);
     });
     this.keys.I.on("down", () => this.toggleInventory());
@@ -537,13 +547,13 @@ export class GameScene extends Phaser.Scene {
     }
     const g = this.add.graphics();
     g.setDepth(650_000);
-    for (let ty = 0; ty < MAP_H; ty++) {
-      for (let tx = 0; tx < MAP_W; tx++) {
+    for (let ty = 0; ty < MAP_H; ty += 1) {
+      for (let tx = 0; tx < MAP_W; tx += 1) {
         const k = this.world.cellKind(tx, ty);
         if (k === CELL.water || k === CELL.void) {
-          g.fillStyle(0x35b8ff, 0.35);
+          g.fillStyle(0x35_b8_ff, 0.35);
         } else if (this.world.isSolidTile(tx, ty)) {
-          g.fillStyle(0xff3b3b, 0.4);
+          g.fillStyle(0xff_3b_3b, 0.4);
         } else {
           continue;
         }
@@ -624,14 +634,17 @@ export class GameScene extends Phaser.Scene {
       case "coop": {
         return;
       }
+      // no default
     }
     spr.setDepth(DEPTH.entityBase + by);
     this.objSprites.set(o.id, spr);
   }
 
   private buildSoilAndCrops(): void {
-    for (let i = 0; i < MAP_W * MAP_H; i++) {
-      if (this.world.tilled[i]) this.ensureSoil(i);
+    for (let i = 0; i < MAP_W * MAP_H; i += 1) {
+      if (this.world.tilled[i]) {
+        this.ensureSoil(i);
+      }
     }
     for (const [i, cs] of this.world.crops) {
       this.ensureCrop(i, cs.crop, cropStage(CROPS[cs.crop], cs.daysGrown));
@@ -643,7 +656,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     const tx = i % MAP_W;
-    const ty = (i / MAP_W) | 0;
+    const ty = Math.trunc(i / MAP_W);
     const img = this.add
       .image(tx * TILE, ty * TILE + 4, "obj-soil")
       .setOrigin(0, 0)
@@ -658,7 +671,7 @@ export class GameScene extends Phaser.Scene {
 
   private ensureCrop(i: number, crop: CropId, stage: number): void {
     const tx = i % MAP_W;
-    const ty = (i / MAP_W) | 0;
+    const ty = Math.trunc(i / MAP_W);
     let img = this.cropImgs.get(i);
     if (img) {
       img.setTexture(`crop-${crop}`, stage);
@@ -681,7 +694,7 @@ export class GameScene extends Phaser.Scene {
     if (!inBounds(tx, ty)) {
       return;
     }
-    const idx = this.world.idx(tx, ty);
+    const idx = tileIdx(tx, ty);
     this.world.crops.delete(idx);
     this.cropImgs.get(idx)?.destroy();
     this.cropImgs.delete(idx);
@@ -702,11 +715,9 @@ export class GameScene extends Phaser.Scene {
 
   // ---------------------------------------------------------------- update
 
-  override update(_t: number, dms: number): void {
-    const dt = Math.min(dms, 50) / 1000;
-    this.gamepad?.update();
-    // Physical pad: A mirrors E/SPACE (tryAction guards busy states itself),
-    // Y mirrors I, LB/RB mirror the scroll wheel's hotbar cycle.
+  /** Physical pad: A mirrors E/SPACE (tryAction guards busy states itself),
+   *  Y mirrors I, LB/RB mirror the scroll wheel's hotbar cycle. */
+  private pollPad(): void {
     this.pad.update();
     if (this.pad.justPressed("a")) {
       this.tryAction();
@@ -722,6 +733,12 @@ export class GameScene extends Phaser.Scene {
         store.inv.cycle(1);
       }
     }
+  }
+
+  override update(_t: number, dms: number): void {
+    const dt = Math.min(dms, 50) / 1000;
+    this.gamepad?.update();
+    this.pollPad();
     this.net?.tick();
     this.reconcileClock();
     this.reconcileTiles();
@@ -816,7 +833,9 @@ export class GameScene extends Phaser.Scene {
         break;
       }
       case "plant": {
-        if (intent.crop) this.world.crops.set(idx, { crop: intent.crop, daysGrown: 0 });
+        if (intent.crop) {
+          this.world.crops.set(idx, { crop: intent.crop, daysGrown: 0 });
+        }
         break;
       }
       case "harvest": {
@@ -824,12 +843,14 @@ export class GameScene extends Phaser.Scene {
         this.world.watered[idx] = 0;
         break;
       }
+      // no default
     }
     this.recordTileEdit(idx);
     const e = this.tileEdits.get(idx);
+    // render the guest's action on the host too
     if (e) {
       this.applyTileState(idx, e);
-    } // render the guest's action on the host too
+    }
     this.broadcastTiles();
   }
 
@@ -840,7 +861,7 @@ export class GameScene extends Phaser.Scene {
     if (!this.net) {
       return;
     }
-    for (let idx = 0; idx < MAP_W * MAP_H; idx++) {
+    for (let idx = 0; idx < MAP_W * MAP_H; idx += 1) {
       if ((this.world.tilled[idx] ?? 0) !== 0 || (this.world.watered[idx] ?? 0) !== 0) {
         this.recordTileEdit(idx);
       }
@@ -855,9 +876,10 @@ export class GameScene extends Phaser.Scene {
   /** Called by the farming actions after a local mutation, to propagate it. */
   private netTileAction(idx: number, action: string, crop?: CropId): void {
     const { net } = this;
+    // solo: nothing to sync
     if (!net || net.offline) {
       return;
-    } // solo: nothing to sync
+    }
     if (this.amHost) {
       this.recordTileEdit(idx);
       this.broadcastTiles();
@@ -889,9 +911,10 @@ export class GameScene extends Phaser.Scene {
   /** Adopt the host's authoritative tile edits (a rival's farming, overnight
    *  growth, etc.), re-rendering only the tiles whose state actually changed. */
   private reconcileTiles(): void {
+    // host owns the truth
     if (this.amHost) {
       return;
-    } // host owns the truth
+    }
     const s = this.net?.sharedState;
     const raw = s?.["tiles"];
     if (!isJsonObject(raw)) {
@@ -929,7 +952,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.world.tilled[idx] = e.t;
     this.world.watered[idx] = e.w;
-    if (e.c != null) {
+    if (e.c !== null) {
       this.world.crops.set(idx, { crop: e.c, daysGrown: e.d });
       this.ensureCrop(idx, e.c, cropStage(CROPS[e.c], e.d));
     } else if (this.world.crops.has(idx)) {
@@ -1033,11 +1056,9 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private handleMovement(dt: number): void {
-    if (this.acting) {
-      this.moving = false;
-      return;
-    }
+  /** Keyboard first; then the sticks (virtual touch, then physical pad) and
+   *  finally trailer choreography fill in while real input is silent. */
+  private moveIntent(): StickMove {
     const k = this.keys;
     let dx = 0;
     let dy = 0;
@@ -1053,67 +1074,84 @@ export class GameScene extends Phaser.Scene {
     if (k.S.isDown || k.DOWN.isDown) {
       dy += 1;
     }
-
-    // sticks (virtual touch, then physical pad) fill in when the keyboard is silent
-    let stickRun = false;
-    if (dx === 0 && dy === 0) {
-      const move =
-        (this.gamepad ? stickMove(this.gamepad.getStick()) : null) ??
-        stickMove(this.pad.getStick());
-      if (move) {
-        dx = move.dx;
-        dy = move.dy;
-        stickRun = move.run;
-      }
+    if (dx !== 0 || dy !== 0) {
+      return { dx, dy, run: false };
     }
-
-    // trailer choreography fills in like a stick when real input is silent
-    if (dx === 0 && dy === 0 && this.trailerMove) {
-      dx = this.trailerMove.x;
-      dy = this.trailerMove.y;
-      stickRun = this.trailerMove.run;
+    const move =
+      (this.gamepad ? stickMove(this.gamepad.getStick()) : null) ?? stickMove(this.pad.getStick());
+    if (move) {
+      return move;
     }
+    if (this.trailerMove) {
+      return { dx: this.trailerMove.x, dy: this.trailerMove.y, run: this.trailerMove.run };
+    }
+    return { dx: 0, dy: 0, run: false };
+  }
+
+  /** Steer along the click-to-move path; returns the leg's unit direction, or
+   *  null once the next waypoint is reached (or there is no path). */
+  private pathStep(): { dx: number; dy: number } | null {
+    const [wpt] = this.clickPath;
+    if (!wpt) {
+      return null;
+    }
+    const vx = wpt.x - this.player.x;
+    const vy = wpt.y - this.player.y;
+    const d = Math.hypot(vx, vy);
+    if (d < 2.5) {
+      this.clickPath.shift();
+      return null;
+    }
+    return { dx: vx / d, dy: vy / d };
+  }
+
+  /** A click path that makes no progress (snagged on a corner) gets dropped. */
+  private trackPathProgress(moved: number, expected: number, dt: number): void {
+    if (this.clickPath.length === 0) {
+      return;
+    }
+    this.pathStuck = moved < expected * 0.25 ? this.pathStuck + dt : 0;
+    if (this.pathStuck > 0.4) {
+      this.clickPath = [];
+      this.pathStuck = 0;
+    }
+  }
+
+  private handleMovement(dt: number): void {
+    if (this.acting) {
+      this.moving = false;
+      return;
+    }
+    const k = this.keys;
+    const intent = this.moveIntent();
+    let { dx, dy } = intent;
+    const { run: stickRun } = intent;
 
     // keyboard/stick input cancels click-to-move; otherwise steer along the path
     if (dx !== 0 || dy !== 0) {
       this.clickPath = [];
     } else if (this.clickPath.length > 0) {
-      const wpt = this.clickPath[0];
-      if (wpt) {
-        const vx = wpt.x - this.player.x;
-        const vy = wpt.y - this.player.y;
-        const d = Math.hypot(vx, vy);
-        if (d < 2.5) {
-          this.clickPath.shift();
-        } else {
-          dx = vx / d;
-          dy = vy / d;
-        }
+      const step = this.pathStep();
+      if (step) {
+        ({ dx, dy } = step);
       }
     }
 
     this.moving = dx !== 0 || dy !== 0;
     if (this.moving) {
-      if (Math.abs(dx) >= Math.abs(dy)) {
-        this.facing = { x: Math.sign(dx), y: 0 };
-      } else {
-        this.facing = { x: 0, y: Math.sign(dy) };
-      }
+      this.facing =
+        Math.abs(dx) >= Math.abs(dy) ? { x: Math.sign(dx), y: 0 } : { x: 0, y: Math.sign(dy) };
       const run = (k.SHIFT.isDown || stickRun) && store.energy > 0;
       const speed = run ? RUN_SPEED : WALK_SPEED;
       const len = Math.hypot(dx, dy) || 1;
       const beforeX = this.player.x;
       const beforeY = this.player.y;
       this.moveResolved((dx / len) * speed * dt, (dy / len) * speed * dt);
-      // a path that makes no progress (snagged on a corner) gets dropped
-      if (this.clickPath.length > 0) {
-        const progress = Math.hypot(this.player.x - beforeX, this.player.y - beforeY);
-        this.pathStuck = progress < speed * dt * 0.25 ? this.pathStuck + dt : 0;
-        if (this.pathStuck > 0.4) {
-          this.clickPath = [];
-          this.pathStuck = 0;
-        }
-      }
+      this.trackPathProgress(
+        Math.hypot(this.player.x - beforeX, this.player.y - beforeY),
+        speed * dt,
+        dt,
+      );
       this.stepTimer -= dt;
       if (this.stepTimer <= 0) {
         Sound.footstep();
@@ -1167,8 +1205,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private moveResolved(mx: number, my: number): void {
-    const hh = 3,
-      hw = 4;
+    const hh = 3;
+    const hw = 4;
     const solid = (x: number, y: number) =>
       this.world.isSolidTile(Math.floor(x / TILE), Math.floor(y / TILE));
     const collides = (px: number, py: number) =>
@@ -1184,8 +1222,8 @@ export class GameScene extends Phaser.Scene {
     if (!collides(this.player.x, ny)) {
       this.player.y = ny;
     }
-    this.player.x = Phaser.Math.Clamp(this.player.x, hw, MAP_W * TILE - hw);
-    this.player.y = Phaser.Math.Clamp(this.player.y, hh + 4, MAP_H * TILE - hh);
+    this.player.x = PhaserMath.Clamp(this.player.x, hw, MAP_W * TILE - hw);
+    this.player.y = PhaserMath.Clamp(this.player.y, hh + 4, MAP_H * TILE - hh);
   }
 
   private setAnim(name: "idle" | "walk" | "run" | null): void {
@@ -1209,14 +1247,15 @@ export class GameScene extends Phaser.Scene {
   private targetIdx(): number {
     const tx = Math.floor(this.player.x / TILE) + this.facing.x;
     const ty = Math.floor((this.player.y - 1) / TILE) + this.facing.y;
-    return inBounds(tx, ty) ? this.world.idx(tx, ty) : -1;
+    return inBounds(tx, ty) ? tileIdx(tx, ty) : -1;
   }
 
   private updateHighlight(): void {
     this.highlight.clear();
+    // trailer shots: no target-tile chrome
     if (trailerStaging) {
       return;
-    } // trailer shots: no target-tile chrome
+    }
     if (this.uiOpen || this.transitioning || this.fishing.active) {
       return;
     }
@@ -1257,58 +1296,12 @@ export class GameScene extends Phaser.Scene {
     const item = store.inv.selectedItem();
 
     if (obj) {
-      switch (obj.type) {
-        case "shop": {
-          this.faceTowards(tx, ty);
-          this.openShop();
-          return;
-        }
-        case "house": {
-          this.faceTowards(tx, ty);
-          this.confirmSleep();
-          return;
-        }
-        case "bin": {
-          this.faceTowards(tx, ty);
-          this.shipProduce();
-          return;
-        }
-        case "cave": {
-          this.faceTowards(tx, ty);
-          this.enterMine();
-          return;
-        }
-        case "barn":
-        case "coop": {
-          this.faceTowards(tx, ty);
-          this.events.emit("open-animal-shop", obj.type);
-          this.uiOpen = true;
-          return;
-        }
-        case "forage": {
-          this.pickForage(obj);
-          return;
-        }
-        case "tree": {
-          if (item?.kind === "tool" && item.tool === "axe")
-            this.beginAction("axe", () => this.chop(obj));
-          else this.toast("You need an axe.", "#ffd27a");
-          return;
-        }
-        case "rock": {
-          if (item?.kind === "tool" && item.tool === "pickaxe")
-            this.beginAction("mine", () => this.mineRock(obj));
-          else this.toast("You need a pickaxe.", "#ffd27a");
-          return;
-        }
-        case "ore": {
-          return;
-        } // ore lives in the mine
-      }
+      this.actOnObject(obj, tx, ty, item);
+      return;
     }
 
     // harvest a ripe crop in front takes priority over petting/gifting nearby
-    const idx = inBounds(tx, ty) ? this.world.idx(tx, ty) : -1;
+    const idx = inBounds(tx, ty) ? tileIdx(tx, ty) : -1;
     const cs = idx >= 0 ? this.world.crops.get(idx) : undefined;
     if (cs && isMature(CROPS[cs.crop], cs.daysGrown)) {
       this.beginAction("doing", () => this.harvest(idx));
@@ -1326,46 +1319,114 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     if (item.kind === "tool") {
-      if (item.tool === "hoe") {
-        if (this.world.canTill(tx, ty)) {
-          this.beginAction("dig", () => this.till(idx));
-        } else {
-          this.toast("Can't till there.", "#ffd27a");
-        }
-      } else if (item.tool === "can") {
-        if (inBounds(tx, ty) && this.world.getGround(tx, ty) === GROUND.water) {
-          this.beginAction("water", () => this.refillCan());
-        } else if (idx >= 0 && this.world.tilled[idx]) {
-          if (this.canCharge <= 0) {
-            this.toast("Out of water — refill at the pond.", "#9fd8ff");
-          } else {
-            this.beginAction("water", () => this.waterTile(idx));
-          }
-        } else {
-          this.toast("Till the soil first.", "#ffd27a");
-        }
-      } else if (item.tool === "rod") {
-        if (inBounds(tx, ty) && this.world.getGround(tx, ty) === GROUND.water) {
-          this.fishing.startCast(tx, ty);
-        } else {
-          this.toast("Face the water to fish.", "#9fd8ff");
-        }
-      } else if (item.tool === "sword") {
-        this.beginAction("doing", () => {
-          /* swung at nothing on the farm */
-        });
-      }
+      this.useTool(item.tool, tx, ty, idx);
     } else if (item.kind === "seed") {
-      const { crop } = item;
-      if (idx >= 0 && this.world.tilled[idx] && !this.world.crops.has(idx)) {
-        if (!CROPS[crop].seasons.includes(seasonOfDay(this.day))) {
-          this.toast(`${CROPS[crop].name} won't grow in ${seasonOfDay(this.day)}.`, "#ffd27a");
-          return;
-        }
-        this.beginAction("doing", () => this.plant(idx, crop));
-      } else {
-        this.toast(this.world.tilled[idx] ? "Already planted." : "Till the soil first.", "#ffd27a");
+      this.plantSeed(item.crop, idx);
+    }
+  }
+
+  private actOnObject(obj: WorldObject, tx: number, ty: number, item: Item | null): void {
+    switch (obj.type) {
+      case "shop": {
+        this.faceTowards(tx, ty);
+        this.openShop();
+        break;
       }
+      case "house": {
+        this.faceTowards(tx, ty);
+        this.confirmSleep();
+        break;
+      }
+      case "bin": {
+        this.faceTowards(tx, ty);
+        this.shipProduce();
+        break;
+      }
+      case "cave": {
+        this.faceTowards(tx, ty);
+        this.enterMine();
+        break;
+      }
+      case "barn":
+      case "coop": {
+        this.faceTowards(tx, ty);
+        this.events.emit("open-animal-shop", obj.type);
+        this.uiOpen = true;
+        break;
+      }
+      case "forage": {
+        this.pickForage(obj);
+        break;
+      }
+      case "tree": {
+        if (item?.kind === "tool" && item.tool === "axe") {
+          this.beginAction("axe", () => this.chop(obj));
+        } else {
+          this.toast("You need an axe.", "#ffd27a");
+        }
+        break;
+      }
+      case "rock": {
+        if (item?.kind === "tool" && item.tool === "pickaxe") {
+          this.beginAction("mine", () => this.mineRock(obj));
+        } else {
+          this.toast("You need a pickaxe.", "#ffd27a");
+        }
+        break;
+      }
+      // ore lives in the mine
+      case "ore": {
+        break;
+      }
+      // no default
+    }
+  }
+
+  private useTool(tool: ToolId, tx: number, ty: number, idx: number): void {
+    if (tool === "hoe") {
+      if (this.world.canTill(tx, ty)) {
+        this.beginAction("dig", () => this.till(idx));
+      } else {
+        this.toast("Can't till there.", "#ffd27a");
+      }
+    } else if (tool === "can") {
+      this.useCan(tx, ty, idx);
+    } else if (tool === "rod") {
+      if (inBounds(tx, ty) && this.world.getGround(tx, ty) === GROUND.water) {
+        this.fishing.startCast(tx, ty);
+      } else {
+        this.toast("Face the water to fish.", "#9fd8ff");
+      }
+    } else if (tool === "sword") {
+      this.beginAction("doing", () => {
+        /* swung at nothing on the farm */
+      });
+    }
+  }
+
+  private useCan(tx: number, ty: number, idx: number): void {
+    if (inBounds(tx, ty) && this.world.getGround(tx, ty) === GROUND.water) {
+      this.beginAction("water", () => this.refillCan());
+    } else if (idx >= 0 && this.world.tilled[idx]) {
+      if (this.canCharge <= 0) {
+        this.toast("Out of water — refill at the pond.", "#9fd8ff");
+      } else {
+        this.beginAction("water", () => this.waterTile(idx));
+      }
+    } else {
+      this.toast("Till the soil first.", "#ffd27a");
+    }
+  }
+
+  private plantSeed(crop: CropId, idx: number): void {
+    if (idx >= 0 && this.world.tilled[idx] && !this.world.crops.has(idx)) {
+      if (!CROPS[crop].seasons.includes(seasonOfDay(this.day))) {
+        this.toast(`${CROPS[crop].name} won't grow in ${seasonOfDay(this.day)}.`, "#ffd27a");
+        return;
+      }
+      this.beginAction("doing", () => this.plant(idx, crop));
+    } else {
+      this.toast(this.world.tilled[idx] ? "Already planted." : "Till the soil first.", "#ffd27a");
     }
   }
 
@@ -1428,9 +1489,9 @@ export class GameScene extends Phaser.Scene {
     this.world.tilled[idx] = 1;
     this.ensureSoil(idx);
     const tx = idx % MAP_W;
-    const ty = (idx / MAP_W) | 0;
+    const ty = Math.trunc(idx / MAP_W);
     burst(this, tx * TILE + 8, ty * TILE + 12, {
-      colors: [0x8a6a43, 0x6b4f33, 0xa07b4c],
+      colors: [0x8a_6a_43, 0x6b_4f_33, 0xa0_7b_4c],
       count: 9,
       speed: 45,
       up: true,
@@ -1447,9 +1508,9 @@ export class GameScene extends Phaser.Scene {
     this.canCharge = Math.max(0, this.canCharge - 1);
     this.refreshSoilTint(idx);
     const tx = idx % MAP_W;
-    const ty = (idx / MAP_W) | 0;
+    const ty = Math.trunc(idx / MAP_W);
     burst(this, tx * TILE + 8, ty * TILE + 8, {
-      colors: [0x6fc6ff, 0x9fe0ff, 0xffffff],
+      colors: [0x6f_c6_ff, 0x9f_e0_ff, 0xff_ff_ff],
       count: 8,
       gravity: 200,
       matter: "droplet",
@@ -1464,7 +1525,7 @@ export class GameScene extends Phaser.Scene {
   private refillCan(): void {
     this.canCharge = CAN_MAX;
     burst(this, this.player.x, this.player.y - 8, {
-      colors: [0x6fc6ff, 0x9fe0ff],
+      colors: [0x6f_c6_ff, 0x9f_e0_ff],
       count: 12,
       matter: "droplet",
       speed: 35,
@@ -1484,9 +1545,9 @@ export class GameScene extends Phaser.Scene {
       pop(this, img);
     }
     const tx = idx % MAP_W;
-    const ty = (idx / MAP_W) | 0;
+    const ty = Math.trunc(idx / MAP_W);
     burst(this, tx * TILE + 8, ty * TILE + 12, {
-      colors: [0x7ec850, 0x4a9d3f],
+      colors: [0x7e_c8_50, 0x4a_9d_3f],
       count: 5,
       matter: "leaf",
       speed: 30,
@@ -1505,7 +1566,7 @@ export class GameScene extends Phaser.Scene {
     }
     const def = CROPS[cs.crop];
     const [lo, hi] = def.yield;
-    let n = lo + ((Math.random() * (hi - lo + 1)) | 0);
+    let n = lo + Math.trunc(Math.random() * (hi - lo + 1));
     if (Math.random() < store.skills.yieldBonusChance()) {
       n += 1;
     }
@@ -1523,12 +1584,12 @@ export class GameScene extends Phaser.Scene {
     this.world.watered[idx] = 0;
     this.refreshSoilTint(idx);
     const tx = idx % MAP_W;
-    const ty = (idx / MAP_W) | 0;
+    const ty = Math.trunc(idx / MAP_W);
     if (leftover < n) {
       rewardArc(this, tx * TILE + 8, ty * TILE + 4, this.player, item);
     }
     burst(this, tx * TILE + 8, ty * TILE + 8, {
-      colors: [0x7ec850, 0xffe27a, 0xff9ed2],
+      colors: [0x7e_c8_50, 0xff_e2_7a, 0xff_9e_d2],
       count: 12,
       matter: "leaf",
       speed: 55,
@@ -1556,7 +1617,7 @@ export class GameScene extends Phaser.Scene {
     if (spr) {
       this.tweens.add({ duration: 50, repeat: 2, targets: spr, x: spr.x + 1.5, yoyo: true });
       burst(this, spr.x, spr.y - 16, {
-        colors: [0x4a9d3f, 0x7ec850, 0x2f6b3a],
+        colors: [0x4a_9d_3f, 0x7e_c8_50, 0x2f_6b_3a],
         count: 7,
         matter: "leaf",
         speed: 50,
@@ -1567,17 +1628,17 @@ export class GameScene extends Phaser.Scene {
     this.awardXP("foraging", 2);
     if (o.hp <= 0) {
       Sound.thud();
-      const got = 2 + ((Math.random() * 2) | 0);
+      const got = 2 + Math.trunc(Math.random() * 2);
       store.inv.add({ kind: "resource", res: "wood" }, got);
       if (spr) {
         this.tweens.add({
-          targets: spr,
           alpha: 0,
-          y: spr.y + 3,
-          scaleX: 0.7,
-          scaleY: 0.6,
           duration: 220,
           onComplete: () => spr.destroy(),
+          scaleX: 0.7,
+          scaleY: 0.6,
+          targets: spr,
+          y: spr.y + 3,
         });
       }
       this.objSprites.delete(o.id);
@@ -1594,7 +1655,7 @@ export class GameScene extends Phaser.Scene {
     if (spr) {
       this.tweens.add({ duration: 60, scaleX: 1.12, scaleY: 0.9, targets: spr, yoyo: true });
       burst(this, spr.x, spr.y - 8, {
-        colors: [0xbfcad6, 0x8a98a8, 0xffffff],
+        colors: [0xbf_ca_d6, 0x8a_98_a8, 0xff_ff_ff],
         count: 8,
         matter: "spark",
         speed: 55,
@@ -1605,19 +1666,19 @@ export class GameScene extends Phaser.Scene {
     this.awardXP("mining", 3);
     if (o.hp <= 0) {
       Sound.thud();
-      const got = 1 + ((Math.random() * 2) | 0);
+      const got = 1 + Math.trunc(Math.random() * 2);
       store.inv.add({ kind: "resource", res: "stone" }, got);
       if (Math.random() < 0.25) {
         store.inv.add({ kind: "resource", res: "coal" }, 1);
       }
       if (spr) {
         this.tweens.add({
-          targets: spr,
           alpha: 0,
-          scaleX: 0.5,
-          scaleY: 0.5,
           duration: 200,
           onComplete: () => spr.destroy(),
+          scaleX: 0.5,
+          scaleY: 0.5,
+          targets: spr,
         });
       }
       this.objSprites.delete(o.id);
@@ -1638,7 +1699,7 @@ export class GameScene extends Phaser.Scene {
     const spr = this.objSprites.get(o.id);
     if (spr) {
       burst(this, spr.x, spr.y - 4, {
-        colors: [0xff8a8a, 0x9fd8ff, 0xffffff],
+        colors: [0xff_8a_8a, 0x9f_d8_ff, 0xff_ff_ff],
         count: 8,
         speed: 45,
         up: true,
@@ -1703,7 +1764,7 @@ export class GameScene extends Phaser.Scene {
   sellAll(): number {
     let total = 0;
     const sellFrom = (arr: typeof store.inv.slots) => {
-      for (let i = 0; i < arr.length; i++) {
+      for (let i = 0; i < arr.length; i += 1) {
         const s = arr[i];
         if (s && isSellable(s.item)) {
           total += sellValue(s.item) * s.qty;
@@ -1733,7 +1794,7 @@ export class GameScene extends Phaser.Scene {
       const bin = this.world.objects.find((o) => o.type === "bin");
       if (bin) {
         burst(this, bin.tx * TILE + 8, bin.ty * TILE + 4, {
-          colors: [0xffd34d, 0xffe27a, 0xffffff],
+          colors: [0xff_d3_4d, 0xff_e2_7a, 0xff_ff_ff],
           count: 14,
           speed: 55,
           up: true,
@@ -1765,7 +1826,7 @@ export class GameScene extends Phaser.Scene {
     this.transitioning = true;
     this.save();
     this.cameras.main.fadeOut(450, 0, 0, 0);
-    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+    this.cameras.main.once(Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
       this.scene.stop("Hud");
       this.scene.start("Mine", { depth: 1 });
     });
@@ -1799,7 +1860,7 @@ export class GameScene extends Phaser.Scene {
       this.shipping.day === this.day && this.shipping.shipments > 0 ? this.shipping : undefined;
     const cam = this.cameras.main;
     cam.fadeOut(600, 6, 10, 24);
-    cam.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+    cam.once(Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
       // Only the host advances the shared world/clock. A guest reaching here
       // (passOut) still gets the personal recovery — but running overnight
       // growth locally would diverge from the world the host broadcasts.
@@ -1822,7 +1883,7 @@ export class GameScene extends Phaser.Scene {
       }
       Sound.wake();
       cam.fadeIn(700, 6, 10, 24);
-      cam.once(Phaser.Cameras.Scene2D.Events.FADE_IN_COMPLETE, () => {
+      cam.once(Cameras.Scene2D.Events.FADE_IN_COMPLETE, () => {
         this.transitioning = false;
       });
     });
@@ -1835,7 +1896,7 @@ export class GameScene extends Phaser.Scene {
     const rainy = isWet(nextWeather);
 
     // grow watered crops; wither out-of-season; then reset/refresh watering
-    for (const [i, cs] of [...this.world.crops]) {
+    for (const [i, cs] of this.world.crops) {
       const def = CROPS[cs.crop];
       if (!def.seasons.includes(nextSeason)) {
         this.cropImgs.get(i)?.destroy();
@@ -1849,7 +1910,7 @@ export class GameScene extends Phaser.Scene {
         this.ensureCrop(i, cs.crop, cropStage(def, cs.daysGrown));
       }
     }
-    for (let i = 0; i < this.world.watered.length; i++) {
+    for (let i = 0; i < this.world.watered.length; i += 1) {
       const wet = rainy && this.world.tilled[i] === 1 ? 1 : 0;
       if (this.world.watered[i] !== wet) {
         this.world.watered[i] = wet;
@@ -1955,10 +2016,6 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  selectedItem(): Item | null {
-    return store.inv.selectedItem();
-  }
-
   /** Read-only teaching beside the selected tool (ui/action-hints). Memoised on
    *  (target tile, selected item); every busy state drops the memo, so an
    *  action's outcome (tilled, watered, out of energy) re-reads on the next
@@ -1978,7 +2035,7 @@ export class GameScene extends Phaser.Scene {
     if (idx < 0) {
       return null;
     }
-    const item = this.selectedItem();
+    const item = store.inv.selectedItem();
     if (idx !== this.hintKey.idx || item !== this.hintKey.item) {
       this.hintKey.idx = idx;
       this.hintKey.item = item;
@@ -1990,7 +2047,7 @@ export class GameScene extends Phaser.Scene {
         item,
         season: this.season(),
         tx: idx % MAP_W,
-        ty: (idx / MAP_W) | 0,
+        ty: Math.trunc(idx / MAP_W),
         world: this.world,
       });
     }

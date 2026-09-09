@@ -1,13 +1,24 @@
 // Looping background music (vg-generated music-box lullaby), separate from the
 // synthesized SFX engine so each file owns one player.
 
-import { initialSoundOn, SOUND_KEY, storageSet } from "./sound-pref";
+import { isSoundOn } from "./sound-pref";
 
-const MUSIC_VOLUME = 0.32;
+const MUSIC_TITLE_VOLUME = 0.16;
+const MUSIC_PLAY_VOLUME = 0.24;
+const MUSIC_POWER_VOLUME = 0.3;
+const MUSIC_CHASE_VOLUME = 0.32;
+const MUSIC_RESULT_VOLUME = 0.12;
 const MUSIC_DUCK_VOLUME = 0.1;
 const MUSIC_DUCK_MS = 1400;
 /** Power mode plays the lullaby a touch faster — gentle chipmunk urgency. */
 const MUSIC_POWER_RATE = 1.06;
+/** A ghost this close (maze cells) swells the music; it stays swollen a little further out. */
+const CHASE_ENTER_CELLS = 3;
+const CHASE_EXIT_CELLS = 4.2;
+const CHASE_ENTER_MS = 450;
+const CHASE_EXIT_MS = 900;
+
+export type MusicPhase = "title" | "ready" | "playing" | "win" | "gameover";
 
 /**
  * Looping ambient track (vg-generated music-box lullaby). Degrades silently
@@ -16,87 +27,134 @@ const MUSIC_POWER_RATE = 1.06;
  */
 export class Music {
   private audio: HTMLAudioElement | null = null;
-  private enabled = initialSoundOn();
-  private duckUntil = 0;
-  /** Latched on load/play failure so repeated gestures don't re-request a 404. */
+  private paused = false;
+  private power = false;
+  private duckRemaining = 0;
+  /** Nearby-ghost tension swell, with hysteresis so it never flutters. */
+  private chasing = false;
+  private candidateMs = 0;
+  private volume = MUSIC_TITLE_VOLUME;
+  private phase: MusicPhase = "title";
+  /** Only a media error is permanent — a blocked autoplay retries on the next gesture. */
   private failed = false;
 
   start(url: string): void {
-    if (this.audio || this.failed) {
+    if (this.failed || !isSoundOn()) {
       return;
     }
-    const audio = new Audio(url);
-    audio.loop = true;
-    // Respect a mute toggled before the first unlocking gesture (M can be
-    // the very first key pressed — GameScene's handler runs before unlock).
-    audio.volume = this.enabled ? MUSIC_VOLUME : 0;
-    audio.addEventListener("error", () => {
-      this.audio = null;
-      this.failed = true;
-    });
-    this.audio = audio;
-    void this.tryPlay(audio, true);
-  }
-
-  /** Autoplay can still be refused after the gesture; a refusal on `start`
-   *  latches `failed` so repeated gestures don't re-request the file. */
-  private async tryPlay(audio: HTMLAudioElement, latchFailure: boolean): Promise<void> {
-    try {
-      await audio.play();
-    } catch {
-      if (latchFailure) {
+    if (!this.audio) {
+      const audio = new Audio(url);
+      audio.loop = true;
+      audio.addEventListener("error", () => {
         this.audio = null;
         this.failed = true;
-      }
+      });
+      this.audio = audio;
     }
-  }
-
-  /** M key. Persists the choice and returns the new state for HUD feedback. */
-  toggle(): boolean {
-    this.enabled = !this.enabled;
-    storageSet(SOUND_KEY, this.enabled ? "1" : "0");
-    if (this.audio) {
-      this.audio.volume = this.enabled ? MUSIC_VOLUME : 0;
-    }
-    return this.enabled;
+    this.sync();
+    this.play();
   }
 
   setPowerMode(on: boolean): void {
-    if (this.audio) {
-      this.audio.playbackRate = on ? MUSIC_POWER_RATE : 1;
-    }
+    this.power = on;
+    this.sync();
   }
 
   /** Wrapper-requested pause: stop the loop, resumable in place. */
-  pause(): void {
-    this.audio?.pause();
-  }
-
-  /** Undo pause(). Silently no-ops if autoplay is (still) blocked. */
-  resume(): void {
-    if (!this.audio) {
-      return;
+  setPaused(paused: boolean): void {
+    this.paused = paused;
+    this.sync();
+    if (!paused) {
+      this.play();
     }
-    void this.tryPlay(this.audio, false);
   }
 
   /** Dip under the `caught` sting, restored by update(). */
   duck(): void {
-    if (!this.audio || !this.enabled) {
+    if (this.paused || !isSoundOn()) {
       return;
     }
-    this.duckUntil = performance.now() + MUSIC_DUCK_MS;
-    this.audio.volume = MUSIC_DUCK_VOLUME;
+    this.duckRemaining = MUSIC_DUCK_MS / 1000;
+    this.sync();
   }
 
-  update(): void {
-    if (!this.audio || !this.enabled) {
+  /** @param nearestDanger maze-cell distance to a threatening ghost; null while none can. */
+  update(dt: number, phase: MusicPhase, nearestDanger: number | null): void {
+    if (this.paused) {
       return;
     }
-    if (this.duckUntil > 0 && performance.now() >= this.duckUntil) {
-      this.duckUntil = 0;
-      this.audio.volume = MUSIC_VOLUME;
+    this.phase = phase;
+    if (phase !== "playing" || this.power) {
+      this.chasing = false;
+      this.candidateMs = 0;
+    } else {
+      const candidate =
+        nearestDanger !== null &&
+        nearestDanger < (this.chasing ? CHASE_EXIT_CELLS : CHASE_ENTER_CELLS);
+      if (candidate === this.chasing) {
+        this.candidateMs = 0;
+      } else {
+        this.candidateMs += dt * 1000;
+        if (this.candidateMs >= (candidate ? CHASE_ENTER_MS : CHASE_EXIT_MS)) {
+          this.chasing = candidate;
+          this.candidateMs = 0;
+        }
+      }
     }
+    this.duckRemaining = Math.max(0, this.duckRemaining - dt);
+    this.volume += (this.targetVolume() - this.volume) * (1 - Math.exp(-dt * 3));
+    this.sync();
+  }
+
+  /** Push mute/pause/duck/power onto the element; muted or paused also halts it. */
+  sync(): void {
+    const { audio } = this;
+    if (!audio) {
+      return;
+    }
+    const silent = !isSoundOn() || this.paused;
+    audio.volume = silent ? 0 : this.currentVolume();
+    audio.playbackRate = this.power ? MUSIC_POWER_RATE : 1;
+    if (silent) {
+      audio.pause();
+      this.duckRemaining = 0;
+    }
+  }
+
+  private currentVolume(): number {
+    return this.duckRemaining > 0 ? MUSIC_DUCK_VOLUME : this.volume;
+  }
+
+  private play(): void {
+    const { audio } = this;
+    if (!audio || !isSoundOn() || this.paused || !audio.paused) {
+      return;
+    }
+    void this.playThenSync(audio);
+  }
+
+  /** A pause or mute can land while play() is still pending; sync() halts it on settle. */
+  private async playThenSync(audio: HTMLAudioElement): Promise<void> {
+    try {
+      await audio.play();
+    } catch {
+      // Autoplay blocked or media missing: the next gesture retries.
+      return;
+    }
+    this.sync();
+  }
+
+  private targetVolume(): number {
+    if (this.phase === "title") {
+      return MUSIC_TITLE_VOLUME;
+    }
+    if (this.phase === "win" || this.phase === "gameover") {
+      return MUSIC_RESULT_VOLUME;
+    }
+    if (this.chasing) {
+      return MUSIC_CHASE_VOLUME;
+    }
+    return this.power ? MUSIC_POWER_VOLUME : MUSIC_PLAY_VOLUME;
   }
 }
 

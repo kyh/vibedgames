@@ -256,13 +256,13 @@ const check = (label: string, cond: boolean): void => {
   const makePose = (lw: { x: number; y: number }, rw: { x: number; y: number }): Pose => ({
     height: H,
     keypoints: [
-      { name: "nose", x: 320, y: 150, score: 1 },
-      { name: "left_shoulder", x: 260, y: 240, score: 1 },
-      { name: "right_shoulder", x: 380, y: 240, score: 1 },
-      { name: "left_hip", x: 270, y: 360, score: 1 },
-      { name: "right_hip", x: 370, y: 360, score: 1 },
-      { name: "left_wrist", x: lw.x, y: lw.y, score: 1 },
-      { name: "right_wrist", x: rw.x, y: rw.y, score: 1 },
+      { name: "nose", score: 1, x: 320, y: 150 },
+      { name: "left_shoulder", score: 1, x: 260, y: 240 },
+      { name: "right_shoulder", score: 1, x: 380, y: 240 },
+      { name: "left_hip", score: 1, x: 270, y: 360 },
+      { name: "right_hip", score: 1, x: 370, y: 360 },
+      { name: "left_wrist", score: 1, x: lw.x, y: lw.y },
+      { name: "right_wrist", score: 1, x: rw.x, y: rw.y },
     ],
     width: W,
   });
@@ -273,25 +273,34 @@ const check = (label: string, cond: boolean): void => {
 
   let powers = 0;
   const controls = new PoseControls({
-    catchCollapse: () => {},
-    hold: () => {},
-    orbit: () => {},
+    catchCollapse: () => {
+      /* empty */
+    },
+    hold: () => {
+      /* empty */
+    },
+    orbit: () => {
+      /* empty */
+    },
     power: () => {
       powers += 1;
     },
     rotate: () => false,
-    steer: () => {},
+    steer: () => {
+      /* empty */
+    },
   });
-  for (let i = 0; i < 24; i++) {
+  // Calibrate.
+  for (let i = 0; i < 24; i += 1) {
     controls.handlePose(armsDown, null);
-  } // calibrate
+  }
   controls.setActionsPaused(true);
   controls.setActionsPaused(false);
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < 30; i += 1) {
     controls.handlePose(tPose, null);
   }
   check("pose: T-pose held across resume does not re-fire power", powers === 0);
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 4; i += 1) {
     controls.handlePose(armsDown, null);
   }
   controls.handlePose(tPose, null);

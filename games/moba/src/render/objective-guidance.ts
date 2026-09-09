@@ -23,7 +23,7 @@ export interface StructureAnnouncement {
 const TIER_DEPTH = { ancient: 3, base: 2, t1: 0, t2: 1 } satisfies Record<StructTier, number>;
 const ABILITY_KEYS: AbilityKey[] = ["Q", "W", "E", "R"];
 
-function exposed(world: World, team: Team, tier: StructTier, lane?: LaneId): boolean {
+const exposed = (world: World, team: Team, tier: StructTier, lane?: LaneId): boolean => {
   for (const unit of world.units.values()) {
     const { structure } = unit;
     if (
@@ -38,9 +38,9 @@ function exposed(world: World, team: Team, tier: StructTier, lane?: LaneId): boo
     }
   }
   return false;
-}
+};
 
-function respawnTip(world: World, player: Unit): string | null {
+const respawnTip = (world: World, player: Unit): string | null => {
   const { hero } = player;
   if (player.alive || !hero || hero.respawnAt <= 0) {
     return null;
@@ -59,35 +59,37 @@ function respawnTip(world: World, player: Unit): string | null {
     return "You can afford an item. Visit the base shop after respawning.";
   }
   return "Return with your creeps. Tower damage ramps on the same target.";
+};
+
+const isAttackableStructureOf = (unit: Unit, team: Team): boolean =>
+  unit.kind === "structure" &&
+  unit.team === team &&
+  !unit.neutral &&
+  unit.alive &&
+  Boolean(unit.structure?.attackable);
+
+interface ObjectiveTarget {
+  target: Unit;
+  baseTowers: number;
 }
 
-/** Follow the sim's attackable flags; a lane breach can expose both base towers. */
-export function objectiveGuidance(
+/** Deepest tier first, then nearest to origin, then lowest id for a stable pick. */
+const findObjectiveTarget = (
   world: World,
-  player: Unit | undefined,
-): ObjectiveGuidance | null {
-  if (world.phase !== "playing" || !player?.hero || player.neutral) {
-    return null;
-  }
-  const enemy = enemyOf(player.team);
-  const origin = player.alive ? player : BASES[player.team].heroSpawn;
+  enemy: Team,
+  origin: { x: number; y: number },
+): ObjectiveTarget | null => {
   let target: Unit | undefined;
   let depth = -1;
   let distance = Infinity;
   let baseTowers = 0;
   for (const unit of world.units.values()) {
     const { structure } = unit;
-    if (
-      unit.kind !== "structure" ||
-      unit.team !== enemy ||
-      unit.neutral ||
-      !unit.alive ||
-      !structure?.attackable
-    ) {
+    if (!structure || !isAttackableStructureOf(unit, enemy)) {
       continue;
     }
     if (structure.tier === "base") {
-      baseTowers++;
+      baseTowers += 1;
     }
     const candidateDepth = TIER_DEPTH[structure.tier];
     const candidateDistance = (unit.x - origin.x) ** 2 + (unit.y - origin.y) ** 2;
@@ -102,32 +104,78 @@ export function objectiveGuidance(
       distance = candidateDistance;
     }
   }
-  if (!target?.structure) {
+  return target ? { baseTowers, target } : null;
+};
+
+const objectiveText = (tier: StructTier, lane: LaneId | "base", baseTowers: number): string => {
+  if (tier === "ancient") {
+    return "FINISH THE ENEMY ANCIENT";
+  }
+  if (tier === "base") {
+    return baseTowers === 1 ? "BREAK THE LAST ENEMY BASE TOWER" : "PUSH THE ENEMY BASE TOWERS";
+  }
+  return `PUSH ${lane.toUpperCase()} · ${tier === "t1" ? "OUTER" : "INNER"} TOWER`;
+};
+
+/** Follow the sim's attackable flags; a lane breach can expose both base towers. */
+export const objectiveGuidance = (
+  world: World,
+  player: Unit | undefined,
+): ObjectiveGuidance | null => {
+  if (world.phase !== "playing" || !player?.hero || player.neutral) {
     return null;
   }
-  const { tier, lane } = target.structure;
-  const text =
-    tier === "ancient"
-      ? "FINISH THE ENEMY ANCIENT"
-      : tier === "base"
-        ? baseTowers === 1
-          ? "BREAK THE LAST ENEMY BASE TOWER"
-          : "PUSH THE ENEMY BASE TOWERS"
-        : `PUSH ${lane.toUpperCase()} · ${tier === "t1" ? "OUTER" : "INNER"} TOWER`;
+  const enemy = enemyOf(player.team);
+  const origin = player.alive ? player : BASES[player.team].heroSpawn;
+  const found = findObjectiveTarget(world, enemy, origin);
+  if (!found) {
+    return null;
+  }
+  const { target, baseTowers } = found;
+  const { structure } = target;
+  if (!structure) {
+    return null;
+  }
+  const { tier, lane } = structure;
+  const text = objectiveText(tier, lane, baseTowers);
   return { lane, respawnTip: respawnTip(world, player), targetId: target.id, text };
-}
+};
+
+const FALLEN_NOUN = {
+  ancient: "ANCIENT",
+  base: "BASE TOWER",
+  t1: "TOWER",
+  t2: "TOWER",
+} satisfies Record<StructTier, string>;
+
+const PRIORITY = {
+  ancient: "ending",
+  base: "major",
+  t1: "objective",
+  t2: "major",
+} satisfies Record<StructTier, StructureAnnouncement["priority"]>;
+
+const ownerLabel = (team: Team, localTeam: Team | null): string => {
+  if (!localTeam) {
+    return team.toUpperCase();
+  }
+  return team === localTeam ? "YOUR" : "ENEMY";
+};
+
+const announcementTone = (team: Team, localTeam: Team | null): StructureAnnouncement["tone"] => {
+  if (!localTeam) {
+    return "neutral";
+  }
+  return team === localTeam ? "bad" : "good";
+};
 
 /** Structure events carry coordinates, while retained rubble supplies the lane. */
-export function structureAnnouncement(
+export const structureAnnouncement = (
   world: World,
   event: Extract<FxEvent, { t: "structureDown" }>,
   localTeam: Team | null,
-): StructureAnnouncement {
-  const owner = localTeam
-    ? event.team === localTeam
-      ? "YOUR"
-      : "ENEMY"
-    : event.team.toUpperCase();
+): StructureAnnouncement => {
+  const owner = ownerLabel(event.team, localTeam);
   const fallen = [...world.units.values()].find(
     (unit) =>
       unit.kind === "structure" &&
@@ -137,7 +185,7 @@ export function structureAnnouncement(
       unit.y === event.y,
   );
   const lane = fallen?.structure?.lane;
-  let text = `${owner} ${event.tier === "ancient" ? "ANCIENT" : event.tier === "base" ? "BASE TOWER" : "TOWER"} HAS FALLEN`;
+  let text = `${owner} ${FALLEN_NOUN[event.tier]} HAS FALLEN`;
   if (event.tier !== "ancient" && lane && lane !== "base") {
     const position = `${owner} ${lane.toUpperCase()}`;
     if (event.tier === "t1") {
@@ -154,14 +202,5 @@ export function structureAnnouncement(
   } else if (event.tier === "base" && exposed(world, event.team, "ancient")) {
     text += " · ANCIENT EXPOSED";
   }
-  return {
-    priority:
-      event.tier === "ancient"
-        ? "ending"
-        : event.tier === "base" || event.tier === "t2"
-          ? "major"
-          : "objective",
-    text,
-    tone: localTeam ? (event.team === localTeam ? "bad" : "good") : "neutral",
-  };
-}
+  return { priority: PRIORITY[event.tier], text, tone: announcementTone(event.team, localTeam) };
+};

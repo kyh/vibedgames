@@ -35,12 +35,9 @@ let listening = false;
 const embedded = (): boolean => typeof window !== "undefined" && window.parent !== window;
 
 /** Escape must not steal keystrokes from text entry (chat boxes, name fields). */
-function isTypingTarget(target: EventTarget | null): boolean {
-  return (
-    target instanceof HTMLElement &&
-    (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)
-  );
-}
+const isTypingTarget = (target: EventTarget | null): boolean =>
+  target instanceof HTMLElement &&
+  (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
 
 /**
  * While paused, key events must not reach the game's own listeners — games
@@ -56,11 +53,12 @@ function isTypingTarget(target: EventTarget | null): boolean {
 const blockGameKeys = (event: KeyboardEvent): void => {
   if (isTypingTarget(event.target)) {
     return;
-  } // a pause UI's own text inputs keep working
+    // a pause UI's own text inputs keep working
+  }
   event.stopPropagation();
 };
 
-function setKeyGate(on: boolean): void {
+const setKeyGate = (on: boolean): void => {
   if (typeof window === "undefined") {
     return;
   }
@@ -71,9 +69,66 @@ function setKeyGate(on: boolean): void {
     window.removeEventListener("keydown", blockGameKeys, true);
     window.removeEventListener("keyup", blockGameKeys, true);
   }
-}
+};
 
-function ensureListener(): void {
+const pausableListeners = new Set<() => void>();
+
+/** Observe {@link isPausable}. Returns an unsubscribe. */
+export const watchPausable = (onChange: () => void): (() => void) => {
+  pausableListeners.add(onChange);
+  return () => pausableListeners.delete(onChange);
+};
+
+const notifyPausableChanged = (): void => {
+  for (const listener of pausableListeners) {
+    listener();
+  }
+};
+
+const announceStarted = (): void => {
+  if (started || paused) {
+    return;
+  }
+  started = true;
+  notifyPausableChanged();
+  if (embedded()) {
+    window.parent.postMessage({ type: GAME_STARTED_MESSAGE }, "*");
+  }
+};
+
+/** Pause now (same path Escape and the wrapper take). No-op unless started. */
+export const pauseGame = (): void => {
+  if (paused || !started) {
+    return;
+  }
+  paused = true;
+  started = false;
+  notifyPausableChanged();
+  setKeyGate(true);
+  handlers.onPause?.();
+  // Escape-initiated pauses need to tell the wrapper to bring its chrome back;
+  // for wrapper-initiated ones this is a harmless no-op echo.
+  if (embedded()) {
+    window.parent.postMessage({ type: GAME_PAUSED_MESSAGE }, "*");
+  }
+};
+
+/** Resume from a pause — the call a pause UI's "resume" affordance makes. */
+export const resumeGame = (): void => {
+  if (!paused || !(handlers.canResume?.() ?? true)) {
+    return;
+  }
+  paused = false;
+  notifyPausableChanged();
+  // Removing the gate here means the resuming key's own keyup was already
+  // swallowed (it fired while the gate was up) — the game never sees a
+  // phantom release for a press it never saw.
+  setKeyGate(false);
+  handlers.onResume?.();
+  announceStarted();
+};
+
+const ensureListener = (): void => {
   if (listening || typeof window === "undefined") {
     return;
   }
@@ -103,7 +158,7 @@ function ensureListener(): void {
     },
     true,
   );
-}
+};
 
 /**
  * Tell the wrapper page that active play began, so it can clear its chrome out
@@ -111,75 +166,20 @@ function ensureListener(): void {
  * pause. Standalone (not embedded) it still arms the Escape pause shortcut,
  * just without messaging a wrapper.
  */
-export function notifyGameStarted(): void {
+export const notifyGameStarted = (): void => {
   ensureListener();
-  if (started || paused) {
-    return;
-  }
-  started = true;
-  notifyPausableChanged();
-  if (embedded()) {
-    window.parent.postMessage({ type: GAME_STARTED_MESSAGE }, "*");
-  }
-}
+  announceStarted();
+};
 
 /**
  * Whether {@link pauseGame} would currently do anything. A pause affordance
  * that renders before play begins is a dead control — it looks tappable and
  * silently no-ops, which testers filed as a bug in two games.
  */
-export function isPausable(): boolean {
-  return started && !paused;
-}
-
-const pausableListeners = new Set<() => void>();
-
-/** Observe {@link isPausable}. Returns an unsubscribe. */
-export function watchPausable(onChange: () => void): () => void {
-  pausableListeners.add(onChange);
-  return () => pausableListeners.delete(onChange);
-}
-
-function notifyPausableChanged(): void {
-  for (const listener of pausableListeners) {
-    listener();
-  }
-}
+export const isPausable = (): boolean => started && !paused;
 
 /** Wire the game's pause UI + freeze/unfreeze into the wrapper's pause request. */
-export function setPauseHandlers(next: PauseHandlers): void {
+export const setPauseHandlers = (next: PauseHandlers): void => {
   ensureListener();
   handlers = next;
-}
-
-/** Pause now (same path Escape and the wrapper take). No-op unless started. */
-export function pauseGame(): void {
-  if (paused || !started) {
-    return;
-  }
-  paused = true;
-  started = false;
-  notifyPausableChanged();
-  setKeyGate(true);
-  handlers.onPause?.();
-  // Escape-initiated pauses need to tell the wrapper to bring its chrome back;
-  // for wrapper-initiated ones this is a harmless no-op echo.
-  if (embedded()) {
-    window.parent.postMessage({ type: GAME_PAUSED_MESSAGE }, "*");
-  }
-}
-
-/** Resume from a pause — the call a pause UI's "resume" affordance makes. */
-export function resumeGame(): void {
-  if (!paused || !(handlers.canResume?.() ?? true)) {
-    return;
-  }
-  paused = false;
-  notifyPausableChanged();
-  // Removing the gate here means the resuming key's own keyup was already
-  // swallowed (it fired while the gate was up) — the game never sees a
-  // phantom release for a press it never saw.
-  setKeyGate(false);
-  handlers.onResume?.();
-  notifyGameStarted();
-}
+};

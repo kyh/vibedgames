@@ -44,6 +44,28 @@ const SFX_LIMIT = 26;
 const ROUTINE_LIMIT = 20;
 const LOCAL_LIMIT = 23;
 const MUSIC_LIMIT = 6;
+const LIMIT_BY_KIND = {
+  essential: SFX_LIMIT,
+  local: LOCAL_LIMIT,
+  music: MUSIC_LIMIT,
+  routine: SFX_LIMIT,
+} satisfies Record<Kind, number>;
+
+const refuses = (kind: Kind, live: Record<Kind, number>, sfxCount: number, n: number): boolean => {
+  if (n > LIMIT_BY_KIND[kind]) {
+    return true;
+  }
+  if (kind === "local") {
+    return live.essential + n > LOCAL_LIMIT;
+  }
+  if (kind === "routine") {
+    return live.routine + n > ROUTINE_LIMIT || sfxCount + n > SFX_LIMIT;
+  }
+  return false;
+};
+
+/** View-only pitch jitter; never touches the gameplay RNG stream. */
+const jitter = (n: number): number => 1 + (Math.random() - 0.5) * n;
 
 const tone = (
   freq: number,
@@ -128,7 +150,8 @@ class Sfx {
         music.connect(master);
         this.bus = { ctx, master, music };
       } catch {
-        return null; // Unavailable audio never blocks a control or scene change.
+        // Unavailable audio never blocks a control or scene change.
+        return null;
       }
     }
     this.reconcileContext();
@@ -174,7 +197,15 @@ class Sfx {
         this.reconcileContext();
       }
     };
-    void operation.then(finish, finish);
+    const settle = async (): Promise<void> => {
+      try {
+        await operation;
+      } catch {
+        // A rejected resume/suspend reconciles exactly like a fulfilled one.
+      }
+      finish();
+    };
+    void settle();
   }
 
   // Repeated Select/Game gestures keep the same app-owned music phase/timer.
@@ -229,28 +260,18 @@ class Sfx {
     }
     const live = { essential: 0, local: 0, music: 0, routine: 0 } satisfies Record<Kind, number>;
     for (const voice of this.voices) {
-      live[voice.phrase.kind]++;
+      live[voice.phrase.kind] += 1;
     }
     const sfxCount = live.routine + live.local + live.essential;
-    const limit = kind === "music" ? MUSIC_LIMIT : kind === "local" ? LOCAL_LIMIT : SFX_LIMIT;
-    const refused =
-      notes.length > limit ||
-      (kind === "local" && live.essential + notes.length > LOCAL_LIMIT) ||
-      (kind === "routine" &&
-        (live.routine + notes.length > ROUTINE_LIMIT || sfxCount + notes.length > SFX_LIMIT));
-    if (refused) {
+    const limit = LIMIT_BY_KIND[kind];
+    if (refuses(kind, live, sfxCount, notes.length)) {
       return;
     }
     // Music and combat keep independent reserves. Local actions leave three
     // SFX voices for essential cues; admission always retires whole phrases.
     let owned = kind === "music" ? live.music : sfxCount;
     while (owned + notes.length > limit) {
-      const oldest =
-        kind === "music"
-          ? this.phrases.find((p) => p.kind === "music")
-          : (this.phrases.find((p) => p.kind === "routine") ??
-            this.phrases.find((p) => p.kind === "local") ??
-            (kind === "essential" ? this.phrases.find((p) => p.kind === "essential") : undefined));
+      const oldest = this.oldestRetirable(kind);
       if (!oldest) {
         return;
       }
@@ -263,6 +284,17 @@ class Sfx {
     for (const note of notes) {
       this.schedule(bus, phrase, note, t);
     }
+  }
+
+  private oldestRetirable(kind: Kind): Phrase | undefined {
+    if (kind === "music") {
+      return this.phrases.find((p) => p.kind === "music");
+    }
+    return (
+      this.phrases.find((p) => p.kind === "routine") ??
+      this.phrases.find((p) => p.kind === "local") ??
+      (kind === "essential" ? this.phrases.find((p) => p.kind === "essential") : undefined)
+    );
   }
 
   private schedule(bus: Bus, phrase: Phrase, note: Note, t: number): void {
@@ -289,7 +321,7 @@ class Sfx {
         const length = Math.floor(ctx.sampleRate * note.dur);
         buffer = ctx.createBuffer(1, length, ctx.sampleRate);
         const data = buffer.getChannelData(0);
-        for (let i = 0; i < length; i++) {
+        for (let i = 0; i < length; i += 1) {
           data[i] = Math.random() * 2 - 1;
         }
         this.noiseBuffers.set(note.dur, buffer);
@@ -322,16 +354,12 @@ class Sfx {
     source.stop(t + note.dur + 0.02);
   }
 
-  private r(n: number): number {
-    return 1 + (Math.random() - 0.5) * n;
-  }
-
   slash(priority: SfxPriority = "routine"): void {
-    this.play([noise(0.12, 0.18, 2600 * this.r(0.2), 900)], priority);
+    this.play([noise(0.12, 0.18, 2600 * jitter(0.2), 900)], priority);
   }
   hit(priority: SfxPriority = "routine"): void {
     this.play(
-      [tone(180 * this.r(0.15), 0.1, "square", 0.16, 90), noise(0.07, 0.12, 1400)],
+      [tone(180 * jitter(0.15), 0.1, "square", 0.16, 90), noise(0.07, 0.12, 1400)],
       priority,
     );
   }
@@ -339,10 +367,10 @@ class Sfx {
     this.play([tone(140, 0.18, "square", 0.2, 60), noise(0.14, 0.16, 900, 300)], priority);
   }
   dash(priority: SfxPriority = "routine"): void {
-    this.play([noise(0.18, 0.14, 700 * this.r(0.2), 2400)], priority);
+    this.play([noise(0.18, 0.14, 700 * jitter(0.2), 2400)], priority);
   }
   jump(priority: SfxPriority = "routine"): void {
-    this.play([tone(320 * this.r(0.1), 0.14, "sine", 0.12, 620)], priority);
+    this.play([tone(320 * jitter(0.1), 0.14, "sine", 0.12, 620)], priority);
   }
   hurt(priority: SfxPriority = "essential"): void {
     this.play([tone(300, 0.2, "sawtooth", 0.2, 90)], priority);
@@ -363,7 +391,7 @@ class Sfx {
     this.play([tone(440, 0.18, "triangle", 0.12, 660)], priority);
   }
   select(priority: SfxPriority = "routine"): void {
-    this.play([tone(560 * this.r(0.05), 0.07, "square", 0.1, 720)], priority);
+    this.play([tone(560 * jitter(0.05), 0.07, "square", 0.1, 720)], priority);
   }
   die(priority: SfxPriority = "essential"): void {
     this.play([tone(260, 0.6, "sawtooth", 0.26, 60), noise(0.5, 0.18, 400, 100)], priority);
@@ -386,7 +414,7 @@ class Sfx {
   }
 
   private stopMusic(): void {
-    this.musicGeneration++;
+    this.musicGeneration += 1;
     if (this.musicTimer !== null) {
       clearInterval(this.musicTimer);
     }
@@ -403,7 +431,8 @@ class Sfx {
     if (this.musicTimer !== null) {
       return;
     }
-    const generation = ++this.musicGeneration;
+    this.musicGeneration += 1;
+    const generation = this.musicGeneration;
     this.musicTimer = setInterval(() => {
       if (generation === this.musicGeneration) {
         this.musicTick();
@@ -427,10 +456,10 @@ class Sfx {
       notes.push(tone(root, 1.4, "triangle", 0.4), tone(root * 1.5, 1.2, "sine", 0.18));
     }
     if (i === 6 || i === 12) {
-      notes.push(tone(880 * this.r(0.02), 0.12, "sine", 0.1));
+      notes.push(tone(880 * jitter(0.02), 0.12, "sine", 0.1));
     }
     this.play(notes, "music");
-    this.step++;
+    this.step += 1;
   }
 }
 

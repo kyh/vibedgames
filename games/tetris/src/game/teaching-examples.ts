@@ -12,7 +12,7 @@ export interface TeachingExample {
 }
 
 /** Isolated real boards keep the examples tied to the game's spatial rules. */
-export function teachingExamples(): TeachingExample[] {
+export const teachingExamples = (): TeachingExample[] => {
   const single = new Board();
   const row = Array.from({ length: single.width }, (_, x) => ({ x, y: 2, z: 3 }));
   single.lock(row, 1);
@@ -62,4 +62,4 @@ export function teachingExamples(): TeachingExample[] {
       title: `${crossedClear.lines} lines. ${crossedClear.cubes} cubes.`,
     },
   ];
-}
+};

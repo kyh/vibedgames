@@ -13,11 +13,11 @@ import type { ShotCharge } from "../src/shared/contact-shot.ts";
 
 test("four returns fill charge; only an armed accepted return spends it", () => {
   let charge: ShotCharge = { hits: 0, kind: "charging" };
-  for (let hits = 1; hits <= 4; hits++) {
+  for (let hits = 1; hits <= 4; hits += 1) {
     assert.deepEqual(armCharge(charge), charge);
     const result = acceptReturn(charge);
     assert.equal(result.powered, false);
-    charge = result.charge;
+    ({ charge } = result);
     assert.equal(chargeHits(charge), hits);
   }
   assert.equal(charge.kind, "ready");

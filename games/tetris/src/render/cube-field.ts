@@ -32,7 +32,8 @@ interface LockedCube {
 }
 
 const CUBE = 0.92;
-const POS_LERP = 0.32; // per-60fps-frame
+// Per 60fps frame.
+const POS_LERP = 0.32;
 const SCALE_LERP = 0.2;
 
 export class CubeField {
@@ -50,7 +51,7 @@ export class CubeField {
   constructor(scene: Scene) {
     scene.add(this.group);
 
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 4; i += 1) {
       const material = makeActiveMaterial(0xff_ff_ff);
       const mesh = new Mesh(this.boxGeo, material);
       mesh.visible = false;
@@ -63,7 +64,7 @@ export class CubeField {
     const ghostSource = new BoxGeometry(0.98, 0.98, 0.98);
     const ghostGeo = new EdgesGeometry(ghostSource);
     ghostSource.dispose();
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 4; i += 1) {
       const line = new LineSegments(
         ghostGeo,
         new LineBasicMaterial({ color: GHOST_COLOR, opacity: 0.5, transparent: true }),
@@ -80,19 +81,20 @@ export class CubeField {
       return;
     }
     const seen = new Set<number>();
-    board.forEachCube((x, y, z, colorIndex, id) => {
+    for (const { x, y, z, colorIndex, id } of board.cubes()) {
       seen.add(id);
       const existing = this.locked.get(id);
       if (existing) {
         existing.target.set(x, y, z);
         existing.scaleTarget = 1;
-        return;
+        continue;
       }
       const colorHex = PIECES[colorIndex - 1]?.color ?? 0xff_ff_ff;
       const material = makeCubeMaterial(colorHex);
       const mesh = new Mesh(this.boxGeo, material);
       mesh.position.set(x, y, z);
-      mesh.scale.setScalar(0.01); // pop in
+      // Pop in from nothing.
+      mesh.scale.setScalar(0.01);
       this.group.add(mesh);
       this.locked.set(id, {
         material,
@@ -101,7 +103,7 @@ export class CubeField {
         scaleTarget: 1,
         target: new Vector3(x, y, z),
       });
-    });
+    }
     // Cubes no longer present begin shrinking out.
     for (const [id, cube] of this.locked) {
       if (!seen.has(id)) {
@@ -129,7 +131,7 @@ export class CubeField {
       }
       this.activePieceIndex = pieceIndex;
     }
-    for (let i = 0; i < this.activeMeshes.length; i++) {
+    for (let i = 0; i < this.activeMeshes.length; i += 1) {
       const mesh = this.activeMeshes[i];
       const target = this.activeTargets[i];
       const cell = cells[i];
@@ -150,7 +152,7 @@ export class CubeField {
 
   /** Position the landing-ghost wireframe boxes (snapped). */
   setGhost(cells: Cell[]): void {
-    for (let i = 0; i < this.ghostBoxes.length; i++) {
+    for (let i = 0; i < this.ghostBoxes.length; i += 1) {
       const line = this.ghostBoxes[i];
       const cell = cells[i];
       if (!line) {
@@ -170,7 +172,7 @@ export class CubeField {
     const scaleK = frameLerp(SCALE_LERP, dt);
 
     // Active slab slides toward its target.
-    for (let i = 0; i < this.activeMeshes.length; i++) {
+    for (let i = 0; i < this.activeMeshes.length; i += 1) {
       const mesh = this.activeMeshes[i];
       const target = this.activeTargets[i];
       if (mesh?.visible && target) {

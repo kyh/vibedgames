@@ -13,7 +13,8 @@ export class RoundScore {
   reset(): void {
     this.mode = "silent";
     this.previous = null;
-    this.origin = this.step = 0;
+    this.origin = 0;
+    this.step = 0;
   }
 
   observe(mode: RoundScoreMode, nowMs: number): ScoreFrame | null {
@@ -41,7 +42,7 @@ export class RoundScore {
 
 /** Deliberate rests keep the courtyard open; the duel adds responses, not
  * volume. Two-note downbeats are the only simultaneous background phrase. */
-export function scoreNotes(beat: ScoreBeat): readonly number[] {
+export const scoreNotes = (beat: ScoreBeat): readonly number[] => {
   switch (beat.step) {
     case 0: {
       return [146.83, 293.66];
@@ -73,4 +74,4 @@ export function scoreNotes(beat: ScoreBeat): readonly number[] {
       return [];
     }
   }
-}
+};

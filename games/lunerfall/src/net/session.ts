@@ -96,12 +96,10 @@ export class NetSession {
           return;
         }
         if (status === "connected" && client.connectionStatus !== "connected") {
-          this.droppedRevision++;
+          this.droppedRevision += 1;
         }
-        status = client.connectionStatus;
-        playerId = client.playerId;
-        hostId = client.hostId;
-        this.admissionRevision++;
+        ({ connectionStatus: status, hostId, playerId } = client);
+        this.admissionRevision += 1;
       });
     }
   }
@@ -154,7 +152,8 @@ export class NetSession {
     // Never reached a room within the grace window: the party server is
     // unreachable — fall back to a local solo game.
     this.solo = true;
-    client.destroy(); // stop reconnect attempts; refresh the page to retry
+    // stop reconnect attempts; refresh the page to retry
+    client.destroy();
   }
 
   get offline(): boolean {

@@ -1,10 +1,10 @@
-export function parseRoomCode(value: string): string | null {
+export const parseRoomCode = (value: string): string | null => {
   const code = value.trim().toUpperCase();
-  return /^[A-Z0-9]{4}$/.test(code) ? code : null;
-}
+  return /^[A-Z0-9]{4}$/u.test(code) ? code : null;
+};
 
 /** Invites carry only the room and ruleset, never a host's preview/debug flags. */
-export function partyLink(href: string, code: string, mode: "coop" | "vs"): string {
+export const partyLink = (href: string, code: string, mode: "coop" | "vs"): string => {
   const url = new URL(href);
   url.search = "";
   url.hash = "";
@@ -13,4 +13,4 @@ export function partyLink(href: string, code: string, mode: "coop" | "vs"): stri
     url.searchParams.set("mode", "vs");
   }
   return url.toString();
-}
+};

@@ -29,11 +29,11 @@ renderer.info.autoReset = false;
 // device pixels. A fractional DPR (1.25/1.75 display scaling) would otherwise
 // upscale game pixels to alternating 2- and 3-device-px columns, visibly
 // warping the Bayer cells. Recomputed on resize (monitor moves change DPR).
-function applyPixelRatio(): void {
+const applyPixelRatio = (): void => {
   const dpr = Math.min(window.devicePixelRatio, 2);
   const gamePxDevice = Math.max(1, Math.round(DITHER_PIXEL * dpr));
   renderer.setPixelRatio(gamePxDevice / DITHER_PIXEL);
-}
+};
 applyPixelRatio();
 renderer.setSize(window.innerWidth, window.innerHeight);
 container.append(renderer.domElement);
@@ -139,10 +139,10 @@ renderer.setAnimationLoop((time) => {
 // See plugins/tooling/skills/playtest/references/bot-playtest.md. State hooks
 // opt into a solo match, never write a staged score into a live room.
 interface TestHooks {
-  seed(seed: number): void;
-  setState(name: string): void;
-  setPausedForScreenshot(paused: boolean): void;
-  setReducedMotion(enabled: boolean): void;
+  seed: (seed: number) => void;
+  setState: (name: string) => void;
+  setPausedForScreenshot: (paused: boolean) => void;
+  setReducedMotion: (enabled: boolean) => void;
 }
 declare global {
   interface Window {

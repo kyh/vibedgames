@@ -17,23 +17,28 @@ export type RunRecap =
       }>)
   | (Reached & Readonly<{ kind: "coop-guest" }>);
 
-function whole(value: unknown, minimum: number): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= minimum;
-}
+const whole = (value: unknown, minimum: number): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= minimum;
+
+/** Untyped scene data: every recap field may be absent or of the wrong type. */
+type RecapCandidate = Partial<{
+  kind: unknown;
+  hero: unknown;
+  biome: unknown;
+  depth: unknown;
+  gold: unknown;
+  score: unknown;
+  shardsEarned: unknown;
+  bestScore: unknown;
+}>;
+
+const isCandidate = (value: unknown): value is RecapCandidate =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
 /** Scene data is untyped and may survive an earlier Scene.start. Validate the
  * explicit recap value and copy primitives; never retain the caller's object. */
-export function readRunRecap(value: unknown): RunRecap | null {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value) ||
-    !("kind" in value) ||
-    !("hero" in value) ||
-    !("biome" in value) ||
-    !("depth" in value) ||
-    !("gold" in value)
-  ) {
+export const readRunRecap = (value: unknown): RunRecap | null => {
+  if (!isCandidate(value)) {
     return null;
   }
   const hero = HERO_NAMES.find((name) => name === value.hero);
@@ -46,9 +51,6 @@ export function readRunRecap(value: unknown): RunRecap | null {
   }
   if (
     value.kind !== "banked" ||
-    !("score" in value) ||
-    !("shardsEarned" in value) ||
-    !("bestScore" in value) ||
     !whole(value.score, 0) ||
     !whole(value.shardsEarned, 0) ||
     !whole(value.bestScore, value.score)
@@ -58,8 +60,8 @@ export function readRunRecap(value: unknown): RunRecap | null {
   return {
     kind: "banked",
     ...reached,
+    bestScore: value.bestScore,
     score: value.score,
     shardsEarned: value.shardsEarned,
-    bestScore: value.bestScore,
   };
-}
+};

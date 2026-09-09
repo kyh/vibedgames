@@ -4,42 +4,42 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright-core");
 const { EVICTION_TIMEOUT_MS, RECONNECT_GRACE_MS } = await import("@vibedgames/multiplayer");
-const gameDir = resolve(import.meta.dirname, "..");
+const gameDir = path.resolve(import.meta.dirname, "..");
 const argv = process.argv.slice(2);
 const urlFlag = argv.indexOf("--url");
 const room = `t${process.pid}-${Date.now().toString(36)}`;
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function startVite() {
+const startVite = async () => {
   const port = 5400 + Math.floor(Math.random() * 400);
   const child = spawn(
-    resolve(gameDir, "node_modules/.bin/vite"),
+    path.resolve(gameDir, "node_modules/.bin/vite"),
     ["--port", String(port), "--strictPort"],
     {
       cwd: gameDir,
       stdio: ["ignore", "pipe", "inherit"],
     },
   );
-  const url = await new Promise((res, rej) => {
+  // oxlint-disable-next-line promise/avoid-new -- races vite's stdout banner against its exit; no promise form for that
+  const url = await new Promise((resolve, reject) => {
     child.stdout.on("data", (chunk) => {
-      const m = /Local:\s+(http:\/\/localhost:\d+)/.exec(String(chunk));
+      const m = /Local:\s+(?<url>http:\/\/localhost:\d+)/u.exec(String(chunk));
       if (m) {
-        res(m[1]);
+        resolve(m.groups.url);
       }
     });
-    child.on("exit", (code) => rej(new Error(`vite exited ${code}`)));
+    child.on("exit", (code) => reject(new Error(`vite exited ${code}`)));
   });
   return { stop: () => child.kill(), url };
-}
+};
 
 /** Poll `fn` (evaluated in the page) until truthy; returns its value. */
-async function until(page, fn, label, arg, timeoutMs = 15_000) {
+const until = async (page, fn, label, arg, timeoutMs = 15_000) => {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const v = await page.evaluate(fn, arg);
@@ -51,7 +51,7 @@ async function until(page, fn, label, arg, timeoutMs = 15_000) {
     }
     await sleep(100);
   }
-}
+};
 const net = (page) =>
   page.evaluate(() => {
     const c = window.__starfall.client;
@@ -62,7 +62,10 @@ const ship = (page) =>
   page.evaluate(() => ({ x: __starfall.scene.shipX, y: __starfall.scene.shipY }));
 const enemyIds = (page) => page.evaluate(() => __starfall.scene.world.enemies.map((e) => e.id));
 const key = (page, type, k) =>
-  page.evaluate(([t, key]) => window.dispatchEvent(new KeyboardEvent(t, { key })), [type, k]);
+  page.evaluate(
+    ([t, name]) => window.dispatchEvent(new KeyboardEvent(t, { key: name })),
+    [type, k],
+  );
 /** Drop the transport (RWS's own disconnect path, so the close is seen at once
  *  — a raw ws.close() sits in CLOSING against the dev party server) and hold
  *  the auto-reconnect for `ms`, so the room sees a real drop-and-reclaim.
@@ -71,13 +74,13 @@ const key = (page, type, k) =>
 /** A transport blip: an unclean close (anything but 1000, which the server
  * reads as a deliberate leave) parks the seat, then reconnect after `ms`. */
 const dropLink = (page, ms) =>
-  page.evaluate((ms) => {
+  page.evaluate((holdMs) => {
     const s = __starfall.client.socket;
     s.close(4000, "blip");
-    setTimeout(() => s.reconnect(), ms);
+    setTimeout(() => s.reconnect(), holdMs);
   }, ms);
 /** Local time keeps flowing and bodies keep moving over `ms`. */
-async function assertTicking(page, ms, label) {
+const assertTicking = async (page, ms, label) => {
   const a = await page.evaluate(() => [
     __starfall.summary().now,
     __starfall.scene.world.asteroids[0].x,
@@ -88,11 +91,12 @@ async function assertTicking(page, ms, label) {
     __starfall.scene.world.asteroids[0].x,
   ]);
   assert.ok(b[0] > a[0] && b[1] !== a[1], `${label}: world frozen`);
-}
+};
 
 const errors = [];
-async function open(browser, url, name) {
-  const page = await (await browser.newContext()).newPage();
+const open = async (browser, url, name) => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
   page.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
   page.on("console", (m) => {
     if (m.type() === "error" && !m.text().includes("Failed to load resource")) {
@@ -106,28 +110,28 @@ async function open(browser, url, name) {
     `${name} connected`,
   );
   return page;
-}
-async function startPlay(page, name) {
+};
+const startPlay = async (page, name) => {
   await key(page, "keyup", "Shift");
   await until(page, () => __starfall.summary().alive, `${name} spawned`);
-}
-async function join(browser, url, name, expectHost) {
+};
+const join = async (browser, url, name, expectHost) => {
   const page = await open(browser, url, name);
   const n = await net(page);
   assert.equal(n.isHost, expectHost, `${name} host role`);
   await startPlay(page, name);
   return page;
-}
+};
 const seesPeer = (page, id, want, label) =>
   until(
     page,
-    ([id, want]) => {
-      const p = __starfall.client.players[id];
+    ([peerId, expected]) => {
+      const p = __starfall.client.players[peerId];
       return (
         p !== undefined &&
         (p.connected ?? true) &&
-        p.state?.present === want.present &&
-        (want.alive === undefined || p.state.alive === want.alive)
+        p.state?.present === expected.present &&
+        (expected.alive === undefined || p.state.alive === expected.alive)
       );
     },
     label,
@@ -136,7 +140,7 @@ const seesPeer = (page, id, want, label) =>
 
 const step = (name, note) => console.log(`PASS ${name}${note ? ` — ${note}` : ""}`);
 
-const vite = urlFlag === -1 ? await startVite() : { stop() {}, url: argv[urlFlag + 1] };
+const vite = urlFlag === -1 ? await startVite() : { url: argv[urlFlag + 1] };
 const browser = await chromium.launch({
   args: [
     "--disable-background-timer-throttling",
@@ -150,8 +154,10 @@ try {
   // 1. join: both connected, both see each other's ship
   const host = await join(browser, vite.url, "host", true);
   const guest = await join(browser, vite.url, "guest", false);
-  const hostId = (await net(host)).id;
-  const guestId = (await net(guest)).id;
+  const hostNet = await net(host);
+  const hostId = hostNet.id;
+  const guestNet = await net(guest);
+  const guestId = guestNet.id;
   await seesPeer(host, guestId, { present: true }, "host sees guest");
   await seesPeer(guest, hostId, { present: true }, "guest sees host");
   step("join + mutual presence");
@@ -190,7 +196,8 @@ try {
   await host.evaluate(([x, y]) => __starfall.spawnItem("weapon", "RAILGUN", x, y), [g.x, g.y]);
   await until(guest, () => __starfall.summary().weapon === "RAILGUN", "guest holds RAILGUN");
   await until(host, () => __starfall.summary().items.length === 0, "host removed item");
-  assert.notEqual((await summary(host)).weapon, "RAILGUN", "host kept its own weapon");
+  const hostSummary = await summary(host);
+  assert.notEqual(hostSummary.weapon, "RAILGUN", "host kept its own weapon");
   const mastery = await until(
     guest,
     () => {
@@ -246,7 +253,8 @@ try {
     30_000,
   );
   assert.equal(await guest.evaluate(() => __starfall.scene.world.arenaEpoch), epoch, "epoch kept");
-  assert.ok((await enemyIds(guest)).includes(bossId), "boss kept across migration");
+  const guestEnemies = await enemyIds(guest);
+  assert.ok(guestEnemies.includes(bossId), "boss kept across migration");
   // A closed tab is a transport drop: the server parks the seat for the
   // reconnect grace window, and a tab that vanished without a close frame is
   // only reaped by the ping eviction.
@@ -261,7 +269,8 @@ try {
 
   // 6. late join into the running match
   const late = await join(browser, vite.url, "late", false);
-  const lateId = (await net(late)).id;
+  const lateNet = await net(late);
+  const lateId = lateNet.id;
   await until(
     late,
     (id) => __starfall.scene.world.enemies.some((e) => e.id === id),
@@ -318,7 +327,7 @@ try {
   process.exitCode = 1;
 } finally {
   await browser.close();
-  vite.stop();
+  vite.stop?.();
   // A leaked dev-server handle would otherwise keep node alive past the last check.
   process.exit(process.exitCode ?? 0);
 }

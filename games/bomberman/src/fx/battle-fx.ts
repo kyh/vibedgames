@@ -1,4 +1,5 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { BlendModes } from "phaser";
 
 import { TILE } from "../shared/constants";
 
@@ -26,14 +27,14 @@ export class BattleFx {
       .particles(0, 0, "spark", {
         alpha: { end: 0, start: 1 },
         angle: { max: 335, min: 205 },
-        blendMode: Phaser.BlendModes.ADD,
+        blendMode: BlendModes.ADD,
         emitting: false,
         gravityY: 100,
         lifespan: { max: 350, min: 160 },
         maxAliveParticles: 160,
         scale: { end: 0, start: 0.2 },
         speed: { max: 125, min: 25 },
-        tint: [0xffe9a0, 0xffbd53, 0xff7e35],
+        tint: [0xff_e9_a0, 0xff_bd_53, 0xff_7e_35],
       })
       .setDepth(32)
       .reserve(160);
@@ -41,13 +42,13 @@ export class BattleFx {
       .particles(0, 0, "spark", {
         alpha: { end: 0, start: 0.24 },
         angle: { max: 310, min: 230 },
-        blendMode: Phaser.BlendModes.NORMAL,
+        blendMode: BlendModes.NORMAL,
         emitting: false,
         lifespan: { max: 620, min: 350 },
         maxAliveParticles: 64,
         scale: { end: 1.1, start: 0.55 },
         speed: { max: 20, min: 5 },
-        tint: 0x322e2b,
+        tint: 0x32_2e_2b,
       })
       .setDepth(3)
       .reserve(64);
@@ -62,11 +63,11 @@ export class BattleFx {
         rotate: { max: 180, min: -180 },
         scale: { end: 0.3, start: 1 },
         speed: { max: 170, min: 65 },
-        tint: [0xbb783c, 0xe3ae68, 0x87512c],
+        tint: [0xbb_78_3c, 0xe3_ae_68, 0x87_51_2c],
       })
       .setDepth(5)
       .reserve(96);
-    for (let i = 0; i < 64; i++) {
+    for (let i = 0; i < 64; i += 1) {
       this.marks.push({
         image: scene.add.image(0, 0, "glow").setVisible(false),
         kind: "scorch",
@@ -140,7 +141,7 @@ export class BattleFx {
       .setPosition(x, y)
       .setDisplaySize(TILE * 0.8, TILE * (kind === "core" ? 0.8 : 0.52))
       .setTint(kind === "core" ? 0xff_e8_aa : 0x3c_2a_20)
-      .setBlendMode(kind === "core" ? Phaser.BlendModes.ADD : Phaser.BlendModes.NORMAL)
+      .setBlendMode(kind === "core" ? BlendModes.ADD : BlendModes.NORMAL)
       .setDepth(kind === "core" ? 31 : -1)
       .setAlpha(kind === "core" ? 0.7 : 0.24)
       .setVisible(true);

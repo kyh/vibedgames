@@ -81,10 +81,10 @@ test("fromJSON drops malformed, duplicate and out-of-season entries", () => {
       good,
       null,
       1,
-      { season: "winter", item: { kind: "produce", crop: "carrot" } },
-      { season: "other", item: { kind: "fish", fish: "carp" } },
-      { season: "spring", item: { kind: "seed", crop: "carrot" } },
-      { season: "spring", item: { kind: "fish", fish: "__proto__" } },
+      { item: { crop: "carrot", kind: "produce" }, season: "winter" },
+      { item: { fish: "carp", kind: "fish" }, season: "other" },
+      { item: { crop: "carrot", kind: "seed" }, season: "spring" },
+      { item: { fish: "__proto__", kind: "fish" }, season: "spring" },
     ],
     v: 1,
   });
@@ -103,7 +103,9 @@ test("save outcome reports storage failures; a v3 save without a journal still l
       getItem: (k: string) => values.get(k) ?? null,
       removeItem: (k: string) => values.delete(k),
       setItem: (k: string, v: string) => {
-        if (failWrites) throw new Error("full");
+        if (failWrites) {
+          throw new Error("full");
+        }
         values.set(k, v);
       },
     },

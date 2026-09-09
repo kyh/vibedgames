@@ -36,8 +36,9 @@ export class BootScene extends Scene {
       }
     }
     for (const sheet of ["warrior", "pawn", "archer"]) {
-      for (const color of ["blue", "red"])
+      for (const color of ["blue", "red"]) {
         this.load.image(`portrait-${sheet}-${color}`, `assets/ui/portraits/${sheet}-${color}.png`);
+      }
     }
     this.load.image("portrait-torch", "assets/ui/portraits/torch.png");
 

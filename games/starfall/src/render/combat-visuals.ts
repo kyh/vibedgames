@@ -18,7 +18,7 @@ export type WeaponLook =
 
 /** Local weapon identity only. Remote snapshots use their actual shape flags,
  * never the owner's current loadout to guess an old projectile's weapon. */
-export function weaponLook(weapon: Weapon): WeaponLook {
+export const weaponLook = (weapon: Weapon): WeaponLook => {
   if (weapon.singularity) {
     return "orb";
   }
@@ -68,17 +68,17 @@ export function weaponLook(weapon: Weapon): WeaponLook {
       return "bolt";
     }
   }
-}
+};
 
 /** Presentation contact at the near surface of a hit circle. Call BEFORE any
  * bounce/reaction changes the beam. Collision testing remains the caller's job. */
-export function contactPoint(
+export const contactPoint = (
   tail: Vec,
   head: Vec,
   target: Vec,
   radius: number,
   radial: boolean,
-): Vec {
+): Vec => {
   if (radial) {
     const dx = head.x - target.x;
     const dy = head.y - target.y;
@@ -103,37 +103,25 @@ export function contactPoint(
   const along = discriminant >= 0 ? (-b - Math.sqrt(discriminant)) / length2 : -b / length2;
   const t = Math.max(0, Math.min(1, along));
   return { x: tail.x + dx * t, y: tail.y + dy * t };
-}
+};
 
 export type BurstKind = "muzzle" | "impact" | "fracture" | "death" | "boss" | "detonation";
 
-export function burstLifetime(kind: BurstKind): number {
-  switch (kind) {
-    case "muzzle": {
-      return 115;
-    }
-    case "impact": {
-      return 300;
-    }
-    case "fracture": {
-      return 650;
-    }
-    case "death": {
-      return 900;
-    }
-    case "boss": {
-      return 1550;
-    }
-    case "detonation": {
-      return 650;
-    }
-  }
-}
+const BURST_LIFETIME_MS: Record<BurstKind, number> = {
+  boss: 1550,
+  death: 900,
+  detonation: 650,
+  fracture: 650,
+  impact: 300,
+  muzzle: 115,
+};
+
+export const burstLifetime = (kind: BurstKind): number => BURST_LIFETIME_MS[kind];
 
 /** A stage's envelope is exactly zero before launch and after expiry. */
-export function burstStage(age: number, delay: number, life: number): number {
+export const burstStage = (age: number, delay: number, life: number): number => {
   if (age < delay || age >= delay + life) {
     return 0;
   }
   return 1 - (age - delay) / life;
-}
+};

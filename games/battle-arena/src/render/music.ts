@@ -34,13 +34,16 @@ const F4 = 349.23;
 const A4 = 440;
 const C5 = 523.25;
 
-const PULSE_PATTERN: number[] = [D2, D2, F2, D2, A1, D2, C3, D2]; // 8ths
-const LEAD_PATTERN: number[] = [D4, F4, A4, C5, A4, F4]; // 16ths
+// 8ths
+const PULSE_PATTERN: number[] = [D2, D2, F2, D2, A1, D2, C3, D2];
+// 16ths
+const LEAD_PATTERN: number[] = [D4, F4, A4, C5, A4, F4];
 
 const SCHEDULER_MS = 45;
 const LOOKAHEAD_S = 0.18;
 const FADE_S = 1.5;
-const BUS_GAIN = 0.32; // musicBus baseline (duck target 0.19, restored +0.4s)
+// musicBus baseline (duck target 0.19, restored +0.4s)
+const BUS_GAIN = 0.32;
 
 type LayerName = "drone" | "pulse" | "kit" | "lead";
 const LAYER_NAMES: LayerName[] = ["drone", "pulse", "kit", "lead"];
@@ -57,15 +60,19 @@ export class Music {
   private noiseBuf: AudioBuffer | null = null;
   private timer: number | null = null;
   private nextTime = 0;
-  private step = 0; // global 8th-note counter (16ths derive from step*2)
+  // global 8th-note counter (16ths derive from step*2)
+  private step = 0;
   private bpm = 96;
   private intensity: MusicIntensity = 0;
   private running = false;
 
-  constructor(
-    private ctx: AudioContext,
-    private bus: GainNode,
-  ) {}
+  private ctx: AudioContext;
+  private bus: GainNode;
+
+  constructor(ctx: AudioContext, bus: GainNode) {
+    this.ctx = ctx;
+    this.bus = bus;
+  }
 
   /** Begin once or resume the same phase, rebased to the current sample clock. */
   start(): void {
@@ -192,7 +199,9 @@ export class Music {
     this.disposed = true;
     this.silence();
     if (this.gains) {
-      for (const name of LAYER_NAMES) this.gains[name].disconnect();
+      for (const name of LAYER_NAMES) {
+        this.gains[name].disconnect();
+      }
     }
     this.gains = null;
     this.noiseBuf = null;
@@ -212,11 +221,13 @@ export class Music {
     while (this.nextTime < horizon) {
       if (this.step % 8 === 0) {
         this.bpm = this.intensity === 3 ? 112 : 96;
-      } // bar boundary
-      const stepDur = 60 / this.bpm / 2; // one 8th
+        // bar boundary
+      }
+      // one 8th
+      const stepDur = 60 / this.bpm / 2;
       this.scheduleStep(this.step, this.nextTime, stepDur);
       this.nextTime += stepDur;
-      this.step++;
+      this.step += 1;
     }
   }
 
@@ -289,7 +300,7 @@ export class Music {
     }
     const buf = this.ctx.createBuffer(1, this.ctx.sampleRate, this.ctx.sampleRate);
     const data = buf.getChannelData(0);
-    for (let i = 0; i < data.length; i++) {
+    for (let i = 0; i < data.length; i += 1) {
       data[i] = Math.random() * 2 - 1;
     }
     this.noiseBuf = buf;

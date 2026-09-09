@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 
 import type { Unstable_DevWorker } from "wrangler";
 import { unstable_dev } from "wrangler";
@@ -32,9 +33,10 @@ after(async () => {
 
 /** Each test gets its own room, i.e. its own Durable Object instance. */
 let roomCounter = 0;
-const uniqueRoom = (label: string): string => `it-${process.pid}-${roomCounter++}-${label}`;
-
-const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+const uniqueRoom = (label: string): string => {
+  roomCounter += 1;
+  return `it-${process.pid}-${roomCounter - 1}-${label}`;
+};
 
 /** Poll until `predicate` holds. Deterministic waiting — no fixed sleeps. */
 const waitFor = async (
@@ -334,7 +336,7 @@ test("coalesced events collapse to the latest payload and never trail the state 
       // Burst five coalesced events, then a state write in the same tick. The
       // burst must collapse to ONE wire message carrying the last payload, and
       // it must arrive before the state patch it precedes.
-      for (let i = 1; i <= 5; i++) {
+      for (let i = 1; i <= 5; i += 1) {
         clientA.sendEvent("tick", { i }, { coalesce: true });
       }
       clientA.updateSharedState({ round: 1 });
@@ -473,7 +475,7 @@ test("malformed and oversized state patches are dropped without harming the room
       );
       assert.equal(guest.sharedState.blob, undefined, "oversized frame was refused");
       assert.equal(
-        Object.keys(guest.sharedState).some((key) => /^\d+$/.test(key)),
+        Object.keys(guest.sharedState).some((key) => /^\d+$/u.test(key)),
         false,
         "non-object root never scattered index keys into shared state",
       );

@@ -23,6 +23,9 @@ export interface MasteryShot {
 
 /** HUD-only technique feedback for RAILGUN (pierce two enemies with one shot)
  * and GLAIVE (hit the same enemy out and back). No gameplay effect. */
+const inWindow = (state: { startedAt: number; endsAt: number }, now: number): boolean =>
+  now >= state.startedAt && now < state.endsAt;
+
 export class WeaponMastery {
   private current: WeaponMasteryState = { phase: "idle" };
   private generation = 0;
@@ -37,15 +40,16 @@ export class WeaponMastery {
       return;
     }
     const state = this.current;
-    if (state.phase === "active" && state.weapon === weapon && this.inWindow(state, now)) {
+    if (state.phase === "active" && state.weapon === weapon && inWindow(state, now)) {
       this.current = { ...state, endsAt: weaponUntil };
       return;
     }
+    this.generation += 1;
     this.current = {
       completions: 0,
       contacts: 0,
       endsAt: weaponUntil,
-      generation: ++this.generation,
+      generation: this.generation,
       phase: "active",
       startedAt: now,
       weapon,
@@ -54,7 +58,7 @@ export class WeaponMastery {
 
   shot(weapon: string, now: number): MasteryShot | null {
     const state = this.current;
-    if (state.phase !== "active" || state.weapon !== weapon || !this.inWindow(state, now)) {
+    if (state.phase !== "active" || state.weapon !== weapon || !inWindow(state, now)) {
       return null;
     }
     return {
@@ -67,11 +71,7 @@ export class WeaponMastery {
 
   contact(shot: MasteryShot, enemyId: string, returning: boolean, now: number): void {
     const state = this.current;
-    if (
-      state.phase !== "active" ||
-      shot.generation !== state.generation ||
-      !this.inWindow(state, now)
-    ) {
+    if (state.phase !== "active" || shot.generation !== state.generation || !inWindow(state, now)) {
       return;
     }
     const leg = returning ? shot.returning : shot.outward;
@@ -96,16 +96,12 @@ export class WeaponMastery {
     if (state.phase !== "active") {
       return;
     }
-    if (!alive || weapon !== state.weapon || !this.inWindow(state, now)) {
+    if (!alive || weapon !== state.weapon || !inWindow(state, now)) {
       this.clear();
     }
   }
 
   clear(): void {
     this.current = { phase: "idle" };
-  }
-
-  private inWindow(state: { startedAt: number; endsAt: number }, now: number): boolean {
-    return now >= state.startedAt && now < state.endsAt;
   }
 }

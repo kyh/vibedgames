@@ -1,16 +1,19 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { Textures } from "phaser";
 
 import { biomePalette } from "../data/biomes";
 import type { BiomePalette } from "../data/biomes";
 
 const KEY = "luner-pixel-sky";
 
-function mix(a: number, b: number, t: number): number {
-  const r = Math.round(((a >> 16) & 255) * (1 - t) + ((b >> 16) & 255) * t);
-  const g = Math.round(((a >> 8) & 255) * (1 - t) + ((b >> 8) & 255) * t);
-  const blue = Math.round((a & 255) * (1 - t) + (b & 255) * t);
-  return (r << 16) | (g << 8) | blue;
-}
+const channel = (color: number, shift: number): number => Math.floor(color / shift) % 256;
+
+const mix = (a: number, b: number, t: number): number => {
+  const r = Math.round(channel(a, 0x1_00_00) * (1 - t) + channel(b, 0x1_00_00) * t);
+  const g = Math.round(channel(a, 0x1_00) * (1 - t) + channel(b, 0x1_00) * t);
+  const blue = Math.round(channel(a, 1) * (1 - t) + channel(b, 1) * t);
+  return r * 0x1_00_00 + g * 0x1_00 + blue;
+};
 
 /** Screen-pinned sky gradient painted into one half-resolution canvas texture
  * (two-pixel rows stay crisp at the game's logical size), repainted only when
@@ -24,7 +27,7 @@ export class PixelSky {
   constructor(scene: Phaser.Scene, width: number, height: number, pal = biomePalette(1)) {
     const existing = scene.textures.exists(KEY) ? scene.textures.get(KEY) : null;
     const texture =
-      existing instanceof Phaser.Textures.CanvasTexture
+      existing instanceof Textures.CanvasTexture
         ? existing
         : scene.textures.createCanvas(
             KEY,
@@ -35,7 +38,7 @@ export class PixelSky {
       throw new Error("Could not create Lunerfall sky texture");
     }
     this.texture = texture;
-    texture.setFilter(Phaser.Textures.FilterMode.NEAREST);
+    texture.setFilter(Textures.FilterMode.NEAREST);
     this.image = scene.add
       .image(0, 0, KEY)
       .setOrigin(0)
@@ -53,7 +56,7 @@ export class PixelSky {
     this.paletteKey = key;
     const { width, height } = this.texture;
     const ctx = this.texture.context;
-    for (let y = 0; y < height; y++) {
+    for (let y = 0; y < height; y += 1) {
       const t = y / Math.max(1, height - 1);
       const color =
         t <= 0.5 ? mix(pal.sky[0], pal.sky[1], t * 2) : mix(pal.sky[1], pal.sky[2], (t - 0.5) * 2);

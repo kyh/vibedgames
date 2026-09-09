@@ -1,4 +1,5 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { Math as PhaserMath } from "phaser";
 
 import type { PlayerMap } from "@vibedgames/multiplayer";
 
@@ -6,13 +7,13 @@ import { CHAR_ORIGIN_Y, DEPTH } from "../config";
 import { CHAR_FRAMES } from "../scenes/boot-scene";
 import type { CharAction } from "../scenes/boot-scene";
 import { isJsonNumber, isJsonObject, isJsonString } from "../json";
-import type { JsonValue } from "../json";
+import type { JsonObject, JsonValue } from "../json";
 
 // Renders the other players' farmers in the shared co-op world. They're the
 // same character sprite as the local player, name-tagged and depth-sorted with
 // everything else, smoothed toward the ~12 Hz position updates.
 
-export interface FarmerPose {
+export interface FarmerPose extends JsonObject {
   clip: CharAction;
   frame: number;
   elapsed: number;
@@ -31,7 +32,7 @@ const action = (value: JsonValue | undefined): value is CharAction =>
   isJsonString(value) && Object.hasOwn(CHAR_FRAMES, value);
 
 /** Optional presentation metadata. Older peers retain their idle/walk fallback. */
-export function readFarmerPose(value: JsonValue | undefined): FarmerPose | null {
+export const readFarmerPose = (value: JsonValue | undefined): FarmerPose | null => {
   if (!isJsonObject(value)) {
     return null;
   }
@@ -53,12 +54,15 @@ export function readFarmerPose(value: JsonValue | undefined): FarmerPose | null 
     return null;
   }
   return { clip, elapsed, frame, playing, revision };
-}
+};
 
 /** The local farmer's current clip with its sub-frame age, so peers show the tool mid-swing. */
-export function farmerPose(sprite: Phaser.GameObjects.Sprite, revision: number): FarmerPose | null {
+export const farmerPose = (
+  sprite: Phaser.GameObjects.Sprite,
+  revision: number,
+): FarmerPose | null => {
   const anim = sprite.anims;
-  const clip = anim.currentAnim?.key.replace(/^p-/, "");
+  const clip = anim.currentAnim?.key.replace(/^p-/u, "");
   if (!action(clip)) {
     return null;
   }
@@ -69,9 +73,9 @@ export function farmerPose(sprite: Phaser.GameObjects.Sprite, revision: number):
     playing: anim.isPlaying,
     revision,
   };
-}
+};
 
-export function readFarmer(state: JsonValue | undefined): FarmerState | null {
+export const readFarmer = (state: JsonValue | undefined): FarmerState | null => {
   if (!isJsonObject(state)) {
     return null;
   }
@@ -87,7 +91,7 @@ export function readFarmer(state: JsonValue | undefined): FarmerState | null {
     x,
     y,
   };
-}
+};
 
 interface Farmer {
   sprite: Phaser.GameObjects.Sprite;
@@ -105,7 +109,11 @@ const LERP = 12;
 export class RemoteFarmers {
   private farmers = new Map<string, Farmer>();
 
-  constructor(private readonly scene: Phaser.Scene) {}
+  private readonly scene: Phaser.Scene;
+
+  constructor(scene: Phaser.Scene) {
+    this.scene = scene;
+  }
 
   sync(players: PlayerMap, myId: string | null): void {
     const seen = new Set<string>();
@@ -168,8 +176,8 @@ export class RemoteFarmers {
         f.sprite.y = f.ty;
         f.seeded = false;
       } else {
-        f.sprite.x = Phaser.Math.Linear(f.sprite.x, f.tx, k);
-        f.sprite.y = Phaser.Math.Linear(f.sprite.y, f.ty, k);
+        f.sprite.x = PhaserMath.Linear(f.sprite.x, f.tx, k);
+        f.sprite.y = PhaserMath.Linear(f.sprite.y, f.ty, k);
       }
       f.sprite.setDepth(DEPTH.entityBase + f.sprite.y);
       f.shadow.setPosition(f.sprite.x, f.sprite.y + 1).setDepth(f.sprite.depth - 1);

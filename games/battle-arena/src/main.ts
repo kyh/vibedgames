@@ -38,18 +38,29 @@ declare global {
   }
 }
 
-const container = document.querySelector("#game")!;
-const loadingEl = document.querySelector("#loading");
-const barFill = document.querySelector("#bar-fill");
+const requireEl = (selector: string): HTMLElement => {
+  const node = document.querySelector<HTMLElement>(selector);
+  if (!node) {
+    throw new Error(`missing ${selector}`);
+  }
+  return node;
+};
+
+const container = requireEl("#game");
+const loadingEl = document.querySelector<HTMLElement>("#loading");
+const barFill = document.querySelector<HTMLElement>("#bar-fill");
 
 const CHAMP_MODELS = ["Knight", "Ranger", "Mage", "Rogue_Hooded", "Paladin_with_Helmet", "Witch"];
 const BOSS_MODEL = "Skeleton_Golem";
 const ENEMY_MODELS = ["Skeleton_Warrior", "Skeleton_Mage", "Skeleton_Minion", "FrostGolem"];
 // what the roster holds in champion select — loaded with the champions
 const CHAMP_WEAPON_MODELS = [
-  "sword_2handed", // Garran (knight) — the one 2H greatsword champ
-  "dagger", // Vesper (rogue) — dualwield
-  "paladin_hammer", // Aurelius — hammer + shield
+  // Garran (knight) — the one 2H greatsword champ
+  "sword_2handed",
+  // Vesper (rogue) — dualwield
+  "dagger",
+  // Aurelius — hammer + shield
+  "paladin_hammer",
   "paladin_shield",
   "bow",
   "staff",
@@ -75,7 +86,8 @@ const CLIP_LIBS = [
   "Rig_Medium_MovementAdvanced",
   "Rig_Medium_CombatMelee",
   "Rig_Medium_CombatRanged",
-  "Rig_Medium_Special", // Spawn / Taunt / Skeletons_* flourishes
+  // Spawn / Taunt / Skeletons_* flourishes
+  "Rig_Medium_Special",
 ];
 // Rig_Large clip names collide with Rig_Medium (Idle_A, Running_A, …), so these
 // load under a "Large/" key prefix and resolve per-character via clipPrefix.
@@ -84,7 +96,8 @@ const CLIP_LIBS_LARGE = [
   "Rig_Large_MovementBasic",
   "Rig_Large_MovementAdvanced",
   "Rig_Large_CombatMelee",
-  "Rig_Large_Simulation", // Flexing — the boss taunt fallback
+  // Flexing — the boss taunt fallback
+  "Rig_Large_Simulation",
 ];
 // the dungeon prop vocabulary lives in data/map-format.ts (shared with the
 // map editor's palette, which must not import this boot module)
@@ -96,12 +109,13 @@ const PROP_SPECS: PropSpec[] = [
   ...DUNGEON_MODELS.map((m) => ({ name: m, url: `./models/dungeon/${m}.gltf` })),
   { name: "vampire_throne", url: "./models/props/Vampire_Throne.gltf" },
   { name: "paladin_statue", url: "./models/props/paladin_statue.gltf" },
-  { name: "mushroom", url: "./models/props/Mushroom.gltf" }, // Witch hex-polymorph body
+  // Witch hex-polymorph body
+  { name: "mushroom", url: "./models/props/Mushroom.gltf" },
 ];
 
 /** Fetch the bundled custom map (public/maps/default.json). Absence or an
  *  invalid file = keep the procedural arena — today's behavior exactly. */
-async function fetchBundledMap(): Promise<MapData | null> {
+const fetchBundledMap = async (): Promise<MapData | null> => {
   try {
     const res = await fetch("./maps/default.json");
     if (!res.ok) {
@@ -115,10 +129,10 @@ async function fetchBundledMap(): Promise<MapData | null> {
   } catch {
     return null;
   }
-}
+};
 
 /** The editor's localStorage draft (offline test loop). */
-function readLocalMapDraft(): MapData | null {
+const readLocalMapDraft = (): MapData | null => {
   const raw = readPreference(MAP_STORAGE_KEY);
   if (raw === null) {
     return null;
@@ -133,33 +147,33 @@ function readLocalMapDraft(): MapData | null {
     console.warn(`[map] localStorage ${MAP_STORAGE_KEY} is not JSON — ignoring`);
     return null;
   }
-}
+};
 
 /** Await `jobs`, driving the boot progress bar as they land. */
-async function runJobs(jobs: Promise<void>[]): Promise<void> {
+const runJobs = async (jobs: Promise<void>[]): Promise<void> => {
   let done = 0;
   if (barFill) {
     barFill.style.width = "0%";
   }
   const track = async (job: Promise<void>): Promise<void> => {
     await job;
-    done++;
+    done += 1;
     if (barFill) {
       barFill.style.width = `${Math.round((done / jobs.length) * 100)}%`;
     }
   };
   await Promise.all(jobs.map(track));
-}
+};
 
-function showLoading(on: boolean): void {
+const showLoading = (on: boolean): void => {
   if (loadingEl) {
     loadingEl.style.display = on ? "flex" : "none";
   }
-}
+};
 
 /** A load that never resolves leaves the veil up forever, so both the boot and
  *  the deferred arena load report through here instead. */
-function showFailure(cause: unknown): void {
+const showFailure = (cause: unknown): void => {
   console.error(cause);
   if (!loadingEl) {
     return;
@@ -168,12 +182,13 @@ function showFailure(cause: unknown): void {
   // rule, so a failed load still surfaces instead of dying to a black frame.
   loadingEl.style.display = "flex";
   loadingEl.innerHTML = `<div style="color:#ff6a6a;font:14px monospace;padding:20px;text-align:center">Failed to load:<br>${cause instanceof Error ? cause.message : String(cause)}</div>`;
-}
+};
 
-async function main(): Promise<void> {
+const main = async (): Promise<void> => {
   const view = new View(container);
   const lib = new ModelLibrary();
-  const bundledMapJob = fetchBundledMap(); // in parallel with the model loads
+  // in parallel with the model loads
+  const bundledMapJob = fetchBundledMap();
 
   await runJobs([
     ...CHAMP_MODELS.map((m) => lib.loadCharacter(m, `./models/characters/${m}.glb`)),
@@ -259,7 +274,7 @@ async function main(): Promise<void> {
     const viewer = new ViewerScene(view, lib);
     viewer.init();
     if (import.meta.env.DEV) {
-      Object.assign(window, { __vw: viewer, __view: view });
+      Object.assign(window, { __view: view, __vw: viewer });
     }
     const vwTimer = new THREE.Timer();
     view.renderer.setAnimationLoop((t) => {
@@ -299,7 +314,7 @@ async function main(): Promise<void> {
   let onlineMatch = false;
   let froze = false;
   const matchLoop = (t: number): void => {
-    frame++;
+    frame += 1;
     timer.update(t);
     const dt = Math.min(timer.getDelta(), 1 / 30);
     activeScene?.update(dt);
@@ -330,10 +345,14 @@ async function main(): Promise<void> {
     view.renderer.setAnimationLoop(matchLoop);
   };
   const startWhenLoaded = async (opts: SceneOpts): Promise<void> => {
-    showLoading(true);
-    await loadArena();
-    showLoading(false);
-    startMatch(opts);
+    try {
+      showLoading(true);
+      await loadArena();
+      showLoading(false);
+      startMatch(opts);
+    } catch (error) {
+      showFailure(error);
+    }
   };
   const launch = (requested: SceneOpts): void => {
     // The one choke point for online matches — the lobby's PLAY ONLINE button
@@ -348,7 +367,7 @@ async function main(): Promise<void> {
       startMatch(opts);
       return;
     }
-    void startWhenLoaded(opts).catch(showFailure);
+    void startWhenLoaded(opts);
   };
 
   // Wrapper-requested pause (registered once at boot — the embed package
@@ -400,11 +419,11 @@ async function main(): Promise<void> {
   } else {
     // 3D character-select lobby: render the champion row behind the DOM overlay
     const canvas = view.renderer.domElement;
-    const initialChamp = chosenChamp(); // remember the last pick across visits
-    let menu: Menu;
-    const stage = new MenuStage(view.renderer, lib, (id) => menu.setSelected(id));
+    // remember the last pick across visits
+    const initialChamp = chosenChamp();
+    let menu: Menu | null = null;
+    const stage = new MenuStage(view.renderer, lib, (id) => menu?.setSelected(id));
     const onMove = (e: PointerEvent): void => stage.onPointerMove(e.clientX, e.clientY);
-    const onClick = (e: MouseEvent): void => void stage.onClick(e.clientX, e.clientY);
     const onResize = (): void => stage.resize();
     menu = new Menu({
       initial: initialChamp,
@@ -412,30 +431,39 @@ async function main(): Promise<void> {
       onStart: (opts) => {
         view.renderer.setAnimationLoop(null);
         canvas.removeEventListener("pointermove", onMove);
-        canvas.removeEventListener("click", onClick);
         window.removeEventListener("resize", onResize);
         stage.dispose();
         launch(opts);
       },
     });
     canvas.addEventListener("pointermove", onMove);
-    canvas.addEventListener("click", onClick);
     window.addEventListener("resize", onResize);
     // First touch or keypress in the lobby = someone who is going to play, so
     // the arena streams in behind champion select and START usually finds it
     // already there. A visitor who only looks never downloads it.
-    const warmArena = (): void => {
-      window.removeEventListener("pointerdown", warmArena);
-      window.removeEventListener("keydown", warmArena);
-      // loadArena is memoised, so a failure here is reported by launch()'s own
-      // handler; swallow it now rather than raising it over champion select.
-      void loadArena().catch(() => {});
+    // loadArena is memoised, so a failure here is reported by launch()'s own
+    // handler; swallow it now rather than raising it over champion select.
+    const warmArena = async (): Promise<void> => {
+      try {
+        await loadArena();
+      } catch {
+        /* empty */
+      }
     };
-    window.addEventListener("pointerdown", warmArena);
-    window.addEventListener("keydown", warmArena);
-    stage.select(initialChamp); // sync the 3D row with the persisted pick
+    const onWarm = (): void => {
+      window.removeEventListener("pointerdown", onWarm);
+      window.removeEventListener("keydown", onWarm);
+      void warmArena();
+    };
+    window.addEventListener("pointerdown", onWarm);
+    window.addEventListener("keydown", onWarm);
+    // sync the 3D row with the persisted pick
+    stage.select(initialChamp);
     const menuTimer = new THREE.Timer();
     view.renderer.setAnimationLoop((t) => {
+      if (!menu) {
+        return;
+      }
       menu.update();
       if (!menu.active) {
         return;
@@ -447,6 +475,13 @@ async function main(): Promise<void> {
   }
 
   window.addEventListener("resize", () => view.resize());
-}
+};
 
-void main().catch(showFailure);
+const boot = async (): Promise<void> => {
+  try {
+    await main();
+  } catch (error) {
+    showFailure(error);
+  }
+};
+void boot();

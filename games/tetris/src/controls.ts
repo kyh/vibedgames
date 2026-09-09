@@ -49,9 +49,17 @@ export const METHOD_LABEL = {
   touch: "touch",
 } satisfies Record<ControlMethod, string>;
 
-function say(entry: ControlEntry): string {
-  return `${entry.input} to ${entry.action}`;
-}
+const say = (entry: ControlEntry): string => `${entry.input} to ${entry.action}`;
+
+const startHint = (methods: ReadonlySet<ControlMethod>): string => {
+  if (methods.has("controller")) {
+    return "any button to start";
+  }
+  if (methods.has("touch")) {
+    return "tap to start";
+  }
+  return "Enter / Space to start";
+};
 
 /** Title-banner sub line: the headline verbs plus how to start.
  *
@@ -60,17 +68,12 @@ function say(entry: ControlEntry): string {
  *  lead — it is the only control a phone player has no other way to discover,
  *  and on a landscape phone this line is the whole reference (the legend has no
  *  room). Everywhere else the two headline camera gestures lead. */
-export function titleSubText(): string {
+export const titleSubText = (): string => {
   const methods = activeMethods();
   const camera = CONTROLS.filter((entry) => entry.method === "camera");
   const drag = CONTROLS.find((entry) => entry.method === "touch" && entry.action === "move");
   const headline = (
     methods.has("touch") && drag ? [drag, ...camera.slice(1, 2)] : camera.slice(0, 2)
   ).map(say);
-  const start = methods.has("controller")
-    ? "any button to start"
-    : methods.has("touch")
-      ? "tap to start"
-      : "Enter / Space to start";
-  return [...headline, start].join(" · ");
-}
+  return [...headline, startHint(methods)].join(" · ");
+};

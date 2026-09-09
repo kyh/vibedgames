@@ -22,32 +22,7 @@ export const diag: Diagnostics = {
   score: 0,
 };
 
-export function installTestHooks(game: Phaser.Game): void {
-  Reflect.set(globalThis, "__GAME_DIAGNOSTICS__", diag);
-  Reflect.set(globalThis, "__GAME_TEST_HOOKS__", {
-    // Contract: seed() reseeds the gameplay RNG AND restarts the run, so
-    // everything a bot measures is deterministic from this seed (frames
-    // rendered before the call were unseeded).
-    seed(n: number): void {
-      restartSolo(game, n);
-    },
-    // 'active-play' = a fresh solo run, skipping the select screen.
-    setState(name: string): void {
-      if (name === "active-play") {
-        restartSolo(game);
-      }
-    },
-    setPausedForScreenshot(paused: boolean): void {
-      if (paused) {
-        game.loop.sleep();
-      } else {
-        game.loop.wake();
-      }
-    },
-  });
-}
-
-function restartSolo(game: Phaser.Game, seed?: number): void {
+const restartSolo = (game: Phaser.Game, seed?: number): void => {
   for (const key of ["select", "game", "viewer"]) {
     if (game.scene.isActive(key)) {
       game.scene.stop(key);
@@ -61,4 +36,29 @@ function restartSolo(game: Phaser.Game, seed?: number): void {
   diag.player.speed = 0;
   diag.entities = 0;
   game.scene.start("game", { hero: "axion", seed });
-}
+};
+
+export const installTestHooks = (game: Phaser.Game): void => {
+  Reflect.set(globalThis, "__GAME_DIAGNOSTICS__", diag);
+  Reflect.set(globalThis, "__GAME_TEST_HOOKS__", {
+    // Contract: seed() reseeds the gameplay RNG AND restarts the run, so
+    // everything a bot measures is deterministic from this seed (frames
+    // rendered before the call were unseeded).
+    seed(n: number): void {
+      restartSolo(game, n);
+    },
+    setPausedForScreenshot(paused: boolean): void {
+      if (paused) {
+        game.loop.sleep();
+      } else {
+        game.loop.wake();
+      }
+    },
+    // 'active-play' = a fresh solo run, skipping the select screen.
+    setState(name: string): void {
+      if (name === "active-play") {
+        restartSolo(game);
+      }
+    },
+  });
+};

@@ -17,7 +17,7 @@ type PlayerStateField = NonNullable<Player["state"]>[string] | undefined;
 // JSON numbers are always finite, so Number.isFinite is the exact check.
 const isFiniteNumber = (v: PlayerStateField): v is number => Number.isFinite(v);
 
-function readPacState(state: Player["state"]): RemotePacState | null {
+const readPacState = (state: Player["state"]): RemotePacState | null => {
   if (!state) {
     return null;
   }
@@ -27,7 +27,7 @@ function readPacState(state: Player["state"]): RemotePacState | null {
     return null;
   }
   return { x, z };
-}
+};
 
 interface RemotePac {
   group: THREE.Group;
@@ -39,6 +39,19 @@ interface RemotePac {
 
 const LERP_RATE = 12;
 const BODY_Y = 0.4;
+
+/* oxlint-disable no-bitwise, unicorn/prefer-code-point -- FNV-1a is defined over
+   UTF-16 code units and 32-bit wraparound; codePointAt or Math.trunc would change
+   the hash, and every peer has to derive the same color from an id. */
+const colorForId = (id: string): THREE.Color => {
+  let h = 2_166_136_261;
+  for (let i = 0; i < id.length; i += 1) {
+    h ^= id.charCodeAt(i);
+    h = Math.imul(h, 16_777_619);
+  }
+  return new THREE.Color().setHSL(((h >>> 0) % 360) / 360, 0.65, 0.6);
+};
+/* oxlint-enable no-bitwise, unicorn/prefer-code-point */
 
 export class RemotePacs {
   readonly group = new THREE.Group();
@@ -103,13 +116,4 @@ export class RemotePacs {
     this.pacs.set(id, pac);
     return pac;
   }
-}
-
-function colorForId(id: string): THREE.Color {
-  let h = 2_166_136_261;
-  for (let i = 0; i < id.length; i++) {
-    h ^= id.charCodeAt(i);
-    h = Math.imul(h, 16_777_619);
-  }
-  return new THREE.Color().setHSL(((h >>> 0) % 360) / 360, 0.65, 0.6);
 }

@@ -1,4 +1,5 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { Math as PhaserMath } from "phaser";
 import { safeAreaInset } from "@vibedgames/gamepad/phaser";
 import { TILE, DEPTH } from "../config";
 import { store } from "./store";
@@ -86,7 +87,7 @@ export class Fishing {
       .setDepth(DEPTH.crop + 5);
     b.setStrokeStyle(1, 0xff_ff_ff, 0.8);
     this.bobber = b;
-    this.timer = Phaser.Math.FloatBetween(1.6, 4.8);
+    this.timer = PhaserMath.FloatBetween(1.6, 4.8);
   }
 
   onActionPress(): void {
@@ -179,7 +180,7 @@ export class Fishing {
       : this.scene.actionHeld();
     // zone physics: gravity down, thrust up while held
     this.zoneVel += (held ? -560 : 320) * dt;
-    this.zoneVel = Phaser.Math.Clamp(this.zoneVel, -180, 180);
+    this.zoneVel = PhaserMath.Clamp(this.zoneVel, -180, 180);
     this.zonePos += this.zoneVel * dt;
     if (this.zonePos < 0) {
       this.zonePos = 0;
@@ -193,10 +194,10 @@ export class Fishing {
     const diff = this.target?.difficulty ?? 1;
     this.fishTimer -= dt;
     if (this.fishTimer <= 0) {
-      this.fishTimer = Phaser.Math.FloatBetween(0.4, 1.2) / (0.6 + diff * 0.2);
-      this.fishTarget = Phaser.Math.Between(6, BAR_H - 6);
+      this.fishTimer = PhaserMath.FloatBetween(0.4, 1.2) / (0.6 + diff * 0.2);
+      this.fishTarget = PhaserMath.Between(6, BAR_H - 6);
     }
-    this.fishPos = Phaser.Math.Linear(
+    this.fishPos = PhaserMath.Linear(
       this.fishPos,
       this.fishTarget,
       Math.min(1, dt * (1.5 + diff * 0.6)),
@@ -204,7 +205,7 @@ export class Fishing {
 
     const inZone = this.fishPos >= this.zonePos && this.fishPos <= this.zonePos + this.zoneH;
     this.progress += inZone ? 0.42 * dt : -(0.18 + diff * 0.05) * dt;
-    this.progress = Phaser.Math.Clamp(this.progress, 0, 1);
+    this.progress = PhaserMath.Clamp(this.progress, 0, 1);
     this.drawReel(inZone);
     if (this.progress >= 1) {
       this.land();
@@ -255,9 +256,9 @@ export class Fishing {
     if (!this.hint && !this.trailerAuto) {
       this.hint = this.scene.add
         .text(bx + 12, by + BAR_H + 16, "HOLD", {
+          color: "#ffe27a",
           fontFamily: "ui-monospace, monospace",
           fontSize: "10px",
-          color: "#ffe27a",
         })
         .setScrollFactor(0)
         .setDepth(DEPTH.night + 11)
@@ -332,7 +333,7 @@ export class Fishing {
         "#9fe0ff",
       );
       burst(this.scene, this.scene.player.x, this.scene.player.y - 16, {
-        colors: [0x9fe0ff, 0xffffff, 0xffe27a],
+        colors: [0x9f_e0_ff, 0xff_ff_ff, 0xff_e2_7a],
         count: 14,
         matter: "droplet",
         speed: 60,

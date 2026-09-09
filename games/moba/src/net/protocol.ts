@@ -15,10 +15,10 @@ const DEFAULT_ROOM = "moba-default";
 
 /** `?room=<code>` joins a private room (play with friends, isolated test runs);
  *  anything else lands in the shared default room. */
-export function roomFromLocation(): string {
+export const roomFromLocation = (): string => {
   const code = new URLSearchParams(window.location.search).get("room") ?? "";
-  return /^[\w-]{1,32}$/.test(code) ? `moba-${code}` : DEFAULT_ROOM;
-}
+  return /^[\w-]{1,32}$/u.test(code) ? `moba-${code}` : DEFAULT_ROOM;
+};
 
 export type Intent =
   | { kind: "join"; defId: string }

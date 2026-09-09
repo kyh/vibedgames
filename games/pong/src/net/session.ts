@@ -128,7 +128,8 @@ export class NetSession {
     // Never reached a room within the grace window: the party server is
     // unreachable — fall back to a local solo game.
     this.solo = true;
-    client.destroy(); // stop reconnect attempts; refresh the page to retry
+    // Stop reconnect attempts; refresh the page to retry.
+    client.destroy();
   }
 
   get offline(): boolean {

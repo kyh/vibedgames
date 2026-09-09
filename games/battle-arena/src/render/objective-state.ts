@@ -2,11 +2,11 @@ import { MAX_ITEMS } from "../data/items";
 import type { Coin, Delivery, Unit, World } from "../sim/types";
 
 /** Keep a valid target until it leaves the authoritative snapshot. */
-function nearest<T extends { id: string; x: number; y: number }>(
+const nearest = <T extends { id: string; x: number; y: number }>(
   choices: readonly T[],
   me: Pick<Unit, "x" | "y"> | null,
   previousId: string | null,
-): T | null {
+): T | null => {
   const previous = choices.find((choice) => choice.id === previousId);
   if (previous) {
     return previous;
@@ -21,13 +21,12 @@ function nearest<T extends { id: string; x: number; y: number }>(
     }
   }
   return selected;
-}
+};
 
-export function liveBossCoins(w: World): Coin[] {
-  return w.coins.filter((coin) => !coin.loot && coin.expireAt > w.now);
-}
+export const liveBossCoins = (w: World): Coin[] =>
+  w.coins.filter((coin) => !coin.loot && coin.expireAt > w.now);
 
-export function coinObjective(w: World, me: Unit | null, previousId: string | null = null) {
+export const coinObjective = (w: World, me: Unit | null, previousId: string | null = null) => {
   const target = nearest(liveBossCoins(w), me, previousId);
   if (target) {
     const flying = target.landAt > w.now;
@@ -46,9 +45,9 @@ export function coinObjective(w: World, me: Unit | null, previousId: string | nu
       ? `◈ COIN ${Math.ceil(w.nextCoinAt - w.gameTime)}s`
       : "";
   return { live: false, target: null, text };
-}
+};
 
-export function deliveryObjective(w: World, me: Unit | null, previousId: string | null = null) {
+export const deliveryObjective = (w: World, me: Unit | null, previousId: string | null = null) => {
   const choices: Delivery[] = w.deliveries.filter((drop) => drop.expireAt > w.now);
   const target = nearest(choices, me, previousId);
   if (target) {
@@ -65,4 +64,4 @@ export function deliveryObjective(w: World, me: Unit | null, previousId: string 
     text:
       w.nextDeliveryAt > w.gameTime ? `▣ DROP ${Math.ceil(w.nextDeliveryAt - w.gameTime)}s` : "",
   };
-}
+};

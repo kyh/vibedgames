@@ -3,15 +3,15 @@ import { hash2 } from "../data/decor";
 
 export type ArenaSurface = "stone" | "floor" | "dirt" | "grate";
 const SURFACES = {
-  dirt: { color: 0xc0b5a6, roughness: 0.98 },
-  floor: { color: 0xc5c9cf, roughness: 0.92 },
-  grate: { color: 0xb4bdc9, roughness: 0.86 },
-  stone: { color: 0xc6c8ca, roughness: 0.86 },
+  dirt: { color: 0xc0_b5_a6, roughness: 0.98 },
+  floor: { color: 0xc5_c9_cf, roughness: 0.92 },
+  grate: { color: 0xb4_bd_c9, roughness: 0.86 },
+  stone: { color: 0xc6_c8_ca, roughness: 0.86 },
 };
 
 /** Explicit scenery vocabulary. Characters, weapons, gold, glass, banners and
  * other authored materials never enter this grade. Colors are all sRGB hex. */
-export function arenaSurface(model: string): ArenaSurface | null {
+export const arenaSurface = (model: string): ArenaSurface | null => {
   if (model === "floor_dirt_large") {
     return "dirt";
   }
@@ -36,7 +36,7 @@ export function arenaSurface(model: string): ArenaSurface | null {
     return "stone";
   }
   return null;
-}
+};
 
 /** One clone per source/surface per Environment. Rebuilds reuse the same
  * owned grade; library templates and authored texture maps stay untouched. */
@@ -86,7 +86,9 @@ export class ArenaMaterials {
 
   dispose(): void {
     for (const variants of this.grades.values()) {
-      for (const material of variants.values()) material.dispose();
+      for (const material of variants.values()) {
+        material.dispose();
+      }
     }
     this.grades.clear();
   }
@@ -94,8 +96,8 @@ export class ArenaMaterials {
 
 /** Stable, small albedo variation within existing floor draw groups. Geometry,
  * floor type and simulation randomness are independent of this cosmetic tint. */
-export function floorVariation(x: number, z: number, out: THREE.Color): THREE.Color {
+export const floorVariation = (x: number, z: number, out: THREE.Color): THREE.Color => {
   const value = 0.96 + hash2(x / 4 + 31, z / 4 + 73) * 0.08;
   const warmth = (hash2(z / 4 + 17, x / 4 + 59) - 0.5) * 0.012;
   return out.setRGB(value + warmth, value, value - warmth);
-}
+};

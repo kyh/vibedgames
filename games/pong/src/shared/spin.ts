@@ -7,12 +7,12 @@ export type Spin = { strength: number; left: number } | null;
 /** Mutate a velocity using the exact integrated spin angle for this step.
  * Its magnitude and toward-opponent sign stay invariant, including edge hits.
  * Both host simulation and guest extrapolation run this same small function. */
-export function curveVelocity(
+export const curveVelocity = (
   velocity: { x: number; y: number },
   spin: Spin,
   dt: number,
   minForwardFraction: number,
-): Spin {
+): Spin => {
   if (!spin || dt <= 0) {
     return spin;
   }
@@ -34,4 +34,4 @@ export function curveVelocity(
   velocity.y = Math.sign(velocity.y) * Math.cos(heading) * speed;
   spin.left -= step;
   return spin.left <= 1e-8 ? null : spin;
-}
+};

@@ -5,7 +5,7 @@ import { BOT_MOVE_MS, FUSE_MS, newGrid } from "../src/shared/constants";
 import type { Bot, Cell, SharedState } from "../src/shared/constants";
 
 /** The courtyard with every crate removed, plus the crates a case pins. */
-function openGrid(crates: [col: number, row: number][]): Cell[][] {
+const openGrid = (crates: [col: number, row: number][]): Cell[][] => {
   const grid = newGrid().map((row) =>
     row.map((cell) => (cell.kind === "crate" ? { kind: "empty" as const } : cell)),
   );
@@ -16,22 +16,20 @@ function openGrid(crates: [col: number, row: number][]): Cell[][] {
     }
   }
   return grid;
-}
+};
 
-function world(grid: Cell[][], patch: Partial<SharedState> = {}): SharedState {
-  return {
-    blasts: {},
-    bombs: {},
-    bots: {},
-    deaths: {},
-    grid,
-    powerups: {},
-    startedAt: 1,
-    stats: {},
-    winner: null,
-    ...patch,
-  };
-}
+const world = (grid: Cell[][], patch: Partial<SharedState> = {}): SharedState => ({
+  blasts: {},
+  bombs: {},
+  bots: {},
+  deaths: {},
+  grid,
+  powerups: {},
+  startedAt: 1,
+  stats: {},
+  winner: null,
+  ...patch,
+});
 
 const bot = (id: string, col: number, row: number): Bot => ({
   col,

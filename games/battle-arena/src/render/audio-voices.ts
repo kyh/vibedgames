@@ -2,6 +2,7 @@
 // disconnect together once every source has ended, so mute/pause can drop
 // everything in flight, and a saturated pool evicts its oldest routine group so
 // an essential cue (your own hit, a kill confirm) always finds a voice.
+// oxlint-disable-next-line max-classes-per-file -- one ownership family: a group and the pool that evicts groups reference each other
 export type VoicePriority = "routine" | "essential";
 
 export class VoiceGroup {
@@ -10,10 +11,13 @@ export class VoiceGroup {
   private sealed = false;
   private closed = false;
 
-  constructor(
-    readonly priority: VoicePriority,
-    private readonly pool: VoicePool,
-  ) {}
+  readonly priority: VoicePriority;
+  private readonly pool: VoicePool;
+
+  constructor(priority: VoicePriority, pool: VoicePool) {
+    this.priority = priority;
+    this.pool = pool;
+  }
 
   get count(): number {
     return this.sources.size;
@@ -90,10 +94,13 @@ export class VoiceGroup {
 export class VoicePool {
   private groups = new Set<VoiceGroup>();
 
-  constructor(
-    private readonly limit: number,
-    private readonly routineLimit: number,
-  ) {}
+  private readonly limit: number;
+  private readonly routineLimit: number;
+
+  constructor(limit: number, routineLimit: number) {
+    this.limit = limit;
+    this.routineLimit = routineLimit;
+  }
 
   get count(): number {
     let n = 0;
@@ -135,7 +142,9 @@ export class VoicePool {
 
   private oldestRoutine(except: VoiceGroup): VoiceGroup | null {
     for (const group of this.groups) {
-      if (group !== except && group.priority === "routine" && group.count > 0) return group;
+      if (group !== except && group.priority === "routine" && group.count > 0) {
+        return group;
+      }
     }
     return null;
   }

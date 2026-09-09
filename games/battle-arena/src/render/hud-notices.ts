@@ -40,7 +40,7 @@ interface ConfettiStage {
 
 /** Network notification kinds remain strings. Unknown kinds get neutral styling,
  * never inferred objective priority from their human-readable text. */
-function toastKind(kind: string): ToastKind {
+const toastKind = (kind: string): ToastKind => {
   switch (kind) {
     case "leader":
     case "delivery":
@@ -53,12 +53,12 @@ function toastKind(kind: string): ToastKind {
       return "notice";
     }
   }
-}
+};
 
 const feedCap = (): number => (window.innerWidth < 720 ? 3 : 5);
 
 /** Kill-feed champ sigil (heroes only — creeps/environment get no mark). */
-function feedSigil(u: Unit | undefined): HTMLImageElement | null {
+const feedSigil = (u: Unit | undefined): HTMLImageElement | null => {
   if (!u || u.kind !== "hero" || !u.champId) {
     return null;
   }
@@ -67,13 +67,13 @@ function feedSigil(u: Unit | undefined): HTMLImageElement | null {
   img.src = champSigil(u.champId);
   img.alt = "";
   return img;
-}
+};
 
-function feedName(tag: "b" | "span", name: string): HTMLElement {
+const feedName = (tag: "b" | "span", name: string): HTMLElement => {
   const el = document.createElement(tag);
   el.textContent = name;
   return el;
-}
+};
 
 export class HudNotices {
   private now = 0;
@@ -84,11 +84,15 @@ export class HudNotices {
   private pendingToasts: Toast[] = [];
   private confetti: ConfettiStage[] = [];
 
-  constructor(
-    private fx: Fx,
-    private feedEl: HTMLElement,
-    private toastEl: HTMLElement,
-  ) {}
+  private fx: Fx;
+  private feedEl: HTMLElement;
+  private toastEl: HTMLElement;
+
+  constructor(fx: Fx, feedEl: HTMLElement, toastEl: HTMLElement) {
+    this.fx = fx;
+    this.feedEl = feedEl;
+    this.toastEl = toastEl;
+  }
 
   get blocked(): boolean {
     return this.paused || this.hidden;
@@ -157,7 +161,7 @@ export class HudNotices {
       const index = this.visibleToasts.findIndex(
         (t) => TOAST_STYLE[t.notice.kind].priority === lowest,
       );
-      const displaced = this.visibleToasts.splice(index, 1)[0];
+      const [displaced] = this.visibleToasts.splice(index, 1);
       displaced?.el.remove();
       this.present(notice);
       return;
@@ -166,11 +170,15 @@ export class HudNotices {
       return;
     }
     if (this.pendingToasts.length >= 3) {
-      const lowest = Math.min(...this.pendingToasts.map((p) => TOAST_STYLE[p.kind].priority));
-      if (priority < lowest) {
+      const lowestPending = Math.min(
+        ...this.pendingToasts.map((p) => TOAST_STYLE[p.kind].priority),
+      );
+      if (priority < lowestPending) {
         return;
       }
-      const index = this.pendingToasts.findIndex((p) => TOAST_STYLE[p.kind].priority === lowest);
+      const index = this.pendingToasts.findIndex(
+        (p) => TOAST_STYLE[p.kind].priority === lowestPending,
+      );
       this.pendingToasts.splice(index, 1);
     }
     this.pendingToasts.push(notice);
@@ -229,7 +237,7 @@ export class HudNotices {
     while (this.visibleToasts.length < 2 && this.pendingToasts.length > 0) {
       const highest = Math.max(...this.pendingToasts.map((p) => TOAST_STYLE[p.kind].priority));
       const index = this.pendingToasts.findIndex((p) => TOAST_STYLE[p.kind].priority === highest);
-      const next = this.pendingToasts.splice(index, 1)[0];
+      const [next] = this.pendingToasts.splice(index, 1);
       if (next) {
         this.present(next);
       }
@@ -274,7 +282,9 @@ export class HudNotices {
         feedSigil(w.units.get(k.victim)),
         feedName("span", k.victimName),
       ]) {
-        if (part) row.append(part);
+        if (part) {
+          row.append(part);
+        }
       }
       this.feedEl.append(row);
       this.feedRows.push({ el: row, until: this.now + FEED_ROW_LIFE });

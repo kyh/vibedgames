@@ -7,7 +7,8 @@ import {
   watchControlContext,
 } from "@repo/embed";
 import type { ControlMethod } from "@repo/embed";
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { Scale, Scene, Scenes } from "phaser";
 
 import { CONTROLS } from "../controls";
 import { HEROES } from "../data/heroes";
@@ -32,13 +33,22 @@ interface MenuAction {
   ring: Phaser.GameObjects.Rectangle;
 }
 type MenuFocus = { kind: "champion" } | { kind: "action"; action: MenuAction };
+type FocusDirection = "left" | "right" | "up" | "down";
 
-export class MenuScene extends Phaser.Scene {
+const ARROW_DIRECTION = new Map<string, FocusDirection>([
+  ["ArrowLeft", "left"],
+  ["ArrowRight", "right"],
+  ["ArrowUp", "up"],
+  ["ArrowDown", "down"],
+]);
+
+export class MenuScene extends Scene {
   private selected = "ironvow";
   private cards: { id: string; ring: Phaser.GameObjects.Rectangle }[] = [];
   private detail!: Phaser.GameObjects.Text;
   private detailName!: Phaser.GameObjects.Text;
-  private compactH = false; // short viewports (landscape phones) drop the blurb
+  // short viewports (landscape phones) drop the blurb
+  private compactH = false;
   private relayout: Phaser.Time.TimerEvent | null = null;
   private unwatchControls: (() => void) | null = null;
   private controlsPlaque: Phaser.GameObjects.Container | null = null;
@@ -86,15 +96,14 @@ export class MenuScene extends Phaser.Scene {
 
     const W = this.scale.width;
     const H = this.scale.height;
-    const inset = safeAreaInset();
     this.compactH = H < 520;
     this.cameras.main.setBackgroundColor("#47aba9");
 
     // the menu is static, so a debounced restart is the simplest correct
     // relayout for resizes / phone rotation (`selected` survives on the instance)
-    this.scale.on(Phaser.Scale.Events.RESIZE, this.queueRelayout, this);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      this.scale.off(Phaser.Scale.Events.RESIZE, this.queueRelayout, this);
+    this.scale.on(Scale.Events.RESIZE, this.queueRelayout, this);
+    this.events.once(Scenes.Events.SHUTDOWN, () => {
+      this.scale.off(Scale.Events.RESIZE, this.queueRelayout, this);
       this.relayout?.remove();
       this.relayout = null;
       this.unwatchControls?.();
@@ -106,19 +115,38 @@ export class MenuScene extends Phaser.Scene {
     this.input.keyboard?.on("keydown", this.onMenuKeyDown, this);
     this.input.keyboard?.on("keyup", this.onMenuKeyUp, this);
 
-    // backdrop: open water, slowly drifting, with rocks and clouds
+    this.buildBackdrop(W, H);
+    this.buildTitle(W);
+    const gridBottom = this.buildHeroCards(W);
+    this.buildDetailPanel(W, gridBottom);
+    const btnY = this.buildStartButtons(W, H);
+    // The only place controls are taught — the match HUD carries no hint bar.
+    // The pause plaque's control language (gold method headers, HUD-echo
+    // keycap chips) rendered as a war-plaque strip above the buttons.
+    this.buildControlsPlaque(btnY);
+    // Plugging in (or pulling) a pad while the menu is up updates the plaque.
+    // Scene instance is reused — drop any stale subscription before adding one.
+    this.unwatchControls?.();
+    this.unwatchControls = watchControlContext(() => this.buildControlsPlaque(btnY));
+
+    this.select(this.selected);
+  }
+
+  /** Open water, slowly drifting, with rocks and clouds. */
+  private buildBackdrop(W: number, H: number): void {
     const water = this.add.tileSprite(0, 0, W, H, "t-water").setOrigin(0).setScrollFactor(0);
     this.tweens.add({
-      duration: 24000,
+      duration: 24_000,
       repeat: -1,
       targets: water,
       tilePositionX: 128,
       tilePositionY: 64,
     });
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 6; i += 1) {
       const n = 1 + (i % 4);
       const x = (0.06 + 0.88 * ((i * 0.61) % 1)) * W;
-      const y = (0.58 + 0.32 * ((i * 0.37) % 1)) * H; // keep below the card row
+      // keep below the card row
+      const y = (0.58 + 0.32 * ((i * 0.37) % 1)) * H;
       const rk = this.add.sprite(x, y, `wrock${n}`, 0).setScale(0.55).setAlpha(0.9);
       const anim = this.anims.get(`wrock${n}-anim`);
       // clamp startFrame to the real frame count — a sheet can load with fewer
@@ -127,13 +155,13 @@ export class MenuScene extends Phaser.Scene {
         rk.play({ key: `wrock${n}-anim`, startFrame: (i * 3) % anim.frames.length });
       }
     }
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 4; i += 1) {
       const c = this.add
         .image(((i + 0.4) / 4) * W, (0.12 + 0.74 * ((i * 0.53) % 1)) * H, "clouds", i % 8)
         .setAlpha(0.4)
         .setScale(0.8);
       this.tweens.add({
-        duration: 26000 + i * 5000,
+        duration: 26_000 + i * 5000,
         ease: "Sine.InOut",
         repeat: -1,
         targets: c,
@@ -141,8 +169,9 @@ export class MenuScene extends Phaser.Scene {
         yoyo: true,
       });
     }
+  }
 
-    // title ribbon
+  private buildTitle(W: number): void {
     const titleY = this.compactH ? 36 : 64;
     this.add
       .nineslice(
@@ -179,8 +208,11 @@ export class MenuScene extends Phaser.Scene {
         })
         .setOrigin(0.5);
     }
+  }
 
-    // hero cards on carved parchment panels; a 3-wide grid on narrow screens
+  /** Hero cards on carved parchment panels; a 3-wide grid on narrow screens.
+   *  Returns the y just below the grid. */
+  private buildHeroCards(W: number): number {
     const n = HEROES.length;
     const cols = W < 720 ? 3 : n;
     this.cardColumns = cols;
@@ -193,7 +225,7 @@ export class MenuScene extends Phaser.Scene {
     const gy0 = this.compactH ? 80 : 150;
     const x0 = (W - (cols * stepX - 12)) / 2 + cardW / 2;
 
-    HEROES.forEach((h, i) => {
+    for (const [i, h] of HEROES.entries()) {
       const col = i % cols;
       const row = Math.floor(i / cols);
       const card = this.add.container(x0 + col * stepX, gy0 + row * stepY + cardH / 2).setScale(f);
@@ -233,10 +265,11 @@ export class MenuScene extends Phaser.Scene {
       panel.on("pointerout", () => this.preview(this.selected));
       panel.on("pointerdown", () => this.select(h.id));
       this.cards.push({ id: h.id, ring });
-    });
-    const gridBottom = gy0 + rows * stepY;
+    }
+    return gy0 + rows * stepY;
+  }
 
-    // detail panel
+  private buildDetailPanel(W: number, gridBottom: number): void {
     this.detailName = this.add
       .text(W / 2, gridBottom + (this.compactH ? 16 : 30), "", {
         color: "#fff3c4",
@@ -258,10 +291,14 @@ export class MenuScene extends Phaser.Scene {
         wordWrap: { width: Math.min(820, W - 48) },
       })
       .setOrigin(0.5, 0);
+  }
 
-    // start buttons: vs Bots (local) and Online (multiplayer drop-in). They
-    // share one row at every width, narrowing to fit — a second stacked row
-    // pushed the controls plaque up over the top button on a portrait phone.
+  /** Start buttons: vs Bots (local) and Online (multiplayer drop-in). They
+   *  share one row at every width, narrowing to fit — a second stacked row
+   *  pushed the controls plaque up over the top button on a portrait phone.
+   *  Returns the button row's y. */
+  private buildStartButtons(W: number, H: number): number {
+    const inset = safeAreaInset();
     const btnY = H - (this.compactH ? 52 : 72) - inset.bottom;
     const mkBtn = (x: number, w: number, label: string, color: "blue" | "red", online: boolean) => {
       const b = this.add
@@ -293,32 +330,14 @@ export class MenuScene extends Phaser.Scene {
       mkBtn(W / 2 - btnW / 2 - 8, btnW, "PLAY vs BOTS", "blue", false);
       mkBtn(W / 2 + btnW / 2 + 8, btnW, "PLAY ONLINE", "red", true);
     }
-    // The only place controls are taught — the match HUD carries no hint bar.
-    // The pause plaque's control language (gold method headers, HUD-echo
-    // keycap chips) rendered as a war-plaque strip above the buttons.
-    this.buildControlsPlaque(btnY);
-    // Plugging in (or pulling) a pad while the menu is up updates the plaque.
-    // Scene instance is reused — drop any stale subscription before adding one.
-    this.unwatchControls?.();
-    this.unwatchControls = watchControlContext(() => this.buildControlsPlaque(btnY));
-
-    this.select(this.selected);
+    return btnY;
   }
 
   private onMenuKeyDown(event: KeyboardEvent): void {
     if (this.starting) {
       return;
     }
-    const direction =
-      event.key === "ArrowLeft"
-        ? "left"
-        : event.key === "ArrowRight"
-          ? "right"
-          : event.key === "ArrowUp"
-            ? "up"
-            : event.key === "ArrowDown"
-              ? "down"
-              : null;
+    const direction = ARROW_DIRECTION.get(event.key);
     if (direction) {
       event.preventDefault();
       this.moveFocus(direction);
@@ -368,7 +387,7 @@ export class MenuScene extends Phaser.Scene {
     }
   }
 
-  private moveFocus(direction: "left" | "right" | "up" | "down"): void {
+  private moveFocus(direction: FocusDirection): void {
     if (this.starting) {
       return;
     }
@@ -382,7 +401,7 @@ export class MenuScene extends Phaser.Scene {
             (index + (direction === "left" ? -1 : 1) + this.actions.length) % this.actions.length
           ];
         if (action) {
-          this.focus = { kind: "action", action };
+          this.focus = { action, kind: "action" };
         }
       }
       this.paintFocus();
@@ -396,19 +415,29 @@ export class MenuScene extends Phaser.Scene {
       this.focusPlay();
       return;
     }
-    const next =
-      direction === "left"
-        ? (index + HEROES.length - 1) % HEROES.length
-        : direction === "right"
-          ? (index + 1) % HEROES.length
-          : direction === "up"
-            ? index >= this.cardColumns
-              ? index - this.cardColumns
-              : index
-            : Math.min(HEROES.length - 1, index + this.cardColumns);
-    const hero = HEROES[next];
+    const hero = HEROES[this.nextCardIndex(index, direction)];
     if (hero) {
       this.select(hero.id);
+    }
+  }
+
+  private nextCardIndex(index: number, direction: FocusDirection): number {
+    switch (direction) {
+      case "left": {
+        return (index + HEROES.length - 1) % HEROES.length;
+      }
+      case "right": {
+        return (index + 1) % HEROES.length;
+      }
+      case "up": {
+        return index >= this.cardColumns ? index - this.cardColumns : index;
+      }
+      case "down": {
+        return Math.min(HEROES.length - 1, index + this.cardColumns);
+      }
+      default: {
+        return index;
+      }
     }
   }
 
@@ -520,9 +549,10 @@ export class MenuScene extends Phaser.Scene {
     };
 
     for (const group of groups) {
+      // each method heads its own row on the plaque
       if (!compact) {
         flushRow();
-      } // each method heads its own row on the plaque
+      }
       // gold section header between short rules, like the plaque's mp-gh
       const caption = this.add
         .text(20, 0, GROUP_LABEL[group.method], {

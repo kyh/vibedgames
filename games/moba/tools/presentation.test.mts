@@ -47,14 +47,14 @@ const KEYS: AbilityKey[] = ["Q", "W", "E", "R"];
 
 // ---- action availability ---------------------------------------------------
 
-function fixture(hero = "ironvow") {
+const fixture = (hero = "ironvow") => {
   const world = createWorld(303);
   world.now = 5000;
   const unit = spawnHero(world, hero, "radiant", "local", false, 0);
   assert.ok(unit.hero);
   unit.hero.abilities.W.rank = 1;
   return { unit, world };
-}
+};
 
 const cases: {
   name: string;
@@ -69,7 +69,7 @@ const cases: {
     dash: false,
     name: "stun",
     reason: "stunned",
-    statuses: [{ kind: "stun", until: 9000, sourceId: "enemy" }],
+    statuses: [{ kind: "stun", sourceId: "enemy", until: 9000 }],
   },
   {
     cast: false,
@@ -83,7 +83,7 @@ const cases: {
     cast: true,
     dash: true,
     name: "taunt",
-    statuses: [{ kind: "taunt", until: 9000, targetId: "enemy" }],
+    statuses: [{ kind: "taunt", targetId: "enemy", until: 9000 }],
   },
   {
     cast: false,
@@ -91,7 +91,7 @@ const cases: {
     name: "unstoppable stun retains the actual cast silence rule",
     reason: "stunned",
     statuses: [
-      { kind: "stun", until: 9000, sourceId: "enemy" },
+      { kind: "stun", sourceId: "enemy", until: 9000 },
       { kind: "unstoppable", until: 9000 },
     ],
   },
@@ -217,8 +217,8 @@ for (const definition of HEROES) {
     const unit = spawnHero(createWorld(202), definition.id, "radiant", "local", false, 0);
     assert.ok(unit.hero);
     for (const key of KEYS) {
-      for (let level = 1; level <= MAX_LEVEL; level++) {
-        for (let rank = 0; rank <= definition.abilities[key].maxRank; rank++) {
+      for (let level = 1; level <= MAX_LEVEL; level += 1) {
+        for (let rank = 0; rank <= definition.abilities[key].maxRank; rank += 1) {
           for (const points of [0, 1]) {
             unit.hero.level = level;
             unit.hero.abilities[key].rank = rank;
@@ -258,7 +258,7 @@ test("all24 descriptions and rank previews come from the existing kit data", () 
     assert.ok(unit.hero);
     for (const key of KEYS) {
       const def = definition.abilities[key];
-      for (let rank = 0; rank <= def.maxRank; rank++) {
+      for (let rank = 0; rank <= def.maxRank; rank += 1) {
         unit.hero.abilities[key].rank = rank;
         const text = abilityExplanation(unit.hero, key);
         assert.ok(text);
@@ -279,7 +279,7 @@ test("all24 descriptions and rank previews come from the existing kit data", () 
 test("XP strip uses cumulative level thresholds and clamps only presentation", () => {
   const unit = spawnHero(createWorld(202), "ironvow", "radiant", "local", false, 0);
   assert.ok(unit.hero);
-  for (let level = 1; level < MAX_LEVEL; level++) {
+  for (let level = 1; level < MAX_LEVEL; level += 1) {
     const floor = XP_CURVE[level - 1];
     const next = XP_CURVE[level];
     assert.ok(floor !== undefined && next !== undefined);
@@ -329,20 +329,20 @@ test("actual mirrored-hero and environmental kill events identify the fallen sid
 
 // ---- objective guidance ------------------------------------------------------
 
-function laneFixture(team: Team = "radiant") {
+const laneFixture = (team: Team = "radiant") => {
   const world = createWorld(482);
   const player = spawnHero(world, "ironvow", team, "local", false, 0);
   const prefix = enemyOf(team) === "radiant" ? "r" : "d";
   return { player, prefix, world };
-}
+};
 
-function unit(world: World, id: string): Unit {
+const unit = (world: World, id: string): Unit => {
   const found = world.units.get(id);
   assert.ok(found, id);
   return found;
-}
+};
 
-function destroy(world: World, player: Unit, id: string) {
+const destroy = (world: World, player: Unit, id: string) => {
   const victim = unit(world, id);
   assert.equal(
     victim.structure?.attackable,
@@ -356,7 +356,7 @@ function destroy(world: World, player: Unit, id: string) {
   const event = world.fx.find((fx) => fx.t === "structureDown");
   assert.ok(event);
   return event;
-}
+};
 
 for (const team of ["radiant", "dire"] satisfies Team[]) {
   test(`${team}: both lanes follow actual damage and structure gates through the Ancient`, () => {
@@ -372,8 +372,8 @@ for (const team of ["radiant", "dire"] satisfies Team[]) {
       const outer = destroy(world, player, first.id);
       assert.equal(objectiveGuidance(world, player)?.targetId, `${prefix}-${lane}-t2`);
       const outerNotice = structureAnnouncement(world, outer, team);
-      assert.match(outerNotice.text, lane === "top" ? /ENEMY TOP/ : /ENEMY BOTTOM/);
-      assert.match(outerNotice.text, /INNER TOWER EXPOSED/);
+      assert.match(outerNotice.text, lane === "top" ? /ENEMY TOP/u : /ENEMY BOTTOM/u);
+      assert.match(outerNotice.text, /INNER TOWER EXPOSED/u);
       assert.equal(outerNotice.tone, "good");
       assert.equal(structureAnnouncement(world, outer, enemyOf(team)).tone, "bad");
       assert.equal(structureAnnouncement(world, outer, null).tone, "neutral");
@@ -382,7 +382,7 @@ for (const team of ["radiant", "dire"] satisfies Team[]) {
       assert.equal(objectiveGuidance(world, player)?.lane, "base");
       assert.match(
         structureAnnouncement(world, inner, team).text,
-        /LANE OPEN · BASE TOWERS EXPOSED/,
+        /LANE OPEN · BASE TOWERS EXPOSED/u,
       );
       assert.equal(structureAnnouncement(world, inner, team).priority, "major");
       const otherLane = lane === "top" ? "bot" : "top";
@@ -390,11 +390,11 @@ for (const team of ["radiant", "dire"] satisfies Team[]) {
 
       const base = destroy(world, player, `${prefix}-base-1`);
       assert.equal(objectiveGuidance(world, player)?.targetId, `${prefix}-base-2`);
-      assert.match(objectiveGuidance(world, player)?.text ?? "", /LAST ENEMY BASE TOWER/);
-      assert.doesNotMatch(structureAnnouncement(world, base, team).text, /ANCIENT EXPOSED/);
+      assert.match(objectiveGuidance(world, player)?.text ?? "", /LAST ENEMY BASE TOWER/u);
+      assert.doesNotMatch(structureAnnouncement(world, base, team).text, /ANCIENT EXPOSED/u);
       const secondBase = destroy(world, player, `${prefix}-base-2`);
       assert.equal(objectiveGuidance(world, player)?.targetId, `${prefix}-ancient`);
-      assert.match(structureAnnouncement(world, secondBase, team).text, /ANCIENT EXPOSED/);
+      assert.match(structureAnnouncement(world, secondBase, team).text, /ANCIENT EXPOSED/u);
 
       const ancient = destroy(world, player, `${prefix}-ancient`);
       assert.equal(world.winner, team);
@@ -430,14 +430,14 @@ test("respawn tip uses real upgrade eligibility, and only suggests shopping afte
   player.alive = false;
   player.hero.respawnAt = world.now + 10_000;
   player.hero.abilityPoints = 1;
-  assert.match(objectiveGuidance(world, player)?.respawnTip ?? "", /upgrade Q/);
+  assert.match(objectiveGuidance(world, player)?.respawnTip ?? "", /upgrade Q/u);
   assert.equal(levelAbility(player, "Q"), true, "dead hero can actually spend this point");
   player.hero.abilities.W.rank = 1;
   player.hero.abilities.E.rank = 1;
   player.hero.abilityPoints = 1;
   player.hero.gold = 450;
   assert.equal(levelAbility(player, "R"), false, "level-one ultimate remains locked");
-  assert.match(objectiveGuidance(world, player)?.respawnTip ?? "", /shop after respawning/);
+  assert.match(objectiveGuidance(world, player)?.respawnTip ?? "", /shop after respawning/u);
   assert.equal(buyItem(world, player, "boots"), false, "tip must not promise shopping while dead");
   player.alive = true;
   player.x = BASES[player.team].fountain.x;
@@ -445,16 +445,16 @@ test("respawn tip uses real upgrade eligibility, and only suggests shopping afte
   assert.equal(buyItem(world, player, "boots"), true);
   player.alive = false;
   player.hero.gold = 450;
-  assert.match(objectiveGuidance(world, player)?.respawnTip ?? "", /Return with your creeps/);
+  assert.match(objectiveGuidance(world, player)?.respawnTip ?? "", /Return with your creeps/u);
   player.hero.gold = 100_000;
   player.hero.items = ITEMS.slice(0, MAX_ITEMS).map((item) => item.id);
-  assert.match(objectiveGuidance(world, player)?.respawnTip ?? "", /Return with your creeps/);
+  assert.match(objectiveGuidance(world, player)?.respawnTip ?? "", /Return with your creeps/u);
   const ownPrefix = player.team === "radiant" ? "r" : "d";
   for (const id of [`${ownPrefix}-base-1`, `${ownPrefix}-base-2`]) {
     unit(world, id).alive = false;
   }
   updateStructureGating(world);
-  assert.match(objectiveGuidance(world, player)?.respawnTip ?? "", /Your Ancient is exposed/);
+  assert.match(objectiveGuidance(world, player)?.respawnTip ?? "", /Your Ancient is exposed/u);
   player.hero.respawnAt = 0;
   assert.equal(objectiveGuidance(world, player)?.respawnTip, null);
 });
@@ -473,7 +473,10 @@ test("unknown/stale structure events never invent a lane or a currently exposed 
   });
   const event = destroy(world, player, `${prefix}-top-t1`);
   destroy(world, player, `${prefix}-top-t2`);
-  assert.doesNotMatch(structureAnnouncement(world, event, player.team).text, /INNER TOWER EXPOSED/);
+  assert.doesNotMatch(
+    structureAnnouncement(world, event, player.team).text,
+    /INNER TOWER EXPOSED/u,
+  );
 });
 
 // ---- score -------------------------------------------------------------------
@@ -484,10 +487,12 @@ test("soundscape follows local accepted combat, not idle proximity or distant la
   const me = spawnHero(world, "ironvow", "radiant", "me", false, 0);
   const enemy = spawnHero(world, "emberhex", "dire", "enemy", false, 0);
   assert.ok(me.hero);
-  me.x = enemy.x = 1500;
-  me.y = enemy.y = 1500;
+  me.x = 1500;
+  enemy.x = 1500;
+  me.y = 1500;
+  enemy.y = 1500;
   assert.equal(readSoundscape(world, me.id).kind, "quiet");
-  enemy.pendingAttack = { resolveAt: 10200, targetId: me.id };
+  enemy.pendingAttack = { resolveAt: 10_200, targetId: me.id };
   assert.equal(readSoundscape(world, me.id).kind, "battle");
   enemy.x += 1000;
   assert.equal(readSoundscape(world, me.id).kind, "quiet");
@@ -513,7 +518,7 @@ test("the score reads without changing simulation state or random state", () => 
     projectiles: [...world.projectiles],
     units: [...world.units],
   });
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 100; i += 1) {
     readSoundscape(world, me.id);
   }
   assert.equal(
@@ -527,9 +532,9 @@ test("fixed D-Dorian form, bounded recipes and sparse exploration", () => {
   const pitches = new Set([0, 2, 4, 5, 7, 9, 11]);
   const totals = { battle: 0, fallen: 0, quiet: 0, skirmish: 0 };
   for (const mode of modes) {
-    for (let step = 0; step < 64; step++) {
-      const recipe = scoreStep(step, mode, true);
-      assert.deepEqual(recipe, scoreStep(step, mode, true));
+    for (let beat = 0; beat < 64; beat += 1) {
+      const recipe = scoreStep(beat, mode, true);
+      assert.deepEqual(recipe, scoreStep(beat, mode, true));
       assert.ok(recipe.music.length <= 3 && recipe.ambience.length <= 2);
       totals[mode] += recipe.music.length;
       if (mode !== "quiet") {
@@ -562,7 +567,7 @@ test("repeated snapshots, locked sound and clock jumps never queue catch-up beat
     true,
   );
   assert.equal(next?.step, 2);
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 100; i += 1) {
     assert.equal(
       clock.observe({ kind: "quiet", time: SCORE_STEP_SECONDS * 2 + 0.00001, water: false }, true),
       null,
@@ -741,7 +746,9 @@ test("presentation settings parse strictly, survive denied storage, and unsubscr
     "invalid fields fall back independently",
   );
   let changes = 0;
-  const unwatch = watchPresentationSettings(() => changes++);
+  const unwatch = watchPresentationSettings(() => {
+    changes += 1;
+  });
   // No window/storage in this Node process: memory and subscriptions still work.
   setPresentationSettings({ effects: "focused", motion: "system", view: "close" });
   assert.equal(presentationSettings().effects, "focused");

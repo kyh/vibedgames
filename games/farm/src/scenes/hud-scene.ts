@@ -1,4 +1,5 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { BlendModes, Math as PhaserMath, Scene, Scenes } from "phaser";
 import { attachVirtualGamepad, safeAreaInset } from "@vibedgames/gamepad/phaser";
 import type { Inset } from "@vibedgames/gamepad/phaser";
 import { HOTBAR } from "../systems/inventory";
@@ -27,6 +28,55 @@ const BIG_BTN_H = 44;
 const SLOT = 42;
 const PAD = 4;
 
+const BAR_FULL = 0x7e_d9_57;
+const BAR_HP_FULL = 0xff_7b_7b;
+const BAR_LOW = 0xff_cf_4d;
+const BAR_EMPTY = 0xff_5d_5d;
+
+const barColor = (frac: number, full: number): number => {
+  if (frac > 0.5) {
+    return full;
+  }
+  if (frac > 0.25) {
+    return BAR_LOW;
+  }
+  return BAR_EMPTY;
+};
+
+const formatClock = (min: number): string => {
+  const h = Math.floor(min / 60);
+  const m = Math.floor(min % 60);
+  const ampm = h % 24 < 12 ? "AM" : "PM";
+  let hh = h % 12;
+  if (hh === 0) {
+    hh = 12;
+  }
+  return `${hh}:${m < 10 ? "0" : ""}${m} ${ampm}`;
+};
+
+const sleepDetail = (preview: ReturnType<GameScene["overnightPreview"]>): string => {
+  if (preview.withering > 0) {
+    return `\n${preview.withering} out-of-season crop${preview.withering === 1 ? "" : "s"} will wither.`;
+  }
+  if (preview.changingSeason) {
+    return `\n${seasonName(preview.season)} begins tomorrow.`;
+  }
+  return "";
+};
+
+const panelRect = (
+  g: Phaser.GameObjects.Graphics,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+): void => {
+  g.fillStyle(0x00_00_00, 0.4);
+  g.fillRoundedRect(x, y, w, h, 8);
+  g.lineStyle(2, 0xf3_e2_bf, 0.5);
+  g.strokeRoundedRect(x, y, w, h, 8);
+};
+
 interface ToastNotice {
   message: string;
   color: string;
@@ -40,7 +90,7 @@ interface DayCard {
   recap: Phaser.GameObjects.Text;
 }
 
-export class HudScene extends Phaser.Scene {
+export class HudScene extends Scene {
   private g!: GameScene;
   private slotNodes: {
     bg: Phaser.GameObjects.Graphics;
@@ -171,10 +221,10 @@ export class HudScene extends Phaser.Scene {
     // action buttons: tapping a tile IS the use action (see GameScene input).
     this.g.gamepad?.destroy();
     this.g.gamepad = attachVirtualGamepad(this, {
-      render: { blendMode: Phaser.BlendModes.NORMAL, depth: 90 },
+      render: { blendMode: BlendModes.NORMAL, depth: 90 },
       visible: "coarse",
     });
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.g.gamepad?.destroy());
+    this.events.once(Scenes.Events.SHUTDOWN, () => this.g.gamepad?.destroy());
 
     this.buildHotbar();
     this.buildTouchButtons();
@@ -184,7 +234,7 @@ export class HudScene extends Phaser.Scene {
     }
     this.onResize = () => this.layout();
     this.scale.on("resize", this.onResize);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+    this.events.once(Scenes.Events.SHUTDOWN, () => {
       if (this.onResize) {
         this.scale.off("resize", this.onResize);
       }
@@ -215,7 +265,7 @@ export class HudScene extends Phaser.Scene {
 
   private buildHotbar(): void {
     this.hotbar = this.add.container(0, 0);
-    for (let i = 0; i < HOTBAR; i++) {
+    for (let i = 0; i < HOTBAR; i += 1) {
       const bg = this.add.graphics();
       const icon = this.add.image(0, 0, "obj-wood").setVisible(false);
       const qty = this.add
@@ -317,14 +367,15 @@ export class HudScene extends Phaser.Scene {
     if (slot !== this.slot || perRow !== this.perRow) {
       this.slot = slot;
       this.perRow = perRow;
-      this.hudSig = ""; // force a graphics rebuild at the new slot size
-      this.slotNodes.forEach((n, i) => {
+      // force a graphics rebuild at the new slot size
+      this.hudSig = "";
+      for (const [i, n] of this.slotNodes.entries()) {
         n.zone.destroy();
         n.zone = this.makeSlotZone(i, slot);
         this.hotbar.add(n.zone);
-      });
+      }
     }
-    for (let i = 0; i < HOTBAR; i++) {
+    for (let i = 0; i < HOTBAR; i += 1) {
       const n = this.slotNodes[i];
       if (!n) {
         continue;
@@ -347,7 +398,9 @@ export class HudScene extends Phaser.Scene {
       .setWordWrapWidth(Math.max(80, W - 40 - il - ir));
     this.layoutNotices();
     this.layoutDayBanner();
-    this.touchUi.forEach((c, i) => c.setPosition(34 + il, 108 + it + i * 56));
+    for (const [i, c] of this.touchUi.entries()) {
+      c.setPosition(34 + il, 108 + it + i * 56);
+    }
     if (this.modal) {
       this.modal.setPosition(W / 2, H / 2);
     }
@@ -377,7 +430,7 @@ export class HudScene extends Phaser.Scene {
     this.seasonText.setText(
       `${seasonIcon(s)} ${seasonName(s)}   ${WEATHER_ICON[this.g.weather]} ${WEATHER_NAME[this.g.weather]}`,
     );
-    this.clockText.setText(this.formatClock(this.g.timeMin));
+    this.clockText.setText(formatClock(this.g.timeMin));
     this.goldText.setText(`${store.gold}g`);
     this.vitals?.hp.setText(`HP ${Math.ceil(store.hp)}/${store.maxHp()}`);
     this.vitals?.energy.setText(`Energy ${Math.floor(store.energy)}/${MAX_ENERGY}`);
@@ -405,7 +458,7 @@ export class HudScene extends Phaser.Scene {
       store.energy,
       this.g.canCharge,
     ];
-    for (let i = 0; i < HOTBAR; i++) {
+    for (let i = 0; i < HOTBAR; i += 1) {
       const slot = store.inv.slots[i];
       if (slot) {
         const ic = itemIcon(slot.item);
@@ -421,7 +474,7 @@ export class HudScene extends Phaser.Scene {
     // hotbar
     const { slot } = this;
     const { top: it, right: ir, left: il } = this.inset;
-    for (let i = 0; i < HOTBAR; i++) {
+    for (let i = 0; i < HOTBAR; i += 1) {
       const n = this.slotNodes[i];
       if (!n) {
         continue;
@@ -465,32 +518,21 @@ export class HudScene extends Phaser.Scene {
     g.clear();
     const w = 144;
     // HP
-    const hpFrac = Phaser.Math.Clamp(store.hp / store.maxHp(), 0, 1);
+    const hpFrac = PhaserMath.Clamp(store.hp / store.maxHp(), 0, 1);
     g.fillStyle(0x2a_1e_0e, 1);
     g.fillRoundedRect(x, y, w, 12, 4);
-    g.fillStyle(hpFrac > 0.5 ? 0xff_7b_7b : hpFrac > 0.25 ? 0xff_cf_4d : 0xff_5d_5d, 1);
+    g.fillStyle(barColor(hpFrac, BAR_HP_FULL), 1);
     g.fillRoundedRect(x, y, Math.max(2, w * hpFrac), 12, 4);
     g.lineStyle(1, 0xff_ff_ff, 0.25);
     g.strokeRoundedRect(x, y, w, 12, 4);
     // energy
-    const enFrac = Phaser.Math.Clamp(store.energy / MAX_ENERGY, 0, 1);
+    const enFrac = PhaserMath.Clamp(store.energy / MAX_ENERGY, 0, 1);
     g.fillStyle(0x2a_1e_0e, 1);
     g.fillRoundedRect(x, y + 15, w, 10, 4);
-    g.fillStyle(enFrac > 0.5 ? 0x7e_d9_57 : enFrac > 0.25 ? 0xff_cf_4d : 0xff_5d_5d, 1);
+    g.fillStyle(barColor(enFrac, BAR_FULL), 1);
     g.fillRoundedRect(x, y + 15, Math.max(2, w * enFrac), 10, 4);
     g.lineStyle(1, 0xff_ff_ff, 0.25);
     g.strokeRoundedRect(x, y + 15, w, 10, 4);
-  }
-
-  private formatClock(min: number): string {
-    const h = Math.floor(min / 60);
-    const m = Math.floor(min % 60);
-    const ampm = h % 24 < 12 ? "AM" : "PM";
-    let hh = h % 12;
-    if (hh === 0) {
-      hh = 12;
-    }
-    return `${hh}:${m < 10 ? "0" : ""}${m} ${ampm}`;
   }
 
   // ---------------------------------------------------------------- toasts / banner / dialogue
@@ -634,7 +676,9 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
       delay: 1700,
       duration: 500,
       onComplete: () => {
-        if (this.dayCard?.container === container) this.dayCard = null;
+        if (this.dayCard?.container === container) {
+          this.dayCard = null;
+        }
         container.destroy();
       },
       targets: container,
@@ -695,7 +739,9 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
       delay: 3600,
       duration: 400,
       onComplete: () => {
-        if (this.dialogueBox === c) this.dialogueBox = null;
+        if (this.dialogueBox === c) {
+          this.dialogueBox = null;
+        }
         c.destroy();
       },
       targets: c,
@@ -773,11 +819,16 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
     const c = this.modalShell(w, h, "🏪  General Store");
     const season = this.g.season();
     const startY = -h / 2 + 54;
-    CROP_ORDER.forEach((id, i) => {
+    const columnX = (col: number): number => {
+      if (cols === 1) {
+        return 0;
+      }
+      return col === 0 ? -(colW / 2 + 8) : colW / 2 + 8;
+    };
+    for (const [i, id] of CROP_ORDER.entries()) {
       const def = CROPS[id];
       const inSeason = def.seasons.includes(season);
-      const col = Math.floor(i / perCol);
-      const cx = cols === 1 ? 0 : col === 0 ? -(colW / 2 + 8) : colW / 2 + 8;
+      const cx = columnX(Math.floor(i / perCol));
       const ry = startY + (i % perCol) * rowH;
       const row = this.add.container(cx, ry);
       const icon = this.add
@@ -817,7 +868,7 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
       });
       row.add([icon, name, seasonTag, price, buy1, buy5]);
       c.add(row);
-    });
+    }
     const sellRow = this.add.container(0, h / 2 - 32);
     const sellBtn = this.shopBtn(0, "Sell all crops, fish & goods", () => {
       const total = this.g.sellAll();
@@ -835,7 +886,7 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
     const w = Math.min(380, this.scale.width - 24);
     const h = Math.min(110 + list.length * 56, this.scale.height - 24);
     const c = this.modalShell(w, h, building === "coop" ? "🐔  Coop" : "🐄  Barn");
-    list.forEach((kind, i) => {
+    for (const [i, kind] of list.entries()) {
       const def = ANIMALS[kind];
       const ry = -h / 2 + 60 + i * 56;
       const row = this.add.container(0, ry);
@@ -865,7 +916,7 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
       const buy = this.shopBtn(w / 2 - 48, "Buy", () => this.g.animals.buy(kind));
       row.add([spr, name, desc, price, buy]);
       c.add(row);
-    });
+    }
     const tip = this.add
       .text(0, h / 2 - 22, "Pet animals daily to raise friendship ♥", {
         color: "#7a5a1a",
@@ -905,12 +956,7 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
   private openSleep(): void {
     const width = Math.min(390, this.scale.width - 24);
     const preview = this.g.overnightPreview();
-    const detail =
-      preview.withering > 0
-        ? `\n${preview.withering} out-of-season crop${preview.withering === 1 ? "" : "s"} will wither.`
-        : preview.changingSeason
-          ? `\n${seasonName(preview.season)} begins tomorrow.`
-          : "";
+    const detail = sleepDetail(preview);
     const body = this.add
       .text(0, 0, `Sleep until morning.\nWatered crops grow, animals produce.${detail}`, {
         align: "center",
@@ -964,17 +1010,4 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
     c.add([g, t, z]);
     return c;
   }
-}
-
-function panelRect(
-  g: Phaser.GameObjects.Graphics,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-): void {
-  g.fillStyle(0x00_00_00, 0.4);
-  g.fillRoundedRect(x, y, w, h, 8);
-  g.lineStyle(2, 0xf3_e2_bf, 0.5);
-  g.strokeRoundedRect(x, y, w, h, 8);
 }

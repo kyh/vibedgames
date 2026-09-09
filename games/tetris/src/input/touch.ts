@@ -18,22 +18,21 @@ import { DROP_TAP_MS, TOUCH_ARR_MS, TOUCH_DAS_MS, TOUCH_TAP_SLOP_PX } from "../s
 /** Game verbs the touch layer drives (a thin mirror of KeyboardHandlers). */
 export interface TouchHandlers {
   /** One screen-relative move step; `initial` = first step of a hold (sfx). */
-  step(dir: ScreenDir, initial: boolean): void;
-  rotate(): void;
-  orbit(dir: -1 | 1): void;
+  step: (dir: ScreenDir, initial: boolean) => void;
+  rotate: () => void;
+  orbit: (dir: -1 | 1) => void;
   /** Space semantics: hard drop while playing, catch/start otherwise. */
-  drop(): void;
-  setSoftDrop(on: boolean): void;
-  hold(): void;
-  power(): void;
+  drop: () => void;
+  setSoftDrop: (on: boolean) => void;
+  hold: () => void;
+  power: () => void;
   /** A free touch (stick grab, not a button): start / catch / resume. */
-  tap(): void;
+  tap: () => void;
 }
 
 /** Touch-first copy must be decided AT BOOT, not after the first touch. */
-export function isCoarsePointer(): boolean {
-  return window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
-}
+export const isCoarsePointer = (): boolean =>
+  window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
 
 /** Stick dir4 (screen-space, +y down) → the game's screen-relative steer. */
 const SCREEN_DIR = {
@@ -67,22 +66,19 @@ const SHORT_GRID = [
   [2, 1],
 ] as const;
 
-function cluster(v: Viewport, slot: Slot) {
+const cluster = (v: Viewport, slot: Slot) => {
   const [col, row] = (v.height < 500 ? SHORT_GRID : TALL_GRID)[slot];
   return {
     x: v.width - v.inset.right - 58 - col * 94,
     y: v.height - v.inset.bottom - 60 - row * 96,
   };
-}
+};
 
 /** HUD controls (and anything opted out with `data-gamepad-ignore`, e.g. the
  *  webcam panel and the pause/mute cluster) own their own touches. */
-function ownsTouch(target: EventTarget | null): boolean {
-  return (
-    target instanceof Element &&
-    target.closest("button, a, input, select, textarea, [data-gamepad-ignore]") !== null
-  );
-}
+const ownsTouch = (target: EventTarget | null): boolean =>
+  target instanceof Element &&
+  target.closest("button, a, input, select, textarea, [data-gamepad-ignore]") !== null;
 
 export class TouchControls {
   private readonly gamepad: DomGamepad;
@@ -143,17 +139,18 @@ export class TouchControls {
     document.body.append(this.root);
     this.gamepad = attachDomGamepad({
       buttons: [
-        { id: "drop", label: "DROP", radius: 46, position: (v) => cluster(v, 0) },
-        { id: "rotate", label: "ROT", radius: 40, position: (v) => cluster(v, 1) },
-        { id: "hold", label: "HOLD", radius: 34, position: (v) => cluster(v, 2) },
-        { id: "power", label: "PWR", radius: 34, position: (v) => cluster(v, 3) },
-        { id: "orbit-right", label: "↻", radius: 32, position: (v) => cluster(v, 4) },
-        { id: "orbit-left", label: "↺", radius: 32, position: (v) => cluster(v, 5) },
+        { id: "drop", label: "DROP", position: (v) => cluster(v, 0), radius: 46 },
+        { id: "rotate", label: "ROT", position: (v) => cluster(v, 1), radius: 40 },
+        { id: "hold", label: "HOLD", position: (v) => cluster(v, 2), radius: 34 },
+        { id: "power", label: "PWR", position: (v) => cluster(v, 3), radius: 34 },
+        { id: "orbit-right", label: "↻", position: (v) => cluster(v, 4), radius: 32 },
+        { id: "orbit-left", label: "↺", position: (v) => cluster(v, 5), radius: 32 },
       ],
       render: { tint: "#8ea2ff" },
       root: this.root,
       stick: { deadZone: 10, radius: 56 },
-      visible: "coarse", // fixed buttons are discoverable before the first touch,
+      // Fixed buttons are discoverable before the first touch.
+      visible: "coarse",
     });
     window.addEventListener("pointerdown", this.onPointerDown);
     window.addEventListener("pointerup", this.onPointerUp);
@@ -167,7 +164,8 @@ export class TouchControls {
       this.gamepad.update();
       return;
     }
-    this.gamepad.update(); // reconcile lost touches + publish edges + redraw
+    // Reconcile lost touches + publish edges + redraw.
+    this.gamepad.update();
 
     this.repeatStick(dtMs);
 
@@ -229,7 +227,9 @@ export class TouchControls {
     this.gamepad.update();
     this.gamepad.update();
     this.dir = null;
-    this.das = this.arr = this.dropHeldMs = 0;
+    this.das = 0;
+    this.arr = 0;
+    this.dropHeldMs = 0;
     this.handlers.setSoftDrop(false);
   }
 

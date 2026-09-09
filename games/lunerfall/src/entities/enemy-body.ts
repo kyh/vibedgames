@@ -20,18 +20,20 @@ export type EnemyState =
   | "recover"
   | "hurt"
   | "dead";
-export interface Projectile {
+// oxlint-disable-next-line typescript/consistent-type-definitions -- checkpointed over the JSON wire; interfaces get no implicit index signature
+export type Projectile = {
   x: number;
   y: number;
   vx: number;
   vy: number;
-}
-export interface Blast {
+};
+// oxlint-disable-next-line typescript/consistent-type-definitions -- checkpointed over the JSON wire; interfaces get no implicit index signature
+export type Blast = {
   x: number;
   y: number;
   r: number;
   dmg: number;
-}
+};
 
 const approach = (c: number, t: number, d: number): number =>
   c < t ? Math.min(c + d, t) : Math.max(c - d, t);
@@ -39,7 +41,8 @@ const approach = (c: number, t: number, d: number): number =>
 export class EnemyBody {
   x: number;
   y: number;
-  prevX = 0; // sim position one step ago — for render interpolation
+  // sim position one step ago — for render interpolation
+  prevX = 0;
   prevY = 0;
   vx = 0;
   vy = 0;
@@ -119,12 +122,12 @@ export class EnemyBody {
     this.pendingBlast = structuredClone(state.pendingBlast);
   }
 
-  constructor(
-    readonly kind: EnemyKind,
-    private grid: Grid,
-    x: number,
-    y: number,
-  ) {
+  readonly kind: EnemyKind;
+  private grid: Grid;
+
+  constructor(kind: EnemyKind, grid: Grid, x: number, y: number) {
+    this.kind = kind;
+    this.grid = grid;
     this.x = x;
     this.y = y;
     this.prevX = x;
@@ -259,6 +262,9 @@ export class EnemyBody {
         this.bomber(dt, tx);
         break;
       }
+      default: {
+        break;
+      }
     }
     this.applyPhysics(dt);
   }
@@ -294,8 +300,11 @@ export class EnemyBody {
     const k = this.kind;
     switch (this.state) {
       case "attack": {
-        if (this.stateT < (k.active ?? 0.12)) this.vx = this.facing * 45;
-        else this.setState("recover");
+        if (this.stateT < (k.active ?? 0.12)) {
+          this.vx = this.facing * 45;
+        } else {
+          this.setState("recover");
+        }
         break;
       }
       case "recover": {
@@ -309,13 +318,18 @@ export class EnemyBody {
       case "windup": {
         this.faceToward(dx);
         this.vx = approach(this.vx, 0, 600 * dt);
-        if (this.stateT >= (k.windup ?? 0.3)) this.setState("attack");
+        if (this.stateT >= (k.windup ?? 0.3)) {
+          this.setState("attack");
+        }
         break;
       }
       default: {
         this.faceToward(dx);
-        if (dist <= (k.attackRange ?? 22) && this.attackCd <= 0) this.setState("windup");
-        else this.walk(Math.sign(dx), k.speed, dt);
+        if (dist <= (k.attackRange ?? 22) && this.attackCd <= 0) {
+          this.setState("windup");
+        } else {
+          this.walk(Math.sign(dx), k.speed, dt);
+        }
       }
     }
   }
@@ -335,7 +349,9 @@ export class EnemyBody {
       }
       case "charge": {
         this.vx = this.chargeDir * (k.chargeSpeed ?? 235) * this.speedMult;
-        if (this.stateT >= (k.chargeTime ?? 0.45) || this.hitWall) this.setState("recover");
+        if (this.stateT >= (k.chargeTime ?? 0.45) || this.hitWall) {
+          this.setState("recover");
+        }
         break;
       }
       case "recover": {
@@ -348,9 +364,11 @@ export class EnemyBody {
       }
       default: {
         this.faceToward(dx);
-        if (dist <= (k.attackRange ?? 78) && Math.abs(ty - this.y) < 26 && this.attackCd <= 0)
+        if (dist <= (k.attackRange ?? 78) && Math.abs(ty - this.y) < 26 && this.attackCd <= 0) {
           this.setState("windup");
-        else this.walk(Math.sign(dx), k.speed, dt);
+        } else {
+          this.walk(Math.sign(dx), k.speed, dt);
+        }
       }
     }
   }
@@ -365,10 +383,10 @@ export class EnemyBody {
         if (this.stateT >= (k.windup ?? 0.46)) {
           const dirx = Math.sign(dx) || this.facing;
           this.pendingProjectile = {
-            x: this.x + dirx * 6,
-            y: this.y - 14,
             vx: dirx * (k.projSpeed ?? 175),
             vy: -20,
+            x: this.x + dirx * 6,
+            y: this.y - 14,
           };
           this.attackCd = k.cooldown ?? 1.3;
           this.setState("recover");
@@ -377,17 +395,27 @@ export class EnemyBody {
       }
       case "recover": {
         this.vx = approach(this.vx, 0, 500 * dt);
-        if (this.stateT >= 0.25) this.setState("chase");
+        if (this.stateT >= 0.25) {
+          this.setState("chase");
+        }
         break;
       }
       default: {
         this.faceToward(dx);
-        if (dist < 58)
-          this.walk(-Math.sign(dx), k.speed, dt); // retreat
-        else if (dist <= (k.shootRange ?? 155) && Math.abs(ty - this.y) < 44 && this.attackCd <= 0)
+        // retreat
+        if (dist < 58) {
+          this.walk(-Math.sign(dx), k.speed, dt);
+        } else if (
+          dist <= (k.shootRange ?? 155) &&
+          Math.abs(ty - this.y) < 44 &&
+          this.attackCd <= 0
+        ) {
           this.setState("windup");
-        else if (dist > (k.shootRange ?? 155)) this.walk(Math.sign(dx), k.speed, dt);
-        else this.vx = approach(this.vx, 0, 500 * dt);
+        } else if (dist > (k.shootRange ?? 155)) {
+          this.walk(Math.sign(dx), k.speed, dt);
+        } else {
+          this.vx = approach(this.vx, 0, 500 * dt);
+        }
       }
     }
   }

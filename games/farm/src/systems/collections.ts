@@ -6,14 +6,14 @@ import { FISH, FISH_IDS } from "../data/fish";
 import type { FishId } from "../data/fish";
 import type { Item } from "../data/items";
 import { isJsonObject } from "../json";
-import type { JsonValue } from "../json";
+import type { JsonObject, JsonValue } from "../json";
 
 export type CollectionItem = Extract<Item, { kind: "produce" | "fish" }>;
-interface Discovery {
+interface Discovery extends JsonObject {
   season: Season;
   item: CollectionItem;
 }
-export interface CollectionsJSON {
+export interface CollectionsJSON extends JsonObject {
   v: 1;
   discoveries: Discovery[];
 }
@@ -36,7 +36,7 @@ export interface CollectionDiscovery {
   completedSeason: boolean;
 }
 
-function readItem(value: JsonValue | undefined): CollectionItem | null {
+const readItem = (value: JsonValue | undefined): CollectionItem | null => {
   if (!isJsonObject(value)) {
     return null;
   }
@@ -49,25 +49,23 @@ function readItem(value: JsonValue | undefined): CollectionItem | null {
     return fish ? { fish, kind: "fish" } : null;
   }
   return null;
-}
+};
 
-function same(a: CollectionItem, b: CollectionItem): boolean {
-  return a.kind === "produce"
+const same = (a: CollectionItem, b: CollectionItem): boolean =>
+  a.kind === "produce"
     ? b.kind === "produce" && a.crop === b.crop
     : b.kind === "fish" && a.fish === b.fish;
-}
 
-function eligible(item: CollectionItem, season: Season): boolean {
+const eligible = (item: CollectionItem, season: Season): boolean => {
   if (item.kind === "produce") {
     return CROPS[item.crop].seasons.includes(season);
   }
   const { seasons } = FISH[item.fish];
   return seasons === "all" || seasons.includes(season);
-}
+};
 
-function name(item: CollectionItem): string {
-  return item.kind === "produce" ? CROPS[item.crop].name : FISH[item.fish].name;
-}
+const name = (item: CollectionItem): string =>
+  item.kind === "produce" ? CROPS[item.crop].name : FISH[item.fish].name;
 
 /** Personal discoveries persist across years. No reward or inventory authority. */
 export class Collections {
@@ -90,7 +88,7 @@ export class Collections {
       const season = SEASONS.find((s) => s === raw.season);
       const item = readItem(raw.item);
       if (season && item && eligible(item, season) && !journal.has(item, season)) {
-        journal.discoveries.push({ season, item });
+        journal.discoveries.push({ item, season });
       }
     }
     return journal;
@@ -98,7 +96,7 @@ export class Collections {
 
   toJSON(): CollectionsJSON {
     return {
-      discoveries: this.discoveries.map(({ season, item }) => ({ season, item: { ...item } })),
+      discoveries: this.discoveries.map(({ season, item }) => ({ item: { ...item }, season })),
       v: 1,
     };
   }

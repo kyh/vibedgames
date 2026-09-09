@@ -36,13 +36,10 @@ const ONE_SHOT = new Map<string, (h: KeyboardHandlers) => void>([
 
 /** Space / Enter on a focused button (Play, rule cards, the camera toggle)
  *  activate that control; the game must not also read them as verbs. */
-function activatesControl(e: KeyboardEvent): boolean {
-  return (
-    (e.key === " " || e.key === "Enter") &&
-    e.target instanceof Element &&
-    e.target.closest("button, input, select, textarea") !== null
-  );
-}
+const activatesControl = (e: KeyboardEvent): boolean =>
+  (e.key === " " || e.key === "Enter") &&
+  e.target instanceof Element &&
+  e.target.closest("button, input, select, textarea") !== null;
 
 export class Keyboard {
   private readonly handlers: KeyboardHandlers;

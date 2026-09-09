@@ -33,8 +33,8 @@ export class WellFx {
   });
   private readonly pulseMesh: Mesh<RingGeometry, MeshBasicMaterial>;
   private readonly dangerMesh: Mesh<RingGeometry, MeshBasicMaterial>;
-  private readonly notice = document.querySelector("#fx-notice");
-  private readonly warning = document.querySelector("#height-warning");
+  private readonly notice = document.querySelector<HTMLElement>("#fx-notice");
+  private readonly warning = document.querySelector<HTMLElement>("#height-warning");
   private cursor = 0;
   private dropAge = 1;
   private pulse: Pulse | null = null;
@@ -56,7 +56,11 @@ export class WellFx {
       scene.add(mesh);
       return mesh;
     };
-    this.marks = Array.from({ length: 64 }, () => ({ age: 0, life: 0, mesh: makeRing(0xffffff) }));
+    this.marks = Array.from({ length: 64 }, () => ({
+      age: 0,
+      life: 0,
+      mesh: makeRing(0xff_ff_ff),
+    }));
     const box = new BoxGeometry(0.08, 1, 0.08);
     this.streaks = Array.from({ length: 4 }, () => {
       const mesh = new Mesh(box, this.streakMaterial);
@@ -74,7 +78,7 @@ export class WellFx {
   hardDrop(start: Cell[], landing: Cell[], color: number): void {
     this.dropAge = 0;
     this.streakMaterial.color.set(color);
-    for (let i = 0; i < this.streaks.length; i++) {
+    for (let i = 0; i < this.streaks.length; i += 1) {
       const streak = this.streaks[i];
       const from = start[i];
       const to = landing[i];

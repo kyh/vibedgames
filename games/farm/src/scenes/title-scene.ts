@@ -1,4 +1,5 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { Display, Scene, Scenes } from "phaser";
 import { watchControlContext } from "@repo/embed";
 import { PhysicalGamepad } from "@vibedgames/gamepad";
 import { clearSave, loadSave } from "../systems/save";
@@ -13,7 +14,17 @@ import { seasonName, seasonOfDay } from "../data/calendar";
 const FARMER_VISIBLE_HEIGHT = 16;
 const FARMER_CENTER_OFFSET_Y = -1;
 
-export class TitleScene extends Phaser.Scene {
+const drawBackdrop = (g: Phaser.GameObjects.Graphics, w: number, h: number): void => {
+  g.fillGradientStyle(0x9f_d8_f0, 0x9f_d8_f0, 0x8f_ce_5a, 0x6f_b8_4a, 1);
+  g.fillRect(0, 0, w, h);
+  // soft sun
+  g.fillStyle(0xff_f3_c4, 0.5);
+  g.fillCircle(w * 0.8, h * 0.2, 80);
+  g.fillStyle(0xff_f3_c4, 0.8);
+  g.fillCircle(w * 0.8, h * 0.2, 52);
+};
+
+export class TitleScene extends Scene {
   private onResize?: (gs: Phaser.Structs.Size) => void;
   private readonly pad = new PhysicalGamepad();
   private unwatchControls?: () => void;
@@ -31,21 +42,7 @@ export class TitleScene extends Phaser.Scene {
 
     // cozy sky->grass backdrop
     const bg = this.add.graphics();
-    this.drawBackdrop(bg, width, height);
-    if (this.onResize) {
-      this.scale.off("resize", this.onResize);
-    }
-    this.onResize = (gs: Phaser.Structs.Size) => {
-      bg.clear();
-      this.drawBackdrop(bg, gs.width, gs.height);
-      layout();
-    };
-    this.scale.on("resize", this.onResize);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      if (this.onResize) {
-        this.scale.off("resize", this.onResize);
-      }
-    });
+    drawBackdrop(bg, width, height);
 
     // decorative idle farmer
     const farmer = this.add.sprite(0, 0, "p-idle").setScale(5).play("p-idle");
@@ -87,20 +84,6 @@ export class TitleScene extends Phaser.Scene {
     // The controls card — the pause sign's grouped parchment chips, rendered
     // in Phaser. Rebuilt fresh whenever a pad connects/disconnects.
     let cardBand = "";
-    const rebuildCard = () => {
-      cardBand = "";
-      layout();
-    };
-    // Plugging in (or unplugging) a pad while the title is up updates the card.
-    // Scene instances persist across start/stop — drop any stale subscription
-    // before adding this run's, and tear it down on shutdown.
-    this.unwatchControls?.();
-    this.unwatchControls = watchControlContext(rebuildCard);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      this.unwatchControls?.();
-      this.unwatchControls = undefined;
-      this.controlsCard = null;
-    });
 
     // A stored key that no longer parses is not a farm to continue: the load
     // is the single source of truth for the label and every confirm path.
@@ -181,6 +164,34 @@ export class TitleScene extends Phaser.Scene {
         card.container.setScale(scale).setPosition(cx, bottom - (card.height * scale) / 2);
       }
     };
+    if (this.onResize) {
+      this.scale.off("resize", this.onResize);
+    }
+    this.onResize = (gs: Phaser.Structs.Size) => {
+      bg.clear();
+      drawBackdrop(bg, gs.width, gs.height);
+      layout();
+    };
+    this.scale.on("resize", this.onResize);
+    this.events.once(Scenes.Events.SHUTDOWN, () => {
+      if (this.onResize) {
+        this.scale.off("resize", this.onResize);
+      }
+    });
+    const rebuildCard = () => {
+      cardBand = "";
+      layout();
+    };
+    // Plugging in (or unplugging) a pad while the title is up updates the card.
+    // Scene instances persist across start/stop — drop any stale subscription
+    // before adding this run's, and tear it down on shutdown.
+    this.unwatchControls?.();
+    this.unwatchControls = watchControlContext(rebuildCard);
+    this.events.once(Scenes.Events.SHUTDOWN, () => {
+      this.unwatchControls?.();
+      this.unwatchControls = undefined;
+      this.controlsCard = null;
+    });
     layout();
   }
 
@@ -202,22 +213,12 @@ export class TitleScene extends Phaser.Scene {
     this.scene.start("Game", { mode: "new" });
   }
 
-  private drawBackdrop(g: Phaser.GameObjects.Graphics, w: number, h: number): void {
-    g.fillGradientStyle(0x9f_d8_f0, 0x9f_d8_f0, 0x8f_ce_5a, 0x6f_b8_4a, 1);
-    g.fillRect(0, 0, w, h);
-    // soft sun
-    g.fillStyle(0xff_f3_c4, 0.5);
-    g.fillCircle(w * 0.8, h * 0.2, 80);
-    g.fillStyle(0xff_f3_c4, 0.8);
-    g.fillCircle(w * 0.8, h * 0.2, 52);
-  }
-
   private makeButton(label: string, color: string) {
     const container = this.add.container(0, 0);
     const bg = this.add.graphics();
-    const h = 56,
-      w = 280;
-    const c = Phaser.Display.Color.HexStringToColor(color).color;
+    const h = 56;
+    const w = 280;
+    const c = Display.Color.HexStringToColor(color).color;
     bg.fillStyle(0x00_00_00, 0.18);
     bg.fillRoundedRect(-w / 2 + 3, -h / 2 + 5, w, h, 14);
     bg.fillStyle(c, 1);

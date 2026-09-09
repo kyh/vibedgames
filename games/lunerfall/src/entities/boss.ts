@@ -1,4 +1,5 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { TintModes } from "phaser";
 
 import { HERO_ORIGIN_Y, interp } from "../config";
 import { showActorPose } from "../data/actor-animation";
@@ -17,25 +18,27 @@ const FLARE_MIX = 0.42;
 // Seconds of charge between ghosts (= every 3rd step at the 60Hz fixed sim).
 const GHOST_EVERY = 3 / 60;
 
-// Per-channel lerp between two 0xRRGGBB colours.
-function mixColor(a: number, b: number, t: number): number {
-  const ch = (shift: number): number => {
-    const av = (a >> shift) & 0xff;
-    const bv = (b >> shift) & 0xff;
-    return Math.round(av + (bv - av) * t) << shift;
-  };
-  return ch(16) | ch(8) | ch(0);
-}
+// Per-channel lerp between two 0xRRGGBB colours. Channels are isolated by
+// integer division rather than shifts; on 24-bit colours the results match.
+const channel = (colour: number, base: number): number => Math.floor(colour / base) % 0x1_00;
+const mixChannel = (a: number, b: number, t: number, base: number): number =>
+  Math.round(channel(a, base) + (channel(b, base) - channel(a, base)) * t) * base;
+const mixColor = (a: number, b: number, t: number): number =>
+  mixChannel(a, b, t, 0x1_00_00) + mixChannel(a, b, t, 0x1_00) + mixChannel(a, b, t, 1);
 
 // Phaser view over BossBody: bigger salamander sprite recoloured per biome,
 // state-driven clips, a bright flare on wind-ups, and a white hit-flash.
 export class Boss {
   readonly body: BossBody;
   readonly sprite: Phaser.GameObjects.Sprite;
-  private readonly baseTint: number; // per-biome recolour, applied when idle
-  private readonly flareTint: number; // wind-up tint, derived from baseTint
-  private trailT = 0; // charge ghost-trail emit clock (sim seconds, not frames)
-  private lastStateT = 0; // previous stateT, to measure how far the SIM advanced
+  // per-biome recolour, applied when idle
+  private readonly baseTint: number;
+  // wind-up tint, derived from baseTint
+  private readonly flareTint: number;
+  // charge ghost-trail emit clock (sim seconds, not frames)
+  private trailT = 0;
+  // previous stateT, to measure how far the SIM advanced
+  private lastStateT = 0;
   private readonly acting = new BossActing();
   private posed = false;
 
@@ -86,11 +89,11 @@ export class Boss {
   // boss read as the fire boss exactly while its name was on screen.
   private applyTint(flash: boolean, telegraph: boolean) {
     if (flash) {
-      this.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
+      this.sprite.setTint(0xff_ff_ff).setTintMode(TintModes.FILL);
     } else if (telegraph) {
-      this.sprite.setTint(this.flareTint).setTintMode(Phaser.TintModes.MULTIPLY);
+      this.sprite.setTint(this.flareTint).setTintMode(TintModes.MULTIPLY);
     } else {
-      this.sprite.setTint(this.baseTint).setTintMode(Phaser.TintModes.MULTIPLY);
+      this.sprite.setTint(this.baseTint).setTintMode(TintModes.MULTIPLY);
     }
   }
 

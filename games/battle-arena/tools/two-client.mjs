@@ -5,38 +5,38 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import path from "node:path";
+import { setTimeout as wait } from "node:timers/promises";
 
-const gameDir = resolve(import.meta.dirname, "..");
+const gameDir = path.resolve(import.meta.dirname, "..");
 const { chromium } = createRequire(import.meta.url)("playwright-core");
-const wait = (ms) => new Promise((done) => setTimeout(done, ms));
 const urlArg = process.argv.indexOf("--url");
 const PORT = 5313;
 const room = `tc${process.pid.toString(36)}${Date.now().toString(36).slice(-4)}`;
 const errors = [];
 
-async function startVite() {
+const startVite = async () => {
   const child = spawn(
-    resolve(gameDir, "node_modules/.bin/vite"),
+    path.resolve(gameDir, "node_modules/.bin/vite"),
     ["--port", String(PORT), "--strictPort"],
     {
       cwd: gameDir,
       stdio: ["ignore", "pipe", "inherit"],
     },
   );
-  await new Promise((ready, fail) => {
+  // oxlint-disable-next-line promise/avoid-new -- child_process.spawn is event-based
+  await new Promise((resolve, reject) => {
     child.stdout.on("data", (chunk) => {
       if (String(chunk).includes("Local:")) {
-        ready();
+        resolve();
       }
     });
-    child.on("exit", (code) => fail(new Error(`vite exited ${code}`)));
+    child.on("exit", (code) => reject(new Error(`vite exited ${code}`)));
   });
   return child;
-}
+};
 
-async function openClient(browser, base, name) {
+const openClient = async (browser, base, name) => {
   const context = await browser.newContext({ viewport: { height: 540, width: 960 } });
   const page = await context.newPage();
   page.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
@@ -47,11 +47,11 @@ async function openClient(browser, base, name) {
   });
   await page.goto(`${base}/?online=1&room=${room}&name=${name}`);
   return { context, name, page };
-}
+};
 
-const diag = (page) => page.evaluate(() => JSON.parse(JSON.stringify(window.__GAME_DIAGNOSTICS__)));
+const diag = (page) => page.evaluate(() => structuredClone(window.__GAME_DIAGNOSTICS__));
 
-async function until(page, predicate, label, timeout = 20_000, arg = null) {
+const until = async (page, predicate, label, timeout = 20_000, arg = null) => {
   const started = Date.now();
   while (Date.now() - started < timeout) {
     const value = await page.evaluate(predicate, arg);
@@ -61,7 +61,7 @@ async function until(page, predicate, label, timeout = 20_000, arg = null) {
     await wait(100);
   }
   throw new Error(`timeout: ${label}`);
-}
+};
 
 const joined = (client) =>
   until(
@@ -75,28 +75,30 @@ const joined = (client) =>
   );
 
 const unitOf = (page, id) =>
-  page.evaluate((id) => {
-    const u = window.__ba.world.units.get(`h-${id}`);
+  page.evaluate((unitId) => {
+    const u = window.__ba.world.units.get(`h-${unitId}`);
     return u ? { alive: u.alive, hp: u.hp, x: u.x, y: u.y } : null;
   }, id);
 
-const key = (page, type, code, key = code) =>
+const key = (page, type, code, keyName = code) =>
   page.evaluate(
-    ({ type, code, key }) =>
-      window.dispatchEvent(new KeyboardEvent(type, { bubbles: true, code, key })),
-    { code, key, type },
+    (ev) =>
+      window.dispatchEvent(
+        new KeyboardEvent(ev.type, { bubbles: true, code: ev.code, key: ev.key }),
+      ),
+    { code, key: keyName, type },
   );
 
 const gameTime = (page) => page.evaluate(() => window.__ba.world.gameTime);
 const isPaused = (page) => page.evaluate(() => window.__ba.controlsPaused);
 
-async function endMatch(page) {
+const endMatch = async (page) => {
   await page.evaluate(() => {
     const w = window.__ba.world;
     w.phase = "ended";
     w.winner = w.units.get(window.__ba.localId)?.team ?? null;
   });
-}
+};
 
 const rematchLabel = (page) =>
   page.evaluate(() => {
@@ -104,7 +106,7 @@ const rematchLabel = (page) =>
     return b ? { disabled: b.disabled, text: b.textContent } : null;
   });
 
-async function movesOnKey(page, id, sim = page) {
+const movesOnKey = async (page, id, sim = page) => {
   const before = await unitOf(sim, id);
   await key(page, "keydown", "KeyW", "w");
   await wait(700);
@@ -112,14 +114,12 @@ async function movesOnKey(page, id, sim = page) {
   const after = await unitOf(sim, id);
   assert.ok(before && after, "unit present");
   assert.ok(Math.hypot(after.x - before.x, after.y - before.y) > 0.5, "moved on KeyW");
-}
+};
 
 const run = async (base) => {
   // Both clients must keep simulating; Chrome otherwise throttles whichever
   // window is not focused, which reads as a frozen peer.
   const browser = await chromium.launch({
-    channel: "chrome",
-    headless: true,
     // Metal keeps headless Chrome on the real GPU; SwiftShader renders this scene at ~1 fps.
     args: [
       "--use-angle=metal",
@@ -129,6 +129,8 @@ const run = async (base) => {
       "--disable-backgrounding-occluded-windows",
       "--disable-renderer-backgrounding",
     ],
+    channel: "chrome",
+    headless: true,
   });
   const results = [];
   const step = async (label, body) => {
@@ -165,7 +167,8 @@ const run = async (base) => {
       assert.ok(await unitOf(guest.page, hostId));
     });
     await step("guest input crosses the wire", async () => {
-      await wait(1500); // the intro sweep; the sim runs, input is live
+      // the intro sweep; the sim runs, input is live
+      await wait(1500);
       await movesOnKey(guest.page, guestId, host.page);
       await key(guest.page, "keydown", "Space", " ");
       await key(guest.page, "keyup", "Space", " ");
@@ -206,13 +209,14 @@ const run = async (base) => {
         () => document.querySelector('#hud [data-act="again"]')?.textContent === "START REMATCH",
         "host may rematch",
       );
-      const gen = (await diag(guest.page)).online.matchGeneration;
+      const before = await diag(guest.page);
+      const gen = before.online.matchGeneration;
       await host.page.click('#hud [data-act="again"]');
       await until(
         guest.page,
-        (gen) =>
+        (previous) =>
           window.__ba.world.phase === "playing" &&
-          window.__GAME_DIAGNOSTICS__.online.matchGeneration === gen + 1,
+          window.__GAME_DIAGNOSTICS__.online.matchGeneration === previous + 1,
         "guest joins the rematch",
         20_000,
         gen,
@@ -243,7 +247,8 @@ const run = async (base) => {
       await movesOnKey(guest.page, guestId);
     });
     await step("rematch from the promoted guest", async () => {
-      const gen = (await diag(guest.page)).online.matchGeneration;
+      const before = await diag(guest.page);
+      const gen = before.online.matchGeneration;
       await endMatch(guest.page);
       await until(
         guest.page,
@@ -253,9 +258,9 @@ const run = async (base) => {
       await guest.page.click('#hud [data-act="again"]');
       await until(
         guest.page,
-        (gen) =>
+        (previous) =>
           window.__ba.world.phase === "playing" &&
-          window.__GAME_DIAGNOSTICS__.online.matchGeneration === gen + 1,
+          window.__GAME_DIAGNOSTICS__.online.matchGeneration === previous + 1,
         "rematch started",
         20_000,
         gen,

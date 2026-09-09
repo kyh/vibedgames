@@ -13,7 +13,8 @@ const container = document.querySelector("#game");
 if (!container) {
   throw new Error("missing #game container");
 }
-container.addEventListener("contextmenu", (e) => e.preventDefault()); // long-press menus
+// Suppress long-press menus.
+container.addEventListener("contextmenu", (e) => e.preventDefault());
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
 // Phones cap DPR lower — the antialiased 3D well is fill-rate bound at DPR 3.
@@ -39,7 +40,8 @@ if (!isCoarsePointer()) {
 
 const resize = (): void => {
   game.resize(window.innerWidth / window.innerHeight);
-  applyPixelRatio(); // DPR changes when the window moves between displays
+  // DPR changes when the window moves between displays.
+  applyPixelRatio();
   renderer.setSize(window.innerWidth, window.innerHeight);
 };
 window.addEventListener("resize", resize);
@@ -49,7 +51,7 @@ window.addEventListener("resize", resize);
 // Wall-clock deadlines (collapse catch window, camera swing) shift by the
 // paused gap on resume so a long pause can't insta-finalize game-over.
 let wrapperPausedAt: number | null = null;
-function pausePresentation(): void {
+const pausePresentation = (): void => {
   if (wrapperPausedAt !== null) {
     return;
   }
@@ -57,8 +59,8 @@ function pausePresentation(): void {
   game.releaseInputs();
   poseControls.setActionsPaused(true);
   setSoundPaused(true);
-}
-function resumePresentation(): void {
+};
+const resumePresentation = (): void => {
   if (wrapperPausedAt === null) {
     return;
   }
@@ -67,7 +69,7 @@ function resumePresentation(): void {
   game.releaseInputs();
   poseControls.setActionsPaused(false);
   setSoundPaused(false);
-}
+};
 
 // A lost WebGL context freezes play under a recovery notice; the embed pause
 // stays held (canResume) until the browser restores the context.

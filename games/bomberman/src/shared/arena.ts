@@ -4,12 +4,11 @@ import type { Cell } from "./constants";
 export type Arena = "classic" | "crossroads";
 
 /** Legacy rooms and unknown wire values keep the original courtyard. */
-export function readArena(value: Arena | undefined): Arena {
-  return value === "crossroads" ? "crossroads" : "classic";
-}
+export const readArena = (value: Arena | undefined): Arena =>
+  value === "crossroads" ? "crossroads" : "classic";
 
 /** Sample the original grid first so variation never changes its RNG trace. */
-export function createArena(arena: Arena): Cell[][] {
+export const createArena = (arena: Arena): Cell[][] => {
   const grid = newGrid();
   if (arena === "classic") {
     return grid;
@@ -24,4 +23,4 @@ export function createArena(arena: Arena): Cell[][] {
     }
   }
   return grid;
-}
+};

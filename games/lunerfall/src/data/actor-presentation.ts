@@ -3,14 +3,16 @@ import type { EnemyState } from "../entities/enemy-body";
 import type { EnemyKind } from "./enemies";
 
 /** Authoritative state age, in seconds. Cosmetic only; never advances a body. */
-export interface EnemyAction {
+// oxlint-disable-next-line typescript/consistent-type-definitions -- travels inside the JSON snapshot; interfaces get no implicit index signature
+export type EnemyAction = {
   state: EnemyState;
   elapsed: number;
-}
-export interface BossAction {
+};
+// oxlint-disable-next-line typescript/consistent-type-definitions -- travels inside the JSON snapshot; interfaces get no implicit index signature
+export type BossAction = {
   state: BossState;
   elapsed: number;
-}
+};
 export interface ActorPose {
   clip: string;
   frame: number;
@@ -40,55 +42,119 @@ const bossStates: ReadonlySet<string> = new Set([
 ]);
 
 /* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof -- Optional visual snapshot fields enter from the untyped JSON boundary; validate before playback. */
-export function isEnemyAction(value: unknown): value is EnemyAction {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "state" in value &&
-    typeof value.state === "string" &&
-    enemyStates.has(value.state) &&
-    "elapsed" in value &&
-    typeof value.elapsed === "number" &&
-    Number.isFinite(value.elapsed) &&
-    value.elapsed >= 0
-  );
-}
+const isAction = (value: unknown, states: ReadonlySet<string>): boolean =>
+  typeof value === "object" &&
+  value !== null &&
+  "state" in value &&
+  typeof value.state === "string" &&
+  states.has(value.state) &&
+  "elapsed" in value &&
+  typeof value.elapsed === "number" &&
+  Number.isFinite(value.elapsed) &&
+  value.elapsed >= 0;
 
-export function isBossAction(value: unknown): value is BossAction {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "state" in value &&
-    typeof value.state === "string" &&
-    bossStates.has(value.state) &&
-    "elapsed" in value &&
-    typeof value.elapsed === "number" &&
-    Number.isFinite(value.elapsed) &&
-    value.elapsed >= 0
-  );
-}
+export const isEnemyAction = (value: unknown): value is EnemyAction => isAction(value, enemyStates);
 
-export function isActorTint(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 0xff_ff_ff;
-}
+export const isBossAction = (value: unknown): value is BossAction => isAction(value, bossStates);
+
+export const isActorTint = (value: unknown): value is number =>
+  typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 0xff_ff_ff;
 /* oxlint-enable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof */
 
-function frames(
+const frames = (
   clip: string,
   first: number,
   last: number,
   elapsed: number,
   duration: number,
-): ActorPose {
+): ActorPose => {
   const progress = Math.max(0, Math.min(1, elapsed / duration));
   return { clip, frame: Math.min(last, first + Math.floor(progress * (last - first + 1))) };
-}
+};
+
+const enemyDeathPose = (kind: EnemyKind, t: number): ActorPose => {
+  // Bomber's actual explosion is immediate on death; its first six authored
+  // Explode frames are preparation. Start at the measured blast frame (6).
+  if (kind.name === "bomber") {
+    return frames("explode", 6, 13, t, 0.65);
+  }
+  if (kind.name === "warrior") {
+    return frames("dead", 0, 17, t, 1.8);
+  }
+  if (kind.name === "archer") {
+    return frames("death", 0, 14, t, 1.5);
+  }
+  return frames("death", 0, 15, t, 1.6);
+};
+
+const meleePose = (kind: EnemyKind, state: EnemyState, t: number): ActorPose | null => {
+  if (state === "windup") {
+    return frames("strike", 0, 2, t, kind.windup ?? 0.3);
+  }
+  if (state === "attack") {
+    return { clip: "strike", frame: 3 };
+  }
+  if (state === "recover") {
+    return frames("strike", 4, 9, t, kind.recover ?? 0.3);
+  }
+  return null;
+};
+
+const chargerPose = (kind: EnemyKind, state: EnemyState, t: number): ActorPose | null => {
+  if (state === "windup") {
+    return frames("strike", 0, 2, t, kind.windup ?? 0.42);
+  }
+  if (state === "charge") {
+    return frames("strike", 3, 5, t, kind.chargeTime ?? 0.45);
+  }
+  if (state === "recover") {
+    return frames("strike", 6, 8, t, kind.recover ?? 0.5);
+  }
+  return null;
+};
+
+const archerPose = (kind: EnemyKind, state: EnemyState, t: number): ActorPose | null => {
+  if (state === "windup") {
+    return frames("shoot", 0, 4, t, kind.windup ?? 0.46);
+  }
+  // The projectile is emitted on entry to recover, not during windup.
+  if (state === "recover") {
+    return frames("shoot", 5, 8, t, 0.25);
+  }
+  return null;
+};
+
+// Electrocute 8 is a ground discharge. Keep that out of the live fuse;
+// Explode supplies the actual discharge when the FSM commits the blast.
+const bomberPose = (kind: EnemyKind, state: EnemyState, t: number): ActorPose | null =>
+  state === "windup" ? frames("electrocute", 0, 7, t, kind.fuse ?? 0.55) : null;
+
+const attackPose = (kind: EnemyKind, state: EnemyState, t: number): ActorPose | null => {
+  switch (kind.behavior) {
+    case "melee": {
+      return meleePose(kind, state, t);
+    }
+    case "charger": {
+      return chargerPose(kind, state, t);
+    }
+    case "archer": {
+      return archerPose(kind, state, t);
+    }
+    case "bomber": {
+      return bomberPose(kind, state, t);
+    }
+    default: {
+      return null;
+    }
+  }
+};
 
 /** Contact indices measured from the original atlas tags, not new artwork.
  * Warrior Strike 3 / Archer Shoot 5 / Spearman Strike 3 are the forward contacts.
  * Spearman's separately named Charge draws an overhead plant, not its flat lunge.
+ * Normal locomotion keeps its existing authored loop (null).
  */
-export function enemyPose(kind: EnemyKind, action: EnemyAction): ActorPose | null {
+export const enemyPose = (kind: EnemyKind, action: EnemyAction): ActorPose | null => {
   const t = action.elapsed;
   if (action.state === "spawn") {
     return frames("spawn", 0, 7, t, 0.4);
@@ -97,50 +163,80 @@ export function enemyPose(kind: EnemyKind, action: EnemyAction): ActorPose | nul
     return frames("hit", 0, 2, t, 0.2);
   }
   if (action.state === "dead") {
-    // Bomber's actual explosion is immediate on death; its first six authored
-    // Explode frames are preparation. Start at the measured blast frame (6).
-    if (kind.name === "bomber") {
-      return frames("explode", 6, 13, t, 0.65);
-    }
-    if (kind.name === "warrior") {
-      return frames("dead", 0, 17, t, 1.8);
-    }
-    return frames(
-      "death",
-      0,
-      kind.name === "archer" ? 14 : 15,
-      t,
-      kind.name === "archer" ? 1.5 : 1.6,
-    );
+    return enemyDeathPose(kind, t);
   }
-  switch (kind.behavior) {
-    case "melee": {
-      if (action.state === "windup") return frames("strike", 0, 2, t, kind.windup ?? 0.3);
-      if (action.state === "attack") return { clip: "strike", frame: 3 };
-      if (action.state === "recover") return frames("strike", 4, 9, t, kind.recover ?? 0.3);
-      break;
+  return attackPose(kind, action.state, t);
+};
+
+const punchPose = (t: number): ActorPose => {
+  if (t < 0.26) {
+    return frames("fire-punch", 0, 5, t, 0.26);
+  }
+  if (t < 0.4) {
+    return { clip: "fire-punch", frame: 6 };
+  }
+  return frames("fire-punch", 7, 16, t - 0.4, 0.2);
+};
+
+const wavePose = (t: number): ActorPose => {
+  if (t < 0.5) {
+    return frames("flame-wave", 0, 6, t, 0.5);
+  }
+  if (t < 0.6) {
+    return { clip: "flame-wave", frame: 7 };
+  }
+  return frames("flame-wave", 8, 17, t - 0.6, 0.25);
+};
+
+const chargePose = (t: number): ActorPose => {
+  if (t < 0.4) {
+    return frames("fire-punch", 0, 5, t, 0.4);
+  }
+  if (t < 0.82) {
+    return frames("dash", 0, 3, (t - 0.4) % 0.2, 0.2);
+  }
+  return { clip: "dash", frame: 3 };
+};
+
+const bossPose = (state: BossState, t: number, landed: boolean): ActorPose | null => {
+  switch (state) {
+    case "punch": {
+      return punchPose(t);
     }
-    case "charger": {
-      if (action.state === "windup") return frames("strike", 0, 2, t, kind.windup ?? 0.42);
-      if (action.state === "charge") return frames("strike", 3, 5, t, kind.chargeTime ?? 0.45);
-      if (action.state === "recover") return frames("strike", 6, 8, t, kind.recover ?? 0.5);
-      break;
+    case "wave": {
+      return wavePose(t);
     }
-    case "archer": {
-      if (action.state === "windup") return frames("shoot", 0, 4, t, kind.windup ?? 0.46);
-      // The projectile is emitted on entry to recover, not during windup.
-      if (action.state === "recover") return frames("shoot", 5, 8, t, 0.25);
-      break;
+    case "jump": {
+      return frames("flame-slam", 0, 7, t, 0.34);
     }
-    case "bomber": {
-      // Electrocute 8 is a ground discharge. Keep that out of the live fuse;
-      // Explode supplies the actual discharge when the FSM commits the blast.
-      if (action.state === "windup") return frames("electrocute", 0, 7, t, kind.fuse ?? 0.55);
-      break;
+    case "slam": {
+      // Frames 8–10 hold the fire overhead; ground contact is frame 11.
+      // Air time is physics-owned, so never run the ground flash on a timer.
+      return frames("flame-slam", 8, 10, t, 0.2);
+    }
+    case "charge": {
+      return chargePose(t);
+    }
+    case "phase": {
+      return frames("flame-slam", 0, 10, t, 0.8);
+    }
+    case "hurt": {
+      return frames("hit", 0, 2, t, 0.2);
+    }
+    case "dead": {
+      return frames("death", 0, 22, t, 2.3);
+    }
+    case "idle": {
+      return landed && t < 0.24 ? frames("flame-slam", 11, 18, t, 0.24) : null;
+    }
+    case "intro": {
+      return null;
+    }
+    default: {
+      return null;
     }
   }
-  return null; // Normal locomotion keeps its existing authored loop.
-}
+};
 
 /** One bounded transition memory lets a real slam landing finish its drawing.
  * A first/late idle baseline cannot invent that landing, and a new state always
@@ -166,51 +262,10 @@ export class BossActing {
     }
     this.previous = state;
     this.previousAge = t;
-    switch (state) {
-      case "punch": {
-        if (t < 0.26) return frames("fire-punch", 0, 5, t, 0.26);
-        if (t < 0.4) return { clip: "fire-punch", frame: 6 };
-        return frames("fire-punch", 7, 16, t - 0.4, 0.2);
-      }
-      case "wave": {
-        if (t < 0.5) return frames("flame-wave", 0, 6, t, 0.5);
-        if (t < 0.6) return { clip: "flame-wave", frame: 7 };
-        return frames("flame-wave", 8, 17, t - 0.6, 0.25);
-      }
-      case "jump": {
-        return frames("flame-slam", 0, 7, t, 0.34);
-      }
-      case "slam": {
-        // Frames 8–10 hold the fire overhead; ground contact is frame 11.
-        // Air time is physics-owned, so never run the ground flash on a timer.
-        return frames("flame-slam", 8, 10, t, 0.2);
-      }
-      case "charge": {
-        if (t < 0.4) return frames("fire-punch", 0, 5, t, 0.4);
-        if (t < 0.82) return frames("dash", 0, 3, (t - 0.4) % 0.2, 0.2);
-        return { clip: "dash", frame: 3 };
-      }
-      case "phase": {
-        return frames("flame-slam", 0, 10, t, 0.8);
-      }
-      case "hurt": {
-        return frames("hit", 0, 2, t, 0.2);
-      }
-      case "dead": {
-        return frames("death", 0, 22, t, 2.3);
-      }
-      case "idle": {
-        if (this.landed && t < 0.24) return frames("flame-slam", 11, 18, t, 0.24);
-        return null;
-      }
-      case "intro": {
-        return null;
-      }
-    }
+    return bossPose(state, t, this.landed);
   }
 }
 
 /** Puppet lerp fraction: 0.35 per frame at 60 Hz, made refresh-rate independent. */
-export function remoteBlend(dt: number): number {
-  return Number.isFinite(dt) ? 1 - 0.65 ** (Math.max(0, dt) * 60) : 0;
-}
+export const remoteBlend = (dt: number): number =>
+  Number.isFinite(dt) ? 1 - 0.65 ** (Math.max(0, dt) * 60) : 0;

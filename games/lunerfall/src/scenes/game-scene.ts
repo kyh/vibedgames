@@ -1,4 +1,5 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { BlendModes, Math as PhaserMath, Scene, Scenes } from "phaser";
 
 import { attachVirtualGamepad } from "@vibedgames/gamepad/phaser";
 import type { ButtonOptions, PhaserGamepad, Viewport } from "@vibedgames/gamepad/phaser";
@@ -22,10 +23,12 @@ import { parseRoomType, ROOM_LABEL, VERSUS } from "../data/rooms";
 import type { RoomDef, RoomType } from "../data/rooms";
 import type { RunRecap } from "../data/run-recap";
 import { Boss } from "../entities/boss";
+import type { Blast, BossBodyCheckpoint } from "../entities/boss-body";
 import { Door } from "../entities/door";
 import { Enemy } from "../entities/enemy";
 import { Player } from "../entities/player";
 import { rectsOverlap } from "../entities/player-body";
+import type { AttackBox, PlayerBody, Rect } from "../entities/player-body";
 import { specialReadiness } from "../data/special-readiness";
 import type { SpecialReadiness } from "../data/special-readiness";
 import { isJsonObject, isJsonString } from "../net/json";
@@ -84,7 +87,8 @@ import type { VsSide } from "../sys/versus";
 const STEP = 1 / 60;
 const MAX_STEPS = 5;
 const MAX_HEARTS = 4;
-const COMBO_WINDOW = 3; // seconds a kill-streak survives without a new kill
+// seconds a kill-streak survives without a new kill
+const COMBO_WINDOW = 3;
 const DEATH_LINGER = 0.55;
 const ARROW_GRAV = 150;
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -98,6 +102,31 @@ const BANNER_PRIORITY = {
   payoff: 3,
   status: 0,
 } satisfies Record<BannerKind, number>;
+const BANNER_COLORS = {
+  arrival: "#ffd15c",
+  connecting: "#34e5c8",
+  critical: "#f4f7fb",
+  objective: "#34e5c8",
+  payoff: "#ffd15c",
+  status: "#34e5c8",
+} satisfies Record<BannerKind, string>;
+const CLEAR_BANNER = new Map<RoomType, string>([
+  ["boss", "DESCEND"],
+  ["elite", "ELITE CLEAR — pick a path"],
+]);
+const FEATURE_COLORS = new Map<RoomType, number>([
+  ["rest", COLORS.teal],
+  ["treasure", 0xff_d1_5c],
+]);
+const comboColor = (combo: number): string => {
+  if (combo >= 8) {
+    return "#ff5a5a";
+  }
+  if (combo >= 5) {
+    return "#ff9a3c";
+  }
+  return "#ffd15c";
+};
 interface BannerEntry {
   kind: BannerKind;
   text: string;
@@ -112,10 +141,14 @@ interface PendingObjective {
 
 // Co-op last stand: a fatal hit with both players up downs the victim instead of
 // wiping; the partner has BLEED_DUR to hold within REVIVE_RANGE for REVIVE_HOLD.
-const BLEED_DUR = 7; // s a downed player survives awaiting a revive
-const REVIVE_HOLD = 1.2; // s of sustained rescuer overlap to complete a revive
-const REVIVE_RANGE = 22; // px around the downed body that counts as reviving
-const REVIVE_HEARTS = 2; // shared hearts restored on revive
+// s a downed player survives awaiting a revive
+const BLEED_DUR = 7;
+// s of sustained rescuer overlap to complete a revive
+const REVIVE_HOLD = 1.2;
+// px around the downed body that counts as reviving
+const REVIVE_RANGE = 22;
+// shared hearts restored on revive
+const REVIVE_HEARTS = 2;
 
 interface Arrow {
   spr: Phaser.GameObjects.Sprite;
@@ -134,9 +167,11 @@ interface Shot {
   vy: number;
   life: number;
   dmg: number;
-  owner: Player | null; // caster — a shot never hits its own thrower (versus)
+  // caster — a shot never hits its own thrower (versus)
+  owner: Player | null;
   hit: Set<Enemy>;
-  hitP: Set<Player>; // versus: per-duelist hit dedup
+  // versus: per-duelist hit dedup
+  hitP: Set<Player>;
   hitBoss: boolean;
 }
 interface Hazard {
@@ -180,8 +215,10 @@ const newCombatState = (): CombatState => ({
   lastSwing: -1,
 });
 
-const NET_HZ = 30; // host snapshot broadcast rate
-const CHECKPOINT_HZ = 10; // full private state; takeover rewinds at most one 100 ms interval
+// host snapshot broadcast rate
+const NET_HZ = 30;
+// full private state; takeover rewinds at most one 100 ms interval
+const CHECKPOINT_HZ = 10;
 interface CheckpointMark {
   phase: CheckpointPhase["kind"] | "transition-built";
   versus: NetVersus["phase"] | null;
@@ -201,7 +238,7 @@ const NEUTRAL_INPUT: InputState = {
 // Boundary parsers — validate wire JSON values into our types without casts.
 const num = (v: JsonValue | undefined): v is number => Number.isFinite(v);
 const bool = (v: JsonValue | undefined): v is boolean => v === true || v === false;
-function readNetInput(v: JsonValue | undefined): NetInput | null {
+const readNetInput = (v: JsonValue | undefined): NetInput | null => {
   if (!isJsonObject(v)) {
     return null;
   }
@@ -223,7 +260,7 @@ function readNetInput(v: JsonValue | undefined): NetInput | null {
     s: o.s,
     up: o.up,
   };
-}
+};
 const parseHero = (v: JsonValue | undefined): HeroName | null =>
   HERO_NAMES.find((h) => h === v) ?? null;
 const parseEnemy = (v: string): EnemyName => ENEMY_NAMES.find((e) => e === v) ?? "warrior";
@@ -261,10 +298,22 @@ const clusterBounds = (buttons: FixedButton[], v: Viewport) => {
   return { left: left - 10, top: top - 10 };
 };
 
+// Elite room: roll an affix onto an enemy — recolour it and bend its combat
+// multipliers (host-authoritative; guests render the puppet without the tint).
+// The affix parameter is only supplied by trailer staging; gameplay rolls.
+const applyAffix = (e: Enemy, a: Affix = rollAffix()) => {
+  e.body.hp = Math.round(e.body.hp * a.hpMult) + 1;
+  e.body.speedMult = a.speedMult;
+  e.body.dmgTakenMult = a.dmgTakenMult;
+  e.body.dmgOutMult = a.dmgOutMult;
+  e.baseTint = a.tint;
+  e.sprite.setTint(a.tint);
+};
+
 // Phase 5: run-driven scene. RunManager stitches typed rooms; the scene builds
 // each room (tiles, enemies, doors, features), resolves combat, and transitions
 // through torii doors on the player's chosen path.
-export class GameScene extends Phaser.Scene {
+export class GameScene extends Scene {
   private run = new RunManager();
   private grid!: Grid;
   private player!: Player;
@@ -277,8 +326,10 @@ export class GameScene extends Phaser.Scene {
   private parallax: Phaser.GameObjects.GameObject[] = [];
   private sky?: PixelSky;
   private expeditionHud?: ExpeditionHud;
-  private fogRect?: Phaser.GameObjects.Rectangle; // per-biome atmosphere wash
-  private flashedBiome = 0; // last biome we announced, so a descent flashes the new name
+  // per-biome atmosphere wash
+  private fogRect?: Phaser.GameObjects.Rectangle;
+  // last biome we announced, so a descent flashes the new name
+  private flashedBiome = 0;
   private roomProp?: Phaser.GameObjects.Sprite;
   private embers?: Phaser.GameObjects.Particles.ParticleEmitter;
   private doors: Door[] = [];
@@ -303,17 +354,23 @@ export class GameScene extends Phaser.Scene {
   // Online versus (mode "versus"): host runs the pure match machine; guests
   // mirror its broadcast into netVs. Both null/idle in solo and co-op.
   private mode: "coop" | "versus" = "coop";
-  private vs: VersusMatch | null = null; // host-authoritative match state
-  private netVs: NetVersus | null = null; // guest: from the snapshot
-  private vsSpawns: { x: number; y: number }[] = []; // [host, guest], mirrored
+  // host-authoritative match state
+  private vs: VersusMatch | null = null;
+  // guest: from the snapshot
+  private netVs: NetVersus | null = null;
+  // [host, guest], mirrored
+  private vsSpawns: { x: number; y: number }[] = [];
   private vsHitSeq = new WeakMap<Player, { swing: number; special: number }>();
-  private vsOpponentGone = false; // guest: opponent-left banner fired
+  // guest: opponent-left banner fired
+  private vsOpponentGone = false;
 
   // Co-op last stand (host-simulated): the downed player + its bleed-out clock
   // and revive-hold progress. Guests mirror the broadcast into netLastStand.
   private lastStand: { pl: Player; bleedT: number; reviveT: number } | null = null;
-  private netLastStand: NetLastStand | null = null; // guest: from the snapshot
-  private lsG?: Phaser.GameObjects.Graphics; // downed marker (ring + bars)
+  // guest: from the snapshot
+  private netLastStand: NetLastStand | null = null;
+  // downed marker (ring + bars)
+  private lsG?: Phaser.GameObjects.Graphics;
   private lsLabel?: Phaser.GameObjects.Text;
 
   // Networking (undefined = solo). Host runs the authoritative sim + broadcasts;
@@ -338,31 +395,46 @@ export class GameScene extends Phaser.Scene {
   private restartRequested = false;
   private restartSentFor: string | null = null;
 
-  private roomSeq = 0; // host: bumped per room, drives guest room rebuilds
-  private netT = 0; // host: snapshot counter
-  private netAcc = 0; // host: broadcast throttle
+  // host: bumped per room, drives guest room rebuilds
+  private roomSeq = 0;
+  // host: snapshot counter
+  private netT = 0;
+  // host: broadcast throttle
+  private netAcc = 0;
   private checkpointAcc = 0;
   private checkpointMark: CheckpointMark | null = null;
-  private guestRoomSeq = -1; // guest: room seq it has built
-  private guestSnapT = -1; // guest: last snapshot applied
-  private netProj: Phaser.GameObjects.Sprite[] = []; // guest: projectile puppets
-  private enemyId = new WeakMap<Enemy, number>(); // host: stable wire id per enemy
+  // guest: room seq it has built
+  private guestRoomSeq = -1;
+  // guest: last snapshot applied
+  private guestSnapT = -1;
+  // guest: projectile puppets
+  private netProj: Phaser.GameObjects.Sprite[] = [];
+  // host: stable wire id per enemy
+  private enemyId = new WeakMap<Enemy, number>();
   private enemyIdNext = 1;
-  private outSeq = { a: 0, d: 0, j: 0, s: 0 }; // my press counters (sent to host)
-  private inSeq = { a: 0, d: 0, j: 0, s: 0 }; // host: last-seen remote press counters
-  private enemyPuppets = new Map<number, { view: Enemy; net: NetEnemy }>(); // guest
-  private bossPuppet?: { view: Boss; net: NetBoss }; // guest
+  // my press counters (sent to host)
+  private outSeq = { a: 0, d: 0, j: 0, s: 0 };
+  // host: last-seen remote press counters
+  private inSeq = { a: 0, d: 0, j: 0, s: 0 };
+  // guest
+  private enemyPuppets = new Map<number, { view: Enemy; net: NetEnemy }>();
+  // guest
+  private bossPuppet?: { view: Boss; net: NetBoss };
   private guestCueBaseline = true;
   private guestProgressTick = -1;
   private guestSpecial: SpecialReadiness = { kind: "unknown" };
-  private netPlayers: NetPlayer[] = []; // guest: latest wire players (re-lerped each frame)
+  // guest: latest wire players (re-lerped each frame)
+  private netPlayers: NetPlayer[] = [];
   // Guest prediction: my own body runs the real fixed-step sim on local input
   // (instant response); each snapshot's authoritative copy folds back in here.
   private reconciler = new Reconciler();
-  private guestIn: InputState = NEUTRAL_INPUT; // this frame's local sample (guest)
-  private netSelfHurting = false; // my player's hurting flag last snapshot (edge detect)
+  // this frame's local sample (guest)
+  private guestIn: InputState = NEUTRAL_INPUT;
+  // my player's hurting flag last snapshot (edge detect)
+  private netSelfHurting = false;
   private roomSpawn = { x: 0, y: 0 };
-  private netBiome = 1; // guest: HUD biome/depth (host uses this.run)
+  // guest: HUD biome/depth (host uses this.run)
+  private netBiome = 1;
   private netDepth = 1;
   private netRoomType: RoomType = "combat";
   private guestPayoff: { room: number; t: number; cleared: boolean; bossAlive: boolean } | null =
@@ -377,10 +449,13 @@ export class GameScene extends Phaser.Scene {
   private hearts = MAX_HEARTS;
   private gold = 0;
   private score = 0;
-  private combo = 0; // consecutive-kill streak within COMBO_WINDOW
-  private comboT = 0; // seconds left before the streak lapses
+  // consecutive-kill streak within COMBO_WINDOW
+  private combo = 0;
+  // seconds left before the streak lapses
+  private comboT = 0;
   private comboText!: Phaser.GameObjects.Text;
-  private lastCrit = false; // set by dmgOut so the hit site can flag a crit
+  // set by dmgOut so the hit site can flag a crit
+  private lastCrit = false;
   private freeze = 0;
   private deadTimers = new WeakMap<Enemy, number>();
   private state: SceneState = "active";
@@ -449,6 +524,87 @@ export class GameScene extends Phaser.Scene {
     const wanted = params.get("hero") ?? dataHero ?? this.registry.get("hero");
     this.heroName = HERO_NAMES.find((h) => h === wanted) ?? "axion";
     this.requestedHero = this.heroName;
+    this.resetRunState();
+    this.resetNetState();
+    // A run that adopted a seeded stream (online checkpoint, test seed) would
+    // otherwise replay it here.
+    const dataSeed = data instanceof Object && "seed" in data ? data.seed : undefined;
+    if (Number.isFinite(dataSeed)) {
+      reseed(Number(dataSeed));
+    } else {
+      unseed();
+    }
+    this.restartRequested = this.registry.get("restartExpedition") === true;
+    this.registry.set("restartExpedition", false);
+    this.acc = 0;
+
+    const hudBand = this.buildChrome();
+
+    const regParty: JsonValue = this.registry.get("party");
+    const party = (params.get("party") ?? (isJsonString(regParty) ? regParty : ""))
+      .trim()
+      .toUpperCase();
+    const regMode: JsonValue = this.registry.get("mode");
+    const modeStr = params.get("mode") ?? (isJsonString(regMode) ? regMode : "");
+    if (party.length > 0 && modeStr === "vs") {
+      this.mode = "versus";
+    }
+
+    this.attachTouchControls(hudBand);
+    // Touch has no Escape and no M: @repo/embed's cluster carries both. The
+    // trailer plays itself and owns its own chrome, so it opts out (main.ts
+    // keeps the hub's mute-only cluster off there for the same reason).
+    if (!params.has("trailer")) {
+      mountTouchHud(true);
+    }
+    this.controls = new Input(this, this.gamepad);
+    if (party.length > 0 && !this.demo) {
+      this.beginConnecting(party);
+    } else {
+      this.beginSoloRoom(params);
+    }
+
+    // ?trailer=1: the shell's black lead-in only exists once the lazily-imported
+    // director has landed, so the boot room above — and the room-label banner it
+    // fires — would paint for a frame or two first. Hold the scene's own fade
+    // plate (depth 100, over the HUD) until the first shot stages; trailerStage
+    // clears it. Nothing else touches fadeRect on this path.
+    if (params.has("trailer")) {
+      this.fadeRect.setAlpha(1);
+    }
+
+    this.wireSceneEvents(params);
+  }
+
+  private wireSceneEvents(params: URLSearchParams) {
+    sfx.unlock();
+    this.input.keyboard?.once("keydown", () => sfx.unlock());
+    this.input.once("pointerdown", () => sfx.unlock());
+    this.input.keyboard?.on("keydown-M", () => {
+      sfx.toggleMute();
+      syncTouchHud();
+      this.showBanner(sfx.muted ? "SOUND OFF" : "SOUND ON", 700, "status");
+    });
+    // Versus has no death→hub exit (rounds respawn), so ESC leaves the duel.
+    if (this.mode === "versus") {
+      this.input.keyboard?.on("keydown-ESC", () => this.scene.start("select"));
+    }
+
+    // Death → hub: drop the socket and the hub gets its mute-only touch cluster back.
+    this.events.once(Scenes.Events.SHUTDOWN, () => {
+      this.controls.destroy();
+      this.gamepad.destroy();
+      this.session?.destroy();
+      if (!params.has("trailer")) {
+        mountTouchHud(false);
+      }
+    });
+  }
+
+  // Fresh run economy + world lists. Phaser reuses the scene instance across
+  // start(): the old display list is gone but fields still point at destroyed
+  // sprites, so every list is dropped here rather than trusted.
+  private resetRunState() {
     this.mods = baseMods();
     // Fold in permanent meta upgrades bought in the hub (host/solo; a guest's
     // hearts are then overwritten by the host snapshot).
@@ -464,16 +620,9 @@ export class GameScene extends Phaser.Scene {
     this.score = 0;
     this.combo = 0;
     this.comboT = 0;
-    this.flashedBiome = 0; // reset so a new run never flashes its starting biome
+    // reset so a new run never flashes its starting biome
+    this.flashedBiome = 0;
     this.state = "active";
-    // Phaser reuses the scene instance across start(): the old display list is
-    // gone but fields still point at destroyed sprites, so every net puppet is
-    // dropped here rather than trusted.
-    this.remote = undefined;
-    this.remoteId = null;
-    this.netPlayers = [];
-    this.enemyPuppets.clear();
-    this.netProj = [];
     this.doors = [];
     this.enemies = [];
     this.arrows = [];
@@ -482,34 +631,33 @@ export class GameScene extends Phaser.Scene {
     this.boss = null;
     this.feature = null;
     this.lastStand = null;
-    this.netLastStand = null;
     this.lsG = undefined;
     this.lsLabel = undefined;
     this.mode = "coop";
     this.vs = null;
-    this.netVs = null;
     this.vsSpawns = [];
     this.vsHitSeq = new WeakMap();
     this.vsOpponentGone = false;
+  }
+
+  // Scene instances persist across start/stop: never leak a previous online
+  // run's role/session/puppets into this one (solo must not take the guest path).
+  private resetNetState() {
+    this.remote = undefined;
+    this.remoteId = null;
+    this.netPlayers = [];
+    this.enemyPuppets.clear();
+    this.netProj = [];
+    this.netLastStand = null;
+    this.netVs = null;
     this.reconciler.reset();
     this.guestIn = NEUTRAL_INPUT;
     this.netSelfHurting = false;
-    // Scene instances persist across start/stop: never leak a previous online
-    // run's role/session into this one (solo must not take the guest path).
     this.role = "solo";
     this.session = undefined;
-    // A run that adopted a seeded stream (online checkpoint, test seed) would
-    // otherwise replay it here.
-    const dataSeed = data instanceof Object && "seed" in data ? data.seed : undefined;
-    if (Number.isFinite(dataSeed)) {
-      reseed(Number(dataSeed));
-    } else {
-      unseed();
-    }
     this.authority = { kind: "waiting" };
     this.adoptedTerminal = null;
     this.seats = { guest: null, host: null };
-    this.remoteId = null;
     this.wasConnected = false;
     this.seenDisconnect = 0;
     this.neutralOnAdmission = false;
@@ -517,16 +665,16 @@ export class GameScene extends Phaser.Scene {
     this.checkpointRef = undefined;
     this.checkpointRoomRef = undefined;
     this.checkpointCache = { kind: "absent" };
-    this.restartRequested = this.registry.get("restartExpedition") === true;
-    this.registry.set("restartExpedition", false);
     this.restartSentFor = null;
     this.outSeq = { a: 0, d: 0, j: 0, s: 0 };
     this.inSeq = { a: 0, d: 0, j: 0, s: 0 };
     this.guestRoomSeq = -1;
     this.guestSnapT = -1;
-    this.netPlayers = [];
-    this.acc = 0;
+  }
 
+  // Sky, atmosphere wash, fade plate and the text HUD. Returns the touch-HUD
+  // band height so the action cluster can clear it.
+  private buildChrome(): number {
     this.sky = new PixelSky(this, BASE_W, BASE_H);
     // Thin full-field atmosphere wash, over the world but under the HUD — the
     // cheapest way to make a biome's light read on every tile and silhouette.
@@ -582,22 +730,15 @@ export class GameScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setDepth(81)
       .setAlpha(0);
+    return hudBand;
+  }
 
-    const regParty: JsonValue = this.registry.get("party");
-    const party = (params.get("party") ?? (isJsonString(regParty) ? regParty : ""))
-      .trim()
-      .toUpperCase();
-    const regMode: JsonValue = this.registry.get("mode");
-    const modeStr = params.get("mode") ?? (isJsonString(regMode) ? regMode : "");
-    if (party.length > 0 && modeStr === "vs") {
-      this.mode = "versus";
-    }
-
-    // Touch controls: floating stick (movement + down-to-drop) on any free
-    // touch, fixed action cluster bottom-right, EXIT (versus only) top-right.
-    // Mouse is ignored — desktop keeps the keyboard scheme.
-    // Positions are game-space px (the adapter's viewport is the FIT game
-    // size); insets keep the cluster clear of the home indicator.
+  // Touch controls: floating stick (movement + down-to-drop) on any free
+  // touch, fixed action cluster bottom-right, EXIT (versus only) top-right.
+  // Mouse is ignored — desktop keeps the keyboard scheme.
+  // Positions are game-space px (the adapter's viewport is the FIT game
+  // size); insets keep the cluster clear of the home indicator.
+  private attachTouchControls(hudBand: number) {
     this.touch = isCoarse();
     const cluster: FixedButton[] = [
       {
@@ -630,20 +771,22 @@ export class GameScene extends Phaser.Scene {
       buttons.push({
         id: "exit",
         label: "EXIT",
-        radius: 15,
         position: (v) => ({ x: v.width - 24 - v.inset.right, y: 44 + v.inset.top + hudBand }),
+        radius: 15,
       });
     }
     this.gamepad = attachVirtualGamepad(this, {
       buttons,
       onButtonDown: (id) => {
-        if (id === "exit") this.scene.start("select");
+        if (id === "exit") {
+          this.scene.start("select");
+        }
       },
-      render: { blendMode: Phaser.BlendModes.NORMAL, depth: 90 },
+      render: { blendMode: BlendModes.NORMAL, depth: 90 },
       stick: {
-        radius: 40,
         deadZone: 8,
         knobRadius: 14,
+        radius: 40,
         // Over a pit, a thumb that reaches for DASH, lands in the gap between
         // two buttons and slides would otherwise read as a full-speed run.
         region: (p, v) => {
@@ -653,77 +796,42 @@ export class GameScene extends Phaser.Scene {
       },
       visible: "coarse",
     });
-    // Touch has no Escape and no M: @repo/embed's cluster carries both. The
-    // trailer plays itself and owns its own chrome, so it opts out (main.ts
-    // keeps the hub's mute-only cluster off there for the same reason).
-    if (!params.has("trailer")) {
-      mountTouchHud(true);
-    }
-    this.controls = new Input(this, this.gamepad);
-    if (party.length > 0 && !this.demo) {
-      // Co-op: connect, then let update() resolve host vs guest. The player spawns
-      // on an empty grid so it's always defined; the real room arrives once the
-      // host begins the run (host) or the first room snapshot lands (guest).
-      this.role = "guest"; // provisional until the connection reports host
-      this.state = "connecting";
-      this.player = this.spawnPlayer(HEROES[this.heroName], new Grid(), BASE_W / 2, BASE_H / 2);
-      this.player.sprite.setVisible(false);
-      this.fadeRect.setAlpha(1);
-      this.showBanner("CONNECTING…", 100_000, "connecting");
-      this.session = new NetSession({
-        fallbackMs: 6000,
-        maxPlayers: 2,
-        room: `lunerfall-${this.mode === "versus" ? "vs" : "coop"}-${party}`,
-      });
-    } else {
-      const roomParam = parseRoomType(new URLSearchParams(location.search).get("room") ?? "");
-      const def = roomParam ? this.run.debugEnter(roomParam) : this.run.begin();
-      // Dev: ?biome=N previews a deeper biome's palette + roster (debug rooms only).
-      const biomeParam = Math.floor(Number(new URLSearchParams(location.search).get("biome")));
-      if (roomParam && Number.isFinite(biomeParam) && biomeParam >= 1) {
-        this.run.biome = biomeParam;
-      }
-      this.player = this.spawnPlayer(
-        HEROES[this.heroName],
-        def.grid,
-        def.playerSpawn.x,
-        def.playerSpawn.y,
-      );
-      this.buildRoom(def);
-      this.updateHud();
-    }
+  }
 
-    // ?trailer=1: the shell's black lead-in only exists once the lazily-imported
-    // director has landed, so the boot room above — and the room-label banner it
-    // fires — would paint for a frame or two first. Hold the scene's own fade
-    // plate (depth 100, over the HUD) until the first shot stages; trailerStage
-    // clears it. Nothing else touches fadeRect on this path.
-    if (params.has("trailer")) {
-      this.fadeRect.setAlpha(1);
-    }
-
-    sfx.unlock();
-    this.input.keyboard?.once("keydown", () => sfx.unlock());
-    this.input.once("pointerdown", () => sfx.unlock());
-    this.input.keyboard?.on("keydown-M", () => {
-      sfx.toggleMute();
-      syncTouchHud();
-      this.showBanner(sfx.muted ? "SOUND OFF" : "SOUND ON", 700, "status");
+  // Co-op: connect, then let update() resolve host vs guest. The player spawns
+  // on an empty grid so it's always defined; the real room arrives once the
+  // host begins the run (host) or the first room snapshot lands (guest).
+  private beginConnecting(party: string) {
+    // provisional until the connection reports host
+    this.role = "guest";
+    this.state = "connecting";
+    this.player = this.spawnPlayer(HEROES[this.heroName], new Grid(), BASE_W / 2, BASE_H / 2);
+    this.player.sprite.setVisible(false);
+    this.fadeRect.setAlpha(1);
+    this.showBanner("CONNECTING…", 100_000, "connecting");
+    this.session = new NetSession({
+      fallbackMs: 6000,
+      maxPlayers: 2,
+      room: `lunerfall-${this.mode === "versus" ? "vs" : "coop"}-${party}`,
     });
-    // Versus has no death→hub exit (rounds respawn), so ESC leaves the duel.
-    if (this.mode === "versus") {
-      this.input.keyboard?.on("keydown-ESC", () => this.scene.start("select"));
-    }
+  }
 
-    // Death → hub: drop the socket and the hub gets its mute-only touch cluster back.
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      this.controls.destroy();
-      this.gamepad.destroy();
-      this.session?.destroy();
-      if (!params.has("trailer")) {
-        mountTouchHud(false);
-      }
-    });
+  private beginSoloRoom(params: URLSearchParams) {
+    const roomParam = parseRoomType(params.get("room") ?? "");
+    const def = roomParam ? this.run.debugEnter(roomParam) : this.run.begin();
+    // Dev: ?biome=N previews a deeper biome's palette + roster (debug rooms only).
+    const biomeParam = Math.floor(Number(params.get("biome")));
+    if (roomParam && Number.isFinite(biomeParam) && biomeParam >= 1) {
+      this.run.biome = biomeParam;
+    }
+    this.player = this.spawnPlayer(
+      HEROES[this.heroName],
+      def.grid,
+      def.playerSpawn.x,
+      def.playerSpawn.y,
+    );
+    this.buildRoom(def);
+    this.updateHud();
   }
 
   // Both players leave world-space cues; routine camera motion belongs to me.
@@ -735,18 +843,26 @@ export class GameScene extends Phaser.Scene {
 
   private spawnPlayer(hero: HeroDef, grid: Grid, x: number, y: number): Player {
     const pl: Player = new Player(this, grid, x, y, hero, {
-      onLand: (impact) => {
-        if (pl === this.player) {
-          this.shake(80, Math.min(0.003 + impact * 0.00002, 0.008));
-        }
-        dust(this, pl.x, pl.y);
-      },
       onDash: () => {
         if (pl === this.player) {
           this.shake(60, 0.0025);
         }
         sfx.dash(pl === this.player ? "local" : "routine");
       },
+      onHurt: () => {
+        if (pl === this.player) {
+          this.shake(180, 0.012);
+        }
+        sfx.hurt(pl === this.player ? "essential" : "routine");
+      },
+      onJump: () => sfx.jump(pl === this.player ? "local" : "routine"),
+      onLand: (impact) => {
+        if (pl === this.player) {
+          this.shake(80, Math.min(0.003 + impact * 0.00002, 0.008));
+        }
+        dust(this, pl.x, pl.y);
+      },
+      onSpecial: (kind) => this.onSpecialFx(kind, pl),
       // No painted attack VFX — the sprite-sheet swing carries the strike. Just
       // feel: a small camera shake + the swing sound.
       onSwing: () => {
@@ -755,14 +871,6 @@ export class GameScene extends Phaser.Scene {
         }
         sfx.slash(pl === this.player ? "local" : "routine");
       },
-      onSpecial: (kind) => this.onSpecialFx(kind, pl),
-      onHurt: () => {
-        if (pl === this.player) {
-          this.shake(180, 0.012);
-        }
-        sfx.hurt(pl === this.player ? "essential" : "routine");
-      },
-      onJump: () => sfx.jump(pl === this.player ? "local" : "routine"),
       onWallJump: (side) => {
         wallSmoke(this, pl.x + side * 7, pl.y - 12, side);
         if (pl === this.player) {
@@ -785,18 +893,32 @@ export class GameScene extends Phaser.Scene {
     this.guestSpecial = { kind: "unknown" };
     this.netPlayers = [];
     this.roomLayer?.destroy();
-    this.parallax.forEach((o) => o.destroy());
+    for (const o of this.parallax) {
+      o.destroy();
+    }
     this.parallax = [];
     this.roomProp?.destroy();
     this.roomProp = undefined;
     this.embers?.destroy();
     this.embers = undefined;
-    this.doors.forEach((d) => d.destroy());
-    this.enemies.forEach((e) => e.destroy());
-    this.arrows.forEach((a) => a.spr.destroy());
-    this.shots.forEach((s) => s.spr.destroy());
-    this.hazards.forEach((h) => h.spr.destroy());
-    this.merchantItems.forEach((m) => m.g.destroy());
+    for (const d of this.doors) {
+      d.destroy();
+    }
+    for (const e of this.enemies) {
+      e.destroy();
+    }
+    for (const a of this.arrows) {
+      a.spr.destroy();
+    }
+    for (const s of this.shots) {
+      s.spr.destroy();
+    }
+    for (const h of this.hazards) {
+      h.spr.destroy();
+    }
+    for (const m of this.merchantItems) {
+      m.g.destroy();
+    }
     this.merchantItems = [];
     this.boss?.destroy();
     this.bossHp?.destroy();
@@ -814,11 +936,15 @@ export class GameScene extends Phaser.Scene {
     this.feature = null;
     this.deadTimers = new WeakMap();
     this.combat = new WeakMap();
-    this.enemyPuppets.forEach((p) => p.view.destroy());
+    for (const p of this.enemyPuppets.values()) {
+      p.view.destroy();
+    }
     this.enemyPuppets.clear();
     this.bossPuppet?.view.destroy();
     this.bossPuppet = undefined;
-    this.netProj.forEach((s) => s.destroy());
+    for (const s of this.netProj) {
+      s.destroy();
+    }
     this.netProj = [];
   }
 
@@ -870,17 +996,17 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.offers = this.run.offers();
-    def.doorSlots.forEach((slot, i) => {
+    for (const [i, slot] of def.doorSlots.entries()) {
       const offer = this.offers[i];
       if (!offer) {
-        return;
+        continue;
       }
       const d = new Door(this, slot.x, slot.y, offer.type, i);
       d.setActive(this.cleared);
       this.doors.push(d);
-    });
+    }
 
-    this.roomSeq++;
+    this.roomSeq += 1;
     if (this.role === "host") {
       this.roomDirty = true;
     }
@@ -917,7 +1043,7 @@ export class GameScene extends Phaser.Scene {
     this.setupCamera();
     this.mustClear = false;
     this.cleared = true;
-    this.roomSeq++;
+    this.roomSeq += 1;
     if (this.role === "host") {
       this.roomDirty = true;
     }
@@ -943,26 +1069,14 @@ export class GameScene extends Phaser.Scene {
 
   private spawnEnemies(def: RoomDef) {
     const elite = this.run.type === "elite";
-    def.enemySpawns.forEach((s) => {
+    for (const s of def.enemySpawns) {
       const e = new Enemy(this, this.grid, ENEMIES[this.pickEnemy()], s.x, s.y);
       e.body.hp += Math.floor((this.run.biome - 1) / 2);
       if (elite) {
-        this.applyAffix(e);
+        applyAffix(e);
       }
       this.enemies.push(e);
-    });
-  }
-
-  // Elite room: roll an affix onto an enemy — recolour it and bend its combat
-  // multipliers (host-authoritative; guests render the puppet without the tint).
-  // The affix parameter is only supplied by trailer staging; gameplay rolls.
-  private applyAffix(e: Enemy, a: Affix = rollAffix()) {
-    e.body.hp = Math.round(e.body.hp * a.hpMult) + 1;
-    e.body.speedMult = a.speedMult;
-    e.body.dmgTakenMult = a.dmgTakenMult;
-    e.body.dmgOutMult = a.dmgOutMult;
-    e.baseTint = a.tint;
-    e.sprite.setTint(a.tint);
+    }
   }
 
   private spawnBoss(def: RoomDef) {
@@ -986,7 +1100,7 @@ export class GameScene extends Phaser.Scene {
 
   private buildFeature(x: number, y: number) {
     const { type } = this.run;
-    const color = type === "rest" ? COLORS.teal : type === "treasure" ? 0xff_d1_5c : COLORS.magenta;
+    const color = FEATURE_COLORS.get(type) ?? COLORS.magenta;
     const g = this.add.container(x, y).setDepth(8);
     const glow = this.add.ellipse(0, -10, 26, 30, color, 0.2);
     const base = this.add.rectangle(0, 0, 16, 6, COLORS.stoneEdge).setOrigin(0.5, 1);
@@ -1037,7 +1151,9 @@ export class GameScene extends Phaser.Scene {
   private buildMerchant() {
     const offers = pickRelics(3, this.ownedRelics);
     const y = (this.grid.rows - 3 + 1) * TILE;
-    offers.forEach((relic, i) => this.buildMerchantItem(relic, (0.3 + i * 0.2) * BASE_W, y, false));
+    for (const [i, relic] of offers.entries()) {
+      this.buildMerchantItem(relic, (0.3 + i * 0.2) * BASE_W, y, false);
+    }
   }
 
   /** Display construction only: replaying a checkpoint never rolls an offer. */
@@ -1146,6 +1262,21 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ── input ────────────────────────────────────────────────────────────────
+  // This frame's local player input: the guest's sample once online, the demo
+  // script on the title loop, else the live controls.
+  private localInput(): InputState {
+    if (this.controlsPaused) {
+      return NEUTRAL_INPUT;
+    }
+    if (this.session) {
+      return this.guestIn;
+    }
+    if (this.demo) {
+      return this.demoInput();
+    }
+    return this.controls.sample();
+  }
+
   private demoInput(): InputState {
     const cyc = this.demoT % 1.9;
     const jumpHeld = cyc < 0.24;
@@ -1180,109 +1311,27 @@ export class GameScene extends Phaser.Scene {
     const dts = Math.min(delta, 100) / 1000;
     this.updateBanner(dts * 1000);
     this.demoT += dts;
-    // Bot-playtest telemetry (sys/diag.ts): mutate the shared object in place.
-    diag.frame++;
-    diag.score = this.score;
-    diag.complete = this.state === "dead";
-    diag.player.x = this.player.x;
-    diag.player.y = this.player.y;
-    diag.player.speed = Math.hypot(this.player.body.vx, this.player.body.vy);
-    diag.entities = this.enemies.length + this.enemyPuppets.size;
+    this.publishDiag();
     // Once per frame, before any sample(): reconciles lost touches, publishes
     // the justPressed edges the Input merge reads, and redraws the overlay.
     this.gamepad.update();
     // Same contract for the physical controller poll inside Input.
     this.controls.update();
 
-    if (this.session) {
-      this.session.tick();
-      if (this.session.roomFull) {
-        this.scene.start("select", { roomFull: true });
-        return;
-      }
-      // Drain input even while disconnected. A single sample serves authority,
-      // prediction and uplink; old presses never queue behind reconnection.
-      const sample = this.demo ? this.demoInput() : this.controls.sample();
-      const priorRun = this.authority.kind === "ready" ? this.authority.runId : null;
-      const ready = this.prepareSession();
-      const sameRun = this.authority.kind === "ready" && this.authority.runId === priorRun;
-      this.guestIn = ready && sameRun && !this.controlsPaused ? sample : NEUTRAL_INPUT;
-      if (ready) {
-        this.sendInput(this.guestIn);
-      }
-      if (!ready) {
-        return;
-      }
-      this.handleExpeditionRestart();
-      // Headless co-op probe (no casts): read via globalThis.__lf in tests.
-      const vsProbe = this.role === "guest" ? this.netVs : (this.vs?.encode() ?? null);
-      Reflect.set(globalThis, "__lf", {
-        ax:
-          this.role === "guest"
-            ? Math.round(this.netPlayers.find((p) => p.id === this.session?.playerId)?.x ?? -1)
-            : null,
-        conn: this.session.connectionStatus,
-        dead: this.livePlayers().filter((p) => p.body.dead).length,
-        downed: this.livePlayers().filter((p) => p.body.downed).length,
-        entities: this.enemies.length + this.enemyPuppets.size,
-        hearts: this.hearts,
-        ls: this.role === "guest" ? this.netLastStand !== null : this.lastStand !== null,
-        mode: this.mode,
-        paused: this.controlsPaused,
-        players: this.livePlayers().length,
-        px: Math.round(this.player.x),
-        rSwing:
-          this.role === "guest"
-            ? (this.netPlayers.find((p) => p.id !== this.session?.playerId)?.swingId ?? null)
-            : (this.remote?.body.swingId ?? null),
-        role: this.role,
-        rx: this.remote ? Math.round(this.remote.x) : null,
-        state: this.state,
-        swing: this.player.body.swingId,
-        vs: vsProbe,
-      });
+    if (this.session && !this.updateSession()) {
+      return;
     }
 
     if (this.state === "connecting") {
       this.prepareSession();
       return;
     }
-
     if (this.state === "dead") {
-      this.deadT += dts;
-      if (this.role === "host") {
-        this.hostNet(dts);
-      }
-      this.enemies.forEach((e) => e.render());
-      // Trailer scenes stage their own restart — never bounce to the hub.
-      if (this.deadT > 2.4 && !this.trailerActive) {
-        this.scene.start("select", { recap: this.runRecap });
-      }
+      this.updateDead(dts);
       return;
     }
     if (this.state === "transition") {
-      this.transT += dts;
-      const half = 0.22;
-      this.fadeRect.setAlpha(
-        this.transT < half ? this.transT / half : Math.max(0, 1 - (this.transT - half) / half),
-      );
-      if (!this.transBuilt && this.transT >= half && this.pendingOffer) {
-        this.buildRoom(this.run.choose(this.pendingOffer));
-        this.updateHud();
-        this.transBuilt = true;
-      }
-      if (this.transT >= half * 2) {
-        this.fadeRect.setAlpha(0);
-        this.pendingOffer = null;
-        this.state = "active";
-      }
-      this.player.render();
-      this.remote?.render();
-      this.enemies.forEach((e) => e.render());
-      this.boss?.render();
-      if (this.role === "host") {
-        this.hostNet(dts);
-      }
+      this.updateTransition(dts);
       return;
     }
 
@@ -1297,37 +1346,7 @@ export class GameScene extends Phaser.Scene {
     if (this.role === "host") {
       this.syncRemotePresence();
     }
-    const scripted = this.trailerIn ? this.trailerIn() : null;
-    const snap = scripted
-      ? scripted.p1
-      : this.controlsPaused
-        ? NEUTRAL_INPUT
-        : this.session
-          ? this.guestIn
-          : this.demo
-            ? this.demoInput()
-            : this.controls.sample();
-    const remoteIn = scripted ? scripted.p2 : this.remote ? this.readRemoteInput() : null;
-    if (this.vs) {
-      // Match over + hold lapsed: either duelist's attack press restarts it.
-      if (this.vs.canRematch && (snap.attackPressed || (remoteIn?.attackPressed ?? false))) {
-        this.vs.beginMatch();
-        this.vsRespawn();
-        this.showBanner("REMATCH — ROUND 1", 1100, "critical");
-        sfx.door("local");
-      }
-      // Round intro / match end: bodies hold still (gravity still applies).
-      const { frozen } = this.vs;
-      this.player.buffer(frozen ? NEUTRAL_INPUT : snap);
-      if (this.remote && remoteIn) {
-        this.remote.buffer(frozen ? NEUTRAL_INPUT : remoteIn);
-      }
-    } else {
-      this.player.buffer(snap);
-      if (this.remote && remoteIn) {
-        this.remote.buffer(remoteIn);
-      }
-    }
+    this.bufferAuthorityInputs();
     this.acc += dts;
     let steps = 0;
     while (this.acc >= STEP && steps < MAX_STEPS) {
@@ -1337,7 +1356,7 @@ export class GameScene extends Phaser.Scene {
         this.simStep(STEP);
       }
       this.acc -= STEP;
-      steps++;
+      steps += 1;
     }
 
     // Interpolate the render between the last two sim steps by the leftover step
@@ -1345,13 +1364,162 @@ export class GameScene extends Phaser.Scene {
     const alpha = Math.min(this.acc / STEP, 1);
     this.player.render(alpha);
     this.remote?.render(alpha);
-    this.enemies.forEach((e) => e.render(alpha));
+    for (const e of this.enemies) {
+      e.render(alpha);
+    }
     this.boss?.render(alpha);
     this.renderLastStand();
     this.updateHud();
 
     if (this.role === "host") {
       this.hostNet(dts);
+    }
+  }
+
+  // Bot-playtest telemetry (sys/diag.ts): mutate the shared object in place.
+  private publishDiag() {
+    diag.frame += 1;
+    diag.score = this.score;
+    diag.complete = this.state === "dead";
+    diag.player.x = this.player.x;
+    diag.player.y = this.player.y;
+    diag.player.speed = Math.hypot(this.player.body.vx, this.player.body.vy);
+    diag.entities = this.enemies.length + this.enemyPuppets.size;
+  }
+
+  // Online: tick the socket, drain this frame's input and resolve authority.
+  // Returns false when the frame must stop here (room full, session not ready).
+  private updateSession(): boolean {
+    if (!this.session) {
+      return true;
+    }
+    this.session.tick();
+    if (this.session.roomFull) {
+      this.scene.start("select", { roomFull: true });
+      return false;
+    }
+    // Drain input even while disconnected. A single sample serves authority,
+    // prediction and uplink; old presses never queue behind reconnection.
+    const sample = this.demo ? this.demoInput() : this.controls.sample();
+    const priorRun = this.authority.kind === "ready" ? this.authority.runId : null;
+    const ready = this.prepareSession();
+    const sameRun = this.authority.kind === "ready" && this.authority.runId === priorRun;
+    this.guestIn = ready && sameRun && !this.controlsPaused ? sample : NEUTRAL_INPUT;
+    if (ready) {
+      this.sendInput(this.guestIn);
+    }
+    if (!ready) {
+      return false;
+    }
+    this.handleExpeditionRestart();
+    this.publishProbe(this.session);
+    return true;
+  }
+
+  // Headless co-op probe (no casts): read via globalThis.__lf in tests.
+  private publishProbe(session: NetSession) {
+    const guest = this.role === "guest";
+    const myId = session.playerId;
+    const vsProbe = guest ? this.netVs : (this.vs?.encode() ?? null);
+    let ax: number | null = null;
+    if (guest) {
+      ax = Math.round(this.netPlayers.find((p) => p.id === myId)?.x ?? -1);
+    }
+    const rSwing = guest
+      ? (this.netPlayers.find((p) => p.id !== myId)?.swingId ?? null)
+      : (this.remote?.body.swingId ?? null);
+    Reflect.set(globalThis, "__lf", {
+      ax,
+      conn: session.connectionStatus,
+      dead: this.livePlayers().filter((p) => p.body.dead).length,
+      downed: this.livePlayers().filter((p) => p.body.downed).length,
+      entities: this.enemies.length + this.enemyPuppets.size,
+      hearts: this.hearts,
+      ls: guest ? this.netLastStand !== null : this.lastStand !== null,
+      mode: this.mode,
+      paused: this.controlsPaused,
+      players: this.livePlayers().length,
+      px: Math.round(this.player.x),
+      rSwing,
+      role: this.role,
+      rx: this.remote ? Math.round(this.remote.x) : null,
+      state: this.state,
+      swing: this.player.body.swingId,
+      vs: vsProbe,
+    });
+  }
+
+  private updateDead(dts: number) {
+    this.deadT += dts;
+    if (this.role === "host") {
+      this.hostNet(dts);
+    }
+    for (const e of this.enemies) {
+      e.render();
+    }
+    // Trailer scenes stage their own restart — never bounce to the hub.
+    if (this.deadT > 2.4 && !this.trailerActive) {
+      this.scene.start("select", { recap: this.runRecap });
+    }
+  }
+
+  private updateTransition(dts: number) {
+    this.transT += dts;
+    const half = 0.22;
+    this.fadeRect.setAlpha(
+      this.transT < half ? this.transT / half : Math.max(0, 1 - (this.transT - half) / half),
+    );
+    if (!this.transBuilt && this.transT >= half && this.pendingOffer) {
+      this.buildRoom(this.run.choose(this.pendingOffer));
+      this.updateHud();
+      this.transBuilt = true;
+    }
+    if (this.transT >= half * 2) {
+      this.fadeRect.setAlpha(0);
+      this.pendingOffer = null;
+      this.state = "active";
+    }
+    this.player.render();
+    this.remote?.render();
+    for (const e of this.enemies) {
+      e.render();
+    }
+    this.boss?.render();
+    if (this.role === "host") {
+      this.hostNet(dts);
+    }
+  }
+
+  // Host / solo: feed this frame's inputs (scripted by the trailer, else local +
+  // the guest's wire input) into the bodies, honouring the versus freeze/rematch.
+  private bufferAuthorityInputs() {
+    const scripted = this.trailerIn ? this.trailerIn() : null;
+    const snap = scripted ? scripted.p1 : this.localInput();
+    let remoteIn: InputState | null = null;
+    if (scripted) {
+      remoteIn = scripted.p2;
+    } else if (this.remote) {
+      remoteIn = this.readRemoteInput();
+    }
+    if (!this.vs) {
+      this.player.buffer(snap);
+      if (this.remote && remoteIn) {
+        this.remote.buffer(remoteIn);
+      }
+      return;
+    }
+    // Match over + hold lapsed: either duelist's attack press restarts it.
+    if (this.vs.canRematch && (snap.attackPressed || (remoteIn?.attackPressed ?? false))) {
+      this.vs.beginMatch();
+      this.vsRespawn();
+      this.showBanner("REMATCH — ROUND 1", 1100, "critical");
+      sfx.door("local");
+    }
+    // Round intro / match end: bodies hold still (gravity still applies).
+    const { frozen } = this.vs;
+    this.player.buffer(frozen ? NEUTRAL_INPUT : snap);
+    if (this.remote && remoteIn) {
+      this.remote.buffer(frozen ? NEUTRAL_INPUT : remoteIn);
     }
   }
 
@@ -1363,16 +1531,16 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     if (s.jumpPressed) {
-      this.outSeq.j++;
+      this.outSeq.j += 1;
     }
     if (s.dashPressed) {
-      this.outSeq.d++;
+      this.outSeq.d += 1;
     }
     if (s.attackPressed) {
-      this.outSeq.a++;
+      this.outSeq.a += 1;
     }
     if (s.specialPressed) {
-      this.outSeq.s++;
+      this.outSeq.s += 1;
     }
     const input: NetInput = {
       a: this.outSeq.a,
@@ -1390,19 +1558,12 @@ export class GameScene extends Phaser.Scene {
 
   // Host: turn the guest's latest wire input into an edge-triggered InputState.
   private readRemoteInput(): InputState {
-    const other = this.session?.otherPlayer();
+    const other = this.session?.otherPlayer() ?? null;
     const ni = readNetInput(other?.state?.input);
     const active =
-      other !== null &&
-      other !== undefined &&
-      other.connected !== false &&
-      other.state?.paused !== true &&
-      ni !== null;
+      other !== null && other.connected !== false && other.state?.paused !== true && ni !== null;
     if (!other || !ni || !active) {
-      if (this.remoteInputOwner?.active !== false || this.remoteInputOwner?.id !== other?.id) {
-        this.remote?.body.clearInput();
-      }
-      this.remoteInputOwner = other ? { active: false, id: other.id } : null;
+      this.dropRemoteInput(other);
       return NEUTRAL_INPUT;
     }
     const first = !this.remoteInputOwner?.active || this.remoteInputOwner.id !== other.id;
@@ -1420,6 +1581,28 @@ export class GameScene extends Phaser.Scene {
       specialPressed: ni.s > previous.s,
       up: ni.up,
     };
+  }
+
+  // The guest is absent, paused or silent: release its held keys once, on the
+  // edge, so a paused peer stops running rather than sliding on stale input.
+  private dropRemoteInput(other: { id: string } | null) {
+    if (this.remoteInputOwner?.active !== false || this.remoteInputOwner?.id !== other?.id) {
+      this.remote?.body.clearInput();
+    }
+    this.remoteInputOwner = other ? { active: false, id: other.id } : null;
+  }
+
+  // Seats are the ORIGINAL left/right slots and survive authority changes; a
+  // newcomer takes the first free one.
+  private claimSeat(id: string) {
+    if (this.seats.host === id || this.seats.guest === id) {
+      return;
+    }
+    if (this.seats.host === null) {
+      this.seats.host = id;
+    } else {
+      this.seats.guest = id;
+    }
   }
 
   // Host: spawn / despawn the remote player as the other client joins or leaves.
@@ -1440,33 +1623,9 @@ export class GameScene extends Phaser.Scene {
     if (this.seats.guest && !live(this.seats.guest)) {
       this.seats.guest = null;
     }
-    if (this.seats.host !== myId && this.seats.guest !== myId) {
-      if (this.seats.host === null) {
-        this.seats.host = myId;
-      } else {
-        this.seats.guest = myId;
-      }
-    }
+    this.claimSeat(myId);
     if (this.remote && (!other || other.id !== this.remoteId || !live(other.id))) {
-      if (this.vs) {
-        this.vs.reset();
-      } else if (this.lastStand) {
-        this.lastStand = null;
-        this.destroyLastStandUi();
-        if (this.player.body.downed) {
-          this.player.body.revive();
-        }
-        this.hearts = Math.max(this.hearts, 1);
-      }
-      this.remote.destroy();
-      this.remote = undefined;
-      this.remoteId = null;
-      this.remoteInputOwner = null;
-      if (this.vs) {
-        this.vsRespawn();
-      }
-      this.showBanner(this.vs ? "CHALLENGER LEFT" : "PLAYER 2 LEFT", 1600, "critical");
-      this.updateHud();
+      this.despawnRemote();
     }
     if (other && live(other.id) && !this.remote) {
       // Presence can arrive before the peer publishes its hub selection.
@@ -1474,26 +1633,46 @@ export class GameScene extends Phaser.Scene {
       if (!hero) {
         return;
       }
-      if (this.seats.host !== other.id && this.seats.guest !== other.id) {
-        if (this.seats.host === null) {
-          this.seats.host = other.id;
-        } else {
-          this.seats.guest = other.id;
-        }
+      this.claimSeat(other.id);
+      this.spawnRemote(other.id, hero);
+    }
+  }
+
+  private despawnRemote() {
+    if (this.vs) {
+      this.vs.reset();
+    } else if (this.lastStand) {
+      this.lastStand = null;
+      this.destroyLastStandUi();
+      if (this.player.body.downed) {
+        this.player.body.revive();
       }
-      const index = this.seats.host === other.id ? 0 : 1;
-      const spawn = (this.vs ? this.vsSpawns[index] : undefined) ?? this.roomSpawn;
-      this.remote = this.spawnPlayer(HEROES[hero], this.grid, spawn.x, spawn.y);
-      this.remoteId = other.id;
-      this.remoteInputOwner = null;
-      if (this.vs) {
-        this.vs.beginMatch();
-        this.vsRespawn();
-        this.showBanner("ROUND 1", 1100, "critical");
-        sfx.door("local");
-      } else {
-        this.showBanner("PLAYER 2 JOINED", 1000, "status");
-      }
+      this.hearts = Math.max(this.hearts, 1);
+    }
+    this.remote?.destroy();
+    this.remote = undefined;
+    this.remoteId = null;
+    this.remoteInputOwner = null;
+    if (this.vs) {
+      this.vsRespawn();
+    }
+    this.showBanner(this.vs ? "CHALLENGER LEFT" : "PLAYER 2 LEFT", 1600, "critical");
+    this.updateHud();
+  }
+
+  private spawnRemote(id: string, hero: HeroName) {
+    const index = this.seats.host === id ? 0 : 1;
+    const spawn = (this.vs ? this.vsSpawns[index] : undefined) ?? this.roomSpawn;
+    this.remote = this.spawnPlayer(HEROES[hero], this.grid, spawn.x, spawn.y);
+    this.remoteId = id;
+    this.remoteInputOwner = null;
+    if (this.vs) {
+      this.vs.beginMatch();
+      this.vsRespawn();
+      this.showBanner("ROUND 1", 1100, "critical");
+      sfx.door("local");
+    } else {
+      this.showBanner("PLAYER 2 JOINED", 1000, "status");
     }
   }
 
@@ -1510,20 +1689,48 @@ export class GameScene extends Phaser.Scene {
   // snapshot and fold into the predicted body in reconcileSelf.
   private stepGuest(dts: number) {
     const sess = this.session;
-    if (!sess) {
+    if (!sess?.live) {
       return;
     }
-    if (!sess.live) {
+    if (!this.applyGuestAuthority(sess)) {
       return;
     }
+    // the snapshot ended the run (co-op death)
+    if (this.state !== "active") {
+      return;
+    }
+    this.noticeOpponentGone(sess);
+    // Prediction: mirror the host's versus freeze (round intro / match end) so
+    // the local body doesn't fight the authority while inputs are dropped.
+    const frozen = this.mode === "versus" && this.netVs !== null && vsPhaseFrozen(this.netVs.phase);
+    this.player.buffer(frozen || this.controlsPaused ? NEUTRAL_INPUT : this.guestIn);
+    this.acc += dts;
+    let steps = 0;
+    while (this.acc >= STEP && steps < MAX_STEPS) {
+      this.player.step(STEP);
+      this.reconciler.record(this.player.body.x, this.player.body.y);
+      this.acc -= STEP;
+      steps += 1;
+    }
+    // Prediction is movement-only: combat intents resolve on the host.
+    this.player.body.pendingShot = null;
+    this.player.body.pendingHeal = 0;
+    this.player.render(Math.min(this.acc / STEP, 1));
+    this.renderGuestViews(dts);
+    this.renderLastStand();
+  }
+
+  // Guest: adopt the accepted checkpoint's room, then the newest snapshot that
+  // belongs to it. Returns false when there is no usable authority yet.
+  private applyGuestAuthority(sess: NetSession): boolean {
     const read = this.acceptedCheckpoint();
     const auth = this.authority;
     if (read.kind !== "ready" || auth.kind !== "ready") {
-      return;
+      return false;
     }
     const c = read.value;
     if (c.runId !== auth.runId || c.term !== auth.term || c.room < this.guestRoomSeq) {
-      return;
+      return false;
     }
     const changedRoom = c.room !== this.guestRoomSeq;
     if (changedRoom) {
@@ -1551,41 +1758,25 @@ export class GameScene extends Phaser.Scene {
       }
       this.syncRoomFeatures(c, changedRoom);
     }
-    if (this.state !== "active") {
-      return;
-    } // the snapshot ended the run (co-op death)
-    // Versus: the host walked away — nothing will ever update again; say so.
+    return true;
+  }
+
+  // Versus: the host walked away — nothing will ever update again; say so.
+  private noticeOpponentGone(sess: NetSession) {
     if (
-      this.mode === "versus" &&
-      !this.vsOpponentGone &&
-      this.guestSnapT > 0 &&
-      !sess.otherPlayer()
+      this.mode !== "versus" ||
+      this.vsOpponentGone ||
+      this.guestSnapT <= 0 ||
+      sess.otherPlayer()
     ) {
-      this.vsOpponentGone = true;
-      this.showBanner(
-        this.touch ? "OPPONENT LEFT — EXIT FOR HUB" : "OPPONENT LEFT — ESC FOR HUB",
-        60_000,
-        "critical",
-      );
+      return;
     }
-    // Prediction: mirror the host's versus freeze (round intro / match end) so
-    // the local body doesn't fight the authority while inputs are dropped.
-    const frozen = this.mode === "versus" && this.netVs !== null && vsPhaseFrozen(this.netVs.phase);
-    this.player.buffer(frozen || this.controlsPaused ? NEUTRAL_INPUT : this.guestIn);
-    this.acc += dts;
-    let steps = 0;
-    while (this.acc >= STEP && steps < MAX_STEPS) {
-      this.player.step(STEP);
-      this.reconciler.record(this.player.body.x, this.player.body.y);
-      this.acc -= STEP;
-      steps++;
-    }
-    // Prediction is movement-only: combat intents resolve on the host.
-    this.player.body.pendingShot = null;
-    this.player.body.pendingHeal = 0;
-    this.player.render(Math.min(this.acc / STEP, 1));
-    this.renderGuestViews(dts);
-    this.renderLastStand();
+    this.vsOpponentGone = true;
+    this.showBanner(
+      this.touch ? "OPPONENT LEFT — EXIT FOR HUB" : "OPPONENT LEFT — ESC FOR HUB",
+      60_000,
+      "critical",
+    );
   }
 
   private applySnapshot(s: Snapshot, terminal = false) {
@@ -1626,7 +1817,9 @@ export class GameScene extends Phaser.Scene {
     this.applyPayoffEdges(s);
     this.applyNetProj(s.proj);
     this.guestCueBaseline = false;
-    this.doors.forEach((d) => d.setActive(s.cleared));
+    for (const d of this.doors) {
+      d.setActive(s.cleared);
+    }
     this.updateHud();
     // Hearts hit 0 while a last stand is live → downed, not dead (yet).
     if (terminal || (this.hearts <= 0 && !this.netLastStand)) {
@@ -1792,7 +1985,7 @@ export class GameScene extends Phaser.Scene {
     } else if (v.phase === "matchEnd") {
       this.showBanner(
         `${this.vsName(v.winner)} WINS THE MATCH  ·  ${this.rematchHint()}`,
-        60000,
+        60_000,
         "critical",
       );
     }
@@ -1880,7 +2073,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private applyNetProj(proj: NetProj[]) {
-    for (let i = 0; i < proj.length; i++) {
+    for (let i = 0; i < proj.length; i += 1) {
       const pj = proj[i];
       if (!pj) {
         continue;
@@ -1906,7 +2099,7 @@ export class GameScene extends Phaser.Scene {
           .setRotation(0);
       }
     }
-    for (let i = proj.length; i < this.netProj.length; i++) {
+    for (let i = proj.length; i < this.netProj.length; i += 1) {
       this.netProj[i]?.setVisible(false);
     }
   }
@@ -1922,9 +2115,10 @@ export class GameScene extends Phaser.Scene {
       this.remoteId = null;
     }
     for (const np of this.netPlayers) {
+      // bodyDrive(player) === "predict"
       if (np.id === myId) {
         continue;
-      } // bodyDrive(player) === "predict"
+      }
       this.ensureGuestRemote(np.hero);
       this.remoteId = np.id;
       const pup = this.remote;
@@ -2023,13 +2217,7 @@ export class GameScene extends Phaser.Scene {
       }
       return true;
     }
-    const a = this.authority;
-    if (
-      sess.isHost &&
-      a.kind === "ready" &&
-      a.revision === sess.authorityRevision &&
-      this.role === "host"
-    ) {
+    if (this.authorityCurrent(sess)) {
       return true;
     }
     const read = this.acceptedCheckpoint();
@@ -2040,30 +2228,49 @@ export class GameScene extends Phaser.Scene {
     if (read.kind !== "ready") {
       return false;
     }
-    const c = read.value;
     if (sess.isHost) {
-      this.role = "host";
-      this.authority = {
-        kind: "ready",
-        revision: sess.authorityRevision,
-        runId: c.runId,
-        term: c.term + 1,
-      };
-      this.adoptCheckpoint(c, read.room);
-      this.syncRemotePresence();
-      this.roomDirty = true;
-      this.hostNet(0, true);
-      return true;
+      this.takeOverAsHost(sess, read.value, read.room);
+    } else {
+      this.adoptAsGuest(sess, read.value, read.room);
     }
-    if (
-      a.kind === "ready" &&
-      a.runId === c.runId &&
-      a.term === c.term &&
-      a.revision === sess.authorityRevision &&
+    return true;
+  }
+
+  // Already following the current authority revision in the role it implies.
+  private authorityCurrent(sess: NetSession): boolean {
+    const a = this.authority;
+    if (a.kind !== "ready" || a.revision !== sess.authorityRevision) {
+      return false;
+    }
+    if (sess.isHost) {
+      return this.role === "host";
+    }
+    const read = this.acceptedCheckpoint();
+    return (
+      read.kind === "ready" &&
+      a.runId === read.value.runId &&
+      a.term === read.value.term &&
       this.role === "guest"
-    ) {
-      return true;
-    }
+    );
+  }
+
+  // Newly elected host: adopt the checkpoint under a fresh term and broadcast.
+  private takeOverAsHost(sess: NetSession, c: ExpeditionCheckpoint, room: NetRoom) {
+    this.role = "host";
+    this.authority = {
+      kind: "ready",
+      revision: sess.authorityRevision,
+      runId: c.runId,
+      term: c.term + 1,
+    };
+    this.adoptCheckpoint(c, room);
+    this.syncRemotePresence();
+    this.roomDirty = true;
+    this.hostNet(0, true);
+  }
+
+  // Guest (re)admission: rebuild the room and both bodies from the checkpoint.
+  private adoptAsGuest(sess: NetSession, c: ExpeditionCheckpoint, room: NetRoom) {
     this.role = "guest";
     this.authority = {
       kind: "ready",
@@ -2076,7 +2283,7 @@ export class GameScene extends Phaser.Scene {
     this.netBiome = c.run.biome;
     this.netDepth = c.run.depth;
     this.run.type = c.run.type;
-    this.buildRoomFromNet(read.room);
+    this.buildRoomFromNet(room);
     const me = c.players.find((p) => p.id === sess.playerId);
     if (me && me.hero !== this.heroName) {
       this.player.destroy();
@@ -2123,7 +2330,6 @@ export class GameScene extends Phaser.Scene {
       this.observeTerminal(c);
     }
     this.showAdoptedVersusResult();
-    return true;
   }
 
   /** Empty room or an explicit request for the exact terminal expedition. */
@@ -2145,21 +2351,71 @@ export class GameScene extends Phaser.Scene {
     };
     const other = sess.otherPlayer();
     const otherHero = parseHero(other?.state?.hero);
-    // Reuse existing side identities when their seats are still held.
+    this.assignSeats(myId, other && otherHero ? other.id : null);
+    this.resetExpedition();
+    const selfHero = parseHero(sess.players[myId]?.state?.hero) ?? this.heroName;
+    this.respawnBodies(selfHero, other && otherHero ? { hero: otherHero, id: other.id } : null);
+    if (this.mode === "versus") {
+      this.vs = new VersusMatch();
+      this.buildVersusRoom();
+      if (this.remote) {
+        this.vs.beginMatch();
+      }
+      this.vsRespawn();
+    } else {
+      this.vs = null;
+      const param = new URLSearchParams(location.search).get("room");
+      const rt = param ? parseRoomType(param) : null;
+      this.buildRoom(rt ? this.run.debugEnter(rt) : this.run.begin());
+    }
+    this.finishConnecting();
+    this.controls.reset();
+    this.guestIn = NEUTRAL_INPUT;
+    this.restartRequested = false;
+    this.roomDirty = true;
+    this.hostNet(0, true);
+    this.updateHud();
+  }
+
+  // Both bodies are rebuilt from the hub picks at the run's spawn.
+  private respawnBodies(selfHero: HeroName, other: { hero: HeroName; id: string } | null) {
+    this.player.destroy();
+    this.heroName = selfHero;
+    this.player = this.spawnPlayer(
+      HEROES[selfHero],
+      this.grid ?? new Grid(),
+      this.roomSpawn.x,
+      this.roomSpawn.y,
+    );
+    this.remote?.destroy();
+    this.remote = undefined;
+    this.remoteId = null;
+    if (other) {
+      this.remote = this.spawnPlayer(
+        HEROES[other.hero],
+        this.grid ?? new Grid(),
+        this.roomSpawn.x,
+        this.roomSpawn.y,
+      );
+      this.remoteId = other.id;
+    }
+  }
+
+  // Reuse existing side identities when their seats are still held; the other
+  // seat goes to the peer (if it has picked a hero) or is vacated.
+  private assignSeats(myId: string, otherId: string | null) {
     if (this.seats.host !== myId && this.seats.guest !== myId) {
       this.seats.host = myId;
     }
-    if (other && otherHero) {
-      if (this.seats.host === myId) {
-        this.seats.guest = other.id;
-      } else {
-        this.seats.host = other.id;
-      }
-    } else if (this.seats.host === myId) {
-      this.seats.guest = null;
+    if (this.seats.host === myId) {
+      this.seats.guest = otherId;
     } else {
-      this.seats.host = null;
+      this.seats.host = otherId;
     }
+  }
+
+  // Fresh expedition state for a new online run (the scene itself persists).
+  private resetExpedition() {
     this.run = new RunManager();
     this.adoptedTerminal = null;
     this.mods = baseMods();
@@ -2194,47 +2450,6 @@ export class GameScene extends Phaser.Scene {
     this.remoteInputOwner = null;
     this.clearBanners();
     this.flashedBiome = 0;
-    const selfHero = parseHero(sess.players[myId]?.state?.hero) ?? this.heroName;
-    this.player.destroy();
-    this.heroName = selfHero;
-    this.player = this.spawnPlayer(
-      HEROES[selfHero],
-      this.grid ?? new Grid(),
-      this.roomSpawn.x,
-      this.roomSpawn.y,
-    );
-    this.remote?.destroy();
-    this.remote = undefined;
-    this.remoteId = null;
-    if (other && otherHero) {
-      this.remote = this.spawnPlayer(
-        HEROES[otherHero],
-        this.grid ?? new Grid(),
-        this.roomSpawn.x,
-        this.roomSpawn.y,
-      );
-      this.remoteId = other.id;
-    }
-    if (this.mode === "versus") {
-      this.vs = new VersusMatch();
-      this.buildVersusRoom();
-      if (this.remote) {
-        this.vs.beginMatch();
-      }
-      this.vsRespawn();
-    } else {
-      this.vs = null;
-      const param = new URLSearchParams(location.search).get("room");
-      const rt = param ? parseRoomType(param) : null;
-      this.buildRoom(rt ? this.run.debugEnter(rt) : this.run.begin());
-    }
-    this.finishConnecting();
-    this.controls.reset();
-    this.guestIn = NEUTRAL_INPUT;
-    this.restartRequested = false;
-    this.roomDirty = true;
-    this.hostNet(0, true);
-    this.updateHud();
   }
 
   private handleExpeditionRestart(): void {
@@ -2289,13 +2504,13 @@ export class GameScene extends Phaser.Scene {
 
   private checkpointPhase(): CheckpointPhase {
     if (this.state === "dead") {
-      return { kind: "dead", elapsed: this.deadT };
+      return { elapsed: this.deadT, kind: "dead" };
     }
     if (this.state === "transition" && this.pendingOffer) {
       return {
-        kind: "transition",
-        elapsed: this.transT,
         built: this.transBuilt,
+        elapsed: this.transT,
+        kind: "transition",
         offer: this.pendingOffer.type,
       };
     }
@@ -2322,7 +2537,8 @@ export class GameScene extends Phaser.Scene {
     const enemies = this.enemies.map((e) => {
       let id = this.enemyId.get(e);
       if (id === undefined) {
-        id = this.enemyIdNext++;
+        id = this.enemyIdNext;
+        this.enemyIdNext += 1;
         this.enemyId.set(e, id);
       }
       return {
@@ -2369,12 +2585,12 @@ export class GameScene extends Phaser.Scene {
     const common = {
       accumulator: this.acc,
       arrows: this.arrows.map((a) => ({
-        x: a.x,
-        y: a.y,
+        dmg: a.dmg,
+        life: a.life,
         vx: a.vx,
         vy: a.vy,
-        life: a.life,
-        dmg: a.dmg,
+        x: a.x,
+        y: a.y,
       })),
       boss: this.boss?.body.checkpoint() ?? null,
       bossDeathAge: this.bossDeadT,
@@ -2383,25 +2599,25 @@ export class GameScene extends Phaser.Scene {
       comboTime: this.comboT,
       enemies,
       feature: this.feature
-        ? { x: this.feature.x, y: this.feature.y, used: this.feature.used }
+        ? { used: this.feature.used, x: this.feature.x, y: this.feature.y }
         : null,
       freeze: this.freeze,
       gold: this.gold,
       hazards: this.hazards.map((h) => ({
-        x: h.x,
-        y: h.y,
-        vx: h.vx,
-        life: h.life,
         dmg: h.dmg,
         hitPlayer: h.hitPlayer,
+        life: h.life,
+        vx: h.vx,
+        x: h.x,
+        y: h.y,
       })),
       hearts: this.hearts,
       maxHearts: this.maxHearts,
       merchant: this.merchantItems.map((m) => ({
+        bought: m.bought,
+        relic: m.relic.id,
         x: m.x,
         y: m.y,
-        relic: m.relic.id,
-        bought: m.bought,
       })),
       mods: { ...this.mods },
       nextEnemyId: this.enemyIdNext,
@@ -2422,19 +2638,19 @@ export class GameScene extends Phaser.Scene {
       shots: this.shots.map((s) => {
         const owner = s.owner ? this.ownerId(s.owner) : null;
         return {
-          x: s.x,
-          y: s.y,
-          vx: s.vx,
-          vy: s.vy,
-          life: s.life,
           dmg: s.dmg,
-          owner: owner && playerIds.has(owner) ? owner : null,
           hit: enemyIds(s.hit),
+          hitBoss: s.hitBoss,
           hitP: [...s.hitP].flatMap((p) => {
             const id = this.ownerId(p);
             return id && playerIds.has(id) ? [id] : [];
           }),
-          hitBoss: s.hitBoss,
+          life: s.life,
+          owner: owner && playerIds.has(owner) ? owner : null,
+          vx: s.vx,
+          vy: s.vy,
+          x: s.x,
+          y: s.y,
         };
       }),
       term: auth.term,
@@ -2443,14 +2659,14 @@ export class GameScene extends Phaser.Scene {
       writer,
     } satisfies Omit<ExpeditionCheckpoint, "mode" | "versus" | "lastStand">;
     if (this.mode === "versus" && this.vs) {
-      return { ...common, mode: "versus", versus: this.vs.checkpoint(), lastStand: null };
+      return { ...common, lastStand: null, mode: "versus", versus: this.vs.checkpoint() };
     }
     const downedId = this.lastStand ? this.ownerId(this.lastStand.pl) : null;
     return {
       ...common,
       lastStand:
         this.lastStand && downedId
-          ? { id: downedId, bleed: this.lastStand.bleedT, revive: this.lastStand.reviveT }
+          ? { bleed: this.lastStand.bleedT, id: downedId, revive: this.lastStand.reviveT }
           : null,
       mode: "coop",
       versus: null,
@@ -2469,6 +2685,41 @@ export class GameScene extends Phaser.Scene {
     this.buildRoomFromNet(room);
     this.clearBanners();
     this.bossAnnounced = true;
+    this.adoptProgress(c);
+    this.adoptPlayers(c);
+    const byEnemyId = this.adoptEnemies(c);
+    this.adoptCombat(c, byEnemyId);
+    if (c.boss) {
+      this.adoptBoss(c.boss, c.run.biome, c.room);
+    }
+    this.adoptProjectiles(c, byEnemyId);
+    this.syncRoomFeatures(c, true);
+    this.vs = c.mode === "versus" ? new VersusMatch() : null;
+    if (c.mode === "versus") {
+      this.vs?.restore(c.versus);
+    }
+    this.vsSpawns = [
+      this.roomSpawn,
+      { x: this.grid.cols * TILE - this.roomSpawn.x, y: this.roomSpawn.y },
+    ];
+    this.adoptLastStand(c);
+    this.netLastStand = null;
+    this.netVs = null;
+    this.remoteInputOwner = null;
+    this.guestPayoff = null;
+    this.guestSnapT = -1;
+    this.reconciler.reset();
+    this.adoptPhase(c);
+    this.fadeRect.setAlpha(0);
+    this.player.sprite.setVisible(true);
+    this.setupCamera();
+    this.updateHud();
+    this.showAdoptedVersusResult();
+    // construction above has no gameplay draws; restore last
+    restoreRng(c.rng);
+  }
+
+  private adoptProgress(c: ExpeditionCheckpoint) {
     this.roomSeq = c.room;
     this.netT = c.tick;
     this.netAcc = 0;
@@ -2489,8 +2740,15 @@ export class GameScene extends Phaser.Scene {
     this.freeze = c.freeze;
     this.acc = c.accumulator;
     this.cleared = c.cleared;
-    this.doors.forEach((door) => door.setActive(c.cleared));
+    for (const door of this.doors) {
+      door.setActive(c.cleared);
+    }
     this.bossDeadT = c.bossDeathAge;
+  }
+
+  // My body restores in place (respawned only on a hero mismatch); the peer's
+  // body is rebuilt from whichever checkpoint player is not me.
+  private adoptPlayers(c: ExpeditionCheckpoint) {
     const me = c.players.find((p) => p.id === this.session?.playerId);
     if (me && me.hero !== this.heroName) {
       this.player.destroy();
@@ -2516,6 +2774,9 @@ export class GameScene extends Phaser.Scene {
       this.remote.body.restore(other.body);
       this.remoteId = other.id;
     }
+  }
+
+  private adoptEnemies(c: ExpeditionCheckpoint): Map<number, Enemy> {
     const byEnemyId = new Map<number, Enemy>();
     for (const data of c.enemies) {
       const e = new Enemy(this, this.grid, ENEMIES[data.name], data.body.x, data.body.y);
@@ -2529,6 +2790,18 @@ export class GameScene extends Phaser.Scene {
         this.deadTimers.set(e, data.deathAge);
       }
     }
+    return byEnemyId;
+  }
+
+  // Per-player hit dedup sets, re-pointed at the rebuilt enemy objects.
+  private adoptCombat(c: ExpeditionCheckpoint, byEnemyId: Map<number, Enemy>) {
+    const enemiesOf = (ids: number[]) =>
+      new Set(
+        ids.flatMap((id) => {
+          const e = byEnemyId.get(id);
+          return e ? [e] : [];
+        }),
+      );
     for (const p of c.players) {
       const pl = this.seatPlayer(p.id);
       if (!pl) {
@@ -2536,43 +2809,37 @@ export class GameScene extends Phaser.Scene {
       }
       this.combat.set(pl, {
         ...p.combat,
-        hitSpecial: new Set(
-          p.combat.hitSpecial.flatMap((id) => {
-            const e = byEnemyId.get(id);
-            return e ? [e] : [];
-          }),
-        ),
-        hitSwing: new Set(
-          p.combat.hitSwing.flatMap((id) => {
-            const e = byEnemyId.get(id);
-            return e ? [e] : [];
-          }),
-        ),
+        hitSpecial: enemiesOf(p.combat.hitSpecial),
+        hitSwing: enemiesOf(p.combat.hitSwing),
       });
       this.vsHitSeq.set(pl, { ...p.versusHits });
     }
-    if (c.boss) {
-      this.reconcileBoss(
-        {
-          clip: "salamander:idle",
-          dead: c.boss.dead,
-          flash: false,
-          flip: c.boss.facing < 0,
-          hpFrac: 1,
-          telegraph: false,
-          x: c.boss.x,
-          y: c.boss.y,
-        },
-        c.run.biome,
-        c.room,
-      );
-      const view = this.bossPuppet?.view;
-      if (view) {
-        this.boss = view;
-        view.body.restore(c.boss);
-        this.bossPuppet = undefined;
-      }
+  }
+
+  private adoptBoss(boss: BossBodyCheckpoint, biome: number, room: number) {
+    this.reconcileBoss(
+      {
+        clip: "salamander:idle",
+        dead: boss.dead,
+        flash: false,
+        flip: boss.facing < 0,
+        hpFrac: 1,
+        telegraph: false,
+        x: boss.x,
+        y: boss.y,
+      },
+      biome,
+      room,
+    );
+    const view = this.bossPuppet?.view;
+    if (view) {
+      this.boss = view;
+      view.body.restore(boss);
+      this.bossPuppet = undefined;
     }
+  }
+
+  private adoptProjectiles(c: ExpeditionCheckpoint, byEnemyId: Map<number, Enemy>) {
     for (const a of c.arrows) {
       this.spawnArrow(a.x, a.y, a.vx, a.vy, a.dmg);
       const view = this.arrows.at(-1);
@@ -2615,15 +2882,9 @@ export class GameScene extends Phaser.Scene {
         view.hitPlayer = h.hitPlayer;
       }
     }
-    this.syncRoomFeatures(c, true);
-    this.vs = c.mode === "versus" ? new VersusMatch() : null;
-    if (c.mode === "versus") {
-      this.vs?.restore(c.versus);
-    }
-    this.vsSpawns = [
-      this.roomSpawn,
-      { x: this.grid.cols * TILE - this.roomSpawn.x, y: this.roomSpawn.y },
-    ];
+  }
+
+  private adoptLastStand(c: ExpeditionCheckpoint) {
     const downed = c.lastStand ? this.seatPlayer(c.lastStand.id) : undefined;
     this.lastStand =
       c.lastStand && downed
@@ -2639,12 +2900,9 @@ export class GameScene extends Phaser.Scene {
     ) {
       this.hearts = Math.max(this.hearts, 1);
     }
-    this.netLastStand = null;
-    this.netVs = null;
-    this.remoteInputOwner = null;
-    this.guestPayoff = null;
-    this.guestSnapT = -1;
-    this.reconciler.reset();
+  }
+
+  private adoptPhase(c: ExpeditionCheckpoint) {
     this.state = c.phase.kind;
     if (c.phase.kind !== "dead") {
       this.runRecap = null;
@@ -2656,12 +2914,6 @@ export class GameScene extends Phaser.Scene {
     if (c.phase.kind === "dead") {
       this.observeTerminal(c);
     }
-    this.fadeRect.setAlpha(0);
-    this.player.sprite.setVisible(true);
-    this.setupCamera();
-    this.updateHud();
-    this.showAdoptedVersusResult();
-    restoreRng(c.rng); // construction above has no gameplay draws; restore last
   }
 
   private showAdoptedVersusResult(): void {
@@ -2669,7 +2921,7 @@ export class GameScene extends Phaser.Scene {
     if (match?.phase === "matchEnd") {
       this.showBanner(
         `${this.vsName(match.winner)} WINS THE MATCH  ·  ${this.rematchHint()}`,
-        60000,
+        60_000,
         "critical",
       );
     }
@@ -2680,11 +2932,11 @@ export class GameScene extends Phaser.Scene {
     // claims the former host's banked amount as this client's earnings.
     if (!this.runRecap) {
       this.runRecap = {
-        kind: "coop-guest",
-        hero: this.heroName,
         biome: c.run.biome,
         depth: c.run.depth,
         gold: c.gold,
+        hero: this.heroName,
+        kind: "coop-guest",
       };
     }
     this.state = "dead";
@@ -2693,7 +2945,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private syncRoomFeatures(c: ExpeditionCheckpoint, baseline: boolean): void {
-    for (let i = 0; i < c.merchant.length; i++) {
+    for (let i = 0; i < c.merchant.length; i += 1) {
       const offer = c.merchant[i];
       if (!offer) {
         continue;
@@ -2749,11 +3001,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     this.netAcc = 0;
-    const phase = this.checkpointPhase();
-    const mark: CheckpointMark = {
-      phase: phase.kind === "transition" && phase.built ? "transition-built" : phase.kind,
-      versus: this.vs?.phase ?? null,
-    };
+    const mark = this.currentCheckpointMark();
     const changed =
       mark.phase !== this.checkpointMark?.phase || mark.versus !== this.checkpointMark?.versus;
     const complete =
@@ -2765,9 +3013,9 @@ export class GameScene extends Phaser.Scene {
         return;
       }
       if (this.roomDirty) {
-        sess.patchShared({ room: this.encodeRoom(), snap, checkpoint });
+        sess.patchShared({ checkpoint, room: this.encodeRoom(), snap });
       } else {
-        sess.patchShared({ snap, checkpoint });
+        sess.patchShared({ checkpoint, snap });
       }
       this.checkpointAcc = 0;
       this.checkpointMark = mark;
@@ -2777,8 +3025,17 @@ export class GameScene extends Phaser.Scene {
     this.roomDirty = false;
   }
 
+  // Phase edges force a full checkpoint so a takeover never lands mid-transition.
+  private currentCheckpointMark(): CheckpointMark {
+    const phase = this.checkpointPhase();
+    return {
+      phase: phase.kind === "transition" && phase.built ? "transition-built" : phase.kind,
+      versus: this.vs?.phase ?? null,
+    };
+  }
+
   private encodeSnapshot(): Snapshot {
-    this.netT++;
+    this.netT += 1;
     const players: NetPlayer[] = [this.player.encode(this.session?.playerId ?? "host")];
     if (this.remote && this.remoteId) {
       players.push(this.remote.encode(this.remoteId));
@@ -2786,7 +3043,8 @@ export class GameScene extends Phaser.Scene {
     const enemies: NetEnemy[] = this.enemies.map((e) => {
       let id = this.enemyId.get(e);
       if (!id) {
-        id = this.enemyIdNext++;
+        id = this.enemyIdNext;
+        this.enemyIdNext += 1;
         this.enemyId.set(e, id);
       }
       const { name } = e.body.kind;
@@ -2818,13 +3076,13 @@ export class GameScene extends Phaser.Scene {
       : null;
     const proj: NetProj[] = [];
     for (const a of this.arrows) {
-      proj.push({ k: "arrow", x: Math.round(a.x), y: Math.round(a.y), vx: a.vx });
+      proj.push({ k: "arrow", vx: a.vx, x: Math.round(a.x), y: Math.round(a.y) });
     }
     for (const s of this.shots) {
-      proj.push({ k: "shot", x: Math.round(s.x), y: Math.round(s.y), vx: s.vx });
+      proj.push({ k: "shot", vx: s.vx, x: Math.round(s.x), y: Math.round(s.y) });
     }
     for (const h of this.hazards) {
-      proj.push({ k: "hazard", x: Math.round(h.x), y: Math.round(h.y), vx: h.vx });
+      proj.push({ k: "hazard", vx: h.vx, x: Math.round(h.x), y: Math.round(h.y) });
     }
     return {
       banner: "",
@@ -2862,7 +3120,7 @@ export class GameScene extends Phaser.Scene {
       y: d.y,
     }));
     const room: NetRoom = {
-      cells: Array.from(this.grid.cells),
+      cells: [...this.grid.cells],
       cols: this.grid.cols,
       doors,
       mode: this.mode === "versus" ? "vs" : "coop",
@@ -2884,22 +3142,17 @@ export class GameScene extends Phaser.Scene {
     g.cells.set(room.cells);
     this.grid = g;
     const vs = room.mode === "vs";
+    // the host's room broadcast is authoritative
     if (vs) {
       this.mode = "versus";
-    } // the host's room broadcast is authoritative
+    }
     const pal = this.applyBiome(vs ? VS_BIOME : this.netBiome);
     this.parallax = buildParallax(this, g.cols * TILE, g.rows * TILE, pal);
     this.roomLayer = drawRoom(this, g, pal).setDepth(0);
     const type = parseRoomType(room.type) ?? "combat";
     this.netRoomType = type;
     if (room.propKey) {
-      const cfg = ROOM_PROPS.get(type);
-      this.roomProp = this.add
-        .sprite(BASE_W * 0.17, room.spawnY, `prop:${room.propKey}`)
-        .setOrigin(cfg?.ox ?? 0.5, cfg?.oy ?? 0.7)
-        .setScale(cfg?.scale ?? 0.7)
-        .setDepth(2);
-      this.roomProp.play(`prop:${room.propKey}`);
+      this.placeRoomProp(type, room.propKey, room.spawnY);
     }
     this.embers = ambientEmbers(this, pal.oneway, g.cols * TILE, g.rows * TILE);
     this.roomSpawn = { x: room.spawnX, y: room.spawnY };
@@ -2920,9 +3173,20 @@ export class GameScene extends Phaser.Scene {
     this.mustClear = room.mustClear;
     this.cleared = !room.mustClear;
     this.guestRoomSeq = room.seq;
-    this.reconciler.reset(); // fresh room, fresh trajectory
+    // fresh room, fresh trajectory
+    this.reconciler.reset();
     this.netSelfHurting = false;
     this.showBanner(vs ? "VERSUS" : ROOM_LABEL[type], 1000, vs ? "critical" : "status");
+  }
+
+  private placeRoomProp(type: RoomType, propKey: string, floorY: number) {
+    const cfg = ROOM_PROPS.get(type);
+    this.roomProp = this.add
+      .sprite(BASE_W * 0.17, floorY, `prop:${propKey}`)
+      .setOrigin(cfg?.ox ?? 0.5, cfg?.oy ?? 0.7)
+      .setScale(cfg?.scale ?? 0.7)
+      .setDepth(2);
+    this.roomProp.play(`prop:${propKey}`);
   }
 
   // ── co-op helpers ────────────────────────────────────────────────────────────
@@ -3002,14 +3266,7 @@ export class GameScene extends Phaser.Scene {
 
     if (boss.body.dead) {
       if (this.bossDeadT === 0) {
-        this.bossDefeatFx(boss.body.x, boss.body.y, this.run.biome);
-        sfx.boom("essential");
-        this.shake(420, 0.02);
-        this.freeze = Math.max(this.freeze, 0.12);
-        this.gainGold(25);
-        this.score += 120 * this.run.biome;
-        popText(this, boss.body.x, boss.body.y - 44, "+25", "#ffd15c");
-        this.showBanner(`${boss.body.kind.name} SLAIN`, 1800, "payoff");
+        this.onBossSlain(boss);
       }
       this.bossDeadT += dt;
       return;
@@ -3022,22 +3279,13 @@ export class GameScene extends Phaser.Scene {
       boss.body.pendingWaves.length = 0;
     }
     if (boss.body.pendingBlast) {
-      const b = boss.body.pendingBlast;
-      explosion(this, b.x, b.y, b.r, boss.body.kind.tint);
-      sfx.boom();
-      this.shake(200, 0.014);
-      this.freeze = Math.max(this.freeze, 0.07);
-      for (const pl of this.livePlayers()) {
-        if (!pl.body.dead && Math.hypot(pl.x - b.x, pl.y - 11 - b.y) < b.r + 8) {
-          this.hurtPlayer(b.dmg, Math.sign(pl.x - b.x) || 1, pl);
-        }
-      }
+      this.resolveBossBlast(boss.body.pendingBlast, boss.body.kind.tint);
       boss.body.pendingBlast = null;
     }
     if (boss.body.pendingAdds) {
       for (const a of boss.body.pendingAdds) {
         this.enemies.push(
-          new Enemy(this, this.grid, ENEMIES[a.name], Phaser.Math.Clamp(a.x, 24, BASE_W - 24), a.y),
+          new Enemy(this, this.grid, ENEMIES[a.name], PhaserMath.Clamp(a.x, 24, BASE_W - 24), a.y),
         );
       }
       boss.body.pendingAdds = null;
@@ -3053,6 +3301,29 @@ export class GameScene extends Phaser.Scene {
         this.hurtPlayer(atk.dmg, Math.sign(pb.x - boss.body.x) || 1, pl);
       } else if (rectsOverlap(boss.body.hurtBox(), pb.hurtBox())) {
         this.hurtPlayer(1, Math.sign(pb.x - boss.body.x) || 1, pl);
+      }
+    }
+  }
+
+  private onBossSlain(boss: Boss) {
+    this.bossDefeatFx(boss.body.x, boss.body.y, this.run.biome);
+    sfx.boom("essential");
+    this.shake(420, 0.02);
+    this.freeze = Math.max(this.freeze, 0.12);
+    this.gainGold(25);
+    this.score += 120 * this.run.biome;
+    popText(this, boss.body.x, boss.body.y - 44, "+25", "#ffd15c");
+    this.showBanner(`${boss.body.kind.name} SLAIN`, 1800, "payoff");
+  }
+
+  private resolveBossBlast(b: Blast, tint: number) {
+    explosion(this, b.x, b.y, b.r, tint);
+    sfx.boom();
+    this.shake(200, 0.014);
+    this.freeze = Math.max(this.freeze, 0.07);
+    for (const pl of this.livePlayers()) {
+      if (!pl.body.dead && Math.hypot(pl.x - b.x, pl.y - 11 - b.y) < b.r + 8) {
+        this.hurtPlayer(b.dmg, Math.sign(pl.x - b.x) || 1, pl);
       }
     }
   }
@@ -3089,7 +3360,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private stepHazards(dt: number) {
-    for (let i = this.hazards.length - 1; i >= 0; i--) {
+    for (let i = this.hazards.length - 1; i >= 0; i -= 1) {
       const h = this.hazards[i];
       if (!h) {
         continue;
@@ -3130,7 +3401,7 @@ export class GameScene extends Phaser.Scene {
     if (kind === "blink") {
       hitSpark(this, px, py, color, 12);
     } else if (kind === "heal") {
-      for (let i = 0; i < 8; i++) {
+      for (let i = 0; i < 8; i += 1) {
         const p = this.add
           .circle(px + (Math.random() - 0.5) * 16, py + 6, 1.5, COLORS.teal, 0.9)
           .setDepth(60);
@@ -3157,9 +3428,10 @@ export class GameScene extends Phaser.Scene {
   // One player's melee / special / stomp against every enemy + the boss.
   private playerOffense(pl: Player) {
     const pb = pl.body;
+    // a downed player has no offense (incl. stomps)
     if (pb.downed) {
       return;
-    } // a downed player has no offense (incl. stomps)
+    }
     const cs = this.cs(pl);
     const ab = pb.attackBox();
     if (ab) {
@@ -3167,38 +3439,10 @@ export class GameScene extends Phaser.Scene {
         cs.hitSwing.clear();
         cs.lastSwing = pb.swingId;
       }
-      for (const e of this.enemies) {
-        if (e.body.dead || cs.hitSwing.has(e)) {
-          continue;
-        }
-        if (rectsOverlap(ab, e.body.hurtBox())) {
-          const dir = Math.sign(e.body.x - pb.x) || pb.facing;
-          e.body.takeHit(this.dmgOut(ab.dmg), ab.kb, dir);
-          this.critFeedback(e.body.x, e.body.y - e.body.kind.h / 2);
-          cs.hitSwing.add(e);
-          if (!e.body.dead) {
-            sfx.hit();
-          }
-          hitSpark(this, e.body.x, e.body.y - e.body.kind.h / 2, COLORS.teal, e.body.dead ? 10 : 6);
-          this.freeze = Math.max(this.freeze, e.body.dead ? 0.09 : 0.05);
-          this.shake(70, e.body.dead ? 0.006 : 0.003);
-          if (e.body.dead) {
-            this.onKill(e);
-          }
-        }
-      }
-      if (
-        this.boss &&
-        !this.boss.body.dead &&
-        pb.swingId !== cs.bossSwing &&
-        rectsOverlap(ab, this.boss.body.hurtBox())
-      ) {
+      this.playerSwing(pl, ab, cs.hitSwing);
+      if (this.bossInBox(ab) && pb.swingId !== cs.bossSwing) {
         cs.bossSwing = pb.swingId;
-        this.hitBoss(
-          this.dmgOut(ab.dmg),
-          Math.sign(this.boss.body.x - pb.x) || pb.facing,
-          COLORS.teal,
-        );
+        this.hitBossFrom(pb, this.dmgOut(ab.dmg), COLORS.teal);
       }
     }
 
@@ -3209,36 +3453,10 @@ export class GameScene extends Phaser.Scene {
         cs.hitSpecial.clear();
         cs.lastSpecial = pb.specialId;
       }
-      for (const e of this.enemies) {
-        if (e.body.dead || cs.hitSpecial.has(e)) {
-          continue;
-        }
-        if (rectsOverlap(sb, e.body.hurtBox())) {
-          e.body.takeHit(this.dmgOut(sb.dmg), sb.kb, Math.sign(e.body.x - pb.x) || pb.facing);
-          this.critFeedback(e.body.x, e.body.y - e.body.kind.h / 2);
-          cs.hitSpecial.add(e);
-          if (!e.body.dead) {
-            sfx.hit();
-          }
-          hitSpark(this, e.body.x, e.body.y - e.body.kind.h / 2, pl.color, 8);
-          this.freeze = Math.max(this.freeze, 0.06);
-          if (e.body.dead) {
-            this.onKill(e);
-          }
-        }
-      }
-      if (
-        this.boss &&
-        !this.boss.body.dead &&
-        pb.specialId !== cs.bossSpecial &&
-        rectsOverlap(sb, this.boss.body.hurtBox())
-      ) {
+      this.playerSpecial(pl, sb, cs.hitSpecial);
+      if (this.bossInBox(sb) && pb.specialId !== cs.bossSpecial) {
         cs.bossSpecial = pb.specialId;
-        this.hitBoss(
-          this.dmgOut(sb.dmg),
-          Math.sign(this.boss.body.x - pb.x) || pb.facing,
-          pl.color,
-        );
+        this.hitBossFrom(pb, this.dmgOut(sb.dmg), pl.color);
       }
     }
     if (pb.pendingShot) {
@@ -3251,33 +3469,94 @@ export class GameScene extends Phaser.Scene {
       popText(this, pb.x, pb.y - 26, "+HP", "#34e5c8");
       pb.pendingHeal = 0;
     }
-
     if (pb.vy > 20) {
-      for (const e of this.enemies) {
+      this.playerStomp(pb);
+    }
+  }
+
+  private bossInBox(box: Rect): boolean {
+    return (
+      this.boss !== null && !this.boss.body.dead && rectsOverlap(box, this.boss.body.hurtBox())
+    );
+  }
+
+  private hitBossFrom(pb: PlayerBody, dmg: number, color: number) {
+    if (!this.boss) {
+      return;
+    }
+    this.hitBoss(dmg, Math.sign(this.boss.body.x - pb.x) || pb.facing, color);
+  }
+
+  // Melee swing: each enemy takes one hit per swing.
+  private playerSwing(pl: Player, ab: AttackBox, hit: Set<Enemy>) {
+    const pb = pl.body;
+    for (const e of this.enemies) {
+      if (e.body.dead || hit.has(e) || !rectsOverlap(ab, e.body.hurtBox())) {
+        continue;
+      }
+      const dir = Math.sign(e.body.x - pb.x) || pb.facing;
+      e.body.takeHit(this.dmgOut(ab.dmg), ab.kb, dir);
+      this.critFeedback(e.body.x, e.body.y - e.body.kind.h / 2);
+      hit.add(e);
+      if (!e.body.dead) {
+        sfx.hit();
+      }
+      hitSpark(this, e.body.x, e.body.y - e.body.kind.h / 2, COLORS.teal, e.body.dead ? 10 : 6);
+      this.freeze = Math.max(this.freeze, e.body.dead ? 0.09 : 0.05);
+      this.shake(70, e.body.dead ? 0.006 : 0.003);
+      if (e.body.dead) {
+        this.onKill(e);
+      }
+    }
+  }
+
+  // Special AoE: each enemy takes one hit per activation.
+  private playerSpecial(pl: Player, sb: AttackBox, hit: Set<Enemy>) {
+    const pb = pl.body;
+    for (const e of this.enemies) {
+      if (e.body.dead || hit.has(e) || !rectsOverlap(sb, e.body.hurtBox())) {
+        continue;
+      }
+      e.body.takeHit(this.dmgOut(sb.dmg), sb.kb, Math.sign(e.body.x - pb.x) || pb.facing);
+      this.critFeedback(e.body.x, e.body.y - e.body.kind.h / 2);
+      hit.add(e);
+      if (!e.body.dead) {
+        sfx.hit();
+      }
+      hitSpark(this, e.body.x, e.body.y - e.body.kind.h / 2, pl.color, 8);
+      this.freeze = Math.max(this.freeze, 0.06);
+      if (e.body.dead) {
+        this.onKill(e);
+      }
+    }
+  }
+
+  // Falling onto a head: bounce off, small damage.
+  private playerStomp(pb: PlayerBody) {
+    for (const e of this.enemies) {
+      if (e.body.dead) {
+        continue;
+      }
+      const top = e.body.y - e.body.kind.h;
+      if (pb.y <= top + 8 && pb.y >= top - 12 && Math.abs(pb.x - e.body.x) < e.body.kind.hw + 6) {
+        e.body.takeHit(this.dmgOut(2), 60, Math.sign(pb.vx) || 1);
+        this.critFeedback(e.body.x, top);
+        pb.bounce();
+        sfx.hit();
+        hitSpark(this, e.body.x, top, COLORS.white, 8);
+        this.freeze = Math.max(this.freeze, 0.08);
+        this.shake(80, 0.006);
         if (e.body.dead) {
-          continue;
-        }
-        const top = e.body.y - e.body.kind.h;
-        if (pb.y <= top + 8 && pb.y >= top - 12 && Math.abs(pb.x - e.body.x) < e.body.kind.hw + 6) {
-          e.body.takeHit(this.dmgOut(2), 60, Math.sign(pb.vx) || 1);
-          this.critFeedback(e.body.x, top);
-          pb.bounce();
-          sfx.hit();
-          hitSpark(this, e.body.x, top, COLORS.white, 8);
-          this.freeze = Math.max(this.freeze, 0.08);
-          this.shake(80, 0.006);
-          if (e.body.dead) {
-            this.onKill(e);
-          }
+          this.onKill(e);
         }
       }
-      if (this.boss && !this.boss.body.dead) {
-        const { top } = this.boss.body.hurtBox();
-        if (pb.y <= top + 10 && pb.y >= top - 16 && Math.abs(pb.x - this.boss.body.x) < 22) {
-          this.hitBoss(1, Math.sign(pb.vx) || 1, COLORS.white);
-          pb.bounce();
-          this.freeze = Math.max(this.freeze, 0.06);
-        }
+    }
+    if (this.boss && !this.boss.body.dead) {
+      const { top } = this.boss.body.hurtBox();
+      if (pb.y <= top + 10 && pb.y >= top - 16 && Math.abs(pb.x - this.boss.body.x) < 22) {
+        this.hitBoss(1, Math.sign(pb.vx) || 1, COLORS.white);
+        pb.bounce();
+        this.freeze = Math.max(this.freeze, 0.06);
       }
     }
   }
@@ -3346,7 +3625,7 @@ export class GameScene extends Phaser.Scene {
     this.score += base * this.combo;
     if (this.combo >= 2) {
       popText(this, x, y - 8, `x${this.combo}`, "#ffd15c");
-      const col = this.combo >= 8 ? "#ff5a5a" : this.combo >= 5 ? "#ff9a3c" : "#ffd15c";
+      const col = comboColor(this.combo);
       this.comboText.setText(`COMBO x${this.combo}`).setColor(col).setAlpha(1);
       this.tweens.killTweensOf(this.comboText);
       // Pop RELATIVE to whatever scale the counter is pinned at: under a trailer
@@ -3356,10 +3635,10 @@ export class GameScene extends Phaser.Scene {
       this.comboText.setScale(REDUCED_MOTION.matches ? pin : 1.35 * pin);
       if (!REDUCED_MOTION.matches) {
         this.tweens.add({
-          targets: this.comboText,
-          scale: pin,
           duration: 200,
           ease: "Back.easeOut",
+          scale: pin,
+          targets: this.comboText,
         });
       }
     }
@@ -3378,7 +3657,8 @@ export class GameScene extends Phaser.Scene {
     }
     if (this.mods.armor > 0 && rand() < this.mods.armor) {
       popText(this, pl.x, pl.y - 24, "WARD", "#9b8cff");
-      return; // fully blocked (i-frames already granted by applyHurt)
+      // fully blocked (i-frames already granted by applyHurt)
+      return;
     }
     this.hearts -= dmg;
     this.freeze = Math.max(this.freeze, 0.06);
@@ -3478,15 +3758,20 @@ export class GameScene extends Phaser.Scene {
     this.playerDie();
   }
 
+  private lastStandView(): NetLastStand | null {
+    if (this.role === "guest") {
+      return this.netLastStand;
+    }
+    if (!this.lastStand) {
+      return null;
+    }
+    return { bleed: this.lastStand.bleedT, rev: this.lastStand.reviveT / REVIVE_HOLD };
+  }
+
   // Downed marker, drawn each frame on BOTH clients: a pulsing revive ring, a
   // shrinking bleed-out bar, a teal revive-progress bar, and the rescuer prompt.
   private renderLastStand() {
-    const ls: NetLastStand | null =
-      this.role === "guest"
-        ? this.netLastStand
-        : this.lastStand
-          ? { bleed: this.lastStand.bleedT, rev: this.lastStand.reviveT / REVIVE_HOLD }
-          : null;
+    const ls = this.lastStandView();
     const downed = this.livePlayers().find((p) => p.body.downed);
     if (!ls || !downed) {
       this.destroyLastStandUi();
@@ -3497,7 +3782,7 @@ export class GameScene extends Phaser.Scene {
     }
     if (!this.lsLabel) {
       this.lsLabel = this.add
-        .text(0, 0, "", { fontFamily: "monospace", fontSize: "8px", color: "#34e5c8" })
+        .text(0, 0, "", { color: "#34e5c8", fontFamily: "monospace", fontSize: "8px" })
         .setOrigin(0.5, 1)
         .setDepth(66);
     }
@@ -3508,7 +3793,7 @@ export class GameScene extends Phaser.Scene {
     const pulse = 1 + Math.sin(this.time.now / 160) * 0.12;
     g.lineStyle(1.5, COLORS.teal, 0.75);
     g.strokeCircle(x, y - 10, REVIVE_RANGE * pulse);
-    const frac = Phaser.Math.Clamp(ls.bleed / BLEED_DUR, 0, 1);
+    const frac = PhaserMath.Clamp(ls.bleed / BLEED_DUR, 0, 1);
     const w = 26;
     g.fillStyle(0x00_00_00, 0.55);
     g.fillRect(x - w / 2, y - 36, w, 3);
@@ -3607,17 +3892,19 @@ export class GameScene extends Phaser.Scene {
 
   // Reset both duelists onto their mirrored spawn points (round start / lobby).
   private vsRespawn() {
-    this.shots.forEach((s) => s.spr.destroy());
+    for (const s of this.shots) {
+      s.spr.destroy();
+    }
     this.shots = [];
     const pls = [this.player, this.remote];
-    pls.forEach((pl) => {
+    for (const pl of pls) {
       if (!pl) {
-        return;
+        continue;
       }
       const s = this.vsSpawns[this.vsSide(pl) === "host" ? 0 : 1] ?? this.roomSpawn;
       pl.body.dead = false;
       pl.enterRoom(this.grid, s.x, s.y);
-    });
+    }
     this.updateHud();
   }
 
@@ -3650,6 +3937,14 @@ export class GameScene extends Phaser.Scene {
     ) {
       seq.special = att.body.specialId;
     }
+    this.versusIntents(att);
+    if (att.body.vy > 20 && !vic.body.dead) {
+      this.versusStomp(att, vic);
+    }
+  }
+
+  // Launched shots and self-heals fire once, on the frame the body queues them.
+  private versusIntents(att: Player) {
     if (att.body.pendingShot) {
       const s = att.body.pendingShot;
       this.spawnShot(s.x, s.y, s.vx, s.vy, s.dmg, att);
@@ -3662,18 +3957,15 @@ export class GameScene extends Phaser.Scene {
       att.body.pendingHeal = 0;
       this.updateHud();
     }
-    // TowerFall classic: landing on the opponent's head costs them a heart.
-    if (att.body.vy > 20 && !vic.body.dead) {
-      const { top } = vic.body.hurtBox();
-      if (
-        att.body.y <= top + 8 &&
-        att.body.y >= top - 12 &&
-        Math.abs(att.body.x - vic.body.x) < 12
-      ) {
-        att.body.bounce();
-        sfx.jump();
-        this.hurtVersus(vic, 1, Math.sign(att.body.vx) || 1);
-      }
+  }
+
+  // TowerFall classic: landing on the opponent's head costs them a heart.
+  private versusStomp(att: Player, vic: Player) {
+    const { top } = vic.body.hurtBox();
+    if (att.body.y <= top + 8 && att.body.y >= top - 12 && Math.abs(att.body.x - vic.body.x) < 12) {
+      att.body.bounce();
+      sfx.jump();
+      this.hurtVersus(vic, 1, Math.sign(att.body.vx) || 1);
     }
   }
 
@@ -3838,7 +4130,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private stepArrows(dt: number) {
-    for (let i = this.arrows.length - 1; i >= 0; i--) {
+    for (let i = this.arrows.length - 1; i >= 0; i -= 1) {
       const a = this.arrows[i];
       if (!a) {
         continue;
@@ -3896,7 +4188,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private stepShots(dt: number) {
-    for (let i = this.shots.length - 1; i >= 0; i--) {
+    for (let i = this.shots.length - 1; i >= 0; i -= 1) {
       const s = this.shots[i];
       if (!s) {
         continue;
@@ -3905,52 +4197,15 @@ export class GameScene extends Phaser.Scene {
       s.y += s.vy * dt;
       s.life -= dt;
       s.spr.setPosition(Math.round(s.x), Math.round(s.y));
-      for (const e of this.enemies) {
-        if (e.body.dead || s.hit.has(e)) {
-          continue;
-        }
-        if (
-          rectsOverlap(
-            { bottom: s.y + 8, left: s.x - 12, right: s.x + 12, top: s.y - 8 },
-            e.body.hurtBox(),
-          )
-        ) {
-          e.body.takeHit(this.dmgOut(s.dmg), 120, Math.sign(s.vx) || 1);
-          this.critFeedback(e.body.x, e.body.y - e.body.kind.h / 2);
-          s.hit.add(e);
-          if (!e.body.dead) {
-            sfx.hit();
-          }
-          hitSpark(this, e.body.x, e.body.y - e.body.kind.h / 2, COLORS.magenta, 6);
-          if (e.body.dead) {
-            this.onKill(e);
-          }
-        }
-      }
-      if (
-        this.boss &&
-        !this.boss.body.dead &&
-        !s.hitBoss &&
-        rectsOverlap(
-          { bottom: s.y + 8, left: s.x - 12, right: s.x + 12, top: s.y - 8 },
-          this.boss.body.hurtBox(),
-        )
-      ) {
+      const box: Rect = { bottom: s.y + 8, left: s.x - 12, right: s.x + 12, top: s.y - 8 };
+      this.shotHitsEnemies(s, box);
+      if (this.bossInBox(box) && !s.hitBoss) {
         this.hitBoss(this.dmgOut(s.dmg), Math.sign(s.vx) || 1, COLORS.magenta);
         s.hitBoss = true;
       }
       // Versus: the wave also burns the other duelist (never its own caster).
       if (this.vs?.phase === "fighting") {
-        const box = { bottom: s.y + 8, left: s.x - 12, right: s.x + 12, top: s.y - 8 };
-        for (const pl of this.livePlayers()) {
-          if (pl === s.owner || pl.body.dead || s.hitP.has(pl)) {
-            continue;
-          }
-          if (rectsOverlap(box, pl.body.hurtBox())) {
-            s.hitP.add(pl);
-            this.hurtVersus(pl, s.dmg, Math.sign(s.vx) || 1);
-          }
-        }
+        this.shotHitsDuelist(s, box);
       }
       const hitWall = this.grid.solidInRect(s.x - 4, s.y - 4, s.x + 4, s.y + 4);
       if (s.life <= 0 || hitWall) {
@@ -3960,9 +4215,39 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private shotHitsEnemies(s: Shot, box: Rect) {
+    for (const e of this.enemies) {
+      if (e.body.dead || s.hit.has(e) || !rectsOverlap(box, e.body.hurtBox())) {
+        continue;
+      }
+      e.body.takeHit(this.dmgOut(s.dmg), 120, Math.sign(s.vx) || 1);
+      this.critFeedback(e.body.x, e.body.y - e.body.kind.h / 2);
+      s.hit.add(e);
+      if (!e.body.dead) {
+        sfx.hit();
+      }
+      hitSpark(this, e.body.x, e.body.y - e.body.kind.h / 2, COLORS.magenta, 6);
+      if (e.body.dead) {
+        this.onKill(e);
+      }
+    }
+  }
+
+  private shotHitsDuelist(s: Shot, box: Rect) {
+    for (const pl of this.livePlayers()) {
+      if (pl === s.owner || pl.body.dead || s.hitP.has(pl)) {
+        continue;
+      }
+      if (rectsOverlap(box, pl.body.hurtBox())) {
+        s.hitP.add(pl);
+        this.hurtVersus(pl, s.dmg, Math.sign(s.vx) || 1);
+      }
+    }
+  }
+
   // ── lifecycle ───────────────────────────────────────────────────────────────
   private cullEnemies(dt: number) {
-    for (let i = this.enemies.length - 1; i >= 0; i--) {
+    for (let i = this.enemies.length - 1; i >= 0; i -= 1) {
       const e = this.enemies[i];
       if (!e || !e.body.dead) {
         continue;
@@ -3990,7 +4275,9 @@ export class GameScene extends Phaser.Scene {
       if (this.mods.regen > 0 && this.hearts < this.maxHearts) {
         this.heal(this.mods.regen);
       }
-      this.doors.forEach((d) => d.setActive(true));
+      for (const d of this.doors) {
+        d.setActive(true);
+      }
       this.roomClearFx(this.run.type, this.run.biome);
     }
   }
@@ -4009,15 +4296,7 @@ export class GameScene extends Phaser.Scene {
         hitSpark(this, door.x, door.y - 20, color, 10);
       }
     }
-    this.showBanner(
-      type === "boss"
-        ? "DESCEND"
-        : type === "elite"
-          ? "ELITE CLEAR — pick a path"
-          : "CLEAR — pick a path",
-      1400,
-      "objective",
-    );
+    this.showBanner(CLEAR_BANNER.get(type) ?? "CLEAR — pick a path", 1400, "objective");
   }
 
   private checkDoors() {
@@ -4074,7 +4353,7 @@ export class GameScene extends Phaser.Scene {
     }
     if (active && BANNER_PRIORITY[kind] < BANNER_PRIORITY[active.kind]) {
       if (kind === "objective" && (active.kind === "arrival" || active.kind === "payoff")) {
-        this.pendingObjective = { text, hold: ms, remaining: 3600 };
+        this.pendingObjective = { hold: ms, remaining: 3600, text };
       }
       return;
     }
@@ -4090,13 +4369,7 @@ export class GameScene extends Phaser.Scene {
       .setText(entry.kind === "arrival" ? `BOSS ENCOUNTER\n${entry.text}` : entry.text)
       .setWordWrapWidth(BASE_W - 36, true)
       .setAlign("center")
-      .setColor(
-        entry.kind === "arrival" || entry.kind === "payoff"
-          ? "#ffd15c"
-          : entry.kind === "critical"
-            ? "#f4f7fb"
-            : "#34e5c8",
-      )
+      .setColor(BANNER_COLORS[entry.kind])
       .setAlpha(1)
       .setScale(this.trailerPinScale);
   }
@@ -4121,7 +4394,7 @@ export class GameScene extends Phaser.Scene {
       const pending = this.pendingObjective;
       this.pendingObjective = null;
       if (pending && this.state === "active" && !this.lastStand && !this.netLastStand) {
-        this.beginBanner({ kind: "objective", text: pending.text, hold: pending.hold, age: 0 });
+        this.beginBanner({ age: 0, hold: pending.hold, kind: "objective", text: pending.text });
       }
       return;
     }
@@ -4139,51 +4412,30 @@ export class GameScene extends Phaser.Scene {
     this.banner.setAlpha(0).setScale(this.trailerPinScale);
   }
 
+  private offerKind(item: MerchantItem): ExpeditionOffer["kind"] {
+    if (item.bought) {
+      return "sold";
+    }
+    return this.gold >= item.relic.price ? "affordable" : "unaffordable";
+  }
+
   private updateHud() {
     const special = this.role === "guest" ? this.guestSpecial : this.player.body.specialReadiness;
     const visible = !this.controlsPaused && this.state === "active" && !this.trailerActive;
     if (this.mode === "versus") {
       this.updateVersusHud();
-      const phase = this.role === "guest" ? this.netVs?.phase : this.vs?.phase;
-      this.expeditionHud?.updateSpecial(
-        phase && vsPhaseFrozen(phase) ? { kind: "busy" } : special,
-        visible,
-      );
+      this.expeditionHud?.updateSpecial(this.versusFrozen() ? { kind: "busy" } : special, visible);
       return;
     }
-    const biome = this.role === "guest" ? this.netBiome : this.run.biome;
-    const depth = this.role === "guest" ? this.netDepth : this.run.depth;
-    const type = this.role === "guest" ? this.netRoomType : this.run.type;
-    if (!this.trailerActive) {
-      this.banner.setY(type === "merchant" ? 170 : BASE_H / 2 - 20);
-      this.banner.setVisible(
-        !this.expeditionHud?.inspecting || this.activeBanner?.kind === "critical",
-      );
-    }
-    const boss = this.role === "guest" ? this.bossPuppet?.net : this.boss?.body;
+    const guest = this.role === "guest";
+    const biome = guest ? this.netBiome : this.run.biome;
+    const depth = guest ? this.netDepth : this.run.depth;
+    const type = guest ? this.netRoomType : this.run.type;
+    const boss = guest ? this.bossPuppet?.net : this.boss?.body;
     const bossName = boss && !boss.dead ? bossKind(biome).name : null;
     if (!this.trailerActive) {
-      this.comboText.setY(bossName ? 67 + gameInset(this).top : 42 + gameInset(this).top);
+      this.layoutHudText(type, bossName !== null);
     }
-    let nearest: MerchantItem | undefined;
-    if (type === "merchant") {
-      for (const item of this.merchantItems) {
-        if (!nearest || Math.abs(item.x - this.player.x) < Math.abs(nearest.x - this.player.x))
-          nearest = item;
-      }
-    }
-    const offer: ExpeditionOffer | null = nearest
-      ? {
-          desc: nearest.relic.desc,
-          kind: nearest.bought
-            ? "sold"
-            : this.gold >= nearest.relic.price
-              ? "affordable"
-              : "unaffordable",
-          name: nearest.relic.name,
-          price: nearest.relic.price,
-        }
-      : null;
     this.expeditionHud?.update({
       biome,
       biomeName: biomePalette(biome).name,
@@ -4193,13 +4445,46 @@ export class GameScene extends Phaser.Scene {
       gold: this.gold,
       hearts: this.hearts,
       maxHearts: this.maxHearts,
-      offer,
+      offer: type === "merchant" ? this.nearestOffer() : null,
       relics: RELICS.filter((r) => this.ownedRelics.has(r.id)),
       safeRoom: !this.run.isCombat(type),
       score: this.score,
       special,
       visible,
     });
+  }
+
+  private versusFrozen(): boolean {
+    const phase = this.role === "guest" ? this.netVs?.phase : this.vs?.phase;
+    return phase !== undefined && vsPhaseFrozen(phase);
+  }
+
+  // Banner and streak counter give way to the merchant card / boss plate.
+  private layoutHudText(type: RoomType, bossShown: boolean) {
+    this.banner.setY(type === "merchant" ? 170 : BASE_H / 2 - 20);
+    this.banner.setVisible(
+      !this.expeditionHud?.inspecting || this.activeBanner?.kind === "critical",
+    );
+    this.comboText.setY(bossShown ? 67 + gameInset(this).top : 42 + gameInset(this).top);
+  }
+
+  // The merchant item closest to me, as the HUD's offer card.
+  private nearestOffer(): ExpeditionOffer | null {
+    let nearest: MerchantItem | undefined;
+    for (const item of this.merchantItems) {
+      if (!nearest || Math.abs(item.x - this.player.x) < Math.abs(nearest.x - this.player.x)) {
+        nearest = item;
+      }
+    }
+    if (!nearest) {
+      return null;
+    }
+    return {
+      desc: nearest.relic.desc,
+      kind: this.offerKind(nearest),
+      name: nearest.relic.name,
+      price: nearest.relic.price,
+    };
   }
 
   // ── trailer-mode hooks ──────────────────────────────────────────────────────
@@ -4218,8 +4503,33 @@ export class GameScene extends Phaser.Scene {
     if (o.seed !== undefined) {
       reseed(o.seed);
     }
-    // Cross-scene reset: every shot stages from nothing, independent of what
-    // the previous shot did (deaths, versus rounds, last stands, relics).
+    this.trailerReset(o);
+    if (o.room === "versus") {
+      this.trailerStageVersus(o);
+    } else {
+      this.trailerStageRoom(o, o.room);
+    }
+    if (o.fgTrees === false) {
+      this.dropForegroundTrees();
+    }
+    if (o.playerAt) {
+      this.player.enterRoom(this.grid, o.playerAt.x, o.playerAt.y);
+    }
+    if (o.player2At) {
+      this.remote?.enterRoom(this.grid, o.player2At.x, o.player2At.y);
+    }
+    this.trailerHud(o.hud ?? {});
+    // Kill the room-build announcement; scenes trigger their own banners.
+    this.clearBanners();
+    this.fadeRect.setAlpha(0);
+    this.updateHud();
+    // Hold the sim until the shell reveals the shot (the cut plate is still black).
+    this.freeze = 9999;
+  }
+
+  // Cross-scene reset: every shot stages from nothing, independent of what
+  // the previous shot did (deaths, versus rounds, last stands, relics).
+  private trailerReset(o: TrailerStageOpts) {
     this.state = "active";
     this.deadT = 0;
     this.transT = 0;
@@ -4227,7 +4537,7 @@ export class GameScene extends Phaser.Scene {
     this.pendingOffer = null;
     this.freeze = 0;
     this.mods = { ...baseMods(), ...o.mods };
-    this.ownedRelics = new Set(o.ownedRelics ?? []);
+    this.ownedRelics = new Set(o.ownedRelics);
     this.maxHearts = Math.max(1, this.mods.maxHearts);
     this.hearts = o.hearts ?? this.maxHearts;
     this.gold = o.gold ?? 0;
@@ -4243,98 +4553,88 @@ export class GameScene extends Phaser.Scene {
     this.vs = null;
     this.vsSpawns = [];
     this.vsHitSeq = new WeakMap();
-
     // Fresh actors — hero kits bind at construction, so scenes swap heroes by
     // rebuilding the Player wrappers (same spawnPlayer path as create()).
     this.player.destroy();
     this.remote?.destroy();
     this.remote = undefined;
     this.heroName = o.hero;
+  }
 
-    if (o.room === "versus") {
-      // Offline duel: both fighters are local bodies through the real
-      // VersusMatch machine (sys/versus.ts) — no network, same rules.
-      this.mode = "versus";
-      const vs = new VersusMatch();
-      this.vs = vs;
-      const g = new Grid();
-      this.player = this.spawnPlayer(HEROES[o.hero], g, 0, 0);
-      this.remote = this.spawnPlayer(HEROES[o.hero2 ?? "reaper"], g, 0, 0);
-      this.buildVersusRoom();
-      vs.beginMatch();
-      vs.t = 0.03; // collapse the round-intro freeze: FIGHT! lands on reveal
-      const st = o.vsState;
-      if (st) {
-        vs.hp.host = st.hostHp ?? vs.hp.host;
-        vs.hp.guest = st.guestHp ?? vs.hp.guest;
-        vs.score.host = st.hostScore ?? vs.score.host;
-        vs.score.guest = st.guestScore ?? vs.score.guest;
-        vs.round = st.round ?? vs.round;
-      }
-    } else {
-      const def = this.run.debugEnter(o.room, o.biome ?? 1, o.depth ?? 2);
-      if (o.noEnemies) {
-        def.enemySpawns.length = 0;
-      }
-      this.player = this.spawnPlayer(
-        HEROES[o.hero],
+  // Offline duel: both fighters are local bodies through the real VersusMatch
+  // machine (sys/versus.ts) — no network, same rules.
+  private trailerStageVersus(o: TrailerStageOpts) {
+    this.mode = "versus";
+    const vs = new VersusMatch();
+    this.vs = vs;
+    const g = new Grid();
+    this.player = this.spawnPlayer(HEROES[o.hero], g, 0, 0);
+    this.remote = this.spawnPlayer(HEROES[o.hero2 ?? "reaper"], g, 0, 0);
+    this.buildVersusRoom();
+    vs.beginMatch();
+    // collapse the round-intro freeze: FIGHT! lands on reveal
+    vs.t = 0.03;
+    const st = o.vsState;
+    if (st) {
+      vs.hp.host = st.hostHp ?? vs.hp.host;
+      vs.hp.guest = st.guestHp ?? vs.hp.guest;
+      vs.score.host = st.hostScore ?? vs.score.host;
+      vs.score.guest = st.guestScore ?? vs.score.guest;
+      vs.round = st.round ?? vs.round;
+    }
+  }
+
+  private trailerStageRoom(o: TrailerStageOpts, room: RoomType) {
+    const def = this.run.debugEnter(room, o.biome ?? 1, o.depth ?? 2);
+    if (o.noEnemies) {
+      def.enemySpawns.length = 0;
+    }
+    this.player = this.spawnPlayer(HEROES[o.hero], def.grid, def.playerSpawn.x, def.playerSpawn.y);
+    if (o.hero2) {
+      this.remote = this.spawnPlayer(
+        HEROES[o.hero2],
         def.grid,
         def.playerSpawn.x,
         def.playerSpawn.y,
       );
-      if (o.hero2) {
-        this.remote = this.spawnPlayer(
-          HEROES[o.hero2],
-          def.grid,
-          def.playerSpawn.x,
-          def.playerSpawn.y,
-        );
+    }
+    this.buildRoom(def);
+    if (o.hideDoors) {
+      // Scenic shots (e.g. the moonrise release beat) stage the hero where an
+      // active exit gate would otherwise pulse in frame. Safe to drop them:
+      // checkDoors is trailer-gated and checkClear's setActive no-ops on an
+      // empty list, so nothing else reads the doors mid-shot.
+      for (const d of this.doors) {
+        d.destroy();
       }
-      this.buildRoom(def);
-      if (o.hideDoors) {
-        // Scenic shots (e.g. the moonrise release beat) stage the hero where an
-        // active exit gate would otherwise pulse in frame. Safe to drop them:
-        // checkDoors is trailer-gated and checkClear's setActive no-ops on an
-        // empty list, so nothing else reads the doors mid-shot.
-        this.doors.forEach((d) => d.destroy());
-        this.doors = [];
-      }
+      this.doors = [];
     }
-    if (o.fgTrees === false) {
-      // The nearest parallax layer draws IN FRONT of the actors (depth 40): in a
-      // 240-px-wide framing one trunk can swallow the whole fight. Combat shots
-      // drop it; scenic ones keep it for the depth cue.
-      this.parallax = this.parallax.filter((t) => {
-        if (t.name !== FG_TREE_NAME) {
-          return true;
-        }
-        t.destroy();
-        return false;
-      });
-    }
-    if (o.playerAt) {
-      this.player.enterRoom(this.grid, o.playerAt.x, o.playerAt.y);
-    }
-    if (o.player2At) {
-      this.remote?.enterRoom(this.grid, o.player2At.x, o.player2At.y);
-    }
+  }
 
-    // HUD policy: everything hidden unless the shot opts in; visibility (not
-    // alpha) so showBanner/updateHud can't resurrect a hidden element.
-    const hud = o.hud ?? {};
+  // The nearest parallax layer draws IN FRONT of the actors (depth 40): in a
+  // 240-px-wide framing one trunk can swallow the whole fight. Combat shots
+  // drop it; scenic ones keep it for the depth cue.
+  private dropForegroundTrees() {
+    this.parallax = this.parallax.filter((t) => {
+      if (t.name !== FG_TREE_NAME) {
+        return true;
+      }
+      t.destroy();
+      return false;
+    });
+  }
+
+  // HUD policy: everything hidden unless the shot opts in; visibility (not
+  // alpha) so showBanner/updateHud can't resurrect a hidden element.
+  private trailerHud(hud: NonNullable<TrailerStageOpts["hud"]>) {
     this.heartsText.setVisible(hud.hearts ?? false);
-    this.infoText.setVisible(hud.info ?? false).setFontSize(9); // versus HUD bumps to 12
+    // versus HUD bumps to 12
+    this.infoText.setVisible(hud.info ?? false).setFontSize(9);
     this.banner.setVisible(hud.banner ?? false);
     this.comboText.setVisible(hud.combo ?? false);
     const bossBar = hud.bossBar ?? false;
     this.bossHp?.setVisible(bossBar);
     this.bossHpBg?.setVisible(bossBar);
-    // Kill the room-build announcement; scenes trigger their own banners.
-    this.clearBanners();
-    this.fadeRect.setAlpha(0);
-    this.updateHud();
-    // Hold the sim until the shell reveals the shot (the cut plate is still black).
-    this.freeze = 9999;
   }
 
   /** Trailer-only lens: an INTEGER world zoom (1 = the play camera, 2 = twice
@@ -4391,7 +4691,7 @@ export class GameScene extends Phaser.Scene {
     e.body.hp += Math.floor((this.run.biome - 1) / 2);
     const affix = AFFIXES.find((a) => a.id === affixId);
     if (affix) {
-      this.applyAffix(e, affix);
+      applyAffix(e, affix);
     }
     this.enemies.push(e);
   }
@@ -4406,7 +4706,7 @@ export class GameScene extends Phaser.Scene {
    * velocity/AI so the first visible frame is already mid-action. Bypasses the
    * freeze on purpose. */
   trailerTick(steps: number): void {
-    for (let i = 0; i < steps; i++) {
+    for (let i = 0; i < steps; i += 1) {
       const s = this.trailerIn ? this.trailerIn() : null;
       if (s) {
         this.player.buffer(s.p1);
@@ -4419,7 +4719,9 @@ export class GameScene extends Phaser.Scene {
     // Settle the views so the camera snap targets real positions.
     this.player.render(1);
     this.remote?.render(1);
-    this.enemies.forEach((e) => e.render(1));
+    for (const e of this.enemies) {
+      e.render(1);
+    }
     this.boss?.render(1);
   }
 

@@ -65,9 +65,8 @@ const NEUTRAL: BodyInput = {
 };
 const inp = (o: Partial<BodyInput>): BodyInput => ({ ...NEUTRAL, ...o });
 // A checkpoint crosses the wire as JSON; round-trip it the same way.
-function wire<T>(v: T): T {
-  return JSON.parse(JSON.stringify(v));
-}
+// oxlint-disable-next-line unicorn/prefer-structured-clone -- the JSON round trip IS the thing under test; structuredClone keeps what the wire drops
+const wire = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
 
 // Settle onto the floor first (a couple steps of gravity + contact).
 const spawn = (x = 240, y = FLOOR_Y, hero: keyof typeof HEROES = "axion"): PlayerBody => {
@@ -856,12 +855,12 @@ const script = (f: number): Partial<BodyInput> => ({
   const g = Grid.test();
   for (const kind of [ENEMIES.warrior, ENEMIES.archer, ENEMIES.bomber, ENEMIES.spearman]) {
     const e = new EnemyBody(kind, g, 300, FLOOR_Y);
-    for (let i = 0; i < 50; i++) {
+    for (let i = 0; i < 50; i += 1) {
       e.step(STEP, 200, FLOOR_Y);
     }
     const copy = new EnemyBody(kind, g, 0, 0);
     copy.restore(wire(e.checkpoint()));
-    for (let i = 0; i < 90; i++) {
+    for (let i = 0; i < 90; i += 1) {
       e.step(STEP, 200 + i, FLOOR_Y);
       copy.step(STEP, 200 + i, FLOOR_Y);
     }
@@ -872,12 +871,12 @@ const script = (f: number): Partial<BodyInput> => ({
     );
   }
   const boss = new BossBody(g, 240, FLOOR_Y, 2);
-  for (let i = 0; i < 200; i++) {
+  for (let i = 0; i < 200; i += 1) {
     boss.step(STEP, 120, FLOOR_Y);
   }
   const bossCopy = new BossBody(g, 0, 0, 2);
   bossCopy.restore(wire(boss.checkpoint()));
-  for (let i = 0; i < 120; i++) {
+  for (let i = 0; i < 120; i += 1) {
     boss.step(STEP, 120 + i, FLOOR_Y);
     bossCopy.step(STEP, 120 + i, FLOOR_Y);
   }
@@ -945,7 +944,7 @@ const script = (f: number): Partial<BodyInput> => ({
   // The validator must admit exactly what the host encodes — nothing looser.
   const def = START();
   const room: NetRoom = {
-    cells: Array.from(def.grid.cells),
+    cells: [...def.grid.cells],
     cols: def.grid.cols,
     doors: [],
     mode: "coop",
@@ -967,11 +966,11 @@ const script = (f: number): Partial<BodyInput> => ({
     comboTime: 0,
     enemies: [
       {
+        body: new EnemyBody(ENEMIES.warrior, g, 300, FLOOR_Y).checkpoint(),
+        deathAge: null,
         id: 1,
         name: "warrior",
-        body: new EnemyBody(ENEMIES.warrior, g, 300, FLOOR_Y).checkpoint(),
-        tint: 0xffffff,
-        deathAge: null,
+        tint: 0xff_ff_ff,
       },
     ],
     feature: null,
@@ -988,32 +987,32 @@ const script = (f: number): Partial<BodyInput> => ({
     phase: { kind: "active" },
     players: [
       {
-        id: "host",
-        hero: "reaper",
         body: p.checkpoint(),
         combat: {
-          hitSwing: [1],
-          lastSwing: 2,
-          hitSpecial: [],
-          lastSpecial: -1,
-          bossSwing: -1,
           bossSpecial: -1,
+          bossSwing: -1,
+          hitSpecial: [],
+          hitSwing: [1],
+          lastSpecial: -1,
+          lastSwing: 2,
         },
-        versusHits: { swing: 0, special: 0 },
+        hero: "reaper",
+        id: "host",
+        versusHits: { special: 0, swing: 0 },
       },
       {
-        id: "guest",
-        hero: "axion",
         body: twin.checkpoint(),
         combat: {
-          hitSwing: [],
-          lastSwing: -1,
-          hitSpecial: [],
-          lastSpecial: -1,
-          bossSwing: -1,
           bossSpecial: -1,
+          bossSwing: -1,
+          hitSpecial: [],
+          hitSwing: [],
+          lastSpecial: -1,
+          lastSwing: -1,
         },
-        versusHits: { swing: 0, special: 0 },
+        hero: "axion",
+        id: "guest",
+        versusHits: { special: 0, swing: 0 },
       },
     ],
     relics: [RELICS[0]?.id ?? ""],
@@ -1025,16 +1024,16 @@ const script = (f: number): Partial<BodyInput> => ({
     seats: { guest: "guest", host: "host" },
     shots: [
       {
-        x: 1,
-        y: 2,
+        dmg: 1,
+        hit: [1],
+        hitBoss: false,
+        hitP: [],
+        life: 1,
+        owner: "host",
         vx: 3,
         vy: 0,
-        life: 1,
-        dmg: 1,
-        owner: "host",
-        hit: [1],
-        hitP: [],
-        hitBoss: false,
+        x: 1,
+        y: 2,
       },
     ],
     term: 0,

@@ -16,9 +16,9 @@ export const CONTROLS: ControlsManifest = [
   { action: "serve · power shot · rematch", input: "A", method: "controller" },
 ];
 
-export function visibleControls(): ControlsManifest {
+export const visibleControls = (): ControlsManifest => {
   if (handCameraState() === "live") {
     return CONTROLS;
   }
   return CONTROLS.filter((entry) => entry.method !== "camera");
-}
+};

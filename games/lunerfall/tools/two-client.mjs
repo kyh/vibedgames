@@ -6,13 +6,12 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import path from "node:path";
+import { setTimeout as wait } from "node:timers/promises";
 
-const gameDir = resolve(import.meta.dirname, "..");
+const gameDir = path.resolve(import.meta.dirname, "..");
 const { chromium } = createRequire(import.meta.url)("playwright-core");
 const { EVICTION_TIMEOUT_MS, RECONNECT_GRACE_MS } = await import("@vibedgames/multiplayer");
-const wait = (ms) => new Promise((done) => setTimeout(done, ms));
 const arg = (flag) => {
   const i = process.argv.indexOf(flag);
   return i === -1 ? null : process.argv[i + 1];
@@ -25,27 +24,28 @@ const roomCode = () =>
   );
 const errors = [];
 
-async function startVite() {
+const startVite = async () => {
   const child = spawn(
-    resolve(gameDir, "node_modules/.bin/vite"),
+    path.resolve(gameDir, "node_modules/.bin/vite"),
     ["--port", String(PORT), "--strictPort"],
     {
       cwd: gameDir,
       stdio: ["ignore", "pipe", "inherit"],
     },
   );
-  await new Promise((ready, fail) => {
+  // oxlint-disable-next-line promise/avoid-new -- bridges vite's stdout/exit events into one awaitable
+  await new Promise((resolve, reject) => {
     child.stdout.on("data", (chunk) => {
       if (String(chunk).includes("Local:")) {
-        ready();
+        resolve();
       }
     });
-    child.on("exit", (code) => fail(new Error(`vite exited ${code}`)));
+    child.on("exit", (code) => reject(new Error(`vite exited ${code}`)));
   });
   return child;
-}
+};
 
-async function until(page, predicate, label, timeout = 20_000, param = null) {
+const until = async (page, predicate, label, timeout = 20_000, param = null) => {
   const started = Date.now();
   while (Date.now() - started < timeout) {
     const value = await page.evaluate(predicate, param);
@@ -55,17 +55,18 @@ async function until(page, predicate, label, timeout = 20_000, param = null) {
     await wait(100);
   }
   throw new Error(`timeout: ${label}`);
-}
+};
 
+// oxlint-disable-next-line unicorn/prefer-structured-clone -- runs in the page: JSON drops the probe's non-serialisable fields that structuredClone would throw on
 const lf = (page) => page.evaluate(() => JSON.parse(JSON.stringify(window.__lf ?? null)));
 const hubReady = (page) =>
   until(page, () => !!document.querySelector("#lf-room-code"), "hub ready", 30_000);
 const inGame = (page, role) =>
   until(
     page,
-    (role) => {
+    (want) => {
       const s = window.__lf;
-      return s && s.conn === "connected" && s.state === "active" && s.role === role;
+      return s && s.conn === "connected" && s.state === "active" && s.role === want;
     },
     `in game as ${role}`,
     30_000,
@@ -74,7 +75,7 @@ const inGame = (page, role) =>
 const seesPeer = (page, label) =>
   until(page, () => window.__lf?.players === 2 && window.__lf.rx !== null, label, 20_000);
 
-async function openClient(browser, base, name, url) {
+const openClient = async (browser, base, name, url) => {
   const context = await browser.newContext({ viewport: { height: 720, width: 1280 } });
   const page = await context.newPage();
   page.on("pageerror", (e) => errors.push(`${name}: ${e.message}\n${e.stack}`));
@@ -87,32 +88,34 @@ async function openClient(browser, base, name, url) {
   await page.goto(`${base}/${url}`, { timeout: 90_000 });
   await hubReady(page);
   return { context, name, page };
-}
+};
 
 /** Hub → expedition: PLAY. Escape pause only arms through this path. */
-async function play(client, role) {
+const play = async (client, role) => {
   await client.page.click(".lf-hub-go");
   await inGame(client.page, role);
-}
+};
 
-async function tap(page, code) {
+const tap = async (page, code) => {
   await page.keyboard.down(code);
   await wait(60);
   await page.keyboard.up(code);
-}
+};
 
-async function hold(page, code, ms) {
+const hold = async (page, code, ms) => {
   await page.keyboard.down(code);
   await wait(ms);
   await page.keyboard.up(code);
-}
+};
+
+// Versus drops every input through the round countdown, and the guest
+// mirrors that freeze from the broadcast phase — both must see it end.
+const live = () => window.__lf?.vs === null || window.__lf?.vs?.phase === "fighting";
 
 /** Guest presses attack; the host must register the swing on the remote body. */
-async function attackCrossesWire(guest, host) {
-  // Versus drops every input through the round countdown, and the guest
-  // mirrors that freeze from the broadcast phase — both must see it end.
-  const live = () => window.__lf?.vs === null || window.__lf?.vs?.phase === "fighting";
-  const before = (await lf(host.page)).rSwing ?? 0;
+const attackCrossesWire = async (guest, host) => {
+  const hostState = await lf(host.page);
+  const before = hostState.rSwing ?? 0;
   await until(host.page, live, "round live on the host");
   await until(guest.page, live, "round live on the guest");
   await tap(guest.page, "KeyJ");
@@ -123,13 +126,14 @@ async function attackCrossesWire(guest, host) {
     8000,
     before,
   );
-}
+};
 
-async function moveCrossesWire(guest, host) {
-  const before = (await lf(host.page)).rx;
+const moveCrossesWire = async (guest, host) => {
+  const hostState = await lf(host.page);
+  const before = hostState.rx;
   await hold(guest.page, "KeyD", 500);
   await until(host.page, (x) => window.__lf?.rx !== x, "guest movement reached host", 8000, before);
-}
+};
 
 /** Host-side shortcut to a run end; the wire and both hubs do the rest. */
 const killRun = (page) => page.evaluate(() => window.__game.scene.getScene("game").playerDie());
@@ -142,7 +146,7 @@ const endMatch = (page) =>
     }
   });
 
-async function run(base, mode) {
+const run = async (base, mode) => {
   const code = roomCode();
   const query = mode === "vs" ? `?party=${code}&mode=vs` : `?party=${code}`;
   // Both clients must keep simulating; Chrome otherwise throttles whichever
@@ -187,7 +191,8 @@ async function run(base, mode) {
     });
     if (mode === "vs") {
       await step("a real hit takes a heart", async () => {
-        const hp0 = (await lf(host.page)).vs.hostHp;
+        const start = await lf(host.page);
+        const hp0 = start.vs.hostHp;
         const gapNow = async () => {
           const s = await lf(host.page);
           return { gap: s.rx - s.px, s };
@@ -195,7 +200,7 @@ async function run(base, mode) {
         // The arena floor is head-height pens (data/rooms.ts VERSUS): each
         // crossing is a running jump, so approach in bounded hops and swing
         // whenever the duelists overlap.
-        for (let hop = 0; hop < 40; hop++) {
+        for (let hop = 0; hop < 40; hop += 1) {
           const { s, gap } = await gapNow();
           if (s.vs.hostHp < hp0) {
             return;
@@ -233,7 +238,11 @@ async function run(base, mode) {
     const restart = async (first, second) => {
       if (mode === "vs") {
         await until(host.page, () => window.__lf?.vs?.phase === "fighting", "fighting");
-        while ((await lf(host.page)).vs.phase !== "matchEnd") {
+        for (;;) {
+          const state = await lf(host.page);
+          if (state.vs.phase === "matchEnd") {
+            break;
+          }
           await endMatch(host.page);
           await wait(200);
         }
@@ -304,10 +313,11 @@ async function run(base, mode) {
       await late.page.press("#lf-room-code", "Enter");
       await until(
         late.page,
-        () => /Room selected/.test(document.querySelector(".lf-hub-status")?.textContent ?? ""),
+        () => /Room selected/u.test(document.querySelector(".lf-hub-status")?.textContent ?? ""),
         "room selected",
       );
-      assert.ok((await late.page.url()).includes(`party=${code}`), "invite code in URL");
+      const lateUrl = await late.page.url();
+      assert.ok(lateUrl.includes(`party=${code}`), "invite code in URL");
       await play(late, "guest");
       await seesPeer(late.page, "late sees host");
       await seesPeer(host.page, "host sees late");
@@ -318,11 +328,12 @@ async function run(base, mode) {
       await extra.page.click(".lf-hub-go");
       await until(
         extra.page,
-        () => /Room full/.test(document.querySelector(".lf-hub-status")?.textContent ?? ""),
+        () => /Room full/u.test(document.querySelector(".lf-hub-status")?.textContent ?? ""),
         "room full notice",
         30_000,
       );
-      assert.equal((await lf(host.page)).players, 2, "room still holds two");
+      const hostState = await lf(host.page);
+      assert.equal(hostState.players, 2, "room still holds two");
       await extra.context.close();
     });
   } finally {
@@ -332,7 +343,7 @@ async function run(base, mode) {
     }
     await browser.close();
   }
-}
+};
 
 const modes = arg("--mode") ? [arg("--mode")] : ["coop", "vs"];
 const vite = arg("--url") ? null : await startVite();

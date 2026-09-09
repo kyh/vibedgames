@@ -1,4 +1,5 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { BlendModes } from "phaser";
 
 import { burstLifetime, burstStage } from "./combat-visuals";
 import type { BurstKind, WeaponLook } from "./combat-visuals";
@@ -11,6 +12,7 @@ const BURST_CAPACITY = 36;
 const COMMON_BURST_LIMIT = BURST_CAPACITY - Math.ceil(BURST_CAPACITY / 4);
 const WEAPON_GLOW_BUDGET = 96;
 const COMMON_WEAPON_GLOW_BUDGET = WEAPON_GLOW_BUDGET * 0.75;
+const EXHAUST_LENGTH = { missile: 44, plasma: 30, rapid: 16 } as const;
 
 interface Burst {
   x: number;
@@ -32,12 +34,14 @@ export class BattleFx {
   private readonly glows: Phaser.GameObjects.Image[] = [];
   private readonly slots: (Burst | null)[] = [];
   private weaponDraws = 0;
+  private readonly scene: Phaser.Scene;
 
-  constructor(private readonly scene: Phaser.Scene) {
+  constructor(scene: Phaser.Scene) {
+    this.scene = scene;
     // Broad light stays UNDER hulls, live shots and stable warning geometry.
-    this.weaponGfx = scene.add.graphics().setDepth(4).setBlendMode(Phaser.BlendModes.ADD);
-    this.blastGfx = scene.add.graphics().setDepth(3).setBlendMode(Phaser.BlendModes.ADD);
-    for (let i = 0; i < BURST_CAPACITY; i++) {
+    this.weaponGfx = scene.add.graphics().setDepth(4).setBlendMode(BlendModes.ADD);
+    this.blastGfx = scene.add.graphics().setDepth(3).setBlendMode(BlendModes.ADD);
+    for (let i = 0; i < BURST_CAPACITY; i += 1) {
       // Alpha-blended: Phaser's additive image path leaves rectangular seams
       // where several large translucent sprites overlap.
       this.glows.push(scene.add.image(0, 0, "battle-glow").setDepth(2).setVisible(false));
@@ -75,7 +79,7 @@ export class BattleFx {
     let free = -1;
     let live = 0;
     let oldestCommon = -1;
-    for (let i = 0; i < this.slots.length; i++) {
+    for (let i = 0; i < this.slots.length; i += 1) {
       const b = this.slots[i];
       if (!b) {
         if (free < 0) {
@@ -83,7 +87,7 @@ export class BattleFx {
         }
         continue;
       }
-      live++;
+      live += 1;
       const oldest = oldestCommon < 0 ? null : this.slots[oldestCommon];
       if (b.importance === "common" && (!oldest || b.bornAt < oldest.bornAt)) {
         oldestCommon = i;
@@ -117,7 +121,7 @@ export class BattleFx {
     if (this.weaponDraws >= budget) {
       return false;
     }
-    this.weaponDraws++;
+    this.weaponDraws += 1;
     return true;
   }
 
@@ -150,33 +154,76 @@ export class BattleFx {
     const dx = length > 0 ? (hx - tx) / length : 1;
     const dy = length > 0 ? (hy - ty) / length : 0;
     if (look === "missile" || look === "plasma" || look === "rapid") {
-      const exhaust = look === "missile" ? 44 : look === "plasma" ? 30 : 16;
-      for (let i = 0; i < 3; i++) {
-        const tail = exhaust * (1 - i * 0.23);
-        g.lineStyle((3 - i) * (look === "plasma" ? 3 : 1.8), tint, (0.09 + i * 0.06) * scale);
-        g.lineBetween(hx - dx * tail, hy - dy * tail, hx, hy);
-      }
-      g.fillStyle(0xff_f3_cf, 0.85 * scale).fillCircle(hx, hy, look === "missile" ? 2.2 : 1.4);
+      this.drawExhaust(look, hx, hy, dx, dy, tint, scale);
     } else if (look === "rail" || look === "laser") {
-      // Parallel filaments stay close to the real lance; no false wider beam.
-      const offset = look === "rail" ? 4 : 2.5;
-      g.lineStyle(0.8, tint, 0.38 * scale);
-      g.lineBetween(tx + dy * offset, ty - dx * offset, hx + dy * offset, hy - dx * offset);
-      g.lineBetween(tx - dy * offset, ty + dx * offset, hx - dy * offset, hy + dx * offset);
+      this.drawFilaments(look, tx, ty, hx, hy, dx, dy, tint, scale);
     } else if (look === "drill") {
-      g.lineStyle(1.2, 0xff_dd_aa, 0.7 * scale);
-      for (let i = 0; i < 5; i++) {
-        const t = i / 5;
-        const offset = reduced ? 0 : Math.sin(now * 0.014 + i * 1.5) * 4;
-        const x = tx + (hx - tx) * t;
-        const y = ty + (hy - ty) * t;
-        g.lineBetween(
-          x + dy * offset,
-          y - dx * offset,
-          x + dx * 5 - dy * offset,
-          y + dy * 5 + dx * offset,
-        );
-      }
+      this.drawDrillBits(tx, ty, hx, hy, dx, dy, now, scale, reduced);
+    }
+  }
+
+  private drawExhaust(
+    look: "missile" | "plasma" | "rapid",
+    hx: number,
+    hy: number,
+    dx: number,
+    dy: number,
+    tint: number,
+    scale: number,
+  ): void {
+    const g = this.weaponGfx;
+    const exhaust = EXHAUST_LENGTH[look];
+    for (let i = 0; i < 3; i += 1) {
+      const tail = exhaust * (1 - i * 0.23);
+      g.lineStyle((3 - i) * (look === "plasma" ? 3 : 1.8), tint, (0.09 + i * 0.06) * scale);
+      g.lineBetween(hx - dx * tail, hy - dy * tail, hx, hy);
+    }
+    g.fillStyle(0xff_f3_cf, 0.85 * scale).fillCircle(hx, hy, look === "missile" ? 2.2 : 1.4);
+  }
+
+  /** Parallel filaments stay close to the real lance; no false wider beam. */
+  private drawFilaments(
+    look: "rail" | "laser",
+    tx: number,
+    ty: number,
+    hx: number,
+    hy: number,
+    dx: number,
+    dy: number,
+    tint: number,
+    scale: number,
+  ): void {
+    const g = this.weaponGfx;
+    const offset = look === "rail" ? 4 : 2.5;
+    g.lineStyle(0.8, tint, 0.38 * scale);
+    g.lineBetween(tx + dy * offset, ty - dx * offset, hx + dy * offset, hy - dx * offset);
+    g.lineBetween(tx - dy * offset, ty + dx * offset, hx - dy * offset, hy + dx * offset);
+  }
+
+  private drawDrillBits(
+    tx: number,
+    ty: number,
+    hx: number,
+    hy: number,
+    dx: number,
+    dy: number,
+    now: number,
+    scale: number,
+    reduced: boolean,
+  ): void {
+    const g = this.weaponGfx;
+    g.lineStyle(1.2, 0xff_dd_aa, 0.7 * scale);
+    for (let i = 0; i < 5; i += 1) {
+      const t = i / 5;
+      const offset = reduced ? 0 : Math.sin(now * 0.014 + i * 1.5) * 4;
+      const x = tx + (hx - tx) * t;
+      const y = ty + (hy - ty) * t;
+      g.lineBetween(
+        x + dy * offset,
+        y - dx * offset,
+        x + dx * 5 - dy * offset,
+        y + dy * 5 + dx * offset,
+      );
     }
   }
 
@@ -198,7 +245,7 @@ export class BattleFx {
     g.lineStyle(nova ? 8 : 5, tint, alpha).strokeCircle(x, y, radius);
     g.lineStyle(nova ? 3 : 2, tint, alpha * 1.5).strokeCircle(x, y, radius);
     if (!reduced && !nova) {
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < 3; i += 1) {
         const a = angle + (i * Math.PI * 2) / 3;
         g.lineStyle(1, tint, 0.65);
         g.beginPath();
@@ -211,7 +258,7 @@ export class BattleFx {
   update(now: number): void {
     this.blastGfx.clear();
     const reduced = REDUCED_MOTION.matches;
-    for (let i = 0; i < this.slots.length; i++) {
+    for (let i = 0; i < this.slots.length; i += 1) {
       const b = this.slots[i];
       const glow = this.glows[i];
       if (!glow) {
@@ -255,7 +302,7 @@ export class BattleFx {
     g.fillStyle(0xe4_ef_f7, heat * (reduced ? 0.25 : 0.65));
     g.fillCircle(b.x, b.y, Math.min(8, reach * 0.13));
     const count = reduced ? 4 : 9;
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < count; i += 1) {
       const angle = b.seed + (i * Math.PI * 2) / count;
       const distance = reach * (0.2 + t * (reduced ? 0.35 : 1.05));
       const x = b.x + Math.cos(angle) * distance;
@@ -319,7 +366,6 @@ export class BattleFx {
     t: number,
     reduced: boolean,
   ): void {
-    const g = this.blastGfx;
     const boss = b.kind === "boss";
     const blastTint = boss || b.kind === "death" ? 0xff_b3_5c : b.tint;
     const flash = burstStage(age, 0, boss ? 520 : 300);
@@ -332,54 +378,78 @@ export class BattleFx {
       .setDisplaySize(glowRadius * 2, glowRadius * 2)
       .setVisible(true);
     const stages = boss && !reduced ? 3 : 1;
-    for (let stage = 0; stage < stages; stage++) {
-      const delay = stage * 140;
-      const envelope = burstStage(age, delay, boss ? 1000 : 600);
-      if (envelope <= 0) {
-        continue;
-      }
-      const p = 1 - envelope;
-      const angle = b.seed + stage * 2.4;
-      const offset = stage === 0 ? 0 : b.radius * 0.32;
-      const x = b.x + Math.cos(angle) * offset;
-      const y = b.y + Math.sin(angle) * offset;
-      const radius = b.radius * (stage === 0 ? 1 : 0.62) * (reduced ? 0.7 : 0.12 + Math.sqrt(p));
-      // A compact white-hot core contracts into an ember while the shock front travels out.
-      const heat = burstStage(age, delay, boss ? 520 : 300);
-      const core = b.radius * (boss ? 0.19 : 0.25) * (0.55 + heat * 0.45);
-      const heatAlpha = heat * (reduced ? 0.2 : 1);
-      g.fillStyle(blastTint, heatAlpha * 0.16).fillCircle(x, y, core * 2.4);
-      g.fillStyle(blastTint, heatAlpha * 0.38).fillCircle(x, y, core * 1.55);
-      g.fillStyle(0xff_e2_a4, heatAlpha * 0.7).fillCircle(x, y, core);
-      g.fillStyle(0xff_fc_f1, heatAlpha).fillCircle(x, y, core * 0.58);
-      g.lineStyle(12 * envelope, blastTint, envelope * (reduced ? 0.08 : 0.19)).strokeCircle(
-        x,
-        y,
-        radius,
+    for (let stage = 0; stage < stages; stage += 1) {
+      this.drawBlastStage(b, blastTint, age, stage, reduced);
+    }
+  }
+
+  private drawBlastStage(
+    b: Burst,
+    blastTint: number,
+    age: number,
+    stage: number,
+    reduced: boolean,
+  ): void {
+    const g = this.blastGfx;
+    const boss = b.kind === "boss";
+    const delay = stage * 140;
+    const envelope = burstStage(age, delay, boss ? 1000 : 600);
+    if (envelope <= 0) {
+      return;
+    }
+    const p = 1 - envelope;
+    const angle = b.seed + stage * 2.4;
+    const offset = stage === 0 ? 0 : b.radius * 0.32;
+    const x = b.x + Math.cos(angle) * offset;
+    const y = b.y + Math.sin(angle) * offset;
+    const radius = b.radius * (stage === 0 ? 1 : 0.62) * (reduced ? 0.7 : 0.12 + Math.sqrt(p));
+    // A compact white-hot core contracts into an ember while the shock front travels out.
+    const heat = burstStage(age, delay, boss ? 520 : 300);
+    const core = b.radius * (boss ? 0.19 : 0.25) * (0.55 + heat * 0.45);
+    const heatAlpha = heat * (reduced ? 0.2 : 1);
+    g.fillStyle(blastTint, heatAlpha * 0.16).fillCircle(x, y, core * 2.4);
+    g.fillStyle(blastTint, heatAlpha * 0.38).fillCircle(x, y, core * 1.55);
+    g.fillStyle(0xff_e2_a4, heatAlpha * 0.7).fillCircle(x, y, core);
+    g.fillStyle(0xff_fc_f1, heatAlpha).fillCircle(x, y, core * 0.58);
+    g.lineStyle(12 * envelope, blastTint, envelope * (reduced ? 0.08 : 0.19)).strokeCircle(
+      x,
+      y,
+      radius,
+    );
+    g.lineStyle(5 * envelope, blastTint, envelope * (reduced ? 0.1 : 0.55)).strokeCircle(
+      x,
+      y,
+      radius,
+    );
+    g.lineStyle(1.8, 0xff_ed_c7, envelope * 0.95).strokeCircle(x, y, radius);
+    if (reduced) {
+      return;
+    }
+    this.drawBlastShards(b, blastTint, x, y, p, envelope);
+  }
+
+  private drawBlastShards(
+    b: Burst,
+    blastTint: number,
+    x: number,
+    y: number,
+    p: number,
+    envelope: number,
+  ): void {
+    const g = this.blastGfx;
+    const count = b.kind === "boss" ? 24 : 12;
+    for (let i = 0; i < count; i += 1) {
+      const a = b.seed + (i * Math.PI * 2) / count;
+      const spread = 0.7 + 0.3 * Math.sin(i * 7.1 + b.seed);
+      const distance = b.radius * spread * (0.12 + p * 1.45);
+      const tail = Math.max(0, distance - b.radius * 0.3 * envelope);
+      g.lineStyle(i % 3 === 0 ? 2.4 : 1.3, i % 3 === 0 ? 0xff_f2_cb : blastTint, envelope * 0.95);
+      g.lineBetween(
+        x + Math.cos(a) * tail,
+        y + Math.sin(a) * tail,
+        x + Math.cos(a) * distance,
+        y + Math.sin(a) * distance,
       );
-      g.lineStyle(5 * envelope, blastTint, envelope * (reduced ? 0.1 : 0.55)).strokeCircle(
-        x,
-        y,
-        radius,
-      );
-      g.lineStyle(1.8, 0xff_ed_c7, envelope * 0.95).strokeCircle(x, y, radius);
-      if (reduced) {
-        continue;
-      }
-      const count = boss ? 24 : 12;
-      for (let i = 0; i < count; i++) {
-        const a = b.seed + (i * Math.PI * 2) / count;
-        const spread = 0.7 + 0.3 * Math.sin(i * 7.1 + b.seed);
-        const distance = b.radius * spread * (0.12 + p * 1.45);
-        const tail = Math.max(0, distance - b.radius * 0.3 * envelope);
-        g.lineStyle(i % 3 === 0 ? 2.4 : 1.3, i % 3 === 0 ? 0xff_f2_cb : blastTint, envelope * 0.95);
-        g.lineBetween(
-          x + Math.cos(a) * tail,
-          y + Math.sin(a) * tail,
-          x + Math.cos(a) * distance,
-          y + Math.sin(a) * distance,
-        );
-      }
     }
   }
 }

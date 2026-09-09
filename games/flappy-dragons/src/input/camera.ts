@@ -117,6 +117,18 @@ interface Panel {
 
 // ---- state machine ---------------------------------------------------------------
 
+// ---- pure helpers --------------------------------------------------------------------------
+
+const getSmoothedY = (positions: number[]): number => {
+  if (positions.length === 0) {
+    return 0;
+  }
+  return positions.reduce((sum, val) => sum + val, 0) / positions.length;
+};
+
+const errorMessage = (cause: unknown): string =>
+  cause instanceof Error ? cause.message : String(cause);
+
 class PoseCamera {
   /**
    * Startup attempt token. A failure (denied permission, track ended, tracking
@@ -151,20 +163,23 @@ class PoseCamera {
   private overlayCtx: CanvasRenderingContext2D | null = null;
   private drawingUtils: DrawingUtils | null = null;
 
-  constructor(
-    private readonly ui: Panel,
-    private onJump: PoseJumpHandler,
-    autoStart: boolean,
-  ) {
+  private readonly ui: Panel;
+  private onJump: PoseJumpHandler;
+
+  constructor(ui: Panel, onJump: PoseJumpHandler, autoStart: boolean) {
+    this.ui = ui;
+    this.onJump = onJump;
     this.setStatus(autoStart ? "Click 'Start' to begin" : "Tap to enable the pose cam");
     this.ui.button.addEventListener("click", (e) => {
-      e.stopPropagation(); // don't also toggle the panel size
+      // Don't also toggle the panel size.
+      e.stopPropagation();
       // Drop focus so Space (a game input) can't re-activate the button.
       this.ui.button.blur();
       this.handleMainAction();
     });
     this.ui.recal.addEventListener("click", (e) => {
-      e.stopPropagation(); // don't also toggle the panel size
+      // Don't also toggle the panel size.
+      e.stopPropagation();
       this.ui.recal.blur();
       this.recalibrate();
     });
@@ -271,7 +286,8 @@ class PoseCamera {
     if (this.state !== "idle") {
       return;
     }
-    const attempt = ++this.attempt;
+    this.attempt += 1;
+    const { attempt } = this;
     this.setState("loading");
     this.ui.cap.textContent = "📷 LOADING";
     this.ui.screen.setAttribute("aria-label", "Pose camera preview");
@@ -295,7 +311,9 @@ class PoseCamera {
     this.ui.video.pause();
     this.ui.video.srcObject = null;
     if (this.stream) {
-      for (const track of this.stream.getTracks()) track.stop();
+      for (const track of this.stream.getTracks()) {
+        track.stop();
+      }
     }
     this.stream = null;
     this.landmarker?.close();
@@ -462,7 +480,7 @@ class PoseCamera {
 
         try {
           const result = landmarker.detectForVideo(video, timestamp);
-          const landmarks = result.landmarks[0];
+          const [landmarks] = result.landmarks;
           this.noseVisible = false;
           this.armsVisible = false;
           if (landmarks) {
@@ -523,7 +541,7 @@ class PoseCamera {
 
     if (this.state === "warming") {
       this.warmupTotal += currentY;
-      this.warmupSamples++;
+      this.warmupSamples += 1;
       if (this.warmupSamples >= WARMUP_SAMPLES) {
         this.baselineY = this.warmupTotal / this.warmupSamples;
         this.setState("detecting");
@@ -693,52 +711,6 @@ class PoseCamera {
   }
 }
 
-// ---- module API ------------------------------------------------------------------------
-
-let active: PoseCamera | null = null;
-
-/** Coarse-pointer/touch detection — decide input-aware copy + layout at boot. */
-export function isCoarsePointer(): boolean {
-  return window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
-}
-
-/**
- * Create the bottom-right webcam panel and begin camera + model startup
- * (idempotent — repeat calls just swap the jump handler). Failures degrade to
- * a visible status message while keyboard/tap input keeps working. Touch
- * devices boot collapsed with getUserMedia deferred behind a tap on the pill;
- * desktop keeps the legacy auto-start.
- */
-export function initPoseCamera(onJump: PoseJumpHandler): void {
-  if (active !== null) {
-    active.setHandler(onJump);
-    return;
-  }
-  const touch = isCoarsePointer();
-  const compact = touch || Math.min(window.innerWidth, window.innerHeight) < 560;
-  active = new PoseCamera(buildPanel(document.body, compact), onJump, !touch);
-}
-
-/**
- * Lock the resting baseline for a run (true) or let it roll between runs
- * (false). The game calls this on its ready→playing / →gameover transitions so
- * the baseline "locks in place" the moment you start and re-tracks while idle.
- * No-op if the camera never initialised (permission denied / not started).
- */
-export function setPoseLocked(locked: boolean): void {
-  active?.setLocked(locked);
-}
-
-/**
- * Re-seed the resting pose baseline (the game calls this when its start
- * countdown begins, so calibration captures the player once they're in
- * position). No-op if the camera never initialised or isn't tracking yet —
- * recalibrate() only has effect past warm-up, and warm-up already self-seeds.
- */
-export function recalibratePose(): void {
-  active?.recalibrate();
-}
-
 // ---- DOM (styled to match the app's dark "glass pill" HUD) --------------------------------
 
 const PANEL_STYLE_ID = "fd-pose-cam-style";
@@ -754,7 +726,7 @@ const PANEL_STYLE_ID = "fd-pose-cam-style";
  * the buttons are interactive — a click on the view toggles its size, so the
  * panel consumes its own taps instead of flapping.
  */
-function injectStyles(): void {
+const injectStyles = (): void => {
   if (document.querySelector(`#${PANEL_STYLE_ID}`)) {
     return;
   }
@@ -836,9 +808,9 @@ function injectStyles(): void {
     }
   `;
   document.head.append(style);
-}
+};
 
-function buildPanel(parent: HTMLElement, collapsed: boolean): Panel {
+const buildPanel = (parent: HTMLElement, collapsed: boolean): Panel => {
   injectStyles();
 
   const root = document.createElement("div");
@@ -895,17 +867,49 @@ function buildPanel(parent: HTMLElement, collapsed: boolean): Panel {
   }).observe(root);
 
   return { button, cap, overlay, recal, root, screen, status, video };
-}
+};
 
-// ---- pure helpers --------------------------------------------------------------------------
+// ---- module API ------------------------------------------------------------------------
 
-function getSmoothedY(positions: number[]): number {
-  if (positions.length === 0) {
-    return 0;
+let active: PoseCamera | null = null;
+
+/** Coarse-pointer/touch detection — decide input-aware copy + layout at boot. */
+export const isCoarsePointer = (): boolean =>
+  window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+
+/**
+ * Create the bottom-right webcam panel and begin camera + model startup
+ * (idempotent — repeat calls just swap the jump handler). Failures degrade to
+ * a visible status message while keyboard/tap input keeps working. Touch
+ * devices boot collapsed with getUserMedia deferred behind a tap on the pill;
+ * desktop keeps the legacy auto-start.
+ */
+export const initPoseCamera = (onJump: PoseJumpHandler): void => {
+  if (active !== null) {
+    active.setHandler(onJump);
+    return;
   }
-  return positions.reduce((sum, val) => sum + val, 0) / positions.length;
-}
+  const touch = isCoarsePointer();
+  const compact = touch || Math.min(window.innerWidth, window.innerHeight) < 560;
+  active = new PoseCamera(buildPanel(document.body, compact), onJump, !touch);
+};
 
-function errorMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
-}
+/**
+ * Lock the resting baseline for a run (true) or let it roll between runs
+ * (false). The game calls this on its ready→playing / →gameover transitions so
+ * the baseline "locks in place" the moment you start and re-tracks while idle.
+ * No-op if the camera never initialised (permission denied / not started).
+ */
+export const setPoseLocked = (locked: boolean): void => {
+  active?.setLocked(locked);
+};
+
+/**
+ * Re-seed the resting pose baseline (the game calls this when its start
+ * countdown begins, so calibration captures the player once they're in
+ * position). No-op if the camera never initialised or isn't tracking yet —
+ * recalibrate() only has effect past warm-up, and warm-up already self-seeds.
+ */
+export const recalibratePose = (): void => {
+  active?.recalibrate();
+};

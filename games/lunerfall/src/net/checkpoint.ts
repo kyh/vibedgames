@@ -12,71 +12,80 @@ import { isJsonNumber, isJsonObject, isJsonString } from "./json";
 import type { JsonObject, JsonValue } from "./json";
 import type { NetRoom } from "./snapshot";
 
-export interface CheckpointSeats {
+// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
+export type CheckpointSeats = {
   host: string | null;
   guest: string | null;
-}
-export interface InputSequence {
+};
+// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
+export type InputSequence = {
   j: number;
   d: number;
   a: number;
   s: number;
-}
-export interface CheckpointCombat {
+};
+// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
+export type CheckpointCombat = {
   hitSwing: number[];
   lastSwing: number;
   hitSpecial: number[];
   lastSpecial: number;
   bossSwing: number;
   bossSpecial: number;
-}
-export interface CheckpointPlayer {
+};
+// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
+export type CheckpointPlayer = {
   id: string;
   hero: HeroName;
   body: PlayerBodyCheckpoint;
   combat: CheckpointCombat;
   versusHits: { swing: number; special: number };
-}
-export interface CheckpointEnemy {
+};
+// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
+export type CheckpointEnemy = {
   id: number;
   name: EnemyName;
   body: EnemyBodyCheckpoint;
   tint: number;
   deathAge: number | null;
-}
-export interface CheckpointArrow {
+};
+// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
+export type CheckpointArrow = {
   x: number;
   y: number;
   vx: number;
   vy: number;
   life: number;
   dmg: number;
-}
+};
 export type CheckpointShot = CheckpointArrow & {
   owner: string | null;
   hit: number[];
   hitP: string[];
   hitBoss: boolean;
 };
-export interface CheckpointHazard {
+// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
+export type CheckpointHazard = {
   x: number;
   y: number;
   vx: number;
   life: number;
   dmg: number;
   hitPlayer: boolean;
-}
-export interface CheckpointFeature {
+};
+// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
+export type CheckpointFeature = {
   x: number;
   y: number;
   used: boolean;
-}
-export interface CheckpointMerchant {
+};
+// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
+export type CheckpointMerchant = {
   x: number;
   y: number;
   relic: string;
   bought: boolean;
-}
+};
 export type CheckpointPhase =
   | { kind: "active" }
   | { kind: "transition"; elapsed: number; built: boolean; offer: RoomType }
@@ -84,7 +93,8 @@ export type CheckpointPhase =
 
 // `host`/`guest` are the ORIGINAL left/right seats, never the elected writer.
 // Body ownership remains player-ID based across authority changes.
-interface CheckpointBase {
+// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
+type CheckpointBase = {
   version: 1;
   runId: string;
   writer: string;
@@ -116,7 +126,7 @@ interface CheckpointBase {
   accumulator: number;
   cleared: boolean;
   phase: CheckpointPhase;
-}
+};
 export type ExpeditionCheckpoint = CheckpointBase &
   (
     | {
@@ -150,176 +160,162 @@ const projectile = (v: JsonValue | undefined): boolean =>
 const blast = (v: JsonValue | undefined): boolean =>
   isJsonObject(v) && nums(v, ["x", "y", "r", "dmg"]);
 
-export function isPlayerCheckpoint(v: JsonValue | undefined): v is PlayerBodyCheckpoint {
-  return (
-    isJsonObject(v) &&
-    nums(v, [
-      "x",
-      "y",
-      "prevX",
-      "prevY",
-      "vx",
-      "vy",
-      "iframes",
-      "attackStep",
-      "swingId",
-      "specialId",
-      "pendingHeal",
-      "attackTime",
-      "attackBuf",
-      "attackCd",
-      "comboStage",
-      "comboGrace",
-      "specialBuf",
-      "specialCd",
-      "specialElapsed",
-      "specialDur",
-      "hurtStun",
-      "coyote",
-      "jumpBuf",
-      "dashBuf",
-      "dashTime",
-      "dashCd",
-      "wallLock",
-      "dashDirX",
-      "dashDirY",
-      "landVy",
-    ]) &&
-    bools(v, [
-      "grounded",
-      "dead",
-      "downed",
-      "specialActive",
-      "comboQueued",
-      "specialFired",
-      "airDash",
-      "jumping",
-      "hLeft",
-      "hRight",
-      "hUp",
-      "hDown",
-      "jumpHeld",
-    ]) &&
-    face(v.facing) &&
-    (v.wallDir === -1 || v.wallDir === 0 || v.wallDir === 1) &&
-    (v.pendingShot === null ||
-      (projectile(v.pendingShot) && isJsonObject(v.pendingShot) && isJsonNumber(v.pendingShot.dmg)))
-  );
-}
-export function isEnemyCheckpoint(v: JsonValue | undefined): v is EnemyBodyCheckpoint {
-  return (
-    isJsonObject(v) &&
-    nums(v, [
-      "x",
-      "y",
-      "prevX",
-      "prevY",
-      "vx",
-      "vy",
-      "hp",
-      "stateT",
-      "hitFlash",
-      "iframes",
-      "speedMult",
-      "dmgTakenMult",
-      "dmgOutMult",
-      "attackCd",
-    ]) &&
-    bools(v, ["grounded", "dead", "hitWall", "exploded"]) &&
-    face(v.facing) &&
-    face(v.chargeDir) &&
-    ["spawn", "chase", "windup", "attack", "charge", "recover", "hurt", "dead"].some(
-      (s) => s === v.state,
-    ) &&
-    (v.pendingProjectile === null || projectile(v.pendingProjectile)) &&
-    (v.pendingBlast === null || blast(v.pendingBlast))
-  );
-}
-export function isBossCheckpoint(v: JsonValue | undefined): v is BossBodyCheckpoint {
-  return (
-    isJsonObject(v) &&
-    nums(v, [
-      "x",
-      "y",
-      "prevX",
-      "prevY",
-      "vx",
-      "vy",
-      "hp",
-      "stateT",
-      "hitFlash",
-      "iframes",
-      "attackCd",
-    ]) &&
-    (v.phase === 1 || v.phase === 2) &&
-    bools(v, ["grounded", "dead"]) &&
-    face(v.facing) &&
-    ["intro", "idle", "wave", "jump", "slam", "charge", "punch", "hurt", "phase", "dead"].some(
-      (s) => s === v.state,
-    ) &&
-    Array.isArray(v.pendingWaves) &&
-    v.pendingWaves.every((w) => isJsonObject(w) && nums(w, ["x", "y", "vx", "dmg"])) &&
-    (v.pendingBlast === null || blast(v.pendingBlast)) &&
-    (v.pendingAdds === null ||
-      (Array.isArray(v.pendingAdds) &&
-        v.pendingAdds.every(
-          (a) => isJsonObject(a) && point(a) && ENEMY_NAMES.some((n) => n === a.name),
-        )))
-  );
-}
-function combat(v: JsonValue | undefined): v is CheckpointCombat {
-  return (
-    isJsonObject(v) &&
-    numbers(v.hitSwing) &&
-    numbers(v.hitSpecial) &&
-    nums(v, ["lastSwing", "lastSpecial", "bossSwing", "bossSpecial"])
-  );
-}
-function player(v: JsonValue | undefined): v is CheckpointPlayer {
-  return (
-    isJsonObject(v) &&
-    id(v.id) &&
-    HERO_NAMES.some((h) => h === v.hero) &&
-    isPlayerCheckpoint(v.body) &&
-    combat(v.combat) &&
-    isJsonObject(v.versusHits) &&
-    nums(v.versusHits, ["swing", "special"])
-  );
-}
-function enemy(v: JsonValue | undefined): v is CheckpointEnemy {
-  return (
-    isJsonObject(v) &&
-    integer(v.id) &&
-    ENEMY_NAMES.some((n) => n === v.name) &&
-    isEnemyCheckpoint(v.body) &&
-    integer(v.tint) &&
-    v.tint <= 0xff_ff_ff &&
-    (v.deathAge === null || isJsonNumber(v.deathAge))
-  );
-}
-function arrow(v: JsonValue | undefined): v is CheckpointArrow {
-  return isJsonObject(v) && nums(v, ["x", "y", "vx", "vy", "life", "dmg"]);
-}
-function shot(v: JsonValue | undefined): v is CheckpointShot {
-  return (
-    isJsonObject(v) &&
-    nums(v, ["x", "y", "vx", "vy", "life", "dmg"]) &&
-    nullableId(v.owner) &&
-    numbers(v.hit) &&
-    ids(v.hitP) &&
-    bool(v.hitBoss)
-  );
-}
-function hazard(v: JsonValue | undefined): v is CheckpointHazard {
-  return isJsonObject(v) && nums(v, ["x", "y", "vx", "life", "dmg"]) && bool(v.hitPlayer);
-}
-function feature(v: JsonValue | undefined): v is CheckpointFeature {
-  return isJsonObject(v) && point(v) && bool(v.used);
-}
-function merchant(v: JsonValue | undefined): v is CheckpointMerchant {
-  return isJsonObject(v) && point(v) && relic(v.relic) && bool(v.bought);
-}
-function phase(v: JsonValue | undefined): v is CheckpointPhase {
+export const isPlayerCheckpoint = (v: JsonValue | undefined): v is PlayerBodyCheckpoint =>
+  isJsonObject(v) &&
+  nums(v, [
+    "x",
+    "y",
+    "prevX",
+    "prevY",
+    "vx",
+    "vy",
+    "iframes",
+    "attackStep",
+    "swingId",
+    "specialId",
+    "pendingHeal",
+    "attackTime",
+    "attackBuf",
+    "attackCd",
+    "comboStage",
+    "comboGrace",
+    "specialBuf",
+    "specialCd",
+    "specialElapsed",
+    "specialDur",
+    "hurtStun",
+    "coyote",
+    "jumpBuf",
+    "dashBuf",
+    "dashTime",
+    "dashCd",
+    "wallLock",
+    "dashDirX",
+    "dashDirY",
+    "landVy",
+  ]) &&
+  bools(v, [
+    "grounded",
+    "dead",
+    "downed",
+    "specialActive",
+    "comboQueued",
+    "specialFired",
+    "airDash",
+    "jumping",
+    "hLeft",
+    "hRight",
+    "hUp",
+    "hDown",
+    "jumpHeld",
+  ]) &&
+  face(v.facing) &&
+  (v.wallDir === -1 || v.wallDir === 0 || v.wallDir === 1) &&
+  (v.pendingShot === null ||
+    (projectile(v.pendingShot) && isJsonObject(v.pendingShot) && isJsonNumber(v.pendingShot.dmg)));
+
+export const isEnemyCheckpoint = (v: JsonValue | undefined): v is EnemyBodyCheckpoint =>
+  isJsonObject(v) &&
+  nums(v, [
+    "x",
+    "y",
+    "prevX",
+    "prevY",
+    "vx",
+    "vy",
+    "hp",
+    "stateT",
+    "hitFlash",
+    "iframes",
+    "speedMult",
+    "dmgTakenMult",
+    "dmgOutMult",
+    "attackCd",
+  ]) &&
+  bools(v, ["grounded", "dead", "hitWall", "exploded"]) &&
+  face(v.facing) &&
+  face(v.chargeDir) &&
+  ["spawn", "chase", "windup", "attack", "charge", "recover", "hurt", "dead"].some(
+    (s) => s === v.state,
+  ) &&
+  (v.pendingProjectile === null || projectile(v.pendingProjectile)) &&
+  (v.pendingBlast === null || blast(v.pendingBlast));
+
+export const isBossCheckpoint = (v: JsonValue | undefined): v is BossBodyCheckpoint =>
+  isJsonObject(v) &&
+  nums(v, [
+    "x",
+    "y",
+    "prevX",
+    "prevY",
+    "vx",
+    "vy",
+    "hp",
+    "stateT",
+    "hitFlash",
+    "iframes",
+    "attackCd",
+  ]) &&
+  (v.phase === 1 || v.phase === 2) &&
+  bools(v, ["grounded", "dead"]) &&
+  face(v.facing) &&
+  ["intro", "idle", "wave", "jump", "slam", "charge", "punch", "hurt", "phase", "dead"].some(
+    (s) => s === v.state,
+  ) &&
+  Array.isArray(v.pendingWaves) &&
+  v.pendingWaves.every((w) => isJsonObject(w) && nums(w, ["x", "y", "vx", "dmg"])) &&
+  (v.pendingBlast === null || blast(v.pendingBlast)) &&
+  (v.pendingAdds === null ||
+    (Array.isArray(v.pendingAdds) &&
+      v.pendingAdds.every(
+        (a) => isJsonObject(a) && point(a) && ENEMY_NAMES.some((n) => n === a.name),
+      )));
+
+const combat = (v: JsonValue | undefined): v is CheckpointCombat =>
+  isJsonObject(v) &&
+  numbers(v.hitSwing) &&
+  numbers(v.hitSpecial) &&
+  nums(v, ["lastSwing", "lastSpecial", "bossSwing", "bossSpecial"]);
+
+const player = (v: JsonValue | undefined): v is CheckpointPlayer =>
+  isJsonObject(v) &&
+  id(v.id) &&
+  HERO_NAMES.some((h) => h === v.hero) &&
+  isPlayerCheckpoint(v.body) &&
+  combat(v.combat) &&
+  isJsonObject(v.versusHits) &&
+  nums(v.versusHits, ["swing", "special"]);
+
+const enemy = (v: JsonValue | undefined): v is CheckpointEnemy =>
+  isJsonObject(v) &&
+  integer(v.id) &&
+  ENEMY_NAMES.some((n) => n === v.name) &&
+  isEnemyCheckpoint(v.body) &&
+  integer(v.tint) &&
+  v.tint <= 0xff_ff_ff &&
+  (v.deathAge === null || isJsonNumber(v.deathAge));
+
+const arrow = (v: JsonValue | undefined): v is CheckpointArrow =>
+  isJsonObject(v) && nums(v, ["x", "y", "vx", "vy", "life", "dmg"]);
+
+const shot = (v: JsonValue | undefined): v is CheckpointShot =>
+  isJsonObject(v) &&
+  nums(v, ["x", "y", "vx", "vy", "life", "dmg"]) &&
+  nullableId(v.owner) &&
+  numbers(v.hit) &&
+  ids(v.hitP) &&
+  bool(v.hitBoss);
+
+const hazard = (v: JsonValue | undefined): v is CheckpointHazard =>
+  isJsonObject(v) && nums(v, ["x", "y", "vx", "life", "dmg"]) && bool(v.hitPlayer);
+
+const feature = (v: JsonValue | undefined): v is CheckpointFeature =>
+  isJsonObject(v) && point(v) && bool(v.used);
+
+const merchant = (v: JsonValue | undefined): v is CheckpointMerchant =>
+  isJsonObject(v) && point(v) && relic(v.relic) && bool(v.bought);
+
+const phase = (v: JsonValue | undefined): v is CheckpointPhase => {
   if (!isJsonObject(v)) {
     return false;
   }
@@ -330,164 +326,141 @@ function phase(v: JsonValue | undefined): v is CheckpointPhase {
     return false;
   }
   return v.kind === "dead" || (v.kind === "transition" && bool(v.built) && roomType(v.offer));
-}
-function versus(v: JsonValue | undefined): v is VersusCheckpoint {
-  return (
-    isJsonObject(v) &&
-    ["waiting", "countdown", "fighting", "roundEnd", "matchEnd"].some((p) => p === v.phase) &&
-    integer(v.round) &&
-    isJsonNumber(v.t) &&
-    isJsonObject(v.hp) &&
-    nums(v.hp, ["host", "guest"]) &&
-    isJsonObject(v.score) &&
-    nums(v.score, ["host", "guest"]) &&
-    (v.winner === null || v.winner === "host" || v.winner === "guest")
-  );
-}
-function room(v: JsonValue | undefined): v is NetRoom {
-  return (
-    isJsonObject(v) &&
-    integer(v.seq) &&
-    (v.mode === "coop" || v.mode === "vs") &&
-    roomType(v.type) &&
-    integer(v.cols) &&
-    v.cols > 0 &&
-    integer(v.rows) &&
-    v.rows > 0 &&
-    Array.isArray(v.cells) &&
-    v.cells.length === v.cols * v.rows &&
-    v.cells.every((c) => c === 0 || c === 1 || c === 2) &&
-    nums(v, ["spawnX", "spawnY"]) &&
-    Array.isArray(v.doors) &&
-    v.doors.every(
-      (d) =>
-        isJsonObject(d) &&
-        integer(d.index) &&
-        point(d) &&
-        roomType(d.type) &&
-        isJsonString(d.label) &&
-        bool(d.danger),
-    ) &&
-    isJsonString(v.propKey) &&
-    bool(v.mustClear)
-  );
-}
-function checkpoint(v: JsonValue | undefined): v is ExpeditionCheckpoint {
-  if (
-    !isJsonObject(v) ||
-    v.version !== 1 ||
-    !id(v.runId) ||
-    !id(v.writer) ||
-    !integer(v.term) ||
-    !integer(v.tick) ||
-    !integer(v.room) ||
-    !integer(v.rng) ||
-    v.rng > 0xff_ff_ff_ff
-  ) {
-    return false;
-  }
-  if (
-    !isJsonObject(v.seats) ||
-    !nullableId(v.seats.host) ||
-    !nullableId(v.seats.guest) ||
-    (v.seats.host !== null && v.seats.host === v.seats.guest)
-  ) {
-    return false;
-  }
-  if (
-    !Array.isArray(v.players) ||
-    v.players.length > 2 ||
-    !v.players.every(player) ||
-    !Array.isArray(v.enemies) ||
-    !v.enemies.every(enemy) ||
-    !(v.boss === null || isBossCheckpoint(v.boss))
-  ) {
-    return false;
-  }
-  if (
-    !Array.isArray(v.arrows) ||
-    !v.arrows.every(arrow) ||
-    !Array.isArray(v.shots) ||
-    !v.shots.every(shot) ||
-    !Array.isArray(v.hazards) ||
-    !v.hazards.every(hazard)
-  ) {
-    return false;
-  }
-  if (
-    !isJsonObject(v.run) ||
-    !integer(v.run.biome) ||
-    v.run.biome < 1 ||
-    !integer(v.run.depth) ||
-    !roomType(v.run.type) ||
-    !Array.isArray(v.run.offers) ||
-    !v.run.offers.every(roomType)
-  ) {
-    return false;
-  }
-  if (
-    !isJsonObject(v.mods) ||
-    !nums(v.mods, [
-      "dmg",
-      "maxHearts",
-      "lifesteal",
-      "goldMult",
-      "armor",
-      "crit",
-      "critMult",
-      "regen",
-      "rage",
-    ]) ||
-    !Array.isArray(v.relics) ||
-    !v.relics.every(relic)
-  ) {
-    return false;
-  }
-  if (
-    !Array.isArray(v.merchant) ||
-    !v.merchant.every(merchant) ||
-    !(v.feature === null || feature(v.feature))
-  ) {
-    return false;
-  }
-  if (
-    !nums(v, [
-      "bossDeathAge",
-      "hearts",
-      "maxHearts",
-      "gold",
-      "score",
-      "combo",
-      "comboTime",
-      "freeze",
-      "accumulator",
-    ]) ||
-    !integer(v.nextEnemyId) ||
-    !bool(v.cleared) ||
-    !phase(v.phase)
-  ) {
-    return false;
-  }
+};
+
+const versus = (v: JsonValue | undefined): v is VersusCheckpoint =>
+  isJsonObject(v) &&
+  ["waiting", "countdown", "fighting", "roundEnd", "matchEnd"].some((p) => p === v.phase) &&
+  integer(v.round) &&
+  isJsonNumber(v.t) &&
+  isJsonObject(v.hp) &&
+  nums(v.hp, ["host", "guest"]) &&
+  isJsonObject(v.score) &&
+  nums(v.score, ["host", "guest"]) &&
+  (v.winner === null || v.winner === "host" || v.winner === "guest");
+
+const door = (d: JsonValue | undefined): boolean =>
+  isJsonObject(d) &&
+  integer(d.index) &&
+  point(d) &&
+  roomType(d.type) &&
+  isJsonString(d.label) &&
+  bool(d.danger);
+
+const room = (v: JsonValue | undefined): v is NetRoom =>
+  isJsonObject(v) &&
+  integer(v.seq) &&
+  (v.mode === "coop" || v.mode === "vs") &&
+  roomType(v.type) &&
+  integer(v.cols) &&
+  v.cols > 0 &&
+  integer(v.rows) &&
+  v.rows > 0 &&
+  Array.isArray(v.cells) &&
+  v.cells.length === v.cols * v.rows &&
+  v.cells.every((c) => c === 0 || c === 1 || c === 2) &&
+  nums(v, ["spawnX", "spawnY"]) &&
+  Array.isArray(v.doors) &&
+  v.doors.every(door) &&
+  isJsonString(v.propKey) &&
+  bool(v.mustClear);
+
+// The whole-checkpoint predicate is split per section; each helper narrows one
+// field group so the final structural check is a flat conjunction.
+
+const header = (v: JsonObject): boolean =>
+  v.version === 1 &&
+  id(v.runId) &&
+  id(v.writer) &&
+  integer(v.term) &&
+  integer(v.tick) &&
+  integer(v.room) &&
+  integer(v.rng) &&
+  v.rng <= 0xff_ff_ff_ff;
+
+const seats = (v: JsonValue | undefined): v is CheckpointSeats =>
+  isJsonObject(v) &&
+  nullableId(v.host) &&
+  nullableId(v.guest) &&
+  (v.host === null || v.host !== v.guest);
+
+const actors = (v: JsonObject): boolean =>
+  Array.isArray(v.players) &&
+  v.players.length <= 2 &&
+  v.players.every(player) &&
+  Array.isArray(v.enemies) &&
+  v.enemies.every(enemy) &&
+  (v.boss === null || isBossCheckpoint(v.boss));
+
+const projectiles = (v: JsonObject): boolean =>
+  Array.isArray(v.arrows) &&
+  v.arrows.every(arrow) &&
+  Array.isArray(v.shots) &&
+  v.shots.every(shot) &&
+  Array.isArray(v.hazards) &&
+  v.hazards.every(hazard);
+
+const run = (v: JsonValue | undefined): boolean =>
+  isJsonObject(v) &&
+  integer(v.biome) &&
+  v.biome >= 1 &&
+  integer(v.depth) &&
+  roomType(v.type) &&
+  Array.isArray(v.offers) &&
+  v.offers.every(roomType);
+
+const mods = (v: JsonValue | undefined): v is RunMods =>
+  isJsonObject(v) &&
+  nums(v, [
+    "dmg",
+    "maxHearts",
+    "lifesteal",
+    "goldMult",
+    "armor",
+    "crit",
+    "critMult",
+    "regen",
+    "rage",
+  ]);
+
+const loot = (v: JsonObject): boolean =>
+  Array.isArray(v.relics) &&
+  v.relics.every(relic) &&
+  Array.isArray(v.merchant) &&
+  v.merchant.every(merchant) &&
+  (v.feature === null || feature(v.feature));
+
+const counters = (v: JsonObject): boolean =>
+  nums(v, [
+    "bossDeathAge",
+    "hearts",
+    "maxHearts",
+    "gold",
+    "score",
+    "combo",
+    "comboTime",
+    "freeze",
+    "accumulator",
+  ]) &&
+  integer(v.nextEnemyId) &&
+  bool(v.cleared) &&
+  phase(v.phase);
+
+const lastStand = (v: JsonValue | undefined): boolean =>
+  v === null || (isJsonObject(v) && id(v.id) && nums(v, ["bleed", "revive"]));
+
+const mode = (v: JsonObject): boolean => {
   if (v.mode === "versus") {
-    if (!versus(v.versus) || v.lastStand !== null) {
-      return false;
-    }
-  } else if (v.mode === "coop") {
-    if (
-      v.versus !== null ||
-      !(
-        v.lastStand === null ||
-        (isJsonObject(v.lastStand) && id(v.lastStand.id) && nums(v.lastStand, ["bleed", "revive"]))
-      )
-    ) {
-      return false;
-    }
-  } else {
-    return false;
+    return versus(v.versus) && v.lastStand === null;
   }
-  // Reference integrity prevents a partially restored graph and repeat hits.
-  const { seats } = v;
-  const { nextEnemyId } = v;
+  if (v.mode === "coop") {
+    return v.versus === null && lastStand(v.lastStand);
+  }
+  return false;
+};
+
+// Reference integrity prevents a partially restored graph and repeat hits.
+const references = (v: ExpeditionCheckpoint): boolean => {
   const playerIds = new Set(v.players.map((p) => p.id));
   const enemyIds = new Set(v.enemies.map((e) => e.id));
   if (playerIds.size !== v.players.length || enemyIds.size !== v.enemies.length) {
@@ -496,7 +469,7 @@ function checkpoint(v: JsonValue | undefined): v is ExpeditionCheckpoint {
   if ([v.seats.host, v.seats.guest].some((s) => s !== null && !playerIds.has(s))) {
     return false;
   }
-  if (v.players.some((p) => p.id !== seats.host && p.id !== seats.guest)) {
+  if (v.players.some((p) => p.id !== v.seats.host && p.id !== v.seats.guest)) {
     return false;
   }
   if (
@@ -516,15 +489,30 @@ function checkpoint(v: JsonValue | undefined): v is ExpeditionCheckpoint {
   ) {
     return false;
   }
-  if (v.lastStand !== null && isJsonObject(v.lastStand) && !playerIds.has(String(v.lastStand.id))) {
+  if (v.lastStand !== null && !playerIds.has(v.lastStand.id)) {
     return false;
   }
-  return v.enemies.every((e) => e.id < nextEnemyId);
-}
+  return v.enemies.every((e) => e.id < v.nextEnemyId);
+};
+
+const wellFormed = (v: JsonValue | undefined): v is ExpeditionCheckpoint =>
+  isJsonObject(v) &&
+  header(v) &&
+  seats(v.seats) &&
+  actors(v) &&
+  projectiles(v) &&
+  run(v.run) &&
+  mods(v.mods) &&
+  loot(v) &&
+  counters(v) &&
+  mode(v);
+
+const checkpoint = (v: JsonValue | undefined): v is ExpeditionCheckpoint =>
+  wellFormed(v) && references(v);
 
 /** Strict whole-boundary admission. Neither invalid data nor a mismatched room
  * can fall through to initial seeding. Returned mutable state is detached. */
-export function readCheckpoint(shared: Record<string, JsonValue> | null): CheckpointRead {
+export const readCheckpoint = (shared: Record<string, JsonValue> | null): CheckpointRead => {
   if (
     !shared ||
     (shared.checkpoint === undefined && shared.room === undefined && shared.snap === undefined)
@@ -542,4 +530,4 @@ export function readCheckpoint(shared: Record<string, JsonValue> | null): Checkp
     return { kind: "invalid" };
   }
   return { kind: "ready", room: structuredClone(r), value: structuredClone(c) };
-}
+};

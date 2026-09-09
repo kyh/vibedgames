@@ -82,10 +82,10 @@ export const ABILITY_ICON = {
 const ABILITY_ICON_LOOKUP = new Map<string, string>(Object.entries(ABILITY_ICON));
 
 /** Frame in the packed spell-icon sheet for an ability's HUD icon. */
-export function abilityIconFrame(effect: string): number | null {
+export const abilityIconFrame = (effect: string): number | null => {
   const name = ABILITY_ICON_LOOKUP.get(effect);
   return name === undefined ? null : (SPELL_ICON_FRAME[name] ?? null);
-}
+};
 
 /** A one-shot sprite burst played when an ability is cast (on top of the
  *  procedural ring/beam). `at` chooses caster vs the targeted point. */
@@ -98,38 +98,39 @@ export interface SpellCastFx {
 }
 
 export const ABILITY_CAST_FX = {
-  "boomtinker:E": { at: "caster", scale: 1.2, sheet: "sp-light", tint: 0xffe08a },
-  "boomtinker:Q": { at: "caster", scale: 0.9, sheet: "sp-smoke", tint: 0xd8c0a0 }, // toss puff
+  "boomtinker:E": { at: "caster", scale: 1.2, sheet: "sp-light", tint: 0xff_e0_8a },
+  // toss puff
+  "boomtinker:Q": { at: "caster", scale: 0.9, sheet: "sp-smoke", tint: 0xd8_c0_a0 },
   "boomtinker:R": { at: "target", scale: 1.6, sheet: "fx-explode1" },
-  "boomtinker:W": { at: "target", scale: 1.0, sheet: "sp-smoke", tint: 0xffd24d },
-  "brewkeeper:E": { at: "caster", scale: 1.5, sheet: "sp-light", tint: 0x9bf0b0 },
+  "boomtinker:W": { at: "target", scale: 1, sheet: "sp-smoke", tint: 0xff_d2_4d },
+  "brewkeeper:E": { at: "caster", scale: 1.5, sheet: "sp-light", tint: 0x9b_f0_b0 },
   "brewkeeper:Q": { at: "target", scale: 0.9, sheet: "sp-geyser", startFrame: 2 },
-  "brewkeeper:R": { at: "caster", scale: 2.3, sheet: "sp-light", tint: 0x9bf0b0 }, // last call
-  "brewkeeper:W": { at: "target", scale: 1.9, sheet: "sp-gypno", tint: 0xc78bff },
-  "duskblade:Q": { at: "caster", scale: 1.0, sheet: "sp-smoke", tint: 0xb06bff },
-  "duskblade:R": { at: "target", scale: 2.2, sheet: "sp-skull", startFrame: 5, tint: 0xc89bff },
+  // last call
+  "brewkeeper:R": { at: "caster", scale: 2.3, sheet: "sp-light", tint: 0x9b_f0_b0 },
+  "brewkeeper:W": { at: "target", scale: 1.9, sheet: "sp-gypno", tint: 0xc7_8b_ff },
+  "duskblade:Q": { at: "caster", scale: 1, sheet: "sp-smoke", tint: 0xb0_6b_ff },
+  "duskblade:R": { at: "target", scale: 2.2, sheet: "sp-skull", startFrame: 5, tint: 0xc8_9b_ff },
   "duskblade:W": { at: "target", scale: 1.4, sheet: "sp-spikes", startFrame: 3 },
   "emberhex:E": { at: "caster", scale: 1.1, sheet: "sp-flare-ring", startFrame: 1 },
   "emberhex:Q": { at: "caster", scale: 0.9, sheet: "sp-fire", startFrame: 3 },
-  "emberhex:W": { at: "caster", scale: 1.0, sheet: "sp-fire", startFrame: 6 },
+  "emberhex:W": { at: "caster", scale: 1, sheet: "sp-fire", startFrame: 6 },
   "ironvow:Q": { at: "target", scale: 0.9, sheet: "sp-light" },
-  "ironvow:R": { at: "caster", scale: 2.6, sheet: "sp-light", tint: 0xbcd6ff },
-  "ironvow:W": { at: "caster", scale: 1.3, sheet: "sp-light", tint: 0xbcd6ff },
-  "stormcaller:E": { at: "caster", scale: 1.25, sheet: "sp-tornado", tint: 0xbfe6ff },
+  "ironvow:R": { at: "caster", scale: 2.6, sheet: "sp-light", tint: 0xbc_d6_ff },
+  "ironvow:W": { at: "caster", scale: 1.3, sheet: "sp-light", tint: 0xbc_d6_ff },
+  "stormcaller:E": { at: "caster", scale: 1.25, sheet: "sp-tornado", tint: 0xbf_e6_ff },
   "stormcaller:R": { at: "target", scale: 1.3, sheet: "sp-lightning", startFrame: 3 },
   "stormcaller:W": { at: "target", scale: 1.2, sheet: "sp-arc", startFrame: 3 },
 } satisfies Record<string, SpellCastFx>;
 
 const CAST_FX_LOOKUP = new Map<string, SpellCastFx>(Object.entries(ABILITY_CAST_FX));
 
-export function abilityCastFx(effect: string): SpellCastFx | null {
-  return CAST_FX_LOOKUP.get(effect) ?? null;
-}
+export const abilityCastFx = (effect: string): SpellCastFx | null =>
+  CAST_FX_LOOKUP.get(effect) ?? null;
 
 /** Persistent zone visuals for ground effects, keyed off the GroundEffect.effect.
  *  "fire" tiles a looping flame; "storm" rains lightning bolts; "heal" pools water. */
 export type GroundFxKind = "fire" | "storm" | "heal" | "none";
-export function groundFxKind(effect: string, isHeal: boolean): GroundFxKind {
+export const groundFxKind = (effect: string, isHeal: boolean): GroundFxKind => {
   if (isHeal || effect.startsWith("brewkeeper")) {
     return "heal";
   }
@@ -145,38 +146,38 @@ export function groundFxKind(effect: string, isHeal: boolean): GroundFxKind {
     return "fire";
   }
   return "none";
-}
+};
 
 /** Colour an ability/cast effect by its element keyword (rings, beams, numbers). */
-export function effectColor(effect: string): number {
+export const effectColor = (effect: string): number => {
   if (
     effect.startsWith("emberhex") ||
     effect.includes("fire") ||
     effect.includes("flash") ||
     effect.includes("conflag")
   ) {
-    return 0xff7a2a;
+    return 0xff_7a_2a;
   }
   if (effect.startsWith("stormcaller") || effect.includes("storm") || effect.includes("pierc")) {
-    return 0x6ab8ff;
+    return 0x6a_b8_ff;
   }
   if (effect.startsWith("brewkeeper")) {
-    return 0x8be07a;
+    return 0x8b_e0_7a;
   }
   if (effect.startsWith("boomtinker")) {
-    return 0xffd24d;
+    return 0xff_d2_4d;
   }
   if (effect.startsWith("duskblade")) {
-    return 0xb06bff;
+    return 0xb0_6b_ff;
   }
   if (effect.startsWith("ironvow")) {
-    return 0x9cc4ff;
+    return 0x9c_c4_ff;
   }
   return 0xff_ff_ff;
-}
+};
 
 /** Existing hero palette at contact; neutral sources retain the damage-type cue. */
-export function hitColor(hero: string | undefined, magic: boolean): number {
+export const hitColor = (hero: string | undefined, magic: boolean): number => {
   switch (hero) {
     case "ironvow":
     case "duskblade":
@@ -187,7 +188,7 @@ export function hitColor(hero: string | undefined, magic: boolean): number {
       return effectColor(hero);
     }
     default: {
-      return magic ? 0xc78bff : 0xffffff;
+      return magic ? 0xc7_8b_ff : 0xff_ff_ff;
     }
   }
-}
+};

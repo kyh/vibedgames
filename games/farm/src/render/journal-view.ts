@@ -28,6 +28,32 @@ const button = (text: string, action: () => void) => {
 
 /** Native navigation around the existing Phaser inventory. This view observes
  * personal discoveries; it never changes inventory, collection or clock state. */
+const entrySection = (title: string, entries: CollectionEntry[]): HTMLElement => {
+  const section = element("section", "farm-journal-group");
+  section.append(element("h3", "", title));
+  const list = element("ul", "farm-journal-list");
+  for (const entry of entries) {
+    const row = element("li", "farm-journal-entry");
+    row.dataset.found = String(entry.discovered);
+    const icon = element("img", "farm-journal-icon");
+    icon.src =
+      entry.item.kind === "produce"
+        ? `assets/crops/${entry.item.crop}_icon.webp`
+        : "assets/obj/fish.webp";
+    icon.width = 32;
+    icon.height = 32;
+    icon.alt = "";
+    row.append(
+      icon,
+      element("span", "farm-journal-name", entry.name),
+      element("span", "farm-journal-found", entry.discovered ? "Found" : "Not yet"),
+    );
+    list.append(row);
+  }
+  section.append(list);
+  return section;
+};
+
 export class JournalView {
   readonly root = element("section", "farm-bag");
   private readonly panel = element("section", "farm-journal-panel");
@@ -45,11 +71,18 @@ export class JournalView {
   private closeKey: string | null = null;
   private destroyed = false;
 
+  private season: Season;
+  private readonly readPage: (season: Season) => CollectionPage;
+  private readonly actions: JournalActions;
+
   constructor(
-    private season: Season,
-    private readonly readPage: (season: Season) => CollectionPage,
-    private readonly actions: JournalActions,
+    season: Season,
+    readPage: (season: Season) => CollectionPage,
+    actions: JournalActions,
   ) {
+    this.season = season;
+    this.readPage = readPage;
+    this.actions = actions;
     this.root.setAttribute("role", "dialog");
     this.root.setAttribute("aria-modal", "true");
     this.root.setAttribute("aria-label", "Inventory and seasonal journal");
@@ -66,14 +99,14 @@ export class JournalView {
     head.append(this.heading, this.progress);
     const tabs = element("nav", "farm-journal-seasons");
     tabs.setAttribute("aria-label", "Journal season");
-    for (const season of SEASONS) {
-      const tab = button(seasonName(season), () => {
-        this.season = season;
+    for (const tabSeason of SEASONS) {
+      const tab = button(seasonName(tabSeason), () => {
+        this.season = tabSeason;
         this.refresh();
         this.scroll.scrollTop = 0;
       });
-      tab.dataset.season = season;
-      this.seasons.set(season, tab);
+      tab.dataset.season = tabSeason;
+      this.seasons.set(tabSeason, tab);
       tabs.append(tab);
     }
     const explanation = element(
@@ -158,10 +191,10 @@ export class JournalView {
     const fish = page.entries.filter((entry) => entry.item.kind === "fish");
     const sections: HTMLElement[] = [];
     if (crops.length > 0) {
-      sections.push(this.entries("In the fields", crops));
+      sections.push(entrySection("In the fields", crops));
     }
     if (fish.length > 0) {
-      sections.push(this.entries("From the water", fish));
+      sections.push(entrySection("From the water", fish));
     }
     this.scroll.classList.toggle("is-winter", crops.length === 0);
     if (crops.length === 0) {
@@ -170,32 +203,6 @@ export class JournalView {
       );
     }
     this.scroll.replaceChildren(...sections);
-  }
-
-  private entries(title: string, entries: CollectionEntry[]): HTMLElement {
-    const section = element("section", "farm-journal-group");
-    section.append(element("h3", "", title));
-    const list = element("ul", "farm-journal-list");
-    for (const entry of entries) {
-      const row = element("li", "farm-journal-entry");
-      row.dataset.found = String(entry.discovered);
-      const icon = element("img", "farm-journal-icon");
-      icon.src =
-        entry.item.kind === "produce"
-          ? `assets/crops/${entry.item.crop}_icon.webp`
-          : "assets/obj/fish.webp";
-      icon.width = 32;
-      icon.height = 32;
-      icon.alt = "";
-      row.append(
-        icon,
-        element("span", "farm-journal-name", entry.name),
-        element("span", "farm-journal-found", entry.discovered ? "Found" : "Not yet"),
-      );
-      list.append(row);
-    }
-    section.append(list);
-    return section;
   }
 
   private onKeyDown = (event: KeyboardEvent): void => {
@@ -215,7 +222,8 @@ export class JournalView {
       if (this.page === "journal") {
         targets.push(...this.seasons.values(), this.scroll);
       }
-      const index = targets.findIndex((target) => target === document.activeElement);
+      const active = document.activeElement;
+      const index = active instanceof HTMLElement ? targets.indexOf(active) : -1;
       const next = event.shiftKey ? index - 1 : index + 1;
       if (index === -1 || next < 0 || next >= targets.length) {
         event.preventDefault();

@@ -25,7 +25,7 @@ export class BootScene extends Scene {
     g.clear();
 
     // Smooth energy bloom. Shared by all pooled combat lights and far haze.
-    for (let r = 32; r >= 1; r--) {
+    for (let r = 32; r >= 1; r -= 1) {
       const t = 1 - r / 32;
       g.fillStyle(0xff_ff_ff, 0.015 + t * t * 0.035).fillCircle(32, 32, r);
     }
