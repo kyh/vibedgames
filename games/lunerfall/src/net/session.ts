@@ -9,8 +9,7 @@
 // shallow-merge (last-write-wins per field), and events are fire-and-forget.
 // Offline, everything loops back locally so the same code paths keep working.
 //
-// Keep this file byte-identical across games/*/src/net/session.ts — per-game
-// tuning (room, maxPlayers, fallbackMs) goes in the NetSession constructor.
+// Lunerfall also observes admission revisions for exact checkpoint handoff.
 //
 
 import { isOfflineRequested } from "@repo/embed";
@@ -41,6 +40,11 @@ export class NetSession {
   private readonly fallbackMs: number;
   private readonly onEvent?: (event: string, payload: JsonValue, from: string) => void;
 
+  private admissionRevision = 0;
+  private droppedRevision = 0;
+  private unwatch: (() => void) | null = null;
+  private full = false;
+
   private solo = false;
   private everConnected = false;
   private bootedAt = 0;
@@ -68,6 +72,50 @@ export class NetSession {
           party: "vg-server",
           room: opts.room,
         });
+    const { client } = this;
+    if (client) {
+      let status = client.connectionStatus;
+      let { playerId } = client;
+      let { hostId } = client;
+      this.unwatch = client.subscribe(() => {
+        // An invite identifies one room; the SDK's matchmaking overflow must
+        // not admit this player into a different expedition under that code.
+        if (client.room !== opts.room) {
+          this.full = true;
+          this.destroy();
+          return;
+        }
+        if (client.connectionStatus === "connected") {
+          this.everConnected = true;
+        }
+        if (
+          status === client.connectionStatus &&
+          playerId === client.playerId &&
+          hostId === client.hostId
+        ) {
+          return;
+        }
+        if (status === "connected" && client.connectionStatus !== "connected") {
+          this.droppedRevision += 1;
+        }
+        ({ connectionStatus: status, hostId, playerId } = client);
+        this.admissionRevision += 1;
+      });
+    }
+  }
+
+  /** Bumps on every status/player/host change, even ones that flip back
+   * between two scene frames — the scene keys its checkpoint adoption on it. */
+  get authorityRevision(): number {
+    return this.admissionRevision;
+  }
+
+  get disconnectRevision(): number {
+    return this.droppedRevision;
+  }
+
+  get roomFull(): boolean {
+    return this.full;
   }
 
   /** Call once per frame: drives the offline fallback timer. */
@@ -123,7 +171,7 @@ export class NetSession {
   }
 
   get isHost(): boolean {
-    return this.solo || this.client?.isHost === true;
+    return this.live && (this.solo || this.client?.isHost === true);
   }
 
   /** The current room host's id (for authenticating host-only events). */
@@ -167,6 +215,9 @@ export class NetSession {
 
   /** Per-player state shallow-merges, mirroring the package semantics. */
   updateMyState(patch: Record<string, JsonValue>): void {
+    if (!this.live) {
+      return;
+    }
     if (this.solo || !this.client) {
       Object.assign(this.offlineMyState, patch);
     } else {
@@ -176,6 +227,9 @@ export class NetSession {
 
   /** Shared-state patch shallow-merges; host-only on the server. */
   patchShared(patch: Record<string, JsonValue>): void {
+    if (!this.isHost) {
+      return;
+    }
     if (this.solo || !this.client) {
       this.offlineShared = { ...this.offlineShared, ...patch };
     } else {
@@ -185,6 +239,9 @@ export class NetSession {
 
   /** Events loop straight back to the local handler when offline. */
   sendEvent(event: string, payload: Record<string, JsonValue>): void {
+    if (!this.live) {
+      return;
+    }
     if (this.solo || !this.client) {
       this.onEvent?.(event, payload, SOLO_ID);
     } else {
@@ -193,6 +250,8 @@ export class NetSession {
   }
 
   destroy(): void {
+    this.unwatch?.();
+    this.unwatch = null;
     if (!this.solo) {
       this.client?.destroy();
     }

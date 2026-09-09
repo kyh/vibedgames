@@ -4,6 +4,7 @@
 import { Board } from "../src/game/board";
 import { Engine } from "../src/game/engine";
 import { Piece } from "../src/game/piece";
+import { teachingExamples } from "../src/game/teaching-examples";
 import type { Pose } from "../src/input/camera";
 import { PoseControls } from "../src/input/pose-control";
 import { WELL_DEPTH, WELL_WIDTH } from "../src/shared/constants";
@@ -68,6 +69,15 @@ const check = (label: string, cond: boolean): void => {
   const r = b.clearLayer(0);
   check("dual axis: 1 xColumn + 1 zRow", r.xColumns === 1 && r.zRows === 1);
   check("dual axis: cubes counted once (width+depth-1)", r.cubes === WELL_WIDTH + WELL_DEPTH - 1);
+  check("dual axis: effect footprint matches removed cubes", r.clearedCells.length === r.cubes);
+  check(
+    "dual axis: effect intersection occurs once",
+    r.clearedCells.filter((c) => c.x === 0 && c.y === 0 && c.z === 0).length === 1,
+  );
+  check(
+    "dual axis: effect footprint excludes uncleared cells",
+    r.clearedCells.every((c) => c.y === 0 && (c.x === 0 || c.z === 0)),
+  );
 }
 
 // 4) Piece moves, rotates, and lands via the board.
@@ -116,10 +126,40 @@ const check = (label: string, cond: boolean): void => {
   const e = new Engine();
   e.startGame();
   const first = e.activePieceIndex();
+  check("engine: hold unspent on spawn", e.holdSpent === false);
   const held1 = e.hold();
   check("engine: hold succeeds", held1 === true);
   check("engine: held piece recorded", e.holdIndex === first);
   check("engine: hold is one-per-piece", e.hold() === false);
+  check("engine: hold reads spent until the piece locks", e.holdSpent === true);
+  e.hardDrop();
+  check("engine: lock re-arms the hold", e.holdSpent === false && e.holdIndex === first);
+  e.hold();
+  e.reset();
+  check("engine: reset clears the hold", e.holdSpent === false && e.holdIndex === null);
+}
+
+// 7b) Title-screen rule cards are derived from real board clears.
+{
+  const [single, landing, crossed] = teachingExamples();
+  check(
+    "teaching: three cards",
+    single !== undefined && landing !== undefined && crossed !== undefined,
+  );
+  check("teaching: single row clears width cubes", single?.clear?.cubes === WELL_WIDTH);
+  check(
+    "teaching: crossed clear counts the intersection once",
+    crossed?.clear?.lines === 2 && crossed?.clear?.cubes === WELL_WIDTH + WELL_DEPTH - 1,
+  );
+  if (landing) {
+    const b = new Board();
+    b.lock(landing.cells, 6);
+    check("teaching: landing outline is a real drop", !b.collides(landing.landing));
+    check(
+      "teaching: landing outline rests on the stack",
+      b.collides(landing.landing.map((c) => ({ x: c.x, y: c.y - 1, z: c.z }))),
+    );
+  }
 }
 
 // 8) Power-sweep clears the lowest layer once charged.
@@ -207,6 +247,64 @@ const check = (label: string, cond: boolean): void => {
   const still = feed(false);
   check("pose: circling a raised hand orbits the camera", circled > 0);
   check("pose: a still raised hand does not orbit", still === 0);
+}
+
+// 11) Pose: a T-pose held across pause/resume must reach neutral before re-firing.
+{
+  const W = 640;
+  const H = 480;
+  const makePose = (lw: { x: number; y: number }, rw: { x: number; y: number }): Pose => ({
+    height: H,
+    keypoints: [
+      { name: "nose", score: 1, x: 320, y: 150 },
+      { name: "left_shoulder", score: 1, x: 260, y: 240 },
+      { name: "right_shoulder", score: 1, x: 380, y: 240 },
+      { name: "left_hip", score: 1, x: 270, y: 360 },
+      { name: "right_hip", score: 1, x: 370, y: 360 },
+      { name: "left_wrist", score: 1, x: lw.x, y: lw.y },
+      { name: "right_wrist", score: 1, x: rw.x, y: rw.y },
+    ],
+    width: W,
+  });
+  // Arms out wide, wrists a hair below shoulder level: still a T-pose to the
+  // power detector, so the resume gate must not read it as neutral.
+  const tPose = makePose({ x: 60, y: 250 }, { x: 600, y: 250 });
+  const armsDown = makePose({ x: 250, y: 350 }, { x: 390, y: 350 });
+
+  let powers = 0;
+  const controls = new PoseControls({
+    catchCollapse: () => {
+      /* empty */
+    },
+    hold: () => {
+      /* empty */
+    },
+    orbit: () => {
+      /* empty */
+    },
+    power: () => {
+      powers += 1;
+    },
+    rotate: () => false,
+    steer: () => {
+      /* empty */
+    },
+  });
+  // Calibrate.
+  for (let i = 0; i < 24; i += 1) {
+    controls.handlePose(armsDown, null);
+  }
+  controls.setActionsPaused(true);
+  controls.setActionsPaused(false);
+  for (let i = 0; i < 30; i += 1) {
+    controls.handlePose(tPose, null);
+  }
+  check("pose: T-pose held across resume does not re-fire power", powers === 0);
+  for (let i = 0; i < 4; i += 1) {
+    controls.handlePose(armsDown, null);
+  }
+  controls.handlePose(tPose, null);
+  check("pose: power fires again after a real return to neutral", powers === 1);
 }
 
 if (failures > 0) {

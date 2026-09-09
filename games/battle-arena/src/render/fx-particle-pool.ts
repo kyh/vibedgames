@@ -1,6 +1,18 @@
+// Instanced particle pool: one InstancedMesh, preallocated slots, free-list +
+// per-priority live buckets (swap-remove) so a saturated spawn only scans the
+// lowest-ranked bucket. Module scratch math: zero per-frame allocs in update().
 import * as THREE from "three";
 
+export type ParticlePriority = "ambient" | "impact" | "major";
+const PRIORITY = { ambient: 0, impact: 1, major: 2 } satisfies Readonly<
+  Record<ParticlePriority, number>
+>;
+const RANKED: readonly ParticlePriority[] = ["ambient", "impact", "major"];
+const emptyList = (): number[] => [];
+
 export interface SpawnOptions {
+  /** Ambient leaves impact headroom; major may replace less important particles. */
+  priority?: ParticlePriority;
   /** World position (y is up; sim-plane callers pass (x, height, simY)). */
   x: number;
   y: number;
@@ -39,8 +51,8 @@ const scratchDir = new THREE.Vector3();
 const scratchCol = new THREE.Color();
 const Z_AXIS = new THREE.Vector3(0, 0, 1);
 const ZERO_MAT = new THREE.Matrix4().makeScale(0, 0, 0);
-
 interface Slot {
+  priority: ParticlePriority;
   px: number;
   py: number;
   pz: number;
@@ -69,6 +81,7 @@ const makeSlot = (): Slot => ({
   gravity: 0,
   life: 0,
   maxLife: 1,
+  priority: "impact",
   px: 0,
   py: 0,
   pz: 0,
@@ -82,12 +95,44 @@ const makeSlot = (): Slot => ({
 
 /** One InstancedMesh + free-list. `fadeColor` = ADD-style fade (color→black);
  *  otherwise the pool fades its `aAlpha` attribute (NORMAL-style). */
+/** Copy a spawn request into a slot (motion, life, premultiplied color). */
+const fillSlot = (s: Slot, o: SpawnOptions): void => {
+  s.px = o.x;
+  s.py = o.y;
+  s.pz = o.z;
+  s.vx = o.vx ?? 0;
+  s.vy = o.vy ?? 0;
+  s.vz = o.vz ?? 0;
+  s.maxLife = Math.max(0.016, o.life);
+  s.life = s.maxLife;
+  s.s0 = o.size;
+  s.gravity = o.gravity ?? 0;
+  s.drag = o.drag ?? 0;
+  s.stretch = o.stretch ?? false;
+  s.alpha = o.alpha ?? 1;
+  const bright = o.bright ?? 1;
+  if (o.cr !== undefined || o.cg !== undefined || o.cb !== undefined) {
+    scratchCol.setRGB(o.cr ?? 1, o.cg ?? 1, o.cb ?? 1);
+  } else {
+    scratchCol.setHex(o.color ?? 0xff_ff_ff);
+  }
+  s.r = scratchCol.r * bright;
+  s.g = scratchCol.g * bright;
+  s.b = scratchCol.b * bright;
+};
+
 export class Pool {
   readonly mesh: THREE.InstancedMesh;
   private readonly slots: Slot[] = [];
-  // packed index list (swap-remove)
-  private readonly active: number[] = [];
-  private activeCount = 0;
+  // live indices packed per priority (swap-remove), so a saturated spawn only
+  // scans the lowest-ranked bucket instead of everything alive
+  private readonly live = {
+    ambient: emptyList(),
+    impact: emptyList(),
+    major: emptyList(),
+  } satisfies Record<ParticlePriority, number[]>;
+  // slot → index in its priority list
+  private readonly livePos: number[] = [];
   private readonly free: number[] = [];
   private readonly colorAttr: THREE.InstancedBufferAttribute;
   private readonly alphaAttr: THREE.InstancedBufferAttribute | null;
@@ -95,17 +140,20 @@ export class Pool {
   private dirty = false;
 
   private readonly cap: number;
+  private readonly reserve: number;
   private readonly fadeColor: boolean;
 
   constructor(
     geo: THREE.BufferGeometry,
     mat: THREE.Material,
     cap: number,
+    reserve: number,
     fadeColor: boolean,
     renderOrder: number,
     alphaAttr: THREE.InstancedBufferAttribute | null,
   ) {
     this.cap = cap;
+    this.reserve = reserve;
     this.fadeColor = fadeColor;
     this.mesh = new THREE.InstancedMesh(geo, mat, cap);
     this.mesh.count = 0;
@@ -122,45 +170,30 @@ export class Pool {
     }
     for (let i = 0; i < cap; i += 1) {
       this.slots.push(makeSlot());
-      // preallocated packed list (activeCount is the live length)
-      this.active.push(0);
+      this.livePos.push(0);
     }
   }
 
   spawn(o: SpawnOptions): void {
-    const idx = this.free.pop();
+    const priority = o.priority ?? "impact";
+    if (priority === "ambient" && this.free.length <= this.reserve) {
+      return;
+    }
+    const freeIndex = this.free.pop();
+    const idx = freeIndex ?? this.replaceable(priority);
     if (idx === undefined) {
       return;
-      // saturated — drop (scale-of-importance budget)
     }
     const s = this.slots[idx];
     if (!s) {
       return;
     }
-    s.px = o.x;
-    s.py = o.y;
-    s.pz = o.z;
-    s.vx = o.vx ?? 0;
-    s.vy = o.vy ?? 0;
-    s.vz = o.vz ?? 0;
-    s.maxLife = Math.max(0.016, o.life);
-    s.life = s.maxLife;
-    s.s0 = o.size;
-    s.gravity = o.gravity ?? 0;
-    s.drag = o.drag ?? 0;
-    s.stretch = o.stretch ?? false;
-    s.alpha = o.alpha ?? 1;
-    const bright = o.bright ?? 1;
-    if (o.cr !== undefined || o.cg !== undefined || o.cb !== undefined) {
-      scratchCol.setRGB(o.cr ?? 1, o.cg ?? 1, o.cb ?? 1);
-    } else {
-      scratchCol.setHex(o.color ?? 0xff_ff_ff);
+    if (freeIndex === undefined) {
+      this.unlink(idx, s.priority);
     }
-    s.r = scratchCol.r * bright;
-    s.g = scratchCol.g * bright;
-    s.b = scratchCol.b * bright;
-    this.active[this.activeCount] = idx;
-    this.activeCount += 1;
+    this.link(idx, priority);
+    s.priority = priority;
+    fillSlot(s, o);
     if (idx >= this.highWater) {
       this.highWater = idx + 1;
       this.mesh.count = this.highWater;
@@ -170,39 +203,92 @@ export class Pool {
     this.dirty = true;
   }
 
-  update(dt: number): void {
-    for (let i = this.activeCount - 1; i >= 0; i -= 1) {
-      const idx = this.active[i];
-      if (idx === undefined) {
-        continue;
+  /** Lowest-ranked live particle below `priority`, closest to expiring. */
+  private replaceable(priority: ParticlePriority): number | undefined {
+    for (const rank of RANKED) {
+      if (PRIORITY[rank] >= PRIORITY[priority]) {
+        return undefined;
       }
-      const s = this.slots[idx];
-      if (!s) {
-        continue;
-      }
-      s.life -= dt;
-      if (s.life <= 0) {
-        this.mesh.setMatrixAt(idx, ZERO_MAT);
-        const last = this.active[(this.activeCount -= 1)];
-        if (last !== undefined) {
-          this.active[i] = last;
+      let candidate: number | undefined;
+      let fraction = Infinity;
+      for (const idx of this.live[rank]) {
+        const slot = this.slots[idx];
+        if (!slot) {
+          continue;
         }
-        this.free.push(idx);
+        const remaining = slot.life / slot.maxLife;
+        if (remaining < fraction) {
+          candidate = idx;
+          fraction = remaining;
+        }
+      }
+      if (candidate !== undefined) {
+        return candidate;
+      }
+    }
+    return undefined;
+  }
+
+  private link(idx: number, priority: ParticlePriority): void {
+    const list = this.live[priority];
+    this.livePos[idx] = list.length;
+    list.push(idx);
+  }
+
+  private unlink(idx: number, priority: ParticlePriority): void {
+    const list = this.live[priority];
+    const at = this.livePos[idx] ?? 0;
+    const last = list.pop();
+    if (last !== undefined && last !== idx) {
+      list[at] = last;
+      this.livePos[last] = at;
+    }
+  }
+
+  private liveCount(): number {
+    return this.live.ambient.length + this.live.impact.length + this.live.major.length;
+  }
+
+  counts() {
+    return {
+      active: this.liveCount(),
+      ambient: this.live.ambient.length,
+      capacity: this.cap,
+      impact: this.live.impact.length,
+      major: this.live.major.length,
+    };
+  }
+
+  update(dt: number): void {
+    for (const rank of RANKED) {
+      const list = this.live[rank];
+      for (let i = list.length - 1; i >= 0; i -= 1) {
+        const idx = list[i];
+        const s = idx === undefined ? undefined : this.slots[idx];
+        if (idx === undefined || !s) {
+          continue;
+        }
+        s.life -= dt;
+        if (s.life <= 0) {
+          this.mesh.setMatrixAt(idx, ZERO_MAT);
+          this.unlink(idx, rank);
+          this.free.push(idx);
+          this.dirty = true;
+          continue;
+        }
+        s.vy += s.gravity * dt;
+        if (s.drag > 0) {
+          const d = Math.max(0, 1 - s.drag * dt);
+          s.vx *= d;
+          s.vy *= d;
+          s.vz *= d;
+        }
+        s.px += s.vx * dt;
+        s.py += s.vy * dt;
+        s.pz += s.vz * dt;
+        this.writeInstance(idx, s, s.life / s.maxLife);
         this.dirty = true;
-        continue;
       }
-      s.vy += s.gravity * dt;
-      if (s.drag > 0) {
-        const d = Math.max(0, 1 - s.drag * dt);
-        s.vx *= d;
-        s.vy *= d;
-        s.vz *= d;
-      }
-      s.px += s.vx * dt;
-      s.py += s.vy * dt;
-      s.pz += s.vz * dt;
-      this.writeInstance(idx, s, s.life / s.maxLife);
-      this.dirty = true;
     }
     if (this.dirty) {
       this.mesh.instanceMatrix.needsUpdate = true;
@@ -210,7 +296,7 @@ export class Pool {
       if (this.alphaAttr) {
         this.alphaAttr.needsUpdate = true;
       }
-      this.dirty = this.activeCount > 0;
+      this.dirty = this.liveCount() > 0;
     }
   }
 
@@ -240,6 +326,16 @@ export class Pool {
       this.colorAttr.setXYZ(idx, s.r, s.g, s.b);
       this.alphaAttr?.setX(idx, s.alpha * t);
     }
+  }
+
+  clear(): void {
+    for (const slot of this.slots) {
+      slot.life = 0;
+    }
+    // release through the same free-list path as natural expiry
+    this.update(0);
+    this.mesh.count = 0;
+    this.highWater = 0;
   }
 
   dispose(scene: THREE.Scene): void {

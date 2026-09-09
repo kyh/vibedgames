@@ -7,8 +7,8 @@
 //   - the dismissing tap stays ON the overlay: it neither bubbles to the
 //     game's window-level listeners nor leaves a compatibility mouse burst
 //     behind for the canvas (./pointer-seal)
-//   - resume on keyup, EXCEPT Escape — the core keydown toggle (./game) owns
-//     Escape; acting on its keyup too would double-fire one press
+//   - resume on a fresh key's release, EXCEPT Escape — the core toggle owns
+//     Escape; releasing a key held before pausing must not undo the pause
 //   - resume on a FRESH physical-pad button press (the game loop is usually
 //     frozen while paused, so nothing else polls the pad)
 //   - a `modalOpen` gate: while a child modal owns input, keys and clicks
@@ -109,11 +109,20 @@ const reducedMotion = (): boolean =>
 export const createPauseShell = (options: PauseShellOptions): PauseShell => {
   let root: HTMLElement | null = null;
   let stopPadResume: (() => void) | null = null;
+  const resumeKeys = new Set<string>();
+
+  const onResumeKeydown = (event: KeyboardEvent): void => {
+    if (event.key === "Escape" || event.repeat || (options.modalOpen?.() ?? false)) {
+      return;
+    }
+    resumeKeys.add(event.code);
+  };
 
   const onResumeKeyup = (event: KeyboardEvent): void => {
     // Escape is handled on keydown by the core toggle listener; resuming here
     // too would double-fire on the keydown+keyup of one press.
-    if (event.key === "Escape" || (options.modalOpen?.() ?? false)) {
+    const fresh = resumeKeys.delete(event.code);
+    if (!fresh || event.key === "Escape" || (options.modalOpen?.() ?? false)) {
       return;
     }
     resumeGame();
@@ -171,11 +180,14 @@ export const createPauseShell = (options: PauseShellOptions): PauseShell => {
     // game as a phantom release. Registered CAPTURE on window: while paused
     // the core key gate (./game) stops propagation at window, and only
     // same-node capture listeners survive that.
+    window.addEventListener("keydown", onResumeKeydown, true);
     window.addEventListener("keyup", onResumeKeyup, true);
   };
 
   const hide = (): void => {
+    window.removeEventListener("keydown", onResumeKeydown, true);
     window.removeEventListener("keyup", onResumeKeyup, true);
+    resumeKeys.clear();
     stopPadResume?.();
     stopPadResume = null;
     options.onHide?.();

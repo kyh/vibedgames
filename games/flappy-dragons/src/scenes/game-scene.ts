@@ -1,14 +1,5 @@
-import {
-  Animations,
-  BlendModes,
-  Math as PhaserMath,
-  Scale,
-  Scene,
-  Scenes,
-  Sound,
-  TintModes,
-} from "phaser";
-import type { GameObjects, Time } from "phaser";
+import { Animations, Math as PhaserMath, Scale, Scene, Scenes, Sound, TintModes } from "phaser";
+import type { GameObjects, Time, Types } from "phaser";
 import { createTouchControls, notifyGameStarted, watchControlContext } from "@repo/embed";
 import type { TouchControls } from "@repo/embed";
 import { PhysicalGamepad, safeAreaInset } from "@vibedgames/gamepad";
@@ -19,6 +10,7 @@ import { isCoarsePointer, recalibratePose, setPoseLocked } from "../input/camera
 import { NetSession, isJsonNumber } from "../net/session";
 import type { JsonObject } from "../net/session";
 import type { Player } from "@vibedgames/multiplayer";
+import { FlightFx, prefersReducedMotion } from "./flight-fx";
 import {
   ART_SCALE,
   BEST_KEY,
@@ -70,6 +62,7 @@ interface Pipe {
   botCap: GameObjects.Image;
   botBody: GameObjects.TileSprite;
   coin: GameObjects.Sprite | null;
+  glint: GameObjects.Image | null;
 }
 
 interface BgLayer {
@@ -89,6 +82,9 @@ interface Ghost {
 const COIN_PICKUP_X = 54;
 const COIN_PICKUP_Y = 44;
 const RESTART_LOCKOUT_MS = 280;
+const RESULT_LAYOUT_MS = 250;
+const GATE_MILESTONE = 10;
+const PHRASE_NOTE_MS = 110;
 /** Guest scroll-clock: adopt host drift beyond this gap in one snap… */
 const WORLD_SNAP_PX = 60;
 /** …and fold smaller drift in gradually per snapshot. */
@@ -108,10 +104,14 @@ const GHOST_SCALE_MAX = 1.06;
 
 /** Decided once at boot so hint/HUD copy is input-aware from the first frame. */
 const TOUCH = isCoarsePointer();
+/** DEV-only room override (?room=): the two-client harness isolates each run
+ *  so a stale room's course can't leak into assertions. */
+const ROOM = (import.meta.env.DEV && new URLSearchParams(location.search).get("room")) || MP_ROOM;
 
 const HINT_FLAP = TOUCH ? "TAP TO FLAP" : "CLICK · SPACE — FLAP";
 const HINT_RESTART = TOUCH ? "TAP ANYWHERE TO RESTART" : "CLICK OR PRESS SPACE TO RESTART";
 const HINT_RACE = "FLAP TO JOIN THE RACE";
+const SOLO_ROW_ID = "you";
 
 interface PeerState {
   yf: number;
@@ -121,13 +121,6 @@ interface PeerState {
   rot: number;
 }
 
-const randomSeed = (): number =>
-  // 1..2^31 (never 0 — 0 marks "unseeded").
-  1 + Math.floor(Math.random() * 0x7f_ff_ff_ff);
-const prefersReducedMotion = (): boolean =>
-  typeof window !== "undefined" &&
-  "matchMedia" in window &&
-  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 /* oxlint-disable no-bitwise, unicorn/prefer-code-point -- FNV-1a is defined over
    UTF-16 code units and 32-bit wraparound; every peer must derive the same value. */
 /** Stable 0..1 hash of a player id (+salt) for per-rival flock variation. */
@@ -140,6 +133,7 @@ const hashId = (id: string, salt: number): number => {
   return ((h >>> 0) % 100_000) / 100_000;
 };
 /* oxlint-enable no-bitwise, unicorn/prefer-code-point */
+
 // ---- module helpers (pure) --------------------------------------------------
 
 const destroyPipe = (pipe: Pipe): void => {
@@ -148,11 +142,25 @@ const destroyPipe = (pipe: Pipe): void => {
   pipe.botCap.destroy();
   pipe.botBody.destroy();
   pipe.coin?.destroy();
+  pipe.glint?.destroy();
 };
+
+const randomSeed = (): number =>
+  // 1..2^31 (never 0 — 0 marks "unseeded").
+  1 + Math.floor(Math.random() * 0x7f_ff_ff_ff);
+
+const setText = (id: string, text: string): void => {
+  const el = document.querySelector(`#${id}`);
+  if (el) {
+    el.textContent = text;
+  }
+};
+
 const numField = (s: JsonObject, key: string): number | null => {
   const v = s[key];
   return isJsonNumber(v) ? v : null;
 };
+
 const readPeer = (state: Player["state"]): PeerState | null => {
   if (!state) {
     return null;
@@ -172,29 +180,7 @@ const readPeer = (state: Player["state"]): PeerState | null => {
     yf,
   };
 };
-const storageSet = (key: string, value: string): void => {
-  try {
-    window.localStorage.setItem(key, value);
-  } catch {
-    // Blocked store just loses persistence — never the run.
-  }
-};
-const readBest = (): number => {
-  try {
-    const raw = localStorage.getItem(BEST_KEY);
-    const parsed = raw === null ? 0 : Math.trunc(Number(raw));
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-  } catch {
-    return 0;
-  }
-};
-const writeBest = (score: number): void => {
-  try {
-    localStorage.setItem(BEST_KEY, String(score));
-  } catch {
-    // ignore — see readBest
-  }
-};
+
 // localStorage throws in some embeds (sandboxed iframes, blocked cookies,
 // private modes). The game must boot and run without persistence.
 const storageGet = (key: string): string | null => {
@@ -204,6 +190,33 @@ const storageGet = (key: string): string | null => {
     return null;
   }
 };
+
+const storageSet = (key: string, value: string): void => {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Blocked store just loses persistence — never the run.
+  }
+};
+
+const readBest = (): number => {
+  try {
+    const raw = localStorage.getItem(BEST_KEY);
+    const parsed = raw === null ? 0 : Math.trunc(Number(raw));
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  } catch {
+    return 0;
+  }
+};
+
+const writeBest = (score: number): void => {
+  try {
+    localStorage.setItem(BEST_KEY, String(score));
+  } catch {
+    // ignore — see readBest
+  }
+};
+
 interface BoardRow {
   id: string;
   score: number;
@@ -238,6 +251,8 @@ export class GameScene extends Scene {
   private best = 0;
   private diedAt = 0;
   private skin = 1;
+  /** Pipes passed this life (score also counts coins). */
+  private gates = 0;
 
   /** Global course scroll. The host owns it; guests mirror the host's value. */
   private worldX = 0;
@@ -252,6 +267,10 @@ export class GameScene extends Scene {
 
   private pipes = new Map<number, Pipe>();
   private ghosts = new Map<string, Ghost>();
+  /** Other players present this frame, sorted so every client agrees on lane
+   *  order. A seat the server holds for a reconnect is not a rival: its last
+   *  state would hang a frozen ghost in your lane for the whole grace window. */
+  private rivalIds: string[] = [];
   private bgLayers: BgLayer[] = [];
   private bird!: GameObjects.Sprite;
   private readyImg!: GameObjects.Image;
@@ -259,7 +278,7 @@ export class GameScene extends Scene {
   /** Cosmetic dragon wandering across the title screen (pre-start only). */
   private titleDragon: GameObjects.Sprite | null = null;
   private digits: GameObjects.Image[] = [];
-  private puffEmitter!: GameObjects.Particles.ParticleEmitter;
+  private flightFx!: FlightFx;
 
   // Net bookkeeping.
   private stateAcc = 0;
@@ -271,7 +290,15 @@ export class GameScene extends Scene {
   private lastNetInfo = "";
 
   private hintEl: HTMLElement | null = null;
-  private bestEl: HTMLElement | null = null;
+  private gatesEl: HTMLElement | null = null;
+  private resultsEl: HTMLElement | null = null;
+  private resultRetryEl: HTMLElement | null = null;
+  /** Card geometry inputs at the last placement; skips DOM writes while nothing moved. */
+  private resultLayoutKey = "";
+  private resultLayoutAt = 0;
+  /** Pending note of a multi-note fanfare (new best, gate milestone). */
+  private phraseTimer: Time.TimerEvent | null = null;
+  private presentationPaused = false;
   private boardEl: HTMLElement | null = null;
   private touchControls: TouchControls | null = null;
   private muted = true;
@@ -293,11 +320,13 @@ export class GameScene extends Scene {
   }
 
   create(): void {
-    this.hintEl = document.querySelector<HTMLElement>("#hint");
-    this.bestEl = document.querySelector<HTMLElement>("#best");
-    this.boardEl = document.querySelector<HTMLElement>("#board");
-    this.netInfoEl = document.querySelector<HTMLElement>("#netinfo");
-    this.startEl = document.querySelector<HTMLElement>("#start");
+    this.hintEl = document.querySelector("#hint");
+    this.gatesEl = document.querySelector("#flight-gates");
+    this.resultsEl = document.querySelector("#flight-result");
+    this.resultRetryEl = document.querySelector("#result-retry");
+    this.boardEl = document.querySelector("#board");
+    this.netInfoEl = document.querySelector("#netinfo");
+    this.startEl = document.querySelector("#start");
     this.best = readBest();
     this.skin = rollSkin();
 
@@ -316,7 +345,7 @@ export class GameScene extends Scene {
     this.net = new NetSession({
       fallbackMs: OFFLINE_FALLBACK_MS,
       maxPlayers: MP_MAX_PLAYERS,
-      room: MP_ROOM,
+      room: ROOM,
     });
 
     this.bgLayers = BG_FACTORS.map((factor, i) => ({
@@ -337,18 +366,7 @@ export class GameScene extends Scene {
       .setDepth(10);
     this.bird.play(`fly-${this.skin}`);
 
-    // One reusable score-puff emitter; puff() just explodes it at a position.
-    this.puffEmitter = this.add
-      .particles(0, 0, "spark", {
-        alpha: { end: 0, start: 0.9 },
-        angle: { max: 360, min: 0 },
-        blendMode: BlendModes.ADD,
-        emitting: false,
-        lifespan: { max: 420, min: 240 },
-        scale: { end: 0, start: 0.9 },
-        speed: { max: 120, min: 30 },
-      })
-      .setDepth(15);
+    this.flightFx = new FlightFx(this);
 
     // Hidden from boot: the HTML start overlay owns the pre-flap moment now,
     // and this banner would show through its translucent wash.
@@ -387,6 +405,8 @@ export class GameScene extends Scene {
     this.scale.on(Scale.Events.RESIZE, this.layout, this);
     this.events.once(Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Scale.Events.RESIZE, this.layout, this);
+      this.unwatchControls?.();
+      this.unwatchControls = null;
       this.net.destroy();
       this.touchControls?.destroy();
       this.touchControls = null;
@@ -398,12 +418,28 @@ export class GameScene extends Scene {
 
     if (import.meta.env.DEV) {
       window.__fb = { net: this.net, scene: this };
+      Object.defineProperty(window, "__GAME_DIAGNOSTICS__", {
+        configurable: true,
+        get: () => this.diagnostics(),
+      });
     }
   }
 
+  diagnostics() {
+    return {
+      complete: this.phase === "gameover",
+      entities: this.pipes.size + this.ghosts.size + 1,
+      frame: this.game.loop.frame,
+      gates: this.gates,
+      phase: this.phase,
+      player: { alive: this.alive, x: BIRD_X, y: this.birdY },
+      score: this.score,
+    };
+  }
+
   private buildStartScreen(): void {
-    const controls = document.querySelector<HTMLElement>("#start-controls");
-    const go = document.querySelector<HTMLElement>("#start-go");
+    const controls = document.querySelector("#start-controls");
+    const go = document.querySelector("#start-go");
     // Same grouped keycap card the pause overlay renders — the two teaching
     // surfaces stay visually consistent by construction.
     ensureControlsStyle();
@@ -518,8 +554,8 @@ export class GameScene extends Scene {
    * phase and the first flap (tap/Space/jump/arm-flap) launches the run.
    */
   private runCountdown(): void {
-    const el = document.querySelector<HTMLElement>("#countdown");
-    if (!el) {
+    const el = document.querySelector("#countdown");
+    if (!(el instanceof HTMLElement)) {
       return;
     }
     this.countingDown = true;
@@ -529,9 +565,10 @@ export class GameScene extends Scene {
       if (n > 0) {
         el.textContent = String(n);
         el.classList.remove("pop");
-        // restart the pop animation
+        // Reading layout restarts the pop animation.
         void el.offsetWidth;
         el.classList.add("pop");
+        this.playSound("point", { rate: 1.25 - n * 0.15, volume: 0.28 });
         n -= 1;
         this.countdownTimer = this.time.delayedCall(1000, tick);
       } else {
@@ -542,6 +579,7 @@ export class GameScene extends Scene {
         void el.offsetWidth;
         el.classList.add("pop");
         this.countingDown = false;
+        this.playSound("point", { rate: 1.5, volume: 0.5 });
         this.setHint(HINT_FLAP);
         this.countdownTimer = this.time.delayedCall(800, () => {
           this.countdownTimer = null;
@@ -557,7 +595,7 @@ export class GameScene extends Scene {
   // ---- role helpers --------------------------------------------------------
 
   private get racing(): boolean {
-    return this.net.otherPlayer() !== null;
+    return this.rivalIds.length > 0;
   }
   /**
    * True only when actually connected to a live party room (not the solo
@@ -568,13 +606,25 @@ export class GameScene extends Scene {
     return this.net.live && !this.net.offline;
   }
   /**
-   * The get-ready 3-2-1 is a purely local input gate (plus pose re-baseline) —
-   * nothing about it is shared with the race — so the wrapper pause freezes it
-   * even when the online sim has to keep running for the other players.
+   * Everything local-only — the get-ready 3-2-1 (an input gate plus pose
+   * re-baseline), sound and fanfares — freezes under the wrapper pause even
+   * when the online sim has to keep running for the other players.
    */
-  setCountdownPaused(paused: boolean): void {
+  setPresentationPaused(paused: boolean): void {
+    if (paused === this.presentationPaused) {
+      return;
+    }
+    this.presentationPaused = paused;
+    // The pad button that dismissed the wrapper's overlay is consumed by it:
+    // sample it now so the next gameplay poll doesn't see a fresh press.
+    this.pad.update();
     if (this.countdownTimer) {
       this.countdownTimer.paused = paused;
+    }
+    this.sound.mute = this.muted || paused;
+    if (paused) {
+      this.cancelPhrase();
+      this.sound.stopAll();
     }
   }
   private get alive(): boolean {
@@ -588,10 +638,11 @@ export class GameScene extends Scene {
   update(time: number, delta: number): void {
     const dt = Math.min(delta, MAX_DT_MS) / 1000;
     this.pad.update();
-    if (["a", "b", "x", "y"].some((b) => this.pad.justPressed(b))) {
+    if (this.padFlapPressed()) {
       this.handleInput();
     }
     this.net.tick();
+    this.rivalIds = this.presentRivals();
     this.ensureSeed();
     this.advanceWorld(dt);
 
@@ -624,11 +675,31 @@ export class GameScene extends Scene {
       this.respawn();
     }
 
+    if (this.phase === "gameover") {
+      this.updateResults(time);
+    }
     this.applyParallax();
     this.syncPipes();
     this.syncGhosts();
+    this.flightFx.update(
+      dt,
+      this.viewW(),
+      this.viewTop(),
+      this.noticeY(),
+      this.bird.x,
+      this.bird.y,
+      this.phase === "playing" && this.vy < -120,
+    );
     this.broadcast(dt);
     this.updateBoard(dt);
+  }
+
+  private presentRivals(): string[] {
+    const me = this.net.playerId;
+    return Object.entries(this.net.players)
+      .filter(([id, p]) => id !== me && p.connected !== false)
+      .map(([id]) => id)
+      .toSorted();
   }
 
   // ---- seed + world scroll -------------------------------------------------
@@ -636,8 +707,8 @@ export class GameScene extends Scene {
   private ensureSeed(): void {
     const s = this.net.sharedState;
     const shared = s ? numField(s, "seed") : null;
-    if (shared !== null) {
-      this.seed = shared;
+    if (shared !== null && Number.isSafeInteger(shared) && shared > 0 && shared <= 0x80_00_00_00) {
+      this.adoptSeed(shared);
       return;
     }
     // First host seeds the course. Guests wait for it (bird just hovers).
@@ -647,6 +718,15 @@ export class GameScene extends Scene {
       }
       this.net.patchShared({ seed: this.seed });
     }
+  }
+
+  /** Pipes were built from the old seed; syncPipes rebuilds them this frame. */
+  private adoptSeed(seed: number): void {
+    if (seed === this.seed) {
+      return;
+    }
+    this.seed = seed;
+    this.clearPipes();
   }
 
   private advanceWorld(dt: number): void {
@@ -682,23 +762,32 @@ export class GameScene extends Scene {
 
   // ---- input ---------------------------------------------------------------
 
+  private padFlapPressed(): boolean {
+    return (
+      this.pad.justPressed("a") ||
+      this.pad.justPressed("b") ||
+      this.pad.justPressed("x") ||
+      this.pad.justPressed("y")
+    );
+  }
+
   private handleInput(strength = 1, refire = false): void {
+    if (this.presentationPaused) {
+      return;
+    }
     if (!this.started) {
       this.beginPlay();
       return;
     }
+    // Holding for the get-ready count.
     if (this.countingDown) {
       return;
-      // holding for the get-ready count
     }
     if (this.phase === "ready") {
+      this.startLife();
       this.setPhase("playing");
-      this.birdY = this.racing ? this.spawnY() : BIRD_SPAWN_Y;
-      this.vy = 0;
       this.bird.setAlpha(1).clearTint().setTintMode(TintModes.MULTIPLY);
       this.bird.y = this.birdY + DRAGON_SPRITE_OFFSET_Y;
-      this.lastScoredIndex = this.frontIndex();
-      this.collectedCoins.clear();
       this.readyImg.setVisible(false);
       this.setHint("");
       this.flap(strength, refire);
@@ -729,7 +818,11 @@ export class GameScene extends Scene {
     if (refire) {
       return;
     }
-    this.sound.play("flap", { rate: 0.95 + Math.random() * 0.1 });
+    this.flightFx.wingbeat(this.bird.x, this.bird.y);
+    this.playSound("flap", { rate: 0.95 + Math.random() * 0.1 });
+    if (prefersReducedMotion()) {
+      return;
+    }
     this.tweens.killTweensOf(this.bird);
     this.bird.setScale(ART_SCALE * 1.15, ART_SCALE * 0.8);
     this.tweens.add({
@@ -754,25 +847,32 @@ export class GameScene extends Scene {
       notifyGameStarted();
     }
     setPoseLocked(phase === "playing");
+    this.refreshGateHud();
   }
 
-  /** Solo: any input on gameover drops straight back into playing. */
+  /**
+   * Per-life reset, shared by the first flap and every racing respawn. The
+   * shared course may be mid-way, so the bird drops into the next gap rather
+   * than the fixed spawn height.
+   */
+  private startLife(): void {
+    this.birdY = this.raceActive ? this.spawnY() : BIRD_SPAWN_Y;
+    this.vy = 0;
+    this.lastScoredIndex = this.frontIndex();
+    this.gates = 0;
+    this.collectedCoins.clear();
+  }
+
+  /** Solo: the existing retry input starts another get-ready countdown. */
   private restart(): void {
     this.score = 0;
-    this.birdY = BIRD_SPAWN_Y;
-    this.vy = 0;
-    // solo: start the course over
+    // Solo: start the course over.
     this.worldX = 0;
-    this.lastScoredIndex = -1;
-    this.collectedCoins.clear();
-    if (!this.racing) {
-      // fresh course when truly alone
-      this.seed = randomSeed();
-      // Publish the reroll, or ensureSeed() re-adopts the stale shared seed
-      // next frame and every solo run replays the identical course. (Offline
-      // this writes the local loopback state; a non-host can't be alone.)
-      this.net.patchShared({ seed: this.seed });
-    }
+    this.seed = randomSeed();
+    // Publish the reroll, or ensureSeed() re-adopts the stale shared seed
+    // next frame and every solo run replays the identical course. (Offline
+    // this writes the local loopback state; a non-host can't be alone.)
+    this.net.patchShared({ seed: this.seed });
     this.clearPipes();
 
     this.skin = rollSkin();
@@ -788,15 +888,15 @@ export class GameScene extends Scene {
   /** Multiplayer: respawn into the still-scrolling shared course. */
   private respawn(): void {
     this.score = 0;
-    this.birdY = this.spawnY();
-    this.vy = 0;
-    this.lastScoredIndex = this.frontIndex();
-    this.collectedCoins.clear();
+    this.startLife();
     this.enterPlaying();
   }
 
   /** Reset the bird's look + game-over HUD after a death. */
   private reviveBird(): void {
+    this.cancelPhrase();
+    this.resultsEl?.classList.remove("show");
+    this.flightFx.reset();
     this.tweens.killTweensOf(this.bird);
     this.bird
       .setRotation(0)
@@ -806,7 +906,6 @@ export class GameScene extends Scene {
       .setTintMode(TintModes.MULTIPLY);
     this.bird.play(`fly-${this.skin}`);
     this.overImg.setVisible(false);
-    this.setBest("");
     this.setHint("");
     this.refreshScore();
   }
@@ -820,7 +919,8 @@ export class GameScene extends Scene {
   private die(): void {
     this.setPhase("gameover");
     this.diedAt = this.time.now;
-    this.sound.play("hit");
+    this.cancelPhrase();
+    this.playSound("hit");
     this.bird.stop();
     this.bird.setTint(0xff_ff_ff).setTintMode(TintModes.FILL);
     this.time.delayedCall(90, () => {
@@ -828,16 +928,29 @@ export class GameScene extends Scene {
         this.bird.clearTint().setTintMode(TintModes.MULTIPLY);
       }
     });
-    this.cameras.main.shake(120, 0.008);
+    if (!prefersReducedMotion()) {
+      this.cameras.main.shake(120, 0.008);
+    }
+    this.flightFx.crash(this.bird.x, this.bird.y);
 
     const isNewBest = this.score > this.best;
     if (isNewBest) {
       this.best = this.score;
       writeBest(this.best);
+      this.flightFx.celebrate("NEW BEST!", this.viewW() / 2, this.noticeY());
+      this.playPhrase([1.15, 1.45, 1.8], 140);
     }
     this.overImg.setVisible(true);
-    this.setBest(`${isNewBest ? "NEW BEST" : "BEST"} ${this.best}`);
-    this.setHint(this.racing ? "" : HINT_RESTART);
+    this.setHint("");
+    this.resultsEl?.classList.remove("show");
+    this.resultsEl?.classList.toggle("record", isNewBest);
+    setText("result-title", isNewBest ? "A NEW PERSONAL BEST" : "YOUR FLIGHT");
+    setText("result-score", String(this.score));
+    setText("result-gates", String(this.gates));
+    setText("result-coins", String(this.collectedCoins.size));
+    setText("result-best", String(this.best));
+    this.resultLayoutAt = 0;
+    this.updateResults(this.time.now);
   }
 
   // ---- deterministic course ------------------------------------------------
@@ -860,9 +973,9 @@ export class GameScene extends Scene {
       return BIRD_SPAWN_Y;
     }
     const i = this.frontIndex() + 1;
+    // Still on the runway, nothing ahead.
     if (i < 0) {
       return BIRD_SPAWN_Y;
-      // still on the runway, nothing ahead
     }
     const top = topHeightFor(this.seed, i);
     return top + PIPE_GAP / 2;
@@ -937,8 +1050,14 @@ export class GameScene extends Scene {
             .setDepth(4)
         : null;
     coin?.play("coin-spin");
+    const glint = coin
+      ? this.add
+          .image(0, coin.y - 12, "flight-glint")
+          .setTint(0xff_f4_b8)
+          .setDepth(5)
+      : null;
 
-    const pipe: Pipe = { botBody, botCap, coin, index: i, topBody, topCap, topHeight };
+    const pipe: Pipe = { botBody, botCap, coin, glint, index: i, topBody, topCap, topHeight };
     this.pipes.set(i, pipe);
     return pipe;
   }
@@ -953,6 +1072,14 @@ export class GameScene extends Scene {
     if (pipe.coin) {
       pipe.coin.x = centerX;
     }
+    if (pipe.glint) {
+      pipe.glint.x = centerX + 12;
+      // A small steady gleam still marks an edge-on coin under reduced motion.
+      const pulse = prefersReducedMotion()
+        ? 0.45
+        : Math.max(0, Math.sin(this.time.now / 230 + pipe.index * 2.4));
+      pipe.glint.setAlpha(0.2 + pulse * 0.8).setScale(0.7 + pulse * 0.4);
+    }
   }
 
   private clearPipes(): void {
@@ -963,6 +1090,9 @@ export class GameScene extends Scene {
   }
 
   private checkScore(): void {
+    if (this.phase !== "playing") {
+      return;
+    }
     for (const pipe of this.pipes.values()) {
       if (pipe.index <= this.lastScoredIndex) {
         continue;
@@ -972,10 +1102,17 @@ export class GameScene extends Scene {
       }
       this.lastScoredIndex = pipe.index;
       this.score += 1;
-      this.sound.play("point");
+      this.gates += 1;
+      this.refreshGateHud();
       this.refreshScore();
       this.scorePop();
-      this.puff(this.bird.x, this.bird.y);
+      this.flightFx.pass(this.bird.x, this.bird.y);
+      if (this.gates % GATE_MILESTONE === 0) {
+        this.flightFx.celebrate(`${this.gates} GATES · KEEP FLYING!`, this.bird.x, this.bird.y);
+        this.playPhrase([1.25, 1.6]);
+      } else {
+        this.playSound("point");
+      }
     }
   }
 
@@ -991,12 +1128,15 @@ export class GameScene extends Scene {
         continue;
       }
       pipe.coin = null;
+      pipe.glint?.destroy();
+      pipe.glint = null;
       this.collectedCoins.add(pipe.index);
       this.collectCoin(coin);
     }
   }
 
   private collectCoin(coin: GameObjects.Sprite): void {
+    this.flightFx.pickup(coin.x, coin.y);
     const burst = this.add
       .sprite(coin.x, coin.y, "burst-1")
       .setScale(ART_SCALE)
@@ -1005,7 +1145,7 @@ export class GameScene extends Scene {
     burst.once(Animations.Events.ANIMATION_COMPLETE, () => burst.destroy());
     coin.destroy();
     this.score += 1;
-    this.sound.play("point", { rate: 1.5 });
+    this.playSound("point", { rate: 1.5 });
     this.refreshScore();
     this.scorePop();
   }
@@ -1040,21 +1180,13 @@ export class GameScene extends Scene {
       this.ghosts.clear();
       return;
     }
-    const me = this.net.playerId;
-    // Stable left-to-right ordering shared by every client (same players map),
-    // so each rival keeps a consistent lane instead of jittering frame to frame.
-    // `.filter()` already returns a fresh array, so sorting it in place is safe.
-    // Sorting keeps the left-to-right order stable across clients and frames.
-    const others = Object.keys(this.net.players)
-      .filter((id) => id !== me)
-      .toSorted();
     const seen = new Set<string>();
 
     // Fan rivals out to the right of your own dragon (which stays at BIRD_X).
     // Each keeps a per-id gap + depth so the flock is loose, not a fixed grid;
     // gaps accumulate so rivals never overlap however uneven the spacing.
     let laneX = BIRD_X + DRAGON_SPRITE_OFFSET_X;
-    for (const id of others) {
+    for (const id of this.rivalIds) {
       const ps = readPeer(this.net.players[id]?.state);
       if (!ps) {
         continue;
@@ -1131,11 +1263,10 @@ export class GameScene extends Scene {
 
   // ---- visual effects ------------------------------------------------------
 
-  private puff(x: number, y: number): void {
-    this.puffEmitter.explode(10, x, y);
-  }
-
   private scorePop(): void {
+    if (prefersReducedMotion()) {
+      return;
+    }
     const y = this.scoreY();
     for (const digit of this.digits) {
       this.tweens.killTweensOf(digit);
@@ -1145,6 +1276,17 @@ export class GameScene extends Scene {
   }
 
   // ---- HUD -----------------------------------------------------------------
+
+  private refreshGateHud(): void {
+    if (!this.gatesEl) {
+      return;
+    }
+    this.gatesEl.hidden = this.phase !== "playing";
+    const text = `${this.gates} ${this.gates === 1 ? "GATE" : "GATES"}`;
+    if (this.gatesEl.textContent !== text) {
+      this.gatesEl.textContent = text;
+    }
+  }
 
   private refreshScore(): void {
     const text = String(this.score);
@@ -1174,10 +1316,96 @@ export class GameScene extends Scene {
     }
   }
 
-  private setBest(text: string): void {
-    if (this.bestEl) {
-      this.bestEl.textContent = text;
+  /** Game-over card: mirrors the respawn/restart deadlines, never gates them. */
+  private updateResults(time: number): void {
+    // The card's own height and the camera panel's rect are layout reads;
+    // 4 Hz is plenty for a panel the player may collapse mid-screen.
+    if (time - this.resultLayoutAt >= RESULT_LAYOUT_MS) {
+      this.resultLayoutAt = time;
+      this.layoutResults();
     }
+    const elapsed = Math.max(0, time - this.diedAt);
+    this.resultsEl?.classList.toggle("show", elapsed >= 120);
+    const remaining = Math.max(0, RESPAWN_MS - elapsed);
+    const retry = this.retryLine(remaining, elapsed);
+    if (this.resultRetryEl && this.resultRetryEl.textContent !== retry) {
+      this.resultRetryEl.textContent = retry;
+    }
+    this.resultsEl?.style.setProperty(
+      "--return-progress",
+      String(Math.min(1, elapsed / (this.racing ? RESPAWN_MS : RESTART_LOCKOUT_MS))),
+    );
+  }
+
+  /** Keep the banner/card together and outside the optional live camera. */
+  private layoutResults(): void {
+    const card = this.resultsEl;
+    if (!card) {
+      return;
+    }
+    const camera = document.querySelector(".fd-cam")?.getBoundingClientRect();
+    const width = Math.min(340, this.scale.width - 32);
+    const height = card.offsetHeight;
+    const key = `${this.scale.width}:${this.scale.height}:${height}:${camera?.left}:${camera?.top}`;
+    if (key === this.resultLayoutKey) {
+      return;
+    }
+    this.resultLayoutKey = key;
+    let cardWidth = width;
+    let x = this.scale.width / 2;
+    let y = Math.min(
+      this.scale.height - height - 16,
+      this.scale.height / 2 + (this.scale.height <= 520 ? 30 : 48),
+    );
+    // Overlapping the camera: sit beside it when there's room, else above it.
+    if (camera && x + width / 2 > camera.left && y + height > camera.top - 12) {
+      if (camera.left >= 272) {
+        cardWidth = Math.min(width, camera.left - 32);
+        x = camera.left / 2;
+      } else {
+        y = Math.max(90, Math.min(y, camera.top - height - 16));
+      }
+    }
+    card.style.width = `${cardWidth}px`;
+    card.style.left = `${x}px`;
+    card.style.top = `${y}px`;
+    const zoom = this.viewZoom();
+    this.overImg
+      .setScale(Math.min(ART_SCALE, (cardWidth - 16) / zoom / this.overImg.width))
+      .setPosition(x / zoom, this.viewTop() + (y - 48) / zoom);
+  }
+
+  private playSound(key: string, config?: Types.Sound.SoundConfig): void {
+    if (this.muted || this.presentationPaused) {
+      return;
+    }
+    this.sound.play(key, config);
+  }
+
+  /** "point" pitched up a few steps; a newer fanfare replaces a pending one. */
+  private playPhrase(rates: readonly number[], delay = 0): void {
+    this.cancelPhrase();
+    const note = (index: number): void => {
+      this.phraseTimer = null;
+      const rate = rates[index];
+      if (rate === undefined) {
+        return;
+      }
+      this.playSound("point", { rate, volume: 0.45 });
+      if (index + 1 < rates.length) {
+        this.phraseTimer = this.time.delayedCall(PHRASE_NOTE_MS, () => note(index + 1));
+      }
+    };
+    if (delay > 0) {
+      this.phraseTimer = this.time.delayedCall(delay, () => note(0));
+    } else {
+      note(0);
+    }
+  }
+
+  private cancelPhrase(): void {
+    this.phraseTimer?.remove();
+    this.phraseTimer = null;
   }
 
   private setMuted(muted: boolean): void {
@@ -1186,12 +1414,17 @@ export class GameScene extends Scene {
     // output, and that one silently drops writes to `mute` and always reads
     // false — which left the toggle stuck after a single press.
     this.muted = muted;
-    this.sound.mute = muted;
+    this.sound.mute = muted || this.presentationPaused;
+    if (muted) {
+      this.cancelPhrase();
+      this.sound.stopAll();
+    }
     storageSet(SOUND_KEY, muted ? "0" : "1");
     // Autoplay policy may have left the context suspended (we boot muted, so
     // nothing forced it awake). We're inside a user gesture — resume is safe.
     if (
       !muted &&
+      !this.presentationPaused &&
       this.sound instanceof Sound.WebAudioSoundManager &&
       this.sound.context.state === "suspended"
     ) {
@@ -1199,7 +1432,13 @@ export class GameScene extends Scene {
     }
   }
 
-  /** The connection/standing line above the board. */
+  private retryLine(remaining: number, elapsed: number): string {
+    if (this.racing) {
+      return `BACK IN ${(remaining / 1000).toFixed(1)}s · RACE CONTINUES`;
+    }
+    return elapsed < RESTART_LOCKOUT_MS ? "TAKE A BREATH…" : HINT_RESTART;
+  }
+
   private netInfoLine(): string {
     if (!this.net.live) {
       return "connecting…";
@@ -1208,7 +1447,7 @@ export class GameScene extends Scene {
       return "offline · solo";
     }
     if (this.racing) {
-      return `race · ${Object.keys(this.net.players).length} players`;
+      return `race · ${this.rivalIds.length + 1} players`;
     }
     return "online · waiting";
   }
@@ -1259,15 +1498,11 @@ export class GameScene extends Scene {
 
   /** Best-first standings: mine live-local, every rival from its last wire state. */
   private standings(): BoardRow[] {
-    const me = this.net.playerId;
-    const rows: BoardRow[] = [];
-    for (const [id, player] of Object.entries(this.net.players)) {
-      if (id === me) {
-        rows.push({ id, live: this.alive, me: true, score: this.score });
-      } else {
-        const ps = readPeer(player.state);
-        rows.push({ id, live: ps?.live ?? false, me: false, score: ps?.score ?? 0 });
-      }
+    const me = this.net.playerId ?? SOLO_ROW_ID;
+    const rows: BoardRow[] = [{ id: me, live: this.alive, me: true, score: this.score }];
+    for (const id of this.rivalIds) {
+      const ps = readPeer(this.net.players[id]?.state);
+      rows.push({ id, live: ps?.live ?? false, me: false, score: ps?.score ?? 0 });
     }
     rows.sort((a, b) => b.score - a.score);
     return rows;
@@ -1303,6 +1538,11 @@ export class GameScene extends Scene {
     return this.viewTop() + SCORE_Y + safeAreaInset().top / this.viewZoom();
   }
 
+  /** Milestone / new-best banner sits just under the score digits. */
+  private noticeY(): number {
+    return this.scoreY() + 44;
+  }
+
   private layout(): void {
     // The whole world lives in a fixed COURSE_H-tall logical space and the
     // camera zooms it onto the real viewport. Every client therefore plays the
@@ -1328,6 +1568,9 @@ export class GameScene extends Scene {
         .setPosition(width / 2, top + viewH / 2);
     }
     this.refreshScore();
+    if (this.phase === "gameover") {
+      this.layoutResults();
+    }
     // Both the visible pipe window and the trunk tops depend on the view.
     this.clearPipes();
   }

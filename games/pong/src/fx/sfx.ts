@@ -1,9 +1,9 @@
 // Procedural WebAudio blips — no assets, matches the game's bare ink
 // aesthetic. Every interaction sounds; pitch is randomized ±8% per play,
 // and the paddle blip climbs with the rally so escalation is audible.
-// The context is created lazily on the first call: the first sound is
-// always the serve, which fires from a user gesture, so autoplay rules
-// are satisfied without extra unlock plumbing.
+// The context is created lazily, from a user gesture (see resumeSound), and
+// notes are only scheduled while it is running: a suspended timeline would
+// hold them and fire the whole backlog at once on unlock.
 //
 // Muted by default: sound is opt-in (M key) and the choice persists in
 // localStorage, so returning players who opted in stay unmuted.
@@ -28,20 +28,33 @@ const storageSet = (key: string, value: string): void => {
 };
 
 let muted = storageGet(SOUND_KEY) !== "1";
+let paused = false;
+let ctx: AudioContext | null = null;
 
 export const isMuted = (): boolean => muted;
 
-let ctx: AudioContext | null = null;
-
 const audio = (): AudioContext | null => {
+  if (muted || paused) {
+    return null;
+  }
   if (ctx === null && "AudioContext" in window) {
     ctx = new AudioContext();
   }
-  if (ctx !== null && ctx.state === "suspended") {
+  if (ctx === null || ctx.state === "running") {
+    return ctx;
+  }
+  if (ctx.state === "suspended") {
     void ctx.resume();
   }
-  return ctx;
+  return null;
 };
+
+/** Create/resume the context from a user gesture, so a fist or pad serve that
+ *  follows (neither is a browser activation) still sounds. */
+export const resumeSound = (): void => {
+  audio();
+};
+
 /** Set mute and persist the choice. Runs from the M key or the touch cluster's
  *  button, so creating/resuming the context on unmute satisfies autoplay rules
  *  even when no sound has played yet. */
@@ -49,8 +62,13 @@ export const setMuted = (next: boolean): void => {
   muted = next;
   storageSet(SOUND_KEY, muted ? "0" : "1");
   if (!muted) {
-    audio();
+    resumeSound();
   }
+};
+
+/** A live match keeps running behind the wrapper's pause overlay; it should not blip. */
+export const setSoundPaused = (next: boolean): void => {
+  paused = next;
 };
 
 interface Blip {
@@ -65,9 +83,6 @@ interface Blip {
 }
 
 const blip = ({ freq, end, dur, type, gain, at = 0 }: Blip): void => {
-  if (muted) {
-    return;
-  }
   const ac = audio();
   if (!ac) {
     return;

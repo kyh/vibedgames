@@ -6,20 +6,23 @@ import { CHAMP_BY_ID } from "../data/champions";
 import { ABILITY_CLIPS, TWO_H_SPEED, clipSpeed, swingClip } from "../data/clip-timing";
 import { HOP_HEIGHT, JUMP_MS } from "../data/config";
 import type { DamageType } from "../data/config";
-import { terrainHeight } from "../data/terrain";
-import { effectiveAttackSpeed } from "../sim/stats";
 import type { Unit } from "../sim/types";
-import { applyDissolve } from "./dissolve";
-import type { DissolveHandle } from "./dissolve";
-import { CHAMP_FX } from "./fx";
-import type { Fx } from "./fx";
-import { cloneMats, disposeMat } from "./instance-mats";
-import { AnimatedCharacter } from "./animated-character";
+import { effectiveAttackSpeed } from "../sim/stats";
 import type { ModelLibrary } from "./models";
-import { LOCAL_COLOR } from "./palette";
-import { StatusFx } from "./status-fx";
+import { AnimatedCharacter } from "./animated-character";
 import { WeaponTrail } from "./weapon-trail";
 import type { TrailOverride } from "./weapon-trail";
+import { terrainHeight } from "../data/terrain";
+import { CHAMP_FX } from "./fx";
+import type { Fx } from "./fx";
+import { applyDissolve } from "./dissolve";
+import type { DissolveHandle } from "./dissolve";
+import { StatusFx } from "./status-fx";
+import type { PlateAnchor } from "./hud-readability";
+import { LOCAL_COLOR } from "./palette";
+import { AnimationEvents, animationWindow } from "./animation-events";
+import type { AnimationEvent } from "./animation-events";
+import { cloneMats, disposeMat } from "./instance-mats";
 
 // Clip choices + strike timing live in data/clip-timing.ts (ABILITY_CLIPS /
 // ATTACK_SETS / clipSpeed) — ONE table shared with the sim, so the damage tick
@@ -83,10 +86,6 @@ const SPIN_LOOP_CLIP = "Melee_2H_Attack_Spinning";
  *  divided by the rate, clamped. */
 const clipWindowMs = (durSec: number, speed = 1): number =>
   Math.min(ONE_SHOT_CAP_MS, Math.max(ONE_SHOT_MIN_MS, (durSec / speed) * 1000));
-// an attack event older than this is stale — skip
-const ATTACK_RECENCY_MS = 340;
-// recency window for detecting a fresh cast event
-const CAST_ANIM_MS = 520;
 // flinch beat — Hit_A/B are SPED to fit (never cut)
 const HIT_ANIM_MS = 300;
 // Jump animation is a 3-phase state machine: takeoff → airborne float → land.
@@ -99,7 +98,12 @@ const JUMP_START_MS = 340;
 const JUMP_LAND_MS = 340;
 const GOLD = new THREE.Color(0xff_d2_4a);
 
-type JumpPhase = "" | "start" | "idle" | "land";
+const jumpPhaseAt = (remain: number, elapsed: number): "land" | "start" | "idle" => {
+  if (remain <= JUMP_LAND_MS) {
+    return "land";
+  }
+  return elapsed < JUMP_START_MS ? "start" : "idle";
+};
 
 // minimal descriptor a UnitView needs (ChampDef satisfies it; so do creeps)
 export interface ViewDef {
@@ -122,8 +126,8 @@ const blobTex = (): THREE.Texture => {
     return blobTexCache;
   }
   const c = document.createElement("canvas");
-  c.width = 64;
   c.height = 64;
+  c.width = 64;
   const g = c.getContext("2d");
   if (!g) {
     blobTexCache = new THREE.Texture();
@@ -172,21 +176,11 @@ const castClip = (def: ViewDef): string => {
   return attackClip(def);
 };
 
-/** Which of the 3 hop clips owns this instant of airtime. */
-const jumpPhaseAt = (remain: number): JumpPhase => {
-  if (remain <= JUMP_LAND_MS) {
-    return "land";
-  }
-  return JUMP_MS - remain < JUMP_START_MS ? "start" : "idle";
-};
-
 export class UnitView {
   readonly group = new THREE.Group();
-  private scene: THREE.Scene;
-  private lib: ModelLibrary;
-  private color: number;
-  private isLocal: boolean;
-  private isCreep: boolean;
+  private readonly platePoint: PlateAnchor = { x: 0, y: 0, z: 0 };
+  private readonly plateHeight: number;
+  private pose = new THREE.Group();
   private char: AnimatedCharacter;
   private ring: THREE.Mesh;
   private ringMat: THREE.MeshBasicMaterial;
@@ -199,11 +193,11 @@ export class UnitView {
   private yaw = 0;
   // smoothed ground under the feet (see update)
   private groundY = 0;
-  private lastAttackShown = -1;
-  private lastCastShown = -1;
+  private actionEvents = new AnimationEvents();
   private lastHitShown = -1;
   private lastFlinchAt = -1;
-  private jumpPhase: JumpPhase = "";
+  // "" | "start" | "idle" | "land" — 3-phase hop state
+  private jumpPhase = "";
   private oneShotUntil = 0;
   private deadAt = -1;
   private lastDustAt = 0;
@@ -234,6 +228,13 @@ export class UnitView {
   private mushScale = 1;
   private hexShown = false;
 
+  private scene: THREE.Scene;
+  private lib: ModelLibrary;
+  private color: number;
+  private isLocal: boolean;
+  private isCreep: boolean;
+  private identity: { champId: string; team: string };
+
   constructor(
     scene: THREE.Scene,
     lib: ModelLibrary,
@@ -241,22 +242,30 @@ export class UnitView {
     color: number,
     isLocal: boolean,
     isCreep: boolean,
+    identity: { champId: string; team: string },
   ) {
     this.scene = scene;
     this.lib = lib;
     this.color = color;
     this.isLocal = isLocal;
     this.isCreep = isCreep;
+    this.identity = identity;
     this.def = def;
     this.baseScale = def.scale ?? 1;
     this.char = new AnimatedCharacter(lib, def.model, def.rig === "large" ? "Large/" : "");
     this.char.root.scale.setScalar(this.baseScale);
-    this.group.add(this.char.root);
+    this.group.add(this.pose);
+    this.pose.add(this.char.root);
+    // Measure only the original body, before weapons, rings or trails attach.
+    // The cached height follows the placed root through terrain and real hops.
+    this.char.root.updateWorldMatrix(true, true);
+    const bodyBounds = new THREE.Box3().setFromObject(this.char.root);
+    this.plateHeight = Math.max(0.8, Number.isFinite(bodyBounds.max.y) ? bodyBounds.max.y : 1.4);
 
-    const identity = isLocal ? LOCAL_COLOR : color;
     // clone materials per-instance so hit-flash / stealth / team-tint don't
     // bleed across units that share a model (SkeletonUtils.clone shares mats).
-    this.mats = cloneMats(this.char.root, new THREE.Color(identity));
+    const tint = new THREE.Color(isLocal ? LOCAL_COLOR : color);
+    this.mats = cloneMats(this.char.root, tint);
 
     // give the champion their weapon(s), bound to the hand bones. Weapon mats
     // are ALSO cloned per-instance (windup glint / empower glow must not bleed).
@@ -279,18 +288,19 @@ export class UnitView {
       );
     }
 
+    const ringColor = isLocal ? LOCAL_COLOR : color;
     // death dissolve — patched ONCE at construction on the per-instance mats
     this.dissolve = applyDissolve(this.mats);
-    this.dissolve.setEdge(isCreep ? 0xcf_d8_e0 : identity);
+    this.dissolve.setEdge(isCreep ? 0xcf_d8_e0 : ringColor);
 
     // local ring is larger + fainter so it reads as a clean circle on the ground
     // around your feet — a tight ring gets occluded by the body into "floating"
     // slivers. Non-local stays a small footprint tag.
     const innerR = (isLocal ? 1.15 : 0.7) * this.baseScale;
     const outerR = (isLocal ? 1.35 : 0.95) * this.baseScale;
-    this.ringBase = new THREE.Color(identity);
+    this.ringBase = new THREE.Color(ringColor);
     this.ringMat = new THREE.MeshBasicMaterial({
-      color: identity,
+      color: ringColor,
       depthWrite: false,
       opacity: isLocal ? 0.55 : 0.6,
       side: THREE.DoubleSide,
@@ -327,8 +337,9 @@ export class UnitView {
     this.spawnClipPending = true;
   }
 
-  /** Instance a weapon into a hand bone, with its blade trail (melee only) —
-   *  built pre-attach so the blade segment is in local space. */
+  /** Bind a weapon to a hand bone. The blade trail (melee only) is computed
+   *  pre-attach so the blade segment is in local space, with a per-weapon axis
+   *  override for the 2H/hammer bits. */
   private mountHand(name: string, bone: string, withTrail: boolean, trailColor: number): void {
     const w = this.lib.instance(name);
     mountWeapon(w, name);
@@ -345,8 +356,17 @@ export class UnitView {
     }
   }
 
+  matches(u: Unit, isLocal: boolean): boolean {
+    return (
+      this.identity.champId === u.champId &&
+      this.identity.team === u.team &&
+      this.isLocal === isLocal
+    );
+  }
+
   update(u: Unit, now: number, dt: number, fx: Fx | null, spinning: boolean): void {
     const respawned = u.alive && !this.wasAlive;
+    const jumped = (u.x - this.group.position.x) ** 2 + (u.y - this.group.position.z) ** 2 > 36;
     // vertical hop arc while airborne (sin 0→π over the jump window) + the
     // terrain height under the unit (render-only; the sim stays flat)
     const hopY =
@@ -354,7 +374,7 @@ export class UnitView {
         ? Math.sin((1 - (u.jumpUntil - now) / JUMP_MS) * Math.PI) * HOP_HEIGHT
         : 0;
     const groundY = terrainHeight(u.x, u.y);
-    this.place(u, dt, respawned, hopY, groundY);
+    this.place(u, dt, respawned || jumped, hopY, groundY);
     this.wasAlive = u.alive;
 
     if (!u.alive) {
@@ -366,7 +386,7 @@ export class UnitView {
     this.updateHex(u, now);
 
     this.playEventOneShots(u, now, fx);
-    this.playHitFlinch(u, now, spinning);
+    this.playHitFlinch(u, now, spinning, respawned || jumped);
     this.playBaseClip(u, now, spinning);
     this.char.update(dt);
     // sample the blade AFTER the pose updates
@@ -375,31 +395,42 @@ export class UnitView {
     this.updateSquash(u, dt, fx, hopY);
     this.updateDashFx(u, now, fx);
 
-    // footstep dust on fast ground movement (grounds the run cycle)
-    const spd = Math.hypot(u.vx, u.vy);
-    if (fx && spd > u.moveSpeed * 0.55 && u.jumpUntil <= now && now - this.lastDustAt > 170) {
-      this.lastDustAt = now;
-      fx.footDust(u.x, u.y, -u.vx, -u.vy);
+    if (fx) {
+      this.updateFootDust(u, now, fx);
     }
-
     if (this.isLocal) {
       this.updateUltRing(u, now, fx);
     }
+    this.updateHitGlow(u, now);
+    this.updateStatusFx(u, now, dt, fx);
+  }
 
-    // hit flash (white pulse on damage) — on this unit's cloned materials
+  /** Footstep dust on fast ground movement (grounds the run cycle). */
+  private updateFootDust(u: Unit, now: number, fx: Fx): void {
+    const spd = Math.hypot(u.vx, u.vy);
+    if (spd > u.moveSpeed * 0.55 && u.jumpUntil <= now && now - this.lastDustAt > 170) {
+      this.lastDustAt = now;
+      fx.footDust(u.x, u.y, -u.vx, -u.vy);
+    }
+  }
+
+  /** Hit flash (white pulse on damage) on this unit's cloned materials, and the
+   *  melee windup glint — micro-anticipation while a swing charges (90–140ms). */
+  private updateHitGlow(u: Unit, now: number): void {
     const flash = Math.max(0, 1 - (now - u.lastHitAt) / 110);
     for (const m of this.mats) {
       m.emissive.setRGB(flash, flash * 0.85, flash * 0.7);
     }
-    // melee windup glint — micro-anticipation while a swing charges (90–140ms)
     const glint = u.pendingAttack ? 0.35 : 0;
     for (const m of this.weaponMats) {
       m.emissive.setRGB(glint, glint, glint);
     }
+  }
 
-    // ── status indicators (stun star / shield dome / slow tint / embers…) ──
-    // built lazily on the first status; StatusFx owns stealth opacity + empower
-    // weapon glow (per-frame, AFTER the glint baseline above).
+  /** Status indicators (stun star / shield dome / slow tint / embers…), built
+   *  lazily on the first status; StatusFx owns stealth opacity + empower weapon
+   *  glow (per-frame, AFTER the glint baseline). */
+  private updateStatusFx(u: Unit, now: number, dt: number, fx: Fx | null): void {
     if (fx && !this.statusFx && (u.statuses.length > 0 || u.empowerNext > 0)) {
       this.statusFx = new StatusFx(
         {
@@ -415,12 +446,13 @@ export class UnitView {
     this.statusFx?.update(u, dt, now);
   }
 
-  /** Position, ground-settle, knockback lurch, shadow and yaw. */
-  private place(u: Unit, dt: number, respawned: boolean, hopY: number, groundY: number): void {
-    // smooth toward the sim position; snap on first appearance, respawn, or a
-    // big jump (blink/teleport) so the character doesn't slide across the map.
-    const jumped = (u.x - this.group.position.x) ** 2 + (u.y - this.group.position.z) ** 2 > 36;
-    if (!this.placed || respawned || jumped) {
+  /** Smooth toward the sim position; snap on first appearance, respawn, or a
+   *  big jump (blink/teleport) so the character doesn't slide across the map. */
+  private place(u: Unit, dt: number, snap: boolean, hopY: number, groundY: number): void {
+    if (!this.placed || snap) {
+      this.recoilZ = 0;
+      this.recoilX = 0;
+      this.pose.position.set(0, 0, 0);
       this.groundY = groundY;
       this.group.position.set(u.x, groundY + hopY, u.y);
       this.yaw = Math.atan2(u.aimX, u.aimY) + MODEL_YAW;
@@ -439,8 +471,6 @@ export class UnitView {
     // springs back while the shadow stays planted (physical "enemy reaction")
     this.recoilX *= Math.max(0, 1 - dt * 9);
     this.recoilZ *= Math.max(0, 1 - dt * 9);
-    this.group.position.x += this.recoilX;
-    this.group.position.z += this.recoilZ;
     // blob contact-shadow rides the terrain (never the hop), shrinking as the
     // unit rises so it reads as a cast shadow
     // clear the 0.05 tile tops
@@ -453,9 +483,20 @@ export class UnitView {
     const d = Math.atan2(Math.sin(targetYaw - this.yaw), Math.cos(targetYaw - this.yaw));
     this.yaw += d * Math.min(1, 16 * dt);
     this.group.rotation.y = this.yaw;
+    // Recoil is a world-plane vector; the pose sits inside the yawed root.
+    const c = Math.cos(this.yaw);
+    const sn = Math.sin(this.yaw);
+    this.pose.position.set(
+      c * this.recoilX - sn * this.recoilZ,
+      0,
+      sn * this.recoilX + c * this.recoilZ,
+    );
   }
 
   private updateDead(u: Unit, now: number, dt: number, fx: Fx | null, groundY: number): void {
+    this.recoilZ = 0;
+    this.recoilX = 0;
+    this.pose.position.set(0, 0, 0);
     if (this.hexShown) {
       this.setHex(false);
     }
@@ -493,7 +534,7 @@ export class UnitView {
     this.updateTrails(dt);
   }
 
-  /** Alive frame: undo whatever the death dissolve clobbered. */
+  /** Respawned — restore the material state the dissolve clobbered. */
   private revive(): void {
     if (this.deadShown) {
       this.dissolve.set(0);
@@ -525,9 +566,9 @@ export class UnitView {
     }
   }
 
-  /** Render-only status swap (synced statuses → identical on guests). */
+  /** Render-only status swaps (synced statuses → identical on guests). */
   private updateHex(u: Unit, now: number): void {
-    const hexed = u.statuses.some((s) => s.kind === "hex");
+    const hexed = u.statuses.some((st) => st.kind === "hex");
     if (hexed !== this.hexShown) {
       this.setHex(hexed);
     }
@@ -543,23 +584,18 @@ export class UnitView {
     }
   }
 
-  // one-shots are triggered ON THE EVENT (delta), never per-frame — otherwise
-  // play() would reset the clip to frame 0 every frame and freeze it.
+  /** One-shots are triggered ON THE EVENT (delta), never per-frame — otherwise
+   *  play() would reset the clip to frame 0 every frame and freeze it. */
   private playEventOneShots(u: Unit, now: number, fx: Fx | null): void {
-    if (u.lastCastAt !== this.lastCastShown) {
-      this.lastCastShown = u.lastCastAt;
-      if (now - u.lastCastAt < CAST_ANIM_MS) {
-        this.playCast(u, now);
-      }
-    } else if (u.lastAttackAt !== this.lastAttackShown) {
-      this.lastAttackShown = u.lastAttackAt;
-      if (now - u.lastAttackAt < ATTACK_RECENCY_MS) {
-        this.playAttack(u, now, fx);
-      }
+    const action = this.actionEvents.observe(u, now);
+    if (action?.kind === "cast") {
+      this.playCast(u, action);
+    } else if (action?.kind === "attack") {
+      this.playAttack(u, action, fx);
     }
   }
 
-  private playCast(u: Unit, now: number): void {
+  private playCast(u: Unit, action: AnimationEvent): void {
     const ch = this.char;
     const clip =
       (u.lastCastKey ? ABILITY_CLIPS.get(this.def.id)?.[u.lastCastKey] : undefined) ??
@@ -571,18 +607,20 @@ export class UnitView {
     }
     // shared table — the sim's strike waits for this exact contact frame
     const ts = clipSpeed(clip);
-    const winMs = clipWindowMs(ch.clipDuration(clip), ts);
-    ch.play(clip, { fade: 0.06, loop: false, timeScale: ts });
-    this.oneShotUntil = now + winMs;
-    // weapon-trail ribbon on the ability swing
-    this.emitTrails(winMs);
+    const window = animationWindow(ch.clipDuration(clip), ts, action);
+    if (window.remaining > 0) {
+      ch.play(clip, { fade: 0.06, loop: false, offset: window.offset, timeScale: ts });
+      this.oneShotUntil = window.until;
+      // only the accepted swing's remaining ribbon
+      this.emitTrails(window.remaining);
+    }
   }
 
-  private playAttack(u: Unit, now: number, fx: Fx | null): void {
+  /** Pick by the SYNCED swing counter so the clip matches the sim rhythm (the
+   *  slow swing that hits harder plays its heavy clip). Same swingClip() call
+   *  the sim used to schedule this swing's damage. */
+  private playAttack(u: Unit, action: AnimationEvent, fx: Fx | null): void {
     const ch = this.char;
-    // pick by the SYNCED swing counter so the clip matches the sim rhythm
-    // (the slow swing that hits harder plays its heavy clip). Same
-    // swingClip() call the sim used to schedule this swing's damage.
     const clip = swingClip(this.def.id, u.swingCount);
     const clipDur = ch.clipDuration(clip);
     // NO SWING EVER CLIPS: speed each swing just enough that the WHOLE clip
@@ -597,27 +635,30 @@ export class UnitView {
     const intervalMs = (timeMult * 1000) / Math.max(0.1, effectiveAttackSpeed(u));
     const ts =
       clipDur > 0 ? Math.max(clipSpeed(clip), (clipDur * 1000) / intervalMs) : clipSpeed(clip);
-    const winMs = clipWindowMs(clipDur, ts);
-    ch.play(clip, { fade: 0.04, loop: false, timeScale: ts });
-    this.oneShotUntil = now + winMs;
-    // weapon-trail ribbon traces the blade — the slash VFX is the shader ribbon
-    // in weapon-trail.ts, tracing the real animated blade across the WHOLE
-    // swing; no billboard stamp
-    this.emitTrails(winMs);
-    fx?.attackSound(this.def.id, u.x, u.y);
+    const window = animationWindow(clipDur, ts, action);
+    if (window.remaining > 0) {
+      ch.play(clip, { fade: 0.04, loop: false, offset: window.offset, timeScale: ts });
+      this.oneShotUntil = window.until;
+      // weapon-trail ribbon traces the blade
+      this.emitTrails(window.remaining);
+      fx?.attackSound(this.def.id, u.x, u.y, this.isLocal);
+    }
+    // (the slash VFX is the shader ribbon in weapon-trail.ts — it traces
+    // the real animated blade across the WHOLE swing; no billboard stamp)
   }
 
-  // get-hit flinch — when freshly damaged and not mid-swing/cast (throttled so
-  // a flurry of hits doesn't lock the character in permanent flinch)
-  private playHitFlinch(u: Unit, now: number, spinning: boolean): void {
+  /** Get-hit flinch — when freshly damaged and not mid-swing/cast (throttled so
+   *  a flurry of hits doesn't lock the character in permanent flinch). */
+  private playHitFlinch(u: Unit, now: number, spinning: boolean, snapped: boolean): void {
     if (u.lastHitAt === this.lastHitShown) {
       return;
     }
     this.lastHitShown = u.lastHitAt;
     // knockback lurch on every fresh hit (even when the flinch anim is throttled)
-    if (u.alive && now - u.lastHitAt < 180) {
-      this.recoilX = u.lastHitDx * 0.34;
-      this.recoilZ = u.lastHitDy * 0.34;
+    if (u.alive && !snapped && now - u.lastHitAt < 180) {
+      const magnitude = Math.max(1, Math.hypot(u.lastHitDx, u.lastHitDy));
+      this.recoilX = (u.lastHitDx / magnitude) * 0.34;
+      this.recoilZ = (u.lastHitDy / magnitude) * 0.34;
     }
     if (
       !spinning &&
@@ -626,35 +667,33 @@ export class UnitView {
       now >= this.oneShotUntil &&
       now - this.lastFlinchAt > 420
     ) {
-      const ch = this.char;
       // fit the flinch clip INTO its short beat (sped, not cut)
       const flinch = this.hitIdx % 2 ? "Hit_B" : "Hit_A";
       this.hitIdx += 1;
-      const fts = Math.max(1, (ch.clipDuration(flinch) * 1000) / HIT_ANIM_MS);
-      ch.play(flinch, { fade: 0.05, loop: false, timeScale: fts });
+      const fts = Math.max(1, (this.char.clipDuration(flinch) * 1000) / HIT_ANIM_MS);
+      this.char.play(flinch, { fade: 0.05, loop: false, timeScale: fts });
       this.oneShotUntil = now + HIT_ANIM_MS;
       this.lastFlinchAt = now;
     }
   }
 
-  // Priority: an active one-shot (attack/cast/hit/dash-ability/jump-attack)
-  // plays out; then a mid-air hop runs its 3-phase state machine; then a live
-  // whirlwind loops; then a dash shows the run; else locomotion. (Death
-  // outranks all via the early return in update.) Shift casts the champ's
-  // DASH, which plays Dodge_Forward through the cast one-shot via lastCastKey;
-  // a jump ATTACK is the JUMP cast — Melee_1H_Attack_Jump_Chop via lastCastKey.
+  /** (dodge-roll removed — Shift now casts the champ's DASH, which plays
+   *  Dodge_Forward through the cast one-shot via lastCastKey. A jump ATTACK is
+   *  the JUMP cast — Melee_1H_Attack_Jump_Chop via lastCastKey.)
+   *  Priority: an active one-shot (attack/cast/hit/dash-ability/jump-attack)
+   *  plays out; then a mid-air hop runs its 3-phase state machine; then a live
+   *  whirlwind loops; then a dash shows the run; else locomotion. (Death
+   *  outranks all via the early return.) */
   private playBaseClip(u: Unit, now: number, spinning: boolean): void {
     const ch = this.char;
     const airborne = u.jumpUntil > now;
     if (!airborne && this.jumpPhase) {
-      // grounded → reset
       this.jumpPhase = "";
+      // grounded → reset
     }
     if (now < this.oneShotUntil) {
       // hold the current one-shot
-      return;
-    }
-    if (airborne) {
+    } else if (airborne) {
       this.playJumpPhase(u, now);
     } else if (spinning) {
       ch.play(SPIN_LOOP_CLIP, { fade: 0.1, loop: true, timeScale: TWO_H_SPEED });
@@ -667,16 +706,18 @@ export class UnitView {
     }
   }
 
-  /** takeoff → float → land, keyed to airtime; trigger each clip ONCE. */
+  /** Takeoff → float → land, keyed to airtime; trigger each clip ONCE. The
+   *  takeoff/land clips are SPED to fit their airtime slice — the whole motion
+   *  plays inside its phase instead of being chopped by the next. */
   private playJumpPhase(u: Unit, now: number): void {
-    const phase = jumpPhaseAt(u.jumpUntil - now);
+    const ch = this.char;
+    const remain = u.jumpUntil - now;
+    const elapsed = JUMP_MS - remain;
+    const phase = jumpPhaseAt(remain, elapsed);
     if (phase === this.jumpPhase) {
       return;
     }
     this.jumpPhase = phase;
-    const ch = this.char;
-    // takeoff/land clips are SPED to fit their airtime slice — the whole
-    // motion plays inside its phase instead of being chopped by the next
     if (phase === "start") {
       ch.play(JUMP_START_CLIP, {
         fade: 0.06,
@@ -724,8 +765,8 @@ export class UnitView {
         // Hades-dash afterimage
         fx.ghost(this.group.position.x, this.group.position.z, primary);
         if (this.def.id === "witch") {
-          // broom sparkle
           fx.crossGlint(u.x, 1, u.y, -u.dashVy, u.dashVx, 0xb9_8a_e0, 0.6);
+          // broom sparkle
         }
       }
       if (now - this.lastDashDustAt > 80) {
@@ -765,6 +806,13 @@ export class UnitView {
     }
   }
 
+  plateAnchor(): PlateAnchor {
+    this.platePoint.x = this.group.position.x;
+    this.platePoint.y = this.group.position.y + (this.hexShown ? 1.2 : this.plateHeight) + 0.12;
+    this.platePoint.z = this.group.position.z;
+    return this.platePoint;
+  }
+
   /** Swap the character for a hopping mushroom (witch's Grand Hex). */
   private setHex(on: boolean): void {
     this.hexShown = on;
@@ -777,7 +825,7 @@ export class UnitView {
       const pivot = new THREE.Group();
       pivot.add(inst);
       pivot.scale.setScalar(this.mushScale);
-      this.group.add(pivot);
+      this.pose.add(pivot);
       this.mushroom = pivot;
     }
     if (this.mushroom) {
@@ -788,9 +836,9 @@ export class UnitView {
 
   /** Begin a weapon trail on every melee weapon for the next `dur` ms. */
   private emitTrails(dur: number): void {
-    // no blade arcs off a mushroom
     if (this.hexShown) {
       return;
+      // no blade arcs off a mushroom
     }
     for (const t of this.trails) {
       t.emit(dur);

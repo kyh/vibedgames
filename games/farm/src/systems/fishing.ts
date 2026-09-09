@@ -5,7 +5,8 @@ import { TILE, DEPTH } from "../config";
 import { store } from "./store";
 import { rollFish } from "../data/fish";
 import type { FishDef } from "../data/fish";
-import { floatText, burst } from "../render/fx";
+import { floatText, burst, rewardArc } from "../render/fx";
+import type { Item } from "../data/items";
 import { Sound } from "../render/audio";
 import type { GameScene } from "../scenes/game-scene";
 
@@ -37,6 +38,7 @@ export class Fishing {
   private hint: Phaser.GameObjects.Text | null = null;
 
   private timer = 0;
+  private pending: Phaser.Time.TimerEvent | null = null;
   private bobberPos = { x: 0, y: 0 };
   private target: FishDef | null = null;
 
@@ -67,7 +69,8 @@ export class Fishing {
     this.scene.playerAnim("p-casting");
     this.bobberPos = { x: tx * TILE + 8, y: ty * TILE + 8 };
     Sound.water();
-    this.scene.time.delayedCall(750, () => {
+    this.pending = this.scene.time.delayedCall(750, () => {
+      this.pending = null;
       if (this.state !== "casting") {
         return;
       }
@@ -88,6 +91,9 @@ export class Fishing {
   }
 
   onActionPress(): void {
+    if (this.scene.controlsPaused) {
+      return;
+    }
     if (this.state === "done" || this.state === "casting") {
       return;
     }
@@ -309,26 +315,35 @@ export class Fishing {
     this.scene.acting = false;
     this.scene.playerAnim("p-caught");
     if (fish) {
-      store.inv.add({ fish: fish.id, kind: "fish" }, 1);
+      const item: Item = { fish: fish.id, kind: "fish" };
+      const leftover = store.inv.add(item, 1);
+      this.scene.showDiscovery(
+        store.collections.recordCatch(fish.id, this.scene.season(), 1 - leftover),
+      );
+      if (leftover === 0) {
+        rewardArc(this.scene, this.bobberPos.x, this.bobberPos.y, this.scene.player, item);
+      }
       const xp = 10 + fish.difficulty * 4;
       this.scene.awardXP("fishing", xp);
       floatText(
         this.scene,
         this.scene.player.x,
         this.scene.player.y - 26,
-        `${fish.name}!`,
+        leftover === 0 ? `${fish.name}!` : "Bag full — fish left behind",
         "#9fe0ff",
       );
       burst(this.scene, this.scene.player.x, this.scene.player.y - 16, {
         colors: [0x9f_e0_ff, 0xff_ff_ff, 0xff_e2_7a],
         count: 14,
+        matter: "droplet",
         speed: 60,
         up: true,
       });
       Sound.harvest();
     }
     this.scene.requestSave();
-    this.scene.time.delayedCall(650, () => {
+    this.pending = this.scene.time.delayedCall(650, () => {
+      this.pending = null;
       this.state = "idle";
       this.scene.playerAnim("p-idle");
     });
@@ -353,5 +368,19 @@ export class Fishing {
     this.fishIcon = null;
     this.hint?.destroy();
     this.hint = null;
+  }
+
+  /** A local co-op pause freezes the catch, never the partner's world clock. */
+  setPaused(paused: boolean): void {
+    if (this.pending) {
+      this.pending.paused = paused;
+    }
+    if (this.active) {
+      if (paused) {
+        this.scene.player.anims.pause();
+      } else {
+        this.scene.player.anims.resume();
+      }
+    }
   }
 }

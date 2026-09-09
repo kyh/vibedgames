@@ -753,6 +753,18 @@ export class PillarPool {
     }
   }
 
+  clear(): void {
+    for (const p of this.pillars) {
+      p.live = false;
+      p.t = 0;
+      p.column.visible = false;
+      p.star.visible = false;
+      for (const h of p.halos) {
+        h.mesh.visible = false;
+      }
+    }
+  }
+
   dispose(): void {
     for (const p of this.pillars) {
       for (const m of [p.column, p.star, p.halos[0].mesh, p.halos[1].mesh]) {

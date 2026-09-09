@@ -22,6 +22,11 @@ export type Snapshot = {
   campRespawnAt: Record<string, number>;
 };
 
+/** A view, not a copy: units/projectiles/mines/grounds are the World's own
+ *  objects. The SDK serialises the patch synchronously on send, and every
+ *  consumer that keeps a snapshot copies it (restoreHostState), so the host's
+ *  local mirror aliasing its live world costs nothing and a deep clone at
+ *  15 Hz would only protect against a reader that doesn't exist. */
 export const encodeWorld = (w: World): Snapshot => ({
   campRespawnAt: w.campRespawnAt,
   gameTime: w.gameTime,
@@ -125,6 +130,26 @@ const FX_TAGS = [
   "notify",
   "ability",
 ];
+/** Older peers omit `actor`; anything malformed is stripped rather than trusted
+ *  to pick a body or claim local audio priority. */
+const castActor = (
+  value: MultiplayerClient["sharedState"][string] | undefined,
+): { unitId: string; at: number } | null => {
+  if (!(value instanceof Object) || !("unitId" in value) || !("at" in value)) {
+    return null;
+  }
+  const { unitId, at } = value;
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- protocol boundary
+  if (typeof unitId !== "string" || !unitId || unitId.length > 128) {
+    return null;
+  }
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- protocol boundary
+  if (typeof at !== "number" || !Number.isFinite(at) || at < 0) {
+    return null;
+  }
+  return { at, unitId };
+};
+
 /** Validate the broadcast fx array in shared state into typed FxEvents,
  *  dropping bad shapes. */
 export const sharedFxBatch = (state: SharedState): FxEvent[] => {
@@ -132,7 +157,16 @@ export const sharedFxBatch = (state: SharedState): FxEvent[] => {
   if (!Array.isArray(v)) {
     return [];
   }
-  return v.filter(
-    (e): e is FxEvent => e instanceof Object && "t" in e && FX_TAGS.some((tag) => tag === e.t),
-  );
+  return v
+    .filter(
+      (e): e is FxEvent => e instanceof Object && "t" in e && FX_TAGS.some((tag) => tag === e.t),
+    )
+    .map((event) => {
+      if (event.t !== "cast") {
+        return event;
+      }
+      const actor = castActor(event.actor);
+      const { actor: _actor, ...cast } = event;
+      return actor ? { ...cast, actor } : cast;
+    });
 };

@@ -1,3 +1,5 @@
+import type { AbilityReadiness } from "../render/hud-readability";
+import { CHAMP_BY_ID } from "../data/champions";
 // Touch controls (build-doc §12). Left half = floating move stick (camera-
 // relative forward/strafe); right half = floating LOOK stick — it turns the
 // camera FPS-style (the scene folds its deflection into yaw/pitch at pad
@@ -52,6 +54,8 @@ interface Btn {
   label: HTMLSpanElement;
   cd: HTMLDivElement | null;
   lastCd: number;
+  state: HTMLSpanElement;
+  lastState: string;
 }
 
 let touchStyleInjected = false;
@@ -67,16 +71,18 @@ const injectTouchStyle = (): void => {
 .ba-tbtn .ba-tl{font:800 18px ui-monospace,monospace;pointer-events:none}
 .ba-tbtn .ba-tl.word{font-size:11px;letter-spacing:.5px}
 .ba-tbtn .ba-tl.kc{position:absolute;right:6px;bottom:4px;font:800 10px/14px ui-monospace,monospace;color:#ffd24a;background:rgba(5,8,16,.85);border-radius:4px;padding:0 4px}
+.ba-tbtn.blocked{filter:saturate(.35)}.ba-tbtn.queued{border-color:#ffd24a}.ba-tstate{position:absolute;left:0;right:0;top:18px;text-align:center;font:800 9px ui-monospace,monospace;background:#09101dcc;color:#ffe7a4;pointer-events:none}.ba-tstate:empty{display:none}
 .ba-tcd{position:absolute;inset:0;border-radius:50%;background:conic-gradient(rgba(5,8,16,.75) calc(var(--cd,0)*1%),transparent 0);pointer-events:none}
 `;
   document.head.append(s);
 };
 
-interface StickHandle {
-  el: HTMLDivElement;
-  base: HTMLDivElement;
-  knob: HTMLDivElement;
-}
+const readinessLabel = (readiness: AbilityReadiness): string => {
+  if (readiness.kind === "blocked") {
+    return readiness.label;
+  }
+  return readiness.queued ? "QUEUED" : "";
+};
 
 const stickEl = (): StickHandle => {
   const el = document.createElement("div");
@@ -181,7 +187,10 @@ export class TouchControls {
       });
       el.addEventListener("pointerup", () => el.classList.remove("press"));
       el.addEventListener("pointercancel", () => el.classList.remove("press"));
-      this.buttons.set(b.id, { cd, el, label, lastCd: -1 });
+      const state = document.createElement("span");
+      state.className = "ba-tstate";
+      el.append(state);
+      this.buttons.set(b.id, { cd, el, label, lastCd: -1, lastState: "", state });
       pad.append(el);
     }
     this.layer.append(pad);
@@ -212,6 +221,7 @@ export class TouchControls {
       if (!btn) {
         continue;
       }
+      btn.el.setAttribute("aria-label", CHAMP_BY_ID[champId]?.abilities[key].name ?? key);
       btn.el.style.backgroundImage = `url("${abilityIcon(champId, key)}")`;
       if (key === "Q" || key === "W" || key === "E" || key === "R") {
         btn.label.classList.add("kc");
@@ -232,6 +242,21 @@ export class TouchControls {
     }
     btn.lastCd = v;
     btn.cd.style.setProperty("--cd", `${v}`);
+  }
+
+  /** Informative only: taps still reach the authoritative cast/buffer path. */
+  setReadiness(key: AbilityKey, readiness: AbilityReadiness): void {
+    const button = this.buttons.get(key);
+    if (!button) {
+      return;
+    }
+    const text = readinessLabel(readiness);
+    if (text !== button.lastState) {
+      button.lastState = text;
+      button.state.textContent = text;
+    }
+    button.el.classList.toggle("blocked", readiness.kind === "blocked");
+    button.el.classList.toggle("queued", readiness.queued);
   }
 
   private activate(): void {
@@ -272,13 +297,15 @@ export class TouchControls {
     this.render();
   };
 
-  private onMove = (e: PointerEvent): void => {
-    let s: Stick | null = null;
-    if (this.move?.id === e.pointerId) {
-      s = this.move;
-    } else if (this.aim?.id === e.pointerId) {
-      s = this.aim;
+  private stickFor(pointerId: number): Stick | null {
+    if (this.move?.id === pointerId) {
+      return this.move;
     }
+    return this.aim?.id === pointerId ? this.aim : null;
+  }
+
+  private onMove = (e: PointerEvent): void => {
+    const s = this.stickFor(e.pointerId);
     if (!s) {
       return;
     }
@@ -317,6 +344,20 @@ export class TouchControls {
   attackDown(): boolean {
     return this.aim !== null && Math.hypot(this.aim.dx, this.aim.dy) > 0.2;
   }
+  /** An overlay can consume pointer-up; release the owned sticks and edges. */
+  resetInput(): void {
+    this.move = null;
+    this.aim = null;
+    this.queue = [];
+    this.buy = false;
+    this.jump = false;
+    this.dash = false;
+    this.jumpAttack = false;
+    for (const button of this.buttons.values()) {
+      button.el.classList.remove("press");
+    }
+    this.render();
+  }
   consumeAbilities(): AbilityKey[] {
     const out = this.queue;
     this.queue = [];
@@ -344,4 +385,10 @@ export class TouchControls {
     this.jumpAttack = false;
     return j;
   }
+}
+
+interface StickHandle {
+  el: HTMLDivElement;
+  base: HTMLDivElement;
+  knob: HTMLDivElement;
 }

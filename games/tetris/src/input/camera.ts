@@ -1,5 +1,5 @@
-import type { NormalizedLandmark, PoseLandmarker } from "@mediapipe/tasks-vision";
-import type * as TasksVision from "@mediapipe/tasks-vision";
+import type { DrawingUtils, NormalizedLandmark, PoseLandmarker } from "@mediapipe/tasks-vision";
+import type * as VisionTasks from "@mediapipe/tasks-vision";
 
 import { isCoarsePointer } from "./touch";
 
@@ -22,7 +22,6 @@ import { isCoarsePointer } from "./touch";
 
 /** MediaPipe's wrapper JS is ~135 KB of the bundle and is dead weight until the
  *  player actually grants the camera, so it loads with the model, not at boot. */
-type VisionTasks = typeof TasksVision;
 
 const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm";
 const MODEL_URL =
@@ -96,14 +95,19 @@ const landmarksToKeypoints = (
 export class PoseCamera {
   private readonly onPose: PoseHandler;
   private readonly panel: HTMLDivElement;
+  private readonly toggle: HTMLButtonElement;
   private readonly video: HTMLVideoElement;
   private readonly canvas: HTMLCanvasElement;
   private readonly status: HTMLDivElement;
   private landmarker: PoseLandmarker | null = null;
-  private tasks: VisionTasks | null = null;
+  private drawingUtils: DrawingUtils | null = null;
+  private tasks: typeof VisionTasks | null = null;
+  private stream: MediaStream | null = null;
+  private releaseMediaEvents: (() => void) | null = null;
   private rafId: number | null = null;
-  private destroyed = false;
-  private started = false;
+  private state: "idle" | "starting" | "live" | "unavailable" = "idle";
+  /** Bumped on every start/failure so a stale await never touches a newer attempt. */
+  private attempt = 0;
   private lastVideoTime = -1;
   private lastTimestamp = 0;
 
@@ -122,93 +126,151 @@ export class PoseCamera {
     this.status = document.createElement("div");
     this.status.id = "camera-status";
     this.status.textContent = deferred ? "tap to play with the camera" : "starting camera…";
-    this.panel.append(this.video, this.canvas, this.status);
-    // Small screens shrink the panel (CSS); tapping toggles the expanded size.
-    // The attribute keeps the virtual gamepad from claiming taps on the panel.
+    this.toggle = document.createElement("button");
+    this.toggle.id = "camera-toggle";
+    this.toggle.className = "camera-toggle";
+    this.toggle.type = "button";
+    this.panel.append(this.video, this.canvas, this.status, this.toggle);
     this.panel.dataset.gamepadIgnore = "";
-    this.panel.addEventListener("click", () => {
+    this.toggle.addEventListener("click", (event) => {
       this.panel.classList.toggle("expanded");
-      if (deferred) {
+      if (this.state === "idle" || this.state === "unavailable") {
         void this.start();
       }
+      this.updateToggle();
+      // A mouse click must not leave the button focused: Space would then
+      // toggle the panel instead of hard-dropping.
+      if (event.detail > 0) {
+        this.toggle.blur();
+      }
     });
+    this.updateToggle();
     document.body.append(this.panel);
   }
 
-  /** Request the camera, then load the model. Idempotent: the panel tap that
-   *  opts a phone in also toggles the expanded size, and may fire again later. */
+  /** Request the camera, play the video, then load the model. Retries after a
+   *  failure (denied camera, unplugged device, model error) via the panel button. */
   async start(): Promise<void> {
-    if (this.started) {
+    if (this.state !== "idle" && this.state !== "unavailable") {
       return;
     }
-    this.started = true;
+    this.attempt += 1;
+    const { attempt } = this;
+    this.state = "starting";
+    this.setStatus("starting camera…");
+    this.updateToggle();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: { facingMode: "user" },
       });
-      if (this.destroyed) {
+      if (!this.current(attempt)) {
         for (const track of stream.getTracks()) {
           track.stop();
         }
         return;
       }
-
+      this.stream = stream;
       this.video.srcObject = stream;
+      const tracks = stream.getTracks();
+      const onEnded = (): void => this.fail(attempt);
+      const onVideoError = (): void => {
+        if (this.video.srcObject === stream && this.video.error !== null) {
+          this.fail(attempt);
+        }
+      };
+      for (const track of tracks) {
+        track.addEventListener("ended", onEnded);
+      }
+      this.video.addEventListener("error", onVideoError);
+      this.releaseMediaEvents = () => {
+        for (const track of tracks) {
+          track.removeEventListener("ended", onEnded);
+        }
+        this.video.removeEventListener("error", onVideoError);
+      };
+      if (tracks.some((track) => track.readyState === "ended")) {
+        this.fail(attempt);
+        return;
+      }
       await this.video.play();
+      if (!this.current(attempt)) {
+        return;
+      }
       this.canvas.width = this.video.videoWidth;
       this.canvas.height = this.video.videoHeight;
 
-      await this.loadModel();
-      if (this.destroyed) {
+      await this.loadModel(attempt);
+      if (!this.current(attempt)) {
         return;
       }
 
+      this.state = "live";
       this.setStatus(null);
-      this.detectFrame();
+      this.updateToggle();
+      this.detectFrame(attempt);
     } catch (error) {
-      // Denied/unavailable camera or model load failure: keyboard keeps
-      // working, the panel just reports why the webcam path is inactive.
-      // Stop any acquired stream so the webcam LED matches the status text.
-      // another tap on the panel retries
-      this.started = false;
-      if (this.video.srcObject instanceof MediaStream) {
-        for (const track of this.video.srcObject.getTracks()) {
-          track.stop();
-        }
-        this.video.srcObject = null;
+      if (this.current(attempt)) {
+        console.error("Error starting camera or loading model:", error);
       }
-      console.error("Error starting camera or loading model:", error);
-      this.setStatus(
-        isCoarsePointer()
-          ? "camera unavailable — touch controls active"
-          : "camera unavailable — keyboard controls active",
-      );
+      this.fail(attempt);
     }
   }
 
-  destroy(): void {
-    this.destroyed = true;
+  private current(attempt: number): boolean {
+    return this.attempt === attempt;
+  }
+
+  /** Degrade to keyboard/touch: stop the stream so the webcam LED matches the
+   *  status text, and offer a retry. */
+  private fail(attempt: number): void {
+    if (!this.current(attempt)) {
+      return;
+    }
+    this.attempt += 1;
+    this.releaseCapture();
+    this.state = "unavailable";
+    this.setStatus(
+      isCoarsePointer()
+        ? "camera unavailable — retry · touch controls active"
+        : "camera unavailable — retry · keyboard controls active",
+    );
+    this.updateToggle();
+  }
+
+  private releaseCapture(): void {
     if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId);
     }
     this.rafId = null;
-    const src = this.video.srcObject;
-    if (src instanceof MediaStream) {
-      for (const track of src.getTracks()) {
-        track.stop();
-      }
+    this.releaseMediaEvents?.();
+    this.releaseMediaEvents = null;
+    this.video.pause();
+    this.video.srcObject = null;
+    for (const track of this.stream?.getTracks() ?? []) {
+      track.stop();
     }
+    this.stream = null;
     this.landmarker?.close();
     this.landmarker = null;
-    this.panel.remove();
+    this.drawingUtils?.close();
+    this.drawingUtils = null;
+    this.tasks = null;
+    this.lastVideoTime = -1;
+    this.lastTimestamp = 0;
   }
 
-  private async loadModel(): Promise<void> {
+  private async loadModel(attempt: number): Promise<void> {
     const tasks = await import("@mediapipe/tasks-vision");
+    if (!this.current(attempt)) {
+      return;
+    }
     this.tasks = tasks;
     const vision = await tasks.FilesetResolver.forVisionTasks(WASM_URL);
-    this.landmarker = await tasks.PoseLandmarker.createFromOptions(vision, {
+    if (!this.current(attempt)) {
+      return;
+    }
+    const landmarker = await tasks.PoseLandmarker.createFromOptions(vision, {
       baseOptions: {
         delegate: "GPU",
         modelAssetPath: MODEL_URL,
@@ -216,17 +278,23 @@ export class PoseCamera {
       numPoses: 1,
       runningMode: "VIDEO",
     });
-  }
-
-  private detectFrame = (): void => {
-    if (this.destroyed) {
+    if (!this.current(attempt)) {
+      landmarker.close();
       return;
     }
+    this.landmarker = landmarker;
+  }
+
+  private detectFrame = (attempt = this.attempt): void => {
+    if (!this.current(attempt)) {
+      return;
+    }
+    this.rafId = null;
     const { video } = this;
     const { landmarker } = this;
 
     if (video.readyState !== 4 || !landmarker) {
-      this.rafId = requestAnimationFrame(this.detectFrame);
+      this.rafId = requestAnimationFrame(() => this.detectFrame(attempt));
       return;
     }
 
@@ -249,11 +317,17 @@ export class PoseCamera {
           );
         }
       } catch (error) {
-        console.error("Error detecting pose:", error);
+        if (this.current(attempt)) {
+          console.error("Error detecting pose:", error);
+        }
+        this.fail(attempt);
+        return;
       }
     }
 
-    this.rafId = requestAnimationFrame(this.detectFrame);
+    if (this.current(attempt)) {
+      this.rafId = requestAnimationFrame(() => this.detectFrame(attempt));
+    }
   };
 
   private drawSkeleton(landmarks: NormalizedLandmark[]): void {
@@ -265,7 +339,8 @@ export class PoseCamera {
 
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-    const drawingUtils = new tasks.DrawingUtils(ctx);
+    const drawingUtils = this.drawingUtils ?? new tasks.DrawingUtils(ctx);
+    this.drawingUtils = drawingUtils;
     drawingUtils.drawLandmarks(landmarks, {
       color: "red",
       fillColor: "red",
@@ -275,6 +350,23 @@ export class PoseCamera {
       color: "blue",
       lineWidth: 2,
     });
+  }
+
+  private toggleAction(expanded: boolean): string {
+    if (this.state === "unavailable") {
+      return "Retry body camera";
+    }
+    if (this.state === "idle") {
+      return "Enable body controls";
+    }
+    return expanded ? "Collapse body camera" : "Expand body camera";
+  }
+
+  private updateToggle(): void {
+    const expanded = this.panel.classList.contains("expanded");
+    const action = this.toggleAction(expanded);
+    this.toggle.setAttribute("aria-label", action);
+    this.toggle.setAttribute("aria-expanded", String(expanded));
   }
 
   private setStatus(message: string | null): void {

@@ -68,6 +68,7 @@ export const itemToWire = (it: ItemState): ItemState => ({
 
 export const enemyToWire = (e: EnemyState): EnemyState => ({
   angle: q3(e.angle),
+  attackAt: qms(e.attackAt),
   blinkUntil: qms(e.blinkUntil),
   chargeUntil: qms(e.chargeUntil),
   graceUntil: qms(e.graceUntil),

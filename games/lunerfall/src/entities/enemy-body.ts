@@ -20,18 +20,18 @@ export type EnemyState =
   | "recover"
   | "hurt"
   | "dead";
-export interface Projectile {
+export type Projectile = {
   x: number;
   y: number;
   vx: number;
   vy: number;
-}
-export interface Blast {
+};
+export type Blast = {
   x: number;
   y: number;
   r: number;
   dmg: number;
-}
+};
 
 const approach = (c: number, t: number, d: number): number =>
   c < t ? Math.min(c + d, t) : Math.max(c - d, t);
@@ -61,10 +61,67 @@ export class EnemyBody {
   private chargeDir: 1 | -1 = 1;
   private hitWall = false;
   private exploded = false;
-  readonly kind: EnemyKind;
-  private grid: Grid;
   pendingProjectile: Projectile | null = null;
   pendingBlast: Blast | null = null;
+
+  /** Exact authority state; excludes grid, kit and presentation callbacks. */
+  checkpoint() {
+    return {
+      attackCd: this.attackCd,
+      chargeDir: this.chargeDir,
+      dead: this.dead,
+      dmgOutMult: this.dmgOutMult,
+      dmgTakenMult: this.dmgTakenMult,
+      exploded: this.exploded,
+      facing: this.facing,
+      grounded: this.grounded,
+      hitFlash: this.hitFlash,
+      hitWall: this.hitWall,
+      hp: this.hp,
+      iframes: this.iframes,
+      pendingBlast: structuredClone(this.pendingBlast),
+      pendingProjectile: structuredClone(this.pendingProjectile),
+      prevX: this.prevX,
+      prevY: this.prevY,
+      speedMult: this.speedMult,
+      state: this.state,
+      stateT: this.stateT,
+      vx: this.vx,
+      vy: this.vy,
+      x: this.x,
+      y: this.y,
+    };
+  }
+
+  /** Restore without simulating, emitting effects or refreshing cooldowns. */
+  restore(state: EnemyBodyCheckpoint) {
+    this.x = state.x;
+    this.y = state.y;
+    this.prevX = state.prevX;
+    this.prevY = state.prevY;
+    this.vx = state.vx;
+    this.vy = state.vy;
+    this.facing = state.facing;
+    this.grounded = state.grounded;
+    this.hp = state.hp;
+    this.state = state.state;
+    this.stateT = state.stateT;
+    this.dead = state.dead;
+    this.hitFlash = state.hitFlash;
+    this.iframes = state.iframes;
+    this.speedMult = state.speedMult;
+    this.dmgTakenMult = state.dmgTakenMult;
+    this.dmgOutMult = state.dmgOutMult;
+    this.attackCd = state.attackCd;
+    this.chargeDir = state.chargeDir;
+    this.hitWall = state.hitWall;
+    this.exploded = state.exploded;
+    this.pendingProjectile = structuredClone(state.pendingProjectile);
+    this.pendingBlast = structuredClone(state.pendingBlast);
+  }
+
+  readonly kind: EnemyKind;
+  private grid: Grid;
 
   constructor(kind: EnemyKind, grid: Grid, x: number, y: number) {
     this.kind = kind;
@@ -203,7 +260,9 @@ export class EnemyBody {
         this.bomber(dt, tx);
         break;
       }
-      // no default
+      default: {
+        break;
+      }
     }
     this.applyPhysics(dt);
   }
@@ -341,9 +400,9 @@ export class EnemyBody {
       }
       default: {
         this.faceToward(dx);
+        // retreat
         if (dist < 58) {
           this.walk(-Math.sign(dx), k.speed, dt);
-          // retreat
         } else if (
           dist <= (k.shootRange ?? 155) &&
           Math.abs(ty - this.y) < 44 &&
@@ -439,3 +498,5 @@ export class EnemyBody {
     }
   }
 }
+
+export type EnemyBodyCheckpoint = ReturnType<EnemyBody["checkpoint"]>;

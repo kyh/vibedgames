@@ -36,9 +36,8 @@ export const MAX_DT = 0.05;
 /** A cleared X-line is WELL_WIDTH cubes; a Z-line is WELL_DEPTH. Score adds
  *  the line length, then a combo bonus when both axes clear at once. */
 export const DOUBLE_CLEAR_BONUS = 50;
-// per cell fallen
+// Both per cell fallen.
 export const HARD_DROP_POINTS = 2;
-// per cell fallen
 export const SOFT_DROP_POINTS = 1;
 
 // ---- charge / power-sweep ---------------------------------------------------
@@ -134,7 +133,7 @@ export const CAMERA_WOBBLE = 0.14;
  *  WITHOUT changing the logical corner or the camera-relative controls. */
 export const PEEK_YAW_MAX = 0.32;
 export const PEEK_PITCH_MAX = 0.06;
-// spring stiffness easing toward the swaying target
+// Spring stiffness easing toward the swaying target.
 export const PEEK_OMEGA = 9;
 /** Full back-and-forth period of the auto peek-sway. */
 export const AUTO_PEEK_PERIOD_MS = 7000;
@@ -163,15 +162,18 @@ export const POSE_TIMEOUT_MS = 600;
 export const HOLD_COOLDOWN_MS = 700;
 /** T-pose (both wrists out past the shoulders, at shoulder height) → power-sweep
  *  when the charge meter is full (edge-triggered). */
-// wrist must be this far (frac of width) outside the shoulder
+// Wrist must be this far (fraction of width) outside the shoulder.
 export const TPOSE_WRIST_OUT = 0.18;
+/** Vertical slack (frac of shoulder width) still counted as "shoulder height".
+ *  The post-pause neutral gate needs the same number: a wrist inside this band
+ *  is still a T-pose, so clearing the gate there would re-fire power at once. */
+export const TPOSE_LEVEL_SLACK = 0.6;
 export const POWER_COOLDOWN_MS = 800;
 
 // ---- keyboard (DAS/ARR for held steering) -----------------------------------
 
-// delay before auto-repeat
+// Delay before auto-repeat, then the auto-repeat interval.
 export const DAS_MS = 170;
-// auto-repeat interval
 export const ARR_MS = 60;
 
 // ---- touch (on-screen gamepad) ------------------------------------------------
@@ -182,6 +184,9 @@ export const TOUCH_DAS_MS = 220;
 export const TOUCH_ARR_MS = 90;
 /** DROP released within this = hard drop (tap); held longer = soft drop only. */
 export const DROP_TAP_MS = 250;
+/** A free touch that travels further than this before lifting is a drag (the
+ *  title / results banner scrolls), not a start tap. */
+export const TOUCH_TAP_SLOP_PX = 12;
 
 // ---- look / palette ---------------------------------------------------------
 

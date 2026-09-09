@@ -65,22 +65,9 @@ interface Ring {
   r1: number;
 }
 
-/** Least-recently-started slot, for stealing when the pool is saturated. */
-const oldest = (rings: readonly Ring[]): Ring => {
-  const [first] = rings;
-  if (!first) {
-    throw new Error("ring pool is empty");
-  }
-  let best = first;
-  for (const r of rings) {
-    if (r.bornAt <= best.bornAt) {
-      best = r;
-    }
-  }
-  return best;
-};
-
 export interface BurstOpts {
+  /** Optional ground-plane direction; dust fans away from a contacted wall. */
+  direction?: { x: number; z: number };
   speed?: number;
   lift?: number;
   lifeMin?: number;
@@ -88,6 +75,11 @@ export interface BurstOpts {
   sizeMin?: number;
   sizeMax?: number;
 }
+
+/** Live media query: every motion gate in the game reads this one instance. */
+export const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+// ---- helpers --------------------------------------------------------------------
 
 const makeInstanced = (
   geo: THREE.BufferGeometry,
@@ -101,6 +93,7 @@ const makeInstanced = (
   mesh.frustumCulled = false;
   return mesh;
 };
+
 const commit = (mesh: THREE.InstancedMesh, count: number): void => {
   mesh.count = count;
   mesh.instanceMatrix.needsUpdate = true;
@@ -108,6 +101,7 @@ const commit = (mesh: THREE.InstancedMesh, count: number): void => {
     mesh.instanceColor.needsUpdate = true;
   }
 };
+
 /** Pop in fast (overshoot a touch), then fast-in-slow-out shrink to zero. */
 const scaleCurve = (t: number): number => {
   if (t < POP_PORTION) {
@@ -117,6 +111,7 @@ const scaleCurve = (t: number): number => {
   const u = (t - POP_PORTION) / (1 - POP_PORTION);
   return 1.08 * (1 - u * u * (3 - 2 * u));
 };
+
 const softDotTexture = (): THREE.CanvasTexture => {
   const canvas = document.createElement("canvas");
   canvas.width = 32;
@@ -134,10 +129,11 @@ const softDotTexture = (): THREE.CanvasTexture => {
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 };
+
 /** Ambient dust motes drifting up through the maze air — quiet, constant. */
 const makeMotes = () => {
   const positions = new Float32Array(MOTE_COUNT * 3);
-  // [vx, vy] per mote
+  // [vx, vy] per mote.
   const velocities = new Float32Array(MOTE_COUNT * 2);
   for (let i = 0; i < MOTE_COUNT; i += 1) {
     positions[i * 3] = Math.random() * GRID_COLS;
@@ -162,11 +158,21 @@ const makeMotes = () => {
   points.frustumCulled = false;
   return { points, velocities };
 };
+
 const randomUnit = (): THREE.Vector3 => {
   const v = new THREE.Vector3(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1);
   return v.lengthSq() < 1e-6 ? v.set(0, 1, 0) : v.normalize();
 };
+
+const wrapX = (x: number): number => {
+  if (x < 0) {
+    return GRID_COLS;
+  }
+  return x > GRID_COLS ? 0 : x;
+};
+
 const rand = (min: number, max: number): number => min + Math.random() * (max - min);
+
 export class FxPool {
   private puffMesh: THREE.InstancedMesh;
   private heartMesh: THREE.InstancedMesh;
@@ -215,6 +221,11 @@ export class FxPool {
         this.puffs.shift();
       }
       const dir = randomUnit();
+      if (opts.direction) {
+        dir.x = dir.x * 0.45 + opts.direction.x;
+        dir.z = dir.z * 0.45 + opts.direction.z;
+        dir.normalize();
+      }
       const v = speed * (0.5 + Math.random() * 0.5);
       this.puffs.push({
         age: 0,
@@ -281,12 +292,25 @@ export class FxPool {
 
   /** Expanding floor ring, Cubic.Out, fades over RING_DUR_MS. */
   ring(x: number, z: number, r1: number, color: number): void {
-    const slot = this.rings.find((r) => r.bornAt < 0) ?? oldest(this.rings);
+    const slot = this.rings.find((r) => r.bornAt < 0) ?? this.oldestRing();
     slot.bornAt = this.elapsed;
     slot.r1 = r1;
     slot.mat.color.setHex(color);
     slot.mesh.position.set(x, FLOOR_Y + 0.02, z);
     slot.mesh.visible = true;
+  }
+
+  private oldestRing(): Ring {
+    let [oldest] = this.rings;
+    if (!oldest) {
+      throw new Error("no ring slots");
+    }
+    for (const ring of this.rings) {
+      if (ring.bornAt < oldest.bornAt) {
+        oldest = ring;
+      }
+    }
+    return oldest;
   }
 
   update(dt: number): void {
@@ -295,7 +319,9 @@ export class FxPool {
     this.updateHearts(dt);
     this.updateConfetti(dt);
     this.updateRings();
-    this.updateMotes(dt);
+    if (!REDUCED_MOTION.matches) {
+      this.updateMotes(dt);
+    }
   }
 
   // ---- per-system integration ------------------------------------------------
@@ -418,18 +444,10 @@ export class FxPool {
     }
     for (let i = 0; i < MOTE_COUNT; i += 1) {
       const x = (arr[i * 3] ?? 0) + (this.moteVel[i * 2] ?? 0) * dt;
-      let wrapped = x;
-      if (x < 0) {
-        wrapped = GRID_COLS;
-      } else if (x > GRID_COLS) {
-        wrapped = 0;
-      }
-      arr[i * 3] = wrapped;
+      arr[i * 3] = wrapX(x);
       const y = (arr[i * 3 + 1] ?? 0) + (this.moteVel[i * 2 + 1] ?? 0) * dt;
       arr[i * 3 + 1] = y > 2.8 ? 0.15 : y;
     }
     pos.needsUpdate = true;
   }
 }
-
-// ---- helpers --------------------------------------------------------------------

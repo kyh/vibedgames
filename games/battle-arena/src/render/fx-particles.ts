@@ -10,16 +10,16 @@
 // a scratch options object.
 import * as THREE from "three";
 import { Pool } from "./fx-particle-pool";
-import type { SpawnOptions } from "./fx-particle-pool";
+import type { ParticlePriority, SpawnOptions } from "./fx-particle-pool";
 
-export type { SpawnOptions } from "./fx-particle-pool";
+export type { ParticlePriority, SpawnOptions } from "./fx-particle-pool";
 
 export type ParticleKind = "add" | "normal";
-
 /** Standard HDR multiplier for bloom-worthy cores (bloom threshold is 0.82). */
 export const HDR_BRIGHT = 2.2;
 
 export interface BurstOptions {
+  priority?: ParticlePriority;
   x: number;
   y: number;
   z: number;
@@ -62,7 +62,7 @@ export class ParticlePools {
       transparent: true,
     });
     this.addMat = addMat;
-    this.add = new Pool(addGeo, addMat, ADD_CAP, true, 11, null);
+    this.add = new Pool(addGeo, addMat, ADD_CAP, 96, true, 11, null);
 
     // NORMAL pool — matter. Per-instance alpha rides an aAlpha attribute that a
     // typed onBeforeCompile patch multiplies into diffuseColor.a.
@@ -90,7 +90,7 @@ export class ParticlePools {
         );
     };
     normalMat.customProgramCacheKey = () => "fx-particles-alpha";
-    this.normal = new Pool(normalGeo, normalMat, NORMAL_CAP, false, 10, alphaAttr);
+    this.normal = new Pool(normalGeo, normalMat, NORMAL_CAP, 32, false, 10, alphaAttr);
 
     // NORMAL under ADD (bright energy composites over smoke — value contrast).
     scene.add(this.normal.mesh);
@@ -138,6 +138,7 @@ export class ParticlePools {
       scratchBurst.stretch = o.stretch ?? true;
       scratchBurst.bright = o.bright ?? 1;
       scratchBurst.alpha = o.alpha ?? 1;
+      scratchBurst.priority = o.priority ?? "impact";
       this.spawn(kind, scratchBurst);
     }
   }
@@ -146,6 +147,16 @@ export class ParticlePools {
   update(dt: number): void {
     this.add.update(dt);
     this.normal.update(dt);
+  }
+
+  /** On-demand primitive telemetry; never scans pools during the render loop. */
+  counts() {
+    return { add: this.add.counts(), normal: this.normal.counts() };
+  }
+
+  clear(): void {
+    this.add.clear();
+    this.normal.clear();
   }
 
   dispose(): void {

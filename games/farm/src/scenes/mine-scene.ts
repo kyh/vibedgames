@@ -1,5 +1,5 @@
 import type Phaser from "phaser";
-import { Animations, Cameras, Math as PhaserMath, Scene, Scenes, TintModes } from "phaser";
+import { Cameras, Math as PhaserMath, Scene, Scenes, TintModes } from "phaser";
 import { PhysicalGamepad } from "@vibedgames/gamepad";
 import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
 import {
@@ -13,18 +13,22 @@ import {
   SWORD_BASE_DAMAGE,
   PLAYER_INVULN_MS,
   DEPTH,
+  FARMER_HURT_MS,
+  SKELETON_CONTACT_MS,
+  SKELETON_HURT_MS,
 } from "../config";
 import { store } from "../systems/store";
-import { patchSave } from "../systems/save";
+import { GameScene } from "./game-scene";
+import type { MineRecap } from "./game-scene";
 import { makeGameKeys, NUM_KEY_NAMES } from "../systems/keys";
 import type { MineKeys } from "../systems/keys";
 import { stickMove } from "../systems/stick";
 import type { StickMove } from "../systems/stick";
 import { isTap } from "../systems/touch";
-import { itemName } from "../data/items";
 import type { OreId } from "../data/items";
 import { burst, floatText, shake } from "../render/fx";
 import { Sound } from "../render/audio";
+import { buildMineWorld } from "../render/mine-world";
 
 const MW = 32;
 const MH = 24;
@@ -41,15 +45,10 @@ const oreKindFor = (roll: number): "stone" | OreId => {
   return roll > 0.55 ? "coal" : "stone";
 };
 
-const persistPlayer = (): void => {
-  patchSave({
-    energy: store.energy,
-    gold: store.gold,
-    hp: store.hp,
-    inv: store.inv.toJSON(),
-    skills: store.skills.toJSON(),
-  });
-};
+const ORE_NAME = { coal: "Coal", copper: "Copper", crystal: "Crystal" } satisfies Record<
+  OreId,
+  string
+>;
 
 declare global {
   interface Window {
@@ -73,11 +72,22 @@ interface Enemy {
   maxHp: number;
   invuln: number;
   hurt: number;
+  contactUntil: number;
   dead: boolean;
-  kx: number;
   // knockback velocity
+  kx: number;
   ky: number;
 }
+
+const skeletonAnim = (e: Enemy, now: number, moving: boolean): string => {
+  if (e.hurt > 0) {
+    return "e-skel-hurt";
+  }
+  if (now < e.contactUntil) {
+    return "e-skel-contact";
+  }
+  return moving ? "e-skel-walk" : "e-skel-idle";
+};
 
 export class MineScene extends Scene {
   depth = 1;
@@ -87,6 +97,9 @@ export class MineScene extends Scene {
   private shadow!: Phaser.GameObjects.Sprite;
   private facing = { x: 0, y: 1 };
   private acting = false;
+  controlsPaused = false;
+  private readonly motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+  private hurtUntil = 0;
   /** Trailer-mode scripted movement — read like a stick when real input is silent. */
   trailerMove: { x: number; y: number; run: boolean } | null = null;
   /** Trailer-mode camera zoom override (null = the normal viewport-derived play
@@ -111,6 +124,8 @@ export class MineScene extends Scene {
   gamepad?: PhaserGamepad;
   /** Physical controller — polled here (this scene owns the frame while active). */
   private readonly pad = new PhysicalGamepad();
+  private farm: GameScene | null = null;
+  private visit = { deepest: 1, defeated: 0, gathered: 0, startingGold: 0 };
 
   constructor() {
     super("Mine");
@@ -118,6 +133,12 @@ export class MineScene extends Scene {
 
   create(data: { depth?: number }): void {
     this.depth = data?.depth ?? 1;
+    if (this.depth === 1) {
+      this.visit = { deepest: 1, defeated: 0, gathered: 0, startingGold: store.gold };
+    }
+    this.visit.deepest = Math.max(this.visit.deepest, this.depth);
+    const farm = this.scene.get("Game");
+    this.farm = farm instanceof GameScene ? farm : null;
     // reset reused-instance state (scene.restart keeps the instance)
     this.nodes = [];
     this.enemies = [];
@@ -125,6 +146,8 @@ export class MineScene extends Scene {
     this.invulnUntil = 0;
     this.knock = { x: 0, y: 0 };
     this.acting = false;
+    this.controlsPaused = false;
+    this.hurtUntil = 0;
     this.facing = { x: 0, y: 1 };
     this.trailerMove = null;
     this.cameras.main.setBackgroundColor("#0a0c12");
@@ -157,6 +180,7 @@ export class MineScene extends Scene {
         this.scale.off("resize", this.onResizeHandler);
       }
     });
+    this.bindCameraMotion();
 
     this.setupInput();
     if (this.trailerNoInput) {
@@ -169,7 +193,7 @@ export class MineScene extends Scene {
     // Prime the pad so an A still held from entering the mine doesn't read as
     // a fresh press (and swing) on this scene's first frame.
     this.pad.update();
-    Sound.startMusic("mine");
+    this.events.once(Scenes.Events.SHUTDOWN, Sound.startMusic("mine"));
     if (!this.scene.isActive("MineHud")) {
       this.scene.launch("MineHud");
     }
@@ -178,6 +202,26 @@ export class MineScene extends Scene {
     if (import.meta.env.DEV) {
       window.__mine = this;
     }
+    this.game.events.emit("farm-enter-mine", this);
+  }
+
+  /** The farm owns the co-op session; the mine is a local detour from it. */
+  isOnline(): boolean {
+    return this.farm?.isOnline() ?? false;
+  }
+
+  /** Live co-op keeps the loop (and the room's heartbeat) running through a
+   *  pause, so the whole floor — enemies included — holds still instead. */
+  setControlsPaused(paused: boolean): void {
+    this.controlsPaused = paused;
+    for (const key of Object.values(this.keys)) {
+      key.reset();
+    }
+    this.gamepad?.pad.reset();
+    this.pad.update();
+    if (!this.acting && !this.transitioning) {
+      this.setMovementAnimation("p-idle");
+    }
   }
 
   /** The zoom every camera move returns to. Read (never re-derived from the
@@ -185,6 +229,21 @@ export class MineScene extends Scene {
    *  first landed swing. */
   private baseZoom(): number {
     return this.trailerZoom ?? zoomForWidth(this.scale.width);
+  }
+
+  private bindCameraMotion(): void {
+    const { motion } = this;
+    const cam = this.cameras.main;
+    const changed = (): void => {
+      if (!motion.matches) {
+        return;
+      }
+      cam.zoomEffect.reset();
+      cam.shakeEffect.reset();
+      cam.setZoom(this.baseZoom());
+    };
+    motion.addEventListener("change", changed);
+    this.events.once(Scenes.Events.SHUTDOWN, () => motion.removeEventListener("change", changed));
   }
 
   // ---------------------------------------------------------------- generation
@@ -293,7 +352,17 @@ export class MineScene extends Scene {
       .setOrigin(0.5, CHAR_ORIGIN_Y)
       .play("e-skel-idle");
     spr.setDepth(DEPTH.entityBase + spr.y);
-    this.enemies.push({ dead: false, hp: maxHp, hurt: 0, invuln: 0, kx: 0, ky: 0, maxHp, spr });
+    this.enemies.push({
+      contactUntil: 0,
+      dead: false,
+      hp: maxHp,
+      hurt: 0,
+      invuln: 0,
+      kx: 0,
+      ky: 0,
+      maxHp,
+      spr,
+    });
   }
 
   // ---- trailer staging hooks (dead in normal play; see src/trailer/) ----
@@ -328,7 +397,7 @@ export class MineScene extends Scene {
 
   /** Replace whatever sits on a tile with one ore/stone node (real node path),
    *  so a scripted pickaxe beat can put its subject where the camera is.
-   *  Floor tiles only: wall art is baked into a container at build time, so
+   *  Floor tiles only: wall art is built from the initial grid, so
    *  clearing the collision bit here would leave the block drawn with a crystal
    *  on top of it and the wall quietly walkable. Returns false if refused. */
   trailerStageNode(tx: number, ty: number, kind: "stone" | OreId, hp: number): boolean {
@@ -373,20 +442,7 @@ export class MineScene extends Scene {
   // ---------------------------------------------------------------- render
 
   private buildTiles(seeds: NodeSeed[]): void {
-    this.add
-      .tileSprite(0, 0, MW * TILE, MH * TILE, "t-cavefloor")
-      .setOrigin(0, 0)
-      .setDepth(DEPTH.ground);
-    const wallLayer = this.add.container(0, 0).setDepth(DEPTH.entityBase);
-    for (let ty = 0; ty < MH; ty += 1) {
-      for (let tx = 0; tx < MW; tx += 1) {
-        if (this.walls[mineIdx(tx, ty)]) {
-          const img = this.add.image(tx * TILE, ty * TILE, "t-cavewall").setOrigin(0, 0);
-          img.setDepth(DEPTH.entityBase + (ty + 1) * TILE);
-          wallLayer.add(img);
-        }
-      }
-    }
+    buildMineWorld(this, this.walls, MW, MH);
     // ladders
     this.add
       .image(this.ladderUp.tx * TILE + 8, this.ladderUp.ty * TILE + 8, "obj-ladder")
@@ -457,9 +513,9 @@ export class MineScene extends Scene {
       if (p.wasTouch) {
         return;
       }
+      // hotbar tap
       if (this.hudHit(p)) {
         return;
-        // hotbar tap
       }
       this.tryAction();
     });
@@ -468,13 +524,13 @@ export class MineScene extends Scene {
       if (!p.wasTouch || this.transitioning) {
         return;
       }
+      // hotbar tap
       if (this.hudHit(p)) {
         return;
-        // hotbar tap
       }
+      // a drag was the stick, not a tap
       if (!isTap(p)) {
         return;
-        // a drag was the stick, not a tap
       }
       const wp = this.cameras.main.getWorldPoint(p.x, p.y);
       const tx = Math.floor(wp.x / TILE);
@@ -482,12 +538,13 @@ export class MineScene extends Scene {
       const f = this.feetTile();
       const onUp = f.tx === this.ladderUp.tx && f.ty === this.ladderUp.ty;
       const onDown = f.tx === this.ladderDown.tx && f.ty === this.ladderDown.ty;
-      if (tx === f.tx && ty === f.ty && (onUp || onDown)) {
-        if (onUp) {
-          this.exitToFarm();
-        } else {
-          this.descend();
-        }
+      const underfoot = tx === f.tx && ty === f.ty;
+      if (underfoot && onUp) {
+        this.exitToFarm();
+        return;
+      }
+      if (underfoot && onDown) {
+        this.descend();
         return;
       }
       const dx = tx - f.tx;
@@ -509,6 +566,10 @@ export class MineScene extends Scene {
 
   override update(_t: number, dms: number): void {
     const dt = Math.min(dms, 50) / 1000;
+    this.farm?.retryPendingSave(dt);
+    if (this.controlsPaused) {
+      return;
+    }
     // Physical pad: A mirrors E/SPACE (swing/mine; checkLadders reads the held
     // button for climbing), LB/RB cycle the hotbar like number keys.
     this.pad.update();
@@ -530,7 +591,6 @@ export class MineScene extends Scene {
     this.shadow.setPosition(this.player.x, this.player.y + 1).setVisible(this.player.visible);
   }
 
-  /** Face the dominant axis of a delta. */
   private faceDelta(dx: number, dy: number): void {
     this.facing =
       Math.abs(dx) >= Math.abs(dy) ? { x: Math.sign(dx), y: 0 } : { x: 0, y: Math.sign(dy) };
@@ -581,6 +641,7 @@ export class MineScene extends Scene {
     const k = this.keys;
     const { dx, dy, run: stickRun } = this.moveIntent();
     if (dx !== 0 || dy !== 0) {
+      // the stick also sets facing, so an action lands toward the stick
       this.faceDelta(dx, dy);
       const run = (k.SHIFT.isDown || stickRun) && store.energy > 0;
       const speed = run ? RUN_SPEED : WALK_SPEED;
@@ -591,16 +652,21 @@ export class MineScene extends Scene {
         Sound.footstep();
         this.stepTimer = 0.3;
       }
-      if (this.player.anims.currentAnim?.key !== "p-walk") {
-        this.player.play("p-walk", true);
-      }
+      this.setMovementAnimation("p-walk");
       if (dx < 0) {
         this.player.setFlipX(true);
       } else if (dx > 0) {
         this.player.setFlipX(false);
       }
-    } else if (this.player.anims.currentAnim?.key !== "p-idle") {
-      this.player.play("p-idle", true);
+    } else {
+      this.setMovementAnimation("p-idle");
+    }
+  }
+
+  private setMovementAnimation(key: "p-idle" | "p-walk"): void {
+    const next = this.time.now < this.hurtUntil ? "p-hurt" : key;
+    if (this.player.anims.currentAnim?.key !== next) {
+      this.player.play(next, true);
     }
   }
 
@@ -663,11 +729,12 @@ export class MineScene extends Scene {
       return;
     }
     this.acting = true;
+    this.hurtUntil = 0;
     store.spendEnergy(ENERGY_PER_SWING);
     // brief i-frames while committing to a swing, so trading blows isn't pure punishment
     this.invulnUntil = Math.max(this.invulnUntil, this.time.now + 350);
     this.player.play("p-attack", true);
-    Sound.chop();
+    Sound.chop("local");
     this.time.delayedCall(180, () => {
       const hx = this.player.x + this.facing.x * 16;
       const hy = this.player.y - 6 + this.facing.y * 14;
@@ -685,20 +752,24 @@ export class MineScene extends Scene {
       }
       if (hitAny) {
         shake(this, 0.006, 90);
-        const base = this.baseZoom();
-        this.cameras.main.zoomTo(base * 1.015, 60, "Linear", false);
-        this.time.delayedCall(70, () => this.cameras.main.setZoom(this.baseZoom()));
+        if (!this.motion.matches) {
+          const base = this.baseZoom();
+          this.cameras.main.zoomTo(base * 1.015, 60, "Linear", false);
+          this.time.delayedCall(70, () => this.cameras.main.setZoom(this.baseZoom()));
+        }
       }
     });
-    this.player.once(Animations.Events.ANIMATION_COMPLETE, () => {
+    this.player.once("animationcomplete-p-attack", () => {
       this.acting = false;
-      this.player.play("p-idle", true);
+      if (!this.transitioning) {
+        this.player.play("p-idle", true);
+      }
     });
   }
 
   private hitEnemy(e: Enemy, dmg: number): void {
     e.hp -= dmg;
-    e.hurt = 0.18;
+    e.hurt = SKELETON_HURT_MS / 1000;
     e.spr.setTint(0xff_ff_ff).setTintMode(TintModes.FILL);
     Sound.mine();
     const kb = 140;
@@ -707,15 +778,23 @@ export class MineScene extends Scene {
     if (this.facing.x === 0 && this.facing.y === 0) {
       e.ky = -kb;
     }
-    burst(this, e.spr.x, e.spr.y - 14, { colors: [0xff_ff_ff, 0xff_d3_4d], count: 6, speed: 60 });
+    burst(this, e.spr.x, e.spr.y - 14, {
+      colors: [0xff_ff_ff, 0xff_d3_4d],
+      count: 6,
+      matter: "spark",
+      speed: 60,
+    });
     floatText(this, e.spr.x, e.spr.y - 18, `${dmg}`, "#ffd0d0");
     if (e.hp <= 0) {
       this.killEnemy(e);
+    } else {
+      e.spr.play("e-skel-hurt", true);
     }
   }
 
   private killEnemy(e: Enemy): void {
     e.dead = true;
+    this.visit.defeated += 1;
     e.spr.clearTint();
     e.spr.play("e-skel-death");
     Sound.thud();
@@ -744,7 +823,7 @@ export class MineScene extends Scene {
     if (Math.random() < 0.08 + this.depth * 0.01) {
       store.inv.add({ kind: "resource", res: "crystal" }, 1);
     }
-    persistPlayer();
+    this.requestSave();
   }
 
   private awardCombat(xp: number): void {
@@ -761,6 +840,7 @@ export class MineScene extends Scene {
       return;
     }
     this.acting = true;
+    this.hurtUntil = 0;
     store.spendEnergy(ENERGY_PER_SWING);
     this.player.play("p-mine", true);
     Sound.mine();
@@ -769,6 +849,7 @@ export class MineScene extends Scene {
       burst(this, node.spr.x, node.spr.y - 8, {
         colors: [0xbf_ca_d6, 0x8a_98_a8, 0xff_ff_ff],
         count: 7,
+        matter: "spark",
         speed: 55,
       });
       shake(this, 0.004, 90);
@@ -784,31 +865,44 @@ export class MineScene extends Scene {
         this.tweens.add({ duration: 60, scaleX: 1.12, scaleY: 0.9, targets: node.spr, yoyo: true });
       }
     });
-    this.player.once(Animations.Events.ANIMATION_COMPLETE, () => {
+    this.player.once("animationcomplete-p-mine", () => {
       this.acting = false;
-      this.player.play("p-idle", true);
+      if (!this.transitioning) {
+        this.player.play("p-idle", true);
+      }
     });
   }
 
   private dropNode(node: Node): void {
     const bonus = Math.random() < store.skills.oreBonusChance() ? 1 : 0;
     if (node.kind === "stone") {
-      store.inv.add({ kind: "resource", res: "stone" }, 1 + bonus);
-      floatText(this, node.spr.x, node.spr.y - 12, `+${1 + bonus} Stone`, "#cdd6e0");
-    } else {
-      store.inv.add({ kind: "resource", res: node.kind }, 1 + bonus);
-      const name = itemName({ kind: "resource", res: node.kind });
-      store.skills.addXP("mining", 4);
+      const accepted = 1 + bonus - store.inv.add({ kind: "resource", res: "stone" }, 1 + bonus);
+      this.visit.gathered += accepted;
       floatText(
         this,
         node.spr.x,
         node.spr.y - 12,
-        `+${1 + bonus} ${name}`,
+        accepted ? `+${accepted} Stone` : "Bag full",
+        "#cdd6e0",
+      );
+    } else {
+      const accepted = 1 + bonus - store.inv.add({ kind: "resource", res: node.kind }, 1 + bonus);
+      this.visit.gathered += accepted;
+      const name = ORE_NAME[node.kind];
+      const lv = store.skills.addXP("mining", 4);
+      if (lv !== null) {
+        floatText(this, this.player.x, this.player.y - 26, `Mining Lv.${lv}!`, "#ffe27a");
+      }
+      floatText(
+        this,
+        node.spr.x,
+        node.spr.y - 12,
+        accepted ? `+${accepted} ${name}` : "Bag full",
         node.kind === "crystal" ? "#9fe0ff" : "#ffce8a",
       );
     }
     this.awardCombat(0);
-    persistPlayer();
+    this.requestSave();
   }
 
   // ---------------------------------------------------------------- enemies
@@ -819,6 +913,7 @@ export class MineScene extends Scene {
       if (e.dead) {
         continue;
       }
+      let moving = false;
       if (e.hurt > 0) {
         e.hurt -= dt;
         if (e.hurt <= 0) {
@@ -827,6 +922,7 @@ export class MineScene extends Scene {
       }
       // knockback
       if (Math.abs(e.kx) > 2 || Math.abs(e.ky) > 2) {
+        moving = true;
         this.moveEnemy(e, e.kx * dt, e.ky * dt);
         e.kx *= 0.85;
         e.ky *= 0.85;
@@ -835,19 +931,20 @@ export class MineScene extends Scene {
         const dy = this.player.y - e.spr.y;
         const dist = Math.hypot(dx, dy);
         if (dist < 110 && dist > 12) {
+          moving = true;
           const sp = (28 + this.depth * 2) * dt;
           this.moveEnemy(e, (dx / dist) * sp, (dy / dist) * sp);
           e.spr.setFlipX(dx < 0);
-          if (e.spr.anims.currentAnim?.key !== "e-skel-walk") {
-            e.spr.play("e-skel-walk", true);
-          }
-        } else if (e.spr.anims.currentAnim?.key !== "e-skel-idle" && e.hurt <= 0) {
-          e.spr.play("e-skel-idle", true);
         }
         // contact damage
         if (dist < 13 && now > this.invulnUntil) {
           this.damagePlayer(8 + this.depth, dx, dy);
+          e.contactUntil = now + SKELETON_CONTACT_MS;
         }
+      }
+      const anim = skeletonAnim(e, now, moving);
+      if (e.spr.anims.currentAnim?.key !== anim) {
+        e.spr.play(anim, true);
       }
       e.spr.setDepth(DEPTH.entityBase + e.spr.y);
     }
@@ -870,7 +967,7 @@ export class MineScene extends Scene {
   private damagePlayer(dmg: number, fromDx: number, fromDy: number): void {
     store.damage(dmg);
     this.invulnUntil = this.time.now + PLAYER_INVULN_MS;
-    Sound.thud();
+    Sound.thud("local");
     shake(this, 0.008, 160);
     floatText(this, this.player.x, this.player.y - 22, `-${dmg}`, "#ff6b6b");
     const d = Math.hypot(fromDx, fromDy) || 1;
@@ -886,9 +983,12 @@ export class MineScene extends Scene {
       yoyo: true,
     });
     this.time.delayedCall(260, () => this.player.clearTint());
-    persistPlayer();
+    this.requestSave();
     if (store.hp <= 0) {
       this.faint();
+    } else if (!this.acting && !this.transitioning) {
+      this.hurtUntil = this.time.now + FARMER_HURT_MS;
+      this.player.play("p-hurt", true);
     }
   }
 
@@ -923,7 +1023,7 @@ export class MineScene extends Scene {
       return;
     }
     this.transitioning = true;
-    persistPlayer();
+    this.persist();
     this.cameras.main.fadeOut(350, 0, 0, 0);
     this.cameras.main.once(Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
       this.scene.restart({ depth: this.depth + 1 });
@@ -935,11 +1035,11 @@ export class MineScene extends Scene {
       return;
     }
     this.transitioning = true;
-    persistPlayer();
+    this.persist();
     this.scene.stop("MineHud");
     this.cameras.main.fadeOut(450, 0, 0, 0);
     this.cameras.main.once(Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
-      this.scene.start("Game", { fromMine: true });
+      this.scene.start("Game", { fromMine: true, mineRecap: this.recap(false) });
     });
   }
 
@@ -948,17 +1048,41 @@ export class MineScene extends Scene {
       return;
     }
     this.transitioning = true;
+    this.hurtUntil = 0;
     const lost = Math.floor(store.gold * FAINT_GOLD_LOSS_FRAC);
     store.gold = Math.max(0, store.gold - lost);
     store.hp = Math.max(1, Math.floor(store.maxHp() * 0.5));
     store.energy = Math.floor(store.energy * 0.5);
     this.player.play("p-death", true);
     floatText(this, this.player.x, this.player.y - 26, `Fainted! Lost ${lost}g`, "#ff8a8a");
-    persistPlayer();
+    this.persist();
     this.scene.stop("MineHud");
     this.cameras.main.fadeOut(900, 0, 0, 0);
     this.cameras.main.once(Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
-      this.scene.start("Game", { fainted: true, fromMine: true });
+      this.scene.start("Game", { fainted: true, fromMine: true, mineRecap: this.recap(true) });
     });
+  }
+
+  /** Transitions write at once; everything else rides the farm's debounced flush. */
+  private persist(): void {
+    this.farm?.save();
+  }
+
+  private requestSave(): void {
+    this.farm?.requestSave();
+  }
+
+  get savePending(): boolean {
+    return this.farm?.savePending ?? false;
+  }
+
+  private recap(fainted: boolean): MineRecap {
+    return {
+      deepest: this.visit.deepest,
+      defeated: this.visit.defeated,
+      fainted,
+      gathered: this.visit.gathered,
+      gold: store.gold - this.visit.startingGold,
+    };
   }
 }

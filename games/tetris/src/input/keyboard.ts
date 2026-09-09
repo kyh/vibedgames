@@ -34,6 +34,13 @@ const ONE_SHOT = new Map<string, (h: KeyboardHandlers) => void>([
   ["v", (h) => h.recenter()],
 ]);
 
+/** Space / Enter on a focused button (Play, rule cards, the camera toggle)
+ *  activate that control; the game must not also read them as verbs. */
+const activatesControl = (e: KeyboardEvent): boolean =>
+  (e.key === " " || e.key === "Enter") &&
+  e.target instanceof Element &&
+  e.target.closest("button, input, select, textarea") !== null;
+
 export class Keyboard {
   private readonly handlers: KeyboardHandlers;
   private left = false;
@@ -53,6 +60,11 @@ export class Keyboard {
     window.removeEventListener("keydown", this.onKeyDown);
     window.removeEventListener("keyup", this.onKeyUp);
     window.removeEventListener("blur", this.onBlur);
+  }
+
+  /** Forget held keys: a pause swallows their keyup, so they would stay held. */
+  releaseHeld(): void {
+    this.onBlur();
   }
 
   private horiz(): -1 | 0 | 1 {
@@ -106,6 +118,9 @@ export class Keyboard {
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
+    if (e.repeat || activatesControl(e)) {
+      return;
+    }
     const k = e.key;
     if (this.axisKey(k, true)) {
       return;

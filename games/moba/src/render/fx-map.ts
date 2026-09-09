@@ -19,6 +19,11 @@ export const SPELL_SHEETS: SpellSheet[] = [
   { fps: 16, frame: 128, frames: 4, key: "sp-light" },
   { fps: 18, frame: 128, frames: 11, key: "sp-tornado" },
   { fps: 20, frame: 64, frames: 14, key: "sp-gypno" },
+  { fps: 30, frame: 128, frames: 12, key: "sp-arc" },
+  { fps: 24, frame: 128, frames: 8, key: "sp-flare-ring" },
+  { fps: 22, frame: 160, frames: 8, key: "sp-fire-pillar" },
+  { fps: 22, frame: 128, frames: 7, key: "sp-geyser" },
+  { fps: 28, frame: 128, frames: 20, key: "sp-skull" },
 ];
 
 /** Frame order inside `assets/spell/icons.webp` — one packed 6×3 sheet of 64px
@@ -89,33 +94,32 @@ export interface SpellCastFx {
   at: "caster" | "target";
   scale: number;
   tint?: number;
+  startFrame?: number;
 }
 
 export const ABILITY_CAST_FX = {
   "boomtinker:E": { at: "caster", scale: 1.2, sheet: "sp-light", tint: 0xff_e0_8a },
   // toss puff
   "boomtinker:Q": { at: "caster", scale: 0.9, sheet: "sp-smoke", tint: 0xd8_c0_a0 },
-  "boomtinker:R": { at: "caster", scale: 1.6, sheet: "sp-fire", tint: 0xff_d2_4d },
+  "boomtinker:R": { at: "target", scale: 1.6, sheet: "fx-explode1" },
   "boomtinker:W": { at: "target", scale: 1, sheet: "sp-smoke", tint: 0xff_d2_4d },
   "brewkeeper:E": { at: "caster", scale: 1.5, sheet: "sp-light", tint: 0x9b_f0_b0 },
-  "brewkeeper:Q": { at: "target", scale: 1.1, sheet: "sp-water", tint: 0x8b_f0_a8 },
+  "brewkeeper:Q": { at: "target", scale: 0.9, sheet: "sp-geyser", startFrame: 2 },
   // last call
   "brewkeeper:R": { at: "caster", scale: 2.3, sheet: "sp-light", tint: 0x9b_f0_b0 },
   "brewkeeper:W": { at: "target", scale: 1.9, sheet: "sp-gypno", tint: 0xc7_8b_ff },
   "duskblade:Q": { at: "caster", scale: 1, sheet: "sp-smoke", tint: 0xb0_6b_ff },
-  "duskblade:R": { at: "target", scale: 1.5, sheet: "sp-smoke", tint: 0x9b_6b_ff },
-  "duskblade:W": { at: "target", scale: 1.4, sheet: "sp-spikes", tint: 0xc8_9b_ff },
-  "emberhex:E": { at: "caster", scale: 1.7, sheet: "sp-fire", tint: 0xff_ca_a0 },
-  // muzzle flare
-  "emberhex:Q": { at: "caster", scale: 0.9, sheet: "sp-fire", tint: 0xff_b2_7a },
-  "emberhex:R": { at: "target", scale: 2.1, sheet: "sp-fire", tint: 0xff_7a_2a },
-  "emberhex:W": { at: "caster", scale: 1, sheet: "sp-fire", tint: 0xff_8a_4a },
+  "duskblade:R": { at: "target", scale: 2.2, sheet: "sp-skull", startFrame: 5, tint: 0xc8_9b_ff },
+  "duskblade:W": { at: "target", scale: 1.4, sheet: "sp-spikes", startFrame: 3 },
+  "emberhex:E": { at: "caster", scale: 1.1, sheet: "sp-flare-ring", startFrame: 1 },
+  "emberhex:Q": { at: "caster", scale: 0.9, sheet: "sp-fire", startFrame: 3 },
+  "emberhex:W": { at: "caster", scale: 1, sheet: "sp-fire", startFrame: 6 },
   "ironvow:Q": { at: "target", scale: 0.9, sheet: "sp-light" },
   "ironvow:R": { at: "caster", scale: 2.6, sheet: "sp-light", tint: 0xbc_d6_ff },
   "ironvow:W": { at: "caster", scale: 1.3, sheet: "sp-light", tint: 0xbc_d6_ff },
   "stormcaller:E": { at: "caster", scale: 1.25, sheet: "sp-tornado", tint: 0xbf_e6_ff },
-  "stormcaller:R": { at: "target", scale: 1.3, sheet: "sp-lightning", tint: 0x8f_d0_ff },
-  "stormcaller:W": { at: "target", scale: 0.7, sheet: "sp-light", tint: 0x6a_b8_ff },
+  "stormcaller:R": { at: "target", scale: 1.3, sheet: "sp-lightning", startFrame: 3 },
+  "stormcaller:W": { at: "target", scale: 1.2, sheet: "sp-arc", startFrame: 3 },
 } satisfies Record<string, SpellCastFx>;
 
 const CAST_FX_LOOKUP = new Map<string, SpellCastFx>(Object.entries(ABILITY_CAST_FX));
@@ -170,4 +174,21 @@ export const effectColor = (effect: string): number => {
     return 0x9c_c4_ff;
   }
   return 0xff_ff_ff;
+};
+
+/** Existing hero palette at contact; neutral sources retain the damage-type cue. */
+export const hitColor = (hero: string | undefined, magic: boolean): number => {
+  switch (hero) {
+    case "ironvow":
+    case "duskblade":
+    case "stormcaller":
+    case "emberhex":
+    case "boomtinker":
+    case "brewkeeper": {
+      return effectColor(hero);
+    }
+    default: {
+      return magic ? 0xc7_8b_ff : 0xff_ff_ff;
+    }
+  }
 };

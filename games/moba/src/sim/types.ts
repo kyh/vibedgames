@@ -255,10 +255,20 @@ export type FxEvent =
       nx: number;
       ny: number;
       isAttack?: boolean;
+      /** Source hero identity for cosmetic impact colour; absent for environment/creeps. */
+      attackerHero?: string;
     }
   | { t: "death"; x: number; y: number; unitId: string; kind: UnitKind }
   | { t: "explosion"; x: number; y: number; radius: number; color: number }
-  | { t: "cast"; x: number; y: number; effect: string; team: Team }
+  | {
+      t: "cast";
+      x: number;
+      y: number;
+      effect: string;
+      team: Team;
+      /** Atomic accepted-action provenance. Older peers omit it. */
+      actor?: { unitId: string; at: number };
+    }
   | { t: "blink"; x: number; y: number; x2: number; y2: number }
   | { t: "levelup"; x: number; y: number; unitId: string }
   | { t: "gold"; x: number; y: number; amount: number; heroId: string }

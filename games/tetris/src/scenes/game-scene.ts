@@ -4,7 +4,6 @@
 // just boots it and renders scene + camera each frame.
 
 import {
-  controlGroups,
   createTouchControls,
   notifyGameStarted,
   pauseGame,
@@ -14,15 +13,16 @@ import type { TouchControls as EmbedTouchControls } from "@repo/embed";
 import { PhysicalGamepad, stickDirection4 } from "@vibedgames/gamepad";
 import { Color, Scene } from "three";
 
-import { CONTROLS, titleSubText } from "../controls";
-import { groupRow } from "../pause-overlay";
+import { titleSubText } from "../controls";
 import type { Cell } from "../game/board";
 import { screenToWorld } from "../game/camera-correction";
 import type { ScreenDir } from "../game/camera-correction";
 import { Engine } from "../game/engine";
 import type { LockEvent } from "../game/engine";
+import type { Status } from "../game/state";
 import { ParticlePool } from "../fx/particles";
-import { isMuted, setMuted, sfx, toggleMute } from "../fx/sfx";
+import { isMuted, resetSound, setMuted, sfx, toggleMute } from "../fx/sfx";
+import { WellFx } from "../fx/well-fx";
 import { Keyboard } from "../input/keyboard";
 import type { KeyboardHandlers } from "../input/keyboard";
 import type { PoseActions, PoseControls } from "../input/pose-control";
@@ -31,7 +31,8 @@ import type { TouchHandlers } from "../input/touch";
 import { Collapse } from "../physics/collapse";
 import { CameraRig } from "../render/camera-rig";
 import { CubeField } from "../render/cube-field";
-import { drawPiecePreview } from "../render/piece-preview";
+import { Hud, renderLegend, showResults } from "../render/hud";
+import type { InputOwner } from "../render/hud";
 import { Well } from "../render/well";
 import {
   ARR_MS,
@@ -69,12 +70,39 @@ const TOUCH_CONTROLS_CSS = `
 }
 `;
 
-const el = (id: string): HTMLElement | null => document.querySelector(`#${id}`);
+const BEST_SCORE_KEY = "tetris-best-score";
+
+const readBestScore = (): number => {
+  try {
+    const value = Number(localStorage.getItem(BEST_SCORE_KEY));
+    return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+  } catch {
+    return 0;
+  }
+};
 
 interface Steer {
   horiz: -1 | 0 | 1;
   depth: -1 | 0 | 1;
 }
+
+/** Read-only telemetry for headless playtests (`window.__GAME_DIAGNOSTICS__`). */
+export interface TetrisDiagnostics {
+  frame: number;
+  phase: Status;
+  score: number;
+  lines: number;
+  complete: boolean;
+  player: Cell | null;
+  entities: number;
+}
+
+const screenDirOf = (dir: -1 | 1, depthAxis: boolean): ScreenDir => {
+  if (depthAxis) {
+    return dir < 0 ? "away" : "near";
+  }
+  return dir < 0 ? "left" : "right";
+};
 
 const centroid = (cells: Cell[]) => {
   if (cells.length === 0) {
@@ -90,20 +118,26 @@ const centroid = (cells: Cell[]) => {
   }
   return { x: x / cells.length, y: y / cells.length, z: z / cells.length };
 };
+
 export class GameScene {
   readonly scene = new Scene();
   private readonly rig: CameraRig;
   private readonly well: Well;
   private readonly cubes: CubeField;
   private readonly particles: ParticlePool;
+  private readonly wellFx: WellFx;
   private readonly collapse = new Collapse();
   private readonly engine = new Engine();
   private readonly keyboard: Keyboard;
   private readonly touch: TouchControls;
+  private readonly hud: Hud;
   private readonly touchControls: EmbedTouchControls;
   private readonly pad = new PhysicalGamepad();
   private readonly coarse = isCoarsePointer();
   private poseControls: PoseControls | null = null;
+  /** A pad stick/trigger held across a pause must be released before it acts again. */
+  private padSteerBlocked = false;
+  private padSoftBlocked = false;
   private unwatchControls: (() => void) | null = null;
 
   // input state (screen-relative)
@@ -121,14 +155,13 @@ export class GameScene {
   private boardDirty = true;
   private collapseStartedAt = 0;
   private lastPoseAt = -1e9;
-
-  // HUD cache (avoid touching the DOM unless a value changed)
-  private hudScore = -1;
-  private hudLines = -1;
-  private hudOwner = "";
-  private hudNextIdx = -2;
-  private hudHoldIdx: number | null = -2;
-  private hudCharge = -1;
+  private frame = 0;
+  private maxHeight = -1;
+  private piecesPlaced = 0;
+  private rescues = 0;
+  private largestClear = 0;
+  private orbitTaught = false;
+  private bestScore = readBestScore();
 
   constructor(aspect: number) {
     this.scene.background = new Color(BG);
@@ -136,6 +169,7 @@ export class GameScene {
     this.well = new Well(this.scene);
     this.cubes = new CubeField(this.scene);
     this.particles = new ParticlePool(this.scene);
+    this.wellFx = new WellFx(this.scene);
     this.keyboard = new Keyboard(this.keyboardHandlers());
     this.touch = new TouchControls(this.touchHandlers());
     // M and P are keyboard-only: without this a phone plays permanently silent
@@ -147,29 +181,17 @@ export class GameScene {
       styleId: "tetris-touch-controls-css",
     });
     document.body.classList.toggle("touch", this.coarse);
-    GameScene.renderLegend();
+    this.hud = new Hud(this.coarse, () => this.startIfIdle());
+    renderLegend();
     this.showBanner("TETRIS", titleSubText());
     // Plugging in a pad on the title adds its legend row + start hint.
     this.unwatchControls = watchControlContext(() => {
       if (this.engine.state.status !== "title") {
         return;
       }
-      GameScene.renderLegend();
+      renderLegend();
       this.showBanner("TETRIS", titleSubText());
     });
-  }
-
-  /** Rebuild the banner legend from the controls manifest, one row per
-   *  visible input method (boot-time, not on first touch — the copy must be
-   *  right before the player ever taps). Rows are the pause overlay's own
-   *  method-label + keycap-chip rows, so title and pause teach with one UI. */
-  private static renderLegend(): void {
-    const legend = el("legend");
-    if (!legend) {
-      return;
-    }
-    const coarse = window.matchMedia("(pointer: coarse)").matches;
-    legend.replaceChildren(...controlGroups(CONTROLS).map((group) => groupRow(group, coarse)));
   }
 
   get camera() {
@@ -184,11 +206,53 @@ export class GameScene {
     this.rig.resize(aspect);
   }
 
-  /** Wrapper pause ended: shift the collapse catch-window deadline so the
-   *  paused gap doesn't count against it. Pose-freshness stamps deliberately
-   *  stay unshifted — stale pose input reading as old is the safe direction. */
+  diagnostics(): TetrisDiagnostics {
+    let entities = 0;
+    for (const _cube of this.engine.board.cubes()) {
+      entities += 1;
+    }
+    const active = this.engine.activeCells();
+    return {
+      complete: this.engine.state.status === "gameOver",
+      entities,
+      frame: this.frame,
+      lines: this.engine.state.lines,
+      phase: this.engine.state.status,
+      player: active.length > 0 ? centroid(active) : null,
+      score: this.engine.state.score,
+    };
+  }
+
+  /** Wrapper pause ended: shift the collapse catch-window deadline (and the
+   *  camera swing) so the paused gap doesn't count against them. Pose-freshness
+   *  stamps deliberately stay unshifted — stale pose reading as old is the safe
+   *  direction. */
   shiftWallClock(pausedMs: number): void {
     this.collapseStartedAt += pausedMs;
+    this.rig.shiftWallClock(pausedMs);
+  }
+
+  /** Pause and resume both drop every held input: a key or finger held across
+   *  the pause never gets its release event, so it would otherwise stay held. */
+  releaseInputs(): void {
+    this.keyboard.releaseHeld();
+    this.touch.release();
+    this.kbHoriz = 0;
+    this.kbDepth = 0;
+    this.poseHoriz = 0;
+    this.poseHorizAt = -1e9;
+    this.lastPoseAt = -1e9;
+    this.lastPadAt = -1e9;
+    this.hMove.dir = 0;
+    this.hMove.das = 0;
+    this.hMove.arr = 0;
+    this.dMove.dir = 0;
+    this.dMove.das = 0;
+    this.dMove.arr = 0;
+    this.engine.setSoftDrop(false);
+    this.padSoftDrop = false;
+    this.padSteerBlocked = true;
+    this.padSoftBlocked = true;
   }
 
   // ---- input wiring -----------------------------------------------------------
@@ -296,6 +360,10 @@ export class GameScene {
     }
     const corner = this.rig.orbit(dir, performance.now());
     this.well.setCorner(corner);
+    if (!this.orbitTaught) {
+      this.orbitTaught = true;
+      this.wellFx.orbitHint();
+    }
     sfx.orbit();
   }
 
@@ -310,12 +378,24 @@ export class GameScene {
     if (!this.engine.canPower()) {
       return;
     }
+    let lowest = this.engine.board.height;
+    const footprint: Cell[] = [];
+    for (const { x, y, z } of this.engine.board.cubes()) {
+      if (y < lowest) {
+        lowest = y;
+        footprint.length = 0;
+      }
+      if (y === lowest) {
+        footprint.push({ x, y, z });
+      }
+    }
     const removed = this.engine.power();
     if (removed <= 0) {
       return;
     }
+    this.wellFx.power(footprint);
     this.boardDirty = true;
-    sfx.clear(removed);
+    sfx.power();
     this.rig.addTrauma(TRAUMA_CLEAR);
     this.particles.burst({
       color: 0xff_ff_ff,
@@ -326,7 +406,7 @@ export class GameScene {
       speedMax: 9,
       speedMin: 4,
       x: WELL_CENTER_X,
-      y: 0.2,
+      y: lowest + 0.2,
       yKick: 4,
       z: WELL_CENTER_Z,
     });
@@ -335,10 +415,14 @@ export class GameScene {
   private onHardDrop(): void {
     const { status } = this.engine.state;
     if (status === "playing") {
+      const start = this.engine.activeCells();
+      const landing = this.engine.ghostCells();
+      const color = PIECES[this.engine.activePieceIndex()]?.color ?? 0xff_ff_ff;
       const ev = this.engine.hardDrop();
       sfx.hardDrop();
       this.rig.addTrauma(TRAUMA_HARD_DROP);
       if (ev) {
+        this.wellFx.hardDrop(start, landing, color);
         this.handleLock(ev);
       }
     } else if (status === "collapsing") {
@@ -373,8 +457,15 @@ export class GameScene {
     this.collapse.dispose();
     this.cubes.frozen = false;
     this.cubes.clearLocked();
-    this.well.setCorner(0);
+    this.well.setCorner(this.rig.corner);
     this.rig.resetTrauma();
+    this.particles.reset();
+    this.wellFx.reset();
+    resetSound();
+    this.piecesPlaced = 0;
+    this.rescues = 0;
+    this.largestClear = 0;
+    this.orbitTaught = false;
     this.engine.startGame();
     this.boardDirty = true;
     this.needSnap = true;
@@ -386,6 +477,8 @@ export class GameScene {
   // ---- lock / clear / collapse ------------------------------------------------
 
   private handleLock(ev: LockEvent): void {
+    this.piecesPlaced += 1;
+    this.largestClear = Math.max(this.largestClear, ev.clear.lines);
     this.boardDirty = true;
     const colorHex = PIECES[ev.colorIndex - 1]?.color ?? 0xff_ff_ff;
     const c = centroid(ev.lockedCells);
@@ -406,7 +499,9 @@ export class GameScene {
     });
 
     if (ev.clear.lines > 0) {
-      sfx.clear(ev.clear.lines);
+      const crossed = ev.clear.xColumns > 0 && ev.clear.zRows > 0;
+      this.wellFx.clear(ev.clear.clearedCells, ev.clear.lines, crossed);
+      sfx.clear(ev.clear.lines, crossed);
       this.rig.addTrauma(TRAUMA_CLEAR);
       this.particles.burst({
         color: 0xff_ff_ff,
@@ -460,7 +555,9 @@ export class GameScene {
     if (stillDead) {
       this.finalizeGameOver();
     } else {
+      this.rescues += 1;
       sfx.catchCollapse();
+      this.wellFx.rescue();
       this.hideBanner();
     }
   }
@@ -469,25 +566,47 @@ export class GameScene {
     this.engine.state.status = "gameOver";
     this.well.setAllWallsVisible(true);
     sfx.gameOver();
+    const previous = this.bestScore;
+    const newBest = this.engine.state.score > previous;
+    const runBest = Math.max(previous, this.engine.state.score);
+    this.bestScore = runBest;
+    if (newBest) {
+      try {
+        localStorage.setItem(BEST_SCORE_KEY, String(runBest));
+      } catch {
+        // A blocked store must never block the retry path; keep this visit's best.
+      }
+    }
+    showResults({
+      best: runBest,
+      largestClear: this.largestClear,
+      lines: this.engine.state.lines,
+      newBest,
+      pieces: this.piecesPlaced,
+      rescues: this.rescues,
+      score: this.engine.state.score,
+    });
     this.showBanner(
       "GAME OVER",
-      `score ${this.engine.state.score} · ${this.coarse ? "tap" : "Enter"} to retry`,
+      `${this.coarse ? "Tap" : "Enter / Space"} to retry · a fresh stack awaits`,
+      false,
     );
   }
 
   // ---- main update ------------------------------------------------------------
 
   update(dt: number): void {
+    this.frame += 1;
     const now = performance.now();
     const dtMs = dt * 1000;
-    // poll the gamepad before the sim tick
+    // Poll the gamepad before the sim tick.
     this.touch.update(dtMs);
     this.updatePad(now);
     const { status } = this.engine.state;
 
     if (status === "playing") {
       this.routeSteering(dtMs);
-      // gravity pauses during the swing
+      // Gravity pauses during the swing.
       const paused = this.rig.isInMotion(now);
       const ev = this.engine.tick(dtMs, paused);
       if (ev) {
@@ -504,8 +623,13 @@ export class GameScene {
     // syncLocked itself still no-ops while frozen, so keep the flag until thawed)
     if (this.boardDirty && !this.cubes.frozen) {
       this.cubes.syncLocked(this.engine.board);
+      this.maxHeight = -1;
+      for (const { y } of this.engine.board.cubes()) {
+        this.maxHeight = Math.max(this.maxHeight, y);
+      }
       this.boardDirty = false;
     }
+    this.wellFx.setHeight(this.maxHeight, this.engine.state.status === "playing");
     const active = this.engine.activeCells();
     this.cubes.setActive(active, this.engine.activePieceIndex(), this.needSnap);
     this.cubes.setGhost(this.engine.ghostCells());
@@ -513,23 +637,39 @@ export class GameScene {
 
     this.cubes.update(dt);
     this.particles.update(dt);
+    this.wellFx.update(dt);
     this.rig.update(dt, now);
     this.updateHud(now);
   }
 
   private routeSteering(dtMs: number): void {
     const poseFresh = performance.now() - this.poseHorizAt < POSE_TIMEOUT_MS;
-    const { horiz: padHoriz, depth: padDepth } = this.padSteer();
-    let horiz: -1 | 0 | 1 = this.kbHoriz;
-    if (this.kbHoriz === 0) {
-      horiz = padHoriz;
-      if (padHoriz === 0) {
-        horiz = poseFresh ? this.poseHoriz : 0;
-      }
-    }
-    const depth: -1 | 0 | 1 = this.kbDepth === 0 ? padDepth : this.kbDepth;
+    const pad = this.padSteer();
+    const horiz = this.heldHoriz(pad.horiz, poseFresh);
+    const depth: -1 | 0 | 1 = this.kbDepth === 0 ? pad.depth : this.kbDepth;
     this.repeat(this.hMove, horiz, dtMs, false);
     this.repeat(this.dMove, depth, dtMs, true);
+  }
+
+  /** Keyboard wins, then the pad, then a fresh pose steer. */
+  private heldHoriz(padHoriz: -1 | 0 | 1, poseFresh: boolean): -1 | 0 | 1 {
+    if (this.kbHoriz !== 0) {
+      return this.kbHoriz;
+    }
+    if (padHoriz !== 0) {
+      return padHoriz;
+    }
+    return poseFresh ? this.poseHoriz : 0;
+  }
+
+  private dpadAxis(negative: string, positive: string): -1 | 0 | 1 {
+    if (this.pad.isButtonDown(negative)) {
+      return -1;
+    }
+    if (this.pad.isButtonDown(positive)) {
+      return 1;
+    }
+    return 0;
   }
 
   /** Held pad steer (d-pad first, then left stick) on the same screen-relative
@@ -538,18 +678,8 @@ export class GameScene {
     if (!this.pad.connected) {
       return { depth: 0, horiz: 0 };
     }
-    let horiz: -1 | 0 | 1 = 0;
-    if (this.pad.isButtonDown("left")) {
-      horiz = -1;
-    } else if (this.pad.isButtonDown("right")) {
-      horiz = 1;
-    }
-    let depth: -1 | 0 | 1 = 0;
-    if (this.pad.isButtonDown("up")) {
-      depth = -1;
-    } else if (this.pad.isButtonDown("down")) {
-      depth = 1;
-    }
+    let horiz = this.dpadAxis("left", "right");
+    let depth = this.dpadAxis("up", "down");
     if (horiz === 0 && depth === 0) {
       const dir = stickDirection4(this.pad.getStick());
       if (dir === "left") {
@@ -561,6 +691,12 @@ export class GameScene {
       } else if (dir === "down") {
         depth = 1;
       }
+    }
+    if (this.padSteerBlocked) {
+      if (horiz === 0 && depth === 0) {
+        this.padSteerBlocked = false;
+      }
+      return { depth: 0, horiz: 0 };
     }
     if (horiz !== 0 || depth !== 0) {
       this.lastPadAt = performance.now();
@@ -594,7 +730,7 @@ export class GameScene {
       acted = true;
     }
     if (this.pad.justPressed("b")) {
-      // Space semantics: hard drop, or catch while collapsing
+      // Space semantics: hard drop, or catch while collapsing.
       this.onHardDrop();
       acted = true;
     }
@@ -614,7 +750,11 @@ export class GameScene {
       this.doOrbit(1);
       acted = true;
     }
-    const soft = this.pad.isButtonDown("lt") || this.pad.isButtonDown("rt");
+    const heldSoft = this.pad.isButtonDown("lt") || this.pad.isButtonDown("rt");
+    if (!heldSoft) {
+      this.padSoftBlocked = false;
+    }
+    const soft = heldSoft && !this.padSoftBlocked;
     if (soft !== this.padSoftDrop) {
       this.padSoftDrop = soft;
       this.engine.setSoftDrop(soft);
@@ -648,11 +788,7 @@ export class GameScene {
   }
 
   private applyMove(dir: -1 | 1, depthAxis: boolean, initial: boolean): void {
-    let screenDir: ScreenDir = dir < 0 ? "left" : "right";
-    if (depthAxis) {
-      screenDir = dir < 0 ? "away" : "near";
-    }
-    this.stepScreen(screenDir, initial);
+    this.stepScreen(screenDirOf(dir, depthAxis), initial);
   }
 
   /** One camera-corrected move step (shared by keyboard DAS/ARR and touch). */
@@ -666,115 +802,51 @@ export class GameScene {
 
   // ---- HUD --------------------------------------------------------------------
 
-  /** Next / hold piece previews, redrawn only when their piece changes. */
-  private updatePreviewHud(): void {
-    if (this.engine.nextIndex !== this.hudNextIdx) {
-      this.hudNextIdx = this.engine.nextIndex;
-      const cv = el("next-canvas");
-      const def = PIECES[this.engine.nextIndex];
-      if (cv instanceof HTMLCanvasElement && def) {
-        drawPiecePreview(cv, def.footprint, def.color);
-      }
+  private catchRemaining(now: number): number | null {
+    if (this.engine.state.status !== "collapsing") {
+      return null;
     }
-    if (this.engine.holdIndex !== this.hudHoldIdx) {
-      this.hudHoldIdx = this.engine.holdIndex;
-      const cv = el("hold-canvas");
-      if (cv instanceof HTMLCanvasElement) {
-        const def = this.engine.holdIndex === null ? null : PIECES[this.engine.holdIndex];
-        drawPiecePreview(cv, def?.footprint ?? null, def?.color ?? 0);
-      }
-    }
-  }
-
-  private updateChargeHud(): void {
-    const charge = Math.round(this.engine.charge * 100);
-    if (charge === this.hudCharge) {
-      return;
-    }
-    this.hudCharge = charge;
-    const node = el("charge");
-    if (node) {
-      const full = this.coarse ? "✦ POWER (T-pose / PWR)" : "✦ POWER (T-pose / F)";
-      node.textContent = charge >= 100 ? full : `POWER ${charge}%`;
-    }
+    return Math.max(0, CATCH_WINDOW_MS - (now - this.collapseStartedAt));
   }
 
   private updateHud(now: number): void {
     const s = this.engine.state;
-    if (s.score !== this.hudScore) {
-      this.hudScore = s.score;
-      const node = el("score");
-      if (node) {
-        node.textContent = `SCORE ${s.score}`;
-      }
-    }
-    if (s.lines !== this.hudLines) {
-      this.hudLines = s.lines;
-      const node = el("lines");
-      if (node) {
-        node.textContent = `LINES ${s.lines}`;
-      }
-    }
-    this.updatePreviewHud();
-    this.updateChargeHud();
+    this.hud.setCatchMeter(this.catchRemaining(now));
     const poseFresh = now - this.lastPoseAt < POSE_TIMEOUT_MS;
     const padFresh = now - this.lastPadAt < POSE_TIMEOUT_MS;
     // The idle owner is whatever the player falls back to: a phone has no keys.
-    const idle = this.coarse ? "TOUCH" : "KEYS";
-    let owner = idle;
+    const idle: InputOwner = this.coarse ? "TOUCH" : "KEYS";
+    let owner: InputOwner = idle;
     if (poseFresh && this.lastPoseAt >= this.lastPadAt) {
       owner = "POSE";
     } else if (padFresh) {
       owner = "PAD";
     }
-    if (owner !== this.hudOwner) {
-      this.hudOwner = owner;
-      const node = el("input-owner");
-      if (node) {
-        node.textContent = owner === "POSE" || owner === "PAD" ? `● ${owner}` : `○ ${owner}`;
-      }
-    }
+    this.hud.update({
+      charge: this.engine.charge,
+      holdIndex: this.engine.holdIndex,
+      holdSpent: this.engine.holdSpent,
+      lines: s.lines,
+      nextIndex: this.engine.nextIndex,
+      owner,
+      score: s.score,
+    });
   }
 
   /** Show the centre banner. When `withLegend`, also reveal the full control
-   *  reference centred under it and hide the in-play hotkey bar. */
+   *  reference centred under it and hide the in-play hotkey bar. The button
+   *  cluster exists only in play; title and results own their taps. */
   private showBanner(title: string, sub: string, withLegend = true): void {
-    const t = el("banner-title");
-    const s = el("banner-sub");
-    const b = el("banner");
-    if (t) {
-      t.textContent = title;
-    }
-    if (s) {
-      s.textContent = sub;
-    }
-    if (b) {
-      b.style.opacity = "1";
-    }
-    this.setHudMode(withLegend ? "legend" : "none");
+    const { status } = this.engine.state;
+    this.hud.showBanner(status, title, sub, withLegend ? "legend" : "none");
+    this.touch.setActive(status !== "title" && status !== "gameOver");
+    this.hud.setCatchMeter(this.catchRemaining(performance.now()));
   }
 
-  /** Hide the banner. In play the quiet hotkey bar carries the reference; the
-   *  full legend lives on the title and game-over banners (and the wrapper
-   *  pause overlay renders its own copy from the same manifest). */
   private hideBanner(): void {
-    const b = el("banner");
-    if (b) {
-      b.style.opacity = "0";
-    }
-    this.setHudMode("hotkeys");
-  }
-
-  private setHudMode(mode: "legend" | "hotkeys" | "none"): void {
-    const legend = el("legend");
-    if (legend) {
-      legend.style.display = mode === "legend" ? "flex" : "none";
-    }
-    const hotkeys = el("hotkeys");
-    // Touch has no keyboard to reference and the bar lands on the DROP/HOLD
-    // buttons; an inline display would beat the stylesheet's `body.touch` rule.
-    if (hotkeys) {
-      hotkeys.style.display = mode === "hotkeys" && !this.coarse ? "flex" : "none";
-    }
+    const { status } = this.engine.state;
+    this.hud.hideBanner(status);
+    this.touch.setActive(status !== "title" && status !== "gameOver");
+    this.hud.setCatchMeter(this.catchRemaining(performance.now()));
   }
 }

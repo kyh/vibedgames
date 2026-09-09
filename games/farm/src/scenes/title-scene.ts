@@ -2,11 +2,17 @@ import type Phaser from "phaser";
 import { Display, Scene, Scenes } from "phaser";
 import { watchControlContext } from "@repo/embed";
 import { PhysicalGamepad } from "@vibedgames/gamepad";
-import { hasSave, clearSave } from "../systems/save";
+import { clearSave, loadSave } from "../systems/save";
 import { Sound } from "../render/audio";
 import { buildControlsCard } from "../render/controls-card";
 import type { ControlsCard } from "../render/controls-card";
 import { mountTouchControls } from "../touch-controls";
+import { seasonName, seasonOfDay } from "../data/calendar";
+
+// idle.webp's nine 96×64 frames have a combined alpha silhouette y=23..39.
+// Layout uses its 16px visible height; the 64px frame includes transparent padding.
+const FARMER_VISIBLE_HEIGHT = 16;
+const FARMER_CENTER_OFFSET_Y = -1;
 
 const drawBackdrop = (g: Phaser.GameObjects.Graphics, w: number, h: number): void => {
   g.fillGradientStyle(0x9f_d8_f0, 0x9f_d8_f0, 0x8f_ce_5a, 0x6f_b8_4a, 1);
@@ -23,6 +29,7 @@ export class TitleScene extends Scene {
   private readonly pad = new PhysicalGamepad();
   private unwatchControls?: () => void;
   private controlsCard: ControlsCard | null = null;
+  private canContinue = false;
 
   constructor() {
     super("Title");
@@ -62,21 +69,44 @@ export class TitleScene extends Scene {
       })
       .setOrigin(0.5);
 
+    const intro = this.add
+      .text(0, 0, "Till → plant → water → sleep", {
+        color: "#fff6d5",
+        fontFamily: "ui-monospace, monospace",
+        fontSize: "14px",
+        stroke: "#547f2c",
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5);
+
     const newBtn = this.makeButton("🌱  New Farm", "#5fae3a");
     const contBtn = this.makeButton("☀  Continue", "#3a86c8");
     // The controls card — the pause sign's grouped parchment chips, rendered
     // in Phaser. Rebuilt fresh whenever a pad connects/disconnects.
     let cardBand = "";
 
-    const save = hasSave();
-    contBtn.container.setAlpha(save ? 1 : 0.35);
+    // A stored key that no longer parses is not a farm to continue: the load
+    // is the single source of truth for the label and every confirm path.
+    const saved = loadSave();
+    this.canContinue = saved !== null;
+    contBtn.container.setAlpha(saved ? 1 : 0.35);
+    const saveDetail = this.add
+      .text(
+        0,
+        15,
+        saved ? `Day ${saved.day} · ${seasonName(seasonOfDay(saved.day))}` : "No saved farm yet",
+        { color: "#e5f3ff", fontFamily: "ui-monospace, monospace", fontSize: "11px" },
+      )
+      .setOrigin(0.5);
+    contBtn.text.setFontSize(20).setY(-7);
+    contBtn.container.add(saveDetail);
 
     newBtn.zone.on("pointerdown", () => {
       Sound.resume();
       Sound.click();
       this.startNew();
     });
-    if (save) {
+    if (saved) {
       contBtn.zone.on("pointerdown", () => {
         Sound.resume();
         Sound.click();
@@ -86,9 +116,9 @@ export class TitleScene extends Scene {
 
     this.input.keyboard?.on("keydown-N", () => this.startNew());
     this.input.keyboard?.on("keydown-ENTER", () =>
-      save ? this.scene.start("Game", { mode: "continue" }) : this.startNew(),
+      saved ? this.scene.start("Game", { mode: "continue" }) : this.startNew(),
     );
-    if (save) {
+    if (saved) {
       this.input.keyboard?.on("keydown-C", () => this.scene.start("Game", { mode: "continue" }));
     }
 
@@ -100,10 +130,22 @@ export class TitleScene extends Scene {
       const compact = h < 520;
       title.setFontSize(compact ? 50 : 84);
       title.setPosition(cx, h * (compact ? 0.13 : 0.26));
-      tag.setPosition(cx, title.y + (compact ? 48 : 92));
-      farmer.setVisible(!compact).setPosition(cx, tag.y + 96);
+      tag
+        .setText(compact ? "Till → plant → water → sleep" : "a cozy farming RPG")
+        .setFontSize(compact ? 14 : 20)
+        .setPosition(cx, title.y + (compact ? 48 : 92));
+      farmer.setVisible(!compact);
       newBtn.container.setPosition(cx, h * (compact ? 0.39 : 0.66));
       contBtn.container.setPosition(cx, newBtn.container.y + (compact ? 60 : 70));
+      intro.setVisible(!compact).setPosition(cx, newBtn.container.y - 48);
+      // Keep the decorative farmer inside its band as shorter screens reflow.
+      const farmerScale = Math.min(
+        5,
+        Math.max(1, Math.floor((intro.y - tag.y - 44) / FARMER_VISIBLE_HEIGHT)),
+      );
+      farmer
+        .setScale(farmerScale)
+        .setPosition(cx, (tag.y + intro.y) / 2 - FARMER_CENTER_OFFSET_Y * farmerScale);
       // Controls card fills the band under the buttons, bottom-anchored where
       // the hint line lived. The card reflows to the band (build-time work), so
       // it is rebuilt only when the band itself changes — i.e. on a rotation.
@@ -122,7 +164,6 @@ export class TitleScene extends Scene {
         card.container.setScale(scale).setPosition(cx, bottom - (card.height * scale) / 2);
       }
     };
-
     if (this.onResize) {
       this.scale.off("resize", this.onResize);
     }
@@ -137,7 +178,6 @@ export class TitleScene extends Scene {
         this.scale.off("resize", this.onResize);
       }
     });
-
     const rebuildCard = () => {
       cardBand = "";
       layout();
@@ -152,7 +192,6 @@ export class TitleScene extends Scene {
       this.unwatchControls = undefined;
       this.controlsCard = null;
     });
-
     layout();
   }
 
@@ -161,7 +200,7 @@ export class TitleScene extends Scene {
   override update(): void {
     this.pad.update();
     if (this.pad.justPressed("a")) {
-      if (hasSave()) {
+      if (this.canContinue) {
         this.scene.start("Game", { mode: "continue" });
       } else {
         this.startNew();
@@ -198,6 +237,6 @@ export class TitleScene extends Scene {
     container.add([bg, txt, zone]);
     zone.on("pointerover", () => container.setScale(1.05));
     zone.on("pointerout", () => container.setScale(1));
-    return { container, zone };
+    return { container, text: txt, zone };
   }
 }

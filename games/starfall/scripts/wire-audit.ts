@@ -2,10 +2,10 @@
  * 32-player worst-case bandwidth audit (backlog dir-002).
  *
  * Models the wire exactly as shipped: the host's `updateSharedState` sends the
- * FULL merged SharedState (not the dirty-delta — see
- * client.ts in @vibedgames/multiplayer) as a `state_patch` message at 20Hz, and the party
- * server broadcasts it to every client; each client sends its full
- * PlayerNetState at 20Hz, fanned out to the other N-1 clients.
+ * FULL merged SharedState (not the dirty-delta — see the multiplayer package's
+ * client.ts) as a `state_patch` message at 20Hz, and the party server
+ * broadcasts it to every client; each client sends its full PlayerNetState at
+ * 20Hz, fanned out to the other N-1 clients.
  *
  * Worst-case assumptions (all caps from shared/constants.ts, arena at the
  * full 7680×4320 32-player bounds so coordinates use max digits):
@@ -119,30 +119,36 @@ const makeRawAsteroid = (i: number): RawAsteroid => {
   return { ...a, verts: rawVerts(a.radius) };
 };
 
+const enemyKind = (boss: boolean, sniper: boolean): EnemyState["kind"] => {
+  if (boss) {
+    return "dreadnought";
+  }
+  return sniper ? "sniper" : "drone";
+};
+
+const lanceCount = (boss: boolean, sniper: boolean): number => {
+  if (boss) {
+    return 4;
+  }
+  return sniper ? 1 : 0;
+};
+
 const makeEnemy = (id: IdFn, i: number): EnemyState => {
   // Worst mix: 1 boss (maxHp + 4 locked lances), a few snipers mid-telegraph
   // (1 lance each), the rest plain fodder.
   const boss = i === 0;
   const sniper = !boss && i % 20 === 0;
   const lance = (): Vec => ({ x: fx(), y: fy() });
-  let kind: EnemyState["kind"] = "drone";
-  let lances: Vec[] = [];
-  if (boss) {
-    kind = "dreadnought";
-    lances = [lance(), lance(), lance(), lance()];
-  } else if (sniper) {
-    kind = "sniper";
-    lances = [lance()];
-  }
   return {
     angle: Math.random() * Math.PI * 2,
+    attackAt: EPOCH + Math.random() * 1000,
     blinkUntil: EPOCH + Math.random() * 1000,
     chargeUntil: EPOCH + Math.random() * 1000,
     graceUntil: EPOCH + Math.random() * 1000,
     hp: Math.random() * 4000,
     id: id(1000 + i),
-    kind,
-    lances,
+    kind: enemyKind(boss, sniper),
+    lances: Array.from({ length: lanceCount(boss, sniper) }, lance),
     maxHp: boss ? 4000 : 0,
     shielded: false,
     telegraphUntil: EPOCH + Math.random() * 1000,

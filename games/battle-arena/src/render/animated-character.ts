@@ -52,6 +52,8 @@ export interface PlayOpts {
   clamp?: boolean;
   /** Playback rate multiplier. */
   timeScale?: number;
+  /** Authored clip seconds already elapsed when an accepted snapshot arrives. */
+  offset?: number;
 }
 
 // The universal fallback pose — every rig (Medium + Large) resolves Idle_B, so
@@ -62,9 +64,13 @@ const FALLBACK_IDLE = "Idle_B";
 export class AnimatedCharacter {
   readonly root: THREE.Object3D;
   private mixer: THREE.AnimationMixer;
-  private actions = new Map<string, THREE.AnimationAction>();
+  private actions = new Map<
+    THREE.AnimationClip,
+    { first: THREE.AnimationAction; second: THREE.AnimationAction | null }
+  >();
   private current: THREE.AnimationAction | null = null;
   private currentName = "";
+  private fading: { action: THREE.AnimationAction; left: number } | null = null;
 
   private lib: ModelLibrary;
   /** Clip-pool key prefix for this character's rig (e.g. "Large/"). */
@@ -99,22 +105,35 @@ export class AnimatedCharacter {
   }
 
   private action(clipName: string): THREE.AnimationAction | null {
-    const existing = this.actions.get(clipName);
-    if (existing) {
-      return existing;
-    }
     const clip = this.resolveClip(clipName);
     if (!clip) {
       return null;
     }
-    const action = this.mixer.clipAction(clip);
-    this.actions.set(clipName, action);
-    return action;
+    let pair = this.actions.get(clip);
+    if (!pair) {
+      pair = { first: this.mixer.clipAction(clip), second: null };
+      this.actions.set(clip, pair);
+    }
+    if (pair.first !== this.current) {
+      return pair.first;
+    }
+    // Two actions let a repeated shot blend out of its previous pose instead
+    // of resetting that same action. Tracks stay shared and immutable.
+    if (!pair.second) {
+      const alternate = new THREE.AnimationClip(
+        clip.name,
+        clip.duration,
+        clip.tracks,
+        clip.blendMode,
+      );
+      pair.second = this.mixer.clipAction(alternate);
+    }
+    return pair.second;
   }
 
   /** Crossfade to a clip. No-op if already the current clip (unless one-shot). */
   play(clipName: string, opts: PlayOpts = {}): void {
-    const { fade = 0.2, loop = true, clamp = false, timeScale = 1 } = opts;
+    const { fade = 0.2, loop = true, clamp = false, timeScale = 1, offset = 0 } = opts;
     if (this.currentName === clipName && loop) {
       return;
     }
@@ -122,20 +141,30 @@ export class AnimatedCharacter {
     if (!next) {
       // Clip missing on this rig — NEVER leave the character in its bind T-pose.
       // Fall back to a neutral idle (if that resolves; else give up silently).
-      if (clipName !== FALLBACK_IDLE && this.action(FALLBACK_IDLE)) {
+      if (clipName !== FALLBACK_IDLE && this.resolveClip(FALLBACK_IDLE)) {
         this.play(FALLBACK_IDLE, { fade, loop: true });
       }
       return;
     }
+    // At most the current pose and one outgoing pose are active. A third
+    // interruption retires the old fade, never a newly reused incoming action.
+    this.fading?.action.stop();
+    this.fading = null;
     next.reset();
     next.enabled = true;
     next.setEffectiveWeight(1);
     next.setEffectiveTimeScale(timeScale);
     next.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1);
     next.clampWhenFinished = clamp;
+    next.time = Math.max(0, Math.min(next.getClip().duration, offset));
     next.play();
     if (this.current && this.current !== next) {
-      this.current.crossFadeTo(next, fade, false);
+      if (fade > 0) {
+        this.current.crossFadeTo(next, fade, false);
+        this.fading = { action: this.current, left: fade };
+      } else {
+        this.current.stop();
+      }
     }
     this.current = next;
     this.currentName = clipName;
@@ -179,10 +208,20 @@ export class AnimatedCharacter {
 
   update(dt: number): void {
     this.mixer.update(dt);
+    if (this.fading) {
+      this.fading.left -= dt;
+      if (this.fading.left <= 0) {
+        this.fading.action.stop();
+        this.fading = null;
+      }
+    }
   }
 
   dispose(): void {
     this.mixer.stopAllAction();
     this.mixer.uncacheRoot(this.root);
+    this.actions.clear();
+    this.current = null;
+    this.fading = null;
   }
 }

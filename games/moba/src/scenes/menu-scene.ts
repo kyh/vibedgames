@@ -1,4 +1,5 @@
 import { safeAreaInset } from "@vibedgames/gamepad";
+import { PhysicalGamepad } from "@vibedgames/gamepad/phaser";
 import {
   controlGroups,
   isOfflineRequested,
@@ -11,7 +12,6 @@ import { Scale, Scene, Scenes } from "phaser";
 
 import { CONTROLS } from "../controls";
 import { HEROES } from "../data/heroes";
-import type { HeroDef } from "../data/heroes";
 import { chipTexts } from "../pause-overlay";
 import { FONT } from "../render/font";
 import { heroSheetTex } from "../render/sprites";
@@ -25,6 +25,23 @@ const GROUP_LABEL = {
   touch: "TOUCH",
 } satisfies Record<ControlMethod, string>;
 
+interface MenuAction {
+  online: boolean;
+  color: "blue" | "red";
+  button: Phaser.GameObjects.NineSlice;
+  label: Phaser.GameObjects.Text;
+  ring: Phaser.GameObjects.Rectangle;
+}
+type MenuFocus = { kind: "champion" } | { kind: "action"; action: MenuAction };
+type FocusDirection = "left" | "right" | "up" | "down";
+
+const ARROW_DIRECTION = new Map<string, FocusDirection>([
+  ["ArrowLeft", "left"],
+  ["ArrowRight", "right"],
+  ["ArrowUp", "up"],
+  ["ArrowDown", "down"],
+]);
+
 export class MenuScene extends Scene {
   private selected = "ironvow";
   private cards: { id: string; ring: Phaser.GameObjects.Rectangle }[] = [];
@@ -35,6 +52,14 @@ export class MenuScene extends Scene {
   private relayout: Phaser.Time.TimerEvent | null = null;
   private unwatchControls: (() => void) | null = null;
   private controlsPlaque: Phaser.GameObjects.Container | null = null;
+  private actions: MenuAction[] = [];
+  private focus: MenuFocus = { kind: "champion" };
+  private cardColumns = 6;
+  private pad: PhysicalGamepad | null = null;
+  private padConfirmArmed = false;
+  private keyboardConfirmArmed = true;
+  private starting = false;
+  private navigationHint: Phaser.GameObjects.Text | null = null;
 
   constructor() {
     super("Menu");
@@ -44,6 +69,12 @@ export class MenuScene extends Scene {
     // scene instance is reused on BACK TO MENU — rebuild card refs from scratch
     this.cards = [];
     this.controlsPlaque = null;
+    this.actions = [];
+    this.focus = { kind: "champion" };
+    this.starting = false;
+    this.navigationHint = null;
+    this.padConfirmArmed = false;
+    this.keyboardConfirmArmed = true;
 
     const veil = document.querySelector("#veil");
     if (veil) {
@@ -65,7 +96,6 @@ export class MenuScene extends Scene {
 
     const W = this.scale.width;
     const H = this.scale.height;
-    const inset = safeAreaInset();
     this.compactH = H < 520;
     this.cameras.main.setBackgroundColor("#47aba9");
 
@@ -78,125 +108,18 @@ export class MenuScene extends Scene {
       this.relayout = null;
       this.unwatchControls?.();
       this.unwatchControls = null;
+      this.pad?.destroy();
+      this.pad = null;
     });
+    this.pad = new PhysicalGamepad();
+    this.input.keyboard?.on("keydown", this.onMenuKeyDown, this);
+    this.input.keyboard?.on("keyup", this.onMenuKeyUp, this);
 
-    this.addBackdrop(W, H);
-
-    // title ribbon
-    const titleY = this.compactH ? 36 : 64;
-    this.add
-      .nineslice(
-        W / 2,
-        titleY,
-        "ui-ribbon-blue",
-        0,
-        Math.min(720, W - 24),
-        this.compactH ? 66 : 84,
-        58,
-        58,
-        22,
-        22,
-      )
-      .setOrigin(0.5);
-    const title = this.add
-      .text(W / 2, titleY - 6, "ANCIENTS OF ELDERMOOR", {
-        color: "#f4eee0",
-        fontFamily: FONT,
-        fontSize: this.compactH ? "28px" : "36px",
-        stroke: "#1e2a3a",
-        strokeThickness: 6,
-      })
-      .setOrigin(0.5);
-    title.setScale(Math.min(1, (Math.min(720, W - 24) - 60) / Math.max(1, title.width)));
-    if (!this.compactH) {
-      this.add
-        .text(W / 2, 116, "Choose your champion · destroy the enemy Ancient", {
-          color: "#eafaf8",
-          fontFamily: FONT,
-          fontSize: "16px",
-          stroke: "#1e3a38",
-          strokeThickness: 4,
-        })
-        .setOrigin(0.5);
-    }
-
-    // hero cards on carved parchment panels; a 3-wide grid on narrow screens
-    const n = HEROES.length;
-    const cols = W < 720 ? 3 : n;
-    const rows = Math.ceil(n / cols);
-    const cardW = Math.min(160, (W - 48) / cols - 12);
-    const f = cardW / 160;
-    const cardH = 204 * f;
-    const stepX = cardW + 12;
-    const stepY = cardH + 12;
-    const gy0 = this.compactH ? 80 : 150;
-    const x0 = (W - (cols * stepX - 12)) / 2 + cardW / 2;
-
-    for (const [i, h] of HEROES.entries()) {
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      this.addHeroCard(h, x0 + col * stepX, gy0 + row * stepY + cardH / 2, f);
-    }
-    const gridBottom = gy0 + rows * stepY;
-
-    // detail panel
-    this.detailName = this.add
-      .text(W / 2, gridBottom + (this.compactH ? 16 : 30), "", {
-        color: "#fff3c4",
-        fontFamily: FONT,
-        fontSize: this.compactH ? "17px" : "21px",
-        stroke: "#27343c",
-        strokeThickness: 5,
-      })
-      .setOrigin(0.5);
-    this.detail = this.add
-      .text(W / 2, gridBottom + (this.compactH ? 36 : 58), "", {
-        align: "center",
-        color: "#f0fffd",
-        fontFamily: FONT,
-        fontSize: this.compactH ? "12px" : "14px",
-        lineSpacing: 6,
-        stroke: "#1e3a38",
-        strokeThickness: 3,
-        wordWrap: { width: Math.min(820, W - 48) },
-      })
-      .setOrigin(0.5, 0);
-
-    // start buttons: vs Bots (local) and Online (multiplayer drop-in). They
-    // share one row at every width, narrowing to fit — a second stacked row
-    // pushed the controls plaque up over the top button on a portrait phone.
-    const btnY = H - (this.compactH ? 52 : 72) - inset.bottom;
-    const mkBtn = (x: number, w: number, label: string, color: "blue" | "red", online: boolean) => {
-      const b = this.add
-        .nineslice(x, btnY, `ui-btn-${color}`, 0, w, 66, 28, 28, 20, 26)
-        .setInteractive({ useHandCursor: true });
-      const t = this.add
-        .text(x, btnY - 4, label, { color: "#1e3a44", fontFamily: FONT, fontSize: "21px" })
-        .setOrigin(0.5);
-      // shrink the type rather than the object: the hover tween owns `scale`
-      if (t.width > w - 34) {
-        t.setFontSize(Math.floor((21 * (w - 34)) / t.width));
-      }
-      b.on("pointerover", () => this.tweens.add({ duration: 110, scale: 1.05, targets: [b, t] }));
-      b.on("pointerout", () => this.tweens.add({ duration: 110, scale: 1, targets: [b, t] }));
-      b.on("pointerdown", () => {
-        b.setTexture(`ui-btn-${color}-pressed`);
-        t.setText("LOADING…").setY(btnY);
-        notifyGameStarted();
-        this.time.delayedCall(80, () =>
-          this.scene.start("Game", { heroId: this.selected, online }),
-        );
-      });
-    };
-    // ?offline=1 forbids any socket, so the online button is dropped rather
-    // than left as a control that silently starts a bot match.
-    if (isOfflineRequested()) {
-      mkBtn(W / 2, Math.min(272, W - 48), "PLAY vs BOTS", "blue", false);
-    } else {
-      const btnW = Math.min(272, (W - 40) / 2 - 8);
-      mkBtn(W / 2 - btnW / 2 - 8, btnW, "PLAY vs BOTS", "blue", false);
-      mkBtn(W / 2 + btnW / 2 + 8, btnW, "PLAY ONLINE", "red", true);
-    }
+    this.buildBackdrop(W, H);
+    this.buildTitle(W);
+    const gridBottom = this.buildHeroCards(W);
+    this.buildDetailPanel(W, gridBottom);
+    const btnY = this.buildStartButtons(W, H);
     // The only place controls are taught — the match HUD carries no hint bar.
     // The pause plaque's control language (gold method headers, HUD-echo
     // keycap chips) rendered as a war-plaque strip above the buttons.
@@ -209,49 +132,8 @@ export class MenuScene extends Scene {
     this.select(this.selected);
   }
 
-  /** One carved-parchment hero card at (x, y), scaled by `f`. */
-  private addHeroCard(h: HeroDef, x: number, y: number, f: number): void {
-    const card = this.add.container(x, y).setScale(f);
-    const panel = this.add
-      .nineslice(0, 0, "ui-carved9", 0, 160, 204, 20, 20, 20, 20)
-      .setInteractive({ useHandCursor: true });
-    const ring = this.add
-      .rectangle(0, 0, 166, 210, 0x00_00_00, 0)
-      .setStrokeStyle(4, 0xff_e1_4a, 1)
-      .setVisible(false);
-    card.add([panel, ring]);
-    const tex = heroSheetTex(h.id);
-    if (this.textures.exists(tex)) {
-      card.add(this.add.sprite(0, -30, tex, 0).setScale(0.72).setTint(h.tint));
-    }
-    const nameText = this.add
-      .text(0, 30, h.name, { color: "#4a3320", fontFamily: FONT, fontSize: "16px" })
-      .setOrigin(0.5);
-    if (nameText.width > 144) {
-      nameText.setScale(144 / nameText.width);
-    }
-    card.add(nameText);
-    card.add(
-      this.add
-        .text(0, 52, h.role, {
-          align: "center",
-          color: "#7a6240",
-          fontFamily: FONT,
-          fontSize: "11px",
-          wordWrap: { width: 142 },
-        })
-        .setOrigin(0.5, 0),
-    );
-    panel.on("pointerover", () => this.preview(h.id));
-    // restore the SELECTED hero's details when the cursor leaves, so the panel
-    // never describes a hero you're only hovering (and won't actually play).
-    panel.on("pointerout", () => this.preview(this.selected));
-    panel.on("pointerdown", () => this.select(h.id));
-    this.cards.push({ id: h.id, ring });
-  }
-
   /** Open water, slowly drifting, with rocks and clouds. */
-  private addBackdrop(W: number, H: number): void {
+  private buildBackdrop(W: number, H: number): void {
     const water = this.add.tileSprite(0, 0, W, H, "t-water").setOrigin(0).setScrollFactor(0);
     this.tweens.add({
       duration: 24_000,
@@ -286,6 +168,335 @@ export class MenuScene extends Scene {
         x: c.x + 320,
         yoyo: true,
       });
+    }
+  }
+
+  private buildTitle(W: number): void {
+    const titleY = this.compactH ? 36 : 64;
+    this.add
+      .nineslice(
+        W / 2,
+        titleY,
+        "ui-ribbon-blue",
+        0,
+        Math.min(720, W - 24),
+        this.compactH ? 66 : 84,
+        58,
+        58,
+        22,
+        22,
+      )
+      .setOrigin(0.5);
+    const title = this.add
+      .text(W / 2, titleY - 6, "ANCIENTS OF ELDERMOOR", {
+        color: "#f4eee0",
+        fontFamily: FONT,
+        fontSize: this.compactH ? "28px" : "36px",
+        stroke: "#1e2a3a",
+        strokeThickness: 6,
+      })
+      .setOrigin(0.5);
+    title.setScale(Math.min(1, (Math.min(720, W - 24) - 60) / Math.max(1, title.width)));
+    if (!this.compactH) {
+      this.navigationHint = this.add
+        .text(W / 2, 116, "", {
+          color: "#eafaf8",
+          fontFamily: FONT,
+          fontSize: "16px",
+          stroke: "#1e3a38",
+          strokeThickness: 4,
+        })
+        .setOrigin(0.5);
+    }
+  }
+
+  /** Hero cards on carved parchment panels; a 3-wide grid on narrow screens.
+   *  Returns the y just below the grid. */
+  private buildHeroCards(W: number): number {
+    const n = HEROES.length;
+    const cols = W < 720 ? 3 : n;
+    this.cardColumns = cols;
+    const rows = Math.ceil(n / cols);
+    const cardW = Math.min(160, (W - 48) / cols - 12);
+    const f = cardW / 160;
+    const cardH = 204 * f;
+    const stepX = cardW + 12;
+    const stepY = cardH + 12;
+    const gy0 = this.compactH ? 80 : 150;
+    const x0 = (W - (cols * stepX - 12)) / 2 + cardW / 2;
+
+    for (const [i, h] of HEROES.entries()) {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const card = this.add.container(x0 + col * stepX, gy0 + row * stepY + cardH / 2).setScale(f);
+      const panel = this.add
+        .nineslice(0, 0, "ui-carved9", 0, 160, 204, 20, 20, 20, 20)
+        .setInteractive({ useHandCursor: true });
+      const ring = this.add
+        .rectangle(0, 0, 166, 210, 0x00_00_00, 0)
+        .setStrokeStyle(4, 0xff_e1_4a, 1)
+        .setVisible(false);
+      card.add([panel, ring]);
+      const tex = heroSheetTex(h.id);
+      if (this.textures.exists(tex)) {
+        card.add(this.add.sprite(0, -30, tex, 0).setScale(0.72).setTint(h.tint));
+      }
+      const nameText = this.add
+        .text(0, 30, h.name, { color: "#4a3320", fontFamily: FONT, fontSize: "16px" })
+        .setOrigin(0.5);
+      if (nameText.width > 144) {
+        nameText.setScale(144 / nameText.width);
+      }
+      card.add(nameText);
+      card.add(
+        this.add
+          .text(0, 52, h.role, {
+            align: "center",
+            color: "#7a6240",
+            fontFamily: FONT,
+            fontSize: "11px",
+            wordWrap: { width: 142 },
+          })
+          .setOrigin(0.5, 0),
+      );
+      panel.on("pointerover", () => this.preview(h.id));
+      // restore the SELECTED hero's details when the cursor leaves, so the panel
+      // never describes a hero you're only hovering (and won't actually play).
+      panel.on("pointerout", () => this.preview(this.selected));
+      panel.on("pointerdown", () => this.select(h.id));
+      this.cards.push({ id: h.id, ring });
+    }
+    return gy0 + rows * stepY;
+  }
+
+  private buildDetailPanel(W: number, gridBottom: number): void {
+    this.detailName = this.add
+      .text(W / 2, gridBottom + (this.compactH ? 16 : 30), "", {
+        color: "#fff3c4",
+        fontFamily: FONT,
+        fontSize: this.compactH ? "17px" : "21px",
+        stroke: "#27343c",
+        strokeThickness: 5,
+      })
+      .setOrigin(0.5);
+    this.detail = this.add
+      .text(W / 2, gridBottom + (this.compactH ? 36 : 58), "", {
+        align: "center",
+        color: "#f0fffd",
+        fontFamily: FONT,
+        fontSize: this.compactH ? "12px" : "14px",
+        lineSpacing: 6,
+        stroke: "#1e3a38",
+        strokeThickness: 3,
+        wordWrap: { width: Math.min(820, W - 48) },
+      })
+      .setOrigin(0.5, 0);
+  }
+
+  /** Start buttons: vs Bots (local) and Online (multiplayer drop-in). They
+   *  share one row at every width, narrowing to fit — a second stacked row
+   *  pushed the controls plaque up over the top button on a portrait phone.
+   *  Returns the button row's y. */
+  private buildStartButtons(W: number, H: number): number {
+    const inset = safeAreaInset();
+    const btnY = H - (this.compactH ? 52 : 72) - inset.bottom;
+    const mkBtn = (x: number, w: number, label: string, color: "blue" | "red", online: boolean) => {
+      const b = this.add
+        .nineslice(x, btnY, `ui-btn-${color}`, 0, w, 66, 28, 28, 20, 26)
+        .setInteractive({ useHandCursor: true });
+      const t = this.add
+        .text(x, btnY - 4, label, { color: "#1e3a44", fontFamily: FONT, fontSize: "21px" })
+        .setOrigin(0.5);
+      // shrink the type rather than the object: the hover tween owns `scale`
+      if (t.width > w - 34) {
+        t.setFontSize(Math.floor((21 * (w - 34)) / t.width));
+      }
+      b.on("pointerover", () => this.tweens.add({ duration: 110, scale: 1.05, targets: [b, t] }));
+      b.on("pointerout", () => this.tweens.add({ duration: 110, scale: 1, targets: [b, t] }));
+      const ring = this.add
+        .rectangle(x, btnY, w + 6, 64, 0x00_00_00, 0)
+        .setStrokeStyle(3, 0xff_e1_4a)
+        .setVisible(false);
+      const action = { button: b, color, label: t, online, ring };
+      this.actions.push(action);
+      b.on("pointerdown", () => this.beginMatch(action));
+    };
+    // ?offline=1 forbids any socket, so the online button is dropped rather
+    // than left as a control that silently starts a bot match.
+    if (isOfflineRequested()) {
+      mkBtn(W / 2, Math.min(272, W - 48), "PLAY vs BOTS", "blue", false);
+    } else {
+      const btnW = Math.min(272, (W - 40) / 2 - 8);
+      mkBtn(W / 2 - btnW / 2 - 8, btnW, "PLAY vs BOTS", "blue", false);
+      mkBtn(W / 2 + btnW / 2 + 8, btnW, "PLAY ONLINE", "red", true);
+    }
+    return btnY;
+  }
+
+  private onMenuKeyDown(event: KeyboardEvent): void {
+    if (this.starting) {
+      return;
+    }
+    const direction = ARROW_DIRECTION.get(event.key);
+    if (direction) {
+      event.preventDefault();
+      this.moveFocus(direction);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      if (!event.repeat && this.keyboardConfirmArmed) {
+        this.keyboardConfirmArmed = false;
+        this.confirmFocus();
+      }
+    }
+  }
+
+  private onMenuKeyUp(event: KeyboardEvent): void {
+    if (event.key === "Enter") {
+      this.keyboardConfirmArmed = true;
+    }
+  }
+
+  override update(): void {
+    if (this.starting || !this.pad) {
+      return;
+    }
+    this.pad.update();
+    if (!this.pad.connected) {
+      this.padConfirmArmed = false;
+      return;
+    }
+    if (!this.pad.isButtonDown("a")) {
+      this.padConfirmArmed = true;
+    }
+    for (const direction of ["left", "right", "up", "down"] satisfies (
+      | "left"
+      | "right"
+      | "up"
+      | "down"
+    )[]) {
+      if (this.pad.justPressed(direction)) {
+        this.moveFocus(direction);
+      }
+    }
+    if (this.pad.justPressed("b")) {
+      this.focus = { kind: "champion" };
+      this.paintFocus();
+    } else if (this.padConfirmArmed && this.pad.justPressed("a")) {
+      this.padConfirmArmed = false;
+      this.confirmFocus();
+    }
+  }
+
+  private moveFocus(direction: FocusDirection): void {
+    if (this.starting) {
+      return;
+    }
+    if (this.focus.kind === "action") {
+      if (direction === "up") {
+        this.focus = { kind: "champion" };
+      } else if (direction === "left" || direction === "right") {
+        const index = this.actions.indexOf(this.focus.action);
+        const action =
+          this.actions[
+            (index + (direction === "left" ? -1 : 1) + this.actions.length) % this.actions.length
+          ];
+        if (action) {
+          this.focus = { action, kind: "action" };
+        }
+      }
+      this.paintFocus();
+      return;
+    }
+    const index = Math.max(
+      0,
+      HEROES.findIndex((hero) => hero.id === this.selected),
+    );
+    if (direction === "down" && index + this.cardColumns >= HEROES.length) {
+      this.focusPlay();
+      return;
+    }
+    const hero = HEROES[this.nextCardIndex(index, direction)];
+    if (hero) {
+      this.select(hero.id);
+    }
+  }
+
+  private nextCardIndex(index: number, direction: FocusDirection): number {
+    switch (direction) {
+      case "left": {
+        return (index + HEROES.length - 1) % HEROES.length;
+      }
+      case "right": {
+        return (index + 1) % HEROES.length;
+      }
+      case "up": {
+        return index >= this.cardColumns ? index - this.cardColumns : index;
+      }
+      case "down": {
+        return Math.min(HEROES.length - 1, index + this.cardColumns);
+      }
+      default: {
+        return index;
+      }
+    }
+  }
+
+  private focusPlay(): void {
+    const action = this.actions.find((entry) => !entry.online);
+    if (!action) {
+      return;
+    }
+    this.focus = { action, kind: "action" };
+    this.paintFocus();
+  }
+
+  private confirmFocus(): void {
+    if (this.starting) {
+      return;
+    }
+    if (this.focus.kind === "champion") {
+      this.focusPlay();
+    } else {
+      this.beginMatch(this.focus.action);
+    }
+  }
+
+  private beginMatch(action: MenuAction): void {
+    if (this.starting) {
+      return;
+    }
+    this.starting = true;
+    this.focus = { action, kind: "action" };
+    this.paintFocus();
+    action.button.setTexture(`ui-btn-${action.color}-pressed`);
+    action.label.setText("LOADING…").setY(action.button.y);
+    const heroId = this.selected;
+    notifyGameStarted();
+    this.time.delayedCall(80, () => this.scene.start("Game", { heroId, online: action.online }));
+  }
+
+  private paintFocus(): void {
+    for (const card of this.cards) {
+      card.ring
+        .setVisible(card.id === this.selected)
+        .setStrokeStyle(
+          this.focus.kind === "champion" ? 4 : 2,
+          0xff_e1_4a,
+          this.focus.kind === "champion" ? 1 : 0.65,
+        );
+    }
+    for (const action of this.actions) {
+      action.ring.setVisible(this.focus.kind === "action" && this.focus.action === action);
+    }
+    if (this.navigationHint) {
+      const text =
+        this.focus.kind === "champion"
+          ? "Choose a champion · arrows / D-pad · Enter / A"
+          : `${this.focus.action.online ? "PLAY ONLINE" : "PLAY vs BOTS"} · Enter / A to play · ↑ to return`;
+      this.navigationHint.setText(text).setScale(1);
+      this.navigationHint.setScale(
+        Math.min(1, (this.scale.width - 32) / Math.max(1, this.navigationHint.width)),
+      );
     }
   }
 
@@ -338,9 +549,9 @@ export class MenuScene extends Scene {
     };
 
     for (const group of groups) {
+      // each method heads its own row on the plaque
       if (!compact) {
         flushRow();
-        // each method heads its own row on the plaque
       }
       // gold section header between short rules, like the plaque's mp-gh
       const caption = this.add
@@ -453,10 +664,12 @@ export class MenuScene extends Scene {
   }
 
   private select(id: string): void {
-    this.selected = id;
-    this.preview(id);
-    for (const c of this.cards) {
-      c.ring.setVisible(c.id === id);
+    if (this.starting) {
+      return;
     }
+    this.selected = id;
+    this.focus = { kind: "champion" };
+    this.preview(id);
+    this.paintFocus();
   }
 }

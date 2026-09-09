@@ -17,6 +17,9 @@ const winAspect =
 export const BASE_W = Math.round((BASE_H * clampAspect(winAspect)) / 2) * 2;
 // world grid unit (px)
 export const TILE = 16;
+// fixed sim step (s) and the per-frame catch-up cap
+export const STEP = 1 / 60;
+export const MAX_STEPS = 5;
 
 // Render interpolation: the sim runs at a fixed 60Hz but the screen may refresh
 // faster (120Hz on ProMotion), so rendering the raw sim position judders. Blend

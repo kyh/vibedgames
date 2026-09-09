@@ -8,6 +8,7 @@
 // shop-open handler calls `notifyShopOpened()` to dismiss the shop hint early.
 import { CAMPS, isInThrone } from "../data/map";
 import type { Unit, World } from "../sim/types";
+import { liveBossCoins } from "./objective-state";
 
 // solo fly-in length (view.startIntro) — move hint waits for it
 const INTRO_S = 2.4;
@@ -31,6 +32,8 @@ interface Rule {
   when: (w: World, me: Unit, st: HintState) => boolean;
   /** Early-dismiss (and "already learned — never show") condition. */
   done?: (w: World, me: Unit, st: HintState) => boolean;
+  /** A transient target disappearing dismisses a visible lesson, not an unseen one. */
+  dismiss?: (w: World) => boolean;
 }
 
 const enemyWithin = (w: World, me: Unit, r: number): boolean => {
@@ -92,17 +95,18 @@ const RULES: Rule[] = [
     when: (_w, me) => nearAnyCamp(me, 16),
   },
   {
-    done: (w) => w.coins.length === 0,
+    dismiss: (w) => liveBossCoins(w).length === 0,
     id: "coin",
     text: "Golem threw gold — grab it",
     touch: "Golem threw gold — grab it",
-    when: (w) => w.coins.length > 0,
+    when: (w) => liveBossCoins(w).length > 0,
   },
   {
+    dismiss: (w) => !w.deliveries.some((drop) => drop.expireAt > w.now),
     id: "delivery",
-    text: "Green pad — free item",
-    touch: "Green pad — free item",
-    when: (w) => w.deliveries.length > 0,
+    text: "Green pad — item or gold",
+    touch: "Green pad — item or gold",
+    when: (w) => w.deliveries.some((drop) => drop.expireAt > w.now),
   },
   {
     done: (_w, me) => me.items.length > 0,
@@ -169,7 +173,7 @@ export class Hints {
 
     if (this.visible) {
       const r = this.visible;
-      if (t >= this.visibleUntil || (r.done !== undefined && r.done(w, me, this.st))) {
+      if (t >= this.visibleUntil || r.done?.(w, me, this.st) || r.dismiss?.(w)) {
         this.hide();
       }
       return;
@@ -198,6 +202,23 @@ export class Hints {
     }
   }
 
+  /** Early-dismiss hook for the one trigger the sim can't see (Hud shop open). */
+  notifyShopOpened(): void {
+    if (this.visible?.id === "shop600") {
+      this.hide();
+    }
+  }
+
+  /** Keep learned rules across rematches, but never their old time deadlines. */
+  resetMatch(): void {
+    this.visible = null;
+    this.lastT = 0;
+    this.nextAt = 0;
+    this.visibleUntil = 0;
+    this.st.spawnSet = false;
+    this.show("");
+  }
+
   private track(me: Unit): void {
     if (!this.st.spawnSet && me.alive) {
       this.st.spawnX = me.x;
@@ -218,13 +239,6 @@ export class Hints {
     ) {
       this.shown.delete("shop600");
       this.st.shopRearmed = true;
-    }
-  }
-
-  /** Early-dismiss hook for the one trigger the sim can't see (Hud shop open). */
-  notifyShopOpened(): void {
-    if (this.visible?.id === "shop600") {
-      this.hide();
     }
   }
 

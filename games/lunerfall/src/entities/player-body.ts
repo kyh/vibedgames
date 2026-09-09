@@ -1,6 +1,8 @@
 import { TILE } from "../config";
 import type { HeroKit } from "../data/heroes";
 import type { Grid } from "../sys/grid";
+import { specialReadiness } from "../data/special-readiness";
+import type { SpecialReadiness } from "../data/special-readiness";
 
 // ── Feel constants (px, seconds; tuned for 60fps fixed step) ────────────────
 const MAX_RUN = 236;
@@ -65,12 +67,7 @@ export const PLAYER_BODY_H = BODY_H;
 
 const approach = (cur: number, target: number, maxDelta: number): number =>
   cur < target ? Math.min(cur + maxDelta, target) : Math.max(cur - maxDelta, target);
-const clamp = (v: number, a: number, b: number): number => {
-  if (v < a) {
-    return a;
-  }
-  return v > b ? b : v;
-};
+const clamp = (v: number, a: number, b: number): number => Math.min(Math.max(v, a), b);
 
 export interface BodyInput {
   left: boolean;
@@ -102,13 +99,13 @@ export interface Rect {
   bottom: number;
 }
 export type AttackBox = Rect & { dmg: number; kb: number };
-export interface PlayerShot {
+export type PlayerShot = {
   x: number;
   y: number;
   vx: number;
   vy: number;
   dmg: number;
-}
+};
 
 // Pure platformer physics + combat state (kit-driven). No Phaser, no rendering.
 // Deterministic given the same grid + input stream.
@@ -163,15 +160,131 @@ export class PlayerBody {
   private dashDirY = 0;
   private landVy = 0;
 
-  private grid: Grid;
-  private kit: HeroKit;
-  private ev: BodyEvents;
-
   private hLeft = false;
   private hRight = false;
   private hUp = false;
   private hDown = false;
   private jumpHeld = false;
+
+  /** Exact authority state; excludes grid, kit and presentation callbacks. */
+  checkpoint() {
+    return {
+      airDash: this.airDash,
+      attackBuf: this.attackBuf,
+      attackCd: this.attackCd,
+      attackStep: this.attackStep,
+      attackTime: this.attackTime,
+      comboGrace: this.comboGrace,
+      comboQueued: this.comboQueued,
+      comboStage: this.comboStage,
+      coyote: this.coyote,
+      dashBuf: this.dashBuf,
+      dashCd: this.dashCd,
+      dashDirX: this.dashDirX,
+      dashDirY: this.dashDirY,
+      dashTime: this.dashTime,
+      dead: this.dead,
+      downed: this.downed,
+      facing: this.facing,
+      grounded: this.grounded,
+      hDown: this.hDown,
+      hLeft: this.hLeft,
+      hRight: this.hRight,
+      hUp: this.hUp,
+      hurtStun: this.hurtStun,
+      iframes: this.iframes,
+      jumpBuf: this.jumpBuf,
+      jumpHeld: this.jumpHeld,
+      jumping: this.jumping,
+      landVy: this.landVy,
+      pendingHeal: this.pendingHeal,
+      pendingShot: structuredClone(this.pendingShot),
+      prevX: this.prevX,
+      prevY: this.prevY,
+      specialActive: this.specialActive,
+      specialBuf: this.specialBuf,
+      specialCd: this.specialCd,
+      specialDur: this.specialDur,
+      specialElapsed: this.specialElapsed,
+      specialFired: this.specialFired,
+      specialId: this.specialId,
+      swingId: this.swingId,
+      vx: this.vx,
+      vy: this.vy,
+      wallDir: this.wallDir,
+      wallLock: this.wallLock,
+      x: this.x,
+      y: this.y,
+    };
+  }
+
+  /** Restore without simulating, emitting effects or refreshing cooldowns. */
+  restore(state: PlayerBodyCheckpoint) {
+    this.x = state.x;
+    this.y = state.y;
+    this.prevX = state.prevX;
+    this.prevY = state.prevY;
+    this.vx = state.vx;
+    this.vy = state.vy;
+    this.facing = state.facing;
+    this.grounded = state.grounded;
+    this.wallDir = state.wallDir;
+    this.iframes = state.iframes;
+    this.dead = state.dead;
+    this.downed = state.downed;
+    this.attackStep = state.attackStep;
+    this.swingId = state.swingId;
+    this.specialId = state.specialId;
+    this.specialActive = state.specialActive;
+    this.pendingShot = structuredClone(state.pendingShot);
+    this.pendingHeal = state.pendingHeal;
+    this.attackTime = state.attackTime;
+    this.attackBuf = state.attackBuf;
+    this.attackCd = state.attackCd;
+    this.comboQueued = state.comboQueued;
+    this.comboStage = state.comboStage;
+    this.comboGrace = state.comboGrace;
+    this.specialBuf = state.specialBuf;
+    this.specialCd = state.specialCd;
+    this.specialElapsed = state.specialElapsed;
+    this.specialDur = state.specialDur;
+    this.specialFired = state.specialFired;
+    this.hurtStun = state.hurtStun;
+    this.airDash = state.airDash;
+    this.jumping = state.jumping;
+    this.coyote = state.coyote;
+    this.jumpBuf = state.jumpBuf;
+    this.dashBuf = state.dashBuf;
+    this.dashTime = state.dashTime;
+    this.dashCd = state.dashCd;
+    this.wallLock = state.wallLock;
+    this.dashDirX = state.dashDirX;
+    this.dashDirY = state.dashDirY;
+    this.landVy = state.landVy;
+    this.hLeft = state.hLeft;
+    this.hRight = state.hRight;
+    this.hUp = state.hUp;
+    this.hDown = state.hDown;
+    this.jumpHeld = state.jumpHeld;
+  }
+
+  /** Drop queued/held input; active actions and their deadlines keep running. */
+  clearInput(): void {
+    this.hLeft = false;
+    this.hRight = false;
+    this.hUp = false;
+    this.hDown = false;
+    this.jumpHeld = false;
+    this.comboQueued = false;
+    this.jumpBuf = 0;
+    this.dashBuf = 0;
+    this.attackBuf = 0;
+    this.specialBuf = 0;
+  }
+
+  private grid: Grid;
+  private kit: HeroKit;
+  private ev: BodyEvents;
 
   constructor(grid: Grid, x: number, y: number, kit: HeroKit, ev: BodyEvents = {}) {
     this.grid = grid;
@@ -190,6 +303,18 @@ export class PlayerBody {
   get specialCdFrac(): number {
     const { cd } = this.kit.special;
     return cd > 0 ? clamp(this.specialCd / cd, 0, 1) : 0;
+  }
+
+  get specialReadiness(): SpecialReadiness {
+    return specialReadiness({
+      attackStep: this.attackStep,
+      dashTime: this.dashTime,
+      dead: this.dead,
+      downed: this.downed,
+      hurtStun: this.hurtStun,
+      specialActive: this.specialActive,
+      specialCd: this.specialCd,
+    });
   }
 
   buffer(input: BodyInput) {
@@ -423,20 +548,24 @@ export class PlayerBody {
         this.attackBuf = 0;
       }
     }
-    if (this.attackStep === 0) {
-      if (this.comboGrace > 0) {
-        this.comboGrace -= dt;
-        if (this.comboGrace <= 0) {
-          // chain lapsed → next tap is hit 1
-          this.comboStage = 0;
-        }
+    if (this.attackStep > 0) {
+      this.advanceSwing(dt);
+    } else if (this.comboGrace > 0) {
+      this.comboGrace -= dt;
+      // chain lapsed → next tap is hit 1
+      if (this.comboGrace <= 0) {
+        this.comboStage = 0;
       }
-      return;
     }
+  }
+
+  private advanceSwing(dt: number) {
     this.attackTime += dt;
     const cur = this.kit.swings[this.attackStep - 1];
+    if (!cur) {
+      return;
+    }
     if (
-      cur &&
       this.comboQueued &&
       this.attackStep < this.kit.swings.length &&
       this.attackTime >= cur.dur * COMBO_CANCEL_FRAC
@@ -445,7 +574,7 @@ export class PlayerBody {
       // cancel this swing's recovery straight into the next slash.
       this.startSwing(this.attackStep + 1);
       this.comboQueued = false;
-    } else if (cur && this.attackTime >= cur.dur) {
+    } else if (this.attackTime >= cur.dur) {
       // Uncanceled swing ran its full readable length → end, hold the chain
       // open for one more tap.
       this.attackStep = 0;
@@ -484,7 +613,6 @@ export class PlayerBody {
       return;
     }
     this.applyRun(dt, swinging, rooted);
-
     if (this.jumpBuf > 0 && this.hurtStun <= 0 && !rooted) {
       this.tryJump();
     }
@@ -495,7 +623,6 @@ export class PlayerBody {
     if (this.vy >= 0) {
       this.jumping = false;
     }
-
     if (!this.grounded) {
       this.applyGravity(dt);
     }
@@ -625,7 +752,9 @@ export class PlayerBody {
         this.doBlink(sp.dist, sp.iframes);
         break;
       }
-      // no default
+      default: {
+        break;
+      }
     }
     this.ev.onSpecial?.(sp.kind);
   }
@@ -767,3 +896,5 @@ export class PlayerBody {
 
 export const rectsOverlap = (a: Rect, b: Rect): boolean =>
   a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+
+export type PlayerBodyCheckpoint = ReturnType<PlayerBody["checkpoint"]>;

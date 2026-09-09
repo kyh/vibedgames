@@ -44,6 +44,8 @@ export const gameInset = (scene: Phaser.Scene): GameInset => {
   };
 };
 
+export const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
+
 // Touch-first device, decided at boot (not after the first touch) so hint copy
 // and tap targets are right from the first frame.
 export const isCoarse = (): boolean =>

@@ -38,7 +38,7 @@ const METHOD_LABEL = {
 // key→action grid. Injected via ensureControlCardStyle() so the menu can use
 // it without mounting the pause shell.
 const GROUP_CSS = `
-.ba-p-groups{display:flex;flex-wrap:wrap;gap:16px 30px;justify-content:center;align-items:center;
+.ba-p-groups{display:flex;flex-wrap:wrap;gap:16px 30px;justify-content:center;align-items:flex-start;
   margin:20px 4px 4px;text-align:left}
 .ba-p-g{min-width:206px;flex:0 1 auto}
 .ba-p-gt{font:800 10px ui-monospace,monospace;letter-spacing:.26em;text-align:center;

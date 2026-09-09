@@ -5,10 +5,15 @@
 // fresh pad press all resume; show()/hide() are idempotent; Escape itself is
 // handled on keydown by the @repo/embed core toggle.
 
-import { controlGroups, createPauseShell } from "@repo/embed";
+import { controlGroups, createPauseShell, resumeGame } from "@repo/embed";
 import type { ControlMethod } from "@repo/embed";
 
 import { CONTROLS } from "./controls";
+import {
+  presentationSettings,
+  setPresentationSettings,
+  watchPresentationSettings,
+} from "./render/presentation-settings";
 
 const GROUP_LABEL = {
   camera: "Camera",
@@ -57,6 +62,15 @@ const CSS = `
 .mp-action{font-size:13px;color:#d8cbb2}
 .mp-hint{margin-top:18px;font-size:13px;letter-spacing:0.14em;color:#ffd27a;
   text-shadow:0 1px 0 rgba(20,12,4,0.6);animation:mp-pulse 2.2s ease-in-out infinite}
+.mp-settings{display:grid;gap:8px;margin:14px 0 6px;text-align:left}
+.mp-option{display:flex;gap:12px;align-items:center;min-height:48px;padding:8px 10px;
+  border:1px solid #6f5a3c;border-radius:8px;background:#261c11;cursor:pointer}
+.mp-option:focus-within{outline:2px solid #ffe6a3;outline-offset:2px}
+.mp-option input{width:20px;height:20px;flex:none;accent-color:#d5ae5f}
+.mp-option strong{display:block;font-size:14px;font-weight:400;color:#ffe8b0}
+.mp-option small{display:block;margin-top:3px;font-size:11px;line-height:1.35;color:#cdbb97}
+.mp-root.mp-reduced .mp-panel{transition:none}
+.mp-root.mp-reduced .mp-hint{animation:none}
 @keyframes mp-pulse{0%,100%{opacity:1}50%{opacity:0.55}}
 @media (prefers-reduced-motion: reduce){
   .mp-panel{transition:none}
@@ -81,9 +95,74 @@ const el = (tag: string, className: string, text?: string): HTMLElement => {
 
 // Kept across show/hide so onHide can back out the panel's .mp-in slide.
 let root: HTMLElement | null = null;
+let stopSettings: (() => void) | null = null;
+
+const settingsPanel = (): HTMLElement => {
+  const section = el("div", "mp-settings");
+  section.dataset.pauseKeep = "";
+  section.setAttribute("role", "group");
+  section.setAttribute("aria-label", "Presentation settings");
+  // Native checkbox keys stay in this panel, including online matches whose
+  // simulation continues while paused. The shell keeps focused edits open.
+  section.addEventListener("keydown", (event) => {
+    event.stopPropagation();
+    if (event.key === "Escape") {
+      event.preventDefault();
+      resumeGame();
+    }
+  });
+  section.addEventListener("keyup", (event) => event.stopPropagation());
+  const option = (
+    title: string,
+    description: string,
+    checked: boolean,
+    change: (checked: boolean) => void,
+  ): void => {
+    const label = el("label", "mp-option");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = checked;
+    input.setAttribute("aria-label", title);
+    input.addEventListener("change", () => change(input.checked));
+    const copy = el("span", "");
+    copy.append(el("strong", "", title), el("small", "", description));
+    label.append(input, copy);
+    section.append(label);
+  };
+  const settings = presentationSettings();
+  option(
+    "Focused effects",
+    "Fewer particles and clouds. All threats stay visible.",
+    settings.effects === "focused",
+    (focused) =>
+      setPresentationSettings({ ...presentationSettings(), effects: focused ? "focused" : "full" }),
+  );
+  option(
+    "Reduced motion",
+    "Steady camera and status effects. Also follows your device preference.",
+    settings.motion === "reduced",
+    (reduced) =>
+      setPresentationSettings({
+        ...presentationSettings(),
+        motion: reduced ? "reduced" : "system",
+      }),
+  );
+  option(
+    "Closer camera",
+    "Larger heroes; less of the battlefield visible.",
+    settings.view === "close",
+    (close) =>
+      setPresentationSettings({ ...presentationSettings(), view: close ? "close" : "standard" }),
+  );
+  return section;
+};
 
 const renderPanel = (overlay: HTMLElement): void => {
   root = overlay;
+  const syncMotion = () =>
+    overlay.classList.toggle("mp-reduced", presentationSettings().motion === "reduced");
+  syncMotion();
+  stopSettings = watchPresentationSettings(syncMotion);
   const coarse = window.matchMedia("(pointer: coarse)").matches;
 
   const panel = el("div", "mp-panel");
@@ -109,6 +188,7 @@ const renderPanel = (overlay: HTMLElement): void => {
     ),
     el("div", "mp-rule"),
   );
+  panel.append(settingsPanel());
 
   // Fresh each show(): touch vs keys/mouse, controller only while connected.
   for (const group of controlGroups(CONTROLS, { coarse })) {
@@ -141,7 +221,12 @@ const renderPanel = (overlay: HTMLElement): void => {
 const shell = createPauseShell({
   className: "mp-root",
   css: CSS,
+  modalOpen: () =>
+    document.activeElement instanceof Element &&
+    document.activeElement.closest(".mp-settings") !== null,
   onHide: () => {
+    stopSettings?.();
+    stopSettings = null;
     // Slide the panel back down through the shell's fade-out.
     root?.classList.remove("mp-in");
     root = null;

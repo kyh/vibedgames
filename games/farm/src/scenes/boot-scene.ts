@@ -3,6 +3,7 @@ import { Math as PhaserMath, Scene } from "phaser";
 import { CROP_ORDER } from "../data/crops";
 import { parseWorldMap } from "../world/worldmap";
 import { setWorldMap, getWorldMap } from "../world/map-store";
+import { FARMER_HURT_MS, SKELETON_CONTACT_MS, SKELETON_HURT_MS } from "../config";
 
 const CHAR = { frameHeight: 64, frameWidth: 96 };
 
@@ -15,6 +16,7 @@ export const CHAR_FRAMES = {
   death: 13,
   dig: 13,
   doing: 8,
+  hurt: 8,
   idle: 9,
   mine: 10,
   reeling: 13,
@@ -25,7 +27,9 @@ export const CHAR_FRAMES = {
 export type CharAction = keyof typeof CHAR_FRAMES;
 
 const SKEL = {
+  attack: 7,
   death: 10,
+  hurt: 7,
   idle: 6,
   walk: 8,
 } as const;
@@ -134,10 +138,20 @@ export class BootScene extends Scene {
     mk("p-reeling", "p-reeling", 12, -1);
     mk("p-caught", "p-caught", 12, 0);
     mk("p-death", "p-death", 10, 0);
+    mk("p-hurt", "p-hurt", (8 * 1000) / FARMER_HURT_MS, 0);
 
     mk("e-skel-idle", "e-skel-idle", 6, -1);
     mk("e-skel-walk", "e-skel-walk", 10, -1);
     mk("e-skel-death", "e-skel-death", 12, 0);
+    mk("e-skel-hurt", "e-skel-hurt", (7 * 1000) / SKELETON_HURT_MS, 0);
+    // The original strip's arc/recovery follows accepted contact. Its windup
+    // frames would imply a delay that this enemy's contact damage does not have.
+    this.anims.create({
+      frameRate: (3 * 1000) / SKELETON_CONTACT_MS,
+      frames: this.anims.generateFrameNumbers("e-skel-attack", { end: 6, start: 4 }),
+      key: "e-skel-contact",
+      repeat: 0,
+    });
 
     mk("chicken-walk", "obj-chicken", 6, -1);
     mk("cow-idle", "obj-cow", 4, -1);

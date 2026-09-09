@@ -76,48 +76,6 @@ const enemiesInRadius = (
   return out;
 };
 
-const alliesInRadius = (
-  w: World,
-  team: string,
-  p: Vec2,
-  radius: number,
-  heroesOnly = false,
-): Unit[] => {
-  const out: Unit[] = [];
-  const r2 = radius * radius;
-  for (const u of w.units.values()) {
-    // never count neutrals as allies (they carry team:"dire" only for serialization)
-    if (!u.alive || u.neutral || u.team !== team) {
-      continue;
-    }
-    if (heroesOnly && u.kind !== "hero") {
-      continue;
-    }
-    if (u.kind === "structure") {
-      continue;
-    }
-    if (dist2(u, p) <= r2) {
-      out.push(u);
-    }
-  }
-  return out;
-};
-
-// ---- ground effects --------------------------------------------------------
-interface GroundOpts {
-  radius: number;
-  until: number;
-  enemyDps?: number;
-  dtype?: DamageType;
-  slowPct?: number;
-  allyHealPerTick?: number;
-  allyManaPerTick?: number;
-  cleanse?: boolean;
-  followOwner?: boolean;
-  channel?: boolean;
-  detonate?: { dmg: number; amp: number; burnDps: number; burnDur: number };
-}
-
 const createGround = (w: World, c: Unit, effect: string, p: Vec2, o: GroundOpts): void => {
   // Self-following auras (e.g. Flashfire) track the caster, so recasting before the
   // old one expires would stack two zones on the same hero → double DPS. Replace any
@@ -150,17 +108,6 @@ const createGround = (w: World, c: Unit, effect: string, p: Vec2, o: GroundOpts)
   };
   w.groundEffects.push(g);
 };
-
-// ---- channels --------------------------------------------------------------
-interface ChannelBundle {
-  radius: number;
-  enemyDps?: number;
-  dtype?: DamageType;
-  slowPct?: number;
-  allyHealPerTick?: number;
-  allyManaPerTick?: number;
-  cleanse?: boolean;
-}
 
 const startChannel = (
   w: World,
@@ -197,19 +144,34 @@ const startChannel = (
   c.path = [];
 };
 
-export const breakChannel = (w: World, u: Unit): void => {
-  if (!u.hero?.channel) {
-    return;
+const alliesInRadius = (
+  w: World,
+  team: string,
+  p: Vec2,
+  radius: number,
+  heroesOnly = false,
+): Unit[] => {
+  const out: Unit[] = [];
+  const r2 = radius * radius;
+  for (const u of w.units.values()) {
+    // never count neutrals as allies (they carry team:"dire" only for serialization)
+    if (!u.alive || u.neutral || u.team !== team) {
+      continue;
+    }
+    if (heroesOnly && u.kind !== "hero") {
+      continue;
+    }
+    if (u.kind === "structure") {
+      continue;
+    }
+    if (dist2(u, p) <= r2) {
+      out.push(u);
+    }
   }
-  const eff = u.hero.channel.effect;
-  u.hero.channel = null;
-  w.groundEffects = w.groundEffects.filter(
-    (g) => !(g.ownerId === u.id && g.effect === eff && g.channel),
-  );
+  return out;
 };
 
-// ---- the dispatch ----------------------------------------------------------
-interface CastContext {
+interface CastCtx {
   w: World;
   c: Unit;
   def: AbilityDef;
@@ -218,8 +180,9 @@ interface CastContext {
   amp: number;
   target?: Unit;
 }
+type Caster = (ctx: CastCtx) => boolean;
 
-const castIronvow = ({ amp, c, def, rank, target, w }: CastContext): boolean => {
+const castIronvow: Caster = ({ w, c, def, rank, amp, target }) => {
   switch (def.effect) {
     case "ironvow:Q": {
       if (!target) {
@@ -297,14 +260,13 @@ const castIronvow = ({ amp, c, def, rank, target, w }: CastContext): boolean => 
       });
       return true;
     }
-
     default: {
       return false;
     }
   }
 };
 
-const castDuskblade = ({ c, def, p, rank, target, w }: CastContext): boolean => {
+const castDuskblade: Caster = ({ w, c, def, rank, p, target }) => {
   switch (def.effect) {
     case "duskblade:Q": {
       const from = { x: c.x, y: c.y };
@@ -379,14 +341,13 @@ const castDuskblade = ({ c, def, p, rank, target, w }: CastContext): boolean => 
       });
       return true;
     }
-
     default: {
       return false;
     }
   }
 };
 
-const castStormcaller = ({ c, def, p, rank, target, w }: CastContext): boolean => {
+const castStormcaller: Caster = ({ w, c, def, rank, p, target }) => {
   switch (def.effect) {
     case "stormcaller:Q": {
       const len = v(def, "length", rank);
@@ -469,14 +430,13 @@ const castStormcaller = ({ c, def, p, rank, target, w }: CastContext): boolean =
       });
       return true;
     }
-
     default: {
       return false;
     }
   }
 };
 
-const castEmberhex = ({ amp, c, def, p, rank, w }: CastContext): boolean => {
+const castEmberhex: Caster = ({ w, c, def, rank, p, amp }) => {
   switch (def.effect) {
     case "emberhex:Q": {
       spawnAbilityProjectile(w, {
@@ -554,14 +514,13 @@ const castEmberhex = ({ amp, c, def, p, rank, w }: CastContext): boolean => {
       });
       return true;
     }
-
     default: {
       return false;
     }
   }
 };
 
-const castBoomtinker = ({ amp, c, def, p, rank, w }: CastContext): boolean => {
+const castBoomtinker: Caster = ({ w, c, def, rank, p, amp }) => {
   switch (def.effect) {
     case "boomtinker:Q": {
       spawnAbilityProjectile(w, {
@@ -653,14 +612,13 @@ const castBoomtinker = ({ amp, c, def, p, rank, w }: CastContext): boolean => {
       );
       return true;
     }
-
     default: {
       return false;
     }
   }
 };
 
-const castBrewkeeper = ({ amp, c, def, p, rank, target, w }: CastContext): boolean => {
+const castBrewkeeper: Caster = ({ w, c, def, rank, p, amp, target }) => {
   switch (def.effect) {
     case "brewkeeper:Q": {
       // heal a same-team non-neutral ally, else self (never heal a neutral)
@@ -755,14 +713,17 @@ const castBrewkeeper = ({ amp, c, def, p, rank, target, w }: CastContext): boole
   }
 };
 
-const HERO_CASTS = new Map<string, (cast: CastContext) => boolean>([
-  ["boomtinker", castBoomtinker],
-  ["brewkeeper", castBrewkeeper],
-  ["duskblade", castDuskblade],
-  ["emberhex", castEmberhex],
-  ["ironvow", castIronvow],
-  ["stormcaller", castStormcaller],
-]);
+// ---- the dispatch ----------------------------------------------------------
+const CASTERS = {
+  boomtinker: castBoomtinker,
+  brewkeeper: castBrewkeeper,
+  duskblade: castDuskblade,
+  emberhex: castEmberhex,
+  ironvow: castIronvow,
+  stormcaller: castStormcaller,
+} satisfies Record<string, Caster>;
+
+const isCasterHero = (id: string): id is keyof typeof CASTERS => Object.hasOwn(CASTERS, id);
 
 const dispatch = (
   w: World,
@@ -772,10 +733,12 @@ const dispatch = (
   p: Vec2,
   target?: Unit,
 ): boolean => {
-  const amp = spellAmp(c);
-  const [hero] = def.effect.split(":");
-  const cast = HERO_CASTS.get(hero ?? "");
-  return cast?.({ amp, c, def, p, rank, target, w }) ?? false;
+  const heroId = def.effect.slice(0, def.effect.indexOf(":"));
+  if (!isCasterHero(heroId)) {
+    return false;
+  }
+  const cast = CASTERS[heroId];
+  return cast({ amp: spellAmp(c), c, def, p, rank, target, w });
 };
 
 /** Attempt to cast. Returns true if the cast went through (mana/cd consumed). */
@@ -841,11 +804,53 @@ export const castAbility = (w: World, caster: Unit, input: CastInput): boolean =
   if (caster.facing !== undefined && point) {
     caster.facing = point.x >= caster.x ? 1 : -1;
   }
-  w.fx.push({ effect: def.effect, t: "cast", team: caster.team, x: caster.x, y: caster.y });
+  w.fx.push({
+    actor: { at: w.now, unitId: caster.id },
+    effect: def.effect,
+    t: "cast",
+    team: caster.team,
+    x: caster.x,
+    y: caster.y,
+  });
   return true;
 };
 
-// ---- per-tick processing ---------------------------------------------------
+// ---- channels --------------------------------------------------------------
+interface ChannelBundle {
+  radius: number;
+  enemyDps?: number;
+  dtype?: DamageType;
+  slowPct?: number;
+  allyHealPerTick?: number;
+  allyManaPerTick?: number;
+  cleanse?: boolean;
+}
+
+export const breakChannel = (w: World, u: Unit): void => {
+  if (!u.hero?.channel) {
+    return;
+  }
+  const eff = u.hero.channel.effect;
+  u.hero.channel = null;
+  w.groundEffects = w.groundEffects.filter(
+    (g) => !(g.ownerId === u.id && g.effect === eff && g.channel),
+  );
+};
+
+// ---- ground effects --------------------------------------------------------
+interface GroundOpts {
+  radius: number;
+  until: number;
+  enemyDps?: number;
+  dtype?: DamageType;
+  slowPct?: number;
+  allyHealPerTick?: number;
+  allyManaPerTick?: number;
+  cleanse?: boolean;
+  followOwner?: boolean;
+  channel?: boolean;
+  detonate?: { dmg: number; amp: number; burnDps: number; burnDur: number };
+}
 
 /** Apply always-on passive abilities (Banner aura, Bloodthirst). */
 const tickPassives = (w: World, dt: number): void => {
@@ -1025,6 +1030,8 @@ const tickChannels = (w: World): void => {
     }
   }
 };
+
+// ---- per-tick processing ---------------------------------------------------
 export const tickAbilities = (w: World, dt: number): void => {
   tickPassives(w, dt);
   tickStatusDots(w);
@@ -1079,8 +1086,6 @@ export const activateItem = (w: World, u: Unit, itemId: string, point?: Vec2): b
   return true;
 };
 
-// ---- leveling --------------------------------------------------------------
-
 export const levelAbility = (u: Unit, key: AbilityKey): boolean => {
   const h = u.hero;
   if (!h || h.abilityPoints <= 0) {
@@ -1100,6 +1105,7 @@ export const levelAbility = (u: Unit, key: AbilityKey): boolean => {
   return true;
 };
 
+// ---- leveling --------------------------------------------------------------
 /** Spend all pending ability points: take the ultimate ASAP, then max Q>W>E. */
 export const autoLevel = (w: World, u: Unit): void => {
   if (!u.hero) {

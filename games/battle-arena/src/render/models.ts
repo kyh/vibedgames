@@ -1,4 +1,4 @@
-// GLB model library + animated-character wrapper.
+// GLB model library; the per-instance clip binding lives in animated-character.ts.
 //
 // KayKit ships character meshes with ZERO embedded clips; the whole animation
 // library lives in separate Mannequin GLBs that share the SAME 23-joint

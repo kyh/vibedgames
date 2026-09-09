@@ -5,7 +5,7 @@
 // first user gesture.
 
 import { music } from "./music";
-import { initialSoundOn } from "./sound-pref";
+import { isSoundOn, rememberSound } from "./sound-pref";
 
 const SAMPLE_RATE = 44_100;
 /** Per-play pitch jitter: rate = 0.94 + rand·0.12 (±6%). */
@@ -37,6 +37,13 @@ export interface PlayOpts {
   rate?: number;
 }
 
+// ---- synth engine (pure) --------------------------------------------------------
+
+interface Recipe {
+  durMs: number;
+  render: (t: number, dur: number, rng: () => number) => number;
+}
+
 const clampSample = (v: number): number => (v > 1 ? 1 : Math.max(-1, v));
 const makeNoise = (): (() => number) => () => Math.random() * 2 - 1;
 const renderBuffer = (ctx: AudioContext, recipe: Recipe): AudioBuffer => {
@@ -50,12 +57,6 @@ const renderBuffer = (ctx: AudioContext, recipe: Recipe): AudioBuffer => {
   }
   return buffer;
 };
-// ---- synth engine (pure) --------------------------------------------------------
-
-interface Recipe {
-  durMs: number;
-  render: (t: number, dur: number, rng: () => number) => number;
-}
 
 const TAU = Math.PI * 2;
 
@@ -182,8 +183,7 @@ export class Sfx {
   /** Routine sfx route through this (duckable); `caught` bypasses it. */
   private duckBus: GainNode | null = null;
   private buffers = new Map<SfxName, AudioBuffer>();
-  /** Muted just zeroes the master gain — unlock/playback plumbing still runs. */
-  private enabled = initialSoundOn();
+  private paused = false;
 
   unlock(): void {
     if (this.ctx) {
@@ -195,20 +195,20 @@ export class Sfx {
     const ctx = new AudioContext();
     this.ctx = ctx;
     this.master = ctx.createGain();
-    this.master.gain.value = this.enabled ? MASTER_GAIN : 0;
     this.master.connect(ctx.destination);
     this.duckBus = ctx.createGain();
     this.duckBus.connect(this.master);
     for (const name of SFX_NAMES) {
       this.buffers.set(name, renderBuffer(ctx, RECIPES[name]));
     }
+    this.sync();
   }
 
   play(name: SfxName, opts: PlayOpts = {}): void {
     const { ctx } = this;
     const { duckBus } = this;
     const { master } = this;
-    if (!ctx || !duckBus || !master || ctx.state !== "running") {
+    if (!ctx || !duckBus || !master || ctx.state !== "running" || this.paused || !isSoundOn()) {
       return;
     }
     const buffer = this.buffers.get(name);
@@ -233,11 +233,15 @@ export class Sfx {
     }
   }
 
-  /** Follows the M toggle (Music.toggle persists the shared preference). */
-  setEnabled(on: boolean): void {
-    this.enabled = on;
+  setPaused(paused: boolean): void {
+    this.paused = paused;
+    this.sync();
+  }
+
+  /** Muted/paused just zeroes the master gain — unlock/playback plumbing still runs. */
+  sync(): void {
     if (this.master) {
-      this.master.gain.value = on ? MASTER_GAIN : 0;
+      this.master.gain.value = isSoundOn() && !this.paused ? MASTER_GAIN : 0;
     }
   }
 
@@ -269,4 +273,18 @@ const BGM_URL = "audio/bgm.m4a";
 export const unlockAudio = (): void => {
   sfx.unlock();
   music.start(BGM_URL);
+};
+
+export const setAudioPaused = (paused: boolean): void => {
+  sfx.setPaused(paused);
+  music.setPaused(paused);
+};
+
+/** M key / touch speaker — one toggle for music + sfx, persisted. Returns the new state. */
+export const toggleSound = (): boolean => {
+  const on = !isSoundOn();
+  rememberSound(on);
+  sfx.sync();
+  music.sync();
+  return on;
 };

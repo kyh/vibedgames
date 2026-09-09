@@ -29,62 +29,6 @@ import { applyHeroLevel } from "./herokit";
 import type { Projectile, ProjectileHit, Unit, World } from "./types";
 import { nextId, rand } from "./types";
 
-// ---- structures ------------------------------------------------------------
-const onStructureDown = (w: World, victim: Unit, killer: Unit | null): void => {
-  const st = victim.structure;
-  if (!st) {
-    return;
-  }
-  const def = STRUCTS[st.tier];
-  w.fx.push({ t: "structureDown", team: victim.team, tier: st.tier, x: victim.x, y: victim.y });
-  // gold: local to killer + team gold to all living allies
-  if (killer && killer.hero && killer.team !== victim.team) {
-    killer.hero.gold += def.bountyLocal;
-  }
-  const winnerTeam = enemyOf(victim.team);
-  for (const u of w.units.values()) {
-    if (u.kind === "hero" && u.hero && u.team === winnerTeam) {
-      u.hero.gold += def.bountyTeam;
-    }
-  }
-  if (st.tier === "ancient") {
-    w.phase = "ended";
-    w.winner = winnerTeam;
-  }
-};
-
-const laneCode = (lane: string): string => (lane === "bottom" ? "bot" : lane);
-
-/**
- * Recompute which structures are attackable. Lane: t2 after t1. Base towers
- * after any lane t2 of that team falls. Ancient after both base towers fall.
- */
-export const updateStructureGating = (w: World): void => {
-  const aliveStruct = (id: string): boolean => {
-    const u = w.units.get(id);
-    return !!u && u.alive;
-  };
-  for (const u of w.units.values()) {
-    if (u.kind !== "structure" || !u.structure) {
-      continue;
-    }
-    const st = u.structure;
-    const { team } = u;
-    const prefix = team === "radiant" ? "r" : "d";
-    if (st.tier === "t1") {
-      st.attackable = true;
-    } else if (st.tier === "t2") {
-      const lane = laneCode(st.lane);
-      st.attackable = !aliveStruct(`${prefix}-${lane}-t1`);
-    } else if (st.tier === "base") {
-      // attackable once any lane t2 of this team is dead
-      st.attackable = !aliveStruct(`${prefix}-top-t2`) || !aliveStruct(`${prefix}-bot-t2`);
-    } else if (st.tier === "ancient") {
-      st.attackable = !aliveStruct(`${prefix}-base-1`) && !aliveStruct(`${prefix}-base-2`);
-    }
-  }
-};
-
 export const isEnemy = (a: Unit, b: Unit): boolean => {
   // Neutrals (jungle/Roshan) are hostile to both teams and allied to each other.
   if (a.neutral || b.neutral) {
@@ -109,18 +53,20 @@ export const targetable = (v: Unit, opts: { allowStructure?: boolean } = {}): bo
   return true;
 };
 
-/** Whether `t` is winding up or ordered onto an allied hero standing in range. */
-const threatensAllyHero = (w: World, u: Unit, t: Unit, range: number): boolean => {
+/** Is enemy hero `t` attacking one of `u`'s allied heroes within `range` of `u`? */
+const attacksAlliedHeroInRange = (w: World, u: Unit, t: Unit, range: number): boolean => {
   const victimId =
     t.pendingAttack?.targetId ?? (t.order.type === "attackUnit" ? t.order.targetId : null);
   if (!victimId) {
     return false;
   }
   const victim = w.units.get(victimId);
-  if (!victim) {
-    return false;
-  }
-  return victim.kind === "hero" && victim.team === u.team && dist(u, victim) <= range;
+  return (
+    victim !== undefined &&
+    victim.kind === "hero" &&
+    victim.team === u.team &&
+    dist(u, victim) <= range
+  );
 };
 
 /**
@@ -154,7 +100,7 @@ const acquireForStructure = (w: World, u: Unit, range: number): Unit | null => {
         heroD = d2;
         hero = t;
       }
-      if (threatensAllyHero(w, u, t, range)) {
+      if (attacksAlliedHeroInRange(w, u, t, range)) {
         priorityHero = t;
       }
     }
@@ -230,6 +176,14 @@ const attackSpeedVsTarget = (u: Unit, target: Unit): number => {
   return bonus;
 };
 
+/** Wind-up (ms) before the swing/projectile resolves. */
+const attackWindup = (u: Unit): number => {
+  if (u.kind === "structure") {
+    return 80;
+  }
+  return u.projectileSpeed > 0 ? 180 : 230;
+};
+
 /** Begin a wind-up attack if off cooldown and a target is in range. */
 export const tryAttack = (w: World, u: Unit, target: Unit): void => {
   if (u.pendingAttack) {
@@ -243,14 +197,61 @@ export const tryAttack = (w: World, u: Unit, target: Unit): void => {
   // face the target
   u.facing = target.x >= u.x ? 1 : -1;
   // wind-up: damage/projectile lands partway through the swing
-  let windup = 230;
-  if (u.kind === "structure") {
-    windup = 80;
-  } else if (u.projectileSpeed > 0) {
-    windup = 180;
-  }
+  const windup = attackWindup(u);
   u.pendingAttack = { resolveAt: w.now + windup, targetId: target.id };
 };
+
+/** Boomtinker E (Powder Keg): passive % bonus damage to structures while ranked. */
+const boomtinkerBuildingBonus = (u: Unit, target: Unit): number => {
+  if (target.kind !== "structure" || u.hero?.defId !== "boomtinker") {
+    return 0;
+  }
+  const { rank } = u.hero.abilities.E;
+  if (rank <= 0) {
+    return 0;
+  }
+  const def = HERO_BY_ID["boomtinker"]?.abilities.E;
+  return def ? valAt(def.values["passiveBuildingPct"], rank) : 0;
+};
+
+const attackProjectileKind = (u: Unit): Projectile["kind"] => {
+  if (u.kind === "structure") {
+    return "tower";
+  }
+  if (u.hero?.defId === "stormcaller" || u.creep?.ckind === "ranged") {
+    return "arrow";
+  }
+  return "bolt";
+};
+
+const spawnAttackProjectile = (w: World, u: Unit, target: Unit, dmg: number): void => {
+  const kind = attackProjectileKind(u);
+  // Stormcaller Windfoot: while the speed buff is up, auto-attacks apply a slow.
+  const windfoot = u.statuses.some((s) => s.kind === "speed" && s.id === "stormcaller:E:ms");
+  const onHit: ProjectileHit = windfoot
+    ? { duration: 0.8, pct: 0.12, tag: "slow" }
+    : { tag: "none" };
+  const p: Projectile = {
+    damage: dmg,
+    dtype: "physical",
+    id: nextId(w, "p"),
+    kind,
+    onHit,
+    ownerId: u.id,
+    radius: 0,
+    speed: u.projectileSpeed,
+    targetId: target.id,
+    team: u.team,
+    tx: target.x,
+    ty: target.y,
+    x: u.x,
+    y: u.y - 20,
+  };
+  w.projectiles.set(p.id, p);
+};
+
+const heroName = (u: Unit): string =>
+  u.hero ? (HERO_BY_ID[u.hero.defId]?.name ?? u.hero.defId) : u.id;
 
 const nearbyEnemyHeroes = (w: World, victim: Unit, radius: number): Unit[] => {
   const out: Unit[] = [];
@@ -265,9 +266,6 @@ const nearbyEnemyHeroes = (w: World, victim: Unit, radius: number): Unit[] => {
   }
   return out;
 };
-
-const heroName = (u: Unit): string =>
-  u.hero ? (HERO_BY_ID[u.hero.defId]?.name ?? u.hero.defId) : u.id;
 
 export const grantXp = (w: World, hero: Unit, xp: number): void => {
   if (!hero.hero) {
@@ -336,9 +334,9 @@ const awardHeroKill = (w: World, victim: Unit, killer: Unit | null): void => {
   const streakBonus =
     streak >= 1 ? Math.min(ECON.streakBonusCap, ECON.streakBonusPerKill * streak) : 0;
   let bounty = ECON.heroKillBaseBounty + ECON.heroKillPerLevel * vh.level + streakBonus;
+  // shutting down a streak
   if (streak >= 3 && killer) {
     bounty += ECON.shutdownBonus;
-    // shutting down a streak
   }
 
   // assist credit: enemy heroes who damaged victim in last 15s
@@ -390,6 +388,30 @@ const awardHeroKill = (w: World, victim: Unit, killer: Unit | null): void => {
     }
   }
   vh.recentDamageFrom = {};
+};
+
+// ---- structures ------------------------------------------------------------
+const onStructureDown = (w: World, victim: Unit, killer: Unit | null): void => {
+  const st = victim.structure;
+  if (!st) {
+    return;
+  }
+  const def = STRUCTS[st.tier];
+  w.fx.push({ t: "structureDown", team: victim.team, tier: st.tier, x: victim.x, y: victim.y });
+  // gold: local to killer + team gold to all living allies
+  if (killer && killer.hero && killer.team !== victim.team) {
+    killer.hero.gold += def.bountyLocal;
+  }
+  const winnerTeam = enemyOf(victim.team);
+  for (const u of w.units.values()) {
+    if (u.kind === "hero" && u.hero && u.team === winnerTeam) {
+      u.hero.gold += def.bountyTeam;
+    }
+  }
+  if (st.tier === "ancient") {
+    w.phase = "ended";
+    w.winner = winnerTeam;
+  }
 };
 
 const handleDeath = (w: World, victim: Unit, killer: Unit | null): void => {
@@ -445,7 +467,8 @@ const handleDeath = (w: World, victim: Unit, killer: Unit | null): void => {
   }
 };
 
-/** Pre-mitigation multipliers: structure bonus, creep siege damage, siege resilience. */
+/** The central damage pipeline. attacker may be null (environment/DoT owner gone). */
+/** Pre-mitigation multipliers: item/ability structure bonus, creep-class vs structure, siege armour vs units. */
 const scaleRawDamage = (
   attacker: Unit | null,
   victim: Unit,
@@ -472,10 +495,8 @@ const scaleRawDamage = (
   return amount;
 };
 
-const applyLifesteal = (attacker: Unit | null, leftover: number, opts: DamageOpts): void => {
-  if (!attacker || !attacker.hero || !opts.isAttack) {
-    return;
-  }
+/** Lifesteal on attacks: heal the attacking hero by a share of damage that got through. */
+const applyLifesteal = (attacker: Unit, leftover: number, opts: DamageOpts): void => {
   const ls = opts.noLifesteal ? 0 : lifestealPct(attacker);
   if (ls > 0 && leftover > 0) {
     attacker.hp = Math.min(attacker.maxHp, attacker.hp + leftover * ls);
@@ -490,9 +511,6 @@ const pushHitFx = (
   dtype: DamageType,
   opts: DamageOpts,
 ): void => {
-  if (leftover <= 0) {
-    return;
-  }
   // knockback/spray direction: away from the attacker (fallback: straight up)
   let nx = 0;
   let ny = -1;
@@ -507,6 +525,7 @@ const pushHitFx = (
   }
   w.fx.push({
     amount: Math.round(leftover),
+    attackerHero: attacker?.hero?.defId,
     crit: opts.crit,
     dtype,
     isAttack: opts.isAttack,
@@ -519,7 +538,6 @@ const pushHitFx = (
   });
 };
 
-/** The central damage pipeline. attacker may be null (environment/DoT owner gone). */
 export const dealDamage = (
   w: World,
   attacker: Unit | null,
@@ -554,8 +572,13 @@ export const dealDamage = (
   if (attacker && victim.hero) {
     victim.hero.recentDamageFrom[attacker.id] = w.now;
   }
-  applyLifesteal(attacker, leftover, opts);
-  pushHitFx(w, attacker, victim, leftover, dtype, opts);
+  if (attacker && attacker.hero && opts.isAttack) {
+    applyLifesteal(attacker, leftover, opts);
+  }
+
+  if (leftover > 0) {
+    pushHitFx(w, attacker, victim, leftover, dtype, opts);
+  }
 
   if (victim.hp <= 0) {
     handleDeath(w, victim, attacker);
@@ -580,55 +603,6 @@ const applySplash = (w: World, u: Unit, target: Unit, dmg: number): void => {
   if (sp.left <= 0) {
     u.statuses = u.statuses.filter((s) => s !== sp);
   }
-};
-
-/** Boomtinker E (Powder Keg): passive % bonus damage to structures while ranked. */
-const boomtinkerBuildingBonus = (u: Unit, target: Unit): number => {
-  if (target.kind !== "structure" || u.hero?.defId !== "boomtinker") {
-    return 0;
-  }
-  const { rank } = u.hero.abilities.E;
-  if (rank <= 0) {
-    return 0;
-  }
-  const def = HERO_BY_ID["boomtinker"]?.abilities.E;
-  return def ? valAt(def.values["passiveBuildingPct"], rank) : 0;
-};
-
-const attackProjectileKind = (u: Unit): Projectile["kind"] => {
-  if (u.kind === "structure") {
-    return "tower";
-  }
-  if (u.hero?.defId === "stormcaller" || u.creep?.ckind === "ranged") {
-    return "arrow";
-  }
-  return "bolt";
-};
-
-const spawnAttackProjectile = (w: World, u: Unit, target: Unit, dmg: number): void => {
-  const kind = attackProjectileKind(u);
-  // Stormcaller Windfoot: while the speed buff is up, auto-attacks apply a slow.
-  const windfoot = u.statuses.some((s) => s.kind === "speed" && s.id === "stormcaller:E:ms");
-  const onHit: ProjectileHit = windfoot
-    ? { duration: 0.8, pct: 0.12, tag: "slow" }
-    : { tag: "none" };
-  const p: Projectile = {
-    damage: dmg,
-    dtype: "physical",
-    id: nextId(w, "p"),
-    kind,
-    onHit,
-    ownerId: u.id,
-    radius: 0,
-    speed: u.projectileSpeed,
-    targetId: target.id,
-    team: u.team,
-    tx: target.x,
-    ty: target.y,
-    x: u.x,
-    y: u.y - 20,
-  };
-  w.projectiles.set(p.id, p);
 };
 
 /** Resolve any wind-ups whose timer elapsed: melee hit or projectile launch. */
@@ -795,3 +769,35 @@ export interface DamageOpts {
   noLifesteal?: boolean;
   structureBonusPct?: number;
 }
+
+const laneCode = (lane: string): string => (lane === "bottom" ? "bot" : lane);
+
+/**
+ * Recompute which structures are attackable. Lane: t2 after t1. Base towers
+ * after any lane t2 of that team falls. Ancient after both base towers fall.
+ */
+export const updateStructureGating = (w: World): void => {
+  const aliveStruct = (id: string): boolean => {
+    const u = w.units.get(id);
+    return !!u && u.alive;
+  };
+  for (const u of w.units.values()) {
+    if (u.kind !== "structure" || !u.structure) {
+      continue;
+    }
+    const st = u.structure;
+    const { team } = u;
+    const prefix = team === "radiant" ? "r" : "d";
+    if (st.tier === "t1") {
+      st.attackable = true;
+    } else if (st.tier === "t2") {
+      const lane = laneCode(st.lane);
+      st.attackable = !aliveStruct(`${prefix}-${lane}-t1`);
+    } else if (st.tier === "base") {
+      // attackable once any lane t2 of this team is dead
+      st.attackable = !aliveStruct(`${prefix}-top-t2`) || !aliveStruct(`${prefix}-bot-t2`);
+    } else if (st.tier === "ancient") {
+      st.attackable = !aliveStruct(`${prefix}-base-1`) && !aliveStruct(`${prefix}-base-2`);
+    }
+  }
+};

@@ -260,6 +260,11 @@ export class Engine {
 
   // ---- read models for rendering ----------------------------------------------
 
+  /** Whether this piece has spent its one hold; a fresh spawn re-arms it. */
+  get holdSpent(): boolean {
+    return this.holdUsed;
+  }
+
   activeCells(): Cell[] {
     return this.active?.cells() ?? [];
   }

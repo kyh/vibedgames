@@ -81,8 +81,40 @@ const startHover = (u: Unit, w: World, ms: number): void => {
   u.dashUntil = w.now + ms;
 };
 
+/** Schedule this ability's damage for `delayMs` from now — the moment its
+ *  animation connects. The shape re-tests at resolve, so it's dodgeable. */
+const scheduleStrike = (
+  w: World,
+  c: Unit,
+  key: AbilityKey,
+  delayMs: number,
+  dir: { x: number; y: number },
+  point: { x: number; y: number },
+  targetId?: string,
+): void => {
+  const s: PendingStrike = {
+    at: w.now + delayMs,
+    casterId: c.id,
+    dx: dir.x,
+    dy: dir.y,
+    key,
+    ox: c.x,
+    oy: c.y,
+    px: point.x,
+    py: point.y,
+  };
+  if (targetId !== undefined) {
+    s.targetId = targetId;
+  }
+  w.strikes.push(s);
+};
+
 // horizontal dash speed of a jump-attack leap
 const JUMP_LEAP_SPEED = 20;
+
+const pushGround = (w: World, g: Omit<GroundEffect, "id">): void => {
+  w.grounds.push({ ...g, id: nextId(w, "g") });
+};
 
 /** Abilities hit anything fightable — heroes, camp creeps, AND destructible
  *  props (the boss is handled separately and stays out of reach). Status
@@ -130,10 +162,6 @@ const aoeEnemies = (w: World, team: string, x: number, y: number, radius: number
     }
   }
   return out;
-};
-
-const pushGround = (w: World, g: Omit<GroundEffect, "id">): void => {
-  w.grounds.push({ ...g, id: nextId(w, "g") });
 };
 
 /** Enemies covered by an INSTANT shape (cone/corridor/self/at) anchored at
@@ -199,51 +227,591 @@ const abilityTargets = (
   return region ? targetsInRegion(w, c, region, ox, oy, dir, point) : [];
 };
 
-// ── Pending strikes ──────────────────────────────────────────────────────────
-
-/** Schedule this ability's damage for `delayMs` from now — the moment its
- *  animation connects. The shape re-tests at resolve, so it's dodgeable. */
-const scheduleStrike = (
+const dispatchKnight = (
   w: World,
   c: Unit,
+  def: AbilityDef,
   key: AbilityKey,
-  delayMs: number,
   dir: { x: number; y: number },
   point: { x: number; y: number },
-  targetId?: string,
-): void => {
-  const s: PendingStrike = {
-    at: w.now + delayMs,
-    casterId: c.id,
+): boolean => {
+  const r = c.abilities[key].rank;
+  const v = (f: string) => valAt(def.values[f], r);
+  switch (def.effect) {
+    case "knight:Q":
+    case "knight:W": {
+      scheduleStrike(w, c, key, castStrikeMs(c.champId, key), dir, point);
+      return true;
+    }
+    case "knight:E": {
+      addStatus(c, {
+        amount: v("shield"),
+        id: "knight:E",
+        kind: "shield",
+        until: w.now + v("duration") * 1000,
+      });
+      addStatus(c, {
+        id: "knight:E",
+        kind: "speed",
+        pct: v("speed"),
+        until: w.now + v("duration") * 1000,
+      });
+      w.fx.push({ amount: v("shield"), t: "heal", x: c.x, y: c.y });
+      return true;
+    }
+    case "knight:R": {
+      pushGround(w, {
+        dtype: "physical",
+        effect: "whirlwind",
+        // AP applies once, in computeDamage (no double-dip)
+        enemyDps: v("dps"),
+        nextTick: w.now + 250,
+        ownerId: c.id,
+        radius: v("radius"),
+        slowPct: v("slow"),
+        team: c.team,
+        tickInterval: 250,
+        until: w.now + v("duration") * 1000,
+        x: c.x,
+        y: c.y,
+      });
+      return true;
+    }
+
+    default: {
+      return false;
+    }
+  }
+};
+
+const dispatchRanger = (
+  w: World,
+  c: Unit,
+  def: AbilityDef,
+  key: AbilityKey,
+  dir: { x: number; y: number },
+  point: { x: number; y: number },
+): boolean => {
+  const r = c.abilities[key].rank;
+  const v = (f: string) => valAt(def.values[f], r);
+  switch (def.effect) {
+    case "ranger:Q": {
+      scheduleStrike(w, c, key, castStrikeMs(c.champId, key), dir, point);
+      return true;
+    }
+    case "ranger:W": {
+      // Hunter's Focus: self buff — attack + move speed for a few seconds.
+      const dur = v("duration") * 1000;
+      addStatus(c, {
+        amount: v("atkSpeed"),
+        id: "ranger:W",
+        kind: "attackSpeed",
+        until: w.now + dur,
+      });
+      addStatus(c, { id: "ranger:W", kind: "speed", pct: v("moveSpeed"), until: w.now + dur });
+      return true;
+    }
+    case "ranger:E": {
+      pushGround(w, {
+        dtype: "physical",
+        effect: "trap",
+        // applied once on trigger
+        enemyDps: v("damage"),
+        nextTick: w.now,
+        ownerId: c.id,
+        radius: v("radius"),
+        rootMs: v("root") * 1000,
+        team: c.team,
+        telegraph: true,
+        tickInterval: 100,
+        until: w.now + v("life") * 1000,
+        x: point.x,
+        y: point.y,
+      });
+      return true;
+    }
+    case "ranger:R": {
+      pushGround(w, {
+        dtype: "physical",
+        effect: "rain",
+        // AP applies once, in computeDamage (no double-dip)
+        enemyDps: v("dps"),
+        nextTick: w.now + 300,
+        ownerId: c.id,
+        radius: v("radius"),
+        slowPct: v("slow"),
+        team: c.team,
+        telegraph: true,
+        tickInterval: 300,
+        until: w.now + v("duration") * 1000,
+        x: point.x,
+        y: point.y,
+      });
+      return true;
+    }
+
+    default: {
+      return false;
+    }
+  }
+};
+
+const dispatchMage = (
+  w: World,
+  c: Unit,
+  def: AbilityDef,
+  key: AbilityKey,
+  dir: { x: number; y: number },
+  point: { x: number; y: number },
+): boolean => {
+  const r = c.abilities[key].rank;
+  const v = (f: string) => valAt(def.values[f], r);
+  switch (def.effect) {
+    case "mage:Q": {
+      scheduleStrike(w, c, key, castStrikeMs(c.champId, key), dir, point);
+      return true;
+    }
+    case "mage:W": {
+      // Frost Nova: brief arming shimmer at the point, then the ring detonates.
+      pushGround(w, {
+        detonateAt: w.now + NOVA_ARM_MS,
+        // AP applies once, in computeDamage
+        detonateDmg: v("damage"),
+        detonateDtype: "magic",
+        effect: "nova",
+        nextTick: w.now + NOVA_ARM_MS,
+        ownerId: c.id,
+        radius: v("radius"),
+        slowMs: v("slowDur") * 1000,
+        slowPct: v("slow"),
+        team: c.team,
+        telegraph: true,
+        tickInterval: 9999,
+        until: w.now + NOVA_ARM_MS + 200,
+        x: point.x,
+        y: point.y,
+      });
+      return true;
+    }
+    case "mage:E": {
+      // Cinderfall: a persistent ember zone — burns + slows enemies who stand in it.
+      pushGround(w, {
+        dtype: "magic",
+        effect: "cinderfall",
+        // AP applies once, in computeDamage (no double-dip)
+        enemyDps: v("dps"),
+        nextTick: w.now + 500,
+        ownerId: c.id,
+        radius: v("radius"),
+        slowPct: v("slow"),
+        team: c.team,
+        telegraph: false,
+        tickInterval: 500,
+        until: w.now + v("duration") * 1000,
+        x: point.x,
+        y: point.y,
+      });
+      return true;
+    }
+    case "mage:R": {
+      const delay = v("delay") * 1000;
+      pushGround(w, {
+        detonateAt: w.now + delay,
+        // AP applies once, in computeDamage
+        detonateDmg: v("damage"),
+        detonateDtype: "magic",
+        effect: "meteor",
+        nextTick: w.now + delay,
+        ownerId: c.id,
+        radius: v("radius"),
+        slowPct: v("slow"),
+        team: c.team,
+        telegraph: true,
+        tickInterval: 9999,
+        until: w.now + delay + 200,
+        x: point.x,
+        y: point.y,
+      });
+      return true;
+    }
+
+    default: {
+      return false;
+    }
+  }
+};
+
+const dispatchRogue = (
+  w: World,
+  c: Unit,
+  def: AbilityDef,
+  key: AbilityKey,
+  dir: { x: number; y: number },
+  point: { x: number; y: number },
+): boolean => {
+  const r = c.abilities[key].rank;
+  const v = (f: string) => valAt(def.values[f], r);
+  switch (def.effect) {
+    case "rogue:Q": {
+      // lunge NOW; the poison cut lands as the dash completes
+      startDash(c, dir, v("speed"), def.castRange, w);
+      scheduleStrike(w, c, key, (def.castRange / v("speed")) * 1000, dir, point);
+      return true;
+    }
+    case "rogue:W": {
+      scheduleStrike(w, c, key, castStrikeMs(c.champId, key), dir, point);
+      return true;
+    }
+    case "rogue:E": {
+      addStatus(c, { id: "rogue:E", kind: "stealth", until: w.now + v("duration") * 1000 });
+      addStatus(c, {
+        id: "rogue:E",
+        kind: "speed",
+        pct: v("speed"),
+        until: w.now + v("duration") * 1000,
+      });
+      return true;
+    }
+    case "rogue:R": {
+      // dash to nearest enemy in the front arc (abilityRegions cone); the
+      // execute lands on arrival, scaled by their hp THEN — not at cast
+      let target: Unit | null = null;
+      let bestD = Infinity;
+      for (const t of abilityTargets(w, c, def, r, c.x, c.y, dir, point)) {
+        if (isUntargetable(t) || t.kind === "prop") {
+          continue;
+          // never ult a barrel
+        }
+        const d = dist(c, t);
+        if (d < bestD) {
+          bestD = d;
+          target = t;
+        }
+      }
+      if (!target) {
+        return false;
+      }
+      const d = norm(target.x - c.x, target.y - c.y);
+      const stop = Math.max(0.5, dist(c, target) - (c.radius + target.radius));
+      startDash(c, d, v("speed"), stop, w);
+      scheduleStrike(w, c, key, (stop / v("speed")) * 1000, d, point, target.id);
+      return true;
+    }
+
+    default: {
+      return false;
+    }
+  }
+};
+
+const dispatchBlackKnight = (
+  w: World,
+  c: Unit,
+  def: AbilityDef,
+  key: AbilityKey,
+  dir: { x: number; y: number },
+  point: { x: number; y: number },
+): boolean => {
+  const r = c.abilities[key].rank;
+  const v = (f: string) => valAt(def.values[f], r);
+  switch (def.effect) {
+    case "blackknight:Q":
+    case "blackknight:R": {
+      scheduleStrike(w, c, key, castStrikeMs(c.champId, key), dir, point);
+      return true;
+    }
+    case "blackknight:W": {
+      // Consecrating Smite: the pillar falls after a short arming telegraph.
+      pushGround(w, {
+        detonateAt: w.now + SMITE_ARM_MS,
+        detonateDmg: v("damage"),
+        detonateDtype: "physical",
+        effect: "smite",
+        nextTick: w.now + SMITE_ARM_MS,
+        ownerId: c.id,
+        radius: v("radius"),
+        stunMs: v("stun") * 1000,
+        team: c.team,
+        telegraph: true,
+        tickInterval: 9999,
+        until: w.now + SMITE_ARM_MS + 200,
+        x: point.x,
+        y: point.y,
+      });
+      return true;
+    }
+    case "blackknight:E": {
+      const dur = v("duration") * 1000;
+      addStatus(c, { amount: v("armor"), id: "blackknight:E", kind: "armor", until: w.now + dur });
+      addStatus(c, {
+        hps: v("hps"),
+        id: "blackknight:E",
+        kind: "heal",
+        nextTick: w.now + 500,
+        until: w.now + dur,
+      });
+      w.fx.push({ amount: v("hps"), t: "heal", x: c.x, y: c.y });
+      return true;
+    }
+
+    default: {
+      return false;
+    }
+  }
+};
+
+const dispatchWitch = (
+  w: World,
+  c: Unit,
+  def: AbilityDef,
+  key: AbilityKey,
+  dir: { x: number; y: number },
+  point: { x: number; y: number },
+): boolean => {
+  const r = c.abilities[key].rank;
+  const v = (f: string) => valAt(def.values[f], r);
+  switch (def.effect) {
+    case "witch:Q": {
+      scheduleStrike(w, c, key, castStrikeMs(c.champId, key), dir, point);
+      return true;
+    }
+    case "witch:W": {
+      pushGround(w, {
+        dtype: "magic",
+        effect: "brew",
+        // AP applies once, in computeDamage (no double-dip)
+        enemyDps: v("dps"),
+        nextTick: w.now + 300,
+        ownerId: c.id,
+        radius: v("radius"),
+        // refreshed per tick with id "brew" (= effect tag)
+        slowPct: v("slow"),
+        team: c.team,
+        telegraph: true,
+        tickInterval: 300,
+        until: w.now + v("duration") * 1000,
+        x: point.x,
+        y: point.y,
+      });
+      return true;
+    }
+    case "witch:E": {
+      // Bog Grasp: vines gather, then erupt — damage + root.
+      pushGround(w, {
+        detonateAt: w.now + VINES_ARM_MS,
+        detonateDmg: v("damage"),
+        detonateDtype: "magic",
+        effect: "vines",
+        nextTick: w.now + VINES_ARM_MS,
+        ownerId: c.id,
+        radius: v("radius"),
+        rootMs: v("root") * 1000,
+        team: c.team,
+        telegraph: true,
+        tickInterval: 9999,
+        until: w.now + VINES_ARM_MS + 200,
+        x: point.x,
+        y: point.y,
+      });
+      return true;
+    }
+    case "witch:R": {
+      // Grand Hex: the ring seals after a beat — everyone caught mushrooms.
+      pushGround(w, {
+        detonateAt: w.now + HEXRING_ARM_MS,
+        detonateDmg: 0,
+        effect: "hexring",
+        hexMs: v("duration") * 1000,
+        nextTick: w.now + HEXRING_ARM_MS,
+        ownerId: c.id,
+        radius: v("radius"),
+        // hex status carries the move-slow while shroomed
+        slowPct: v("slow"),
+        team: c.team,
+        telegraph: true,
+        tickInterval: 9999,
+        until: w.now + HEXRING_ARM_MS + 200,
+        x: point.x,
+        y: point.y,
+      });
+      return true;
+    }
+    default: {
+      return false;
+    }
+  }
+};
+
+const dispatchEffect = (
+  w: World,
+  c: Unit,
+  def: AbilityDef,
+  key: AbilityKey,
+  dir: { x: number; y: number },
+  point: { x: number; y: number },
+): boolean => {
+  const [champ] = def.effect.split(":");
+  switch (champ) {
+    case "knight": {
+      return dispatchKnight(w, c, def, key, dir, point);
+    }
+    case "ranger": {
+      return dispatchRanger(w, c, def, key, dir, point);
+    }
+    case "mage": {
+      return dispatchMage(w, c, def, key, dir, point);
+    }
+    case "rogue": {
+      return dispatchRogue(w, c, def, key, dir, point);
+    }
+    case "blackknight": {
+      return dispatchBlackKnight(w, c, def, key, dir, point);
+    }
+    case "witch": {
+      return dispatchWitch(w, c, def, key, dir, point);
+    }
+    default: {
+      return false;
+    }
+  }
+};
+
+// ── Dispatch (cast-time half) ────────────────────────────────────────────────
+const dispatch = (
+  w: World,
+  c: Unit,
+  def: AbilityDef,
+  key: AbilityKey,
+  dir: { x: number; y: number },
+  point: { x: number; y: number },
+): boolean => {
+  const r = c.abilities[key].rank;
+  const v = (f: string) => valAt(def.values[f], r);
+
+  // Every DASH is the same move (mage's is a blink — `range` instead of
+  // `speed`); every JUMP is a leap whose slam resolves on landing.
+  if (key === "DASH") {
+    if (def.values["speed"]) {
+      startDash(c, dir, v("speed"), def.castRange, w);
+    } else {
+      const range = v("range");
+      const dest = clampToArena(c.x + dir.x * range, c.y + dir.y * range, c.radius);
+      const safe = resolveObstacles(dest.x, dest.y, c.radius);
+      w.fx.push({ t: "blink", tx: safe.x, ty: safe.y, x: c.x, y: c.y });
+      c.x = safe.x;
+      c.y = safe.y;
+    }
+    addStatus(c, { id: "dash", kind: "untargetable", until: w.now + v("iframe") * 1000 });
+    return true;
+  }
+  if (key === "JUMP") {
+    // An AERIAL jump (`air`) doesn't travel: you spring straight up, hang, and
+    // fire from the apex. You're pinned (a zero-speed dash = a hover) and
+    // untargetable for the whole window — the trade is commitment for immunity.
+    if (def.values["air"]) {
+      const airMs = v("air") * 1000;
+      startHover(c, w, airMs);
+      c.jumpUntil = w.now + airMs;
+      addStatus(c, { id: "jump", kind: "untargetable", until: w.now + v("iframe") * 1000 });
+      // fires at the apex
+      scheduleStrike(w, c, key, airMs * 0.45, dir, { x: c.x, y: c.y });
+      return true;
+    }
+    // otherwise: leap toward the aim; the slam damage is a PendingStrike at touchdown
+    startDash(c, dir, JUMP_LEAP_SPEED, def.castRange, w);
+    const leapMs = Math.max(JUMP_DIVE_MS, (def.castRange / JUMP_LEAP_SPEED) * 1000);
+    c.jumpUntil = w.now + leapMs;
+    const land = { x: c.x + dir.x * def.castRange, y: c.y + dir.y * def.castRange };
+    scheduleStrike(w, c, key, leapMs, dir, land);
+    return true;
+  }
+
+  return dispatchEffect(w, c, def, key, dir, point);
+};
+
+/** Try to cast caster's ability `key`. Returns true on success (host-side). */
+export const castAbility = (w: World, caster: Unit, key: AbilityKey, ctx: CastCtx): boolean => {
+  if (!caster.alive || caster.kind !== "hero") {
+    return false;
+  }
+  const def = CHAMP_BY_ID[caster.champId]?.abilities[key];
+  if (!def) {
+    return false;
+  }
+  const slot = caster.abilities[key];
+  if (slot.rank < 1) {
+    return false;
+  }
+  if (isSilenced(caster)) {
+    return false;
+  }
+  if (w.now < slot.readyAt) {
+    return false;
+    // cooldown is the only gate (no mana)
+  }
+
+  // resolve aim
+  let dir = ctx.dir ?? { x: caster.aimX, y: caster.aimY };
+  const dn = norm(dir.x, dir.y);
+  dir = dn.x === 0 && dn.y === 0 ? { x: Math.cos(caster.facing), y: Math.sin(caster.facing) } : dn;
+  let point = ctx.point ?? {
+    x: caster.x + dir.x * def.castRange,
+    y: caster.y + dir.y * def.castRange,
+  };
+  if (def.targeting === "ground") {
+    point = clampCastRange(caster, point, def.castRange);
+  }
+
+  const ok = dispatch(w, caster, def, key, dir, point);
+  if (!ok) {
+    return false;
+  }
+
+  slot.readyAt = w.now + valAt(def.cooldown, slot.rank) * 1000;
+  caster.facing = angleOf(dir.x, dir.y);
+  caster.lastCastAt = w.now;
+  caster.lastCastKey = key;
+  w.fx.push({
+    champId: caster.champId,
     dx: dir.x,
     dy: dir.y,
     key,
-    ox: c.x,
-    oy: c.y,
-    px: point.x,
-    py: point.y,
-  };
-  if (targetId !== undefined) {
-    s.targetId = targetId;
-  }
-  w.strikes.push(s);
+    t: "cast",
+    unitId: caster.id,
+    x: caster.x,
+    y: caster.y,
+  });
+  return true;
 };
 
-/** Direction + travel distance from the caster's CURRENT position to the
- *  strike's captured aim point — aim-point projectiles (fireball/hexbolt)
- *  detonate where the player aimed, not at a fixed max range. */
-const aimAtPoint = (c: Unit, s: PendingStrike, castRange: number) => {
-  const dx = s.px - c.x;
-  const dy = s.py - c.y;
-  // spawnProjectile offsets the muzzle
-  const d = Math.hypot(dx, dy) - (c.radius + 0.3);
-  if (d < 0.5) {
-    return { range: 1, x: s.dx, y: s.dy };
-    // point-blank — keep the cast aim
+/** Cast now, or buffer the press if it's *almost* legal (cooldown tail, mid-
+ *  dash, stunned). The queue drains in step() — host-side, so guests get the
+ *  same forgiveness. Returns true only when the cast fired immediately. */
+export const requestCast = (w: World, u: Unit, key: AbilityKey, ctx: CastCtx): boolean => {
+  if (castAbility(w, u, key, ctx)) {
+    u.queuedCast = null;
+    return true;
   }
-  const n = Math.hypot(dx, dy);
-  return { range: Math.max(1, Math.min(castRange, d)), x: dx / n, y: dy / n };
+  const slot = u.abilities[key];
+  const soon =
+    slot.rank >= 1 &&
+    (slot.readyAt - w.now <= CAST_BUFFER_LEAD ||
+      w.now < u.dashUntil ||
+      u.statuses.some((s) => s.kind === "stun"));
+  if (soon) {
+    u.queuedCast = {
+      ax: ctx.dir?.x ?? u.aimX,
+      ay: ctx.dir?.y ?? u.aimY,
+      key,
+      px: ctx.point?.x ?? u.x,
+      py: ctx.point?.y ?? u.y,
+      until: w.now + CAST_BUFFER_MS,
+    };
+  }
+  return false;
 };
+
+// ── Pending strikes ──────────────────────────────────────────────────────────
 
 /** Data-driven strike riders from a def's values: stun / slow / burn. Used by
  *  the shared JUMP slam so per-champ flavor stays in champions.ts. */
@@ -272,7 +840,22 @@ const applyValueRiders = (w: World, c: Unit, t: Unit, def: AbilityDef, rank: num
   }
 };
 
-/** JUMP impacts are data-driven, and there are two shapes of them. */
+/** Direction + travel distance from the caster's CURRENT position to the
+ *  strike's captured aim point — aim-point projectiles (fireball/hexbolt)
+ *  detonate where the player aimed, not at a fixed max range. */
+const aimAtPoint = (c: Unit, s: PendingStrike, castRange: number) => {
+  const dx = s.px - c.x;
+  const dy = s.py - c.y;
+  // spawnProjectile offsets the muzzle
+  const d = Math.hypot(dx, dy) - (c.radius + 0.3);
+  if (d < 0.5) {
+    return { range: 1, x: s.dx, y: s.dy };
+    // point-blank — keep the cast aim
+  }
+  const n = Math.hypot(dx, dy);
+  return { range: Math.max(1, Math.min(castRange, d)), x: dx / n, y: dy / n };
+};
+
 const applyJumpStrike = (w: World, c: Unit, s: PendingStrike, def: AbilityDef, r: number): void => {
   const v = (f: string) => valAt(def.values[f], r);
   const ap = c.abilityPower;
@@ -582,6 +1165,7 @@ const applyStrike = (w: World, c: Unit, s: PendingStrike): void => {
     return;
   }
   const r = c.abilities[s.key].rank;
+  // JUMP impacts are data-driven, and there are two shapes of them.
   if (s.key === "JUMP") {
     applyJumpStrike(w, c, s, def, r);
     return;
@@ -609,579 +1193,6 @@ export const resolveStrikes = (w: World): void => {
   w.strikes = keep;
 };
 
-const dispatchKnight = (
-  w: World,
-  c: Unit,
-  def: AbilityDef,
-  key: AbilityKey,
-  dir: { x: number; y: number },
-  point: { x: number; y: number },
-): boolean => {
-  const r = c.abilities[key].rank;
-  const v = (f: string) => valAt(def.values[f], r);
-  switch (def.effect) {
-    case "knight:Q":
-    case "knight:W": {
-      scheduleStrike(w, c, key, castStrikeMs(c.champId, key), dir, point);
-      return true;
-    }
-    case "knight:E": {
-      addStatus(c, {
-        amount: v("shield"),
-        id: "knight:E",
-        kind: "shield",
-        until: w.now + v("duration") * 1000,
-      });
-      addStatus(c, {
-        id: "knight:E",
-        kind: "speed",
-        pct: v("speed"),
-        until: w.now + v("duration") * 1000,
-      });
-      w.fx.push({ amount: v("shield"), t: "heal", x: c.x, y: c.y });
-      return true;
-    }
-    case "knight:R": {
-      pushGround(w, {
-        dtype: "physical",
-        effect: "whirlwind",
-        // AP applies once, in computeDamage (no double-dip)
-        enemyDps: v("dps"),
-        nextTick: w.now + 250,
-        ownerId: c.id,
-        radius: v("radius"),
-        slowPct: v("slow"),
-        team: c.team,
-        tickInterval: 250,
-        until: w.now + v("duration") * 1000,
-        x: c.x,
-        y: c.y,
-      });
-      return true;
-    }
-    // no default
-  }
-  return false;
-};
-
-const dispatchRanger = (
-  w: World,
-  c: Unit,
-  def: AbilityDef,
-  key: AbilityKey,
-  dir: { x: number; y: number },
-  point: { x: number; y: number },
-): boolean => {
-  const r = c.abilities[key].rank;
-  const v = (f: string) => valAt(def.values[f], r);
-  switch (def.effect) {
-    case "ranger:Q": {
-      scheduleStrike(w, c, key, castStrikeMs(c.champId, key), dir, point);
-      return true;
-    }
-    case "ranger:W": {
-      // Hunter's Focus: self buff — attack + move speed for a few seconds.
-      const dur = v("duration") * 1000;
-      addStatus(c, {
-        amount: v("atkSpeed"),
-        id: "ranger:W",
-        kind: "attackSpeed",
-        until: w.now + dur,
-      });
-      addStatus(c, { id: "ranger:W", kind: "speed", pct: v("moveSpeed"), until: w.now + dur });
-      return true;
-    }
-    case "ranger:E": {
-      pushGround(w, {
-        dtype: "physical",
-        effect: "trap",
-        // applied once on trigger
-        enemyDps: v("damage"),
-        nextTick: w.now,
-        ownerId: c.id,
-        radius: v("radius"),
-        rootMs: v("root") * 1000,
-        team: c.team,
-        telegraph: true,
-        tickInterval: 100,
-        until: w.now + v("life") * 1000,
-        x: point.x,
-        y: point.y,
-      });
-      return true;
-    }
-    case "ranger:R": {
-      pushGround(w, {
-        dtype: "physical",
-        effect: "rain",
-        // AP applies once, in computeDamage (no double-dip)
-        enemyDps: v("dps"),
-        nextTick: w.now + 300,
-        ownerId: c.id,
-        radius: v("radius"),
-        slowPct: v("slow"),
-        team: c.team,
-        telegraph: true,
-        tickInterval: 300,
-        until: w.now + v("duration") * 1000,
-        x: point.x,
-        y: point.y,
-      });
-      return true;
-    }
-    // no default
-  }
-  return false;
-};
-
-const dispatchMage = (
-  w: World,
-  c: Unit,
-  def: AbilityDef,
-  key: AbilityKey,
-  dir: { x: number; y: number },
-  point: { x: number; y: number },
-): boolean => {
-  const r = c.abilities[key].rank;
-  const v = (f: string) => valAt(def.values[f], r);
-  switch (def.effect) {
-    case "mage:Q": {
-      scheduleStrike(w, c, key, castStrikeMs(c.champId, key), dir, point);
-      return true;
-    }
-    case "mage:W": {
-      // Frost Nova: brief arming shimmer at the point, then the ring detonates.
-      pushGround(w, {
-        detonateAt: w.now + NOVA_ARM_MS,
-        // AP applies once, in computeDamage
-        detonateDmg: v("damage"),
-        detonateDtype: "magic",
-        effect: "nova",
-        nextTick: w.now + NOVA_ARM_MS,
-        ownerId: c.id,
-        radius: v("radius"),
-        slowMs: v("slowDur") * 1000,
-        slowPct: v("slow"),
-        team: c.team,
-        telegraph: true,
-        tickInterval: 9999,
-        until: w.now + NOVA_ARM_MS + 200,
-        x: point.x,
-        y: point.y,
-      });
-      return true;
-    }
-    case "mage:E": {
-      // Cinderfall: a persistent ember zone — burns + slows enemies who stand in it.
-      pushGround(w, {
-        dtype: "magic",
-        effect: "cinderfall",
-        // AP applies once, in computeDamage (no double-dip)
-        enemyDps: v("dps"),
-        nextTick: w.now + 500,
-        ownerId: c.id,
-        radius: v("radius"),
-        slowPct: v("slow"),
-        team: c.team,
-        telegraph: false,
-        tickInterval: 500,
-        until: w.now + v("duration") * 1000,
-        x: point.x,
-        y: point.y,
-      });
-      return true;
-    }
-    case "mage:R": {
-      const delay = v("delay") * 1000;
-      pushGround(w, {
-        detonateAt: w.now + delay,
-        // AP applies once, in computeDamage
-        detonateDmg: v("damage"),
-        detonateDtype: "magic",
-        effect: "meteor",
-        nextTick: w.now + delay,
-        ownerId: c.id,
-        radius: v("radius"),
-        slowPct: v("slow"),
-        team: c.team,
-        telegraph: true,
-        tickInterval: 9999,
-        until: w.now + delay + 200,
-        x: point.x,
-        y: point.y,
-      });
-      return true;
-    }
-    // no default
-  }
-  return false;
-};
-
-const dispatchRogue = (
-  w: World,
-  c: Unit,
-  def: AbilityDef,
-  key: AbilityKey,
-  dir: { x: number; y: number },
-  point: { x: number; y: number },
-): boolean => {
-  const r = c.abilities[key].rank;
-  const v = (f: string) => valAt(def.values[f], r);
-  switch (def.effect) {
-    case "rogue:Q": {
-      // lunge NOW; the poison cut lands as the dash completes
-      startDash(c, dir, v("speed"), def.castRange, w);
-      scheduleStrike(w, c, key, (def.castRange / v("speed")) * 1000, dir, point);
-      return true;
-    }
-    case "rogue:W": {
-      scheduleStrike(w, c, key, castStrikeMs(c.champId, key), dir, point);
-      return true;
-    }
-    case "rogue:E": {
-      addStatus(c, { id: "rogue:E", kind: "stealth", until: w.now + v("duration") * 1000 });
-      addStatus(c, {
-        id: "rogue:E",
-        kind: "speed",
-        pct: v("speed"),
-        until: w.now + v("duration") * 1000,
-      });
-      return true;
-    }
-    case "rogue:R": {
-      // dash to nearest enemy in the front arc (abilityRegions cone); the
-      // execute lands on arrival, scaled by their hp THEN — not at cast
-      let target: Unit | null = null;
-      let bestD = Infinity;
-      for (const t of abilityTargets(w, c, def, r, c.x, c.y, dir, point)) {
-        if (isUntargetable(t) || t.kind === "prop") {
-          continue;
-          // never ult a barrel
-        }
-        const d = dist(c, t);
-        if (d < bestD) {
-          bestD = d;
-          target = t;
-        }
-      }
-      if (!target) {
-        return false;
-      }
-      const d = norm(target.x - c.x, target.y - c.y);
-      const stop = Math.max(0.5, dist(c, target) - (c.radius + target.radius));
-      startDash(c, d, v("speed"), stop, w);
-      scheduleStrike(w, c, key, (stop / v("speed")) * 1000, d, point, target.id);
-      return true;
-    }
-    // no default
-  }
-  return false;
-};
-
-const dispatchBlackKnight = (
-  w: World,
-  c: Unit,
-  def: AbilityDef,
-  key: AbilityKey,
-  dir: { x: number; y: number },
-  point: { x: number; y: number },
-): boolean => {
-  const r = c.abilities[key].rank;
-  const v = (f: string) => valAt(def.values[f], r);
-  switch (def.effect) {
-    case "blackknight:Q":
-    case "blackknight:R": {
-      scheduleStrike(w, c, key, castStrikeMs(c.champId, key), dir, point);
-      return true;
-    }
-    case "blackknight:W": {
-      // Consecrating Smite: the pillar falls after a short arming telegraph.
-      pushGround(w, {
-        detonateAt: w.now + SMITE_ARM_MS,
-        detonateDmg: v("damage"),
-        detonateDtype: "physical",
-        effect: "smite",
-        nextTick: w.now + SMITE_ARM_MS,
-        ownerId: c.id,
-        radius: v("radius"),
-        stunMs: v("stun") * 1000,
-        team: c.team,
-        telegraph: true,
-        tickInterval: 9999,
-        until: w.now + SMITE_ARM_MS + 200,
-        x: point.x,
-        y: point.y,
-      });
-      return true;
-    }
-    case "blackknight:E": {
-      const dur = v("duration") * 1000;
-      addStatus(c, { amount: v("armor"), id: "blackknight:E", kind: "armor", until: w.now + dur });
-      addStatus(c, {
-        hps: v("hps"),
-        id: "blackknight:E",
-        kind: "heal",
-        nextTick: w.now + 500,
-        until: w.now + dur,
-      });
-      w.fx.push({ amount: v("hps"), t: "heal", x: c.x, y: c.y });
-      return true;
-    }
-    // no default
-  }
-  return false;
-};
-
-const dispatchWitch = (
-  w: World,
-  c: Unit,
-  def: AbilityDef,
-  key: AbilityKey,
-  dir: { x: number; y: number },
-  point: { x: number; y: number },
-): boolean => {
-  const r = c.abilities[key].rank;
-  const v = (f: string) => valAt(def.values[f], r);
-  switch (def.effect) {
-    case "witch:Q": {
-      scheduleStrike(w, c, key, castStrikeMs(c.champId, key), dir, point);
-      return true;
-    }
-    case "witch:W": {
-      pushGround(w, {
-        dtype: "magic",
-        effect: "brew",
-        // AP applies once, in computeDamage (no double-dip)
-        enemyDps: v("dps"),
-        nextTick: w.now + 300,
-        ownerId: c.id,
-        radius: v("radius"),
-        // refreshed per tick with id "brew" (= effect tag)
-        slowPct: v("slow"),
-        team: c.team,
-        telegraph: true,
-        tickInterval: 300,
-        until: w.now + v("duration") * 1000,
-        x: point.x,
-        y: point.y,
-      });
-      return true;
-    }
-    case "witch:E": {
-      // Bog Grasp: vines gather, then erupt — damage + root.
-      pushGround(w, {
-        detonateAt: w.now + VINES_ARM_MS,
-        detonateDmg: v("damage"),
-        detonateDtype: "magic",
-        effect: "vines",
-        nextTick: w.now + VINES_ARM_MS,
-        ownerId: c.id,
-        radius: v("radius"),
-        rootMs: v("root") * 1000,
-        team: c.team,
-        telegraph: true,
-        tickInterval: 9999,
-        until: w.now + VINES_ARM_MS + 200,
-        x: point.x,
-        y: point.y,
-      });
-      return true;
-    }
-    case "witch:R": {
-      // Grand Hex: the ring seals after a beat — everyone caught mushrooms.
-      pushGround(w, {
-        detonateAt: w.now + HEXRING_ARM_MS,
-        detonateDmg: 0,
-        effect: "hexring",
-        hexMs: v("duration") * 1000,
-        nextTick: w.now + HEXRING_ARM_MS,
-        ownerId: c.id,
-        radius: v("radius"),
-        // hex status carries the move-slow while shroomed
-        slowPct: v("slow"),
-        team: c.team,
-        telegraph: true,
-        tickInterval: 9999,
-        until: w.now + HEXRING_ARM_MS + 200,
-        x: point.x,
-        y: point.y,
-      });
-      return true;
-    }
-    // no default
-  }
-  return false;
-};
-
-/** Route a cast to its champion's cast-time handler. */
-const dispatchEffect = (
-  w: World,
-  c: Unit,
-  def: AbilityDef,
-  key: AbilityKey,
-  dir: { x: number; y: number },
-  point: { x: number; y: number },
-): boolean => {
-  const [champ] = def.effect.split(":");
-  switch (champ) {
-    case "knight": {
-      return dispatchKnight(w, c, def, key, dir, point);
-    }
-    case "ranger": {
-      return dispatchRanger(w, c, def, key, dir, point);
-    }
-    case "mage": {
-      return dispatchMage(w, c, def, key, dir, point);
-    }
-    case "rogue": {
-      return dispatchRogue(w, c, def, key, dir, point);
-    }
-    case "blackknight": {
-      return dispatchBlackKnight(w, c, def, key, dir, point);
-    }
-    case "witch": {
-      return dispatchWitch(w, c, def, key, dir, point);
-    }
-    // no default
-  }
-  return false;
-};
-
-// ── Dispatch (cast-time half) ────────────────────────────────────────────────
-const dispatch = (
-  w: World,
-  c: Unit,
-  def: AbilityDef,
-  key: AbilityKey,
-  dir: { x: number; y: number },
-  point: { x: number; y: number },
-): boolean => {
-  const r = c.abilities[key].rank;
-  const v = (f: string) => valAt(def.values[f], r);
-
-  // Every DASH is the same move (mage's is a blink — `range` instead of
-  // `speed`); every JUMP is a leap whose slam resolves on landing.
-  if (key === "DASH") {
-    if (def.values["speed"]) {
-      startDash(c, dir, v("speed"), def.castRange, w);
-    } else {
-      const range = v("range");
-      const dest = clampToArena(c.x + dir.x * range, c.y + dir.y * range, c.radius);
-      const safe = resolveObstacles(dest.x, dest.y, c.radius);
-      w.fx.push({ t: "blink", tx: safe.x, ty: safe.y, x: c.x, y: c.y });
-      c.x = safe.x;
-      c.y = safe.y;
-    }
-    addStatus(c, { id: "dash", kind: "untargetable", until: w.now + v("iframe") * 1000 });
-    return true;
-  }
-  if (key === "JUMP") {
-    // An AERIAL jump (`air`) doesn't travel: you spring straight up, hang, and
-    // fire from the apex. You're pinned (a zero-speed dash = a hover) and
-    // untargetable for the whole window — the trade is commitment for immunity.
-    if (def.values["air"]) {
-      const airMs = v("air") * 1000;
-      startHover(c, w, airMs);
-      c.jumpUntil = w.now + airMs;
-      addStatus(c, { id: "jump", kind: "untargetable", until: w.now + v("iframe") * 1000 });
-      // fires at the apex
-      scheduleStrike(w, c, key, airMs * 0.45, dir, { x: c.x, y: c.y });
-      return true;
-    }
-    // otherwise: leap toward the aim; the slam damage is a PendingStrike at touchdown
-    startDash(c, dir, JUMP_LEAP_SPEED, def.castRange, w);
-    const leapMs = Math.max(JUMP_DIVE_MS, (def.castRange / JUMP_LEAP_SPEED) * 1000);
-    c.jumpUntil = w.now + leapMs;
-    const land = { x: c.x + dir.x * def.castRange, y: c.y + dir.y * def.castRange };
-    scheduleStrike(w, c, key, leapMs, dir, land);
-    return true;
-  }
-
-  return dispatchEffect(w, c, def, key, dir, point);
-};
-
-/** Try to cast caster's ability `key`. Returns true on success (host-side). */
-export const castAbility = (w: World, caster: Unit, key: AbilityKey, ctx: CastCtx): boolean => {
-  if (!caster.alive || caster.kind !== "hero") {
-    return false;
-  }
-  const def = CHAMP_BY_ID[caster.champId]?.abilities[key];
-  if (!def) {
-    return false;
-  }
-  const slot = caster.abilities[key];
-  if (slot.rank < 1) {
-    return false;
-  }
-  if (isSilenced(caster)) {
-    return false;
-  }
-  if (w.now < slot.readyAt) {
-    return false;
-    // cooldown is the only gate (no mana)
-  }
-
-  // resolve aim
-  let dir = ctx.dir ?? { x: caster.aimX, y: caster.aimY };
-  const dn = norm(dir.x, dir.y);
-  dir = dn.x === 0 && dn.y === 0 ? { x: Math.cos(caster.facing), y: Math.sin(caster.facing) } : dn;
-  let point = ctx.point ?? {
-    x: caster.x + dir.x * def.castRange,
-    y: caster.y + dir.y * def.castRange,
-  };
-  if (def.targeting === "ground") {
-    point = clampCastRange(caster, point, def.castRange);
-  }
-
-  const ok = dispatch(w, caster, def, key, dir, point);
-  if (!ok) {
-    return false;
-  }
-
-  slot.readyAt = w.now + valAt(def.cooldown, slot.rank) * 1000;
-  caster.facing = angleOf(dir.x, dir.y);
-  caster.lastCastAt = w.now;
-  caster.lastCastKey = key;
-  w.fx.push({
-    champId: caster.champId,
-    dx: dir.x,
-    dy: dir.y,
-    key,
-    t: "cast",
-    x: caster.x,
-    y: caster.y,
-  });
-  return true;
-};
-
-/** Cast now, or buffer the press if it's *almost* legal (cooldown tail, mid-
- *  dash, stunned). The queue drains in step() — host-side, so guests get the
- *  same forgiveness. Returns true only when the cast fired immediately. */
-export const requestCast = (w: World, u: Unit, key: AbilityKey, ctx: CastCtx): boolean => {
-  if (castAbility(w, u, key, ctx)) {
-    u.queuedCast = null;
-    return true;
-  }
-  const slot = u.abilities[key];
-  const soon =
-    slot.rank >= 1 &&
-    (slot.readyAt - w.now <= CAST_BUFFER_LEAD ||
-      w.now < u.dashUntil ||
-      u.statuses.some((s) => s.kind === "stun"));
-  if (soon) {
-    u.queuedCast = {
-      ax: ctx.dir?.x ?? u.aimX,
-      ay: ctx.dir?.y ?? u.aimY,
-      key,
-      px: ctx.point?.x ?? u.x,
-      py: ctx.point?.y ?? u.y,
-      until: w.now + CAST_BUFFER_MS,
-    };
-  }
-  return false;
-};
-
-/** One armed detonation: the blast, then the riders it carries. */
 const detonateGround = (w: World, g: GroundEffect): void => {
   for (const t of aoeEnemies(w, g.team, g.x, g.y, g.radius)) {
     if (g.detonateDmg) {

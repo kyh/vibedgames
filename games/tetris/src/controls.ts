@@ -3,8 +3,7 @@ import type { ControlEntry, ControlMethod, ControlsManifest } from "@repo/embed"
 
 // Every way to play, one list — the title legend and the pause overlay both
 // render from this (filtered per device / connected pad by @repo/embed).
-// Camera rows stay condensed to the three headline gestures (the same copy
-// the pause overlay always used); the collapse banner still teaches hands-up.
+// Camera rows include every existing gesture; titleSubText keeps two headlines.
 export const CONTROLS: ControlsManifest = [
   { action: "move", input: "←→↑↓", method: "keys" },
   { action: "rotate", input: "R", method: "keys" },
@@ -27,6 +26,9 @@ export const CONTROLS: ControlsManifest = [
   { action: "move", input: "📷 lean", method: "camera" },
   { action: "rotate", input: "📷 twist", method: "camera" },
   { action: "power sweep", input: "📷 T-pose", method: "camera" },
+  { action: "turn view", input: "📷 circle raised hand", method: "camera" },
+  { action: "hold piece", input: "📷 cross wrists", method: "camera" },
+  { action: "start / catch collapse", input: "📷 throw hands up", method: "camera" },
   { action: "move", input: "L-STICK / D-PAD", method: "controller" },
   { action: "rotate", input: "A", method: "controller" },
   { action: "turn view", input: "LB / RB", method: "controller" },
@@ -49,6 +51,16 @@ export const METHOD_LABEL = {
 
 const say = (entry: ControlEntry): string => `${entry.input} to ${entry.action}`;
 
+const startHint = (methods: ReadonlySet<ControlMethod>): string => {
+  if (methods.has("controller")) {
+    return "any button to start";
+  }
+  if (methods.has("touch")) {
+    return "tap to start";
+  }
+  return "Enter / Space to start";
+};
+
 /** Title-banner sub line: the headline verbs plus how to start.
  *
  *  The floating stick draws nothing until a finger lands and the labelled
@@ -63,11 +75,5 @@ export const titleSubText = (): string => {
   const headline = (
     methods.has("touch") && drag ? [drag, ...camera.slice(1, 2)] : camera.slice(0, 2)
   ).map(say);
-  let start = "Enter / Space to start";
-  if (methods.has("controller")) {
-    start = "any button to start";
-  } else if (methods.has("touch")) {
-    start = "tap to start";
-  }
-  return [...headline, start].join(" · ");
+  return [...headline, startHint(methods)].join(" · ");
 };

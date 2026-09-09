@@ -33,7 +33,7 @@ import { RibbonPool } from "./fx-ribbon";
 import { createBrewPoolMaterial } from "./fx-pool";
 import type { BrewPoolMaterial } from "./fx-pool";
 import { HDR_BRIGHT, ParticlePools } from "./fx-particles";
-import type { SpawnOptions } from "./fx-particles";
+import type { ParticlePriority, SpawnOptions } from "./fx-particles";
 import { Telegraphs, groundFxColor } from "./telegraph";
 import type { View } from "./view";
 
@@ -86,10 +86,6 @@ const localHitFreezeMs = (hits: number, melee: boolean): number => {
   return melee ? 40 : 25;
 };
 
-const HIT_COLOR = new Map<string, number>([
-  ["magic", 0xc0_70_ff],
-  ["pure", 0xff_ff_ff],
-]);
 const FIZZLE_COLOR = new Map<string, number>([
   ["arrow", 0xff_e6_a0],
   ["fireball", 0xff_7a_2c],
@@ -103,6 +99,10 @@ const EXPLOSION_COLOR = new Map<string, number>([
   ["smite", 0xff_d7_6a],
   ["trap", 0x9a_ff_c0],
   ["vines", 0x4a_7a_3a],
+]);
+const RUNE_COLOR = new Map<string, number>([
+  ["hexring", 0xb9_8a_e0],
+  ["smite", 0xff_d7_6a],
 ]);
 
 /** Wood/matter palette by prop model. */
@@ -122,6 +122,13 @@ const streakStingerTier = (streak: number): 0 | 1 | 2 | 3 => {
     return 2;
   }
   return streak >= 5 ? 1 : 0;
+};
+
+const hitColor = (dtype: string, primary: number | undefined): number => {
+  if (dtype === "magic") {
+    return primary ?? 0xc0_70_ff;
+  }
+  return dtype === "pure" ? 0xff_ff_ff : 0xff_d0_6a;
 };
 
 // ── champion effect palettes (one dominant hue per champ — instant attribution)
@@ -266,6 +273,7 @@ const sp = (x: number, y: number, z: number): SpawnOptions => {
   scratch.stretch = false;
   scratch.bright = 1;
   scratch.alpha = 1;
+  scratch.priority = "impact";
   return scratch;
 };
 
@@ -489,16 +497,16 @@ export class Fx {
     // real render then throws away and rebuilds — mid-fight, which is the exact
     // stall this exists to prevent. By the first frame everything is final.
     this.pendingWarm = { camera, renderer };
-    void this.uploadTexturesWhenReady(renderer);
+    void this.markTexturesReady(renderer);
   }
 
-  private async uploadTexturesWhenReady(renderer: THREE.WebGLRenderer): Promise<void> {
+  /** Only once the textures are decoded is a compile worth doing. A material
+   *  whose map has not decoded yet compiles without USE_MAP, and three throws
+   *  that program away the first time the texture actually arrives — so warming
+   *  any earlier warms the wrong programs and the stall survives. */
+  private async markTexturesReady(renderer: THREE.WebGLRenderer): Promise<void> {
     await whenFxTexturesReady();
     uploadFxTextures(renderer);
-    // Only NOW is a compile worth doing. A material whose map has not decoded
-    // yet compiles without USE_MAP, and three throws that program away the
-    // first time the texture actually arrives — so warming any earlier warms
-    // the wrong programs and the stall survives.
     this.texturesReady = true;
   }
 
@@ -580,7 +588,7 @@ export class Fx {
     this.hitsThisFrame = 0;
     this.heavyThisFrame = false;
     for (const e of w.fx) {
-      this.handle(e);
+      this.handle(e, w);
     }
     w.fx.length = 0;
     // per-frame local-hit accumulation → ONE hard-freeze write (Smash-style table)
@@ -597,7 +605,6 @@ export class Fx {
     for (let i = this.delayed.length - 1; i >= 0; i -= 1) {
       const d = this.delayed[i];
       if (d && this.clock >= d.at) {
-        // swap-remove: the tail takes this slot, unless this slot IS the tail
         const last = this.delayed.pop();
         if (last && last !== d) {
           this.delayed[i] = last;
@@ -681,10 +688,10 @@ export class Fx {
     return (x - this.lx) ** 2 + (y - this.ly) ** 2 <= r * r;
   }
 
-  private handle(e: FxEvent): void {
+  private handle(e: FxEvent, w: World): void {
     switch (e.t) {
       case "hit": {
-        this.hitFx(e);
+        this.hitFx(e, w);
         break;
       }
       case "strike": {
@@ -716,14 +723,7 @@ export class Fx {
         break;
       }
       case "levelup": {
-        // converge → flash → rise: the one effect allowed to run long
-        this.implode(e.x, e.y, 0xff_d2_4a, 2, 10, 0.25);
-        this.delay(0.18, () => {
-          this.fountain(e.x, e.y, 16, 0xff_d2_4a);
-          this.shockwave(e.x, e.y, 0xff_d2_4a, 3);
-          this.beam(e.x, e.y, 0xff_d2_4a);
-        });
-        this.audio.levelup();
+        this.levelupFx(e);
         break;
       }
       case "heal": {
@@ -732,13 +732,7 @@ export class Fx {
         break;
       }
       case "blink": {
-        // inward = vanish
-        this.implode(e.x, e.y, 0x9a_7b_ff, 1.6, 8, 0.22);
-        // the afterimage she leaves behind
-        this.ghost(e.x, e.y, 0x9a_7b_ff);
-        this.burst(e.tx, 1, e.ty, 10, 0x9a_7b_ff, 5, 0.35);
-        this.impactRing(e.tx, e.ty, 0xb0_90_ff, 2.2);
-        this.crossGlint(e.tx, 1.3, e.ty, 0, 1, 0xc0_a0_ff, 1.1);
+        this.blinkFx(e);
         break;
       }
       case "itemUse": {
@@ -756,14 +750,7 @@ export class Fx {
         break;
       }
       case "coinThrow": {
-        this.implode(e.x, e.y, 0xff_d2_4a, 1.4, 10, 0.2);
-        this.delay(0.12, () => {
-          this.flash(e.x, 3, e.y, 0xff_d2_4a, 1.1);
-          this.burst(e.x, 3, e.y, 8, 0xff_d2_4a, 5, 0.35);
-          const dx = e.tx - e.x;
-          const dy = e.ty - e.y;
-          this.castStreak(e.x, e.y, dx, dy, 0xff_d2_4a, 8, 8, 0.3);
-        });
+        this.coinThrowFx(e);
         break;
       }
       case "coinGrab": {
@@ -787,25 +774,78 @@ export class Fx {
     }
   }
 
-  private hitFx(e: FxOf<"hit">): void {
-    const color = HIT_COLOR.get(e.dtype) ?? 0xff_d0_6a;
+  private castFx(e: FxOf<"cast">): void {
+    this.signatureCast(`${e.champId}:${e.key}`, e.x, e.y, e.dx, e.dy);
+    this.audio.cast(e.champId, e.key, e.x, e.y, e.unitId === this.localId);
+    // your R
+    if (e.key === "R" && this.within(e.x, e.y, 1.5)) {
+      this.view.punchFov(2.2);
+    }
+  }
+
+  private perfectDodgeFx(e: FxOf<"perfectDodge">): void {
+    this.impactRing(e.x, e.y, 0x66_ff_e0, 2.2);
+    this.flash(e.x, 1.1, e.y, 0x9f_ff_e8, 1, 1.8);
+    if (e.unit === this.localId) {
+      this.slowMo = Math.max(this.slowMo, 0.2);
+      this.numbers.spawn("PERFECT", e.x, e.y, "banner", this.nowMs);
+    }
+  }
+
+  private hitFx(e: FxOf<"hit">, w: World): void {
+    const attacker = w.units.get(e.by);
+    const palette = attacker ? CHAMP_FX.get(attacker.champId) : undefined;
+    const color = hitColor(e.dtype, palette?.primary);
     const heavy = e.crit ?? false;
     const mine = e.by !== "" && e.by === this.localId;
     const onMe = e.to === this.localId;
-    // de-escalated basics so abilities outrank them (and the slash arc stays
-    // readable THROUGH the impact); heavies keep the works
-    this.flash(e.x, 1.1, e.y, 0xff_ff_ff, heavy ? 1.2 : 0.55, heavy ? 2.2 : 1.4);
-    this.impactRing(e.x, e.y, color, heavy ? 2.1 : 1.2);
+    const distantBasic = !mine && !onMe && !heavy && !this.within(e.x, e.y, 14);
+    const priority: ParticlePriority = mine || onMe || heavy ? "major" : "impact";
+    this.hitVisuals(e, { color, distantBasic, heavy, priority });
+    if (heavy) {
+      this.audio.crit(e.x, e.y, onMe);
+    }
+    this.hitFeel(e, { distantBasic, heavy, mine, onMe });
+    this.audio.hit(e.x, e.y, e.dtype, onMe);
+    this.hitNumber(e.x, e.y, e.amount, e.dx, e.dy, heavy, e.by);
+  }
+
+  /** De-escalated basics so abilities outrank them (and the slash arc stays
+   *  readable THROUGH the impact); heavies keep the works. */
+  private hitVisuals(
+    e: FxOf<"hit">,
+    o: { color: number; distantBasic: boolean; heavy: boolean; priority: ParticlePriority },
+  ): void {
+    const { color, distantBasic, heavy, priority } = o;
+    if (!distantBasic) {
+      this.flash(e.x, 1.1, e.y, 0xff_ff_ff, heavy ? 1.2 : 0.55, heavy ? 2.2 : 1.4, priority);
+      this.impactRing(e.x, e.y, color, heavy ? 2.1 : 1.2);
+    }
     if (heavy) {
       this.flare("impact-burst", e.x, 1.15, e.y, 0xff_f2_d0, 2, 0.14, Math.random() * Math.PI);
     }
-    this.sparks(e.x, 1.1, e.y, e.dx, e.dy, heavy ? 20 : 8, color);
-    this.burst(e.x, 1.1, e.y, heavy ? 7 : 4, color, 5, 0.16);
+    let sparkCount = 8;
+    if (heavy) {
+      sparkCount = 20;
+    } else if (distantBasic) {
+      sparkCount = 3;
+    }
+    this.sparks(e.x, 1.1, e.y, e.dx, e.dy, sparkCount, color, priority);
+    if (!distantBasic) {
+      this.burst(e.x, 1.1, e.y, heavy ? 7 : 4, color, 5, 0.16, priority);
+    }
     if (heavy) {
       // gold heavy ring
       this.impactRing(e.x, e.y, 0xff_d2_4a, 2.8);
-      this.audio.crit(e.x, e.y);
     }
+  }
+
+  /** Camera response: your hits kick, hits on you shove, the rest rumbles. */
+  private hitFeel(
+    e: FxOf<"hit">,
+    o: { distantBasic: boolean; heavy: boolean; mine: boolean; onMe: boolean },
+  ): void {
+    const { distantBasic, heavy, mine, onMe } = o;
     if (mine) {
       // the kick does the work
       this.view.addTrauma(0.05);
@@ -823,10 +863,8 @@ export class Fx {
       // getting slugged moves your camera
       this.view.kick(e.dx, e.dy, 0.5);
     } else {
-      this.view.addTrauma(0.06 * this.att(e.x, e.y));
+      this.view.addTrauma((distantBasic ? 0.015 : 0.06) * this.att(e.x, e.y));
     }
-    this.audio.hit(e.x, e.y, e.dtype);
-    this.hitNumber(e.x, e.y, e.amount, e.dx, e.dy, heavy, e.by);
   }
 
   private fizzleFx(e: FxOf<"fizzle">): void {
@@ -858,9 +896,9 @@ export class Fx {
   }
 
   private swingFx(e: FxOf<"swing">): void {
-    // melee swings are the weapon-trail ribbon
     if (e.melee) {
       return;
+      // melee swings are the weapon-trail ribbon
     }
     const c = e.dtype === "magic" ? 0xc0_70_ff : 0xff_e6_a0;
     const dx = Math.cos(e.ang);
@@ -883,8 +921,8 @@ export class Fx {
     }
     const color = EXPLOSION_COLOR.get(e.kind) ?? 0xff_a0_30;
     const big = e.kind === "meteor";
-    this.flash(e.x, 0.9, e.y, 0xff_ff_ff, big ? 2.4 : 1.5, 2.4);
-    this.burst(e.x, 0.8, e.y, big ? 26 : 16, color, big ? 9 : 7, 0.5);
+    this.flash(e.x, 0.9, e.y, 0xff_ff_ff, big ? 2.4 : 1.5, 2.4, "major");
+    this.burst(e.x, 0.8, e.y, big ? 26 : 16, color, big ? 9 : 7, 0.5, "major");
     this.shockwave(e.x, e.y, color, e.radius);
     this.explosionKindFx(e);
     this.view.addTrauma((big ? 0.5 : 0.22) * this.att(e.x, e.y));
@@ -894,7 +932,6 @@ export class Fx {
     this.audio.explosion();
   }
 
-  /** The per-kind set piece on top of the shared flash/burst/shockwave. */
   private explosionKindFx(e: FxOf<"explosion">): void {
     switch (e.kind) {
       case "nova": {
@@ -1001,7 +1038,7 @@ export class Fx {
         this.beam(e.x, e.y, 0xff_80_40, 9, 1.2);
         this.debris(e.x, e.y, 6, 0x80_40_30);
         this.chunks.burst(e.x, e.y, 8, 0x5a_2a_18, 8);
-        this.smoke(e.x, e.y, 8);
+        this.smoke(e.x, e.y, 8, "major");
         this.texDecal("shock-burst", e.x, e.y, {
           color: 0xff_b0_60,
           grow: 4.5,
@@ -1084,9 +1121,9 @@ export class Fx {
   }
 
   private deathFx(e: FxOf<"death">): void {
-    this.flash(e.x, 1, e.y, 0xff_ff_ff, 1.2, 2);
-    this.burst(e.x, 1, e.y, 16, 0x99_a0_b5, 6, 0.6);
-    this.smoke(e.x, e.y, 4);
+    this.flash(e.x, 1, e.y, 0xff_ff_ff, 1.2, 2, "major");
+    this.burst(e.x, 1, e.y, 16, 0x99_a0_b5, 6, 0.6, "major");
+    this.smoke(e.x, e.y, 4, "major");
     if (e.by !== "" && e.by === this.localOwnerId) {
       // YOUR kill — the confirm: freeze → slow-mo tail, gold ring, punch-in
       this.hardFreeze = Math.max(this.hardFreeze, 0.1);
@@ -1095,7 +1132,7 @@ export class Fx {
       this.view.addTrauma(0.45);
       this.view.punchFov(4);
       this.shockwave(e.x, e.y, 0xff_d2_4a, 3.5);
-      this.flash(e.x, 1.2, e.y, 0xff_ff_ff, 1.8, 2.6);
+      this.flash(e.x, 1.2, e.y, 0xff_ff_ff, 1.8, 2.6, "major");
       this.audio.killConfirm();
     } else if (e.team === this.localTeam && this.localTeam !== "") {
       // your death — a long exhale
@@ -1110,22 +1147,36 @@ export class Fx {
     this.audio.death();
   }
 
-  private castFx(e: FxOf<"cast">): void {
-    this.signatureCast(`${e.champId}:${e.key}`, e.x, e.y, e.dx, e.dy);
-    this.audio.cast(e.champId, e.key, e.x, e.y);
-    if (e.key === "R" && this.within(e.x, e.y, 1.5)) {
-      this.view.punchFov(2.2);
-      // your R
-    }
+  private levelupFx(e: FxOf<"levelup">): void {
+    // converge → flash → rise: the one effect allowed to run long
+    this.implode(e.x, e.y, 0xff_d2_4a, 2, 10, 0.25);
+    this.delay(0.18, () => {
+      this.fountain(e.x, e.y, 16, 0xff_d2_4a);
+      this.shockwave(e.x, e.y, 0xff_d2_4a, 3);
+      this.beam(e.x, e.y, 0xff_d2_4a);
+    });
+    this.audio.levelup();
   }
 
-  private perfectDodgeFx(e: FxOf<"perfectDodge">): void {
-    this.impactRing(e.x, e.y, 0x66_ff_e0, 2.2);
-    this.flash(e.x, 1.1, e.y, 0x9f_ff_e8, 1, 1.8);
-    if (e.unit === this.localId) {
-      this.slowMo = Math.max(this.slowMo, 0.2);
-      this.numbers.spawn("PERFECT", e.x, e.y, "banner", this.nowMs);
-    }
+  private blinkFx(e: FxOf<"blink">): void {
+    // inward = vanish
+    this.implode(e.x, e.y, 0x9a_7b_ff, 1.6, 8, 0.22);
+    // the afterimage she leaves behind
+    this.ghost(e.x, e.y, 0x9a_7b_ff);
+    this.burst(e.tx, 1, e.ty, 10, 0x9a_7b_ff, 5, 0.35);
+    this.impactRing(e.tx, e.ty, 0xb0_90_ff, 2.2);
+    this.crossGlint(e.tx, 1.3, e.ty, 0, 1, 0xc0_a0_ff, 1.1);
+  }
+
+  private coinThrowFx(e: FxOf<"coinThrow">): void {
+    this.implode(e.x, e.y, 0xff_d2_4a, 1.4, 10, 0.2);
+    this.delay(0.12, () => {
+      this.flash(e.x, 3, e.y, 0xff_d2_4a, 1.1);
+      this.burst(e.x, 3, e.y, 8, 0xff_d2_4a, 5, 0.35);
+      const dx = e.tx - e.x;
+      const dy = e.ty - e.y;
+      this.castStreak(e.x, e.y, dx, dy, 0xff_d2_4a, 8, 8, 0.3);
+    });
   }
 
   private killFx(e: FxOf<"kill">): void {
@@ -1155,7 +1206,6 @@ export class Fx {
     if (e.kind === "matchend") {
       // match-end slow-mo beat
       this.slowMo = Math.max(this.slowMo, 1.2);
-      this.audio.victory();
     } else {
       this.toasts.push({ kind: e.kind, text: e.text });
       if (e.kind === "delivery") {
@@ -1165,6 +1215,7 @@ export class Fx {
       }
     }
   }
+
   // ── item actives (fx.ts side of the itemUse event) ──
   private itemUseFx(x: number, y: number, item: string): void {
     switch (item) {
@@ -1224,8 +1275,7 @@ export class Fx {
         break;
       }
       default: {
-        this.flash(x, 1.3, y, 0x9f_d0_ff, 0.9);
-        this.burst(x, 1.2, y, 6, 0x9f_d0_ff, 3, 0.3);
+        this.genericCast(x, y);
       }
     }
   }
@@ -1749,6 +1799,7 @@ export class Fx {
     }
   }
 
+  /** Landing impacts for the per-champ jump slams. */
   private jumpStrikeFx(
     champ: string,
     x: number,
@@ -1884,49 +1935,23 @@ export class Fx {
         // arming shimmer only — the decal carries it
       }
       default: {
-        this.hostileZoneAmbient(g, st, now, r);
+        if (!g.enemyDps || now < st.next) {
+          return;
+        }
+        st.next = now + 300;
+        for (let i = 0; i < 2; i += 1) {
+          const a = Math.random() * Math.PI * 2;
+          const rr = Math.sqrt(Math.random()) * r;
+          const o = sp(g.x + Math.cos(a) * rr, 0.3, g.y + Math.sin(a) * rr);
+          o.vy = 1.5;
+          o.color = groundFxColor(g.effect);
+          o.size = 0.22;
+          o.life = 0.5;
+          o.priority = "ambient";
+          this.pools.spawn("add", o);
+        }
+        break;
       }
-    }
-  }
-
-  /** Arming runes: a rotating arcane circle over the telegraph while the
-   *  detonation charges (gold smite / violet grand hex / green own-team trap). */
-  private runeColorFor(g: GroundEffect): number {
-    if (g.effect === "smite") {
-      return 0xff_d7_6a;
-    }
-    if (g.effect === "hexring") {
-      return 0xb9_8a_e0;
-    }
-    return g.effect === "trap" && g.team === this.localTeam ? 0x9a_ff_c0 : 0;
-  }
-
-  private zoneRunes(g: GroundEffect, now: number, r: number): void {
-    const runeColor = this.runeColorFor(g);
-    if (runeColor !== 0) {
-      // AUTHORED magic circles: pentagram for the witch's grand hex, runic
-      // script ring for holy/trap telegraphs (procedural ring underneath stays)
-      const runeTex = g.effect === "hexring" ? "rune-circle-a" : "rune-circle-b";
-      const piece = this.zonePiece(`rune:${g.id}`, () => {
-        const mat = new THREE.MeshBasicMaterial({
-          blending: THREE.AdditiveBlending,
-          color: runeColor,
-          depthWrite: false,
-          map: fxTex(runeTex),
-          opacity: 0.9,
-          side: THREE.DoubleSide,
-          transparent: true,
-        });
-        const mesh = new THREE.Mesh(this.ringPlane, mat);
-        mesh.rotation.x = -Math.PI / 2;
-        return { obj: mesh, ownMat: mat };
-      });
-      piece.seenAt = now;
-      // ground-hug even on the plateau
-      piece.obj.position.set(g.x, terrainHeight(g.x, g.y) + 0.14, g.y);
-      piece.obj.scale.setScalar(r * 1.15);
-      // slow ritual spin
-      piece.obj.rotation.z = now * 0.0008;
     }
   }
 
@@ -1972,6 +1997,7 @@ export class Fx {
       o.size = 0.32;
       o.life = 0.3;
       o.stretch = true;
+      o.priority = "ambient";
       this.pools.spawn("add", o);
     }
   }
@@ -1988,6 +2014,7 @@ export class Fx {
         o.size = 0.3;
         o.life = 0.35;
         o.stretch = true;
+        o.priority = "ambient";
         this.pools.spawn("add", o);
       }
     }
@@ -2043,6 +2070,7 @@ export class Fx {
       o.color = 0xff_5a_2c;
       o.size = 0.24;
       o.life = 0.5;
+      o.priority = "ambient";
       this.pools.spawn("add", o);
     }
   }
@@ -2105,6 +2133,7 @@ export class Fx {
       o.gravity = 1;
       o.drag = 1.2;
       o.alpha = 0.8;
+      o.priority = "ambient";
       this.pools.spawn("normal", o);
     }
   }
@@ -2125,6 +2154,7 @@ export class Fx {
       o.size = 0.28;
       o.life = 0.5;
       o.stretch = true;
+      o.priority = "ambient";
       this.pools.spawn("add", o);
     }
     for (let i = 0; i < 2; i += 1) {
@@ -2137,24 +2167,39 @@ export class Fx {
       o.size = 0.24;
       o.life = 0.55;
       o.stretch = true;
+      o.priority = "ambient";
       this.pools.spawn("add", o);
     }
   }
-
-  private hostileZoneAmbient(g: GroundEffect, st: ZoneAnim, now: number, r: number): void {
-    if (!g.enemyDps || now < st.next) {
-      return;
-    }
-    st.next = now + 300;
-    for (let i = 0; i < 2; i += 1) {
-      const a = Math.random() * Math.PI * 2;
-      const rr = Math.sqrt(Math.random()) * r;
-      const o = sp(g.x + Math.cos(a) * rr, 0.3, g.y + Math.sin(a) * rr);
-      o.vy = 1.5;
-      o.color = groundFxColor(g.effect);
-      o.size = 0.22;
-      o.life = 0.5;
-      this.pools.spawn("add", o);
+  /** Arming runes: a rotating arcane circle over the telegraph while the
+   *  detonation charges (gold smite / violet grand hex / green own-team trap). */
+  private zoneRunes(g: GroundEffect, now: number, r: number): void {
+    const ownTrap = g.effect === "trap" && g.team === this.localTeam;
+    const runeColor = ownTrap ? 0x9a_ff_c0 : (RUNE_COLOR.get(g.effect) ?? 0);
+    if (runeColor !== 0) {
+      // AUTHORED magic circles: pentagram for the witch's grand hex, runic
+      // script ring for holy/trap telegraphs (procedural ring underneath stays)
+      const runeTex = g.effect === "hexring" ? "rune-circle-a" : "rune-circle-b";
+      const piece = this.zonePiece(`rune:${g.id}`, () => {
+        const mat = new THREE.MeshBasicMaterial({
+          blending: THREE.AdditiveBlending,
+          color: runeColor,
+          depthWrite: false,
+          map: fxTex(runeTex),
+          opacity: 0.9,
+          side: THREE.DoubleSide,
+          transparent: true,
+        });
+        const mesh = new THREE.Mesh(this.ringPlane, mat);
+        mesh.rotation.x = -Math.PI / 2;
+        return { obj: mesh, ownMat: mat };
+      });
+      piece.seenAt = now;
+      // ground-hug even on the plateau
+      piece.obj.position.set(g.x, terrainHeight(g.x, g.y) + 0.14, g.y);
+      piece.obj.scale.setScalar(r * 1.15);
+      // slow ritual spin
+      piece.obj.rotation.z = now * 0.0008;
     }
   }
 
@@ -2184,6 +2229,7 @@ export class Fx {
     o.color = color;
     o.size = 0.24;
     o.life = 0.4;
+    o.priority = "ambient";
     this.pools.spawn("add", o);
   }
 
@@ -2218,8 +2264,8 @@ export class Fx {
   }
 
   /** Per-champ basic-attack whoosh (delegates to the audio timbre table). */
-  attackSound(champId: string, x: number, y: number): void {
-    this.audio.attack(champId, x, y);
+  attackSound(champId: string, x: number, y: number, local = false): void {
+    this.audio.attack(champId, x, y, local);
   }
 
   // ── particle spawners (public signatures preserved from the mesh-pool era) ──
@@ -2233,6 +2279,7 @@ export class Fx {
     color: number,
     speed: number,
     life: number,
+    priority: ParticlePriority = "impact",
   ): void {
     for (let i = 0; i < n; i += 1) {
       const a = Math.random() * Math.PI * 2;
@@ -2247,12 +2294,22 @@ export class Fx {
       o.size = 0.5 + Math.random() * 0.7;
       o.stretch = true;
       o.color = color;
+      o.priority = priority;
       this.pools.spawn("add", o);
     }
   }
 
   /** Directional hit sparks — a cone along (dx,dz), stretched, additive. */
-  sparks(x: number, y: number, z: number, dx: number, dz: number, n: number, color: number): void {
+  sparks(
+    x: number,
+    y: number,
+    z: number,
+    dx: number,
+    dz: number,
+    n: number,
+    color: number,
+    priority: ParticlePriority = "impact",
+  ): void {
     const base = Math.atan2(dz, dx);
     for (let i = 0; i < n; i += 1) {
       const a = base + (Math.random() - 0.5) * 1.1;
@@ -2267,12 +2324,13 @@ export class Fx {
       o.size = 0.35 + Math.random() * 0.4;
       o.stretch = true;
       o.color = color;
+      o.priority = priority;
       this.pools.spawn("add", o);
     }
   }
 
   /** Rising smoke — NORMAL blend, outlives the fire. (x,z) in sim coords. */
-  smoke(x: number, z: number, n: number): void {
+  smoke(x: number, z: number, n: number, priority: ParticlePriority = "impact"): void {
     for (let i = 0; i < n; i += 1) {
       const g = 0.18 + Math.random() * 0.1;
       const a = Math.random() * Math.PI * 2;
@@ -2287,6 +2345,7 @@ export class Fx {
       o.cr = g;
       o.cg = g;
       o.cb = g;
+      o.priority = priority;
       this.pools.spawn("normal", o);
     }
   }
@@ -2307,6 +2366,7 @@ export class Fx {
       o.cr = g;
       o.cg = g * 0.95;
       o.cb = g * 0.85;
+      o.priority = "ambient";
       this.pools.spawn("normal", o);
     }
   }
@@ -2337,6 +2397,7 @@ export class Fx {
     o.life = 0.22;
     o.size = 0.45;
     o.color = color;
+    o.priority = "ambient";
     this.pools.spawn("add", o);
   }
 
@@ -2346,6 +2407,7 @@ export class Fx {
     o.life = 0.25;
     o.size = size;
     o.color = color;
+    o.priority = "ambient";
     this.pools.spawn("add", o);
   }
 
@@ -2364,6 +2426,7 @@ export class Fx {
     o.life = life;
     o.size = size;
     o.color = color;
+    o.priority = "ambient";
     this.pools.spawn("add", o);
   }
 
@@ -2380,16 +2443,26 @@ export class Fx {
     o.cg = g;
     o.cb = g;
     o.alpha = 0.7;
+    o.priority = "ambient";
     this.pools.spawn("normal", o);
   }
 
   /** Quick additive flash — pops big then fades. `bright` >1 blooms. */
-  flash(x: number, y: number, z: number, color: number, size: number, bright = 1): void {
+  flash(
+    x: number,
+    y: number,
+    z: number,
+    color: number,
+    size: number,
+    bright = 1,
+    priority: ParticlePriority = "impact",
+  ): void {
     const o = sp(x, y, z);
     o.life = 0.12;
     o.size = size;
     o.color = color;
     o.bright = bright > 1 ? HDR_BRIGHT : 1;
+    o.priority = priority;
     this.pools.spawn("add", o);
   }
 
@@ -2469,8 +2542,8 @@ export class Fx {
     if (!f) {
       return;
     }
-    f.life = life;
     f.maxLife = life;
+    f.life = life;
     f.s0 = size;
     f.grow = tex === "impact-burst" ? 1.5 : 1.15;
     f.mat.map = fxTex(tex);
@@ -2841,8 +2914,8 @@ export class Fx {
       return;
       // saturated — drop (scale-of-importance budget)
     }
-    r.life = life;
     r.maxLife = life;
+    r.life = life;
     r.maxR = maxR;
     r.opacity = opacity;
     uniformColor(r.mat, "uColor").setHex(color);
@@ -2883,8 +2956,8 @@ export class Fx {
     if (!b) {
       return;
     }
-    b.life = 0.5;
     b.maxLife = 0.5;
+    b.life = 0.5;
     b.h = h;
     b.r = r;
     // A white-hot middle inside a sheath of the effect's own colour — the core
@@ -2958,8 +3031,8 @@ export class Fx {
     c.mesh.geometry = this.coneGeo(half);
     c.mat.blending = THREE.NormalBlending;
     c.mat.color.setHex(color);
-    c.life = 0.26;
     c.maxLife = 0.26;
+    c.life = 0.26;
     c.opacity = 0.85;
     c.grow = reach * 1.12;
     c.s0 = reach * 0.5;
@@ -2987,8 +3060,8 @@ export class Fx {
     c.mesh.geometry = this.rimGeo(half);
     c.mat.blending = THREE.AdditiveBlending;
     c.mat.color.setHex(color).multiplyScalar(1.6);
-    c.life = 0.22;
     c.maxLife = 0.22;
+    c.life = 0.22;
     c.opacity = 0.9;
     c.grow = reach;
     c.s0 = reach;
@@ -3040,8 +3113,8 @@ export class Fx {
     }
     const { tilt = 0.5, span = 1.05, life = 0.26, height = 1.15, dir = 1, tex = "white" } = opts;
     const reg = SLASH_SPRITES[tex];
-    s.life = life;
     s.maxLife = life;
+    s.life = life;
     uniformColor(s.mat, "uColor").setHex(color);
     uniform(s.mat, "uT").value = 0;
     uniform(s.mat, "uSpan").value = span;
@@ -3092,8 +3165,8 @@ export class Fx {
     if (!c) {
       return;
     }
-    c.life = life;
     c.maxLife = life;
+    c.life = life;
     c.mat.arm(color, pulse);
     c.mesh.position.set(x, terrainHeight(x, y) + 0.09, y);
     // plane lies flat (X −90°); −ang maps local +x onto the sim aim
@@ -3164,8 +3237,8 @@ export class Fx {
   castDome(x: number, y: number, color: number, r: number, life = 0.4): void {
     const d = this.domes.find((e) => e.life <= 0);
     if (d) {
-      d.life = life;
       d.maxLife = life;
+      d.life = life;
       d.opacity = 0.8;
       d.r = r;
       d.mat.color.setHex(color);
@@ -3234,7 +3307,64 @@ export class Fx {
     this.numbers.clear();
   }
 
+  /** An accepted rematch owns a fresh presentation clock, while the loaded
+   * materials, fixed pools and audio context remain reusable. */
+  resetMatch(): void {
+    this.delayed.length = 0;
+    this.localHits.length = 0;
+    this.toasts.length = 0;
+    this.feed.length = 0;
+    this.zoneAnim.clear();
+    this.zoneSweepAt = 0;
+    this.nowMs = 0;
+    this.clock = 0;
+    this.slowMo = 0;
+    this.hardFreeze = 0;
+    this.hitsThisFrame = 0;
+    this.bestStreak = 0;
+    this.heavyThisFrame = false;
+    this.lastDeath = null;
+    this.numbers.clear();
+    this.pools.clear();
+    this.chunks.clear();
+    this.spikes.clear();
+    this.bolts.clear();
+    this.pillars.clear();
+    this.voids.clear();
+    this.ribbons.clear();
+    this.telegraphs.clear();
+    for (const effect of [...this.rings, ...this.beams, ...this.domes, ...this.cracks]) {
+      effect.life = 0;
+      effect.mesh.visible = false;
+    }
+    for (const effect of [...this.cones, ...this.slashes]) {
+      effect.life = 0;
+      effect.pivot.visible = false;
+    }
+    for (const flare of this.flares) {
+      flare.life = 0;
+      flare.sprite.visible = false;
+    }
+    for (const actor of this.texActors) {
+      actor.life = 0;
+    }
+    this.stepTexActors(0);
+    for (const piece of this.zonePieces.values()) {
+      this.scene.remove(piece.obj);
+      piece.ownMat?.dispose();
+    }
+    this.zonePieces.clear();
+    this.brewPools.clear();
+    this.view.resetImpulses();
+  }
+
   dispose(): void {
+    this.pendingWarm = null;
+    this.delayed.length = 0;
+    this.feed.length = 0;
+    this.toasts.length = 0;
+    this.localHits.length = 0;
+    this.zoneAnim.clear();
     this.numbers.dispose();
     this.pools.dispose();
     this.chunks.dispose();
@@ -3265,6 +3395,11 @@ export class Fx {
       this.scene.remove(c.mesh);
       c.mat.dispose();
     }
+    for (const flare of this.flares) {
+      this.scene.remove(flare.sprite);
+      flare.mat.dispose();
+    }
+    this.flares.length = 0;
     this.spikes.dispose();
     this.bolts.dispose();
     this.pillars.dispose();
@@ -3293,5 +3428,7 @@ export class Fx {
     this.vortexGeo.dispose();
     this.cometGeo.dispose();
     this.rockMat.dispose();
+    this.texQuad.dispose();
+    this.texSphere.dispose();
   }
 }

@@ -418,6 +418,14 @@ export class BoltPool {
     }
   }
 
+  clear(): void {
+    for (const bolt of this.bolts) {
+      bolt.life = 0;
+      bolt.core.visible = false;
+      bolt.glow.visible = false;
+    }
+  }
+
   dispose(): void {
     for (const b of this.bolts) {
       for (const m of [b.core, b.glow]) {

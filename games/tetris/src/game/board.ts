@@ -32,6 +32,8 @@ export interface ClearResult {
   lines: number;
   /** Cubes removed this clear (for scoring / fx). */
   cubes: number;
+  /** Exact pre-drop footprint, with crossing row/column intersections once. */
+  clearedCells: Cell[];
 }
 
 /** Clockwise rotation of an XZ footprint = transpose + reverse rows. */
@@ -82,17 +84,17 @@ export class Board {
   /** Would any of these cells hit a wall, the floor, or a locked cube? */
   collides(cells: Cell[]): boolean {
     for (const c of cells) {
+      // Wall.
       if (!this.inBounds(c.x, c.z)) {
         return true;
-        // wall
       }
+      // Floor.
       if (c.y < 0) {
         return true;
-        // floor
       }
+      // Locked cube.
       if (c.y < this.height && (this.cells[this.idx(c.x, c.y, c.z)] ?? 0) > 0) {
         return true;
-        // locked
       }
     }
     return false;
@@ -132,12 +134,12 @@ export class Board {
    * each cleared pillar down by one. Returns counts for scoring/fx.
    */
   clearLayer(y: number): ClearResult {
-    const empty: ClearResult = { cubes: 0, lines: 0, xColumns: 0, zRows: 0 };
+    const empty: ClearResult = { clearedCells: [], cubes: 0, lines: 0, xColumns: 0, zRows: 0 };
     if (y < 0 || y >= this.height) {
       return empty;
     }
 
-    // fullX[x] = column x (all z) full
+    // fullX[x] = column x (all z) full.
     const fullX: boolean[] = [];
     for (let x = 0; x < this.width; x += 1) {
       let full = true;
@@ -149,7 +151,7 @@ export class Board {
       }
       fullX[x] = full;
     }
-    // fullZ[z] = row z (all x) full
+    // fullZ[z] = row z (all x) full.
     const fullZ: boolean[] = [];
     for (let z = 0; z < this.depth; z += 1) {
       let full = true;
@@ -187,15 +189,17 @@ export class Board {
     }
 
     let cubes = 0;
+    const clearedCells: Cell[] = [];
     for (const k of pillars) {
       const x = Math.floor(k / this.depth);
       const z = k % this.depth;
       if (this.occupied(x, y, z)) {
         cubes += 1;
+        clearedCells.push({ x, y, z });
       }
       this.dropColumnAbove(x, z, y);
     }
-    return { cubes, lines: xColumns + zRows, xColumns, zRows };
+    return { clearedCells, cubes, lines: xColumns + zRows, xColumns, zRows };
   }
 
   /** Charged power-sweep: clear the lowest layer that has any cube and drop

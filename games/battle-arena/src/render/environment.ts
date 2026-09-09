@@ -1,3 +1,4 @@
+import { softLightMaterial } from "./soft-light";
 // KayKit dungeon dressing for "The Sunken Court" — a hexagonal two-story
 // dungeon hall. Places the perimeter walls (ground story + a set-back,
 // balustraded second story with arched windows), interior partition-wall
@@ -38,6 +39,7 @@ import type { Decor } from "../data/decor";
 import type { ModelLibrary } from "./models";
 import { refreshStaticShadows } from "./view";
 import { teamColor } from "./palette";
+import { ArenaMaterials, floorVariation } from "./arena-materials";
 
 /** Standing-tall models scale-to-height (target × decor scale) so they match
  *  the arena pillars; everything else keeps native size × scale. (Exported for
@@ -104,13 +106,14 @@ interface GeoInfo {
 
 /** A soft radial-falloff dot texture for round additive particles (shared). */
 let dotTex: THREE.Texture | null = null;
+
 const softDot = (): THREE.Texture => {
   if (dotTex) {
     return dotTex;
   }
   const c = document.createElement("canvas");
-  c.width = 64;
   c.height = 64;
+  c.width = 64;
   const g = c.getContext("2d");
   if (!g) {
     dotTex = new THREE.Texture();
@@ -126,61 +129,15 @@ const softDot = (): THREE.Texture => {
   return dotTex;
 };
 
-/** Obstacle model: custom maps carry explicit models (their props render via
- *  the decor override) — the index-cycle fallback only fits the authored
- *  default. Null = nothing to place. */
-const obstacleModel = (model: string | undefined, i: number): string | null => {
-  if (model !== undefined) {
-    return model;
-  }
-  if (hasCustomMap()) {
-    return null;
-  }
-  if (i % 3 === 0) {
-    return "pillar_decorated";
-  }
-  return i % 3 === 1 ? "column" : "pillar";
-};
-
-/** Ground-story wall piece `i` of `EDGE_N` on hex edge `k`: a gate at the
- *  edge center (behind its base), pillar flanks, hash-seeded variety elsewhere. */
-const groundWallModel = (k: number, i: number): string => {
-  const mid = (EDGE_N - 1) / 2;
-  if (i === mid) {
-    return "wall_gated";
-  }
-  if (i === mid - 1 || i === mid + 1) {
-    return "wall_pillar";
-  }
-  const h = hash2(k * 31 + i, 101);
-  if (h < 0.14) {
-    return "wall_cracked";
-  }
-  if (h < 0.26) {
-    return "wall_arched";
-  }
-  if (h < 0.34) {
-    return "wall_inset_candles";
-  }
-  return h < 0.4 ? "wall_broken" : "wall";
-};
-
-const story2WallModel = (h: number): string => {
-  if (h < 0.3) {
-    return "wall_archedwindow_open";
-  }
-  return h < 0.48 ? "wall_window_open" : "wall";
-};
-
-// floor cell: x, z, y, rotY
-type Cell = [number, number, number, number];
-type FloorBand = "flag" | "worn" | "dirt" | "grate";
-type CellBuckets = { [K in FloorBand]: Cell[] };
 interface Blob {
   x: number;
   y: number;
   r: number;
 }
+type FloorBand = "flag" | "worn" | "dirt" | "grate";
+// x, z, y, rotY
+type Cell = [number, number, number, number];
+type CellBuckets = { [K in FloorBand]: Cell[] };
 
 const inAnyBlob = (gx: number, gz: number, blobs: Blob[]): boolean => {
   for (const b of blobs) {
@@ -226,14 +183,24 @@ const floorBand = (
   return "flag";
 };
 
-// DUNGEON GRADE: the tile albedo is warm greige (~#8f867e) which reads as
-// sand under the arena's warm light — multiply toward the cool stone gray
-// of the walls so the hall reads dungeon, not desert (KayKit's own sample
-// renders are this cool). Dirt keeps most of its warmth (camp blobs).
-const coolTint = (info: GeoInfo | null, r: number, g: number, b: number): void => {
-  if (info && info.mat instanceof THREE.MeshStandardMaterial) {
-    info.mat.color.setRGB(r, g, b);
+/** Story-2 pier variety by hash: arched window, plain window, or solid wall. */
+const storyTwoWallModel = (h: number): string => {
+  if (h < 0.3) {
+    return "wall_archedwindow_open";
   }
+  return h < 0.48 ? "wall_window_open" : "wall";
+};
+
+/** Authored default only: custom maps carry explicit models (their props
+ *  render via the decor override), so the index cycle never applies there. */
+const fallbackPillarModel = (i: number): string | null => {
+  if (hasCustomMap()) {
+    return null;
+  }
+  if (i % 3 === 0) {
+    return "pillar_decorated";
+  }
+  return i % 3 === 1 ? "column" : "pillar";
 };
 
 /** Compose a matrix that plants a piece (given its authored box) with its
@@ -280,6 +247,8 @@ const decorMatrix = (d: Decor, box: THREE.Box3): THREE.Matrix4 => {
 };
 
 export class Environment {
+  private materials = new ArenaMaterials();
+  private readonly reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
   private flames: THREE.PointLight[] = [];
   // ambient particle layers (own Points — never the combat pool)
   private embers: THREE.Points | null = null;
@@ -339,7 +308,7 @@ export class Environment {
         if (o.model === "wall_run") {
           continue;
         }
-        const name = obstacleModel(o.model, i);
+        const name = o.model ?? fallbackPillarModel(i);
         if (name === null) {
           continue;
         }
@@ -491,10 +460,9 @@ export class Environment {
   /** Template lookup: extra architecture pieces first, then the shared lib. */
   private templateOf(name: string): THREE.Object3D {
     const extra = this.extras.get(name);
-    if (extra) {
-      return extra.clone(true);
-    }
-    return this.lib.instance(name);
+    const object = extra ? extra.clone(true) : this.lib.instance(name);
+    this.materials.apply(object, name);
+    return object;
   }
 
   /** Pull a single mesh's geometry+material out of a loaded prop for
@@ -724,14 +692,7 @@ export class Environment {
     if (!merged) {
       return;
     }
-    const mat = new THREE.MeshBasicMaterial({
-      blending: THREE.AdditiveBlending,
-      color: 0x9f_c6_e0,
-      depthWrite: false,
-      opacity: 0.035,
-      side: THREE.DoubleSide,
-      transparent: true,
-    });
+    const mat = softLightMaterial(0x9f_c6_e0, 0.035);
     this.ownedGeos.push(merged);
     this.ownedMats.push(mat);
     this.add(new THREE.Mesh(merged, mat));
@@ -910,12 +871,25 @@ export class Environment {
       this.scene.remove(m);
       // InstancedMesh.dispose frees its instance buffers only
       m.dispose();
+      const at = this.added.indexOf(m);
+      if (at !== -1) {
+        this.added.splice(at, 1);
+      }
+    }
+    for (const geometry of this.floorGeos) {
+      geometry.dispose();
+      const at = this.ownedGeos.indexOf(geometry);
+      if (at !== -1) {
+        this.ownedGeos.splice(at, 1);
+      }
     }
     this.floorMeshes.length = 0;
+    this.floorGeos.clear();
     this.buildFloor();
   }
 
   private floorMeshes: THREE.InstancedMesh[] = [];
+  private floorGeos = new Set<THREE.BufferGeometry>();
 
   private buildFloor(): void {
     const flag = this.geoOf("floor_tile_large");
@@ -925,14 +899,11 @@ export class Environment {
     if (!flag) {
       return;
     }
-    coolTint(flag, 0.72, 0.82, 0.97);
-    coolTint(worn, 0.72, 0.82, 0.97);
-    coolTint(grate, 0.76, 0.84, 0.97);
-    coolTint(dirt, 0.75, 0.72, 0.67);
     for (const info of [flag, worn, dirt, grate]) {
       if (!info) {
         continue;
       }
+      this.floorGeos.add(info.geo);
       const c = info.box.getCenter(V_POS);
       // center each tile on its origin
       info.geo.translate(-c.x, 0, -c.z);
@@ -987,8 +958,12 @@ export class Environment {
         V_POS.set(x, y, z);
         V_SCL.set(1, 1, 1);
         inst.setMatrixAt(i, M_OUT.compose(V_POS, Q_ROT, V_SCL));
+        inst.setColorAt(i, floorVariation(x, z, C_SCRATCH));
       }
       inst.instanceMatrix.needsUpdate = true;
+      if (inst.instanceColor) {
+        inst.instanceColor.needsUpdate = true;
+      }
       this.add(inst);
       this.floorMeshes.push(inst);
     }
@@ -1052,7 +1027,27 @@ export class Environment {
       const sx1 = (piece1 / wallW) * 1.02;
       for (let i = 0; i < EDGE_N; i += 1) {
         const t = (i - (EDGE_N - 1) / 2) * piece1;
-        runPiece(groundWallModel(k, i), A, WALL_APOTHEM, t, 0, sx1, syWall);
+        const mid = i === (EDGE_N - 1) / 2;
+        let model = "wall";
+        if (mid) {
+          model = "wall_gated";
+          // the base gate
+        } else if (i === (EDGE_N - 1) / 2 - 1 || i === (EDGE_N - 1) / 2 + 1) {
+          model = "wall_pillar";
+          // gate flanks
+        } else {
+          const h = hash2(k * 31 + i, 101);
+          if (h < 0.14) {
+            model = "wall_cracked";
+          } else if (h < 0.26) {
+            model = "wall_arched";
+          } else if (h < 0.34) {
+            model = "wall_inset_candles";
+          } else if (h < 0.4) {
+            model = "wall_broken";
+          }
+        }
+        runPiece(model, A, WALL_APOTHEM, t, 0, sx1, syWall);
       }
 
       // ── ledge: a ring of floor tiles at wall-top height (vertex gaps are
@@ -1105,7 +1100,8 @@ export class Environment {
       for (let i = 0; i < N2; i += 1) {
         const t = (i - (N2 - 1) / 2) * piece2;
         const h = hash2(k * 47 + i, 103);
-        runPiece(story2WallModel(h), A, STORY2_APOTHEM, t, WALL_H, sx2, sy2);
+        const model = storyTwoWallModel(h);
+        runPiece(model, A, STORY2_APOTHEM, t, WALL_H, sx2, sy2);
         // hanging banner on every 4th story-2 pier
         if (i % 4 === 2 && h >= 0.48) {
           const bModel = k % 2 === 0 ? "banner_red" : "banner_blue";
@@ -1248,28 +1244,34 @@ export class Environment {
   /** Flicker torch lights + advance the ambient particle layers + drive the
    *  fountain warning rims. No per-frame allocations. */
   update(t: number): void {
-    for (const [i, f] of this.flames.entries()) {
+    const reduced = this.reducedMotion?.matches ?? false;
+    this.flickerFlames(t, reduced);
+    const dt = reduced || this.lastT < 0 ? 0 : Math.min(0.05, Math.max(0, t - this.lastT));
+    this.lastT = t;
+    this.driftEmbers(dt);
+    this.driftMotes(dt);
+    this.driftGoldMotes(dt);
+    this.pulseWarnRims(t, reduced);
+  }
+
+  private flickerFlames(t: number, reduced: boolean): void {
+    for (let i = 0; i < this.flames.length; i += 1) {
+      const f = this.flames[i];
+      if (!f) {
+        continue;
+      }
       // index 6 = throne light (slow warm flicker)
       const base = i < 6 ? 6 : 5;
-      f.intensity = base * (0.82 + Math.sin(t * 9 + i * 2.1) * 0.12 + Math.sin(t * 23 + i) * 0.06);
-    }
-    const dt = this.lastT < 0 ? 0 : Math.min(0.05, Math.max(0, t - this.lastT));
-    this.lastT = t;
-    if (this.embers) {
-      this.updateEmbers(this.embers, dt);
-    }
-    if (this.motes) {
-      this.updateMotes(this.motes, dt);
-    }
-    if (this.goldMotes) {
-      this.updateGoldMotes(this.goldMotes, dt);
-    }
-    if (this.warnRims) {
-      this.updateWarnRims(this.warnRims, t);
+      f.intensity =
+        base *
+        (reduced ? 0.82 : 0.82 + Math.sin(t * 9 + i * 2.1) * 0.12 + Math.sin(t * 23 + i) * 0.06);
     }
   }
 
-  private updateEmbers(embers: THREE.Points, dt: number): void {
+  private driftEmbers(dt: number): void {
+    if (!this.embers) {
+      return;
+    }
     const ep = this.emberPos;
     const ev = this.emberVel;
     const el = this.emberLife;
@@ -1286,10 +1288,13 @@ export class Environment {
       ep[o + 1] = (ep[o + 1] ?? 0) + (ev[o + 1] ?? 0) * dt;
       ep[o + 2] = (ep[o + 2] ?? 0) + (ev[o + 2] ?? 0) * dt;
     }
-    embers.geometry.getAttribute("position").needsUpdate = true;
+    this.embers.geometry.getAttribute("position").needsUpdate = true;
   }
 
-  private updateMotes(motes: THREE.Points, dt: number): void {
+  private driftMotes(dt: number): void {
+    if (!this.motes) {
+      return;
+    }
     const mp = this.motePos;
     const mv = this.moteVel;
     for (let i = 0; i < mv.length / 3; i += 1) {
@@ -1298,14 +1303,17 @@ export class Environment {
       mp[o + 1] = (mp[o + 1] ?? 0) + (mv[o + 1] ?? 0) * dt;
       mp[o + 2] = (mp[o + 2] ?? 0) + (mv[o + 2] ?? 0) * dt;
       if ((mp[o + 1] ?? 0) > 6) {
-        // wrap up→down
         mp[o + 1] = 0.5;
+        // wrap up→down
       }
     }
-    motes.geometry.getAttribute("position").needsUpdate = true;
+    this.motes.geometry.getAttribute("position").needsUpdate = true;
   }
 
-  private updateGoldMotes(goldMotes: THREE.Points, dt: number): void {
+  private driftGoldMotes(dt: number): void {
+    if (!this.goldMotes) {
+      return;
+    }
     const gp = this.goldPos;
     for (let i = 0; i < gp.length / 3; i += 1) {
       const o = i * 3;
@@ -1313,37 +1321,45 @@ export class Environment {
       const y = (gp[o + 1] ?? 0) + 0.5 * dt;
       gp[o + 1] = y > 6.2 ? 2.2 : y;
     }
-    goldMotes.geometry.getAttribute("position").needsUpdate = true;
+    this.goldMotes.geometry.getAttribute("position").needsUpdate = true;
   }
 
-  private updateWarnRims(rims: THREE.InstancedMesh, t: number): void {
+  /** Threat level of each enemy fountain rim, seen from the local player. */
+  private warnLevelFor(i: number, sp: { x: number; y: number }): number {
+    if (i === this.homeSlot) {
+      // your own fountain is not a threat
+      return 0;
+    }
+    if (this.hasLocal) {
+      const d = Math.hypot(this.localX - sp.x, this.localY - sp.y);
+      return 0.4 * Math.max(0, 1 - d / WARN_SEE);
+    }
+    // graceful default until setLocalPos is wired (Wave 3)
+    return 0.25;
+  }
+
+  private pulseWarnRims(t: number, reduced: boolean): void {
+    if (!this.warnRims) {
+      return;
+    }
     let dirty = false;
-    for (const [i, sp] of SPAWNS.entries()) {
-      const v = this.warnLevel(i, sp.x, sp.y) * (0.72 + 0.28 * Math.sin(t * 4 + i * 1.1));
+    for (let i = 0; i < SPAWNS.length; i += 1) {
+      const sp = SPAWNS[i];
+      if (!sp) {
+        continue;
+      }
+      const level = this.warnLevelFor(i, sp);
+      const v = level * (reduced ? 1 : 0.72 + 0.28 * Math.sin(t * 4 + i * 1.1));
       if (Math.abs(v - (this.warnLevels[i] ?? 0)) < 0.005) {
         continue;
       }
       this.warnLevels[i] = v;
-      rims.setColorAt(i, C_SCRATCH.setRGB(v, v, v));
+      this.warnRims.setColorAt(i, C_SCRATCH.setRGB(v, v, v));
       dirty = true;
     }
-    if (dirty && rims.instanceColor) {
-      rims.instanceColor.needsUpdate = true;
+    if (dirty && this.warnRims.instanceColor) {
+      this.warnRims.instanceColor.needsUpdate = true;
     }
-  }
-
-  /** Rim brightness for spawn pad `slot`: your own fountain is not a threat;
-   *  otherwise it follows the local player's distance, idling at 0.25 until
-   *  setLocalPos is wired. */
-  private warnLevel(slot: number, x: number, y: number): number {
-    if (slot === this.homeSlot) {
-      return 0;
-    }
-    if (!this.hasLocal) {
-      return 0.25;
-    }
-    const d = Math.hypot(this.localX - x, this.localY - y);
-    return 0.4 * Math.max(0, 1 - d / WARN_SEE);
   }
 
   /** Feed the local player's sim position (drives the fountain warning rims).
@@ -1367,7 +1383,7 @@ export class Environment {
     targetHeight: number,
     rotY: number,
   ): THREE.Object3D {
-    const obj = this.lib.instance(name);
+    const obj = this.templateOf(name);
     const box = new THREE.Box3().setFromObject(obj);
     const size = box.getSize(V_SCL);
     const h = size.y > 0.01 ? size.y : 1;
@@ -1460,7 +1476,7 @@ export class Environment {
       return obj;
     }
 
-    const obj = this.lib.instance(d.model);
+    const obj = this.templateOf(d.model);
     obj.scale.setScalar(d.scale);
     obj.rotation.order = "YXZ";
     obj.rotation.y = d.rot;
@@ -1483,10 +1499,16 @@ export class Environment {
   /** Tear down everything this environment added: scene objects removed, owned
    *  geometries/materials disposed (library templates are shared — untouched). */
   dispose(): void {
+    if (this.disposed) {
+      return;
+    }
     this.disposed = true;
     this.disposeExtras();
     for (const o of this.added) {
       this.scene.remove(o);
+      if (o instanceof THREE.InstancedMesh) {
+        o.dispose();
+      }
     }
     this.added.length = 0;
     for (const g of this.ownedGeos) {
@@ -1497,6 +1519,9 @@ export class Environment {
       m.dispose();
     }
     this.ownedMats.length = 0;
+    this.materials.dispose();
+    this.floorMeshes.length = 0;
+    this.floorGeos.clear();
     this.flames.length = 0;
     this.embers = null;
     this.motes = null;

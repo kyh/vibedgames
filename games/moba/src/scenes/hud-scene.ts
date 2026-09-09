@@ -9,68 +9,28 @@ import { ITEMS, ITEM_BY_ID } from "../data/items";
 import { BRIDGES, GRID, WORLD, isHighCell, isLandCell } from "../data/map";
 import { FONT } from "../render/font";
 import { abilityIconFrame } from "../render/fx-map";
-import { heroSheetTex } from "../render/sprites";
-import type { HeroState, Unit, World } from "../sim/types";
+import { actionAvailability } from "../render/action-availability";
+import type { UnavailableReason } from "../render/action-availability";
+import { reducedMotion } from "../render/presentation-settings";
+import { objectiveGuidance } from "../render/objective-guidance";
+import {
+  abilityUpgrade,
+  experienceProgress,
+  heroPortrait,
+  killFeedText,
+} from "../render/hud-presentation";
+import { AbilityGuide } from "../render/ability-guide";
+import { AnnouncementBanner } from "../render/announcements";
+import { ResultCard } from "../render/results-card";
 import { SLOT_LABEL } from "./game-scene";
-import type { GameScene } from "./game-scene";
-
-type SafeAreaInset = ReturnType<typeof safeAreaInset>;
-
-interface Point {
-  x: number;
-  y: number;
-}
-
-/** Anchor points the ability/dash/item widgets are positioned from. */
-interface BarLayout {
-  dashPos: Point;
-  itemPos: Point[];
-  slotPos: Point[];
-}
-
-/** Top-left origins the info strip hands to the widgets that sit under it. */
-interface InfoAnchors {
-  iy: number;
-  left: number;
-  stripX: number;
-}
+import type { GameScene, MatchResult } from "./game-scene";
+import type { HeroState, Unit, World } from "../sim/types";
 
 /** Coarse-pointer detection at boot, so copy is input-aware before any touch. */
 const touchDevice = (): boolean =>
   window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
 
 const KEYS: AbilityKey[] = ["Q", "W", "E", "R"];
-
-/** Minimap dot for a creep: neutral gold, else team colour. */
-const creepDotColor = (u: Unit): number => {
-  if (u.neutral) {
-    return 0xe0_a9_3a;
-  }
-  return u.team === "radiant" ? 0x46_c0_74 : 0xe0_6a_6a;
-};
-
-/** Minimap dot for a hero: the local player is highlighted over its team colour. */
-const heroDotColor = (u: Unit, isMe: boolean): number => {
-  if (isMe) {
-    return 0xff_e1_4a;
-  }
-  return u.team === "radiant" ? 0x7f_dc_ff : 0xff_9a_8a;
-};
-
-/** Inventory chip border: green when an active is ready, amber while it cools. */
-const itemStrokeColor = (hasActive: boolean, ready: boolean): number => {
-  if (!hasActive) {
-    return 0x8a_73_50;
-  }
-  return ready ? 0x3f_9e_4d : 0x9a_7a_30;
-};
-
-const shopCostColor = (owned: boolean, afford: boolean): string => {
-  if (owned) {
-    return "#6be07a";
-  }
-  return afford ? "#ffd23a" : "#a05050";
-};
 const MINIMAP_SIZE = 232;
 const MINIMAP_H = Math.round(MINIMAP_SIZE * (WORLD.height / WORLD.width));
 // Compact (phone) ability cluster: dash anchors the corner, Q/W/E/R fan on a
@@ -82,6 +42,77 @@ const ARC_START_DEG = 2;
 // ...and R lands level with it (quarter arc)
 const ARC_SPAN_DEG = 88;
 const DEG = Math.PI / 180;
+const AVAILABILITY_LABEL = {
+  cooldown: "WAIT",
+  dead: "DEAD",
+  mana: "MANA",
+  passive: "PASSIVE",
+  silenced: "SILENCE",
+  stunned: "STUN",
+  unavailable: "LOCKED",
+  unlearned: "LEARN",
+} satisfies Record<UnavailableReason, string>;
+
+const minimapCreepColor = (u: Unit): number => {
+  if (u.neutral) {
+    return 0xe0_a9_3a;
+  }
+  return u.team === "radiant" ? 0x46_c0_74 : 0xe0_6a_6a;
+};
+
+const minimapHeroColor = (u: Unit): number => (u.team === "radiant" ? 0x7f_dc_ff : 0xff_9a_8a);
+
+const goldFontSize = (compact: boolean, portraitOrient: boolean): number => {
+  if (!compact) {
+    return 18;
+  }
+  return portraitOrient ? 12 : 13;
+};
+
+interface LayoutCtx {
+  W: number;
+  H: number;
+  cx: number;
+  inset: ReturnType<typeof safeAreaInset>;
+  compact: boolean;
+  portraitOrient: boolean;
+  narrowHeader: boolean;
+  left: number;
+  iy: number;
+}
+
+interface DockLayout {
+  dashPos: { x: number; y: number };
+  slotPos: { x: number; y: number }[];
+  itemPos: { x: number; y: number }[];
+}
+
+/** Cooldown-text state threaded through the per-slot painters. */
+interface SlotCue {
+  cdLeft: number;
+  cdTotal: number;
+  fontSize: number;
+  label: string;
+}
+
+const slotStroke = (s: Slot, w: number, color: number): void => {
+  s.box.setStrokeStyle(w, color);
+  s.circle.setStrokeStyle(w, color);
+};
+
+const itemStrokeColor = (active: boolean, ready: boolean): number => {
+  if (!active) {
+    return 0x8a_73_50;
+  }
+  return ready ? 0x3f_9e_4d : 0x9a_7a_30;
+};
+
+const shopCostColor = (owned: boolean, afford: boolean): string => {
+  if (owned) {
+    return "#6be07a";
+  }
+  return afford ? "#ffd23a" : "#a05050";
+};
 
 interface Slot {
   key: AbilityKey;
@@ -108,9 +139,21 @@ export class HudScene extends Scene {
   private slots: Slot[] = [];
   private hpBar!: Phaser.GameObjects.Rectangle;
   private mpBar!: Phaser.GameObjects.Rectangle;
+  private hpTrack: Phaser.GameObjects.Rectangle | null = null;
+  private mpTrack: Phaser.GameObjects.Rectangle | null = null;
   private hpText!: Phaser.GameObjects.Text;
   private mpText!: Phaser.GameObjects.Text;
+  private xpBg: Phaser.GameObjects.Rectangle | null = null;
+  private xpFill: Phaser.GameObjects.Rectangle | null = null;
+  private xpText: Phaser.GameObjects.Text | null = null;
+  private guide: AbilityGuide | null = null;
+  private banner!: AnnouncementBanner;
+  private result: ResultCard | null = null;
+  private objectiveText: Phaser.GameObjects.Text | null = null;
+  private respawnTipText: Phaser.GameObjects.Text | null = null;
+  private guidanceNextAt = 0;
   private portrait!: Phaser.GameObjects.Image;
+  private portraitFrame: Phaser.GameObjects.Image | null = null;
   private lvlText!: Phaser.GameObjects.Text;
   private goldText!: Phaser.GameObjects.Text;
   private clockText!: Phaser.GameObjects.Text;
@@ -122,7 +165,6 @@ export class HudScene extends Scene {
   private barPanel!: Phaser.GameObjects.NineSlice;
   private dashPanel!: Phaser.GameObjects.Image;
   private scoreRibbon!: Phaser.GameObjects.NineSlice;
-  private announceRibbon!: Phaser.GameObjects.NineSlice;
   private mapFrame!: Phaser.GameObjects.NineSlice;
   private itemSlots: {
     panel: Phaser.GameObjects.Image;
@@ -178,7 +220,6 @@ export class HudScene extends Scene {
 
   // kill feed + announce banner
   private feedLines: { text: Phaser.GameObjects.Text; until: number }[] = [];
-  private announce!: Phaser.GameObjects.Text;
   private teamScore!: Phaser.GameObjects.Text;
 
   // scoreboard (Tab)
@@ -205,7 +246,7 @@ export class HudScene extends Scene {
 
   /** Whether shop/scoreboard own the Escape key right now (wrapper pause defers). */
   get escConsumed(): boolean {
-    return this.shopOpen || this.boardOpen;
+    return this.shopOpen || this.boardOpen || this.guide?.open === true;
   }
 
   init(data: { game: GameScene }): void {
@@ -219,17 +260,21 @@ export class HudScene extends Scene {
     this.itemSlots = [];
     this.shopRows = [];
     this.feedLines = [];
+    this.result = null;
     this.uiButtons = [];
     this.shopOpen = false;
     this.boardOpen = false;
     this.boardNextRenderAt = 0;
     this.mapNextRedrawAt = 0;
+    this.guidanceNextAt = 0;
     this.touchUi = touchDevice();
 
     this.scale.on(Scale.Events.RESIZE, this.layout, this);
-    this.events.once(Scenes.Events.SHUTDOWN, () =>
-      this.scale.off(Scale.Events.RESIZE, this.layout, this),
-    );
+    this.events.once(Scenes.Events.SHUTDOWN, () => {
+      this.scale.off(Scale.Events.RESIZE, this.layout, this);
+      this.guide?.destroy();
+      this.guide = null;
+    });
     // radial vignette to frame the field — sits behind every HUD widget, above the
     // game. In the HUD scene (camera zoom = 1) so it's true screen-space.
     if (this.textures.exists("vignette")) {
@@ -237,7 +282,7 @@ export class HudScene extends Scene {
         .image(0, 0, "vignette")
         .setOrigin(0, 0)
         .setScrollFactor(0)
-        .setDepth(100);
+        .setDepth(-10);
     }
     this.danger = this.add
       .rectangle(0, 0, this.scale.width, this.scale.height, 0xff_2a_2a, 0)
@@ -249,6 +294,7 @@ export class HudScene extends Scene {
     this.buildMinimap();
     this.buildFeed();
     this.buildBoard();
+    this.buildAbilityGuide();
     this.layout();
     this.input.keyboard?.on("keydown-B", () => this.toggleShop());
     // keyboard shop navigation (active only while the shop is open)
@@ -266,6 +312,7 @@ export class HudScene extends Scene {
       }
     });
     this.input.keyboard?.on("keydown-ESC", () => {
+      this.guide?.closeGuide();
       if (this.shopOpen) {
         this.toggleShop();
       }
@@ -280,6 +327,9 @@ export class HudScene extends Scene {
    *  each frame before this update runs (it sits earlier in the scene list), so
    *  the press edges here are fresh. */
   private pollPad(): void {
+    if (this.gs?.controlsPaused) {
+      return;
+    }
     const pad = this.gs?.physPad;
     if (!pad?.connected) {
       return;
@@ -363,6 +413,7 @@ export class HudScene extends Scene {
     this.barPanel = this.add
       .nineslice(0, 0, "ui-carved3", 0, this.barW + 120, 64, 24, 24, 18, 18)
       .setDepth(-1);
+    this.portraitFrame = this.add.image(0, 0, "ui-panel").setDisplaySize(74, 74);
     this.portrait = this.add.image(0, 0, "ui-panel").setDisplaySize(74, 74);
     this.lvlText = this.add
       .text(0, 0, "1", {
@@ -374,7 +425,8 @@ export class HudScene extends Scene {
       })
       .setOrigin(0.5);
 
-    this.add.existing(this.portrait);
+    this.hpTrack = this.add.rectangle(0, 0, this.barW, 16, 0x24_43_33).setOrigin(0, 0.5);
+    this.mpTrack = this.add.rectangle(0, 0, this.barW, 10, 0x25_3d_55).setOrigin(0, 0.5);
     this.hpBar = this.add.rectangle(0, 0, this.barW, 16, 0x44_d0_7a).setOrigin(0, 0.5);
     this.mpBar = this.add.rectangle(0, 0, this.barW, 10, 0x4a_8f_ff).setOrigin(0, 0.5);
     this.hpText = this.add
@@ -393,6 +445,15 @@ export class HudScene extends Scene {
         fontSize: "11px",
         stroke: "#1c2030",
         strokeThickness: 3,
+      })
+      .setOrigin(0.5);
+    this.xpBg = this.add.rectangle(0, 0, this.barW, 3, 0x5b_4c_34).setOrigin(0, 0.5);
+    this.xpFill = this.add.rectangle(0, 0, this.barW, 3, 0xe6_bd_59).setOrigin(0, 0.5);
+    this.xpText = this.add
+      .text(0, 0, "", {
+        color: "#513c21",
+        fontFamily: FONT,
+        fontSize: "10px",
       })
       .setOrigin(0.5);
 
@@ -493,6 +554,8 @@ export class HudScene extends Scene {
       .setOrigin(0.5);
     this.dashCd = this.add.rectangle(0, 0, 50, 58, 0x00_00_00, 0.62).setOrigin(0.5, 1);
     this.dashCdCircle = this.add.circle(0, 0, ARC_R - 1, 0x00_00_00, 0.62).setVisible(false);
+    // the availability reason stays above its veil
+    this.dashLabel.setDepth(1);
 
     // inventory slots (1..6). Compact shows OWNED items only, as round chips —
     // an empty grid is dead pixels on a phone, so empties vanish entirely.
@@ -527,7 +590,7 @@ export class HudScene extends Scene {
         .setInteractive({ useHandCursor: true });
       const img = this.add
         .image(0, 0, "ui-panel")
-        .setDisplaySize(40, 40)
+        .setDisplaySize(44, 44)
         .setDepth(40_010)
         .setVisible(false)
         .setInteractive({ useHandCursor: true });
@@ -567,6 +630,72 @@ export class HudScene extends Scene {
       })
       .setOrigin(0.5)
       .setVisible(false);
+    this.objectiveText = this.add.text(0, 0, "", {
+      color: "#fff0bf",
+      fontFamily: FONT,
+      fontSize: "13px",
+      stroke: "#2d3529",
+      strokeThickness: 3,
+    });
+    this.respawnTipText = this.add
+      .text(0, 0, "", {
+        align: "center",
+        color: "#fff0bf",
+        fontFamily: FONT,
+        fontSize: "15px",
+        stroke: "#2d3529",
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5, 0)
+      .setVisible(false);
+  }
+
+  private updateGuidance(): void {
+    if (this.time.now < this.guidanceNextAt) {
+      return;
+    }
+    this.guidanceNextAt = this.time.now + 200;
+    const world = this.gs.worldRef;
+    const guidance = world ? objectiveGuidance(world, this.gs.player) : null;
+    this.objectiveText?.setText(guidance?.text ?? "");
+    const tip = guidance?.respawnTip;
+    this.respawnTipText?.setText(tip ?? "").setVisible(!!tip && !this.guide?.open);
+  }
+
+  private buildAbilityGuide(): void {
+    this.guide = new AbilityGuide(this.gs, {
+      blocked: () => this.shopOpen || this.boardOpen,
+      onClose: () => {
+        this.gs.uiBlocking = this.shopOpen;
+        this.gs.clearHudInput();
+      },
+      onOpen: () => {
+        this.gs.uiBlocking = true;
+        this.gs.clearHudInput();
+      },
+    });
+  }
+
+  private layoutAbilityGuide(): void {
+    const W = this.scale.width;
+    const H = this.scale.height;
+    const portrait = H > W;
+    const x = this.compact ? this.mapX : this.infoPanel.x;
+    const y = this.compact ? this.mapY + this.mapH + 10 : this.infoPanel.y + 122;
+    this.guide?.place({
+      maxHeight: Math.max(150, Math.min(H - y - 64, this.compact && portrait ? H * 0.23 : 390)),
+      panelWidth: this.guidePanelWidth(portrait, W, x),
+      toggleWidth: this.compact ? this.mapW : this.infoPanel.width,
+      x,
+      y,
+    });
+  }
+
+  private guidePanelWidth(portrait: boolean, W: number, x: number): number {
+    if (!this.compact) {
+      return 350;
+    }
+    return portrait ? W - x - 12 : Math.min(320, W * 0.4);
   }
 
   private buildShop(): void {
@@ -655,6 +784,10 @@ export class HudScene extends Scene {
   }
 
   private toggleShop(): void {
+    if (this.gs.matchResult) {
+      return;
+    }
+    this.guide?.closeGuide(false);
     this.shopOpen = !this.shopOpen;
     this.shop.setVisible(this.shopOpen);
     // pause hero input so arrows drive the shop
@@ -749,8 +882,7 @@ export class HudScene extends Scene {
         const sz = u.structure?.tier === "ancient" ? 6 : 3.5;
         g.fillStyle(col, 1).fillRect(tx(u.x) - sz / 2, ty(u.y) - sz / 2, sz, sz);
       } else if (u.kind === "creep") {
-        const col = creepDotColor(u);
-        g.fillStyle(col, 0.9).fillRect(tx(u.x) - 1, ty(u.y) - 1, 2, 2);
+        g.fillStyle(minimapCreepColor(u), 0.9).fillRect(tx(u.x) - 1, ty(u.y) - 1, 2, 2);
       }
     }
     // heroes on top
@@ -760,7 +892,7 @@ export class HudScene extends Scene {
         continue;
       }
       const isMe = u.id === meId;
-      const col = heroDotColor(u, isMe);
+      const col = isMe ? 0xff_e1_4a : minimapHeroColor(u);
       g.fillStyle(col, 1).fillCircle(tx(u.x), ty(u.y), isMe ? 4 : 3);
       g.lineStyle(1, 0x05_08_0e, 1).strokeCircle(tx(u.x), ty(u.y), isMe ? 4 : 3);
     }
@@ -787,63 +919,14 @@ export class HudScene extends Scene {
       .text(0, 0, "", { color: "#5a3a10", fontFamily: FONT, fontSize: "20px" })
       .setOrigin(0.5, 0)
       .setDepth(40_000);
-    this.announceRibbon = this.add
-      .nineslice(0, 0, "ui-ribbon-blue", 0, 560, 76, 58, 58, 22, 22)
-      .setOrigin(0.5)
-      .setDepth(45_990)
-      .setAlpha(0);
-    this.announce = this.add
-      .text(0, 0, "", {
-        align: "center",
-        color: "#ffe6a3",
-        fontFamily: FONT,
-        fontSize: "26px",
-        stroke: "#1e2a3a",
-        strokeThickness: 5,
-      })
-      .setOrigin(0.5)
-      .setDepth(46_000)
-      .setAlpha(0);
-  }
-
-  private showAnnounce(text: string, tone: "good" | "bad" | "neutral"): void {
-    let color = "#fff3c4";
-    if (tone === "good") {
-      color = "#9bf0b4";
-    } else if (tone === "bad") {
-      color = "#ffb0a4";
-    }
-    const W = this.scale.width;
-    const cx = W / 2;
-    const cy = this.scale.height * 0.26;
-    // clamp to the viewport on phones (the text scales down, the ribbon caps)
-    const fit = Math.min(1, (W - 56) / Math.max(1, this.announce.setText(text).width));
-    this.announce
-      .setColor(color)
-      .setAlpha(1)
-      .setScale(0.6 * fit);
-    this.announce.setPosition(cx, cy - 4);
-    this.announceRibbon.setPosition(cx, cy).setAlpha(1).setScale(0.6);
-    this.announceRibbon.setSize(
-      Math.min(W - 8, Math.max(380, this.announce.width * fit + 150)),
-      76,
-    );
-    this.tweens.killTweensOf([this.announce, this.announceRibbon]);
-    this.tweens.add({ duration: 320, ease: "Back.Out", scale: fit, targets: this.announce });
-    this.tweens.add({ duration: 320, ease: "Back.Out", scale: 1, targets: this.announceRibbon });
-    this.tweens.add({
-      alpha: 0,
-      delay: 3200,
-      duration: 700,
-      targets: [this.announce, this.announceRibbon],
-    });
+    this.banner = new AnnouncementBanner(this);
   }
 
   private updateFeed(): void {
     const { now } = this.time;
     for (const e of this.gs.drainFeed()) {
       if (e.kind === "notify") {
-        this.showAnnounce(e.text, e.tone);
+        this.banner.queue(e, now);
         continue;
       }
       // no running kill feed on phones — announces (the banner) still show
@@ -851,7 +934,7 @@ export class HudScene extends Scene {
         continue;
       }
       const col = e.team === "radiant" ? "#7fdcff" : "#ff9a8a";
-      const txt = e.killer ? `${e.killer}  ⚔  ${e.victim}` : `${e.victim} has fallen`;
+      const txt = killFeedText(e, this.gs.player?.team ?? null);
       const line = this.add
         .text(0, 0, txt, {
           color: col,
@@ -859,6 +942,7 @@ export class HudScene extends Scene {
           fontSize: "14px",
           stroke: "#1c1410",
           strokeThickness: 3,
+          wordWrap: { width: Math.min(380, this.scale.width - 32) },
         })
         .setOrigin(1, 0)
         .setDepth(44_000);
@@ -881,10 +965,30 @@ export class HudScene extends Scene {
     // below the minimap when it's up top (and below the hint line on portrait phones)
     const hintPad = this.compact && this.scale.height > this.scale.width ? 52 : 18;
     const topY = this.mapY > 200 ? 88 : this.mapY + this.mapH + hintPad;
-    for (const [i, f] of this.feedLines.entries()) {
-      f.text.setPosition(rightX, topY + i * 20);
+    let lineY = topY;
+    for (const f of this.feedLines) {
+      f.text.setPosition(rightX, lineY).setVisible(!this.compact);
+      lineY += f.text.height + 5;
       f.text.setAlpha(Math.min(1, (f.until - now) / 1500));
     }
+  }
+
+  /** The card replaces the combat HUD: everything built so far leaves the
+   *  camera's render and hit-test lists, so a resize or update cannot revive
+   *  a widget under the veil. Rebuilt when a promoted guest earns PLAY AGAIN. */
+  private buildResult(data: MatchResult): void {
+    this.result?.destroy();
+    this.guide?.hide();
+    this.shopOpen = false;
+    this.boardOpen = false;
+    this.shop.setVisible(false);
+    this.board.setVisible(false);
+    this.gs.uiBlocking = true;
+    this.banner.clear();
+    this.cameras.main.ignore(this.children.list);
+    this.result = new ResultCard(this, data, this.gs.canReplay, (action) =>
+      this.gs.leaveResult(action),
+    );
   }
 
   // ---- scoreboard (Tab) ----------------------------------------------------
@@ -893,43 +997,15 @@ export class HudScene extends Scene {
   }
 
   private toggleBoard(): void {
+    if (this.gs.matchResult) {
+      return;
+    }
+    this.guide?.closeGuide(false);
     this.boardOpen = !this.boardOpen;
     this.board.setVisible(this.boardOpen);
     if (this.boardOpen) {
       this.renderBoard();
     }
-  }
-
-  /** One scoreboard line; false when the unit carries no hero state to show. */
-  private renderBoardRow(u: Unit, now: number, colX: number, colW: number, y: number): boolean {
-    const h = u.hero;
-    if (!h) {
-      return false;
-    }
-    const def = HERO_BY_ID[h.defId];
-    const dead = !u.alive;
-    const name = `${def?.name ?? h.defId}  Lv${h.level}${h.isBot ? " (bot)" : ""}`;
-    const status = dead && h.respawnAt > now ? `  ☠ ${Math.ceil((h.respawnAt - now) / 1000)}s` : "";
-    this.board.add(
-      this.add
-        .text(colX, y, name + status, {
-          color: dead ? "#9a8a70" : "#4a3320",
-          fontFamily: FONT,
-          fontSize: "13px",
-        })
-        .setOrigin(0, 0),
-    );
-    const net = Math.floor(h.gold);
-    this.board.add(
-      this.add
-        .text(colX + colW, y, `${h.kills}/${h.deaths}/${h.assists}    🪙${net}`, {
-          color: "#6b5530",
-          fontFamily: FONT,
-          fontSize: "12px",
-        })
-        .setOrigin(1, 0),
-    );
-    return true;
   }
 
   private renderBoard(): void {
@@ -949,7 +1025,6 @@ export class HudScene extends Scene {
 
     const heroes = [...w.units.values()].filter((u) => u.kind === "hero" && u.hero);
     const teams: Team[] = ["radiant", "dire"];
-    // sort() is safe here — filter() already produced a fresh array
     const rosters = teams.map((team) => ({
       list: heroes
         .filter((u) => u.team === team)
@@ -987,7 +1062,6 @@ export class HudScene extends Scene {
         .setOrigin(0.5),
     );
 
-    const { now } = w;
     let stackY = -panelH / 2 + 62;
     for (const [ti, roster] of rosters.entries()) {
       const colX = stacked ? -panelW / 2 + 24 : -panelW / 2 + 34 + ti * (panelW / 2);
@@ -1013,9 +1087,11 @@ export class HudScene extends Scene {
       );
       y += 26;
       for (const u of roster.list) {
-        if (this.renderBoardRow(u, now, colX, colW, y)) {
-          y += rowH;
+        if (!u.hero) {
+          continue;
         }
+        this.addBoardRow(u, u.hero, w.now, colX, colW, y);
+        y += rowH;
       }
       stackY = y + 14;
     }
@@ -1030,39 +1106,81 @@ export class HudScene extends Scene {
     );
   }
 
+  private addBoardRow(
+    u: Unit,
+    h: HeroState,
+    now: number,
+    colX: number,
+    colW: number,
+    y: number,
+  ): void {
+    const def = HERO_BY_ID[h.defId];
+    const dead = !u.alive;
+    const name = `${def?.name ?? h.defId}  Lv${h.level}${h.isBot ? " (bot)" : ""}`;
+    const status = dead && h.respawnAt > now ? `  ☠ ${Math.ceil((h.respawnAt - now) / 1000)}s` : "";
+    this.board.add(
+      this.add
+        .text(colX, y, name + status, {
+          color: dead ? "#9a8a70" : "#4a3320",
+          fontFamily: FONT,
+          fontSize: "13px",
+        })
+        .setOrigin(0, 0),
+    );
+    const net = Math.floor(h.gold);
+    this.board.add(
+      this.add
+        .text(colX + colW, y, `${h.kills}/${h.deaths}/${h.assists}    🪙${net}`, {
+          color: "#6b5530",
+          fontFamily: FONT,
+          fontSize: "12px",
+        })
+        .setOrigin(1, 0),
+    );
+  }
+
   /** Responsive relayout. Desktop keeps the classic bottom bar; phones
    *  (`compact`) use the mobile-MOBA arc layout: minimap + one-line info strip
    *  across the top-left, HP/MP docked bottom-left, and a uniform-size ability
    *  arc bending around the dash button in the bottom-right corner. No space is
    *  reserved for the move stick — it floats and spawns wherever the touch is. */
   private layout(): void {
+    if (this.result) {
+      this.result.layout();
+      return;
+    }
     const W = this.scale.width;
     const H = this.scale.height;
     const inset = safeAreaInset();
-    const cx = W / 2;
-    const compact = W < 760 || H < 520;
+    const compact = W < 1100 || H < 520;
     const portraitOrient = H > W;
+    const narrowHeader = portraitOrient && W - inset.left - inset.right < 360;
     this.compact = compact;
+    const ctx: LayoutCtx = {
+      H,
+      W,
+      compact,
+      cx: W / 2,
+      inset,
+      iy: 8 + inset.top,
+      left: 8 + inset.left,
+      narrowHeader,
+      portraitOrient,
+    };
 
     this.layoutWidgetForms(compact);
-    this.layoutMinimap(compact, W, H, inset);
-    const { iy, left, stripX } = this.layoutInfo(compact, portraitOrient, inset);
-    this.layoutUtilityButtons(compact, portraitOrient, left, stripX, iy);
-    this.layoutScore(compact, portraitOrient, W, cx, inset);
-    this.applyWidgetPositions(compact, this.layoutBars(compact, portraitOrient, W, H, cx, inset));
-
-    if (this.shop) {
-      this.shop.setPosition(cx, H / 2);
-      this.shop.setScale(Math.min(1, (W - 20) / 430, (H - 20) / Math.max(1, this.shopPanelH)));
-    }
-    this.respawnText.setPosition(cx, H / 2 - 120);
-
-    if (this.danger) {
-      this.danger.setSize(W, H).setPosition(0, 0);
-    }
-    if (this.vignette) {
-      this.vignette.setDisplaySize(W, H).setPosition(0, 0);
-    }
+    const stripX = this.layoutMinimap(ctx);
+    this.layoutInfoStrip(ctx, stripX);
+    this.layoutUiButtons(ctx, stripX);
+    this.layoutScore(ctx);
+    const dock = compact ? this.layoutCompactDock(ctx) : this.layoutDesktopDock(ctx);
+    this.hpTrack?.setPosition(this.hpBar.x, this.hpBar.y).setSize(this.barW, this.hpBar.height);
+    this.mpTrack?.setPosition(this.mpBar.x, this.mpBar.y).setSize(this.barW, this.mpBar.height);
+    this.fitPortrait();
+    this.placeDock(dock, compact);
+    this.layoutOverlays(ctx);
+    this.banner.layout();
+    this.layoutAbilityGuide();
   }
 
   /** Flip every dual-form widget to the mode's look (invisible = untappable,
@@ -1093,13 +1211,7 @@ export class HudScene extends Scene {
     } else {
       this.dashCdCircle.setVisible(false);
     }
-    let dashText = "F\ndash";
-    if (compact) {
-      dashText = "⚡";
-    } else if (this.touchUi) {
-      dashText = "⚡\ndash";
-    }
-    this.dashLabel.setText(dashText).setFontSize(compact ? 20 : 11);
+    this.dashLabel.setText(this.dashLabelText(compact)).setFontSize(compact ? 20 : 11);
     for (const s of this.itemSlots) {
       s.panel.setVisible(!compact);
       s.box.setVisible(!compact);
@@ -1112,14 +1224,25 @@ export class HudScene extends Scene {
       s.icon.setDisplaySize(compact ? 26 : 30, compact ? 26 : 30);
     }
     if (this.barPanel) {
-      this.barPanel.setVisible(!compact);
+      this.barPanel.setVisible(true);
     }
   }
 
-  /** Minimap: bottom-right on desktop, half-size top-LEFT on phones (the right
-   *  edge belongs to the thumb arc). */
-  private layoutMinimap(compact: boolean, W: number, H: number, inset: SafeAreaInset): void {
-    const mapK = compact ? 0.5 : 1;
+  private dashLabelText(compact: boolean): string {
+    if (compact) {
+      return "⚡";
+    }
+    return this.touchUi ? "⚡\ndash" : "F\ndash";
+  }
+
+  /** Minimap: bottom-right on desktop, half-size top-LEFT on phones (the
+   *  right edge belongs to the thumb arc). Returns the x where the info strip
+   *  starts beside it. */
+  private layoutMinimap({ W, H, inset, compact, narrowHeader }: LayoutCtx): number {
+    let mapK = compact ? 0.5 : 1;
+    if (narrowHeader) {
+      mapK = Math.max(72, Math.min(96, W - inset.left - inset.right - 224)) / MINIMAP_SIZE;
+    }
     this.mapW = Math.round(MINIMAP_SIZE * mapK);
     this.mapH = Math.round(MINIMAP_H * mapK);
     this.mapScale = this.mapW / WORLD.width;
@@ -1140,65 +1263,73 @@ export class HudScene extends Scene {
     }
     this.drawMapTerrain();
     this.mapNextRedrawAt = 0;
+    return this.mapX + this.mapW + 22;
   }
 
   /** Info: desktop = the classic top-left parchment panel; compact = a slim
    *  strip beside the minimap (one line landscape, two lines portrait). */
-  private layoutInfo(compact: boolean, portraitOrient: boolean, inset: SafeAreaInset): InfoAnchors {
-    const left = 8 + inset.left;
-    const iy = 8 + inset.top;
-    const stripX = this.mapX + this.mapW + 22;
-    let goldSize = 18;
-    if (compact) {
-      goldSize = portraitOrient ? 12 : 13;
-    }
-    this.goldText.setFontSize(goldSize);
-    this.clockText.setFontSize(compact ? 11 : 14);
-    this.kdaText.setFontSize(compact ? 11 : 14);
-    if (compact) {
-      if (portraitOrient) {
-        this.infoPanel.setPosition(stripX, iy).setSize(150, 40);
-        this.goldText.setPosition(stripX + 10, iy + 5);
-        this.clockText.setPosition(stripX + 84, iy + 7);
-        this.kdaText.setPosition(stripX + 10, iy + 23);
-      } else {
-        this.infoPanel.setPosition(stripX, iy).setSize(220, 30);
-        this.goldText.setPosition(stripX + 12, iy + 6);
-        this.clockText.setPosition(stripX + 80, iy + 8);
-        this.kdaText.setPosition(stripX + 134, iy + 8);
-      }
+  private layoutInfoStrip(ctx: LayoutCtx, stripX: number): void {
+    const { compact, portraitOrient, narrowHeader, left, iy } = ctx;
+    this.goldText.setFontSize(goldFontSize(compact, portraitOrient));
+    this.clockText.setFontSize(compact ? 11 : 14).setOrigin(0, 0);
+    this.kdaText.setFontSize(compact ? 11 : 13);
+    if (compact && portraitOrient) {
+      this.infoPanel.setPosition(stripX, iy).setSize(narrowHeader ? 132 : 150, 40);
+      this.goldText.setPosition(stripX + 10, iy + 5);
+      this.clockText.setPosition(stripX + (narrowHeader ? 10 : 84), iy + (narrowHeader ? 23 : 7));
+      this.kdaText.setPosition(stripX + (narrowHeader ? 60 : 10), iy + 23);
+    } else if (compact) {
+      this.infoPanel.setPosition(stripX, iy).setSize(220, 30);
+      this.goldText.setPosition(stripX + 12, iy + 6);
+      this.clockText.setPosition(stripX + 80, iy + 8);
+      this.kdaText.setPosition(stripX + 134, iy + 8);
     } else {
-      this.infoPanel.setPosition(left, iy).setSize(226, 112);
+      this.infoPanel.setPosition(left, iy).setSize(288, 118);
       this.goldText.setPosition(left + 16, iy + 12);
-      this.clockText.setPosition(left + 16, iy + 38);
-      this.kdaText.setPosition(left + 16, iy + 60);
+      this.clockText.setOrigin(1, 0).setPosition(left + 272, iy + 14);
+      this.kdaText.setPosition(left + 16, iy + 38);
     }
-    this.apText.setPosition(left + 16, iy + 82).setVisible(!compact);
-    return { iy, left, stripX };
+    this.apText.setVisible(!compact).setOrigin(0.5, 1).setColor("#fff0bf").setStroke("#30291d", 3);
+    this.layoutObjectiveText(ctx, stripX);
+  }
+
+  private layoutObjectiveText(ctx: LayoutCtx, stripX: number): void {
+    const { W, cx, inset, compact, portraitOrient, narrowHeader, iy } = ctx;
+    if (!this.objectiveText) {
+      return;
+    }
+    if (compact) {
+      this.objectiveText
+        .setPosition(stripX, iy + (portraitOrient ? 88 : 78))
+        .setOrigin(0, 0)
+        .setFontSize(11)
+        .setWordWrapWidth(W - stripX - inset.right - (narrowHeader ? 66 : 12));
+    } else {
+      this.objectiveText
+        .setPosition(cx, 68)
+        .setOrigin(0.5, 0)
+        .setFontSize(13)
+        .setWordWrapWidth(420);
+    }
   }
 
   /** Utility buttons: glyph roundels under the info strip on compact, the
    *  classic word-pill column under the info panel on desktop. */
-  private layoutUtilityButtons(
-    compact: boolean,
-    portraitOrient: boolean,
-    left: number,
-    stripX: number,
-    iy: number,
-  ): void {
+  private layoutUiButtons(ctx: LayoutCtx, stripX: number): void {
+    const { compact, portraitOrient, narrowHeader, left, iy } = ctx;
     for (const [i, b] of this.uiButtons.entries()) {
       b.bg.setVisible(!compact);
       b.img.setVisible(compact);
       b.txt.setText(compact ? b.glyph : b.word).setFontSize(compact ? 17 : 13);
       if (compact) {
-        const bx = stripX + 20 + i * 46;
+        const bx = stripX + (narrowHeader ? 22 + i * 44 : 20 + i * 46);
         const by = iy + (portraitOrient ? 62 : 52);
         b.img.setPosition(bx, by);
         b.txt.setPosition(bx, by - 1);
       } else {
-        const bx = left + 46;
-        const by = iy + 136 + i * 54;
-        b.bg.setPosition(bx, by);
+        const bx = left + 48 + i * 96;
+        const by = iy + 88;
+        b.bg.setPosition(bx, by).setSize(88, 46);
         b.txt.setPosition(bx, by - 3);
       }
     }
@@ -1206,108 +1337,101 @@ export class HudScene extends Scene {
 
   /** Score: top-center ribbon on desktop; a small capsule on compact
    *  (top-center landscape, tucked top-right on portrait where the strip ends). */
-  private layoutScore(
-    compact: boolean,
-    portraitOrient: boolean,
-    W: number,
-    cx: number,
-    inset: SafeAreaInset,
-  ): void {
+  private layoutScore({ W, cx, inset, compact, portraitOrient }: LayoutCtx): void {
     this.scoreRibbon.setVisible(!compact);
     this.scorePanel.setVisible(compact);
-    let scoreSize = 20;
     if (compact) {
-      scoreSize = portraitOrient ? 11 : 13;
-    }
-    this.teamScore.setFontSize(scoreSize);
-    if (compact) {
+      this.teamScore.setFontSize(portraitOrient ? 11 : 13);
       const sx = portraitOrient ? W - 54 - inset.right : cx;
       this.scorePanel
         .setPosition(sx, 6 + inset.top)
         .setDisplaySize(portraitOrient ? 64 : 84, portraitOrient ? 24 : 28);
       this.teamScore.setPosition(sx, (portraitOrient ? 11 : 12) + inset.top);
     } else {
+      this.teamScore.setFontSize(20);
       this.scoreRibbon.setPosition(cx, 4).setSize(252, 60);
       this.teamScore.setPosition(cx, 18);
     }
   }
 
-  /** HP/MP bars and portrait, plus the ability/dash/item anchor points. */
-  private layoutBars(
-    compact: boolean,
-    portraitOrient: boolean,
-    W: number,
-    H: number,
-    cx: number,
-    inset: SafeAreaInset,
-  ): BarLayout {
-    const slotPos: Point[] = [];
-    const itemPos: Point[] = [];
-    let dashPos: Point = { x: 0, y: 0 };
-    if (compact) {
-      // bars: docked bottom-LEFT (the floating stick is invisible and spawns
-      // at the touch point, so nothing is displaced by it)
-      const bLeft = 14 + inset.left;
-      const bBot = H - 14 - inset.bottom;
-      this.barW = portraitOrient ? 150 : 170;
-      this.portraitSize = 34;
-      this.portrait.setPosition(bLeft + 17, bBot - 22).setDisplaySize(34, 34);
-      this.lvlText.setPosition(bLeft + 17, bBot - 10).setFontSize(12);
-      const barX = bLeft + 42;
-      this.hpBar.setPosition(barX, bBot - 28);
-      this.hpBar.height = 11;
-      this.mpBar.setPosition(barX, bBot - 12);
-      this.mpBar.height = 7;
-      this.hpText.setPosition(barX + this.barW / 2, bBot - 28).setFontSize(11);
-      this.mpText.setPosition(barX + this.barW / 2, bBot - 12).setFontSize(10);
+  /** Narrow phones lift the resource card above the lower arc so it remains
+   *  readable without shrinking the spell targets or overlapping R. */
+  private layoutCompactDock({ W, H, inset, portraitOrient }: LayoutCtx): DockLayout {
+    const usableWidth = W - inset.left - inset.right;
+    const liftVitals = portraitOrient && usableWidth < 390;
+    const bLeft = 14 + inset.left;
+    const bBot = H - 12 - inset.bottom - (liftVitals ? 132 : 0);
+    this.barW = portraitOrient ? Math.max(96, Math.min(124, usableWidth - 210)) : 170;
+    this.portraitSize = 42;
+    this.barPanel.setPosition(bLeft + (this.barW + 56) / 2, bBot - 25).setSize(this.barW + 72, 70);
+    this.portrait.setPosition(bLeft + 23, bBot - 28);
+    this.portraitFrame?.setPosition(bLeft + 23, bBot - 28).setDisplaySize(50, 54);
+    this.lvlText.setPosition(bLeft + 23, bBot - 6).setFontSize(13);
+    const barX = bLeft + 54;
+    this.hpBar.setPosition(barX, bBot - 38);
+    this.hpBar.height = 12;
+    this.mpBar.setPosition(barX, bBot - 23);
+    this.mpBar.height = 8;
+    this.hpText.setPosition(barX + this.barW / 2, bBot - 38).setFontSize(11);
+    this.mpText.setPosition(barX + this.barW / 2, bBot - 23).setFontSize(10);
+    this.xpBg?.setPosition(barX, bBot - 13).setSize(this.barW, 3);
+    this.xpFill?.setPosition(barX, bBot - 13);
+    this.xpText?.setPosition(barX + this.barW / 2, bBot - 4).setFontSize(9);
 
-      // ability arc: dash anchors the corner, Q/W/E/R fan on a quarter-arc
-      const ax = W - 40 - inset.right;
-      const ay = H - 40 - inset.bottom;
-      const arcRadius = portraitOrient ? 100 : 112;
-      dashPos = { x: ax, y: ay };
-      for (let i = 0; i < this.slots.length; i += 1) {
-        const phi = (ARC_START_DEG + (i * ARC_SPAN_DEG) / (this.slots.length - 1)) * DEG;
-        slotPos.push({ x: ax - arcRadius * Math.sin(phi), y: ay - arcRadius * Math.cos(phi) });
-      }
-      // owned item chips: a column rising from just above the arc (update()
-      // assigns positions because ownership changes mid-match)
-      this.itemColX = ax - 6;
-      this.itemColY = ay - arcRadius - 54;
-    } else {
-      const baseY = H - 50;
-      this.barW = 200;
-      this.portraitSize = 74;
-      if (this.barPanel) {
-        this.barPanel.setPosition(cx - 104, baseY).setSize(this.barW + 130, 86);
-      }
-      this.portrait.setPosition(cx - 220, baseY).setDisplaySize(74, 74);
-      this.lvlText.setPosition(cx - 220, baseY + 22).setFontSize(20);
-
-      const barX = cx - 175;
-      this.hpBar.setPosition(barX, baseY - 14);
-      this.hpBar.height = 16;
-      this.mpBar.setPosition(barX, baseY + 6);
-      this.mpBar.height = 10;
-      this.hpText.setPosition(barX + this.barW / 2, baseY - 14).setFontSize(12);
-      this.mpText.setPosition(barX + this.barW / 2, baseY + 6).setFontSize(11);
-
-      const startX = cx + 60;
-      dashPos = { x: startX - 64, y: baseY };
-      for (let i = 0; i < this.slots.length; i += 1) {
-        slotPos.push({ x: startX + i * 66, y: baseY });
-      }
-      // inventory slots: a 3x2 grid to the right of the ability bar
-      const itemX0 = startX + KEYS.length * 66 + 24;
-      for (let i = 0; i < this.itemSlots.length; i += 1) {
-        itemPos.push({ x: itemX0 + (i % 3) * 42, y: baseY - 20 + Math.floor(i / 3) * 42 });
-      }
+    // ability arc: dash anchors the corner, Q/W/E/R fan on a quarter-arc
+    const ax = W - 40 - inset.right;
+    const ay = H - 40 - inset.bottom;
+    const arcRadius = 112;
+    const slotPos: { x: number; y: number }[] = [];
+    for (let i = 0; i < this.slots.length; i += 1) {
+      const phi = (ARC_START_DEG + (i * ARC_SPAN_DEG) / (this.slots.length - 1)) * DEG;
+      slotPos.push({ x: ax - arcRadius * Math.sin(phi), y: ay - arcRadius * Math.cos(phi) });
     }
-    return { dashPos, itemPos, slotPos };
+    // owned item chips: a column rising from just above the arc (update()
+    // assigns positions because ownership changes mid-match)
+    this.itemColX = ax - 6;
+    this.itemColY = ay - arcRadius - 54;
+    return { dashPos: { x: ax, y: ay }, itemPos: [], slotPos };
   }
 
-  private applyWidgetPositions(compact: boolean, bars: BarLayout): void {
-    const { dashPos, itemPos, slotPos } = bars;
+  /** Center a single dock in the space left of the minimap. Every section
+   *  shares its baseline; the last item cell cannot sit under the map. */
+  private layoutDesktopDock({ H, inset }: LayoutCtx): DockLayout {
+    const dockLeft = (16 + inset.left + this.mapX - 32 - 768) / 2;
+    const baseY = H - 54 - inset.bottom;
+    this.barW = 184;
+    this.portraitSize = 62;
+    this.barPanel.setPosition(dockLeft + 141, baseY).setSize(282, 92);
+    this.portrait.setPosition(dockLeft + 43, baseY - 2);
+    this.portraitFrame?.setPosition(dockLeft + 43, baseY).setDisplaySize(74, 78);
+    this.lvlText.setPosition(dockLeft + 43, baseY + 27).setFontSize(17);
+
+    const barX = dockLeft + 88;
+    this.hpBar.setPosition(barX, baseY - 21);
+    this.hpBar.height = 16;
+    this.mpBar.setPosition(barX, baseY + 1);
+    this.mpBar.height = 10;
+    this.hpText.setPosition(barX + this.barW / 2, baseY - 21).setFontSize(12);
+    this.mpText.setPosition(barX + this.barW / 2, baseY + 1).setFontSize(11);
+    this.xpBg?.setPosition(barX, baseY + 18).setSize(this.barW, 3);
+    this.xpFill?.setPosition(barX, baseY + 18);
+    this.xpText?.setPosition(barX + this.barW / 2, baseY + 30).setFontSize(10);
+
+    const startX = dockLeft + 386;
+    const slotPos: { x: number; y: number }[] = [];
+    for (let i = 0; i < this.slots.length; i += 1) {
+      slotPos.push({ x: startX + i * 68, y: baseY });
+    }
+    this.apText.setPosition(startX + 102, baseY - 48).setFontSize(13);
+    const itemX0 = dockLeft + 658;
+    const itemPos: { x: number; y: number }[] = [];
+    for (let i = 0; i < this.itemSlots.length; i += 1) {
+      itemPos.push({ x: itemX0 + (i % 3) * 44, y: baseY - 22 + Math.floor(i / 3) * 44 });
+    }
+    return { dashPos: { x: dockLeft + 318, y: baseY }, itemPos, slotPos };
+  }
+
+  private placeDock({ dashPos, slotPos, itemPos }: DockLayout, compact: boolean): void {
     if (this.dashBox) {
       this.dashPanel.setPosition(dashPos.x, dashPos.y);
       this.dashBox.setPosition(dashPos.x, dashPos.y);
@@ -1347,24 +1471,61 @@ export class HudScene extends Scene {
     }
   }
 
-  override update(): void {
+  private layoutOverlays({ W, H, cx, compact }: LayoutCtx): void {
+    if (this.shop) {
+      this.shop.setPosition(cx, H / 2);
+      this.shop.setScale(Math.min(1, (W - 20) / 430, (H - 20) / Math.max(1, this.shopPanelH)));
+    }
+    const respawnY = compact ? Math.max(H / 2 - 120, H * 0.45) : H / 2 - 120;
+    this.respawnText.setPosition(cx, respawnY).setFontSize(compact ? 28 : 42);
+    this.respawnTipText
+      ?.setPosition(cx, respawnY + (compact ? 30 : 40))
+      .setFontSize(compact ? 13 : 15)
+      .setWordWrapWidth(Math.min(480, W - 32));
+
+    if (this.danger) {
+      this.danger.setSize(W, H).setPosition(0, 0);
+    }
+    if (this.vignette) {
+      this.vignette.setDisplaySize(W, H).setPosition(0, 0);
+    }
+  }
+
+  private fitPortrait(): void {
+    const me = this.gs.player;
+    if (!me?.hero) {
+      return;
+    }
+    const { texture, crop } = heroPortrait(me.hero.defId, me.team);
+    if (!this.textures.exists(texture)) {
+      return;
+    }
+    this.portrait.setTexture(texture, 0);
+    this.portrait
+      .setCrop(crop.x, crop.y, crop.width, crop.height)
+      .setOrigin(
+        (crop.x + crop.width / 2) / this.portrait.width,
+        (crop.y + crop.height / 2) / this.portrait.height,
+      )
+      .setScale(this.portraitSize / Math.max(crop.width, crop.height));
+  }
+
+  override update(_t: number, delta: number): void {
+    const result = this.gs.matchResult;
+    if (result) {
+      if (!this.result || this.result.canReplay !== this.gs.canReplay) {
+        this.buildResult(result);
+      }
+      // final objectives cannot repaint over the result
+      this.gs.drainFeed();
+      return;
+    }
     // auto-close the shop if the player dies while it's open, so uiBlocking can't
     // strand a freshly-respawned hero frozen.
     if (this.shopOpen && !this.gs?.player?.alive) {
       this.toggleShop();
     }
-    this.pollPad();
-    // minimap / feed / scoreboard run even while the player is dead or unspawned
-    this.updateMinimap();
-    this.updateFeed();
-    // scoreboard refreshes at 4Hz, not per frame — renderBoard rebuilds every
-    // Text object, which is far too much churn to run at 60fps while Tab is held
-    if (this.boardOpen && this.time.now >= this.boardNextRenderAt) {
-      this.boardNextRenderAt = this.time.now + 250;
-      this.renderBoard();
-    }
-    this.updateTeamScore();
-    this.updateDangerPulse();
+    this.updateAmbientWidgets(delta);
 
     const me = this.gs?.player;
     const world = this.gs?.worldRef;
@@ -1372,20 +1533,47 @@ export class HudScene extends Scene {
       return;
     }
     const h = me.hero;
-    this.updateInfoText(h, world);
-    this.updateDashCooldown(h, world);
+    this.updateTopLeft(h, world);
+    if (this.dashCd) {
+      this.updateDash(me, h, world);
+    }
     this.updatePortraitAndBars(me, h);
-    this.updateAbilitySlots(me, h, world);
-    this.updateItemSlots(h, world);
-    this.updateShopAffordability(h);
-    this.updateRespawnOverlay(me, h, world);
+    const def = HERO_BY_ID[h.defId];
+    for (const s of this.slots) {
+      const ad = def?.abilities[s.key];
+      if (ad) {
+        this.updateAbilitySlot(s, ad, me, h, world);
+      }
+    }
+    this.updateItems(h, world);
+    if (this.shopOpen) {
+      this.updateShopAffordability(h);
+    }
+    this.updateRespawn(me, h, world);
   }
 
-  private updateTeamScore(): void {
-    const wRef = this.gs?.worldRef;
-    if (!wRef || !this.teamScore) {
-      return;
+  /** Minimap / feed / scoreboard run even while the player is dead or unspawned. */
+  private updateAmbientWidgets(delta: number): void {
+    this.guide?.refresh();
+    this.updateGuidance();
+    this.pollPad();
+    this.updateMinimap();
+    this.updateFeed();
+    this.banner.update(Math.min(delta, 100), this.time.now);
+    // scoreboard refreshes at 4Hz, not per frame — renderBoard rebuilds every
+    // Text object, which is far too much churn to run at 60fps while Tab is held
+    if (this.boardOpen && this.time.now >= this.boardNextRenderAt) {
+      this.boardNextRenderAt = this.time.now + 250;
+      this.renderBoard();
     }
+    const wRef = this.gs?.worldRef;
+    if (wRef && this.teamScore) {
+      this.updateTeamScore(wRef);
+    }
+    this.updateDangerPulse();
+  }
+
+  private updateTeamScore(wRef: World): void {
     let rk = 0;
     let dk = 0;
     for (const u of wRef.units.values()) {
@@ -1408,12 +1596,15 @@ export class HudScene extends Scene {
     }
     const p = this.gs?.player;
     const pct = p && p.alive && p.maxHp > 0 ? p.hp / p.maxHp : 1;
-    this.danger.setAlpha(
-      pct < 0.3 ? 0.18 * (1 - pct / 0.3) * (0.55 + 0.45 * Math.sin(this.time.now / 170)) : 0,
-    );
+    if (pct >= 0.3) {
+      this.danger.setAlpha(0);
+      return;
+    }
+    const pulse = reducedMotion() ? 1 : 0.55 + 0.45 * Math.sin(this.time.now / 170);
+    this.danger.setAlpha(0.18 * (1 - pct / 0.3) * pulse);
   }
 
-  private updateInfoText(h: HeroState, world: World): void {
+  private updateTopLeft(h: HeroState, world: World): void {
     this.goldText.setText(`🪙 ${Math.floor(h.gold)}`);
     const mins = Math.floor(world.gameTime / 60);
     const secs = Math.floor(world.gameTime % 60);
@@ -1423,7 +1614,7 @@ export class HudScene extends Scene {
     this.kdaText.setText(
       this.compact
         ? `KDA ${h.kills}/${h.deaths}/${h.assists}`
-        : `K ${h.kills}  D ${h.deaths}  A ${h.assists}  ·  LH ${h.lastHits}`,
+        : `KDA ${h.kills}/${h.deaths}/${h.assists}   ·   LAST HITS ${h.lastHits}`,
     );
     this.apText.setText(
       h.abilityPoints > 0
@@ -1435,30 +1626,46 @@ export class HudScene extends Scene {
   }
 
   /** Dash (F) cooldown (5s). */
-  private updateDashCooldown(h: HeroState, world: World): void {
-    if (!this.dashCd) {
-      return;
-    }
+  private updateDash(me: Unit, h: HeroState, world: World): void {
     const left = Math.max(0, (h.dashReadyAt - world.now) / 1000);
-    const cooling = left > 0.05;
+    const cooling = left > 0;
+    const availability = actionAvailability(me, world.now, { kind: "dash" });
+    const blocked = availability.kind === "blocked" && availability.reason !== "cooldown";
+    const stroke = blocked || cooling ? 0x8a_73_50 : 0x4a_90_d9;
     if (this.compact) {
       this.dashCd.setVisible(false);
-      this.dashCdCircle.setVisible(cooling);
-      this.dashCircle.setStrokeStyle(2, cooling ? 0x8a_73_50 : 0x4a_90_d9);
+      this.dashCdCircle.setVisible(cooling || blocked);
+      this.dashCircle.setStrokeStyle(2, stroke);
     } else {
       this.dashCdCircle.setVisible(false);
-      this.dashCd.setVisible(cooling);
-      this.dashCd.height = 58 * Math.min(1, left / 5);
-      this.dashBox.setStrokeStyle(2, cooling ? 0x8a_73_50 : 0x4a_90_d9);
+      this.dashCd.setVisible(cooling || blocked);
+      this.dashCd.height = 58 * (blocked ? 1 : Math.min(1, left / 5));
+      this.dashBox.setStrokeStyle(2, stroke);
+    }
+    const label =
+      blocked && availability.kind === "blocked" ? AVAILABILITY_LABEL[availability.reason] : null;
+    if (label) {
+      this.dashLabel.setText(`${label}${cooling ? `\n${Math.ceil(left)}s` : ""}`).setFontSize(11);
+    } else {
+      this.dashLabel.setText(this.dashLabelText(this.compact)).setFontSize(this.compact ? 20 : 11);
+    }
+    const labelColor = label ? "#ffe8b0" : "#3a5a78";
+    if (this.dashLabel.style.color !== labelColor) {
+      this.dashLabel.setColor(labelColor);
     }
   }
 
   private updatePortraitAndBars(me: Unit, h: HeroState): void {
-    const tex = heroSheetTex(h.defId, me.team);
-    if (this.portrait.texture.key !== tex && this.textures.exists(tex)) {
-      this.portrait.setTexture(tex, 0).setDisplaySize(this.portraitSize, this.portraitSize);
+    const portrait = heroPortrait(h.defId, me.team);
+    if (this.portrait.texture.key !== portrait.texture) {
+      this.fitPortrait();
     }
     this.lvlText.setText(`${h.level}`);
+    const experience = experienceProgress(h);
+    if (this.xpFill) {
+      this.xpFill.width = this.barW * experience.fraction;
+    }
+    this.xpText?.setText(experience.text);
 
     const hpPct = Math.max(0, me.hp / me.maxHp);
     const mpPct = Math.max(0, me.mp / Math.max(1, me.maxMp));
@@ -1468,91 +1675,112 @@ export class HudScene extends Scene {
     this.mpText.setText(`${Math.ceil(Math.max(0, me.mp))} / ${Math.round(me.maxMp)}`);
   }
 
-  private updateAbilitySlots(me: Unit, h: HeroState, world: World): void {
-    const def = HERO_BY_ID[h.defId];
-    for (const s of this.slots) {
-      const ad = def?.abilities[s.key];
-      const slot = h.abilities[s.key];
-      if (!ad) {
-        continue;
-      }
-      const { rank } = slot;
-      // tappable level-up badge while points are banked (touch/guest path)
-      s.plus.setVisible(me.alive && h.abilityPoints > 0 && rank < ad.maxRank);
-      this.syncAbilityIcon(s, ad);
-      for (const [j, p] of s.pips.entries()) {
-        p.setFillStyle(j < rank ? 0xff_e1_4a : 0x39_45_6a);
-      }
-      const cdLeft = Math.max(0, (slot.readyAt - world.now) / 1000);
-      const cdTotal = rank > 0 ? valAt(ad.cooldown, rank) : 1;
-      this.applyAbilitySlotState(s, ad, me, rank, cdLeft, cdTotal);
+  /** One veil per form: the desktop rect drains bottom-up, the compact
+   *  circle just dims the whole button (no drain on phones). */
+  private slotVeil(s: Slot, on: boolean, frac: number, color: number, alpha: number): void {
+    if (this.compact) {
+      s.cd.setVisible(false);
+      s.cdCircle.setVisible(on).setFillStyle(color, alpha);
+    } else {
+      s.cdCircle.setVisible(false);
+      s.cd.setVisible(on).setFillStyle(color, on ? alpha : 0);
+      s.cd.height = 58 * frac;
     }
   }
 
-  /** Ability spell icon (set once per hero). */
-  private syncAbilityIcon(s: Slot, ad: AbilityDef): void {
+  private updateAbilitySlot(s: Slot, ad: AbilityDef, me: Unit, h: HeroState, world: World): void {
+    const slot = h.abilities[s.key];
+    const { rank } = slot;
+    // tappable level-up badge while points are banked (touch/guest path)
+    const upgrade = abilityUpgrade(h, s.key);
+    s.plus.setVisible(me.alive && upgrade.kind === "available");
+    // ability spell icon (set once per hero)
     const iconFrame = abilityIconFrame(ad.effect);
-    if (iconFrame === null || !this.textures.exists("spell-icons")) {
-      return;
+    if (iconFrame !== null && this.textures.exists("spell-icons")) {
+      if (s.iconFrame !== iconFrame) {
+        s.iconFrame = iconFrame;
+        const sz = this.compact ? 32 : 50;
+        s.icon.setTexture("spell-icons", iconFrame).setDisplaySize(sz, sz);
+      }
+      s.icon.setVisible(true);
     }
-    if (s.iconFrame !== iconFrame) {
-      s.iconFrame = iconFrame;
-      const sz = this.compact ? 32 : 50;
-      s.icon.setTexture("spell-icons", iconFrame).setDisplaySize(sz, sz);
+    for (const [j, p] of s.pips.entries()) {
+      p.setFillStyle(j < rank ? 0xff_e1_4a : 0x39_45_6a);
     }
-    s.icon.setVisible(true);
+    const cdLeft = Math.max(0, (slot.readyAt - world.now) / 1000);
+    const cdTotal = rank > 0 ? valAt(ad.cooldown, rank) : 1;
+    const cue: SlotCue = { cdLeft, cdTotal, fontSize: 20, label: "" };
+    this.paintAbilityState(s, ad, me, rank, upgrade, cue);
+    this.paintAbilityBlock(s, me, h, world, cue);
+    s.cdText.setFontSize(cue.fontSize).setText(cue.label);
   }
 
-  /** Cooldown/mana veil and border for one ability slot. */
-  private applyAbilitySlotState(
+  private paintAbilityState(
     s: Slot,
     ad: AbilityDef,
     me: Unit,
     rank: number,
-    cdLeft: number,
-    cdTotal: number,
+    upgrade: ReturnType<typeof abilityUpgrade>,
+    cue: SlotCue,
   ): void {
-    // one veil per form: the desktop rect drains bottom-up, the compact
-    // circle just dims the whole button (no drain on phones)
-    const veil = (on: boolean, frac: number, color: number, alpha: number): void => {
-      if (this.compact) {
-        s.cd.setVisible(false);
-        s.cdCircle.setVisible(on).setFillStyle(color, alpha);
-      } else {
-        s.cdCircle.setVisible(false);
-        s.cd.setVisible(on).setFillStyle(color, on ? alpha : 0);
-        s.cd.height = 58 * frac;
-      }
-    };
-    const stroke = (w: number, color: number): void => {
-      s.box.setStrokeStyle(w, color);
-      s.circle.setStrokeStyle(w, color);
-    };
     if (rank <= 0) {
-      veil(true, 1, 0x00_00_00, 0.6);
-      s.cdText.setText("");
+      this.slotVeil(s, true, 1, 0x00_00_00, 0.6);
       // unlearned
       s.icon.setAlpha(0.32);
-      stroke(2, 0x6b_55_30);
-    } else if (cdLeft > 0.05) {
-      veil(true, Math.min(1, cdLeft / cdTotal), 0x00_00_00, 0.6);
-      s.cdText.setText(cdLeft >= 1 ? `${Math.ceil(cdLeft)}` : "");
+      slotStroke(s, 2, 0x6b_55_30);
+      if (upgrade.kind === "level") {
+        cue.label = `LV ${upgrade.level}`;
+        cue.fontSize = 13;
+      }
+    } else if (cue.cdLeft > 0) {
+      this.slotVeil(s, true, Math.min(1, cue.cdLeft / cue.cdTotal), 0x00_00_00, 0.6);
+      cue.label = cue.cdLeft >= 1 ? `${Math.ceil(cue.cdLeft)}` : "";
       // on cooldown
       s.icon.setAlpha(0.4);
-      stroke(2, 0x8a_73_50);
+      slotStroke(s, 2, 0x8a_73_50);
     } else {
       const manaOk = me.mp >= valAt(ad.manaCost, rank);
-      veil(!manaOk, manaOk ? 0 : 1, 0x1a_3a_6a, 0.5);
-      s.cdText.setText("");
+      this.slotVeil(s, !manaOk, manaOk ? 0 : 1, 0x1a_3a_6a, 0.5);
       // ready / no mana
       s.icon.setAlpha(manaOk ? 1 : 0.6);
-      stroke(manaOk ? 3 : 2, manaOk ? 0x3f_9e_4d : 0x8a_73_50);
+      slotStroke(s, manaOk ? 3 : 2, manaOk ? 0x3f_9e_4d : 0x8a_73_50);
+    }
+  }
+
+  private paintAbilityBlock(s: Slot, me: Unit, h: HeroState, world: World, cue: SlotCue): void {
+    const { cdLeft, cdTotal } = cue;
+    const availability = actionAvailability(me, world.now, { key: s.key, kind: "ability" });
+    if (
+      availability.kind === "blocked" &&
+      availability.reason !== "cooldown" &&
+      availability.reason !== "unlearned" &&
+      availability.reason !== "mana"
+    ) {
+      const passive = availability.reason === "passive";
+      const cooling = cdLeft > 0;
+      this.slotVeil(
+        s,
+        cooling || !passive,
+        cooling ? Math.min(1, cdLeft / cdTotal) : 1,
+        0x00_00_00,
+        0.6,
+      );
+      cue.label = `${AVAILABILITY_LABEL[availability.reason]}${cooling ? `\n${Math.ceil(cdLeft)}s` : ""}`;
+      cue.fontSize = this.compact ? 9 : 10;
+      s.icon.setAlpha(passive ? 0.8 : 0.35);
+      slotStroke(s, 2, passive ? 0x8a_73_50 : 0xa6_6c_58);
+    } else if (me.alive && h.channel?.key === s.key && h.channel.until > world.now) {
+      // The channel is active, not a blanket input lock. Other spells and
+      // dash still show their actual availability; cooldown keeps progressing.
+      cue.label = `CHANNEL${cdLeft > 0 ? `\nCD ${Math.ceil(cdLeft)}s` : ""}`;
+      cue.fontSize = this.compact ? 9 : 10;
+      slotStroke(s, 2, 0x81_bd_d4);
     }
   }
 
   /** Inventory slots. Compact shows owned items only, packed into a column
    *  above the ability arc — position here because ownership changes mid-match. */
-  private updateItemSlots(h: HeroState, world: World): void {
+  private updateItems(h: HeroState, world: World): void {
     let ownedRank = 0;
     for (const [i, s] of this.itemSlots.entries()) {
       const id = h.items[i];
@@ -1560,10 +1788,10 @@ export class HudScene extends Scene {
         const it = ITEM_BY_ID[id];
         s.icon.setVisible(true).setTexture("ui-icons", it?.icon ?? 0);
         const ready = (h.itemActiveReadyAt[id] ?? 0) <= world.now;
-        const strokeColor = itemStrokeColor(it?.active !== undefined, ready);
+        const strokeColor = itemStrokeColor(Boolean(it?.active), ready);
         s.box.setStrokeStyle(2, strokeColor);
         s.circle.setStrokeStyle(2, strokeColor);
-        s.key.setVisible(!this.compact && it?.active !== undefined);
+        s.key.setVisible(!this.compact && !!it?.active);
         if (this.compact) {
           const iy = this.itemColY - ownedRank * 44;
           s.circle.setVisible(true).setPosition(this.itemColX, iy);
@@ -1582,9 +1810,6 @@ export class HudScene extends Scene {
   }
 
   private updateShopAffordability(h: HeroState): void {
-    if (!this.shopOpen) {
-      return;
-    }
     for (const r of this.shopRows) {
       const it = ITEM_BY_ID[r.id];
       const owned = h.items.includes(r.id);
@@ -1594,7 +1819,7 @@ export class HudScene extends Scene {
     }
   }
 
-  private updateRespawnOverlay(me: Unit, h: HeroState, world: World): void {
+  private updateRespawn(me: Unit, h: HeroState, world: World): void {
     if (!me.alive && h.respawnAt > 0) {
       const left = Math.ceil((h.respawnAt - world.now) / 1000);
       this.respawnText.setVisible(true).setText(`Respawning in ${left}s`);

@@ -25,6 +25,7 @@ import {
   ORBIT_COOLDOWN_MS,
   POWER_COOLDOWN_MS,
   ROTATE_COOLDOWN_MS,
+  TPOSE_LEVEL_SLACK,
   TPOSE_WRIST_OUT,
 } from "../shared/constants";
 
@@ -48,19 +49,66 @@ const CALIB_FRAMES = 24;
 const ROTATE_SQUEEZE_FRACTION = 0.58;
 const CATCH_COOLDOWN_MS = 500;
 
-interface PoseFrame {
+/** The keypoints every detector reads, plus the derived frame measures. */
+interface Body {
   leftWrist: Keypoint;
   rightWrist: Keypoint;
+  leftShoulder: Keypoint;
+  rightShoulder: Keypoint;
   nose: Keypoint;
-  /** Sign of (right − left) shoulder x; 0 when the shoulders coincide. */
-  shoulderSign: number;
   shoulderWidth: number;
   shoulderY: number;
   hipY: number;
-  width: number;
-  height: number;
-  now: number;
+  W: number;
+  H: number;
 }
+
+/** Null when any required keypoint is missing from the frame. */
+const readBody = (pose: Pose): Body | null => {
+  const find = (name: string): Keypoint | undefined =>
+    pose.keypoints.find((kp) => kp.name === name);
+  const leftWrist = find("left_wrist");
+  const rightWrist = find("right_wrist");
+  const leftShoulder = find("left_shoulder");
+  const rightShoulder = find("right_shoulder");
+  const leftHip = find("left_hip");
+  const rightHip = find("right_hip");
+  const nose = find("nose");
+  if (
+    !leftWrist ||
+    !rightWrist ||
+    !leftShoulder ||
+    !rightShoulder ||
+    !leftHip ||
+    !rightHip ||
+    !nose
+  ) {
+    return null;
+  }
+  return {
+    H: pose.height || 1,
+    W: pose.width || 1,
+    hipY: (leftHip.y + rightHip.y) / 2,
+    leftShoulder,
+    leftWrist,
+    nose,
+    rightShoulder,
+    rightWrist,
+    shoulderWidth: Math.abs(rightShoulder.x - leftShoulder.x),
+    shoulderY: (leftShoulder.y + rightShoulder.y) / 2,
+  };
+};
+
+/** Nose offset from neutral, dead-zoned, as a steer direction. */
+const steerDir = (off: number): -1 | 0 | 1 => {
+  if (off > NOSE_DEAD_ZONE) {
+    return 1;
+  }
+  if (off < -NOSE_DEAD_ZONE) {
+    return -1;
+  }
+  return 0;
+};
 
 export class PoseControls {
   readonly actions: PoseActions;
@@ -91,9 +139,21 @@ export class PoseControls {
   private circleAngle = 0;
   private circleAccum = 0;
   private hasCircleAngle = false;
+  private actionsPaused = false;
+  private neutralRequired = false;
 
   constructor(actions: PoseActions) {
     this.actions = actions;
+  }
+
+  /** Keep detection/calibration live, then require a fresh body gesture after pause. */
+  setActionsPaused(paused: boolean): void {
+    this.actionsPaused = paused;
+    this.neutralRequired = true;
+    this.hasPrev = false;
+    this.hasCenter = false;
+    this.hasCircleAngle = false;
+    this.circleAccum = 0;
   }
 
   /** Re-run neutral calibration (bound to the recenter key / a settle pose). */
@@ -105,70 +165,142 @@ export class PoseControls {
   }
 
   handlePose = (pose: Pose, ctx: CanvasRenderingContext2D | null): void => {
-    // overlay guides removed with pose-to-pick; skeleton still drawn by PoseCamera
+    // Overlay guides went with pose-to-pick; PoseCamera still draws the skeleton.
     void ctx;
-    const find = (name: string): Keypoint | undefined =>
-      pose.keypoints.find((kp) => kp.name === name);
-
-    const leftWrist = find("left_wrist");
-    const rightWrist = find("right_wrist");
-    const leftShoulder = find("left_shoulder");
-    const rightShoulder = find("right_shoulder");
-    const leftHip = find("left_hip");
-    const rightHip = find("right_hip");
-    const nose = find("nose");
-
-    if (
-      !leftWrist ||
-      !rightWrist ||
-      !leftShoulder ||
-      !rightShoulder ||
-      !leftHip ||
-      !rightHip ||
-      !nose
-    ) {
+    const body = readBody(pose);
+    if (!body) {
       this.hasPrev = false;
       return;
     }
 
     const now = performance.now();
     const dt = this.hasPrev ? Math.max(0.001, (now - this.lastTime) / 1000) : 0.033;
-    const shoulderWidth = Math.abs(rightShoulder.x - leftShoulder.x);
-    const shoulderY = (leftShoulder.y + rightShoulder.y) / 2;
-    const hipY = (leftHip.y + rightHip.y) / 2;
-    const W = pose.width || 1;
-    const H = pose.height || 1;
 
-    // ---- calibration ---------------------------------------------------------
-    if (this.calibCount < CALIB_FRAMES) {
-      this.sumNeutralX += 1 - nose.x / W;
-      this.sumShoulder += shoulderWidth;
-      this.calibCount += 1;
-      if (this.calibCount === CALIB_FRAMES) {
-        this.neutralX = this.sumNeutralX / CALIB_FRAMES;
-        this.baseShoulder = this.sumShoulder / CALIB_FRAMES;
+    this.calibrate(body);
+
+    if (this.actionsPaused || this.neutralRequired) {
+      if (!this.actionsPaused && this.isNeutral(body)) {
+        this.neutralRequired = false;
+        this.holdArmed = true;
+        this.powerArmed = true;
       }
+      this.hasPrev = false;
+      this.lastTime = now;
+      return;
     }
 
     if (this.calibCount >= CALIB_FRAMES) {
-      this.detectGestures({
-        height: H,
-        hipY,
-        leftWrist,
-        nose,
-        now,
-        rightWrist,
-        shoulderSign: Math.sign(rightShoulder.x - leftShoulder.x),
-        shoulderWidth,
-        shoulderY,
-        width: W,
-      });
+      this.actions.steer(steerDir(1 - body.nose.x / body.W - this.neutralX));
+      this.detectCircleOrbit(body.leftWrist, body.rightWrist, body.shoulderY, body.W, body.H, now);
+      this.detectRotate(body, now);
+      this.detectHold(body, now);
+      this.detectPower(body, now);
     }
 
-    // ---- CATCH / START (both wrists thrust UP fast) --------------------------
+    this.detectCatch(body, dt, now);
+    this.lastTime = now;
+  };
+
+  /** Average the first frames into the neutral nose-x and resting shoulder width. */
+  private calibrate({ nose, shoulderWidth, W }: Body): void {
+    if (this.calibCount >= CALIB_FRAMES) {
+      return;
+    }
+    this.sumNeutralX += 1 - nose.x / W;
+    this.sumShoulder += shoulderWidth;
+    this.calibCount += 1;
+    if (this.calibCount === CALIB_FRAMES) {
+      this.neutralX = this.sumNeutralX / CALIB_FRAMES;
+      this.baseShoulder = this.sumShoulder / CALIB_FRAMES;
+    }
+  }
+
+  /** Facing forward, hands down and uncrossed: the pose that re-arms after a pause. */
+  private isNeutral(body: Body): boolean {
+    const {
+      nose,
+      leftWrist,
+      rightWrist,
+      leftShoulder,
+      rightShoulder,
+      shoulderWidth,
+      shoulderY,
+      W,
+    } = body;
+    const off = 1 - nose.x / W - this.neutralX;
+    const uncrossed =
+      Math.sign(rightWrist.x - leftWrist.x) === Math.sign(rightShoulder.x - leftShoulder.x);
+    // Wrists must clear the T-pose level band, not merely dip below the
+    // shoulders, or a T-pose held across the pause re-arms and fires power.
+    const wristsDown = shoulderY + shoulderWidth * TPOSE_LEVEL_SLACK;
+    return (
+      Math.abs(off) <= NOSE_DEAD_ZONE &&
+      shoulderWidth >= ROTATE_SQUEEZE_FRACTION * this.baseShoulder &&
+      leftWrist.y > wristsDown &&
+      rightWrist.y > wristsDown &&
+      uncrossed
+    );
+  }
+
+  /** Turn sideways (shoulders squeeze) to rotate. */
+  private detectRotate({ shoulderWidth }: Body, now: number): void {
+    if (
+      this.baseShoulder > 0 &&
+      shoulderWidth < ROTATE_SQUEEZE_FRACTION * this.baseShoulder &&
+      now - this.lastRotateTime > ROTATE_COOLDOWN_MS &&
+      this.actions.rotate()
+    ) {
+      this.lastRotateTime = now;
+    }
+  }
+
+  /** Crossed wrists at chest height hold/swap the piece. */
+  private detectHold(body: Body, now: number): void {
+    const { leftWrist, rightWrist, leftShoulder, rightShoulder, shoulderY, hipY } = body;
+    const shoulderSign = Math.sign(rightShoulder.x - leftShoulder.x);
+    const wristSign = Math.sign(rightWrist.x - leftWrist.x);
+    const wristsAtChest =
+      leftWrist.y > shoulderY &&
+      leftWrist.y < hipY &&
+      rightWrist.y > shoulderY &&
+      rightWrist.y < hipY;
+    const crossed = shoulderSign !== 0 && wristSign === -shoulderSign && wristsAtChest;
+    if (!crossed) {
+      this.holdArmed = true;
+    }
+    if (this.holdArmed && crossed && now - this.lastHoldTime > HOLD_COOLDOWN_MS) {
+      this.actions.hold();
+      this.holdArmed = false;
+      this.lastHoldTime = now;
+    }
+  }
+
+  /** T-pose (wrists out past the shoulders at shoulder height) spends a power charge. */
+  private detectPower(
+    { leftWrist, rightWrist, shoulderWidth, shoulderY, W }: Body,
+    now: number,
+  ): void {
+    const out = TPOSE_WRIST_OUT * W;
+    const wristSpread = Math.abs(rightWrist.x - leftWrist.x);
+    const wristsLevel =
+      Math.abs(leftWrist.y - shoulderY) < shoulderWidth * TPOSE_LEVEL_SLACK &&
+      Math.abs(rightWrist.y - shoulderY) < shoulderWidth * TPOSE_LEVEL_SLACK;
+    const tpose = wristSpread > shoulderWidth + 2 * out && wristsLevel;
+    if (!tpose) {
+      this.powerArmed = true;
+    }
+    if (this.powerArmed && tpose && now - this.lastPowerTime > POWER_COOLDOWN_MS) {
+      this.actions.power();
+      this.powerArmed = false;
+      this.lastPowerTime = now;
+    }
+  }
+
+  /** Both wrists thrust up fast: catch the collapse / start. */
+  private detectCatch({ leftWrist, rightWrist, H }: Body, dt: number, now: number): void {
     const avgWristY = (leftWrist.y + rightWrist.y) / 2;
     if (this.hasPrev) {
-      // +up, normalised/s
+      // +up, normalised per second.
       const upVel = (this.prevWristY - avgWristY) / dt / H;
       if (upVel > CATCH_WRIST_VELOCITY && now - this.lastCatchTime > CATCH_COOLDOWN_MS) {
         this.actions.catchCollapse();
@@ -177,76 +309,6 @@ export class PoseControls {
     }
     this.prevWristY = avgWristY;
     this.hasPrev = true;
-    this.lastTime = now;
-  };
-
-  /** One calibrated frame's worth of the landmarks every gesture reads. */
-  private detectGestures(f: PoseFrame): void {
-    // ---- STEER (nose-x vs neutral, dead-zoned) -----------------------------
-    const screenX = 1 - f.nose.x / f.width;
-    const off = screenX - this.neutralX;
-    let dir: -1 | 0 | 1 = 0;
-    if (off > NOSE_DEAD_ZONE) {
-      dir = 1;
-    } else if (off < -NOSE_DEAD_ZONE) {
-      dir = -1;
-    }
-    this.actions.steer(dir);
-
-    // ---- ORBIT (circle one raised hand) ------------------------------------
-    this.detectCircleOrbit(f.leftWrist, f.rightWrist, f.shoulderY, f.width, f.height, f.now);
-    this.detectRotate(f);
-    this.detectHold(f);
-    this.detectPower(f);
-  }
-
-  /** ROTATE: turn sideways so the shoulders foreshorten. */
-  private detectRotate(f: PoseFrame): void {
-    if (
-      this.baseShoulder > 0 &&
-      f.shoulderWidth < ROTATE_SQUEEZE_FRACTION * this.baseShoulder &&
-      f.now - this.lastRotateTime > ROTATE_COOLDOWN_MS &&
-      this.actions.rotate()
-    ) {
-      this.lastRotateTime = f.now;
-    }
-  }
-
-  /** HOLD: crossed wrists at chest height. */
-  private detectHold(f: PoseFrame): void {
-    const wristSign = Math.sign(f.rightWrist.x - f.leftWrist.x);
-    const wristsAtChest =
-      f.leftWrist.y > f.shoulderY &&
-      f.leftWrist.y < f.hipY &&
-      f.rightWrist.y > f.shoulderY &&
-      f.rightWrist.y < f.hipY;
-    const crossed = f.shoulderSign !== 0 && wristSign === -f.shoulderSign && wristsAtChest;
-    if (!crossed) {
-      this.holdArmed = true;
-    }
-    if (this.holdArmed && crossed && f.now - this.lastHoldTime > HOLD_COOLDOWN_MS) {
-      this.actions.hold();
-      this.holdArmed = false;
-      this.lastHoldTime = f.now;
-    }
-  }
-
-  /** POWER: T-pose — wrists out past the shoulders, at shoulder height. */
-  private detectPower(f: PoseFrame): void {
-    const out = TPOSE_WRIST_OUT * f.width;
-    const wristSpread = Math.abs(f.rightWrist.x - f.leftWrist.x);
-    const wristsLevel =
-      Math.abs(f.leftWrist.y - f.shoulderY) < f.shoulderWidth * 0.6 &&
-      Math.abs(f.rightWrist.y - f.shoulderY) < f.shoulderWidth * 0.6;
-    const tpose = wristSpread > f.shoulderWidth + 2 * out && wristsLevel;
-    if (!tpose) {
-      this.powerArmed = true;
-    }
-    if (this.powerArmed && tpose && f.now - this.lastPowerTime > POWER_COOLDOWN_MS) {
-      this.actions.power();
-      this.powerArmed = false;
-      this.lastPowerTime = f.now;
-    }
   }
 
   /**
@@ -264,7 +326,7 @@ export class PoseControls {
     H: number,
     now: number,
   ): void {
-    // the higher hand
+    // The higher hand.
     const cw = leftWrist.y < rightWrist.y ? leftWrist : rightWrist;
     if (cw.y > shoulderY) {
       // hand not raised above the shoulders → stop tracking

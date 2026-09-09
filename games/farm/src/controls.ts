@@ -5,7 +5,7 @@ import type { ControlsManifest } from "@repo/embed";
 export const CONTROLS: ControlsManifest = [
   { action: "move (SHIFT runs)", input: "WASD / arrows", method: "keys" },
   { action: "use tool / interact", input: "E / SPACE", method: "keys" },
-  { action: "switch tools", input: "1–9", method: "keys" },
+  { action: "switch tools", input: "1–9 / 0", method: "keys" },
   { action: "inventory", input: "I", method: "keys" },
   { action: "sound on / off", input: "M", method: "keys" },
   { action: "use tool / interact", input: "click", method: "mouse" },

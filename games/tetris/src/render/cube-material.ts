@@ -32,9 +32,12 @@ const FRAGMENT = /* glsl */ `
     if (n.y > 0.5) shade = 1.0;    // top/bottom
     else if (n.x > 0.5) shade = 0.82; // left/right
     vec3 color = uColor * shade * uBright;
-    if (vUv.x < uEdge || vUv.x > 1.0 - uEdge || vUv.y < uEdge || vUv.y > 1.0 - uEdge) {
-      color = uEdgeColor;
-    }
+    // Filter the ink boundary at the rendered pixel width, including grazing views.
+    vec2 toEdge = min(vUv, 1.0 - vUv);
+    float edgeDistance = min(toEdge.x, toEdge.y);
+    float pixelWidth = max(fwidth(edgeDistance), 0.0001);
+    float face = smoothstep(uEdge - pixelWidth * 0.5, uEdge + pixelWidth * 0.5, edgeDistance);
+    color = mix(uEdgeColor, color, face);
     gl_FragColor = vec4(color, 1.0);
     #include <colorspace_fragment>
   }

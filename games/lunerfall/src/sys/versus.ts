@@ -41,6 +41,27 @@ export class VersusMatch {
   // round winner in roundEnd, match in matchEnd
   winner: VsSide | null = null;
 
+  /** Full precision for authority handoff (encode is the rounded wire view). */
+  checkpoint() {
+    return {
+      hp: { ...this.hp },
+      phase: this.phase,
+      round: this.round,
+      score: { ...this.score },
+      t: this.t,
+      winner: this.winner,
+    };
+  }
+
+  restore(state: VersusCheckpoint): void {
+    this.phase = state.phase;
+    this.round = state.round;
+    this.t = state.t;
+    this.hp = { ...state.hp };
+    this.score = { ...state.score };
+    this.winner = state.winner;
+  }
+
   /** Both duelists present (or a rematch): scores wiped, round 1 countdown. */
   beginMatch() {
     this.score = { guest: 0, host: 0 };
@@ -141,3 +162,5 @@ export class VersusMatch {
     };
   }
 }
+
+export type VersusCheckpoint = ReturnType<VersusMatch["checkpoint"]>;

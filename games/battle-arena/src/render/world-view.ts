@@ -3,17 +3,20 @@
 // animation clip from its unit state. Never mutates the sim.
 import * as THREE from "three";
 import { CHAMP_BY_ID } from "../data/champions";
+import { CLIP_TIMING } from "../data/clip-timing";
 import { BOSS_HEIGHT, BOSS_POS } from "../data/map";
 import { destructibleProps } from "../data/props";
 import type { Coin, Projectile, Unit, World } from "../sim/types";
+import type { ModelLibrary } from "./models";
+import { AnimatedCharacter } from "./animated-character";
 import { terrainHeight } from "../data/terrain";
 import type { Fx } from "./fx";
 import { energyBallMaterial } from "./fx-shaders";
-import type { ModelLibrary } from "./models";
-import { AnimatedCharacter } from "./animated-character";
-import { PropView } from "./prop-view";
-import { teamColor } from "./palette";
+import type { PlateAnchor } from "./hud-readability";
 import { groundFxColor } from "./telegraph";
+import { teamColor } from "./palette";
+import { disposeMat } from "./instance-mats";
+import { PropView } from "./prop-view";
 import { UnitView } from "./unit-view";
 import type { ViewDef } from "./unit-view";
 
@@ -50,15 +53,6 @@ const CREEP_VIEW = new Map<string, ViewDef>(
   } satisfies Record<string, ViewDef>),
 );
 
-/** The look for a hero/creep unit; unknown ids fall back to the knight. */
-const viewDefFor = (u: Unit, isCreep: boolean): ViewDef => {
-  const def = (isCreep ? CREEP_VIEW.get(u.champId) : CHAMP_BY_ID[u.champId]) ?? CHAMP_BY_ID.knight;
-  if (!def) {
-    throw new Error(`no view def for ${u.champId}`);
-  }
-  return def;
-};
-
 // ── creep loot pickups (Fantasy Weapons Bits) ────────────────────────────────
 // A creep drop (coin.loot) renders as a spinning weapon piece instead of a boss
 // coin. The piece is picked by hashing the synced coin id, so every client
@@ -79,7 +73,7 @@ const LOOT_HEIGHT = 0.9;
 const hashId = (id: string): number => {
   let h = 0;
   for (let i = 0; i < id.length; i += 1) {
-    // oxlint-disable-next-line no-bitwise -- uint32 wrap keeps the hash in int range
+    // oxlint-disable-next-line no-bitwise -- uint32 wrap keeps the hash in range
     h = (h * 31 + (id.codePointAt(i) ?? 0)) >>> 0;
   }
   return h;
@@ -123,7 +117,9 @@ const PROJ_GEO = {
   shard: new THREE.ConeGeometry(0.16, 1.1, 6),
   sphere: new THREE.SphereGeometry(1, 12, 12),
 };
+
 const projMatCache = new Map<string, THREE.MeshBasicMaterial>();
+
 const projMat = (key: string, make: () => THREE.MeshBasicMaterial): THREE.MeshBasicMaterial => {
   let m = projMatCache.get(key);
   if (!m) {
@@ -132,6 +128,7 @@ const projMat = (key: string, make: () => THREE.MeshBasicMaterial): THREE.MeshBa
   }
   return m;
 };
+
 const haloMat = (color: number, opacity: number): THREE.MeshBasicMaterial =>
   projMat(
     `halo:${color}:${opacity}`,
@@ -179,14 +176,14 @@ const makeProjectileMesh = (p: Projectile): THREE.Object3D => {
   return g;
 };
 
+/** An aerial volley's shots LEAVE from the apex and descend to the normal
+ *  projectile plane over their first few units of flight. The hexbolt wobbles
+ *  drunkenly across its travel line (render-only — the sim path stays
+ *  straight); everything else flies true. */
 const placeProjectile = (p: Projectile, mesh: THREE.Object3D, now: number): void => {
-  // an aerial volley's shots LEAVE from the apex and descend to the normal
-  // projectile plane over their first few units of flight
   const drop = p.launchH * Math.max(0, 1 - p.traveled / 5);
   mesh.position.set(p.x, 1.1 + drop, p.y);
   mesh.rotation.y = Math.atan2(p.vx, p.vy);
-  // hexbolt wobbles drunkenly across its travel line (render-only — the
-  // sim path stays straight); everything else flies true
   if (p.kind === "hexbolt") {
     const spd = Math.hypot(p.vx, p.vy) || 1;
     const wob = Math.sin(now * 0.02 + hashId(p.id) * 0.7) * 0.22;
@@ -194,6 +191,14 @@ const placeProjectile = (p: Projectile, mesh: THREE.Object3D, now: number): void
     mesh.position.z += (p.vx / spd) * wob;
     mesh.position.y += Math.sin(now * 0.013 + hashId(p.id)) * 0.12;
   }
+};
+
+const viewDefFor = (u: Unit, isCreep: boolean): ViewDef => {
+  const def = (isCreep ? CREEP_VIEW.get(u.champId) : CHAMP_BY_ID[u.champId]) ?? CHAMP_BY_ID.knight;
+  if (!def) {
+    throw new Error(`no view def for ${u.champId}`);
+  }
+  return def;
 };
 
 interface DeliveryView {
@@ -230,8 +235,6 @@ const makeDeliveryView = (): DeliveryView => {
   return { beam, crate, group };
 };
 
-// no castShadow on either pickup shape: the shadow map is static (rendered
-// once) — a moving pickup would leave a stale silhouette
 const makeCoinMesh = (): THREE.Mesh =>
   new THREE.Mesh(
     new THREE.CylinderGeometry(0.45, 0.45, 0.14, 18),
@@ -245,14 +248,13 @@ const makeCoinMesh = (): THREE.Mesh =>
   );
 
 export class WorldView {
-  private scene: THREE.Scene;
-  private lib: ModelLibrary;
   private units = new Map<string, UnitView>();
   private props = new Map<string, PropView>();
   // slot-indexed placement lookup
   private propSpecs = destructibleProps();
   private projectiles = new Map<string, THREE.Object3D>();
   private coins = new Map<string, THREE.Object3D>();
+  private ownedCoins = new Set<THREE.Mesh>();
   private deliveries = new Map<string, DeliveryView>();
   private boss: AnimatedCharacter | null = null;
   private seenCoins = new Set<string>();
@@ -266,14 +268,22 @@ export class WorldView {
   private spinners = new Set<string>();
   private bossReturnAt = 0;
   private bossNextTaunt = 6000;
+  private lastBossLaunchAt = -Infinity;
   private fireballFlip = false;
   // set by the scene, for projectile trails
   fx: Fx | null = null;
   localId = "";
 
+  private scene: THREE.Scene;
+  private lib: ModelLibrary;
+
   constructor(scene: THREE.Scene, lib: ModelLibrary) {
     this.scene = scene;
     this.lib = lib;
+  }
+
+  plateAnchor(id: string): PlateAnchor | null {
+    return this.units.get(id)?.plateAnchor() ?? null;
   }
 
   setupBoss(): void {
@@ -288,6 +298,44 @@ export class WorldView {
     this.boss.root.scale.setScalar(1.5);
     this.scene.add(this.boss.root);
     this.boss.play("Idle_B", { fade: 0 });
+  }
+
+  /** Explicit match replacement reuses this view. Retained IDs cannot inherit
+   * old character poses, pickup flights or decoration emission clocks. */
+  resetCharacters(): void {
+    for (const view of this.units.values()) {
+      view.dispose(this.scene);
+    }
+    this.units.clear();
+    for (const prop of this.props.values()) {
+      prop.dispose(this.scene);
+    }
+    this.props.clear();
+    // Projectile geometry and materials are shared caches, not per-shot owns.
+    for (const projectile of this.projectiles.values()) {
+      this.scene.remove(projectile);
+    }
+    this.projectiles.clear();
+    for (const coin of this.coins.values()) {
+      this.removeCoin(coin);
+    }
+    this.coins.clear();
+    for (const delivery of this.deliveries.values()) {
+      this.removeDelivery(delivery.group);
+    }
+    this.deliveries.clear();
+    this.seenCoins.clear();
+    this.flyingCoins.clear();
+    this.coinTrailAt.clear();
+    this.coinSparkleAt.clear();
+    this.deliveryEmitAt.clear();
+    this.emberNext.clear();
+    this.spinners.clear();
+    this.fireballFlip = false;
+    this.bossReturnAt = 0;
+    this.bossNextTaunt = 6000;
+    this.lastBossLaunchAt = -Infinity;
+    this.boss?.play("Idle_B", { fade: 0 });
   }
 
   sync(w: World, dt: number): void {
@@ -354,10 +402,18 @@ export class WorldView {
     return pv;
   }
 
+  /** A unit whose champ/team/local-ness changed since its view was built gets
+   *  a fresh view. */
   private unitView(u: Unit): UnitView {
+    const isLocal = u.kind === "hero" && u.id === this.localId;
     const existing = this.units.get(u.id);
-    if (existing) {
+    if (existing?.matches(u, isLocal)) {
       return existing;
+    }
+    if (existing) {
+      existing.dispose(this.scene);
+      this.units.delete(u.id);
+      this.emberNext.delete(u.id);
     }
     const isCreep = u.kind === "creep";
     const color = isCreep ? 0x9a_a3_b5 : teamColor(u.team);
@@ -366,8 +422,12 @@ export class WorldView {
       this.lib,
       viewDefFor(u, isCreep),
       color,
-      !isCreep && u.id === this.localId,
+      isLocal,
       isCreep,
+      {
+        champId: u.champId,
+        team: u.team,
+      },
     );
     this.units.set(u.id, view);
     this.scene.add(view.group);
@@ -435,18 +495,22 @@ export class WorldView {
 
   private syncCoins(w: World, now: number): void {
     const seen = new Set<string>();
+    let launched: Coin | null = null;
     for (const c of w.coins) {
       seen.add(c.id);
+      // a freshly-spawned, still-flying coin = the boss just hurled it → animate;
+      // a fresh loot drop (lands instantly) gets its landing pop right away
       if (!this.seenCoins.has(c.id)) {
         this.seenCoins.add(c.id);
-        this.noticeCoin(c, now);
+        if (!c.loot && now < c.landAt && (!launched || c.landAt > launched.landAt)) {
+          launched = c;
+        } else if (c.loot) {
+          this.fx?.impactRing(c.x, c.y, 0xff_d2_4a, 1);
+          this.fx?.sparks(c.x, 0.6, c.y, 0, 1, 5, 0xff_f2_b0);
+          this.fx?.dust(c.x, c.y, 2);
+        }
       }
-      let mesh = this.coins.get(c.id);
-      if (!mesh) {
-        mesh = c.loot ? makeLootPickup(this.lib, c.id) : makeCoinMesh();
-        this.coins.set(c.id, mesh);
-        this.scene.add(mesh);
-      }
+      const mesh = this.coinMesh(c);
       // parabolic arc while flying, then bob+spin on the ground
       if (now < c.landAt) {
         this.flyCoin(c, mesh, now);
@@ -461,9 +525,12 @@ export class WorldView {
         mesh.rotation.x = Math.PI / 2;
       }
     }
+    if (launched) {
+      this.bossThrow(launched, now);
+    }
     for (const [id, mesh] of this.coins) {
       if (!seen.has(id)) {
-        this.scene.remove(mesh);
+        this.removeCoin(mesh);
         this.coins.delete(id);
         this.seenCoins.delete(id);
         this.flyingCoins.delete(id);
@@ -473,18 +540,20 @@ export class WorldView {
     }
   }
 
-  /** A freshly-spawned, still-flying coin = the boss just hurled it → animate;
-   *  a fresh loot drop (lands instantly) gets its landing pop right away. */
-  private noticeCoin(c: Coin, now: number): void {
-    if (now < c.landAt && this.boss) {
-      this.boss.play("Throw", { fade: 0.08, loop: false });
-      // full wind-up, no cut
-      this.bossReturnAt = now + this.boss.clipDuration("Throw") * 1000;
-    } else if (c.loot) {
-      this.fx?.impactRing(c.x, c.y, 0xff_d2_4a, 1);
-      this.fx?.sparks(c.x, 0.6, c.y, 0, 1, 5, 0xff_f2_b0);
-      this.fx?.dust(c.x, c.y, 2);
+  private coinMesh(c: Coin): THREE.Object3D {
+    const existing = this.coins.get(c.id);
+    if (existing) {
+      return existing;
     }
+    // no castShadow on either shape: the shadow map is static (rendered
+    // once) — a moving pickup would leave a stale silhouette
+    const mesh = c.loot ? makeLootPickup(this.lib, c.id) : makeCoinMesh();
+    this.coins.set(c.id, mesh);
+    if (!c.loot && mesh instanceof THREE.Mesh) {
+      this.ownedCoins.add(mesh);
+    }
+    this.scene.add(mesh);
+    return mesh;
   }
 
   private flyCoin(c: Coin, mesh: THREE.Object3D, now: number): void {
@@ -520,6 +589,27 @@ export class WorldView {
     if (this.fx && now - lastSparkle > 700) {
       this.coinSparkleAt.set(c.id, now);
       this.fx.crossGlint(c.x, terrainHeight(c.x, c.y) + 0.9, c.y, 1, 0, 0xff_f2_b0, 0.5);
+    }
+  }
+
+  /** Large has no Throw clip: its existing fallback is this native 2H release
+   *  (measured right-hand peak at 35%). The coin has already left. */
+  private bossThrow(launched: Coin, now: number): void {
+    if (!this.boss) {
+      return;
+    }
+    const launchAt = launched.landAt - 900;
+    if (launchAt <= this.lastBossLaunchAt || launchAt > now) {
+      return;
+    }
+    this.lastBossLaunchAt = launchAt;
+    const timing = CLIP_TIMING.get("Melee_2H_Attack");
+    const duration = this.boss.clipDuration("Melee_2H_Attack");
+    const age = (now - launchAt) / 1000;
+    const offset = duration * (timing?.contact ?? 0.35) + age;
+    if (offset < duration) {
+      this.boss.play("Melee_2H_Attack", { fade: age > 0.1 ? 0 : 0.06, loop: false, offset });
+      this.bossReturnAt = now + (duration - offset) * 1000;
     }
   }
 
@@ -559,10 +649,31 @@ export class WorldView {
     }
     for (const [id, view] of this.deliveries) {
       if (!seen.has(id)) {
-        this.scene.remove(view.group);
+        this.removeDelivery(view.group);
         this.deliveries.delete(id);
         this.deliveryEmitAt.delete(id);
       }
+    }
+  }
+
+  private removeCoin(object: THREE.Object3D): void {
+    this.scene.remove(object);
+    // Loot pieces use library geometry/materials. Only the procedural gold
+    // cylinder owns resources here, and each removal releases them once.
+    if (object instanceof THREE.Mesh && this.ownedCoins.delete(object)) {
+      object.geometry.dispose();
+      disposeMat(object.material);
+    }
+  }
+
+  private removeDelivery(group: THREE.Group): void {
+    this.scene.remove(group);
+    for (const child of group.children) {
+      if (!(child instanceof THREE.Mesh)) {
+        continue;
+      }
+      child.geometry.dispose();
+      disposeMat(child.material);
     }
   }
 

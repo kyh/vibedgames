@@ -8,7 +8,7 @@ Keyboard-first action MOBA (Phaser): two-lane two-island map, 6 heroes, creep wa
 pnpm dev:moba                        # http://localhost:5182
 pnpm --filter @repo/moba typecheck
 pnpm --filter @repo/moba build
-pnpm --filter @repo/moba test        # headless sim smoke (tools/sim-smoke.mts)
+pnpm --filter @repo/moba test        # headless sim smoke + pure net/presentation tests (tools/)
 ```
 
 ## Routes

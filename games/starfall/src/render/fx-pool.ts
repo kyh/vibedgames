@@ -2,24 +2,48 @@ import type Phaser from "phaser";
 import { BlendModes } from "phaser";
 
 import type { Vec } from "../shared/constants";
+import { BattleFx, REDUCED_MOTION } from "./battle-fx";
+
+export type FxImportance = "common" | "important";
+
+/** Keep a quarter of a pool free for major beats: common traffic may replace
+ * an older common effect, never a shield, progression or boss response. */
+const admitFx = <T extends { importance: FxImportance }>(
+  entries: T[],
+  capacity: number,
+  importance: FxImportance,
+): boolean => {
+  const limit = importance === "important" ? capacity : capacity - Math.ceil(capacity / 4);
+  if (entries.length < limit) {
+    return true;
+  }
+  const expendable = entries.findIndex((entry) => entry.importance === "common");
+  if (expendable === -1) {
+    return false;
+  }
+  entries.splice(expendable, 1);
+  return true;
+};
 
 // Pooled VFX (vfx skill rules): the two particle emitters are created ONCE and
 // fired with explode(); stroke-shatter groups, shockwave rings and converge
-// motes are plain data drawn into two shared Graphics layers per frame
-// (ADD = energy, NORMAL = matter → exactly 2 batches + 2 textures).
+// motes are plain data drawn into two shared Graphics layers per frame.
+// BattleFx owns the separately bounded weapon light and staged blast layers.
 
 /** Hard cap on live particles across both emitters. */
-const PARTICLE_BUDGET = 400;
+const PARTICLE_BUDGET = 700;
+/** Common bursts leave room for local shield damage and major rewards. */
+const COMMON_PARTICLE_BUDGET = 600;
 /** Trail emitters throttle ×2 above this (v2: earlier, for the bigger crowds). */
-export const PARTICLE_SOFT_BUDGET = 280;
+export const PARTICLE_SOFT_BUDGET = 480;
 /** Skip non-kill hit-spark spawns above this (keep the white victim flash). */
-export const HITSPARK_SKIP_BUDGET = 340;
+export const HITSPARK_SKIP_BUDGET = 580;
 /** Skip spawning effects further than this outside the camera rect. */
 const OFFSCREEN_PAD = 100;
-const MAX_SHATTER_GROUPS = 12;
+const MAX_SHATTER_GROUPS = 24;
 /** NOVA pulses + mine blasts are ring-hungry; rings are pooled Graphics. */
-const MAX_RINGS = 8;
-const MAX_CONVERGES = 6;
+const MAX_RINGS = 20;
+const MAX_CONVERGES = 12;
 const SHATTER_LIFE_MS = 500;
 
 interface ShatterSeg {
@@ -30,12 +54,13 @@ interface ShatterSeg {
   my: number;
   vx: number;
   vy: number;
-  // rad/s
+  /** rad/s */
   rotV: number;
   rot: number;
 }
 
 interface ShatterGroup {
+  importance: FxImportance;
   x: number;
   y: number;
   tint: number;
@@ -44,6 +69,7 @@ interface ShatterGroup {
 }
 
 interface Ring {
+  importance: FxImportance;
   x: number;
   y: number;
   r0: number;
@@ -55,6 +81,7 @@ interface Ring {
 }
 
 interface Converge {
+  importance: FxImportance;
   x: number;
   y: number;
   count: number;
@@ -66,7 +93,8 @@ interface Converge {
 }
 
 export interface SparkOpts {
-  // degrees
+  importance?: FxImportance;
+  /** degrees */
   angleMin?: number;
   angleMax?: number;
   speedMin?: number;
@@ -76,7 +104,22 @@ export interface SparkOpts {
   scale?: number;
 }
 
+interface HullCue {
+  x: number;
+  y: number;
+  points: readonly Vec[];
+  rot: number;
+  bornAt: number;
+}
+interface BossCue {
+  x: number;
+  y: number;
+  tint: number;
+  bornAt: number;
+}
+
 export class FxPool {
+  readonly battle: BattleFx;
   private scene: Phaser.Scene;
   private sparkAdd: Phaser.GameObjects.Particles.ParticleEmitter;
   private debrisNormal: Phaser.GameObjects.Particles.ParticleEmitter;
@@ -85,9 +128,14 @@ export class FxPool {
   private shatters: ShatterGroup[] = [];
   private rings: Ring[] = [];
   private converges: Converge[] = [];
+  private hullCue: HullCue | null = null;
+  private bossCue: BossCue | null = null;
+  private hullText: Phaser.GameObjects.Text;
+  private bossText: Phaser.GameObjects.Text;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
+    this.battle = new BattleFx(scene);
     this.sparkAdd = scene.add.particles(0, 0, "spark", {
       alpha: { end: 0, start: 1 },
       angle: { max: 360, min: 0 },
@@ -111,6 +159,32 @@ export class FxPool {
     this.debrisNormal.setDepth(14);
     this.shatterGfx = scene.add.graphics().setDepth(16);
     this.ringGfx = scene.add.graphics().setDepth(21).setBlendMode(BlendModes.ADD);
+    const textStyle = { color: "#dce9f0", fontFamily: "monospace", fontSize: "10px" };
+    this.hullText = scene.add
+      .text(0, 0, "", textStyle)
+      .setOrigin(0.5)
+      .setDepth(22)
+      .setVisible(false);
+    this.bossText = scene.add
+      .text(0, 0, "DREADNOUGHT DOWN", textStyle)
+      .setOrigin(0.5)
+      .setDepth(22)
+      .setVisible(false);
+  }
+
+  reset(): void {
+    this.battle.reset();
+    this.shatters.length = 0;
+    this.rings.length = 0;
+    this.converges.length = 0;
+    this.hullCue = null;
+    this.bossCue = null;
+    this.sparkAdd.killAll();
+    this.debrisNormal.killAll();
+    this.shatterGfx.clear();
+    this.ringGfx.clear();
+    this.hullText.setVisible(false);
+    this.bossText.setVisible(false);
   }
 
   aliveParticles(): number {
@@ -132,7 +206,8 @@ export class FxPool {
     if (!this.onScreen(x, y)) {
       return;
     }
-    const n = Math.min(count, Math.max(0, PARTICLE_BUDGET - this.aliveParticles()));
+    const budget = opts.importance === "important" ? PARTICLE_BUDGET : COMMON_PARTICLE_BUDGET;
+    const n = Math.min(count, Math.max(0, budget - this.aliveParticles()));
     if (n <= 0) {
       return;
     }
@@ -155,7 +230,8 @@ export class FxPool {
     if (!this.onScreen(x, y)) {
       return;
     }
-    const n = Math.min(count, Math.max(0, PARTICLE_BUDGET - this.aliveParticles()));
+    const budget = opts.importance === "important" ? PARTICLE_BUDGET : COMMON_PARTICLE_BUDGET;
+    const n = Math.min(count, Math.max(0, budget - this.aliveParticles()));
     if (n <= 0) {
       return;
     }
@@ -178,15 +254,15 @@ export class FxPool {
     durMs: number,
     tint: number,
     alpha0 = 0.8,
+    importance: FxImportance = "common",
   ): void {
     if (!this.onScreen(x, y)) {
       return;
     }
-    if (this.rings.length >= MAX_RINGS) {
-      this.rings.shift();
-      // drop oldest
+    if (!admitFx(this.rings, MAX_RINGS, importance)) {
+      return;
     }
-    this.rings.push({ alpha0, bornAt: this.scene.time.now, durMs, r0, r1, tint, x, y });
+    this.rings.push({ alpha0, bornAt: this.scene.time.now, durMs, importance, r0, r1, tint, x, y });
   }
 
   /**
@@ -194,12 +270,19 @@ export class FxPool {
    * decomposes into its edge segments — each flies outward 80–200 px/s,
    * rotates ±3 rad/s, fades over 500ms. NORMAL blend, hull tint.
    */
-  shatter(x: number, y: number, points: readonly Vec[], rot: number, tint: number): void {
+  shatter(
+    x: number,
+    y: number,
+    points: readonly Vec[],
+    rot: number,
+    tint: number,
+    importance: FxImportance = "common",
+  ): void {
     if (!this.onScreen(x, y) || points.length < 2) {
       return;
     }
-    if (this.shatters.length >= MAX_SHATTER_GROUPS) {
-      this.shatters.shift();
+    if (!admitFx(this.shatters, MAX_SHATTER_GROUPS, importance)) {
+      return;
     }
     const cos = Math.cos(rot);
     const sin = Math.sin(rot);
@@ -230,21 +313,30 @@ export class FxPool {
         vy: (my / outLen) * speed,
       });
     }
-    this.shatters.push({ bornAt: this.scene.time.now, segs, tint, x, y });
+    this.shatters.push({ bornAt: this.scene.time.now, importance, segs, tint, x, y });
   }
 
   /** Motes converging inward from radius→0 over durMs (anticipation). */
-  converge(x: number, y: number, count: number, radius: number, durMs: number, tint: number): void {
+  converge(
+    x: number,
+    y: number,
+    count: number,
+    radius: number,
+    durMs: number,
+    tint: number,
+    importance: FxImportance = "common",
+  ): void {
     if (!this.onScreen(x, y)) {
       return;
     }
-    if (this.converges.length >= MAX_CONVERGES) {
-      this.converges.shift();
+    if (!admitFx(this.converges, MAX_CONVERGES, importance)) {
+      return;
     }
     this.converges.push({
       bornAt: this.scene.time.now,
       count,
       durMs,
+      importance,
       radius,
       seed: Math.random() * Math.PI * 2,
       tint,
@@ -253,8 +345,22 @@ export class FxPool {
     });
   }
 
+  /** One intact hull echo distinguishes growth from a kill's flying fragments. */
+  hullUpgrade(x: number, y: number, points: readonly Vec[], rot: number, level: number): void {
+    this.hullCue = { bornAt: this.scene.time.now, points, rot, x, y };
+    this.hullText.setText(`HULL ${level} · UPGRADED`);
+  }
+
+  bossDefeat(x: number, y: number, tint: number): void {
+    if (!this.onScreen(x, y)) {
+      return;
+    }
+    this.bossCue = { bornAt: this.scene.time.now, tint, x, y };
+  }
+
   /** Redraw all pooled stroke FX. Call once per frame. */
   update(dt: number, now: number): void {
+    this.battle.update(now);
     const sg = this.shatterGfx;
     sg.clear();
     this.shatters = this.shatters.filter((g) => now - g.bornAt < SHATTER_LIFE_MS);
@@ -294,6 +400,72 @@ export class FxPool {
         const ang = c.seed + (Math.PI * 2 * i) / c.count;
         rg.fillCircle(c.x + Math.cos(ang) * dist, c.y + Math.sin(ang) * dist, 1.5);
       }
+    }
+    this.drawMilestones(now);
+  }
+
+  private drawMilestones(now: number): void {
+    const sw = 1 / Math.max(0.35, this.scene.cameras.main.zoom);
+    const hull = this.hullCue;
+    if (hull) {
+      const t = Math.min(1, (now - hull.bornAt) / 850);
+      const alpha = Math.min(1, (1 - t) * 3);
+      const scale = REDUCED_MOTION.matches ? 2.1 : 1.4 + 1.4 * (1 - (1 - t) ** 3);
+      const g = this.shatterGfx;
+      g.lineStyle(sw, 0xdc_e9_f0, alpha * 0.75);
+      const cos = Math.cos(hull.rot) * scale;
+      const sin = Math.sin(hull.rot) * scale;
+      for (let i = 0; i < hull.points.length; i += 1) {
+        const a = hull.points[i];
+        const b = hull.points[(i + 1) % hull.points.length];
+        if (!a || !b) {
+          continue;
+        }
+        g.lineBetween(
+          hull.x + a.x * cos - a.y * sin,
+          hull.y + a.x * sin + a.y * cos,
+          hull.x + b.x * cos - b.y * sin,
+          hull.y + b.x * sin + b.y * cos,
+        );
+      }
+      this.hullText
+        .setPosition(hull.x, hull.y + 42 * sw)
+        .setScale(sw)
+        .setAlpha(alpha)
+        .setVisible(t < 1);
+      if (t >= 1) {
+        this.hullCue = null;
+      }
+    } else {
+      this.hullText.setVisible(false);
+    }
+
+    const boss = this.bossCue;
+    if (boss) {
+      const t = Math.min(1, (now - boss.bornAt) / 1000);
+      const alpha = Math.min(1, (1 - t) * 2.5);
+      const radius = REDUCED_MOTION.matches ? 74 : 58 + 30 * t;
+      const g = this.ringGfx;
+      g.lineStyle(sw, boss.tint, alpha * 0.8);
+      for (let i = 0; i < 4; i += 1) {
+        const angle = Math.PI / 4 + (i * Math.PI) / 2;
+        const x = boss.x + Math.cos(angle) * radius;
+        const y = boss.y + Math.sin(angle) * radius;
+        const dx = Math.sign(Math.cos(angle)) * 12;
+        const dy = Math.sign(Math.sin(angle)) * 12;
+        g.lineBetween(x - dx, y, x, y);
+        g.lineBetween(x, y, x, y - dy);
+      }
+      this.bossText
+        .setPosition(boss.x, boss.y - 68 * sw)
+        .setScale(sw)
+        .setAlpha(alpha)
+        .setVisible(t < 1);
+      if (t >= 1) {
+        this.bossCue = null;
+      }
+    } else {
+      this.bossText.setVisible(false);
     }
   }
 }

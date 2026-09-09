@@ -24,34 +24,87 @@ const storageSet = (key: string, value: string): void => {
 
 // Muted by default; returning players who opted into sound stay unmuted.
 let muted = storageGet(SOUND_KEY) !== "1";
-
-export const isMuted = (): boolean => muted;
-
+let paused = false;
 let ctx: AudioContext | null = null;
+// Every scheduled oscillator, so a pause or a new run can cut phrases short.
+const live = new Set<OscillatorNode>();
 
-const audio = (): AudioContext | null => {
+const blocked = (): boolean => muted || paused;
+
+const ensureContext = (): AudioContext | null => {
   if (ctx === null && "AudioContext" in window) {
     ctx = new AudioContext();
   }
-  if (ctx !== null && ctx.state === "suspended") {
-    void ctx.resume();
-  }
   return ctx;
 };
+
+const stopVoices = (): void => {
+  for (const osc of live) {
+    osc.stop();
+  }
+  live.clear();
+};
+
+/** Park the context while blocked so nothing scheduled leaks past a pause. */
+const sync = (): void => {
+  if (blocked()) {
+    stopVoices();
+    if (ctx?.state === "running") {
+      void ctx.suspend();
+    }
+    return;
+  }
+  const ac = ensureContext();
+  if (ac?.state === "suspended") {
+    void ac.resume();
+  }
+};
+
+export const isMuted = (): boolean => muted;
+
 /** Set mute and persist the choice. Runs from a user gesture (the M key or the
- *  touch control), so turning sound on can create/resume the ctx. */
+ *  touch control), so turning sound on can create/resume the ctx — even while
+ *  paused, so a pose-only player gets sound on resume without another gesture. */
 export const setMuted = (next: boolean): void => {
   muted = next;
   storageSet(SOUND_KEY, muted ? "0" : "1");
   if (!muted) {
-    audio();
+    ensureContext();
   }
+  sync();
 };
 
 /** Flip mute and return the new muted state. */
 export const toggleMute = (): boolean => {
   setMuted(!muted);
   return muted;
+};
+
+/** Wrapper pause is independent of the stored sound preference. */
+export const setSoundPaused = (next: boolean): void => {
+  paused = next;
+  sync();
+};
+
+/** New run: cut the previous run's fanfare. */
+export const resetSound = (): void => {
+  stopVoices();
+};
+
+/** A running context, or null: notes scheduled against a suspended context
+ *  would pile up and burst out together when it unlocks. */
+const audio = (): AudioContext | null => {
+  if (blocked()) {
+    return null;
+  }
+  const ac = ensureContext();
+  if (!ac) {
+    return null;
+  }
+  if (ac.state === "suspended") {
+    void ac.resume();
+  }
+  return ac.state === "running" ? ac : null;
 };
 
 interface Blip {
@@ -63,15 +116,12 @@ interface Blip {
   at?: number;
 }
 
-const blip = ({ freq, end, dur, type, gain, at = 0 }: Blip): void => {
-  if (muted) {
-    return;
-  }
-  const ac = audio();
-  if (!ac) {
-    return;
-  }
-  const t0 = ac.currentTime + at;
+const blip = (
+  ac: AudioContext,
+  now: number,
+  { freq, end, dur, type, gain, at = 0 }: Blip,
+): void => {
+  const t0 = now + at;
   const jitter = 0.92 + Math.random() * 0.16;
   const osc = ac.createOscillator();
   osc.type = type;
@@ -83,40 +133,78 @@ const blip = ({ freq, end, dur, type, gain, at = 0 }: Blip): void => {
   g.gain.setValueAtTime(gain, t0);
   g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
   osc.connect(g).connect(ac.destination);
+  live.add(osc);
+  osc.addEventListener("ended", () => live.delete(osc), { once: true });
   osc.start(t0);
   osc.stop(t0 + dur + 0.02);
 };
 
+const play = (notes: readonly Blip[]): void => {
+  const ac = audio();
+  if (!ac) {
+    return;
+  }
+  const now = ac.currentTime;
+  for (const note of notes) {
+    blip(ac, now, note);
+  }
+};
+
 export const sfx = {
   catchCollapse(): void {
-    for (const [i, freq] of [330, 440, 587, 784].entries()) {
-      blip({ at: i * 0.07, dur: 0.12, freq, gain: 0.09, type: "square" });
-    }
+    play(
+      [330, 440, 587, 784].map((freq, i): Blip => ({
+        at: i * 0.07,
+        dur: 0.12,
+        freq,
+        gain: 0.09,
+        type: "square",
+      })),
+    );
   },
-  /** Pitch climbs with the number of lines cleared. */
-  clear(lines: number): void {
+  /** Pitch climbs with the number of lines cleared; a crossed clear adds a top note. */
+  clear(lines: number, crossed: boolean): void {
     const base = 380 * 2 ** (Math.min(lines, 12) / 12);
-    blip({ dur: 0.1, freq: base, gain: 0.09, type: "square" });
-    blip({ at: 0.08, dur: 0.16, freq: base * 1.5, gain: 0.08, type: "square" });
+    const notes: Blip[] = [
+      { dur: 0.1, freq: base, gain: 0.09, type: "square" },
+      { at: 0.08, dur: 0.16, freq: base * 1.5, gain: 0.08, type: "square" },
+    ];
+    if (crossed) {
+      notes.push({ at: 0.12, dur: 0.12, freq: base * 2, gain: 0.04, type: "sine" });
+    }
+    play(notes);
   },
   gameOver(): void {
-    for (const [i, freq] of [330, 262, 196, 131].entries()) {
-      blip({ at: i * 0.12, dur: 0.18, freq, gain: 0.09, type: "sawtooth" });
-    }
+    play(
+      [330, 262, 196, 131].map((freq, i): Blip => ({
+        at: i * 0.12,
+        dur: 0.18,
+        freq,
+        gain: 0.09,
+        type: "sawtooth",
+      })),
+    );
   },
   hardDrop(): void {
-    blip({ dur: 0.12, end: 70, freq: 120, gain: 0.09, type: "sawtooth" });
+    play([{ dur: 0.12, end: 70, freq: 120, gain: 0.09, type: "sawtooth" }]);
   },
   lock(): void {
-    blip({ dur: 0.06, freq: 150, gain: 0.08, type: "triangle" });
+    play([{ dur: 0.06, freq: 150, gain: 0.08, type: "triangle" }]);
   },
   move(): void {
-    blip({ dur: 0.03, freq: 220, gain: 0.04, type: "square" });
+    play([{ dur: 0.03, freq: 220, gain: 0.04, type: "square" }]);
   },
   orbit(): void {
-    blip({ dur: 0.16, end: 300, freq: 180, gain: 0.06, type: "sine" });
+    play([{ dur: 0.16, end: 300, freq: 180, gain: 0.06, type: "sine" }]);
+  },
+  power(): void {
+    play([
+      { dur: 0.12, end: 480, freq: 240, gain: 0.08, type: "triangle" },
+      { at: 0.08, dur: 0.16, end: 960, freq: 720, gain: 0.07, type: "sine" },
+      { at: 0.16, dur: 0.1, freq: 1200, gain: 0.04, type: "sine" },
+    ]);
   },
   rotate(): void {
-    blip({ dur: 0.05, end: 460, freq: 360, gain: 0.05, type: "square" });
+    play([{ dur: 0.05, end: 460, freq: 360, gain: 0.05, type: "square" }]);
   },
 };

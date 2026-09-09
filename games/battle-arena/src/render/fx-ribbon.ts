@@ -358,6 +358,17 @@ export class RibbonPool {
     }
   }
 
+  clear(): void {
+    for (const r of this.ribbons) {
+      r.id = "";
+      r.fed = false;
+      r.loose = 0;
+      r.uni.uFade.value = 0;
+      r.uni.uSpan.value = 0;
+      r.mesh.visible = false;
+    }
+  }
+
   dispose(): void {
     for (const r of this.ribbons) {
       r.mesh.removeFromParent();

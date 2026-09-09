@@ -1,3 +1,6 @@
+import type { Arena } from "./arena";
+import type { ClockStamp } from "../util/clock";
+
 // ---- board geometry ---------------------------------------------------------
 
 export const TILE = 64;
@@ -42,6 +45,15 @@ export const BOT_BOMB_CHANCE = 0.3;
 export type Cell = { kind: "empty" } | { kind: "wall" } | { kind: "crate" };
 
 export type Dir = "up" | "down" | "left" | "right";
+
+export const DIRS: readonly Dir[] = ["up", "down", "left", "right"];
+
+export const DIR_VECT = {
+  down: [0, 1],
+  left: [-1, 0],
+  right: [1, 0],
+  up: [0, -1],
+} satisfies Record<Dir, [number, number]>;
 
 export type PowerupKind = "bomb" | "fire" | "speed";
 
@@ -105,6 +117,10 @@ export type Bot = {
  * wholesale — every field that can reset MUST be present in `emptyShared()`.
  */
 export type SharedState = {
+  /** Missing only in legacy rooms; read through readArena at the boundary. */
+  arena?: Arena;
+  /** Missing only in legacy rooms; every current host write carries its clock. */
+  clock?: ClockStamp;
   grid: Cell[][];
   bombs: Record<string, Bomb>;
   blasts: Record<string, Blast>;

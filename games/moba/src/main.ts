@@ -3,6 +3,7 @@ import { Game, Scale, WEBGL } from "phaser";
 import { setPauseHandlers } from "@repo/embed";
 
 import { hide as hidePauseOverlay, show as showPauseOverlay } from "./pause-overlay";
+import { setSoundPaused, soundDiagnostics } from "./render/audio";
 import { BootScene } from "./scenes/boot-scene";
 import { GameScene } from "./scenes/game-scene";
 import { HudScene } from "./scenes/hud-scene";
@@ -46,6 +47,23 @@ declare global {
 const boot = async (): Promise<void> => {
   await fontReady;
   const game = new Game(config);
+  const activeGame = (): GameScene | null => {
+    const scene = game.scene.getScene("Game");
+    return scene instanceof GameScene && game.scene.isActive("Game") ? scene : null;
+  };
+  Object.defineProperty(window, "__GAME_DIAGNOSTICS__", {
+    configurable: true,
+    get: () => ({
+      ...(activeGame()?.diagnostics() ?? {
+        complete: false,
+        frame: game.loop.frame,
+        phase: "menu",
+        player: null,
+        score: 0,
+      }),
+      audio: soundDiagnostics(),
+    }),
+  });
   if (import.meta.env.DEV) {
     window.__game = game;
   }
@@ -67,22 +85,21 @@ const boot = async (): Promise<void> => {
 
   // Sim is entirely delta-driven (update(_t, deltaMs)), so the wrapper's
   // pause can freeze/resume the loop directly — except in online mode, where
-  // freezing the host would stall every client. `froze` ensures onResume only
-  // wakes what onPause put to sleep.
-  const isOnline = (): boolean => {
-    const scene = game.scene.getScene("Game");
-    return game.scene.isActive("Game") && scene instanceof GameScene && scene.isOnline();
-  };
+  // freezing the host would stall every client; there only the local player's
+  // input stops. `froze` ensures onResume only wakes what onPause put to sleep.
   let froze = false;
   setPauseHandlers({
-    // Escape closes an open shop/scoreboard first; only a bare Escape pauses.
+    // Escape closes an open shop/scoreboard/guide first; only a bare Escape pauses.
     escapePauses: () => {
       const hud = game.scene.getScene("Hud");
       return !(hud instanceof HudScene && hud.escConsumed);
     },
     onPause: () => {
+      const scene = activeGame();
+      scene?.setControlsPaused(true);
+      setSoundPaused(true);
       showPauseOverlay();
-      if (isOnline()) {
+      if (scene?.isOnline()) {
         return;
       }
       froze = true;
@@ -90,6 +107,8 @@ const boot = async (): Promise<void> => {
       game.sound.pauseAll();
     },
     onResume: () => {
+      activeGame()?.setControlsPaused(false);
+      setSoundPaused(false);
       hidePauseOverlay();
       if (!froze) {
         return;
@@ -100,4 +119,5 @@ const boot = async (): Promise<void> => {
     },
   });
 };
+
 void boot();

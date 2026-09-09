@@ -32,7 +32,7 @@ interface LockedCube {
 }
 
 const CUBE = 0.92;
-// per-60fps-frame
+// Per 60fps frame.
 const POS_LERP = 0.32;
 const SCALE_LERP = 0.2;
 
@@ -61,7 +61,9 @@ export class CubeField {
       this.activeTargets.push(new Vector3());
     }
 
-    const ghostGeo = new EdgesGeometry(new BoxGeometry(0.98, 0.98, 0.98));
+    const ghostSource = new BoxGeometry(0.98, 0.98, 0.98);
+    const ghostGeo = new EdgesGeometry(ghostSource);
+    ghostSource.dispose();
     for (let i = 0; i < 4; i += 1) {
       const line = new LineSegments(
         ghostGeo,
@@ -91,7 +93,7 @@ export class CubeField {
       const material = makeCubeMaterial(colorHex);
       const mesh = new Mesh(this.boxGeo, material);
       mesh.position.set(x, y, z);
-      // pop in
+      // Pop in from nothing.
       mesh.scale.setScalar(0.01);
       this.group.add(mesh);
       this.locked.set(id, {

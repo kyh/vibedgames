@@ -32,6 +32,8 @@ export class Door {
   private gate: Phaser.GameObjects.Image;
   private label: Phaser.GameObjects.Text;
   private color: number;
+  // null forces the initial locked paint; repeated snapshots keep one pulse.
+  private renderedActive: boolean | null = null;
   active = false;
 
   constructor(scene: Phaser.Scene, x: number, y: number, type: RoomType, index: number) {
@@ -61,13 +63,17 @@ export class Door {
 
   setActive(v: boolean) {
     this.active = v;
+    if (this.renderedActive === v) {
+      return;
+    }
+    this.renderedActive = v;
     this.glow.setVisible(v);
     this.label.setAlpha(v ? 1 : 0.3);
     // Locked gates dim + desaturate toward the stone; cleared gates glow full.
     this.gate.setAlpha(v ? 1 : 0.42).setTint(v ? 0xff_ff_ff : 0x6f_7a_8c);
     this.scene.tweens.killTweensOf(this.glow);
     if (v) {
-      this.glow.setScale(1);
+      this.glow.setScale(1).setAlpha(1);
       this.scene.tweens.add({
         alpha: 0.34,
         duration: 750,

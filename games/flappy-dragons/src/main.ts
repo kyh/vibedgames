@@ -16,6 +16,8 @@ declare global {
     __fb?: { scene: GameScene; net: NetSession };
     /** Dev-only synthetic pose-jump driver: window.__fbPoseJump(0.8, false) */
     __fbPoseJump?: PoseJumpHandler;
+    /** Read-only per-frame telemetry for bot playtests (plugins/tooling/skills/playtest). */
+    __GAME_DIAGNOSTICS__?: ReturnType<GameScene["diagnostics"]>;
   }
 }
 
@@ -50,6 +52,11 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
+const gameScene = (): GameScene | null => {
+  const scene = game.scene.getScene("Game");
+  return game.scene.isActive("Game") && scene instanceof GameScene ? scene : null;
+};
+
 // Webcam pose-jump (legacy signature feature): detected physical jumps route
 // into the scene through the same path as tap/keyboard input — EXCEPT while
 // wrapper-paused. Pose events aren't DOM input, so neither the pause overlay
@@ -58,12 +65,8 @@ document.addEventListener("visibilitychange", () => {
 // PAUSED screen.
 let wrapperPaused = false;
 const poseJump: PoseJumpHandler = (strength, refire) => {
-  if (wrapperPaused) {
-    return;
-  }
-  const scene = game.scene.getScene("Game");
-  if (game.scene.isActive("Game") && scene instanceof GameScene) {
-    scene.poseJump(strength, refire);
+  if (!wrapperPaused) {
+    gameScene()?.poseJump(strength, refire);
   }
 };
 
@@ -71,13 +74,8 @@ initPoseCamera(poseJump);
 
 // Wrapper-requested pause: never freeze a live race (other players are still
 // flying), only the local sim. `froze` tracks whether onPause actually froze
-// anything, so onResume only wakes what it put to sleep. The get-ready 3-2-1
-// is local-only, so it pauses in BOTH paths (online it would otherwise keep
-// ticking behind the overlay).
-const gameScene = (): GameScene | null => {
-  const scene = game.scene.getScene("Game");
-  return game.scene.isActive("Game") && scene instanceof GameScene ? scene : null;
-};
+// anything, so onResume only wakes what it put to sleep. Presentation (the
+// get-ready 3-2-1, sound, fanfares) is local-only, so it pauses in BOTH paths.
 let froze = false;
 // Mirrors the start screen's controls card (same manifest).
 const pauseOverlay = createFlappyPauseOverlay(CONTROLS);
@@ -85,24 +83,22 @@ setPauseHandlers({
   onPause: () => {
     wrapperPaused = true;
     pauseOverlay.show();
-    gameScene()?.setCountdownPaused(true);
+    gameScene()?.setPresentationPaused(true);
     if (gameScene()?.isOnline() ?? false) {
       return;
     }
     froze = true;
     game.loop.sleep();
-    game.sound.pauseAll();
   },
   onResume: () => {
     wrapperPaused = false;
     pauseOverlay.hide();
-    gameScene()?.setCountdownPaused(false);
+    gameScene()?.setPresentationPaused(false);
     if (!froze) {
       return;
     }
     froze = false;
     game.loop.wake();
-    game.sound.resumeAll();
   },
 });
 

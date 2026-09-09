@@ -1,6 +1,7 @@
-import { setPauseHandlers } from "@repo/embed";
+import { isPausable, pauseGame, setPauseHandlers } from "@repo/embed";
 import * as THREE from "three";
 
+import { setSoundPaused } from "./fx/sfx";
 import { PoseCamera } from "./input/camera";
 import { PoseControls } from "./input/pose-control";
 import { isCoarsePointer } from "./input/touch";
@@ -12,7 +13,7 @@ const container = document.querySelector("#game");
 if (!container) {
   throw new Error("missing #game container");
 }
-// long-press menus
+// Suppress long-press menus.
 container.addEventListener("contextmenu", (e) => e.preventDefault());
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
@@ -37,35 +38,89 @@ if (!isCoarsePointer()) {
   void poseCamera.start();
 }
 
-window.addEventListener("resize", () => {
+const resize = (): void => {
   game.resize(window.innerWidth / window.innerHeight);
-  // DPR changes when the window moves between displays
+  // DPR changes when the window moves between displays.
   applyPixelRatio();
   renderer.setSize(window.innerWidth, window.innerHeight);
-});
+};
+window.addEventListener("resize", resize);
 
 // Wrapper pause: skip update() (engine + collapse physics are dt-driven, so
 // they freeze cleanly) and keep rendering the frozen scene behind the overlay.
-// The one wall-clock gameplay deadline — the collapse catch window
-// (collapseStartedAt vs CATCH_WINDOW_MS) — gets shifted by the paused gap on
-// resume so a long pause can't insta-finalize game-over.
+// Wall-clock deadlines (collapse catch window, camera swing) shift by the
+// paused gap on resume so a long pause can't insta-finalize game-over.
 let wrapperPausedAt: number | null = null;
+const pausePresentation = (): void => {
+  if (wrapperPausedAt !== null) {
+    return;
+  }
+  wrapperPausedAt = performance.now();
+  game.releaseInputs();
+  poseControls.setActionsPaused(true);
+  setSoundPaused(true);
+};
+const resumePresentation = (): void => {
+  if (wrapperPausedAt === null) {
+    return;
+  }
+  game.shiftWallClock(performance.now() - wrapperPausedAt);
+  wrapperPausedAt = null;
+  game.releaseInputs();
+  poseControls.setActionsPaused(false);
+  setSoundPaused(false);
+};
+
+// A lost WebGL context freezes play under a recovery notice; the embed pause
+// stays held (canResume) until the browser restores the context.
+type Graphics = { kind: "ready" } | { kind: "lost"; returnTo: "pause" | "title" };
+let graphics: Graphics = { kind: "ready" };
+
 // Bespoke overlay (src/pause-overlay.ts) renders the same manifest the title
 // legend teaches — filtered per device / pad at show(). Escape, P and pad
 // START all funnel into this one pause state machine (@repo/embed).
 setPauseHandlers({
+  canResume: () => graphics.kind === "ready",
   onPause: () => {
-    pauseOverlay.show();
-    wrapperPausedAt = performance.now();
+    pausePresentation();
+    if (graphics.kind === "ready") {
+      pauseOverlay.show();
+    }
   },
   onResume: () => {
+    resumePresentation();
     pauseOverlay.hide();
-    if (wrapperPausedAt === null) {
-      return;
-    }
-    game.shiftWallClock(performance.now() - wrapperPausedAt);
-    wrapperPausedAt = null;
   },
+});
+
+renderer.domElement.addEventListener("webglcontextlost", (event) => {
+  event.preventDefault();
+  if (graphics.kind === "lost") {
+    return;
+  }
+  graphics = {
+    kind: "lost",
+    returnTo: wrapperPausedAt !== null || isPausable() ? "pause" : "title",
+  };
+  pausePresentation();
+  pauseGame();
+  pauseOverlay.hide();
+  pauseOverlay.showRecovery();
+});
+renderer.domElement.addEventListener("webglcontextrestored", () => {
+  if (graphics.kind === "ready") {
+    return;
+  }
+  const { returnTo } = graphics;
+  graphics = { kind: "ready" };
+  resize();
+  pauseOverlay.hideRecovery();
+  // A title screen was never pausable, so nothing re-announces it: unfreeze directly.
+  if (returnTo === "pause") {
+    pauseOverlay.show();
+  } else {
+    resumePresentation();
+  }
 });
 
 const timer = new THREE.Timer();
@@ -75,10 +130,16 @@ renderer.setAnimationLoop((time) => {
   if (wrapperPausedAt === null) {
     game.update(dt);
   }
-  renderer.render(game.scene, game.camera);
+  if (graphics.kind === "ready") {
+    renderer.render(game.scene, game.camera);
+  }
+});
+
+Object.defineProperty(window, "__GAME_DIAGNOSTICS__", {
+  get: () => ({ ...game.diagnostics(), paused: wrapperPausedAt !== null }),
 });
 
 if (import.meta.env.DEV) {
   // __tetris: the scene; __pose: feed synthetic poses or recenter() in the console.
-  Object.assign(window, { __pose: poseControls, __tetris: game });
+  Object.assign(window, { __camera: poseCamera, __pose: poseControls, __tetris: game });
 }

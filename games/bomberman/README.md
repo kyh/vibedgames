@@ -7,6 +7,7 @@ Top-down Phaser 4 bomberman arena with online multiplayer via `@vibedgames/multi
 ```bash
 pnpm dev:bomberman   # http://localhost:5180
 pnpm --filter @repo/bomberman build      # vite build
+pnpm --filter @repo/bomberman typecheck  # tsc --noEmit
 pnpm --filter @repo/bomberman preview    # vite preview
 ```
 
@@ -23,5 +24,8 @@ pnpm --filter @repo/bomberman preview    # vite preview
 | WASD / arrows (pad stick/d-pad, touch drag) | move        |
 | Space (pad A, touch 💣)                     | drop a bomb |
 | R (pad Start, touch tap)                    | restart     |
+| M (touch 🔊)                                | mute        |
+
+Sound starts muted (procedural WebAudio, no asset files); the preference persists in localStorage.
 
 Multiplayer: all players auto-join the shared `bomberman-default` room; offline it degrades to solo play.

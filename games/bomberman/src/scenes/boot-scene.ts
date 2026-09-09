@@ -1,4 +1,5 @@
-import { Scene } from "phaser";
+import { Scene, Textures } from "phaser";
+import { ACTION_SHEETS } from "../render/character-action";
 
 /** Source frame size of the generated player walk sheets (2x2 grid in a 512² image). */
 const PLAYER_FRAME = 256;
@@ -14,20 +15,25 @@ export class BootScene extends Scene {
   preload(): void {
     this.makeUtilTextures();
 
-    // Tiles + props (all generated via `vg generate`, transparent where needed).
-    this.load.image("floor", "assets/floor.webp");
-    this.load.image("wall", "assets/wall.webp");
-    this.load.image("crate", "assets/crate.webp");
-    this.load.image("bomb", "assets/bomb.webp");
-    this.load.image("pow-bomb", "assets/pow-bomb.webp");
-    this.load.image("pow-fire", "assets/pow-fire.webp");
-    this.load.image("pow-speed", "assets/pow-speed.webp");
+    // The original grass stays as the garden beyond the courtyard. The v2 stone
+    // floor is 384px = six slabs, so each slab lands on one 64px grid cell.
+    this.load.image("grass", "assets/floor.webp");
+    this.load.image("floor", "assets/floor-v2.webp");
+    this.load.image("wall", "assets/wall-v2.webp");
+    this.load.image("crate", "assets/crate-v2.webp");
+    this.load.image("bomb", "assets/bomb-v2.webp");
+    this.load.image("pow-bomb", "assets/pow-bomb-v2.webp");
+    this.load.image("pow-fire", "assets/pow-fire-v2.webp");
+    this.load.image("pow-speed", "assets/pow-speed-v2.webp");
 
     // Directional walk sheets — 4 frames each (2x2). Left reuses side, flipped.
     const pframe = { frameHeight: PLAYER_FRAME, frameWidth: PLAYER_FRAME };
     this.load.spritesheet("player-down", "assets/player-down.webp", pframe);
     this.load.spritesheet("player-up", "assets/player-up.webp", pframe);
     this.load.spritesheet("player-side", "assets/player-side.webp", pframe);
+    for (const sheet of ACTION_SHEETS) {
+      this.load.image(sheet.key, sheet.url);
+    }
 
     // Explosion: 16-frame fire burst derived from a generated video, rendered
     // additively (pure-black background contributes nothing under ADD blend).
@@ -38,6 +44,12 @@ export class BootScene extends Scene {
   }
 
   create(): void {
+    // Smooth the painted v2 props at the follow camera's fractional zoom; the
+    // pixel-art character sheets and fire keep NEAREST.
+    for (const key of ["floor", "wall", "crate", "bomb", "pow-bomb", "pow-fire", "pow-speed"]) {
+      this.textures.get(key).setFilter(Textures.FilterMode.LINEAR);
+    }
+
     const mk = (key: string, sheet: string) => {
       this.anims.create({
         frameRate: 9,
@@ -49,6 +61,20 @@ export class BootScene extends Scene {
     mk("walk-down", "player-down");
     mk("walk-up", "player-up");
     mk("walk-side", "player-side");
+
+    for (const sheet of ACTION_SHEETS) {
+      const texture = this.textures.get(sheet.key);
+      texture.setFilter(Textures.FilterMode.NEAREST);
+      for (const [index, cut] of sheet.frames.entries()) {
+        const frame = texture.add(index, 0, cut.x, cut.y, cut.width, cut.height);
+        if (!frame) {
+          continue;
+        }
+        frame.customPivot = true;
+        frame.pivotX = cut.feetX / cut.width;
+        frame.pivotY = cut.feetY / cut.height;
+      }
+    }
 
     this.anims.create({
       frameRate: 32,
@@ -69,11 +95,34 @@ export class BootScene extends Scene {
     g.generateTexture("shadow", 64, 32);
     g.clear();
 
+    // Broad, shallow contact under square props, lit from the upper left.
+    for (let inset = 0; inset < 4; inset += 1) {
+      g.fillStyle(0x10_1b_1b, 0.07).fillRoundedRect(
+        2 + inset,
+        3 + inset,
+        68 - inset * 2,
+        58 - inset * 2,
+        7,
+      );
+    }
+    g.generateTexture("prop-shadow", 72, 64);
+    g.clear();
+
     // Soft round particle for poofs/sparkles (concentric falloff).
     for (let i = 6; i >= 1; i -= 1) {
       g.fillStyle(0xff_ff_ff, 0.18).fillCircle(16, 16, (i / 6) * 14);
     }
     g.generateTexture("spark", 32, 32);
+    g.clear();
+
+    g.fillStyle(0xff_ff_ff).fillRect(0, 0, 7, 3);
+    g.generateTexture("chip", 7, 3);
+    g.clear();
+
+    // A quiet tile footprint connects the original fire bursts without bloom.
+    g.fillStyle(0xff_a2_4b, 0.13).fillRoundedRect(3, 3, 58, 58, 5);
+    g.lineStyle(1.5, 0xff_c2_7a, 0.46).strokeRoundedRect(3, 3, 58, 58, 5);
+    g.generateTexture("blast-cell", 64, 64);
     g.clear();
 
     // Radial glow disc (additive) for powerup pedestals and bomb tells.

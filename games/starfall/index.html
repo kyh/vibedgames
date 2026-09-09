@@ -24,7 +24,9 @@
         padding: 0;
         height: 100%;
         overflow: hidden;
-        background: #020617 url("bg.png") repeat;
+        background:
+          linear-gradient(rgba(2, 6, 17, 0.62), rgba(2, 6, 17, 0.62)),
+          #020617 url("bg.png") repeat;
         background-size: 10px 10px;
         color: #fff;
         font-family:
@@ -54,11 +56,72 @@
         justify-content: space-between;
         align-items: flex-start;
       }
+      #hudleft {
+        width: min(220px, 44vw);
+      }
+      #weapon-line {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+      }
       #weapon {
-        font-size: 11px;
+        font-size: 12px;
         text-transform: uppercase;
         letter-spacing: 1px;
-        opacity: 0.6;
+        color: #e1eaf4;
+        line-height: 1.3;
+      }
+      #weapon-time {
+        color: #c3d5e8;
+        font:
+          11px/1.3 ui-monospace,
+          "SF Mono",
+          Menlo,
+          monospace;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+      #flight-progress {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 3px 7px;
+        margin-top: 5px;
+        color: #9cabbc;
+        font:
+          10px/1.4 ui-monospace,
+          "SF Mono",
+          Menlo,
+          monospace;
+        font-variant-numeric: tabular-nums;
+      }
+      #flight-level {
+        color: #d1deeb;
+      }
+      #flight-xp-track {
+        width: 38px;
+        height: 2px;
+        background: rgba(156, 171, 188, 0.2);
+      }
+      #flight-xp-fill {
+        display: block;
+        width: 0;
+        height: 100%;
+        background: #9cbbd5;
+      }
+      #weapon-mastery {
+        margin-top: 4px;
+        color: #9cbbd5;
+        font:
+          10px/1.4 ui-monospace,
+          "SF Mono",
+          Menlo,
+          monospace;
+      }
+      #weapon-mastery[hidden],
+      #flight-progress[hidden],
+      #weapon-time[hidden] {
+        display: none;
       }
       #weaponbar {
         height: 2px;
@@ -185,6 +248,23 @@
         opacity: 0;
         transition: opacity 0.25s ease;
       }
+      #bossbar[hidden],
+      #recap[hidden],
+      #pulse[hidden],
+      #overlay[hidden] {
+        display: none;
+      }
+      #bosslabel {
+        margin-bottom: 5px;
+        color: #ffaaa5;
+        font:
+          10px/1.4 ui-monospace,
+          "SF Mono",
+          Menlo,
+          monospace;
+        letter-spacing: 0.16em;
+        text-align: center;
+      }
       #bossbar .track {
         height: 8px;
         background: rgba(0, 0, 0, 0.5);
@@ -238,8 +318,10 @@
         left: 50%;
         transform: translateX(-50%);
         pointer-events: none;
-        padding: 10px 24px;
-        background: rgba(0, 0, 0, 0.45);
+        width: min(420px, calc(100vw - 40px));
+        box-sizing: border-box;
+        padding: 12px 18px;
+        background: rgba(5, 12, 27, 0.88);
         border: 1px solid rgba(255, 209, 102, 0.35);
         text-align: center;
         opacity: 0;
@@ -254,17 +336,38 @@
       }
       #recap h2 {
         margin: 0 0 6px;
-        font-size: 18px;
-        font-weight: 200;
-        letter-spacing: 4px;
+        font-size: 15px;
+        font-weight: 400;
+        letter-spacing: 0.15em;
       }
       #recap .row {
         font-size: 12px;
         letter-spacing: 1px;
         opacity: 0.95;
       }
-      #recap .row.pop {
-        animation: recap-row-pop 200ms cubic-bezier(0.34, 1.56, 0.64, 1);
+      #recap .row {
+        line-height: 1.65;
+        overflow-wrap: anywhere;
+      }
+      #recap.in .row:first-of-type {
+        animation: recap-row-pop 200ms 450ms cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+      .recap-best,
+      .recap-handoff {
+        margin-top: 5px;
+        font:
+          10px/1.5 ui-monospace,
+          "SF Mono",
+          Menlo,
+          monospace;
+        letter-spacing: 0.09em;
+        color: #a1b5d6;
+      }
+      .recap-handoff {
+        padding-top: 7px;
+        margin-top: 8px;
+        border-top: 1px solid rgba(255, 209, 102, 0.16);
+        color: #ffd166;
       }
       @keyframes recap-in {
         from {
@@ -391,6 +494,17 @@
         text-shadow: 0 0 14px rgba(90, 160, 255, 0.6);
         animation: start-pulse 1.6s ease-in-out infinite;
       }
+      @media (max-height: 560px) {
+        #start {
+          gap: 10px;
+          padding: 12px;
+          overflow-y: auto;
+        }
+        #start h1 img {
+          width: min(52vw, 360px);
+          min-width: 0;
+        }
+      }
       @keyframes start-pulse {
         50% {
           opacity: 0.32;
@@ -409,35 +523,206 @@
         position: fixed;
         inset: 0;
         pointer-events: none;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 12px;
+        display: grid;
+        place-items: center;
+        padding: 100px 20px 20px;
+        box-sizing: border-box;
         opacity: 0;
-        transition: opacity 0.2s ease;
+      }
+      #recovery-card {
+        width: min(350px, 100%);
+        box-sizing: border-box;
+        padding: 20px;
+        background: rgba(5, 12, 27, 0.92);
+        border: 1px solid rgba(125, 211, 252, 0.36);
+        border-top: 2px solid #7dd3fc;
+        text-align: center;
+        box-shadow: 0 12px 36px rgba(0, 0, 0, 0.2);
+      }
+      .recovery-kicker {
+        font:
+          10px/1.4 ui-monospace,
+          "SF Mono",
+          Menlo,
+          monospace;
+        letter-spacing: 0.17em;
+        color: #7dd3fc;
+        margin-bottom: 8px;
       }
       #destroyed {
-        font-size: 32px;
-        font-weight: 200;
-        letter-spacing: 8px;
-        opacity: 0.8;
+        font-size: 25px;
+        font-weight: 300;
+        letter-spacing: 0.18em;
       }
       #cause {
-        font-size: 13px;
+        margin-top: 6px;
+        font-size: 11px;
         text-transform: uppercase;
-        letter-spacing: 3px;
-        opacity: 0.7;
+        letter-spacing: 0.12em;
+        color: #b7c6df;
       }
       #hint {
+        margin-top: 8px;
         font-size: 12px;
-        opacity: 0.55;
-        font-style: italic;
+        line-height: 1.4;
+        color: #b7c6df;
+      }
+      #hint:empty {
+        display: none;
       }
       #countdown {
-        font-size: 14px;
-        opacity: 0.7;
+        margin-top: 16px;
+        font-size: 13px;
+        color: #e1f2ff;
         font-variant-numeric: tabular-nums;
+      }
+      #recovery-progress {
+        height: 3px;
+        margin: 8px 0 12px;
+        background: rgba(125, 211, 252, 0.15);
+      }
+      #recovery-fill {
+        height: 100%;
+        background: #7dd3fc;
+        transform: scaleX(0);
+        transform-origin: left;
+      }
+      #recovery-loadout {
+        color: #95abc9;
+        font:
+          10px/1.6 ui-monospace,
+          "SF Mono",
+          Menlo,
+          monospace;
+        letter-spacing: 0.05em;
+      }
+      @media (max-width: 600px) {
+        #sector {
+          line-height: 1.5;
+          letter-spacing: 0.04em;
+        }
+        #recap {
+          padding: 10px 14px;
+        }
+        #pulse {
+          width: max-content;
+          max-width: calc(100vw - 60px);
+          text-align: center;
+        }
+        #overlay {
+          padding-top: 158px;
+        }
+      }
+      @media (max-height: 450px) {
+        #recovery-card {
+          padding: 13px 18px;
+        }
+        #destroyed {
+          font-size: 21px;
+        }
+        #countdown {
+          margin-top: 10px;
+        }
+        #recap .row {
+          line-height: 1.4;
+        }
+        #recap h2 {
+          font-size: 13px;
+        }
+      }
+      @media (min-width: 601px) and (max-width: 800px) {
+        #bossbar {
+          width: 210px;
+        }
+        #recap {
+          width: 320px;
+        }
+      }
+      /* Short windows need a side lane: the camera-centered ship stays clear.
+         The narrow variant also stays left of the existing minimap. */
+      @media (max-height: 450px) {
+        #recap {
+          width: 210px;
+          top: calc(108px + env(safe-area-inset-top, 0px));
+          right: 20px;
+          left: auto;
+          transform: none;
+          padding: 10px 14px;
+        }
+        #recap.in {
+          animation: none;
+        }
+        #recap h2 {
+          font-size: 12px;
+          letter-spacing: 0.08em;
+        }
+        #recap .row {
+          font-size: 10px;
+          letter-spacing: 0.035em;
+        }
+        #recap .recap-handoff {
+          letter-spacing: 0.04em;
+        }
+      }
+      /* Narrow HUD notices share intrinsic rows: modifiers/boosts can wrap,
+         then the boss and sector notice follow without guessed top offsets. */
+      @media (max-width: 600px) {
+        #hud {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+          grid-auto-rows: max-content;
+          align-content: start;
+          gap: 10px 12px;
+        }
+        #hudleft,
+        #hudright {
+          width: auto;
+          min-width: 0;
+          max-width: none;
+        }
+        #bossbar,
+        #recap,
+        #pulse {
+          position: static;
+          inset: auto;
+          transform: none;
+          grid-column: 1 / -1;
+          width: 100%;
+          max-width: none;
+        }
+        #bossbar {
+          grid-row: 2;
+        }
+        #recap {
+          grid-row: 3;
+        }
+        #recap.in {
+          animation: none;
+        }
+        #pulse {
+          grid-row: 3;
+          width: fit-content;
+          justify-self: center;
+          align-self: start;
+          max-width: 100%;
+        }
+        #hud:has(#bossbar[hidden]) #recap,
+        #hud:has(#bossbar[hidden]) #pulse {
+          grid-row: 2;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #recap,
+        #recap.in,
+        #recap .row,
+        #recap.in .row:first-of-type,
+        #bossbar,
+        #bosshp,
+        #overlay,
+        #pulse {
+          animation: none;
+          transition: none;
+        }
       }
       /* Bigger legible HUD text on touch devices. */
       @media (pointer: coarse) {
@@ -453,9 +738,18 @@
   <body>
     <div id="game"></div>
     <div id="hud">
-      <div>
-        <div id="weapon">BEAM</div>
+      <div id="hudleft">
+        <div id="weapon-line">
+          <div id="weapon">BEAM</div>
+          <span id="weapon-time" hidden></span>
+        </div>
         <div id="weaponbar"></div>
+        <div id="weapon-mastery" hidden></div>
+        <div id="flight-progress" hidden>
+          <span id="flight-level"></span>
+          <span id="flight-xp"></span>
+          <span id="flight-xp-track" aria-hidden="true"><span id="flight-xp-fill"></span></span>
+        </div>
         <div id="shield">
           <div id="shieldrow">
             <span>shield</span>
@@ -470,12 +764,21 @@
         <div id="players">connecting&hellip;</div>
         <div id="sector"></div>
       </div>
+      <div
+        id="bossbar"
+        hidden
+        role="progressbar"
+        aria-labelledby="bosslabel"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-valuenow="100"
+      >
+        <div id="bosslabel">DREADNOUGHT · PHASE 1</div>
+        <div class="track"><div id="bosshp"></div></div>
+      </div>
+      <div id="recap" hidden></div>
+      <div id="pulse" hidden></div>
     </div>
-    <div id="bossbar">
-      <div class="track"><div id="bosshp"></div></div>
-    </div>
-    <div id="recap"></div>
-    <div id="pulse"></div>
     <div id="combo">
       <div id="comboval">&times;2 &middot; 3</div>
       <div id="combobar"></div>
@@ -498,11 +801,25 @@
       if (new URLSearchParams(location.search).has("trailer"))
         document.getElementById("start")?.remove();
     </script>
-    <div id="overlay">
-      <div id="destroyed">DESTROYED</div>
-      <div id="cause"></div>
-      <div id="hint"></div>
-      <div id="countdown"></div>
+    <div id="overlay" hidden>
+      <div id="recovery-card">
+        <div class="recovery-kicker">AUTOMATIC RE-ENTRY</div>
+        <div id="destroyed">DESTROYED</div>
+        <div id="cause"></div>
+        <div id="hint"></div>
+        <div id="countdown"></div>
+        <div
+          id="recovery-progress"
+          role="progressbar"
+          aria-label="Automatic re-entry"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow="0"
+        >
+          <div id="recovery-fill"></div>
+        </div>
+        <div id="recovery-loadout"></div>
+      </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

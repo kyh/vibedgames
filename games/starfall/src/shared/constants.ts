@@ -381,19 +381,24 @@ export const WEAPON_DEFAULT: Weapon = {
  *  upgrade — so the level power gap stays narrow. All pellets fire FORWARD; the
  *  level count is the pellet count (L1 → 1, L2 → 2, L3 → 3) fanned tightly.
  *  Specials override temporarily; on expiry/respawn you revert to THIS, not L1. */
+/** Warms as you level. */
+const baseWeaponTint = (L: number): number => {
+  if (L >= 3) {
+    return 0xff_f1_a8;
+  }
+  if (L >= 2) {
+    return 0xea_f6_ff;
+  }
+  return 0xff_ff_ff;
+};
+
 export const baseWeaponForLevel = (level: number): Weapon => {
   const L = Math.max(1, Math.min(LEVEL_CAP, Math.round(level)));
   // L1 .25 → L3 .40 (below BLASTER .9)
   const power = 0.25 + 0.075 * (L - 1);
   // L1 250 → L3 ~198
   const intervalMs = Math.round(250 - 26 * (L - 1));
-  // warms as you level
-  let tint = 0xff_ff_ff;
-  if (L >= 3) {
-    tint = 0xff_f1_a8;
-  } else if (L >= 2) {
-    tint = 0xea_f6_ff;
-  }
+  const tint = baseWeaponTint(L);
   return {
     ...WEAPON_DEFAULT,
     intervalMs,
@@ -1649,11 +1654,8 @@ export const enemySpawnWeight = (kind: EnemyKind, intensity: number): number => 
     case "spawner": {
       return 3.5 * Math.max(0, intensity - 1.5);
     }
-    case "dreadnought": {
-      return 0;
-      // dedicated trigger only — never in the weighted roll
-    }
     default: {
+      // dreadnought: dedicated trigger only — never in the weighted roll
       return 0;
     }
   }
@@ -1754,6 +1756,8 @@ export type EnemyState = {
   telegraphUntil: number;
   /** LANCER only: locked-vector charge window. */
   chargeUntil: number;
+  /** Last shot/brood time (cosmetic recoil only). */
+  attackAt: number;
   /** Damage flicker, as UFO. */
   blinkUntil: number;
   /** SPLITTER children: can't fire/kill while flashing in. */
@@ -2085,6 +2089,7 @@ export const spawnWeaponItemState = (x: number, y: number): ItemState =>
 
 export const spawnEnemyState = (kind: EnemyKind, x: number, y: number): EnemyState => ({
   angle: 0,
+  attackAt: 0,
   blinkUntil: 0,
   chargeUntil: 0,
   graceUntil: 0,

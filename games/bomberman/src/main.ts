@@ -1,18 +1,18 @@
 import { setPauseHandlers } from "@repo/embed";
-import type Phaser from "phaser";
+import type { Types } from "phaser";
 import { Game, Scale, WEBGL } from "phaser";
 
+import { pauseAudio } from "./fx/sfx";
 import { createBombermanPauseOverlay } from "./pause-overlay";
 import { BootScene } from "./scenes/boot-scene";
 import { GameScene } from "./scenes/game-scene";
-import { pauseClock, resumeClock } from "./util/clock";
 
-const config: Phaser.Types.Core.GameConfig = {
+const config: Types.Core.GameConfig = {
   backgroundColor: "#0e1020",
   parent: "game",
   pixelArt: true,
+  // Fill the window; GameScene owns the follow-camera + zoom.
   scale: {
-    // Fill the window; GameScene owns the follow-camera + zoom.
     height: "100%",
     mode: Scale.RESIZE,
     width: "100%",
@@ -38,37 +38,41 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-// Wrapper pause. The overlay always shows; we only truly FREEZE the game when
-// no other human is in the arena — freezing a shared online round would stall
-// the other players (their sim is wall-clock driven too). When we do freeze,
-// `pauseClock()` stops the sim clock so fuses/round/AI deadlines hold: a bomb
-// with 2s of fuse left before the pause still has ~2s after resume, instead of
-// every stored deadline firing at once when the loop wakes. The embed package
-// re-announces the game as started after onResume.
+// Wrapper pause. The overlay always shows and local input + audio always stop;
+// the sim only FREEZES when no other human is in the arena — freezing a shared
+// online round would stall the other players (their sim is wall-clock driven
+// too). GameScene.pauseSimulation stops the sim clock so fuses/round/AI
+// deadlines hold: a bomb with 2s of fuse left before the pause still has ~2s
+// after resume, instead of every stored deadline firing at once when the loop
+// wakes. The embed package re-announces the game as started after onResume.
 let froze = false;
 const pauseOverlay = createBombermanPauseOverlay();
+const gameScene = (): GameScene | null =>
+  game.scene.isActive("Game") ? game.scene.getScene<GameScene>("Game") : null;
 setPauseHandlers({
   onPause: () => {
     pauseOverlay.show();
-    const scene = game.scene.getScene<GameScene>("Game");
+    pauseAudio(true);
+    const scene = gameScene();
+    scene?.setPresentationPaused(true);
     // Other humans present (live online round) — leave the sim running.
     if (!scene || !scene.freezable) {
       return;
     }
     froze = true;
-    pauseClock();
-    // stops update() until wake()
-    game.loop.sleep();
+    scene.pauseSimulation();
     game.sound.pauseAll();
   },
   onResume: () => {
     pauseOverlay.hide();
+    pauseAudio(false);
+    const scene = gameScene();
+    scene?.setPresentationPaused(false);
     if (!froze) {
       return;
     }
     froze = false;
-    resumeClock();
-    game.loop.wake();
+    scene?.resumeSimulation();
     game.sound.resumeAll();
   },
 });

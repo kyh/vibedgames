@@ -27,23 +27,23 @@ export type BossState =
   | "hurt"
   | "phase"
   | "dead";
-export interface Wave {
+export type Wave = {
   x: number;
   y: number;
   vx: number;
   dmg: number;
-}
-export interface Blast {
+};
+export type Blast = {
   x: number;
   y: number;
   r: number;
   dmg: number;
-}
-export interface Add {
+};
+export type Add = {
   x: number;
   y: number;
   name: EnemyName;
-}
+};
 
 const approach = (c: number, t: number, d: number): number =>
   c < t ? Math.min(c + d, t) : Math.max(c - d, t);
@@ -72,6 +72,55 @@ export class BossBody {
   pendingBlast: Blast | null = null;
   pendingAdds: Add[] | null = null;
   readonly kind: BossKind;
+
+  /** Exact authority state; excludes grid, kit and presentation callbacks. */
+  checkpoint() {
+    return {
+      attackCd: this.attackCd,
+      dead: this.dead,
+      facing: this.facing,
+      grounded: this.grounded,
+      hitFlash: this.hitFlash,
+      hp: this.hp,
+      iframes: this.iframes,
+      pendingAdds: structuredClone(this.pendingAdds),
+      pendingBlast: structuredClone(this.pendingBlast),
+      pendingWaves: structuredClone(this.pendingWaves),
+      phase: this.phase,
+      prevX: this.prevX,
+      prevY: this.prevY,
+      state: this.state,
+      stateT: this.stateT,
+      vx: this.vx,
+      vy: this.vy,
+      x: this.x,
+      y: this.y,
+    };
+  }
+
+  /** Restore without simulating, emitting effects or refreshing cooldowns. */
+  restore(state: BossBodyCheckpoint) {
+    this.x = state.x;
+    this.y = state.y;
+    this.prevX = state.prevX;
+    this.prevY = state.prevY;
+    this.vx = state.vx;
+    this.vy = state.vy;
+    this.facing = state.facing;
+    this.grounded = state.grounded;
+    this.hp = state.hp;
+    this.state = state.state;
+    this.stateT = state.stateT;
+    this.phase = state.phase;
+    this.dead = state.dead;
+    this.hitFlash = state.hitFlash;
+    this.iframes = state.iframes;
+    this.attackCd = state.attackCd;
+    this.pendingWaves = structuredClone(state.pendingWaves);
+    this.pendingBlast = structuredClone(state.pendingBlast);
+    this.pendingAdds = structuredClone(state.pendingAdds);
+  }
+
   private grid: Grid;
 
   constructor(grid: Grid, x: number, y: number, biome: number) {
@@ -187,7 +236,7 @@ export class BossBody {
         break;
       }
       case "phase": {
-        this.phaseStep(dt);
+        this.phaseShift(dt);
         break;
       }
       case "idle": {
@@ -195,23 +244,23 @@ export class BossBody {
         break;
       }
       case "wave": {
-        this.waveStep(dt);
+        this.wave(dt);
         break;
       }
       case "jump": {
-        this.jumpStep(dt, dx);
+        this.jump(dt, dx);
         break;
       }
       case "slam": {
-        this.slamStep();
+        this.slam();
         break;
       }
       case "charge": {
-        this.chargeStep(dt);
+        this.charge(dt);
         break;
       }
       case "punch": {
-        this.punchStep(dt);
+        this.punch(dt);
         break;
       }
       case "hurt": {
@@ -221,14 +270,15 @@ export class BossBody {
         }
         break;
       }
-      // no default
+      default: {
+        break;
+      }
     }
 
     this.applyPhysics(dt);
   }
 
-  // Second-phase entry: hold still, then spit out the adds and hand back to idle.
-  private phaseStep(dt: number) {
+  private phaseShift(dt: number) {
     this.vx = approach(this.vx, 0, 500 * dt);
     if (this.stateT >= 0.8) {
       const { adds } = this.kind;
@@ -241,7 +291,7 @@ export class BossBody {
     }
   }
 
-  private waveStep(dt: number) {
+  private wave(dt: number) {
     this.vx = approach(this.vx, 0, 500 * dt);
     if (this.stateT >= 0.5 && this.pendingWaves.length === 0 && this.stateT < 0.56) {
       // Fan: `kind.fan` waves at staggered heights and speeds, spreading as
@@ -262,7 +312,7 @@ export class BossBody {
     }
   }
 
-  private jumpStep(dt: number, dx: number) {
+  private jump(dt: number, dx: number) {
     this.vx = approach(this.vx, 0, 400 * dt);
     if (this.stateT >= 0.34) {
       this.vy = -330;
@@ -272,7 +322,7 @@ export class BossBody {
     }
   }
 
-  private slamStep() {
+  private slam() {
     if (this.grounded && this.stateT > 0.05) {
       this.pendingBlast = { dmg: 1, r: this.kind.slamR, x: this.x, y: this.y - 6 };
       this.endAttack();
@@ -280,7 +330,7 @@ export class BossBody {
   }
 
   // Wind up in place, lunge flat across the arena, then skid to a stop.
-  private chargeStep(dt: number) {
+  private charge(dt: number) {
     if (this.stateT < 0.4) {
       this.vx = approach(this.vx, 0, 600 * dt);
     } else if (this.stateT < 0.82) {
@@ -293,7 +343,7 @@ export class BossBody {
     }
   }
 
-  private punchStep(dt: number) {
+  private punch(dt: number) {
     this.vx =
       this.stateT >= 0.26 && this.stateT < 0.4 ? this.facing * 90 : approach(this.vx, 0, 600 * dt);
     if (this.stateT >= 0.6) {
@@ -379,3 +429,5 @@ export class BossBody {
     }
   }
 }
+
+export type BossBodyCheckpoint = ReturnType<BossBody["checkpoint"]>;

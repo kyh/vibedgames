@@ -3,6 +3,7 @@ import type { World } from "../world/world";
 import type { Inventory } from "./inventory";
 import type { JsonValue } from "../json";
 import type { SkillsJSON } from "./skills";
+import type { CollectionsJSON } from "./collections";
 
 const KEY = "farm-rpg-save-v1";
 
@@ -36,7 +37,11 @@ export interface SaveData {
   animals?: AnimalSave[];
   animalSeq?: number;
   npcFriendship?: Record<string, number>;
+  collections?: CollectionsJSON;
 }
+
+/** "failure" = storage threw (full/blocked); the caller keeps the save dirty and retries. */
+export type SaveOutcome = { kind: "success" } | { kind: "disabled" } | { kind: "failure" };
 
 // Trailer mode (src/trailer/): a staged demo run must neither read nor write
 // the player's real save. Set once by the trailer director; dead in normal play.
@@ -63,17 +68,6 @@ const isSaveData = (v: JsonValue): v is JsonValue & SaveData => {
   );
 };
 
-export const hasSave = (): boolean => {
-  if (savesDisabled) {
-    return false;
-  }
-  try {
-    return localStorage.getItem(KEY) !== null;
-  } catch {
-    return false;
-  }
-};
-
 export const loadSave = (): SaveData | null => {
   if (savesDisabled) {
     return null;
@@ -90,25 +84,16 @@ export const loadSave = (): SaveData | null => {
   }
 };
 
-export const writeSave = (d: SaveData): void => {
+export const writeSave = (d: SaveData): SaveOutcome => {
   if (savesDisabled) {
-    return;
+    return { kind: "disabled" };
   }
   try {
     localStorage.setItem(KEY, JSON.stringify(d));
+    return { kind: "success" };
   } catch {
-    /* storage full / unavailable — ignore */
+    return { kind: "failure" };
   }
-};
-
-// Merge a partial update into the existing save (used by the mine to persist
-// inventory/skills/gold/hp progress without owning the farm world).
-export const patchSave = (patch: Partial<SaveData>): void => {
-  const cur = loadSave();
-  if (!cur) {
-    return;
-  }
-  writeSave({ ...cur, ...patch });
 };
 
 export const clearSave = (): void => {

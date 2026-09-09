@@ -92,6 +92,7 @@ export const LEGACY_FPS = 60;
 
 // ---- rules -------------------------------------------------------------------
 export const WIN_SCORE = 7;
+export type Phase = "serving" | "rally" | "won";
 
 // ---- multiplayer -------------------------------------------------------------
 // Head-to-head: the first player in a room hosts (owns the ball + slot A, the

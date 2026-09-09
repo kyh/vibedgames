@@ -48,6 +48,10 @@ export const HP_REGEN_PER_DAY = 30;
 export const FAINT_GOLD_LOSS_FRAC = 0.08;
 export const SWORD_BASE_DAMAGE = 6;
 export const PLAYER_INVULN_MS = 800;
+/** Hurt/contact clip lengths; boot-scene derives frame rates so the strips fit. */
+export const FARMER_HURT_MS = 260;
+export const SKELETON_HURT_MS = 180;
+export const SKELETON_CONTACT_MS = 250;
 
 // Inventory
 export const BACKPACK = 24;

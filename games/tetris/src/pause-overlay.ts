@@ -6,7 +6,7 @@
 // show/hide. This is the game's ONLY pause surface: Escape, P and pad START
 // all land here via the embed pause state machine.
 
-import { controlGroups, createPauseShell } from "@repo/embed";
+import { controlGroups, createPauseShell, PAUSE_OVERLAY_Z, sealPointerEvents } from "@repo/embed";
 import type { ControlGroup } from "@repo/embed";
 
 import { CONTROLS, METHOD_LABEL } from "./controls";
@@ -130,3 +130,37 @@ export const { show, hide } = createPauseShell({
   render: renderContent,
   styleId: "tetris-pause-style",
 });
+
+let recovery: { root: HTMLElement; unseal: () => void } | null = null;
+
+/** Graphics cannot resume yet. This surface owns no shell keys or pad polling. */
+export const showRecovery = (): void => {
+  if (recovery) {
+    return;
+  }
+  const root = document.createElement("div");
+  root.id = "tetris-graphics-recovery";
+  root.setAttribute("role", "status");
+  root.setAttribute("aria-live", "polite");
+  root.style.cssText =
+    `position:fixed;inset:0;z-index:${PAUSE_OVERLAY_Z};display:grid;place-content:center;` +
+    "padding:24px;background:rgba(14,15,26,.96);color:#d7dcf0;text-align:center;" +
+    "font:14px/1.6 ui-monospace,monospace;user-select:none;touch-action:none";
+  const title = document.createElement("strong");
+  title.textContent = "GRAPHICS INTERRUPTED";
+  title.style.cssText = "font-size:clamp(20px,5vw,32px);color:#8ea2ff;letter-spacing:.05em";
+  const hint = document.createElement("div");
+  hint.textContent = "Waiting for the display to recover.";
+  root.append(title, hint);
+  recovery = { root, unseal: sealPointerEvents(root) };
+  document.body.append(root);
+};
+
+export const hideRecovery = (): void => {
+  if (!recovery) {
+    return;
+  }
+  recovery.unseal();
+  recovery.root.remove();
+  recovery = null;
+};

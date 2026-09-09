@@ -42,7 +42,7 @@ import {
   step,
 } from "../sim/world";
 import type { Unit, World } from "../sim/types";
-import { resumeAudio, setMutedTransient, sfx } from "../render/audio";
+import { resetSound, resumeAudio, setMutedTransient, sfx } from "../render/audio";
 import { WorldView } from "../render/view";
 import { runTrailer } from "./trailer-shell";
 import type { TrailerConfig, TrailerScene } from "./trailer-shell";
@@ -1347,6 +1347,7 @@ class TrailerStage extends Scene {
     // Transient on purpose: toggleMute would persist the flip into the player's
     // saved preference for NORMAL play off the back of one trailer view.
     setMutedTransient(true);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, resetSound);
 
     runTrailer(buildConfig(this));
   }
@@ -1357,6 +1358,7 @@ class TrailerStage extends Scene {
    *  structures restored. Every trailer scene starts here, so no scene depends on
    *  a previous scene's state (incl. `&loop=1` replays). */
   installWorld(seed: number): World {
+    resetSound();
     const w = createWorld(seed);
     w.nextWaveAt = Number.POSITIVE_INFINITY;
     for (const c of NEUTRAL_CAMPS) {

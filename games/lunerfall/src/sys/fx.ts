@@ -1,13 +1,21 @@
 import type Phaser from "phaser";
-import { BlendModes } from "phaser";
+import { BlendModes, Scenes } from "phaser";
 
 import { BASE_H, BASE_W, COLORS } from "../config";
+import { SpritePool } from "./sprite-pool";
 
-// Lightweight VFX. Mostly texture-free shapes with auto-destroying tweens, plus a
-// runtime radial-glow texture ("fx-glow") for additive neon bloom + particles.
-// Pixel-art friendly and cheap on mobile.
+// Lightweight VFX drawn from scene-owned, fixed-size pools (no per-hit
+// allocations or tweens): a runtime radial-glow texture ("fx-glow") for
+// additive neon bloom, plus dot/shard/ring shapes. The pool is created lazily on
+// the first effect and ticks off the scene's UPDATE event, so it also serves
+// scenes that never call into the game loop.
+const pools = new WeakMap<Phaser.Scene, SceneFx>();
+const PARTICLES = 192;
+const ECHOES = 32;
+const LABELS = 16;
+const reducedMotion =
+  typeof window === "undefined" ? null : window.matchMedia("(prefers-reduced-motion: reduce)");
 
-// Build the soft radial glow once (accumulated translucent circles => falloff).
 export const ensureGlow = (scene: Phaser.Scene) => {
   if (scene.textures.exists("fx-glow")) {
     return;
@@ -15,16 +23,125 @@ export const ensureGlow = (scene: Phaser.Scene) => {
   const R = 24;
   const g = scene.make.graphics({ x: 0, y: 0 });
   for (let i = R; i > 0; i -= 1) {
-    // Taper the outer third to nothing: a flat 0.05 per ring left the texture
-    // ~5% opaque at its own 48px border, and every caller scales it up and then
-    // tweens 1.6x further — explosion() alone runs r/18 (3.3x for a boss kill,
-    // 5.3x by the end of the tween), where an additive 5% edge reads as a hard
-    // disc rim around the bloom instead of a falloff.
     g.fillStyle(0xff_ff_ff, 0.05 * Math.min(1, (R - i) / (R * 0.34)));
     g.fillCircle(R, R, i);
   }
   g.generateTexture("fx-glow", R * 2, R * 2);
   g.destroy();
+};
+
+const ensureParticleTextures = (scene: Phaser.Scene) => {
+  if (scene.textures.exists("fx-dot")) {
+    return;
+  }
+  const g = scene.make.graphics({ x: 0, y: 0 });
+  g.fillStyle(0xff_ff_ff).fillCircle(4, 4, 4).generateTexture("fx-dot", 8, 8);
+  g.clear().fillStyle(0xff_ff_ff).fillRect(0, 0, 4, 2).generateTexture("fx-shard", 4, 2);
+  g.clear().lineStyle(2, 0xff_ff_ff).strokeCircle(32, 32, 30).generateTexture("fx-ring", 64, 64);
+  g.destroy();
+};
+
+interface LabelFx {
+  text: Phaser.GameObjects.Text;
+  age: number;
+  x: number;
+  y: number;
+}
+
+class SceneFx {
+  readonly particles: SpritePool;
+  readonly echoes: SpritePool;
+  private labels: LabelFx[] = [];
+  private nextLabel = 0;
+
+  constructor(scene: Phaser.Scene) {
+    ensureGlow(scene);
+    ensureParticleTextures(scene);
+    this.particles = new SpritePool(scene, PARTICLES);
+    this.echoes = new SpritePool(scene, ECHOES);
+    for (let i = 0; i < LABELS; i += 1) {
+      this.labels.push({
+        age: 600,
+        text: scene.add
+          .text(0, 0, "", { fontFamily: "monospace", fontSize: "9px" })
+          .setOrigin(0.5, 1)
+          .setDepth(70)
+          .setVisible(false)
+          .setActive(false),
+        x: 0,
+        y: 0,
+      });
+    }
+    scene.events.on(Scenes.Events.UPDATE, this.update, this);
+    // Phaser destroys the display list after SHUTDOWN; only the registry needs dropping.
+    scene.events.once(Scenes.Events.SHUTDOWN, () => {
+      scene.events.off(Scenes.Events.UPDATE, this.update, this);
+      pools.delete(scene);
+    });
+  }
+
+  private update(_time: number, delta: number) {
+    const ms = Math.max(0, delta);
+    this.particles.update(ms);
+    if (reducedMotion?.matches) {
+      this.echoes.clear();
+    } else {
+      this.echoes.update(ms);
+    }
+    for (const s of this.labels) {
+      if (s.age >= 600) {
+        continue;
+      }
+      s.age += ms;
+      if (s.age >= 600) {
+        s.text.setVisible(false).setActive(false);
+        continue;
+      }
+      const eased = 1 - (1 - s.age / 600) ** 2;
+      s.text.setPosition(s.x, s.y - eased * 12).setAlpha(1 - eased);
+    }
+  }
+
+  label(x: number, y: number, text: string, color: string) {
+    const slot = this.labels.find((s) => s.age >= 600) ?? this.labels[this.nextLabel];
+    if (!slot) {
+      return;
+    }
+    this.nextLabel = (this.nextLabel + 1) % LABELS;
+    slot.age = 0;
+    slot.x = x;
+    slot.y = y;
+    slot.text
+      .setText(text)
+      .setColor(color)
+      .setPosition(x, y)
+      .setAlpha(1)
+      .setVisible(true)
+      .setActive(true);
+  }
+
+  clear() {
+    this.particles.clear();
+    this.echoes.clear();
+    for (const s of this.labels) {
+      s.age = 600;
+      s.text.setVisible(false).setActive(false);
+    }
+  }
+}
+
+const fx = (scene: Phaser.Scene): SceneFx => {
+  let pool = pools.get(scene);
+  if (!pool) {
+    pool = new SceneFx(scene);
+    pools.set(scene, pool);
+  }
+  return pool;
+};
+
+/** Room change: hide every in-flight effect so nothing lingers over the new room. */
+export const clearFx = (scene: Phaser.Scene): void => {
+  pools.get(scene)?.clear();
 };
 
 const glow = (
@@ -36,21 +153,10 @@ const glow = (
   ms: number,
   depth = 60,
 ) => {
-  ensureGlow(scene);
-  const s = scene.add
-    .image(x, y, "fx-glow")
-    .setTint(color)
-    .setBlendMode(BlendModes.ADD)
-    .setScale(scale)
-    .setDepth(depth);
-  scene.tweens.add({
-    alpha: 0,
-    duration: ms,
-    ease: "Quad.easeOut",
-    onComplete: () => s.destroy(),
-    scale: scale * 1.6,
-    targets: s,
-  });
+  if (reducedMotion?.matches) {
+    return;
+  }
+  fx(scene).particles.spawn(x, y, ms, { add: true, color, depth, end: 1.6, sx: scale });
 };
 
 export const hitSpark = (
@@ -61,33 +167,29 @@ export const hitSpark = (
   n = 6,
 ) => {
   glow(scene, x, y, color, 0.5, 150, 61);
-  for (let i = 0; i < n; i += 1) {
+  for (let i = 0; i < Math.min(n, 24); i += 1) {
     const a = Math.random() * Math.PI * 2;
     const sp = 12 + Math.random() * 26;
-    const len = 2 + Math.random() * 3;
-    const p = scene.add.rectangle(x, y, len, 2, color).setDepth(60).setBlendMode(BlendModes.ADD);
-    p.setRotation(a);
-    scene.tweens.add({
-      alpha: 0,
-      duration: 160 + Math.random() * 150,
-      ease: "Quad.easeOut",
-      onComplete: () => p.destroy(),
-      targets: p,
-      x: x + Math.cos(a) * sp,
-      y: y + Math.sin(a) * sp,
+    fx(scene).particles.spawn(x, y, 160 + Math.random() * 150, {
+      add: true,
+      color,
+      dx: Math.cos(a) * sp,
+      dy: Math.sin(a) * sp,
+      key: "fx-shard",
+      rotation: a,
+      sx: (2 + Math.random() * 3) / 4,
+      sy: 1,
     });
   }
-  const core = scene.add.circle(x, y, 3, 0xff_ff_ff, 0.95).setDepth(62);
-  scene.tweens.add({
-    alpha: 0,
-    duration: 130,
-    onComplete: () => core.destroy(),
-    scale: 2.4,
-    targets: core,
+  fx(scene).particles.spawn(x, y, 100, {
+    alpha: 0.85,
+    depth: 62,
+    end: 1.5,
+    key: "fx-dot",
+    sx: 0.65,
   });
 };
 
-// Expanding neon ring + bloom — for kills, heavy hits, and impacts.
 export const impactRing = (
   scene: Phaser.Scene,
   x: number,
@@ -96,47 +198,41 @@ export const impactRing = (
   r = 20,
 ) => {
   glow(scene, x, y, color, 0.7, 200, 62);
-  const ring = scene.add
-    .circle(x, y, r * 0.4, color, 0)
-    .setStrokeStyle(2, color, 0.9)
-    .setDepth(62)
-    .setBlendMode(BlendModes.ADD);
-  scene.tweens.add({
-    alpha: 0,
-    duration: 300,
-    ease: "Cubic.easeOut",
-    onComplete: () => ring.destroy(),
-    scale: 2.6,
-    targets: ring,
+  fx(scene).particles.spawn(x, y, 300, {
+    add: true,
+    alpha: 0.9,
+    color,
+    depth: 62,
+    ease: 3,
+    end: 2.6,
+    key: "fx-ring",
+    sx: (r * 0.4) / 30,
   });
 };
 
-// Ghost trail copy of a sprite's current frame — for dashes / fast moves.
 export const afterImage = (
   scene: Phaser.Scene,
   spr: Phaser.GameObjects.Sprite,
   color: number = COLORS.teal,
 ) => {
-  const g = scene.add
-    .image(spr.x, spr.y, spr.texture.key, spr.frame.name)
+  if (reducedMotion?.matches) {
+    return;
+  }
+  fx(scene)
+    .echoes.spawn(spr.x, spr.y, 240, {
+      add: true,
+      alpha: 0.32,
+      color,
+      depth: spr.depth - 1,
+      frame: spr.frame.name,
+      key: spr.texture.key,
+      sx: spr.scaleX,
+      sy: spr.scaleY,
+    })
     .setOrigin(spr.originX, spr.originY)
-    .setScale(spr.scaleX, spr.scaleY)
-    .setFlipX(spr.flipX)
-    .setTint(color)
-    .setAlpha(0.4)
-    .setBlendMode(BlendModes.ADD)
-    .setDepth(spr.depth - 1);
-  scene.tweens.add({
-    alpha: 0,
-    duration: 240,
-    ease: "Quad.easeOut",
-    onComplete: () => g.destroy(),
-    targets: g,
-  });
+    .setFlipX(spr.flipX);
 };
 
-// Soft smoke puff for movement (run trails, wall-kicks). Grey + normal blend so
-// it reads as kicked-up dust, not neon glow; drifts, grows, and fades.
 export const smoke = (
   scene: Phaser.Scene,
   x: number,
@@ -146,26 +242,17 @@ export const smoke = (
   size = 10,
   color = 0x7c_8a_a0,
 ) => {
-  ensureGlow(scene);
-  const s = scene.add
-    .image(x, y, "fx-glow")
-    .setTint(color)
-    .setScale(size / 48)
-    .setAlpha(0.42)
-    .setDepth(18);
-  scene.tweens.add({
-    alpha: 0,
-    duration: 340 + Math.random() * 160,
-    ease: "Quad.easeOut",
-    onComplete: () => s.destroy(),
-    scale: (size / 48) * 2.1,
-    targets: s,
-    x: x + vx,
-    y: y + vy,
+  fx(scene).particles.spawn(x, y, 340 + Math.random() * 160, {
+    alpha: 0.42,
+    color,
+    depth: 18,
+    dx: vx,
+    dy: vy,
+    end: 2.1,
+    sx: size / 48,
   });
 };
 
-// Burst kicked off a wall on a wall-jump (side = the wall's direction, ±1).
 export const wallSmoke = (scene: Phaser.Scene, x: number, y: number, side: number) => {
   for (let i = 0; i < 4; i += 1) {
     smoke(
@@ -181,62 +268,58 @@ export const wallSmoke = (scene: Phaser.Scene, x: number, y: number, side: numbe
 
 export const dust = (scene: Phaser.Scene, x: number, y: number) => {
   for (let i = -1; i <= 1; i += 2) {
-    const p = scene.add.circle(x, y, 2, 0x9a_a6_b2, 0.5).setDepth(20);
-    scene.tweens.add({
-      alpha: 0,
-      duration: 220,
-      onComplete: () => p.destroy(),
-      scale: 0.4,
-      targets: p,
-      x: x + i * (6 + Math.random() * 6),
-      y: y - 2,
+    fx(scene).particles.spawn(x, y, 220, {
+      alpha: 0.5,
+      color: 0x9a_a6_b2,
+      depth: 20,
+      dx: i * (6 + Math.random() * 6),
+      dy: -2,
+      end: 0.4,
+      key: "fx-dot",
+      sx: 0.5,
     });
   }
 };
 
-// Bigger landing burst — sideways puffs + a low glow.
 export const landPuff = (scene: Phaser.Scene, x: number, y: number) => {
   for (let i = -1; i <= 1; i += 2) {
     for (let k = 0; k < 3; k += 1) {
-      const p = scene.add.circle(x, y, 1 + Math.random() * 2, 0xae_b8_c4, 0.55).setDepth(20);
-      scene.tweens.add({
-        alpha: 0,
-        duration: 240 + Math.random() * 120,
-        ease: "Quad.easeOut",
-        onComplete: () => p.destroy(),
-        scale: 0.3,
-        targets: p,
-        x: x + i * (8 + Math.random() * 12),
-        y: y - Math.random() * 4,
+      fx(scene).particles.spawn(x, y, 240 + Math.random() * 120, {
+        alpha: 0.55,
+        color: 0xae_b8_c4,
+        depth: 20,
+        dx: i * (8 + Math.random() * 12),
+        dy: -Math.random() * 4,
+        end: 0.3,
+        key: "fx-dot",
+        sx: (1 + Math.random() * 2) / 4,
       });
     }
   }
 };
 
-export const explosion = (scene: Phaser.Scene, x: number, y: number, r: number) => {
-  glow(scene, x, y, COLORS.magenta, r / 18, 240, 62);
-  const flash = scene.add.circle(x, y, r * 0.55, 0xff_ff_ff, 0.9).setDepth(63);
-  scene.tweens.add({
-    alpha: 0,
-    duration: 180,
-    onComplete: () => flash.destroy(),
-    scale: 1.9,
-    targets: flash,
+/** A small hot core, angular fragments, then slower normal-blend dust. */
+export const explosion = (
+  scene: Phaser.Scene,
+  x: number,
+  y: number,
+  r: number,
+  color: number = COLORS.magenta,
+) => {
+  glow(scene, x, y, color, r / 26, 240, 62);
+  fx(scene).particles.spawn(x, y, 100, {
+    alpha: 0.85,
+    depth: 63,
+    end: 1.35,
+    key: "fx-dot",
+    sx: r * 0.065,
   });
-  const ring = scene.add
-    .circle(x, y, r, COLORS.magenta, 0)
-    .setStrokeStyle(2, COLORS.magenta, 0.9)
-    .setDepth(62)
-    .setBlendMode(BlendModes.ADD);
-  scene.tweens.add({
-    alpha: 0,
-    duration: 280,
-    ease: "Quad.easeOut",
-    onComplete: () => ring.destroy(),
-    scale: 1.4,
-    targets: ring,
-  });
-  hitSpark(scene, x, y, COLORS.magenta, 14);
+  impactRing(scene, x, y, color, r);
+  hitSpark(scene, x, y, color, 14);
+  for (let i = 0; i < 6; i += 1) {
+    const a = (Math.PI * 2 * i) / 6;
+    smoke(scene, x, y, Math.cos(a) * r * 0.65, Math.sin(a) * r * 0.35 - 8, r * 0.45, color);
+  }
 };
 
 // Slow-drifting neon embers for room ambience. Returns the emitter to destroy on
@@ -244,8 +327,8 @@ export const explosion = (scene: Phaser.Scene, x: number, y: number, r: number) 
 export const ambientEmbers = (
   scene: Phaser.Scene,
   color: number = COLORS.teal,
-  roomW: number = BASE_W,
-  roomH: number = BASE_H,
+  roomW = BASE_W,
+  roomH = BASE_H,
 ): Phaser.GameObjects.Particles.ParticleEmitter => {
   ensureGlow(scene);
   return scene.add
@@ -254,7 +337,9 @@ export const ambientEmbers = (
       blendMode: BlendModes.ADD,
       frequency: Math.max(80, 340 * (BASE_W / roomW)),
       lifespan: 4200,
+      maxAliveParticles: 56,
       quantity: 1,
+      reserve: 56,
       scale: { end: 0, start: 0.11 },
       speedX: { max: 8, min: -8 },
       speedY: { max: -26, min: -10 },
@@ -272,16 +357,5 @@ export const popText = (
   text: string,
   color = "#f4f7fb",
 ) => {
-  const t = scene.add
-    .text(x, y, text, { color, fontFamily: "monospace", fontSize: "9px" })
-    .setOrigin(0.5, 1)
-    .setDepth(70);
-  scene.tweens.add({
-    alpha: 0,
-    duration: 600,
-    ease: "Quad.easeOut",
-    onComplete: () => t.destroy(),
-    targets: t,
-    y: y - 12,
-  });
+  fx(scene).label(x, y, text, color);
 };

@@ -2,6 +2,7 @@ import type Phaser from "phaser";
 
 import { HERO_ORIGIN_Y, HERO_SCALE, interp } from "../config";
 import { kitClipKey } from "../data/clip-timing";
+import type { HeroName } from "../data/animations";
 import type { HeroDef } from "../data/heroes";
 import type { NetPlayer } from "../net/snapshot";
 import { afterImage, landPuff, smoke } from "../sys/fx";
@@ -40,6 +41,14 @@ export const clipGameMs = (hero: HeroDef, clip: string): number | undefined => {
   return undefined;
 };
 
+// i-frame flicker: alternate frames at 10 Hz while invulnerable.
+const iframeAlpha = (iframes: number, dead: boolean): number => {
+  if (iframes <= 0 || dead) {
+    return 1;
+  }
+  return Math.floor(iframes * 20) % 2 === 0 ? 0.45 : 1;
+};
+
 // The subset of body/net fields selectClip reads — both PlayerBody and NetPlayer
 // expose these names, so one method drives local render and remote puppets.
 interface ClipState {
@@ -66,41 +75,20 @@ export interface PlayerHooks {
   onHurt?: () => void;
 }
 
-// Blink while invulnerable: half alpha on alternating 50ms slices.
-const iframeAlpha = (iframes: number, dead: boolean): number => {
-  if (iframes <= 0 || dead) {
-    return 1;
-  }
-  return Math.floor(iframes * 20) % 2 === 0 ? 0.45 : 1;
-};
-
-// Locomotion clip for a state that isn't dead / downed / attacking.
-const moveClip = (s: ClipState, dashClip: string): string => {
-  if (s.hurting) {
-    return "hurt";
-  }
-  if (s.dashing) {
-    return dashClip;
-  }
-  if (s.grounded) {
-    return Math.abs(s.vx) > 12 ? "run" : "idle";
-  }
-  return s.vy < -10 ? "jump" : "fall";
-};
-
 // Phaser view over PlayerBody: owns the sprite, plays the hero's kit animations,
 // and turns physics events into juice.
 export class Player {
   readonly body: PlayerBody;
   readonly sprite: Phaser.GameObjects.Sprite;
-  private scene: Phaser.Scene;
-  private hero: HeroDef;
   private baseScale = HERO_SCALE;
-  private name: string;
+  readonly name: HeroName;
   private lastSwing = -1;
   private lastSpecial = -1;
   private lastRunDust = 0;
+  private lastEcho = -Infinity;
   private swingClip: string | null = null;
+  private scene: Phaser.Scene;
+  private hero: HeroDef;
 
   constructor(
     scene: Phaser.Scene,
@@ -146,6 +134,7 @@ export class Player {
   }
 
   enterRoom(grid: Grid, x: number, y: number) {
+    this.lastEcho = -Infinity;
     this.body.enterRoom(grid, x, y);
     this.sprite.setPosition(Math.round(x), Math.round(y));
   }
@@ -168,9 +157,9 @@ export class Player {
       scaleY: this.baseScale,
       targets: this.sprite,
     });
+    // landing squash kicks up dust
     if (sy < 1) {
       landPuff(this.scene, this.sprite.x, this.body.y);
-      // landing squash kicks up dust
     }
   }
 
@@ -196,17 +185,9 @@ export class Player {
   // Choose + play the clip for the current sim/net state. Shared by render (local
   // body) and applyNet (remote puppet) — both expose the same field names.
   private selectClip(s: ClipState) {
-    const { kit } = this.hero;
-    if (s.dead) {
+    if (s.dead || s.downed) {
       // Versus: a slain duelist crumples and holds the final death frame until
       // the round reset clears the flag. (Co-op deaths never set body.dead.)
-      if (this.sprite.anims.currentAnim?.key !== `${this.name}:death`) {
-        this.playClip("death", false);
-      }
-      this.swingClip = null;
-      return;
-    }
-    if (s.downed) {
       // Last stand: play the death clip once and hold its final crumpled frame.
       if (this.sprite.anims.currentAnim?.key !== `${this.name}:death`) {
         this.playClip("death", false);
@@ -214,6 +195,21 @@ export class Player {
       this.swingClip = null;
       return;
     }
+    if (s.specialActive || s.attackStep > 0) {
+      this.selectActionClip(s);
+      return;
+    }
+    this.lastSwing = -1;
+    this.lastSpecial = -1;
+    if (this.swingRecovering(s)) {
+      return;
+    }
+    this.swingClip = null;
+    this.playClip(this.locomotionClip(s), true);
+  }
+
+  private selectActionClip(s: ClipState) {
+    const { kit } = this.hero;
     if (s.specialActive) {
       if (s.specialId !== this.lastSpecial) {
         this.playClip(kit.special.clip, false);
@@ -222,28 +218,18 @@ export class Player {
       this.swingClip = null;
       return;
     }
-    if (s.attackStep > 0) {
-      const clip = kit.swings[s.attackStep - 1]?.clip ?? "idle";
-      if (s.swingId !== this.lastSwing) {
-        this.playClip(clip, false);
-        this.lastSwing = s.swingId;
-        this.swingClip = clip;
-      }
-      return;
+    const clip = kit.swings[s.attackStep - 1]?.clip ?? "idle";
+    if (s.swingId !== this.lastSwing) {
+      this.playClip(clip, false);
+      this.lastSwing = s.swingId;
+      this.swingClip = clip;
     }
-    this.lastSwing = -1;
-    this.lastSpecial = -1;
-    if (this.holdingSwing(s)) {
-      return;
-    }
-    this.swingClip = null;
-    this.playClip(moveClip(s, kit.dashClip), true);
   }
 
   // Hitbox window (attackStep) is shorter than the swing anim; while standing
   // still, let the swing play its recovery frames out instead of snapping to
   // idle mid-strike. Any movement / hit / dash cancels it (reads as responsive).
-  private holdingSwing(s: ClipState): boolean {
+  private swingRecovering(s: ClipState): boolean {
     return (
       this.swingClip !== null &&
       this.sprite.anims.isPlaying &&
@@ -256,6 +242,19 @@ export class Player {
     );
   }
 
+  private locomotionClip(s: ClipState): string {
+    if (s.hurting) {
+      return "hurt";
+    }
+    if (s.dashing) {
+      return this.hero.kit.dashClip;
+    }
+    if (s.grounded) {
+      return Math.abs(s.vx) > 12 ? "run" : "idle";
+    }
+    return s.vy < -10 ? "jump" : "fall";
+  }
+
   render(alpha = 1) {
     const b = this.body;
     this.selectClip(b);
@@ -264,9 +263,7 @@ export class Player {
       Math.round(interp(b.prevX, b.x, alpha)),
       Math.round(interp(b.prevY, b.y, alpha)),
     );
-    if (b.dashing) {
-      afterImage(this.scene, this.sprite, this.hero.color);
-    }
+    this.dashTrail(b.dashing);
     if (b.downed) {
       this.sprite.setTint(DOWNED_TINT);
     } else {
@@ -274,6 +271,20 @@ export class Player {
     }
     this.sprite.setAlpha(iframeAlpha(b.iframes, b.dead));
     this.runTrail(b);
+  }
+
+  // Same scene-clock cadence for local render and remote puppet frames.
+  private dashTrail(dashing: boolean) {
+    if (!dashing) {
+      this.lastEcho = -Infinity;
+      return;
+    }
+    const { now } = this.scene.time;
+    if (now - this.lastEcho < 40) {
+      return;
+    }
+    this.lastEcho = now;
+    afterImage(this.scene, this.sprite, this.hero.color);
   }
 
   // Kick a smoke puff off the back foot while running on the ground.
@@ -347,9 +358,7 @@ export class Player {
       far ? tx : this.sprite.x + (tx - this.sprite.x) * 0.4,
       far ? ty : this.sprite.y + (ty - this.sprite.y) * 0.4,
     );
-    if (net.dashing) {
-      afterImage(this.scene, this.sprite, this.hero.color);
-    }
+    this.dashTrail(net.dashing);
     if (net.downed) {
       this.sprite.setTint(DOWNED_TINT);
     } else {

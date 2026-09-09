@@ -1,3 +1,4 @@
+import { readPreference } from "./data/preferences";
 // Boot: load the lobby's assets, show the lobby, then run the chosen match.
 //
 // Asset loading is two-phase. The champion-select lobby needs six champion
@@ -132,7 +133,7 @@ const fetchBundledMap = async (): Promise<MapData | null> => {
 
 /** The editor's localStorage draft (offline test loop). */
 const readLocalMapDraft = (): MapData | null => {
-  const raw = localStorage.getItem(MAP_STORAGE_KEY);
+  const raw = readPreference(MAP_STORAGE_KEY);
   if (raw === null) {
     return null;
   }
@@ -296,9 +297,24 @@ const main = async (): Promise<void> => {
   // Wrapper-pause bookkeeping (see setPauseHandlers below): which match loop is
   // live, whether it's online, and whether onPause actually froze it.
   let activeScene: GameScene | null = null;
+  let frame = 0;
+  Object.defineProperty(window, "__GAME_DIAGNOSTICS__", {
+    configurable: true,
+    get: () => ({
+      frame,
+      ...(activeScene?.diagnostics() ?? {
+        audio: null,
+        complete: false,
+        phase: "menu",
+        player: null,
+        score: 0,
+      }),
+    }),
+  });
   let onlineMatch = false;
   let froze = false;
   const matchLoop = (t: number): void => {
+    frame += 1;
     timer.update(t);
     const dt = Math.min(timer.getDelta(), 1 / 30);
     activeScene?.update(dt);
@@ -367,24 +383,25 @@ const main = async (): Promise<void> => {
   // (belt-and-suspenders: matchLoop already clamps dt to 1/30 regardless).
   const pauseOverlay = createPauseOverlay({ isLive: () => onlineMatch });
   setPauseHandlers({
+    escapePauses: () => activeScene !== null && !activeScene.isGuideOpen,
     onPause: () => {
       pauseOverlay.show();
+      activeScene?.pauseAudio();
       if (onlineMatch || !activeScene) {
         return;
       }
       froze = true;
       view.renderer.setAnimationLoop(null);
-      activeScene.pauseAudio();
     },
     onResume: () => {
       pauseOverlay.hide();
+      activeScene?.resumeAudio();
       if (!froze) {
         return;
       }
       froze = false;
       timer.reset();
       view.renderer.setAnimationLoop(matchLoop);
-      activeScene?.resumeAudio();
     },
   });
 
@@ -407,9 +424,6 @@ const main = async (): Promise<void> => {
     let menu: Menu | null = null;
     const stage = new MenuStage(view.renderer, lib, (id) => menu?.setSelected(id));
     const onMove = (e: PointerEvent): void => stage.onPointerMove(e.clientX, e.clientY);
-    const onClick = (e: MouseEvent): void => {
-      stage.onClick(e.clientX, e.clientY);
-    };
     const onResize = (): void => stage.resize();
     menu = new Menu({
       initial: initialChamp,
@@ -417,14 +431,12 @@ const main = async (): Promise<void> => {
       onStart: (opts) => {
         view.renderer.setAnimationLoop(null);
         canvas.removeEventListener("pointermove", onMove);
-        canvas.removeEventListener("click", onClick);
         window.removeEventListener("resize", onResize);
         stage.dispose();
         launch(opts);
       },
     });
     canvas.addEventListener("pointermove", onMove);
-    canvas.addEventListener("click", onClick);
     window.addEventListener("resize", onResize);
     // First touch or keypress in the lobby = someone who is going to play, so
     // the arena streams in behind champion select and START usually finds it
@@ -449,6 +461,13 @@ const main = async (): Promise<void> => {
     stage.select(initialChamp);
     const menuTimer = new THREE.Timer();
     view.renderer.setAnimationLoop((t) => {
+      if (!menu) {
+        return;
+      }
+      menu.update();
+      if (!menu.active) {
+        return;
+      }
       menuTimer.update(t);
       stage.update(Math.min(menuTimer.getDelta(), 1 / 30));
       stage.render();

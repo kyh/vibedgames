@@ -22,7 +22,7 @@ import type Phaser from "phaser";
 import { sfx } from "../audio/sfx";
 import { RELICS } from "../data/relics";
 import { GameScene } from "../scenes/game-scene";
-import type { TrailerInputs } from "../scenes/game-scene";
+import type { TrailerInputs } from "../scenes/trailer-staging";
 import type { InputState } from "../sys/input";
 import { runTrailer } from "./trailer-shell";
 import type { TrailerScene } from "./trailer-shell";

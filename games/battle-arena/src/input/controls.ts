@@ -43,7 +43,7 @@ const ITEM_BY_CODE = new Map<string, number>([
   ["Digit0", 5],
 ]);
 
-const preventDefault = (e: Event): void => e.preventDefault();
+const swallowEvent = (e: Event): void => e.preventDefault();
 
 export class Controls {
   private keys = new Set<string>();
@@ -51,6 +51,7 @@ export class Controls {
   // item-belt slot indices
   private itemQueue: number[] = [];
   private buyPressed = false;
+  private guidePressed = false;
   private scorePressed = false;
   // Space edge (hop)
   private jumpPressed = false;
@@ -86,7 +87,7 @@ export class Controls {
     this.canvas.addEventListener("mousedown", this.onMouseDown);
     window.addEventListener("mouseup", this.onMouseUp);
     window.addEventListener("blur", this.onBlur);
-    window.addEventListener("contextmenu", preventDefault);
+    window.addEventListener("contextmenu", swallowEvent);
   }
 
   /** Whether the pointer is currently locked to the canvas. */
@@ -219,6 +220,9 @@ export class Controls {
     if (this.pad.justPressed("select")) {
       this.buyPressed = true;
     }
+    if (this.pad.justPressed("ls")) {
+      this.guidePressed = true;
+    }
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
@@ -236,6 +240,8 @@ export class Controls {
       this.itemQueue.push(item);
     } else if (code === "KeyB") {
       this.buyPressed = true;
+    } else if (code === "KeyH") {
+      this.guidePressed = true;
     } else if (code === "Space") {
       this.jumpPressed = true;
       // don't scroll the page
@@ -382,6 +388,32 @@ export class Controls {
     return this.hadInput;
   }
 
+  consumeGuide(): boolean {
+    const pressed = this.guidePressed;
+    this.guidePressed = false;
+    return pressed;
+  }
+
+  /** Release remembered input at pause/transport boundaries. Sample both pad
+   * buffers so a held button cannot become a fresh press after resuming. */
+  resetInput(): void {
+    this.keys.clear();
+    this.abilityQueue = [];
+    this.itemQueue = [];
+    this.buyPressed = false;
+    this.guidePressed = false;
+    this.scorePressed = false;
+    this.jumpPressed = false;
+    this.dashPressed = false;
+    this.lmb = false;
+    this.lmbEdge = false;
+    this.padFwd = 0;
+    this.padStrafe = 0;
+    this.padAttack = false;
+    this.pad.update();
+    this.pad.update();
+  }
+
   dispose(): void {
     this.pad.destroy();
     window.removeEventListener("keydown", this.onKeyDown);
@@ -390,6 +422,6 @@ export class Controls {
     this.canvas.removeEventListener("mousedown", this.onMouseDown);
     window.removeEventListener("mouseup", this.onMouseUp);
     window.removeEventListener("blur", this.onBlur);
-    window.removeEventListener("contextmenu", preventDefault);
+    window.removeEventListener("contextmenu", swallowEvent);
   }
 }

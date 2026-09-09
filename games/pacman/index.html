@@ -21,6 +21,7 @@
         --blush: #f27e9d;
         --card: rgba(255, 255, 255, 0.78);
         --card-edge: rgba(242, 126, 157, 0.25);
+        --webcam-width: 192px;
         --round-font:
           ui-rounded, "SF Pro Rounded", "Hiragino Maru Gothic ProN", Quicksand, Varela Round,
           system-ui, sans-serif;
@@ -110,6 +111,77 @@
       }
       #stats:empty {
         display: none;
+      }
+      #chain {
+        align-self: flex-start;
+        min-height: 24px;
+        margin-top: 8px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: var(--card);
+        color: var(--blush);
+        font: 700 11px/16px var(--round-font);
+        letter-spacing: 0.04em;
+        opacity: 0;
+        transition: opacity 160ms ease;
+      }
+      #chain.active {
+        opacity: 1;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #chain {
+          transition: none;
+        }
+      }
+      #teaching {
+        position: fixed;
+        top: calc(80px + env(safe-area-inset-top));
+        left: 50%;
+        transform: translateX(-50%);
+        width: min(380px, calc(100vw - 32px));
+        padding: 9px 16px;
+        border: 1.5px solid var(--card-edge);
+        border-radius: 18px;
+        background: var(--card);
+        box-shadow: 0 6px 20px rgba(212, 150, 167, 0.18);
+        text-align: center;
+        pointer-events: none;
+        font: 600 12px/1.4 var(--round-font);
+      }
+      #teaching[hidden] {
+        display: none;
+      }
+      .teaching-verbs {
+        display: flex;
+        justify-content: center;
+        gap: 18px;
+        margin-bottom: 4px;
+      }
+      .teaching-verbs span {
+        color: var(--ink-soft);
+        font-size: 10px;
+        letter-spacing: 0.08em;
+      }
+      .teaching-verbs .done {
+        color: #7b8b56;
+      }
+      @media (max-width: 600px) {
+        #stats {
+          align-self: flex-start;
+          margin-top: 10px;
+          margin-bottom: 0;
+        }
+        #teaching {
+          position: static;
+          transform: none;
+          margin-top: 10px;
+        }
+      }
+      @media (max-height: 520px) {
+        #teaching {
+          top: calc(70px + env(safe-area-inset-top));
+          padding: 6px 12px;
+        }
       }
       /* Touch layouts: the bottom strip belongs to the webcam + control pills,
          so lives/pellets dock under the SCORE pill instead — left-aligned, to
@@ -239,6 +311,120 @@
         gap: 12px 30px;
       }
 
+      #result {
+        width: min(380px, calc(100vw - 32px));
+        margin-top: 16px;
+        padding: 12px 20px 14px;
+        background: rgba(255, 255, 255, 0.88);
+        border: 1.5px solid var(--card-edge);
+        border-radius: 22px;
+        box-shadow: 0 8px 24px rgba(212, 150, 167, 0.22);
+        opacity: 0;
+        transform: translateY(8px);
+        transition:
+          opacity 180ms ease,
+          transform 180ms ease;
+      }
+      #result[hidden] {
+        display: none;
+      }
+      #result.show {
+        opacity: 1;
+        transform: translateY(0);
+      }
+      #result-mode {
+        font-size: 10px;
+        color: var(--ink-soft);
+        letter-spacing: 0.1em;
+      }
+      #result-score {
+        display: block;
+        font-size: 38px;
+        line-height: 1.2;
+        color: #946218;
+      }
+      .result-stats {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+        margin-top: 8px;
+      }
+      .result-stats span {
+        display: grid;
+        font-size: 10px;
+        letter-spacing: 0.03em;
+        color: var(--ink);
+      }
+      .result-stats b {
+        font-size: 19px;
+        color: var(--ink);
+      }
+      #banner.has-result #banner-title {
+        font-size: clamp(32px, 5.5vw, 64px);
+      }
+      @media (max-height: 520px) {
+        #result {
+          margin-top: 10px;
+          padding: 8px 16px;
+        }
+        #result-score {
+          font-size: 30px;
+        }
+        #banner.has-result #banner-sub {
+          margin-top: 9px;
+          padding: 7px 16px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #banner.pop,
+        #flash.on {
+          animation: none;
+        }
+        #banner,
+        #result {
+          transition: none;
+        }
+        #result {
+          transform: none;
+        }
+      }
+      @media (max-height: 520px) and (min-width: 600px) {
+        #banner {
+          padding-right: calc(var(--webcam-width) + 24px + env(safe-area-inset-right));
+        }
+        #banner.has-result #banner-title {
+          font-size: clamp(28px, 4vw, 40px);
+        }
+        #banner.has-result #result,
+        #banner.has-result #banner-sub {
+          max-width: 100%;
+        }
+        body:has(#webcam.collapsed) #banner {
+          padding-right: calc(12px + env(safe-area-inset-right));
+        }
+        #banner-title {
+          font-size: clamp(28px, 4vw, 40px);
+        }
+        #banner-controls {
+          max-width: 100%;
+          margin-top: 10px;
+          padding: 8px 14px;
+        }
+        #banner-controls .pp-groups {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 8px 14px;
+        }
+        #banner-controls .pp-groups > :first-child {
+          grid-row: span 2;
+        }
+        #banner-controls .pp-chip {
+          padding: 2px 8px;
+        }
+        #banner-controls .pp-grid {
+          gap: 4px 10px;
+        }
+      }
       /* Webcam preview — the face IS the controller, so frame it like a
          friendly little porthole. Legacy size kept: 192x144, 384x288 on
          desktop (pointer: fine — a landscape PHONE also matches min-width,
@@ -248,7 +434,7 @@
         right: calc(12px + env(safe-area-inset-right));
         bottom: calc(12px + env(safe-area-inset-bottom));
         z-index: 10;
-        width: 192px;
+        width: var(--webcam-width);
         height: 144px;
         border-radius: 22px;
         background: var(--card);
@@ -264,6 +450,25 @@
         display: block;
         width: 100%;
         height: auto;
+      }
+      #webcam-toggle {
+        display: block;
+        position: relative;
+        width: 100%;
+        height: 100%;
+        min-height: 44px;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        text-align: inherit;
+        font: inherit;
+        cursor: pointer;
+        touch-action: manipulation;
+      }
+      #webcam-toggle:focus-visible {
+        outline: 3px solid #b16a81;
+        outline-offset: -4px;
       }
       #webcam canvas {
         position: absolute;
@@ -285,15 +490,19 @@
         pointer-events: none;
       }
       @media (min-width: 768px) and (pointer: fine) {
+        :root {
+          --webcam-width: 384px;
+        }
         #webcam {
-          width: 384px;
           height: 288px;
         }
       }
       /* Phone landscape: even the small porthole is a third of the height. */
       @media (pointer: coarse) and (max-height: 520px) {
+        :root {
+          --webcam-width: 144px;
+        }
         #webcam {
-          width: 144px;
           height: 108px;
         }
       }
@@ -383,7 +592,14 @@
         <div class="pill" id="best">BEST 0</div>
       </div>
       <div id="board"></div>
+      <div id="chain"></div>
       <div class="pill" id="stats"></div>
+      <div id="teaching" hidden aria-live="polite">
+        <div class="teaching-verbs">
+          <span id="teaching-step">1 · STEP</span><span id="teaching-turn">2 · TURN</span>
+        </div>
+        <div id="teaching-note"></div>
+      </div>
     </div>
     <div id="controls">
       <button class="ctl" id="btn-restart" type="button" aria-label="restart round">↻</button>
@@ -399,14 +615,30 @@
     </div>
     <div id="banner">
       <div id="banner-title"></div>
+      <div id="result" hidden>
+        <div id="result-mode"></div>
+        <strong id="result-score">0</strong>
+        <div class="result-stats">
+          <span><b id="result-best">0</b>BEST</span>
+          <span><b id="result-ghosts">0</b>GHOSTS CHOMPED</span>
+          <span><b id="result-left">0</b>MAZE LEFT</span>
+        </div>
+      </div>
       <div id="banner-sub"></div>
       <div id="banner-controls"></div>
     </div>
     <div id="webcam" title="show / hide camera">
-      <video id="webcam-video" playsinline></video>
-      <canvas id="webcam-overlay"></canvas>
-      <div id="webcam-status">starting camera…</div>
-      <div id="webcam-cue">📷</div>
+      <button
+        id="webcam-toggle"
+        type="button"
+        aria-label="Enable face controls"
+        aria-expanded="true"
+      >
+        <video id="webcam-video" playsinline></video>
+        <canvas id="webcam-overlay"></canvas>
+        <span id="webcam-status">starting camera…</span>
+        <span id="webcam-cue">📷</span>
+      </button>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

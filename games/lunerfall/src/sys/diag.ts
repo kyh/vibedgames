@@ -1,7 +1,5 @@
 import type Phaser from "phaser";
 
-import { reseed } from "./rng";
-
 // Bot-playtest diagnostics contract (see the playtest skill's
 // references/bot-playtest.md): __GAME_DIAGNOSTICS__ is read-only per-frame
 // telemetry, __GAME_TEST_HOOKS__ are the mutations a test may perform.
@@ -24,7 +22,7 @@ export const diag: Diagnostics = {
   score: 0,
 };
 
-const restartSolo = (game: Phaser.Game): void => {
+const restartSolo = (game: Phaser.Game, seed?: number): void => {
   for (const key of ["select", "game", "viewer"]) {
     if (game.scene.isActive(key)) {
       game.scene.stop(key);
@@ -37,7 +35,7 @@ const restartSolo = (game: Phaser.Game): void => {
   diag.player.y = 0;
   diag.player.speed = 0;
   diag.entities = 0;
-  game.scene.start("game", { hero: "axion" });
+  game.scene.start("game", { hero: "axion", seed });
 };
 
 export const installTestHooks = (game: Phaser.Game): void => {
@@ -47,8 +45,7 @@ export const installTestHooks = (game: Phaser.Game): void => {
     // everything a bot measures is deterministic from this seed (frames
     // rendered before the call were unseeded).
     seed(n: number): void {
-      reseed(n);
-      restartSolo(game);
+      restartSolo(game, n);
     },
     setPausedForScreenshot(paused: boolean): void {
       if (paused) {

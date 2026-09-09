@@ -21,15 +21,16 @@ import type { Dir4 } from "@vibedgames/gamepad";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 
 import { music } from "../audio/music";
-import { sfx, unlockAudio } from "../audio/sfx";
+import { sfx, toggleSound, unlockAudio } from "../audio/sfx";
 import { isSoundOn } from "../audio/sound-pref";
 import { restartHint } from "../controls";
 import { IS_TOUCH } from "../input/input-mode";
 import { buildControls, ensureStyle as ensureControlsStyle } from "../pause-overlay";
-import { FxPool } from "../render/fx-pool";
+import { FxPool, REDUCED_MOTION } from "../render/fx-pool";
 import { buildHeartGeometry } from "../render/heart";
 import type { PelletCell } from "../render/pellet-field";
 import { PelletField } from "../render/pellet-field";
+import { PowerHalo } from "../render/power-halo";
 import { TraumaCamera } from "../render/trauma-camera";
 import { RemotePacs } from "../net/remote-pacs";
 import { NetSession, isJsonNumber, isJsonObject, isJsonString } from "../net/session";
@@ -160,6 +161,17 @@ const COMBO_WINDOW_S = 0.9;
 
 const SWIPE_MIN_PX = 24;
 const EPS = 1e-4;
+/** DEV-only room override (?room=): the two-client harness isolates each run
+ *  so a stale room's board can't leak into assertions. */
+const ROOM = (import.meta.env.DEV && new URLSearchParams(location.search).get("room")) || MP_ROOM;
+/** Shrinking after-image left where Pacman was caught. */
+const CAPTURE_ECHO_S = 0.28;
+/** Settle-in scale after a respawn. */
+const REAPPEAR_S = 0.24;
+/** The result card unhides one frame before it fades in, so its transition runs. */
+const RESULT_REVEAL_S = 0.16;
+/** Browser/wrapper chords: never a "press any key" start, never play input. */
+const SYSTEM_KEYS = new Set(["Tab", "Control", "Alt", "Meta", "Escape"]);
 /**
  * Ceiling for the portrait FOV widening below — past this it just fisheyes.
  *
@@ -189,9 +201,22 @@ const TOUCH_CONTROLS_CSS = `
 }
 `;
 
+export interface GameDiagnostics {
+  score: number;
+  complete: boolean;
+  phase: Phase;
+  player: { x: number; y: number };
+  entities: number;
+  powerMs: number;
+}
+
+/** Points a pellet cell is worth — from the map, never trusted from the wire. */
+const cellScore = (cell: { col: number; row: number }): number =>
+  MAP[cell.row]?.[cell.col] === 3 ? SCORE_POWER : SCORE_PELLET;
+
 const el = (id: string): HTMLElement => {
-  const node = document.querySelector<HTMLElement>(`#${id}`);
-  if (!node) {
+  const node = document.querySelector(`#${id}`);
+  if (!(node instanceof HTMLElement)) {
     throw new Error(`missing #${id}`);
   }
   return node;
@@ -471,6 +496,7 @@ const saveBest = (best: number): void => {
     // storage unavailable (private mode) — best just won't persist
   }
 };
+
 /** Ghost body tint: its own color normally, the scared blue while scared, and
  *  the blink color on the warning strobe. */
 const scaredTint = (scared: boolean, blinkOut: boolean, own: number): number => {
@@ -481,6 +507,8 @@ const scaredTint = (scared: boolean, blinkOut: boolean, own: number): number => 
 };
 
 export class GameScene {
+  /** Wrapper pause: the sim and every input path stand still. */
+  private paused = false;
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
 
@@ -498,6 +526,8 @@ export class GameScene {
   private hearts = new Map<string, Heart>();
   private score = 0;
   private best = 0;
+  /** Local ghost contacts, retained across lives and reset with the round score. */
+  private ghostsChomped = 0;
 
   // ---- multiplayer (shared-maze pellet race) ---------------------------------
   // The maze + pellets come from the static MAP (identical on every client). The
@@ -507,16 +537,20 @@ export class GameScene {
     fallbackMs: OFFLINE_FALLBACK_MS,
     maxPlayers: MP_MAX_PLAYERS,
     onEvent: (event, payload, from) => this.handleNetEvent(event, payload, from),
-    room: MP_ROOM,
+    room: ROOM,
   });
   private remotePacs: RemotePacs;
+  /** Rivals present this frame (see presentRivals). */
+  private rivalIds: string[] = [];
   private netAcc = 0;
   private boardRound = 0;
   private boardSig = "";
-  // host: authoritative eaten cells
+  /** Host: authoritative eaten cells. */
   private hostEaten = new Set<string>();
-  // cells already removed locally
+  /** Cells already removed locally. */
   private appliedEaten = new Set<string>();
+  /** At most one optimistic claim per maze cell, retired on rejection or reset. */
+  private pendingClaims = new Set<string>();
   /** Last shared board object reconciled (patches replace it, so `===` detects change). */
   private lastBoardRef: JsonValue | undefined = null;
   /** Whether we were host when lastBoardRef was reconciled — a promotion must re-adopt. */
@@ -563,6 +597,11 @@ export class GameScene {
   private pacRig = new THREE.Group();
   /** Inner group: facing rotation (so the rig's scale stays world-aligned). */
   private pacGroup: THREE.Group;
+  /** One render-only copy; shares immutable geometry/materials, never owns/disposes them. */
+  private captureEcho: THREE.Group;
+  private captureAge = CAPTURE_ECHO_S;
+  private reappearAge = REAPPEAR_S;
+  private resultAge = 0;
   private mouthMesh: THREE.Mesh;
   private mouthAngle = 0;
   private mouthBuiltBucket = -1;
@@ -578,6 +617,7 @@ export class GameScene {
 
   // ---- feel / vfx state ---------------------------------------------------------
   private fx: FxPool;
+  private powerHalo: PowerHalo;
   private shaker = new TraumaCamera();
   private t = 0;
   private fovKick = 0;
@@ -603,6 +643,8 @@ export class GameScene {
   private scoreEl = el("score");
   private bestEl = el("best");
   private statsEl = el("stats");
+  private chainEl = el("chain");
+  private chainText = "";
   private bannerEl = el("banner");
   private bannerTitleEl = el("banner-title");
   private bannerSubEl = el("banner-sub");
@@ -610,6 +652,22 @@ export class GameScene {
   private flashEl = el("flash");
   private selfieBtnEl = el("btn-selfie");
   private restartBtnEl = el("btn-restart");
+  private teachingEl = el("teaching");
+  private teachingNoteEl = el("teaching-note");
+  private teachingStepEl = el("teaching-step");
+  private teachingTurnEl = el("teaching-turn");
+  private taughtStep = false;
+  private taughtTurn = false;
+  private teachingDoneAt = -1;
+  private teachingBlockedUntil = -1;
+  /** Bitset of what the teaching card last showed — skips the DOM writes while unchanged. */
+  private teachingShown = "";
+  private resultEl = el("result");
+  private resultModeEl = el("result-mode");
+  private resultScoreEl = el("result-score");
+  private resultBestEl = el("result-best");
+  private resultGhostsEl = el("result-ghosts");
+  private resultLeftEl = el("result-left");
 
   constructor() {
     this.scene.background = new THREE.Color(COLORS.bg);
@@ -631,6 +689,10 @@ export class GameScene {
     this.mouthMesh = mouth;
     this.pacRig.add(this.pacGroup);
     this.scene.add(this.pacRig);
+    this.captureEcho = this.pacGroup.clone();
+    this.captureEcho.name = "capture-echo";
+    this.captureEcho.visible = false;
+    this.scene.add(this.captureEcho);
 
     this.ghosts = GHOST_SPAWNS.map((spawn, i) => {
       const color = GHOST_COLORS[i % GHOST_COLORS.length] ?? COLORS.power;
@@ -653,6 +715,7 @@ export class GameScene {
     });
 
     this.fx = new FxPool(this.scene);
+    this.powerHalo = new PowerHalo(this.scene);
     this.remotePacs = new RemotePacs(this.scene);
     this.best = loadBest();
     this.bindInput();
@@ -664,7 +727,17 @@ export class GameScene {
 
   /** A rival is sharing the maze (so the game runs in race mode). */
   private get racing(): boolean {
-    return this.net.otherPlayer() !== null;
+    return this.rivalIds.length > 0;
+  }
+
+  /** Other players present right now. A seat the server holds for a reconnect
+   *  is not a rival: its last state would park a frozen pac in the maze for the
+   *  whole grace window and keep a lone player on race rules. */
+  private presentRivals(): string[] {
+    const me = this.net.playerId;
+    return Object.entries(this.net.players)
+      .filter(([id, p]) => id !== me && p.connected !== false)
+      .map(([id]) => id);
   }
 
   private handleNetEvent(event: string, payload: JsonValue, from: string): void {
@@ -687,11 +760,14 @@ export class GameScene {
     // `reject` to drive a rival's score down.
     if (event === "reject" && from === this.net.hostId) {
       const { key } = p;
-      const { amount } = p;
-      if (p["to"] === this.net.playerId && isJsonString(key) && isJsonNumber(amount)) {
-        // Clamp to the max a legitimate cell is worth (defence-in-depth).
-        this.addScore(-Math.max(0, Math.min(SCORE_POWER, amount)));
+      if (p["round"] !== this.boardRound || p["to"] !== this.net.playerId || !isJsonString(key)) {
+        return;
       }
+      const cell = GameScene.parseEatKey(key);
+      if (!cell || !this.pendingClaims.delete(key)) {
+        return;
+      }
+      this.addScore(-cellScore(cell));
     }
   }
 
@@ -719,7 +795,7 @@ export class GameScene {
       return null;
     }
     const type = MAP[cell.row]?.[cell.col];
-    // 2 = pellet, 3 = power
+    // 2 = pellet, 3 = power.
     if (type !== 2 && type !== 3) {
       return null;
     }
@@ -734,16 +810,15 @@ export class GameScene {
    */
   private hostArbitrate(key: string, claimer: string): void {
     const cell = GameScene.parseEatKey(key);
-    // malformed / out-of-bounds / not a pellet cell — drop it
+    // Malformed / out-of-bounds / not a pellet cell: drop it.
     if (!cell) {
       return;
     }
     if (this.hostEaten.has(key)) {
-      const amount = MAP[cell.row]?.[cell.col] === 3 ? SCORE_POWER : SCORE_PELLET;
       if (claimer === (this.net.playerId ?? "solo")) {
-        this.addScore(-amount);
+        this.addScore(-cellScore(cell));
       } else {
-        this.net.sendEvent("reject", { amount, key, to: claimer });
+        this.net.sendEvent("reject", { key, round: this.boardRound, to: claimer });
       }
       return;
     }
@@ -775,6 +850,7 @@ export class GameScene {
       // guest claimed the same cell first this tick.
       this.hostArbitrate(key, this.net.playerId ?? "solo");
     } else {
+      this.pendingClaims.add(key);
       this.net.sendEvent("eat", { key, round: this.boardRound });
     }
   }
@@ -805,8 +881,10 @@ export class GameScene {
       this.applyNewRound(board.round);
       return;
     }
+    const promoted = this.net.isHost && !this.lastBoardAsHost;
     this.lastBoardRef = raw;
     this.lastBoardAsHost = this.net.isHost;
+    let removed = false;
     for (const key of board.eaten) {
       // A promoted host must adopt the accumulated set, or its next broadcast
       // (rebuilt from hostEaten alone) would resurrect every earlier pellet
@@ -819,6 +897,11 @@ export class GameScene {
       }
       this.appliedEaten.add(key);
       this.removeCellVisual(key);
+      removed = true;
+    }
+    // The pellets-left pill and the result card both read the shared maze.
+    if (removed || promoted) {
+      this.updateHud();
     }
     this.checkRaceWin();
   }
@@ -865,9 +948,11 @@ export class GameScene {
 
   private applyNewRound(round: number): void {
     this.boardRound = round;
+    this.pendingClaims.clear();
     this.appliedEaten.clear();
     this.resetBoard();
     this.score = 0;
+    this.resetRound();
     this.resetPacman();
     this.graceMs = SPAWN_GRACE_MS;
     this.updateHud();
@@ -882,6 +967,9 @@ export class GameScene {
   /** Tap/gesture to start or restart — solo resets the board; in a race it just
    *  drops you into the ongoing shared maze (host can start a new round). */
   private handleStart(): void {
+    if (this.paused) {
+      return;
+    }
     if (this.racing) {
       if (this.phase === "win") {
         // Only the host can start the next round; a guest flipping to
@@ -908,7 +996,7 @@ export class GameScene {
         this.net.updateMyState({ score: this.score, x: this.pac.x, z: this.pac.z });
         // Roster/standings work only needs to track the ~NET_TICK_HZ updates;
         // the smoothing in remotePacs.update below still runs every frame.
-        this.remotePacs.sync(this.net.players, this.net.playerId);
+        this.remotePacs.sync(this.net.players, this.rivalIds);
         this.updateNetHud();
       }
     }
@@ -918,13 +1006,13 @@ export class GameScene {
   private updateNetHud(): void {
     let netInfo = "";
     if (this.net.live && !this.net.offline) {
-      netInfo = this.racing
-        ? `RACE · ${Object.keys(this.net.players).length} PLAYERS`
-        : "ONLINE · WAITING";
+      netInfo = this.racing ? `RACE · ${this.rivalIds.length + 1} PLAYERS` : "ONLINE · WAITING";
     }
     if (netInfo !== this.netInfoText) {
       this.netInfoText = netInfo;
       this.netInfoEl.textContent = netInfo;
+      // A rival arriving or leaving reworded the result card.
+      this.updateHud();
     }
     if (!this.racing) {
       if (this.boardEl.childElementCount > 0) {
@@ -933,15 +1021,10 @@ export class GameScene {
       this.boardSig = "";
       return;
     }
-    const me = this.net.playerId;
-    const rows: { id: string; score: number; me: boolean }[] = [];
-    for (const [id, player] of Object.entries(this.net.players)) {
-      if (id === me) {
-        rows.push({ id, me: true, score: this.score });
-      } else {
-        const sc = player.state?.["score"];
-        rows.push({ id, me: false, score: isJsonNumber(sc) ? sc : 0 });
-      }
+    const rows = [{ id: this.net.playerId ?? "solo", me: true, score: this.score }];
+    for (const id of this.rivalIds) {
+      const sc = this.net.players[id]?.state?.["score"];
+      rows.push({ id, me: false, score: isJsonNumber(sc) ? sc : 0 });
     }
     rows.sort((a, b) => b.score - a.score);
     // The board only changes when someone scores or joins/leaves — skip the
@@ -981,6 +1064,7 @@ export class GameScene {
     const scaredMsBefore = this.scaredMs;
 
     this.net.tick();
+    this.rivalIds = this.presentRivals();
     this.reconcileBoard();
     this.pollPad();
 
@@ -1009,7 +1093,7 @@ export class GameScene {
     } else if (this.phase === "win") {
       // Drifting celebration: another confetti wave every beat.
       this.winConfettiIn -= dt;
-      if (this.winConfettiIn <= 0) {
+      if (this.winConfettiIn <= 0 && !REDUCED_MOTION.matches) {
         this.fx.confettiRain(26);
         this.winConfettiIn = 0.7;
       }
@@ -1027,11 +1111,49 @@ export class GameScene {
       sfx.play("warn");
     }
 
+    this.updatePresentation(dt);
     this.renderActors(dt);
+    this.powerHalo.update(this.pac.x, this.pac.z, scared ? this.scaredMs : 0);
+    this.updateChainHud();
     this.fx.update(dt);
     this.updateCamera(dt);
-    music.update();
+    music.update(dt, this.phase, this.nearestDanger());
     this.updateNet(dt);
+  }
+
+  /** Maze-cell distance to the closest ghost that can catch us; null while none can. */
+  private nearestDanger(): number | null {
+    if (this.phase !== "playing" || this.scaredMs > 0 || this.graceMs > 0) {
+      return null;
+    }
+    let nearest = Infinity;
+    for (const g of this.ghosts) {
+      nearest = Math.min(nearest, Math.hypot(g.x - this.pac.x, g.z - this.pac.z));
+    }
+    return nearest;
+  }
+
+  /** Read-only telemetry for bot playtests; coordinates are maze cells. */
+  writeDiagnostics(out: GameDiagnostics): void {
+    out.score = this.score;
+    out.complete = this.phase === "win";
+    out.phase = this.phase;
+    out.player.x = this.pac.x;
+    out.player.y = this.pac.z;
+    out.entities = this.ghosts.length + this.pelletsLeft() + 1;
+    out.powerMs = this.scaredMs;
+  }
+
+  private updateChainHud(): void {
+    const active =
+      this.phase === "playing" && this.comboIdx > 0 && this.t - this.lastPelletAt < COMBO_WINDOW_S;
+    const text = active ? `♪ ${this.comboIdx + 1} PEARL CHAIN` : "";
+    if (text === this.chainText) {
+      return;
+    }
+    this.chainText = text;
+    this.chainEl.textContent = text;
+    this.chainEl.classList.toggle("active", active);
   }
 
   // ---- board ---------------------------------------------------------------
@@ -1148,10 +1270,24 @@ export class GameScene {
     this.restartBtnEl.addEventListener("click", () => this.requestRestart());
   }
 
+  /** Wrapper pause: drop anything half-entered so resume starts from neutral. */
+  setPaused(paused: boolean): void {
+    if (paused === this.paused) {
+      return;
+    }
+    this.paused = paused;
+    this.stepRequested = false;
+    this.shiftHeld = false;
+    this.swipeOrigin = null;
+    this.swiped = false;
+    // Buttons pressed during the pause must not read as "just pressed" on resume.
+    this.pad.update();
+    this.padStickDir = stickDirection4(this.pad.getStick());
+  }
+
   /** M key / the touch cluster's speaker — one toggle for music + sfx, persisted. */
   private toggleSound(): void {
-    const on = music.toggle();
-    sfx.setEnabled(on);
+    const on = toggleSound();
     // The cluster seals its own pointer events, so the window listener that
     // normally unlocks audio never sees the tap that turned sound on.
     if (on) {
@@ -1163,6 +1299,9 @@ export class GameScene {
 
   /** 🤳 pill — latched selfie cam (SHIFT still works as hold on keyboards). */
   private toggleSelfie(): void {
+    if (this.paused) {
+      return;
+    }
     this.selfieOn = !this.selfieOn;
     this.selfieBtnEl.classList.toggle("on", this.selfieOn);
     this.selfieBtnEl.setAttribute("aria-pressed", this.selfieOn ? "true" : "false");
@@ -1176,6 +1315,9 @@ export class GameScene {
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
+    if (this.paused || SYSTEM_KEYS.has(e.key)) {
+      return;
+    }
     if (e.key === "Shift") {
       this.shiftHeld = true;
       return;
@@ -1223,9 +1365,7 @@ export class GameScene {
         this.chomp();
         break;
       }
-      default: {
-        break;
-      }
+      // no default
     }
   };
 
@@ -1240,6 +1380,9 @@ export class GameScene {
   };
 
   private onPointerDown = (e: PointerEvent): void => {
+    if (this.paused) {
+      return;
+    }
     // Taps on the HUD pills / webcam porthole are UI, not game input — they
     // must not swipe-steer or tap-start underneath.
     if (e.target instanceof Element && e.target.closest("#controls, #webcam")) {
@@ -1252,6 +1395,9 @@ export class GameScene {
   // Touch fallback: horizontal swipe = relative turn, swipe up = step forward,
   // swipe down = reverse. Tap = start/restart.
   private onPointerMove = (e: PointerEvent): void => {
+    if (this.paused) {
+      return;
+    }
     if (!this.swipeOrigin || this.swiped) {
       return;
     }
@@ -1293,6 +1439,9 @@ export class GameScene {
   /** One chomp: a grid step while playing, the start gesture on a banner.
    *  Every chomp input (mouth, SPACE, swipe ↑, pad A / stick ↑) lands here. */
   private chomp(): void {
+    if (this.paused) {
+      return;
+    }
     if (this.onBanner) {
       this.handleStart();
     } else {
@@ -1336,6 +1485,9 @@ export class GameScene {
 
   /** Heading change — instant, unvalidated, relative to current facing (legacy). */
   private steer(action: "left" | "right" | "reverse"): void {
+    if (this.paused) {
+      return;
+    }
     if (this.phase !== "playing" && this.phase !== "ready") {
       return;
     }
@@ -1346,6 +1498,7 @@ export class GameScene {
     } else {
       this.pac.dir = TURN_RIGHT[this.pac.dir];
     }
+    this.taughtTurn = true;
     // Audible "turn registered" tick — vital for face input, where the only
     // other confirmation is the slow camera swing. Throttled against
     // key-repeat spam from held arrows.
@@ -1399,18 +1552,20 @@ export class GameScene {
     if (!isOpen(col, row)) {
       // Blocked chomp still gets feedback — with face input, a silent no-op
       // is indistinguishable from "the camera missed my gesture".
+      this.teachingBlockedUntil = this.t + 1.2;
       sfx.play("bump", { gain: 0.7 });
       this.squashKick = Math.max(this.squashKick, 0.5);
       this.fx.puff(
         new THREE.Vector3(this.pac.x + dx * 0.55, 0.15, this.pac.z + dz * 0.55),
         4,
         COLORS.wall,
-        { sizeMax: 0.1, sizeMin: 0.05, speed: 0.8 },
+        { direction: { x: -dx, z: -dz }, sizeMax: 0.1, sizeMin: 0.05, speed: 0.8 },
       );
       return;
     }
     this.pac.target = { x: col, z: row };
     this.pac.isMoving = true;
+    this.taughtStep = true;
     sfx.play("chomp", { gain: 0.55 });
   }
 
@@ -1513,15 +1668,23 @@ export class GameScene {
 
   /** Eaten scared ghost: +200, respawn at center, heading kept (legacy). */
   private eatGhost(g: Ghost): void {
+    this.ghostsChomped += 1;
     this.addScore(SCORE_GHOST);
     const at = new THREE.Vector3(g.x, GHOST_BOB_BASE, g.z);
-    this.fx.puff(at, 14, 0xff_ff_ff, { sizeMax: 0.26, sizeMin: 0.12, speed: 2 });
+    this.fx.puff(at, 14, g.color, { sizeMax: 0.26, sizeMin: 0.12, speed: 2 });
+    this.fx.ring(g.x, g.z, 1.15, g.color);
     this.fx.heartBurst(at, 5);
     this.shaker.add(TRAUMA_GHOST_EATEN);
     sfx.play("ghost_eaten");
     g.x = GHOST_RESPAWN.col;
     g.z = GHOST_RESPAWN.row;
     g.spawnScale = 0;
+    this.fx.puff(new THREE.Vector3(g.x, 0.12, g.z), 6, g.color, {
+      lift: 0.7,
+      sizeMax: 0.14,
+      sizeMin: 0.07,
+      speed: 0.65,
+    });
   }
 
   /**
@@ -1530,11 +1693,22 @@ export class GameScene {
    * rebuild's additions, kept.
    */
   private caught(): void {
+    this.captureAge = 0;
+    this.captureEcho.position.set(this.pac.x, 0, this.pac.z);
+    this.captureEcho.rotation.set(0, 0, 0);
+    if (this.pac.dir === "up") {
+      this.captureEcho.rotation.x = -Math.PI / 2;
+    } else if (this.pac.dir === "down") {
+      this.captureEcho.rotation.x = Math.PI / 2;
+    } else if (this.pac.dir === "left") {
+      this.captureEcho.rotation.y = Math.PI;
+    }
+    this.captureEcho.visible = !REDUCED_MOTION.matches && (this.racing || this.lives > 1);
     this.shaker.add(TRAUMA_CAUGHT);
     this.fx.puff(new THREE.Vector3(this.pac.x, 0.4, this.pac.z), 12, COLORS.power, {
       speed: 1.6,
     });
-    // deflate, Baymax-style
+    // Deflate, Baymax-style.
     this.squashKick = 1.6;
     this.softFlash();
     sfx.play("caught");
@@ -1562,6 +1736,7 @@ export class GameScene {
   // ---- round lifecycle -------------------------------------------------------
 
   private resetPacman(): void {
+    this.reappearAge = 0;
     this.pac.x = PACMAN_SPAWN.col;
     this.pac.z = PACMAN_SPAWN.row;
     this.pac.dir = "right";
@@ -1573,23 +1748,34 @@ export class GameScene {
   }
 
   private resetGame(): void {
+    this.pendingClaims.clear();
+    this.hostEaten.clear();
+    this.appliedEaten.clear();
     this.score = 0;
-    this.lives = START_LIVES;
-    this.scaredMs = 0;
     this.graceMs = 0;
-    this.comboIdx = 0;
-    this.lastPelletAt = -Infinity;
     // Online-but-alone: restarting restores every pellet locally, so the
     // shared board must start a fresh round too — otherwise the stale eaten
     // set desyncs the maze for the next rival who joins.
     if (!this.net.offline && this.net.isHost) {
       this.boardRound += 1;
-      this.hostEaten.clear();
-      this.appliedEaten.clear();
       this.broadcastBoard();
     }
     this.resetBoard();
     this.resetPacman();
+    this.resetRound();
+    this.updateHud();
+    this.beginReady();
+  }
+
+  /** Fresh solo and shared mazes retire the same local round state. */
+  private resetRound(): void {
+    this.ghostsChomped = 0;
+    this.captureAge = CAPTURE_ECHO_S;
+    this.captureEcho.visible = false;
+    this.lives = START_LIVES;
+    this.scaredMs = 0;
+    this.comboIdx = 0;
+    this.lastPelletAt = -Infinity;
     this.squashKick = 0;
     for (const [i, g] of this.ghosts.entries()) {
       const spawn = GHOST_SPAWNS[i % GHOST_SPAWNS.length];
@@ -1601,8 +1787,6 @@ export class GameScene {
       g.dir = spawn.dir;
       g.spawnScale = 1;
     }
-    this.updateHud();
-    this.beginReady();
   }
 
   private beginReady(): void {
@@ -1614,6 +1798,12 @@ export class GameScene {
 
   private setPhase(phase: Phase): void {
     this.phase = phase;
+    if (phase === "playing") {
+      notifyGameStarted();
+    }
+    this.resultAge = 0;
+    this.resultEl.classList.remove("show");
+    this.updateChainHud();
     this.renderBanner();
     if (phase !== "playing") {
       retrigger(this.bannerEl, "pop");
@@ -1626,7 +1816,7 @@ export class GameScene {
         ? watchControlContext(() => this.renderBanner())
         : null;
     if (phase === "win") {
-      this.fx.confettiRain(110);
+      this.fx.confettiRain(REDUCED_MOTION.matches ? 12 : 110);
       this.winConfettiIn = 0.7;
       sfx.play("win");
     } else if (phase === "gameover") {
@@ -1645,7 +1835,12 @@ export class GameScene {
       playing: ["", ""],
       ready: ["READY?", ""],
       title: ["PAC·MAN", ""],
-      win: ["MAZE CLEAR!", `every crumb tidied up ♥ chomp or ${restartHint()} to play again`],
+      win: [
+        this.racing ? "ROUND COMPLETE!" : "MAZE CLEAR!",
+        this.racing && !this.net.isHost
+          ? "every crumb tidied up ♥ waiting for the host to start the next maze"
+          : `every crumb tidied up ♥ chomp or ${restartHint()} for the next maze`,
+      ],
     } satisfies Record<Phase, readonly [string, string]>;
     const [title, sub] = texts[this.phase];
     this.bannerTitleEl.textContent = title;
@@ -1658,6 +1853,16 @@ export class GameScene {
       this.bannerControlsEl.replaceChildren();
     }
     this.bannerEl.style.opacity = title === "" ? "0" : "1";
+    const result = this.phase === "win" || this.phase === "gameover";
+    this.bannerEl.classList.toggle("has-result", result);
+    this.resultEl.hidden = !result;
+    if (result) {
+      this.resultModeEl.textContent = this.racing ? "YOUR SHARED-MAZE ROUND" : "YOUR SOLO RUN";
+      this.resultScoreEl.textContent = String(this.score);
+      this.resultBestEl.textContent = String(this.best);
+      this.resultGhostsEl.textContent = String(this.ghostsChomped);
+      this.resultLeftEl.textContent = String(this.pelletsLeft());
+    }
   }
 
   /** Soft pink full-screen blink on getting caught — feedback, not punishment. */
@@ -1677,6 +1882,67 @@ export class GameScene {
     }, 900);
   }
 
+  // ---- presentation (never drives the simulation) -----------------------------
+
+  private updatePresentation(dt: number): void {
+    this.captureAge = Math.min(CAPTURE_ECHO_S, this.captureAge + dt);
+    this.reappearAge = Math.min(REAPPEAR_S, this.reappearAge + dt);
+    this.resultAge += dt;
+    if (this.captureAge >= CAPTURE_ECHO_S || REDUCED_MOTION.matches) {
+      this.captureEcho.visible = false;
+    }
+    if (this.captureEcho.visible) {
+      const u = this.captureAge / CAPTURE_ECHO_S;
+      this.captureEcho.scale.set(1 - u * 0.55, Math.max(0.01, (1 - u) ** 2), 1 - u * 0.55);
+    }
+    this.updateTeaching();
+    if (
+      (this.phase === "win" || this.phase === "gameover") &&
+      this.resultAge >= RESULT_REVEAL_S &&
+      !this.resultEl.classList.contains("show")
+    ) {
+      this.resultEl.classList.add("show");
+    }
+  }
+
+  /** First-round coach card: STEP then TURN, gone two seconds after both land. */
+  private updateTeaching(): void {
+    if (this.taughtStep && this.taughtTurn && this.teachingDoneAt < 0) {
+      this.teachingDoneAt = this.t;
+    }
+    const visible =
+      (this.phase === "ready" || this.phase === "playing") &&
+      (this.teachingDoneAt < 0 || this.t - this.teachingDoneAt < 2);
+    const blocked = this.t < this.teachingBlockedUntil;
+    const shown = [visible, this.taughtStep, this.taughtTurn, blocked].join(",");
+    if (shown === this.teachingShown) {
+      return;
+    }
+    this.teachingShown = shown;
+    this.teachingEl.hidden = !visible;
+    this.teachingStepEl.textContent = this.taughtStep ? "✓ STEP" : "1 · STEP";
+    this.teachingTurnEl.textContent = this.taughtTurn ? "✓ TURN" : "2 · TURN";
+    this.teachingStepEl.classList.toggle("done", this.taughtStep);
+    this.teachingTurnEl.classList.toggle("done", this.taughtTurn);
+    this.teachingNoteEl.textContent = this.teachingNote(blocked);
+  }
+
+  private teachingNote(blocked: boolean): string {
+    if (blocked) {
+      return "Wall ahead · turn, then chomp";
+    }
+    if (this.taughtStep && this.taughtTurn) {
+      return "Got it! Chomp, turn, tidy the maze ♥";
+    }
+    if (this.taughtTurn) {
+      return "Now chomp · one open tile per bite";
+    }
+    if (this.taughtStep) {
+      return "Turn left or right · relative to your facing";
+    }
+    return "One chomp = one tile · turns follow your facing";
+  }
+
   // ---- rendering ---------------------------------------------------------------
 
   private renderActors(dt: number): void {
@@ -1693,7 +1959,17 @@ export class GameScene {
     const side = bulge - 0.04 * this.stretchAmt;
     const horizontal = this.pac.dir === "left" || this.pac.dir === "right";
     this.pacRig.position.set(this.pac.x, 0, this.pac.z);
-    this.pacRig.scale.set(horizontal ? forward : side, sy, horizontal ? side : forward);
+    const settle = REDUCED_MOTION.matches ? 1 : 1 - 0.18 * (1 - this.reappearAge / REAPPEAR_S) ** 2;
+    const caughtScale =
+      this.phase === "gameover" && !REDUCED_MOTION.matches
+        ? 1 - 0.2 * Math.min(1, this.captureAge / CAPTURE_ECHO_S)
+        : 1;
+    this.pacRig.scale
+      .set(horizontal ? forward : side, sy, horizontal ? side : forward)
+      .multiplyScalar(settle * caughtScale);
+    if (this.phase === "win" && !REDUCED_MOTION.matches) {
+      this.pacRig.position.y = Math.sin(Math.min(1, this.resultAge / 0.65) * Math.PI) * 0.16;
+    }
     // Spawn-grace blink: classic readable invincibility flicker.
     this.pacRig.visible = this.graceMs <= 0 || Math.floor(tMs / 120) % 2 === 0;
 
@@ -1715,8 +1991,13 @@ export class GameScene {
     this.mouthAngle += (target - this.mouthAngle) * Math.min(dt * MOUTH_LERP_RATE, 1);
     this.syncMouth(this.pac.isMoving ? this.mouthAngle : 0);
 
-    // Ghosts: staggered bob, face toward travel direction, tremble + worry
-    // while scared (blinking pale in the final stretch), grow-in after respawn.
+    this.renderGhosts(dt, tMs);
+    this.renderHearts();
+  }
+
+  /** Ghosts: staggered bob, face toward travel direction, tremble + worry
+   *  while scared (blinking pale in the final stretch), grow-in after respawn. */
+  private renderGhosts(dt: number, tMs: number): void {
     const scared = this.scaredMs > 0 && this.phase === "playing";
     const blinkOut =
       scared &&
@@ -1740,8 +2021,10 @@ export class GameScene {
       ghost.scale += (targetScale - ghost.scale) * Math.min(1, dt * 8);
       ghost.group.scale.setScalar(Math.max(ghost.scale, 1e-3));
     }
+  }
 
-    // Pearls shimmer (instanced); power hearts breathe and twirl.
+  /** Pearls shimmer (instanced); power hearts breathe and twirl. */
+  private renderHearts(): void {
     this.pelletField.update(this.t);
     for (const heart of this.hearts.values()) {
       const pulse = 1 + HEART_PULSE_AMP * Math.sin(this.t * HEART_PULSE_FREQ + heart.phase);
@@ -1784,7 +2067,7 @@ export class GameScene {
    */
   private updateCamera(dt: number): void {
     if (this.phase === "title") {
-      const a = this.t * TITLE_ORBIT_SPEED;
+      const a = REDUCED_MOTION.matches ? 0 : this.t * TITLE_ORBIT_SPEED;
       const cx = (GRID_COLS - 1) / 2;
       const cz = (GRID_ROWS - 1) / 2;
       this.camTarget.set(
@@ -1813,14 +2096,14 @@ export class GameScene {
     this.camera.lookAt(this.lookCur);
 
     const shake = this.shaker.update(dt, this.t);
-    if (shake.ox !== 0 || shake.oy !== 0 || shake.rot !== 0) {
+    if (!REDUCED_MOTION.matches && (shake.ox !== 0 || shake.oy !== 0 || shake.rot !== 0)) {
       this.camera.translateX(shake.ox);
       this.camera.translateY(shake.oy);
       this.camera.rotateZ(shake.rot);
     }
 
     this.fovKick *= Math.exp(-FOV_KICK_DECAY * dt);
-    const fov = this.baseFov + this.fovKick;
+    const fov = this.baseFov + (REDUCED_MOTION.matches ? 0 : this.fovKick);
     if (Math.abs(fov - this.camera.fov) > 0.005) {
       this.camera.fov = fov;
       this.camera.updateProjectionMatrix();
@@ -1843,6 +2126,9 @@ export class GameScene {
     this.bestEl.textContent = `BEST ${this.best}`;
     const hearts = this.lives > 0 ? "♥".repeat(this.lives) : "×";
     this.statsEl.textContent = `${hearts}  ·  ${this.pelletsLeft()} left`;
+    if (this.phase === "win" || this.phase === "gameover") {
+      this.renderBanner();
+    }
   }
 }
 

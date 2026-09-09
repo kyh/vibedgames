@@ -346,7 +346,17 @@ export type FxEvent =
   // an ability's damage moment (tag = def.effect, or "spin" for the whirl
   // basic) — the impact layer fx, fired when the blade/slam actually connects
   | { t: "strike"; tag: string; x: number; y: number; dx: number; dy: number; r: number }
-  | { t: "cast"; x: number; y: number; dx: number; dy: number; champId: string; key: AbilityKey }
+  | {
+      t: "cast";
+      x: number;
+      y: number;
+      dx: number;
+      dy: number;
+      champId: string;
+      key: AbilityKey;
+      /** Accepted caster unit; absent in older FX snapshots. */
+      unitId?: string;
+    }
   | { t: "death"; x: number; y: number; team: Team; by: string }
   | { t: "propBreak"; x: number; y: number; model: string; explosive?: boolean }
   | { t: "itemUse"; x: number; y: number; item: string }

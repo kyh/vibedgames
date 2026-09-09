@@ -8,7 +8,7 @@
     />
     <link rel="icon" href="data:," />
     <title>Pong</title>
-    <meta name="description" content="Classic pong reborn in dithered 3D. First to 11 takes it." />
+    <meta name="description" content="Classic pong reborn in dithered 3D. First to 7 takes it." />
     <style>
       * {
         box-sizing: border-box;
@@ -71,6 +71,76 @@
         text-transform: uppercase;
         opacity: 0.55;
       }
+      #match-point {
+        margin-top: 10px;
+        min-height: 14px;
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 2px;
+      }
+      #shot-charge {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 10px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        font-variant-numeric: tabular-nums;
+      }
+      #shot-charge[hidden] {
+        display: none;
+      }
+      #shot-charge-track {
+        width: 64px;
+        height: 5px;
+        background: #aaa;
+        overflow: hidden;
+      }
+      #shot-charge-fill {
+        height: 100%;
+        background: #000;
+        transform: scaleX(0);
+        transform-origin: left;
+        transition: transform 160ms ease-out;
+      }
+      #shot-charge-label {
+        min-width: 3ch;
+      }
+      #shot-callout {
+        position: fixed;
+        bottom: calc(8% + env(safe-area-inset-bottom));
+        left: 50%;
+        transform: translate(-50%, 6px);
+        padding: 7px 11px;
+        border: 1px solid #000;
+        background: #d4d4d4;
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 2px;
+        white-space: nowrap;
+        opacity: 0;
+        transition:
+          opacity 120ms ease,
+          transform 160ms ease;
+        pointer-events: none;
+      }
+      #shot-callout.on {
+        opacity: 1;
+        transform: translate(-50%, 0);
+      }
+      .reduced-motion #score span,
+      .reduced-motion #combo,
+      .reduced-motion #banner,
+      .reduced-motion #serve-meter,
+      .reduced-motion #shot-charge-fill,
+      .reduced-motion #shot-callout {
+        animation: none;
+        transition: none;
+      }
+      .reduced-motion #shot-callout {
+        transform: translate(-50%, 0);
+      }
       @keyframes pop {
         0% {
           transform: scale(1.7);
@@ -90,7 +160,7 @@
         text-align: center;
         font-weight: 800;
         font-variant-numeric: tabular-nums;
-        font-size: calc(28px + var(--combo-tier, 0) * 44px);
+        font-size: calc(20px + var(--combo-tier, 0) * 24px);
         letter-spacing: 2px;
         opacity: 0;
         transition: opacity 0.18s ease;
@@ -132,37 +202,118 @@
         background: #000;
       }
 
-      /* Printed on paper rather than floating over the court: unbacked ink text
-         landed on the court's own baseline and centre line, which read as a
-         strikethrough through "PONG". Same framing as the pause card, and the
-         type is sized off the short side so a landscape phone doesn't get a
-         60px headline in 393px of height. */
+      /* The action stays at the court edge; rallies have no banner. */
       #banner {
         position: fixed;
-        top: 34%;
+        bottom: calc(12px + env(safe-area-inset-bottom));
         left: 50%;
         transform: translateX(-50%);
-        width: max-content;
-        max-width: min(92vw, 560px);
-        padding: 16px 22px 18px;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        column-gap: 16px;
+        width: min(360px, calc(100vw - 24px));
+        padding: 8px 10px 8px 14px;
         background: #d4d4d4;
         border: 2px solid #000;
-        box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.85);
-        text-align: center;
+        box-shadow: 3px 3px 0 #000;
         font-weight: 800;
-        font-size: clamp(32px, 8vmin, 72px);
-        line-height: 1;
-        letter-spacing: 4px;
-        opacity: 0;
-        transition: opacity 0.25s ease;
+        font-size: 15px;
+        line-height: 1.2;
+        letter-spacing: 1px;
+        pointer-events: auto;
+      }
+      #banner[hidden] {
+        display: none;
+      }
+      #banner-detail {
+        margin-top: 4px;
+        font-size: 10px;
+        font-weight: 400;
+        letter-spacing: 0;
+        font-variant-numeric: tabular-nums;
+      }
+      #banner-detail:empty {
+        display: none;
+      }
+      #match-action,
+      #sound-toggle {
+        min-height: 44px;
+        border: 2px solid #000;
+        background: #000;
+        color: #d4d4d4;
+        font:
+          800 12px ui-monospace,
+          monospace;
+        letter-spacing: 2px;
+        cursor: pointer;
+        touch-action: manipulation;
+      }
+      #match-action {
+        grid-column: 2;
+        grid-row: 1 / 3;
+        min-width: 104px;
+        padding: 0 12px;
+        box-shadow: 2px 2px 0 #999;
+      }
+      #match-action:active {
+        transform: translate(2px, 2px);
+        box-shadow: 1px 1px 0 #999;
+      }
+      button:focus-visible {
+        outline: 2px dashed #000;
+        outline-offset: 4px;
+      }
+      #sound-toggle {
+        position: fixed;
+        top: calc(12px + env(safe-area-inset-top));
+        left: calc(12px + env(safe-area-inset-left));
+        padding: 0 10px;
+        background: #d4d4d4;
+        color: #000;
+        font-size: 10px;
+        letter-spacing: 1px;
+      }
+      @media (max-width: 600px) {
+        #hud {
+          padding-top: calc(68px + env(safe-area-inset-top));
+        }
+      }
+      #point-callout {
+        position: fixed;
+        top: 24%;
+        left: 0;
+        right: 0;
+        text-align: center;
+        font-size: 18px;
+        font-weight: 800;
+        letter-spacing: 3px;
         pointer-events: none;
       }
-      #banner small {
-        display: block;
-        margin-top: 14px;
-        font-weight: 400;
-        font-size: 14px;
-        letter-spacing: 3px;
+      @media (max-height: 500px) {
+        #hud {
+          padding-top: calc(12px + env(safe-area-inset-top));
+        }
+        #netinfo {
+          display: none;
+        }
+        #shot-charge {
+          margin-top: 4px;
+        }
+        #sound-toggle {
+          left: auto;
+          right: calc(12px + env(safe-area-inset-right));
+        }
+      }
+      @media (pointer: coarse) {
+        #sound-toggle {
+          display: none;
+        }
+      }
+      @media (max-height: 300px) {
+        #hud {
+          padding-top: calc(18px + env(safe-area-inset-top));
+        }
       }
 
       /* Ink-on-paper skin for @repo/embed's touch pause/mute cluster — the two
@@ -183,6 +334,9 @@
          a grayscale feed so it sits in the ink-on-paper palette (the green/red
          hand skeleton on the canvas stays colored as the one live-data accent). */
       #camera-panel {
+        padding: 0;
+        color: inherit;
+        font: inherit;
         position: fixed;
         right: calc(14px + env(safe-area-inset-right));
         bottom: calc(14px + env(safe-area-inset-bottom));
@@ -197,10 +351,14 @@
         overflow: hidden;
         cursor: pointer;
       }
+      #camera-panel:focus-visible {
+        outline: 3px solid #000;
+        outline-offset: 5px;
+      }
       /* Narrow (portrait phone): sit above the #serve-meter zone. */
-      @media (max-width: 480px) {
+      @media (max-width: 600px) {
         #camera-panel {
-          bottom: calc(64px + env(safe-area-inset-bottom));
+          bottom: calc(80px + env(safe-area-inset-bottom));
         }
       }
       /* A landscape phone has no room in the bottom-right: the player's paddle
@@ -236,7 +394,7 @@
         display: none;
       }
       #camera-panel::before {
-        content: "HAND CONTROL";
+        content: attr(data-label);
         position: absolute;
         top: 0;
         left: 0;
@@ -247,13 +405,6 @@
         letter-spacing: 2px;
         padding: 3px 7px;
         pointer-events: none;
-      }
-      /* Tracking is opt-in on a phone (it costs ~17 MB and a camera prompt),
-         so there the idle pill has to say what tapping it does. */
-      @media (pointer: coarse) {
-        #camera-panel[data-state="off"]::before {
-          content: "✋ TAP FOR HAND CONTROL";
-        }
       }
       #camera-panel video {
         object-fit: fill; /* fill (not cover) so the whole frame shows and stays aligned with the skeleton canvas */
@@ -288,6 +439,22 @@
         color: #000;
         pointer-events: none;
       }
+      #camera-panel[data-state="live"] #camera-status {
+        top: auto;
+        padding: 5px;
+        background: #d4d4d4;
+        font-size: 10px;
+        letter-spacing: 0;
+      }
+      @media (max-height: 300px) {
+        #camera-panel[data-min="1"] {
+          width: 82px;
+          padding-inline: 4px;
+        }
+        #camera-panel[data-min="1"]::before {
+          letter-spacing: 1px;
+        }
+      }
     </style>
   </head>
   <body>
@@ -298,10 +465,29 @@
         <span id="opp-label">AI</span>
       </div>
       <div id="netinfo"></div>
+      <div
+        id="shot-charge"
+        role="progressbar"
+        aria-label="Power shot charge"
+        aria-valuemin="0"
+        aria-valuemax="4"
+        aria-valuenow="0"
+      >
+        <div id="shot-charge-track" aria-hidden="true"><div id="shot-charge-fill"></div></div>
+        <span id="shot-charge-label">POWER 0/4</span>
+      </div>
+      <div id="match-point" role="status"></div>
     </div>
+    <button id="sound-toggle" type="button" aria-pressed="false">SOUND OFF</button>
     <div id="combo"></div>
+    <div id="point-callout" role="status"></div>
+    <div id="shot-callout" role="status"></div>
     <div id="serve-meter"></div>
-    <div id="banner"></div>
+    <div id="banner" aria-labelledby="banner-title">
+      <div id="banner-title"></div>
+      <div id="banner-detail"></div>
+      <button id="match-action" type="button">SERVE</button>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

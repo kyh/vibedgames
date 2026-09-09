@@ -1,0 +1,265 @@
+.farm-inventory-open .farm-touch {
+  display: none;
+}
+
+.farm-bag {
+  --bag-ink: #3a2a14;
+  --bag-wood: #9a6a35;
+  --bag-paper: #f3e2bf;
+  --bag-green: #356331;
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  color: var(--bag-ink);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 14px;
+  line-height: 1.45;
+  pointer-events: none;
+}
+
+.farm-bag-nav {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  border: 2px solid #69431e;
+  border-radius: 9px;
+  background: var(--bag-wood);
+  box-shadow: 0 3px 0 #4a321c;
+  pointer-events: auto;
+}
+
+.farm-bag[data-page="inventory"] .farm-bag-nav {
+  position: fixed;
+  left: var(--bag-left, 12px);
+  top: var(--bag-top, 12px);
+  width: var(--bag-width, calc(100% - 24px));
+}
+
+.farm-bag-button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 2px solid #69431e;
+  border-radius: 5px;
+  background: #e7d2a7;
+  color: var(--bag-ink);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.farm-bag-button[aria-pressed="true"] {
+  color: #fff6d5;
+  background: var(--bag-green);
+  border-color: #254620;
+}
+
+.farm-bag-button:hover {
+  box-shadow: inset 0 0 0 2px #fff6d5;
+}
+
+.farm-bag-button:focus-visible,
+.farm-journal-scroll:focus-visible {
+  outline: 3px solid #243e76;
+  outline-offset: 2px;
+}
+
+.farm-bag-close {
+  margin-left: auto;
+}
+
+.farm-bag[data-page="journal"] {
+  display: grid;
+  place-items: center;
+  padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
+  background: #05070d99;
+  pointer-events: auto;
+}
+
+.farm-bag[data-page="journal"] .farm-bag-frame {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(880px, 100%);
+  height: min(700px, 100%);
+  min-height: 0;
+}
+
+.farm-journal-panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding: 18px 20px 12px;
+  border: 3px solid var(--bag-wood);
+  border-left-width: 9px;
+  border-radius: 8px;
+  background: var(--bag-paper);
+  box-shadow: 3px 4px 0 #4a321c;
+  pointer-events: auto;
+}
+
+.farm-journal-panel[hidden] {
+  display: none;
+}
+
+.farm-journal-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.farm-journal-heading {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.2;
+  letter-spacing: -1px;
+}
+
+.farm-journal-progress {
+  margin: 0;
+  color: #6b512c;
+  font-size: 12px;
+}
+
+.farm-journal-progress.is-complete {
+  color: var(--bag-green);
+  font-weight: 700;
+}
+
+.farm-journal-seasons {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.farm-journal-note {
+  margin: 10px 0 12px;
+  color: #6b512c;
+  font-size: 12px;
+}
+
+.farm-journal-scroll {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 20px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--bag-wood) #e7d2a7;
+  scrollbar-gutter: stable;
+  touch-action: pan-y;
+  padding: 3px 5px 8px 0;
+}
+
+.farm-journal-scroll.is-winter {
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.farm-journal-winter {
+  margin: 0;
+  color: #6b512c;
+  font-size: 12px;
+}
+
+.farm-journal-group h3 {
+  margin: 0 0 8px;
+  padding-bottom: 5px;
+  border-bottom: 2px solid #c6a471;
+  font-size: 12px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.farm-journal-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.farm-journal-entry {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  padding: 7px 6px;
+  border-bottom: 1px solid #c6a471;
+}
+
+.farm-journal-entry[data-found="true"] {
+  background: #d9e8bd;
+}
+
+.farm-journal-icon {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.farm-journal-name {
+  overflow-wrap: anywhere;
+}
+
+.farm-journal-found {
+  color: #6b512c;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.farm-journal-entry[data-found="true"] .farm-journal-found {
+  color: var(--bag-green);
+  font-weight: 700;
+}
+
+@media (max-width: 600px) {
+  .farm-bag {
+    font-size: 13px;
+  }
+  .farm-journal-panel {
+    padding: 14px 12px 10px;
+    border-left-width: 6px;
+  }
+  .farm-journal-head {
+    display: block;
+  }
+  .farm-journal-heading {
+    font-size: 22px;
+  }
+  .farm-journal-progress {
+    margin-top: 4px;
+  }
+  .farm-journal-seasons .farm-bag-button {
+    padding: 6px 3px;
+    font-size: 12px;
+  }
+  .farm-journal-scroll {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+}
+
+@media (max-height: 480px) and (min-width: 601px) {
+  .farm-bag[data-page="journal"] .farm-bag-frame {
+    gap: 6px;
+  }
+  .farm-journal-panel {
+    padding-top: 10px;
+  }
+  .farm-journal-heading {
+    font-size: 20px;
+  }
+  .farm-journal-head {
+    margin-bottom: 6px;
+  }
+  .farm-journal-note {
+    margin: 6px 0;
+    font-size: 11px;
+  }
+}

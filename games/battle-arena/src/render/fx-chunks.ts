@@ -184,6 +184,13 @@ export class ChunkPool {
     this.mesh.instanceMatrix.needsUpdate = true;
   }
 
+  clear(): void {
+    for (const chunk of this.active) {
+      chunk.life = chunk.maxLife;
+    }
+    this.update(0);
+  }
+
   dispose(): void {
     this.mesh.geometry.dispose();
     const { material } = this.mesh;
