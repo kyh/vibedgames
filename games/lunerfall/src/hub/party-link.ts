@@ -9,6 +9,8 @@ export function partyLink(href: string, code: string, mode: "coop" | "vs"): stri
   url.search = "";
   url.hash = "";
   url.searchParams.set("party", code);
-  if (mode === "vs") url.searchParams.set("mode", "vs");
+  if (mode === "vs") {
+    url.searchParams.set("mode", "vs");
+  }
   return url.toString();
 }

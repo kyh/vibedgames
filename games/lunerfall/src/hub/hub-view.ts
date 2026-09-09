@@ -150,7 +150,9 @@ export class HubView {
     join.append(label, this.joinInput, joinButton);
     join.addEventListener("submit", (event) => {
       event.preventDefault();
-      if (!this.disposed) actions.join(this.joinInput.value);
+      if (!this.disposed) {
+        actions.join(this.joinInput.value);
+      }
     });
     this.linkInput.type = "text";
     this.linkInput.readOnly = true;
@@ -185,10 +187,11 @@ export class HubView {
         summary,
         element("p", "", `BIOME ${recap.biome} · DEPTH ${recap.depth} · GOLD ${recap.gold}`),
       );
-      if (recap.kind === "banked")
+      if (recap.kind === "banked") {
         receipt.append(
           element("p", "lf-hub-reward", `SCORE ${recap.score} · BEST ${recap.bestScore}`),
         );
+      }
       this.content.append(receipt);
     }
     this.root.append(this.content);
@@ -269,7 +272,9 @@ export class HubView {
     this.observer.observe(grid);
     this.root.addEventListener("scroll", actions.layout);
     void document.fonts.ready.then(() => {
-      if (!this.disposed) actions.layout();
+      if (!this.disposed) {
+        actions.layout();
+      }
     });
   }
 
@@ -283,24 +288,33 @@ export class HubView {
       (event.key === "Enter" || event.key === " ");
     if (this.helpDialog.open || editing || activation || this.heldKeys.has(key)) {
       event.stopPropagation();
-      if (event.type === "keydown") this.heldKeys.add(key);
-      else this.heldKeys.delete(key);
+      if (event.type === "keydown") {
+        this.heldKeys.add(key);
+      } else {
+        this.heldKeys.delete(key);
+      }
       if (this.helpDialog.open && event.key === "Escape") {
         event.preventDefault();
-        if (event.type === "keydown") this.closeHelp();
+        if (event.type === "keydown") {
+          this.closeHelp();
+        }
       }
     }
   };
 
   private openHelp(): void {
-    if (this.disposed || this.helpDialog.open) return;
+    if (this.disposed || this.helpDialog.open) {
+      return;
+    }
     this.helpDialog.showModal();
     this.help.setAttribute("aria-expanded", "true");
     this.helpDialog.focus({ preventScroll: true });
   }
 
   private closeHelp(): void {
-    if (!this.helpDialog.open) return;
+    if (!this.helpDialog.open) {
+      return;
+    }
     this.helpDialog.close();
     this.help.setAttribute("aria-expanded", "false");
     this.help.focus({ preventScroll: true });
@@ -316,14 +330,20 @@ export class HubView {
 
   private async copyInvite(): Promise<void> {
     const url = this.inviteUrl;
-    if (this.disposed || !url) return;
+    if (this.disposed || !url) {
+      return;
+    }
     try {
       await navigator.clipboard.writeText(url);
-      if (this.disposed || this.inviteUrl !== url) return;
+      if (this.disposed || this.inviteUrl !== url) {
+        return;
+      }
       this.copy.textContent = "COPIED";
       this.announce("Invite link copied.");
     } catch {
-      if (this.disposed || this.inviteUrl !== url) return;
+      if (this.disposed || this.inviteUrl !== url) {
+        return;
+      }
       this.linkInput.value = url;
       this.linkFallback.hidden = false;
       this.announce("Select and copy the invite link below.");
@@ -334,7 +354,9 @@ export class HubView {
 
   update(state: HubState): void {
     const name = HERO_ORDER[state.index];
-    if (!name) return;
+    if (!name) {
+      return;
+    }
     const def = HEROES[name];
     const unlocked = isUnlocked(state.meta, name);
     this.bank.textContent = `✦ ${state.meta.shards} SHARDS`;
@@ -347,7 +369,9 @@ export class HubView {
     this.blurb.textContent = def.blurb;
     for (const [index, node] of this.heroes.entries()) {
       const hero = HERO_ORDER[index];
-      if (!hero) continue;
+      if (!hero) {
+        continue;
+      }
       const locked = !isUnlocked(state.meta, hero);
       node.setAttribute("aria-pressed", String(index === state.index));
       node.setAttribute(
@@ -355,27 +379,30 @@ export class HubView {
         `${HEROES[hero].title}${locked ? `, locked, ${UNLOCK_COST[hero]} shards` : ""}`,
       );
       const cost = node.querySelector(".lf-hub-cost");
-      if (cost)
+      if (cost) {
         cost.textContent = locked
           ? `${UNLOCK_COST[hero]} ✦`
           : index === state.index
             ? "SELECTED"
             : "";
+      }
     }
-    this.go.textContent = !unlocked ? `UNLOCK · ${UNLOCK_COST[name]} ✦` : "PLAY";
+    this.go.textContent = unlocked ? "PLAY" : `UNLOCK · ${UNLOCK_COST[name]} ✦`;
     this.go.dataset.locked = String(!unlocked);
     this.solo.setAttribute("aria-pressed", String(state.net === "off"));
     this.coop.setAttribute("aria-pressed", String(state.net === "coop"));
     this.versus.setAttribute("aria-pressed", String(state.net === "vs"));
-    if (state.net === "off" && this.room.contains(document.activeElement))
+    if (state.net === "off" && this.room.contains(document.activeElement)) {
       this.root.focus({ preventScroll: true });
+    }
     this.room.hidden = state.net === "off";
     this.roomCode.textContent = state.code;
     if (this.inviteUrl !== state.inviteUrl) {
       this.inviteUrl = state.inviteUrl;
       this.copy.textContent = "COPY LINK";
-      if (document.activeElement === this.linkInput && state.net !== "off")
+      if (document.activeElement === this.linkInput && state.net !== "off") {
         this.copy.focus({ preventScroll: true });
+      }
       this.linkFallback.hidden = true;
     }
     this.connection.textContent =
@@ -394,7 +421,9 @@ export class HubView {
         const actions = new Map<string, string[]>();
         for (const entry of group.entries) {
           const inputs = actions.get(entry.action) ?? [];
-          if (!inputs.includes(entry.input)) inputs.push(entry.input);
+          if (!inputs.includes(entry.input)) {
+            inputs.push(entry.input);
+          }
           actions.set(entry.action, inputs);
         }
         for (const [action, inputs] of actions) {
@@ -409,11 +438,15 @@ export class HubView {
       }
     }
     if (state.shop) {
-      if (this.helpDialog.open) this.closeHelp();
+      if (this.helpDialog.open) {
+        this.closeHelp();
+      }
       this.forgeBank.textContent = `✦ ${state.meta.shards} SHARDS`;
       for (const [index, up] of UPGRADES.entries()) {
         const row = this.rows[index];
-        if (!row) continue;
+        if (!row) {
+          continue;
+        }
         const level = upgradeLevel(state.meta, up.id);
         const maxed = level >= up.max;
         row.setAttribute("aria-pressed", String(index === state.shop.index));
@@ -424,8 +457,9 @@ export class HubView {
           up.desc,
           `${level} / ${up.max}`,
         ];
-        for (const [i, child] of Array.from(row.children).entries())
+        for (const [i, child] of [...row.children].entries()) {
           child.textContent = texts[i] ?? "";
+        }
       }
       if (!this.dialog.open) {
         this.forgeStatus.textContent = "";
@@ -448,7 +482,9 @@ export class HubView {
   }
 
   destroy(): void {
-    if (this.disposed) return;
+    if (this.disposed) {
+      return;
+    }
     this.disposed = true;
     this.observer.disconnect();
     this.root.removeEventListener("keydown", this.fenceKey);

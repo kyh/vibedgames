@@ -10,9 +10,13 @@
 
 import { WELL_DEPTH, WELL_HEIGHT, WELL_WIDTH } from "../shared/constants";
 
-export type Cell = { x: number; y: number; z: number };
+export interface Cell {
+  x: number;
+  y: number;
+  z: number;
+}
 
-export type ClearResult = {
+export interface ClearResult {
   /** Full columns (fixed x, spanning z). */
   xColumns: number;
   /** Full rows (fixed z, spanning x). */
@@ -22,7 +26,7 @@ export type ClearResult = {
   cubes: number;
   /** Exact pre-drop footprint, with crossing row/column intersections once. */
   clearedCells: Cell[];
-};
+}
 
 /** Clockwise rotation of an XZ footprint = transpose + reverse rows. */
 export function rotateCW(m: number[][]): number[][] {
@@ -31,7 +35,9 @@ export function rotateCW(m: number[][]): number[][] {
   const out: number[][] = [];
   for (let c = 0; c < cols; c++) {
     const row: number[] = [];
-    for (let r = rows - 1; r >= 0; r--) row.push(m[r]?.[c] ?? 0);
+    for (let r = rows - 1; r >= 0; r--) {
+      row.push(m[r]?.[c] ?? 0);
+    }
     out.push(row);
   }
   return out;
@@ -61,16 +67,24 @@ export class Board {
   }
 
   occupied(x: number, y: number, z: number): boolean {
-    if (!this.inBounds(x, z) || y < 0 || y >= this.height) return false;
+    if (!this.inBounds(x, z) || y < 0 || y >= this.height) {
+      return false;
+    }
     return (this.cells[this.idx(x, y, z)] ?? 0) > 0;
   }
 
   /** Would any of these cells hit a wall, the floor, or a locked cube? */
   collides(cells: Cell[]): boolean {
     for (const c of cells) {
-      if (!this.inBounds(c.x, c.z)) return true; // wall
-      if (c.y < 0) return true; // floor
-      if (c.y < this.height && (this.cells[this.idx(c.x, c.y, c.z)] ?? 0) > 0) return true; // locked
+      if (!this.inBounds(c.x, c.z)) {
+        return true;
+      } // wall
+      if (c.y < 0) {
+        return true;
+      } // floor
+      if (c.y < this.height && (this.cells[this.idx(c.x, c.y, c.z)] ?? 0) > 0) {
+        return true;
+      } // locked
     }
     return false;
   }
@@ -108,8 +122,10 @@ export class Board {
    * each cleared pillar down by one. Returns counts for scoring/fx.
    */
   clearLayer(y: number): ClearResult {
-    const empty: ClearResult = { xColumns: 0, zRows: 0, lines: 0, cubes: 0, clearedCells: [] };
-    if (y < 0 || y >= this.height) return empty;
+    const empty: ClearResult = { clearedCells: [], cubes: 0, lines: 0, xColumns: 0, zRows: 0 };
+    if (y < 0 || y >= this.height) {
+      return empty;
+    }
 
     const fullX: boolean[] = []; // fullX[x] = column x (all z) full
     for (let x = 0; x < this.width; x++) {
@@ -136,16 +152,22 @@ export class Board {
 
     const xColumns = fullX.filter(Boolean).length;
     const zRows = fullZ.filter(Boolean).length;
-    if (xColumns === 0 && zRows === 0) return empty;
+    if (xColumns === 0 && zRows === 0) {
+      return empty;
+    }
 
     // Collect (x,z) pillars to drop. A pillar in both a cleared column and row
     // appears once (deduped) so it drops by exactly one.
     const pillars = new Set<number>();
     for (let x = 0; x < this.width; x++) {
-      if (fullX[x]) for (let z = 0; z < this.depth; z++) pillars.add(x * this.depth + z);
+      if (fullX[x]) {
+        for (let z = 0; z < this.depth; z++) pillars.add(x * this.depth + z);
+      }
     }
     for (let z = 0; z < this.depth; z++) {
-      if (fullZ[z]) for (let x = 0; x < this.width; x++) pillars.add(x * this.depth + z);
+      if (fullZ[z]) {
+        for (let x = 0; x < this.width; x++) pillars.add(x * this.depth + z);
+      }
     }
 
     let cubes = 0;
@@ -159,7 +181,7 @@ export class Board {
       }
       this.dropColumnAbove(x, z, y);
     }
-    return { xColumns, zRows, lines: xColumns + zRows, cubes, clearedCells };
+    return { clearedCells, cubes, lines: xColumns + zRows, xColumns, zRows };
   }
 
   /** Charged power-sweep: clear the lowest layer that has any cube and drop
@@ -176,11 +198,15 @@ export class Board {
         }
       }
     }
-    if (y < 0) return 0;
+    if (y < 0) {
+      return 0;
+    }
     let removed = 0;
     for (let x = 0; x < this.width; x++) {
       for (let z = 0; z < this.depth; z++) {
-        if (this.occupied(x, y, z)) removed += 1;
+        if (this.occupied(x, y, z)) {
+          removed += 1;
+        }
         this.dropColumnAbove(x, z, y);
       }
     }
@@ -220,7 +246,9 @@ export class Board {
         for (let z = 0; z < this.depth; z++) {
           const i = this.idx(x, y, z);
           const c = this.cells[i] ?? 0;
-          if (c > 0) cb(x, y, z, c, this.ids[i] ?? 0);
+          if (c > 0) {
+            cb(x, y, z, c, this.ids[i] ?? 0);
+          }
         }
       }
     }

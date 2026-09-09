@@ -13,8 +13,10 @@ import { CONTROLS, METHOD_LABEL } from "./controls";
 
 // The game's palette (index.html): ink #d7dcf0 on #12131f, accent #8ea2ff,
 // pill borders rgba(120,134,200,·).
-const LINE = "rgba(120,134,200,"; // + alpha)
-const INK = "rgba(215,220,240,"; // + alpha)
+// + alpha)
+const LINE = "rgba(120,134,200,";
+// + alpha)
+const INK = "rgba(215,220,240,";
 
 // Positioning/z-index/cursor/fade live on the shell's root — visuals only here.
 const CSS = `
@@ -38,7 +40,7 @@ const CSS = `
 /** One legend-style row: method label + keycap-chip entries, wrap-centred.
  *  Shared with the title legend (#legend) so both instruction surfaces speak
  *  the same visual language. */
-export function groupRow(group: ControlGroup, coarse: boolean): HTMLElement {
+export const groupRow = (group: ControlGroup, coarse: boolean): HTMLElement => {
   const row = document.createElement("div");
   // 12px → 11px on touch, the same step #legend takes on small screens.
   row.style.cssText =
@@ -65,21 +67,21 @@ export function groupRow(group: ControlGroup, coarse: boolean): HTMLElement {
     row.append(item);
   }
   return row;
-}
+};
 
 /** Thin gradient rule — the well's line weight, used as a section divider. */
-function rule(margin: string): HTMLElement {
+const rule = (margin: string): HTMLElement => {
   const el = document.createElement("div");
   el.setAttribute("aria-hidden", "true");
   el.style.cssText =
     `width:min(64vw,380px);height:1px;margin:${margin};position:relative;` +
     `background:linear-gradient(90deg,transparent,${LINE}0.6),transparent)`;
   return el;
-}
+};
 
 /** Overlay content, rebuilt fresh every show() so the legend rows track the
  *  live context (touch vs keys, pad only while connected). */
-function renderContent(overlay: HTMLElement): void {
+const renderContent = (overlay: HTMLElement): void => {
   const coarse = window.matchMedia("(pointer: coarse)").matches;
 
   // Faint square grid behind the content — the well's wireframe, flattened.
@@ -113,25 +115,29 @@ function renderContent(overlay: HTMLElement): void {
   legend.style.cssText =
     "position:relative;display:flex;flex-direction:column;align-items:center;" +
     "gap:13px;max-width:min(92vw,640px)";
-  for (const group of controlGroups(CONTROLS)) legend.append(groupRow(group, coarse));
+  for (const group of controlGroups(CONTROLS)) {
+    legend.append(groupRow(group, coarse));
+  }
 
   overlay.append(grid, title, hint, rule("24px 0 20px"), legend);
-}
+};
 
 /** show(): mount the overlay; hide(): fade it out. Both idempotent. */
 export const { show, hide } = createPauseShell({
   className: "tetris-pause",
   css: CSS,
-  styleId: "tetris-pause-style",
   fadeMs: 220,
   render: renderContent,
+  styleId: "tetris-pause-style",
 });
 
 let recovery: { root: HTMLElement; unseal: () => void } | null = null;
 
 /** Graphics cannot resume yet. This surface owns no shell keys or pad polling. */
 export function showRecovery(): void {
-  if (recovery) return;
+  if (recovery) {
+    return;
+  }
   const root = document.createElement("div");
   root.id = "tetris-graphics-recovery";
   root.setAttribute("role", "status");
@@ -151,7 +157,9 @@ export function showRecovery(): void {
 }
 
 export function hideRecovery(): void {
-  if (!recovery) return;
+  if (!recovery) {
+    return;
+  }
   recovery.unseal();
   recovery.root.remove();
   recovery = null;

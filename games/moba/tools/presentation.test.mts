@@ -53,7 +53,7 @@ function fixture(hero = "ironvow") {
   const unit = spawnHero(world, hero, "radiant", "local", false, 0);
   assert.ok(unit.hero);
   unit.hero.abilities.W.rank = 1;
-  return { world, unit };
+  return { unit, world };
 }
 
 const cases: {
@@ -63,47 +63,47 @@ const cases: {
   dash: boolean;
   reason?: UnavailableReason;
 }[] = [
-  { name: "ready", statuses: [], cast: true, dash: true },
+  { cast: true, dash: true, name: "ready", statuses: [] },
   {
-    name: "stun",
-    statuses: [{ kind: "stun", until: 9000, sourceId: "enemy" }],
     cast: false,
     dash: false,
+    name: "stun",
     reason: "stunned",
+    statuses: [{ kind: "stun", until: 9000, sourceId: "enemy" }],
   },
   {
-    name: "silence",
-    statuses: [{ kind: "silence", until: 9000 }],
     cast: false,
     dash: true,
+    name: "silence",
     reason: "silenced",
+    statuses: [{ kind: "silence", until: 9000 }],
   },
-  { name: "root", statuses: [{ kind: "root", until: 9000 }], cast: true, dash: true },
+  { cast: true, dash: true, name: "root", statuses: [{ kind: "root", until: 9000 }] },
   {
-    name: "taunt",
-    statuses: [{ kind: "taunt", until: 9000, targetId: "enemy" }],
     cast: true,
     dash: true,
+    name: "taunt",
+    statuses: [{ kind: "taunt", until: 9000, targetId: "enemy" }],
   },
   {
+    cast: false,
+    dash: true,
     name: "unstoppable stun retains the actual cast silence rule",
+    reason: "stunned",
     statuses: [
       { kind: "stun", until: 9000, sourceId: "enemy" },
       { kind: "unstoppable", until: 9000 },
     ],
-    cast: false,
-    dash: true,
-    reason: "stunned",
   },
   {
+    cast: false,
+    dash: true,
     name: "unstoppable silence",
+    reason: "silenced",
     statuses: [
       { kind: "silence", until: 9000 },
       { kind: "unstoppable", until: 9000 },
     ],
-    cast: false,
-    dash: true,
-    reason: "silenced",
   },
 ];
 
@@ -112,11 +112,13 @@ for (const scenario of cases) {
     const { world, unit } = fixture();
     unit.statuses = structuredClone(scenario.statuses);
     const before = JSON.stringify(unit);
-    const ability = actionAvailability(unit, world.now, { kind: "ability", key: "W" });
+    const ability = actionAvailability(unit, world.now, { key: "W", kind: "ability" });
     const dash = actionAvailability(unit, world.now, { kind: "dash" });
     assert.equal(JSON.stringify(unit), before, "Reading availability cannot mutate the unit");
     assert.equal(ability.kind === "available", scenario.cast);
-    if (scenario.reason) assert.deepEqual(ability, { kind: "blocked", reason: scenario.reason });
+    if (scenario.reason) {
+      assert.deepEqual(ability, { kind: "blocked", reason: scenario.reason });
+    }
     assert.equal(dash.kind === "available", scenario.dash);
     assert.equal(castAbility(world, unit, { key: "W" }), scenario.cast);
     dashHero(world, unit, 1, 0);
@@ -128,7 +130,7 @@ test("dead, unlearned and passive abilities never advertise an active cast", () 
   const { world, unit } = fixture();
   assert.ok(unit.hero);
   unit.alive = false;
-  assert.deepEqual(actionAvailability(unit, world.now, { kind: "ability", key: "W" }), {
+  assert.deepEqual(actionAvailability(unit, world.now, { key: "W", kind: "ability" }), {
     kind: "blocked",
     reason: "dead",
   });
@@ -140,12 +142,12 @@ test("dead, unlearned and passive abilities never advertise an active cast", () 
   dashHero(world, unit, 1, 0);
   assert.equal(unit.hero.dashUntil, 0);
   unit.alive = true;
-  assert.deepEqual(actionAvailability(unit, world.now, { kind: "ability", key: "E" }), {
+  assert.deepEqual(actionAvailability(unit, world.now, { key: "E", kind: "ability" }), {
     kind: "blocked",
     reason: "unlearned",
   });
   unit.hero.abilities.E.rank = 1;
-  assert.deepEqual(actionAvailability(unit, world.now, { kind: "ability", key: "E" }), {
+  assert.deepEqual(actionAvailability(unit, world.now, { key: "E", kind: "ability" }), {
     kind: "blocked",
     reason: "passive",
   });
@@ -157,7 +159,7 @@ test("cooldowns remain unavailable through the last millisecond and mana remains
   assert.ok(unit.hero);
   unit.hero.abilities.W.readyAt = world.now + 1;
   unit.hero.dashReadyAt = world.now + 1;
-  assert.deepEqual(actionAvailability(unit, world.now, { kind: "ability", key: "W" }), {
+  assert.deepEqual(actionAvailability(unit, world.now, { key: "W", kind: "ability" }), {
     kind: "blocked",
     reason: "cooldown",
   });
@@ -171,14 +173,14 @@ test("cooldowns remain unavailable through the last millisecond and mana remains
   world.now += 1;
   assert.equal(actionAvailability(unit, world.now, { kind: "dash" }).kind, "available");
   unit.mp = 0;
-  assert.deepEqual(actionAvailability(unit, world.now, { kind: "ability", key: "W" }), {
+  assert.deepEqual(actionAvailability(unit, world.now, { key: "W", kind: "ability" }), {
     kind: "blocked",
     reason: "mana",
   });
   assert.equal(castAbility(world, unit, { key: "W" }), false);
   unit.mp = unit.maxMp;
   assert.equal(
-    actionAvailability(unit, world.now, { kind: "ability", key: "W" }).kind,
+    actionAvailability(unit, world.now, { key: "W", kind: "ability" }).kind,
     "available",
   );
   assert.equal(castAbility(world, unit, { key: "W" }), true);
@@ -197,7 +199,7 @@ test("an actual channel permits another spell and a dash that cancels it", () =>
   assert.equal(castAbility(world, unit, { key: "R", point }), true);
   assert.ok(unit.hero.channel);
   assert.equal(
-    actionAvailability(unit, world.now, { kind: "ability", key: "Q" }).kind,
+    actionAvailability(unit, world.now, { key: "Q", kind: "ability" }).kind,
     "available",
   );
   assert.equal(actionAvailability(unit, world.now, { kind: "dash" }).kind, "available");
@@ -263,8 +265,9 @@ test("all24 descriptions and rank previews come from the existing kit data", () 
         assert.equal(text.description, def.desc);
         assert.equal(text.name, `${key} · ${def.name}`);
         assert.ok(text.rank.includes(rank ? `Rank ${rank}/${def.maxRank}` : "Rank 1 preview"));
-        if (def.targeting === "passive") assert.equal(text.costs, "No cast or mana cost");
-        else {
+        if (def.targeting === "passive") {
+          assert.equal(text.costs, "No cast or mana cost");
+        } else {
           assert.ok(text.costs.includes(`${valAt(def.manaCost, Math.max(1, rank))} mana`));
           assert.ok(text.costs.includes(`${valAt(def.cooldown, Math.max(1, rank))}s cooldown`));
         }
@@ -330,7 +333,7 @@ function laneFixture(team: Team = "radiant") {
   const world = createWorld(482);
   const player = spawnHero(world, "ironvow", team, "local", false, 0);
   const prefix = enemyOf(team) === "radiant" ? "r" : "d";
-  return { world, player, prefix };
+  return { player, prefix, world };
 }
 
 function unit(world: World, id: string): Unit {
@@ -412,9 +415,11 @@ test("route selection is stable across snapshot order and ignores protected/neut
   player.y = ancient.y;
   assert.notEqual(objectiveGuidance(world, player)?.targetId, ancient.id);
   ancient.neutral = true;
-  if (ancient.structure) ancient.structure.attackable = true;
+  if (ancient.structure) {
+    ancient.structure.attackable = true;
+  }
   assert.notEqual(objectiveGuidance(world, player)?.targetId, ancient.id);
-  assert.equal(objectiveGuidance(world, undefined), null);
+  assert.equal(objectiveGuidance(world), null);
   assert.equal(objectiveGuidance(world, ancient), null, "unassigned spectator is not a hero");
 });
 
@@ -445,7 +450,9 @@ test("respawn tip uses real upgrade eligibility, and only suggests shopping afte
   player.hero.items = ITEMS.slice(0, MAX_ITEMS).map((item) => item.id);
   assert.match(objectiveGuidance(world, player)?.respawnTip ?? "", /Return with your creeps/);
   const ownPrefix = player.team === "radiant" ? "r" : "d";
-  for (const id of [`${ownPrefix}-base-1`, `${ownPrefix}-base-2`]) unit(world, id).alive = false;
+  for (const id of [`${ownPrefix}-base-1`, `${ownPrefix}-base-2`]) {
+    unit(world, id).alive = false;
+  }
   updateStructureGating(world);
   assert.match(objectiveGuidance(world, player)?.respawnTip ?? "", /Your Ancient is exposed/);
   player.hero.respawnAt = 0;
@@ -460,9 +467,9 @@ test("unknown/stale structure events never invent a lane or a currently exposed 
     null,
   );
   assert.deepEqual(unknown, {
+    priority: "objective",
     text: "DIRE TOWER HAS FALLEN",
     tone: "neutral",
-    priority: "objective",
   });
   const event = destroy(world, player, `${prefix}-top-t1`);
   destroy(world, player, `${prefix}-top-t2`);
@@ -473,14 +480,14 @@ test("unknown/stale structure events never invent a lane or a currently exposed 
 
 test("soundscape follows local accepted combat, not idle proximity or distant lanes", () => {
   const world = createWorld(808);
-  world.now = 10000;
+  world.now = 10_000;
   const me = spawnHero(world, "ironvow", "radiant", "me", false, 0);
   const enemy = spawnHero(world, "emberhex", "dire", "enemy", false, 0);
   assert.ok(me.hero);
   me.x = enemy.x = 1500;
   me.y = enemy.y = 1500;
   assert.equal(readSoundscape(world, me.id).kind, "quiet");
-  enemy.pendingAttack = { targetId: me.id, resolveAt: 10200 };
+  enemy.pendingAttack = { resolveAt: 10200, targetId: me.id };
   assert.equal(readSoundscape(world, me.id).kind, "battle");
   enemy.x += 1000;
   assert.equal(readSoundscape(world, me.id).kind, "quiet");
@@ -489,7 +496,7 @@ test("soundscape follows local accepted combat, not idle proximity or distant la
   world.now += 1500;
   assert.equal(readSoundscape(world, me.id).kind, "quiet");
   const creep = spawnCreepAt(world, "dire", "top", "melee", me.x + 50, me.y);
-  creep.pendingAttack = { targetId: me.id, resolveAt: world.now + 200 };
+  creep.pendingAttack = { resolveAt: world.now + 200, targetId: me.id };
   assert.equal(readSoundscape(world, me.id).kind, "skirmish");
   me.alive = false;
   assert.equal(readSoundscape(world, me.id).kind, "fallen");
@@ -503,12 +510,14 @@ test("the score reads without changing simulation state or random state", () => 
   const me = spawnHero(world, "ironvow", "radiant", "me", false, 0);
   const before = JSON.stringify({
     ...world,
-    units: [...world.units],
     projectiles: [...world.projectiles],
+    units: [...world.units],
   });
-  for (let i = 0; i < 100; i++) readSoundscape(world, me.id);
+  for (let i = 0; i < 100; i++) {
+    readSoundscape(world, me.id);
+  }
   assert.equal(
-    JSON.stringify({ ...world, units: [...world.units], projectiles: [...world.projectiles] }),
+    JSON.stringify({ ...world, projectiles: [...world.projectiles], units: [...world.units] }),
     before,
   );
 });
@@ -516,14 +525,16 @@ test("the score reads without changing simulation state or random state", () => 
 test("fixed D-Dorian form, bounded recipes and sparse exploration", () => {
   const modes: ScoreMode[] = ["quiet", "skirmish", "battle", "fallen"];
   const pitches = new Set([0, 2, 4, 5, 7, 9, 11]);
-  const totals = { quiet: 0, skirmish: 0, battle: 0, fallen: 0 };
+  const totals = { battle: 0, fallen: 0, quiet: 0, skirmish: 0 };
   for (const mode of modes) {
     for (let step = 0; step < 64; step++) {
       const recipe = scoreStep(step, mode, true);
       assert.deepEqual(recipe, scoreStep(step, mode, true));
       assert.ok(recipe.music.length <= 3 && recipe.ambience.length <= 2);
       totals[mode] += recipe.music.length;
-      if (mode !== "quiet") assert.equal(recipe.ambience.length, 0);
+      if (mode !== "quiet") {
+        assert.equal(recipe.ambience.length, 0);
+      }
       for (const note of [...recipe.music, ...recipe.ambience]) {
         assert.ok(note.gain > 0 && note.gain <= 0.032);
         assert.ok(note.attack > 0 && note.release > 0 && note.attack + note.release <= note.dur);
@@ -551,11 +562,12 @@ test("repeated snapshots, locked sound and clock jumps never queue catch-up beat
     true,
   );
   assert.equal(next?.step, 2);
-  for (let i = 0; i < 100; i++)
+  for (let i = 0; i < 100; i++) {
     assert.equal(
       clock.observe({ kind: "quiet", time: SCORE_STEP_SECONDS * 2 + 0.00001, water: false }, true),
       null,
     );
+  }
   assert.equal(
     clock.observe({ kind: "quiet", time: SCORE_STEP_SECONDS * 320 + 0.00001, water: true }, true)
       ?.step,
@@ -600,11 +612,11 @@ test("attack pose follows the real wind-up, strike, recovery and repeated snapsh
   tryAttack(world, attacker, victim);
   assert.ok(attacker.pendingAttack);
   const cue = {
-    startedAt: attacker.lastAttackAt,
-    resolveAt: attacker.pendingAttack.resolveAt,
     facing: attacker.facing,
+    resolveAt: attacker.pendingAttack.resolveAt,
+    startedAt: attacker.lastAttackAt,
   };
-  const hp = victim.hp;
+  const { hp } = victim;
   const before = structuredClone(attacker);
   const anticipation = attackPose(cue, cue.resolveAt - 1);
   assert.ok(anticipation && anticipation.x < 0 && anticipation.angle < 0);
@@ -645,25 +657,25 @@ test("attack pose follows the real wind-up, strike, recovery and repeated snapsh
 // ---- spell pose + cast actor wire validation ---------------------------------
 
 test("spell pose starts at the accepted cast, holds a brace only during a live channel", () => {
-  const profile = spellPose({ effect: "ironvow:Q", at: 1000, facing: 1 }, null, 1050, 1);
+  const profile = spellPose({ at: 1000, effect: "ironvow:Q", facing: 1 }, null, 1050, 1);
   assert.ok(profile && profile.x > 0 && profile.frame !== null);
-  assert.equal(spellPose({ effect: "ironvow:Q", at: 1000, facing: 1 }, null, 999, 1), null);
-  assert.equal(spellPose({ effect: "ironvow:Q", at: 1000, facing: 1 }, null, 1240, 1), null);
-  const mirrored = spellPose({ effect: "ironvow:Q", at: 1000, facing: -1 }, null, 1050, -1);
+  assert.equal(spellPose({ at: 1000, effect: "ironvow:Q", facing: 1 }, null, 999, 1), null);
+  assert.equal(spellPose({ at: 1000, effect: "ironvow:Q", facing: 1 }, null, 1240, 1), null);
+  const mirrored = spellPose({ at: 1000, effect: "ironvow:Q", facing: -1 }, null, 1050, -1);
   assert.ok(mirrored && mirrored.x === -profile.x && mirrored.angle === -profile.angle);
   const channel = { effect: "stormcaller:R", until: 2000 };
   assert.ok(spellPose(null, channel, 1500, 1)?.frame === null);
   assert.equal(spellPose(null, channel, 2000, 1), null);
-  assert.equal(spellPose({ effect: "unknown:X", at: 1000, facing: 1 }, null, 1050, 1), null);
+  assert.equal(spellPose({ at: 1000, effect: "unknown:X", facing: 1 }, null, 1050, 1), null);
 });
 
 test("malformed cast actors from older or hostile peers are stripped, valid ones kept", () => {
-  const cast = { t: "cast", x: 1, y: 2, effect: "ironvow:Q", team: "radiant" };
+  const cast = { effect: "ironvow:Q", t: "cast", team: "radiant", x: 1, y: 2 };
   const batch = sharedFxBatch({
     fx: [
-      { ...cast, actor: { unitId: "h-a", at: 1234 } },
-      { ...cast, actor: { unitId: "", at: 1 } },
-      { ...cast, actor: { unitId: "h-b", at: -1 } },
+      { ...cast, actor: { at: 1234, unitId: "h-a" } },
+      { ...cast, actor: { at: 1, unitId: "" } },
+      { ...cast, actor: { at: -1, unitId: "h-b" } },
       { ...cast, actor: "h-c" },
       cast,
       { t: "bogus" },
@@ -672,7 +684,7 @@ test("malformed cast actors from older or hostile peers are stripped, valid ones
   assert.equal(batch.length, 5);
   assert.deepEqual(
     batch.map((event) => (event.t === "cast" ? (event.actor ?? null) : event.t)),
-    [{ unitId: "h-a", at: 1234 }, null, null, null, null],
+    [{ at: 1234, unitId: "h-a" }, null, null, null, null],
   );
 });
 
@@ -680,10 +692,10 @@ test("malformed cast actors from older or hostile peers are stripped, valid ones
 
 test("hero plates keep the local anchor, separate crowds, and are order-stable", () => {
   const crowd: HeroPlate[] = [
-    { id: "enemy", x: 100, y: 100, width: 76, height: 36, priority: "target" },
-    { id: "ally", x: 108, y: 108, width: 86, height: 36, priority: "hero" },
-    { id: "local", x: 100, y: 100, width: 64, height: 36, priority: "player" },
-    { id: "distant", x: 320, y: 100, width: 76, height: 36, priority: "hero" },
+    { height: 36, id: "enemy", priority: "target", width: 76, x: 100, y: 100 },
+    { height: 36, id: "ally", priority: "hero", width: 86, x: 108, y: 108 },
+    { height: 36, id: "local", priority: "player", width: 64, x: 100, y: 100 },
+    { height: 36, id: "distant", priority: "hero", width: 76, x: 320, y: 100 },
   ];
   const before = structuredClone(crowd);
   const arranged = layoutHeroPlates(crowd);
@@ -692,7 +704,9 @@ test("hero plates keep the local anchor, separate crowds, and are order-stable",
   assert.equal(arranged.find((p) => p.id === "distant")?.lift, 0, "unrelated labels stay put");
   for (const a of arranged) {
     for (const b of arranged) {
-      if (a.id === b.id) continue;
+      if (a.id === b.id) {
+        continue;
+      }
       const overlap =
         Math.abs(a.x - b.x) < (a.width + b.width) / 2 &&
         a.y < b.y + b.height &&
@@ -712,8 +726,9 @@ test("hero plates keep the local anchor, separate crowds, and are order-stable",
 
 test("presentation settings parse strictly, survive denied storage, and unsubscribe", () => {
   const defaults = { effects: "full", motion: "system", view: "standard" };
-  for (const raw of [null, "bad json", "null", "true", "12", "[]", '"focused"', "{}"])
+  for (const raw of [null, "bad json", "null", "true", "12", "[]", '"focused"', "{}"]) {
     assert.deepEqual(parsePresentationSettings(raw), defaults, `unsafe stored value: ${raw}`);
+  }
   assert.deepEqual(
     parsePresentationSettings('{"effects":"focused","motion":"reduced","view":"close"}'),
     { effects: "focused", motion: "reduced", view: "close" },

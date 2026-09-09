@@ -8,12 +8,12 @@ import { controlGroups, createPauseShell, resumeGame } from "@repo/embed";
 
 import { CONTROLS, METHOD_TAG } from "../controls";
 
-export type PauseOverlay = {
+export interface PauseOverlay {
   /** Mount the overlay. Idempotent while shown. */
   show: () => void;
   /** Unmount (fade out). Idempotent while hidden. */
   hide: () => void;
-};
+}
 
 const STYLE_ID = "waymo-pause-style";
 
@@ -151,7 +151,7 @@ const CSS = `
 `;
 
 /** One keycap chip group: "↑ / W" → [↑][W] caps + a lower-case verb label. */
-function hintChip(input: string, action: string): HTMLElement {
+const hintChip = (input: string, action: string): HTMLElement => {
   const group = document.createElement("span");
   group.className = "hint";
   for (const key of input.split(" / ")) {
@@ -164,23 +164,9 @@ function hintChip(input: string, action: string): HTMLElement {
   label.textContent = action;
   group.append(label);
   return group;
-}
+};
 
-/** Build CRAZY WAYMO's pause overlay. Same show/hide contract as the stock
- *  @repo/embed one — wire it into setPauseHandlers from main.ts.
- *
- *  `onRestart` is the touch half of the R key: a player who has buried the car
- *  in a facade has no keyboard to reach for, and pause is the one deliberate
- *  surface where a run-ending button is safe from a mis-tap. */
-export function createPauseOverlay(onRestart: () => void): PauseOverlay {
-  return createPauseShell({
-    css: CSS,
-    styleId: STYLE_ID,
-    render: (overlay) => renderContent(overlay, onRestart),
-  });
-}
-
-function renderContent(overlay: HTMLElement, onRestart: () => void): void {
+const renderContent = (overlay: HTMLElement, onRestart: () => void): void => {
   overlay.id = "waymo-pause";
   const coarse = window.matchMedia("(pointer: coarse)").matches;
 
@@ -233,9 +219,24 @@ function renderContent(overlay: HTMLElement, onRestart: () => void): void {
       tag.className = "tag";
       tag.textContent = METHOD_TAG[group.method];
       row.append(tag);
-      for (const entry of group.entries) row.append(hintChip(entry.input, entry.action));
+      for (const entry of group.entries) {
+        row.append(hintChip(entry.input, entry.action));
+      }
       list.append(row);
     }
     overlay.append(list);
   }
-}
+};
+
+/** Build CRAZY WAYMO's pause overlay. Same show/hide contract as the stock
+ *  `@repo/embed` one — wire it into setPauseHandlers from main.ts.
+ *
+ *  `onRestart` is the touch half of the R key: a player who has buried the car
+ *  in a facade has no keyboard to reach for, and pause is the one deliberate
+ *  surface where a run-ending button is safe from a mis-tap. */
+export const createPauseOverlay = (onRestart: () => void): PauseOverlay =>
+  createPauseShell({
+    css: CSS,
+    render: (overlay) => renderContent(overlay, onRestart),
+    styleId: STYLE_ID,
+  });

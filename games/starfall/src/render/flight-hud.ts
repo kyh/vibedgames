@@ -13,12 +13,12 @@ export type FlightHudState = Readonly<{
 
 /** DOM view of level / XP / special-weapon time / mastery (index.html owns the nodes). */
 export class FlightHud {
-  private readonly progress = document.getElementById("flight-progress");
-  private readonly level = document.getElementById("flight-level");
-  private readonly xp = document.getElementById("flight-xp");
-  private readonly fill = document.getElementById("flight-xp-fill");
-  private readonly time = document.getElementById("weapon-time");
-  private readonly mastery = document.getElementById("weapon-mastery");
+  private readonly progress = document.querySelector("#flight-progress");
+  private readonly level = document.querySelector("#flight-level");
+  private readonly xp = document.querySelector("#flight-xp");
+  private readonly fill = document.querySelector("#flight-xp-fill");
+  private readonly time = document.querySelector("#weapon-time");
+  private readonly mastery = document.querySelector("#weapon-mastery");
 
   update(state: FlightHudState): void {
     if (!state.active) {
@@ -48,7 +48,9 @@ export class FlightHud {
     setText(this.xp, capped ? "MAX" : `${Math.floor(progress)}/${cost} XP`);
     if (this.fill) {
       const width = capped ? "100%" : `${Math.round((progress / cost) * 100)}%`;
-      if (this.fill.style.width !== width) this.fill.style.width = width;
+      if (this.fill.style.width !== width) {
+        this.fill.style.width = width;
+      }
     }
     if (this.time) {
       this.time.hidden = seconds === 0;
@@ -62,7 +64,9 @@ export class FlightHud {
   }
 
   reset(): void {
-    if (this.progress) this.progress.hidden = true;
+    if (this.progress) {
+      this.progress.hidden = true;
+    }
     if (this.mastery) {
       this.mastery.hidden = true;
       setText(this.mastery, "");
@@ -75,17 +79,24 @@ export class FlightHud {
 }
 
 function masteryText(mastery: WeaponMasteryState): string {
-  if (mastery.phase === "idle") return "";
+  if (mastery.phase === "idle") {
+    return "";
+  }
   const rail = mastery.weapon === "RAILGUN";
-  if (mastery.completions > 0)
+  if (mastery.completions > 0) {
     return `${rail ? "Aligned shots" : "Return hits"}: ${mastery.completions}`;
+  }
   return rail ? "Pierce two enemies with one shot." : "Hit the same enemy out and back.";
 }
 
 function setText(node: HTMLElement | null, value: string): void {
-  if (node && node.textContent !== value) node.textContent = value;
+  if (node && node.textContent !== value) {
+    node.textContent = value;
+  }
 }
 
 function setAttribute(node: HTMLElement, name: string, value: string): void {
-  if (node.getAttribute(name) !== value) node.setAttribute(name, value);
+  if (node.getAttribute(name) !== value) {
+    node.setAttribute(name, value);
+  }
 }

@@ -9,10 +9,12 @@
 import { isOfflineRequested } from "@repo/embed";
 import { CHAMP_BY_ID, valAt } from "../data/champions";
 import { abilityIcon, champSigil, iconUrl, statusIcon } from "../data/icons";
-import { ITEMS, ITEM_BY_ID, MAX_ITEMS, type ItemDef } from "../data/items";
+import { ITEMS, ITEM_BY_ID, MAX_ITEMS } from "../data/items";
+import type { ItemDef } from "../data/items";
 import { KILL_GOAL_FFA, LEVEL_CAP, XP_CURVE, respawnTime } from "../data/config";
 import { ARENA, HEX_R, OBSTACLES } from "../data/map";
-import { ALL_ABILITY_KEYS, type AbilityKey, type Unit, type World } from "../sim/types";
+import { ALL_ABILITY_KEYS } from "../sim/types";
+import type { AbilityKey, Unit, World } from "../sim/types";
 import type { Audio } from "./audio";
 import type { Fx } from "./fx";
 import { LOCAL_COLOR, teamColor } from "./palette";
@@ -25,12 +27,12 @@ import { terrainHeight } from "../data/terrain";
 
 // Q/W/E/R map to number keys 1-4; DASH/JUMP are the flat util pair (Shift/Space).
 const KEYCAP = {
-  Q: "1",
-  W: "2",
-  E: "3",
-  R: "4",
   DASH: "⇧",
+  E: "3",
   JUMP: "␣",
+  Q: "1",
+  R: "4",
+  W: "2",
 } satisfies Record<AbilityKey, string>;
 /** The flat, always-unlocked mobility pair — no rank pips, no level lock. */
 const UTIL_KEYS = new Set<AbilityKey>(["DASH", "JUMP"]);
@@ -53,7 +55,7 @@ const TIPS: string[] = [
 ];
 
 function hex(n: number): string {
-  return "#" + n.toString(16).padStart(6, "0");
+  return `#${n.toString(16).padStart(6, "0")}`;
 }
 
 /** Player names cross the room boundary; render them as text in HUD markup. */
@@ -71,15 +73,17 @@ export type MatchActions =
   | { kind: "online"; canRematch: () => boolean; rematch: () => void };
 
 function sealKitActivation(event: KeyboardEvent): void {
-  if (event.key === "Enter" || event.key === " ") event.stopPropagation();
+  if (event.key === "Enter" || event.key === " ") {
+    event.stopPropagation();
+  }
 }
 
-export type ShopCallbacks = {
+export interface ShopCallbacks {
   buy: (itemId: string) => void;
   canShop: () => boolean;
-};
+}
 
-type AbilityEl = {
+interface AbilityEl {
   wrap: HTMLDivElement;
   img: HTMLImageElement;
   cdText: HTMLDivElement;
@@ -88,22 +92,31 @@ type AbilityEl = {
   lastRank: number;
   wasOnCd: boolean;
   lastText: string;
-};
+}
 
-type ItemSocket = {
+interface ItemSocket {
   chip: HTMLDivElement;
   img: HTMLImageElement;
   cd: HTMLDivElement;
   lastPct: number;
   lastText: string;
   lastRdy: boolean;
-};
+}
 
-type BuffEl = { ring: HTMLElement; sec: HTMLElement; lastT: number; lastSec: string };
+interface BuffEl {
+  ring: HTMLElement;
+  sec: HTMLElement;
+  lastT: number;
+  lastSec: string;
+}
 
-type Arrow = { el: HTMLDivElement; lastTf: string; on: boolean };
+interface Arrow {
+  el: HTMLDivElement;
+  lastTf: string;
+  on: boolean;
+}
 
-type Plate = {
+interface Plate {
   wrap: HTMLDivElement;
   fill: HTMLDivElement;
   name: HTMLDivElement;
@@ -111,7 +124,7 @@ type Plate = {
   x: number;
   y: number;
   hp: string;
-};
+}
 export class Hud {
   private root: HTMLElement;
   private plates = new Map<string, Plate>();
@@ -224,9 +237,13 @@ export class Hud {
     this.showIntro("");
   };
   private readonly onMuteKey = (e: KeyboardEvent): void => {
-    if (e.code !== "KeyM" || e.repeat) return;
+    if (e.code !== "KeyM" || e.repeat) {
+      return;
+    }
     const t = e.target;
-    if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) return;
+    if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) {
+      return;
+    }
     this.sfx.setMuted(!this.sfx.isMuted);
   };
 
@@ -236,7 +253,7 @@ export class Hud {
     private shop: ShopCallbacks,
     private matchActions: MatchActions = { kind: "offline" },
   ) {
-    this.root = document.getElementById("hud")!;
+    this.root = document.querySelector("#hud")!;
     this.injectStyle();
     this.build();
     document.addEventListener("visibilitychange", this.onVisibilityChange);
@@ -247,12 +264,12 @@ export class Hud {
     this.lowHpEl.style.cssText =
       "position:fixed;inset:0;pointer-events:none;z-index:7;opacity:0;transition:opacity .15s;" +
       "background:radial-gradient(ellipse at center, transparent 45%, rgba(190,20,20,0.85) 130%)";
-    document.body.appendChild(this.lowHpEl);
+    document.body.append(this.lowHpEl);
     this.lowHpEl2 = document.createElement("div");
     this.lowHpEl2.style.cssText =
       "position:fixed;inset:0;pointer-events:none;z-index:7;opacity:0;transition:opacity .15s;" +
       "box-shadow:inset 0 0 90px rgba(190,20,20,.55)";
-    document.body.appendChild(this.lowHpEl2);
+    document.body.append(this.lowHpEl2);
   }
 
   private get presentationBlocked(): boolean {
@@ -270,7 +287,9 @@ export class Hud {
 
   setKitAction(open: () => void): void {
     this.kitAction = open;
-    if (this.kitButton) this.kitButton.hidden = false;
+    if (this.kitButton) {
+      this.kitButton.hidden = false;
+    }
   }
 
   // ── markup ──
@@ -356,15 +375,18 @@ export class Hud {
     this.menuBtn =
       menuBtn instanceof HTMLButtonElement ? menuBtn : document.createElement("button");
     this.menuBtn.addEventListener("click", backToLobby);
-    const kit = document.getElementById("ba-kit-btn");
+    const kit = document.querySelector("#ba-kit-btn");
     if (kit instanceof HTMLButtonElement) {
       this.kitButton = kit;
       kit.addEventListener("click", (event) => {
         event.stopPropagation();
-        if (!this.shownEnd && !this.presentationBlocked) this.kitAction?.();
+        if (!this.shownEnd && !this.presentationBlocked) {
+          this.kitAction?.();
+        }
       });
-      for (const name of ["pointerdown", "pointerup"])
+      for (const name of ["pointerdown", "pointerup"]) {
         kit.addEventListener(name, (event) => event.stopPropagation());
+      }
       kit.addEventListener("keydown", sealKitActivation);
       kit.addEventListener("keyup", sealKitActivation);
     }
@@ -387,7 +409,7 @@ export class Hud {
       if (key === "DASH") {
         const gap = document.createElement("div");
         gap.className = "ba-abil-gap";
-        abilEl.appendChild(gap);
+        abilEl.append(gap);
       }
       const util = UTIL_KEYS.has(key);
       const wrap = document.createElement("div");
@@ -406,16 +428,16 @@ export class Hud {
       const pips = document.createElement("div");
       pips.className = "ba-pips";
       wrap.append(img, cd, keycap, cdText, pips);
-      abilEl.appendChild(wrap);
+      abilEl.append(wrap);
       this.abilityEls.set(key, {
-        wrap,
-        img,
         cdText,
-        pips,
+        img,
         lastCd: -1,
         lastRank: -1,
-        wasOnCd: false,
         lastText: "",
+        pips,
+        wasOnCd: false,
+        wrap,
       });
     }
 
@@ -441,8 +463,8 @@ export class Hud {
         e.preventDefault();
         this.itemTaps.push(slot);
       });
-      this.itemsEl.appendChild(chip);
-      this.itemSockets.push({ chip, img, cd, lastPct: -1, lastText: "", lastRdy: false });
+      this.itemsEl.append(chip);
+      this.itemSockets.push({ cd, chip, img, lastPct: -1, lastRdy: false, lastText: "" });
     }
 
     this.buildShop();
@@ -456,12 +478,17 @@ export class Hud {
     this.shopEl.innerHTML = `<div class="ba-shop-head">SHOP <span class="ba-shop-hint">(B to close · only in base)</span></div><div class="ba-shop-grid">${rows}</div>`;
     this.shopEl.querySelectorAll<HTMLButtonElement>(".ba-item").forEach((btn) => {
       btn.addEventListener("click", () => {
-        const id = btn.dataset.id;
-        if (!id) return;
+        const { id } = btn.dataset;
+        if (!id) {
+          return;
+        }
         const it = ITEM_BY_ID[id];
         const me = this.lastMe;
-        if (it && me && me.gold >= it.cost && me.items.length < MAX_ITEMS) this.sfx.uiBuy();
-        else this.sfx.uiDeny();
+        if (it && me && me.gold >= it.cost && me.items.length < MAX_ITEMS) {
+          this.sfx.uiBuy();
+        } else {
+          this.sfx.uiDeny();
+        }
         this.shop.buy(id);
       });
     });
@@ -469,18 +496,25 @@ export class Hud {
 
   /** Drain belt-chip taps (slots 0-5). The touch complement to the 5–0 keys. */
   consumeItemTaps(): number[] {
-    if (this.itemTaps.length === 0) return this.itemTaps;
+    if (this.itemTaps.length === 0) {
+      return this.itemTaps;
+    }
     const taps = this.itemTaps;
     this.itemTaps = [];
     return taps;
   }
 
   toggleShop(): void {
-    if (this.shownEnd) return;
+    if (this.shownEnd) {
+      return;
+    }
     this.shopOpen = !this.shopOpen;
     this.shopEl.hidden = !this.shopOpen;
-    if (this.shopOpen) this.sfx.uiOpen();
-    else this.sfx.uiClose();
+    if (this.shopOpen) {
+      this.sfx.uiOpen();
+    } else {
+      this.sfx.uiClose();
+    }
   }
   get isShopOpen(): boolean {
     return this.shopOpen;
@@ -492,8 +526,12 @@ export class Hud {
    *  banner (any short line). The scene drives timing; empty string hides.
    *  Change-gated internally — safe to call every frame. */
   showIntro(text: string): void {
-    if (this.shownEnd || this.presentationBlocked) text = "";
-    if (text === this.introText) return;
+    if (this.shownEnd || this.presentationBlocked) {
+      text = "";
+    }
+    if (text === this.introText) {
+      return;
+    }
     this.introText = text;
     const el = this.introEl;
     if (text === "") {
@@ -511,8 +549,12 @@ export class Hud {
 
   /** Contextual hint slot (fed by render/hints.ts via the scene). Empty hides. */
   showHint(text: string): void {
-    if (this.shownEnd || this.presentationBlocked) text = "";
-    if (text === this.hintText) return;
+    if (this.shownEnd || this.presentationBlocked) {
+      text = "";
+    }
+    if (text === this.hintText) {
+      return;
+    }
     this.hintText = text;
     if (text === "") {
       this.hintEl.classList.remove("show");
@@ -531,17 +573,23 @@ export class Hud {
   ): void {
     // A snapshot/world replacement can leave the ended phase without reloading.
     // Remove result masking and pending celebration before this world's frame.
-    if (this.shownEnd && (w.phase !== "ended" || !w.winner)) this.updateEnd(w, me);
+    if (this.shownEnd && (w.phase !== "ended" || !w.winner)) {
+      this.updateEnd(w, me);
+    }
     this.notices.update(frameDt);
     this.lastMe = me;
-    if (me.killStreak > this.bestStreak) this.bestStreak = me.killStreak;
+    if (me.killStreak > this.bestStreak) {
+      this.bestStreak = me.killStreak;
+    }
     if (w.phase === "ended") {
       this.updateEnd(w, me);
       this.notices.dropIncoming();
       this.lastNow = w.now;
       return;
     }
-    if (w.suddenDeath && !this.sawSuddenDeath) this.notices.queue("SUDDEN DEATH", "sudden");
+    if (w.suddenDeath && !this.sawSuddenDeath) {
+      this.notices.queue("SUDDEN DEATH", "sudden");
+    }
     this.sawSuddenDeath = w.suddenDeath;
     this.updateLowHp(w, me);
     this.updatePlates(w, me);
@@ -558,8 +606,11 @@ export class Hud {
     this.updateHitDir(w, me);
     this.updateArrows();
     this.drawMinimap(w, me);
-    if (this.shownEnd) this.notices.dropIncoming();
-    else this.notices.drain(w);
+    if (this.shownEnd) {
+      this.notices.dropIncoming();
+    } else {
+      this.notices.drain(w);
+    }
     this.updateShop(me);
     this.updateEnd(w, me);
     this.lastNow = w.now;
@@ -567,7 +618,9 @@ export class Hud {
 
   /** A late visitor sees the accepted result without inventing a player seat. */
   updateUnassigned(w: World, frameDt: number): void {
-    if (w.phase !== "ended") return;
+    if (w.phase !== "ended") {
+      return;
+    }
     this.notices.update(frameDt);
     this.lastMe = null;
     this.updateEnd(w, null);
@@ -592,7 +645,9 @@ export class Hud {
     this.boardSig = "";
     this.boardEl.classList.remove("force");
     this.boardEl.textContent = "";
-    for (const plate of this.plates.values()) plate.wrap.remove();
+    for (const plate of this.plates.values()) {
+      plate.wrap.remove();
+    }
     this.plates.clear();
     for (const arrow of [this.arrowCoin, this.arrowDelivery]) {
       arrow.on = false;
@@ -699,8 +754,11 @@ export class Hud {
         const a = (i * Math.PI) / 3;
         const px = cx + Math.cos(a) * r;
         const py = cy + Math.sin(a) * r;
-        if (i === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
+        if (i === 0) {
+          ctx.moveTo(px, py);
+        } else {
+          ctx.lineTo(px, py);
+        }
       }
       ctx.closePath();
     };
@@ -766,7 +824,9 @@ export class Hud {
     }
     // heroes
     for (const u of w.units.values()) {
-      if (u.kind !== "hero" || !u.alive) continue;
+      if (u.kind !== "hero" || !u.alive) {
+        continue;
+      }
       const [ux, uy] = to(u.x, u.y);
       const isLocal = u.id === me.id;
       ctx.beginPath();
@@ -807,32 +867,41 @@ export class Hud {
         "ba-kit-btn",
         "ba-minimap",
       ]) {
-        const element = document.getElementById(id);
-        if (!element || element.hidden || (id === "ba-goal-banner" && w.gameTime >= 10)) continue;
+        const element = document.querySelector(`#${id}`);
+        if (!element || element.hidden || (id === "ba-goal-banner" && w.gameTime >= 10)) {
+          continue;
+        }
         const box = element.getBoundingClientRect();
-        if (box.width > 0 && box.height > 0)
+        if (box.width > 0 && box.height > 0) {
           this.plateKeepOut.push({
             left: box.left - 6,
             top: box.top - 6,
             right: box.right + 6,
             bottom: box.bottom + 6,
           });
+        }
       }
     }
     const seen = new Set<string>();
     const candidates: PlateCandidate[] = [];
     for (const u of w.units.values()) {
-      if ((u.kind !== "hero" && u.kind !== "creep") || !u.alive) continue;
+      if ((u.kind !== "hero" && u.kind !== "creep") || !u.alive) {
+        continue;
+      }
       const stealthed = u.statuses.some((s) => s.kind === "stealth") && u.id !== me.id;
-      if (stealthed) continue;
+      if (stealthed) {
+        continue;
+      }
       // only show skeleton HP bars when they're near the player (avoid clutter)
       const distance = Math.hypot(u.x - me.x, u.y - me.y);
-      if (u.kind === "creep" && distance > 22) continue;
+      if (u.kind === "creep" && distance > 22) {
+        continue;
+      }
       seen.add(u.id);
       let plate = this.plates.get(u.id);
       if (!plate) {
         const wrap = document.createElement("div");
-        wrap.className = "ba-plate" + (u.kind === "creep" ? " creep" : "");
+        wrap.className = `ba-plate${u.kind === "creep" ? " creep" : ""}`;
         const isLocal = u.id === me.id;
         const col =
           u.kind === "creep" ? "#b8c0d0" : isLocal ? hex(LOCAL_COLOR) : hex(teamColor(u.team));
@@ -848,8 +917,8 @@ export class Hud {
           u.kind === "creep" ? "#c8a0a0" : u.team === me.team ? "#5dd66b" : "#ff5a52";
         bar.append(fill);
         wrap.append(name, bar);
-        byId("ba-plates").appendChild(wrap);
-        plate = { wrap, fill, name, shown: true, x: NaN, y: NaN, hp: "" };
+        byId("ba-plates").append(wrap);
+        plate = { fill, hp: "", name, shown: true, wrap, x: NaN, y: NaN };
         this.plates.set(u.id, plate);
       }
       const anchor = this.plateAnchors?.(u.id);
@@ -862,19 +931,21 @@ export class Hud {
         s.x > window.innerWidth - 8 ||
         s.y < 4 ||
         s.y > window.innerHeight - 8
-      )
+      ) {
         continue;
+      }
       const local = u.id === me.id;
       const recent = w.now - u.lastHitAt < 2000 && u.lastHitAt > 0;
       const compact = u.kind === "creep" || (!local && distance > 24 && !recent);
       const halfWidth = compact ? 17 : 56;
       const top = s.y - (compact ? 9 : 24);
-      if (s.x < halfWidth || s.x > window.innerWidth - halfWidth || top < 4) continue;
+      if (s.x < halfWidth || s.x > window.innerWidth - halfWidth || top < 4) {
+        continue;
+      }
       candidates.push({
-        id: u.id,
-        x: s.x,
-        y: top,
+        compact,
         distance,
+        id: u.id,
         priority: local
           ? 0
           : u.kind === "hero" && (distance < 16 || recent)
@@ -882,7 +953,8 @@ export class Hud {
             : u.kind === "hero"
               ? 2
               : 3,
-        compact,
+        x: s.x,
+        y: top,
       });
       const hp = `${Math.max(0, (u.hp / u.maxHp) * 100)}%`;
       if (hp !== plate.hp) {
@@ -893,7 +965,9 @@ export class Hud {
     const placed = new Set<string>();
     for (const candidate of readablePlates(candidates, this.plateKeepOut)) {
       const plate = this.plates.get(candidate.id);
-      if (!plate) continue;
+      if (!plate) {
+        continue;
+      }
       placed.add(candidate.id);
       plate.wrap.classList.toggle("compact", candidate.compact);
       if (!plate.shown) {
@@ -928,8 +1002,11 @@ export class Hud {
     const frac = Math.max(0, Math.min(1, me.hp / Math.max(1, me.maxHp)));
     // damage ghost: snaps up with heals, bleeds down after damage
     const dt = Math.min(0.1, Math.max(0, (w.now - this.lastNow) / 1000));
-    if (frac >= this.hpGhost) this.hpGhost = frac;
-    else this.hpGhost = Math.max(frac, this.hpGhost - dt * 0.4);
+    if (frac >= this.hpGhost) {
+      this.hpGhost = frac;
+    } else {
+      this.hpGhost = Math.max(frac, this.hpGhost - dt * 0.4);
+    }
 
     const hpStep = Math.round(frac * 500); // 0.2% steps
     if (hpStep !== this.lastHpStep) {
@@ -985,7 +1062,9 @@ export class Hud {
 
   private updateAbilities(w: World, me: Unit): void {
     const def = CHAMP_BY_ID[me.champId];
-    if (!def) return;
+    if (!def) {
+      return;
+    }
     if (me.champId !== this.champBound) {
       this.champBound = me.champId;
       for (const key of ALL_ABILITY_KEYS) {
@@ -1006,8 +1085,9 @@ export class Hud {
       if (!util && slot.rank !== el.lastRank) {
         el.lastRank = slot.rank;
         let pips = "";
-        for (let i = 0; i < ad.maxRank; i++)
+        for (let i = 0; i < ad.maxRank; i++) {
           pips += i < slot.rank ? "<i class='on'></i>" : "<i></i>";
+        }
         el.pips.innerHTML = pips;
       }
       if (!util && slot.rank < 1) {
@@ -1090,9 +1170,13 @@ export class Hud {
     // active-item cooldown overlays (vertical fill — long cds read better small)
     for (let i = 0; i < MAX_ITEMS; i++) {
       const id = me.items[i];
-      if (!id) continue;
+      if (!id) {
+        continue;
+      }
       const it = ITEM_BY_ID[id];
-      if (!it?.active) continue;
+      if (!it?.active) {
+        continue;
+      }
       const sock = this.itemSockets[i]!;
       const left = Math.max(0, ((me.itemReadyAt[id] ?? 0) - w.now) / 1000);
       const pct =
@@ -1122,27 +1206,43 @@ export class Hud {
     const chips = this.buffScratch;
     chips.length = 0;
     for (const s of me.statuses) {
-      if (s.until <= w.now) continue;
-      if (statusIcon(s.kind) === null && s.kind !== "hex") continue; // silence etc: no chip
+      if (s.until <= w.now) {
+        continue;
+      }
+      if (statusIcon(s.kind) === null && s.kind !== "hex") {
+        continue;
+      } // silence etc: no chip
       const existing = chips.find((c) => c.kind === s.kind);
-      if (existing) existing.until = Math.max(existing.until, s.until);
-      else chips.push({ kind: s.kind, until: s.until });
+      if (existing) {
+        existing.until = Math.max(existing.until, s.until);
+      } else {
+        chips.push({ kind: s.kind, until: s.until });
+      }
     }
-    if (me.empowerNext > 0) chips.push({ kind: "empower", until: -1 });
+    if (me.empowerNext > 0) {
+      chips.push({ kind: "empower", until: -1 });
+    }
 
     // duration bookkeeping (statuses only carry `until`; track first-seen)
     for (const c of chips) {
-      if (c.until < 0) continue;
+      if (c.until < 0) {
+        continue;
+      }
       const prev = this.buffSeen.get(c.kind);
-      if (!prev || c.until > prev.until)
+      if (!prev || c.until > prev.until) {
         this.buffSeen.set(c.kind, { seenAt: w.now, until: c.until });
+      }
     }
     for (const kind of this.buffSeen.keys()) {
-      if (!chips.some((c) => c.kind === kind)) this.buffSeen.delete(kind);
+      if (!chips.some((c) => c.kind === kind)) {
+        this.buffSeen.delete(kind);
+      }
     }
 
     let sig = "";
-    for (const c of chips) sig += c.kind + "|";
+    for (const c of chips) {
+      sig += c.kind + "|";
+    }
     if (sig !== this.buffSig) {
       this.buffSig = sig;
       this.buffsEl.textContent = "";
@@ -1151,29 +1251,31 @@ export class Hud {
         const chip = document.createElement("div");
         chip.className = DEBUFF_KINDS.has(c.kind) ? "ba-buff debuff" : "ba-buff";
         const icon = statusIcon(c.kind);
-        if (icon !== null) {
+        if (icon === null) {
+          const glyph = document.createElement("span");
+          glyph.className = "ba-bglyph";
+          glyph.textContent = "🍄";
+          chip.appendChild(glyph);
+        } else {
           const img = document.createElement("img");
           img.src = icon;
           img.alt = "";
           img.draggable = false;
           chip.appendChild(img);
-        } else {
-          const glyph = document.createElement("span");
-          glyph.className = "ba-bglyph";
-          glyph.textContent = "🍄";
-          chip.appendChild(glyph);
         }
         const ring = document.createElement("i");
         ring.className = "ring";
         const sec = document.createElement("b");
         chip.append(ring, sec);
-        this.buffsEl.appendChild(chip);
-        this.buffEls.set(c.kind, { ring, sec, lastT: -1, lastSec: "" });
+        this.buffsEl.append(chip);
+        this.buffEls.set(c.kind, { lastSec: "", lastT: -1, ring, sec });
       }
     }
     for (const c of chips) {
       const el = this.buffEls.get(c.kind);
-      if (!el) continue;
+      if (!el) {
+        continue;
+      }
       let pct = 100;
       let secStr = "";
       if (c.until >= 0) {
@@ -1239,9 +1341,12 @@ export class Hud {
       .sort((a, b) => b.kills - a.kills || b.gold - a.gold)
       .slice(0, 6);
     let sig = scoreHeld ? "x" : "-";
-    for (const u of heroes)
+    for (const u of heroes) {
       sig += `${u.id}:${u.kills}/${u.deaths}/${u.assists}/${Math.floor(u.gold)}/${u.items.length};`;
-    if (sig === this.boardSig) return;
+    }
+    if (sig === this.boardSig) {
+      return;
+    }
     this.boardSig = sig;
     this.boardEl.innerHTML = heroes
       .map((u) => {
@@ -1284,12 +1389,16 @@ export class Hud {
       const ceilLeft = Math.ceil(left);
       if (ceilLeft !== this.lastRespawnCeil) {
         this.lastRespawnCeil = ceilLeft;
-        if (ceilLeft >= 1 && ceilLeft <= 3) this.sfx.respawnTick();
+        if (ceilLeft >= 1 && ceilLeft <= 3) {
+          this.sfx.respawnTick();
+        }
       }
     } else if (this.respawnShown) {
       this.respawnShown = false;
       this.respawnEl.hidden = true;
-      if (me.alive) this.sfx.respawnGo();
+      if (me.alive) {
+        this.sfx.respawnGo();
+      }
     }
   }
 
@@ -1322,7 +1431,9 @@ export class Hud {
       this.reticleVisible = show;
       this.reticleEl.classList.toggle("show", show);
     }
-    if (!show) return;
+    if (!show) {
+      return;
+    }
     if (me.lastAttackAt !== this.lastAttackSeen) {
       this.lastAttackSeen = me.lastAttackAt;
       this.fireUntil = w.now + 120;
@@ -1334,7 +1445,9 @@ export class Hud {
     const hits = this.fx.localHits;
     if (hits && hits.length > 0) {
       let crit = false;
-      for (const h of hits) crit = crit || h.crit;
+      for (const h of hits) {
+        crit = crit || h.crit;
+      }
       hits.length = 0;
       this.hitFlashUntil = w.now + 150;
       this.hitFlashCrit = crit;
@@ -1417,8 +1530,12 @@ export class Hud {
 
   private updateShop(me: Unit): void {
     const inBase = this.shop.canShop();
-    if (this.shopOpen && !inBase) this.toggleShop();
-    if (!this.shopOpen) return;
+    if (this.shopOpen && !inBase) {
+      this.toggleShop();
+    }
+    if (!this.shopOpen) {
+      return;
+    }
     this.shopEl.querySelectorAll<HTMLButtonElement>(".ba-item").forEach((btn) => {
       const it = ITEM_BY_ID[btn.dataset.id ?? ""];
       const owned = me.items.length >= MAX_ITEMS;
@@ -1493,23 +1610,35 @@ export class Hud {
       </div>`;
     this.endEl.querySelectorAll<HTMLButtonElement>(".ba-end-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
-        if (btn.dataset.act === "hero") backToLobby();
-        else if (this.matchActions.kind === "online") this.matchActions.rematch();
-        else location.reload();
+        if (btn.dataset.act === "hero") {
+          backToLobby();
+        } else if (this.matchActions.kind === "online") {
+          this.matchActions.rematch();
+        } else {
+          location.reload();
+        }
       });
     });
     this.syncRematchAction();
-    if (won && winner) this.notices.celebrate(winner.x, winner.y);
+    if (won && winner) {
+      this.notices.celebrate(winner.x, winner.y);
+    }
   }
 
   /** Server election may change while the result card is already visible. */
   private syncRematchAction(): void {
-    if (this.matchActions.kind !== "online") return;
+    if (this.matchActions.kind !== "online") {
+      return;
+    }
     const button = this.endEl.querySelector<HTMLButtonElement>('[data-act="again"]');
-    if (!button) return;
+    if (!button) {
+      return;
+    }
     const available = this.matchActions.canRematch();
     const label = available ? "START REMATCH" : "WAITING FOR HOST";
-    if (button.textContent !== label) button.textContent = label;
+    if (button.textContent !== label) {
+      button.textContent = label;
+    }
     button.disabled = !available;
   }
 
@@ -1517,12 +1646,12 @@ export class Hud {
   private injectStyle(): void {
     const s = document.createElement("style");
     s.textContent = STYLE;
-    document.head.appendChild(s);
+    document.head.append(s);
   }
 }
 
 function byId(id: string): HTMLElement {
-  return document.getElementById(id)!;
+  return document.querySelector(`#${id}`)!;
 }
 
 /** Leave the match for champion select. `?offline=1` is a boot guarantee, not a

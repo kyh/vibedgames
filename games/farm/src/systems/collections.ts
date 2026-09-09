@@ -1,36 +1,52 @@
-import { SEASONS, type Season } from "../data/calendar";
-import { CROPS, CROP_ORDER, type CropId } from "../data/crops";
-import { FISH, FISH_IDS, type FishId } from "../data/fish";
+import { SEASONS } from "../data/calendar";
+import type { Season } from "../data/calendar";
+import { CROPS, CROP_ORDER } from "../data/crops";
+import type { CropId } from "../data/crops";
+import { FISH, FISH_IDS } from "../data/fish";
+import type { FishId } from "../data/fish";
 import type { Item } from "../data/items";
-import { isJsonObject, type JsonValue } from "../json";
+import { isJsonObject } from "../json";
+import type { JsonValue } from "../json";
 
 export type CollectionItem = Extract<Item, { kind: "produce" | "fish" }>;
-type Discovery = { season: Season; item: CollectionItem };
-export type CollectionsJSON = { v: 1; discoveries: Discovery[] };
-export type CollectionEntry = { item: CollectionItem; name: string; discovered: boolean };
-export type CollectionPage = {
+interface Discovery {
+  season: Season;
+  item: CollectionItem;
+}
+export interface CollectionsJSON {
+  v: 1;
+  discoveries: Discovery[];
+}
+export interface CollectionEntry {
+  item: CollectionItem;
+  name: string;
+  discovered: boolean;
+}
+export interface CollectionPage {
   season: Season;
   entries: CollectionEntry[];
   discovered: number;
   total: number;
   complete: boolean;
-};
-export type CollectionDiscovery = {
+}
+export interface CollectionDiscovery {
   season: Season;
   item: CollectionItem;
   name: string;
   completedSeason: boolean;
-};
+}
 
 function readItem(value: JsonValue | undefined): CollectionItem | null {
-  if (!isJsonObject(value)) return null;
+  if (!isJsonObject(value)) {
+    return null;
+  }
   if (value.kind === "produce") {
     const crop = CROP_ORDER.find((id) => id === value.crop);
-    return crop ? { kind: "produce", crop } : null;
+    return crop ? { crop, kind: "produce" } : null;
   }
   if (value.kind === "fish") {
     const fish = FISH_IDS.find((id) => id === value.fish);
-    return fish ? { kind: "fish", fish } : null;
+    return fish ? { fish, kind: "fish" } : null;
   }
   return null;
 }
@@ -42,8 +58,10 @@ function same(a: CollectionItem, b: CollectionItem): boolean {
 }
 
 function eligible(item: CollectionItem, season: Season): boolean {
-  if (item.kind === "produce") return CROPS[item.crop].seasons.includes(season);
-  const seasons = FISH[item.fish].seasons;
+  if (item.kind === "produce") {
+    return CROPS[item.crop].seasons.includes(season);
+  }
+  const { seasons } = FISH[item.fish];
   return seasons === "all" || seasons.includes(season);
 }
 
@@ -62,21 +80,26 @@ export class Collections {
   /** Optional save fragment: reject bad entries, never infer from inventory. */
   static fromJSON(value: JsonValue | undefined): Collections {
     const journal = Collections.empty();
-    if (!isJsonObject(value) || value.v !== 1 || !Array.isArray(value.discoveries)) return journal;
+    if (!isJsonObject(value) || value.v !== 1 || !Array.isArray(value.discoveries)) {
+      return journal;
+    }
     for (const raw of value.discoveries) {
-      if (!isJsonObject(raw)) continue;
+      if (!isJsonObject(raw)) {
+        continue;
+      }
       const season = SEASONS.find((s) => s === raw.season);
       const item = readItem(raw.item);
-      if (season && item && eligible(item, season) && !journal.has(item, season))
+      if (season && item && eligible(item, season) && !journal.has(item, season)) {
         journal.discoveries.push({ season, item });
+      }
     }
     return journal;
   }
 
   toJSON(): CollectionsJSON {
     return {
-      v: 1,
       discoveries: this.discoveries.map(({ season, item }) => ({ season, item: { ...item } })),
+      v: 1,
     };
   }
 
@@ -86,30 +109,30 @@ export class Collections {
 
   page(season: Season): CollectionPage {
     const items: CollectionItem[] = [
-      ...CROP_ORDER.map((crop): CollectionItem => ({ kind: "produce", crop })),
-      ...FISH_IDS.map((fish): CollectionItem => ({ kind: "fish", fish })),
+      ...CROP_ORDER.map((crop): CollectionItem => ({ crop, kind: "produce" })),
+      ...FISH_IDS.map((fish): CollectionItem => ({ fish, kind: "fish" })),
     ];
     const entries = items
       .filter((item) => eligible(item, season))
-      .map((item) => ({ item, name: name(item), discovered: this.has(item, season) }));
+      .map((item) => ({ discovered: this.has(item, season), item, name: name(item) }));
     const discovered = entries.filter((entry) => entry.discovered).length;
     return {
-      season,
-      entries,
-      discovered,
-      total: entries.length,
       complete: entries.length > 0 && discovered === entries.length,
+      discovered,
+      entries,
+      season,
+      total: entries.length,
     };
   }
 
   /** Call only after the local harvest's inventory.add reports acceptance. */
   recordHarvest(crop: CropId, season: Season, acceptedQty: number): CollectionDiscovery | null {
-    return this.record({ kind: "produce", crop }, season, acceptedQty);
+    return this.record({ crop, kind: "produce" }, season, acceptedQty);
   }
 
   /** Call only after the local catch's inventory.add reports acceptance. */
   recordCatch(fish: FishId, season: Season, acceptedQty: number): CollectionDiscovery | null {
-    return this.record({ kind: "fish", fish }, season, acceptedQty);
+    return this.record({ fish, kind: "fish" }, season, acceptedQty);
   }
 
   private record(
@@ -122,14 +145,15 @@ export class Collections {
       acceptedQty < 1 ||
       !eligible(item, season) ||
       this.has(item, season)
-    )
+    ) {
       return null;
-    this.discoveries.push({ season, item });
+    }
+    this.discoveries.push({ item, season });
     return {
-      season,
+      completedSeason: this.page(season).complete,
       item: { ...item },
       name: name(item),
-      completedSeason: this.page(season).complete,
+      season,
     };
   }
 }

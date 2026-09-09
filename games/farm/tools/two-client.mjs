@@ -12,7 +12,7 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const gameDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const gameDir = resolve(import.meta.dirname, "..");
 const { chromium } = createRequire(join(gameDir, "package.json"))("playwright-core");
 
 const PARTY = "http://localhost:8787";
@@ -21,12 +21,14 @@ const DEV_PORT = 5325;
 const HOST_STALE_MS = 9000;
 const wait = (ms) => new Promise((done) => setTimeout(done, ms));
 
-async function waitFor(page, fn, label, timeoutMs = 8000, arg = undefined) {
+async function waitFor(page, fn, label, timeoutMs = 8000, arg) {
   const deadline = Date.now() + timeoutMs;
   let last;
   while (Date.now() < deadline) {
     last = await page.evaluate(fn, arg);
-    if (last) return last;
+    if (last) {
+      return last;
+    }
     await wait(100);
   }
   throw new Error(`timeout: ${label} (last=${JSON.stringify(last)})`);
@@ -37,31 +39,38 @@ const snapshot = (page) =>
     const gs = window.__gs;
     const d = window.__GAME_DIAGNOSTICS__;
     return {
-      status: gs.net.connectionStatus,
+      day: gs.day,
+      frame: d.frame,
       host: gs.net.isHost,
       hostId: gs.net.hostId,
+      paused: gs.controlsPaused,
+      phase: d.phase,
       players: Object.keys(gs.net.players).length,
       remote: gs.remoteFarmers.count(),
-      day: gs.day,
+      status: gs.net.connectionStatus,
       time: gs.timeMin,
-      phase: d.phase,
-      frame: d.frame,
-      paused: gs.controlsPaused,
     };
   });
 
 /** Title → fresh farm → connected to the room. Own browser context: own save. */
 async function openClient(browser, url, errors) {
-  const context = await browser.newContext({ viewport: { width: 900, height: 600 } });
+  const context = await browser.newContext({ viewport: { height: 600, width: 900 } });
   const page = await context.newPage();
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => {
-    if (m.type() === "error") errors.push(m.text());
+    if (m.type() === "error") {
+      errors.push(m.text());
+    }
   });
   await page.goto(url);
-  await waitFor(page, () => window.__game?.scene.isActive("Title"), "title", 20000);
+  await waitFor(page, () => window.__game?.scene.isActive("Title"), "title", 20_000);
   await page.keyboard.press("n");
-  await waitFor(page, () => window.__gs?.net?.connectionStatus === "connected", "connected", 15000);
+  await waitFor(
+    page,
+    () => window.__gs?.net?.connectionStatus === "connected",
+    "connected",
+    15_000,
+  );
   return page;
 }
 
@@ -71,12 +80,13 @@ async function till(page) {
     const gs = window.__gs;
     const f = gs.feetTile();
     let best = null;
-    for (let ty = 0; ty < 48; ty++)
+    for (let ty = 0; ty < 48; ty++) {
       for (let tx = 0; tx < 86; tx++) {
         if (!gs.world.canTill(tx, ty)) continue;
         const d = Math.abs(tx - f.tx) + Math.abs(ty - f.ty);
         if (!best || d < best.d) best = { tx, ty, d };
       }
+    }
     gs.inv.select(0);
     gs.tryAction({ tx: best.tx, ty: best.ty });
     return gs.world.idx(best.tx, best.ty);
@@ -90,13 +100,15 @@ const sampleRemoteClip = (page) =>
     () =>
       new Promise((done) => {
         const farmer = [...window.__gs.remoteFarmers.farmers.values()][0];
-        const anims = farmer.sprite.anims;
-        const setCurrentFrame = anims.setCurrentFrame;
+        const { anims } = farmer.sprite;
+        const { setCurrentFrame } = anims;
         let seeks = 0;
         // Phaser steps frames through setCurrentFrame too; only count the
         // network path (RemoteFarmers.sync, unminified under vite dev).
         anims.setCurrentFrame = (frame) => {
-          if (String(new Error().stack).includes("sync")) seeks++;
+          if (String(new Error().stack).includes("sync")) {
+            seeks++;
+          }
           return setCurrentFrame.call(anims, frame);
         };
         const samples = [];
@@ -117,7 +129,9 @@ function backwardSteps(samples) {
   for (let i = 1; i < samples.length; i++) {
     const prev = samples[i - 1][1];
     const cur = samples[i][1];
-    if (cur < prev && cur !== 1) steps++;
+    if (cur < prev && cur !== 1) {
+      steps++;
+    }
   }
   return steps;
 }
@@ -139,8 +153,9 @@ async function startVite() {
         (r) => r.ok,
         () => false,
       )
-    )
+    ) {
       return { base, child };
+    }
   }
   child.kill();
   throw new Error("vite did not start");
@@ -148,7 +163,7 @@ async function startVite() {
 
 async function main() {
   const urlArg = process.argv.indexOf("--url");
-  const dev = urlArg >= 0 ? { base: process.argv[urlArg + 1], child: null } : await startVite();
+  const dev = urlArg !== -1 ? { base: process.argv[urlArg + 1], child: null } : await startVite();
   if (
     !(await fetch(PARTY).then(
       () => true,
@@ -159,22 +174,24 @@ async function main() {
   }
   const room = `t${process.pid}-${Date.now().toString(36)}`;
   const url = `${dev.base}/?room=${room}`;
-  const errors = { host: [], guest: [], late: [] };
+  const errors = { guest: [], host: [], late: [] };
   // Both clients must keep simulating; Chrome otherwise throttles whichever
   // window is not focused, which reads as a frozen peer.
   const browser = await chromium.launch({
-    headless: true,
-    channel: "chrome",
     args: [
       "--disable-background-timer-throttling",
       "--disable-backgrounding-occluded-windows",
       "--disable-renderer-backgrounding",
     ],
+    channel: "chrome",
+    headless: true,
   });
   const results = [];
   const step = (name, ok, note = "") => {
     results.push(`${ok ? "pass" : "FAIL"}  ${name}${note ? ` — ${note}` : ""}`);
-    if (!ok) throw new Error(`${name}: ${note}`);
+    if (!ok) {
+      throw new Error(`${name}: ${note}`);
+    }
   };
   try {
     const host = await openClient(browser, url, errors.host);
@@ -301,7 +318,7 @@ async function main() {
     // Host leaves: the guest is promoted with the whole ledger and keeps farming.
     // (The old seat lingers in the player map for the reconnect grace window.)
     await host.close();
-    await waitFor(guest, () => window.__gs.net.isHost, "guest promoted", 15000);
+    await waitFor(guest, () => window.__gs.net.isHost, "guest promoted", 15_000);
     g = await snapshot(guest);
     step("guest promoted on host leave", g.host && g.phase === "farm", JSON.stringify(g));
     before = g;

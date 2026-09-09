@@ -1,37 +1,37 @@
 /** Original generated clips. Paths are relative to Vite's base for hosted games. */
 export const SOUND_FILES = {
-  "engine-loop": "engine-loop.ogg",
-  "road-loop": "road-loop.ogg",
-  "drift-loop": "drift-loop.ogg",
-  "boost-loop": "boost-loop.ogg",
-  "scrape-loop": "scrape-loop.ogg",
-  "water-loop": "water-loop.ogg",
-  boost: "boost.ogg",
-  "impact-soft": "impact-soft.ogg",
-  "impact-hard": "impact-hard.ogg",
-  landing: "landing.ogg",
-  splash: "splash.ogg",
-  horn: "horn.ogg",
-  "near-miss": "near-miss.ogg",
-  "drift-ready": "drift-ready.ogg",
-  pickup: "pickup.ogg",
-  dropoff: "dropoff.ogg",
-  countdown: "countdown.ogg",
-  go: "go.ogg",
-  warning: "warning.ogg",
-  "fare-lost": "fare-lost.ogg",
-  finish: "finish.ogg",
-  record: "record.ogg",
-  denied: "denied.ogg",
-  "ui-move": "ui-move.ogg",
-  "ui-select": "ui-select.ogg",
-  "ui-back": "ui-back.ogg",
-  reset: "reset.ogg",
-  jump: "jump.ogg",
-  "boost-ready": "boost-ready.ogg",
-  "ambient-gulls": "ambient-gulls.ogg",
   "ambient-bell": "ambient-bell.ogg",
   "ambient-foghorn": "ambient-foghorn.ogg",
+  "ambient-gulls": "ambient-gulls.ogg",
+  boost: "boost.ogg",
+  "boost-loop": "boost-loop.ogg",
+  "boost-ready": "boost-ready.ogg",
+  countdown: "countdown.ogg",
+  denied: "denied.ogg",
+  "drift-loop": "drift-loop.ogg",
+  "drift-ready": "drift-ready.ogg",
+  dropoff: "dropoff.ogg",
+  "engine-loop": "engine-loop.ogg",
+  "fare-lost": "fare-lost.ogg",
+  finish: "finish.ogg",
+  go: "go.ogg",
+  horn: "horn.ogg",
+  "impact-hard": "impact-hard.ogg",
+  "impact-soft": "impact-soft.ogg",
+  jump: "jump.ogg",
+  landing: "landing.ogg",
+  "near-miss": "near-miss.ogg",
+  pickup: "pickup.ogg",
+  record: "record.ogg",
+  reset: "reset.ogg",
+  "road-loop": "road-loop.ogg",
+  "scrape-loop": "scrape-loop.ogg",
+  splash: "splash.ogg",
+  "ui-back": "ui-back.ogg",
+  "ui-move": "ui-move.ogg",
+  "ui-select": "ui-select.ogg",
+  warning: "warning.ogg",
+  "water-loop": "water-loop.ogg",
 };
 
 export type SoundName = keyof typeof SOUND_FILES;
@@ -42,11 +42,18 @@ export class SoundBank {
   private loading: Promise<void> | null = null;
 
   load(ctx: AudioContext, onDecoded: () => void): Promise<void> {
-    this.loading ??= Promise.all(
+    this.loading ??= this.decodeAll(ctx, onDecoded);
+    return this.loading;
+  }
+
+  private async decodeAll(ctx: AudioContext, onDecoded: () => void): Promise<void> {
+    await Promise.all(
       Object.entries(SOUND_FILES).map(async ([name, file]) => {
         try {
           const response = await fetch(`${import.meta.env.BASE_URL}audio/cozy/${file}`);
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
           this.buffers.set(name, await ctx.decodeAudioData(await response.arrayBuffer()));
           onDecoded();
         } catch {
@@ -54,8 +61,7 @@ export class SoundBank {
           this.failed.add(name);
         }
       }),
-    ).then(() => undefined);
-    return this.loading;
+    );
   }
 
   get(name: SoundName): AudioBuffer | undefined {
@@ -64,9 +70,9 @@ export class SoundBank {
 
   diagnostics() {
     return {
+      failed: [...this.failed],
       loaded: this.buffers.size,
       total: Object.keys(SOUND_FILES).length,
-      failed: [...this.failed],
     };
   }
 }

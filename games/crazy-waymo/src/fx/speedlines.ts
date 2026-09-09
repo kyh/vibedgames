@@ -12,11 +12,14 @@ import * as THREE from "three";
 const COUNT = 36;
 const RADIUS_MIN = 5;
 const RADIUS_MAX = 10;
-const AHEAD_MIN = 10; // spawn distance ahead of the camera (local -Z)
+// spawn distance ahead of the camera (local -Z)
+const AHEAD_MIN = 10;
 const AHEAD_MAX = 25;
 const BASE_ALPHA = 0.2;
-const FADE_START = 0.75; // speedFrac where lines begin to appear
-const FADE_FULL = 0.9; // fully visible here
+// speedFrac where lines begin to appear
+const FADE_START = 0.75;
+// fully visible here
+const FADE_FULL = 0.9;
 
 export class SpeedLines {
   readonly object3D: THREE.Object3D;
@@ -31,7 +34,7 @@ export class SpeedLines {
 
   constructor() {
     this.positions = new Float32Array(COUNT * 2 * 3);
-    for (let i = 0; i < COUNT; i++) {
+    for (let i = 0; i < COUNT; i += 1) {
       this.respawn(i, -(AHEAD_MIN + Math.random() * (AHEAD_MAX - AHEAD_MIN)));
     }
 
@@ -41,16 +44,17 @@ export class SpeedLines {
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
 
     this.mat = new THREE.LineBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      opacity: 0,
       blending: THREE.AdditiveBlending,
+      color: 0xff_ff_ff,
       depthWrite: false,
+      opacity: 0,
+      transparent: true,
     });
     const lines = new THREE.LineSegments(geo, this.mat);
     lines.frustumCulled = false;
     lines.visible = false;
-    lines.renderOrder = 10; // over world transparents
+    // over world transparents
+    lines.renderOrder = 10;
     this.object3D = lines;
   }
 
@@ -58,15 +62,19 @@ export class SpeedLines {
     const fade = THREE.MathUtils.clamp((speedFrac - FADE_START) / (FADE_FULL - FADE_START), 0, 1);
     this.mat.opacity = BASE_ALPHA * fade;
     this.object3D.visible = fade > 0;
-    if (fade <= 0) return; // kill invisible work
+    if (fade <= 0) {
+      return;
+      // kill invisible work
+    }
 
     // Ride the camera.
     this.object3D.position.copy(camera.position);
     this.object3D.quaternion.copy(camera.quaternion);
 
     const stretch = 1 + speedFrac * 3;
-    const zSpeed = 20 + speedFrac * 60; // how fast streaks rush past
-    for (let i = 0; i < COUNT; i++) {
+    // how fast streaks rush past
+    const zSpeed = 20 + speedFrac * 60;
+    for (let i = 0; i < COUNT; i += 1) {
       let z = (this.headZ[i] ?? -AHEAD_MIN) + zSpeed * dt;
       if (z > 1) {
         // Fully behind the camera: recycle ahead at a fresh ring position.
@@ -86,7 +94,8 @@ export class SpeedLines {
       this.positions[p + 2] = z;
       this.positions[p + 3] = x;
       this.positions[p + 4] = y;
-      this.positions[p + 5] = z + len; // tail trails toward the camera
+      // tail trails toward the camera
+      this.positions[p + 5] = z + len;
     }
     this.posAttr.needsUpdate = true;
   }

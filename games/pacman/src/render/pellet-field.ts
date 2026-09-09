@@ -14,7 +14,11 @@ import {
 // update() rewrites matrices each frame for the gentle bob (same pattern as
 // FxPool).
 
-export type PelletCell = { col: number; row: number; phase: number };
+export interface PelletCell {
+  col: number;
+  row: number;
+  phase: number;
+}
 
 export class PelletField {
   private mesh: THREE.InstancedMesh;
@@ -42,18 +46,22 @@ export class PelletField {
     return this.live.length;
   }
 
-  reset(cells: ReadonlyArray<PelletCell>): void {
+  reset(cells: readonly PelletCell[]): void {
     this.live = cells.map((c) => ({ ...c }));
     this.index.clear();
-    this.live.forEach((p, i) => this.index.set(cellKey(p.col, p.row), i));
+    for (const [i, p] of this.live.entries()) {
+      this.index.set(cellKey(p.col, p.row), i);
+    }
   }
 
   /** Remove the pellet at a cell. Returns false if the cell has none. */
   collect(col: number, row: number): boolean {
     const key = cellKey(col, row);
     const i = this.index.get(key);
-    if (i === undefined) return false;
-    const last = this.live[this.live.length - 1];
+    if (i === undefined) {
+      return false;
+    }
+    const last = this.live.at(-1);
     if (last !== undefined && i < this.live.length - 1) {
       this.live[i] = last;
       this.index.set(cellKey(last.col, last.row), i);
@@ -65,7 +73,7 @@ export class PelletField {
 
   /** Rewrite instance matrices for the per-cell bob. Call once per frame. */
   update(t: number): void {
-    this.live.forEach((p, i) => {
+    for (const [i, p] of this.live.entries()) {
       this.dummy.position.set(
         p.col,
         Math.sin(t * PELLET_BOB_FREQ + p.phase) * PELLET_BOB_AMP,
@@ -73,7 +81,7 @@ export class PelletField {
       );
       this.dummy.updateMatrix();
       this.mesh.setMatrixAt(i, this.dummy.matrix);
-    });
+    }
     this.mesh.count = this.live.length;
     this.mesh.instanceMatrix.needsUpdate = true;
   }

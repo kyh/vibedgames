@@ -1,19 +1,20 @@
-import { COLORS, FUSE_MS, type Bomb } from "../shared/constants";
+import { COLORS, FUSE_MS } from "../shared/constants";
+import type { Bomb } from "../shared/constants";
 
-export type HudFighter = {
+export interface HudFighter {
   id: string;
   label: string;
   colorIdx: number;
   alive: boolean;
   isLocal: boolean;
   isBot: boolean;
-};
+}
 
-export type BombStock = {
+export interface BombStock {
   available: number;
   capacity: number;
   next: { remaining: number; progress: number } | null;
-};
+}
 
 /** Active bombs stay occupied until shared state removes them, even once
  * their nominal fuse has elapsed — the host decides when a slot frees. */
@@ -26,7 +27,9 @@ export function bombStock(
   let active = 0;
   let earliest = Infinity;
   for (const bomb of Object.values(bombs)) {
-    if (bomb.ownerId !== ownerId) continue;
+    if (bomb.ownerId !== ownerId) {
+      continue;
+    }
     active++;
     earliest = Math.min(earliest, bomb.placedAt);
   }
@@ -34,7 +37,7 @@ export function bombStock(
   return {
     available: Math.max(0, capacity - active),
     capacity,
-    next: active > 0 ? { remaining, progress: Math.max(0, 1 - remaining / FUSE_MS) } : null,
+    next: active > 0 ? { progress: Math.max(0, 1 - remaining / FUSE_MS), remaining } : null,
   };
 }
 
@@ -43,12 +46,12 @@ const PLACEMENT_TIP_MS = 3600;
 /** Bomb stock, roster and the one-shot placement tip. Every write is guarded
  * by a change check because updateBombs runs every frame. */
 export class RoundHud {
-  private readonly stockEl = document.getElementById("stat-bomb");
-  private readonly bombEl = document.getElementById("bomb-availability");
-  private readonly refillEl = document.getElementById("bomb-refill");
-  private readonly refillFill = document.getElementById("bomb-refill-fill");
-  private readonly playersEl = document.getElementById("players");
-  private readonly tipEl = document.getElementById("placement-tip");
+  private readonly stockEl = document.querySelector("#stat-bomb");
+  private readonly bombEl = document.querySelector("#bomb-availability");
+  private readonly refillEl = document.querySelector("#bomb-refill");
+  private readonly refillFill = document.querySelector("#bomb-refill-fill");
+  private readonly playersEl = document.querySelector("#players");
+  private readonly tipEl = document.querySelector("#placement-tip");
   private stockText = "";
   private stockLabel = "";
   private refillPercent = -1;
@@ -61,7 +64,9 @@ export class RoundHud {
     const text = `${stock.available}/${stock.capacity}`;
     if (text !== this.stockText) {
       this.stockText = text;
-      if (this.stockEl) this.stockEl.textContent = text;
+      if (this.stockEl) {
+        this.stockEl.textContent = text;
+      }
       this.bombEl?.classList.toggle("empty", stock.available === 0);
     }
     const fuse = stock.next
@@ -75,18 +80,26 @@ export class RoundHud {
       this.bombEl?.setAttribute("aria-label", label);
       this.bombEl?.setAttribute("title", label);
     }
-    if (this.refillEl) this.refillEl.hidden = stock.next === null;
+    if (this.refillEl) {
+      this.refillEl.hidden = stock.next === null;
+    }
     const percent = stock.next ? Math.round(stock.next.progress * 100) : 0;
     if (percent !== this.refillPercent) {
       this.refillPercent = percent;
-      if (this.refillFill) this.refillFill.style.width = `${percent}%`;
+      if (this.refillFill) {
+        this.refillFill.style.width = `${percent}%`;
+      }
     }
   }
 
   updateRoster(fighters: readonly HudFighter[]): void {
-    if (!this.playersEl) return;
+    if (!this.playersEl) {
+      return;
+    }
     const signature = JSON.stringify(fighters);
-    if (signature === this.rosterSignature) return;
+    if (signature === this.rosterSignature) {
+      return;
+    }
     this.rosterSignature = signature;
     const count = document.createElement("strong");
     count.className = "roster-count";
@@ -104,7 +117,7 @@ export class RoundHud {
       const dot = document.createElement("i");
       dot.className = "roster-dot";
       dot.setAttribute("aria-hidden", "true");
-      dot.style.backgroundColor = `#${(COLORS[fighter.colorIdx] ?? 0xffffff).toString(16).padStart(6, "0")}`;
+      dot.style.backgroundColor = `#${(COLORS[fighter.colorIdx] ?? 0xff_ff_ff).toString(16).padStart(6, "0")}`;
       const label = document.createElement("span");
       label.textContent = fighter.label;
       chip.append(dot, label);
@@ -115,17 +128,25 @@ export class RoundHud {
 
   /** Teach "walls block the blast" once, on the first accepted bomb. */
   acceptedPlacement(now: number): void {
-    if (this.taughtPlacement) return;
+    if (this.taughtPlacement) {
+      return;
+    }
     this.taughtPlacement = true;
     this.tipUntil = now + PLACEMENT_TIP_MS;
-    if (this.tipEl) this.tipEl.hidden = false;
+    if (this.tipEl) {
+      this.tipEl.hidden = false;
+    }
   }
 
   /** Hides the tip once it expires, or immediately when play stops (`active` false). */
   update(now: number, active: boolean): void {
-    if (active && (this.tipUntil === 0 || now < this.tipUntil)) return;
+    if (active && (this.tipUntil === 0 || now < this.tipUntil)) {
+      return;
+    }
     this.tipUntil = 0;
-    if (this.tipEl) this.tipEl.hidden = true;
+    if (this.tipEl) {
+      this.tipEl.hidden = true;
+    }
   }
 
   reset(): void {
@@ -133,6 +154,8 @@ export class RoundHud {
     this.taughtPlacement = false;
     this.stockText = this.stockLabel = this.rosterSignature = "";
     this.refillPercent = -1;
-    if (this.tipEl) this.tipEl.hidden = true;
+    if (this.tipEl) {
+      this.tipEl.hidden = true;
+    }
   }
 }

@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright-core");
 const { EVICTION_TIMEOUT_MS, RECONNECT_GRACE_MS } = await import("@vibedgames/multiplayer");
-const gameDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const gameDir = resolve(import.meta.dirname, "..");
 const argv = process.argv.slice(2);
 const urlFlag = argv.indexOf("--url");
 const room = `t${process.pid}-${Date.now().toString(36)}`;
@@ -29,11 +29,13 @@ async function startVite() {
   const url = await new Promise((res, rej) => {
     child.stdout.on("data", (chunk) => {
       const m = /Local:\s+(http:\/\/localhost:\d+)/.exec(String(chunk));
-      if (m) res(m[1]);
+      if (m) {
+        res(m[1]);
+      }
     });
     child.on("exit", (code) => rej(new Error(`vite exited ${code}`)));
   });
-  return { url, stop: () => child.kill() };
+  return { stop: () => child.kill(), url };
 }
 
 /** Poll `fn` (evaluated in the page) until truthy; returns its value. */
@@ -41,15 +43,19 @@ async function until(page, fn, label, arg, timeoutMs = 15_000) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const v = await page.evaluate(fn, arg);
-    if (v) return v;
-    if (Date.now() > deadline) throw new Error(`timeout: ${label}`);
+    if (v) {
+      return v;
+    }
+    if (Date.now() > deadline) {
+      throw new Error(`timeout: ${label}`);
+    }
     await sleep(100);
   }
 }
 const net = (page) =>
   page.evaluate(() => {
     const c = window.__starfall.client;
-    return { status: c.connectionStatus, isHost: c.isHost, id: c.playerId, hostId: c.hostId };
+    return { hostId: c.hostId, id: c.playerId, isHost: c.isHost, status: c.connectionStatus };
   });
 const summary = (page) => page.evaluate(() => window.__starfall.summary());
 const ship = (page) =>
@@ -89,8 +95,9 @@ async function open(browser, url, name) {
   const page = await (await browser.newContext()).newPage();
   page.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
   page.on("console", (m) => {
-    if (m.type() === "error" && !m.text().includes("Failed to load resource"))
+    if (m.type() === "error" && !m.text().includes("Failed to load resource")) {
       errors.push(`${name}: ${m.text()}`);
+    }
   });
   await page.goto(`${url}/?room=${room}`);
   await until(
@@ -129,15 +136,15 @@ const seesPeer = (page, id, want, label) =>
 
 const step = (name, note) => console.log(`PASS ${name}${note ? ` — ${note}` : ""}`);
 
-const vite = urlFlag === -1 ? await startVite() : { url: argv[urlFlag + 1], stop() {} };
+const vite = urlFlag === -1 ? await startVite() : { stop() {}, url: argv[urlFlag + 1] };
 const browser = await chromium.launch({
-  channel: "chrome",
-  headless: true,
   args: [
     "--disable-background-timer-throttling",
     "--disable-backgrounding-occluded-windows",
     "--disable-renderer-backgrounding",
   ],
+  channel: "chrome",
+  headless: true,
 });
 try {
   // 1. join: both connected, both see each other's ship
@@ -162,7 +169,7 @@ try {
     droneId,
   );
   await guest.evaluate(
-    (id) => __starfall.scene.netSendEvent("enemy_hit", { enemyId: id, damage: 1e6, kx: 0, ky: 0 }),
+    (id) => __starfall.scene.netSendEvent("enemy_hit", { damage: 1e6, enemyId: id, kx: 0, ky: 0 }),
     droneId,
   );
   await until(
@@ -187,7 +194,7 @@ try {
   const mastery = await until(
     guest,
     () => {
-      const el = document.getElementById("weapon-mastery");
+      const el = document.querySelector("#weapon-mastery");
       return !el.hidden && el.textContent;
     },
     "guest mastery HUD",
@@ -211,9 +218,9 @@ try {
   ]) {
     await page.evaluate(() => __starfall.setShield(0));
     await until(page, () => !__starfall.summary().alive, `${name} died`);
-    await seesPeer(other, id, { present: true, alive: false }, `${name} death seen`);
+    await seesPeer(other, id, { alive: false, present: true }, `${name} death seen`);
     await until(page, () => __starfall.summary().alive, `${name} re-entered`);
-    await seesPeer(other, id, { present: true, alive: true }, `${name} re-entry seen`);
+    await seesPeer(other, id, { alive: true, present: true }, `${name} re-entry seen`);
   }
   step("restart from each side", "death → re-entry (no rematch concept)");
 

@@ -44,20 +44,20 @@ const CSS = `
   }
 `;
 
-export type GuidePlacement = {
+export interface GuidePlacement {
   x: number;
   y: number;
   toggleWidth: number;
   panelWidth: number;
   maxHeight: number;
-};
+}
 
-export type AbilityGuideOptions = {
+export interface AbilityGuideOptions {
   /** Another HUD panel (shop/scoreboard) is up: the toggle stays inert and the guide hides. */
   blocked: () => boolean;
   onOpen: () => void;
   onClose: () => void;
-};
+}
 
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -65,8 +65,12 @@ function el<K extends keyof HTMLElementTagNameMap>(
   text = "",
 ): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text) node.textContent = text;
+  if (className) {
+    node.className = className;
+  }
+  if (text) {
+    node.textContent = text;
+  }
   return node;
 }
 
@@ -84,7 +88,7 @@ export class AbilityGuide {
   private readonly close = button("guide-close", "×");
   private readonly title = el("h2");
   private readonly experience = el("p", "guide-xp");
-  private readonly tabs = KEYS.map((key) => ({ key, button: button("", key) }));
+  private readonly tabs = KEYS.map((key) => ({ button: button("", key), key }));
   private readonly copy = el("div", "guide-copy");
   private readonly name = el("h3");
   private readonly rank = el("p", "guide-rank");
@@ -114,7 +118,9 @@ export class AbilityGuide {
     header.append(heading, this.close);
     const nav = el("nav");
     nav.setAttribute("aria-label", "Inspect an ability");
-    for (const tab of this.tabs) nav.append(tab.button);
+    for (const tab of this.tabs) {
+      nav.append(tab.button);
+    }
     this.copy.tabIndex = 0;
     this.copy.setAttribute("aria-label", "Ability details");
     this.copy.append(this.name, this.rank, this.description, this.costs, this.unlock);
@@ -123,14 +129,18 @@ export class AbilityGuide {
     this.root.append(this.toggle, this.panel);
 
     this.copy.addEventListener("scroll", () => this.refreshOverflow());
-    for (const event of ["pointerdown", "pointerup", "pointermove", "click"])
+    for (const event of ["pointerdown", "pointerup", "pointermove", "click"]) {
       this.root.addEventListener(event, (e) => e.stopPropagation());
+    }
     this.root.addEventListener("keydown", this.fenceKey);
     this.root.addEventListener("keyup", this.fenceKey);
     this.toggle.addEventListener("click", () => {
-      if (gs.matchResult || gs.controlsPaused || options.blocked()) return;
-      if (this.open) this.closeGuide();
-      else {
+      if (gs.matchResult || gs.controlsPaused || options.blocked()) {
+        return;
+      }
+      if (this.open) {
+        this.closeGuide();
+      } else {
         this.panel.hidden = false;
         this.root.dataset.open = "true";
         this.toggle.setAttribute("aria-expanded", "true");
@@ -140,11 +150,12 @@ export class AbilityGuide {
       }
     });
     this.close.addEventListener("click", () => this.closeGuide());
-    for (const tab of this.tabs)
+    for (const tab of this.tabs) {
       tab.button.addEventListener("click", () => {
         this.selected = tab.key;
         this.refresh();
       });
+    }
     document.head.append(this.style);
     document.body.append(this.root);
   }
@@ -159,7 +170,9 @@ export class AbilityGuide {
    *  Escape release), Q/W/E/R inspect. Only M (mute) passes through. */
   private readonly fenceKey = (event: KeyboardEvent): void => {
     if (this.open) {
-      if (event.key !== "m" && event.key !== "M") event.stopPropagation();
+      if (event.key !== "m" && event.key !== "M") {
+        event.stopPropagation();
+      }
       if (event.key === "Tab" && event.type === "keydown") {
         event.preventDefault();
         const focusable = [this.close, ...this.tabs.map((tab) => tab.button), this.copy];
@@ -182,20 +195,25 @@ export class AbilityGuide {
         this.selected = key;
         this.refresh();
       }
-    } else if (event.key === "Enter" || event.key === " ") event.stopPropagation();
-    else if (event.key === "Escape" && event.type === "keyup" && this.closingEscape) {
+    } else if (event.key === "Enter" || event.key === " ") {
+      event.stopPropagation();
+    } else if (event.key === "Escape" && event.type === "keyup" && this.closingEscape) {
       event.stopPropagation();
       this.closingEscape = false;
     }
   };
 
   closeGuide(focus = true): void {
-    if (!this.open) return;
+    if (!this.open) {
+      return;
+    }
     this.panel.hidden = true;
     this.root.dataset.open = "false";
     this.toggle.setAttribute("aria-expanded", "false");
     this.options.onClose();
-    if (focus) this.toggle.focus();
+    if (focus) {
+      this.toggle.focus();
+    }
   }
 
   /** Hide the whole surface (result screen), not just the dialog. */
@@ -208,17 +226,21 @@ export class AbilityGuide {
     const me = this.gs.player;
     const hero = me?.hero;
     this.root.hidden = !hero || !!this.gs.matchResult || this.options.blocked();
-    if (!me || !hero || !this.open) return;
+    if (!me || !hero || !this.open) {
+      return;
+    }
     const signature = `${hero.defId}:${hero.level}:${Math.floor(hero.xp)}:${hero.abilityPoints}:${
       me.alive
-    }:${this.selected}:${KEYS.map((key) => hero.abilities[key].rank).join()}`;
+    }:${this.selected}:${KEYS.map((key) => hero.abilities[key].rank).join(",")}`;
     if (signature === this.signature) {
       this.refreshOverflow();
       return;
     }
     this.signature = signature;
     const explanation = abilityExplanation(hero, this.selected);
-    if (!explanation) return;
+    if (!explanation) {
+      return;
+    }
     this.title.textContent = HERO_BY_ID[hero.defId]?.name ?? "Your champion";
     this.experience.textContent = `Level ${hero.level} · ${experienceProgress(hero).text}`;
     this.name.textContent = explanation.name;
@@ -240,7 +262,9 @@ export class AbilityGuide {
     const more =
       this.open && this.copy.scrollHeight - this.copy.clientHeight - this.copy.scrollTop > 2;
     const visibility = more ? "visible" : "hidden";
-    if (this.more.style.visibility !== visibility) this.more.style.visibility = visibility;
+    if (this.more.style.visibility !== visibility) {
+      this.more.style.visibility = visibility;
+    }
   }
 
   place(at: GuidePlacement): void {

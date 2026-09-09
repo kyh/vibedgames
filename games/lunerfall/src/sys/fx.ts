@@ -14,7 +14,7 @@ const LABELS = 16;
 const reducedMotion =
   typeof window === "undefined" ? null : window.matchMedia("(prefers-reduced-motion: reduce)");
 
-type SpriteFx = {
+interface SpriteFx {
   image: Phaser.GameObjects.Image;
   age: number;
   life: number;
@@ -27,8 +27,8 @@ type SpriteFx = {
   end: number;
   alpha: number;
   ease: number;
-};
-type SpriteOpts = {
+}
+interface SpriteOpts {
   key?: string;
   frame?: string | number;
   color?: number;
@@ -42,7 +42,7 @@ type SpriteOpts = {
   rotation?: number;
   depth?: number;
   add?: boolean;
-};
+}
 
 class SpritePool {
   private slots: SpriteFx[] = [];
@@ -51,38 +51,40 @@ class SpritePool {
   constructor(scene: Phaser.Scene, cap: number) {
     for (let i = 0; i < cap; i++) {
       this.slots.push({
-        image: scene.add.image(0, 0, "fx-glow").setVisible(false).setActive(false),
         age: 0,
-        life: 0,
-        x: 0,
-        y: 0,
+        alpha: 1,
         dx: 0,
         dy: 0,
+        ease: 2,
+        end: 1,
+        image: scene.add.image(0, 0, "fx-glow").setVisible(false).setActive(false),
+        life: 0,
         sx: 1,
         sy: 1,
-        end: 1,
-        alpha: 1,
-        ease: 2,
+        x: 0,
+        y: 0,
       });
     }
   }
 
   spawn(x: number, y: number, life: number, opts: SpriteOpts): Phaser.GameObjects.Image {
     const slot = this.slots.find((s) => s.age >= s.life) ?? this.slots[this.next];
-    if (!slot) throw new Error("FX pool has no slots");
+    if (!slot) {
+      throw new Error("FX pool has no slots");
+    }
     this.next = (this.next + 1) % this.slots.length;
     Object.assign(slot, {
       age: 0,
-      life,
-      x,
-      y,
+      alpha: opts.alpha ?? 1,
       dx: opts.dx ?? 0,
       dy: opts.dy ?? 0,
+      ease: opts.ease ?? 2,
+      end: opts.end ?? 1,
+      life,
       sx: opts.sx ?? 1,
       sy: opts.sy ?? opts.sx ?? 1,
-      end: opts.end ?? 1,
-      alpha: opts.alpha ?? 1,
-      ease: opts.ease ?? 2,
+      x,
+      y,
     });
     return slot.image
       .setTexture(opts.key ?? "fx-glow", opts.frame)
@@ -92,7 +94,7 @@ class SpritePool {
       .setPosition(x, y)
       .setScale(slot.sx, slot.sy)
       .setRotation(opts.rotation ?? 0)
-      .setTint(opts.color ?? 0xffffff)
+      .setTint(opts.color ?? 0xff_ff_ff)
       .setAlpha(slot.alpha)
       .setDepth(opts.depth ?? 60)
       .setBlendMode(opts.add ? Phaser.BlendModes.ADD : Phaser.BlendModes.NORMAL)
@@ -102,14 +104,16 @@ class SpritePool {
 
   update(ms: number) {
     for (const s of this.slots) {
-      if (s.age >= s.life) continue;
+      if (s.age >= s.life) {
+        continue;
+      }
       s.age += ms;
       if (s.age >= s.life) {
         s.image.setVisible(false).setActive(false);
         continue;
       }
       const t = s.age / s.life;
-      const eased = 1 - Math.pow(1 - t, s.ease);
+      const eased = 1 - (1 - t) ** s.ease;
       const scale = 1 + (s.end - 1) * eased;
       s.image
         .setPosition(s.x + s.dx * eased, s.y + s.dy * eased)
@@ -127,7 +131,12 @@ class SpritePool {
   }
 }
 
-type LabelFx = { text: Phaser.GameObjects.Text; age: number; x: number; y: number };
+interface LabelFx {
+  text: Phaser.GameObjects.Text;
+  age: number;
+  x: number;
+  y: number;
+}
 
 class SceneFx {
   readonly particles: SpritePool;
@@ -142,13 +151,13 @@ class SceneFx {
     this.echoes = new SpritePool(scene, ECHOES);
     for (let i = 0; i < LABELS; i++) {
       this.labels.push({
+        age: 600,
         text: scene.add
           .text(0, 0, "", { fontFamily: "monospace", fontSize: "9px" })
           .setOrigin(0.5, 1)
           .setDepth(70)
           .setVisible(false)
           .setActive(false),
-        age: 600,
         x: 0,
         y: 0,
       });
@@ -164,23 +173,30 @@ class SceneFx {
   private update(_time: number, delta: number) {
     const ms = Math.max(0, delta);
     this.particles.update(ms);
-    if (reducedMotion?.matches) this.echoes.clear();
-    else this.echoes.update(ms);
+    if (reducedMotion?.matches) {
+      this.echoes.clear();
+    } else {
+      this.echoes.update(ms);
+    }
     for (const s of this.labels) {
-      if (s.age >= 600) continue;
+      if (s.age >= 600) {
+        continue;
+      }
       s.age += ms;
       if (s.age >= 600) {
         s.text.setVisible(false).setActive(false);
         continue;
       }
-      const eased = 1 - Math.pow(1 - s.age / 600, 2);
+      const eased = 1 - (1 - s.age / 600) ** 2;
       s.text.setPosition(s.x, s.y - eased * 12).setAlpha(1 - eased);
     }
   }
 
   label(x: number, y: number, text: string, color: string) {
     const s = this.labels.find((s) => s.age >= 600) ?? this.labels[this.nextLabel];
-    if (!s) return;
+    if (!s) {
+      return;
+    }
     this.nextLabel = (this.nextLabel + 1) % LABELS;
     s.age = 0;
     s.x = x;
@@ -219,11 +235,13 @@ export function clearFx(scene: Phaser.Scene): void {
 }
 
 export function ensureGlow(scene: Phaser.Scene) {
-  if (scene.textures.exists("fx-glow")) return;
+  if (scene.textures.exists("fx-glow")) {
+    return;
+  }
   const R = 24;
   const g = scene.make.graphics({ x: 0, y: 0 });
   for (let i = R; i > 0; i--) {
-    g.fillStyle(0xffffff, 0.05 * Math.min(1, (R - i) / (R * 0.34)));
+    g.fillStyle(0xff_ff_ff, 0.05 * Math.min(1, (R - i) / (R * 0.34)));
     g.fillCircle(R, R, i);
   }
   g.generateTexture("fx-glow", R * 2, R * 2);
@@ -231,11 +249,13 @@ export function ensureGlow(scene: Phaser.Scene) {
 }
 
 function ensureParticleTextures(scene: Phaser.Scene) {
-  if (scene.textures.exists("fx-dot")) return;
+  if (scene.textures.exists("fx-dot")) {
+    return;
+  }
   const g = scene.make.graphics({ x: 0, y: 0 });
-  g.fillStyle(0xffffff).fillCircle(4, 4, 4).generateTexture("fx-dot", 8, 8);
-  g.clear().fillStyle(0xffffff).fillRect(0, 0, 4, 2).generateTexture("fx-shard", 4, 2);
-  g.clear().lineStyle(2, 0xffffff).strokeCircle(32, 32, 30).generateTexture("fx-ring", 64, 64);
+  g.fillStyle(0xff_ff_ff).fillCircle(4, 4, 4).generateTexture("fx-dot", 8, 8);
+  g.clear().fillStyle(0xff_ff_ff).fillRect(0, 0, 4, 2).generateTexture("fx-shard", 4, 2);
+  g.clear().lineStyle(2, 0xff_ff_ff).strokeCircle(32, 32, 30).generateTexture("fx-ring", 64, 64);
   g.destroy();
 }
 
@@ -248,8 +268,10 @@ function glow(
   ms: number,
   depth = 60,
 ) {
-  if (reducedMotion?.matches) return;
-  fx(scene).particles.spawn(x, y, ms, { color, sx: scale, end: 1.6, depth, add: true });
+  if (reducedMotion?.matches) {
+    return;
+  }
+  fx(scene).particles.spawn(x, y, ms, { add: true, color, depth, end: 1.6, sx: scale });
 }
 
 export function hitSpark(
@@ -264,22 +286,22 @@ export function hitSpark(
     const a = Math.random() * Math.PI * 2;
     const sp = 12 + Math.random() * 26;
     fx(scene).particles.spawn(x, y, 160 + Math.random() * 150, {
-      key: "fx-shard",
+      add: true,
       color,
-      sx: (2 + Math.random() * 3) / 4,
-      sy: 1,
       dx: Math.cos(a) * sp,
       dy: Math.sin(a) * sp,
+      key: "fx-shard",
       rotation: a,
-      add: true,
+      sx: (2 + Math.random() * 3) / 4,
+      sy: 1,
     });
   }
   fx(scene).particles.spawn(x, y, 100, {
-    key: "fx-dot",
-    sx: 0.65,
-    end: 1.5,
     alpha: 0.85,
     depth: 62,
+    end: 1.5,
+    key: "fx-dot",
+    sx: 0.65,
   });
 }
 
@@ -292,14 +314,14 @@ export function impactRing(
 ) {
   glow(scene, x, y, color, 0.7, 200, 62);
   fx(scene).particles.spawn(x, y, 300, {
-    key: "fx-ring",
-    color,
-    sx: (r * 0.4) / 30,
-    end: 2.6,
-    alpha: 0.9,
-    ease: 3,
-    depth: 62,
     add: true,
+    alpha: 0.9,
+    color,
+    depth: 62,
+    ease: 3,
+    end: 2.6,
+    key: "fx-ring",
+    sx: (r * 0.4) / 30,
   });
 }
 
@@ -308,17 +330,19 @@ export function afterImage(
   spr: Phaser.GameObjects.Sprite,
   color: number = COLORS.teal,
 ) {
-  if (reducedMotion?.matches) return;
+  if (reducedMotion?.matches) {
+    return;
+  }
   fx(scene)
     .echoes.spawn(spr.x, spr.y, 240, {
-      key: spr.texture.key,
-      frame: spr.frame.name,
+      add: true,
+      alpha: 0.32,
       color,
+      depth: spr.depth - 1,
+      frame: spr.frame.name,
+      key: spr.texture.key,
       sx: spr.scaleX,
       sy: spr.scaleY,
-      alpha: 0.32,
-      depth: spr.depth - 1,
-      add: true,
     })
     .setOrigin(spr.originX, spr.originY)
     .setFlipX(spr.flipX);
@@ -331,21 +355,21 @@ export function smoke(
   vx: number,
   vy: number,
   size = 10,
-  color = 0x7c8aa0,
+  color = 0x7c_8a_a0,
 ) {
   fx(scene).particles.spawn(x, y, 340 + Math.random() * 160, {
+    alpha: 0.42,
     color,
-    sx: size / 48,
+    depth: 18,
     dx: vx,
     dy: vy,
     end: 2.1,
-    alpha: 0.42,
-    depth: 18,
+    sx: size / 48,
   });
 }
 
 export function wallSmoke(scene: Phaser.Scene, x: number, y: number, side: number) {
-  for (let i = 0; i < 4; i++)
+  for (let i = 0; i < 4; i++) {
     smoke(
       scene,
       x,
@@ -354,10 +378,11 @@ export function wallSmoke(scene: Phaser.Scene, x: number, y: number, side: numbe
       -8 + Math.random() * 14 - i * 2,
       8 + Math.random() * 6,
     );
+  }
 }
 
 export function dust(scene: Phaser.Scene, x: number, y: number) {
-  for (let i = -1; i <= 1; i += 2)
+  for (let i = -1; i <= 1; i += 2) {
     fx(scene).particles.spawn(x, y, 220, {
       key: "fx-dot",
       color: 0x9aa6b2,
@@ -368,10 +393,11 @@ export function dust(scene: Phaser.Scene, x: number, y: number) {
       dy: -2,
       depth: 20,
     });
+  }
 }
 
 export function landPuff(scene: Phaser.Scene, x: number, y: number) {
-  for (let i = -1; i <= 1; i += 2)
+  for (let i = -1; i <= 1; i += 2) {
     for (let k = 0; k < 3; k++) {
       fx(scene).particles.spawn(x, y, 240 + Math.random() * 120, {
         key: "fx-dot",
@@ -384,6 +410,7 @@ export function landPuff(scene: Phaser.Scene, x: number, y: number) {
         depth: 20,
       });
     }
+  }
 }
 
 /** A small hot core, angular fragments, then slower normal-blend dust. */
@@ -396,11 +423,11 @@ export function explosion(
 ) {
   glow(scene, x, y, color, r / 26, 240, 62);
   fx(scene).particles.spawn(x, y, 100, {
-    key: "fx-dot",
-    sx: r * 0.065,
-    end: 1.35,
     alpha: 0.85,
     depth: 63,
+    end: 1.35,
+    key: "fx-dot",
+    sx: r * 0.065,
   });
   impactRing(scene, x, y, color, r);
   hitSpark(scene, x, y, color, 14);
@@ -421,19 +448,19 @@ export function ambientEmbers(
   ensureGlow(scene);
   return scene.add
     .particles(0, 0, "fx-glow", {
-      x: { min: 0, max: roomW },
-      y: { min: roomH * 0.3, max: roomH },
-      lifespan: 4200,
-      speedY: { min: -10, max: -26 },
-      speedX: { min: -8, max: 8 },
-      scale: { start: 0.11, end: 0 },
-      alpha: { start: 0.45, end: 0 },
-      frequency: Math.max(80, 340 * (BASE_W / roomW)),
-      quantity: 1,
-      tint: color,
-      reserve: 56,
-      maxAliveParticles: 56,
+      alpha: { end: 0, start: 0.45 },
       blendMode: Phaser.BlendModes.ADD,
+      frequency: Math.max(80, 340 * (BASE_W / roomW)),
+      lifespan: 4200,
+      maxAliveParticles: 56,
+      quantity: 1,
+      reserve: 56,
+      scale: { end: 0, start: 0.11 },
+      speedX: { max: 8, min: -8 },
+      speedY: { max: -26, min: -10 },
+      tint: color,
+      x: { max: roomW, min: 0 },
+      y: { max: roomH, min: roomH * 0.3 },
     })
     .setDepth(3);
 }

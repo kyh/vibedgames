@@ -16,7 +16,7 @@ import type { ScreenDir } from "../game/camera-correction";
 import { DROP_TAP_MS, TOUCH_ARR_MS, TOUCH_DAS_MS, TOUCH_TAP_SLOP_PX } from "../shared/constants";
 
 /** Game verbs the touch layer drives (a thin mirror of KeyboardHandlers). */
-export type TouchHandlers = {
+export interface TouchHandlers {
   /** One screen-relative move step; `initial` = first step of a hold (sfx). */
   step(dir: ScreenDir, initial: boolean): void;
   rotate(): void;
@@ -28,7 +28,7 @@ export type TouchHandlers = {
   power(): void;
   /** A free touch (stick grab, not a button): start / catch / resume. */
   tap(): void;
-};
+}
 
 /** Touch-first copy must be decided AT BOOT, not after the first touch. */
 export function isCoarsePointer(): boolean {
@@ -37,10 +37,10 @@ export function isCoarsePointer(): boolean {
 
 /** Stick dir4 (screen-space, +y down) → the game's screen-relative steer. */
 const SCREEN_DIR = {
-  up: "away",
   down: "near",
   left: "left",
   right: "right",
+  up: "away",
 } satisfies Record<Dir4, ScreenDir>;
 
 /** Slot → grid cell, counted from the bottom-right safe-area corner: column 0
@@ -103,20 +103,26 @@ export class TouchControls {
    *  starts on its text must not launch a run (the browser cancels the pointer
    *  once it takes the scroll). */
   private readonly onPointerDown = (e: PointerEvent): void => {
-    if (e.pointerType !== "touch" || ownsTouch(e.target)) return;
+    if (e.pointerType !== "touch" || ownsTouch(e.target)) {
+      return;
+    }
     if (!this.active) {
       this.pendingTap = { id: e.pointerId, x: e.clientX, y: e.clientY };
       return;
     }
     for (const b of this.gamepad.pad.getButtonLayout()) {
-      if (!b.rest && Math.hypot(e.clientX - b.x, e.clientY - b.y) <= b.radius) return;
+      if (!b.rest && Math.hypot(e.clientX - b.x, e.clientY - b.y) <= b.radius) {
+        return;
+      }
     }
     this.handlers.tap();
   };
 
   private readonly onPointerUp = (e: PointerEvent): void => {
     const tap = this.pendingTap;
-    if (!tap || tap.id !== e.pointerId) return;
+    if (!tap || tap.id !== e.pointerId) {
+      return;
+    }
     this.pendingTap = null;
     if (!this.active && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) <= TOUCH_TAP_SLOP_PX) {
       this.handlers.tap();
@@ -124,7 +130,9 @@ export class TouchControls {
   };
 
   private readonly onPointerCancel = (e: PointerEvent): void => {
-    if (this.pendingTap?.id === e.pointerId) this.pendingTap = null;
+    if (this.pendingTap?.id === e.pointerId) {
+      this.pendingTap = null;
+    }
   };
 
   constructor(handlers: TouchHandlers) {
@@ -132,11 +140,8 @@ export class TouchControls {
     this.root = document.createElement("div");
     this.root.className = "tetris-gamepad";
     this.root.hidden = true;
-    document.body.appendChild(this.root);
+    document.body.append(this.root);
     this.gamepad = attachDomGamepad({
-      root: this.root,
-      visible: "coarse", // fixed buttons are discoverable before the first touch
-      stick: { radius: 56, deadZone: 10 },
       buttons: [
         { id: "drop", label: "DROP", radius: 46, position: (v) => cluster(v, 0) },
         { id: "rotate", label: "ROT", radius: 40, position: (v) => cluster(v, 1) },
@@ -146,6 +151,9 @@ export class TouchControls {
         { id: "orbit-left", label: "↺", radius: 32, position: (v) => cluster(v, 5) },
       ],
       render: { tint: "#8ea2ff" },
+      root: this.root,
+      stick: { deadZone: 10, radius: 56 },
+      visible: "coarse", // fixed buttons are discoverable before the first touch,
     });
     window.addEventListener("pointerdown", this.onPointerDown);
     window.addEventListener("pointerup", this.onPointerUp);
@@ -163,11 +171,21 @@ export class TouchControls {
 
     this.repeatStick(dtMs);
 
-    if (this.gamepad.justPressed("rotate")) this.handlers.rotate();
-    if (this.gamepad.justPressed("orbit-left")) this.handlers.orbit(-1);
-    if (this.gamepad.justPressed("orbit-right")) this.handlers.orbit(1);
-    if (this.gamepad.justPressed("hold")) this.handlers.hold();
-    if (this.gamepad.justPressed("power")) this.handlers.power();
+    if (this.gamepad.justPressed("rotate")) {
+      this.handlers.rotate();
+    }
+    if (this.gamepad.justPressed("orbit-left")) {
+      this.handlers.orbit(-1);
+    }
+    if (this.gamepad.justPressed("orbit-right")) {
+      this.handlers.orbit(1);
+    }
+    if (this.gamepad.justPressed("hold")) {
+      this.handlers.hold();
+    }
+    if (this.gamepad.justPressed("power")) {
+      this.handlers.power();
+    }
 
     // DROP mirrors the keyboard pair: a quick tap = hard drop (Space); a held
     // press = soft drop (Shift) that never hard-drops on release.
@@ -179,7 +197,9 @@ export class TouchControls {
     }
     if (this.gamepad.justReleased("drop")) {
       this.handlers.setSoftDrop(false);
-      if (this.dropHeldMs < DROP_TAP_MS) this.handlers.drop();
+      if (this.dropHeldMs < DROP_TAP_MS) {
+        this.handlers.drop();
+      }
     }
   }
 
@@ -193,7 +213,9 @@ export class TouchControls {
 
   /** The button cluster exists only in play; title and results own their taps. */
   setActive(active: boolean): void {
-    if (this.active === active) return;
+    if (this.active === active) {
+      return;
+    }
     this.active = active;
     this.root.hidden = !active;
     this.release();
@@ -219,12 +241,18 @@ export class TouchControls {
       this.dir = dir;
       this.das = 0;
       this.arr = 0;
-      if (dir) this.handlers.step(SCREEN_DIR[dir], true);
+      if (dir) {
+        this.handlers.step(SCREEN_DIR[dir], true);
+      }
       return;
     }
-    if (!dir) return;
+    if (!dir) {
+      return;
+    }
     this.das += dtMs;
-    if (this.das < TOUCH_DAS_MS) return;
+    if (this.das < TOUCH_DAS_MS) {
+      return;
+    }
     this.arr += dtMs;
     while (this.arr >= TOUCH_ARR_MS) {
       this.arr -= TOUCH_ARR_MS;

@@ -5,12 +5,12 @@ import type { AbilityKey, Targeting } from "../data/heroes";
 import type { HeroState } from "../sim/types";
 
 const PORTRAIT_CROPS = {
-  warrior: { x: 22, y: 31, width: 197, height: 182 },
-  pawn: { x: 52, y: 58, width: 149, height: 129 },
-  archer: { x: 64, y: 29, width: 140, height: 160 },
-  torch: { x: 40, y: 63, width: 166, height: 155 },
-  tnt: { x: 58, y: 67, width: 86, height: 68 },
-  barrel: { x: 39, y: 29, width: 50, height: 70 },
+  archer: { height: 160, width: 140, x: 64, y: 29 },
+  barrel: { height: 70, width: 50, x: 39, y: 29 },
+  pawn: { height: 129, width: 149, x: 52, y: 58 },
+  tnt: { height: 68, width: 86, x: 58, y: 67 },
+  torch: { height: 155, width: 166, x: 40, y: 63 },
+  warrior: { height: 182, width: 197, x: 22, y: 31 },
 };
 
 /** Original avatar art; TNT and barrel retain their own tightly fitted sprites. */
@@ -19,13 +19,13 @@ export function heroPortrait(defId: string, team: Team) {
   const color = team === "radiant" ? "blue" : "red";
 
   return {
+    crop: PORTRAIT_CROPS[sheet],
     texture:
       sheet === "tnt" || sheet === "barrel"
         ? `u-${sheet}-${color}`
         : sheet === "torch"
           ? "portrait-torch"
           : `portrait-${sheet}-${color}`,
-    crop: PORTRAIT_CROPS[sheet],
   };
 }
 
@@ -39,12 +39,18 @@ type Upgrade =
 /** Reads the same cap as levelAbility; never spends an ability point. */
 export function abilityUpgrade(hero: HeroState, key: AbilityKey): Upgrade {
   const def = HERO_BY_ID[hero.defId]?.abilities[key];
-  if (!def) return { kind: "unavailable" };
-  const rank = hero.abilities[key].rank;
-  if (rank >= def.maxRank) return { kind: "max" };
+  if (!def) {
+    return { kind: "unavailable" };
+  }
+  const { rank } = hero.abilities[key];
+  if (rank >= def.maxRank) {
+    return { kind: "max" };
+  }
   if (rank >= abilityRankCap(key, hero.level)) {
     for (let level = hero.level + 1; level <= MAX_LEVEL; level++) {
-      if (abilityRankCap(key, level) > rank) return { kind: "level", level };
+      if (abilityRankCap(key, level) > rank) {
+        return { kind: "level", level };
+      }
     }
     return { kind: "max" };
   }
@@ -52,16 +58,18 @@ export function abilityUpgrade(hero: HeroState, key: AbilityKey): Upgrade {
 }
 
 const TARGET_COPY = {
-  unit: "Target a unit",
-  point: "Aim at the ground",
   none: "No target needed",
   passive: "Passive",
+  point: "Aim at the ground",
+  unit: "Target a unit",
 } satisfies Record<Targeting, string>;
 
 export function abilityExplanation(hero: HeroState, key: AbilityKey) {
   const def = HERO_BY_ID[hero.defId]?.abilities[key];
-  if (!def) return null;
-  const rank = hero.abilities[key].rank;
+  if (!def) {
+    return null;
+  }
+  const { rank } = hero.abilities[key];
   const previewRank = Math.max(1, rank);
   const upgrade = abilityUpgrade(hero, key);
   const unlock =
@@ -79,17 +87,19 @@ export function abilityExplanation(hero: HeroState, key: AbilityKey) {
           def.castRange > 0 ? ` · ${def.castRange} range` : ""
         }`;
   return {
-    name: `${key} · ${def.name}`,
-    description: def.desc,
-    rank: `${TARGET_COPY[def.targeting]} · ${rank > 0 ? `Rank ${rank}/${def.maxRank}` : "Rank 1 preview"}`,
     costs,
+    description: def.desc,
+    name: `${key} · ${def.name}`,
+    rank: `${TARGET_COPY[def.targeting]} · ${rank > 0 ? `Rank ${rank}/${def.maxRank}` : "Rank 1 preview"}`,
     unlock,
   };
 }
 
 /** XP is cumulative in the sim; the strip shows progress within this level. */
 export function experienceProgress(hero: HeroState) {
-  if (hero.level >= MAX_LEVEL) return { fraction: 1, text: "MAX LEVEL" };
+  if (hero.level >= MAX_LEVEL) {
+    return { fraction: 1, text: "MAX LEVEL" };
+  }
   const start = XP_CURVE[Math.max(0, hero.level - 1)] ?? 0;
   const end = XP_CURVE[hero.level] ?? start;
   const total = Math.max(1, end - start);

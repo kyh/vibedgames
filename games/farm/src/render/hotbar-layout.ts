@@ -22,11 +22,11 @@ export function slotIconScale(
   return contentSize / Math.max(16, image.width, image.height);
 }
 
-export type HotbarGrid = {
+export interface HotbarGrid {
   readonly slot: number;
   readonly perRow: number;
   readonly rows: number;
-};
+}
 
 /**
  * Slot size and row split for a hotbar `avail` px wide, where a slot is at most
@@ -34,14 +34,16 @@ export type HotbarGrid = {
  * slots per row — until each one clears MIN_TAP, or until a single column is
  * left on a viewport too narrow for even that.
  */
-export function hotbarGrid(avail: number, maxSlot: number, pad: number): HotbarGrid {
+export const hotbarGrid = (avail: number, maxSlot: number, pad: number): HotbarGrid => {
   const sizeFor = (perRow: number): number => Math.floor(avail / perRow) - pad;
   const min = Math.min(maxSlot, MIN_TAP - pad);
   let perRow = HOTBAR;
-  while (perRow > 1 && sizeFor(perRow) < min) perRow = Math.ceil(perRow / 2);
+  while (perRow > 1 && sizeFor(perRow) < min) {
+    perRow = Math.ceil(perRow / 2);
+  }
   return {
-    slot: Math.min(maxSlot, sizeFor(perRow)),
     perRow,
     rows: Math.ceil(HOTBAR / perRow),
+    slot: Math.min(maxSlot, sizeFor(perRow)),
   };
-}
+};

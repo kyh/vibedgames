@@ -1,22 +1,23 @@
 import { PhysicalGamepad } from "@vibedgames/gamepad";
 import { CHAMP_BY_ID, valAt } from "../data/champions";
 import { abilityIcon } from "../data/icons";
-import { ALL_ABILITY_KEYS, type AbilityKey, type Unit } from "../sim/types";
+import { ALL_ABILITY_KEYS } from "../sim/types";
+import type { AbilityKey, Unit } from "../sim/types";
 
 const KEYS = {
-  Q: "1",
-  W: "2",
-  E: "3",
-  R: "4",
   DASH: "Shift",
+  E: "3",
   JUMP: "Space + attack",
+  Q: "1",
+  R: "4",
+  W: "2",
 } satisfies Record<AbilityKey, string>;
 const TARGETS = {
+  dash: "Moves along your aim direction.",
   direction: "Aim with mouse or right stick.",
   ground: "Aim at the ground ahead of you.",
-  self: "Affects you or the area around you.",
-  dash: "Moves along your aim direction.",
   passive: "Always active once unlocked.",
+  self: "Affects you or the area around you.",
 };
 
 /** A native modal owns inspection input; the arena clock keeps running. */
@@ -54,8 +55,9 @@ export class AbilityGuide {
       this.tabs.append(button);
     }
     this.dialog.append(header, this.tabs, this.copy);
-    for (const name of ["pointerdown", "pointermove", "pointerup", "pointercancel"])
+    for (const name of ["pointerdown", "pointermove", "pointerup", "pointercancel"]) {
       this.dialog.addEventListener(name, (event) => event.stopPropagation());
+    }
     this.dialog.addEventListener("cancel", (event) => {
       event.preventDefault();
       this.close();
@@ -71,7 +73,9 @@ export class AbilityGuide {
   }
 
   show(champion: string, unit: Unit | null = null): void {
-    if (this.open || !CHAMP_BY_ID[champion]) return;
+    if (this.open || !CHAMP_BY_ID[champion]) {
+      return;
+    }
     this.champion = champion;
     this.unit = unit;
     this.returnFocus =
@@ -97,10 +101,13 @@ export class AbilityGuide {
 
   private select(key: AbilityKey): void {
     const ability = CHAMP_BY_ID[this.champion]?.abilities[key];
-    if (!ability) return;
+    if (!ability) {
+      return;
+    }
     this.selected = key;
-    for (const [id, button] of this.buttons)
+    for (const [id, button] of this.buttons) {
       button.setAttribute("aria-pressed", String(id === key));
+    }
     const rank = this.unit?.abilities[key].rank ?? 1;
     this.shownRank = rank;
     const heading = document.createElement("h3");
@@ -121,10 +128,15 @@ export class AbilityGuide {
   }
 
   update(unit?: Unit | null): void {
-    if (!this.open) return;
-    if (unit !== undefined) this.unit = unit;
-    if ((this.unit?.abilities[this.selected].rank ?? 1) !== this.shownRank)
+    if (!this.open) {
+      return;
+    }
+    if (unit !== undefined) {
+      this.unit = unit;
+    }
+    if ((this.unit?.abilities[this.selected].rank ?? 1) !== this.shownRank) {
       this.select(this.selected);
+    }
     this.pad.update();
     if (this.pad.justPressed("b") || this.pad.justPressed("start") || this.pad.justPressed("ls")) {
       this.close();
@@ -150,7 +162,9 @@ export class AbilityGuide {
   }
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
-    if (!this.open || event.code === "KeyM") return;
+    if (!this.open || event.code === "KeyM") {
+      return;
+    }
     // The menu's own H toggle listens on this same window; only immediate
     // propagation stops it reopening the guide the key just closed.
     event.stopImmediatePropagation();
@@ -162,16 +176,26 @@ export class AbilityGuide {
   };
 
   private readonly onKeyUp = (event: KeyboardEvent): void => {
-    if (event.code === "KeyM") return;
-    if (this.open || this.closingKey === event.code) event.stopPropagation();
-    if (this.closingKey === event.code) this.closingKey = null;
+    if (event.code === "KeyM") {
+      return;
+    }
+    if (this.open || this.closingKey === event.code) {
+      event.stopPropagation();
+    }
+    if (this.closingKey === event.code) {
+      this.closingKey = null;
+    }
   };
 
   close(): void {
-    if (!this.open) return;
+    if (!this.open) {
+      return;
+    }
     this.dialog.close();
     this.onChange(false);
-    if (this.returnFocus?.isConnected) this.returnFocus.focus({ preventScroll: true });
+    if (this.returnFocus?.isConnected) {
+      this.returnFocus.focus({ preventScroll: true });
+    }
   }
 
   dispose(): void {
@@ -184,7 +208,9 @@ export class AbilityGuide {
 }
 
 function ensureStyle(): void {
-  if (document.getElementById("ba-kit-style")) return;
+  if (document.querySelector("#ba-kit-style")) {
+    return;
+  }
   const style = document.createElement("style");
   style.id = "ba-kit-style";
   style.textContent = `

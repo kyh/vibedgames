@@ -32,44 +32,65 @@ import * as THREE from "three";
 import { NOISE_GLSL } from "./fx-noise";
 
 const POOL = {
-  plates: 0.62, // plates per metre
-  craze: 0.55, // the finer network laid over them
-  warp: 0.45, // domain warp on the cell centres
-  seam: 0.05, // width of a channel, cell space
-  seamGlow: 1.15,
-  crust: 0.95, // how opaque the sludge crust is
-  relief: 0.8, // fake lighting across the plates
-  sheen: 0.32, // the specular lobe — what says "wet"
-  gloss: 0.42, // 0 = broad and dull, 1 = a tight highlight
-  etch: 0.35, // how much the growing edge is chewed by its own noise
-  etchScale: 1.6,
-  pits: 0.12, // fraction of plates eaten clean through
-  pitScale: 1.6, // pits per metre
-  boilRate: 0.5, // surface bubbles bursting, per second per cell
-  heat: 0.55, // master brightness of the live acid
-  heatFalloff: 1.4, // how fast it goes inert toward the boundary
-  flow: 0.5, // how fast brightness crawls along a channel
-  caustic: 0.25, // interference on the standing acid
-  causticScale: 2.2,
-  boundary: 0.16, // the bleached band on the footprint, metres
+  // surface bubbles bursting, per second per cell
+  boilRate: 0.5,
+  // the bleached band on the footprint, metres
+  boundary: 0.16,
   boundaryGlow: 0.4,
-  core: 0.12, // the brighter pool in the middle
-  coreSize: 0.4, // its radius, × footprint
-  rings: 1.3, // pressure rings running out of the middle
-  ringSpeed: 0.4,
+  // interference on the standing acid
+  caustic: 0.25,
+  causticScale: 2.2,
+  // the brighter pool in the middle
+  core: 0.12,
+  // its radius, × footprint
+  coreSize: 0.4,
+  // the finer network laid over them
+  craze: 0.55,
+  // how opaque the sludge crust is
+  crust: 0.95,
+  // how much the growing edge is chewed by its own noise
+  etch: 0.35,
+  etchScale: 1.6,
+  // how fast brightness crawls along a channel
+  flow: 0.5,
+  // 0 = broad and dull, 1 = a tight highlight
+  gloss: 0.42,
+  // master brightness of the live acid
+  heat: 0.55,
+  // how fast it goes inert toward the boundary
+  heatFalloff: 1.4,
+  // pits per metre
+  pitScale: 1.6,
+  // fraction of plates eaten clean through
+  pits: 0.12,
+  // plates per metre
+  plates: 0.62,
   /** Metres of quad per metre of footprint: room for the bays and the lip. */
   quad: 2.6,
+  // fake lighting across the plates
+  relief: 0.8,
+  ringSpeed: 0.4,
+  // pressure rings running out of the middle
+  rings: 1.3,
+  // width of a channel, cell space
+  seam: 0.05,
+  seamGlow: 1.15,
+  // the specular lobe — what says "wet"
+  sheen: 0.32,
+  // domain warp on the cell centres,
+  warp: 0.45,
 } as const;
 
 /** Grimelda's grade. */
 const BOG = {
-  sludge: 0x0a1104,
-  plate: 0x24310c,
-  acid: 0x86f07a,
-  hot: 0xdcffb0,
-  edge: 0x9fefa8,
+  acid: 0x86_f0_7a,
+  edge: 0x9f_ef_a8,
+  hot: 0xdc_ff_b0,
+  plate: 0x24_31_0c,
+  sludge: 0x0a_11_04,
 } as const;
 
+// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
 const VERT = /* glsl */ `
 varying vec2 vUv;
 varying vec3 vViewDir;
@@ -80,6 +101,7 @@ void main() {
   gl_Position = projectionMatrix * viewMatrix * world;
 }`;
 
+// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
 const FRAG = /* glsl */ `
 #define TAU 6.283185307179586
 uniform float uTime;
@@ -233,7 +255,7 @@ void main() {
   // The wide bleached lip either side of a channel — where the acid has wicked
   // into the stone. A channel is a stain first and a light second.
   float lip = max(1.0 - smoothstep(${POOL.seam.toFixed(3)}, ${(POOL.seam * 3.4).toFixed(3)}, plate.x),
-                  (1.0 - smoothstep(${POOL.seam.toFixed(3)}, ${(POOL.seam * 3.0).toFixed(3)}, craze.x)) * ${(POOL.craze * 0.6).toFixed(3)} * detail);
+                  (1.0 - smoothstep(${POOL.seam.toFixed(3)}, ${(POOL.seam * 3).toFixed(3)}, craze.x)) * ${(POOL.craze * 0.6).toFixed(3)} * detail);
 
   /* ---- pits eaten clean through ---- */
   vec2 pitCell = voronoi2(p * ${POOL.pitScale.toFixed(3)} + uSeed * 5.0);
@@ -325,46 +347,52 @@ void main() {
 }`;
 
 /** What the zone tells the pool each frame. */
-export type BrewPoolState = {
-  radius: number; // the footprint, metres
-  grown: number; // how far the corrosion has spread, metres
-  front: number; // 0..1 — the leading edge, lit while it spreads
-  spent: number; // 1 fresh → lower as the acid goes inert
-  boil: number; // 0..1 surge envelope
-  fade: number; // 0..1, the pool going at the end
-};
+export interface BrewPoolState {
+  // the footprint, metres
+  radius: number;
+  // how far the corrosion has spread, metres
+  grown: number;
+  // 0..1 — the leading edge, lit while it spreads
+  front: number;
+  // 1 fresh → lower as the acid goes inert
+  spent: number;
+  // 0..1 surge envelope
+  boil: number;
+  // 0..1, the pool going at the end
+  fade: number;
+}
 
 export type BrewPoolMaterial = THREE.ShaderMaterial & {
-  sync(state: BrewPoolState): void;
+  sync: (state: BrewPoolState) => void;
   /** The quad-to-footprint ratio, for whoever scales the mesh. */
   readonly quad: number;
 };
 
-export function createBrewPoolMaterial(clock: { value: number }): BrewPoolMaterial {
+export const createBrewPoolMaterial = (clock: { value: number }): BrewPoolMaterial => {
   const uniforms = {
-    uTime: clock,
+    uBoil: { value: 0 },
+    uColorAcid: { value: new THREE.Color(BOG.acid) },
+    uColorCrust: { value: new THREE.Color(BOG.plate) },
+    uColorEdge: { value: new THREE.Color(BOG.edge) },
+    uColorHot: { value: new THREE.Color(BOG.hot) },
+    uColorSludge: { value: new THREE.Color(BOG.sludge) },
+    uFade: { value: 1 },
+    uFront: { value: 1 },
+    uGrown: { value: 0 },
     uQuadSize: { value: 10 },
     uRadius: { value: 3 },
-    uGrown: { value: 0 },
-    uFront: { value: 1 },
-    uSpent: { value: 1 },
-    uBoil: { value: 0 },
     uSeed: { value: Math.random() * 100 },
-    uFade: { value: 1 },
-    uColorSludge: { value: new THREE.Color(BOG.sludge) },
-    uColorCrust: { value: new THREE.Color(BOG.plate) },
-    uColorAcid: { value: new THREE.Color(BOG.acid) },
-    uColorHot: { value: new THREE.Color(BOG.hot) },
-    uColorEdge: { value: new THREE.Color(BOG.edge) },
+    uSpent: { value: 1 },
+    uTime: clock,
   };
   const mat = new THREE.ShaderMaterial({
+    blending: THREE.NormalBlending,
+    depthWrite: false,
+    fragmentShader: FRAG,
+    side: THREE.DoubleSide,
+    transparent: true,
     uniforms,
     vertexShader: VERT,
-    fragmentShader: FRAG,
-    transparent: true,
-    depthWrite: false,
-    blending: THREE.NormalBlending,
-    side: THREE.DoubleSide,
   });
   return Object.assign(mat, {
     quad: POOL.quad,
@@ -378,4 +406,4 @@ export function createBrewPoolMaterial(clock: { value: number }): BrewPoolMateri
       uniforms.uFade.value = s.fade;
     },
   });
-}
+};

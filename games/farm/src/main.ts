@@ -12,24 +12,24 @@ import { InventoryScene } from "./scenes/inventory-scene";
 import { Sound } from "./render/audio";
 import { store } from "./systems/store";
 
-type FarmDiagnostics = {
+interface FarmDiagnostics {
   frame: number;
   phase: "farm" | "mine" | "menu";
   score: number;
   /** The valley is open-ended; there is no victory flag. */
   complete: false;
   player: { x: number; y: number } | null;
-};
+}
 
 const config: Phaser.Types.Core.GameConfig = {
-  type: Phaser.WEBGL,
-  parent: "game",
   backgroundColor: "#1c2030",
-  scale: { mode: Phaser.Scale.RESIZE, width: "100%", height: "100%" },
+  parent: "game",
+  physics: { arcade: { debug: false, gravity: { x: 0, y: 0 } }, default: "arcade" },
   pixelArt: true,
   roundPixels: true,
-  physics: { default: "arcade", arcade: { gravity: { x: 0, y: 0 }, debug: false } },
+  scale: { height: "100%", mode: Phaser.Scale.RESIZE, width: "100%" },
   scene: [BootScene, TitleScene, GameScene, MineScene, MineHudScene, HudScene, InventoryScene],
+  type: Phaser.WEBGL,
 };
 
 declare global {
@@ -41,18 +41,20 @@ declare global {
 }
 
 const game = new Phaser.Game(config);
-if (import.meta.env.DEV) window.__game = game;
+if (import.meta.env.DEV) {
+  window.__game = game;
+}
 Object.defineProperty(window, "__GAME_DIAGNOSTICS__", {
   get: (): FarmDiagnostics => {
     const scene = game.scene
       .getScenes(true)
       .find((s) => s instanceof GameScene || s instanceof MineScene);
     return {
+      complete: false,
       frame: game.loop.frame,
       phase: scene instanceof GameScene ? "farm" : scene instanceof MineScene ? "mine" : "menu",
-      score: store.gold,
-      complete: false,
       player: scene ? { x: scene.player.x, y: scene.player.y } : null,
+      score: store.gold,
     };
   },
 });
@@ -67,7 +69,9 @@ const refreshScale = (): void => {
 };
 window.addEventListener("resize", refreshScale);
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) refreshScale();
+  if (!document.hidden) {
+    refreshScale();
+  }
 });
 
 // Sim is entirely delta-driven (update(_t, dms)), so the wrapper's pause can
@@ -78,9 +82,13 @@ document.addEventListener("visibilitychange", () => {
 // `froze` ensures onResume only wakes what onPause put to sleep.
 const activeWorld = (): GameScene | MineScene | null => {
   for (const key of ["Game", "Mine"]) {
-    if (!game.scene.isActive(key)) continue;
+    if (!game.scene.isActive(key)) {
+      continue;
+    }
     const scene = game.scene.getScene(key);
-    if (scene instanceof GameScene || scene instanceof MineScene) return scene;
+    if (scene instanceof GameScene || scene instanceof MineScene) {
+      return scene;
+    }
   }
   return null;
 };
@@ -94,9 +102,13 @@ const freeze = (): void => {
 // A mine fade committed before an online pause finishes while still paused:
 // the new floor is fenced like the farm was (frozen only if the room is gone).
 game.events.on("farm-enter-mine", (mine: MineScene) => {
-  if (!paused) return;
+  if (!paused) {
+    return;
+  }
   mine.setControlsPaused(true);
-  if (!froze && !mine.isOnline()) freeze();
+  if (!froze && !mine.isOnline()) {
+    freeze();
+  }
 });
 // Bespoke wooden-sign pause overlay (./pause-overlay) — renders CONTROLS and
 // the How-to-Play systems knowledge in the game's own cozy pixel-farm look.
@@ -107,21 +119,27 @@ setPauseHandlers({
     world?.setControlsPaused(true);
     Sound.setPaused(true);
     pauseOverlay.show();
-    if (!world?.isOnline()) freeze();
+    if (!world?.isOnline()) {
+      freeze();
+    }
   },
   onResume: () => {
     paused = false;
     activeWorld()?.setControlsPaused(false);
     pauseOverlay.hide();
     Sound.setPaused(false);
-    if (!froze) return;
+    if (!froze) {
+      return;
+    }
     froze = false;
     game.loop.wake();
     game.sound.resumeAll();
   },
   // Escape closes an open inventory/modal first; only a bare Escape pauses.
   escapePauses: () => {
-    if (game.scene.isActive("Inventory")) return false;
+    if (game.scene.isActive("Inventory")) {
+      return false;
+    }
     const hud = game.scene.getScene("Hud");
     return !(hud instanceof HudScene && hud.modalOpen);
   },

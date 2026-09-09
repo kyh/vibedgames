@@ -13,7 +13,7 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const gameDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const gameDir = resolve(import.meta.dirname, "..");
 const { chromium } = createRequire(join(gameDir, "package.json"))("playwright-core");
 
 const PARTY = "http://localhost:8787";
@@ -21,12 +21,14 @@ const DEV_PORT = 5309;
 const SCORE_PELLET = 10;
 const wait = (ms) => new Promise((done) => setTimeout(done, ms));
 
-async function waitFor(page, fn, label, timeoutMs = 8000, arg = undefined) {
+async function waitFor(page, fn, label, timeoutMs = 8000, arg) {
   const deadline = Date.now() + timeoutMs;
   let last;
   while (Date.now() < deadline) {
     last = await page.evaluate(fn, arg);
-    if (last) return last;
+    if (last) {
+      return last;
+    }
     await wait(100);
   }
   throw new Error(`timeout: ${label} (last=${JSON.stringify(last)})`);
@@ -37,18 +39,18 @@ const snapshot = (page) =>
     const { game } = window.__pacman;
     const board = game.net.sharedState?.board;
     return {
-      host: game.net.isHost,
-      phase: game.phase,
-      paused: game.paused,
-      score: game.score,
-      rivals: game.rivalIds.length,
-      left: game.pelletsLeft(),
-      pill: game.statsEl.textContent,
       applied: game.appliedEaten.size,
-      hostEaten: game.hostEaten.size,
-      pending: game.pendingClaims.size,
-      round: game.boardRound,
       boardEaten: board ? Object.keys(board.eaten).length : -1,
+      host: game.net.isHost,
+      hostEaten: game.hostEaten.size,
+      left: game.pelletsLeft(),
+      paused: game.paused,
+      pending: game.pendingClaims.size,
+      phase: game.phase,
+      pill: game.statsEl.textContent,
+      rivals: game.rivalIds.length,
+      round: game.boardRound,
+      score: game.score,
       t: game.t,
     };
   });
@@ -60,11 +62,11 @@ const chompFrom = (page, col, row) =>
     ([col, row]) => {
       const { game } = window.__pacman;
       Object.assign(game.pac, {
-        x: col,
-        z: row,
         dir: "right",
         isMoving: false,
         target: { x: col, z: row },
+        x: col,
+        z: row,
       });
       window.__pacman.chomp();
     },
@@ -80,11 +82,13 @@ async function startPlaying(page) {
 }
 
 async function openClient(browser, url, errors) {
-  const page = await browser.newPage({ viewport: { width: 900, height: 600 } });
+  const page = await browser.newPage({ viewport: { height: 600, width: 900 } });
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => {
     // The dev server has no favicon; production is served by the games worker.
-    if (m.type() === "error" && !m.location().url.endsWith("/favicon.ico")) errors.push(m.text());
+    if (m.type() === "error" && !m.location().url.endsWith("/favicon.ico")) {
+      errors.push(m.text());
+    }
   });
   await page.goto(url);
   await waitFor(
@@ -113,8 +117,9 @@ async function startVite() {
         (r) => r.ok,
         () => false,
       )
-    )
+    ) {
       return { base, child };
+    }
   }
   child.kill();
   throw new Error("vite did not start");
@@ -122,7 +127,7 @@ async function startVite() {
 
 async function main() {
   const urlArg = process.argv.indexOf("--url");
-  const dev = urlArg >= 0 ? { base: process.argv[urlArg + 1], child: null } : await startVite();
+  const dev = urlArg !== -1 ? { base: process.argv[urlArg + 1], child: null } : await startVite();
   if (
     !(await fetch(PARTY).then(
       () => true,
@@ -133,22 +138,24 @@ async function main() {
   }
   const room = `t${process.pid}-${Date.now().toString(36)}`;
   const url = `${dev.base}/?room=${room}`;
-  const errors = { host: [], guest: [], late: [] };
+  const errors = { guest: [], host: [], late: [] };
   // Both clients must keep simulating; Chrome otherwise throttles whichever
   // window is not focused, which reads as a frozen peer.
   const browser = await chromium.launch({
-    headless: true,
-    channel: "chrome",
     args: [
       "--disable-background-timer-throttling",
       "--disable-backgrounding-occluded-windows",
       "--disable-renderer-backgrounding",
     ],
+    channel: "chrome",
+    headless: true,
   });
   const results = [];
   const step = (name, ok, note = "") => {
     results.push(`${ok ? "pass" : "FAIL"}  ${name}${note ? ` — ${note}` : ""}`);
-    if (!ok) throw new Error(`${name}: ${note}`);
+    if (!ok) {
+      throw new Error(`${name}: ${note}`);
+    }
   };
   try {
     const host = await openClient(browser, url, errors.host);
@@ -245,9 +252,10 @@ async function main() {
       const { game } = window.__pacman;
       for (let row = 0; row < 31; row++) {
         for (let col = 0; col < 31; col++) {
-          if (game.appliedEaten.has(`${col},${row}`) || !game.parseEatKey(`${col},${row}`))
+          if (game.appliedEaten.has(`${col},${row}`) || !game.parseEatKey(`${col},${row}`)) {
             continue;
-          Object.assign(game.pac, { x: col, z: row, isMoving: false, target: { x: col, z: row } });
+          }
+          Object.assign(game.pac, { isMoving: false, target: { x: col, z: row }, x: col, z: row });
           game.collectPellet();
         }
       }
@@ -273,7 +281,7 @@ async function main() {
     await chompFrom(host, 1, 1);
     await eaten(guest, "2,1");
     await host.close();
-    await waitFor(guest, () => window.__pacman.game.net.isHost, "guest promoted", 10000);
+    await waitFor(guest, () => window.__pacman.game.net.isHost, "guest promoted", 10_000);
     await waitFor(guest, () => window.__pacman.game.rivalIds.length === 0, "held seat ignored");
     g = await snapshot(guest);
     step(

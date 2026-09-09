@@ -3,28 +3,38 @@ import Phaser from "phaser";
 import type { PlayerMap } from "@vibedgames/multiplayer";
 
 import { CHAR_ORIGIN_Y, DEPTH } from "../config";
-import { CHAR_FRAMES, type CharAction } from "../scenes/boot-scene";
-import { isJsonNumber, isJsonObject, isJsonString, type JsonValue } from "../json";
+import { CHAR_FRAMES } from "../scenes/boot-scene";
+import type { CharAction } from "../scenes/boot-scene";
+import { isJsonNumber, isJsonObject, isJsonString } from "../json";
+import type { JsonValue } from "../json";
 
 // Renders the other players' farmers in the shared co-op world. They're the
 // same character sprite as the local player, name-tagged and depth-sorted with
 // everything else, smoothed toward the ~12 Hz position updates.
 
-export type FarmerPose = {
+export interface FarmerPose {
   clip: CharAction;
   frame: number;
   elapsed: number;
   playing: boolean;
   revision: number;
-};
-export type FarmerState = { x: number; y: number; f: boolean; m: boolean; pose: FarmerPose | null };
+}
+export interface FarmerState {
+  x: number;
+  y: number;
+  f: boolean;
+  m: boolean;
+  pose: FarmerPose | null;
+}
 
 const action = (value: JsonValue | undefined): value is CharAction =>
   isJsonString(value) && Object.hasOwn(CHAR_FRAMES, value);
 
 /** Optional presentation metadata. Older peers retain their idle/walk fallback. */
 export function readFarmerPose(value: JsonValue | undefined): FarmerPose | null {
-  if (!isJsonObject(value)) return null;
+  if (!isJsonObject(value)) {
+    return null;
+  }
   const { clip, frame, elapsed, playing, revision } = value;
   if (
     !action(clip) ||
@@ -39,40 +49,47 @@ export function readFarmerPose(value: JsonValue | undefined): FarmerPose | null 
     !isJsonNumber(revision) ||
     !Number.isSafeInteger(revision) ||
     revision < 0
-  )
+  ) {
     return null;
-  return { clip, frame, elapsed, playing, revision };
+  }
+  return { clip, elapsed, frame, playing, revision };
 }
 
 /** The local farmer's current clip with its sub-frame age, so peers show the tool mid-swing. */
 export function farmerPose(sprite: Phaser.GameObjects.Sprite, revision: number): FarmerPose | null {
   const anim = sprite.anims;
   const clip = anim.currentAnim?.key.replace(/^p-/, "");
-  if (!action(clip)) return null;
+  if (!action(clip)) {
+    return null;
+  }
   return {
     clip,
-    frame: (anim.currentFrame?.index ?? 1) - 1,
     elapsed: anim.accumulator,
+    frame: (anim.currentFrame?.index ?? 1) - 1,
     playing: anim.isPlaying,
     revision,
   };
 }
 
 export function readFarmer(state: JsonValue | undefined): FarmerState | null {
-  if (!isJsonObject(state)) return null;
-  const x = state["x"];
-  const y = state["y"];
-  if (!isJsonNumber(x) || !isJsonNumber(y)) return null;
+  if (!isJsonObject(state)) {
+    return null;
+  }
+  const { x } = state;
+  const { y } = state;
+  if (!isJsonNumber(x) || !isJsonNumber(y)) {
+    return null;
+  }
   return {
-    x,
-    y,
     f: state["f"] === true,
     m: state["m"] === true,
     pose: readFarmerPose(state["pose"]),
+    x,
+    y,
   };
 }
 
-type Farmer = {
+interface Farmer {
   sprite: Phaser.GameObjects.Sprite;
   shadow: Phaser.GameObjects.Sprite;
   label: Phaser.GameObjects.Text;
@@ -81,7 +98,7 @@ type Farmer = {
   seeded: boolean;
   moving: boolean;
   poseRevision: number | null;
-};
+}
 
 const LERP = 12;
 
@@ -93,17 +110,23 @@ export class RemoteFarmers {
   sync(players: PlayerMap, myId: string | null): void {
     const seen = new Set<string>();
     for (const [id, player] of Object.entries(players)) {
-      if (id === myId) continue;
+      if (id === myId) {
+        continue;
+      }
       const st = readFarmer(player.state);
-      if (!st) continue;
+      if (!st) {
+        continue;
+      }
       seen.add(id);
       let f = this.farmers.get(id);
-      if (!f) f = this.spawn(id, st);
+      if (!f) {
+        f = this.spawn(id, st);
+      }
       f.tx = st.x;
       f.ty = st.y;
       f.moving = st.m;
       f.sprite.setFlipX(st.f);
-      const pose = st.pose;
+      const { pose } = st;
       if (pose) {
         // Seek only when the sender (re)started a clip or paused/finished one;
         // between packets the clip runs locally, so packet jitter never shows.
@@ -112,15 +135,20 @@ export class RemoteFarmers {
           const key = `p-${pose.clip}`;
           const frame = this.scene.anims.get(key)?.frames[pose.frame];
           if (frame) {
-            if (f.sprite.anims.currentAnim?.key !== key || !f.sprite.anims.isPlaying)
+            if (f.sprite.anims.currentAnim?.key !== key || !f.sprite.anims.isPlaying) {
               f.sprite.play(key, true);
+            }
             f.sprite.anims.setCurrentFrame(frame);
             f.sprite.anims.accumulator = pose.elapsed;
-            if (!pose.playing) f.sprite.anims.pause();
+            if (!pose.playing) {
+              f.sprite.anims.pause();
+            }
             f.poseRevision = pose.revision;
           }
         }
-      } else f.poseRevision = null;
+      } else {
+        f.poseRevision = null;
+      }
     }
     for (const [id, f] of this.farmers) {
       if (!seen.has(id)) {
@@ -148,8 +176,9 @@ export class RemoteFarmers {
       f.label.setPosition(f.sprite.x, f.sprite.y - 26).setDepth(f.sprite.depth + 1);
       if (f.poseRevision === null) {
         const anim = f.moving ? "p-walk" : "p-idle";
-        if (f.sprite.anims.currentAnim?.key !== anim || !f.sprite.anims.isPlaying)
+        if (f.sprite.anims.currentAnim?.key !== anim || !f.sprite.anims.isPlaying) {
           f.sprite.play(anim, true);
+        }
       }
     }
   }
@@ -171,22 +200,22 @@ export class RemoteFarmers {
     sprite.play("p-idle");
     const label = this.scene.add
       .text(st.x, st.y - 26, id.slice(0, 4), {
-        fontSize: "8px",
+        backgroundColor: "rgba(20,24,40,0.55)",
         color: "#ffffff",
         fontFamily: "monospace",
-        backgroundColor: "rgba(20,24,40,0.55)",
-        padding: { left: 2, right: 2, top: 1, bottom: 1 },
+        fontSize: "8px",
+        padding: { bottom: 1, left: 2, right: 2, top: 1 },
       })
       .setOrigin(0.5, 1);
     const f: Farmer = {
-      sprite,
-      shadow,
       label,
-      tx: st.x,
-      ty: st.y,
-      seeded: true,
       moving: false,
       poseRevision: null,
+      seeded: true,
+      shadow,
+      sprite,
+      tx: st.x,
+      ty: st.y,
     };
     this.farmers.set(id, f);
     return f;

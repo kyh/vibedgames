@@ -7,11 +7,12 @@ import {
   CharacterAction,
   PLACE_ACTION_MS,
   VICTORY_ACTION_MS,
-  type CharacterPose,
 } from "../src/render/character-action";
+import type { CharacterPose } from "../src/render/character-action";
 import { bombStock } from "../src/render/round-hud";
 import { RoundScore, scoreNotes } from "../src/fx/round-score";
-import { EXPLOSION_MS, FUSE_MS, type Bomb } from "../src/shared/constants";
+import { EXPLOSION_MS, FUSE_MS } from "../src/shared/constants";
+import type { Bomb } from "../src/shared/constants";
 import {
   adoptClock,
   CLOCK_SLACK_MS,
@@ -21,15 +22,15 @@ import {
   resumeClock,
 } from "../src/util/clock";
 
-const pose: CharacterPose = { col: 1, row: 1, dir: "down", moving: false };
-const bomb = { id: "accepted", placedAt: 1000, col: 1, row: 1 };
+const pose: CharacterPose = { col: 1, dir: "down", moving: false, row: 1 };
+const bomb = { col: 1, id: "accepted", placedAt: 1000, row: 1 };
 const mine = (id: string, placedAt: number): Bomb => ({
+  col: 1,
   id,
   ownerId: "me",
   placedAt,
-  col: 1,
-  row: 1,
   range: 2,
+  row: 1,
 });
 
 test("placement plays from the accepted stamp, per direction, and interrupts on any change", () => {
@@ -46,7 +47,9 @@ test("placement plays from the accepted stamp, per direction, and interrupts on 
           frame?.key,
           `player-place-${dir === "left" || dir === "right" ? "side" : dir}`,
         );
-      } else assert.equal(frame, null);
+      } else {
+        assert.equal(frame, null);
+      }
       assert.equal(action.place(bomb, 1000 + age, 550, current), false, "stamp consumed");
       assert.equal(action.sample(500 + PLACE_ACTION_MS, current, true), null);
     }
@@ -82,8 +85,8 @@ test("victory holds the salute until a fresh movement edge or death", () => {
   assert.equal(action.place(bomb, 1000, 100, pose), false, "placement cannot replace victory");
   assert.equal(action.sample(100, finalStep, true)?.frame, 0);
   assert.equal(action.sample(100 + VICTORY_ACTION_MS, pose, true)?.frame, 3);
-  assert.equal(action.sample(100000, pose, true)?.frame, 3);
-  assert.equal(action.sample(100001, finalStep, true), null);
+  assert.equal(action.sample(100_000, pose, true)?.frame, 3);
+  assert.equal(action.sample(100_001, finalStep, true), null);
 });
 
 test("action sheet cuts tile each PNG exactly and pivots lie inside their cell", () => {
@@ -109,8 +112,9 @@ test("blast frames seek by age; overlapping blasts share the newest cell", () =>
     [32, 1],
     [EXPLOSION_MS - 1, 15],
     [EXPLOSION_MS, null],
-  ] as const)
+  ] as const) {
     assert.equal(blastFrame(1000, 1000 + age), frame);
+  }
   assert.equal(freshCue(1000, 999), false);
   assert.equal(freshCue(1000, 1140), true);
   assert.equal(freshCue(1000, 1141), false);
@@ -138,7 +142,7 @@ test("bomb stock counts only accepted bombs and never frees a slot early", () =>
   assert.deepEqual(stock, {
     available: 1,
     capacity: 3,
-    next: { remaining: 1000 + FUSE_MS - 2100, progress: 1 - (1000 + FUSE_MS - 2100) / FUSE_MS },
+    next: { progress: 1 - (1000 + FUSE_MS - 2100) / FUSE_MS, remaining: 1000 + FUSE_MS - 2100 },
   });
   assert.equal(bombStock({ a: mine("a", 1000) }, "me", 1, 1000 + FUSE_MS + 500).available, 0);
   assert.deepEqual(bombStock({}, "me", 1, 1500), { available: 1, capacity: 1, next: null });
@@ -150,8 +154,8 @@ test("round score emits one beat per step and rebases on gaps, mode changes and 
   assert.deepEqual(score.observe("playing", 0), { kind: "rebase" });
   assert.equal(score.observe("playing", 100), null);
   assert.deepEqual(score.observe("playing", 400), {
-    kind: "beat",
     beat: { mode: "playing", step: 1 },
+    kind: "beat",
   });
   assert.deepEqual(score.observe("playing", 1300), { kind: "rebase" }, "skipped steps rebase");
   assert.deepEqual(score.observe("playing", 2200), { kind: "rebase" }, "transport gap rebases");
@@ -163,28 +167,30 @@ test("round score emits one beat per step and rebases on gaps, mode changes and 
 });
 
 test("sim clock freezes while paused, calibrates to host sim time, ignores jitter", () => {
-  adoptClock({ kind: "running", at: Date.now() });
-  assert.equal(readClock(undefined), null, "legacy rooms keep the local clock");
+  adoptClock({ at: Date.now(), kind: "running" });
+  assert.equal(readClock(), null, "legacy rooms keep the local clock");
   assert.deepEqual(readClock({ kind: "paused", now: 42 }), { kind: "paused", now: 42 });
-  assert.equal(readClock({ kind: "running", at: Number.NaN }), null);
+  assert.equal(readClock({ at: Number.NaN, kind: "running" }), null);
   // A host whose wall clock runs 5s ahead: sim time follows the host, not Date.now().
   const received = Date.now();
-  adoptClock({ kind: "running", at: received + 5000 }, received);
+  adoptClock({ at: received + 5000, kind: "running" }, received);
   const skew = now() - Date.now();
   assert.ok(skew > 4900 && skew <= 5000, `skew ${skew}`);
   // Snapshot latency jitter within CLOCK_SLACK_MS never re-calibrates.
-  adoptClock({ kind: "running", at: received + 5000 + CLOCK_SLACK_MS }, received + 10);
+  adoptClock({ at: received + 5000 + CLOCK_SLACK_MS, kind: "running" }, received + 10);
   assert.ok(now() - Date.now() <= 5000);
   // Re-reading the same stamp seconds later (promotion) must not jump backwards.
-  adoptClock({ kind: "running", at: received + 5000 + CLOCK_SLACK_MS }, received + 6000);
+  adoptClock({ at: received + 5000 + CLOCK_SLACK_MS, kind: "running" }, received + 6000);
   assert.ok(now() - Date.now() > 4900);
   pauseClock();
   const frozen = now();
-  for (let i = 0; i < 1000; i++) assert.equal(now(), frozen);
+  for (let i = 0; i < 1000; i++) {
+    assert.equal(now(), frozen);
+  }
   resumeClock();
   assert.ok(now() >= frozen);
   adoptClock({ kind: "paused", now: 42 });
   assert.equal(now(), 42);
-  adoptClock({ kind: "running", at: 1000 }, 1000);
+  adoptClock({ at: 1000, kind: "running" }, 1000);
   assert.ok(now() - Date.now() >= -1 && now() - Date.now() <= 0, "back on wall time");
 });

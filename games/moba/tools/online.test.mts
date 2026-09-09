@@ -7,7 +7,7 @@ import { createWorld, spawnHero, step } from "../src/sim/world.ts";
 
 test("only an empty room seeds a match, retaining the renderer's world and maps", () => {
   const world = emptyGuestWorld();
-  const units = world.units;
+  const { units } = world;
   const seats = restoreHostState(world, null);
   assert.equal(world.units, units);
   assert.deepEqual(encodeWorld(world), encodeWorld(createWorld(1234)));
@@ -25,10 +25,10 @@ test("promotion retains the accepted clock, RNG, combat state and stable human s
   hero.hero.level = 4;
   hero.hero.kills = 3;
   hero.hero.items = ["boots"];
-  hero.hero.abilities.Q.readyAt = 65432;
+  hero.hero.abilities.Q.readyAt = 65_432;
   departed.alive = false;
-  departed.hero.respawnAt = 80000;
-  host.now = 61750;
+  departed.hero.respawnAt = 80_000;
+  host.now = 61_750;
   host.gameTime = 61.75;
   host.seq = 108;
   host.nextWaveAt = 90;
@@ -40,10 +40,10 @@ test("promotion retains the accepted clock, RNG, combat state and stable human s
   const roster = restoreHostState(guest, wire);
   assert.deepEqual(encodeWorld(guest), wire);
   assert.deepEqual(roster, {
-    picks: { remaining: "duskblade", "previous-host": "ironvow" },
+    picks: { "previous-host": "ironvow", remaining: "duskblade" },
     seats: {
-      remaining: { team: "dire", slot: 2 },
-      "previous-host": { team: "radiant", slot: 1 },
+      "previous-host": { slot: 1, team: "radiant" },
+      remaining: { slot: 2, team: "dire" },
     },
   });
   assert.equal(guest.fx.length, 0);
@@ -68,7 +68,9 @@ test("promotion resumes the same deterministic simulation instead of resetting i
   const host = createWorld(987);
   spawnHero(host, "ironvow", "radiant", "a", true, 0);
   spawnHero(host, "emberhex", "dire", "b", true, 0);
-  for (let i = 0; i < 180; i++) step(host, 1 / 30);
+  for (let i = 0; i < 180; i++) {
+    step(host, 1 / 30);
+  }
   const promoted = emptyGuestWorld();
   restoreHostState(promoted, structuredClone(encodeWorld(host)));
   host.fx.length = 0;
@@ -88,12 +90,12 @@ test("a newer reconnect snapshot replaces stale local progress without changing 
   assert.ok(hero.hero);
   hero.hero.gold = 712;
   current.gameTime = 300;
-  current.now = 300000;
+  current.now = 300_000;
   const snap = structuredClone(encodeWorld(current));
   restoreHostState(stale, snap);
   assert.deepEqual(encodeWorld(stale), snap);
   const roster = restoreHostState(stale, snap);
-  assert.deepEqual(roster.seats.returning, { team: "dire", slot: 2 });
+  assert.deepEqual(roster.seats.returning, { slot: 2, team: "dire" });
   assert.equal(roster.picks.returning, "brewkeeper");
   assert.equal(stale.units.get("h-returning")?.hero?.gold, 712);
 });
@@ -106,7 +108,9 @@ test("host adoption owns its mutable state without rewriting the accepted snapsh
   const before = structuredClone(accepted);
   const promoted = emptyGuestWorld();
   restoreHostState(promoted, accepted);
-  for (let i = 0; i < 180; i++) step(promoted, 1 / 30);
+  for (let i = 0; i < 180; i++) {
+    step(promoted, 1 / 30);
+  }
   assert.deepEqual(accepted, before);
   assert.notDeepEqual(encodeWorld(promoted), before);
   restoreHostState(promoted, accepted);

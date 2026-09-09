@@ -16,11 +16,11 @@ import {
 } from "./render/presentation-settings";
 
 const GROUP_LABEL = {
+  camera: "Camera",
+  controller: "Gamepad",
   keys: "Keyboard",
   mouse: "Mouse",
   touch: "Touch",
-  camera: "Camera",
-  controller: "Gamepad",
 } satisfies Record<ControlMethod, string>;
 
 const STYLE_ID = "moba-pause-style";
@@ -88,7 +88,9 @@ export function chipTexts(input: string): readonly string[] {
 function el(tag: string, className: string, text?: string): HTMLElement {
   const node = document.createElement(tag);
   node.className = className;
-  if (text !== undefined) node.textContent = text;
+  if (text !== undefined) {
+    node.textContent = text;
+  }
   return node;
 }
 
@@ -196,7 +198,9 @@ function renderPanel(overlay: HTMLElement): void {
     const grid = el("div", "mp-grid");
     for (const entry of group.entries) {
       const keys = el("span", "mp-keys");
-      for (const text of chipTexts(entry.input)) keys.append(el("span", "mp-chip", text));
+      for (const text of chipTexts(entry.input)) {
+        keys.append(el("span", "mp-chip", text));
+      }
       grid.append(keys, el("span", "mp-action", entry.action));
     }
     panel.append(header, grid);
@@ -218,8 +222,6 @@ function renderPanel(overlay: HTMLElement): void {
 const shell = createPauseShell({
   className: "mp-root",
   css: CSS,
-  styleId: STYLE_ID,
-  render: renderPanel,
   modalOpen: () =>
     document.activeElement instanceof Element &&
     document.activeElement.closest(".mp-settings") !== null,
@@ -230,10 +232,12 @@ const shell = createPauseShell({
     root?.classList.remove("mp-in");
     root = null;
   },
+  render: renderPanel,
+  styleId: STYLE_ID,
 });
 
 /** Mount the overlay. Idempotent while shown. */
-export const show = shell.show;
+export const { show } = shell;
 
 /** Unmount (fade out). Idempotent while hidden. */
-export const hide = shell.hide;
+export const { hide } = shell;

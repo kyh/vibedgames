@@ -1,8 +1,8 @@
-export type PresentationSettings = {
+export interface PresentationSettings {
   effects: "full" | "focused";
   motion: "system" | "reduced";
   view: "standard" | "close";
-};
+}
 
 const KEY = "moba:presentation";
 const listeners = new Set<() => void>();
@@ -12,7 +12,9 @@ export function parsePresentationSettings(raw: string | null): PresentationSetti
   try {
     const value: unknown = JSON.parse(raw ?? "null");
     // JSON objects have ordinary prototypes; accept only the three enum fields.
-    if (!(value instanceof Object) || Array.isArray(value)) return defaults;
+    if (!(value instanceof Object) || Array.isArray(value)) {
+      return defaults;
+    }
     return {
       effects: "effects" in value && value.effects === "focused" ? "focused" : "full",
       motion: "motion" in value && value.motion === "reduced" ? "reduced" : "system",
@@ -45,7 +47,9 @@ export function setPresentationSettings(next: PresentationSettings): void {
   } catch {
     // Keep the in-memory setting usable in restricted embeds.
   }
-  for (const listener of listeners) listener();
+  for (const listener of listeners) {
+    listener();
+  }
 }
 
 export function watchPresentationSettings(listener: () => void): () => void {

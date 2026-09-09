@@ -5,14 +5,10 @@
 // game's business: wire onPause/onResume via setPauseHandlers and render your
 // own UI there (or compose the stock overlay from ./overlay).
 
-import {
-  GAME_PAUSED_MESSAGE,
-  GAME_STARTED_MESSAGE,
-  isPauseGameMessage,
-  type MessageData,
-} from "./protocol";
+import { GAME_PAUSED_MESSAGE, GAME_STARTED_MESSAGE, isPauseGameMessage } from "./protocol";
+import type { MessageData } from "./protocol";
 
-export type PauseHandlers = {
+export interface PauseHandlers {
   /**
    * The game is now paused: show your pause UI, and freeze the sim/render
    * loop if that's safe (never freeze a wall-clock driven sim or a live
@@ -29,7 +25,7 @@ export type PauseHandlers = {
    * chat box — so that binding wins and the NEXT press pauses.
    */
   escapePauses?: () => boolean;
-};
+}
 
 let handlers: PauseHandlers = {};
 let started = false;
@@ -58,12 +54,16 @@ function isTypingTarget(target: EventTarget | null): boolean {
  * to stopPropagation. Installed on pause, removed on resume.
  */
 const blockGameKeys = (event: KeyboardEvent): void => {
-  if (isTypingTarget(event.target)) return; // a pause UI's own text inputs keep working
+  if (isTypingTarget(event.target)) {
+    return;
+  } // a pause UI's own text inputs keep working
   event.stopPropagation();
 };
 
 function setKeyGate(on: boolean): void {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined") {
+    return;
+  }
   if (on) {
     window.addEventListener("keydown", blockGameKeys, true);
     window.addEventListener("keyup", blockGameKeys, true);
@@ -74,11 +74,17 @@ function setKeyGate(on: boolean): void {
 }
 
 function ensureListener(): void {
-  if (listening || typeof window === "undefined") return;
+  if (listening || typeof window === "undefined") {
+    return;
+  }
   listening = true;
   window.addEventListener("message", (event: MessageEvent<MessageData>) => {
-    if (event.source !== window.parent) return;
-    if (isPauseGameMessage(event.data)) pauseGame();
+    if (event.source !== window.parent) {
+      return;
+    }
+    if (isPauseGameMessage(event.data)) {
+      pauseGame();
+    }
   });
   // Capture phase: runs before any in-game handler, so escapePauses() sees the
   // game's PRE-event state (an open modal reads as open, not already closed by
@@ -86,9 +92,14 @@ function ensureListener(): void {
   window.addEventListener(
     "keydown",
     (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.repeat || isTypingTarget(event.target)) return;
-      if (paused) resumeGame();
-      else if (started && (handlers.escapePauses?.() ?? true)) pauseGame();
+      if (event.key !== "Escape" || event.repeat || isTypingTarget(event.target)) {
+        return;
+      }
+      if (paused) {
+        resumeGame();
+      } else if (started && (handlers.escapePauses?.() ?? true)) {
+        pauseGame();
+      }
     },
     true,
   );
@@ -102,10 +113,14 @@ function ensureListener(): void {
  */
 export function notifyGameStarted(): void {
   ensureListener();
-  if (started || paused) return;
+  if (started || paused) {
+    return;
+  }
   started = true;
   notifyPausableChanged();
-  if (embedded()) window.parent.postMessage({ type: GAME_STARTED_MESSAGE }, "*");
+  if (embedded()) {
+    window.parent.postMessage({ type: GAME_STARTED_MESSAGE }, "*");
+  }
 }
 
 /**
@@ -126,7 +141,9 @@ export function watchPausable(onChange: () => void): () => void {
 }
 
 function notifyPausableChanged(): void {
-  for (const listener of pausableListeners) listener();
+  for (const listener of pausableListeners) {
+    listener();
+  }
 }
 
 /** Wire the game's pause UI + freeze/unfreeze into the wrapper's pause request. */
@@ -137,7 +154,9 @@ export function setPauseHandlers(next: PauseHandlers): void {
 
 /** Pause now (same path Escape and the wrapper take). No-op unless started. */
 export function pauseGame(): void {
-  if (paused || !started) return;
+  if (paused || !started) {
+    return;
+  }
   paused = true;
   started = false;
   notifyPausableChanged();
@@ -145,12 +164,16 @@ export function pauseGame(): void {
   handlers.onPause?.();
   // Escape-initiated pauses need to tell the wrapper to bring its chrome back;
   // for wrapper-initiated ones this is a harmless no-op echo.
-  if (embedded()) window.parent.postMessage({ type: GAME_PAUSED_MESSAGE }, "*");
+  if (embedded()) {
+    window.parent.postMessage({ type: GAME_PAUSED_MESSAGE }, "*");
+  }
 }
 
 /** Resume from a pause — the call a pause UI's "resume" affordance makes. */
 export function resumeGame(): void {
-  if (!paused || !(handlers.canResume?.() ?? true)) return;
+  if (!paused || !(handlers.canResume?.() ?? true)) {
+    return;
+  }
   paused = false;
   notifyPausableChanged();
   // Removing the gate here means the resuming key's own keyup was already

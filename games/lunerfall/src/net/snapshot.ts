@@ -9,7 +9,7 @@ import { isJsonObject } from "./json";
 import type { JsonValue } from "./json";
 import type { BossAction, EnemyAction } from "../data/actor-presentation";
 
-export type NetPlayer = {
+export interface NetPlayer {
   id: string;
   hero: string;
   x: number;
@@ -27,11 +27,11 @@ export type NetPlayer = {
   swingId: number;
   specialActive: boolean;
   specialId: number;
-};
+}
 
 // Enemies/boss travel as the clip the host is already playing (read after its
 // render) so the guest just re-plays it — no state-enum re-derivation, no drift.
-export type NetEnemy = {
+export interface NetEnemy {
   id: number;
   name: string;
   clip: string;
@@ -42,8 +42,8 @@ export type NetEnemy = {
   flash: boolean;
   action?: EnemyAction;
   tint?: number;
-};
-export type NetBoss = {
+}
+export interface NetBoss {
   clip: string;
   x: number;
   y: number;
@@ -53,12 +53,12 @@ export type NetBoss = {
   telegraph: boolean;
   dead: boolean;
   action?: BossAction;
-};
+}
 
 // Guest → host input. Held state travels as booleans; each action carries a
 // monotonic counter so a press is never lost even if the net tick is slower than
 // the frame rate (the host derives an edge when a counter increments).
-export type NetInput = {
+export interface NetInput {
   left: boolean;
   right: boolean;
   up: boolean;
@@ -68,18 +68,26 @@ export type NetInput = {
   d: number;
   a: number;
   s: number;
-};
-export type NetProj = { k: "arrow" | "shot" | "hazard"; x: number; y: number; vx: number };
+}
+export interface NetProj {
+  k: "arrow" | "shot" | "hazard";
+  x: number;
+  y: number;
+  vx: number;
+}
 
 // Co-op last stand: broadcast while a player is downed. bleed = seconds left on
 // the bleed-out clock; rev = 0..1 revive-hold progress. Which player is downed
 // travels on NetPlayer.downed; both clients render the marker from these.
-export type NetLastStand = { bleed: number; rev: number };
+export interface NetLastStand {
+  bleed: number;
+  rev: number;
+}
 
 // Online versus: the match state, broadcast every snapshot while in versus mode.
 // Sides are fixed (host = left duelist, guest = right) so hearts/scores never
 // need a player-id mapping on either client.
-export type NetVersus = {
+export interface NetVersus {
   phase: "waiting" | "countdown" | "fighting" | "roundEnd" | "matchEnd";
   round: number; // 1-based; 0 while waiting for the challenger
   t: number; // seconds left in the current timed phase
@@ -88,9 +96,9 @@ export type NetVersus = {
   hostScore: number;
   guestScore: number;
   winner: "host" | "guest" | null; // round winner in roundEnd, match in matchEnd
-};
+}
 
-export type Snapshot = {
+export interface Snapshot {
   runId?: string;
   term?: number;
   t: number; // host frame counter — interpolation + stall detection
@@ -108,18 +116,18 @@ export type Snapshot = {
   lastStand: NetLastStand | null;
   vs: NetVersus | null; // versus mode only; null in co-op
   banner: string;
-};
+}
 
 // Full room layout — sent once per room (not per frame).
-export type NetDoor = {
+export interface NetDoor {
   index: number;
   x: number;
   y: number;
   type: string;
   label: string;
   danger: boolean;
-};
-export type NetRoom = {
+}
+export interface NetRoom {
   seq: number;
   mode: string; // "coop" | "vs" — versus arenas mirror the guest spawn, no doors
   type: string;
@@ -131,7 +139,7 @@ export type NetRoom = {
   doors: NetDoor[];
   propKey: string;
   mustClear: boolean;
-};
+}
 
 export function isSnapshot(v: JsonValue | undefined): v is Snapshot {
   return isJsonObject(v) && "players" in v && "t" in v && Array.isArray(v.players);

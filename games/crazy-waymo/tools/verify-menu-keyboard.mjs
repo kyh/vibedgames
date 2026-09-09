@@ -7,27 +7,31 @@ import { createMobileSession } from "./mobile-browser-session.mjs";
 const url = process.argv[2] ?? "http://localhost:5193/?time=noon&offline=1";
 const output = path.resolve(process.argv[3] ?? "/private/tmp/waymo-menu-keyboard");
 const { call, evaluate, until, sleep, screenshot, close, pageErrors } = await createMobileSession({
-  sessionPrefix: "crazy-waymo-menu-keyboard",
   output,
+  sessionPrefix: "crazy-waymo-menu-keyboard",
 });
-const report = { url, checkedAt: new Date().toISOString(), checks: [] };
-async function key(type, name, code, virtualKey, text) {
+const report = { checkedAt: new Date().toISOString(), checks: [], url };
+const key = async (type, name, code, virtualKey, text) => {
   const event = {
-    type,
-    key: name,
     code,
+    key: name,
+    type,
     windowsVirtualKeyCode: virtualKey,
   };
-  if (text !== undefined) event.text = text;
+  if (text !== undefined) {
+    event.text = text;
+  }
   await call("Input.dispatchKeyEvent", event);
-}
-function check(name, passed, evidence) {
-  const result = { name, passed, evidence };
+};
+const check = (name, passed, evidence) => {
+  const result = { evidence, name, passed };
   report.checks.push(result);
   console.log(JSON.stringify(result));
-  if (!passed) throw new Error(name);
-}
-async function title() {
+  if (!passed) {
+    throw new Error(name);
+  }
+};
+const title = async () => {
   await call("Page.navigate", { url });
   await until(
     'window.__taxi?.game.isReady && window.__taxi.game.mode.kind === "title" && !document.querySelector("#banner").inert',
@@ -38,20 +42,20 @@ async function title() {
   await evaluate(`window.__menuClicks=[];window.__menuEvents=[];
     document.querySelector("#banner-cta").addEventListener("click",event=>window.__menuClicks.push({trusted:event.isTrusted,detail:event.detail}));
     for(const type of ["pointerdown","pointerup","pointercancel","click"])document.addEventListener(type,event=>window.__menuEvents.push({type,trusted:event.isTrusted,pointer:event.pointerType,cta:!!event.target.closest("#banner-cta"),mode:window.__taxi.game.mode.kind}));`);
-}
+};
 const state = () =>
   evaluate(
     '({mode:window.__taxi.game.mode.kind,chatting:document.body.classList.contains("chatting"),events:window.__menuEvents,clicks:window.__menuClicks,active:document.activeElement?.id})',
   );
 const touch = (type, point) =>
-  call("Input.dispatchTouchEvent", { type, touchPoints: point ? [point] : [] });
+  call("Input.dispatchTouchEvent", { touchPoints: point ? [point] : [], type });
 try {
   await call("Runtime.enable");
   await call("Emulation.setDeviceMetricsOverride", {
-    width: 390,
-    height: 844,
     deviceScaleFactor: 3,
+    height: 844,
     mobile: true,
+    width: 390,
   });
   await call("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
   await title();
@@ -111,11 +115,15 @@ try {
   ]) {
     // Enter follows rejected touches on the same button, so stale touch-click
     // suppression cannot silently swallow a future keyboard activation.
-    if (code === "Space") await title();
+    if (code === "Space") {
+      await title();
+    }
     await evaluate("window.__menuClicks=[]");
     // Reach Start through the browser's focus order, without calling its handler.
-    for (let attempt = 0; attempt < 20; attempt++) {
-      if (await evaluate('document.activeElement?.id === "banner-cta"')) break;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (await evaluate('document.activeElement?.id === "banner-cta"')) {
+        break;
+      }
       await key("keyDown", "Tab", "Tab", 9);
       await key("keyUp", "Tab", "Tab", 9);
     }
@@ -138,18 +146,22 @@ try {
     await screenshot(`start-${code.toLowerCase()}`);
   }
   report.checks.push({
+    evidence: pageErrors,
     name: "No page errors",
     passed: pageErrors.length === 0,
-    evidence: pageErrors,
   });
 } catch (error) {
   report.failure = String(error);
   try {
     await screenshot("failure");
-  } catch {}
+  } catch {
+    // the page may be gone; the original failure is what matters
+  }
 } finally {
-  report.passed = !report.failure && report.checks.every((check) => check.passed);
+  report.passed = !report.failure && report.checks.every((entry) => entry.passed);
   writeFileSync(path.join(output, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
   close();
 }
-if (!report.passed) process.exitCode = 1;
+if (!report.passed) {
+  process.exitCode = 1;
+}

@@ -10,10 +10,14 @@ import { GameScene } from "./scenes/game-scene";
 import { DITHER_PIXEL, MAX_DT } from "./shared/constants";
 import { COARSE_INPUT } from "./shared/input-mode";
 
-const container = document.getElementById("game");
-if (!container) throw new Error("missing #game container");
-const soundButton = document.getElementById("sound-toggle");
-if (!soundButton) throw new Error("missing #sound-toggle");
+const container = document.querySelector("#game");
+if (!container) {
+  throw new Error("missing #game container");
+}
+const soundButton = document.querySelector("#sound-toggle");
+if (!soundButton) {
+  throw new Error("missing #sound-toggle");
+}
 
 // No MSAA: the scene renders into the dither pass's low-res target, where
 // hard pixels are the point — the canvas only ever shows the quantized quad.
@@ -32,7 +36,7 @@ function applyPixelRatio(): void {
 }
 applyPixelRatio();
 renderer.setSize(window.innerWidth, window.innerHeight);
-container.appendChild(renderer.domElement);
+container.append(renderer.domElement);
 
 // Unlock audio on the first real gesture (capture: before that gesture serves).
 for (const event of ["pointerdown", "keydown"]) {
@@ -86,9 +90,13 @@ soundButton.addEventListener("click", () => changeSound(!isMuted()));
 window.addEventListener("keydown", (e) => {
   if (e.code === "Space") {
     // Space on a focused button already clicks it; confirming here too would double-fire.
-    if (e.target instanceof HTMLElement && e.target.closest("button")) return;
+    if (e.target instanceof HTMLElement && e.target.closest("button")) {
+      return;
+    }
     e.preventDefault();
-    if (!e.repeat) game.handleGestureConfirm();
+    if (!e.repeat) {
+      game.handleGestureConfirm();
+    }
   } else if (e.code === "KeyM" && !e.repeat) {
     changeSound(!isMuted());
   }
@@ -130,12 +138,12 @@ renderer.setAnimationLoop((time) => {
 
 // See plugins/tooling/skills/playtest/references/bot-playtest.md. State hooks
 // opt into a solo match, never write a staged score into a live room.
-type TestHooks = {
+interface TestHooks {
   seed(seed: number): void;
   setState(name: string): void;
   setPausedForScreenshot(paused: boolean): void;
   setReducedMotion(enabled: boolean): void;
-};
+}
 declare global {
   interface Window {
     /** Dev-only hooks; __pongHand(x) drives the gesture→paddle path synthetically (x ∈ [0,1]). */
@@ -154,16 +162,16 @@ Object.defineProperty(window, "__GAME_DIAGNOSTICS__", {
 if (import.meta.env.DEV || new URLSearchParams(window.location.search).get("test") === "1") {
   const hooks: TestHooks = {
     seed: (seed) => game.seed(seed),
-    setState: (name) => game.setTestState(name),
     setPausedForScreenshot: (paused) => (paused ? game.requestPause() : game.requestResume()),
     setReducedMotion: (enabled) => game.setReducedMotion(enabled),
+    setState: (name) => game.setTestState(name),
   };
   Object.assign(window, { __GAME_TEST_HOOKS__: hooks });
 }
 if (import.meta.env.DEV) {
   Object.assign(window, {
     __pong: game,
-    __pongHand: (x: number) => game.handleHandPosition(x),
     __pongCamera: handCamera,
+    __pongHand: (x: number) => game.handleHandPosition(x),
   });
 }

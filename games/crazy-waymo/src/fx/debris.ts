@@ -10,39 +10,44 @@ const POOL_SMALL = 16;
 const POOL_BIG = 8;
 const GRAVITY = 30;
 const RESTITUTION = 0.35;
-const SPIN_KEEP = 0.4; // spin retained through the bounce
-const REST_SECONDS = 5; // resting time before fade-out
+// spin retained through the bounce
+const SPIN_KEEP = 0.4;
+// resting time before fade-out
+const REST_SECONDS = 5;
 const FADE_SECONDS = 0.6;
 
 type PieceState = "idle" | "flying" | "resting" | "fading";
 
-type Piece = {
+interface Piece {
   readonly obj: THREE.Object3D;
   readonly big: boolean;
   readonly baseScale: number;
-  readonly lift: number; // origin-to-bottom offset so the piece rests ON the ground
+  // origin-to-bottom offset so the piece rests ON the ground
+  readonly lift: number;
   state: PieceState;
   vx: number;
   vy: number;
   vz: number;
-  sx: number; // angular velocity (rad/s) per axis
+  // angular velocity (rad/s) per axis
+  sx: number;
   sy: number;
   sz: number;
   bounced: boolean;
-  timer: number; // resting/fading clock
-  stamp: number; // activation order, for stealing the oldest
-};
+  // resting/fading clock
+  timer: number;
+  // activation order, for stealing the oldest
+  stamp: number;
+}
 
 export class Debris {
   readonly group = new THREE.Group();
   private pieces: Piece[] = [];
   private clock = 0;
+  private heightAt: (x: number, z: number) => number;
 
-  constructor(
-    cache: ModelCache,
-    private heightAt: (x: number, z: number) => number,
-  ) {
-    for (let i = 0; i < POOL_SMALL + POOL_BIG; i++) {
+  constructor(cache: ModelCache, heightAt: (x: number, z: number) => number) {
+    this.heightAt = heightAt;
+    for (let i = 0; i < POOL_SMALL + POOL_BIG; i += 1) {
       const big = i >= POOL_SMALL;
       const names = big ? DEBRIS_BIG : DEBRIS_SMALL;
       const name = names[i % names.length] ?? names[0] ?? "debris-bolt";
@@ -50,26 +55,27 @@ export class Debris {
       const obj = cache.instance(url);
       const b = cache.bounds(url);
       const maxDim = Math.max(b.size.x, b.size.y, b.size.z, 0.0001);
-      const target = 0.5 + Math.random() * 0.3; // largest dimension 0.5-0.8u
+      // largest dimension 0.5-0.8u
+      const target = 0.5 + Math.random() * 0.3;
       const scale = target / maxDim;
       obj.scale.setScalar(scale);
       obj.visible = false;
       this.group.add(obj);
       this.pieces.push({
-        obj,
-        big,
         baseScale: scale,
+        big,
+        bounced: false,
         lift: -b.min.y * scale,
+        obj,
+        stamp: 0,
         state: "idle",
-        vx: 0,
-        vy: 0,
-        vz: 0,
         sx: 0,
         sy: 0,
         sz: 0,
-        bounced: false,
         timer: 0,
-        stamp: 0,
+        vx: 0,
+        vy: 0,
+        vz: 0,
       });
     }
   }
@@ -78,13 +84,19 @@ export class Debris {
   // 2-3 small pieces; hard hits (power > 20) add one big piece.
   burst(x: number, z: number, nx: number, nz: number, power: number): void {
     const smallCount = 2 + (Math.random() < 0.5 ? 1 : 0);
-    for (let i = 0; i < smallCount; i++) this.launch(false, x, z, nx, nz);
-    if (power > 20) this.launch(true, x, z, nx, nz);
+    for (let i = 0; i < smallCount; i += 1) {
+      this.launch(false, x, z, nx, nz);
+    }
+    if (power > 20) {
+      this.launch(true, x, z, nx, nz);
+    }
   }
 
   update(dt: number): void {
     for (const p of this.pieces) {
-      if (p.state === "idle") continue;
+      if (p.state === "idle") {
+        continue;
+      }
       if (p.state === "flying") {
         p.vy -= GRAVITY * dt;
         const o = p.obj;
@@ -137,8 +149,10 @@ export class Debris {
 
   private launch(big: boolean, x: number, z: number, nx: number, nz: number): void {
     const p = this.acquire(big);
-    if (!p) return;
-    this.clock++;
+    if (!p) {
+      return;
+    }
+    this.clock += 1;
     p.stamp = this.clock;
     p.state = "flying";
     p.bounced = false;
@@ -179,9 +193,15 @@ export class Debris {
   private acquire(big: boolean): Piece | undefined {
     let oldest: Piece | undefined;
     for (const p of this.pieces) {
-      if (p.big !== big) continue;
-      if (p.state === "idle") return p;
-      if (!oldest || p.stamp < oldest.stamp) oldest = p;
+      if (p.big !== big) {
+        continue;
+      }
+      if (p.state === "idle") {
+        return p;
+      }
+      if (!oldest || p.stamp < oldest.stamp) {
+        oldest = p;
+      }
     }
     return oldest;
   }

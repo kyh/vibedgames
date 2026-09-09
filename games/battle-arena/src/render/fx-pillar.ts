@@ -29,54 +29,77 @@ import * as THREE from "three";
 import { NOISE_GLSL } from "./fx-noise";
 
 const POOL = 3;
-const CLIMB_ROWS = 26; // samples up the shaft
-const AROUND_COLS = 48; // ...and around it
+// samples up the shaft
+const CLIMB_ROWS = 26;
+// ...and around it
+const AROUND_COLS = 48;
 
 /** Every dimension below is × the footprint radius unless it says metres. */
 const COLUMN = {
-  height: 5.2, // the shaft, × footprint — it leaves the top of the frame on purpose
-  radius: 0.3, // the shaft
-  skirt: 1.1, // how far it flares where it meets the stone
-  skirtPower: 4.5, // ... and how fast that closes with height
-  topFlare: 1.25, // how much wider it is at the top
+  // how fast the top flare opens with height
   flarePower: 1.6,
-  wobble: 0.08, // noise on the barrel, × its radius
-  wobbleScale: 1.1,
-  wobbleSpeed: 1.2,
-  spin: 0.05, // revolutions/second the barrel turns
   // The star and the rings sit LOW — a unit and a half off the floor, not the
   // sandbox's 40% of a thirty-metre shaft. Our camera looks steeply down at
   // the arena, and anything higher than a few metres is simply above the top
   // of the frame.
-  starSeat: 0.95, // where the star hangs, × footprint (metres up)
-  starSize: 0.75, // its half-extent, × footprint
-  haloOuter: 1.05, // the rings' outer edge, × footprint
-  haloSeat: 0.87, // where the band sits inside that
-  haloBand: 0.055, // ... and how deep it is
-  haloSecond: 0.9, // the second ring, × the first
-  haloTilt: 0.34, // radians each leans, opposite ways
-  haloSpin: 0.11, // revolutions/second, opposite ways
-  haloLift: 0.3, // metres apart they sit, × footprint
+  // how deep the rings' band is
+  haloBand: 0.055,
+  // metres apart they sit, × footprint
+  haloLift: 0.3,
+  // the rings' outer edge, × footprint
+  haloOuter: 1.05,
+  // where the band sits inside that
+  haloSeat: 0.87,
+  // the second ring, × the first
+  haloSecond: 0.9,
+  // revolutions/second, opposite ways
+  haloSpin: 0.11,
+  // radians each leans, opposite ways
+  haloTilt: 0.34,
+  // the shaft, × footprint — it leaves the top of the frame on purpose
+  height: 5.2,
+  // the shaft
+  radius: 0.3,
+  // how far it flares where it meets the stone
+  skirt: 1.1,
+  // ... and how fast that closes with height
+  skirtPower: 4.5,
+  // revolutions/second the barrel turns
+  spin: 0.05,
+  // where the star hangs, × footprint (metres up)
+  starSeat: 0.95,
+  // its half-extent, × footprint
+  starSize: 0.75,
+  // how much wider it is at the top
+  topFlare: 1.25,
+  // noise on the barrel, × its radius
+  wobble: 0.08,
+  wobbleScale: 1.1,
+  wobbleSpeed: 1.2,
 } as const;
 
 /** The sequence, in seconds since the strike. */
 const BEATS = {
-  rise: 0.26, // the beam's front reaching the top
-  starDelay: 0.1,
-  starTime: 0.36,
   haloDelay: 0.14,
   haloStagger: 0.09,
   haloTime: 0.4,
-  hold: 0.95, // full brightness until here
-  life: 1.6, // gone
-  pulseRate: 1.4, // the toll envelope
+  // full brightness until here
+  hold: 0.95,
+  // gone
+  life: 1.6,
+  // the toll envelope
+  pulseRate: 1.4,
+  // the beam's front reaching the top
+  rise: 0.26,
+  starDelay: 0.1,
+  starTime: 0.36,
 } as const;
 
 const TAU = Math.PI * 2;
 
 // ── the column ──────────────────────────────────────────────────────────────
 
-const PILLAR_VERT = /* glsl */ `
+const PILLAR_VERT = `
 #define TAU 6.283185307179586
 uniform float uTime;
 uniform vec3  uCentre;
@@ -118,7 +141,7 @@ void main() {
   gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
 }`;
 
-const PILLAR_FRAG = /* glsl */ `
+const PILLAR_FRAG = `
 #define PI 3.141592653589793
 uniform float uTime;
 uniform float uGrown;
@@ -192,7 +215,7 @@ void main() {
 
 // ── the star at its head ────────────────────────────────────────────────────
 
-const STAR_VERT = /* glsl */ `
+const STAR_VERT = `
 uniform vec3  uCentre;
 uniform float uSize;
 varying vec2 vLocal;
@@ -207,7 +230,7 @@ void main() {
   gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
 }`;
 
-const STAR_FRAG = /* glsl */ `
+const STAR_FRAG = `
 #define TAU 6.283185307179586
 uniform float uTime;
 uniform float uSeed;
@@ -279,7 +302,7 @@ void main() {
 
 // ── the halo rings ──────────────────────────────────────────────────────────
 
-const HALO_VERT = /* glsl */ `
+const HALO_VERT = `
 uniform float uOuter;
 varying vec2 vLocal;
 void main() {
@@ -290,7 +313,7 @@ void main() {
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position.xy * uOuter, 0.0, 1.0);
 }`;
 
-const HALO_FRAG = /* glsl */ `
+const HALO_FRAG = `
 #define TAU 6.283185307179586
 uniform float uTime;
 uniform float uSeed;
@@ -365,6 +388,7 @@ void main() {
   gl_FragColor = vec4(color, alpha);
 }`;
 
+// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 type PillarUniforms = {
   uTime: { value: number };
   uCentre: { value: THREE.Vector3 };
@@ -382,6 +406,7 @@ type PillarUniforms = {
   uColorCool: { value: THREE.Color };
 };
 
+// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 type StarUniforms = {
   uTime: { value: number };
   uCentre: { value: THREE.Vector3 };
@@ -396,6 +421,7 @@ type StarUniforms = {
   uColorCool: { value: THREE.Color };
 };
 
+// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 type HaloUniforms = {
   uTime: { value: number };
   uOuter: { value: number };
@@ -411,54 +437,69 @@ type HaloUniforms = {
   uColorCool: { value: THREE.Color };
 };
 
-type Halo = { mesh: THREE.Mesh; uni: HaloUniforms; dir: number };
+interface Halo {
+  mesh: THREE.Mesh;
+  uni: HaloUniforms;
+  dir: number;
+}
 
-type Pillar = {
+interface Pillar {
   column: THREE.Mesh;
   star: THREE.Mesh;
   halos: [Halo, Halo];
   uni: PillarUniforms;
   starUni: StarUniforms;
-  t: number; // seconds since the strike
+  // seconds since the strike
+  t: number;
   live: boolean;
   footprint: number;
   height: number;
-  starY: number; // world height of the star (and the rings' seat)
-};
+  // world height of the star (and the rings' seat)
+  starY: number;
+}
 
-export type PillarOpts = {
+export interface PillarOpts {
   /** The four-stop palette: core (near-white), body, edge, cool fringe. */
   colors?: { core: number; body: number; edge: number; cool: number };
-};
+}
 
-const GOLD = { core: 0xfffdf2, body: 0xffd489, edge: 0xffb254, cool: 0xbcd8ff } as const;
+const GOLD = { body: 0xff_d4_89, cool: 0xbc_d8_ff, core: 0xff_fd_f2, edge: 0xff_b2_54 } as const;
 
 /**
  * A grid of quads in parameter space: (x = along, y = around), z unused.
  * The vertex shader turns every pair into a world position.
  */
-function parameterGrid(rows: number, columns: number): THREE.BufferGeometry {
+const parameterGrid = (rows: number, columns: number): THREE.BufferGeometry => {
   const positions = new Float32Array(rows * columns * 3);
   let v = 0;
-  for (let i = 0; i < rows; i++) {
-    for (let j = 0; j < columns; j++) {
-      positions[v++] = i / (rows - 1);
-      positions[v++] = j / (columns - 1);
-      positions[v++] = 0;
+  for (let i = 0; i < rows; i += 1) {
+    for (let j = 0; j < columns; j += 1) {
+      positions[v] = i / (rows - 1);
+      v += 1;
+      positions[v] = j / (columns - 1);
+      v += 1;
+      positions[v] = 0;
+      v += 1;
     }
   }
   const indices = new Uint16Array((rows - 1) * (columns - 1) * 6);
   let k = 0;
-  for (let i = 0; i < rows - 1; i++) {
-    for (let j = 0; j < columns - 1; j++) {
+  for (let i = 0; i < rows - 1; i += 1) {
+    for (let j = 0; j < columns - 1; j += 1) {
       const a = i * columns + j;
       const b = a + columns;
-      indices[k++] = a;
-      indices[k++] = b;
-      indices[k++] = a + 1;
-      indices[k++] = b;
-      indices[k++] = b + 1;
-      indices[k++] = a + 1;
+      indices[k] = a;
+      k += 1;
+      indices[k] = b;
+      k += 1;
+      indices[k] = a + 1;
+      k += 1;
+      indices[k] = b;
+      k += 1;
+      indices[k] = b + 1;
+      k += 1;
+      indices[k] = a + 1;
+      k += 1;
     }
   }
   const geo = new THREE.BufferGeometry();
@@ -467,51 +508,86 @@ function parameterGrid(rows: number, columns: number): THREE.BufferGeometry {
   // Placed in world space by the shader — its own bounds mean nothing.
   geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e4);
   return geo;
-}
+};
 
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 /** Linear ramp 0→1 over [start, start + dur]. */
 const ramp = (t: number, start: number, dur: number) => clamp01((t - start) / Math.max(dur, 1e-3));
 const easeOut = (k: number) => 1 - (1 - k) * (1 - k);
 
+const syncPillar = (p: Pillar): void => {
+  const { t } = p;
+  // One clock, every beat a threshold on it: the column climbs, the star and
+  // the rings open behind its front, everything fades together at the end.
+  const grown = easeOut(ramp(t, 0, BEATS.rise));
+  const fade = 1 - ramp(t, BEATS.hold, BEATS.life - BEATS.hold);
+  // hottest at the instant it lands
+  const charge = Math.max(0, 1 - t * 1.4);
+  const pulse = 0.5 + 0.5 * Math.sin(t * BEATS.pulseRate * TAU);
+
+  p.uni.uGrown.value = grown;
+  p.uni.uFront.value = 1 - grown;
+  p.uni.uFade.value = fade;
+  p.uni.uCharge.value = charge;
+  p.uni.uPulse.value = pulse;
+
+  const starOpen = easeOut(ramp(t, BEATS.starDelay, BEATS.starTime));
+  p.starUni.uSize.value = COLUMN.starSize * p.footprint * (0.2 + 0.8 * starOpen);
+  p.starUni.uFade.value = fade * starOpen;
+  p.starUni.uCharge.value = charge;
+  p.starUni.uPulse.value = pulse;
+
+  for (const [i, h] of p.halos.entries()) {
+    const open = ramp(t, BEATS.haloDelay + i * BEATS.haloStagger, BEATS.haloTime);
+    h.uni.uOpen.value = open;
+    h.uni.uFade.value = fade;
+    h.uni.uCharge.value = charge;
+    h.uni.uPulse.value = pulse;
+    // Leaned opposite ways and turning opposite ways, on the ring's own
+    // tilted axis — a spin about world-up would keep the lean fixed in
+    // screen space and the pair would stop reading as a gyroscope.
+    h.mesh.rotation.z = t * COLUMN.haloSpin * TAU * h.dir;
+  }
+};
+
 /** Pooled columns of light. Four draw calls each: shaft, star, two rings. */
 export class PillarPool {
   private pillars: Pillar[] = [];
   private columnGeo = parameterGrid(CLIMB_ROWS, AROUND_COLS);
   private starGeo = new THREE.PlaneGeometry(1, 1);
-  private haloGeo = new THREE.RingGeometry(0.52, 1.0, 72, 1);
+  private haloGeo = new THREE.RingGeometry(0.52, 1, 72, 1);
 
-  constructor(
-    private scene: THREE.Scene,
-    clock: { value: number },
-  ) {
-    for (let i = 0; i < POOL; i++) {
+  private scene: THREE.Scene;
+
+  constructor(scene: THREE.Scene, clock: { value: number }) {
+    this.scene = scene;
+    for (let i = 0; i < POOL; i += 1) {
       const uni: PillarUniforms = {
-        uTime: clock,
         uCentre: { value: new THREE.Vector3() },
-        uRadius: { value: 1 },
-        uHeight: { value: 10 },
-        uSeed: { value: 0 },
-        uGrown: { value: 0 },
-        uFront: { value: 1 },
-        uFade: { value: 1 },
         uCharge: { value: 0 },
-        uPulse: { value: 0 },
-        uColorCore: { value: new THREE.Color(GOLD.core) },
         uColorBody: { value: new THREE.Color(GOLD.body) },
-        uColorEdge: { value: new THREE.Color(GOLD.edge) },
         uColorCool: { value: new THREE.Color(GOLD.cool) },
+        uColorCore: { value: new THREE.Color(GOLD.core) },
+        uColorEdge: { value: new THREE.Color(GOLD.edge) },
+        uFade: { value: 1 },
+        uFront: { value: 1 },
+        uGrown: { value: 0 },
+        uHeight: { value: 10 },
+        uPulse: { value: 0 },
+        uRadius: { value: 1 },
+        uSeed: { value: 0 },
+        uTime: clock,
       };
       const column = new THREE.Mesh(
         this.columnGeo,
         new THREE.ShaderMaterial({
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          fragmentShader: PILLAR_FRAG,
+          side: THREE.DoubleSide,
+          transparent: true,
           uniforms: uni,
           vertexShader: PILLAR_VERT,
-          fragmentShader: PILLAR_FRAG,
-          transparent: true,
-          depthWrite: false,
-          blending: THREE.AdditiveBlending,
-          side: THREE.DoubleSide,
         }),
       );
       column.frustumCulled = false;
@@ -520,32 +596,32 @@ export class PillarPool {
       this.scene.add(column);
 
       const starUni: StarUniforms = {
-        uTime: clock,
         uCentre: { value: new THREE.Vector3() },
-        uSize: { value: 1 },
-        uSeed: { value: 0 },
-        uFade: { value: 1 },
         uCharge: { value: 0 },
-        uPulse: { value: 0 },
-        uColorCore: { value: new THREE.Color(GOLD.core) },
         uColorBody: { value: new THREE.Color(GOLD.body) },
-        uColorEdge: { value: new THREE.Color(GOLD.edge) },
         uColorCool: { value: new THREE.Color(GOLD.cool) },
+        uColorCore: { value: new THREE.Color(GOLD.core) },
+        uColorEdge: { value: new THREE.Color(GOLD.edge) },
+        uFade: { value: 1 },
+        uPulse: { value: 0 },
+        uSeed: { value: 0 },
+        uSize: { value: 1 },
+        uTime: clock,
       };
       const star = new THREE.Mesh(
         this.starGeo,
         new THREE.ShaderMaterial({
-          uniforms: starUni,
-          vertexShader: STAR_VERT,
-          fragmentShader: STAR_FRAG,
-          transparent: true,
-          depthWrite: false,
+          blending: THREE.AdditiveBlending,
           // Off on purpose: the star is the brightest thing in the ability and
           // sits inside the column's own volume. Tested against the shaft it
           // would be punched through by whichever wall was nearer the camera.
           depthTest: false,
-          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          fragmentShader: STAR_FRAG,
           side: THREE.DoubleSide,
+          transparent: true,
+          uniforms: starUni,
+          vertexShader: STAR_VERT,
         }),
       );
       star.frustumCulled = false;
@@ -555,50 +631,50 @@ export class PillarPool {
 
       const mkHalo = (dir: number): Halo => {
         const hu: HaloUniforms = {
-          uTime: clock,
-          uOuter: { value: 1 },
-          uSeat: { value: 0.87 },
           uBand: { value: 0.1 },
-          uOpen: { value: 0 },
-          uSeed: { value: 0 },
-          uFade: { value: 1 },
           uCharge: { value: 0 },
-          uPulse: { value: 0 },
-          uColorCore: { value: new THREE.Color(GOLD.core) },
           uColorBody: { value: new THREE.Color(GOLD.body) },
           uColorCool: { value: new THREE.Color(GOLD.cool) },
+          uColorCore: { value: new THREE.Color(GOLD.core) },
+          uFade: { value: 1 },
+          uOpen: { value: 0 },
+          uOuter: { value: 1 },
+          uPulse: { value: 0 },
+          uSeat: { value: 0.87 },
+          uSeed: { value: 0 },
+          uTime: clock,
         };
         const mesh = new THREE.Mesh(
           this.haloGeo,
           new THREE.ShaderMaterial({
+            blending: THREE.AdditiveBlending,
+            depthTest: false,
+            depthWrite: false,
+            fragmentShader: HALO_FRAG,
+            side: THREE.DoubleSide,
+            transparent: true,
             uniforms: hu,
             vertexShader: HALO_VERT,
-            fragmentShader: HALO_FRAG,
-            transparent: true,
-            depthWrite: false,
-            depthTest: false,
-            blending: THREE.AdditiveBlending,
-            side: THREE.DoubleSide,
           }),
         );
         mesh.frustumCulled = false;
         mesh.visible = false;
         mesh.renderOrder = 7;
         this.scene.add(mesh);
-        return { mesh, uni: hu, dir };
+        return { dir, mesh, uni: hu };
       };
 
       this.pillars.push({
         column,
-        star,
-        halos: [mkHalo(1), mkHalo(-1)],
-        uni,
-        starUni,
-        t: 0,
-        live: false,
         footprint: 1,
+        halos: [mkHalo(1), mkHalo(-1)],
         height: 10,
+        live: false,
+        star,
+        starUni,
         starY: 0,
+        t: 0,
+        uni,
       });
     }
   }
@@ -610,7 +686,10 @@ export class PillarPool {
    */
   strike(x: number, groundY: number, z: number, footprint: number, opts: PillarOpts = {}): void {
     const p = this.pillars.find((e) => !e.live);
-    if (!p) return; // saturated — drop
+    if (!p) {
+      return;
+      // saturated — drop
+    }
     const colors = opts.colors ?? GOLD;
     p.live = true;
     p.t = 0;
@@ -650,58 +729,30 @@ export class PillarPool {
       // Lying flat, then leaned opposite ways so the pair reads as a gyroscope.
       h.mesh.rotation.set(-Math.PI / 2 + COLUMN.haloTilt * h.dir, 0, 0);
     }
-    this.sync(p);
+    syncPillar(p);
     p.column.visible = true;
     p.star.visible = true;
-    for (const h of p.halos) h.mesh.visible = true;
-  }
-
-  private sync(p: Pillar): void {
-    const t = p.t;
-    // One clock, every beat a threshold on it: the column climbs, the star and
-    // the rings open behind its front, everything fades together at the end.
-    const grown = easeOut(ramp(t, 0, BEATS.rise));
-    const fade = 1 - ramp(t, BEATS.hold, BEATS.life - BEATS.hold);
-    const charge = Math.max(0, 1 - t * 1.4); // hottest at the instant it lands
-    const pulse = 0.5 + 0.5 * Math.sin(t * BEATS.pulseRate * TAU);
-
-    p.uni.uGrown.value = grown;
-    p.uni.uFront.value = 1 - grown;
-    p.uni.uFade.value = fade;
-    p.uni.uCharge.value = charge;
-    p.uni.uPulse.value = pulse;
-
-    const starOpen = easeOut(ramp(t, BEATS.starDelay, BEATS.starTime));
-    p.starUni.uSize.value = COLUMN.starSize * p.footprint * (0.2 + 0.8 * starOpen);
-    p.starUni.uFade.value = fade * starOpen;
-    p.starUni.uCharge.value = charge;
-    p.starUni.uPulse.value = pulse;
-
-    for (const [i, h] of p.halos.entries()) {
-      const open = ramp(t, BEATS.haloDelay + i * BEATS.haloStagger, BEATS.haloTime);
-      h.uni.uOpen.value = open;
-      h.uni.uFade.value = fade;
-      h.uni.uCharge.value = charge;
-      h.uni.uPulse.value = pulse;
-      // Leaned opposite ways and turning opposite ways, on the ring's own
-      // tilted axis — a spin about world-up would keep the lean fixed in
-      // screen space and the pair would stop reading as a gyroscope.
-      h.mesh.rotation.z = t * COLUMN.haloSpin * TAU * h.dir;
+    for (const h of p.halos) {
+      h.mesh.visible = true;
     }
   }
 
   update(dt: number): void {
     for (const p of this.pillars) {
-      if (!p.live) continue;
+      if (!p.live) {
+        continue;
+      }
       p.t += dt;
       if (p.t >= BEATS.life) {
         p.live = false;
         p.column.visible = false;
         p.star.visible = false;
-        for (const h of p.halos) h.mesh.visible = false;
+        for (const h of p.halos) {
+          h.mesh.visible = false;
+        }
         continue;
       }
-      this.sync(p);
+      syncPillar(p);
     }
   }
 
@@ -711,7 +762,9 @@ export class PillarPool {
       p.t = 0;
       p.column.visible = false;
       p.star.visible = false;
-      for (const h of p.halos) h.mesh.visible = false;
+      for (const h of p.halos) {
+        h.mesh.visible = false;
+      }
     }
   }
 
@@ -719,7 +772,9 @@ export class PillarPool {
     for (const p of this.pillars) {
       for (const m of [p.column, p.star, p.halos[0].mesh, p.halos[1].mesh]) {
         m.removeFromParent();
-        if (m.material instanceof THREE.Material) m.material.dispose();
+        if (m.material instanceof THREE.Material) {
+          m.material.dispose();
+        }
       }
     }
     this.pillars.length = 0;

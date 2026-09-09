@@ -7,20 +7,36 @@ import type { Fx } from "./fx";
 
 export type ToastKind = "leader" | "delivery" | "streak" | "sudden" | "matchend" | "notice";
 const TOAST_STYLE = {
-  leader: { priority: 2, life: 3600 },
-  delivery: { priority: 1, life: 2400 },
-  streak: { priority: 0, life: 2400 },
-  sudden: { priority: 3, life: 3600 },
-  matchend: { priority: 3, life: 2400 },
-  notice: { priority: 0, life: 2400 },
+  delivery: { life: 2400, priority: 1 },
+  leader: { life: 3600, priority: 2 },
+  matchend: { life: 2400, priority: 3 },
+  notice: { life: 2400, priority: 0 },
+  streak: { life: 2400, priority: 0 },
+  sudden: { life: 3600, priority: 3 },
 } satisfies Record<ToastKind, { priority: number; life: number }>;
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
 const TOAST_MAX_AGE = 6000;
 const FEED_ROW_LIFE = 5000;
-type Toast = { text: string; kind: ToastKind; receivedAt: number };
-type VisibleToast = { notice: Toast; el: HTMLElement; until: number };
-type FeedRow = { el: HTMLElement; until: number };
-type ConfettiStage = { at: number; x: number; y: number; color: number };
+interface Toast {
+  text: string;
+  kind: ToastKind;
+  receivedAt: number;
+}
+interface VisibleToast {
+  notice: Toast;
+  el: HTMLElement;
+  until: number;
+}
+interface FeedRow {
+  el: HTMLElement;
+  until: number;
+}
+interface ConfettiStage {
+  at: number;
+  x: number;
+  y: number;
+  color: number;
+}
 
 /** Network notification kinds remain strings. Unknown kinds get neutral styling,
  * never inferred objective priority from their human-readable text. */
@@ -30,10 +46,12 @@ function toastKind(kind: string): ToastKind {
     case "delivery":
     case "streak":
     case "sudden":
-    case "matchend":
+    case "matchend": {
       return kind;
-    default:
+    }
+    default: {
       return "notice";
+    }
   }
 }
 
@@ -41,7 +59,9 @@ const feedCap = (): number => (window.innerWidth < 720 ? 3 : 5);
 
 /** Kill-feed champ sigil (heroes only — creeps/environment get no mark). */
 function feedSigil(u: Unit | undefined): HTMLImageElement | null {
-  if (!u || u.kind !== "hero" || !u.champId) return null;
+  if (!u || u.kind !== "hero" || !u.champId) {
+    return null;
+  }
   const img = document.createElement("img");
   img.className = "ba-ks";
   img.src = champSigil(u.champId);
@@ -76,9 +96,13 @@ export class HudNotices {
 
   /** Local presentation pause is independent of the host's live world clock. */
   setPaused(paused: boolean): void {
-    if (paused === this.paused) return;
+    if (paused === this.paused) {
+      return;
+    }
     this.paused = paused;
-    if (paused) this.hold();
+    if (paused) {
+      this.hold();
+    }
   }
 
   setHidden(hidden: boolean): void {
@@ -99,8 +123,12 @@ export class HudNotices {
   }
 
   clear(): void {
-    for (const row of this.feedRows) row.el.remove();
-    for (const toast of this.visibleToasts) toast.el.remove();
+    for (const row of this.feedRows) {
+      row.el.remove();
+    }
+    for (const toast of this.visibleToasts) {
+      toast.el.remove();
+    }
     this.feedRows = [];
     this.visibleToasts = [];
     this.pendingToasts = [];
@@ -115,13 +143,15 @@ export class HudNotices {
   /** Two visible notices + three plain pending records. Priority displaces
    * lower-priority decoration; equal priority stays FIFO and expires promptly. */
   queue(text: string, kind: ToastKind): void {
-    if (this.blocked) return;
-    const notice: Toast = { text, kind, receivedAt: this.now };
+    if (this.blocked) {
+      return;
+    }
+    const notice: Toast = { kind, receivedAt: this.now, text };
     if (this.visibleToasts.length < 2) {
       this.present(notice);
       return;
     }
-    const priority = TOAST_STYLE[notice.kind].priority;
+    const { priority } = TOAST_STYLE[notice.kind];
     const lowest = Math.min(...this.visibleToasts.map((t) => TOAST_STYLE[t.notice.kind].priority));
     if (priority > lowest) {
       const index = this.visibleToasts.findIndex(
@@ -132,10 +162,14 @@ export class HudNotices {
       this.present(notice);
       return;
     }
-    if (this.pendingToasts.some((p) => p.kind === notice.kind && p.text === notice.text)) return;
+    if (this.pendingToasts.some((p) => p.kind === notice.kind && p.text === notice.text)) {
+      return;
+    }
     if (this.pendingToasts.length >= 3) {
       const lowest = Math.min(...this.pendingToasts.map((p) => TOAST_STYLE[p.kind].priority));
-      if (priority < lowest) return;
+      if (priority < lowest) {
+        return;
+      }
       const index = this.pendingToasts.findIndex((p) => TOAST_STYLE[p.kind].priority === lowest);
       this.pendingToasts.splice(index, 1);
     }
@@ -144,24 +178,26 @@ export class HudNotices {
 
   private present(notice: Toast): void {
     const el = document.createElement("div");
-    el.className = "ba-toast " + notice.kind;
+    el.className = `ba-toast ${notice.kind}`;
     el.textContent = notice.text;
-    this.toastEl.appendChild(el);
+    this.toastEl.append(el);
     this.visibleToasts.push({
-      notice,
       el,
+      notice,
       until: this.now + TOAST_STYLE[notice.kind].life,
     });
   }
 
   /** Three staggered fountains on the winner; nothing under reduced motion. */
   celebrate(x: number, y: number): void {
-    if (this.blocked || REDUCED_MOTION.matches) return;
-    this.confetti = [0xffd24a, 0x6bff8e, 0x9fd0ff].map((color, i) => ({
+    if (this.blocked || REDUCED_MOTION.matches) {
+      return;
+    }
+    this.confetti = [0xff_d2_4a, 0x6b_ff_8e, 0x9f_d0_ff].map((color, i) => ({
       at: this.now + i * 200,
+      color,
       x,
       y,
-      color,
     }));
   }
 
@@ -170,16 +206,22 @@ export class HudNotices {
       this.dropIncoming();
       return;
     }
-    if (Number.isFinite(frameDt)) this.now += Math.max(0, frameDt) * 1000;
-    const now = this.now;
+    if (Number.isFinite(frameDt)) {
+      this.now += Math.max(0, frameDt) * 1000;
+    }
+    const { now } = this;
     const cap = feedCap();
     this.feedRows = this.feedRows.filter((row, i) => {
-      if (row.until > now && i >= this.feedRows.length - cap) return true;
+      if (row.until > now && i >= this.feedRows.length - cap) {
+        return true;
+      }
       row.el.remove();
       return false;
     });
     this.visibleToasts = this.visibleToasts.filter((toast) => {
-      if (toast.until > now && now - toast.notice.receivedAt < TOAST_MAX_AGE) return true;
+      if (toast.until > now && now - toast.notice.receivedAt < TOAST_MAX_AGE) {
+        return true;
+      }
       toast.el.remove();
       return false;
     });
@@ -188,13 +230,21 @@ export class HudNotices {
       const highest = Math.max(...this.pendingToasts.map((p) => TOAST_STYLE[p.kind].priority));
       const index = this.pendingToasts.findIndex((p) => TOAST_STYLE[p.kind].priority === highest);
       const next = this.pendingToasts.splice(index, 1)[0];
-      if (next) this.present(next);
+      if (next) {
+        this.present(next);
+      }
     }
-    if (REDUCED_MOTION.matches) this.confetti = [];
+    if (REDUCED_MOTION.matches) {
+      this.confetti = [];
+    }
     this.confetti = this.confetti.filter((stage) => {
-      if (stage.at > now) return true;
+      if (stage.at > now) {
+        return true;
+      }
       // A delayed frame must not collapse every missed fountain into one burst.
-      if (now - stage.at < 200) this.fx.fountain(stage.x, stage.y, 16, stage.color);
+      if (now - stage.at < 200) {
+        this.fx.fountain(stage.x, stage.y, 16, stage.color);
+      }
       return false;
     });
   }
@@ -211,7 +261,7 @@ export class HudNotices {
     this.fx.feed.length = 0;
     for (const k of incoming) {
       const row = document.createElement("div");
-      row.className = "ba-kill" + (k.leader ? " leader" : "");
+      row.className = `ba-kill${k.leader ? " leader" : ""}`;
       const ku = w.units.get(k.killer);
       const weapon = document.createElement("img");
       weapon.className = "ba-kw";
@@ -223,13 +273,18 @@ export class HudNotices {
         weapon,
         feedSigil(w.units.get(k.victim)),
         feedName("span", k.victimName),
-      ])
+      ]) {
         if (part) row.append(part);
-      this.feedEl.appendChild(row);
+      }
+      this.feedEl.append(row);
       this.feedRows.push({ el: row, until: this.now + FEED_ROW_LIFE });
-      while (this.feedRows.length > cap) this.feedRows.shift()?.el.remove();
+      while (this.feedRows.length > cap) {
+        this.feedRows.shift()?.el.remove();
+      }
     }
-    for (const notice of this.fx.toasts) this.queue(notice.text, toastKind(notice.kind));
+    for (const notice of this.fx.toasts) {
+      this.queue(notice.text, toastKind(notice.kind));
+    }
     this.fx.toasts.length = 0;
   }
 }

@@ -41,38 +41,57 @@ import { EASE_OUT, SHAKE_KEYFRAMES, SHAKE_TRANSITION } from "@repo/ui/lib/motion
 //
 // Animation via motion/react; honours prefers-reduced-motion.
 
-const DROP_S = 0.24; // wrong code: each character's fall-out
-const STAGGER_S = 0.045; // per-character clear offset
-const FILL_S = 0.055; // per-cell success cascade offset
-const VERIFY_DELAY_MS = 320; // beat so the last character is seen landing
-const CHAR_IN_S = 0.14; // a new character rising into its cell
+// wrong code: each character's fall-out
+const DROP_S = 0.24;
+// per-character clear offset
+const STAGGER_S = 0.045;
+// per-cell success cascade offset
+const FILL_S = 0.055;
+// beat so the last character is seen landing
+const VERIFY_DELAY_MS = 320;
+// a new character rising into its cell
+const CHAR_IN_S = 0.14;
 // Where the character starts, in px below its resting place. Measured, not
 // guessed: at the cell's 3rem height and 1.125rem type, less than ~16px
 // leaves the glyph floating inside the cell and the rise reads as a twitch.
 const CHAR_IN_Y = 16;
-const BOUNCE_S = 0.65; // success: the row's nod
+// success: the row's nod
+const BOUNCE_S = 0.65;
 
 const OTP_VARS: React.CSSProperties & Record<`--${string}`, string> = {
-  "--otp-cell-w": "2.5rem",
   "--otp-cell-h": "3rem",
+  "--otp-cell-w": "2.5rem",
   "--otp-gap": "0.5rem",
 };
 
 const SANITIZE = {
-  numeric: /[^0-9]/g,
-  alphanumeric: /[^a-zA-Z0-9]/g,
+  alphanumeric: /[^a-zA-Z0-9]/gu,
+  numeric: /[^0-9]/gu,
 } satisfies Record<"numeric" | "alphanumeric", RegExp>;
 
 type VerifyState = "idle" | "success" | "error";
 
+const LIVE_MESSAGE: Record<VerifyState, string> = {
+  error: "Wrong code, the field will clear. Try again.",
+  idle: "",
+  success: "Code verified.",
+};
+
+const idleTone = (selected: boolean, active: boolean) => {
+  if (selected) {
+    return "selected";
+  }
+  return active ? "active" : "idle";
+};
+
 // Ring + invalid values mirror `inputVariants` (input.tsx) so the cells stay
 // in step with the system focus/error treatment.
 const CELL_TONE = {
-  idle: "border-input bg-input/40 text-foreground",
   active: "border-ring bg-input/40 text-foreground ring-3 ring-ring/50",
+  error: "border-destructive/50 bg-input/40 text-destructive",
+  idle: "border-input bg-input/40 text-foreground",
   // a selection RANGE maps to a cell range — one input
   selected: "border-input bg-primary/25 text-foreground",
-  error: "border-destructive/50 bg-input/40 text-destructive",
   success: "border-success/60 bg-success/10 text-success",
 } satisfies Record<"idle" | "active" | "selected" | VerifyState, string>;
 
@@ -88,16 +107,16 @@ const CELL_TONE = {
 const glyphMotion = (state: VerifyState, index: number) =>
   state === "error"
     ? {
-        animate: { y: "0.5rem", opacity: 0, filter: "blur(2px)" },
+        animate: { filter: "blur(2px)", opacity: 0, y: "0.5rem" },
         transition: {
+          delay: SHAKE_TRANSITION.duration + index * STAGGER_S,
           duration: DROP_S,
           ease: "easeOut" as const,
-          delay: SHAKE_TRANSITION.duration + index * STAGGER_S,
         },
       }
     : {
-        initial: { y: CHAR_IN_Y, opacity: 0.2 },
-        animate: { y: 0, opacity: 1, filter: "blur(0px)" },
+        animate: { filter: "blur(0px)", opacity: 1, y: 0 },
+        initial: { opacity: 0.2, y: CHAR_IN_Y },
         transition: { duration: CHAR_IN_S, ease: EASE_OUT },
       };
 
@@ -106,17 +125,20 @@ const glyphMotion = (state: VerifyState, index: number) =>
  * agreeing with you — rather than a per-cell pop, which fought the green
  * tint already cascading left to right underneath it.
  */
-const rowMotion = (state: VerifyState) =>
-  state === "error"
-    ? { animate: { ...SHAKE_KEYFRAMES, y: 0 }, transition: SHAKE_TRANSITION }
-    : state === "success"
-      ? {
-          animate: { x: 0, y: [0, -10, 3, -4, 0] },
-          transition: { duration: BOUNCE_S, times: [0, 0.25, 0.5, 0.72, 1], ease: EASE_OUT },
-        }
-      : { animate: { x: 0, y: 0 }, transition: SHAKE_TRANSITION };
+const rowMotion = (state: VerifyState) => {
+  if (state === "error") {
+    return { animate: { ...SHAKE_KEYFRAMES, y: 0 }, transition: SHAKE_TRANSITION };
+  }
+  if (state === "success") {
+    return {
+      animate: { x: 0, y: [0, -10, 3, -4, 0] },
+      transition: { duration: BOUNCE_S, ease: EASE_OUT, times: [0, 0.25, 0.5, 0.72, 1] },
+    };
+  }
+  return { animate: { x: 0, y: 0 }, transition: SHAKE_TRANSITION };
+};
 
-function OTPInput({
+const OTPInput = ({
   length,
   defaultValue = "",
   validationType = "numeric",
@@ -156,14 +178,14 @@ function OTPInput({
   /** Split the row in half, like codes read aloud. */
   group?: boolean;
   className?: string;
-}) {
+}) => {
   const sanitize = (raw: string) => {
     const stripped = raw.replace(SANITIZE[validationType], "").slice(0, length);
     return normalizeValue ? normalizeValue(stripped) : stripped;
   };
 
   const [value, setValue] = useState(() => sanitize(defaultValue));
-  const [sel, setSel] = useState({ start: 0, end: 0 });
+  const [sel, setSel] = useState({ end: 0, start: 0 });
   const [focused, setFocused] = useState(false);
   const [state, setState] = useState<VerifyState>("idle");
 
@@ -175,30 +197,32 @@ function OTPInput({
   const caretCell = Math.min(sel.start, length - 1);
   const groupAt = Math.ceil(length / 2);
 
-  function syncSel() {
+  const syncSel = () => {
     const el = inputRef.current;
-    if (!el) return;
+    if (!el) {
+      return;
+    }
     const start = el.selectionStart ?? 0;
     const end = el.selectionEnd ?? 0;
     // Return the previous object when nothing moved so React can bail out.
-    setSel((prev) => (prev.start === start && prev.end === end ? prev : { start, end }));
-  }
+    setSel((prev) => (prev.start === start && prev.end === end ? prev : { end, start }));
+  };
 
-  function handleChange(event: React.ChangeEvent<HTMLInputElement>) {
+  const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     // One sanitize pass covers typing, paste and autofill: "DEV 123",
     // "dev-123" and "DEV123" all become the same characters.
     setValue(sanitize(event.target.value));
-  }
+  };
 
   // Native click mapping is the one thing that's wrong for OTP (you can't
   // edit the middle of a code) — snap pointer focus to the end instead.
-  function handleMouseDown(event: React.MouseEvent) {
+  const handleMouseDown = (event: React.MouseEvent) => {
     event.preventDefault();
     const el = inputRef.current;
     el?.focus({ preventScroll: true });
     el?.setSelectionRange(value.length, value.length);
     syncSel();
-  }
+  };
 
   const runVerify = useEffectEvent(async (candidate: string) => {
     try {
@@ -225,7 +249,7 @@ function OTPInput({
           el.setSelectionRange(0, 0);
           syncSel();
         } else {
-          setSel({ start: 0, end: 0 });
+          setSel({ end: 0, start: 0 });
         }
       }, clearDelay);
     } else {
@@ -243,11 +267,15 @@ function OTPInput({
   // landing before the row answers; the check itself may be async. Runs on
   // mount too, which is what auto-submits a prefilled `defaultValue`.
   useEffect(() => {
-    if (state !== "idle" || value.length !== length) return undefined;
+    if (state !== "idle" || value.length !== length) {
+      return;
+    }
     let cancelled = false;
     const timer = window.setTimeout(async () => {
       const result = await runVerify(value);
-      if (!cancelled) settle(result, value);
+      if (!cancelled) {
+        settle(result, value);
+      }
     }, VERIFY_DELAY_MS);
     return () => {
       cancelled = true;
@@ -277,8 +305,7 @@ function OTPInput({
             const active = focused && state === "idle" && collapsed && caretCell === index;
             const selected =
               focused && state === "idle" && !collapsed && index >= sel.start && index < sel.end;
-            const tone =
-              state !== "idle" ? state : selected ? "selected" : active ? "active" : "idle";
+            const tone = state === "idle" ? idleTone(selected, active) : state;
             return (
               <div
                 key={index}
@@ -349,15 +376,11 @@ function OTPInput({
         </motion.div>
 
         <span className="sr-only" aria-live="polite">
-          {state === "success"
-            ? "Code verified."
-            : state === "error"
-              ? "Wrong code, the field will clear. Try again."
-              : ""}
+          {LIVE_MESSAGE[state]}
         </span>
       </div>
     </MotionConfig>
   );
-}
+};
 
 export { OTPInput };

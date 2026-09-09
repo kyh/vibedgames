@@ -6,7 +6,8 @@ import { basename, join } from "node:path";
 import { test } from "node:test";
 
 import { getAll, getFlag, getString, parseArgs } from "../src/args.js";
-import { isJsonObject, type JsonValue } from "../src/asset/json.js";
+import { isJsonObject } from "../src/asset/json.js";
+import type { JsonValue } from "../src/asset/json.js";
 import { LuaParseError, parseLua } from "../src/asset/lua.js";
 import { checkManifest, exportManifest } from "../src/asset/manifest.js";
 import { parseFrame, prettyPath, walkFiles } from "../src/asset/paths.js";
@@ -38,12 +39,16 @@ function workspace(): string {
 
 /** Narrow a parsed manifest value to a table, failing the test loudly otherwise. */
 function asTable(value: JsonValue | undefined) {
-  if (!isJsonObject(value)) throw new Error(`expected a table, got ${JSON.stringify(value)}`);
+  if (!isJsonObject(value)) {
+    throw new Error(`expected a table, got ${JSON.stringify(value)}`);
+  }
   return value;
 }
 
 function asList(value: JsonValue | undefined) {
-  if (!Array.isArray(value)) throw new Error(`expected a list, got ${JSON.stringify(value)}`);
+  if (!Array.isArray(value)) {
+    throw new Error(`expected a list, got ${JSON.stringify(value)}`);
+  }
   return value;
 }
 
@@ -56,12 +61,14 @@ function buildSheet(
   cols: number,
   rows: number,
   frame: number,
-  skip: Set<string> = new Set(),
+  skip = new Set<string>(),
 ): void {
   const sheet = Bitmap.create(cols * frame, rows * frame);
   for (let r = 0; r < rows; r += 1) {
     for (let c = 0; c < cols; c += 1) {
-      if (skip.has(`${c},${r}`)) continue;
+      if (skip.has(`${c},${r}`)) {
+        continue;
+      }
       const offset = (c + r) % 5;
       const size = frame / 2;
       const x0 = c * frame + (frame - size) / 2;
@@ -153,8 +160,8 @@ test("sheet-qc does not mistake a solid rectangular sprite for a drawn grid", ()
 });
 
 test("parseFrame accepts WxH and rejects anything else", () => {
-  assert.deepEqual(parseFrame("32x32"), { width: 32, height: 32 });
-  assert.deepEqual(parseFrame(" 256 X 128 "), { width: 256, height: 128 });
+  assert.deepEqual(parseFrame("32x32"), { height: 32, width: 32 });
+  assert.deepEqual(parseFrame(" 256 X 128 "), { height: 128, width: 256 });
   assert.throws(() => parseFrame("32"), /WxH/);
   assert.throws(() => parseFrame("0x8"), /positive/);
 });
@@ -164,7 +171,7 @@ test("sheet-probe reports the grid and which cells hold art", () => {
   const sheet = join(dir, "hero.png");
   buildSheet(sheet, 4, 2, 32, new Set(["3,1", "0,1"]));
 
-  const result = probeSheet(sheet, { width: 32, height: 32 }, true);
+  const result = probeSheet(sheet, { height: 32, width: 32 }, true);
   assert.deepEqual(result.grid, { columns: 4, rows: 2 });
   assert.equal(result.non_empty.length, 6);
   assert.equal(result.empty_count, 2);
@@ -181,7 +188,7 @@ test("sheet-probe refuses a frame size that doesn't divide the sheet", () => {
   const dir = workspace();
   const sheet = join(dir, "hero.png");
   buildSheet(sheet, 4, 2, 32);
-  assert.throws(() => probeSheet(sheet, { width: 30, height: 32 }, false), /not divisible/);
+  assert.throws(() => probeSheet(sheet, { height: 32, width: 30 }, false), /not divisible/);
 });
 
 test("sprite-baseline measures per-frame drift and normalises it away", () => {
@@ -190,7 +197,7 @@ test("sprite-baseline measures per-frame drift and normalises it away", () => {
   const fixed = join(dir, "fixed.png");
   buildSheet(sheet, 4, 2, 32, new Set(["3,1", "0,1"]));
 
-  const before = analyzeBaseline(sheet, { width: 32, height: 32 }, 30, 16, fixed);
+  const before = analyzeBaseline(sheet, { height: 32, width: 32 }, 30, 16, fixed);
   // Sprites were authored 0-4px apart vertically, so the audit must see a range.
   assert.notDeepEqual(before.visibleBottomYRange, null);
   assert.ok(
@@ -200,7 +207,7 @@ test("sprite-baseline measures per-frame drift and normalises it away", () => {
   assert.equal(before.frames.filter((f) => f.empty).length, 2);
 
   // Re-auditing the corrected sheet must show every sprite on one baseline.
-  const after = analyzeBaseline(fixed, { width: 32, height: 32 }, 30, 16, null);
+  const after = analyzeBaseline(fixed, { height: 32, width: 32 }, 30, 16, null);
   assert.deepEqual(after.visibleBottomYRange, [30, 30], "all frames share the target baseline");
   assert.deepEqual(after.shiftYRange, [0, 0], "nothing left to correct");
 });
@@ -220,7 +227,7 @@ test("sprite-baseline rounds half-way shifts the way Python does", () => {
   const dir = workspace();
   const sheet = join(dir, "hero.png");
   buildSheet(sheet, 1, 1, 32);
-  const report = analyzeBaseline(sheet, { width: 32, height: 32 }, 30, 16, null);
+  const report = analyzeBaseline(sheet, { height: 32, width: 32 }, 30, 16, null);
   assert.equal(report.frames[0]!.visibleCenterX, 15.5);
   assert.deepEqual(report.frames[0]!.shiftToTarget![0], 0, "half-way shift rounds to even");
 });
@@ -444,7 +451,9 @@ test("-h prints the script's own docblock and exits 0", () => {
       `process.stdout.write("RAN BODY");\n`,
   );
   for (const flag of ["-h", "--help"]) {
-    const run = spawnSync(process.execPath, ["--import", "tsx", entry, flag], { encoding: "utf8" });
+    const run = spawnSync(process.execPath, ["--import", "tsx", entry, flag], {
+      encoding: "utf-8",
+    });
     assert.equal(run.status, 0, `${flag} should exit 0: ${run.stderr}`);
     assert.match(run.stdout, /helped — a one-line summary\./);
     assert.match(run.stdout, /Usage:/);
@@ -486,11 +495,15 @@ test("every skill script declares the boolean flags it reads", () => {
 
   const offenders: string[] = [];
   for (const path of scripts) {
-    const source = readFileSync(path, "utf8");
-    if (!source.includes('from "./_lib/asset-tools.mjs"')) continue;
+    const source = readFileSync(path, "utf-8");
+    if (!source.includes('from "./_lib/asset-tools.mjs"')) {
+      continue;
+    }
 
     const read = [...source.matchAll(/getFlag\(\s*args\s*,\s*"([^"]+)"/g)].map((m) => m[1]!);
-    if (read.length === 0) continue;
+    if (read.length === 0) {
+      continue;
+    }
 
     const declared = new Set(
       [...(/booleans:\s*\[([^\]]*)\]/.exec(source)?.[1] ?? "").matchAll(/"([^"]+)"/g)].map(
@@ -498,7 +511,9 @@ test("every skill script declares the boolean flags it reads", () => {
       ),
     );
     const missing = [...new Set(read)].filter((name) => !declared.has(name));
-    if (missing.length > 0) offenders.push(`${basename(path)}: ${missing.join(", ")}`);
+    if (missing.length > 0) {
+      offenders.push(`${basename(path)}: ${missing.join(", ")}`);
+    }
   }
   assert.deepEqual(offenders, []);
 });
@@ -519,8 +534,10 @@ test("every flag a script advertises is declared or takes a value", () => {
 
   const offenders: string[] = [];
   for (const path of scripts) {
-    const source = readFileSync(path, "utf8");
-    if (!source.includes('from "./_lib/asset-tools.mjs"')) continue;
+    const source = readFileSync(path, "utf-8");
+    if (!source.includes('from "./_lib/asset-tools.mjs"')) {
+      continue;
+    }
 
     const declared = new Set(
       [...(/booleans:\s*\[([^\]]*)\]/.exec(source)?.[1] ?? "").matchAll(/"([^"]+)"/g)].map(
@@ -544,7 +561,9 @@ test("every flag a script advertises is declared or takes a value", () => {
     const gap = [...advertised].filter(
       (name) => !declared.has(name) && !valued.has(name) && !metavar.has(name),
     );
-    if (gap.length > 0) offenders.push(`${basename(path)}: ${gap.sort().join(", ")}`);
+    if (gap.length > 0) {
+      offenders.push(`${basename(path)}: ${gap.sort().join(", ")}`);
+    }
   }
   assert.deepEqual(offenders, []);
 });
@@ -552,20 +571,20 @@ test("every flag a script advertises is declared or takes a value", () => {
 // ---- zip ------------------------------------------------------------------
 
 test("filenames are flagged UTF-8 in both headers", () => {
-  const zip = createZip([{ name: "assets/é.png", data: new Uint8Array([1, 2, 3]) }]);
+  const zip = createZip([{ data: new Uint8Array([1, 2, 3]), name: "assets/é.png" }]);
 
   // Local header: signature at 0, general-purpose flags at offset 6.
-  assert.equal(zip.readUInt32LE(0), 0x04034b50);
-  assert.equal(zip.readUInt16LE(6) & 0x0800, 0x0800, "local header missing the UTF-8 bit");
+  assert.equal(zip.readUInt32LE(0), 0x04_03_4b_50);
+  assert.equal(zip.readUInt16LE(6) & 0x08_00, 0x08_00, "local header missing the UTF-8 bit");
 
   // Central directory: find its signature, flags at offset 8 from there.
   const central = zip.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
   assert.ok(central > 0, "no central directory");
-  assert.equal(zip.readUInt16LE(central + 8) & 0x0800, 0x0800, "central header missing the bit");
+  assert.equal(zip.readUInt16LE(central + 8) & 0x08_00, 0x08_00, "central header missing the bit");
 
   // And the name really is UTF-8, which is what the bit is promising.
   const nameLength = zip.readUInt16LE(26);
-  assert.equal(zip.subarray(30, 30 + nameLength).toString("utf8"), "assets/é.png");
+  assert.equal(zip.subarray(30, 30 + nameLength).toString("utf-8"), "assets/é.png");
 });
 
 // ---- size contract --------------------------------------------------------
@@ -620,13 +639,13 @@ test("every skill script loads and reports a usage error, not a crash", (t) => {
   // Some bare commands inspect cwd. Keep this import/usage check independent
   // of unrelated files in the machine's shared temporary directory.
   const cwd = workspace();
-  t.after(() => rmSync(cwd, { recursive: true, force: true }));
+  t.after(() => rmSync(cwd, { force: true, recursive: true }));
 
   const offenders: string[] = [];
   for (const path of scripts) {
     const run = spawnSync(process.execPath, [path], {
-      encoding: "utf8",
       cwd,
+      encoding: "utf8",
       timeout: 30_000,
     });
     const output = `${run.stdout ?? ""}${run.stderr ?? ""}`;
@@ -658,7 +677,7 @@ test("an option outside the declared surface is rejected", () => {
       `process.stdout.write("parsed");\n`,
   );
   const run = (...argv: string[]) =>
-    spawnSync(process.execPath, ["--import", "tsx", entry, ...argv], { encoding: "utf8" });
+    spawnSync(process.execPath, ["--import", "tsx", entry, ...argv], { encoding: "utf-8" });
 
   const typo = run("--k-colours", "4");
   assert.equal(typo.status, 2, `a misspelled option must be a usage error: ${typo.stderr}`);
@@ -687,8 +706,8 @@ test("frameGeometry covers every row, and refuses a manifest it cannot read", ()
 
   const explicit = frameGeometry(sheet, sheetPath, 32, 32);
   assert.deepEqual(
-    { columns: explicit.columns, rows: explicit.rows, count: explicit.count },
-    { columns: 8, rows: 8, count: 64 },
+    { columns: explicit.columns, count: explicit.count, rows: explicit.rows },
+    { columns: 8, count: 64, rows: 8 },
     "an 8x8 sheet has 64 frames, not the first row's 8",
   );
 
@@ -696,7 +715,7 @@ test("frameGeometry covers every row, and refuses a manifest it cannot read", ()
   const strip = join(dir, "strip.png");
   buildSheet(strip, 4, 1, 16);
   const oneRow = frameGeometry(Bitmap.fromFile(strip), strip, 16, 16);
-  assert.deepEqual({ rows: oneRow.rows, count: oneRow.count }, { rows: 1, count: 4 });
+  assert.deepEqual({ count: oneRow.count, rows: oneRow.rows }, { count: 4, rows: 1 });
 
   // A sibling manifest missing or misdeclaring a field is an error, not NaN.
   const manifest = join(dir, "sheet.json");
@@ -705,12 +724,12 @@ test("frameGeometry covers every row, and refuses a manifest it cannot read", ()
     () => frameGeometry(sheet, sheetPath, null, null),
     /"frameCount" must be a positive/,
   );
-  writeFileSync(manifest, JSON.stringify({ frameCount: 4, frameWidth: 32, frameHeight: "32" }));
+  writeFileSync(manifest, JSON.stringify({ frameCount: 4, frameHeight: "32", frameWidth: 32 }));
   assert.throws(
     () => frameGeometry(sheet, sheetPath, null, null),
     /"frameHeight" must be a positive/,
   );
-  writeFileSync(manifest, JSON.stringify({ frameCount: 4, frameWidth: 32, frameHeight: 32 }));
+  writeFileSync(manifest, JSON.stringify({ frameCount: 4, frameHeight: 32, frameWidth: 32 }));
   assert.equal(frameGeometry(sheet, sheetPath, null, null).count, 4, "a good manifest still reads");
 });
 
@@ -730,7 +749,7 @@ test("integer options refuse a fractional value, float options keep it", () => {
       `process.stdout.write(String(getInt(args, "rows", 1)) + "/" + String(getNumber(args, "tolerance", 90)));\n`,
   );
   const run = (...argv: string[]) =>
-    spawnSync(process.execPath, ["--import", "tsx", entry, ...argv], { encoding: "utf8" });
+    spawnSync(process.execPath, ["--import", "tsx", entry, ...argv], { encoding: "utf-8" });
 
   const fractional = run("--rows", "3.7");
   assert.equal(fractional.status, 2, "a fractional row count is a usage error");
@@ -758,9 +777,11 @@ test("every skill script imports the library names it calls", () => {
 
   const offenders: string[] = [];
   for (const path of scripts) {
-    const source = readFileSync(path, "utf8");
+    const source = readFileSync(path, "utf-8");
     const importMatch = /import \{([^}]*)\} from "\.\/_lib\/asset-tools\.mjs";/.exec(source);
-    if (!importMatch) continue;
+    if (!importMatch) {
+      continue;
+    }
 
     const imported = new Set(
       importMatch[1]!
@@ -773,7 +794,9 @@ test("every skill script imports the library names it calls", () => {
       [...body.matchAll(/\b(get[A-Z]\w*|failUsage|fail|main|parseArgs)\s*\(/g)].map((m) => m[1]!),
     );
     const missing = [...called].filter((name) => !imported.has(name)).sort();
-    if (missing.length > 0) offenders.push(`${basename(path)}: ${missing.join(", ")}`);
+    if (missing.length > 0) {
+      offenders.push(`${basename(path)}: ${missing.join(", ")}`);
+    }
   }
   assert.deepEqual(offenders, []);
 });

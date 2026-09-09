@@ -30,7 +30,7 @@ import {
 } from "../shared/constants";
 
 /** Game intents a detected pose can drive (wired to GameScene). */
-export type PoseActions = {
+export interface PoseActions {
   /** Held screen-horizontal steer: -1 left, 0 none, +1 right. */
   steer(dir: -1 | 0 | 1): void;
   /** Clockwise rotate; returns whether it actually applied (for cooldown). */
@@ -43,7 +43,7 @@ export type PoseActions = {
   power(): void;
   /** Throw-hands-up during the collapse (scene ignores it otherwise). */
   catchCollapse(): void;
-};
+}
 
 const CALIB_FRAMES = 24;
 const ROTATE_SQUEEZE_FRACTION = 0.58;
@@ -186,7 +186,9 @@ export class PoseControls {
         shoulderWidth < ROTATE_SQUEEZE_FRACTION * this.baseShoulder &&
         now - this.lastRotateTime > ROTATE_COOLDOWN_MS
       ) {
-        if (this.actions.rotate()) this.lastRotateTime = now;
+        if (this.actions.rotate()) {
+          this.lastRotateTime = now;
+        }
       }
 
       // ---- HOLD (crossed wrists at chest) ------------------------------------
@@ -198,7 +200,9 @@ export class PoseControls {
         rightWrist.y > shoulderY &&
         rightWrist.y < hipY;
       const crossed = shoulderSign !== 0 && wristSign === -shoulderSign && wristsAtChest;
-      if (!crossed) this.holdArmed = true;
+      if (!crossed) {
+        this.holdArmed = true;
+      }
       if (this.holdArmed && crossed && now - this.lastHoldTime > HOLD_COOLDOWN_MS) {
         this.actions.hold();
         this.holdArmed = false;
@@ -212,7 +216,9 @@ export class PoseControls {
         Math.abs(leftWrist.y - shoulderY) < shoulderWidth * TPOSE_LEVEL_SLACK &&
         Math.abs(rightWrist.y - shoulderY) < shoulderWidth * TPOSE_LEVEL_SLACK;
       const tpose = wristSpread > shoulderWidth + 2 * out && wristsLevel;
-      if (!tpose) this.powerArmed = true;
+      if (!tpose) {
+        this.powerArmed = true;
+      }
       if (this.powerArmed && tpose && now - this.lastPowerTime > POWER_COOLDOWN_MS) {
         this.actions.power();
         this.powerArmed = false;
@@ -261,13 +267,13 @@ export class PoseControls {
     const ny = cw.y / H;
 
     // EMA centre: settles on the middle of the circling motion.
-    if (!this.hasCenter) {
+    if (this.hasCenter) {
+      this.centerX += (nx - this.centerX) * CIRCLE_CENTER_LERP;
+      this.centerY += (ny - this.centerY) * CIRCLE_CENTER_LERP;
+    } else {
       this.centerX = nx;
       this.centerY = ny;
       this.hasCenter = true;
-    } else {
-      this.centerX += (nx - this.centerX) * CIRCLE_CENTER_LERP;
-      this.centerY += (ny - this.centerY) * CIRCLE_CENTER_LERP;
     }
 
     const radius = Math.hypot(nx - this.centerX, ny - this.centerY);
@@ -281,8 +287,12 @@ export class PoseControls {
     const ang = Math.atan2(ny - this.centerY, nx - this.centerX);
     if (this.hasCircleAngle) {
       let d = ang - this.circleAngle;
-      while (d > Math.PI) d -= 2 * Math.PI;
-      while (d < -Math.PI) d += 2 * Math.PI;
+      while (d > Math.PI) {
+        d -= 2 * Math.PI;
+      }
+      while (d < -Math.PI) {
+        d += 2 * Math.PI;
+      }
       this.circleAccum += d;
     }
     this.circleAngle = ang;

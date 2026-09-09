@@ -9,25 +9,31 @@ import {
   SPAWNER_TELEGRAPH_MS,
   WARDEN_TELEGRAPH_MS,
   WASP_TELEGRAPH_MS,
-  type EnemyState,
 } from "../shared/constants";
+import type { EnemyState } from "../shared/constants";
 
 /** Read once per new warning deadline: the boss phase at warning start owns
  * the duration, even if HP crosses a phase threshold mid-charge. */
 export function enemyChargeDuration(enemy: EnemyState): number {
   switch (enemy.kind) {
-    case "drone":
+    case "drone": {
       return DRONE_TELEGRAPH_MS;
-    case "wasp":
+    }
+    case "wasp": {
       return WASP_TELEGRAPH_MS;
-    case "lancer":
+    }
+    case "lancer": {
       return LANCER_WINDUP_MS;
-    case "warden":
+    }
+    case "warden": {
       return WARDEN_TELEGRAPH_MS;
-    case "sniper":
+    }
+    case "sniper": {
       return SNIPER_AIM_MS;
-    case "spawner":
+    }
+    case "spawner": {
       return SPAWNER_TELEGRAPH_MS;
+    }
     case "dreadnought": {
       const phase = bossPhase(enemy.hp, enemy.maxHp);
       return phase === 2
@@ -36,8 +42,9 @@ export function enemyChargeDuration(enemy: EnemyState): number {
           ? BOSS_P3_TELEGRAPH_MS
           : BOSS_P1_TELEGRAPH_MS;
     }
-    case "splitter":
+    case "splitter": {
       return 0;
+    }
   }
 }
 

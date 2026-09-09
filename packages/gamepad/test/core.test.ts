@@ -11,14 +11,14 @@ import { VirtualGamepad } from "../src/core.js";
 const CLUSTER_LEFT = 480;
 const CLUSTER_TOP = 170;
 
-function pad(region?: (p: { x: number; y: number }) => boolean): VirtualGamepad {
+const pad = (region?: (p: { x: number; y: number }) => boolean): VirtualGamepad => {
   const gamepad = new VirtualGamepad({
-    stick: { radius: 40, deadZone: 8, knobRadius: 14, region },
-    buttons: [{ id: "jump", radius: 21, position: () => ({ x: 556, y: 236 }) }],
+    buttons: [{ id: "jump", position: () => ({ x: 556, y: 236 }), radius: 21 }],
+    stick: { deadZone: 8, knobRadius: 14, radius: 40, region },
   });
   gamepad.setViewport(586, 270);
   return gamepad;
-}
+};
 
 test("without a region, any free touch anchors the stick", () => {
   const gamepad = pad();
@@ -58,5 +58,5 @@ test("a region never blocks a fixed button inside it", () => {
 
 test("stick geometry stays a plain tuning record", () => {
   const geom = pad(() => true).getStickGeometry();
-  assert.deepEqual(geom, { radius: 40, deadZone: 8, knobRadius: 14 });
+  assert.deepEqual(geom, { deadZone: 8, knobRadius: 14, radius: 40 });
 });

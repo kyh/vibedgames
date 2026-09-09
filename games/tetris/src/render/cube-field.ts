@@ -14,24 +14,22 @@ import {
   LineBasicMaterial,
   LineSegments,
   Mesh,
-  type Scene,
-  type ShaderMaterial,
   Vector3,
 } from "three";
+import type { Scene, ShaderMaterial } from "three";
 
-import type { Board } from "../game/board";
-import type { Cell } from "../game/board";
+import type { Board, Cell } from "../game/board";
 import { GHOST_COLOR, PIECES } from "../shared/constants";
 import { frameLerp } from "../shared/math";
 import { makeActiveMaterial, makeCubeMaterial } from "./cube-material";
 
-type LockedCube = {
+interface LockedCube {
   mesh: Mesh;
   material: ShaderMaterial;
   target: Vector3;
   scale: number;
   scaleTarget: number;
-};
+}
 
 const CUBE = 0.92;
 const POS_LERP = 0.32; // per-60fps-frame
@@ -53,7 +51,7 @@ export class CubeField {
     scene.add(this.group);
 
     for (let i = 0; i < 4; i++) {
-      const material = makeActiveMaterial(0xffffff);
+      const material = makeActiveMaterial(0xff_ff_ff);
       const mesh = new Mesh(this.boxGeo, material);
       mesh.visible = false;
       this.group.add(mesh);
@@ -68,7 +66,7 @@ export class CubeField {
     for (let i = 0; i < 4; i++) {
       const line = new LineSegments(
         ghostGeo,
-        new LineBasicMaterial({ color: GHOST_COLOR, transparent: true, opacity: 0.5 }),
+        new LineBasicMaterial({ color: GHOST_COLOR, opacity: 0.5, transparent: true }),
       );
       line.visible = false;
       this.group.add(line);
@@ -78,7 +76,9 @@ export class CubeField {
 
   /** Diff the board's locked cubes against the mesh map. */
   syncLocked(board: Board): void {
-    if (this.frozen) return;
+    if (this.frozen) {
+      return;
+    }
     const seen = new Set<number>();
     board.forEachCube((x, y, z, colorIndex, id) => {
       seen.add(id);
@@ -88,38 +88,44 @@ export class CubeField {
         existing.scaleTarget = 1;
         return;
       }
-      const colorHex = PIECES[colorIndex - 1]?.color ?? 0xffffff;
+      const colorHex = PIECES[colorIndex - 1]?.color ?? 0xff_ff_ff;
       const material = makeCubeMaterial(colorHex);
       const mesh = new Mesh(this.boxGeo, material);
       mesh.position.set(x, y, z);
       mesh.scale.setScalar(0.01); // pop in
       this.group.add(mesh);
       this.locked.set(id, {
-        mesh,
         material,
-        target: new Vector3(x, y, z),
+        mesh,
         scale: 0.01,
         scaleTarget: 1,
+        target: new Vector3(x, y, z),
       });
     });
     // Cubes no longer present begin shrinking out.
     for (const [id, cube] of this.locked) {
-      if (!seen.has(id)) cube.scaleTarget = 0;
+      if (!seen.has(id)) {
+        cube.scaleTarget = 0;
+      }
     }
   }
 
   /** Position the active slab. `snap` (on spawn) sets positions immediately. */
   setActive(cells: Cell[], pieceIndex: number, snap: boolean): void {
     if (cells.length === 0 || pieceIndex < 0) {
-      for (const m of this.activeMeshes) m.visible = false;
+      for (const m of this.activeMeshes) {
+        m.visible = false;
+      }
       this.activePieceIndex = -1;
       return;
     }
     if (pieceIndex !== this.activePieceIndex) {
-      const colorHex = PIECES[pieceIndex]?.color ?? 0xffffff;
+      const colorHex = PIECES[pieceIndex]?.color ?? 0xff_ff_ff;
       for (const mat of this.activeMaterials) {
         const u = mat.uniforms.uColor;
-        if (u) u.value.set(colorHex);
+        if (u) {
+          u.value.set(colorHex);
+        }
       }
       this.activePieceIndex = pieceIndex;
     }
@@ -127,14 +133,18 @@ export class CubeField {
       const mesh = this.activeMeshes[i];
       const target = this.activeTargets[i];
       const cell = cells[i];
-      if (!mesh || !target) continue;
+      if (!mesh || !target) {
+        continue;
+      }
       if (!cell) {
         mesh.visible = false;
         continue;
       }
       mesh.visible = true;
       target.set(cell.x, cell.y, cell.z);
-      if (snap) mesh.position.copy(target);
+      if (snap) {
+        mesh.position.copy(target);
+      }
     }
   }
 
@@ -143,7 +153,9 @@ export class CubeField {
     for (let i = 0; i < this.ghostBoxes.length; i++) {
       const line = this.ghostBoxes[i];
       const cell = cells[i];
-      if (!line) continue;
+      if (!line) {
+        continue;
+      }
       if (!cell) {
         line.visible = false;
         continue;
@@ -161,10 +173,14 @@ export class CubeField {
     for (let i = 0; i < this.activeMeshes.length; i++) {
       const mesh = this.activeMeshes[i];
       const target = this.activeTargets[i];
-      if (mesh?.visible && target) mesh.position.lerp(target, posK);
+      if (mesh?.visible && target) {
+        mesh.position.lerp(target, posK);
+      }
     }
 
-    if (this.frozen) return;
+    if (this.frozen) {
+      return;
+    }
     for (const [id, cube] of this.locked) {
       cube.mesh.position.lerp(cube.target, posK);
       cube.scale += (cube.scaleTarget - cube.scale) * scaleK;

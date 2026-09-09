@@ -15,7 +15,7 @@ const VOICE_LIMIT = 32;
 const ROUTINE_LIMIT = 24;
 const MUSIC_LIMIT = 6;
 const AMBIENCE_LIMIT = 2;
-const FOLEY_FILES: ReadonlyArray<[FoleyKey, string]> = [
+const FOLEY_FILES: readonly [FoleyKey, string][] = [
   ["buckler", "audio/foley/buckler.ogg"],
   ["blade", "audio/foley/blade.ogg"],
   ["bowstring", "audio/foley/bowstring.ogg"],
@@ -41,14 +41,37 @@ function storageSet(key: string, value: string): void {
   }
 }
 
-type Bus = { context: AudioContext; master: GainNode };
+interface Bus {
+  context: AudioContext;
+  master: GainNode;
+}
 type BedKind = "music" | "ambience";
-type Phrase = { kind: "sfx" | BedKind; essential: boolean; voices: Set<Voice> };
-type Voice = { source: AudioScheduledSourceNode; nodes: AudioNode[]; phrase: Phrase };
-type Sample = { kind: "sample"; buffer: AudioBuffer; gain: number; at: number; dur: number };
+interface Phrase {
+  kind: "sfx" | BedKind;
+  essential: boolean;
+  voices: Set<Voice>;
+}
+interface Voice {
+  source: AudioScheduledSourceNode;
+  nodes: AudioNode[];
+  phrase: Phrase;
+}
+interface Sample {
+  kind: "sample";
+  buffer: AudioBuffer;
+  gain: number;
+  at: number;
+  dur: number;
+}
 type Note = SynthTone | SynthNoise | ScoreNote | Sample;
-type Reaction = { important?: boolean; gain?: number };
-type Throttle = { key: string; minMs: number };
+interface Reaction {
+  important?: boolean;
+  gain?: number;
+}
+interface Throttle {
+  key: string;
+  minMs: number;
+}
 
 let bus: Bus | null = null;
 let contextTransition: Promise<void> | null = null;
@@ -66,7 +89,9 @@ const bedBuses = new Map<BedKind, GainNode>();
 const blocked = (): boolean => muted || paused;
 
 function setMaster(): void {
-  if (!bus) return;
+  if (!bus) {
+    return;
+  }
   const t = bus.context.currentTime;
   bus.master.gain.cancelScheduledValues(t);
   bus.master.gain.setValueAtTime(blocked() ? 0 : MASTER_GAIN, t);
@@ -75,15 +100,21 @@ function setMaster(): void {
 /** One resume/suspend in flight at a time; a pause/mute that lands mid-flight
  *  is reconciled when the transition settles. */
 function reconcileContext(): void {
-  if (!bus || contextTransition) return;
+  if (!bus || contextTransition) {
+    return;
+  }
   const ctx = bus.context;
   const shouldRun = !blocked();
-  if (ctx.state === (shouldRun ? "running" : "suspended")) return;
+  if (ctx.state === (shouldRun ? "running" : "suspended")) {
+    return;
+  }
   const operation = shouldRun ? ctx.resume() : ctx.suspend();
   contextTransition = operation;
   const finish = (): void => {
     contextTransition = null;
-    if (shouldRun !== !blocked()) reconcileContext();
+    if (shouldRun !== !blocked()) {
+      reconcileContext();
+    }
   };
   void operation.then(finish, finish);
 }
@@ -95,15 +126,19 @@ function loadFoley(context: AudioContext): void {
       .then((response) => (response.ok ? response.arrayBuffer() : Promise.reject(response)))
       .then((bytes) => context.decodeAudioData(bytes))
       .then((buffer) => foleyBufs.set(key, buffer))
-      .catch(() => undefined);
+      .catch(() => {});
   }
 }
 
 function audio(): Bus | null {
-  if (blocked()) return null;
+  if (blocked()) {
+    return null;
+  }
   if (!bus) {
     const Ctor = window.AudioContext;
-    if (!Ctor) return null;
+    if (!Ctor) {
+      return null;
+    }
     const context = new Ctor();
     const master = context.createGain();
     master.gain.value = MASTER_GAIN;
@@ -117,28 +152,41 @@ function audio(): Bus | null {
 }
 
 function release(voice: Voice, stop: boolean): void {
-  if (!voices.delete(voice)) return;
+  if (!voices.delete(voice)) {
+    return;
+  }
   voice.phrase.voices.delete(voice);
   if (voice.phrase.voices.size === 0) {
     const i = phrases.indexOf(voice.phrase);
-    if (i >= 0) phrases.splice(i, 1);
+    if (i !== -1) {
+      phrases.splice(i, 1);
+    }
   }
-  if (stop) voice.source.stop();
+  if (stop) {
+    voice.source.stop();
+  }
   voice.source.disconnect();
-  for (const node of voice.nodes) node.disconnect();
+  for (const node of voice.nodes) {
+    node.disconnect();
+  }
 }
 
 function stopPhrase(phrase: Phrase): void {
-  for (const voice of phrase.voices) release(voice, true);
+  for (const voice of phrase.voices) {
+    release(voice, true);
+  }
 }
 
 function stopBackground(kind?: BedKind): void {
-  for (const voice of voices)
+  for (const voice of voices) {
     if (voice.phrase.kind !== "sfx" && (!kind || voice.phrase.kind === kind)) release(voice, true);
+  }
 }
 
 function stopAll(): void {
-  for (const voice of voices) release(voice, true);
+  for (const voice of voices) {
+    release(voice, true);
+  }
   const now = bus?.context.currentTime ?? 0;
   for (const gain of bedBuses.values()) {
     gain.gain.cancelScheduledValues(now);
@@ -148,7 +196,9 @@ function stopAll(): void {
 
 function applyIntent(): void {
   setMaster();
-  if (blocked()) stopAll();
+  if (blocked()) {
+    stopAll();
+  }
   reconcileContext();
 }
 
@@ -197,24 +247,28 @@ const tone = (
   gain: number,
   slideTo?: number,
   at = 0,
-): SynthTone => ({ kind: "tone", freq, dur, type, gain, slideTo, at });
+): SynthTone => ({ at, dur, freq, gain, kind: "tone", slideTo, type });
 const noise = (
   dur: number,
   gain: number,
   frequency: number,
   at = 0,
   filter: BiquadFilterType = "lowpass",
-): SynthNoise => ({ kind: "noise", dur, gain, frequency, at, filter });
+): SynthNoise => ({ at, dur, filter, frequency, gain, kind: "noise" });
 
 // Decaying white noise is indistinguishable between calls: cache one buffer per
 // duration and replay it through a fresh (cheap) BufferSource each time.
 function noiseBuffer(ctx: AudioContext, dur: number): AudioBuffer {
   const cached = noiseBufs.get(dur);
-  if (cached) return cached;
+  if (cached) {
+    return cached;
+  }
   const n = Math.floor(ctx.sampleRate * dur);
   const buffer = ctx.createBuffer(1, n, ctx.sampleRate);
   const data = buffer.getChannelData(0);
-  for (let i = 0; i < n; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / n);
+  for (let i = 0; i < n; i++) {
+    data[i] = (Math.random() * 2 - 1) * (1 - i / n);
+  }
   noiseBufs.set(dur, buffer);
   return buffer;
 }
@@ -225,13 +279,19 @@ function play(
   throttle?: Throttle,
 ): void {
   const level = Math.max(0, Math.min(1, gain));
-  if (level === 0 || notes.length === 0) return;
+  if (level === 0 || notes.length === 0) {
+    return;
+  }
   const target = audio();
-  if (!target) return;
+  if (!target) {
+    return;
+  }
   // The player's own reaction is gated separately so a busy fight can't swallow it.
   const gate = throttle && (important ? `${throttle.key}:local` : throttle.key);
   const now = performance.now();
-  if (throttle && gate && (lastAt.get(gate) ?? -Infinity) + throttle.minMs > now) return;
+  if (throttle && gate && (lastAt.get(gate) ?? -Infinity) + throttle.minMs > now) {
+    return;
+  }
   // Background beds yield first; important sounds may then bump the oldest
   // ordinary phrase, but nothing evicts another important sound.
   const limit = important ? VOICE_LIMIT : ROUTINE_LIMIT;
@@ -240,11 +300,15 @@ function play(
       phrases.find((p) => p.kind === "ambience") ??
       phrases.find((p) => p.kind === "music") ??
       (important ? phrases.find((p) => !p.essential) : undefined);
-    if (!victim) return;
+    if (!victim) {
+      return;
+    }
     stopPhrase(victim);
   }
-  if (gate) lastAt.set(gate, now);
-  const phrase: Phrase = { kind: "sfx", essential: important, voices: new Set() };
+  if (gate) {
+    lastAt.set(gate, now);
+  }
+  const phrase: Phrase = { essential: important, kind: "sfx", voices: new Set() };
   phrases.push(phrase);
   const t = target.context.currentTime;
   if (important) {
@@ -256,12 +320,16 @@ function play(
       bed.gain.linearRampToValueAtTime(1, t + 0.28);
     }
   }
-  for (const note of notes) schedule(target, phrase, note, t, level);
+  for (const note of notes) {
+    schedule(target, phrase, note, t, level);
+  }
 }
 
 function bedDestination(target: Bus, kind: BedKind): GainNode {
   const existing = bedBuses.get(kind);
-  if (existing) return existing;
+  if (existing) {
+    return existing;
+  }
   const gain = target.context.createGain();
   gain.connect(target.master);
   bedBuses.set(kind, gain);
@@ -269,15 +337,23 @@ function bedDestination(target: Bus, kind: BedKind): GainNode {
 }
 
 function playBed(target: Bus, kind: BedKind, notes: readonly ScoreNote[]): void {
-  if (notes.length === 0) return;
+  if (notes.length === 0) {
+    return;
+  }
   let category = 0;
-  for (const voice of voices) if (voice.phrase.kind === kind) category++;
+  for (const voice of voices) {
+    if (voice.phrase.kind === kind) category++;
+  }
   const limit = kind === "music" ? MUSIC_LIMIT : AMBIENCE_LIMIT;
-  if (category + notes.length > limit || voices.size + notes.length > ROUTINE_LIMIT) return;
-  const phrase: Phrase = { kind, essential: false, voices: new Set() };
+  if (category + notes.length > limit || voices.size + notes.length > ROUTINE_LIMIT) {
+    return;
+  }
+  const phrase: Phrase = { essential: false, kind, voices: new Set() };
   phrases.push(phrase);
   const now = target.context.currentTime + 0.015;
-  for (const note of notes) schedule(target, phrase, note, now, 1);
+  for (const note of notes) {
+    schedule(target, phrase, note, now, 1);
+  }
 }
 
 /** Call once per frame after the frame's SFX, with accepted simulation time.
@@ -297,11 +373,18 @@ export function updateSoundscape(frame: SoundscapeFrame): void {
     scoreClock.mode === "silent" ||
     rewound ||
     (step && (step.step < previousStep || step.step > previousStep + 2))
-  )
+  ) {
     stopBackground();
-  if (scoreClock.mode !== "quiet") stopBackground("ambience");
-  if (scoreClock.mode === "fallen" && previous !== "fallen") stopBackground("music");
-  if (!step || !target) return;
+  }
+  if (scoreClock.mode !== "quiet") {
+    stopBackground("ambience");
+  }
+  if (scoreClock.mode === "fallen" && previous !== "fallen") {
+    stopBackground("music");
+  }
+  if (!step || !target) {
+    return;
+  }
   playBed(target, "music", step.music);
   playBed(target, "ambience", step.ambience);
 }
@@ -316,8 +399,9 @@ function schedule(target: Bus, phrase: Phrase, note: Note, now: number, level: n
     const osc = ctx.createOscillator();
     osc.type = note.type;
     osc.frequency.setValueAtTime(note.freq, t);
-    if (note.slideTo)
+    if (note.slideTo) {
       osc.frequency.exponentialRampToValueAtTime(Math.max(40, note.slideTo), t + note.dur);
+    }
     gain.gain.setValueAtTime(0.0001, t);
     gain.gain.exponentialRampToValueAtTime(note.gain * level, t + 0.008);
     gain.gain.exponentialRampToValueAtTime(0.0001, t + note.dur);
@@ -329,11 +413,13 @@ function schedule(target: Bus, phrase: Phrase, note: Note, now: number, level: n
     const filter = ctx.createBiquadFilter();
     filter.type = note.filter;
     filter.frequency.value = note.frequency;
-    if (note.attack !== undefined) {
+    if (note.attack === undefined) {
+      gain.gain.value = note.gain * level;
+    } else {
       gain.gain.setValueAtTime(0.0001, t);
       gain.gain.linearRampToValueAtTime(note.gain * level, t + note.attack);
       gain.gain.exponentialRampToValueAtTime(0.0001, t + note.dur);
-    } else gain.gain.value = note.gain * level;
+    }
     bufferSource.connect(filter).connect(gain);
     nodes.push(filter);
     source = bufferSource;
@@ -356,7 +442,9 @@ function schedule(target: Bus, phrase: Phrase, note: Note, now: number, level: n
       const osc = ctx.createOscillator();
       osc.type = note.wave;
       osc.frequency.setValueAtTime(note.freq, t);
-      if (note.endFreq) osc.frequency.exponentialRampToValueAtTime(note.endFreq, t + note.dur);
+      if (note.endFreq) {
+        osc.frequency.exponentialRampToValueAtTime(note.endFreq, t + note.dur);
+      }
       osc.connect(filter);
       source = osc;
     } else {
@@ -374,18 +462,17 @@ function schedule(target: Bus, phrase: Phrase, note: Note, now: number, level: n
     gain.gain.exponentialRampToValueAtTime(0.0001, t + note.dur);
   }
   gain.connect(phrase.kind === "sfx" ? master : bedDestination(target, phrase.kind));
-  const voice: Voice = { source, nodes, phrase };
+  const voice: Voice = { nodes, phrase, source };
   voices.add(voice);
   phrase.voices.add(voice);
   source.addEventListener("ended", () => release(voice, false), { once: true });
   source.start(t);
-  if (note.kind === "tone" || note.kind === "score-tone") source.stop(t + note.dur + 0.02);
+  if (note.kind === "tone" || note.kind === "score-tone") {
+    source.stop(t + note.dur + 0.02);
+  }
 }
 
 export const sfx = {
-  hit(reaction: Reaction = {}): void {
-    play([noise(0.06, 0.07, 1400)], reaction, { key: "hit", minMs: 60 });
-  },
   ability(effect = "", gain = 1, local = false): void {
     const notes: Note[] = [...abilityNotes(effect)];
     const accent = abilityFoley(effect);
@@ -396,11 +483,20 @@ export const sfx = {
       notes[0] = { kind: "sample", buffer, gain: accent.gain, at: first.at, dur: buffer.duration };
     play(notes, { gain, important: local }, { key: `ability:${effect}`, minMs: 90 });
   },
+  death(reaction: Reaction = {}): void {
+    play([tone(330, 0.2, "square", 0.06, 110)], reaction, { key: "death", minMs: 90 });
+  },
   explosion(reaction: Reaction = {}): void {
     play([noise(0.28, 0.16, 700), tone(120, 0.3, "sine", 0.1, 50)], reaction, {
       key: "explosion",
       minMs: 110,
     });
+  },
+  gold(): void {
+    play([tone(1200, 0.06, "square", 0.04)], {}, { key: "gold", minMs: 120 });
+  },
+  hit(reaction: Reaction = {}): void {
+    play([noise(0.06, 0.07, 1400)], reaction, { key: "hit", minMs: 60 });
   },
   level(): void {
     play([tone(660, 0.12, "triangle", 0.12), tone(990, 0.16, "triangle", 0.12, undefined, 0.09)], {
@@ -409,12 +505,6 @@ export const sfx = {
   },
   structureDown(): void {
     play([noise(0.5, 0.22, 500), tone(90, 0.5, "sine", 0.14, 40)], { important: true });
-  },
-  death(reaction: Reaction = {}): void {
-    play([tone(330, 0.2, "square", 0.06, 110)], reaction, { key: "death", minMs: 90 });
-  },
-  gold(): void {
-    play([tone(1200, 0.06, "square", 0.04)], {}, { key: "gold", minMs: 120 });
   },
   victory(win: boolean): void {
     play(
@@ -431,7 +521,7 @@ export function soundDiagnostics() {
     context: bus?.context.state ?? "uncreated",
     muted,
     paused,
-    voices: voices.size,
     score: { mode: scoreClock.mode, step: scoreClock.step },
+    voices: voices.size,
   };
 }

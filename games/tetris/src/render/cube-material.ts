@@ -7,6 +7,7 @@
 
 import { Color, ShaderMaterial } from "three";
 
+// oxlint-disable-next-line no-inline-comments -- /* glsl */ tags the literal for editor highlighting
 const VERTEX = /* glsl */ `
   varying vec3 vNormal;
   varying vec2 vUv;
@@ -17,6 +18,7 @@ const VERTEX = /* glsl */ `
   }
 `;
 
+// oxlint-disable-next-line no-inline-comments -- /* glsl */ tags the literal for editor highlighting
 const FRAGMENT = /* glsl */ `
   varying vec3 vNormal;
   varying vec2 vUv;
@@ -41,26 +43,27 @@ const FRAGMENT = /* glsl */ `
   }
 `;
 
-const EDGE_COLOR = new Color(0x0a0b12);
+const EDGE_COLOR = new Color(0x0a_0b_12);
 
-export function makeCubeMaterial(colorHex: number): ShaderMaterial {
-  return new ShaderMaterial({
+export const makeCubeMaterial = (colorHex: number): ShaderMaterial =>
+  new ShaderMaterial({
+    fragmentShader: FRAGMENT,
     uniforms: {
+      uBright: { value: 1 },
       uColor: { value: new Color(colorHex) },
-      uEdgeColor: { value: EDGE_COLOR.clone() },
       uEdge: { value: 0.055 },
-      uBright: { value: 1.0 },
+      uEdgeColor: { value: EDGE_COLOR.clone() },
     },
     vertexShader: VERTEX,
-    fragmentShader: FRAGMENT,
   });
-}
 
 /** Shaded material for the active (falling) slab — slightly brighter so it
  *  pops against the locked stack. */
-export function makeActiveMaterial(colorHex: number): ShaderMaterial {
+export const makeActiveMaterial = (colorHex: number): ShaderMaterial => {
   const m = makeCubeMaterial(colorHex);
   const u = m.uniforms.uBright;
-  if (u) u.value = 1.18;
+  if (u) {
+    u.value = 1.18;
+  }
   return m;
-}
+};

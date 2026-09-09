@@ -28,17 +28,25 @@ type AcceptedReturn =
   | { readonly charge: ShotCharge; readonly powered: false };
 
 export function acceptReturn(charge: ShotCharge): AcceptedReturn {
-  if (charge.kind === "armed") return { charge: { kind: "charging", hits: 0 }, powered: true };
-  if (charge.kind === "ready") return { charge, powered: false };
+  if (charge.kind === "armed") {
+    return { charge: { kind: "charging", hits: 0 }, powered: true };
+  }
+  if (charge.kind === "ready") {
+    return { charge, powered: false };
+  }
   switch (charge.hits) {
-    case 0:
+    case 0: {
       return { charge: { kind: "charging", hits: 1 }, powered: false };
-    case 1:
+    }
+    case 1: {
       return { charge: { kind: "charging", hits: 2 }, powered: false };
-    case 2:
+    }
+    case 2: {
       return { charge: { kind: "charging", hits: 3 }, powered: false };
-    case 3:
+    }
+    case 3: {
       return { charge: { kind: "ready" }, powered: false };
+    }
   }
 }
 
@@ -50,21 +58,25 @@ export function contactShot(offset: number, towardY: 1 | -1, speed: number, powe
     screenOffset < -1 / 3 ? "slice" : screenOffset > 1 / 3 ? "topspin" : "flat";
   return {
     kind,
-    spin: kind === "slice" ? -towardY * 0.8 : 0,
     lift: kind === "topspin" ? 0.55 : 1,
     speed: Math.min(
       POWER_SPEED_MAX,
       speed * (powered ? POWER_MULTIPLIER : kind === "topspin" ? 1.1 : 1),
     ),
+    spin: kind === "slice" ? -towardY * 0.8 : 0,
   };
 }
 
 /* oxlint-disable anti-slop/no-unknown-parameters -- parses two fields of an untrusted snapshot. */
 export function readCharge(hits: unknown, armed: unknown): ShotCharge | null {
-  if (hits === 4) return armed === true ? { kind: "armed" } : { kind: "ready" };
+  if (hits === 4) {
+    return armed === true ? { kind: "armed" } : { kind: "ready" };
+  }
   if (hits === 0 || hits === 1 || hits === 2 || hits === 3) {
-    if (armed === true) return null;
-    return { kind: "charging", hits };
+    if (armed === true) {
+      return null;
+    }
+    return { hits, kind: "charging" };
   }
   return null;
 }

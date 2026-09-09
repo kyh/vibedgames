@@ -3,9 +3,18 @@ import type { EnemyState } from "../entities/enemy-body";
 import type { EnemyKind } from "./enemies";
 
 /** Authoritative state age, in seconds. Cosmetic only; never advances a body. */
-export type EnemyAction = { state: EnemyState; elapsed: number };
-export type BossAction = { state: BossState; elapsed: number };
-export type ActorPose = { clip: string; frame: number };
+export interface EnemyAction {
+  state: EnemyState;
+  elapsed: number;
+}
+export interface BossAction {
+  state: BossState;
+  elapsed: number;
+}
+export interface ActorPose {
+  clip: string;
+  frame: number;
+}
 
 const enemyStates: ReadonlySet<string> = new Set([
   "spawn",
@@ -60,7 +69,7 @@ export function isBossAction(value: unknown): value is BossAction {
 }
 
 export function isActorTint(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 0xffffff;
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 0xff_ff_ff;
 }
 /* oxlint-enable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof */
 
@@ -81,13 +90,21 @@ function frames(
  */
 export function enemyPose(kind: EnemyKind, action: EnemyAction): ActorPose | null {
   const t = action.elapsed;
-  if (action.state === "spawn") return frames("spawn", 0, 7, t, 0.4);
-  if (action.state === "hurt") return frames("hit", 0, 2, t, 0.2);
+  if (action.state === "spawn") {
+    return frames("spawn", 0, 7, t, 0.4);
+  }
+  if (action.state === "hurt") {
+    return frames("hit", 0, 2, t, 0.2);
+  }
   if (action.state === "dead") {
     // Bomber's actual explosion is immediate on death; its first six authored
     // Explode frames are preparation. Start at the measured blast frame (6).
-    if (kind.name === "bomber") return frames("explode", 6, 13, t, 0.65);
-    if (kind.name === "warrior") return frames("dead", 0, 17, t, 1.8);
+    if (kind.name === "bomber") {
+      return frames("explode", 6, 13, t, 0.65);
+    }
+    if (kind.name === "warrior") {
+      return frames("dead", 0, 17, t, 1.8);
+    }
     return frames(
       "death",
       0,
@@ -97,26 +114,30 @@ export function enemyPose(kind: EnemyKind, action: EnemyAction): ActorPose | nul
     );
   }
   switch (kind.behavior) {
-    case "melee":
+    case "melee": {
       if (action.state === "windup") return frames("strike", 0, 2, t, kind.windup ?? 0.3);
       if (action.state === "attack") return { clip: "strike", frame: 3 };
       if (action.state === "recover") return frames("strike", 4, 9, t, kind.recover ?? 0.3);
       break;
-    case "charger":
+    }
+    case "charger": {
       if (action.state === "windup") return frames("strike", 0, 2, t, kind.windup ?? 0.42);
       if (action.state === "charge") return frames("strike", 3, 5, t, kind.chargeTime ?? 0.45);
       if (action.state === "recover") return frames("strike", 6, 8, t, kind.recover ?? 0.5);
       break;
-    case "archer":
+    }
+    case "archer": {
       if (action.state === "windup") return frames("shoot", 0, 4, t, kind.windup ?? 0.46);
       // The projectile is emitted on entry to recover, not during windup.
       if (action.state === "recover") return frames("shoot", 5, 8, t, 0.25);
       break;
-    case "bomber":
+    }
+    case "bomber": {
       // Electrocute 8 is a ground discharge. Keep that out of the live fuse;
       // Explode supplies the actual discharge when the FSM commits the blast.
       if (action.state === "windup") return frames("electrocute", 0, 7, t, kind.fuse ?? 0.55);
       break;
+    }
   }
   return null; // Normal locomotion keeps its existing authored loop.
 }
@@ -138,45 +159,58 @@ export class BossActing {
 
   pose(action: BossAction): ActorPose | null {
     const { state, elapsed: t } = action;
-    if (state !== this.previous) this.landed = this.previous === "slam" && state === "idle";
-    else if (t < this.previousAge) this.landed = false;
+    if (state !== this.previous) {
+      this.landed = this.previous === "slam" && state === "idle";
+    } else if (t < this.previousAge) {
+      this.landed = false;
+    }
     this.previous = state;
     this.previousAge = t;
     switch (state) {
-      case "punch":
+      case "punch": {
         if (t < 0.26) return frames("fire-punch", 0, 5, t, 0.26);
         if (t < 0.4) return { clip: "fire-punch", frame: 6 };
         return frames("fire-punch", 7, 16, t - 0.4, 0.2);
-      case "wave":
+      }
+      case "wave": {
         if (t < 0.5) return frames("flame-wave", 0, 6, t, 0.5);
         if (t < 0.6) return { clip: "flame-wave", frame: 7 };
         return frames("flame-wave", 8, 17, t - 0.6, 0.25);
-      case "jump":
+      }
+      case "jump": {
         return frames("flame-slam", 0, 7, t, 0.34);
-      case "slam":
+      }
+      case "slam": {
         // Frames 8–10 hold the fire overhead; ground contact is frame 11.
         // Air time is physics-owned, so never run the ground flash on a timer.
         return frames("flame-slam", 8, 10, t, 0.2);
-      case "charge":
+      }
+      case "charge": {
         if (t < 0.4) return frames("fire-punch", 0, 5, t, 0.4);
         if (t < 0.82) return frames("dash", 0, 3, (t - 0.4) % 0.2, 0.2);
         return { clip: "dash", frame: 3 };
-      case "phase":
+      }
+      case "phase": {
         return frames("flame-slam", 0, 10, t, 0.8);
-      case "hurt":
+      }
+      case "hurt": {
         return frames("hit", 0, 2, t, 0.2);
-      case "dead":
+      }
+      case "dead": {
         return frames("death", 0, 22, t, 2.3);
-      case "idle":
+      }
+      case "idle": {
         if (this.landed && t < 0.24) return frames("flame-slam", 11, 18, t, 0.24);
         return null;
-      case "intro":
+      }
+      case "intro": {
         return null;
+      }
     }
   }
 }
 
 /** Puppet lerp fraction: 0.35 per frame at 60 Hz, made refresh-rate independent. */
 export function remoteBlend(dt: number): number {
-  return Number.isFinite(dt) ? 1 - Math.pow(0.65, Math.max(0, dt) * 60) : 0;
+  return Number.isFinite(dt) ? 1 - 0.65 ** (Math.max(0, dt) * 60) : 0;
 }

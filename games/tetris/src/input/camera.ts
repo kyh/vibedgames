@@ -31,20 +31,20 @@ const MODEL_URL =
  * Keypoint with pixel coordinates, matching the interface previously provided
  * by @tensorflow-models/pose-detection (legacy-compatible names).
  */
-export type Keypoint = {
+export interface Keypoint {
   name: string;
   x: number;
   y: number;
   score: number;
-};
+}
 
-export type Pose = {
+export interface Pose {
   keypoints: Keypoint[];
   /** Source video frame dimensions (px) — keypoints are in this space, so
    *  pose interpretation normalises against these (no frozen-refW drift). */
   width: number;
   height: number;
-};
+}
 
 /** Called once per detected frame, after the skeleton has been drawn. */
 export type PoseHandler = (pose: Pose, overlay: CanvasRenderingContext2D | null) => void;
@@ -85,8 +85,10 @@ function landmarksToKeypoints(
   return landmarks
     .map((lm, i) => {
       const name = LANDMARK_NAMES.get(i);
-      if (!name) return null;
-      return { name, x: lm.x * width, y: lm.y * height, score: lm.visibility };
+      if (!name) {
+        return null;
+      }
+      return { name, score: lm.visibility, x: lm.x * width, y: lm.y * height };
     })
     .filter((kp): kp is Keypoint => kp !== null);
 }
@@ -115,7 +117,7 @@ export class PoseCamera {
     const deferred = isCoarsePointer();
 
     // Never stack a second panel if the game is re-initialised.
-    document.getElementById("camera-panel")?.remove();
+    document.querySelector("#camera-panel")?.remove();
 
     this.panel = document.createElement("div");
     this.panel.id = "camera-panel";
@@ -130,34 +132,42 @@ export class PoseCamera {
     this.toggle.className = "camera-toggle";
     this.toggle.type = "button";
     this.panel.append(this.video, this.canvas, this.status, this.toggle);
-    this.panel.setAttribute("data-gamepad-ignore", "");
+    this.panel.dataset.gamepadIgnore = "";
     this.toggle.addEventListener("click", (event) => {
       this.panel.classList.toggle("expanded");
-      if (this.state === "idle" || this.state === "unavailable") void this.start();
+      if (this.state === "idle" || this.state === "unavailable") {
+        void this.start();
+      }
       this.updateToggle();
       // A mouse click must not leave the button focused: Space would then
       // toggle the panel instead of hard-dropping.
-      if (event.detail > 0) this.toggle.blur();
+      if (event.detail > 0) {
+        this.toggle.blur();
+      }
     });
     this.updateToggle();
-    document.body.appendChild(this.panel);
+    document.body.append(this.panel);
   }
 
   /** Request the camera, play the video, then load the model. Retries after a
    *  failure (denied camera, unplugged device, model error) via the panel button. */
   async start(): Promise<void> {
-    if (this.state !== "idle" && this.state !== "unavailable") return;
+    if (this.state !== "idle" && this.state !== "unavailable") {
+      return;
+    }
     const attempt = ++this.attempt;
     this.state = "starting";
     this.setStatus("starting camera…");
     this.updateToggle();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user" },
         audio: false,
+        video: { facingMode: "user" },
       });
       if (!this.current(attempt)) {
-        for (const track of stream.getTracks()) track.stop();
+        for (const track of stream.getTracks()) {
+          track.stop();
+        }
         return;
       }
       this.stream = stream;
@@ -165,12 +175,18 @@ export class PoseCamera {
       const tracks = stream.getTracks();
       const onEnded = (): void => this.fail(attempt);
       const onVideoError = (): void => {
-        if (this.video.srcObject === stream && this.video.error !== null) this.fail(attempt);
+        if (this.video.srcObject === stream && this.video.error !== null) {
+          this.fail(attempt);
+        }
       };
-      for (const track of tracks) track.addEventListener("ended", onEnded);
+      for (const track of tracks) {
+        track.addEventListener("ended", onEnded);
+      }
       this.video.addEventListener("error", onVideoError);
       this.releaseMediaEvents = () => {
-        for (const track of tracks) track.removeEventListener("ended", onEnded);
+        for (const track of tracks) {
+          track.removeEventListener("ended", onEnded);
+        }
         this.video.removeEventListener("error", onVideoError);
       };
       if (tracks.some((track) => track.readyState === "ended")) {
@@ -178,19 +194,25 @@ export class PoseCamera {
         return;
       }
       await this.video.play();
-      if (!this.current(attempt)) return;
+      if (!this.current(attempt)) {
+        return;
+      }
       this.canvas.width = this.video.videoWidth;
       this.canvas.height = this.video.videoHeight;
 
       await this.loadModel(attempt);
-      if (!this.current(attempt)) return;
+      if (!this.current(attempt)) {
+        return;
+      }
 
       this.state = "live";
       this.setStatus(null);
       this.updateToggle();
       this.detectFrame(attempt);
     } catch (error) {
-      if (this.current(attempt)) console.error("Error starting camera or loading model:", error);
+      if (this.current(attempt)) {
+        console.error("Error starting camera or loading model:", error);
+      }
       this.fail(attempt);
     }
   }
@@ -202,7 +224,9 @@ export class PoseCamera {
   /** Degrade to keyboard/touch: stop the stream so the webcam LED matches the
    *  status text, and offer a retry. */
   private fail(attempt: number): void {
-    if (!this.current(attempt)) return;
+    if (!this.current(attempt)) {
+      return;
+    }
     this.attempt++;
     this.releaseCapture();
     this.state = "unavailable";
@@ -215,13 +239,17 @@ export class PoseCamera {
   }
 
   private releaseCapture(): void {
-    if (this.rafId !== null) cancelAnimationFrame(this.rafId);
+    if (this.rafId !== null) {
+      cancelAnimationFrame(this.rafId);
+    }
     this.rafId = null;
     this.releaseMediaEvents?.();
     this.releaseMediaEvents = null;
     this.video.pause();
     this.video.srcObject = null;
-    for (const track of this.stream?.getTracks() ?? []) track.stop();
+    for (const track of this.stream?.getTracks() ?? []) {
+      track.stop();
+    }
     this.stream = null;
     this.landmarker?.close();
     this.landmarker = null;
@@ -234,17 +262,21 @@ export class PoseCamera {
 
   private async loadModel(attempt: number): Promise<void> {
     const tasks = await import("@mediapipe/tasks-vision");
-    if (!this.current(attempt)) return;
+    if (!this.current(attempt)) {
+      return;
+    }
     this.tasks = tasks;
     const vision = await tasks.FilesetResolver.forVisionTasks(WASM_URL);
-    if (!this.current(attempt)) return;
+    if (!this.current(attempt)) {
+      return;
+    }
     const landmarker = await tasks.PoseLandmarker.createFromOptions(vision, {
       baseOptions: {
-        modelAssetPath: MODEL_URL,
         delegate: "GPU",
+        modelAssetPath: MODEL_URL,
       },
-      runningMode: "VIDEO",
       numPoses: 1,
+      runningMode: "VIDEO",
     });
     if (!this.current(attempt)) {
       landmarker.close();
@@ -254,10 +286,12 @@ export class PoseCamera {
   }
 
   private detectFrame = (attempt = this.attempt): void => {
-    if (!this.current(attempt)) return;
+    if (!this.current(attempt)) {
+      return;
+    }
     this.rafId = null;
-    const video = this.video;
-    const landmarker = this.landmarker;
+    const { video } = this;
+    const { landmarker } = this;
 
     if (video.readyState !== 4 || !landmarker) {
       this.rafId = requestAnimationFrame(() => this.detectFrame(attempt));
@@ -278,33 +312,39 @@ export class PoseCamera {
           this.drawSkeleton(landmarks);
           const keypoints = landmarksToKeypoints(landmarks, video.videoWidth, video.videoHeight);
           this.onPose(
-            { keypoints, width: video.videoWidth, height: video.videoHeight },
+            { height: video.videoHeight, keypoints, width: video.videoWidth },
             this.canvas.getContext("2d"),
           );
         }
       } catch (error) {
-        if (this.current(attempt)) console.error("Error detecting pose:", error);
+        if (this.current(attempt)) {
+          console.error("Error detecting pose:", error);
+        }
         this.fail(attempt);
         return;
       }
     }
 
-    if (this.current(attempt)) this.rafId = requestAnimationFrame(() => this.detectFrame(attempt));
+    if (this.current(attempt)) {
+      this.rafId = requestAnimationFrame(() => this.detectFrame(attempt));
+    }
   };
 
   private drawSkeleton(landmarks: NormalizedLandmark[]): void {
     const ctx = this.canvas.getContext("2d");
-    const tasks = this.tasks;
-    if (!ctx || !tasks) return;
+    const { tasks } = this;
+    if (!ctx || !tasks) {
+      return;
+    }
 
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
     const drawingUtils = this.drawingUtils ?? new tasks.DrawingUtils(ctx);
     this.drawingUtils = drawingUtils;
     drawingUtils.drawLandmarks(landmarks, {
-      radius: 3,
       color: "red",
       fillColor: "red",
+      radius: 3,
     });
     drawingUtils.drawConnectors(landmarks, tasks.PoseLandmarker.POSE_CONNECTIONS, {
       color: "blue",

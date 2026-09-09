@@ -13,9 +13,13 @@ function admitFx<T extends { importance: FxImportance }>(
   importance: FxImportance,
 ): boolean {
   const limit = importance === "important" ? capacity : capacity - Math.ceil(capacity / 4);
-  if (entries.length < limit) return true;
+  if (entries.length < limit) {
+    return true;
+  }
   const expendable = entries.findIndex((entry) => entry.importance === "common");
-  if (expendable < 0) return false;
+  if (expendable === -1) {
+    return false;
+  }
   entries.splice(expendable, 1);
   return true;
 }
@@ -41,7 +45,7 @@ const MAX_RINGS = 20;
 const MAX_CONVERGES = 12;
 const SHATTER_LIFE_MS = 500;
 
-type ShatterSeg = {
+interface ShatterSeg {
   // segment half-vector (rotates), midpoint offset from origin (flies outward)
   hx: number;
   hy: number;
@@ -51,18 +55,18 @@ type ShatterSeg = {
   vy: number;
   rotV: number; // rad/s
   rot: number;
-};
+}
 
-type ShatterGroup = {
+interface ShatterGroup {
   importance: FxImportance;
   x: number;
   y: number;
   tint: number;
   bornAt: number;
   segs: ShatterSeg[];
-};
+}
 
-type Ring = {
+interface Ring {
   importance: FxImportance;
   x: number;
   y: number;
@@ -72,9 +76,9 @@ type Ring = {
   tint: number;
   bornAt: number;
   durMs: number;
-};
+}
 
-type Converge = {
+interface Converge {
   importance: FxImportance;
   x: number;
   y: number;
@@ -84,9 +88,9 @@ type Converge = {
   bornAt: number;
   durMs: number;
   seed: number;
-};
+}
 
-export type SparkOpts = {
+export interface SparkOpts {
   importance?: FxImportance;
   angleMin?: number; // degrees
   angleMax?: number;
@@ -95,10 +99,21 @@ export type SparkOpts = {
   lifeMin?: number;
   lifeMax?: number;
   scale?: number;
-};
+}
 
-type HullCue = { x: number; y: number; points: ReadonlyArray<Vec>; rot: number; bornAt: number };
-type BossCue = { x: number; y: number; tint: number; bornAt: number };
+interface HullCue {
+  x: number;
+  y: number;
+  points: ReadonlyArray<Vec>;
+  rot: number;
+  bornAt: number;
+}
+interface BossCue {
+  x: number;
+  y: number;
+  tint: number;
+  bornAt: number;
+}
 
 export class FxPool {
   readonly battle: BattleFx;
@@ -119,29 +134,29 @@ export class FxPool {
     this.scene = scene;
     this.battle = new BattleFx(scene);
     this.sparkAdd = scene.add.particles(0, 0, "spark", {
-      speed: { min: 30, max: 140 },
-      angle: { min: 0, max: 360 },
-      lifespan: { min: 150, max: 300 },
-      scale: { start: 0.6, end: 0 },
-      alpha: { start: 1, end: 0 },
+      alpha: { end: 0, start: 1 },
+      angle: { max: 360, min: 0 },
       blendMode: Phaser.BlendModes.ADD,
       emitting: false,
+      lifespan: { max: 300, min: 150 },
+      scale: { end: 0, start: 0.6 },
+      speed: { max: 140, min: 30 },
     });
     this.sparkAdd.setDepth(20);
     this.debrisNormal = scene.add.particles(0, 0, "star", {
-      speed: { min: 60, max: 160 },
-      angle: { min: 0, max: 360 },
-      lifespan: { min: 300, max: 500 },
-      scale: { start: 0.8, end: 0.2 },
-      alpha: { start: 1, end: 0 },
-      rotate: { min: 0, max: 360 },
+      alpha: { end: 0, start: 1 },
+      angle: { max: 360, min: 0 },
       blendMode: Phaser.BlendModes.NORMAL,
       emitting: false,
+      lifespan: { max: 500, min: 300 },
+      rotate: { max: 360, min: 0 },
+      scale: { end: 0.2, start: 0.8 },
+      speed: { max: 160, min: 60 },
     });
     this.debrisNormal.setDepth(14);
     this.shatterGfx = scene.add.graphics().setDepth(16);
     this.ringGfx = scene.add.graphics().setDepth(21).setBlendMode(Phaser.BlendModes.ADD);
-    const textStyle = { fontFamily: "monospace", fontSize: "10px", color: "#dce9f0" };
+    const textStyle = { color: "#dce9f0", fontFamily: "monospace", fontSize: "10px" };
     this.hullText = scene.add
       .text(0, 0, "", textStyle)
       .setOrigin(0.5)
@@ -185,19 +200,23 @@ export class FxPool {
 
   /** ADD energy sparks (the one spark texture, re-tinted/re-aimed per burst). */
   sparks(x: number, y: number, count: number, tint: number, opts: SparkOpts = {}): void {
-    if (!this.onScreen(x, y)) return;
+    if (!this.onScreen(x, y)) {
+      return;
+    }
     const budget = opts.importance === "important" ? PARTICLE_BUDGET : COMMON_PARTICLE_BUDGET;
     const n = Math.min(count, Math.max(0, budget - this.aliveParticles()));
-    if (n <= 0) return;
+    if (n <= 0) {
+      return;
+    }
     const e = this.sparkAdd;
     // Per-burst min/max overrides must go through updateConfig (re-runs
     // loadConfig); the setEmitterAngle/setParticleLifespan/etc. mutators
     // silently no-op for min/max + eased ops in Phaser 4.
     e.updateConfig({
-      angle: { min: opts.angleMin ?? 0, max: opts.angleMax ?? 360 },
-      speed: { min: opts.speedMin ?? 150, max: opts.speedMax ?? 350 },
-      lifespan: { min: opts.lifeMin ?? 150, max: opts.lifeMax ?? 250 },
-      scale: { start: opts.scale ?? 0.6, end: 0 },
+      angle: { max: opts.angleMax ?? 360, min: opts.angleMin ?? 0 },
+      lifespan: { max: opts.lifeMax ?? 250, min: opts.lifeMin ?? 150 },
+      scale: { end: 0, start: opts.scale ?? 0.6 },
+      speed: { max: opts.speedMax ?? 350, min: opts.speedMin ?? 150 },
     });
     e.setParticleTint(tint);
     e.explode(n, x, y);
@@ -205,15 +224,19 @@ export class FxPool {
 
   /** NORMAL matter debris (star texture). */
   debris(x: number, y: number, count: number, tint: number, opts: SparkOpts = {}): void {
-    if (!this.onScreen(x, y)) return;
+    if (!this.onScreen(x, y)) {
+      return;
+    }
     const budget = opts.importance === "important" ? PARTICLE_BUDGET : COMMON_PARTICLE_BUDGET;
     const n = Math.min(count, Math.max(0, budget - this.aliveParticles()));
-    if (n <= 0) return;
+    if (n <= 0) {
+      return;
+    }
     const e = this.debrisNormal;
     e.updateConfig({
-      angle: { min: opts.angleMin ?? 0, max: opts.angleMax ?? 360 },
-      speed: { min: opts.speedMin ?? 60, max: opts.speedMax ?? 160 },
-      lifespan: { min: opts.lifeMin ?? 300, max: opts.lifeMax ?? 500 },
+      angle: { max: opts.angleMax ?? 360, min: opts.angleMin ?? 0 },
+      lifespan: { max: opts.lifeMax ?? 500, min: opts.lifeMin ?? 300 },
+      speed: { max: opts.speedMax ?? 160, min: opts.speedMin ?? 60 },
     });
     e.setParticleTint(tint);
     e.explode(n, x, y);
@@ -230,9 +253,13 @@ export class FxPool {
     alpha0 = 0.8,
     importance: FxImportance = "common",
   ): void {
-    if (!this.onScreen(x, y)) return;
-    if (!admitFx(this.rings, MAX_RINGS, importance)) return;
-    this.rings.push({ x, y, r0, r1, alpha0, tint, bornAt: this.scene.time.now, durMs, importance });
+    if (!this.onScreen(x, y)) {
+      return;
+    }
+    if (!admitFx(this.rings, MAX_RINGS, importance)) {
+      return;
+    }
+    this.rings.push({ alpha0, bornAt: this.scene.time.now, durMs, importance, r0, r1, tint, x, y });
   }
 
   /**
@@ -243,20 +270,26 @@ export class FxPool {
   shatter(
     x: number,
     y: number,
-    points: ReadonlyArray<Vec>,
+    points: readonly Vec[],
     rot: number,
     tint: number,
     importance: FxImportance = "common",
   ): void {
-    if (!this.onScreen(x, y) || points.length < 2) return;
-    if (!admitFx(this.shatters, MAX_SHATTER_GROUPS, importance)) return;
+    if (!this.onScreen(x, y) || points.length < 2) {
+      return;
+    }
+    if (!admitFx(this.shatters, MAX_SHATTER_GROUPS, importance)) {
+      return;
+    }
     const cos = Math.cos(rot);
     const sin = Math.sin(rot);
     const segs: ShatterSeg[] = [];
     for (let i = 0; i < points.length; i++) {
       const a = points[i];
       const b = points[(i + 1) % points.length];
-      if (!a || !b) continue;
+      if (!a || !b) {
+        continue;
+      }
       // rotate into world orientation
       const ax = a.x * cos - a.y * sin;
       const ay = a.x * sin + a.y * cos;
@@ -271,13 +304,13 @@ export class FxPool {
         hy: (by - ay) / 2,
         mx,
         my,
+        rot: 0,
+        rotV: (Math.random() * 2 - 1) * 3,
         vx: (mx / outLen) * speed,
         vy: (my / outLen) * speed,
-        rotV: (Math.random() * 2 - 1) * 3,
-        rot: 0,
       });
     }
-    this.shatters.push({ x, y, tint, bornAt: this.scene.time.now, segs, importance });
+    this.shatters.push({ bornAt: this.scene.time.now, importance, segs, tint, x, y });
   }
 
   /** Motes converging inward from radius→0 over durMs (anticipation). */
@@ -290,30 +323,36 @@ export class FxPool {
     tint: number,
     importance: FxImportance = "common",
   ): void {
-    if (!this.onScreen(x, y)) return;
-    if (!admitFx(this.converges, MAX_CONVERGES, importance)) return;
+    if (!this.onScreen(x, y)) {
+      return;
+    }
+    if (!admitFx(this.converges, MAX_CONVERGES, importance)) {
+      return;
+    }
     this.converges.push({
+      bornAt: this.scene.time.now,
+      count,
+      durMs,
+      importance,
+      radius,
+      seed: Math.random() * Math.PI * 2,
+      tint,
       x,
       y,
-      count,
-      radius,
-      tint,
-      bornAt: this.scene.time.now,
-      durMs,
-      seed: Math.random() * Math.PI * 2,
-      importance,
     });
   }
 
   /** One intact hull echo distinguishes growth from a kill's flying fragments. */
-  hullUpgrade(x: number, y: number, points: ReadonlyArray<Vec>, rot: number, level: number): void {
-    this.hullCue = { x, y, points, rot, bornAt: this.scene.time.now };
+  hullUpgrade(x: number, y: number, points: readonly Vec[], rot: number, level: number): void {
+    this.hullCue = { bornAt: this.scene.time.now, points, rot, x, y };
     this.hullText.setText(`HULL ${level} · UPGRADED`);
   }
 
   bossDefeat(x: number, y: number, tint: number): void {
-    if (!this.onScreen(x, y)) return;
-    this.bossCue = { x, y, tint, bornAt: this.scene.time.now };
+    if (!this.onScreen(x, y)) {
+      return;
+    }
+    this.bossCue = { bornAt: this.scene.time.now, tint, x, y };
   }
 
   /** Redraw all pooled stroke FX. Call once per frame. */
@@ -343,7 +382,7 @@ export class FxPool {
     this.rings = this.rings.filter((r) => now - r.bornAt < r.durMs);
     for (const r of this.rings) {
       const t = (now - r.bornAt) / r.durMs;
-      const eased = 1 - Math.pow(1 - t, 3); // Cubic.Out
+      const eased = 1 - (1 - t) ** 3; // Cubic.Out
       const radius = r.r0 + (r.r1 - r.r0) * eased;
       rg.lineStyle(1, r.tint, r.alpha0 * (1 - t));
       rg.strokeCircle(r.x, r.y, radius);
@@ -367,15 +406,17 @@ export class FxPool {
     if (hull) {
       const t = Math.min(1, (now - hull.bornAt) / 850);
       const alpha = Math.min(1, (1 - t) * 3);
-      const scale = REDUCED_MOTION.matches ? 2.1 : 1.4 + 1.4 * (1 - Math.pow(1 - t, 3));
+      const scale = REDUCED_MOTION.matches ? 2.1 : 1.4 + 1.4 * (1 - (1 - t) ** 3);
       const g = this.shatterGfx;
-      g.lineStyle(sw, 0xdce9f0, alpha * 0.75);
+      g.lineStyle(sw, 0xdc_e9_f0, alpha * 0.75);
       const cos = Math.cos(hull.rot) * scale;
       const sin = Math.sin(hull.rot) * scale;
       for (let i = 0; i < hull.points.length; i++) {
         const a = hull.points[i];
         const b = hull.points[(i + 1) % hull.points.length];
-        if (!a || !b) continue;
+        if (!a || !b) {
+          continue;
+        }
         g.lineBetween(
           hull.x + a.x * cos - a.y * sin,
           hull.y + a.x * sin + a.y * cos,
@@ -388,8 +429,12 @@ export class FxPool {
         .setScale(sw)
         .setAlpha(alpha)
         .setVisible(t < 1);
-      if (t >= 1) this.hullCue = null;
-    } else this.hullText.setVisible(false);
+      if (t >= 1) {
+        this.hullCue = null;
+      }
+    } else {
+      this.hullText.setVisible(false);
+    }
 
     const boss = this.bossCue;
     if (boss) {
@@ -412,7 +457,11 @@ export class FxPool {
         .setScale(sw)
         .setAlpha(alpha)
         .setVisible(t < 1);
-      if (t >= 1) this.bossCue = null;
-    } else this.bossText.setVisible(false);
+      if (t >= 1) {
+        this.bossCue = null;
+      }
+    } else {
+      this.bossText.setVisible(false);
+    }
   }
 }

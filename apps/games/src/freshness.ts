@@ -17,34 +17,15 @@ const MIN_HIDDEN_MS = 5 * 60 * 1000;
 
 export const VERSION_PATH = "/__vg/version";
 
-export function versionResponse(deploymentId: string): Response {
-  return new Response(deploymentId, {
+export const versionResponse = (deploymentId: string): Response =>
+  new Response(deploymentId, {
     headers: {
-      "content-type": "text/plain",
       "cache-control": "no-store",
+      "content-type": "text/plain",
     },
   });
-}
 
-/**
- * Insert the freshness script at the end of `<head>` (same insertion rules as
- * the share-meta block; malformed documents are served untouched).
- */
-export function injectFreshness(html: string, deploymentId: string): string {
-  const script = renderFreshnessScript(deploymentId);
-  const headClose = /<\/head\s*>/i.exec(html);
-  if (headClose) {
-    return html.slice(0, headClose.index) + script + html.slice(headClose.index);
-  }
-  const headOpen = /<head[^>]*>/i.exec(html);
-  if (headOpen) {
-    const at = headOpen.index + headOpen[0].length;
-    return html.slice(0, at) + "\n" + script + html.slice(at);
-  }
-  return html;
-}
-
-function renderFreshnessScript(deploymentId: string): string {
+const renderFreshnessScript = (deploymentId: string): string => {
   // Deployment ids come from our DB (url-safe), but stringify anyway so the
   // inline script can never be broken by an unexpected character.
   const id = JSON.stringify(deploymentId);
@@ -59,4 +40,22 @@ function renderFreshnessScript(deploymentId: string): string {
     `addEventListener("pageshow",e=>{if(e.persisted&&hiddenAt&&Date.now()-hiddenAt>${MIN_HIDDEN_MS})check()});` +
     `})()</script>\n`
   );
-}
+};
+
+/**
+ * Insert the freshness script at the end of `<head>` (same insertion rules as
+ * the share-meta block; malformed documents are served untouched).
+ */
+export const injectFreshness = (html: string, deploymentId: string): string => {
+  const script = renderFreshnessScript(deploymentId);
+  const headClose = /<\/head\s*>/iu.exec(html);
+  if (headClose) {
+    return html.slice(0, headClose.index) + script + html.slice(headClose.index);
+  }
+  const headOpen = /<head[^>]*>/iu.exec(html);
+  if (headOpen) {
+    const at = headOpen.index + headOpen[0].length;
+    return `${html.slice(0, at)}\n${script}${html.slice(at)}`;
+  }
+  return html;
+};

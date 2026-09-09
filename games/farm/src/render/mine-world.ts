@@ -23,7 +23,7 @@ export function buildMineWorld(
     const wallRow: number[] = [];
     for (let x = 0; x < width; x++) {
       // A coordinate hash keeps dressing independent of map and loot RNG.
-      const pattern = (Math.imul(x + 17, 73856093) ^ Math.imul(y + 31, 19349663)) >>> 0;
+      const pattern = (Math.imul(x + 17, 73_856_093) ^ Math.imul(y + 31, 19_349_663)) >>> 0;
       floorRow.push(!blocked(x, y) && pattern % 13 === 0 ? GRIT : STONE);
       wallRow.push(blocked(x, y) ? MASONRY : -1);
     }
@@ -32,7 +32,7 @@ export function buildMineWorld(
   }
 
   const layer = (data: number[][], depth: number, tint: number): void => {
-    const map = scene.make.tilemap({ data, tileWidth: TILE, tileHeight: TILE });
+    const map = scene.make.tilemap({ data, tileHeight: TILE, tileWidth: TILE });
     const atlas = map.addTilesetImage("atlas");
     if (!atlas) {
       map.destroy();
@@ -48,8 +48,8 @@ export function buildMineWorld(
       tile.tint = tint;
     });
   };
-  layer(floor, DEPTH.ground, 0x5e5960);
-  layer(stone, DEPTH.entityBase, 0x8d8290);
+  layer(floor, DEPTH.ground, 0x5e_59_60);
+  layer(stone, DEPTH.entityBase, 0x8d_82_90);
 
   // Faces stay inside solid cells; shallow cast shadows sit below ladders/ore.
   // Shared wall edges receive neither a seam nor a second shadow.
@@ -57,20 +57,26 @@ export function buildMineWorld(
   const edge = scene.add.graphics().setDepth(DEPTH.entityBase + 0.1);
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      if (!blocked(x, y)) continue;
+      if (!blocked(x, y)) {
+        continue;
+      }
       const px = x * TILE;
       const py = y * TILE;
-      if (!blocked(x, y - 1)) edge.fillStyle(0x50566c).fillRect(px, py, TILE, 1);
-      if (!blocked(x - 1, y)) edge.fillStyle(0x41485e).fillRect(px, py, 1, TILE);
+      if (!blocked(x, y - 1)) {
+        edge.fillStyle(0x50566c).fillRect(px, py, TILE, 1);
+      }
+      if (!blocked(x - 1, y)) {
+        edge.fillStyle(0x41485e).fillRect(px, py, 1, TILE);
+      }
       if (!blocked(x + 1, y)) {
-        edge.fillStyle(0x151923).fillRect(px + TILE - 1, py, 1, TILE);
-        shadow.fillStyle(0x0c101a, 0.3).fillRect(px + TILE, py + 2, 2, TILE - 2);
+        edge.fillStyle(0x15_19_23).fillRect(px + TILE - 1, py, 1, TILE);
+        shadow.fillStyle(0x0c_10_1a, 0.3).fillRect(px + TILE, py + 2, 2, TILE - 2);
       }
       if (!blocked(x, y + 1)) {
-        edge.fillStyle(0x202534).fillRect(px, py + TILE - 5, TILE, 5);
-        edge.fillStyle(0x454d64).fillRect(px, py + TILE - 5, TILE, 1);
-        edge.fillStyle(0x111520).fillRect(px, py + TILE - 1, TILE, 1);
-        shadow.fillStyle(0x0c101a, 0.4).fillRect(px, py + TILE, TILE, 3);
+        edge.fillStyle(0x20_25_34).fillRect(px, py + TILE - 5, TILE, 5);
+        edge.fillStyle(0x45_4d_64).fillRect(px, py + TILE - 5, TILE, 1);
+        edge.fillStyle(0x11_15_20).fillRect(px, py + TILE - 1, TILE, 1);
+        shadow.fillStyle(0x0c_10_1a, 0.4).fillRect(px, py + TILE, TILE, 3);
       }
     }
   }

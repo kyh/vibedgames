@@ -66,7 +66,10 @@ const SFX_NAMES = [
 
 export type SfxName = (typeof SFX_NAMES)[number];
 
-export type PlayOpts = { gain?: number; rate?: number };
+export interface PlayOpts {
+  gain?: number;
+  rate?: number;
+}
 
 /**
  * `sfx.play(name)` — fire-and-forget synth playback. Call `unlock()` from a
@@ -82,7 +85,9 @@ export class Sfx {
 
   unlock(): void {
     if (this.ctx) {
-      if (this.ctx.state === "suspended") void this.ctx.resume();
+      if (this.ctx.state === "suspended") {
+        void this.ctx.resume();
+      }
       return;
     }
     const ctx = new AudioContext();
@@ -91,17 +96,23 @@ export class Sfx {
     this.master.connect(ctx.destination);
     this.duckBus = ctx.createGain();
     this.duckBus.connect(this.master);
-    for (const name of SFX_NAMES) this.buffers.set(name, renderBuffer(ctx, RECIPES[name]));
+    for (const name of SFX_NAMES) {
+      this.buffers.set(name, renderBuffer(ctx, RECIPES[name]));
+    }
     this.sync();
   }
 
   play(name: SfxName, opts: PlayOpts = {}): void {
-    const ctx = this.ctx;
-    const duckBus = this.duckBus;
-    const master = this.master;
-    if (!ctx || !duckBus || !master || ctx.state !== "running" || this.paused || !soundOn) return;
+    const { ctx } = this;
+    const { duckBus } = this;
+    const { master } = this;
+    if (!ctx || !duckBus || !master || ctx.state !== "running" || this.paused || !soundOn) {
+      return;
+    }
     const buffer = this.buffers.get(name);
-    if (!buffer) return;
+    if (!buffer) {
+      return;
+    }
     const src = ctx.createBufferSource();
     src.buffer = buffer;
     const jitter = PITCH_JITTER_BASE + Math.random() * PITCH_JITTER_SPAN;
@@ -115,7 +126,9 @@ export class Sfx {
       gain.disconnect();
     });
     src.start();
-    if (name === "caught") this.duck();
+    if (name === "caught") {
+      this.duck();
+    }
   }
 
   setPaused(paused: boolean): void {
@@ -125,14 +138,18 @@ export class Sfx {
 
   /** Muted/paused just zeroes the master gain — unlock/playback plumbing still runs. */
   sync(): void {
-    if (this.master) this.master.gain.value = soundOn && !this.paused ? MASTER_GAIN : 0;
+    if (this.master) {
+      this.master.gain.value = soundOn && !this.paused ? MASTER_GAIN : 0;
+    }
   }
 
   /** Duck every routine sound while the "ohh no" sting plays. */
   private duck(): void {
-    const ctx = this.ctx;
+    const { ctx } = this;
     const bus = this.duckBus;
-    if (!ctx || !bus) return;
+    if (!ctx || !bus) {
+      return;
+    }
     const t = ctx.currentTime;
     bus.gain.cancelScheduledValues(t);
     bus.gain.setValueAtTime(DUCK_GAIN, t);
@@ -150,7 +167,7 @@ const MUSIC_POWER_VOLUME = 0.3;
 const MUSIC_CHASE_VOLUME = 0.32;
 const MUSIC_RESULT_VOLUME = 0.12;
 const MUSIC_DUCK_VOLUME = 0.1;
-const MUSIC_DUCK_MS = 1_400;
+const MUSIC_DUCK_MS = 1400;
 /** Power mode plays the lullaby a touch faster — gentle chipmunk urgency. */
 const MUSIC_POWER_RATE = 1.06;
 /** A ghost this close (maze cells) swells the music; it stays swollen a little further out. */
@@ -180,7 +197,9 @@ export class Music {
   private failed = false;
 
   start(url: string): void {
-    if (this.failed || !soundOn) return;
+    if (this.failed || !soundOn) {
+      return;
+    }
     if (!this.audio) {
       const audio = new Audio(url);
       audio.loop = true;
@@ -203,19 +222,25 @@ export class Music {
   setPaused(paused: boolean): void {
     this.paused = paused;
     this.sync();
-    if (!paused) this.play();
+    if (!paused) {
+      this.play();
+    }
   }
 
   /** Dip under the `caught` sting, restored by update(). */
   duck(): void {
-    if (this.paused || !soundOn) return;
+    if (this.paused || !soundOn) {
+      return;
+    }
     this.duckRemaining = MUSIC_DUCK_MS / 1000;
     this.sync();
   }
 
   /** @param nearestDanger maze-cell distance to a threatening ghost; null while none can. */
   update(dt: number, phase: MusicPhase, nearestDanger: number | null): void {
-    if (this.paused) return;
+    if (this.paused) {
+      return;
+    }
     this.phase = phase;
     if (phase !== "playing" || this.power) {
       this.chasing = false;
@@ -224,8 +249,9 @@ export class Music {
       const candidate =
         nearestDanger !== null &&
         nearestDanger < (this.chasing ? CHASE_EXIT_CELLS : CHASE_ENTER_CELLS);
-      if (candidate === this.chasing) this.candidateMs = 0;
-      else {
+      if (candidate === this.chasing) {
+        this.candidateMs = 0;
+      } else {
         this.candidateMs += dt * 1000;
         if (this.candidateMs >= (candidate ? CHASE_ENTER_MS : CHASE_EXIT_MS)) {
           this.chasing = candidate;
@@ -240,8 +266,10 @@ export class Music {
 
   /** Push mute/pause/duck/power onto the element; muted or paused also halts it. */
   sync(): void {
-    const audio = this.audio;
-    if (!audio) return;
+    const { audio } = this;
+    if (!audio) {
+      return;
+    }
     const silent = !soundOn || this.paused;
     audio.volume = silent ? 0 : this.duckRemaining > 0 ? MUSIC_DUCK_VOLUME : this.volume;
     audio.playbackRate = this.power ? MUSIC_POWER_RATE : 1;
@@ -252,8 +280,10 @@ export class Music {
   }
 
   private play(): void {
-    const audio = this.audio;
-    if (!audio || !soundOn || this.paused || !audio.paused) return;
+    const { audio } = this;
+    if (!audio || !soundOn || this.paused || !audio.paused) {
+      return;
+    }
     // A pause or mute can land while play() is still pending; sync() halts it on settle.
     void audio.play().then(
       () => this.sync(),
@@ -262,9 +292,15 @@ export class Music {
   }
 
   private targetVolume(): number {
-    if (this.phase === "title") return MUSIC_TITLE_VOLUME;
-    if (this.phase === "win" || this.phase === "gameover") return MUSIC_RESULT_VOLUME;
-    if (this.chasing) return MUSIC_CHASE_VOLUME;
+    if (this.phase === "title") {
+      return MUSIC_TITLE_VOLUME;
+    }
+    if (this.phase === "win" || this.phase === "gameover") {
+      return MUSIC_RESULT_VOLUME;
+    }
+    if (this.chasing) {
+      return MUSIC_CHASE_VOLUME;
+    }
     return this.power ? MUSIC_POWER_VOLUME : MUSIC_PLAY_VOLUME;
   }
 }
@@ -300,7 +336,10 @@ export function toggleSound(): boolean {
 
 // ---- synth engine (pure) --------------------------------------------------------
 
-type Recipe = { durMs: number; render: (t: number, dur: number, rng: () => number) => number };
+interface Recipe {
+  durMs: number;
+  render: (t: number, dur: number, rng: () => number) => number;
+}
 
 function renderBuffer(ctx: AudioContext, recipe: Recipe): AudioBuffer {
   const frames = Math.max(1, Math.round((recipe.durMs / 1000) * SAMPLE_RATE));
@@ -315,7 +354,7 @@ function renderBuffer(ctx: AudioContext, recipe: Recipe): AudioBuffer {
 }
 
 function clampSample(v: number): number {
-  return v > 1 ? 1 : v < -1 ? -1 : v;
+  return v > 1 ? 1 : Math.max(-1, v);
 }
 
 function makeNoise(): () => number {
@@ -336,9 +375,11 @@ function slidePhase(t: number, dur: number, f0: number, f1: number): number {
 
 /** Simple decay envelope: 1 → 0 with optional attack. */
 function env(t: number, dur: number, attack = 0.005, curve = 1.5): number {
-  if (t < attack) return t / attack;
+  if (t < attack) {
+    return t / attack;
+  }
   const rel = (t - attack) / Math.max(0.001, dur - attack);
-  return Math.pow(Math.max(0, 1 - rel), curve);
+  return Math.max(0, 1 - rel) ** curve;
 }
 
 /** Music-box pluck: sine + soft 3rd harmonic, fast attack, ringing decay. */
@@ -348,7 +389,7 @@ function pluck(t: number, freq: number, dur: number): number {
 }
 
 /** Evenly-spaced note sequence helper: returns the active note + local time. */
-function step(t: number, dur: number, notes: ReadonlyArray<number>) {
+function step(t: number, dur: number, notes: readonly number[]) {
   const slice = dur / notes.length;
   const idx = Math.min(notes.length - 1, Math.floor(t / slice));
   return { f: notes[idx] ?? 440, local: t - idx * slice };

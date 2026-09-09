@@ -1,7 +1,8 @@
 import type Phaser from "phaser";
 
 import { TILE } from "./config";
-import { type BiomePalette, biomePalette, mulColor } from "./data/biomes";
+import { biomePalette, mulColor } from "./data/biomes";
+import type { BiomePalette } from "./data/biomes";
 
 type Rect = readonly [x: number, y: number, width: number, height: number];
 
@@ -52,6 +53,17 @@ const TREE_ROWS: readonly (readonly Rect[])[] = [
 
 type Sheet = "rocks" | "bushes" | "bamboo";
 const DRESSING_FRAMES = {
+  bamboo: [
+    [16, 73, 174, 149],
+    [205, 72, 174, 149],
+    [385, 59, 167, 162],
+    [559, 42, 203, 179],
+  ],
+  bushes: [
+    [173, 192, 190, 35],
+    [564, 195, 190, 35],
+    [906, 195, 190, 35],
+  ],
   rocks: [
     [48, 125, 81, 35],
     [49, 188, 81, 35],
@@ -62,17 +74,6 @@ const DRESSING_FRAMES = {
     [645, 39, 81, 42],
     [768, 39, 81, 42],
   ],
-  bushes: [
-    [173, 192, 190, 35],
-    [564, 195, 190, 35],
-    [906, 195, 190, 35],
-  ],
-  bamboo: [
-    [16, 73, 174, 149],
-    [205, 72, 174, 149],
-    [385, 59, 167, 162],
-    [559, 42, 203, 179],
-  ],
 } satisfies Record<Sheet, readonly Rect[]>;
 
 function registerScenery(scene: Phaser.Scene) {
@@ -80,7 +81,9 @@ function registerScenery(scene: Phaser.Scene) {
   TREE_ROWS.forEach((row, r) => {
     row.forEach((rect, c) => {
       const key = `tree-cut-${r}-${c}`;
-      if (!tex.has(key)) tex.add(key, 0, ...rect);
+      if (!tex.has(key)) {
+        tex.add(key, 0, ...rect);
+      }
     });
   });
   const sheets: readonly Sheet[] = ["rocks", "bushes", "bamboo"];
@@ -88,18 +91,20 @@ function registerScenery(scene: Phaser.Scene) {
     const texture = scene.textures.get(`env:${sheet}`);
     DRESSING_FRAMES[sheet].forEach((rect, i) => {
       const key = `scenery-${i}`;
-      if (!texture.has(key)) texture.add(key, 0, ...rect);
+      if (!texture.has(key)) {
+        texture.add(key, 0, ...rect);
+      }
     });
   }
 }
 
 // View-only index jitter never consumes the simulation's random stream.
 const hash = (n: number) => {
-  const s = Math.sin(n * 12.9898) * 43758.5453;
+  const s = Math.sin(n * 12.9898) * 43_758.5453;
   return s - Math.floor(s);
 };
 
-type Layer = {
+interface Layer {
   row: number;
   depth: number;
   sf: number;
@@ -107,13 +112,13 @@ type Layer = {
   scale: number;
   alpha: number;
   tint: number;
-};
+}
 
 // From deepest to nearest. `sf` = scrollFactor, `step` = px between trees.
 const LAYERS: Layer[] = [
-  { row: 3, depth: -33, sf: 0.18, step: 150, scale: 1.15, alpha: 0.55, tint: 0x8b97ad },
-  { row: 2, depth: -24, sf: 0.34, step: 128, scale: 1.05, alpha: 0.7, tint: 0x6d7a90 },
-  { row: 1, depth: -12, sf: 0.58, step: 150, scale: 1.0, alpha: 0.92, tint: 0xffffff },
+  { alpha: 0.55, depth: -33, row: 3, scale: 1.15, sf: 0.18, step: 150, tint: 0x8b97ad },
+  { alpha: 0.7, depth: -24, row: 2, scale: 1.05, sf: 0.34, step: 128, tint: 0x6d7a90 },
+  { alpha: 0.92, depth: -12, row: 1, scale: 1.0, sf: 0.58, step: 150, tint: 0xffffff },
 ];
 
 /** Name tag on the near layer, so a caller can pick it out of the returned
@@ -121,16 +126,16 @@ const LAYERS: Layer[] = [
 export const FG_TREE_NAME = "fg-tree";
 
 const FG_LAYER: Layer = {
-  row: 0,
+  alpha: 1,
   depth: -4,
+  row: 0,
+  scale: 1.25,
   sf: 1.12,
   step: 320,
-  scale: 1.25,
-  alpha: 1,
   tint: 0xffffff,
 };
 
-type Dressing = {
+interface Dressing {
   sheet: Sheet;
   frames: readonly number[];
   step: number;
@@ -138,44 +143,50 @@ type Dressing = {
   sf: number;
   scale: number;
   alpha: number;
-};
+}
 
-type Composition = { trees: number; far: Dressing; near: Dressing };
+interface Composition {
+  trees: number;
+  far: Dressing;
+  near: Dressing;
+}
 
 function composition(name: string): Composition {
   const ruins: Dressing = {
-    sheet: "rocks",
-    frames: [2, 3, 4, 5],
-    step: 360,
-    depth: -30,
-    sf: 0.22,
-    scale: 1.15,
     alpha: 0.48,
+    depth: -30,
+    frames: [2, 3, 4, 5],
+    scale: 1.15,
+    sf: 0.22,
+    sheet: "rocks",
+    step: 360,
   };
   const stones: Dressing = {
-    sheet: "rocks",
-    frames: [0, 1],
-    step: 270,
-    depth: -9,
-    sf: 0.72,
-    scale: 0.9,
     alpha: 0.68,
+    depth: -9,
+    frames: [0, 1],
+    scale: 0.9,
+    sf: 0.72,
+    sheet: "rocks",
+    step: 270,
   };
   const bushes: Dressing = {
-    sheet: "bushes",
-    frames: [0, 1],
-    step: 350,
-    depth: -8,
-    sf: 0.72,
-    scale: 0.8,
     alpha: 0.62,
+    depth: -8,
+    frames: [0, 1],
+    scale: 0.8,
+    sf: 0.72,
+    sheet: "bushes",
+    step: 350,
   };
   switch (name) {
-    case "EMBERDEEP":
+    case "EMBERDEEP": {
       return { trees: 0.45, far: ruins, near: stones };
-    case "FROSTVAULT":
+    }
+    case "FROSTVAULT": {
       return { trees: 0.4, far: ruins, near: { ...stones, frames: [6], alpha: 0.62 } };
-    case "VENOMHOLLOW":
+    }
+    case "VENOMHOLLOW": {
       return {
         trees: 0.6,
         far: {
@@ -189,13 +200,15 @@ function composition(name: string): Composition {
         },
         near: bushes,
       };
-    case "VOIDSANCTUM":
+    }
+    case "VOIDSANCTUM": {
       return {
         trees: 0.3,
         far: { ...ruins, scale: 1.35, alpha: 0.57 },
         near: { ...stones, frames: [7], alpha: 0.64 },
       };
-    default:
+    }
+    default: {
       return {
         trees: 1,
         far: {
@@ -209,6 +222,7 @@ function composition(name: string): Composition {
         },
         near: bushes,
       };
+    }
   }
 }
 
@@ -255,7 +269,9 @@ export function buildParallax(
         .setScale(s)
         .setAlpha(L.alpha)
         .setTint(mulColor(L.tint, pal.tree));
-      if (hash(seed * 5.5) > 0.5) t.setFlipX(true);
+      if (hash(seed * 5.5) > 0.5) {
+        t.setFlipX(true);
+      }
       out.push(t);
     }
   }
@@ -276,7 +292,9 @@ export function buildParallax(
       .setAlpha(0.96)
       .setTint(mulColor(FG_LAYER.tint, pal.tree))
       .setName(FG_TREE_NAME);
-    if (hash(seed * 8.8) > 0.5) t.setFlipX(true);
+    if (hash(seed * 8.8) > 0.5) {
+      t.setFlipX(true);
+    }
     out.push(t);
   }
 
@@ -294,7 +312,9 @@ export function buildParallax(
         .setScale(layer.scale)
         .setAlpha(layer.alpha)
         .setTint(pal.tree);
-      if (hash(seed * 8.3) > 0.5) node.setFlipX(true);
+      if (hash(seed * 8.3) > 0.5) {
+        node.setFlipX(true);
+      }
       out.push(node);
     }
   }

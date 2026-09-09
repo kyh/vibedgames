@@ -6,7 +6,8 @@ import { store } from "../src/systems/store";
 import { SEASONS, seasonOfDay } from "../src/data/calendar";
 import { CROPS } from "../src/data/crops";
 import { FISH } from "../src/data/fish";
-import { loadSave, writeSave, type SaveData } from "../src/systems/save";
+import { loadSave, writeSave } from "../src/systems/save";
+import type { SaveData } from "../src/systems/save";
 
 test("season pages list every eligible crop and fish; winter is fish-only", () => {
   const journal = Collections.empty();
@@ -32,19 +33,20 @@ test("season pages list every eligible crop and fish; winter is fish-only", () =
 test("only an accepted, in-season quantity records a discovery", () => {
   const journal = Collections.empty();
   const inv = Inventory.fresh();
-  inv.add({ kind: "produce", crop: "carrot" }, 2);
+  inv.add({ crop: "carrot", kind: "produce" }, 2);
   assert.equal(journal.page("spring").discovered, 0);
   const full = { item: { kind: "resource", res: "stone" } as const, qty: 99 };
   inv.slots = inv.slots.map(() => ({ ...full }));
   inv.pack = inv.pack.map(() => ({ ...full }));
-  assert.equal(inv.add({ kind: "produce", crop: "potato" }, 5), 5);
+  assert.equal(inv.add({ crop: "potato", kind: "produce" }, 5), 5);
   assert.equal(journal.recordHarvest("potato", "spring", 0), null);
-  inv.pack[0] = { item: { kind: "produce", crop: "potato" }, qty: 97 };
-  const leftover = inv.add({ kind: "produce", crop: "potato" }, 5);
+  inv.pack[0] = { item: { crop: "potato", kind: "produce" }, qty: 97 };
+  const leftover = inv.add({ crop: "potato", kind: "produce" }, 5);
   assert.equal(leftover, 3);
   assert.equal(journal.recordHarvest("potato", "spring", 5 - leftover)?.name, "Potato");
-  for (const qty of [-1, 0, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])
+  for (const qty of [-1, 0, 0.5, Number.NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
     assert.equal(journal.recordCatch("carp", "spring", qty), null);
+  }
   assert.equal(journal.recordHarvest("potato", "winter", 1), null);
   assert.equal(journal.recordCatch("trout", "winter", 1), null);
   assert.equal(journal.page("spring").discovered, 1);
@@ -69,11 +71,11 @@ test("each entry and each season completion fires once, across years", () => {
 });
 
 test("fromJSON drops malformed, duplicate and out-of-season entries", () => {
-  for (const raw of [undefined, null, [], "bad", { v: 2, discoveries: [] }, { v: 1 }])
+  for (const raw of [undefined, null, [], "bad", { discoveries: [], v: 2 }, { v: 1 }]) {
     assert.equal(Collections.fromJSON(raw).toJSON().discoveries.length, 0);
-  const good = { season: "summer", item: { kind: "fish", fish: "trout" } };
+  }
+  const good = { item: { fish: "trout", kind: "fish" }, season: "summer" };
   const journal = Collections.fromJSON({
-    v: 1,
     discoveries: [
       good,
       good,
@@ -84,6 +86,7 @@ test("fromJSON drops malformed, duplicate and out-of-season entries", () => {
       { season: "spring", item: { kind: "seed", crop: "carrot" } },
       { season: "spring", item: { kind: "fish", fish: "__proto__" } },
     ],
+    v: 1,
   });
   assert.deepEqual(journal.toJSON().discoveries, [good]);
   assert.equal(journal.recordCatch("trout", "summer", 1), null);
@@ -98,26 +101,26 @@ test("save outcome reports storage failures; a v3 save without a journal still l
   Object.assign(globalThis, {
     localStorage: {
       getItem: (k: string) => values.get(k) ?? null,
+      removeItem: (k: string) => values.delete(k),
       setItem: (k: string, v: string) => {
         if (failWrites) throw new Error("full");
         values.set(k, v);
       },
-      removeItem: (k: string) => values.delete(k),
     },
   });
   const save: SaveData = {
-    v: 3,
-    seed: 123,
-    day: 28,
-    timeMin: 830,
-    gold: 81,
-    energy: 17,
-    hp: 7,
     canCharge: 4,
-    player: { x: 128, y: 144 },
-    world: { tilled: [1, 2], objects: [] },
+    day: 28,
+    energy: 17,
+    gold: 81,
+    hp: 7,
     inv: Inventory.fresh().toJSON(),
+    player: { x: 128, y: 144 },
+    seed: 123,
     skills: store.skills.toJSON(),
+    timeMin: 830,
+    v: 3,
+    world: { objects: [], tilled: [1, 2] },
   };
   assert.deepEqual(writeSave(save), { kind: "success" });
   const loaded = loadSave();

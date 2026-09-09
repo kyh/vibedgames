@@ -9,13 +9,13 @@ import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const gameDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const gameDir = resolve(import.meta.dirname, "..");
 const { chromium } = createRequire(import.meta.url)("playwright-core");
 const { EVICTION_TIMEOUT_MS, RECONNECT_GRACE_MS } = await import("@vibedgames/multiplayer");
 const wait = (ms) => new Promise((done) => setTimeout(done, ms));
 const arg = (flag) => {
   const i = process.argv.indexOf(flag);
-  return i < 0 ? null : process.argv[i + 1];
+  return i === -1 ? null : process.argv[i + 1];
 };
 const PORT = 5314;
 const CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
@@ -36,18 +36,22 @@ async function startVite() {
   );
   await new Promise((ready, fail) => {
     child.stdout.on("data", (chunk) => {
-      if (String(chunk).includes("Local:")) ready();
+      if (String(chunk).includes("Local:")) {
+        ready();
+      }
     });
     child.on("exit", (code) => fail(new Error(`vite exited ${code}`)));
   });
   return child;
 }
 
-async function until(page, predicate, label, timeout = 20000, param = null) {
+async function until(page, predicate, label, timeout = 20_000, param = null) {
   const started = Date.now();
   while (Date.now() - started < timeout) {
     const value = await page.evaluate(predicate, param);
-    if (value) return value;
+    if (value) {
+      return value;
+    }
     await wait(100);
   }
   throw new Error(`timeout: ${label}`);
@@ -55,7 +59,7 @@ async function until(page, predicate, label, timeout = 20000, param = null) {
 
 const lf = (page) => page.evaluate(() => JSON.parse(JSON.stringify(window.__lf ?? null)));
 const hubReady = (page) =>
-  until(page, () => !!document.querySelector("#lf-room-code"), "hub ready", 30000);
+  until(page, () => !!document.querySelector("#lf-room-code"), "hub ready", 30_000);
 const inGame = (page, role) =>
   until(
     page,
@@ -64,23 +68,25 @@ const inGame = (page, role) =>
       return s && s.conn === "connected" && s.state === "active" && s.role === role;
     },
     `in game as ${role}`,
-    30000,
+    30_000,
     role,
   );
 const seesPeer = (page, label) =>
-  until(page, () => window.__lf?.players === 2 && window.__lf.rx !== null, label, 20000);
+  until(page, () => window.__lf?.players === 2 && window.__lf.rx !== null, label, 20_000);
 
 async function openClient(browser, base, name, url) {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const context = await browser.newContext({ viewport: { height: 720, width: 1280 } });
   const page = await context.newPage();
   page.on("pageerror", (e) => errors.push(`${name}: ${e.message}\n${e.stack}`));
   page.on("console", (m) => {
-    if (m.type() === "error") errors.push(`${name}: ${m.text()}`);
+    if (m.type() === "error") {
+      errors.push(`${name}: ${m.text()}`);
+    }
   });
   // The dev server transforms the whole game on a cold client; give it room.
   await page.goto(`${base}/${url}`, { timeout: 90_000 });
   await hubReady(page);
-  return { name, context, page };
+  return { context, name, page };
 }
 
 /** Hub → expedition: PLAY. Escape pause only arms through this path. */
@@ -130,8 +136,10 @@ const killRun = (page) => page.evaluate(() => window.__game.scene.getScene("game
 const endMatch = (page) =>
   page.evaluate(() => {
     const scene = window.__game.scene.getScene("game");
-    const vs = scene.vs;
-    if (vs.phase === "fighting") vs.damage("guest", 99);
+    const { vs } = scene;
+    if (vs.phase === "fighting") {
+      vs.damage("guest", 99);
+    }
   });
 
 async function run(base, mode) {
@@ -140,8 +148,6 @@ async function run(base, mode) {
   // Both clients must keep simulating; Chrome otherwise throttles whichever
   // window is not focused, which reads as a frozen peer.
   const browser = await chromium.launch({
-    channel: "chrome",
-    headless: true,
     args: [
       "--use-angle=swiftshader",
       "--enable-unsafe-swiftshader",
@@ -150,6 +156,8 @@ async function run(base, mode) {
       "--disable-backgrounding-occluded-windows",
       "--disable-renderer-backgrounding",
     ],
+    channel: "chrome",
+    headless: true,
   });
   const results = [];
   const step = async (label, body) => {
@@ -157,9 +165,9 @@ async function run(base, mode) {
     try {
       await body();
       results.push(`${mode} ${label}: pass (${((Date.now() - started) / 1000).toFixed(1)}s)`);
-    } catch (e) {
-      results.push(`${mode} ${label}: FAIL ${e.message}`);
-      throw e;
+    } catch (error) {
+      results.push(`${mode} ${label}: FAIL ${error.message}`);
+      throw error;
     }
   };
   try {
@@ -182,14 +190,16 @@ async function run(base, mode) {
         const hp0 = (await lf(host.page)).vs.hostHp;
         const gapNow = async () => {
           const s = await lf(host.page);
-          return { s, gap: s.rx - s.px };
+          return { gap: s.rx - s.px, s };
         };
         // The arena floor is head-height pens (data/rooms.ts VERSUS): each
         // crossing is a running jump, so approach in bounded hops and swing
         // whenever the duelists overlap.
         for (let hop = 0; hop < 40; hop++) {
           const { s, gap } = await gapNow();
-          if (s.vs.hostHp < hp0) return;
+          if (s.vs.hostHp < hp0) {
+            return;
+          }
           if (Math.abs(gap) > 18) {
             const dir = gap > 0 ? "KeyA" : "KeyD";
             await guest.page.keyboard.down(dir);
@@ -210,7 +220,9 @@ async function run(base, mode) {
     await step(
       mode === "vs" ? "pause n/a: Escape exits the duel" : "host pause does not freeze the guest",
       async () => {
-        if (mode === "vs") return;
+        if (mode === "vs") {
+          return;
+        }
         await host.page.keyboard.press("Escape");
         await until(host.page, () => window.__lf?.paused === true, "host paused");
         await moveCrossesWire(guest, host);
@@ -247,8 +259,9 @@ async function run(base, mode) {
       await killRun(host.page);
       await hubReady(host.page);
       await hubReady(guest.page);
-      for (const c of [first, second])
+      for (const c of [first, second]) {
         assert.ok(await c.page.$(".lf-hub-receipt"), `${c.name} sees the run receipt`);
+      }
       await play(first, "host");
       await play(second, "guest");
       await seesPeer(first.page, "restart: host sees guest");
@@ -264,12 +277,13 @@ async function run(base, mode) {
         guest.page,
         () => window.__lf?.role === "host" && window.__lf.state === "active",
         "guest promoted",
-        30000,
+        30_000,
       );
       const after = await lf(guest.page);
-      if (mode !== "vs" && before.entities > 0)
+      if (mode !== "vs" && before.entities > 0) {
         assert.ok(after.entities > 0, "enemies survive the handoff");
-      const swing = after.swing;
+      }
+      const { swing } = after;
       await tap(guest.page, "KeyJ");
       await until(guest.page, (n) => window.__lf?.swing > n, "promoted host attacks", 8000, swing);
       host = guest;
@@ -306,14 +320,16 @@ async function run(base, mode) {
         extra.page,
         () => /Room full/.test(document.querySelector(".lf-hub-status")?.textContent ?? ""),
         "room full notice",
-        30000,
+        30_000,
       );
       assert.equal((await lf(host.page)).players, 2, "room still holds two");
       await extra.context.close();
     });
   } finally {
     console.log(results.join("\n"));
-    if (errors.length) console.log(`console errors:\n${errors.join("\n")}`);
+    if (errors.length) {
+      console.log(`console errors:\n${errors.join("\n")}`);
+    }
     await browser.close();
   }
 }
@@ -321,8 +337,12 @@ async function run(base, mode) {
 const modes = arg("--mode") ? [arg("--mode")] : ["coop", "vs"];
 const vite = arg("--url") ? null : await startVite();
 try {
-  for (const mode of modes) await run(arg("--url") ?? `http://localhost:${PORT}`, mode);
-  if (errors.length) throw new Error(`console errors:\n${errors.join("\n")}`);
+  for (const mode of modes) {
+    await run(arg("--url") ?? `http://localhost:${PORT}`, mode);
+  }
+  if (errors.length) {
+    throw new Error(`console errors:\n${errors.join("\n")}`);
+  }
   console.log("two-client: ok");
 } catch (error) {
   console.error(error);

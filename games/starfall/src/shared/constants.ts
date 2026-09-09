@@ -42,7 +42,7 @@ export const SHIP_ACCEL = 540;
 /** Exponential drag while flying: v *= exp(-DRAG·dt). 1/s. */
 export const SHIP_DRAG = 1.8;
 /** Heavier drag inside the dead zone — stopping faster than starting. 1/s. */
-export const SHIP_BRAKE_DRAG = 4.0;
+export const SHIP_BRAKE_DRAG = 4;
 /** = ACCEL/DRAG; also hard-clamps |v|. */
 export const SHIP_MAX_SPEED = 300;
 /** No thrust inside this cursor distance (3× SHIP_RADIUS). */
@@ -65,8 +65,8 @@ export const JOYSTICK_DEAD_ZONE = 8;
 /** Knob (inner puck) radius for the joystick UI. */
 export const JOYSTICK_KNOB_RADIUS = 26;
 
-export const RESPAWN_DELAY_MS = 2_500;
-export const INVULNERABLE_MS = 2_000;
+export const RESPAWN_DELAY_MS = 2500;
+export const INVULNERABLE_MS = 2000;
 /** Invulnerability blink: alpha alternates 0.3/0.9 on this period. */
 export const INVULN_BLINK_MS = 200;
 /** Respawn keeps this far from the world edges. */
@@ -90,14 +90,14 @@ export function arenaIntensity(tSec: number): number {
 }
 
 /** Asymptote of the multiplayer pressure curve (reached well past 32p). */
-export const PRESSURE_MAX = 6.0;
+export const PRESSURE_MAX = 6;
 
 /** Multiplayer pressure scale P(N). Sub-linear (sqrt) so each added player's
  *  marginal swarm contribution shrinks — host CPU + readability stay sane while
  *  a busy 32p room still swarms a 4× map. P(1)=1.0, P(4)≈2.2, P(8)≈2.5,
  *  P(16)≈3.5, P(32)≈5.0, asymptote PRESSURE_MAX. */
 export function playerPressure(playerCount: number): number {
-  return Math.min(PRESSURE_MAX, Math.max(1.0, 0.6 + 0.78 * Math.sqrt(Math.max(1, playerCount))));
+  return Math.min(PRESSURE_MAX, Math.max(1, 0.6 + 0.78 * Math.sqrt(Math.max(1, playerCount))));
 }
 
 // ---- wave pulse (§2b) ------------------------------------------------------------
@@ -186,13 +186,13 @@ export const ITEM_STACK_CAP_MS = 60_000;
 // dies in 8 sec. Lives in sharedState.shards, a SEPARATE capped array, so the
 // item-in-flight cap (ITEMS_MAX_LIVE = 6) is unaffected. (Wire/field name stays
 // `shards` to avoid a gratuitous shape change; conceptually these are XP orbs.)
-export const SHARD_LIFETIME_MS = 8_000;
+export const SHARD_LIFETIME_MS = 8000;
 /** Generous pickup radius (items are 15): shards are hoover candy. */
 export const SHARD_PICKUP_RADIUS = 40;
 export const SHARD_DRIFT_SPEED = 18;
 /** Host cap; oldest culled past it (one swarm wipe can't flood the wire). */
 export const SHARDS_MAX_LIVE = 48;
-export const SHARD_TINT = 0x9ffce8;
+export const SHARD_TINT = 0x9f_fc_e8;
 /** MAGNET pulls shards harder than items (140). */
 export const SHARD_MAGNET_PULL_SPEED = 320;
 /** Fodder kills always drop 1-2 shards. */
@@ -218,12 +218,12 @@ export const XP = {
   /** Flat per asteroid chip hit, never combo-multiplied. */
   ASTEROID_CHIP: 1,
   ASTEROID_DESTROY: 6,
-  UFO_DESTROY: 60,
   /** The boss: a marquee XP event without one-shotting you to the cap. */
   BOSS_DESTROY: 600,
-  PLAYER_KILL: 45,
   /** Orb (former score shard) pickup. Flat, never combo-multiplied. */
   ORB: 4,
+  PLAYER_KILL: 45,
+  UFO_DESTROY: 60,
 } as const;
 
 /** Bounded so the base loadout stays a notch below specials — caps the
@@ -235,7 +235,7 @@ export const XP_GROWTH = 1.6;
 /** XP needed to go from `level` → `level+1`. Super-linear: L1→2 = 70,
  *  L2→3 = 112 — 182 total to cap. */
 export function xpToNext(level: number): number {
-  return Math.round(XP_BASE * Math.pow(XP_GROWTH, Math.max(1, level) - 1));
+  return Math.round(XP_BASE * XP_GROWTH ** (Math.max(1, level) - 1));
 }
 /** On death: lose this fraction of progress INTO the current level. Absolute
  *  loss scales with level cost, so the leader pays the most (anti-snowball);
@@ -244,7 +244,7 @@ export const XP_DEATH_PENALTY_FRAC = 0.35;
 export const XP_DEATH_MAX_DELEVELS = 1;
 
 /** Kill-streak window; refreshed per kill, hard reset on expiry/death. */
-export const COMBO_WINDOW_MS = 4_000;
+export const COMBO_WINDOW_MS = 4000;
 
 /** Combo multiplier — now multiplies XP gain on kills (not orbs/chips). */
 export function comboMult(streak: number): number {
@@ -280,7 +280,7 @@ export type WeaponSfx =
   | "sentry"
   | "singularity";
 
-export type Weapon = {
+export interface Weapon {
   name: string;
   /** Damage fraction: asteroids chip min(power,1)×80 px radius; HP targets
    *  (UFO, enemies, players) take power×100 HP. */
@@ -336,36 +336,36 @@ export type Weapon = {
    *  shared pull for SINGULARITY_PULL_MS, then pops its `explosion`. */
   singularity: boolean;
   sfx: WeaponSfx;
-};
+}
 
 export const WEAPON_DEFAULT: Weapon = {
-  name: "BEAM",
-  power: 0.25,
-  speed: 520,
-  length: 12,
-  width: 1,
-  tint: 0xffffff,
-  intervalMs: 250,
-  through: false,
-  explosion: null,
-  pellets: 1,
-  spreadDeg: 0,
-  jitterDeg: 1,
-  homing: null,
   arc: null,
-  boomerang: null,
-  windupMs: 0,
-  mine: false,
-  ricochet: null,
-  flak: null,
-  cluster: null,
-  range: 0,
-  phasesRock: false,
-  mirror: false,
   aura: false,
+  boomerang: null,
+  cluster: null,
+  explosion: null,
+  flak: null,
+  homing: null,
+  intervalMs: 250,
+  jitterDeg: 1,
+  length: 12,
+  mine: false,
+  mirror: false,
+  name: "BEAM",
+  pellets: 1,
+  phasesRock: false,
+  power: 0.25,
+  range: 0,
+  ricochet: null,
   sentry: false,
-  singularity: false,
   sfx: "pulse",
+  singularity: false,
+  speed: 520,
+  spreadDeg: 0,
+  through: false,
+  tint: 0xffffff,
+  width: 1,
+  windupMs: 0,
 };
 
 /** Your BASE weapon at a given level: an upgraded NORMAL BEAM (more power, faster
@@ -378,19 +378,19 @@ export function baseWeaponForLevel(level: number): Weapon {
   const L = Math.max(1, Math.min(LEVEL_CAP, Math.round(level)));
   const power = 0.25 + 0.075 * (L - 1); // L1 .25 → L3 .40 (below BLASTER .9)
   const intervalMs = Math.round(250 - 26 * (L - 1)); // L1 250 → L3 ~198
-  const tint = L >= 3 ? 0xfff1a8 : L >= 2 ? 0xeaf6ff : 0xffffff; // warms as you level
+  const tint = L >= 3 ? 0xff_f1_a8 : L >= 2 ? 0xea_f6_ff : 0xff_ff_ff; // warms as you level
   return {
     ...WEAPON_DEFAULT,
-    name: L <= 1 ? "BEAM" : `BEAM Lv${L}`,
-    power,
     intervalMs,
-    width: L >= 3 ? 2 : 1,
-    pellets: L, // L1 → 1, L2 → 2, L3 → 3 forward shots
-    spreadDeg: (L - 1) * 7, // tight forward fan: L2 7°, L3 14° (center stays straight)
     jitterDeg: L >= 3 ? 2 : 1,
     mirror: false, // base weapon never fires backward
-    tint,
+    name: L <= 1 ? "BEAM" : `BEAM Lv${L}`,
+    pellets: L, // L1 → 1, L2 → 2, L3 → 3 forward shots
+    power,
     sfx: "pulse",
+    spreadDeg: (L - 1) * 7, // tight forward fan: L2 7°, L3 14° (center stays straight)
+    tint,
+    width: L >= 3 ? 2 : 1,
   };
 }
 
@@ -405,12 +405,14 @@ export function weaponLevelMult(level: number): number {
  *  Same `name`, so HUD + pickup-stacking still match. L1 returns the input ref. */
 export function scaleWeaponForLevel(w: Weapon, level: number): Weapon {
   const L = Math.max(1, Math.min(LEVEL_CAP, Math.round(level)));
-  if (L <= 1) return w;
+  if (L <= 1) {
+    return w;
+  }
   const fireMult = 1 + (L - 1) * 0.07; // L3 ~1.14× fire rate
   return {
     ...w,
-    power: w.power * weaponLevelMult(L),
     intervalMs: Math.max(40, Math.round(w.intervalMs / fireMult)),
+    power: w.power * weaponLevelMult(L),
   };
 }
 
@@ -421,61 +423,61 @@ const defineWeapon = (
 
 export const WEAPONS_SPECIAL: Weapon[] = [
   defineWeapon({
-    name: "TINY BEAM",
-    power: 0.14,
-    speed: 700,
-    length: 6,
-    tint: 0x83e008,
     intervalMs: 70,
     jitterDeg: 3,
+    length: 6,
+    name: "TINY BEAM",
+    power: 0.14,
     sfx: "rapid",
+    speed: 700,
+    tint: 0x83e008,
   }),
   defineWeapon({
-    name: "BLASTER",
-    power: 0.9,
-    speed: 380, // every projectile ≥360 px/s vs ship max 300 (design floor)
-    length: 16,
-    width: 3,
-    tint: 0xf4007a,
     intervalMs: 450,
     jitterDeg: 0,
+    length: 16,
+    name: "BLASTER",
+    power: 0.9,
     sfx: "heavy",
+    speed: 380, // every projectile ≥360 px/s vs ship max 300 (design floor)
+    tint: 0xf4007a,
+    width: 3,
   }),
   defineWeapon({
+    intervalMs: 380,
+    jitterDeg: 0,
+    length: 220,
     name: "LASER",
     power: 0.3,
-    speed: 2400,
-    length: 220,
-    width: 2,
-    tint: 0x8ae3fc,
-    intervalMs: 380,
-    through: true,
-    jitterDeg: 0,
     sfx: "zap",
+    speed: 2400,
+    through: true,
+    tint: 0x8ae3fc,
+    width: 2,
   }),
   defineWeapon({
+    explosion: { growth: 700, range: 110 },
+    intervalMs: 350,
+    jitterDeg: 0,
+    length: 10,
     name: "EXPLOSION BEAM",
     power: 0.22,
-    speed: 900,
-    length: 10,
-    width: 2,
-    tint: 0xff9900,
-    intervalMs: 350,
-    explosion: { range: 110, growth: 700 },
-    jitterDeg: 0,
     sfx: "boom",
+    speed: 900,
+    tint: 0xff9900,
+    width: 2,
   }),
   defineWeapon({
-    name: "SCATTER",
-    power: 0.08,
-    speed: 480,
-    length: 7,
-    tint: 0xffd23e,
     intervalMs: 300,
-    pellets: 6,
-    spreadDeg: 36,
     jitterDeg: 2,
+    length: 7,
+    name: "SCATTER",
+    pellets: 6,
+    power: 0.08,
     sfx: "scatter",
+    speed: 480,
+    spreadDeg: 36,
+    tint: 0xffd23e,
   }),
   // v3.1 retune (power 0.45 -> 0.6): the single-target-burst niche.
   // effDPS: 60/0.55s = 109 raw x 0.95 reliability -> ~104 sustained, but
@@ -483,76 +485,76 @@ export const WEAPONS_SPECIAL: Weapon[] = [
   // acquire range (420 vs CLUSTER's 380) - burst access, not sustain, is
   // the sell next to CLUSTER's crowd volley.
   defineWeapon({
-    name: "HOMING",
-    power: 0.6,
-    speed: 380,
-    length: 9,
-    width: 2,
-    tint: 0xc084fc,
+    homing: { acquireRange: 420, turnDegPerSec: 220 },
     intervalMs: 550,
     jitterDeg: 0,
-    homing: { turnDegPerSec: 220, acquireRange: 420 },
+    length: 9,
+    name: "HOMING",
+    power: 0.6,
     sfx: "seek",
+    speed: 380,
+    tint: 0xc084fc,
+    width: 2,
   }),
   defineWeapon({
-    name: "ARC",
-    power: 0.28,
-    speed: 0, // hitscan
-    length: 0,
-    tint: 0xfff066,
+    arc: { castRange: 380, falloff: 0.7, hopRange: 240, jumps: 3 },
     intervalMs: 500,
     jitterDeg: 0,
-    arc: { castRange: 380, hopRange: 240, jumps: 3, falloff: 0.7 },
+    length: 0,
+    name: "ARC",
+    power: 0.28,
     sfx: "arc",
+    speed: 0, // hitscan
+    tint: 0xfff066,
   }),
   defineWeapon({
+    boomerang: { outRange: 320, returnSpeed: 700 },
+    intervalMs: 700,
+    jitterDeg: 0,
+    length: 14,
     name: "GLAIVE",
     power: 0.35,
-    speed: 540,
-    length: 14,
-    width: 2,
-    tint: 0x2dd4bf,
-    intervalMs: 700,
-    through: true,
-    jitterDeg: 0,
-    boomerang: { outRange: 320, returnSpeed: 700 },
     sfx: "glaive",
+    speed: 540,
+    through: true,
+    tint: 0x2dd4bf,
+    width: 2,
   }),
   defineWeapon({
+    intervalMs: 1100,
+    jitterDeg: 0,
+    length: 320,
     name: "RAILGUN",
     power: 1.3,
-    speed: 2800,
-    length: 320,
-    width: 3,
-    tint: 0xd946ef,
-    intervalMs: 1100,
-    through: true,
-    jitterDeg: 0,
-    windupMs: 700,
     sfx: "rail",
+    speed: 2800,
+    through: true,
+    tint: 0xd946ef,
+    width: 3,
+    windupMs: 700,
   }),
   defineWeapon({
+    explosion: { growth: 700, range: 90 },
+    intervalMs: 700,
+    jitterDeg: 0,
+    length: 0,
+    mine: true,
     name: "MINES",
     power: 0.7,
-    speed: 0,
-    length: 0,
-    tint: 0xf59e0b,
-    intervalMs: 700,
-    explosion: { range: 90, growth: 700 },
-    jitterDeg: 0,
-    mine: true,
     sfx: "mine",
+    speed: 0,
+    tint: 0xf59e0b,
   }),
   defineWeapon({
+    explosion: { growth: 900, range: 140 },
+    intervalMs: 900,
+    jitterDeg: 0,
+    length: 0,
     name: "NOVA",
     power: 0.38,
-    speed: 0,
-    length: 0,
-    tint: 0x60a5fa,
-    intervalMs: 900,
-    explosion: { range: 140, growth: 900 },
-    jitterDeg: 0,
     sfx: "nova",
+    speed: 0,
+    tint: 0x60a5fa,
   }),
   // ---- v3 weapons #12-15 (effDPS method per v1 4.3, target band ~135-165) ----
   // RICOCHET: bounces off asteroids + world edges up to 3x; each bounce
@@ -561,15 +563,15 @@ export const WEAPONS_SPECIAL: Weapon[] = [
   // reliability (re-aim) -> ~142. Pays via indirection: the bolt spends
   // travel time between bounces and dies on any non-asteroid hit.
   defineWeapon({
+    intervalMs: 420,
+    length: 12,
     name: "RICOCHET",
     power: 0.35,
-    speed: 560,
-    length: 12,
-    width: 2,
-    tint: 0x00ff7f, // spring green
-    intervalMs: 420,
     ricochet: { bounces: 3, retargetRange: 400 },
     sfx: "pulse",
+    speed: 560,
+    tint: 0x00ff7f, // spring green
+    width: 2,
   }),
   // FLAK: shell airbursts at 280px traveled (or on first hit) into 8
   // radial fragments (FLAK_FRAG_WEAPON, 12 dmg, 160px range each).
@@ -578,15 +580,15 @@ export const WEAPONS_SPECIAL: Weapon[] = [
   // fixed burst range: too close and frags overshoot, too far and the
   // shell pops early.
   defineWeapon({
+    flak: { burstDist: 280, fragRange: 160, fragments: 8 },
+    intervalMs: 650,
+    length: 12,
     name: "FLAK",
     power: 0.45,
-    speed: 460,
-    length: 12,
-    width: 2,
-    tint: 0xff8c00, // orange (EXPLOSION's 0xff9900 reads warmer + rounder)
-    intervalMs: 650,
-    flak: { burstDist: 280, fragments: 8, fragRange: 160 },
     sfx: "boom",
+    speed: 460,
+    tint: 0xff8c00, // orange (EXPLOSION's 0xff9900 reads warmer + rounder)
+    width: 2,
   }),
   // CLUSTER: one trigger-pull -> 3 mini homing missiles staggered 60ms
   // (HOMING seek code with its own faster turn rate).
@@ -596,16 +598,16 @@ export const WEAPONS_SPECIAL: Weapon[] = [
   // locks across a crowd; HOMING (0.6) bursts one target harder from
   // farther away.
   defineWeapon({
-    name: "CLUSTER",
-    power: 0.35,
-    speed: 360,
-    length: 8,
-    tint: 0xc4b5fd, // pale violet
+    cluster: { missiles: 3, staggerMs: 60 },
+    homing: { acquireRange: 380, turnDegPerSec: 300 },
     intervalMs: 900,
     jitterDeg: 0,
-    homing: { turnDegPerSec: 300, acquireRange: 380 },
-    cluster: { missiles: 3, staggerMs: 60 },
+    length: 8,
+    name: "CLUSTER",
+    power: 0.35,
     sfx: "seek",
+    speed: 360,
+    tint: 0xc4b5fd, // pale violet,
   }),
   // DRILL: very slow, wide, long-lived through-beam that grinds the line.
   // effDPS: 100/0.9s = 111 raw x 1.6 avgTargets (pierce; slow bolt lets
@@ -614,16 +616,16 @@ export const WEAPONS_SPECIAL: Weapon[] = [
   // at the 300ms i-frame (the persistent slow beam would re-drain at the
   // 120ms tier otherwise).
   defineWeapon({
+    intervalMs: 900,
+    jitterDeg: 0,
+    length: 30,
     name: "DRILL",
     power: 1.0,
-    speed: 240,
-    length: 30,
-    width: 8,
-    tint: 0xb45309, // copper - heavy + warm without touching the reserved enemy red family
-    intervalMs: 900,
-    through: true,
-    jitterDeg: 0,
     sfx: "drill",
+    speed: 240,
+    through: true,
+    tint: 0xb45309, // copper - heavy + warm without touching the reserved enemy red family
+    width: 8,
   }),
   // ---- v3.1 weapons #16-21 (same effDPS method, target band ~135-165) ----
   // PLASMA CONE: flamethrower stream - 70ms cadence, bolts die at 150px
@@ -635,16 +637,16 @@ export const WEAPONS_SPECIAL: Weapon[] = [
   // Wire load: 150px/520px/s = ~290ms TTL x 70ms cadence = ~4-6 live
   // beams serialized (~7 under OVERDRIVE) - no beam cap needed.
   defineWeapon({
-    name: "PLASMA CONE",
-    power: 0.11,
-    speed: 520,
-    length: 10,
-    width: 3,
-    tint: 0xff5e3a, // hot pink-orange midpoint (per-shot gradient at fire)
     intervalMs: 70,
     jitterDeg: 7,
+    length: 10,
+    name: "PLASMA CONE",
+    power: 0.11,
     range: 150,
     sfx: "plasma",
+    speed: 520,
+    tint: 0xff5e3a, // hot pink-orange midpoint (per-shot gradient at fire)
+    width: 3,
   }),
   // PHASE LANCE: passes through asteroids harmlessly (the asteroid
   // hit-test is skipped outright) - the ignores-cover identity. Hits
@@ -653,16 +655,16 @@ export const WEAPONS_SPECIAL: Weapon[] = [
   // can't block rakes stacked enemies) x 1.0 reliability (near-hitscan)
   // -> ~141. Pays by never farming rocks: zero chip income, zero mining.
   defineWeapon({
-    name: "PHASE LANCE",
-    power: 0.45,
-    speed: 2200,
-    length: 240,
-    tint: 0xdffbff, // cyan-white, thinner + paler than LASER's 0x8ae3fc
     intervalMs: 400,
-    through: true,
     jitterDeg: 0,
+    length: 240,
+    name: "PHASE LANCE",
     phasesRock: true,
+    power: 0.45,
     sfx: "zap",
+    speed: 2200,
+    through: true,
+    tint: 0xdffbff, // cyan-white, thinner + paler than LASER's 0x8ae3fc,
   }),
   // MIRROR: every trigger fires the bolt forward AND a copy backward
   // (180 deg, from the tail). ~0.7x NORMAL power each, fast cadence.
@@ -670,15 +672,15 @@ export const WEAPONS_SPECIAL: Weapon[] = [
   // must be chasing you) -> ~140. The fleeing weapon: full value only
   // under pursuit; kiting IS the aim mechanic.
   defineWeapon({
+    intervalMs: 200,
+    length: 10,
+    mirror: true,
     name: "MIRROR",
     power: 0.18,
-    speed: 560,
-    length: 10,
-    width: 2,
-    tint: 0xb8c2cc, // silver, dimmer than NORMAL's white
-    intervalMs: 200,
-    mirror: true,
     sfx: "pulse",
+    speed: 560,
+    tint: 0xb8c2cc, // silver, dimmer than NORMAL's white
+    width: 2,
   }),
   // TESLA AURA: melee field - while held, zaps the nearest target within
   // 120px every 180ms (omnidirectional auto-aim, single-hop ARC-chain
@@ -688,16 +690,16 @@ export const WEAPONS_SPECIAL: Weapon[] = [
   // via the serialized `tesla` flag + own proximity (RAM pattern) at the
   // standard 120ms i-frame tier.
   defineWeapon({
-    name: "TESLA AURA",
-    power: 0.27,
-    speed: 0,
-    length: 0,
-    tint: 0x00aaff, // electric blue
+    arc: { castRange: 120, falloff: 1, hopRange: 0, jumps: 0 },
+    aura: true,
     intervalMs: 180,
     jitterDeg: 0,
-    arc: { castRange: 120, hopRange: 0, jumps: 0, falloff: 1 },
-    aura: true,
+    length: 0,
+    name: "TESLA AURA",
+    power: 0.27,
     sfx: "tesla",
+    speed: 0,
+    tint: 0x00aaff, // electric blue,
   }),
   // SENTRY: each trigger places the one turret at the ship (max 1;
   // placing again moves it; 12s life, re-place refreshes) AND fires this
@@ -708,14 +710,14 @@ export const WEAPONS_SPECIAL: Weapon[] = [
   // -> ~139. Pays via the split: half your output is parked wherever you
   // last left it.
   defineWeapon({
+    intervalMs: 280,
+    length: 12,
     name: "SENTRY",
     power: 0.25,
-    speed: 520,
-    length: 12,
-    tint: 0xfbbf24, // amber
-    intervalMs: 280,
     sentry: true,
     sfx: "sentry",
+    speed: 520,
+    tint: 0xfbbf24, // amber,
   }),
   // SINGULARITY: slow orb (180 px/s), collapses at 216px traveled (1.2s)
   // or on first contact: 0.8s pull drags asteroids/enemies within 220px
@@ -726,125 +728,125 @@ export const WEAPONS_SPECIAL: Weapon[] = [
   // radius) x 0.95 -> ~147. power 1.0 -> heavy tier: PvP rates at the
   // 300ms i-frame (exploding beams use it anyway).
   defineWeapon({
+    explosion: { growth: 600, range: 90 },
+    intervalMs: 1500,
+    jitterDeg: 0,
+    length: 0,
     name: "SINGULARITY",
     power: 1.0,
-    speed: 180,
-    length: 0,
-    width: 2,
-    tint: 0x7c3aed, // deep purple
-    intervalMs: 1500,
-    explosion: { range: 90, growth: 600 },
-    jitterDeg: 0,
     range: 216,
-    singularity: true,
     sfx: "singularity",
+    singularity: true,
+    speed: 180,
+    tint: 0x7c3aed, // deep purple
+    width: 2,
   }),
   // ---- v5 additions (APPEND-ONLY — weaponIdx is positional + serialized) ----------
   // GRAVITON WELL — a long, gentle pull that herds a swarm into one cluster for a
   // follow-up AoE, with a weak pop. Reuses the singularity path; only the pull
   // duration differs (see startCollapse). A setup/utility weapon, not a nuke.
   defineWeapon({
+    explosion: { growth: 600, range: 120 },
+    intervalMs: 2600,
+    jitterDeg: 0,
+    length: 0,
     name: "GRAVITON WELL",
     power: 0.6,
-    speed: 200,
-    length: 0,
-    width: 2,
-    tint: 0x4338ca, // indigo, cooler than SINGULARITY
-    intervalMs: 2600,
-    explosion: { range: 120, growth: 600 },
-    jitterDeg: 0,
     range: 220,
-    singularity: true,
     sfx: "singularity",
+    singularity: true,
+    speed: 200,
+    tint: 0x4338ca, // indigo, cooler than SINGULARITY
+    width: 2,
   }),
   // SUPERNOVA — telegraphed screen-wide panic clear. Reuses the NOVA branch
   // (explosion + speed 0); windupMs is honored generically in handleShooting.
   defineWeapon({
+    explosion: { growth: 1100, range: 360 }, // screen-wide (NOVA is 140)
+    intervalMs: 2000,
+    jitterDeg: 0,
+    length: 0,
     name: "SUPERNOVA",
     power: 1.0,
-    speed: 0,
-    length: 0,
-    tint: 0xfde047, // solar yellow
-    intervalMs: 2000,
-    explosion: { range: 360, growth: 1100 }, // screen-wide (NOVA is 140)
-    jitterDeg: 0,
-    windupMs: 500, // telegraphed; charging nose-glow is free
     sfx: "nova",
+    speed: 0,
+    tint: 0xfde047, // solar yellow
+    windupMs: 500, // telegraphed; charging nose-glow is free,
   }),
   // SEEKER SWARM — sustained lock-spam: 6 staggered homing missiles that saturate
   // a crowd. Distinct from CLUSTER (3 tight) and HOMING (1 burst).
   defineWeapon({
-    name: "SEEKER SWARM",
-    power: 0.22,
-    speed: 340,
-    length: 8,
-    width: 2,
-    tint: 0xf472b6, // pink
+    cluster: { missiles: 6, staggerMs: 90 },
+    homing: { acquireRange: 440, turnDegPerSec: 260 },
     intervalMs: 1400,
     jitterDeg: 0,
-    homing: { turnDegPerSec: 260, acquireRange: 440 },
-    cluster: { missiles: 6, staggerMs: 90 },
+    length: 8,
+    name: "SEEKER SWARM",
+    power: 0.22,
     sfx: "seek",
+    speed: 340,
+    tint: 0xf472b6, // pink
+    width: 2,
   }),
   // CHAIN REACTOR — screen-wide lightning web (arc, 6 jumps). Strong against a
   // packed swarm, weak 1v1 — self-balancing for a 32p brawl.
   defineWeapon({
-    name: "CHAIN REACTOR",
-    power: 0.3,
-    speed: 0, // hitscan (arc)
-    length: 0,
-    width: 2,
-    tint: 0x22d3ee, // bright cyan
+    arc: { castRange: 460, falloff: 0.78, hopRange: 320, jumps: 6 },
     intervalMs: 650,
     jitterDeg: 0,
-    arc: { castRange: 460, hopRange: 320, jumps: 6, falloff: 0.78 },
+    length: 0,
+    name: "CHAIN REACTOR",
+    power: 0.3,
     sfx: "arc",
+    speed: 0, // hitscan (arc)
+    tint: 0x22d3ee, // bright cyan
+    width: 2,
   }),
   // PLASMA STORM — 360° close-range airburst cloud (flak, 14 frags, close burst).
   // Brutal point-blank, whiffs at range — the close trade is the balancer.
   defineWeapon({
+    flak: { burstDist: 110, fragRange: 150, fragments: 14 },
+    intervalMs: 700,
+    length: 12,
     name: "PLASMA STORM",
     power: 0.4,
-    speed: 520,
-    length: 12,
-    width: 2,
-    tint: 0xa3e635, // lime
-    intervalMs: 700,
-    flak: { burstDist: 110, fragments: 14, fragRange: 150 },
     sfx: "boom",
+    speed: 520,
+    tint: 0xa3e635, // lime
+    width: 2,
   }),
 ];
 
 /** FLAK fragments: ordinary beams (own hitIds, serialized, PvP-live) spawned
  *  by the shell burst; never trigger-fired, so intervalMs is inert. */
 export const FLAK_FRAG_WEAPON: Weapon = {
-  name: "FLAK FRAG",
-  power: 0.12,
-  speed: 420,
-  length: 6,
-  width: 1,
-  tint: 0xffb066,
-  intervalMs: 9_999,
-  through: false,
-  explosion: null,
-  pellets: 1,
-  spreadDeg: 0,
-  jitterDeg: 0,
-  homing: null,
   arc: null,
-  boomerang: null,
-  windupMs: 0,
-  mine: false,
-  ricochet: null,
-  flak: null,
-  cluster: null,
-  range: 0,
-  phasesRock: false,
-  mirror: false,
   aura: false,
+  boomerang: null,
+  cluster: null,
+  explosion: null,
+  flak: null,
+  homing: null,
+  intervalMs: 9_999,
+  jitterDeg: 0,
+  length: 6,
+  mine: false,
+  mirror: false,
+  name: "FLAK FRAG",
+  pellets: 1,
+  phasesRock: false,
+  power: 0.12,
+  range: 0,
+  ricochet: null,
   sentry: false,
-  singularity: false,
   sfx: "boom",
+  singularity: false,
+  speed: 420,
+  spreadDeg: 0,
+  through: false,
+  tint: 0xffb066,
+  width: 1,
+  windupMs: 0,
 };
 
 /** ARC bolt lives this long on screen (re-jittered every frame). */
@@ -861,7 +863,7 @@ export const GLAIVE_DECEL_PX = 80;
 // MINES (weapon #9): owner-simulated, ride in beams[] with `mine: true`.
 export const MINE_ARM_MS = 450;
 export const MINE_TRIGGER_RADIUS = 60;
-export const MINE_LIFETIME_MS = 6_000;
+export const MINE_LIFETIME_MS = 6000;
 /** Oldest detonates harmlessly (30% ring, no damage) when exceeded. */
 export const MINE_MAX_LIVE = 5;
 
@@ -886,23 +888,23 @@ export const GRAVITON_PULL_MS = 2400;
 
 export const SHIELD_MAX = 100; // every ship, always
 /** No damage this long → regen starts (Halo grammar at ~60% timescale). */
-export const SHIELD_REGEN_DELAY_MS = 2_500;
+export const SHIELD_REGEN_DELAY_MS = 2500;
 /** 0→100 in this long once running (rate = 66.7 HP/s). */
-export const SHIELD_REGEN_FULL_MS = 1_500;
+export const SHIELD_REGEN_FULL_MS = 1500;
 /** Below this fraction: warning pulse + `shield_low` tone. */
 export const SHIELD_LOW_FRACTION = 0.3;
 
 /** Drain per source, on the 100 scale. Every cell that zeroes shieldHp = death. */
 export const DMG = {
+  BOSS_LANCE: 70, // 3 simultaneous in boss phase 2
   DRONE_SHOT: 30, // 4 consecutive hits kill
-  WASP_SHOT: 25, // per bolt; a full 3-bolt burst = 75
+  ENEMY_HULL: 35, // drone/wasp/splitter hull contact
   LANCER_CHARGE: 80, // the haymaker
   LANCER_HULL: 45, // touching a non-charging lancer
-  ENEMY_HULL: 35, // drone/wasp/splitter hull contact
+  SNIPER_BOLT: 55, // fast rail; breaking the laser-sight line avoids it
   UFO_HULL: 50,
   WARDEN_MORTAR: 40, // slow lob; dodge-or-pay
-  SNIPER_BOLT: 55, // fast rail; breaking the laser-sight line avoids it
-  BOSS_LANCE: 70, // 3 simultaneous in boss phase 2
+  WASP_SHOT: 25, // per bolt; a full 3-bolt burst = 75
 } as const;
 
 /** Boss phase-2 lances ride a distinct (faster) speed than the SNIPER so the
@@ -913,9 +915,15 @@ export const BOSS_LANCE_SHOT_SPEED = 820;
  *  each kind's shot damage and death cause are recovered from its bolt speed.
  *  (Both host and victim run this on the same serialized vx/vy, so they agree.) */
 export function enemyShotHit(speed: number) {
-  if (speed >= 800) return { cause: "DREADNOUGHT", dmg: DMG.BOSS_LANCE }; // boss lance (820)
-  if (speed >= 600) return { cause: "SNIPER", dmg: DMG.SNIPER_BOLT }; // sniper (720)
-  if (speed <= 270) return { cause: "DRONE", dmg: DMG.DRONE_SHOT }; // drone, warden, boss plasma/nova
+  if (speed >= 800) {
+    return { cause: "DREADNOUGHT", dmg: DMG.BOSS_LANCE };
+  } // boss lance (820)
+  if (speed >= 600) {
+    return { cause: "SNIPER", dmg: DMG.SNIPER_BOLT };
+  } // sniper (720)
+  if (speed <= 270) {
+    return { cause: "DRONE", dmg: DMG.DRONE_SHOT };
+  } // drone, warden, boss plasma/nova
   return { cause: "WASP", dmg: DMG.WASP_SHOT };
 }
 
@@ -925,7 +933,7 @@ export function asteroidContactDamage(r: number): number {
 }
 
 // PvP: drain = weapon.power × 100 × PVP_DAMAGE_MULT, volley rule (§A.2).
-export const PVP_DAMAGE_MULT = 1.0; // the tuning knob; ship at 1.0
+export const PVP_DAMAGE_MULT = 1; // the tuning knob; ship at 1.0
 export const PVP_MAX_SINGLE_HIT = 90; // no single volley kills from full
 export const PVP_HIT_IFRAME_MS = 120; // per-shooter, after a volley drains
 export const PVP_EXPLOSION_IFRAME_MS = 300; // exploding beams tick slower
@@ -959,17 +967,20 @@ export const SHIELD_MOD_KINDS: readonly ShieldModKind[] = [
   "leech",
 ];
 
-export type ShieldModSpec = { name: string; tint: number };
+export interface ShieldModSpec {
+  name: string;
+  tint: number;
+}
 
 export const SHIELD_MOD_SPECS = {
-  overshield: { name: "OVERSHIELD", tint: 0x7dd3fc },
-  reflect: { name: "REFLECT", tint: 0xc084fc },
-  ram: { name: "RAM", tint: 0xffb454 },
-  phase: { name: "PHASE", tint: 0xe2e8f0 },
-  siphon: { name: "SIPHON", tint: 0x34d399 },
   aegis: { name: "AEGIS", tint: 0xfacc15 },
   bulwark: { name: "BULWARK", tint: 0x94a3b8 },
   leech: { name: "LEECH FIELD", tint: 0x4ade80 },
+  overshield: { name: "OVERSHIELD", tint: 0x7dd3fc },
+  phase: { name: "PHASE", tint: 0xe2e8f0 },
+  ram: { name: "RAM", tint: 0xffb454 },
+  reflect: { name: "REFLECT", tint: 0xc084fc },
+  siphon: { name: "SIPHON", tint: 0x34d399 },
 } satisfies Record<ShieldModKind, ShieldModSpec>;
 
 /** BULWARK: incoming hits inside a frontal cone take BULWARK_FRONT_MULT damage;
@@ -982,7 +993,7 @@ export const LEECH_FIELD_HEAL = 10;
 
 /** Base shield ring radius (hull r=8; mod halos sit at r=15). */
 export const SHIELD_RING_RADIUS = 12;
-export const SHIELD_RING_TINT = 0xcfe3ff;
+export const SHIELD_RING_TINT = 0xcf_e3_ff;
 export const SHIELD_HALO_RADIUS = 15;
 
 /** OVERSHIELD: instant bonus layer; drains first, never regenerates. */
@@ -1016,8 +1027,8 @@ export const RAM_PVP_DRAIN = 35;
 export const PHASE_TRIGGER_HIT = 40;
 /** Shield cost per blink — capped at shieldHp−1, phasing can never kill. */
 export const PHASE_COST = 25;
-export const PHASE_DURATION_MS = 1_000;
-export const PHASE_COOLDOWN_MS = 8_000;
+export const PHASE_DURATION_MS = 1000;
+export const PHASE_COOLDOWN_MS = 8000;
 
 // SIPHON: kills restore shield (predicted kills count).
 export const SIPHON_HEAL_ENEMY = 18;
@@ -1031,7 +1042,7 @@ export const SIPHON_OVERHEAL_DECAY_PER_S = 8;
 // AEGIS: pure regen tuner — the Halo "fast recharge" feel.
 /** Replaces 2_500 while held. 1.4s (not 0.9s) so a lone WASP's 2.2s burst
  *  cycle still out-paces regen — design F.2: a wasp must still kill. */
-export const AEGIS_REGEN_DELAY_MS = 1_400;
+export const AEGIS_REGEN_DELAY_MS = 1400;
 export const AEGIS_REGEN_MULT = 1.6; // 106.7 HP/s → full in ~0.94s
 
 // ---- boosters (v2 §D — third drop class) --------------------------------------------
@@ -1048,15 +1059,19 @@ export const BOOSTER_KINDS: readonly BoosterKind[] = [
   "salvage",
 ];
 
-export type BoosterSpec = { name: string; tint: number; durationMs: number };
+export interface BoosterSpec {
+  name: string;
+  tint: number;
+  durationMs: number;
+}
 
 export const BOOSTER_SPECS = {
-  overdrive: { name: "OVERDRIVE", tint: 0xfacc15, durationMs: 15_000 },
-  nitro: { name: "NITRO", tint: 0xf97316, durationMs: 15_000 },
-  repair: { name: "REPAIR", tint: 0x4ade80, durationMs: 0 }, // instant
-  twin: { name: "TWIN", tint: 0xa78bfa, durationMs: 20_000 },
-  magnet: { name: "MAGNET", tint: 0x38bdf8, durationMs: 25_000 },
-  salvage: { name: "SALVAGE", tint: 0xfbbf24, durationMs: 20_000 },
+  magnet: { durationMs: 25_000, name: "MAGNET", tint: 0x38bdf8 },
+  nitro: { durationMs: 15_000, name: "NITRO", tint: 0xf97316 },
+  overdrive: { durationMs: 15_000, name: "OVERDRIVE", tint: 0xfacc15 },
+  repair: { durationMs: 0, name: "REPAIR", tint: 0x4ade80 }, // instant
+  salvage: { durationMs: 20_000, name: "SALVAGE", tint: 0xfbbf24 },
+  twin: { durationMs: 20_000, name: "TWIN", tint: 0xa78bfa },
 } satisfies Record<BoosterKind, BoosterSpec>;
 
 /** SALVAGE: XP-orb pickups are worth this multiple while held. */
@@ -1090,7 +1105,7 @@ export const FODDER_DROP_CHANCE = 0.18;
 export const ASTEROID_DROP_CHANCE = 0.11;
 
 /** Class split once a drop is happening (relative weights, v2 ratios kept). */
-export const LOOT_CLASS_WEIGHTS: ReadonlyArray<{ cls: LootClass; weight: number }> = [
+export const LOOT_CLASS_WEIGHTS: readonly { cls: LootClass; weight: number }[] = [
   { cls: "shield", weight: 18 },
   { cls: "booster", weight: 15 },
   { cls: "weapon", weight: 12 },
@@ -1098,7 +1113,7 @@ export const LOOT_CLASS_WEIGHTS: ReadonlyArray<{ cls: LootClass; weight: number 
 
 /** Child tables ([kind, integer weight] entries — every kind listed once).
  *  Weapon child roll: uniform over WEAPONS_SPECIAL. */
-export const LOOT_SHIELD_WEIGHTS: ReadonlyArray<readonly [ShieldModKind, number]> = [
+export const LOOT_SHIELD_WEIGHTS: readonly (readonly [ShieldModKind, number])[] = [
   ["overshield", 4],
   ["reflect", 3],
   ["ram", 3],
@@ -1108,7 +1123,7 @@ export const LOOT_SHIELD_WEIGHTS: ReadonlyArray<readonly [ShieldModKind, number]
   ["bulwark", 3],
   ["leech", 2],
 ];
-export const LOOT_BOOSTER_WEIGHTS: ReadonlyArray<readonly [BoosterKind, number]> = [
+export const LOOT_BOOSTER_WEIGHTS: readonly (readonly [BoosterKind, number])[] = [
   ["overdrive", 4],
   ["nitro", 3],
   ["repair", 3],
@@ -1119,7 +1134,7 @@ export const LOOT_BOOSTER_WEIGHTS: ReadonlyArray<readonly [BoosterKind, number]>
 
 /** Per-class pity: a kill that doesn't drop class X increments X's counter;
  *  at threshold the next roll forces it (ripe-priority shield > booster > weapon). */
-export const LOOT_PITY = { shield: 8, booster: 9, weapon: 12 } satisfies Record<LootClass, number>;
+export const LOOT_PITY = { booster: 9, shield: 8, weapon: 12 } satisfies Record<LootClass, number>;
 
 /** Loot rolls that would exceed this many items in flight are skipped (UFO bypasses). */
 export const ITEMS_MAX_LIVE = 6;
@@ -1130,21 +1145,27 @@ export function rollLootClass(): LootClass {
   let roll = rand() * total;
   for (const e of LOOT_CLASS_WEIGHTS) {
     roll -= e.weight;
-    if (roll <= 0) return e.cls;
+    if (roll <= 0) {
+      return e.cls;
+    }
   }
   return "weapon";
 }
 
 /** Roll a child table of [key, integer weight] entries. */
-export function rollWeightedKey<K extends string>(entries: ReadonlyArray<readonly [K, number]>): K {
+export function rollWeightedKey<K extends string>(entries: readonly (readonly [K, number])[]): K {
   const total = entries.reduce((sum, [, w]) => sum + w, 0);
   let roll = rand() * total;
   for (const [key, w] of entries) {
     roll -= w;
-    if (roll <= 0) return key;
+    if (roll <= 0) {
+      return key;
+    }
   }
-  const last = entries[entries.length - 1];
-  if (!last) throw new Error("rollWeightedKey: empty table");
+  const last = entries.at(-1);
+  if (!last) {
+    throw new Error("rollWeightedKey: empty table");
+  }
   return last[0];
 }
 
@@ -1160,14 +1181,14 @@ export type EnemyKind =
   | "spawner"
   | "dreadnought";
 
-export type EnemySpec = {
+export interface EnemySpec {
   name: string;
   tint: number;
   hitRadius: number;
   hp: number;
   /** XP awarded on kill (combo-multiplied via registerKill). */
   xp: number;
-};
+}
 
 /** v3 fodder rule: one NORMAL BEAM hit = power 0.25 x 100 = 25 HP, so
  *  fodder (drone, wasp) hp <= 25 and dies to a single default shot.
@@ -1178,16 +1199,16 @@ export type EnemySpec = {
  *  kill a dodging full-shield player (30 dmg / 2.8s cooldown vs 2.5s regen
  *  delay). */
 export const ENEMY_SPECS = {
-  drone: { name: "DRONE", tint: 0xff7a6b, hitRadius: 7, hp: 20, xp: 5 },
-  wasp: { name: "WASP", tint: 0xff4757, hitRadius: 8, hp: 25, xp: 12 },
-  lancer: { name: "LANCER", tint: 0xd90429, hitRadius: 9, hp: 160, xp: 20 },
-  splitter: { name: "SPLITTER", tint: 0xff9580, hitRadius: 12, hp: 240, xp: 16 },
-  warden: { name: "WARDEN", tint: 0xffb347, hitRadius: 16, hp: 520, xp: 28 },
-  sniper: { name: "SNIPER", tint: 0xff5ec7, hitRadius: 8, hp: 35, xp: 14 },
-  spawner: { name: "HIVE", tint: 0xc77dff, hitRadius: 14, hp: 500, xp: 24 },
+  drone: { hitRadius: 7, hp: 20, name: "DRONE", tint: 0xff7a6b, xp: 5 },
+  wasp: { hitRadius: 8, hp: 25, name: "WASP", tint: 0xff4757, xp: 12 },
+  lancer: { hitRadius: 9, hp: 160, name: "LANCER", tint: 0xd90429, xp: 20 },
+  splitter: { hitRadius: 12, hp: 240, name: "SPLITTER", tint: 0xff9580, xp: 16 },
+  warden: { hitRadius: 16, hp: 520, name: "WARDEN", tint: 0xffb347, xp: 28 },
+  sniper: { hitRadius: 8, hp: 35, name: "SNIPER", tint: 0xff5ec7, xp: 14 },
+  spawner: { hitRadius: 14, hp: 500, name: "HIVE", tint: 0xc77dff, xp: 24 },
   // hp is a placeholder (keep = BOSS_HP_BASE); the host overwrites
   // e.hp = bossHp(players) at spawn.
-  dreadnought: { name: "DREADNOUGHT", tint: 0xff2d2d, hitRadius: 60, hp: 14_000, xp: 600 },
+  dreadnought: { hitRadius: 60, hp: 14_000, name: "DREADNOUGHT", tint: 0xff2d2d, xp: 600 },
 } satisfies Record<EnemyKind, EnemySpec>;
 
 // ---- elite durability (qa-018): elite HP tracks the room's beam-DPS ceiling ------
@@ -1235,7 +1256,7 @@ export const ENEMY_FIRE_RANGE = 600;
 /** Never spawn within this distance of a living player. */
 export const ENEMY_SPAWN_CLEARANCE = 900;
 /** Debut rule: a type's first spawn suppresses other enemy spawns this long. */
-export const ENEMY_DEBUT_SUPPRESS_MS = 5_000;
+export const ENEMY_DEBUT_SUPPRESS_MS = 5000;
 
 // ---- early-arena onslaught (first-30s feel) ----------------------------------------
 // A fresh arena at low intensity holds only a handful of hostiles across the whole
@@ -1265,11 +1286,11 @@ export const EARLY_FODDER_SEED_COUNT = 3;
  *  drone closes ~70 px/s, so from ≤1050 the whole wave is a visible on-screen
  *  threat within ~4s of the safe opening ending (from 1600 it would take 12s+
  *  and the opening still reads empty). */
-export const EARLY_SEED_RING_MAX = 1_050;
+export const EARLY_SEED_RING_MAX = 1050;
 /** Spawn-interval clamp inside the window: at intensity 0.2 the base curve
  *  waits 8s between (and before the FIRST) spawn. The caps still bound the
  *  early population, so totals are unchanged — the field just fills promptly. */
-export const EARLY_SPAWN_INTERVAL_MS = 2_500;
+export const EARLY_SPAWN_INTERVAL_MS = 2500;
 
 // ---- BEACON arena event (dir-004) --------------------------------------------------
 // King-of-the-hill XP zone that fills the intensity troughs. One beacon at a
@@ -1302,7 +1323,7 @@ export const BEACON_XP_PER_TICK = 3;
 export const BEACON_HOLD_BONUS_XP = 40;
 /** Event tint family: solar gold + white core. Distinct from warden amber by
  *  geometry (a huge static hex ring). Keep gold off enemy and player kit. */
-export const BEACON_TINT = 0xffd166;
+export const BEACON_TINT = 0xff_d1_66;
 /** Placement: ≥ this far inside the barrier... */
 export const BEACON_EDGE_MARGIN = 600;
 /** ...and ≥ this far from every present player (fair approach run). If no
@@ -1324,7 +1345,7 @@ export const BEACON_CONTEST_STROBE_HZ = 4;
 /** BEACON shared entry — the ONE nullable SharedState field the event adds
  *  (~90B on the wire). Six scalars, host-written; clients derive phase +
  *  countdown locally: t < activeAt → CHARGE, else ACTIVE until diesAt. */
-export type BeaconState = {
+export interface BeaconState {
   x: number;
   y: number;
   /** Host-clock epoch-ms the zone arms (CHARGE ends). */
@@ -1334,7 +1355,7 @@ export type BeaconState = {
   /** Sole occupant during ACTIVE; null when empty or contested. */
   controllerId: string | null;
   contested: boolean;
-};
+}
 
 // ---- SECTOR cycle (dir-006): session shape + post-cap chase ------------------------
 // A soft 9-minute clock derived PURELY from the shared arenaEpoch (zero new
@@ -1387,10 +1408,10 @@ const CALLSIGN_TABLE = [
   "STRIKER",
 ] as const;
 export function callsign(peerId: string): string {
-  let h = 0x811c9dc5;
+  let h = 0x81_1c_9d_c5;
   for (let i = 0; i < peerId.length; i++) {
     h ^= peerId.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
+    h = Math.imul(h, 0x01_00_01_93);
   }
   h >>>= 0;
   const name = CALLSIGN_TABLE[h % CALLSIGN_TABLE.length] ?? "NOMAD";
@@ -1413,7 +1434,7 @@ export const DRONE_SPEED = 70;
 export const DRONE_TURN_DEG_PER_S = 90;
 export const DRONE_SHOT_SPEED = 200;
 export const DRONE_FIRE_CONE_DEG = 20; // ± of nose
-export const DRONE_COOLDOWN_MS = 2_800;
+export const DRONE_COOLDOWN_MS = 2800;
 export const DRONE_TELEGRAPH_MS = 400;
 
 export const WASP_SPEED = 240;
@@ -1423,14 +1444,14 @@ export const WASP_WOBBLE_HZ = 1.2;
 export const WASP_BURST_COUNT = 3;
 export const WASP_BURST_GAP_MS = 110;
 export const WASP_SHOT_SPEED = 340;
-export const WASP_COOLDOWN_MS = 2_200;
+export const WASP_COOLDOWN_MS = 2200;
 export const WASP_TELEGRAPH_MS = 350;
 
 export const LANCER_CRUISE_SPEED = 90;
 export const LANCER_CHARGE_SPEED = 640;
 export const LANCER_WINDUP_MS = 600;
 export const LANCER_CHARGE_MS = 700;
-export const LANCER_RECOVER_MS = 1_200;
+export const LANCER_RECOVER_MS = 1200;
 export const LANCER_CHARGE_HIT_RADIUS = 12;
 /** Telegraph dashed line length = full charge travel (640 × 0.7). */
 export const LANCER_CHARGE_RANGE = 448;
@@ -1446,9 +1467,9 @@ export const SPLITTER_GRACE_MS = 600;
 export const WARDEN_SPEED = 55;
 export const WARDEN_TURN_DEG_PER_S = 45;
 export const WARDEN_SHIELDED_DR = 0.2; // ×0.2 damage while shielded (80% mitigation)
-export const WARDEN_VENT_DR = 2.0; // ×2 damage during the vent window
-export const WARDEN_VENT_MS = 1_400;
-export const WARDEN_COOLDOWN_MS = 3_200;
+export const WARDEN_VENT_DR = 2; // ×2 damage during the vent window
+export const WARDEN_VENT_MS = 1400;
+export const WARDEN_COOLDOWN_MS = 3200;
 export const WARDEN_TELEGRAPH_MS = 700;
 export const WARDEN_SHOT_SPEED = 220; // slow lob → DRONE-tier cause
 export const WARDEN_FIRE_RANGE = 700;
@@ -1459,15 +1480,15 @@ export const WARDEN_FIRE_RANGE = 700;
 export const SNIPER_SPEED = 130;
 export const SNIPER_KEEP_DIST = 520;
 export const SNIPER_AIM_MS = 900;
-export const SNIPER_COOLDOWN_MS = 2_600;
+export const SNIPER_COOLDOWN_MS = 2600;
 export const SNIPER_SHOT_SPEED = 720; // fastest projectile in the game
-export const SNIPER_FIRE_RANGE = 1_100;
+export const SNIPER_FIRE_RANGE = 1100;
 
 // ---- SPAWNER / HIVE (v5: swarm-spawner) ------------------------------------------
 // Barely drifts; periodically births mites on a telegraphed pulse, self-capping
 // its brood. Kill it to stop the bleed — priority target.
 export const SPAWNER_SPEED = 35;
-export const SPAWNER_PULSE_MS = 4_200;
+export const SPAWNER_PULSE_MS = 4200;
 export const SPAWNER_TELEGRAPH_MS = 650;
 export const SPAWNER_BROOD_PER_PULSE = 2;
 export const SPAWNER_BROOD_CAP = 6;
@@ -1483,23 +1504,23 @@ export const MITE_GRACE_MS = 500;
 export const BOSS_HP_BASE = 14_000;
 /** Each extra player adds 25% of base HP: co-op fights are still faster per
  *  head (grouping is rewarded) but a 4p room no longer deletes the boss. */
-export const BOSS_HP_PER_PLAYER = 3_500;
+export const BOSS_HP_PER_PLAYER = 3500;
 /** Per-phase minimum duration (qa-009): damage cannot push HP across the next
  *  phase boundary (phase 3's boundary = death) until the current phase has
  *  run this long, so every phase's attack script always expresses — even
  *  against stacked specials in a full room. Host-side clamp in
  *  hostDamageEnemy; worst-case fight length vs infinite DPS = 3 x this. */
-export const BOSS_PHASE_MIN_MS = 8_000;
+export const BOSS_PHASE_MIN_MS = 8000;
 export const BOSS_SPEED = 70;
 export const BOSS_ORBIT_RADIUS = 700;
-export const BOSS_P1_CYCLE_MS = 2_200;
+export const BOSS_P1_CYCLE_MS = 2200;
 export const BOSS_P1_TELEGRAPH_MS = 600;
 export const BOSS_P1_SPREAD_COUNT = 7;
 export const BOSS_P1_SPREAD_DEG = 60;
-export const BOSS_P2_CYCLE_MS = 2_600;
-export const BOSS_P2_AIM_MS = 1_100;
+export const BOSS_P2_CYCLE_MS = 2600;
+export const BOSS_P2_AIM_MS = 1100;
 export const BOSS_P2_LANCES = 3;
-export const BOSS_P3_CYCLE_MS = 1_900;
+export const BOSS_P3_CYCLE_MS = 1900;
 export const BOSS_P3_TELEGRAPH_MS = 700;
 export const BOSS_P3_NOVA_COUNT = 16;
 export const BOSS_P3_MITES = 4;
@@ -1525,10 +1546,10 @@ export function bossPhase(hp: number, maxHp: number): 1 | 2 | 3 {
   return f > 0.66 ? 1 : f > 0.33 ? 2 : 3;
 }
 
-export const ENEMY_SHOT_TINT = 0xff3b30; // red is reserved: nothing friendly is ever red
+export const ENEMY_SHOT_TINT = 0xff_3b_30; // red is reserved: nothing friendly is ever red
 export const ENEMY_SHOT_LEN = 8;
 export const ENEMY_SHOT_WIDTH = 2;
-export const ENEMY_SHOT_TTL_MS = 4_000;
+export const ENEMY_SHOT_TTL_MS = 4000;
 
 /** v3 swarm tuning: fodder weight ramps with intensity so peaks read as
  *  swarms of 1-shot units, not elite walls. At I=2.6: drone 24.4, wasp 25.2,
@@ -1536,22 +1557,30 @@ export const ENEMY_SHOT_TTL_MS = 4_000;
  *  still gated by the debut grammar (first appearance is solo). */
 export function enemySpawnWeight(kind: EnemyKind, intensity: number): number {
   switch (kind) {
-    case "drone":
+    case "drone": {
       return 10 + 9 * Math.max(0, intensity - 1);
-    case "wasp":
+    }
+    case "wasp": {
       return 12 * Math.max(0, intensity - 0.5);
-    case "lancer":
+    }
+    case "lancer": {
       return 7 * Math.max(0, intensity - 0.9);
-    case "splitter":
+    }
+    case "splitter": {
       return 5 * Math.max(0, intensity - 1.2);
-    case "sniper":
+    }
+    case "sniper": {
       return 6 * Math.max(0, intensity - 1.0);
-    case "warden":
+    }
+    case "warden": {
       return 4 * Math.max(0, intensity - 1.4);
-    case "spawner":
+    }
+    case "spawner": {
       return 3.5 * Math.max(0, intensity - 1.5);
-    case "dreadnought":
-      return 0; // dedicated trigger only — never in the weighted roll
+    }
+    case "dreadnought": {
+      return 0;
+    } // dedicated trigger only — never in the weighted roll
   }
 }
 
@@ -1574,7 +1603,7 @@ export const ENEMY_DESPAWN_SLACK = 2;
 export const ENEMY_DESPAWN_MIN_DIST = 1200;
 /** At most one breather despawn per this interval (post-peak crowds must
  *  clear inside the breather window at the v2 caps). */
-export const ENEMY_DESPAWN_INTERVAL_MS = 1_500;
+export const ENEMY_DESPAWN_INTERVAL_MS = 1500;
 
 // ---- networking ---------------------------------------------------------------
 
@@ -1588,9 +1617,12 @@ export const MINIMAP_PAD = 12;
 
 // ---- shared/networked types ----------------------------------------------------
 
-export type Vec = { x: number; y: number };
+export interface Vec {
+  x: number;
+  y: number;
+}
 
-export type AsteroidState = {
+export interface AsteroidState {
   id: string;
   x: number;
   y: number;
@@ -1602,9 +1634,9 @@ export type AsteroidState = {
    *  radius — which also keeps the scale-on-damage "no shape pop" behavior.
    *  (dir-002 audit: shipped verts were 42% of the worst-case snapshot.) */
   rot: number;
-};
+}
 
-export type UfoState = {
+export interface UfoState {
   id: string;
   x: number;
   y: number;
@@ -1613,7 +1645,7 @@ export type UfoState = {
   hp: number;
   /** Host-clock timestamp; flicker the sprite while now < blinkUntil. */
   blinkUntil: number;
-};
+}
 
 /** What an item grants — the discriminated payload of ItemState. */
 export type ItemDrop =
@@ -1631,7 +1663,7 @@ export type ItemState = {
   diesAt: number;
 } & ItemDrop;
 
-export type EnemyState = {
+export interface EnemyState {
   id: string;
   kind: EnemyKind;
   x: number;
@@ -1659,29 +1691,29 @@ export type EnemyState = {
   lances: Vec[];
   /** WARDEN: shield up (heavy DR) vs venting (extra damage). */
   shielded: boolean;
-};
+}
 
-export type EnemyShotState = {
+export interface EnemyShotState {
   id: string;
   x: number;
   y: number;
   vx: number;
   vy: number;
   diesAt: number;
-};
+}
 
 /** SINGULARITY pull: until `until` (epoch-ms) the HOST drags asteroids +
  *  enemies within SINGULARITY_PULL_RANGE of (x,y) toward it; every client
  *  renders the vortex from this entry. Pruned by the host on expiry. */
-export type PullState = {
+export interface PullState {
   id: string;
   x: number;
   y: number;
   until: number;
-};
+}
 
 /** Score shard: host-owned, drifts, +SHARD_SCORE on touch, 8s lifetime. */
-export type ShardState = {
+export interface ShardState {
   id: string;
   x: number;
   y: number;
@@ -1689,14 +1721,14 @@ export type ShardState = {
   vy: number;
   /** Host-clock expiry timestamp. */
   diesAt: number;
-};
+}
 
 /**
  * Host-owned world. Patches shallow-merge (`{...prev, ...patch}`), so every
  * resettable key MUST be present in `emptyShared()` and the host rewrites each
  * top-level field wholesale.
  */
-export type SharedState = {
+export interface SharedState {
   asteroids: AsteroidState[];
   ufo: UfoState | null;
   items: ItemState[];
@@ -1722,10 +1754,10 @@ export type SharedState = {
    *  the barrier and the max just reads as more star-bleed. */
   playW: number;
   playH: number;
-};
+}
 
 /** Beam snapshot in another player's state — drawn raw, never simulated. */
-export type SerializedBeam = {
+export interface SerializedBeam {
   hx: number;
   hy: number;
   tx: number;
@@ -1747,9 +1779,9 @@ export type SerializedBeam = {
   /** Damage fraction — victims compute their own drain from it (defaults to
    *  NORMAL's 0.25 when absent). */
   power?: number;
-};
+}
 
-export type ShieldModNetState = {
+export interface ShieldModNetState {
   kind: ShieldModKind;
   /** Epoch-ms expiry of the 20s mod window. */
   until: number;
@@ -1757,12 +1789,15 @@ export type ShieldModNetState = {
   active: boolean;
   /** PHASE intangibility window is live. */
   phased: boolean;
-};
+}
 
-export type BoostNetState = { kind: BoosterKind; until: number };
+export interface BoostNetState {
+  kind: BoosterKind;
+  until: number;
+}
 
 /** Per-player networked state (each client writes its own at 20Hz). */
-export type PlayerNetState = {
+export interface PlayerNetState {
   x: number;
   y: number;
   angle: number;
@@ -1798,7 +1833,7 @@ export type PlayerNetState = {
   /** SENTRY turret (pos + epoch-ms expiry); remotes render it from here. */
   sentry: { x: number; y: number; until: number } | null;
   beams: SerializedBeam[];
-};
+}
 
 // ---- pure world-gen helpers -----------------------------------------------------
 
@@ -1820,15 +1855,15 @@ export function randomWorldPoint(
  *  Not the seeded gameplay stream: ids are identity, never gameplay. */
 export function asteroidUnitVerts(id: string): Vec[] {
   // FNV-1a over the id seeds a tiny LCG — stable across clients and sessions.
-  let h = 0x811c9dc5;
+  let h = 0x81_1c_9d_c5;
   for (let i = 0; i < id.length; i++) {
     h ^= id.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
+    h = Math.imul(h, 0x01_00_01_93);
   }
   let s = h >>> 0;
   const next = (): number => {
-    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
-    return s / 0x100000000;
+    s = (Math.imul(s, 1_664_525) + 1_013_904_223) >>> 0;
+    return s / 0x1_00_00_00_00;
   };
   const verts: Vec[] = [];
   for (let i = 0; i < ASTEROID_VERTEX_COUNT; i++) {
@@ -1858,12 +1893,12 @@ export function edgeSpawn(margin: number, w = BASE_WORLD_W, h = BASE_WORLD_H) {
     const y = -margin + rand() * (h + margin * 2);
     const x = side === 0 ? -margin : w + margin;
     const ang = side === 0 ? spread - Math.PI * 0.25 : spread + Math.PI * 0.75;
-    return { x, y, ang };
+    return { ang, x, y };
   }
   const x = -margin + rand() * (w + margin * 2);
   const y = side === 2 ? -margin : h + margin;
   const ang = side === 2 ? spread + Math.PI * 0.25 : spread - Math.PI * 0.75;
-  return { x, y, ang };
+  return { ang, x, y };
 }
 
 /** Point in the ring [minR..maxR] around (px,py), clamped into the play bounds
@@ -1884,7 +1919,7 @@ export function ringSpawnPoint(
   const r = minR + rand() * (maxR - minR);
   const x = Math.min(w - margin, Math.max(margin, px + Math.cos(a) * r));
   const y = Math.min(h - margin, Math.max(margin, py + Math.sin(a) * r));
-  return { x, y, ang: Math.atan2(py - y, px - x) };
+  return { ang: Math.atan2(py - y, px - x), x, y };
 }
 
 export function spawnAsteroidState(w = BASE_WORLD_W, h = BASE_WORLD_H): AsteroidState {
@@ -1893,12 +1928,12 @@ export function spawnAsteroidState(w = BASE_WORLD_W, h = BASE_WORLD_H): Asteroid
   const speed = asteroidSpeed(radius);
   return {
     id: entityId(),
-    x,
-    y,
-    vx: Math.cos(ang) * speed,
-    vy: Math.sin(ang) * speed,
     radius,
     rot: 0,
+    vx: Math.cos(ang) * speed,
+    vy: Math.sin(ang) * speed,
+    x,
+    y,
   };
 }
 
@@ -1917,25 +1952,25 @@ export function spawnOpeningAsteroid(x: number, y: number): AsteroidState {
   const ang = rand() * Math.PI * 2;
   return {
     id: entityId(),
-    x,
-    y,
-    vx: Math.cos(ang) * OPENING_ROCK_DRIFT,
-    vy: Math.sin(ang) * OPENING_ROCK_DRIFT,
     radius,
     rot: 0,
+    vx: Math.cos(ang) * OPENING_ROCK_DRIFT,
+    vy: Math.sin(ang) * OPENING_ROCK_DRIFT,
+    x,
+    y,
   };
 }
 
 export function spawnUfoState(w = BASE_WORLD_W, h = BASE_WORLD_H): UfoState {
   const { x, y } = edgeSpawn(30, w, h);
   return {
-    id: entityId(),
-    x,
-    y,
+    blinkUntil: 0,
     destX: rand() * w,
     destY: rand() * h,
     hp: UFO_HP,
-    blinkUntil: 0,
+    id: entityId(),
+    x,
+    y,
   };
 }
 
@@ -1943,12 +1978,12 @@ export function spawnUfoState(w = BASE_WORLD_W, h = BASE_WORLD_H): UfoState {
 export function spawnItemState(x: number, y: number, drop: ItemDrop): ItemState {
   const ang = rand() * Math.PI * 2;
   return {
+    diesAt: simNow() + ITEM_LIFETIME_MS,
     id: entityId(),
-    x,
-    y,
     vx: Math.cos(ang) * ITEM_SPEED,
     vy: Math.sin(ang) * ITEM_SPEED,
-    diesAt: simNow() + ITEM_LIFETIME_MS,
+    x,
+    y,
     ...drop,
   };
 }
@@ -1959,12 +1994,12 @@ export function spawnShardState(x: number, y: number): ShardState {
   const ang = rand() * Math.PI * 2;
   const scatter = rand() * 10;
   return {
+    diesAt: simNow() + SHARD_LIFETIME_MS,
     id: entityId(),
-    x: x + Math.cos(ang) * scatter,
-    y: y + Math.sin(ang) * scatter,
     vx: Math.cos(ang) * SHARD_DRIFT_SPEED,
     vy: Math.sin(ang) * SHARD_DRIFT_SPEED,
-    diesAt: simNow() + SHARD_LIFETIME_MS,
+    x: x + Math.cos(ang) * scatter,
+    y: y + Math.sin(ang) * scatter,
   };
 }
 
@@ -1977,22 +2012,22 @@ export function spawnWeaponItemState(x: number, y: number): ItemState {
 
 export function spawnEnemyState(kind: EnemyKind, x: number, y: number): EnemyState {
   return {
-    id: entityId(),
-    kind,
-    x,
-    y,
-    vx: 0,
-    vy: 0,
     angle: 0,
-    hp: ENEMY_SPECS[kind].hp,
-    telegraphUntil: 0,
-    chargeUntil: 0,
     attackAt: 0,
     blinkUntil: 0,
+    chargeUntil: 0,
     graceUntil: 0,
-    maxHp: ENEMY_SPECS[kind].hp,
+    hp: ENEMY_SPECS[kind].hp,
+    id: entityId(),
+    kind,
     lances: [],
+    maxHp: ENEMY_SPECS[kind].hp,
     shielded: kind === "warden",
+    telegraphUntil: 0,
+    vx: 0,
+    vy: 0,
+    x,
+    y,
   };
 }
 

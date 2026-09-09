@@ -1,12 +1,12 @@
 import { z } from "zod";
 
-export type FeaturedGame = {
+export interface FeaturedGame {
   name: string;
   slug: string;
   preview: string;
   previewPortrait?: string;
   colorScheme: "light" | "dark";
-};
+}
 
 export const gameUrl = (slug: string) => `https://${slug}.vibedgames.com`;
 
@@ -18,25 +18,25 @@ export type GameSearch = z.infer<typeof gameSearchSchema>;
 
 export const featuredGames: FeaturedGame[] = [
   {
+    colorScheme: "dark",
     name: "Starfall",
-    slug: "starfall",
     preview: "/covers/starfall.webp",
     previewPortrait: "/covers/starfall-portrait.webp",
-    colorScheme: "dark",
+    slug: "starfall",
   },
   {
+    colorScheme: "light",
     name: "Flappy Dragons",
-    slug: "flappy-dragons",
     preview: "/covers/flappy-dragons.webp",
     previewPortrait: "/covers/flappy-dragons-portrait.webp",
-    colorScheme: "light",
+    slug: "flappy-dragons",
   },
   {
+    colorScheme: "dark",
     name: "Pacman",
-    slug: "pacman",
     preview: "/covers/pacman.webp",
     previewPortrait: "/covers/pacman-portrait.webp",
-    colorScheme: "dark",
+    slug: "pacman",
   },
   // {
   //   name: "Tetris",
@@ -46,52 +46,52 @@ export const featuredGames: FeaturedGame[] = [
   //   colorScheme: "dark",
   // },
   {
+    colorScheme: "light",
     name: "Pong",
-    slug: "pong",
     preview: "/covers/pong.webp",
     previewPortrait: "/covers/pong-portrait.webp",
-    colorScheme: "light",
+    slug: "pong",
   },
   {
+    colorScheme: "light",
     name: "Crazy Waymo",
-    slug: "crazy-waymo",
     preview: "/covers/crazy-waymo.webp",
     previewPortrait: "/covers/crazy-waymo-portrait.webp",
-    colorScheme: "light",
+    slug: "crazy-waymo",
   },
   {
+    colorScheme: "light",
     name: "Ancients of Eldermoor",
-    slug: "moba",
     preview: "/covers/moba.webp",
     previewPortrait: "/covers/moba-portrait.webp",
-    colorScheme: "light",
+    slug: "moba",
   },
   {
+    colorScheme: "dark",
     name: "Battle Arena",
-    slug: "battle-arena",
     preview: "/covers/battle-arena.webp",
     previewPortrait: "/covers/battle-arena-portrait.webp",
-    colorScheme: "dark",
+    slug: "battle-arena",
   },
   {
+    colorScheme: "dark",
     name: "Lunerfall",
-    slug: "lunerfall",
     preview: "/covers/lunerfall.webp",
     previewPortrait: "/covers/lunerfall-portrait.webp",
-    colorScheme: "dark",
+    slug: "lunerfall",
   },
   {
+    colorScheme: "light",
     name: "Bomberman",
-    slug: "bomberman",
     preview: "/covers/bomberman.webp",
     previewPortrait: "/covers/bomberman-portrait.webp",
-    colorScheme: "light",
+    slug: "bomberman",
   },
   {
+    colorScheme: "light",
     name: "Farm",
-    slug: "farm",
     preview: "/covers/farm.webp",
     previewPortrait: "/covers/farm-portrait.webp",
-    colorScheme: "light",
+    slug: "farm",
   },
 ];

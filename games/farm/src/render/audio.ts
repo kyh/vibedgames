@@ -10,9 +10,19 @@ const MUSIC_LIMIT = 6;
 
 export type SoundPriority = "routine" | "local" | "important";
 type VoiceKind = SoundPriority | "music";
-type Phrase = { kind: VoiceKind; context: AudioContext };
-type Voice = { source: AudioScheduledSourceNode; nodes: AudioNode[]; phrase: Phrase };
-type MusicSession = { mode: "farm" | "mine"; step: number };
+interface Phrase {
+  kind: VoiceKind;
+  context: AudioContext;
+}
+interface Voice {
+  source: AudioScheduledSourceNode;
+  nodes: AudioNode[];
+  phrase: Phrase;
+}
+interface MusicSession {
+  mode: "farm" | "mine";
+  step: number;
+}
 
 declare global {
   interface Window {
@@ -64,10 +74,14 @@ class SoundEngine {
   }
 
   private ensure(): AudioContext | null {
-    if (this.ctx) return this.ctx;
+    if (this.ctx) {
+      return this.ctx;
+    }
     try {
       const Ctx = window.AudioContext || window.webkitAudioContext;
-      if (!Ctx) return null;
+      if (!Ctx) {
+        return null;
+      }
       this.ctx = new Ctx();
       this.master = this.ctx.createGain();
       this.master.gain.value = this.muted || this.paused ? 0 : 0.5;
@@ -79,17 +93,26 @@ class SoundEngine {
   }
 
   resume(): void {
-    if (this.paused) return;
+    if (this.paused) {
+      return;
+    }
     const c = this.ensure();
-    if (!c) return;
+    if (!c) {
+      return;
+    }
     if (c.state === "suspended") {
       void c.resume().then(
         () => {
-          if (this.ctx !== c) return undefined;
+          if (this.ctx !== c) {
+            return undefined;
+          }
           // A pause may have arrived while the browser was unlocking audio.
-          if (this.paused) this.suspendContext(c);
-          else this.syncMusic();
-          return undefined;
+          if (this.paused) {
+            this.suspendContext(c);
+          } else {
+            this.syncMusic();
+          }
+          return;
         },
         () => {},
       );
@@ -100,32 +123,42 @@ class SoundEngine {
 
   /** Local presentation only; online simulation keeps its existing policy. */
   setPaused(paused: boolean): void {
-    if (this.paused === paused) return;
+    if (this.paused === paused) {
+      return;
+    }
     this.paused = paused;
     this.syncMaster();
     if (paused) {
       this.cancelMusicTick();
       this.stopVoices();
-      if (this.ctx) this.suspendContext(this.ctx);
+      if (this.ctx) {
+        this.suspendContext(this.ctx);
+      }
     } else if (this.ctx) {
       this.resume();
     }
   }
 
   private suspendContext(c: AudioContext): void {
-    if (c.state === "closed") return;
+    if (c.state === "closed") {
+      return;
+    }
     void c.suspend().then(
       () => {
         // A quick resume can precede completion of the older suspend request.
-        if (this.ctx === c && !this.paused) this.resume();
-        return undefined;
+        if (this.ctx === c && !this.paused) {
+          this.resume();
+        }
+        return;
       },
       () => {},
     );
   }
 
   private syncMaster(): void {
-    if (!this.ctx || !this.master) return;
+    if (!this.ctx || !this.master) {
+      return;
+    }
     this.master.gain.cancelScheduledValues(this.ctx.currentTime);
     this.master.gain.setValueAtTime(this.muted || this.paused ? 0 : 0.5, this.ctx.currentTime);
   }
@@ -133,57 +166,80 @@ class SoundEngine {
   /** Never queue locked-context sounds to replay on a later gesture. */
   private admit(kind: VoiceKind, count: number): Phrase | null {
     const c = this.ctx;
-    if (this.muted || this.paused || !c || c.state !== "running") return null;
+    if (this.muted || this.paused || !c || c.state !== "running") {
+      return null;
+    }
     if (
       (kind === "routine" && this.voices.size + count > ROUTINE_LIMIT) ||
       (kind === "music" && this.musicVoiceCount() + count > MUSIC_LIMIT)
-    )
+    ) {
       return null;
+    }
     const limit = kind === "local" ? LOCAL_LIMIT : MAX_VOICES;
     const victims = new Set<Phrase>();
     let remaining = this.voices.size;
     // Reserve the entire cue before retiring anything. Music never cuts a
     // personal cue; progression can retire lower-priority phrases as a unit.
     for (const voice of this.voices) {
-      if (remaining + count <= limit) break;
-      const phrase = voice.phrase;
+      if (remaining + count <= limit) {
+        break;
+      }
+      const { phrase } = voice;
       const lower =
         (phrase.kind === "routine" && kind !== "routine") ||
         (phrase.kind === "local" && kind === "important");
-      if (!lower || victims.has(phrase)) continue;
+      if (!lower || victims.has(phrase)) {
+        continue;
+      }
       victims.add(phrase);
       for (const owned of this.voices) {
-        if (owned.phrase === phrase) remaining--;
+        if (owned.phrase === phrase) {
+          remaining--;
+        }
       }
     }
-    if (remaining + count > limit) return null;
-    for (const voice of this.voices) {
-      if (victims.has(voice.phrase)) this.releaseVoice(voice, true);
+    if (remaining + count > limit) {
+      return null;
     }
-    return { kind, context: c };
+    for (const voice of this.voices) {
+      if (victims.has(voice.phrase)) {
+        this.releaseVoice(voice, true);
+      }
+    }
+    return { context: c, kind };
   }
 
   private ownVoice(source: AudioScheduledSourceNode, nodes: AudioNode[], phrase: Phrase): void {
-    const voice = { source, nodes, phrase };
+    const voice = { nodes, phrase, source };
     this.voices.add(voice);
     source.addEventListener("ended", () => this.releaseVoice(voice, false), { once: true });
   }
 
   private releaseVoice(voice: Voice, stopped: boolean): void {
-    if (!this.voices.delete(voice)) return;
-    if (stopped) voice.source.stop();
-    for (const node of voice.nodes) node.disconnect();
+    if (!this.voices.delete(voice)) {
+      return;
+    }
+    if (stopped) {
+      voice.source.stop();
+    }
+    for (const node of voice.nodes) {
+      node.disconnect();
+    }
   }
 
   private stopVoices(kind?: VoiceKind): void {
     for (const voice of this.voices) {
-      if (kind === undefined || voice.phrase.kind === kind) this.releaseVoice(voice, true);
+      if (kind === undefined || voice.phrase.kind === kind) {
+        this.releaseVoice(voice, true);
+      }
     }
   }
 
   private musicVoiceCount(): number {
     let count = 0;
-    for (const voice of this.voices) if (voice.phrase.kind === "music") count++;
+    for (const voice of this.voices) {
+      if (voice.phrase.kind === "music") count++;
+    }
     return count;
   }
 
@@ -200,13 +256,17 @@ class SoundEngine {
     },
   ): void {
     const c = phrase.context;
-    if (!this.master) return;
+    if (!this.master) {
+      return;
+    }
     const t0 = c.currentTime + (opts.delay ?? 0);
     const osc = c.createOscillator();
     const g = c.createGain();
     osc.type = opts.type ?? "sine";
     osc.frequency.setValueAtTime(opts.freq, t0);
-    if (opts.slideTo) osc.frequency.exponentialRampToValueAtTime(opts.slideTo, t0 + opts.dur);
+    if (opts.slideTo) {
+      osc.frequency.exponentialRampToValueAtTime(opts.slideTo, t0 + opts.dur);
+    }
     const vol = opts.vol ?? 0.3;
     g.gain.setValueAtTime(0.0001, t0);
     g.gain.exponentialRampToValueAtTime(vol, t0 + 0.008);
@@ -228,14 +288,18 @@ class SoundEngine {
     },
   ): void {
     const c = phrase.context;
-    if (!this.master) return;
+    if (!this.master) {
+      return;
+    }
     const t0 = c.currentTime + (opts.delay ?? 0);
     let buf = this.noiseBuffers.get(opts.dur);
     if (!buf) {
       const len = Math.floor(c.sampleRate * opts.dur);
       buf = c.createBuffer(1, len, c.sampleRate);
       const data = buf.getChannelData(0);
-      for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+      for (let i = 0; i < len; i++) {
+        data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+      }
       this.noiseBuffers.set(opts.dur, buf);
     }
     const src = c.createBufferSource();
@@ -269,77 +333,99 @@ class SoundEngine {
   // ---- named sfx ----
   footstep(priority: SoundPriority = "routine"): void {
     const phrase = this.admit(priority, 1);
-    if (!phrase) return;
-    this.noise(phrase, { dur: 0.08, vol: 0.07, hp: 600, lp: 2200 });
+    if (!phrase) {
+      return;
+    }
+    this.noise(phrase, { dur: 0.08, hp: 600, lp: 2200, vol: 0.07 });
   }
   dig(priority: SoundPriority = "routine"): void {
     const phrase = this.admit(priority, 2);
-    if (!phrase) return;
-    this.noise(phrase, { dur: 0.22, vol: 0.28, hp: 200, lp: 1400 });
-    this.tone(phrase, { freq: 150, type: "sine", dur: 0.12, vol: 0.12, slideTo: 80 });
+    if (!phrase) {
+      return;
+    }
+    this.noise(phrase, { dur: 0.22, hp: 200, lp: 1400, vol: 0.28 });
+    this.tone(phrase, { dur: 0.12, freq: 150, slideTo: 80, type: "sine", vol: 0.12 });
   }
   water(priority: SoundPriority = "routine"): void {
     const phrase = this.admit(priority, 1);
-    if (!phrase) return;
-    this.noise(phrase, { dur: 0.35, vol: 0.12, hp: 1200, lp: 6000 });
+    if (!phrase) {
+      return;
+    }
+    this.noise(phrase, { dur: 0.35, hp: 1200, lp: 6000, vol: 0.12 });
   }
   chop(priority: SoundPriority = "routine"): void {
     const phrase = this.admit(priority, 2);
-    if (!phrase) return;
-    this.tone(phrase, { freq: 240, type: "square", dur: 0.1, vol: 0.18, slideTo: 90 });
-    this.noise(phrase, { dur: 0.12, vol: 0.18, hp: 300, lp: 2000 });
+    if (!phrase) {
+      return;
+    }
+    this.tone(phrase, { dur: 0.1, freq: 240, slideTo: 90, type: "square", vol: 0.18 });
+    this.noise(phrase, { dur: 0.12, hp: 300, lp: 2000, vol: 0.18 });
   }
   mine(priority: SoundPriority = "routine"): void {
     const phrase = this.admit(priority, 2);
-    if (!phrase) return;
-    this.tone(phrase, { freq: 520, type: "square", dur: 0.06, vol: 0.16, slideTo: 200 });
-    this.noise(phrase, { dur: 0.1, vol: 0.2, hp: 1500, lp: 7000 });
+    if (!phrase) {
+      return;
+    }
+    this.tone(phrase, { dur: 0.06, freq: 520, slideTo: 200, type: "square", vol: 0.16 });
+    this.noise(phrase, { dur: 0.1, hp: 1500, lp: 7000, vol: 0.2 });
   }
   plant(priority: SoundPriority = "routine"): void {
     const phrase = this.admit(priority, 1);
-    if (!phrase) return;
-    this.tone(phrase, { freq: 380, type: "triangle", dur: 0.12, vol: 0.16, slideTo: 560 });
+    if (!phrase) {
+      return;
+    }
+    this.tone(phrase, { dur: 0.12, freq: 380, slideTo: 560, type: "triangle", vol: 0.16 });
   }
   harvest(priority: SoundPriority = "important"): void {
     const phrase = this.admit(priority, 2);
-    if (!phrase) return;
-    this.tone(phrase, { freq: 523, type: "triangle", dur: 0.1, vol: 0.18 });
-    this.tone(phrase, { freq: 784, type: "triangle", dur: 0.14, vol: 0.16, delay: 0.08 });
+    if (!phrase) {
+      return;
+    }
+    this.tone(phrase, { dur: 0.1, freq: 523, type: "triangle", vol: 0.18 });
+    this.tone(phrase, { delay: 0.08, dur: 0.14, freq: 784, type: "triangle", vol: 0.16 });
   }
   coins(priority: SoundPriority = "important"): void {
     const phrase = this.admit(priority, 3);
-    if (!phrase) return;
+    if (!phrase) {
+      return;
+    }
     [880, 1175, 1568].forEach((f, i) =>
       this.tone(phrase, {
+        delay: i * 0.06,
+        dur: 0.12,
         freq: f,
         type: "square",
-        dur: 0.12,
         vol: 0.12,
-        delay: i * 0.06,
       }),
     );
   }
   click(priority: SoundPriority = "routine"): void {
     const phrase = this.admit(priority, 1);
-    if (!phrase) return;
-    this.tone(phrase, { freq: 660, type: "square", dur: 0.05, vol: 0.12 });
+    if (!phrase) {
+      return;
+    }
+    this.tone(phrase, { dur: 0.05, freq: 660, type: "square", vol: 0.12 });
   }
   thud(priority: SoundPriority = "routine"): void {
     const phrase = this.admit(priority, 2);
-    if (!phrase) return;
-    this.tone(phrase, { freq: 110, type: "sine", dur: 0.2, vol: 0.22, slideTo: 55 });
-    this.noise(phrase, { dur: 0.18, vol: 0.18, lp: 800 });
+    if (!phrase) {
+      return;
+    }
+    this.tone(phrase, { dur: 0.2, freq: 110, slideTo: 55, type: "sine", vol: 0.22 });
+    this.noise(phrase, { dur: 0.18, lp: 800, vol: 0.18 });
   }
   wake(priority: SoundPriority = "important"): void {
     const phrase = this.admit(priority, 4);
-    if (!phrase) return;
+    if (!phrase) {
+      return;
+    }
     [523, 659, 784, 1047].forEach((f, i) =>
       this.tone(phrase, {
+        delay: i * 0.1,
+        dur: 0.28,
         freq: f,
         type: "triangle",
-        dur: 0.28,
         vol: 0.14,
-        delay: i * 0.1,
       }),
     );
   }
@@ -360,7 +446,9 @@ class SoundEngine {
     this.music = session;
     this.syncMusic();
     return () => {
-      if (this.music === session) this.stopMusic();
+      if (this.music === session) {
+        this.stopMusic();
+      }
     };
   }
 
@@ -371,7 +459,9 @@ class SoundEngine {
   }
 
   private cancelMusicTick(): void {
-    if (this.musicId !== null) clearTimeout(this.musicId);
+    if (this.musicId !== null) {
+      clearTimeout(this.musicId);
+    }
     this.musicId = null;
   }
 
@@ -386,12 +476,15 @@ class SoundEngine {
   }
 
   private syncMusic(): void {
-    if (this.musicId === null && this.music) this.musicTick(this.music);
+    if (this.musicId === null && this.music) {
+      this.musicTick(this.music);
+    }
   }
 
   private musicTick(session: MusicSession): void {
-    if (this.music !== session || this.muted || this.paused || this.ctx?.state !== "running")
+    if (this.music !== session || this.muted || this.paused || this.ctx?.state !== "running") {
       return;
+    }
     const stepDur = session.mode === "mine" ? 0.62 : 0.46;
     const mel = session.mode === "mine" ? SoundEngine.MINE_MELODY : SoundEngine.FARM_MELODY;
     const bass = session.mode === "mine" ? SoundEngine.MINE_BASS : SoundEngine.FARM_BASS;
@@ -400,12 +493,18 @@ class SoundEngine {
     const b = bass[s];
     const phrase = this.admit("music", Number(Boolean(note)) + Number(Boolean(b)));
     if (phrase) {
-      if (note) this.musicNote(phrase, note, session.mode === "mine" ? 0.05 : 0.06, stepDur * 1.6);
-      if (b) this.musicNote(phrase, b, 0.05, stepDur * 2.2, "triangle");
+      if (note) {
+        this.musicNote(phrase, note, session.mode === "mine" ? 0.05 : 0.06, stepDur * 1.6);
+      }
+      if (b) {
+        this.musicNote(phrase, b, 0.05, stepDur * 2.2, "triangle");
+      }
     }
     session.step++;
     this.musicId = setTimeout(() => {
-      if (this.music !== session) return;
+      if (this.music !== session) {
+        return;
+      }
       this.musicId = null;
       this.musicTick(session);
     }, stepDur * 1000);
@@ -419,7 +518,9 @@ class SoundEngine {
     type: OscillatorType = "sine",
   ): void {
     const c = phrase.context;
-    if (!this.master) return;
+    if (!this.master) {
+      return;
+    }
     const t0 = c.currentTime;
     const osc = c.createOscillator();
     const g = c.createGain();

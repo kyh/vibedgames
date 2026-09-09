@@ -4,17 +4,23 @@
 import * as THREE from "three";
 import { CHAMP_BY_ID } from "../data/champions";
 import { ABILITY_CLIPS, CLIP_TIMING, TWO_H_SPEED, clipSpeed, swingClip } from "../data/clip-timing";
-import { HOP_HEIGHT, JUMP_MS, type DamageType } from "../data/config";
+import { HOP_HEIGHT, JUMP_MS } from "../data/config";
+import type { DamageType } from "../data/config";
 import { BOSS_HEIGHT, BOSS_POS } from "../data/map";
-import { destructibleProps, type PropSpec } from "../data/props";
+import { destructibleProps } from "../data/props";
+import type { PropSpec } from "../data/props";
 import type { Coin, Projectile, Unit, World } from "../sim/types";
 import { effectiveAttackSpeed } from "../sim/stats";
-import { AnimatedCharacter, ModelLibrary } from "./models";
-import { WeaponTrail, type TrailOverride } from "./weapon-trail";
+import type { ModelLibrary } from "./models";
+import { AnimatedCharacter } from "./models";
+import { WeaponTrail } from "./weapon-trail";
+import type { TrailOverride } from "./weapon-trail";
 import { terrainHeight } from "../data/terrain";
-import { CHAMP_FX, type Fx } from "./fx";
+import { CHAMP_FX } from "./fx";
+import type { Fx } from "./fx";
 import { energyBallMaterial } from "./fx-shaders";
-import { applyDissolve, type DissolveHandle } from "./dissolve";
+import { applyDissolve } from "./dissolve";
+import type { DissolveHandle } from "./dissolve";
 import { StatusFx } from "./status-fx";
 import type { PlateAnchor } from "./hud-readability";
 import { groundFxColor } from "./telegraph";
@@ -30,7 +36,7 @@ import { AnimationEvents, animationWindow } from "./animation-events";
 // tracing the swing). Force the swing axis + blade extents so the arc reads.
 // `base` = fraction up the weapon where the ribbon starts (skip the handle).
 const TRAIL_OVERRIDE = new Map<string, TrailOverride>([
-  ["paladin_hammer", { axis: "y", base: 0.48, tip: 1.15, opacity: 0.62 }], // thin head — runs a touch hotter
+  ["paladin_hammer", { axis: "y", base: 0.48, opacity: 0.62, tip: 1.15 }], // thin head — runs a touch hotter
   ["sword_2handed", { axis: "y", base: 0.34, tip: 1.05 }],
 ]);
 
@@ -48,7 +54,9 @@ const WEAPON_MOUNT = new Map<string, { rx?: number; ry?: number; rz?: number }>(
 /** Apply a weapon's mount correction (no-op for unlisted weapons). */
 function mountWeapon(obj: THREE.Object3D, name: string): void {
   const m = WEAPON_MOUNT.get(name);
-  if (!m) return;
+  if (!m) {
+    return;
+  }
   obj.rotation.set(m.rx ?? 0, m.ry ?? 0, m.rz ?? 0);
 }
 
@@ -72,10 +80,10 @@ const JUMP_IDLE_CLIP = "Jump_Idle";
 const JUMP_LAND_CLIP = "Jump_Land";
 const JUMP_START_MS = 340; // takeoff clip plays over the first slice of airtime
 const JUMP_LAND_MS = 340; // land clip plays over the last slice (Idle floats the middle)
-const GOLD = new THREE.Color(0xffd24a);
+const GOLD = new THREE.Color(0xff_d2_4a);
 
 // minimal descriptor a UnitView needs (ChampDef satisfies it; so do creeps)
-type ViewDef = {
+interface ViewDef {
   id: string;
   model: string;
   attackType: "melee" | "ranged";
@@ -85,37 +93,37 @@ type ViewDef = {
   rig?: "large";
   scale?: number;
   twoHanded?: boolean; // rests + idles holding a 2H weapon (Melee_2H_Idle)
-};
+}
 
 const CREEP_VIEW = new Map<string, ViewDef>(
   Object.entries({
-    skwarrior: {
-      id: "skwarrior",
-      model: "Skeleton_Warrior",
-      attackType: "melee",
+    frostgolem: {
       attackDamageType: "physical",
+      attackType: "melee",
+      id: "frostgolem",
+      model: "FrostGolem",
+      rig: "large",
+      scale: 1.45,
+      weaponR: "FrostGolem_Axe_Large",
     },
     skmage: {
+      attackDamageType: "magic",
+      attackType: "ranged",
       id: "skmage",
       model: "Skeleton_Mage",
-      attackType: "ranged",
-      attackDamageType: "magic",
       weaponR: "Skeleton_Staff",
     },
     skminion: {
+      attackDamageType: "physical",
+      attackType: "melee",
       id: "skminion",
       model: "Skeleton_Minion",
-      attackType: "melee",
-      attackDamageType: "physical",
     },
-    frostgolem: {
-      id: "frostgolem",
-      model: "FrostGolem",
-      attackType: "melee",
+    skwarrior: {
       attackDamageType: "physical",
-      weaponR: "FrostGolem_Axe_Large",
-      rig: "large",
-      scale: 1.45,
+      attackType: "melee",
+      id: "skwarrior",
+      model: "Skeleton_Warrior",
     },
   } satisfies Record<string, ViewDef>),
 );
@@ -138,7 +146,9 @@ const LOOT_HEIGHT = 0.9; // world units for the piece's largest dimension
 
 function hashId(id: string): number {
   let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  for (let i = 0; i < id.length; i++) {
+    h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  }
   return h;
 }
 
@@ -168,7 +178,9 @@ function makeLootPickup(lib: ModelLibrary, id: string): THREE.Group {
 // shared soft radial texture for blob contact-shadows
 let blobTexCache: THREE.Texture | null = null;
 function blobTex(): THREE.Texture {
-  if (blobTexCache) return blobTexCache;
+  if (blobTexCache) {
+    return blobTexCache;
+  }
   const c = document.createElement("canvas");
   c.width = c.height = 64;
   const g = c.getContext("2d");
@@ -188,24 +200,33 @@ function blobTex(): THREE.Texture {
 
 function locomotion(u: Unit, twoHanded: boolean): string {
   const speed = Math.hypot(u.vx, u.vy);
-  if (speed > u.moveSpeed * 0.55) return "Running_B";
-  if (speed > 0.4) return "Walking_A";
+  if (speed > u.moveSpeed * 0.55) {
+    return "Running_B";
+  }
+  if (speed > 0.4) {
+    return "Walking_A";
+  }
   // 2H wielders rest holding the weapon (KayKit has no 2H run — walk/run stay
   // generic); the 2H idle only kicks in when effectively stationary
   return twoHanded ? "Melee_2H_Idle" : "Idle_B";
 }
 
 function attackClip(def: ViewDef): string {
-  if (def.attackType === "ranged")
+  if (def.attackType === "ranged") {
     return def.attackDamageType === "magic" ? "Ranged_Magic_Shoot" : "Ranged_Bow_Release";
+  }
   // Garran (2H greatsword) swings the Melee_2H set; Aurelius (1H hammer) + the
   // dagger rogue keep their 1H/dualwield clips.
-  if (def.twoHanded) return "Melee_2H_Attack_Chop";
+  if (def.twoHanded) {
+    return "Melee_2H_Attack_Chop";
+  }
   return def.id === "rogue" ? "Melee_1H_Attack_Slice_Diagonal" : "Melee_1H_Attack_Chop";
 }
 
 function castClip(def: ViewDef): string {
-  if (def.attackDamageType === "magic") return "Ranged_Magic_Spellcasting";
+  if (def.attackDamageType === "magic") {
+    return "Ranged_Magic_Spellcasting";
+  }
   // physical champs "cast" with a weapon-appropriate swing, not a throw
   return attackClip(def);
 }
@@ -294,12 +315,12 @@ class UnitView {
       // layered on top) + a per-weapon axis override for the 2H/hammer bits.
       const trailColor =
         def.id === "blackknight"
-          ? 0xffc24a // Aurelius — dawn gold
+          ? 0xff_c2_4a // Aurelius — dawn gold
           : def.id === "knight"
-            ? 0x6a9aff // Garran — steel blue
+            ? 0x6a_9a_ff // Garran — steel blue
             : def.id === "rogue"
-              ? 0xff7090 // Vesper — crimson
-              : 0x9fb8e0; // creeps — cold bone-steel
+              ? 0xff_70_90 // Vesper — crimson
+              : 0x9f_b8_e0; // creeps — cold bone-steel
       const trail =
         def.attackType === "melee"
           ? new WeaponTrail(wr, trailColor, TRAIL_OVERRIDE.get(def.weaponR))
@@ -311,7 +332,9 @@ class UnitView {
           this.trails.push(trail);
           this.scene.add(trail.mesh);
         }
-      } else trail?.dispose();
+      } else {
+        trail?.dispose();
+      }
     }
     if (def.weaponL) {
       const wl = lib.instance(def.weaponL);
@@ -321,7 +344,7 @@ class UnitView {
         def.attackType === "melee" && def.weaponR
           ? new WeaponTrail(
               wl,
-              def.id === "rogue" ? 0xff7090 : 0x9fb8e0,
+              def.id === "rogue" ? 0xff_70_90 : 0x9f_b8_e0,
               TRAIL_OVERRIDE.get(def.weaponL),
             )
           : null;
@@ -332,12 +355,14 @@ class UnitView {
           this.trails.push(trailL);
           this.scene.add(trailL.mesh);
         }
-      } else trailL?.dispose();
+      } else {
+        trailL?.dispose();
+      }
     }
 
     // death dissolve — patched ONCE at construction on the per-instance mats
     this.dissolve = applyDissolve(this.mats);
-    this.dissolve.setEdge(isCreep ? 0xcfd8e0 : isLocal ? LOCAL_COLOR : color);
+    this.dissolve.setEdge(isCreep ? 0xcf_d8_e0 : isLocal ? LOCAL_COLOR : color);
 
     const ringColor = isLocal ? LOCAL_COLOR : color;
     // local ring is larger + fainter so it reads as a clean circle on the ground
@@ -348,10 +373,10 @@ class UnitView {
     this.ringBase = new THREE.Color(ringColor);
     this.ringMat = new THREE.MeshBasicMaterial({
       color: ringColor,
-      transparent: true,
+      depthWrite: false,
       opacity: isLocal ? 0.55 : 0.6,
       side: THREE.DoubleSide,
-      depthWrite: false,
+      transparent: true,
     });
     this.ring = new THREE.Mesh(new THREE.RingGeometry(innerR, outerR, 48), this.ringMat);
     this.ring.rotation.x = -Math.PI / 2;
@@ -365,11 +390,11 @@ class UnitView {
     this.blob = new THREE.Mesh(
       new THREE.CircleGeometry(0.85, 20),
       new THREE.MeshBasicMaterial({
-        map: blobTex(),
-        transparent: true,
-        opacity: 0.42,
-        depthWrite: false,
         color: 0x000000,
+        depthWrite: false,
+        map: blobTex(),
+        opacity: 0.42,
+        transparent: true,
       }),
     );
     this.blob.rotation.x = -Math.PI / 2;
@@ -447,14 +472,18 @@ class UnitView {
     if (!u.alive) {
       this.recoilX = this.recoilZ = 0;
       this.pose.position.set(0, 0, 0);
-      if (this.hexShown) this.setHex(false);
+      if (this.hexShown) {
+        this.setHex(false);
+      }
       if (!this.deadShown) {
-        this.char.play("Death_A", { fade: 0.12, loop: false, clamp: true });
+        this.char.play("Death_A", { clamp: true, fade: 0.12, loop: false });
         this.deadShown = true;
         this.deadAt = now;
         this.oneShotUntil = 0;
         // rising soul wisps on the death frame
-        const soul = new THREE.Color(this.def.attackDamageType === "magic" ? 0x9a7bff : 0x9fd0ff);
+        const soul = new THREE.Color(
+          this.def.attackDamageType === "magic" ? 0x9a_7b_ff : 0x9f_d0_ff,
+        );
         fx?.fountain(u.x, u.y, 12, soul.getHex());
       }
       this.ring.visible = false;
@@ -495,7 +524,7 @@ class UnitView {
     // hero respawn: beam + converge + Spawn_Air drop-in
     if (respawned && !this.isCreep) {
       fx?.respawnBurst(u.x, u.y, this.isLocal ? LOCAL_COLOR : this.color, this.isLocal);
-      this.char.play("Spawn_Air", { loop: false, fade: 0.05 });
+      this.char.play("Spawn_Air", { fade: 0.05, loop: false });
       this.oneShotUntil = now + clipWindowMs(this.char.clipDuration("Spawn_Air"));
     }
     // first frame: heroes drop from the air (Spawn_Air), skeletons awaken from
@@ -503,14 +532,16 @@ class UnitView {
     if (this.spawnClipPending) {
       this.spawnClipPending = false;
       const spawnClip = this.isCreep ? "Skeletons_Awaken_Floor" : "Spawn_Air";
-      this.char.play(spawnClip, { loop: false, fade: 0 });
+      this.char.play(spawnClip, { fade: 0, loop: false });
       this.oneShotUntil = now + clipWindowMs(this.char.clipDuration(spawnClip));
       fx?.dust(u.x, u.y, 4);
     }
 
     // ── render-only status swaps (synced statuses → identical on guests) ──
     const hexed = u.statuses.some((s) => s.kind === "hex");
-    if (hexed !== this.hexShown) this.setHex(hexed);
+    if (hexed !== this.hexShown) {
+      this.setHex(hexed);
+    }
     if (this.mushroom && this.hexShown) {
       // hop-squash idle: volume-conserving wobble + a tiny bounce
       const b = Math.sin(now * 0.009);
@@ -536,7 +567,7 @@ class UnitView {
         const ts = clipSpeed(clip); // shared table — the sim's strike waits for this exact contact frame
         const window = animationWindow(ch.clipDuration(clip), ts, action);
         if (window.remaining > 0) {
-          ch.play(clip, { loop: false, fade: 0.06, timeScale: ts, offset: window.offset });
+          ch.play(clip, { fade: 0.06, loop: false, offset: window.offset, timeScale: ts });
           this.oneShotUntil = window.until;
           this.emitTrails(window.remaining); // only the accepted swing's remaining ribbon
         }
@@ -561,7 +592,7 @@ class UnitView {
         clipDur > 0 ? Math.max(clipSpeed(clip), (clipDur * 1000) / intervalMs) : clipSpeed(clip);
       const window = animationWindow(clipDur, ts, action);
       if (window.remaining > 0) {
-        ch.play(clip, { loop: false, fade: 0.04, timeScale: ts, offset: window.offset });
+        ch.play(clip, { fade: 0.04, loop: false, offset: window.offset, timeScale: ts });
         this.oneShotUntil = window.until;
         this.emitTrails(window.remaining); // weapon-trail ribbon traces the blade
         fx?.attackSound(this.def.id, u.x, u.y, this.isLocal);
@@ -589,7 +620,7 @@ class UnitView {
         // fit the flinch clip INTO its short beat (sped, not cut)
         const flinch = this.hitIdx++ % 2 ? "Hit_B" : "Hit_A";
         const fts = Math.max(1, (ch.clipDuration(flinch) * 1000) / HIT_ANIM_MS);
-        ch.play(flinch, { loop: false, fade: 0.05, timeScale: fts });
+        ch.play(flinch, { fade: 0.05, loop: false, timeScale: fts });
         this.oneShotUntil = now + HIT_ANIM_MS;
         this.lastFlinchAt = now;
       }
@@ -602,7 +633,9 @@ class UnitView {
     // whirlwind loops; then a dash shows the run; else locomotion. (Death
     // outranks all via the early return.)
     const airborne = u.jumpUntil > now;
-    if (!airborne && this.jumpPhase) this.jumpPhase = ""; // grounded → reset
+    if (!airborne && this.jumpPhase) {
+      this.jumpPhase = "";
+    } // grounded → reset
     if (now < this.oneShotUntil) {
       // hold the current one-shot
     } else if (airborne) {
@@ -614,22 +647,24 @@ class UnitView {
         this.jumpPhase = phase;
         // takeoff/land clips are SPED to fit their airtime slice — the whole
         // motion plays inside its phase instead of being chopped by the next
-        if (phase === "start")
+        if (phase === "start") {
           ch.play(JUMP_START_CLIP, {
             loop: false,
             fade: 0.06,
             timeScale: Math.max(1, (ch.clipDuration(JUMP_START_CLIP) * 1000) / JUMP_START_MS),
           });
-        else if (phase === "idle") ch.play(JUMP_IDLE_CLIP, { loop: true, fade: 0.12 });
-        else
+        } else if (phase === "idle") {
+          ch.play(JUMP_IDLE_CLIP, { loop: true, fade: 0.12 });
+        } else {
           ch.play(JUMP_LAND_CLIP, {
             loop: false,
             fade: 0.06,
             timeScale: Math.max(1, (ch.clipDuration(JUMP_LAND_CLIP) * 1000) / JUMP_LAND_MS),
           });
+        }
       }
     } else if (spinning) {
-      ch.play(SPIN_LOOP_CLIP, { loop: true, fade: 0.1, timeScale: TWO_H_SPEED });
+      ch.play(SPIN_LOOP_CLIP, { fade: 0.1, loop: true, timeScale: TWO_H_SPEED });
       this.emitTrails(150); // the ult ribbons for its WHOLE duration, not just the cast
     } else if (now < u.dashUntil) {
       ch.play("Running_B", { fade: 0.1 });
@@ -656,7 +691,7 @@ class UnitView {
     // ── dash trail: afterimages + streaks + dust shed behind any ability dash ──
     const dashing = now < u.dashUntil;
     if (dashing && fx) {
-      const primary = CHAMP_FX.get(this.def.id)?.primary ?? 0x9fd0ff;
+      const primary = CHAMP_FX.get(this.def.id)?.primary ?? 0x9f_d0_ff;
       if (now - this.lastDashTrailAt > 40) {
         this.lastDashTrailAt = now;
         fx.castStreak(u.x, u.y, -u.dashVx, -u.dashVy, primary, 6, 2, 0.35);
@@ -664,8 +699,9 @@ class UnitView {
       if (now - this.lastGhostAt > 70) {
         this.lastGhostAt = now;
         fx.ghost(this.group.position.x, this.group.position.z, primary); // Hades-dash afterimage
-        if (this.def.id === "witch")
-          fx.crossGlint(u.x, 1.0, u.y, -u.dashVy, u.dashVx, 0xb98ae0, 0.6); // broom sparkle
+        if (this.def.id === "witch") {
+          fx.crossGlint(u.x, 1.0, u.y, -u.dashVy, u.dashVx, 0xb98ae0, 0.6);
+        } // broom sparkle
       }
       if (now - this.lastDashDustAt > 80) {
         this.lastDashDustAt = now;
@@ -673,7 +709,7 @@ class UnitView {
       }
     }
     if (this.wasDashing && !dashing && fx) {
-      fx.impactRing(u.x, u.y, CHAMP_FX.get(this.def.id)?.primary ?? 0x9fd0ff, 1.6); // dash-expiry pop
+      fx.impactRing(u.x, u.y, CHAMP_FX.get(this.def.id)?.primary ?? 0x9f_d0_ff, 1.6); // dash-expiry pop
     }
     this.wasDashing = dashing;
 
@@ -697,7 +733,7 @@ class UnitView {
             u.x + (Math.random() - 0.5),
             0.3,
             u.y + (Math.random() - 0.5),
-            0xffd24a,
+            0xff_d2_4a,
             1.5,
             0.6,
             0.2,
@@ -711,10 +747,14 @@ class UnitView {
 
     // hit flash (white pulse on damage) — on this unit's cloned materials
     const flash = Math.max(0, 1 - (now - u.lastHitAt) / 110);
-    for (const m of this.mats) m.emissive.setRGB(flash, flash * 0.85, flash * 0.7);
+    for (const m of this.mats) {
+      m.emissive.setRGB(flash, flash * 0.85, flash * 0.7);
+    }
     // melee windup glint — micro-anticipation while a swing charges (90–140ms)
     const glint = u.pendingAttack ? 0.35 : 0;
-    for (const m of this.weaponMats) m.emissive.setRGB(glint, glint, glint);
+    for (const m of this.weaponMats) {
+      m.emissive.setRGB(glint, glint, glint);
+    }
 
     // ── status indicators (stun star / shield dome / slow tint / embers…) ──
     // built lazily on the first status; StatusFx owns stealth opacity + empower
@@ -722,11 +762,11 @@ class UnitView {
     if (fx && !this.statusFx && (u.statuses.length > 0 || u.empowerNext > 0)) {
       this.statusFx = new StatusFx(
         {
-          group: this.group,
-          bodyMats: this.mats,
-          weaponMats: this.weaponMats,
           accent: CHAMP_FX.get(this.def.id)?.accent ?? 0x9fd0ff,
+          bodyMats: this.mats,
+          group: this.group,
           isLocal: this.isLocal,
+          weaponMats: this.weaponMats,
         },
         fx.pools,
       );
@@ -756,18 +796,26 @@ class UnitView {
       this.pose.add(pivot);
       this.mushroom = pivot;
     }
-    if (this.mushroom) this.mushroom.visible = on;
+    if (this.mushroom) {
+      this.mushroom.visible = on;
+    }
     this.char.root.visible = !on;
   }
 
   /** Begin a weapon trail on every melee weapon for the next `dur` ms. */
   private emitTrails(dur: number): void {
-    if (this.hexShown) return; // no blade arcs off a mushroom
-    for (const t of this.trails) t.emit(dur);
+    if (this.hexShown) {
+      return;
+    } // no blade arcs off a mushroom
+    for (const t of this.trails) {
+      t.emit(dur);
+    }
   }
 
   private updateTrails(dt: number): void {
-    for (const t of this.trails) t.update(dt);
+    for (const t of this.trails) {
+      t.update(dt);
+    }
   }
 
   dispose(scene: THREE.Scene): void {
@@ -782,8 +830,12 @@ class UnitView {
     this.statusFx?.dispose();
     this.char.dispose();
     // free per-instance materials (shared skinned geometry stays with the template)
-    for (const m of this.mats) m.dispose();
-    for (const m of this.weaponMats) m.dispose();
+    for (const m of this.mats) {
+      m.dispose();
+    }
+    for (const m of this.weaponMats) {
+      m.dispose();
+    }
     this.ring.geometry.dispose();
     this.ringMat.dispose();
   }
@@ -812,13 +864,19 @@ class PropView {
   }
 
   update(u: Unit, now: number, dt: number, fx: Fx | null): void {
-    if (!this.wasAlive && u.alive) fx?.dust(u.x, u.y, 4); // respawn pop
+    if (!this.wasAlive && u.alive) {
+      fx?.dust(u.x, u.y, 4);
+    } // respawn pop
     this.wasAlive = u.alive;
     this.group.visible = u.alive;
-    if (!u.alive) return;
+    if (!u.alive) {
+      return;
+    }
     if (u.lastHitAt !== this.lastHitShown) {
       this.lastHitShown = u.lastHitAt;
-      if (now - u.lastHitAt < 150) this.squash = 1;
+      if (now - u.lastHitAt < 150) {
+        this.squash = 1;
+      }
     }
     this.squash *= Math.max(0, 1 - 8 * dt);
     const bs = this.baseScale;
@@ -828,12 +886,16 @@ class PropView {
       bs * (1 + 0.1 * this.squash),
     );
     const flash = Math.max(0, 1 - (now - u.lastHitAt) / 110);
-    for (const m of this.mats) m.emissive.setRGB(flash, flash * 0.85, flash * 0.6);
+    for (const m of this.mats) {
+      m.emissive.setRGB(flash, flash * 0.85, flash * 0.6);
+    }
   }
 
   dispose(scene: THREE.Scene): void {
     scene.remove(this.group);
-    for (const m of this.mats) m.dispose();
+    for (const m of this.mats) {
+      m.dispose();
+    }
   }
 }
 
@@ -842,13 +904,20 @@ class PropView {
 function cloneMats(root: THREE.Object3D, tint: THREE.Color | null): THREE.MeshStandardMaterial[] {
   const out: THREE.MeshStandardMaterial[] = [];
   root.traverse((o) => {
-    if (!(o instanceof THREE.Mesh)) return;
-    if (Array.isArray(o.material)) o.material = o.material.map((mm) => mm.clone());
-    else o.material = o.material.clone();
+    if (!(o instanceof THREE.Mesh)) {
+      return;
+    }
+    if (Array.isArray(o.material)) {
+      o.material = o.material.map((mm) => mm.clone());
+    } else {
+      o.material = o.material.clone();
+    }
     const list = Array.isArray(o.material) ? o.material : [o.material];
     for (const mat of list) {
       if (mat instanceof THREE.MeshStandardMaterial) {
-        if (tint) mat.color.lerp(tint, 0.18); // subtle team/identity hue
+        if (tint) {
+          mat.color.lerp(tint, 0.18);
+        } // subtle team/identity hue
         out.push(mat);
       }
     }
@@ -857,8 +926,11 @@ function cloneMats(root: THREE.Object3D, tint: THREE.Color | null): THREE.MeshSt
 }
 
 function disposeMat(m: THREE.Material | THREE.Material[]): void {
-  if (Array.isArray(m)) for (const mm of m) mm.dispose();
-  else m.dispose();
+  if (Array.isArray(m)) {
+    for (const mm of m) mm.dispose();
+  } else {
+    m.dispose();
+  }
 }
 
 export class WorldView {
@@ -910,16 +982,26 @@ export class WorldView {
   /** Explicit match replacement reuses this view. Retained IDs cannot inherit
    * old character poses, pickup flights or decoration emission clocks. */
   resetCharacters(): void {
-    for (const view of this.units.values()) view.dispose(this.scene);
+    for (const view of this.units.values()) {
+      view.dispose(this.scene);
+    }
     this.units.clear();
-    for (const prop of this.props.values()) prop.dispose(this.scene);
+    for (const prop of this.props.values()) {
+      prop.dispose(this.scene);
+    }
     this.props.clear();
     // Projectile geometry and materials are shared caches, not per-shot owns.
-    for (const projectile of this.projectiles.values()) this.scene.remove(projectile);
+    for (const projectile of this.projectiles.values()) {
+      this.scene.remove(projectile);
+    }
     this.projectiles.clear();
-    for (const coin of this.coins.values()) this.removeCoin(coin);
+    for (const coin of this.coins.values()) {
+      this.removeCoin(coin);
+    }
     this.coins.clear();
-    for (const delivery of this.deliveries.values()) this.removeDelivery(delivery);
+    for (const delivery of this.deliveries.values()) {
+      this.removeDelivery(delivery);
+    }
     this.deliveries.clear();
     this.seenCoins.clear();
     this.flyingCoins.clear();
@@ -936,13 +1018,15 @@ export class WorldView {
   }
 
   sync(w: World, dt: number): void {
-    const now = w.now;
+    const { now } = w;
 
     // units owning a live whirlwind loop their spin clip (knight R keeps
     // spinning visually for the zone's whole duration, not just the cast)
     this.spinners.clear();
     for (const g of w.grounds) {
-      if (g.effect === "whirlwind" && g.until > now) this.spinners.add(g.ownerId);
+      if (g.effect === "whirlwind" && g.until > now) {
+        this.spinners.add(g.ownerId);
+      }
     }
 
     // units (heroes + neutral creeps + destructible props)
@@ -959,7 +1043,9 @@ export class WorldView {
         pv.update(u, now, dt, this.fx);
         continue;
       }
-      if (u.kind !== "hero" && u.kind !== "creep") continue;
+      if (u.kind !== "hero" && u.kind !== "creep") {
+        continue;
+      }
       seen.add(u.id);
       let view = this.units.get(u.id);
       const isLocal = u.kind === "hero" && u.id === this.localId;
@@ -973,7 +1059,7 @@ export class WorldView {
         const isCreep = u.kind === "creep";
         const def =
           (isCreep ? CREEP_VIEW.get(u.champId) : CHAMP_BY_ID[u.champId]) ?? CHAMP_BY_ID["knight"]!;
-        const color = isCreep ? 0x9aa3b5 : teamColor(u.team);
+        const color = isCreep ? 0x9a_a3_b5 : teamColor(u.team);
         view = new UnitView(this.scene, this.lib, def, color, isLocal, isCreep, {
           champId: u.champId,
           team: u.team,
@@ -1040,7 +1126,9 @@ export class WorldView {
       // fireballs drag a smoke tracer — matter under the energy
       if (p.kind === "fireball") {
         this.fireballFlip = !this.fireballFlip;
-        if (this.fireballFlip) this.fx?.smokePuff(p.x, 1.1, p.y);
+        if (this.fireballFlip) {
+          this.fx?.smokePuff(p.x, 1.1, p.y);
+        }
       }
     }
     for (const [id, mesh] of this.projectiles) {
@@ -1065,7 +1153,7 @@ export class WorldView {
         this.boss.play("Skeletons_Taunt", { fade: 0.2, loop: false });
         // return to idle when the clip actually ends (don't freeze on its last frame)
         this.bossReturnAt = now + this.boss.clipDuration("Skeletons_Taunt") * 1000;
-        this.bossNextTaunt = now + 13000;
+        this.bossNextTaunt = now + 13_000;
       }
     }
   }
@@ -1082,8 +1170,8 @@ export class WorldView {
         if (!c.loot && now < c.landAt && (!launched || c.landAt > launched.landAt)) {
           launched = c;
         } else if (c.loot) {
-          this.fx?.impactRing(c.x, c.y, 0xffd24a, 1.0);
-          this.fx?.sparks(c.x, 0.6, c.y, 0, 1, 5, 0xfff2b0);
+          this.fx?.impactRing(c.x, c.y, 0xff_d2_4a, 1);
+          this.fx?.sparks(c.x, 0.6, c.y, 0, 1, 5, 0xff_f2_b0);
           this.fx?.dust(c.x, c.y, 2);
         }
       }
@@ -1096,15 +1184,17 @@ export class WorldView {
           : new THREE.Mesh(
               new THREE.CylinderGeometry(0.45, 0.45, 0.14, 18),
               new THREE.MeshStandardMaterial({
-                color: 0xffd24a,
-                emissive: 0xffaa20,
-                emissiveIntensity: 1.0,
+                color: 0xff_d2_4a,
+                emissive: 0xff_aa_20,
+                emissiveIntensity: 1,
                 metalness: 0.4,
                 roughness: 0.4,
               }),
             );
         this.coins.set(c.id, mesh);
-        if (!c.loot && mesh instanceof THREE.Mesh) this.ownedCoins.add(mesh);
+        if (!c.loot && mesh instanceof THREE.Mesh) {
+          this.ownedCoins.add(mesh);
+        }
         this.scene.add(mesh);
       }
       // parabolic arc while flying, then bob+spin on the ground
@@ -1122,21 +1212,21 @@ export class WorldView {
             c.x,
             c.y,
             1.2,
-            0xffd24a,
+            0xff_d2_4a,
             Math.min(1, Math.max(0, t)),
           );
           const lastTrail = this.coinTrailAt.get(c.id) ?? 0;
           if (now - lastTrail > 40) {
             this.coinTrailAt.set(c.id, now);
-            this.fx.trailAt(x, 0.5 + arc, z, 0xffd24a, 0.35);
+            this.fx.trailAt(x, 0.5 + arc, z, 0xff_d2_4a, 0.35);
           }
         }
       } else {
         if (this.flyingCoins.has(c.id)) {
           // landing frame: thump + sparks
           this.flyingCoins.delete(c.id);
-          this.fx?.impactRing(c.x, c.y, 0xffd24a, 1.2);
-          this.fx?.sparks(c.x, 0.6, c.y, 0, 1, 6, 0xffd24a);
+          this.fx?.impactRing(c.x, c.y, 0xff_d2_4a, 1.2);
+          this.fx?.sparks(c.x, 0.6, c.y, 0, 1, 6, 0xff_d2_4a);
           this.fx?.dust(c.x, c.y, 2);
         }
         mesh.position.set(c.x, terrainHeight(c.x, c.y) + 0.6 + Math.sin(now * 0.004) * 0.15, c.y);
@@ -1144,7 +1234,7 @@ export class WorldView {
         const lastSparkle = this.coinSparkleAt.get(c.id) ?? 0;
         if (this.fx && now - lastSparkle > 700) {
           this.coinSparkleAt.set(c.id, now);
-          this.fx.crossGlint(c.x, terrainHeight(c.x, c.y) + 0.9, c.y, 1, 0, 0xfff2b0, 0.5);
+          this.fx.crossGlint(c.x, terrainHeight(c.x, c.y) + 0.9, c.y, 1, 0, 0xff_f2_b0, 0.5);
         }
       }
       if (c.loot) {
@@ -1193,8 +1283,8 @@ export class WorldView {
         const crate = new THREE.Mesh(
           new THREE.BoxGeometry(1.1, 1.1, 1.1),
           new THREE.MeshStandardMaterial({
-            color: 0x66ffcc,
-            emissive: 0x22cc88,
+            color: 0x66_ff_cc,
+            emissive: 0x22_cc_88,
             emissiveIntensity: 0.5,
             roughness: 0.6,
           }),
@@ -1204,10 +1294,10 @@ export class WorldView {
           new THREE.CylinderGeometry(0.7, 1.3, 9, 16, 1, true),
           new THREE.MeshBasicMaterial({
             color: 0x66ffcc,
-            transparent: true,
+            depthWrite: false,
             opacity: 0.14,
             side: THREE.DoubleSide,
-            depthWrite: false,
+            transparent: true,
           }),
         );
         beam.position.y = 4.5;
@@ -1230,7 +1320,7 @@ export class WorldView {
               d.x + Math.cos(a + off) * 0.9,
               0.4,
               d.y + Math.sin(a + off) * 0.9,
-              0x66ffcc,
+              0x66_ff_cc,
               2.4,
               0.7,
               0.22,
@@ -1261,29 +1351,43 @@ export class WorldView {
   private removeDelivery(group: THREE.Group): void {
     this.scene.remove(group);
     for (const child of group.children) {
-      if (!(child instanceof THREE.Mesh)) continue;
+      if (!(child instanceof THREE.Mesh)) {
+        continue;
+      }
       child.geometry.dispose();
       disposeMat(child.material);
     }
   }
 
   private syncGrounds(w: World, now: number): void {
-    const fx = this.fx;
-    if (!fx) return;
+    const { fx } = this;
+    if (!fx) {
+      return;
+    }
     const localTeam = w.units.get(this.localId)?.team ?? "";
     fx.telegraphs.sync(w.grounds, localTeam, now);
     for (const g of w.grounds) {
       fx.zoneAmbient(g, now);
       // ambient-ize silent tick damage: units standing in a hostile dps zone
       // shed embers in the zone color (throttled per unit)
-      if (!g.enemyDps) continue;
+      if (!g.enemyDps) {
+        continue;
+      }
       const r2 = g.radius * g.radius;
       for (const u of w.units.values()) {
-        if (!u.alive || u.team === g.team) continue;
-        if (u.kind !== "hero" && u.kind !== "creep") continue;
-        if ((u.x - g.x) ** 2 + (u.y - g.y) ** 2 > r2) continue;
+        if (!u.alive || u.team === g.team) {
+          continue;
+        }
+        if (u.kind !== "hero" && u.kind !== "creep") {
+          continue;
+        }
+        if ((u.x - g.x) ** 2 + (u.y - g.y) ** 2 > r2) {
+          continue;
+        }
         const next = this.emberNext.get(u.id) ?? 0;
-        if (now < next) continue;
+        if (now < next) {
+          continue;
+        }
         this.emberNext.set(u.id, now + 250);
         fx.zoneEmber(u.x, u.y, groundFxColor(g.effect));
       }
@@ -1293,20 +1397,20 @@ export class WorldView {
 
 function projectileColor(kind: string): number {
   return kind === "fireball"
-    ? 0xff7a2c
+    ? 0xff_7a_2c
     : kind === "bolt"
-      ? 0xb070ff
+      ? 0xb0_70_ff
       : kind === "arrow"
-        ? 0xffe6a0
+        ? 0xff_e6_a0
         : kind === "hexbolt"
-          ? 0x7fe08a
-          : 0xffffff;
+          ? 0x7f_e0_8a
+          : 0xff_ff_ff;
 }
 
 // Projectile geometry/materials are SHARED per kind (projectiles churn fast —
 // per-instance allocations leaked GPU buffers since nothing disposed them).
 const PROJ_GEO = {
-  shaft: new THREE.CylinderGeometry(0.05, 0.05, 1.0, 6),
+  shaft: new THREE.CylinderGeometry(0.05, 0.05, 1, 6),
   shard: new THREE.ConeGeometry(0.16, 1.1, 6),
   sphere: new THREE.SphereGeometry(1, 12, 12),
 };
@@ -1324,11 +1428,11 @@ function haloMat(color: number, opacity: number): THREE.MeshBasicMaterial {
     `halo:${color}:${opacity}`,
     () =>
       new THREE.MeshBasicMaterial({
-        color,
         blending: THREE.AdditiveBlending,
-        transparent: true,
-        opacity,
+        color,
         depthWrite: false,
+        opacity,
+        transparent: true,
       }),
   );
 }
@@ -1340,7 +1444,7 @@ function makeProjectileMesh(p: Projectile): THREE.Object3D {
   if (p.kind === "arrow") {
     const shaft = new THREE.Mesh(
       PROJ_GEO.shaft,
-      projMat("shaft", () => new THREE.MeshBasicMaterial({ color: 0xcfa15a })),
+      projMat("shaft", () => new THREE.MeshBasicMaterial({ color: 0xcf_a1_5a })),
     );
     shaft.rotation.x = Math.PI / 2;
     const tip = new THREE.Mesh(PROJ_GEO.sphere, haloMat(color, 1));

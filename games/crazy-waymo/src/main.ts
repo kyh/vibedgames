@@ -11,16 +11,20 @@ import { GameScene } from "./scenes/game-scene";
 import { MAX_DT } from "./shared/constants";
 import { createPauseOverlay } from "./ui/pause-overlay";
 
-const container = document.getElementById("game");
-if (!container) throw new Error("missing #game container");
+const container = document.querySelector("#game");
+if (!container) {
+  throw new Error("missing #game container");
+}
 
 let reloadOnVeilTap = false;
-document.getElementById("loading")?.addEventListener("click", () => {
-  if (reloadOnVeilTap) window.location.reload();
+document.querySelector("#loading")?.addEventListener("click", () => {
+  if (reloadOnVeilTap) {
+    window.location.reload();
+  }
 });
 
-function showFatal(message: string, tapToReload = false): void {
-  const loading = document.getElementById("loading");
+const showFatal = (message: string, tapToReload = false): void => {
+  const loading = document.querySelector<HTMLElement>("#loading");
   if (loading) {
     // Trailer boots keep the veil hidden from the first paint (see index.html)
     // — a dead context still has to be reported, so force it back on screen.
@@ -28,13 +32,15 @@ function showFatal(message: string, tapToReload = false): void {
     loading.innerHTML = `<div class="lt">CRAZY WAYMO</div><div class="ls" style="opacity:1;color:#ff8a8a">${message}</div>`;
     reloadOnVeilTap = tapToReload;
   }
-}
+};
 
-function hideFatal(): void {
-  const loading = document.getElementById("loading");
-  if (loading) loading.style.display = "none";
+const hideFatal = (): void => {
+  const loading = document.querySelector<HTMLElement>("#loading");
+  if (loading) {
+    loading.style.display = "none";
+  }
   reloadOnVeilTap = false;
-}
+};
 
 // MSAA can't be changed after context creation. On dense phone screens the
 // subpixel density plus the sub-native render ratio the governor picks hide
@@ -44,10 +50,10 @@ const msaa = !(isCoarsePointer() && (window.devicePixelRatio || 1) >= 2);
 let renderer: THREE.WebGLRenderer;
 try {
   renderer = new THREE.WebGLRenderer({ antialias: msaa, powerPreference: "high-performance" });
-} catch (err) {
-  console.error("[crazy-waymo] WebGL init failed", err);
+} catch (error) {
+  console.error("[crazy-waymo] WebGL init failed", error);
   showFatal("WebGL unavailable — try a different browser or enable hardware acceleration.");
-  throw err instanceof Error ? err : new Error("WebGL init failed");
+  throw error instanceof Error ? error : new Error("WebGL init failed");
 }
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -57,7 +63,7 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.62;
-container.appendChild(renderer.domElement);
+container.append(renderer.domElement);
 
 // Trailer mode (?trailer=1): forces an offline solo session at construction
 // and skips the landing screen; the director itself is a lazy chunk loaded
@@ -75,24 +81,7 @@ framePacer.setHidden(document.hidden);
 
 // Wrapper pause: solo game, safe to fully freeze (see GameScene.requestPause).
 const pauseOverlay = createPauseOverlay(() => game.restartRun());
-setPauseHandlers({
-  onPause: () => {
-    pauseOverlay.show();
-    game.requestPause();
-    framePacer.setPaused(true);
-    governor.resetTiming();
-  },
-  onResume: () => {
-    pauseOverlay.hide();
-    game.requestResume();
-    framePacer.setPaused(false);
-    governor.resetTiming();
-  },
-});
-
-function renderHeightPx(): number {
-  return window.innerHeight * renderer.getPixelRatio();
-}
+const renderHeightPx = (): number => window.innerHeight * renderer.getPixelRatio();
 game.resize(window.innerWidth / window.innerHeight, renderHeightPx());
 
 window.addEventListener("resize", () => {
@@ -109,6 +98,21 @@ const governor = new PerfGovernor(renderer, game.sunLight, (features) => {
   game.applyQuality(features);
   post?.setSize(window.innerWidth, window.innerHeight, renderer.getPixelRatio());
   game.resize(window.innerWidth / window.innerHeight, renderHeightPx());
+});
+
+setPauseHandlers({
+  onPause: () => {
+    pauseOverlay.show();
+    game.requestPause();
+    framePacer.setPaused(true);
+    governor.resetTiming();
+  },
+  onResume: () => {
+    pauseOverlay.hide();
+    game.requestResume();
+    framePacer.setPaused(false);
+    governor.resetTiming();
+  },
 });
 
 document.addEventListener("visibilitychange", () => {
@@ -141,18 +145,26 @@ renderer.domElement.addEventListener("webglcontextrestored", () => {
 });
 
 if (import.meta.env.DEV) {
-  void import("./debug/dev-hooks").then(({ installDevHooks }) => installDevHooks(game, governor));
-  Object.assign(window, { __renderer: renderer, __waymo: game, __post: post });
+  void (async () => {
+    const { installDevHooks } = await import("./debug/dev-hooks");
+    installDevHooks(game, governor);
+  })();
+  Object.assign(window, { __post: post, __renderer: renderer, __waymo: game });
 }
 
-function drawScene(): void {
-  if (post) post.render();
-  else renderer.render(game.scene, game.camera);
-}
+const drawScene = (): void => {
+  if (post) {
+    post.render();
+  } else {
+    renderer.render(game.scene, game.camera);
+  }
+};
 
 renderer.setAnimationLoop((t) => {
   const frame = framePacer.next(t);
-  if (frame.kind === "skip") return;
+  if (frame.kind === "skip") {
+    return;
+  }
   if (frame.kind === "draw") {
     drawScene();
     return;
@@ -160,7 +172,9 @@ renderer.setAnimationLoop((t) => {
   // Build/paused frames are not gameplay cost. Phone pairs normalize 90 Hz
   // callback quantization while preserving the governor's elapsed wall time.
   if (game.isReady && frame.timing) {
-    for (let i = 0; i < frame.timing.samples; i++) governor.update(frame.timing.dt);
+    for (let i = 0; i < frame.timing.samples; i += 1) {
+      governor.update(frame.timing.dt);
+    }
   }
   const dt = Math.min(frame.dt, MAX_DT);
   const tU = performance.now();
@@ -182,23 +196,25 @@ const loaded = game.load();
 // Map editor: open with ?editor=1, place assets, export JSON for
 // world/custom-props.ts. Lazy chunk — costs nothing on normal loads.
 if (new URLSearchParams(window.location.search).has("editor")) {
-  void Promise.all([import("./editor/map-editor"), loaded]).then(async ([{ startEditor }]) => {
-    await game.ready; // editor needs the fully built city
+  void (async () => {
+    const [{ startEditor }] = await Promise.all([import("./editor/map-editor"), loaded]);
+    // editor needs the fully built city
+    await game.ready;
     await startEditor(game, renderer);
-  });
+  })();
 }
 
 // TRAILER MODE: ?trailer=1 plays a fully staged in-game trailer (see
 // src/trailer/). Lazy chunk, mirrors the editor wiring.
 if (trailerMode) {
-  void Promise.all([import("./trailer/trailer-director"), loaded]).then(
-    async ([{ startTrailer }]) => {
-      await game.ready; // staging needs traffic/physics/cones — full readiness
-      await game.prepareTrailer();
-      startTrailer(game, () => {
-        drawScene();
-        return renderer.domElement;
-      });
-    },
-  );
+  void (async () => {
+    const [{ startTrailer }] = await Promise.all([import("./trailer/trailer-director"), loaded]);
+    // staging needs traffic/physics/cones — full readiness
+    await game.ready;
+    await game.prepareTrailer();
+    startTrailer(game, () => {
+      drawScene();
+      return renderer.domElement;
+    });
+  })();
 }

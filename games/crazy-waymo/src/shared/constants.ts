@@ -3,19 +3,25 @@
 // is a 1×1 unit tile. We scale the city UP so one road cell = ROAD_TILE units,
 // giving arcade-wide two-lane roads the taxi can drift across.
 
-export const MAX_DT = 1 / 30; // clamp delta on tab-away
+// clamp delta on tab-away
+export const MAX_DT = 1 / 30;
 
 // --- World / city grid ---
-export const ROAD_TILE = 13; // world units per grid cell (wider arcade boulevards)
-export const ROAD_Y = 0.02; // lift road tiles above the ground plane
+// world units per grid cell (wider arcade boulevards)
+export const ROAD_TILE = 13;
+// lift road tiles above the ground plane
+export const ROAD_Y = 0.02;
 // Rectangular grid matching SF's true ~1.22:1 aspect (14.1km E-W × 11.6km N-S) —
 // GRID_X cells east-west, GRID_Z cells north-south. The road network is the real
 // SF street grid (OpenStreetMap), rasterized at this resolution by
 // tools/sf-data/rasterize.mjs — keep the baked mask (src/world/sf-streets.ts) in
 // sync: `node tools/sf-data/rasterize.mjs 244 200`.
-export const GRID_X = 244; // cells east-west (u axis)
-export const GRID_Z = 200; // cells north-south (v axis)
-export const CITY_SEED = 1337; // still seeds traffic, props and other scatter
+// cells east-west (u axis)
+export const GRID_X = 244;
+// cells north-south (v axis)
+export const GRID_Z = 200;
+// still seeds traffic, props and other scatter
+export const CITY_SEED = 1337;
 // Rotation sign mapping grid clockwise quarter-turns → Three.js Y rotation.
 // Verified visually; flip to +1 if road tiles point the wrong way.
 export const ROAD_ROT_SIGN = -1;
@@ -43,7 +49,8 @@ export const CHUNK = 320;
 // own imposter through the haze — A/B'd at 800-900u and the crops are identical.
 // Past ~1100 the imposter tiers already carry the skyline; this is not the knob
 // that makes the distance read, the fog grade is (render/aerial-fog.ts).
-export const DRAW_DISTANCE = 900; // fog far 800 by day, 700 at night
+// fog far 800 by day, 700 at night
+export const DRAW_DISTANCE = 900;
 
 // --- Car (arcade handling) ---
 // Turn radius R = speed / (turnRate·authority). A road tile is ROAD_TILE (13u)
@@ -54,77 +61,117 @@ export const DRAW_DISTANCE = 900; // fog far 800 by day, 700 at night
 // traction and multiplies the turn (driftTurnBoost), carving the corner:
 //   ω_drift at 24u/s ≈ 3.0·0.76·2.0 ≈ 4.6 rad/s → a ~90° sweep in ~0.34s.
 export const CAR = {
-  maxSpeed: 30, // top forward speed
-  boostSpeed: 44, // top speed while boosting (a burst, still controllable)
-  accel: 20, // forward acceleration — gentle launch, no twitchy leap to top
-  brakeDecel: 82, // braking / active slow-down (scrub hard for tight corners)
-  coastDecel: 22, // engine braking when no input — lifting off scrubs speed for turns
-  reverseMax: 16,
-  reverseAccel: 24,
-  // Steering: angular speed (rad/s) you can turn, scaled by how fast you go.
-  turnRate: 3.0, // gentle steering — lane changes and sweeping curves, not 90°s
-  turnSpeedFalloff: 0.7, // authority drops with speed → can't hard-corner at cruise
-  steerRamp: 0.08, // seconds to ramp steering input to full lock (crisp, not icy)
-  // Grip controls how fast the velocity vector realigns to the car's heading.
-  gripNormal: 8.0, // high grip → predictable, goes where it points (nav feel)
-  gripDrift: 2.6, // low grip while drifting → slides, but carves the corner
-  driftTurnBoost: 2.0, // Space-drift multiplies the turn to whip through right angles
-  driftMinSpeed: 10, // must be moving this fast to drift (easy to break loose)
-  driftMinSlip: 0.05, // radians of real slip before a drift counts — low, so even light drifts earn boost
-  miniBoostImpulse: 14, // instant forward pop when releasing a charged drift
-  slopeGravity: 40, // how hard SF hills pull the car back uphill / drag it downhill
-  // Hill jumps: cresting fast enough goes ballistic instead of gluing to the road.
-  gravity: 52, // vertical fall accel while airborne (snappy arcs, not moon-floats)
-  maxLaunchVy: 8, // cap the upward pop off a crest so air time stays a beat
-  minAirSpeed: 20, // slower than this just sticks to the ground
-  launchDropRate: -6, // go airborne when the ground falls away faster than this (u/s)
-  airSteerFactor: 0.3, // steering authority in the air
-  boostDrain: 34, // boost units/s spent while boosting
-  boostRefill: 5, // trickle only — real boost comes from drifts/near-misses/fares
-  boostMax: 100,
-  boostPerDriftSec: 50, // boost/s gained continuously WHILE drifting — fills fast, easy to earn
-  driftSlingArm: 0.22, // seconds of drift before the release slingshot arms (low = forgiving)
-  boostPerNearMiss: 10,
-  bodyHalfWidth: 0.85, // collision half-extents (a bit > visual for forgiveness)
+  // forward acceleration — gentle launch, no twitchy leap to top
+  accel: 20,
+  // steering authority in the air
+  airSteerFactor: 0.3,
   bodyHalfLength: 1.5,
-  bounce: 0.35, // wall bounce restitution
+  // collision half-extents (a bit > visual for forgiveness)
+  bodyHalfWidth: 0.85,
+  // boost units/s spent while boosting
+  boostDrain: 34,
+  boostMax: 100,
+  // boost/s gained continuously WHILE drifting — fills fast, easy to earn
+  boostPerDriftSec: 50,
+  boostPerNearMiss: 10,
+  // trickle only — real boost comes from drifts/near-misses/fares
+  boostRefill: 5,
+  // top speed while boosting (a burst, still controllable)
+  boostSpeed: 44,
+  // wall bounce restitution
+  bounce: 0.35,
+  // braking / active slow-down (scrub hard for tight corners)
+  brakeDecel: 82,
+  // engine braking when no input — lifting off scrubs speed for turns
+  coastDecel: 22,
+  // radians of real slip before a drift counts — low, so even light drifts earn boost
+  driftMinSlip: 0.05,
+  // must be moving this fast to drift (easy to break loose)
+  driftMinSpeed: 10,
+  // seconds of drift before the release slingshot arms (low = forgiving)
+  driftSlingArm: 0.22,
+  // Space-drift multiplies the turn to whip through right angles
+  driftTurnBoost: 2,
+  // Hill jumps: cresting fast enough goes ballistic instead of gluing to the road.
+  // vertical fall accel while airborne (snappy arcs, not moon-floats)
+  gravity: 52,
+  // low grip while drifting → slides, but carves the corner
+  gripDrift: 2.6,
+  // Grip controls how fast the velocity vector realigns to the car's heading.
+  // high grip → predictable, goes where it points (nav feel)
+  gripNormal: 8,
+  // go airborne when the ground falls away faster than this (u/s)
+  launchDropRate: -6,
+  // cap the upward pop off a crest so air time stays a beat
+  maxLaunchVy: 8,
+  // top forward speed
+  maxSpeed: 30,
+  // slower than this just sticks to the ground
+  minAirSpeed: 20,
+  // instant forward pop when releasing a charged drift
+  miniBoostImpulse: 14,
+  reverseAccel: 24,
+  reverseMax: 16,
+  // how hard SF hills pull the car back uphill / drag it downhill
+  slopeGravity: 40,
+  // seconds to ramp steering input to full lock (crisp, not icy)
+  steerRamp: 0.08,
+  // Steering: angular speed (rad/s) you can turn, scaled by how fast you go.
+  // gentle steering — lane changes and sweeping curves, not 90°s
+  turnRate: 3,
+  // authority drops with speed → can't hard-corner at cruise
+  turnSpeedFalloff: 0.7,
 } as const;
 
-export const MPH_FACTOR = 2.1; // displayed "MPH" = speed * factor (flavor only)
+// displayed "MPH" = speed * factor (flavor only)
+export const MPH_FACTOR = 2.1;
 
 // --- Chase camera ---
 // Close and low: the taxi should fill real screen space — a far, high camera
 // makes the hero read tiny and the streets hard to judge.
 export const CAMERA = {
-  fov: 58,
-  fovBoost: 70, // widen FOV with speed for a rush
-  distance: 13, // behind the car
-  // Street-facing frame: the old 6.8u perch looked down over two-storey SF
-  // roofs, hiding bay windows and making the city read as a model railway.
-  height: 5.2,
-  lookHeight: 1.6,
-  lookAhead: 12, // aim ahead of the car (see corners sooner)
-  lookAheadSpeed: 9, // extra look-ahead at top speed (road opens up)
-  posLerp: 4.5, // position follow stiffness
-  aimLerp: 7, // look-at follow stiffness
-  yawLerp: 3.2, // how fast the camera swings behind the heading
-  driftSwing: 0.6, // max camera yaw bias toward the slide (radians)
-  minHeight: 2.0, // never let collision pull the camera below this
-  // --- Overhead clamp (world/solid-index.ts CeilingIndex) ---
-  // The rig rides `height` up, which is taller than the clearance under the
-  // Bay Bridge approach (6.1u) and the freeway viaducts, so without a ceiling
-  // term the camera parks inside the soffit and the screen fills with grey.
-  ceilingProbe: 1.6, // a slab must clear the car's roof by this to count as ceiling, not floor
-  ceilingClear: 0.9, // ride this far under the soffit (near plane is 0.3)
-  ceilingFloor: 1.4, // never duck closer to the car than this, however low the deck
-  ceilingRelease: 3.0, // how far above the camera the cap parks under open sky
+  // look-at follow stiffness
+  aimLerp: 7,
+  // ride this far under the soffit (near plane is 0.3)
+  ceilingClear: 0.9,
   // Asymmetric. The duck has ~0.43s of runway — the car crosses under a deck
   // that far ahead of the camera trailing 13u behind it — so 12 spends ~0.2s
   // easing down and still finishes before the camera arrives. 22 was inside
   // the runway too but landed the whole 1.3u drop in four frames, which reads
   // as a cut. The rise is slower still: floating back up is not urgent.
   ceilingDuckRate: 12,
+  // never duck closer to the car than this, however low the deck
+  ceilingFloor: 1.4,
+  // --- Overhead clamp (world/solid-index.ts CeilingIndex) ---
+  // The rig rides `height` up, which is taller than the clearance under the
+  // Bay Bridge approach (6.1u) and the freeway viaducts, so without a ceiling
+  // term the camera parks inside the soffit and the screen fills with grey.
+  // a slab must clear the car's roof by this to count as ceiling, not floor
+  ceilingProbe: 1.6,
+  // how far above the camera the cap parks under open sky
+  ceilingRelease: 3,
   ceilingRiseRate: 2.6,
+  // behind the car
+  distance: 13,
+  // max camera yaw bias toward the slide (radians)
+  driftSwing: 0.6,
+  fov: 58,
+  // widen FOV with speed for a rush
+  fovBoost: 70,
+  // Street-facing frame: the old 6.8u perch looked down over two-storey SF
+  // roofs, hiding bay windows and making the city read as a model railway.
+  height: 5.2,
+  // aim ahead of the car (see corners sooner)
+  lookAhead: 12,
+  // extra look-ahead at top speed (road opens up)
+  lookAheadSpeed: 9,
+  lookHeight: 1.6,
+  // never let collision pull the camera below this
+  minHeight: 2,
+  // position follow stiffness
+  posLerp: 4.5,
+  // how fast the camera swings behind the heading
+  yawLerp: 3.2,
 } as const;
 
 // --- What counts as overhead structure (world/solid-index.ts harvest) ---
@@ -132,59 +179,84 @@ export const CAMERA = {
 // any of them lets house eaves and awnings in, and the camera then ducks on an
 // open street; tightening them lets a real viaduct through unclamped.
 export const CEILING = {
-  flatTol: 0.6, // max vertical extent of a triangle still read as a slab face
-  minArea: 8, // u² in plan — structure, not trim
-  minClear: 5.0, // soffit must stand this far over the terrain under it
-  roadMargin: 4, // ...and this far inside the drawn roadway's half-width
-  deckThickness: 0.8, // SurfaceDeck drive height → its underside
+  // SurfaceDeck drive height → its underside
+  deckThickness: 0.8,
+  // max vertical extent of a triangle still read as a slab face
+  flatTol: 0.6,
+  // triangles between budget checks
+  harvestCheckTris: 4096,
   // Yield on a TIME budget, not a mesh count: one merged chunk carries 88k
   // triangles (~7ms) while a lamp carries twelve, so "every N meshes" is a
   // dropped frame either way.
   harvestSliceMs: 4,
-  harvestCheckTris: 4096, // triangles between budget checks
+  // u² in plan — structure, not trim
+  minArea: 8,
+  // soffit must stand this far over the terrain under it
+  minClear: 5,
+  // ...and this far inside the drawn roadway's half-width
+  roadMargin: 4,
 } as const;
 
 // --- Fares / scoring / timer ---
 export const FARE = {
-  startTime: 75, // seconds on the clock at start
-  pickupRadius: 4.8, // distance to auto-board a waiting passenger
-  dropoffRadius: 5.4, // distance to complete a delivery
   baseFare: 60,
-  farePerTile: 14, // reward scales with trip distance (grid tiles)
-  timePerTile: 1.5, // seconds added to the clock per trip tile
-  minTimeBonus: 8,
-  maxTimeBonus: 20,
-  timeCap: 90, // the clock never banks past this; overflow converts to cash
-  overflowDollarPerSec: 5, // $ per second of time bonus lost to the cap
-  tipFastBonus: 120, // tip for a speedy delivery (scaled by leftover time frac)
+  comboMax: 8,
   // Combo: the chain timer ticks ONLY while carrying a fare — it judges how
   // fast you deliver, not how lucky the next spawn is.
   comboWindow: 10,
-  comboMax: 8,
-  nearMissBonus: 25, // scaled up to 3× by speed in state.nearMiss
-  nearMissRadius: 3.4, // pass traffic this close (and fast) for a bonus
   driftScorePerSec: 40,
-  waitingFares: 3, // simultaneous customers on the street
+  // distance to complete a delivery
+  dropoffRadius: 5.4,
+  // reward scales with trip distance (grid tiles)
+  farePerTile: 14,
+  // the very first customer spawns close (fast first loop)
+  firstSeekMax: 5,
+  maxTimeBonus: 20,
+  minTimeBonus: 8,
+  // scaled up to 3× by speed in state.nearMiss
+  nearMissBonus: 25,
+  // pass traffic this close (and fast) for a bonus
+  nearMissRadius: 3.4,
+  // $ per second of time bonus lost to the cap
+  overflowDollarPerSec: 5,
+  // patience budget = par seconds × this
+  patienceParMult: 2.2,
+  // distance to auto-board a waiting passenger
+  pickupRadius: 4.8,
+  seekMax: 28,
+  // waiting customers scatter in this ring around the taxi
+  seekMin: 6,
+  // waiting customers this far behind relocate near the taxi
+  seekRetire: 36,
+  // $ per smashed cone
+  smashBonus: 5,
+  // seconds on the clock at start
+  startTime: 75,
+  // red $$$ (superlinear payout)
+  tierLongMax: 90,
+  // amber $$
+  tierMediumMax: 40,
   // Trip tiers (trip length in grid tiles): pay + beacon color identity.
   // The map is 244×200 cells — long fares genuinely cross town (patience par
   // scales with tiles, so distant drop-offs stay fair). A 90-tile haul is
   // roughly a minute of committed driving.
-  tierShortMax: 16, // green $
-  tierMediumMax: 40, // amber $$
-  tierLongMax: 90, // red $$$ (superlinear payout)
-  firstSeekMax: 5, // the very first customer spawns close (fast first loop)
-  seekMin: 6, // waiting customers scatter in this ring around the taxi
-  seekMax: 28,
-  seekRetire: 36, // waiting customers this far behind relocate near the taxi
-  patienceParMult: 2.2, // patience budget = par seconds × this
-  smashBonus: 5, // $ per smashed cone
+  // green $
+  tierShortMax: 16,
+  // the clock never banks past this; overflow converts to cash
+  timeCap: 90,
+  // seconds added to the clock per trip tile
+  timePerTile: 1.5,
+  // tip for a speedy delivery (scaled by leftover time frac)
+  tipFastBonus: 120,
+  // simultaneous customers on the street
+  waitingFares: 3,
 } as const;
 
 // --- Traffic ---
 export const TRAFFIC = {
   count: 52,
-  minSpeed: 8,
   maxSpeed: 18,
+  minSpeed: 8,
 } as const;
 
 // --- Multiplayer (free-roam presence; no shared scoring) ---

@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 
-import { type BiomePalette, biomePalette } from "../data/biomes";
+import { biomePalette } from "../data/biomes";
+import type { BiomePalette } from "../data/biomes";
 
 const KEY = "luner-pixel-sky";
 
@@ -30,7 +31,9 @@ export class PixelSky {
             Math.max(1, Math.ceil(width / 2)),
             Math.max(1, Math.ceil(height / 2)),
           );
-    if (!texture) throw new Error("Could not create Lunerfall sky texture");
+    if (!texture) {
+      throw new Error("Could not create Lunerfall sky texture");
+    }
     this.texture = texture;
     texture.setFilter(Phaser.Textures.FilterMode.NEAREST);
     this.image = scene.add
@@ -44,7 +47,9 @@ export class PixelSky {
 
   setPalette(pal: BiomePalette): void {
     const key = pal.sky.join(":");
-    if (key === this.paletteKey) return;
+    if (key === this.paletteKey) {
+      return;
+    }
     this.paletteKey = key;
     const { width, height } = this.texture;
     const ctx = this.texture.context;

@@ -7,13 +7,13 @@ import { generateRouter } from "./generate/generate-router";
 import { waitlistRouter } from "./waitlist/waitlist-router";
 
 export const appRouter = {
-  auth: authRouter,
+  admin: adminRouter,
   apiKeys: apiKeyRouter,
-  waitlist: waitlistRouter,
+  auth: authRouter,
+  credits: creditsRouter,
   deploy: deployRouter,
   generate: generateRouter,
-  credits: creditsRouter,
-  admin: adminRouter,
+  waitlist: waitlistRouter,
 };
 
 // export type definition of API

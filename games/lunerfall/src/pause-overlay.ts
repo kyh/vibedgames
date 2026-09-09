@@ -16,11 +16,11 @@ import { CONTROLS } from "./controls";
 
 /** Section headers for the grouped control rows, in hub voice. */
 const METHOD_LABELS = {
+  camera: "camera",
+  controller: "gamepad",
   keys: "keyboard",
   mouse: "mouse",
   touch: "touch",
-  camera: "camera",
-  controller: "gamepad",
 } satisfies Record<ControlMethod, string>;
 
 // Pixel-art crescent (12×12 grid, 1em = one moon pixel) drawn entirely with
@@ -235,28 +235,16 @@ const CSS = `
 }
 `;
 
-function el(tag: string, className: string, text?: string): HTMLElement {
+const el = (tag: string, className: string, text?: string): HTMLElement => {
   const node = document.createElement(tag);
   node.className = className;
-  if (text !== undefined) node.textContent = text;
+  if (text !== undefined) {
+    node.textContent = text;
+  }
   return node;
-}
+};
 
-/**
- * Build Lunerfall's pause overlay. Control rows re-render from the shared
- * manifest fresh on every show(), so plugging a pad in mid-run adds its rows
- * on the next pause.
- */
-export function createLunerfallPauseOverlay(): PauseOverlay {
-  return createPauseShell({
-    css: CSS,
-    styleId: STYLE_ID,
-    fadeMs: 220,
-    render: renderPanel,
-  });
-}
-
-function renderPanel(overlay: HTMLElement): void {
+const renderPanel = (overlay: HTMLElement): void => {
   overlay.id = "lf-pause";
   const coarse = window.matchMedia("(pointer: coarse)").matches;
 
@@ -285,7 +273,9 @@ function renderPanel(overlay: HTMLElement): void {
       for (const entry of group.entries) {
         const inputs = byAction.get(entry.action);
         if (inputs) {
-          if (!inputs.includes(entry.input)) inputs.push(entry.input);
+          if (!inputs.includes(entry.input)) {
+            inputs.push(entry.input);
+          }
         } else {
           byAction.set(entry.action, [entry.input]);
         }
@@ -309,4 +299,17 @@ function renderPanel(overlay: HTMLElement): void {
     ),
   );
   overlay.append(panel);
-}
+};
+
+/**
+ * Build Lunerfall's pause overlay. Control rows re-render from the shared
+ * manifest fresh on every show(), so plugging a pad in mid-run adds its rows
+ * on the next pause.
+ */
+export const createLunerfallPauseOverlay = (): PauseOverlay =>
+  createPauseShell({
+    css: CSS,
+    fadeMs: 220,
+    render: renderPanel,
+    styleId: STYLE_ID,
+  });

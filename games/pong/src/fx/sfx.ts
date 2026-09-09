@@ -41,7 +41,9 @@ export function isMuted(): boolean {
 export function setMuted(next: boolean): void {
   muted = next;
   storageSet(SOUND_KEY, muted ? "0" : "1");
-  if (!muted) resumeSound();
+  if (!muted) {
+    resumeSound();
+  }
 }
 
 /** A live match keeps running behind the wrapper's pause overlay; it should not blip. */
@@ -56,14 +58,22 @@ export function resumeSound(): void {
 }
 
 function audio(): AudioContext | null {
-  if (muted || paused) return null;
-  if (ctx === null && "AudioContext" in window) ctx = new AudioContext();
-  if (ctx === null || ctx.state === "running") return ctx;
-  if (ctx.state === "suspended") void ctx.resume();
+  if (muted || paused) {
+    return null;
+  }
+  if (ctx === null && "AudioContext" in window) {
+    ctx = new AudioContext();
+  }
+  if (ctx === null || ctx.state === "running") {
+    return ctx;
+  }
+  if (ctx.state === "suspended") {
+    void ctx.resume();
+  }
   return null;
 }
 
-type Blip = {
+interface Blip {
   freq: number;
   /** Exponential glide target; omit for a steady tone. */
   end?: number;
@@ -72,17 +82,21 @@ type Blip = {
   gain: number;
   /** Start offset in seconds (for tiny arpeggios). */
   at?: number;
-};
+}
 
 function blip({ freq, end, dur, type, gain, at = 0 }: Blip): void {
   const ac = audio();
-  if (!ac) return;
+  if (!ac) {
+    return;
+  }
   const t0 = ac.currentTime + at;
   const jitter = 0.92 + Math.random() * 0.16;
   const osc = ac.createOscillator();
   osc.type = type;
   osc.frequency.setValueAtTime(freq * jitter, t0);
-  if (end !== undefined) osc.frequency.exponentialRampToValueAtTime(end * jitter, t0 + dur);
+  if (end !== undefined) {
+    osc.frequency.exponentialRampToValueAtTime(end * jitter, t0 + dur);
+  }
   const g = ac.createGain();
   g.gain.setValueAtTime(gain, t0);
   g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
@@ -92,18 +106,10 @@ function blip({ freq, end, dur, type, gain, at = 0 }: Blip): void {
 }
 
 export const sfx = {
-  serve(): void {
-    blip({ freq: 440, dur: 0.06, type: "sine", gain: 0.07 });
-  },
-
   /** Pitch climbs ~one octave over a long rally — audible speed ramp. */
   paddleHit(rallyHits: number): void {
     const freq = 280 * 2 ** (Math.min(rallyHits, 14) / 14);
     blip({ freq, dur: 0.07, type: "square", gain: 0.09 });
-  },
-
-  wall(): void {
-    blip({ freq: 170, dur: 0.045, type: "triangle", gain: 0.07 });
   },
 
   score(playerScored: boolean): void {
@@ -113,6 +119,14 @@ export const sfx = {
     } else {
       blip({ freq: 180, end: 60, dur: 0.3, type: "sawtooth", gain: 0.1 });
     }
+  },
+
+  serve(): void {
+    blip({ freq: 440, dur: 0.06, type: "sine", gain: 0.07 });
+  },
+
+  wall(): void {
+    blip({ freq: 170, dur: 0.045, type: "triangle", gain: 0.07 });
   },
 
   win(playerWon: boolean): void {

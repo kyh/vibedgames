@@ -28,34 +28,49 @@ const POOL = 2;
 
 /** Every dimension below is × the zone's footprint radius. */
 const HOLE = {
-  horizon: 0.22, // the settled shadow
-  height: 0.52, // how far off the floor it hangs — a body has to be LIFTED in
-  reach: 4.5, // how far the halo is drawn, × the horizon
-  ringWidth: 0.05, // thickness of the photon ring, in horizon radii
+  // how hard one side of the ring is beamed, 0 = evenly lit
+  beam: 0.75,
+  // revolutions/second the beamed side travels
+  beamSpin: 0.22,
+  // how far the halo is torn into strands
+  filament: 0.7,
+  filamentScale: 2.2,
+  halo: 0.9,
+  // how fast the halo dies outward
+  haloFalloff: 2.4,
+  // how far off the floor it hangs — a body has to be LIFTED in
+  height: 0.52,
+  // the settled shadow
+  horizon: 0.22,
+  // how far the halo is drawn, × the horizon
+  reach: 4.5,
   // The sandbox runs the ring at 9 under a gentle bloom. Under ours that
   // blooms into a white blob that buries the shadow — the one thing the
   // effect is for — so it sits just over the bloom threshold instead.
   ringGlow: 1.4,
-  beam: 0.75, // how hard one side of the ring is beamed, 0 = evenly lit
-  beamSpin: 0.22, // revolutions/second the beamed side travels
-  halo: 0.9,
-  haloFalloff: 2.4, // how fast the halo dies outward
-  wind: 2.4, // differential winding — inner strands lap outer ones
-  spin: 0.3, // revolutions/second the whole halo turns
-  filament: 0.7, // how far the halo is torn into strands
-  filamentScale: 2.2,
+  // thickness of the photon ring, in horizon radii
+  ringWidth: 0.05,
+  // revolutions/second the whole halo turns
+  spin: 0.3,
+  // differential winding — inner strands lap outer ones
+  wind: 2.4,
 } as const;
 
 /** The sequence, in seconds since it opened. */
 const BEATS = {
-  swell: 0.3, // inflating to its overshoot
-  bloom: 1.35, // × the settled horizon at the top of that
-  settle: 0.55, // back at its settled size
-  pinch: 0.22, // the collapse, at the end
+  // × the settled horizon at the top of that
+  bloom: 1.35,
+  // the collapse, at the end
+  pinch: 0.22,
+  // back at its settled size
+  settle: 0.55,
+  // inflating to its overshoot
+  swell: 0.3,
 } as const;
 
 const TAU = Math.PI * 2;
 
+// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
 const VERT = /* glsl */ `
 uniform float uSize;     // half-width of the quad, metres
 uniform float uHorizon;  // radius of the shadow, metres
@@ -75,6 +90,7 @@ void main() {
   gl_Position = projectionMatrix * mv;
 }`;
 
+// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
 const FRAG = /* glsl */ `
 #define TAU 6.283185307179586
 uniform float uTime;
@@ -160,6 +176,7 @@ void main() {
   gl_FragColor = vec4(color * (1.0 - shadow), alpha);
 }`;
 
+// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 type VoidUniforms = {
   uTime: { value: number };
   uSize: { value: number };
@@ -173,73 +190,105 @@ type VoidUniforms = {
   uColorCool: { value: THREE.Color };
 };
 
-type Hole = {
+interface Hole {
   mesh: THREE.Mesh;
   uni: VoidUniforms;
   t: number;
   life: number;
   live: boolean;
-  horizon: number; // the settled shadow radius, metres
-};
+  // the settled shadow radius, metres
+  horizon: number;
+}
 
-export type VoidOpts = {
+export interface VoidOpts {
   /** Seconds it stands, collapse included. */
   life?: number;
   colors?: { photon: number; halo: number; cool: number };
-};
+}
 
 /** Grimelda's grade: a bog-green photon ring on a violet halo. */
-const HEX = { photon: 0xb4ffa8, halo: 0xb98ae0, cool: 0x2a1450 } as const;
+const HEX = { cool: 0x2a_14_50, halo: 0xb9_8a_e0, photon: 0xb4_ff_a8 } as const;
 
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
+
+/** Drive one hole's uniforms from its elapsed time. */
+const syncHole = (h: Hole): void => {
+  const { t } = h;
+  // Inflates past its size and settles back, then at the very end pinches
+  // to nothing — the collapse is faster than the opening, on purpose.
+  let size: number;
+  if (t < BEATS.swell) {
+    const k = t / BEATS.swell;
+    size = BEATS.bloom * (1 - (1 - k) * (1 - k));
+  } else if (t < BEATS.settle) {
+    const k = (t - BEATS.swell) / (BEATS.settle - BEATS.swell);
+    size = BEATS.bloom + (1 - BEATS.bloom) * k;
+  } else {
+    size = 1;
+  }
+  const pinchStart = h.life - BEATS.pinch;
+  const pinch = clamp01((t - pinchStart) / BEATS.pinch);
+  size *= 1 - pinch * pinch;
+  // The halo flares as it opens and again as it goes.
+  const churn = Math.max(1 - t / BEATS.settle, pinch);
+
+  const horizon = Math.max(0.01, h.horizon * size);
+  h.uni.uHorizon.value = horizon;
+  h.uni.uSize.value = horizon * HOLE.reach;
+  h.uni.uBeamPhase.value = t * HOLE.beamSpin * TAU;
+  h.uni.uChurn.value = churn;
+  h.uni.uFade.value = 1 - pinch * 0.5;
+};
 
 /** Pooled singularities. One billboard, one draw call each. */
 export class VoidPool {
   private holes: Hole[] = [];
   private geo = new THREE.PlaneGeometry(1, 1);
+  private readonly scene: THREE.Scene;
 
-  constructor(
-    private scene: THREE.Scene,
-    clock: { value: number },
-  ) {
-    for (let i = 0; i < POOL; i++) {
+  constructor(scene: THREE.Scene, clock: { value: number }) {
+    this.scene = scene;
+    for (let i = 0; i < POOL; i += 1) {
       const uni: VoidUniforms = {
-        uTime: clock,
-        uSize: { value: 1 },
-        uHorizon: { value: 0.3 },
         uBeamPhase: { value: 0 },
         uChurn: { value: 0 },
-        uSeed: { value: 0 },
-        uFade: { value: 1 },
-        uColorPhoton: { value: new THREE.Color(HEX.photon) },
-        uColorHalo: { value: new THREE.Color(HEX.halo) },
         uColorCool: { value: new THREE.Color(HEX.cool) },
+        uColorHalo: { value: new THREE.Color(HEX.halo) },
+        uColorPhoton: { value: new THREE.Color(HEX.photon) },
+        uFade: { value: 1 },
+        uHorizon: { value: 0.3 },
+        uSeed: { value: 0 },
+        uSize: { value: 1 },
+        uTime: clock,
       };
       const mesh = new THREE.Mesh(
         this.geo,
         new THREE.ShaderMaterial({
-          uniforms: uni,
-          vertexShader: VERT,
-          fragmentShader: FRAG,
-          transparent: true,
-          depthWrite: false,
           blending: THREE.NormalBlending,
+          depthWrite: false,
+          fragmentShader: FRAG,
           premultipliedAlpha: true,
           side: THREE.DoubleSide,
+          transparent: true,
+          uniforms: uni,
+          vertexShader: VERT,
         }),
       );
       mesh.frustumCulled = false;
       mesh.visible = false;
       mesh.renderOrder = 5;
       this.scene.add(mesh);
-      this.holes.push({ mesh, uni, t: 0, life: 1, live: false, horizon: 0.3 });
+      this.holes.push({ horizon: 0.3, life: 1, live: false, mesh, t: 0, uni });
     }
   }
 
   /** Tear one open over (x, groundY, z), sized to a zone of radius `footprint`. */
   open(x: number, groundY: number, z: number, footprint: number, opts: VoidOpts = {}): void {
     const h = this.holes.find((e) => !e.live);
-    if (!h) return; // saturated — drop
+    if (!h) {
+      return;
+      // saturated — drop
+    }
     const colors = opts.colors ?? HEX;
     h.live = true;
     h.t = 0;
@@ -250,48 +299,22 @@ export class VoidPool {
     h.uni.uColorPhoton.value.setHex(colors.photon);
     h.uni.uColorHalo.value.setHex(colors.halo);
     h.uni.uColorCool.value.setHex(colors.cool);
-    this.sync(h);
+    syncHole(h);
     h.mesh.visible = true;
-  }
-
-  private sync(h: Hole): void {
-    const t = h.t;
-    // Inflates past its size and settles back, then at the very end pinches
-    // to nothing — the collapse is faster than the opening, on purpose.
-    let size: number;
-    if (t < BEATS.swell) {
-      const k = t / BEATS.swell;
-      size = BEATS.bloom * (1 - (1 - k) * (1 - k));
-    } else if (t < BEATS.settle) {
-      const k = (t - BEATS.swell) / (BEATS.settle - BEATS.swell);
-      size = BEATS.bloom + (1 - BEATS.bloom) * k;
-    } else {
-      size = 1;
-    }
-    const pinchStart = h.life - BEATS.pinch;
-    const pinch = clamp01((t - pinchStart) / BEATS.pinch);
-    size *= 1 - pinch * pinch;
-    // The halo flares as it opens and again as it goes.
-    const churn = Math.max(1 - t / BEATS.settle, pinch);
-
-    const horizon = Math.max(0.01, h.horizon * size);
-    h.uni.uHorizon.value = horizon;
-    h.uni.uSize.value = horizon * HOLE.reach;
-    h.uni.uBeamPhase.value = t * HOLE.beamSpin * TAU;
-    h.uni.uChurn.value = churn;
-    h.uni.uFade.value = 1 - pinch * 0.5;
   }
 
   update(dt: number): void {
     for (const h of this.holes) {
-      if (!h.live) continue;
+      if (!h.live) {
+        continue;
+      }
       h.t += dt;
       if (h.t >= h.life) {
         h.live = false;
         h.mesh.visible = false;
         continue;
       }
-      this.sync(h);
+      syncHole(h);
     }
   }
 
@@ -306,7 +329,9 @@ export class VoidPool {
   dispose(): void {
     for (const h of this.holes) {
       h.mesh.removeFromParent();
-      if (h.mesh.material instanceof THREE.Material) h.mesh.material.dispose();
+      if (h.mesh.material instanceof THREE.Material) {
+        h.mesh.material.dispose();
+      }
     }
     this.holes.length = 0;
     this.geo.dispose();

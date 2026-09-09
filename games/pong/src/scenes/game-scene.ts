@@ -122,7 +122,10 @@ type AdmittedRole = "pending" | "solo" | "host" | "guest";
 const ROOM = (import.meta.env.DEV && new URLSearchParams(location.search).get("room")) || MP_ROOM;
 
 /** Cosmetic hop: visual z parabola from the hit point to a landing y. */
-type Arc = { fromY: number; toY: number };
+interface Arc {
+  fromY: number;
+  toY: number;
+}
 
 export class GameScene {
   readonly scene = new THREE.Scene();
@@ -150,8 +153,8 @@ export class GameScene {
   // Power charge per slot. A guest arms/cancels its own (slot B) through the
   // host, which owns both; `shotRally` tags those requests so one from a
   // finished rally cannot arm the next.
-  private chargeA: ShotCharge = { kind: "charging", hits: 0 };
-  private chargeB: ShotCharge = { kind: "charging", hits: 0 };
+  private chargeA: ShotCharge = { hits: 0, kind: "charging" };
+  private chargeB: ShotCharge = { hits: 0, kind: "charging" };
   private shotRally = 0;
   private chargeOpponentId: string | null = null;
   private shotLift = 1; // topspin dips the visual hop
@@ -253,7 +256,7 @@ export class GameScene {
 
     // One key light, for the ball's Phong glint only — every other material
     // is unlit. The glint's gradient is what the dither pass bites into.
-    const key = new THREE.DirectionalLight(0xffffff, 2);
+    const key = new THREE.DirectionalLight(0xff_ff_ff, 2);
     key.position.set(-4, -8, 9);
     this.scene.add(key);
 
@@ -324,17 +327,17 @@ export class GameScene {
     // highlight gives the sphere a dithered glint that sells the form.
     this.ball = new THREE.Mesh(
       new THREE.SphereGeometry(BALL_R, 16, 16),
-      new THREE.MeshPhongMaterial({ color: 0x111111, specular: 0xbbbbbb, shininess: 40 }),
+      new THREE.MeshPhongMaterial({ color: 0x111111, shininess: 40, specular: 0xbbbbbb }),
     );
     this.ball.position.z = BALL_R;
     this.scene.add(this.ball);
 
     // Soft radial-gradient shadow — the falloff dithers into a speckle edge.
     this.shadowMat = new THREE.MeshBasicMaterial({
-      map: softCircleTexture(),
-      transparent: true,
-      opacity: SHADOW_MAX_OPACITY,
       depthWrite: false,
+      map: softCircleTexture(),
+      opacity: SHADOW_MAX_OPACITY,
+      transparent: true,
     });
     this.shadow = new THREE.Mesh(new THREE.PlaneGeometry(BALL_R * 5, BALL_R * 5), this.shadowMat);
     this.shadow.position.z = 0.01;
@@ -367,12 +370,17 @@ export class GameScene {
   }
 
   private admitRole(): void {
-    if (!this.net.live) return;
+    if (!this.net.live) {
+      return;
+    }
     const next: AdmittedRole = this.net.offline ? "solo" : this.net.isHost ? "host" : "guest";
     const previous = this.role;
     this.role = next;
-    if (previous === "guest" && next === "host") this.becomeHost();
-    else if (previous === "host" && next === "guest") this.becomeGuest();
+    if (previous === "guest" && next === "host") {
+      this.becomeHost();
+    } else if (previous === "host" && next === "guest") {
+      this.becomeGuest();
+    }
   }
 
   /** True when the local player owns slot A (host or solo). Guest owns slot B. */
@@ -390,8 +398,11 @@ export class GameScene {
     return this.mySlotA ? this.playerX : this.aiX;
   }
   private set myPaddle(x: number) {
-    if (this.mySlotA) this.playerX = x;
-    else this.aiX = x;
+    if (this.mySlotA) {
+      this.playerX = x;
+    } else {
+      this.aiX = x;
+    }
   }
   private get oppPaddle(): number {
     return this.mySlotA ? this.aiX : this.playerX;
@@ -432,11 +443,13 @@ export class GameScene {
    *  then restart the point from a clean serve on our own clock. */
   private becomeHost(): void {
     this.chargeA = cancelCharge(this.chargeB); // our earned charge follows us into slot A
-    this.chargeB = { kind: "charging", hits: 0 };
+    this.chargeB = { hits: 0, kind: "charging" };
     this.shotRally += 1;
     this.spin = null;
     this.swapSlots();
-    if (this.phase !== "won") {
+    if (this.phase === "won") {
+      this.serveAt = null; // rematch waits for confirm, as usual
+    } else {
       // The rally state (ball, streak, serve clock) was the old host's; the
       // serve clock in particular was in ITS `elapsed` timeline, which can sit
       // hours ahead of ours and stall the auto-serve forever.
@@ -447,8 +460,6 @@ export class GameScene {
       this.rallyHits = 0;
       this.rallySpeed = RALLY_SPEED_BASE;
       this.serveAt = this.elapsed + AUTO_SERVE_S;
-    } else {
-      this.serveAt = null; // rematch waits for confirm, as usual
     }
     // Continue the old host's sequence rather than restarting at 0: the old
     // host may come back as our guest, and it only adopts snapshots numbered
@@ -464,7 +475,7 @@ export class GameScene {
    *  both charges, so everything but our paddle is re-read from its snapshots. */
   private becomeGuest(): void {
     this.chargeB = cancelCharge(this.chargeA);
-    this.chargeA = { kind: "charging", hits: 0 };
+    this.chargeA = { hits: 0, kind: "charging" };
     this.swapSlots();
     // Skip our own last snapshot, still sitting in shared state: read as a
     // guest it would put our score in the opponent's column.
@@ -491,7 +502,9 @@ export class GameScene {
 
   /** Wrist landmark x ∈ [0,1] from the webcam tracker (also the DEV hook). */
   handleHandPosition(x: number): void {
-    if (this.pause !== "none" || !Number.isFinite(x) || x < 0 || x > 1) return;
+    if (this.pause !== "none" || !Number.isFinite(x) || x < 0 || x > 1) {
+      return;
+    }
     this.handX = x;
     this.handSeenAt = performance.now();
   }
@@ -503,7 +516,9 @@ export class GameScene {
 
   /** Latest wrist x, or null once no hand has been seen for HAND_TIMEOUT_MS. */
   private currentHandX(): number | null {
-    if (this.handX === null) return null;
+    if (this.handX === null) {
+      return null;
+    }
     return performance.now() - this.handSeenAt < HAND_TIMEOUT_MS ? this.handX : null;
   }
 
@@ -517,7 +532,9 @@ export class GameScene {
   // paddle ignores it; otherwise pointermove drives the paddle (unless a
   // hand currently owns it).
   private onPointerMove = (e: PointerEvent): void => {
-    if (this.pause !== "none") return;
+    if (this.pause !== "none") {
+      return;
+    }
     if (this.dragging) {
       if (e.buttons === 0) {
         this.dragging = false; // button released outside the window
@@ -529,14 +546,22 @@ export class GameScene {
         return;
       }
     }
-    if (this.currentHandX() !== null) return; // hand owns the paddle
-    if (this.padSteerX() !== null) return; // deflected stick owns the paddle
+    if (this.currentHandX() !== null) {
+      return;
+    } // hand owns the paddle
+    if (this.padSteerX() !== null) {
+      return;
+    } // deflected stick owns the paddle
     const x = this.pointerToTableX(e);
-    if (x !== null) this.myPaddle = x;
+    if (x !== null) {
+      this.myPaddle = x;
+    }
   };
 
   private onPointerDown = (e: PointerEvent): void => {
-    if (this.pause !== "none") return;
+    if (this.pause !== "none") {
+      return;
+    }
     // Drag-pan is mouse-only: on touch, pointermove must keep driving the
     // paddle (it's the only non-camera control there).
     if (e.pointerType === "mouse") {
@@ -555,7 +580,9 @@ export class GameScene {
   private onPointerUp = (e: PointerEvent): void => {
     if (this.pause === "none" && this.dragging && e.pointerType === "mouse") {
       const moved = Math.hypot(e.clientX - this.downAt.x, e.clientY - this.downAt.y);
-      if (moved < CLICK_DRAG_TOLERANCE_PX) this.confirm();
+      if (moved < CLICK_DRAG_TOLERANCE_PX) {
+        this.confirm();
+      }
     }
     this.dragging = false;
   };
@@ -578,11 +605,15 @@ export class GameScene {
     // Frozen for the wrapper's pause overlay: the webcam hand loop keeps
     // running (per its own contract) but must not wake the sim through a
     // fist gesture while we're paused.
-    if (this.pause !== "none") return;
+    if (this.pause !== "none") {
+      return;
+    }
     // Still handshaking. A tap here is intent, not noise: rather than swallow
     // it and leave the player staring at "connecting" for the rest of the
     // fallback window, take it as "play now" and serve solo.
-    if (!this.net.live) this.playSolo();
+    if (!this.net.live) {
+      this.playSolo();
+    }
     if (this.phase === "rally") {
       this.armMyPower();
       return;
@@ -598,7 +629,9 @@ export class GameScene {
 
   /** Serve / rematch on the authoritative side (also on a guest's behalf). */
   private confirmMatch(): void {
-    if (this.pause === "frozen") return;
+    if (this.pause === "frozen") {
+      return;
+    }
     if (this.phase === "won") {
       this.resetCharge();
       this.scoreYou = 0;
@@ -607,7 +640,9 @@ export class GameScene {
       this.phase = "serving";
       this.syncHud();
     }
-    if (this.phase === "serving") this.serve();
+    if (this.phase === "serving") {
+      this.serve();
+    }
   }
 
   /** Abandon matchmaking for the local solo game. Replaces the session rather
@@ -619,11 +654,11 @@ export class GameScene {
 
   private createSession(forceOffline: boolean): NetSession {
     return new NetSession({
-      room: ROOM,
-      maxPlayers: MP_MAX_PLAYERS,
       fallbackMs: OFFLINE_FALLBACK_MS,
       forceOffline,
+      maxPlayers: MP_MAX_PLAYERS,
       onEvent: (event, payload, from) => this.handleEvent(event, payload, from),
+      room: ROOM,
     });
   }
 
@@ -668,7 +703,9 @@ export class GameScene {
   // ---- simulation ------------------------------------------------------------
 
   update(dt: number): void {
-    if (this.pause === "frozen") return;
+    if (this.pause === "frozen") {
+      return;
+    }
     this.frame += 1;
     this.elapsed += dt;
     if (this.shotUntil > 0 && this.elapsed >= this.shotUntil) {
@@ -687,9 +724,13 @@ export class GameScene {
     // early returns, so A stays as responsive as a click (confirm() carries
     // the same guards either way).
     this.pad.update();
-    if (this.pad.justPressed("a")) this.confirm();
+    if (this.pad.justPressed("a")) {
+      this.confirm();
+    }
 
-    if (this.net.live && !this.net.offline) this.connectedBefore = true;
+    if (this.net.live && !this.net.offline) {
+      this.connectedBefore = true;
+    }
 
     // Reflect connecting→live and opponent join/leave in the HUD once each.
     if (this.net.live !== this.connWas) {
@@ -707,8 +748,11 @@ export class GameScene {
     if (this.net.live && opponentId !== this.chargeOpponentId) {
       this.chargeOpponentId = opponentId;
       this.clearQueuedPower();
-      if (this.mySlotA) this.chargeB = { kind: "charging", hits: 0 };
-      else this.chargeA = { kind: "charging", hits: 0 };
+      if (this.mySlotA) {
+        this.chargeB = { kind: "charging", hits: 0 };
+      } else {
+        this.chargeA = { kind: "charging", hits: 0 };
+      }
       this.syncHud();
     }
     if (!this.net.live) {
@@ -744,7 +788,9 @@ export class GameScene {
         this.serve();
       }
       if (this.phase === "rally") {
-        if (!this.hasOpponent()) this.updateAi(dt); // AI fills in until a human joins
+        if (!this.hasOpponent()) {
+          this.updateAi(dt);
+        } // AI fills in until a human joins
         this.updateBall(dt);
       }
       this.broadcastShared(dt);
@@ -757,8 +803,10 @@ export class GameScene {
   /** Webcam-hand / controller paddle control, routed to the owned slot. The
    *  view flip keeps "screen right = paddle right" for the guest too. */
   private applyPaddleInput(dt: number): void {
-    if (this.pause !== "none") return;
-    const flip = this.flip;
+    if (this.pause !== "none") {
+      return;
+    }
+    const { flip } = this;
 
     // Hand tracking owns the paddle while a hand is in frame. Legacy mapping:
     // targetX = (1 - wristX)·9 − 4.5 clamped ±4.5, smoothed by an adaptive
@@ -773,7 +821,9 @@ export class GameScene {
       this.myPaddle += (targetX - this.myPaddle) * frameLerp(perFrame, dt);
       return;
     }
-    if (this.lastHandX !== null) this.cancelMyPower();
+    if (this.lastHandX !== null) {
+      this.cancelMyPower();
+    }
     this.lastHandX = null;
 
     // No hand: a deflected left stick owns the paddle target next (pointer
@@ -790,8 +840,10 @@ export class GameScene {
    *  ±1 (so dead center and the walls stay reachable), or null while the
    *  stick is centered — null means the pad is NOT steering this frame. */
   private padSteerX(): number | null {
-    const dx = this.pad.getStick().dx;
-    if (Math.abs(dx) <= PAD_DEAD_ZONE) return null;
+    const { dx } = this.pad.getStick();
+    if (Math.abs(dx) <= PAD_DEAD_ZONE) {
+      return null;
+    }
     const norm = (Math.abs(dx) - PAD_DEAD_ZONE) / (1 - PAD_DEAD_ZONE);
     return Math.sign(dx) * Math.min(1, norm);
   }
@@ -801,11 +853,16 @@ export class GameScene {
   private smoothOppPaddle(dt: number): void {
     const other = this.net.otherPlayer();
     const raw = other?.state?.["paddle"];
-    if (!isJsonNumber(raw)) return;
+    if (!isJsonNumber(raw)) {
+      return;
+    }
     const target = clamp(raw, -PADDLE_X_MAX, PADDLE_X_MAX);
     const next = this.oppPaddle + (target - this.oppPaddle) * frameLerp(0.5, dt);
-    if (this.mySlotA) this.aiX = next;
-    else this.playerX = next;
+    if (this.mySlotA) {
+      this.aiX = next;
+    } else {
+      this.playerX = next;
+    }
   }
 
   private updateAi(dt: number): void {
@@ -846,8 +903,11 @@ export class GameScene {
     }
 
     // Scoring.
-    if (pos.y > GOAL_Y) this.onPoint("you");
-    else if (pos.y < -GOAL_Y) this.onPoint("ai");
+    if (pos.y > GOAL_Y) {
+      this.onPoint("you");
+    } else if (pos.y < -GOAL_Y) {
+      this.onPoint("ai");
+    }
   }
 
   private onPaddleHit(side: "player" | "ai"): void {
@@ -859,8 +919,11 @@ export class GameScene {
     this.longestRally = Math.max(this.longestRally, this.rallyHits);
     this.rallySpeed = Math.min(RALLY_SPEED_MAX, this.rallySpeed + RALLY_SPEED_STEP);
     const accepted = acceptReturn(side === "player" ? this.chargeA : this.chargeB);
-    if (side === "player") this.chargeA = accepted.charge;
-    else this.chargeB = accepted.charge;
+    if (side === "player") {
+      this.chargeA = accepted.charge;
+    } else {
+      this.chargeB = accepted.charge;
+    }
     const shot = contactShot(
       (this.ballPos.x - paddleX) / HIT_HALF_X,
       towardY,
@@ -868,10 +931,14 @@ export class GameScene {
       accepted.powered,
     );
     this.ballVel.copy(reflectOffPaddle(this.ballPos.x, paddleX, towardY, shot.speed));
-    this.spin = shot.spin === 0 ? null : { strength: shot.spin, left: SPIN_LIFE };
+    this.spin = shot.spin === 0 ? null : { left: SPIN_LIFE, strength: shot.spin };
     this.shotLift = shot.lift;
-    if (this.spin) this.spinShots += 1;
-    if (accepted.powered) this.powerShots += 1;
+    if (this.spin) {
+      this.spinShots += 1;
+    }
+    if (accepted.powered) {
+      this.powerShots += 1;
+    }
     this.syncCharge();
     this.arc = {
       fromY: this.ballPos.y,
@@ -891,15 +958,15 @@ export class GameScene {
       accepted.powered,
     );
     this.emitBeat("phit", {
-      x: this.ballPos.x,
-      y: this.ballPos.y,
+      a: side === "player",
+      kind: shot.kind,
+      n: this.rallyHits,
+      powered: accepted.powered,
+      spin: this.spin?.strength ?? 0,
       vx: this.ballVel.x,
       vy: this.ballVel.y,
-      a: side === "player",
-      n: this.rallyHits,
-      spin: this.spin?.strength ?? 0,
-      kind: shot.kind,
-      powered: accepted.powered,
+      x: this.ballPos.x,
+      y: this.ballPos.y,
     });
   }
 
@@ -922,23 +989,26 @@ export class GameScene {
     kind: ContactKind,
     powered: boolean,
   ): void {
-    const flip = this.flip;
+    const { flip } = this;
     const sx = flip * cx;
     const sy = flip * cy;
     const mine = slotA === this.mySlotA;
 
     this.freeze = HIT_STOP_PADDLE;
     this.trauma = Math.min(1, this.trauma + TRAUMA_PADDLE);
-    if (mine) this.playerPulse = 1;
-    else this.aiPulse = 1;
+    if (mine) {
+      this.playerPulse = 1;
+    } else {
+      this.aiPulse = 1;
+    }
     this.squashBall("y");
     this.camKick.set(cvx * flip * NUDGE_SCALE, cvy * flip * NUDGE_SCALE, 0);
     this.particles.burst({
+      dirX: cvx * flip,
+      dirY: cvy * flip,
       x: sx,
       y: sy,
       z: this.ballHeight(),
-      dirX: cvx * flip,
-      dirY: cvy * flip,
       ...BURST_PADDLE,
     });
     this.rings.spawn({ x: sx, y: mine ? -PADDLE_Y : PADDLE_Y, ...RING_PADDLE });
@@ -947,12 +1017,12 @@ export class GameScene {
       this.showShot(kind, mine, powered);
       // Reuse the ink contact pool for the shot style and charged impact.
       this.rings.spawn({
-        x: sx,
-        y: sy,
         from: 0.18,
-        to: powered ? 1.1 : 0.8,
         life: 0.18,
         opacity: 0.85,
+        to: powered ? 1.1 : 0.8,
+        x: sx,
+        y: sy,
       });
       this.particles.burst({
         x: sx,
@@ -990,10 +1060,12 @@ export class GameScene {
     const won = this.scoreYou >= WIN_SCORE || this.scoreAi >= WIN_SCORE;
     this.phase = won ? "won" : "serving";
     this.freeze = won ? HIT_STOP_WIN : HIT_STOP_GOAL;
-    if (!won) this.serveAt = this.elapsed + AUTO_SERVE_S;
+    if (!won) {
+      this.serveAt = this.elapsed + AUTO_SERVE_S;
+    }
 
     this.pointFx(scorer === "you", crossX, goalY, won);
-    this.emitBeat("point", { a: scorer === "you", x: crossX, y: goalY, won });
+    this.emitBeat("point", { a: scorer === "you", won, x: crossX, y: goalY });
     this.syncHud();
   }
 
@@ -1005,17 +1077,20 @@ export class GameScene {
    * the win/score sfx reads as ours.
    */
   private pointFx(scorerSlotA: boolean, cx: number, cy: number, won: boolean): void {
-    const flip = this.flip;
+    const { flip } = this;
     const sx = flip * cx;
     const sy = flip * cy;
     const iScored = scorerSlotA === this.mySlotA;
     // The scored-on goal flashes: I scored → the far (opponent) line; else mine.
-    if (iScored) this.flashFar = 1;
-    else this.flashNear = 1;
+    if (iScored) {
+      this.flashFar = 1;
+    } else {
+      this.flashNear = 1;
+    }
 
     this.invertFlash = this.reducedMotion ? 0 : INVERT_FLASH_S;
     this.trauma = Math.min(1, this.trauma + TRAUMA_GOAL);
-    this.particles.burst({ x: sx, y: sy, z: BALL_R, dirY: -Math.sign(cy) * flip, ...BURST_GOAL });
+    this.particles.burst({ dirY: -Math.sign(cy) * flip, x: sx, y: sy, z: BALL_R, ...BURST_GOAL });
     this.rings.spawn({ x: sx, y: sy, ...RING_GOAL });
     this.hud.hideCombo(); // the rally is over
     this.hud.hideShot();
@@ -1026,22 +1101,23 @@ export class GameScene {
     if (won) {
       sfx.win(iScored);
       // Confetti rain from above center — pure flair on the match climax.
-      if (!this.reducedMotion)
+      if (!this.reducedMotion) {
         this.particles.burst({ x: 0, y: 0, z: CONFETTI_Z, ...BURST_CONFETTI });
+      }
     } else {
       sfx.score(iScored);
     }
   }
 
   private wallFx(cx: number, cy: number): void {
-    const flip = this.flip;
+    const { flip } = this;
     this.squashBall("x");
     this.trauma = Math.min(1, this.trauma + TRAUMA_WALL);
     this.particles.burst({
+      dirX: -Math.sign(cx) * flip,
       x: flip * cx,
       y: flip * cy,
       z: this.ballHeight(),
-      dirX: -Math.sign(cx) * flip,
       ...BURST_WALL,
     });
     sfx.wall();
@@ -1052,7 +1128,9 @@ export class GameScene {
   /** Emit a host→guest fx beat, but only when a remote guest is listening
    *  (solo/offline replays fx locally, so there is no beat to loop back). */
   private emitBeat(event: string, payload: JsonObject): void {
-    if (this.net.offline || !this.net.isHost || !this.hasOpponent()) return;
+    if (this.net.offline || !this.net.isHost || !this.hasOpponent()) {
+      return;
+    }
     this.net.sendEvent(event, payload);
   }
 
@@ -1067,18 +1145,24 @@ export class GameScene {
     // Guest → host intents (arm/cancel a power shot, serve, rematch). Only the
     // host acts on them, and only from the guest actually seated in the room.
     if (event === "power" || event === "confirm") {
-      if (this.isGuest() || from !== this.net.otherPlayer()?.id) return;
+      if (this.isGuest() || from !== this.net.otherPlayer()?.id) {
+        return;
+      }
       if (event === "confirm") {
-        if (this.phase !== "rally") this.confirmMatch();
+        if (this.phase !== "rally") {
+          this.confirmMatch();
+        }
       } else if (this.phase === "rally" && num("rally") === this.shotRally) {
         this.chargeB = bool("armed") ? armCharge(this.chargeB) : cancelCharge(this.chargeB);
       }
       return;
     }
     // Host → guest fx beats — the host already ran these locally.
-    if (!this.isGuest() || from !== this.net.hostId) return;
+    if (!this.isGuest() || from !== this.net.hostId) {
+      return;
+    }
     switch (event) {
-      case "phit":
+      case "phit": {
         this.paddleHitFx(
           num("x"),
           num("y"),
@@ -1091,16 +1175,20 @@ export class GameScene {
           bool("powered"),
         );
         break;
-      case "wall":
+      }
+      case "wall": {
         this.wallFx(num("x"), num("y"));
         break;
-      case "point":
+      }
+      case "point": {
         this.pointFx(bool("a"), num("x"), num("y"), bool("won"));
         break;
-      case "serve":
+      }
+      case "serve": {
         this.hud.hideCombo();
         sfx.serve();
         break;
+      }
     }
   }
 
@@ -1109,9 +1197,13 @@ export class GameScene {
     // Solo/alone: nobody reads shared state — don't stream ~30 msg/s at the
     // Durable Object for an empty room. (The first snapshot after a guest
     // joins goes out within one net tick.)
-    if (this.net.offline || !this.hasOpponent()) return;
+    if (this.net.offline || !this.hasOpponent()) {
+      return;
+    }
     this.netAcc += dt;
-    if (this.netAcc < 1 / NET_TICK_HZ) return;
+    if (this.netAcc < 1 / NET_TICK_HZ) {
+      return;
+    }
     this.netAcc = 0;
     this.hostSeq++;
     this.net.patchShared({
@@ -1143,9 +1235,13 @@ export class GameScene {
 
   /** Broadcast the local paddle position at ~NET_TICK_HZ (canonical frame). */
   private broadcastPaddle(dt: number): void {
-    if (this.net.offline || !this.hasOpponent()) return;
+    if (this.net.offline || !this.hasOpponent()) {
+      return;
+    }
     this.paddleAcc += dt;
-    if (this.paddleAcc < 1 / NET_TICK_HZ) return;
+    if (this.paddleAcc < 1 / NET_TICK_HZ) {
+      return;
+    }
     this.paddleAcc = 0;
     this.net.updateMyState({ paddle: this.myPaddle });
   }
@@ -1154,7 +1250,9 @@ export class GameScene {
    *  between snapshots so it moves smoothly at the full frame rate. */
   private applyGuestShared(dt: number): void {
     const s = this.net.sharedState;
-    if (!s) return;
+    if (!s) {
+      return;
+    }
     const seq = numField(s, "seq");
     const fresh = seq !== null && Number.isSafeInteger(seq) && seq > this.lastSeq;
 
@@ -1165,12 +1263,14 @@ export class GameScene {
       this.chargeA = readCharge(s["chargeA"], s["armedA"]) ?? this.chargeA;
       this.chargeB = readCharge(s["chargeB"], s["armedB"]) ?? this.chargeB;
       const rally = numField(s, "shotRally");
-      if (rally !== null && Number.isSafeInteger(rally) && rally >= 0) this.shotRally = rally;
+      if (rally !== null && Number.isSafeInteger(rally) && rally >= 0) {
+        this.shotRally = rally;
+      }
       this.shotLift = clamp(numField(s, "shotLift") ?? 1, 0.55, 1);
       this.ballVel.set(numField(s, "bvx") ?? 0, numField(s, "bvy") ?? 0);
       const strength = clamp(numField(s, "spin") ?? 0, -1, 1);
       const left = clamp(numField(s, "spinLeft") ?? 0, 0, SPIN_LIFE);
-      this.spin = strength !== 0 && left > 0 ? { strength, left } : null;
+      this.spin = strength !== 0 && left > 0 ? { left, strength } : null;
       this.rallySpeed = this.ballVel.length() || RALLY_SPEED_BASE;
       this.rallyHits = numField(s, "rally") ?? 0;
       // Authoritative match statistic: repeated FX packets never add contacts.
@@ -1185,8 +1285,12 @@ export class GameScene {
       const prevAi = this.scoreAi;
       this.scoreYou = numField(s, "scoreB") ?? 0;
       this.scoreAi = numField(s, "scoreA") ?? 0;
-      if (this.scoreYou !== prevYou) this.hud.popScore("you");
-      if (this.scoreAi !== prevAi) this.hud.popScore("ai");
+      if (this.scoreYou !== prevYou) {
+        this.hud.popScore("you");
+      }
+      if (this.scoreAi !== prevAi) {
+        this.hud.popScore("ai");
+      }
 
       const af = numField(s, "arcFrom");
       const at = numField(s, "arcTo");
@@ -1202,8 +1306,9 @@ export class GameScene {
     const nextPhase: Phase = ph === "serving" || ph === "rally" || ph === "won" ? ph : this.phase;
     if (fresh) {
       this.phase = nextPhase;
-      if (nextPhase === "rally" || nextPhase === "won" || this.serveAt !== null)
+      if (nextPhase === "rally" || nextPhase === "won" || this.serveAt !== null) {
         notifyGameStarted();
+      }
       this.syncHud();
     }
   }
@@ -1220,7 +1325,7 @@ export class GameScene {
     // A guest renders the canonical world flipped 180°, so its own paddle is at
     // the near (bottom) edge. `playerRing` is always the LOCAL paddle (bottom),
     // `aiRing` the opponent (top); both derive from the flipped canonical x.
-    const flip = this.flip;
+    const { flip } = this;
     this.playerPulse *= Math.exp(-PULSE_DECAY * dt);
     this.aiPulse *= Math.exp(-PULSE_DECAY * dt);
     this.playerRing.position.x = flip * this.myPaddle;
@@ -1290,7 +1395,9 @@ export class GameScene {
 
     // Drag-pan offset eases back to rest only while not dragging (legacy:
     // 0.1 per 60fps frame). Orientation stays fixed — pan, don't re-aim.
-    if (!this.dragging) this.camDrag.lerp(V3_ZERO, frameLerp(CAM_RETURN_LERP, dt));
+    if (!this.dragging) {
+      this.camDrag.lerp(V3_ZERO, frameLerp(CAM_RETURN_LERP, dt));
+    }
     this.camKick.multiplyScalar(Math.exp(-NUDGE_DECAY * dt));
     // Ball-proximity dip: duck lower as the ball nears the player's side (0 on
     // the AI half → CAM_DIP_MAX at the player's goal), eased so it never jitters.
@@ -1383,7 +1490,9 @@ export class GameScene {
 
   /** A guest's charge lives on the host: it asks, and the next snapshot shows the result. */
   private armMyPower(): void {
-    if (this.myCharge.kind !== "ready") return;
+    if (this.myCharge.kind !== "ready") {
+      return;
+    }
     if (this.isGuest()) {
       this.sendPower(true);
     } else {
@@ -1393,15 +1502,21 @@ export class GameScene {
   }
 
   private sendPower(armed: boolean): void {
-    if (!this.net.live || this.net.offline) return;
-    this.net.sendEvent("power", { rally: this.shotRally, armed });
+    if (!this.net.live || this.net.offline) {
+      return;
+    }
+    this.net.sendEvent("power", { armed, rally: this.shotRally });
   }
 
   private cancelMyPower(): void {
     if (this.isGuest()) {
-      if (this.chargeB.kind === "armed") this.sendPower(false);
+      if (this.chargeB.kind === "armed") {
+        this.sendPower(false);
+      }
       this.chargeB = cancelCharge(this.chargeB);
-    } else this.chargeA = cancelCharge(this.chargeA);
+    } else {
+      this.chargeA = cancelCharge(this.chargeA);
+    }
     this.syncCharge();
   }
 
@@ -1412,8 +1527,8 @@ export class GameScene {
   }
 
   private resetCharge(): void {
-    this.chargeA = { kind: "charging", hits: 0 };
-    this.chargeB = { kind: "charging", hits: 0 };
+    this.chargeA = { hits: 0, kind: "charging" };
+    this.chargeB = { hits: 0, kind: "charging" };
     this.shotLift = 1;
     this.syncCharge();
   }
@@ -1425,36 +1540,36 @@ export class GameScene {
   /** Plain telemetry for the playtest contract; no engine objects escape. */
   diagnostics() {
     return {
-      frame: this.frame,
-      score: this.scoreYou,
-      opponentScore: this.scoreAi,
+      ball: {
+        spin: this.spin?.strength ?? 0,
+        spinLeft: this.spin?.left ?? 0,
+        vx: this.ballVel.x,
+        vy: this.ballVel.y,
+        x: this.ballPos.x,
+        y: this.ballPos.y,
+      },
+      charge: {
+        armed: this.myCharge.kind === "armed",
+        hits: chargeHits(this.myCharge),
+        rivalHits: chargeHits(this.mySlotA ? this.chargeB : this.chargeA),
+      },
       complete: this.phase === "won",
+      entities: 3,
+      frame: this.frame,
+      handActive: this.currentHandX() !== null,
+      longestRally: this.longestRally,
+      opponentScore: this.scoreAi,
+      paused: this.pause === "frozen",
       phase: this.phase,
       player: {
         x: this.flip * this.myPaddle,
         y: -PADDLE_Y,
       },
-      entities: 3,
-      rallyHits: this.rallyHits,
-      longestRally: this.longestRally,
-      spinShots: this.spinShots,
       powerShots: this.powerShots,
-      charge: {
-        hits: chargeHits(this.myCharge),
-        armed: this.myCharge.kind === "armed",
-        rivalHits: chargeHits(this.mySlotA ? this.chargeB : this.chargeA),
-      },
-      ball: {
-        x: this.ballPos.x,
-        y: this.ballPos.y,
-        vx: this.ballVel.x,
-        vy: this.ballVel.y,
-        spin: this.spin?.strength ?? 0,
-        spinLeft: this.spin?.left ?? 0,
-      },
+      rallyHits: this.rallyHits,
       reducedMotion: this.reducedMotion,
-      paused: this.pause === "frozen",
-      handActive: this.currentHandX() !== null,
+      score: this.scoreYou,
+      spinShots: this.spinShots,
     };
   }
 
@@ -1462,8 +1577,8 @@ export class GameScene {
   seed(seed: number): void {
     let value = seed >>> 0;
     this.random = () => {
-      value = (Math.imul(value, 1664525) + 1013904223) >>> 0;
-      return value / 4294967296;
+      value = (Math.imul(value, 1_664_525) + 1_013_904_223) >>> 0;
+      return value / 4_294_967_296;
     };
     this.setTestState("active-play");
   }
@@ -1506,19 +1621,23 @@ export class GameScene {
 
   private syncHud(): void {
     this.hud.sync({
-      phase: this.phase,
-      scoreYou: this.scoreYou,
-      scoreAi: this.scoreAi,
-      longestRally: this.longestRally,
-      link: this.link(),
       awaitingServe: this.phase === "serving" && this.serveAt === null,
       charge: this.myCharge,
+      link: this.link(),
+      longestRally: this.longestRally,
+      phase: this.phase,
+      scoreAi: this.scoreAi,
+      scoreYou: this.scoreYou,
     });
   }
 
   private link(): Link {
-    if (!this.net.live) return this.connectedBefore ? "reconnecting" : "connecting";
-    if (this.net.offline) return "solo";
+    if (!this.net.live) {
+      return this.connectedBefore ? "reconnecting" : "connecting";
+    }
+    if (this.net.offline) {
+      return "solo";
+    }
     return this.hasOpponent() ? "live" : "open";
   }
 
@@ -1529,7 +1648,7 @@ export class GameScene {
 
   /** Seconds of auto-serve dead air left, for the countdown bar. */
   private updateServeMeter(): void {
-    const serveAt = this.serveAt;
+    const { serveAt } = this;
     const active = this.phase === "serving" && serveAt !== null;
     this.hud.serveMeter(active ? Math.max(0, serveAt - this.elapsed) : null);
   }
@@ -1554,7 +1673,9 @@ function clamp(v: number, min: number, max: number): number {
  * flip only negates rendered x/y — framing is symmetric, so no special case.
  */
 function fovForAspect(aspect: number): number {
-  if (aspect >= CAM_MIN_LANDSCAPE_ASPECT) return CAM_FOV;
+  if (aspect >= CAM_MIN_LANDSCAPE_ASPECT) {
+    return CAM_FOV;
+  }
   const tanHalfH = Math.tan(THREE.MathUtils.degToRad(CAM_FOV / 2)) * CAM_MIN_LANDSCAPE_ASPECT;
   return THREE.MathUtils.radToDeg(2 * Math.atan(tanHalfH / aspect));
 }
@@ -1573,7 +1694,7 @@ function sharedSeq(s: JsonObject | null): number {
 
 /** Convert a legacy per-frame (60fps) lerp factor into a dt-correct one. */
 function frameLerp(perFrame: number, dt: number): number {
-  return 1 - Math.pow(1 - perFrame, dt * LEGACY_FPS);
+  return 1 - (1 - perFrame) ** (dt * LEGACY_FPS);
 }
 
 /**
@@ -1601,9 +1722,9 @@ function flashMaterial(): THREE.MeshBasicMaterial {
   // dither pass.
   return new THREE.MeshBasicMaterial({
     color: INK,
-    transparent: true,
-    opacity: 0,
     depthWrite: false,
+    opacity: 0,
+    transparent: true,
   });
 }
 
@@ -1646,7 +1767,9 @@ function softCircleTexture(): THREE.CanvasTexture {
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("2d canvas unsupported");
+  if (!ctx) {
+    throw new Error("2d canvas unsupported");
+  }
   const half = size / 2;
   const grad = ctx.createRadialGradient(half, half, size * 0.06, half, half, half);
   grad.addColorStop(0, "rgba(0,0,0,1)");
@@ -1669,7 +1792,9 @@ function verticalGradientTexture(topHex: number, bottomHex: number): THREE.Canva
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("2d canvas unsupported");
+  if (!ctx) {
+    throw new Error("2d canvas unsupported");
+  }
   const grad = ctx.createLinearGradient(0, 0, 0, h);
   grad.addColorStop(0, cssHex(topHex));
   grad.addColorStop(1, cssHex(bottomHex));

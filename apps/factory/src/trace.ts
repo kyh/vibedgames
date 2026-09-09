@@ -8,7 +8,7 @@ import type { Blackboard } from "./state.ts";
  * phase, at what cost, and how it ended. Append-only and machine-readable so a
  * run can be replayed, audited, or monitored after the fact.
  */
-export type Span = {
+export interface Span {
   /** ISO timestamp the turn finished. */
   ts: string;
   /** Monotonic turn index (the agent's cycle count). */
@@ -24,13 +24,13 @@ export type Span = {
   numTurns?: number;
   /** One-line outcome (result summary on success, error on failure). */
   detail?: string;
-};
+}
 
 /** Append a single turn's span to the trace. Best-effort — never throws. */
-export function appendSpan(bb: Blackboard, span: Span): void {
+export const appendSpan = (bb: Blackboard, span: Span): void => {
   try {
     appendFileSync(bb.trace, `${JSON.stringify(span)}\n`);
   } catch {
     /* observability is best-effort; a failed write must not stall the loop */
   }
-}
+};

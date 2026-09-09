@@ -12,8 +12,12 @@ export function showActorPose(
   pose: ActorPose,
 ): void {
   const key = `${atlas}:${pose.clip}`;
-  if (sprite.anims.currentAnim?.key !== key) sprite.play(key);
+  if (sprite.anims.currentAnim?.key !== key) {
+    sprite.play(key);
+  }
   sprite.anims.pause();
   const frame = sprite.anims.currentAnim?.frames[pose.frame];
-  if (frame && sprite.anims.currentFrame !== frame) sprite.anims.setCurrentFrame(frame);
+  if (frame && sprite.anims.currentFrame !== frame) {
+    sprite.anims.setCurrentFrame(frame);
+  }
 }

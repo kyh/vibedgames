@@ -4,7 +4,10 @@ import { createWorld } from "../sim/world";
 import { applySnapshot, encodeWorld } from "./snapshot";
 import type { Snapshot } from "./snapshot";
 
-export type OnlineSeat = { team: Team; slot: number };
+export interface OnlineSeat {
+  team: Team;
+  slot: number;
+}
 
 /** Server election transfers the accepted match, never starts another one.
  * Keep the render world's identity and restore seats from its existing heroes.
@@ -16,10 +19,12 @@ export function restoreHostState(world: World, snapshot: Snapshot | null) {
   const picks: Record<string, string> = {};
   const seats: Record<string, OnlineSeat> = {};
   for (const unit of world.units.values()) {
-    const hero = unit.hero;
-    if (!hero || hero.isBot) continue;
+    const { hero } = unit;
+    if (!hero || hero.isBot) {
+      continue;
+    }
     picks[hero.ownerId] = hero.defId;
-    seats[hero.ownerId] = { team: unit.team, slot: hero.slot };
+    seats[hero.ownerId] = { slot: hero.slot, team: unit.team };
   }
   return { picks, seats };
 }

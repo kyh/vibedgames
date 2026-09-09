@@ -14,7 +14,13 @@ import { abilityIcon } from "../data/icons";
 import { ALL_ABILITY_KEYS } from "../sim/types";
 import type { AbilityKey } from "../sim/types";
 
-type Stick = { id: number; baseX: number; baseY: number; dx: number; dy: number };
+interface Stick {
+  id: number;
+  baseX: number;
+  baseY: number;
+  dx: number;
+  dy: number;
+}
 
 const STICK_R = 60;
 const KNOB_R = 28;
@@ -46,14 +52,14 @@ const ABILITY_IDS = new Set<string>(["Q", "W", "E", "R", "DASH", "JUMP"]);
 // tappable timer) belong to that UI — they must never spawn a stick.
 const INTERACTIVE_SEL = "button,input,#ba-shop,#ba-end,#ba-timer,.ba-item-chip";
 
-type Btn = {
+interface Btn {
   el: HTMLDivElement;
   label: HTMLSpanElement;
   cd: HTMLDivElement | null;
   lastCd: number;
   state: HTMLSpanElement;
   lastState: string;
-};
+}
 
 export class TouchControls {
   active = false;
@@ -94,38 +100,50 @@ export class TouchControls {
       // The bottom row is the one that shares its band with the item belt pinned
       // bottom-LEFT on phones, so it starts at column 2: HOP · B, with column 1
       // left empty. Placing HOP in column 1 put it over the belt's last chip.
-      if (b.id === "J") el.style.gridColumn = "2";
-      if (b.id === "B") el.style.gridColumn = "3";
+      if (b.id === "J") {
+        el.style.gridColumn = "2";
+      }
+      if (b.id === "B") {
+        el.style.gridColumn = "3";
+      }
       const label = document.createElement("span");
       label.className = "ba-tl";
       label.textContent = b.label;
-      if (b.label.length > 1) label.classList.add("word");
-      el.appendChild(label);
+      if (b.label.length > 1) {
+        label.classList.add("word");
+      }
+      el.append(label);
       let cd: HTMLDivElement | null = null;
       if (ABILITY_IDS.has(b.id)) {
         cd = document.createElement("div");
         cd.className = "ba-tcd";
-        el.appendChild(cd);
+        el.append(cd);
       }
       el.addEventListener("pointerdown", (e) => {
         e.stopPropagation();
         el.classList.add("press");
-        if (b.id === "B") this.buy = true;
-        else if (b.id === "J") this.jump = true;
-        else if (b.id === "DASH") this.dash = true;
-        else if (b.id === "JUMP") this.jumpAttack = true;
-        else this.queue.push(b.id);
+        if (b.id === "B") {
+          this.buy = true;
+        } else if (b.id === "J") {
+          this.jump = true;
+        } else if (b.id === "DASH") {
+          this.dash = true;
+        } else if (b.id === "JUMP") {
+          this.jumpAttack = true;
+        } else {
+          this.queue.push(b.id);
+        }
       });
       el.addEventListener("pointerup", () => el.classList.remove("press"));
       el.addEventListener("pointercancel", () => el.classList.remove("press"));
       const state = document.createElement("span");
       state.className = "ba-tstate";
       el.append(state);
-      this.buttons.set(b.id, { el, label, cd, state, lastCd: -1, lastState: "" });
-      pad.appendChild(el);
+      this.buttons.set(b.id, { cd, el, label, lastCd: -1, lastState: "", state });
+      pad.append(el);
     }
-    this.layer.appendChild(pad);
-    document.body.appendChild(this.layer);
+    this.layer.append(pad);
+    document.body.append(this.layer);
 
     window.addEventListener("pointerdown", this.onDown, { passive: false });
     window.addEventListener("pointermove", this.onMove, { passive: false });
@@ -143,14 +161,20 @@ export class TouchControls {
    *  labels to corner keycaps. DASH/JUMP get the shared glyph icon (abilityIcon
    *  special-cases them) but keep their word label. Idempotent per champ. */
   bindChamp(champId: string): void {
-    if (champId === this.champBound) return;
+    if (champId === this.champBound) {
+      return;
+    }
     this.champBound = champId;
     for (const key of ALL_ABILITY_KEYS) {
       const btn = this.buttons.get(key);
-      if (!btn) continue;
+      if (!btn) {
+        continue;
+      }
       btn.el.setAttribute("aria-label", CHAMP_BY_ID[champId]?.abilities[key].name ?? key);
       btn.el.style.backgroundImage = `url("${abilityIcon(champId, key)}")`;
-      if (key === "Q" || key === "W" || key === "E" || key === "R") btn.label.classList.add("kc");
+      if (key === "Q" || key === "W" || key === "E" || key === "R") {
+        btn.label.classList.add("kc");
+      }
     }
   }
 
@@ -158,9 +182,13 @@ export class TouchControls {
    *  (0 = ready, 1 = just cast). Change-gated to whole-percent writes. */
   setCooldown(key: AbilityKey, pct: number): void {
     const btn = this.buttons.get(key);
-    if (!btn || !btn.cd) return;
+    if (!btn || !btn.cd) {
+      return;
+    }
     const v = Math.round(Math.max(0, Math.min(1, pct)) * 100);
-    if (v === btn.lastCd) return;
+    if (v === btn.lastCd) {
+      return;
+    }
     btn.lastCd = v;
     btn.cd.style.setProperty("--cd", `${v}`);
   }
@@ -168,7 +196,9 @@ export class TouchControls {
   /** Informative only: taps still reach the authoritative cast/buffer path. */
   setReadiness(key: AbilityKey, readiness: AbilityReadiness): void {
     const button = this.buttons.get(key);
-    if (!button) return;
+    if (!button) {
+      return;
+    }
     const text = readiness.kind === "blocked" ? readiness.label : readiness.queued ? "QUEUED" : "";
     if (text !== button.lastState) {
       button.lastState = text;
@@ -179,30 +209,39 @@ export class TouchControls {
   }
 
   private activate(): void {
-    if (this.active) return;
+    if (this.active) {
+      return;
+    }
     this.active = true;
     this.layer.style.display = "block";
     document.body.classList.add("ba-touch-on");
   }
 
   private onDown = (e: PointerEvent): void => {
-    if (e.pointerType !== "touch") return;
+    if (e.pointerType !== "touch") {
+      return;
+    }
     this.activate();
     // the layer is pointer-events:none, so e.target is the real element under
     // the finger — interactive HUD wins over stick spawning
     const t = e.target;
-    if (t instanceof Element && t.closest(INTERACTIVE_SEL)) return;
+    if (t instanceof Element && t.closest(INTERACTIVE_SEL)) {
+      return;
+    }
     // menus own the pointer (shop / end screen — Controls.setMouseMode): taps
     // there browse UI, they never steer or auto-fire
-    if (document.body.classList.contains("ba-mouse-mode")) return;
+    if (document.body.classList.contains("ba-mouse-mode")) {
+      return;
+    }
     // cancel compat mouse events so a stick touch never mousedown's the canvas
     // (that path requests pointer lock + fires LMB attacks on desktop)
     e.preventDefault();
     if (e.clientX < window.innerWidth / 2) {
-      if (!this.move)
+      if (!this.move) {
         this.move = { id: e.pointerId, baseX: e.clientX, baseY: e.clientY, dx: 0, dy: 0 };
+      }
     } else if (!this.aim) {
-      this.aim = { id: e.pointerId, baseX: e.clientX, baseY: e.clientY, dx: 0, dy: 0 };
+      this.aim = { baseX: e.clientX, baseY: e.clientY, dx: 0, dy: 0, id: e.pointerId };
     }
     this.render();
   };
@@ -210,7 +249,9 @@ export class TouchControls {
   private onMove = (e: PointerEvent): void => {
     const s =
       this.move?.id === e.pointerId ? this.move : this.aim?.id === e.pointerId ? this.aim : null;
-    if (!s) return;
+    if (!s) {
+      return;
+    }
     const dx = e.clientX - s.baseX;
     const dy = e.clientY - s.baseY;
     const len = Math.hypot(dx, dy) || 1;
@@ -221,8 +262,12 @@ export class TouchControls {
   };
 
   private onUp = (e: PointerEvent): void => {
-    if (this.move?.id === e.pointerId) this.move = null;
-    if (this.aim?.id === e.pointerId) this.aim = null;
+    if (this.move?.id === e.pointerId) {
+      this.move = null;
+    }
+    if (this.aim?.id === e.pointerId) {
+      this.aim = null;
+    }
     this.render();
   };
 
@@ -251,7 +296,9 @@ export class TouchControls {
     this.jump = false;
     this.dash = false;
     this.jumpAttack = false;
-    for (const button of this.buttons.values()) button.el.classList.remove("press");
+    for (const button of this.buttons.values()) {
+      button.el.classList.remove("press");
+    }
     this.render();
   }
   consumeAbilities(): AbilityKey[] {
@@ -285,7 +332,9 @@ export class TouchControls {
 
 let touchStyleInjected = false;
 function injectTouchStyle(): void {
-  if (touchStyleInjected) return;
+  if (touchStyleInjected) {
+    return;
+  }
   touchStyleInjected = true;
   const s = document.createElement("style");
   s.textContent = `
@@ -297,10 +346,14 @@ function injectTouchStyle(): void {
 .ba-tbtn.blocked{filter:saturate(.35)}.ba-tbtn.queued{border-color:#ffd24a}.ba-tstate{position:absolute;left:0;right:0;top:18px;text-align:center;font:800 9px ui-monospace,monospace;background:#09101dcc;color:#ffe7a4;pointer-events:none}.ba-tstate:empty{display:none}
 .ba-tcd{position:absolute;inset:0;border-radius:50%;background:conic-gradient(rgba(5,8,16,.75) calc(var(--cd,0)*1%),transparent 0);pointer-events:none}
 `;
-  document.head.appendChild(s);
+  document.head.append(s);
 }
 
-type StickHandle = { el: HTMLDivElement; base: HTMLDivElement; knob: HTMLDivElement };
+interface StickHandle {
+  el: HTMLDivElement;
+  base: HTMLDivElement;
+  knob: HTMLDivElement;
+}
 
 function stickEl(): StickHandle {
   const el = document.createElement("div");
@@ -312,7 +365,7 @@ function stickEl(): StickHandle {
   el.append(base, knob);
   base.style.cssText = `position:absolute;width:${STICK_R * 2}px;height:${STICK_R * 2}px;border-radius:50%;background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.2);transform:translate(-50%,-50%)`;
   knob.style.cssText = `position:absolute;width:${KNOB_R * 2}px;height:${KNOB_R * 2}px;border-radius:50%;background:rgba(255,255,255,.35);transform:translate(-50%,-50%)`;
-  return { el, base, knob };
+  return { base, el, knob };
 }
 
 function place({ el, base, knob }: StickHandle, s: Stick | null): void {

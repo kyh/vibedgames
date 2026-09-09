@@ -12,6 +12,7 @@
 //   node tools/fx-shots.mjs [outDir]
 import { mkdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { setTimeout as sleep } from "node:timers/promises";
 
 const URL = process.env.VG_URL ?? "http://localhost:5194/?viewer=1";
 const OUT = process.argv[2] ?? "fx-shots";
@@ -35,86 +36,87 @@ const ERUPTION =
 
 const SHOTS = [
   {
-    name: "meteor-rock",
-    champ: "V-yx",
     ability: "Meteor",
-    find: "o.isMesh && o.material && o.material.flatShading && o.position.y > 1.2 && o.position.y < 4.5",
     cam: [3.4, 1.6, 4.2],
+    champ: "V-yx",
+    find: "o.isMesh && o.material && o.material.flatShading && o.position.y > 1.2 && o.position.y < 4.5",
+    name: "meteor-rock",
   },
   {
-    name: "meteor-impact",
-    champ: "V-yx",
     ability: "Meteor",
-    find: "o.isMesh && o.visible && o.material && o.material.uniforms && o.material.uniforms.uShell",
     cam: [6, 3.5, 9],
-  },
-  {
-    name: "frost-nova",
     champ: "V-yx",
+    find: "o.isMesh && o.visible && o.material && o.material.uniforms && o.material.uniforms.uShell",
+    name: "meteor-impact",
+  },
+  {
     ability: "Frost Nova",
-    find: ERUPTION,
     cam: [5.5, 3.4, 6.5],
+    champ: "V-yx",
+    find: ERUPTION,
+    name: "frost-nova",
   },
   {
-    name: "bog-grasp",
-    champ: "Grimelda",
     ability: "Bog Grasp",
-    find: ERUPTION,
     cam: [5.5, 3.4, 6.5],
+    champ: "Grimelda",
+    find: ERUPTION,
+    name: "bog-grasp",
   },
   {
-    name: "snare-trap",
-    champ: "Sylva",
     ability: "Snare Trap",
-    find: ERUPTION,
     cam: [5.5, 3.4, 6.5],
+    champ: "Sylva",
+    find: ERUPTION,
+    name: "snare-trap",
   },
   {
-    name: "smite",
-    champ: "Aurelius",
     ability: "Consecrating Smite",
-    // the column, once its front has reached the top and the star has opened
-    find: "o.isMesh && o.visible && o.material && o.material.uniforms && o.material.uniforms.uGrown && o.material.uniforms.uHeight && o.material.uniforms.uGrown.value > 0.99 && o.material.uniforms.uCharge.value < 0.4",
     aim: "o.material.uniforms.uCentre.value",
     cam: [7, 5, 9],
+    champ: "Aurelius",
+    // the column, once its front has reached the top and the star has opened
+    find: "o.isMesh && o.visible && o.material && o.material.uniforms && o.material.uniforms.uGrown && o.material.uniforms.uHeight && o.material.uniforms.uGrown.value > 0.99 && o.material.uniforms.uCharge.value < 0.4",
+    name: "smite",
   },
   {
-    name: "grand-hex",
-    champ: "Grimelda",
     ability: "Grand Hex",
+    cam: [6, 2.5, 7],
+    champ: "Grimelda",
     // the singularity, settled after its opening swell
     find: "o.isMesh && o.visible && o.material && o.material.uniforms && o.material.uniforms.uHorizon && o.material.uniforms.uChurn && o.material.uniforms.uChurn.value < 0.05",
-    cam: [6, 2.5, 7],
+    name: "grand-hex",
   },
   {
-    name: "cauldron-brew",
-    champ: "Grimelda",
     ability: "Cauldron Brew",
+    cam: [4, 5.5, 5],
+    champ: "Grimelda",
     // the pool, once the corrosion has spread to the footprint
     find: "o.isMesh && o.visible && o.material && o.material.uniforms && o.material.uniforms.uGrown && o.material.uniforms.uSpent && o.material.uniforms.uFront.value < 0.05",
-    cam: [4, 5.5, 5],
+    name: "cauldron-brew",
   },
   {
-    name: "hex-bolt",
-    champ: "Grimelda",
     ability: "Hex Bolt",
-    // the helix wake behind the bolt, once it has reached back its full span
-    find: "o.isMesh && o.visible && o.material && o.material.uniforms && o.material.uniforms.uSpan && o.material.uniforms.uHead && o.material.uniforms.uSpan.value > 4.4",
     aim: "o.material.uniforms.uHead.value",
     cam: [3, 1.5, 3.5],
+    champ: "Grimelda",
+    // the helix wake behind the bolt, once it has reached back its full span
+    find: "o.isMesh && o.visible && o.material && o.material.uniforms && o.material.uniforms.uSpan && o.material.uniforms.uHead && o.material.uniforms.uSpan.value > 4.4",
+    name: "hex-bolt",
   },
   {
-    name: "seismic-slam",
-    champ: "Garran",
     ability: "Seismic Slam",
+    // near-overhead: a ground decal is only legible flat on
+    cam: [0.2, 6.5, 1.2],
+    champ: "Garran",
     find: "o.isMesh && o.visible && o.material && o.material.uniforms && o.material.uniforms.uPulse && o.material.uniforms.uT && o.material.uniforms.uT.value < 0.4",
-    cam: [0.2, 6.5, 1.2], // near-overhead: a ground decal is only legible flat on
+    name: "seismic-slam",
   },
 ];
 
 const ab = (...args) =>
   execFileSync("agent-browser", [...args, "--session", SESSION], {
-    encoding: "utf8",
+    encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
   }).trim();
 
@@ -137,8 +139,6 @@ const evalJs = (js) => {
     return out;
   }
 };
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** Click the first leaf element whose text starts with `label`. */
 const clickByText = (label) =>
@@ -200,13 +200,15 @@ const main = async () => {
     // Retried because a run that owns its session closes it on the way out: two
     // runs back to back race the previous browser's teardown, which surfaces as
     // "Failed to connect" on the very next command.
-    for (let i = 0; ; i++) {
+    for (let i = 0; ; i += 1) {
       try {
         ab("open", URL, "--headed");
         ab("set", "viewport", "1280", "800");
         break;
-      } catch (err) {
-        if (i === 2) throw err;
+      } catch (error) {
+        if (i === 2) {
+          throw error;
+        }
         await sleep(2000);
       }
     }
@@ -215,20 +217,23 @@ const main = async () => {
       // Fresh page per shot — the previous freeze left the render loop stopped.
       ab("navigate", URL);
       let booted = false;
-      for (let i = 0; i < 60 && !booted; i++) {
+      for (let i = 0; i < 60 && !booted; i += 1) {
         booted = evalJs("!!window.__view") === true;
-        if (!booted) await sleep(500);
+        if (!booted) {
+          await sleep(500);
+        }
       }
       // A shot whose viewer never booted is reported rather than thrown: one
       // bad boot must not abort every remaining capture. It is tagged
       // separately from a freeze miss, because the two point at completely
       // different problems — a dead dev server versus a stale `find`.
       if (!booted) {
-        results.push({ shot: shot.name, frozen: false, reason: "no-boot" });
+        results.push({ frozen: false, reason: "no-boot", shot: shot.name });
         console.log(`✗ ${shot.name} — viewer never published window.__view`);
         continue;
       }
-      await sleep(6000); // models and the arena finish loading
+      // models and the arena finish loading
+      await sleep(6000);
 
       const champ = clickByText(shot.champ);
       await sleep(600);
@@ -238,13 +243,13 @@ const main = async () => {
       // agent-browser serialises a returned object as JSON, so evalJs hands
       // back the point directly — no second decode step to get wrong.
       let hit = null;
-      for (let i = 0; i < 50 && !hit; i++) {
+      for (let i = 0; i < 50 && !hit; i += 1) {
         await sleep(500);
         hit = evalJs("window.__hit ?? null");
       }
       ab("screenshot", `${OUT}/${shot.name}.png`);
-      results.push({ shot: shot.name, frozen: !!hit, reason: hit ? null : "no-freeze" });
-      console.log(`${hit ? "✓" : "✗"} ${shot.name}`, { champ, ability }, hit ?? "");
+      results.push({ frozen: !!hit, reason: hit ? null : "no-freeze", shot: shot.name });
+      console.log(`${hit ? "✓" : "✗"} ${shot.name}`, { ability, champ }, hit ?? "");
     }
   } finally {
     // Only a session this run created: an explicitly named one is the caller's
@@ -262,7 +267,9 @@ const main = async () => {
   console.log(`\n${results.length - missed.length}/${results.length} frozen → ${OUT}/`);
   for (const reason of ["no-boot", "no-freeze"]) {
     const hits = missed.filter((m) => m.reason === reason).map((m) => m.shot);
-    if (hits.length) console.log(`${reason}: ${hits.join(", ")}`);
+    if (hits.length) {
+      console.log(`${reason}: ${hits.join(", ")}`);
+    }
   }
 };
 

@@ -10,7 +10,7 @@ import { PhysicalGamepad } from "@vibedgames/gamepad";
 import type { AbilityKey } from "../sim/types";
 
 const MOUSE_SENS = 0.0028; // radians of look per pixel of mouse movement
-const PITCH_MIN = -1.0; // look down
+const PITCH_MIN = -1; // look down
 const PITCH_MAX = 0.7; // look up
 // right-stick look rate at full deflection: ~180°/s of turn feels like the
 // 0.0028 rad/px mouse at a comfortable sweep; pitch runs at half rate because
@@ -63,7 +63,9 @@ export class Controls {
    *  (e.g. not a trusted gesture, or an embedded document) — swallow both the
    *  sync throw and the async rejection so it never surfaces as an error. */
   lockPointer(): void {
-    if (this.locked || this.uiMode) return;
+    if (this.locked || this.uiMode) {
+      return;
+    }
     try {
       Promise.resolve(this.canvas.requestPointerLock()).catch(() => {});
     } catch {
@@ -76,13 +78,17 @@ export class Controls {
    *  triggering gesture's transient activation lasts; if the browser refuses,
    *  the next canvas click relocks (the familiar FPS pattern). */
   setMouseMode(on: boolean): void {
-    if (this.uiMode === on) return;
+    if (this.uiMode === on) {
+      return;
+    }
     this.uiMode = on;
     document.body.classList.toggle("ba-mouse-mode", on);
     if (on) {
       this.lmb = false; // an in-flight attack hold must not survive into a menu
       this.lmbEdge = false;
-      if (this.locked) document.exitPointerLock();
+      if (this.locked) {
+        document.exitPointerLock();
+      }
     } else {
       this.lockPointer();
     }
@@ -96,7 +102,9 @@ export class Controls {
    *  into yaw/pitch at the same rates as the physical pad's right stick.
    *  MOUSE-mode guarded like every other look path (menus own the pointer). */
   applyStickLook(dx: number, dy: number, dt: number): void {
-    if (this.uiMode || (dx === 0 && dy === 0)) return;
+    if (this.uiMode || (dx === 0 && dy === 0)) {
+      return;
+    }
     this.yaw -= dx * dt * PAD_YAW_SPEED;
     this.pitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, this.pitch - dy * dt * PAD_PITCH_SPEED));
     this.hadInput = true;
@@ -110,7 +118,9 @@ export class Controls {
     this.padFwd = 0;
     this.padStrafe = 0;
     this.padAttack = false;
-    if (!this.pad.connected) return;
+    if (!this.pad.connected) {
+      return;
+    }
 
     // left stick → the same forward/strafe axes WASD produces; dead-zoned
     // radial response, analog direction carries through (the scene normalizes)
@@ -145,38 +155,69 @@ export class Controls {
 
     // buttons queue like keydowns — live in MOUSE mode too (keys are today;
     // SELECT especially must still close an open shop)
-    if (this.pad.justPressed("a")) this.jumpPressed = true;
-    if (this.pad.justPressed("b")) this.dashPressed = true;
-    if (this.pad.justPressed("x")) this.abilityQueue.push("Q");
-    if (this.pad.justPressed("y")) this.abilityQueue.push("W");
-    if (this.pad.justPressed("lb")) this.abilityQueue.push("E");
-    if (this.pad.justPressed("rb")) this.abilityQueue.push("R");
-    if (this.pad.justPressed("select")) this.buyPressed = true;
-    if (this.pad.justPressed("ls")) this.guidePressed = true;
+    if (this.pad.justPressed("a")) {
+      this.jumpPressed = true;
+    }
+    if (this.pad.justPressed("b")) {
+      this.dashPressed = true;
+    }
+    if (this.pad.justPressed("x")) {
+      this.abilityQueue.push("Q");
+    }
+    if (this.pad.justPressed("y")) {
+      this.abilityQueue.push("W");
+    }
+    if (this.pad.justPressed("lb")) {
+      this.abilityQueue.push("E");
+    }
+    if (this.pad.justPressed("rb")) {
+      this.abilityQueue.push("R");
+    }
+    if (this.pad.justPressed("select")) {
+      this.buyPressed = true;
+    }
+    if (this.pad.justPressed("ls")) {
+      this.guidePressed = true;
+    }
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
-    if (e.repeat) return;
-    const code = e.code;
+    if (e.repeat) {
+      return;
+    }
+    const { code } = e;
     this.keys.add(code);
     this.hadInput = true;
-    if (code === "Digit1" || code === "Numpad1") this.abilityQueue.push("Q");
-    else if (code === "Digit2" || code === "Numpad2") this.abilityQueue.push("W");
-    else if (code === "Digit3" || code === "Numpad3") this.abilityQueue.push("E");
-    else if (code === "Digit4" || code === "Numpad4") this.abilityQueue.push("R");
-    else if (code === "Digit5") this.itemQueue.push(0);
-    else if (code === "Digit6") this.itemQueue.push(1);
-    else if (code === "Digit7") this.itemQueue.push(2);
-    else if (code === "Digit8") this.itemQueue.push(3);
-    else if (code === "Digit9") this.itemQueue.push(4);
-    else if (code === "Digit0") this.itemQueue.push(5);
-    else if (code === "KeyB") this.buyPressed = true;
-    else if (code === "KeyH") this.guidePressed = true;
-    else if (code === "Space") {
+    if (code === "Digit1" || code === "Numpad1") {
+      this.abilityQueue.push("Q");
+    } else if (code === "Digit2" || code === "Numpad2") {
+      this.abilityQueue.push("W");
+    } else if (code === "Digit3" || code === "Numpad3") {
+      this.abilityQueue.push("E");
+    } else if (code === "Digit4" || code === "Numpad4") {
+      this.abilityQueue.push("R");
+    } else if (code === "Digit5") {
+      this.itemQueue.push(0);
+    } else if (code === "Digit6") {
+      this.itemQueue.push(1);
+    } else if (code === "Digit7") {
+      this.itemQueue.push(2);
+    } else if (code === "Digit8") {
+      this.itemQueue.push(3);
+    } else if (code === "Digit9") {
+      this.itemQueue.push(4);
+    } else if (code === "Digit0") {
+      this.itemQueue.push(5);
+    } else if (code === "KeyB") {
+      this.buyPressed = true;
+    } else if (code === "KeyH") {
+      this.guidePressed = true;
+    } else if (code === "Space") {
       this.jumpPressed = true;
       e.preventDefault(); // don't scroll the page
-    } else if (code === "ShiftLeft" || code === "ShiftRight") this.dashPressed = true;
-    else if (code === "Tab") {
+    } else if (code === "ShiftLeft" || code === "ShiftRight") {
+      this.dashPressed = true;
+    } else if (code === "Tab") {
       this.scorePressed = true;
       e.preventDefault();
     }
@@ -187,7 +228,9 @@ export class Controls {
   };
 
   private onMouseMove = (e: MouseEvent): void => {
-    if (this.uiMode) return; // free cursor is browsing menus, not steering
+    if (this.uiMode) {
+      return;
+    } // free cursor is browsing menus, not steering
     // turn/tilt by relative motion (works locked or not); crosshair stays
     // centered. mouse-right turns the view right → decrease yaw; mouse-up
     // looks up → increase pitch.
@@ -197,7 +240,9 @@ export class Controls {
   };
 
   private onMouseDown = (e: MouseEvent): void => {
-    if (this.uiMode) return; // clicks belong to the menu UI
+    if (this.uiMode) {
+      return;
+    } // clicks belong to the menu UI
     this.lockPointer(); // first click grabs the pointer; later clicks just act
     if (e.button === 0) {
       this.lmb = true;
@@ -207,7 +252,9 @@ export class Controls {
   };
 
   private onMouseUp = (e: MouseEvent): void => {
-    if (e.button === 0) this.lmb = false;
+    if (e.button === 0) {
+      this.lmb = false;
+    }
   };
 
   private onBlur = (): void => {
@@ -223,10 +270,18 @@ export class Controls {
   moveAxes() {
     let fwd = this.padFwd;
     let strafe = this.padStrafe;
-    if (this.keys.has("KeyW") || this.keys.has("ArrowUp")) fwd += 1;
-    if (this.keys.has("KeyS") || this.keys.has("ArrowDown")) fwd -= 1;
-    if (this.keys.has("KeyD") || this.keys.has("ArrowRight")) strafe += 1;
-    if (this.keys.has("KeyA") || this.keys.has("ArrowLeft")) strafe -= 1;
+    if (this.keys.has("KeyW") || this.keys.has("ArrowUp")) {
+      fwd += 1;
+    }
+    if (this.keys.has("KeyS") || this.keys.has("ArrowDown")) {
+      fwd -= 1;
+    }
+    if (this.keys.has("KeyD") || this.keys.has("ArrowRight")) {
+      strafe += 1;
+    }
+    if (this.keys.has("KeyA") || this.keys.has("ArrowLeft")) {
+      strafe -= 1;
+    }
     return { fwd, strafe };
   }
 

@@ -21,8 +21,8 @@ let worker: Unstable_DevWorker;
 before(async () => {
   worker = await unstable_dev("src/server.ts", {
     config: "wrangler.jsonc",
-    logLevel: "error",
     experimental: { disableExperimentalWarning: true },
+    logLevel: "error",
   });
 });
 
@@ -170,7 +170,9 @@ test("per-player state propagates to other clients", async () => {
 
 /** JSON off the wire, typed as data rather than left `unknown`. */
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
-type JsonRecord = { [key: string]: JsonValue };
+interface JsonRecord {
+  [key: string]: JsonValue;
+}
 
 // `String(v) === v` holds exactly for primitive strings (strict equality
 // never coerces), so this predicate is sound without a runtime `typeof`.
@@ -184,13 +186,18 @@ const toRecord = (value: JsonValue | undefined): JsonRecord => {
   return Object.fromEntries(Object.entries(value));
 };
 
-type WireMessage = { type: string; data: JsonValue | undefined };
+interface WireMessage {
+  type: string;
+  data: JsonValue | undefined;
+}
 
 const parseWireMessage = (raw: string): WireMessage => {
   const record = toRecord(JSON.parse(raw));
   const { type } = record;
-  if (!isJsonString(type)) throw new Error(`message without a type: ${raw}`);
-  return { type, data: record.data };
+  if (!isJsonString(type)) {
+    throw new Error(`message without a type: ${raw}`);
+  }
+  return { data: record.data, type };
 };
 
 /**
@@ -207,7 +214,9 @@ class RawClient {
 
   constructor(room: string, params: Record<string, string>) {
     const id = params._pk;
-    if (!id) throw new Error("RawClient requires an explicit _pk connection id");
+    if (!id) {
+      throw new Error("RawClient requires an explicit _pk connection id");
+    }
     this.id = id;
     const query = new URLSearchParams(params).toString();
     this.ws = new WebSocket(
@@ -358,7 +367,7 @@ test("a dropped player is held in grace, reclaimed by token, and a 1000-close le
 
     rawA = new RawClient(room, { _pk: rawId, _reconnectToken: token });
     await waitFor(() => rawA?.synced() === true, "raw A synced");
-    rawA.send({ type: "player_state_patch", data: { hp: 5 } });
+    rawA.send({ data: { hp: 5 }, type: "player_state_patch" });
     await waitFor(() => clientB.players[rawId]?.state?.hp === 5, "B sees A's state");
 
     // Abrupt close (≠1000): the seat must be HELD, flagged disconnected.
@@ -393,8 +402,8 @@ test("delta-capable clients get keyed deltas; legacy clients get full snapshots 
   const room = uniqueRoom("deltas");
   const legacy = new RawClient(room, { _pk: `leg-${process.pid}` });
   const modern = new RawClient(room, {
-    _pk: `mod-${process.pid}`,
     _delta: "1",
+    _pk: `mod-${process.pid}`,
     _reconnectToken: `tok-mod-${process.pid}`,
   });
   const sdk = connect(room);
@@ -425,7 +434,7 @@ test("delta-capable clients get keyed deltas; legacy clients get full snapshots 
     assert.deepEqual(statesFor(modern)[1], { y: 3 }, "delta client got only the changed key");
 
     // A legacy client's full-state write still round-trips.
-    legacy.send({ type: "player_state_patch", data: { a: 1, b: 2 } });
+    legacy.send({ data: { a: 1, b: 2 }, type: "player_state_patch" });
     await waitFor(() => {
       const seen = sdk.players[legacy.id]?.state;
       return seen !== undefined && seen.a === 1 && seen.b === 2;
@@ -449,16 +458,16 @@ test("malformed and oversized state patches are dropped without harming the room
       await waitFor(() => admitted(guest), "guest admitted");
       assert.equal(guest.hostId, rawHost.id, "raw sender owns shared state");
 
-      rawHost.send({ type: "state_patch", data: { ["__proto__"]: { polluted: true } } });
-      rawHost.send({ type: "state_patch", data: "not-an-object" });
-      rawHost.send({ type: "state_patch", data: { blob: "x".repeat(1_100_000) } });
+      rawHost.send({ data: { ["__proto__"]: { polluted: true } }, type: "state_patch" });
+      rawHost.send({ data: "not-an-object", type: "state_patch" });
+      rawHost.send({ data: { blob: "x".repeat(1_100_000) }, type: "state_patch" });
       // Fence: same sender, so the server processed (and dropped) all three
       // rejects before this valid patch.
-      rawHost.send({ type: "state_patch", data: { ok: 1 } });
+      rawHost.send({ data: { ok: 1 }, type: "state_patch" });
 
       await waitFor(() => guest.sharedState.ok === 1, "valid patch after rejects still lands");
       assert.equal(
-        Object.prototype.hasOwnProperty.call(guest.sharedState, "__proto__"),
+        Object.hasOwn(guest.sharedState, "__proto__"),
         false,
         "prototype-polluting key never reached the guest",
       );

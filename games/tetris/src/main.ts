@@ -9,8 +9,10 @@ import * as pauseOverlay from "./pause-overlay";
 import { GameScene } from "./scenes/game-scene";
 import { MAX_DT } from "./shared/constants";
 
-const container = document.getElementById("game");
-if (!container) throw new Error("missing #game container");
+const container = document.querySelector("#game");
+if (!container) {
+  throw new Error("missing #game container");
+}
 container.addEventListener("contextmenu", (e) => e.preventDefault()); // long-press menus
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
@@ -20,7 +22,7 @@ const applyPixelRatio = () => renderer.setPixelRatio(Math.min(window.devicePixel
 applyPixelRatio();
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
-container.appendChild(renderer.domElement);
+container.append(renderer.domElement);
 
 const game = new GameScene(window.innerWidth / window.innerHeight);
 
@@ -31,7 +33,9 @@ const game = new GameScene(window.innerWidth / window.innerHeight);
 const poseControls = new PoseControls(game.poseActions);
 game.attachPoseControls(poseControls);
 const poseCamera = new PoseCamera(poseControls.handlePose);
-if (!isCoarsePointer()) void poseCamera.start();
+if (!isCoarsePointer()) {
+  void poseCamera.start();
+}
 
 const resize = (): void => {
   game.resize(window.innerWidth / window.innerHeight);
@@ -46,14 +50,18 @@ window.addEventListener("resize", resize);
 // paused gap on resume so a long pause can't insta-finalize game-over.
 let wrapperPausedAt: number | null = null;
 function pausePresentation(): void {
-  if (wrapperPausedAt !== null) return;
+  if (wrapperPausedAt !== null) {
+    return;
+  }
   wrapperPausedAt = performance.now();
   game.releaseInputs();
   poseControls.setActionsPaused(true);
   setSoundPaused(true);
 }
 function resumePresentation(): void {
-  if (wrapperPausedAt === null) return;
+  if (wrapperPausedAt === null) {
+    return;
+  }
   game.shiftWallClock(performance.now() - wrapperPausedAt);
   wrapperPausedAt = null;
   game.releaseInputs();
@@ -73,7 +81,9 @@ setPauseHandlers({
   canResume: () => graphics.kind === "ready",
   onPause: () => {
     pausePresentation();
-    if (graphics.kind === "ready") pauseOverlay.show();
+    if (graphics.kind === "ready") {
+      pauseOverlay.show();
+    }
   },
   onResume: () => {
     resumePresentation();
@@ -83,7 +93,9 @@ setPauseHandlers({
 
 renderer.domElement.addEventListener("webglcontextlost", (event) => {
   event.preventDefault();
-  if (graphics.kind === "lost") return;
+  if (graphics.kind === "lost") {
+    return;
+  }
   graphics = {
     kind: "lost",
     returnTo: wrapperPausedAt !== null || isPausable() ? "pause" : "title",
@@ -94,22 +106,31 @@ renderer.domElement.addEventListener("webglcontextlost", (event) => {
   pauseOverlay.showRecovery();
 });
 renderer.domElement.addEventListener("webglcontextrestored", () => {
-  if (graphics.kind === "ready") return;
+  if (graphics.kind === "ready") {
+    return;
+  }
   const { returnTo } = graphics;
   graphics = { kind: "ready" };
   resize();
   pauseOverlay.hideRecovery();
   // A title screen was never pausable, so nothing re-announces it: unfreeze directly.
-  if (returnTo === "pause") pauseOverlay.show();
-  else resumePresentation();
+  if (returnTo === "pause") {
+    pauseOverlay.show();
+  } else {
+    resumePresentation();
+  }
 });
 
 const timer = new THREE.Timer();
 renderer.setAnimationLoop((time) => {
   timer.update(time);
   const dt = Math.min(timer.getDelta(), MAX_DT);
-  if (wrapperPausedAt === null) game.update(dt);
-  if (graphics.kind === "ready") renderer.render(game.scene, game.camera);
+  if (wrapperPausedAt === null) {
+    game.update(dt);
+  }
+  if (graphics.kind === "ready") {
+    renderer.render(game.scene, game.camera);
+  }
 });
 
 Object.defineProperty(window, "__GAME_DIAGNOSTICS__", {
@@ -118,5 +139,5 @@ Object.defineProperty(window, "__GAME_DIAGNOSTICS__", {
 
 if (import.meta.env.DEV) {
   // __tetris: the scene; __pose: feed synthetic poses or recenter() in the console.
-  Object.assign(window, { __tetris: game, __pose: poseControls, __camera: poseCamera });
+  Object.assign(window, { __camera: poseCamera, __pose: poseControls, __tetris: game });
 }

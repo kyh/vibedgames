@@ -3,20 +3,22 @@ import type { ControlsManifest } from "@repo/embed";
 import { handCameraState } from "./input/camera";
 
 export const CONTROLS: ControlsManifest = [
-  { method: "keys", input: "SPACE", action: "serve · power shot · rematch" },
-  { method: "keys", input: "M", action: "mute" },
-  { method: "mouse", input: "MOUSE", action: "steer the paddle" },
-  { method: "mouse", input: "CLICK", action: "serve · power shot · rematch" },
-  { method: "touch", input: "FINGER", action: "steer the paddle" },
-  { method: "touch", input: "TAP", action: "serve · power shot · rematch" },
-  { method: "touch", input: "🔊", action: "mute" },
-  { method: "camera", input: "✋ HAND", action: "steer the paddle" },
-  { method: "camera", input: "✊ FIST", action: "serve · power shot · rematch" },
-  { method: "controller", input: "STICK", action: "steer the paddle" },
-  { method: "controller", input: "A", action: "serve · power shot · rematch" },
+  { action: "serve · power shot · rematch", input: "SPACE", method: "keys" },
+  { action: "mute", input: "M", method: "keys" },
+  { action: "steer the paddle", input: "MOUSE", method: "mouse" },
+  { action: "serve · power shot · rematch", input: "CLICK", method: "mouse" },
+  { action: "steer the paddle", input: "FINGER", method: "touch" },
+  { action: "serve · power shot · rematch", input: "TAP", method: "touch" },
+  { action: "mute", input: "🔊", method: "touch" },
+  { action: "steer the paddle", input: "✋ HAND", method: "camera" },
+  { action: "serve · power shot · rematch", input: "✊ FIST", method: "camera" },
+  { action: "steer the paddle", input: "STICK", method: "controller" },
+  { action: "serve · power shot · rematch", input: "A", method: "controller" },
 ];
 
 export function visibleControls(): ControlsManifest {
-  if (handCameraState() === "live") return CONTROLS;
+  if (handCameraState() === "live") {
+    return CONTROLS;
+  }
   return CONTROLS.filter((entry) => entry.method !== "camera");
 }

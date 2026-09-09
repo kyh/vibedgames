@@ -24,7 +24,7 @@ import { resumeGame } from "./game";
 import { sealPointerEvents } from "./pointer-seal";
 
 /** z-index of every pause overlay — above any game HUD. */
-export const PAUSE_OVERLAY_Z = 2147483000;
+export const PAUSE_OVERLAY_Z = 2_147_483_000;
 
 /**
  * While a pause UI is visible the game loop is often frozen, so nothing polls
@@ -62,7 +62,7 @@ export function resumeOnPadPress(): () => void {
   return () => cancelAnimationFrame(raf);
 }
 
-export type PauseShellOptions = {
+export interface PauseShellOptions {
   /**
    * Build the overlay's content into the full-screen root the shell provides.
    * Called fresh on every show(), so content that depends on the moment —
@@ -88,14 +88,14 @@ export type PauseShellOptions = {
   modalOpen?: () => boolean;
   /** Sweep side state (close modals, …). Runs at the start of every hide(). */
   onHide?: () => void;
-};
+}
 
-export type PauseShell = {
+export interface PauseShell {
   /** Mount the overlay. Idempotent while shown. */
   show: () => void;
   /** Unmount (fade out). Idempotent while hidden. */
   hide: () => void;
-};
+}
 
 function isInteractive(target: EventTarget | null): boolean {
   return (
@@ -117,7 +117,9 @@ export function createPauseShell(options: PauseShellOptions): PauseShell {
   const resumeKeys = new Set<string>();
 
   const onResumeKeydown = (event: KeyboardEvent): void => {
-    if (event.key === "Escape" || event.repeat || (options.modalOpen?.() ?? false)) return;
+    if (event.key === "Escape" || event.repeat || (options.modalOpen?.() ?? false)) {
+      return;
+    }
     resumeKeys.add(event.code);
   };
 
@@ -125,12 +127,16 @@ export function createPauseShell(options: PauseShellOptions): PauseShell {
     // Escape is handled on keydown by the core toggle listener; resuming here
     // too would double-fire on the keydown+keyup of one press.
     const fresh = resumeKeys.delete(event.code);
-    if (!fresh || event.key === "Escape" || (options.modalOpen?.() ?? false)) return;
+    if (!fresh || event.key === "Escape" || (options.modalOpen?.() ?? false)) {
+      return;
+    }
     resumeGame();
   };
 
   function show(): void {
-    if (root) return;
+    if (root) {
+      return;
+    }
     if (options.css !== undefined && options.styleId !== undefined) {
       if (!document.getElementById(options.styleId)) {
         const style = document.createElement("style");
@@ -141,7 +147,9 @@ export function createPauseShell(options: PauseShellOptions): PauseShell {
     }
 
     root = document.createElement("div");
-    if (options.className !== undefined) root.className = options.className;
+    if (options.className !== undefined) {
+      root.className = options.className;
+    }
     root.setAttribute("role", "button");
     root.setAttribute("aria-label", options.ariaLabel ?? "Resume game");
     // Behavioral invariants only — everything visual is the consumer's CSS.
@@ -161,10 +169,14 @@ export function createPauseShell(options: PauseShellOptions): PauseShell {
     document.body.append(root);
     sealPointerEvents(root, { keepClick: isInteractive });
     stopPadResume = resumeOnPadPress();
-    if (fade > 0) requestAnimationFrame(() => root?.style.setProperty("opacity", "1"));
+    if (fade > 0) {
+      requestAnimationFrame(() => root?.style.setProperty("opacity", "1"));
+    }
 
     root.addEventListener("pointerup", (event) => {
-      if ((options.modalOpen?.() ?? false) || isInteractive(event.target)) return;
+      if ((options.modalOpen?.() ?? false) || isInteractive(event.target)) {
+        return;
+      }
       resumeGame();
     });
     // keyup, not keydown — a keydown dismissal leaks the paired keyup into the
@@ -184,7 +196,9 @@ export function createPauseShell(options: PauseShellOptions): PauseShell {
     options.onHide?.();
     const el = root;
     root = null;
-    if (!el) return;
+    if (!el) {
+      return;
+    }
     const fade = reducedMotion() ? 0 : (options.fadeMs ?? 240);
     if (fade === 0) {
       el.remove();
@@ -195,5 +209,5 @@ export function createPauseShell(options: PauseShellOptions): PauseShell {
     window.setTimeout(() => el.remove(), fade + 40);
   }
 
-  return { show, hide };
+  return { hide, show };
 }

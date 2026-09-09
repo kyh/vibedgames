@@ -14,13 +14,13 @@ import { CATCH_WINDOW_MS, PIECES } from "../shared/constants";
 import { drawPiecePreview } from "./piece-preview";
 
 function el(id: string): HTMLElement | null {
-  return document.getElementById(id);
+  return document.querySelector(`#${id}`);
 }
 
 /** Which input drove the last action — the badge beside the power pill. */
 export type InputOwner = "POSE" | "PAD" | "KEYS" | "TOUCH";
 
-export type HudFrame = {
+export interface HudFrame {
   score: number;
   lines: number;
   nextIndex: number;
@@ -29,9 +29,9 @@ export type HudFrame = {
   /** 0..1 */
   charge: number;
   owner: InputOwner;
-};
+}
 
-export type RunResult = {
+export interface RunResult {
   score: number;
   best: number;
   newBest: boolean;
@@ -39,7 +39,7 @@ export type RunResult = {
   pieces: number;
   rescues: number;
   largestClear: number;
-};
+}
 
 /** What sits under the banner: the full legend (title), the quiet hotkey bar
  *  (play), or nothing (catch / results). */
@@ -62,7 +62,9 @@ export class Hud {
     this.coarse = coarse;
     el("compact-start")?.addEventListener("click", onStart);
     const rules = el("spatial-rule");
-    if (rules) mountRuleTeaching(rules);
+    if (rules) {
+      mountRuleTeaching(rules);
+    }
   }
 
   /** Rebuild the banner legend from the controls manifest, one row per
@@ -71,7 +73,9 @@ export class Hud {
    *  method-label + keycap-chip rows, so title and pause teach with one UI. */
   renderLegend(): void {
     const legend = el("legend");
-    if (!legend) return;
+    if (!legend) {
+      return;
+    }
     const coarse = window.matchMedia("(pointer: coarse)").matches;
     legend.replaceChildren(...controlGroups(CONTROLS).map((group) => groupRow(group, coarse)));
   }
@@ -80,18 +84,24 @@ export class Hud {
     if (frame.score !== this.score) {
       this.score = frame.score;
       const node = el("score");
-      if (node) node.textContent = `SCORE ${frame.score}`;
+      if (node) {
+        node.textContent = `SCORE ${frame.score}`;
+      }
     }
     if (frame.lines !== this.lines) {
       this.lines = frame.lines;
       const node = el("lines");
-      if (node) node.textContent = `LINES ${frame.lines}`;
+      if (node) {
+        node.textContent = `LINES ${frame.lines}`;
+      }
     }
     if (frame.nextIndex !== this.nextIdx) {
       this.nextIdx = frame.nextIndex;
       const cv = el("next-canvas");
       const def = PIECES[frame.nextIndex];
-      if (cv instanceof HTMLCanvasElement && def) drawPiecePreview(cv, def.footprint, def.color);
+      if (cv instanceof HTMLCanvasElement && def) {
+        drawPiecePreview(cv, def.footprint, def.color);
+      }
     }
     if (frame.holdIndex !== this.holdIdx) {
       this.holdIdx = frame.holdIndex;
@@ -104,11 +114,17 @@ export class Hud {
     if (frame.holdSpent !== this.holdSpent) {
       this.holdSpent = frame.holdSpent;
       const preview = el("hold-preview");
-      if (preview) preview.dataset.spent = String(frame.holdSpent);
+      if (preview) {
+        preview.dataset.spent = String(frame.holdSpent);
+      }
       const status = el("hold-status");
-      if (status) status.hidden = !frame.holdSpent;
+      if (status) {
+        status.hidden = !frame.holdSpent;
+      }
       const hint = el("hold-hint");
-      if (hint) hint.hidden = !frame.holdSpent;
+      if (hint) {
+        hint.hidden = !frame.holdSpent;
+      }
     }
     const charge = Math.round(frame.charge * 100);
     if (charge !== this.charge) {
@@ -132,21 +148,30 @@ export class Hud {
   /** `remainingMs` null = not collapsing (meter hidden). */
   setCatchMeter(remainingMs: number | null): void {
     const meter = el("catch-meter");
-    if (meter) meter.hidden = remainingMs === null;
+    if (meter) {
+      meter.hidden = remainingMs === null;
+    }
     if (remainingMs === null) {
       this.catchTenths = -1;
       return;
     }
-    if (meter) meter.setAttribute("aria-valuenow", (remainingMs / CATCH_WINDOW_MS).toFixed(3));
+    if (meter) {
+      meter.setAttribute("aria-valuenow", (remainingMs / CATCH_WINDOW_MS).toFixed(3));
+    }
     const fill = el("catch-fill");
-    if (fill) fill.style.transform = `scaleX(${remainingMs / CATCH_WINDOW_MS})`;
+    if (fill) {
+      fill.style.transform = `scaleX(${remainingMs / CATCH_WINDOW_MS})`;
+    }
     const tenths = Math.ceil(remainingMs / 100);
     if (tenths !== this.catchTenths) {
       this.catchTenths = tenths;
       const label = el("catch-time");
-      if (label) label.textContent = `${(tenths / 10).toFixed(1)}s to catch`;
-      if (meter)
+      if (label) {
+        label.textContent = `${(tenths / 10).toFixed(1)}s to catch`;
+      }
+      if (meter) {
         meter.setAttribute("aria-valuetext", `${(tenths / 10).toFixed(1)} seconds to catch`);
+      }
     }
   }
 
@@ -155,8 +180,12 @@ export class Hud {
     const score = el("result-score");
     const best = el("result-best");
     const stats = el("result-stats");
-    if (score) score.textContent = String(result.score);
-    if (best) best.textContent = `${result.newBest ? "NEW BEST" : "BEST"} ${result.best}`;
+    if (score) {
+      score.textContent = String(result.score);
+    }
+    if (best) {
+      best.textContent = `${result.newBest ? "NEW BEST" : "BEST"} ${result.best}`;
+    }
     if (stats) {
       const { lines, pieces, rescues } = result;
       stats.textContent = `${lines} ${lines === 1 ? "line" : "lines"} · ${pieces} ${pieces === 1 ? "piece" : "pieces"} placed\n${rescues} ${rescues === 1 ? "rescue" : "rescues"} · largest clear ${result.largestClear}`;
@@ -169,8 +198,12 @@ export class Hud {
     const t = el("banner-title");
     const s = el("banner-sub");
     const b = el("banner");
-    if (t) t.textContent = title;
-    if (s) s.textContent = sub;
+    if (t) {
+      t.textContent = title;
+    }
+    if (s) {
+      s.textContent = sub;
+    }
     if (b) {
       b.style.opacity = "1";
       b.dataset.phase = status;
@@ -179,9 +212,15 @@ export class Hud {
     const teaching = el("spatial-rule");
     const summary = el("run-summary");
     const start = el("compact-start");
-    if (teaching) teaching.hidden = status !== "title";
-    if (summary) summary.hidden = status !== "gameOver";
-    if (start) start.textContent = status === "gameOver" ? "Play again" : "Play";
+    if (teaching) {
+      teaching.hidden = status !== "title";
+    }
+    if (summary) {
+      summary.hidden = status !== "gameOver";
+    }
+    if (start) {
+      start.textContent = status === "gameOver" ? "Play again" : "Play";
+    }
     this.setRunActions(status);
     this.setMode(mode);
   }
@@ -198,23 +237,33 @@ export class Hud {
     }
     const teaching = el("spatial-rule");
     const summary = el("run-summary");
-    if (teaching) teaching.hidden = true;
-    if (summary) summary.hidden = true;
+    if (teaching) {
+      teaching.hidden = true;
+    }
+    if (summary) {
+      summary.hidden = true;
+    }
     this.setRunActions(status);
     this.setMode("hotkeys");
   }
 
   private setRunActions(status: Status): void {
     const actions = el("run-actions");
-    if (actions) actions.hidden = !isIdle(status);
+    if (actions) {
+      actions.hidden = !isIdle(status);
+    }
   }
 
   private setMode(mode: HudMode): void {
     const legend = el("legend");
-    if (legend) legend.style.display = mode === "legend" ? "flex" : "none";
+    if (legend) {
+      legend.style.display = mode === "legend" ? "flex" : "none";
+    }
     const hotkeys = el("hotkeys");
     // Touch has no keyboard to reference and the bar lands on the DROP/HOLD
     // buttons; an inline display would beat the stylesheet's `body.touch` rule.
-    if (hotkeys) hotkeys.style.display = mode === "hotkeys" && !this.coarse ? "flex" : "none";
+    if (hotkeys) {
+      hotkeys.style.display = mode === "hotkeys" && !this.coarse ? "flex" : "none";
+    }
   }
 }

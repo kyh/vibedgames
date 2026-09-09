@@ -1,4 +1,5 @@
-import { HERO_NAMES, type HeroName } from "./animations";
+import { HERO_NAMES } from "./animations";
+import type { HeroName } from "./animations";
 
 /* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof -- This module is the parser for untyped Phaser scene-entry data. */
 
@@ -39,8 +40,10 @@ export function readRunRecap(value: unknown): RunRecap | null {
   if (!hero || !whole(value.biome, 1) || !whole(value.depth, 1) || !whole(value.gold, 0)) {
     return null;
   }
-  const reached = { hero, biome: value.biome, depth: value.depth, gold: value.gold };
-  if (value.kind === "coop-guest") return { kind: "coop-guest", ...reached };
+  const reached = { biome: value.biome, depth: value.depth, gold: value.gold, hero };
+  if (value.kind === "coop-guest") {
+    return { kind: "coop-guest", ...reached };
+  }
   if (
     value.kind !== "banked" ||
     !("score" in value) ||

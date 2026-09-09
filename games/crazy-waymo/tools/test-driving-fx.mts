@@ -15,10 +15,10 @@ import type { AuditWorld } from "./geometry-audit.mts";
 
 type Check = (name: string, condition: boolean, detail?: string) => void;
 
-function pixelWidth(
+const pixelWidth = (
   rig: ChaseCamera,
   car: { readonly position: THREE.Vector3; readonly heading: number },
-): number {
+): number => {
   const dx = Math.cos(car.heading);
   const dz = -Math.sin(car.heading);
   const left = new THREE.Vector3(
@@ -32,15 +32,96 @@ function pixelWidth(
     car.position.z + dz,
   ).project(rig.camera);
   return Math.abs(right.x - left.x) * 422;
-}
+};
 
-function hillHeight(_x: number, z: number): number {
+const hillHeight = (_x: number, z: number): number => {
   const f = THREE.MathUtils.clamp(-z / 13, 0, 1);
   return -z * 0.72 + Math.sin(f * Math.PI) * 3;
-}
+};
+
+const sampleFreewayDeck = (
+  world: AuditWorld,
+  positions: THREE.BufferAttribute | THREE.InterleavedBufferAttribute,
+  landAt: ReturnType<typeof makeLandClassAt>,
+) => {
+  const stride = Math.max(1, Math.floor(positions.count / (3 * 256))) * 3;
+  let matched = 0;
+  let samples = 0;
+  let slopes = 0;
+  let approach = "";
+  let span = "";
+  let underpass: { x: number; y: number; z: number; kind: string } | null = null;
+  for (let i = 0; i + 2 < positions.count; i += stride) {
+    const x = (positions.getX(i) + positions.getX(i + 1) + positions.getX(i + 2)) / 3;
+    const y = (positions.getY(i) + positions.getY(i + 1) + positions.getY(i + 2)) / 3;
+    const z = (positions.getZ(i) + positions.getZ(i + 1) + positions.getZ(i + 2)) / 3;
+    const slope =
+      Math.max(positions.getY(i), positions.getY(i + 1), positions.getY(i + 2)) -
+      Math.min(positions.getY(i), positions.getY(i + 1), positions.getY(i + 2));
+    samples += 1;
+    if (isFreewayDeckContact(world.terrain, world.network, x, z, y + 0.03)) {
+      matched += 1;
+    }
+    if (slope > 0.03) {
+      slopes += 1;
+    }
+    const ground = world.terrain.heightAt(x, z);
+    const clearance = y - ground;
+    const coordinate = `${x.toFixed(2)},${y.toFixed(2)},${z.toFixed(2)}`;
+    if (!approach && slope > 0.03 && clearance > 0.5 && clearance < 3) {
+      approach = coordinate;
+    }
+    if (!span && clearance > 6) {
+      span = coordinate;
+    }
+    const kind = wheelSurface(landAt(x, z));
+    if (!underpass && clearance > 4 && kind !== "road" && kind !== "concrete") {
+      underpass = { kind, x, y: ground, z };
+    }
+  }
+  return { approach, matched, samples, slopes, span, underpass };
+};
+
+/** Sample the drawn triangles, independently of the contact query's index. */
+const checkFreewayContacts = (check: Check, world: AuditWorld): void => {
+  const group = buildFreeways(world.terrain, world.network);
+  const deck = group.getObjectByName("freeway-deck");
+  if (!(deck instanceof THREE.Mesh)) {
+    throw new Error("Freeway deck fixture missing");
+  }
+  const positions = deck.geometry.getAttribute("position");
+  const landAt = makeLandClassAt(world.plan, world.terrain);
+  const { matched, samples, slopes, approach, span, underpass } = sampleFreewayDeck(
+    world,
+    positions,
+    landAt,
+  );
+  check(
+    "freeway tire material matches rendered mainline and sloped approach triangles",
+    samples >= 200 && matched === samples && slopes > 10 && approach !== "" && span !== "",
+    `${matched}/${samples} contacts; ${slopes} sloped; approach ${approach}; span ${span}`,
+  );
+  check(
+    "loose terrain beneath a freeway keeps its own tire material",
+    underpass !== null &&
+      !isFreewayDeckContact(world.terrain, world.network, underpass.x, underpass.z, underpass.y),
+    underpass === null
+      ? "missing underpass fixture"
+      : `${underpass.kind} at ${underpass.x.toFixed(2)},${underpass.y.toFixed(2)},${underpass.z.toFixed(2)}`,
+  );
+  group.traverse((object) => {
+    if (object instanceof THREE.Mesh) {
+      object.geometry.dispose();
+    }
+  });
+};
 
 /** This shipped pier stands over a ground cut, below the uncorrected field. */
-export function checkWorldDrivingFx(check: Check, world: AuditWorld, rest: CityRestPayload): void {
+export const checkWorldDrivingFx = (
+  check: Check,
+  world: AuditWorld,
+  rest: CityRestPayload,
+): void => {
   checkFreewayContacts(check, world);
   const surface = new DriveSurface(world.terrain, world.plan, () => world.network);
   surface.addDecks(rest.decks);
@@ -61,22 +142,24 @@ export function checkWorldDrivingFx(check: Check, world: AuditWorld, rest: CityR
 
   const solids = new SolidIndex(rest.solids);
   const ceilings = new CeilingIndex(deckCeilings(rest.decks));
-  const carAt = (x: number, z: number, heading: number) => ({
-    position: new THREE.Vector3(x, surface.heightAt(x, z) + 0.3, z),
-    heading,
-    speed: 0,
+  const carAt = (cx: number, cz: number, heading: number) => ({
     forwardSpeed: 0,
-    slip: 0,
-    velAngle: null,
-    steer: 0,
+    heading,
     isBoosting: false,
+    position: new THREE.Vector3(cx, surface.heightAt(cx, cz) + 0.3, cz),
+    slip: 0,
+    speed: 0,
+    steer: 0,
+    velAngle: null,
   });
   const view = (car: ReturnType<typeof carAt>): ChaseCamera => {
     const rig = new ChaseCamera(844 / 390);
-    rig.setGround((x, z, y) => surface.floorBelow(x, z, y));
+    rig.setGround((gx, gz, gy) => surface.floorBelow(gx, gz, gy));
     rig.setCeilings(ceilings);
     rig.snapTo(car);
-    for (let i = 0; i < 240; i++) rig.update(1 / 60, car, solids);
+    for (let i = 0; i < 240; i += 1) {
+      rig.update(1 / 60, car, solids);
+    }
     rig.camera.updateMatrixWorld(true);
     return rig;
   };
@@ -96,7 +179,7 @@ export function checkWorldDrivingFx(check: Check, world: AuditWorld, rest: CityR
     `${(((1 + frameY) * 390) / 2).toFixed(1)}px bottom margin`,
   );
   let clearance = Infinity;
-  for (let i = 1; i <= 12; i++) {
+  for (let i = 1; i <= 12; i += 1) {
     const point = downhill.position
       .clone()
       .add(new THREE.Vector3(0, CAMERA.lookHeight, 0))
@@ -113,7 +196,7 @@ export function checkWorldDrivingFx(check: Check, world: AuditWorld, rest: CityR
   );
   let step = 0;
   const before = new THREE.Vector3();
-  for (let i = 0; i < 120; i++) {
+  for (let i = 0; i < 120; i += 1) {
     before.copy(hill.camera.position);
     downhill.position.x -= 0.1;
     downhill.position.y = surface.heightAt(downhill.position.x, downhill.position.z) + 0.3;
@@ -121,86 +204,21 @@ export function checkWorldDrivingFx(check: Check, world: AuditWorld, rest: CityR
     step = Math.max(step, before.distanceTo(hill.camera.position));
   }
   check("hill framing changes smoothly while driving", step < 1, `${step.toFixed(3)}u max step`);
-}
+};
 
-/** Sample the drawn triangles, independently of the contact query's index. */
-function checkFreewayContacts(check: Check, world: AuditWorld): void {
-  const group = buildFreeways(world.terrain, world.network);
-  const deck = group.getObjectByName("freeway-deck");
-  if (!(deck instanceof THREE.Mesh)) throw new Error("Freeway deck fixture missing");
-  const positions = deck.geometry.getAttribute("position");
-  const landAt = makeLandClassAt(world.plan, world.terrain);
-  const stride = Math.max(1, Math.floor(positions.count / (3 * 256))) * 3;
-  let samples = 0,
-    matched = 0,
-    slopes = 0;
-  let approach = "",
-    span = "";
-  let underpass: { x: number; y: number; z: number; kind: string } | null = null;
-  for (let i = 0; i + 2 < positions.count; i += stride) {
-    const x = (positions.getX(i) + positions.getX(i + 1) + positions.getX(i + 2)) / 3;
-    const y = (positions.getY(i) + positions.getY(i + 1) + positions.getY(i + 2)) / 3;
-    const z = (positions.getZ(i) + positions.getZ(i + 1) + positions.getZ(i + 2)) / 3;
-    const slope =
-      Math.max(positions.getY(i), positions.getY(i + 1), positions.getY(i + 2)) -
-      Math.min(positions.getY(i), positions.getY(i + 1), positions.getY(i + 2));
-    samples++;
-    if (isFreewayDeckContact(world.terrain, world.network, x, z, y + 0.03)) matched++;
-    if (slope > 0.03) slopes++;
-    const ground = world.terrain.heightAt(x, z);
-    const clearance = y - ground;
-    const coordinate = `${x.toFixed(2)},${y.toFixed(2)},${z.toFixed(2)}`;
-    if (!approach && slope > 0.03 && clearance > 0.5 && clearance < 3) approach = coordinate;
-    if (!span && clearance > 6) span = coordinate;
-    const kind = wheelSurface(landAt(x, z));
-    if (!underpass && clearance > 4 && kind !== "road" && kind !== "concrete") {
-      underpass = { x, y: ground, z, kind };
-    }
-  }
-  check(
-    "freeway tire material matches rendered mainline and sloped approach triangles",
-    samples >= 200 && matched === samples && slopes > 10 && approach !== "" && span !== "",
-    `${matched}/${samples} contacts; ${slopes} sloped; approach ${approach}; span ${span}`,
-  );
-  check(
-    "loose terrain beneath a freeway keeps its own tire material",
-    underpass !== null &&
-      !isFreewayDeckContact(world.terrain, world.network, underpass.x, underpass.z, underpass.y),
-    underpass === null
-      ? "missing underpass fixture"
-      : `${underpass.kind} at ${underpass.x.toFixed(2)},${underpass.y.toFixed(2)},${underpass.z.toFixed(2)}`,
-  );
-  group.traverse((object) => {
-    if (object instanceof THREE.Mesh) object.geometry.dispose();
-  });
-}
-
-/** Camera terrain/bridge clearance, interrupted ribbons and boost release. */
-export function checkDrivingFx(check: Check): void {
-  const camera = new ChaseCamera(16 / 9);
-  camera.setGround((_x, z) => -z);
-  camera.snapTo({ heading: 0, position: new THREE.Vector3(0, 1.2, 0) });
-  check(
-    "downhill camera cut clears the uphill road behind the car",
-    camera.camera.position.y >= -camera.camera.position.z + 0.6,
-  );
-  camera.setCeilings(new CeilingIndex([{ minX: -30, maxX: 30, minZ: -30, maxZ: 30, y: 6 }]));
-  camera.setGround(() => 6.8);
-  camera.snapTo({ heading: 0, position: new THREE.Vector3(0, 1.2, 0) });
-  check("overhead deck is never mistaken for the camera floor", camera.camera.position.y < 6);
-
+const checkStackedDecks = (check: Check, camera: ChaseCamera): void => {
   // Exercise the actual surface contract: heightAt intentionally selects a
   // bridge deck for traffic, while the camera needs the floor on its level.
   const network = new RoadNetwork([], []);
   const surface = new DriveSurface(
     new Terrain([], () => 1),
-    { sizeX: 0, sizeZ: 0, cells: [], roads: [], buildingCells: [], greenCells: [] },
+    { buildingCells: [], cells: [], greenCells: [], roads: [], sizeX: 0, sizeZ: 0 },
     () => network,
   );
   const ground = surface.heightAt(0, 0);
   surface.addDecks([
-    { minX: -20, maxX: 20, minZ: -20, maxZ: 20, y: 6, y2: 10 },
-    { minX: -20, maxX: 20, minZ: -20, maxZ: 20, y: 14 },
+    { maxX: 20, maxZ: 20, minX: -20, minZ: -20, y: 6, y2: 10 },
+    { maxX: 20, maxZ: 20, minX: -20, minZ: -20, y: 14 },
   ]);
   check(
     "camera below stacked bridges keeps the ground floor",
@@ -238,20 +256,22 @@ export function checkDrivingFx(check: Check): void {
     "camera cut under a real sloping deck clears ground and soffit",
     eye.y >= ground + 0.6 && eye.y < ceilings.ceilingAt(eye.x, eye.z, 3),
   );
+};
 
+const checkHillCamera = (check: Check): void => {
   // A convex crest blocks the boom's middle even after its endpoint has
   // cleared terrain. Keep the taxi framed while raising the whole sightline.
   const hill = new ChaseCamera(16 / 9);
   hill.setGround(hillHeight);
   const parked = {
-    position: new THREE.Vector3(0, 1.2, 0),
-    heading: 0,
-    speed: 0,
     forwardSpeed: 0,
-    slip: 0,
-    velAngle: null,
-    steer: 0,
+    heading: 0,
     isBoosting: false,
+    position: new THREE.Vector3(0, 1.2, 0),
+    slip: 0,
+    speed: 0,
+    steer: 0,
+    velAngle: null,
   };
   hill.snapTo(parked);
   const solids = new SolidIndex([]);
@@ -262,25 +282,31 @@ export function checkDrivingFx(check: Check): void {
     const underpass = new ChaseCamera(390 / 844);
     const car = { ...parked, position: new THREE.Vector3(0, rootHeight, 0) };
     underpass.setGround(() => 0);
-    underpass.setCeilings(new CeilingIndex([{ minX: -30, maxX: 30, minZ: -30, maxZ: 30, y: 4.2 }]));
+    underpass.setCeilings(new CeilingIndex([{ maxX: 30, maxZ: 30, minX: -30, minZ: -30, y: 4.2 }]));
     underpass.snapTo(car);
-    for (let i = 0; i < 240; i++) underpass.update(1 / 60, car, solids);
-    const eye = underpass.camera.position;
-    const boom = Math.hypot(eye.x - car.position.x, eye.z - car.position.z);
+    for (let i = 0; i < 240; i += 1) {
+      underpass.update(1 / 60, car, solids);
+    }
+    const underpassEye = underpass.camera.position;
+    const boom = Math.hypot(underpassEye.x - car.position.x, underpassEye.z - car.position.z);
     check(
       `low underpass keeps the taxi outside the camera at root ${rootHeight}u`,
-      boom >= CAMERA.distance - 0.01 && eye.y >= 0.65 && eye.y <= 4.2 - CAMERA.ceilingClear + 0.01,
-      `${boom.toFixed(2)}u boom, eye ${eye.y.toFixed(2)}u`,
+      boom >= CAMERA.distance - 0.01 &&
+        underpassEye.y >= 0.65 &&
+        underpassEye.y <= 4.2 - CAMERA.ceilingClear + 0.01,
+      `${boom.toFixed(2)}u boom, eye ${underpassEye.y.toFixed(2)}u`,
     );
   }
-  for (let i = 0; i < 240; i++) hill.update(1 / 60, parked, solids);
+  for (let i = 0; i < 240; i += 1) {
+    hill.update(1 / 60, parked, solids);
+  }
   const hillEye = hill.camera.position;
   check(
     "downhill camera keeps enough boom to frame the whole taxi",
     Math.hypot(hillEye.x - parked.position.x, hillEye.z - parked.position.z) >= 8,
   );
   let sightlineClearance = Infinity;
-  for (let i = 1; i <= 12; i++) {
+  for (let i = 1; i <= 12; i += 1) {
     const f = i / 12;
     const x = parked.position.x + (hillEye.x - parked.position.x) * f;
     const z = parked.position.z + (hillEye.z - parked.position.z) * f;
@@ -293,6 +319,9 @@ export function checkDrivingFx(check: Check): void {
     sightlineClearance >= 0.64,
     `${sightlineClearance.toFixed(3)}u minimum clearance`,
   );
+};
+
+const checkTrailsAndPlume = (check: Check): void => {
   const trails = new DriftTrails((x) => x * 0.4);
   trails.emit(0, 10, 10, 0, 1, 1);
   trails.emit(0, 10, 11, 0, 1, 1);
@@ -333,19 +362,44 @@ export function checkDrivingFx(check: Check): void {
 
   const plume = new BoostPlume({ value: 1 });
   plume.drive(-0.55, 0.5, -2, 0.55, 0.5, -2, 0, 0, -1, 1);
-  for (let i = 0; i < 60; i++) plume.update(1 / 60);
-  const material = plume.mesh.material;
-  if (!(material instanceof THREE.ShaderMaterial)) throw new Error("Boost plume lost its shader");
+  for (let i = 0; i < 60; i += 1) {
+    plume.update(1 / 60);
+  }
+  const { material } = plume.mesh;
+  if (!(material instanceof THREE.ShaderMaterial)) {
+    throw new Error("Boost plume lost its shader");
+  }
   const sustained = Number(material.uniforms.uIntensity?.value);
   plume.drive(-0.55, 0.5, -2, 0.55, 0.5, -2, 0, 0, -1, 0);
   let lastVisibleIntensity = 0;
-  for (let i = 0; i < 90; i++) {
+  for (let i = 0; i < 90; i += 1) {
     plume.update(1 / 60);
     const intensity = Number(material.uniforms.uIntensity?.value);
-    if (plume.mesh.visible) lastVisibleIntensity = intensity;
+    if (plume.mesh.visible) {
+      lastVisibleIntensity = intensity;
+    }
   }
   check(
     "boost plume fades below a tenth of burn before hiding",
     Number.isFinite(sustained) && lastVisibleIntensity < sustained * 0.1 && !plume.mesh.visible,
   );
-}
+};
+
+/** Camera terrain/bridge clearance, interrupted ribbons and boost release. */
+export const checkDrivingFx = (check: Check): void => {
+  const camera = new ChaseCamera(16 / 9);
+  camera.setGround((_x, z) => -z);
+  camera.snapTo({ heading: 0, position: new THREE.Vector3(0, 1.2, 0) });
+  check(
+    "downhill camera cut clears the uphill road behind the car",
+    camera.camera.position.y >= -camera.camera.position.z + 0.6,
+  );
+  camera.setCeilings(new CeilingIndex([{ maxX: 30, maxZ: 30, minX: -30, minZ: -30, y: 6 }]));
+  camera.setGround(() => 6.8);
+  camera.snapTo({ heading: 0, position: new THREE.Vector3(0, 1.2, 0) });
+  check("overhead deck is never mistaken for the camera floor", camera.camera.position.y < 6);
+
+  checkStackedDecks(check, camera);
+  checkHillCamera(check);
+  checkTrailsAndPlume(check);
+};

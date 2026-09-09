@@ -39,17 +39,17 @@ const ARC_START_DEG = 2; // Q sits almost straight above the anchor
 const ARC_SPAN_DEG = 88; // ...and R lands level with it (quarter arc)
 const DEG = Math.PI / 180;
 const AVAILABILITY_LABEL = {
-  unavailable: "LOCKED",
-  dead: "DEAD",
-  stunned: "STUN",
-  silenced: "SILENCE",
-  unlearned: "LEARN",
-  passive: "PASSIVE",
   cooldown: "WAIT",
+  dead: "DEAD",
   mana: "MANA",
+  passive: "PASSIVE",
+  silenced: "SILENCE",
+  stunned: "STUN",
+  unavailable: "LOCKED",
+  unlearned: "LEARN",
 } satisfies Record<UnavailableReason, string>;
 
-type Slot = {
+interface Slot {
   key: AbilityKey;
   panel: Phaser.GameObjects.Image; // carved backdrop; `box` on top carries the state stroke
   box: Phaser.GameObjects.Rectangle;
@@ -62,7 +62,7 @@ type Slot = {
   pips: Phaser.GameObjects.Rectangle[];
   keyLabel: Phaser.GameObjects.Text;
   plus: Phaser.GameObjects.Text; // tappable level-up badge (guests have no Shift+key)
-};
+}
 
 export class HudScene extends Phaser.Scene {
   private gs!: GameScene;
@@ -210,10 +210,10 @@ export class HudScene extends Phaser.Scene {
         .setDepth(-10);
     }
     this.danger = this.add
-      .rectangle(0, 0, this.scale.width, this.scale.height, 0xff2a2a, 0)
+      .rectangle(0, 0, this.scale.width, this.scale.height, 0xff_2a_2a, 0)
       .setOrigin(0, 0)
       .setScrollFactor(0)
-      .setDepth(43000);
+      .setDepth(43_000);
     this.build();
     this.buildShop();
     this.buildMinimap();
@@ -232,12 +232,18 @@ export class HudScene extends Phaser.Scene {
       this.toggleBoard();
     });
     this.input.keyboard?.on("keyup-TAB", () => {
-      if (this.boardOpen) this.toggleBoard();
+      if (this.boardOpen) {
+        this.toggleBoard();
+      }
     });
     this.input.keyboard?.on("keydown-ESC", () => {
       this.guide?.closeGuide();
-      if (this.shopOpen) this.toggleShop();
-      if (this.boardOpen) this.toggleBoard();
+      if (this.shopOpen) {
+        this.toggleShop();
+      }
+      if (this.boardOpen) {
+        this.toggleBoard();
+      }
     });
   }
 
@@ -246,36 +252,59 @@ export class HudScene extends Phaser.Scene {
    *  each frame before this update runs (it sits earlier in the scene list), so
    *  the press edges here are fresh. */
   private pollPad(): void {
-    if (this.gs?.controlsPaused) return;
+    if (this.gs?.controlsPaused) {
+      return;
+    }
     const pad = this.gs?.physPad;
-    if (!pad?.connected) return;
-    if (pad.justPressed("select")) this.toggleShop();
-    if (pad.justPressed("start") && !this.boardOpen) this.toggleBoard();
-    if (pad.justReleased("start") && this.boardOpen) this.toggleBoard();
+    if (!pad?.connected) {
+      return;
+    }
+    if (pad.justPressed("select")) {
+      this.toggleShop();
+    }
+    if (pad.justPressed("start") && !this.boardOpen) {
+      this.toggleBoard();
+    }
+    if (pad.justReleased("start") && this.boardOpen) {
+      this.toggleBoard();
+    }
     if (this.shopOpen) {
-      if (pad.justPressed("up")) this.moveShopSel(-1);
-      if (pad.justPressed("down")) this.moveShopSel(1);
-      if (pad.justPressed("a")) this.buySelected();
+      if (pad.justPressed("up")) {
+        this.moveShopSel(-1);
+      }
+      if (pad.justPressed("down")) {
+        this.moveShopSel(1);
+      }
+      if (pad.justPressed("a")) {
+        this.buySelected();
+      }
     }
   }
 
   private moveShopSel(d: number): void {
     const n = this.shopRows.length;
-    if (n === 0) return;
+    if (n === 0) {
+      return;
+    }
     this.shopSel = (this.shopSel + d + n) % n;
     this.updateShopSelection();
   }
 
   private updateShopSelection(): void {
     this.shopRows.forEach((r, i) =>
-      r.box.setStrokeStyle(i === this.shopSel ? 3 : 1, i === this.shopSel ? 0xc9941e : 0xb89868),
+      r.box.setStrokeStyle(
+        i === this.shopSel ? 3 : 1,
+        i === this.shopSel ? 0xc9_94_1e : 0xb8_98_68,
+      ),
     );
   }
 
   private buySelected(): void {
     const r = this.shopRows[this.shopSel];
-    if (!r) return;
-    this.flashRow(r.box, this.gs.buyItemForPlayer(r.id) ? 0x2a6f3a : 0x6f2a2a);
+    if (!r) {
+      return;
+    }
+    this.flashRow(r.box, this.gs.buyItemForPlayer(r.id) ? 0x2a_6f_3a : 0x6f_2a_2a);
   }
 
   private build(): void {
@@ -285,24 +314,24 @@ export class HudScene extends Phaser.Scene {
       .setOrigin(0, 0)
       .setDepth(-1);
     this.goldText = this.add.text(24, 20, "", {
+      color: "#8a6510",
       fontFamily: FONT,
       fontSize: "18px",
-      color: "#8a6510",
     });
     this.clockText = this.add.text(24, 46, "", {
+      color: "#5a4630",
       fontFamily: FONT,
       fontSize: "14px",
-      color: "#5a4630",
     });
     this.kdaText = this.add.text(24, 68, "", {
+      color: "#5a4630",
       fontFamily: FONT,
       fontSize: "14px",
-      color: "#5a4630",
     });
     this.apText = this.add.text(24, 90, "", {
+      color: "#9c2f2f",
       fontFamily: FONT,
       fontSize: "14px",
-      color: "#9c2f2f",
     });
 
     // center bottom: portrait + bars + abilities (positioned in layout)
@@ -313,43 +342,43 @@ export class HudScene extends Phaser.Scene {
     this.portrait = this.add.image(0, 0, "ui-panel").setDisplaySize(74, 74);
     this.lvlText = this.add
       .text(0, 0, "1", {
+        color: "#ffe14a",
         fontFamily: FONT,
         fontSize: "20px",
-        color: "#ffe14a",
         stroke: "#1c1410",
         strokeThickness: 4,
       })
       .setOrigin(0.5);
 
-    this.hpTrack = this.add.rectangle(0, 0, this.barW, 16, 0x244333).setOrigin(0, 0.5);
-    this.mpTrack = this.add.rectangle(0, 0, this.barW, 10, 0x253d55).setOrigin(0, 0.5);
-    this.hpBar = this.add.rectangle(0, 0, this.barW, 16, 0x44d07a).setOrigin(0, 0.5);
-    this.mpBar = this.add.rectangle(0, 0, this.barW, 10, 0x4a8fff).setOrigin(0, 0.5);
+    this.hpTrack = this.add.rectangle(0, 0, this.barW, 16, 0x24_43_33).setOrigin(0, 0.5);
+    this.mpTrack = this.add.rectangle(0, 0, this.barW, 10, 0x25_3d_55).setOrigin(0, 0.5);
+    this.hpBar = this.add.rectangle(0, 0, this.barW, 16, 0x44_d0_7a).setOrigin(0, 0.5);
+    this.mpBar = this.add.rectangle(0, 0, this.barW, 10, 0x4a_8f_ff).setOrigin(0, 0.5);
     this.hpText = this.add
       .text(0, 0, "", {
+        color: "#ffffff",
         fontFamily: FONT,
         fontSize: "12px",
-        color: "#ffffff",
         stroke: "#1c2a20",
         strokeThickness: 3,
       })
       .setOrigin(0.5);
     this.mpText = this.add
       .text(0, 0, "", {
+        color: "#ffffff",
         fontFamily: FONT,
         fontSize: "11px",
-        color: "#ffffff",
         stroke: "#1c2030",
         strokeThickness: 3,
       })
       .setOrigin(0.5);
-    this.xpBg = this.add.rectangle(0, 0, this.barW, 3, 0x5b4c34).setOrigin(0, 0.5);
-    this.xpFill = this.add.rectangle(0, 0, this.barW, 3, 0xe6bd59).setOrigin(0, 0.5);
+    this.xpBg = this.add.rectangle(0, 0, this.barW, 3, 0x5b_4c_34).setOrigin(0, 0.5);
+    this.xpFill = this.add.rectangle(0, 0, this.barW, 3, 0xe6_bd_59).setOrigin(0, 0.5);
     this.xpText = this.add
       .text(0, 0, "", {
+        color: "#513c21",
         fontFamily: FONT,
         fontSize: "10px",
-        color: "#513c21",
       })
       .setOrigin(0.5);
 
@@ -357,50 +386,50 @@ export class HudScene extends Phaser.Scene {
       // compact round button lives UNDER the icon (created first); its square
       // twins (panel+box) are the desktop look — layout() flips visibility
       const circle = this.add
-        .circle(0, 0, ARC_R, 0x1c1410, 0.8)
-        .setStrokeStyle(2, 0x8a7350)
+        .circle(0, 0, ARC_R, 0x1c_14_10, 0.8)
+        .setStrokeStyle(2, 0x8a_73_50)
         .setVisible(false)
         .setInteractive({ useHandCursor: true });
       circle.on("pointerdown", () => this.gs.castSlot(key, true));
       const panel = this.add.image(0, 0, "ui-panel").setDisplaySize(62, 62);
       const box = this.add
-        .rectangle(0, 0, 58, 58, 0x1c1410, 0.12)
-        .setStrokeStyle(2, 0x8a7350)
+        .rectangle(0, 0, 58, 58, 0x1c_14_10, 0.12)
+        .setStrokeStyle(2, 0x8a_73_50)
         .setInteractive({ useHandCursor: true });
       // abilities show their spell icon, with the key as a small corner badge
       const icon = this.add.image(0, 0, "spell-icons", 0).setDisplaySize(50, 50).setVisible(false);
       const keyLabel = this.add
         .text(0, 0, SLOT_LABEL[key], {
+          color: "#ffe8b0",
           fontFamily: FONT,
           fontSize: "14px",
-          color: "#ffe8b0",
           stroke: "#1c1410",
           strokeThickness: 3,
         })
         .setOrigin(0, 0)
         .setDepth(5);
-      const cd = this.add.rectangle(0, 0, 58, 58, 0x000000, 0.6).setOrigin(0.5, 1);
+      const cd = this.add.rectangle(0, 0, 58, 58, 0x00_00_00, 0.6).setOrigin(0.5, 1);
       // compact veil: the whole circle dims (no drain animation on phones)
-      const cdCircle = this.add.circle(0, 0, ARC_R - 1, 0x000000, 0.6).setVisible(false);
+      const cdCircle = this.add.circle(0, 0, ARC_R - 1, 0x00_00_00, 0.6).setVisible(false);
       const cdText = this.add
         .text(0, 0, "", {
+          color: "#fff",
           fontFamily: FONT,
           fontSize: "20px",
-          color: "#fff",
           stroke: "#1c1410",
           strokeThickness: 4,
         })
         .setOrigin(0.5);
-      const pips = [0, 1, 2, 3].map(() => this.add.rectangle(0, 0, 10, 4, 0x8a7350));
+      const pips = [0, 1, 2, 3].map(() => this.add.rectangle(0, 0, 10, 4, 0x8a_73_50));
       box.on("pointerdown", () => this.gs.castSlot(key, true));
       // tappable '+' badge: the only leveling path for touch players and online
       // guests (no Shift+key). Shown while ability points are banked.
       const plus = this.add
         .text(0, 0, "+", {
+          backgroundColor: "#2f7d3a",
+          color: "#eaffea",
           fontFamily: FONT,
           fontSize: "17px",
-          color: "#eaffea",
-          backgroundColor: "#2f7d3a",
           padding: { x: 9, y: 3 },
         })
         .setOrigin(0.5)
@@ -409,17 +438,17 @@ export class HudScene extends Phaser.Scene {
         .setInteractive({ useHandCursor: true });
       plus.on("pointerdown", () => this.gs.levelSlot(key));
       this.slots.push({
-        key,
-        panel,
         box,
-        circle,
+        cd,
         cdCircle,
+        cdText,
+        circle,
         icon,
         iconFrame: -1,
-        cd,
-        cdText,
-        pips,
+        key,
         keyLabel,
+        panel,
+        pips,
         plus,
       });
     }
@@ -428,50 +457,50 @@ export class HudScene extends Phaser.Scene {
     // On compact it becomes the big round corner anchor the ability arc bends
     // around, so it gets the same circle treatment as the ability slots.
     this.dashCircle = this.add
-      .circle(0, 0, ARC_R, 0x1c1410, 0.8)
-      .setStrokeStyle(2, 0x6ab0ff)
+      .circle(0, 0, ARC_R, 0x1c_14_10, 0.8)
+      .setStrokeStyle(2, 0x6a_b0_ff)
       .setVisible(false)
       .setInteractive({ useHandCursor: true });
     this.dashCircle.on("pointerdown", () => this.gs.dash());
     this.dashPanel = this.add.image(0, 0, "ui-panel").setDisplaySize(54, 62);
     this.dashBox = this.add
-      .rectangle(0, 0, 50, 58, 0x1c1410, 0.12)
-      .setStrokeStyle(2, 0x6ab0ff)
+      .rectangle(0, 0, 50, 58, 0x1c_14_10, 0.12)
+      .setStrokeStyle(2, 0x6a_b0_ff)
       .setInteractive({ useHandCursor: true });
     this.dashBox.on("pointerdown", () => this.gs.dash());
     this.dashLabel = this.add
       .text(0, 0, this.touchUi ? "⚡\ndash" : "F\ndash", {
+        align: "center",
+        color: "#3a5a78",
         fontFamily: FONT,
         fontSize: "11px",
-        color: "#3a5a78",
-        align: "center",
         lineSpacing: 2,
       })
       .setOrigin(0.5);
-    this.dashCd = this.add.rectangle(0, 0, 50, 58, 0x000000, 0.62).setOrigin(0.5, 1);
-    this.dashCdCircle = this.add.circle(0, 0, ARC_R - 1, 0x000000, 0.62).setVisible(false);
+    this.dashCd = this.add.rectangle(0, 0, 50, 58, 0x00_00_00, 0.62).setOrigin(0.5, 1);
+    this.dashCdCircle = this.add.circle(0, 0, ARC_R - 1, 0x00_00_00, 0.62).setVisible(false);
     this.dashLabel.setDepth(1); // the availability reason stays above its veil
 
     // inventory slots (1..6). Compact shows OWNED items only, as round chips —
     // an empty grid is dead pixels on a phone, so empties vanish entirely.
     for (let i = 0; i < 6; i++) {
       const circle = this.add
-        .circle(0, 0, 19, 0x1c1410, 0.75)
-        .setStrokeStyle(2, 0x8a7350)
+        .circle(0, 0, 19, 0x1c_14_10, 0.75)
+        .setStrokeStyle(2, 0x8a_73_50)
         .setVisible(false)
         .setInteractive({ useHandCursor: true });
       circle.on("pointerdown", () => this.gs.useItemForPlayer(i));
       const panel = this.add.image(0, 0, "ui-panel").setDisplaySize(42, 42);
       const box = this.add
-        .rectangle(0, 0, 38, 38, 0x1c1410, 0.12)
-        .setStrokeStyle(2, 0x8a7350)
+        .rectangle(0, 0, 38, 38, 0x1c_14_10, 0.12)
+        .setStrokeStyle(2, 0x8a_73_50)
         .setInteractive({ useHandCursor: true });
       const icon = this.add.image(0, 0, "ui-icons", 0).setDisplaySize(30, 30).setVisible(false);
       const key = this.add
-        .text(0, 0, `${i + 1}`, { fontFamily: FONT, fontSize: "10px", color: "#6b5530" })
+        .text(0, 0, `${i + 1}`, { color: "#6b5530", fontFamily: FONT, fontSize: "10px" })
         .setOrigin(0.5);
       box.on("pointerdown", () => this.gs.useItemForPlayer(i));
-      this.itemSlots.push({ panel, box, circle, icon, key });
+      this.itemSlots.push({ box, circle, icon, key, panel });
     }
 
     // utility buttons — the touch-reachable path to shop/scores/recall
@@ -481,18 +510,18 @@ export class HudScene extends Phaser.Scene {
     const mkBtn = (word: string, glyph: string, onTap: () => void): void => {
       const bg = this.add
         .nineslice(0, 0, "ui-btn-blue", 0, 92, 46, 28, 28, 20, 26)
-        .setDepth(40010)
+        .setDepth(40_010)
         .setInteractive({ useHandCursor: true });
       const img = this.add
         .image(0, 0, "ui-panel")
         .setDisplaySize(44, 44)
-        .setDepth(40010)
+        .setDepth(40_010)
         .setVisible(false)
         .setInteractive({ useHandCursor: true });
       const txt = this.add
-        .text(0, 0, word, { fontFamily: FONT, fontSize: "13px", color: "#1e3a44" })
+        .text(0, 0, word, { color: "#1e3a44", fontFamily: FONT, fontSize: "13px" })
         .setOrigin(0.5)
-        .setDepth(40011);
+        .setDepth(40_011);
       const up = (): void => {
         bg.setTexture("ui-btn-blue");
         img.clearTint();
@@ -504,12 +533,12 @@ export class HudScene extends Phaser.Scene {
       bg.on("pointerup", up);
       bg.on("pointerout", up);
       img.on("pointerdown", () => {
-        img.setTint(0xffd24a);
+        img.setTint(0xff_d2_4a);
         onTap();
       });
       img.on("pointerup", up);
       img.on("pointerout", up);
-      this.uiButtons.push({ bg, img, txt, word, glyph });
+      this.uiButtons.push({ bg, glyph, img, txt, word });
     };
     mkBtn("SHOP", "🛒", () => this.toggleShop());
     mkBtn("SCORES", "🏆", () => this.toggleBoard());
@@ -517,36 +546,38 @@ export class HudScene extends Phaser.Scene {
 
     this.respawnText = this.add
       .text(0, 0, "", {
+        color: "#ff6a5a",
         fontFamily: FONT,
         fontSize: "42px",
-        color: "#ff6a5a",
         stroke: "#1c1410",
         strokeThickness: 7,
       })
       .setOrigin(0.5)
       .setVisible(false);
     this.objectiveText = this.add.text(0, 0, "", {
+      color: "#fff0bf",
       fontFamily: FONT,
       fontSize: "13px",
-      color: "#fff0bf",
       stroke: "#2d3529",
       strokeThickness: 3,
     });
     this.respawnTipText = this.add
       .text(0, 0, "", {
+        align: "center",
+        color: "#fff0bf",
         fontFamily: FONT,
         fontSize: "15px",
-        color: "#fff0bf",
         stroke: "#2d3529",
         strokeThickness: 3,
-        align: "center",
       })
       .setOrigin(0.5, 0)
       .setVisible(false);
   }
 
   private updateGuidance(): void {
-    if (this.time.now < this.guidanceNextAt) return;
+    if (this.time.now < this.guidanceNextAt) {
+      return;
+    }
     this.guidanceNextAt = this.time.now + 200;
     const world = this.gs.worldRef;
     const guidance = world ? objectiveGuidance(world, this.gs.player) : null;
@@ -558,12 +589,12 @@ export class HudScene extends Phaser.Scene {
   private buildAbilityGuide(): void {
     this.guide = new AbilityGuide(this.gs, {
       blocked: () => this.shopOpen || this.boardOpen,
-      onOpen: () => {
-        this.gs.uiBlocking = true;
-        this.gs.clearHudInput();
-      },
       onClose: () => {
         this.gs.uiBlocking = this.shopOpen;
+        this.gs.clearHudInput();
+      },
+      onOpen: () => {
+        this.gs.uiBlocking = true;
         this.gs.clearHudInput();
       },
     });
@@ -576,11 +607,11 @@ export class HudScene extends Phaser.Scene {
     const x = this.compact ? this.mapX : this.infoPanel.x;
     const y = this.compact ? this.mapY + this.mapH + 10 : this.infoPanel.y + 122;
     this.guide?.place({
+      maxHeight: Math.max(150, Math.min(H - y - 64, this.compact && portrait ? H * 0.23 : 390)),
+      panelWidth: this.compact ? (portrait ? W - x - 12 : Math.min(320, W * 0.4)) : 350,
+      toggleWidth: this.compact ? this.mapW : this.infoPanel.width,
       x,
       y,
-      toggleWidth: this.compact ? this.mapW : this.infoPanel.width,
-      panelWidth: this.compact ? (portrait ? W - x - 12 : Math.min(320, W * 0.4)) : 350,
-      maxHeight: Math.max(150, Math.min(H - y - 64, this.compact && portrait ? H * 0.23 : 390)),
     });
   }
 
@@ -592,7 +623,7 @@ export class HudScene extends Phaser.Scene {
     this.shopPanelH = panelH;
     const bg = this.add.nineslice(0, 0, "ui-carved9", 0, panelW, panelH, 20, 20, 20, 20);
     const title = this.add
-      .text(0, -panelH / 2 + 26, "SHOP", { fontFamily: FONT, fontSize: "24px", color: "#4a3320" })
+      .text(0, -panelH / 2 + 26, "SHOP", { color: "#4a3320", fontFamily: FONT, fontSize: "24px" })
       .setOrigin(0.5);
     const sub = this.add
       .text(
@@ -602,17 +633,17 @@ export class HudScene extends Phaser.Scene {
           ? "tap an item to buy · ✕ closes (must be at base)"
           : "↑↓ select · Enter buy · B close (must be at base)",
         {
+          color: "#7a6240",
           fontFamily: FONT,
           fontSize: "12px",
-          color: "#7a6240",
         },
       )
       .setOrigin(0.5);
     const close = this.add
       .text(panelW / 2 - 26, -panelH / 2 + 26, "✕", {
+        color: "#8a3a2a",
         fontFamily: FONT,
         fontSize: "22px",
-        color: "#8a3a2a",
         padding: { x: 10, y: 8 },
       })
       .setOrigin(0.5)
@@ -622,52 +653,57 @@ export class HudScene extends Phaser.Scene {
     ITEMS.forEach((it, i) => {
       const y = -panelH / 2 + 84 + i * 46;
       const row = this.add
-        .rectangle(0, y, panelW - 36, 40, 0x4a3320, 0.08)
-        .setStrokeStyle(1, 0xb89868)
+        .rectangle(0, y, panelW - 36, 40, 0x4a_33_20, 0.08)
+        .setStrokeStyle(1, 0xb8_98_68)
         .setInteractive({ useHandCursor: true });
       const icon = this.add.image(-panelW / 2 + 36, y, "ui-icons", it.icon).setDisplaySize(30, 30);
       const name = this.add
         .text(-panelW / 2 + 60, y - 8, it.name, {
+          color: "#4a3320",
           fontFamily: FONT,
           fontSize: "13px",
-          color: "#4a3320",
         })
         .setOrigin(0, 0.5);
       const desc = this.add
         .text(-panelW / 2 + 60, y + 9, it.desc, {
+          color: "#7a6240",
           fontFamily: FONT,
           fontSize: "9px",
-          color: "#7a6240",
           wordWrap: { width: panelW - 160 },
         })
         .setOrigin(0, 0.5);
       const cost = this.add
         .text(panelW / 2 - 26, y, `🪙${it.cost}`, {
+          color: "#8a6510",
           fontFamily: FONT,
           fontSize: "13px",
-          color: "#8a6510",
         })
         .setOrigin(1, 0.5);
       row.on("pointerdown", () => {
-        if (this.gs.buyItemForPlayer(it.id)) this.flashRow(row, 0x2a6f3a);
-        else this.flashRow(row, 0x6f2a2a);
+        if (this.gs.buyItemForPlayer(it.id)) {
+          this.flashRow(row, 0x2a6f3a);
+        } else {
+          this.flashRow(row, 0x6f2a2a);
+        }
       });
-      this.shopRows.push({ id: it.id, box: row, cost });
+      this.shopRows.push({ box: row, cost, id: it.id });
       children.push(row, icon, name, desc, cost);
     });
     this.shop = this.add
       .container(W / 2, H / 2, children)
-      .setDepth(50000)
+      .setDepth(50_000)
       .setVisible(false);
   }
 
   private flashRow(row: Phaser.GameObjects.Rectangle, color: number): void {
     row.setFillStyle(color, 0.5);
-    this.time.delayedCall(140, () => row.setFillStyle(0x4a3320, 0.08));
+    this.time.delayedCall(140, () => row.setFillStyle(0x4a_33_20, 0.08));
   }
 
   private toggleShop(): void {
-    if (this.gs.matchResult) return;
+    if (this.gs.matchResult) {
+      return;
+    }
     this.guide?.closeGuide(false);
     this.shopOpen = !this.shopOpen;
     this.shop.setVisible(this.shopOpen);
@@ -676,7 +712,7 @@ export class HudScene extends Phaser.Scene {
       this.shopSel = 0;
       this.updateShopSelection();
     } else {
-      this.shopRows.forEach((r) => r.box.setStrokeStyle(1, 0xb89868));
+      this.shopRows.forEach((r) => r.box.setStrokeStyle(1, 0xb8_98_68));
     }
   }
 
@@ -685,13 +721,13 @@ export class HudScene extends Phaser.Scene {
     this.mapFrame = this.add
       .nineslice(0, 0, "ui-carved9", 0, MINIMAP_SIZE + 28, MINIMAP_H + 28, 20, 20, 20, 20)
       .setOrigin(0, 0)
-      .setDepth(39998);
-    this.mapTerrain = this.add.graphics().setDepth(39999);
-    this.mapGfx = this.add.graphics().setDepth(40000);
+      .setDepth(39_998);
+    this.mapTerrain = this.add.graphics().setDepth(39_999);
+    this.mapGfx = this.add.graphics().setDepth(40_000);
     this.mapHit = this.add
-      .rectangle(0, 0, MINIMAP_SIZE, MINIMAP_H, 0x000000, 0.001)
+      .rectangle(0, 0, MINIMAP_SIZE, MINIMAP_H, 0x00_00_00, 0.001)
       .setOrigin(0, 0)
-      .setDepth(40002)
+      .setDepth(40_002)
       .setInteractive({ useHandCursor: true });
     const order = (p: Phaser.Input.Pointer) => {
       const wx = (p.x - this.mapX) / this.mapScale;
@@ -704,22 +740,26 @@ export class HudScene extends Phaser.Scene {
   /** Static minimap terrain: teal water, the two islands + centre isle, plateaus,
    *  and the wooden bridges — redrawn only when the layout moves the panel. */
   private drawMapTerrain(): void {
-    if (!this.mapTerrain) return;
+    if (!this.mapTerrain) {
+      return;
+    }
     const g = this.mapTerrain;
     const ox = this.mapX;
     const oy = this.mapY;
     const cell = (WORLD.width / GRID.cols) * this.mapScale;
     g.clear();
-    g.fillStyle(0x2e8f8a, 1).fillRect(ox, oy, this.mapW, this.mapH);
-    g.lineStyle(2, 0x3a2c20, 0.8).strokeRect(ox, oy, this.mapW, this.mapH);
+    g.fillStyle(0x2e_8f_8a, 1).fillRect(ox, oy, this.mapW, this.mapH);
+    g.lineStyle(2, 0x3a_2c_20, 0.8).strokeRect(ox, oy, this.mapW, this.mapH);
     for (let cy = 0; cy < GRID.rows; cy++) {
       for (let cx = 0; cx < GRID.cols; cx++) {
-        if (!isLandCell(cx, cy)) continue;
-        g.fillStyle(isHighCell(cx, cy) ? 0x4a7c34 : 0x5d9141, 1);
+        if (!isLandCell(cx, cy)) {
+          continue;
+        }
+        g.fillStyle(isHighCell(cx, cy) ? 0x4a_7c_34 : 0x5d_91_41, 1);
         g.fillRect(ox + cx * cell, oy + cy * cell, cell + 0.5, cell + 0.5);
       }
     }
-    g.fillStyle(0x9a6a3a, 1);
+    g.fillStyle(0x9a_6a_3a, 1);
     for (const b of BRIDGES) {
       g.fillRect(
         ox + b.x0 * cell,
@@ -732,9 +772,13 @@ export class HudScene extends Phaser.Scene {
 
   private updateMinimap(): void {
     const w = this.gs?.worldRef;
-    if (!w) return;
+    if (!w) {
+      return;
+    }
     // ~10Hz: a full Graphics rebuild every frame is wasted work for a minimap
-    if (this.time.now < this.mapNextRedrawAt) return;
+    if (this.time.now < this.mapNextRedrawAt) {
+      return;
+    }
     this.mapNextRedrawAt = this.time.now + 100;
     const g = this.mapGfx;
     const ox = this.mapX;
@@ -744,28 +788,32 @@ export class HudScene extends Phaser.Scene {
     const ty = (y: number) => oy + y * sc;
     g.clear();
     for (const u of w.units.values()) {
-      if (!u.alive) continue;
+      if (!u.alive) {
+        continue;
+      }
       if (u.kind === "structure") {
-        const col = u.team === "radiant" ? 0x4fa3ff : 0xff5a4a;
+        const col = u.team === "radiant" ? 0x4f_a3_ff : 0xff_5a_4a;
         const sz = u.structure?.tier === "ancient" ? 6 : 3.5;
         g.fillStyle(col, 1).fillRect(tx(u.x) - sz / 2, ty(u.y) - sz / 2, sz, sz);
       } else if (u.kind === "creep") {
-        const col = u.neutral ? 0xe0a93a : u.team === "radiant" ? 0x46c074 : 0xe06a6a;
+        const col = u.neutral ? 0xe0_a9_3a : u.team === "radiant" ? 0x46_c0_74 : 0xe0_6a_6a;
         g.fillStyle(col, 0.9).fillRect(tx(u.x) - 1, ty(u.y) - 1, 2, 2);
       }
     }
     // heroes on top
     const meId = this.gs.player?.id;
     for (const u of w.units.values()) {
-      if (!u.alive || u.kind !== "hero") continue;
+      if (!u.alive || u.kind !== "hero") {
+        continue;
+      }
       const isMe = u.id === meId;
-      const col = isMe ? 0xffe14a : u.team === "radiant" ? 0x7fdcff : 0xff9a8a;
+      const col = isMe ? 0xff_e1_4a : u.team === "radiant" ? 0x7f_dc_ff : 0xff_9a_8a;
       g.fillStyle(col, 1).fillCircle(tx(u.x), ty(u.y), isMe ? 4 : 3);
-      g.lineStyle(1, 0x05080e, 1).strokeCircle(tx(u.x), ty(u.y), isMe ? 4 : 3);
+      g.lineStyle(1, 0x05_08_0e, 1).strokeCircle(tx(u.x), ty(u.y), isMe ? 4 : 3);
     }
     // camera viewport box
     const v = this.gs.cameraView;
-    g.lineStyle(1.5, 0xffffff, 0.7).strokeRect(tx(v.x), ty(v.y), v.width * sc, v.height * sc);
+    g.lineStyle(1.5, 0xff_ff_ff, 0.7).strokeRect(tx(v.x), ty(v.y), v.width * sc, v.height * sc);
   }
 
   // ---- kill feed + announcements -------------------------------------------
@@ -773,44 +821,46 @@ export class HudScene extends Phaser.Scene {
     this.scoreRibbon = this.add
       .nineslice(0, 0, "ui-ribbon-yellow", 0, 252, 60, 58, 58, 22, 22)
       .setOrigin(0.5, 0)
-      .setDepth(39990);
+      .setDepth(39_990);
     // compact stand-in: the ribbon texture can't shrink below its 58px corners,
     // so phones get a small parchment capsule instead
     this.scorePanel = this.add
       .image(0, 0, "ui-panel")
       .setDisplaySize(84, 28)
       .setOrigin(0.5, 0)
-      .setDepth(39990)
+      .setDepth(39_990)
       .setVisible(false);
     this.teamScore = this.add
-      .text(0, 0, "", { fontFamily: FONT, fontSize: "20px", color: "#5a3a10" })
+      .text(0, 0, "", { color: "#5a3a10", fontFamily: FONT, fontSize: "20px" })
       .setOrigin(0.5, 0)
-      .setDepth(40000);
+      .setDepth(40_000);
     this.banner = new AnnouncementBanner(this);
   }
 
   private updateFeed(): void {
-    const now = this.time.now;
+    const { now } = this.time;
     for (const e of this.gs.drainFeed()) {
       if (e.kind === "notify") {
         this.banner.queue(e, now);
         continue;
       }
       // no running kill feed on phones — announces (the banner) still show
-      if (this.compact) continue;
+      if (this.compact) {
+        continue;
+      }
       const col = e.team === "radiant" ? "#7fdcff" : "#ff9a8a";
       const txt = killFeedText(e, this.gs.player?.team ?? null);
       const line = this.add
         .text(0, 0, txt, {
+          color: col,
           fontFamily: FONT,
           fontSize: "14px",
-          color: col,
           stroke: "#1c1410",
           strokeThickness: 3,
           wordWrap: { width: Math.min(380, this.scale.width - 32) },
         })
         .setOrigin(1, 0)
-        .setDepth(44000);
+        .setDepth(44_000);
       this.feedLines.push({ text: line, until: now + 6500 });
     }
     this.feedLines = this.feedLines.filter((f) => {
@@ -821,8 +871,9 @@ export class HudScene extends Phaser.Scene {
       return true;
     });
     const maxLines = this.compact ? 3 : 6;
-    if (this.feedLines.length > maxLines)
+    if (this.feedLines.length > maxLines) {
       this.feedLines.splice(0, this.feedLines.length - maxLines).forEach((f) => f.text.destroy());
+    }
     const rightX = this.scale.width - 16;
     // below the minimap when it's up top (and below the hint line on portrait phones)
     const hintPad = this.compact && this.scale.height > this.scale.width ? 52 : 18;
@@ -855,20 +906,26 @@ export class HudScene extends Phaser.Scene {
 
   // ---- scoreboard (Tab) ----------------------------------------------------
   private buildBoard(): void {
-    this.board = this.add.container(0, 0, []).setDepth(48000).setVisible(false);
+    this.board = this.add.container(0, 0, []).setDepth(48_000).setVisible(false);
   }
 
   private toggleBoard(): void {
-    if (this.gs.matchResult) return;
+    if (this.gs.matchResult) {
+      return;
+    }
     this.guide?.closeGuide(false);
     this.boardOpen = !this.boardOpen;
     this.board.setVisible(this.boardOpen);
-    if (this.boardOpen) this.renderBoard();
+    if (this.boardOpen) {
+      this.renderBoard();
+    }
   }
 
   private renderBoard(): void {
     const w = this.gs?.worldRef;
-    if (!w) return;
+    if (!w) {
+      return;
+    }
     this.board.removeAll(true);
     const W = this.scale.width;
     const H = this.scale.height;
@@ -883,10 +940,10 @@ export class HudScene extends Phaser.Scene {
     const teams: Team[] = ["radiant", "dire"];
     // sort() is safe here — filter() already produced a fresh array
     const rosters = teams.map((team) => ({
-      team,
       list: heroes
         .filter((u) => u.team === team)
         .sort((a, b) => (b.hero?.gold ?? 0) - (a.hero?.gold ?? 0)),
+      team,
     }));
     const blockH = rosters.map((r) => 26 + r.list.length * rowH);
     const bodyH = stacked ? blockH.reduce((sum, h) => sum + h, 0) + 14 : Math.max(...blockH, rowH);
@@ -897,8 +954,10 @@ export class HudScene extends Phaser.Scene {
     this.board.setScale(Math.min(1, (H - 24) / panelH, (W - 24) / panelW));
     this.board.add(this.add.nineslice(0, 0, "ui-carved9", 0, panelW, panelH, 20, 20, 20, 20));
 
-    const teamKills = { radiant: 0, dire: 0 } satisfies Record<Team, number>;
-    for (const u of heroes) if (u.hero) teamKills[u.team] += u.hero.kills;
+    const teamKills = { dire: 0, radiant: 0 } satisfies Record<Team, number>;
+    for (const u of heroes) {
+      if (u.hero) teamKills[u.team] += u.hero.kills;
+    }
 
     this.board.add(
       this.add
@@ -907,9 +966,9 @@ export class HudScene extends Phaser.Scene {
           -panelH / 2 + 26,
           `SCOREBOARD     ☀ ${teamKills.radiant}  –  ${teamKills.dire} 🌙`,
           {
+            color: "#4a3320",
             fontFamily: FONT,
             fontSize: "22px",
-            color: "#4a3320",
           },
         )
         .setOrigin(0.5),
@@ -923,25 +982,27 @@ export class HudScene extends Phaser.Scene {
       this.board.add(
         this.add
           .text(colX, y, roster.team === "radiant" ? "RADIANT" : "DIRE", {
+            color: headColor,
             fontFamily: FONT,
             fontSize: "16px",
-            color: headColor,
           })
           .setOrigin(0, 0),
       );
       this.board.add(
         this.add
           .text(colX + colW, y, "K / D / A    Net", {
+            color: "#7a6240",
             fontFamily: FONT,
             fontSize: "11px",
-            color: "#7a6240",
           })
           .setOrigin(1, 0),
       );
       y += 26;
       for (const u of roster.list) {
         const h = u.hero;
-        if (!h) continue;
+        if (!h) {
+          continue;
+        }
         const def = HERO_BY_ID[h.defId];
         const dead = !u.alive;
         const name = `${def?.name ?? h.defId}  Lv${h.level}${h.isBot ? " (bot)" : ""}`;
@@ -950,9 +1011,9 @@ export class HudScene extends Phaser.Scene {
         this.board.add(
           this.add
             .text(colX, y, name + status, {
+              color: dead ? "#9a8a70" : "#4a3320",
               fontFamily: FONT,
               fontSize: "13px",
-              color: dead ? "#9a8a70" : "#4a3320",
             })
             .setOrigin(0, 0),
         );
@@ -960,9 +1021,9 @@ export class HudScene extends Phaser.Scene {
         this.board.add(
           this.add
             .text(colX + colW, y, `${h.kills}/${h.deaths}/${h.assists}    🪙${net}`, {
+              color: "#6b5530",
               fontFamily: FONT,
               fontSize: "12px",
-              color: "#6b5530",
             })
             .setOrigin(1, 0),
         );
@@ -973,9 +1034,9 @@ export class HudScene extends Phaser.Scene {
     this.board.add(
       this.add
         .text(0, panelH / 2 - 22, this.touchUi ? "tap SCORES to close" : "hold TAB to view", {
+          color: "#9a8a70",
           fontFamily: FONT,
           fontSize: "11px",
-          color: "#9a8a70",
         })
         .setOrigin(0.5),
     );
@@ -1006,9 +1067,14 @@ export class HudScene extends Phaser.Scene {
       s.panel.setVisible(!compact);
       s.box.setVisible(!compact);
       s.circle.setVisible(compact);
-      if (!compact) s.cdCircle.setVisible(false);
-      else s.cd.setVisible(false);
-      for (const pp of s.pips) pp.setVisible(!compact);
+      if (compact) {
+        s.cd.setVisible(false);
+      } else {
+        s.cdCircle.setVisible(false);
+      }
+      for (const pp of s.pips) {
+        pp.setVisible(!compact);
+      }
       s.keyLabel.setFontSize(compact ? 11 : 14);
       // 32px fits fully inside the r28 circle (half-diagonal 22.6) so the ring
       // stays visible around the square icon art
@@ -1017,8 +1083,11 @@ export class HudScene extends Phaser.Scene {
     this.dashPanel.setVisible(!compact);
     this.dashBox.setVisible(!compact);
     this.dashCircle.setVisible(compact);
-    if (!compact) this.dashCdCircle.setVisible(false);
-    else this.dashCd.setVisible(false);
+    if (compact) {
+      this.dashCd.setVisible(false);
+    } else {
+      this.dashCdCircle.setVisible(false);
+    }
     this.dashLabel
       .setText(compact ? "⚡" : this.touchUi ? "⚡\ndash" : "F\ndash")
       .setFontSize(compact ? 20 : 11);
@@ -1032,7 +1101,9 @@ export class HudScene extends Phaser.Scene {
       }
       s.icon.setDisplaySize(compact ? 26 : 30, compact ? 26 : 30);
     }
-    if (this.barPanel) this.barPanel.setVisible(true);
+    if (this.barPanel) {
+      this.barPanel.setVisible(true);
+    }
 
     // minimap: bottom-right on desktop, half-size top-LEFT on phones (the
     // right edge belongs to the thumb arc)
@@ -1051,11 +1122,14 @@ export class HudScene extends Phaser.Scene {
       this.mapX = W - this.mapW - 22;
       this.mapY = H - this.mapH - 22 - inset.bottom;
     }
-    if (this.mapHit) this.mapHit.setPosition(this.mapX, this.mapY).setScale(mapK);
-    if (this.mapFrame)
+    if (this.mapHit) {
+      this.mapHit.setPosition(this.mapX, this.mapY).setScale(mapK);
+    }
+    if (this.mapFrame) {
       this.mapFrame
         .setPosition(this.mapX - 12, this.mapY - 12)
         .setSize(this.mapW + 24, this.mapH + 24);
+    }
     this.drawMapTerrain();
     this.mapNextRedrawAt = 0;
 
@@ -1194,7 +1268,9 @@ export class HudScene extends Phaser.Scene {
 
       dashPos = { x: dockLeft + 318, y: baseY };
       const startX = dockLeft + 386;
-      for (let i = 0; i < this.slots.length; i++) slotPos.push({ x: startX + i * 68, y: baseY });
+      for (let i = 0; i < this.slots.length; i++) {
+        slotPos.push({ x: startX + i * 68, y: baseY });
+      }
       this.apText.setPosition(startX + 102, baseY - 48).setFontSize(13);
       const itemX0 = dockLeft + 658;
       for (let i = 0; i < this.itemSlots.length; i++) {
@@ -1216,7 +1292,9 @@ export class HudScene extends Phaser.Scene {
     }
     this.slots.forEach((s, i) => {
       const p = slotPos[i];
-      if (!p) return;
+      if (!p) {
+        return;
+      }
       s.panel.setPosition(p.x, p.y);
       s.box.setPosition(p.x, p.y);
       s.circle.setPosition(p.x, p.y);
@@ -1231,7 +1309,9 @@ export class HudScene extends Phaser.Scene {
     // compact item chips are positioned by update() (owned-only column)
     this.itemSlots.forEach((s, i) => {
       const p = itemPos[i];
-      if (!p) return;
+      if (!p) {
+        return;
+      }
       s.panel.setPosition(p.x, p.y);
       s.box.setPosition(p.x, p.y);
       s.icon.setPosition(p.x, p.y);
@@ -1249,17 +1329,25 @@ export class HudScene extends Phaser.Scene {
       .setFontSize(compact ? 13 : 15)
       .setWordWrapWidth(Math.min(480, W - 32));
 
-    if (this.danger) this.danger.setSize(W, H).setPosition(0, 0);
-    if (this.vignette) this.vignette.setDisplaySize(W, H).setPosition(0, 0);
+    if (this.danger) {
+      this.danger.setSize(W, H).setPosition(0, 0);
+    }
+    if (this.vignette) {
+      this.vignette.setDisplaySize(W, H).setPosition(0, 0);
+    }
     this.banner.layout();
     this.layoutAbilityGuide();
   }
 
   private fitPortrait(): void {
     const me = this.gs.player;
-    if (!me?.hero) return;
+    if (!me?.hero) {
+      return;
+    }
     const { texture, crop } = heroPortrait(me.hero.defId, me.team);
-    if (!this.textures.exists(texture)) return;
+    if (!this.textures.exists(texture)) {
+      return;
+    }
     this.portrait.setTexture(texture, 0);
     this.portrait
       .setCrop(crop.x, crop.y, crop.width, crop.height)
@@ -1273,13 +1361,17 @@ export class HudScene extends Phaser.Scene {
   override update(_t: number, delta: number): void {
     const result = this.gs.matchResult;
     if (result) {
-      if (!this.result || this.result.canReplay !== this.gs.canReplay) this.buildResult(result);
+      if (!this.result || this.result.canReplay !== this.gs.canReplay) {
+        this.buildResult(result);
+      }
       this.gs.drainFeed(); // final objectives cannot repaint over the result
       return;
     }
     // auto-close the shop if the player dies while it's open, so uiBlocking can't
     // strand a freshly-respawned hero frozen.
-    if (this.shopOpen && !this.gs?.player?.alive) this.toggleShop();
+    if (this.shopOpen && !this.gs?.player?.alive) {
+      this.toggleShop();
+    }
     this.guide?.refresh();
     this.updateGuidance();
     this.pollPad();
@@ -1298,9 +1390,14 @@ export class HudScene extends Phaser.Scene {
       let rk = 0;
       let dk = 0;
       for (const u of wRef.units.values()) {
-        if (u.kind !== "hero" || !u.hero) continue;
-        if (u.team === "radiant") rk += u.hero.kills;
-        else dk += u.hero.kills;
+        if (u.kind !== "hero" || !u.hero) {
+          continue;
+        }
+        if (u.team === "radiant") {
+          rk += u.hero.kills;
+        } else {
+          dk += u.hero.kills;
+        }
       }
       this.teamScore.setText(`☀ ${rk}   –   ${dk} 🌙`);
     }
@@ -1320,7 +1417,9 @@ export class HudScene extends Phaser.Scene {
 
     const me = this.gs?.player;
     const world = this.gs?.worldRef;
-    if (!me || !world || !me.hero) return;
+    if (!me || !world || !me.hero) {
+      return;
+    }
     const h = me.hero;
 
     // top-left
@@ -1349,7 +1448,7 @@ export class HudScene extends Phaser.Scene {
       const cooling = left > 0;
       const availability = actionAvailability(me, world.now, { kind: "dash" });
       const blocked = availability.kind === "blocked" && availability.reason !== "cooldown";
-      const stroke = blocked || cooling ? 0x8a7350 : 0x4a90d9;
+      const stroke = blocked || cooling ? 0x8a_73_50 : 0x4a_90_d9;
       if (this.compact) {
         this.dashCd.setVisible(false);
         this.dashCdCircle.setVisible(cooling || blocked);
@@ -1374,15 +1473,21 @@ export class HudScene extends Phaser.Scene {
         )
         .setFontSize(label ? 11 : this.compact ? 20 : 11);
       const labelColor = label ? "#ffe8b0" : "#3a5a78";
-      if (this.dashLabel.style.color !== labelColor) this.dashLabel.setColor(labelColor);
+      if (this.dashLabel.style.color !== labelColor) {
+        this.dashLabel.setColor(labelColor);
+      }
     }
 
     // portrait/level
     const portrait = heroPortrait(h.defId, me.team);
-    if (this.portrait.texture.key !== portrait.texture) this.fitPortrait();
+    if (this.portrait.texture.key !== portrait.texture) {
+      this.fitPortrait();
+    }
     this.lvlText.setText(`${h.level}`);
     const experience = experienceProgress(h);
-    if (this.xpFill) this.xpFill.width = this.barW * experience.fraction;
+    if (this.xpFill) {
+      this.xpFill.width = this.barW * experience.fraction;
+    }
     this.xpText?.setText(experience.text);
 
     // bars
@@ -1398,8 +1503,10 @@ export class HudScene extends Phaser.Scene {
     for (const s of this.slots) {
       const ad = def?.abilities[s.key];
       const slot = h.abilities[s.key];
-      if (!ad) continue;
-      const rank = slot.rank;
+      if (!ad) {
+        continue;
+      }
+      const { rank } = slot;
       // tappable level-up badge while points are banked (touch/guest path)
       const upgrade = abilityUpgrade(h, s.key);
       s.plus.setVisible(me.alive && upgrade.kind === "available");
@@ -1413,7 +1520,7 @@ export class HudScene extends Phaser.Scene {
         }
         s.icon.setVisible(true);
       }
-      s.pips.forEach((p, j) => p.setFillStyle(j < rank ? 0xffe14a : 0x39456a));
+      s.pips.forEach((p, j) => p.setFillStyle(j < rank ? 0xff_e1_4a : 0x39_45_6a));
       const cdLeft = Math.max(0, (slot.readyAt - world.now) / 1000);
       const cdTotal = rank > 0 ? valAt(ad.cooldown, rank) : 1;
       let cdFontSize = 20;
@@ -1435,25 +1542,25 @@ export class HudScene extends Phaser.Scene {
         s.circle.setStrokeStyle(w, color);
       };
       if (rank <= 0) {
-        veil(true, 1, 0x000000, 0.6);
+        veil(true, 1, 0x00_00_00, 0.6);
         s.icon.setAlpha(0.32); // unlearned
-        stroke(2, 0x6b5530);
+        stroke(2, 0x6b_55_30);
         if (upgrade.kind === "level") {
           cdLabel = `LV ${upgrade.level}`;
           cdFontSize = 13;
         }
       } else if (cdLeft > 0) {
-        veil(true, Math.min(1, cdLeft / cdTotal), 0x000000, 0.6);
+        veil(true, Math.min(1, cdLeft / cdTotal), 0x00_00_00, 0.6);
         cdLabel = cdLeft >= 1 ? `${Math.ceil(cdLeft)}` : "";
         s.icon.setAlpha(0.4); // on cooldown
-        stroke(2, 0x8a7350);
+        stroke(2, 0x8a_73_50);
       } else {
         const manaOk = me.mp >= valAt(ad.manaCost, rank);
-        veil(!manaOk, manaOk ? 0 : 1, 0x1a3a6a, 0.5);
+        veil(!manaOk, manaOk ? 0 : 1, 0x1a_3a_6a, 0.5);
         s.icon.setAlpha(manaOk ? 1 : 0.6); // ready / no mana
-        stroke(manaOk ? 3 : 2, manaOk ? 0x3f9e4d : 0x8a7350);
+        stroke(manaOk ? 3 : 2, manaOk ? 0x3f_9e_4d : 0x8a_73_50);
       }
-      const availability = actionAvailability(me, world.now, { kind: "ability", key: s.key });
+      const availability = actionAvailability(me, world.now, { key: s.key, kind: "ability" });
       if (
         availability.kind === "blocked" &&
         availability.reason !== "cooldown" &&
@@ -1462,17 +1569,17 @@ export class HudScene extends Phaser.Scene {
       ) {
         const passive = availability.reason === "passive";
         const cooling = cdLeft > 0;
-        veil(cooling || !passive, cooling ? Math.min(1, cdLeft / cdTotal) : 1, 0x000000, 0.6);
+        veil(cooling || !passive, cooling ? Math.min(1, cdLeft / cdTotal) : 1, 0x00_00_00, 0.6);
         cdLabel = `${AVAILABILITY_LABEL[availability.reason]}${cooling ? `\n${Math.ceil(cdLeft)}s` : ""}`;
         cdFontSize = this.compact ? 9 : 10;
         s.icon.setAlpha(passive ? 0.8 : 0.35);
-        stroke(2, passive ? 0x8a7350 : 0xa66c58);
+        stroke(2, passive ? 0x8a_73_50 : 0xa6_6c_58);
       } else if (me.alive && h.channel?.key === s.key && h.channel.until > world.now) {
         // The channel is active, not a blanket input lock. Other spells and
         // dash still show their actual availability; cooldown keeps progressing.
         cdLabel = `CHANNEL${cdLeft > 0 ? `\nCD ${Math.ceil(cdLeft)}s` : ""}`;
         cdFontSize = this.compact ? 9 : 10;
-        stroke(2, 0x81bdd4);
+        stroke(2, 0x81_bd_d4);
       }
       s.cdText.setFontSize(cdFontSize).setText(cdLabel);
     }
@@ -1486,7 +1593,7 @@ export class HudScene extends Phaser.Scene {
         const it = ITEM_BY_ID[id];
         s.icon.setVisible(true).setTexture("ui-icons", it?.icon ?? 0);
         const ready = (h.itemActiveReadyAt[id] ?? 0) <= world.now;
-        const strokeColor = it?.active ? (ready ? 0x3f9e4d : 0x9a7a30) : 0x8a7350;
+        const strokeColor = it?.active ? (ready ? 0x3f_9e_4d : 0x9a_7a_30) : 0x8a_73_50;
         s.box.setStrokeStyle(2, strokeColor);
         s.circle.setStrokeStyle(2, strokeColor);
         s.key.setVisible(!this.compact && !!it?.active);
@@ -1498,9 +1605,11 @@ export class HudScene extends Phaser.Scene {
         }
       } else {
         s.icon.setVisible(false);
-        s.box.setStrokeStyle(2, 0x8a7350);
+        s.box.setStrokeStyle(2, 0x8a_73_50);
         s.key.setVisible(false);
-        if (this.compact) s.circle.setVisible(false);
+        if (this.compact) {
+          s.circle.setVisible(false);
+        }
       }
     });
 

@@ -5,27 +5,40 @@
 // and admission retires the oldest routine (then local) phrases before a burst
 // of remote-player cues can starve the local player's own hits and the music.
 
-type Tone = {
+interface Tone {
   kind: "tone";
   freq: number;
   dur: number;
   type: OscillatorType;
   gain: number;
   slideTo?: number;
-};
-type Noise = { kind: "noise"; dur: number; gain: number; filt: number; sweepTo?: number };
+}
+interface Noise {
+  kind: "noise";
+  dur: number;
+  gain: number;
+  filt: number;
+  sweepTo?: number;
+}
 type Note = Tone | Noise;
 export type SfxPriority = "routine" | "local" | "essential";
 type Kind = SfxPriority | "music";
-type Bus = { ctx: AudioContext; master: GainNode; music: GainNode };
-type Phrase = { kind: Kind; voices: Set<Voice> };
-type Voice = {
+interface Bus {
+  ctx: AudioContext;
+  master: GainNode;
+  music: GainNode;
+}
+interface Phrase {
+  kind: Kind;
+  voices: Set<Voice>;
+}
+interface Voice {
   source: AudioScheduledSourceNode;
   nodes: AudioNode[];
   startsAt: number;
   phrase: Phrase;
   onEnded: () => void;
-};
+}
 
 const SFX_LIMIT = 26;
 const ROUTINE_LIMIT = 20;
@@ -38,12 +51,12 @@ const tone = (
   type: OscillatorType,
   gain: number,
   slideTo?: number,
-): Tone => ({ kind: "tone", freq, dur, type, gain, slideTo });
+): Tone => ({ dur, freq, gain, kind: "tone", slideTo, type });
 const noise = (dur: number, gain: number, filt: number, sweepTo?: number): Noise => ({
-  kind: "noise",
   dur,
-  gain,
   filt,
+  gain,
+  kind: "noise",
   sweepTo,
 });
 
@@ -75,7 +88,9 @@ class Sfx {
   }
 
   private setMaster(): void {
-    if (!this.bus) return;
+    if (!this.bus) {
+      return;
+    }
     const { ctx, master } = this.bus;
     master.gain.cancelScheduledValues(ctx.currentTime);
     master.gain.setValueAtTime(this.blocked ? 0 : 0.5, ctx.currentTime);
@@ -85,16 +100,24 @@ class Sfx {
     this.setMaster();
     if (this.blocked) {
       this.stopMusic();
-      for (const voice of this.voices) this.release(voice, "stopped");
+      for (const voice of this.voices) {
+        this.release(voice, "stopped");
+      }
       this.reconcileContext();
-    } else if (this.bus || this.musicRequested) this.ensure();
+    } else if (this.bus || this.musicRequested) {
+      this.ensure();
+    }
   }
 
   private ensure(): Bus | null {
-    if (this.blocked) return null;
+    if (this.blocked) {
+      return null;
+    }
     if (!this.bus) {
       const AC = window.AudioContext;
-      if (!AC) return null;
+      if (!AC) {
+        return null;
+      }
       try {
         const ctx = new AC();
         const master = ctx.createGain();
@@ -115,28 +138,41 @@ class Sfx {
   /** A completion may follow a newer mute/pause. Reconcile only that intent
    * change; an interrupted/rejected device must not spin an unlock retry loop. */
   private reconcileContext(): void {
-    if (!this.bus || this.bus.ctx.state === "closed") return;
+    if (!this.bus || this.bus.ctx.state === "closed") {
+      return;
+    }
     this.setMaster();
-    if (this.transition) return;
-    const ctx = this.bus.ctx;
+    if (this.transition) {
+      return;
+    }
+    const { ctx } = this.bus;
     const shouldRun = !this.blocked;
     if (ctx.state === (shouldRun ? "running" : "suspended")) {
-      if (shouldRun) this.hasRun = true;
+      if (shouldRun) {
+        this.hasRun = true;
+      }
       this.syncMusic();
       return;
     }
     // Scene create also calls unlock. Do not leave a pre-gesture resume promise
     // pending forever and then ignore the first real gesture behind that promise.
     // Once this context has run, programmatic wrapper resumes are permitted.
-    if (shouldRun && !this.hasRun && window.navigator?.userActivation?.isActive === false) return;
+    if (shouldRun && !this.hasRun && window.navigator?.userActivation?.isActive === false) {
+      return;
+    }
     const operation = shouldRun ? ctx.resume() : ctx.suspend();
     this.transition = operation;
     this.stopMusic();
     const finish = (): void => {
       this.transition = null;
-      if (ctx.state === "running") this.hasRun = true;
-      if (shouldRun !== !this.blocked) this.reconcileContext();
-      else this.syncMusic();
+      if (ctx.state === "running") {
+        this.hasRun = true;
+      }
+      if (shouldRun === !this.blocked) {
+        this.syncMusic();
+      } else {
+        this.reconcileContext();
+      }
     };
     void operation.then(finish, finish);
   }
@@ -157,28 +193,44 @@ class Sfx {
   }
 
   private release(voice: Voice, reason: "ended" | "stopped"): void {
-    if (!this.voices.delete(voice)) return;
+    if (!this.voices.delete(voice)) {
+      return;
+    }
     voice.phrase.voices.delete(voice);
     if (voice.phrase.voices.size === 0) {
       const index = this.phrases.indexOf(voice.phrase);
-      if (index >= 0) this.phrases.splice(index, 1);
+      if (index !== -1) {
+        this.phrases.splice(index, 1);
+      }
     }
     voice.source.removeEventListener("ended", voice.onEnded);
-    if (reason === "stopped") voice.source.stop();
+    if (reason === "stopped") {
+      voice.source.stop();
+    }
     voice.source.disconnect();
-    for (const node of voice.nodes) node.disconnect();
+    for (const node of voice.nodes) {
+      node.disconnect();
+    }
   }
 
   private stopPhrase(phrase: Phrase): void {
-    for (const voice of phrase.voices) this.release(voice, "stopped");
+    for (const voice of phrase.voices) {
+      this.release(voice, "stopped");
+    }
   }
 
   private play(notes: readonly Note[], kind: Kind = "routine"): void {
-    if (notes.length === 0) return;
+    if (notes.length === 0) {
+      return;
+    }
     const bus = this.ensure();
-    if (!bus) return;
-    const live = { routine: 0, local: 0, essential: 0, music: 0 } satisfies Record<Kind, number>;
-    for (const voice of this.voices) live[voice.phrase.kind]++;
+    if (!bus) {
+      return;
+    }
+    const live = { essential: 0, local: 0, music: 0, routine: 0 } satisfies Record<Kind, number>;
+    for (const voice of this.voices) {
+      live[voice.phrase.kind]++;
+    }
     const sfxCount = live.routine + live.local + live.essential;
     const limit = kind === "music" ? MUSIC_LIMIT : kind === "local" ? LOCAL_LIMIT : SFX_LIMIT;
     const refused =
@@ -186,7 +238,9 @@ class Sfx {
       (kind === "local" && live.essential + notes.length > LOCAL_LIMIT) ||
       (kind === "routine" &&
         (live.routine + notes.length > ROUTINE_LIMIT || sfxCount + notes.length > SFX_LIMIT));
-    if (refused) return;
+    if (refused) {
+      return;
+    }
     // Music and combat keep independent reserves. Local actions leave three
     // SFX voices for essential cues; admission always retires whole phrases.
     let owned = kind === "music" ? live.music : sfxCount;
@@ -197,14 +251,18 @@ class Sfx {
           : (this.phrases.find((p) => p.kind === "routine") ??
             this.phrases.find((p) => p.kind === "local") ??
             (kind === "essential" ? this.phrases.find((p) => p.kind === "essential") : undefined));
-      if (!oldest) return;
+      if (!oldest) {
+        return;
+      }
       owned -= oldest.voices.size;
       this.stopPhrase(oldest);
     }
     const phrase: Phrase = { kind, voices: new Set() };
     this.phrases.push(phrase);
     const t = bus.ctx.currentTime;
-    for (const note of notes) this.schedule(bus, phrase, note, t);
+    for (const note of notes) {
+      this.schedule(bus, phrase, note, t);
+    }
   }
 
   private schedule(bus: Bus, phrase: Phrase, note: Note, t: number): void {
@@ -216,8 +274,9 @@ class Sfx {
       const osc = ctx.createOscillator();
       osc.type = note.type;
       osc.frequency.setValueAtTime(note.freq, t);
-      if (note.slideTo)
+      if (note.slideTo) {
         osc.frequency.exponentialRampToValueAtTime(Math.max(1, note.slideTo), t + note.dur);
+      }
       gain.gain.setValueAtTime(0.0001, t);
       gain.gain.exponentialRampToValueAtTime(note.gain, t + 0.005);
       gain.gain.exponentialRampToValueAtTime(0.0001, t + note.dur);
@@ -230,14 +289,18 @@ class Sfx {
         const length = Math.floor(ctx.sampleRate * note.dur);
         buffer = ctx.createBuffer(1, length, ctx.sampleRate);
         const data = buffer.getChannelData(0);
-        for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
+        for (let i = 0; i < length; i++) {
+          data[i] = Math.random() * 2 - 1;
+        }
         this.noiseBuffers.set(note.dur, buffer);
       }
       bufferSource.buffer = buffer;
       const filter = ctx.createBiquadFilter();
       filter.type = "bandpass";
       filter.frequency.setValueAtTime(note.filt, t);
-      if (note.sweepTo) filter.frequency.exponentialRampToValueAtTime(note.sweepTo, t + note.dur);
+      if (note.sweepTo) {
+        filter.frequency.exponentialRampToValueAtTime(note.sweepTo, t + note.dur);
+      }
       gain.gain.setValueAtTime(note.gain, t);
       gain.gain.exponentialRampToValueAtTime(0.0001, t + note.dur);
       bufferSource.connect(filter).connect(gain);
@@ -246,11 +309,11 @@ class Sfx {
     }
     gain.connect(phrase.kind === "music" ? bus.music : bus.master);
     const voice: Voice = {
-      source,
       nodes,
-      startsAt: t,
-      phrase,
       onEnded: () => this.release(voice, "ended"),
+      phrase,
+      source,
+      startsAt: t,
     };
     this.voices.add(voice);
     phrase.voices.add(voice);
@@ -324,7 +387,9 @@ class Sfx {
 
   private stopMusic(): void {
     this.musicGeneration++;
-    if (this.musicTimer !== null) clearInterval(this.musicTimer);
+    if (this.musicTimer !== null) {
+      clearInterval(this.musicTimer);
+    }
     this.musicTimer = null;
   }
 
@@ -335,25 +400,35 @@ class Sfx {
       this.stopMusic();
       return;
     }
-    if (this.musicTimer !== null) return;
+    if (this.musicTimer !== null) {
+      return;
+    }
     const generation = ++this.musicGeneration;
     this.musicTimer = setInterval(() => {
-      if (generation === this.musicGeneration) this.musicTick();
+      if (generation === this.musicGeneration) {
+        this.musicTick();
+      }
     }, 200);
   }
 
   // Sparse pentatonic bass + soft kick — a moody neon-shrine bed.
   private musicTick(): void {
-    if (!this.ensure()) return;
+    if (!this.ensure()) {
+      return;
+    }
     const bass = [55, 82.4, 61.7, 73.4];
     const i = this.step % 16;
     const notes: Note[] = [];
-    if (i % 4 === 0) notes.push(tone(90, 0.16, "sine", 0.5, 40));
+    if (i % 4 === 0) {
+      notes.push(tone(90, 0.16, "sine", 0.5, 40));
+    }
     if (i % 8 === 0) {
       const root = bass[Math.floor(this.step / 8) % bass.length] ?? 55;
       notes.push(tone(root, 1.4, "triangle", 0.4), tone(root * 1.5, 1.2, "sine", 0.18));
     }
-    if (i === 6 || i === 12) notes.push(tone(880 * this.r(0.02), 0.12, "sine", 0.1));
+    if (i === 6 || i === 12) {
+      notes.push(tone(880 * this.r(0.02), 0.12, "sine", 0.1));
+    }
     this.play(notes, "music");
     this.step++;
   }

@@ -14,12 +14,12 @@ export type WeaponMasteryState =
 
 /** Per-beam contact record, handed out by `shot()` and kept on the beam by the
  * owner. The generation fences beams fired under an earlier pickup. */
-export type MasteryShot = {
+export interface MasteryShot {
   readonly generation: number;
   readonly outward: Set<string>;
   readonly returning: Set<string>;
   completed: boolean;
-};
+}
 
 /** HUD-only technique feedback for RAILGUN (pierce two enemies with one shot)
  * and GLAIVE (hit the same enemy out and back). No gameplay effect. */
@@ -42,25 +42,26 @@ export class WeaponMastery {
       return;
     }
     this.current = {
-      phase: "active",
-      weapon,
-      generation: ++this.generation,
-      startedAt: now,
-      endsAt: weaponUntil,
-      contacts: 0,
       completions: 0,
+      contacts: 0,
+      endsAt: weaponUntil,
+      generation: ++this.generation,
+      phase: "active",
+      startedAt: now,
+      weapon,
     };
   }
 
   shot(weapon: string, now: number): MasteryShot | null {
     const state = this.current;
-    if (state.phase !== "active" || state.weapon !== weapon || !this.inWindow(state, now))
+    if (state.phase !== "active" || state.weapon !== weapon || !this.inWindow(state, now)) {
       return null;
+    }
     return {
+      completed: false,
       generation: state.generation,
       outward: new Set(),
       returning: new Set(),
-      completed: false,
     };
   }
 
@@ -70,10 +71,13 @@ export class WeaponMastery {
       state.phase !== "active" ||
       shot.generation !== state.generation ||
       !this.inWindow(state, now)
-    )
+    ) {
       return;
+    }
     const leg = returning ? shot.returning : shot.outward;
-    if (leg.has(enemyId)) return;
+    if (leg.has(enemyId)) {
+      return;
+    }
     leg.add(enemyId);
     const complete =
       state.weapon === "RAILGUN" ? shot.outward.size >= 2 : returning && shot.outward.has(enemyId);
@@ -81,16 +85,20 @@ export class WeaponMastery {
     shot.completed ||= complete;
     this.current = {
       ...state,
-      contacts: state.contacts + 1,
       completions: state.completions + (first ? 1 : 0),
+      contacts: state.contacts + 1,
     };
   }
 
   /** Once per frame: expiry, death and loadout changes end the window. */
   advance(now: number, alive: boolean, weapon: string): void {
     const state = this.current;
-    if (state.phase !== "active") return;
-    if (!alive || weapon !== state.weapon || !this.inWindow(state, now)) this.clear();
+    if (state.phase !== "active") {
+      return;
+    }
+    if (!alive || weapon !== state.weapon || !this.inWindow(state, now)) {
+      this.clear();
+    }
   }
 
   clear(): void {

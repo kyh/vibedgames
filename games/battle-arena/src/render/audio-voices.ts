@@ -27,7 +27,9 @@ export class VoiceGroup {
 
   /** Null when the pool refuses the voice; the caller skips that source. */
   source<T extends AudioScheduledSourceNode>(create: () => T): T | null {
-    if (this.closed || !this.pool.admit(this)) return null;
+    if (this.closed || !this.pool.admit(this)) {
+      return null;
+    }
     const source = create();
     const onEnded = (): void => this.release(source, false);
     this.sources.set(source, onEnded);
@@ -42,30 +44,44 @@ export class VoiceGroup {
   }
 
   stopAt(time: number): void {
-    for (const source of this.sources.keys()) source.stop(time);
+    for (const source of this.sources.keys()) {
+      source.stop(time);
+    }
   }
 
   cancel(): void {
-    if (this.closed) return;
+    if (this.closed) {
+      return;
+    }
     this.sealed = true;
-    for (const source of this.sources.keys()) this.release(source, true);
+    for (const source of this.sources.keys()) {
+      this.release(source, true);
+    }
     this.finish();
   }
 
   private release(source: AudioScheduledSourceNode, stopped: boolean): void {
     const onEnded = this.sources.get(source);
-    if (!onEnded) return;
+    if (!onEnded) {
+      return;
+    }
     this.sources.delete(source);
     source.removeEventListener("ended", onEnded);
-    if (stopped) source.stop();
+    if (stopped) {
+      source.stop();
+    }
     source.disconnect();
     this.finish();
   }
 
   private finish(): void {
-    if (this.closed || !this.sealed || this.sources.size !== 0) return;
+    if (this.closed || !this.sealed || this.sources.size !== 0) {
+      return;
+    }
     this.closed = true;
-    for (const node of this.nodes) node.disconnect();
+    for (const node of this.nodes) {
+      node.disconnect();
+    }
     this.nodes.clear();
     this.pool.retire(this);
   }
@@ -81,7 +97,9 @@ export class VoicePool {
 
   get count(): number {
     let n = 0;
-    for (const group of this.groups) n += group.count;
+    for (const group of this.groups) {
+      n += group.count;
+    }
     return n;
   }
 
@@ -97,12 +115,18 @@ export class VoicePool {
     let routine = 0;
     for (const other of this.groups) {
       total += other.count;
-      if (other.priority === "routine") routine += other.count;
+      if (other.priority === "routine") {
+        routine += other.count;
+      }
     }
-    if (group.priority === "routine") return total < this.limit && routine < this.routineLimit;
+    if (group.priority === "routine") {
+      return total < this.limit && routine < this.routineLimit;
+    }
     while (total >= this.limit) {
       const oldest = this.oldestRoutine(group);
-      if (!oldest) return false;
+      if (!oldest) {
+        return false;
+      }
       total -= oldest.count;
       oldest.cancel();
     }
@@ -110,13 +134,16 @@ export class VoicePool {
   }
 
   private oldestRoutine(except: VoiceGroup): VoiceGroup | null {
-    for (const group of this.groups)
+    for (const group of this.groups) {
       if (group !== except && group.priority === "routine" && group.count > 0) return group;
+    }
     return null;
   }
 
   clear(): void {
-    for (const group of this.groups) group.cancel();
+    for (const group of this.groups) {
+      group.cancel();
+    }
   }
 
   retire(group: VoiceGroup): void {

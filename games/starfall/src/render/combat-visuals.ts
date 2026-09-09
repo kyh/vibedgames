@@ -19,37 +19,54 @@ export type WeaponLook =
 /** Local weapon identity only. Remote snapshots use their actual shape flags,
  * never the owner's current loadout to guess an old projectile's weapon. */
 export function weaponLook(weapon: Weapon): WeaponLook {
-  if (weapon.singularity) return "orb";
-  if (weapon.homing) return "missile";
+  if (weapon.singularity) {
+    return "orb";
+  }
+  if (weapon.homing) {
+    return "missile";
+  }
   switch (weapon.sfx) {
-    case "rapid":
+    case "rapid": {
       return "rapid";
+    }
     case "heavy":
-    case "boom":
+    case "boom": {
       return "heavy";
-    case "zap":
+    }
+    case "zap": {
       return "laser";
-    case "rail":
+    }
+    case "rail": {
       return "rail";
-    case "scatter":
+    }
+    case "scatter": {
       return "scatter";
-    case "plasma":
+    }
+    case "plasma": {
       return "plasma";
-    case "drill":
+    }
+    case "drill": {
       return "drill";
-    case "glaive":
+    }
+    case "glaive": {
       return "glaive";
+    }
     case "arc":
-    case "tesla":
+    case "tesla": {
       return "arc";
-    case "singularity":
+    }
+    case "singularity": {
       return "orb";
-    case "nova":
+    }
+    case "nova": {
       return "nova";
-    case "mine":
+    }
+    case "mine": {
       return "mine";
-    default:
+    }
+    default: {
       return "bolt";
+    }
   }
 }
 
@@ -74,7 +91,9 @@ export function contactPoint(
   const dx = head.x - tail.x;
   const dy = head.y - tail.y;
   const length2 = dx * dx + dy * dy;
-  if (length2 === 0) return { x: head.x, y: head.y };
+  if (length2 === 0) {
+    return { x: head.x, y: head.y };
+  }
   const ox = tail.x - target.x;
   const oy = tail.y - target.y;
   const b = ox * dx + oy * dy;
@@ -90,23 +109,31 @@ export type BurstKind = "muzzle" | "impact" | "fracture" | "death" | "boss" | "d
 
 export function burstLifetime(kind: BurstKind): number {
   switch (kind) {
-    case "muzzle":
+    case "muzzle": {
       return 115;
-    case "impact":
+    }
+    case "impact": {
       return 300;
-    case "fracture":
+    }
+    case "fracture": {
       return 650;
-    case "death":
+    }
+    case "death": {
       return 900;
-    case "boss":
+    }
+    case "boss": {
       return 1550;
-    case "detonation":
+    }
+    case "detonation": {
       return 650;
+    }
   }
 }
 
 /** A stage's envelope is exactly zero before launch and after expiry. */
 export function burstStage(age: number, delay: number, life: number): number {
-  if (age < delay || age >= delay + life) return 0;
+  if (age < delay || age >= delay + life) {
+    return 0;
+  }
   return 1 - (age - delay) / life;
 }

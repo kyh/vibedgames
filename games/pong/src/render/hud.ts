@@ -11,7 +11,7 @@ import type { ContactKind, ShotCharge } from "../shared/contact-shot";
 /** What the connection currently means to the player. */
 export type Link = "connecting" | "reconnecting" | "solo" | "open" | "live";
 
-export type MatchView = {
+export interface MatchView {
   phase: Phase;
   scoreYou: number;
   scoreAi: number;
@@ -20,14 +20,14 @@ export type MatchView = {
   /** Serving with no auto-serve clock: the player has to serve. */
   awaitingServe: boolean;
   charge: ShotCharge;
-};
+}
 
 const NET_INFO = {
   connecting: "Finding a rival…",
+  live: "LIVE 1V1 · FIRST TO 7",
+  open: "VS AI · RIVAL CAN JOIN",
   reconnecting: "Reconnecting…",
   solo: "VS AI · FIRST TO 7",
-  open: "VS AI · RIVAL CAN JOIN",
-  live: "LIVE 1V1 · FIRST TO 7",
 } satisfies Record<Link, string>;
 
 export class Hud {
@@ -75,17 +75,19 @@ export class Hud {
 
     // The action button stays mounted across states so a snapshot never steals its focus.
     let show = true;
-    if (link === "connecting" || link === "reconnecting")
+    if (link === "connecting" || link === "reconnecting") {
       this.showBanner(link === "reconnecting" ? "RECONNECTING" : "PONG", "FIRST TO 7", "PLAY AI");
-    else if (phase === "serving" && view.awaitingServe)
+    } else if (phase === "serving" && view.awaitingServe) {
       this.showBanner("PONG", "FIRST TO 7", "SERVE");
-    else if (phase === "won")
+    } else if (phase === "won") {
       this.showBanner(
         scoreYou > scoreAi ? "YOU WIN" : human ? "RIVAL WINS" : "AI WINS",
         `${scoreYou} — ${scoreAi} · LONGEST RALLY ${view.longestRally}`,
         "REMATCH",
       );
-    else show = false;
+    } else {
+      show = false;
+    }
     this.bannerEl.hidden = !show;
     setText(this.netInfoEl, NET_INFO[link]);
     this.syncCharge(view.charge, phase === "won");
@@ -101,10 +103,13 @@ export class Hud {
     const hits = chargeHits(charge);
     this.chargeEl.hidden = hidden;
     const fill = `scaleX(${hits / CHARGE_HITS})`;
-    if (this.chargeFillEl.style.transform !== fill) this.chargeFillEl.style.transform = fill;
+    if (this.chargeFillEl.style.transform !== fill) {
+      this.chargeFillEl.style.transform = fill;
+    }
     const value = String(hits);
-    if (this.chargeEl.getAttribute("aria-valuenow") !== value)
+    if (this.chargeEl.getAttribute("aria-valuenow") !== value) {
       this.chargeEl.setAttribute("aria-valuenow", value);
+    }
     setText(
       this.chargeLabelEl,
       charge.kind === "armed"
@@ -129,7 +134,9 @@ export class Hud {
 
   /** Surface the running rally length as an escalating "×N" once past MIN. */
   showCombo(hits: number): void {
-    if (hits < COMBO_MIN) return;
+    if (hits < COMBO_MIN) {
+      return;
+    }
     const tier = Math.min(1, Math.max(0, hits / COMBO_PEAK_HITS));
     this.comboEl.textContent = `RALLY ×${hits}`;
     this.comboEl.style.setProperty("--combo-tier", tier.toFixed(3));
@@ -166,11 +173,15 @@ export class Hud {
 }
 
 function el(id: string): HTMLElement {
-  const node = document.getElementById(id);
-  if (!node) throw new Error(`missing #${id}`);
+  const node = document.querySelector(`#${id}`);
+  if (!node) {
+    throw new Error(`missing #${id}`);
+  }
   return node;
 }
 
 function setText(node: HTMLElement, text: string): void {
-  if (node.textContent !== text) node.textContent = text;
+  if (node.textContent !== text) {
+    node.textContent = text;
+  }
 }

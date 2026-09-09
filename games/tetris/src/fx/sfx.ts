@@ -32,12 +32,16 @@ const live = new Set<OscillatorNode>();
 const blocked = (): boolean => muted || paused;
 
 function ensureContext(): AudioContext | null {
-  if (ctx === null && "AudioContext" in window) ctx = new AudioContext();
+  if (ctx === null && "AudioContext" in window) {
+    ctx = new AudioContext();
+  }
   return ctx;
 }
 
 function stopVoices(): void {
-  for (const osc of live) osc.stop();
+  for (const osc of live) {
+    osc.stop();
+  }
   live.clear();
 }
 
@@ -45,11 +49,15 @@ function stopVoices(): void {
 function sync(): void {
   if (blocked()) {
     stopVoices();
-    if (ctx?.state === "running") void ctx.suspend();
+    if (ctx?.state === "running") {
+      void ctx.suspend();
+    }
     return;
   }
   const ac = ensureContext();
-  if (ac?.state === "suspended") void ac.resume();
+  if (ac?.state === "suspended") {
+    void ac.resume();
+  }
 }
 
 export function isMuted(): boolean {
@@ -62,7 +70,9 @@ export function isMuted(): boolean {
 export function setMuted(next: boolean): void {
   muted = next;
   storageSet(SOUND_KEY, muted ? "0" : "1");
-  if (!muted) ensureContext();
+  if (!muted) {
+    ensureContext();
+  }
   sync();
 }
 
@@ -86,27 +96,37 @@ export function resetSound(): void {
 /** A running context, or null: notes scheduled against a suspended context
  *  would pile up and burst out together when it unlocks. */
 function audio(): AudioContext | null {
-  if (blocked()) return null;
+  if (blocked()) {
+    return null;
+  }
   const ac = ensureContext();
-  if (!ac) return null;
-  if (ac.state === "suspended") void ac.resume();
+  if (!ac) {
+    return null;
+  }
+  if (ac.state === "suspended") {
+    void ac.resume();
+  }
   return ac.state === "running" ? ac : null;
 }
 
-type Blip = {
+interface Blip {
   freq: number;
   end?: number;
   dur: number;
   type: OscillatorType;
   gain: number;
   at?: number;
-};
+}
 
 function play(notes: readonly Blip[]): void {
   const ac = audio();
-  if (!ac) return;
+  if (!ac) {
+    return;
+  }
   const now = ac.currentTime;
-  for (const note of notes) blip(ac, now, note);
+  for (const note of notes) {
+    blip(ac, now, note);
+  }
 }
 
 function blip(ac: AudioContext, now: number, { freq, end, dur, type, gain, at = 0 }: Blip): void {
@@ -115,7 +135,9 @@ function blip(ac: AudioContext, now: number, { freq, end, dur, type, gain, at = 
   const osc = ac.createOscillator();
   osc.type = type;
   osc.frequency.setValueAtTime(freq * jitter, t0);
-  if (end !== undefined) osc.frequency.exponentialRampToValueAtTime(end * jitter, t0 + dur);
+  if (end !== undefined) {
+    osc.frequency.exponentialRampToValueAtTime(end * jitter, t0 + dur);
+  }
   const g = ac.createGain();
   g.gain.setValueAtTime(gain, t0);
   g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
@@ -127,38 +149,6 @@ function blip(ac: AudioContext, now: number, { freq, end, dur, type, gain, at = 
 }
 
 export const sfx = {
-  move(): void {
-    play([{ freq: 220, dur: 0.03, type: "square", gain: 0.04 }]);
-  },
-  rotate(): void {
-    play([{ freq: 360, end: 460, dur: 0.05, type: "square", gain: 0.05 }]);
-  },
-  orbit(): void {
-    play([{ freq: 180, end: 300, dur: 0.16, type: "sine", gain: 0.06 }]);
-  },
-  lock(): void {
-    play([{ freq: 150, dur: 0.06, type: "triangle", gain: 0.08 }]);
-  },
-  hardDrop(): void {
-    play([{ freq: 120, end: 70, dur: 0.12, type: "sawtooth", gain: 0.09 }]);
-  },
-  /** Pitch climbs with the number of lines cleared; a crossed clear adds a top note. */
-  clear(lines: number, crossed: boolean): void {
-    const base = 380 * 2 ** (Math.min(lines, 12) / 12);
-    const notes: Blip[] = [
-      { freq: base, dur: 0.1, type: "square", gain: 0.09 },
-      { freq: base * 1.5, dur: 0.16, type: "square", gain: 0.08, at: 0.08 },
-    ];
-    if (crossed) notes.push({ freq: base * 2, dur: 0.12, type: "sine", gain: 0.04, at: 0.12 });
-    play(notes);
-  },
-  power(): void {
-    play([
-      { freq: 240, end: 480, dur: 0.12, type: "triangle", gain: 0.08 },
-      { freq: 720, end: 960, dur: 0.16, type: "sine", gain: 0.07, at: 0.08 },
-      { freq: 1200, dur: 0.1, type: "sine", gain: 0.04, at: 0.16 },
-    ]);
-  },
   catch(): void {
     play(
       [330, 440, 587, 784].map((freq, i): Blip => ({
@@ -170,6 +160,16 @@ export const sfx = {
       })),
     );
   },
+  /** Pitch climbs with the number of lines cleared; a crossed clear adds a top note. */
+  clear(lines: number, crossed: boolean): void {
+    const base = 380 * 2 ** (Math.min(lines, 12) / 12);
+    const notes: Blip[] = [
+      { freq: base, dur: 0.1, type: "square", gain: 0.09 },
+      { freq: base * 1.5, dur: 0.16, type: "square", gain: 0.08, at: 0.08 },
+    ];
+    if (crossed) notes.push({ freq: base * 2, dur: 0.12, type: "sine", gain: 0.04, at: 0.12 });
+    play(notes);
+  },
   gameOver(): void {
     play(
       [330, 262, 196, 131].map((freq, i): Blip => ({
@@ -180,5 +180,27 @@ export const sfx = {
         at: i * 0.12,
       })),
     );
+  },
+  hardDrop(): void {
+    play([{ freq: 120, end: 70, dur: 0.12, type: "sawtooth", gain: 0.09 }]);
+  },
+  lock(): void {
+    play([{ freq: 150, dur: 0.06, type: "triangle", gain: 0.08 }]);
+  },
+  move(): void {
+    play([{ freq: 220, dur: 0.03, type: "square", gain: 0.04 }]);
+  },
+  orbit(): void {
+    play([{ freq: 180, end: 300, dur: 0.16, type: "sine", gain: 0.06 }]);
+  },
+  power(): void {
+    play([
+      { freq: 240, end: 480, dur: 0.12, type: "triangle", gain: 0.08 },
+      { freq: 720, end: 960, dur: 0.16, type: "sine", gain: 0.07, at: 0.08 },
+      { freq: 1200, dur: 0.1, type: "sine", gain: 0.04, at: 0.16 },
+    ]);
+  },
+  rotate(): void {
+    play([{ freq: 360, end: 460, dur: 0.05, type: "square", gain: 0.05 }]);
   },
 };

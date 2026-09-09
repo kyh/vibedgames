@@ -1,4 +1,4 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
 
 import { HERO_ORIGIN_Y, HERO_SCALE, interp } from "../config";
 import { kitClipKey } from "../data/clip-timing";
@@ -15,28 +15,34 @@ import { DASH_DUR, PlayerBody } from "./player-body";
 // only the first frames ever showed). Action clips are re-timed to their exact
 // gameplay duration; run is nudged snappier than the authored 10fps.
 const RUN_MS = 520;
-const DOWNED_TINT = 0x7a8494; // greyed-out crumple while in co-op last stand
+const DOWNED_TINT = 0x7a_84_94; // greyed-out crumple while in co-op last stand
 
 // A clip's gameplay-matched playback duration (ms), or undefined to keep the
 // authored timing. Swings/special/dash are re-timed to their mechanic; run is
 // nudged snappier. Shared with the ?viewer page so it previews true in-game
 // playback.
 export function clipGameMs(hero: HeroDef, clip: string): number | undefined {
-  const kit = hero.kit;
+  const { kit } = hero;
   const sw = kit.swings.find((s) => s.clip === clip);
-  if (sw) return sw.dur * 1000;
+  if (sw) {
+    return sw.dur * 1000;
+  }
   if (clip === kit.special.clip) {
     const sp = kit.special;
     return ("dur" in sp ? sp.dur : 0.3) * 1000;
   }
-  if (clip === kit.dashClip) return DASH_DUR * 1000;
-  if (clip === "run") return RUN_MS;
+  if (clip === kit.dashClip) {
+    return DASH_DUR * 1000;
+  }
+  if (clip === "run") {
+    return RUN_MS;
+  }
   return undefined;
 }
 
 // The subset of body/net fields selectClip reads — both PlayerBody and NetPlayer
 // expose these names, so one method drives local render and remote puppets.
-type ClipState = {
+interface ClipState {
   dead: boolean;
   downed: boolean;
   specialActive: boolean;
@@ -48,9 +54,9 @@ type ClipState = {
   grounded: boolean;
   vx: number;
   vy: number;
-};
+}
 
-export type PlayerHooks = {
+export interface PlayerHooks {
   onJump?: () => void;
   onWallJump?: (side: number) => void;
   onLand?: (impact: number) => void;
@@ -58,7 +64,7 @@ export type PlayerHooks = {
   onSwing?: (step: number) => void;
   onSpecial?: (kind: string) => void;
   onHurt?: () => void;
-};
+}
 
 // Phaser view over PlayerBody: owns the sprite, plays the hero's kit animations,
 // and turns physics events into juice.
@@ -87,14 +93,14 @@ export class Player {
     this.sprite.play(`${this.name}:idle`);
 
     this.body = new PlayerBody(grid, x, y, hero.kit, {
-      onJump: hooks.onJump,
-      onWallJump: hooks.onWallJump,
-      onLand: hooks.onLand,
       onDash: hooks.onDash,
-      onSwing: hooks.onSwing,
-      onSpecial: hooks.onSpecial,
       onHurt: hooks.onHurt,
+      onJump: hooks.onJump,
+      onLand: hooks.onLand,
+      onSpecial: hooks.onSpecial,
       onSquash: (sx, sy, ms) => this.squash(sx, sy, ms),
+      onSwing: hooks.onSwing,
+      onWallJump: hooks.onWallJump,
     });
   }
 
@@ -132,13 +138,15 @@ export class Player {
     this.scene.tweens.killTweensOf(this.sprite);
     this.sprite.setScale(this.baseScale * sx, this.baseScale * sy);
     this.scene.tweens.add({
-      targets: this.sprite,
-      scaleX: this.baseScale,
-      scaleY: this.baseScale,
       duration: ms,
       ease: "Back.easeOut",
+      scaleX: this.baseScale,
+      scaleY: this.baseScale,
+      targets: this.sprite,
     });
-    if (sy < 1) landPuff(this.scene, this.sprite.x, this.body.y); // landing squash kicks up dust
+    if (sy < 1) {
+      landPuff(this.scene, this.sprite.x, this.body.y);
+    } // landing squash kicks up dust
   }
 
   // Play a clip — the retimed @kit variant when one exists (attack clips whose
@@ -163,19 +171,21 @@ export class Player {
   // Choose + play the clip for the current sim/net state. Shared by render (local
   // body) and applyNet (remote puppet) — both expose the same field names.
   private selectClip(s: ClipState) {
-    const kit = this.hero.kit;
+    const { kit } = this.hero;
     if (s.dead) {
       // Versus: a slain duelist crumples and holds the final death frame until
       // the round reset clears the flag. (Co-op deaths never set body.dead.)
-      if (this.sprite.anims.currentAnim?.key !== `${this.name}:death`)
+      if (this.sprite.anims.currentAnim?.key !== `${this.name}:death`) {
         this.playClip("death", false);
+      }
       this.swingClip = null;
       return;
     }
     if (s.downed) {
       // Last stand: play the death clip once and hold its final crumpled frame.
-      if (this.sprite.anims.currentAnim?.key !== `${this.name}:death`)
+      if (this.sprite.anims.currentAnim?.key !== `${this.name}:death`) {
         this.playClip("death", false);
+      }
       this.swingClip = null;
       return;
     }
@@ -215,10 +225,15 @@ export class Player {
     }
     this.swingClip = null;
     let clip: string;
-    if (s.hurting) clip = "hurt";
-    else if (s.dashing) clip = kit.dashClip;
-    else if (!s.grounded) clip = s.vy < -10 ? "jump" : "fall";
-    else clip = Math.abs(s.vx) > 12 ? "run" : "idle";
+    if (s.hurting) {
+      clip = "hurt";
+    } else if (s.dashing) {
+      clip = kit.dashClip;
+    } else if (s.grounded) {
+      clip = Math.abs(s.vx) > 12 ? "run" : "idle";
+    } else {
+      clip = s.vy < -10 ? "jump" : "fall";
+    }
     this.playClip(clip, true);
   }
 
@@ -231,8 +246,11 @@ export class Player {
       Math.round(interp(b.prevY, b.y, alpha)),
     );
     this.dashTrail(b.dashing);
-    if (b.downed) this.sprite.setTint(DOWNED_TINT);
-    else this.sprite.clearTint();
+    if (b.downed) {
+      this.sprite.setTint(DOWNED_TINT);
+    } else {
+      this.sprite.clearTint();
+    }
     this.sprite.setAlpha(
       b.iframes > 0 && !b.dead ? (Math.floor(b.iframes * 20) % 2 === 0 ? 0.45 : 1) : 1,
     );
@@ -245,17 +263,23 @@ export class Player {
       this.lastEcho = -Infinity;
       return;
     }
-    const now = this.scene.time.now;
-    if (now - this.lastEcho < 40) return;
+    const { now } = this.scene.time;
+    if (now - this.lastEcho < 40) {
+      return;
+    }
     this.lastEcho = now;
     afterImage(this.scene, this.sprite, this.hero.color);
   }
 
   // Kick a smoke puff off the back foot while running on the ground.
   private runTrail(b: PlayerBody) {
-    if (!b.grounded || b.dashing || b.hurting || Math.abs(b.vx) < 70) return;
-    const now = this.scene.time.now;
-    if (now - this.lastRunDust < 80) return;
+    if (!b.grounded || b.dashing || b.hurting || Math.abs(b.vx) < 70) {
+      return;
+    }
+    const { now } = this.scene.time;
+    if (now - this.lastRunDust < 80) {
+      return;
+    }
     this.lastRunDust = now;
     smoke(
       this.scene,
@@ -276,23 +300,23 @@ export class Player {
   encode(id: string): NetPlayer {
     const b = this.body;
     return {
-      id,
-      hero: this.name,
-      x: b.x,
-      y: b.y,
-      facing: b.facing,
-      vx: b.vx,
-      vy: b.vy,
-      grounded: b.grounded,
+      attackStep: b.attackStep,
       dashing: b.dashing,
-      hurting: b.hurting,
       dead: b.dead,
       downed: b.downed,
+      facing: b.facing,
+      grounded: b.grounded,
+      hero: this.name,
+      hurting: b.hurting,
+      id,
       iframes: b.iframes,
-      attackStep: b.attackStep,
-      swingId: b.swingId,
       specialActive: b.specialActive,
       specialId: b.specialId,
+      swingId: b.swingId,
+      vx: b.vx,
+      vy: b.vy,
+      x: b.x,
+      y: b.y,
     };
   }
 
@@ -319,8 +343,11 @@ export class Player {
       far ? ty : this.sprite.y + (ty - this.sprite.y) * 0.4,
     );
     this.dashTrail(net.dashing);
-    if (net.downed) this.sprite.setTint(DOWNED_TINT);
-    else this.sprite.clearTint();
+    if (net.downed) {
+      this.sprite.setTint(DOWNED_TINT);
+    } else {
+      this.sprite.clearTint();
+    }
     this.sprite.setAlpha(
       net.iframes > 0 && !net.dead ? (Math.floor(net.iframes * 20) % 2 === 0 ? 0.45 : 1) : 1,
     );

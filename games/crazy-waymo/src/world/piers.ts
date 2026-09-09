@@ -1,8 +1,11 @@
 import * as THREE from "three";
 
-import { type Beacon, registerBeacons } from "../fx/beacon-lights";
+import { registerBeacons } from "../fx/beacon-lights";
+import type { Beacon } from "../fx/beacon-lights";
 import { Rng } from "../shared/rng";
-import { prismGeometry, prismSpec, type PrismSpec } from "./sf-prisms";
+import { prismGeometry, prismSpec } from "./sf-prisms";
+import type { PrismSpec } from "./sf-prisms";
+import { signAtlas, SignBoards } from "./pier-signs";
 import { SF_DOCKS, SF_PIERS } from "./sf-piers";
 import type { Terrain } from "./terrain";
 import { addMoorings, planMoorings, PORT_MATERIAL, PortBuilder, WATER_Y } from "./watercraft";
@@ -38,7 +41,9 @@ class ChunkedPort {
 
   get triCount(): number {
     let n = 0;
-    for (const b of this.buckets.values()) n += b.triCount;
+    for (const b of this.buckets.values()) {
+      n += b.triCount;
+    }
     return n;
   }
 
@@ -49,7 +54,9 @@ class ChunkedPort {
   addTo(group: THREE.Group): void {
     for (const b of this.buckets.values()) {
       const geo = b.geometry();
-      if (!geo) continue;
+      if (!geo) {
+        continue;
+      }
       const mesh = new THREE.Mesh(geo, PORT_MATERIAL);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
@@ -62,19 +69,22 @@ class ChunkedPort {
 // The point of the vertex-coloured merge: the waterfront stops being one beige.
 // Decks weather, sheds were painted in different decades, roofs rust unevenly.
 
-const DECKS = [0xb9ac96, 0xc4b8a2, 0xaa9e8b, 0xcabfab, 0xb3a894] as const;
-const SHED_WALLS = [0xe3dac8, 0xd8ccb6, 0xcdbfa6, 0xe8e2d4, 0xc6b8a0, 0xdcc9a8] as const;
-const SHED_TRIM = 0x8d7c66;
-const ROOFS = [0x9a6a52, 0x7f6c5d, 0x8a7263, 0x6d6862, 0x94705a] as const;
-const SHACK_WALLS = [0xf0efe6, 0xd94f3a, 0x3f7fa8, 0xf2c341, 0xe8e0cc] as const;
-const AWNINGS = [0xd94f3a, 0xe8e6e0, 0x2f7f5a, 0xf2b03a] as const;
-const PILE = 0x6f6152;
-const PILE_WET = 0x4e453b; // the band standing in the water
-const STEEL = 0x99a1a6;
-const CRANE_ORANGE = 0xd4732b;
-const TIMBER = 0xc2a578;
-const ROCKS = [0x8b877f, 0x776f66, 0x9a938a, 0x6d6a66] as const;
-const GLASS = 0x2f4d5e;
+const DECKS = [0xb9_ac_96, 0xc4_b8_a2, 0xaa_9e_8b, 0xca_bf_ab, 0xb3_a8_94] as const;
+const SHED_WALLS = [
+  0xe3_da_c8, 0xd8_cc_b6, 0xcd_bf_a6, 0xe8_e2_d4, 0xc6_b8_a0, 0xdc_c9_a8,
+] as const;
+const SHED_TRIM = 0x8d_7c_66;
+const ROOFS = [0x9a_6a_52, 0x7f_6c_5d, 0x8a_72_63, 0x6d_68_62, 0x94_70_5a] as const;
+const SHACK_WALLS = [0xf0_ef_e6, 0xd9_4f_3a, 0x3f_7f_a8, 0xf2_c3_41, 0xe8_e0_cc] as const;
+const AWNINGS = [0xd9_4f_3a, 0xe8_e6_e0, 0x2f_7f_5a, 0xf2_b0_3a] as const;
+const PILE = 0x6f_61_52;
+// the band standing in the water
+const PILE_WET = 0x4e_45_3b;
+const STEEL = 0x99_a1_a6;
+const CRANE_ORANGE = 0xd4_73_2b;
+const TIMBER = 0xc2_a5_78;
+const ROCKS = [0x8b_87_7f, 0x77_6f_66, 0x9a_93_8a, 0x6d_6a_66] as const;
+const GLASS = 0x2f_4d_5e;
 
 // --- Pier numbering -------------------------------------------------------
 // Real Embarcadero numbering: ODD northward from the Ferry Building out to the
@@ -89,100 +99,10 @@ const NUMBERED_MIN_AREA = 220;
 
 // --- Sign boards ----------------------------------------------------------
 
-const SIGN_COLS = 4;
-const SIGN_ROWS = 8;
-const SIGN_CELL = 128;
-
-/**
- * One 512×512 atlas holding every pier number, so all the boards are a single
- * textured draw. Returns null where there is no DOM (the headless world tools),
- * and the boards are simply skipped.
- */
-function signAtlas(numbers: readonly number[]): THREE.Texture | null {
-  if (typeof document === "undefined") return null;
-  const canvas = document.createElement("canvas");
-  canvas.width = SIGN_COLS * SIGN_CELL;
-  canvas.height = SIGN_ROWS * (SIGN_CELL / 2);
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return null;
-  ctx.fillStyle = "#1d2b36";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  numbers.forEach((n, i) => {
-    const col = i % SIGN_COLS;
-    const row = Math.floor(i / SIGN_COLS);
-    const x = col * SIGN_CELL;
-    const y = row * (SIGN_CELL / 2);
-    ctx.fillStyle = "#f4f1e8";
-    ctx.fillRect(x + 3, y + 3, SIGN_CELL - 6, SIGN_CELL / 2 - 6);
-    ctx.fillStyle = "#1d2b36";
-    ctx.font = `600 ${SIGN_CELL * 0.19}px system-ui, sans-serif`;
-    ctx.fillText("PIER", x + SIGN_CELL / 2, y + SIGN_CELL * 0.16);
-    ctx.font = `700 ${SIGN_CELL * 0.3}px system-ui, sans-serif`;
-    ctx.fillText(String(n), x + SIGN_CELL / 2, y + SIGN_CELL * 0.34);
-  });
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
-  return tex;
-}
-
-/** Accumulates the numbered boards into one textured mesh. */
-class SignBoards {
-  private readonly pos: number[] = [];
-  private readonly nor: number[] = [];
-  private readonly uv: number[] = [];
-
-  /** A board `w`×`h`, centred at (x, y, z), facing (nx, nz) in the XZ plane. */
-  push(
-    cell: number,
-    x: number,
-    y: number,
-    z: number,
-    nx: number,
-    nz: number,
-    w: number,
-    h: number,
-  ): void {
-    // Board-right, for a reader standing in front of it: cross(-n, up). Get
-    // this backwards and the board is either back-facing or mirror-written.
-    const ax = nz * (w / 2);
-    const az = -nx * (w / 2);
-    const u0 = (cell % SIGN_COLS) / SIGN_COLS;
-    const v1 = 1 - Math.floor(cell / SIGN_COLS) / SIGN_ROWS;
-    const u1 = u0 + 1 / SIGN_COLS;
-    const v0 = v1 - 1 / SIGN_ROWS;
-    const corners: readonly (readonly [number, number, number, number, number])[] = [
-      [x - ax, y - h / 2, z - az, u0, v0],
-      [x + ax, y - h / 2, z + az, u1, v0],
-      [x + ax, y + h / 2, z + az, u1, v1],
-      [x - ax, y + h / 2, z - az, u0, v1],
-    ];
-    for (const i of [0, 1, 2, 0, 2, 3]) {
-      const c = corners[i];
-      if (!c) continue;
-      this.pos.push(c[0], c[1], c[2]);
-      this.nor.push(nx, 0, nz);
-      this.uv.push(c[3], c[4]);
-    }
-  }
-
-  mesh(tex: THREE.Texture): THREE.Mesh | null {
-    if (this.pos.length === 0) return null;
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(this.pos), 3));
-    geo.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(this.nor), 3));
-    geo.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(this.uv), 2));
-    geo.computeBoundingSphere();
-    return new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9 }));
-  }
-}
-
 // --- Pier analysis --------------------------------------------------------
 
 /** A pier reduced to the frame everything else is placed in. */
-type PierInfo = {
+interface PierInfo {
   readonly spec: PrismSpec;
   readonly area: number;
   readonly deckY: number;
@@ -200,15 +120,17 @@ type PierInfo = {
   /** Chainage along the waterfront, for numbering (see FERRY_Z). */
   readonly key: number;
   number: number | null;
-};
+}
 
-function analyse(flat: readonly number[], area: number, terrain: Terrain): PierInfo | null {
+const analyse = (flat: readonly number[], area: number, terrain: Terrain): PierInfo | null => {
   const spec = prismSpec([0.85, ...flat]);
-  if (!spec) return null;
+  if (!spec) {
+    return null;
+  }
   const { cx, cz, rel } = spec;
   const n = rel.length / 2;
   let hi = -Infinity;
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < n; i += 1) {
     hi = Math.max(hi, terrain.heightAt(cx + (rel[i * 2] ?? 0), cz + (rel[i * 2 + 1] ?? 0)));
   }
   // Deck just clear of the water, meeting the seawall height shoreside. The
@@ -219,7 +141,7 @@ function analyse(flat: readonly number[], area: number, terrain: Terrain): PierI
   let bestLen = 0;
   let ex = 1;
   let ez = 0;
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < n; i += 1) {
     const j = (i + 1) % n;
     const dx = (rel[j * 2] ?? 0) - (rel[i * 2] ?? 0);
     const dz = (rel[j * 2 + 1] ?? 0) - (rel[i * 2 + 1] ?? 0);
@@ -234,7 +156,7 @@ function analyse(flat: readonly number[], area: number, terrain: Terrain): PierI
   let maxA = -Infinity;
   let minB = Infinity;
   let maxB = -Infinity;
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < n; i += 1) {
     const dx = rel[i * 2] ?? 0;
     const dz = rel[i * 2 + 1] ?? 0;
     const a = dx * ex + dz * ez;
@@ -254,38 +176,40 @@ function analyse(flat: readonly number[], area: number, terrain: Terrain): PierI
     terrain.landAt(ox + s * ex * (maxA - minA) * 0.5, oz + s * ez * (maxA - minA) * 0.5);
   const shoreSign = probe(1) >= probe(-1) ? 1 : -1;
   return {
-    spec,
     area,
     deckY,
-    ox,
-    oz,
     ex,
     ez,
-    yaw: Math.atan2(-ez, ex),
+    key: oz < -1050 ? ox : 1000 + (oz + 1050),
     lenA: maxA - minA,
     lenB: maxB - minB,
-    shoreSign,
-    key: oz < -1050 ? ox : 1000 + (oz + 1050),
     number: null,
+    ox,
+    oz,
+    shoreSign,
+    spec,
+    yaw: Math.atan2(-ez, ex),
   };
-}
+};
 
 /** World point at (along-axis, across-axis) in a pier's own frame. */
-function atFrame(p: PierInfo, a: number, bb: number): readonly [number, number] {
-  return [p.ox + a * p.ex - bb * p.ez, p.oz + a * p.ez + bb * p.ex];
-}
+const atFrame = (p: PierInfo, a: number, bb: number): readonly [number, number] => [
+  p.ox + a * p.ex - bb * p.ez,
+  p.oz + a * p.ez + bb * p.ex,
+];
 
 // --- Substructure ---------------------------------------------------------
 
-const PILE_STEP = 6.5; // was ~40 on the long edges: the piers looked levitated
+// was ~40 on the long edges: the piers looked levitated
+const PILE_STEP = 6.5;
 const PILE_FOOT = -2.6;
 const BRACE_MIN_EDGE = 22;
 
-function substructure(port: ChunkedPort, p: PierInfo): void {
+const substructure = (port: ChunkedPort, p: PierInfo): void => {
   const { cx, cz, rel } = p.spec;
   const n = rel.length / 2;
   const top = p.deckY - 0.75;
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < n; i += 1) {
     const j = (i + 1) % n;
     const ax = cx + (rel[i * 2] ?? 0);
     const az = cz + (rel[i * 2 + 1] ?? 0);
@@ -294,7 +218,7 @@ function substructure(port: ChunkedPort, p: PierInfo): void {
     const len = Math.hypot(bx - ax, bz - az);
     const steps = Math.max(1, Math.round(len / PILE_STEP));
     const b = port.at(ax, az);
-    for (let k = 0; k <= steps; k++) {
+    for (let k = 0; k <= steps; k += 1) {
       const t = k / steps;
       const px = ax + (bx - ax) * t;
       const pz = az + (bz - az) * t;
@@ -305,7 +229,7 @@ function substructure(port: ChunkedPort, p: PierInfo): void {
     b.beam(PILE_WET, ax, -0.05, az, bx, -0.05, bz, 0.7);
     if (len >= BRACE_MIN_EDGE) {
       const bays = Math.max(1, Math.round(len / 14));
-      for (let k = 0; k < bays; k++) {
+      for (let k = 0; k < bays; k += 1) {
         const t0 = k / bays;
         const t1 = (k + 1) / bays;
         const x0 = ax + (bx - ax) * t0;
@@ -326,21 +250,23 @@ function substructure(port: ChunkedPort, p: PierInfo): void {
       }
     }
   }
-}
+};
 
 /** Bollards, tyre fenders and a ladder round the rim — the working detail. */
-function rimFurniture(port: ChunkedPort, p: PierInfo, rng: Rng, beacons: Beacon[]): void {
+const rimFurniture = (port: ChunkedPort, p: PierInfo, rng: Rng, beacons: Beacon[]): void => {
   const { cx, cz, rel } = p.spec;
   const n = rel.length / 2;
   let laddered = false;
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < n; i += 1) {
     const j = (i + 1) % n;
     const ax = cx + (rel[i * 2] ?? 0);
     const az = cz + (rel[i * 2 + 1] ?? 0);
     const bx = cx + (rel[j * 2] ?? 0);
     const bz = cz + (rel[j * 2 + 1] ?? 0);
     const len = Math.hypot(bx - ax, bz - az);
-    if (len < 8) continue;
+    if (len < 8) {
+      continue;
+    }
     const dx = (bx - ax) / len;
     const dz = (bz - az) / len;
     // Inward normal, so the bollards stand ON the deck instead of over water.
@@ -348,19 +274,19 @@ function rimFurniture(port: ChunkedPort, p: PierInfo, rng: Rng, beacons: Beacon[
     const inz = -dx;
     const b = port.at(ax, az);
     const bollards = Math.max(1, Math.floor(len / 13));
-    for (let k = 0; k < bollards; k++) {
+    for (let k = 0; k < bollards; k += 1) {
       const t = ((k + 0.5) / bollards) * len;
       const x = ax + dx * t + inx * 1.4;
       const z = az + dz * t + inz * 1.4;
-      b.box(0x3a3a3a, 0.55, 0.95, 0.55, x, p.deckY + 0.45, z);
-      b.box(0x3a3a3a, 0.75, 0.2, 0.75, x, p.deckY + 0.95, z);
+      b.box(0x3a_3a_3a, 0.55, 0.95, 0.55, x, p.deckY + 0.45, z);
+      b.box(0x3a_3a_3a, 0.75, 0.2, 0.75, x, p.deckY + 0.95, z);
     }
     const fenders = Math.max(1, Math.floor(len / 11));
-    for (let k = 0; k < fenders; k++) {
+    for (let k = 0; k < fenders; k += 1) {
       const t = ((k + 0.35) / fenders) * len;
       const x = ax + dx * t - inx * 0.3;
       const z = az + dz * t - inz * 0.3;
-      b.box(0x232120, 0.7, 0.75, 0.7, x, p.deckY - 1.1, z, Math.atan2(dx, dz));
+      b.box(0x23_21_20, 0.7, 0.75, 0.7, x, p.deckY - 1.1, z, Math.atan2(dx, dz));
     }
     if (!laddered && p.area > 250) {
       laddered = true;
@@ -377,7 +303,7 @@ function rimFurniture(port: ChunkedPort, p: PierInfo, rng: Rng, beacons: Beacon[
           z - inz * 0.25 - dz * 0.35 * side,
         );
       }
-      for (let k = 0; k < 3; k++) {
+      for (let k = 0; k < 3; k += 1) {
         b.beam(
           STEEL,
           x - inx * 0.25 - dx * 0.35,
@@ -395,22 +321,22 @@ function rimFurniture(port: ChunkedPort, p: PierInfo, rng: Rng, beacons: Beacon[
   // starboard, blinking the way a real pier-head lantern does.
   const [nx, nz] = atFrame(p, (-p.shoreSign * p.lenA) / 2 + p.shoreSign * 1.5, 0);
   if (p.area > 150) {
-    port.at(nx, nz).box(0x2f3438, 0.4, 1.8, 0.4, nx, p.deckY + 0.9, nz);
+    port.at(nx, nz).box(0x2f_34_38, 0.4, 1.8, 0.4, nx, p.deckY + 0.9, nz);
     beacons.push({
+      blinkS: rng.range(2.6, 4.2),
+      color: rng.chance(0.5) ? 0xff_35_24 : 0x2b_ff_6a,
+      size: 2.4,
       x: nx,
       y: p.deckY + 2,
       z: nz,
-      color: rng.chance(0.5) ? 0xff3524 : 0x2bff6a,
-      size: 2.4,
-      blinkS: rng.range(2.6, 4.2),
     });
   }
-}
+};
 
 // --- Superstructure -------------------------------------------------------
 
 /** A pitched-roof shed on the deck. */
-function shed(
+const shed = (
   port: ChunkedPort,
   p: PierInfo,
   aCentre: number,
@@ -420,7 +346,7 @@ function shed(
   roofH: number,
   wall: number,
   roof: number,
-): void {
+): void => {
   const [x, z] = atFrame(p, aCentre, 0);
   const b = port.at(x, z);
   b.box(wall, lenA, wallH, lenB, x, p.deckY + wallH / 2, z, p.yaw);
@@ -454,16 +380,19 @@ function shed(
     const v0: [number, number, number] = [p0[0], p.deckY + wallH, p0[1]];
     const v1: [number, number, number] = [p1[0], p.deckY + wallH, p1[1]];
     const v2: [number, number, number] = [p2[0], p.deckY + wallH + roofH, p2[1]];
-    if (end > 0) b.tri(wall, v0, v2, v1);
-    else b.tri(wall, v0, v1, v2);
+    if (end > 0) {
+      b.tri(wall, v0, v2, v1);
+    } else {
+      b.tri(wall, v0, v1, v2);
+    }
   }
-}
+};
 
 /**
  * The bulkhead: the arched, parapeted street front the Embarcadero sheds hide
  * behind, with the pier's number board over the central bay.
  */
-function bulkhead(
+const bulkhead = (
   port: ChunkedPort,
   p: PierInfo,
   aFace: number,
@@ -472,10 +401,11 @@ function bulkhead(
   wall: number,
   signs: SignBoards,
   cell: number | null,
-): void {
+): void => {
   const [x, z] = atFrame(p, aFace, 0);
   const b = port.at(x, z);
-  const out = p.shoreSign; // the facade faces the street, i.e. shoreward
+  // the facade faces the street, i.e. shoreward
+  const out = p.shoreSign;
   const faceH = wallH + 1.6;
   b.box(wall, 1.1, faceH, width, x, p.deckY + faceH / 2, z, p.yaw);
   // Parapet with a raised central pediment.
@@ -486,14 +416,14 @@ function bulkhead(
   // Three arched bays: a dark recess with a stepped head, between pilasters.
   const bays = width > 26 ? 5 : 3;
   const bayW = (width * 0.78) / bays;
-  for (let i = 0; i < bays; i++) {
+  for (let i = 0; i < bays; i += 1) {
     const bb = (i - (bays - 1) / 2) * (width / bays);
     const [ox, oz] = atFrame(p, aFace + out * 0.35, bb);
     const openH = faceH * 0.62;
-    b.box(0x24292d, 0.6, openH, bayW * 0.72, ox, p.deckY + openH / 2, oz, p.yaw);
-    for (let s = 0; s < 3; s++) {
+    b.box(0x24_29_2d, 0.6, openH, bayW * 0.72, ox, p.deckY + openH / 2, oz, p.yaw);
+    for (let s = 0; s < 3; s += 1) {
       b.box(
-        0x24292d,
+        0x24_29_2d,
         0.6,
         0.3,
         bayW * (0.66 - s * 0.17),
@@ -521,13 +451,13 @@ function bulkhead(
       Math.min(width * 0.15, 3),
     );
   }
-}
+};
 
 /**
  * Portal gantry crane on the industrial piers. `aWanted` is clamped into the
  * deck: a crane whose bogies stand in the water reads as a floating prop.
  */
-function gantry(port: ChunkedPort, p: PierInfo, aWanted: number, span: number): void {
+const gantry = (port: ChunkedPort, p: PierInfo, aWanted: number, span: number): void => {
   const edge = Math.max(0, p.lenA / 2 - 9);
   const aCentre = Math.min(edge, Math.max(-edge, aWanted));
   const [x, z] = atFrame(p, aCentre, 0);
@@ -537,7 +467,8 @@ function gantry(port: ChunkedPort, p: PierInfo, aWanted: number, span: number): 
     for (const sb of [-1, 1] as const) {
       const [lx, lz] = atFrame(p, aCentre + sa * 4, (sb * span) / 2);
       b.box(CRANE_ORANGE, 0.8, legH, 0.8, lx, p.deckY + legH / 2, lz);
-      b.box(0x3a3f42, 1.6, 0.5, 1.6, lx, p.deckY + 0.25, lz); // bogie
+      // bogie
+      b.box(0x3a_3f_42, 1.6, 0.5, 1.6, lx, p.deckY + 0.25, lz);
     }
   }
   // Portal beam across the span, plus the boom reaching out over the water.
@@ -555,21 +486,23 @@ function gantry(port: ChunkedPort, p: PierInfo, aWanted: number, span: number): 
   b.beam(STEEL, x, p.deckY + legH + 3, z, tipX, p.deckY + legH + 4.4, tipZ, 0.25);
   // Spreader hanging off the trolley.
   const [hx, hz] = atFrame(p, aCentre, -span * 0.45);
-  b.box(0x3a3f42, 1.4, 0.5, 5, hx, p.deckY + legH - 1.4, hz, p.yaw);
-}
+  b.box(0x3a_3f_42, 1.4, 0.5, 5, hx, p.deckY + legH - 1.4, hz, p.yaw);
+};
 
 /** Stacked containers — the cargo that says a pier still works for a living. */
-function cargo(port: ChunkedPort, p: PierInfo, rng: Rng): void {
-  const hues = [0xc4562f, 0x2f6ea8, 0x3d7a4a, 0xb8a03a, 0x8a4d86, 0x9aa2a8];
+const cargo = (port: ChunkedPort, p: PierInfo, rng: Rng): void => {
+  const hues = [0xc4_56_2f, 0x2f_6e_a8, 0x3d_7a_4a, 0xb8_a0_3a, 0x8a_4d_86, 0x9a_a2_a8];
   const rows = Math.max(1, Math.floor(p.lenA / 18));
-  for (let i = 0; i < rows; i++) {
+  for (let i = 0; i < rows; i += 1) {
     const a = -p.lenA / 2 + 9 + i * 18;
-    if (!rng.chance(0.7)) continue;
-    for (let k = 0; k < 2; k++) {
+    if (!rng.chance(0.7)) {
+      continue;
+    }
+    for (let k = 0; k < 2; k += 1) {
       const bb = (k - 0.5) * Math.min(p.lenB * 0.36, 8);
       const [x, z] = atFrame(p, a, bb);
       const tiers = 1 + rng.int(3);
-      for (let t = 0; t < tiers; t++) {
+      for (let t = 0; t < tiers; t += 1) {
         port
           .at(x, z)
           .box(
@@ -585,12 +518,12 @@ function cargo(port: ChunkedPort, p: PierInfo, rng: Rng): void {
       }
     }
   }
-}
+};
 
 /** Fisherman's Wharf: a cluster of crab shacks with striped awnings. */
-function crabShacks(port: ChunkedPort, p: PierInfo, rng: Rng, beacons: Beacon[]): void {
+const crabShacks = (port: ChunkedPort, p: PierInfo, rng: Rng, beacons: Beacon[]): void => {
   const count = Math.max(2, Math.min(7, Math.floor(p.lenA / 11)));
-  for (let i = 0; i < count; i++) {
+  for (let i = 0; i < count; i += 1) {
     const a = -p.lenA / 2 + 6 + (i * (p.lenA - 10)) / Math.max(1, count - 1);
     const bb = rng.range(-p.lenB * 0.2, p.lenB * 0.2);
     const [x, z] = atFrame(p, a, bb);
@@ -606,22 +539,22 @@ function crabShacks(port: ChunkedPort, p: PierInfo, rng: Rng, beacons: Beacon[])
     b.cylinder(STEEL, 0.55, 1, x, p.deckY, z);
     if (rng.chance(0.5)) {
       beacons.push({
+        color: 0xff_ce_7a,
+        groundY: p.deckY,
+        size: 4.2,
         x,
         y: p.deckY + h + 0.6,
         z,
-        color: 0xffce7a,
-        size: 4.2,
-        groundY: p.deckY,
       });
     }
   }
-}
+};
 
 /** Pier 39: two rows of shopfronts down a boardwalk, with the carousel. */
-function arcade(port: ChunkedPort, p: PierInfo, rng: Rng, beacons: Beacon[]): void {
+const arcade = (port: ChunkedPort, p: PierInfo, rng: Rng, beacons: Beacon[]): void => {
   const rows = Math.max(3, Math.floor(p.lenA / 12));
   const off = Math.min(p.lenB * 0.28, 9);
-  for (let i = 0; i < rows; i++) {
+  for (let i = 0; i < rows; i += 1) {
     const a = -p.lenA / 2 + 8 + (i * (p.lenA - 14)) / Math.max(1, rows - 1);
     for (const side of [-1, 1] as const) {
       const [x, z] = atFrame(p, a, side * off);
@@ -659,54 +592,55 @@ function arcade(port: ChunkedPort, p: PierInfo, rng: Rng, beacons: Beacon[]): vo
         -side * 0.3,
       );
       if (rng.chance(0.45)) {
-        beacons.push({ x, y: p.deckY + h - 0.4, z, color: 0xffd58f, size: 5, groundY: p.deckY });
+        beacons.push({ color: 0xff_d5_8f, groundY: p.deckY, size: 5, x, y: p.deckY + h - 0.4, z });
       }
     }
   }
   // The carousel at the seaward end: a drum, a conical roof, a lit finial.
   const [cx, cz] = atFrame(p, (-p.shoreSign * p.lenA) / 2 + p.shoreSign * 9, 0);
   const b = port.at(cx, cz);
-  b.cylinder(0xf3ece0, 4.4, 4.2, cx, p.deckY, cz);
-  b.cone(0xd94f3a, 5.2, 2.6, cx, p.deckY + 4.2, cz);
-  b.cylinder(0xf2c341, 0.3, 1.2, cx, p.deckY + 6.8, cz);
-  beacons.push({ x: cx, y: p.deckY + 7.6, z: cz, color: 0xffe6a8, size: 7, groundY: p.deckY });
-}
+  b.cylinder(0xf3_ec_e0, 4.4, 4.2, cx, p.deckY, cz);
+  b.cone(0xd9_4f_3a, 5.2, 2.6, cx, p.deckY + 4.2, cz);
+  b.cylinder(0xf2_c3_41, 0.3, 1.2, cx, p.deckY + 6.8, cz);
+  beacons.push({ color: 0xff_e6_a8, groundY: p.deckY, size: 7, x: cx, y: p.deckY + 7.6, z: cz });
+};
 
 /** The ferry terminal: three covered slips off the Ferry Building's pier. */
-function ferryTerminal(port: ChunkedPort, p: PierInfo, beacons: Beacon[]): void {
+const ferryTerminal = (port: ChunkedPort, p: PierInfo, beacons: Beacon[]): void => {
   const out = -p.shoreSign;
   const aEnd = (out * p.lenA) / 2;
-  for (let i = -1; i <= 1; i++) {
+  for (let i = -1; i <= 1; i += 1) {
     const bb = i * Math.min(p.lenB * 0.34, 13);
     const [gx, gz] = atFrame(p, aEnd - out * 5, bb);
     const [tx, tz] = atFrame(p, aEnd + out * 9, bb);
     const b = port.at(gx, gz);
     // Gangway out to a landing float, under a hipped canopy.
     b.beam(TIMBER, gx, p.deckY + 0.1, gz, tx, WATER_Y + 1.1, tz, 3.2);
-    b.box(0xf1ece0, 4.6, 2.4, 5.4, tx, WATER_Y + 3.4, tz, p.yaw);
-    b.box(0x2b5f86, 4.9, 0.4, 5.7, tx, WATER_Y + 4.7, tz, p.yaw);
+    b.box(0xf1_ec_e0, 4.6, 2.4, 5.4, tx, WATER_Y + 3.4, tz, p.yaw);
+    b.box(0x2b_5f_86, 4.9, 0.4, 5.7, tx, WATER_Y + 4.7, tz, p.yaw);
     for (const s of [-1, 1] as const) {
       const [dx, dz] = atFrame(p, aEnd + out * 9, bb + s * 4.4);
-      b.box(PILE, 0.8, 7, 0.8, dx, 1.2, dz); // mooring dolphin
+      // mooring dolphin
+      b.box(PILE, 0.8, 7, 0.8, dx, 1.2, dz);
       b.box(PILE_WET, 1, 0.9, 1, dx, -0.2, dz);
     }
     beacons.push({
+      color: 0xff_e0_b0,
+      groundY: WATER_Y + 0.2,
+      size: 6,
       x: tx,
       y: WATER_Y + 5.2,
       z: tz,
-      color: 0xffe0b0,
-      size: 6,
-      groundY: WATER_Y + 0.2,
     });
   }
   // Terminal shed on the deck itself, glazed toward the slips.
   const [sx, sz] = atFrame(p, aEnd - out * 17, 0);
   const b = port.at(sx, sz);
-  b.box(0xe8e2d2, 12, 4.2, Math.min(p.lenB * 0.8, 26), sx, p.deckY + 2.1, sz, p.yaw);
+  b.box(0xe8_e2_d2, 12, 4.2, Math.min(p.lenB * 0.8, 26), sx, p.deckY + 2.1, sz, p.yaw);
   b.box(GLASS, 12.1, 1.5, Math.min(p.lenB * 0.8, 26) + 0.1, sx, p.deckY + 2.9, sz, p.yaw);
   b.box(SHED_TRIM, 13.4, 0.5, Math.min(p.lenB * 0.8, 26) + 1.4, sx, p.deckY + 4.45, sz, p.yaw);
-  beacons.push({ x: sx, y: p.deckY + 4.8, z: sz, color: 0xffdca6, size: 9, groundY: p.deckY });
-}
+  beacons.push({ color: 0xff_dc_a6, groundY: p.deckY, size: 9, x: sx, y: p.deckY + 4.8, z: sz });
+};
 
 // --- Shoreline ------------------------------------------------------------
 
@@ -717,12 +651,12 @@ const RIPRAP_STEP = 8;
  * shore until the terrain drops under the water, so it follows the traced
  * coast rather than a guessed line, and skipped wherever a pier deck lands.
  */
-function riprap(
+const riprap = (
   port: ChunkedPort,
   terrain: Terrain,
   near: (x: number, z: number) => boolean,
-): void {
-  const rng = new Rng(0x5ea11);
+): void => {
+  const rng = new Rng(0x5_ea_11);
   for (let z = -1240; z < -60; z += RIPRAP_STEP) {
     // March WEST out of open water: the first sample standing above the
     // waterline is the shore, wherever the traced coast put it that row.
@@ -733,9 +667,11 @@ function riprap(
         break;
       }
     }
-    if (found < 0 || near(found, z)) continue;
+    if (found < 0 || near(found, z)) {
+      continue;
+    }
     const b = port.at(found, z);
-    for (let k = 0; k < 4; k++) {
+    for (let k = 0; k < 4; k += 1) {
       const rx = found + rng.range(-1.4, 4.5);
       const rz = z + rng.range(-4, 4);
       // Rubble, not blocks: a 2u "boulder" is an 8 m rock at pier scale.
@@ -752,7 +688,7 @@ function riprap(
       );
     }
   }
-}
+};
 
 // --- Marina floats --------------------------------------------------------
 
@@ -760,7 +696,7 @@ const FLOAT_TOP = 0.16;
 const FLOAT_BOT = -0.55;
 
 /** The dock fingers themselves: shallow boxes RIDING the water, not over it. */
-function dockFloats(port: ChunkedPort, isWater: (x: number, z: number) => boolean): void {
+const dockFloats = (port: ChunkedPort, isWater: (x: number, z: number) => boolean): void => {
   for (const dock of SF_DOCKS) {
     for (let i = 0; i + 3 < dock.length; i += 2) {
       const ax = dock[i] ?? 0;
@@ -770,7 +706,9 @@ function dockFloats(port: ChunkedPort, isWater: (x: number, z: number) => boolea
       // A float riding at the waterline on dry ground is a plank in a car
       // park. Same test the moorings use, for the same OSM-vs-new-coastline
       // reason.
-      if (!isWater((ax + bx) / 2, (az + bz) / 2)) continue;
+      if (!isWater((ax + bx) / 2, (az + bz) / 2)) {
+        continue;
+      }
       const len = Math.hypot(bx - ax, bz - az) || 1;
       const nx = (-(bz - az) / len) * 0.8;
       const nz = ((bx - ax) / len) * 0.8;
@@ -783,14 +721,14 @@ function dockFloats(port: ChunkedPort, isWater: (x: number, z: number) => boolea
         [ax + nx, FLOAT_TOP, az + nz],
       );
       b.quad(
-        0xa08659,
+        0xa0_86_59,
         [ax + nx, FLOAT_TOP, az + nz],
         [bx + nx, FLOAT_TOP, bz + nz],
         [bx + nx, FLOAT_BOT, bz + nz],
         [ax + nx, FLOAT_BOT, az + nz],
       );
       b.quad(
-        0xa08659,
+        0xa0_86_59,
         [ax - nx, FLOAT_BOT, az - nz],
         [bx - nx, FLOAT_BOT, bz - nz],
         [bx - nx, FLOAT_TOP, bz - nz],
@@ -798,49 +736,119 @@ function dockFloats(port: ChunkedPort, isWater: (x: number, z: number) => boolea
       );
     }
   }
-}
+};
 
 // --- Entry point ----------------------------------------------------------
 
-export function buildPiers(terrain: Terrain): THREE.Group {
+/**
+ * Number the numbered ones: odd out to the wharf, even down toward Mission
+ * Bay, the Ferry Building's own pier excluded (it is the terminal).
+ */
+interface PierNumbering {
+  readonly ferryPier: PierInfo | null;
+  /** Atlas cell order: the numbers each sign board indexes into. */
+  readonly cells: readonly number[];
+}
+
+const numberPiers = (piers: readonly PierInfo[]): PierNumbering => {
+  let ferryPier: PierInfo | null = null;
+  for (const p of piers) {
+    if (p.area > 600 && Math.abs(p.oz - FERRY_Z) < 60 && (!ferryPier || p.area > ferryPier.area)) {
+      ferryPier = p;
+    }
+  }
+  const numbered = piers.filter((p) => p.area >= NUMBERED_MIN_AREA && p !== ferryPier);
+  const north = numbered.filter((p) => p.oz < FERRY_Z).toSorted((a, b) => b.key - a.key);
+  const south = numbered.filter((p) => p.oz >= FERRY_Z).toSorted((a, b) => a.key - b.key);
+  for (const [i, p] of north.entries()) {
+    p.number = NORTH_NUMBERS[NORTH_NUMBERS.length - 1 - i] ?? null;
+  }
+  for (const [i, p] of south.entries()) {
+    p.number = SOUTH_NUMBERS[i] ?? null;
+  }
+  const cells: number[] = [];
+  for (const p of piers) {
+    if (p.number !== null) {
+      cells.push(p.number);
+    }
+  }
+  return { cells, ferryPier };
+};
+
+/** Embarcadero and industrial piers: a shed of varied length and pitch, its
+ * bulkhead facade at the street end, cargo gear on the working ones. */
+const shedPier = (
+  port: ChunkedPort,
+  p: PierInfo,
+  rng: Rng,
+  beacons: Beacon[],
+  signs: SignBoards,
+  cells: readonly number[],
+): void => {
+  const industrial = p.oz > -560;
+  const lenA = Math.min(p.lenA * rng.range(0.6, 0.84), 52);
+  const lenB = Math.min(p.lenB * rng.range(0.5, 0.7), 22);
+  if (lenA < 9 || lenB < 5) {
+    return;
+  }
+  const wallH = rng.range(3.2, 5.4);
+  const roofH = rng.range(1.1, 2.6);
+  const wall = SHED_WALLS[Math.abs(Math.round(p.key)) % SHED_WALLS.length] ?? SHED_WALLS[0];
+  const roof = ROOFS[Math.abs(Math.round(p.key * 7)) % ROOFS.length] ?? ROOFS[0];
+  const aShed = (p.shoreSign * (p.lenA - lenA)) / 2 - p.shoreSign * 2;
+  shed(port, p, aShed, lenA, lenB, wallH, roofH, wall, roof);
+  bulkhead(
+    port,
+    p,
+    aShed + (p.shoreSign * lenA) / 2,
+    lenB + 2,
+    wallH,
+    wall,
+    signs,
+    p.number === null ? null : cells.indexOf(p.number),
+  );
+  beacons.push({
+    color: 0xff_dc_a6,
+    groundY: p.deckY,
+    size: 6,
+    x: p.ox,
+    y: p.deckY + wallH,
+    z: p.oz,
+  });
+  if (industrial && p.area > 500 && p.lenA > 34) {
+    gantry(port, p, aShed - p.shoreSign * (lenA / 2 + 14), Math.min(p.lenB * 0.6, 22));
+    cargo(port, p, rng);
+  }
+};
+
+export const buildPiers = (terrain: Terrain): THREE.Group => {
   const group = new THREE.Group();
   const port = new ChunkedPort();
   const beacons: Beacon[] = [];
   const signs = new SignBoards();
-  const rng = new Rng(0x9155);
+  const rng = new Rng(0x91_55);
 
   const piers: PierInfo[] = [];
   for (const raw of SF_PIERS) {
     const info = analyse(raw.p, raw.area, terrain);
-    if (info) piers.push(info);
+    if (info) {
+      piers.push(info);
+    }
   }
 
-  // Number the numbered ones: odd out to the wharf, even down toward Mission
-  // Bay, the Ferry Building's own pier excluded (it is the terminal).
-  const ferryPier = piers.reduce<PierInfo | null>(
-    (best, p) =>
-      p.area > 600 && Math.abs(p.oz - FERRY_Z) < 60 && (!best || p.area > best.area) ? p : best,
-    null,
-  );
-  const numbered = piers.filter((p) => p.area >= NUMBERED_MIN_AREA && p !== ferryPier);
-  const north = numbered.filter((p) => p.oz < FERRY_Z).sort((a, b) => b.key - a.key);
-  const south = numbered.filter((p) => p.oz >= FERRY_Z).sort((a, b) => a.key - b.key);
-  north.forEach((p, i) => {
-    p.number = NORTH_NUMBERS[NORTH_NUMBERS.length - 1 - i] ?? null;
-  });
-  south.forEach((p, i) => {
-    p.number = SOUTH_NUMBERS[i] ?? null;
-  });
-  const cells: number[] = [];
-  for (const p of piers) if (p.number !== null) cells.push(p.number);
+  const { cells, ferryPier } = numberPiers(piers);
   const atlas = signAtlas(cells);
 
   const nearPier = (x: number, z: number): boolean => {
     for (const p of piers) {
-      if (Math.abs(p.ox - x) > 90 || Math.abs(p.oz - z) > 90) continue;
+      if (Math.abs(p.ox - x) > 90 || Math.abs(p.oz - z) > 90) {
+        continue;
+      }
       const { cx, cz, rel } = p.spec;
       for (let i = 0; i < rel.length; i += 2) {
-        if (Math.hypot(cx + (rel[i] ?? 0) - x, cz + (rel[i + 1] ?? 0) - z) < 14) return true;
+        if (Math.hypot(cx + (rel[i] ?? 0) - x, cz + (rel[i + 1] ?? 0) - z) < 14) {
+          return true;
+        }
       }
     }
     return false;
@@ -861,46 +869,19 @@ export function buildPiers(terrain: Terrain): THREE.Group {
       continue;
     }
     const wharf = p.oz < -1050;
-    const industrial = p.oz > -560;
-    if (p.area < 150) continue; // a mooring stub: pilings and a bollard is all
+    if (p.area < 150) {
+      continue;
+      // a mooring stub: pilings and a bollard is all
+    }
     if (wharf) {
-      if (p.area > 800) arcade(port, p, rng, beacons);
-      else crabShacks(port, p, rng, beacons);
+      if (p.area > 800) {
+        arcade(port, p, rng, beacons);
+      } else {
+        crabShacks(port, p, rng, beacons);
+      }
       continue;
     }
-    // Embarcadero and industrial piers: a shed of varied length and pitch, its
-    // bulkhead facade at the street end, cargo gear on the working ones.
-    const lenA = Math.min(p.lenA * rng.range(0.6, 0.84), 52);
-    const lenB = Math.min(p.lenB * rng.range(0.5, 0.7), 22);
-    if (lenA < 9 || lenB < 5) continue;
-    const wallH = rng.range(3.2, 5.4);
-    const roofH = rng.range(1.1, 2.6);
-    const wall = SHED_WALLS[Math.abs(Math.round(p.key)) % SHED_WALLS.length] ?? SHED_WALLS[0];
-    const roof = ROOFS[Math.abs(Math.round(p.key * 7)) % ROOFS.length] ?? ROOFS[0];
-    const aShed = (p.shoreSign * (p.lenA - lenA)) / 2 - p.shoreSign * 2;
-    shed(port, p, aShed, lenA, lenB, wallH, roofH, wall, roof);
-    bulkhead(
-      port,
-      p,
-      aShed + (p.shoreSign * lenA) / 2,
-      lenB + 2,
-      wallH,
-      wall,
-      signs,
-      p.number === null ? null : cells.indexOf(p.number),
-    );
-    beacons.push({
-      x: p.ox,
-      y: p.deckY + wallH,
-      z: p.oz,
-      color: 0xffdca6,
-      size: 6,
-      groundY: p.deckY,
-    });
-    if (industrial && p.area > 500 && p.lenA > 34) {
-      gantry(port, p, aShed - p.shoreSign * (lenA / 2 + 14), Math.min(p.lenB * 0.6, 22));
-      cargo(port, p, rng);
-    }
+    shedPier(port, p, rng, beacons, signs, cells);
   }
 
   // The waterline test the whole harbour shares: the same −0.9 threshold
@@ -909,19 +890,21 @@ export function buildPiers(terrain: Terrain): THREE.Group {
   const isWater = (x: number, z: number): boolean => terrain.heightAt(x, z) < -0.9;
   dockFloats(port, isWater);
   riprap(port, terrain, nearPier);
-  const moorings = planMoorings(0x1a7b, isWater);
+  const moorings = planMoorings(0x1a_7b, isWater);
   for (const l of addMoorings((x, z) => port.at(x, z), moorings)) {
-    beacons.push({ x: l.x, y: l.y, z: l.z, color: l.color, size: l.size });
+    beacons.push({ color: l.color, size: l.size, x: l.x, y: l.y, z: l.z });
   }
 
   port.addTo(group);
   if (atlas) {
     const mesh = signs.mesh(atlas);
-    if (mesh) group.add(mesh);
+    if (mesh) {
+      group.add(mesh);
+    }
   }
   registerBeacons("piers", beacons);
   console.log(
     `[piers] ${piers.length} piers, ${moorings.length} moored, ${port.triCount} tris in ${port.meshCount} meshes, ${beacons.length} lamps`,
   );
   return group;
-}
+};

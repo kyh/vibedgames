@@ -1,47 +1,69 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import path from "node:path";
 
 import { defineCommand } from "citty";
-import consola from "consola";
+import { consola } from "consola";
 
 import { createClient } from "../lib/api.js";
 import { extractSource } from "../lib/archive.js";
 import { SLUG_RE } from "../lib/config-file.js";
 import { isJsonOutput, outputArgs, writeStructured } from "../lib/output.js";
 import { assertKnownFlags } from "../lib/strict-args.js";
-import { isJsonObject, type JsonValue } from "../lib/types.js";
+import { isJsonObject } from "../lib/types.js";
+import type { JsonValue } from "../lib/types.js";
 
 const forkArgs = {
-  slug: {
-    type: "positional",
-    description: "Slug of the project to fork (e.g. bomberman).",
-    required: true,
-  },
-  target: {
-    type: "positional",
-    description: "New slug + directory for the fork. Defaults to <slug>-fork.",
-    required: false,
+  force: {
+    default: false,
+    description: "Overwrite the target directory if it exists.",
+    type: "boolean",
   },
   name: {
-    type: "string",
     description: "Display name for the fork (defaults to the target slug).",
+    type: "string",
   },
-  force: {
-    type: "boolean",
-    description: "Overwrite the target directory if it exists.",
-    default: false,
+  slug: {
+    description: "Slug of the project to fork (e.g. bomberman).",
+    required: true,
+    type: "positional",
+  },
+  target: {
+    description: "New slug + directory for the fork. Defaults to <slug>-fork.",
+    required: false,
+    type: "positional",
   },
   ...outputArgs,
 } as const;
 
+const rewritePackageName = (dir: string, slug: string): void => {
+  const pkgPath = path.resolve(dir, "package.json");
+  if (!existsSync(pkgPath)) {
+    return;
+  }
+  try {
+    const pkg: JsonValue = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    if (!isJsonObject(pkg)) {
+      throw new Error("package.json is not a JSON object");
+    }
+    pkg.name = slug;
+    delete pkg.repository;
+    delete pkg.bugs;
+    delete pkg.homepage;
+    writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+  } catch (error) {
+    consola.warn(
+      `Could not rewrite package.json name: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+};
 export const forkCommand = defineCommand({
+  args: forkArgs,
   meta: {
-    name: "fork",
     description:
       "Fork another project's source so you can build on it. Downloads the source a project shipped with `vg deploy`, extracts it locally, and rewrites it to a new slug.",
+    name: "fork",
   },
-  args: forkArgs,
   run: async ({ args, rawArgs }) => {
     assertKnownFlags(rawArgs, forkArgs);
 
@@ -52,7 +74,7 @@ export const forkCommand = defineCommand({
       process.exit(1);
     }
 
-    const dir = resolve(process.cwd(), target);
+    const dir = path.resolve(process.cwd(), target);
     if (existsSync(dir)) {
       if (!args.force) {
         consola.error(
@@ -62,44 +84,50 @@ export const forkCommand = defineCommand({
       }
       // --force means replace, not merge — clear stale files first so the fork
       // isn't a dirty mix of the archive and whatever was already there.
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
 
     const client = createClient();
 
     // ---- Resolve + download source -----------------------------------------
-    if (!isJsonOutput(args) && !args.field) consola.start(`Forking ${source}`);
+    if (!isJsonOutput(args) && !args.field) {
+      consola.start(`Forking ${source}`);
+    }
     let src;
     try {
       src = await client.deploy.getSource({ slug: source });
-    } catch (err) {
-      consola.error(err instanceof Error ? err.message : String(err));
+    } catch (error) {
+      consola.error(error instanceof Error ? error.message : String(error));
       process.exit(1);
     }
 
-    const tmp = join(tmpdir(), "vibedgames", `fork-${process.pid}.tgz`);
-    mkdirSync(join(tmpdir(), "vibedgames"), { recursive: true });
+    const tmp = path.join(tmpdir(), "vibedgames", `fork-${process.pid}.tgz`);
+    mkdirSync(path.join(tmpdir(), "vibedgames"), { recursive: true });
     try {
       const res = await fetch(src.url);
-      if (!res.ok) throw new Error(`download failed: ${res.status} ${res.statusText}`);
+      if (!res.ok) {
+        throw new Error(`download failed: ${res.status} ${res.statusText}`);
+      }
       writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
       await extractSource(tmp, dir);
-    } catch (err) {
-      consola.error(err instanceof Error ? err.message : String(err));
+    } catch (error) {
+      consola.error(error instanceof Error ? error.message : String(error));
       process.exit(1);
     } finally {
       rmSync(tmp, { force: true });
     }
 
     // ---- Re-slug the fork (clean slate — no provenance recorded) ------------
-    const name = args.name ?? target.replace(/-/g, " ");
+    const name = args.name ?? target.replaceAll("-", " ");
     writeFileSync(
-      resolve(dir, "vibedgames.json"),
-      `${JSON.stringify({ slug: target, name }, null, 2)}\n`,
+      path.resolve(dir, "vibedgames.json"),
+      `${JSON.stringify({ name, slug: target }, null, 2)}\n`,
     );
     rewritePackageName(dir, target);
 
-    if (writeStructured({ slug: target, dir, forkedFrom: source }, args)) return;
+    if (writeStructured({ dir, forkedFrom: source, slug: target }, args)) {
+      return;
+    }
 
     consola.success(`Forked ${source} → ${target}`);
     consola.log(`  ${dir}`);
@@ -111,21 +139,3 @@ export const forkCommand = defineCommand({
     consola.log(`  # then: npm run build && vg deploy ./dist  → ${target}.vibedgames.com`);
   },
 });
-
-function rewritePackageName(dir: string, slug: string): void {
-  const pkgPath = resolve(dir, "package.json");
-  if (!existsSync(pkgPath)) return;
-  try {
-    const pkg: JsonValue = JSON.parse(readFileSync(pkgPath, "utf8"));
-    if (!isJsonObject(pkg)) throw new Error("package.json is not a JSON object");
-    pkg.name = slug;
-    delete pkg.repository;
-    delete pkg.bugs;
-    delete pkg.homepage;
-    writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
-  } catch (err) {
-    consola.warn(
-      `Could not rewrite package.json name: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-}

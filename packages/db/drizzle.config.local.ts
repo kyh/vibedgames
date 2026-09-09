@@ -1,6 +1,5 @@
 import { existsSync, readdirSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import path from "node:path";
 import type { Config } from "drizzle-kit";
 
 /**
@@ -10,16 +9,16 @@ import type { Config } from "drizzle-kit";
  * that file with a content hash, so we resolve it from `.wrangler` state here
  * rather than hard-coding it.
  */
-const here = dirname(fileURLToPath(import.meta.url));
-const d1Dir = join(here, "../../apps/web/.wrangler/state/v3/d1/miniflare-D1DatabaseObject");
+const here = import.meta.dirname;
+const d1Dir = path.join(here, "../../apps/web/.wrangler/state/v3/d1/miniflare-D1DatabaseObject");
 const file = existsSync(d1Dir) ? readdirSync(d1Dir).find((f) => f.endsWith(".sqlite")) : undefined;
 if (!file) {
   throw new Error("Local D1 not found. Run `pnpm dev:web` once to initialize it.");
 }
 
 export default {
+  casing: "snake_case",
+  dbCredentials: { url: `file:${path.join(d1Dir, file)}` },
   dialect: "sqlite",
   schema: ["./src/drizzle-schema-auth.ts", "./src/drizzle-schema.ts"],
-  casing: "snake_case",
-  dbCredentials: { url: `file:${join(d1Dir, file)}` },
 } satisfies Config;

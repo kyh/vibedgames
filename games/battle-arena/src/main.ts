@@ -20,11 +20,13 @@ import { View } from "./render/view";
 import { createPauseOverlay } from "./render/pause-overlay";
 import { Controls } from "./input/controls";
 import { TouchControls } from "./input/touch";
-import { GameScene, chosenChamp, chosenName, type SceneOpts } from "./scenes/game-scene";
+import { GameScene, chosenChamp, chosenName } from "./scenes/game-scene";
+import type { SceneOpts } from "./scenes/game-scene";
 import { Menu } from "./scenes/menu-scene";
 import { MenuStage } from "./render/menu-stage";
 import { roomId } from "./net/protocol";
-import { DUNGEON_MODELS, MAP_STORAGE_KEY, parseMapData, type MapData } from "./data/map-format";
+import { DUNGEON_MODELS, MAP_STORAGE_KEY, parseMapData } from "./data/map-format";
+import type { MapData } from "./data/map-format";
 import { applyMapData } from "./data/map";
 import { setDecorOverride } from "./data/decor";
 
@@ -36,9 +38,9 @@ declare global {
   }
 }
 
-const container = document.getElementById("game")!;
-const loadingEl = document.getElementById("loading");
-const barFill = document.getElementById("bar-fill");
+const container = document.querySelector("#game")!;
+const loadingEl = document.querySelector("#loading");
+const barFill = document.querySelector("#bar-fill");
 
 const CHAMP_MODELS = ["Knight", "Ranger", "Mage", "Rogue_Hooded", "Paladin_with_Helmet", "Witch"];
 const BOSS_MODEL = "Skeleton_Golem";
@@ -86,7 +88,10 @@ const CLIP_LIBS_LARGE = [
 ];
 // the dungeon prop vocabulary lives in data/map-format.ts (shared with the
 // map editor's palette, which must not import this boot module)
-type PropSpec = { name: string; url: string };
+interface PropSpec {
+  name: string;
+  url: string;
+}
 const PROP_SPECS: PropSpec[] = [
   ...DUNGEON_MODELS.map((m) => ({ name: m, url: `./models/dungeon/${m}.gltf` })),
   { name: "vampire_throne", url: "./models/props/Vampire_Throne.gltf" },
@@ -99,9 +104,13 @@ const PROP_SPECS: PropSpec[] = [
 async function fetchBundledMap(): Promise<MapData | null> {
   try {
     const res = await fetch("./maps/default.json");
-    if (!res.ok) return null;
+    if (!res.ok) {
+      return null;
+    }
     const parsed = parseMapData(await res.json());
-    if (!parsed) console.warn("[map] maps/default.json is invalid — using the procedural arena");
+    if (!parsed) {
+      console.warn("[map] maps/default.json is invalid — using the procedural arena");
+    }
     return parsed;
   } catch {
     return null;
@@ -111,10 +120,14 @@ async function fetchBundledMap(): Promise<MapData | null> {
 /** The editor's localStorage draft (offline test loop). */
 function readLocalMapDraft(): MapData | null {
   const raw = readPreference(MAP_STORAGE_KEY);
-  if (raw === null) return null;
+  if (raw === null) {
+    return null;
+  }
   try {
     const parsed = parseMapData(JSON.parse(raw));
-    if (!parsed) console.warn(`[map] localStorage ${MAP_STORAGE_KEY} is invalid — ignoring`);
+    if (!parsed) {
+      console.warn(`[map] localStorage ${MAP_STORAGE_KEY} is invalid — ignoring`);
+    }
     return parsed;
   } catch {
     console.warn(`[map] localStorage ${MAP_STORAGE_KEY} is not JSON — ignoring`);
@@ -125,24 +138,32 @@ function readLocalMapDraft(): MapData | null {
 /** Await `jobs`, driving the boot progress bar as they land. */
 async function runJobs(jobs: Promise<void>[]): Promise<void> {
   let done = 0;
-  if (barFill) barFill.style.width = "0%";
+  if (barFill) {
+    barFill.style.width = "0%";
+  }
   const track = async (job: Promise<void>): Promise<void> => {
     await job;
     done++;
-    if (barFill) barFill.style.width = `${Math.round((done / jobs.length) * 100)}%`;
+    if (barFill) {
+      barFill.style.width = `${Math.round((done / jobs.length) * 100)}%`;
+    }
   };
   await Promise.all(jobs.map(track));
 }
 
 function showLoading(on: boolean): void {
-  if (loadingEl) loadingEl.style.display = on ? "flex" : "none";
+  if (loadingEl) {
+    loadingEl.style.display = on ? "flex" : "none";
+  }
 }
 
 /** A load that never resolves leaves the veil up forever, so both the boot and
  *  the deferred arena load report through here instead. */
 function showFailure(cause: unknown): void {
   console.error(cause);
-  if (!loadingEl) return;
+  if (!loadingEl) {
+    return;
+  }
   // Trailer mode hides the veil via html.trailer; an inline display beats that
   // rule, so a failed load still surfaces instead of dying to a black frame.
   loadingEl.style.display = "flex";
@@ -174,7 +195,7 @@ async function main(): Promise<void> {
         lib.loadCharacter(
           p.name,
           p.url,
-          p.url.includes("/dungeon/") ? { matte: true, tint: 0xcabb9f } : { matte: true },
+          p.url.includes("/dungeon/") ? { matte: true, tint: 0xca_bb_9f } : { matte: true },
         ),
       ),
       ...ARENA_WEAPON_MODELS.map((m) => lib.loadCharacter(m, `./models/weapons/${m}.gltf`)),
@@ -205,7 +226,9 @@ async function main(): Promise<void> {
     const { runBattleArenaTrailer } = await import("./trailer/trailer-director");
     // Same handle the editor and viewer branches publish — headless trailer
     // checks need the renderer and camera to measure what was actually drawn.
-    if (import.meta.env.DEV) Object.assign(window, { __view: view });
+    if (import.meta.env.DEV) {
+      Object.assign(window, { __view: view });
+    }
     runBattleArenaTrailer(view, lib);
     window.addEventListener("resize", () => view.resize());
     return;
@@ -217,7 +240,9 @@ async function main(): Promise<void> {
     const { EditorScene } = await import("./scenes/editor-scene");
     const editor = new EditorScene(view, lib);
     await editor.init();
-    if (import.meta.env.DEV) Object.assign(window, { __ed: editor, __view: view });
+    if (import.meta.env.DEV) {
+      Object.assign(window, { __ed: editor, __view: view });
+    }
     const edTimer = new THREE.Timer();
     view.renderer.setAnimationLoop((t) => {
       edTimer.update(t);
@@ -233,7 +258,9 @@ async function main(): Promise<void> {
     const { ViewerScene } = await import("./scenes/viewer-scene");
     const viewer = new ViewerScene(view, lib);
     viewer.init();
-    if (import.meta.env.DEV) Object.assign(window, { __vw: viewer, __view: view });
+    if (import.meta.env.DEV) {
+      Object.assign(window, { __vw: viewer, __view: view });
+    }
     const vwTimer = new THREE.Timer();
     view.renderer.setAnimationLoop((t) => {
       vwTimer.update(t);
@@ -261,11 +288,11 @@ async function main(): Promise<void> {
     get: () => ({
       frame,
       ...(activeScene?.diagnostics() ?? {
+        audio: null,
+        complete: false,
         phase: "menu",
         player: null,
         score: 0,
-        complete: false,
-        audio: null,
       }),
     }),
   });
@@ -341,14 +368,18 @@ async function main(): Promise<void> {
     onPause: () => {
       pauseOverlay.show();
       activeScene?.pauseAudio();
-      if (onlineMatch || !activeScene) return;
+      if (onlineMatch || !activeScene) {
+        return;
+      }
       froze = true;
       view.renderer.setAnimationLoop(null);
     },
     onResume: () => {
       pauseOverlay.hide();
       activeScene?.resumeAudio();
-      if (!froze) return;
+      if (!froze) {
+        return;
+      }
       froze = false;
       timer.reset();
       view.renderer.setAnimationLoop(matchLoop);
@@ -398,7 +429,7 @@ async function main(): Promise<void> {
       window.removeEventListener("keydown", warmArena);
       // loadArena is memoised, so a failure here is reported by launch()'s own
       // handler; swallow it now rather than raising it over champion select.
-      void loadArena().catch(() => undefined);
+      void loadArena().catch(() => {});
     };
     window.addEventListener("pointerdown", warmArena);
     window.addEventListener("keydown", warmArena);
@@ -406,7 +437,9 @@ async function main(): Promise<void> {
     const menuTimer = new THREE.Timer();
     view.renderer.setAnimationLoop((t) => {
       menu.update();
-      if (!menu.active) return;
+      if (!menu.active) {
+        return;
+      }
       menuTimer.update(t);
       stage.update(Math.min(menuTimer.getDelta(), 1 / 30));
       stage.render();

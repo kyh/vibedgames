@@ -20,6 +20,22 @@ const ERROR_STATUS = new Map<string, number>(Object.entries(COMMON_ERROR_STATUS_
 const FAULTS_BELOW_500 = new Set(["PRECONDITION_FAILED"]);
 
 const handler = new RPCHandler(appRouter, {
+  clientInterceptors: [
+    // oxlint-disable-next-line promise/prefer-await-to-callbacks -- oRPC interceptors are registered as callbacks; there is nothing to await here
+    onError((error) => {
+      if (error instanceof ORPCError) {
+        // Observability is billable on this Worker. A procedure answering
+        // deliberately — an expired session, a zod rejection, `auth.cliPoll`
+        // telling a polling CLI "not confirmed yet" — would bury the real
+        // errors, so only a fault gets a line.
+        const status = ERROR_STATUS.get(error.code) ?? 500;
+        if (status < 500 && !FAULTS_BELOW_500.has(error.code)) {
+          return;
+        }
+      }
+      console.error(">>> oRPC Error", error);
+    }),
+  ],
   plugins: [
     // Paired with the link's `BatchLinkPlugin`. It re-dispatches each item
     // through this same `handle()` call, so a batch costs one context build
@@ -30,19 +46,6 @@ const handler = new RPCHandler(appRouter, {
     // pathologically large bodies up front rather than relying on the
     // per-field caps inside the procedures.
     new RequestLimitHandlerPlugin({ maxBodySize: MAX_RPC_BODY_BYTES }),
-  ],
-  clientInterceptors: [
-    onError((error) => {
-      if (error instanceof ORPCError) {
-        // Observability is billable on this Worker. A procedure answering
-        // deliberately — an expired session, a zod rejection, `auth.cliPoll`
-        // telling a polling CLI "not confirmed yet" — would bury the real
-        // errors, so only a fault gets a line.
-        const status = ERROR_STATUS.get(error.code) ?? 500;
-        if (status < 500 && !FAULTS_BELOW_500.has(error.code)) return;
-      }
-      console.error(">>> oRPC Error", error);
-    }),
   ],
 });
 
@@ -62,19 +65,22 @@ const handler = new RPCHandler(appRouter, {
  * request, before `BatchHandlerPlugin` fans a batch out into sub-requests
  * whose headers the client authored.
  */
-function isCrossOrigin(request: Request): boolean {
+const isCrossOrigin = (request: Request): boolean => {
   const origin = request.headers.get("origin");
   return origin !== null && origin !== new URL(request.url).origin;
-}
+};
 
-export async function handleRpcRequest(request: Request, context: ORPCContext): Promise<Response> {
+export const handleRpcRequest = async (
+  request: Request,
+  context: ORPCContext,
+): Promise<Response> => {
   if (isCrossOrigin(request)) {
     return new Response("Cross-origin request blocked.", { status: 403 });
   }
 
   const { response } = await handler.handle(request, {
-    prefix: "/api/orpc",
     context,
+    prefix: "/api/orpc",
   });
   return response ?? new Response("Not found", { status: 404 });
-}
+};

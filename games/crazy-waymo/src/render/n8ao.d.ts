@@ -3,9 +3,9 @@
 // scene itself into an internal half-float target — it REPLACES RenderPass).
 declare module "n8ao" {
   import type * as THREE from "three";
-  import { Pass } from "three/addons/postprocessing/Pass.js";
+  import type { Pass } from "three/addons/postprocessing/Pass.js";
 
-  export type N8AOConfiguration = {
+  export interface N8AOConfiguration {
     aoRadius: number;
     distanceFalloff: number;
     intensity: number;
@@ -22,7 +22,7 @@ declare module "n8ao" {
     transparencyAware: boolean;
     accumulate: boolean;
     renderMode: number;
-  };
+  }
 
   export class N8AOPass extends Pass {
     constructor(scene: THREE.Scene, camera: THREE.Camera, width?: number, height?: number);

@@ -1,6 +1,7 @@
 import { TILE } from "../config";
 import type { EnemyName } from "../data/animations";
-import { type BossKind, bossKind } from "../data/bosses";
+import { bossKind } from "../data/bosses";
+import type { BossKind } from "../data/bosses";
 import type { Grid } from "../sys/grid";
 import { rand } from "../sys/rng";
 import type { AttackBox, Rect } from "./player-body";
@@ -26,9 +27,23 @@ export type BossState =
   | "hurt"
   | "phase"
   | "dead";
-export type Wave = { x: number; y: number; vx: number; dmg: number };
-export type Blast = { x: number; y: number; r: number; dmg: number };
-export type Add = { x: number; y: number; name: EnemyName };
+export interface Wave {
+  x: number;
+  y: number;
+  vx: number;
+  dmg: number;
+}
+export interface Blast {
+  x: number;
+  y: number;
+  r: number;
+  dmg: number;
+}
+export interface Add {
+  x: number;
+  y: number;
+  name: EnemyName;
+}
 
 const approach = (c: number, t: number, d: number): number =>
   c < t ? Math.min(c + d, t) : Math.max(c - d, t);
@@ -60,25 +75,25 @@ export class BossBody {
   /** Exact authority state; excludes grid, kit and presentation callbacks. */
   checkpoint() {
     return {
-      x: this.x,
-      y: this.y,
-      prevX: this.prevX,
-      prevY: this.prevY,
-      vx: this.vx,
-      vy: this.vy,
+      attackCd: this.attackCd,
+      dead: this.dead,
       facing: this.facing,
       grounded: this.grounded,
+      hitFlash: this.hitFlash,
       hp: this.hp,
+      iframes: this.iframes,
+      pendingAdds: structuredClone(this.pendingAdds),
+      pendingBlast: structuredClone(this.pendingBlast),
+      pendingWaves: structuredClone(this.pendingWaves),
+      phase: this.phase,
+      prevX: this.prevX,
+      prevY: this.prevY,
       state: this.state,
       stateT: this.stateT,
-      phase: this.phase,
-      dead: this.dead,
-      hitFlash: this.hitFlash,
-      iframes: this.iframes,
-      attackCd: this.attackCd,
-      pendingWaves: structuredClone(this.pendingWaves),
-      pendingBlast: structuredClone(this.pendingBlast),
-      pendingAdds: structuredClone(this.pendingAdds),
+      vx: this.vx,
+      vy: this.vy,
+      x: this.x,
+      y: this.y,
     };
   }
 
@@ -133,7 +148,7 @@ export class BossBody {
   }
 
   hurtBox(): Rect {
-    return { left: this.x - HW, top: this.y - H, right: this.x + HW, bottom: this.y };
+    return { bottom: this.y, left: this.x - HW, right: this.x + HW, top: this.y - H };
   }
 
   // Melee danger (punch active window, slam landing) — else null.
@@ -142,30 +157,32 @@ export class BossBody {
       const reach = 30;
       const front = this.facing > 0 ? this.x : this.x - reach;
       return {
-        left: front,
-        top: this.y - H,
-        right: front + reach,
         bottom: this.y,
         dmg: 1,
         kb: 200,
+        left: front,
+        right: front + reach,
+        top: this.y - H,
       };
     }
     // The whole body is dangerous mid-lunge — a heavier, knock-you-back hit.
     if (this.state === "charge" && this.stateT >= 0.4 && this.stateT < 0.82) {
       return {
-        left: this.x - HW - 6,
-        top: this.y - H,
-        right: this.x + HW + 6,
         bottom: this.y,
         dmg: 1,
         kb: 260,
+        left: this.x - HW - 6,
+        right: this.x + HW + 6,
+        top: this.y - H,
       };
     }
     return null;
   }
 
   takeHit(dmg: number, _kb: number, _dir: number): boolean {
-    if (this.iframes > 0 || this.dead) return false;
+    if (this.iframes > 0 || this.dead) {
+      return false;
+    }
     this.hp -= dmg;
     this.hitFlash = 0.08;
     this.iframes = 0.03;
@@ -203,18 +220,21 @@ export class BossBody {
     this.attackCd = Math.max(0, this.attackCd - dt);
     const dx = tx - this.x;
     const dist = Math.abs(dx);
-    if (Math.abs(dx) > 4 && (this.state === "idle" || this.state === "intro"))
+    if (Math.abs(dx) > 4 && (this.state === "idle" || this.state === "intro")) {
       this.facing = dx > 0 ? 1 : -1;
+    }
 
     switch (this.state) {
-      case "dead":
+      case "dead": {
         this.vx = approach(this.vx, 0, 400 * dt);
         break;
-      case "intro":
+      }
+      case "intro": {
         this.vx = 0;
         if (this.stateT >= 1.0) this.setState("idle");
         break;
-      case "phase":
+      }
+      case "phase": {
         this.vx = approach(this.vx, 0, 500 * dt);
         if (this.stateT >= 0.8) {
           const adds = this.kind.adds;
@@ -226,10 +246,12 @@ export class BossBody {
           this.setState("idle");
         }
         break;
-      case "idle":
+      }
+      case "idle": {
         this.idle(dt, dx, dist, ty);
         break;
-      case "wave":
+      }
+      case "wave": {
         this.vx = approach(this.vx, 0, 500 * dt);
         if (this.stateT >= 0.5 && this.pendingWaves.length === 0 && this.stateT < 0.56) {
           // Fan: `kind.fan` waves at staggered heights and speeds, spreading as
@@ -247,7 +269,8 @@ export class BossBody {
         }
         if (this.stateT >= 0.85) this.endAttack();
         break;
-      case "jump":
+      }
+      case "jump": {
         this.vx = approach(this.vx, 0, 400 * dt);
         if (this.stateT >= 0.34) {
           this.vy = -330;
@@ -256,13 +279,15 @@ export class BossBody {
           this.setState("slam");
         }
         break;
-      case "slam":
+      }
+      case "slam": {
         if (this.grounded && this.stateT > 0.05) {
           this.pendingBlast = { x: this.x, y: this.y - 6, r: this.kind.slamR, dmg: 1 };
           this.endAttack();
         }
         break;
-      case "charge":
+      }
+      case "charge": {
         // Wind up in place, lunge flat across the arena, then skid to a stop.
         if (this.stateT < 0.4) this.vx = approach(this.vx, 0, 600 * dt);
         else if (this.stateT < 0.82) this.vx = this.facing * CHARGE_SPEED;
@@ -271,15 +296,18 @@ export class BossBody {
           if (this.stateT >= 0.98) this.endAttack();
         }
         break;
-      case "punch":
+      }
+      case "punch": {
         if (this.stateT >= 0.26 && this.stateT < 0.4) this.vx = this.facing * 90;
         else this.vx = approach(this.vx, 0, 600 * dt);
         if (this.stateT >= 0.6) this.endAttack();
         break;
-      case "hurt":
+      }
+      case "hurt": {
         this.vx = approach(this.vx, 0, 500 * dt);
         if (this.stateT >= 0.2) this.setState("idle");
         break;
+      }
     }
 
     this.applyPhysics(dt);
@@ -290,19 +318,28 @@ export class BossBody {
       // Ranged bosses hold a mid-range pocket (kite in when far, back off when
       // crowded); bruisers just close the gap.
       const want = this.kind.ranged ? 130 : 60;
-      if (dist > want + 20) this.vx = approach(this.vx, Math.sign(dx) * 40, 300 * dt);
-      else if (this.kind.ranged && dist < want - 40)
+      if (dist > want + 20) {
+        this.vx = approach(this.vx, Math.sign(dx) * 40, 300 * dt);
+      } else if (this.kind.ranged && dist < want - 40) {
         this.vx = approach(this.vx, -Math.sign(dx) * 46, 300 * dt);
-      else this.vx = approach(this.vx, 0, 300 * dt);
+      } else {
+        this.vx = approach(this.vx, 0, 300 * dt);
+      }
       return;
     }
     this.vx = 0;
     const r = rand();
-    if (this.kind.charges && dist > 70 && dist < 240 && r < 0.4) this.setState("charge");
-    else if (dist < 42 && !this.kind.ranged) this.setState("punch");
-    else if (this.kind.ranged) this.setState(r < 0.7 ? "wave" : "jump");
-    else if (dist < 150 && Math.abs(ty - this.y) < 30) this.setState(r < 0.55 ? "wave" : "jump");
-    else this.setState("jump");
+    if (this.kind.charges && dist > 70 && dist < 240 && r < 0.4) {
+      this.setState("charge");
+    } else if (dist < 42 && !this.kind.ranged) {
+      this.setState("punch");
+    } else if (this.kind.ranged) {
+      this.setState(r < 0.7 ? "wave" : "jump");
+    } else if (dist < 150 && Math.abs(ty - this.y) < 30) {
+      this.setState(r < 0.55 ? "wave" : "jump");
+    } else {
+      this.setState("jump");
+    }
   }
 
   private endAttack() {
@@ -311,20 +348,27 @@ export class BossBody {
   }
 
   private applyPhysics(dt: number) {
-    if (!this.grounded) this.vy = Math.min(this.vy + GRAVITY * dt, FALL_CAP);
+    if (!this.grounded) {
+      this.vy = Math.min(this.vy + GRAVITY * dt, FALL_CAP);
+    }
     this.moveX(this.vx * dt);
     this.moveY(this.vy * dt);
     const l = this.x - HW + 2;
     const r = this.x + HW - 2;
     this.grounded = this.grid.solidInRect(l, this.y, r, this.y + 2);
-    if (this.grounded && this.vy > 0) this.vy = 0;
+    if (this.grounded && this.vy > 0) {
+      this.vy = 0;
+    }
   }
 
   private moveX(dx: number) {
     this.x += dx;
     if (this.grid.solidInRect(this.x - HW, this.y - H + 2, this.x + HW, this.y - 2)) {
-      if (dx > 0) this.x = Math.floor((this.x + HW) / TILE) * TILE - HW - EPS;
-      else if (dx < 0) this.x = (Math.floor((this.x - HW) / TILE) + 1) * TILE + HW + EPS;
+      if (dx > 0) {
+        this.x = Math.floor((this.x + HW) / TILE) * TILE - HW - EPS;
+      } else if (dx < 0) {
+        this.x = (Math.floor((this.x - HW) / TILE) + 1) * TILE + HW + EPS;
+      }
       this.vx = 0;
     }
   }

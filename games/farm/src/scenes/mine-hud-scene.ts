@@ -1,10 +1,6 @@
 import Phaser from "phaser";
-import {
-  attachVirtualGamepad,
-  safeAreaInset,
-  type Inset,
-  type PhaserGamepad,
-} from "@vibedgames/gamepad/phaser";
+import { attachVirtualGamepad, safeAreaInset } from "@vibedgames/gamepad/phaser";
+import type { Inset, PhaserGamepad } from "@vibedgames/gamepad/phaser";
 import { store } from "../systems/store";
 import { HOTBAR } from "../systems/inventory";
 import { itemIcon, itemName } from "../data/items";
@@ -38,7 +34,7 @@ export class MineHudScene extends Phaser.Scene {
   private vitals: { hp: Phaser.GameObjects.Text; energy: Phaser.GameObjects.Text } | null = null;
   private zones: Phaser.GameObjects.Zone[] = [];
   private zoneSlot = 0;
-  private inset: Inset = { top: 0, right: 0, bottom: 0, left: 0 };
+  private inset: Inset = { bottom: 0, left: 0, right: 0, top: 0 };
   private gamepad?: PhaserGamepad;
   private onResize?: () => void;
 
@@ -48,7 +44,9 @@ export class MineHudScene extends Phaser.Scene {
 
   create(): void {
     const mine = this.scene.get("Mine");
-    if (!(mine instanceof MineScene)) throw new Error("MineHud requires the Mine scene");
+    if (!(mine instanceof MineScene)) {
+      throw new Error("MineHud requires the Mine scene");
+    }
     this.mine = mine;
     this.icons = [];
     this.slotLabels = [];
@@ -58,20 +56,20 @@ export class MineHudScene extends Phaser.Scene {
     this.buildVignette();
     this.g = this.add.graphics().setDepth(10);
     this.text = this.add
-      .text(0, 0, "", { fontFamily: FONT, fontSize: "13px", color: "#dfe9ff" })
+      .text(0, 0, "", { color: "#dfe9ff", fontFamily: FONT, fontSize: "13px" })
       .setDepth(11);
     this.hint = this.add
       .text(0, 0, isTouchDevice() ? "Tap the ladder to climb" : "Space/E to climb", {
+        color: "#cdd6e0",
         fontFamily: FONT,
         fontSize: "11px",
-        color: "#cdd6e0",
       })
       .setDepth(11);
     this.toolTip = this.add
       .text(0, 0, "", {
+        color: "#fff6d5",
         fontFamily: FONT,
         fontSize: "12px",
-        color: "#fff6d5",
         stroke: "#17151c",
         strokeThickness: 3,
       })
@@ -80,44 +78,48 @@ export class MineHudScene extends Phaser.Scene {
     const label = (fontSize: string) =>
       this.add
         .text(0, 0, "", {
+          color: "#fff6d5",
           fontFamily: FONT,
           fontSize,
           fontStyle: "bold",
-          color: "#fff6d5",
           stroke: "#17151c",
           strokeThickness: 2,
         })
         .setDepth(13);
-    this.vitals = { hp: label("10px").setOrigin(0.5), energy: label("10px").setOrigin(0.5) };
+    this.vitals = { energy: label("10px").setOrigin(0.5), hp: label("10px").setOrigin(0.5) };
     for (let i = 0; i < HOTBAR; i++) {
       this.icons.push(this.add.image(0, 0, "obj-stone").setVisible(false).setDepth(12));
       this.slotLabels.push({
-        qty: label("12px").setOrigin(1, 1),
         key: label("10px").setOrigin(0, 0).setAlpha(0.7).setText(hotbarKey(i)),
+        qty: label("12px").setOrigin(1, 1),
       });
     }
     this.gamepad = attachVirtualGamepad(this, {
+      render: { blendMode: Phaser.BlendModes.NORMAL, depth: 40 },
       visible: "coarse",
-      render: { depth: 40, blendMode: Phaser.BlendModes.NORMAL },
     });
     this.mine.gamepad = this.gamepad;
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.gamepad?.destroy());
-    if (this.onResize) this.scale.off("resize", this.onResize);
+    if (this.onResize) {
+      this.scale.off("resize", this.onResize);
+    }
     this.onResize = () => {
       this.inset = safeAreaInset();
       this.positionVignette();
     };
     this.scale.on("resize", this.onResize);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      if (this.onResize) this.scale.off("resize", this.onResize);
+      if (this.onResize) {
+        this.scale.off("resize", this.onResize);
+      }
     });
   }
 
   private buildVignette(): void {
     const key = "mine-vignette";
     if (!this.textures.exists(key)) {
-      const w = 640,
-        h = 480;
+      const h = 480,
+        w = 640;
       const tex = this.textures.createCanvas(key, w, h);
       if (tex) {
         const ctx = tex.getContext();
@@ -135,23 +137,29 @@ export class MineHudScene extends Phaser.Scene {
   }
 
   private positionVignette(): void {
-    const W = this.scale.width,
-      H = this.scale.height;
+    const W = this.scale.width;
+    const H = this.scale.height;
     this.vignette.setPosition(W / 2, H / 2).setDisplaySize(W + 120, H + 120);
   }
 
   /** Tap-to-select hotbar zones; rebuilt when the slot size changes. */
   private ensureZones(slot: number): void {
-    if (this.zoneSlot === slot) return;
+    if (this.zoneSlot === slot) {
+      return;
+    }
     this.zoneSlot = slot;
-    for (const z of this.zones) z.destroy();
+    for (const z of this.zones) {
+      z.destroy();
+    }
     this.zones = [];
     for (let i = 0; i < HOTBAR; i++) {
       const z = this.add.zone(0, 0, slot + PAD, slot + PAD).setInteractive();
       // Commit on release: the hotbar band is where a thumb starts a movement
       // drag, and the floating stick claims that touch on the way down.
       z.on("pointerup", (p: Phaser.Input.Pointer) => {
-        if (isPick(p)) store.inv.select(i);
+        if (isPick(p)) {
+          store.inv.select(i);
+        }
       });
       this.zones.push(z);
     }
@@ -165,7 +173,9 @@ export class MineHudScene extends Phaser.Scene {
       this.toolTip?.setVisible(false);
       this.vitals?.hp.setVisible(false);
       this.vitals?.energy.setVisible(false);
-      for (const ic of this.icons) ic.setVisible(false);
+      for (const ic of this.icons) {
+        ic.setVisible(false);
+      }
       for (const labels of this.slotLabels) {
         labels.qty.setVisible(false);
         labels.key.setVisible(false);
@@ -173,29 +183,29 @@ export class MineHudScene extends Phaser.Scene {
       return;
     }
     this.gamepad?.update();
-    const W = this.scale.width,
-      H = this.scale.height;
+    const W = this.scale.width;
+    const H = this.scale.height;
     const { top: it, left: il, right: ir, bottom: ib } = this.inset;
-    const g = this.g;
+    const { g } = this;
     g.clear();
     // top-left panel
-    g.fillStyle(0x000000, 0.45);
+    g.fillStyle(0x00_00_00, 0.45);
     g.fillRoundedRect(10 + il, 8 + it, 250, 58, 8);
     this.text.setVisible(true).setPosition(16 + il, 12 + it);
     this.text.setText(`⛏ Mine — Floor ${this.mine.depth}    ${store.gold}g`);
     // HP
     const hpFrac = Phaser.Math.Clamp(store.hp / store.maxHp(), 0, 1);
-    g.fillStyle(0x2a1e0e, 1);
+    g.fillStyle(0x2a_1e_0e, 1);
     g.fillRoundedRect(16 + il, 34 + it, 150, 12, 4);
-    g.fillStyle(hpFrac > 0.5 ? 0xff7b7b : hpFrac > 0.25 ? 0xffcf4d : 0xff5d5d, 1);
+    g.fillStyle(hpFrac > 0.5 ? 0xff_7b_7b : hpFrac > 0.25 ? 0xff_cf_4d : 0xff_5d_5d, 1);
     g.fillRoundedRect(16 + il, 34 + it, Math.max(2, 150 * hpFrac), 12, 4);
-    g.lineStyle(1, 0xffffff, 0.3);
+    g.lineStyle(1, 0xff_ff_ff, 0.3);
     g.strokeRoundedRect(16 + il, 34 + it, 150, 12, 4);
     // energy
     const enFrac = Phaser.Math.Clamp(store.energy / MAX_ENERGY, 0, 1);
-    g.fillStyle(0x2a1e0e, 1);
+    g.fillStyle(0x2a_1e_0e, 1);
     g.fillRoundedRect(16 + il, 49 + it, 150, 10, 3);
-    g.fillStyle(enFrac > 0.5 ? 0x7ed957 : enFrac > 0.25 ? 0xffcf4d : 0xff5d5d, 1);
+    g.fillStyle(enFrac > 0.5 ? 0x7e_d9_57 : enFrac > 0.25 ? 0xff_cf_4d : 0xff_5d_5d, 1);
     g.fillRoundedRect(16 + il, 49 + it, Math.max(2, 150 * enFrac), 10, 3);
     this.vitals?.hp
       .setVisible(true)
@@ -216,7 +226,7 @@ export class MineHudScene extends Phaser.Scene {
     );
     this.hint.setVisible(onLadder || this.mine.savePending);
     if (this.hint.visible) {
-      g.fillStyle(0x000000, 0.35);
+      g.fillStyle(0x00_00_00, 0.35);
       g.fillRoundedRect(10 + il, H - 27 - ib, this.hint.width + 16, 18, 6);
       this.hint.setPosition(18 + il, H - 24 - ib);
     }
@@ -237,9 +247,9 @@ export class MineHudScene extends Phaser.Scene {
       const x = sx + (i % perRow) * pitch;
       const y = bottomY - (rows - 1 - Math.floor(i / perRow)) * pitch;
       const sel = i === store.inv.selected;
-      g.fillStyle(sel ? 0x6a5a2a : 0x1a1a22, 0.85);
+      g.fillStyle(sel ? 0x6a_5a_2a : 0x1a_1a_22, 0.85);
       g.fillRoundedRect(x - slot / 2, y - slot / 2, slot, slot, 5);
-      g.lineStyle(2, sel ? 0xffe27a : 0x444455, 1);
+      g.lineStyle(2, sel ? 0xff_e2_7a : 0x44_44_55, 1);
       g.strokeRoundedRect(x - slot / 2, y - slot / 2, slot, slot, 5);
       this.zones[i]?.setPosition(x, y);
       const slotItem = store.inv.slots[i];
@@ -252,14 +262,18 @@ export class MineHudScene extends Phaser.Scene {
       labels?.key
         .setVisible(slot >= 34 && hotbarKey(i) !== "")
         .setPosition(x - slot / 2 + 3, y - slot / 2 + 2);
-      if (!ic) continue;
+      if (!ic) {
+        continue;
+      }
       if (slotItem) {
         const icon = itemIcon(slotItem.item);
         ic.setVisible(true)
           .setTexture(icon.key, icon.frame)
           .setPosition(x, y)
           .setScale(slotIconScale(ic, slot < 36 ? 24 : 32));
-      } else ic.setVisible(false);
+      } else {
+        ic.setVisible(false);
+      }
     }
   }
 }

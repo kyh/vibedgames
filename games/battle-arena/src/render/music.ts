@@ -13,24 +13,25 @@
 // Owned by the audio layer (constructed with the shared ctx + musicBus, started
 // on the same unlock gesture). Consumers: fx.ts / game-scene via
 // setIntensity / duck / stop / resolve.
-import { VoicePool, type VoiceGroup } from "./audio-voices";
+import { VoicePool } from "./audio-voices";
+import type { VoiceGroup } from "./audio-voices";
 
 export type MusicIntensity = 0 | 1 | 2 | 3;
 
 // D minor pitch set (Hz)
-const A1 = 55.0;
+const A1 = 55;
 const D2 = 73.42;
 const F2 = 87.31;
 const C3 = 130.81;
 const D3 = 146.83;
 const E3 = 164.81;
 const F3 = 174.61;
-const G3 = 196.0;
-const A3 = 220.0;
+const G3 = 196;
+const A3 = 220;
 const BB3 = 233.08;
 const D4 = 293.66;
 const F4 = 349.23;
-const A4 = 440.0;
+const A4 = 440;
 const C5 = 523.25;
 
 const PULSE_PATTERN: number[] = [D2, D2, F2, D2, A1, D2, C3, D2]; // 8ths
@@ -43,12 +44,12 @@ const BUS_GAIN = 0.32; // musicBus baseline (duck target 0.19, restored +0.4s)
 
 type LayerName = "drone" | "pulse" | "kit" | "lead";
 const LAYER_NAMES: LayerName[] = ["drone", "pulse", "kit", "lead"];
-const LAYER_MIN = { drone: 0, pulse: 1, kit: 1, lead: 2 } satisfies Record<LayerName, number>;
+const LAYER_MIN = { drone: 0, kit: 1, lead: 2, pulse: 1 } satisfies Record<LayerName, number>;
 
 export class Music {
   private gains: Record<LayerName, GainNode> | null = null;
-  private targets = { drone: 1, pulse: 0, kit: 0, lead: 0 } satisfies Record<LayerName, number>;
-  private fadeEnds = { drone: 0, pulse: 0, kit: 0, lead: 0 } satisfies Record<LayerName, number>;
+  private targets = { drone: 1, kit: 0, lead: 0, pulse: 0 } satisfies Record<LayerName, number>;
+  private fadeEnds = { drone: 0, kit: 0, lead: 0, pulse: 0 } satisfies Record<LayerName, number>;
   private drone: VoiceGroup | null = null;
   private voices = new VoicePool(24, 24);
   private disposed = false;
@@ -68,7 +69,9 @@ export class Music {
 
   /** Begin once or resume the same phase, rebased to the current sample clock. */
   start(): void {
-    if (this.running || this.disposed || this.resolved || this.ctx.state !== "running") return;
+    if (this.running || this.disposed || this.resolved || this.ctx.state !== "running") {
+      return;
+    }
     this.voices.clear();
     this.running = true;
     this.ensureNoise();
@@ -76,14 +79,16 @@ export class Music {
     if (!this.gains) {
       this.gains = {
         drone: this.ctx.createGain(),
-        pulse: this.ctx.createGain(),
         kit: this.ctx.createGain(),
         lead: this.ctx.createGain(),
+        pulse: this.ctx.createGain(),
       } satisfies Record<LayerName, GainNode>;
-      for (const name of LAYER_NAMES) this.gains[name].connect(this.bus);
+      for (const name of LAYER_NAMES) {
+        this.gains[name].connect(this.bus);
+      }
     }
     for (const name of LAYER_NAMES) {
-      const gain = this.gains[name].gain;
+      const { gain } = this.gains[name];
       gain.cancelScheduledValues(t);
       gain.setValueAtTime(this.targets[name], t);
     }
@@ -97,14 +102,18 @@ export class Music {
 
   /** Crossfade the layer stack (1.5s); tempo shifts to 112 on the next bar at 3. */
   setIntensity(n: MusicIntensity): void {
-    if (this.disposed || n === this.intensity) return;
+    if (this.disposed || n === this.intensity) {
+      return;
+    }
     this.intensity = n;
     this.applyIntensityGains();
   }
 
   /** Sidechain dip for big impacts (explosion/death) — 0.19 then back to 0.32. */
   duck(): void {
-    if (!this.running || this.disposed || this.ctx.state !== "running") return;
+    if (!this.running || this.disposed || this.ctx.state !== "running") {
+      return;
+    }
     const t = this.ctx.currentTime;
     this.bus.gain.setTargetAtTime(0.19, t, 0.08);
     this.bus.gain.setTargetAtTime(BUS_GAIN, t + 0.4, 0.1);
@@ -133,10 +142,14 @@ export class Music {
   /** Match-end cadence: I-chord (D3 F3 A3, 1.2s) on a win; falling ii°-ish
    *  (E3 G3 Bb3) on a loss. Stops the layers first. */
   resolve(won: boolean): void {
-    if (this.disposed || this.resolved) return;
+    if (this.disposed || this.resolved) {
+      return;
+    }
     this.resolved = true;
     this.stop();
-    if (this.ctx.state !== "running") return;
+    if (this.ctx.state !== "running") {
+      return;
+    }
     const phrase = this.voices.begin("essential");
     this.ensureNoise();
     const t = this.ctx.currentTime + 0.05;
@@ -145,16 +158,18 @@ export class Music {
       this.sawStackNote(F3, t, 1.2, 0.07, undefined, phrase);
       this.sawStackNote(A3, t, 1.2, 0.07, undefined, phrase);
     } else {
-      this.sawStackNote(E3, t, 1.0, 0.06, 0.84, phrase);
-      this.sawStackNote(G3, t, 1.0, 0.06, 0.84, phrase);
-      this.sawStackNote(BB3, t, 1.0, 0.06, 0.84, phrase);
+      this.sawStackNote(E3, t, 1, 0.06, 0.84, phrase);
+      this.sawStackNote(G3, t, 1, 0.06, 0.84, phrase);
+      this.sawStackNote(BB3, t, 1, 0.06, 0.84, phrase);
     }
     phrase.seal();
   }
 
   /** Immediate cancellation for mute/pause; retain the musical phase and mix. */
   silence(): void {
-    if (this.timer !== null) window.clearInterval(this.timer);
+    if (this.timer !== null) {
+      window.clearInterval(this.timer);
+    }
     this.timer = null;
     this.running = false;
     this.voices.clear();
@@ -162,18 +177,23 @@ export class Music {
     const t = this.ctx.currentTime;
     this.bus.gain.cancelScheduledValues(t);
     this.bus.gain.setValueAtTime(BUS_GAIN, t);
-    if (this.gains)
+    if (this.gains) {
       for (const name of LAYER_NAMES) {
         this.gains[name].gain.cancelScheduledValues(t);
         this.gains[name].gain.setValueAtTime(0, t);
       }
+    }
   }
 
   dispose(): void {
-    if (this.disposed) return;
+    if (this.disposed) {
+      return;
+    }
     this.disposed = true;
     this.silence();
-    if (this.gains) for (const name of LAYER_NAMES) this.gains[name].disconnect();
+    if (this.gains) {
+      for (const name of LAYER_NAMES) this.gains[name].disconnect();
+    }
     this.gains = null;
     this.noiseBuf = null;
   }
@@ -181,12 +201,18 @@ export class Music {
   // ── scheduler ──────────────────────────────────────────────────────────────
 
   private tick(): void {
-    if (!this.running || this.disposed || this.ctx.state !== "running") return;
+    if (!this.running || this.disposed || this.ctx.state !== "running") {
+      return;
+    }
     const now = this.ctx.currentTime;
-    if (this.nextTime < now - LOOKAHEAD_S) this.nextTime = now + 0.06;
+    if (this.nextTime < now - LOOKAHEAD_S) {
+      this.nextTime = now + 0.06;
+    }
     const horizon = now + LOOKAHEAD_S;
     while (this.nextTime < horizon) {
-      if (this.step % 8 === 0) this.bpm = this.intensity === 3 ? 112 : 96; // bar boundary
+      if (this.step % 8 === 0) {
+        this.bpm = this.intensity === 3 ? 112 : 96;
+      } // bar boundary
       const stepDur = 60 / this.bpm / 2; // one 8th
       this.scheduleStep(this.step, this.nextTime, stepDur);
       this.nextTime += stepDur;
@@ -203,9 +229,15 @@ export class Music {
     }
     // kit — kick / snare / hats
     if (this.layerAudible("kit")) {
-      if (s8 === 0 || s8 === 4) this.tone("kit", "sine", 110, t, 0.12, 0.15, 45);
-      if (s8 === 4) this.noise("kit", t, 0.09, 0.1, "bandpass", 1800);
-      if (s8 % 2 === 1 || this.intensity === 3) this.noise("kit", t, 0.03, 0.045, "highpass", 6000);
+      if (s8 === 0 || s8 === 4) {
+        this.tone("kit", "sine", 110, t, 0.12, 0.15, 45);
+      }
+      if (s8 === 4) {
+        this.noise("kit", t, 0.09, 0.1, "bandpass", 1800);
+      }
+      if (s8 % 2 === 1 || this.intensity === 3) {
+        this.noise("kit", t, 0.03, 0.045, "highpass", 6000);
+      }
     }
     // lead — 16th arp (two notes per 8th step)
     if (this.layerAudible("lead")) {
@@ -234,10 +266,14 @@ export class Music {
     const t = this.ctx.currentTime;
     for (const name of LAYER_NAMES) {
       const target = this.intensity >= LAYER_MIN[name] ? 1 : 0;
-      if (target === this.targets[name]) continue;
+      if (target === this.targets[name]) {
+        continue;
+      }
       this.targets[name] = target;
       this.fadeEnds[name] = t + FADE_S;
-      if (!this.gains) continue;
+      if (!this.gains) {
+        continue;
+      }
       const g = this.gains[name].gain;
       g.cancelScheduledValues(t);
       g.setValueAtTime(g.value, t);
@@ -248,10 +284,14 @@ export class Music {
   // ── voices ─────────────────────────────────────────────────────────────────
 
   private ensureNoise(): void {
-    if (this.noiseBuf) return;
+    if (this.noiseBuf) {
+      return;
+    }
     const buf = this.ctx.createBuffer(1, this.ctx.sampleRate, this.ctx.sampleRate);
     const data = buf.getChannelData(0);
-    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    for (let i = 0; i < data.length; i++) {
+      data[i] = Math.random() * 2 - 1;
+    }
     this.noiseBuf = buf;
   }
 
@@ -277,8 +317,9 @@ export class Music {
     }
     osc.type = type;
     osc.frequency.setValueAtTime(freq, t);
-    if (slideTo !== undefined)
+    if (slideTo !== undefined) {
       osc.frequency.exponentialRampToValueAtTime(Math.max(20, slideTo), t + dur);
+    }
     const g = group.node(this.ctx.createGain());
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(gain, t + 0.008);
@@ -305,7 +346,9 @@ export class Music {
     ftype: BiquadFilterType,
     ffreq: number,
   ): void {
-    if (!this.noiseBuf) return;
+    if (!this.noiseBuf) {
+      return;
+    }
     const group = this.voices.begin();
     const src = group.source(() => this.ctx.createBufferSource());
     if (!src) {
@@ -336,7 +379,9 @@ export class Music {
     filter.connect(level).connect(layerGain);
     for (const f of [D2, D2 * 1.007]) {
       const osc = group.source(() => this.ctx.createOscillator());
-      if (!osc) break;
+      if (!osc) {
+        break;
+      }
       osc.type = "sawtooth";
       osc.frequency.value = f;
       osc.connect(filter);
@@ -366,15 +411,20 @@ export class Music {
     filter.connect(g).connect(this.bus);
     for (const det of [1, 1.006, 0.994]) {
       const osc = group.source(() => this.ctx.createOscillator());
-      if (!osc) break;
+      if (!osc) {
+        break;
+      }
       osc.type = "sawtooth";
       osc.frequency.setValueAtTime(freq * det, t);
-      if (fallTo !== undefined)
+      if (fallTo !== undefined) {
         osc.frequency.exponentialRampToValueAtTime(freq * det * fallTo, t + dur);
+      }
       osc.connect(filter);
       osc.start(t);
       osc.stop(t + dur + 0.05);
     }
-    if (!phrase) group.seal();
+    if (!phrase) {
+      group.seal();
+    }
   }
 }

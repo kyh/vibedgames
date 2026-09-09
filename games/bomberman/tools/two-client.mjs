@@ -10,14 +10,14 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const gameDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const gameDir = resolve(import.meta.dirname, "..");
 const { chromium } = createRequire(join(gameDir, "package.json"))("playwright-core");
 const wait = (ms) => new Promise((done) => setTimeout(done, ms));
 
 const argv = process.argv.slice(2);
 const option = (name, fallback) => {
   const index = argv.indexOf(name);
-  return index >= 0 ? argv[index + 1] : fallback;
+  return index !== -1 ? argv[index + 1] : fallback;
 };
 const port = Number(option("--port", "5384"));
 const room = `t${process.pid}-${Date.now().toString(36)}`;
@@ -33,12 +33,16 @@ async function startVite() {
   );
   const url = `http://localhost:${port}`;
   for (let attempt = 0; attempt < 100; attempt++) {
-    if (child.exitCode !== null) throw new Error(`vite exited ${child.exitCode}`);
+    if (child.exitCode !== null) {
+      throw new Error(`vite exited ${child.exitCode}`);
+    }
     const ok = await fetch(url).then(
       (r) => r.ok,
       () => false,
     );
-    if (ok) return { url, stop: () => child.kill() };
+    if (ok) {
+      return { url, stop: () => child.kill() };
+    }
     await wait(200);
   }
   throw new Error("vite did not come up");
@@ -46,7 +50,9 @@ async function startVite() {
 
 /** Everything the assertions read, in one round trip. */
 const snapshot = () => {
-  if (!window.__bb) return { status: "booting", bots: {}, players: [] };
+  if (!window.__bb) {
+    return { status: "booting", bots: {}, players: [] };
+  }
   const { scene, client, simNow } = window.__bb;
   const shared = client.sharedState;
   const bots = Object.fromEntries(
@@ -82,7 +88,7 @@ const snapshot = () => {
 /** `skewMs` shifts this client's wall clock: machines disagree about Date.now(),
  * and the shared sim clock must follow the host's sim time regardless. */
 async function open(browser, url, name, errors, skewMs = 0) {
-  const context = await browser.newContext({ viewport: { width: 1100, height: 800 } });
+  const context = await browser.newContext({ viewport: { height: 800, width: 1100 } });
   await context.addInitScript((skew) => {
     const real = Date.now;
     Date.now = () => real() + skew;
@@ -90,16 +96,24 @@ async function open(browser, url, name, errors, skewMs = 0) {
   const page = await context.newPage();
   page.on("pageerror", (error) => errors.push(`${name}: ${error.message}`));
   page.on("console", (message) => {
-    if (message.type() === "error") errors.push(`${name}: ${message.text()}`);
+    if (message.type() === "error") {
+      errors.push(`${name}: ${message.text()}`);
+    }
   });
   page.on("response", (response) => {
-    if (response.status() >= 400) errors.push(`${name}: ${response.status()} ${response.url()}`);
+    if (response.status() >= 400) {
+      errors.push(`${name}: ${response.status()} ${response.url()}`);
+    }
   });
   await page.goto(`${url}/?room=${room}&test=1`);
   const client = {
+    bomb: () => page.evaluate(() => window.__bb.scene.requestBomb()),
+    close: () => context.close(),
+    escape: () => page.keyboard.press("Escape"),
     name,
     page,
-    close: () => context.close(),
+    play: () => page.evaluate(() => window.__GAME_TEST_HOOKS__.setState("active-play")),
+    restart: () => page.evaluate(() => window.__bb.scene.requestRestart()),
     snap: async () => ({ ...(await page.evaluate(snapshot)), at: Date.now() }),
     async until(label, predicate, timeout = 8000) {
       const deadline = Date.now() + timeout;
@@ -111,10 +125,6 @@ async function open(browser, url, name, errors, skewMs = 0) {
       }
       throw new Error(`${name}: timed out waiting for ${label}: ${JSON.stringify(last)}`);
     },
-    play: () => page.evaluate(() => window.__GAME_TEST_HOOKS__.setState("active-play")),
-    bomb: () => page.evaluate(() => window.__bb.scene.requestBomb()),
-    restart: () => page.evaluate(() => window.__bb.scene.requestRestart()),
-    escape: () => page.keyboard.press("Escape"),
   };
   await client.until("connected + seeded", (s) => s.status === "connected" && s.seeded);
   return client;
@@ -146,15 +156,15 @@ const step = async (name, run) => {
   }
 };
 
-const server = option("--url") ? { url: option("--url"), stop() {} } : await startVite();
+const server = option("--url") ? { stop() {}, url: option("--url") } : await startVite();
 const browser = await chromium.launch({
-  headless: true,
-  channel: "chrome",
   args: [
     "--disable-background-timer-throttling",
     "--disable-backgrounding-occluded-windows",
     "--disable-renderer-backgrounding",
   ],
+  channel: "chrome",
+  headless: true,
 });
 let host;
 let guest;
@@ -231,7 +241,7 @@ try {
     const before = await guest.snap();
     await host.close();
     host = null;
-    const g = await guest.until("promoted", (s) => s.isHost && s.players.length === 1, 15000);
+    const g = await guest.until("promoted", (s) => s.isHost && s.players.length === 1, 15_000);
     assert.equal(g.round, before.round, "promotion must not reset the round");
     assert.equal(g.arena, before.arena);
     await assertMoving(guest, "promoted host drives bots");
@@ -260,7 +270,9 @@ try {
   process.exitCode = 1;
 } finally {
   console.log(results.join("\n"));
-  if (errors.length > 0) console.log(`console errors:\n${errors.join("\n")}`);
+  if (errors.length > 0) {
+    console.log(`console errors:\n${errors.join("\n")}`);
+  }
   await browser.close();
   server.stop();
   // A leaked dev-server handle would otherwise keep node alive past the last check.

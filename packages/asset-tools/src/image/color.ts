@@ -8,37 +8,41 @@ import type { RGB, RGBA } from "./raster.js";
  */
 
 const NAMED = {
-  black: [0, 0, 0],
-  white: [255, 255, 255],
-  red: [255, 0, 0],
-  lime: [0, 255, 0],
-  green: [0, 128, 0],
-  blue: [0, 0, 255],
-  yellow: [255, 255, 0],
-  cyan: [0, 255, 255],
   aqua: [0, 255, 255],
-  magenta: [255, 0, 255],
+  black: [0, 0, 0],
+  blue: [0, 0, 255],
+  brown: [165, 42, 42],
+  cyan: [0, 255, 255],
   fuchsia: [255, 0, 255],
   gray: [128, 128, 128],
+  green: [0, 128, 0],
   grey: [128, 128, 128],
-  silver: [192, 192, 192],
+  lime: [0, 255, 0],
+  magenta: [255, 0, 255],
   maroon: [128, 0, 0],
-  olive: [128, 128, 0],
   navy: [0, 0, 128],
-  purple: [128, 0, 128],
-  teal: [0, 128, 128],
+  olive: [128, 128, 0],
   orange: [255, 165, 0],
   pink: [255, 192, 203],
-  brown: [165, 42, 42],
+  purple: [128, 0, 128],
+  red: [255, 0, 0],
+  silver: [192, 192, 192],
+  teal: [0, 128, 128],
   transparent: [0, 0, 0],
+  white: [255, 255, 255],
+  yellow: [255, 255, 0],
 } satisfies Record<string, RGB>;
 
 const isNamedColor = (value: string): value is keyof typeof NAMED => Object.hasOwn(NAMED, value);
 
-export function parseColor(input: string): RGBA {
+const expandHexDigit = (c: string) => Number.parseInt(c + c, 16);
+
+export const parseColor = (input: string): RGBA => {
   const value = input.trim().toLowerCase();
 
-  if (value === "transparent") return [0, 0, 0, 0];
+  if (value === "transparent") {
+    return [0, 0, 0, 0];
+  }
   if (isNamedColor(value)) {
     const named = NAMED[value];
     return [named[0], named[1], named[2], 255];
@@ -50,39 +54,48 @@ export function parseColor(input: string): RGBA {
     // it parses leading digits and stops, so "1z" reads as 1 rather than
     // failing, and a malformed colour would be written into pixels instead of
     // being reported.
-    if (!/^(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/.test(hex)) {
+    if (!/^(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/u.test(hex)) {
       throw new Error(`Unrecognised colour: ${input}`);
     }
     if (hex.length === 3 || hex.length === 4) {
-      const expand = (c: string) => parseInt(c + c, 16);
-      const a = hex.length === 4 ? expand(hex[3]!) : 255;
-      return [expand(hex[0]!), expand(hex[1]!), expand(hex[2]!), a];
+      const a = hex.length === 4 ? expandHexDigit(hex.charAt(3)) : 255;
+      return [
+        expandHexDigit(hex.charAt(0)),
+        expandHexDigit(hex.charAt(1)),
+        expandHexDigit(hex.charAt(2)),
+        a,
+      ];
     }
-    const byte = (i: number) => parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+    const byte = (i: number) => Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
     return [byte(0), byte(1), byte(2), hex.length === 8 ? byte(3) : 255];
   }
 
-  const fn = /^rgba?\(([^)]+)\)$/.exec(value);
-  if (fn) {
-    const parts = fn[1]!.split(/[,/\s]+/).filter(Boolean);
-    if (parts.length < 3) throw new Error(`Unrecognised colour: ${input}`);
+  const body = /^rgba?\((?<body>[^)]+)\)$/u.exec(value)?.groups?.body;
+  if (body !== undefined) {
+    const [r, g, b, rawAlpha] = body.split(/[,/\s]+/u).filter(Boolean);
+    if (r === undefined || g === undefined || b === undefined) {
+      throw new Error(`Unrecognised colour: ${input}`);
+    }
     const channel = (raw: string) => {
+      // oxlint-disable-next-line unicorn/prefer-number-coercion -- CSS channels carry a `%` suffix, which Number() rejects
       const n = raw.endsWith("%") ? (Number.parseFloat(raw) * 255) / 100 : Number.parseFloat(raw);
-      if (Number.isNaN(n)) throw new Error(`Unrecognised colour: ${input}`);
+      if (Number.isNaN(n)) {
+        throw new TypeError(`Unrecognised colour: ${input}`);
+      }
       return Math.max(0, Math.min(255, Math.round(n)));
     };
     // The alpha term is 0–1 in CSS but 0–255 in the byte channels.
     const alpha =
-      parts.length > 3
-        ? Math.max(0, Math.min(255, Math.round(Number.parseFloat(parts[3]!) * 255)))
-        : 255;
-    return [channel(parts[0]!), channel(parts[1]!), channel(parts[2]!), alpha];
+      rawAlpha === undefined
+        ? 255
+        : // oxlint-disable-next-line unicorn/prefer-number-coercion -- CSS alpha may carry a `%` suffix, which Number() rejects
+          Math.max(0, Math.min(255, Math.round(Number.parseFloat(rawAlpha) * 255)));
+    return [channel(r), channel(g), channel(b), alpha];
   }
 
   throw new Error(`Unrecognised colour: ${input}`);
-}
+};
 
 /** Format as `#rrggbb`, dropping alpha — for JSON reports and prompt text. */
-export function toHex([r, g, b]: RGB | RGBA): string {
-  return `#${[r, g, b].map((c) => c.toString(16).padStart(2, "0")).join("")}`;
-}
+export const toHex = ([r, g, b]: RGB | RGBA): string =>
+  `#${[r, g, b].map((c) => c.toString(16).padStart(2, "0")).join("")}`;

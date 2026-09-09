@@ -15,7 +15,7 @@ test("curve preserves speed and forward floor for both paddles and edge returns"
       for (const direction of [-1, 1]) {
         const velocity = { x: lateral * 12, y: forward * 5 };
         const speed = Math.hypot(velocity.x, velocity.y);
-        let spin: Spin = { strength: direction, left: SPIN_LIFE };
+        let spin: Spin = { left: SPIN_LIFE, strength: direction };
         for (let i = 0; i < 120; i++) {
           spin = curveVelocity(velocity, spin, 1 / 120, 0.25);
           assert.ok(Math.abs(Math.hypot(velocity.x, velocity.y) - speed) < 1e-9);
@@ -36,7 +36,9 @@ test("30 Hz and 144 Hz integrate the same spin, including final partial step", (
 
 function simulate(hz: number) {
   const velocity = { x: 0, y: 7 };
-  let spin: Spin = { strength: 1, left: SPIN_LIFE };
-  for (let i = 0; i < hz; i++) spin = curveVelocity(velocity, spin, 1 / hz, 0.25);
+  let spin: Spin = { left: SPIN_LIFE, strength: 1 };
+  for (let i = 0; i < hz; i++) {
+    spin = curveVelocity(velocity, spin, 1 / hz, 0.25);
+  }
   return velocity;
 }

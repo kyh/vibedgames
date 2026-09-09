@@ -34,12 +34,8 @@
  * shows the error and the game stays fully playable with keyboard/tap.
  */
 
-import {
-  DrawingUtils,
-  FilesetResolver,
-  PoseLandmarker,
-  type NormalizedLandmark,
-} from "@mediapipe/tasks-vision";
+import { DrawingUtils, FilesetResolver, PoseLandmarker } from "@mediapipe/tasks-vision";
+import type { NormalizedLandmark } from "@mediapipe/tasks-vision";
 
 // ---- legacy tuning (recovered from git — do not retune) ------------------------
 
@@ -108,7 +104,7 @@ type PoseState = "idle" | "loading" | "warming" | "detecting" | "jumping";
  */
 export type PoseJumpHandler = (strength: number, refire: boolean) => void;
 
-type Panel = {
+interface Panel {
   root: HTMLDivElement;
   screen: HTMLDivElement;
   video: HTMLVideoElement;
@@ -117,7 +113,7 @@ type Panel = {
   recal: HTMLButtonElement;
   status: HTMLSpanElement;
   cap: HTMLDivElement;
-};
+}
 
 // ---- state machine ---------------------------------------------------------------
 
@@ -178,20 +174,28 @@ class PoseCamera {
     this.ui.screen.addEventListener("click", () => {
       const expanding = this.collapsed;
       this.setCollapsed(!this.collapsed);
-      if (expanding && this.state === "idle") this.start();
+      if (expanding && this.state === "idle") {
+        this.start();
+      }
     });
     // Keyboard activation of the focused preview must not leak Space/Enter to
     // the game as a flap, so both edges are swallowed here.
     const isActivationKey = (event: KeyboardEvent): boolean =>
       event.target === this.ui.screen && (event.key === "Enter" || event.key === " ");
     this.ui.screen.addEventListener("keydown", (event) => {
-      if (!isActivationKey(event)) return;
+      if (!isActivationKey(event)) {
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
-      if (!event.repeat) this.ui.screen.click();
+      if (!event.repeat) {
+        this.ui.screen.click();
+      }
     });
     this.ui.screen.addEventListener("keyup", (event) => {
-      if (!isActivationKey(event)) return;
+      if (!isActivationKey(event)) {
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
     });
@@ -227,7 +231,9 @@ class PoseCamera {
   recalibrate(): void {
     // Only meaningful once tracking is live — warm-up already self-seeds, and
     // resetting mid-load would corrupt the startup state machine.
-    if (this.state !== "detecting" && this.state !== "jumping") return;
+    if (this.state !== "detecting" && this.state !== "jumping") {
+      return;
+    }
     this.yPositions = [];
     this.minY = Infinity;
     this.wristYs = [];
@@ -247,18 +253,24 @@ class PoseCamera {
   }
 
   private setStatus(text: string): void {
-    if (this.ui.status.textContent !== text) this.ui.status.textContent = text;
+    if (this.ui.status.textContent !== text) {
+      this.ui.status.textContent = text;
+    }
   }
 
   /** The button is only shown in "idle" — a retry after a startup failure. */
   private handleMainAction(): void {
-    if (this.state === "idle") this.start();
+    if (this.state === "idle") {
+      this.start();
+    }
   }
 
   // ---- startup --------------------------------------------------------------------
 
   private start(): void {
-    if (this.state !== "idle") return;
+    if (this.state !== "idle") {
+      return;
+    }
     const attempt = ++this.attempt;
     this.setState("loading");
     this.ui.cap.textContent = "📷 LOADING";
@@ -273,14 +285,18 @@ class PoseCamera {
   }
 
   private releaseCapture(): void {
-    if (this.raf !== null) cancelAnimationFrame(this.raf);
+    if (this.raf !== null) {
+      cancelAnimationFrame(this.raf);
+    }
     this.raf = null;
     this.detectionStarted = false;
     this.releaseMediaEvents?.();
     this.releaseMediaEvents = null;
     this.ui.video.pause();
     this.ui.video.srcObject = null;
-    if (this.stream) for (const track of this.stream.getTracks()) track.stop();
+    if (this.stream) {
+      for (const track of this.stream.getTracks()) track.stop();
+    }
     this.stream = null;
     this.landmarker?.close();
     this.landmarker = null;
@@ -290,7 +306,9 @@ class PoseCamera {
   }
 
   private failStart(attempt: number, message: string): void {
-    if (!this.current(attempt)) return;
+    if (!this.current(attempt)) {
+      return;
+    }
     this.attempt += 1;
     this.releaseCapture();
     this.ui.root.classList.remove("fd-cam--live");
@@ -305,20 +323,24 @@ class PoseCamera {
   private async startCamera(attempt: number): Promise<void> {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user" },
         audio: false,
+        video: { facingMode: "user" },
       });
       if (!this.current(attempt)) {
-        for (const track of stream.getTracks()) track.stop();
+        for (const track of stream.getTracks()) {
+          track.stop();
+        }
         return;
       }
       this.stream = stream;
 
-      const video = this.ui.video;
+      const { video } = this.ui;
       const tracks = stream.getTracks();
       const onEnded = (): void => this.failStart(attempt, "Camera stream ended");
       const onVideoError = (): void => {
-        if (video.srcObject !== stream || video.error === null) return;
+        if (video.srcObject !== stream || video.error === null) {
+          return;
+        }
         this.failStart(
           attempt,
           `Camera interrupted: ${video.error.message || "Video playback failed"}`,
@@ -327,7 +349,9 @@ class PoseCamera {
       // Reached from the event or, if the stream was already sized, directly
       // below; overlayCtx marks it done for this attempt.
       const onMetadata = (): void => {
-        if (!this.current(attempt) || this.overlayCtx !== null) return;
+        if (!this.current(attempt) || this.overlayCtx !== null) {
+          return;
+        }
         try {
           // Reveal the video only once it has real dimensions — a stream-less
           // <video> renders at its 300×150 default and bloats the pill.
@@ -346,11 +370,15 @@ class PoseCamera {
           this.failStart(attempt, `Error: ${errorMessage(error)}`);
         }
       };
-      for (const track of tracks) track.addEventListener("ended", onEnded);
+      for (const track of tracks) {
+        track.addEventListener("ended", onEnded);
+      }
       video.addEventListener("error", onVideoError);
       video.addEventListener("loadedmetadata", onMetadata, { once: true });
       this.releaseMediaEvents = () => {
-        for (const track of tracks) track.removeEventListener("ended", onEnded);
+        for (const track of tracks) {
+          track.removeEventListener("ended", onEnded);
+        }
         video.removeEventListener("error", onVideoError);
         video.removeEventListener("loadedmetadata", onMetadata);
       };
@@ -359,8 +387,12 @@ class PoseCamera {
         onEnded();
         return;
       }
-      if (video.readyState >= 1 && video.videoWidth > 0) onMetadata();
-      if (!this.current(attempt)) return;
+      if (video.readyState >= 1 && video.videoWidth > 0) {
+        onMetadata();
+      }
+      if (!this.current(attempt)) {
+        return;
+      }
       await video.play();
     } catch (error) {
       // Graceful degradation: show why, fall back to keyboard/tap input.
@@ -373,14 +405,16 @@ class PoseCamera {
       this.setStatus("Loading pose detection model...");
 
       const vision = await FilesetResolver.forVisionTasks(WASM_BASE_URL);
-      if (!this.current(attempt)) return;
+      if (!this.current(attempt)) {
+        return;
+      }
       const landmarker = await PoseLandmarker.createFromOptions(vision, {
         baseOptions: {
-          modelAssetPath: MODEL_URL,
           delegate: "GPU",
+          modelAssetPath: MODEL_URL,
         },
-        runningMode: "VIDEO",
         numPoses: 1,
+        runningMode: "VIDEO",
       });
       if (!this.current(attempt)) {
         landmarker.close();
@@ -398,17 +432,21 @@ class PoseCamera {
   // ---- detection loop ----------------------------------------------------------------
 
   private startDetection(attempt: number): void {
-    if (!this.current(attempt) || this.detectionStarted) return;
+    if (!this.current(attempt) || this.detectionStarted) {
+      return;
+    }
     this.detectionStarted = true;
 
     let lastVideoTime = -1;
     let lastTimestamp = 0;
 
     const detectFrame = (): void => {
-      if (!this.current(attempt)) return;
+      if (!this.current(attempt)) {
+        return;
+      }
       this.raf = null;
-      const video = this.ui.video;
-      const landmarker = this.landmarker;
+      const { video } = this.ui;
+      const { landmarker } = this;
 
       if (video.readyState !== 4 || landmarker === null) {
         this.raf = requestAnimationFrame(detectFrame);
@@ -437,11 +475,15 @@ class PoseCamera {
               this.noseVisible = true;
               const noseY = nose.y * (video.videoHeight || 1);
               this.yPositions.unshift(noseY);
-              if (this.yPositions.length > SMOOTHING_WINDOW) this.yPositions.pop();
+              if (this.yPositions.length > SMOOTHING_WINDOW) {
+                this.yPositions.pop();
+              }
 
               this.processSample();
             }
-            if (!this.current(attempt)) return;
+            if (!this.current(attempt)) {
+              return;
+            }
             this.processArmFlap(landmarks);
           } else {
             this.overlayCtx?.clearRect(0, 0, this.ui.overlay.width, this.ui.overlay.height);
@@ -452,7 +494,9 @@ class PoseCamera {
         }
       }
 
-      if (this.current(attempt)) this.raf = requestAnimationFrame(detectFrame);
+      if (this.current(attempt)) {
+        this.raf = requestAnimationFrame(detectFrame);
+      }
     };
 
     detectFrame();
@@ -543,12 +587,16 @@ class PoseCamera {
    * double-fire.
    */
   private processArmFlap(landmarks: NormalizedLandmark[]): void {
-    if (this.state !== "detecting" && this.state !== "jumping") return;
+    if (this.state !== "detecting" && this.state !== "jumping") {
+      return;
+    }
     const ls = landmarks[LEFT_SHOULDER];
     const rs = landmarks[RIGHT_SHOULDER];
     const lw = landmarks[LEFT_WRIST];
     const rw = landmarks[RIGHT_WRIST];
-    if (!ls || !rs || !lw || !rw) return;
+    if (!ls || !rs || !lw || !rw) {
+      return;
+    }
     if (
       ls.visibility < MIN_VISIBILITY ||
       rs.visibility < MIN_VISIBILITY ||
@@ -558,11 +606,15 @@ class PoseCamera {
       return;
     }
     const scale = Math.abs(ls.x - rs.x);
-    if (scale < MIN_SHOULDER_WIDTH) return;
+    if (scale < MIN_SHOULDER_WIDTH) {
+      return;
+    }
     this.armsVisible = true;
 
     this.wristYs.unshift((lw.y + rw.y) / 2);
-    if (this.wristYs.length > FLAP_SMOOTHING_WINDOW) this.wristYs.pop();
+    if (this.wristYs.length > FLAP_SMOOTHING_WINDOW) {
+      this.wristYs.pop();
+    }
     const wy = getSmoothedY(this.wristYs);
 
     if (this.flapArmed) {
@@ -592,7 +644,9 @@ class PoseCamera {
   private showReadiness(): void {
     const [label, detail] = this.readiness();
     const cap = `📷 ${label}`;
-    if (this.ui.cap.textContent !== cap) this.ui.cap.textContent = cap;
+    if (this.ui.cap.textContent !== cap) {
+      this.ui.cap.textContent = cap;
+    }
     this.setStatus(detail);
   }
 
@@ -603,10 +657,15 @@ class PoseCamera {
         ? [`CENTER ${n}`, `Centering ${n} · stand naturally`]
         : ["FIND FACE", "Step into view to center your pose"];
     }
-    if (this.noseVisible && this.armsVisible)
+    if (this.noseVisible && this.armsVisible) {
       return ["POSE READY", "Ready · jump or flap your arms"];
-    if (this.noseVisible) return ["JUMP READY", "Jump ready · show wrists to flap too"];
-    if (this.armsVisible) return ["ARMS READY", "Arms ready · show your face to jump too"];
+    }
+    if (this.noseVisible) {
+      return ["JUMP READY", "Jump ready · show wrists to flap too"];
+    }
+    if (this.armsVisible) {
+      return ["ARMS READY", "Arms ready · show your face to jump too"];
+    }
     return ["FIND YOU", "Step into view · keyboard and tap still work"];
   }
 
@@ -615,15 +674,17 @@ class PoseCamera {
   /** Skeleton overlay: red landmark dots (r=3) + blue connectors (lineWidth=2). */
   private drawSkeleton(landmarks: NormalizedLandmark[]): void {
     const ctx = this.overlayCtx;
-    const drawingUtils = this.drawingUtils;
-    if (!ctx || !drawingUtils) return;
+    const { drawingUtils } = this;
+    if (!ctx || !drawingUtils) {
+      return;
+    }
 
     ctx.clearRect(0, 0, this.ui.overlay.width, this.ui.overlay.height);
 
     drawingUtils.drawLandmarks(landmarks, {
-      radius: 3,
       color: "red",
       fillColor: "red",
+      radius: 3,
     });
     drawingUtils.drawConnectors(landmarks, PoseLandmarker.POSE_CONNECTIONS, {
       color: "blue",
@@ -694,7 +755,9 @@ const PANEL_STYLE_ID = "fd-pose-cam-style";
  * panel consumes its own taps instead of flapping.
  */
 function injectStyles(): void {
-  if (document.getElementById(PANEL_STYLE_ID)) return;
+  if (document.querySelector(`#${PANEL_STYLE_ID}`)) {
+    return;
+  }
   const style = document.createElement("style");
   style.id = PANEL_STYLE_ID;
   style.textContent = `
@@ -772,7 +835,7 @@ function injectStyles(): void {
       text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75);
     }
   `;
-  document.head.appendChild(style);
+  document.head.append(style);
 }
 
 function buildPanel(parent: HTMLElement, collapsed: boolean): Panel {
@@ -821,23 +884,25 @@ function buildPanel(parent: HTMLElement, collapsed: boolean): Panel {
   controls.append(button, recal, status);
   screen.append(video, overlay, cap, controls);
   root.append(screen);
-  parent.appendChild(root);
+  parent.append(root);
 
   // The bottom-centred HUD pills reach under this panel on a narrow screen and
   // disappear behind it once it expands, so publish how much of the bottom-right
   // corner it currently owns and let index.html lift them clear.
   new ResizeObserver(() => {
-    const height = root.getBoundingClientRect().height;
+    const { height } = root.getBoundingClientRect();
     document.documentElement.style.setProperty("--fd-cam-h", `${Math.round(height)}px`);
   }).observe(root);
 
-  return { root, screen, video, overlay, button, recal, status, cap };
+  return { button, cap, overlay, recal, root, screen, status, video };
 }
 
 // ---- pure helpers --------------------------------------------------------------------------
 
 function getSmoothedY(positions: number[]): number {
-  if (positions.length === 0) return 0;
+  if (positions.length === 0) {
+    return 0;
+  }
   return positions.reduce((sum, val) => sum + val, 0) / positions.length;
 }
 

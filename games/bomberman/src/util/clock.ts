@@ -37,30 +37,38 @@ let adoptedAt: number | null = null;
  * A frozen `now` survives host loss where an offset alone could not represent
  * an unfinished pause. */
 export function readClock(value: ClockStamp | undefined): ClockStamp | null {
-  if (value?.kind === "paused" && Number.isFinite(value.now))
+  if (value?.kind === "paused" && Number.isFinite(value.now)) {
     return { kind: "paused", now: value.now };
-  if (value?.kind === "running" && Number.isFinite(value.at))
+  }
+  if (value?.kind === "running" && Number.isFinite(value.at)) {
     return { kind: "running", at: value.at };
+  }
   return null;
 }
 
 export function clockStamp(): ClockStamp {
-  return clock.kind === "paused" ? clock : { kind: "running", at: now() };
+  return clock.kind === "paused" ? clock : { at: now(), kind: "running" };
 }
 
 /** Follow the host's stamp. A running stamp calibrates local sim time to the
  * host's as of `receivedAt`; a paused one freezes at the host's frozen time. */
 export function adoptClock(stamp: ClockStamp | null, receivedAt = Date.now()): void {
-  if (!stamp) return;
+  if (!stamp) {
+    return;
+  }
   if (stamp.kind === "paused") {
     clock = stamp;
     adoptedAt = null;
     return;
   }
-  if (stamp.at === adoptedAt) return;
+  if (stamp.at === adoptedAt) {
+    return;
+  }
   adoptedAt = stamp.at;
   const offset = receivedAt - stamp.at;
-  if (clock.kind === "running" && Math.abs(clock.offset - offset) <= CLOCK_SLACK_MS) return;
+  if (clock.kind === "running" && Math.abs(clock.offset - offset) <= CLOCK_SLACK_MS) {
+    return;
+  }
   clock = { kind: "running", offset };
 }
 
@@ -71,12 +79,16 @@ export function now(): number {
 
 /** Freeze the sim clock. Idempotent — a second call while paused is a no-op. */
 export function pauseClock(): void {
-  if (clock.kind === "paused") return;
+  if (clock.kind === "paused") {
+    return;
+  }
   clock = { kind: "paused", now: now() };
 }
 
 /** Resume the sim clock, folding the pause span into the running offset. */
 export function resumeClock(): void {
-  if (clock.kind === "running") return;
+  if (clock.kind === "running") {
+    return;
+  }
   clock = { kind: "running", offset: Date.now() - clock.now };
 }

@@ -24,51 +24,60 @@ export const DRAPE_MAX_ERROR = 0.09;
 // map hands over (240/2^6 = 3.75u, one step above the floor).
 const MIN_EDGE = 3.6;
 const MAX_DEPTH = 6;
-const UP_DOT = 0.8; // vertices at least this upright adopt the terrain normal
+const DEFAULT_DRAPE_QUALITY: DrapeQuality = { maxDepth: MAX_DEPTH, minEdge: MIN_EDGE };
+// vertices at least this upright adopt the terrain normal
+const UP_DOT = 0.8;
 
 // Meshopt-compressed GLBs arrive with quantized (Int16/interleaved) attributes.
 // Baking world transforms writes float world coords back into those arrays —
 // which truncates them to garbage — so promote to plain Float32 first.
-export function toFloat32Attributes(geo: THREE.BufferGeometry): void {
+export const toFloat32Attributes = (geo: THREE.BufferGeometry): void => {
   for (const name of ["position", "normal", "uv"]) {
     const a = geo.getAttribute(name);
-    if (!a) continue;
+    if (!a) {
+      continue;
+    }
     if (a instanceof THREE.BufferAttribute && a.array instanceof Float32Array && !a.normalized) {
       continue;
     }
     const size = a.itemSize;
     const arr = new Float32Array(a.count * size);
-    for (let i = 0; i < a.count; i++) {
+    for (let i = 0; i < a.count; i += 1) {
       arr[i * size] = a.getX(i);
-      if (size > 1) arr[i * size + 1] = a.getY(i);
-      if (size > 2) arr[i * size + 2] = a.getZ(i);
+      if (size > 1) {
+        arr[i * size + 1] = a.getY(i);
+      }
+      if (size > 2) {
+        arr[i * size + 2] = a.getZ(i);
+      }
     }
     geo.setAttribute(name, new THREE.BufferAttribute(arr, size));
   }
-}
+};
 
 // A vertex is [x, y, z, nx, ny, nz, u, v].
 type Vert = readonly [number, number, number, number, number, number, number, number];
 
-function mid(a: Vert, b: Vert): Vert {
-  return [
-    (a[0] + b[0]) / 2,
-    (a[1] + b[1]) / 2,
-    (a[2] + b[2]) / 2,
-    (a[3] + b[3]) / 2,
-    (a[4] + b[4]) / 2,
-    (a[5] + b[5]) / 2,
-    (a[6] + b[6]) / 2,
-    (a[7] + b[7]) / 2,
-  ];
-}
+const mid = (a: Vert, b: Vert): Vert => [
+  (a[0] + b[0]) / 2,
+  (a[1] + b[1]) / 2,
+  (a[2] + b[2]) / 2,
+  (a[3] + b[3]) / 2,
+  (a[4] + b[4]) / 2,
+  (a[5] + b[5]) / 2,
+  (a[6] + b[6]) / 2,
+  (a[7] + b[7]) / 2,
+];
 
 // What a drape target must provide — the raw Terrain qualifies, and so does
 // a wrapped field (terrain + street-terrace delta for the SF hill streets).
 export type DrapeField = Pick<Terrain, "heightAt" | "normalInto">;
 
 /** Thin decals need finer edges than the broad terrain surfaces. */
-export type DrapeQuality = { readonly minEdge: number; readonly maxDepth: number };
+export interface DrapeQuality {
+  readonly minEdge: number;
+  readonly maxDepth: number;
+}
 
 // --- Layering a decal ON a draped surface ---
 // Two meshes draped over the same field still disagree: each is only within
@@ -79,24 +88,22 @@ export type DrapeQuality = { readonly minEdge: number; readonly maxDepth: number
 
 export type SurfaceSampler = (x: number, z: number) => number | null;
 
-function surfaceCellKey(cx: number, cz: number): number {
-  return (cx + 4096) * 16384 + (cz + 4096);
-}
+const surfaceCellKey = (cx: number, cz: number): number => (cx + 4096) * 16_384 + (cz + 4096);
 
 /** Point-in-triangle height lookup over a draped, world-space surface. */
-export function surfaceSampler(geo: THREE.BufferGeometry): SurfaceSampler {
+export const surfaceSampler = (geo: THREE.BufferGeometry): SurfaceSampler => {
   const pos = geo.getAttribute("position");
   const idx = geo.index;
   const triCount = (idx ? idx.count : pos.count) / 3;
   const CELL = 12;
   const grid = new Map<number, number[]>();
   const vi = (t: number, k: number): number => (idx ? idx.getX(t * 3 + k) : t * 3 + k);
-  for (let t = 0; t < triCount; t++) {
+  for (let t = 0; t < triCount; t += 1) {
     let x0 = Infinity;
     let x1 = -Infinity;
     let z0 = Infinity;
     let z1 = -Infinity;
-    for (let k = 0; k < 3; k++) {
+    for (let k = 0; k < 3; k += 1) {
       const i = vi(t, k);
       const x = pos.getX(i);
       const z = pos.getZ(i);
@@ -105,18 +112,23 @@ export function surfaceSampler(geo: THREE.BufferGeometry): SurfaceSampler {
       z0 = Math.min(z0, z);
       z1 = Math.max(z1, z);
     }
-    for (let cx = Math.floor(x0 / CELL); cx <= Math.floor(x1 / CELL); cx++) {
-      for (let cz = Math.floor(z0 / CELL); cz <= Math.floor(z1 / CELL); cz++) {
+    for (let cx = Math.floor(x0 / CELL); cx <= Math.floor(x1 / CELL); cx += 1) {
+      for (let cz = Math.floor(z0 / CELL); cz <= Math.floor(z1 / CELL); cz += 1) {
         const k = surfaceCellKey(cx, cz);
         const arr = grid.get(k);
-        if (arr) arr.push(t);
-        else grid.set(k, [t]);
+        if (arr) {
+          arr.push(t);
+        } else {
+          grid.set(k, [t]);
+        }
       }
     }
   }
-  return (x: number, z: number): number | null => {
+  return function sampleSurface(x: number, z: number): number | null {
     const bucket = grid.get(surfaceCellKey(Math.floor(x / CELL), Math.floor(z / CELL)));
-    if (!bucket) return null;
+    if (!bucket) {
+      return null;
+    }
     let best: number | null = null;
     for (const t of bucket) {
       const ia = vi(t, 0);
@@ -129,30 +141,37 @@ export function surfaceSampler(geo: THREE.BufferGeometry): SurfaceSampler {
       const cx = pos.getX(ic);
       const cz = pos.getZ(ic);
       const den = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz);
-      if (Math.abs(den) < 1e-9) continue;
+      if (Math.abs(den) < 1e-9) {
+        continue;
+      }
       const w0 = ((bz - cz) * (x - cx) + (cx - bx) * (z - cz)) / den;
       const w1 = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / den;
       const w2 = 1 - w0 - w1;
-      if (w0 < -1e-4 || w1 < -1e-4 || w2 < -1e-4) continue;
+      if (w0 < -1e-4 || w1 < -1e-4 || w2 < -1e-4) {
+        continue;
+      }
       const y = w0 * pos.getY(ia) + w1 * pos.getY(ib) + w2 * pos.getY(ic);
       // Overlapping shells (a junction patch meeting its arm strips) — the
       // decal belongs on the one the player sees, i.e. the highest.
-      if (best === null || y > best) best = y;
+      if (best === null || y > best) {
+        best = y;
+      }
     }
     return best;
   };
-}
+};
 
 // The geometry must already be in world space (matrixWorld baked in).
 // Callers can tune both the sag tolerance and minimum edge: broad terrain
 // surfaces keep the default, paint follows small changes in the drawn road.
-export function conformToTerrain(
+export const conformToTerrain = (
   geo: THREE.BufferGeometry,
   terrain: DrapeField,
   lift: number,
   maxError: number = DRAPE_MAX_ERROR,
-  quality: DrapeQuality = { minEdge: MIN_EDGE, maxDepth: MAX_DEPTH },
-): THREE.BufferGeometry {
+  quality?: DrapeQuality,
+): THREE.BufferGeometry => {
+  const { maxDepth, minEdge } = quality ?? DEFAULT_DRAPE_QUALITY;
   const src = geo.index ? geo.toNonIndexed() : geo;
   const pos = src.getAttribute("position");
   const nor = src.getAttribute("normal");
@@ -202,7 +221,9 @@ export function conformToTerrain(
   const edgeNeeds = (p: Vert, q: Vert): boolean => {
     const dx = p[0] - q[0];
     const dz = p[2] - q[2];
-    if (Math.hypot(dx, dz) < quality.minEdge) return false;
+    if (Math.hypot(dx, dz) < minEdge) {
+      return false;
+    }
     const hA = terrain.heightAt(p[0], p[2]);
     const hB = terrain.heightAt(q[0], q[2]);
     // Probe at 1/4, 1/2 and 3/4 — not just the midpoint. The street terrace is
@@ -216,7 +237,9 @@ export function conformToTerrain(
     for (const t of [0.25, 0.5, 0.75]) {
       const x = p[0] * (1 - t) + q[0] * t;
       const z = p[2] * (1 - t) + q[2] * t;
-      if (Math.abs(terrain.heightAt(x, z) - (hA * (1 - t) + hB * t)) > maxError) return true;
+      if (Math.abs(terrain.heightAt(x, z) - (hA * (1 - t) + hB * t)) > maxError) {
+        return true;
+      }
     }
     return false;
   };
@@ -226,7 +249,7 @@ export function conformToTerrain(
   // edge (one split it, the other didn't) — the T-junction hairline cracks
   // visible as pale dotted lines across plazas at grazing angles.
   const split = (a: Vert, b: Vert, c: Vert, depth: number): void => {
-    if (depth >= quality.maxDepth) {
+    if (depth >= maxDepth) {
       emit(a, b, c);
       return;
     }
@@ -263,15 +286,23 @@ export function conformToTerrain(
       split(p, m2, r, depth + 1);
     };
     if (count === 1) {
-      if (sAB) one(a, b, c);
-      else if (sBC) one(b, c, a);
-      else one(c, a, b);
+      if (sAB) {
+        one(a, b, c);
+      } else if (sBC) {
+        one(b, c, a);
+      } else {
+        one(c, a, b);
+      }
       return;
     }
     // count === 2: rotate so the intact edge lands on CA.
-    if (!sCA) two(a, b, c);
-    else if (!sAB) two(b, c, a);
-    else two(c, a, b);
+    if (!sCA) {
+      two(a, b, c);
+    } else if (sAB) {
+      two(c, a, b);
+    } else {
+      two(b, c, a);
+    }
   };
 
   for (let i = 0; i < pos.count; i += 3) {
@@ -296,7 +327,7 @@ export function conformToTerrain(
   out.setAttribute("position", new THREE.BufferAttribute(new Float32Array(outP), 3));
   out.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(outN), 3));
   out.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(outU), 2));
-  const IndexArr = outP.length / 3 > 65535 ? Uint32Array : Uint16Array;
+  const IndexArr = outP.length / 3 > 65_535 ? Uint32Array : Uint16Array;
   out.setIndex(new THREE.BufferAttribute(new IndexArr(outI), 1));
   return out;
-}
+};

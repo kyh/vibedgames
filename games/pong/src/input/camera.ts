@@ -30,10 +30,10 @@ const MODEL_URL =
 export type HandCameraState = "off" | "loading" | "live" | "error";
 type Tracking = "waiting" | "tracked" | "lost";
 
-export type HandCamera = {
+export interface HandCamera {
   /** Start tracking. Idempotent — ignored once loading or live. */
   enable(): void;
-};
+}
 
 // One panel per page, so the state a control surface asks about is module
 // state: instruction copy is rendered from anywhere (pause card) and must not
@@ -62,7 +62,7 @@ export function createHandCamera(onWristX: (x: number) => void, onFist?: () => v
   const status = document.createElement("span");
   status.id = "camera-status";
   panel.append(video, canvas, status);
-  document.body.appendChild(panel);
+  document.body.append(panel);
 
   let tracking: Tracking = "waiting";
 
@@ -88,11 +88,11 @@ export function createHandCamera(onWristX: (x: number) => void, onFist?: () => v
           ? "RETRY CAMERA"
           : state === "loading"
             ? "STARTING CAMERA"
-            : !minimized
-              ? "CAMERA ON"
-              : tracked
+            : minimized
+              ? tracked
                 ? "HAND TRACKED"
-                : "SHOW ONE HAND";
+                : "SHOW ONE HAND"
+              : "CAMERA ON";
     status.textContent =
       state === "error"
         ? "Camera unavailable. Tap to retry."
@@ -138,10 +138,13 @@ export function createHandCamera(onWristX: (x: number) => void, onFist?: () => v
   // Tap turns tracking on (or retries), then toggles between the live feed and
   // the compact pill. Tracking keeps running while minimized; only the preview hides.
   panel.addEventListener("click", (e) => {
-    if (e.detail !== 0 && !tapped) return;
+    if (e.detail !== 0 && !tapped) {
+      return;
+    }
     tapped = false;
-    if (state === "off" || state === "error") enable();
-    else if (state === "live") {
+    if (state === "off" || state === "error") {
+      enable();
+    } else if (state === "live") {
       panel.dataset.min = panel.dataset.min === "1" ? "0" : "1";
       syncPanel();
     }
@@ -157,7 +160,9 @@ export function createHandCamera(onWristX: (x: number) => void, onFist?: () => v
 
   function release(): void {
     attempt += 1;
-    if (rafId !== null) cancelAnimationFrame(rafId);
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId);
+    }
     rafId = null;
     for (const track of stream?.getTracks() ?? []) {
       track.removeEventListener("ended", onStreamEnded);
@@ -183,17 +188,21 @@ export function createHandCamera(onWristX: (x: number) => void, onFist?: () => v
     fail(new Error("Camera stream ended"));
   }
   function onVideoError(): void {
-    if (video.error) fail(video.error);
+    if (video.error) {
+      fail(video.error);
+    }
   }
 
   async function start(id: number): Promise<void> {
     const vision = await import("@mediapipe/tasks-vision");
     const fileset = await vision.FilesetResolver.forVisionTasks(WASM_BASE);
-    if (id !== attempt) return;
+    if (id !== attempt) {
+      return;
+    }
     const created = await vision.GestureRecognizer.createFromOptions(fileset, {
-      baseOptions: { modelAssetPath: MODEL_URL, delegate: "GPU" },
-      runningMode: "VIDEO",
+      baseOptions: { delegate: "GPU", modelAssetPath: MODEL_URL },
       numHands: 1,
+      runningMode: "VIDEO",
     });
     if (id !== attempt) {
       created.close();
@@ -201,23 +210,31 @@ export function createHandCamera(onWristX: (x: number) => void, onFist?: () => v
     }
     recognizer = created;
     const media = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "user" },
       audio: false,
+      video: { facingMode: "user" },
     });
     if (id !== attempt) {
-      for (const track of media.getTracks()) track.stop();
+      for (const track of media.getTracks()) {
+        track.stop();
+      }
       return;
     }
     stream = media;
-    for (const track of media.getTracks()) track.addEventListener("ended", onStreamEnded);
+    for (const track of media.getTracks()) {
+      track.addEventListener("ended", onStreamEnded);
+    }
     video.addEventListener("error", onVideoError);
     video.srcObject = media;
     await video.play();
-    if (id !== attempt) return;
+    if (id !== attempt) {
+      return;
+    }
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("canvas 2d context unavailable");
+    if (!ctx) {
+      throw new Error("canvas 2d context unavailable");
+    }
     const drawing = new vision.DrawingUtils(ctx);
     drawingUtils = drawing;
     setState("live");
@@ -235,7 +252,9 @@ export function createHandCamera(onWristX: (x: number) => void, onFist?: () => v
     const recognizeEvery = COARSE_INPUT ? 2 : 1;
     let videoFrame = 0;
     const predictWebcam = (): void => {
-      if (id !== attempt) return;
+      if (id !== attempt) {
+        return;
+      }
       try {
         const now = performance.now();
         if (video.currentTime !== lastVideoTime) {
@@ -268,7 +287,9 @@ export function createHandCamera(onWristX: (x: number) => void, onFist?: () => v
                 onFist?.();
               }
               fistHeld = isFist;
-            } else fistHeld = false;
+            } else {
+              fistHeld = false;
+            }
             ctx.restore();
           }
         }
@@ -283,22 +304,24 @@ export function createHandCamera(onWristX: (x: number) => void, onFist?: () => v
           syncPanel();
         }
         rafId = requestAnimationFrame(predictWebcam);
-      } catch (cause) {
-        fail(cause);
+      } catch (error) {
+        fail(error);
       }
     };
     predictWebcam();
   }
 
   function enable(): void {
-    if (state === "loading" || state === "live") return;
+    if (state === "loading" || state === "live") {
+      return;
+    }
     release();
     tracking = "waiting";
     panel.dataset.min = "0";
     const id = attempt;
     setState("loading");
-    start(id).catch((cause: unknown) => {
-      if (id === attempt) fail(cause);
+    start(id).catch((error: unknown) => {
+      if (id === attempt) fail(error);
     });
   }
 

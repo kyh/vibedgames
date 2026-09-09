@@ -2,7 +2,7 @@ export type FoleyKey = "buckler" | "blade" | "bowstring" | "fire" | "mechanism" 
 
 /** Short synth gestures per spell. Shared timbres identify a champion;
  * rhythm, register and envelope identify the action. */
-export type SynthTone = {
+export interface SynthTone {
   kind: "tone";
   freq: number;
   dur: number;
@@ -10,8 +10,8 @@ export type SynthTone = {
   gain: number;
   slideTo?: number;
   at: number;
-};
-export type SynthNoise = {
+}
+export interface SynthNoise {
   kind: "noise";
   dur: number;
   gain: number;
@@ -19,7 +19,7 @@ export type SynthNoise = {
   frequency: number;
   at: number;
   attack?: number;
-};
+}
 export type AbilityNote = SynthTone | SynthNoise;
 
 const tone = (
@@ -29,14 +29,14 @@ const tone = (
   gain: number,
   slideTo?: number,
   at = 0,
-): SynthTone => ({ kind: "tone", freq, dur, type, gain, slideTo, at });
+): SynthTone => ({ at, dur, freq, gain, kind: "tone", slideTo, type });
 const air = (
   dur: number,
   gain: number,
   frequency: number,
   at = 0,
   filter: BiquadFilterType = "bandpass",
-): SynthNoise => ({ kind: "noise", dur, gain, filter, frequency, at, attack: 0.004 });
+): SynthNoise => ({ at, attack: 0.004, dur, filter, frequency, gain, kind: "noise" });
 
 const PHRASES = {
   // Buckler contact, a held ward, then the low two-part vow.
@@ -126,12 +126,12 @@ export function abilityNotes(effect: string): readonly AbilityNote[] {
 }
 
 const accents = new Map<string, { key: FoleyKey; gain: number }>([
-  ["ironvow", { key: "buckler", gain: 0.18 }],
-  ["duskblade", { key: "blade", gain: 0.06 }],
-  ["stormcaller", { key: "bowstring", gain: 0.15 }],
-  ["emberhex", { key: "fire", gain: 0.06 }],
-  ["boomtinker", { key: "mechanism", gain: 0.18 }],
-  ["brewkeeper", { key: "potion", gain: 0.17 }],
+  ["ironvow", { gain: 0.18, key: "buckler" }],
+  ["duskblade", { gain: 0.06, key: "blade" }],
+  ["stormcaller", { gain: 0.15, key: "bowstring" }],
+  ["emberhex", { gain: 0.06, key: "fire" }],
+  ["boomtinker", { gain: 0.18, key: "mechanism" }],
+  ["brewkeeper", { gain: 0.17, key: "potion" }],
 ]);
 
 export function abilityFoley(effect: string) {

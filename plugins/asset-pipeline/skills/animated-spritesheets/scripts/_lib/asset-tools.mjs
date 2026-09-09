@@ -5,33 +5,55 @@
 
 // src/args.ts
 import { readFileSync } from "node:fs";
-function headerDoc(entry) {
-  if (!entry) return null;
+var headerDoc = (entry) => {
+  if (!entry) {
+    return null;
+  }
   let source;
   try {
-    source = readFileSync(entry, "utf8");
+    source = readFileSync(entry, "utf-8");
   } catch {
     return null;
   }
-  const match = /^(?:#![^\n]*\n)?\/\*\*([\s\S]*?)\*\//.exec(source);
-  if (!match) return null;
-  const text = match[1].split("\n").map((line) => line.replace(/^\s*\* ?/, "")).join("\n").trim();
+  const doc = /^(?:#![^\n]*\n)?\/\*\*(?<doc>[\s\S]*?)\*\//u.exec(source)?.groups?.doc;
+  if (doc === void 0) {
+    return null;
+  }
+  const text = doc.split("\n").map((line) => line.replace(/^\s*\* ?/u, "")).join("\n").trim();
   return text.length > 0 ? text : null;
-}
-function parseArgs(argv, options = {}) {
-  const booleans = new Set(options.booleans ?? []);
+};
+var fail = (message) => {
+  process.stderr.write(`${message}
+`);
+  process.exit(1);
+};
+var failUsage = (message) => {
+  process.stderr.write(`${message}
+`);
+  process.exit(2);
+};
+var declaredOptions = (options) => {
+  const booleans = new Set(options.booleans);
   const known = /* @__PURE__ */ new Set([...booleans, ...options.values ?? [], "help"]);
   const strict = options.booleans !== void 0 || options.values !== void 0;
+  return { booleans, known, strict };
+};
+var isValueToken = (token) => token !== void 0 && !token.startsWith("--");
+var parseArgs = (argv, options = {}) => {
+  const { booleans, known, strict } = declaredOptions(options);
   const unknown = [];
   const positionals = [];
   const parsed = /* @__PURE__ */ new Map();
   const push = (key, value) => {
     const existing = parsed.get(key);
-    if (existing) existing.push(value);
-    else parsed.set(key, [value]);
+    if (existing) {
+      existing.push(value);
+    } else {
+      parsed.set(key, [value]);
+    }
   };
   for (let i = 0; i < argv.length; i += 1) {
-    const token = argv[i];
+    const token = argv[i] ?? "";
     if (token === "-h") {
       push("help", "true");
       continue;
@@ -48,7 +70,9 @@ function parseArgs(argv, options = {}) {
     const equals = body.indexOf("=");
     if (equals !== -1) {
       const name = body.slice(0, equals);
-      if (strict && !known.has(name)) unknown.push(`--${name}`);
+      if (strict && !known.has(name)) {
+        unknown.push(`--${name}`);
+      }
       push(name, body.slice(equals + 1));
       continue;
     }
@@ -58,143 +82,156 @@ function parseArgs(argv, options = {}) {
     }
     if (strict && !known.has(body)) {
       unknown.push(`--${body}`);
-      const next2 = argv[i + 1];
-      if (next2 !== void 0 && !next2.startsWith("--")) i += 1;
+      if (isValueToken(argv[i + 1])) {
+        i += 1;
+      }
       continue;
     }
     const next = argv[i + 1];
-    if (next === void 0 || next.startsWith("--")) {
-      push(body, "true");
-    } else {
+    if (isValueToken(next)) {
       push(body, next);
       i += 1;
+    } else {
+      push(body, "true");
     }
   }
-  if (unknown.length > 0) failUsage(`unrecognized arguments: ${unknown.join(" ")}`);
+  if (unknown.length > 0) {
+    failUsage(`unrecognized arguments: ${unknown.join(" ")}`);
+  }
   if (parsed.has("help")) {
     const help = headerDoc(process.argv[1]);
     process.stdout.write(`${help ?? "No help available."}
 `);
     process.exit(0);
   }
-  return { positionals, options: parsed };
-}
-function getString(args, key) {
-  return args.options.get(key)?.at(-1);
-}
-function getFlag(args, key) {
+  return { options: parsed, positionals };
+};
+var getString = (args, key) => args.options.get(key)?.at(-1);
+var getFlag = (args, key) => {
   const value = getString(args, key);
   return value !== void 0 && value !== "false";
-}
-function getNumber(args, key, fallback) {
+};
+var getNumber = (args, key, fallback) => {
   const raw = getString(args, key);
-  if (raw === void 0) return fallback;
+  if (raw === void 0) {
+    return fallback;
+  }
   const value = Number(raw);
-  if (!Number.isFinite(value)) failUsage(`--${key} must be a number, got "${raw}"`);
+  if (!Number.isFinite(value)) {
+    failUsage(`--${key} must be a number, got "${raw}"`);
+  }
   return value;
-}
-function getInt(args, key, fallback) {
+};
+var getInt = (args, key, fallback) => {
   const raw = getString(args, key);
-  if (raw === void 0) return fallback;
+  if (raw === void 0) {
+    return fallback;
+  }
   const value = Number(raw);
-  if (!Number.isInteger(value)) failUsage(`--${key} must be a whole number, got "${raw}"`);
+  if (!Number.isInteger(value)) {
+    failUsage(`--${key} must be a whole number, got "${raw}"`);
+  }
   return value;
-}
-function fail(message) {
-  process.stderr.write(`${message}
-`);
-  process.exit(1);
-}
-function failUsage(message) {
-  process.stderr.write(`${message}
-`);
-  process.exit(2);
-}
-function main(run) {
+};
+var main = (run) => {
   try {
     run();
   } catch (error) {
     fail(error instanceof Error ? error.message : String(error));
   }
-}
+};
 
 // src/image/color.ts
 var NAMED = {
-  black: [0, 0, 0],
-  white: [255, 255, 255],
-  red: [255, 0, 0],
-  lime: [0, 255, 0],
-  green: [0, 128, 0],
-  blue: [0, 0, 255],
-  yellow: [255, 255, 0],
-  cyan: [0, 255, 255],
   aqua: [0, 255, 255],
-  magenta: [255, 0, 255],
+  black: [0, 0, 0],
+  blue: [0, 0, 255],
+  brown: [165, 42, 42],
+  cyan: [0, 255, 255],
   fuchsia: [255, 0, 255],
   gray: [128, 128, 128],
+  green: [0, 128, 0],
   grey: [128, 128, 128],
-  silver: [192, 192, 192],
+  lime: [0, 255, 0],
+  magenta: [255, 0, 255],
   maroon: [128, 0, 0],
-  olive: [128, 128, 0],
   navy: [0, 0, 128],
-  purple: [128, 0, 128],
-  teal: [0, 128, 128],
+  olive: [128, 128, 0],
   orange: [255, 165, 0],
   pink: [255, 192, 203],
-  brown: [165, 42, 42],
-  transparent: [0, 0, 0]
+  purple: [128, 0, 128],
+  red: [255, 0, 0],
+  silver: [192, 192, 192],
+  teal: [0, 128, 128],
+  transparent: [0, 0, 0],
+  white: [255, 255, 255],
+  yellow: [255, 255, 0]
 };
 var isNamedColor = (value) => Object.hasOwn(NAMED, value);
-function parseColor(input) {
+var expandHexDigit = (c) => Number.parseInt(c + c, 16);
+var parseColor = (input) => {
   const value = input.trim().toLowerCase();
-  if (value === "transparent") return [0, 0, 0, 0];
+  if (value === "transparent") {
+    return [0, 0, 0, 0];
+  }
   if (isNamedColor(value)) {
     const named = NAMED[value];
     return [named[0], named[1], named[2], 255];
   }
   if (value.startsWith("#")) {
     const hex = value.slice(1);
-    if (!/^(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/.test(hex)) {
+    if (!/^(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/u.test(hex)) {
       throw new Error(`Unrecognised colour: ${input}`);
     }
     if (hex.length === 3 || hex.length === 4) {
-      const expand = (c) => parseInt(c + c, 16);
-      const a = hex.length === 4 ? expand(hex[3]) : 255;
-      return [expand(hex[0]), expand(hex[1]), expand(hex[2]), a];
+      const a = hex.length === 4 ? expandHexDigit(hex.charAt(3)) : 255;
+      return [
+        expandHexDigit(hex.charAt(0)),
+        expandHexDigit(hex.charAt(1)),
+        expandHexDigit(hex.charAt(2)),
+        a
+      ];
     }
-    const byte = (i) => parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+    const byte = (i) => Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
     return [byte(0), byte(1), byte(2), hex.length === 8 ? byte(3) : 255];
   }
-  const fn = /^rgba?\(([^)]+)\)$/.exec(value);
-  if (fn) {
-    const parts = fn[1].split(/[,/\s]+/).filter(Boolean);
-    if (parts.length < 3) throw new Error(`Unrecognised colour: ${input}`);
+  const body = /^rgba?\((?<body>[^)]+)\)$/u.exec(value)?.groups?.body;
+  if (body !== void 0) {
+    const [r, g, b, rawAlpha] = body.split(/[,/\s]+/u).filter(Boolean);
+    if (r === void 0 || g === void 0 || b === void 0) {
+      throw new Error(`Unrecognised colour: ${input}`);
+    }
     const channel = (raw) => {
       const n = raw.endsWith("%") ? Number.parseFloat(raw) * 255 / 100 : Number.parseFloat(raw);
-      if (Number.isNaN(n)) throw new Error(`Unrecognised colour: ${input}`);
+      if (Number.isNaN(n)) {
+        throw new TypeError(`Unrecognised colour: ${input}`);
+      }
       return Math.max(0, Math.min(255, Math.round(n)));
     };
-    const alpha = parts.length > 3 ? Math.max(0, Math.min(255, Math.round(Number.parseFloat(parts[3]) * 255))) : 255;
-    return [channel(parts[0]), channel(parts[1]), channel(parts[2]), alpha];
+    const alpha = rawAlpha === void 0 ? 255 : (
+      // oxlint-disable-next-line unicorn/prefer-number-coercion -- CSS alpha may carry a `%` suffix, which Number() rejects
+      Math.max(0, Math.min(255, Math.round(Number.parseFloat(rawAlpha) * 255)))
+    );
+    return [channel(r), channel(g), channel(b), alpha];
   }
   throw new Error(`Unrecognised colour: ${input}`);
-}
+};
 
 // src/image/raster.ts
 import { mkdirSync, readFileSync as readFileSync2, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import path from "node:path";
 
 // src/image/png.ts
 import { deflateSync, inflateSync } from "node:zlib";
 var SIGNATURE = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
 var ADAM7 = [
-  { xStart: 0, yStart: 0, xStep: 8, yStep: 8 },
-  { xStart: 4, yStart: 0, xStep: 8, yStep: 8 },
-  { xStart: 0, yStart: 4, xStep: 4, yStep: 8 },
-  { xStart: 2, yStart: 0, xStep: 4, yStep: 4 },
-  { xStart: 0, yStart: 2, xStep: 2, yStep: 4 },
-  { xStart: 1, yStart: 0, xStep: 2, yStep: 2 },
-  { xStart: 0, yStart: 1, xStep: 1, yStep: 2 }
+  { xStart: 0, xStep: 8, yStart: 0, yStep: 8 },
+  { xStart: 4, xStep: 8, yStart: 0, yStep: 8 },
+  { xStart: 0, xStep: 4, yStart: 4, yStep: 8 },
+  { xStart: 2, xStep: 4, yStart: 0, yStep: 4 },
+  { xStart: 0, xStep: 2, yStart: 2, yStep: 4 },
+  { xStart: 1, xStep: 2, yStart: 0, yStep: 2 },
+  { xStart: 0, xStep: 1, yStart: 1, yStep: 2 }
 ];
 var CHANNELS = /* @__PURE__ */ new Map([
   [0, 1],
@@ -203,76 +240,104 @@ var CHANNELS = /* @__PURE__ */ new Map([
   [4, 2],
   [6, 4]
 ]);
-function channelsFor(colorType) {
+var channelsFor = (colorType) => {
   const channels = CHANNELS.get(colorType);
-  if (channels === void 0) throw new Error(`PNG: unsupported colour type ${colorType}`);
+  if (channels === void 0) {
+    throw new Error(`PNG: unsupported colour type ${colorType}`);
+  }
   return channels;
-}
+};
 var MAX_PIXELS = 64e6;
 var crcTable = (() => {
   const table = new Int32Array(256);
   for (let n = 0; n < 256; n += 1) {
     let c = n;
-    for (let k = 0; k < 8; k += 1) c = c & 1 ? 3988292384 ^ c >>> 1 : c >>> 1;
+    for (let k = 0; k < 8; k += 1) {
+      c = c & 1 ? 3988292384 ^ c >>> 1 : c >>> 1;
+    }
     table[n] = c;
   }
   return table;
 })();
-function crc32(bytes) {
+var crc32 = (bytes) => {
   let c = 4294967295;
-  for (let i = 0; i < bytes.length; i += 1) {
-    c = crcTable[(c ^ bytes[i]) & 255] ^ c >>> 8;
+  for (const byte of bytes) {
+    c = (crcTable[(c ^ byte) & 255] ?? 0) ^ c >>> 8;
   }
   return (c ^ 4294967295) >>> 0;
-}
-function unfilter(type, line, prev, bpp) {
+};
+var byteAt = (bytes, i) => bytes[i] ?? 0;
+var paeth = (a, b, c) => {
+  const p = a + b - c;
+  const pa = Math.abs(p - a);
+  const pb = Math.abs(p - b);
+  const pc = Math.abs(p - c);
+  if (pa <= pb && pa <= pc) {
+    return a;
+  }
+  return pb <= pc ? b : c;
+};
+var unfilter = (type, line, prev, bpp) => {
   const len = line.length;
   switch (type) {
-    case 0:
+    case 0: {
       return;
-    case 1:
-      for (let i = bpp; i < len; i += 1) line[i] = line[i] + line[i - bpp] & 255;
-      return;
-    case 2:
-      for (let i = 0; i < len; i += 1) line[i] = line[i] + prev[i] & 255;
-      return;
-    case 3:
-      for (let i = 0; i < len; i += 1) {
-        const left = i >= bpp ? line[i - bpp] : 0;
-        line[i] = line[i] + (left + prev[i] >> 1) & 255;
+    }
+    case 1: {
+      for (let i = bpp; i < len; i += 1) {
+        line[i] = (byteAt(line, i) + byteAt(line, i - bpp)) % 256;
       }
       return;
-    case 4:
+    }
+    case 2: {
       for (let i = 0; i < len; i += 1) {
-        const a = i >= bpp ? line[i - bpp] : 0;
-        const b = prev[i];
-        const c = i >= bpp ? prev[i - bpp] : 0;
-        const p = a + b - c;
-        const pa = Math.abs(p - a);
-        const pb = Math.abs(p - b);
-        const pc = Math.abs(p - c);
-        const pred = pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
-        line[i] = line[i] + pred & 255;
+        line[i] = (byteAt(line, i) + byteAt(prev, i)) % 256;
       }
       return;
-    default:
+    }
+    case 3: {
+      for (let i = 0; i < len; i += 1) {
+        const left = byteAt(line, i - bpp);
+        line[i] = (byteAt(line, i) + Math.floor((left + byteAt(prev, i)) / 2)) % 256;
+      }
+      return;
+    }
+    case 4: {
+      for (let i = 0; i < len; i += 1) {
+        const a = byteAt(line, i - bpp);
+        const b = byteAt(prev, i);
+        const c = byteAt(prev, i - bpp);
+        line[i] = (byteAt(line, i) + paeth(a, b, c)) % 256;
+      }
+      return;
+    }
+    default: {
       throw new Error(`PNG: unknown filter type ${type}`);
+    }
   }
-}
-function sampleAt(line, index, bitDepth) {
-  if (bitDepth === 8) return line[index];
-  if (bitDepth === 16) return line[index * 2] << 8 | line[index * 2 + 1];
+};
+var sampleAt = (line, index, bitDepth) => {
+  if (bitDepth === 8) {
+    return byteAt(line, index);
+  }
+  if (bitDepth === 16) {
+    return byteAt(line, index * 2) * 256 + byteAt(line, index * 2 + 1);
+  }
   const perByte = 8 / bitDepth;
-  const byte = line[Math.floor(index / perByte)];
+  const byte = byteAt(line, Math.floor(index / perByte));
   const shift = 8 - bitDepth * (index % perByte + 1);
-  return byte >> shift & (1 << bitDepth) - 1;
-}
-function scaleTo8(value, bitDepth) {
-  if (bitDepth === 8) return value;
-  if (bitDepth === 16) return value >> 8;
-  return Math.round(value * 255 / ((1 << bitDepth) - 1));
-}
-function expandPass(raw, offset, passWidth, passHeight, geom, header, palette, transparency, out) {
+  return Math.floor(byte / 2 ** shift) % 2 ** bitDepth;
+};
+var scaleTo8 = (value, bitDepth) => {
+  if (bitDepth === 8) {
+    return value;
+  }
+  if (bitDepth === 16) {
+    return Math.floor(value / 256);
+  }
+  return Math.round(value * 255 / (2 ** bitDepth - 1));
+};
+var expandPass = (raw, offset, passWidth, passHeight, geom, header, palette, transparency, out) => {
   const { width, bitDepth, colorType } = header;
   const channels = channelsFor(colorType);
   const bpp = Math.max(1, Math.ceil(channels * bitDepth / 8));
@@ -281,6 +346,9 @@ function expandPass(raw, offset, passWidth, passHeight, geom, header, palette, t
   let cursor = offset;
   for (let row = 0; row < passHeight; row += 1) {
     const filterType = raw[cursor];
+    if (filterType === void 0) {
+      throw new Error("PNG: truncated pixel data");
+    }
     cursor += 1;
     const line = raw.subarray(cursor, cursor + lineBytes);
     cursor += lineBytes;
@@ -296,16 +364,23 @@ function expandPass(raw, offset, passWidth, passHeight, geom, header, palette, t
       let a = 255;
       if (colorType === 3) {
         const index = sampleAt(line, base, bitDepth);
-        if (!palette) throw new Error("PNG: indexed image without a PLTE chunk");
-        r = palette[index * 3];
-        g = palette[index * 3 + 1];
-        b = palette[index * 3 + 2];
+        if (!palette) {
+          throw new Error("PNG: indexed image without a PLTE chunk");
+        }
+        r = byteAt(palette, index * 3);
+        g = byteAt(palette, index * 3 + 1);
+        b = byteAt(palette, index * 3 + 2);
         a = transparency?.[index] ?? 255;
       } else if (colorType === 0 || colorType === 4) {
         const grey = sampleAt(line, base, bitDepth);
-        r = g = b = scaleTo8(grey, bitDepth);
-        if (colorType === 4) a = scaleTo8(sampleAt(line, base + 1, bitDepth), bitDepth);
-        else if (transparency && transparency[0] === grey) a = 0;
+        r = scaleTo8(grey, bitDepth);
+        g = r;
+        b = r;
+        if (colorType === 4) {
+          a = scaleTo8(sampleAt(line, base + 1, bitDepth), bitDepth);
+        } else if (transparency && transparency[0] === grey) {
+          a = 0;
+        }
       } else {
         const rawR = sampleAt(line, base, bitDepth);
         const rawG = sampleAt(line, base + 1, bitDepth);
@@ -313,8 +388,9 @@ function expandPass(raw, offset, passWidth, passHeight, geom, header, palette, t
         r = scaleTo8(rawR, bitDepth);
         g = scaleTo8(rawG, bitDepth);
         b = scaleTo8(rawB, bitDepth);
-        if (colorType === 6) a = scaleTo8(sampleAt(line, base + 3, bitDepth), bitDepth);
-        else if (transparency && transparency[0] === rawR && transparency[1] === rawG && transparency[2] === rawB) {
+        if (colorType === 6) {
+          a = scaleTo8(sampleAt(line, base + 3, bitDepth), bitDepth);
+        } else if (transparency && transparency[0] === rawR && transparency[1] === rawG && transparency[2] === rawB) {
           a = 0;
         }
       }
@@ -326,8 +402,8 @@ function expandPass(raw, offset, passWidth, passHeight, geom, header, palette, t
     prev = Uint8Array.from(line);
   }
   return cursor;
-}
-function expectedRawBytes(header) {
+};
+var expectedRawBytes = (header) => {
   const channels = channelsFor(header.colorType);
   const rowBytes = (w) => Math.ceil(channels * header.bitDepth * w / 8);
   if (header.interlace === 0) {
@@ -337,15 +413,58 @@ function expectedRawBytes(header) {
   for (const geom of ADAM7) {
     const passWidth = Math.ceil(Math.max(0, header.width - geom.xStart) / geom.xStep);
     const passHeight = Math.ceil(Math.max(0, header.height - geom.yStart) / geom.yStep);
-    if (passWidth === 0 || passHeight === 0) continue;
+    if (passWidth === 0 || passHeight === 0) {
+      continue;
+    }
     total += passHeight * (1 + rowBytes(passWidth));
   }
   return total;
-}
-function decodePng(buffer) {
+};
+var checkSignature = (buffer) => {
   for (let i = 0; i < SIGNATURE.length; i += 1) {
-    if (buffer[i] !== SIGNATURE[i]) throw new Error("Not a PNG file (bad signature)");
+    if (buffer[i] !== SIGNATURE[i]) {
+      throw new Error("Not a PNG file (bad signature)");
+    }
   }
+};
+var parseIhdr = (view, pos) => {
+  const header = {
+    bitDepth: view.getUint8(pos + 16),
+    colorType: view.getUint8(pos + 17),
+    height: view.getUint32(pos + 12),
+    interlace: view.getUint8(pos + 20),
+    width: view.getUint32(pos + 8)
+  };
+  if (view.getUint8(pos + 18) !== 0) {
+    throw new Error("PNG: unsupported compression method");
+  }
+  if (view.getUint8(pos + 19) !== 0) {
+    throw new Error("PNG: unsupported filter method");
+  }
+  if (!CHANNELS.has(header.colorType)) {
+    throw new Error(`PNG: unsupported colour type ${header.colorType}`);
+  }
+  if (header.width < 1 || header.height < 1) {
+    throw new Error(`PNG: invalid dimensions ${header.width}x${header.height}`);
+  }
+  if (header.width * header.height > MAX_PIXELS) {
+    throw new Error(
+      `PNG: ${header.width}x${header.height} exceeds the ${MAX_PIXELS.toLocaleString("en-US")}-pixel limit`
+    );
+  }
+  return header;
+};
+var parseTransparency = (body, colorType) => {
+  if (colorType === 3) {
+    return [...body];
+  }
+  const sample16 = (i) => byteAt(body, i) * 256 + byteAt(body, i + 1);
+  if (colorType === 0) {
+    return [sample16(0)];
+  }
+  return [sample16(0), sample16(2), sample16(4)];
+};
+var readChunks = (buffer) => {
   const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
   let pos = 8;
   let header = null;
@@ -353,52 +472,24 @@ function decodePng(buffer) {
   let transparency = null;
   const idat = [];
   while (pos < buffer.length) {
-    if (pos + 8 > buffer.length) throw new Error("PNG: truncated before a chunk header");
+    if (pos + 8 > buffer.length) {
+      throw new Error("PNG: truncated before a chunk header");
+    }
     const length = view.getUint32(pos);
-    const type = String.fromCharCode(
-      buffer[pos + 4],
-      buffer[pos + 5],
-      buffer[pos + 6],
-      buffer[pos + 7]
-    );
+    const type = String.fromCodePoint(...buffer.subarray(pos + 4, pos + 8));
     if (pos + 12 + length > buffer.length) {
       throw new Error(`PNG: truncated ${type} chunk (wanted ${length} bytes)`);
     }
     const body = buffer.subarray(pos + 8, pos + 8 + length);
     if (type === "IHDR") {
-      header = {
-        width: view.getUint32(pos + 8),
-        height: view.getUint32(pos + 12),
-        bitDepth: buffer[pos + 16],
-        colorType: buffer[pos + 17],
-        interlace: buffer[pos + 20]
-      };
-      if (buffer[pos + 18] !== 0) throw new Error("PNG: unsupported compression method");
-      if (buffer[pos + 19] !== 0) throw new Error("PNG: unsupported filter method");
-      if (!CHANNELS.has(header.colorType)) {
-        throw new Error(`PNG: unsupported colour type ${header.colorType}`);
-      }
-      if (header.width < 1 || header.height < 1) {
-        throw new Error(`PNG: invalid dimensions ${header.width}x${header.height}`);
-      }
-      if (header.width * header.height > MAX_PIXELS) {
-        throw new Error(
-          `PNG: ${header.width}x${header.height} exceeds the ${MAX_PIXELS.toLocaleString("en-US")}-pixel limit`
-        );
-      }
+      header = parseIhdr(view, pos);
     } else if (type === "PLTE") {
       palette = Uint8Array.from(body);
     } else if (type === "tRNS") {
-      if (!header) throw new Error("PNG: tRNS before IHDR");
-      if (header.colorType === 3) transparency = Array.from(body);
-      else if (header.colorType === 0) transparency = [body[0] << 8 | body[1]];
-      else {
-        transparency = [
-          body[0] << 8 | body[1],
-          body[2] << 8 | body[3],
-          body[4] << 8 | body[5]
-        ];
+      if (!header) {
+        throw new Error("PNG: tRNS before IHDR");
       }
+      transparency = parseTransparency(body, header.colorType);
     } else if (type === "IDAT") {
       idat.push(body);
     } else if (type === "IEND") {
@@ -406,19 +497,14 @@ function decodePng(buffer) {
     }
     pos += 12 + length;
   }
-  if (!header) throw new Error("PNG: missing IHDR");
-  const { width, height, bitDepth, colorType, interlace } = header;
-  if (![1, 2, 4, 8, 16].includes(bitDepth)) {
-    throw new Error(`PNG: unsupported bit depth ${bitDepth}`);
+  if (!header) {
+    throw new Error("PNG: missing IHDR");
   }
-  if (colorType === 3 && bitDepth === 16) throw new Error("PNG: indexed images cap at 8-bit");
-  const raw = new Uint8Array(inflateSync(Buffer.concat(idat.map((c) => Buffer.from(c)))));
-  const expected = expectedRawBytes(header);
-  if (raw.length < expected) {
-    throw new Error(
-      `PNG: truncated pixel data (${raw.length} bytes, expected ${expected} for ${width}x${height})`
-    );
-  }
+  return { header, idat, palette, transparency };
+};
+var expandImage = (raw, chunks) => {
+  const { header, palette, transparency } = chunks;
+  const { width, height, interlace } = header;
   const out = new Uint8Array(width * height * 4);
   if (interlace === 0) {
     expandPass(
@@ -426,44 +512,67 @@ function decodePng(buffer) {
       0,
       width,
       height,
-      { xStart: 0, yStart: 0, xStep: 1, yStep: 1 },
+      { xStart: 0, xStep: 1, yStart: 0, yStep: 1 },
       header,
       palette,
       transparency,
       out
     );
-  } else if (interlace === 1) {
-    let cursor = 0;
-    for (const geom of ADAM7) {
-      const passWidth = Math.ceil(Math.max(0, width - geom.xStart) / geom.xStep);
-      const passHeight = Math.ceil(Math.max(0, height - geom.yStart) / geom.yStep);
-      if (passWidth === 0 || passHeight === 0) continue;
-      cursor = expandPass(
-        raw,
-        cursor,
-        passWidth,
-        passHeight,
-        geom,
-        header,
-        palette,
-        transparency,
-        out
-      );
-    }
-  } else {
+    return out;
+  }
+  if (interlace !== 1) {
     throw new Error(`PNG: unsupported interlace method ${interlace}`);
   }
-  return { width, height, data: out };
-}
-function chunk(type, body) {
+  let cursor = 0;
+  for (const geom of ADAM7) {
+    const passWidth = Math.ceil(Math.max(0, width - geom.xStart) / geom.xStep);
+    const passHeight = Math.ceil(Math.max(0, height - geom.yStart) / geom.yStep);
+    if (passWidth === 0 || passHeight === 0) {
+      continue;
+    }
+    cursor = expandPass(
+      raw,
+      cursor,
+      passWidth,
+      passHeight,
+      geom,
+      header,
+      palette,
+      transparency,
+      out
+    );
+  }
+  return out;
+};
+var decodePng = (buffer) => {
+  checkSignature(buffer);
+  const chunks = readChunks(buffer);
+  const { header, idat } = chunks;
+  const { width, height, bitDepth, colorType } = header;
+  if (![1, 2, 4, 8, 16].includes(bitDepth)) {
+    throw new Error(`PNG: unsupported bit depth ${bitDepth}`);
+  }
+  if (colorType === 3 && bitDepth === 16) {
+    throw new Error("PNG: indexed images cap at 8-bit");
+  }
+  const raw = new Uint8Array(inflateSync(Buffer.concat(idat.map((c) => Buffer.from(c)))));
+  const expected = expectedRawBytes(header);
+  if (raw.length < expected) {
+    throw new Error(
+      `PNG: truncated pixel data (${raw.length} bytes, expected ${expected} for ${width}x${height})`
+    );
+  }
+  return { data: expandImage(raw, chunks), height, width };
+};
+var chunk = (type, body) => {
   const out = Buffer.alloc(body.length + 12);
   out.writeUInt32BE(body.length, 0);
   out.write(type, 4, "ascii");
   out.set(body, 8);
   out.writeUInt32BE(crc32(out.subarray(4, 8 + body.length)), 8 + body.length);
   return out;
-}
-function filterScanlines(data, width, height) {
+};
+var filterScanlines = (data, width, height) => {
   const stride = width * 4;
   const out = Buffer.alloc(height * (stride + 1));
   const candidate = new Uint8Array(stride);
@@ -476,23 +585,25 @@ function filterScanlines(data, width, height) {
     for (let type = 0; type <= 4; type += 1) {
       let score = 0;
       for (let i = 0; i < stride; i += 1) {
-        const a = i >= 4 ? line[i - 4] : 0;
-        const b = prev[i];
-        const c = i >= 4 ? prev[i - 4] : 0;
+        const a = byteAt(line, i - 4);
+        const b = byteAt(prev, i);
+        const c = byteAt(prev, i - 4);
+        const current = byteAt(line, i);
         let value;
-        if (type === 0) value = line[i];
-        else if (type === 1) value = line[i] - a;
-        else if (type === 2) value = line[i] - b;
-        else if (type === 3) value = line[i] - (a + b >> 1);
-        else {
-          const p = a + b - c;
-          const pa = Math.abs(p - a);
-          const pb = Math.abs(p - b);
-          const pc = Math.abs(p - c);
-          value = line[i] - (pa <= pb && pa <= pc ? a : pb <= pc ? b : c);
+        if (type === 0) {
+          value = current;
+        } else if (type === 1) {
+          value = current - a;
+        } else if (type === 2) {
+          value = current - b;
+        } else if (type === 3) {
+          value = current - Math.floor((a + b) / 2);
+        } else {
+          value = current - paeth(a, b, c);
         }
-        candidate[i] = value & 255;
-        score += Math.abs((value & 255) << 24 >> 24);
+        const wrapped = (value % 256 + 256) % 256;
+        candidate[i] = wrapped;
+        score += wrapped >= 128 ? 256 - wrapped : wrapped;
       }
       if (score < bestScore) {
         bestScore = score;
@@ -505,8 +616,8 @@ function filterScanlines(data, width, height) {
     prev = Uint8Array.from(line);
   }
   return out;
-}
-function encodePng(image) {
+};
+var encodePng = (image) => {
   const { width, height, data } = image;
   if (data.length !== width * height * 4) {
     throw new Error(
@@ -527,9 +638,155 @@ function encodePng(image) {
     chunk("IDAT", deflateSync(filterScanlines(data, width, height), { level: 9 })),
     chunk("IEND", new Uint8Array(0))
   ]);
-}
+};
 
 // src/image/raster.ts
+var at = (buffer, i) => buffer[i] ?? 0;
+var clamp8 = (value) => {
+  if (value <= 0) {
+    return 0;
+  }
+  if (value >= 255) {
+    return 255;
+  }
+  return Math.round(value);
+};
+var FILTERS = {
+  bicubic: {
+    // Catmull-Rom variant with a = -0.5, which is Pillow's BICUBIC and the
+    // default filter for `Image.resize`.
+    kernel: (x) => {
+      const a = -0.5;
+      const t = Math.abs(x);
+      if (t < 1) {
+        return ((a + 2) * t - (a + 3)) * t * t + 1;
+      }
+      if (t < 2) {
+        return (((t - 5) * t + 8) * t - 4) * a;
+      }
+      return 0;
+    },
+    support: 2
+  },
+  bilinear: {
+    kernel: (x) => {
+      const t = Math.abs(x);
+      return t < 1 ? 1 - t : 0;
+    },
+    support: 1
+  },
+  lanczos: {
+    kernel: (x) => {
+      const t = Math.abs(x);
+      if (t === 0) {
+        return 1;
+      }
+      if (t >= 3) {
+        return 0;
+      }
+      const pix = Math.PI * t;
+      return 3 * Math.sin(pix) * Math.sin(pix / 3) / (pix * pix);
+    },
+    support: 3
+  }
+};
+var mulDiv255 = (value, alpha) => {
+  const tmp = value * alpha + 128;
+  return Math.floor((tmp + Math.floor(tmp / 256)) / 256);
+};
+var premultiply = (data) => {
+  const out = new Float64Array(data.length);
+  for (let i = 0; i < data.length; i += 4) {
+    const a = at(data, i + 3);
+    out[i] = mulDiv255(at(data, i), a);
+    out[i + 1] = mulDiv255(at(data, i + 1), a);
+    out[i + 2] = mulDiv255(at(data, i + 2), a);
+    out[i + 3] = a;
+  }
+  return out;
+};
+var quantizeInPlace = (buffer) => {
+  for (let i = 0; i < buffer.length; i += 1) {
+    buffer[i] = clamp8(at(buffer, i));
+  }
+};
+var unpremultiply = (src, out) => {
+  for (let i = 0; i < src.length; i += 4) {
+    const a = clamp8(at(src, i + 3));
+    out[i + 3] = a;
+    if (a === 0) {
+      out[i] = 0;
+      out[i + 1] = 0;
+      out[i + 2] = 0;
+      continue;
+    }
+    for (let c = 0; c < 3; c += 1) {
+      const premul = clamp8(at(src, i + c));
+      out[i + c] = Math.min(255, Math.floor(premul * 255 / a));
+    }
+  }
+};
+var resamplePass = (src, srcW, rows, dstW, kernel, support) => {
+  const out = new Float64Array(dstW * rows * 4);
+  const scale = srcW / dstW;
+  const filterScale = Math.max(1, scale);
+  const radius = support * filterScale;
+  for (let x = 0; x < dstW; x += 1) {
+    const center = (x + 0.5) * scale;
+    const start = Math.max(0, Math.trunc(center - radius + 0.5));
+    const end = Math.min(srcW, Math.trunc(center + radius + 0.5));
+    const weights = [];
+    let total = 0;
+    for (let sx = start; sx < end; sx += 1) {
+      const w = kernel((sx + 0.5 - center) / filterScale);
+      weights.push(w);
+      total += w;
+    }
+    if (total === 0) {
+      const nearest2 = Math.min(srcW - 1, Math.max(0, Math.floor(center)));
+      for (let y = 0; y < rows; y += 1) {
+        for (let c = 0; c < 4; c += 1) {
+          out[(y * dstW + x) * 4 + c] = at(src, (y * srcW + nearest2) * 4 + c);
+        }
+      }
+      continue;
+    }
+    for (let y = 0; y < rows; y += 1) {
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      let a = 0;
+      for (const [i, weight] of weights.entries()) {
+        const w = weight / total;
+        const si = (y * srcW + start + i) * 4;
+        r += at(src, si) * w;
+        g += at(src, si + 1) * w;
+        b += at(src, si + 2) * w;
+        a += at(src, si + 3) * w;
+      }
+      const di = (y * dstW + x) * 4;
+      out[di] = r;
+      out[di + 1] = g;
+      out[di + 2] = b;
+      out[di + 3] = a;
+    }
+  }
+  return out;
+};
+var transpose = (src, width, height) => {
+  const out = new Float64Array(src.length);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const si = (y * width + x) * 4;
+      const di = (x * height + y) * 4;
+      out[di] = at(src, si);
+      out[di + 1] = at(src, si + 1);
+      out[di + 2] = at(src, si + 2);
+      out[di + 3] = at(src, si + 3);
+    }
+  }
+  return out;
+};
 var Bitmap = class _Bitmap {
   width;
   height;
@@ -549,20 +806,22 @@ var Bitmap = class _Bitmap {
   /** A blank bitmap filled with `fill` (defaults to fully transparent). */
   static create(width, height, fill = [0, 0, 0, 0]) {
     const bmp = new _Bitmap(width, height);
-    if (fill[0] || fill[1] || fill[2] || fill[3]) bmp.fill(fill);
+    if (fill[0] || fill[1] || fill[2] || fill[3]) {
+      bmp.fill(fill);
+    }
     return bmp;
   }
-  static fromFile(path) {
-    const buffer = readFileSync2(path);
+  static fromFile(file) {
+    const buffer = readFileSync2(file);
     const { width, height, data } = decodePng(buffer);
     return new _Bitmap(width, height, data);
   }
-  toFile(path) {
-    mkdirSync(dirname(resolve(path)), { recursive: true });
-    writeFileSync(path, encodePng({ width: this.width, height: this.height, data: this.data }));
+  toFile(file) {
+    mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
+    writeFileSync(file, encodePng({ data: this.data, height: this.height, width: this.width }));
   }
   toBuffer() {
-    return encodePng({ width: this.width, height: this.height, data: this.data });
+    return encodePng({ data: this.data, height: this.height, width: this.width });
   }
   copy() {
     return new _Bitmap(this.width, this.height, Uint8Array.from(this.data));
@@ -576,10 +835,12 @@ var Bitmap = class _Bitmap {
   }
   getPixel(x, y) {
     const i = this.index(x, y);
-    return [this.data[i], this.data[i + 1], this.data[i + 2], this.data[i + 3]];
+    return [at(this.data, i), at(this.data, i + 1), at(this.data, i + 2), at(this.data, i + 3)];
   }
   putPixel(x, y, [r, g, b, a]) {
-    if (!this.contains(x, y)) return;
+    if (!this.contains(x, y)) {
+      return;
+    }
     const i = this.index(x, y);
     this.data[i] = r;
     this.data[i + 1] = g;
@@ -605,16 +866,20 @@ var Bitmap = class _Bitmap {
     const out = new _Bitmap(Math.max(0, width), Math.max(0, height));
     for (let y = 0; y < out.height; y += 1) {
       const sy = box.top + y;
-      if (sy < 0 || sy >= this.height) continue;
+      if (sy < 0 || sy >= this.height) {
+        continue;
+      }
       for (let x = 0; x < out.width; x += 1) {
         const sx = box.left + x;
-        if (sx < 0 || sx >= this.width) continue;
+        if (sx < 0 || sx >= this.width) {
+          continue;
+        }
         const si = this.index(sx, sy);
         const di = out.index(x, y);
-        out.data[di] = this.data[si];
-        out.data[di + 1] = this.data[si + 1];
-        out.data[di + 2] = this.data[si + 2];
-        out.data[di + 3] = this.data[si + 3];
+        out.data[di] = at(this.data, si);
+        out.data[di + 1] = at(this.data, si + 1);
+        out.data[di + 2] = at(this.data, si + 2);
+        out.data[di + 3] = at(this.data, si + 3);
       }
     }
     return out;
@@ -627,16 +892,20 @@ var Bitmap = class _Bitmap {
   paste(src, left, top) {
     for (let y = 0; y < src.height; y += 1) {
       const dy = top + y;
-      if (dy < 0 || dy >= this.height) continue;
+      if (dy < 0 || dy >= this.height) {
+        continue;
+      }
       for (let x = 0; x < src.width; x += 1) {
         const dx = left + x;
-        if (dx < 0 || dx >= this.width) continue;
+        if (dx < 0 || dx >= this.width) {
+          continue;
+        }
         const si = src.index(x, y);
         const di = this.index(dx, dy);
-        this.data[di] = src.data[si];
-        this.data[di + 1] = src.data[si + 1];
-        this.data[di + 2] = src.data[si + 2];
-        this.data[di + 3] = src.data[si + 3];
+        this.data[di] = at(src.data, si);
+        this.data[di + 1] = at(src.data, si + 1);
+        this.data[di + 2] = at(src.data, si + 2);
+        this.data[di + 3] = at(src.data, si + 3);
       }
     }
   }
@@ -656,15 +925,21 @@ var Bitmap = class _Bitmap {
   pasteMasked(src, left, top, mask) {
     for (let y = 0; y < src.height; y += 1) {
       const dy = top + y;
-      if (dy < 0 || dy >= this.height) continue;
+      if (dy < 0 || dy >= this.height) {
+        continue;
+      }
       for (let x = 0; x < src.width; x += 1) {
         const dx = left + x;
-        if (dx < 0 || dx >= this.width) continue;
-        const m = mask[y * src.width + x] / 255;
+        if (dx < 0 || dx >= this.width) {
+          continue;
+        }
+        const m = at(mask, y * src.width + x) / 255;
         const si = src.index(x, y);
         const di = this.index(dx, dy);
         for (let c = 0; c < 4; c += 1) {
-          this.data[di + c] = Math.round(this.data[di + c] * (1 - m) + src.data[si + c] * m);
+          this.data[di + c] = Math.round(
+            at(this.data, di + c) * (1 - m) + at(src.data, si + c) * m
+          );
         }
       }
     }
@@ -673,23 +948,29 @@ var Bitmap = class _Bitmap {
   alphaComposite(src, left = 0, top = 0) {
     for (let y = 0; y < src.height; y += 1) {
       const dy = top + y;
-      if (dy < 0 || dy >= this.height) continue;
+      if (dy < 0 || dy >= this.height) {
+        continue;
+      }
       for (let x = 0; x < src.width; x += 1) {
         const dx = left + x;
-        if (dx < 0 || dx >= this.width) continue;
+        if (dx < 0 || dx >= this.width) {
+          continue;
+        }
         const si = src.index(x, y);
         const di = this.index(dx, dy);
-        const sa = src.data[si + 3] / 255;
-        if (sa === 0) continue;
-        const da = this.data[di + 3] / 255;
+        const sa = at(src.data, si + 3) / 255;
+        if (sa === 0) {
+          continue;
+        }
+        const da = at(this.data, di + 3) / 255;
         const outA = sa + da * (1 - sa);
         if (outA === 0) {
-          this.data[di] = this.data[di + 1] = this.data[di + 2] = this.data[di + 3] = 0;
+          this.data.fill(0, di, di + 4);
           continue;
         }
         for (let c = 0; c < 3; c += 1) {
-          const s = src.data[si + c];
-          const d = this.data[di + c];
+          const s = at(src.data, si + c);
+          const d = at(this.data, di + c);
           this.data[di + c] = Math.round((s * sa + d * da * (1 - sa)) / outA);
         }
         this.data[di + 3] = Math.round(outA * 255);
@@ -708,20 +989,34 @@ var Bitmap = class _Bitmap {
     let maxY = -1;
     for (let y = 0; y < this.height; y += 1) {
       for (let x = 0; x < this.width; x += 1) {
-        if (this.data[this.index(x, y) + 3] <= alphaThreshold) continue;
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
+        if (at(this.data, this.index(x, y) + 3) <= alphaThreshold) {
+          continue;
+        }
+        if (x < minX) {
+          minX = x;
+        }
+        if (x > maxX) {
+          maxX = x;
+        }
+        if (y < minY) {
+          minY = y;
+        }
+        if (y > maxY) {
+          maxY = y;
+        }
       }
     }
-    if (maxX < 0) return null;
-    return { left: minX, top: minY, right: maxX + 1, bottom: maxY + 1 };
+    if (maxX < 0) {
+      return null;
+    }
+    return { bottom: maxY + 1, left: minX, right: maxX + 1, top: minY };
   }
   /** Extract one channel as a width*height byte array (Pillow's `split`). */
   channel(offset) {
     const out = new Uint8Array(this.width * this.height);
-    for (let i = 0; i < out.length; i += 1) out[i] = this.data[i * 4 + offset];
+    for (let i = 0; i < out.length; i += 1) {
+      out[i] = at(this.data, i * 4 + offset);
+    }
     return out;
   }
   /** Rec. 601 luma per pixel — Pillow's `convert("L")`. */
@@ -730,7 +1025,7 @@ var Bitmap = class _Bitmap {
     for (let i = 0; i < out.length; i += 1) {
       const p = i * 4;
       out[i] = Math.round(
-        this.data[p] * 0.299 + this.data[p + 1] * 0.587 + this.data[p + 2] * 0.114
+        at(this.data, p) * 0.299 + at(this.data, p + 1) * 0.587 + at(this.data, p + 2) * 0.114
       );
     }
     return out;
@@ -739,17 +1034,21 @@ var Bitmap = class _Bitmap {
   flatten(background = [0, 0, 0]) {
     const out = new _Bitmap(this.width, this.height);
     for (let i = 0; i < this.data.length; i += 4) {
-      const a = this.data[i + 3] / 255;
+      const a = at(this.data, i + 3) / 255;
       for (let c = 0; c < 3; c += 1) {
-        out.data[i + c] = Math.round(this.data[i + c] * a + background[c] * (1 - a));
+        out.data[i + c] = Math.round(at(this.data, i + c) * a + (background[c] ?? 0) * (1 - a));
       }
       out.data[i + 3] = 255;
     }
     return out;
   }
   resize(width, height, mode = "nearest") {
-    if (width === this.width && height === this.height) return this.copy();
-    if (mode === "nearest") return this.resizeNearest(width, height);
+    if (width === this.width && height === this.height) {
+      return this.copy();
+    }
+    if (mode === "nearest") {
+      return this.resizeNearest(width, height);
+    }
     return this.resampleFiltered(width, height, mode);
   }
   resizeNearest(width, height) {
@@ -762,10 +1061,10 @@ var Bitmap = class _Bitmap {
         const sx = Math.min(this.width - 1, Math.floor((x + 0.5) * xRatio));
         const si = this.index(sx, sy);
         const di = out.index(x, y);
-        out.data[di] = this.data[si];
-        out.data[di + 1] = this.data[si + 1];
-        out.data[di + 2] = this.data[si + 2];
-        out.data[di + 3] = this.data[si + 3];
+        out.data[di] = at(this.data, si);
+        out.data[di + 1] = at(this.data, si + 1);
+        out.data[di + 2] = at(this.data, si + 2);
+        out.data[di + 3] = at(this.data, si + 3);
       }
     }
     return out;
@@ -812,162 +1111,44 @@ var Bitmap = class _Bitmap {
     return out;
   }
 };
-function clamp8(value) {
-  return value <= 0 ? 0 : value >= 255 ? 255 : Math.round(value);
-}
-var FILTERS = {
-  bilinear: {
-    support: 1,
-    kernel: (x) => {
-      const t = Math.abs(x);
-      return t < 1 ? 1 - t : 0;
-    }
-  },
-  bicubic: {
-    support: 2,
-    // Catmull-Rom variant with a = -0.5, which is Pillow's BICUBIC and the
-    // default filter for `Image.resize`.
-    kernel: (x) => {
-      const a = -0.5;
-      const t = Math.abs(x);
-      if (t < 1) return ((a + 2) * t - (a + 3)) * t * t + 1;
-      if (t < 2) return (((t - 5) * t + 8) * t - 4) * a;
-      return 0;
-    }
-  },
-  lanczos: {
-    support: 3,
-    kernel: (x) => {
-      const t = Math.abs(x);
-      if (t === 0) return 1;
-      if (t >= 3) return 0;
-      const pix = Math.PI * t;
-      return 3 * Math.sin(pix) * Math.sin(pix / 3) / (pix * pix);
-    }
-  }
-};
-function mulDiv255(value, alpha) {
-  const tmp = value * alpha + 128;
-  return tmp + (tmp >> 8) >> 8;
-}
-function premultiply(data) {
-  const out = new Float64Array(data.length);
-  for (let i = 0; i < data.length; i += 4) {
-    const a = data[i + 3];
-    out[i] = mulDiv255(data[i], a);
-    out[i + 1] = mulDiv255(data[i + 1], a);
-    out[i + 2] = mulDiv255(data[i + 2], a);
-    out[i + 3] = a;
-  }
-  return out;
-}
-function quantizeInPlace(buffer) {
-  for (let i = 0; i < buffer.length; i += 1) buffer[i] = clamp8(buffer[i]);
-}
-function unpremultiply(src, out) {
-  for (let i = 0; i < src.length; i += 4) {
-    const a = clamp8(src[i + 3]);
-    out[i + 3] = a;
-    if (a === 0) {
-      out[i] = out[i + 1] = out[i + 2] = 0;
-      continue;
-    }
-    for (let c = 0; c < 3; c += 1) {
-      const premul = clamp8(src[i + c]);
-      out[i + c] = Math.min(255, Math.floor(premul * 255 / a));
-    }
-  }
-}
-function resamplePass(src, srcW, rows, dstW, kernel, support) {
-  const out = new Float64Array(dstW * rows * 4);
-  const scale = srcW / dstW;
-  const filterScale = Math.max(1, scale);
-  const radius = support * filterScale;
-  for (let x = 0; x < dstW; x += 1) {
-    const center = (x + 0.5) * scale;
-    const start = Math.max(0, Math.trunc(center - radius + 0.5));
-    const end = Math.min(srcW, Math.trunc(center + radius + 0.5));
-    const weights = [];
-    let total = 0;
-    for (let sx = start; sx < end; sx += 1) {
-      const w = kernel((sx + 0.5 - center) / filterScale);
-      weights.push(w);
-      total += w;
-    }
-    if (total === 0) {
-      const nearest2 = Math.min(srcW - 1, Math.max(0, Math.floor(center)));
-      for (let y = 0; y < rows; y += 1) {
-        for (let c = 0; c < 4; c += 1) {
-          out[(y * dstW + x) * 4 + c] = src[(y * srcW + nearest2) * 4 + c];
-        }
-      }
-      continue;
-    }
-    for (let y = 0; y < rows; y += 1) {
-      let r = 0;
-      let g = 0;
-      let b = 0;
-      let a = 0;
-      for (let i = 0; i < weights.length; i += 1) {
-        const w = weights[i] / total;
-        const si = (y * srcW + start + i) * 4;
-        r += src[si] * w;
-        g += src[si + 1] * w;
-        b += src[si + 2] * w;
-        a += src[si + 3] * w;
-      }
-      const di = (y * dstW + x) * 4;
-      out[di] = r;
-      out[di + 1] = g;
-      out[di + 2] = b;
-      out[di + 3] = a;
-    }
-  }
-  return out;
-}
-function transpose(src, width, height) {
-  const out = new Float64Array(src.length);
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const si = (y * width + x) * 4;
-      const di = (x * height + y) * 4;
-      out[di] = src[si];
-      out[di + 1] = src[si + 1];
-      out[di + 2] = src[si + 2];
-      out[di + 3] = src[si + 3];
-    }
-  }
-  return out;
-}
 
 // src/image/gif.ts
-function quantize(pixels, maxColors) {
+var CHANNELS2 = [0, 1, 2];
+var quantize = (pixels, maxColors) => {
   let boxes = [pixels];
   while (boxes.length < maxColors) {
     let target = -1;
+    let box;
     let bestRange = 0;
     let bestChannel = 0;
-    for (let i = 0; i < boxes.length; i += 1) {
-      const box2 = boxes[i];
-      if (box2.length < 2) continue;
-      for (let c = 0; c < 3; c += 1) {
+    for (const [i, candidate] of boxes.entries()) {
+      if (candidate.length < 2) {
+        continue;
+      }
+      for (const c of CHANNELS2) {
         let min = 255;
         let max = 0;
-        for (const p of box2) {
-          if (p[c] < min) min = p[c];
-          if (p[c] > max) max = p[c];
+        for (const p of candidate) {
+          if (p[c] < min) {
+            min = p[c];
+          }
+          if (p[c] > max) {
+            max = p[c];
+          }
         }
         if (max - min > bestRange) {
           bestRange = max - min;
           target = i;
+          box = candidate;
           bestChannel = c;
         }
       }
     }
-    if (target < 0 || bestRange === 0) break;
-    const box = boxes[target];
+    if (box === void 0 || bestRange === 0) {
+      break;
+    }
     box.sort((a, b) => a[bestChannel] - b[bestChannel]);
-    const mid = box.length >> 1;
+    const mid = Math.floor(box.length / 2);
     boxes = [
       ...boxes.slice(0, target),
       box.slice(0, mid),
@@ -986,17 +1167,20 @@ function quantize(pixels, maxColors) {
     }
     return [Math.round(r / box.length), Math.round(g / box.length), Math.round(b / box.length)];
   });
-  if (colors.length === 0) colors.push([0, 0, 0]);
+  if (colors.length === 0) {
+    colors.push([0, 0, 0]);
+  }
   return { colors, lookup: /* @__PURE__ */ new Map() };
-}
-function nearest(palette, r, g, b) {
-  const key = r << 16 | g << 8 | b;
+};
+var nearest = (palette, r, g, b) => {
+  const key = r * 65536 + g * 256 + b;
   const cached = palette.lookup.get(key);
-  if (cached !== void 0) return cached;
+  if (cached !== void 0) {
+    return cached;
+  }
   let best = 0;
   let bestDist = Infinity;
-  for (let i = 0; i < palette.colors.length; i += 1) {
-    const c = palette.colors[i];
+  for (const [i, c] of palette.colors.entries()) {
     const dr = c[0] - r;
     const dg = c[1] - g;
     const db = c[2] - b;
@@ -1008,7 +1192,7 @@ function nearest(palette, r, g, b) {
   }
   palette.lookup.set(key, best);
   return best;
-}
+};
 var BitWriter = class {
   bytes = [];
   accumulator = 0;
@@ -1023,7 +1207,9 @@ var BitWriter = class {
     }
   }
   finish() {
-    if (this.bits > 0) this.bytes.push(this.accumulator & 255);
+    if (this.bits > 0) {
+      this.bytes.push(this.accumulator & 255);
+    }
     const out = [];
     for (let i = 0; i < this.bytes.length; i += 255) {
       const chunk2 = this.bytes.slice(i, i + 255);
@@ -1033,8 +1219,8 @@ var BitWriter = class {
     return Buffer.from(out);
   }
 };
-function lzwCompress(indices, minCodeSize) {
-  const clearCode = 1 << minCodeSize;
+var lzwCompress = (indices, minCodeSize) => {
+  const clearCode = 2 ** minCodeSize;
   const endCode = clearCode + 1;
   const writer = new BitWriter();
   let dict = /* @__PURE__ */ new Map();
@@ -1047,9 +1233,9 @@ function lzwCompress(indices, minCodeSize) {
   };
   resetDict();
   writer.write(clearCode, codeWidth);
-  let prefix = String(indices[0]);
+  let prefix = String(indices[0] ?? 0);
   for (let i = 1; i < indices.length; i += 1) {
-    const k = indices[i];
+    const k = indices[i] ?? 0;
     const combined = `${prefix},${k}`;
     if (dict.has(combined)) {
       prefix = combined;
@@ -1058,7 +1244,7 @@ function lzwCompress(indices, minCodeSize) {
     writer.write(dict.get(prefix) ?? Number(prefix), codeWidth);
     dict.set(combined, next);
     next += 1;
-    if (next > 1 << codeWidth && codeWidth < 12) {
+    if (next > 2 ** codeWidth && codeWidth < 12) {
       codeWidth += 1;
     } else if (next > 4095) {
       writer.write(clearCode, codeWidth);
@@ -1069,11 +1255,13 @@ function lzwCompress(indices, minCodeSize) {
   writer.write(dict.get(prefix) ?? Number(prefix), codeWidth);
   writer.write(endCode, codeWidth);
   return writer.finish();
-}
-function encodeGif(frames, loop = 0) {
-  if (frames.length === 0) throw new Error("GIF: no frames to encode");
-  const width = frames[0].bitmap.width;
-  const height = frames[0].bitmap.height;
+};
+var encodeGif = (frames, loop = 0) => {
+  const [first] = frames;
+  if (first === void 0) {
+    throw new Error("GIF: no frames to encode");
+  }
+  const { width, height } = first.bitmap;
   for (const frame of frames) {
     if (frame.bitmap.width !== width || frame.bitmap.height !== height) {
       throw new Error(
@@ -1107,25 +1295,26 @@ function encodeGif(frames, loop = 0) {
     const { bitmap } = frame;
     const pixels = [];
     for (let i = 0; i < bitmap.data.length; i += 4) {
-      pixels.push([bitmap.data[i], bitmap.data[i + 1], bitmap.data[i + 2]]);
+      pixels.push([bitmap.data[i] ?? 0, bitmap.data[i + 1] ?? 0, bitmap.data[i + 2] ?? 0]);
     }
     const palette = quantize(
       pixels.map((p) => [...p]),
       256
     );
     const indices = new Uint8Array(width * height);
-    for (let i = 0; i < indices.length; i += 1) {
-      const p = pixels[i];
+    for (const [i, p] of pixels.entries()) {
       indices[i] = nearest(palette, p[0], p[1], p[2]);
     }
     let tableBits = 1;
-    while (1 << tableBits < palette.colors.length) tableBits += 1;
-    const tableSize = 1 << tableBits;
+    while (2 ** tableBits < palette.colors.length) {
+      tableBits += 1;
+    }
+    const tableSize = 2 ** tableBits;
     const gce = Buffer.alloc(8);
     gce[0] = 33;
     gce[1] = 249;
     gce[2] = 4;
-    gce[3] = 2 << 2;
+    gce[3] = 8;
     gce.writeUInt16LE(Math.max(0, Math.round(frame.delayMs / 10)), 4);
     gce[6] = 0;
     gce[7] = 0;
@@ -1136,56 +1325,69 @@ function encodeGif(frames, loop = 0) {
     descriptor.writeUInt16LE(0, 3);
     descriptor.writeUInt16LE(width, 5);
     descriptor.writeUInt16LE(height, 7);
-    descriptor[9] = 128 | tableBits - 1;
+    descriptor[9] = 128 + (tableBits - 1);
     parts.push(descriptor);
     const table = Buffer.alloc(tableSize * 3);
-    for (let i = 0; i < palette.colors.length; i += 1) {
-      const c = palette.colors[i];
-      table[i * 3] = c[0];
-      table[i * 3 + 1] = c[1];
-      table[i * 3 + 2] = c[2];
+    for (const [i, [r, g, b]] of palette.colors.entries()) {
+      table[i * 3] = r;
+      table[i * 3 + 1] = g;
+      table[i * 3 + 2] = b;
     }
     parts.push(table);
     const minCodeSize = Math.max(2, tableBits);
-    parts.push(Buffer.from([minCodeSize]));
-    parts.push(lzwCompress(indices, minCodeSize));
+    parts.push(Buffer.from([minCodeSize]), lzwCompress(indices, minCodeSize));
   }
   parts.push(Buffer.from([59]));
   return Buffer.concat(parts);
-}
+};
 
 // src/asset/paths.ts
 import { existsSync, mkdirSync as mkdirSync2, readdirSync, statSync, writeFileSync as writeFileSync2 } from "node:fs";
-import { dirname as dirname2, join, relative, resolve as resolve2, sep } from "node:path";
-function toPythonJson(payload) {
-  return JSON.stringify(payload, null, 2).replace(
-    /[\u007f-\uffff]/g,
-    (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, "0")}`
-  );
-}
-function writeJsonFile(path, payload) {
-  mkdirSync2(dirname2(resolve2(path)), { recursive: true });
-  writeFileSync2(path, `${toPythonJson(payload)}
+import path2 from "node:path";
+var toPythonJson = (payload) => JSON.stringify(payload, null, 2).replaceAll(
+  /[\u007F-\u{10FFFF}]/gu,
+  (ch) => (
+    // Escape per UTF-16 unit: an astral character becomes its surrogate pair,
+    // as Python writes it.
+    [...ch].map((unit) => `\\u${(unit.codePointAt(0) ?? 0).toString(16).padStart(4, "0")}`).join("")
+  )
+);
+var writeJsonFile = (target, payload) => {
+  mkdirSync2(path2.dirname(path2.resolve(target)), { recursive: true });
+  writeFileSync2(target, `${toPythonJson(payload)}
 `);
-}
+};
 
 // src/pymath.ts
-function roundHalfToEven(value) {
+var roundHalfToEven = (value) => {
   const floor = Math.floor(value);
   const diff = value - floor;
-  if (diff > 0.5) return floor + 1;
-  if (diff < 0.5) return floor;
+  if (diff > 0.5) {
+    return floor + 1;
+  }
+  if (diff < 0.5) {
+    return floor;
+  }
   return floor % 2 === 0 ? floor : floor + 1;
-}
+};
 
 // src/sprite/frames.ts
 import { readdirSync as readdirSync2 } from "node:fs";
-import { join as join2 } from "node:path";
-function globToRegExp(pattern) {
-  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`^${escaped.replaceAll("*", "[^/]*").replaceAll("?", "[^/]")}$`);
-}
-function globFrames(dir, pattern = "frame-*.png") {
+import path3 from "node:path";
+var globToRegExp = (pattern) => {
+  const escaped = pattern.replaceAll(/[.+^${}()|[\]\\]/gu, "\\$&");
+  return new RegExp(`^${escaped.replaceAll("*", "[^/]*").replaceAll("?", "[^/]")}$`, "u");
+};
+var compareNames = (a, b) => {
+  if (a < b) {
+    return -1;
+  }
+  if (a > b) {
+    return 1;
+  }
+  return 0;
+};
+var globFrames = (dir, pattern = "frame-*.png") => {
   const re = globToRegExp(pattern);
   let entries;
   try {
@@ -1193,65 +1395,76 @@ function globFrames(dir, pattern = "frame-*.png") {
   } catch {
     return [];
   }
-  return entries.filter((name) => re.test(name)).sort((a, b) => a < b ? -1 : a > b ? 1 : 0).map((name) => join2(dir, name));
-}
-function loadFrames(dir, pattern = "frame-*.png") {
+  return entries.filter((name) => re.test(name)).toSorted(compareNames).map((name) => path3.join(dir, name));
+};
+var loadFrames = (dir, pattern = "frame-*.png") => {
   const paths = globFrames(dir, pattern);
-  if (paths.length === 0) throw new Error(`no frames matching ${pattern} in ${dir}`);
-  return paths.map((path) => ({ path, image: Bitmap.fromFile(path) }));
-}
-function median(values) {
-  if (values.length === 0) throw new Error("median of an empty sequence");
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = sorted.length >> 1;
-  return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-}
+  if (paths.length === 0) {
+    throw new Error(`no frames matching ${pattern} in ${dir}`);
+  }
+  return paths.map((file) => ({ image: Bitmap.fromFile(file), path: file }));
+};
+var median = (values) => {
+  if (values.length === 0) {
+    throw new Error("median of an empty sequence");
+  }
+  const sorted = [...values].toSorted((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const upper = sorted[mid] ?? 0;
+  return sorted.length % 2 === 1 ? upper : ((sorted[mid - 1] ?? 0) + upper) / 2;
+};
 
 // src/sprite/chroma.ts
 var HIGH_FRINGE_REMOVAL_RATIO = 0.02;
-function colorDistance(a, b) {
-  return Math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2);
-}
-function chromaFringeChannels(chroma) {
-  const dominant = [0, 1, 2].filter((i) => chroma[i] >= 128);
-  const suppressed = [0, 1, 2].filter((i) => chroma[i] < 128);
+var colorDistance = (a, b) => (
+  // oxlint-disable-next-line unicorn/prefer-modern-math-apis -- Math.hypot rounds differently from sqrt of an exact integer sum; tolerance boundaries must match the Python original
+  Math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2)
+);
+var chromaFringeChannels = (chroma) => {
+  const dominant = [0, 1, 2].filter((i) => (chroma[i] ?? 0) >= 128);
+  const suppressed = [0, 1, 2].filter((i) => (chroma[i] ?? 0) < 128);
   if (dominant.length === 0 || suppressed.length === 0) {
     throw new Error(
       `chroma (${chroma.join(", ")}) cannot be split into dominant/suppressed channels; fringe cleanup needs a saturated matte color such as #00FF00 or #FF00FF`
     );
   }
   return { dominant, suppressed };
-}
-function isGreenMatte(chroma) {
-  return chroma[1] >= 180 && chroma[1] - Math.max(chroma[0], chroma[2]) >= 80;
-}
-function isKeyableFringeChroma(chroma) {
+};
+var isGreenMatte = (chroma) => chroma[1] >= 180 && chroma[1] - Math.max(chroma[0], chroma[2]) >= 80;
+var isKeyableFringeChroma = (chroma) => {
   let split;
   try {
     split = chromaFringeChannels(chroma);
   } catch {
     return false;
   }
-  const low = Math.min(...split.dominant.map((i) => chroma[i]));
-  const high = Math.max(...split.suppressed.map((i) => chroma[i]));
+  const low = Math.min(...split.dominant.map((i) => chroma[i] ?? 0));
+  const high = Math.max(...split.suppressed.map((i) => chroma[i] ?? 0));
   return low >= 180 && low - high >= 80;
-}
-function fringeWarning(removed, kept, chroma) {
+};
+var fringeWarning = (removed, kept, chroma) => {
   const total = removed + kept;
-  if (total <= 0) return null;
-  if (removed / total < HIGH_FRINGE_REMOVAL_RATIO) return null;
+  if (total <= 0) {
+    return null;
+  }
+  if (removed / total < HIGH_FRINGE_REMOVAL_RATIO) {
+    return null;
+  }
   return isGreenMatte(chroma) ? "high green-fringe removal ratio; green foreground details may have been removed. Use a non-green matte such as #FF00FF, or pass --no-decontam to keep green specks." : "high fringe removal ratio; foreground details close to the matte color may have been removed. Use a matte color absent from the sprite, or pass --no-decontam.";
-}
-function backgroundReachable(width, height, isFloodable) {
+};
+var backgroundReachable = (width, height, isFloodable) => {
   const reachable = new Uint8Array(width * height);
   const queue = new Int32Array(width * height);
   let head = 0;
   let tail = 0;
   const enqueue = (x, y) => {
     const index = y * width + x;
-    if (reachable[index] || !isFloodable(index)) return;
+    if (reachable[index] || !isFloodable(index)) {
+      return;
+    }
     reachable[index] = 1;
-    queue[tail++] = index;
+    queue[tail] = index;
+    tail += 1;
   };
   for (let x = 0; x < width; x += 1) {
     enqueue(x, 0);
@@ -1262,120 +1475,160 @@ function backgroundReachable(width, height, isFloodable) {
     enqueue(width - 1, y);
   }
   while (head < tail) {
-    const index = queue[head++];
+    const index = queue[head] ?? 0;
+    head += 1;
     const y = Math.floor(index / width);
     const x = index - y * width;
-    if (x + 1 < width) enqueue(x + 1, y);
-    if (x > 0) enqueue(x - 1, y);
-    if (y + 1 < height) enqueue(x, y + 1);
-    if (y > 0) enqueue(x, y - 1);
+    if (x + 1 < width) {
+      enqueue(x + 1, y);
+    }
+    if (x > 0) {
+      enqueue(x - 1, y);
+    }
+    if (y + 1 < height) {
+      enqueue(x, y + 1);
+    }
+    if (y > 0) {
+      enqueue(x, y - 1);
+    }
   }
   return reachable;
-}
-function hasBackgroundNeighbor(reachable, x, y, width, height, radius) {
+};
+var hasBackgroundNeighbor = (reachable, x, y, width, height, radius) => {
   for (let ny = Math.max(0, y - radius); ny < Math.min(height, y + radius + 1); ny += 1) {
     for (let nx = Math.max(0, x - radius); nx < Math.min(width, x + radius + 1); nx += 1) {
-      if (nx === x && ny === y) continue;
-      if (reachable[ny * width + nx]) return true;
+      if (nx === x && ny === y) {
+        continue;
+      }
+      if (reachable[ny * width + nx]) {
+        return true;
+      }
     }
   }
   return false;
-}
-function keepLargestComponents(image, minArea) {
+};
+var keepLargestComponents = (image, minArea) => {
   const { width, height } = image;
   const seen = new Uint8Array(width * height);
   const queue = new Int32Array(width * height);
   const out = Bitmap.create(width, height);
+  let head = 0;
+  let tail = 0;
+  const visit = (nx, ny) => {
+    const n = ny * width + nx;
+    if (seen[n] || image.data[n * 4 + 3] === 0) {
+      return;
+    }
+    seen[n] = 1;
+    queue[tail] = n;
+    tail += 1;
+  };
   for (let startY = 0; startY < height; startY += 1) {
     for (let startX = 0; startX < width; startX += 1) {
       const start = startY * width + startX;
-      if (seen[start] || image.data[start * 4 + 3] === 0) continue;
-      let head = 0;
-      let tail = 0;
-      queue[tail++] = start;
+      if (seen[start] || image.data[start * 4 + 3] === 0) {
+        continue;
+      }
+      head = 0;
+      tail = 0;
+      queue[tail] = start;
+      tail += 1;
       seen[start] = 1;
       const points = [];
       while (head < tail) {
-        const index = queue[head++];
+        const index = queue[head] ?? 0;
+        head += 1;
         points.push(index);
         const y = Math.floor(index / width);
         const x = index - y * width;
-        const visit = (nx, ny) => {
-          const n = ny * width + nx;
-          if (seen[n] || image.data[n * 4 + 3] === 0) return;
-          seen[n] = 1;
-          queue[tail++] = n;
-        };
-        if (x + 1 < width) visit(x + 1, y);
-        if (x > 0) visit(x - 1, y);
-        if (y + 1 < height) visit(x, y + 1);
-        if (y > 0) visit(x, y - 1);
+        if (x + 1 < width) {
+          visit(x + 1, y);
+        }
+        if (x > 0) {
+          visit(x - 1, y);
+        }
+        if (y + 1 < height) {
+          visit(x, y + 1);
+        }
+        if (y > 0) {
+          visit(x, y - 1);
+        }
       }
       if (points.length >= minArea) {
         for (const index of points) {
           const p = index * 4;
-          out.data[p] = image.data[p];
-          out.data[p + 1] = image.data[p + 1];
-          out.data[p + 2] = image.data[p + 2];
-          out.data[p + 3] = image.data[p + 3];
+          out.data[p] = image.data[p] ?? 0;
+          out.data[p + 1] = image.data[p + 1] ?? 0;
+          out.data[p + 2] = image.data[p + 2] ?? 0;
+          out.data[p + 3] = image.data[p + 3] ?? 0;
         }
       }
     }
   }
   return out;
-}
-function keyMatte(image, options) {
-  const { chroma, tolerance = 90, keepLargest = false, minComponentArea = 80 } = options;
-  const { width, height } = image;
-  const candidate = new Uint8Array(width * height);
-  let candidates = 0;
+};
+var matteCandidates = (image, chroma, tolerance) => {
+  const candidate = new Uint8Array(image.width * image.height);
+  let count = 0;
   for (let index = 0; index < candidate.length; index += 1) {
     const p = index * 4;
     if (image.data[p + 3] === 0) {
       candidate[index] = 1;
       continue;
     }
-    const rgb = [image.data[p], image.data[p + 1], image.data[p + 2]];
+    const rgb = [image.data[p] ?? 0, image.data[p + 1] ?? 0, image.data[p + 2] ?? 0];
     if (colorDistance(rgb, chroma) <= tolerance) {
       candidate[index] = 1;
-      candidates += 1;
+      count += 1;
     }
   }
+  return { candidate, count };
+};
+var keyMatte = (image, options) => {
+  const { chroma, tolerance = 90, keepLargest = false, minComponentArea = 80 } = options;
+  const { width, height } = image;
+  const { candidate, count: candidates } = matteCandidates(image, chroma, tolerance);
   const reachable = backgroundReachable(width, height, (index) => candidate[index] === 1);
   let out = Bitmap.create(width, height);
   let removed = 0;
   let kept = 0;
   for (let index = 0; index < candidate.length; index += 1) {
     const p = index * 4;
-    const alpha = image.data[p + 3];
+    const alpha = image.data[p + 3] ?? 0;
     if (reachable[index]) {
-      if (alpha !== 0) removed += 1;
+      if (alpha !== 0) {
+        removed += 1;
+      }
       continue;
     }
-    if (alpha === 0) continue;
-    out.data[p] = image.data[p];
-    out.data[p + 1] = image.data[p + 1];
-    out.data[p + 2] = image.data[p + 2];
+    if (alpha === 0) {
+      continue;
+    }
+    out.data[p] = image.data[p] ?? 0;
+    out.data[p + 1] = image.data[p + 1] ?? 0;
+    out.data[p + 2] = image.data[p + 2] ?? 0;
     out.data[p + 3] = alpha;
     kept += 1;
   }
-  if (keepLargest) out = keepLargestComponents(out, minComponentArea);
+  if (keepLargest) {
+    out = keepLargestComponents(out, minComponentArea);
+  }
   const bbox = out.getBBox();
   return {
     image: out,
     record: {
+      bbox: bbox ? [bbox.left, bbox.top, bbox.right, bbox.bottom] : null,
       chromaRgb: [...chroma],
-      tolerance,
+      inToleranceCandidates: candidates,
       keepLargest,
+      keptPixels: kept,
       minComponentArea: keepLargest ? minComponentArea : null,
       removedPixels: removed,
-      inToleranceCandidates: candidates,
-      keptPixels: kept,
-      bbox: bbox ? [bbox.left, bbox.top, bbox.right, bbox.bottom] : null
+      tolerance
     }
   };
-}
-function removeChromaFringe(image, options) {
+};
+var removeChromaFringe = (image, options) => {
   const { chroma, minLevel = 70, dominance = 24, edgeRadius = 1 } = options;
   const { dominant, suppressed } = chromaFringeChannels(chroma);
   const { width, height } = image;
@@ -1386,18 +1639,18 @@ function removeChromaFringe(image, options) {
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       const p = image.index(x, y);
-      const alpha = image.data[p + 3];
-      if (alpha === 0) continue;
-      const rgb = [image.data[p], image.data[p + 1], image.data[p + 2]];
-      const low = Math.min(...dominant.map((i) => rgb[i]));
-      const high = Math.max(...suppressed.map((i) => rgb[i]));
+      const alpha = image.data[p + 3] ?? 0;
+      if (alpha === 0) {
+        continue;
+      }
+      const rgb = [image.data[p] ?? 0, image.data[p + 1] ?? 0, image.data[p + 2] ?? 0];
+      const low = Math.min(...dominant.map((i) => rgb[i] ?? 0));
+      const high = Math.max(...suppressed.map((i) => rgb[i] ?? 0));
       if (hasBackgroundNeighbor(reachable, x, y, width, height, edgeRadius) && low >= minLevel && low - high >= dominance) {
         removed += 1;
         continue;
       }
-      out.data[p] = rgb[0];
-      out.data[p + 1] = rgb[1];
-      out.data[p + 2] = rgb[2];
+      [out.data[p], out.data[p + 1], out.data[p + 2]] = rgb;
       out.data[p + 3] = alpha;
       kept += 1;
     }
@@ -1406,38 +1659,50 @@ function removeChromaFringe(image, options) {
   return {
     image: out,
     record: {
+      bbox: bbox ? [bbox.left, bbox.top, bbox.right, bbox.bottom] : null,
       chromaRgb: [...chroma],
-      removedFringePixels: removed,
-      keptPixels: kept,
-      removedToKeptRatio: removed / Math.max(1, kept),
-      minLevel,
       dominance,
       edgeRadius,
-      bbox: bbox ? [bbox.left, bbox.top, bbox.right, bbox.bottom] : null,
+      keptPixels: kept,
+      minLevel,
+      removedFringePixels: removed,
+      removedToKeptRatio: removed / Math.max(1, kept),
       warning: fringeWarning(removed, kept, chroma)
     }
   };
-}
-function nearTransparentMask(image, radius) {
+};
+var nearTransparentMask = (image, radius) => {
   const { width, height } = image;
   let near = new Uint8Array(width * height);
-  for (let i = 0; i < near.length; i += 1) near[i] = image.data[i * 4 + 3] === 0 ? 1 : 0;
+  for (let i = 0; i < near.length; i += 1) {
+    near[i] = image.data[i * 4 + 3] === 0 ? 1 : 0;
+  }
   for (let step = 0; step < Math.max(0, radius); step += 1) {
     const grown = Uint8Array.from(near);
     for (let y = 0; y < height; y += 1) {
       for (let x = 0; x < width; x += 1) {
-        if (!near[y * width + x]) continue;
-        if (y + 1 < height) grown[(y + 1) * width + x] = 1;
-        if (y > 0) grown[(y - 1) * width + x] = 1;
-        if (x + 1 < width) grown[y * width + x + 1] = 1;
-        if (x > 0) grown[y * width + x - 1] = 1;
+        if (!near[y * width + x]) {
+          continue;
+        }
+        if (y + 1 < height) {
+          grown[(y + 1) * width + x] = 1;
+        }
+        if (y > 0) {
+          grown[(y - 1) * width + x] = 1;
+        }
+        if (x + 1 < width) {
+          grown[y * width + x + 1] = 1;
+        }
+        if (x > 0) {
+          grown[y * width + x - 1] = 1;
+        }
       }
     }
     near = grown;
   }
   return near;
-}
-function despillChroma(image, options) {
+};
+var despillChroma = (image, options) => {
   const { chroma, edgeRadius = 2, bandOnly = true } = options;
   const { dominant, suppressed } = chromaFringeChannels(chroma);
   const out = image.copy();
@@ -1446,13 +1711,17 @@ function despillChroma(image, options) {
   let spillRemoved = 0;
   for (let index = 0; index < image.width * image.height; index += 1) {
     const p = index * 4;
-    if (image.data[p + 3] === 0) continue;
-    if (near && !near[index]) continue;
-    const high = Math.max(...suppressed.map((i) => image.data[p + i]));
+    if (image.data[p + 3] === 0) {
+      continue;
+    }
+    if (near && !near[index]) {
+      continue;
+    }
+    const high = Math.max(...suppressed.map((i) => image.data[p + i] ?? 0));
     let changed = false;
     let delta = 0;
     for (const channel of dominant) {
-      const original = image.data[p + channel];
+      const original = image.data[p + channel] ?? 0;
       const clamped = Math.min(original, high);
       if (clamped !== original) {
         changed = true;
@@ -1468,32 +1737,34 @@ function despillChroma(image, options) {
   return {
     image: out,
     record: {
-      chromaRgb: [...chroma],
-      edgeRadius,
       bandOnly,
+      chromaRgb: [...chroma],
       despilledPixels: despilled,
+      edgeRadius,
       spillRemoved
     }
   };
-}
-function decontaminateMatte(image, options) {
+};
+var decontaminateMatte = (image, options) => {
   const { chroma, excess = 50, minLevel = 100 } = options;
   const { dominant, suppressed } = chromaFringeChannels(chroma);
   const out = image.copy();
   let removed = 0;
   for (let index = 0; index < image.width * image.height; index += 1) {
     const p = index * 4;
-    if (image.data[p + 3] <= 0) continue;
-    const domMin = Math.min(...dominant.map((i) => image.data[p + i]));
-    const supMax = Math.max(...suppressed.map((i) => image.data[p + i]));
+    if ((image.data[p + 3] ?? 0) <= 0) {
+      continue;
+    }
+    const domMin = Math.min(...dominant.map((i) => image.data[p + i] ?? 0));
+    const supMax = Math.max(...suppressed.map((i) => image.data[p + i] ?? 0));
     if (domMin - supMax > excess && domMin > minLevel) {
       out.data[p + 3] = 0;
       removed += 1;
     }
   }
   return { image: out, record: { specksRemoved: removed } };
-}
-function cleanChroma(image, options) {
+};
+var cleanChroma = (image, options) => {
   const { chroma, tolerance = 90, fringeRadius = 1, despillRadius = 2, decontam = true } = options;
   const keyed = keyMatte(image, { chroma, tolerance });
   const defringed = removeChromaFringe(keyed.image, { chroma, edgeRadius: fringeRadius });
@@ -1506,20 +1777,20 @@ function cleanChroma(image, options) {
     decontamRecord = cleaned.record;
   }
   return {
-    image: result,
-    key: keyed.record,
-    fringe: defringed.record,
+    decontam: decontamRecord,
     despill: despilled.record,
-    decontam: decontamRecord
+    fringe: defringed.record,
+    image: result,
+    key: keyed.record
   };
-}
+};
 
 // src/sprite/normalize.ts
-import { basename, join as join3 } from "node:path";
-function normalizeCanvas(inputDir, outDir, options = {}) {
+import path4 from "node:path";
+var normalizeCanvas = (inputDir, outDir, options = {}) => {
   const {
     glob = "frame-*.png",
-    canvas = { width: 256, height: 256 },
+    canvas = { height: 256, width: 256 },
     pad = 6,
     allowUpscale = true,
     targetHeight = null,
@@ -1527,7 +1798,9 @@ function normalizeCanvas(inputDir, outDir, options = {}) {
   } = options;
   const frames = loadFrames(inputDir, glob);
   const boxes = frames.map((f) => f.image.getBBox()).filter((b) => b !== null);
-  if (boxes.length === 0) throw new Error(`all frames in ${inputDir} are empty`);
+  if (boxes.length === 0) {
+    throw new Error(`all frames in ${inputDir} are empty`);
+  }
   const unionLeft = Math.min(...boxes.map((b) => b.left));
   const unionTop = Math.min(...boxes.map((b) => b.top));
   const unionRight = Math.max(...boxes.map((b) => b.right));
@@ -1541,72 +1814,57 @@ function normalizeCanvas(inputDir, outDir, options = {}) {
   const scaleChar = charTarget / charHeight;
   const scaleFit = Math.min(availableWidth / unionWidth, availableHeight / unionHeight);
   let scale = Math.min(scaleChar, scaleFit);
-  if (!allowUpscale) scale = Math.min(scale, 1);
+  if (!allowUpscale) {
+    scale = Math.min(scale, 1);
+  }
   const newWidth = Math.max(1, roundHalfToEven(unionWidth * scale));
   const newHeight = Math.max(1, roundHalfToEven(unionHeight * scale));
   const pasteX = Math.floor((canvas.width - newWidth) / 2);
   const pasteY = canvas.height - pad - newHeight;
   const written = [];
   for (const frame of frames) {
-    const cropped = frame.image.crop({ left: unionLeft, top: unionTop, right: unionRight, bottom: unionBottom }).resize(newWidth, newHeight, "lanczos");
+    const cropped = frame.image.crop({ bottom: unionBottom, left: unionLeft, right: unionRight, top: unionTop }).resize(newWidth, newHeight, "lanczos");
     const out = Bitmap.create(canvas.width, canvas.height);
     out.pasteMasked(cropped, pasteX, pasteY, cropped.channel(3));
-    const dst = join3(outDir, basename(frame.path));
+    const dst = path4.join(outDir, path4.basename(frame.path));
     out.toFile(dst);
     written.push(dst);
   }
   return written;
-}
+};
 
 // src/sprite/json.ts
-function isFiniteNumber(value) {
-  return Number.isFinite(value);
-}
-function isString(value) {
-  return String(value) === value;
-}
-function isJsonObject2(value) {
-  return Object(value) === value && !Array.isArray(value);
-}
-function isJsonComposite(value) {
-  return Object(value) === value;
-}
-function lookup(table, key) {
-  return table[key];
-}
+var isFiniteNumber = (value) => Number.isFinite(value);
+var isString = (value) => String(value) === value;
+var isJsonObject2 = (value) => Object(value) === value && !Array.isArray(value);
+var isJsonComposite = (value) => Object(value) === value;
+var lookup = (table, key) => table[key];
 
 // src/sprite/presets.ts
 var action = (name, defaultFrames, recommendedFrames, fps, timing, loopable, selectionPolicy) => ({
   action: name,
   defaultFrames,
-  recommendedFrames,
   fps,
-  timing,
   loopable,
-  selectionPolicy
+  recommendedFrames,
+  selectionPolicy,
+  timing
 });
 var ACTIONS = {
-  idle: action("idle", 10, [8, 10, 12], 6, "loop", true, "cycle"),
-  hurt: action("hurt", 6, [4, 5, 6, 8], 8, "one_shot", false, "action_window"),
-  jump: action("jump", 6, [6, 8, 10], 8, "transition", false, "full_duration_include_end"),
-  crouch: action("crouch", 6, [5, 6, 8], 8, "hold", true, "hold_pose"),
   attack: action("attack", 8, [6, 8, 10, 12], 10, "one_shot", false, "action_window"),
-  death: action("death", 10, [8, 10, 12], 8, "transition", false, "full_duration_include_end"),
-  walk: action("walk", 8, [8, 10, 12], 10, "loop", true, "cycle"),
-  run: action("run", 8, [8, 10, 12], 12, "loop", true, "cycle"),
-  roll: action("roll", 8, [6, 8, 10], 14, "one_shot", false, "action_window"),
-  dash: action("dash", 6, [5, 6, 8], 14, "one_shot", false, "action_window"),
-  talk: action("talk", 12, [8, 10, 12], 8, "loop", true, "cycle"),
-  interact: action("interact", 10, [8, 10, 12], 8, "one_shot", false, "action_window"),
-  pick_up: action("pick_up", 12, [8, 10, 12], 8, "one_shot", false, "action_window"),
-  use: action("use", 10, [8, 10, 12], 8, "one_shot", false, "action_window"),
-  examine: action("examine", 10, [8, 10, 12], 8, "one_shot", false, "action_window"),
-  give: action("give", 10, [8, 10, 12], 8, "one_shot", false, "action_window"),
-  shrug: action("shrug", 10, [8, 10, 12], 8, "one_shot", false, "action_window"),
-  walk_forward: action("walk_forward", 12, [8, 10, 12], 10, "loop", true, "cycle"),
-  walk_backward: action("walk_backward", 12, [8, 10, 12], 10, "loop", true, "cycle"),
   block_high: action("block_high", 8, [4, 6, 8, 10], 10, "hold", true, "hold_pose"),
   block_low: action("block_low", 8, [4, 6, 8, 10], 10, "hold", true, "hold_pose"),
+  crouch: action("crouch", 6, [5, 6, 8], 8, "hold", true, "hold_pose"),
+  dash: action("dash", 6, [5, 6, 8], 14, "one_shot", false, "action_window"),
+  death: action("death", 10, [8, 10, 12], 8, "transition", false, "full_duration_include_end"),
+  examine: action("examine", 10, [8, 10, 12], 8, "one_shot", false, "action_window"),
+  get_up: action("get_up", 12, [6, 8, 10, 12], 8, "transition", false, "full_duration_include_end"),
+  give: action("give", 10, [8, 10, 12], 8, "one_shot", false, "action_window"),
+  heavy_attack: action("heavy_attack", 12, [6, 8, 10, 12], 10, "one_shot", false, "action_window"),
+  hurt: action("hurt", 6, [4, 5, 6, 8], 8, "one_shot", false, "action_window"),
+  idle: action("idle", 10, [8, 10, 12], 6, "loop", true, "cycle"),
+  interact: action("interact", 10, [8, 10, 12], 8, "one_shot", false, "action_window"),
+  jump: action("jump", 6, [6, 8, 10], 8, "transition", false, "full_duration_include_end"),
   knockdown: action(
     "knockdown",
     12,
@@ -1616,21 +1874,25 @@ var ACTIONS = {
     false,
     "full_duration_include_end"
   ),
-  get_up: action("get_up", 12, [6, 8, 10, 12], 8, "transition", false, "full_duration_include_end"),
   light_attack: action("light_attack", 8, [6, 8, 10, 12], 12, "one_shot", false, "action_window"),
-  heavy_attack: action("heavy_attack", 12, [6, 8, 10, 12], 10, "one_shot", false, "action_window")
+  pick_up: action("pick_up", 12, [8, 10, 12], 8, "one_shot", false, "action_window"),
+  roll: action("roll", 8, [6, 8, 10], 14, "one_shot", false, "action_window"),
+  run: action("run", 8, [8, 10, 12], 12, "loop", true, "cycle"),
+  shrug: action("shrug", 10, [8, 10, 12], 8, "one_shot", false, "action_window"),
+  talk: action("talk", 12, [8, 10, 12], 8, "loop", true, "cycle"),
+  use: action("use", 10, [8, 10, 12], 8, "one_shot", false, "action_window"),
+  walk: action("walk", 8, [8, 10, 12], 10, "loop", true, "cycle"),
+  walk_backward: action("walk_backward", 12, [8, 10, 12], 10, "loop", true, "cycle"),
+  walk_forward: action("walk_forward", 12, [8, 10, 12], 10, "loop", true, "cycle")
 };
 var PLATFORMER = {
-  profile: "platformer",
+  actions: ["idle", "walk", "run", "jump", "roll", "attack", "hurt", "crouch", "death"],
   description: "Side-view platformer defaults: loops, jumps, attacks, reactions, death.",
   direction: "w",
-  actions: ["idle", "walk", "run", "jump", "roll", "attack", "hurt", "crouch", "death"],
-  frameOverrides: {}
+  frameOverrides: {},
+  profile: "platformer"
 };
 var FIGHTING = {
-  profile: "fighting-game",
-  description: "Side-view brawler/fighter: longer loops, blocks, knockdown/get-up transitions.",
-  direction: "w",
   actions: [
     "idle",
     "walk",
@@ -1649,24 +1911,27 @@ var FIGHTING = {
     "get_up",
     "death"
   ],
+  description: "Side-view brawler/fighter: longer loops, blocks, knockdown/get-up transitions.",
+  direction: "w",
   // Core loops widen to 12; hurt/jump/crouch widen to 8.
   frameOverrides: {
-    idle: 12,
-    walk: 12,
-    run: 12,
     attack: 12,
+    crouch: 8,
     death: 12,
     hurt: 8,
+    idle: 12,
     jump: 8,
-    crouch: 8
-  }
+    run: 12,
+    walk: 12
+  },
+  profile: "fighting-game"
 };
 var POINT_AND_CLICK = {
-  profile: "point-and-click",
+  actions: ["idle", "walk", "talk", "interact", "pick_up", "use", "examine", "give", "shrug"],
   description: "Classic adventure character: dialogue + object-interaction gestures, video-first.",
   direction: "sw",
-  actions: ["idle", "walk", "talk", "interact", "pick_up", "use", "examine", "give", "shrug"],
-  frameOverrides: {}
+  frameOverrides: {},
+  profile: "point-and-click"
 };
 var PROFILES = {
   platformer: PLATFORMER,
@@ -1676,34 +1941,32 @@ var PROFILES = {
   adventure: POINT_AND_CLICK
 };
 var PROFILE_ALIASES = /* @__PURE__ */ new Set(["adventure"]);
-function presetOf(actionId) {
+var presetOf = (actionId) => {
   const preset = lookup(ACTIONS, actionId);
   if (!preset) {
-    const known = Object.keys(ACTIONS).sort().join(", ");
+    const known = Object.keys(ACTIONS).toSorted().join(", ");
     throw new Error(`unknown action '${actionId}'; expected one of: ${known}`);
   }
   return preset;
-}
-function canonicalProfiles() {
-  return Object.keys(PROFILES).filter((key) => !PROFILE_ALIASES.has(key));
-}
-function resolveProfile(profileId) {
+};
+var canonicalProfiles = () => Object.keys(PROFILES).filter((key) => !PROFILE_ALIASES.has(key));
+var resolveProfile = (profileId) => {
   const key = profileId ?? "platformer";
   const profile = lookup(PROFILES, key);
   if (!profile) {
-    const known = canonicalProfiles().sort().join(", ");
+    const known = canonicalProfiles().toSorted().join(", ");
     throw new Error(`unknown profile '${key}'; expected one of: ${known}`);
   }
   return profile;
-}
-function actionFacts(actionId, profile = null) {
+};
+var actionFacts = (actionId, profile = null) => {
   const preset = presetOf(actionId);
   const facts = {
     ...preset,
-    recommendedFrames: [...preset.recommendedFrames],
     // Transitions (jump/death/get_up) keep their vertical travel; everything
     // else lands feet on a shared baseline.
-    anchorPolicy: preset.timing === "transition" ? "preserve-motion" : "grounded"
+    anchorPolicy: preset.timing === "transition" ? "preserve-motion" : "grounded",
+    recommendedFrames: [...preset.recommendedFrames]
   };
   const override = profile?.frameOverrides[actionId];
   if (override !== void 0) {
@@ -1711,30 +1974,46 @@ function actionFacts(actionId, profile = null) {
     facts.profileOverride = true;
   }
   return facts;
-}
-function coerceFrameCount(actionId, requested) {
+};
+var coerceFrameCount = (actionId, requested) => {
   const recommended = presetOf(actionId).recommendedFrames;
-  if (recommended.includes(requested)) return { frames: requested, warning: null };
-  let nearest2 = recommended[0];
+  if (recommended.includes(requested)) {
+    return { frames: requested, warning: null };
+  }
+  const [firstRecommended] = recommended;
+  if (firstRecommended === void 0) {
+    throw new Error(`action '${actionId}' has no recommended frame counts`);
+  }
+  let nearest2 = firstRecommended;
   for (const value of recommended) {
     const better = Math.abs(value - requested) < Math.abs(nearest2 - requested) || Math.abs(value - requested) === Math.abs(nearest2 - requested) && value > nearest2;
-    if (better) nearest2 = value;
+    if (better) {
+      nearest2 = value;
+    }
   }
   return {
     frames: nearest2,
     warning: `frame count ${requested} not recommended for ${actionId}; coerced to ${nearest2} (recommended: (${recommended.join(", ")}))`
   };
-}
-function formatPythonValue(value) {
-  if (value === true) return "True";
-  if (value === false) return "False";
-  if (value === null || value === void 0) return "None";
-  if (Array.isArray(value)) return `[${value.map(formatPythonValue).join(", ")}]`;
+};
+var formatPythonValue = (value) => {
+  if (value === true) {
+    return "True";
+  }
+  if (value === false) {
+    return "False";
+  }
+  if (value === null || value === void 0) {
+    return "None";
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(formatPythonValue).join(", ")}]`;
+  }
   return String(value);
-}
+};
 
 // src/sprite/recover.ts
-function sampleBackground(image) {
+var sampleBackground = (image) => {
   const corners = [
     image.getPixel(0, 0),
     image.getPixel(image.width - 1, 0),
@@ -1743,27 +2022,47 @@ function sampleBackground(image) {
   ];
   const average = (channel) => Math.round(corners.reduce((sum, c) => sum + c[channel], 0) / corners.length);
   return [average(0), average(1), average(2)];
-}
-function findComponents(image, background, threshold) {
+};
+var foregroundMask = (image, background, threshold) => {
   const { width, height } = image;
   const mask = new Uint8Array(width * height);
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       const [r, g, b] = image.getPixel(x, y);
       const distance = Math.abs(r - background[0]) + Math.abs(g - background[1]) + Math.abs(b - background[2]);
-      if (distance > threshold) mask[y * width + x] = 1;
+      if (distance > threshold) {
+        mask[y * width + x] = 1;
+      }
     }
   }
+  return mask;
+};
+var findComponents = (image, background, threshold) => {
+  const { width, height } = image;
+  const mask = foregroundMask(image, background, threshold);
   const seen = new Uint8Array(width * height);
   const components = [];
   const queue = new Int32Array(width * height);
+  let head = 0;
+  let tail = 0;
+  const visit = (n) => {
+    if (seen[n] || !mask[n]) {
+      return;
+    }
+    seen[n] = 1;
+    queue[tail] = n;
+    tail += 1;
+  };
   for (let startY = 0; startY < height; startY += 1) {
     for (let startX = 0; startX < width; startX += 1) {
       const start = startY * width + startX;
-      if (seen[start] || !mask[start]) continue;
-      let head = 0;
-      let tail = 0;
-      queue[tail++] = start;
+      if (seen[start] || !mask[start]) {
+        continue;
+      }
+      head = 0;
+      tail = 0;
+      queue[tail] = start;
+      tail += 1;
       seen[start] = 1;
       const points = [];
       let minX = startX;
@@ -1771,29 +2070,34 @@ function findComponents(image, background, threshold) {
       let minY = startY;
       let maxY = startY;
       while (head < tail) {
-        const index = queue[head++];
+        const index = queue[head] ?? 0;
+        head += 1;
         const y = Math.floor(index / width);
         const x = index - y * width;
         points.push(index);
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-        if (x + 1 < width && !seen[index + 1] && mask[index + 1]) {
-          seen[index + 1] = 1;
-          queue[tail++] = index + 1;
+        if (x < minX) {
+          minX = x;
         }
-        if (x > 0 && !seen[index - 1] && mask[index - 1]) {
-          seen[index - 1] = 1;
-          queue[tail++] = index - 1;
+        if (x > maxX) {
+          maxX = x;
         }
-        if (y + 1 < height && !seen[index + width] && mask[index + width]) {
-          seen[index + width] = 1;
-          queue[tail++] = index + width;
+        if (y < minY) {
+          minY = y;
         }
-        if (y > 0 && !seen[index - width] && mask[index - width]) {
-          seen[index - width] = 1;
-          queue[tail++] = index - width;
+        if (y > maxY) {
+          maxY = y;
+        }
+        if (x + 1 < width) {
+          visit(index + 1);
+        }
+        if (x > 0) {
+          visit(index - 1);
+        }
+        if (y + 1 < height) {
+          visit(index + width);
+        }
+        if (y > 0) {
+          visit(index - width);
         }
       }
       components.push({
@@ -1805,16 +2109,20 @@ function findComponents(image, background, threshold) {
     }
   }
   return components;
-}
-function recoverFrames(sheetPath, options) {
+};
+var recoverFrames = (sheetPath, options) => {
   const { rows, cols, frames, threshold } = options;
-  if (rows <= 0 || cols <= 0) throw new Error("--rows and --cols must be positive integers");
-  if (frames !== null && frames <= 0) throw new Error("--frames must be a positive integer");
+  if (rows <= 0 || cols <= 0) {
+    throw new Error("--rows and --cols must be positive integers");
+  }
+  if (frames !== null && frames <= 0) {
+    throw new Error("--frames must be a positive integer");
+  }
   const image = Bitmap.fromFile(sheetPath);
   const background = sampleBackground(image);
   const components = findComponents(image, background, threshold);
   const wanted = rows * cols;
-  const selected = [...components].sort((a, b) => b.area - a.area).slice(0, wanted);
+  const selected = [...components].toSorted((a, b) => b.area - a.area).slice(0, wanted);
   const assigned = Array.from({ length: wanted }, () => null);
   const cellWidth2 = image.width / cols;
   const cellHeight2 = image.height / rows;
@@ -1823,7 +2131,9 @@ function recoverFrames(sheetPath, options) {
     const row = Math.min(rows - 1, Math.max(0, Math.floor(component.center[1] / cellHeight2)));
     const index = row * cols + col;
     const current = assigned[index] ?? null;
-    if (current === null || component.area > current.area) assigned[index] = component;
+    if (current === null || component.area > current.area) {
+      assigned[index] = component;
+    }
   }
   const required = frames === null ? wanted : Math.min(frames, wanted);
   const missing = assigned.slice(0, required).map((item, i) => item === null ? i + 1 : 0).filter(Boolean);
@@ -1834,16 +2144,20 @@ function recoverFrames(sheetPath, options) {
   }
   const emitted = frames === null ? assigned : assigned.slice(0, required);
   const result = {
-    sheet: sheetPath,
     bg_rgb: background,
-    rows,
     cols,
-    threshold,
-    frames: []
+    frames: [],
+    rows,
+    sheet: sheetPath,
+    threshold
   };
-  if (frames !== null) result.requested_frames = required;
+  if (frames !== null) {
+    result.requested_frames = required;
+  }
   const crops = emitted.map((component, i) => {
-    if (!component) throw new Error("internal: unassigned frame slot survived validation");
+    if (!component) {
+      throw new Error("internal: unassigned frame slot survived validation");
+    }
     const [minX, minY, maxX, maxY] = component.bbox;
     const crop = Bitmap.create(maxX - minX + 1, maxY - minY + 1);
     for (const point of component.points) {
@@ -1852,23 +2166,25 @@ function recoverFrames(sheetPath, options) {
       crop.putPixel(x - minX, y - minY, image.getPixel(x, y));
     }
     return {
+      area: component.area,
+      bbox: component.bbox,
+      center: component.center,
+      image: crop,
       /** 1-based, zero-padded to two digits by callers for the filename. */
       index: i + 1,
-      label: String(i + 1).padStart(2, "0"),
-      image: crop,
-      bbox: component.bbox,
-      area: component.area,
-      center: component.center
+      label: String(i + 1).padStart(2, "0")
     };
   });
-  return { result, crops };
-}
+  return { crops, result };
+};
 
 // src/sprite/sequence-gif.ts
-function buildSequenceGif(frames, flatBackground) {
-  if (frames.length === 0) throw new Error("No frames selected");
-  const composed = frames.map(({ path, delayMs }) => {
-    let bitmap = Bitmap.fromFile(path);
+var buildSequenceGif = (frames, flatBackground) => {
+  if (frames.length === 0) {
+    throw new Error("No frames selected");
+  }
+  const composed = frames.map(({ path: path7, delayMs }) => {
+    let bitmap = Bitmap.fromFile(path7);
     if (flatBackground) {
       const backdrop = Bitmap.create(bitmap.width, bitmap.height, flatBackground);
       backdrop.alphaComposite(bitmap, 0, 0);
@@ -1877,7 +2193,7 @@ function buildSequenceGif(frames, flatBackground) {
     return { bitmap, delayMs };
   });
   return encodeGif(composed);
-}
+};
 
 // src/sprite/qc.ts
 import { existsSync as existsSync2, readFileSync as readFileSync3 } from "node:fs";
@@ -1891,30 +2207,29 @@ var RULE_EDGE_FRAC = 0.95;
 var RULE_INNER_FRAC = 0.5;
 var RULE_INNER_OFFSET = 3;
 var RULE_MIN_SPAN = 12;
-function roundTo(value, digits) {
+var roundTo = (value, digits) => {
   const factor = 10 ** digits;
   return roundHalfToEven(value * factor) / factor;
-}
-function pstdev(values) {
+};
+var clamp = (value, lo, hi) => Math.min(hi, Math.max(lo, value));
+var pstdev = (values) => {
   const mean = values.reduce((sum, v) => sum + v, 0) / values.length;
   const variance = values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / values.length;
   return Math.sqrt(variance);
-}
-function percent(value, digits = 0) {
-  return `${roundTo(value * 100, digits).toFixed(digits)}%`;
-}
-function frameGeometry(sheet, sheetPath, frameWidth, frameHeight) {
+};
+var percent = (value, digits = 0) => `${roundTo(value * 100, digits).toFixed(digits)}%`;
+var frameGeometry = (sheet, sheetPath, frameWidth, frameHeight) => {
   if (frameWidth !== null && frameHeight !== null) {
     if (frameWidth <= 0 || frameHeight <= 0) {
       throw new Error("--frame-width and --frame-height must be positive");
     }
     const columns2 = Math.max(1, Math.floor(sheet.width / frameWidth));
     const rows = Math.max(1, Math.floor(sheet.height / frameHeight));
-    return { frameWidth, frameHeight, count: columns2 * rows, columns: columns2, rows };
+    return { columns: columns2, count: columns2 * rows, frameHeight, frameWidth, rows };
   }
-  const manifestPath = sheetPath.replace(/\.[^./\\]+$/, ".json");
+  const manifestPath = sheetPath.replace(/\.[^./\\]+$/u, ".json");
   if (existsSync2(manifestPath)) {
-    const parsed = JSON.parse(readFileSync3(manifestPath, "utf8"));
+    const parsed = JSON.parse(readFileSync3(manifestPath, "utf-8"));
     if (!isJsonObject2(parsed)) {
       throw new Error(`${manifestPath}: expected an object`);
     }
@@ -1930,7 +2245,9 @@ function frameGeometry(sheet, sheetPath, frameWidth, frameHeight) {
     };
     const optional = (key, fallback) => {
       const value = m[key];
-      if (value === void 0) return fallback;
+      if (value === void 0) {
+        return fallback;
+      }
       if (!isFiniteNumber(value) || value <= 0) {
         throw new Error(
           `${manifestPath}: "${key}" must be a positive number, got ${String(value)}`
@@ -1940,18 +2257,18 @@ function frameGeometry(sheet, sheetPath, frameWidth, frameHeight) {
     };
     const count = required("frameCount");
     return {
-      frameWidth: required("frameWidth"),
-      frameHeight: required("frameHeight"),
-      count,
       columns: optional("columns", count),
+      count,
+      frameHeight: required("frameHeight"),
+      frameWidth: required("frameWidth"),
       rows: optional("rows", 1)
     };
   }
   const side = sheet.height;
   const columns = Math.max(1, Math.floor(sheet.width / side));
-  return { frameWidth: side, frameHeight: side, count: columns, columns, rows: 1 };
-}
-function frameMetrics(sheet, index, geometry) {
+  return { columns, count: columns, frameHeight: side, frameWidth: side, rows: 1 };
+};
+var frameMetrics = (sheet, index, geometry) => {
   const { frameWidth: fw, frameHeight: fh, columns } = geometry;
   const row = Math.floor(index / columns);
   const col = index - row * columns;
@@ -1967,26 +2284,38 @@ function frameMetrics(sheet, index, geometry) {
     for (let x = 0; x < fw; x += 1) {
       const sx = originX + x;
       const sy = originY + y;
-      if (!sheet.contains(sx, sy)) continue;
-      if (sheet.data[sheet.index(sx, sy) + 3] <= ALPHA_ON) continue;
+      if (!sheet.contains(sx, sy)) {
+        continue;
+      }
+      if ((sheet.data[sheet.index(sx, sy) + 3] ?? 0) <= ALPHA_ON) {
+        continue;
+      }
       opaque += 1;
       xs.push(x);
-      if (x < minX) minX = x;
-      if (x > maxX) maxX = x;
-      if (y < minY) minY = y;
-      if (y > maxY) maxY = y;
+      if (x < minX) {
+        minX = x;
+      }
+      if (x > maxX) {
+        maxX = x;
+      }
+      if (y < minY) {
+        minY = y;
+      }
+      if (y > maxY) {
+        maxY = y;
+      }
     }
   }
   if (opaque === 0) {
     return {
-      empty: true,
       area_frac: 0,
-      height: 0,
-      width: 0,
-      cx_frac: 0,
       baseline_frac: 1,
       border_frac: 0,
-      rule_edges: 0
+      cx_frac: 0,
+      empty: true,
+      height: 0,
+      rule_edges: 0,
+      width: 0
     };
   }
   let borderOpaque = 0;
@@ -1995,8 +2324,9 @@ function frameMetrics(sheet, index, geometry) {
     borderTotal += 1;
     const sx = originX + x;
     const sy = originY + y;
-    if (sheet.contains(sx, sy) && sheet.data[sheet.index(sx, sy) + 3] > ALPHA_ON)
+    if (sheet.contains(sx, sy) && (sheet.data[sheet.index(sx, sy) + 3] ?? 0) > ALPHA_ON) {
       borderOpaque += 1;
+    }
   };
   for (let x = 0; x < fw; x += 1) {
     sample(x, 0);
@@ -2006,78 +2336,95 @@ function frameMetrics(sheet, index, geometry) {
     sample(0, y);
     sample(fw - 1, y);
   }
-  const on = (x, y) => sheet.contains(originX + x, originY + y) && sheet.data[sheet.index(originX + x, originY + y) + 3] > ALPHA_ON;
+  const on = (x, y) => sheet.contains(originX + x, originY + y) && (sheet.data[sheet.index(originX + x, originY + y) + 3] ?? 0) > ALPHA_ON;
   const spanX = maxX - minX + 1;
   const spanY = maxY - minY + 1;
   const rowFrac = (y) => {
     let n = 0;
-    for (let x = minX; x <= maxX; x += 1) if (on(x, y)) n += 1;
+    for (let x = minX; x <= maxX; x += 1) {
+      if (on(x, y)) {
+        n += 1;
+      }
+    }
     return n / spanX;
   };
   const colFrac = (x) => {
     let n = 0;
-    for (let y = minY; y <= maxY; y += 1) if (on(x, y)) n += 1;
+    for (let y = minY; y <= maxY; y += 1) {
+      if (on(x, y)) {
+        n += 1;
+      }
+    }
     return n / spanY;
   };
   const ruled = (outer, inner) => outer >= RULE_EDGE_FRAC && inner <= RULE_INNER_FRAC;
-  const clamp = (value, lo, hi) => Math.min(hi, Math.max(lo, value));
   let ruleEdges = 0;
   if (spanX >= RULE_MIN_SPAN && spanY >= RULE_MIN_SPAN) {
     const inset = RULE_INNER_OFFSET;
-    if (ruled(rowFrac(minY), rowFrac(clamp(minY + inset, minY, maxY)))) ruleEdges += 1;
-    if (ruled(rowFrac(maxY), rowFrac(clamp(maxY - inset, minY, maxY)))) ruleEdges += 1;
-    if (ruled(colFrac(minX), colFrac(clamp(minX + inset, minX, maxX)))) ruleEdges += 1;
-    if (ruled(colFrac(maxX), colFrac(clamp(maxX - inset, minX, maxX)))) ruleEdges += 1;
+    if (ruled(rowFrac(minY), rowFrac(clamp(minY + inset, minY, maxY)))) {
+      ruleEdges += 1;
+    }
+    if (ruled(rowFrac(maxY), rowFrac(clamp(maxY - inset, minY, maxY)))) {
+      ruleEdges += 1;
+    }
+    if (ruled(colFrac(minX), colFrac(clamp(minX + inset, minX, maxX)))) {
+      ruleEdges += 1;
+    }
+    if (ruled(colFrac(maxX), colFrac(clamp(maxX - inset, minX, maxX)))) {
+      ruleEdges += 1;
+    }
   }
   const meanX = xs.reduce((sum, v) => sum + v, 0) / xs.length;
   return {
-    empty: false,
     area_frac: roundTo(opaque / (fw * fh), 4),
-    height: maxY - minY + 1,
-    width: maxX - minX + 1,
-    // Horizontal mass offset from the cell centre, as a fraction of width.
-    cx_frac: roundTo((meanX - fw / 2) / fw, 4),
     // Foot baseline: bottom of the figure as a fraction from the top.
     baseline_frac: roundTo((maxY + 1) / fh, 4),
     border_frac: roundTo(borderOpaque / borderTotal, 4),
-    rule_edges: ruleEdges
+    // Horizontal mass offset from the cell centre, as a fraction of width.
+    cx_frac: roundTo((meanX - fw / 2) / fw, 4),
+    empty: false,
+    height: maxY - minY + 1,
+    rule_edges: ruleEdges,
+    width: maxX - minX + 1
   };
-}
-function isLocalExtremum(values, i) {
-  if (i === 0 || i === values.length - 1) return false;
-  const prev = values[i - 1];
-  const next = values[i + 1];
-  const value = values[i];
+};
+var isLocalExtremum = (values, i) => {
+  if (i === 0 || i === values.length - 1) {
+    return false;
+  }
+  const prev = values[i - 1] ?? 0;
+  const next = values[i + 1] ?? 0;
+  const value = values[i] ?? 0;
   return value > prev && value > next || value < prev && value < next;
-}
-function qc(metrics) {
+};
+var qc = (metrics) => {
   const checks = [];
   const live = metrics.map((m, i) => ({ index: i, m })).filter((entry) => !entry.m.empty);
   const empty = metrics.map((m, i) => m.empty || m.area_frac < EMPTY_AREA_FRAC ? i + 1 : 0).filter(Boolean);
   if (empty.length > 0) {
     checks.push({
       check: "empty",
-      severity: "warn",
+      detail: `${empty.length} frame(s) blank or near-blank (area < ${percent(EMPTY_AREA_FRAC, 1)})`,
       frames: empty,
-      detail: `${empty.length} frame(s) blank or near-blank (area < ${percent(EMPTY_AREA_FRAC, 1)})`
+      severity: "warn"
     });
   }
   const clipped = metrics.map((m, i) => m.border_frac > CLIP_BORDER_FRAC ? i + 1 : 0).filter(Boolean);
   if (clipped.length > 0) {
     checks.push({
       check: "clip",
-      severity: "warn",
+      detail: `${clipped.length} frame(s) touch the cell border (likely cut off)`,
       frames: clipped,
-      detail: `${clipped.length} frame(s) touch the cell border (likely cut off)`
+      severity: "warn"
     });
   }
   const ruled = metrics.map((m, i) => m.rule_edges > 0 ? i + 1 : 0).filter(Boolean);
   if (ruled.length > 0) {
     checks.push({
       check: "grid",
-      severity: "warn",
+      detail: `${ruled.length} frame(s) contain a straight ruled line spanning the whole bounding box \u2014 the model inked the pose-board cell outlines and the slice baked them in. The rule also skews every size/baseline/facing measurement, so regenerate the board (restate "no grid lines, cell outlines or borders") rather than trusting the rest of this report`,
       frames: ruled,
-      detail: `${ruled.length} frame(s) contain a straight ruled line spanning the whole bounding box \u2014 the model inked the pose-board cell outlines and the slice baked them in. The rule also skews every size/baseline/facing measurement, so regenerate the board (restate "no grid lines, cell outlines or borders") rather than trusting the rest of this report`
+      severity: "warn"
     });
   }
   if (live.length >= 2) {
@@ -2085,49 +2432,55 @@ function qc(metrics) {
     const spread = Math.max(...baselines) - Math.min(...baselines);
     if (spread > BASELINE_TOL) {
       const medianBaseline = median(baselines);
-      const worst = live.filter((_, k) => Math.abs(baselines[k] - medianBaseline) > BASELINE_TOL / 2).map((entry) => entry.index + 1);
+      const worst = live.filter((entry) => Math.abs(entry.m.baseline_frac - medianBaseline) > BASELINE_TOL / 2).map((entry) => entry.index + 1);
       checks.push({
         check: "baseline",
-        severity: "warn",
+        detail: `foot baseline varies ${percent(spread)} of cell height (should be pinned by normalize)`,
         frames: worst,
-        detail: `foot baseline varies ${percent(spread)} of cell height (should be pinned by normalize)`
+        severity: "warn"
       });
     }
     const heights = live.map((entry) => entry.m.height);
     const medianHeight = median(heights);
     const cov = medianHeight ? roundTo(pstdev(heights) / medianHeight, 3) : 0;
     const drift = heights.map((h) => h / medianHeight);
-    const sizeFrames = live.filter((_, k) => Math.abs(drift[k] - 1) > SIZE_DRIFT_TOL && isLocalExtremum(drift, k)).map((entry) => entry.index + 1);
+    const sizeFrames = live.filter(
+      (entry, k) => Math.abs(entry.m.height / medianHeight - 1) > SIZE_DRIFT_TOL && isLocalExtremum(drift, k)
+    ).map((entry) => entry.index + 1);
     if (sizeFrames.length > 0) {
       checks.push({
         check: "size",
-        severity: "hint",
+        detail: `frame(s) are isolated size outliers (>${percent(SIZE_DRIFT_TOL)} off median height) \u2014 verify it is an intended pose change, not the model drawing the character at a different scale. height CoV=${cov}`,
         frames: sizeFrames,
         height_cov: cov,
-        detail: `frame(s) are isolated size outliers (>${percent(SIZE_DRIFT_TOL)} off median height) \u2014 verify it is an intended pose change, not the model drawing the character at a different scale. height CoV=${cov}`
+        severity: "hint"
       });
     }
     const cxs = live.map((entry) => entry.m.cx_frac);
     const medianCx = median(cxs);
-    const facingFrames = live.filter((_, k) => Math.abs(cxs[k] - medianCx) > FACING_CX_TOL).map((entry) => entry.index + 1);
+    const facingFrames = live.filter((entry) => Math.abs(entry.m.cx_frac - medianCx) > FACING_CX_TOL).map((entry) => entry.index + 1);
     if (facingFrames.length > 0) {
       const signed = `${medianCx >= 0 ? "+" : ""}${medianCx.toFixed(2)}`;
       checks.push({
         check: "facing",
-        severity: "hint",
+        detail: `frame(s) have horizontal mass far from the others (median cx=${signed}) \u2014 possible mirrored/flipped facing; eyeball the review gif`,
         frames: facingFrames,
-        detail: `frame(s) have horizontal mass far from the others (median cx=${signed}) \u2014 possible mirrored/flipped facing; eyeball the review gif`
+        severity: "hint"
       });
     }
   }
   return checks;
-}
-function verdictFor(checks) {
-  if (checks.some((c) => c.severity === "warn")) return "warn";
-  if (checks.some((c) => c.severity === "hint")) return "review";
+};
+var verdictFor = (checks) => {
+  if (checks.some((c) => c.severity === "warn")) {
+    return "warn";
+  }
+  if (checks.some((c) => c.severity === "hint")) {
+    return "review";
+  }
   return "clean";
-}
-function runQc(sheetPath, frameWidth, frameHeight) {
+};
+var runQc = (sheetPath, frameWidth, frameHeight) => {
   const sheet = Bitmap.fromFile(sheetPath);
   const geometry = frameGeometry(sheet, sheetPath, frameWidth, frameHeight);
   const metrics = Array.from(
@@ -2136,32 +2489,32 @@ function runQc(sheetPath, frameWidth, frameHeight) {
   );
   const checks = qc(metrics);
   return {
-    sheet: sheetPath,
-    frameWidth: geometry.frameWidth,
-    frameHeight: geometry.frameHeight,
-    frameCount: geometry.count,
-    columns: geometry.columns,
-    rows: geometry.rows,
-    verdict: verdictFor(checks),
     checks,
-    frames: metrics
+    columns: geometry.columns,
+    frameCount: geometry.count,
+    frameHeight: geometry.frameHeight,
+    frameWidth: geometry.frameWidth,
+    frames: metrics,
+    rows: geometry.rows,
+    sheet: sheetPath,
+    verdict: verdictFor(checks)
   };
-}
+};
 
 // src/sprite/pixel-snap.ts
 var DEFAULT_SNAP_CONFIG = {
+  fallbackTargetSegments: 64,
   kColors: 16,
   kSeed: 42,
   maxKmeansIterations: 15,
-  peakThresholdMultiplier: 0.2,
+  maxStepRatio: 1.8,
   peakDistanceFilter: 4,
-  walkerSearchWindowRatio: 0.35,
+  peakThresholdMultiplier: 0.2,
   walkerMinSearchWindow: 2,
-  walkerStrengthThreshold: 0.5,
-  fallbackTargetSegments: 64,
-  maxStepRatio: 1.8
+  walkerSearchWindowRatio: 0.35,
+  walkerStrengthThreshold: 0.5
 };
-function makeRandom(seed) {
+var makeRandom = (seed) => {
   let state = seed >>> 0;
   return () => {
     state = state + 1831565813 >>> 0;
@@ -2170,133 +2523,180 @@ function makeRandom(seed) {
     t ^= t + Math.imul(t ^ t >>> 7, t | 61);
     return ((t ^ t >>> 14) >>> 0) / 4294967296;
   };
-}
-function sampleWithoutReplacement(limit, count, seed) {
+};
+var sampleWithoutReplacement = (limit, count, seed) => {
   const random = makeRandom(seed);
   const pool = new Int32Array(limit);
-  for (let i = 0; i < limit; i += 1) pool[i] = i;
+  for (let i = 0; i < limit; i += 1) {
+    pool[i] = i;
+  }
   for (let i = 0; i < count; i += 1) {
     const j = i + Math.floor(random() * (limit - i));
-    const tmp = pool[i];
-    pool[i] = pool[j];
+    const tmp = pool[i] ?? 0;
+    pool[i] = pool[j] ?? 0;
     pool[j] = tmp;
   }
-  return Array.from(pool.subarray(0, count));
-}
-function quantize2(image, config) {
+  return [...pool.subarray(0, count)];
+};
+var rgbAt = (data, p) => [
+  data[p] ?? 0,
+  data[p + 1] ?? 0,
+  data[p + 2] ?? 0
+];
+var nearestCenter = ([r, g, b], centers) => {
+  let best = 0;
+  let bestDist = Infinity;
+  for (const [c, center] of centers.entries()) {
+    const dr = r - center[0];
+    const dg = g - center[1];
+    const db = b - center[2];
+    const dist = dr * dr + dg * dg + db * db;
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = c;
+    }
+  }
+  return best;
+};
+var updateCenters = (image, opaque, labels, centers) => {
+  let moved = false;
+  for (const [c, center] of centers.entries()) {
+    let sumR = 0;
+    let sumG = 0;
+    let sumB = 0;
+    let members = 0;
+    for (let n = 0; n < opaque.length; n += 1) {
+      if (labels[n] !== c) {
+        continue;
+      }
+      const [r, g, b] = rgbAt(image.data, opaque[n] ?? 0);
+      sumR += r;
+      sumG += g;
+      sumB += b;
+      members += 1;
+    }
+    if (members === 0) {
+      continue;
+    }
+    const next = [sumR / members, sumG / members, sumB / members];
+    if (Math.abs(next[0] - center[0]) > 0.5 || Math.abs(next[1] - center[1]) > 0.5 || Math.abs(next[2] - center[2]) > 0.5) {
+      moved = true;
+    }
+    centers[c] = next;
+  }
+  return moved;
+};
+var quantize2 = (image, config) => {
   const opaque = [];
   for (let i = 0; i < image.data.length; i += 4) {
-    if (image.data[i + 3] > 0) opaque.push(i);
+    if ((image.data[i + 3] ?? 0) > 0) {
+      opaque.push(i);
+    }
   }
-  if (opaque.length === 0) return image.copy();
+  if (opaque.length === 0) {
+    return image.copy();
+  }
   const k = Math.min(config.kColors, opaque.length);
-  const centers = sampleWithoutReplacement(opaque.length, k, config.kSeed).map((index) => {
-    const p = opaque[index];
-    return [image.data[p], image.data[p + 1], image.data[p + 2]];
-  });
+  const centers = sampleWithoutReplacement(opaque.length, k, config.kSeed).map(
+    (index) => rgbAt(image.data, opaque[index] ?? 0)
+  );
   const labels = new Int32Array(opaque.length);
   for (let iteration = 0; iteration < config.maxKmeansIterations; iteration += 1) {
     for (let n = 0; n < opaque.length; n += 1) {
-      const p = opaque[n];
-      const r = image.data[p];
-      const g = image.data[p + 1];
-      const b = image.data[p + 2];
-      let best = 0;
-      let bestDist = Infinity;
-      for (let c = 0; c < centers.length; c += 1) {
-        const center = centers[c];
-        const dr = r - center[0];
-        const dg = g - center[1];
-        const db = b - center[2];
-        const dist = dr * dr + dg * dg + db * db;
-        if (dist < bestDist) {
-          bestDist = dist;
-          best = c;
-        }
-      }
-      labels[n] = best;
+      labels[n] = nearestCenter(rgbAt(image.data, opaque[n] ?? 0), centers);
     }
-    let moved = false;
-    for (let c = 0; c < centers.length; c += 1) {
-      let sumR = 0;
-      let sumG = 0;
-      let sumB = 0;
-      let members = 0;
-      for (let n = 0; n < opaque.length; n += 1) {
-        if (labels[n] !== c) continue;
-        const p = opaque[n];
-        sumR += image.data[p];
-        sumG += image.data[p + 1];
-        sumB += image.data[p + 2];
-        members += 1;
-      }
-      if (members === 0) continue;
-      const next = [sumR / members, sumG / members, sumB / members];
-      const center = centers[c];
-      if (next.some((value, i) => Math.abs(value - center[i]) > 0.5)) moved = true;
-      centers[c] = next;
+    if (!updateCenters(image, opaque, labels, centers)) {
+      break;
     }
-    if (!moved) break;
   }
   const out = image.copy();
   for (let n = 0; n < opaque.length; n += 1) {
-    const p = opaque[n];
-    const center = centers[labels[n]];
+    const p = opaque[n] ?? 0;
+    const center = centers[labels[n] ?? 0];
+    if (center === void 0) {
+      continue;
+    }
     out.data[p] = Math.round(center[0]);
     out.data[p + 1] = Math.round(center[1]);
     out.data[p + 2] = Math.round(center[2]);
   }
   return out;
-}
-function computeProfiles(image) {
+};
+var computeProfiles = (image) => {
   const { width: w, height: h } = image;
-  if (w < 3 || h < 3) throw new Error("Image too small (minimum 3x3)");
+  if (w < 3 || h < 3) {
+    throw new Error("Image too small (minimum 3x3)");
+  }
   const luma = new Float64Array(w * h);
   for (let i = 0; i < luma.length; i += 1) {
     const p = i * 4;
-    if (image.data[p + 3] === 0) continue;
-    luma[i] = 0.299 * image.data[p] + 0.587 * image.data[p + 1] + 0.114 * image.data[p + 2];
+    if (image.data[p + 3] === 0) {
+      continue;
+    }
+    luma[i] = 0.299 * (image.data[p] ?? 0) + 0.587 * (image.data[p + 1] ?? 0) + 0.114 * (image.data[p + 2] ?? 0);
   }
   const columns = new Float64Array(w);
   for (let x = 1; x < w - 1; x += 1) {
     let sum = 0;
-    for (let y = 0; y < h; y += 1) sum += Math.abs(luma[y * w + x + 1] - luma[y * w + x - 1]);
+    for (let y = 0; y < h; y += 1) {
+      sum += Math.abs((luma[y * w + x + 1] ?? 0) - (luma[y * w + x - 1] ?? 0));
+    }
     columns[x] = sum;
   }
   const rows = new Float64Array(h);
   for (let y = 1; y < h - 1; y += 1) {
     let sum = 0;
-    for (let x = 0; x < w; x += 1) sum += Math.abs(luma[(y + 1) * w + x] - luma[(y - 1) * w + x]);
+    for (let x = 0; x < w; x += 1) {
+      sum += Math.abs((luma[(y + 1) * w + x] ?? 0) - (luma[(y - 1) * w + x] ?? 0));
+    }
     rows[y] = sum;
   }
   return { columns, rows };
-}
-function medianOf(values) {
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = sorted.length >> 1;
-  return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-}
-function estimateStepSize(profile, config) {
-  if (profile.length === 0) return null;
+};
+var medianOf = (values) => {
+  const sorted = [...values].toSorted((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const upper = sorted[mid] ?? 0;
+  return sorted.length % 2 === 1 ? upper : ((sorted[mid - 1] ?? 0) + upper) / 2;
+};
+var estimateStepSize = (profile, config) => {
+  if (profile.length === 0) {
+    return null;
+  }
   let max = 0;
-  for (const value of profile) if (value > max) max = value;
-  if (max === 0) return null;
+  for (const value of profile) {
+    if (value > max) {
+      max = value;
+    }
+  }
+  if (max === 0) {
+    return null;
+  }
   const threshold = max * config.peakThresholdMultiplier;
   const peaks = [];
   for (let i = 1; i < profile.length - 1; i += 1) {
-    const value = profile[i];
-    if (value > threshold && value > profile[i - 1] && value > profile[i + 1]) peaks.push(i);
+    const value = profile[i] ?? 0;
+    if (value > threshold && value > (profile[i - 1] ?? 0) && value > (profile[i + 1] ?? 0)) {
+      peaks.push(i);
+    }
   }
-  if (peaks.length < 2) return null;
-  const clean = [peaks[0]];
-  for (const peak of peaks.slice(1)) {
-    if (peak - clean[clean.length - 1] > config.peakDistanceFilter - 1) clean.push(peak);
+  if (peaks.length < 2) {
+    return null;
   }
-  if (clean.length < 2) return null;
-  const diffs = clean.slice(1).map((value, i) => value - clean[i]);
+  const clean = [];
+  for (const peak of peaks) {
+    const last = clean.at(-1);
+    if (last === void 0 || peak - last > config.peakDistanceFilter - 1) {
+      clean.push(peak);
+    }
+  }
+  if (clean.length < 2) {
+    return null;
+  }
+  const diffs = clean.slice(1).map((value, i) => value - (clean[i] ?? 0));
   return medianOf(diffs);
-}
-function resolveStepSizes(sx, sy, width, height, config) {
+};
+var resolveStepSizes = (sx, sy, width, height, config) => {
   if (sx !== null && sy !== null) {
     const ratio = Math.max(sx, sy) / Math.min(sx, sy);
     if (ratio > config.maxStepRatio) {
@@ -2306,13 +2706,19 @@ function resolveStepSizes(sx, sy, width, height, config) {
     const average = (sx + sy) / 2;
     return [average, average];
   }
-  if (sx !== null) return [sx, sx];
-  if (sy !== null) return [sy, sy];
+  if (sx !== null) {
+    return [sx, sx];
+  }
+  if (sy !== null) {
+    return [sy, sy];
+  }
   const fallback = Math.max(Math.min(width, height) / config.fallbackTargetSegments, 1);
   return [fallback, fallback];
-}
-function walk(profile, stepSize, limit, config) {
-  if (profile.length === 0) throw new Error("Empty profile");
+};
+var walk = (profile, stepSize, limit, config) => {
+  if (profile.length === 0) {
+    throw new Error("Empty profile");
+  }
   const cuts = [0];
   let pos = 0;
   const window = Math.max(stepSize * config.walkerSearchWindowRatio, config.walkerMinSearchWindow);
@@ -2332,8 +2738,9 @@ function walk(profile, stepSize, limit, config) {
     let localMax = -Infinity;
     let localIndex = start;
     for (let i = start; i < end; i += 1) {
-      if (profile[i] > localMax) {
-        localMax = profile[i];
+      const value = profile[i] ?? 0;
+      if (value > localMax) {
+        localMax = value;
         localIndex = i;
       }
     }
@@ -2346,56 +2753,71 @@ function walk(profile, stepSize, limit, config) {
     }
   }
   return cuts;
-}
-function sanitizeCuts(cuts, limit) {
-  const seen = [...new Set(cuts.filter((c) => c >= 0 && c <= limit))].sort((a, b) => a - b);
-  if (seen.length === 0 || seen[0] !== 0) seen.unshift(0);
-  if (seen[seen.length - 1] !== limit) seen.push(limit);
+};
+var sanitizeCuts = (cuts, limit) => {
+  const seen = [...new Set(cuts.filter((c) => c >= 0 && c <= limit))].toSorted((a, b) => a - b);
+  if (seen.length === 0 || seen[0] !== 0) {
+    seen.unshift(0);
+  }
+  if (seen.at(-1) !== limit) {
+    seen.push(limit);
+  }
   const deduped = [];
   for (const cut of seen) {
-    if (deduped.length === 0 || cut > deduped[deduped.length - 1]) deduped.push(cut);
+    const last = deduped.at(-1);
+    if (last === void 0 || cut > last) {
+      deduped.push(cut);
+    }
   }
   return deduped;
-}
-function resample(image, colCuts, rowCuts) {
+};
+var majorityColor = (image, x0, x1, y0, y1) => {
+  const counts = /* @__PURE__ */ new Map();
+  for (let y = y0; y < y1; y += 1) {
+    for (let x = x0; x < x1; x += 1) {
+      if (!image.contains(x, y)) {
+        continue;
+      }
+      const p = image.index(x, y);
+      const alpha = image.data[p + 3] ?? 0;
+      if (alpha <= 0) {
+        continue;
+      }
+      const rgba = [...rgbAt(image.data, p), alpha];
+      const key = rgba[0] * 2 ** 24 + rgba[1] * 2 ** 16 + rgba[2] * 2 ** 8 + rgba[3];
+      const entry = counts.get(key);
+      if (entry) {
+        entry.count += 1;
+      } else {
+        counts.set(key, { count: 1, rgba });
+      }
+    }
+  }
+  let best = null;
+  for (const entry of counts.values()) {
+    if (!best || entry.count > best.count) {
+      best = entry;
+    }
+  }
+  return best ? best.rgba : null;
+};
+var resample = (image, colCuts, rowCuts) => {
   const out = Bitmap.create(colCuts.length - 1, rowCuts.length - 1);
   for (let j = 0; j < out.height; j += 1) {
-    const y0 = rowCuts[j];
-    const y1 = rowCuts[j + 1];
+    const y0 = rowCuts[j] ?? 0;
+    const y1 = rowCuts[j + 1] ?? 0;
     for (let i = 0; i < out.width; i += 1) {
-      const x0 = colCuts[i];
-      const x1 = colCuts[i + 1];
-      const counts = /* @__PURE__ */ new Map();
-      let first = true;
-      for (let y = y0; y < y1; y += 1) {
-        for (let x = x0; x < x1; x += 1) {
-          if (!image.contains(x, y)) continue;
-          const p = image.index(x, y);
-          if (image.data[p + 3] <= 0) continue;
-          const rgba = [
-            image.data[p],
-            image.data[p + 1],
-            image.data[p + 2],
-            image.data[p + 3]
-          ];
-          const key = rgba[0] << 24 | rgba[1] << 16 | rgba[2] << 8 | rgba[3];
-          const entry = counts.get(key);
-          if (entry) entry.count += 1;
-          else counts.set(key, { count: 1, rgba });
-          first = false;
-        }
+      const x0 = colCuts[i] ?? 0;
+      const x1 = colCuts[i + 1] ?? 0;
+      const color = majorityColor(image, x0, x1, y0, y1);
+      if (color) {
+        out.putPixel(i, j, color);
       }
-      if (first) continue;
-      let best = null;
-      for (const entry of counts.values()) {
-        if (!best || entry.count > best.count) best = entry;
-      }
-      if (best) out.putPixel(i, j, best.rgba);
     }
   }
   return out;
-}
-function snapImage(inputPath, config) {
+};
+var snapImage = (inputPath, config) => {
   const image = Bitmap.fromFile(inputPath);
   const quantized = quantize2(image, config);
   const { columns, rows } = computeProfiles(quantized);
@@ -2409,9 +2831,9 @@ function snapImage(inputPath, config) {
   const colCuts = sanitizeCuts(walk(columns, stepX, image.width, config), image.width);
   const rowCuts = sanitizeCuts(walk(rows, stepY, image.height, config), image.height);
   return resample(quantized, colCuts, rowCuts);
-}
+};
 var DEGENERATE_SIDE = 8;
-function snapWarning(input, output, config) {
+var snapWarning = (input, output, config) => {
   if (output.width < DEGENERATE_SIDE || output.height < DEGENERATE_SIDE) {
     return `recovered grid collapsed to ${output.width}x${output.height} from ${input.width}x${input.height} \u2014 there was no pixel grid to find. Key the background out first (a flat matte hides the grid), or the source is not upscaled pixel art at all`;
   }
@@ -2420,38 +2842,36 @@ function snapWarning(input, output, config) {
     return `output is exactly ${fallback}x${fallback}: step detection found no structure and fell back to a fixed segment count, so these are not the source's own pixels`;
   }
   return null;
-}
+};
 
 // src/sprite/size-contract.ts
 import { existsSync as existsSync3, statSync as statSync2 } from "node:fs";
-import { basename as basename2 } from "node:path";
+import path5 from "node:path";
 var FRAME_WIDTH = 256;
 var FRAME_HEIGHT = 256;
 var DEFAULT_TOLERANCES = {
-  maxTargetHeightDriftPct: 0.08,
-  maxIntraHeightDriftPct: 0.08,
   maxBottomDriftPx: 2,
-  maxWidthOverflowPct: 0.12,
-  maxCenterDriftPx: null
+  maxCenterDriftPx: null,
+  maxIntraHeightDriftPct: 0.08,
+  maxTargetHeightDriftPct: 0.08,
+  maxWidthOverflowPct: 0.12
 };
-function isEmptySummary(summary) {
-  return summary.nonEmptyFrames === 0;
-}
-function percent2(value, digits = 1) {
+var isEmptySummary = (summary) => summary.nonEmptyFrames === 0;
+var percent2 = (value, digits = 1) => {
   const factor = 10 ** digits;
   return `${(roundHalfToEven(value * 100 * factor) / factor).toFixed(digits)}%`;
-}
-function fixed0(value) {
-  return roundHalfToEven(value).toFixed(0);
-}
-function optionalNumber(value) {
-  if (value === null || value === void 0) return null;
+};
+var fixed0 = (value) => roundHalfToEven(value).toFixed(0);
+var optionalNumber = (value) => {
+  if (value === null || value === void 0) {
+    return null;
+  }
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
-}
-function measureBitmap(image, label, source, frameSize) {
+};
+var measureBitmap = (image, label, source, frameSize) => {
   const bbox = image.getBBox();
-  const record = { frame: label, source, frameSize };
+  const record = { frame: label, frameSize, source };
   if (!bbox) {
     record.empty = true;
     return record;
@@ -2463,15 +2883,17 @@ function measureBitmap(image, label, source, frameSize) {
   record.visibleCenterX = (bbox.left + bbox.right - 1) / 2;
   record.visibleBottomY = bbox.bottom - 1;
   return record;
-}
-function measureSource(source, cellSize, frameGlob = "frame-*.png") {
+};
+var measureSource = (source, cellSize, frameGlob = "frame-*.png") => {
   if (existsSync3(source) && statSync2(source).isDirectory()) {
-    return globFrames(source, frameGlob).map((path) => {
-      const image2 = Bitmap.fromFile(path);
-      return measureBitmap(image2, basename2(path), path, [image2.width, image2.height]);
+    return globFrames(source, frameGlob).map((file) => {
+      const image2 = Bitmap.fromFile(file);
+      return measureBitmap(image2, path5.basename(file), file, [image2.width, image2.height]);
     });
   }
-  if (!existsSync3(source)) throw new Error(`missing size contract source: ${source}`);
+  if (!existsSync3(source)) {
+    throw new Error(`missing size contract source: ${source}`);
+  }
   const image = Bitmap.fromFile(source);
   const [cellW, cellH] = cellSize;
   if (image.width >= cellW && image.height >= cellH && image.width % cellW === 0 && image.height % cellH === 0) {
@@ -2482,10 +2904,10 @@ function measureSource(source, cellSize, frameGlob = "frame-*.png") {
       for (let col = 0; col < columns; col += 1) {
         const index = row * columns + col + 1;
         const cell = image.crop({
+          bottom: (row + 1) * cellH,
           left: col * cellW,
-          top: row * cellH,
           right: (col + 1) * cellW,
-          bottom: (row + 1) * cellH
+          top: row * cellH
         });
         out.push(
           measureBitmap(cell, `frame-${String(index).padStart(2, "0")}`, source, [cellW, cellH])
@@ -2494,39 +2916,53 @@ function measureSource(source, cellSize, frameGlob = "frame-*.png") {
     }
     return out;
   }
-  return [measureBitmap(image, basename2(source), source, [image.width, image.height])];
-}
-function summarizeMeasurements(measurements) {
-  const live = measurements.filter((m) => !m.empty);
+  return [measureBitmap(image, path5.basename(source), source, [image.width, image.height])];
+};
+var isLiveMeasurement = (m) => !m.empty && m.visibleWidth !== void 0 && m.visibleHeight !== void 0 && m.visibleBottomY !== void 0 && m.visibleCenterX !== void 0;
+var summarizeMeasurements = (measurements) => {
+  const live = measurements.filter(isLiveMeasurement);
   if (live.length === 0) {
-    return { frames: measurements.length, nonEmptyFrames: 0, frameSize: null };
+    return { frameSize: null, frames: measurements.length, nonEmptyFrames: 0 };
   }
   const widths = live.map((m) => m.visibleWidth);
   const heights = live.map((m) => m.visibleHeight);
   const bottoms = live.map((m) => m.visibleBottomY);
   const centers = live.map((m) => m.visibleCenterX);
   const frameSizes = live.map((m) => m.frameSize).filter(Boolean);
-  const first = frameSizes[0];
+  const [first] = frameSizes;
   const uniform = first !== void 0 && frameSizes.every((size) => size[0] === first[0] && size[1] === first[1]);
   const medianHeight = median(heights);
   return {
-    frames: measurements.length,
-    nonEmptyFrames: live.length,
     frameSize: uniform && first !== void 0 ? first : null,
-    visibleWidthRange: [Math.min(...widths), Math.max(...widths)],
-    visibleHeightRange: [Math.min(...heights), Math.max(...heights)],
-    visibleBottomYRange: [Math.min(...bottoms), Math.max(...bottoms)],
-    visibleCenterXRange: [Math.min(...centers), Math.max(...centers)],
-    medianVisibleWidth: median(widths),
-    medianVisibleHeight: medianHeight,
+    frames: measurements.length,
+    intraHeightDriftPct: medianHeight ? (Math.max(...heights) - Math.min(...heights)) / medianHeight : null,
+    maxVisibleHeight: Math.max(...heights),
+    maxVisibleWidth: Math.max(...widths),
     medianBottomY: median(bottoms),
     medianCenterX: median(centers),
-    maxVisibleWidth: Math.max(...widths),
-    maxVisibleHeight: Math.max(...heights),
-    intraHeightDriftPct: medianHeight ? (Math.max(...heights) - Math.min(...heights)) / medianHeight : null
+    medianVisibleHeight: medianHeight,
+    medianVisibleWidth: median(widths),
+    nonEmptyFrames: live.length,
+    visibleBottomYRange: [Math.min(...bottoms), Math.max(...bottoms)],
+    visibleCenterXRange: [Math.min(...centers), Math.max(...centers)],
+    visibleHeightRange: [Math.min(...heights), Math.max(...heights)],
+    visibleWidthRange: [Math.min(...widths), Math.max(...widths)]
   };
-}
-function promptGuidanceForContract(contract) {
+};
+var asCellPair = (value) => {
+  if (!Array.isArray(value) || value.length !== 2) {
+    return null;
+  }
+  const [w, h] = value;
+  if (!isFiniteNumber(w) || !isFiniteNumber(h)) {
+    return null;
+  }
+  if (w < 1 || h < 1) {
+    return null;
+  }
+  return [Math.trunc(w), Math.trunc(h)];
+};
+var promptGuidanceForContract = (contract) => {
   const runtimeCell = asCellPair(contract.runtimeCell) ?? [FRAME_WIDTH, FRAME_HEIGHT];
   const targetHeight = optionalNumber(contract.targetVisibleHeight);
   const bottomY = optionalNumber(contract.targetBottomY);
@@ -2549,24 +2985,22 @@ function promptGuidanceForContract(contract) {
     );
   }
   return guidance;
-}
-function check(name, passed, passMessage, warnMessage, observed, target) {
-  return {
-    name,
-    status: passed ? "pass" : "warn",
-    message: passed ? passMessage : warnMessage,
-    observed,
-    target
-  };
-}
-function contractChecks(summary, contract) {
+};
+var check = (name, passed, passMessage, warnMessage, observed, target) => ({
+  message: passed ? passMessage : warnMessage,
+  name,
+  observed,
+  status: passed ? "pass" : "warn",
+  target
+});
+var contractChecks = (summary, contract) => {
   const tolerances = {
     ...DEFAULT_TOLERANCES,
-    ...contract.tolerances ?? {}
+    ...contract.tolerances
   };
   if (isEmptySummary(summary)) {
     return [
-      { name: "non-empty-frames", status: "warn", message: "No non-empty frames were found." }
+      { message: "No non-empty frames were found.", name: "non-empty-frames", status: "warn" }
     ];
   }
   const checks = [];
@@ -2650,7 +3084,7 @@ function contractChecks(summary, contract) {
     );
   }
   return checks;
-}
+};
 var BRIEF_KEYS = [
   "name",
   "source",
@@ -2664,52 +3098,50 @@ var BRIEF_KEYS = [
   "targetCenterX",
   "tolerances"
 ];
-function copyBriefKey(contract, out, key) {
-  if (key in contract) out[key] = contract[key];
-}
-function contractBrief(contract) {
+var copyBriefKey = (contract, out, key) => {
+  if (key in contract) {
+    out[key] = contract[key];
+  }
+};
+var contractBrief = (contract) => {
   const out = {};
-  for (const key of BRIEF_KEYS) copyBriefKey(contract, out, key);
+  for (const key of BRIEF_KEYS) {
+    copyBriefKey(contract, out, key);
+  }
   return out;
-}
-function asCellPair(value) {
-  if (!Array.isArray(value) || value.length !== 2) return null;
-  const [w, h] = value;
-  if (!isFiniteNumber(w) || !isFiniteNumber(h)) return null;
-  if (w < 1 || h < 1) return null;
-  return [Math.trunc(w), Math.trunc(h)];
-}
-function cellSizeOf(contract) {
-  return asCellPair(contract.runtimeCell) ?? [FRAME_WIDTH, FRAME_HEIGHT];
-}
-function loadSizeContract(payload, source) {
+};
+var cellSizeOf = (contract) => asCellPair(contract.runtimeCell) ?? [FRAME_WIDTH, FRAME_HEIGHT];
+var loadSizeContract = (payload, source) => {
   if (!isJsonObject2(payload)) {
     throw new Error(`size contract must be a JSON object: ${source}`);
   }
   const data = payload;
-  if (data.kind !== "sprite-size-contract")
+  if (data.kind !== "sprite-size-contract") {
     throw new Error(`not a sprite size contract: ${source}`);
+  }
   const runtimeCell = data.runtimeCell === void 0 ? [FRAME_WIDTH, FRAME_HEIGHT] : asCellPair(data.runtimeCell);
   if (runtimeCell === null) {
     throw new Error(
       `runtimeCell must be [width, height] numbers, got ${JSON.stringify(data.runtimeCell)}: ${source}`
     );
   }
-  const tolerances = data.tolerances;
+  const { tolerances } = data;
   if (tolerances !== void 0 && !isJsonComposite(tolerances)) {
     throw new Error(`tolerances must be an object, got ${JSON.stringify(tolerances)}: ${source}`);
   }
   const mergedTolerances = { ...DEFAULT_TOLERANCES };
-  if (tolerances !== void 0) Object.assign(mergedTolerances, tolerances);
+  if (tolerances !== void 0) {
+    Object.assign(mergedTolerances, tolerances);
+  }
   return {
     ...data,
-    runtimeCell,
     anchorPolicy: data.anchorPolicy ?? "grounded",
     pivot: data.pivot ?? "base-center",
+    runtimeCell,
     tolerances: mergedTolerances
   };
-}
-function deriveSizeContract(source, options = {}) {
+};
+var deriveSizeContract = (source, options = {}) => {
   const {
     cellSize = [FRAME_WIDTH, FRAME_HEIGHT],
     frameGlob = "frame-*.png",
@@ -2730,55 +3162,61 @@ function deriveSizeContract(source, options = {}) {
   const targetBottomY = roundHalfToEven(summary.medianBottomY);
   const isDir = existsSync3(source) && statSync2(source).isDirectory();
   return {
-    version: 1,
-    kind: "sprite-size-contract",
-    name: name ?? basename2(source).replace(/\.[^.]+$/, ""),
-    source,
-    sourceKind: isDir ? "directory" : "image",
     action: action2,
-    direction,
-    runtimeCell: [cellSize[0], cellSize[1]],
-    sourceCanvas: sourceCanvas ?? summary.frameSize ?? null,
     anchorPolicy,
-    pivot,
-    targetVisibleHeight,
-    targetVisibleWidth: roundHalfToEven(summary.medianVisibleWidth),
+    direction,
+    kind: "sprite-size-contract",
     maxVisibleWidth: summary.maxVisibleWidth,
+    measurements,
+    measurementsSummary: summary,
+    name: name ?? path5.basename(source).replace(/\.[^.]+$/u, ""),
+    pivot,
+    promptGuidance: promptGuidanceForContract({
+      pivot,
+      runtimeCell: [cellSize[0], cellSize[1]],
+      targetBottomY,
+      targetVisibleHeight
+    }),
+    runtimeCell: [cellSize[0], cellSize[1]],
+    source,
+    sourceCanvas: sourceCanvas ?? summary.frameSize ?? null,
+    sourceKind: isDir ? "directory" : "image",
     targetBottomY,
     targetCenterX: roundHalfToEven(summary.medianCenterX),
+    targetVisibleHeight,
+    targetVisibleWidth: roundHalfToEven(summary.medianVisibleWidth),
     tolerances: { ...DEFAULT_TOLERANCES, ...tolerances },
-    measurementsSummary: summary,
-    measurements,
-    promptGuidance: promptGuidanceForContract({
-      runtimeCell: [cellSize[0], cellSize[1]],
-      targetVisibleHeight,
-      targetBottomY,
-      pivot
-    })
+    version: 1
   };
-}
-function auditSizeContract(source, contract, options = {}) {
+};
+var auditSizeContract = (source, contract, options = {}) => {
   const { cellSize = null, frameGlob = "frame-*.png", stage = "runtime" } = options;
   const measurements = measureSource(source, cellSize ?? cellSizeOf(contract), frameGlob);
   const summary = summarizeMeasurements(measurements);
   const checks = contractChecks(summary, contract);
   const passed = checks.every((c) => c.status === "pass");
   return {
-    version: 1,
-    kind: "sprite-size-contract-audit",
-    stage,
-    source,
-    contract: contractBrief(contract),
-    status: passed ? "pass" : "warn",
-    passed,
-    summary,
     checks,
-    measurements
+    contract: contractBrief(contract),
+    kind: "sprite-size-contract-audit",
+    measurements,
+    passed,
+    source,
+    stage,
+    status: passed ? "pass" : "warn",
+    summary,
+    version: 1
   };
-}
+};
 
 // src/sprite/prompt.ts
 var DIRECTIONS = {
+  e: {
+    id: "e",
+    label: "East",
+    promptName: "east / right-facing",
+    screenFacing: "profile facing screen-right"
+  },
   n: {
     id: "n",
     label: "North",
@@ -2790,6 +3228,12 @@ var DIRECTIONS = {
     label: "North-East",
     promptName: "north-east / back-right-facing",
     screenFacing: "diagonal back-right-facing, away from the viewer"
+  },
+  nw: {
+    id: "nw",
+    label: "North-West",
+    promptName: "north-west / back-left-facing",
+    screenFacing: "diagonal back-left-facing, away toward screen-left"
   },
   s: {
     id: "s",
@@ -2803,12 +3247,6 @@ var DIRECTIONS = {
     promptName: "south-east / front-right-facing",
     screenFacing: "diagonal front-right-facing, toward screen-right"
   },
-  e: {
-    id: "e",
-    label: "East",
-    promptName: "east / right-facing",
-    screenFacing: "profile facing screen-right"
-  },
   sw: {
     id: "sw",
     label: "South-West",
@@ -2820,15 +3258,9 @@ var DIRECTIONS = {
     label: "West",
     promptName: "west / left-facing",
     screenFacing: "profile facing screen-left"
-  },
-  nw: {
-    id: "nw",
-    label: "North-West",
-    promptName: "north-west / back-left-facing",
-    screenFacing: "diagonal back-left-facing, away toward screen-left"
   }
 };
-function getDirection(directionId) {
+var getDirection = (directionId) => {
   const resolved = (directionId || "").trim().toLowerCase();
   const direction = lookup(DIRECTIONS, resolved);
   if (!direction) {
@@ -2837,58 +3269,60 @@ function getDirection(directionId) {
     );
   }
   return direction;
-}
+};
 var ANCHOR_GAME_VIEWS = {
-  platformer: "side-scrolling / side-view platformer or action game",
   adventure: "point-and-click adventure character view",
-  "point-and-click": "point-and-click adventure character view",
-  "top-down": "experimental loose top-down or three-quarter top-down game",
-  "rts-oblique": "Warcraft-like elevated oblique RTS unit camera",
+  generic: "generic 2D game asset pipeline",
   isometric: "experimental true isometric tactics / diamond-tile game",
-  generic: "generic 2D game asset pipeline"
+  platformer: "side-scrolling / side-view platformer or action game",
+  "point-and-click": "point-and-click adventure character view",
+  "rts-oblique": "Warcraft-like elevated oblique RTS unit camera",
+  "top-down": "experimental loose top-down or three-quarter top-down game"
 };
 var ANCHOR_ROLES = {
   character: "playable or NPC character",
   enemy: "enemy or creature",
+  object: "non-character game object",
   prop: "small interactive or decorative prop",
-  turret: "planted turret or mechanical hazard",
-  object: "non-character game object"
+  turret: "planted turret or mechanical hazard"
 };
 var VIEW_ALIASES = {
-  "side-scroller": "platformer",
+  "adventure-game": "adventure",
+  "iso-rts": "rts-oblique",
+  "isometric-rts": "rts-oblique",
+  isometric_rts: "rts-oblique",
+  "oblique-rts": "rts-oblique",
+  pnc: "adventure",
   "point-and-click": "adventure",
   point_and_click: "adventure",
-  pnc: "adventure",
-  "adventure-game": "adventure",
   rts: "rts-oblique",
   "rts-oblique": "rts-oblique",
   rts_oblique: "rts-oblique",
+  "side-scroller": "platformer",
   warcraft: "rts-oblique",
-  "warcraft-rts": "rts-oblique",
-  "oblique-rts": "rts-oblique",
-  "isometric-rts": "rts-oblique",
-  "iso-rts": "rts-oblique",
-  isometric_rts: "rts-oblique"
+  "warcraft-rts": "rts-oblique"
 };
-function resolveAnchorGameView(gameView) {
+var resolveAnchorGameView = (gameView) => {
   let resolved = (gameView || "platformer").trim().toLowerCase();
   resolved = lookup(VIEW_ALIASES, resolved) ?? resolved;
   if (!(resolved in ANCHOR_GAME_VIEWS)) {
-    const known = Object.keys(ANCHOR_GAME_VIEWS).sort().join(", ");
+    const known = Object.keys(ANCHOR_GAME_VIEWS).toSorted().join(", ");
     throw new Error(`unknown anchor game view '${gameView}'; expected one of: ${known}`);
   }
   return resolved;
-}
-function resolveAnchorRole(anchorRole) {
+};
+var resolveAnchorRole = (anchorRole) => {
   const resolved = (anchorRole || "character").trim().toLowerCase();
   if (!(resolved in ANCHOR_ROLES)) {
-    const known = Object.keys(ANCHOR_ROLES).sort().join(", ");
+    const known = Object.keys(ANCHOR_ROLES).toSorted().join(", ");
     throw new Error(`unknown anchor role '${anchorRole}'; expected one of: ${known}`);
   }
   return resolved;
-}
-function styleBlock(style) {
-  if (style === null || style === void 0) return "";
+};
+var styleBlock = (style) => {
+  if (style === null || style === void 0) {
+    return "";
+  }
   if (style === "lobit-v1") {
     return `
 Style constraints (low-bit pixel-sprite production art):
@@ -2926,57 +3360,57 @@ Style constraints (source-faithful preservation):
   throw new Error(
     `unknown style '${style}'; expected one of: lobit-v1, high-fidelity-v1, preserve-reference-v1`
   );
-}
-function withStyle(prompt, style) {
+};
+var withStyle = (prompt, style) => {
   const block = styleBlock(style);
   return block ? `${prompt}${block}` : prompt;
-}
-function chromaPhrase(chroma) {
+};
+var chromaPhrase = (chroma) => {
   const names = {
+    "#0000FF": "chroma blue #0000FF",
     "#00FF00": "chroma green #00FF00",
-    "#FF00FF": "chroma magenta #FF00FF",
-    "#0000FF": "chroma blue #0000FF"
+    "#FF00FF": "chroma magenta #FF00FF"
   };
   return lookup(names, chroma.toUpperCase()) ?? `chroma color ${chroma}`;
-}
-function chromaName(chroma) {
+};
+var chromaName = (chroma) => {
   const names = {
+    "#0000FF": "chroma blue",
     "#00FF00": "chroma green",
-    "#FF00FF": "chroma magenta",
-    "#0000FF": "chroma blue"
+    "#FF00FF": "chroma magenta"
   };
   return lookup(names, chroma.toUpperCase()) ?? "chroma color";
-}
-function directionLine(direction, gameView) {
+};
+var directionLine = (direction, gameView) => {
   if (gameView === "adventure") {
     const lines = {
+      e: "east / screen-right adventure profile",
+      n: "north / back-facing adventure standing view",
+      ne: "north-east / back-right three-quarter adventure view",
+      nw: "north-west / back-left three-quarter adventure view",
       s: "south / front-facing adventure standing view",
       se: "south-east / front-right three-quarter adventure view",
       sw: "south-west / front-left three-quarter adventure view",
-      e: "east / screen-right adventure profile",
-      w: "west / screen-left adventure profile",
-      n: "north / back-facing adventure standing view",
-      ne: "north-east / back-right three-quarter adventure view",
-      nw: "north-west / back-left three-quarter adventure view"
+      w: "west / screen-left adventure profile"
     };
     return lookup(lines, direction.id) ?? direction.screenFacing;
   }
   if (gameView === "rts-oblique") {
     const lines = {
+      e: "east / screen-right-facing from the fixed elevated RTS camera, not a pure side profile",
       n: "north / back-facing as a compact unit rotated on an oblique RTS ground plane",
       ne: "north-east / back-right-facing as a compact unit rotated on an oblique RTS ground plane",
-      e: "east / screen-right-facing from the fixed elevated RTS camera, not a pure side profile",
-      se: "south-east / front-right-facing as a compact unit rotated on an oblique RTS ground plane",
+      nw: "north-west / back-left-facing as a compact unit rotated on an oblique RTS ground plane",
       s: "south / front-facing from the fixed elevated RTS camera, not a straight-on portrait",
+      se: "south-east / front-right-facing as a compact unit rotated on an oblique RTS ground plane",
       sw: "south-west / front-left-facing as a compact unit rotated on an oblique RTS ground plane",
-      w: "west / screen-left-facing from the fixed elevated RTS camera, not a pure side profile",
-      nw: "north-west / back-left-facing as a compact unit rotated on an oblique RTS ground plane"
+      w: "west / screen-left-facing from the fixed elevated RTS camera, not a pure side profile"
     };
     return lookup(lines, direction.id) ?? direction.screenFacing;
   }
   return direction.screenFacing;
-}
-function anchorCompositionGuidance(gameView) {
+};
+var anchorCompositionGuidance = (gameView) => {
   if (gameView === "adventure") {
     return `- One isolated full-height point-and-click adventure character centered on the canvas.
 - Whole body visible from head to feet with a clear grounded standing silhouette.
@@ -2993,8 +3427,8 @@ function anchorCompositionGuidance(gameView) {
   }
   return `- One isolated full-body sprite centered on the canvas.
 - Full body visible from head to feet.`;
-}
-function anchorAvoidGuidance(gameView) {
+};
+var anchorAvoidGuidance = (gameView) => {
   if (gameView === "adventure") {
     return `- not a side-view platformer profile unless direction is explicitly east or west
 - not an overhead top-down unit
@@ -3011,8 +3445,8 @@ function anchorAvoidGuidance(gameView) {
 - not a large character illustration`;
   }
   return "";
-}
-function directionViewGuidance(direction, gameView) {
+};
+var directionViewGuidance = (direction, gameView) => {
   if (gameView === "adventure") {
     if (direction.id === "sw" || direction.id === "se") {
       const side = direction.id === "sw" ? "screen-left" : "screen-right";
@@ -3069,8 +3503,8 @@ function directionViewGuidance(direction, gameView) {
   }
   return `- Make the requested direction readable as a neutral 2D game sprite view.
 - Keep the camera orthographic and asset-focused.`;
-}
-function anchorRoleGuidance(anchorRole) {
+};
+var anchorRoleGuidance = (anchorRole) => {
   if (anchorRole === "enemy") {
     return `- Preserve the enemy's core body plan, threat shape, and readable attack silhouette.
 - Do not turn it into a different creature type, vehicle, turret, quadruped, or humanoid unless image 1 already establishes that shape.`;
@@ -3085,12 +3519,12 @@ function anchorRoleGuidance(anchorRole) {
   }
   return `- Preserve the character's body plan, outfit blocks, readable pose language, and silhouette.
 - Do not add or remove major anatomy.`;
-}
-function anchorContextGuidance(anchorContext) {
+};
+var anchorContextGuidance = (anchorContext) => {
   const context = (anchorContext || "").trim();
   return context ? `Additional game context: ${context}` : "Additional game context: none supplied.";
-}
-function renderAnchorPrompt(direction, options = {}) {
+};
+var renderAnchorPrompt = (direction, options = {}) => {
   const {
     gameView = "platformer",
     anchorRole = "character",
@@ -3147,59 +3581,55 @@ Avoid:
 - non-green backgrounds
 ${anchorAvoidGuidance(resolvedView)}
 `;
-}
+};
 var POSE_BOARD_PRESETS = {
-  standard: { id: "standard", width: 1536, height: 1152, columns: 4, rows: 3 },
-  hires: { id: "hires", width: 2048, height: 1536, columns: 4, rows: 3 }
+  hires: { columns: 4, height: 1536, id: "hires", rows: 3, width: 2048 },
+  standard: { columns: 4, height: 1152, id: "standard", rows: 3, width: 1536 }
 };
 var cellWidth = (p) => Math.floor(p.width / p.columns);
 var cellHeight = (p) => Math.floor(p.height / p.rows);
 var totalCells = (p) => p.columns * p.rows;
-function resolvePoseBoardPreset(presetId) {
+var resolvePoseBoardPreset = (presetId) => {
   const resolved = presetId || "standard";
   const preset = lookup(POSE_BOARD_PRESETS, resolved);
   if (!preset) {
-    const known = Object.keys(POSE_BOARD_PRESETS).sort().join(", ");
+    const known = Object.keys(POSE_BOARD_PRESETS).toSorted().join(", ");
     throw new Error(`unknown pose board preset '${resolved}'; expected one of: ${known}`);
   }
   if (preset.width % preset.columns || preset.height % preset.rows) {
     throw new Error(`pose board preset '${preset.id}' does not divide evenly into its grid`);
   }
   return preset;
-}
-function labelForIndex(labels, index, frameCount) {
-  if (frameCount <= 1) return labels[0];
-  if (frameCount === labels.length) return labels[index - 1];
-  return labels[roundHalfToEven((index - 1) * (labels.length - 1) / (frameCount - 1))];
-}
+};
+var labelForIndex = (labels, index, frameCount) => {
+  let position;
+  if (frameCount <= 1) {
+    position = 0;
+  } else if (frameCount === labels.length) {
+    position = index - 1;
+  } else {
+    position = roundHalfToEven((index - 1) * (labels.length - 1) / (frameCount - 1));
+  }
+  const label = labels[position];
+  if (label === void 0) {
+    throw new Error(`frame ${index} of ${frameCount} has no label`);
+  }
+  return label;
+};
 var LABELS = {
-  idle: [
-    "settled idle",
-    "tiny breathing rise",
-    "breathing rise",
-    "breathing peak",
-    "soft blink or cloth sway",
-    "small breathing fall",
-    "settling fall",
-    "near neutral",
-    "return to settled idle",
-    "loop hold matching frame 1"
-  ],
-  hurt: [
-    "idle start",
-    "impact anticipation",
-    "impact recoil",
-    "hit peak",
-    "recover balance",
-    "return to guard"
-  ],
-  jump: [
-    "ready stance",
-    "crouch anticipation",
-    "takeoff",
-    "airborne peak",
-    "falling",
-    "landing recovery"
+  // Spatial-progression labels (a single arc, not abstract beats) so the model
+  // advances the weapon monotonically along one swing instead of drawing N poses.
+  attack: [
+    "ready stance, weapon held back",
+    "anticipation, weapon drawing back and up",
+    "wind-up peak, weapon at the top of the back-swing",
+    "swing begins, weapon starting forward along the strike arc",
+    "mid-strike, weapon sweeping across the body centerline",
+    "contact, weapon at the far forward end of the arc",
+    "follow-through, weapon overshooting past contact",
+    "recovery, weapon returning toward the ready guard",
+    "settle toward ready",
+    "return to ready stance"
   ],
   crouch: [
     "upright ready stance",
@@ -3220,70 +3650,6 @@ var LABELS = {
     "still pose",
     "final still",
     "final hold"
-  ],
-  // Spatial-progression labels (a single arc, not abstract beats) so the model
-  // advances the weapon monotonically along one swing instead of drawing N poses.
-  attack: [
-    "ready stance, weapon held back",
-    "anticipation, weapon drawing back and up",
-    "wind-up peak, weapon at the top of the back-swing",
-    "swing begins, weapon starting forward along the strike arc",
-    "mid-strike, weapon sweeping across the body centerline",
-    "contact, weapon at the far forward end of the arc",
-    "follow-through, weapon overshooting past contact",
-    "recovery, weapon returning toward the ready guard",
-    "settle toward ready",
-    "return to ready stance"
-  ],
-  talk: [
-    "settled speaking idle",
-    "small head turn",
-    "hand gesture begins",
-    "gesture opens",
-    "gesture peak",
-    "soft emphasis",
-    "gesture relaxes",
-    "hand returns",
-    "near speaking idle",
-    "loop hold matching frame 1"
-  ],
-  interact: [
-    "idle start",
-    "anticipate reach",
-    "arm extends",
-    "operate or take peak",
-    "brief contact hold",
-    "release",
-    "arm returns",
-    "settle",
-    "return to idle",
-    "idle hold"
-  ],
-  pick_up: [
-    "idle start",
-    "look toward target",
-    "bend begins",
-    "reach downward",
-    "lowest reach",
-    "grasp implied object",
-    "lift begins",
-    "rise with hand close",
-    "settle upright",
-    "return to idle",
-    "idle hold",
-    "loop-safe idle"
-  ],
-  use: [
-    "idle start",
-    "anticipate reach",
-    "reach outward",
-    "hand meets implied control",
-    "operate peak",
-    "brief hold",
-    "release",
-    "arm returns",
-    "settle",
-    "return to idle"
   ],
   examine: [
     "idle start",
@@ -3309,6 +3675,60 @@ var LABELS = {
     "settle",
     "return to idle"
   ],
+  hurt: [
+    "idle start",
+    "impact anticipation",
+    "impact recoil",
+    "hit peak",
+    "recover balance",
+    "return to guard"
+  ],
+  idle: [
+    "settled idle",
+    "tiny breathing rise",
+    "breathing rise",
+    "breathing peak",
+    "soft blink or cloth sway",
+    "small breathing fall",
+    "settling fall",
+    "near neutral",
+    "return to settled idle",
+    "loop hold matching frame 1"
+  ],
+  interact: [
+    "idle start",
+    "anticipate reach",
+    "arm extends",
+    "operate or take peak",
+    "brief contact hold",
+    "release",
+    "arm returns",
+    "settle",
+    "return to idle",
+    "idle hold"
+  ],
+  jump: [
+    "ready stance",
+    "crouch anticipation",
+    "takeoff",
+    "airborne peak",
+    "falling",
+    "landing recovery"
+  ],
+  pick_up: [
+    "idle start",
+    "look toward target",
+    "bend begins",
+    "reach downward",
+    "lowest reach",
+    "grasp implied object",
+    "lift begins",
+    "rise with hand close",
+    "settle upright",
+    "return to idle",
+    "idle hold",
+    "loop-safe idle"
+  ],
   shrug: [
     "idle start",
     "confused anticipation",
@@ -3320,17 +3740,45 @@ var LABELS = {
     "hands lower",
     "settle",
     "return to idle"
+  ],
+  talk: [
+    "settled speaking idle",
+    "small head turn",
+    "hand gesture begins",
+    "gesture opens",
+    "gesture peak",
+    "soft emphasis",
+    "gesture relaxes",
+    "hand returns",
+    "near speaking idle",
+    "loop hold matching frame 1"
+  ],
+  use: [
+    "idle start",
+    "anticipate reach",
+    "reach outward",
+    "hand meets implied control",
+    "operate peak",
+    "brief hold",
+    "release",
+    "arm returns",
+    "settle",
+    "return to idle"
   ]
 };
-function frameLabel(action2, index, frameCount) {
-  if (action2 === "knockdown") return labelForIndex(LABELS.death, index, frameCount);
+var frameLabel = (action2, index, frameCount) => {
+  if (action2 === "knockdown") {
+    return labelForIndex(LABELS.death, index, frameCount);
+  }
   if (action2 === "light_attack" || action2 === "heavy_attack") {
     return labelForIndex(LABELS.attack, index, frameCount);
   }
   const labels = lookup(LABELS, action2);
-  if (labels) return labelForIndex(labels, index, frameCount);
+  if (labels) {
+    return labelForIndex(labels, index, frameCount);
+  }
   return `${action2} pose ${index}`;
-}
+};
 var ADVENTURE_ACTIONS = /* @__PURE__ */ new Set([
   "talk",
   "interact",
@@ -3340,7 +3788,7 @@ var ADVENTURE_ACTIONS = /* @__PURE__ */ new Set([
   "give",
   "shrug"
 ]);
-function renderFrameGuidance(action2, frameCount, framePromptStyle) {
+var renderFrameGuidance = (action2, frameCount, framePromptStyle) => {
   if (framePromptStyle !== "specific" && framePromptStyle !== "loose") {
     throw new Error("frame_prompt_style must be specific or loose");
   }
@@ -3370,23 +3818,23 @@ function renderFrameGuidance(action2, frameCount, framePromptStyle) {
 - Use clear beginning, middle, and end poses with smooth in-betweens.
 - Let the model choose the exact in-between poses; do not force a named pose into every frame.
 - Keep identity, scale, facing direction, and foot baseline consistent across all frames.`;
-}
+};
 var LOOPING_ACTIONS = /* @__PURE__ */ new Set(["idle", "run", "walk", "walk_forward", "walk_backward", "talk"]);
-function motionContinuityBlock(actionId, frameCount) {
+var motionContinuityBlock = (actionId, frameCount) => {
   const ending = LOOPING_ACTIONS.has(actionId) ? `Frame ${frameCount} returns toward frame 1 so the cycle loops seamlessly.` : `Frame 1 is the start of the motion and frame ${frameCount} is its end.`;
   return `
 Critical \u2014 read the used cells in order (left to right, top to bottom) as ONE continuous ${actionId} motion sampled as ${frameCount} consecutive film frames, not ${frameCount} separate poses. Each cell is the very next instant in time, a small even step after the one before it. Between adjacent frames the pose changes only a little: the same limbs, body, held items, and cloth travel a bit further along the SAME single path, weight shifts gradually, and feet plant or lift in sequence. Flipping through the cells in order must look like smooth, continuous movement with no sudden jumps or unrelated poses. Do not draw ${frameCount} different dramatic poses; draw the SAME motion decomposed into ${frameCount} evenly spaced in-between frames. ${ending}
 `;
-}
-function poseBoardFacingLock(direction) {
+};
+var poseBoardFacingLock = (direction) => {
   let base = `Facing lock: every single cell must keep the SAME facing \u2014 ${direction.screenFacing}. Never mirror, flip, rotate, or reverse the body to face the other way in any frame, including the first and last. A wind-up, recoil, reach, or step that moves backward keeps this same facing; do not turn the character around.`;
   if (direction.id === "e" || direction.id === "w") {
     const side = direction.id === "e" ? "screen-right" : "screen-left";
     base += ` Hold a consistent side profile facing ${side} in every frame: do not present a mirrored profile, a front view, or a back view in any cell.`;
   }
   return base;
-}
-function renderPoseBoardPrompt(actionId, direction, frameCount, options = {}) {
+};
+var renderPoseBoardPrompt = (actionId, direction, frameCount, options = {}) => {
   const {
     poseBoard = null,
     framePromptStyle = "specific",
@@ -3453,44 +3901,48 @@ Avoid:
 - floor shadows or environment backdrops
 - non-chroma backgrounds
 `;
-}
+};
 
 // src/sprite/pack.ts
-import { basename as basename3 } from "node:path";
-function packSpritesheet(inputDir, out, options = {}) {
+import path6 from "node:path";
+var packSpritesheet = (inputDir, out, options = {}) => {
   const { glob = "frame-*.png", columns = null, fps = 10, action: action2 = "anim" } = options;
   const frames = loadFrames(inputDir, glob);
   const sizes = new Set(frames.map((f) => `${f.image.width}x${f.image.height}`));
   if (sizes.size !== 1) {
     throw new Error(
-      `frames are not a uniform size (${[...sizes].sort().join(", ")}); normalize them first (run \`vg sprite normalize-canvas\`).`
+      `frames are not a uniform size (${[...sizes].toSorted().join(", ")}); normalize them first (run \`vg sprite normalize-canvas\`).`
     );
   }
-  const frameWidth = frames[0].image.width;
-  const frameHeight = frames[0].image.height;
+  const [firstFrame] = frames;
+  if (firstFrame === void 0) {
+    throw new Error(`no frames matching ${glob} in ${inputDir}`);
+  }
+  const frameWidth = firstFrame.image.width;
+  const frameHeight = firstFrame.image.height;
   const count = frames.length;
   const cols = columns === null || columns === 0 ? count : Math.min(columns, count);
   const rows = Math.ceil(count / cols);
   const sheet = Bitmap.create(cols * frameWidth, rows * frameHeight);
-  frames.forEach((frame, i) => {
+  for (const [i, frame] of frames.entries()) {
     const row = Math.floor(i / cols);
     const col = i - row * cols;
     sheet.paste(frame.image, col * frameWidth, row * frameHeight);
-  });
+  }
   return {
-    sheet,
     manifest: {
-      image: basename3(out),
-      frameWidth,
-      frameHeight,
+      animations: { [action2]: { fps, frames: Array.from({ length: count }, (_, i) => i) } },
       columns: cols,
-      rows,
-      frameCount: count,
       fps,
-      animations: { [action2]: { fps, frames: Array.from({ length: count }, (_, i) => i) } }
-    }
+      frameCount: count,
+      frameHeight,
+      frameWidth,
+      image: path6.basename(out),
+      rows
+    },
+    sheet
   };
-}
+};
 
 // src/skill/normalize-factory.ts
 var MARKER = "// @ts-nocheck";
@@ -3505,7 +3957,9 @@ var crcTable2 = (() => {
   const table = new Int32Array(256);
   for (let n = 0; n < 256; n += 1) {
     let c = n;
-    for (let k = 0; k < 8; k += 1) c = c & 1 ? 3988292384 ^ c >>> 1 : c >>> 1;
+    for (let k = 0; k < 8; k += 1) {
+      c = c & 1 ? 3988292384 ^ c >>> 1 : c >>> 1;
+    }
     table[n] = c;
   }
   return table;

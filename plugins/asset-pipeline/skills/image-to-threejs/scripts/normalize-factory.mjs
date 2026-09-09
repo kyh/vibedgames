@@ -18,15 +18,25 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { getFlag, MARKER, normalizeFactory, parseArgs } from "./_lib/asset-tools.mjs";
 
 /** Python's `f"{x:.1f}"`, which rounds half to even. */
-function oneDecimal(value) {
+const oneDecimal = (value) => {
   const scaled = value * 10;
   const floor = Math.floor(scaled);
   const diff = scaled - floor;
-  const rounded = diff > 0.5 ? floor + 1 : diff < 0.5 ? floor : floor % 2 === 0 ? floor : floor + 1;
+  let rounded = floor;
+  if (diff > 0.5 || (diff === 0.5 && floor % 2 !== 0)) {
+    rounded = floor + 1;
+  }
   return (rounded / 10).toFixed(1);
-}
+};
 
-function selftest() {
+const assert = (condition, message) => {
+  if (!condition) {
+    process.stderr.write(`${message}\n`);
+    process.exit(1);
+  }
+};
+
+const selftest = () => {
   const sample =
     "import * as THREE from 'three';\n" +
     '  node_a.userData.sculptComponent = {"id": "a", "big": "payload"};\n' +
@@ -34,12 +44,6 @@ function selftest() {
     "  node_a.name = 'keep me';\n";
 
   const once = normalizeFactory(sample);
-  const assert = (condition, message) => {
-    if (!condition) {
-      process.stderr.write(`${message}\n`);
-      process.exit(1);
-    }
-  };
 
   assert(!once.includes("sculptComponent"), "sculptComponent survived");
   assert(!once.includes("actionProfile"), "actionProfile survived");
@@ -53,12 +57,14 @@ function selftest() {
 
   console.log("selftest ok");
   process.exit(0);
-}
+};
 
 const args = parseArgs(process.argv.slice(2), {
   booleans: ["keep-action-profile", "selftest"],
 });
-if (getFlag(args, "selftest")) selftest();
+if (getFlag(args, "selftest")) {
+  selftest();
+}
 
 const files = args.positionals;
 if (files.length === 0) {
@@ -75,7 +81,7 @@ for (const path of files) {
     failed = true;
     continue;
   }
-  const before = readFileSync(path, "utf8");
+  const before = readFileSync(path, "utf-8");
   const after = normalizeFactory(before, keepActionProfile);
   writeFileSync(path, after);
 

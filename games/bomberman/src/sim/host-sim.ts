@@ -22,28 +22,36 @@ import {
   SPEED_STEP_MS,
   TARGET_FIGHTERS,
   tileKey,
-  type Bomb,
-  type Bot,
-  type Cell,
-  type Dir,
-  type PlayerStats,
-  type PowerupKind,
-  type SharedState,
+} from "../shared/constants";
+import type {
+  Bomb,
+  Bot,
+  Cell,
+  Dir,
+  PlayerStats,
+  PowerupKind,
+  SharedState,
 } from "../shared/constants";
 
 /** A connected human. `pos` is null until the player has spawned. */
-export type Human = { id: string; pos: { col: number; row: number } | null };
+export interface Human {
+  id: string;
+  pos: { col: number; row: number } | null;
+}
 
 /** The authoritative grant of a powerup — the only source of pickup feedback. */
-export type Pickup = {
+export interface Pickup {
   col: number;
   row: number;
   kind: PowerupKind;
   collector: string;
   round: number;
-};
+}
 
-export type HostTickResult = { patch: Partial<SharedState> | null; pickups: Pickup[] };
+export interface HostTickResult {
+  patch: Partial<SharedState> | null;
+  pickups: Pickup[];
+}
 
 type Position = [id: string, col: number, row: number];
 
@@ -56,24 +64,24 @@ export function hostTick(
   random: () => number = Math.random,
 ): HostTickResult {
   const next: SharedState = {
-    grid: s.grid,
-    bombs: { ...s.bombs },
     blasts: { ...s.blasts },
-    powerups: { ...s.powerups },
+    bombs: { ...s.bombs },
     bots: cloneBots(s.bots ?? {}),
-    stats: { ...s.stats },
     deaths: { ...s.deaths },
-    winner: s.winner,
+    grid: s.grid,
+    powerups: { ...s.powerups },
     startedAt: s.startedAt,
+    stats: { ...s.stats },
+    winner: s.winner,
   };
   const d = {
-    grid: false,
-    bombs: false,
     blasts: false,
-    powerups: false,
+    bombs: false,
     bots: false,
-    stats: false,
     deaths: false,
+    grid: false,
+    powerups: false,
+    stats: false,
     winner: false,
   };
   const pickups: Pickup[] = [];
@@ -84,16 +92,18 @@ export function hostTick(
   // Prune stats/deaths for fighters that no longer exist (departed humans or
   // removed bots) so the shared object can't grow unbounded over a session.
   const activeIds = new Set([...humanIds, ...Object.keys(next.bots)]);
-  for (const id of Object.keys(next.stats))
+  for (const id of Object.keys(next.stats)) {
     if (!activeIds.has(id)) {
       delete next.stats[id];
       d.stats = true;
     }
-  for (const id of Object.keys(next.deaths))
+  }
+  for (const id of Object.keys(next.deaths)) {
     if (!activeIds.has(id)) {
       delete next.deaths[id];
       d.deaths = true;
     }
+  }
 
   // Detonate expired bombs, cascading through any bombs caught in a blast.
   const expired = Object.values(next.bombs).filter((b) => now - b.placedAt >= FUSE_MS);
@@ -104,26 +114,35 @@ export function hostTick(
     const newBlastTiles = new Set<string>();
     let bomb: Bomb | undefined;
     while ((bomb = queue.shift()) !== undefined) {
-      if (detonated.has(bomb.id)) continue;
+      if (detonated.has(bomb.id)) {
+        continue;
+      }
       detonated.add(bomb.id);
       const { tiles, crates } = computeBlastTiles(s.grid, bomb);
       for (const t of tiles) {
         newBlastTiles.add(tileKey(t.col, t.row));
         for (const other of Object.values(next.bombs)) {
-          if (!detonated.has(other.id) && other.col === t.col && other.row === t.row)
+          if (!detonated.has(other.id) && other.col === t.col && other.row === t.row) {
             queue.push(other);
+          }
         }
       }
-      for (const cr of crates) cratesToClear.set(tileKey(cr.col, cr.row), cr);
-      next.blasts[`x-${bomb.id}`] = { id: `x-${bomb.id}`, tiles, placedAt: now };
+      for (const cr of crates) {
+        cratesToClear.set(tileKey(cr.col, cr.row), cr);
+      }
+      next.blasts[`x-${bomb.id}`] = { id: `x-${bomb.id}`, placedAt: now, tiles };
     }
-    for (const id of detonated) delete next.bombs[id];
+    for (const id of detonated) {
+      delete next.bombs[id];
+    }
 
     if (cratesToClear.size > 0) {
-      const grid = s.grid.map((row) => row.slice());
+      const grid = s.grid.map((row) => [...row]);
       for (const cr of cratesToClear.values()) {
         const row = grid[cr.row];
-        if (row) row[cr.col] = { kind: "empty" };
+        if (row) {
+          row[cr.col] = { kind: "empty" };
+        }
       }
       next.grid = grid;
       d.grid = true;
@@ -137,7 +156,7 @@ export function hostTick(
     for (const cr of cratesToClear.values()) {
       const key = tileKey(cr.col, cr.row);
       if (!next.powerups[key] && random() < POWERUP_DROP_CHANCE) {
-        next.powerups[key] = { col: cr.col, row: cr.row, kind: randomKind(random) };
+        next.powerups[key] = { col: cr.col, kind: randomKind(random), row: cr.row };
         d.powerups = true;
       }
     }
@@ -167,12 +186,14 @@ export function hostTick(
   for (const [fid, col, row] of livePos) {
     const key = tileKey(col, row);
     const pu = next.powerups[key];
-    if (!pu) continue;
+    if (!pu) {
+      continue;
+    }
     next.stats[fid] = grantPowerup(next.stats[fid] ?? baseStats(), pu.kind);
     delete next.powerups[key];
     // Only the authoritative grant emits this beat. A blast deleting a
     // pickup produces no collection feedback, even at capped stats.
-    pickups.push({ col, row, kind: pu.kind, collector: fid, round: next.startedAt });
+    pickups.push({ col, collector: fid, kind: pu.kind, round: next.startedAt, row });
     d.powerups = true;
     d.stats = true;
   }
@@ -181,7 +202,9 @@ export function hostTick(
   const liveBlasts = Object.values(next.blasts);
   if (liveBlasts.length > 0) {
     for (const [fid, col, row] of livePos) {
-      if (next.deaths[fid]) continue;
+      if (next.deaths[fid]) {
+        continue;
+      }
       if (liveBlasts.some((b) => b.tiles.some((t) => t.col === col && t.row === row))) {
         next.deaths[fid] = now;
         d.deaths = true;
@@ -204,14 +227,30 @@ export function hostTick(
   }
 
   const patch: Partial<SharedState> = {};
-  if (d.grid) patch.grid = next.grid;
-  if (d.bombs) patch.bombs = next.bombs;
-  if (d.blasts) patch.blasts = next.blasts;
-  if (d.powerups) patch.powerups = next.powerups;
-  if (d.bots) patch.bots = next.bots;
-  if (d.stats) patch.stats = next.stats;
-  if (d.deaths) patch.deaths = next.deaths;
-  if (d.winner) patch.winner = next.winner;
+  if (d.grid) {
+    patch.grid = next.grid;
+  }
+  if (d.bombs) {
+    patch.bombs = next.bombs;
+  }
+  if (d.blasts) {
+    patch.blasts = next.blasts;
+  }
+  if (d.powerups) {
+    patch.powerups = next.powerups;
+  }
+  if (d.bots) {
+    patch.bots = next.bots;
+  }
+  if (d.stats) {
+    patch.stats = next.stats;
+  }
+  if (d.deaths) {
+    patch.deaths = next.deaths;
+  }
+  if (d.winner) {
+    patch.winner = next.winner;
+  }
   return { patch: Object.keys(patch).length > 0 ? patch : null, pickups };
 }
 
@@ -223,11 +262,17 @@ export function placeBomb(
   row: number,
   now: number,
 ): Record<string, Bomb> | null {
-  if (s.deaths[ownerId]) return null;
-  if (s.grid[row]?.[col]?.kind !== "empty" || bombOn(s.bombs, col, row)) return null;
+  if (s.deaths[ownerId]) {
+    return null;
+  }
+  if (s.grid[row]?.[col]?.kind !== "empty" || bombOn(s.bombs, col, row)) {
+    return null;
+  }
   const stats = s.stats[ownerId] ?? baseStats();
   const active = Object.values(s.bombs).filter((b) => b.ownerId === ownerId).length;
-  if (active >= stats.bombs) return null;
+  if (active >= stats.bombs) {
+    return null;
+  }
   const bomb = makeBomb(ownerId, col, row, stats.range, now);
   return { ...s.bombs, [bomb.id]: bomb };
 }
@@ -269,13 +314,13 @@ function reconcileBots(
     if (!next.bots[id]) {
       const spawn = SPAWN_POINTS[corner] ?? SPAWN_POINTS[0];
       next.bots[id] = {
-        id,
         col: spawn.col,
-        row: spawn.row,
-        dir: "down",
         colorIdx: corner % COLORS.length,
+        dir: "down",
+        id,
         moving: false,
         nextMoveAt: now + 700,
+        row: spawn.row,
       };
       next.stats[id] = baseStats();
       d.bots = true;
@@ -292,7 +337,9 @@ function tickBots(
   random: () => number,
 ): boolean {
   const bots = Object.values(next.bots);
-  if (bots.length === 0) return false;
+  if (bots.length === 0) {
+    return false;
+  }
   let changed = false;
   const danger = dangerSet(next);
   const enemies = fighterPositions(next, humans);
@@ -305,7 +352,9 @@ function tickBots(
       }
       continue;
     }
-    if (now < bot.nextMoveAt) continue;
+    if (now < bot.nextMoveAt) {
+      continue;
+    }
     const stats = next.stats[bot.id] ?? baseStats();
     const bombs = Object.values(next.bombs);
     const opts = botNeighbors(next, bot.col, bot.row);
@@ -329,12 +378,12 @@ function tickBots(
         enemyInLine(next.grid, bot, stats.range, enemies))
     ) {
       const prospective: Bomb = {
+        col: bot.col,
         id: "_",
         ownerId: bot.id,
-        col: bot.col,
-        row: bot.row,
         placedAt: now,
         range: stats.range,
+        row: bot.row,
       };
       const blastKeys = new Set(
         computeBlastTiles(next.grid, prospective).tiles.map((t) => tileKey(t.col, t.row)),
@@ -380,8 +429,9 @@ function tickBots(
  *  are read live, so bots already moved this tick are reflected). */
 function occupiedTiles(next: SharedState, humans: readonly Human[], exceptId: string): Set<string> {
   const occ = new Set<string>();
-  for (const [id, col, row] of fighterPositions(next, humans))
+  for (const [id, col, row] of fighterPositions(next, humans)) {
     if (id !== exceptId) occ.add(tileKey(col, row));
+  }
   return occ;
 }
 
@@ -389,11 +439,15 @@ function occupiedTiles(next: SharedState, humans: readonly Human[], exceptId: st
 function fighterPositions(next: SharedState, humans: readonly Human[]): Position[] {
   const out: Position[] = [];
   for (const { id, pos } of humans) {
-    if (next.deaths[id] || !pos) continue;
+    if (next.deaths[id] || !pos) {
+      continue;
+    }
     out.push([id, pos.col, pos.row]);
   }
   for (const bot of Object.values(next.bots)) {
-    if (next.deaths[bot.id]) continue;
+    if (next.deaths[bot.id]) {
+      continue;
+    }
     out.push([bot.id, bot.col, bot.row]);
   }
   return out;
@@ -407,7 +461,9 @@ function manhattan(c1: number, r1: number, c2: number, r2: number): number {
 
 function cloneBots(bots: Record<string, Bot>) {
   const out: Record<string, Bot> = {};
-  for (const [id, b] of Object.entries(bots)) out[id] = { ...b };
+  for (const [id, b] of Object.entries(bots)) {
+    out[id] = { ...b };
+  }
   return out;
 }
 
@@ -416,23 +472,26 @@ function randomKind(random: () => number): PowerupKind {
 }
 
 function makeBomb(ownerId: string, col: number, row: number, range: number, now: number): Bomb {
-  return { id: `b-${ownerId}-${now}-${col}-${row}`, ownerId, col, row, placedAt: now, range };
+  return { col, id: `b-${ownerId}-${now}-${col}-${row}`, ownerId, placedAt: now, range, row };
 }
 
 function grantPowerup(stats: PlayerStats, kind: PowerupKind): PlayerStats {
   switch (kind) {
-    case "bomb":
+    case "bomb": {
       return { ...stats, bombs: Math.min(MAX_BOMBS, stats.bombs + 1) };
-    case "fire":
+    }
+    case "fire": {
       return { ...stats, range: Math.min(MAX_RANGE, stats.range + 1) };
-    case "speed":
+    }
+    case "speed": {
       return { ...stats, speed: Math.max(MIN_MOVE_MS, stats.speed - SPEED_STEP_MS) };
+    }
   }
 }
 
 function computeBlastTiles(grid: Cell[][], bomb: Bomb) {
-  const tiles: Array<{ col: number; row: number }> = [{ col: bomb.col, row: bomb.row }];
-  const crates: Array<{ col: number; row: number }> = [];
+  const tiles: { col: number; row: number }[] = [{ col: bomb.col, row: bomb.row }];
+  const crates: { col: number; row: number }[] = [];
   for (const [dc, dr] of [
     [1, 0],
     [-1, 0],
@@ -443,7 +502,9 @@ function computeBlastTiles(grid: Cell[][], bomb: Bomb) {
       const c = bomb.col + dc * step;
       const r = bomb.row + dr * step;
       const cell = grid[r]?.[c];
-      if (!cell || cell.kind === "wall") break;
+      if (!cell || cell.kind === "wall") {
+        break;
+      }
       tiles.push({ col: c, row: r });
       if (cell.kind === "crate") {
         crates.push({ col: c, row: r });
@@ -451,7 +512,7 @@ function computeBlastTiles(grid: Cell[][], bomb: Bomb) {
       }
     }
   }
-  return { tiles, crates };
+  return { crates, tiles };
 }
 
 // ---- bot AI helpers ---------------------------------------------------------
@@ -460,19 +521,28 @@ function computeBlastTiles(grid: Cell[][], bomb: Bomb) {
 function dangerSet(s: SharedState): Set<string> {
   const danger = new Set<string>();
   for (const bomb of Object.values(s.bombs)) {
-    for (const t of computeBlastTiles(s.grid, bomb).tiles) danger.add(tileKey(t.col, t.row));
+    for (const t of computeBlastTiles(s.grid, bomb).tiles) {
+      danger.add(tileKey(t.col, t.row));
+    }
   }
   for (const blast of Object.values(s.blasts)) {
-    for (const t of blast.tiles) danger.add(tileKey(t.col, t.row));
+    for (const t of blast.tiles) {
+      danger.add(tileKey(t.col, t.row));
+    }
   }
   return danger;
 }
 
-type Neighbor = { dir: Dir; c: number; r: number; key: string };
+interface Neighbor {
+  dir: Dir;
+  c: number;
+  r: number;
+  key: string;
+}
 
 function neighborOf(col: number, row: number, dir: Dir): Neighbor {
   const [dc, dr] = DIR_VECT[dir];
-  return { dir, c: col + dc, r: row + dr, key: tileKey(col + dc, row + dr) };
+  return { c: col + dc, dir, key: tileKey(col + dc, row + dr), r: row + dr };
 }
 
 /**
@@ -491,29 +561,37 @@ function fleeDir(
   const blocked = (c: number, r: number): boolean =>
     grid[r]?.[c]?.kind !== "empty" || bombs.some((b) => b.col === c && b.row === r);
   const visited = new Set<string>([tileKey(col, row)]);
-  let frontier: Array<{ c: number; r: number; firstDir: Dir }> = [];
+  let frontier: { c: number; r: number; firstDir: Dir }[] = [];
   for (const dir of DIRS) {
     const [dc, dr] = DIR_VECT[dir];
     const c = col + dc;
     const r = row + dr;
     const k = tileKey(c, r);
-    if (blocked(c, r)) continue;
+    if (blocked(c, r)) {
+      continue;
+    }
     visited.add(k);
-    if (!unsafe.has(k)) return dir;
-    frontier.push({ c, r, firstDir: dir });
+    if (!unsafe.has(k)) {
+      return dir;
+    }
+    frontier.push({ c, firstDir: dir, r });
   }
   for (let depth = 0; depth < 8 && frontier.length > 0; depth++) {
-    const nextF: Array<{ c: number; r: number; firstDir: Dir }> = [];
+    const nextF: { c: number; r: number; firstDir: Dir }[] = [];
     for (const node of frontier) {
       for (const dir of DIRS) {
         const [dc, dr] = DIR_VECT[dir];
         const c = node.c + dc;
         const r = node.r + dr;
         const k = tileKey(c, r);
-        if (visited.has(k) || blocked(c, r)) continue;
+        if (visited.has(k) || blocked(c, r)) {
+          continue;
+        }
         visited.add(k);
-        if (!unsafe.has(k)) return node.firstDir;
-        nextF.push({ c, r, firstDir: node.firstDir });
+        if (!unsafe.has(k)) {
+          return node.firstDir;
+        }
+        nextF.push({ c, firstDir: node.firstDir, r });
       }
     }
     frontier = nextF;
@@ -527,9 +605,13 @@ function botNeighbors(s: SharedState, col: number, row: number): Neighbor[] {
     const [dc, dr] = DIR_VECT[dir];
     const c = col + dc;
     const r = row + dr;
-    if (s.grid[r]?.[c]?.kind !== "empty") continue;
-    if (bombOn(s.bombs, c, r)) continue;
-    out.push({ dir, c, r, key: tileKey(c, r) });
+    if (s.grid[r]?.[c]?.kind !== "empty") {
+      continue;
+    }
+    if (bombOn(s.bombs, c, r)) {
+      continue;
+    }
+    out.push({ c, dir, key: tileKey(c, r), r });
   }
   return out;
 }
@@ -551,8 +633,12 @@ function enemyInLine(grid: Cell[][], bot: Bot, range: number, fighters: Position
       const c = bot.col + dc * step;
       const r = bot.row + dr * step;
       const cell = grid[r]?.[c];
-      if (!cell || cell.kind === "wall" || cell.kind === "crate") break;
-      if (enemyTiles.has(tileKey(c, r))) return true;
+      if (!cell || cell.kind === "wall" || cell.kind === "crate") {
+        break;
+      }
+      if (enemyTiles.has(tileKey(c, r))) {
+        return true;
+      }
     }
   }
   return false;
@@ -562,7 +648,9 @@ function nearestEnemy(bot: Bot, fighters: Position[]): { col: number; row: numbe
   let best: { col: number; row: number } | null = null;
   let bestD = Infinity;
   for (const [id, c, r] of fighters) {
-    if (id === bot.id) continue;
+    if (id === bot.id) {
+      continue;
+    }
     const dd = manhattan(bot.col, bot.row, c, r);
     if (dd < bestD) {
       bestD = dd;
@@ -581,7 +669,9 @@ function nearestCrate(
   let bestD = Infinity;
   for (const [r, gr] of grid.entries()) {
     for (const [c, cell] of gr.entries()) {
-      if (cell.kind !== "crate") continue;
+      if (cell.kind !== "crate") {
+        continue;
+      }
       const dd = manhattan(col, row, c, r);
       if (dd < bestD) {
         bestD = dd;
@@ -613,7 +703,9 @@ function addBomb(
   stats: PlayerStats,
   now: number,
 ): void {
-  if (bombOn(next.bombs, col, row)) return;
+  if (bombOn(next.bombs, col, row)) {
+    return;
+  }
   const bomb = makeBomb(ownerId, col, row, stats.range, now);
   next.bombs[bomb.id] = bomb;
 }

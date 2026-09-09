@@ -15,8 +15,8 @@ const combinedSchema = { ...schema, ...schemaAuth };
  */
 export const createDb = (d1: D1Database) =>
   drizzle(d1, {
-    schema: combinedSchema,
     casing: "snake_case",
+    schema: combinedSchema,
   });
 
 export type Db = ReturnType<typeof createDb>;

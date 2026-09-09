@@ -16,26 +16,31 @@ import { toFloat32Attributes } from "../world/conform";
 
 const COUNT = 64;
 const HIT_RADIUS = 1.7;
-const REST_SPEED = 0.7; // slower than this (for REST_TIME) → settle
+// slower than this (for REST_TIME) → settle
+const REST_SPEED = 0.7;
 const REST_TIME = 0.7;
-const MAX_FLIGHT_S = 8; // runaway cones eventually settle wherever they are
+// runaway cones eventually settle wherever they are
+const MAX_FLIGHT_S = 8;
 
-type ConeState = {
+interface ConeState {
   x: number;
   y: number;
   z: number;
   yaw: number;
-  quat: THREE.Quaternion; // pose while physics-driven / settled
+  // pose while physics-driven / settled
+  quat: THREE.Quaternion;
   body: RigidBody | null;
   restTimer: number;
   flightTime: number;
   // resting = smashable; physical = rapier-driven; fading = despawn; dead = hidden
   mode: "resting" | "physical" | "fading" | "dead";
   fade: number;
-};
+}
 
 export class SmashCones {
   readonly mesh: THREE.InstancedMesh;
+  private city: CityModel;
+  private physics: PhysicsWorld | null;
   private cones: ConeState[] = [];
   private homes: { x: number; y: number; z: number; yaw: number; live: boolean }[] = [];
   private mat4 = new THREE.Matrix4();
@@ -44,12 +49,9 @@ export class SmashCones {
   private scl = new THREE.Vector3();
   private posV = new THREE.Vector3();
 
-  constructor(
-    cache: ModelCache,
-    private city: CityModel,
-    rng: Rng,
-    private physics: PhysicsWorld | null = null,
-  ) {
+  constructor(cache: ModelCache, city: CityModel, rng: Rng, physics: PhysicsWorld | null = null) {
+    this.city = city;
+    this.physics = physics;
     // Pull geometry + material out of the cone GLB (first mesh wins). The node
     // matrix must be baked in — meshopt-quantized GLBs store the dequantization
     // scale there, so raw geometry is integer-sized.
@@ -57,21 +59,24 @@ export class SmashCones {
     const template = cache.instance(url);
     template.updateMatrixWorld(true);
     let geo: THREE.BufferGeometry = new THREE.ConeGeometry(0.3, 0.7, 8);
-    let mat: THREE.Material = new THREE.MeshStandardMaterial({ color: 0xe06428 });
+    let mat: THREE.Material = new THREE.MeshStandardMaterial({ color: 0xe0_64_28 });
     let nodeMatrix = new THREE.Matrix4();
     template.traverse((c) => {
-      if (c instanceof THREE.Mesh && c.geometry instanceof THREE.BufferGeometry) {
-        if (!Array.isArray(c.material)) {
-          geo = c.geometry;
-          mat = c.material;
-          nodeMatrix = c.matrixWorld.clone();
-        }
+      if (
+        c instanceof THREE.Mesh &&
+        c.geometry instanceof THREE.BufferGeometry &&
+        !Array.isArray(c.material)
+      ) {
+        geo = c.geometry;
+        mat = c.material;
+        nodeMatrix = c.matrixWorld.clone();
       }
     });
     const b = cache.bounds(url);
     const scale = 0.85 / Math.max(b.size.y, 0.001);
     const scaled = geo.clone();
-    toFloat32Attributes(scaled); // meshopt attrs are quantized; matrix bake writes floats
+    // meshopt attrs are quantized; matrix bake writes floats
+    toFloat32Attributes(scaled);
     scaled.applyMatrix4(nodeMatrix);
     scaled.scale(scale, scale, scale);
     this.mesh = new THREE.InstancedMesh(scaled, mat, COUNT);
@@ -92,57 +97,61 @@ export class SmashCones {
       // Snap the cluster onto the real street: shoulder of the nearest EDGE
       // (cell centres can sit a half-tile off the vector road).
       const hit = city.network.nearest(city.worldX(cell.gx), city.worldZ(cell.gz), ROAD_TILE * 1.2);
-      if (!hit) continue;
+      if (!hit) {
+        continue;
+      }
       const shoulder = hit.edge.half - 1.1;
-      for (let i = 0; i < n; i++) {
+      for (let i = 0; i < n; i += 1) {
         const along = (i - 1) * 1.3;
         const x = hit.x + hit.tx * along - hit.tz * shoulder * side + rng.range(-0.4, 0.4);
         const z = hit.z + hit.tz * along + hit.tx * shoulder * side + rng.range(-0.4, 0.4);
         this.cones.push({
-          x,
-          y: city.heightAt(x, z),
-          z,
-          yaw: rng.range(0, Math.PI * 2),
-          quat: new THREE.Quaternion(),
           body: null,
-          restTimer: 0,
+          fade: 1,
           flightTime: 0,
           mode: "resting",
-          fade: 1,
+          quat: new THREE.Quaternion(),
+          restTimer: 0,
+          x,
+          y: city.heightAt(x, z),
+          yaw: rng.range(0, Math.PI * 2),
+          z,
         });
-        placed++;
+        placed += 1;
       }
     }
     while (this.cones.length < COUNT) {
       this.cones.push({
-        x: 0,
-        y: -50,
-        z: 0,
-        yaw: 0,
-        quat: new THREE.Quaternion(),
         body: null,
-        restTimer: 0,
+        fade: 0,
         flightTime: 0,
         mode: "dead",
-        fade: 0,
+        quat: new THREE.Quaternion(),
+        restTimer: 0,
+        x: 0,
+        y: -50,
+        yaw: 0,
+        z: 0,
       });
     }
     this.homes = this.cones.map((c) => ({
+      live: c.mode === "resting",
       x: c.x,
       y: c.y,
-      z: c.z,
       yaw: c.yaw,
-      live: c.mode === "resting",
+      z: c.z,
     }));
     this.writeAll();
   }
 
   // Restock every cone at its original curb spot (new run).
   reset(): void {
-    for (let i = 0; i < this.cones.length; i++) {
+    for (let i = 0; i < this.cones.length; i += 1) {
       const c = this.cones[i];
       const h = this.homes[i];
-      if (!c || !h) continue;
+      if (!c || !h) {
+        continue;
+      }
       this.releaseBody(c);
       c.x = h.x;
       c.y = h.y;
@@ -173,9 +182,11 @@ export class SmashCones {
     gap = 1.15,
   ): void {
     const n = Math.min(count, this.cones.length);
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < n; i += 1) {
       const c = this.cones[i];
-      if (!c) continue;
+      if (!c) {
+        continue;
+      }
       this.releaseBody(c);
       const off = (i - (n - 1) / 2) * gap;
       const stagger = (i % 2) * 1.4;
@@ -203,10 +214,14 @@ export class SmashCones {
   tryHit(x: number, z: number, vx: number, vz: number): number {
     let hits = 0;
     for (const c of this.cones) {
-      if (c.mode !== "resting") continue;
+      if (c.mode !== "resting") {
+        continue;
+      }
       const dx = c.x - x;
       const dz = c.z - z;
-      if (dx * dx + dz * dz > HIT_RADIUS * HIT_RADIUS) continue;
+      if (dx * dx + dz * dz > HIT_RADIUS * HIT_RADIUS) {
+        continue;
+      }
       const sp = Math.hypot(vx, vz);
       const dir = sp > 1 ? { x: vx / sp, z: vz / sp } : { x: dx, z: dz };
       if (this.physics) {
@@ -226,22 +241,25 @@ export class SmashCones {
         c.mode = "fading";
         c.fade = 1;
       }
-      hits++;
+      hits += 1;
     }
     return hits;
   }
 
   update(dt: number): void {
     let dirty = false;
-    for (let i = 0; i < this.cones.length; i++) {
+    for (let i = 0; i < this.cones.length; i += 1) {
       const c = this.cones[i];
-      if (!c || c.mode === "resting" || c.mode === "dead") continue;
+      if (!c || c.mode === "resting" || c.mode === "dead") {
+        continue;
+      }
       dirty = true;
       if (c.mode === "physical" && c.body) {
         const t = c.body.translation();
         const r = c.body.rotation();
         c.x = t.x;
-        c.y = t.y - 0.42; // collider centre → mesh base
+        // collider centre → mesh base
+        c.y = t.y - 0.42;
         c.z = t.z;
         c.quat.set(r.x, r.y, r.z, r.w);
         c.flightTime += dt;
@@ -262,12 +280,16 @@ export class SmashCones {
       }
       this.write(i);
     }
-    if (dirty) this.mesh.instanceMatrix.needsUpdate = true;
+    if (dirty) {
+      this.mesh.instanceMatrix.needsUpdate = true;
+    }
   }
 
   private write(i: number): void {
     const c = this.cones[i];
-    if (!c) return;
+    if (!c) {
+      return;
+    }
     if (c.mode === "resting") {
       this.eul.set(0, c.yaw, 0);
       this.quat.setFromEuler(this.eul);
@@ -282,12 +304,16 @@ export class SmashCones {
   }
 
   private releaseBody(c: ConeState): void {
-    if (c.body && this.physics) this.physics.remove(c.body);
+    if (c.body && this.physics) {
+      this.physics.remove(c.body);
+    }
     c.body = null;
   }
 
   private writeAll(): void {
-    for (let i = 0; i < this.cones.length; i++) this.write(i);
+    for (let i = 0; i < this.cones.length; i += 1) {
+      this.write(i);
+    }
     this.mesh.instanceMatrix.needsUpdate = true;
   }
 }

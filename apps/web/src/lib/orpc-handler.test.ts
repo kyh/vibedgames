@@ -31,34 +31,34 @@ const unavailable = (): never => {
 };
 
 const db = createDb({
-  prepare: unavailable,
   batch: unavailable,
-  exec: unavailable,
-  withSession: unavailable,
   dump: unavailable,
+  exec: unavailable,
+  prepare: unavailable,
+  withSession: unavailable,
 });
 
 const auth = createAuth({
-  db,
   baseURL: "http://localhost:3000",
+  db,
   secret: "test-secret",
 });
 
 const contextFor = (request: Request): ORPCContext => ({
-  session: null,
-  db,
   auth,
+  db,
   headers: request.headers,
+  media: undefined,
   productionURL: undefined,
   r2: undefined,
-  media: undefined,
+  session: null,
 });
 
 const post = (body = JSON.stringify({ json: {} })) => {
   const request = new Request("http://localhost:3000/api/orpc/auth/me", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
     body,
+    headers: { "content-type": "application/json" },
+    method: "POST",
   });
   return handleRpcRequest(request, contextFor(request));
 };
@@ -67,7 +67,7 @@ describe("rpc endpoint", () => {
   test("runs a POST through to the procedure's session check", async () => {
     const response = await post();
     assert.strictEqual(response.status, 401);
-    assert.match(await response.text(), /UNAUTHORIZED/);
+    assert.match(await response.text(), /UNAUTHORIZED/u);
   });
 
   test("refuses GET, so a cross-site navigation cannot invoke a procedure", async () => {
@@ -83,9 +83,9 @@ describe("rpc endpoint", () => {
   // A game is untrusted uploaded code; without this the endpoint is its API.
   test("refuses a POST whose Origin is another origin, even a same-site one", async () => {
     const request = new Request("https://vibedgames.com/api/orpc/auth/me", {
-      method: "POST",
-      headers: { "content-type": "application/json", origin: "https://evil.vibedgames.com" },
       body: JSON.stringify({ json: {} }),
+      headers: { "content-type": "application/json", origin: "https://evil.vibedgames.com" },
+      method: "POST",
     });
     const response = await handleRpcRequest(request, contextFor(request));
     assert.strictEqual(response.status, 403);
@@ -93,9 +93,9 @@ describe("rpc endpoint", () => {
 
   test("allows a POST whose Origin is the app itself", async () => {
     const request = new Request("https://vibedgames.com/api/orpc/auth/me", {
-      method: "POST",
-      headers: { "content-type": "application/json", origin: "https://vibedgames.com" },
       body: JSON.stringify({ json: {} }),
+      headers: { "content-type": "application/json", origin: "https://vibedgames.com" },
+      method: "POST",
     });
     const response = await handleRpcRequest(request, contextFor(request));
     assert.strictEqual(response.status, 401);
@@ -112,7 +112,7 @@ describe("rpc endpoint", () => {
     const body = JSON.stringify({ json: { padding: "x".repeat(MAX_RPC_BODY_BYTES) } });
     const response = await post(body);
     assert.strictEqual(response.status, 413);
-    assert.match(await response.text(), /PAYLOAD_TOO_LARGE/);
+    assert.match(await response.text(), /PAYLOAD_TOO_LARGE/u);
   });
 
   test("serves no CORS headers, so a credentialed cross-origin fetch cannot read it", async () => {
@@ -129,14 +129,14 @@ describe("rpc endpoint", () => {
     let roundTrips = 0;
     const client: RouterClient<AppRouter> = createORPCClient(
       new RPCLink({
-        origin: "http://localhost:3000",
-        url: "/api/orpc",
-        plugins: [new BatchLinkPlugin({ groups: [{ condition: () => true, context: {} }] })],
         fetch: (url, init) => {
           roundTrips += 1;
           const request = new Request(url, init);
           return handleRpcRequest(request, contextFor(request));
         },
+        origin: "http://localhost:3000",
+        plugins: [new BatchLinkPlugin({ groups: [{ condition: () => true, context: {} }] })],
+        url: "/api/orpc",
       }),
     );
 

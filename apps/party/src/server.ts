@@ -15,10 +15,10 @@ import {
 } from "@vibedgames/multiplayer";
 import { getColorById } from "./color";
 
-type Env = {
+interface Env {
   VgServer: DurableObjectNamespace<VgServer>;
   DB: D1Database;
-};
+}
 
 /**
  * Boundary types for untrusted client JSON. `JSON.parse` gives back `any`;
@@ -28,7 +28,9 @@ type Env = {
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
 /** A state patch / snapshot: a plain JSON object keyed by game-owned fields. */
-type StateMap = { [key: string]: JsonValue };
+interface StateMap {
+  [key: string]: JsonValue;
+}
 
 // `String(v) === v` holds exactly for primitive strings (strict equality
 // never coerces), so this predicate is sound without a runtime `typeof`.
@@ -61,32 +63,39 @@ type IncomingMessage =
 
 const decodeIncoming = (raw: JsonValue): IncomingMessage => {
   const message = asStateMap(raw);
-  if (!message) return { type: "unrecognized" };
+  if (!message) {
+    return { type: "unrecognized" };
+  }
   switch (message.type) {
     case "state_patch":
-    case "player_state_patch":
-      return { type: message.type, data: message.data };
+    case "player_state_patch": {
+      return { data: message.data, type: message.type };
+    }
     case "emit": {
       const data = asStateMap(message.data);
-      if (!data || !isJsonString(data.event)) return { type: "unrecognized" };
+      if (!data || !isJsonString(data.event)) {
+        return { type: "unrecognized" };
+      }
       return {
-        type: "emit",
         // The SDK always sends a payload; only a hand-rolled client can omit
         // it, and the wire contract types payload as required JSON, so a
         // missing one relays as null.
         data: {
           event: data.event,
+          except: data.except,
           payload: data.payload ?? null,
           to: data.to,
-          except: data.except,
         },
+        type: "emit",
       };
     }
     case "heartbeat":
-    case "pong":
+    case "pong": {
       return { type: message.type };
-    default:
+    }
+    default: {
       return { type: "unrecognized" };
+    }
   }
 };
 
@@ -111,7 +120,7 @@ const decodeIncoming = (raw: JsonValue): IncomingMessage => {
  *   Optional because attachments written by an older deploy (hibernating
  *   sockets survive deploys) predate the field; absent means full snapshots.
  */
-type Presence = {
+interface Presence {
   id: string;
   color: string;
   hue: string;
@@ -119,7 +128,7 @@ type Presence = {
   aliveAt: number;
   token?: string;
   delta?: boolean;
-};
+}
 
 /**
  * A seat held for a dropped player during the reconnection grace window:
@@ -127,7 +136,7 @@ type Presence = {
  * back if the same secret token returns before `expiresAt`. Persisted under
  * `grace:{token}` so a hibernation mid-window can't silently forget the seat.
  */
-type GraceEntry = {
+interface GraceEntry {
   token: string;
   id: string;
   color: string;
@@ -135,7 +144,7 @@ type GraceEntry = {
   state: StateMap;
   disconnectedAt: number;
   expiresAt: number;
-};
+}
 
 /** Durable, low-frequency room fields, persisted so they survive hibernation. */
 const HOST_ID_KEY = "hostId";
@@ -163,7 +172,7 @@ const nextOverflowRoom = (room: string): string => {
   const idx = room.lastIndexOf(OVERFLOW_SEP);
   if (idx !== -1) {
     const suffix = room.slice(idx + OVERFLOW_SEP.length);
-    if (/^\d+$/.test(suffix)) {
+    if (/^\d+$/u.test(suffix)) {
       return `${room.slice(0, idx)}${OVERFLOW_SEP}${Number(suffix) + 1}`;
     }
   }
@@ -176,7 +185,9 @@ const nextOverflowRoom = (room: string): string => {
  * dropped rather than failing the whole event.
  */
 const readIdList = (value: JsonValue | undefined): string[] | null => {
-  if (!Array.isArray(value)) return null;
+  if (!Array.isArray(value)) {
+    return null;
+  }
   return value.filter(isJsonString);
 };
 
@@ -188,9 +199,14 @@ const searchParam = (ctx: ConnectionContext, key: string): string | null =>
 /** Read the client-requested player cap, clamped to the hard ceiling. */
 const readRoomCap = (ctx: ConnectionContext): number | null => {
   const raw = searchParam(ctx, ROOM_CAP_QUERY_PARAM);
-  if (!raw) return null;
+  if (!raw) {
+    return null;
+  }
+  // oxlint-disable-next-line unicorn/prefer-number-coercion -- query string may carry trailing garbage; parseInt reads the leading digits, Number would give NaN
   const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
   return Math.min(parsed, HARD_ROOM_CAP);
 };
 
@@ -244,7 +260,9 @@ export class VgServer extends Server {
     this.cap = (await this.ctx.storage.get<number | null>(CAP_KEY)) ?? null;
     this.grace = new Map<string, GraceEntry>();
     const held = await this.ctx.storage.list<GraceEntry>({ prefix: GRACE_PREFIX });
-    for (const entry of held.values()) this.grace.set(entry.token, entry);
+    for (const entry of held.values()) {
+      this.grace.set(entry.token, entry);
+    }
   }
 
   private async setHostId(id: string | null): Promise<void> {
@@ -259,11 +277,11 @@ export class VgServer extends Server {
 
   private toPlayer(presence: Presence): Player {
     return {
-      id: presence.id,
       color: presence.color,
-      hue: presence.hue,
-      state: this.snapshots.get(presence.id) ?? {},
       connected: true,
+      hue: presence.hue,
+      id: presence.id,
+      state: this.snapshots.get(presence.id) ?? {},
     };
   }
 
@@ -277,9 +295,13 @@ export class VgServer extends Server {
    */
   private presenceOf(id: string): Presence | undefined {
     for (const connection of this.getConnections<Presence>()) {
-      if (connection.id !== id) continue;
+      if (connection.id !== id) {
+        continue;
+      }
       const presence = connection.state;
-      if (presence) return presence;
+      if (presence) {
+        return presence;
+      }
     }
     return undefined;
   }
@@ -287,7 +309,9 @@ export class VgServer extends Server {
   /** The grace entry holding a seat for this player id, if any. */
   private graceById(id: string): GraceEntry | undefined {
     for (const entry of this.grace.values()) {
-      if (entry.id === id) return entry;
+      if (entry.id === id) {
+        return entry;
+      }
     }
     return undefined;
   }
@@ -308,16 +332,20 @@ export class VgServer extends Server {
     const players: PlayerMap = {};
     for (const connection of this.getConnections<Presence>()) {
       const presence = connection.state;
-      if (presence) players[connection.id] = this.toPlayer(presence);
+      if (presence) {
+        players[connection.id] = this.toPlayer(presence);
+      }
     }
     for (const entry of this.grace.values()) {
-      if (entry.id in players) continue;
+      if (entry.id in players) {
+        continue;
+      }
       players[entry.id] = {
-        id: entry.id,
         color: entry.color,
-        hue: entry.hue,
-        state: entry.state,
         connected: false,
+        hue: entry.hue,
+        id: entry.id,
+        state: entry.state,
       };
     }
     return players;
@@ -336,12 +364,16 @@ export class VgServer extends Server {
     // same id, matching how players() presents the room.
     const seated = new Set<string>();
     for (const connection of this.getConnections<Presence>()) {
-      if (connection.state) seated.add(connection.id);
+      if (connection.state) {
+        seated.add(connection.id);
+      }
     }
     for (const entry of this.grace.values()) {
       seated.add(entry.id);
     }
-    if (excludeId !== undefined) seated.delete(excludeId);
+    if (excludeId !== undefined) {
+      seated.delete(excludeId);
+    }
     return seated.size;
   }
 
@@ -353,9 +385,13 @@ export class VgServer extends Server {
    */
   private sendToEach(pick: (connection: Connection<Presence>) => string | null): void {
     for (const connection of this.getConnections<Presence>()) {
-      if (!connection.state) continue;
+      if (!connection.state) {
+        continue;
+      }
       const raw = pick(connection);
-      if (raw === null) continue;
+      if (raw === null) {
+        continue;
+      }
       try {
         connection.send(raw);
       } catch {
@@ -369,7 +405,7 @@ export class VgServer extends Server {
    * passes, or null to drop the message. Shared by both patch handlers so the
    * check and its logging can't drift apart.
    */
-  private parsePatch(
+  private static parsePatch(
     sender: Connection<Presence>,
     data: JsonValue | undefined,
     label: string,
@@ -387,9 +423,11 @@ export class VgServer extends Server {
    * Mark a connection heard-from on the keepalive channel. `seen` is true for a
    * non-pong keepalive (heartbeat) — the signal a backgrounded tab stops sending.
    */
-  private touch(connection: Connection<Presence>, seen: boolean) {
+  private static touch(connection: Connection<Presence>, seen: boolean) {
     const presence = connection.state;
-    if (!presence) return;
+    if (!presence) {
+      return;
+    }
     const now = Date.now();
     connection.setState({ ...presence, aliveAt: now, seenAt: seen ? now : presence.seenAt });
   }
@@ -399,33 +437,50 @@ export class VgServer extends Server {
    *  for determinism. No-op while the host is responsive or no live peer exists. */
   private async checkHostLiveness(): Promise<void> {
     const host = this.hostId;
-    if (!host) return;
+    if (!host) {
+      return;
+    }
     const now = Date.now();
     const hostPresence = this.presenceOf(host);
-    if (hostPresence && now - hostPresence.seenAt <= HOST_LIVENESS_TIMEOUT_MS) return;
+    if (hostPresence && now - hostPresence.seenAt <= HOST_LIVENESS_TIMEOUT_MS) {
+      return;
+    }
     // A host whose seat is held in grace gets the same liveness window measured
     // from the drop: a short blip keeps the host role (their reconnect resumes
     // seamlessly), while a longer outage migrates it so shared state doesn't
     // freeze for everyone until the grace window lapses.
     if (!hostPresence) {
       const ghost = this.graceById(host);
-      if (ghost && now - ghost.disconnectedAt <= HOST_LIVENESS_TIMEOUT_MS) return;
+      if (ghost && now - ghost.disconnectedAt <= HOST_LIVENESS_TIMEOUT_MS) {
+        return;
+      }
     }
 
     let next: Connection<Presence> | null = null;
     for (const connection of this.getConnections<Presence>()) {
       const presence = connection.state;
-      if (!presence || connection.id === host) continue;
-      if (now - presence.seenAt > HOST_LIVENESS_TIMEOUT_MS) continue;
-      if (!next || connection.id < next.id) next = connection;
+      if (!presence || connection.id === host) {
+        continue;
+      }
+      if (now - presence.seenAt > HOST_LIVENESS_TIMEOUT_MS) {
+        continue;
+      }
+      if (!next || connection.id < next.id) {
+        next = connection;
+      }
     }
-    if (!next) return; // nobody healthier to hand off to — keep the current host
+    if (!next) {
+      return;
+      // nobody healthier to hand off to — keep the current host
+    }
 
     // Grace on the new host so we don't immediately re-migrate.
     const presence = next.state;
-    if (presence) next.setState({ ...presence, seenAt: now });
+    if (presence) {
+      next.setState({ ...presence, seenAt: now });
+    }
     await this.setHostId(next.id);
-    const hostMessage: ServerMessage = { type: "host", data: { id: next.id } };
+    const hostMessage: ServerMessage = { data: { id: next.id }, type: "host" };
     this.broadcast(JSON.stringify(hostMessage), []);
   }
 
@@ -435,7 +490,9 @@ export class VgServer extends Server {
     // same player sitting back down, not a new admission.
     const token = readReconnectToken(ctx);
     const reclaimed = token ? this.grace.get(token) : undefined;
-    if (reclaimed) await this.consumeGrace(reclaimed);
+    if (reclaimed) {
+      await this.consumeGrace(reclaimed);
+    }
 
     // The room's effective cap for this admission decision: the sticky cap an
     // earlier admitted client established, or — if none yet — the cap this
@@ -450,8 +507,8 @@ export class VgServer extends Server {
     // client at the overflow sibling and close — the SDK reconnects there.
     if (!reclaimed && cap !== null && this.playerCount(connection.id) >= cap) {
       const fullMessage: ServerMessage = {
+        data: { capacity: cap, room: nextOverflowRoom(this.name) },
         type: "room_full",
-        data: { room: nextOverflowRoom(this.name), capacity: cap },
       };
       connection.send(JSON.stringify(fullMessage));
       connection.close(4001, "room_full");
@@ -471,13 +528,13 @@ export class VgServer extends Server {
     // when PartySocket hands the client a fresh id).
     const { color, hue } = reclaimed ?? getColorById(connection.id);
     const presence: Presence = {
-      id: connection.id,
-      color,
-      hue,
-      seenAt: now,
       aliveAt: now,
-      token: token ?? undefined,
+      color,
       delta: readDeltaCapable(ctx),
+      hue,
+      id: connection.id,
+      seenAt: now,
+      token: token ?? undefined,
     };
     connection.setState(presence);
     // Seat state: a reclaim resumes the held snapshot; a plain reconnect under
@@ -494,11 +551,11 @@ export class VgServer extends Server {
     // held host — hand the role to the new id rather than to a bystander.
     if (reclaimed && reclaimed.id !== connection.id) {
       this.snapshots.delete(reclaimed.id);
-      const leftMessage: ServerMessage = { type: "player_left", data: { id: reclaimed.id } };
+      const leftMessage: ServerMessage = { data: { id: reclaimed.id }, type: "player_left" };
       this.broadcast(JSON.stringify(leftMessage), [connection.id]);
       if (this.hostId === reclaimed.id) {
         await this.setHostId(connection.id);
-        const hostMessage: ServerMessage = { type: "host", data: { id: connection.id } };
+        const hostMessage: ServerMessage = { data: { id: connection.id }, type: "host" };
         this.broadcast(JSON.stringify(hostMessage), []);
       }
     }
@@ -512,18 +569,18 @@ export class VgServer extends Server {
     await this.checkHostLiveness();
 
     const syncMessage: ServerMessage = {
-      type: "sync",
       data: {
+        hostId: this.hostId ?? connection.id,
         players: this.players(),
         state: this.shared,
-        hostId: this.hostId ?? connection.id,
       },
+      type: "sync",
     };
     connection.send(JSON.stringify(syncMessage));
 
     const joinedMessage: ServerMessage = {
-      type: "player_joined",
       data: this.toPlayer(presence),
+      type: "player_joined",
     };
     this.broadcast(JSON.stringify(joinedMessage), [connection.id]);
   }
@@ -535,7 +592,9 @@ export class VgServer extends Server {
       // snapshot was wiped — the next patch just re-fills it. A capacity-refused
       // connection carries no presence, so it cannot broadcast into the room.
       const presence = sender.state;
-      if (!presence) return;
+      if (!presence) {
+        return;
+      }
 
       // Refuse oversized frames before parsing: the platform would drop a
       // >1 MiB frame anyway, and parsing near-limit garbage burns DO CPU.
@@ -550,9 +609,11 @@ export class VgServer extends Server {
         case "player_state_patch": {
           // Hot path: snapshot + broadcast only. Liveness rides the heartbeat/
           // pong keepalive channel, so a per-tick stream costs no attachment write.
-          const patch = this.parsePatch(sender, message.data, "player_state_patch");
-          if (patch === null) break;
-          const next = { ...(this.snapshots.get(sender.id) ?? {}), ...patch };
+          const patch = VgServer.parsePatch(sender, message.data, "player_state_patch");
+          if (patch === null) {
+            break;
+          }
+          const next = { ...this.snapshots.get(sender.id), ...patch };
           this.snapshots.set(sender.id, next);
           // Fan out per recipient capability: delta-capable clients
           // shallow-merge `player_state`, so they only need the keys this
@@ -561,15 +622,17 @@ export class VgServer extends Server {
           let deltaMessage: string | null = null;
           let fullMessage: string | null = null;
           this.sendToEach((connection) => {
-            if (connection.id === sender.id) return null;
+            if (connection.id === sender.id) {
+              return null;
+            }
             return connection.state?.delta
               ? (deltaMessage ??= JSON.stringify({
-                  type: "player_state",
                   data: { id: sender.id, state: patch },
+                  type: "player_state",
                 } satisfies ServerMessage))
               : (fullMessage ??= JSON.stringify({
-                  type: "player_state",
                   data: { id: sender.id, state: next },
+                  type: "player_state",
                 } satisfies ServerMessage));
           });
           break;
@@ -581,8 +644,8 @@ export class VgServer extends Server {
           // path (host streams ~30×/s), so no attachment write here either.
           if (sender.id !== this.hostId) {
             const echo: ServerMessage = {
-              type: "state_patch",
               data: this.shared,
+              type: "state_patch",
             };
             sender.send(JSON.stringify(echo));
             break;
@@ -590,39 +653,43 @@ export class VgServer extends Server {
           // The merge below spreads `data` into shared state, so a non-object
           // root (string/array) would scatter index keys into every room's
           // state; depth/forbidden-key checks bound what untrusted games store.
-          const patch = this.parsePatch(sender, message.data, "state_patch");
-          if (patch === null) break;
+          const patch = VgServer.parsePatch(sender, message.data, "state_patch");
+          if (patch === null) {
+            break;
+          }
           this.shared = {
             ...this.shared,
             ...patch,
           };
           const broadcastMessage: ServerMessage = {
-            type: "state_patch",
             data: patch,
+            type: "state_patch",
           };
           this.broadcast(JSON.stringify(broadcastMessage), []);
           break;
         }
-        case "heartbeat":
+        case "heartbeat": {
           // The keepalive that pauses when a tab is hidden — refreshes both
           // clocks and is the cadence we re-check host liveness on.
-          this.touch(sender, true);
+          VgServer.touch(sender, true);
           await this.checkHostLiveness();
           break;
-        case "pong":
+        }
+        case "pong": {
           // Answers a server ping even from a hidden tab: proves reachable
           // (aliveAt) but not running (seenAt untouched).
-          this.touch(sender, false);
+          VgServer.touch(sender, false);
           break;
+        }
         case "emit": {
-          this.touch(sender, true);
+          VgServer.touch(sender, true);
           const eventMessage: ServerMessage = {
-            type: "event",
             data: {
               event: message.data.event,
-              payload: message.data.payload,
               from: sender.id,
+              payload: message.data.payload,
             },
+            type: "event",
           };
           const raw = JSON.stringify(eventMessage);
           // Targeting is additive to the wire protocol: absent fields mean the
@@ -638,15 +705,16 @@ export class VgServer extends Server {
           // `to` wins, minus `except`; deliver only to admitted players so a
           // capacity-refused connection can never be reached by id.
           const targets = new Set(to);
-          const excluded = new Set(except ?? []);
+          const excluded = new Set(except);
           this.sendToEach((connection) =>
             targets.has(connection.id) && !excluded.has(connection.id) ? raw : null,
           );
           break;
         }
-        default:
-          this.touch(sender, true);
+        default: {
+          VgServer.touch(sender, true);
           break;
+        }
       }
     } catch (error) {
       console.error("Error handling message", error);
@@ -658,7 +726,9 @@ export class VgServer extends Server {
     // seat is vacated immediately. Anything else (1006 dropped transport, 1005
     // no-status, 1001 going-away, …) might be a blip, so it gets the grace
     // window.
-    if (code === 1000) return this.removePlayer(connection);
+    if (code === 1000) {
+      return this.removePlayer(connection);
+    }
     return this.departPlayer(connection);
   }
 
@@ -682,17 +752,21 @@ export class VgServer extends Server {
    */
   private async departPlayer(connection: Connection<Presence>): Promise<void> {
     const presence = connection.state;
-    if (!presence) return;
+    if (!presence) {
+      return;
+    }
 
     // If a live reconnect under the same id already superseded this socket
     // (the client re-dialed before the server saw the old transport die), this
     // close is stale — the player is present, not departing. Iterated rather
     // than getConnection(id), which throws on exactly this duplicate-id race.
     for (const other of this.getConnections<Presence>()) {
-      if (other.id === connection.id && other !== connection && other.state) return;
+      if (other.id === connection.id && other !== connection && other.state) {
+        return;
+      }
     }
 
-    const token = presence.token;
+    const { token } = presence;
     if (!token) {
       await this.removePlayer(connection);
       return;
@@ -700,13 +774,13 @@ export class VgServer extends Server {
 
     const now = Date.now();
     const entry: GraceEntry = {
-      token,
-      id: connection.id,
       color: presence.color,
-      hue: presence.hue,
-      state: this.snapshots.get(connection.id) ?? {},
       disconnectedAt: now,
       expiresAt: now + RECONNECT_GRACE_MS,
+      hue: presence.hue,
+      id: connection.id,
+      state: this.snapshots.get(connection.id) ?? {},
+      token,
     };
     this.grace.set(token, entry);
     this.snapshots.delete(connection.id);
@@ -714,12 +788,12 @@ export class VgServer extends Server {
     // the same failed transport would otherwise interleave at the storage
     // suspension point, see presence still set, and park the seat twice
     // (re-broadcasting the drop and refreshing expiresAt).
-    this.detachPresence(connection);
+    VgServer.detachPresence(connection);
     await this.ctx.storage.put(graceKey(token), entry);
 
     const droppedMessage: ServerMessage = {
+      data: { connected: false, id: connection.id },
       type: "player_connection",
-      data: { id: connection.id, connected: false },
     };
     this.broadcast(JSON.stringify(droppedMessage), [connection.id]);
 
@@ -745,7 +819,9 @@ export class VgServer extends Server {
     for (const connection of this.getConnections<Presence>()) {
       const presence = connection.state;
       // Not-yet-admitted connections (room_full, closing) aren't players; leave them.
-      if (!presence) continue;
+      if (!presence) {
+        continue;
+      }
 
       if (now - presence.aliveAt > EVICTION_TIMEOUT_MS) {
         stale.push(connection);
@@ -775,8 +851,8 @@ export class VgServer extends Server {
 
     // Lapse held seats whose owner never came back: only now do they actually
     // leave the room (player_left, host handoff, empty-room reset).
-    for (const entry of [...this.grace.values()]) {
-      if (entry.expiresAt > now) continue;
+    const lapsed = [...this.grace.values()].filter((entry) => entry.expiresAt <= now);
+    for (const entry of lapsed) {
       await this.consumeGrace(entry);
       await this.announceDeparture(entry.id);
     }
@@ -790,22 +866,22 @@ export class VgServer extends Server {
     // loop can never stall and starve live idle clients of their pings — or
     // while any grace seat still needs an expiry wake (which must fire even in
     // a room whose last socket just dropped).
-    let hasConnections = false;
-    for (const _connection of this.getConnections()) {
-      hasConnections = true;
-      break;
-    }
+    const hasConnections = !this.getConnections()[Symbol.iterator]().next().done;
 
     let target: number | null = hasConnections ? Date.now() + PING_INTERVAL_MS : null;
     for (const entry of this.grace.values()) {
       target = target === null ? entry.expiresAt : Math.min(target, entry.expiresAt);
     }
-    if (target === null) return;
+    if (target === null) {
+      return;
+    }
 
     // Keep an earlier pending alarm; pull a later one forward so a grace expiry
     // is never left waiting on the next ping tick.
     const pending = await this.ctx.storage.getAlarm();
-    if (pending !== null && pending <= target) return;
+    if (pending !== null && pending <= target) {
+      return;
+    }
     await this.ctx.storage.setAlarm(target);
   }
 
@@ -821,15 +897,15 @@ export class VgServer extends Server {
       return Response.json({ error: "method_not_allowed" }, { status: 405 });
     }
     return Response.json({
-      room: this.name,
-      playerCount: this.playerCount(),
       capacity: this.cap,
       hasHost: this.hostId !== null,
+      playerCount: this.playerCount(),
+      room: this.name,
     });
   }
 
   /** Clear a connection's presence, tolerating an already-dead socket. */
-  private detachPresence(connection: Connection<Presence>): void {
+  private static detachPresence(connection: Connection<Presence>): void {
     try {
       connection.setState(null);
     } catch {
@@ -844,17 +920,21 @@ export class VgServer extends Server {
     // idempotent on the client anyway, so a trailing onClose after a sweep is
     // harmless.
     const presence = connection.state;
-    if (!presence) return;
+    if (!presence) {
+      return;
+    }
     // Detach presence first: the eviction sweep calls this before close(), and
     // the close's own async onClose must find nothing left to grace — otherwise
     // an evicted player would come straight back as a held seat.
-    this.detachPresence(connection);
+    VgServer.detachPresence(connection);
     // Forfeit a held seat only if this connection OWNS it (token match).
     // Matching by player id would let anyone destroy a held seat: ids are
     // public (broadcast to every peer), so a rogue client could join under the
     // ghost's id and cleanly leave, reaping a seat it never held.
     const held = presence.token ? this.grace.get(presence.token) : undefined;
-    if (held) await this.consumeGrace(held);
+    if (held) {
+      await this.consumeGrace(held);
+    }
     await this.announceDeparture(connection.id);
   }
 
@@ -867,8 +947,8 @@ export class VgServer extends Server {
     this.snapshots.delete(id);
 
     const leftMessage: ServerMessage = {
-      type: "player_left",
       data: { id },
+      type: "player_left",
     };
     this.broadcast(JSON.stringify(leftMessage), [id]);
 
@@ -878,17 +958,21 @@ export class VgServer extends Server {
     let firstRemaining: string | null = null;
     let remainingCount = 0;
     for (const other of this.getConnections<Presence>()) {
-      if (other.id === id || !other.state) continue;
-      remainingCount++;
-      if (firstRemaining === null || other.id < firstRemaining) firstRemaining = other.id;
+      if (other.id === id || !other.state) {
+        continue;
+      }
+      remainingCount += 1;
+      if (firstRemaining === null || other.id < firstRemaining) {
+        firstRemaining = other.id;
+      }
     }
 
     if (this.hostId === id) {
       await this.setHostId(firstRemaining);
       if (firstRemaining) {
         const hostMessage: ServerMessage = {
-          type: "host",
           data: { id: firstRemaining },
+          type: "host",
         };
         this.broadcast(JSON.stringify(hostMessage), []);
       }

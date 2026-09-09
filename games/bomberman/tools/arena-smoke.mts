@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
-import { createArena, readArena, type Arena } from "../src/shared/arena";
+import { createArena, readArena } from "../src/shared/arena";
+import type { Arena } from "../src/shared/arena";
 import { GRID_COLS, GRID_ROWS, SPAWN_POINTS } from "../src/shared/constants";
 
 function seeded(arena: Arena, seed: number) {
@@ -9,8 +10,8 @@ function seeded(arena: Arena, seed: number) {
   let state = seed;
   const trace: number[] = [];
   Math.random = () => {
-    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
-    const value = state / 4294967296;
+    state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
+    const value = state / 4_294_967_296;
     trace.push(value);
     return value;
   };
@@ -23,10 +24,10 @@ function seeded(arena: Arena, seed: number) {
 
 test("Classic preserves pre-variation grid hashes and all 161 random draws", () => {
   // Captured from the original newGrid before adding arena selection.
-  const goldens: Array<[number, string]> = [
+  const goldens: [number, string][] = [
     [1, "c04cc25d48e9009147d93b171e86ca338219524bffaccae8eed2fe16292b0b6d"],
     [7331, "e42006b8a0530f68991af304aa71cfe76554146a96c48e9d4a81f36e1d6b79d8"],
-    [987654321, "ba0c7f1702c526d5f00214c1ccda5303c8702aae084177de034d2a293b726c6d"],
+    [987_654_321, "ba0c7f1702c526d5f00214c1ccda5303c8702aae084177de034d2a293b726c6d"],
   ];
   for (const [seed, hash] of goldens) {
     const { grid, trace } = seeded("classic", seed);
@@ -49,7 +50,9 @@ test("Crossroads only clears central-lane crates; walls, escapes and RNG stay id
         if (cell.kind === "crate" && (r === 7 || c === 9)) {
           assert.deepEqual(next, { kind: "empty" });
           cleared++;
-        } else assert.deepEqual(next, cell);
+        } else {
+          assert.deepEqual(next, cell);
+        }
       }
     }
     assert.ok(cleared > 0);
@@ -68,5 +71,5 @@ test("Crossroads only clears central-lane crates; walls, escapes and RNG stay id
 test("arena wire boundary: only explicit Crossroads; legacy rooms are Classic", () => {
   assert.equal(readArena("crossroads"), "crossroads");
   assert.equal(readArena("classic"), "classic");
-  assert.equal(readArena(undefined), "classic");
+  assert.equal(readArena(), "classic");
 });

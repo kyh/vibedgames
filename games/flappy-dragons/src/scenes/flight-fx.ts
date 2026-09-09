@@ -1,4 +1,4 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
 import { COURSE_H } from "../shared/constants";
 
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -7,7 +7,10 @@ export function prefersReducedMotion(): boolean {
   return REDUCED_MOTION.matches;
 }
 
-type Ring = { image: Phaser.GameObjects.Image; age: number };
+interface Ring {
+  image: Phaser.GameObjects.Image;
+  age: number;
+}
 
 const RING_LIFE_S = 0.38;
 const LEAF_EVERY_S = 0.9;
@@ -30,60 +33,60 @@ export class FlightFx {
     // and cap only live particles so a full burst can expire and fire again.
     this.air = scene.add
       .particles(0, 0, "flight-puff", {
+        alpha: { end: 0, start: 0.7 },
         emitting: false,
+        lifespan: { max: 420, min: 220 },
         maxAliveParticles: 36,
-        speedX: { min: -100, max: -30 },
-        speedY: { min: 25, max: 100 },
-        lifespan: { min: 220, max: 420 },
-        scale: { start: 1, end: 0 },
-        alpha: { start: 0.7, end: 0 },
+        scale: { end: 0, start: 1 },
+        speedX: { max: -30, min: -100 },
+        speedY: { max: 100, min: 25 },
         tint: 0xe7faff,
       })
       .reserve(36)
       .setDepth(9);
     this.sparks = scene.add
       .particles(0, 0, "flight-glint", {
+        alpha: { end: 0, start: 1 },
+        angle: { max: 340, min: 200 },
         emitting: false,
-        maxAliveParticles: 64,
-        speed: { min: 45, max: 150 },
-        angle: { min: 200, max: 340 },
         gravityY: 170,
-        lifespan: { min: 350, max: 650 },
-        scale: { start: 1, end: 0 },
-        alpha: { start: 1, end: 0 },
+        lifespan: { max: 650, min: 350 },
+        maxAliveParticles: 64,
+        scale: { end: 0, start: 1 },
+        speed: { max: 150, min: 45 },
         tint: 0xffdc70,
       })
       .reserve(64)
       .setDepth(15);
     this.leaves = scene.add
       .particles(0, 0, "flight-leaf", {
+        alpha: { end: 0, start: 0.32 },
         emitting: false,
-        maxAliveParticles: 12,
-        speedX: { min: -34, max: -16 },
-        speedY: { min: 8, max: 18 },
-        rotate: { start: -30, end: 130 },
         lifespan: 6500,
-        alpha: { start: 0.32, end: 0 },
-        scale: { start: 1, end: 0.6 },
+        maxAliveParticles: 12,
+        rotate: { end: 130, start: -30 },
+        scale: { end: 0.6, start: 1 },
+        speedX: { max: -16, min: -34 },
+        speedY: { max: 18, min: 8 },
         tint: [0xa5cf78, 0xffe49b, 0xc4eab8],
       })
       .reserve(12)
       .setDepth(-1);
     for (let i = 0; i < 5; i++) {
       this.rings.push({
-        image: scene.add.image(0, 0, "flight-ring").setDepth(14).setVisible(false),
         age: 1,
+        image: scene.add.image(0, 0, "flight-ring").setDepth(14).setVisible(false),
       });
     }
     this.notice = scene.add
       .text(0, 0, "", {
+        align: "center",
+        color: "#fff2a6",
         fontFamily: '"Courier New", monospace',
         fontSize: "18px",
         fontStyle: "bold",
-        color: "#fff2a6",
         stroke: "#392454",
         strokeThickness: 5,
-        align: "center",
       })
       .setOrigin(0.5, 0)
       .setDepth(22)
@@ -91,28 +94,30 @@ export class FlightFx {
   }
 
   wingbeat(x: number, y: number): void {
-    if (!prefersReducedMotion()) this.air.explode(5, x - 20, y + 22);
+    if (!prefersReducedMotion()) {
+      this.air.explode(5, x - 20, y + 22);
+    }
   }
 
   pickup(x: number, y: number): void {
-    this.burst(0xffdc70, 14, x, y);
-    this.ring(x, y, 0xffe899);
+    this.burst(0xff_dc_70, 14, x, y);
+    this.ring(x, y, 0xff_e8_99);
   }
 
   pass(x: number, y: number): void {
-    this.burst(0xd8f6b5, 6, x, y);
+    this.burst(0xd8_f6_b5, 6, x, y);
   }
 
   crash(x: number, y: number): void {
-    this.burst(0xe4f5ff, 16, x, y);
-    this.ring(x, y, 0xe4f5ff);
+    this.burst(0xe4_f5_ff, 16, x, y);
+    this.ring(x, y, 0xe4_f5_ff);
   }
 
   celebrate(text: string, x: number, y: number): void {
     this.notice.setText(text).setVisible(true).setAlpha(1);
     this.noticeLeft = NOTICE_S;
-    this.burst(0xffdc70, 22, x, y);
-    this.ring(x, y, 0xffe899);
+    this.burst(0xff_dc_70, 22, x, y);
+    this.ring(x, y, 0xff_e8_99);
   }
 
   private burst(tint: number, count: number, x: number, y: number): void {
@@ -120,7 +125,9 @@ export class FlightFx {
   }
 
   private ring(x: number, y: number, color: number): void {
-    if (prefersReducedMotion()) return;
+    if (prefersReducedMotion()) {
+      return;
+    }
     let ring = this.rings[0];
     for (const candidate of this.rings) {
       if (!candidate.image.visible) {
@@ -128,7 +135,9 @@ export class FlightFx {
         break;
       }
     }
-    if (!ring) return;
+    if (!ring) {
+      return;
+    }
     ring.age = 0;
     ring.image.setPosition(x, y).setTint(color).setScale(0.4).setAlpha(0.85).setVisible(true);
   }
@@ -164,7 +173,9 @@ export class FlightFx {
       }
     }
     for (const ring of this.rings) {
-      if (!ring.image.visible) continue;
+      if (!ring.image.visible) {
+        continue;
+      }
       ring.age += dt / RING_LIFE_S;
       ring.image.setVisible(ring.age < 1 && !reduced);
       ring.image.setScale(0.4 + Math.min(1, ring.age) * 1.6);
@@ -178,7 +189,9 @@ export class FlightFx {
   reset(): void {
     this.air.killAll();
     this.sparks.killAll();
-    for (const ring of this.rings) ring.image.setVisible(false);
+    for (const ring of this.rings) {
+      ring.image.setVisible(false);
+    }
     this.noticeLeft = 0;
     this.notice.setVisible(false);
   }

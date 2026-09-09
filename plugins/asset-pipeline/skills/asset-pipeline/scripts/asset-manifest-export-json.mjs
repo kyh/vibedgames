@@ -22,14 +22,20 @@ import {
 
 main(() => {
   const args = parseArgs(process.argv.slice(2), {
-    values: ["manifest", "out"],
     booleans: ["keep-paths"],
+    values: ["manifest", "out"],
   });
   const manifest = getString(args, "manifest");
   const out = getString(args, "out");
-  if (!manifest) failUsage("--manifest is required (path to assets_index.lua or .json)");
-  if (!out) failUsage("--out is required (output JSON path)");
-  if (!existsSync(manifest)) fail(`Manifest not found: ${manifest}`);
+  if (!manifest) {
+    failUsage("--manifest is required (path to assets_index.lua or .json)");
+  }
+  if (!out) {
+    failUsage("--out is required (output JSON path)");
+  }
+  if (!existsSync(manifest)) {
+    fail(`Manifest not found: ${manifest}`);
+  }
 
   writeJsonFile(out, exportManifest(manifest, !getFlag(args, "keep-paths"), out));
   console.log(`Wrote ${out}`);

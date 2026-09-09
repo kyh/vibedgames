@@ -1,6 +1,6 @@
 import { isJsonNumber, isJsonObject } from "../json";
-import { World } from "../world/world";
-import { Inventory } from "./inventory";
+import type { World } from "../world/world";
+import type { Inventory } from "./inventory";
 import type { JsonValue } from "../json";
 import type { SkillsJSON } from "./skills";
 import type { CollectionsJSON } from "./collections";
@@ -9,7 +9,7 @@ const KEY = "farm-rpg-save-v1";
 
 // Per-system save fragments are optional so older saves keep loading as systems
 // are added. Concrete shapes are owned by their modules.
-export type AnimalSave = {
+export interface AnimalSave {
   id: number;
   kind: string;
   building: "barn" | "coop";
@@ -19,9 +19,9 @@ export type AnimalSave = {
   producedToday: boolean;
   x: number;
   y: number;
-};
+}
 
-export type SaveData = {
+export interface SaveData {
   v: 3;
   seed: number;
   day: number;
@@ -38,7 +38,7 @@ export type SaveData = {
   animalSeq?: number;
   npcFriendship?: Record<string, number>;
   collections?: CollectionsJSON;
-};
+}
 
 /** "failure" = storage threw (full/blocked); the caller keeps the save dirty and retries. */
 export type SaveOutcome = { kind: "success" } | { kind: "disabled" } | { kind: "failure" };
@@ -53,9 +53,13 @@ export function disableSaves(): void {
 // Structural check at the storage boundary: we only wrote v3 saves ourselves,
 // so verify the version tag plus the scalar/object skeleton (not every leaf).
 function isSaveData(v: JsonValue): v is JsonValue & SaveData {
-  if (!isJsonObject(v) || v["v"] !== 3) return false;
+  if (!isJsonObject(v) || v["v"] !== 3) {
+    return false;
+  }
   const nums = ["seed", "day", "timeMin", "gold", "energy", "hp", "canCharge"];
-  if (!nums.every((k) => isJsonNumber(v[k]))) return false;
+  if (!nums.every((k) => isJsonNumber(v[k]))) {
+    return false;
+  }
   return (
     isJsonObject(v["player"]) &&
     isJsonObject(v["world"]) &&
@@ -65,10 +69,14 @@ function isSaveData(v: JsonValue): v is JsonValue & SaveData {
 }
 
 export function loadSave(): SaveData | null {
-  if (savesDisabled) return null;
+  if (savesDisabled) {
+    return null;
+  }
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return null;
+    if (!raw) {
+      return null;
+    }
     const d: JsonValue = JSON.parse(raw);
     return isSaveData(d) ? d : null;
   } catch {
@@ -77,7 +85,9 @@ export function loadSave(): SaveData | null {
 }
 
 export function writeSave(d: SaveData): SaveOutcome {
-  if (savesDisabled) return { kind: "disabled" };
+  if (savesDisabled) {
+    return { kind: "disabled" };
+  }
   try {
     localStorage.setItem(KEY, JSON.stringify(d));
     return { kind: "success" };
@@ -87,7 +97,9 @@ export function writeSave(d: SaveData): SaveOutcome {
 }
 
 export function clearSave(): void {
-  if (savesDisabled) return;
+  if (savesDisabled) {
+    return;
+  }
   try {
     localStorage.removeItem(KEY);
   } catch {

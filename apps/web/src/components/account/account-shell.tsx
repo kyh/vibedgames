@@ -24,16 +24,16 @@ import { useIsMobile } from "@repo/ui/hooks/use-mobile";
 
 import { authClient } from "@/auth/client";
 
-export type ShellUser = {
+export interface ShellUser {
   name: string;
   email: string;
   isAdmin: boolean;
-};
+}
 
 const railItems = [
-  { to: "/home", label: "Home", icon: Gamepad2Icon, adminOnly: false },
-  { to: "/settings", label: "Settings", icon: SettingsIcon, adminOnly: false },
-  { to: "/admin", label: "Admin", icon: ShieldIcon, adminOnly: true },
+  { adminOnly: false, icon: Gamepad2Icon, label: "Home", to: "/home" },
+  { adminOnly: false, icon: SettingsIcon, label: "Settings", to: "/settings" },
+  { adminOnly: true, icon: ShieldIcon, label: "Admin", to: "/admin" },
 ] as const;
 
 /**
@@ -44,7 +44,7 @@ const railItems = [
  * Its surface must stay in lockstep with the games-list row highlight in
  * home.tsx (same bg/shadow/blur) — one highlight recipe app-wide.
  */
-function RailLink({
+const RailLink = ({
   to,
   label,
   icon: Icon,
@@ -58,9 +58,9 @@ function RailLink({
   hovered: string | null;
   onHover: (to: string) => void;
   tooltipSide: "top" | "right";
-}) {
+}) => {
   const matchRoute = useMatchRoute();
-  const isActive = matchRoute({ to, fuzzy: true }) !== false;
+  const isActive = matchRoute({ fuzzy: true, to }) !== false;
   const showDisc = hovered === null ? isActive : hovered === to;
 
   return (
@@ -81,7 +81,7 @@ function RailLink({
         {showDisc && (
           <motion.span
             layoutId="rail-disc"
-            transition={{ type: "spring", bounce: 0.15, duration: 0.3 }}
+            transition={{ bounce: 0.15, duration: 0.3, type: "spring" }}
             className="absolute inset-0 rounded-full bg-white/10 shadow-[inset_0_1px_0_rgb(255_255_255/0.06)] backdrop-blur-sm"
           />
         )}
@@ -90,12 +90,14 @@ function RailLink({
       <TooltipContent side={tooltipSide}>{label}</TooltipContent>
     </Tooltip>
   );
-}
+};
 
 const initials = (user: ShellUser): string => {
   const source = user.name.trim() || user.email;
-  const parts = source.split(/\s+/).filter(Boolean);
-  if (parts.length >= 2) return `${parts[0]?.[0] ?? ""}${parts[1]?.[0] ?? ""}`.toUpperCase();
+  const parts = source.split(/\s+/u).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0]?.[0] ?? ""}${parts[1]?.[0] ?? ""}`.toUpperCase();
+  }
   return source.slice(0, 2).toUpperCase();
 };
 
@@ -116,14 +118,20 @@ const initials = (user: ShellUser): string => {
  * wrap any of this in FadeInBlur (its lingering inline `filter` would break
  * the rail's backdrop-blur).
  */
-export function AccountShell({ user, children }: { user: ShellUser; children: React.ReactNode }) {
+export const AccountShell = ({
+  user,
+  children,
+}: {
+  user: ShellUser;
+  children: React.ReactNode;
+}) => {
   const navigate = useNavigate();
   const [hoveredRail, setHoveredRail] = useState<string | null>(null);
   const isMobile = useIsMobile();
 
   const signOut = async () => {
     await authClient.signOut();
-    await navigate({ to: "/", replace: true });
+    await navigate({ replace: true, to: "/" });
   };
 
   return (
@@ -137,11 +145,14 @@ export function AccountShell({ user, children }: { user: ShellUser; children: Re
           </div>
 
           <div className="pointer-events-auto fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 md:sticky md:bottom-auto md:left-auto md:top-1/2 md:translate-x-0 md:-translate-y-1/2">
+            {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- the pair only clears a hover highlight, and onBlur already covers the keyboard path the rule asks for */}
             <nav
               aria-label="Account"
               onMouseLeave={() => setHoveredRail(null)}
               onBlur={(e) => {
-                if (!e.currentTarget.contains(e.relatedTarget)) setHoveredRail(null);
+                if (!e.currentTarget.contains(e.relatedTarget)) {
+                  setHoveredRail(null);
+                }
               }}
               className="bg-input/40 flex items-center gap-1 rounded-full p-1.5 shadow-[0_8px_24px_rgb(0_0_0/0.4),0_2px_6px_rgb(0_0_0/0.3)] backdrop-blur-sm md:w-11 md:flex-col"
             >
@@ -178,7 +189,11 @@ export function AccountShell({ user, children }: { user: ShellUser; children: Re
                   <DropdownMenuLabel className="font-mono">{user.email}</DropdownMenuLabel>
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => void signOut()}>
+                <DropdownMenuItem
+                  onClick={() => {
+                    void signOut();
+                  }}
+                >
                   <LogOutIcon />
                   Sign out
                 </DropdownMenuItem>
@@ -193,4 +208,4 @@ export function AccountShell({ user, children }: { user: ShellUser; children: Re
       </div>
     </TooltipProvider>
   );
-}
+};

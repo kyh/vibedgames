@@ -23,20 +23,26 @@ const COMBO_MAX = 14;
 const POOL = 64;
 
 export type NumberStyle =
-  | "crit" // a heavy hit YOU landed — the loudest thing on screen
-  | "mine" // any other hit you landed; escalates with the combo
-  | "incoming" // damage on YOU
-  | "bystander" // someone else's fight, kept quiet
+  // a heavy hit YOU landed — the loudest thing on screen
+  | "crit"
+  // any other hit you landed; escalates with the combo
+  | "mine"
+  // damage on YOU
+  | "incoming"
+  // someone else's fight, kept quiet
+  | "bystander"
   | "heal"
   | "gold"
-  | "banner"; // a word, not a number ("PERFECT") — no combo, no arc
+  // a word, not a number ("PERFECT") — no combo, no arc
+  | "banner";
 
-type Num = {
+interface Num {
   el: HTMLDivElement;
   live: boolean;
   // world position + velocity (u, u/s) — the arc is simulated, then projected
   x: number;
-  y: number; // height
+  // height
+  y: number;
   z: number;
   vx: number;
   vy: number;
@@ -47,18 +53,18 @@ type Num = {
   size: number;
   spin: number;
   style: NumberStyle;
-};
+}
 
 /** Combo colour ramp: cold white → gold → ember → molten. Reads as heat. */
 const COMBO_RAMP = ["#fff6e2", "#ffe89a", "#ffc247", "#ff8a2b", "#ff5236"];
 
-function comboColor(step: number): string {
+const comboColor = (step: number): string => {
   const i = Math.min(COMBO_RAMP.length - 1, Math.floor((step / COMBO_MAX) * COMBO_RAMP.length));
   return COMBO_RAMP[i] ?? "#fff6e2";
-}
+};
 
 /** Punch-in overshoot → settle → shrink-out. `t` is 0..1 of the number's life. */
-function scaleCurve(t: number): number {
+const scaleCurve = (t: number): number => {
   if (t < 0.12) {
     // ease-out-back: blows past 1 and snaps back — this is the "hit" of the hit
     const k = t / 0.12;
@@ -69,9 +75,106 @@ function scaleCurve(t: number): number {
     const k = (t - 0.12) / 0.14;
     return 1.34 - 0.34 * (1 - (1 - k) ** 2);
   }
-  if (t > 0.82) return 1 - 0.35 * ((t - 0.82) / 0.18); // shrink as it fades
+  if (t > 0.82) {
+    return 1 - 0.35 * ((t - 0.82) / 0.18);
+    // shrink as it fades
+  }
   return 1;
+};
+
+interface Look {
+  size: number;
+  color: string;
+  stroke: string;
+  glow: string;
 }
+
+const lookFor = (style: NumberStyle, grow: number, beat: number): Look => {
+  let size: number;
+  let color: string;
+  let stroke: string;
+  let glow = "";
+  switch (style) {
+    case "crit": {
+      size = 52 * grow;
+      color = "#ffd76a";
+      stroke = "#5c1400";
+      glow = "0 0 18px rgba(255,120,40,.85),";
+      break;
+    }
+    case "mine": {
+      size = 34 * grow;
+      color = comboColor(beat);
+      stroke = "#3a1f00";
+      break;
+    }
+    case "heal": {
+      size = 30;
+      color = "#7dffa4";
+      stroke = "#06351a";
+      break;
+    }
+    case "gold": {
+      size = 30;
+      color = "#ffd24a";
+      stroke = "#4a2f00";
+      glow = "0 0 14px rgba(255,200,60,.7),";
+      break;
+    }
+    case "banner": {
+      size = 40;
+      color = "#66ffe0";
+      stroke = "#00332c";
+      glow = "0 0 20px rgba(90,255,225,.8),";
+      break;
+    }
+    case "incoming": {
+      size = 30;
+      color = "#ff5f52";
+      stroke = "#3d0000";
+      glow = "0 0 14px rgba(255,60,40,.7),";
+      break;
+    }
+    default: {
+      size = 20;
+      color = "#e6ddc8";
+      stroke = "#1c1710";
+      break;
+    }
+  }
+  return { color, glow, size, stroke };
+};
+
+/** A crit ERUPTS; a normal hit lobs; a bystander number barely leaves the body. */
+const burstFor = (style: NumberStyle): number => {
+  if (style === "crit") {
+    return 1.35;
+  }
+  if (style === "bystander") {
+    return 0.55;
+  }
+  return 1;
+};
+
+const lifeFor = (style: NumberStyle): number => {
+  if (style === "crit") {
+    return 1.15;
+  }
+  if (style === "bystander") {
+    return 0.7;
+  }
+  if (style === "banner") {
+    return 1.1;
+  }
+  return 0.95;
+};
+
+const spinFor = (style: NumberStyle): number => {
+  if (style === "banner") {
+    return 0;
+  }
+  return (Math.random() - 0.5) * (style === "crit" ? 14 : 6);
+};
 
 export class DamageNumbers {
   private layer: HTMLDivElement;
@@ -79,36 +182,39 @@ export class DamageNumbers {
   private combo = 0;
   private comboLastAt = 0;
 
-  constructor(private readonly view: View) {
+  private readonly view: View;
+
+  constructor(view: View) {
+    this.view = view;
     this.layer = document.createElement("div");
     this.layer.style.cssText =
       "position:fixed;inset:0;pointer-events:none;z-index:6;overflow:hidden;" +
       // the numbers are drawn with a heavy stroke; contain the paint work
       "contain:strict;";
-    document.body.appendChild(this.layer);
-    for (let i = 0; i < POOL; i++) {
+    document.body.append(this.layer);
+    for (let i = 0; i < POOL; i += 1) {
       const el = document.createElement("div");
       el.style.cssText =
         "position:absolute;left:0;top:0;will-change:transform,opacity;" +
         "font-family:Impact,'Arial Black',ui-monospace,monospace;font-weight:900;" +
         "letter-spacing:-0.02em;font-variant-numeric:tabular-nums;" +
         "transform-origin:50% 50%;visibility:hidden;";
-      this.layer.appendChild(el);
+      this.layer.append(el);
       this.pool.push({
         el,
-        live: false,
-        x: 0,
-        y: 0,
-        z: 0,
-        vx: 0,
-        vy: 0,
-        vz: 0,
         grav: 11,
         life: 0,
+        live: false,
         maxLife: 1,
         size: 20,
         spin: 0,
         style: "mine",
+        vx: 0,
+        vy: 0,
+        vz: 0,
+        x: 0,
+        y: 0,
+        z: 0,
       });
     }
   }
@@ -130,60 +236,19 @@ export class DamageNumbers {
    *  arcs AWAY along it, so a flurry fans out instead of stacking into a blob. */
   spawn(text: string, x: number, y: number, style: NumberStyle, now: number, dx = 0, dy = 0): void {
     const n = this.pool.find((p) => !p.live);
-    if (!n) return; // pool exhausted: dropping the 65th number this frame is fine
-
-    const beat = style === "mine" || style === "crit" ? this.beat(now) : 0;
-    const grow = 1 + Math.min(beat, COMBO_MAX) * 0.035; // combos physically swell
-
-    let size: number;
-    let color: string;
-    let stroke: string;
-    let glow = "";
-    switch (style) {
-      case "crit":
-        size = 52 * grow;
-        color = "#ffd76a";
-        stroke = "#5c1400";
-        glow = "0 0 18px rgba(255,120,40,.85),";
-        break;
-      case "mine":
-        size = 34 * grow;
-        color = comboColor(beat);
-        stroke = "#3a1f00";
-        break;
-      case "heal":
-        size = 30;
-        color = "#7dffa4";
-        stroke = "#06351a";
-        break;
-      case "gold":
-        size = 30;
-        color = "#ffd24a";
-        stroke = "#4a2f00";
-        glow = "0 0 14px rgba(255,200,60,.7),";
-        break;
-      case "banner":
-        size = 40;
-        color = "#66ffe0";
-        stroke = "#00332c";
-        glow = "0 0 20px rgba(90,255,225,.8),";
-        break;
-      case "incoming":
-        size = 30;
-        color = "#ff5f52";
-        stroke = "#3d0000";
-        glow = "0 0 14px rgba(255,60,40,.7),";
-        break;
-      default:
-        size = 20;
-        color = "#e6ddc8";
-        stroke = "#1c1710";
-        break;
+    if (!n) {
+      return;
+      // pool exhausted: dropping the 65th number this frame is fine
     }
 
-    // a crit ERUPTS; a normal hit lobs; a bystander number barely leaves the body;
+    const beat = style === "mine" || style === "crit" ? this.beat(now) : 0;
+    // combos physically swell
+    const grow = 1 + Math.min(beat, COMBO_MAX) * 0.035;
+
+    const { size, color, stroke, glow } = lookFor(style, grow, beat);
+
     // a banner hangs where it was earned and doesn't fly off
-    const burst = style === "crit" ? 1.35 : style === "bystander" ? 0.55 : 1;
+    const burst = burstFor(style);
     const banner = style === "banner";
     // the scatter has to be a random DIRECTION, not one random magnitude shared
     // by both axes — a shared value always throws the number along the same 45°
@@ -197,12 +262,14 @@ export class DamageNumbers {
     n.y = 1.5 + (banner ? 0.4 : Math.random() * 0.35);
     n.vx = (dx * 1.5 + spreadX) * burst;
     n.vz = (dy * 1.5 + spreadZ) * burst;
-    n.vy = banner ? 1.1 : (4.6 + Math.random() * 0.9) * burst; // up hard…
-    n.grav = banner ? 0.6 : 11; // …and fall back down, except a banner, which hangs
+    // up hard…
+    n.vy = banner ? 1.1 : (4.6 + Math.random() * 0.9) * burst;
+    // …and fall back down, except a banner, which hangs
+    n.grav = banner ? 0.6 : 11;
     n.life = 0;
-    n.maxLife = style === "crit" ? 1.15 : style === "bystander" ? 0.7 : banner ? 1.1 : 0.95;
+    n.maxLife = lifeFor(style);
     n.size = size;
-    n.spin = banner ? 0 : style === "crit" ? (Math.random() - 0.5) * 14 : (Math.random() - 0.5) * 6;
+    n.spin = spinFor(style);
     n.style = style;
     n.live = true;
 
@@ -222,7 +289,9 @@ export class DamageNumbers {
    *  during hit-stop (a frozen number mid-air is what you're meant to be reading). */
   update(dt: number): void {
     for (const n of this.pool) {
-      if (!n.live) continue;
+      if (!n.live) {
+        continue;
+      }
       n.life += dt;
       if (n.life >= n.maxLife) {
         n.live = false;
@@ -232,8 +301,10 @@ export class DamageNumbers {
       n.x += n.vx * dt;
       n.y += n.vy * dt;
       n.z += n.vz * dt;
-      n.vy -= n.grav * dt; // gravity: the number tips over and falls, it doesn't drift
-      n.vx *= 1 - Math.min(1, 2.2 * dt); // air drag on the lateral fan-out
+      // gravity: the number tips over and falls, it doesn't drift
+      n.vy -= n.grav * dt;
+      // air drag on the lateral fan-out
+      n.vx *= 1 - Math.min(1, 2.2 * dt);
       n.vz *= 1 - Math.min(1, 2.2 * dt);
 
       const s = this.view.worldToScreen(n.x, n.z, n.y);

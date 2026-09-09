@@ -15,19 +15,24 @@ import { Color, Scene } from "three";
 
 import { titleSubText } from "../controls";
 import type { Cell } from "../game/board";
-import { screenToWorld, type ScreenDir } from "../game/camera-correction";
-import { Engine, type LockEvent } from "../game/engine";
+import { screenToWorld } from "../game/camera-correction";
+import type { ScreenDir } from "../game/camera-correction";
+import { Engine } from "../game/engine";
+import type { LockEvent } from "../game/engine";
 import type { Status } from "../game/state";
 import { ParticlePool } from "../fx/particles";
 import { isMuted, resetSound, setMuted, sfx, toggleMute } from "../fx/sfx";
 import { WellFx } from "../fx/well-fx";
-import { Keyboard, type KeyboardHandlers } from "../input/keyboard";
+import { Keyboard } from "../input/keyboard";
+import type { KeyboardHandlers } from "../input/keyboard";
 import type { PoseActions, PoseControls } from "../input/pose-control";
-import { isCoarsePointer, TouchControls, type TouchHandlers } from "../input/touch";
+import { isCoarsePointer, TouchControls } from "../input/touch";
+import type { TouchHandlers } from "../input/touch";
 import { Collapse } from "../physics/collapse";
 import { CameraRig } from "../render/camera-rig";
 import { CubeField } from "../render/cube-field";
-import { Hud, type InputOwner } from "../render/hud";
+import { Hud } from "../render/hud";
+import type { InputOwner } from "../render/hud";
 import { Well } from "../render/well";
 import {
   ARR_MS,
@@ -46,7 +51,11 @@ import {
   WELL_CENTER_Z,
 } from "../shared/constants";
 
-type Repeat = { dir: -1 | 0 | 1; das: number; arr: number };
+interface Repeat {
+  dir: -1 | 0 | 1;
+  das: number;
+  arr: number;
+}
 
 /** Themes the shared pause/mute cluster into the HUD's glass pills, and stacks
  *  it so it occupies one 44px column — the top-right strip the HUD reserves. */
@@ -72,10 +81,13 @@ function readBestScore(): number {
   }
 }
 
-type Steer = { horiz: -1 | 0 | 1; depth: -1 | 0 | 1 };
+interface Steer {
+  horiz: -1 | 0 | 1;
+  depth: -1 | 0 | 1;
+}
 
 /** Read-only telemetry for headless playtests (`window.__GAME_DIAGNOSTICS__`). */
-export type TetrisDiagnostics = {
+export interface TetrisDiagnostics {
   frame: number;
   phase: Status;
   score: number;
@@ -83,7 +95,7 @@ export type TetrisDiagnostics = {
   complete: boolean;
   player: Cell | null;
   entities: number;
-};
+}
 
 export class GameScene {
   readonly scene = new Scene();
@@ -113,8 +125,8 @@ export class GameScene {
   private poseHorizAt = -1e9;
   private padSoftDrop = false;
   private lastPadAt = -1e9;
-  private readonly hMove: Repeat = { dir: 0, das: 0, arr: 0 };
-  private readonly dMove: Repeat = { dir: 0, das: 0, arr: 0 };
+  private readonly hMove: Repeat = { arr: 0, das: 0, dir: 0 };
+  private readonly dMove: Repeat = { arr: 0, das: 0, dir: 0 };
 
   private needSnap = false;
   /** Locked-board changed since the last sync (lock / power sweep / catch / reset). */
@@ -141,9 +153,9 @@ export class GameScene {
     // M and P are keyboard-only: without this a phone plays permanently silent
     // and cannot pause. No-ops on a fine pointer.
     this.touchControls = createTouchControls({
-      mute: { get: isMuted, set: setMuted },
       className: "tetris-touch-controls",
       css: TOUCH_CONTROLS_CSS,
+      mute: { get: isMuted, set: setMuted },
       styleId: "tetris-touch-controls-css",
     });
     document.body.classList.toggle("touch", this.coarse);
@@ -152,7 +164,9 @@ export class GameScene {
     this.showBanner("TETRIS", titleSubText());
     // Plugging in a pad on the title adds its legend row + start hint.
     this.unwatchControls = watchControlContext(() => {
-      if (this.engine.state.status !== "title") return;
+      if (this.engine.state.status !== "title") {
+        return;
+      }
       this.hud.renderLegend();
       this.showBanner("TETRIS", titleSubText());
     });
@@ -177,13 +191,13 @@ export class GameScene {
     });
     const active = this.engine.activeCells();
     return {
-      frame: this.frame,
-      phase: this.engine.state.status,
-      score: this.engine.state.score,
-      lines: this.engine.state.lines,
       complete: this.engine.state.status === "gameOver",
-      player: active.length > 0 ? centroid(active) : null,
       entities,
+      frame: this.frame,
+      lines: this.engine.state.lines,
+      phase: this.engine.state.status,
+      player: active.length > 0 ? centroid(active) : null,
+      score: this.engine.state.score,
     };
   }
 
@@ -215,24 +229,6 @@ export class GameScene {
 
   /** Bound intent handlers handed to PoseControls (main.ts wires the camera). */
   readonly poseActions: PoseActions = {
-    steer: (dir) => {
-      this.poseHoriz = dir;
-      this.poseHorizAt = performance.now();
-      this.lastPoseAt = this.poseHorizAt;
-    },
-    rotate: () => this.doRotate(),
-    orbit: (dir) => {
-      this.lastPoseAt = performance.now();
-      this.doOrbit(dir);
-    },
-    hold: () => {
-      this.lastPoseAt = performance.now();
-      this.doHold();
-    },
-    power: () => {
-      this.lastPoseAt = performance.now();
-      this.doPower();
-    },
     catchCollapse: () => {
       // Throw-hands-up: catches the collapse mid-tumble, and starts the game
       // from the title / game-over screen — so play begins hands-free too.
@@ -240,45 +236,63 @@ export class GameScene {
       if (status === "collapsing") this.tryCatch();
       else if (status === "title" || status === "gameOver") this.startGame();
     },
+    hold: () => {
+      this.lastPoseAt = performance.now();
+      this.doHold();
+    },
+    orbit: (dir) => {
+      this.lastPoseAt = performance.now();
+      this.doOrbit(dir);
+    },
+    power: () => {
+      this.lastPoseAt = performance.now();
+      this.doPower();
+    },
+    rotate: () => this.doRotate(),
+    steer: (dir) => {
+      this.poseHoriz = dir;
+      this.poseHorizAt = performance.now();
+      this.lastPoseAt = this.poseHorizAt;
+    },
   };
 
   private keyboardHandlers(): KeyboardHandlers {
     return {
-      setHoriz: (dir) => {
-        this.kbHoriz = dir;
-      },
-      setDepth: (dir) => {
-        this.kbDepth = dir;
-      },
-      rotate: () => {
-        this.doRotate();
-      },
       hardDrop: () => this.onHardDrop(),
-      setSoftDrop: (on) => this.engine.setSoftDrop(on),
-      orbit: (dir) => this.doOrbit(dir),
       hold: () => this.doHold(),
-      power: () => this.doPower(),
-      pause: () => this.requestPause(),
-      start: () => this.startIfIdle(),
-      recenter: () => this.poseControls?.recenter(),
       muteToggle: () => {
         toggleMute();
         this.touchControls.sync();
       },
+      orbit: (dir) => this.doOrbit(dir),
+      pause: () => this.requestPause(),
+      power: () => this.doPower(),
+      recenter: () => this.poseControls?.recenter(),
+      rotate: () => {
+        this.doRotate();
+      },
+      setDepth: (dir) => {
+        this.kbDepth = dir;
+      },
+      setHoriz: (dir) => {
+        this.kbHoriz = dir;
+      },
+      setSoftDrop: (on) => this.engine.setSoftDrop(on),
+      start: () => this.startIfIdle(),
     };
   }
 
   private touchHandlers(): TouchHandlers {
     return {
-      step: (dir, initial) => this.stepScreen(dir, initial),
+      drop: () => this.onHardDrop(),
+      hold: () => this.doHold(),
+      orbit: (dir) => this.doOrbit(dir),
+      power: () => this.doPower(),
       rotate: () => {
         this.doRotate();
       },
-      orbit: (dir) => this.doOrbit(dir),
-      drop: () => this.onHardDrop(),
       setSoftDrop: (on) => this.engine.setSoftDrop(on),
-      hold: () => this.doHold(),
-      power: () => this.doPower(),
+      step: (dir, initial) => this.stepScreen(dir, initial),
       tap: () => this.onFreeTap(),
     };
   }
@@ -287,21 +301,30 @@ export class GameScene {
    *  While paused the wrapper overlay covers the screen and owns the tap. */
   private onFreeTap(): void {
     const s = this.engine.state.status;
-    if (s === "title" || s === "gameOver") this.startGame();
-    else if (s === "collapsing") this.tryCatch();
+    if (s === "title" || s === "gameOver") {
+      this.startGame();
+    } else if (s === "collapsing") {
+      this.tryCatch();
+    }
   }
 
   // ---- verbs ------------------------------------------------------------------
 
   private doRotate(): boolean {
-    if (this.engine.state.status !== "playing") return false;
+    if (this.engine.state.status !== "playing") {
+      return false;
+    }
     const ok = this.engine.rotate();
-    if (ok) sfx.rotate();
+    if (ok) {
+      sfx.rotate();
+    }
     return ok;
   }
 
   private doOrbit(dir: -1 | 1): void {
-    if (this.engine.state.status !== "playing") return;
+    if (this.engine.state.status !== "playing") {
+      return;
+    }
     const corner = this.rig.orbit(dir, performance.now());
     this.well.setCorner(corner);
     if (!this.orbitTaught) {
@@ -319,7 +342,9 @@ export class GameScene {
   }
 
   private doPower(): void {
-    if (!this.engine.canPower()) return;
+    if (!this.engine.canPower()) {
+      return;
+    }
     let lowest = this.engine.board.height;
     const footprint: Cell[] = [];
     this.engine.board.forEachCube((x, y, z) => {
@@ -327,35 +352,39 @@ export class GameScene {
         lowest = y;
         footprint.length = 0;
       }
-      if (y === lowest) footprint.push({ x, y, z });
+      if (y === lowest) {
+        footprint.push({ x, y, z });
+      }
     });
     const removed = this.engine.power();
-    if (removed <= 0) return;
+    if (removed <= 0) {
+      return;
+    }
     this.wellFx.power(footprint);
     this.boardDirty = true;
     sfx.power();
     this.rig.addTrauma(TRAUMA_CLEAR);
     this.particles.burst({
-      x: WELL_CENTER_X,
-      y: lowest + 0.2,
-      z: WELL_CENTER_Z,
       color: 0xffffff,
       count: CLEAR_BURST_COUNT,
-      speedMin: 4,
-      speedMax: 9,
-      yKick: 4,
       gravity: 3,
       life: 0.7,
       size: 0.18,
+      speedMax: 9,
+      speedMin: 4,
+      x: WELL_CENTER_X,
+      y: lowest + 0.2,
+      yKick: 4,
+      z: WELL_CENTER_Z,
     });
   }
 
   private onHardDrop(): void {
-    const status = this.engine.state.status;
+    const { status } = this.engine.state;
     if (status === "playing") {
       const start = this.engine.activeCells();
       const landing = this.engine.ghostCells();
-      const color = PIECES[this.engine.activePieceIndex()]?.color ?? 0xffffff;
+      const color = PIECES[this.engine.activePieceIndex()]?.color ?? 0xff_ff_ff;
       const ev = this.engine.hardDrop();
       sfx.hardDrop();
       this.rig.addTrauma(TRAUMA_HARD_DROP);
@@ -375,13 +404,17 @@ export class GameScene {
    *  handlers own the freeze (update-skip + shiftWallClock). While paused the
    *  overlay's own resume paths (pointerup / keyup / fresh pad press) apply. */
   private requestPause(): void {
-    if (this.engine.state.status !== "playing") return;
+    if (this.engine.state.status !== "playing") {
+      return;
+    }
     pauseGame();
   }
 
   private startIfIdle(): void {
     const s = this.engine.state.status;
-    if (s === "title" || s === "gameOver") this.startGame();
+    if (s === "title" || s === "gameOver") {
+      this.startGame();
+    }
   }
 
   private startGame(): void {
@@ -414,22 +447,22 @@ export class GameScene {
     this.piecesPlaced += 1;
     this.largestClear = Math.max(this.largestClear, ev.clear.lines);
     this.boardDirty = true;
-    const colorHex = PIECES[ev.colorIndex - 1]?.color ?? 0xffffff;
+    const colorHex = PIECES[ev.colorIndex - 1]?.color ?? 0xff_ff_ff;
     const c = centroid(ev.lockedCells);
     sfx.lock();
     this.rig.addTrauma(TRAUMA_LOCK);
     this.particles.burst({
-      x: c.x,
-      y: c.y,
-      z: c.z,
       color: colorHex,
       count: LOCK_DUST_COUNT,
-      speedMin: 1,
-      speedMax: 3,
-      yKick: 1,
       gravity: 6,
       life: 0.4,
       size: 0.12,
+      speedMax: 3,
+      speedMin: 1,
+      x: c.x,
+      y: c.y,
+      yKick: 1,
+      z: c.z,
     });
 
     if (ev.clear.lines > 0) {
@@ -438,22 +471,25 @@ export class GameScene {
       sfx.clear(ev.clear.lines, crossed);
       this.rig.addTrauma(TRAUMA_CLEAR);
       this.particles.burst({
-        x: c.x,
-        y: ev.layer,
-        z: c.z,
         color: 0xffffff,
         count: CLEAR_BURST_COUNT,
-        speedMin: 3,
-        speedMax: 8,
-        yKick: 3,
         gravity: 4,
         life: 0.6,
         size: 0.16,
+        speedMax: 8,
+        speedMin: 3,
+        x: c.x,
+        y: ev.layer,
+        yKick: 3,
+        z: c.z,
       });
     }
 
-    if (ev.gameOver) this.enterCollapse();
-    else this.needSnap = true;
+    if (ev.gameOver) {
+      this.enterCollapse();
+    } else {
+      this.needSnap = true;
+    }
   }
 
   private enterCollapse(): void {
@@ -472,7 +508,9 @@ export class GameScene {
   }
 
   private tryCatch(): void {
-    if (this.engine.state.status !== "collapsing") return;
+    if (this.engine.state.status !== "collapsing") {
+      return;
+    }
     this.collapse.dispose();
     this.cubes.frozen = false;
     this.cubes.clearLocked();
@@ -507,13 +545,13 @@ export class GameScene {
       }
     }
     this.hud.showResults({
-      score: this.engine.state.score,
       best: runBest,
-      newBest,
+      largestClear: this.largestClear,
       lines: this.engine.state.lines,
+      newBest,
       pieces: this.piecesPlaced,
       rescues: this.rescues,
-      largestClear: this.largestClear,
+      score: this.engine.state.score,
     });
     this.showBanner(
       "GAME OVER",
@@ -530,16 +568,20 @@ export class GameScene {
     const dtMs = dt * 1000;
     this.touch.update(dtMs); // poll the gamepad before the sim tick
     this.updatePad(now);
-    const status = this.engine.state.status;
+    const { status } = this.engine.state;
 
     if (status === "playing") {
       this.routeSteering(dtMs);
       const paused = this.rig.isInMotion(now); // gravity pauses during the swing
       const ev = this.engine.tick(dtMs, paused);
-      if (ev) this.handleLock(ev);
+      if (ev) {
+        this.handleLock(ev);
+      }
     } else if (status === "collapsing") {
       this.collapse.step(dt);
-      if (now - this.collapseStartedAt > CATCH_WINDOW_MS) this.finalizeGameOver();
+      if (now - this.collapseStartedAt > CATCH_WINDOW_MS) {
+        this.finalizeGameOver();
+      }
     }
 
     // sync renderers from the logical state (locked layer only when it changed;
@@ -569,14 +611,14 @@ export class GameScene {
     const poseFresh = performance.now() - this.poseHorizAt < POSE_TIMEOUT_MS;
     const pad = this.padSteer();
     const horiz: -1 | 0 | 1 =
-      this.kbHoriz !== 0
-        ? this.kbHoriz
-        : pad.horiz !== 0
+      this.kbHoriz === 0
+        ? pad.horiz !== 0
           ? pad.horiz
           : poseFresh
             ? this.poseHoriz
-            : 0;
-    const depth: -1 | 0 | 1 = this.kbDepth !== 0 ? this.kbDepth : pad.depth;
+            : 0
+        : this.kbHoriz;
+    const depth: -1 | 0 | 1 = this.kbDepth === 0 ? pad.depth : this.kbDepth;
     this.repeat(this.hMove, horiz, dtMs, false);
     this.repeat(this.dMove, depth, dtMs, true);
   }
@@ -584,7 +626,9 @@ export class GameScene {
   /** Held pad steer (d-pad first, then left stick) on the same screen-relative
    *  axes as the keyboard, so it feeds the shared DAS/ARR repeat state. */
   private padSteer(): Steer {
-    if (!this.pad.connected) return { horiz: 0, depth: 0 };
+    if (!this.pad.connected) {
+      return { horiz: 0, depth: 0 };
+    }
     let horiz: -1 | 0 | 1 = this.pad.isButtonDown("left")
       ? -1
       : this.pad.isButtonDown("right")
@@ -597,25 +641,36 @@ export class GameScene {
         : 0;
     if (horiz === 0 && depth === 0) {
       const dir = stickDirection4(this.pad.getStick());
-      if (dir === "left") horiz = -1;
-      else if (dir === "right") horiz = 1;
-      else if (dir === "up") depth = -1;
-      else if (dir === "down") depth = 1;
+      if (dir === "left") {
+        horiz = -1;
+      } else if (dir === "right") {
+        horiz = 1;
+      } else if (dir === "up") {
+        depth = -1;
+      } else if (dir === "down") {
+        depth = 1;
+      }
     }
     if (this.padSteerBlocked) {
-      if (horiz === 0 && depth === 0) this.padSteerBlocked = false;
-      return { horiz: 0, depth: 0 };
+      if (horiz === 0 && depth === 0) {
+        this.padSteerBlocked = false;
+      }
+      return { depth: 0, horiz: 0 };
     }
-    if (horiz !== 0 || depth !== 0) this.lastPadAt = performance.now();
-    return { horiz, depth };
+    if (horiz !== 0 || depth !== 0) {
+      this.lastPadAt = performance.now();
+    }
+    return { depth, horiz };
   }
 
   /** Physical controller: poll once per frame and drive the same verbs as the
    *  keyboard (steering merges into routeSteering's DAS/ARR while playing). */
   private updatePad(now: number): void {
     this.pad.update();
-    if (!this.pad.connected) return;
-    const status = this.engine.state.status;
+    if (!this.pad.connected) {
+      return;
+    }
+    const { status } = this.engine.state;
     if (status === "title" || status === "gameOver") {
       // Any face button starts, mirroring Enter / the free tap.
       if (["a", "b", "x", "y"].some((b) => this.pad.justPressed(b))) {
@@ -654,14 +709,18 @@ export class GameScene {
       acted = true;
     }
     const heldSoft = this.pad.isButtonDown("lt") || this.pad.isButtonDown("rt");
-    if (!heldSoft) this.padSoftBlocked = false;
+    if (!heldSoft) {
+      this.padSoftBlocked = false;
+    }
     const soft = heldSoft && !this.padSoftBlocked;
     if (soft !== this.padSoftDrop) {
       this.padSoftDrop = soft;
       this.engine.setSoftDrop(soft);
       acted = true;
     }
-    if (acted) this.lastPadAt = now;
+    if (acted) {
+      this.lastPadAt = now;
+    }
   }
 
   private repeat(state: Repeat, dir: -1 | 0 | 1, dtMs: number, depthAxis: boolean): void {
@@ -701,13 +760,17 @@ export class GameScene {
   private stepScreen(dir: ScreenDir, initial: boolean): void {
     const m = screenToWorld(this.rig.corner, dir);
     const moved = this.engine.move(m.dx, m.dz);
-    if (moved && initial) sfx.move();
+    if (moved && initial) {
+      sfx.move();
+    }
   }
 
   // ---- HUD --------------------------------------------------------------------
 
   private catchRemaining(now: number): number | null {
-    if (this.engine.state.status !== "collapsing") return null;
+    if (this.engine.state.status !== "collapsing") {
+      return null;
+    }
     return Math.max(0, CATCH_WINDOW_MS - (now - this.collapseStartedAt));
   }
 
@@ -721,13 +784,13 @@ export class GameScene {
     const owner: InputOwner =
       poseFresh && this.lastPoseAt >= this.lastPadAt ? "POSE" : padFresh ? "PAD" : idle;
     this.hud.update({
-      score: s.score,
-      lines: s.lines,
-      nextIndex: this.engine.nextIndex,
+      charge: this.engine.charge,
       holdIndex: this.engine.holdIndex,
       holdSpent: this.engine.holdSpent,
-      charge: this.engine.charge,
+      lines: s.lines,
+      nextIndex: this.engine.nextIndex,
       owner,
+      score: s.score,
     });
   }
 
@@ -735,14 +798,14 @@ export class GameScene {
    *  reference centred under it and hide the in-play hotkey bar. The button
    *  cluster exists only in play; title and results own their taps. */
   private showBanner(title: string, sub: string, withLegend = true): void {
-    const status = this.engine.state.status;
+    const { status } = this.engine.state;
     this.hud.showBanner(status, title, sub, withLegend ? "legend" : "none");
     this.touch.setActive(status !== "title" && status !== "gameOver");
     this.hud.setCatchMeter(this.catchRemaining(performance.now()));
   }
 
   private hideBanner(): void {
-    const status = this.engine.state.status;
+    const { status } = this.engine.state;
     this.hud.hideBanner(status);
     this.touch.setActive(status !== "title" && status !== "gameOver");
     this.hud.setCatchMeter(this.catchRemaining(performance.now()));
@@ -750,7 +813,9 @@ export class GameScene {
 }
 
 function centroid(cells: Cell[]) {
-  if (cells.length === 0) return { x: 0, y: 0, z: 0 };
+  if (cells.length === 0) {
+    return { x: 0, y: 0, z: 0 };
+  }
   let x = 0;
   let y = 0;
   let z = 0;

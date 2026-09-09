@@ -13,9 +13,13 @@ export function curveVelocity(
   dt: number,
   minForwardFraction: number,
 ): Spin {
-  if (!spin || dt <= 0) return spin;
+  if (!spin || dt <= 0) {
+    return spin;
+  }
   const speed = Math.hypot(velocity.x, velocity.y);
-  if (speed === 0 || spin.left <= 0) return null;
+  if (speed === 0 || spin.left <= 0) {
+    return null;
+  }
   const step = Math.min(dt, spin.left);
   const age = SPIN_LIFE - spin.left;
   const angle =

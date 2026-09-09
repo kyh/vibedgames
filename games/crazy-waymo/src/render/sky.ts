@@ -60,6 +60,7 @@ const HORIZON_WELD_BAND = 0.055;
 const DITHER_RELATIVE = 0.005;
 const DITHER_ABSOLUTE = 0.0034;
 
+// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature ShaderMaterial uniforms need
 type SkyUniforms = {
   readonly turbidity: THREE.IUniform<number>;
   readonly rayleigh: THREE.IUniform<number>;
@@ -82,6 +83,7 @@ type SkyUniforms = {
   // <<< end patch 1/5
 };
 
+// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
 const VERTEX = /* glsl */ `
   uniform vec3 sunPosition;
   uniform float rayleigh;
@@ -154,6 +156,7 @@ const VERTEX = /* glsl */ `
 
   }`;
 
+// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
 const FRAGMENT = /* glsl */ `
   varying vec3 vWorldPosition;
   varying vec3 vSunDirection;
@@ -379,38 +382,42 @@ export class Sky extends THREE.Mesh<THREE.BoxGeometry, THREE.ShaderMaterial> {
 
   constructor() {
     const uniforms: SkyUniforms = {
-      turbidity: { value: 2 },
-      rayleigh: { value: 1 },
-      mieCoefficient: { value: 0.005 },
-      mieDirectionalG: { value: 0.8 },
-      sunPosition: { value: new THREE.Vector3() },
-      up: { value: new THREE.Vector3(0, 1, 0) },
-      cloudScale: { value: 0.0002 },
-      cloudSpeed: { value: 0.0001 },
       cloudCoverage: { value: 0.4 },
       cloudDensity: { value: 0.4 },
       cloudElevation: { value: 0.5 },
-      showSunDisc: { value: 1 },
-      time: { value: 0 },
+      cloudScale: { value: 0.0002 },
+      cloudSpeed: { value: 0.0001 },
+      fogColor: { value: new THREE.Color(0xbc_d7_ea) },
       horizonRolloff: { value: HORIZON_ROLLOFF_DEFAULT },
-      fogColor: { value: new THREE.Color(0xbcd7ea) },
+      mieCoefficient: { value: 0.005 },
+      mieDirectionalG: { value: 0.8 },
+      rayleigh: { value: 1 },
+      showSunDisc: { value: 1 },
+      sunPosition: { value: new THREE.Vector3() },
+      time: { value: 0 },
+      turbidity: { value: 2 },
+      up: { value: new THREE.Vector3(0, 1, 0) },
     };
     super(
       new THREE.BoxGeometry(1, 1, 1),
       new THREE.ShaderMaterial({
+        depthWrite: false,
+        fragmentShader: FRAGMENT,
         name: "SkyShader",
+        side: THREE.BackSide,
         uniforms,
         vertexShader: VERTEX,
-        fragmentShader: FRAGMENT,
-        side: THREE.BackSide,
-        depthWrite: false,
       }),
     );
     this.fogColorUniform = uniforms.fogColor;
   }
 
   override onBeforeRender(_renderer: THREE.WebGLRenderer, scene: THREE.Scene): void {
-    if (scene.fog) this.sceneFog = scene.fog;
-    if (this.sceneFog) this.fogColorUniform.value.copy(this.sceneFog.color);
+    if (scene.fog) {
+      this.sceneFog = scene.fog;
+    }
+    if (this.sceneFog) {
+      this.fogColorUniform.value.copy(this.sceneFog.color);
+    }
   }
 }

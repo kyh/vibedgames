@@ -1,50 +1,46 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { hostTick, placeBomb } from "../src/sim/host-sim";
-import {
-  BOT_MOVE_MS,
-  FUSE_MS,
-  newGrid,
-  type Bot,
-  type Cell,
-  type SharedState,
-} from "../src/shared/constants";
+import { BOT_MOVE_MS, FUSE_MS, newGrid } from "../src/shared/constants";
+import type { Bot, Cell, SharedState } from "../src/shared/constants";
 
 /** The courtyard with every crate removed, plus the crates a case pins. */
-function openGrid(crates: Array<[col: number, row: number]>): Cell[][] {
+function openGrid(crates: [col: number, row: number][]): Cell[][] {
   const grid = newGrid().map((row) =>
     row.map((cell) => (cell.kind === "crate" ? { kind: "empty" as const } : cell)),
   );
   for (const [col, row] of crates) {
     const line = grid[row];
-    if (line) line[col] = { kind: "crate" };
+    if (line) {
+      line[col] = { kind: "crate" };
+    }
   }
   return grid;
 }
 
 function world(grid: Cell[][], patch: Partial<SharedState> = {}): SharedState {
   return {
-    grid,
-    bombs: {},
     blasts: {},
-    powerups: {},
+    bombs: {},
     bots: {},
-    stats: {},
     deaths: {},
-    winner: null,
+    grid,
+    powerups: {},
     startedAt: 1,
+    stats: {},
+    winner: null,
     ...patch,
   };
 }
 
 const bot = (id: string, col: number, row: number): Bot => ({
-  id,
   col,
-  row,
-  dir: "down",
   colorIdx: 1,
+  dir: "down",
+  id,
   moving: false,
   nextMoveAt: 0,
+  row,
 });
 
 test("bomb placement: stock, tile occupancy and death gate the request", () => {
@@ -52,7 +48,7 @@ test("bomb placement: stock, tile occupancy and death gate the request", () => {
   const first = placeBomb(s, "h", 1, 1, 1000);
   assert.ok(first);
   const [bomb] = Object.values(first);
-  assert.deepEqual(bomb, { id: bomb?.id, ownerId: "h", col: 1, row: 1, placedAt: 1000, range: 2 });
+  assert.deepEqual(bomb, { col: 1, id: bomb?.id, ownerId: "h", placedAt: 1000, range: 2, row: 1 });
   const stocked = world(openGrid([]), { bombs: first });
   assert.equal(placeBomb(stocked, "h", 1, 1, 1001), null, "tile already holds a bomb");
   assert.equal(placeBomb(stocked, "h", 2, 1, 1001), null, "base stock is one bomb");
@@ -67,8 +63,8 @@ test("blast propagation: walls stop, crates absorb, chains cascade, fighters die
   const now = 10_000;
   const s = world(openGrid([[3, 1]]), {
     bombs: {
-      a: { id: "a", ownerId: "h", col: 1, row: 1, placedAt: now - FUSE_MS, range: 2 },
-      b: { id: "b", ownerId: "g", col: 1, row: 3, placedAt: now - 100, range: 1 },
+      a: { col: 1, id: "a", ownerId: "h", placedAt: now - FUSE_MS, range: 2, row: 1 },
+      b: { col: 1, id: "b", ownerId: "g", placedAt: now - 100, range: 1, row: 3 },
     },
   });
   const humans = [
@@ -103,8 +99,8 @@ test("blast propagation: walls stop, crates absorb, chains cascade, fighters die
 
 test("bots flee live danger and only wander onto safe tiles", () => {
   const fleeing = world(openGrid([[3, 2]]), {
+    bombs: { a: { col: 5, id: "a", ownerId: "h", placedAt: 0, range: 2, row: 1 } },
     bots: { "bot-1": bot("bot-1", 3, 1) },
-    bombs: { a: { id: "a", ownerId: "h", col: 5, row: 1, placedAt: 0, range: 2 } },
   });
   const fled = hostTick(fleeing, [{ id: "h", pos: null }], 500, () => 0);
   assert.deepEqual(
@@ -113,8 +109,8 @@ test("bots flee live danger and only wander onto safe tiles", () => {
     "steps out of the blast line",
   );
   const wandering = world(openGrid([]), {
+    bombs: { a: { col: 4, id: "a", ownerId: "h", placedAt: 0, range: 1, row: 1 } },
     bots: { "bot-1": bot("bot-1", 2, 1) },
-    bombs: { a: { id: "a", ownerId: "h", col: 4, row: 1, placedAt: 0, range: 1 } },
   });
   const wandered = hostTick(wandering, [{ id: "h", pos: null }], 500, () => 0);
   const moved = wandered.patch?.bots?.["bot-1"];

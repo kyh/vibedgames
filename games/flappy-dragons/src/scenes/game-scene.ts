@@ -49,11 +49,11 @@ import {
   topHeightFor,
   TUBE_CAP_H,
   WORLD_TICK_HZ,
-  type Phase,
 } from "../shared/constants";
+import type { Phase } from "../shared/constants";
 
 /** A trunk built for course index `i`; sprites are positioned each frame. */
-type Pipe = {
+interface Pipe {
   index: number;
   topHeight: number;
   topCap: Phaser.GameObjects.Image;
@@ -62,21 +62,21 @@ type Pipe = {
   botBody: Phaser.GameObjects.TileSprite;
   coin: Phaser.GameObjects.Sprite | null;
   glint: Phaser.GameObjects.Image | null;
-};
+}
 
-type BgLayer = {
+interface BgLayer {
   sprite: Phaser.GameObjects.TileSprite;
   factor: number;
-};
+}
 
 /** Another player's live dragon, drawn as a translucent ghost. */
-type Ghost = {
+interface Ghost {
   sprite: Phaser.GameObjects.Sprite;
   skin: number;
   /** Per-id flock variation (seeded from the id), computed once at creation. */
   scale: number;
   gap: number;
-};
+}
 
 const COIN_PICKUP_X = 54;
 const COIN_PICKUP_Y = 44;
@@ -112,7 +112,13 @@ const HINT_RESTART = TOUCH ? "TAP ANYWHERE TO RESTART" : "CLICK OR PRESS SPACE T
 const HINT_RACE = "FLAP TO JOIN THE RACE";
 const SOLO_ROW_ID = "you";
 
-type PeerState = { yf: number; live: boolean; score: number; skin: number; rot: number };
+interface PeerState {
+  yf: number;
+  live: boolean;
+  score: number;
+  skin: number;
+  rot: number;
+}
 
 export class GameScene extends Phaser.Scene {
   private net!: NetSession;
@@ -193,13 +199,13 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(): void {
-    this.hintEl = document.getElementById("hint");
-    this.gatesEl = document.getElementById("flight-gates");
-    this.resultsEl = document.getElementById("flight-result");
-    this.resultRetryEl = document.getElementById("result-retry");
-    this.boardEl = document.getElementById("board");
-    this.netInfoEl = document.getElementById("netinfo");
-    this.startEl = document.getElementById("start");
+    this.hintEl = document.querySelector("#hint");
+    this.gatesEl = document.querySelector("#flight-gates");
+    this.resultsEl = document.querySelector("#flight-result");
+    this.resultRetryEl = document.querySelector("#result-retry");
+    this.boardEl = document.querySelector("#board");
+    this.netInfoEl = document.querySelector("#netinfo");
+    this.startEl = document.querySelector("#start");
     this.best = readBest();
     this.skin = rollSkin();
 
@@ -216,9 +222,9 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.net = new NetSession({
-      room: ROOM,
-      maxPlayers: MP_MAX_PLAYERS,
       fallbackMs: OFFLINE_FALLBACK_MS,
+      maxPlayers: MP_MAX_PLAYERS,
+      room: ROOM,
     });
 
     this.bgLayers = BG_FACTORS.map((factor, i) => ({
@@ -257,10 +263,14 @@ export class GameScene extends Phaser.Scene {
     this.buildStartScreen();
     this.input.on("pointerdown", () => this.handleInput());
     this.input.keyboard?.on("keydown-SPACE", (e: KeyboardEvent) => {
-      if (!e.repeat) this.handleInput();
+      if (!e.repeat) {
+        this.handleInput();
+      }
     });
     this.input.keyboard?.on("keydown-UP", (e: KeyboardEvent) => {
-      if (!e.repeat) this.handleInput();
+      if (!e.repeat) {
+        this.handleInput();
+      }
     });
     // M is a user gesture, so unmuting here can safely resume a suspended
     // audio context.
@@ -286,7 +296,7 @@ export class GameScene extends Phaser.Scene {
     this.spawnTitleDragon();
 
     if (import.meta.env.DEV) {
-      window.__fb = { scene: this, net: this.net };
+      window.__fb = { net: this.net, scene: this };
       Object.defineProperty(window, "__GAME_DIAGNOSTICS__", {
         configurable: true,
         get: () => this.diagnostics(),
@@ -296,24 +306,26 @@ export class GameScene extends Phaser.Scene {
 
   diagnostics() {
     return {
-      frame: this.game.loop.frame,
-      score: this.score,
       complete: this.phase === "gameover",
-      player: { x: BIRD_X, y: this.birdY, alive: this.alive },
       entities: this.pipes.size + this.ghosts.size + 1,
-      phase: this.phase,
+      frame: this.game.loop.frame,
       gates: this.gates,
+      phase: this.phase,
+      player: { alive: this.alive, x: BIRD_X, y: this.birdY },
+      score: this.score,
     };
   }
 
   private buildStartScreen(): void {
-    const controls = document.getElementById("start-controls");
-    const go = document.getElementById("start-go");
+    const controls = document.querySelector("#start-controls");
+    const go = document.querySelector("#start-go");
     // Same grouped keycap card the pause overlay renders — the two teaching
     // surfaces stay visually consistent by construction.
     ensureControlsStyle();
     const renderControls = (): void => {
-      if (!controls) return;
+      if (!controls) {
+        return;
+      }
       const card = buildControls(CONTROLS, TOUCH);
       controls.replaceChildren(...(card ? [card] : []));
     };
@@ -321,9 +333,13 @@ export class GameScene extends Phaser.Scene {
     // Plugging in a pad while the start screen is up adds its rows.
     this.unwatchControls?.();
     this.unwatchControls = watchControlContext(() => {
-      if (!this.started) renderControls();
+      if (!this.started) {
+        renderControls();
+      }
     });
-    if (go) go.textContent = TOUCH ? "tap to start" : "press any key to start";
+    if (go) {
+      go.textContent = TOUCH ? "tap to start" : "press any key to start";
+    }
     // Reveals the overlay now that the card is complete — see #start in index.html.
     this.startEl?.classList.add("ready");
     this.input.keyboard?.once("keyup", () => this.beginPlay());
@@ -337,7 +353,9 @@ export class GameScene extends Phaser.Scene {
    * reduced-motion.
    */
   private spawnTitleDragon(): void {
-    if (prefersReducedMotion()) return;
+    if (prefersReducedMotion()) {
+      return;
+    }
     this.titleDragon = this.add.sprite(-80, COURSE_H / 2, `dragon-${rollSkin()}-1`).setDepth(9);
     this.flyTitleDragon();
   }
@@ -346,7 +364,9 @@ export class GameScene extends Phaser.Scene {
    *  height + skin. Bob + tilt run for the pass; all are killed on relaunch. */
   private flyTitleDragon(): void {
     const d = this.titleDragon;
-    if (!d || this.started) return;
+    if (!d || this.started) {
+      return;
+    }
     this.tweens.killTweensOf(d);
     const skin = rollSkin();
     d.play(`fly-${skin}`);
@@ -356,40 +376,44 @@ export class GameScene extends Phaser.Scene {
       .setAlpha(0.9)
       .setRotation(0);
     this.tweens.add({
-      targets: d,
-      x: this.viewW() + 80,
       duration: 5200 + Math.random() * 2000,
       ease: "Sine.easeInOut",
       onComplete: () => this.flyTitleDragon(),
+      targets: d,
+      x: this.viewW() + 80,
     });
     this.tweens.add({
+      duration: 1050,
+      ease: "Sine.easeInOut",
+      repeat: -1,
       targets: d,
       y: y - 34,
-      duration: 1050,
-      ease: "Sine.easeInOut",
       yoyo: true,
-      repeat: -1,
     });
     this.tweens.add({
-      targets: d,
-      rotation: -0.14,
       duration: 1050,
       ease: "Sine.easeInOut",
-      yoyo: true,
       repeat: -1,
+      rotation: -0.14,
+      targets: d,
+      yoyo: true,
     });
   }
 
   private removeTitleDragon(): void {
     const d = this.titleDragon;
-    if (!d) return;
+    if (!d) {
+      return;
+    }
     this.tweens.killTweensOf(d);
     d.destroy();
     this.titleDragon = null;
   }
 
   private beginPlay(): void {
-    if (this.started) return;
+    if (this.started) {
+      return;
+    }
     this.started = true;
     this.unwatchControls?.();
     this.unwatchControls = null;
@@ -409,8 +433,10 @@ export class GameScene extends Phaser.Scene {
    * phase and the first flap (tap/Space/jump/arm-flap) launches the run.
    */
   private runCountdown(): void {
-    const el = document.getElementById("countdown");
-    if (!el) return;
+    const el = document.querySelector("#countdown");
+    if (!el) {
+      return;
+    }
     this.countingDown = true;
     recalibratePose();
     let n = 3;
@@ -463,12 +489,16 @@ export class GameScene extends Phaser.Scene {
    * when the online sim has to keep running for the other players.
    */
   setPresentationPaused(paused: boolean): void {
-    if (paused === this.presentationPaused) return;
+    if (paused === this.presentationPaused) {
+      return;
+    }
     this.presentationPaused = paused;
     // The pad button that dismissed the wrapper's overlay is consumed by it:
     // sample it now so the next gameplay poll doesn't see a fresh press.
     this.pad.update();
-    if (this.countdownTimer) this.countdownTimer.paused = paused;
+    if (this.countdownTimer) {
+      this.countdownTimer.paused = paused;
+    }
     this.sound.mute = this.muted || paused;
     if (paused) {
       this.cancelPhrase();
@@ -486,7 +516,9 @@ export class GameScene extends Phaser.Scene {
   update(time: number, delta: number): void {
     const dt = Math.min(delta, MAX_DT_MS) / 1000;
     this.pad.update();
-    if (this.padFlapPressed()) this.handleInput();
+    if (this.padFlapPressed()) {
+      this.handleInput();
+    }
     this.net.tick();
     this.rivalIds = this.presentRivals();
     this.ensureSeed();
@@ -496,7 +528,9 @@ export class GameScene extends Phaser.Scene {
       // Idle hover; in a live race the bird is a translucent, invulnerable
       // spectator until the first flap.
       this.bird.y = BIRD_SPAWN_Y + DRAGON_SPRITE_OFFSET_Y + Math.sin(time / 300) * 4;
-      if (!this.racing) this.readyDrift += READY_DRIFT * dt;
+      if (!this.racing) {
+        this.readyDrift += READY_DRIFT * dt;
+      }
     } else if (this.phase === "playing") {
       // Legacy integration order: position first, then gravity into velocity.
       this.birdY += this.vy * dt;
@@ -516,10 +550,14 @@ export class GameScene extends Phaser.Scene {
       this.checkDeath();
     } else if (this.phase === "gameover" && this.racing) {
       // Multiplayer: crash is a brief setback, then rejoin the live course.
-      if (time - this.diedAt >= RESPAWN_MS) this.respawn();
+      if (time - this.diedAt >= RESPAWN_MS) {
+        this.respawn();
+      }
     }
 
-    if (this.phase === "gameover") this.updateResults(time);
+    if (this.phase === "gameover") {
+      this.updateResults(time);
+    }
     this.applyParallax();
     this.syncPipes();
     this.syncGhosts();
@@ -549,20 +587,24 @@ export class GameScene extends Phaser.Scene {
   private ensureSeed(): void {
     const s = this.net.sharedState;
     const shared = s ? numField(s, "seed") : null;
-    if (shared !== null && Number.isSafeInteger(shared) && shared > 0 && shared <= 0x80000000) {
+    if (shared !== null && Number.isSafeInteger(shared) && shared > 0 && shared <= 0x80_00_00_00) {
       this.adoptSeed(shared);
       return;
     }
     // First host seeds the course. Guests wait for it (bird just hovers).
     if (this.net.isHost) {
-      if (this.seed === 0) this.seed = randomSeed();
+      if (this.seed === 0) {
+        this.seed = randomSeed();
+      }
       this.net.patchShared({ seed: this.seed });
     }
   }
 
   /** Pipes were built from the old seed; syncPipes rebuilds them this frame. */
   private adoptSeed(seed: number): void {
-    if (seed === this.seed) return;
+    if (seed === this.seed) {
+      return;
+    }
     this.seed = seed;
     this.clearPipes();
   }
@@ -571,12 +613,16 @@ export class GameScene extends Phaser.Scene {
     if (this.net.isHost) {
       // Host owns the global scroll: run it while we're flying, or whenever a
       // guest is in the room so the shared course keeps moving for everyone.
-      if (this.alive || this.racing) this.worldX += PIPE_SPEED * dt;
+      if (this.alive || this.racing) {
+        this.worldX += PIPE_SPEED * dt;
+      }
       return;
     }
     // Guest: mirror the host's scroll, dead-reckoned between snapshots.
     const s = this.net.sharedState;
-    if (!s) return;
+    if (!s) {
+      return;
+    }
     const seq = numField(s, "wseq");
     const wx = numField(s, "wx");
     this.worldX += PIPE_SPEED * dt;
@@ -586,8 +632,11 @@ export class GameScene extends Phaser.Scene {
       // Snapshots arrive ~half-RTT stale, so hard-adopting each one snaps the
       // whole pipe field backward every tick. Fold small drift in smoothly;
       // snap only on real discontinuities (join, host migration).
-      if (Math.abs(drift) > WORLD_SNAP_PX) this.worldX = wx;
-      else this.worldX += drift * WORLD_DRIFT_BLEND;
+      if (Math.abs(drift) > WORLD_SNAP_PX) {
+        this.worldX = wx;
+      } else {
+        this.worldX += drift * WORLD_DRIFT_BLEND;
+      }
     }
   }
 
@@ -603,12 +652,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handleInput(strength = 1, refire = false): void {
-    if (this.presentationPaused) return;
+    if (this.presentationPaused) {
+      return;
+    }
     if (!this.started) {
       this.beginPlay();
       return;
     }
-    if (this.countingDown) return; // holding for the get-ready count
+    if (this.countingDown) {
+      return;
+    } // holding for the get-ready count
     if (this.phase === "ready") {
       this.startLife();
       this.setPhase("playing");
@@ -626,8 +679,12 @@ export class GameScene extends Phaser.Scene {
     // In a race the respawn timer owns the comeback — a tap on the gameover
     // screen must not restart() (which rewinds the SHARED course to zero for
     // everyone when the host does it).
-    if (this.racing) return;
-    if (this.time.now - this.diedAt < RESTART_LOCKOUT_MS) return;
+    if (this.racing) {
+      return;
+    }
+    if (this.time.now - this.diedAt < RESTART_LOCKOUT_MS) {
+      return;
+    }
     this.restart();
   }
 
@@ -637,18 +694,22 @@ export class GameScene extends Phaser.Scene {
 
   private flap(strength: number, refire = false): void {
     this.vy = flapVelocityFor(strength);
-    if (refire) return;
+    if (refire) {
+      return;
+    }
     this.flightFx.wingbeat(this.bird.x, this.bird.y);
     this.playSound("flap", { rate: 0.95 + Math.random() * 0.1 });
-    if (prefersReducedMotion()) return;
+    if (prefersReducedMotion()) {
+      return;
+    }
     this.tweens.killTweensOf(this.bird);
     this.bird.setScale(ART_SCALE * 1.15, ART_SCALE * 0.8);
     this.tweens.add({
-      targets: this.bird,
-      scaleX: ART_SCALE,
-      scaleY: ART_SCALE,
       duration: 140,
       ease: "Quad.easeOut",
+      scaleX: ART_SCALE,
+      scaleY: ART_SCALE,
+      targets: this.bird,
     });
   }
 
@@ -661,7 +722,9 @@ export class GameScene extends Phaser.Scene {
    */
   private setPhase(phase: Phase): void {
     this.phase = phase;
-    if (phase === "playing") notifyGameStarted();
+    if (phase === "playing") {
+      notifyGameStarted();
+    }
     setPoseLocked(phase === "playing");
     this.refreshGateHud();
   }
@@ -737,11 +800,15 @@ export class GameScene extends Phaser.Scene {
     this.cancelPhrase();
     this.playSound("hit");
     this.bird.stop();
-    this.bird.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
+    this.bird.setTint(0xff_ff_ff).setTintMode(Phaser.TintModes.FILL);
     this.time.delayedCall(90, () => {
-      if (this.phase === "gameover") this.bird.clearTint().setTintMode(Phaser.TintModes.MULTIPLY);
+      if (this.phase === "gameover") {
+        this.bird.clearTint().setTintMode(Phaser.TintModes.MULTIPLY);
+      }
     });
-    if (!prefersReducedMotion()) this.cameras.main.shake(120, 0.008);
+    if (!prefersReducedMotion()) {
+      this.cameras.main.shake(120, 0.008);
+    }
     this.flightFx.crash(this.bird.x, this.bird.y);
 
     const isNewBest = this.score > this.best;
@@ -780,16 +847,22 @@ export class GameScene extends Phaser.Scene {
    *  we were dead, so a fixed height regularly lands inside a pipe trunk —
    *  aim for the gap of the pipe the bird will meet first instead. */
   private spawnY(): number {
-    if (this.seed === 0) return BIRD_SPAWN_Y;
+    if (this.seed === 0) {
+      return BIRD_SPAWN_Y;
+    }
     const i = this.frontIndex() + 1;
-    if (i < 0) return BIRD_SPAWN_Y; // still on the runway, nothing ahead
+    if (i < 0) {
+      return BIRD_SPAWN_Y;
+    } // still on the runway, nothing ahead
     const top = topHeightFor(this.seed, i);
     return top + PIPE_GAP / 2;
   }
 
   private syncPipes(): void {
     if (!this.raceActive || this.seed === 0) {
-      if (this.pipes.size > 0) this.clearPipes();
+      if (this.pipes.size > 0) {
+        this.clearPipes();
+      }
       return;
     }
     const width = this.viewW();
@@ -798,7 +871,9 @@ export class GameScene extends Phaser.Scene {
 
     for (let i = iLow; i <= iHigh; i++) {
       let pipe = this.pipes.get(i);
-      if (!pipe) pipe = this.spawnPipe(i);
+      if (!pipe) {
+        pipe = this.spawnPipe(i);
+      }
       this.positionPipe(pipe);
     }
     for (const [i, pipe] of this.pipes) {
@@ -855,11 +930,11 @@ export class GameScene extends Phaser.Scene {
     const glint = coin
       ? this.add
           .image(0, coin.y - 12, "flight-glint")
-          .setTint(0xfff4b8)
+          .setTint(0xff_f4_b8)
           .setDepth(5)
       : null;
 
-    const pipe: Pipe = { index: i, topHeight, topCap, topBody, botCap, botBody, coin, glint };
+    const pipe: Pipe = { botBody, botCap, coin, glint, index: i, topBody, topCap, topHeight };
     this.pipes.set(i, pipe);
     return pipe;
   }
@@ -871,7 +946,9 @@ export class GameScene extends Phaser.Scene {
     pipe.botBody.x = x;
     pipe.topCap.x = centerX;
     pipe.botCap.x = centerX;
-    if (pipe.coin) pipe.coin.x = centerX;
+    if (pipe.coin) {
+      pipe.coin.x = centerX;
+    }
     if (pipe.glint) {
       pipe.glint.x = centerX + 12;
       // A small steady gleam still marks an edge-on coin under reduced motion.
@@ -883,15 +960,23 @@ export class GameScene extends Phaser.Scene {
   }
 
   private clearPipes(): void {
-    for (const pipe of this.pipes.values()) destroyPipe(pipe);
+    for (const pipe of this.pipes.values()) {
+      destroyPipe(pipe);
+    }
     this.pipes.clear();
   }
 
   private checkScore(): void {
-    if (this.phase !== "playing") return;
+    if (this.phase !== "playing") {
+      return;
+    }
     for (const pipe of this.pipes.values()) {
-      if (pipe.index <= this.lastScoredIndex) continue;
-      if (this.screenX(pipe.index) + PIPE_WIDTH > BIRD_X) continue;
+      if (pipe.index <= this.lastScoredIndex) {
+        continue;
+      }
+      if (this.screenX(pipe.index) + PIPE_WIDTH > BIRD_X) {
+        continue;
+      }
       this.lastScoredIndex = pipe.index;
       this.score += 1;
       this.gates += 1;
@@ -912,10 +997,13 @@ export class GameScene extends Phaser.Scene {
     const cx = BIRD_X + BIRD_W / 2;
     const cy = this.birdY + BIRD_H / 2;
     for (const pipe of this.pipes.values()) {
-      const coin = pipe.coin;
-      if (!coin) continue;
-      if (Math.abs(coin.x - cx) >= COIN_PICKUP_X || Math.abs(coin.y - cy) >= COIN_PICKUP_Y)
+      const { coin } = pipe;
+      if (!coin) {
         continue;
+      }
+      if (Math.abs(coin.x - cx) >= COIN_PICKUP_X || Math.abs(coin.y - cy) >= COIN_PICKUP_Y) {
+        continue;
+      }
       pipe.coin = null;
       pipe.glint?.destroy();
       pipe.glint = null;
@@ -946,7 +1034,9 @@ export class GameScene extends Phaser.Scene {
     }
     for (const pipe of this.pipes.values()) {
       const x = this.screenX(pipe.index);
-      if (BIRD_X + BIRD_W <= x || BIRD_X >= x + PIPE_WIDTH) continue;
+      if (BIRD_X + BIRD_W <= x || BIRD_X >= x + PIPE_WIDTH) {
+        continue;
+      }
       // Overlapping the trunk column: anything outside the gap is a crash. The
       // ceiling clamp keeps the dragon below the trunk tops, so there is no
       // "above the pipe" case to exempt.
@@ -961,7 +1051,9 @@ export class GameScene extends Phaser.Scene {
 
   private syncGhosts(): void {
     if (!this.racing) {
-      for (const g of this.ghosts.values()) g.sprite.destroy();
+      for (const g of this.ghosts.values()) {
+        g.sprite.destroy();
+      }
       this.ghosts.clear();
       return;
     }
@@ -973,7 +1065,9 @@ export class GameScene extends Phaser.Scene {
     let laneX = BIRD_X + DRAGON_SPRITE_OFFSET_X;
     for (const id of this.rivalIds) {
       const ps = readPeer(this.net.players[id]?.state);
-      if (!ps) continue;
+      if (!ps) {
+        continue;
+      }
       seen.add(id);
       let ghost = this.ghosts.get(id);
       if (!ghost || ghost.skin !== ps.skin) {
@@ -981,11 +1075,11 @@ export class GameScene extends Phaser.Scene {
         const sprite = this.add.sprite(0, 0, `dragon-${ps.skin}-1`).setDepth(8).setAlpha(0.55);
         sprite.play(`fly-${ps.skin}`);
         ghost = {
-          sprite,
-          skin: ps.skin,
+          gap: GHOST_GAP_MIN + hashId(id, 1) * (GHOST_GAP_MAX - GHOST_GAP_MIN),
           scale:
             ART_SCALE * (GHOST_SCALE_MIN + hashId(id, 3) * (GHOST_SCALE_MAX - GHOST_SCALE_MIN)),
-          gap: GHOST_GAP_MIN + hashId(id, 1) * (GHOST_GAP_MAX - GHOST_GAP_MIN),
+          skin: ps.skin,
+          sprite,
         };
         this.ghosts.set(id, ghost);
       }
@@ -997,7 +1091,7 @@ export class GameScene extends Phaser.Scene {
         ghost.sprite.setAlpha(0.55).clearTint();
       } else {
         // Crashed players fade to a grey silhouette until they respawn.
-        ghost.sprite.setAlpha(0.28).setTint(0x9099b0);
+        ghost.sprite.setAlpha(0.28).setTint(0x90_99_b0);
       }
     }
 
@@ -1012,19 +1106,23 @@ export class GameScene extends Phaser.Scene {
   // ---- networking ----------------------------------------------------------
 
   private broadcast(dt: number): void {
-    if (this.net.offline) return;
+    if (this.net.offline) {
+      return;
+    }
     // A lone player parked on the title screen has nothing to say — don't
     // stream state at the Durable Object for nobody.
-    if (!this.racing && !this.alive) return;
+    if (!this.racing && !this.alive) {
+      return;
+    }
     this.stateAcc += dt;
     if (this.stateAcc >= 1 / NET_TICK_HZ) {
       this.stateAcc = 0;
       this.net.updateMyState({
-        yf: this.birdY / COURSE_H,
         live: this.alive,
+        rot: this.bird.rotation,
         score: this.score,
         skin: this.skin,
-        rot: this.bird.rotation,
+        yf: this.birdY / COURSE_H,
       });
     }
     if (this.net.isHost) {
@@ -1035,7 +1133,7 @@ export class GameScene extends Phaser.Scene {
         // Re-assert the seed with the clock: if the room's Durable Object was
         // evicted mid-session (in-memory state wiped, sockets reconnect), the
         // course would otherwise stay unseeded for every future joiner.
-        this.net.patchShared({ wx: this.worldX, wseq: this.hostSeq, seed: this.seed });
+        this.net.patchShared({ seed: this.seed, wseq: this.hostSeq, wx: this.worldX });
       }
     }
   }
@@ -1043,22 +1141,28 @@ export class GameScene extends Phaser.Scene {
   // ---- visual effects ------------------------------------------------------
 
   private scorePop(): void {
-    if (prefersReducedMotion()) return;
+    if (prefersReducedMotion()) {
+      return;
+    }
     const y = this.scoreY();
     for (const digit of this.digits) {
       this.tweens.killTweensOf(digit);
       digit.setY(y - 6);
-      this.tweens.add({ targets: digit, y, duration: 160, ease: "Back.easeOut" });
+      this.tweens.add({ duration: 160, ease: "Back.easeOut", targets: digit, y });
     }
   }
 
   // ---- HUD -----------------------------------------------------------------
 
   private refreshGateHud(): void {
-    if (!this.gatesEl) return;
+    if (!this.gatesEl) {
+      return;
+    }
     this.gatesEl.hidden = this.phase !== "playing";
     const text = `${this.gates} ${this.gates === 1 ? "GATE" : "GATES"}`;
-    if (this.gatesEl.textContent !== text) this.gatesEl.textContent = text;
+    if (this.gatesEl.textContent !== text) {
+      this.gatesEl.textContent = text;
+    }
   }
 
   private refreshScore(): void {
@@ -1084,7 +1188,9 @@ export class GameScene extends Phaser.Scene {
   private setHint(text: string): void {
     // The HTML start overlay owns all pre-start copy — a hint pill under it
     // would just duplicate (and fight) the overlay's controls block.
-    if (this.hintEl) this.hintEl.textContent = this.started ? text : "";
+    if (this.hintEl) {
+      this.hintEl.textContent = this.started ? text : "";
+    }
   }
 
   /** Game-over card: mirrors the respawn/restart deadlines, never gates them. */
@@ -1115,12 +1221,16 @@ export class GameScene extends Phaser.Scene {
   /** Keep the banner/card together and outside the optional live camera. */
   private layoutResults(): void {
     const card = this.resultsEl;
-    if (!card) return;
+    if (!card) {
+      return;
+    }
     const camera = document.querySelector(".fd-cam")?.getBoundingClientRect();
     const width = Math.min(340, this.scale.width - 32);
     const height = card.offsetHeight;
     const key = `${this.scale.width}:${this.scale.height}:${height}:${camera?.left}:${camera?.top}`;
-    if (key === this.resultLayoutKey) return;
+    if (key === this.resultLayoutKey) {
+      return;
+    }
     this.resultLayoutKey = key;
     let cardWidth = width;
     let x = this.scale.width / 2;
@@ -1133,7 +1243,9 @@ export class GameScene extends Phaser.Scene {
       if (camera.left >= 272) {
         cardWidth = Math.min(width, camera.left - 32);
         x = camera.left / 2;
-      } else y = Math.max(90, Math.min(y, camera.top - height - 16));
+      } else {
+        y = Math.max(90, Math.min(y, camera.top - height - 16));
+      }
     }
     card.style.width = `${cardWidth}px`;
     card.style.left = `${x}px`;
@@ -1145,7 +1257,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private playSound(key: string, config?: Phaser.Types.Sound.SoundConfig): void {
-    if (this.muted || this.presentationPaused) return;
+    if (this.muted || this.presentationPaused) {
+      return;
+    }
     this.sound.play(key, config);
   }
 
@@ -1155,14 +1269,19 @@ export class GameScene extends Phaser.Scene {
     const note = (index: number): void => {
       this.phraseTimer = null;
       const rate = rates[index];
-      if (rate === undefined) return;
+      if (rate === undefined) {
+        return;
+      }
       this.playSound("point", { rate, volume: 0.45 });
       if (index + 1 < rates.length) {
         this.phraseTimer = this.time.delayedCall(PHRASE_NOTE_MS, () => note(index + 1));
       }
     };
-    if (delay > 0) this.phraseTimer = this.time.delayedCall(delay, () => note(0));
-    else note(0);
+    if (delay > 0) {
+      this.phraseTimer = this.time.delayedCall(delay, () => note(0));
+    } else {
+      note(0);
+    }
   }
 
   private cancelPhrase(): void {
@@ -1196,13 +1315,13 @@ export class GameScene extends Phaser.Scene {
 
   /** Live race leaderboard + connection info (multiplayer only). */
   private updateBoard(dt: number): void {
-    const netInfo = !this.net.live
-      ? "connecting…"
-      : this.net.offline
+    const netInfo = this.net.live
+      ? this.net.offline
         ? "offline · solo"
         : this.racing
           ? `race · ${this.rivalIds.length + 1} players`
-          : "online · waiting";
+          : "online · waiting"
+      : "connecting…";
     if (this.netInfoEl && netInfo !== this.lastNetInfo) {
       this.lastNetInfo = netInfo;
       this.netInfoEl.textContent = netInfo;
@@ -1210,30 +1329,42 @@ export class GameScene extends Phaser.Scene {
 
     // Standings only move at snapshot rate — no need to recompute them at 60Hz.
     this.boardAcc += dt;
-    if (this.boardAcc < 1 / NET_TICK_HZ) return;
-    this.boardAcc = 0;
-
-    if (!this.boardEl) return;
-    if (!this.racing) {
-      if (this.boardEl.childElementCount > 0) this.boardEl.replaceChildren();
-      this.boardSig = "";
-      if (this.phase === "ready" && this.net.live && !this.net.offline) this.setHint(HINT_FLAP);
+    if (this.boardAcc < 1 / NET_TICK_HZ) {
       return;
     }
-    if (this.phase === "ready") this.setHint(HINT_RACE);
+    this.boardAcc = 0;
+
+    if (!this.boardEl) {
+      return;
+    }
+    if (!this.racing) {
+      if (this.boardEl.childElementCount > 0) {
+        this.boardEl.replaceChildren();
+      }
+      this.boardSig = "";
+      if (this.phase === "ready" && this.net.live && !this.net.offline) {
+        this.setHint(HINT_FLAP);
+      }
+      return;
+    }
+    if (this.phase === "ready") {
+      this.setHint(HINT_RACE);
+    }
 
     const me = this.net.playerId ?? SOLO_ROW_ID;
-    const rows = [{ id: me, score: this.score, live: this.alive, me: true }];
+    const rows = [{ id: me, live: this.alive, me: true, score: this.score }];
     for (const id of this.rivalIds) {
       const ps = readPeer(this.net.players[id]?.state);
-      rows.push({ id, score: ps?.score ?? 0, live: ps?.live ?? false, me: false });
+      rows.push({ id, live: ps?.live ?? false, me: false, score: ps?.score ?? 0 });
     }
     rows.sort((a, b) => b.score - a.score);
 
     // Standings change a few times a second at most — skip the 60 Hz DOM
     // rebuild while nothing moved.
     const sig = rows.map((r) => `${r.id}:${r.score}:${r.live ? 1 : 0}`).join("|");
-    if (sig === this.boardSig) return;
+    if (sig === this.boardSig) {
+      return;
+    }
     this.boardSig = sig;
 
     const frag = document.createDocumentFragment();
@@ -1311,7 +1442,9 @@ export class GameScene extends Phaser.Scene {
         .setPosition(width / 2, top + viewH / 2);
     }
     this.refreshScore();
-    if (this.phase === "gameover") this.layoutResults();
+    if (this.phase === "gameover") {
+      this.layoutResults();
+    }
     // Both the visible pipe window and the trunk tops depend on the view.
     this.clearPipes();
   }
@@ -1337,22 +1470,24 @@ function destroyPipe(pipe: Pipe): void {
 
 function randomSeed(): number {
   // 1..2^31 (never 0 — 0 marks "unseeded").
-  return 1 + Math.floor(Math.random() * 0x7fffffff);
+  return 1 + Math.floor(Math.random() * 0x7f_ff_ff_ff);
 }
 
 function setText(id: string, text: string): void {
-  const el = document.getElementById(id);
-  if (el) el.textContent = text;
+  const el = document.querySelector(`#${id}`);
+  if (el) {
+    el.textContent = text;
+  }
 }
 
 /** Stable 0..1 hash of a player id (+salt) for per-rival flock variation. */
 function hashId(id: string, salt: number): number {
-  let h = (2166136261 ^ salt) >>> 0;
+  let h = (2_166_136_261 ^ salt) >>> 0;
   for (let i = 0; i < id.length; i++) {
     h ^= id.charCodeAt(i);
-    h = Math.imul(h, 16777619);
+    h = Math.imul(h, 16_777_619);
   }
-  return ((h >>> 0) % 100000) / 100000;
+  return ((h >>> 0) % 100_000) / 100_000;
 }
 
 function numField(s: JsonObject, key: string): number | null {
@@ -1361,18 +1496,22 @@ function numField(s: JsonObject, key: string): number | null {
 }
 
 function readPeer(state: Player["state"]): PeerState | null {
-  if (!state) return null;
-  const yf = state["yf"];
-  const skin = state["skin"];
-  if (!isJsonNumber(yf) || !isJsonNumber(skin)) return null;
-  const score = state["score"];
-  const rot = state["rot"];
+  if (!state) {
+    return null;
+  }
+  const { yf } = state;
+  const { skin } = state;
+  if (!isJsonNumber(yf) || !isJsonNumber(skin)) {
+    return null;
+  }
+  const { score } = state;
+  const { rot } = state;
   return {
-    yf,
     live: state["live"] === true,
+    rot: isJsonNumber(rot) ? rot : 0,
     score: isJsonNumber(score) ? score : 0,
     skin,
-    rot: isJsonNumber(rot) ? rot : 0,
+    yf,
   };
 }
 

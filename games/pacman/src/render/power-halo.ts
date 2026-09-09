@@ -10,10 +10,10 @@ export class PowerHalo {
   private arcGeometry = new THREE.RingGeometry(0.6, 0.69, SEGMENTS, 1, Math.PI / 2);
   private arcMaterial = new THREE.MeshBasicMaterial({
     color: COLORS.power,
-    transparent: true,
-    opacity: 0.9,
     depthWrite: false,
+    opacity: 0.9,
     side: THREE.DoubleSide,
+    transparent: true,
   });
 
   constructor(scene: THREE.Scene) {
@@ -21,10 +21,10 @@ export class PowerHalo {
       new THREE.RingGeometry(0.59, 0.7, SEGMENTS),
       new THREE.MeshBasicMaterial({
         color: COLORS.power,
-        transparent: true,
-        opacity: 0.18,
         depthWrite: false,
+        opacity: 0.18,
         side: THREE.DoubleSide,
+        transparent: true,
       }),
     );
     const arc = new THREE.Mesh(this.arcGeometry, this.arcMaterial);
@@ -37,7 +37,9 @@ export class PowerHalo {
 
   update(x: number, z: number, remainingMs: number): void {
     this.group.visible = remainingMs > 0;
-    if (!this.group.visible) return;
+    if (!this.group.visible) {
+      return;
+    }
     this.group.position.set(x, FLOOR_Y + 0.025, z);
     const fraction = Math.min(1, remainingMs / SCARED_MS);
     this.arcGeometry.setDrawRange(0, Math.ceil(fraction * SEGMENTS) * 6);

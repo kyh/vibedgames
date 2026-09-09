@@ -1,4 +1,4 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
 import type { BattleBeat } from "./battle-beat";
 
 const SCROLL = 0.22;
@@ -8,7 +8,7 @@ export class BattleBackdrop {
   private readonly haze: Phaser.GameObjects.Image[];
 
   constructor(private readonly scene: Phaser.Scene) {
-    this.haze = [0x244d86, 0x352765, 0x285260].map((tint) =>
+    this.haze = [0x24_4d_86, 0x35_27_65, 0x28_52_60].map((tint) =>
       scene.add
         .image(0, 0, "battle-glow")
         .setDepth(-4)

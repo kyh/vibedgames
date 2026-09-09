@@ -17,11 +17,11 @@ describe("dehydrate/hydrate", () => {
 
     const data = {
       at: new Date("2020-01-01T00:00:00.000Z"),
-      tags: new Set(["a", "b"]),
-      lookup: new Map([[1, "one"]]),
       big: 123n,
+      lookup: new Map([[1, "one"]]),
+      re: /pattern/iu,
+      tags: new Set(["a", "b"]),
       url: new URL("https://example.com/path?q=1"),
-      re: /pattern/i,
     };
     const revived: typeof data = hydrate.deserializeData(dehydrate.serializeData(data));
 

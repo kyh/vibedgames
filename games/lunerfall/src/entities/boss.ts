@@ -2,7 +2,8 @@ import Phaser from "phaser";
 
 import { HERO_ORIGIN_Y, interp } from "../config";
 import { showActorPose } from "../data/actor-animation";
-import { BossActing, isBossAction, remoteBlend, type BossAction } from "../data/actor-presentation";
+import { BossActing, isBossAction, remoteBlend } from "../data/actor-presentation";
+import type { BossAction } from "../data/actor-presentation";
 import { bossKind } from "../data/bosses";
 import { afterImage } from "../sys/fx";
 import type { Grid } from "../sys/grid";
@@ -11,7 +12,7 @@ import { BossBody } from "./boss-body";
 const SCALE = 2.1;
 // Wind-up flare: the boss's own colour pushed toward hot amber, so a telegraph
 // BRIGHTENS the Lord instead of repainting it (see applyTint).
-const FLARE = 0xffb060;
+const FLARE = 0xff_b0_60;
 const FLARE_MIX = 0.42;
 // Seconds of charge between ghosts (= every 3rd step at the 60Hz fixed sim).
 const GHOST_EVERY = 3 / 60;
@@ -54,21 +55,28 @@ export class Boss {
   private clip(): string {
     const b = this.body;
     switch (b.state) {
-      case "dead":
+      case "dead": {
         return "death";
-      case "wave":
+      }
+      case "wave": {
         return "flame-wave";
+      }
       case "jump":
-      case "slam":
+      case "slam": {
         return "flame-slam";
-      case "charge":
+      }
+      case "charge": {
         return "run";
-      case "punch":
+      }
+      case "punch": {
         return "fire-punch";
-      case "hurt":
+      }
+      case "hurt": {
         return "hit";
-      default:
+      }
+      default: {
         return Math.abs(b.vx) > 12 ? "run" : "idle";
+      }
     }
   }
 
@@ -77,18 +85,24 @@ export class Boss {
   // which cost every Lord its identity for the length of its telegraph — an ice
   // boss read as the fire boss exactly while its name was on screen.
   private applyTint(flash: boolean, telegraph: boolean) {
-    if (flash) this.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
-    else if (telegraph) this.sprite.setTint(this.flareTint).setTintMode(Phaser.TintModes.MULTIPLY);
-    else this.sprite.setTint(this.baseTint).setTintMode(Phaser.TintModes.MULTIPLY);
+    if (flash) {
+      this.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
+    } else if (telegraph) {
+      this.sprite.setTint(this.flareTint).setTintMode(Phaser.TintModes.MULTIPLY);
+    } else {
+      this.sprite.setTint(this.baseTint).setTintMode(Phaser.TintModes.MULTIPLY);
+    }
   }
 
   action(): BossAction {
-    return { state: this.body.state, elapsed: this.body.stateT };
+    return { elapsed: this.body.stateT, state: this.body.state };
   }
 
   private applyAction(action: BossAction): boolean {
     const pose = this.acting.pose(action);
-    if (!pose) return false;
+    if (!pose) {
+      return false;
+    }
     showActorPose(this.sprite, "salamander", pose);
     this.posed = true;
     return true;
@@ -99,12 +113,16 @@ export class Boss {
       this.sprite.anims.resume();
       this.posed = false;
     }
-    if (this.sprite.anims.currentAnim?.key !== key) this.sprite.play(key, true);
+    if (this.sprite.anims.currentAnim?.key !== key) {
+      this.sprite.play(key, true);
+    }
   }
 
   render(alpha = 1) {
     const b = this.body;
-    if (!this.applyAction(this.action())) this.playLoop(`salamander:${this.clip()}`);
+    if (!this.applyAction(this.action())) {
+      this.playLoop(`salamander:${this.clip()}`);
+    }
     this.sprite.setFlipX(b.facing < 0);
     this.sprite.setPosition(
       Math.round(interp(b.prevX, b.x, alpha)),
@@ -127,7 +145,9 @@ export class Boss {
         this.trailT = 0;
         afterImage(this.sprite.scene, this.sprite, this.baseTint);
       }
-    } else this.trailT = 0;
+    } else {
+      this.trailT = 0;
+    }
   }
 
   // Guest: replay the host's clip on this puppet (no local sim/state). Position
@@ -143,7 +163,9 @@ export class Boss {
     dt = 1 / 60,
   ) {
     if (isBossAction(action)) {
-      if (!this.applyAction(action)) this.playLoop(clip);
+      if (!this.applyAction(action)) {
+        this.playLoop(clip);
+      }
     } else {
       this.acting.reset();
       this.playLoop(clip);

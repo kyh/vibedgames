@@ -49,7 +49,11 @@ export const POWER_SCORE_PER_CUBE = 5;
 // ---- pieces -----------------------------------------------------------------
 
 export type Footprint = number[][];
-export type PieceDef = { name: string; color: number; footprint: Footprint };
+export interface PieceDef {
+  name: string;
+  color: number;
+  footprint: Footprint;
+}
 
 /**
  * The 7 tetrominoes as flat XZ footprints (rows = Z, cols = X). Order is the
@@ -57,54 +61,54 @@ export type PieceDef = { name: string; color: number; footprint: Footprint };
  * straight to an index. Rotation is rotateCW in the XZ plane (see board.ts).
  */
 export const PIECES: PieceDef[] = [
-  { name: "I", color: 0x00e5ff, footprint: [[1, 1, 1, 1]] },
+  { color: 0x00e5ff, footprint: [[1, 1, 1, 1]], name: "I" },
   {
-    name: "O",
     color: 0xffd500,
     footprint: [
       [1, 1],
       [1, 1],
     ],
+    name: "O",
   },
   {
-    name: "T",
     color: 0xb15dff,
     footprint: [
       [0, 1, 0],
       [1, 1, 1],
     ],
+    name: "T",
   },
   {
-    name: "S",
     color: 0x32d74b,
     footprint: [
       [1, 1, 0],
       [0, 1, 1],
     ],
+    name: "S",
   },
   {
-    name: "Z",
     color: 0xff453a,
     footprint: [
       [0, 1, 1],
       [1, 1, 0],
     ],
+    name: "Z",
   },
   {
-    name: "L",
     color: 0xff9f0a,
     footprint: [
       [1, 1, 1],
       [1, 0, 0],
     ],
+    name: "L",
   },
   {
-    name: "J",
     color: 0x4d7cff,
     footprint: [
       [1, 1, 1],
       [0, 0, 1],
     ],
+    name: "J",
   },
 ];
 
@@ -183,12 +187,12 @@ export const TOUCH_TAP_SLOP_PX = 12;
 // ---- look / palette ---------------------------------------------------------
 
 /** Background + enclosure: dark, slightly desaturated navy (Tokyo-Night-ish). */
-export const BG = 0x12131f;
-export const ENCLOSURE = 0x1c2030;
+export const BG = 0x12_13_1f;
+export const ENCLOSURE = 0x1c_20_30;
 /** Faint grid line on the floor/walls. */
-export const GRID_LINE = 0x2c3350;
+export const GRID_LINE = 0x2c_33_50;
 /** Landing-ghost wireframe tint. */
-export const GHOST_COLOR = 0xaab4e8;
+export const GHOST_COLOR = 0xaa_b4_e8;
 
 // ---- trauma shake (per event) ----------------------------------------------
 

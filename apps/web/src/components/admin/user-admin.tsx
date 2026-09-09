@@ -22,17 +22,17 @@ import { useORPC } from "@/lib/orpc";
 
 type Role = "user" | "admin";
 
-type UserForm = {
+interface UserForm {
   email: string;
   password: string;
   name: string;
   role: Role;
-};
+}
 
 const initialForm: UserForm = {
   email: "",
-  password: "",
   name: "",
+  password: "",
   role: "user",
 };
 
@@ -58,6 +58,15 @@ export const UserAdmin = () => {
 
   const list = useQuery(orpc.admin.users.list.queryOptions());
   const balances = useQuery(orpc.admin.credits.balances.queryOptions());
+  const [form, setForm] = useState(initialForm);
+  const [grantTarget, setGrantTarget] = useState<{ id: string; email: string } | null>(null);
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+  // Idempotency key for the pending grant: minted per dialog-open, so a
+  // retried submit of the same dialog can't grant twice, while reopening
+  // starts a fresh grant.
+  const [grantKey, setGrantKey] = useState("");
+
   const create = useMutation(
     orpc.admin.users.create.mutationOptions({
       onSuccess: () => {
@@ -77,20 +86,13 @@ export const UserAdmin = () => {
     }),
   );
 
-  const [form, setForm] = useState(initialForm);
-  const [grantTarget, setGrantTarget] = useState<{ id: string; email: string } | null>(null);
-  const [amount, setAmount] = useState("");
-  const [note, setNote] = useState("");
-  // Idempotency key for the pending grant: minted per dialog-open, so a
-  // retried submit of the same dialog can't grant twice, while reopening
-  // starts a fresh grant.
-  const [grantKey, setGrantKey] = useState("");
-
   const balanceByUser = new Map(
-    balances.data?.balances.map((b): [string, number] => [b.userId, b.balanceMicro]) ?? [],
+    balances.data?.balances.map((b): [string, number] => [b.userId, b.balanceMicro]),
   );
   const balanceLabel = (userId: string) => {
-    if (!balances.data) return "—";
+    if (!balances.data) {
+      return "—";
+    }
     // Users without ledger rows get the signup grant on first use.
     return formatUsd(balanceByUser.get(userId) ?? balances.data.signupGrantMicro);
   };
@@ -189,7 +191,9 @@ export const UserAdmin = () => {
           skeleton={<UsersSkeleton />}
         >
           {list.isError && (
-            <p className="text-muted-foreground text-sm">Couldn't load users. Try reloading.</p>
+            <p className="text-muted-foreground text-sm">
+              Couldn&apos;t load users. Try reloading.
+            </p>
           )}
           {list.data?.users.length === 0 && (
             <p className="text-muted-foreground text-sm">No users yet.</p>
@@ -219,7 +223,7 @@ export const UserAdmin = () => {
                     variant="ghost"
                     size="sm"
                     className="shrink-0"
-                    onClick={() => openGrant({ id: u.id, email: u.email })}
+                    onClick={() => openGrant({ email: u.email, id: u.id })}
                   >
                     Grant credits
                   </Button>
@@ -233,7 +237,9 @@ export const UserAdmin = () => {
       <Dialog
         open={grantTarget !== null}
         onOpenChange={(open) => {
-          if (!open) setGrantTarget(null);
+          if (!open) {
+            setGrantTarget(null);
+          }
         }}
       >
         <DialogContent>
@@ -247,7 +253,9 @@ export const UserAdmin = () => {
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              if (!grantTarget) return;
+              if (!grantTarget) {
+                return;
+              }
               const amountUsd = Number(amount);
               if (
                 !Number.isFinite(amountUsd) ||
@@ -260,10 +268,10 @@ export const UserAdmin = () => {
               }
               const trimmedNote = note.trim();
               grant.mutate({
-                userId: grantTarget.id,
                 amountUsd,
-                note: trimmedNote === "" ? undefined : trimmedNote,
                 key: grantKey,
+                note: trimmedNote === "" ? undefined : trimmedNote,
+                userId: grantTarget.id,
               });
             }}
             className="space-y-3"

@@ -14,24 +14,27 @@ import { createWorld, spawnCreepAt, spawnHero, step } from "../src/sim/world.ts"
 
 // Hunter's Mark bonus for `u` vs `target` — mirrors combat.attackSpeedVsTarget's
 // exact, target-scoped id match.
-function markBonus(u: Unit, target: Unit): number {
+const markBonus = (u: Unit, target: Unit): number => {
   let b = 0;
-  for (const st of u.statuses)
-    if (st.kind === "attackSpeed" && st.id === "markAS:" + target.id) b += st.amount;
+  for (const st of u.statuses) {
+    if (st.kind === "attackSpeed" && st.id === `markAS:${target.id}`) {
+      b += st.amount;
+    }
+  }
   return b;
-}
+};
 
 let pass = 0;
 let fail = 0;
-function check(name: string, cond: boolean, extra = ""): void {
+const check = (name: string, cond: boolean, extra = ""): void => {
   if (cond) {
-    pass++;
+    pass += 1;
     console.log(`  ok   ${name}`);
   } else {
-    fail++;
+    fail += 1;
     console.log(`  FAIL ${name} ${extra}`);
   }
-}
+};
 
 // Cosmetic source identity survives the central damage path for every hero,
 // without changing damage. Missing sources remain safe for old/network events.
@@ -41,7 +44,7 @@ function check(name: string, cond: boolean, extra = ""): void {
   for (const def of HEROES) {
     const attacker = spawnHero(w, def.id, "radiant", def.id, false, 0);
     w.fx.length = 0;
-    const hp = victim.hp;
+    const { hp } = victim;
     dealDamage(w, attacker, victim, 10, "pure", {});
     const hit = w.fx.find((fx) => fx.t === "hit");
     check(
@@ -70,9 +73,12 @@ function check(name: string, cond: boolean, extra = ""): void {
   let steps = 0;
   let crashed = "";
   try {
-    for (; steps < 240 * 30; steps++) step(w, SIM_DT); // ~240s of game time at 30Hz
-  } catch (e) {
-    crashed = String(e);
+    for (; steps < 240 * 30; steps += 1) {
+      step(w, SIM_DT);
+      // ~240s of game time at 30Hz
+    }
+  } catch (error) {
+    crashed = String(error);
   }
   check("240s match steps without throwing", crashed === "", crashed);
   check("world advanced gameTime", w.gameTime > 100, `gameTime=${w.gameTime.toFixed(1)}`);
@@ -93,8 +99,11 @@ function check(name: string, cond: boolean, extra = ""): void {
   other.x = storm.x - 40;
   other.y = storm.y;
   const stormHero = storm.hero;
-  if (!stormHero) throw new Error("stormcaller has no hero state");
-  stormHero.abilities.W.rank = 1; // W = Hunter's Mark
+  if (!stormHero) {
+    throw new Error("stormcaller has no hero state");
+  }
+  // W = Hunter's Mark
+  stormHero.abilities.W.rank = 1;
   storm.mp = storm.maxMp;
   const baseAS = effectiveAttackSpeed(storm);
   const casted = castAbility(w, storm, { key: "W", targetId: marked.id });
@@ -139,14 +148,18 @@ function check(name: string, cond: boolean, extra = ""): void {
   const w = createWorld(2);
   const brew = spawnHero(w, "brewkeeper", "radiant", "b", false, 0);
   const brewHero = brew.hero;
-  if (!brewHero) throw new Error("brewkeeper has no hero state");
-  brewHero.abilities.R.rank = 1; // Last Call = channel + heal zone
+  if (!brewHero) {
+    throw new Error("brewkeeper has no hero state");
+  }
+  // Last Call = channel + heal zone
+  brewHero.abilities.R.rank = 1;
   brew.mp = brew.maxMp;
   const cast = castAbility(w, brew, { key: "R", point: { x: brew.x, y: brew.y } });
   check("Last Call channel cast", cast, `channel=${!!brewHero.channel}`);
   const groundsBefore = w.groundEffects.filter((g) => g.channel && g.ownerId === brew.id).length;
   check("channel spawned a ground zone", groundsBefore >= 1);
-  dealDamage(w, null, brew, 1e9, "pure", {}); // kill the channeler outright
+  // kill the channeler outright
+  dealDamage(w, null, brew, 1e9, "pure", {});
   check("caster is dead", !brew.alive);
   check("channel cleared on death", brewHero.channel === null);
   const groundsAfter = w.groundEffects.filter((g) => g.channel && g.ownerId === brew.id).length;
@@ -162,13 +175,17 @@ function check(name: string, cond: boolean, extra = ""): void {
   const w = createWorld(3);
   const ember = spawnHero(w, "emberhex", "radiant", "e", false, 0);
   const emberHero = ember.hero;
-  if (!emberHero) throw new Error("emberhex has no hero state");
-  emberHero.abilities.E.rank = 1; // Flashfire = followOwner burn aura
+  if (!emberHero) {
+    throw new Error("emberhex has no hero state");
+  }
+  // Flashfire = followOwner burn aura
+  emberHero.abilities.E.rank = 1;
   ember.mp = ember.maxMp;
   castAbility(w, ember, { key: "E", point: { x: ember.x, y: ember.y } });
   const after1 = w.groundEffects.filter((g) => g.ownerId === ember.id && g.followOwner).length;
   ember.mp = ember.maxMp;
-  emberHero.abilities.E.readyAt = 0; // force off cooldown
+  // force off cooldown
+  emberHero.abilities.E.readyAt = 0;
   castAbility(w, ember, { key: "E", point: { x: ember.x, y: ember.y } });
   const after2 = w.groundEffects.filter((g) => g.ownerId === ember.id && g.followOwner).length;
   check("Flashfire aura present after first cast", after1 === 1, `after1=${after1}`);
@@ -182,7 +199,9 @@ function check(name: string, cond: boolean, extra = ""): void {
     spawnHero(w, "ironvow", "radiant", "botR0", true, 0),
     spawnHero(w, "stormcaller", "dire", "botD0", true, 0),
   ];
-  for (let i = 0; i < 300 * 30; i++) step(w, SIM_DT);
+  for (let i = 0; i < 300 * 30; i += 1) {
+    step(w, SIM_DT);
+  }
   const totalItems = bots.reduce((n, b) => n + (w.units.get(b.id)?.hero?.items.length ?? 0), 0);
   check("bots purchased items via buyItem", totalItems > 0, `total=${totalItems}`);
 }

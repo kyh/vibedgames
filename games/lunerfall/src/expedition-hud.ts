@@ -100,7 +100,7 @@ export class ExpeditionHud {
   private state: ExpeditionHudState | null = null;
   private relicKey: string | null = null;
   private offerKey = "";
-  private inset = { left: 0, right: 0, top: 0, bottom: 0 };
+  private inset = { bottom: 0, left: 0, right: 0, top: 0 };
   private visible = true;
 
   constructor(
@@ -144,9 +144,13 @@ export class ExpeditionHud {
       max > 12 ? `♥ ${h}/${max}` : "♥".repeat(h) + "♡".repeat(Math.max(0, max - h)),
     );
     setColor(this.hearts, "#ff4d6d");
-    if (this.hearts.style.fontSize !== "12px") this.hearts.setFontSize(12);
+    if (this.hearts.style.fontSize !== "12px") {
+      this.hearts.setFontSize(12);
+    }
     const relicCount = state.relics === null ? "—" : state.relics.length;
-    if (this.info.style.fontSize !== "9px") this.info.setFontSize(9);
+    if (this.info.style.fontSize !== "9px") {
+      this.info.setFontSize(9);
+    }
     setColor(this.info, "#a6b6c9");
     this.info.setText(
       `${state.biomeName} ${state.biome} · DEPTH ${state.depth}/${state.bossAt}\n` +
@@ -154,7 +158,9 @@ export class ExpeditionHud {
     );
     this.renderSpecial(state.special);
     this.boss.setText(state.bossName ?? "");
-    if (state.safeRoom) this.updateBuild(state.relics);
+    if (state.safeRoom) {
+      this.updateBuild(state.relics);
+    }
     this.refreshVisibility();
     this.renderOffer();
   }
@@ -169,7 +175,9 @@ export class ExpeditionHud {
   }
 
   setVisible(visible: boolean): void {
-    if (this.visible === visible) return;
+    if (this.visible === visible) {
+      return;
+    }
     this.visible = visible;
     this.refreshVisibility();
   }
@@ -193,12 +201,12 @@ export class ExpeditionHud {
   private text(color: string): Phaser.GameObjects.Text {
     return this.scene.add
       .text(0, 0, "", {
+        color,
         fontFamily: "monospace",
         fontSize: "9px",
-        color,
+        lineSpacing: 2,
         stroke: "#05070b",
         strokeThickness: 2,
-        lineSpacing: 2,
       })
       .setScrollFactor(0)
       .setDepth(80);
@@ -207,28 +215,34 @@ export class ExpeditionHud {
   private renderSpecial(special: SpecialReadiness): void {
     const key = isCoarse() ? "SP" : "K/Y";
     switch (special.kind) {
-      case "ready":
+      case "ready": {
         this.special.setText(`${key} SPECIAL · READY`);
         setColor(this.special, "#34e5c8");
         break;
-      case "busy":
+      }
+      case "busy": {
         this.special.setText(`${key} SPECIAL · BUSY`);
         setColor(this.special, "#d8dee6");
         break;
-      case "cooldown":
+      }
+      case "cooldown": {
         this.special.setText(`${key} SPECIAL · ${Math.max(1, Math.ceil(special.remaining))}s`);
         setColor(this.special, "#ffd15c");
         break;
-      case "unknown":
+      }
+      case "unknown": {
         this.special.setText(`${key} SPECIAL · —`);
         setColor(this.special, "#8b95a1");
         break;
+      }
     }
   }
 
   private updateBuild(relics: readonly ExpeditionRelic[] | null): void {
     const key = relics === null ? "unknown" : relics.map((relic) => relic.id).join(",");
-    if (key === this.relicKey) return;
+    if (key === this.relicKey) {
+      return;
+    }
     this.relicKey = key;
     this.summary.textContent = `BUILD · ${relics?.length ?? 0}`;
     const entries: HTMLParagraphElement[] = [];
@@ -256,7 +270,9 @@ export class ExpeditionHud {
     this.boss.setVisible(shown && Boolean(this.state?.bossName));
     const safe = shown && this.state?.safeRoom === true;
     this.build.hidden = !safe || this.state?.relics === null;
-    if (this.build.hidden) this.build.open = false;
+    if (this.build.hidden) {
+      this.build.open = false;
+    }
     const offer = safe && this.state?.offer !== null;
     this.offerTitle.setVisible(offer);
     this.offerEffect.setVisible(offer);
@@ -282,7 +298,9 @@ export class ExpeditionHud {
     const split = this.build.open && !this.build.hidden;
     const missingGold = Math.max(0, offer.price - (this.state?.gold ?? 0));
     const key = [offer.name, offer.desc, offer.price, offer.kind, missingGold, split].join("|");
-    if (!force && key === this.offerKey) return;
+    if (!force && key === this.offerKey) {
+      return;
+    }
     this.offerKey = key;
     const ins = this.inset;
     const width = BASE_W - 16 - ins.left - ins.right;
@@ -336,7 +354,9 @@ export class ExpeditionHud {
   private onWorldPointerDown = (): void => {
     this.build.open = false;
     const focused = document.activeElement;
-    if (focused instanceof HTMLElement && this.build.contains(focused)) focused.blur();
+    if (focused instanceof HTMLElement && this.build.contains(focused)) {
+      focused.blur();
+    }
     this.renderOffer();
   };
 
@@ -344,11 +364,14 @@ export class ExpeditionHud {
     // A collapsed summary can retain focus after a canvas click. Only its
     // native activation keys belong to it; walking/attacking still reach play.
     // Open inspection keeps native scrolling; Escape and every keyup bubble.
-    if (event.key !== "Escape" && (this.build.open || event.key === "Enter" || event.key === " "))
+    if (event.key !== "Escape" && (this.build.open || event.key === "Enter" || event.key === " ")) {
       event.stopPropagation();
+    }
   };
 }
 
 function setColor(text: Phaser.GameObjects.Text, color: string): void {
-  if (text.style.color !== color) text.setColor(color);
+  if (text.style.color !== color) {
+    text.setColor(color);
+  }
 }

@@ -10,17 +10,18 @@ import { districtAt } from "../world/sf-map";
 // fares (tier colors), the destination, and the taxi as a heading arrow.
 // Off-window markers clamp to the edge so you always know which way to go.
 
-export type MinimapMarker = {
+export interface MinimapMarker {
   readonly x: number;
   readonly z: number;
   readonly color: string;
-  readonly ring?: boolean; // destination gets a pulsing ring
+  // destination gets a pulsing ring
+  readonly ring?: boolean;
   // "player" = outlined dot (plain white was invisible on road-grey);
   // "square" = garage pad. Default: the plain objective dot.
   readonly glyph?: "player" | "square";
   // false = draw only inside the window (no edge pin). Default true.
   readonly edgeClamp?: boolean;
-};
+}
 
 // Dark-chart palette: navy ground, cream streets — the kart-cluster read
 // (light-grey paper made the map the brightest plate on screen at night).
@@ -32,9 +33,17 @@ const DECK = "#c0483c";
 
 // World units across the minimap window. The small box zooms in: it is ~2/3
 // the desktop size, so the same VIEW would shrink streets below legibility.
+const blipRadius = (clamped: boolean, glyph: "player" | "square" | undefined): number => {
+  if (clamped) {
+    return 3.2;
+  }
+  return glyph === "player" ? 3.4 : 2.8;
+};
+
 const VIEW_DESKTOP = 560;
 const VIEW_MOBILE = 340;
-const BASE_PX = 2048; // offscreen full-map resolution (px on the long axis)
+// offscreen full-map resolution (px on the long axis)
+const BASE_PX = 2048;
 
 export class Minimap {
   private canvas: HTMLCanvasElement;
@@ -43,11 +52,12 @@ export class Minimap {
   private size: number;
   private dpr: number;
   private t = 0;
-  private baseScale: number; // world units → base px
+  // world units → base px
+  private baseScale: number;
   private view: number;
 
   constructor(plan: CityPlan, decks: readonly SurfaceDeck[]) {
-    const node = document.getElementById("minimap");
+    const node = document.querySelector("#minimap");
     this.canvas = node instanceof HTMLCanvasElement ? node : document.createElement("canvas");
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     // #minimap is `display: none` until setVisible(true) at race start, and a
@@ -55,7 +65,8 @@ export class Minimap {
     // back to the desktop 148 and drew phone HUDs 30% undersized. A resolved
     // `width` still returns the explicit length the media queries set (this
     // would NOT hold for auto/percentage widths, which #minimap does not use).
-    this.size = parseFloat(getComputedStyle(this.canvas).width) || 148;
+    // oxlint-disable-next-line unicorn/prefer-number-coercion -- the resolved width carries a "px" suffix; Number() would give NaN
+    this.size = Number.parseFloat(getComputedStyle(this.canvas).width) || 148;
     // Zoom follows the widget size, not the pointer type: a narrow mouse
     // window gets the same 104px box as a phone.
     this.view = this.size < 128 ? VIEW_MOBILE : VIEW_DESKTOP;
@@ -73,12 +84,13 @@ export class Minimap {
     if (b) {
       const cellX = (WORLD_W * this.baseScale) / GRID_X;
       const cellZ = (WORLD_H * this.baseScale) / GRID_Z;
-      for (let gx = 0; gx < GRID_X; gx++) {
-        for (let gz = 0; gz < GRID_Z; gz++) {
+      for (let gx = 0; gx < GRID_X; gx += 1) {
+        for (let gz = 0; gz < GRID_Z; gz += 1) {
           const kind = plan.cells[gx]?.[gz];
           let fill = WATER;
-          if (kind === "road") fill = ROAD;
-          else if (kind === "lot") {
+          if (kind === "road") {
+            fill = ROAD;
+          } else if (kind === "lot") {
             fill = districtAt(gx, gz).character === "park" ? PARK : LAND;
           }
           b.fillStyle = fill;
@@ -109,8 +121,10 @@ export class Minimap {
     heading: number,
     markers: readonly MinimapMarker[],
   ): void {
-    const ctx = this.ctx;
-    if (!ctx) return;
+    const { ctx } = this;
+    if (!ctx) {
+      return;
+    }
     this.t += dt;
 
     // Blit the window around the car (base px), water-blue beyond the map.
@@ -135,7 +149,9 @@ export class Minimap {
       const mx = Math.min(this.size - 5, Math.max(5, rawX));
       const mz = Math.min(this.size - 5, Math.max(5, rawZ));
       const clamped = mx !== rawX || mz !== rawZ;
-      if (clamped && m.edgeClamp === false) continue;
+      if (clamped && m.edgeClamp === false) {
+        continue;
+      }
       if (m.ring && !clamped) {
         const pulse = 4 + Math.sin(this.t * 5) * 1.4;
         ctx.strokeStyle = m.color;
@@ -157,7 +173,7 @@ export class Minimap {
       }
       ctx.fillStyle = m.color;
       ctx.beginPath();
-      ctx.arc(mx, mz, clamped ? 3.2 : m.glyph === "player" ? 3.4 : 2.8, 0, Math.PI * 2);
+      ctx.arc(mx, mz, blipRadius(clamped, m.glyph), 0, Math.PI * 2);
       ctx.fill();
       if (m.glyph === "player") {
         ctx.strokeStyle = "#14111a";

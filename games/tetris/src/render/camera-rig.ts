@@ -56,14 +56,15 @@ export class CameraRig {
     // most of the depth buffer inside the first metre and let the floor grid
     // shimmer at grazing orbit angles.
     this.camera = new PerspectiveCamera(CAMERA_FOV, aspect, 1, 400);
-    this.resize(aspect); // portrait boots need the FOV correction from frame 1
-    this.cornerPosition(0, this.target);
+    // portrait boots need the FOV correction from frame 1
+    this.resize(aspect);
+    CameraRig.cornerPosition(0, this.target);
     this.baseEye.copy(this.target);
     this.camera.position.copy(this.target);
     this.camera.lookAt(this.center);
   }
 
-  private cornerPosition(i: number, out: Vector3): Vector3 {
+  private static cornerPosition(i: number, out: Vector3): Vector3 {
     // Quadrants: 0:+x+z  1:-x+z  2:-x-z  3:+x-z (matches Well.setCorner).
     const angle = (i * 90 + 45) * (Math.PI / 180);
     out.set(
@@ -77,7 +78,7 @@ export class CameraRig {
   /** Step to the next/previous corner. dir > 0 = right, < 0 = left. */
   orbit(dir: number, nowMs: number): number {
     this.corner = (((this.corner + (dir > 0 ? 1 : -1)) % 4) + 4) % 4;
-    this.cornerPosition(this.corner, this.target);
+    CameraRig.cornerPosition(this.corner, this.target);
     this.inMotionUntil = nowMs + ORBIT_PAUSE_MS;
     return this.corner;
   }

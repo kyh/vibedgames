@@ -2,7 +2,8 @@ import Phaser from "phaser";
 import { safeAreaInset } from "@vibedgames/gamepad/phaser";
 import { TILE, DEPTH } from "../config";
 import { store } from "./store";
-import { rollFish, type FishDef } from "../data/fish";
+import { rollFish } from "../data/fish";
+import type { FishDef } from "../data/fish";
 import { floatText, burst, rewardArc } from "../render/fx";
 import type { Item } from "../data/items";
 import { Sound } from "../render/audio";
@@ -58,7 +59,9 @@ export class Fishing {
   }
 
   startCast(tx: number, ty: number): void {
-    if (this.state !== "idle") return;
+    if (this.state !== "idle") {
+      return;
+    }
     this.scene.faceTowards(tx, ty);
     this.state = "casting";
     this.scene.acting = true;
@@ -67,7 +70,9 @@ export class Fishing {
     Sound.water();
     this.pending = this.scene.time.delayedCall(750, () => {
       this.pending = null;
-      if (this.state !== "casting") return;
+      if (this.state !== "casting") {
+        return;
+      }
       this.scene.acting = false;
       this.beginWaiting();
     });
@@ -77,16 +82,20 @@ export class Fishing {
     this.state = "waiting";
     this.scene.playerAnim("p-idle");
     const b = this.scene.add
-      .circle(this.bobberPos.x, this.bobberPos.y, 2.2, 0xff5d5d)
+      .circle(this.bobberPos.x, this.bobberPos.y, 2.2, 0xff_5d_5d)
       .setDepth(DEPTH.crop + 5);
-    b.setStrokeStyle(1, 0xffffff, 0.8);
+    b.setStrokeStyle(1, 0xff_ff_ff, 0.8);
     this.bobber = b;
     this.timer = Phaser.Math.FloatBetween(1.6, 4.8);
   }
 
   onActionPress(): void {
-    if (this.scene.controlsPaused) return;
-    if (this.state === "done" || this.state === "casting") return;
+    if (this.scene.controlsPaused) {
+      return;
+    }
+    if (this.state === "done" || this.state === "casting") {
+      return;
+    }
     if (this.state === "waiting") {
       this.cancel("Reeled in early.");
     } else if (this.state === "bite") {
@@ -112,19 +121,32 @@ export class Fishing {
   }
 
   update(dt: number): void {
-    if (this.state === "idle") return;
+    if (this.state === "idle") {
+      return;
+    }
     if (this.trailerAuto) {
-      if (this.state === "waiting") this.timer = Math.min(this.timer, 0.45);
-      else if (this.state === "bite" && this.timer <= 0.72) this.hook();
+      if (this.state === "waiting") {
+        this.timer = Math.min(this.timer, 0.45);
+      } else if (this.state === "bite" && this.timer <= 0.72) {
+        this.hook();
+      }
     }
     if (this.state === "waiting") {
       this.timer -= dt;
-      if (this.bobber) this.bobber.y = this.bobberPos.y + Math.sin(this.scene.time.now / 250) * 1.2;
-      if (this.timer <= 0) this.startBite();
+      if (this.bobber) {
+        this.bobber.y = this.bobberPos.y + Math.sin(this.scene.time.now / 250) * 1.2;
+      }
+      if (this.timer <= 0) {
+        this.startBite();
+      }
     } else if (this.state === "bite") {
       this.timer -= dt;
-      if (this.bang) this.bang.y = this.bobberPos.y - 14 + Math.sin(this.scene.time.now / 80) * 2;
-      if (this.timer <= 0) this.cancel("It got away…");
+      if (this.bang) {
+        this.bang.y = this.bobberPos.y - 14 + Math.sin(this.scene.time.now / 80) * 2;
+      }
+      if (this.timer <= 0) {
+        this.cancel("It got away…");
+      }
     } else if (this.state === "reeling") {
       this.tickReel(dt);
     }
@@ -132,15 +154,17 @@ export class Fishing {
 
   private startBite(): void {
     this.state = "bite";
-    this.timer = 1.0;
+    this.timer = 1;
     Sound.thud();
-    if (this.bobber) this.bobber.y += 2;
+    if (this.bobber) {
+      this.bobber.y += 2;
+    }
     this.bang = this.scene.add
       .text(this.bobberPos.x, this.bobberPos.y - 14, "!", {
+        color: "#ffe27a",
         fontFamily: "ui-monospace, monospace",
         fontSize: "16px",
         fontStyle: "900",
-        color: "#ffe27a",
         stroke: "#2a1e0e",
         strokeThickness: 4,
       })
@@ -182,48 +206,53 @@ export class Fishing {
     this.progress += inZone ? 0.42 * dt : -(0.18 + diff * 0.05) * dt;
     this.progress = Phaser.Math.Clamp(this.progress, 0, 1);
     this.drawReel(inZone);
-    if (this.progress >= 1) this.land();
-    else if (this.progress <= 0) this.cancel("It slipped away…");
+    if (this.progress >= 1) {
+      this.land();
+    } else if (this.progress <= 0) {
+      this.cancel("It slipped away…");
+    }
   }
 
   private drawReel(inZone: boolean): void {
-    const W = this.scene.scale.width,
-      H = this.scene.scale.height;
+    const W = this.scene.scale.width;
+    const H = this.scene.scale.height;
     // right of the player, but clamped on-screen for narrow (portrait) phones
-    const bx = Math.min(W / 2 + 200, W - 64 - safeAreaInset().right),
-      by = H / 2 - BAR_H / 2;
-    if (!this.g)
+    const bx = Math.min(W / 2 + 200, W - 64 - safeAreaInset().right);
+    const by = H / 2 - BAR_H / 2;
+    if (!this.g) {
       this.g = this.scene.add
         .graphics()
         .setScrollFactor(0)
         .setDepth(DEPTH.night + 10);
-    const g = this.g;
+    }
+    const { g } = this;
     g.clear();
     // frame
-    g.fillStyle(0x1a1410, 0.85);
+    g.fillStyle(0x1a_14_10, 0.85);
     g.fillRoundedRect(bx - 16, by - 12, 56, BAR_H + 24, 8);
     // track
-    g.fillStyle(0x0e1830, 1);
+    g.fillStyle(0x0e_18_30, 1);
     g.fillRoundedRect(bx - 2, by, 24, BAR_H, 6);
     // catch zone
-    g.fillStyle(inZone ? 0x8ef07a : 0x4f9d3f, 0.9);
+    g.fillStyle(inZone ? 0x8e_f0_7a : 0x4f_9d_3f, 0.9);
     g.fillRoundedRect(bx - 1, by + this.zonePos, 22, this.zoneH, 5);
     // progress bar (left)
-    g.fillStyle(0x2a1e0e, 1);
+    g.fillStyle(0x2a_1e_0e, 1);
     g.fillRoundedRect(bx - 14, by, 8, BAR_H, 3);
-    g.fillStyle(0xffd34d, 1);
+    g.fillStyle(0xff_d3_4d, 1);
     g.fillRoundedRect(bx - 14, by + BAR_H * (1 - this.progress), 8, BAR_H * this.progress, 3);
     // fish marker
-    if (!this.fishIcon)
+    if (!this.fishIcon) {
       this.fishIcon = this.scene.add
         .image(0, 0, "obj-fish")
         .setScrollFactor(0)
         .setDepth(DEPTH.night + 11)
         .setScale(1.6);
+    }
     this.fishIcon.setPosition(bx + 10, by + this.fishPos);
     this.unzoom(g, this.fishIcon, bx, by);
     // no button prompts in trailer captures — the meter alone tells the story
-    if (!this.hint && !this.trailerAuto)
+    if (!this.hint && !this.trailerAuto) {
       this.hint = this.scene.add
         .text(bx + 12, by + BAR_H + 16, "HOLD", {
           fontFamily: "ui-monospace, monospace",
@@ -233,6 +262,7 @@ export class Fishing {
         .setScrollFactor(0)
         .setDepth(DEPTH.night + 11)
         .setOrigin(0.5, 0);
+    }
   }
 
   /**
@@ -253,7 +283,9 @@ export class Fishing {
     bx: number,
     by: number,
   ): void {
-    if (!this.trailerAuto) return;
+    if (!this.trailerAuto) {
+      return;
+    }
     const cam = this.scene.cameras.main;
     const z = cam.zoom;
     const S = TRAILER_METER_SCALE;
@@ -282,13 +314,14 @@ export class Fishing {
     this.scene.acting = false;
     this.scene.playerAnim("p-caught");
     if (fish) {
-      const item: Item = { kind: "fish", fish: fish.id };
+      const item: Item = { fish: fish.id, kind: "fish" };
       const leftover = store.inv.add(item, 1);
       this.scene.showDiscovery(
         store.collections.recordCatch(fish.id, this.scene.season(), 1 - leftover),
       );
-      if (leftover === 0)
+      if (leftover === 0) {
         rewardArc(this.scene, this.bobberPos.x, this.bobberPos.y, this.scene.player, item);
+      }
       const xp = 10 + fish.difficulty * 4;
       this.scene.awardXP("fishing", xp);
       floatText(
@@ -300,10 +333,10 @@ export class Fishing {
       );
       burst(this.scene, this.scene.player.x, this.scene.player.y - 16, {
         colors: [0x9fe0ff, 0xffffff, 0xffe27a],
-        matter: "droplet",
         count: 14,
-        up: true,
+        matter: "droplet",
         speed: 60,
+        up: true,
       });
       Sound.harvest();
     }
@@ -338,10 +371,15 @@ export class Fishing {
 
   /** A local co-op pause freezes the catch, never the partner's world clock. */
   setPaused(paused: boolean): void {
-    if (this.pending) this.pending.paused = paused;
+    if (this.pending) {
+      this.pending.paused = paused;
+    }
     if (this.active) {
-      if (paused) this.scene.player.anims.pause();
-      else this.scene.player.anims.resume();
+      if (paused) {
+        this.scene.player.anims.pause();
+      } else {
+        this.scene.player.anims.resume();
+      }
     }
   }
 }

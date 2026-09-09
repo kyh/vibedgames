@@ -17,20 +17,20 @@ import { heroSheetTex } from "../render/sprites";
 
 // Section headers matching the pause plaque's GROUP_LABEL voice.
 const GROUP_LABEL = {
+  camera: "CAMERA",
+  controller: "GAMEPAD",
   keys: "KEYBOARD",
   mouse: "MOUSE",
   touch: "TOUCH",
-  camera: "CAMERA",
-  controller: "GAMEPAD",
 } satisfies Record<ControlMethod, string>;
 
-type MenuAction = {
+interface MenuAction {
   online: boolean;
   color: "blue" | "red";
   button: Phaser.GameObjects.NineSlice;
   label: Phaser.GameObjects.Text;
   ring: Phaser.GameObjects.Rectangle;
-};
+}
 type MenuFocus = { kind: "champion" } | { kind: "action"; action: MenuAction };
 
 export class MenuScene extends Phaser.Scene {
@@ -66,7 +66,7 @@ export class MenuScene extends Phaser.Scene {
     this.padConfirmArmed = false;
     this.keyboardConfirmArmed = true;
 
-    const veil = document.getElementById("veil");
+    const veil = document.querySelector("#veil");
     if (veil) {
       veil.classList.add("hidden");
       setTimeout(() => veil.remove(), 600);
@@ -75,7 +75,9 @@ export class MenuScene extends Phaser.Scene {
     // headless / quick-start: ?hero=duskblade&auto=1 skips straight into a match
     const params = new URLSearchParams(window.location.search);
     const heroParam = params.get("hero");
-    if (heroParam && HEROES.some((h) => h.id === heroParam)) this.selected = heroParam;
+    if (heroParam && HEROES.some((h) => h.id === heroParam)) {
+      this.selected = heroParam;
+    }
     if (params.get("auto") === "1") {
       notifyGameStarted();
       this.scene.start("Game", { heroId: this.selected, online: params.get("online") === "1" });
@@ -107,11 +109,11 @@ export class MenuScene extends Phaser.Scene {
     // backdrop: open water, slowly drifting, with rocks and clouds
     const water = this.add.tileSprite(0, 0, W, H, "t-water").setOrigin(0).setScrollFactor(0);
     this.tweens.add({
+      duration: 24000,
+      repeat: -1,
       targets: water,
       tilePositionX: 128,
       tilePositionY: 64,
-      duration: 24000,
-      repeat: -1,
     });
     for (let i = 0; i < 6; i++) {
       const n = 1 + (i % 4);
@@ -121,8 +123,9 @@ export class MenuScene extends Phaser.Scene {
       const anim = this.anims.get(`wrock${n}-anim`);
       // clamp startFrame to the real frame count — a sheet can load with fewer
       // frames than authored if it exceeds the GPU's max texture size.
-      if (anim && anim.frames.length > 0)
+      if (anim && anim.frames.length > 0) {
         rk.play({ key: `wrock${n}-anim`, startFrame: (i * 3) % anim.frames.length });
+      }
     }
     for (let i = 0; i < 4; i++) {
       const c = this.add
@@ -130,12 +133,12 @@ export class MenuScene extends Phaser.Scene {
         .setAlpha(0.4)
         .setScale(0.8);
       this.tweens.add({
+        duration: 26000 + i * 5000,
+        ease: "Sine.InOut",
+        repeat: -1,
         targets: c,
         x: c.x + 320,
-        duration: 26000 + i * 5000,
         yoyo: true,
-        repeat: -1,
-        ease: "Sine.InOut",
       });
     }
 
@@ -157,9 +160,9 @@ export class MenuScene extends Phaser.Scene {
       .setOrigin(0.5);
     const title = this.add
       .text(W / 2, titleY - 6, "ANCIENTS OF ELDERMOOR", {
+        color: "#f4eee0",
         fontFamily: FONT,
         fontSize: this.compactH ? "28px" : "36px",
-        color: "#f4eee0",
         stroke: "#1e2a3a",
         strokeThickness: 6,
       })
@@ -168,9 +171,9 @@ export class MenuScene extends Phaser.Scene {
     if (!this.compactH) {
       this.navigationHint = this.add
         .text(W / 2, 116, "", {
+          color: "#eafaf8",
           fontFamily: FONT,
           fontSize: "16px",
-          color: "#eafaf8",
           stroke: "#1e3a38",
           strokeThickness: 4,
         })
@@ -198,8 +201,8 @@ export class MenuScene extends Phaser.Scene {
         .nineslice(0, 0, "ui-carved9", 0, 160, 204, 20, 20, 20, 20)
         .setInteractive({ useHandCursor: true });
       const ring = this.add
-        .rectangle(0, 0, 166, 210, 0x000000, 0)
-        .setStrokeStyle(4, 0xffe14a, 1)
+        .rectangle(0, 0, 166, 210, 0x00_00_00, 0)
+        .setStrokeStyle(4, 0xff_e1_4a, 1)
         .setVisible(false);
       card.add([panel, ring]);
       const tex = heroSheetTex(h.id);
@@ -207,17 +210,19 @@ export class MenuScene extends Phaser.Scene {
         card.add(this.add.sprite(0, -30, tex, 0).setScale(0.72).setTint(h.tint));
       }
       const nameText = this.add
-        .text(0, 30, h.name, { fontFamily: FONT, fontSize: "16px", color: "#4a3320" })
+        .text(0, 30, h.name, { color: "#4a3320", fontFamily: FONT, fontSize: "16px" })
         .setOrigin(0.5);
-      if (nameText.width > 144) nameText.setScale(144 / nameText.width);
+      if (nameText.width > 144) {
+        nameText.setScale(144 / nameText.width);
+      }
       card.add(nameText);
       card.add(
         this.add
           .text(0, 52, h.role, {
+            align: "center",
+            color: "#7a6240",
             fontFamily: FONT,
             fontSize: "11px",
-            color: "#7a6240",
-            align: "center",
             wordWrap: { width: 142 },
           })
           .setOrigin(0.5, 0),
@@ -234,23 +239,23 @@ export class MenuScene extends Phaser.Scene {
     // detail panel
     this.detailName = this.add
       .text(W / 2, gridBottom + (this.compactH ? 16 : 30), "", {
+        color: "#fff3c4",
         fontFamily: FONT,
         fontSize: this.compactH ? "17px" : "21px",
-        color: "#fff3c4",
         stroke: "#27343c",
         strokeThickness: 5,
       })
       .setOrigin(0.5);
     this.detail = this.add
       .text(W / 2, gridBottom + (this.compactH ? 36 : 58), "", {
+        align: "center",
+        color: "#f0fffd",
         fontFamily: FONT,
         fontSize: this.compactH ? "12px" : "14px",
-        color: "#f0fffd",
-        align: "center",
+        lineSpacing: 6,
         stroke: "#1e3a38",
         strokeThickness: 3,
         wordWrap: { width: Math.min(820, W - 48) },
-        lineSpacing: 6,
       })
       .setOrigin(0.5, 0);
 
@@ -263,17 +268,19 @@ export class MenuScene extends Phaser.Scene {
         .nineslice(x, btnY, `ui-btn-${color}`, 0, w, 66, 28, 28, 20, 26)
         .setInteractive({ useHandCursor: true });
       const t = this.add
-        .text(x, btnY - 4, label, { fontFamily: FONT, fontSize: "21px", color: "#1e3a44" })
+        .text(x, btnY - 4, label, { color: "#1e3a44", fontFamily: FONT, fontSize: "21px" })
         .setOrigin(0.5);
       // shrink the type rather than the object: the hover tween owns `scale`
-      if (t.width > w - 34) t.setFontSize(Math.floor((21 * (w - 34)) / t.width));
-      b.on("pointerover", () => this.tweens.add({ targets: [b, t], scale: 1.05, duration: 110 }));
-      b.on("pointerout", () => this.tweens.add({ targets: [b, t], scale: 1, duration: 110 }));
+      if (t.width > w - 34) {
+        t.setFontSize(Math.floor((21 * (w - 34)) / t.width));
+      }
+      b.on("pointerover", () => this.tweens.add({ duration: 110, scale: 1.05, targets: [b, t] }));
+      b.on("pointerout", () => this.tweens.add({ duration: 110, scale: 1, targets: [b, t] }));
       const ring = this.add
-        .rectangle(x, btnY, w + 6, 64, 0x000000, 0)
-        .setStrokeStyle(3, 0xffe14a)
+        .rectangle(x, btnY, w + 6, 64, 0x00_00_00, 0)
+        .setStrokeStyle(3, 0xff_e1_4a)
         .setVisible(false);
-      const action = { online, color, button: b, label: t, ring };
+      const action = { button: b, color, label: t, online, ring };
       this.actions.push(action);
       b.on("pointerdown", () => this.beginMatch(action));
     };
@@ -299,7 +306,9 @@ export class MenuScene extends Phaser.Scene {
   }
 
   private onMenuKeyDown(event: KeyboardEvent): void {
-    if (this.starting) return;
+    if (this.starting) {
+      return;
+    }
     const direction =
       event.key === "ArrowLeft"
         ? "left"
@@ -323,24 +332,32 @@ export class MenuScene extends Phaser.Scene {
   }
 
   private onMenuKeyUp(event: KeyboardEvent): void {
-    if (event.key === "Enter") this.keyboardConfirmArmed = true;
+    if (event.key === "Enter") {
+      this.keyboardConfirmArmed = true;
+    }
   }
 
   override update(): void {
-    if (this.starting || !this.pad) return;
+    if (this.starting || !this.pad) {
+      return;
+    }
     this.pad.update();
     if (!this.pad.connected) {
       this.padConfirmArmed = false;
       return;
     }
-    if (!this.pad.isButtonDown("a")) this.padConfirmArmed = true;
+    if (!this.pad.isButtonDown("a")) {
+      this.padConfirmArmed = true;
+    }
     for (const direction of ["left", "right", "up", "down"] satisfies (
       | "left"
       | "right"
       | "up"
       | "down"
     )[]) {
-      if (this.pad.justPressed(direction)) this.moveFocus(direction);
+      if (this.pad.justPressed(direction)) {
+        this.moveFocus(direction);
+      }
     }
     if (this.pad.justPressed("b")) {
       this.focus = { kind: "champion" };
@@ -352,16 +369,21 @@ export class MenuScene extends Phaser.Scene {
   }
 
   private moveFocus(direction: "left" | "right" | "up" | "down"): void {
-    if (this.starting) return;
+    if (this.starting) {
+      return;
+    }
     if (this.focus.kind === "action") {
-      if (direction === "up") this.focus = { kind: "champion" };
-      else if (direction === "left" || direction === "right") {
+      if (direction === "up") {
+        this.focus = { kind: "champion" };
+      } else if (direction === "left" || direction === "right") {
         const index = this.actions.indexOf(this.focus.action);
         const action =
           this.actions[
             (index + (direction === "left" ? -1 : 1) + this.actions.length) % this.actions.length
           ];
-        if (action) this.focus = { kind: "action", action };
+        if (action) {
+          this.focus = { kind: "action", action };
+        }
       }
       this.paintFocus();
       return;
@@ -385,26 +407,37 @@ export class MenuScene extends Phaser.Scene {
               : index
             : Math.min(HEROES.length - 1, index + this.cardColumns);
     const hero = HEROES[next];
-    if (hero) this.select(hero.id);
+    if (hero) {
+      this.select(hero.id);
+    }
   }
 
   private focusPlay(): void {
     const action = this.actions.find((entry) => !entry.online);
-    if (!action) return;
-    this.focus = { kind: "action", action };
+    if (!action) {
+      return;
+    }
+    this.focus = { action, kind: "action" };
     this.paintFocus();
   }
 
   private confirmFocus(): void {
-    if (this.starting) return;
-    if (this.focus.kind === "champion") this.focusPlay();
-    else this.beginMatch(this.focus.action);
+    if (this.starting) {
+      return;
+    }
+    if (this.focus.kind === "champion") {
+      this.focusPlay();
+    } else {
+      this.beginMatch(this.focus.action);
+    }
   }
 
   private beginMatch(action: MenuAction): void {
-    if (this.starting) return;
+    if (this.starting) {
+      return;
+    }
     this.starting = true;
-    this.focus = { kind: "action", action };
+    this.focus = { action, kind: "action" };
     this.paintFocus();
     action.button.setTexture(`ui-btn-${action.color}-pressed`);
     action.label.setText("LOADING…").setY(action.button.y);
@@ -419,12 +452,13 @@ export class MenuScene extends Phaser.Scene {
         .setVisible(card.id === this.selected)
         .setStrokeStyle(
           this.focus.kind === "champion" ? 4 : 2,
-          0xffe14a,
+          0xff_e1_4a,
           this.focus.kind === "champion" ? 1 : 0.65,
         );
     }
-    for (const action of this.actions)
+    for (const action of this.actions) {
       action.ring.setVisible(this.focus.kind === "action" && this.focus.action === action);
+    }
     if (this.navigationHint) {
       const text =
         this.focus.kind === "champion"
@@ -448,7 +482,9 @@ export class MenuScene extends Phaser.Scene {
     const W = this.scale.width;
     const coarse = window.matchMedia("(pointer: coarse)").matches;
     const groups = controlGroups(CONTROLS, { coarse });
-    if (groups.length === 0) return;
+    if (groups.length === 0) {
+      return;
+    }
     const compact = this.compactH;
     const container = this.add.container(0, 0);
     this.controlsPlaque = container;
@@ -460,35 +496,44 @@ export class MenuScene extends Phaser.Scene {
     const maxW = compact ? Number.POSITIVE_INFINITY : Math.min(900, W - 64);
 
     type Obj = Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Transform;
-    type Item = { objs: Obj[]; width: number };
+    interface Item {
+      objs: Obj[];
+      width: number;
+    }
     const rows: Item[][] = [];
     let row: Item[] = [];
     let rowW = 0;
     const flushRow = (): void => {
-      if (row.length > 0) rows.push(row);
+      if (row.length > 0) {
+        rows.push(row);
+      }
       row = [];
       rowW = 0;
     };
     const addItem = (item: Item): void => {
       const grown = row.length > 0 ? rowW + gapX + item.width : item.width;
-      if (row.length > 0 && grown > maxW) flushRow();
+      if (row.length > 0 && grown > maxW) {
+        flushRow();
+      }
       rowW = row.length > 0 ? rowW + gapX + item.width : item.width;
       row.push(item);
     };
 
     for (const group of groups) {
-      if (!compact) flushRow(); // each method heads its own row on the plaque
+      if (!compact) {
+        flushRow();
+      } // each method heads its own row on the plaque
       // gold section header between short rules, like the plaque's mp-gh
       const caption = this.add
         .text(20, 0, GROUP_LABEL[group.method], {
+          color: "#d5ae5f",
           fontFamily: FONT,
           fontSize: compact ? "9px" : "11px",
-          color: "#d5ae5f",
         })
         .setOrigin(0, 0.5);
-      const ruleL = this.add.rectangle(0, 0, 14, 1, 0x8a7350).setOrigin(0, 0.5).setAlpha(0.8);
+      const ruleL = this.add.rectangle(0, 0, 14, 1, 0x8a_73_50).setOrigin(0, 0.5).setAlpha(0.8);
       const ruleR = this.add
-        .rectangle(20 + Math.ceil(caption.width) + 6, 0, 14, 1, 0x8a7350)
+        .rectangle(20 + Math.ceil(caption.width) + 6, 0, 14, 1, 0x8a_73_50)
         .setOrigin(0, 0.5)
         .setAlpha(0.8);
       addItem({ objs: [ruleL, caption, ruleR], width: 40 + Math.ceil(caption.width) });
@@ -499,19 +544,19 @@ export class MenuScene extends Phaser.Scene {
         let x = 0;
         for (const text of chipTexts(entry.input)) {
           const cap = this.add
-            .text(0, 0, text, { fontFamily: FONT, fontSize, color: "#ffe8b0" })
+            .text(0, 0, text, { color: "#ffe8b0", fontFamily: FONT, fontSize })
             .setOrigin(0.5);
           const w = Math.max(chipH + 4, Math.ceil(cap.width) + 12);
-          chips.fillStyle(0x2f2315, 1);
+          chips.fillStyle(0x2f_23_15, 1);
           chips.fillRoundedRect(x, -chipH / 2, w, chipH, 5);
-          chips.lineStyle(1.5, 0x8a7350, 1);
+          chips.lineStyle(1.5, 0x8a_73_50, 1);
           chips.strokeRoundedRect(x, -chipH / 2, w, chipH, 5);
           cap.setPosition(x + w / 2, 0);
           objs.push(cap);
           x += w + 3;
         }
         const action = this.add
-          .text(x + 3, 0, entry.action, { fontFamily: FONT, fontSize, color: "#d8cbb2" })
+          .text(x + 3, 0, entry.action, { color: "#d8cbb2", fontFamily: FONT, fontSize })
           .setOrigin(0, 0.5);
         objs.push(action);
         addItem({ objs, width: x + 3 + Math.ceil(action.width) });
@@ -549,9 +594,9 @@ export class MenuScene extends Phaser.Scene {
     const panelH = contentH + padY * 2;
     const panelTop = -chipH / 2 - padY;
     const panel = this.add.graphics();
-    panel.fillStyle(0x150e07, 0.82);
+    panel.fillStyle(0x15_0e_07, 0.82);
     panel.fillRoundedRect(-panelW / 2, panelTop, panelW, panelH, 10);
-    panel.lineStyle(2, 0x8a7350, 0.9);
+    panel.lineStyle(2, 0x8a_73_50, 0.9);
     panel.strokeRoundedRect(-panelW / 2, panelTop, panelW, panelH, 10);
     container.addAt(panel, 0);
     const cornerDirs: readonly (readonly [number, number])[] = [
@@ -562,7 +607,7 @@ export class MenuScene extends Phaser.Scene {
     ];
     for (const [dx, dy] of cornerDirs) {
       const corner = this.add
-        .rectangle(dx * (panelW / 2 - 9), panelTop + (dy > 0 ? panelH - 9 : 9), 6, 6, 0xd5ae5f)
+        .rectangle(dx * (panelW / 2 - 9), panelTop + (dy > 0 ? panelH - 9 : 9), 6, 6, 0xd5_ae_5f)
         .setRotation(Math.PI / 4);
       container.add(corner);
     }
@@ -577,7 +622,9 @@ export class MenuScene extends Phaser.Scene {
 
   private preview(id: string): void {
     const h = HEROES.find((x) => x.id === id);
-    if (!h) return;
+    if (!h) {
+      return;
+    }
     this.detailName.setText(`${h.name}, ${h.title}  —  ${h.role}`);
     const abilities = (["Q", "W", "E", "R"] as const)
       .map((k) => `[${k}] ${h.abilities[k].name}`)
@@ -587,7 +634,9 @@ export class MenuScene extends Phaser.Scene {
   }
 
   private select(id: string): void {
-    if (this.starting) return;
+    if (this.starting) {
+      return;
+    }
     this.selected = id;
     this.focus = { kind: "champion" };
     this.preview(id);

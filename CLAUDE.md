@@ -4,6 +4,8 @@
 
 **Read [`AGENTS.md`](./AGENTS.md) first.** It is the tool-agnostic, runnable guide: quickstart, the two env files, seeded logins, headless auth, the `pnpm verify` gate, an agent-browser recipe, and which surfaces are checkable at runtime versus which need a human. This file carries the product context, architectural decisions and conventions that sit on top of it.
 
+- **`pnpm lint` is a clean gate.** `oxlint.config.ts` extends the ultracite presets (core, react, anti-slop); every rule is an error. Fix the code, don't add config overrides; a `// oxlint-disable-next-line rule -- why` needs a stated reason.
+
 ## What This Is
 
 **vibedgames** — infrastructure platform for deploying, hosting, and adding multiplayer to browser games. Users build games locally, deploy via CLI (`vg deploy`), and their game is served at `{slug}.vibedgames.com`. The web app is the central hub for discovering and playing games.

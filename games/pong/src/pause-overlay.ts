@@ -13,12 +13,12 @@ import type { ControlMethod } from "@repo/embed";
 
 import { visibleControls } from "./controls";
 
-export type PongPauseOverlay = {
+export interface PongPauseOverlay {
   /** Mount the overlay. Idempotent while shown. */
   show: () => void;
   /** Unmount (fade out). Idempotent while hidden. */
   hide: () => void;
-};
+}
 
 const PAPER = "#d4d4d4";
 const INK = "#000";
@@ -33,11 +33,11 @@ const SCRIM =
   `radial-gradient(circle, ${INK} 0 1.3px, transparent 1.3px) 3px 3px / 6px 6px`;
 
 const GROUP_LABELS = {
+  camera: "HAND CAM",
+  controller: "PAD",
   keys: "KEYS",
   mouse: "MOUSE",
   touch: "TOUCH",
-  camera: "HAND CAM",
-  controller: "PAD",
 } satisfies Readonly<Record<ControlMethod, string>>;
 
 /** The pause card's ink keycap chip. */

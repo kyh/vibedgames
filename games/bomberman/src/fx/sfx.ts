@@ -1,6 +1,7 @@
 // Short procedural arcade sounds on one WebAudio graph. Nothing plays before a
 // user gesture; mute and pause silence every live voice rather than queue cues.
-import { RoundScore, scoreNotes, type RoundScoreMode } from "./round-score";
+import { RoundScore, scoreNotes } from "./round-score";
+import type { RoundScoreMode } from "./round-score";
 export type { RoundScoreMode } from "./round-score";
 
 const STORAGE_KEY = "bomberman:sound";
@@ -11,13 +12,17 @@ export type BlastSound = Readonly<{ strength: number; pan: number }>;
 export type RoundOutcome = "won" | "lost" | "draw";
 /** Buses: the result phrase ducks routine/personal cues; the score bed is its own lane. */
 type Role = "background" | "routine" | "personal" | "result";
-type Graph = {
+interface Graph {
   context: AudioContext;
   master: GainNode;
   buses: Record<Role, GainNode>;
   noise: AudioBuffer | null;
-};
-type Voice = { source: AudioScheduledSourceNode; nodes: AudioNode[]; role: Role };
+}
+interface Voice {
+  source: AudioScheduledSourceNode;
+  nodes: AudioNode[];
+  role: Role;
+}
 
 let muted = readSoundPreference();
 let paused = false;
@@ -61,32 +66,41 @@ export function unlockAudio(): void {
 }
 
 function syncContext(): void {
-  if (muted || paused) silence();
-  if (muted) return;
+  if (muted || paused) {
+    silence();
+  }
+  if (muted) {
+    return;
+  }
   if (!graph) {
     // Creating a context outside user activation only logs an autoplay
     // warning; the next unmute/Play tap creates it instead.
-    if (window.navigator.userActivation?.isActive === false || !("AudioContext" in window)) return;
+    if (window.navigator.userActivation?.isActive === false || !("AudioContext" in window)) {
+      return;
+    }
     try {
       const context = new AudioContext();
       const master = context.createGain();
       master.connect(context.destination);
       const buses = {
         background: context.createGain(),
-        routine: context.createGain(),
         personal: context.createGain(),
         result: context.createGain(),
+        routine: context.createGain(),
       };
-      for (const bus of Object.values(buses)) bus.connect(master);
-      graph = { context, master, buses, noise: null };
+      for (const bus of Object.values(buses)) {
+        bus.connect(master);
+      }
+      graph = { buses, context, master, noise: null };
     } catch {
       return;
     }
   }
   graph.master.gain.setValueAtTime(paused ? 0 : 1, graph.context.currentTime);
   // Browsers hold a pre-activation resume() until the next gesture, which is the behaviour we want.
-  if (!paused && graph.context.state === "suspended")
+  if (!paused && graph.context.state === "suspended") {
     void graph.context.resume().catch(() => undefined);
+  }
 }
 
 export function resetRoundAudio(): void {
@@ -98,9 +112,13 @@ export function resetRoundAudio(): void {
 
 /** Stop every voice and clear bus automation (ducking) so nothing leaks past a mute/pause/reset. */
 function silence(): void {
-  for (const voice of voices) release(voice);
+  for (const voice of voices) {
+    release(voice);
+  }
   score.reset();
-  if (!graph) return;
+  if (!graph) {
+    return;
+  }
   const at = graph.context.currentTime;
   graph.master.gain.cancelScheduledValues(at);
   graph.master.gain.setValueAtTime(muted || paused ? 0 : 1, at);
@@ -111,15 +129,19 @@ function silence(): void {
 }
 
 function release(voice: Voice): void {
-  if (!voices.delete(voice)) return;
+  if (!voices.delete(voice)) {
+    return;
+  }
   // Every source has its end scheduled at creation and a second stop() throws,
   // so a forced release only unplugs it: silent at once, reaped on schedule.
   voice.source.disconnect();
-  for (const node of voice.nodes) node.disconnect();
+  for (const node of voice.nodes) {
+    node.disconnect();
+  }
 }
 
 function own(source: AudioScheduledSourceNode, nodes: AudioNode[], role: Role): void {
-  const voice: Voice = { source, nodes, role };
+  const voice: Voice = { nodes, role, source };
   voices.add(voice);
   source.addEventListener("ended", () => release(voice), { once: true });
 }
@@ -132,25 +154,41 @@ function ready(): Graph | null {
  * outrank ambience: they evict the oldest expendable voices to fit. */
 function admit(size: number, role: Role): Graph | null {
   const current = ready();
-  if (!current) return null;
+  if (!current) {
+    return null;
+  }
   if (role === "background") {
     let background = 0;
-    for (const voice of voices) if (voice.role === "background") background++;
-    if (background + size > BACKGROUND_LIMIT) return null;
+    for (const voice of voices) {
+      if (voice.role === "background") background++;
+    }
+    if (background + size > BACKGROUND_LIMIT) {
+      return null;
+    }
   }
   if (voices.size + size > VOICE_LIMIT) {
-    if (role === "background" || role === "routine") return null;
-    for (const voice of voices) {
-      if (voices.size + size <= VOICE_LIMIT) break;
-      if (voice.role !== "result") release(voice);
+    if (role === "background" || role === "routine") {
+      return null;
     }
-    if (voices.size + size > VOICE_LIMIT) return null;
+    for (const voice of voices) {
+      if (voices.size + size <= VOICE_LIMIT) {
+        break;
+      }
+      if (voice.role !== "result") {
+        release(voice);
+      }
+    }
+    if (voices.size + size > VOICE_LIMIT) {
+      return null;
+    }
   }
   return current;
 }
 
 function stopBackground(): void {
-  for (const voice of voices) if (voice.role === "background") release(voice);
+  for (const voice of voices) {
+    if (voice.role === "background") release(voice);
+  }
 }
 
 function route(current: Graph, gain: GainNode, nodes: AudioNode[], pan: number, role: Role): void {
@@ -199,7 +237,9 @@ function rumble(current: Graph, strength: number, pan: number): void {
   if (!current.noise) {
     current.noise = ac.createBuffer(1, Math.ceil(ac.sampleRate * 0.24), ac.sampleRate);
     const data = current.noise.getChannelData(0);
-    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    for (let i = 0; i < data.length; i++) {
+      data[i] = Math.random() * 2 - 1;
+    }
   }
   const source = ac.createBufferSource();
   source.buffer = current.noise;
@@ -218,11 +258,6 @@ function rumble(current: Graph, strength: number, pan: number): void {
 }
 
 export const sfx = {
-  place(local: boolean): void {
-    const role: Role = local ? "personal" : "routine";
-    const current = admit(1, role);
-    if (current) tone(current, role, 150, 75, 0.07, 0.1);
-  },
   blast(spatial: BlastSound): void {
     const strength = Math.max(0, Math.min(1, spatial.strength));
     const pan = Math.max(-1, Math.min(1, spatial.pan));
@@ -236,15 +271,20 @@ export const sfx = {
     tone(current, "routine", 95, 35, 0.2, 0.17, 0, pan, strength);
     rumble(current, strength, pan);
   },
+  death(): void {
+    const current = admit(1, "personal");
+    if (current) tone(current, "personal", 330, 55, 0.3, 0.12);
+  },
   pickup(): void {
     const current = admit(2, "personal");
     if (!current) return;
     tone(current, "personal", 660, 850, 0.07, 0.1);
     tone(current, "personal", 990, 1320, 0.12, 0.08, 0.07);
   },
-  death(): void {
-    const current = admit(1, "personal");
-    if (current) tone(current, "personal", 330, 55, 0.3, 0.12);
+  place(local: boolean): void {
+    const role: Role = local ? "personal" : "routine";
+    const current = admit(1, role);
+    if (current) tone(current, role, 150, 75, 0.07, 0.1);
   },
   win(result: RoundOutcome): void {
     if (outcome !== null) return;
@@ -267,7 +307,7 @@ export const sfx = {
 function duckForResult(current: Graph): void {
   const at = current.context.currentTime;
   for (const role of ["routine", "personal"] satisfies Role[]) {
-    const gain = current.buses[role].gain;
+    const { gain } = current.buses[role];
     const level = role === "routine" ? 0.22 : 0.35;
     gain.cancelScheduledValues(at);
     gain.setValueAtTime(level, at);
@@ -299,7 +339,9 @@ function scoreNote(current: Graph, frequency: number): void {
 /** Once per frame from the scene. A finished round never restarts its bed. */
 export function updateRoundScore(mode: RoundScoreMode, nowMs: number): void {
   const next = outcome === null ? mode : "silent";
-  if (next !== scoreMode) stopBackground();
+  if (next !== scoreMode) {
+    stopBackground();
+  }
   scoreMode = next;
   const current = ready();
   if (!current) {
@@ -308,26 +350,34 @@ export function updateRoundScore(mode: RoundScoreMode, nowMs: number): void {
     return;
   }
   const frame = score.observe(next, nowMs);
-  if (!frame) return;
+  if (!frame) {
+    return;
+  }
   if (frame.kind === "rebase") {
     stopBackground();
     return;
   }
   const notes = scoreNotes(frame.beat);
-  if (notes.length === 0) return;
+  if (notes.length === 0) {
+    return;
+  }
   const admitted = admit(notes.length, "background");
-  if (!admitted) return;
-  for (const frequency of notes) scoreNote(admitted, frequency);
+  if (!admitted) {
+    return;
+  }
+  for (const frequency of notes) {
+    scoreNote(admitted, frequency);
+  }
 }
 
 /** Dev-console view (`window.__bb.audio()`). */
 export function audioDiagnostics() {
   return {
     muted,
+    outcome,
     paused,
+    scoreMode,
     state: graph?.context.state ?? "locked",
     voices: voices.size,
-    scoreMode,
-    outcome,
   };
 }

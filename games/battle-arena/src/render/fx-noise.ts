@@ -10,6 +10,7 @@
 // `fbm2` is ours: two octaves instead of three or four. The toon grade wants
 // broad flat masses, and the extra octaves only add high-frequency grain that
 // the bloom pass then smears into mush at our camera distance.
+// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
 export const NOISE_GLSL = /* glsl */ `
 #ifndef VG_NOISE_INCLUDED
 #define VG_NOISE_INCLUDED

@@ -1,4 +1,5 @@
-import { bossPhase, type EnemyState } from "../shared/constants";
+import { bossPhase } from "../shared/constants";
+import type { EnemyState } from "../shared/constants";
 
 type Phase = 1 | 2 | 3;
 export type BossObservation = Readonly<Pick<EnemyState, "id" | "kind" | "hp" | "maxHp">>;
@@ -22,7 +23,9 @@ export class BossEncounters {
   }
 
   observe(epoch: number, enemies: readonly BossObservation[]): readonly BossEncounterCue[] {
-    if (!Number.isFinite(epoch)) return NO_CUES;
+    if (!Number.isFinite(epoch)) {
+      return NO_CUES;
+    }
     const baseline = this.epoch !== epoch;
     if (baseline) {
       this.epoch = epoch;
@@ -30,24 +33,32 @@ export class BossEncounters {
     }
     let cues: BossEncounterCue[] | null = null;
     for (const e of enemies) {
-      if (e.kind !== "dreadnought" || !(e.hp > 0) || !(e.maxHp > 0)) continue;
+      if (e.kind !== "dreadnought" || !(e.hp > 0) || !(e.maxHp > 0)) {
+        continue;
+      }
       const phase = bossPhase(e.hp, e.maxHp);
       const previous = this.live.get(e.id);
-      if (previous !== undefined && phase <= previous) continue;
+      if (previous !== undefined && phase <= previous) {
+        continue;
+      }
       this.live.set(e.id, phase);
-      if (baseline) continue;
+      if (baseline) {
+        continue;
+      }
       cues ??= [];
       cues.push(
         previous === undefined
-          ? { kind: "arrival", id: e.id, phase }
-          : { kind: "phase", id: e.id, phase },
+          ? { id: e.id, kind: "arrival", phase }
+          : { id: e.id, kind: "phase", phase },
       );
     }
     for (const id of this.live.keys()) {
-      if (enemies.some((e) => e.id === id)) continue;
+      if (enemies.some((e) => e.id === id)) {
+        continue;
+      }
       this.live.delete(id);
       cues ??= [];
-      cues.push({ kind: "defeat", id });
+      cues.push({ id, kind: "defeat" });
     }
     return cues ?? NO_CUES;
   }

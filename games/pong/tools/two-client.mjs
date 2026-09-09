@@ -9,7 +9,7 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const gameDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const gameDir = resolve(import.meta.dirname, "..");
 const { chromium } = createRequire(join(gameDir, "package.json"))("playwright-core");
 const PARTY = "http://localhost:8787";
 const PORT = 5399;
@@ -18,8 +18,10 @@ const wait = (ms) => new Promise((done) => setTimeout(done, ms));
 
 const urlFlag = process.argv.indexOf("--url");
 let vite = null;
-let baseUrl = urlFlag === -1 ? `http://localhost:${PORT}` : process.argv[urlFlag + 1];
-if (!baseUrl) throw new Error("--url needs a value");
+const baseUrl = urlFlag === -1 ? `http://localhost:${PORT}` : process.argv[urlFlag + 1];
+if (!baseUrl) {
+  throw new Error("--url needs a value");
+}
 
 async function reachable(url) {
   return fetch(url).then(
@@ -34,7 +36,9 @@ async function startVite() {
     stdio: "ignore",
   });
   for (let i = 0; i < 100; i++) {
-    if (await reachable(baseUrl)) return;
+    if (await reachable(baseUrl)) {
+      return;
+    }
     await wait(100);
   }
   throw new Error(`vite did not come up on ${baseUrl}`);
@@ -43,7 +47,9 @@ async function startVite() {
 let failures = 0;
 function check(ok, label) {
   console.log(`${ok ? "ok  " : "FAIL"} ${label}`);
-  if (!ok) failures++;
+  if (!ok) {
+    failures++;
+  }
 }
 
 /** Poll `fn` (runs in the page) until truthy; returns its value or null on timeout. */
@@ -51,7 +57,9 @@ async function until(page, fn, timeoutMs, arg) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const value = await page.evaluate(fn, arg).catch(() => null);
-    if (value) return value;
+    if (value) {
+      return value;
+    }
     await wait(50);
   }
   return null;
@@ -59,15 +67,16 @@ async function until(page, fn, timeoutMs, arg) {
 
 const diag = (page) => page.evaluate(() => window.__GAME_DIAGNOSTICS__);
 const confirm = (page) => page.evaluate(() => window.__pong.handleGestureConfirm());
-const netInfo = (page) => page.evaluate(() => document.getElementById("netinfo").textContent);
+const netInfo = (page) => page.evaluate(() => document.querySelector("#netinfo").textContent);
 /** Chase the ball with the local paddle (sim-frame, so it holds through host swaps). */
 const track = (page, on) =>
   page.evaluate((on) => {
     clearInterval(window.__track);
-    if (on)
+    if (on) {
       window.__track = setInterval(() => {
         window.__pong.myPaddle = window.__pong.ballPos.x;
       }, 16);
+    }
   }, on);
 const rally = (page, ms) => until(page, () => window.__GAME_DIAGNOSTICS__.phase === "rally", ms);
 const moving = async (page, ms) => {
@@ -80,13 +89,15 @@ const moving = async (page, ms) => {
 async function open(browser, name, room, errors) {
   // hasTouch: COARSE_INPUT keeps the webcam hand tracker (no camera headless) off.
   const context = await browser.newContext({
-    viewport: { width: 960, height: 600 },
     hasTouch: true,
+    viewport: { height: 600, width: 960 },
   });
   const page = await context.newPage();
   page.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
   page.on("console", (m) => {
-    if (m.type() === "error") errors.push(`${name}: ${m.text()}`);
+    if (m.type() === "error") {
+      errors.push(`${name}: ${m.text()}`);
+    }
   });
   await page.goto(`${baseUrl}/?room=${room}`);
   return { context, page };
@@ -112,7 +123,7 @@ async function winThenRematch(host, guest, from, label) {
   await host.evaluate((n) => {
     window.__pong.scoreYou = n;
   }, WIN_SCORE - 1);
-  const won = await until(host, () => window.__GAME_DIAGNOSTICS__.complete, 15000);
+  const won = await until(host, () => window.__GAME_DIAGNOSTICS__.complete, 15_000);
   const guestSees = await until(
     guest,
     (n) => window.__GAME_DIAGNOSTICS__.complete && window.__GAME_DIAGNOSTICS__.opponentScore === n,
@@ -131,26 +142,30 @@ async function winThenRematch(host, guest, from, label) {
 }
 
 async function main() {
-  if (!(await reachable(PARTY))) throw new Error(`party server not reachable at ${PARTY}`);
-  if (urlFlag === -1) await startVite();
+  if (!(await reachable(PARTY))) {
+    throw new Error(`party server not reachable at ${PARTY}`);
+  }
+  if (urlFlag === -1) {
+    await startVite();
+  }
   const room = `t${process.pid}-${Date.now()}`;
   const errors = [];
   // Both clients must keep simulating; Chrome otherwise throttles whichever
   // window is not focused, which reads as a frozen peer.
   const browser = await chromium.launch({
-    headless: true,
-    channel: "chrome",
     args: [
       "--disable-background-timer-throttling",
       "--disable-backgrounding-occluded-windows",
       "--disable-renderer-backgrounding",
     ],
+    channel: "chrome",
+    headless: true,
   });
   try {
     // 1. Host alone: plays the AI, room open for a rival.
     const host = await open(browser, "host", room, errors);
     check(
-      (await until(host.page, () => window.__pong.role === "host", 15000)) !== null,
+      (await until(host.page, () => window.__pong.role === "host", 15_000)) !== null,
       "host admitted",
     );
     await confirm(host.page);
@@ -163,7 +178,7 @@ async function main() {
     // 2. Late join into the running match.
     const guest = await open(browser, "guest", room, errors);
     check(
-      (await until(guest.page, () => window.__pong.role === "guest", 15000)) !== null,
+      (await until(guest.page, () => window.__pong.role === "guest", 15_000)) !== null,
       "late joiner admitted as guest",
     );
     check(
@@ -179,7 +194,7 @@ async function main() {
     // 3. Paddle contacts cross the wire.
     await track(host.page, true);
     await track(guest.page, true);
-    const hits = await until(host.page, () => window.__GAME_DIAGNOSTICS__.rallyHits >= 4, 15000);
+    const hits = await until(host.page, () => window.__GAME_DIAGNOSTICS__.rallyHits >= 4, 15_000);
     const guestHits = (await diag(guest.page)).rallyHits;
     check(
       hits !== null && guestHits >= 3,
@@ -190,13 +205,13 @@ async function main() {
     const ready = await until(
       guest.page,
       () => window.__GAME_DIAGNOSTICS__.charge.hits === 4,
-      15000,
+      15_000,
     );
     await confirm(guest.page);
     const armed = await until(guest.page, () => window.__GAME_DIAGNOSTICS__.charge.armed, 2000);
     const powered = await until(host.page, () => window.__GAME_DIAGNOSTICS__.powerShots >= 1, 8000);
     check(ready && armed && powered, "guest power shot: charge → armed → lands on the host");
-    await until(host.page, () => window.__GAME_DIAGNOSTICS__.charge.hits === 4, 15000);
+    await until(host.page, () => window.__GAME_DIAGNOSTICS__.charge.hits === 4, 15_000);
     await confirm(host.page);
     check(
       (await until(host.page, () => window.__GAME_DIAGNOSTICS__.powerShots >= 2, 8000)) !== null,
@@ -213,18 +228,18 @@ async function main() {
 
     // 7. Host backgrounds (no heartbeat, no frames): guest is promoted, keeps its
     //    charge and paddle; the old host returns and is remapped into slot B.
-    await until(guest.page, () => window.__GAME_DIAGNOSTICS__.charge.hits >= 1, 15000);
+    await until(guest.page, () => window.__GAME_DIAGNOSTICS__.charge.hits >= 1, 15_000);
     await track(guest.page, false);
     await track(host.page, false);
     const guestBefore = await diag(guest.page);
     const hostBefore = await diag(host.page);
     await host.page.evaluate(() => {
-      const client = window.__pong.net.client;
+      const { client } = window.__pong.net;
       window.__send = client.send;
       client.send = (m) => (m.type === "heartbeat" ? undefined : window.__send.call(client, m));
       window.__pong.update = () => {};
     });
-    const promoted = await until(guest.page, () => window.__pong.role === "host", 15000);
+    const promoted = await until(guest.page, () => window.__pong.role === "host", 15_000);
     const guestAfter = await diag(guest.page);
     check(promoted !== null, "guest promoted to host after the host goes silent");
     check(
@@ -266,13 +281,13 @@ async function main() {
     const rivalHits = await until(
       guest.page,
       () => window.__GAME_DIAGNOSTICS__.charge.rivalHits >= 1,
-      15000,
+      15_000,
     );
     check(rivalHits !== null, "demoted side's paddle still returns the ball");
 
     // 8. The host leaves for good: the remaining player is promoted and plays on.
     await guest.context.close();
-    const survivor = await until(host.page, () => window.__pong.role === "host", 20000);
+    const survivor = await until(host.page, () => window.__pong.role === "host", 20_000);
     check(survivor !== null, "guest promoted after the host closes its tab");
     check(
       (await rally(host.page, 5000)) !== null && (await moving(host.page, 200)),

@@ -8,7 +8,7 @@ import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const gameDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const gameDir = resolve(import.meta.dirname, "..");
 const { chromium } = createRequire(import.meta.url)("playwright-core");
 const wait = (ms) => new Promise((done) => setTimeout(done, ms));
 const urlArg = process.argv.indexOf("--url");
@@ -27,7 +27,9 @@ async function startVite() {
   );
   await new Promise((ready, fail) => {
     child.stdout.on("data", (chunk) => {
-      if (String(chunk).includes("Local:")) ready();
+      if (String(chunk).includes("Local:")) {
+        ready();
+      }
     });
     child.on("exit", (code) => fail(new Error(`vite exited ${code}`)));
   });
@@ -35,23 +37,27 @@ async function startVite() {
 }
 
 async function openClient(browser, base, name) {
-  const context = await browser.newContext({ viewport: { width: 960, height: 540 } });
+  const context = await browser.newContext({ viewport: { height: 540, width: 960 } });
   const page = await context.newPage();
   page.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
   page.on("console", (m) => {
-    if (m.type() === "error") errors.push(`${name}: ${m.text()}`);
+    if (m.type() === "error") {
+      errors.push(`${name}: ${m.text()}`);
+    }
   });
   await page.goto(`${base}/?online=1&room=${room}&name=${name}`);
-  return { name, context, page };
+  return { context, name, page };
 }
 
 const diag = (page) => page.evaluate(() => JSON.parse(JSON.stringify(window.__GAME_DIAGNOSTICS__)));
 
-async function until(page, predicate, label, timeout = 20000, arg = null) {
+async function until(page, predicate, label, timeout = 20_000, arg = null) {
   const started = Date.now();
   while (Date.now() - started < timeout) {
     const value = await page.evaluate(predicate, arg);
-    if (value) return value;
+    if (value) {
+      return value;
+    }
     await wait(100);
   }
   throw new Error(`timeout: ${label}`);
@@ -65,20 +71,20 @@ const joined = (client) =>
       return d?.online?.connection === "connected" && d.player ? d.online.playerId : null;
     },
     `${client.name} joined`,
-    45000,
+    45_000,
   );
 
 const unitOf = (page, id) =>
   page.evaluate((id) => {
     const u = window.__ba.world.units.get(`h-${id}`);
-    return u ? { x: u.x, y: u.y, hp: u.hp, alive: u.alive } : null;
+    return u ? { alive: u.alive, hp: u.hp, x: u.x, y: u.y } : null;
   }, id);
 
 const key = (page, type, code, key = code) =>
   page.evaluate(
     ({ type, code, key }) =>
-      window.dispatchEvent(new KeyboardEvent(type, { code, key, bubbles: true })),
-    { type, code, key },
+      window.dispatchEvent(new KeyboardEvent(type, { bubbles: true, code, key })),
+    { code, key, type },
   );
 
 const gameTime = (page) => page.evaluate(() => window.__ba.world.gameTime);
@@ -95,7 +101,7 @@ async function endMatch(page) {
 const rematchLabel = (page) =>
   page.evaluate(() => {
     const b = document.querySelector('#hud [data-act="again"]');
-    return b ? { text: b.textContent, disabled: b.disabled } : null;
+    return b ? { disabled: b.disabled, text: b.textContent } : null;
   });
 
 async function movesOnKey(page, id, sim = page) {
@@ -145,14 +151,14 @@ const run = async (base) => {
         host.page,
         (id) => !!window.__ba.world.units.get(`h-${id}`),
         "host sees guest",
-        20000,
+        20_000,
         guestId,
       );
       await until(
         guest.page,
         (id) => !!window.__ba.world.units.get(`h-${id}`),
         "guest sees host",
-        20000,
+        20_000,
         hostId,
       );
       assert.ok(await unitOf(host.page, guestId));
@@ -167,14 +173,14 @@ const run = async (base) => {
         host.page,
         (id) => window.__ba.world.units.get(`h-${id}`)?.jumpUntil > 0,
         "guest jump reached host",
-        20000,
+        20_000,
         guestId,
       );
       await until(
         guest.page,
         (id) => window.__ba.world.units.get(`h-${id}`)?.jumpUntil > 0,
         "jump echoed to guest",
-        20000,
+        20_000,
         guestId,
       );
     });
@@ -192,8 +198,8 @@ const run = async (base) => {
       await endMatch(host.page);
       await until(guest.page, () => window.__ba.world.phase === "ended", "guest sees the result");
       assert.deepEqual(await rematchLabel(guest.page), {
-        text: "WAITING FOR HOST",
         disabled: true,
+        text: "WAITING FOR HOST",
       });
       await until(
         host.page,
@@ -208,7 +214,7 @@ const run = async (base) => {
           window.__ba.world.phase === "playing" &&
           window.__GAME_DIAGNOSTICS__.online.matchGeneration === gen + 1,
         "guest joins the rematch",
-        20000,
+        20_000,
         gen,
       );
       assert.ok(await unitOf(guest.page, guestId), "guest keeps a seat");
@@ -221,14 +227,14 @@ const run = async (base) => {
           window.__GAME_DIAGNOSTICS__.online.hostId === id &&
           window.__GAME_DIAGNOSTICS__.online.authority,
         "guest promoted within seconds",
-        10000,
+        10_000,
         guestId,
       );
       await until(
         guest.page,
         (id) => !window.__ba.world.units.get(`h-${id}`),
         "departed host removed",
-        10000,
+        10_000,
         hostId,
       );
       const t0 = await gameTime(guest.page);
@@ -251,7 +257,7 @@ const run = async (base) => {
           window.__ba.world.phase === "playing" &&
           window.__GAME_DIAGNOSTICS__.online.matchGeneration === gen + 1,
         "rematch started",
-        20000,
+        20_000,
         gen,
       );
     });
@@ -263,14 +269,14 @@ const run = async (base) => {
         late.page,
         (id) => !!window.__ba.world.units.get(`h-${id}`),
         "late sees the host",
-        20000,
+        20_000,
         guestId,
       );
       await until(
         guest.page,
         (id) => !!window.__ba.world.units.get(`h-${id}`),
         "host sees late",
-        20000,
+        20_000,
         lateId,
       );
       assert.ok((await gameTime(late.page)) > 1, "late joiner lands in a live clock");
@@ -280,12 +286,14 @@ const run = async (base) => {
     console.log(results.join("\n"));
     await browser.close();
   }
-  if (errors.length) throw new Error(`console errors:\n${errors.join("\n")}`);
+  if (errors.length) {
+    throw new Error(`console errors:\n${errors.join("\n")}`);
+  }
 };
 
-const vite = urlArg < 0 ? await startVite() : null;
+const vite = urlArg === -1 ? await startVite() : null;
 try {
-  await run(urlArg < 0 ? `http://localhost:${PORT}` : process.argv[urlArg + 1]);
+  await run(urlArg === -1 ? `http://localhost:${PORT}` : process.argv[urlArg + 1]);
   console.log("two-client: ok");
 } catch (error) {
   console.error(error);

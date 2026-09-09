@@ -9,37 +9,39 @@ import type { FxEvent, Unit, World } from "../src/sim/types.ts";
 
 let pass = 0;
 let fail = 0;
-function check(name: string, cond: boolean, detail = "") {
+const check = (name: string, cond: boolean, detail = "") => {
   if (cond) {
-    pass++;
+    pass += 1;
     console.log(`  ok  ${name}${detail ? ` (${detail})` : ""}`);
   } else {
-    fail++;
+    fail += 1;
     console.log(`FAIL  ${name}${detail ? ` (${detail})` : ""}`);
   }
-}
+};
 
-function setup(champA: string, champB: string, dist = 2) {
+const setup = (champA: string, champB: string, dist = 2) => {
   const w = createWorld(42);
   // keep skeleton camps out of the duel (never spawn)
-  for (const c of CAMPS) w.campRespawnAt[c.id] = 9e8;
+  for (const c of CAMPS) {
+    w.campRespawnAt[c.id] = 9e8;
+  }
   const a = spawnHero(w, {
-    id: "A",
-    ownerId: "A",
-    team: "A",
     champId: champA,
-    name: "A",
+    id: "A",
     isBot: false,
+    name: "A",
+    ownerId: "A",
     slot: 0,
+    team: "A",
   });
   const b = spawnHero(w, {
-    id: "B",
-    ownerId: "B",
-    team: "B",
     champId: champB,
-    name: "B",
+    id: "B",
     isBot: false,
+    name: "B",
+    ownerId: "B",
     slot: 1,
+    team: "B",
   });
   // face off at close range on open ground
   a.x = 0;
@@ -49,20 +51,22 @@ function setup(champA: string, champB: string, dist = 2) {
   a.aimX = 1;
   a.aimY = 0;
   a.facing = 0;
-  return { w, a, b };
-}
+  return { a, b, w };
+};
 
 /** Step until predicate or timeout; returns elapsed sim ms. Collects fx. */
-function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000): number {
+const runUntil = (w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000): number => {
   const start = w.now;
   while (w.now - start < maxMs) {
     step(w);
     fxLog.push(...w.fx);
     w.fx.length = 0;
-    if (pred()) return w.now - start;
+    if (pred()) {
+      return w.now - start;
+    }
   }
   return -1;
-}
+};
 
 // ── 1. melee basic: damage at the chop's contact frame ──
 {
@@ -90,14 +94,13 @@ function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000)
   const fx: FxEvent[] = [];
   a.attackHeld = true;
   // swing counter to 2 (two hits), then measure the spin
-  let hp = b.hp;
+  let { hp } = b;
   runUntil(w, fx, () => b.hp < hp);
-  hp = b.hp;
+  ({ hp } = b);
   runUntil(w, fx, () => b.hp < hp);
-  hp = b.hp;
+  ({ hp } = b);
   fx.length = 0;
   // third swing starts at lastAttackAt; damage should land strikeMs(spin) later
-  const swingStartBefore = a.lastAttackAt;
   const t3 = runUntil(w, fx, () => b.hp < hp);
   check("spin swing dealt damage", t3 >= 0);
   const interval = attackIntervalMs(a.attackSpeed) * 1.92;
@@ -145,7 +148,8 @@ function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000)
   const hp0 = b.hp;
   castAbility(w, a, "Q", { dir: { x: 1, y: 0 } });
   b.moveX = 1;
-  b.moveY = 0; // sprint away
+  // sprint away
+  b.moveY = 0;
   const fx: FxEvent[] = [];
   runUntil(w, fx, () => w.now > 900, 1000);
   check("knight:Q dodged by moving out", b.hp === hp0, `hp ${hp0.toFixed(0)}→${b.hp.toFixed(0)}`);
@@ -159,7 +163,8 @@ function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000)
   check("knight JUMP cast ok", castAbility(w, a, "JUMP", { dir: { x: 1, y: 0 } }));
   check("JUMP: no damage at cast", b.hp === hp0);
   const t = runUntil(w, fx, () => b.hp < hp0);
-  const expectLeap = (5 / 20) * 1000; // castRange / JUMP_LEAP_SPEED
+  // castRange / JUMP_LEAP_SPEED
+  const expectLeap = (5 / 20) * 1000;
   check(
     "JUMP slam lands at touchdown",
     t >= 0 && Math.abs(t - expectLeap) < 67,
@@ -176,7 +181,7 @@ function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000)
   const { w, a, b } = setup("knight", "blackknight", 2.5);
   const hp0 = b.hp;
   castAbility(w, a, "Q", { dir: { x: 1, y: 0 } });
-  a.statuses.push({ kind: "stun", until: w.now + 2000, id: "test" });
+  a.statuses.push({ id: "test", kind: "stun", until: w.now + 2000 });
   const fx: FxEvent[] = [];
   runUntil(w, fx, () => w.now > 900, 1000);
   check("stunned mid-windup → strike cancelled", b.hp === hp0);
@@ -231,7 +236,7 @@ function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000)
   const t = runUntil(w, fx, () => b.hp < hp0, 3000);
   check("ranged basic connects with grazing offset", t >= 0, `t=${t.toFixed(0)}ms`);
   const swingAt = fx.findIndex((e) => e.t === "swing");
-  check("muzzle flash fires at release", swingAt >= 0);
+  check("muzzle flash fires at release", swingAt !== -1);
 }
 
 // ── 10. rogue:R execute strikes on arrival ──
@@ -239,7 +244,8 @@ function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000)
   const { w, a, b } = setup("rogue", "knight", 5);
   const fx: FxEvent[] = [];
   a.abilities.R.rank = 1;
-  b.hp = b.maxHp * 0.3; // wounded — execute bonus
+  // wounded — execute bonus
+  b.hp = b.maxHp * 0.3;
   const hp0 = b.hp;
   check("rogue:R cast ok", castAbility(w, a, "R", { dir: { x: 1, y: 0 } }));
   check("rogue:R no damage at cast", b.hp === hp0);
@@ -256,7 +262,10 @@ function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000)
   check("kegs exist", kegs.length >= 2);
 
   // park Garran next to a keg and swing
-  const keg = kegs[0]!;
+  const [keg, other] = kegs;
+  if (!keg || !other) {
+    throw new Error("need two kegs");
+  }
   a.x = keg.x - 1.6;
   a.y = keg.y;
   a.aimX = 1;
@@ -275,7 +284,6 @@ function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000)
   );
   check("keg respawn scheduled", keg.respawnAt > w.now);
   // the second keg sits within blast range in the cellar cluster — chain-pop
-  const other = kegs[1]!;
   const chained = Math.hypot(other.x - keg.x, other.y - keg.y) < 3.5 ? !other.alive : true;
   check("neighbor keg chain-detonates", chained);
 }
@@ -283,9 +291,10 @@ function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000)
 // ── 12. props block movement ──
 {
   const { w, a } = setup("knight", "ranger", 30);
-  const crate = [...w.units.values()].find(
-    (u) => u.kind === "prop" && u.champId === "crate_large",
-  )!;
+  const crate = [...w.units.values()].find((u) => u.kind === "prop" && u.champId === "crate_large");
+  if (!crate) {
+    throw new Error("crate_large prop missing");
+  }
   a.x = crate.x - 3;
   a.y = crate.y;
   a.aimX = 1;
@@ -302,16 +311,17 @@ function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000)
 {
   const { w, a, b } = setup("ranger", "knight", 5);
   const c2 = spawnHero(w, {
-    id: "C",
-    ownerId: "C",
-    team: "C",
     champId: "blackknight",
-    name: "C",
+    id: "C",
     isBot: false,
+    name: "C",
+    ownerId: "C",
     slot: 2,
+    team: "C",
   });
   c2.x = 7.5;
-  c2.y = 16; // directly behind b on the same line
+  // directly behind b on the same line
+  c2.y = 16;
   a.attackHeld = true;
   const hpB = b.hp;
   const hpC = c2.hp;
@@ -328,16 +338,17 @@ function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000)
 {
   const { w, a, b } = setup("mage", "knight", 7);
   const c2 = spawnHero(w, {
-    id: "C",
-    ownerId: "C",
-    team: "C",
     champId: "blackknight",
-    name: "C",
+    id: "C",
     isBot: false,
+    name: "C",
+    ownerId: "C",
     slot: 2,
+    team: "C",
   });
   c2.x = 7;
-  c2.y = 17.2; // adjacent to b, inside the 1.6 splash
+  // adjacent to b, inside the 1.6 splash
+  c2.y = 17.2;
   a.attackHeld = true;
   const hpB = b.hp;
   const hpC = c2.hp;
@@ -352,11 +363,12 @@ function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000)
 
 // ── 15. fireball detonates at the aim point (not max range) ──
 {
-  const { w, a } = setup("mage", "knight", 25); // enemy far away — nothing to hit
+  // enemy far away — nothing to hit
+  const { w, a } = setup("mage", "knight", 25);
   const fx: FxEvent[] = [];
   check(
     "fireball cast ok",
-    castAbility(w, a, "Q", { point: { x: 6, y: 16 }, dir: { x: 1, y: 0 } }),
+    castAbility(w, a, "Q", { dir: { x: 1, y: 0 }, point: { x: 6, y: 16 } }),
   );
   runUntil(w, fx, () => fx.some((e) => e.t === "explosion" && e.kind === "fireball"), 2500);
   const boom = fx.find((e) => e.t === "explosion" && e.kind === "fireball");
@@ -372,7 +384,8 @@ function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000)
 
 // ── 16. spent projectiles fizzle visibly ──
 {
-  const { w, a } = setup("ranger", "knight", 40); // nothing in arrow range
+  // nothing in arrow range
+  const { w, a } = setup("ranger", "knight", 40);
   a.attackHeld = true;
   const fx: FxEvent[] = [];
   runUntil(w, fx, () => fx.some((e) => e.t === "fizzle" && e.kind === "arrow"), 4000);
@@ -385,7 +398,8 @@ function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000)
 // ── 17. ambush: the strike out of stealth crits for double ──
 {
   const { w, a, b } = setup("rogue", "blackknight", 1.8);
-  castAbility(w, a, "E", {}); // Smoke — stealth up
+  // Smoke — stealth up
+  castAbility(w, a, "E", {});
   a.attackHeld = true;
   const hp0 = b.hp;
   const fx: FxEvent[] = [];
@@ -402,47 +416,54 @@ function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000)
   check("second swing is normal damage", hp1 - b.hp < 55, `dealt=${(hp1 - b.hp).toFixed(0)}`);
 }
 
+/** Hold a heading for `ms` and report whether the unit was EVER on the plateau
+ *  and whether it was ever off it — a heading held long enough crosses clean
+ *  through and out the far stair, so the end state alone says nothing. */
+const walk = (w: World, u: Unit, mx: number, my: number, ms: number) => {
+  const until = w.now + ms;
+  let everOn = false;
+  let everOff = false;
+  while (w.now < until) {
+    u.moveX = mx;
+    u.moveY = my;
+    step(w);
+    if (onPlateau(u.x, u.y)) {
+      everOn = true;
+    } else {
+      everOff = true;
+    }
+  }
+  return { everOff, everOn };
+};
+
 // ── 12. the throne plateau is a GATE, not a CAGE ──
 // Regression net for the movement bug: the cliff used to block 28 of 36 headings
 // with no slide, so a player who walked up simply could not walk back down. Every
 // heading must reach the stairs, and the stairs must be a RAMP (no 2u teleport).
 {
-  /** Hold a heading for `ms` and report whether the unit was EVER on the plateau
-   *  and whether it was ever off it — a heading held long enough crosses clean
-   *  through and out the far stair, so the end state alone says nothing. */
-  const walk = (w: World, u: Unit, mx: number, my: number, ms: number) => {
-    const until = w.now + ms;
-    let everOn = false;
-    let everOff = false;
-    while (w.now < until) {
-      u.moveX = mx;
-      u.moveY = my;
-      step(w);
-      if (onPlateau(u.x, u.y)) everOn = true;
-      else everOff = true;
-    }
-    return { everOn, everOff };
-  };
-
   // (a) from the throne, hold each of 12 headings — you must get off the plateau
   let escaped = 0;
-  for (let k = 0; k < 12; k++) {
+  for (let k = 0; k < 12; k += 1) {
     const a2 = (k / 12) * Math.PI * 2;
     const { w, a } = setup("knight", "ranger", 30);
     a.x = 0;
     a.y = 0;
-    if (walk(w, a, Math.cos(a2), Math.sin(a2), 6000).everOff) escaped++;
+    if (walk(w, a, Math.cos(a2), Math.sin(a2), 6000).everOff) {
+      escaped += 1;
+    }
   }
   check("every heading off the throne finds a stair", escaped === 12, `${escaped}/12`);
 
   // (b) and from outside, every heading in must find its way UP
   let climbed = 0;
-  for (let k = 0; k < 12; k++) {
+  for (let k = 0; k < 12; k += 1) {
     const a2 = (k / 12) * Math.PI * 2;
     const { w, a } = setup("knight", "ranger", 30);
     a.x = Math.cos(a2) * 18;
     a.y = Math.sin(a2) * 18;
-    if (walk(w, a, -Math.cos(a2), -Math.sin(a2), 6000).everOn) climbed++;
+    if (walk(w, a, -Math.cos(a2), -Math.sin(a2), 6000).everOn) {
+      climbed += 1;
+    }
   }
   check("every heading into the throne finds a stair", climbed === 12, `${climbed}/12`);
 
@@ -475,7 +496,8 @@ for (const [champ, shots] of [
   step(w);
   const airborne = a.statuses.some((s2) => s2.kind === "untargetable");
   check(`${champ} is untargetable in the air`, airborne);
-  b.attackHeld = true; // the knight swings into her the whole time
+  // the knight swings into her the whole time
+  b.attackHeld = true;
   const hp0 = a.hp;
   let maxDrift = 0;
   let volley = 0;

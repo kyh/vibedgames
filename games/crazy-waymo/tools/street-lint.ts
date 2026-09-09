@@ -17,7 +17,7 @@ const check = (ok: boolean, label: string, detail = ""): void => {
   if (ok) {
     console.log(`  ok  ${label}${detail ? ` (${detail})` : ""}`);
   } else {
-    failures++;
+    failures += 1;
     console.error(`FAIL  ${label}${detail ? ` (${detail})` : ""}`);
   }
 };
@@ -40,18 +40,27 @@ const network = new RoadNetwork();
 
 // --- 1. Mask sanity ---
 let roadCells = 0;
-for (const col of plan.cells) for (const c of col) if (c === "road") roadCells++;
-check(roadCells > 4000 && roadCells < 60000, "mask cell count in range", String(roadCells));
+for (const col of plan.cells) {
+  for (const c of col) {
+    if (c === "road") {
+      roadCells += 1;
+    }
+  }
+}
+check(roadCells > 4000 && roadCells < 60_000, "mask cell count in range", String(roadCells));
 
 // --- 2. Graph invariants ---
 check(network.edges.length > 800, "edge count sane", String(network.edges.length));
 let zeroLen = 0;
 let nanPts = 0;
 for (const e of network.edges) {
-  if (!(e.len > 0.5)) zeroLen++;
-  for (let i = 0; i < e.pts.length; i++) {
-    const v = e.pts[i];
-    if (v === undefined || !Number.isFinite(v)) nanPts++;
+  if (!(e.len > 0.5)) {
+    zeroLen += 1;
+  }
+  for (const v of e.pts) {
+    if (v === undefined || !Number.isFinite(v)) {
+      nanPts += 1;
+    }
   }
 }
 check(zeroLen === 0, "no zero-length edges", String(zeroLen));
@@ -65,13 +74,15 @@ check(nanPts === 0, "all polyline points finite", String(nanPts));
     (adj.get(e.b) ?? adj.set(e.b, []).get(e.b))?.push(e.a);
   }
   const seen = new Set<number>();
-  const start = network.edges[0];
+  const [start] = network.edges;
   if (start) {
     const stack = [start.a];
     seen.add(start.a);
     while (stack.length > 0) {
       const cur = stack.pop();
-      if (cur === undefined) break;
+      if (cur === undefined) {
+        break;
+      }
       for (const nb of adj.get(cur) ?? []) {
         if (!seen.has(nb)) {
           seen.add(nb);
@@ -95,7 +106,9 @@ check(nanPts === 0, "all polyline points finite", String(nanPts));
 // Max node degree sane (a runaway cluster shows up here first).
 {
   let maxDeg = 0;
-  for (const ids of network.nodeEdges) maxDeg = Math.max(maxDeg, ids?.length ?? 0);
+  for (const ids of network.nodeEdges) {
+    maxDeg = Math.max(maxDeg, ids?.length ?? 0);
+  }
   check(maxDeg <= 12, "max junction degree <= 12", String(maxDeg));
 }
 
@@ -108,14 +121,16 @@ let degenerate = 0;
 let tris = 0;
 for (const mesh of meshes) {
   const pos = mesh.geometry.getAttribute("position");
-  if (!pos) continue;
+  if (!pos) {
+    continue;
+  }
   // Conformed geometry is INDEXED (welded verts): resolve triangle corners
   // through the index — consecutive position triples are not triangles.
   const idx = mesh.geometry.index;
   const vertCount = idx ? idx.count : pos.count;
   const vid = (k: number): number => (idx ? idx.getX(k) : k);
   for (let i = 0; i + 2 < vertCount; i += 3) {
-    tris++;
+    tris += 1;
     const ax = pos.getX(vid(i));
     const ay = pos.getY(vid(i));
     const az = pos.getZ(vid(i));
@@ -123,7 +138,9 @@ for (const mesh of meshes) {
     const bz = pos.getZ(vid(i + 1));
     const cx = pos.getX(vid(i + 2));
     const cz = pos.getZ(vid(i + 2));
-    if (![ax, ay, az, bx, bz, cx, cz].every(Number.isFinite)) nonFinite++;
+    if (![ax, ay, az, bx, bz, cx, cz].every(Number.isFinite)) {
+      nonFinite += 1;
+    }
     // Spike detector: street geometry must stay NEAR the street network.
     // (this is the invariant every historical "stray sliver" bug violated)
     if (i % 33 === 0) {
@@ -134,12 +151,18 @@ for (const mesh of meshes) {
       if (!hit || hit.dist > limit) {
         // Junction patches at wide nodes extend past the per-edge bound.
         let nearNode = false;
-        for (let n = 0; n < network.nodes.length && !nearNode; n++) {
+        for (let n = 0; n < network.nodes.length && !nearNode; n += 1) {
           const node = network.nodes[n];
-          if (!node || (network.nodeEdges[n]?.length ?? 0) === 0) continue;
-          if (Math.hypot(node[0] - mx, node[1] - mz) < network.nodeTrim(n) * 2.4) nearNode = true;
+          if (!node || (network.nodeEdges[n]?.length ?? 0) === 0) {
+            continue;
+          }
+          if (Math.hypot(node[0] - mx, node[1] - mz) < network.nodeTrim(n) * 2.4) {
+            nearNode = true;
+          }
         }
-        if (!nearNode) degenerate++;
+        if (!nearNode) {
+          degenerate += 1;
+        }
       }
     }
   }
@@ -166,7 +189,9 @@ check(
   });
   for (const mesh of yellow) {
     const pos = mesh.geometry.getAttribute("position");
-    if (!pos) continue;
+    if (!pos) {
+      continue;
+    }
     for (let i = 0; i + 2 < pos.count; i += 30) {
       const x = pos.getX(i);
       const z = pos.getZ(i);
@@ -177,14 +202,20 @@ check(
         Math.abs(pos.getX(i + 2) - x),
         Math.abs(pos.getZ(i + 2) - z),
       );
-      if (ext > 4) continue;
-      for (let n = 0; n < network.nodes.length; n++) {
+      if (ext > 4) {
+        continue;
+      }
+      for (let n = 0; n < network.nodes.length; n += 1) {
         const ids = network.nodeEdges[n];
-        if (!ids || ids.length < 3) continue;
+        if (!ids || ids.length < 3) {
+          continue;
+        }
         const node = network.nodes[n];
-        if (!node) continue;
+        if (!node) {
+          continue;
+        }
         if (Math.hypot(node[0] - x, node[1] - z) < network.nodeTrim(n) * 0.6) {
-          strayDashes++;
+          strayDashes += 1;
           break;
         }
       }
@@ -196,4 +227,6 @@ check(
 console.log(
   failures === 0 ? "\nstreet-lint: ALL CHECKS PASSED" : `\nstreet-lint: ${failures} FAILURES`,
 );
-if (failures > 0) process.exit(1);
+if (failures > 0) {
+  process.exit(1);
+}

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import path from "node:path";
 import { test } from "node:test";
 
 import {
@@ -18,6 +18,7 @@ import {
 } from "../src/asset/tilemap.js";
 import { drawDigits, drawLine, fillRect, strokeRect } from "../src/image/draw.js";
 import { Bitmap } from "../src/image/raster.js";
+import { must } from "./must.js";
 
 /**
  * Parity tests for the headless exports ported from `asset_tilemap_editor.py`.
@@ -32,13 +33,16 @@ const MARGIN = 2;
 const SPACING = 1;
 
 /** A tileset with margin and spacing, so the grid maths is actually exercised. */
-function buildTileset(dir: string): string {
+const buildTileset = (dir: string): string => {
   const width = MARGIN * 2 + COLS * TILE + (COLS - 1) * SPACING;
   const height = MARGIN * 2 + ROWS * TILE + (ROWS - 1) * SPACING;
   const sheet = Bitmap.create(width, height);
   for (let r = 0; r < ROWS; r += 1) {
     for (let c = 0; c < COLS; c += 1) {
-      if ((c + r) % 7 === 3) continue; // leave some tiles empty
+      if ((c + r) % 7 === 3) {
+        continue;
+        // leave some tiles empty
+      }
       const x0 = MARGIN + c * (TILE + SPACING);
       const y0 = MARGIN + r * (TILE + SPACING);
       for (let y = 0; y < TILE; y += 1) {
@@ -53,33 +57,31 @@ function buildTileset(dir: string): string {
       }
     }
   }
-  const path = join(dir, "tiles.png");
-  sheet.toFile(path);
+  const file = path.join(dir, "tiles.png");
+  sheet.toFile(file);
   writeFileSync(
-    join(dir, "assets_index.json"),
+    path.join(dir, "assets_index.json"),
     JSON.stringify({
       tilesets: {
         main: {
-          path: "tiles.png",
-          tileWidth: TILE,
-          tileHeight: TILE,
           margin: MARGIN,
+          path: "tiles.png",
           spacing: SPACING,
+          tileHeight: TILE,
+          tileWidth: TILE,
         },
       },
     }),
   );
-  return join(dir, "assets_index.json");
-}
+  return path.join(dir, "assets_index.json");
+};
 
-function workspace(): string {
-  return mkdtempSync(join(tmpdir(), "vg-tilemap-"));
-}
+const workspace = (): string => mkdtempSync(path.join(tmpdir(), "vg-tilemap-"));
 
-function meta(dir: string) {
+const meta = (dir: string) => {
   const manifestPath = buildTileset(dir);
   return tilesetMetaFromManifest(manifestPath, loadManifestJson(manifestPath), "main");
-}
+};
 
 test("derives the tile grid from the image when the manifest omits it", () => {
   const m = meta(workspace());
@@ -99,17 +101,17 @@ test("tile IDs are 1-based row-major, and 0 means no tile", () => {
 
 test("crop boxes account for margin and spacing", () => {
   const m = meta(workspace());
-  assert.deepEqual(cropBox(m, 1), { left: 2, top: 2, right: 18, bottom: 18 });
+  assert.deepEqual(cropBox(m, 1), { bottom: 18, left: 2, right: 18, top: 2 });
   // Second column starts one tile plus one spacing pixel further right, and
   // stays on row 0.
-  assert.deepEqual(cropBox(m, 2), { left: 19, top: 2, right: 35, bottom: 18 });
+  assert.deepEqual(cropBox(m, 2), { bottom: 18, left: 19, right: 35, top: 2 });
   // First tile of row 1 drops by one tile plus one spacing pixel.
-  assert.deepEqual(cropBox(m, COLS + 1), { left: 2, top: 19, right: 18, bottom: 35 });
+  assert.deepEqual(cropBox(m, COLS + 1), { bottom: 35, left: 2, right: 18, top: 19 });
 });
 
 test("rejects a manifest without a usable tilesets block", () => {
-  assert.throws(() => sanitizeTilesets({}), /missing `tilesets`/);
-  assert.throws(() => sanitizeTilesets({ tilesets: { a: { noPath: 1 } } }), /no usable tilesets/);
+  assert.throws(() => sanitizeTilesets({}), /missing `tilesets`/u);
+  assert.throws(() => sanitizeTilesets({ tilesets: { a: { noPath: 1 } } }), /no usable tilesets/u);
 });
 
 test("the self-test map places every non-empty tile at its own coordinate", () => {
@@ -123,7 +125,7 @@ test("the self-test map places every non-empty tile at its own coordinate", () =
   for (let r = 0; r < ROWS; r += 1) {
     for (let c = 0; c < COLS; c += 1) {
       const id = tileIdFromColRow(m, c, r);
-      assert.equal(map.data[r]![c], nonEmpty.has(id) ? id : 0);
+      assert.equal(must(map.data[r])[c], nonEmpty.has(id) ? id : 0);
     }
   }
   // The corpus deliberately blanks some cells, so this must not be all-nonzero.
@@ -133,24 +135,24 @@ test("the self-test map places every non-empty tile at its own coordinate", () =
 test("renders a tilemap at the requested scale", () => {
   const dir = workspace();
   const m = meta(dir);
-  const out = join(dir, "render.png");
+  const out = path.join(dir, "render.png");
   writeFileSync(
-    join(dir, "level.json"),
+    path.join(dir, "level.json"),
     JSON.stringify({
-      meta: { width: 4, height: 3 },
       data: [
         [1, 2, 0, 4],
         [5, 0, 7, 8],
         [0, 11, 12, 0],
       ],
+      meta: { height: 3, width: 4 },
     }),
   );
 
   exportMapRender(m, out, {
-    mapPayload: loadManifestJson(join(dir, "level.json")),
-    scale: 2,
     background: [16, 32, 48, 255],
     fills: [],
+    mapPayload: loadManifestJson(path.join(dir, "level.json")),
+    scale: 2,
     trim: false,
   });
 
@@ -163,13 +165,13 @@ test("renders a tilemap at the requested scale", () => {
 test("map render infers dimensions when meta omits them", () => {
   const dir = workspace();
   const m = meta(dir);
-  const out = join(dir, "render.png");
-  writeFileSync(join(dir, "level.json"), JSON.stringify({ data: [[1, 2, 3]] }));
+  const out = path.join(dir, "render.png");
+  writeFileSync(path.join(dir, "level.json"), JSON.stringify({ data: [[1, 2, 3]] }));
   exportMapRender(m, out, {
-    mapPayload: loadManifestJson(join(dir, "level.json")),
-    scale: 1,
     background: null,
     fills: [],
+    mapPayload: loadManifestJson(path.join(dir, "level.json")),
+    scale: 1,
     trim: false,
   });
   const rendered = Bitmap.fromFile(out);
@@ -179,11 +181,11 @@ test("map render infers dimensions when meta omits them", () => {
 test("grid overlay scales the sheet and can label tile IDs", () => {
   const dir = workspace();
   const m = meta(dir);
-  const plain = join(dir, "grid.png");
-  const labelled = join(dir, "grid-labelled.png");
+  const plain = path.join(dir, "grid.png");
+  const labelled = path.join(dir, "grid-labelled.png");
 
-  exportTilesetGrid(m, plain, { scale: 3, labelIds: false, trim: false });
-  exportTilesetGrid(m, labelled, { scale: 3, labelIds: true, trim: false });
+  exportTilesetGrid(m, plain, { labelIds: false, scale: 3, trim: false });
+  exportTilesetGrid(m, labelled, { labelIds: true, scale: 3, trim: false });
 
   const a = Bitmap.fromFile(plain);
   const b = Bitmap.fromFile(labelled);
@@ -227,7 +229,9 @@ test("digit labels take ink outright over transparent pixels", () => {
   for (let y = 0; y < 14; y += 1) {
     for (let x = 0; x < 12; x += 1) {
       const [r, g, b, a] = transparent.getPixel(x, y);
-      if (a === 0) continue;
+      if (a === 0) {
+        continue;
+      }
       sawInk = true;
       assert.deepEqual([r, g, b], [255, 255, 255], `pixel ${x},${y} kept the ink colour`);
       assert.ok(a <= 200, "alpha never exceeds the ink's own");
@@ -239,6 +243,8 @@ test("digit labels take ink outright over transparent pixels", () => {
   const opaque = Bitmap.create(12, 14, [0, 0, 0, 255]);
   drawDigits(opaque, 0, 0, "8", [255, 255, 255, 200]);
   const shades = new Set<number>();
-  for (let x = 0; x < 12; x += 1) shades.add(opaque.getPixel(x, 5)[0]);
+  for (let x = 0; x < 12; x += 1) {
+    shades.add(opaque.getPixel(x, 5)[0]);
+  }
   assert.ok(shades.size > 2, "expected antialiased shades, not a hard mask");
 });

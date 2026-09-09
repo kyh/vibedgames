@@ -13,31 +13,36 @@ import { CHAMPIONS } from "../data/champions";
 import { buildControlsStrip, ensureControlCardStyle } from "../render/pause-overlay";
 import { abilityIcon, champSigil } from "../data/icons";
 import { isTouchInput } from "../input/touch";
-import { ALL_ABILITY_KEYS, type AbilityKey } from "../sim/types";
+import { ALL_ABILITY_KEYS } from "../sim/types";
+import type { AbilityKey } from "../sim/types";
 import { roomId } from "../net/protocol";
 import type { SceneOpts } from "./game-scene";
 
-const hex = (n: number): string => "#" + n.toString(16).padStart(6, "0");
+const hex = (n: number): string => `#${n.toString(16).padStart(6, "0")}`;
 // escape user-supplied strings dropped into attribute values (name/room prefill)
 const esc = (s: string): string =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  s
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 const dots = (difficulty: number): string =>
   "●".repeat(difficulty) + "○".repeat(Math.max(0, 3 - difficulty));
 // display keycaps match the actual binds (1-4 + Shift/Space), not QWER letters
 const KEYCAP = {
-  Q: "1",
-  W: "2",
-  E: "3",
-  R: "4",
   DASH: "⇧",
+  E: "3",
   JUMP: "␣",
+  Q: "1",
+  R: "4",
+  W: "2",
 } satisfies Record<AbilityKey, string>;
 
-export type MenuOpts = {
+export interface MenuOpts {
   initial: string;
   onSelect: (id: string) => void;
   onStart: (opts: SceneOpts) => void;
-};
+}
 
 export class Menu {
   private el: HTMLDivElement;
@@ -52,14 +57,16 @@ export class Menu {
   });
   private readonly motion = window.matchMedia("(prefers-reduced-motion: reduce)");
   private readonly onMotionChange = (): void => {
-    if (this.motion.matches) this.cancelSelectionAnimations();
+    if (this.motion.matches) {
+      this.cancelSelectionAnimations();
+    }
   };
 
   constructor(private opts: MenuOpts) {
     this.selected = opts.initial;
     this.el = document.createElement("div");
     this.el.id = "ba-menu";
-    document.body.appendChild(this.el);
+    document.body.append(this.el);
     injectStyle();
     this.build();
     // the help line lists controller rows only while a pad is connected —
@@ -109,26 +116,27 @@ export class Menu {
 
     this.el.querySelectorAll<HTMLButtonElement>(".ba-chip").forEach((btn) => {
       btn.addEventListener("click", () => {
-        const id = btn.dataset["id"];
-        if (!this.removed && id && id !== this.selected && CHAMPIONS.some((c) => c.id === id))
+        const { id } = btn.dataset;
+        if (!this.removed && id && id !== this.selected && CHAMPIONS.some((c) => c.id === id)) {
           this.opts.onSelect(id);
+        }
       });
     });
 
     const nameOf = (): string => {
-      const el = document.getElementById("ba-name");
+      const el = document.querySelector("#ba-name");
       return (el instanceof HTMLInputElement ? el.value.trim() : "") || "Player";
     };
     const codeOf = (): string => {
-      const el = document.getElementById("ba-room");
+      const el = document.querySelector("#ba-room");
       return el instanceof HTMLInputElement ? el.value.trim() : "";
     };
     document
-      .getElementById("ba-bots")
+      .querySelector("#ba-bots")
       ?.addEventListener("click", () =>
         this.start({ champId: this.selected, name: nameOf(), online: false, room: "" }),
       );
-    document.getElementById("ba-online")?.addEventListener("click", () =>
+    document.querySelector("#ba-online")?.addEventListener("click", () =>
       this.start({
         champId: this.selected,
         name: nameOf(),
@@ -142,17 +150,23 @@ export class Menu {
 
   /** Reflect the current selection (called by MenuStage on click / chip click). */
   setSelected(id: string): void {
-    if (this.removed) return;
+    if (this.removed) {
+      return;
+    }
     const c = CHAMPIONS.find((x) => x.id === id);
     const info = this.el.querySelector<HTMLDivElement>(".ba-info");
-    if (!c || !info) return;
+    if (!c || !info) {
+      return;
+    }
     const changed = this.selected !== id;
     // The first build still fills the initial choice; MenuStage's subsequent
     // same-ID sync and repeat clicks leave that presentation undisturbed.
-    if (!changed && info.childElementCount > 0) return;
+    if (!changed && info.childElementCount > 0) {
+      return;
+    }
     this.cancelSelectionAnimations();
     this.selected = id;
-    const chips = Array.from(this.el.querySelectorAll<HTMLButtonElement>(".ba-chip"));
+    const chips = [...this.el.querySelectorAll<HTMLButtonElement>(".ba-chip")];
     for (const b of chips) {
       const selected = b.dataset["id"] === id;
       b.classList.toggle("sel", selected);
@@ -171,7 +185,9 @@ export class Menu {
     info
       .querySelector(".ba-kit-menu")
       ?.addEventListener("click", () => this.guide.show(this.selected));
-    if (!changed || this.motion.matches) return;
+    if (!changed || this.motion.matches) {
+      return;
+    }
     // MenuStage approaches the selected pose at 8×dt. This short entrance
     // settles with it; selection and start remain available throughout.
     this.selectionAnimations.push(
@@ -226,9 +242,12 @@ export class Menu {
   }
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
-    if (this.removed || this.guide.open || event.repeat) return;
-    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement)
+    if (this.removed || this.guide.open || event.repeat) {
       return;
+    }
+    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+      return;
+    }
     const direction =
       event.code === "ArrowLeft"
         ? "left"
@@ -257,13 +276,17 @@ export class Menu {
 
   /** Shares the lobby render loop; no timer survives a match launch. */
   update(): void {
-    if (this.removed) return;
+    if (this.removed) {
+      return;
+    }
     if (this.guide.open) {
       this.guide.update();
       return;
     }
     this.pad.update();
-    if (!this.pad.connected) return;
+    if (!this.pad.connected) {
+      return;
+    }
     if (this.pad.justPressed("b")) {
       this.focusChampion();
       return;
@@ -285,14 +308,18 @@ export class Menu {
     }
     if (this.pad.justPressed("a")) {
       const focused = document.activeElement;
-      if (focused instanceof HTMLButtonElement && focused.classList.contains("ba-go"))
+      if (focused instanceof HTMLButtonElement && focused.classList.contains("ba-go")) {
         focused.click();
-      else this.el.querySelector<HTMLButtonElement>("#ba-bots")?.focus();
+      } else {
+        this.el.querySelector<HTMLButtonElement>("#ba-bots")?.focus();
+      }
     }
   }
 
   private cancelSelectionAnimations(): void {
-    for (const animation of this.selectionAnimations) animation.cancel();
+    for (const animation of this.selectionAnimations) {
+      animation.cancel();
+    }
     this.selectionAnimations = [];
   }
 
@@ -302,7 +329,9 @@ export class Menu {
    *  headers + gold keycap chips — as a compact inline strip. */
   private renderHelp(): void {
     const el = this.el.querySelector<HTMLDivElement>(".ba-help");
-    if (!el) return;
+    if (!el) {
+      return;
+    }
     ensureControlCardStyle();
     el.replaceChildren();
     const lead = document.createElement("div");
@@ -313,11 +342,15 @@ export class Menu {
     el.append(lead);
     const coarse = window.matchMedia("(pointer: coarse)").matches;
     const strip = buildControlsStrip(coarse);
-    if (strip) el.append(strip);
+    if (strip) {
+      el.append(strip);
+    }
   }
 
   remove(): void {
-    if (this.removed) return;
+    if (this.removed) {
+      return;
+    }
     this.removed = true;
     this.cancelSelectionAnimations();
     this.motion.removeEventListener("change", this.onMotionChange);
@@ -329,7 +362,9 @@ export class Menu {
   }
 
   private start(opts: SceneOpts): void {
-    if (this.removed) return;
+    if (this.removed) {
+      return;
+    }
     // persist the pick — bare-URL quick-starts reuse it (chosenChamp/chosenName)
     savePreference("ba-champ", opts.champId);
     savePreference("ba-name", opts.name);
@@ -340,7 +375,9 @@ export class Menu {
 
 let styled = false;
 function injectStyle(): void {
-  if (styled) return;
+  if (styled) {
+    return;
+  }
   styled = true;
   const s = document.createElement("style");
   s.textContent = `
@@ -420,5 +457,5 @@ function injectStyle(): void {
   #ba-menu .ba-bottom{padding:0 calc(12px + env(safe-area-inset-right,0px)) calc(10px + env(safe-area-inset-bottom,0px)) calc(12px + env(safe-area-inset-left,0px))}
 }
 `;
-  document.head.appendChild(s);
+  document.head.append(s);
 }

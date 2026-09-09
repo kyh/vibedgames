@@ -9,41 +9,11 @@ import { buildInviteRows, MAX_INVITE_BATCH } from "./invite-create";
 import { inviteCodeAvailabilityClause, normalizeInviteCode } from "./invite-claim";
 import { generateShortCode } from "./utils";
 
-const CLI_CODE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+// 5 minutes
+const CLI_CODE_TTL_MS = 5 * 60 * 1000;
 const CLI_IDENTIFIER_PREFIX = "cli-auth:";
 
 export const authRouter = {
-  // Current authenticated identity. Works for both better-auth sessions and
-  // API keys (both resolve to `context.session` in the oRPC context), so the CLI
-  // can use it for `vg whoami` regardless of how it authenticated.
-  me: protectedProcedure.handler(({ context }) => ({
-    id: context.session.user.id,
-    name: context.session.user.name,
-    email: context.session.user.email,
-    role: context.session.user.role ?? null,
-  })),
-
-  // ---------------------------------------------------------------------------
-  // CLI device-code flow
-  // ---------------------------------------------------------------------------
-
-  cliInit: publicProcedure.handler(async ({ context }) => {
-    const code = generateShortCode();
-    const id = crypto.randomUUID();
-    const now = new Date();
-
-    await context.db.insert(verification).values({
-      id,
-      identifier: `${CLI_IDENTIFIER_PREFIX}${code}`,
-      value: "",
-      expiresAt: new Date(now.getTime() + CLI_CODE_TTL_MS),
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    return { code };
-  }),
-
   // sessionOnlyProcedure (not protectedProcedure): this persists
   // `context.session.session.token` as the CLI's login credential, so the caller
   // must hold a real better-auth session. An API-key session's synthetic
@@ -58,7 +28,7 @@ export const authRouter = {
         .where(eq(verification.identifier, identifier))
         .limit(1);
 
-      const row = rows[0];
+      const [row] = rows;
       if (!row || row.expiresAt < new Date()) {
         throw new ORPCError("NOT_FOUND", { message: "Code expired or invalid" });
       }
@@ -69,11 +39,31 @@ export const authRouter = {
       // Store the raw session token — the CLI uses it as a Bearer token
       await context.db
         .update(verification)
-        .set({ value: context.session.session.token, updatedAt: new Date() })
+        .set({ updatedAt: new Date(), value: context.session.session.token })
         .where(eq(verification.id, row.id));
 
       return { ok: true };
     }),
+
+  // ---------------------------------------------------------------------------
+  // CLI device-code flow
+  // ---------------------------------------------------------------------------
+  cliInit: publicProcedure.handler(async ({ context }) => {
+    const code = generateShortCode();
+    const id = crypto.randomUUID();
+    const now = new Date();
+
+    await context.db.insert(verification).values({
+      createdAt: now,
+      expiresAt: new Date(now.getTime() + CLI_CODE_TTL_MS),
+      id,
+      identifier: `${CLI_IDENTIFIER_PREFIX}${code}`,
+      updatedAt: now,
+      value: "",
+    });
+
+    return { code };
+  }),
 
   cliPoll: publicProcedure
     .input(z.object({ code: z.string() }))
@@ -85,7 +75,7 @@ export const authRouter = {
         .where(eq(verification.identifier, identifier))
         .limit(1);
 
-      const row = rows[0];
+      const [row] = rows;
       if (!row || row.expiresAt < new Date()) {
         return { status: "expired" as const };
       }
@@ -100,10 +90,124 @@ export const authRouter = {
       return { status: "confirmed" as const, token: row.value };
     }),
 
+  createInvites: adminProcedure
+    .input(
+      z.object({
+        // Explicit code instead of random generation; overrides `count`.
+        code: z.string().max(50).nullable().default(null),
+        count: z.number().int().min(1).max(MAX_INVITE_BATCH).default(1),
+        expiresAt: z.date().nullable().default(null),
+        maxUses: z.number().int().min(1).nullable().default(1),
+        note: z.string().max(200).nullable().default(null),
+      }),
+    )
+    .handler(async ({ context, input }) => {
+      let rows;
+      try {
+        rows = buildInviteRows({
+          code: input.code,
+          count: input.count,
+          createdBy: context.session.user.id,
+          expiresAt: input.expiresAt,
+          maxUses: input.maxUses,
+          note: input.note,
+        });
+      } catch (error) {
+        // buildInviteRows throws on a malformed custom code — a caller
+        // mistake, not a server fault.
+        throw new ORPCError("BAD_REQUEST", {
+          message: error instanceof Error ? error.message : "Invalid invite code",
+        });
+      }
+
+      try {
+        const created = await context.db.insert(inviteCode).values(rows).returning();
+        return { codes: created };
+      } catch (error) {
+        // Drizzle wraps the D1 constraint failure; the "UNIQUE" detail sits
+        // somewhere down the `cause` chain, not on the top-level message.
+        for (let e: unknown = error; e instanceof Error; e = e.cause) {
+          if (input.code !== null && e.message.includes("UNIQUE")) {
+            throw new ORPCError("CONFLICT", { message: "That invite code already exists." });
+          }
+        }
+        throw error;
+      }
+    }),
+
+  listInvites: adminProcedure.handler(async ({ context }) => {
+    const rows = await context.db
+      .select({
+        code: inviteCode.code,
+        createdAt: inviteCode.createdAt,
+        createdBy: inviteCode.createdBy,
+        creatorEmail: user.email,
+        expiresAt: inviteCode.expiresAt,
+        id: inviteCode.id,
+        maxUses: inviteCode.maxUses,
+        note: inviteCode.note,
+        revokedAt: inviteCode.revokedAt,
+        usedCount: inviteCode.usedCount,
+      })
+      .from(inviteCode)
+      .leftJoin(user, eq(inviteCode.createdBy, user.id))
+      .orderBy(desc(inviteCode.createdAt));
+
+    return { codes: rows };
+  }),
+
+  // Current authenticated identity. Works for both better-auth sessions and
+  // API keys (both resolve to `context.session` in the oRPC context), so the CLI
+  // can use it for `vg whoami` regardless of how it authenticated.
+  me: protectedProcedure.handler(({ context }) => ({
+    email: context.session.user.email,
+    id: context.session.user.id,
+    name: context.session.user.name,
+    role: context.session.user.role ?? null,
+  })),
+
+  // Revoke, unrevoke, or change the use limit of an existing code. Omitted
+  // fields are left untouched. Lowering `maxUses` below `usedCount` is allowed
+  // and simply exhausts the code; raising it re-opens an exhausted code.
+  updateInvite: adminProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        // `null` = unlimited uses; omit to leave unchanged.
+        maxUses: z.number().int().min(1).nullable().optional(),
+        // `true` revokes now, `false` clears an existing revocation.
+        revoked: z.boolean().optional(),
+      }),
+    )
+    .handler(async ({ context, input }) => {
+      const patch: Partial<typeof inviteCode.$inferInsert> = {};
+      if (input.maxUses !== undefined) {
+        patch.maxUses = input.maxUses;
+      }
+      if (input.revoked !== undefined) {
+        patch.revokedAt = input.revoked ? new Date() : null;
+      }
+
+      if (Object.keys(patch).length === 0) {
+        throw new ORPCError("BAD_REQUEST", { message: "Nothing to update" });
+      }
+
+      const [updated] = await context.db
+        .update(inviteCode)
+        .set(patch)
+        .where(eq(inviteCode.id, input.id))
+        .returning();
+
+      if (!updated) {
+        throw new ORPCError("NOT_FOUND", { message: "Code not found" });
+      }
+
+      return { code: updated };
+    }),
+
   // ---------------------------------------------------------------------------
   // Invite codes
   // ---------------------------------------------------------------------------
-
   // Pre-flight check used by the register page so users get immediate feedback
   // on a bad code before they fill in email/password. Shares
   // `inviteCodeAvailabilityClause` with the signup hook so the two stay in
@@ -130,106 +234,5 @@ export const authRouter = {
       }
 
       return { code };
-    }),
-
-  listInvites: adminProcedure.handler(async ({ context }) => {
-    const rows = await context.db
-      .select({
-        id: inviteCode.id,
-        code: inviteCode.code,
-        createdBy: inviteCode.createdBy,
-        createdAt: inviteCode.createdAt,
-        expiresAt: inviteCode.expiresAt,
-        maxUses: inviteCode.maxUses,
-        usedCount: inviteCode.usedCount,
-        revokedAt: inviteCode.revokedAt,
-        note: inviteCode.note,
-        creatorEmail: user.email,
-      })
-      .from(inviteCode)
-      .leftJoin(user, eq(inviteCode.createdBy, user.id))
-      .orderBy(desc(inviteCode.createdAt));
-
-    return { codes: rows };
-  }),
-
-  createInvites: adminProcedure
-    .input(
-      z.object({
-        count: z.number().int().min(1).max(MAX_INVITE_BATCH).default(1),
-        maxUses: z.number().int().min(1).nullable().default(1),
-        expiresAt: z.date().nullable().default(null),
-        note: z.string().max(200).nullable().default(null),
-        // Explicit code instead of random generation; overrides `count`.
-        code: z.string().max(50).nullable().default(null),
-      }),
-    )
-    .handler(async ({ context, input }) => {
-      let rows;
-      try {
-        rows = buildInviteRows({
-          count: input.count,
-          maxUses: input.maxUses,
-          expiresAt: input.expiresAt,
-          note: input.note,
-          code: input.code,
-          createdBy: context.session.user.id,
-        });
-      } catch (err) {
-        // buildInviteRows throws on a malformed custom code — a caller
-        // mistake, not a server fault.
-        throw new ORPCError("BAD_REQUEST", {
-          message: err instanceof Error ? err.message : "Invalid invite code",
-        });
-      }
-
-      try {
-        const created = await context.db.insert(inviteCode).values(rows).returning();
-        return { codes: created };
-      } catch (err) {
-        // Drizzle wraps the D1 constraint failure; the "UNIQUE" detail sits
-        // somewhere down the `cause` chain, not on the top-level message.
-        for (let e: unknown = err; e instanceof Error; e = e.cause) {
-          if (input.code != null && e.message.includes("UNIQUE")) {
-            throw new ORPCError("CONFLICT", { message: "That invite code already exists." });
-          }
-        }
-        throw err;
-      }
-    }),
-
-  // Revoke, unrevoke, or change the use limit of an existing code. Omitted
-  // fields are left untouched. Lowering `maxUses` below `usedCount` is allowed
-  // and simply exhausts the code; raising it re-opens an exhausted code.
-  updateInvite: adminProcedure
-    .input(
-      z.object({
-        id: z.string(),
-        // `null` = unlimited uses; omit to leave unchanged.
-        maxUses: z.number().int().min(1).nullable().optional(),
-        // `true` revokes now, `false` clears an existing revocation.
-        revoked: z.boolean().optional(),
-      }),
-    )
-    .handler(async ({ context, input }) => {
-      const patch: Partial<typeof inviteCode.$inferInsert> = {};
-      if (input.maxUses !== undefined) patch.maxUses = input.maxUses;
-      if (input.revoked !== undefined) patch.revokedAt = input.revoked ? new Date() : null;
-
-      if (Object.keys(patch).length === 0) {
-        throw new ORPCError("BAD_REQUEST", { message: "Nothing to update" });
-      }
-
-      const [updated] = await context.db
-        .update(inviteCode)
-        .set(patch)
-        .where(eq(inviteCode.id, input.id))
-        .returning();
-
-      if (!updated) {
-        throw new ORPCError("NOT_FOUND", { message: "Code not found" });
-      }
-
-      return { code: updated };
     }),
 };

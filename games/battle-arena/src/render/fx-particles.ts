@@ -21,7 +21,7 @@ const emptyList = (): number[] => [];
 /** Standard HDR multiplier for bloom-worthy cores (bloom threshold is 0.82). */
 export const HDR_BRIGHT = 2.2;
 
-export type SpawnOptions = {
+export interface SpawnOptions {
   /** Ambient leaves impact headroom; major may replace less important particles. */
   priority?: ParticlePriority;
   /** World position (y is up; sim-plane callers pass (x, height, simY)). */
@@ -51,9 +51,9 @@ export type SpawnOptions = {
   bright?: number;
   /** NORMAL pool start alpha (default 1; ignored by the ADD pool). */
   alpha?: number;
-};
+}
 
-export type BurstOptions = {
+export interface BurstOptions {
   priority?: ParticlePriority;
   x: number;
   y: number;
@@ -72,7 +72,7 @@ export type BurstOptions = {
   stretch?: boolean;
   bright?: number;
   alpha?: number;
-};
+}
 
 // ── module scratch (single-threaded render path) ────────────────────────────
 const scratchPos = new THREE.Vector3();
@@ -83,9 +83,9 @@ const scratchDir = new THREE.Vector3();
 const scratchCol = new THREE.Color();
 const Z_AXIS = new THREE.Vector3(0, 0, 1);
 const ZERO_MAT = new THREE.Matrix4().makeScale(0, 0, 0);
-const scratchBurst: SpawnOptions = { x: 0, y: 0, z: 0, size: 0.6, life: 0.3 };
+const scratchBurst: SpawnOptions = { life: 0.3, size: 0.6, x: 0, y: 0, z: 0 };
 
-type Slot = {
+interface Slot {
   priority: ParticlePriority;
   px: number;
   py: number;
@@ -103,27 +103,27 @@ type Slot = {
   g: number;
   b: number;
   alpha: number; // NORMAL start alpha
-};
+}
 
 function makeSlot(): Slot {
   return {
+    alpha: 1,
+    b: 1,
+    drag: 0,
+    g: 1,
+    gravity: 0,
+    life: 0,
+    maxLife: 1,
     priority: "impact",
     px: 0,
     py: 0,
     pz: 0,
+    r: 1,
+    s0: 1,
+    stretch: false,
     vx: 0,
     vy: 0,
     vz: 0,
-    life: 0,
-    maxLife: 1,
-    s0: 1,
-    gravity: 0,
-    drag: 0,
-    stretch: false,
-    r: 1,
-    g: 1,
-    b: 1,
-    alpha: 1,
   };
 }
 
@@ -164,7 +164,9 @@ class Pool {
     this.colorAttr.setUsage(THREE.DynamicDrawUsage);
     this.mesh.instanceColor = this.colorAttr;
     this.alphaAttr = alphaAttr;
-    for (let i = cap - 1; i >= 0; i--) this.free.push(i); // pop order 0,1,2… keeps count low
+    for (let i = cap - 1; i >= 0; i--) {
+      this.free.push(i);
+    } // pop order 0,1,2… keeps count low
     for (let i = 0; i < cap; i++) {
       this.slots.push(makeSlot());
       this.livePos.push(0);
@@ -173,13 +175,21 @@ class Pool {
 
   spawn(o: SpawnOptions): void {
     const priority = o.priority ?? "impact";
-    if (priority === "ambient" && this.free.length <= this.reserve) return;
+    if (priority === "ambient" && this.free.length <= this.reserve) {
+      return;
+    }
     const freeIndex = this.free.pop();
     const idx = freeIndex ?? this.replaceable(priority);
-    if (idx === undefined) return;
+    if (idx === undefined) {
+      return;
+    }
     const s = this.slots[idx];
-    if (!s) return;
-    if (freeIndex === undefined) this.unlink(idx, s.priority);
+    if (!s) {
+      return;
+    }
+    if (freeIndex === undefined) {
+      this.unlink(idx, s.priority);
+    }
     this.link(idx, priority);
     s.priority = priority;
     s.px = o.x;
@@ -195,9 +205,11 @@ class Pool {
     s.stretch = o.stretch ?? false;
     s.alpha = o.alpha ?? 1;
     const bright = o.bright ?? 1;
-    if (o.cr !== undefined || o.cg !== undefined || o.cb !== undefined)
+    if (o.cr !== undefined || o.cg !== undefined || o.cb !== undefined) {
       scratchCol.setRGB(o.cr ?? 1, o.cg ?? 1, o.cb ?? 1);
-    else scratchCol.setHex(o.color ?? 0xffffff);
+    } else {
+      scratchCol.setHex(o.color ?? 0xffffff);
+    }
     s.r = scratchCol.r * bright;
     s.g = scratchCol.g * bright;
     s.b = scratchCol.b * bright;
@@ -212,19 +224,25 @@ class Pool {
   /** Lowest-ranked live particle below `priority`, closest to expiring. */
   private replaceable(priority: ParticlePriority): number | undefined {
     for (const rank of RANKED) {
-      if (PRIORITY[rank] >= PRIORITY[priority]) return undefined;
+      if (PRIORITY[rank] >= PRIORITY[priority]) {
+        return undefined;
+      }
       let candidate: number | undefined;
       let fraction = Infinity;
       for (const idx of this.live[rank]) {
         const slot = this.slots[idx];
-        if (!slot) continue;
+        if (!slot) {
+          continue;
+        }
         const remaining = slot.life / slot.maxLife;
         if (remaining < fraction) {
           candidate = idx;
           fraction = remaining;
         }
       }
-      if (candidate !== undefined) return candidate;
+      if (candidate !== undefined) {
+        return candidate;
+      }
     }
     return undefined;
   }
@@ -252,8 +270,8 @@ class Pool {
   counts() {
     return {
       active: this.liveCount(),
-      capacity: this.cap,
       ambient: this.live.ambient.length,
+      capacity: this.cap,
       impact: this.live.impact.length,
       major: this.live.major.length,
     };
@@ -265,7 +283,9 @@ class Pool {
       for (let i = list.length - 1; i >= 0; i--) {
         const idx = list[i];
         const s = idx === undefined ? undefined : this.slots[idx];
-        if (idx === undefined || !s) continue;
+        if (idx === undefined || !s) {
+          continue;
+        }
         s.life -= dt;
         if (s.life <= 0) {
           this.mesh.setMatrixAt(idx, ZERO_MAT);
@@ -291,7 +311,9 @@ class Pool {
     if (this.dirty) {
       this.mesh.instanceMatrix.needsUpdate = true;
       this.colorAttr.needsUpdate = true;
-      if (this.alphaAttr) this.alphaAttr.needsUpdate = true;
+      if (this.alphaAttr) {
+        this.alphaAttr.needsUpdate = true;
+      }
       this.dirty = this.liveCount() > 0;
     }
   }
@@ -324,7 +346,9 @@ class Pool {
   }
 
   clear(): void {
-    for (const slot of this.slots) slot.life = 0;
+    for (const slot of this.slots) {
+      slot.life = 0;
+    }
     this.update(0); // release through the same free-list path as natural expiry
     this.mesh.count = 0;
     this.highWater = 0;
@@ -334,8 +358,11 @@ class Pool {
     scene.remove(this.mesh);
     this.mesh.geometry.dispose();
     const m = this.mesh.material;
-    if (Array.isArray(m)) for (const mm of m) mm.dispose();
-    else m.dispose();
+    if (Array.isArray(m)) {
+      for (const mm of m) mm.dispose();
+    } else {
+      m.dispose();
+    }
     this.mesh.dispose();
   }
 }
@@ -354,8 +381,8 @@ export class ParticlePools {
     const addMat = new THREE.MeshBasicMaterial({
       blending: THREE.AdditiveBlending,
       depthWrite: false,
-      transparent: true,
       toneMapped: true,
+      transparent: true,
     });
     this.addMat = addMat;
     this.add = new Pool(addGeo, addMat, ADD_CAP, 96, true, 11, null);

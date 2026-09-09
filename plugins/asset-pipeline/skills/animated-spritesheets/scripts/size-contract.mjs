@@ -37,45 +37,34 @@ import {
   writeJsonFile,
 } from "./_lib/asset-tools.mjs";
 
-function parseCell(value) {
+const parseCell = (value) => {
   const parts = value.toLowerCase().split("x");
-  if (parts.length !== 2) fail(`cell must be WxH, got: '${value}'`);
+  if (parts.length !== 2) {
+    fail(`cell must be WxH, got: '${value}'`);
+  }
+  // oxlint-disable-next-line unicorn/prefer-number-coercion -- CLI input like "32px" must read as 32, not NaN
   const width = Number.parseInt(parts[0], 10);
+  // oxlint-disable-next-line unicorn/prefer-number-coercion -- same as above
   const height = Number.parseInt(parts[1], 10);
   if (!Number.isFinite(width) || !Number.isFinite(height)) {
     fail(`cell must be WxH integers, got: '${value}'`);
   }
   return [width, height];
-}
+};
 
-function readContract(path) {
-  if (!path) failUsage("--contract is required");
-  return loadSizeContract(JSON.parse(readFileSync(path, "utf8")), path);
-}
+const readContract = (path) => {
+  if (!path) {
+    failUsage("--contract is required");
+  }
+  return loadSizeContract(JSON.parse(readFileSync(path, "utf-8")), path);
+};
 
 const COMMANDS = {
-  derive(args) {
-    const source = getString(args, "source");
-    const out = getString(args, "out");
-    if (!source) failUsage("--source is required");
-    if (!out) failUsage("--out is required");
-
-    const contract = deriveSizeContract(source, {
-      cellSize: parseCell(getString(args, "cell") ?? `${FRAME_WIDTH}x${FRAME_HEIGHT}`),
-      frameGlob: getString(args, "frame-glob") ?? "frame-*.png",
-      name: getString(args, "name") ?? null,
-      action: getString(args, "action") ?? null,
-      direction: getString(args, "direction") ?? null,
-      anchorPolicy: getString(args, "anchor-policy") ?? "grounded",
-      pivot: getString(args, "pivot") ?? "base-center",
-    });
-    writeJsonFile(out, contract);
-    console.log(out);
-  },
-
   audit(args) {
     const source = getString(args, "source");
-    if (!source) failUsage("--source is required");
+    if (!source) {
+      failUsage("--source is required");
+    }
     const contract = readContract(getString(args, "contract"));
 
     const report = auditSizeContract(source, contract, {
@@ -84,21 +73,51 @@ const COMMANDS = {
     });
 
     const out = getString(args, "out");
-    if (out) writeJsonFile(out, report);
+    if (out) {
+      writeJsonFile(out, report);
+    }
     console.log(toPythonJson(report));
 
-    if (getFlag(args, "strict") && report.status !== "pass") process.exit(1);
+    if (getFlag(args, "strict") && report.status !== "pass") {
+      process.exit(1);
+    }
+  },
+
+  derive(args) {
+    const source = getString(args, "source");
+    const out = getString(args, "out");
+    if (!source) {
+      failUsage("--source is required");
+    }
+    if (!out) {
+      failUsage("--out is required");
+    }
+
+    const contract = deriveSizeContract(source, {
+      action: getString(args, "action") ?? null,
+      anchorPolicy: getString(args, "anchor-policy") ?? "grounded",
+      cellSize: parseCell(getString(args, "cell") ?? `${FRAME_WIDTH}x${FRAME_HEIGHT}`),
+      direction: getString(args, "direction") ?? null,
+      frameGlob: getString(args, "frame-glob") ?? "frame-*.png",
+      name: getString(args, "name") ?? null,
+      pivot: getString(args, "pivot") ?? "base-center",
+    });
+    writeJsonFile(out, contract);
+    console.log(out);
   },
 
   prompt(args) {
     const contract = readContract(getString(args, "contract"));
     // Emitted as a bullet list, so it can be pasted straight into a prompt.
-    for (const line of promptGuidanceForContract(contract)) console.log(`- ${line}`);
+    for (const line of promptGuidanceForContract(contract)) {
+      console.log(`- ${line}`);
+    }
   },
 };
 
 main(() => {
   const args = parseArgs(process.argv.slice(2), {
+    booleans: ["strict"],
     values: [
       "action",
       "anchor-policy",
@@ -112,9 +131,10 @@ main(() => {
       "source",
       "stage",
     ],
-    booleans: ["strict"],
   });
   const run = COMMANDS[args.positionals[0]];
-  if (!run) failUsage("Usage: node size-contract.mjs <derive|audit|prompt> ...");
+  if (!run) {
+    failUsage("Usage: node size-contract.mjs <derive|audit|prompt> ...");
+  }
   run(args);
 });

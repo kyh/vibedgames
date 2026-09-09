@@ -31,7 +31,9 @@ export type JsonValue =
   | null
   | JsonValue[]
   | { [key: string]: JsonValue };
-export type JsonObject = { [key: string]: JsonValue };
+export interface JsonObject {
+  [key: string]: JsonValue;
+}
 
 /** One field of a wire JSON dictionary — unvalidated until narrowed. */
 type WireField = NonNullable<Player["state"]>[string] | undefined;
@@ -44,7 +46,7 @@ export const isJsonObject = (v: WireField): v is JsonObject =>
 export const isJsonNumber = (v: WireField): v is number => Number.isFinite(v);
 export const isJsonString = (v: WireField): v is string => String(v) === v;
 
-export type NetSessionOptions = {
+export interface NetSessionOptions {
   room: string;
   maxPlayers?: number;
   /** Give up on the party server after this long and fall back to solo. */
@@ -53,7 +55,7 @@ export type NetSessionOptions = {
    *  trailer mode, which must never show live players in a staged shot. */
   forceOffline?: boolean;
   onEvent?: (event: string, payload: JsonValue, from: string) => void;
-};
+}
 
 export class NetSession {
   private client: MultiplayerClient | null;
@@ -81,26 +83,30 @@ export class NetSession {
       ? null
       : new MultiplayerClient({
           host: MULTIPLAYER_HOST,
-          party: "vg-server",
-          room: opts.room,
           maxPlayers: opts.maxPlayers,
           onEvent: (event, payload, from) => {
             // SAFETY: wire payloads are JSON.parse output (or loop back from
             // sendEvent's JsonObject), so they are JSON values by construction.
             this.onEvent?.(event, payload as JsonValue, from);
           },
+          party: "vg-server",
+          room: opts.room,
         });
   }
 
   /** Call once per frame: drives the offline fallback timer. */
   tick(): void {
-    const client = this.client;
-    if (this.solo || !client) return;
+    const { client } = this;
+    if (this.solo || !client) {
+      return;
+    }
     // Start the grace window on the FIRST tick, not at construction: heavy games
     // (lots of assets/wasm) can take longer than the window just to reach their
     // first frame, and counting that load time would wrongly drop a client to
     // solo before its socket ever got a chance to connect.
-    if (this.bootedAt === 0) this.bootedAt = performance.now();
+    if (this.bootedAt === 0) {
+      this.bootedAt = performance.now();
+    }
     const status = client.connectionStatus;
     if (status === "connected") {
       this.everConnected = true;
@@ -109,12 +115,16 @@ export class NetSession {
     // Once we've been in a room, a drop is transient — let partysocket
     // reconnect instead of stranding the player in solo. (A reset under heavy
     // load must not permanently drop a real player out of the game.)
-    if (this.everConnected) return;
+    if (this.everConnected) {
+      return;
+    }
     // Pre-connect errors/closes are NOT instant failures: partysocket retries
     // by itself, and a single refused handshake (cold server, wifi blip) must
     // not strand the player in solo for the whole session. The deadline is the
     // only fallback trigger.
-    if (performance.now() - this.bootedAt < this.fallbackMs) return;
+    if (performance.now() - this.bootedAt < this.fallbackMs) {
+      return;
+    }
     // Never reached a room within the grace window: the party server is
     // unreachable — fall back to a local solo game.
     this.solo = true;
@@ -131,7 +141,7 @@ export class NetSession {
   }
 
   get connectionStatus(): string {
-    const client = this.client;
+    const { client } = this;
     return this.solo || !client ? "offline" : client.connectionStatus;
   }
 
@@ -141,17 +151,17 @@ export class NetSession {
 
   /** The current room host's id (for authenticating host-only events). */
   get hostId(): string | null {
-    const client = this.client;
+    const { client } = this;
     return this.solo || !client ? SOLO_ID : client.hostId;
   }
 
   get playerId(): string | null {
-    const client = this.client;
+    const { client } = this;
     return this.solo || !client ? SOLO_ID : client.playerId;
   }
 
   get players(): PlayerMap {
-    const client = this.client;
+    const { client } = this;
     return this.solo || !client
       ? { [SOLO_ID]: { id: SOLO_ID, state: this.offlineMyState } }
       : client.players;
@@ -161,9 +171,11 @@ export class NetSession {
    *  roster change, not per call: the client swaps in a fresh player map on
    *  every sync/join/leave/state message, and a scene asks several times a frame. */
   otherPlayer(): Player | null {
-    const client = this.client;
-    if (this.solo || !client) return null;
-    const players = client.players;
+    const { client } = this;
+    if (this.solo || !client) {
+      return null;
+    }
+    const { players } = client;
     if (players !== this.otherScanned) {
       this.otherScanned = players;
       this.other = null;
@@ -179,7 +191,9 @@ export class NetSession {
   }
 
   get sharedState(): JsonObject | null {
-    if (this.solo || !this.client) return this.offlineShared;
+    if (this.solo || !this.client) {
+      return this.offlineShared;
+    }
     // SAFETY: shared state is assembled server-side from JSON wire patches,
     // so every field is a JSON value by construction.
     const s = this.client.sharedState as JsonObject;
@@ -188,8 +202,11 @@ export class NetSession {
 
   /** Per-player state shallow-merges, mirroring the package semantics. */
   updateMyState(patch: JsonObject): void {
-    if (this.solo || !this.client) Object.assign(this.offlineMyState, patch);
-    else this.client.updateMyState(patch);
+    if (this.solo || !this.client) {
+      Object.assign(this.offlineMyState, patch);
+    } else {
+      this.client.updateMyState(patch);
+    }
   }
 
   /** Shared-state patch shallow-merges; host-only on the server. */
@@ -203,11 +220,16 @@ export class NetSession {
 
   /** Events loop straight back to the local handler when offline. */
   sendEvent(event: string, payload: JsonObject): void {
-    if (this.solo || !this.client) this.onEvent?.(event, payload, SOLO_ID);
-    else this.client.sendEvent(event, payload);
+    if (this.solo || !this.client) {
+      this.onEvent?.(event, payload, SOLO_ID);
+    } else {
+      this.client.sendEvent(event, payload);
+    }
   }
 
   destroy(): void {
-    if (!this.solo) this.client?.destroy();
+    if (!this.solo) {
+      this.client?.destroy();
+    }
   }
 }

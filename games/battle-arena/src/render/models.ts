@@ -36,19 +36,23 @@ export class ModelLibrary {
     opts?: { matte?: boolean; tint?: number },
   ): Promise<void> {
     const gltf = await loadGltf(url);
-    const scene = gltf.scene;
+    const { scene } = gltf;
     const graded = new Set<THREE.Material>();
     scene.traverse((o) => {
       if (opts && o instanceof THREE.Mesh) {
         const mats = Array.isArray(o.material) ? o.material : [o.material];
         for (const m of mats) {
-          if (!(m instanceof THREE.MeshStandardMaterial) || graded.has(m)) continue;
+          if (!(m instanceof THREE.MeshStandardMaterial) || graded.has(m)) {
+            continue;
+          }
           graded.add(m);
           if (opts.matte) {
             m.roughness = Math.max(m.roughness, 0.82);
             m.envMapIntensity = 0.35;
           }
-          if (opts.tint !== undefined) m.color.setHex(opts.tint);
+          if (opts.tint !== undefined) {
+            m.color.setHex(opts.tint);
+          }
         }
       }
       if (o instanceof THREE.Mesh) {
@@ -59,9 +63,12 @@ export class ModelLibrary {
         // skinned bounds are bind-pose; inflate them generously so real frustum
         // culling is safe (233 skinned meshes × no culling was the #1 call sink)
         const geo = o.geometry;
-        if (!geo.boundingSphere) geo.computeBoundingSphere();
-        if (geo.boundingSphere)
+        if (!geo.boundingSphere) {
+          geo.computeBoundingSphere();
+        }
+        if (geo.boundingSphere) {
           geo.boundingSphere.radius = Math.max(geo.boundingSphere.radius * 2.5, 2.5);
+        }
         o.frustumCulled = true;
       }
     });
@@ -75,7 +82,9 @@ export class ModelLibrary {
   async loadClips(url: string, prefix = ""): Promise<void> {
     const gltf = await loadGltf(url);
     for (const clip of gltf.animations) {
-      if (!this.clips.has(prefix + clip.name)) this.clips.set(prefix + clip.name, clip);
+      if (!this.clips.has(prefix + clip.name)) {
+        this.clips.set(prefix + clip.name, clip);
+      }
     }
   }
 
@@ -93,7 +102,7 @@ export class ModelLibrary {
     if (!tpl) {
       const box = new THREE.Mesh(
         new THREE.BoxGeometry(0.6, 1.6, 0.6),
-        new THREE.MeshStandardMaterial({ color: 0xff00ff }),
+        new THREE.MeshStandardMaterial({ color: 0xff_00_ff }),
       );
       box.position.y = 0.8;
       return box;
@@ -145,7 +154,7 @@ const RIG_LARGE_FALLBACK = new Map<string, string>(
   } satisfies Record<string, string>),
 );
 
-export type PlayOpts = {
+export interface PlayOpts {
   fade?: number;
   loop?: boolean;
   /** Hold the final frame when a one-shot finishes. */
@@ -154,7 +163,7 @@ export type PlayOpts = {
   timeScale?: number;
   /** Authored clip seconds already elapsed when an accepted snapshot arrives. */
   offset?: number;
-};
+}
 
 // The universal fallback pose — every rig (Medium + Large) resolves Idle_B, so
 // a missing clip lands here instead of the bind T-pose.
@@ -205,13 +214,17 @@ export class AnimatedCharacter {
 
   private action(clipName: string): THREE.AnimationAction | null {
     const clip = this.resolveClip(clipName);
-    if (!clip) return null;
+    if (!clip) {
+      return null;
+    }
     let pair = this.actions.get(clip);
     if (!pair) {
       pair = { first: this.mixer.clipAction(clip), second: null };
       this.actions.set(clip, pair);
     }
-    if (pair.first !== this.current) return pair.first;
+    if (pair.first !== this.current) {
+      return pair.first;
+    }
     // Two actions let a repeated shot blend out of its previous pose instead
     // of resetting that same action. Tracks stay shared and immutable.
     if (!pair.second) {
@@ -229,7 +242,9 @@ export class AnimatedCharacter {
   /** Crossfade to a clip. No-op if already the current clip (unless one-shot). */
   play(clipName: string, opts: PlayOpts = {}): void {
     const { fade = 0.2, loop = true, clamp = false, timeScale = 1, offset = 0 } = opts;
-    if (this.currentName === clipName && loop) return;
+    if (this.currentName === clipName && loop) {
+      return;
+    }
     const next = this.action(clipName);
     if (!next) {
       // Clip missing on this rig — NEVER leave the character in its bind T-pose.
@@ -255,7 +270,9 @@ export class AnimatedCharacter {
       if (fade > 0) {
         this.current.crossFadeTo(next, fade, false);
         this.fading = { action: this.current, left: fade };
-      } else this.current.stop();
+      } else {
+        this.current.stop();
+      }
     }
     this.current = next;
     this.currentName = clipName;
@@ -263,7 +280,7 @@ export class AnimatedCharacter {
 
   /** Fire a one-shot (attack/cast/hit) then resolve when it finishes. */
   playOnce(clipName: string, opts: PlayOpts = {}): void {
-    this.play(clipName, { ...opts, loop: false, clamp: opts.clamp ?? false });
+    this.play(clipName, { ...opts, clamp: opts.clamp ?? false, loop: false });
   }
 
   /** Live playback-rate control for the current action (viewer speed slider —
@@ -276,13 +293,17 @@ export class AnimatedCharacter {
    *  hand through animations. Matches on a normalized name because GLTFLoader
    *  strips reserved chars (handslot.r → handslotr). Returns false if not found. */
   attach(obj: THREE.Object3D, boneName: string): boolean {
-    const key = boneName.replace(/[^a-z0-9]/gi, "").toLowerCase();
+    const key = boneName.replaceAll(/[^a-z0-9]/gi, "").toLowerCase();
     const found: THREE.Object3D[] = [];
     this.root.traverse((o) => {
-      if (o.name.replace(/[^a-z0-9]/gi, "").toLowerCase() === key) found.push(o);
+      if (o.name.replaceAll(/[^a-z0-9]/gi, "").toLowerCase() === key) {
+        found.push(o);
+      }
     });
     const bone = found[0];
-    if (!bone) return false;
+    if (!bone) {
+      return false;
+    }
     obj.traverse((c) => {
       if (c instanceof THREE.Mesh) {
         c.castShadow = true;

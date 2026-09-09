@@ -13,9 +13,9 @@ const config: Phaser.Types.Core.GameConfig = {
   parent: "game",
   backgroundColor: "#0a0e16",
   scale: {
+    height: "100%",
     mode: Phaser.Scale.RESIZE,
     width: "100%",
-    height: "100%",
   },
   pixelArt: true,
   roundPixels: true,
@@ -52,16 +52,18 @@ void fontReady.then(() => {
     configurable: true,
     get: () => ({
       ...(activeGame()?.diagnostics() ?? {
+        complete: false,
         frame: game.loop.frame,
         phase: "menu",
         player: null,
         score: 0,
-        complete: false,
       }),
       audio: soundDiagnostics(),
     }),
   });
-  if (import.meta.env.DEV) window.__game = game;
+  if (import.meta.env.DEV) {
+    window.__game = game;
+  }
   // Scale.RESIZE can read stale parent bounds when a resize lands while the
   // tab is hidden or the browser throttles events (tab switch, phone
   // rotation): the canvas lags one size behind. Re-check once layout settles
@@ -73,7 +75,9 @@ void fontReady.then(() => {
   };
   window.addEventListener("resize", refreshScale);
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) refreshScale();
+    if (!document.hidden) {
+      refreshScale();
+    }
   });
 
   // Sim is entirely delta-driven (update(_t, deltaMs)), so the wrapper's
@@ -87,7 +91,9 @@ void fontReady.then(() => {
       scene?.setControlsPaused(true);
       setSoundPaused(true);
       showPauseOverlay();
-      if (scene?.isOnline()) return;
+      if (scene?.isOnline()) {
+        return;
+      }
       froze = true;
       game.loop.sleep();
       game.sound.pauseAll();
@@ -96,7 +102,9 @@ void fontReady.then(() => {
       activeGame()?.setControlsPaused(false);
       setSoundPaused(false);
       hidePauseOverlay();
-      if (!froze) return;
+      if (!froze) {
+        return;
+      }
       froze = false;
       game.loop.wake();
       game.sound.resumeAll();

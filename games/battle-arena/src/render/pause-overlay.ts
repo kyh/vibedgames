@@ -9,28 +9,28 @@ import { controlGroups, createPauseShell } from "@repo/embed";
 import type { ControlMethod } from "@repo/embed";
 import { CONTROLS } from "../controls";
 
-export type PauseOverlay = {
+export interface PauseOverlay {
   /** Mount the overlay. Idempotent while shown. */
   show: () => void;
   /** Unmount (fade out). Idempotent while hidden. */
   hide: () => void;
-};
+}
 
-export type PauseOverlayOpts = {
+export interface PauseOverlayOpts {
   /**
    * Whether the world keeps running behind the overlay (a live online match —
    * main.ts never freezes those). Read fresh on every show() so one overlay
    * serves both offline (frozen) and online (live) matches.
    */
   isLive?: () => boolean;
-};
+}
 
 const METHOD_LABEL = {
+  camera: "CAMERA",
+  controller: "CONTROLLER",
   keys: "KEYBOARD",
   mouse: "MOUSE",
   touch: "TOUCH",
-  camera: "CAMERA",
-  controller: "CONTROLLER",
 } satisfies Record<ControlMethod, string>;
 
 // The control-card language shared by BOTH instruction surfaces — the pause
@@ -62,21 +62,25 @@ const GROUP_CSS = `
 const CONTROL_STYLE_ID = "ba-controls-style";
 
 /** Inject the shared control-card styles (pause tablet AND lobby help). */
-export function ensureControlCardStyle(): void {
-  if (document.getElementById(CONTROL_STYLE_ID)) return;
+export const ensureControlCardStyle = (): void => {
+  if (document.querySelector(`#${CONTROL_STYLE_ID}`)) {
+    return;
+  }
   const style = document.createElement("style");
   style.id = CONTROL_STYLE_ID;
   style.textContent = GROUP_CSS;
   document.head.append(style);
-}
+};
 
 /**
  * The grouped keycap card the pause tablet renders — method columns of
  * key→action rows. Null when nothing is visible for the current context.
  */
-export function buildControlsCard(coarse: boolean): HTMLElement | null {
+export const buildControlsCard = (coarse: boolean): HTMLElement | null => {
   const groups = controlGroups(CONTROLS, { coarse });
-  if (groups.length === 0) return null;
+  if (groups.length === 0) {
+    return null;
+  }
   const wrap = document.createElement("div");
   wrap.className = "ba-p-groups";
   for (const group of groups) {
@@ -100,16 +104,18 @@ export function buildControlsCard(coarse: boolean): HTMLElement | null {
     wrap.append(g);
   }
   return wrap;
-}
+};
 
 /**
  * The compact inline variant for the lobby: the same method headers and gold
  * keycap chips as the pause tablet, flowing as one wrapped strip so it never
  * crowds champion select. Null when nothing is visible.
  */
-export function buildControlsStrip(coarse: boolean): HTMLElement | null {
+export const buildControlsStrip = (coarse: boolean): HTMLElement | null => {
   const groups = controlGroups(CONTROLS, { coarse });
-  if (groups.length === 0) return null;
+  if (groups.length === 0) {
+    return null;
+  }
   const strip = document.createElement("div");
   strip.className = "ba-p-strip";
   for (const group of groups) {
@@ -131,7 +137,7 @@ export function buildControlsStrip(coarse: boolean): HTMLElement | null {
     }
   }
   return strip;
-}
+};
 
 // Positioning/z-index/fade live on the shell's root — visuals only here.
 // (Control-card rules live in GROUP_CSS above, shared with the lobby.)
@@ -167,33 +173,7 @@ const CSS = `
   .ba-p-panel{padding:20px 16px 16px}
 }`;
 
-/**
- * Build Battle Arena's pause overlay. Any pointerup or non-Escape keyup while
- * it is up resumes; content (control groups, live/frozen sub-line, coarse/fine
- * resume hint) re-renders fresh on every show().
- */
-
-export function createPauseOverlay(opts: PauseOverlayOpts = {}): PauseOverlay {
-  const shell = createPauseShell({
-    className: "ba-pause",
-    css: CSS,
-    styleId: "ba-pause-style",
-    fadeMs: 220,
-    render: (root) => renderPanel(root, opts),
-  });
-  return {
-    show: () => {
-      // A wrapper-initiated pause can land while the FPS pointer lock is held —
-      // release it so the cursor is visible over the overlay (the next canvas
-      // click after resume relocks, the familiar FPS pattern).
-      if (document.pointerLockElement) document.exitPointerLock();
-      shell.show();
-    },
-    hide: shell.hide,
-  };
-}
-
-function renderPanel(overlay: HTMLElement, opts: PauseOverlayOpts): void {
+const renderPanel = (overlay: HTMLElement, opts: PauseOverlayOpts): void => {
   ensureControlCardStyle();
   const coarse = window.matchMedia("(pointer: coarse)").matches;
   const live = opts.isLive?.() ?? false;
@@ -216,7 +196,9 @@ function renderPanel(overlay: HTMLElement, opts: PauseOverlayOpts): void {
   panel.append(title, rule, sub);
 
   const card = buildControlsCard(coarse);
-  if (card) panel.append(card);
+  if (card) {
+    panel.append(card);
+  }
 
   const hint = document.createElement("div");
   hint.className = "ba-p-hint";
@@ -224,4 +206,32 @@ function renderPanel(overlay: HTMLElement, opts: PauseOverlayOpts): void {
   panel.append(hint);
 
   overlay.append(panel);
-}
+};
+
+/**
+ * Build Battle Arena's pause overlay. Any pointerup or non-Escape keyup while
+ * it is up resumes; content (control groups, live/frozen sub-line, coarse/fine
+ * resume hint) re-renders fresh on every show().
+ */
+
+export const createPauseOverlay = (opts: PauseOverlayOpts = {}): PauseOverlay => {
+  const shell = createPauseShell({
+    className: "ba-pause",
+    css: CSS,
+    fadeMs: 220,
+    render: (root) => renderPanel(root, opts),
+    styleId: "ba-pause-style",
+  });
+  return {
+    hide: shell.hide,
+    show: () => {
+      // A wrapper-initiated pause can land while the FPS pointer lock is held —
+      // release it so the cursor is visible over the overlay (the next canvas
+      // click after resume relocks, the familiar FPS pattern).
+      if (document.pointerLockElement) {
+        document.exitPointerLock();
+      }
+      shell.show();
+    },
+  };
+};

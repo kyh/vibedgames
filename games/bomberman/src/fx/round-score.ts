@@ -30,10 +30,12 @@ export class RoundScore {
       return { kind: "rebase" };
     }
     const step = Math.floor((nowMs - this.origin) / (mode === "duel" ? 300 : 400));
-    if (step === this.step) return null;
+    if (step === this.step) {
+      return null;
+    }
     const skipped = step - this.step > 1;
     this.step = step;
-    return skipped ? { kind: "rebase" } : { kind: "beat", beat: { mode, step: step % 16 } };
+    return skipped ? { kind: "rebase" } : { beat: { mode, step: step % 16 }, kind: "beat" };
   }
 }
 
@@ -41,25 +43,34 @@ export class RoundScore {
  * volume. Two-note downbeats are the only simultaneous background phrase. */
 export function scoreNotes(beat: ScoreBeat): readonly number[] {
   switch (beat.step) {
-    case 0:
+    case 0: {
       return [146.83, 293.66];
-    case 3:
+    }
+    case 3: {
       return [440];
-    case 7:
+    }
+    case 7: {
       return [329.63];
-    case 8:
+    }
+    case 8: {
       return [164.81, 392];
-    case 11:
+    }
+    case 11: {
       return [293.66];
+    }
     case 2:
-    case 10:
+    case 10: {
       return beat.mode === "duel" ? [220] : [];
+    }
     case 4:
-    case 12:
+    case 12: {
       return beat.mode === "duel" ? [329.63] : [];
-    case 15:
+    }
+    case 15: {
       return beat.mode === "duel" ? [246.94] : [];
-    default:
+    }
+    default: {
       return [];
+    }
   }
 }

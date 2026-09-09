@@ -11,7 +11,7 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const gameDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const gameDir = resolve(import.meta.dirname, "..");
 const { chromium } = createRequire(join(gameDir, "package.json"))("playwright-core");
 
 const PARTY = "http://localhost:8787";
@@ -23,7 +23,9 @@ async function waitFor(page, fn, label, timeoutMs = 8000) {
   let last;
   while (Date.now() < deadline) {
     last = await page.evaluate(fn);
-    if (last) return last;
+    if (last) {
+      return last;
+    }
     await wait(100);
   }
   throw new Error(`timeout: ${label} (last=${JSON.stringify(last)})`);
@@ -33,17 +35,17 @@ const snapshot = (page) =>
   page.evaluate(() => {
     const { scene, net } = window.__fb;
     return {
-      status: net.connectionStatus,
+      counting: scene.countingDown,
+      ghosts: scene.ghosts.size,
       host: net.isHost,
       id: net.playerId,
-      players: Object.keys(net.players).length,
-      seed: scene.seed,
-      worldX: scene.worldX,
+      paused: scene.presentationPaused,
       phase: scene.phase,
       pipes: [...scene.pipes.keys()].sort((a, b) => a - b),
-      ghosts: scene.ghosts.size,
-      counting: scene.countingDown,
-      paused: scene.presentationPaused,
+      players: Object.keys(net.players).length,
+      seed: scene.seed,
+      status: net.connectionStatus,
+      worldX: scene.worldX,
     };
   });
 
@@ -60,11 +62,13 @@ async function startFlying(page) {
 }
 
 async function openClient(browser, url, errors) {
-  const page = await browser.newPage({ viewport: { width: 900, height: 600 } });
+  const page = await browser.newPage({ viewport: { height: 600, width: 900 } });
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => {
     // The dev server has no favicon; production is served by the games worker.
-    if (m.type() === "error" && !m.location().url.endsWith("/favicon.ico")) errors.push(m.text());
+    if (m.type() === "error" && !m.location().url.endsWith("/favicon.ico")) {
+      errors.push(m.text());
+    }
   });
   await page.goto(url);
   await waitFor(page, () => window.__fb?.net.connectionStatus === "connected", "connected");
@@ -86,8 +90,9 @@ async function startVite() {
         (r) => r.ok,
         () => false,
       )
-    )
+    ) {
       return { base, child };
+    }
   }
   child.kill();
   throw new Error("vite did not start");
@@ -95,7 +100,7 @@ async function startVite() {
 
 async function main() {
   const urlArg = process.argv.indexOf("--url");
-  const dev = urlArg >= 0 ? { base: process.argv[urlArg + 1], child: null } : await startVite();
+  const dev = urlArg !== -1 ? { base: process.argv[urlArg + 1], child: null } : await startVite();
   if (
     !(await fetch(PARTY).then(
       () => true,
@@ -106,22 +111,24 @@ async function main() {
   }
   const room = `t${process.pid}-${Date.now().toString(36)}`;
   const url = `${dev.base}/?room=${room}`;
-  const errors = { host: [], guest: [], late: [] };
+  const errors = { guest: [], host: [], late: [] };
   // Both clients must keep simulating; Chrome otherwise throttles whichever
   // window is not focused, which reads as a frozen peer.
   const browser = await chromium.launch({
-    headless: true,
-    channel: "chrome",
     args: [
       "--disable-background-timer-throttling",
       "--disable-backgrounding-occluded-windows",
       "--disable-renderer-backgrounding",
     ],
+    channel: "chrome",
+    headless: true,
   });
   const results = [];
   const step = (name, ok, note = "") => {
     results.push(`${ok ? "pass" : "FAIL"}  ${name}${note ? ` — ${note}` : ""}`);
-    if (!ok) throw new Error(`${name}: ${note}`);
+    if (!ok) {
+      throw new Error(`${name}: ${note}`);
+    }
   };
   try {
     const host = await openClient(browser, url, errors.host);
@@ -219,7 +226,7 @@ async function main() {
     // Host leaves: the guest is promoted, keeps the seed, and the course keeps moving.
     const seedBefore = (await snapshot(guest)).seed;
     await host.close();
-    await waitFor(guest, () => window.__fb.net.isHost, "guest promoted", 10000);
+    await waitFor(guest, () => window.__fb.net.isHost, "guest promoted", 10_000);
     // The server holds the departed seat for a reconnect; the game must not
     // treat that held seat as a rival (no frozen ghost, no "2 players").
     await waitFor(guest, () => window.__fb.scene.rivalIds.length === 0, "held seat ignored");

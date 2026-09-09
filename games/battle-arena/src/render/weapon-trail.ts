@@ -11,21 +11,32 @@
 import * as THREE from "three";
 import { fxTex } from "./fx-textures";
 
-const MAX_SEG = 28; // raw blade samples retained (one per render frame)
-const SUBDIV = 4; // spline subdivisions between samples — the strip stays a smooth
+// raw blade samples retained (one per render frame)
+const MAX_SEG = 28;
+// spline subdivisions between samples — the strip stays a smooth
+const SUBDIV = 4;
 //                   continuous curve even when a fast spin sweeps 20°+ per frame
 const MAX_ROWS = (MAX_SEG - 1) * SUBDIV + 1;
-const FADE_MS = 260; // how long a sample lingers — the visible arc length
-const TIP_EXT = 1.1; // extend the blade tip past the model so the arc reads bigger
-const BASE_FRAC = 0.34; // ribbon starts this far up the weapon — the BLADE only, never the handle
+// how long a sample lingers — the visible arc length
+const FADE_MS = 260;
+// extend the blade tip past the model so the arc reads bigger
+const TIP_EXT = 1.1;
+// ribbon starts this far up the weapon — the BLADE only, never the handle
+const BASE_FRAC = 0.34;
 
 /** Per-weapon override for blades whose bbox longest-axis heuristic degenerates
  *  (2H/hammer heads are wider than the shaft). `axis` = the swing axis of the
  *  blade in the weapon's local space; `base` = fraction of the weapon's length
  *  where the ribbon starts (0 = grip butt — keep it past the handle); `tip` =
  *  extension past the tip (× half-length); optional `opacity` bumps peak alpha. */
-export type TrailOverride = { axis: "x" | "y" | "z"; base: number; tip: number; opacity?: number };
+export interface TrailOverride {
+  axis: "x" | "y" | "z";
+  base: number;
+  tip: number;
+  opacity?: number;
+}
 
+// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
 const VERT = /* glsl */ `
 attribute float aAge;    // 0 fresh → 1 expired
 attribute float aAcross; // 0 base edge → 1 blade tip edge
@@ -45,6 +56,7 @@ void main() {
 // draws. The erosion samples an AUTHORED streak texture (fx/noise-streak.png,
 // panned along the arc) — the Gabriel Aguiar dissolve: the ribbon TEARS apart
 // along directional streaks as it ages instead of uniformly fading.
+// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
 const COVERAGE_GLSL = /* glsl */ `
 uniform sampler2D uNoise;
 float coverage(float age, float across, float along) {
@@ -60,6 +72,7 @@ float coverage(float age, float across, float along) {
   return body * tail * er * (1.0 - 0.4 * age);
 }`;
 
+// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
 const FRAG = /* glsl */ `
 uniform vec3 uColor;
 uniform float uOpacity;
@@ -80,6 +93,7 @@ void main() {
 
 // depth prepass: identical coverage math, writes no color — just claims the
 // front-most surface so fold-over layers behind it are culled by depth test
+// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
 const FRAG_DEPTH = /* glsl */ `
 uniform float uOpacity;
 varying float vAge;
@@ -98,7 +112,7 @@ void main() {
 // low fps) — the tip edge loops back on itself in-plane and the doubled
 // translucency reads as comb teeth. Centripetal parameterization provably
 // never loops or cusps inside a segment.
-function crCentripetal(
+const crCentripetal = (
   p0: number,
   p1: number,
   p2: number,
@@ -107,7 +121,7 @@ function crCentripetal(
   k0: number,
   k1: number,
   k2: number,
-): number {
+): number => {
   const t1 = k0;
   const t2 = k0 + k1;
   const t3 = k0 + k1 + k2;
@@ -118,7 +132,7 @@ function crCentripetal(
   const b1 = a1 + ((a2 - a1) * (tt - 0)) / t2;
   const b2 = a2 + ((a3 - a2) * (tt - t1)) / (t3 - t1);
   return b1 + ((b2 - b1) * (tt - t1)) / k1;
-}
+};
 
 export class WeaponTrail {
   /** Add/remove THIS from the scene — holds the depth prepass + color pass. */
@@ -144,7 +158,8 @@ export class WeaponTrail {
     t: number;
     s: number;
   }[] = [];
-  private arc = 0; // accumulated arc length (drives the panning coordinate)
+  // accumulated arc length (drives the panning coordinate)
+  private arc = 0;
   private activeUntil = 0;
   // RENDER-time clock (ms, advances on the hit-stop-scaled render dt). The sim
   // clock only ticks at 30Hz — stamping segment ages with it quantizes the
@@ -164,13 +179,13 @@ export class WeaponTrail {
     box.getCenter(ctr);
     // an override forces the swing axis (the bbox heuristic picks the widest axis,
     // which is wrong for hammer heads); otherwise pick the longest bbox axis.
-    const axis: "x" | "y" | "z" = override
-      ? override.axis
-      : size.x >= size.y && size.x >= size.z
-        ? "x"
-        : size.y >= size.z
-          ? "y"
-          : "z";
+    const longestAxis = (): "x" | "y" | "z" => {
+      if (size.x >= size.y && size.x >= size.z) {
+        return "x";
+      }
+      return size.y >= size.z ? "y" : "z";
+    };
+    const axis = override?.axis ?? longestAxis();
     const baseFrac = override ? override.base : BASE_FRAC;
     const tipExt = override ? override.tip : TIP_EXT;
     this.baseLocal = ctr.clone();
@@ -192,7 +207,7 @@ export class WeaponTrail {
     this.geom.setAttribute("aAcross", this.acrossAttr);
     this.geom.setAttribute("aAlong", this.alongAttr);
     const idx: number[] = [];
-    for (let i = 0; i < MAX_ROWS - 1; i++) {
+    for (let i = 0; i < MAX_ROWS - 1; i += 1) {
       const a = i * 2;
       const b = i * 2 + 1;
       const c = (i + 1) * 2;
@@ -208,26 +223,28 @@ export class WeaponTrail {
     // self-overlapping transparent trails.)
     const uniforms = {
       uColor: { value: new THREE.Color(color) },
-      uOpacity: { value: override?.opacity ?? 0.5 },
       uNoise: { value: fxTex("noise-streak", { wrap: true }) },
+      uOpacity: { value: override?.opacity ?? 0.5 },
     };
     this.matPre = new THREE.ShaderMaterial({
-      vertexShader: VERT,
-      fragmentShader: FRAG_DEPTH,
-      uniforms,
-      transparent: true, // sorts with the transparent pass
-      side: THREE.DoubleSide,
-      depthWrite: true,
       colorWrite: false,
+      depthWrite: true,
+      fragmentShader: FRAG_DEPTH,
+      side: THREE.DoubleSide,
+      // sorts with the transparent pass
+      transparent: true,
+      uniforms,
+      vertexShader: VERT,
     });
     this.matColor = new THREE.ShaderMaterial({
-      vertexShader: VERT,
-      fragmentShader: FRAG,
-      uniforms,
-      transparent: true,
-      blending: THREE.NormalBlending, // additive washes to white over a lit floor
-      side: THREE.DoubleSide,
+      // additive washes to white over a lit floor
+      blending: THREE.NormalBlending,
       depthWrite: false,
+      fragmentShader: FRAG,
+      side: THREE.DoubleSide,
+      transparent: true,
+      uniforms,
+      vertexShader: VERT,
     });
     const pre = new THREE.Mesh(this.geom, this.matPre);
     pre.renderOrder = 1;
@@ -265,16 +282,27 @@ export class WeaponTrail {
       const tz = this.v.z;
       // pan coordinate advances with actual tip travel — noise streaks stay
       // glued to the arc instead of swimming
-      const prev = this.segs[this.segs.length - 1];
-      if (prev) this.arc += Math.hypot(tx - prev.tx, ty - prev.ty, tz - prev.tz) * 0.22;
-      this.segs.push({ bx, by, bz, tx, ty, tz, t: now, s: this.arc });
-      if (this.segs.length > MAX_SEG) this.segs.shift();
+      const prev = this.segs.at(-1);
+      if (prev) {
+        this.arc += Math.hypot(tx - prev.tx, ty - prev.ty, tz - prev.tz) * 0.22;
+      }
+      this.segs.push({ bx, by, bz, s: this.arc, t: now, tx, ty, tz });
+      if (this.segs.length > MAX_SEG) {
+        this.segs.shift();
+      }
     }
     // retire segments older than the fade window
-    while (this.segs.length && now - this.segs[0]!.t > FADE_MS) this.segs.shift();
+    while (this.segs.length > 0) {
+      const [head] = this.segs;
+      if (!head || now - head.t <= FADE_MS) {
+        break;
+      }
+      this.segs.shift();
+    }
 
     const n = this.segs.length;
-    if (n < 2) {
+    const [oldest] = this.segs;
+    if (n < 2 || !oldest) {
       this.geom.setDrawRange(0, 0);
       return;
     }
@@ -286,7 +314,7 @@ export class WeaponTrail {
     const across = this.acrossArr;
     const along = this.alongArr;
     let row = 0;
-    const segs = this.segs;
+    const { segs } = this;
     const putRow = (
       bx: number,
       by: number,
@@ -311,29 +339,29 @@ export class WeaponTrail {
       across[o2 + 1] = 1;
       along[o2] = s;
       along[o2 + 1] = s;
-      row++;
+      row += 1;
     };
     const cr = crCentripetal;
-    const aOldest = Math.max(0.25, Math.min(1, (now - segs[0]!.t) / FADE_MS));
+    const aOldest = Math.max(0.25, Math.min(1, (now - oldest.t) / FADE_MS));
     // 3-tap smoothing of the control points before splining — swing clips pump
     // the blade radius slightly every pose sample, and Catmull-Rom faithfully
     // reproduces each wobble as a radial ridge on fast spins
     const sm = (i: number) => {
-      const p = segs[Math.max(0, i - 1)]!;
-      const c = segs[Math.min(n - 1, Math.max(0, i))]!;
-      const q = segs[Math.min(n - 1, i + 1)]!;
+      const p = segs[Math.max(0, i - 1)] ?? oldest;
+      const c = segs[Math.min(n - 1, Math.max(0, i))] ?? oldest;
+      const q = segs[Math.min(n - 1, i + 1)] ?? oldest;
       return {
         bx: (p.bx + 2 * c.bx + q.bx) / 4,
         by: (p.by + 2 * c.by + q.by) / 4,
         bz: (p.bz + 2 * c.bz + q.bz) / 4,
+        s: c.s,
+        t: c.t,
         tx: (p.tx + 2 * c.tx + q.tx) / 4,
         ty: (p.ty + 2 * c.ty + q.ty) / 4,
         tz: (p.tz + 2 * c.tz + q.tz) / 4,
-        t: c.t,
-        s: c.s,
       };
     };
-    for (let i = 0; i < n - 1; i++) {
+    for (let i = 0; i < n - 1; i += 1) {
       const s0 = sm(i - 1);
       const s1 = sm(i);
       const s2 = sm(i + 1);
@@ -348,8 +376,9 @@ export class WeaponTrail {
       const k0 = Math.max(0.02, Math.sqrt(Math.hypot(s1.tx - s0.tx, s1.ty - s0.ty, s1.tz - s0.tz)));
       const k1 = Math.max(0.02, Math.sqrt(Math.hypot(s2.tx - s1.tx, s2.ty - s1.ty, s2.tz - s1.tz)));
       const k2 = Math.max(0.02, Math.sqrt(Math.hypot(s3.tx - s2.tx, s3.ty - s2.ty, s3.tz - s2.tz)));
-      const steps = i === n - 2 ? SUBDIV + 1 : SUBDIV; // include the final head row
-      for (let k = 0; k < steps; k++) {
+      // include the final head row
+      const steps = i === n - 2 ? SUBDIV + 1 : SUBDIV;
+      for (let k = 0; k < steps; k += 1) {
         const t = k / SUBDIV;
         putRow(
           cr(s0.bx, s1.bx, s2.bx, s3.bx, t, k0, k1, k2),
@@ -358,7 +387,8 @@ export class WeaponTrail {
           cr(s0.tx, s1.tx, s2.tx, s3.tx, t, k0, k1, k2),
           cr(s0.ty, s1.ty, s2.ty, s3.ty, t, k0, k1, k2),
           cr(s0.tz, s1.tz, s2.tz, s3.tz, t, k0, k1, k2),
-          Math.min(1, Math.max(0, a1 + (a2 - a1) * t)), // linear normalized age — monotonic, no overshoot flicker
+          // linear normalized age — monotonic, no overshoot flicker
+          Math.min(1, Math.max(0, a1 + (a2 - a1) * t)),
           s1.s + (s2.s - s1.s) * t,
         );
       }
@@ -367,7 +397,8 @@ export class WeaponTrail {
     this.ageAttr.needsUpdate = true;
     this.acrossAttr.needsUpdate = true;
     this.alongAttr.needsUpdate = true;
-    this.geom.setDrawRange(0, (row - 1) * 6); // 6 indices per quad row
+    // 6 indices per quad row
+    this.geom.setDrawRange(0, (row - 1) * 6);
   }
 
   dispose(): void {

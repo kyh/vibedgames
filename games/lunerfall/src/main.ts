@@ -11,18 +11,18 @@ import { SelectScene } from "./scenes/select-scene";
 import { mountTouchHud } from "./touch-hud";
 
 const config: Phaser.Types.Core.GameConfig = {
-  type: Phaser.WEBGL,
-  parent: "game",
   backgroundColor: "#05070b",
+  parent: "game",
   pixelArt: true,
   roundPixels: true,
   scale: {
-    mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
-    width: BASE_W,
     height: BASE_H,
+    mode: Phaser.Scale.FIT,
+    width: BASE_W,
   },
   scene: [BootScene, SelectScene, GameScene],
+  type: Phaser.WEBGL,
 };
 
 const game = new Phaser.Game(config);
@@ -42,7 +42,9 @@ if (params.has("trailer")) {
 // The trailer rolls itself and the viewer is a dev tool with its own chrome;
 // neither wants the touch cluster. Hub gets mute-only; GameScene swaps it for
 // the full cluster when a run starts.
-if (!params.has("trailer") && !params.has("viewer")) mountTouchHud(false);
+if (!params.has("trailer") && !params.has("viewer")) {
+  mountTouchHud(false);
+}
 
 // Wrapper-requested pause: never freeze a live co-op/versus session another
 // player is relying on, only the local sim (controls + audio). `froze` tracks
@@ -59,7 +61,9 @@ setPauseHandlers({
     sfx.setPaused(true);
     activeGame()?.setControlsPaused(true);
     pauseOverlay.show();
-    if (activeGame()?.isOnline()) return;
+    if (activeGame()?.isOnline()) {
+      return;
+    }
     froze = true;
     game.loop.sleep();
   },
@@ -67,7 +71,9 @@ setPauseHandlers({
     sfx.setPaused(false);
     activeGame()?.setControlsPaused(false);
     pauseOverlay.hide();
-    if (!froze) return;
+    if (!froze) {
+      return;
+    }
     froze = false;
     game.loop.wake();
   },

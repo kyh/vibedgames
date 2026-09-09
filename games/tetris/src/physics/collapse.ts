@@ -9,7 +9,10 @@ import type { Mesh } from "three";
 
 import { WELL_HEIGHT } from "../shared/constants";
 
-type Pair = { mesh: Mesh; body: CANNON.Body };
+interface Pair {
+  mesh: Mesh;
+  body: CANNON.Body;
+}
 
 export class Collapse {
   private world: CANNON.World | null = null;
@@ -47,13 +50,15 @@ export class Collapse {
         (Math.random() - 0.5) * 4 * lift,
       );
       world.addBody(body);
-      this.pairs.push({ mesh, body });
+      this.pairs.push({ body, mesh });
     }
     this.world = world;
   }
 
   step(dt: number): void {
-    if (!this.world) return;
+    if (!this.world) {
+      return;
+    }
     this.world.step(1 / 60, dt, 3);
     for (const { mesh, body } of this.pairs) {
       mesh.position.set(body.position.x, body.position.y, body.position.z);

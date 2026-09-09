@@ -9,7 +9,8 @@ import { CHAMPIONS } from "../src/data/champions.ts";
 import { humanRoster, reconcileHostHeroes, restoreHostState } from "../src/net/host-state.ts";
 import { emptyGuestWorld, encodeWorld } from "../src/net/snapshot.ts";
 import { castAbility, requestCast } from "../src/sim/abilities.ts";
-import { ALL_ABILITY_KEYS, type Coin } from "../src/sim/types.ts";
+import { ALL_ABILITY_KEYS } from "../src/sim/types.ts";
+import type { Coin } from "../src/sim/types.ts";
 import { createWorld, ensureBots, setHeroInput, spawnHero, step } from "../src/sim/world.ts";
 import { abilityReadiness, readablePlates } from "../src/render/hud-readability.ts";
 import { Hints } from "../src/render/hints.ts";
@@ -26,13 +27,13 @@ function human(
   champId = "knight",
 ) {
   return spawnHero(world, {
-    id: `h-${ownerId}`,
-    ownerId,
-    team: ownerId,
     champId,
-    name: ownerId,
+    id: `h-${ownerId}`,
     isBot: false,
+    name: ownerId,
+    ownerId,
     slot,
+    team: ownerId,
   });
 }
 
@@ -44,8 +45,8 @@ function playingFixture() {
   local.gold = 1700;
   local.hp = 137;
   local.kills = 6;
-  local.abilities.Q.readyAt = 67000;
-  world.now = 61000;
+  local.abilities.Q.readyAt = 67_000;
+  world.now = 61_000;
   world.gameTime = 61;
   world.nextCoinAt = 64;
   world.nextDeliveryAt = 76;
@@ -56,10 +57,12 @@ function playingFixture() {
 
 test("host promotion adopts the snapshot in place and keeps stepping identically", () => {
   const world = playingFixture();
-  for (let i = 0; i < 600; i++) step(world);
+  for (let i = 0; i < 600; i++) {
+    step(world);
+  }
   const wire = structuredClone(encodeWorld(world));
   const promoted = emptyGuestWorld();
-  const units = promoted.units;
+  const { units } = promoted;
   const roster = restoreHostState(promoted, wire);
   assert.equal(promoted.units, units);
   assert.deepEqual(encodeWorld(promoted), wire);
@@ -77,7 +80,7 @@ test("host promotion adopts the snapshot in place and keeps stepping identically
 test("empty room seeds once; an ended empty roster stays ended", () => {
   const world = emptyGuestWorld();
   restoreHostState(world, null);
-  assert.deepEqual(encodeWorld(world), encodeWorld(createWorld(0xbada55)));
+  assert.deepEqual(encodeWorld(world), encodeWorld(createWorld(0xba_da_55)));
   world.phase = "ended";
   world.winner = "h-departed";
   world.gameTime = 950;
@@ -92,9 +95,9 @@ test("late humans replace one bot seat; grace humans keep their hero and go neut
   const world = playingFixture();
   const roster = humanRoster(world);
   const players: PlayerMap = {
-    local: { id: "local", connected: true },
-    peer: { id: "peer", connected: false },
-    newcomer: { id: "newcomer", connected: true },
+    local: { connected: true, id: "local" },
+    newcomer: { connected: true, id: "newcomer" },
+    peer: { connected: false, id: "peer" },
   };
   const grace = world.units.get("h-peer");
   assert.ok(grace);
@@ -128,18 +131,18 @@ test("late humans replace one bot seat; grace humans keep their hero and go neut
 function soloFixture() {
   const world = createWorld(724);
   const me = spawnHero(world, {
-    id: "local",
-    ownerId: "local",
-    team: "local",
     champId: "knight",
-    name: "Player",
-    slot: 0,
+    id: "local",
     isBot: false,
+    name: "Player",
+    ownerId: "local",
+    slot: 0,
+    team: "local",
   });
-  return { world, me };
+  return { me, world };
 }
 function coin(id: string, x = 0): Coin {
-  return { id, x, y: 0, fromX: 0, fromY: 0, gold: 300, landAt: 900, expireAt: 9900 };
+  return { expireAt: 9900, fromX: 0, fromY: 0, gold: 300, id, landAt: 900, x, y: 0 };
 }
 
 test("loot never becomes the boss objective; landing and expiry follow the sim clock", () => {
@@ -173,11 +176,11 @@ test("nearest objective stays retained until removed; snapshot order cannot flip
 
 test("full belt explains delivery gold; expired and claimed drops lose their target", () => {
   const { world, me } = soloFixture();
-  world.deliveries.push({ id: "drop", x: 0, y: 0, expireAt: 30000 });
+  world.deliveries.push({ expireAt: 30000, id: "drop", x: 0, y: 0 });
   assert.equal(deliveryObjective(world, me).text, "▣ ITEM 30s LEFT");
   me.items = ["one", "two", "three", "four", "five", "six"];
   assert.equal(deliveryObjective(world, me).text, "▣ GOLD 30s LEFT");
-  world.now = 30000;
+  world.now = 30_000;
   assert.equal(deliveryObjective(world, me).target, null);
   world.deliveries = [];
   assert.equal(deliveryObjective(world, me).target, null);
@@ -205,15 +208,15 @@ test("creep loot does not retire the first boss-coin lesson; rematch keeps it le
   );
   world.gameTime = 8.1;
   world.now = 8100;
-  world.coins = [{ ...coin("boss"), landAt: 8900, expireAt: 17900 }];
+  world.coins = [{ ...coin("boss"), expireAt: 17900, landAt: 8900 }];
   hints.update(world, me);
   assert.equal(messages.filter((message) => message.includes("Golem")).length, 1);
   world.coins = [];
   hints.update(world, me);
   assert.equal(messages.at(-1), "");
   world.gameTime = 20;
-  world.now = 20000;
-  world.coins = [{ ...coin("boss2"), landAt: 20900, expireAt: 29900 }];
+  world.now = 20_000;
+  world.coins = [{ ...coin("boss2"), expireAt: 29900, landAt: 20900 }];
   hints.update(world, me);
   assert.equal(messages.filter((message) => message.includes("Golem")).length, 1);
   hints.resetMatch();
@@ -248,26 +251,26 @@ function duel(champId = "knight") {
   world.units.clear();
   world.now = 5000;
   const me = spawnHero(world, {
-    id: "local",
-    ownerId: "local",
-    team: "local",
     champId,
-    name: "Local",
-    slot: 0,
+    id: "local",
     isBot: false,
+    name: "Local",
+    ownerId: "local",
+    slot: 0,
+    team: "local",
   });
   const enemy = spawnHero(world, {
-    id: "enemy",
-    ownerId: "enemy",
-    team: "enemy",
     champId: "knight",
-    name: "Enemy",
-    slot: 1,
+    id: "enemy",
     isBot: false,
+    name: "Enemy",
+    ownerId: "enemy",
+    slot: 1,
+    team: "enemy",
   });
-  Object.assign(me, { x: 0, y: 16, aimX: 1, aimY: 0, facing: 0 });
+  Object.assign(me, { aimX: 1, aimY: 0, facing: 0, x: 0, y: 16 });
   Object.assign(enemy, { x: 2, y: 16 });
-  return { world, me };
+  return { me, world };
 }
 
 test("all six kits: HUD availability agrees with the sim's cast admission gates", () => {
@@ -287,8 +290,9 @@ test("all six kits: HUD availability agrees with the sim's cast admission gates"
         me.abilities[key].rank = gate === "locked" ? 0 : 1;
         me.abilities[key].readyAt = world.now + (gate === "cooldown" ? 1 : 0);
         me.alive = gate !== "dead";
-        if (["stun", "silence", "hex", "root"].includes(gate))
+        if (["stun", "silence", "hex", "root"].includes(gate)) {
           me.statuses.push({ kind: gate, id: "gate", until: world.now + 1000 });
+        }
         const before = structuredClone(me);
         const readiness = abilityReadiness(me, key, world.now);
         assert.deepEqual(me, before, "presentation cannot consume casts or queued input");
@@ -317,13 +321,13 @@ test("queued overlay follows requestCast admission and the inclusive buffer dead
 });
 
 test("plate placement is iteration-independent, prioritizes local, never moves anchors", () => {
-  const local = { id: "local", x: 320, y: 240, priority: 0, distance: 0, compact: false };
-  const overlap = { id: "near", x: 323, y: 242, priority: 1, distance: 4, compact: false };
-  const far = { id: "far", x: 410, y: 242, priority: 2, distance: 30, compact: true };
-  const behindHud = { id: "hud", x: 600, y: 600, priority: 1, distance: 8, compact: false };
+  const local = { compact: false, distance: 0, id: "local", priority: 0, x: 320, y: 240 };
+  const overlap = { compact: false, distance: 4, id: "near", priority: 1, x: 323, y: 242 };
+  const far = { compact: true, distance: 30, id: "far", priority: 2, x: 410, y: 242 };
+  const behindHud = { compact: false, distance: 8, id: "hud", priority: 1, x: 600, y: 600 };
   const candidates = [overlap, far, behindHud, local];
   const before = structuredClone(candidates);
-  const keepOut = [{ left: 500, top: 570, right: 700, bottom: 700 }];
+  const keepOut = [{ bottom: 700, left: 500, right: 700, top: 570 }];
   assert.deepEqual(readablePlates(candidates, keepOut), [local, far]);
   assert.deepEqual(readablePlates(candidates.toReversed(), keepOut), [local, far]);
   assert.deepEqual(candidates, before);
@@ -337,7 +341,9 @@ function meshFor(scene: THREE.Scene, kind: ParticleKind): THREE.InstancedMesh {
     (child): child is THREE.InstancedMesh =>
       child instanceof THREE.InstancedMesh && child.renderOrder === (kind === "add" ? 11 : 10),
   );
-  if (!mesh) throw new Error("particle mesh missing");
+  if (!mesh) {
+    throw new Error("particle mesh missing");
+  }
   return mesh;
 }
 
@@ -346,20 +352,24 @@ function visiblePositions(mesh: THREE.InstancedMesh): number[] {
   const xs: number[] = [];
   for (let i = 0; i < mesh.count; i++) {
     mesh.getMatrixAt(i, matrix);
-    if (matrix.determinant() > 0) xs.push(matrix.elements[12] ?? 0);
+    if (matrix.determinant() > 0) {
+      xs.push(matrix.elements[12] ?? 0);
+    }
   }
   return xs;
 }
 
 for (const { kind, cap, reserve } of [
-  { kind: "add", cap: 512, reserve: 96 },
-  { kind: "normal", cap: 160, reserve: 32 },
+  { cap: 512, kind: "add", reserve: 96 },
+  { cap: 160, kind: "normal", reserve: 32 },
 ] satisfies { kind: ParticleKind; cap: number; reserve: number }[]) {
   test(`${kind} pool: reserve, replace in place, expire and refill without duplicate slots`, () => {
     const scene = new THREE.Scene();
     const pools = new ParticlePools(scene);
     const spawn = (n: number, priority: ParticlePriority, x: number) => {
-      for (let i = 0; i < n; i++) pools.spawn(kind, { x, y: 1, z: 0, size: 1, life: 1, priority });
+      for (let i = 0; i < n; i++) {
+        pools.spawn(kind, { x, y: 1, z: 0, size: 1, life: 1, priority });
+      }
     };
     spawn(cap * 2, "ambient", 1);
     assert.equal(pools.counts()[kind].active, cap - reserve);
@@ -368,8 +378,8 @@ for (const { kind, cap, reserve } of [
     spawn(23, "major", 3);
     assert.deepEqual(pools.counts()[kind], {
       active: cap,
-      capacity: cap,
       ambient: cap - reserve - 23,
+      capacity: cap,
       impact: reserve,
       major: 23,
     });
@@ -381,8 +391,9 @@ for (const { kind, cap, reserve } of [
       pools.update(2);
       assert.equal(pools.counts()[kind].active, 0);
       assert.equal(visiblePositions(mesh).length, 0);
-      for (let i = 0; i < cap; i++)
+      for (let i = 0; i < cap; i++) {
         pools.spawn(kind, { x: i + 100, y: 0, z: 0, life: 1, size: 1, priority: "impact" });
+      }
       assert.equal(pools.counts()[kind].active, cap);
       assert.equal(new Set(visiblePositions(mesh)).size, cap);
       spawn(31, "major", -1);
@@ -397,9 +408,10 @@ for (const { kind, cap, reserve } of [
 test("equal-priority saturation keeps the active major particles", () => {
   const scene = new THREE.Scene();
   const pools = new ParticlePools(scene);
-  for (let i = 0; i < 512; i++)
+  for (let i = 0; i < 512; i++) {
     pools.spawn("add", { x: i, y: 0, z: 0, size: 1, life: 2, priority: "major" });
-  pools.spawn("add", { x: 9999, y: 0, z: 0, size: 1, life: 2, priority: "major" });
+  }
+  pools.spawn("add", { life: 2, priority: "major", size: 1, x: 9999, y: 0, z: 0 });
   assert.equal(pools.counts().add.major, 512);
   assert.equal(visiblePositions(meshFor(scene, "add")).includes(9999), false);
   pools.dispose();
@@ -407,14 +419,14 @@ test("equal-priority saturation keeps the active major particles", () => {
 
 test("burst scratch resets priority between calls", () => {
   const pools = new ParticlePools(new THREE.Scene());
-  const burst = { x: 0, y: 0, z: 0, color: 0xffffff, speed: 1, life: 1 };
+  const burst = { color: 0xffffff, life: 1, speed: 1, x: 0, y: 0, z: 0 };
   pools.burst("add", 3, { ...burst, priority: "major" });
   pools.burst("add", 4, { ...burst, priority: "ambient" });
   pools.burst("add", 5, burst);
   assert.deepEqual(pools.counts().add, {
     active: 12,
-    capacity: 512,
     ambient: 4,
+    capacity: 512,
     impact: 5,
     major: 3,
   });

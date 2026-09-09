@@ -7,17 +7,17 @@ import { BootScene } from "./scenes/boot-scene";
 import { GameScene } from "./scenes/game-scene";
 
 const config: Phaser.Types.Core.GameConfig = {
-  type: Phaser.WEBGL,
-  parent: "game",
   backgroundColor: "#0e1020",
+  parent: "game",
+  pixelArt: true,
   scale: {
     // Fill the window; GameScene owns the follow-camera + zoom.
     mode: Phaser.Scale.RESIZE,
     width: "100%",
     height: "100%",
   },
-  pixelArt: true,
   scene: [BootScene, GameScene],
+  type: Phaser.WEBGL,
 };
 
 const game = new Phaser.Game(config);
@@ -32,7 +32,9 @@ const refreshScale = (): void => {
 };
 window.addEventListener("resize", refreshScale);
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) refreshScale();
+  if (!document.hidden) {
+    refreshScale();
+  }
 });
 
 // Wrapper pause. The overlay always shows and local input + audio always stop;
@@ -53,7 +55,9 @@ setPauseHandlers({
     const scene = gameScene();
     scene?.setPresentationPaused(true);
     // Other humans present (live online round) — leave the sim running.
-    if (!scene || !scene.freezable) return;
+    if (!scene || !scene.freezable) {
+      return;
+    }
     froze = true;
     scene.pauseSimulation();
     game.sound.pauseAll();
@@ -63,7 +67,9 @@ setPauseHandlers({
     pauseAudio(false);
     const scene = gameScene();
     scene?.setPresentationPaused(false);
-    if (!froze) return;
+    if (!froze) {
+      return;
+    }
     froze = false;
     scene?.resumeSimulation();
     game.sound.resumeAll();

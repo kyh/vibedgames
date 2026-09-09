@@ -16,7 +16,9 @@ const AFTERMATH_MS = 6000;
 /** Read the existing 90s wave phase without the unbounded difficulty ramp: once
  * gameplay intensity caps, its absolute value loses the trough entirely. */
 export function waveBattleBeat(tSec: number): Exclude<BattleBeat, "aftermath"> {
-  if (!Number.isFinite(tSec)) return "quiet";
+  if (!Number.isFinite(tSec)) {
+    return "quiet";
+  }
   const t = Math.max(0, tSec);
   const phase = t % 90;
   const phasePeak = 1.2 * (1 + phase / 180);
@@ -40,7 +42,9 @@ export class BattleBeatDirector {
 
   bossDefeated(now: number, epoch: number): void {
     const p = this.previous;
-    if (!p?.presenting || p.epoch !== epoch || now < p.now || now - p.now > GAP_MS) return;
+    if (!p?.presenting || p.epoch !== epoch || now < p.now || now - p.now > GAP_MS) {
+      return;
+    }
     this.aftermathUntil = now + AFTERMATH_MS;
   }
 
@@ -61,13 +65,13 @@ export class BattleBeatDirector {
       this.aftermathUntil = 0;
       this.candidate = null;
     }
-    const desired: BattleBeat = !input.presenting
-      ? "quiet"
-      : input.bossAlive
+    const desired: BattleBeat = input.presenting
+      ? input.bossAlive
         ? "crest"
         : input.now < this.aftermathUntil
           ? "aftermath"
-          : waveBattleBeat((input.now - input.epoch) / 1000);
+          : waveBattleBeat((input.now - input.epoch) / 1000)
+      : "quiet";
     if (
       adopt ||
       !input.presenting ||

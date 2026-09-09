@@ -2,7 +2,7 @@
 // PLAY AGAIN / BACK TO MENU buttons. Screen-space in the unrotated HUD camera.
 
 import { safeAreaInset } from "@vibedgames/gamepad";
-import Phaser from "phaser";
+import type Phaser from "phaser";
 
 import type { MatchResult } from "../scenes/game-scene";
 import { FONT } from "./font";
@@ -11,12 +11,12 @@ import { heroSheetTex } from "./sprites";
 
 export type ResultAction = "again" | "menu";
 
-type ResultButton = {
+interface ResultButton {
   bg: Phaser.GameObjects.NineSlice;
   label: Phaser.GameObjects.Text;
   action: ResultAction;
-};
-type ResultPersonal = {
+}
+interface ResultPersonal {
   frame: Phaser.GameObjects.Image;
   portrait: Phaser.GameObjects.Image;
   name: Phaser.GameObjects.Text;
@@ -24,7 +24,7 @@ type ResultPersonal = {
   kda: Phaser.GameObjects.Text;
   kdaLabel: Phaser.GameObjects.Text;
   stats: { value: Phaser.GameObjects.Text; label: Phaser.GameObjects.Text }[];
-};
+}
 
 function stopPointer(
   _p: Phaser.Input.Pointer,
@@ -54,12 +54,12 @@ export class ResultCard {
     onLeave: (action: ResultAction) => void,
   ) {
     this.veil = scene.add
-      .rectangle(0, 0, 1, 1, 0x05080e, 0.68)
+      .rectangle(0, 0, 1, 1, 0x05_08_0e, 0.68)
       .setOrigin(0)
-      .setDepth(50000)
+      .setDepth(50_000)
       .setInteractive();
     this.veil.on("pointerdown", stopPointer);
-    this.root = scene.add.container(0, 0).setDepth(50001);
+    this.root = scene.add.container(0, 0).setDepth(50_001);
     const won = data.kind === "assigned" && data.outcome === "victory";
     const neutral = data.kind === "unassigned";
     this.panel = scene.add.nineslice(0, 0, "ui-carved9", 0, 600, 236, 20, 20, 20, 20);
@@ -77,7 +77,7 @@ export class ResultCard {
     );
     const text = (value: string, size: number, color: string): Phaser.GameObjects.Text =>
       scene.add
-        .text(0, 0, value, { fontFamily: FONT, fontSize: size, color, align: "center" })
+        .text(0, 0, value, { align: "center", color, fontFamily: FONT, fontSize: size })
         .setOrigin(0.5);
     this.title = text(
       neutral ? "MATCH COMPLETE" : won ? "VICTORY" : "DEFEAT",
@@ -108,12 +108,14 @@ export class ResultCard {
         { label: "DENIES", value: data.denies },
         { label: "GOLD HELD", value: Math.floor(data.gold) },
       ].map((stat) => ({
-        value: text(String(stat.value), 21, "#4a3320"),
         label: text(stat.label, 11, "#6b533c"),
+        value: text(String(stat.value), 21, "#4a3320"),
       }));
       this.root.add([frame, portrait, name, role, kda, kdaLabel]);
-      for (const stat of stats) this.root.add([stat.value, stat.label]);
-      this.personal = { frame, portrait, name, role, kda, kdaLabel, stats };
+      for (const stat of stats) {
+        this.root.add([stat.value, stat.label]);
+      }
+      this.personal = { frame, kda, kdaLabel, name, portrait, role, stats };
     } else {
       this.neutral = text("The battle has ended.\nNo personal hero was assigned.", 22, "#4a3320");
       this.root.add(this.neutral);
@@ -127,19 +129,22 @@ export class ResultCard {
         .setInteractive({ useHandCursor: true });
       const label = text(caption, 19, "#1e3a44");
       this.root.add([bg, label]);
-      this.buttons.push({ bg, label, action });
+      this.buttons.push({ action, bg, label });
       bg.on("pointerover", () => {
-        if (!this.clicked && !reducedMotion())
+        if (!this.clicked && !reducedMotion()) {
           scene.tweens.add({ targets: [bg, label], scale: 1.04, duration: 100 });
+        }
       });
       bg.on("pointerout", () =>
-        scene.tweens.add({ targets: [bg, label], scale: 1, duration: 100 }),
+        scene.tweens.add({ duration: 100, scale: 1, targets: [bg, label] }),
       );
       bg.on(
         "pointerdown",
         (p: Phaser.Input.Pointer, x: number, y: number, event: Phaser.Types.Input.EventData) => {
           stopPointer(p, x, y, event);
-          if (this.clicked) return;
+          if (this.clicked) {
+            return;
+          }
           this.clicked = true;
           bg.setTexture(`ui-btn-${color}-pressed`);
           label.setText("…").setY(bg.y);
@@ -147,12 +152,14 @@ export class ResultCard {
         },
       );
     };
-    if (canReplay) addButton("again", "blue", "⟳  PLAY AGAIN");
+    if (canReplay) {
+      addButton("again", "blue", "⟳  PLAY AGAIN");
+    }
     addButton("menu", "red", "⌂  BACK TO MENU");
     this.layout();
     if (!reducedMotion()) {
       this.root.setAlpha(0);
-      scene.tweens.add({ targets: this.root, alpha: 1, duration: 250 });
+      scene.tweens.add({ alpha: 1, duration: 250, targets: this.root });
     }
   }
 

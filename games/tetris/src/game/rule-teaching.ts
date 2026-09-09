@@ -59,7 +59,9 @@ export function mountRuleTeaching(root: HTMLElement): void {
 
   function paint(): void {
     const example = examples[index];
-    if (!example) return;
+    if (!example) {
+      return;
+    }
     title.textContent = example.title;
     body.textContent = example.body;
     hint.textContent = example.hint;

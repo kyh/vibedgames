@@ -35,7 +35,14 @@ const CONFETTI_FLOOR_Y = FLOOR_Y + 0.03;
 
 const RING_DUR_MS = 420;
 
-type Span = { px: number; py: number; pz: number; vx: number; vy: number; vz: number };
+interface Span {
+  px: number;
+  py: number;
+  pz: number;
+  vx: number;
+  vy: number;
+  vz: number;
+}
 
 type Puff = Span & { age: number; life: number; size: number; color: THREE.Color };
 
@@ -51,9 +58,14 @@ type Confetti = Span & {
   angle: number;
 };
 
-type Ring = { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; bornAt: number; r1: number };
+interface Ring {
+  mesh: THREE.Mesh;
+  mat: THREE.MeshBasicMaterial;
+  bornAt: number;
+  r1: number;
+}
 
-export type BurstOpts = {
+export interface BurstOpts {
   /** Optional ground-plane direction; dust fans away from a contacted wall. */
   direction?: { x: number; z: number };
   speed?: number;
@@ -62,7 +74,7 @@ export type BurstOpts = {
   lifeMax?: number;
   sizeMin?: number;
   sizeMax?: number;
-};
+}
 
 /** Live media query: every motion gate in the game reads this one instance. */
 export const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -89,16 +101,16 @@ export class FxPool {
     for (let i = 0; i < MAX_RINGS; i++) {
       const mat = new THREE.MeshBasicMaterial({
         color: COLORS.power,
-        transparent: true,
-        opacity: 0,
         depthWrite: false,
+        opacity: 0,
         side: THREE.DoubleSide,
+        transparent: true,
       });
       const mesh = new THREE.Mesh(new THREE.RingGeometry(0.82, 1, 48), mat);
       mesh.rotation.x = -Math.PI / 2;
       mesh.visible = false;
       scene.add(mesh);
-      this.rings.push({ mesh, mat, bornAt: -1, r1: 1 });
+      this.rings.push({ bornAt: -1, mat, mesh, r1: 1 });
     }
 
     const { points, velocities } = makeMotes();
@@ -111,7 +123,9 @@ export class FxPool {
   puff(at: THREE.Vector3, count: number, color: number, opts: BurstOpts = {}): void {
     const speed = opts.speed ?? 1.4;
     for (let i = 0; i < count; i++) {
-      if (this.puffs.length >= MAX_PUFFS) this.puffs.shift();
+      if (this.puffs.length >= MAX_PUFFS) {
+        this.puffs.shift();
+      }
       const dir = randomUnit();
       if (opts.direction) {
         dir.x = dir.x * 0.45 + opts.direction.x;
@@ -120,16 +134,16 @@ export class FxPool {
       }
       const v = speed * (0.5 + Math.random() * 0.5);
       this.puffs.push({
+        age: 0,
+        color: new THREE.Color(color).offsetHSL(0, 0, (Math.random() - 0.5) * 0.06),
+        life: rand(opts.lifeMin ?? 0.35, opts.lifeMax ?? 0.6),
         px: at.x,
         py: at.y,
         pz: at.z,
+        size: rand(opts.sizeMin ?? 0.1, opts.sizeMax ?? 0.22),
         vx: dir.x * v,
         vy: Math.abs(dir.y) * v * 0.7 + (opts.lift ?? 0.4),
         vz: dir.z * v,
-        age: 0,
-        life: rand(opts.lifeMin ?? 0.35, opts.lifeMax ?? 0.6),
-        size: rand(opts.sizeMin ?? 0.1, opts.sizeMax ?? 0.22),
-        color: new THREE.Color(color).offsetHSL(0, 0, (Math.random() - 0.5) * 0.06),
       });
     }
   }
@@ -137,20 +151,22 @@ export class FxPool {
   /** Rising pink hearts — power pickups and eaten ghosts (healthcare!). */
   heartBurst(at: THREE.Vector3, count: number): void {
     for (let i = 0; i < count; i++) {
-      if (this.hearts.length >= MAX_HEARTS) this.hearts.shift();
+      if (this.hearts.length >= MAX_HEARTS) {
+        this.hearts.shift();
+      }
       const ang = Math.random() * Math.PI * 2;
       const v = 0.5 + Math.random() * 0.9;
       this.hearts.push({
+        age: 0,
+        life: rand(0.7, 1.1),
+        phase: Math.random() * Math.PI * 2,
         px: at.x,
         py: at.y,
         pz: at.z,
+        size: rand(0.12, 0.22),
         vx: Math.cos(ang) * v * 0.6,
         vy: HEART_RISE * (0.75 + Math.random() * 0.5),
         vz: Math.sin(ang) * v * 0.6,
-        age: 0,
-        life: rand(0.7, 1.1),
-        size: rand(0.12, 0.22),
-        phase: Math.random() * Math.PI * 2,
       });
     }
   }
@@ -159,21 +175,23 @@ export class FxPool {
   confettiRain(count: number): void {
     const palette = [COLORS.power, COLORS.pacman, ...GHOST_COLORS];
     for (let i = 0; i < count; i++) {
-      if (this.confetti.length >= MAX_CONFETTI) this.confetti.shift();
+      if (this.confetti.length >= MAX_CONFETTI) {
+        this.confetti.shift();
+      }
       this.confetti.push({
+        age: 0,
+        angle: Math.random() * Math.PI * 2,
+        axis: randomUnit(),
+        color: new THREE.Color(palette[Math.floor(Math.random() * palette.length)] ?? 0xffffff),
+        life: rand(2.4, 4),
         px: Math.random() * GRID_COLS,
         py: 4 + Math.random() * 3.5,
         pz: Math.random() * GRID_ROWS,
+        size: rand(0.07, 0.13),
+        spin: rand(2, 7) * (Math.random() < 0.5 ? -1 : 1),
         vx: (Math.random() - 0.5) * 0.8,
         vy: -0.3 - Math.random() * 0.6,
         vz: (Math.random() - 0.5) * 0.8,
-        age: 0,
-        life: rand(2.4, 4),
-        size: rand(0.07, 0.13),
-        color: new THREE.Color(palette[Math.floor(Math.random() * palette.length)] ?? 0xffffff),
-        axis: randomUnit(),
-        spin: rand(2, 7) * (Math.random() < 0.5 ? -1 : 1),
-        angle: Math.random() * Math.PI * 2,
       });
     }
   }
@@ -196,7 +214,9 @@ export class FxPool {
     this.updateHearts(dt);
     this.updateConfetti(dt);
     this.updateRings();
-    if (!REDUCED_MOTION.matches) this.updateMotes(dt);
+    if (!REDUCED_MOTION.matches) {
+      this.updateMotes(dt);
+    }
   }
 
   // ---- per-system integration ------------------------------------------------
@@ -208,7 +228,9 @@ export class FxPool {
     let w = 0;
     for (const p of arr) {
       p.age += dt;
-      if (p.age >= p.life) continue;
+      if (p.age >= p.life) {
+        continue;
+      }
       p.vx *= drag;
       p.vz *= drag;
       p.vy = p.vy * drag + PUFF_LIFT * dt;
@@ -234,7 +256,9 @@ export class FxPool {
     let w = 0;
     for (const h of arr) {
       h.age += dt;
-      if (h.age >= h.life) continue;
+      if (h.age >= h.life) {
+        continue;
+      }
       h.px += (h.vx + Math.sin(this.elapsed * HEART_WOBBLE_FREQ + h.phase) * HEART_WOBBLE_AMP) * dt;
       h.py += h.vy * dt;
       h.pz += h.vz * dt;
@@ -257,7 +281,9 @@ export class FxPool {
     let w = 0;
     for (const c of arr) {
       c.age += dt;
-      if (c.age >= c.life || c.py <= CONFETTI_FLOOR_Y) continue;
+      if (c.age >= c.life || c.py <= CONFETTI_FLOOR_Y) {
+        continue;
+      }
       c.vy += CONFETTI_GRAVITY * dt;
       c.vx *= drag;
       c.vy *= drag;
@@ -283,14 +309,16 @@ export class FxPool {
 
   private updateRings(): void {
     for (const r of this.rings) {
-      if (r.bornAt < 0) continue;
+      if (r.bornAt < 0) {
+        continue;
+      }
       const t = ((this.elapsed - r.bornAt) * 1000) / RING_DUR_MS;
       if (t >= 1) {
         r.bornAt = -1;
         r.mesh.visible = false;
         continue;
       }
-      const eased = 1 - Math.pow(1 - t, 3);
+      const eased = 1 - (1 - t) ** 3;
       const radius = 0.15 + (r.r1 - 0.15) * eased;
       r.mesh.scale.setScalar(radius);
       r.mat.opacity = 0.55 * (1 - t);
@@ -299,9 +327,13 @@ export class FxPool {
 
   private updateMotes(dt: number): void {
     const pos = this.motes.geometry.getAttribute("position");
-    if (!(pos instanceof THREE.BufferAttribute)) return;
+    if (!(pos instanceof THREE.BufferAttribute)) {
+      return;
+    }
     const arr = pos.array;
-    if (!(arr instanceof Float32Array)) return;
+    if (!(arr instanceof Float32Array)) {
+      return;
+    }
     for (let i = 0; i < MOTE_COUNT; i++) {
       const x = (arr[i * 3] ?? 0) + (this.moteVel[i * 2] ?? 0) * dt;
       arr[i * 3] = x < 0 ? GRID_COLS : x > GRID_COLS ? 0 : x;
@@ -317,7 +349,7 @@ export class FxPool {
 function makeInstanced(
   geo: THREE.BufferGeometry,
   cap: number,
-  color = 0xffffff,
+  color = 0xff_ff_ff,
 ): THREE.InstancedMesh {
   const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.7 });
   const mesh = new THREE.InstancedMesh(geo, mat, cap);
@@ -330,7 +362,9 @@ function makeInstanced(
 function commit(mesh: THREE.InstancedMesh, count: number): void {
   mesh.count = count;
   mesh.instanceMatrix.needsUpdate = true;
-  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  if (mesh.instanceColor) {
+    mesh.instanceColor.needsUpdate = true;
+  }
 }
 
 /** Pop in fast (overshoot a touch), then fast-in-slow-out shrink to zero. */
@@ -359,12 +393,12 @@ function makeMotes() {
   // Blush-tinted: white motes measure ~0 contrast against the cream fog.
   const mat = new THREE.PointsMaterial({
     color: 0xf2a9bf,
-    size: 0.06,
-    map: softDotTexture(),
-    transparent: true,
-    opacity: 0.5,
     depthWrite: false,
+    map: softDotTexture(),
+    opacity: 0.5,
+    size: 0.06,
     sizeAttenuation: true,
+    transparent: true,
   });
   const points = new THREE.Points(geo, mat);
   points.frustumCulled = false;

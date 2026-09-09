@@ -19,17 +19,17 @@
 import { SF_FOOTPRINTS } from "./sf-footprints";
 
 /** Parcels covered — equal to SF_FOOTPRINTS.length by construction. */
-export const SF_ADJACENCY_PARCELS = 21023;
+export const SF_ADJACENCY_PARCELS = 21_023;
 
 /** One party wall: the parcel across it, and which of OUR ring edges it is. */
-export type PartyWall = {
+export interface PartyWall {
   /** Attached neighbour, an index into SF_FOOTPRINTS. */
   readonly neighbour: number;
   /** Ring edge indices that ARE the shared wall; edge e spans ring vertex e -> e+1. */
   readonly edges: readonly number[];
-};
+}
 
-export type Parcel = {
+export interface Parcel {
   /** Every attached neighbour, with the wall each one shares. */
   readonly walls: readonly PartyWall[];
   /**
@@ -50,7 +50,7 @@ export type Parcel = {
    * `walls` is empty for reasons of geometry, not of fact — treat as massing.
    */
   readonly bboxFallback: boolean;
-};
+}
 
 // One record per parcel in id order, base 36, no separators:
 //   head  1 char: (neighbour count) | 8 stacked | 16 bboxFallback
@@ -587,54 +587,64 @@ const STREAM = ROWS.join("");
 const at36 = (i: number, w: number): number => Number.parseInt(STREAM.slice(i, i + w), 36);
 
 /** Record start offset + head byte per parcel, built once on first query. */
-type Offsets = { readonly off: Int32Array; readonly head: Uint8Array };
+interface Offsets {
+  readonly off: Int32Array;
+  readonly head: Uint8Array;
+}
 let offsets: Offsets | null = null;
 
-function ensureOffsets(): Offsets {
+const ensureOffsets = (): Offsets => {
   const built = offsets;
-  if (built !== null) return built;
+  if (built !== null) {
+    return built;
+  }
   const off = new Int32Array(SF_ADJACENCY_PARCELS);
   const head = new Uint8Array(SF_ADJACENCY_PARCELS);
   let i = 0;
-  for (let id = 0; id < SF_ADJACENCY_PARCELS; id++) {
+  for (let id = 0; id < SF_ADJACENCY_PARCELS; id += 1) {
     off[id] = i;
     const h = at36(i, 1);
     head[id] = h;
     i += 1;
-    for (let k = 0; k < (h & 7); k++) i += 4 + at36(i + 3, 1) * 2;
+    for (let k = 0; k < h % 8; k += 1) {
+      i += 4 + at36(i + 3, 1) * 2;
+    }
   }
-  const fresh: Offsets = { off, head };
+  const fresh: Offsets = { head, off };
   offsets = fresh;
   return fresh;
-}
+};
 
 /**
  * Party walls and flags for one parcel, or null when the id is out of range.
  * Decoded on demand — the fabric pass touches each parcel once or twice, so
  * caching 21k records would cost more memory than the decode costs time.
  */
-export function parcelAt(id: number): Parcel | null {
-  if (!Number.isInteger(id) || id < 0 || id >= SF_ADJACENCY_PARCELS) return null;
+export const parcelAt = (id: number): Parcel | null => {
+  if (!Number.isInteger(id) || id < 0 || id >= SF_ADJACENCY_PARCELS) {
+    return null;
+  }
   const { off, head } = ensureOffsets();
   const h = head[id] ?? 0;
   let i = (off[id] ?? 0) + 1;
   const walls: PartyWall[] = [];
   const blind = new Set<number>();
-  for (let k = 0; k < (h & 7); k++) {
+  for (let k = 0; k < h % 8; k += 1) {
     const neighbour = at36(i, 3);
     const count = at36(i + 3, 1);
     i += 4;
     const edges: number[] = [];
-    for (let e = 0; e < count; e++) {
+    for (let e = 0; e < count; e += 1) {
       const edge = at36(i, 2);
       i += 2;
       edges.push(edge);
       blind.add(edge);
     }
-    walls.push({ neighbour, edges });
+    walls.push({ edges, neighbour });
   }
-  return { walls, blind, stacked: (h & 8) !== 0, bboxFallback: (h & 16) !== 0 };
-}
+  // oxlint-disable-next-line no-bitwise -- header byte packs flag bits
+  return { bboxFallback: (h & 16) !== 0, blind, stacked: (h & 8) !== 0, walls };
+};
 
 /**
  * The longest ring edge that is NOT a party wall: the frontage, i.e. where the
@@ -642,21 +652,27 @@ export function parcelAt(id: number): Parcel | null {
  * can never contradict `blind`. Null when the parcel has no ring or every edge
  * is a wall.
  */
-export function frontEdgeOf(id: number): number | null {
+export const frontEdgeOf = (id: number): number | null => {
   const ring = SF_FOOTPRINTS[id];
-  if (ring === undefined) return null;
+  if (ring === undefined) {
+    return null;
+  }
   const blind = parcelAt(id)?.blind;
   const n = (ring.length - 1) / 2;
   let best: number | null = null;
   let bestLen = 0;
-  for (let e = 0; e < n; e++) {
-    if (blind?.has(e) === true) continue;
+  for (let e = 0; e < n; e += 1) {
+    if (blind?.has(e) === true) {
+      continue;
+    }
     const j = (e + 1) % n;
     const x0 = ring[1 + e * 2];
     const z0 = ring[2 + e * 2];
     const x1 = ring[1 + j * 2];
     const z1 = ring[2 + j * 2];
-    if (x0 === undefined || z0 === undefined || x1 === undefined || z1 === undefined) continue;
+    if (x0 === undefined || z0 === undefined || x1 === undefined || z1 === undefined) {
+      continue;
+    }
     const len = Math.hypot(x1 - x0, z1 - z0);
     if (len > bestLen) {
       bestLen = len;
@@ -664,7 +680,7 @@ export function frontEdgeOf(id: number): number | null {
     }
   }
   return best;
-}
+};
 
 /**
  * Lot rhythm for one district, in WORLD UNITS (not fractions of ROAD_TILE).
@@ -673,7 +689,7 @@ export function frontEdgeOf(id: number): number | null {
  * break, row cadence is the San Francisco read, and a random per-lot pitch is
  * what makes dense districts look like gapped suburbia.
  */
-export type LotRhythm = {
+export interface LotRhythm {
   readonly p25: number;
   readonly p50: number;
   readonly p75: number;
@@ -681,74 +697,73 @@ export type LotRhythm = {
   readonly runSize: number;
   /** "" when measured in this district, else the district the band came from. */
   readonly from: string;
-};
+}
 
 export const SF_LOT_RHYTHM: ReadonlyMap<string, LotRhythm> = new Map(
   Object.entries({
-    "Alamo Square": { p25: 2.01, p50: 2.59, p75: 3.82, runSize: 3, from: "" },
-    "Battery Ridge Overlook": { p25: 2.05, p50: 2.74, p75: 4.01, runSize: 3, from: "the Marina" },
-    Bayview: { p25: 1.97, p50: 2.31, p75: 2.88, runSize: 3, from: "Potrero Hill" },
-    "Bernal Heights": { p25: 1.97, p50: 2.31, p75: 2.88, runSize: 3, from: "Potrero Hill" },
-    "Buena Vista Park": { p25: 2.56, p50: 2.99, p75: 3.73, runSize: 3, from: "" },
-    "China Basin": { p25: 6.17, p50: 10.2, p75: 15.4, runSize: 4, from: "" },
-    Chinatown: { p25: 2.82, p50: 4.22, p75: 5.76, runSize: 3, from: "" },
-    "Civic Center": { p25: 3.05, p50: 4.22, p75: 5.93, runSize: 3, from: "" },
-    "Cole Valley": { p25: 2.06, p50: 2.57, p75: 3.04, runSize: 3, from: "" },
-    "Crocker-Amazon": { p25: 1.97, p50: 2.31, p75: 2.88, runSize: 3, from: "Potrero Hill" },
-    "Daly City": { p25: 2.06, p50: 2.57, p75: 3.04, runSize: 3, from: "Cole Valley" },
-    Dogpatch: { p25: 5.31, p50: 7.56, p75: 10.32, runSize: 2, from: "" },
-    "Dolores Park": { p25: 2.04, p50: 2.43, p75: 3.56, runSize: 4, from: "" },
-    "Fisherman's Wharf": { p25: 2.09, p50: 2.77, p75: 4.26, runSize: 3, from: "" },
-    "Glen Park": { p25: 2.06, p50: 2.57, p75: 3.04, runSize: 3, from: "Cole Valley" },
-    "Golden Gate Park": { p25: 2.04, p50: 2.64, p75: 3.58, runSize: 3, from: "the Panhandle" },
-    "Hayes Valley": { p25: 2.6, p50: 3.82, p75: 5.53, runSize: 3, from: "" },
-    "Hunters Point": { p25: 1.97, p50: 2.31, p75: 2.88, runSize: 3, from: "Potrero Hill" },
-    Ingleside: { p25: 2.06, p50: 2.57, p75: 3.04, runSize: 3, from: "Cole Valley" },
-    "Jackson Square": { p25: 3.17, p50: 6.4, p75: 9.03, runSize: 3, from: "" },
-    Lakeshore: { p25: 2.06, p50: 2.57, p75: 3.04, runSize: 3, from: "Cole Valley" },
-    "McLaren Park": { p25: 2.04, p50: 2.43, p75: 3.56, runSize: 4, from: "Dolores Park" },
-    "Miraloma Park": { p25: 2.06, p50: 2.57, p75: 3.04, runSize: 3, from: "Cole Valley" },
-    "Mission Bay": { p25: 1.97, p50: 2.48, p75: 3.85, runSize: 3, from: "" },
-    "Mission Dolores": { p25: 1.94, p50: 2.35, p75: 3.59, runSize: 3, from: "" },
-    "Mount Davidson Park": { p25: 2.04, p50: 2.43, p75: 3.56, runSize: 4, from: "Dolores Park" },
-    "Nob Hill": { p25: 2.45, p50: 3.15, p75: 4.7, runSize: 3, from: "" },
-    "Noe Valley": { p25: 2.03, p50: 2.83, p75: 4.71, runSize: 3, from: "the Mission" },
-    "North Beach": { p25: 2.23, p50: 3.01, p75: 4.34, runSize: 3, from: "" },
-    "Pacific Heights": { p25: 2.13, p50: 2.79, p75: 3.98, runSize: 3, from: "" },
-    "Potrero Hill": { p25: 1.97, p50: 2.31, p75: 2.88, runSize: 3, from: "" },
-    "Russian Hill": { p25: 2.07, p50: 2.68, p75: 3.77, runSize: 3, from: "" },
-    "Silver Terrace": { p25: 1.97, p50: 2.31, p75: 2.88, runSize: 3, from: "Potrero Hill" },
-    SoMa: { p25: 4.31, p50: 6.16, p75: 8.44, runSize: 2, from: "" },
-    Sunnyside: { p25: 2.06, p50: 2.57, p75: 3.04, runSize: 3, from: "Cole Valley" },
-    "Twin Peaks": { p25: 2.56, p50: 2.99, p75: 3.73, runSize: 3, from: "Buena Vista Park" },
-    "Union Square": { p25: 2.7, p50: 3.85, p75: 5.48, runSize: 3, from: "" },
-    "Visitacion Valley": { p25: 1.97, p50: 2.31, p75: 2.88, runSize: 3, from: "Potrero Hill" },
-    "West Portal": { p25: 1.93, p50: 2.37, p75: 3.4, runSize: 3, from: "the Castro" },
-    "the Castro": { p25: 1.93, p50: 2.37, p75: 3.4, runSize: 3, from: "" },
-    "the Embarcadero": { p25: 5.87, p50: 6.58, p75: 9.21, runSize: 2, from: "" },
-    "the Excelsior": { p25: 1.97, p50: 2.31, p75: 2.88, runSize: 3, from: "Potrero Hill" },
-    "the Financial District": { p25: 3.37, p50: 5.34, p75: 7.2, runSize: 3, from: "" },
-    "the Haight": { p25: 1.84, p50: 2.42, p75: 3.61, runSize: 3, from: "" },
-    "the Marina": { p25: 2.05, p50: 2.74, p75: 4.01, runSize: 3, from: "" },
-    "the Mission": { p25: 2.03, p50: 2.83, p75: 4.71, runSize: 3, from: "" },
-    "the Outer Mission": { p25: 2.06, p50: 2.57, p75: 3.04, runSize: 3, from: "Cole Valley" },
-    "the Panhandle": { p25: 2.04, p50: 2.64, p75: 3.58, runSize: 3, from: "" },
-    "the Portola": { p25: 1.97, p50: 2.31, p75: 2.88, runSize: 3, from: "Potrero Hill" },
-    "the Presidio": { p25: 2.04, p50: 2.64, p75: 3.58, runSize: 3, from: "the Panhandle" },
-    "the Richmond": { p25: 1.97, p50: 2.31, p75: 2.88, runSize: 3, from: "Potrero Hill" },
-    "the Sunset": { p25: 1.97, p50: 2.31, p75: 2.88, runSize: 3, from: "Potrero Hill" },
+    "Alamo Square": { from: "", p25: 2.01, p50: 2.59, p75: 3.82, runSize: 3 },
+    "Battery Ridge Overlook": { from: "the Marina", p25: 2.05, p50: 2.74, p75: 4.01, runSize: 3 },
+    Bayview: { from: "Potrero Hill", p25: 1.97, p50: 2.31, p75: 2.88, runSize: 3 },
+    "Bernal Heights": { from: "Potrero Hill", p25: 1.97, p50: 2.31, p75: 2.88, runSize: 3 },
+    "Buena Vista Park": { from: "", p25: 2.56, p50: 2.99, p75: 3.73, runSize: 3 },
+    "China Basin": { from: "", p25: 6.17, p50: 10.2, p75: 15.4, runSize: 4 },
+    Chinatown: { from: "", p25: 2.82, p50: 4.22, p75: 5.76, runSize: 3 },
+    "Civic Center": { from: "", p25: 3.05, p50: 4.22, p75: 5.93, runSize: 3 },
+    "Cole Valley": { from: "", p25: 2.06, p50: 2.57, p75: 3.04, runSize: 3 },
+    "Crocker-Amazon": { from: "Potrero Hill", p25: 1.97, p50: 2.31, p75: 2.88, runSize: 3 },
+    "Daly City": { from: "Cole Valley", p25: 2.06, p50: 2.57, p75: 3.04, runSize: 3 },
+    Dogpatch: { from: "", p25: 5.31, p50: 7.56, p75: 10.32, runSize: 2 },
+    "Dolores Park": { from: "", p25: 2.04, p50: 2.43, p75: 3.56, runSize: 4 },
+    "Fisherman's Wharf": { from: "", p25: 2.09, p50: 2.77, p75: 4.26, runSize: 3 },
+    "Glen Park": { from: "Cole Valley", p25: 2.06, p50: 2.57, p75: 3.04, runSize: 3 },
+    "Golden Gate Park": { from: "the Panhandle", p25: 2.04, p50: 2.64, p75: 3.58, runSize: 3 },
+    "Hayes Valley": { from: "", p25: 2.6, p50: 3.82, p75: 5.53, runSize: 3 },
+    "Hunters Point": { from: "Potrero Hill", p25: 1.97, p50: 2.31, p75: 2.88, runSize: 3 },
+    Ingleside: { from: "Cole Valley", p25: 2.06, p50: 2.57, p75: 3.04, runSize: 3 },
+    "Jackson Square": { from: "", p25: 3.17, p50: 6.4, p75: 9.03, runSize: 3 },
+    Lakeshore: { from: "Cole Valley", p25: 2.06, p50: 2.57, p75: 3.04, runSize: 3 },
+    "McLaren Park": { from: "Dolores Park", p25: 2.04, p50: 2.43, p75: 3.56, runSize: 4 },
+    "Miraloma Park": { from: "Cole Valley", p25: 2.06, p50: 2.57, p75: 3.04, runSize: 3 },
+    "Mission Bay": { from: "", p25: 1.97, p50: 2.48, p75: 3.85, runSize: 3 },
+    "Mission Dolores": { from: "", p25: 1.94, p50: 2.35, p75: 3.59, runSize: 3 },
+    "Mount Davidson Park": { from: "Dolores Park", p25: 2.04, p50: 2.43, p75: 3.56, runSize: 4 },
+    "Nob Hill": { from: "", p25: 2.45, p50: 3.15, p75: 4.7, runSize: 3 },
+    "Noe Valley": { from: "the Mission", p25: 2.03, p50: 2.83, p75: 4.71, runSize: 3 },
+    "North Beach": { from: "", p25: 2.23, p50: 3.01, p75: 4.34, runSize: 3 },
+    "Pacific Heights": { from: "", p25: 2.13, p50: 2.79, p75: 3.98, runSize: 3 },
+    "Potrero Hill": { from: "", p25: 1.97, p50: 2.31, p75: 2.88, runSize: 3 },
+    "Russian Hill": { from: "", p25: 2.07, p50: 2.68, p75: 3.77, runSize: 3 },
+    "Silver Terrace": { from: "Potrero Hill", p25: 1.97, p50: 2.31, p75: 2.88, runSize: 3 },
+    SoMa: { from: "", p25: 4.31, p50: 6.16, p75: 8.44, runSize: 2 },
+    Sunnyside: { from: "Cole Valley", p25: 2.06, p50: 2.57, p75: 3.04, runSize: 3 },
+    "Twin Peaks": { from: "Buena Vista Park", p25: 2.56, p50: 2.99, p75: 3.73, runSize: 3 },
+    "Union Square": { from: "", p25: 2.7, p50: 3.85, p75: 5.48, runSize: 3 },
+    "Visitacion Valley": { from: "Potrero Hill", p25: 1.97, p50: 2.31, p75: 2.88, runSize: 3 },
+    "West Portal": { from: "the Castro", p25: 1.93, p50: 2.37, p75: 3.4, runSize: 3 },
+    "the Castro": { from: "", p25: 1.93, p50: 2.37, p75: 3.4, runSize: 3 },
+    "the Embarcadero": { from: "", p25: 5.87, p50: 6.58, p75: 9.21, runSize: 2 },
+    "the Excelsior": { from: "Potrero Hill", p25: 1.97, p50: 2.31, p75: 2.88, runSize: 3 },
+    "the Financial District": { from: "", p25: 3.37, p50: 5.34, p75: 7.2, runSize: 3 },
+    "the Haight": { from: "", p25: 1.84, p50: 2.42, p75: 3.61, runSize: 3 },
+    "the Marina": { from: "", p25: 2.05, p50: 2.74, p75: 4.01, runSize: 3 },
+    "the Mission": { from: "", p25: 2.03, p50: 2.83, p75: 4.71, runSize: 3 },
+    "the Outer Mission": { from: "Cole Valley", p25: 2.06, p50: 2.57, p75: 3.04, runSize: 3 },
+    "the Panhandle": { from: "", p25: 2.04, p50: 2.64, p75: 3.58, runSize: 3 },
+    "the Portola": { from: "Potrero Hill", p25: 1.97, p50: 2.31, p75: 2.88, runSize: 3 },
+    "the Presidio": { from: "the Panhandle", p25: 2.04, p50: 2.64, p75: 3.58, runSize: 3 },
+    "the Richmond": { from: "Potrero Hill", p25: 1.97, p50: 2.31, p75: 2.88, runSize: 3 },
+    "the Sunset": { from: "Potrero Hill", p25: 1.97, p50: 2.31, p75: 2.88, runSize: 3 },
   } satisfies Record<string, LotRhythm>),
 );
 
 /** City-wide band, for a district name the table does not know. */
 export const LOT_RHYTHM_GLOBAL: LotRhythm = {
+  from: "citywide",
   p25: 2.26,
   p50: 3.15,
   p75: 4.62,
   runSize: 2,
-  from: "citywide",
 };
 
-export function lotRhythmFor(district: string): LotRhythm {
-  return SF_LOT_RHYTHM.get(district) ?? LOT_RHYTHM_GLOBAL;
-}
+export const lotRhythmFor = (district: string): LotRhythm =>
+  SF_LOT_RHYTHM.get(district) ?? LOT_RHYTHM_GLOBAL;

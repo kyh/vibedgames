@@ -6,23 +6,20 @@ import { lowDetailSurfaces } from "../world/roads";
 
 export const TERRAIN_BLEND_SIZE = 512;
 export const TERRAIN_BLEND_BYTES = TERRAIN_BLEND_SIZE * TERRAIN_BLEND_SIZE * 4;
-const BARE_SAND = { sandStart: 0.72, sandFull: 0.98, turfStart: 0.02, turfFull: 0.12 };
+const BARE_SAND = { sandFull: 0.98, sandStart: 0.72, turfFull: 0.12, turfStart: 0.02 };
 
 /** Dune scrub uses turf detail even when loose sand still governs tire FX. */
-export function bareSandWeight(blend: Readonly<GroundBlend>): number {
-  return (
-    THREE.MathUtils.smoothstep(blend.sand, BARE_SAND.sandStart, BARE_SAND.sandFull) *
-    (1 - THREE.MathUtils.smoothstep(blend.turf, BARE_SAND.turfStart, BARE_SAND.turfFull))
-  );
-}
+export const bareSandWeight = (blend: Readonly<GroundBlend>): number =>
+  THREE.MathUtils.smoothstep(blend.sand, BARE_SAND.sandStart, BARE_SAND.sandFull) *
+  (1 - THREE.MathUtils.smoothstep(blend.turf, BARE_SAND.turfStart, BARE_SAND.turfFull));
 
 /** RGBA stores turf/sand/stone/loose, not color. Row zero is the north (-Z). */
-export function createTerrainBlendTexture(blendAt: GroundBlendAt): THREE.DataTexture {
+export const createTerrainBlendTexture = (blendAt: GroundBlendAt): THREE.DataTexture => {
   const data = new Uint8Array(TERRAIN_BLEND_BYTES);
-  const blend = { turf: 0, sand: 0, stone: 0, loose: 0 };
-  for (let row = 0; row < TERRAIN_BLEND_SIZE; row++) {
+  const blend = { loose: 0, sand: 0, stone: 0, turf: 0 };
+  for (let row = 0; row < TERRAIN_BLEND_SIZE; row += 1) {
     const z = ((row + 0.5) / TERRAIN_BLEND_SIZE) * WORLD_H - WORLD_HALF_Z;
-    for (let column = 0; column < TERRAIN_BLEND_SIZE; column++) {
+    for (let column = 0; column < TERRAIN_BLEND_SIZE; column += 1) {
       const x = ((column + 0.5) / TERRAIN_BLEND_SIZE) * WORLD_W - WORLD_HALF_X;
       blendAt(x, z, blend);
       const offset = (row * TERRAIN_BLEND_SIZE + column) * 4;
@@ -41,8 +38,9 @@ export function createTerrainBlendTexture(blendAt: GroundBlendAt): THREE.DataTex
   texture.flipY = false;
   texture.needsUpdate = true;
   return texture;
-}
+};
 
+// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
 const TERRAIN_COMMON = /* glsl */ `
 uniform sampler2D uTerrainBlend;
 varying vec3 vTerrainPos;
@@ -66,6 +64,7 @@ vec2 tmCells(vec2 p, vec2 size, float px, float seamWidth) {
 }
 `;
 
+// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
 const TERRAIN_COLOR = /* glsl */ `
 // One semantic fetch. All derivatives run outside material-dependent branches.
 vec2 tmWp = vTerrainPos.xz;
@@ -125,6 +124,7 @@ float tmRelief = tmWeight.r * tmClumps * 0.045 + tmBareSand * tmRipple * 0.006
 
 // Screen-space surface gradient, using Three's view-space normal. The relief
 // is centimetres, never displacement; phone materials omit this work entirely.
+// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
 const TERRAIN_NORMAL = /* glsl */ `
 #ifdef TERRAIN_FULL
   vec3 tmDx = dFdx(-vViewPosition), tmDy = dFdy(-vViewPosition);
@@ -136,13 +136,13 @@ const TERRAIN_NORMAL = /* glsl */ `
 `;
 
 /** One shared ground material for live and baked tiles. It owns its sole texture. */
-export function createTerrainMaterial(blendAt: GroundBlendAt): THREE.MeshStandardMaterial {
+export const createTerrainMaterial = (blendAt: GroundBlendAt): THREE.MeshStandardMaterial => {
   const texture = createTerrainBlendTexture(blendAt);
   const lowDetail = lowDetailSurfaces();
   const material = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    vertexColors: true,
+    color: 0xff_ff_ff,
     roughness: 1,
+    vertexColors: true,
   });
   material.name = "semantic-terrain";
   material.customProgramCacheKey = () => `semantic-terrain-v2-${lowDetail ? "phone" : "full"}`;
@@ -177,4 +177,4 @@ roughnessFactor = clamp(roughnessFactor - tmWet * 0.28 - tmWeight.b * 0.055, 0.7
       );
   };
   return material;
-}
+};

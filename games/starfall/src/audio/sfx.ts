@@ -4,7 +4,8 @@
 // Muted by default — the player opts into sound (M) and the choice persists.
 
 import type { BattleBeat } from "../render/battle-beat";
-import { battlePhrase, scoreLeadIn, type MusicMode, type MusicScore } from "./battle-score";
+import { battlePhrase, scoreLeadIn } from "./battle-score";
+import type { MusicMode, MusicScore } from "./battle-score";
 
 export type { MusicMode } from "./battle-score";
 
@@ -68,15 +69,19 @@ const SFX_NAMES = [
 
 export type SfxName = (typeof SFX_NAMES)[number];
 
-export type PlayOpts = { gain?: number; rate?: number; priority?: "local" };
+export interface PlayOpts {
+  gain?: number;
+  rate?: number;
+  priority?: "local";
+}
 
 type VoiceRole = "routine" | "local" | "important" | "music";
-type Voice = {
+interface Voice {
   source: AudioBufferSourceNode;
   gain: GainNode;
   role: VoiceRole;
   onEnded: () => void;
-};
+}
 
 const VOICE_LIMIT = 32;
 /** Routine chatter and music stop here so local confirmations and warnings
@@ -99,7 +104,7 @@ const IMPORTANT = new Set<SfxName>([
   "boss_phase",
   "boss_defeat",
 ]);
-const RANK = { music: 0, routine: 0, local: 1, important: 2 } satisfies Record<VoiceRole, number>;
+const RANK = { important: 2, local: 1, music: 0, routine: 0 } satisfies Record<VoiceRole, number>;
 
 /**
  * `Sfx.play(name)` — fire-and-forget synth playback. Call `unlock()` from a
@@ -140,7 +145,9 @@ export class Sfx {
       this.musicBus = ctx.createGain();
       this.musicBus.gain.value = MUSIC_GAIN;
       this.musicBus.connect(this.duckBus);
-      for (const name of SFX_NAMES) this.buffers.set(name, renderBuffer(ctx, RECIPES[name]));
+      for (const name of SFX_NAMES) {
+        this.buffers.set(name, renderBuffer(ctx, RECIPES[name]));
+      }
       this.musicBuffers.set("flight", renderBuffer(ctx, MUSIC_RECIPES.flight));
       this.musicBuffers.set("boss", renderBuffer(ctx, MUSIC_RECIPES.boss));
     }
@@ -148,19 +155,27 @@ export class Sfx {
   }
 
   play(name: SfxName, opts: PlayOpts = {}): void {
-    if (!this.ready) return;
+    if (!this.ready) {
+      return;
+    }
     const buffer = this.buffers.get(name);
-    if (!buffer) return;
+    if (!buffer) {
+      return;
+    }
     const role = IMPORTANT.has(name)
       ? "important"
       : opts.priority === "local"
         ? "local"
         : "routine";
-    if (!this.admit(role, 1)) return;
+    if (!this.admit(role, 1)) {
+      return;
+    }
     const jitter = PITCH_JITTER_BASE + Math.random() * PITCH_JITTER_SPAN;
     const bus = name === "player_death" ? this.master : this.duckBus;
     this.start(buffer, opts.gain ?? 1, (opts.rate ?? 1) * jitter, 0, role, bus);
-    if (name === "player_death") this.duck();
+    if (name === "player_death") {
+      this.duck();
+    }
   }
 
   /**
@@ -170,8 +185,11 @@ export class Sfx {
   setMuted(next: boolean): boolean {
     this.muted = next;
     storageSet(SOUND_KEY, next ? "0" : "1");
-    if (next) this.syncContext();
-    else this.unlock();
+    if (next) {
+      this.syncContext();
+    } else {
+      this.unlock();
+    }
     return this.muted;
   }
 
@@ -191,14 +209,18 @@ export class Sfx {
   }
 
   setMusicMode(mode: MusicMode): void {
-    if (mode === this.musicMode) return;
+    if (mode === this.musicMode) {
+      return;
+    }
     this.musicMode = mode;
     this.restartMusic();
   }
 
   /** Current mood, not an announcement: only the music phrase changes. */
   setBattleBeat(beat: BattleBeat): void {
-    if (beat === this.battleBeat) return;
+    if (beat === this.battleBeat) {
+      return;
+    }
     this.battleBeat = beat;
     this.musicStep = 0;
     this.restartMusic();
@@ -210,25 +232,35 @@ export class Sfx {
     this.battleBeat = "quiet";
     this.musicStep = 0;
     this.stopMusic();
-    for (const voice of this.voices) this.release(voice, true);
-    const ctx = this.ctx;
+    for (const voice of this.voices) {
+      this.release(voice, true);
+    }
+    const { ctx } = this;
     const bus = this.duckBus;
-    if (!ctx || !bus) return;
+    if (!ctx || !bus) {
+      return;
+    }
     bus.gain.cancelScheduledValues(ctx.currentTime);
     bus.gain.setValueAtTime(1, ctx.currentTime);
   }
 
   private syncContext(): void {
-    const ctx = this.ctx;
-    const master = this.master;
-    if (!ctx || !master) return;
+    const { ctx } = this;
+    const { master } = this;
+    if (!ctx || !master) {
+      return;
+    }
     master.gain.setTargetAtTime(this.muted ? 0 : MASTER_GAIN, ctx.currentTime, 0.02);
     if (this.paused) {
-      if (ctx.state === "running") void ctx.suspend();
+      if (ctx.state === "running") {
+        void ctx.suspend();
+      }
       this.stopMusic();
     } else if (ctx.state === "suspended" && !this.muted) {
       void ctx.resume().then(() => this.startMusic());
-    } else this.startMusic();
+    } else {
+      this.startMusic();
+    }
   }
 
   private admit(role: VoiceRole, count: number): boolean {
@@ -242,8 +274,12 @@ export class Sfx {
         }
       }
       // Important cues may retire the oldest important voice; nothing else can.
-      if (!victim && role === "important") victim = this.voices.values().next().value ?? null;
-      if (!victim) return false;
+      if (!victim && role === "important") {
+        victim = this.voices.values().next().value ?? null;
+      }
+      if (!victim) {
+        return false;
+      }
       this.release(victim, true);
     }
     return true;
@@ -257,42 +293,56 @@ export class Sfx {
     role: VoiceRole,
     bus: GainNode | null,
   ): void {
-    const ctx = this.ctx;
-    if (!ctx || !bus) return;
+    const { ctx } = this;
+    if (!ctx || !bus) {
+      return;
+    }
     const src = ctx.createBufferSource();
     src.buffer = buffer;
     src.playbackRate.value = rate;
     const gain = ctx.createGain();
     gain.gain.value = volume;
     src.connect(gain).connect(bus);
-    const voice: Voice = { source: src, gain, role, onEnded: () => this.release(voice, false) };
+    const voice: Voice = { gain, onEnded: () => this.release(voice, false), role, source: src };
     this.voices.add(voice);
     src.addEventListener("ended", voice.onEnded, { once: true });
     src.start(at);
   }
 
   private release(voice: Voice, cut: boolean): void {
-    if (!this.voices.delete(voice)) return;
+    if (!this.voices.delete(voice)) {
+      return;
+    }
     voice.source.removeEventListener("ended", voice.onEnded);
-    if (cut) voice.source.stop();
+    if (cut) {
+      voice.source.stop();
+    }
     voice.source.disconnect();
     voice.gain.disconnect();
   }
 
   private musicPlaying(): boolean {
-    for (const voice of this.voices) if (voice.role === "music") return true;
+    for (const voice of this.voices) {
+      if (voice.role === "music") return true;
+    }
     return false;
   }
 
   private stopMusic(): void {
-    if (this.musicTimer !== null) window.clearInterval(this.musicTimer);
+    if (this.musicTimer !== null) {
+      window.clearInterval(this.musicTimer);
+    }
     this.musicTimer = null;
-    for (const voice of this.voices) if (voice.role === "music") this.release(voice, true);
+    for (const voice of this.voices) {
+      if (voice.role === "music") this.release(voice, true);
+    }
   }
 
   private startMusic(): void {
-    const ctx = this.ctx;
-    if (!ctx || !this.ready || this.musicMode === "silent" || this.musicTimer !== null) return;
+    const { ctx } = this;
+    if (!ctx || !this.ready || this.musicMode === "silent" || this.musicTimer !== null) {
+      return;
+    }
     this.nextMusicAt = ctx.currentTime + scoreLeadIn(this.battleBeat);
     this.musicTimer = window.setInterval(() => this.tickMusic(), 200);
   }
@@ -303,30 +353,41 @@ export class Sfx {
   }
 
   private tickMusic(): void {
-    const ctx = this.ctx;
+    const { ctx } = this;
     const mode = this.musicMode;
     if (!ctx || !this.ready || mode === "silent") {
       this.stopMusic();
       return;
     }
     const now = ctx.currentTime;
-    if (this.nextMusicAt < now - 0.25) this.nextMusicAt = now + 0.12;
-    if (this.nextMusicAt > now + 0.25) return;
+    if (this.nextMusicAt < now - 0.25) {
+      this.nextMusicAt = now + 0.12;
+    }
+    if (this.nextMusicAt > now + 0.25) {
+      return;
+    }
     const at = Math.max(now + 0.025, this.nextMusicAt);
     const phrase = battlePhrase(mode, this.battleBeat, this.musicStep++);
     this.nextMusicAt = at + phrase.waitSeconds;
     const buffer = this.musicBuffers.get(mode);
-    if (!buffer || phrase.notes.length === 0 || this.musicPlaying()) return;
-    if (!this.admit("music", phrase.notes.length)) return;
-    for (const note of phrase.notes)
+    if (!buffer || phrase.notes.length === 0 || this.musicPlaying()) {
+      return;
+    }
+    if (!this.admit("music", phrase.notes.length)) {
+      return;
+    }
+    for (const note of phrase.notes) {
       this.start(buffer, note.gain, note.rate, at + note.delay, "music", this.musicBus);
+    }
   }
 
   /** Duck every routine sound while the death boom plays. */
   private duck(): void {
-    const ctx = this.ctx;
+    const { ctx } = this;
     const bus = this.duckBus;
-    if (!ctx || !bus) return;
+    if (!ctx || !bus) {
+      return;
+    }
     const t = ctx.currentTime;
     bus.gain.cancelScheduledValues(t);
     bus.gain.setValueAtTime(DUCK_GAIN, t);
@@ -338,7 +399,10 @@ export const sfx = new Sfx();
 
 // ---- synth engine (pure) --------------------------------------------------------
 
-type Recipe = { durMs: number; render: (t: number, dur: number, rng: () => number) => number };
+interface Recipe {
+  durMs: number;
+  render: (t: number, dur: number, rng: () => number) => number;
+}
 
 function renderBuffer(ctx: AudioContext, recipe: Recipe): AudioBuffer {
   const frames = Math.max(1, Math.round((recipe.durMs / 1000) * SAMPLE_RATE));
@@ -353,7 +417,7 @@ function renderBuffer(ctx: AudioContext, recipe: Recipe): AudioBuffer {
 }
 
 function clampSample(v: number): number {
-  return v > 1 ? 1 : v < -1 ? -1 : v;
+  return v > 1 ? 1 : Math.max(-1, v);
 }
 
 /** Deterministic-enough white noise (no seeding needs here). */
@@ -383,9 +447,11 @@ function slidePhase(t: number, dur: number, f0: number, f1: number): number {
 
 /** Simple decay envelope: 1 → 0 with optional attack. */
 function env(t: number, dur: number, attack = 0.005, curve = 1.5): number {
-  if (t < attack) return t / attack;
+  if (t < attack) {
+    return t / attack;
+  }
   const rel = (t - attack) / Math.max(0.001, dur - attack);
-  return Math.pow(Math.max(0, 1 - rel), curve);
+  return Math.max(0, 1 - rel) ** curve;
 }
 
 /** One-pole lowpass over the noise source — cheap "bandpass-ish" coloring. */
@@ -444,7 +510,9 @@ const RECIPES = {
     render: (() => {
       let bp: ((c: number) => number) | null = null;
       return (t: number, dur: number, rng: () => number) => {
-        if (t === 0 || !bp) bp = makeFilteredNoise(rng);
+        if (t === 0 || !bp) {
+          bp = makeFilteredNoise(rng);
+        }
         const cutoff = 0.4 - 0.3 * (t / dur); // sweep down
         return 1.6 * bp(cutoff) * env(t, dur, 0.001, 2.5);
       };
@@ -558,7 +626,9 @@ const RECIPES = {
     render: (() => {
       let brown = 0;
       return (t: number, dur: number, rng: () => number) => {
-        if (t === 0) brown = 0;
+        if (t === 0) {
+          brown = 0;
+        }
         brown = (brown + 0.06 * rng()) / 1.012;
         return (
           2.4 * brown * env(t, dur, 0.002, 1.8) +
@@ -638,14 +708,14 @@ const RECIPES = {
 } satisfies Record<SfxName, Recipe>;
 
 const MUSIC_RECIPES = {
-  flight: {
-    durMs: 1800,
-    render: (t, dur) =>
-      (0.5 * Math.sin(TAU * 220 * t) + 0.15 * Math.sin(TAU * 440 * t)) * env(t, dur, 0.18, 1.2),
-  },
   boss: {
     durMs: 1300,
     render: (t, dur) =>
       (0.42 * triangle(TAU * 110 * t) + 0.16 * Math.sin(TAU * 55 * t)) * env(t, dur, 0.08, 1.4),
+  },
+  flight: {
+    durMs: 1800,
+    render: (t, dur) =>
+      (0.5 * Math.sin(TAU * 220 * t) + 0.15 * Math.sin(TAU * 440 * t)) * env(t, dur, 0.18, 1.2),
   },
 } satisfies Record<MusicScore, Recipe>;

@@ -3,18 +3,24 @@ import { hash2 } from "../data/decor";
 
 export type ArenaSurface = "stone" | "floor" | "dirt" | "grate";
 const SURFACES = {
-  stone: { color: 0xc6c8ca, roughness: 0.86 },
-  floor: { color: 0xc5c9cf, roughness: 0.92 },
   dirt: { color: 0xc0b5a6, roughness: 0.98 },
+  floor: { color: 0xc5c9cf, roughness: 0.92 },
   grate: { color: 0xb4bdc9, roughness: 0.86 },
+  stone: { color: 0xc6c8ca, roughness: 0.86 },
 };
 
 /** Explicit scenery vocabulary. Characters, weapons, gold, glass, banners and
  * other authored materials never enter this grade. Colors are all sRGB hex. */
 export function arenaSurface(model: string): ArenaSurface | null {
-  if (model === "floor_dirt_large") return "dirt";
-  if (model === "floor_tile_big_grate") return "grate";
-  if (model.startsWith("floor_tile_")) return "floor";
+  if (model === "floor_dirt_large") {
+    return "dirt";
+  }
+  if (model === "floor_tile_big_grate") {
+    return "grate";
+  }
+  if (model.startsWith("floor_tile_")) {
+    return "floor";
+  }
   if (
     model.startsWith("wall") ||
     model.startsWith("stairs") ||
@@ -26,8 +32,9 @@ export function arenaSurface(model: string): ArenaSurface | null {
     model === "rubble_half" ||
     model === "rocks" ||
     model === "rocks_small"
-  )
+  ) {
     return "stone";
+  }
   return null;
 }
 
@@ -37,16 +44,22 @@ export class ArenaMaterials {
   private grades = new Map<THREE.Material, Map<ArenaSurface, THREE.MeshStandardMaterial>>();
 
   grade(source: THREE.Material, surface: ArenaSurface): THREE.Material {
-    if (!(source instanceof THREE.MeshStandardMaterial)) return source;
+    if (!(source instanceof THREE.MeshStandardMaterial)) {
+      return source;
+    }
     // Even a misplaced metallic prop must retain its real PBR identity.
-    if (source.metalness > 0) return source;
+    if (source.metalness > 0) {
+      return source;
+    }
     let variants = this.grades.get(source);
     if (!variants) {
       variants = new Map();
       this.grades.set(source, variants);
     }
     const existing = variants.get(surface);
-    if (existing) return existing;
+    if (existing) {
+      return existing;
+    }
     const grade = source.clone();
     const profile = SURFACES[surface];
     grade.color.setHex(profile.color);
@@ -58,9 +71,13 @@ export class ArenaMaterials {
 
   apply(object: THREE.Object3D, model: string): void {
     const surface = arenaSurface(model);
-    if (!surface) return;
+    if (!surface) {
+      return;
+    }
     object.traverse((child) => {
-      if (!(child instanceof THREE.Mesh)) return;
+      if (!(child instanceof THREE.Mesh)) {
+        return;
+      }
       child.material = Array.isArray(child.material)
         ? child.material.map((material) => this.grade(material, surface))
         : this.grade(child.material, surface);
@@ -68,8 +85,9 @@ export class ArenaMaterials {
   }
 
   dispose(): void {
-    for (const variants of this.grades.values())
+    for (const variants of this.grades.values()) {
       for (const material of variants.values()) material.dispose();
+    }
     this.grades.clear();
   }
 }

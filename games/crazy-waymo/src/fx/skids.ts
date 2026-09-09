@@ -13,36 +13,41 @@ import { ASPHALT_LIFT } from "../world/roads";
 // black paint. Output is a multiplier, not radiance: no tone map, no fog.
 
 const MAX_QUADS = 600;
-const LIFE = 10; // seconds until a mark fully fades
-const HALF_W = 0.14; // 0.28u wide
-const HALF_L = 0.25; // ~0.5u long
+// seconds until a mark fully fades
+const LIFE = 10;
+// 0.28u wide
+const HALF_W = 0.14;
+// ~0.5u long
+const HALF_L = 0.25;
 // The asphalt drape sits at terrain + ASPHALT_LIFT and its coarse
 // tessellation can bow up to DRAPE_MAX_ERROR above the height field between
 // verts — marks must clear the worst-case road SURFACE, not the terrain, or
 // the road swallows them. Exported so trails layer above skids by contract.
-export const SKID_LIFT = ASPHALT_LIFT + DRAPE_MAX_ERROR + 0.02; // 0.18
+// 0.18
+export const SKID_LIFT = ASPHALT_LIFT + DRAPE_MAX_ERROR + 0.02;
 
 // Plain rubber: near-black, slightly cool (multiplier target at full alpha).
-const RUBBER_TINT = { r: 0.17, g: 0.16, b: 0.19 } as const;
+const RUBBER_TINT = { b: 0.19, g: 0.16, r: 0.17 } as const;
 
 // A multiply layer cannot show an emissive tier color, so the tier hue becomes
 // a tint OF the darkening: normalize the color's max channel to a fixed lift
 // so every tier darkens equally and the hue lives only in the channel ratios —
 // reads as burnt road (cool / warm / violet scorch), never glowing paint.
 const SCORCH_LIFT = 0.34;
-const SCORCH_BASE = { r: 0.07, g: 0.065, b: 0.06 } as const;
+const SCORCH_BASE = { b: 0.06, g: 0.065, r: 0.07 } as const;
 
-export function scorchTint(color: THREE.Color, out: THREE.Color): THREE.Color {
+export const scorchTint = (color: THREE.Color, out: THREE.Color): THREE.Color => {
   const mx = Math.max(color.r, Math.max(color.g, color.b), 1e-4);
   const k = SCORCH_LIFT / mx;
   out.setRGB(SCORCH_BASE.r + color.r * k, SCORCH_BASE.g + color.g * k, SCORCH_BASE.b + color.b * k);
   return out;
-}
+};
 
 // Age fade runs on the GPU: each vertex carries its stamp time and the shader
 // compares it to a clock uniform — update() advances ONE float instead of
 // rewriting the whole color buffer every frame. Fade holds, then dissolves
 // over the back half of LIFE.
+// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
 const SKID_VERT = /* glsl */ `
   attribute vec4 aTint;
   attribute float aBirth;
@@ -56,6 +61,7 @@ const SKID_VERT = /* glsl */ `
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
+// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
 const SKID_FRAG = /* glsl */ `
   varying vec4 vTint;
   varying float vFade;
@@ -67,6 +73,7 @@ const SKID_FRAG = /* glsl */ `
 
 export class SkidMarks {
   readonly mesh: THREE.Mesh;
+  private heightAt: (x: number, z: number) => number;
   private positions: Float32Array;
   private colors: Float32Array;
   private births: Float32Array;
@@ -77,13 +84,15 @@ export class SkidMarks {
   private time = 0;
   private timeU = { value: 0 };
 
-  constructor(private heightAt: (x: number, z: number) => number) {
+  constructor(heightAt: (x: number, z: number) => number) {
+    this.heightAt = heightAt;
     this.positions = new Float32Array(MAX_QUADS * 4 * 3);
-    this.colors = new Float32Array(MAX_QUADS * 4 * 4); // RGBA, starts all-zero
+    // RGBA, starts all-zero
+    this.colors = new Float32Array(MAX_QUADS * 4 * 4);
     this.births = new Float32Array(MAX_QUADS * 4);
 
     const index = new Uint16Array(MAX_QUADS * 6);
-    for (let q = 0; q < MAX_QUADS; q++) {
+    for (let q = 0; q < MAX_QUADS; q += 1) {
       const v = q * 4;
       const t = q * 6;
       index[t] = v;
@@ -105,17 +114,17 @@ export class SkidMarks {
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
 
     const mat = new THREE.ShaderMaterial({
-      uniforms: { uTime: this.timeU },
-      vertexShader: SKID_VERT,
-      fragmentShader: SKID_FRAG,
-      transparent: true,
-      depthWrite: false,
       blending: THREE.MultiplyBlending,
-      premultipliedAlpha: true,
+      depthWrite: false,
+      fragmentShader: SKID_FRAG,
       polygonOffset: true,
       polygonOffsetFactor: -3,
       polygonOffsetUnits: -4,
+      premultipliedAlpha: true,
       side: THREE.DoubleSide,
+      transparent: true,
+      uniforms: { uTime: this.timeU },
+      vertexShader: SKID_VERT,
     });
     this.mesh = new THREE.Mesh(geo, mat);
     this.mesh.frustumCulled = false;
@@ -144,7 +153,9 @@ export class SkidMarks {
   ): void {
     const dx = x1 - x0;
     const dz = z1 - z0;
-    if (dx * dx + dz * dz < 0.002) return;
+    if (dx * dx + dz * dz < 0.002) {
+      return;
+    }
     const yaw = Math.atan2(dx, dz);
     const q = this.cursor;
     this.cursor = (this.cursor + 1) % MAX_QUADS;
@@ -190,7 +201,7 @@ export class SkidMarks {
     tint: { r: number; g: number; b: number },
   ): void {
     const c = q * 4 * 4;
-    for (let v = 0; v < 4; v++) {
+    for (let v = 0; v < 4; v += 1) {
       const o = c + v * 4;
       this.colors[o] = tint.r;
       this.colors[o + 1] = tint.g;

@@ -6,20 +6,20 @@ import type Phaser from "phaser";
 // Always exposed, like the existing __game / __lf probes — JSON-serializable
 // primitives only, one object mutated in place (no per-frame allocation).
 
-export type Diagnostics = {
+export interface Diagnostics {
   frame: number;
   score: number;
   complete: boolean;
   player: { x: number; y: number; speed: number };
   entities: number;
-};
+}
 
 export const diag: Diagnostics = {
-  frame: 0,
-  score: 0,
   complete: false,
-  player: { x: 0, y: 0, speed: 0 },
   entities: 0,
+  frame: 0,
+  player: { speed: 0, x: 0, y: 0 },
+  score: 0,
 };
 
 export function installTestHooks(game: Phaser.Game): void {
@@ -33,18 +33,25 @@ export function installTestHooks(game: Phaser.Game): void {
     },
     // 'active-play' = a fresh solo run, skipping the select screen.
     setState(name: string): void {
-      if (name === "active-play") restartSolo(game);
+      if (name === "active-play") {
+        restartSolo(game);
+      }
     },
     setPausedForScreenshot(paused: boolean): void {
-      if (paused) game.loop.sleep();
-      else game.loop.wake();
+      if (paused) {
+        game.loop.sleep();
+      } else {
+        game.loop.wake();
+      }
     },
   });
 }
 
 function restartSolo(game: Phaser.Game, seed?: number): void {
   for (const key of ["select", "game", "viewer"]) {
-    if (game.scene.isActive(key)) game.scene.stop(key);
+    if (game.scene.isActive(key)) {
+      game.scene.stop(key);
+    }
   }
   diag.frame = 0;
   diag.score = 0;

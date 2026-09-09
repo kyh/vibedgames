@@ -1,4 +1,5 @@
-import { attachDomGamepad, type DomGamepad } from "@vibedgames/gamepad/dom";
+import { attachDomGamepad } from "@vibedgames/gamepad/dom";
+import type { DomGamepad } from "@vibedgames/gamepad/dom";
 
 import type { InputState } from "../input/keyboard";
 
@@ -6,8 +7,8 @@ type Btn = "gas" | "brake" | "boost";
 
 // No gas pedal on touch: a finger on the screen IS the throttle (see update()).
 const MAP = {
-  "t-brake": "brake",
   "t-boost": "boost",
+  "t-brake": "brake",
 } satisfies Record<string, Btn>;
 
 /** Drag distance that maps to full lock. Matches the stick's own radius. */
@@ -16,35 +17,48 @@ const STICK_RADIUS = 62;
  *  thumb sagging through a corner never drags the brake. */
 const STICK_BRAKE_PX = STICK_RADIUS * 0.55;
 
-export type TouchControls = {
+export interface TouchControls {
   /** Coarse-pointer device — drives the touch copy on the landing screen. */
   readonly isTouch: boolean;
   /** Pump once per frame: publishes stick state into the shared InputState. */
-  update(): void;
+  update: () => void;
   /** Swap the pedal cap between BRAKE and REVERSE (call with the car's
    *  reverse-gate state each frame; only touches the DOM on change). */
-  setReverseHint(canReverse: boolean): void;
-};
+  setReverseHint: (canReverse: boolean) => void;
+}
 
 /** Boot-time input mode for controls and instruction copy. */
-export function isTouchDevice(): boolean {
-  return window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
-}
+export const isTouchDevice = (): boolean =>
+  window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
 
 // Wire the on-screen pedals + the shared virtual stick to the input state.
 // Pedals are plain DOM (they need pedal shapes, not the pad's round buttons);
 // steering is the gamepad package's floating stick, so a thumb anywhere on the
 // open canvas anchors it. `[data-gamepad-ignore]` on #touch/#banner keeps taps
 // on the pedals and the landing CTA from anchoring a stick underneath them.
-export function setupTouch(input: InputState, onChat?: () => void): TouchControls {
+export const setupTouch = (input: InputState, onChat?: () => void): TouchControls => {
   const isTouch = isTouchDevice();
-  const container = document.getElementById("touch");
-  if (!container) return { isTouch: false, update: () => {}, setReverseHint: () => {} };
-  if (isTouch) container.classList.add("on");
+  const container = document.querySelector("#touch");
+  if (!container) {
+    return {
+      isTouch: false,
+      setReverseHint: () => {
+        // No #touch container: nothing to hint at.
+      },
+      update: () => {
+        // No #touch container: nothing to drive.
+      },
+    };
+  }
+  if (isTouch) {
+    container.classList.add("on");
+  }
 
   for (const [id, btn] of Object.entries(MAP)) {
-    const node = document.getElementById(id);
-    if (!node) continue;
+    const node = document.querySelector(`#${id}`);
+    if (!node) {
+      continue;
+    }
     const down = (e: Event): void => {
       e.preventDefault();
       input.setTouch(btn, true);
@@ -58,13 +72,15 @@ export function setupTouch(input: InputState, onChat?: () => void): TouchControl
     node.addEventListener("pointercancel", up);
     node.addEventListener("pointerleave", up);
   }
-  if (onChat) document.getElementById("t-chat")?.addEventListener("click", onChat);
+  if (onChat) {
+    document.querySelector("#t-chat")?.addEventListener("click", onChat);
+  }
 
   // Steering only — no pad buttons, and only on touch devices (the adapter
   // already ignores mouse pointers, so desktop never sees it).
   const gamepad: DomGamepad = attachDomGamepad({
-    stick: { radius: STICK_RADIUS, deadZone: 7, knobRadius: 26 },
     render: { tint: "#ffd147", zIndex: 6 },
+    stick: { deadZone: 7, knobRadius: 26, radius: STICK_RADIUS },
   });
 
   const cap = document.querySelector("#t-brake .cap");
@@ -72,6 +88,13 @@ export function setupTouch(input: InputState, onChat?: () => void): TouchControl
 
   return {
     isTouch,
+    setReverseHint(canReverse: boolean): void {
+      if (canReverse === reverseHint || !cap) {
+        return;
+      }
+      reverseHint = canReverse;
+      cap.textContent = canReverse ? "REVERSE" : "BRAKE";
+    },
     update(): void {
       gamepad.update();
       const stick = gamepad.getStick();
@@ -87,19 +110,16 @@ export function setupTouch(input: InputState, onChat?: () => void): TouchControl
       // outranks the gas below 0.5 u/s, which is exactly the reverse gear.
       input.setTouch("gas", stick.active && !stickBrake);
     },
-    setReverseHint(canReverse: boolean): void {
-      if (canReverse === reverseHint || !cap) return;
-      reverseHint = canReverse;
-      cap.textContent = canReverse ? "REVERSE" : "BRAKE";
-    },
   };
-}
+};
 
 // Buttons belong over the live run only, never floating on the title/gameover
 // banner. Display needs both `.on` (touch device) and `.play` (active run).
-export function setTouchPlaying(active: boolean): void {
-  const controls = document.getElementById("touch");
-  if (!controls) return;
+export const setTouchPlaying = (active: boolean): void => {
+  const controls = document.querySelector("#touch");
+  if (!controls) {
+    return;
+  }
   controls.classList.toggle("play", active);
   controls.setAttribute("aria-hidden", String(!active));
-}
+};

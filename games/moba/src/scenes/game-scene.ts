@@ -85,7 +85,7 @@ const TOUCH_CONTROLS_CSS = `
 // keys (right hand), ABILITIES on Q/W/E/R (left hand), F = dash, Space = attack.
 const ABILITY_KEYS: AbilityKey[] = ["Q", "W", "E", "R"];
 const DASH_KEY = "F";
-export const SLOT_LABEL = { Q: "Q", W: "W", E: "E", R: "R" } satisfies Record<AbilityKey, string>;
+export const SLOT_LABEL = { E: "E", Q: "Q", R: "R", W: "W" } satisfies Record<AbilityKey, string>;
 
 // Physical pad: face buttons cast (A is the attack button, so R lands on RB).
 const PAD_CAST: readonly (readonly [PadButton, AbilityKey])[] = [
@@ -98,7 +98,9 @@ const PAD_CAST: readonly (readonly [PadButton, AbilityKey])[] = [
 /** Quantize a stick to 16 headings so analog wobble doesn't re-send the
  *  change-detected order every frame. Null while idle / in the dead zone. */
 function stickDir16(s: StickState): { dx: number; dy: number } | null {
-  if (!s.active || s.inDeadZone) return null;
+  if (!s.active || s.inDeadZone) {
+    return null;
+  }
   const a = (Math.round(s.angle / (Math.PI / 8)) * Math.PI) / 8;
   return {
     dx: Math.abs(Math.cos(a)) < 1e-6 ? 0 : Math.cos(a),
@@ -106,13 +108,13 @@ function stickDir16(s: StickState): { dx: number; dy: number } | null {
   };
 }
 
-export type ObjectiveNotice = {
+export interface ObjectiveNotice {
   kind: "notify";
   text: string;
   tone: "good" | "bad" | "neutral";
   priority: "objective" | "major" | "ending";
   at: number;
-};
+}
 export type FeedEntry =
   | { kind: "kill"; killer: string; victim: string; team: Team; at: number }
   | ObjectiveNotice;
@@ -199,7 +201,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   init(data: { heroId?: string; online?: boolean }): void {
-    if (data?.heroId) this.heroChoice = data.heroId;
+    if (data?.heroId) {
+      this.heroChoice = data.heroId;
+    }
     // The one choke point for online mode — both the lobby's PLAY ONLINE
     // button and the `?online=1` deep link arrive here, so `?offline=1` is
     // enforced once and no socket can be opened behind it.
@@ -257,8 +261,11 @@ export class GameScene extends Phaser.Scene {
     const stopPresentationSettings = watchPresentationSettings(() => this.applyZoom());
     this.scale.on(Phaser.Scale.Events.RESIZE, this.applyZoom, this);
 
-    if (this.online) this.startOnline();
-    else this.startLocal();
+    if (this.online) {
+      this.startOnline();
+    } else {
+      this.startLocal();
+    }
 
     this.bindInput();
     this.bindTouch();
@@ -293,7 +300,7 @@ export class GameScene extends Phaser.Scene {
       this.net = null;
     });
 
-    const veil = document.getElementById("veil");
+    const veil = document.querySelector("#veil");
     if (veil) {
       veil.classList.add("hidden");
       setTimeout(() => veil.remove(), 600);
@@ -320,17 +327,21 @@ export class GameScene extends Phaser.Scene {
     this.world = emptyGuestWorld();
     this.net = new MultiplayerClient({
       host: MULTIPLAYER_HOST,
-      party: PARTY,
-      room: roomFromLocation(),
       onEvent: (event, payload, from) =>
         // SAFETY: event payloads arrive as JSON websocket frames (or a local
         // echo of a JSON-safe send), so JsonValue covers every possible value.
         this.onNetEvent(event, payload as JsonValue, from),
+      party: PARTY,
+      room: roomFromLocation(),
     });
-    const net = this.net;
+    const { net } = this;
     net.subscribe(() => {
-      if (net.connectionStatus !== "connected" || !net.isHost) this.adoptedHost = false;
-      if (net.connectionStatus === "connected") return;
+      if (net.connectionStatus !== "connected" || !net.isHost) {
+        this.adoptedHost = false;
+      }
+      if (net.connectionStatus === "connected") {
+        return;
+      }
       this.joinedSelf = false;
       this.staleSnap = sharedSnapshot(net.sharedState);
     });
@@ -345,8 +356,10 @@ export class GameScene extends Phaser.Scene {
   /** Whether this client may act: offline, or connected under the seat its
    *  hero was spawned for (a reconnect can hand out a new id). */
   private get seated(): boolean {
-    if (!this.online) return true;
-    const net = this.net;
+    if (!this.online) {
+      return true;
+    }
+    const { net } = this;
     return net?.connectionStatus === "connected" && this.playerId === `h-${net.playerId}`;
   }
 
@@ -368,54 +381,75 @@ export class GameScene extends Phaser.Scene {
 
   // ---- networking ----------------------------------------------------------
   private onNetEvent(event: string, payload: JsonValue, from: string): void {
-    if (event !== INTENT_EVENT) return;
+    if (event !== INTENT_EVENT) {
+      return;
+    }
     const intent = parseIntent(payload);
-    if (!intent) return; // drop malformed / version-skewed peer messages
+    if (!intent) {
+      return;
+    } // drop malformed / version-skewed peer messages
     // Retain choices as a guest so an elected host can seat pending joins.
     if (intent.kind === "join") {
       this.picks[from] = intent.defId;
       // A newcomer to a finished match would otherwise spectate the result
       // until the last finisher leaves the room.
-      if (this.amHost && this.world.phase === "ended" && !this.world.units.has(`h-${from}`))
+      if (this.amHost && this.world.phase === "ended" && !this.world.units.has(`h-${from}`)) {
         this.rematch();
+      }
       return;
     }
-    if (!this.amHost) return; // only the server-elected host applies intents
-    if (this.net) this.prepareOnlineHost(this.net);
-    if (this.world.phase === "ended") return;
+    if (!this.amHost) {
+      return;
+    } // only the server-elected host applies intents
+    if (this.net) {
+      this.prepareOnlineHost(this.net);
+    }
+    if (this.world.phase === "ended") {
+      return;
+    }
     const u = this.world.units.get(`h-${from}`);
-    if (!u || !u.alive) return;
+    if (!u || !u.alive) {
+      return;
+    }
     this.applyIntent(u, intent);
   }
 
   private applyIntent(u: Unit, intent: Intent): void {
     switch (intent.kind) {
-      case "order":
+      case "order": {
         issueOrder(this.world, u, intent.order);
         break;
-      case "cast":
+      }
+      case "cast": {
         castAbility(this.world, u, {
           key: intent.key,
           point: intent.point,
           targetId: intent.targetId,
         });
         break;
-      case "level":
+      }
+      case "level": {
         levelAbility(u, intent.key);
         break;
-      case "buy":
+      }
+      case "buy": {
         buyItem(this.world, u, intent.itemId);
         break;
+      }
       case "useItem": {
         const id = u.hero?.items[intent.slot];
-        if (id) useItem(this.world, u, id, intent.point);
+        if (id) {
+          useItem(this.world, u, id, intent.point);
+        }
         break;
       }
-      case "dash":
+      case "dash": {
         dashHero(this.world, u, intent.dx, intent.dy);
         break;
-      case "join":
+      }
+      case "join": {
         break;
+      }
     }
   }
 
@@ -424,21 +458,27 @@ export class GameScene extends Phaser.Scene {
    * later join never reshuffles existing players. A human's hero waits until we
    * know their pick (the join intent), so nobody spawns as the wrong hero. */
   private reconcileOnlineHeroes(): void {
-    if (!this.net) return;
+    if (!this.net) {
+      return;
+    }
     const ids = Object.keys(this.net.players);
     const want = new Set<string>();
     const occupied = {
-      radiant: new Set<number>(),
       dire: new Set<number>(),
+      radiant: new Set<number>(),
     } satisfies Record<Team, Set<number>>;
     // Reclaim only departed seats; existing heroes retain their original slots.
-    for (const id of Object.keys(this.assign)) if (!ids.includes(id)) delete this.assign[id];
+    for (const id of Object.keys(this.assign)) {
+      if (!ids.includes(id)) delete this.assign[id];
+    }
 
     // assign newcomers to the lighter team, stably
     for (const id of ids) {
       if (!this.assign[id]) {
-        const counts = { radiant: 0, dire: 0 };
-        for (const a of Object.values(this.assign)) counts[a.team]++;
+        const counts = { dire: 0, radiant: 0 };
+        for (const a of Object.values(this.assign)) {
+          counts[a.team]++;
+        }
         const team: Team = counts.radiant <= counts.dire ? "radiant" : "dire";
         const used = new Set(
           Object.values(this.assign)
@@ -446,18 +486,24 @@ export class GameScene extends Phaser.Scene {
             .map((seat) => seat.slot),
         );
         let slot = 0;
-        while (used.has(slot)) slot++;
-        this.assign[id] = { team, slot };
+        while (used.has(slot)) {
+          slot++;
+        }
+        this.assign[id] = { slot, team };
       }
     }
 
     for (const id of ids) {
       const a = this.assign[id];
-      if (!a) continue; // assigned just above for every id; guards the index type
+      if (!a) {
+        continue;
+      } // assigned just above for every id; guards the index type
       occupied[a.team].add(a.slot);
       const hid = `h-${id}`;
       const pick = this.picks[id];
-      if (!pick) continue; // wait for their hero choice
+      if (!pick) {
+        continue;
+      } // wait for their hero choice
       want.add(hid);
       const existing = this.world.units.get(hid);
       if (!existing) {
@@ -476,7 +522,9 @@ export class GameScene extends Phaser.Scene {
     // bots fill each team to TEAM_SIZE
     for (const team of TEAMS) {
       for (let s = 0; s < TEAM_SIZE; s++) {
-        if (occupied[team].has(s)) continue;
+        if (occupied[team].has(s)) {
+          continue;
+        }
         const hid = `h-bot-${team}-${s}`;
         want.add(hid);
         if (!this.world.units.has(hid)) {
@@ -488,12 +536,16 @@ export class GameScene extends Phaser.Scene {
     }
     // remove hero units no longer wanted (departed humans / surplus bots)
     for (const [id, u] of this.world.units) {
-      if (u.kind === "hero" && !want.has(id)) this.world.units.delete(id);
+      if (u.kind === "hero" && !want.has(id)) {
+        this.world.units.delete(id);
+      }
     }
   }
 
   private prepareOnlineHost(net: MultiplayerClient): void {
-    if (this.adoptedHost || !this.amHost) return;
+    if (this.adoptedHost || !this.amHost) {
+      return;
+    }
     const restored = restoreHostState(this.world, this.roomSnapshot(net));
     this.assign = restored.seats;
     this.picks = { ...this.picks, ...restored.picks };
@@ -507,7 +559,9 @@ export class GameScene extends Phaser.Scene {
 
   private ingestSharedFx(net: MultiplayerClient): number {
     const seq = sharedFxSeq(net.sharedState);
-    if (seq === null || seq === this.lastFxSeq) return 0;
+    if (seq === null || seq === this.lastFxSeq) {
+      return 0;
+    }
     this.lastFxSeq = seq;
     const batch = sharedFxBatch(net.sharedState);
     this.world.fx.push(...batch);
@@ -516,14 +570,26 @@ export class GameScene extends Phaser.Scene {
 
   // ---- player commands (apply as authority, else send intent) --------------
   private cmd(intent: Intent): void {
-    if (this.result) return;
-    if (this.inputPaused && !(intent.kind === "order" && intent.order.type === "hold")) return;
-    if (!this.seated) return;
-    if (this.amHost && this.net) this.prepareOnlineHost(this.net);
-    if (this.world.phase === "ended") return;
+    if (this.result) {
+      return;
+    }
+    if (this.inputPaused && !(intent.kind === "order" && intent.order.type === "hold")) {
+      return;
+    }
+    if (!this.seated) {
+      return;
+    }
+    if (this.amHost && this.net) {
+      this.prepareOnlineHost(this.net);
+    }
+    if (this.world.phase === "ended") {
+      return;
+    }
     if (this.amHost) {
       const me = this.player;
-      if (me) this.applyIntent(me, intent);
+      if (me) {
+        this.applyIntent(me, intent);
+      }
     } else {
       this.net?.sendEvent(INTENT_EVENT, intent);
     }
@@ -555,15 +621,21 @@ export class GameScene extends Phaser.Scene {
 
   /** The online simulation continues under pause; only this player's input stops. */
   setControlsPaused(paused: boolean): void {
-    if (this.inputPaused === paused) return;
+    if (this.inputPaused === paused) {
+      return;
+    }
     this.inputPaused = paused;
     this.dropInputEdges();
-    if (paused) this.needsPauseHold = true;
+    if (paused) {
+      this.needsPauseHold = true;
+    }
     this.flushPauseHold();
   }
 
   private flushPauseHold(): void {
-    if (!this.needsPauseHold || !this.seated) return;
+    if (!this.needsPauseHold || !this.seated) {
+      return;
+    }
     this.cmd({ kind: "order", order: { type: "hold" } });
     this.lastDir = { dx: 0, dy: 0 };
     this.needsPauseHold = false;
@@ -585,8 +657,10 @@ export class GameScene extends Phaser.Scene {
   }
   /** Hand the HUD any feed entries collected since the last frame, then clear. */
   drainFeed(): FeedEntry[] {
-    if (this.feed.length === 0) return [];
-    const out = this.feed.slice();
+    if (this.feed.length === 0) {
+      return [];
+    }
+    const out = [...this.feed];
     this.feed.length = 0;
     return out;
   }
@@ -608,23 +682,36 @@ export class GameScene extends Phaser.Scene {
     // an enemy clicked on. Keyboard steering/abilities remain fully usable.
     this.input.on("pointerdown", (p: Phaser.Input.Pointer) => {
       resumeAudio();
-      if (p.wasTouch) return; // touches steer the virtual stick, never click-to-move
-      if (this.uiBlocking) return; // shop/modal open — ignore world clicks
-      if (!(p.leftButtonDown() || p.rightButtonDown())) return;
+      if (p.wasTouch) {
+        return;
+      } // touches steer the virtual stick, never click-to-move
+      if (this.uiBlocking) {
+        return;
+      } // shop/modal open — ignore world clicks
+      if (!(p.leftButtonDown() || p.rightButtonDown())) {
+        return;
+      }
       // don't move when the click was actually on a HUD widget (minimap, ability
       // bar, item slots, shop) — that scene sits on top and handles its own clicks.
       const hud = this.scene.get("Hud");
-      if (hud?.input && hud.input.hitTestPointer(p).length > 0) return;
+      if (hud?.input && hud.input.hitTestPointer(p).length > 0) {
+        return;
+      }
       this.issueClickOrder(p);
     });
 
     const kb = this.input.keyboard;
-    if (!kb) return;
+    if (!kb) {
+      return;
+    }
     // abilities on Q/W/E/R (left hand); Shift/Ctrl + key levels it
     for (const key of ABILITY_KEYS) {
       kb.on(`keydown-${key}`, (e: KeyboardEvent) => {
-        if (e.shiftKey || e.ctrlKey) this.levelSlot(key);
-        else this.castSlot(key);
+        if (e.shiftKey || e.ctrlKey) {
+          this.levelSlot(key);
+        } else {
+          this.castSlot(key);
+        }
       });
     }
     kb.on(`keydown-${DASH_KEY}`, () => this.dash());
@@ -641,10 +728,10 @@ export class GameScene extends Phaser.Scene {
     // Movement: arrow keys (right hand, held). Space = basic attack. Camera follows.
     const KC = Phaser.Input.Keyboard.KeyCodes;
     this.moveKeys = {
-      up: kb.addKey(KC.UP, true),
       down: kb.addKey(KC.DOWN, true),
       left: kb.addKey(KC.LEFT, true),
       right: kb.addKey(KC.RIGHT, true),
+      up: kb.addKey(KC.UP, true),
     };
     kb.on("keydown-SPACE", (e: KeyboardEvent) => {
       e.preventDefault?.();
@@ -663,7 +750,6 @@ export class GameScene extends Phaser.Scene {
     this.touchControls = createTouchControls({
       className: "moba-touch",
       css: TOUCH_CONTROLS_CSS,
-      styleId: "moba-touch-controls",
       mute: {
         get: () => isMuted(),
         set: (next) => {
@@ -671,6 +757,7 @@ export class GameScene extends Phaser.Scene {
           resumeAudio();
         },
       },
+      styleId: "moba-touch-controls",
     });
   }
 
@@ -679,7 +766,7 @@ export class GameScene extends Phaser.Scene {
       buttons: [{ id: "attack" }], // rest button: any non-stick finger attacks
       // above the y-sorted world (unit depth = y, up to WORLD.height); the HUD
       // scene still renders over it
-      render: { depth: 50000, blendMode: Phaser.BlendModes.NORMAL },
+      render: { blendMode: Phaser.BlendModes.NORMAL, depth: 50000 },
       onFirstTouch: () => resumeAudio(),
     });
   }
@@ -687,16 +774,21 @@ export class GameScene extends Phaser.Scene {
   /** Poll held arrow keys / the virtual stick and stream a direction order when
    *  it changes. */
   private pollMovement(): void {
-    if (this.inputPaused || this.needsPauseHold) return;
+    if (this.inputPaused || this.needsPauseHold) {
+      return;
+    }
     // Keep the last accepted keyboard direction during a transport gap. A
     // release must send HOLD on return; unchanged idle must preserve mouse orders.
-    if (!this.seated) return;
+    if (!this.seated) {
+      return;
+    }
     const me = this.player;
     // while dead/unspawned or a modal (shop) is open, forget the last direction so a
     // still-held key re-fires a fresh order the moment control returns.
     if (!me || !me.alive || this.uiBlocking) {
-      if (this.uiBlocking && (this.lastDir.dx !== 0 || this.lastDir.dy !== 0))
+      if (this.uiBlocking && (this.lastDir.dx !== 0 || this.lastDir.dy !== 0)) {
         this.cmd({ kind: "order", order: { type: "hold" } });
+      }
       this.lastDir = { dx: 0, dy: 0 };
       return;
     }
@@ -704,17 +796,33 @@ export class GameScene extends Phaser.Scene {
     let dx = 0;
     let dy = 0;
     if (k) {
-      if (k.left.isDown) dx -= 1;
-      if (k.right.isDown) dx += 1;
-      if (k.up.isDown) dy -= 1;
-      if (k.down.isDown) dy += 1;
+      if (k.left.isDown) {
+        dx -= 1;
+      }
+      if (k.right.isDown) {
+        dx += 1;
+      }
+      if (k.up.isDown) {
+        dy -= 1;
+      }
+      if (k.down.isDown) {
+        dy += 1;
+      }
     }
     // physical dpad: 4-way (diagonals via two buttons), same as the arrows
     if (dx === 0 && dy === 0 && this.physPad.connected) {
-      if (this.physPad.isButtonDown("left")) dx -= 1;
-      if (this.physPad.isButtonDown("right")) dx += 1;
-      if (this.physPad.isButtonDown("up")) dy -= 1;
-      if (this.physPad.isButtonDown("down")) dy += 1;
+      if (this.physPad.isButtonDown("left")) {
+        dx -= 1;
+      }
+      if (this.physPad.isButtonDown("right")) {
+        dx += 1;
+      }
+      if (this.physPad.isButtonDown("up")) {
+        dy -= 1;
+      }
+      if (this.physPad.isButtonDown("down")) {
+        dy += 1;
+      }
     }
     if (dx === 0 && dy === 0) {
       // touch stick, then the physical left stick — both stream the same
@@ -730,10 +838,15 @@ export class GameScene extends Phaser.Scene {
       const len = Math.hypot(dx, dy);
       this.aimDir = { x: dx / len, y: dy / len }; // remember facing for keyboard ability aim
     }
-    if (dx === this.lastDir.dx && dy === this.lastDir.dy) return; // only on change
+    if (dx === this.lastDir.dx && dy === this.lastDir.dy) {
+      return;
+    } // only on change
     this.lastDir = { dx, dy };
-    if (dx === 0 && dy === 0) this.cmd({ kind: "order", order: { type: "hold" } });
-    else this.cmd({ kind: "order", order: { type: "moveDir", dx, dy } });
+    if (dx === 0 && dy === 0) {
+      this.cmd({ kind: "order", order: { type: "hold" } });
+    } else {
+      this.cmd({ kind: "order", order: { type: "moveDir", dx, dy } });
+    }
   }
 
   /** Controller buttons: A attacks (Space), X/Y/B/RB cast (HUD-style auto-aim —
@@ -741,38 +854,52 @@ export class GameScene extends Phaser.Scene {
    *  reads this pad after our update. The command handlers guard uiBlocking, so
    *  while the shop is open A falls through to the HUD's buy instead. */
   private pollPadButtons(): void {
-    if (!this.physPad.connected) return;
-    if (this.physPad.justPressed("a")) this.spaceAttack();
-    for (const [btn, key] of PAD_CAST) {
-      if (this.physPad.justPressed(btn)) this.castSlot(key, true);
+    if (!this.physPad.connected) {
+      return;
     }
-    if (this.physPad.justPressed("rt")) this.dash();
+    if (this.physPad.justPressed("a")) {
+      this.spaceAttack();
+    }
+    for (const [btn, key] of PAD_CAST) {
+      if (this.physPad.justPressed(btn)) {
+        this.castSlot(key, true);
+      }
+    }
+    if (this.physPad.justPressed("rt")) {
+      this.dash();
+    }
   }
 
   private spaceAttack(): void {
     const me = this.player;
-    if (!me || !me.alive || this.uiBlocking) return;
+    if (!me || !me.alive || this.uiBlocking) {
+      return;
+    }
     const target = this.nearestAttackTarget(me, 750);
-    if (target) this.cmd({ kind: "order", order: { type: "attackUnit", targetId: target.id } });
+    if (target) {
+      this.cmd({ kind: "order", order: { type: "attackUnit", targetId: target.id } });
+    }
   }
 
   /** Quick dodge in the held/facing direction (host validates the cooldown).
    *  Public: the HUD dash box taps it too. */
   dash(): void {
     const me = this.player;
-    if (!me || !me.alive || this.uiBlocking) return;
+    if (!me || !me.alive || this.uiBlocking) {
+      return;
+    }
     const moving = this.lastDir.dx !== 0 || this.lastDir.dy !== 0;
     const dx = moving ? this.lastDir.dx : this.aimDir.x;
     const dy = moving ? this.lastDir.dy : this.aimDir.y;
-    this.cmd({ kind: "dash", dx, dy });
+    this.cmd({ dx, dy, kind: "dash" });
   }
 
   /** Pull kill/announce events out of world.fx for the HUD before the view drains them. */
   private collectFeed(): void {
-    const now = this.time.now;
+    const { now } = this.time;
     const me = this.player;
     for (const fx of this.world.fx) {
-      if (fx.t === "kill")
+      if (fx.t === "kill") {
         this.feed.push({
           kind: "kill",
           killer: fx.killer,
@@ -780,7 +907,7 @@ export class GameScene extends Phaser.Scene {
           team: fx.team,
           at: now,
         });
-      else if (fx.t === "notify")
+      } else if (fx.t === "notify") {
         this.feed.push({
           kind: "notify",
           text: fx.text,
@@ -788,7 +915,7 @@ export class GameScene extends Phaser.Scene {
           priority: "objective",
           at: now,
         });
-      else if (fx.t === "structureDown") {
+      } else if (fx.t === "structureDown") {
         this.feed.push({
           kind: "notify",
           ...structureAnnouncement(this.world, fx, me?.team ?? null),
@@ -806,7 +933,9 @@ export class GameScene extends Phaser.Scene {
         this.hitStopUntil = now + 110;
       }
     }
-    if (this.feed.length > 40) this.feed.splice(0, this.feed.length - 40);
+    if (this.feed.length > 40) {
+      this.feed.splice(0, this.feed.length - 40);
+    }
   }
 
   /** HUD button: return to the fountain (same as the H key). */
@@ -817,18 +946,26 @@ export class GameScene extends Phaser.Scene {
   /** HUD minimap → world: order the hero to travel to a clicked map point. */
   moveToWorldPoint(x: number, y: number): void {
     const me = this.player;
-    if (!me || !me.alive) return;
+    if (!me || !me.alive) {
+      return;
+    }
     this.lastDir = { dx: 0, dy: 0 };
-    this.cmd({ kind: "order", order: { type: "attackMove", to: { x, y } } });
+    this.cmd({ kind: "order", order: { to: { x, y }, type: "attackMove" } });
   }
 
   private nearestAttackTarget(me: Unit, range: number): Unit | undefined {
     let best: Unit | undefined;
     let bestD = range * range;
     for (const u of this.world.units.values()) {
-      if (!isEnemy(me, u) || !u.alive) continue;
-      if (u.kind === "structure" && !u.structure?.attackable) continue;
-      if (u.statuses.some((s) => s.kind === "untargetable")) continue;
+      if (!isEnemy(me, u) || !u.alive) {
+        continue;
+      }
+      if (u.kind === "structure" && !u.structure?.attackable) {
+        continue;
+      }
+      if (u.statuses.some((s) => s.kind === "untargetable")) {
+        continue;
+      }
       const d = dist2(me, u);
       if (d < bestD) {
         bestD = d;
@@ -840,12 +977,17 @@ export class GameScene extends Phaser.Scene {
 
   private issueClickOrder(p: Phaser.Input.Pointer): void {
     const me = this.player;
-    if (!me || !me.alive) return;
+    if (!me || !me.alive) {
+      return;
+    }
     this.lastDir = { dx: 0, dy: 0 }; // a mouse order supersedes held-key steering
     const wp = this.cam.getWorldPoint(p.x, p.y);
     const enemy = this.unitAt(wp.x, wp.y, (u) => isEnemy(me, u) && u.alive);
-    if (enemy) this.cmd({ kind: "order", order: { type: "attackUnit", targetId: enemy.id } });
-    else this.cmd({ kind: "order", order: { type: "move", to: { x: wp.x, y: wp.y } } });
+    if (enemy) {
+      this.cmd({ kind: "order", order: { type: "attackUnit", targetId: enemy.id } });
+    } else {
+      this.cmd({ kind: "order", order: { type: "move", to: { x: wp.x, y: wp.y } } });
+    }
   }
 
   /** Cast an ability, aimed at the mouse cursor (any direction, incl. diagonals).
@@ -854,9 +996,13 @@ export class GameScene extends Phaser.Scene {
    *  button, not the battlefield, so aim at the nearest enemy / along facing. */
   castSlot(key: AbilityKey, fromHud = false): void {
     const me = this.player;
-    if (!me || !me.alive || !me.hero || this.uiBlocking) return;
+    if (!me || !me.alive || !me.hero || this.uiBlocking) {
+      return;
+    }
     const def = HERO_BY_ID[me.hero.defId]?.abilities[key];
-    if (!def) return;
+    if (!def) {
+      return;
+    }
     const cursor = this.cam.getWorldPoint(this.input.activePointer.x, this.input.activePointer.y);
     if (def.targeting === "unit") {
       const wantAlly = def.effect === "brewkeeper:Q";
@@ -871,7 +1017,9 @@ export class GameScene extends Phaser.Scene {
         (wantAlly
           ? (this.lowestAllyInRange(me, def.castRange) ?? me)
           : this.nearestEnemy(me, def.castRange));
-      if (target) this.cmd({ kind: "cast", key, targetId: target.id });
+      if (target) {
+        this.cmd({ kind: "cast", key, targetId: target.id });
+      }
     } else if (def.targeting === "point") {
       const r = def.castRange;
       let point: Vec2;
@@ -889,9 +1037,9 @@ export class GameScene extends Phaser.Scene {
         const d = Math.hypot(dx, dy);
         point = d > r && d > 0 ? { x: me.x + (dx / d) * r, y: me.y + (dy / d) * r } : cursor;
       }
-      this.cmd({ kind: "cast", key, point });
+      this.cmd({ key, kind: "cast", point });
     } else {
-      this.cmd({ kind: "cast", key });
+      this.cmd({ key, kind: "cast" });
     }
   }
 
@@ -899,7 +1047,9 @@ export class GameScene extends Phaser.Scene {
    *  nearest enemy, else along the movement facing at full range. */
   private touchAimPoint(me: Unit, r: number): Vec2 {
     const foe = this.nearestEnemyHero(me, r) ?? this.nearestEnemy(me, r);
-    if (foe) return { x: foe.x, y: foe.y };
+    if (foe) {
+      return { x: foe.x, y: foe.y };
+    }
     return { x: me.x + this.aimDir.x * r, y: me.y + this.aimDir.y * r };
   }
 
@@ -907,7 +1057,9 @@ export class GameScene extends Phaser.Scene {
     let best: Unit | undefined;
     let bestD = range * range;
     for (const u of this.world.units.values()) {
-      if (!isEnemy(me, u) || !u.alive || u.kind !== "hero") continue;
+      if (!isEnemy(me, u) || !u.alive || u.kind !== "hero") {
+        continue;
+      }
       const d = dist2(me, u);
       if (d < bestD) {
         bestD = d;
@@ -918,7 +1070,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   levelSlot(key: AbilityKey): void {
-    this.cmd({ kind: "level", key });
+    this.cmd({ key, kind: "level" });
   }
 
   private lowestAllyInRange(me: Unit, range: number): Unit | undefined {
@@ -926,8 +1078,12 @@ export class GameScene extends Phaser.Scene {
     let bestPct = 1.01;
     const r2 = range * range;
     for (const u of this.world.units.values()) {
-      if (u.kind !== "hero" || !u.alive || isEnemy(me, u)) continue;
-      if (dist2(me, u) > r2) continue;
+      if (u.kind !== "hero" || !u.alive || isEnemy(me, u)) {
+        continue;
+      }
+      if (dist2(me, u) > r2) {
+        continue;
+      }
       const pct = u.hp / u.maxHp;
       if (pct < bestPct) {
         bestPct = pct;
@@ -939,26 +1095,36 @@ export class GameScene extends Phaser.Scene {
 
   private useItemSlot(i: number, fromHud = false): void {
     const me = this.player;
-    if (!me?.hero?.items[i]) return;
+    if (!me?.hero?.items[i]) {
+      return;
+    }
     if (fromHud) {
       // slot tapped on the HUD: aim point actives (blink) along the movement
       // facing instead of at the tapped button. 600 = the blink range cap.
       const point = { x: me.x + this.aimDir.x * 600, y: me.y + this.aimDir.y * 600 };
-      this.cmd({ kind: "useItem", slot: i, point });
+      this.cmd({ kind: "useItem", point, slot: i });
       return;
     }
     const p = this.input.activePointer;
     const wp = this.cam.getWorldPoint(p.x, p.y);
-    this.cmd({ kind: "useItem", slot: i, point: { x: wp.x, y: wp.y } });
+    this.cmd({ kind: "useItem", point: { x: wp.x, y: wp.y }, slot: i });
   }
 
   buyItemForPlayer(id: string): boolean {
-    if (this.result || !this.seated) return false;
-    if (this.amHost && this.net) this.prepareOnlineHost(this.net);
-    if (this.world.phase === "ended") return false;
+    if (this.result || !this.seated) {
+      return false;
+    }
+    if (this.amHost && this.net) {
+      this.prepareOnlineHost(this.net);
+    }
+    if (this.world.phase === "ended") {
+      return false;
+    }
     const me = this.player;
-    if (this.amHost && me) return buyItem(this.world, me, id);
-    this.cmd({ kind: "buy", itemId: id });
+    if (this.amHost && me) {
+      return buyItem(this.world, me, id);
+    }
+    this.cmd({ itemId: id, kind: "buy" });
     return true; // optimistic; host validates
   }
   useItemForPlayer(i: number): void {
@@ -969,10 +1135,14 @@ export class GameScene extends Phaser.Scene {
     let best: Unit | undefined;
     let bestD = Infinity;
     for (const u of this.world.units.values()) {
-      if (!pred(u)) continue;
+      if (!pred(u)) {
+        continue;
+      }
       // structures are clickable attack targets too — but only once their tier
       // gate is open, so a click on a protected tower falls through to a move
-      if (u.kind === "structure" && !u.structure?.attackable) continue;
+      if (u.kind === "structure" && !u.structure?.attackable) {
+        continue;
+      }
       const r = (u.radius + 28) * (u.radius + 28);
       // units on high ground render lifted, so test against their on-screen position
       const ly = u.y - elevationFrac(u.x, u.y) * ELEV_LIFT;
@@ -997,11 +1167,15 @@ export class GameScene extends Phaser.Scene {
     let id = "";
     if (me.order.type === "attackUnit") {
       const t = this.world.units.get(me.order.targetId);
-      if (t && t.alive && isEnemy(me, t)) id = t.id;
+      if (t && t.alive && isEnemy(me, t)) {
+        id = t.id;
+      }
     }
     if (!id && me.pendingAttack) {
       const t = this.world.units.get(me.pendingAttack.targetId);
-      if (t && t.alive && isEnemy(me, t)) id = t.id;
+      if (t && t.alive && isEnemy(me, t)) {
+        id = t.id;
+      }
     }
     // auto-attack acquisition: while holding/idle/attack-moving the hero attacks the
     // nearest enemy in range — keep the reticle pinned to it the whole time.
@@ -1010,13 +1184,17 @@ export class GameScene extends Phaser.Scene {
       (me.order.type === "idle" || me.order.type === "hold" || me.order.type === "attackMove")
     ) {
       const t = this.engageTarget(me);
-      if (t) id = t.id;
+      if (t) {
+        id = t.id;
+      }
     }
     if (!id) {
       const p = this.input.activePointer;
       const wp = this.cam.getWorldPoint(p.x, p.y);
       const hov = this.unitAt(wp.x, wp.y, (u) => isEnemy(me, u) && u.alive);
-      if (hov) id = hov.id;
+      if (hov) {
+        id = hov.id;
+      }
     }
     this.view.setTarget(id);
   }
@@ -1026,9 +1204,15 @@ export class GameScene extends Phaser.Scene {
     let best: Unit | undefined;
     let bestD = Infinity;
     for (const u of this.world.units.values()) {
-      if (!isEnemy(me, u) || !u.alive) continue;
-      if (u.kind === "structure" && !u.structure?.attackable) continue;
-      if (u.statuses.some((s) => s.kind === "untargetable")) continue;
+      if (!isEnemy(me, u) || !u.alive) {
+        continue;
+      }
+      if (u.kind === "structure" && !u.structure?.attackable) {
+        continue;
+      }
+      if (u.statuses.some((s) => s.kind === "untargetable")) {
+        continue;
+      }
       const reach = me.attackRange + me.radius + u.radius + 30;
       const d = dist2(me, u);
       if (d <= reach * reach && d < bestD) {
@@ -1043,7 +1227,9 @@ export class GameScene extends Phaser.Scene {
     let best: Unit | undefined;
     let bestD = range * range;
     for (const u of this.world.units.values()) {
-      if (!isEnemy(me, u) || !u.alive || u.kind === "structure") continue;
+      if (!isEnemy(me, u) || !u.alive || u.kind === "structure") {
+        continue;
+      }
       const d = dist2(me, u);
       if (d < bestD) {
         bestD = d;
@@ -1058,12 +1244,19 @@ export class GameScene extends Phaser.Scene {
     const dt = Math.min(0.05, deltaMs / 1000);
     this.pad?.update(); // reconcile stale touches + publish press edges
     this.flushPauseHold();
-    if (!this.inputPaused && this.pad?.justPressed("attack")) this.spaceAttack();
+    if (!this.inputPaused && this.pad?.justPressed("attack")) {
+      this.spaceAttack();
+    }
     this.physPad.update(); // poll the controller + publish press edges
-    if (!this.inputPaused) this.pollPadButtons();
+    if (!this.inputPaused) {
+      this.pollPadButtons();
+    }
     this.pollMovement();
-    if (this.online) this.tickOnline(dt, deltaMs);
-    else this.tickHost(deltaMs);
+    if (this.online) {
+      this.tickOnline(dt, deltaMs);
+    } else {
+      this.tickHost(deltaMs);
+    }
     this.flushPauseHold();
 
     this.collectFeed();
@@ -1088,7 +1281,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private tickHost(deltaMs: number): void {
-    if (this.time.now < this.hitStopUntil) return; // hit-stop: hold the sim a beat
+    if (this.time.now < this.hitStopUntil) {
+      return;
+    } // hit-stop: hold the sim a beat
     // Phaser clamps delta to one frame while the window is unfocused, and a
     // background tab's rAF runs at ~1 Hz, so the host's world would crawl
     // for every guest. Owe the sim wall time instead, capped like any hitch.
@@ -1103,35 +1298,44 @@ export class GameScene extends Phaser.Scene {
       steps++;
     }
     const me = this.player;
-    if (this.world.phase === "playing" && me?.hero && me.hero.abilityPoints > 0)
+    if (this.world.phase === "playing" && me?.hero && me.hero.abilityPoints > 0) {
       autoLevel(this.world, me);
+    }
   }
 
   private tickOnline(dt: number, deltaMs: number): void {
-    const net = this.net;
-    if (!net || net.connectionStatus !== "connected") return;
+    const { net } = this;
+    if (!net || net.connectionStatus !== "connected") {
+      return;
+    }
     // announce our hero pick once
     if (!this.joinedSelf && net.playerId) {
       this.joinedSelf = true;
       const playerId = `h-${net.playerId}`;
-      if (this.playerId !== playerId) this.lastDir = { dx: 0, dy: 0 };
+      if (this.playerId !== playerId) {
+        this.lastDir = { dx: 0, dy: 0 };
+      }
       this.playerId = playerId;
       this.view.playerHeroId = this.playerId;
-      net.sendEvent(INTENT_EVENT, { kind: "join", defId: this.heroChoice } satisfies Intent);
+      net.sendEvent(INTENT_EVENT, { defId: this.heroChoice, kind: "join" } satisfies Intent);
       this.joinResendAt = this.time.now + 3000;
     }
     // periodically re-announce our pick so a host that joined/took over after us
     // still learns which hero to spawn for us.
     if (this.joinedSelf && this.time.now >= this.joinResendAt) {
       this.joinResendAt = this.time.now + 3000;
-      net.sendEvent(INTENT_EVENT, { kind: "join", defId: this.heroChoice } satisfies Intent);
+      net.sendEvent(INTENT_EVENT, { defId: this.heroChoice, kind: "join" } satisfies Intent);
     }
 
     if (this.amHost) {
       this.prepareOnlineHost(net);
       // ensure host's own pick recorded
-      if (net.playerId && !this.picks[net.playerId]) this.picks[net.playerId] = this.heroChoice;
-      if (this.world.phase !== "ended") this.reconcileOnlineHeroes();
+      if (net.playerId && !this.picks[net.playerId]) {
+        this.picks[net.playerId] = this.heroChoice;
+      }
+      if (this.world.phase !== "ended") {
+        this.reconcileOnlineHeroes();
+      }
       this.tickHost(deltaMs);
       // capture the fx this step produced BEFORE our own renderer drains them in
       // view.sync() — the sim's hits/deaths/casts only exist in world.fx now, so
@@ -1143,7 +1347,9 @@ export class GameScene extends Phaser.Scene {
       this.inheritedFxCount = 0;
       // set my team for HUD coloring
       const me = this.player;
-      if (me) this.view.playerTeam = me.team;
+      if (me) {
+        this.view.playerTeam = me.team;
+      }
       this.broadcast(dt);
     } else {
       // guest: render the latest snapshot
@@ -1152,41 +1358,47 @@ export class GameScene extends Phaser.Scene {
         this.watchHostStall(snap);
         applySnapshot(this.world, snap);
         // the host started a rematch: leave the result screen with it
-        if (this.ended && this.world.phase !== "ended") this.resumeMatch();
+        if (this.ended && this.world.phase !== "ended") {
+          this.resumeMatch();
+        }
       }
       // The renderer runs faster than snapshots; consume each batch once.
       this.ingestSharedFx(net);
       const me = this.player;
-      if (me) this.view.playerTeam = me.team;
+      if (me) {
+        this.view.playerTeam = me.team;
+      }
     }
   }
 
   private watchHostStall(snap: Snapshot): void {
-    const now = this.time.now;
+    const { now } = this.time;
     if (snap.seq !== this.lastSnapSeq || snap.phase === "ended") {
       this.lastSnapSeq = snap.seq;
       this.snapStalledAt = now + HOST_STALL_MS;
     } else if (now >= this.snapStalledAt) {
       this.snapStalledAt = Infinity;
       this.feed.push({
+        at: now,
         kind: "notify",
+        priority: "major",
         text: "HOST CONNECTION LOST — WAITING FOR A NEW HOST",
         tone: "bad",
-        priority: "major",
-        at: now,
       });
     }
   }
 
   private broadcast(dt: number): void {
     this.snapAcc += dt;
-    if (this.snapAcc < 1 / SNAPSHOT_HZ) return;
+    if (this.snapAcc < 1 / SNAPSHOT_HZ) {
+      return;
+    }
     this.snapAcc = 0;
     this.fxSeqOut += 1;
     this.net?.updateSharedState({
-      snap: encodeWorld(this.world),
       fx: this.netFx,
       fxSeq: this.fxSeqOut,
+      snap: encodeWorld(this.world),
     });
     // Our renderer consumes these same events in this update. Reconnecting or
     // becoming a guest must not play our own last broadcast a second time.
@@ -1200,8 +1412,10 @@ export class GameScene extends Phaser.Scene {
       this.world.units.get(`${me?.team === "dire" ? "d" : "r"}-ancient`) ??
       this.world.units.get("r-ancient");
     const target = me && me.alive ? me : fallback;
-    if (!target) return;
-    const cam = this.cam;
+    if (!target) {
+      return;
+    }
+    const { cam } = this;
     const hw = cam.width / (2 * cam.zoom); // half the VISIBLE world width
     const hh = cam.height / (2 * cam.zoom);
     const cx = Phaser.Math.Clamp(target.x, hw, WORLD.width - hw);
@@ -1212,12 +1426,12 @@ export class GameScene extends Phaser.Scene {
     // (the black-band-at-the-fountain bug on short/phone viewports).
     const sx = cx - cam.width / 2;
     const sy = cy - cam.height / 2;
-    if (!this.followGo) {
-      cam.setScroll(sx, sy);
-      this.followGo = true;
-    } else {
+    if (this.followGo) {
       const k = 1 - Math.pow(0.0001, dt);
       cam.setScroll(Phaser.Math.Linear(cam.scrollX, sx, k), Phaser.Math.Linear(cam.scrollY, sy, k));
+    } else {
+      cam.setScroll(sx, sy);
+      this.followGo = true;
     }
     // trauma shake, applied on top of the settled follow (re-based each frame so it
     // never drifts). The WorldView owns the trauma accumulator + decay.
@@ -1229,30 +1443,32 @@ export class GameScene extends Phaser.Scene {
     const me = this.player;
     const h = me?.hero;
     const def = h ? HERO_BY_ID[h.defId] : undefined;
-    const winner = this.world.winner;
+    const { winner } = this.world;
     const common = { duration: this.world.gameTime };
     if (me && h && def && winner) {
       const win = winner === me.team;
       this.result = {
         ...common,
-        kind: "assigned",
-        outcome: win ? "victory" : "defeat",
-        winner,
-        team: me.team,
+        assists: h.assists,
+        deaths: h.deaths,
+        denies: h.denies,
+        gold: h.gold,
         heroId: h.defId,
         heroName: def.name,
         heroTitle: def.title,
-        role: def.role,
-        level: h.level,
         kills: h.kills,
-        deaths: h.deaths,
-        assists: h.assists,
+        kind: "assigned",
         lastHits: h.lastHits,
-        denies: h.denies,
-        gold: h.gold,
+        level: h.level,
+        outcome: win ? "victory" : "defeat",
+        role: def.role,
+        team: me.team,
+        winner,
       };
       sfx.victory(win);
-    } else this.result = { ...common, kind: "unassigned", winner };
+    } else {
+      this.result = { ...common, kind: "unassigned", winner };
+    }
     this.uiBlocking = true;
     this.pad?.destroy();
     this.pad = null;
@@ -1266,10 +1482,13 @@ export class GameScene extends Phaser.Scene {
 
   /** Result buttons share their existing once-click/40ms response in Hud. */
   leaveResult(action: "again" | "menu"): void {
-    if (!this.result || (action === "again" && !this.canReplay)) return;
+    if (!this.result || (action === "again" && !this.canReplay)) {
+      return;
+    }
     if (action === "again") {
-      if (this.online) this.rematch();
-      else {
+      if (this.online) {
+        this.rematch();
+      } else {
         this.scene.stop("Hud");
         this.scene.start("Game", { heroId: this.heroChoice, online: false });
       }
@@ -1298,7 +1517,9 @@ export class GameScene extends Phaser.Scene {
     this.ended = false;
     this.uiBlocking = false;
     this.followGo = false;
-    if (!this.pad) this.bindPad();
+    if (!this.pad) {
+      this.bindPad();
+    }
     this.scene.stop("Hud");
     this.scene.launch("Hud", { game: this });
   }
@@ -1306,23 +1527,32 @@ export class GameScene extends Phaser.Scene {
   diagnostics() {
     const me = this.player;
     return {
+      complete: this.world.phase === "ended",
+      entities: this.world.units.size,
       frame: this.game.loop.frame,
+      fx: this.view.fxCounts(),
       phase: this.world.phase,
       player: me ? { x: me.x, y: me.y, hp: me.hp, alive: me.alive } : null,
       score: me?.hero?.gold ?? 0,
-      complete: this.world.phase === "ended",
-      entities: this.world.units.size,
-      fx: this.view.fxCounts(),
     };
   }
 
   private installDebug(): void {
     Object.assign(window, {
       __moba: {
-        scene: this,
-        world: this.world,
-        player: () => this.player,
+        cast: (key: AbilityKey, point?: { x: number; y: number }, targetId?: string) => {
+          const me = this.player;
+          if (me) castAbility(this.world, me, { key, point, targetId });
+        },
         encode: () => encodeWorld(this.world),
+        kill: (id: string) => {
+          const u = this.world.units.get(id);
+          if (!u) return;
+          // Structures stay protected until their tier falls; a test kill
+          // skips the ladder.
+          if (u.structure) u.structure.attackable = true;
+          dealDamage(this.world, this.player ?? null, u, 1e9, "pure", {});
+        },
         online: () => {
           const net = this.net;
           return net
@@ -1335,25 +1565,16 @@ export class GameScene extends Phaser.Scene {
               }
             : null;
         },
-        step: (n: number) => {
-          for (let i = 0; i < n; i++) step(this.world, SIM_DT);
-        },
         order: (o: Order) => {
           const me = this.player;
           if (me) issueOrder(this.world, me, o);
         },
-        cast: (key: AbilityKey, point?: { x: number; y: number }, targetId?: string) => {
-          const me = this.player;
-          if (me) castAbility(this.world, me, { key, point, targetId });
+        player: () => this.player,
+        scene: this,
+        step: (n: number) => {
+          for (let i = 0; i < n; i++) step(this.world, SIM_DT);
         },
-        kill: (id: string) => {
-          const u = this.world.units.get(id);
-          if (!u) return;
-          // Structures stay protected until their tier falls; a test kill
-          // skips the ladder.
-          if (u.structure) u.structure.attackable = true;
-          dealDamage(this.world, this.player ?? null, u, 1e9, "pure", {});
-        },
+        world: this.world,
       },
     });
   }
@@ -1362,8 +1583,12 @@ export class GameScene extends Phaser.Scene {
 function pickRoster(first: string, n: number): string[] {
   const ids = [first];
   for (const h of HEROES) {
-    if (ids.length >= n) break;
-    if (!ids.includes(h.id)) ids.push(h.id);
+    if (ids.length >= n) {
+      break;
+    }
+    if (!ids.includes(h.id)) {
+      ids.push(h.id);
+    }
   }
   return ids;
 }

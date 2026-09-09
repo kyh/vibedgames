@@ -7,32 +7,31 @@ import type { Size } from "./paths.js";
  * art, and normalising where the visible sprite sits inside each cell.
  */
 
-export type ProbeResult = {
+export interface ProbeResult {
   path: string;
   frame: { w: number; h: number };
   grid: { columns: number; rows: number };
   non_empty: [number, number][];
   empty_count: number;
   empty?: [number, number][];
-};
+}
 
 /** Split `size` into a `frame`-sized grid, or explain why it doesn't divide. */
-function gridFor(path: string, size: Size, frame: Size) {
+const gridFor = (path: string, size: Size, frame: Size) => {
   if (size.width % frame.width !== 0 || size.height % frame.height !== 0) {
     throw new Error(
       `${path} size ${size.width}x${size.height} not divisible by ${frame.width}x${frame.height}`,
     );
   }
   return { columns: size.width / frame.width, rows: size.height / frame.height };
-}
+};
 
 /** Coordinate sort matching Python's tuple ordering: column first, then row. */
-function byColumnThenRow(a: [number, number], b: [number, number]): number {
-  return a[0] - b[0] || a[1] - b[1];
-}
+const byColumnThenRow = (a: [number, number], b: [number, number]): number =>
+  a[0] - b[0] || a[1] - b[1];
 
 /** List which grid cells contain any non-transparent pixel. */
-export function probeSheet(path: string, frame: Size, includeEmpty: boolean): ProbeResult {
+export const probeSheet = (path: string, frame: Size, includeEmpty: boolean): ProbeResult => {
   const image = Bitmap.fromFile(path);
   const { columns, rows } = gridFor(path, image, frame);
 
@@ -41,29 +40,34 @@ export function probeSheet(path: string, frame: Size, includeEmpty: boolean): Pr
   for (let row = 0; row < rows; row += 1) {
     for (let col = 0; col < columns; col += 1) {
       const cell = image.crop({
-        left: col * frame.width,
-        top: row * frame.height,
-        right: (col + 1) * frame.width,
         bottom: (row + 1) * frame.height,
+        left: col * frame.width,
+        right: (col + 1) * frame.width,
+        top: row * frame.height,
       });
-      if (cell.getBBox()) nonEmpty.push([col, row]);
-      else empty.push([col, row]);
+      if (cell.getBBox()) {
+        nonEmpty.push([col, row]);
+      } else {
+        empty.push([col, row]);
+      }
     }
   }
 
   const result: ProbeResult = {
-    path,
-    frame: { w: frame.width, h: frame.height },
-    grid: { columns, rows },
-    non_empty: [...nonEmpty].sort(byColumnThenRow),
     empty_count: empty.length,
+    frame: { h: frame.height, w: frame.width },
+    grid: { columns, rows },
+    non_empty: [...nonEmpty].toSorted(byColumnThenRow),
+    path,
   };
   // The original emitted `empty` in row-major order rather than sorted.
-  if (includeEmpty) result.empty = empty;
+  if (includeEmpty) {
+    result.empty = empty;
+  }
   return result;
-}
+};
 
-export type FrameBaseline = {
+export interface FrameBaseline {
   index: number;
   col: number;
   row: number;
@@ -72,9 +76,9 @@ export type FrameBaseline = {
   visibleBottomY?: number;
   visibleCenterX?: number;
   shiftToTarget?: [number, number];
-};
+}
 
-export type BaselineReport = {
+export interface BaselineReport {
   path: string;
   size: { width: number; height: number };
   frame: { width: number; height: number };
@@ -85,7 +89,7 @@ export type BaselineReport = {
   shiftYRange: [number, number] | null;
   out: string | null;
   frames: FrameBaseline[];
-};
+}
 
 /**
  * Audit where each frame's visible pixels sit, and optionally rewrite the
@@ -95,13 +99,13 @@ export type BaselineReport = {
  * the animation plays; aligning the bottom of the alpha bounding box fixes it
  * without re-authoring the art.
  */
-export function analyzeBaseline(
+export const analyzeBaseline = (
   path: string,
   frame: Size,
   targetBottom: number,
   targetCenterX: number | null,
   outPath: string | null,
-): BaselineReport {
+): BaselineReport => {
   const image = Bitmap.fromFile(path);
   const { columns, rows } = gridFor(path, image, frame);
   const fixed = outPath ? Bitmap.create(image.width, image.height) : null;
@@ -112,17 +116,19 @@ export function analyzeBaseline(
       const left = col * frame.width;
       const top = row * frame.height;
       const cell = image.crop({
-        left,
-        top,
-        right: left + frame.width,
         bottom: top + frame.height,
+        left,
+        right: left + frame.width,
+        top,
       });
       const bbox = cell.getBBox();
       const index = row * columns + col;
 
       if (!bbox) {
-        frames.push({ index, col, row, empty: true });
-        if (fixed) fixed.alphaComposite(cell, left, top);
+        frames.push({ col, empty: true, index, row });
+        if (fixed) {
+          fixed.alphaComposite(cell, left, top);
+        }
         continue;
       }
 
@@ -132,14 +138,14 @@ export function analyzeBaseline(
       const shiftX = targetCenterX === null ? 0 : roundHalfToEven(targetCenterX - centerX);
 
       frames.push({
-        index,
-        col,
-        row,
-        empty: false,
         alphaBBox: [bbox.left, bbox.top, bbox.right, bbox.bottom],
+        col,
+        empty: false,
+        index,
+        row,
+        shiftToTarget: [shiftX, shiftY],
         visibleBottomY: bottomY,
         visibleCenterX: centerX,
-        shiftToTarget: [shiftX, shiftY],
       });
 
       if (fixed) {
@@ -150,22 +156,28 @@ export function analyzeBaseline(
     }
   }
 
-  if (fixed && outPath) fixed.toFile(outPath);
+  if (fixed && outPath) {
+    fixed.toFile(outPath);
+  }
 
   const visible = frames.filter((f) => !f.empty);
-  const bottoms = visible.map((f) => f.visibleBottomY!);
-  const shifts = visible.map((f) => f.shiftToTarget![1]);
+  const bottoms = visible.flatMap((f) =>
+    f.visibleBottomY === undefined ? [] : [f.visibleBottomY],
+  );
+  const shifts = visible.flatMap((f) =>
+    f.shiftToTarget === undefined ? [] : [f.shiftToTarget[1]],
+  );
 
   return {
-    path,
-    size: { width: image.width, height: image.height },
-    frame: { width: frame.width, height: frame.height },
+    frame: { height: frame.height, width: frame.width },
+    frames,
     grid: { columns, rows },
+    out: outPath,
+    path,
+    shiftYRange: shifts.length ? [Math.min(...shifts), Math.max(...shifts)] : null,
+    size: { height: image.height, width: image.width },
     targetBottomY: targetBottom,
     targetCenterX,
     visibleBottomYRange: bottoms.length ? [Math.min(...bottoms), Math.max(...bottoms)] : null,
-    shiftYRange: shifts.length ? [Math.min(...shifts), Math.max(...shifts)] : null,
-    out: outPath,
-    frames,
   };
-}
+};

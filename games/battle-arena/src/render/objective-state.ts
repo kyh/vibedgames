@@ -8,7 +8,9 @@ function nearest<T extends { id: string; x: number; y: number }>(
   previousId: string | null,
 ): T | null {
   const previous = choices.find((choice) => choice.id === previousId);
-  if (previous) return previous;
+  if (previous) {
+    return previous;
+  }
   let selected: T | null = null;
   let distance = Infinity;
   for (const choice of choices) {
@@ -34,8 +36,8 @@ export function coinObjective(w: World, me: Unit | null, previousId: string | nu
       Math.ceil(((flying ? target.landAt : target.expireAt) - w.now) / 1000),
     );
     return {
-      target,
       live: !flying,
+      target,
       text: flying ? `◈ COIN LANDING ${remaining}s` : `◈ COIN ${remaining}s LEFT`,
     };
   }
@@ -43,7 +45,7 @@ export function coinObjective(w: World, me: Unit | null, previousId: string | nu
     w.boss.alive && w.nextCoinAt > w.gameTime
       ? `◈ COIN ${Math.ceil(w.nextCoinAt - w.gameTime)}s`
       : "";
-  return { target: null, live: false, text };
+  return { live: false, target: null, text };
 }
 
 export function deliveryObjective(w: World, me: Unit | null, previousId: string | null = null) {
@@ -52,14 +54,14 @@ export function deliveryObjective(w: World, me: Unit | null, previousId: string 
   if (target) {
     const reward = me && me.items.length >= MAX_ITEMS ? "GOLD" : "ITEM";
     return {
-      target,
       live: true,
+      target,
       text: `▣ ${reward} ${Math.max(1, Math.ceil((target.expireAt - w.now) / 1000))}s LEFT`,
     };
   }
   return {
-    target: null,
     live: false,
+    target: null,
     text:
       w.nextDeliveryAt > w.gameTime ? `▣ DROP ${Math.ceil(w.nextDeliveryAt - w.gameTime)}s` : "",
   };

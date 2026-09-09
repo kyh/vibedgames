@@ -1,6 +1,7 @@
 // Actual shared shell + game state machine. EventTarget supplies native event
 // dispatch; only DOM drawing and the frame scheduler are inert fixtures.
 import assert from "node:assert/strict";
+
 class Node extends EventTarget {
   style = { setProperty() {} };
   children = [];
@@ -30,10 +31,10 @@ globalThis.window = win;
 globalThis.HTMLElement = Node;
 globalThis.Element = Node;
 globalThis.document = {
-  createElement: () => new Node(),
   body: new Node(),
-  head: new Node(),
+  createElement: () => new Node(),
   getElementById: () => null,
+  head: new Node(),
 };
 const callbacks = new Map();
 let serial = 0;
@@ -45,9 +46,9 @@ globalThis.cancelAnimationFrame = (id) => callbacks.delete(id);
 const { createPauseShell } = await import("../src/pause-shell.ts");
 const { setPauseHandlers, notifyGameStarted, pauseGame, resumeGame, isPausable } =
   await import("../src/game.ts");
-let modal = false,
-  resumes = 0;
-const shell = createPauseShell({ render() {}, fadeMs: 0, modalOpen: () => modal });
+let modal = false;
+let resumes = 0;
+const shell = createPauseShell({ fadeMs: 0, modalOpen: () => modal, render() {} });
 setPauseHandlers({
   onPause: shell.show,
   onResume: () => {
@@ -59,8 +60,8 @@ notifyGameStarted();
 function key(type, code, repeat = false) {
   const event = new Event(type, { cancelable: true });
   Object.defineProperties(event, {
-    key: { value: code === "Escape" ? "Escape" : code.slice(3).toLowerCase() },
     code: { value: code },
+    key: { value: code === "Escape" ? "Escape" : code.slice(3).toLowerCase() },
     repeat: { value: repeat },
   });
   win.dispatchEvent(event);

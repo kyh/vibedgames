@@ -30,7 +30,7 @@ export type ParcelHint = (typeof PARCEL_HINTS)[number];
 
 const Q = 20;
 
-export type ParcelSource = {
+export interface ParcelSource {
   readonly count: number;
   /** Ring i is coords[offsets[i] * 2 .. offsets[i + 1] * 2). */
   readonly offsets: Uint32Array;
@@ -41,19 +41,24 @@ export type ParcelSource = {
   readonly hero: Uint8Array;
   /** Bit e set = ring edge e (vertex e -> e+1) is a party wall. */
   readonly blind: Uint32Array;
-};
-
-export function hintOf(src: ParcelSource, i: number): ParcelHint {
-  return PARCEL_HINTS[src.hints[i] ?? 0] ?? "generic";
 }
 
-export function decodeParcelSource(buf: ArrayBuffer): ParcelSource {
+export const hintOf = (src: ParcelSource, i: number): ParcelHint =>
+  PARCEL_HINTS[src.hints[i] ?? 0] ?? "generic";
+
+export const decodeParcelSource = (buf: ArrayBuffer): ParcelSource => {
   const dv = new DataView(buf);
   let off = 0;
   let magic = "";
-  for (let i = 0; i < 4; i++) magic += String.fromCharCode(dv.getUint8(off++));
-  if (magic !== PARCEL_SOURCE_MAGIC) throw new Error(`parcels.bin: bad magic ${magic}`);
-  const version = dv.getUint8(off++);
+  for (let i = 0; i < 4; i += 1) {
+    magic += String.fromCodePoint(dv.getUint8(off));
+    off += 1;
+  }
+  if (magic !== PARCEL_SOURCE_MAGIC) {
+    throw new Error(`parcels.bin: bad magic ${magic}`);
+  }
+  const version = dv.getUint8(off);
+  off += 1;
   if (version !== PARCEL_SOURCE_VERSION) {
     throw new Error(`parcels.bin: version ${version}, expected ${PARCEL_SOURCE_VERSION}`);
   }
@@ -66,12 +71,13 @@ export function decodeParcelSource(buf: ArrayBuffer): ParcelSource {
   const blind = new Uint32Array(count);
   // Two passes would need the vertex total up front; one pass over a growable
   // buffer is simpler and the stream is a few megabytes.
-  let coords = new Float32Array(1 << 16);
+  let coords = new Float32Array(65_536);
   let nv = 0;
-  for (let i = 0; i < count; i++) {
-    const n = dv.getUint8(off++);
-    hints[i] = dv.getUint8(off++);
-    hero[i] = dv.getUint8(off++) & 1;
+  for (let i = 0; i < count; i += 1) {
+    const n = dv.getUint8(off);
+    hints[i] = dv.getUint8(off + 1);
+    hero[i] = dv.getUint8(off + 2) % 2;
+    off += 3;
     heights[i] = dv.getUint16(off, true) / 100;
     off += 2;
     blind[i] = dv.getUint32(off, true);
@@ -84,7 +90,7 @@ export function decodeParcelSource(buf: ArrayBuffer): ParcelSource {
     }
     let px = 0;
     let pz = 0;
-    for (let k = 0; k < n; k++) {
+    for (let k = 0; k < n; k += 1) {
       const dx = dv.getInt16(off, true);
       const dz = dv.getInt16(off + 2, true);
       off += 4;
@@ -96,5 +102,5 @@ export function decodeParcelSource(buf: ArrayBuffer): ParcelSource {
     nv += n;
   }
   offsets[count] = nv;
-  return { count, offsets, coords: coords.slice(0, nv * 2), heights, hints, hero, blind };
-}
+  return { blind, coords: coords.slice(0, nv * 2), count, heights, hero, hints, offsets };
+};

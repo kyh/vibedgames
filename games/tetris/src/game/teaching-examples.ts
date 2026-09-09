@@ -2,14 +2,14 @@ import { Board } from "./board";
 import type { Cell, ClearResult } from "./board";
 import { Piece } from "./piece";
 
-export type TeachingExample = {
+export interface TeachingExample {
   title: string;
   body: string;
   hint: string;
   cells: Cell[];
   landing: Cell[];
   clear: ClearResult | null;
-};
+}
 
 /** Isolated real boards keep the examples tied to the game's spatial rules. */
 export function teachingExamples(): TeachingExample[] {
@@ -38,28 +38,28 @@ export function teachingExamples(): TeachingExample[] {
   const piece = new Piece(2, landingBoard);
   return [
     {
-      title: `${singleClear.cubes} across or ${singleClear.cubes} deep.`,
       body: "Fill a row at one height. Either floor direction clears.",
-      hint: "Power sweeps the lowest occupied level.",
       cells: row,
-      landing: [],
       clear: singleClear,
-    },
-    {
-      title: "Read the landing outline.",
-      body: "Orbit to find gaps. The wireframe marks where your slab will land.",
-      hint: "Movement follows your view. The landing cells stay in the well.",
-      cells: obstacles,
-      landing: piece.landingCells(landingBoard),
-      clear: null,
-    },
-    {
-      title: `${crossedClear.lines} lines. ${crossedClear.cubes} cubes.`,
-      body: "Complete both directions together for the crossed-clear bonus.",
-      hint: "Hands up can catch a collapse. Packed gaps may save the stack.",
-      cells: cross,
+      hint: "Power sweeps the lowest occupied level.",
       landing: [],
+      title: `${singleClear.cubes} across or ${singleClear.cubes} deep.`,
+    },
+    {
+      body: "Orbit to find gaps. The wireframe marks where your slab will land.",
+      cells: obstacles,
+      clear: null,
+      hint: "Movement follows your view. The landing cells stay in the well.",
+      landing: piece.landingCells(landingBoard),
+      title: "Read the landing outline.",
+    },
+    {
+      body: "Complete both directions together for the crossed-clear bonus.",
+      cells: cross,
       clear: crossedClear,
+      hint: "Hands up can catch a collapse. Packed gaps may save the stack.",
+      landing: [],
+      title: `${crossedClear.lines} lines. ${crossedClear.cubes} cubes.`,
     },
   ];
 }

@@ -1,4 +1,5 @@
-import Phaser from "phaser";
+import type { Types } from "phaser";
+import { Game, Scale, WEBGL } from "phaser";
 
 import { BootScene } from "./scenes/boot-scene";
 import { GameScene } from "./scenes/game-scene";
@@ -21,39 +22,42 @@ if (seedParam !== null && seedParam !== "" && Number.isFinite(Number(seedParam))
   reseed(7);
 }
 
-const config: Phaser.Types.Core.GameConfig = {
-  type: Phaser.WEBGL,
+const config: Types.Core.GameConfig = {
   parent: "game",
+  scale: {
+    height: "100%",
+    // Fill the window; GameScene owns the hard-centered follow camera.
+    mode: Scale.RESIZE,
+    width: "100%",
+  },
+  scene: [BootScene, GameScene],
   // Transparent canvas: the page's tiled bg.png texture shows through inside
   // the world; the out-of-bounds mask still paints opaque.
   transparent: true,
-  scale: {
-    // Fill the window; GameScene owns the hard-centered follow camera.
-    mode: Phaser.Scale.RESIZE,
-    width: "100%",
-    height: "100%",
-  },
-  scene: [BootScene, GameScene],
+  type: WEBGL,
 };
 
 declare global {
   interface Window {
     /** DEV-only hook for headless verification. */
-    __game?: Phaser.Game;
+    __game?: Game;
   }
 }
 
-const game = new Phaser.Game(config);
-if (import.meta.env.DEV) window.__game = game;
+const game = new Game(config);
+if (import.meta.env.DEV) {
+  window.__game = game;
+}
 
 // Trailer mode (?trailer=1): hand the booted game to the director, which
 // stages a scripted, letterboxed gameplay trailer over a forced-offline
 // session (GameScene skips the socket under this flag). Lazy import — the
 // director/shell UI never loads in normal play.
 if (trailerMode) {
-  void import("./trailer/trailer-director").then(({ bootTrailerDirector }) =>
-    bootTrailerDirector(game),
-  );
+  void (async () => {
+    const { bootTrailerDirector } = await import("./trailer/trailer-director");
+    bootTrailerDirector(game);
+  })();
 }
 
 // Scale.RESIZE can read stale parent bounds when a resize lands while the tab
@@ -66,5 +70,7 @@ const refreshScale = (): void => {
 };
 window.addEventListener("resize", refreshScale);
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) refreshScale();
+  if (!document.hidden) {
+    refreshScale();
+  }
 });

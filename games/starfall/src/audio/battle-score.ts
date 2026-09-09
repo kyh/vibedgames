@@ -2,11 +2,15 @@ import type { BattleBeat } from "../render/battle-beat";
 
 export type MusicMode = "silent" | "flight" | "boss";
 export type MusicScore = Exclude<MusicMode, "silent">;
-type Note = { rate: number; gain: number; delay: number };
-type Phrase = {
+interface Note {
+  rate: number;
+  gain: number;
+  delay: number;
+}
+interface Phrase {
   waitSeconds: number;
   notes: readonly [] | readonly [Note] | readonly [Note, Note];
-};
+}
 
 const FLIGHT_BUILD = [1, 1.125, 1.25, 1.5];
 const BOSS_BUILD = [1, 1.125, 1.2, 1.5];
@@ -16,14 +20,18 @@ const QUIET_ROOTS = [1, 0.75, 1.125];
 /** Leave space for existing arrival/phase/defeat cues before the new bed. */
 export function scoreLeadIn(beat: BattleBeat): number {
   switch (beat) {
-    case "quiet":
+    case "quiet": {
       return 1.5;
-    case "build":
+    }
+    case "build": {
       return 0.5;
-    case "crest":
+    }
+    case "crest": {
       return 0.65;
-    case "aftermath":
+    }
+    case "aftermath": {
       return 1.1;
+    }
   }
 }
 
@@ -33,35 +41,39 @@ export function scoreLeadIn(beat: BattleBeat): number {
 export function battlePhrase(mode: MusicScore, beat: BattleBeat, step: number): Phrase {
   switch (beat) {
     case "quiet": {
-      if (step % 4 === 3) return { waitSeconds: 12, notes: [] };
+      if (step % 4 === 3) {
+        return { waitSeconds: 12, notes: [] };
+      }
       const root = QUIET_ROOTS[step % QUIET_ROOTS.length] ?? 1;
-      return { waitSeconds: 12, notes: [{ rate: root, gain: 0.5, delay: 0 }] };
+      return { notes: [{ rate: root, gain: 0.5, delay: 0 }], waitSeconds: 12 };
     }
     case "build": {
       const roots = mode === "flight" ? FLIGHT_BUILD : BOSS_BUILD;
       const root = roots[step % roots.length] ?? 1;
       return {
-        waitSeconds: mode === "flight" ? 6.4 : 5.2,
         notes: [
           { rate: root, gain: 0.72, delay: 0 },
           { rate: root * 1.5, gain: 0.4, delay: 0.32 },
         ],
+        waitSeconds: mode === "flight" ? 6.4 : 5.2,
       };
     }
     case "crest": {
       // Every fourth bar breathes even at the crest. Peak note gain matches
       // the original bed; its shorter spacing supplies the extra energy.
-      if (step % 4 === 3) return { waitSeconds: 3.6, notes: [] };
+      if (step % 4 === 3) {
+        return { waitSeconds: 3.6, notes: [] };
+      }
       const root = CREST_ROOTS[step % CREST_ROOTS.length] ?? 1;
       return {
-        waitSeconds: mode === "flight" ? 3.6 : 3,
         notes: [
           { rate: root, gain: 1, delay: 0 },
           { rate: root * (mode === "flight" ? 1.25 : 1.2), gain: 0.55, delay: 0.22 },
         ],
+        waitSeconds: mode === "flight" ? 3.6 : 3,
       };
     }
-    case "aftermath":
+    case "aftermath": {
       // One descending fifth resolves into a sustained tonic, then silence.
       // Advancing through rests prevents pause/mode changes from replaying it.
       return step === 0
@@ -73,5 +85,6 @@ export function battlePhrase(mode: MusicScore, beat: BattleBeat, step: number): 
             ],
           }
         : { waitSeconds: 12, notes: [] };
+    }
   }
 }

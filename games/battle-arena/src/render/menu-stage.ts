@@ -7,25 +7,31 @@
 // ChampDef scale, so the Black Knight reads properly huge in select.
 import * as THREE from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { CHAMPIONS } from "../data/champions";
-import { AnimatedCharacter, ModelLibrary } from "./models";
+import { CHAMPIONS, DEFAULT_CHAMP } from "../data/champions";
+import type { ModelLibrary } from "./models";
+import { AnimatedCharacter } from "./animated-character";
 import { fovForAspect } from "./view";
 
-const ARC_R = 15; // arc radius — edge champs curve gently back into the fog
-const ARC_GAP = 2.35; // spacing along the arc between champions (6-champ row)
+// arc radius — edge champs curve gently back into the fog
+const ARC_R = 15;
+// spacing along the arc between champions (6-champ row)
+const ARC_GAP = 2.35;
 const CAM_Z = 11.5;
-const STAGE_FOV = 45; // vertical at square or wider; widened for portrait
+// vertical at square or wider; widened for portrait
+const STAGE_FOV = 45;
 
-type Slot = {
+interface Slot {
   id: string;
   tint: number;
   char: AnimatedCharacter;
   group: THREE.Group;
   ring: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
   mats: THREE.MeshStandardMaterial[];
-  baseYaw: number; // resting turn toward the camera (arc lineup look)
-  baseZ: number; // resting depth on the arc (selected steps forward from here)
-};
+  // resting turn toward the camera (arc lineup look)
+  baseYaw: number;
+  // resting depth on the arc (selected steps forward from here)
+  baseZ: number;
+}
 
 export class MenuStage {
   readonly scene = new THREE.Scene();
@@ -33,41 +39,41 @@ export class MenuStage {
   private slots: Slot[] = [];
   private raycaster = new THREE.Raycaster();
   private picks: THREE.Object3D[] = [];
-  private selectedId = CHAMPIONS[0]!.id;
+  private selectedId = CHAMPIONS[0]?.id ?? DEFAULT_CHAMP;
   private hoverId: string | null = null;
   private t = 0;
+  private readonly renderer: THREE.WebGLRenderer;
+  private readonly onSelect: (id: string) => void;
 
-  constructor(
-    private renderer: THREE.WebGLRenderer,
-    lib: ModelLibrary,
-    private onSelect: (id: string) => void,
-  ) {
-    this.scene.background = new THREE.Color(0x0a0e1a);
-    this.scene.fog = new THREE.Fog(0x0a0e1a, 15, 34);
+  constructor(renderer: THREE.WebGLRenderer, lib: ModelLibrary, onSelect: (id: string) => void) {
+    this.renderer = renderer;
+    this.onSelect = onSelect;
+    this.scene.background = new THREE.Color(0x0a_0e_1a);
+    this.scene.fog = new THREE.Fog(0x0a_0e_1a, 15, 34);
 
     const pmrem = new THREE.PMREMGenerator(renderer);
     this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     this.scene.environmentIntensity = 0.5;
     pmrem.dispose();
 
-    this.scene.add(new THREE.HemisphereLight(0x9fc6ff, 0x1a1a24, 1.0));
-    const key = new THREE.DirectionalLight(0xfff1d6, 2.4);
+    this.scene.add(new THREE.HemisphereLight(0x9f_c6_ff, 0x1a_1a_24, 1));
+    const key = new THREE.DirectionalLight(0xff_f1_d6, 2.4);
     key.position.set(5, 9, 7);
     this.scene.add(key);
-    const rim = new THREE.DirectionalLight(0x6fa0ff, 0.8);
+    const rim = new THREE.DirectionalLight(0x6f_a0_ff, 0.8);
     rim.position.set(-6, 4, -5);
     this.scene.add(rim);
 
     const floor = new THREE.Mesh(
       new THREE.CircleGeometry(13, 56),
-      new THREE.MeshStandardMaterial({ color: 0x161d30, roughness: 0.92, metalness: 0.1 }),
+      new THREE.MeshStandardMaterial({ color: 0x16_1d_30, metalness: 0.1, roughness: 0.92 }),
     );
     floor.rotation.x = -Math.PI / 2;
     this.scene.add(floor);
 
     const n = CHAMPIONS.length;
     const ringGeo = new THREE.RingGeometry(0.72, 0.98, 36);
-    CHAMPIONS.forEach((c, i) => {
+    for (const [i, c] of CHAMPIONS.entries()) {
       const group = new THREE.Group();
       // shallow arc: x sweeps the row, edges bow away from the camera
       const th = (i - (n - 1) / 2) * (ARC_GAP / ARC_R);
@@ -81,24 +87,33 @@ export class MenuStage {
       const char = new AnimatedCharacter(lib, c.model, c.rig === "large" ? "Large/" : "");
       const mats: THREE.MeshStandardMaterial[] = [];
       char.root.traverse((o) => {
-        if (!(o instanceof THREE.Mesh)) return;
-        if (Array.isArray(o.material)) o.material = o.material.map((mm) => mm.clone());
-        else o.material = o.material.clone();
+        if (!(o instanceof THREE.Mesh)) {
+          return;
+        }
+        o.material = Array.isArray(o.material)
+          ? o.material.map((mm) => mm.clone())
+          : o.material.clone();
         const mat = Array.isArray(o.material) ? o.material[0] : o.material;
-        if (mat instanceof THREE.MeshStandardMaterial) mats.push(mat);
+        if (mat instanceof THREE.MeshStandardMaterial) {
+          mats.push(mat);
+        }
       });
       char.root.scale.setScalar(scale);
       group.add(char.root);
-      if (c.weaponR) char.attach(lib.instance(c.weaponR), "handslot.r");
-      if (c.weaponL) char.attach(lib.instance(c.weaponL), "handslot.l");
+      if (c.weaponR) {
+        char.attach(lib.instance(c.weaponR), "handslot.r");
+      }
+      if (c.weaponL) {
+        char.attach(lib.instance(c.weaponL), "handslot.l");
+      }
 
       const ring = new THREE.Mesh(
         ringGeo,
         new THREE.MeshBasicMaterial({
           color: c.tint,
-          transparent: true,
           opacity: 0,
           side: THREE.DoubleSide,
+          transparent: true,
         }),
       );
       ring.rotation.x = -Math.PI / 2;
@@ -116,19 +131,20 @@ export class MenuStage {
 
       this.scene.add(group);
       char.play("Idle_B", { fade: 0 });
-      char.update(i * 0.37); // stagger so the idles don't march in lockstep
+      // stagger so the idles don't march in lockstep
+      char.update(i * 0.37);
 
       this.slots.push({
-        id: c.id,
-        tint: c.tint,
-        char,
-        group,
-        ring,
-        mats,
         baseYaw,
         baseZ: group.position.z,
+        char,
+        group,
+        id: c.id,
+        mats,
+        ring,
+        tint: c.tint,
       });
-    });
+    }
 
     this.camera = new THREE.PerspectiveCamera(STAGE_FOV, 1, 0.1, 100);
     this.camera.position.set(0, 2.8, CAM_Z);
@@ -151,8 +167,10 @@ export class MenuStage {
       -(clientY / window.innerHeight) * 2 + 1,
     );
     this.raycaster.setFromCamera(ndc, this.camera);
-    const hit = this.raycaster.intersectObjects(this.picks, false)[0];
-    if (!hit) return null;
+    const [hit] = this.raycaster.intersectObjects(this.picks, false);
+    if (!hit) {
+      return null;
+    }
     // SAFETY: only the pick proxies are raycast here, and each one is tagged
     // userData.champId = <champ id string> when the slots are built above.
     return hit.object.userData["champId"] as string;
@@ -180,19 +198,36 @@ export class MenuStage {
       const hovered = s.id === this.hoverId;
       // selected steps forward + bobs + spins its ring; hovered lifts a touch
       const targetZ = s.baseZ + (selected ? 1.2 : 0);
-      const targetScale = selected ? 1.12 : hovered ? 1.05 : 1;
+      let targetScale = 1;
+      if (selected) {
+        targetScale = 1.12;
+      } else if (hovered) {
+        targetScale = 1.05;
+      }
       s.group.position.z += (targetZ - s.group.position.z) * Math.min(1, 8 * dt);
       const sc = s.group.scale.x + (targetScale - s.group.scale.x) * Math.min(1, 8 * dt);
       s.group.scale.setScalar(sc);
       s.group.rotation.y = s.baseYaw + (selected ? Math.sin(this.t * 0.6) * 0.25 : 0);
       const ringMat = s.ring.material;
-      const targetOp = selected ? 0.85 + Math.sin(this.t * 4) * 0.15 : hovered ? 0.4 : 0;
+      let targetOp = 0;
+      if (selected) {
+        targetOp = 0.85 + Math.sin(this.t * 4) * 0.15;
+      } else if (hovered) {
+        targetOp = 0.4;
+      }
       ringMat.opacity += (targetOp - ringMat.opacity) * Math.min(1, 10 * dt);
       s.ring.rotation.z += (selected ? 1.4 : 0.3) * dt;
       // subtle emissive rim on the selected champion
-      const glow = selected ? 0.18 : hovered ? 0.07 : 0;
+      let glow = 0;
+      if (selected) {
+        glow = 0.18;
+      } else if (hovered) {
+        glow = 0.07;
+      }
       const c = new THREE.Color(s.tint);
-      for (const m of s.mats) m.emissive.setRGB(c.r * glow, c.g * glow, c.b * glow);
+      for (const m of s.mats) {
+        m.emissive.setRGB(c.r * glow, c.g * glow, c.b * glow);
+      }
     }
   }
 
@@ -207,13 +242,20 @@ export class MenuStage {
   }
 
   dispose(): void {
-    for (const s of this.slots) s.char.dispose();
+    for (const s of this.slots) {
+      s.char.dispose();
+    }
     this.scene.traverse((o) => {
       if (o instanceof THREE.Mesh) {
         o.geometry.dispose();
         const mat = o.material;
-        if (Array.isArray(mat)) mat.forEach((x) => x.dispose());
-        else mat.dispose();
+        if (Array.isArray(mat)) {
+          for (const x of mat) {
+            x.dispose();
+          }
+        } else {
+          mat.dispose();
+        }
       }
     });
   }

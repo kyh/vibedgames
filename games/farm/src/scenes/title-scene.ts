@@ -3,7 +3,8 @@ import { watchControlContext } from "@repo/embed";
 import { PhysicalGamepad } from "@vibedgames/gamepad";
 import { clearSave, loadSave } from "../systems/save";
 import { Sound } from "../render/audio";
-import { buildControlsCard, type ControlsCard } from "../render/controls-card";
+import { buildControlsCard } from "../render/controls-card";
+import type { ControlsCard } from "../render/controls-card";
 import { mountTouchControls } from "../touch-controls";
 import { seasonName, seasonOfDay } from "../data/calendar";
 
@@ -24,14 +25,16 @@ export class TitleScene extends Phaser.Scene {
   }
 
   create(): void {
-    document.getElementById("veil")?.classList.add("hidden");
+    document.querySelector("#veil")?.classList.add("hidden");
     mountTouchControls();
     const { width, height } = this.scale;
 
     // cozy sky->grass backdrop
     const bg = this.add.graphics();
     this.drawBackdrop(bg, width, height);
-    if (this.onResize) this.scale.off("resize", this.onResize);
+    if (this.onResize) {
+      this.scale.off("resize", this.onResize);
+    }
     this.onResize = (gs: Phaser.Structs.Size) => {
       bg.clear();
       this.drawBackdrop(bg, gs.width, gs.height);
@@ -39,7 +42,9 @@ export class TitleScene extends Phaser.Scene {
     };
     this.scale.on("resize", this.onResize);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      if (this.onResize) this.scale.off("resize", this.onResize);
+      if (this.onResize) {
+        this.scale.off("resize", this.onResize);
+      }
     });
 
     // decorative idle farmer
@@ -47,11 +52,11 @@ export class TitleScene extends Phaser.Scene {
 
     const title = this.add
       .text(0, 0, "FARM", {
+        align: "center",
+        color: "#fff6d5",
         fontFamily: "ui-monospace, monospace",
         fontSize: "84px",
         fontStyle: "900",
-        color: "#fff6d5",
-        align: "center",
         stroke: "#7a4a18",
         strokeThickness: 10,
       })
@@ -61,17 +66,17 @@ export class TitleScene extends Phaser.Scene {
 
     const tag = this.add
       .text(0, 0, "a cozy farming RPG", {
+        color: "#eaffd0",
         fontFamily: "ui-monospace, monospace",
         fontSize: "20px",
-        color: "#eaffd0",
       })
       .setOrigin(0.5);
 
     const intro = this.add
       .text(0, 0, "Till → plant → water → sleep", {
+        color: "#fff6d5",
         fontFamily: "ui-monospace, monospace",
         fontSize: "14px",
-        color: "#fff6d5",
         stroke: "#547f2c",
         strokeThickness: 3,
       })
@@ -107,7 +112,7 @@ export class TitleScene extends Phaser.Scene {
         0,
         15,
         saved ? `Day ${saved.day} · ${seasonName(seasonOfDay(saved.day))}` : "No saved farm yet",
-        { fontFamily: "ui-monospace, monospace", fontSize: "11px", color: "#e5f3ff" },
+        { color: "#e5f3ff", fontFamily: "ui-monospace, monospace", fontSize: "11px" },
       )
       .setOrigin(0.5);
     contBtn.text.setFontSize(20).setY(-7);
@@ -118,19 +123,21 @@ export class TitleScene extends Phaser.Scene {
       Sound.click();
       this.startNew();
     });
-    if (saved)
+    if (saved) {
       contBtn.zone.on("pointerdown", () => {
         Sound.resume();
         Sound.click();
         this.scene.start("Game", { mode: "continue" });
       });
+    }
 
     this.input.keyboard?.on("keydown-N", () => this.startNew());
     this.input.keyboard?.on("keydown-ENTER", () =>
       saved ? this.scene.start("Game", { mode: "continue" }) : this.startNew(),
     );
-    if (saved)
+    if (saved) {
       this.input.keyboard?.on("keydown-C", () => this.scene.start("Game", { mode: "continue" }));
+    }
 
     const layout = () => {
       const w = this.scale.width;
@@ -161,7 +168,7 @@ export class TitleScene extends Phaser.Scene {
       // it is rebuilt only when the band itself changes — i.e. on a rotation.
       const top = contBtn.container.y + (compact ? 34 : 38);
       const bottom = h - (compact ? 8 : 16);
-      const band = { maxWidth: w - 24, maxHeight: bottom - top };
+      const band = { maxHeight: bottom - top, maxWidth: w - 24 };
       const bandKey = `${Math.round(band.maxWidth)}x${Math.round(band.maxHeight)}`;
       if (bandKey !== cardBand) {
         cardBand = bandKey;
@@ -182,8 +189,11 @@ export class TitleScene extends Phaser.Scene {
   override update(): void {
     this.pad.update();
     if (this.pad.justPressed("a")) {
-      if (this.canContinue) this.scene.start("Game", { mode: "continue" });
-      else this.startNew();
+      if (this.canContinue) {
+        this.scene.start("Game", { mode: "continue" });
+      } else {
+        this.startNew();
+      }
     }
   }
 
@@ -193,39 +203,39 @@ export class TitleScene extends Phaser.Scene {
   }
 
   private drawBackdrop(g: Phaser.GameObjects.Graphics, w: number, h: number): void {
-    g.fillGradientStyle(0x9fd8f0, 0x9fd8f0, 0x8fce5a, 0x6fb84a, 1);
+    g.fillGradientStyle(0x9f_d8_f0, 0x9f_d8_f0, 0x8f_ce_5a, 0x6f_b8_4a, 1);
     g.fillRect(0, 0, w, h);
     // soft sun
-    g.fillStyle(0xfff3c4, 0.5);
+    g.fillStyle(0xff_f3_c4, 0.5);
     g.fillCircle(w * 0.8, h * 0.2, 80);
-    g.fillStyle(0xfff3c4, 0.8);
+    g.fillStyle(0xff_f3_c4, 0.8);
     g.fillCircle(w * 0.8, h * 0.2, 52);
   }
 
   private makeButton(label: string, color: string) {
     const container = this.add.container(0, 0);
     const bg = this.add.graphics();
-    const w = 280,
-      h = 56;
+    const h = 56,
+      w = 280;
     const c = Phaser.Display.Color.HexStringToColor(color).color;
-    bg.fillStyle(0x000000, 0.18);
+    bg.fillStyle(0x00_00_00, 0.18);
     bg.fillRoundedRect(-w / 2 + 3, -h / 2 + 5, w, h, 14);
     bg.fillStyle(c, 1);
     bg.fillRoundedRect(-w / 2, -h / 2, w, h, 14);
-    bg.lineStyle(3, 0xffffff, 0.5);
+    bg.lineStyle(3, 0xff_ff_ff, 0.5);
     bg.strokeRoundedRect(-w / 2, -h / 2, w, h, 14);
     const txt = this.add
       .text(0, 0, label, {
+        color: "#ffffff",
         fontFamily: "ui-monospace, monospace",
         fontSize: "24px",
         fontStyle: "bold",
-        color: "#ffffff",
       })
       .setOrigin(0.5);
     const zone = this.add.zone(0, 0, w, h).setInteractive({ useHandCursor: true });
     container.add([bg, txt, zone]);
     zone.on("pointerover", () => container.setScale(1.05));
     zone.on("pointerout", () => container.setScale(1));
-    return { container, zone, text: txt };
+    return { container, text: txt, zone };
   }
 }

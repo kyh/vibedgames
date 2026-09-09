@@ -18,24 +18,27 @@ import type { Sky } from "./sky";
 // light hands off from the setting sun to the moon.
 
 const SF_TZ = "America/Los_Angeles";
-const CLOCK_RESYNC_S = 1; // re-read the SF wall clock this often
-const SHADOW_MIN_ELEV_Y = 0.09; // light dir y below this → shadows off (~5°)
+// re-read the SF wall clock this often
+const CLOCK_RESYNC_S = 1;
+// light dir y below this → shadows off (~5°)
+const SHADOW_MIN_ELEV_Y = 0.09;
 const SHADOW_MIN_INT = 0.6;
 
-function dir(elevDeg: number, azimDeg: number): THREE.Vector3 {
-  return new THREE.Vector3().setFromSphericalCoords(
+const dir = (elevDeg: number, azimDeg: number): THREE.Vector3 =>
+  new THREE.Vector3().setFromSphericalCoords(
     1,
     THREE.MathUtils.degToRad(90 - elevDeg),
     THREE.MathUtils.degToRad(azimDeg),
   );
-}
 
 const MOON = dir(42, -40);
 
-type Stop = {
+interface Stop {
   readonly p: number;
-  readonly sunDir: THREE.Vector3; // the SKY's sun (goes below the horizon)
-  readonly lightDir: THREE.Vector3; // the shadow light (sun, then moon)
+  // the SKY's sun (goes below the horizon)
+  readonly sunDir: THREE.Vector3;
+  // the shadow light (sun, then moon)
+  readonly lightDir: THREE.Vector3;
   readonly lightColor: THREE.Color;
   readonly lightInt: number;
   readonly hemiSky: THREE.Color;
@@ -53,7 +56,8 @@ type Stop = {
   readonly fogNear: number;
   readonly fogFar: number;
   readonly env: number;
-  readonly lamp: number; // streetlights/headlights 0 off .. 1 full
+  // streetlights/headlights 0 off .. 1 full
+  readonly lamp: number;
   readonly exposure: number;
   // Golden-hour warmth for the post grade (render/grade.ts setGradeWarmth):
   // 0 = neutral daylight, 1 = full gilded golden/sunset. Deliberately its own
@@ -65,7 +69,7 @@ type Stop = {
   // These belong to the cycle, not to scene construction — how much air the sun
   // is shining through is exactly what the hour is. See the presets below.
   readonly sky: SkyPreset;
-};
+}
 
 type SkyPreset = readonly [number, number, number, number, number];
 
@@ -103,13 +107,13 @@ type SkyPreset = readonly [number, number, number, number, number];
 // at 1.2, sunset 38.2/0.5% -> 32.4/0.0% at 0.55 — sunset was never blown, so
 // it only gives up the clipping that was washing out its own oranges (2°
 // elevation, into the sun, goes from a cream (234,226,191) to (223,212,165)).
-const SKY_DAY: SkyPreset = [2.0, 0.5, 0.0018, 0.8, 1.7];
+const SKY_DAY: SkyPreset = [2, 0.5, 0.0018, 0.8, 1.7];
 // Golden hour wants a VEIL, not a clear sky: turbidity + mie forward-scatter
 // paint the amber quarter around the low sun (the kart-racer money shot);
 // loose g keeps the glare see-through instead of a hard disc halo.
-const SKY_GOLDEN: SkyPreset = [4.0, 0.45, 0.0022, 0.66, 1.2];
-const SKY_SUNSET: SkyPreset = [3.0, 0.85, 0.0016, 0.68, 0.55];
-const SKY_NIGHT: SkyPreset = [2.0, 0.5, 0.002, 0.8, 0.55];
+const SKY_GOLDEN: SkyPreset = [4, 0.45, 0.0022, 0.66, 1.2];
+const SKY_SUNSET: SkyPreset = [3, 0.85, 0.0016, 0.68, 0.55];
+const SKY_NIGHT: SkyPreset = [2, 0.5, 0.002, 0.8, 0.55];
 
 // THE SUN DISC IS AN ENERGY BOMB, and it was the whole of the into-sun
 // blowout. three's Sky paints the disc at `sunE * 19000 * Fex * 0.04` while the
@@ -144,7 +148,7 @@ const SUN_DISC_RADIANCE = 400;
 // so a fractional value is the supported way to scale it. These two constants
 // mirror the shader's own: the disc term is `vSunE * 19000 * Fex * 0.04`, and
 // `vSunE` comes from its vertex-stage `sunIntensity(dot(sunDir, up))`.
-const SUN_DISC_TERM = 19000 * 0.04;
+const SUN_DISC_TERM = 19_000 * 0.04;
 const SUN_CUTOFF_ANGLE = 1.6110731556870734;
 const SUN_STEEPNESS = 1.5;
 const SUN_EE = 1000;
@@ -152,17 +156,17 @@ const SUN_EE = 1000;
 // Sky.js `sunIntensity`, given the sine of the sun's elevation. Zero once the
 // sun is below the shader's cutoff — which is also where we want no disc at
 // all, so the divide below is never near zero.
-function sunIntensity(elevSin: number): number {
+const sunIntensity = (elevSin: number): number => {
   const z = THREE.MathUtils.clamp(elevSin, -1, 1);
   return SUN_EE * Math.max(0, 1 - Math.exp(-(SUN_CUTOFF_ANGLE - Math.acos(z)) / SUN_STEEPNESS));
-}
+};
 
-function sunDiscGain(elevSin: number): number {
+const sunDiscGain = (elevSin: number): number => {
   const e = sunIntensity(elevSin);
   return e > 1 ? Math.min(1, SUN_DISC_RADIANCE / (e * SUN_DISC_TERM)) : 0;
-}
+};
 
-function stop(
+const stop = (
   p: number,
   sunElev: number,
   sunAzim: number,
@@ -182,28 +186,26 @@ function stop(
   exposure: number,
   warmth: number,
   sky: SkyPreset,
-): Stop {
-  return {
-    p,
-    sunDir: dir(sunElev, sunAzim),
-    lightDir: light,
-    lightColor: new THREE.Color(lightColor),
-    lightInt,
-    hemiSky: new THREE.Color(hemiSky),
-    hemiGround: new THREE.Color(hemiGround),
-    hemiInt,
-    ambInt,
-    ambColor: new THREE.Color(ambColor),
-    fog: new THREE.Color(fog),
-    fogNear,
-    fogFar,
-    env,
-    lamp,
-    exposure,
-    warmth,
-    sky,
-  };
-}
+): Stop => ({
+  ambColor: new THREE.Color(ambColor),
+  ambInt,
+  env,
+  exposure,
+  fog: new THREE.Color(fog),
+  fogFar,
+  fogNear,
+  hemiGround: new THREE.Color(hemiGround),
+  hemiInt,
+  hemiSky: new THREE.Color(hemiSky),
+  lamp,
+  lightColor: new THREE.Color(lightColor),
+  lightDir: light,
+  lightInt,
+  p,
+  sky,
+  sunDir: dir(sunElev, sunAzim),
+  warmth,
+});
 
 // AERIAL PERSPECTIVE, NOT BLEACH (grading pass 2026-07-26). The fog color used
 // to be 0xbfdcf2 — luminance 0.86, barely a hue. Anything past the fog-near
@@ -225,24 +227,24 @@ const STOPS: readonly Stop[] = [
   // hemisphere fill + warm ground bounce so shadow sides glow instead of
   // going grey. Sun eased down to keep the white sidewalks from clipping.
   //    p     sunEl sunAz  lightDir       color     int   hemiSky   hemiGnd   hInt  amb   ambColor  fog      near far  env   lamp  exp   warm
-  stop(0.00,  35,   115,   dir(35, 115),  0xfff6e0, 1.75, 0xa9dcff, 0x6b6852, 0.52, 0.13, 0xffffff, 0x86b4e2, 460, 960, 0.32, 0,    0.72, 0.15, SKY_DAY),
-  stop(0.25,  50,   150,   dir(50, 150),  0xfff2d8, 1.85, 0xa9dcff, 0x6b6852, 0.52, 0.13, 0xffffff, 0x7fb2e4, 480, 980, 0.32, 0,    0.72, 0.05, SKY_DAY),
+  stop(0,  35,   115,   dir(35, 115),  0xff_f6_e0, 1.75, 0xa9_dc_ff, 0x6b_68_52, 0.52, 0.13, 0xff_ff_ff, 0x86_b4_e2, 460, 960, 0.32, 0,    0.72, 0.15, SKY_DAY),
+  stop(0.25,  50,   150,   dir(50, 150),  0xff_f2_d8, 1.85, 0xa9_dc_ff, 0x6b_68_52, 0.52, 0.13, 0xff_ff_ff, 0x7f_b2_e4, 480, 980, 0.32, 0,    0.72, 0.05, SKY_DAY),
   // Golden hour is DAYLIGHT: sun still 12° up, blue sky, full-strength key.
   // The lamp factor used to open at 0.25 here, which lit the player's night
   // rig (a 70-candela spot plus two head sprites) under a noon-blue sky — the
   // single loudest thing in the most flattering frame the game has. Lamps now
   // wait for the sun to reach the horizon.
-  stop(0.40,   9,   235,   dir(9, 235),   0xffa860, 1.9,  0xffd6a6, 0x6b5c40, 0.48, 0.12, 0xfff2e2, 0xc49a80, 430, 940, 0.26, 0,    0.76, 1.0,  SKY_GOLDEN),
-  stop(0.47,   2,   248,   dir(4, 248),   0xff9350, 1.25, 0xff9d70, 0x3e3a44, 0.36, 0.11, 0xe0dcf0, 0xac7160, 400, 900, 0.18, 0.62, 0.68, 1.0,  SKY_SUNSET),
+  stop(0.4,   9,   235,   dir(9, 235),   0xff_a8_60, 1.9,  0xff_d6_a6, 0x6b_5c_40, 0.48, 0.12, 0xff_f2_e2, 0xc4_9a_80, 430, 940, 0.26, 0,    0.76, 1,  SKY_GOLDEN),
+  stop(0.47,   2,   248,   dir(4, 248),   0xff_93_50, 1.25, 0xff_9d_70, 0x3e_3a_44, 0.36, 0.11, 0xe0_dc_f0, 0xac_71_60, 400, 900, 0.18, 0.62, 0.68, 1,  SKY_SUNSET),
   // Cool skylight makes the driving surface and unlit vehicles legible.
   // Warm windows and local lamps remain the brightest elements. The same
   // light rig serves both render paths; post processing already shapes the
   // desktop night, so a second device-specific fill cut crushed its roads.
-  stop(0.53,  -3,   255,   MOON,          0x8d92c0, 0.48, 0x9dadd4, 0x384259, 0.52, 0.27, 0xc8b0c4, 0x35446a, 380, 900, 0.055, 1,   0.75, 0.3,  SKY_NIGHT),
-  stop(0.62, -30,   270,   MOON,          0x9b9ed6, 0.55, 0x9aadd8, 0x384259, 0.60, 0.30, 0xc2a3bd, 0x1f2c52, 360, 880, 0.055, 1,   0.78, 0,    SKY_NIGHT),
-  stop(0.80, -30,    60,   MOON,          0x9b9ed6, 0.55, 0x9aadd8, 0x384259, 0.60, 0.30, 0xc2a3bd, 0x1f2c52, 360, 880, 0.055, 1,   0.78, 0,    SKY_NIGHT),
-  stop(0.88,  -3,    95,   MOON,          0xc087a0, 0.48, 0xaaa4d0, 0x384259, 0.52, 0.27, 0xc9aabf, 0x4a4668, 380, 920, 0.055, 1,   0.75, 0.1,  SKY_NIGHT),
-  stop(0.94,   4,   105,   dir(6, 105),   0xffb27a, 1.3,  0xffc9a0, 0x4a443c, 0.28, 0.10, 0xffffff, 0xba8f7a, 450, 980, 0.20, 0.45, 0.66, 0.8,  SKY_SUNSET),
+  stop(0.53,  -3,   255,   MOON,          0x8d_92_c0, 0.48, 0x9d_ad_d4, 0x38_42_59, 0.52, 0.27, 0xc8_b0_c4, 0x35_44_6a, 380, 900, 0.055, 1,   0.75, 0.3,  SKY_NIGHT),
+  stop(0.62, -30,   270,   MOON,          0x9b_9e_d6, 0.55, 0x9a_ad_d8, 0x38_42_59, 0.6, 0.3, 0xc2_a3_bd, 0x1f_2c_52, 360, 880, 0.055, 1,   0.78, 0,    SKY_NIGHT),
+  stop(0.8, -30,    60,   MOON,          0x9b_9e_d6, 0.55, 0x9a_ad_d8, 0x38_42_59, 0.6, 0.3, 0xc2_a3_bd, 0x1f_2c_52, 360, 880, 0.055, 1,   0.78, 0,    SKY_NIGHT),
+  stop(0.88,  -3,    95,   MOON,          0xc0_87_a0, 0.48, 0xaa_a4_d0, 0x38_42_59, 0.52, 0.27, 0xc9_aa_bf, 0x4a_46_68, 380, 920, 0.055, 1,   0.75, 0.1,  SKY_NIGHT),
+  stop(0.94,   4,   105,   dir(6, 105),   0xff_b2_7a, 1.3,  0xff_c9_a0, 0x4a_44_3c, 0.28, 0.1, 0xff_ff_ff, 0xba_8f_7a, 450, 980, 0.2, 0.45, 0.66, 0.8,  SKY_SUNSET),
 ];
 
 // SF wall-clock hour (fractional, 0..24) right now. Intl handles DST; some
@@ -250,25 +252,29 @@ const STOPS: readonly Stop[] = [
 // constructing Intl.DateTimeFormat is the expensive part (locale + tz data),
 // and this runs once a second for the whole session.
 const SF_CLOCK = new Intl.DateTimeFormat("en-US", {
-  timeZone: SF_TZ,
   hour: "numeric",
+  hour12: false,
   minute: "numeric",
   second: "numeric",
-  hour12: false,
+  timeZone: SF_TZ,
 });
 
-function sfHourNow(): number {
+const sfHourNow = (): number => {
   const parts = SF_CLOCK.formatToParts(new Date());
   let h = 0;
   let m = 0;
   let s = 0;
   for (const p of parts) {
-    if (p.type === "hour") h = Number(p.value);
-    else if (p.type === "minute") m = Number(p.value);
-    else if (p.type === "second") s = Number(p.value);
+    if (p.type === "hour") {
+      h = Number(p.value);
+    } else if (p.type === "minute") {
+      m = Number(p.value);
+    } else if (p.type === "second") {
+      s = Number(p.value);
+    }
   }
   return (h % 24) + m / 60 + s / 3600;
-}
+};
 
 // SF clock hour → cycle phase, piecewise-linear between anchors. A stylized
 // fixed solar day (no seasonal sunset drift): sunset lands ~18:30–19:30,
@@ -276,29 +282,41 @@ function sfHourNow(): number {
 // Phases are written monotonically over hours 5 → 29 (5am wrap) and taken
 // mod 1, so interpolation never runs backwards through the cycle.
 const HOUR_ANCHORS: readonly (readonly [number, number])[] = [
-  [5.0, 0.84], // pre-dawn dark
-  [6.0, 0.88], // dawn colors
-  [6.75, 0.94], // sunrise
-  [8.0, 1.0], // morning (phase 0)
-  [13.0, 1.25], // afternoon
-  [17.0, 1.4], // golden hour
-  [18.5, 1.47], // sunset
-  [19.5, 1.53], // dusk
-  [21.0, 1.62], // night
-  [29.0, 1.8], // 05:00 next day — late night holds
+  // pre-dawn dark
+  [5, 0.84],
+  // dawn colors
+  [6, 0.88],
+  // sunrise
+  [6.75, 0.94],
+  // morning (phase 0)
+  [8, 1],
+  // afternoon
+  [13, 1.25],
+  // golden hour
+  [17, 1.4],
+  // sunset
+  [18.5, 1.47],
+  // dusk
+  [19.5, 1.53],
+  // night
+  [21, 1.62],
+  // 05:00 next day — late night holds
+  [29, 1.8],
 ];
 
-function hourToPhase(hour: number): number {
+const hourToPhase = (hour: number): number => {
   const h = hour < 5 ? hour + 24 : hour;
-  for (let i = 0; i + 1 < HOUR_ANCHORS.length; i++) {
+  for (let i = 0; i + 1 < HOUR_ANCHORS.length; i += 1) {
     const a = HOUR_ANCHORS[i];
     const b = HOUR_ANCHORS[i + 1];
-    if (!a || !b || h > b[0]) continue;
+    if (!a || !b || h > b[0]) {
+      continue;
+    }
     const t = (h - a[0]) / (b[0] - a[0]);
     return (a[1] + (b[1] - a[1]) * Math.min(1, Math.max(0, t))) % 1;
   }
   return 0.8;
-}
+};
 
 // ?time= override: pins the cycle to a chosen hour instead of the SF clock.
 // Presets are HOURS (not phases) so `?time=sunset` and `?time=18:30` are the
@@ -318,35 +336,37 @@ const TIME_PRESETS: ReadonlyMap<string, number> = new Map([
 
 // Accepts a preset name, "HH:MM", "7pm"/"7:30pm", or a fractional hour 0-24.
 // Returns the hour, or null if the string parses as none of them.
-export function parseTimeParam(raw: string): number | null {
+export const parseTimeParam = (raw: string): number | null => {
   const s = raw.trim().toLowerCase();
   const preset = TIME_PRESETS.get(s);
-  if (preset !== undefined) return preset;
-  const ampm = /^(\d{1,2})(?::([0-5]\d))?(am|pm)$/.exec(s);
-  if (ampm) {
-    const [, hh = "", mm = "0", ap] = ampm;
-    const h12 = Number(hh);
-    if (h12 < 1 || h12 > 12) return null;
-    return (h12 % 12) + (ap === "pm" ? 12 : 0) + Number(mm) / 60;
+  if (preset !== undefined) {
+    return preset;
   }
-  const clock = /^(\d{1,2}):([0-5]\d)$/.exec(s);
+  const ampm = /^(?<hour>\d{1,2})(?::(?<minute>[0-5]\d))?(?<meridiem>am|pm)$/u.exec(s)?.groups;
+  if (ampm) {
+    const h12 = Number(ampm.hour ?? "");
+    if (h12 < 1 || h12 > 12) {
+      return null;
+    }
+    return (h12 % 12) + (ampm.meridiem === "pm" ? 12 : 0) + Number(ampm.minute ?? "0") / 60;
+  }
+  const clock = /^(?<hour>\d{1,2}):(?<minute>[0-5]\d)$/u.exec(s)?.groups;
   if (clock) {
-    const [, hh = "", mm = "0"] = clock;
-    const h = Number(hh);
-    return h <= 23 ? h + Number(mm) / 60 : null;
+    const h = Number(clock.hour ?? "");
+    return h <= 23 ? h + Number(clock.minute ?? "0") / 60 : null;
   }
   const n = Number(s);
   return s !== "" && Number.isFinite(n) && n >= 0 && n <= 24 ? n % 24 : null;
-}
+};
 
-export type DayNightRefs = {
+export interface DayNightRefs {
   readonly sky: Sky;
   readonly sun: THREE.DirectionalLight;
   readonly hemi: THREE.HemisphereLight;
   readonly ambient: THREE.AmbientLight;
   readonly fog: THREE.Fog;
   readonly scene: THREE.Scene;
-};
+}
 
 export class DayNight {
   // Read by game-scene.updateSun each frame (replaces the old fixed offset).
@@ -358,10 +378,12 @@ export class DayNight {
   shadowsActive = true;
 
   private phase = hourToPhase(sfHourNow());
-  private override: number | null = null; // debug freeze (setPhase)
+  // debug freeze (setPhase)
+  private override: number | null = null;
   private sinceSync = CLOCK_RESYNC_S;
   private renderer: THREE.WebGLRenderer | null = null;
-  private prevShadowsActive = true; // renderer boots with autoUpdate on
+  // renderer boots with autoUpdate on
+  private prevShadowsActive = true;
   // Mobile tiers: a baked cube texture stands in for the live Sky dome
   // (owned by game-scene, which re-bakes as the phase drifts).
   private baked: THREE.Texture | null = null;
@@ -372,18 +394,23 @@ export class DayNight {
   private scrColor = new THREE.Color();
   private scrBg = new THREE.Color();
 
+  private refs: DayNightRefs;
+
   // ?time= pins the cycle for the session (editor and trailer setPhase calls
   // still win — they run later). Invalid values fall back to the SF clock.
-  constructor(private refs: DayNightRefs) {
+  constructor(refs: DayNightRefs) {
+    this.refs = refs;
     const raw = new URLSearchParams(window.location.search).get("time");
-    if (raw === null) return;
+    if (raw === null) {
+      return;
+    }
     const hour = parseTimeParam(raw);
-    if (hour !== null) {
-      this.override = hourToPhase(hour);
-    } else {
+    if (hour === null) {
       console.warn(
         `?time=${raw}: expected a preset (${[...TIME_PRESETS.keys()].join(", ")}), "HH:MM", "7pm", or an hour 0-24`,
       );
+    } else {
+      this.override = hourToPhase(hour);
     }
   }
 
@@ -407,10 +434,43 @@ export class DayNight {
     return this.phase;
   }
 
+  // Sky sun (below-horizon values give the Sky shader real twilight) and the
+  // dome's own scattering for this hour.
+  private applySky(sky: Sky, a: Stop, b: Stop, t: number): void {
+    this.scrSun.lerpVectors(a.sunDir, b.sunDir, t).normalize();
+    const skyU = sky.material.uniforms;
+    const sunU = skyU.sunPosition;
+    if (sunU && sunU.value instanceof THREE.Vector3) {
+      sunU.value.copy(this.scrSun);
+    }
+    const turb = skyU.turbidity;
+    const rayl = skyU.rayleigh;
+    const mieC = skyU.mieCoefficient;
+    const mieG = skyU.mieDirectionalG;
+    if (turb) {
+      turb.value = THREE.MathUtils.lerp(a.sky[0], b.sky[0], t);
+    }
+    if (rayl) {
+      rayl.value = THREE.MathUtils.lerp(a.sky[1], b.sky[1], t);
+    }
+    if (mieC) {
+      mieC.value = THREE.MathUtils.lerp(a.sky[2], b.sky[2], t);
+    }
+    if (mieG) {
+      mieG.value = THREE.MathUtils.lerp(a.sky[3], b.sky[3], t);
+    }
+    const roll = skyU.horizonRolloff;
+    if (roll) {
+      roll.value = THREE.MathUtils.lerp(a.sky[4], b.sky[4], t);
+    }
+    const disc = skyU.showSunDisc;
+    if (disc) {
+      disc.value = sunDiscGain(this.scrSun.y);
+    }
+  }
+
   update(dt: number): void {
-    if (this.override !== null) {
-      this.phase = this.override;
-    } else {
+    if (this.override === null) {
       // The phase moves ~1e-5 per real second — re-reading the wall clock
       // once a second is smooth AND survives tab suspends for free.
       this.sinceSync += dt;
@@ -418,42 +478,31 @@ export class DayNight {
         this.sinceSync = 0;
         this.phase = hourToPhase(sfHourNow());
       }
+    } else {
+      this.phase = this.override;
     }
     const p = this.phase;
 
     // Bracketing stops (cyclic).
     let ai = STOPS.length - 1;
-    for (let i = 0; i < STOPS.length; i++) {
+    for (let i = 0; i < STOPS.length; i += 1) {
       const s = STOPS[i];
-      if (s && s.p <= p) ai = i;
+      if (s && s.p <= p) {
+        ai = i;
+      }
     }
     const a = STOPS[ai];
     const b = STOPS[(ai + 1) % STOPS.length];
-    if (!a || !b) return;
+    if (!a || !b) {
+      return;
+    }
     const span = (b.p - a.p + 1) % 1 || 1;
     const raw = ((p - a.p + 1) % 1) / span;
     const t = THREE.MathUtils.smoothstep(raw, 0, 1);
 
     const { sky, sun, hemi, ambient, fog, scene } = this.refs;
 
-    // Sky sun (below-horizon values give the Sky shader real twilight) and the
-    // dome's own scattering for this hour.
-    this.scrSun.lerpVectors(a.sunDir, b.sunDir, t).normalize();
-    const skyU = sky.material.uniforms;
-    const sunU = skyU.sunPosition;
-    if (sunU && sunU.value instanceof THREE.Vector3) sunU.value.copy(this.scrSun);
-    const turb = skyU.turbidity;
-    const rayl = skyU.rayleigh;
-    const mieC = skyU.mieCoefficient;
-    const mieG = skyU.mieDirectionalG;
-    if (turb) turb.value = THREE.MathUtils.lerp(a.sky[0], b.sky[0], t);
-    if (rayl) rayl.value = THREE.MathUtils.lerp(a.sky[1], b.sky[1], t);
-    if (mieC) mieC.value = THREE.MathUtils.lerp(a.sky[2], b.sky[2], t);
-    if (mieG) mieG.value = THREE.MathUtils.lerp(a.sky[3], b.sky[3], t);
-    const roll = skyU.horizonRolloff;
-    if (roll) roll.value = THREE.MathUtils.lerp(a.sky[4], b.sky[4], t);
-    const disc = skyU.showSunDisc;
-    if (disc) disc.value = sunDiscGain(this.scrSun.y);
+    this.applySky(sky, a, b, t);
 
     // Swap the night dome only after sunset; the lamps start earlier while
     // the physical sky still carries the sunset glow.

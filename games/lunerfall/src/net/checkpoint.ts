@@ -1,61 +1,82 @@
-import { HERO_NAMES, ENEMY_NAMES, type HeroName, type EnemyName } from "../data/animations";
-import { ROOM_TYPES, type RoomType } from "../data/rooms";
-import { RELICS, type RunMods } from "../data/relics";
+import { HERO_NAMES, ENEMY_NAMES } from "../data/animations";
+import type { HeroName, EnemyName } from "../data/animations";
+import { ROOM_TYPES } from "../data/rooms";
+import type { RoomType } from "../data/rooms";
+import { RELICS } from "../data/relics";
+import type { RunMods } from "../data/relics";
 import type { PlayerBodyCheckpoint } from "../entities/player-body";
 import type { EnemyBodyCheckpoint } from "../entities/enemy-body";
 import type { BossBodyCheckpoint } from "../entities/boss-body";
 import type { VersusCheckpoint } from "../sys/versus";
-import { isJsonNumber, isJsonObject, isJsonString, type JsonObject, type JsonValue } from "./json";
+import { isJsonNumber, isJsonObject, isJsonString } from "./json";
+import type { JsonObject, JsonValue } from "./json";
 import type { NetRoom } from "./snapshot";
 
-export type CheckpointSeats = { host: string | null; guest: string | null };
-export type InputSequence = { j: number; d: number; a: number; s: number };
-export type CheckpointCombat = {
+export interface CheckpointSeats {
+  host: string | null;
+  guest: string | null;
+}
+export interface InputSequence {
+  j: number;
+  d: number;
+  a: number;
+  s: number;
+}
+export interface CheckpointCombat {
   hitSwing: number[];
   lastSwing: number;
   hitSpecial: number[];
   lastSpecial: number;
   bossSwing: number;
   bossSpecial: number;
-};
-export type CheckpointPlayer = {
+}
+export interface CheckpointPlayer {
   id: string;
   hero: HeroName;
   body: PlayerBodyCheckpoint;
   combat: CheckpointCombat;
   versusHits: { swing: number; special: number };
-};
-export type CheckpointEnemy = {
+}
+export interface CheckpointEnemy {
   id: number;
   name: EnemyName;
   body: EnemyBodyCheckpoint;
   tint: number;
   deathAge: number | null;
-};
-export type CheckpointArrow = {
+}
+export interface CheckpointArrow {
   x: number;
   y: number;
   vx: number;
   vy: number;
   life: number;
   dmg: number;
-};
+}
 export type CheckpointShot = CheckpointArrow & {
   owner: string | null;
   hit: number[];
   hitP: string[];
   hitBoss: boolean;
 };
-export type CheckpointHazard = {
+export interface CheckpointHazard {
   x: number;
   y: number;
   vx: number;
   life: number;
   dmg: number;
   hitPlayer: boolean;
-};
-export type CheckpointFeature = { x: number; y: number; used: boolean };
-export type CheckpointMerchant = { x: number; y: number; relic: string; bought: boolean };
+}
+export interface CheckpointFeature {
+  x: number;
+  y: number;
+  used: boolean;
+}
+export interface CheckpointMerchant {
+  x: number;
+  y: number;
+  relic: string;
+  bought: boolean;
+}
 export type CheckpointPhase =
   | { kind: "active" }
   | { kind: "transition"; elapsed: number; built: boolean; offer: RoomType }
@@ -63,7 +84,7 @@ export type CheckpointPhase =
 
 // `host`/`guest` are the ORIGINAL left/right seats, never the elected writer.
 // Body ownership remains player-ID based across authority changes.
-type CheckpointBase = {
+interface CheckpointBase {
   version: 1;
   runId: string;
   writer: string;
@@ -95,7 +116,7 @@ type CheckpointBase = {
   accumulator: number;
   cleared: boolean;
   phase: CheckpointPhase;
-};
+}
 export type ExpeditionCheckpoint = CheckpointBase &
   (
     | {
@@ -272,7 +293,7 @@ function enemy(v: JsonValue | undefined): v is CheckpointEnemy {
     ENEMY_NAMES.some((n) => n === v.name) &&
     isEnemyCheckpoint(v.body) &&
     integer(v.tint) &&
-    v.tint <= 0xffffff &&
+    v.tint <= 0xff_ff_ff &&
     (v.deathAge === null || isJsonNumber(v.deathAge))
   );
 }
@@ -299,9 +320,15 @@ function merchant(v: JsonValue | undefined): v is CheckpointMerchant {
   return isJsonObject(v) && point(v) && relic(v.relic) && bool(v.bought);
 }
 function phase(v: JsonValue | undefined): v is CheckpointPhase {
-  if (!isJsonObject(v)) return false;
-  if (v.kind === "active") return true;
-  if (!isJsonNumber(v.elapsed) || v.elapsed < 0) return false;
+  if (!isJsonObject(v)) {
+    return false;
+  }
+  if (v.kind === "active") {
+    return true;
+  }
+  if (!isJsonNumber(v.elapsed) || v.elapsed < 0) {
+    return false;
+  }
   return v.kind === "dead" || (v.kind === "transition" && bool(v.built) && roomType(v.offer));
 }
 function versus(v: JsonValue | undefined): v is VersusCheckpoint {
@@ -355,16 +382,18 @@ function checkpoint(v: JsonValue | undefined): v is ExpeditionCheckpoint {
     !integer(v.tick) ||
     !integer(v.room) ||
     !integer(v.rng) ||
-    v.rng > 0xffffffff
-  )
+    v.rng > 0xff_ff_ff_ff
+  ) {
     return false;
+  }
   if (
     !isJsonObject(v.seats) ||
     !nullableId(v.seats.host) ||
     !nullableId(v.seats.guest) ||
     (v.seats.host !== null && v.seats.host === v.seats.guest)
-  )
+  ) {
     return false;
+  }
   if (
     !Array.isArray(v.players) ||
     v.players.length > 2 ||
@@ -372,8 +401,9 @@ function checkpoint(v: JsonValue | undefined): v is ExpeditionCheckpoint {
     !Array.isArray(v.enemies) ||
     !v.enemies.every(enemy) ||
     !(v.boss === null || isBossCheckpoint(v.boss))
-  )
+  ) {
     return false;
+  }
   if (
     !Array.isArray(v.arrows) ||
     !v.arrows.every(arrow) ||
@@ -381,8 +411,9 @@ function checkpoint(v: JsonValue | undefined): v is ExpeditionCheckpoint {
     !v.shots.every(shot) ||
     !Array.isArray(v.hazards) ||
     !v.hazards.every(hazard)
-  )
+  ) {
     return false;
+  }
   if (
     !isJsonObject(v.run) ||
     !integer(v.run.biome) ||
@@ -391,8 +422,9 @@ function checkpoint(v: JsonValue | undefined): v is ExpeditionCheckpoint {
     !roomType(v.run.type) ||
     !Array.isArray(v.run.offers) ||
     !v.run.offers.every(roomType)
-  )
+  ) {
     return false;
+  }
   if (
     !isJsonObject(v.mods) ||
     !nums(v.mods, [
@@ -408,14 +440,16 @@ function checkpoint(v: JsonValue | undefined): v is ExpeditionCheckpoint {
     ]) ||
     !Array.isArray(v.relics) ||
     !v.relics.every(relic)
-  )
+  ) {
     return false;
+  }
   if (
     !Array.isArray(v.merchant) ||
     !v.merchant.every(merchant) ||
     !(v.feature === null || feature(v.feature))
-  )
+  ) {
     return false;
+  }
   if (
     !nums(v, [
       "bossDeathAge",
@@ -431,10 +465,13 @@ function checkpoint(v: JsonValue | undefined): v is ExpeditionCheckpoint {
     !integer(v.nextEnemyId) ||
     !bool(v.cleared) ||
     !phase(v.phase)
-  )
+  ) {
     return false;
+  }
   if (v.mode === "versus") {
-    if (!versus(v.versus) || v.lastStand !== null) return false;
+    if (!versus(v.versus) || v.lastStand !== null) {
+      return false;
+    }
   } else if (v.mode === "coop") {
     if (
       v.versus !== null ||
@@ -442,23 +479,33 @@ function checkpoint(v: JsonValue | undefined): v is ExpeditionCheckpoint {
         v.lastStand === null ||
         (isJsonObject(v.lastStand) && id(v.lastStand.id) && nums(v.lastStand, ["bleed", "revive"]))
       )
-    )
+    ) {
       return false;
-  } else return false;
+    }
+  } else {
+    return false;
+  }
   // Reference integrity prevents a partially restored graph and repeat hits.
-  const seats = v.seats;
-  const nextEnemyId = v.nextEnemyId;
+  const { seats } = v;
+  const { nextEnemyId } = v;
   const playerIds = new Set(v.players.map((p) => p.id));
   const enemyIds = new Set(v.enemies.map((e) => e.id));
-  if (playerIds.size !== v.players.length || enemyIds.size !== v.enemies.length) return false;
-  if ([v.seats.host, v.seats.guest].some((s) => s !== null && !playerIds.has(s))) return false;
-  if (v.players.some((p) => p.id !== seats.host && p.id !== seats.guest)) return false;
+  if (playerIds.size !== v.players.length || enemyIds.size !== v.enemies.length) {
+    return false;
+  }
+  if ([v.seats.host, v.seats.guest].some((s) => s !== null && !playerIds.has(s))) {
+    return false;
+  }
+  if (v.players.some((p) => p.id !== seats.host && p.id !== seats.guest)) {
+    return false;
+  }
   if (
     v.players.some((p) =>
       [...p.combat.hitSwing, ...p.combat.hitSpecial].some((e) => !enemyIds.has(e)),
     )
-  )
+  ) {
     return false;
+  }
   if (
     v.shots.some(
       (s) =>
@@ -466,10 +513,12 @@ function checkpoint(v: JsonValue | undefined): v is ExpeditionCheckpoint {
         s.hit.some((e) => !enemyIds.has(e)) ||
         s.hitP.some((p) => !playerIds.has(p)),
     )
-  )
+  ) {
     return false;
-  if (v.lastStand !== null && isJsonObject(v.lastStand) && !playerIds.has(String(v.lastStand.id)))
+  }
+  if (v.lastStand !== null && isJsonObject(v.lastStand) && !playerIds.has(String(v.lastStand.id))) {
     return false;
+  }
   return v.enemies.every((e) => e.id < nextEnemyId);
 }
 
@@ -479,11 +528,18 @@ export function readCheckpoint(shared: Record<string, JsonValue> | null): Checkp
   if (
     !shared ||
     (shared.checkpoint === undefined && shared.room === undefined && shared.snap === undefined)
-  )
+  ) {
     return { kind: "absent" };
+  }
   const c = shared.checkpoint;
   const r = shared.room;
-  if (!checkpoint(c) || !room(r) || c.room !== r.seq || (c.mode === "versus") !== (r.mode === "vs"))
+  if (
+    !checkpoint(c) ||
+    !room(r) ||
+    c.room !== r.seq ||
+    (c.mode === "versus") !== (r.mode === "vs")
+  ) {
     return { kind: "invalid" };
-  return { kind: "ready", value: structuredClone(c), room: structuredClone(r) };
+  }
+  return { kind: "ready", room: structuredClone(r), value: structuredClone(c) };
 }

@@ -3,12 +3,12 @@ import * as THREE from "three";
 /** Fade the existing open beam meshes at their silhouettes and height ends. */
 export function softLightMaterial(color: number, opacity: number): THREE.MeshBasicMaterial {
   const material = new THREE.MeshBasicMaterial({
-    color,
-    opacity,
-    transparent: true,
     blending: THREE.AdditiveBlending,
+    color,
     depthWrite: false,
+    opacity,
     side: THREE.DoubleSide,
+    transparent: true,
   });
   material.onBeforeCompile = (shader) => {
     const varyings = "varying vec3 beamNormal; varying vec3 beamView; varying float beamHeight;\n";
