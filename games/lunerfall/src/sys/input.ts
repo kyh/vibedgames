@@ -17,6 +17,17 @@ export interface InputState {
   attackPressed: boolean;
   specialPressed: boolean;
 }
+export const NEUTRAL_INPUT: InputState = {
+  attackPressed: false,
+  dashPressed: false,
+  down: false,
+  jumpHeld: false,
+  jumpPressed: false,
+  left: false,
+  right: false,
+  specialPressed: false,
+  up: false,
+};
 
 const K = PhaserInput.Keyboard.KeyCodes;
 
