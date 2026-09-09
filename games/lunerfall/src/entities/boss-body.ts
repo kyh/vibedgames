@@ -27,21 +27,18 @@ export type BossState =
   | "hurt"
   | "phase"
   | "dead";
-// oxlint-disable-next-line typescript/consistent-type-definitions -- checkpointed over the JSON wire; interfaces get no implicit index signature
 export type Wave = {
   x: number;
   y: number;
   vx: number;
   dmg: number;
 };
-// oxlint-disable-next-line typescript/consistent-type-definitions -- checkpointed over the JSON wire; interfaces get no implicit index signature
 export type Blast = {
   x: number;
   y: number;
   r: number;
   dmg: number;
 };
-// oxlint-disable-next-line typescript/consistent-type-definitions -- checkpointed over the JSON wire; interfaces get no implicit index signature
 export type Add = {
   x: number;
   y: number;

@@ -40,7 +40,6 @@ export interface Human {
 }
 
 /** The authoritative grant of a powerup — the only source of pickup feedback. */
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature the wire JsonObject needs
 export type Pickup = {
   col: number;
   row: number;

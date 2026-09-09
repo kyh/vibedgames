@@ -99,7 +99,6 @@ export interface Rect {
   bottom: number;
 }
 export type AttackBox = Rect & { dmg: number; kb: number };
-// oxlint-disable-next-line typescript/consistent-type-definitions -- checkpointed over the JSON wire; interfaces get no implicit index signature
 export type PlayerShot = {
   x: number;
   y: number;

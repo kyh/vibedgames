@@ -7,6 +7,7 @@
 
 import { isJsonObject } from "./json";
 import type { JsonValue } from "./json";
+import type { BossAction, EnemyAction } from "../data/actor-presentation";
 
 export type NetPlayer = {
   id: string;
@@ -40,6 +41,8 @@ export type NetEnemy = {
   flip: boolean;
   dead: boolean;
   flash: boolean;
+  action?: EnemyAction;
+  tint?: number;
 };
 export type NetBoss = {
   clip: string;
@@ -50,6 +53,7 @@ export type NetBoss = {
   flash: boolean;
   telegraph: boolean;
   dead: boolean;
+  action?: BossAction;
 };
 
 // Guest → host input. Held state travels as booleans; each action carries a
@@ -99,6 +103,8 @@ export type NetVersus = {
 };
 
 export type Snapshot = {
+  runId?: string;
+  term?: number;
   // host frame counter — interpolation + stall detection
   t: number;
   // room seq; guest rebuilds its room when this changes

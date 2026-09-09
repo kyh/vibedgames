@@ -20,14 +20,12 @@ export type EnemyState =
   | "recover"
   | "hurt"
   | "dead";
-// oxlint-disable-next-line typescript/consistent-type-definitions -- checkpointed over the JSON wire; interfaces get no implicit index signature
 export type Projectile = {
   x: number;
   y: number;
   vx: number;
   vy: number;
 };
-// oxlint-disable-next-line typescript/consistent-type-definitions -- checkpointed over the JSON wire; interfaces get no implicit index signature
 export type Blast = {
   x: number;
   y: number;

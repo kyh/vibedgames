@@ -12,19 +12,16 @@ import { isJsonNumber, isJsonObject, isJsonString } from "./json";
 import type { JsonObject, JsonValue } from "./json";
 import type { NetRoom } from "./snapshot";
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type CheckpointSeats = {
   host: string | null;
   guest: string | null;
 };
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type InputSequence = {
   j: number;
   d: number;
   a: number;
   s: number;
 };
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type CheckpointCombat = {
   hitSwing: number[];
   lastSwing: number;
@@ -33,7 +30,6 @@ export type CheckpointCombat = {
   bossSwing: number;
   bossSpecial: number;
 };
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type CheckpointPlayer = {
   id: string;
   hero: HeroName;
@@ -41,7 +37,6 @@ export type CheckpointPlayer = {
   combat: CheckpointCombat;
   versusHits: { swing: number; special: number };
 };
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type CheckpointEnemy = {
   id: number;
   name: EnemyName;
@@ -49,7 +44,6 @@ export type CheckpointEnemy = {
   tint: number;
   deathAge: number | null;
 };
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type CheckpointArrow = {
   x: number;
   y: number;
@@ -64,7 +58,6 @@ export type CheckpointShot = CheckpointArrow & {
   hitP: string[];
   hitBoss: boolean;
 };
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type CheckpointHazard = {
   x: number;
   y: number;
@@ -73,13 +66,11 @@ export type CheckpointHazard = {
   dmg: number;
   hitPlayer: boolean;
 };
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type CheckpointFeature = {
   x: number;
   y: number;
   used: boolean;
 };
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type CheckpointMerchant = {
   x: number;
   y: number;
@@ -93,7 +84,6 @@ export type CheckpointPhase =
 
 // `host`/`guest` are the ORIGINAL left/right seats, never the elected writer.
 // Body ownership remains player-ID based across authority changes.
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 type CheckpointBase = {
   version: 1;
   runId: string;

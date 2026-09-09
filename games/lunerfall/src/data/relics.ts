@@ -6,7 +6,6 @@ import { rand } from "../sys/rng";
 // (regen) and gainGold (goldMult). Relics are grouped by rarity, which sets how
 // often they're offered and roughly what they cost. Synergy relics deliberately
 // key off other stats (missing hearts, crit) so builds compound.
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type RunMods = {
   // flat damage multiplier
   dmg: number;

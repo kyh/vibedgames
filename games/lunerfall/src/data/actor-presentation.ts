@@ -3,12 +3,10 @@ import type { EnemyState } from "../entities/enemy-body";
 import type { EnemyKind } from "./enemies";
 
 /** Authoritative state age, in seconds. Cosmetic only; never advances a body. */
-// oxlint-disable-next-line typescript/consistent-type-definitions -- travels inside the JSON snapshot; interfaces get no implicit index signature
 export type EnemyAction = {
   state: EnemyState;
   elapsed: number;
 };
-// oxlint-disable-next-line typescript/consistent-type-definitions -- travels inside the JSON snapshot; interfaces get no implicit index signature
 export type BossAction = {
   state: BossState;
   elapsed: number;
