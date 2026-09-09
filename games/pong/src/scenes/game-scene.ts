@@ -7,10 +7,11 @@ import { sfx } from "../fx/sfx";
 import { RingPool } from "../fx/shock-rings";
 import { NetSession, isJsonNumber, isJsonObject } from "../net/session";
 import type { JsonObject, JsonValue } from "../net/session";
+import { Hud } from "../render/hud";
+import type { Link } from "../render/hud";
 import { SPIN_LIFE, curveVelocity } from "../shared/spin";
 import type { Spin } from "../shared/spin";
 import {
-  CHARGE_HITS,
   acceptReturn,
   armCharge,
   cancelCharge,
@@ -54,8 +55,6 @@ import {
   CAM_START_OFFSET_Y,
   CAM_STRAFE_X,
   CLICK_DRAG_TOLERANCE_PX,
-  COMBO_MIN,
-  COMBO_PEAK_HITS,
   CONFETTI_Z,
   COURT_D,
   COURT_W,
@@ -114,9 +113,13 @@ import {
   WALL_X,
   WIN_SCORE,
 } from "../shared/constants";
+import type { Phase } from "../shared/constants";
 
-type Phase = "serving" | "rally" | "won";
 type AdmittedRole = "pending" | "solo" | "host" | "guest";
+
+/** DEV-only room override (?room=): the two-client harness isolates each run
+ *  so a stale room's match can't leak into assertions. */
+const ROOM = (import.meta.env.DEV && new URLSearchParams(location.search).get("room")) || MP_ROOM;
 
 /** Cosmetic hop: visual z parabola from the hit point to a landing y. */
 type Arc = { fromY: number; toY: number };
@@ -228,23 +231,7 @@ export class GameScene {
   private camDrag = new THREE.Vector3(0, CAM_START_OFFSET_Y, 0);
 
   // ---- HUD ----------------------------------------------------------------------
-  private scoreYouEl = el("score-you");
-  private scoreAiEl = el("score-ai");
-  private bannerEl = el("banner");
-  private bannerTitleEl = el("banner-title");
-  private bannerDetailEl = el("banner-detail");
-  private actionEl = el("match-action");
-  private pointEl = el("point-callout");
-  private comboEl = el("combo");
-  private serveMeterEl = el("serve-meter");
-  private oppLabelEl = el("opp-label");
-  private netInfoEl = el("netinfo");
-  private shotEl = el("shot-callout");
-  private matchPointEl = el("match-point");
-  private chargeEl = el("shot-charge");
-  private chargeFillEl = el("shot-charge-fill");
-  private chargeLabelEl = el("shot-charge-label");
-  private serveMeterShown = false; // cached so we only touch classList on transitions
+  private readonly hud = new Hud(() => this.confirm());
 
   constructor() {
     this.net = this.createSession(false);
@@ -363,12 +350,6 @@ export class GameScene {
     window.addEventListener("pointercancel", this.onPointerUp);
     this.motionQuery.addEventListener("change", (e) => this.setReducedMotion(e.matches));
     this.setReducedMotion(this.reducedMotion);
-
-    // A tap on the banner card must not double as a canvas serve.
-    for (const eventName of ["pointerdown", "pointermove", "pointerup", "pointercancel"]) {
-      this.bannerEl.addEventListener(eventName, (e) => e.stopPropagation());
-    }
-    this.actionEl.addEventListener("click", () => this.confirm());
     this.syncHud();
   }
 
@@ -391,6 +372,7 @@ export class GameScene {
     const previous = this.role;
     this.role = next;
     if (previous === "guest" && next === "host") this.becomeHost();
+    else if (previous === "host" && next === "guest") this.becomeGuest();
   }
 
   /** True when the local player owns slot A (host or solo). Guest owns slot B. */
@@ -453,10 +435,7 @@ export class GameScene {
     this.chargeB = { kind: "charging", hits: 0 };
     this.shotRally += 1;
     this.spin = null;
-    const myOld = this.aiX; // slot B was ours
-    const oppOld = this.playerX;
-    this.playerX = -myOld; // same screen position under the new flip sign
-    this.aiX = -oppOld;
+    this.swapSlots();
     if (this.phase !== "won") {
       // The rally state (ball, streak, serve clock) was the old host's; the
       // serve clock in particular was in ITS `elapsed` timeline, which can sit
@@ -471,9 +450,34 @@ export class GameScene {
     } else {
       this.serveAt = null; // rematch waits for confirm, as usual
     }
-    this.hostSeq = 0;
+    // Continue the old host's sequence rather than restarting at 0: the old
+    // host may come back as our guest, and it only adopts snapshots numbered
+    // past the last one it broadcast itself.
+    this.hostSeq = Math.max(this.hostSeq, this.lastSeq, sharedSeq(this.net.sharedState));
     this.lastSeq = -1;
     this.syncHud();
+  }
+
+  /** The server handed our host role to the other player while we were away
+   *  (a backgrounded tab or a transport gap longer than the liveness window).
+   *  Our slot flips from A to B; the new host now owns the ball, the score and
+   *  both charges, so everything but our paddle is re-read from its snapshots. */
+  private becomeGuest(): void {
+    this.chargeB = cancelCharge(this.chargeA);
+    this.chargeA = { kind: "charging", hits: 0 };
+    this.swapSlots();
+    // Skip our own last snapshot, still sitting in shared state: read as a
+    // guest it would put our score in the opponent's column.
+    this.lastSeq = this.hostSeq;
+    this.syncHud();
+  }
+
+  /** Slot A ↔ B: the view flip negates x, so each paddle keeps its screen
+   *  position when its canonical slot changes. */
+  private swapSlots(): void {
+    const a = this.playerX;
+    this.playerX = -this.aiX;
+    this.aiX = -a;
   }
 
   // ---- input ---------------------------------------------------------------
@@ -615,7 +619,7 @@ export class GameScene {
 
   private createSession(forceOffline: boolean): NetSession {
     return new NetSession({
-      room: MP_ROOM,
+      room: ROOM,
       maxPlayers: MP_MAX_PLAYERS,
       fallbackMs: OFFLINE_FALLBACK_MS,
       forceOffline,
@@ -651,9 +655,9 @@ export class GameScene {
     this.rallySpeed = RALLY_SPEED_BASE;
     this.rallyHits = 0;
     this.serveAt = null;
-    this.pointEl.textContent = "";
+    this.hud.setPoint("");
     this.pointUntil = 0;
-    this.comboEl.style.opacity = "0"; // the rally counter resets with the new rally
+    this.hud.hideCombo(); // the rally counter resets with the new rally
     this.ballVel.set(Math.cos(angle) * this.rallySpeed, Math.sin(angle) * this.rallySpeed);
     this.phase = "rally";
     sfx.serve();
@@ -669,11 +673,11 @@ export class GameScene {
     this.elapsed += dt;
     if (this.shotUntil > 0 && this.elapsed >= this.shotUntil) {
       this.shotUntil = 0;
-      this.shotEl.classList.remove("on");
+      this.hud.hideShot();
     }
     if (this.pointUntil > 0 && this.elapsed >= this.pointUntil) {
       this.pointUntil = 0;
-      this.pointEl.textContent = "";
+      this.hud.setPoint("");
     }
     this.invertFlash = Math.max(0, this.invertFlash - dt);
     this.net.tick();
@@ -938,7 +942,7 @@ export class GameScene {
       ...BURST_PADDLE,
     });
     this.rings.spawn({ x: sx, y: mine ? -PADDLE_Y : PADDLE_Y, ...RING_PADDLE });
-    this.showCombo(rallyHits);
+    this.hud.showCombo(rallyHits);
     if (kind !== "flat" || powered) {
       this.showShot(kind, mine, powered);
       // Reuse the ink contact pool for the shot style and charged impact.
@@ -972,10 +976,10 @@ export class GameScene {
     const crossX = clamp(this.ballPos.x, -WALL_X, WALL_X);
     if (scorer === "you") {
       this.scoreYou += 1;
-      popScore(this.scoreYouEl);
+      this.hud.popScore("you");
     } else {
       this.scoreAi += 1;
-      popScore(this.scoreAiEl);
+      this.hud.popScore("ai");
     }
 
     this.ballPos.set(0, 0);
@@ -1013,11 +1017,11 @@ export class GameScene {
     this.trauma = Math.min(1, this.trauma + TRAUMA_GOAL);
     this.particles.burst({ x: sx, y: sy, z: BALL_R, dirY: -Math.sign(cy) * flip, ...BURST_GOAL });
     this.rings.spawn({ x: sx, y: sy, ...RING_GOAL });
-    this.comboEl.style.opacity = "0"; // the rally is over
-    this.shotEl.classList.remove("on");
+    this.hud.hideCombo(); // the rally is over
+    this.hud.hideShot();
     this.shotUntil = 0;
 
-    this.pointEl.textContent = won ? "" : iScored ? "YOU SCORE" : "RIVAL SCORES";
+    this.hud.setPoint(won ? "" : iScored ? "YOU SCORE" : "RIVAL SCORES");
     this.pointUntil = won ? 0 : this.elapsed + AUTO_SERVE_S;
     if (won) {
       sfx.win(iScored);
@@ -1094,7 +1098,7 @@ export class GameScene {
         this.pointFx(bool("a"), num("x"), num("y"), bool("won"));
         break;
       case "serve":
-        this.comboEl.style.opacity = "0";
+        this.hud.hideCombo();
         sfx.serve();
         break;
     }
@@ -1181,8 +1185,8 @@ export class GameScene {
       const prevAi = this.scoreAi;
       this.scoreYou = numField(s, "scoreB") ?? 0;
       this.scoreAi = numField(s, "scoreA") ?? 0;
-      if (this.scoreYou !== prevYou) popScore(this.scoreYouEl);
-      if (this.scoreAi !== prevAi) popScore(this.scoreAiEl);
+      if (this.scoreYou !== prevYou) this.hud.popScore("you");
+      if (this.scoreAi !== prevAi) this.hud.popScore("ai");
 
       const af = numField(s, "arcFrom");
       const at = numField(s, "arcTo");
@@ -1415,22 +1419,7 @@ export class GameScene {
   }
 
   private syncCharge(): void {
-    const charge = this.myCharge;
-    const hits = chargeHits(charge);
-    this.chargeEl.hidden = this.phase === "won";
-    const fill = `scaleX(${hits / CHARGE_HITS})`;
-    if (this.chargeFillEl.style.transform !== fill) this.chargeFillEl.style.transform = fill;
-    const value = String(hits);
-    if (this.chargeEl.getAttribute("aria-valuenow") !== value)
-      this.chargeEl.setAttribute("aria-valuenow", value);
-    setText(
-      this.chargeLabelEl,
-      charge.kind === "armed"
-        ? "POWER ARMED"
-        : charge.kind === "ready"
-          ? "POWER READY"
-          : `POWER ${hits}/${CHARGE_HITS}`,
-    );
+    this.hud.syncCharge(this.myCharge, this.phase === "won");
   }
 
   /** Plain telemetry for the playtest contract; no engine objects escape. */
@@ -1497,7 +1486,7 @@ export class GameScene {
     this.powerShots = 0;
     this.resetCharge();
     this.longestRally = 0;
-    this.pointEl.textContent = "";
+    this.hud.setPoint("");
     this.pointUntil = 0;
     this.scoreYou = name === "match-point" ? WIN_SCORE - 1 : 0;
     this.scoreAi = name === "fail" ? WIN_SCORE : 0;
@@ -1515,83 +1504,34 @@ export class GameScene {
 
   // ---- HUD -----------------------------------------------------------------
 
-  /** Guest snapshots call this at 30 Hz, so every write is change-checked. */
   private syncHud(): void {
-    setText(this.scoreYouEl, String(this.scoreYou));
-    setText(this.scoreAiEl, String(this.scoreAi));
-    const human = this.net.live && this.hasOpponent();
-    setText(this.oppLabelEl, human ? "RIVAL" : "AI");
-    const matchPoint =
-      this.phase !== "won" && Math.max(this.scoreYou, this.scoreAi) === WIN_SCORE - 1;
-    const matchPointText = matchPoint
-      ? this.scoreYou === this.scoreAi
-        ? "DECIDING POINT"
-        : this.scoreYou > this.scoreAi
-          ? "YOUR MATCH POINT"
-          : "DEFEND MATCH POINT"
-      : "";
-    setText(this.matchPointEl, matchPointText);
-
-    // The action button stays mounted across states so a snapshot never steals its focus.
-    let show = true;
-    if (!this.net.live)
-      this.showBanner(this.connectedBefore ? "RECONNECTING" : "PONG", "FIRST TO 7", "PLAY AI");
-    else if (this.phase === "serving" && this.serveAt === null)
-      this.showBanner("PONG", "FIRST TO 7", "SERVE");
-    else if (this.phase === "won")
-      this.showBanner(
-        this.scoreYou > this.scoreAi ? "YOU WIN" : human ? "RIVAL WINS" : "AI WINS",
-        `${this.scoreYou} — ${this.scoreAi} · LONGEST RALLY ${this.longestRally}`,
-        "REMATCH",
-      );
-    else show = false;
-    this.bannerEl.hidden = !show;
-    setText(this.netInfoEl, this.netInfoText());
-    this.syncCharge();
+    this.hud.sync({
+      phase: this.phase,
+      scoreYou: this.scoreYou,
+      scoreAi: this.scoreAi,
+      longestRally: this.longestRally,
+      link: this.link(),
+      awaitingServe: this.phase === "serving" && this.serveAt === null,
+      charge: this.myCharge,
+    });
   }
 
-  private showBanner(title: string, detail: string, action: string): void {
-    setText(this.bannerTitleEl, title);
-    setText(this.bannerDetailEl, detail);
-    setText(this.actionEl, action);
-  }
-
-  private netInfoText(): string {
-    if (!this.net.live) return this.connectedBefore ? "Reconnecting…" : "Finding a rival…";
-    if (this.net.offline) return "VS AI · FIRST TO 7";
-    return this.hasOpponent() ? "LIVE 1V1 · FIRST TO 7" : "VS AI · RIVAL CAN JOIN";
-  }
-
-  /** Surface the running rally length as an escalating "×N" once past MIN. */
-  private showCombo(hits: number): void {
-    if (hits < COMBO_MIN) return;
-    const tier = clamp(hits / COMBO_PEAK_HITS, 0, 1);
-    this.comboEl.textContent = `RALLY ×${hits}`;
-    this.comboEl.style.setProperty("--combo-tier", tier.toFixed(3));
-    this.comboEl.style.opacity = "1";
-    this.comboEl.classList.remove("pop");
-    void this.comboEl.offsetWidth; // restart the CSS pop
-    this.comboEl.classList.add("pop");
+  private link(): Link {
+    if (!this.net.live) return this.connectedBefore ? "reconnecting" : "connecting";
+    if (this.net.offline) return "solo";
+    return this.hasOpponent() ? "live" : "open";
   }
 
   private showShot(kind: ContactKind, mine: boolean, powered: boolean): void {
-    this.shotEl.textContent = `${mine ? "" : "RIVAL "}${powered ? "POWER " : ""}${kind.toUpperCase()}`;
-    this.shotEl.classList.add("on");
+    this.hud.showShot(kind, mine, powered);
     this.shotUntil = this.elapsed + 0.7;
   }
 
-  /** Deplete the serve-countdown bar over the auto-serve dead air between points. */
+  /** Seconds of auto-serve dead air left, for the countdown bar. */
   private updateServeMeter(): void {
     const serveAt = this.serveAt;
     const active = this.phase === "serving" && serveAt !== null;
-    if (active) {
-      const left = Math.max(0, serveAt - this.elapsed);
-      this.serveMeterEl.style.setProperty("--fill", `${(left / AUTO_SERVE_S) * 100}%`);
-    }
-    if (active !== this.serveMeterShown) {
-      this.serveMeterEl.classList.toggle("on", active);
-      this.serveMeterShown = active;
-    }
+    this.hud.serveMeter(active ? Math.max(0, serveAt - this.elapsed) : null);
   }
 }
 
@@ -1625,6 +1565,12 @@ function numField(s: JsonObject, key: string): number | null {
   return isJsonNumber(v) ? v : null;
 }
 
+/** The host sequence number carried by the room's shared state (-1 when none). */
+function sharedSeq(s: JsonObject | null): number {
+  const seq = s === null ? null : numField(s, "seq");
+  return seq !== null && Number.isSafeInteger(seq) ? seq : -1;
+}
+
 /** Convert a legacy per-frame (60fps) lerp factor into a dt-correct one. */
 function frameLerp(perFrame: number, dt: number): number {
   return 1 - Math.pow(1 - perFrame, dt * LEGACY_FPS);
@@ -1645,22 +1591,6 @@ function smoothDamp(current: number, target: number, vel: number, omega: number,
   DAMP_OUT.pos = target + (change + temp) * exp;
   DAMP_OUT.vel = (vel - omega * temp) * exp;
   return DAMP_OUT;
-}
-
-function el(id: string): HTMLElement {
-  const node = document.getElementById(id);
-  if (!node) throw new Error(`missing #${id}`);
-  return node;
-}
-
-function setText(node: HTMLElement, text: string): void {
-  if (node.textContent !== text) node.textContent = text;
-}
-
-function popScore(node: HTMLElement): void {
-  node.classList.remove("pop");
-  void node.offsetWidth; // restart the CSS animation
-  node.classList.add("pop");
 }
 
 function flashMaterial(): THREE.MeshBasicMaterial {

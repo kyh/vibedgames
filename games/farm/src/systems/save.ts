@@ -64,15 +64,6 @@ function isSaveData(v: JsonValue): v is JsonValue & SaveData {
   );
 }
 
-export function hasSave(): boolean {
-  if (savesDisabled) return false;
-  try {
-    return localStorage.getItem(KEY) !== null;
-  } catch {
-    return false;
-  }
-}
-
 export function loadSave(): SaveData | null {
   if (savesDisabled) return null;
   try {

@@ -22,6 +22,8 @@ import { isPick, isTouchDevice } from "../systems/touch";
 import { GameScene, type DayRecap } from "./game-scene";
 
 const FONT = "ui-monospace, monospace";
+const MODAL_TITLE_H = 40;
+const BIG_BTN_H = 44;
 const SLOT = 42;
 const PAD = 4;
 
@@ -703,9 +705,9 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
     panel.lineStyle(4, 0x9a6a35, 1);
     panel.strokeRoundedRect(-w / 2, -h / 2, w, h, 16);
     panel.fillStyle(0x9a6a35, 1);
-    panel.fillRoundedRect(-w / 2, -h / 2, w, 40, { tl: 16, tr: 16, bl: 0, br: 0 });
+    panel.fillRoundedRect(-w / 2, -h / 2, w, MODAL_TITLE_H, { tl: 16, tr: 16, bl: 0, br: 0 });
     const titleT = this.add
-      .text(0, -h / 2 + 20, title, {
+      .text(0, -h / 2 + MODAL_TITLE_H / 2, title, {
         fontFamily: FONT,
         fontSize: "20px",
         fontStyle: "bold",
@@ -713,10 +715,14 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
       })
       .setOrigin(0.5);
     const close = this.add
-      .text(w / 2 - 22, -h / 2 + 20, "✕", { fontFamily: FONT, fontSize: "20px", color: "#fff6d5" })
+      .text(w / 2 - 22, -h / 2 + MODAL_TITLE_H / 2, "✕", {
+        fontFamily: FONT,
+        fontSize: "20px",
+        color: "#fff6d5",
+      })
       .setOrigin(0.5);
     const closeTarget = this.add
-      .zone(w / 2 - 22, -h / 2 + 20, 44, 44)
+      .zone(w / 2 - 22, -h / 2 + MODAL_TITLE_H / 2, 44, 44)
       .setInteractive({ useHandCursor: true });
     closeTarget.on("pointerdown", () => this.closeModal());
     c.add([dim, panel, titleT, close, closeTarget]);
@@ -872,9 +878,8 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
         : preview.changingSeason
           ? `\n${seasonName(preview.season)} begins tomorrow.`
           : "";
-    const c = this.modalShell(width, 220, "Rest for the night?");
     const body = this.add
-      .text(0, -5, `Sleep until morning.\nWatered crops grow, animals produce.${detail}`, {
+      .text(0, 0, `Sleep until morning.\nWatered crops grow, animals produce.${detail}`, {
         fontFamily: FONT,
         fontSize: "14px",
         color: "#3a2a14",
@@ -883,12 +888,20 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
         lineSpacing: 5,
       })
       .setOrigin(0.5);
-    const yes = this.bigBtn(-80, 74, "Sleep", 0x3a86c8, () => {
+    // The wrapped body sizes the panel: on a narrow viewport the withering
+    // preview runs to several lines, which fixed geometry hides behind the buttons.
+    const inset = 18;
+    const bodyTop = MODAL_TITLE_H + inset;
+    const h = bodyTop + body.height + inset + BIG_BTN_H + inset;
+    const btnY = h / 2 - inset - BIG_BTN_H / 2;
+    const c = this.modalShell(width, h, "Rest for the night?");
+    body.setY(-h / 2 + bodyTop + body.height / 2);
+    const yes = this.bigBtn(-80, btnY, "Sleep", 0x3a86c8, () => {
       this.modal?.destroy();
       this.modal = null;
       this.g.doSleep();
     });
-    const no = this.bigBtn(80, 74, "Not yet", 0xb05a3a, () => this.closeModal());
+    const no = this.bigBtn(80, btnY, "Not yet", 0xb05a3a, () => this.closeModal());
     c.add([body, yes, no]);
   }
 
@@ -901,7 +914,7 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
   ): Phaser.GameObjects.Container {
     const c = this.add.container(x, y);
     const w = 130,
-      h = 44;
+      h = BIG_BTN_H;
     const g = this.add.graphics();
     g.fillStyle(color, 1);
     g.fillRoundedRect(-w / 2, -h / 2, w, h, 10);

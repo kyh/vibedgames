@@ -32,7 +32,6 @@ export type PauseHandlers = {
 };
 
 let handlers: PauseHandlers = {};
-let handlerInstallation: symbol | null = null;
 let started = false;
 let paused = false;
 let listening = false;
@@ -130,24 +129,10 @@ function notifyPausableChanged(): void {
   for (const listener of pausableListeners) listener();
 }
 
-/** Wire the game's pause UI + freeze/unfreeze. Release only this owner at final teardown. */
-export function setPauseHandlers(next: PauseHandlers): () => void {
+/** Wire the game's pause UI + freeze/unfreeze into the wrapper's pause request. */
+export function setPauseHandlers(next: PauseHandlers): void {
   ensureListener();
   handlers = next;
-  const installation = Symbol("pause-handlers");
-  handlerInstallation = installation;
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    if (handlerInstallation !== installation) return;
-    handlerInstallation = null;
-    handlers = {};
-    started = false;
-    paused = false;
-    setKeyGate(false);
-    notifyPausableChanged();
-  };
 }
 
 /** Pause now (same path Escape and the wrapper take). No-op unless started. */

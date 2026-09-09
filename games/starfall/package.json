@@ -9,6 +9,7 @@
     "dev": "vite",
     "preview": "vite preview",
     "test": "tsx scripts/smoke.ts",
+    "test:online": "node --import tsx tools/two-client.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -20,6 +21,8 @@
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
     "@types/node": "catalog:",
+    "playwright-core": "^1.62.1",
+    "tsx": "^4.23.12",
     "typescript": "catalog:",
     "vite": "catalog:"
   }

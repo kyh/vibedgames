@@ -57,6 +57,15 @@ export type SceneOpts = {
   room: string;
 };
 
+/** Connection-derived authority. `lastFxSeq: null` means the next prepare takes
+ * a fresh FX baseline, so nothing broadcast before it can replay. */
+type Online =
+  | { kind: "offline" }
+  | { kind: "connecting" }
+  | { kind: "guest"; id: string; lastFxSeq: number | null }
+  | { kind: "host"; id: string; lastFxSeq: number | null; fxSeqOut: number };
+type Seated = Extract<Online, { kind: "guest" | "host" }>;
+
 export class GameScene {
   world: World;
   private net: MultiplayerClient | null = null;
@@ -95,19 +104,20 @@ export class GameScene {
   } satisfies Record<AbilityKey, number>;
 
   // online state
+  private online: Online;
   private picks: Record<string, HeroPick> = {};
   private assign: Record<string, OnlineSeat> = {};
   private joinResendAt = -Infinity;
   private snapAcc = 0;
   private netFx: World["fx"] = [];
-  private fxSeqOut = 0;
-  private lastFxSeq = -1;
-  private connectedId: string | null = null;
-  private hostReady = false;
-  private baselineFx = true;
   private matchGeneration: number | null = null;
   private controlsPaused = false;
   private neutralPending = false;
+  /** A closed tab must vacate its seat now: an un-destroyed socket parks the
+   * host in the server's reconnect grace and guests stare at a frozen world. */
+  private readonly onPageHide = (event: PageTransitionEvent): void => {
+    if (!event.persisted) this.net?.destroy();
+  };
 
   constructor(
     private view: View,
@@ -119,8 +129,10 @@ export class GameScene {
     this.champId = opts.champId;
     this.name = opts.name;
 
+    this.online = { kind: opts.online ? "connecting" : "offline" };
     if (opts.online) {
       this.world = emptyGuestWorld();
+      window.addEventListener("pagehide", this.onPageHide);
       this.net = new MultiplayerClient({
         host: MULTIPLAYER_HOST,
         party: PARTY,
@@ -195,7 +207,12 @@ export class GameScene {
   }
 
   private get amHost(): boolean {
-    return !this.net || (this.net.connectionStatus === "connected" && this.net.isHost);
+    return this.online.kind === "offline" || this.online.kind === "host";
+  }
+
+  private get hostDropped(): boolean {
+    const net = this.net;
+    return !!net && net.hostId !== null && net.players[net.hostId]?.connected === false;
   }
 
   private localUnit(): Unit | null {
@@ -233,7 +250,7 @@ export class GameScene {
     const rdt = frameDt * this.fx.scaleNow();
     this.worldView.sync(this.world, rdt);
     if (me) {
-      this.statusEl.textContent = "";
+      this.statusEl.textContent = this.hostDropped ? "Host reconnecting…" : "";
       this.hud.update(this.world, me, this.controls.scoreHeld(), frameDt);
       // listener facing must match the CAMERA frame so stereo pan tracks the
       // screen — the camera chases the aim on every input source
@@ -248,9 +265,7 @@ export class GameScene {
       this.hud.updateUnassigned(this.world, frameDt);
     } else {
       this.statusEl.textContent =
-        this.net && this.net.connectionStatus !== "connected"
-          ? "Connecting…"
-          : "Joining the arena…";
+        this.online.kind === "connecting" ? "Connecting…" : "Joining the arena…";
     }
     this.hints.update(this.world, me);
     this.driveIntro();
@@ -447,74 +462,77 @@ export class GameScene {
   }
 
   // ── online mode ──
-  private syncConnection(): boolean {
+  private syncConnection(): Seated | null {
     const net = this.net;
-    if (!net || net.connectionStatus !== "connected" || !net.playerId) {
-      if (this.connectedId !== null) {
+    if (!net) return null;
+    const id = net.connectionStatus === "connected" ? net.playerId : null;
+    if (!id) {
+      if (this.online.kind !== "connecting") {
         this.resetHeldInput();
         this.neutralPending = true;
       }
-      this.connectedId = null;
-      this.hostReady = false;
-      this.baselineFx = true;
+      this.online = { kind: "connecting" };
       this.netFx = [];
       this.acc = 0;
-      return false;
+      return null;
     }
-    if (this.connectedId !== net.playerId) {
-      this.connectedId = net.playerId;
-      this.hostReady = false;
-      this.baselineFx = true;
+    const current = this.online;
+    let seat: Seated | null = current.kind === "guest" || current.kind === "host" ? current : null;
+    if (seat?.id !== id) {
+      seat = { kind: "guest", id, lastFxSeq: null };
       this.joinResendAt = -Infinity;
       this.neutralPending = true;
       // Keep fresh movement pressed during the gap; queued actions never replay.
       this.drainActionInput();
-    }
-    if (!net.isHost && this.hostReady) {
-      this.hostReady = false;
-      this.baselineFx = true;
+    } else if (seat.kind === "host" && !net.isHost) {
+      seat = { kind: "guest", id, lastFxSeq: null };
       this.netFx = [];
       this.acc = 0;
     }
-    this.localId = `h-${net.playerId}`;
+    this.online = seat;
+    this.localId = `h-${id}`;
     this.worldView.localId = this.localId;
     this.fx.localId = this.localId;
-    this.fx.localOwnerId = net.playerId;
-    return true;
+    this.fx.localOwnerId = id;
+    return seat;
   }
 
   /** Every admission path prepares authority first, including events arriving
    * between render frames and direct HUD purchases. */
-  private prepareOnline(): boolean {
+  private prepareOnline(): Seated | null {
     const net = this.net;
-    if (!net || !this.syncConnection()) return false;
+    let seat = this.syncConnection();
+    if (!net || !seat) return null;
     const snap = net.sharedState["snap"];
-    if (net.isHost && !this.hostReady) {
+    if (seat.kind === "guest" && net.isHost) {
       // Malformed room state is not permission to overwrite a live match.
-      if (snap !== undefined && snap !== null && !isSnapshot(snap)) return false;
+      if (snap !== undefined && snap !== null && !isSnapshot(snap)) return null;
       const roster = restoreHostState(this.world, isSnapshot(snap) ? snap : null);
       this.picks = { ...this.picks, ...roster.picks };
       this.assign = roster.seats;
       this.netFx = [];
       this.acc = 0;
       this.snapAcc = 0;
-      this.fxSeqOut = sharedCounter(net.sharedState["fxSeq"]);
-      this.baselineFx = true;
-      this.hostReady = true;
-    } else if (!net.isHost) {
-      if (!isSnapshot(snap)) return false;
+      seat = {
+        kind: "host",
+        id: seat.id,
+        lastFxSeq: null,
+        fxSeqOut: sharedCounter(net.sharedState["fxSeq"]),
+      };
+      this.online = seat;
+    } else if (seat.kind === "guest") {
+      if (!isSnapshot(snap)) return null;
       applySnapshot(this.world, snap);
     }
     const generation = sharedCounter(net.sharedState["matchGeneration"]);
     if (this.matchGeneration !== null && generation !== this.matchGeneration)
       this.resetMatchPresentation();
     this.matchGeneration = generation;
-    if (this.baselineFx) {
-      this.lastFxSeq = sharedCounter(net.sharedState["fxSeq"]);
+    if (seat.lastFxSeq === null) {
+      seat.lastFxSeq = sharedCounter(net.sharedState["fxSeq"]);
       this.world.fx.length = 0;
-      this.baselineFx = false;
     }
-    return true;
+    return seat;
   }
 
   private announcePick(net: MultiplayerClient): void {
@@ -530,22 +548,23 @@ export class GameScene {
 
   private tickOnline(frameDt: number): void {
     const net = this.net;
-    if (!net || !this.prepareOnline()) {
+    const seat = this.prepareOnline();
+    if (!net || !seat) {
       this.drainActionInput();
       return;
     }
     this.announcePick(net);
-    if (this.amHost) this.reconcileHeroes(net);
+    if (seat.kind === "host") this.reconcileHeroes(net);
     this.flushNeutralInput();
     if (this.controlsPaused || this.world.phase === "ended") {
       this.controls.setMouseMode(true);
       this.drainActionInput();
     } else {
       const me = this.localUnit();
-      if (me) this.readInput(me, this.amHost, frameDt);
+      if (me) this.readInput(me, seat.kind === "host", frameDt);
       else this.drainActionInput();
     }
-    if (this.amHost) {
+    if (seat.kind === "host") {
       this.acc = this.world.phase === "playing" ? this.acc + frameDt : 0;
       let n = 0;
       while (this.acc >= SIM_DT && n < 5 && this.world.phase === "playing") {
@@ -557,8 +576,8 @@ export class GameScene {
       this.broadcast(frameDt);
     } else {
       const fxSeq = net.sharedState["fxSeq"];
-      if (isJsonNumber(fxSeq) && fxSeq !== this.lastFxSeq) {
-        this.lastFxSeq = fxSeq;
+      if (isJsonNumber(fxSeq) && fxSeq !== seat.lastFxSeq) {
+        seat.lastFxSeq = fxSeq;
         const fx = net.sharedState["fx"];
         if (Array.isArray(fx)) {
           // SAFETY: sharedState.fx is written only by the host's broadcast
@@ -829,23 +848,24 @@ export class GameScene {
 
   private broadcast(dt: number): void {
     const net = this.net;
-    if (!net || !this.amHost || !this.hostReady) return;
+    const seat = this.online;
+    if (!net || seat.kind !== "host") return;
     this.snapAcc += dt;
     if (this.snapAcc < 1 / SNAPSHOT_HZ) return;
     this.snapAcc = 0;
-    this.fxSeqOut += 1;
-    this.lastFxSeq = this.fxSeqOut; // our own rendered batch must never echo on reconnect
+    seat.fxSeqOut += 1;
+    seat.lastFxSeq = seat.fxSeqOut; // our own rendered batch must never echo on reconnect
     net.updateSharedState({
       snap: structuredClone(encodeWorld(this.world)),
       fx: this.netFx,
-      fxSeq: this.fxSeqOut,
+      fxSeq: seat.fxSeqOut,
       matchGeneration: this.matchGeneration ?? 0,
     });
     this.netFx = [];
   }
 
   private canRematch(): boolean {
-    return !this.controlsPaused && !!this.net && this.amHost && this.world.phase === "ended";
+    return !this.controlsPaused && this.online.kind === "host" && this.world.phase === "ended";
   }
 
   private rematch(): void {
@@ -877,7 +897,7 @@ export class GameScene {
     for (const key of ALL_ABILITY_KEYS) this.touchCdLast[key] = -1;
     this.resetHeldInput();
     this.neutralPending = true;
-    this.baselineFx = true;
+    if (this.online.kind === "guest" || this.online.kind === "host") this.online.lastFxSeq = null;
   }
 
   private resetMusicDriver(): void {
@@ -914,7 +934,7 @@ export class GameScene {
    * an online host. If disconnected, defer the release until identity is valid. */
   private flushNeutralInput(): void {
     if (!this.neutralPending) return;
-    if (this.net && (!this.connectedId || this.net.connectionStatus !== "connected")) return;
+    if (this.online.kind === "connecting") return;
     if (this.world.phase !== "playing") {
       this.neutralPending = false;
       return;
@@ -936,7 +956,7 @@ export class GameScene {
 
   private canShop(): boolean {
     if (this.controlsPaused || this.world.phase !== "playing") return false;
-    if (this.net && (this.net.connectionStatus !== "connected" || !this.net.playerId)) return false;
+    if (this.online.kind === "connecting") return false;
     const me = this.localUnit();
     if (!me || !me.alive) return false;
     const sp = SPAWNS[me.slot % SPAWNS.length];
@@ -988,16 +1008,6 @@ export class GameScene {
     this.controls.setMouseMode(this.hud.isShopOpen || this.world.phase === "ended");
     this.hud.setPaused(false);
     this.fx.audio.resume();
-  }
-
-  dispose(): void {
-    this.guide.dispose();
-    this.net?.destroy();
-    this.statusEl.remove();
-    this.hud.dispose();
-    this.controls.dispose();
-    this.fx.dispose();
-    if (document.pointerLockElement) document.exitPointerLock();
   }
 }
 

@@ -157,6 +157,10 @@ export const HOLD_COOLDOWN_MS = 700;
 /** T-pose (both wrists out past the shoulders, at shoulder height) → power-sweep
  *  when the charge meter is full (edge-triggered). */
 export const TPOSE_WRIST_OUT = 0.18; // wrist must be this far (frac of width) outside the shoulder
+/** Vertical slack (frac of shoulder width) still counted as "shoulder height".
+ *  The post-pause neutral gate needs the same number: a wrist inside this band
+ *  is still a T-pose, so clearing the gate there would re-fire power at once. */
+export const TPOSE_LEVEL_SLACK = 0.6;
 export const POWER_COOLDOWN_MS = 800;
 
 // ---- keyboard (DAS/ARR for held steering) -----------------------------------
@@ -172,6 +176,9 @@ export const TOUCH_DAS_MS = 220;
 export const TOUCH_ARR_MS = 90;
 /** DROP released within this = hard drop (tap); held longer = soft drop only. */
 export const DROP_TAP_MS = 250;
+/** A free touch that travels further than this before lifting is a drag (the
+ *  title / results banner scrolls), not a start tap. */
+export const TOUCH_TAP_SLOP_PX = 12;
 
 // ---- look / palette ---------------------------------------------------------
 

@@ -25,6 +25,7 @@ import {
   ORBIT_COOLDOWN_MS,
   POWER_COOLDOWN_MS,
   ROTATE_COOLDOWN_MS,
+  TPOSE_LEVEL_SLACK,
   TPOSE_WRIST_OUT,
 } from "../shared/constants";
 
@@ -151,11 +152,14 @@ export class PoseControls {
       const off = 1 - nose.x / W - this.neutralX;
       const uncrossed =
         Math.sign(rightWrist.x - leftWrist.x) === Math.sign(rightShoulder.x - leftShoulder.x);
+      // Wrists must clear the T-pose level band, not merely dip below the
+      // shoulders, or a T-pose held across the pause re-arms and fires power.
+      const wristsDown = shoulderY + shoulderWidth * TPOSE_LEVEL_SLACK;
       const neutral =
         Math.abs(off) <= NOSE_DEAD_ZONE &&
         shoulderWidth >= ROTATE_SQUEEZE_FRACTION * this.baseShoulder &&
-        leftWrist.y > shoulderY &&
-        rightWrist.y > shoulderY &&
+        leftWrist.y > wristsDown &&
+        rightWrist.y > wristsDown &&
         uncrossed;
       if (!this.actionsPaused && neutral) {
         this.neutralRequired = false;
@@ -205,8 +209,8 @@ export class PoseControls {
       const out = TPOSE_WRIST_OUT * W;
       const wristSpread = Math.abs(rightWrist.x - leftWrist.x);
       const wristsLevel =
-        Math.abs(leftWrist.y - shoulderY) < shoulderWidth * 0.6 &&
-        Math.abs(rightWrist.y - shoulderY) < shoulderWidth * 0.6;
+        Math.abs(leftWrist.y - shoulderY) < shoulderWidth * TPOSE_LEVEL_SLACK &&
+        Math.abs(rightWrist.y - shoulderY) < shoulderWidth * TPOSE_LEVEL_SLACK;
       const tpose = wristSpread > shoulderWidth + 2 * out && wristsLevel;
       if (!tpose) this.powerArmed = true;
       if (this.powerArmed && tpose && now - this.lastPowerTime > POWER_COOLDOWN_MS) {

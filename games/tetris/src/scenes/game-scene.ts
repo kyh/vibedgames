@@ -4,7 +4,6 @@
 // just boots it and renders scene + camera each frame.
 
 import {
-  controlGroups,
   createTouchControls,
   notifyGameStarted,
   pauseGame,
@@ -14,12 +13,10 @@ import type { TouchControls as EmbedTouchControls } from "@repo/embed";
 import { PhysicalGamepad, stickDirection4 } from "@vibedgames/gamepad";
 import { Color, Scene } from "three";
 
-import { CONTROLS, titleSubText } from "../controls";
-import { groupRow } from "../pause-overlay";
+import { titleSubText } from "../controls";
 import type { Cell } from "../game/board";
 import { screenToWorld, type ScreenDir } from "../game/camera-correction";
 import { Engine, type LockEvent } from "../game/engine";
-import { mountRuleTeaching } from "../game/rule-teaching";
 import type { Status } from "../game/state";
 import { ParticlePool } from "../fx/particles";
 import { isMuted, resetSound, setMuted, sfx, toggleMute } from "../fx/sfx";
@@ -30,7 +27,7 @@ import { isCoarsePointer, TouchControls, type TouchHandlers } from "../input/tou
 import { Collapse } from "../physics/collapse";
 import { CameraRig } from "../render/camera-rig";
 import { CubeField } from "../render/cube-field";
-import { drawPiecePreview } from "../render/piece-preview";
+import { Hud, type InputOwner } from "../render/hud";
 import { Well } from "../render/well";
 import {
   ARR_MS,
@@ -63,10 +60,6 @@ const TOUCH_CONTROLS_CSS = `
   --vg-touch-radius: 10px;
 }
 `;
-
-function el(id: string): HTMLElement | null {
-  return document.getElementById(id);
-}
 
 const BEST_SCORE_KEY = "tetris-best-score";
 
@@ -103,6 +96,7 @@ export class GameScene {
   private readonly engine = new Engine();
   private readonly keyboard: Keyboard;
   private readonly touch: TouchControls;
+  private readonly hud: Hud;
   private readonly touchControls: EmbedTouchControls;
   private readonly pad = new PhysicalGamepad();
   private readonly coarse = isCoarsePointer();
@@ -134,16 +128,6 @@ export class GameScene {
   private largestClear = 0;
   private orbitTaught = false;
   private bestScore = readBestScore();
-  private catchTenths = -1;
-
-  // HUD cache (avoid touching the DOM unless a value changed)
-  private hudScore = -1;
-  private hudLines = -1;
-  private hudOwner = "";
-  private hudNextIdx = -2;
-  private hudHoldIdx: number | null = -2;
-  private hudHoldSpent: boolean | null = null;
-  private hudCharge = -1;
 
   constructor(aspect: number) {
     this.scene.background = new Color(BG);
@@ -163,28 +147,15 @@ export class GameScene {
       styleId: "tetris-touch-controls-css",
     });
     document.body.classList.toggle("touch", this.coarse);
-    el("compact-start")?.addEventListener("click", () => this.startIfIdle());
-    const rules = el("spatial-rule");
-    if (rules) mountRuleTeaching(rules);
-    this.renderLegend();
+    this.hud = new Hud(this.coarse, () => this.startIfIdle());
+    this.hud.renderLegend();
     this.showBanner("TETRIS", titleSubText());
     // Plugging in a pad on the title adds its legend row + start hint.
     this.unwatchControls = watchControlContext(() => {
       if (this.engine.state.status !== "title") return;
-      this.renderLegend();
+      this.hud.renderLegend();
       this.showBanner("TETRIS", titleSubText());
     });
-  }
-
-  /** Rebuild the banner legend from the controls manifest, one row per
-   *  visible input method (boot-time, not on first touch — the copy must be
-   *  right before the player ever taps). Rows are the pause overlay's own
-   *  method-label + keycap-chip rows, so title and pause teach with one UI. */
-  private renderLegend(): void {
-    const legend = el("legend");
-    if (!legend) return;
-    const coarse = window.matchMedia("(pointer: coarse)").matches;
-    legend.replaceChildren(...controlGroups(CONTROLS).map((group) => groupRow(group, coarse)));
   }
 
   get camera() {
@@ -413,14 +384,6 @@ export class GameScene {
     if (s === "title" || s === "gameOver") this.startGame();
   }
 
-  private refreshRunActions(): void {
-    const phase = this.engine.state.status;
-    const idle = phase === "title" || phase === "gameOver";
-    this.touch.setActive(!idle);
-    const actions = el("run-actions");
-    if (actions) actions.hidden = !idle;
-  }
-
   private startGame(): void {
     this.unwatchControls?.();
     this.unwatchControls = null;
@@ -543,15 +506,15 @@ export class GameScene {
         // A blocked store must never block the retry path; keep this visit's best.
       }
     }
-    const score = el("result-score");
-    const best = el("result-best");
-    const stats = el("result-stats");
-    if (score) score.textContent = String(this.engine.state.score);
-    if (best) best.textContent = `${newBest ? "NEW BEST" : "BEST"} ${runBest}`;
-    if (stats) {
-      const lines = this.engine.state.lines;
-      stats.textContent = `${lines} ${lines === 1 ? "line" : "lines"} · ${this.piecesPlaced} ${this.piecesPlaced === 1 ? "piece" : "pieces"} placed\n${this.rescues} ${this.rescues === 1 ? "rescue" : "rescues"} · largest clear ${this.largestClear}`;
-    }
+    this.hud.showResults({
+      score: this.engine.state.score,
+      best: runBest,
+      newBest,
+      lines: this.engine.state.lines,
+      pieces: this.piecesPlaced,
+      rescues: this.rescues,
+      largestClear: this.largestClear,
+    });
     this.showBanner(
       "GAME OVER",
       `${this.coarse ? "Tap" : "Enter / Space"} to retry · a fresh stack awaits`,
@@ -743,138 +706,46 @@ export class GameScene {
 
   // ---- HUD --------------------------------------------------------------------
 
+  private catchRemaining(now: number): number | null {
+    if (this.engine.state.status !== "collapsing") return null;
+    return Math.max(0, CATCH_WINDOW_MS - (now - this.collapseStartedAt));
+  }
+
   private updateHud(now: number): void {
     const s = this.engine.state;
-    this.updateCatchMeter(now);
-    if (s.score !== this.hudScore) {
-      this.hudScore = s.score;
-      const node = el("score");
-      if (node) node.textContent = `SCORE ${s.score}`;
-    }
-    if (s.lines !== this.hudLines) {
-      this.hudLines = s.lines;
-      const node = el("lines");
-      if (node) node.textContent = `LINES ${s.lines}`;
-    }
-    if (this.engine.nextIndex !== this.hudNextIdx) {
-      this.hudNextIdx = this.engine.nextIndex;
-      const cv = el("next-canvas");
-      const def = PIECES[this.engine.nextIndex];
-      if (cv instanceof HTMLCanvasElement && def) drawPiecePreview(cv, def.footprint, def.color);
-    }
-    if (this.engine.holdIndex !== this.hudHoldIdx) {
-      this.hudHoldIdx = this.engine.holdIndex;
-      const cv = el("hold-canvas");
-      if (cv instanceof HTMLCanvasElement) {
-        const def = this.engine.holdIndex === null ? null : PIECES[this.engine.holdIndex];
-        drawPiecePreview(cv, def?.footprint ?? null, def?.color ?? 0);
-      }
-    }
-    const holdSpent = this.engine.holdSpent;
-    if (holdSpent !== this.hudHoldSpent) {
-      this.hudHoldSpent = holdSpent;
-      const preview = el("hold-preview");
-      if (preview) preview.dataset.spent = String(holdSpent);
-      const status = el("hold-status");
-      if (status) status.hidden = !holdSpent;
-      const hint = el("hold-hint");
-      if (hint) hint.hidden = !holdSpent;
-    }
-    const charge = Math.round(this.engine.charge * 100);
-    if (charge !== this.hudCharge) {
-      this.hudCharge = charge;
-      const node = el("charge");
-      if (node) {
-        const full = this.coarse ? "✦ POWER (T-pose / PWR)" : "✦ POWER (T-pose / F)";
-        node.textContent = charge >= 100 ? full : `POWER ${charge}%`;
-      }
-    }
+    this.hud.setCatchMeter(this.catchRemaining(now));
     const poseFresh = now - this.lastPoseAt < POSE_TIMEOUT_MS;
     const padFresh = now - this.lastPadAt < POSE_TIMEOUT_MS;
     // The idle owner is whatever the player falls back to: a phone has no keys.
-    const idle = this.coarse ? "TOUCH" : "KEYS";
-    const owner = poseFresh && this.lastPoseAt >= this.lastPadAt ? "POSE" : padFresh ? "PAD" : idle;
-    if (owner !== this.hudOwner) {
-      this.hudOwner = owner;
-      const node = el("input-owner");
-      if (node) {
-        node.textContent = owner === "POSE" || owner === "PAD" ? `● ${owner}` : `○ ${owner}`;
-      }
-    }
-  }
-
-  private updateCatchMeter(now: number): void {
-    const meter = el("catch-meter");
-    const catching = this.engine.state.status === "collapsing";
-    if (meter) meter.hidden = !catching;
-    if (!catching) {
-      this.catchTenths = -1;
-      return;
-    }
-    const remaining = Math.max(0, CATCH_WINDOW_MS - (now - this.collapseStartedAt));
-    if (meter) meter.setAttribute("aria-valuenow", (remaining / CATCH_WINDOW_MS).toFixed(3));
-    const fill = el("catch-fill");
-    if (fill) fill.style.transform = `scaleX(${remaining / CATCH_WINDOW_MS})`;
-    const tenths = Math.ceil(remaining / 100);
-    if (tenths !== this.catchTenths) {
-      this.catchTenths = tenths;
-      const label = el("catch-time");
-      if (label) label.textContent = `${(tenths / 10).toFixed(1)}s to catch`;
-      if (meter)
-        meter.setAttribute("aria-valuetext", `${(tenths / 10).toFixed(1)} seconds to catch`);
-    }
+    const idle: InputOwner = this.coarse ? "TOUCH" : "KEYS";
+    const owner: InputOwner =
+      poseFresh && this.lastPoseAt >= this.lastPadAt ? "POSE" : padFresh ? "PAD" : idle;
+    this.hud.update({
+      score: s.score,
+      lines: s.lines,
+      nextIndex: this.engine.nextIndex,
+      holdIndex: this.engine.holdIndex,
+      holdSpent: this.engine.holdSpent,
+      charge: this.engine.charge,
+      owner,
+    });
   }
 
   /** Show the centre banner. When `withLegend`, also reveal the full control
-   *  reference centred under it and hide the in-play hotkey bar. */
+   *  reference centred under it and hide the in-play hotkey bar. The button
+   *  cluster exists only in play; title and results own their taps. */
   private showBanner(title: string, sub: string, withLegend = true): void {
-    const t = el("banner-title");
-    const s = el("banner-sub");
-    const b = el("banner");
-    if (t) t.textContent = title;
-    if (s) s.textContent = sub;
-    if (b) {
-      b.style.opacity = "1";
-      b.dataset.phase = this.engine.state.status;
-      b.setAttribute("aria-hidden", "false");
-    }
-    const teaching = el("spatial-rule");
-    const summary = el("run-summary");
-    const start = el("compact-start");
-    if (teaching) teaching.hidden = this.engine.state.status !== "title";
-    if (summary) summary.hidden = this.engine.state.status !== "gameOver";
-    if (start) start.textContent = this.engine.state.status === "gameOver" ? "Play again" : "Play";
-    this.refreshRunActions();
-    this.updateCatchMeter(performance.now());
-    this.setHudMode(withLegend ? "legend" : "none");
+    const status = this.engine.state.status;
+    this.hud.showBanner(status, title, sub, withLegend ? "legend" : "none");
+    this.touch.setActive(status !== "title" && status !== "gameOver");
+    this.hud.setCatchMeter(this.catchRemaining(performance.now()));
   }
 
-  /** Hide the banner. In play the quiet hotkey bar carries the reference; the
-   *  full legend lives on the title banner (and the wrapper
-   *  pause overlay renders its own copy from the same manifest). */
   private hideBanner(): void {
-    const b = el("banner");
-    if (b) {
-      b.style.opacity = "0";
-      b.dataset.phase = this.engine.state.status;
-      b.setAttribute("aria-hidden", "true");
-    }
-    const teaching = el("spatial-rule");
-    const summary = el("run-summary");
-    if (teaching) teaching.hidden = true;
-    if (summary) summary.hidden = true;
-    this.refreshRunActions();
-    this.updateCatchMeter(performance.now());
-    this.setHudMode("hotkeys");
-  }
-
-  private setHudMode(mode: "legend" | "hotkeys" | "none"): void {
-    const legend = el("legend");
-    if (legend) legend.style.display = mode === "legend" ? "flex" : "none";
-    const hotkeys = el("hotkeys");
-    // Touch has no keyboard to reference and the bar lands on the DROP/HOLD
-    // buttons; an inline display would beat the stylesheet's `body.touch` rule.
-    if (hotkeys) hotkeys.style.display = mode === "hotkeys" && !this.coarse ? "flex" : "none";
+    const status = this.engine.state.status;
+    this.hud.hideBanner(status);
+    this.touch.setActive(status !== "title" && status !== "gameOver");
+    this.hud.setCatchMeter(this.catchRemaining(performance.now()));
   }
 }
 

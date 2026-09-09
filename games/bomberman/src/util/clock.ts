@@ -13,28 +13,55 @@
 // `Date.now()`, because pausing them would break reconnection.
 //
 // The host publishes its stamp in shared state: every `placedAt` on the wire is
-// host sim time, so guests (and a promoted host) must run the same clock.
+// host sim time, so guests (and a promoted host) must run the same clock. The
+// stamp carries the host's sim time at the moment it was written, never its
+// wall-clock offset — two machines disagree about `Date.now()` by seconds, and a
+// guest calibrating against the host's offset would render every fuse shifted
+// by that skew. Calibrating to the stamp on arrival leaves only one-way latency.
 
-export type ClockStamp = { kind: "running"; offset: number } | { kind: "paused"; now: number };
+export type ClockStamp = { kind: "running"; at: number } | { kind: "paused"; now: number };
 
-let clock: ClockStamp = { kind: "running", offset: 0 };
+type Clock = { kind: "running"; offset: number } | { kind: "paused"; now: number };
 
-/** Legacy rooms carry no stamp. A frozen `now` survives host loss where an
- * offset alone could not represent an unfinished pause. */
-export function readClock(value: ClockStamp | undefined): ClockStamp {
+/** Re-calibrations within this band are latency jitter, not drift: keep the
+ * current offset so fuses do not wobble with every snapshot. */
+export const CLOCK_SLACK_MS = 120;
+
+let clock: Clock = { kind: "running", offset: 0 };
+/** The `at` of the last running stamp adopted, so re-reading the same stamp
+ * later (every room change re-runs adoption) cannot re-calibrate against a
+ * stale write time and jump the sim backwards. */
+let adoptedAt: number | null = null;
+
+/** Legacy rooms carry no usable stamp: keep this client's own running clock.
+ * A frozen `now` survives host loss where an offset alone could not represent
+ * an unfinished pause. */
+export function readClock(value: ClockStamp | undefined): ClockStamp | null {
   if (value?.kind === "paused" && Number.isFinite(value.now))
     return { kind: "paused", now: value.now };
-  if (value?.kind === "running" && Number.isFinite(value.offset))
-    return { kind: "running", offset: value.offset };
-  return { kind: "running", offset: 0 };
+  if (value?.kind === "running" && Number.isFinite(value.at))
+    return { kind: "running", at: value.at };
+  return null;
 }
 
 export function clockStamp(): ClockStamp {
-  return clock;
+  return clock.kind === "paused" ? clock : { kind: "running", at: now() };
 }
 
-export function adoptClock(stamp: ClockStamp): void {
-  clock = stamp;
+/** Follow the host's stamp. A running stamp calibrates local sim time to the
+ * host's as of `receivedAt`; a paused one freezes at the host's frozen time. */
+export function adoptClock(stamp: ClockStamp | null, receivedAt = Date.now()): void {
+  if (!stamp) return;
+  if (stamp.kind === "paused") {
+    clock = stamp;
+    adoptedAt = null;
+    return;
+  }
+  if (stamp.at === adoptedAt) return;
+  adoptedAt = stamp.at;
+  const offset = receivedAt - stamp.at;
+  if (clock.kind === "running" && Math.abs(clock.offset - offset) <= CLOCK_SLACK_MS) return;
+  clock = { kind: "running", offset };
 }
 
 /** Sim clock: `Date.now()` minus all time spent paused. Frozen while paused. */

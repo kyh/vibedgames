@@ -52,3 +52,11 @@ export function watchPresentationSettings(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
+
+let reducedMotionQuery: MediaQueryList | null = null;
+
+/** The OS preference or the in-game motion setting: skip entrance/pulse motion. */
+export function reducedMotion(): boolean {
+  reducedMotionQuery ??= window.matchMedia("(prefers-reduced-motion: reduce)");
+  return reducedMotionQuery.matches || settings.motion === "reduced";
+}

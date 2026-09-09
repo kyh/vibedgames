@@ -64,8 +64,10 @@ export type BurstOpts = {
   sizeMax?: number;
 };
 
+/** Live media query: every motion gate in the game reads this one instance. */
+export const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
+
 export class FxPool {
-  private readonly reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   private puffMesh: THREE.InstancedMesh;
   private heartMesh: THREE.InstancedMesh;
   private confettiMesh: THREE.InstancedMesh;
@@ -194,7 +196,7 @@ export class FxPool {
     this.updateHearts(dt);
     this.updateConfetti(dt);
     this.updateRings();
-    if (!this.reducedMotion.matches) this.updateMotes(dt);
+    if (!REDUCED_MOTION.matches) this.updateMotes(dt);
   }
 
   // ---- per-system integration ------------------------------------------------

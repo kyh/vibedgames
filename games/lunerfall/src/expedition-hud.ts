@@ -274,7 +274,11 @@ export class ExpeditionHud {
 
   private renderOffer(force = false): void {
     const offer = this.state?.offer;
-    if (!offer) return;
+    if (!offer) {
+      // The next offer must lay itself out afresh even if it is the same item.
+      this.offerKey = "";
+      return;
+    }
     const split = this.build.open && !this.build.hidden;
     const missingGold = Math.max(0, offer.price - (this.state?.gold ?? 0));
     const key = [offer.name, offer.desc, offer.price, offer.kind, missingGold, split].join("|");

@@ -15,6 +15,8 @@ export type ParticlePriority = "ambient" | "impact" | "major";
 const PRIORITY = { ambient: 0, impact: 1, major: 2 } satisfies Readonly<
   Record<ParticlePriority, number>
 >;
+const RANKED: readonly ParticlePriority[] = ["ambient", "impact", "major"];
+const emptyList = (): number[] => [];
 
 /** Standard HDR multiplier for bloom-worthy cores (bloom threshold is 0.82). */
 export const HDR_BRIGHT = 2.2;
@@ -130,8 +132,14 @@ function makeSlot(): Slot {
 class Pool {
   readonly mesh: THREE.InstancedMesh;
   private readonly slots: Slot[] = [];
-  private readonly active: number[] = []; // packed index list (swap-remove)
-  private activeCount = 0;
+  // live indices packed per priority (swap-remove), so a saturated spawn only
+  // scans the lowest-ranked bucket instead of everything alive
+  private readonly live = {
+    ambient: emptyList(),
+    impact: emptyList(),
+    major: emptyList(),
+  } satisfies Record<ParticlePriority, number[]>;
+  private readonly livePos: number[] = []; // slot → index in its priority list
   private readonly free: number[] = [];
   private readonly colorAttr: THREE.InstancedBufferAttribute;
   private readonly alphaAttr: THREE.InstancedBufferAttribute | null;
@@ -159,7 +167,7 @@ class Pool {
     for (let i = cap - 1; i >= 0; i--) this.free.push(i); // pop order 0,1,2… keeps count low
     for (let i = 0; i < cap; i++) {
       this.slots.push(makeSlot());
-      this.active.push(0); // preallocated packed list (activeCount is the live length)
+      this.livePos.push(0);
     }
   }
 
@@ -171,6 +179,8 @@ class Pool {
     if (idx === undefined) return;
     const s = this.slots[idx];
     if (!s) return;
+    if (freeIndex === undefined) this.unlink(idx, s.priority);
+    this.link(idx, priority);
     s.priority = priority;
     s.px = o.x;
     s.py = o.y;
@@ -191,9 +201,6 @@ class Pool {
     s.r = scratchCol.r * bright;
     s.g = scratchCol.g * bright;
     s.b = scratchCol.b * bright;
-    // A replacement already occupies exactly one packed-list entry. It never
-    // touches the free list or activeCount; expiration releases it once.
-    if (freeIndex !== undefined) this.active[this.activeCount++] = idx;
     if (idx >= this.highWater) {
       this.highWater = idx + 1;
       this.mesh.count = this.highWater;
@@ -202,68 +209,90 @@ class Pool {
     this.dirty = true;
   }
 
+  /** Lowest-ranked live particle below `priority`, closest to expiring. */
   private replaceable(priority: ParticlePriority): number | undefined {
-    let candidate: number | undefined;
-    let lowest = PRIORITY[priority];
-    let fraction = Infinity;
-    for (let i = 0; i < this.activeCount; i++) {
-      const idx = this.active[i];
-      const slot = idx === undefined ? undefined : this.slots[idx];
-      if (!slot || PRIORITY[slot.priority] >= PRIORITY[priority]) continue;
-      const rank = PRIORITY[slot.priority];
-      const remaining = slot.life / slot.maxLife;
-      if (rank < lowest || (rank === lowest && remaining < fraction)) {
-        candidate = idx;
-        lowest = rank;
-        fraction = remaining;
+    for (const rank of RANKED) {
+      if (PRIORITY[rank] >= PRIORITY[priority]) return undefined;
+      let candidate: number | undefined;
+      let fraction = Infinity;
+      for (const idx of this.live[rank]) {
+        const slot = this.slots[idx];
+        if (!slot) continue;
+        const remaining = slot.life / slot.maxLife;
+        if (remaining < fraction) {
+          candidate = idx;
+          fraction = remaining;
+        }
       }
+      if (candidate !== undefined) return candidate;
     }
-    return candidate;
+    return undefined;
+  }
+
+  private link(idx: number, priority: ParticlePriority): void {
+    const list = this.live[priority];
+    this.livePos[idx] = list.length;
+    list.push(idx);
+  }
+
+  private unlink(idx: number, priority: ParticlePriority): void {
+    const list = this.live[priority];
+    const at = this.livePos[idx] ?? 0;
+    const last = list.pop();
+    if (last !== undefined && last !== idx) {
+      list[at] = last;
+      this.livePos[last] = at;
+    }
+  }
+
+  private liveCount(): number {
+    return this.live.ambient.length + this.live.impact.length + this.live.major.length;
   }
 
   counts() {
-    const counts = { ambient: 0, impact: 0, major: 0 };
-    for (let i = 0; i < this.activeCount; i++) {
-      const idx = this.active[i];
-      const slot = idx === undefined ? undefined : this.slots[idx];
-      if (slot) counts[slot.priority]++;
-    }
-    return { active: this.activeCount, capacity: this.cap, ...counts };
+    return {
+      active: this.liveCount(),
+      capacity: this.cap,
+      ambient: this.live.ambient.length,
+      impact: this.live.impact.length,
+      major: this.live.major.length,
+    };
   }
 
   update(dt: number): void {
-    for (let i = this.activeCount - 1; i >= 0; i--) {
-      const idx = this.active[i];
-      if (idx === undefined) continue;
-      const s = this.slots[idx];
-      if (!s) continue;
-      s.life -= dt;
-      if (s.life <= 0) {
-        this.mesh.setMatrixAt(idx, ZERO_MAT);
-        const last = this.active[--this.activeCount];
-        if (last !== undefined) this.active[i] = last;
-        this.free.push(idx);
+    for (const rank of RANKED) {
+      const list = this.live[rank];
+      for (let i = list.length - 1; i >= 0; i--) {
+        const idx = list[i];
+        const s = idx === undefined ? undefined : this.slots[idx];
+        if (idx === undefined || !s) continue;
+        s.life -= dt;
+        if (s.life <= 0) {
+          this.mesh.setMatrixAt(idx, ZERO_MAT);
+          this.unlink(idx, rank);
+          this.free.push(idx);
+          this.dirty = true;
+          continue;
+        }
+        s.vy += s.gravity * dt;
+        if (s.drag > 0) {
+          const d = Math.max(0, 1 - s.drag * dt);
+          s.vx *= d;
+          s.vy *= d;
+          s.vz *= d;
+        }
+        s.px += s.vx * dt;
+        s.py += s.vy * dt;
+        s.pz += s.vz * dt;
+        this.writeInstance(idx, s, s.life / s.maxLife);
         this.dirty = true;
-        continue;
       }
-      s.vy += s.gravity * dt;
-      if (s.drag > 0) {
-        const d = Math.max(0, 1 - s.drag * dt);
-        s.vx *= d;
-        s.vy *= d;
-        s.vz *= d;
-      }
-      s.px += s.vx * dt;
-      s.py += s.vy * dt;
-      s.pz += s.vz * dt;
-      this.writeInstance(idx, s, s.life / s.maxLife);
-      this.dirty = true;
     }
     if (this.dirty) {
       this.mesh.instanceMatrix.needsUpdate = true;
       this.colorAttr.needsUpdate = true;
       if (this.alphaAttr) this.alphaAttr.needsUpdate = true;
-      this.dirty = this.activeCount > 0;
+      this.dirty = this.liveCount() > 0;
     }
   }
 

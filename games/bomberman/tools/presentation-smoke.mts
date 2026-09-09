@@ -12,7 +12,14 @@ import {
 import { bombStock } from "../src/render/round-hud";
 import { RoundScore, scoreNotes } from "../src/fx/round-score";
 import { EXPLOSION_MS, FUSE_MS, type Bomb } from "../src/shared/constants";
-import { adoptClock, now, pauseClock, readClock, resumeClock } from "../src/util/clock";
+import {
+  adoptClock,
+  CLOCK_SLACK_MS,
+  now,
+  pauseClock,
+  readClock,
+  resumeClock,
+} from "../src/util/clock";
 
 const pose: CharacterPose = { col: 1, row: 1, dir: "down", moving: false };
 const bomb = { id: "accepted", placedAt: 1000, col: 1, row: 1 };
@@ -155,17 +162,29 @@ test("round score emits one beat per step and rebases on gaps, mode changes and 
   assert.deepEqual(scoreNotes({ mode: "duel", step: 2 }), [220]);
 });
 
-test("sim clock freezes while paused and legacy stamps read as running", () => {
-  adoptClock({ kind: "running", offset: 0 });
-  assert.deepEqual(readClock(undefined), { kind: "running", offset: 0 });
+test("sim clock freezes while paused, calibrates to host sim time, ignores jitter", () => {
+  adoptClock({ kind: "running", at: Date.now() });
+  assert.equal(readClock(undefined), null, "legacy rooms keep the local clock");
   assert.deepEqual(readClock({ kind: "paused", now: 42 }), { kind: "paused", now: 42 });
-  assert.deepEqual(readClock({ kind: "running", offset: Number.NaN }), {
-    kind: "running",
-    offset: 0,
-  });
+  assert.equal(readClock({ kind: "running", at: Number.NaN }), null);
+  // A host whose wall clock runs 5s ahead: sim time follows the host, not Date.now().
+  const received = Date.now();
+  adoptClock({ kind: "running", at: received + 5000 }, received);
+  const skew = now() - Date.now();
+  assert.ok(skew > 4900 && skew <= 5000, `skew ${skew}`);
+  // Snapshot latency jitter within CLOCK_SLACK_MS never re-calibrates.
+  adoptClock({ kind: "running", at: received + 5000 + CLOCK_SLACK_MS }, received + 10);
+  assert.ok(now() - Date.now() <= 5000);
+  // Re-reading the same stamp seconds later (promotion) must not jump backwards.
+  adoptClock({ kind: "running", at: received + 5000 + CLOCK_SLACK_MS }, received + 6000);
+  assert.ok(now() - Date.now() > 4900);
   pauseClock();
   const frozen = now();
   for (let i = 0; i < 1000; i++) assert.equal(now(), frozen);
   resumeClock();
-  assert.ok(now() >= frozen && Date.now() - now() >= 0);
+  assert.ok(now() >= frozen);
+  adoptClock({ kind: "paused", now: 42 });
+  assert.equal(now(), 42);
+  adoptClock({ kind: "running", at: 1000 }, 1000);
+  assert.ok(now() - Date.now() >= -1 && now() - Date.now() <= 0, "back on wall time");
 });

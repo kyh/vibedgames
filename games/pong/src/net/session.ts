@@ -65,6 +65,8 @@ export class NetSession {
   private bootedAt = 0;
   private offlineMyState: JsonObject = {};
   private offlineShared: JsonObject | null = null;
+  private otherScanned: PlayerMap | null = null;
+  private other: Player | null = null;
 
   constructor(opts: NetSessionOptions) {
     this.fallbackMs = opts.fallbackMs;
@@ -155,13 +157,25 @@ export class NetSession {
       : client.players;
   }
 
-  /** The other player in the room, or null when alone. */
+  /** The other player in the room, or null when alone. Scanned once per
+   *  roster change, not per call: the client swaps in a fresh player map on
+   *  every sync/join/leave/state message, and a scene asks several times a frame. */
   otherPlayer(): Player | null {
-    const me = this.playerId;
-    for (const [id, p] of Object.entries(this.players)) {
-      if (id !== me) return p;
+    const client = this.client;
+    if (this.solo || !client) return null;
+    const players = client.players;
+    if (players !== this.otherScanned) {
+      this.otherScanned = players;
+      this.other = null;
+      const me = client.playerId;
+      for (const [id, p] of Object.entries(players)) {
+        if (id !== me) {
+          this.other = p;
+          break;
+        }
+      }
     }
-    return null;
+    return this.other;
   }
 
   get sharedState(): JsonObject | null {

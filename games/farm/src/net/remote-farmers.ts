@@ -105,15 +105,14 @@ export class RemoteFarmers {
       f.sprite.setFlipX(st.f);
       const pose = st.pose;
       if (pose) {
-        if (pose.revision > (f.poseRevision ?? -1)) {
+        // Seek only when the sender (re)started a clip or paused/finished one;
+        // between packets the clip runs locally, so packet jitter never shows.
+        const restarted = pose.revision !== f.poseRevision;
+        if (restarted || pose.playing !== f.sprite.anims.isPlaying) {
           const key = `p-${pose.clip}`;
-          const anim = this.scene.anims.get(key);
-          const frame = anim?.frames[pose.frame];
+          const frame = this.scene.anims.get(key)?.frames[pose.frame];
           if (frame) {
-            if (
-              f.sprite.anims.currentAnim?.key !== key ||
-              (pose.playing && !f.sprite.anims.isPlaying)
-            )
+            if (f.sprite.anims.currentAnim?.key !== key || !f.sprite.anims.isPlaying)
               f.sprite.play(key, true);
             f.sprite.anims.setCurrentFrame(frame);
             f.sprite.anims.accumulator = pose.elapsed;

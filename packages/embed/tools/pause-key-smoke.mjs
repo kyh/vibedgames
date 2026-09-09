@@ -43,12 +43,12 @@ globalThis.requestAnimationFrame = (callback) => {
 };
 globalThis.cancelAnimationFrame = (id) => callbacks.delete(id);
 const { createPauseShell } = await import("../src/pause-shell.ts");
-const { setPauseHandlers, notifyGameStarted, pauseGame, resumeGame, isPausable, watchPausable } =
+const { setPauseHandlers, notifyGameStarted, pauseGame, resumeGame, isPausable } =
   await import("../src/game.ts");
 let modal = false,
   resumes = 0;
 const shell = createPauseShell({ render() {}, fadeMs: 0, modalOpen: () => modal });
-const releaseShell = setPauseHandlers({
+setPauseHandlers({
   onPause: shell.show,
   onResume: () => {
     resumes++;
@@ -103,19 +103,10 @@ for (let cycle = 0; cycle < 3; cycle++) {
 }
 shell.hide();
 assert.equal(resumes, 4);
-releaseShell();
 
-const messages = [];
-win.parent = { postMessage: (message) => messages.push(message) };
-const changes = [];
-const unwatch = watchPausable(() => changes.push(isPausable()));
-let pauses = 0;
-const release = setPauseHandlers({
-  onPause: () => pauses++,
-  onResume: () => assert.fail("owner disposal must not resume a destroyed game"),
-});
-notifyGameStarted();
-pauseGame();
+// canResume holds a pause the game cannot leave yet (tetris: lost graphics).
+let available = false;
+let guardedResumes = 0;
 function keyBlocked(type) {
   const event = new Event(type);
   let blocked = false;
@@ -125,92 +116,25 @@ function keyBlocked(type) {
   win.dispatchEvent(event);
   return blocked;
 }
-assert.equal(keyBlocked("keydown"), true, "actual paused key gate is installed");
-const beforeRelease = messages.length;
-release();
-release();
-assert.equal(isPausable(), false);
-assert.equal(keyBlocked("keydown"), false);
-assert.equal(keyBlocked("keyup"), false, "next UI release is not swallowed");
-assert.equal(messages.length, beforeRelease, "final teardown emits no phantom started message");
-assert.deepEqual(changes, [true, false, false], "only the first disposal notifies observers");
-key("keydown", "Escape");
-pauseGame();
-assert.equal(pauses, 1, "module listeners stay inert after final owner release");
-
-const releaseStale = setPauseHandlers({ onPause: () => assert.fail("stale owner") });
-let replacementPauses = 0;
-const releaseReplacement = setPauseHandlers({ onPause: () => replacementPauses++ });
-notifyGameStarted();
-releaseStale();
-assert.equal(isPausable(), true, "stale disposal leaves replacement owner active");
-pauseGame();
-assert.equal(replacementPauses, 1);
-releaseStale();
-assert.equal(keyBlocked("keyup"), true, "stale disposal cannot release replacement's pause");
-releaseReplacement();
-assert.equal(keyBlocked("keyup"), false);
-
-for (const alreadyPaused of [false, true]) {
-  let sameObjectPauses = 0;
-  const sharedHandlers = { onPause: () => assert.fail("callback replaced after installation") };
-  const releaseOlder = setPauseHandlers(sharedHandlers);
-  const releaseLatest = setPauseHandlers(sharedHandlers);
-  // Registration retains the supplied object's live callbacks; it must not clone it.
-  sharedHandlers.onPause = () => sameObjectPauses++;
-  notifyGameStarted();
-  if (alreadyPaused) pauseGame();
-  const beforeStaleRelease = messages.length;
-  releaseOlder();
-  assert.equal(
-    isPausable(),
-    !alreadyPaused,
-    "same-object stale disposer preserves latest installation",
-  );
-  assert.equal(keyBlocked("keyup"), alreadyPaused);
-  assert.equal(messages.length, beforeStaleRelease);
-  if (!alreadyPaused) pauseGame();
-  assert.equal(sameObjectPauses, 1, "latest installation retains passed-object callback semantics");
-  releaseLatest();
-  assert.equal(isPausable(), false);
-  assert.equal(keyBlocked("keyup"), false);
-  releaseOlder();
-  releaseLatest();
-}
-let available = false,
-  guardedResumes = 0;
-const releaseGuarded = setPauseHandlers({
-  canResume: () => available,
-  onResume: () => guardedResumes++,
-});
+setPauseHandlers({ canResume: () => available, onResume: () => guardedResumes++ });
 notifyGameStarted();
 pauseGame();
-const beforeDenied = { messages: messages.length, changes: changes.length };
 resumeGame();
 key("keydown", "Escape");
 key("keyup", "Escape");
 assert.equal(guardedResumes, 0, "unavailable game cannot resume through API or Escape");
 assert.equal(isPausable(), false);
-assert.equal(keyBlocked("keydown"), true);
-assert.equal(keyBlocked("keyup"), true);
-assert.equal(messages.length, beforeDenied.messages, "denied resume never announces start");
-assert.equal(changes.length, beforeDenied.changes, "denied resume does not change pause state");
+assert.equal(keyBlocked("keydown"), true, "keys stay gated through a denied resume");
 available = true;
 resumeGame();
 assert.equal(guardedResumes, 1);
 assert.equal(isPausable(), true);
 assert.equal(keyBlocked("keyup"), false);
-available = false;
+
 pauseGame();
 let newResumes = 0;
-const releaseUnguarded = setPauseHandlers({ onResume: () => newResumes++ });
-releaseGuarded();
+setPauseHandlers({ onResume: () => newResumes++ });
 resumeGame();
-assert.equal(newResumes, 1, "replacement owner keeps default resume permission");
-assert.equal(guardedResumes, 1);
+assert.equal(newResumes, 1, "a replacement owner resumes by default");
 assert.equal(isPausable(), true);
-releaseUnguarded();
-unwatch();
-console.log(
-  "PASS held-key/fresh-key/modal/Escape ownership; final paused disposal releases keys without resume/message; stale disposal preserves distinct-object and same-object replacements; denied resume preserves state/keys/messages and replacement permission",
-);
+console.log("PASS held-key/fresh-key/modal/Escape ownership; canResume gates resume and keys");

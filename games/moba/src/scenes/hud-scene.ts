@@ -10,31 +10,23 @@ import { FONT } from "../render/font";
 import { abilityIconFrame } from "../render/fx-map";
 import { actionAvailability } from "../render/action-availability";
 import type { UnavailableReason } from "../render/action-availability";
-import { presentationSettings } from "../render/presentation-settings";
+import { reducedMotion } from "../render/presentation-settings";
 import { objectiveGuidance } from "../render/objective-guidance";
 import {
-  abilityExplanation,
   abilityUpgrade,
   experienceProgress,
   heroPortrait,
   killFeedText,
 } from "../render/hud-presentation";
-import { heroSheetTex } from "../render/sprites";
+import { AbilityGuide } from "../render/ability-guide";
+import { AnnouncementBanner } from "../render/announcements";
+import { ResultCard } from "../render/results-card";
 import { SLOT_LABEL } from "./game-scene";
-import type { GameScene, MatchResult, ObjectiveNotice } from "./game-scene";
+import type { GameScene, MatchResult } from "./game-scene";
 
 /** Coarse-pointer detection at boot, so copy is input-aware before any touch. */
 function touchDevice(): boolean {
   return window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
-}
-
-function stopPointer(
-  _p: Phaser.Input.Pointer,
-  _x: number,
-  _y: number,
-  event: Phaser.Types.Input.EventData,
-): void {
-  event.stopPropagation();
 }
 
 const KEYS: AbilityKey[] = ["Q", "W", "E", "R"];
@@ -46,16 +38,6 @@ const ARC_R = 28; // uniform button radius
 const ARC_START_DEG = 2; // Q sits almost straight above the anchor
 const ARC_SPAN_DEG = 88; // ...and R lands level with it (quarter arc)
 const DEG = Math.PI / 180;
-const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
-
-function reducedMotion(): boolean {
-  return REDUCED_MOTION.matches || presentationSettings().motion === "reduced";
-}
-const NOTICE_PRIORITY = { objective: 1, major: 2, ending: 3 } satisfies Record<
-  ObjectiveNotice["priority"],
-  number
->;
-const NOTICE_LIFETIME = 14000;
 const AVAILABILITY_LABEL = {
   unavailable: "LOCKED",
   dead: "DEAD",
@@ -66,52 +48,6 @@ const AVAILABILITY_LABEL = {
   cooldown: "WAIT",
   mana: "MANA",
 } satisfies Record<UnavailableReason, string>;
-type Announcement = { entry: ObjectiveNotice; age: number; remaining: number };
-type AbilityGuide = {
-  root: HTMLDivElement;
-  style: HTMLStyleElement;
-  toggle: HTMLButtonElement;
-  panel: HTMLElement;
-  close: HTMLButtonElement;
-  title: HTMLElement;
-  experience: HTMLElement;
-  tabs: { key: AbilityKey; button: HTMLButtonElement }[];
-  name: HTMLElement;
-  rank: HTMLElement;
-  description: HTMLElement;
-  costs: HTMLElement;
-  unlock: HTMLElement;
-  copy: HTMLDivElement;
-  more: HTMLElement;
-  selected: AbilityKey;
-  signature: string;
-};
-type ResultButton = {
-  bg: Phaser.GameObjects.NineSlice;
-  label: Phaser.GameObjects.Text;
-  action: "again" | "menu";
-};
-type ResultPersonal = {
-  frame: Phaser.GameObjects.Image;
-  portrait: Phaser.GameObjects.Image;
-  name: Phaser.GameObjects.Text;
-  role: Phaser.GameObjects.Text;
-  kda: Phaser.GameObjects.Text;
-  kdaLabel: Phaser.GameObjects.Text;
-  stats: { value: Phaser.GameObjects.Text; label: Phaser.GameObjects.Text }[];
-};
-type ResultUi = {
-  data: MatchResult;
-  root: Phaser.GameObjects.Container;
-  veil: Phaser.GameObjects.Rectangle;
-  panel: Phaser.GameObjects.NineSlice;
-  ribbon: Phaser.GameObjects.NineSlice;
-  title: Phaser.GameObjects.Text;
-  context: Phaser.GameObjects.Text;
-  personal: ResultPersonal | null;
-  neutral: Phaser.GameObjects.Text | null;
-  buttons: ResultButton[];
-};
 
 type Slot = {
   key: AbilityKey;
@@ -141,6 +77,8 @@ export class HudScene extends Phaser.Scene {
   private xpFill: Phaser.GameObjects.Rectangle | null = null;
   private xpText: Phaser.GameObjects.Text | null = null;
   private guide: AbilityGuide | null = null;
+  private banner!: AnnouncementBanner;
+  private result: ResultCard | null = null;
   private objectiveText: Phaser.GameObjects.Text | null = null;
   private respawnTipText: Phaser.GameObjects.Text | null = null;
   private guidanceNextAt = 0;
@@ -157,7 +95,6 @@ export class HudScene extends Phaser.Scene {
   private barPanel!: Phaser.GameObjects.NineSlice;
   private dashPanel!: Phaser.GameObjects.Image;
   private scoreRibbon!: Phaser.GameObjects.NineSlice;
-  private announceRibbon!: Phaser.GameObjects.NineSlice;
   private mapFrame!: Phaser.GameObjects.NineSlice;
   private itemSlots: {
     panel: Phaser.GameObjects.Image;
@@ -209,12 +146,7 @@ export class HudScene extends Phaser.Scene {
 
   // kill feed + announce banner
   private feedLines: { text: Phaser.GameObjects.Text; until: number }[] = [];
-  private announce!: Phaser.GameObjects.Text;
   private teamScore!: Phaser.GameObjects.Text;
-  private activeNotice: Announcement | null = null;
-  private pendingNotices: Announcement[] = [];
-  private resultUi: ResultUi | null = null;
-  private resultClicked = false;
 
   // scoreboard (Tab)
   private board!: Phaser.GameObjects.Container;
@@ -239,7 +171,7 @@ export class HudScene extends Phaser.Scene {
 
   /** Whether shop/scoreboard own the Escape key right now (wrapper pause defers). */
   get escConsumed(): boolean {
-    return this.shopOpen || this.boardOpen || this.guide?.panel.hidden === false;
+    return this.shopOpen || this.boardOpen || this.guide?.open === true;
   }
 
   init(data: { game: GameScene }): void {
@@ -253,10 +185,7 @@ export class HudScene extends Phaser.Scene {
     this.itemSlots = [];
     this.shopRows = [];
     this.feedLines = [];
-    this.activeNotice = null;
-    this.pendingNotices = [];
-    this.resultUi = null;
-    this.resultClicked = false;
+    this.result = null;
     this.uiButtons = [];
     this.shopOpen = false;
     this.boardOpen = false;
@@ -268,9 +197,7 @@ export class HudScene extends Phaser.Scene {
     this.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.layout, this);
-      // The ability guide is DOM, not a Phaser object: the scene must remove it.
-      this.guide?.root.remove();
-      this.guide?.style.remove();
+      this.guide?.destroy();
       this.guide = null;
     });
     // radial vignette to frame the field — sits behind every HUD widget, above the
@@ -308,7 +235,7 @@ export class HudScene extends Phaser.Scene {
       if (this.boardOpen) this.toggleBoard();
     });
     this.input.keyboard?.on("keydown-ESC", () => {
-      this.closeAbilityGuide();
+      this.guide?.closeGuide();
       if (this.shopOpen) this.toggleShop();
       if (this.boardOpen) this.toggleBoard();
     });
@@ -625,263 +552,36 @@ export class HudScene extends Phaser.Scene {
     const guidance = world ? objectiveGuidance(world, this.gs.player) : null;
     this.objectiveText?.setText(guidance?.text ?? "");
     const tip = guidance?.respawnTip;
-    this.respawnTipText?.setText(tip ?? "").setVisible(!!tip && this.guide?.panel.hidden !== false);
+    this.respawnTipText?.setText(tip ?? "").setVisible(!!tip && !this.guide?.open);
   }
 
-  /** A separate native inspect surface. Ability buttons keep their cast action. */
   private buildAbilityGuide(): void {
-    const root = document.createElement("div");
-    root.className = "moba-ability-guide";
-    const style = document.createElement("style");
-    style.textContent = `
-      .moba-ability-guide{position:fixed;inset:0;z-index:90;pointer-events:none;color:#352c22}
-      .moba-ability-guide[data-open=true]{pointer-events:auto}
-      .moba-ability-guide [hidden]{display:none!important}
-      .moba-ability-guide button{min-height:44px;border:1px solid #786044;border-radius:2px;background:#ead7ae;color:#352c22;font:14px ${FONT};cursor:pointer}
-      .moba-ability-guide button:focus-visible,.moba-ability-guide .guide-copy:focus-visible{outline:3px solid #164f62;outline-offset:2px}
-      .moba-ability-guide button[aria-pressed=true]{background:#325c69;color:#fff2ce;border-color:#203b43}
-      .moba-ability-guide .guide-toggle{position:absolute;width:112px;pointer-events:auto;background:#d4bb8c url(assets/ui/carved3.webp) center/100% 100% no-repeat;border:0}
-      .moba-ability-guide section{position:absolute;box-sizing:border-box;pointer-events:auto;display:flex;flex-direction:column;border:3px solid #786044;border-radius:3px;background:#e6d2a9;box-shadow:0 4px 0 #352c2260;overflow:hidden}
-      .moba-ability-guide header{display:flex;flex-shrink:0;align-items:center;gap:8px;padding:7px 10px 0}
-      .moba-ability-guide .guide-heading{flex:1;min-width:0}
-      .moba-ability-guide h2{margin:0;font:19px ${FONT}}
-      .moba-ability-guide .guide-close{flex:none;width:44px;font-size:20px}
-      .moba-ability-guide .guide-xp{margin:3px 0;font:12px system-ui,sans-serif;color:#5d482d}
-      .moba-ability-guide nav{display:flex;flex-shrink:0;gap:6px;padding:6px 10px 8px}
-      .moba-ability-guide nav button{flex:1}
-      .moba-ability-guide .guide-copy{min-height:0;padding:0 12px 12px;overflow:auto;overscroll-behavior:contain;touch-action:pan-y;font:15px/1.4 system-ui,sans-serif}
-      .moba-ability-guide h3{margin:0 0 5px;font:20px ${FONT}}
-      .moba-ability-guide p{margin:6px 0}
-      .moba-ability-guide .guide-rank,.moba-ability-guide .guide-costs,.moba-ability-guide .guide-unlock{font-size:13px;color:#5d482d}
-      .moba-ability-guide .guide-unlock{border-top:1px solid #bca177;padding-top:8px}
-      .moba-ability-guide .guide-more{height:16px;flex:none;margin:0;text-align:center;font:11px/16px system-ui,sans-serif;color:#70532e;pointer-events:none;visibility:hidden}
-      @media(max-width:759px),(max-height:519px){
-        .moba-ability-guide header{padding:4px 8px 2px}
-        .moba-ability-guide h2{font-size:17px;line-height:1.05}
-        .moba-ability-guide .guide-xp{margin:2px 0;font-size:11px}
-        .moba-ability-guide nav{gap:4px;padding:0 8px 4px}
-        .moba-ability-guide .guide-copy{padding:0 10px 8px;font-size:13px;line-height:1.35}
-        .moba-ability-guide h3{font-size:17px;line-height:1.1;margin-bottom:4px}
-        .moba-ability-guide .guide-copy p{margin:4px 0}
-        .moba-ability-guide .guide-rank,.moba-ability-guide .guide-costs,.moba-ability-guide .guide-unlock{font-size:12px}
-      }
-    `;
-    const toggle = document.createElement("button");
-    toggle.type = "button";
-    toggle.className = "guide-toggle";
-    toggle.textContent = "ABILITIES";
-    toggle.setAttribute("aria-expanded", "false");
-    toggle.setAttribute("aria-controls", "moba-ability-panel");
-    const panel = document.createElement("section");
-    panel.id = "moba-ability-panel";
-    panel.hidden = true;
-    panel.setAttribute("role", "dialog");
-    panel.setAttribute("aria-modal", "true");
-    panel.setAttribute("aria-label", "Champion ability guide");
-    const header = document.createElement("header");
-    const heading = document.createElement("div");
-    heading.className = "guide-heading";
-    const title = document.createElement("h2");
-    const close = document.createElement("button");
-    close.type = "button";
-    close.className = "guide-close";
-    close.textContent = "×";
-    close.setAttribute("aria-label", "Close ability guide");
-    const experience = document.createElement("p");
-    experience.className = "guide-xp";
-    heading.append(title, experience);
-    header.append(heading, close);
-    const nav = document.createElement("nav");
-    nav.setAttribute("aria-label", "Inspect an ability");
-    const tabs = KEYS.map((key) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = key;
-      nav.append(button);
-      return { key, button };
-    });
-    const copy = document.createElement("div");
-    copy.className = "guide-copy";
-    copy.tabIndex = 0;
-    copy.setAttribute("aria-label", "Ability details");
-    const name = document.createElement("h3");
-    const rank = document.createElement("p");
-    rank.className = "guide-rank";
-    const description = document.createElement("p");
-    const costs = document.createElement("p");
-    costs.className = "guide-costs";
-    const unlock = document.createElement("p");
-    unlock.className = "guide-unlock";
-    copy.append(name, rank, description, costs, unlock);
-    const more = document.createElement("p");
-    more.className = "guide-more";
-    more.textContent = "Scroll for more ↓";
-    more.setAttribute("aria-hidden", "true");
-    panel.append(header, nav, copy, more);
-    root.append(toggle, panel);
-    const guide: AbilityGuide = {
-      root,
-      style,
-      toggle,
-      panel,
-      close,
-      title,
-      experience,
-      tabs,
-      name,
-      rank,
-      description,
-      costs,
-      unlock,
-      copy,
-      more,
-      selected: "Q",
-      signature: "",
-    };
-    this.guide = guide;
-    copy.addEventListener("scroll", () => {
-      if (this.guide === guide) this.refreshGuideOverflow();
-    });
-    for (const event of ["pointerdown", "pointerup", "pointermove", "click"])
-      root.addEventListener(event, (e) => e.stopPropagation());
-    let closingEscape = false;
-    const fenceKey = (event: KeyboardEvent): void => {
-      if (this.guide !== guide) return;
-      if (!panel.hidden) {
-        if (event.key !== "m" && event.key !== "M") event.stopPropagation();
-        if (event.key === "Tab" && event.type === "keydown") {
-          event.preventDefault();
-          const focusable = [close, ...tabs.map((tab) => tab.button), copy];
-          const current = focusable.findIndex((node) => node === document.activeElement);
-          focusable[
-            (current + (event.shiftKey ? -1 : 1) + focusable.length) % focusable.length
-          ]?.focus();
-          return;
-        }
-        if (event.key === "Escape") {
-          if (event.type === "keydown") {
-            event.preventDefault();
-            closingEscape = true;
-            this.closeAbilityGuide();
-          }
-          return;
-        }
-        const key = KEYS.find((k) => k === event.key.toUpperCase());
-        if (key && event.type === "keydown") {
-          guide.selected = key;
-          this.refreshAbilityGuide();
-        }
-      } else if (event.key === "Enter" || event.key === " ") event.stopPropagation();
-      else if (event.key === "Escape" && event.type === "keyup" && closingEscape) {
-        event.stopPropagation();
-        closingEscape = false;
-      }
-    };
-    root.addEventListener("keydown", fenceKey);
-    root.addEventListener("keyup", fenceKey);
-    toggle.addEventListener("click", () => {
-      if (
-        this.guide !== guide ||
-        this.gs.matchResult ||
-        this.gs.controlsPaused ||
-        this.shopOpen ||
-        this.boardOpen
-      )
-        return;
-      if (!panel.hidden) this.closeAbilityGuide();
-      else {
-        panel.hidden = false;
-        root.dataset.open = "true";
-        toggle.setAttribute("aria-expanded", "true");
+    this.guide = new AbilityGuide(this.gs, {
+      blocked: () => this.shopOpen || this.boardOpen,
+      onOpen: () => {
         this.gs.uiBlocking = true;
         this.gs.clearHudInput();
-        this.refreshAbilityGuide();
-        close.focus();
-      }
+      },
+      onClose: () => {
+        this.gs.uiBlocking = this.shopOpen;
+        this.gs.clearHudInput();
+      },
     });
-    close.addEventListener("click", () => {
-      if (this.guide === guide) this.closeAbilityGuide();
-    });
-    for (const tab of tabs)
-      tab.button.addEventListener("click", () => {
-        if (this.guide !== guide) return;
-        guide.selected = tab.key;
-        this.refreshAbilityGuide();
-      });
-    document.head.append(style);
-    document.body.append(root);
-  }
-
-  private closeAbilityGuide(focus = true): void {
-    const guide = this.guide;
-    if (!guide || guide.panel.hidden) return;
-    guide.panel.hidden = true;
-    guide.root.dataset.open = "false";
-    guide.toggle.setAttribute("aria-expanded", "false");
-    this.gs.uiBlocking = this.shopOpen;
-    this.gs.clearHudInput();
-    if (focus) guide.toggle.focus();
-  }
-
-  private refreshAbilityGuide(): void {
-    const guide = this.guide;
-    if (!guide) return;
-    const me = this.gs.player;
-    const hero = me?.hero;
-    guide.root.hidden = !hero || !!this.gs.matchResult || this.shopOpen || this.boardOpen;
-    if (!me || !hero || guide.panel.hidden) return;
-    const signature = `${hero.defId}:${hero.level}:${Math.floor(hero.xp)}:${hero.abilityPoints}:${
-      me.alive
-    }:${guide.selected}:${KEYS.map((key) => hero.abilities[key].rank).join()}`;
-    if (signature === guide.signature) {
-      this.refreshGuideOverflow();
-      return;
-    }
-    guide.signature = signature;
-    const explanation = abilityExplanation(hero, guide.selected);
-    if (!explanation) return;
-    guide.title.textContent = HERO_BY_ID[hero.defId]?.name ?? "Your champion";
-    guide.experience.textContent = `Level ${hero.level} · ${experienceProgress(hero).text}`;
-    guide.name.textContent = explanation.name;
-    guide.rank.textContent = explanation.rank;
-    guide.description.textContent = explanation.description;
-    guide.costs.textContent = explanation.costs;
-    guide.unlock.textContent = me.alive ? explanation.unlock : "Upgrade after respawning";
-    for (const tab of guide.tabs) {
-      tab.button.setAttribute("aria-pressed", String(tab.key === guide.selected));
-      tab.button.setAttribute(
-        "aria-label",
-        `Inspect ${tab.key}: ${HERO_BY_ID[hero.defId]?.abilities[tab.key].name ?? tab.key}`,
-      );
-    }
-    this.refreshGuideOverflow();
-  }
-
-  private refreshGuideOverflow(): void {
-    const guide = this.guide;
-    if (!guide) return;
-    const more =
-      !guide.panel.hidden &&
-      guide.copy.scrollHeight - guide.copy.clientHeight - guide.copy.scrollTop > 2;
-    const visibility = more ? "visible" : "hidden";
-    if (guide.more.style.visibility !== visibility) guide.more.style.visibility = visibility;
   }
 
   private layoutAbilityGuide(): void {
-    const guide = this.guide;
-    if (!guide) return;
     const W = this.scale.width;
     const H = this.scale.height;
     const portrait = H > W;
     const x = this.compact ? this.mapX : this.infoPanel.x;
     const y = this.compact ? this.mapY + this.mapH + 10 : this.infoPanel.y + 122;
-    guide.toggle.style.width = `${this.compact ? this.mapW : this.infoPanel.width}px`;
-    guide.toggle.style.left = `${x}px`;
-    guide.toggle.style.top = `${y}px`;
-    guide.panel.style.left = `${x}px`;
-    guide.panel.style.top = `${y + 52}px`;
-    guide.panel.style.width = `${this.compact ? (portrait ? W - x - 12 : Math.min(320, W * 0.4)) : 350}px`;
-    guide.panel.style.maxHeight = `${Math.max(150, Math.min(H - y - 64, this.compact && portrait ? H * 0.23 : 390))}px`;
+    this.guide?.place({
+      x,
+      y,
+      toggleWidth: this.compact ? this.mapW : this.infoPanel.width,
+      panelWidth: this.compact ? (portrait ? W - x - 12 : Math.min(320, W * 0.4)) : 350,
+      maxHeight: Math.max(150, Math.min(H - y - 64, this.compact && portrait ? H * 0.23 : 390)),
+    });
   }
 
   private buildShop(): void {
@@ -968,7 +668,7 @@ export class HudScene extends Phaser.Scene {
 
   private toggleShop(): void {
     if (this.gs.matchResult) return;
-    this.closeAbilityGuide(false);
+    this.guide?.closeGuide(false);
     this.shopOpen = !this.shopOpen;
     this.shop.setVisible(this.shopOpen);
     this.gs.uiBlocking = this.shopOpen; // pause hero input so arrows drive the shop
@@ -1086,121 +786,14 @@ export class HudScene extends Phaser.Scene {
       .text(0, 0, "", { fontFamily: FONT, fontSize: "20px", color: "#5a3a10" })
       .setOrigin(0.5, 0)
       .setDepth(40000);
-    this.announceRibbon = this.add
-      .nineslice(0, 0, "ui-ribbon-blue", 0, 560, 76, 58, 58, 22, 22)
-      .setOrigin(0.5)
-      .setDepth(45990)
-      .setAlpha(0);
-    this.announce = this.add
-      .text(0, 0, "", {
-        fontFamily: FONT,
-        fontSize: "26px",
-        color: "#ffe6a3",
-        stroke: "#1e2a3a",
-        strokeThickness: 5,
-        align: "center",
-      })
-      .setOrigin(0.5)
-      .setDepth(46000)
-      .setAlpha(0);
-  }
-
-  private queueAnnouncement(entry: ObjectiveNotice): void {
-    const remaining = NOTICE_LIFETIME - Math.max(0, this.time.now - entry.at);
-    if (remaining <= 0) return;
-    const next = { entry, remaining, age: 0 };
-    if (!this.activeNotice) this.activeNotice = next;
-    else if (NOTICE_PRIORITY[entry.priority] > NOTICE_PRIORITY[this.activeNotice.entry.priority]) {
-      this.holdAnnouncement(this.activeNotice, true);
-      this.activeNotice = next;
-    } else this.holdAnnouncement(next);
-    this.layoutAnnouncement();
-  }
-
-  private holdAnnouncement(next: Announcement, interrupted = false): void {
-    if (
-      this.pendingNotices.some(
-        (p) =>
-          p.entry.text === next.entry.text &&
-          p.entry.priority === next.entry.priority &&
-          p.entry.tone === next.entry.tone,
-      )
-    )
-      return;
-    if (this.pendingNotices.length === 3) {
-      const lowest = Math.min(...this.pendingNotices.map((p) => NOTICE_PRIORITY[p.entry.priority]));
-      if (NOTICE_PRIORITY[next.entry.priority] < lowest) return;
-      const drop = this.pendingNotices.findIndex(
-        (p) => NOTICE_PRIORITY[p.entry.priority] === lowest,
-      );
-      this.pendingNotices.splice(drop, 1);
-    }
-    if (interrupted) this.pendingNotices.unshift(next);
-    else this.pendingNotices.push(next);
-  }
-
-  private updateAnnouncement(delta: number): void {
-    for (const p of this.pendingNotices) p.remaining -= delta;
-    this.pendingNotices = this.pendingNotices.filter(
-      (p) => p.remaining > 0 && this.time.now - p.entry.at < NOTICE_LIFETIME,
-    );
-    if (this.activeNotice) {
-      this.activeNotice.age += delta;
-      this.activeNotice.remaining -= delta;
-      if (
-        this.activeNotice.age >= 3900 ||
-        this.activeNotice.remaining <= 0 ||
-        this.time.now - this.activeNotice.entry.at >= NOTICE_LIFETIME
-      )
-        this.activeNotice = null;
-    }
-    if (!this.activeNotice && this.pendingNotices.length > 0) {
-      const highest = Math.max(
-        ...this.pendingNotices.map((p) => NOTICE_PRIORITY[p.entry.priority]),
-      );
-      const index = this.pendingNotices.findIndex(
-        (p) => NOTICE_PRIORITY[p.entry.priority] === highest,
-      );
-      this.activeNotice = this.pendingNotices.splice(index, 1)[0] ?? null;
-    }
-    this.layoutAnnouncement();
-  }
-
-  private layoutAnnouncement(): void {
-    const active = this.activeNotice;
-    if (!active) {
-      this.announce.setAlpha(0);
-      this.announceRibbon.setAlpha(0);
-      return;
-    }
-    const { text, tone } = active.entry;
-    const W = this.scale.width;
-    const cy = this.scale.height * 0.26;
-    const color = tone === "good" ? "#9bf0b4" : tone === "bad" ? "#ffb0a4" : "#fff3c4";
-    if (this.announce.text !== text) this.announce.setText(text);
-    if (this.announce.style.color !== color) this.announce.setColor(color);
-    const fit = Math.min(1, (W - 56) / Math.max(1, this.announce.width));
-    const entrance = reducedMotion()
-      ? 1
-      : 0.6 + 0.4 * Phaser.Math.Easing.Back.Out(Math.min(1, active.age / 320));
-    const alpha = Math.min(1, Math.max(0, (3900 - active.age) / 700));
-    this.announce
-      .setPosition(W / 2, cy - 4)
-      .setScale(fit * entrance)
-      .setAlpha(alpha);
-    const ribbonWidth = Math.min(W - 8, Math.max(380, this.announce.width * fit + 150));
-    if (this.announceRibbon.width !== ribbonWidth) this.announceRibbon.setSize(ribbonWidth, 76);
-    this.announceRibbon
-      .setPosition(W / 2, cy)
-      .setScale(entrance)
-      .setAlpha(alpha);
+    this.banner = new AnnouncementBanner(this);
   }
 
   private updateFeed(): void {
     const now = this.time.now;
     for (const e of this.gs.drainFeed()) {
       if (e.kind === "notify") {
-        this.queueAnnouncement(e);
+        this.banner.queue(e, now);
         continue;
       }
       // no running kill feed on phones — announces (the banner) still show
@@ -1242,194 +835,22 @@ export class HudScene extends Phaser.Scene {
     });
   }
 
-  // ---- result: the HUD camera is unrotated screen-space --------------------
+  /** The card replaces the combat HUD: everything built so far leaves the
+   *  camera's render and hit-test lists, so a resize or update cannot revive
+   *  a widget under the veil. Rebuilt when a promoted guest earns PLAY AGAIN. */
   private buildResult(data: MatchResult): void {
-    this.closeAbilityGuide(false);
-    if (this.guide) this.guide.root.hidden = true;
+    this.result?.destroy();
+    this.guide?.hide();
     this.shopOpen = false;
     this.boardOpen = false;
     this.shop.setVisible(false);
     this.board.setVisible(false);
     this.gs.uiBlocking = true;
-    this.activeNotice = null;
-    this.pendingNotices = [];
-    this.announce.setAlpha(0);
-    this.announceRibbon.setAlpha(0);
-    // Ignore the existing combat HUD in both rendering and camera hit tests.
-    // Result objects are created afterward; resize/update cannot revive widgets.
+    this.banner.clear();
     this.cameras.main.ignore(this.children.list);
-    const veil = this.add
-      .rectangle(0, 0, 1, 1, 0x05080e, 0.68)
-      .setOrigin(0)
-      .setDepth(50000)
-      .setInteractive();
-    veil.on("pointerdown", stopPointer);
-    const root = this.add.container(0, 0).setDepth(50001);
-    const won = data.kind === "assigned" && data.outcome === "victory";
-    const neutral = data.kind === "unassigned";
-    const panel = this.add.nineslice(0, 0, "ui-carved9", 0, 600, 236, 20, 20, 20, 20);
-    const ribbon = this.add.nineslice(
-      0,
-      0,
-      neutral ? "ui-ribbon-blue" : won ? "ui-ribbon-yellow" : "ui-ribbon-red",
-      0,
-      560,
-      100,
-      58,
-      58,
-      22,
-      22,
+    this.result = new ResultCard(this, data, this.gs.canReplay, (action) =>
+      this.gs.leaveResult(action),
     );
-    const text = (value: string, size: number, color: string): Phaser.GameObjects.Text =>
-      this.add
-        .text(0, 0, value, { fontFamily: FONT, fontSize: size, color, align: "center" })
-        .setOrigin(0.5);
-    const title = text(
-      neutral ? "MATCH COMPLETE" : won ? "VICTORY" : "DEFEAT",
-      64,
-      won ? "#5a3a10" : "#f4eee0",
-    );
-    title.setStroke(won ? "#fff3c4" : "#283342", 5);
-    const minutes = Math.floor(data.duration / 60);
-    const seconds = Math.floor(data.duration % 60)
-      .toString()
-      .padStart(2, "0");
-    const context = text(
-      `${data.winner ? `${data.winner.toUpperCase()} PREVAILS  ·  ` : ""}${minutes}:${seconds} MATCH`,
-      15,
-      "#fff0ca",
-    );
-    root.add([panel, ribbon, title, context]);
-    let personal: ResultPersonal | null = null;
-    let completion: Phaser.GameObjects.Text | null = null;
-    if (data.kind === "assigned") {
-      const frame = this.add.image(0, 0, "ui-panel");
-      const portrait = this.add.image(0, 0, heroSheetTex(data.heroId, data.team), 0);
-      const name = text(data.heroName, 26, "#4a3320");
-      const role = text(`${data.heroTitle}\n${data.role}`, 14, "#6b533c");
-      const kda = text(`${data.kills} / ${data.deaths} / ${data.assists}`, 36, "#4a3320");
-      const kdaLabel = text("KILLS  /  DEATHS  /  ASSISTS", 12, "#6b533c");
-      const stats = [
-        { label: "LEVEL", value: data.level },
-        { label: "LAST HITS", value: data.lastHits },
-        { label: "DENIES", value: data.denies },
-        { label: "GOLD HELD", value: Math.floor(data.gold) },
-      ].map((stat) => ({
-        value: text(String(stat.value), 21, "#4a3320"),
-        label: text(stat.label, 11, "#6b533c"),
-      }));
-      root.add([frame, portrait, name, role, kda, kdaLabel]);
-      for (const stat of stats) root.add([stat.value, stat.label]);
-      personal = { frame, portrait, name, role, kda, kdaLabel, stats };
-    } else {
-      completion = text("The battle has ended.\nNo personal hero was assigned.", 22, "#4a3320");
-      root.add(completion);
-    }
-    const buttons: ResultButton[] = [];
-    const addButton = (action: "again" | "menu", color: "blue" | "red", caption: string): void => {
-      const bg = this.add
-        .nineslice(0, 0, `ui-btn-${color}`, 0, 250, 60, 28, 28, 20, 26)
-        .setInteractive({ useHandCursor: true });
-      const label = text(caption, 19, "#1e3a44");
-      root.add([bg, label]);
-      buttons.push({ bg, label, action });
-      bg.on("pointerover", () => {
-        if (!this.resultClicked && !reducedMotion())
-          this.tweens.add({ targets: [bg, label], scale: 1.04, duration: 100 });
-      });
-      bg.on("pointerout", () => this.tweens.add({ targets: [bg, label], scale: 1, duration: 100 }));
-      bg.on(
-        "pointerdown",
-        (p: Phaser.Input.Pointer, x: number, y: number, event: Phaser.Types.Input.EventData) => {
-          stopPointer(p, x, y, event);
-          if (this.resultClicked) return;
-          this.resultClicked = true;
-          bg.setTexture(`ui-btn-${color}-pressed`);
-          label.setText("…").setY(bg.y);
-          this.time.delayedCall(40, () => this.gs.leaveResult(action));
-        },
-      );
-    };
-    if (data.canReplay) addButton("again", "blue", "⟳  PLAY AGAIN");
-    addButton("menu", "red", "⌂  BACK TO MENU");
-    this.resultUi = {
-      data,
-      root,
-      veil,
-      panel,
-      ribbon,
-      title,
-      context,
-      personal,
-      neutral: completion,
-      buttons,
-    };
-    this.layoutResult();
-    if (!reducedMotion()) {
-      root.setAlpha(0);
-      this.tweens.add({ targets: root, alpha: 1, duration: 250 });
-    }
-  }
-
-  private layoutResult(): void {
-    const ui = this.resultUi;
-    if (!ui) return;
-    const W = this.scale.width;
-    const H = this.scale.height;
-    const inset = safeAreaInset();
-    const narrow = W < 600;
-    const width = narrow ? 360 : 600;
-    const both = ui.buttons.length === 2;
-    const fullHeight = narrow && both ? 520 : narrow ? 450 : 430;
-    const fit = Math.min(
-      1,
-      (W - inset.left - inset.right - 24) / width,
-      (H - inset.top - inset.bottom - 24) / fullHeight,
-    );
-    ui.veil.setSize(W, H);
-    ui.root
-      .setPosition(
-        (W + inset.left - inset.right) / 2,
-        (H + inset.top - inset.bottom) / 2 - (narrow && both ? 28 : 0) * fit,
-      )
-      .setScale(fit);
-    ui.ribbon.setPosition(0, narrow ? -178 : -155).setSize(narrow ? 360 : 560, narrow ? 88 : 104);
-    ui.title
-      .setPosition(0, narrow ? -184 : -163)
-      .setFontSize(ui.data.kind === "unassigned" ? (narrow ? 30 : 44) : narrow ? 46 : 64);
-    ui.context.setPosition(0, narrow ? -128 : -105).setFontSize(narrow ? 12 : 15);
-    ui.panel.setPosition(0, narrow ? 18 : 20).setSize(width, narrow ? 266 : 226);
-    const p = ui.personal;
-    if (p) {
-      const px = narrow ? -116 : -205;
-      const py = narrow ? -59 : -8;
-      const size = narrow ? 90 : 138;
-      p.frame.setPosition(px, py).setDisplaySize(size, size);
-      p.portrait.setPosition(px, py).setDisplaySize(size - 12, size - 12);
-      p.name
-        .setOrigin(0, 0.5)
-        .setPosition(narrow ? -55 : -106, narrow ? -77 : -58)
-        .setFontSize(narrow ? 24 : 27);
-      p.role
-        .setOrigin(0, 0.5)
-        .setAlign("left")
-        .setPosition(narrow ? -55 : -106, narrow ? -45 : -24)
-        .setFontSize(narrow ? 12 : 14);
-      p.kda.setPosition(narrow ? 0 : 94, narrow ? 22 : 27).setFontSize(narrow ? 34 : 36);
-      p.kdaLabel.setPosition(narrow ? 0 : 94, narrow ? 49 : 54).setFontSize(narrow ? 11 : 12);
-      p.stats.forEach((stat, i) => {
-        const x = -width / 2 + 28 + (i + 0.5) * ((width - 56) / 4);
-        stat.value.setPosition(x, narrow ? 94 : 92).setFontSize(narrow ? 20 : 21);
-        stat.label.setPosition(x, narrow ? 119 : 114).setFontSize(narrow ? 10 : 11);
-      });
-    }
-    ui.neutral?.setPosition(0, 15).setFontSize(narrow ? 18 : 22);
-    ui.buttons.forEach((button, i) => {
-      const x = narrow || !both ? 0 : i === 0 ? -140 : 140;
-      const y = narrow ? 194 + i * 66 : 186;
-      button.bg.setPosition(x, y);
-      button.label.setPosition(x, y - (this.resultClicked ? 0 : 4));
-    });
   }
 
   // ---- scoreboard (Tab) ----------------------------------------------------
@@ -1439,7 +860,7 @@ export class HudScene extends Phaser.Scene {
 
   private toggleBoard(): void {
     if (this.gs.matchResult) return;
-    this.closeAbilityGuide(false);
+    this.guide?.closeGuide(false);
     this.boardOpen = !this.boardOpen;
     this.board.setVisible(this.boardOpen);
     if (this.boardOpen) this.renderBoard();
@@ -1566,8 +987,8 @@ export class HudScene extends Phaser.Scene {
    *  arc bending around the dash button in the bottom-right corner. No space is
    *  reserved for the move stick — it floats and spawns wherever the touch is. */
   private layout(): void {
-    if (this.resultUi) {
-      this.layoutResult();
+    if (this.result) {
+      this.result.layout();
       return;
     }
     const W = this.scale.width;
@@ -1830,7 +1251,7 @@ export class HudScene extends Phaser.Scene {
 
     if (this.danger) this.danger.setSize(W, H).setPosition(0, 0);
     if (this.vignette) this.vignette.setDisplaySize(W, H).setPosition(0, 0);
-    this.layoutAnnouncement();
+    this.banner.layout();
     this.layoutAbilityGuide();
   }
 
@@ -1852,20 +1273,20 @@ export class HudScene extends Phaser.Scene {
   override update(_t: number, delta: number): void {
     const result = this.gs.matchResult;
     if (result) {
-      if (!this.resultUi) this.buildResult(result);
+      if (!this.result || this.result.canReplay !== this.gs.canReplay) this.buildResult(result);
       this.gs.drainFeed(); // final objectives cannot repaint over the result
       return;
     }
     // auto-close the shop if the player dies while it's open, so uiBlocking can't
     // strand a freshly-respawned hero frozen.
     if (this.shopOpen && !this.gs?.player?.alive) this.toggleShop();
-    this.refreshAbilityGuide();
+    this.guide?.refresh();
     this.updateGuidance();
     this.pollPad();
     // minimap / feed / scoreboard run even while the player is dead or unspawned
     this.updateMinimap();
     this.updateFeed();
-    this.updateAnnouncement(Math.min(delta, 100));
+    this.banner.update(Math.min(delta, 100), this.time.now);
     // scoreboard refreshes at 4Hz, not per frame — renderBoard rebuilds every
     // Text object, which is far too much churn to run at 60fps while Tab is held
     if (this.boardOpen && this.time.now >= this.boardNextRenderAt) {

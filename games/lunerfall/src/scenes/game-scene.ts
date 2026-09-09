@@ -74,7 +74,7 @@ import {
 } from "../sys/fx";
 import { diag } from "../sys/diag";
 import { Grid } from "../sys/grid";
-import { checkpointRng, restoreRng, rand, reseed } from "../sys/rng";
+import { checkpointRng, restoreRng, rand, reseed, unseed } from "../sys/rng";
 import { type Offer, RunManager } from "../sys/run";
 import { Input, type InputState } from "../sys/input";
 import { gameInset, isCoarse, touchHudBand } from "../sys/screen";
@@ -454,6 +454,14 @@ export class GameScene extends Phaser.Scene {
     this.comboT = 0;
     this.flashedBiome = 0; // reset so a new run never flashes its starting biome
     this.state = "active";
+    // Phaser reuses the scene instance across start(): the old display list is
+    // gone but fields still point at destroyed sprites, so every net puppet is
+    // dropped here rather than trusted.
+    this.remote = undefined;
+    this.remoteId = null;
+    this.netPlayers = [];
+    this.enemyPuppets.clear();
+    this.netProj = [];
     this.doors = [];
     this.enemies = [];
     this.arrows = [];
@@ -478,6 +486,11 @@ export class GameScene extends Phaser.Scene {
     // run's role/session into this one (solo must not take the guest path).
     this.role = "solo";
     this.session = undefined;
+    // A run that adopted a seeded stream (online checkpoint, test seed) would
+    // otherwise replay it here.
+    const dataSeed = data instanceof Object && "seed" in data ? data.seed : undefined;
+    if (Number.isFinite(dataSeed)) reseed(Number(dataSeed));
+    else unseed();
     this.authority = { kind: "waiting" };
     this.adoptedTerminal = null;
     this.seats = { host: null, guest: null };
@@ -1060,9 +1073,9 @@ export class GameScene extends Phaser.Scene {
     this.freeze = Math.max(this.freeze, 0.06);
   }
 
-  private heal(n: number) {
+  private heal(n: number, by: Player = this.player) {
     this.hearts = Math.min(this.maxHearts, this.hearts + n);
-    sfx.heal("local");
+    sfx.heal(by === this.player ? "local" : "routine");
     this.updateHud();
   }
 
@@ -1155,6 +1168,12 @@ export class GameScene extends Phaser.Scene {
         ls: this.role === "guest" ? this.netLastStand !== null : this.lastStand !== null,
         vs: vsProbe,
         dead: this.livePlayers().filter((p) => p.body.dead).length,
+        paused: this.controlsPaused,
+        swing: this.player.body.swingId,
+        rSwing:
+          this.role === "guest"
+            ? (this.netPlayers.find((p) => p.id !== this.session?.playerId)?.swingId ?? null)
+            : (this.remote?.body.swingId ?? null),
       });
     }
 
@@ -1315,14 +1334,18 @@ export class GameScene extends Phaser.Scene {
     const sess = this.session;
     const myId = sess?.playerId;
     if (!sess?.isHost || !myId || this.state === "dead") return;
+    // A peer parked in the reconnect grace window is listed but not playing:
+    // treated as present it would hold a seat and freeze a duel against a
+    // ghost until the server reaps it.
+    const live = (id: string | null): boolean => sess.players[id ?? ""]?.connected !== false;
     const other = sess.otherPlayer();
-    if (this.seats.host && !sess.players[this.seats.host]) this.seats.host = null;
-    if (this.seats.guest && !sess.players[this.seats.guest]) this.seats.guest = null;
+    if (this.seats.host && !live(this.seats.host)) this.seats.host = null;
+    if (this.seats.guest && !live(this.seats.guest)) this.seats.guest = null;
     if (this.seats.host !== myId && this.seats.guest !== myId) {
       if (this.seats.host === null) this.seats.host = myId;
       else this.seats.guest = myId;
     }
-    if (this.remote && (!other || other.id !== this.remoteId)) {
+    if (this.remote && (!other || other.id !== this.remoteId || !live(other.id))) {
       if (this.vs) this.vs.reset();
       else if (this.lastStand) {
         this.lastStand = null;
@@ -1338,7 +1361,7 @@ export class GameScene extends Phaser.Scene {
       this.showBanner(this.vs ? "CHALLENGER LEFT" : "PLAYER 2 LEFT", 1600, "critical");
       this.updateHud();
     }
-    if (other && !this.remote) {
+    if (other && live(other.id) && !this.remote) {
       // Presence can arrive before the peer publishes its hub selection.
       const hero = parseHero(other.state?.hero);
       if (!hero) return;
@@ -2000,6 +2023,10 @@ export class GameScene extends Phaser.Scene {
     const sess = this.session;
     const auth = this.authority;
     if (!sess?.live || auth.kind !== "ready" || this.mode !== "coop") return;
+    // The hub's restart targets the terminal run it showed; adopting a live
+    // run makes it moot, and a stale request would silently skip the next
+    // death's recap and restart the expedition under both players.
+    if (this.restartRequested && this.state !== "dead") this.restartRequested = false;
     if (this.restartRequested && this.state === "dead" && this.restartSentFor !== auth.runId) {
       this.restartSentFor = auth.runId;
       this.restartRequested = false;
@@ -2889,7 +2916,7 @@ export class GameScene extends Phaser.Scene {
       pb.pendingShot = null;
     }
     if (pb.pendingHeal > 0) {
-      this.heal(pb.pendingHeal);
+      this.heal(pb.pendingHeal, pl);
       popText(this, pb.x, pb.y - 26, "+HP", "#34e5c8");
       pb.pendingHeal = 0;
     }

@@ -25,11 +25,22 @@ import {
   CLOCK_TICK_HZ,
   FARM_SEED,
 } from "../config";
-import { isJsonNumber, isJsonObject, isJsonString } from "../json";
+import { isJsonNumber, isJsonObject } from "../json";
 import type { JsonValue } from "../json";
 import { NetSession } from "../net/session";
 import { RemoteFarmers, farmerPose } from "../net/remote-farmers";
+import {
+  packTiles,
+  parseTileIntent,
+  readPackedTile,
+  tileSig,
+  type TileEdit,
+  type TileIntent,
+} from "../net/tile-codec";
 import { World, GROUND, inBounds, type WorldObject } from "../world/world";
+import { hintFor } from "../ui/action-hints";
+import { tintFor } from "../render/night-tint";
+import { pathTo, type Waypoint } from "../systems/pathfind";
 import { generateFarm, MINE_EXIT, consumedSprites } from "../world/mapgen";
 import { getWorldMap } from "../world/map-store";
 import { buildWorldMap } from "../render/worldmap-render";
@@ -84,34 +95,10 @@ export function enableTrailerStaging(): void {
   trailerStaging = true;
 }
 
-/** A single tile's synced state: tilled, watered, crop id (or null), grow-days. */
-type TileEdit = { t: number; w: number; c: CropId | null; d: number };
+/** DEV-only room override (?room=): the two-client harness isolates each run
+ *  so a stale room's farm can't leak into assertions. */
+const ROOM = (import.meta.env.DEV && new URLSearchParams(location.search).get("room")) || MP_ROOM;
 
-/** A guest's farming action, parsed + validated at the wire boundary. */
-type TileIntent = {
-  idx: number;
-  action: "till" | "water" | "plant" | "harvest";
-  crop?: CropId;
-};
-
-function isCropId(v: JsonValue | undefined): v is CropId {
-  return isJsonString(v) && v in CROPS;
-}
-
-function parseTileIntent(payload: JsonValue): TileIntent | null {
-  if (!isJsonObject(payload)) return null;
-  const idx = payload["idx"];
-  const action = payload["action"];
-  const crop = payload["crop"];
-  if (!isJsonNumber(idx) || !Number.isInteger(idx) || idx < 0 || idx >= MAP_W * MAP_H) {
-    return null;
-  }
-  if (action === "till" || action === "water" || action === "harvest") return { idx, action };
-  // A planted crop id must be a real crop: a bogus one would crash rendering
-  // on every client AND poison the save (black screen on every reload).
-  if (action === "plant" && isCropId(crop)) return { idx, action, crop };
-  return null;
-}
 const ACTION_TIMING = {
   dig: [18, 13, 9],
   water: [9, 5, 3],
@@ -119,6 +106,9 @@ const ACTION_TIMING = {
   mine: [16, 10, 7],
   doing: [14, 8, 4],
 } satisfies Record<CharAction, [number, number, number]>;
+
+/** What actionHint last looked at; idx -1 forces a recompute. */
+type HintKey = { idx: number; item: Item | null };
 
 export class GameScene extends Phaser.Scene {
   world!: World;
@@ -137,7 +127,7 @@ export class GameScene extends Phaser.Scene {
   acting = false;
   private moving = false;
   // click-to-move: waypoint pixel positions the player walks through
-  private clickPath: { x: number; y: number }[] = [];
+  private clickPath: Waypoint[] = [];
   private pathStuck = 0;
 
   private soilImgs = new Map<number, Phaser.GameObjects.Image>();
@@ -191,7 +181,9 @@ export class GameScene extends Phaser.Scene {
   private net?: NetSession;
   private remoteFarmers?: RemoteFarmers;
   private netAcc = 0;
-  // The same scene instance resumes after mine trips; keep pose revisions monotonic.
+  /** Bumped whenever the local clip (re)starts: peers seek only on a change and
+   *  run the clip themselves in between. The instance survives mine trips, so
+   *  the counter stays monotonic for the room. */
   private poseRevision = 0;
   private clockAcc = 0;
   /** Whether this client has pushed its full farm to the room yet. */
@@ -204,6 +196,9 @@ export class GameScene extends Phaser.Scene {
   private tileEdits = new Map<number, TileEdit>();
   /** Signatures already applied locally, to skip redundant re-renders. */
   private appliedTiles = new Map<number, string>();
+  /** actionHint memo: what it last looked at (idx -1 = stale). */
+  private hintKey: HintKey = { idx: -1, item: null };
+  private hint: string | null = null;
 
   constructor() {
     super("Game");
@@ -262,7 +257,7 @@ export class GameScene extends Phaser.Scene {
     // solo (Phase 1). The session survives mine trips: only created once.
     if (!trailerStaging && !this.net && this.seed === FARM_SEED) {
       this.net = new NetSession({
-        room: MP_ROOM,
+        room: ROOM,
         maxPlayers: MP_MAX_PLAYERS,
         fallbackMs: OFFLINE_FALLBACK_MS,
         onEvent: (event, payload, from) => this.handleNetEvent(event, payload, from),
@@ -279,6 +274,9 @@ export class GameScene extends Phaser.Scene {
       .setScale(1.1, 1)
       .setAlpha(0.35);
     this.player = this.add.sprite(0, 0, "p-idle").setOrigin(0.5, CHAR_ORIGIN_Y).play("p-idle");
+    this.player.on(Phaser.Animations.Events.ANIMATION_START, () => {
+      this.poseRevision += 1;
+    });
     this.player.setPosition(this.pendingSpawn.x, this.pendingSpawn.y);
     this.farmPosition = { ...this.pendingSpawn };
     this.farmReady = true;
@@ -771,9 +769,7 @@ export class GameScene extends Phaser.Scene {
   private broadcastTiles(): void {
     const net = this.net;
     if (!net || net.offline) return;
-    const tiles: Record<string, [number, number, string | null, number]> = {};
-    for (const [idx, e] of this.tileEdits) tiles[idx] = [e.t, e.w, e.c, e.d];
-    net.patchShared({ tiles });
+    net.patchShared({ tiles: packTiles(this.tileEdits) });
   }
 
   /** Adopt the host's authoritative tile edits (a rival's farming, overnight
@@ -788,18 +784,9 @@ export class GameScene extends Phaser.Scene {
     if (raw === this.lastTilesRef) return;
     this.lastTilesRef = raw;
     for (const [key, packed] of Object.entries(raw)) {
-      if (!Array.isArray(packed)) continue;
-      const idx = Number(key);
-      if (!Number.isInteger(idx) || idx < 0 || idx >= MAP_W * MAP_H) continue;
-      const cropRaw = packed[2];
-      const e: TileEdit = {
-        t: Number(packed[0]) || 0,
-        w: Number(packed[1]) || 0,
-        // Validate at the boundary: an unknown crop id from the wire must not
-        // enter the world (it would crash rendering AND poison the save).
-        c: isCropId(cropRaw) ? cropRaw : null,
-        d: Number(packed[3]) || 0,
-      };
+      const entry = readPackedTile(key, packed);
+      if (!entry) continue;
+      const [idx, e] = entry;
       const sig = tileSig(e);
       if (this.appliedTiles.get(idx) === sig) continue;
       this.appliedTiles.set(idx, sig);
@@ -813,6 +800,7 @@ export class GameScene extends Phaser.Scene {
 
   /** Set a tile's world state and re-render it (no fx / inventory / sound). */
   private applyTileState(idx: number, e: TileEdit): void {
+    if (idx === this.hintKey.idx) this.hintKey.idx = -1;
     this.world.tilled[idx] = e.t;
     this.world.watered[idx] = e.w;
     if (e.c != null) {
@@ -874,7 +862,7 @@ export class GameScene extends Phaser.Scene {
           y: this.player.y,
           f: this.player.flipX,
           m: this.moving,
-          pose: farmerPose(this.player, ++this.poseRevision),
+          pose: farmerPose(this.player, this.poseRevision),
         });
       }
       if (this.amHost) {
@@ -987,71 +975,9 @@ export class GameScene extends Phaser.Scene {
 
   // ---------------------------------------------------------- click-to-move
 
-  /**
-   * BFS over walkable cells (8-dir, no corner cutting) from the player's feet
-   * to (tx,ty), as pixel waypoints. If the target cell is blocked (water,
-   * props, buildings) the route leads to the nearest reachable cell beside it;
-   * empty when the player is already there or nothing connects.
-   * Drives click-to-move, and the trailer director's scripted approaches — the
-   * yards are split by fences, so a straight-line steer walks into a wall.
-   */
-  pathTo(tx: number, ty: number): { x: number; y: number }[] {
-    const W = MAP_W;
-    const H = MAP_H;
-    const f = this.feetTile();
-    const start = f.ty * W + f.tx;
-    const dist = new Int32Array(W * H).fill(-1);
-    const parent = new Int32Array(W * H).fill(-1);
-    const queue: number[] = [start];
-    dist[start] = 0;
-    const walkable = (x: number, y: number) =>
-      x >= 0 && y >= 0 && x < W && y < H && !this.world.isSolidTile(x, y);
-    for (let qi = 0; qi < queue.length; qi++) {
-      const cur = queue[qi];
-      if (cur === undefined) break;
-      const cx = cur % W;
-      const cy = (cur / W) | 0;
-      for (let oy = -1; oy <= 1; oy++) {
-        for (let ox = -1; ox <= 1; ox++) {
-          if (ox === 0 && oy === 0) continue;
-          const nx = cx + ox;
-          const ny = cy + oy;
-          if (!walkable(nx, ny)) continue;
-          // diagonals only when both orthogonal cells are open
-          if (ox !== 0 && oy !== 0 && (!walkable(cx + ox, cy) || !walkable(cx, cy + oy))) continue;
-          const ni = ny * W + nx;
-          if (dist[ni] !== -1) continue;
-          dist[ni] = (dist[cur] ?? 0) + 1;
-          parent[ni] = cur;
-          queue.push(ni);
-        }
-      }
-    }
-    const clicked = ty * W + tx;
-    let goal = -1;
-    if ((dist[clicked] ?? -1) >= 0) goal = clicked;
-    else {
-      let best = Infinity;
-      for (let oy = -1; oy <= 1; oy++) {
-        for (let ox = -1; ox <= 1; ox++) {
-          const nx = tx + ox;
-          const ny = ty + oy;
-          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
-          const d = dist[ny * W + nx] ?? -1;
-          if (d >= 0 && d < best) {
-            best = d;
-            goal = ny * W + nx;
-          }
-        }
-      }
-    }
-    if (goal < 0 || goal === start) return [];
-    const path: { x: number; y: number }[] = [];
-    for (let c = goal; c !== -1 && c !== start; c = parent[c] ?? -1) {
-      path.push({ x: (c % W) * TILE + TILE / 2, y: ((c / W) | 0) * TILE + TILE / 2 + 1 });
-    }
-    path.reverse();
-    return path;
+  /** Waypoints from the farmer's feet to (tx,ty); see systems/pathfind. */
+  pathTo(tx: number, ty: number): Waypoint[] {
+    return pathTo(this.world, this.feetTile(), tx, ty);
   }
 
   private startClickMove(tx: number, ty: number, wx: number, wy: number): void {
@@ -1109,6 +1035,12 @@ export class GameScene extends Phaser.Scene {
   targetTile() {
     const f = this.feetTile();
     return { tx: f.tx + this.facing.x, ty: f.ty + this.facing.y };
+  }
+  /** targetTile() as a flat index, -1 out of bounds — allocation-free for per-frame change checks. */
+  private targetIdx(): number {
+    const tx = Math.floor(this.player.x / TILE) + this.facing.x;
+    const ty = Math.floor((this.player.y - 1) / TILE) + this.facing.y;
+    return inBounds(tx, ty) ? this.world.idx(tx, ty) : -1;
   }
 
   private updateHighlight(): void {
@@ -1629,7 +1561,8 @@ export class GameScene extends Phaser.Scene {
 
   endDay(exhausted = false): void {
     this.transitioning = true;
-    const recap = this.shipping.day === this.day ? this.shipping : undefined;
+    const recap =
+      this.shipping.day === this.day && this.shipping.shipments > 0 ? this.shipping : undefined;
     const cam = this.cameras.main;
     cam.fadeOut(600, 6, 10, 24);
     cam.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
@@ -1780,7 +1713,10 @@ export class GameScene extends Phaser.Scene {
     return store.inv.selectedItem();
   }
 
-  /** Read-only teaching beside the selected tool; action resolution stays in tryAction. */
+  /** Read-only teaching beside the selected tool (ui/action-hints). Memoised on
+   *  (target tile, selected item); every busy state drops the memo, so an
+   *  action's outcome (tilled, watered, out of energy) re-reads on the next
+   *  idle frame instead of every frame. */
   actionHint(): string | null {
     if (
       this.controlsPaused ||
@@ -1788,78 +1724,29 @@ export class GameScene extends Phaser.Scene {
       this.transitioning ||
       this.acting ||
       this.fishing.active
-    )
+    ) {
+      this.hintKey.idx = -1;
       return null;
-    const { tx, ty } = this.targetTile();
-    if (!inBounds(tx, ty)) return null;
+    }
+    const idx = this.targetIdx();
+    if (idx < 0) return null;
     const item = this.selectedItem();
-    const object = this.world.objectAt(tx, ty);
-    if (object) {
-      switch (object.type) {
-        case "house":
-          return this.amHost
-            ? "Sleep to restore energy and begin a new day"
-            : "The host starts the next day";
-        case "shop":
-          return "Buy seeds and supplies";
-        case "bin":
-          return "Ship produce for gold";
-        case "cave":
-          return store.inv.count((it) => it.kind === "tool" && it.tool === "pickaxe") > 0
-            ? "Enter the mine"
-            : "Bring a pickaxe to enter the mine";
-        case "barn":
-        case "coop":
-          return "Visit the animal shop";
-        case "forage":
-          return "Collect wild produce";
-        case "tree":
-          if (item?.kind !== "tool" || item.tool !== "axe") return "Equip an axe to chop";
-          return store.energy > 0 ? "Chop wood" : "Out of energy — rest at home";
-        case "rock":
-          if (item?.kind !== "tool" || item.tool !== "pickaxe") return "Equip a pickaxe to mine";
-          return store.energy > 0 ? "Break stone" : "Out of energy — rest at home";
-        case "ore":
-          return null;
-      }
+    if (idx !== this.hintKey.idx || item !== this.hintKey.item) {
+      this.hintKey.idx = idx;
+      this.hintKey.item = item;
+      this.hint = hintFor({
+        world: this.world,
+        tx: idx % MAP_W,
+        ty: (idx / MAP_W) | 0,
+        item,
+        energy: store.energy,
+        canCharge: this.canCharge,
+        season: this.season(),
+        hasPickaxe: store.inv.count((it) => it.kind === "tool" && it.tool === "pickaxe") > 0,
+        amHost: this.amHost,
+      });
     }
-    const idx = this.world.idx(tx, ty);
-    const crop = this.world.crops.get(idx);
-    if (crop && isMature(CROPS[crop.crop], crop.daysGrown)) return "Harvest the ripe crop";
-    if (!item) return "Select a tool or seeds from your hotbar";
-    if (item.kind === "seed") {
-      if (!this.world.tilled[idx]) return "Till the soil before planting";
-      if (crop) return "A crop is already growing here";
-      return CROPS[item.crop].seasons.includes(this.season())
-        ? `Plant ${CROPS[item.crop].name}`
-        : `${CROPS[item.crop].name} needs another season`;
-    }
-    if (item.kind !== "tool") return "Gift to a villager or ship produce at the bin";
-    switch (item.tool) {
-      case "hoe":
-        return store.energy <= 0
-          ? "Out of energy — rest at home"
-          : this.world.canTill(tx, ty)
-            ? "Till soil for seeds"
-            : "Find bare soil to till";
-      case "can":
-        if (store.energy <= 0) return "Out of energy — rest at home";
-        if (this.world.getGround(tx, ty) === GROUND.water) return "Refill your watering can";
-        if (this.canCharge <= 0) return "Empty can — refill at the pond";
-        return this.world.tilled[idx]
-          ? "Water the soil for overnight growth"
-          : "Till the soil before watering";
-      case "rod":
-        return this.world.getGround(tx, ty) === GROUND.water
-          ? "Cast into the water"
-          : "Face the pond to fish";
-      case "axe":
-        return "Face a tree to chop wood";
-      case "pickaxe":
-        return "Face a rock to gather stone";
-      case "sword":
-        return "Bring your sword into the mine";
-    }
+    return this.hint;
   }
   season(): Season {
     return seasonOfDay(this.day);
@@ -1876,29 +1763,4 @@ export class GameScene extends Phaser.Scene {
   playerAnim(key: string): void {
     this.player.play(key, true);
   }
-}
-
-type NightTint = { color: number; alpha: number };
-
-function tintFor(timeMin: number, weather: Weather): NightTint {
-  const lerp = (a: number, b: number, t: number) => a + (b - a) * Phaser.Math.Clamp(t, 0, 1);
-  // weather darkens the day a touch
-  const wx = weather === "storm" ? 0.22 : weather === "rain" ? 0.12 : weather === "snow" ? 0.08 : 0;
-  const wcol = isWet(weather) ? 0x2a3550 : 0x9fb6d8;
-  let base: NightTint;
-  if (timeMin < 9 * 60)
-    base = { color: 0xffe2a8, alpha: lerp(0.16, 0, (timeMin - DAY_START_MIN) / (3 * 60)) };
-  else if (timeMin < 17 * 60) base = { color: 0xffffff, alpha: 0 };
-  else if (timeMin < 20 * 60)
-    base = { color: 0xff8a3a, alpha: lerp(0, 0.26, (timeMin - 17 * 60) / (3 * 60)) };
-  else if (timeMin < 24 * 60)
-    base = { color: 0x14224a, alpha: lerp(0.28, 0.52, (timeMin - 20 * 60) / (4 * 60)) };
-  else base = { color: 0x0a1230, alpha: lerp(0.52, 0.64, (timeMin - 24 * 60) / (2 * 60)) };
-  if (wx > 0 && base.alpha < wx) return { color: base.alpha > 0.1 ? base.color : wcol, alpha: wx };
-  return base;
-}
-
-/** Compact change-signature for a synced tile (skip redundant re-renders). */
-function tileSig(e: TileEdit): string {
-  return `${e.t}${e.w}${e.c ?? "-"}:${e.d}`;
 }

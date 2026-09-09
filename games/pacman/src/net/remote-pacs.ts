@@ -42,12 +42,11 @@ export class RemotePacs {
     scene.add(this.group);
   }
 
-  /** Adopt the latest player snapshot (excluding me). */
-  sync(players: PlayerMap, myId: string | null): void {
+  /** Adopt the latest snapshot of the given rivals (the scene decides who counts). */
+  sync(players: PlayerMap, rivalIds: readonly string[]): void {
     const seen = new Set<string>();
-    for (const [id, player] of Object.entries(players)) {
-      if (id === myId) continue;
-      const st = readPacState(player.state);
+    for (const id of rivalIds) {
+      const st = readPacState(players[id]?.state);
       if (!st) continue;
       seen.add(id);
       let pac = this.pacs.get(id);

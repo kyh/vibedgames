@@ -140,6 +140,7 @@ function makeEnemy(id: IdFn, i: number): EnemyState {
     maxHp: boss ? 4000 : 0,
     lances: boss ? [lance(), lance(), lance(), lance()] : sniper ? [lance()] : [],
     shielded: false,
+    attackAt: EPOCH + Math.random() * 1000,
   };
 }
 

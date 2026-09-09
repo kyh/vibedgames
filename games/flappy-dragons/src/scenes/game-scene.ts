@@ -103,10 +103,14 @@ const GHOST_SCALE_MAX = 1.06;
 
 /** Decided once at boot so hint/HUD copy is input-aware from the first frame. */
 const TOUCH = isCoarsePointer();
+/** DEV-only room override (?room=): the two-client harness isolates each run
+ *  so a stale room's course can't leak into assertions. */
+const ROOM = (import.meta.env.DEV && new URLSearchParams(location.search).get("room")) || MP_ROOM;
 
 const HINT_FLAP = TOUCH ? "TAP TO FLAP" : "CLICK · SPACE — FLAP";
 const HINT_RESTART = TOUCH ? "TAP ANYWHERE TO RESTART" : "CLICK OR PRESS SPACE TO RESTART";
 const HINT_RACE = "FLAP TO JOIN THE RACE";
+const SOLO_ROW_ID = "you";
 
 type PeerState = { yf: number; live: boolean; score: number; skin: number; rot: number };
 
@@ -136,6 +140,10 @@ export class GameScene extends Phaser.Scene {
 
   private pipes = new Map<number, Pipe>();
   private ghosts = new Map<string, Ghost>();
+  /** Other players present this frame, sorted so every client agrees on lane
+   *  order. A seat the server holds for a reconnect is not a rival: its last
+   *  state would hang a frozen ghost in your lane for the whole grace window. */
+  private rivalIds: string[] = [];
   private bgLayers: BgLayer[] = [];
   private bird!: Phaser.GameObjects.Sprite;
   private readyImg!: Phaser.GameObjects.Image;
@@ -208,7 +216,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.net = new NetSession({
-      room: MP_ROOM,
+      room: ROOM,
       maxPlayers: MP_MAX_PLAYERS,
       fallbackMs: OFFLINE_FALLBACK_MS,
     });
@@ -439,7 +447,7 @@ export class GameScene extends Phaser.Scene {
   // ---- role helpers --------------------------------------------------------
 
   private get racing(): boolean {
-    return this.net.otherPlayer() !== null;
+    return this.rivalIds.length > 0;
   }
   /**
    * True only when actually connected to a live party room (not the solo
@@ -480,6 +488,7 @@ export class GameScene extends Phaser.Scene {
     this.pad.update();
     if (this.padFlapPressed()) this.handleInput();
     this.net.tick();
+    this.rivalIds = this.presentRivals();
     this.ensureSeed();
     this.advanceWorld(dt);
 
@@ -525,6 +534,14 @@ export class GameScene extends Phaser.Scene {
     );
     this.broadcast(dt);
     this.updateBoard(dt);
+  }
+
+  private presentRivals(): string[] {
+    const me = this.net.playerId;
+    return Object.entries(this.net.players)
+      .filter(([id, p]) => id !== me && p.connected !== false)
+      .map(([id]) => id)
+      .sort();
   }
 
   // ---- seed + world scroll -------------------------------------------------
@@ -593,15 +610,10 @@ export class GameScene extends Phaser.Scene {
     }
     if (this.countingDown) return; // holding for the get-ready count
     if (this.phase === "ready") {
+      this.startLife();
       this.setPhase("playing");
-      this.birdY = this.racing ? this.spawnY() : BIRD_SPAWN_Y;
-      this.vy = 0;
       this.bird.setAlpha(1).clearTint().setTintMode(Phaser.TintModes.MULTIPLY);
       this.bird.y = this.birdY + DRAGON_SPRITE_OFFSET_Y;
-      this.lastScoredIndex = this.frontIndex();
-      this.gates = 0;
-      this.refreshGateHud();
-      this.collectedCoins.clear();
       this.readyImg.setVisible(false);
       this.setHint("");
       this.flap(strength, refire);
@@ -654,22 +666,28 @@ export class GameScene extends Phaser.Scene {
     this.refreshGateHud();
   }
 
+  /**
+   * Per-life reset, shared by the first flap and every racing respawn. The
+   * shared course may be mid-way, so the bird drops into the next gap rather
+   * than the fixed spawn height.
+   */
+  private startLife(): void {
+    this.birdY = this.raceActive ? this.spawnY() : BIRD_SPAWN_Y;
+    this.vy = 0;
+    this.lastScoredIndex = this.frontIndex();
+    this.gates = 0;
+    this.collectedCoins.clear();
+  }
+
   /** Solo: the existing retry input starts another get-ready countdown. */
   private restart(): void {
     this.score = 0;
-    this.gates = 0;
-    this.birdY = BIRD_SPAWN_Y;
-    this.vy = 0;
     this.worldX = 0; // solo: start the course over
-    this.lastScoredIndex = -1;
-    this.collectedCoins.clear();
-    if (!this.racing) {
-      this.seed = randomSeed();
-      // Publish the reroll, or ensureSeed() re-adopts the stale shared seed
-      // next frame and every solo run replays the identical course. (Offline
-      // this writes the local loopback state; a non-host can't be alone.)
-      this.net.patchShared({ seed: this.seed });
-    }
+    this.seed = randomSeed();
+    // Publish the reroll, or ensureSeed() re-adopts the stale shared seed
+    // next frame and every solo run replays the identical course. (Offline
+    // this writes the local loopback state; a non-host can't be alone.)
+    this.net.patchShared({ seed: this.seed });
     this.clearPipes();
 
     this.skin = rollSkin();
@@ -685,11 +703,7 @@ export class GameScene extends Phaser.Scene {
   /** Multiplayer: respawn into the still-scrolling shared course. */
   private respawn(): void {
     this.score = 0;
-    this.gates = 0;
-    this.birdY = this.spawnY();
-    this.vy = 0;
-    this.lastScoredIndex = this.frontIndex();
-    this.collectedCoins.clear();
+    this.startLife();
     this.enterPlaying();
   }
 
@@ -951,21 +965,13 @@ export class GameScene extends Phaser.Scene {
       this.ghosts.clear();
       return;
     }
-    const me = this.net.playerId;
-    // Stable left-to-right ordering shared by every client (same players map),
-    // so each rival keeps a consistent lane instead of jittering frame to frame.
-    // `.filter()` already returns a fresh array, so sorting it in place is safe.
-    // Sorting keeps the left-to-right order stable across clients and frames.
-    const others = Object.keys(this.net.players)
-      .filter((id) => id !== me)
-      .sort();
     const seen = new Set<string>();
 
     // Fan rivals out to the right of your own dragon (which stays at BIRD_X).
     // Each keeps a per-id gap + depth so the flock is loose, not a fixed grid;
     // gaps accumulate so rivals never overlap however uneven the spacing.
     let laneX = BIRD_X + DRAGON_SPRITE_OFFSET_X;
-    for (const id of others) {
+    for (const id of this.rivalIds) {
       const ps = readPeer(this.net.players[id]?.state);
       if (!ps) continue;
       seen.add(id);
@@ -1195,7 +1201,7 @@ export class GameScene extends Phaser.Scene {
       : this.net.offline
         ? "offline · solo"
         : this.racing
-          ? `race · ${Object.keys(this.net.players).length} players`
+          ? `race · ${this.rivalIds.length + 1} players`
           : "online · waiting";
     if (this.netInfoEl && netInfo !== this.lastNetInfo) {
       this.lastNetInfo = netInfo;
@@ -1216,15 +1222,11 @@ export class GameScene extends Phaser.Scene {
     }
     if (this.phase === "ready") this.setHint(HINT_RACE);
 
-    const me = this.net.playerId;
-    const rows: Array<{ id: string; score: number; live: boolean; me: boolean }> = [];
-    for (const [id, player] of Object.entries(this.net.players)) {
-      if (id === me) {
-        rows.push({ id, score: this.score, live: this.alive, me: true });
-      } else {
-        const ps = readPeer(player.state);
-        rows.push({ id, score: ps?.score ?? 0, live: ps?.live ?? false, me: false });
-      }
+    const me = this.net.playerId ?? SOLO_ROW_ID;
+    const rows = [{ id: me, score: this.score, live: this.alive, me: true }];
+    for (const id of this.rivalIds) {
+      const ps = readPeer(this.net.players[id]?.state);
+      rows.push({ id, score: ps?.score ?? 0, live: ps?.live ?? false, me: false });
     }
     rows.sort((a, b) => b.score - a.score);
 

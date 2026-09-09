@@ -14,6 +14,7 @@ import {
   DEPTH,
   FARMER_HURT_MS,
   SKELETON_CONTACT_MS,
+  SKELETON_HURT_MS,
 } from "../config";
 import { store } from "../systems/store";
 import { GameScene, type MineRecap } from "./game-scene";
@@ -64,6 +65,7 @@ export class MineScene extends Phaser.Scene {
   private shadow!: Phaser.GameObjects.Sprite;
   private facing = { x: 0, y: 1 };
   private acting = false;
+  controlsPaused = false;
   private readonly motion = window.matchMedia("(prefers-reduced-motion: reduce)");
   private hurtUntil = 0;
   /** Trailer-mode scripted movement — read like a stick when real input is silent. */
@@ -111,6 +113,7 @@ export class MineScene extends Phaser.Scene {
     this.invulnUntil = 0;
     this.knock = { x: 0, y: 0 };
     this.acting = false;
+    this.controlsPaused = false;
     this.hurtUntil = 0;
     this.facing = { x: 0, y: 1 };
     this.trailerMove = null;
@@ -156,7 +159,22 @@ export class MineScene extends Phaser.Scene {
 
     floatText(this, this.player.x, this.player.y - 24, `Mine — Floor ${this.depth}`, "#cdd6e0");
     if (import.meta.env.DEV) window.__mine = this;
-    this.game.events.emit("farm-enter-mine");
+    this.game.events.emit("farm-enter-mine", this);
+  }
+
+  /** The farm owns the co-op session; the mine is a local detour from it. */
+  isOnline(): boolean {
+    return this.farm?.isOnline() ?? false;
+  }
+
+  /** Live co-op keeps the loop (and the room's heartbeat) running through a
+   *  pause, so the whole floor — enemies included — holds still instead. */
+  setControlsPaused(paused: boolean): void {
+    this.controlsPaused = paused;
+    for (const key of Object.values(this.keys)) key.reset();
+    this.gamepad?.pad.reset();
+    this.pad.update();
+    if (!this.acting && !this.transitioning) this.setMovementAnimation("p-idle");
   }
 
   /** The zoom every camera move returns to. Read (never re-derived from the
@@ -439,6 +457,7 @@ export class MineScene extends Phaser.Scene {
   override update(_t: number, dms: number): void {
     const dt = Math.min(dms, 50) / 1000;
     this.farm?.retryPendingSave(dt);
+    if (this.controlsPaused) return;
     // Physical pad: A mirrors E/SPACE (swing/mine; checkLadders reads the held
     // button for climbing), LB/RB cycle the hotbar like number keys.
     this.pad.update();
@@ -600,7 +619,7 @@ export class MineScene extends Phaser.Scene {
 
   private hitEnemy(e: Enemy, dmg: number): void {
     e.hp -= dmg;
-    e.hurt = 0.18;
+    e.hurt = SKELETON_HURT_MS / 1000;
     e.spr.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
     Sound.mine();
     const kb = 140;
@@ -644,7 +663,7 @@ export class MineScene extends Phaser.Scene {
     if (Math.random() < 0.25) store.inv.add({ kind: "resource", res: "coal" }, 1);
     if (Math.random() < 0.08 + this.depth * 0.01)
       store.inv.add({ kind: "resource", res: "crystal" }, 1);
-    this.persist();
+    this.requestSave();
   }
 
   private awardCombat(xp: number): void {
@@ -719,7 +738,7 @@ export class MineScene extends Phaser.Scene {
       );
     }
     this.awardCombat(0);
-    this.persist();
+    this.requestSave();
   }
 
   // ---------------------------------------------------------------- enemies
@@ -797,7 +816,7 @@ export class MineScene extends Phaser.Scene {
       onComplete: () => this.player.setAlpha(1),
     });
     this.time.delayedCall(260, () => this.player.clearTint());
-    this.persist();
+    this.requestSave();
     if (store.hp <= 0) this.faint();
     else if (!this.acting && !this.transitioning) {
       this.hurtUntil = this.time.now + FARMER_HURT_MS;
@@ -868,8 +887,13 @@ export class MineScene extends Phaser.Scene {
     });
   }
 
+  /** Transitions write at once; everything else rides the farm's debounced flush. */
   private persist(): void {
     this.farm?.save();
+  }
+
+  private requestSave(): void {
+    this.farm?.requestSave();
   }
 
   get savePending(): boolean {

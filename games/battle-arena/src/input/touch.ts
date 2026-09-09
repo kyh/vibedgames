@@ -170,9 +170,10 @@ export class TouchControls {
     const button = this.buttons.get(key);
     if (!button) return;
     const text = readiness.kind === "blocked" ? readiness.label : readiness.queued ? "QUEUED" : "";
-    if (text === button.lastState) return;
-    button.lastState = text;
-    button.state.textContent = text;
+    if (text !== button.lastState) {
+      button.lastState = text;
+      button.state.textContent = text;
+    }
     button.el.classList.toggle("blocked", readiness.kind === "blocked");
     button.el.classList.toggle("queued", readiness.queued);
   }

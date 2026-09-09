@@ -722,17 +722,30 @@ export class GameScene extends Phaser.Scene {
   private bootedAt = 0;
   /** True once we've ever reached a room — after that, drops reconnect. */
   private everConnected = false;
+  /** Last tick's connection state, for the readmission edge. */
+  private linkUp = false;
   /** Each peer's net state, parsed ONCE per frame (see update()) — identity
    *  only changes on a ~20Hz patch, and the hot paths read it many times. */
   private peerStates = new Map<string, PlayerNetState | null>();
 
-  /** Connected to the arena, or running the solo offline fallback. */
+  /** In the arena — connected, or reconnecting after a drop — or running the
+   *  solo offline fallback. A drop keeps the local world ticking on prediction
+   *  (nobody stares at a frozen arena); readmission reconciles it. */
   private get live(): boolean {
-    return this.offline || this.client.connectionStatus === "connected";
+    return this.offline || this.connected || this.everConnected;
   }
 
+  /** The SDK keeps hostId across a drop, so a host rides through its own blip
+   *  as host: the world it authored stays authoritative and resumes streaming
+   *  on readmission instead of rewinding to the server's last snapshot. If the
+   *  server migrated host meanwhile, `sync` flips isHost and prepareHost
+   *  demotes us — a former host never re-adopts its own stale snapshot. */
   private get amHost(): boolean {
-    return this.offline || (this.client.connectionStatus === "connected" && this.client.isHost);
+    return this.offline || (this.live && this.client.isHost);
+  }
+
+  private get connected(): boolean {
+    return this.client.connectionStatus === "connected";
   }
 
   private get myId(): string | null {
@@ -747,10 +760,12 @@ export class GameScene extends Phaser.Scene {
     return this.offline ? (this.trailer?.peers ?? SOLO_PEERS) : this.client.players;
   }
 
-  /** Events loop straight back into the local host when offline. */
+  /** Events loop straight back into the local host when offline. Nothing is
+   *  sent while dropped: the socket would queue every message unbounded and
+   *  replay the backlog on reconnect. */
   private netSendEvent(event: string, payload: WireRecord): void {
     if (this.offline) this.handleEvent(event, payload, "solo");
-    else this.client.sendEvent(event, payload);
+    else if (this.connected) this.client.sendEvent(event, payload);
   }
 
   /** Give up on the party server after the grace window and go solo. Called
@@ -761,10 +776,15 @@ export class GameScene extends Phaser.Scene {
     // Real wall clock, NOT the pausable sim clock — connection deadlines must
     // keep counting through a pause (same contract as the clock module doc).
     if (this.bootedAt === 0) this.bootedAt = Date.now();
-    if (this.client.connectionStatus === "connected") {
+    if (this.connected) {
+      // Readmitted as the continuing host: patches sent into the drop were
+      // discarded, so the next share carries the whole world.
+      if (this.everConnected && !this.linkUp && this.hostSnapshotReady) this.markWorldDirty();
+      this.linkUp = true;
       this.everConnected = true;
       return;
     }
+    this.linkUp = false;
     // Once we've been in the arena, a drop is transient — let the socket
     // reconnect instead of stranding a real player in a solo world.
     if (this.everConnected) return;
@@ -1184,8 +1204,10 @@ export class GameScene extends Phaser.Scene {
     // Parse every peer's net state once for this frame; readers below (aim,
     // mines, PvP, host sim, render, minimap) all pull from the map.
     this.peerStates.clear();
+    // A peer mid-drop (seat held in the reconnect grace) is absent, not a
+    // frozen ghost for enemies and beams to target.
     for (const [id, player] of Object.entries(this.peers)) {
-      this.peerStates.set(id, readNetState(player));
+      this.peerStates.set(id, player.connected === false ? null : readNetState(player));
     }
 
     this.ensureSpawned();
@@ -3763,7 +3785,7 @@ export class GameScene extends Phaser.Scene {
           : null,
       beams: this.beams.filter((b) => !b.vanished && !b.fizzle).map(serializeBeam),
     };
-    if (!this.offline) this.client.updateMyState(playerToWire(state));
+    if (!this.offline && this.connected) this.client.updateMyState(playerToWire(state));
   }
 
   // ---- connection callbacks ----------------------------------------------------
@@ -3927,7 +3949,7 @@ export class GameScene extends Phaser.Scene {
       }
       return;
     }
-    if (this.amHost && this.client.connectionStatus === "connected" && !this.shared()) {
+    if (this.amHost && this.connected && !this.shared()) {
       const seeded = emptyShared();
       seedField(seeded);
       this.world = seeded;
@@ -4250,7 +4272,8 @@ export class GameScene extends Phaser.Scene {
       patch["sectorBossIdx"] = w.sectorBossIdx;
     }
     this.playBoundsDirty = false;
-    if (!this.offline && Object.keys(patch).length > 0) this.client.updateSharedState(patch);
+    if (!this.offline && this.connected && Object.keys(patch).length > 0)
+      this.client.updateSharedState(patch);
     this.dirty = {
       asteroids: false,
       ufo: false,
@@ -4261,6 +4284,21 @@ export class GameScene extends Phaser.Scene {
       pulls: false,
       beacon: false,
     };
+  }
+
+  /** Next share sends the whole world (bounds and boss marker included). */
+  private markWorldDirty(): void {
+    this.dirty = {
+      asteroids: true,
+      ufo: true,
+      items: true,
+      enemies: true,
+      enemyShots: true,
+      shards: true,
+      pulls: true,
+      beacon: true,
+    };
+    this.playBoundsDirty = true;
   }
 
   // ---- BEACON arena event (dir-004): host-side trigger/control/payout -----------------
@@ -7108,7 +7146,14 @@ export class GameScene extends Phaser.Scene {
       }
     }
     const n = Object.keys(this.peers).length;
-    setText(this.playersEl, this.offline ? "solo · offline" : `${n} player${n === 1 ? "" : "s"}`);
+    setText(
+      this.playersEl,
+      this.offline
+        ? "solo · offline"
+        : this.connected
+          ? `${n} player${n === 1 ? "" : "s"}`
+          : "reconnecting…",
+    );
     this.updateRecovery(now, presentation);
   }
 

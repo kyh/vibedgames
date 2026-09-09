@@ -2,7 +2,7 @@ import Phaser from "phaser";
 import { CROP_ORDER } from "../data/crops";
 import { parseWorldMap } from "../world/worldmap";
 import { setWorldMap, getWorldMap } from "../world/map-store";
-import { FARMER_HURT_MS, SKELETON_CONTACT_MS } from "../config";
+import { FARMER_HURT_MS, SKELETON_CONTACT_MS, SKELETON_HURT_MS } from "../config";
 
 const CHAR = { frameWidth: 96, frameHeight: 64 };
 
@@ -141,7 +141,7 @@ export class BootScene extends Phaser.Scene {
     mk("e-skel-idle", "e-skel-idle", 6, -1);
     mk("e-skel-walk", "e-skel-walk", 10, -1);
     mk("e-skel-death", "e-skel-death", 12, 0);
-    mk("e-skel-hurt", "e-skel-hurt", 7 / 0.18, 0);
+    mk("e-skel-hurt", "e-skel-hurt", (7 * 1000) / SKELETON_HURT_MS, 0);
     // The original strip's arc/recovery follows accepted contact. Its windup
     // frames would imply a delay that this enemy's contact damage does not have.
     this.anims.create({

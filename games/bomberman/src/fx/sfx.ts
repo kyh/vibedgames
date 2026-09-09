@@ -98,7 +98,7 @@ export function resetRoundAudio(): void {
 
 /** Stop every voice and clear bus automation (ducking) so nothing leaks past a mute/pause/reset. */
 function silence(): void {
-  for (const voice of voices) release(voice, true);
+  for (const voice of voices) release(voice);
   score.reset();
   if (!graph) return;
   const at = graph.context.currentTime;
@@ -110,9 +110,10 @@ function silence(): void {
   }
 }
 
-function release(voice: Voice, forced: boolean): void {
+function release(voice: Voice): void {
   if (!voices.delete(voice)) return;
-  if (forced) voice.source.stop();
+  // Every source has its end scheduled at creation and a second stop() throws,
+  // so a forced release only unplugs it: silent at once, reaped on schedule.
   voice.source.disconnect();
   for (const node of voice.nodes) node.disconnect();
 }
@@ -120,7 +121,7 @@ function release(voice: Voice, forced: boolean): void {
 function own(source: AudioScheduledSourceNode, nodes: AudioNode[], role: Role): void {
   const voice: Voice = { source, nodes, role };
   voices.add(voice);
-  source.addEventListener("ended", () => release(voice, false), { once: true });
+  source.addEventListener("ended", () => release(voice), { once: true });
 }
 
 function ready(): Graph | null {
@@ -141,7 +142,7 @@ function admit(size: number, role: Role): Graph | null {
     if (role === "background" || role === "routine") return null;
     for (const voice of voices) {
       if (voices.size + size <= VOICE_LIMIT) break;
-      if (voice.role !== "result") release(voice, true);
+      if (voice.role !== "result") release(voice);
     }
     if (voices.size + size > VOICE_LIMIT) return null;
   }
@@ -149,7 +150,7 @@ function admit(size: number, role: Role): Graph | null {
 }
 
 function stopBackground(): void {
-  for (const voice of voices) if (voice.role === "background") release(voice, true);
+  for (const voice of voices) if (voice.role === "background") release(voice);
 }
 
 function route(current: Graph, gain: GainNode, nodes: AudioNode[], pan: number, role: Role): void {

@@ -15,6 +15,7 @@
   },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
+    "tsx": "^4.23.12",
     "typescript": "catalog:"
   }
 }

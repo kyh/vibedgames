@@ -151,7 +151,9 @@ export class AbilityGuide {
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
     if (!this.open || event.code === "KeyM") return;
-    event.stopPropagation();
+    // The menu's own H toggle listens on this same window; only immediate
+    // propagation stops it reopening the guide the key just closed.
+    event.stopImmediatePropagation();
     if (event.code === "Escape" || event.code === "KeyH") {
       event.preventDefault();
       this.closingKey = event.code;

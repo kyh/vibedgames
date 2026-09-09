@@ -13,7 +13,7 @@ import { attachDomGamepad, stickDirection4 } from "@vibedgames/gamepad/dom";
 import type { Dir4, DomGamepad, Viewport } from "@vibedgames/gamepad/dom";
 
 import type { ScreenDir } from "../game/camera-correction";
-import { DROP_TAP_MS, TOUCH_ARR_MS, TOUCH_DAS_MS } from "../shared/constants";
+import { DROP_TAP_MS, TOUCH_ARR_MS, TOUCH_DAS_MS, TOUCH_TAP_SLOP_PX } from "../shared/constants";
 
 /** Game verbs the touch layer drives (a thin mirror of KeyboardHandlers). */
 export type TouchHandlers = {
@@ -75,6 +75,15 @@ function cluster(v: Viewport, slot: Slot) {
   };
 }
 
+/** HUD controls (and anything opted out with `data-gamepad-ignore`, e.g. the
+ *  webcam panel and the pause/mute cluster) own their own touches. */
+function ownsTouch(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element &&
+    target.closest("button, a, input, select, textarea, [data-gamepad-ignore]") !== null
+  );
+}
+
 export class TouchControls {
   private readonly gamepad: DomGamepad;
   private readonly root: HTMLDivElement;
@@ -84,26 +93,38 @@ export class TouchControls {
   private arr = 0;
   private dropHeldMs = 0;
   private active = false;
+  /** Idle free touch awaiting its lift: title / results start on a completed tap. */
+  private pendingTap: { id: number; x: number; y: number } | null = null;
 
-  /** Free-touch tap → start/catch/resume. Fired straight off pointerdown (not
-   *  frame polling) so a tap shorter than one frame still lands; touches on
-   *  HUD controls or inside a fixed button's circle don't count as free. */
+  /** Free touch → catch (in play) or start (idle). The catch fires straight
+   *  off pointerdown (not frame polling) so a tap shorter than one frame still
+   *  lands; a touch inside a fixed button's circle isn't free. Idle waits for
+   *  the lift instead: the banner scrolls on small screens, and a pan that
+   *  starts on its text must not launch a run (the browser cancels the pointer
+   *  once it takes the scroll). */
   private readonly onPointerDown = (e: PointerEvent): void => {
-    if (e.pointerType !== "touch") return;
-    if (
-      e.target instanceof Element &&
-      e.target.closest("button, a, input, select, textarea, [data-gamepad-ignore]") !== null
-    ) {
-      return;
-    }
+    if (e.pointerType !== "touch" || ownsTouch(e.target)) return;
     if (!this.active) {
-      this.handlers.tap();
+      this.pendingTap = { id: e.pointerId, x: e.clientX, y: e.clientY };
       return;
     }
     for (const b of this.gamepad.pad.getButtonLayout()) {
       if (!b.rest && Math.hypot(e.clientX - b.x, e.clientY - b.y) <= b.radius) return;
     }
     this.handlers.tap();
+  };
+
+  private readonly onPointerUp = (e: PointerEvent): void => {
+    const tap = this.pendingTap;
+    if (!tap || tap.id !== e.pointerId) return;
+    this.pendingTap = null;
+    if (!this.active && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) <= TOUCH_TAP_SLOP_PX) {
+      this.handlers.tap();
+    }
+  };
+
+  private readonly onPointerCancel = (e: PointerEvent): void => {
+    if (this.pendingTap?.id === e.pointerId) this.pendingTap = null;
   };
 
   constructor(handlers: TouchHandlers) {
@@ -127,6 +148,8 @@ export class TouchControls {
       render: { tint: "#8ea2ff" },
     });
     window.addEventListener("pointerdown", this.onPointerDown);
+    window.addEventListener("pointerup", this.onPointerUp);
+    window.addEventListener("pointercancel", this.onPointerCancel);
   }
 
   /** Call once per frame, before the sim tick, with the frame's dt in ms. */
@@ -162,6 +185,8 @@ export class TouchControls {
 
   destroy(): void {
     window.removeEventListener("pointerdown", this.onPointerDown);
+    window.removeEventListener("pointerup", this.onPointerUp);
+    window.removeEventListener("pointercancel", this.onPointerCancel);
     this.gamepad.destroy();
     this.root.remove();
   }
@@ -176,6 +201,7 @@ export class TouchControls {
 
   /** Forget every pointer and pending press edge (pause, resume, phase change). */
   release(): void {
+    this.pendingTap = null;
     this.gamepad.pad.reset();
     // Twice: the first update publishes the reset as release edges, the second clears them.
     this.gamepad.update();

@@ -33,6 +33,12 @@ export function reseed(seed: number): void {
   current = stream(seed);
 }
 
+/** Back to Math.random: a stream adopted for one run (online checkpoints, a
+ * test seed) must not replay into the next. */
+export function unseed(): void {
+  current = null;
+}
+
 /** Current stream word for a checkpoint; an unseeded stream adopts a random seed first. */
 export function checkpointRng(): number {
   current ??= stream(Math.floor(Math.random() * 0x100000000));

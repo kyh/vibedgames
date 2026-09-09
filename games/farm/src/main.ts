@@ -72,12 +72,17 @@ document.addEventListener("visibilitychange", () => {
 
 // Sim is entirely delta-driven (update(_t, dms)), so the wrapper's pause can
 // freeze/resume the loop directly — except in live co-op, where freezing would
-// stall heartbeats and desync the room; there only local input is fenced.
+// stall heartbeats and desync the room; there only the local farmer is fenced.
+// The farm owns the session and survives mine trips, so the mine answers
+// isOnline() through it and follows the same rule.
 // `froze` ensures onResume only wakes what onPause put to sleep.
-const activeFarm = (): GameScene | null => {
-  if (!game.scene.isActive("Game")) return null;
-  const scene = game.scene.getScene("Game");
-  return scene instanceof GameScene ? scene : null;
+const activeWorld = (): GameScene | MineScene | null => {
+  for (const key of ["Game", "Mine"]) {
+    if (!game.scene.isActive(key)) continue;
+    const scene = game.scene.getScene(key);
+    if (scene instanceof GameScene || scene instanceof MineScene) return scene;
+  }
+  return null;
 };
 let froze = false;
 let paused = false;
@@ -86,25 +91,27 @@ const freeze = (): void => {
   game.loop.sleep();
   game.sound.pauseAll();
 };
-// A mine fade committed before an online pause finishes while still paused;
-// the mine is offline-only, so it gets the freeze the farm skipped.
-game.events.on("farm-enter-mine", () => {
-  if (paused && !froze) freeze();
+// A mine fade committed before an online pause finishes while still paused:
+// the new floor is fenced like the farm was (frozen only if the room is gone).
+game.events.on("farm-enter-mine", (mine: MineScene) => {
+  if (!paused) return;
+  mine.setControlsPaused(true);
+  if (!froze && !mine.isOnline()) freeze();
 });
 // Bespoke wooden-sign pause overlay (./pause-overlay) — renders CONTROLS and
 // the How-to-Play systems knowledge in the game's own cozy pixel-farm look.
 setPauseHandlers({
   onPause: () => {
     paused = true;
-    const farm = activeFarm();
-    farm?.setControlsPaused(true);
+    const world = activeWorld();
+    world?.setControlsPaused(true);
     Sound.setPaused(true);
     pauseOverlay.show();
-    if (!farm?.isOnline()) freeze();
+    if (!world?.isOnline()) freeze();
   },
   onResume: () => {
     paused = false;
-    activeFarm()?.setControlsPaused(false);
+    activeWorld()?.setControlsPaused(false);
     pauseOverlay.hide();
     Sound.setPaused(false);
     if (!froze) return;

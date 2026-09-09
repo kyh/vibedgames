@@ -8,7 +8,7 @@
 // every per-frame style write is change-gated against a cached last value.
 import { isOfflineRequested } from "@repo/embed";
 import { CHAMP_BY_ID, valAt } from "../data/champions";
-import { abilityIcon, attackIcon, champSigil, iconUrl, statusIcon } from "../data/icons";
+import { abilityIcon, champSigil, iconUrl, statusIcon } from "../data/icons";
 import { ITEMS, ITEM_BY_ID, MAX_ITEMS, type ItemDef } from "../data/items";
 import { KILL_GOAL_FFA, LEVEL_CAP, XP_CURVE, respawnTime } from "../data/config";
 import { ARENA, HEX_R, OBSTACLES } from "../data/map";
@@ -20,6 +20,7 @@ import type { View } from "./view";
 import { abilityReadiness, readablePlates } from "./hud-readability";
 import type { PlateAnchor, PlateCandidate, ScreenBox } from "./hud-readability";
 import { coinObjective, deliveryObjective } from "./objective-state";
+import { HudNotices } from "./hud-notices";
 import { terrainHeight } from "../data/terrain";
 
 // Q/W/E/R map to number keys 1-4; DASH/JUMP are the flat util pair (Shift/Space).
@@ -102,43 +103,18 @@ type BuffEl = { ring: HTMLElement; sec: HTMLElement; lastT: number; lastSec: str
 
 type Arrow = { el: HTMLDivElement; lastTf: string; on: boolean };
 
-type ToastKind = "leader" | "delivery" | "streak" | "sudden" | "matchend" | "notice";
-const TOAST_STYLE = {
-  leader: { priority: 2, life: 3600 },
-  delivery: { priority: 1, life: 2400 },
-  streak: { priority: 0, life: 2400 },
-  sudden: { priority: 3, life: 3600 },
-  matchend: { priority: 3, life: 2400 },
-  notice: { priority: 0, life: 2400 },
-} satisfies Record<ToastKind, { priority: number; life: number }>;
-const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
-const TOAST_MAX_AGE = 6000;
-type Toast = { text: string; kind: ToastKind; receivedAt: number };
-type VisibleToast = { notice: Toast; el: HTMLElement; until: number };
-type FeedRow = { el: HTMLElement; until: number };
-type ConfettiStage = { at: number; x: number; y: number; color: number };
-
-/** Network notification kinds remain strings. Unknown kinds get neutral styling,
- * never inferred objective priority from their human-readable text. */
-function toastKind(kind: string): ToastKind {
-  switch (kind) {
-    case "leader":
-    case "delivery":
-    case "streak":
-    case "sudden":
-    case "matchend":
-      return kind;
-    default:
-      return "notice";
-  }
-}
-
+type Plate = {
+  wrap: HTMLDivElement;
+  fill: HTMLDivElement;
+  name: HTMLDivElement;
+  shown: boolean;
+  x: number;
+  y: number;
+  hp: string;
+};
 export class Hud {
   private root: HTMLElement;
-  private plates = new Map<
-    string,
-    { wrap: HTMLDivElement; fill: HTMLDivElement; name: HTMLDivElement }
-  >();
+  private plates = new Map<string, Plate>();
   private plateAnchors: ((id: string) => PlateAnchor | null) | null = null;
   private plateKeepOut: ScreenBox[] = [];
   private plateKeepOutAt = 0;
@@ -151,8 +127,7 @@ export class Hud {
   private objCoinEl!: HTMLElement;
   private objDropEl!: HTMLElement;
   private boardEl!: HTMLElement;
-  private feedEl!: HTMLElement;
-  private toastEl!: HTMLElement;
+  private notices!: HudNotices;
   private hpFill!: HTMLElement;
   private hpGhostEl!: HTMLElement;
   private hpTicksEl!: HTMLElement;
@@ -242,18 +217,9 @@ export class Hud {
   private lastLowOp = -1;
   private lastLowOp2 = -1;
   private hbPhase = -1;
-  private presentationPaused = false;
-  private presentationHidden = document.hidden;
-  private presentationNow = 0;
-  private feedRows: FeedRow[] = [];
-  private visibleToasts: VisibleToast[] = [];
-  private pendingToasts: Toast[] = [];
-  private confetti: ConfettiStage[] = [];
   private sawSuddenDeath = false;
   private readonly onVisibilityChange = (): void => {
-    this.presentationHidden = document.hidden;
-    this.clearPresentation();
-    this.dropIncomingPresentation();
+    this.notices.setHidden(document.hidden);
     this.showHint("");
     this.showIntro("");
   };
@@ -290,7 +256,7 @@ export class Hud {
   }
 
   private get presentationBlocked(): boolean {
-    return this.presentationPaused || this.presentationHidden;
+    return this.notices.blocked;
   }
 
   /** Shared Audio instance (owned by Fx) for the UI sound set. */
@@ -360,8 +326,7 @@ export class Hud {
     this.objCoinEl = obj.children[0] instanceof HTMLElement ? obj.children[0] : obj;
     this.objDropEl = obj.children[1] instanceof HTMLElement ? obj.children[1] : obj;
     this.boardEl = byId("ba-board");
-    this.feedEl = byId("ba-feed");
-    this.toastEl = byId("ba-toasts");
+    this.notices = new HudNotices(this.fx, byId("ba-feed"), byId("ba-toasts"));
     this.hpFill = byId("ba-hpfill");
     this.hpGhostEl = byId("ba-hpghost");
     this.hpTicksEl = byId("ba-ticks");
@@ -567,17 +532,16 @@ export class Hud {
     // A snapshot/world replacement can leave the ended phase without reloading.
     // Remove result masking and pending celebration before this world's frame.
     if (this.shownEnd && (w.phase !== "ended" || !w.winner)) this.updateEnd(w, me);
-    this.updatePresentation(frameDt);
+    this.notices.update(frameDt);
     this.lastMe = me;
     if (me.killStreak > this.bestStreak) this.bestStreak = me.killStreak;
     if (w.phase === "ended") {
       this.updateEnd(w, me);
-      this.dropIncomingPresentation();
+      this.notices.dropIncoming();
       this.lastNow = w.now;
       return;
     }
-    if (w.suddenDeath && !this.sawSuddenDeath && !this.presentationBlocked)
-      this.queueToast({ text: "SUDDEN DEATH", kind: "sudden", receivedAt: this.presentationNow });
+    if (w.suddenDeath && !this.sawSuddenDeath) this.notices.queue("SUDDEN DEATH", "sudden");
     this.sawSuddenDeath = w.suddenDeath;
     this.updateLowHp(w, me);
     this.updatePlates(w, me);
@@ -594,7 +558,8 @@ export class Hud {
     this.updateHitDir(w, me);
     this.updateArrows();
     this.drawMinimap(w, me);
-    this.drainFeed(w);
+    if (this.shownEnd) this.notices.dropIncoming();
+    else this.notices.drain(w);
     this.updateShop(me);
     this.updateEnd(w, me);
     this.lastNow = w.now;
@@ -603,10 +568,10 @@ export class Hud {
   /** A late visitor sees the accepted result without inventing a player seat. */
   updateUnassigned(w: World, frameDt: number): void {
     if (w.phase !== "ended") return;
-    this.updatePresentation(frameDt);
+    this.notices.update(frameDt);
     this.lastMe = null;
     this.updateEnd(w, null);
-    this.dropIncomingPresentation();
+    this.notices.dropIncoming();
     this.lastNow = w.now;
   }
 
@@ -616,9 +581,7 @@ export class Hud {
     this.coinState = null;
     this.deliveryState = null;
     this.plateKeepOutAt = 0;
-    this.clearPresentation();
-    this.dropIncomingPresentation();
-    this.presentationNow = 0;
+    this.notices.reset();
     this.shownEnd = false;
     this.endEl.hidden = true;
     this.root.classList.remove("ba-ended");
@@ -672,13 +635,9 @@ export class Hud {
     this.showIntro("");
   }
 
-  /** Local presentation pause is independent of the host's live world clock. */
   setPaused(paused: boolean): void {
-    if (paused === this.presentationPaused) return;
-    this.presentationPaused = paused;
+    this.notices.setPaused(paused);
     if (paused) {
-      this.clearPresentation();
-      this.dropIncomingPresentation();
       this.showHint("");
       this.showIntro("");
     }
@@ -890,10 +849,9 @@ export class Hud {
         bar.append(fill);
         wrap.append(name, bar);
         byId("ba-plates").appendChild(wrap);
-        plate = { wrap, fill, name };
+        plate = { wrap, fill, name, shown: true, x: NaN, y: NaN, hp: "" };
         this.plates.set(u.id, plate);
       }
-      plate.wrap.style.display = "none";
       const anchor = this.plateAnchors?.(u.id);
       const s = anchor
         ? this.view.worldToScreen(anchor.x, anchor.z, anchor.y)
@@ -926,20 +884,40 @@ export class Hud {
               : 3,
         compact,
       });
-      plate.fill.style.width = `${Math.max(0, (u.hp / u.maxHp) * 100)}%`;
+      const hp = `${Math.max(0, (u.hp / u.maxHp) * 100)}%`;
+      if (hp !== plate.hp) {
+        plate.hp = hp;
+        plate.fill.style.width = hp;
+      }
     }
+    const placed = new Set<string>();
     for (const candidate of readablePlates(candidates, this.plateKeepOut)) {
       const plate = this.plates.get(candidate.id);
       if (!plate) continue;
+      placed.add(candidate.id);
       plate.wrap.classList.toggle("compact", candidate.compact);
-      plate.wrap.style.display = "block";
-      plate.wrap.style.left = `${Math.round(candidate.x)}px`;
-      plate.wrap.style.top = `${Math.round(candidate.y)}px`;
+      if (!plate.shown) {
+        plate.shown = true;
+        plate.wrap.style.display = "block";
+      }
+      const x = Math.round(candidate.x);
+      if (x !== plate.x) {
+        plate.x = x;
+        plate.wrap.style.left = `${x}px`;
+      }
+      const y = Math.round(candidate.y);
+      if (y !== plate.y) {
+        plate.y = y;
+        plate.wrap.style.top = `${y}px`;
+      }
     }
     for (const [id, plate] of this.plates) {
       if (!seen.has(id)) {
         plate.wrap.remove();
         this.plates.delete(id);
+      } else if (plate.shown && !placed.has(id)) {
+        plate.shown = false;
+        plate.wrap.style.display = "none";
       }
     }
   }
@@ -1437,124 +1415,6 @@ export class Hud {
     }
   }
 
-  private dropIncomingPresentation(): void {
-    this.fx.feed.length = 0;
-    this.fx.toasts.length = 0;
-  }
-
-  private clearPresentation(): void {
-    for (const row of this.feedRows) row.el.remove();
-    for (const toast of this.visibleToasts) toast.el.remove();
-    this.feedRows = [];
-    this.visibleToasts = [];
-    this.pendingToasts = [];
-    this.confetti = [];
-  }
-
-  /** Two visible notices + three plain pending records. Priority displaces
-   * lower-priority decoration; equal priority stays FIFO and expires promptly. */
-  private queueToast(notice: Toast): void {
-    if (this.presentationBlocked || this.shownEnd) return;
-    if (this.visibleToasts.length < 2) {
-      this.presentToast(notice);
-      return;
-    }
-    const priority = TOAST_STYLE[notice.kind].priority;
-    const lowest = Math.min(...this.visibleToasts.map((t) => TOAST_STYLE[t.notice.kind].priority));
-    if (priority > lowest) {
-      const index = this.visibleToasts.findIndex(
-        (t) => TOAST_STYLE[t.notice.kind].priority === lowest,
-      );
-      const displaced = this.visibleToasts.splice(index, 1)[0];
-      displaced?.el.remove();
-      this.presentToast(notice);
-      return;
-    }
-    if (this.pendingToasts.some((p) => p.kind === notice.kind && p.text === notice.text)) return;
-    if (this.pendingToasts.length >= 3) {
-      const lowest = Math.min(...this.pendingToasts.map((p) => TOAST_STYLE[p.kind].priority));
-      if (priority < lowest) return;
-      const index = this.pendingToasts.findIndex((p) => TOAST_STYLE[p.kind].priority === lowest);
-      this.pendingToasts.splice(index, 1);
-    }
-    this.pendingToasts.push(notice);
-  }
-
-  private presentToast(notice: Toast): void {
-    const el = document.createElement("div");
-    el.className = "ba-toast " + notice.kind;
-    el.textContent = notice.text;
-    this.toastEl.appendChild(el);
-    this.visibleToasts.push({
-      notice,
-      el,
-      until: this.presentationNow + TOAST_STYLE[notice.kind].life,
-    });
-  }
-
-  private updatePresentation(frameDt: number): void {
-    if (this.presentationBlocked) {
-      this.dropIncomingPresentation();
-      return;
-    }
-    if (Number.isFinite(frameDt)) this.presentationNow += Math.max(0, frameDt) * 1000;
-    const now = this.presentationNow;
-    const feedCap = window.innerWidth < 720 ? 3 : 5;
-    this.feedRows = this.feedRows.filter((row, i) => {
-      if (row.until > now && i >= this.feedRows.length - feedCap) return true;
-      row.el.remove();
-      return false;
-    });
-    this.visibleToasts = this.visibleToasts.filter((toast) => {
-      if (toast.until > now && now - toast.notice.receivedAt < TOAST_MAX_AGE) return true;
-      toast.el.remove();
-      return false;
-    });
-    this.pendingToasts = this.pendingToasts.filter((p) => now - p.receivedAt < TOAST_MAX_AGE);
-    while (this.visibleToasts.length < 2 && this.pendingToasts.length > 0) {
-      const highest = Math.max(...this.pendingToasts.map((p) => TOAST_STYLE[p.kind].priority));
-      const index = this.pendingToasts.findIndex((p) => TOAST_STYLE[p.kind].priority === highest);
-      const next = this.pendingToasts.splice(index, 1)[0];
-      if (next) this.presentToast(next);
-    }
-    if (REDUCED_MOTION.matches) this.confetti = [];
-    this.confetti = this.confetti.filter((stage) => {
-      if (stage.at > now) return true;
-      // A delayed frame must not collapse every missed fountain into one burst.
-      if (now - stage.at < 200) this.fx.fountain(stage.x, stage.y, 16, stage.color);
-      return false;
-    });
-  }
-
-  private drainFeed(w: World): void {
-    if (this.presentationBlocked || this.shownEnd) {
-      this.dropIncomingPresentation();
-      return;
-    }
-    const cap = window.innerWidth < 720 ? 3 : 5;
-    // Only the newest rows can be visible; pressure never allocates hidden rows.
-    const incoming = this.fx.feed.splice(Math.max(0, this.fx.feed.length - cap));
-    this.fx.feed.length = 0;
-    for (const k of incoming) {
-      const row = document.createElement("div");
-      row.className = "ba-kill" + (k.leader ? " leader" : "");
-      const ku = w.units.get(k.killer);
-      const vu = w.units.get(k.victim);
-      const weapon = `<img class="ba-kw" src="${attackIcon(ku?.attackKind ?? "melee")}" alt="">`;
-      row.innerHTML = `${feedSigil(ku)}<b>${htmlText(k.killerName)}</b>${weapon}${feedSigil(vu)}<span>${htmlText(k.victimName)}</span>`;
-      this.feedEl.appendChild(row);
-      this.feedRows.push({ el: row, until: this.presentationNow + 5000 });
-      while (this.feedRows.length > cap) this.feedRows.shift()?.el.remove();
-    }
-    for (const notice of this.fx.toasts)
-      this.queueToast({
-        text: notice.text,
-        kind: toastKind(notice.kind),
-        receivedAt: this.presentationNow,
-      });
-    this.fx.toasts.length = 0;
-  }
-
   private updateShop(me: Unit): void {
     const inBase = this.shop.canShop();
     if (this.shopOpen && !inBase) this.toggleShop();
@@ -1576,7 +1436,7 @@ export class Hud {
         this.shownEnd = false;
         this.endEl.hidden = true;
         this.root.classList.remove("ba-ended");
-        this.clearPresentation();
+        this.notices.clear();
         this.bestStreak = me?.killStreak ?? 0;
         this.sawSuddenDeath = false;
       }
@@ -1587,8 +1447,7 @@ export class Hud {
       return;
     }
     this.shownEnd = true;
-    this.clearPresentation();
-    this.dropIncomingPresentation();
+    this.notices.hold();
     this.showHint("");
     this.showIntro("");
     this.shopOpen = false;
@@ -1640,14 +1499,7 @@ export class Hud {
       });
     });
     this.syncRematchAction();
-    if (won && winner && !this.presentationBlocked && !REDUCED_MOTION.matches) {
-      this.confetti = [0xffd24a, 0x6bff8e, 0x9fd0ff].map((color, i) => ({
-        at: this.presentationNow + i * 200,
-        x: winner.x,
-        y: winner.y,
-        color,
-      }));
-    }
+    if (won && winner) this.notices.celebrate(winner.x, winner.y);
   }
 
   /** Server election may change while the result card is already visible. */
@@ -1678,13 +1530,6 @@ function byId(id: string): HTMLElement {
  *  offers PLAY ONLINE again and a session promised no socket can open one. */
 function backToLobby(): void {
   location.search = isOfflineRequested() ? "?menu&offline=1" : "?menu";
-}
-
-/** Kill-feed champ sigil (heroes only — creeps/environment get no mark). */
-function feedSigil(u: Unit | undefined): string {
-  return u && u.kind === "hero" && u.champId
-    ? `<img class="ba-ks" src="${champSigil(u.champId)}" alt="">`
-    : "";
 }
 
 /** Typed child lookup (build-time markup — always present). */

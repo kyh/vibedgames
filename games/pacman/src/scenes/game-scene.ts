@@ -24,7 +24,7 @@ import { isSoundOn, music, sfx, toggleSound, unlockAudio } from "../audio/sfx";
 import { restartHint } from "../controls";
 import { IS_TOUCH } from "../input/input-mode";
 import { buildControls, ensureStyle as ensureControlsStyle } from "../pause-overlay";
-import { FxPool } from "../render/fx-pool";
+import { FxPool, REDUCED_MOTION } from "../render/fx-pool";
 import { buildHeartGeometry } from "../render/heart";
 import type { PelletCell } from "../render/pellet-field";
 import { PelletField } from "../render/pellet-field";
@@ -159,7 +159,9 @@ const COMBO_WINDOW_S = 0.9;
 
 const SWIPE_MIN_PX = 24;
 const EPS = 1e-4;
-const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
+/** DEV-only room override (?room=): the two-client harness isolates each run
+ *  so a stale room's board can't leak into assertions. */
+const ROOM = (import.meta.env.DEV && new URLSearchParams(location.search).get("room")) || MP_ROOM;
 /** Shrinking after-image left where Pacman was caught. */
 const CAPTURE_ECHO_S = 0.28;
 /** Settle-in scale after a respawn. */
@@ -234,12 +236,14 @@ export class GameScene {
   // host owns the authoritative set of eaten cells; players race to grab them.
   // Ghosts stay LOCAL — each player dodges their own. Solo/offline is unchanged.
   private net = new NetSession({
-    room: MP_ROOM,
+    room: ROOM,
     maxPlayers: MP_MAX_PLAYERS,
     fallbackMs: OFFLINE_FALLBACK_MS,
     onEvent: (event, payload, from) => this.handleNetEvent(event, payload, from),
   });
   private remotePacs: RemotePacs;
+  /** Rivals present this frame (see presentRivals). */
+  private rivalIds: string[] = [];
   private netAcc = 0;
   private boardRound = 0;
   private boardSig = "";
@@ -419,7 +423,17 @@ export class GameScene {
 
   /** A rival is sharing the maze (so the game runs in race mode). */
   private get racing(): boolean {
-    return this.net.otherPlayer() !== null;
+    return this.rivalIds.length > 0;
+  }
+
+  /** Other players present right now. A seat the server holds for a reconnect
+   *  is not a rival: its last state would park a frozen pac in the maze for the
+   *  whole grace window and keep a lone player on race rules. */
+  private presentRivals(): string[] {
+    const me = this.net.playerId;
+    return Object.entries(this.net.players)
+      .filter(([id, p]) => id !== me && p.connected !== false)
+      .map(([id]) => id);
   }
 
   private handleNetEvent(event: string, payload: JsonValue, from: string): void {
@@ -442,7 +456,7 @@ export class GameScene {
         return;
       const cell = this.parseEatKey(key);
       if (!cell || !this.pendingClaims.delete(key)) return;
-      this.addScore(-(MAP[cell.row]?.[cell.col] === 3 ? SCORE_POWER : SCORE_PELLET));
+      this.addScore(-cellScore(cell));
     }
   }
 
@@ -476,11 +490,8 @@ export class GameScene {
     const cell = this.parseEatKey(key);
     if (!cell) return; // malformed / out-of-bounds / not a pellet cell — drop it
     if (this.hostEaten.has(key)) {
-      const amount = MAP[cell.row]?.[cell.col] === 3 ? SCORE_POWER : SCORE_PELLET;
-      if (claimer === (this.net.playerId ?? "solo")) this.addScore(-amount);
-      // `amount` is ignored by this build (the loser derives it from the map) but
-      // clients on the previous build still read it.
-      else this.net.sendEvent("reject", { key, amount, to: claimer, round: this.boardRound });
+      if (claimer === (this.net.playerId ?? "solo")) this.addScore(-cellScore(cell));
+      else this.net.sendEvent("reject", { key, to: claimer, round: this.boardRound });
       return;
     }
     this.hostEaten.add(key);
@@ -635,7 +646,7 @@ export class GameScene {
         this.net.updateMyState({ x: this.pac.x, z: this.pac.z, score: this.score });
         // Roster/standings work only needs to track the ~NET_TICK_HZ updates;
         // the smoothing in remotePacs.update below still runs every frame.
-        this.remotePacs.sync(this.net.players, this.net.playerId);
+        this.remotePacs.sync(this.net.players, this.rivalIds);
         this.updateNetHud();
       }
     }
@@ -647,7 +658,7 @@ export class GameScene {
       !this.net.live || this.net.offline
         ? ""
         : this.racing
-          ? `RACE · ${Object.keys(this.net.players).length} PLAYERS`
+          ? `RACE · ${this.rivalIds.length + 1} PLAYERS`
           : "ONLINE · WAITING";
     if (netInfo !== this.netInfoText) {
       this.netInfoText = netInfo;
@@ -660,14 +671,10 @@ export class GameScene {
       this.boardSig = "";
       return;
     }
-    const me = this.net.playerId;
-    const rows: Array<{ id: string; score: number; me: boolean }> = [];
-    for (const [id, player] of Object.entries(this.net.players)) {
-      if (id === me) rows.push({ id, score: this.score, me: true });
-      else {
-        const sc = player.state?.["score"];
-        rows.push({ id, score: isJsonNumber(sc) ? sc : 0, me: false });
-      }
+    const rows = [{ id: this.net.playerId ?? "solo", score: this.score, me: true }];
+    for (const id of this.rivalIds) {
+      const sc = this.net.players[id]?.state?.["score"];
+      rows.push({ id, score: isJsonNumber(sc) ? sc : 0, me: false });
     }
     rows.sort((a, b) => b.score - a.score);
     // The board only changes when someone scores or joins/leaves — skip the
@@ -705,6 +712,7 @@ export class GameScene {
     const scaredMsBefore = this.scaredMs;
 
     this.net.tick();
+    this.rivalIds = this.presentRivals();
     this.reconcileBoard();
     this.pollPad();
 
@@ -1647,6 +1655,11 @@ export class GameScene {
 }
 
 // ---- pure helpers ---------------------------------------------------------------
+
+/** Points a pellet cell is worth — from the map, never trusted from the wire. */
+function cellScore(cell: { col: number; row: number }): number {
+  return MAP[cell.row]?.[cell.col] === 3 ? SCORE_POWER : SCORE_PELLET;
+}
 
 function el(id: string): HTMLElement {
   const node = document.getElementById(id);

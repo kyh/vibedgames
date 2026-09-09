@@ -29,7 +29,13 @@ import { readSoundscape } from "../render/score";
 import { structureAnnouncement } from "../render/objective-guidance";
 import { presentationSettings, watchPresentationSettings } from "../render/presentation-settings";
 import { WorldView } from "../render/view";
-import { INTENT_EVENT, MULTIPLAYER_HOST, PARTY, ROOM, parseIntent } from "../net/protocol";
+import {
+  INTENT_EVENT,
+  MULTIPLAYER_HOST,
+  PARTY,
+  parseIntent,
+  roomFromLocation,
+} from "../net/protocol";
 import type { Intent } from "../net/protocol";
 import { restoreHostState } from "../net/host-state";
 import type { OnlineSeat } from "../net/host-state";
@@ -41,9 +47,19 @@ import {
   sharedFxSeq,
   sharedSnapshot,
 } from "../net/snapshot";
+import type { Snapshot } from "../net/snapshot";
 import type { JsonValue } from "../net/json";
 
 const TEAM_SIZE = 3;
+// A slow frame owes the sim its full wall time, else a laggy host's world
+// crawls for every guest. Both caps bound the burst so a machine that cannot
+// keep up degrades to slow motion instead of spiralling into longer frames.
+const SIM_CATCHUP_S = 0.2;
+const SIM_STEPS_MAX = 6;
+// Guests: snapshots that stop advancing for this long get a banner. The server
+// migrates host after 6s without the host's heartbeat, so this is the warning
+// before the switch, not a takeover (only the elected host may write state).
+const HOST_STALL_MS = 4000;
 
 // The shared pause/mute cluster's stock corner is top-right, which the compact
 // HUD already spends on the team-score capsule — so a portrait phone drops it
@@ -104,7 +120,7 @@ export type FeedEntry =
 /** Final primitives only: unassigned clients cannot imply a personal defeat or
  * borrow a teammate's stats. World winner and host authority remain unchanged. */
 export type MatchResult = Readonly<
-  { duration: number; canReplay: boolean } & (
+  { duration: number } & (
     | { kind: "unassigned"; winner: Team | null }
     | {
         kind: "assigned";
@@ -131,6 +147,7 @@ export class GameScene extends Phaser.Scene {
   private view!: WorldView;
   private playerId = "";
   private acc = 0;
+  private hostClock: number | null = null;
   private labelTimer = 0;
   private cam!: Phaser.Cameras.Scene2D.Camera;
   private followGo = false;
@@ -169,6 +186,13 @@ export class GameScene extends Phaser.Scene {
   // shared snapshot again before it may simulate, even with the same id.
   private adoptedHost = false;
   private joinResendAt = 0;
+  // The SDK keeps its shared-state mirror across a transport drop and, on
+  // reconnect, only overlays what the server still holds. A snapshot object
+  // that survives the round trip is therefore our pre-drop copy, not the
+  // room's — never re-adopt it as authority.
+  private staleSnap: Snapshot | null = null;
+  private lastSnapSeq = -1;
+  private snapStalledAt = Infinity;
 
   constructor() {
     super("Game");
@@ -188,6 +212,7 @@ export class GameScene extends Phaser.Scene {
     this.result = null;
     this.playerId = "";
     this.acc = 0;
+    this.hostClock = null;
     this.labelTimer = 0;
     this.followGo = false;
     this.ended = false;
@@ -208,6 +233,9 @@ export class GameScene extends Phaser.Scene {
     this.inheritedFxCount = 0;
     this.adoptedHost = false;
     this.joinResendAt = 0;
+    this.staleSnap = null;
+    this.lastSnapSeq = -1;
+    this.snapStalledAt = Infinity;
     this.feed.length = 0;
     this.moveKeys = null;
   }
@@ -293,7 +321,7 @@ export class GameScene extends Phaser.Scene {
     this.net = new MultiplayerClient({
       host: MULTIPLAYER_HOST,
       party: PARTY,
-      room: ROOM,
+      room: roomFromLocation(),
       onEvent: (event, payload, from) =>
         // SAFETY: event payloads arrive as JSON websocket frames (or a local
         // echo of a JSON-safe send), so JsonValue covers every possible value.
@@ -301,13 +329,32 @@ export class GameScene extends Phaser.Scene {
     });
     const net = this.net;
     net.subscribe(() => {
-      if (net.connectionStatus !== "connected") this.joinedSelf = false;
       if (net.connectionStatus !== "connected" || !net.isHost) this.adoptedHost = false;
+      if (net.connectionStatus === "connected") return;
+      this.joinedSelf = false;
+      this.staleSnap = sharedSnapshot(net.sharedState);
     });
   }
 
+  /** The one host/guest decision: offline always simulates; online, only the
+   *  connected, server-elected client does. */
   private get amHost(): boolean {
     return !this.online || (this.net?.connectionStatus === "connected" && this.net.isHost);
+  }
+
+  /** Whether this client may act: offline, or connected under the seat its
+   *  hero was spawned for (a reconnect can hand out a new id). */
+  private get seated(): boolean {
+    if (!this.online) return true;
+    const net = this.net;
+    return net?.connectionStatus === "connected" && this.playerId === `h-${net.playerId}`;
+  }
+
+  /** The room's current snapshot, or null when the mirror only holds our own
+   *  pre-drop copy (see staleSnap). */
+  private roomSnapshot(net: MultiplayerClient): Snapshot | null {
+    const snap = sharedSnapshot(net.sharedState);
+    return snap === this.staleSnap ? null : snap;
   }
 
   /**
@@ -327,6 +374,10 @@ export class GameScene extends Phaser.Scene {
     // Retain choices as a guest so an elected host can seat pending joins.
     if (intent.kind === "join") {
       this.picks[from] = intent.defId;
+      // A newcomer to a finished match would otherwise spectate the result
+      // until the last finisher leaves the room.
+      if (this.amHost && this.world.phase === "ended" && !this.world.units.has(`h-${from}`))
+        this.rematch();
       return;
     }
     if (!this.amHost) return; // only the server-elected host applies intents
@@ -442,14 +493,15 @@ export class GameScene extends Phaser.Scene {
   }
 
   private prepareOnlineHost(net: MultiplayerClient): void {
-    if (this.adoptedHost || net.connectionStatus !== "connected" || !net.isHost) return;
-    const restored = restoreHostState(this.world, sharedSnapshot(net.sharedState));
+    if (this.adoptedHost || !this.amHost) return;
+    const restored = restoreHostState(this.world, this.roomSnapshot(net));
     this.assign = restored.seats;
     this.picks = { ...this.picks, ...restored.picks };
     this.adoptedHost = true;
     this.fxSeqOut = sharedFxSeq(net.sharedState) ?? 0;
     this.netFx = [];
     this.acc = 0;
+    this.hostClock = null;
     this.inheritedFxCount = this.ingestSharedFx(net);
   }
 
@@ -466,11 +518,7 @@ export class GameScene extends Phaser.Scene {
   private cmd(intent: Intent): void {
     if (this.result) return;
     if (this.inputPaused && !(intent.kind === "order" && intent.order.type === "hold")) return;
-    if (
-      this.online &&
-      (this.net?.connectionStatus !== "connected" || this.playerId !== `h-${this.net.playerId}`)
-    )
-      return;
+    if (!this.seated) return;
     if (this.amHost && this.net) this.prepareOnlineHost(this.net);
     if (this.world.phase === "ended") return;
     if (this.amHost) {
@@ -515,12 +563,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private flushPauseHold(): void {
-    if (!this.needsPauseHold) return;
-    if (
-      this.online &&
-      (this.net?.connectionStatus !== "connected" || this.playerId !== `h-${this.net.playerId}`)
-    )
-      return;
+    if (!this.needsPauseHold || !this.seated) return;
     this.cmd({ kind: "order", order: { type: "hold" } });
     this.lastDir = { dx: 0, dy: 0 };
     this.needsPauseHold = false;
@@ -614,13 +657,7 @@ export class GameScene extends Phaser.Scene {
    *  HUD widgets never reach the pad — the HUD scene sits above this one and
    *  captures touches on its interactive objects. */
   private bindTouch(): void {
-    this.pad = attachVirtualGamepad(this, {
-      buttons: [{ id: "attack" }], // rest button: any non-stick finger attacks
-      // above the y-sorted world (unit depth = y, up to WORLD.height); the HUD
-      // scene still renders over it
-      render: { depth: 50000, blendMode: Phaser.BlendModes.NORMAL },
-      onFirstTouch: () => resumeAudio(),
-    });
+    this.bindPad();
     // Pause is Escape-bound and mute is M-bound, so without this a phone player
     // cannot leave the match and never learns the game has sound.
     this.touchControls = createTouchControls({
@@ -637,13 +674,23 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  private bindPad(): void {
+    this.pad = attachVirtualGamepad(this, {
+      buttons: [{ id: "attack" }], // rest button: any non-stick finger attacks
+      // above the y-sorted world (unit depth = y, up to WORLD.height); the HUD
+      // scene still renders over it
+      render: { depth: 50000, blendMode: Phaser.BlendModes.NORMAL },
+      onFirstTouch: () => resumeAudio(),
+    });
+  }
+
   /** Poll held arrow keys / the virtual stick and stream a direction order when
    *  it changes. */
   private pollMovement(): void {
     if (this.inputPaused || this.needsPauseHold) return;
     // Keep the last accepted keyboard direction during a transport gap. A
     // release must send HOLD on return; unchanged idle must preserve mouse orders.
-    if (this.online && this.net?.connectionStatus !== "connected") return;
+    if (!this.seated) return;
     const me = this.player;
     // while dead/unspawned or a modal (shop) is open, forget the last direction so a
     // still-held key re-fires a fresh order the moment control returns.
@@ -906,8 +953,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   buyItemForPlayer(id: string): boolean {
-    if (this.result) return false;
-    if (this.online && this.net?.connectionStatus !== "connected") return false;
+    if (this.result || !this.seated) return false;
     if (this.amHost && this.net) this.prepareOnlineHost(this.net);
     if (this.world.phase === "ended") return false;
     const me = this.player;
@@ -1016,8 +1062,8 @@ export class GameScene extends Phaser.Scene {
     this.physPad.update(); // poll the controller + publish press edges
     if (!this.inputPaused) this.pollPadButtons();
     this.pollMovement();
-    if (this.online) this.tickOnline(dt);
-    else this.tickHost(dt);
+    if (this.online) this.tickOnline(dt, deltaMs);
+    else this.tickHost(deltaMs);
     this.flushPauseHold();
 
     this.collectFeed();
@@ -1041,11 +1087,17 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private tickHost(dt: number): void {
+  private tickHost(deltaMs: number): void {
     if (this.time.now < this.hitStopUntil) return; // hit-stop: hold the sim a beat
-    this.acc += dt;
+    // Phaser clamps delta to one frame while the window is unfocused, and a
+    // background tab's rAF runs at ~1 Hz, so the host's world would crawl
+    // for every guest. Owe the sim wall time instead, capped like any hitch.
+    const now = performance.now();
+    const elapsed = this.hostClock === null ? deltaMs : now - this.hostClock;
+    this.hostClock = now;
+    this.acc += Math.min(SIM_CATCHUP_S, elapsed / 1000);
     let steps = 0;
-    while (this.acc >= SIM_DT && steps < 5) {
+    while (this.acc >= SIM_DT && steps < SIM_STEPS_MAX) {
       step(this.world, SIM_DT);
       this.acc -= SIM_DT;
       steps++;
@@ -1055,7 +1107,7 @@ export class GameScene extends Phaser.Scene {
       autoLevel(this.world, me);
   }
 
-  private tickOnline(dt: number): void {
+  private tickOnline(dt: number, deltaMs: number): void {
     const net = this.net;
     if (!net || net.connectionStatus !== "connected") return;
     // announce our hero pick once
@@ -1075,12 +1127,12 @@ export class GameScene extends Phaser.Scene {
       net.sendEvent(INTENT_EVENT, { kind: "join", defId: this.heroChoice } satisfies Intent);
     }
 
-    if (net.isHost) {
+    if (this.amHost) {
       this.prepareOnlineHost(net);
       // ensure host's own pick recorded
       if (net.playerId && !this.picks[net.playerId]) this.picks[net.playerId] = this.heroChoice;
       if (this.world.phase !== "ended") this.reconcileOnlineHeroes();
-      this.tickHost(dt);
+      this.tickHost(deltaMs);
       // capture the fx this step produced BEFORE our own renderer drains them in
       // view.sync() — the sim's hits/deaths/casts only exist in world.fx now, so
       // capturing before tickHost (as before) always saw an empty array and guests
@@ -1095,12 +1147,34 @@ export class GameScene extends Phaser.Scene {
       this.broadcast(dt);
     } else {
       // guest: render the latest snapshot
-      const snap = sharedSnapshot(net.sharedState);
-      if (snap) applySnapshot(this.world, snap);
+      const snap = this.roomSnapshot(net);
+      if (snap) {
+        this.watchHostStall(snap);
+        applySnapshot(this.world, snap);
+        // the host started a rematch: leave the result screen with it
+        if (this.ended && this.world.phase !== "ended") this.resumeMatch();
+      }
       // The renderer runs faster than snapshots; consume each batch once.
       this.ingestSharedFx(net);
       const me = this.player;
       if (me) this.view.playerTeam = me.team;
+    }
+  }
+
+  private watchHostStall(snap: Snapshot): void {
+    const now = this.time.now;
+    if (snap.seq !== this.lastSnapSeq || snap.phase === "ended") {
+      this.lastSnapSeq = snap.seq;
+      this.snapStalledAt = now + HOST_STALL_MS;
+    } else if (now >= this.snapStalledAt) {
+      this.snapStalledAt = Infinity;
+      this.feed.push({
+        kind: "notify",
+        text: "HOST CONNECTION LOST — WAITING FOR A NEW HOST",
+        tone: "bad",
+        priority: "major",
+        at: now,
+      });
     }
   }
 
@@ -1110,7 +1184,7 @@ export class GameScene extends Phaser.Scene {
     this.snapAcc = 0;
     this.fxSeqOut += 1;
     this.net?.updateSharedState({
-      snap: structuredClone(encodeWorld(this.world)),
+      snap: encodeWorld(this.world),
       fx: this.netFx,
       fxSeq: this.fxSeqOut,
     });
@@ -1156,7 +1230,7 @@ export class GameScene extends Phaser.Scene {
     const h = me?.hero;
     const def = h ? HERO_BY_ID[h.defId] : undefined;
     const winner = this.world.winner;
-    const common = { duration: this.world.gameTime, canReplay: !this.online };
+    const common = { duration: this.world.gameTime };
     if (me && h && def && winner) {
       const win = winner === me.team;
       this.result = {
@@ -1184,17 +1258,49 @@ export class GameScene extends Phaser.Scene {
     this.pad = null;
   }
 
+  /** Only the simulating client can start the next match; a promoted guest
+   *  earns the button while it sits on the result screen. */
+  get canReplay(): boolean {
+    return this.result !== null && this.amHost;
+  }
+
   /** Result buttons share their existing once-click/40ms response in Hud. */
   leaveResult(action: "again" | "menu"): void {
-    if (!this.result || (action === "again" && this.online)) return;
+    if (!this.result || (action === "again" && !this.canReplay)) return;
     if (action === "again") {
-      this.scene.stop("Hud");
-      this.scene.start("Game", { heroId: this.heroChoice, online: false });
+      if (this.online) this.rematch();
+      else {
+        this.scene.stop("Hud");
+        this.scene.start("Game", { heroId: this.heroChoice, online: false });
+      }
     } else {
       this.net?.destroy();
       this.scene.stop("Hud");
       this.scene.start("Menu");
     }
+  }
+
+  /** Host: seed a fresh match in place, keeping every connection's pick so
+   *  the next reconcile reseats everyone. Guests follow the phase flip. */
+  private rematch(): void {
+    restoreHostState(this.world, null);
+    this.assign = {};
+    this.netFx = [];
+    this.inheritedFxCount = 0;
+    this.acc = 0;
+    this.hostClock = null;
+    this.resumeMatch();
+  }
+
+  /** Leave the result screen for a match that is playing again. */
+  private resumeMatch(): void {
+    this.result = null;
+    this.ended = false;
+    this.uiBlocking = false;
+    this.followGo = false;
+    if (!this.pad) this.bindPad();
+    this.scene.stop("Hud");
+    this.scene.launch("Hud", { game: this });
   }
 
   diagnostics() {
@@ -1216,6 +1322,19 @@ export class GameScene extends Phaser.Scene {
         scene: this,
         world: this.world,
         player: () => this.player,
+        encode: () => encodeWorld(this.world),
+        online: () => {
+          const net = this.net;
+          return net
+            ? {
+                status: net.connectionStatus,
+                id: net.playerId,
+                hostId: net.hostId,
+                isHost: net.isHost,
+                players: Object.keys(net.players),
+              }
+            : null;
+        },
         step: (n: number) => {
           for (let i = 0; i < n; i++) step(this.world, SIM_DT);
         },
@@ -1229,7 +1348,11 @@ export class GameScene extends Phaser.Scene {
         },
         kill: (id: string) => {
           const u = this.world.units.get(id);
-          if (u) dealDamage(this.world, this.player ?? null, u, 1e9, "pure", {});
+          if (!u) return;
+          // Structures stay protected until their tier falls; a test kill
+          // skips the ladder.
+          if (u.structure) u.structure.attackable = true;
+          dealDamage(this.world, this.player ?? null, u, 1e9, "pure", {});
         },
       },
     });

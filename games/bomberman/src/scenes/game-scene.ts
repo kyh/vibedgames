@@ -12,9 +12,10 @@ import type { Player } from "@vibedgames/multiplayer";
 import Phaser from "phaser";
 import { createArena, readArena, type Arena } from "../shared/arena";
 import { BattleFx } from "../fx/battle-fx";
-import { CharacterAction, VICTORY_ACTION_MS } from "../render/character-action";
+import { CharacterAction, VICTORY_ACTION_MS, type CharacterPose } from "../render/character-action";
 import { blastFrame, fireCells, freshCue } from "../render/blast-frame";
 import { RoundHud } from "../render/round-hud";
+import { bombOn, hostTick as simHostTick, placeBomb, type Human } from "../sim/host-sim";
 import {
   audioDiagnostics,
   isMuted,
@@ -28,28 +29,20 @@ import {
 import {
   baseStats,
   BASE_MOVE_MS,
-  BOT_BOMB_CHANCE,
   BOT_MOVE_MS,
   COLORS,
-  EXPLOSION_MS,
+  DIR_VECT,
+  DIRS,
   FUSE_MS,
   GRID_COLS,
   GRID_ROWS,
-  MAX_BOMBS,
-  MAX_BOTS,
-  MAX_RANGE,
-  MIN_MOVE_MS,
-  POWERUP_DROP_CHANCE,
   SPAWN_POINTS,
   SPEED_STEP_MS,
   OFFLINE_FALLBACK_MS,
-  TARGET_FIGHTERS,
   TILE,
   tileKey,
   WORLD_H,
   WORLD_W,
-  type Bomb,
-  type Bot,
   type Cell,
   type Dir,
   type PlayerStats,
@@ -73,6 +66,7 @@ declare global {
       scene: GameScene;
       client: MultiplayerClient | undefined;
       audio: typeof audioDiagnostics;
+      simNow: () => number;
     };
   }
 }
@@ -122,16 +116,8 @@ type Fighter = {
   order: number;
 };
 
-const DIR_VECT = {
-  up: [0, -1],
-  down: [0, 1],
-  left: [-1, 0],
-  right: [1, 0],
-} satisfies Record<Dir, [number, number]>;
-const DIRS: Dir[] = ["up", "down", "left", "right"];
 const PAD_START_BUTTONS = ["a", "b", "x", "y", "start"];
 
-const POWERUP_KINDS: PowerupKind[] = ["bomb", "fire", "speed"];
 const POWERUP_TEX = {
   bomb: "pow-bomb",
   fire: "pow-fire",
@@ -147,7 +133,8 @@ const MULTIPLAYER_HOST = import.meta.env.DEV
   ? "http://localhost:8787"
   : "https://vibedgames-party.kyh.workers.dev";
 
-const ROOM = "bomberman-default";
+/** `?room=<code>` isolates a match (test harness, private lobby); everyone else shares one room. */
+const ROOM = new URLSearchParams(location.search).get("room") || "bomberman-default";
 const BOMB_BUTTON_INSET = 84;
 const BOMB_BUTTON_RADIUS = 52;
 
@@ -379,10 +366,15 @@ export class GameScene extends Phaser.Scene {
     return this.offline ? "solo" : this.client.playerId;
   }
 
+  /** Humans in the arena. A dropped peer's seat is held for the reconnect
+   *  grace window, but until it returns it must not keep a corner from a bot,
+   *  stand as an unkillable ghost or hold the round open. */
   private get peers(): typeof this.client.players {
-    return this.offline
-      ? { solo: { id: "solo", state: this.offlineMyState } }
-      : this.client.players;
+    if (this.offline) return { solo: { id: "solo", state: this.offlineMyState } };
+    const present: typeof this.client.players = {};
+    for (const [id, player] of Object.entries(this.client.players))
+      if (player.connected !== false) present[id] = player;
+    return present;
   }
 
   /** Events loop straight back into the local host when offline. */
@@ -538,7 +530,7 @@ export class GameScene extends Phaser.Scene {
 
     if (import.meta.env.DEV) {
       Object.assign(window, {
-        __bb: { scene: this, client: this.client, audio: audioDiagnostics },
+        __bb: { scene: this, client: this.client, audio: audioDiagnostics, simNow },
       });
     }
     // Small, real seams for plugins/tooling/skills/playtest. Scenario setup
@@ -1092,7 +1084,9 @@ export class GameScene extends Phaser.Scene {
         if (this.feedbackEnabled && this.isAlive(bomb.ownerId)) {
           const owner = fighters.find((fighter) => fighter.id === bomb.ownerId);
           if (owner)
-            this.players.get(bomb.ownerId)?.action.place(bomb, simNow(), this.characterTime, owner);
+            this.players
+              .get(bomb.ownerId)
+              ?.action.place(bomb, simNow(), this.characterTime, poseOf(owner));
         }
         this.bombSprites.set(bomb.id, { sprite, shadow, fuse });
       }
@@ -1261,7 +1255,7 @@ export class GameScene extends Phaser.Scene {
         if (celebration?.id === f.id) {
           this.winnerAction = null;
           if (this.characterTime - celebration.at < VICTORY_ACTION_MS)
-            objs.action.victory(celebration.at, f);
+            objs.action.victory(celebration.at, poseOf(f));
         }
         this.applyAnim(objs, f.dir, f.moving, f.col, f.row);
         // The local player is moved by input tweens; everyone else follows state.
@@ -1397,365 +1391,26 @@ export class GameScene extends Phaser.Scene {
     this.hostTickAcc = 0;
     const s = this.shared();
     if (!s) return;
-    const now = simNow();
-
-    const next: SharedState = {
-      grid: s.grid,
-      bombs: { ...s.bombs },
-      blasts: { ...s.blasts },
-      powerups: { ...s.powerups },
-      bots: structuredCloneBots(s.bots ?? {}),
-      stats: { ...s.stats },
-      deaths: { ...s.deaths },
-      winner: s.winner,
-      startedAt: s.startedAt,
-    };
-    // Track which top-level fields changed so we only send those (bot moves
-    // fire every tick — re-sending the 285-cell grid each time is wasteful).
-    const d = {
-      grid: false,
-      bombs: false,
-      blasts: false,
-      powerups: false,
-      bots: false,
-      stats: false,
-      deaths: false,
-      winner: false,
-    };
-
-    this.reconcileBots(next, now, d);
-
-    // Prune stats/deaths for fighters that no longer exist (departed humans or
-    // removed bots) so the shared object can't grow unbounded over a session.
-    const activeIds = new Set([...Object.keys(this.peers), ...Object.keys(next.bots)]);
-    for (const id of Object.keys(next.stats))
-      if (!activeIds.has(id)) {
-        delete next.stats[id];
-        d.stats = true;
-      }
-    for (const id of Object.keys(next.deaths))
-      if (!activeIds.has(id)) {
-        delete next.deaths[id];
-        d.deaths = true;
-      }
-
-    // Detonate expired bombs, cascading through any bombs caught in a blast.
-    const expired = Object.values(next.bombs).filter((b) => now - b.placedAt >= FUSE_MS);
-    if (expired.length > 0) {
-      const detonated = new Set<string>();
-      const queue: Bomb[] = [...expired];
-      const cratesToClear = new Map<string, { col: number; row: number }>();
-      const newBlastTiles = new Set<string>();
-      let bomb: Bomb | undefined;
-      while ((bomb = queue.shift()) !== undefined) {
-        if (detonated.has(bomb.id)) continue;
-        detonated.add(bomb.id);
-        const { tiles, crates } = computeBlastTiles(s.grid, bomb);
-        for (const t of tiles) {
-          newBlastTiles.add(tileKey(t.col, t.row));
-          for (const other of Object.values(next.bombs)) {
-            if (!detonated.has(other.id) && other.col === t.col && other.row === t.row)
-              queue.push(other);
-          }
-        }
-        for (const cr of crates) cratesToClear.set(tileKey(cr.col, cr.row), cr);
-        next.blasts[`x-${bomb.id}`] = { id: `x-${bomb.id}`, tiles, placedAt: now };
-      }
-      for (const id of detonated) delete next.bombs[id];
-
-      if (cratesToClear.size > 0) {
-        const grid = s.grid.map((row) => row.slice());
-        for (const cr of cratesToClear.values()) {
-          const row = grid[cr.row];
-          if (row) row[cr.col] = { kind: "empty" };
-        }
-        next.grid = grid;
-        d.grid = true;
-      }
-      for (const key of Object.keys(next.powerups)) {
-        if (newBlastTiles.has(key)) {
-          delete next.powerups[key];
-          d.powerups = true;
-        }
-      }
-      for (const cr of cratesToClear.values()) {
-        const key = tileKey(cr.col, cr.row);
-        if (!next.powerups[key] && Math.random() < POWERUP_DROP_CHANCE) {
-          next.powerups[key] = { col: cr.col, row: cr.row, kind: randomKind() };
-          d.powerups = true;
-        }
-      }
-      d.bombs = true;
-      d.blasts = true;
-    }
-
-    // Expire spent blasts.
-    for (const blast of Object.values(next.blasts)) {
-      if (now - blast.placedAt >= EXPLOSION_MS) {
-        delete next.blasts[blast.id];
-        d.blasts = true;
-      }
-    }
-
-    // Bot AI moves bots and may place bot bombs (into next.bombs).
-    if (this.tickBots(next, now)) {
-      d.bots = true;
-      d.bombs = true;
-    }
-
-    // Positions of every living fighter (humans from connections, bots from
-    // the freshly-moved bot records), for pickups + death.
-    const livePos = this.fighterPositions(next);
-
-    // Powerup pickups.
-    for (const [fid, col, row] of livePos) {
-      const key = tileKey(col, row);
-      const pu = next.powerups[key];
-      if (!pu) continue;
-      next.stats[fid] = grantPowerup(next.stats[fid] ?? baseStats(), pu.kind);
-      delete next.powerups[key];
-      // Only the authoritative grant emits this beat. A blast deleting a
-      // pickup produces no collection feedback, even at capped stats.
-      this.netSendEvent("pickup", {
-        col,
-        row,
-        kind: pu.kind,
-        collector: fid,
-        round: next.startedAt,
-      });
-      d.powerups = true;
-      d.stats = true;
-    }
-
-    // Deaths from live blasts.
-    const liveBlasts = Object.values(next.blasts);
-    if (liveBlasts.length > 0) {
-      for (const [fid, col, row] of livePos) {
-        if (next.deaths[fid]) continue;
-        if (liveBlasts.some((b) => b.tiles.some((t) => t.col === col && t.row === row))) {
-          next.deaths[fid] = now;
-          d.deaths = true;
-        }
-      }
-    }
-
-    // Last fighter standing wins (bots count — solo + bots still resolves).
-    const fighterIds = [...Object.keys(this.peers), ...Object.keys(next.bots)];
-    if (fighterIds.length >= 2 && !next.winner) {
-      const alive = fighterIds.filter((id) => !next.deaths[id]);
-      const [sole] = alive;
-      if (alive.length === 1 && sole) {
-        next.winner = sole;
-        d.winner = true;
-      } else if (alive.length === 0) {
-        next.winner = "draw";
-        d.winner = true;
-      }
-    }
-
-    const patch: Partial<SharedState> = {};
-    if (d.grid) patch.grid = next.grid;
-    if (d.bombs) patch.bombs = next.bombs;
-    if (d.blasts) patch.blasts = next.blasts;
-    if (d.powerups) patch.powerups = next.powerups;
-    if (d.bots) patch.bots = next.bots;
-    if (d.stats) patch.stats = next.stats;
-    if (d.deaths) patch.deaths = next.deaths;
-    if (d.winner) patch.winner = next.winner;
-    if (Object.keys(patch).length > 0) this.netPatchShared(patch);
+    const { patch, pickups } = simHostTick(s, this.humans(), simNow());
+    for (const pickup of pickups) this.netSendEvent("pickup", pickup);
+    if (patch) this.netPatchShared(patch);
   }
 
-  /**
-   * Keep bots filling the spawn corners humans don't occupy, up to
-   * TARGET_FIGHTERS total. Humans take corners 0..n-1 (by join order), bots
-   * take the rest. Bots are keyed by corner so join/leave stays stable.
-   */
-  private reconcileBots(
-    next: SharedState,
-    now: number,
-    d: { bots: boolean; stats: boolean },
-  ): void {
-    const humanCount = Object.keys(this.peers).length;
-    const want = new Set<number>();
-    for (
-      let c = humanCount;
-      c <= 3 && c - humanCount < MAX_BOTS && want.size < TARGET_FIGHTERS - humanCount;
-      c++
-    ) {
-      want.add(c);
-    }
-    for (const id of Object.keys(next.bots)) {
-      const corner = Number(id.slice(4));
-      if (!want.has(corner)) {
-        // Its stats/deaths get swept by the catch-all prune in hostTick.
-        delete next.bots[id];
-        d.bots = true;
-      }
-    }
-    for (const corner of want) {
-      const id = `bot-${corner}`;
-      if (!next.bots[id]) {
-        const spawn = SPAWN_POINTS[corner] ?? SPAWN_POINTS[0];
-        next.bots[id] = {
-          id,
-          col: spawn.col,
-          row: spawn.row,
-          dir: "down",
-          colorIdx: corner % COLORS.length,
-          moving: false,
-          nextMoveAt: now + 700,
-        };
-        next.stats[id] = baseStats();
-        d.bots = true;
-        d.stats = true;
-      }
-    }
-  }
-
-  /** Returns true if any bot moved or placed a bomb. */
-  private tickBots(next: SharedState, now: number): boolean {
-    const bots = Object.values(next.bots);
-    if (bots.length === 0) return false;
-    let changed = false;
-    const danger = dangerSet(next);
-    const enemies = this.fighterPositions(next); // [id,col,row] of living fighters
-
-    for (const bot of bots) {
-      if (next.deaths[bot.id]) {
-        if (bot.moving) {
-          bot.moving = false;
-          changed = true;
-        }
-        continue;
-      }
-      if (now < bot.nextMoveAt) continue;
-      const stats = next.stats[bot.id] ?? baseStats();
-      const bombs = Object.values(next.bombs);
-      const opts = botNeighbors(next, bot.col, bot.row);
-      const inDanger = danger.has(tileKey(bot.col, bot.row));
-
-      if (inDanger) {
-        // Step toward the nearest safe tile (BFS) — a single safe neighbour
-        // often doesn't exist next to one's own bomb, but a 2-3 step path does.
-        const dir = fleeDir(next.grid, bombs, bot.col, bot.row, danger);
-        moveBot(bot, dir ? neighborOf(bot.col, bot.row, dir) : null, now);
-        changed = true;
-        continue;
-      }
-
-      // Offense: bomb a crate or a fighter in line, but only if a flee path out
-      // of the resulting blast exists (don't bomb yourself into a dead end).
-      const activeBombs = bombs.filter((b) => b.ownerId === bot.id).length;
-      if (
-        activeBombs < stats.bombs &&
-        (adjacentCrate(next.grid, bot.col, bot.row) ||
-          enemyInLine(next.grid, bot, stats.range, enemies))
-      ) {
-        const blastKeys = new Set(
-          computeBlastTiles(next.grid, {
-            id: "",
-            ownerId: bot.id,
-            col: bot.col,
-            row: bot.row,
-            placedAt: now,
-            range: stats.range,
-          }).tiles.map((t) => tileKey(t.col, t.row)),
-        );
-        const unsafe = new Set([...danger, ...blastKeys]);
-        const escape = fleeDir(
-          next.grid,
-          [
-            ...bombs,
-            {
-              id: "_",
-              ownerId: bot.id,
-              col: bot.col,
-              row: bot.row,
-              placedAt: now,
-              range: stats.range,
-            },
-          ],
-          bot.col,
-          bot.row,
-          unsafe,
-        );
-        if (escape && Math.random() < BOT_BOMB_CHANCE) {
-          // Drop the bomb AND immediately step onto the escape route in the same
-          // tick — sitting on the bomb tile even one step is how bots blow
-          // themselves up.
-          addBomb(next, bot.id, bot.col, bot.row, stats);
-          moveBot(bot, neighborOf(bot.col, bot.row, escape), now);
-          changed = true;
-          continue;
-        }
-      }
-
-      // Wander toward the nearest enemy (fallback: nearest crate to dig
-      // through). Only ever step onto a safe tile — if the sole neighbour is a
-      // tile that's about to explode (e.g. waiting out our own bomb), hold.
-      // Prefer tiles no other fighter is on so bots don't stack/clip; fall back
-      // to any safe tile rather than freezing.
-      const safeOpts = opts.filter((o) => !danger.has(o.key));
-      const occupied = this.occupiedTiles(next, bot.id);
-      const freeOpts = safeOpts.filter((o) => !occupied.has(o.key));
-      const wanderOpts = freeOpts.length > 0 ? freeOpts : safeOpts;
-      const target = nearestEnemy(bot, enemies) ?? nearestCrate(next.grid, bot.col, bot.row);
-      let pick = wanderOpts[Math.floor(Math.random() * wanderOpts.length)] ?? null;
-      if (target && wanderOpts.length > 0 && Math.random() > 0.25) {
-        pick = wanderOpts.reduce((a, b) =>
-          manhattan(b.c, b.r, target.col, target.row) < manhattan(a.c, a.r, target.col, target.row)
-            ? b
-            : a,
-        );
-      }
-      moveBot(bot, pick, now);
-      changed = true;
-    }
-    return changed;
-  }
-
-  /** Tiles currently held by living fighters other than `exceptId` (bot tiles
-   *  are read live, so bots already moved this tick are reflected). */
-  private occupiedTiles(next: SharedState, exceptId: string): Set<string> {
-    const occ = new Set<string>();
-    for (const [pid, p] of Object.entries(this.peers)) {
-      if (next.deaths[pid]) continue;
-      const ps = readPlayerState(p);
-      if (ps.col !== undefined && ps.row !== undefined) occ.add(tileKey(ps.col, ps.row));
-    }
-    for (const other of Object.values(next.bots)) {
-      if (other.id === exceptId || next.deaths[other.id]) continue;
-      occ.add(tileKey(other.col, other.row));
-    }
-    return occ;
-  }
-
-  /** [id, col, row] for every living fighter (humans + bots). */
-  private fighterPositions(next: SharedState): Array<[string, number, number]> {
-    const out: Array<[string, number, number]> = [];
-    for (const [pid, player] of Object.entries(this.peers)) {
-      if (next.deaths[pid]) continue;
+  /** Connected humans with their authoritative grid positions, for the sim. */
+  private humans(): Human[] {
+    return Object.entries(this.peers).map(([id, player]) => {
       const ps = readPlayerState(player);
-      if (ps.col === undefined || ps.row === undefined) continue;
-      out.push([pid, ps.col, ps.row]);
-    }
-    for (const bot of Object.values(next.bots)) {
-      if (next.deaths[bot.id]) continue;
-      out.push([bot.id, bot.col, bot.row]);
-    }
-    return out;
+      const pos =
+        ps.col !== undefined && ps.row !== undefined ? { col: ps.col, row: ps.row } : null;
+      return { id, pos };
+    });
   }
 
   private hostPlaceBomb(ownerId: string, col: number, row: number): void {
     const s = this.shared();
     if (!s) return;
-    if (!this.isAlive(ownerId)) return;
-    if (bombOn(s.bombs, col, row)) return;
-    const stats = s.stats[ownerId] ?? baseStats();
-    const active = Object.values(s.bombs).filter((b) => b.ownerId === ownerId).length;
-    if (active >= stats.bombs) return;
-    const bomb = makeBomb(ownerId, col, row, stats.range);
-    this.netPatchShared({ bombs: { ...s.bombs, [bomb.id]: bomb } });
+    const bombs = placeBomb(s, ownerId, col, row, simNow());
+    if (bombs) this.netPatchShared({ bombs });
   }
 
   // ---- visual effects ------------------------------------------------------
@@ -2220,232 +1875,7 @@ function rowY(row: number): number {
   return row * TILE + TILE / 2;
 }
 
-function manhattan(c1: number, r1: number, c2: number, r2: number): number {
-  return Math.abs(c1 - c2) + Math.abs(r1 - r2);
-}
-
-function structuredCloneBots(bots: Record<string, Bot>) {
-  const out: Record<string, Bot> = {};
-  for (const [id, b] of Object.entries(bots)) out[id] = { ...b };
-  return out;
-}
-
-function randomKind(): PowerupKind {
-  return POWERUP_KINDS[Math.floor(Math.random() * POWERUP_KINDS.length)] ?? "bomb";
-}
-
-/** Is there a bomb on this tile? */
-function bombOn(bombs: Record<string, Bomb>, col: number, row: number): boolean {
-  return Object.values(bombs).some((b) => b.col === col && b.row === row);
-}
-
-function makeBomb(ownerId: string, col: number, row: number, range: number): Bomb {
-  const now = simNow();
-  return { id: `b-${ownerId}-${now}-${col}-${row}`, ownerId, col, row, placedAt: now, range };
-}
-
-function grantPowerup(stats: PlayerStats, kind: PowerupKind): PlayerStats {
-  switch (kind) {
-    case "bomb":
-      return { ...stats, bombs: Math.min(MAX_BOMBS, stats.bombs + 1) };
-    case "fire":
-      return { ...stats, range: Math.min(MAX_RANGE, stats.range + 1) };
-    case "speed":
-      return { ...stats, speed: Math.max(MIN_MOVE_MS, stats.speed - SPEED_STEP_MS) };
-  }
-}
-
-function computeBlastTiles(grid: Cell[][], bomb: Bomb) {
-  const tiles: Array<{ col: number; row: number }> = [{ col: bomb.col, row: bomb.row }];
-  const crates: Array<{ col: number; row: number }> = [];
-  for (const [dc, dr] of [
-    [1, 0],
-    [-1, 0],
-    [0, 1],
-    [0, -1],
-  ] as const) {
-    for (let step = 1; step <= bomb.range; step++) {
-      const c = bomb.col + dc * step;
-      const r = bomb.row + dr * step;
-      const cell = grid[r]?.[c];
-      if (!cell || cell.kind === "wall") break;
-      tiles.push({ col: c, row: r });
-      if (cell.kind === "crate") {
-        crates.push({ col: c, row: r });
-        break;
-      }
-    }
-  }
-  return { tiles, crates };
-}
-
-// ---- bot AI helpers ---------------------------------------------------------
-
-/** Tiles that are unsafe right now: every bomb's eventual blast + live blasts. */
-function dangerSet(s: SharedState): Set<string> {
-  const danger = new Set<string>();
-  for (const bomb of Object.values(s.bombs)) {
-    for (const t of computeBlastTiles(s.grid, bomb).tiles) danger.add(tileKey(t.col, t.row));
-  }
-  for (const blast of Object.values(s.blasts)) {
-    for (const t of blast.tiles) danger.add(tileKey(t.col, t.row));
-  }
-  return danger;
-}
-
-type Neighbor = { dir: Dir; c: number; r: number; key: string };
-
-function neighborOf(col: number, row: number, dir: Dir): Neighbor {
-  const [dc, dr] = DIR_VECT[dir];
-  return { dir, c: col + dc, r: row + dr, key: tileKey(col + dc, row + dr) };
-}
-
-/**
- * Breadth-first search for the nearest tile not in `unsafe`, returning the
- * direction of the first step toward it (or null if no safe tile is reachable).
- * Walks only empty, bomb-free tiles. Used both to flee live danger and to
- * vet a prospective bomb's escape route.
- */
-function fleeDir(
-  grid: Cell[][],
-  bombs: Bomb[],
-  col: number,
-  row: number,
-  unsafe: Set<string>,
-): Dir | null {
-  const blocked = (c: number, r: number): boolean =>
-    grid[r]?.[c]?.kind !== "empty" || bombs.some((b) => b.col === c && b.row === r);
-  const visited = new Set<string>([tileKey(col, row)]);
-  let frontier: Array<{ c: number; r: number; firstDir: Dir }> = [];
-  for (const dir of DIRS) {
-    const [dc, dr] = DIR_VECT[dir];
-    const c = col + dc;
-    const r = row + dr;
-    const k = tileKey(c, r);
-    if (blocked(c, r)) continue;
-    visited.add(k);
-    if (!unsafe.has(k)) return dir;
-    frontier.push({ c, r, firstDir: dir });
-  }
-  for (let depth = 0; depth < 8 && frontier.length > 0; depth++) {
-    const nextF: Array<{ c: number; r: number; firstDir: Dir }> = [];
-    for (const node of frontier) {
-      for (const dir of DIRS) {
-        const [dc, dr] = DIR_VECT[dir];
-        const c = node.c + dc;
-        const r = node.r + dr;
-        const k = tileKey(c, r);
-        if (visited.has(k) || blocked(c, r)) continue;
-        visited.add(k);
-        if (!unsafe.has(k)) return node.firstDir;
-        nextF.push({ c, r, firstDir: node.firstDir });
-      }
-    }
-    frontier = nextF;
-  }
-  return null;
-}
-
-function botNeighbors(s: SharedState, col: number, row: number): Neighbor[] {
-  const out: Neighbor[] = [];
-  for (const dir of DIRS) {
-    const [dc, dr] = DIR_VECT[dir];
-    const c = col + dc;
-    const r = row + dr;
-    if (s.grid[r]?.[c]?.kind !== "empty") continue;
-    if (Object.values(s.bombs).some((b) => b.col === c && b.row === r)) continue;
-    out.push({ dir, c, r, key: tileKey(c, r) });
-  }
-  return out;
-}
-
-function adjacentCrate(grid: Cell[][], col: number, row: number): boolean {
-  return DIRS.some((dir) => {
-    const [dc, dr] = DIR_VECT[dir];
-    return grid[row + dr]?.[col + dc]?.kind === "crate";
-  });
-}
-
-function enemyInLine(
-  grid: Cell[][],
-  bot: Bot,
-  range: number,
-  fighters: Array<[string, number, number]>,
-): boolean {
-  const enemyTiles = new Set(
-    fighters.filter(([id]) => id !== bot.id).map(([, c, r]) => tileKey(c, r)),
-  );
-  for (const dir of DIRS) {
-    const [dc, dr] = DIR_VECT[dir];
-    for (let step = 1; step <= range; step++) {
-      const c = bot.col + dc * step;
-      const r = bot.row + dr * step;
-      const cell = grid[r]?.[c];
-      if (!cell || cell.kind === "wall" || cell.kind === "crate") break;
-      if (enemyTiles.has(tileKey(c, r))) return true;
-    }
-  }
-  return false;
-}
-
-function nearestEnemy(
-  bot: Bot,
-  fighters: Array<[string, number, number]>,
-): { col: number; row: number } | null {
-  let best: { col: number; row: number } | null = null;
-  let bestD = Infinity;
-  for (const [id, c, r] of fighters) {
-    if (id === bot.id) continue;
-    const dd = manhattan(bot.col, bot.row, c, r);
-    if (dd < bestD) {
-      bestD = dd;
-      best = { col: c, row: r };
-    }
-  }
-  return best;
-}
-
-function nearestCrate(
-  grid: Cell[][],
-  col: number,
-  row: number,
-): { col: number; row: number } | null {
-  let best: { col: number; row: number } | null = null;
-  let bestD = Infinity;
-  for (const [r, gr] of grid.entries()) {
-    for (const [c, cell] of gr.entries()) {
-      if (cell.kind !== "crate") continue;
-      const dd = manhattan(col, row, c, r);
-      if (dd < bestD) {
-        bestD = dd;
-        best = { col: c, row: r };
-      }
-    }
-  }
-  return best;
-}
-
-function moveBot(bot: Bot, to: Neighbor | null, now: number): void {
-  if (!to) {
-    bot.moving = false;
-    bot.nextMoveAt = now + BOT_MOVE_MS;
-    return;
-  }
-  bot.col = to.c;
-  bot.row = to.r;
-  bot.dir = to.dir;
-  bot.moving = true;
-  bot.nextMoveAt = now + BOT_MOVE_MS;
-}
-
-function addBomb(
-  next: SharedState,
-  ownerId: string,
-  col: number,
-  row: number,
-  stats: PlayerStats,
-): void {
-  if (bombOn(next.bombs, col, row)) return;
-  const bomb = makeBomb(ownerId, col, row, stats.range);
-  next.bombs[bomb.id] = bomb;
+/** Actions snapshot the pose they were started from; identity fields stay out. */
+function poseOf({ col, row, dir, moving }: Fighter): CharacterPose {
+  return { col, row, dir, moving };
 }

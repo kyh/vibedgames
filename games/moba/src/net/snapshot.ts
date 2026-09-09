@@ -22,6 +22,11 @@ export type Snapshot = {
   campRespawnAt: Record<string, number>;
 };
 
+/** A view, not a copy: units/projectiles/mines/grounds are the World's own
+ *  objects. The SDK serialises the patch synchronously on send, and every
+ *  consumer that keeps a snapshot copies it (restoreHostState), so the host's
+ *  local mirror aliasing its live world costs nothing and a deep clone at
+ *  15 Hz would only protect against a reader that doesn't exist. */
 export function encodeWorld(w: World): Snapshot {
   return {
     now: w.now,

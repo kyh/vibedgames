@@ -220,6 +220,49 @@ function check(label: string, cond: boolean): void {
   check("pose: a still raised hand does not orbit", still === 0);
 }
 
+// 11) Pose: a T-pose held across pause/resume must reach neutral before re-firing.
+{
+  const W = 640;
+  const H = 480;
+  const makePose = (lw: { x: number; y: number }, rw: { x: number; y: number }): Pose => ({
+    width: W,
+    height: H,
+    keypoints: [
+      { name: "nose", x: 320, y: 150, score: 1 },
+      { name: "left_shoulder", x: 260, y: 240, score: 1 },
+      { name: "right_shoulder", x: 380, y: 240, score: 1 },
+      { name: "left_hip", x: 270, y: 360, score: 1 },
+      { name: "right_hip", x: 370, y: 360, score: 1 },
+      { name: "left_wrist", x: lw.x, y: lw.y, score: 1 },
+      { name: "right_wrist", x: rw.x, y: rw.y, score: 1 },
+    ],
+  });
+  // Arms out wide, wrists a hair below shoulder level: still a T-pose to the
+  // power detector, so the resume gate must not read it as neutral.
+  const tPose = makePose({ x: 60, y: 250 }, { x: 600, y: 250 });
+  const armsDown = makePose({ x: 250, y: 350 }, { x: 390, y: 350 });
+
+  let powers = 0;
+  const controls = new PoseControls({
+    steer: () => {},
+    rotate: () => false,
+    orbit: () => {},
+    hold: () => {},
+    power: () => {
+      powers += 1;
+    },
+    catchCollapse: () => {},
+  });
+  for (let i = 0; i < 24; i++) controls.handlePose(armsDown, null); // calibrate
+  controls.setActionsPaused(true);
+  controls.setActionsPaused(false);
+  for (let i = 0; i < 30; i++) controls.handlePose(tPose, null);
+  check("pose: T-pose held across resume does not re-fire power", powers === 0);
+  for (let i = 0; i < 4; i++) controls.handlePose(armsDown, null);
+  controls.handlePose(tPose, null);
+  check("pose: power fires again after a real return to neutral", powers === 1);
+}
+
 if (failures > 0) {
   console.error(`\n${failures} assertion(s) failed.`);
   process.exit(1);

@@ -1,7 +1,7 @@
 import Phaser from "phaser";
 import { watchControlContext } from "@repo/embed";
 import { PhysicalGamepad } from "@vibedgames/gamepad";
-import { hasSave, clearSave, loadSave } from "../systems/save";
+import { clearSave, loadSave } from "../systems/save";
 import { Sound } from "../render/audio";
 import { buildControlsCard, type ControlsCard } from "../render/controls-card";
 import { mountTouchControls } from "../touch-controls";
@@ -17,6 +17,7 @@ export class TitleScene extends Phaser.Scene {
   private readonly pad = new PhysicalGamepad();
   private unwatchControls?: () => void;
   private controlsCard: ControlsCard | null = null;
+  private canContinue = false;
 
   constructor() {
     super("Title");
@@ -96,18 +97,16 @@ export class TitleScene extends Phaser.Scene {
       this.controlsCard = null;
     });
 
-    const save = hasSave();
-    contBtn.container.setAlpha(save ? 1 : 0.35);
+    // A stored key that no longer parses is not a farm to continue: the load
+    // is the single source of truth for the label and every confirm path.
     const saved = loadSave();
+    this.canContinue = saved !== null;
+    contBtn.container.setAlpha(saved ? 1 : 0.35);
     const saveDetail = this.add
       .text(
         0,
         15,
-        saved
-          ? `Day ${saved.day} · ${seasonName(seasonOfDay(saved.day))}`
-          : save
-            ? "Saved farm"
-            : "No saved farm yet",
+        saved ? `Day ${saved.day} · ${seasonName(seasonOfDay(saved.day))}` : "No saved farm yet",
         { fontFamily: "ui-monospace, monospace", fontSize: "11px", color: "#e5f3ff" },
       )
       .setOrigin(0.5);
@@ -119,7 +118,7 @@ export class TitleScene extends Phaser.Scene {
       Sound.click();
       this.startNew();
     });
-    if (save)
+    if (saved)
       contBtn.zone.on("pointerdown", () => {
         Sound.resume();
         Sound.click();
@@ -128,9 +127,9 @@ export class TitleScene extends Phaser.Scene {
 
     this.input.keyboard?.on("keydown-N", () => this.startNew());
     this.input.keyboard?.on("keydown-ENTER", () =>
-      save ? this.scene.start("Game", { mode: "continue" }) : this.startNew(),
+      saved ? this.scene.start("Game", { mode: "continue" }) : this.startNew(),
     );
-    if (save)
+    if (saved)
       this.input.keyboard?.on("keydown-C", () => this.scene.start("Game", { mode: "continue" }));
 
     const layout = () => {
@@ -183,7 +182,7 @@ export class TitleScene extends Phaser.Scene {
   override update(): void {
     this.pad.update();
     if (this.pad.justPressed("a")) {
-      if (hasSave()) this.scene.start("Game", { mode: "continue" });
+      if (this.canContinue) this.scene.start("Game", { mode: "continue" });
       else this.startNew();
     }
   }
