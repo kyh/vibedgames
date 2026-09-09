@@ -9,7 +9,6 @@ import { BootScene } from "./scenes/boot-scene";
 import { installTestHooks } from "./sys/diag";
 import { GameScene } from "./scenes/game-scene";
 import { SelectScene } from "./scenes/select-scene";
-import { mountTouchHud } from "./touch-hud";
 
 const config: Types.Core.GameConfig = {
   backgroundColor: "#05070b",
@@ -41,13 +40,6 @@ if (params.has("trailer")) {
     const m = await import("./trailer/trailer-director");
     m.initTrailer(game);
   })();
-}
-
-// The trailer rolls itself and the viewer is a dev tool with its own chrome;
-// neither wants the touch cluster. Hub gets mute-only; GameScene swaps it for
-// the full cluster when a run starts.
-if (!params.has("trailer") && !params.has("viewer")) {
-  mountTouchHud(false);
 }
 
 // Wrapper-requested pause: never freeze a live co-op/versus session another

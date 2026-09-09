@@ -333,14 +333,8 @@ export class GameScene extends Scene {
     // Muted by default; returning players who opted into sound stay unmuted.
     this.setMuted(storageGet(SOUND_KEY) !== "1");
 
-    // M and Escape are keyboard-only, so a phone otherwise has no way to hear
-    // the game or leave a run.
-    this.touchControls = createTouchControls({
-      mute: {
-        get: () => this.muted,
-        set: (next) => this.setMuted(next),
-      },
-    });
+    // Escape is keyboard-only, so a phone otherwise has no way to leave a run.
+    this.touchControls = createTouchControls();
 
     this.net = new NetSession({
       fallbackMs: OFFLINE_FALLBACK_MS,
@@ -398,7 +392,6 @@ export class GameScene extends Scene {
     this.input.keyboard?.on("keydown-M", (e: KeyboardEvent) => {
       if (!e.repeat) {
         this.setMuted(!this.muted);
-        this.touchControls?.sync();
       }
     });
 
@@ -539,6 +532,7 @@ export class GameScene extends Scene {
     this.unwatchControls?.();
     this.unwatchControls = null;
     this.removeTitleDragon();
+    this.refreshScore();
     this.startEl?.classList.add("hide");
     this.time.delayedCall(320, () => this.startEl?.remove());
     // Play begins HERE, not at the first flap — arming the wrapper pause now
@@ -1304,7 +1298,8 @@ export class GameScene extends Scene {
       digit
         .setFrame((text.codePointAt(i) ?? 48) - 48)
         .setPosition(startX + i * DIGIT_W, y)
-        .setDisplaySize(DIGIT_W, DIGIT_H);
+        .setDisplaySize(DIGIT_W, DIGIT_H)
+        .setVisible(this.started);
     }
   }
 
@@ -1408,7 +1403,11 @@ export class GameScene extends Scene {
     this.phraseTimer = null;
   }
 
-  private setMuted(muted: boolean): void {
+  isMuted(): boolean {
+    return this.muted;
+  }
+
+  setMuted(muted: boolean): void {
     // The scene owns the flag rather than reading it back off the sound
     // manager: Phaser swaps in a no-audio manager when the device has no
     // output, and that one silently drops writes to `mute` and always reads

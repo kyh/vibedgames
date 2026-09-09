@@ -363,7 +363,7 @@ export class GameScene extends Scene {
   /** False from the pad press that starts/resumes play until every pad input
    *  is released, so that one press cannot also bomb, restart or step. */
   private padArmed = true;
-  /** Touch pause/mute cluster. */
+  /** Touch pause button. */
   private touchControls: TouchControls | null = null;
   private unwatchControls: (() => void) | null = null;
   /** When we entered a restartable state (dead or round over); null while
@@ -936,7 +936,6 @@ export class GameScene extends Scene {
         return;
       }
       setMuted(!isMuted());
-      this.touchControls?.sync();
       syncSoundButton();
     });
 
@@ -2125,7 +2124,7 @@ export class GameScene extends Scene {
     // z-index: offered before play begins it would pause a game that hasn't
     // started, over the one overlay that teaches the controls.
     unlockAudio();
-    this.touchControls = createTouchControls({ mute: { get: isMuted, set: setMuted } });
+    this.touchControls = createTouchControls();
     notifyGameStarted();
     this.startEl?.classList.add("hide");
     if (this.startEl) {

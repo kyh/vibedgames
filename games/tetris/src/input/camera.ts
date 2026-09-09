@@ -92,6 +92,8 @@ const landmarksToKeypoints = (
     })
     .filter((kp): kp is Keypoint => kp !== null);
 
+type CameraState = "idle" | "starting" | "live" | "unavailable";
+
 export class PoseCamera {
   private readonly onPose: PoseHandler;
   private readonly panel: HTMLDivElement;
@@ -105,7 +107,7 @@ export class PoseCamera {
   private stream: MediaStream | null = null;
   private releaseMediaEvents: (() => void) | null = null;
   private rafId: number | null = null;
-  private state: "idle" | "starting" | "live" | "unavailable" = "idle";
+  private state: CameraState = "idle";
   /** Bumped on every start/failure so a stale await never touches a newer attempt. */
   private attempt = 0;
   private lastVideoTime = -1;
@@ -125,13 +127,14 @@ export class PoseCamera {
     this.canvas = document.createElement("canvas");
     this.status = document.createElement("div");
     this.status.id = "camera-status";
-    this.status.textContent = deferred ? "tap to play with the camera" : "starting camera…";
+    this.status.textContent = deferred ? "play with the camera" : "starting camera…";
     this.toggle = document.createElement("button");
     this.toggle.id = "camera-toggle";
     this.toggle.className = "camera-toggle";
     this.toggle.type = "button";
     this.panel.append(this.video, this.canvas, this.status, this.toggle);
     this.panel.dataset.gamepadIgnore = "";
+    this.panel.dataset.state = this.state;
     this.toggle.addEventListener("click", (event) => {
       this.panel.classList.toggle("expanded");
       if (this.state === "idle" || this.state === "unavailable") {
@@ -156,7 +159,7 @@ export class PoseCamera {
     }
     this.attempt += 1;
     const { attempt } = this;
-    this.state = "starting";
+    this.setState("starting");
     this.setStatus("starting camera…");
     this.updateToggle();
     try {
@@ -205,7 +208,7 @@ export class PoseCamera {
         return;
       }
 
-      this.state = "live";
+      this.setState("live");
       this.setStatus(null);
       this.updateToggle();
       this.detectFrame(attempt);
@@ -229,12 +232,8 @@ export class PoseCamera {
     }
     this.attempt += 1;
     this.releaseCapture();
-    this.state = "unavailable";
-    this.setStatus(
-      isCoarsePointer()
-        ? "camera unavailable — retry · touch controls active"
-        : "camera unavailable — retry · keyboard controls active",
-    );
+    this.setState("unavailable");
+    this.setStatus("camera unavailable · retry");
     this.updateToggle();
   }
 
@@ -360,6 +359,13 @@ export class PoseCamera {
       return "Enable body controls";
     }
     return expanded ? "Collapse body camera" : "Expand body camera";
+  }
+
+  /** Mirrored onto the panel so CSS can fold it to a pill while there is no
+   *  feed to preview (idle / unavailable). */
+  private setState(next: CameraState): void {
+    this.state = next;
+    this.panel.dataset.state = next;
   }
 
   private updateToggle(): void {

@@ -6,7 +6,7 @@
 // keydown toggle — resuming on its keyup too would double-fire one press),
 // and a fresh gamepad press resumes while the match loop may be frozen.
 import { controlGroups, createPauseShell } from "@repo/embed";
-import type { ControlMethod } from "@repo/embed";
+import type { ControlMethod, MuteAccessor } from "@repo/embed";
 import { CONTROLS } from "../controls";
 
 export interface PauseOverlay {
@@ -23,6 +23,8 @@ export interface PauseOverlayOpts {
    * serves both offline (frozen) and online (live) matches.
    */
   isLive?: () => boolean;
+  /** Sound toggle rendered by the shell; the one place a phone can unmute. */
+  mute?: MuteAccessor;
 }
 
 const METHOD_LABEL = {
@@ -142,7 +144,7 @@ export const buildControlsStrip = (coarse: boolean): HTMLElement | null => {
 // Positioning/z-index/fade live on the shell's root — visuals only here.
 // (Control-card rules live in GROUP_CSS above, shared with the lobby.)
 const CSS = `
-.ba-pause{display:flex;align-items:center;justify-content:center;
+.ba-pause{display:flex;flex-direction:column;align-items:center;justify-content:center;
   padding:calc(20px + env(safe-area-inset-top,0px)) calc(20px + env(safe-area-inset-right,0px))
     calc(20px + env(safe-area-inset-bottom,0px)) calc(20px + env(safe-area-inset-left,0px));
   background:radial-gradient(ellipse at 50% 42%,rgba(12,14,22,.58),rgba(5,6,10,.85));
@@ -219,6 +221,7 @@ export const createPauseOverlay = (opts: PauseOverlayOpts = {}): PauseOverlay =>
     className: "ba-pause",
     css: CSS,
     fadeMs: 220,
+    mute: opts.mute,
     render: (root) => renderPanel(root, opts),
     styleId: "ba-pause-style",
   });

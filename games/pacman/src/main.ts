@@ -110,6 +110,11 @@ const face = new FaceCamera({
   onMouthChange: (open) => game.onMouthChange(open),
   onState: (state) => {
     cameraState = state;
+    // A dead camera has nothing to preview: fold to the retry pill rather than
+    // park a status card over the maze.
+    if (state.kind === "unavailable") {
+      webcamPanel.classList.add("collapsed");
+    }
     renderCameraState();
   },
   overlay: elOf("webcam-overlay", HTMLCanvasElement),

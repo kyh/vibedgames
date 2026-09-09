@@ -333,11 +333,9 @@ const main = async (): Promise<void> => {
     const touch = new TouchControls();
     const scene = new GameScene(view, lib, controls, opts, touch);
     activeScene = scene;
-    // Escape and M are keyboard-only, so a phone otherwise has no way to pause
-    // the arena or ever hear it (sound is opt-in, see render/audio.ts).
-    createTouchControls({
-      mute: { get: () => scene.audio.isMuted, set: (next) => scene.audio.setMuted(next) },
-    });
+    // Escape is keyboard-only, so a phone otherwise has no way to pause the
+    // arena (sound lives on the pause overlay, see render/audio.ts).
+    createTouchControls();
     if (import.meta.env.DEV) {
       window.__ba = scene;
       window.__view = view;
@@ -381,7 +379,13 @@ const main = async (): Promise<void> => {
   // everything — cooldowns included — dead in place with nothing to unwind.
   // timer.reset() on resume avoids a huge first delta from the real-time gap
   // (belt-and-suspenders: matchLoop already clamps dt to 1/30 regardless).
-  const pauseOverlay = createPauseOverlay({ isLive: () => onlineMatch });
+  const pauseOverlay = createPauseOverlay({
+    isLive: () => onlineMatch,
+    mute: {
+      get: () => activeScene?.audio.isMuted ?? true,
+      set: (next) => activeScene?.audio.setMuted(next),
+    },
+  });
   setPauseHandlers({
     escapePauses: () => activeScene !== null && !activeScene.isGuideOpen,
     onPause: () => {

@@ -221,6 +221,12 @@
         letter-spacing: 1px;
         font-variant-numeric: tabular-nums;
       }
+      /* Nothing but the start card until play begins. Visibility, not
+         display: the reflow-forcing reads in render/hud.ts must keep working. */
+      body:not(.vg-started) #hud,
+      body:not(.vg-started) #combo {
+        visibility: hidden;
+      }
       /* qa-019: mouse-drag is the core verb — HUD/overlay text must never
          highlight under a drag that strays across it. */
       #hud,

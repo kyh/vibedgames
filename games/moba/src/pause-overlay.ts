@@ -9,6 +9,7 @@ import { controlGroups, createPauseShell, resumeGame } from "@repo/embed";
 import type { ControlMethod } from "@repo/embed";
 
 import { CONTROLS } from "./controls";
+import { isMuted, resumeAudio, setMuted } from "./render/audio";
 import {
   presentationSettings,
   setPresentationSettings,
@@ -27,7 +28,7 @@ const STYLE_ID = "moba-pause-style";
 // Positioning/z-index/root fade live on the shell's root — visuals only here.
 // The panel keeps its own slide-up entrance, driven by the .mp-in class.
 const CSS = `
-.mp-root{display:flex;align-items:center;justify-content:center;
+.mp-root{display:flex;flex-direction:column;align-items:center;justify-content:center;
   padding:18px;text-align:center;
   font-family:"Lilita One","Trebuchet MS",sans-serif;color:#e8d9b8;
   background:radial-gradient(circle at 50% 40%,rgba(22,30,46,0.78),rgba(8,11,18,0.88) 75%);
@@ -69,6 +70,11 @@ const CSS = `
 .mp-option input{width:20px;height:20px;flex:none;accent-color:#d5ae5f}
 .mp-option strong{display:block;font-size:14px;font-weight:400;color:#ffe8b0}
 .mp-option small{display:block;margin-top:3px;font-size:11px;line-height:1.35;color:#cdbb97}
+.mp-root .vg-pause-sound{flex:none;margin-top:14px;padding:9px 20px;border-radius:9px;
+  font:16px "Lilita One","Trebuchet MS",sans-serif;letter-spacing:0.08em;text-transform:uppercase;
+  color:#ffe8b0;text-shadow:0 1px 0 #1c1410;
+  background:linear-gradient(180deg,#3d2e1d,#241a10);border:1px solid #8a7350;
+  box-shadow:inset 0 1px 0 rgba(255,232,176,0.22),0 1px 0 rgba(0,0,0,0.4)}
 .mp-root.mp-reduced .mp-panel{transition:none}
 .mp-root.mp-reduced .mp-hint{animation:none}
 @keyframes mp-pulse{0%,100%{opacity:1}50%{opacity:0.55}}
@@ -224,6 +230,13 @@ const shell = createPauseShell({
   modalOpen: () =>
     document.activeElement instanceof Element &&
     document.activeElement.closest(".mp-settings") !== null,
+  mute: {
+    get: isMuted,
+    set: (next) => {
+      setMuted(next);
+      resumeAudio();
+    },
+  },
   onHide: () => {
     stopSettings?.();
     stopSettings = null;

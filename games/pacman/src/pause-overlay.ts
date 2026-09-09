@@ -10,6 +10,8 @@
 import { controlGroups, createPauseShell } from "@repo/embed";
 import type { ControlMethod } from "@repo/embed";
 
+import { toggleSound, unlockAudio } from "./audio/sfx";
+import { isSoundOn } from "./audio/sound-pref";
 import { CONTROLS } from "./controls";
 
 const METHOD_LABELS = {
@@ -28,8 +30,10 @@ const STYLE_ID = "pacman-pause-style";
 const CSS = `
 #pacman-pause {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 14px;
   padding: calc(18px + env(safe-area-inset-top)) calc(18px + env(safe-area-inset-right))
     calc(18px + env(safe-area-inset-bottom)) calc(18px + env(safe-area-inset-left));
   background: rgba(253, 241, 230, 0.72);
@@ -199,6 +203,19 @@ const CSS = `
   text-align: left;
 }
 
+/* The shell's sound toggle, reskinned as a plush HUD pill. */
+#pacman-pause .vg-pause-sound {
+  margin: 0;
+  padding: 10px 20px;
+  min-height: 44px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.86);
+  border: 1.5px solid var(--card-edge);
+  box-shadow: 0 6px 20px rgba(212, 150, 167, 0.35);
+  font: 800 12px/1.3 var(--round-font);
+  color: var(--ink);
+}
+
 /* Resume affordance — a butter pill, same shape family as the HUD pills. */
 #pacman-pause .pp-hint {
   display: inline-block;
@@ -291,6 +308,19 @@ let root: HTMLElement | null = null;
 
 const shell = createPauseShell({
   fadeMs: 220,
+  mute: {
+    get: () => !isSoundOn(),
+    set: (muted) => {
+      if (muted === !isSoundOn()) {
+        return;
+      }
+      // The overlay seals its pointer events, so the window listener that
+      // normally unlocks audio never sees the tap that turned sound on.
+      if (toggleSound()) {
+        unlockAudio();
+      }
+    },
+  },
   // Dropping `.shown` at the start of hide() lets the card spring back down
   // while the shell fades the root out — same exit as the hand-rolled version.
   onHide: () => {

@@ -57,6 +57,10 @@
       #game canvas {
         display: block;
       }
+      /* Nothing but the start card until play begins. */
+      body:not(.vg-started) #hud {
+        visibility: hidden;
+      }
       #hud {
         position: fixed;
         inset: 0;

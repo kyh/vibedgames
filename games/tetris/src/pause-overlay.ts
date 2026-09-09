@@ -10,6 +10,7 @@ import { controlGroups, createPauseShell, PAUSE_OVERLAY_Z, sealPointerEvents } f
 import type { ControlGroup } from "@repo/embed";
 
 import { CONTROLS, METHOD_LABEL } from "./controls";
+import { isMuted, setMuted } from "./fx/sfx";
 
 // The game's palette (index.html): ink #d7dcf0 on #12131f, accent #8ea2ff,
 // pill borders rgba(120,134,200,·).
@@ -59,7 +60,6 @@ export const groupRow = (group: ControlGroup, coarse: boolean): HTMLElement => {
     item.style.cssText = "white-space:nowrap";
     const key = document.createElement("kbd");
     key.textContent = entry.input;
-    // Same chip as the in-play #hotkeys bar.
     key.style.cssText =
       `font:inherit;color:#8ea2ff;background:rgba(20,22,36,0.66);border:1px solid ${LINE}0.28);` +
       "border-radius:5px;padding:1px 6px;margin-right:6px";
@@ -127,6 +127,7 @@ export const { show, hide } = createPauseShell({
   className: "tetris-pause",
   css: CSS,
   fadeMs: 220,
+  mute: { get: isMuted, set: setMuted },
   render: renderContent,
   styleId: "tetris-pause-style",
 });

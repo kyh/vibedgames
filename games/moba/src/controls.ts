@@ -16,7 +16,6 @@ export const CONTROLS: ControlsManifest = [
   { action: "cast", input: "ABILITY BUTTONS", method: "touch" },
   { action: "buy items", input: "SHOP", method: "touch" },
   { action: "scoreboard", input: "SCORES", method: "touch" },
-  { action: "mute", input: "🔊", method: "touch" },
   { action: "move", input: "L-STICK / D-PAD", method: "controller" },
   { action: "cast Q W E R", input: "X Y B RB", method: "controller" },
   { action: "attack", input: "A", method: "controller" },

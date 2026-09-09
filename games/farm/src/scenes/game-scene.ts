@@ -68,7 +68,6 @@ import type { GameKeys } from "../systems/keys";
 import { stickMove } from "../systems/stick";
 import type { StickMove } from "../systems/stick";
 import { isTap } from "../systems/touch";
-import { syncTouchControls } from "../touch-controls";
 import { AnimalManager } from "../entities/animals";
 import { NpcManager } from "../entities/npcs";
 
@@ -457,7 +456,6 @@ export class GameScene extends Scene {
     }
     this.keys.M.on("down", () => {
       this.toast(Sound.toggleMute() ? "Sound off" : "Sound on", "#dfe9ff");
-      syncTouchControls();
     });
 
     for (const [i, name] of NUM_KEY_NAMES.entries()) {

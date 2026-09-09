@@ -258,12 +258,17 @@
         opacity: 0.6;
         text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
       }
-      /* @repo/embed's touch cluster (mute + pause) takes the top-right corner
-         on a coarse pointer: 44px buttons inset by its own 10px gap. */
+      /* @repo/embed's touch pause button takes the top-right corner on a
+         coarse pointer: a 44px button inset by its own 10px gap. */
       @media (pointer: coarse) {
         #netinfo {
           top: calc(66px + env(safe-area-inset-top));
         }
+      }
+      /* Nothing but the start card until play begins. */
+      body:not(.vg-started) #board,
+      body:not(.vg-started) #netinfo {
+        display: none;
       }
       /* Thin, translucent wash — the live sky (parallax clouds + hovering
          dragons) keeps reading through it. Text legibility comes from the

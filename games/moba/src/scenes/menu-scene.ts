@@ -49,6 +49,9 @@ export class MenuScene extends Scene {
   private detailName!: Phaser.GameObjects.Text;
   // short viewports (landscape phones) drop the blurb
   private compactH = false;
+  /** Top of whatever sits below the detail text (controls plaque or the PLAY
+   *  row) — the blurb is dropped when it would run into it. */
+  private detailLimitY = Number.POSITIVE_INFINITY;
   private relayout: Phaser.Time.TimerEvent | null = null;
   private unwatchControls: (() => void) | null = null;
   private controlsPlaque: Phaser.GameObjects.Container | null = null;
@@ -127,7 +130,10 @@ export class MenuScene extends Scene {
     // Plugging in (or pulling) a pad while the menu is up updates the plaque.
     // Scene instance is reused — drop any stale subscription before adding one.
     this.unwatchControls?.();
-    this.unwatchControls = watchControlContext(() => this.buildControlsPlaque(btnY));
+    this.unwatchControls = watchControlContext(() => {
+      this.buildControlsPlaque(btnY);
+      this.preview(this.selected);
+    });
 
     this.select(this.selected);
   }
@@ -518,10 +524,14 @@ export class MenuScene extends Scene {
     const container = this.add.container(0, 0);
     this.controlsPlaque = container;
 
-    const fontSize = compact ? "9px" : "12px";
-    const chipH = compact ? 14 : 18;
-    const lineH = chipH + (compact ? 4 : 9);
-    const gapX = compact ? 8 : 12;
+    // Portrait phones keep the panel but at the strip's type size: the cards
+    // already stack into extra rows, so the full-size plaque would sit on the
+    // hero's name.
+    const dense = compact || W < 480;
+    const fontSize = dense ? "9px" : "12px";
+    const chipH = dense ? 14 : 18;
+    const lineH = chipH + (dense ? 4 : 9);
+    const gapX = dense ? 8 : 12;
     const maxW = compact ? Number.POSITIVE_INFINITY : Math.min(900, W - 64);
 
     type Obj = Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Transform;
@@ -558,7 +568,7 @@ export class MenuScene extends Scene {
         .text(20, 0, GROUP_LABEL[group.method], {
           color: "#d5ae5f",
           fontFamily: FONT,
-          fontSize: compact ? "9px" : "11px",
+          fontSize: dense ? "9px" : "11px",
         })
         .setOrigin(0, 0.5);
       const ruleL = this.add.rectangle(0, 0, 14, 1, 0x8a_73_50).setOrigin(0, 0.5).setAlpha(0.8);
@@ -614,6 +624,7 @@ export class MenuScene extends Scene {
     if (compact) {
       // bare strip under the buttons, where the old controls line lived
       container.setScale(Math.min(1, (W - 24) / maxRowW)).setPosition(W / 2, btnY + 42);
+      this.detailLimitY = btnY - 40;
       return;
     }
 
@@ -643,6 +654,7 @@ export class MenuScene extends Scene {
     }
     // bottom edge of the panel clears the PLAY buttons' hover scale
     container.setPosition(W / 2, btnY - 44 - (panelTop + panelH));
+    this.detailLimitY = container.y + panelTop - 6;
   }
 
   private queueRelayout(): void {
@@ -659,8 +671,18 @@ export class MenuScene extends Scene {
     const abilities = (["Q", "W", "E", "R"] as const)
       .map((k) => `[${k}] ${h.abilities[k].name}`)
       .join("    ");
-    // short viewports: the blurb won't fit between the cards and the buttons
+    // short viewports: the blurb won't fit between the cards and the buttons.
+    // Narrow-tall ones (portrait phones) stack the cards into more rows, so
+    // the text can also collide with the plaque from above — shed the blurb,
+    // then the abilities, until it clears.
+    const fits = (): boolean => this.detail.y + this.detail.height <= this.detailLimitY;
     this.detail.setText(this.compactH ? abilities : `${h.blurb}\n\n${abilities}`);
+    if (!fits()) {
+      this.detail.setText(abilities);
+    }
+    if (!fits()) {
+      this.detail.setText("");
+    }
   }
 
   private select(id: string): void {

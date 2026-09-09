@@ -10,7 +10,6 @@ export const CONTROLS: ControlsManifest = [
   { action: "move", input: "DRAG", method: "touch" },
   { action: "drop a bomb", input: "💣", method: "touch" },
   { action: "restart", input: "TAP", method: "touch" },
-  { action: "mute", input: "🔊", method: "touch" },
   { action: "move", input: "STICK / D-PAD", method: "controller" },
   { action: "drop a bomb", input: "A", method: "controller" },
   { action: "restart", input: "START", method: "controller" },

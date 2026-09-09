@@ -37,7 +37,7 @@ import { Input, NEUTRAL_INPUT } from "../sys/input";
 import type { InputState } from "../sys/input";
 import { gameInset, isCoarse, REDUCED_MOTION, touchHudBand } from "../sys/screen";
 import type { VersusMatch } from "../sys/versus";
-import { mountTouchHud, syncTouchHud } from "../touch-hud";
+import { mountTouchHud, unmountTouchHud } from "../touch-hud";
 import { BannerHud } from "./banner-hud";
 import { CheckpointSync } from "./checkpoint-sync";
 import { Combat } from "./combat";
@@ -159,11 +159,10 @@ export class GameScene extends Scene implements SceneHooks {
     const hudBand = this.buildChrome();
     const { party, mode } = this.partyParams(params);
     this.attachTouchControls(hudBand, mode);
-    // Touch has no Escape and no M: @repo/embed's cluster carries both. The
-    // trailer plays itself and owns its own chrome, so it opts out (main.ts
-    // keeps the hub's mute-only cluster off there for the same reason).
+    // Touch has no Escape: @repo/embed's cluster carries pause. The trailer
+    // plays itself and owns its own chrome, so it opts out.
     if (!params.has("trailer")) {
-      mountTouchHud(true);
+      mountTouchHud();
     }
     this.controls = new Input(this, this.gamepad);
     // Online: the player spawns on an empty grid so it's always defined; the
@@ -190,7 +189,7 @@ export class GameScene extends Scene implements SceneHooks {
       this.chrome.fadeRect.setAlpha(1);
     }
 
-    this.wireSceneEvents(params);
+    this.wireSceneEvents();
   }
 
   private heroParam(params: URLSearchParams): HeroName {
@@ -344,13 +343,12 @@ export class GameScene extends Scene implements SceneHooks {
     this.rooms.mount();
   }
 
-  private wireSceneEvents(params: URLSearchParams) {
+  private wireSceneEvents() {
     sfx.unlock();
     this.input.keyboard?.once("keydown", () => sfx.unlock());
     this.input.once("pointerdown", () => sfx.unlock());
     this.input.keyboard?.on("keydown-M", () => {
       sfx.toggleMute();
-      syncTouchHud();
       this.banners.show(sfx.muted ? "SOUND OFF" : "SOUND ON", 700, "status");
     });
     // Versus has no death→hub exit (rounds respawn), so ESC leaves the duel.
@@ -358,14 +356,12 @@ export class GameScene extends Scene implements SceneHooks {
       this.input.keyboard?.on("keydown-ESC", () => this.scene.start("select"));
     }
 
-    // Death → hub: drop the socket and the hub gets its mute-only touch cluster back.
+    // Death → hub: drop the socket; the hub has nothing to pause.
     this.events.once(Scenes.Events.SHUTDOWN, () => {
       this.controls.destroy();
       this.gamepad.destroy();
       this.seat.session?.destroy();
-      if (!params.has("trailer")) {
-        mountTouchHud(false);
-      }
+      unmountTouchHud();
     });
   }
 

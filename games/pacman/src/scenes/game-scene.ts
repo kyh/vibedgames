@@ -15,14 +15,12 @@
 
 import * as THREE from "three";
 import { createTouchControls, notifyGameStarted, watchControlContext } from "@repo/embed";
-import type { TouchControls } from "@repo/embed";
 import { PhysicalGamepad, stickDirection4 } from "@vibedgames/gamepad";
 import type { Dir4 } from "@vibedgames/gamepad";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 
 import { music } from "../audio/music";
 import { sfx, toggleSound, unlockAudio } from "../audio/sfx";
-import { isSoundOn } from "../audio/sound-pref";
 import { restartHint } from "../controls";
 import { IS_TOUCH } from "../input/input-mode";
 import { buildControls, ensureStyle as ensureControlsStyle } from "../pause-overlay";
@@ -577,21 +575,6 @@ export class GameScene {
   private padStickDir: Dir4 | null = null;
   /** Live while a banner is up: re-renders it on pad connect/disconnect. */
   private unwatchControls: (() => void) | null = null;
-  /** Touch-only pause/mute cluster — the phone stand-ins for Escape and M. */
-  private touchControls: TouchControls = createTouchControls({
-    className: "pac-touch",
-    css: TOUCH_CONTROLS_CSS,
-    mute: {
-      get: () => !isSoundOn(),
-      set: (muted) => {
-        if (muted !== !isSoundOn()) {
-          this.toggleSound();
-        }
-      },
-    },
-    styleId: "pacman-touch-controls-style",
-  });
-
   // ---- display objects -----------------------------------------------------------
   /** Outer rig: world position + axis-aligned squash/stretch. */
   private pacRig = new THREE.Group();
@@ -670,6 +653,12 @@ export class GameScene {
   private resultLeftEl = el("result-left");
 
   constructor() {
+    // Touch-only pause button — the phone stand-in for Escape.
+    createTouchControls({
+      className: "pac-touch",
+      css: TOUCH_CONTROLS_CSS,
+      styleId: "pacman-touch-controls-style",
+    });
     this.scene.background = new THREE.Color(COLORS.bg);
     this.scene.fog = new THREE.Fog(COLORS.bg, FOG_NEAR, FOG_FAR);
     const aspect = window.innerWidth / window.innerHeight;
@@ -1285,15 +1274,12 @@ export class GameScene {
     this.padStickDir = stickDirection4(this.pad.getStick());
   }
 
-  /** M key / the touch cluster's speaker — one toggle for music + sfx, persisted. */
+  /** M key — one toggle for music + sfx, persisted. */
   private toggleSound(): void {
     const on = toggleSound();
-    // The cluster seals its own pointer events, so the window listener that
-    // normally unlocks audio never sees the tap that turned sound on.
     if (on) {
       unlockAudio();
     }
-    this.touchControls.sync();
     this.showNotice(on ? "♪ sound on" : "♪ sound off");
   }
 

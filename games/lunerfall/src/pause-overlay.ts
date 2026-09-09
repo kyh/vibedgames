@@ -12,6 +12,7 @@
 
 import { controlGroups, createPauseShell } from "@repo/embed";
 import type { ControlMethod, PauseOverlay } from "@repo/embed";
+import { sfx } from "./audio/sfx";
 import { CONTROLS } from "./controls";
 
 /** Section headers for the grouped control rows, in hub voice. */
@@ -49,6 +50,7 @@ const STYLE_ID = "lf-pause-style";
 const CSS = `
 #lf-pause {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 20px;
@@ -209,6 +211,21 @@ const CSS = `
   color: #34e5c8;
   animation: lf-pause-pulse 1.5s ease-in-out infinite;
 }
+/* Sound toggle (mounted by the shell after the panel) — same pixel plank. */
+#lf-pause .vg-pause-sound {
+  flex: none;
+  margin-top: 18px;
+  padding: 8px 16px;
+  border-radius: 0;
+  background: rgba(11, 14, 20, 0.92);
+  border: 2px solid #33445e;
+  box-shadow: 0 0 0 2px #05070b, 3px 4px 0 rgba(0, 0, 0, 0.45);
+  font: 700 11px "Courier New", ui-monospace, Menlo, monospace;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #d8dee6;
+}
+#lf-pause .vg-pause-sound:active { background: rgba(52, 229, 200, 0.3); }
 .lf-pause-resume::before { content: "✦ "; color: #ffd15c; }
 .lf-pause-resume::after { content: " ✦"; color: #ffd15c; }
 @keyframes lf-pause-pulse {
@@ -310,6 +327,20 @@ export const createLunerfallPauseOverlay = (): PauseOverlay =>
   createPauseShell({
     css: CSS,
     fadeMs: 220,
+    mute: {
+      get: () => sfx.muted,
+      set: (next) => {
+        if (next !== sfx.muted) {
+          sfx.toggleMute();
+        }
+        // Unmuting is itself the user gesture that lets WebAudio start, and the
+        // synth builds no context at all while muted — so the bed only ever
+        // begins here (or on a canvas gesture), never on load.
+        if (!next) {
+          sfx.unlock();
+        }
+      },
+    },
     render: renderPanel,
     styleId: STYLE_ID,
   });

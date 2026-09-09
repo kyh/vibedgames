@@ -9,7 +9,6 @@ import {
   pauseGame,
   watchControlContext,
 } from "@repo/embed";
-import type { TouchControls as EmbedTouchControls } from "@repo/embed";
 import { PhysicalGamepad, stickDirection4 } from "@vibedgames/gamepad";
 import { Color, Scene } from "three";
 
@@ -21,7 +20,7 @@ import { Engine } from "../game/engine";
 import type { LockEvent } from "../game/engine";
 import type { Status } from "../game/state";
 import { ParticlePool } from "../fx/particles";
-import { isMuted, resetSound, setMuted, sfx, toggleMute } from "../fx/sfx";
+import { resetSound, sfx, toggleMute } from "../fx/sfx";
 import { WellFx } from "../fx/well-fx";
 import { Keyboard } from "../input/keyboard";
 import type { KeyboardHandlers } from "../input/keyboard";
@@ -31,7 +30,7 @@ import type { TouchHandlers } from "../input/touch";
 import { Collapse } from "../physics/collapse";
 import { CameraRig } from "../render/camera-rig";
 import { CubeField } from "../render/cube-field";
-import { Hud, renderLegend, showResults } from "../render/hud";
+import { Hud, hideBanner, renderLegend, showBanner, showResults } from "../render/hud";
 import type { InputOwner } from "../render/hud";
 import { Well } from "../render/well";
 import {
@@ -131,7 +130,6 @@ export class GameScene {
   private readonly keyboard: Keyboard;
   private readonly touch: TouchControls;
   private readonly hud: Hud;
-  private readonly touchControls: EmbedTouchControls;
   private readonly pad = new PhysicalGamepad();
   private readonly coarse = isCoarsePointer();
   private poseControls: PoseControls | null = null;
@@ -172,12 +170,11 @@ export class GameScene {
     this.wellFx = new WellFx(this.scene);
     this.keyboard = new Keyboard(this.keyboardHandlers());
     this.touch = new TouchControls(this.touchHandlers());
-    // M and P are keyboard-only: without this a phone plays permanently silent
-    // and cannot pause. No-ops on a fine pointer.
-    this.touchControls = createTouchControls({
+    // P is keyboard-only: without this a phone cannot pause. No-op on a fine
+    // pointer.
+    createTouchControls({
       className: "tetris-touch-controls",
       css: TOUCH_CONTROLS_CSS,
-      mute: { get: isMuted, set: setMuted },
       styleId: "tetris-touch-controls-css",
     });
     document.body.classList.toggle("touch", this.coarse);
@@ -293,10 +290,7 @@ export class GameScene {
     return {
       hardDrop: () => this.onHardDrop(),
       hold: () => this.doHold(),
-      muteToggle: () => {
-        toggleMute();
-        this.touchControls.sync();
-      },
+      muteToggle: () => toggleMute(),
       orbit: (dir) => this.doOrbit(dir),
       pause: () => this.requestPause(),
       power: () => this.doPower(),
@@ -838,14 +832,14 @@ export class GameScene {
    *  cluster exists only in play; title and results own their taps. */
   private showBanner(title: string, sub: string, withLegend = true): void {
     const { status } = this.engine.state;
-    this.hud.showBanner(status, title, sub, withLegend ? "legend" : "none");
+    showBanner(status, title, sub, withLegend ? "legend" : "none");
     this.touch.setActive(status !== "title" && status !== "gameOver");
     this.hud.setCatchMeter(this.catchRemaining(performance.now()));
   }
 
   private hideBanner(): void {
     const { status } = this.engine.state;
-    this.hud.hideBanner(status);
+    hideBanner(status);
     this.touch.setActive(status !== "title" && status !== "gameOver");
     this.hud.setCatchMeter(this.catchRemaining(performance.now()));
   }

@@ -13,6 +13,9 @@
 //     frozen while paused, so nothing else polls the pad)
 //   - a `modalOpen` gate: while a child modal owns input, keys and clicks
 //     belong to it and must not resume
+//   - an optional sound toggle (`mute`) — the pause screen is the one place
+//     every player, phone or desktop, can reach, so it is where sound lives;
+//     M toggles it here too instead of resuming
 //   - idempotent show()/hide(), fade in/out with pointer-events off during
 //     fade-out, removal after the fade, prefers-reduced-motion → no fade
 //
@@ -63,6 +66,11 @@ export const resumeOnPadPress = (): (() => void) => {
   return () => cancelAnimationFrame(raf);
 };
 
+export interface MuteAccessor {
+  get: () => boolean;
+  set: (next: boolean) => void;
+}
+
 export interface PauseShellOptions {
   /**
    * Build the overlay's content into the full-screen root the shell provides.
@@ -89,6 +97,13 @@ export interface PauseShellOptions {
   modalOpen?: () => boolean;
   /** Sweep side state (close modals, …). Runs at the start of every hide(). */
   onHide?: () => void;
+  /**
+   * Read/write the game's muted state. Appends a `.vg-pause-sound` toggle as
+   * the root's last child — a column-flex root puts it under your content —
+   * styled by an injected stylesheet your own CSS overrides, and binds M
+   * while paused. Omit for a game with no audio.
+   */
+  mute?: MuteAccessor;
 }
 
 export interface PauseShell {
@@ -97,6 +112,31 @@ export interface PauseShell {
   /** Unmount (fade out). Idempotent while hidden. */
   hide: () => void;
 }
+
+/** Default look for the sound toggle; injected first so a game's own rule of
+ *  equal specificity wins on every property. */
+const SOUND_TOGGLE_CSS = `
+.vg-pause-sound {
+  margin-top: 16px;
+  padding: 8px 18px;
+  border-radius: 999px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  color: inherit;
+  font: 600 12px ui-monospace, 'SF Mono', Menlo, monospace;
+}
+`;
+
+const injectCss = (css: string, id: string): void => {
+  if (document.querySelector(`#${id}`)) {
+    return;
+  }
+  const style = document.createElement("style");
+  style.id = id;
+  style.textContent = css;
+  document.head.append(style);
+};
 
 const isInteractive = (target: EventTarget | null): boolean =>
   target instanceof Element &&
@@ -110,6 +150,26 @@ export const createPauseShell = (options: PauseShellOptions): PauseShell => {
   let root: HTMLElement | null = null;
   let stopPadResume: (() => void) | null = null;
   const resumeKeys = new Set<string>();
+  let soundToggle: HTMLButtonElement | null = null;
+
+  const drawSound = (): void => {
+    const { mute } = options;
+    if (!mute || !soundToggle) {
+      return;
+    }
+    const muted = mute.get();
+    soundToggle.textContent = muted ? "sound off" : "sound on";
+    soundToggle.setAttribute("aria-pressed", String(!muted));
+  };
+
+  const toggleSound = (): void => {
+    const { mute } = options;
+    if (!mute) {
+      return;
+    }
+    mute.set(!mute.get());
+    drawSound();
+  };
 
   const onResumeKeydown = (event: KeyboardEvent): void => {
     if (event.key === "Escape" || event.repeat || (options.modalOpen?.() ?? false)) {
@@ -125,6 +185,10 @@ export const createPauseShell = (options: PauseShellOptions): PauseShell => {
     if (!fresh || event.key === "Escape" || (options.modalOpen?.() ?? false)) {
       return;
     }
+    if (event.code === "KeyM" && options.mute) {
+      toggleSound();
+      return;
+    }
     resumeGame();
   };
 
@@ -132,15 +196,11 @@ export const createPauseShell = (options: PauseShellOptions): PauseShell => {
     if (root) {
       return;
     }
-    if (
-      options.css !== undefined &&
-      options.styleId !== undefined &&
-      !document.querySelector(`#${options.styleId}`)
-    ) {
-      const style = document.createElement("style");
-      style.id = options.styleId;
-      style.textContent = options.css;
-      document.head.append(style);
+    if (options.mute) {
+      injectCss(SOUND_TOGGLE_CSS, "vg-pause-sound-css");
+    }
+    if (options.css !== undefined && options.styleId !== undefined) {
+      injectCss(options.css, options.styleId);
     }
 
     root = document.createElement("div");
@@ -163,6 +223,18 @@ export const createPauseShell = (options: PauseShellOptions): PauseShell => {
     }
 
     options.render(root);
+    if (options.mute) {
+      soundToggle = document.createElement("button");
+      soundToggle.type = "button";
+      soundToggle.className = "vg-pause-sound";
+      soundToggle.setAttribute("aria-label", "Sound");
+      soundToggle.addEventListener("pointerup", (event) => {
+        event.stopPropagation();
+        toggleSound();
+      });
+      drawSound();
+      root.append(soundToggle);
+    }
     document.body.append(root);
     sealPointerEvents(root, { keepClick: isInteractive });
     stopPadResume = resumeOnPadPress();
@@ -191,6 +263,7 @@ export const createPauseShell = (options: PauseShellOptions): PauseShell => {
     stopPadResume?.();
     stopPadResume = null;
     options.onHide?.();
+    soundToggle = null;
     const el = root;
     root = null;
     if (!el) {
