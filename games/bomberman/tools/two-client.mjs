@@ -3,7 +3,6 @@
 // rotation), host migration and a late join. Needs the party server on
 // localhost:8787 and Chrome. `--url http://localhost:5304` reuses a dev server;
 // otherwise a vite instance is spawned on --port (default 5384).
-/* eslint-disable no-underscore-dangle */
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";

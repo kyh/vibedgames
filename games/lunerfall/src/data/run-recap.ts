@@ -1,7 +1,7 @@
 import { HERO_NAMES } from "./animations";
 import type { HeroName } from "./animations";
 
-/* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof -- This module is the parser for untyped Phaser scene-entry data. */
+/* oxlint-disable anti-slop/no-unknown-parameters -- This module is the parser for untyped Phaser scene-entry data. */
 
 type Reached = Readonly<{ hero: HeroName; biome: number; depth: number; gold: number }>;
 
