@@ -993,12 +993,9 @@
       body.chatting #touch.on.play {
         display: none;
       }
-      /* The shared @repo/embed pause/mute cluster owns the top-right corner on
-         a touch device; the cards that live there start below it. */
+      /* The shared @repo/embed pause button owns the top-right corner on a
+         touch device; the cards that live there start below it. */
       @media (pointer: coarse) {
-        #netinfo {
-          top: calc(76px + env(safe-area-inset-top));
-        }
         #fare-card {
           top: calc(98px + env(safe-area-inset-top));
         }
@@ -1096,6 +1093,12 @@
       }
       #netinfo:empty {
         display: none;
+      }
+      /* Below the shared pause button; must follow the base rule to win. */
+      @media (pointer: coarse) {
+        #netinfo {
+          top: calc(76px + env(safe-area-inset-top));
+        }
       }
     </style>
     <script>

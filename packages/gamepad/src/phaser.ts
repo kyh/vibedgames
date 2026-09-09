@@ -47,6 +47,9 @@ export interface PhaserGamepad {
   justReleased: (id: string) => boolean;
   /** Recolor the knob + buttons (e.g. to the local player's color). */
   setTint: (color: number) => void;
+  /** Hide the overlay regardless of `visible` policy — e.g. behind a start
+   *  screen — and bring it back. Input keeps working while hidden. */
+  setVisible: (visible: boolean) => void;
   /** Call once per frame from your scene's `update()`: reconciles stale
    *  pointers and publishes press edges. The overlay redraws itself at render
    *  time, so this can be called as early in the frame as the game likes. */
@@ -173,6 +176,7 @@ export const attachVirtualGamepad = (
   const policy = options.visible ?? "touch";
   const renderOpts = options.render === false ? null : (options.render ?? {});
   let tint = renderOpts?.tint ?? 0xff_ff_ff;
+  let visible = true;
 
   scene.input.addPointer(options.extraPointers ?? Math.max(2, (options.buttons?.length ?? 0) + 2));
 
@@ -233,7 +237,7 @@ export const attachVirtualGamepad = (
     const pin = screenSpaceTransform(cameraView(scene.cameras.main));
     gfx.setPosition(pin.x, pin.y).setRotation(pin.rotation).setScale(pin.scale);
     gfx.clear();
-    const show = isTouch || preShow(policy);
+    const show = visible && (isTouch || preShow(policy));
     if (show) {
       drawGamepad(gfx, pad, tint);
     }
@@ -273,6 +277,9 @@ export const attachVirtualGamepad = (
     pad,
     setTint: (color) => {
       tint = color;
+    },
+    setVisible: (next) => {
+      visible = next;
     },
     update() {
       const live: number[] = [];
