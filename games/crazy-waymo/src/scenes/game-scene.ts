@@ -1,7 +1,6 @@
 import { choosePlayerSpawn } from "../world/player-spawn";
 import * as THREE from "three";
 import { createTouchControls, notifyGameStarted, watchControlContext } from "@repo/embed";
-import type { TouchControls as EmbedTouchControls } from "@repo/embed";
 import type { PlayerMap } from "@vibedgames/multiplayer";
 
 import { ModelCache } from "../assets/loader";
@@ -212,7 +211,7 @@ const SOUND_KEY = "crazy-waymo:sound";
 const HINT_DRIFT_KEY = "crazy-waymo:hint-drift";
 const HINT_BOOST_KEY = "crazy-waymo:hint-boost";
 
-/** The shared pause/mute cluster in the game's own plate palette — gold on the
+/** The shared pause button in the game's own plate palette — gold on the
  *  same smoked panel as the HUD pills. Custom properties only; @repo/embed
  *  owns its layout and its safe-area insets. */
 const TOUCH_CLUSTER_CSS = `
@@ -529,7 +528,6 @@ export class GameScene {
   // Touch-capable device: on-screen buttons show and CTA copy says TAP.
   private touchUi = false;
   private touch: TouchControls | null = null;
-  private embedTouch: EmbedTouchControls;
   private titleT = 0;
   private flameAccum = 0;
   private scrapeFrames = 0;
@@ -933,15 +931,11 @@ vec3 ocGerstner(vec2 p, float t) {
     this.hud.onCta(() => this.handleStartPress());
     // Muted by default; returning players who opted into sound stay unmuted.
     this.sfx.setMuted(storageGet(SOUND_KEY) !== "1");
-    // M and Escape are keyboard-only, so without this a phone plays the whole
-    // run silent and cannot pause. No-op on a fine pointer.
-    this.embedTouch = createTouchControls({
+    // Escape is keyboard-only, so without this a phone cannot pause. No-op on
+    // a fine pointer.
+    createTouchControls({
       className: "waymo-touch",
       css: TOUCH_CLUSTER_CSS,
-      mute: {
-        get: () => this.sfx.muted,
-        set: () => this.toggleMute(),
-      },
       styleId: "waymo-touch-style",
     });
   }
@@ -1649,15 +1643,19 @@ vec3 ocGerstner(vec2 p, float t) {
     this.start();
   }
 
-  /** M. Session-only in trailer mode: the trailer now solicits a keypress to
-   *  unlock audio, and that key landing on M must not rewrite the player's
-   *  saved sound preference for the real game. */
-  private toggleMute(): void {
+  get muted(): boolean {
+    return this.sfx.muted;
+  }
+
+  /** M, and the pause overlay's sound toggle. Session-only in trailer mode:
+   *  the trailer now solicits a keypress to unlock audio, and that key landing
+   *  on M must not rewrite the player's saved sound preference for the real
+   *  game. */
+  toggleMute(): void {
     this.sfx.setMuted(!this.sfx.muted);
     if (!this.sfx.muted) {
       this.sfx.ui("select");
     }
-    this.embedTouch.sync();
     if (!this.trailerMode) {
       storageSet(SOUND_KEY, this.sfx.muted ? "0" : "1");
     }

@@ -165,9 +165,13 @@ class PoseCamera {
 
   private readonly ui: Panel;
   private onJump: PoseJumpHandler;
+  private readonly autoStart: boolean;
+  /** The player chose a panel size by hand; a later live stream must not undo it. */
+  private userSized = false;
 
   constructor(ui: Panel, onJump: PoseJumpHandler, autoStart: boolean) {
     this.ui = ui;
+    this.autoStart = autoStart;
     this.onJump = onJump;
     this.setStatus(autoStart ? "Click 'Start' to begin" : "Tap to enable the pose cam");
     this.ui.button.addEventListener("click", (e) => {
@@ -188,6 +192,7 @@ class PoseCamera {
     // getUserMedia until this user gesture).
     this.ui.screen.addEventListener("click", () => {
       const expanding = this.collapsed;
+      this.userSized = true;
       this.setCollapsed(!this.collapsed);
       if (expanding && this.state === "idle") {
         this.start();
@@ -374,6 +379,15 @@ class PoseCamera {
           // Reveal the video only once it has real dimensions — a stream-less
           // <video> renders at its 300×150 default and bloats the pill.
           this.ui.root.classList.add("fd-cam--live");
+          // Desktop unfolds the preview by itself once there is something to
+          // show; a cramped window stays a pill like touch does.
+          if (
+            this.autoStart &&
+            !this.userSized &&
+            Math.min(window.innerWidth, window.innerHeight) >= 560
+          ) {
+            this.setCollapsed(false);
+          }
           this.ui.overlay.width = video.videoWidth;
           this.ui.overlay.height = video.videoHeight;
           const ctx = this.ui.overlay.getContext("2d");
@@ -880,18 +894,18 @@ export const isCoarsePointer = (): boolean =>
 /**
  * Create the bottom-right webcam panel and begin camera + model startup
  * (idempotent — repeat calls just swap the jump handler). Failures degrade to
- * a visible status message while keyboard/tap input keeps working. Touch
- * devices boot collapsed with getUserMedia deferred behind a tap on the pill;
- * desktop keeps the legacy auto-start.
+ * a status message on the collapsed pill while keyboard/tap input keeps
+ * working. The panel boots as a pill everywhere — the preview only unfolds
+ * once a stream is live, so a denied or unsupported camera never parks a
+ * blank frame on the start screen. Touch defers getUserMedia behind a tap on
+ * the pill; desktop keeps the legacy auto-start.
  */
 export const initPoseCamera = (onJump: PoseJumpHandler): void => {
   if (active !== null) {
     active.setHandler(onJump);
     return;
   }
-  const touch = isCoarsePointer();
-  const compact = touch || Math.min(window.innerWidth, window.innerHeight) < 560;
-  active = new PoseCamera(buildPanel(document.body, compact), onJump, !touch);
+  active = new PoseCamera(buildPanel(document.body, true), onJump, !isCoarsePointer());
 };
 
 /**

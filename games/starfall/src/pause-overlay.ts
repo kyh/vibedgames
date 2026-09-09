@@ -7,7 +7,7 @@
 // uppercase copy in #9fb6e6, neon #7fb2ff accents, rgba(90,160,255) glows.
 
 import { controlGroups, createPauseShell } from "@repo/embed";
-import type { ControlMethod, PauseOverlay } from "@repo/embed";
+import type { ControlMethod, MuteAccessor, PauseOverlay } from "@repo/embed";
 import { CONTROLS } from "./controls";
 
 /** Section headers for the grouped control rows, in HUD voice. */
@@ -25,6 +25,7 @@ const STYLE_ID = "sf-pause-style";
 const CSS = `
 #sf-pause {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 24px;
@@ -165,6 +166,17 @@ const CSS = `
 @keyframes sf-pause-pulse {
   50% { opacity: 0.32; }
 }
+#sf-pause .vg-pause-sound {
+  margin-top: 18px;
+  padding: 8px 16px;
+  border: 1px solid rgba(127, 178, 255, 0.3);
+  border-radius: 3px;
+  background: rgba(3, 7, 22, 0.62);
+  color: #cfe0ff;
+  font: 600 11px ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
 /* Bigger legible rows on touch devices (same bump index.html gives the HUD). */
 @media (pointer: coarse) {
   .sf-pause-key, .sf-pause-action { font-size: 13px; }
@@ -254,9 +266,10 @@ const renderPanel = (root: HTMLElement): void => {
  * shared manifest fresh on every show(), so plugging a pad in mid-run adds
  * its rows on the next pause.
  */
-export const createStarfallPauseOverlay = (): PauseOverlay =>
+export const createStarfallPauseOverlay = (mute: MuteAccessor): PauseOverlay =>
   createPauseShell({
     css: CSS,
+    mute,
     render: renderPanel,
     styleId: STYLE_ID,
   });

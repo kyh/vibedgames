@@ -5,7 +5,7 @@
 // shared CONTROLS manifest, re-filtered on every show().
 
 import { controlGroups, createPauseShell } from "@repo/embed";
-import type { ControlMethod } from "@repo/embed";
+import type { ControlMethod, MuteAccessor } from "@repo/embed";
 
 import { CONTROLS } from "./controls";
 
@@ -16,6 +16,7 @@ const STYLE_ID = "bm-pause-style";
 const CSS = `
 .bm-pause {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 24px;
@@ -160,6 +161,18 @@ const CSS = `
   color: #d7decf;
   opacity: 0.85;
 }
+.bm-pause .vg-pause-sound {
+  margin-top: 18px;
+  padding: 8px 16px;
+  border-radius: 0;
+  font: 700 12px ui-monospace, "SF Mono", Menlo, monospace;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #f5f0da;
+  background: rgba(183, 163, 108, 0.16);
+  border: 1px solid rgba(183, 163, 108, 0.45);
+  box-shadow: inset 0 -2px 0 rgba(10, 12, 28, 0.8);
+}
 @media (prefers-reduced-motion: reduce) {
   .bm-pause-hint, .bm-pause-spark { animation: none; }
   .bm-pause-embers { display: none; }
@@ -283,8 +296,9 @@ const renderCard = (overlay: HTMLElement): void => {
  * shell owns resume behavior (pointerup / non-Escape keyup / fresh pad press),
  * this file owns the arcade attract-card look.
  */
-export const createBombermanPauseOverlay = (): BombermanPauseOverlay =>
+export const createBombermanPauseOverlay = (mute: MuteAccessor): BombermanPauseOverlay =>
   createPauseShell({
     className: "bm-pause",
+    mute,
     render: renderCard,
   });

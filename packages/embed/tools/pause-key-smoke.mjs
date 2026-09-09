@@ -32,10 +32,11 @@ globalThis.window = win;
 globalThis.HTMLElement = Node;
 globalThis.Element = Node;
 globalThis.document = {
-  body: new Node(),
+  body: Object.assign(new Node(), { classList: { add: inert } }),
   createElement: () => new Node(),
   getElementById: () => null,
   head: new Node(),
+  querySelector: () => null,
 };
 const callbacks = new Map();
 let serial = 0;
@@ -149,4 +150,39 @@ setPauseHandlers({
 resumeGame();
 assert.equal(newResumes, 1, "a replacement owner resumes by default");
 assert.equal(isPausable(), true);
-console.log("PASS held-key/fresh-key/modal/Escape ownership; canResume gates resume and keys");
+
+// The sound toggle lives on the pause screen: M flips it and never resumes.
+let muted = true;
+let soundResumes = 0;
+const soundShell = createPauseShell({
+  fadeMs: 0,
+  mute: { get: () => muted, set: (next) => (muted = next) },
+  render: inert,
+});
+setPauseHandlers({
+  onPause: soundShell.show,
+  onResume: () => {
+    soundResumes += 1;
+    soundShell.hide();
+  },
+});
+pauseGame();
+const toggle = document.body.children.at(-1)?.children.at(-1);
+assert.equal(toggle?.textContent, "sound off", "toggle reflects the accessor on show");
+key("keydown", "KeyM");
+key("keyup", "KeyM");
+assert.equal(muted, false, "M while paused toggles sound");
+assert.equal(toggle?.textContent, "sound on", "toggle redraws after M");
+assert.equal(isPausable(), false, "M does not resume");
+assert.equal(soundResumes, 0);
+const tap = new Event("pointerup", { bubbles: true });
+Object.defineProperty(tap, "target", { value: toggle });
+toggle?.dispatchEvent(tap);
+assert.equal(muted, true, "tapping the toggle flips sound");
+assert.equal(isPausable(), false, "tapping the toggle does not resume");
+key("keydown", "KeyJ");
+key("keyup", "KeyJ");
+assert.equal(soundResumes, 1, "other keys still resume");
+console.log(
+  "PASS held-key/fresh-key/modal/Escape ownership; canResume gates resume and keys; sound toggle",
+);

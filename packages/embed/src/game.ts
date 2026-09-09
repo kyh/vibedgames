@@ -85,11 +85,19 @@ const notifyPausableChanged = (): void => {
   }
 };
 
+/**
+ * Body class set on the first start and never removed: HUD, thumb pads and
+ * camera panels are gameplay chrome, so a game hides them with
+ * `body:not(.vg-started) …` and never has to track "has play begun" itself.
+ */
+const STARTED_CLASS = "vg-started";
+
 const announceStarted = (): void => {
   if (started || paused) {
     return;
   }
   started = true;
+  document.body.classList.add(STARTED_CLASS);
   notifyPausableChanged();
   if (embedded()) {
     window.parent.postMessage({ type: GAME_STARTED_MESSAGE }, "*");

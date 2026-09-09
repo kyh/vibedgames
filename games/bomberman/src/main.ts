@@ -2,7 +2,7 @@ import { setPauseHandlers } from "@repo/embed";
 import type { Types } from "phaser";
 import { Game, Scale, WEBGL } from "phaser";
 
-import { pauseAudio } from "./fx/sfx";
+import { isMuted, pauseAudio, setMuted } from "./fx/sfx";
 import { createBombermanPauseOverlay } from "./pause-overlay";
 import { BootScene } from "./scenes/boot-scene";
 import { GameScene } from "./scenes/game-scene";
@@ -46,7 +46,7 @@ document.addEventListener("visibilitychange", () => {
 // after resume, instead of every stored deadline firing at once when the loop
 // wakes. The embed package re-announces the game as started after onResume.
 let froze = false;
-const pauseOverlay = createBombermanPauseOverlay();
+const pauseOverlay = createBombermanPauseOverlay({ get: isMuted, set: setMuted });
 const gameScene = (): GameScene | null =>
   game.scene.isActive("Game") ? game.scene.getScene<GameScene>("Game") : null;
 setPauseHandlers({

@@ -5,6 +5,7 @@
 // italic gold display type, hazard-stripe bars, keycap chips.
 
 import { controlGroups, createPauseShell, resumeGame } from "@repo/embed";
+import type { MuteAccessor } from "@repo/embed";
 
 import { CONTROLS, METHOD_TAG } from "../controls";
 
@@ -228,15 +229,21 @@ const renderContent = (overlay: HTMLElement, onRestart: () => void): void => {
   }
 };
 
+export interface PauseOverlayOptions {
+  /** The touch half of the R key: a player who has buried the car in a facade
+   *  has no keyboard to reach for, and pause is the one deliberate surface
+   *  where a run-ending button is safe from a mis-tap. */
+  onRestart: () => void;
+  /** The touch half of the M key, rendered by the shell. */
+  mute: MuteAccessor;
+}
+
 /** Build CRAZY WAYMO's pause overlay. Same show/hide contract as the stock
- *  `@repo/embed` one — wire it into setPauseHandlers from main.ts.
- *
- *  `onRestart` is the touch half of the R key: a player who has buried the car
- *  in a facade has no keyboard to reach for, and pause is the one deliberate
- *  surface where a run-ending button is safe from a mis-tap. */
-export const createPauseOverlay = (onRestart: () => void): PauseOverlay =>
+ *  `@repo/embed` one — wire it into setPauseHandlers from main.ts. */
+export const createPauseOverlay = ({ onRestart, mute }: PauseOverlayOptions): PauseOverlay =>
   createPauseShell({
     css: CSS,
+    mute,
     render: (overlay) => renderContent(overlay, onRestart),
     styleId: STYLE_ID,
   });

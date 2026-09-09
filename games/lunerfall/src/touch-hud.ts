@@ -1,13 +1,11 @@
-// Pause + mute for a phone. Both are keyboard-only in the run (Escape via
-// @repo/embed, M in game-scene), so without this a touch player can neither
-// pause a descent nor ever hear the synth. Reskinned in the hub's pixel
-// language — steel-blue border, night fill, teal press — over @repo/embed's
-// shared cluster, which owns the safe-area anchoring and the 44px hit targets.
+// Pause for a phone. It is keyboard-only in the run (Escape via @repo/embed),
+// so without this a touch player can neither pause a descent nor reach the
+// pause panel's sound toggle. Reskinned in the hub's pixel language —
+// steel-blue border, night fill, teal press — over @repo/embed's shared
+// cluster, which owns the safe-area anchoring and the 44px hit targets.
 
 import { createTouchControls } from "@repo/embed";
 import type { TouchControls } from "@repo/embed";
-
-import { sfx } from "./audio/sfx";
 
 const CSS = `
 .lf-touch {
@@ -25,45 +23,19 @@ const CSS = `
 }
 `;
 
-const MUTE = {
-  get: () => sfx.muted,
-  set: (next: boolean): void => {
-    if (next !== sfx.muted) {
-      sfx.toggleMute();
-    }
-    // Unmuting is itself the user gesture that lets WebAudio start, and the
-    // synth builds no context at all while muted — so the bed only ever begins
-    // here (or on a canvas gesture), never on load.
-    if (!next) {
-      sfx.unlock();
-    }
-  },
-};
-
 let controls: TouchControls | null = null;
-let hasPause = false;
 
-/**
- * Mount (or re-mount) the cluster. `pause` only during a run: the hub has
- * nothing to freeze, and `pauseGame()` is a no-op before a run announces
- * itself, so a pause button there would be a dead control.
- */
-export const mountTouchHud = (pause: boolean): void => {
-  if (controls && pause === hasPause) {
-    return;
-  }
-  controls?.destroy();
-  hasPause = pause;
-  controls = createTouchControls({
+/** Mount the cluster for a run. Idempotent while mounted. */
+export const mountTouchHud = (): void => {
+  controls ??= createTouchControls({
     className: "lf-touch",
     css: CSS,
-    mute: MUTE,
-    pause,
     styleId: "lf-touch-css",
   });
 };
 
-/** Redraw the mute glyph after something else toggled sound (the M key). */
-export const syncTouchHud = (): void => {
-  controls?.sync();
+/** The hub has nothing to freeze, so it carries no cluster at all. */
+export const unmountTouchHud = (): void => {
+  controls?.destroy();
+  controls = null;
 };

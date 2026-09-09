@@ -14,7 +14,6 @@ export const CONTROLS: ControlsManifest = [
   { action: "use tool / interact", input: "tap a square", method: "touch" },
   { action: "switch tools", input: "tap hotbar", method: "touch" },
   { action: "inventory", input: "🎒", method: "touch" },
-  { action: "sound on / off", input: "🔊", method: "touch" },
   { action: "move (full tilt runs)", input: "STICK", method: "controller" },
   { action: "use tool / interact", input: "A", method: "controller" },
   { action: "switch tools", input: "LB / RB", method: "controller" },

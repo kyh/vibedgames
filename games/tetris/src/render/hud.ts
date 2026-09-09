@@ -41,7 +41,14 @@ export interface RunResult {
 
 /** What sits under the banner: the full legend (title), the quiet hotkey bar
  *  (play), or nothing (catch / results). */
-export type HudMode = "legend" | "hotkeys" | "none";
+export type HudMode = "legend" | "none";
+
+const setMode = (mode: HudMode): void => {
+  const legend = el("legend");
+  if (legend) {
+    legend.style.display = mode === "legend" ? "flex" : "none";
+  }
+};
 
 const isIdle = (status: Status): boolean => status === "title" || status === "gameOver";
 
@@ -230,72 +237,58 @@ export class Hud {
       }
     }
   }
-
-  /** Show the centre banner for `status`: the teaching card on the title, the
-   *  results card on game over, the Play button on either. */
-  showBanner(status: Status, title: string, sub: string, mode: HudMode): void {
-    const t = el("banner-title");
-    const s = el("banner-sub");
-    const b = el("banner");
-    if (t) {
-      t.textContent = title;
-    }
-    if (s) {
-      s.textContent = sub;
-    }
-    if (b) {
-      b.style.opacity = "1";
-      b.dataset.phase = status;
-      b.setAttribute("aria-hidden", "false");
-    }
-    const teaching = el("spatial-rule");
-    const summary = el("run-summary");
-    const start = el("compact-start");
-    if (teaching) {
-      teaching.hidden = status !== "title";
-    }
-    if (summary) {
-      summary.hidden = status !== "gameOver";
-    }
-    if (start) {
-      start.textContent = status === "gameOver" ? "Play again" : "Play";
-    }
-    setRunActions(status);
-    this.setMode(mode);
-  }
-
-  /** Hide the banner. In play the quiet hotkey bar carries the reference; the
-   *  full legend lives on the title banner (and the wrapper pause overlay
-   *  renders its own copy from the same manifest). */
-  hideBanner(status: Status): void {
-    const b = el("banner");
-    if (b) {
-      b.style.opacity = "0";
-      b.dataset.phase = status;
-      b.setAttribute("aria-hidden", "true");
-    }
-    const teaching = el("spatial-rule");
-    const summary = el("run-summary");
-    if (teaching) {
-      teaching.hidden = true;
-    }
-    if (summary) {
-      summary.hidden = true;
-    }
-    setRunActions(status);
-    this.setMode("hotkeys");
-  }
-
-  private setMode(mode: HudMode): void {
-    const legend = el("legend");
-    if (legend) {
-      legend.style.display = mode === "legend" ? "flex" : "none";
-    }
-    const hotkeys = el("hotkeys");
-    // Touch has no keyboard to reference and the bar lands on the DROP/HOLD
-    // buttons; an inline display would beat the stylesheet's `body.touch` rule.
-    if (hotkeys) {
-      hotkeys.style.display = mode === "hotkeys" && !this.coarse ? "flex" : "none";
-    }
-  }
 }
+
+/** Show the centre banner for `status`: the teaching card on the title, the
+ *  results card on game over, the Play button on either. */
+export const showBanner = (status: Status, title: string, sub: string, mode: HudMode): void => {
+  const t = el("banner-title");
+  const s = el("banner-sub");
+  const b = el("banner");
+  if (t) {
+    t.textContent = title;
+  }
+  if (s) {
+    s.textContent = sub;
+  }
+  if (b) {
+    b.style.opacity = "1";
+    b.dataset.phase = status;
+    b.setAttribute("aria-hidden", "false");
+  }
+  const teaching = el("spatial-rule");
+  const summary = el("run-summary");
+  const start = el("compact-start");
+  if (teaching) {
+    teaching.hidden = status !== "title";
+  }
+  if (summary) {
+    summary.hidden = status !== "gameOver";
+  }
+  if (start) {
+    start.textContent = status === "gameOver" ? "Play again" : "Play";
+  }
+  setRunActions(status);
+  setMode(mode);
+};
+
+/** Hide the banner. The full legend lives on the title banner (and the
+ *  wrapper pause overlay renders its own copy from the same manifest). */
+export const hideBanner = (status: Status): void => {
+  const b = el("banner");
+  if (b) {
+    b.style.opacity = "0";
+    b.dataset.phase = status;
+    b.setAttribute("aria-hidden", "true");
+  }
+  const teaching = el("spatial-rule");
+  const summary = el("run-summary");
+  if (teaching) {
+    teaching.hidden = true;
+  }
+  if (summary) {
+    summary.hidden = true;
+  }
+  setRunActions(status);
+  setMode("none");
+};

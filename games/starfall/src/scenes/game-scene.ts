@@ -210,7 +210,7 @@ export class GameScene extends Scene {
   /** Re-renders the start-screen copy on pad connect/disconnect while the
    *  overlay is up; unsubscribed the moment play begins. */
   private unwatchControls: (() => void) | null = null;
-  /** Touch-only mute/pause cluster (M and Escape are keyboard-only). */
+  /** Touch-only pause button (Escape is keyboard-only). */
   private touchControls!: TouchControls;
 
   /** Current trauma roll in degrees (what setAngle was last given) — Phaser 4
@@ -301,17 +301,10 @@ export class GameScene extends Scene {
     });
 
     // Sound is opt-in: muted by default, M toggles, choice persists (see
-    // sfx). The gesture itself unlocks audio.
-    // M and Escape are keyboard-only, so without this cluster a phone player
-    // gets a permanently silent run they cannot pause.
-    this.touchControls = createTouchControls({
-      mute: { get: () => sfx.muted, set: (next) => sfx.setMuted(next) },
-    });
-    this.input.keyboard?.on("keydown-M", () => {
-      sfx.toggleMute();
-      // a device can have both a keyboard and a screen
-      this.touchControls.sync();
-    });
+    // sfx). The gesture itself unlocks audio. Escape is keyboard-only, so
+    // without this button a phone player gets a run they cannot pause.
+    this.touchControls = createTouchControls();
+    this.input.keyboard?.on("keydown-M", () => sfx.toggleMute());
 
     // qa-005: held SPACE autofires exactly like a held mouse button (spec
     // Controls: "hold mouse/space to fire"). addKey captures the keystroke so
@@ -353,7 +346,10 @@ export class GameScene extends Scene {
     // (solo world, no one else to stall) we truly FREEZE: the pausable sim
     // clock (shared/clock.ts) holds every stored deadline, so a boost with 3s
     // left before the pause still has 3s after resume.
-    const pauseOverlay = createStarfallPauseOverlay();
+    const pauseOverlay = createStarfallPauseOverlay({
+      get: () => sfx.muted,
+      set: (next) => sfx.setMuted(next),
+    });
     setPauseHandlers({
       onPause: () => {
         pauseOverlay.show();

@@ -1,13 +1,12 @@
-// The two controls a phone player has no other way to reach.
+// The one control a phone player has no other way to reach.
 //
-// Pause is Escape-bound (./game) and mute is M-bound in every game, so on a
-// coarse pointer both are unreachable: a phone session cannot be paused, and
-// since games boot muted by default it stays silent forever. The controls
-// manifest is right to hide those rows on touch — the player genuinely cannot
-// press them — which leaves the player with no idea the game has sound at all.
+// Pause is Escape-bound (./game), so on a coarse pointer a session cannot be
+// paused at all. Everything else a paused player might want — sound on/off,
+// controls, help — lives on the pause overlay itself (./pause-shell), so this
+// stays a single button that only exists while a pause would actually work.
 //
 // This is a shared affordance rather than eleven bespoke HUD buttons: it is the
-// same two actions everywhere, it has to clear the notch and the home indicator
+// same action everywhere, it has to clear the notch and the home indicator
 // everywhere, and it has to be big enough to hit everywhere. Games theme it
 // through `className`/`css` and the CSS custom properties below.
 
@@ -16,17 +15,7 @@ import { isPausable, pauseGame, watchPausable } from "./game";
 import { PAUSE_OVERLAY_Z } from "./pause-shell";
 import { sealPointerEvents } from "./pointer-seal";
 
-export interface MuteAccessor {
-  get: () => boolean;
-  set: (next: boolean) => void;
-}
-
 export interface TouchControlsOptions {
-  /**
-   * Read/write the game's muted state. Omit for a game with no audio — the
-   * button is then not rendered at all rather than rendered inert.
-   */
-  mute?: MuteAccessor;
   /** Show the pause button. Default true; pass false for a game whose pause is
    *  meaningless (a permanently live session with nothing to freeze). */
   pause?: boolean;
@@ -38,9 +27,6 @@ export interface TouchControlsOptions {
 }
 
 export interface TouchControls {
-  /** Re-read the mute accessor and redraw (call after changing audio elsewhere,
-   *  e.g. the M key on a device that has both a keyboard and a touchscreen). */
-  sync: () => void;
   destroy: () => void;
 }
 
@@ -59,7 +45,7 @@ const BASE_CSS = `
   z-index: ${TOUCH_CONTROLS_Z};
   display: flex;
   gap: var(--vg-touch-gap, 10px);
-  /* The cluster is a hole in the game's input surface only where a button
+  /* The cluster is a hole in the game's input surface only where the button
      actually is — everywhere else touches belong to the game. */
   pointer-events: none;
 }
@@ -80,6 +66,10 @@ const BASE_CSS = `
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
   user-select: none;
+}
+/* This display rule outranks the UA's [hidden] one; the pre-start hide relies on it. */
+.vg-touch-controls button[hidden] {
+  display: none;
 }
 .vg-touch-controls button:active {
   background: var(--vg-touch-bg-active, rgba(255, 255, 255, 0.22));
@@ -109,7 +99,7 @@ const noop = (): void => undefined;
  * cluster is mounted, so `var(--vg-touch-reserve, 0px)` is the desktop value.
  *
  * Games that ignore it are fine on a 393px phone and collide on a narrow one —
- * starfall's boss bar overlapped the mute button by 7px at 360x640, which is an
+ * starfall's boss bar overlapped the cluster by 7px at 360x640, which is an
  * iPhone SE.
  */
 const RESERVE_VAR = "--vg-touch-reserve";
@@ -123,21 +113,21 @@ const reserveCorner = (root: HTMLElement): void => {
   };
 
   write();
-  // The cluster's width changes with the button count and the safe-area inset,
-  // both of which settle after first paint and again on rotation.
+  // The cluster's width depends on the safe-area inset, which settles after
+  // first paint and again on rotation.
   requestAnimationFrame(write);
   window.addEventListener("resize", write);
   window.addEventListener("orientationchange", write);
 };
 
 /**
- * Mount the touch-only pause/mute cluster. No-op on a fine pointer, so calling
- * it unconditionally at boot is correct — a desktop player keeps Escape and M
- * and sees nothing.
+ * Mount the touch-only pause button. No-op on a fine pointer, so calling it
+ * unconditionally at boot is correct — a desktop player keeps Escape and sees
+ * nothing.
  */
 export const createTouchControls = (options: TouchControlsOptions = {}): TouchControls => {
   if (typeof document === "undefined" || !isCoarsePointer()) {
-    return { destroy: noop, sync: noop };
+    return { destroy: noop };
   }
 
   injectCss(BASE_CSS, "vg-touch-controls-css");
@@ -148,9 +138,9 @@ export const createTouchControls = (options: TouchControlsOptions = {}): TouchCo
   const root = document.createElement("div");
   root.className = `vg-touch-controls${options.className ? ` ${options.className}` : ""}`;
   // The DOM gamepad adapter treats the whole page as its input surface; without
-  // this a tap on mute would also steer.
+  // this a tap on pause would also steer.
   root.dataset.gamepadIgnore = "";
-  // Both buttons act on pointerup, so no child here needs a click kept.
+  // The button acts on pointerup, so no child here needs a click kept.
   sealPointerEvents(root);
 
   const button = (label: string, glyph: string, onTap: () => void): HTMLButtonElement => {
@@ -172,25 +162,6 @@ export const createTouchControls = (options: TouchControlsOptions = {}): TouchCo
     return el;
   };
 
-  const { mute } = options;
-  let muteEl: HTMLButtonElement | null = null;
-  const drawMute = (): void => {
-    if (!mute || !muteEl) {
-      return;
-    }
-    const muted = mute.get();
-    muteEl.textContent = muted ? "🔇" : "🔊";
-    muteEl.setAttribute("aria-label", muted ? "Turn sound on" : "Turn sound off");
-    muteEl.setAttribute("aria-pressed", String(muted));
-  };
-
-  if (mute) {
-    muteEl = button("Turn sound on", "🔇", () => {
-      mute.set(!mute.get());
-      drawMute();
-    });
-    drawMute();
-  }
   // `pauseGame()` no-ops until the game announces it started, so a pause button
   // rendered on the start screen is a dead control — it looks tappable and does
   // nothing. Show it only while it would actually work.
@@ -213,6 +184,5 @@ export const createTouchControls = (options: TouchControlsOptions = {}): TouchCo
       root.remove();
       document.documentElement.style.removeProperty(RESERVE_VAR);
     },
-    sync: drawMute,
   };
 };

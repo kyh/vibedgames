@@ -9,7 +9,6 @@ export const CONTROLS: ControlsManifest = [
   { action: "serve · power shot · rematch", input: "CLICK", method: "mouse" },
   { action: "steer the paddle", input: "FINGER", method: "touch" },
   { action: "serve · power shot · rematch", input: "TAP", method: "touch" },
-  { action: "mute", input: "🔊", method: "touch" },
   { action: "steer the paddle", input: "✋ HAND", method: "camera" },
   { action: "serve · power shot · rematch", input: "✊ FIST", method: "camera" },
   { action: "steer the paddle", input: "STICK", method: "controller" },

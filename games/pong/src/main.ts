@@ -14,10 +14,6 @@ const container = document.querySelector("#game");
 if (!container) {
   throw new Error("missing #game container");
 }
-const soundButton = document.querySelector("#sound-toggle");
-if (!soundButton) {
-  throw new Error("missing #sound-toggle");
-}
 
 // No MSAA: the scene renders into the dither pass's low-res target, where
 // hard pixels are the point — the canvas only ever shows the quantized quad.
@@ -47,7 +43,10 @@ const dither = new DitherPass(window.innerWidth, window.innerHeight);
 
 // Wrapper pause: freeze the sim unless a live human opponent is connected
 // (see GameScene.requestPause) — the wrapper's own overlay shows either way.
-const pauseOverlay = createPongPauseOverlay(() => game.hasLiveOpponent());
+const pauseOverlay = createPongPauseOverlay(() => game.hasLiveOpponent(), {
+  get: isMuted,
+  set: setMuted,
+});
 setPauseHandlers({
   onPause: () => {
     game.requestPause();
@@ -61,32 +60,8 @@ setPauseHandlers({
   },
 });
 
-// Mute is the M key and pause is Escape, so without this a phone plays a
-// permanently silent game it cannot leave.
-const syncSound = (): void => {
-  soundButton.textContent = isMuted() ? "SOUND OFF" : "SOUND ON";
-  soundButton.setAttribute("aria-pressed", String(!isMuted()));
-  soundButton.setAttribute("aria-label", isMuted() ? "Turn sound on" : "Turn sound off");
-};
-const touchControls = createTouchControls({
-  mute: {
-    get: isMuted,
-    set: (muted) => {
-      setMuted(muted);
-      syncSound();
-    },
-  },
-});
-const changeSound = (muted: boolean): void => {
-  setMuted(muted);
-  syncSound();
-  touchControls.sync();
-};
-// The button sits over the court: its pointer edges must not also serve.
-for (const event of ["pointerdown", "pointerup"]) {
-  soundButton.addEventListener(event, (e) => e.stopPropagation());
-}
-soundButton.addEventListener("click", () => changeSound(!isMuted()));
+// Pause is Escape, so without this a phone plays a game it cannot leave.
+createTouchControls();
 window.addEventListener("keydown", (e) => {
   if (e.code === "Space") {
     // Space on a focused button already clicks it; confirming here too would double-fire.
@@ -98,10 +73,9 @@ window.addEventListener("keydown", (e) => {
       game.handleGestureConfirm();
     }
   } else if (e.code === "KeyM" && !e.repeat) {
-    changeSound(!isMuted());
+    setMuted(!isMuted());
   }
 });
-syncSound();
 
 // Webcam hand tracking. On failure it shows a status in its panel and the
 // pointer keeps working; a closed fist serves, arms a power shot or rematches,

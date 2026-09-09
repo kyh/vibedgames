@@ -22,7 +22,6 @@ export const CONTROLS: ControlsManifest = [
   { action: "soft drop", input: "DROP hold", method: "touch" },
   { action: "hold piece", input: "HOLD", method: "touch" },
   { action: "power sweep", input: "PWR", method: "touch" },
-  { action: "mute", input: "🔊", method: "touch" },
   { action: "move", input: "📷 lean", method: "camera" },
   { action: "rotate", input: "📷 twist", method: "camera" },
   { action: "power sweep", input: "📷 T-pose", method: "camera" },

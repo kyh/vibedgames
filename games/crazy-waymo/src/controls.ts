@@ -14,7 +14,6 @@ export const CONTROLS: ControlsManifest = [
   { action: "steer", input: "DRAG", method: "touch" },
   { action: "stop · reverse", input: "BRAKE", method: "touch" },
   { action: "boost", input: "🔥", method: "touch" },
-  { action: "mute", input: "🔊", method: "touch" },
   { action: "go", input: "RT", method: "controller" },
   { action: "stop", input: "LT", method: "controller" },
   { action: "steer", input: "L-STICK", method: "controller" },

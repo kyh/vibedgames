@@ -15,6 +15,7 @@ import { controlGroups, createPauseShell } from "@repo/embed";
 import type { ControlMethod } from "@repo/embed";
 
 import { CONTROLS } from "./controls";
+import { Sound } from "./render/audio";
 
 const METHOD_LABELS = {
   camera: "camera",
@@ -73,6 +74,7 @@ const STYLE_ID = "farm-pause-style";
 const CSS = `
 #farm-pause {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: calc(30px + env(safe-area-inset-top)) calc(18px + env(safe-area-inset-right))
@@ -261,6 +263,24 @@ const CSS = `
   color: #6b3f16;
 }
 #farm-pause .fp-help-btn:active {
+  transform: translateY(2px);
+  box-shadow: 0 2px 0 #6b3f16;
+}
+
+/* Sound toggle (mounted by the shell after the sign) — a small plank hung
+   below, in the help button's parchment. */
+#farm-pause .vg-pause-sound {
+  flex: none;
+  margin: 18px 0 0;
+  padding: 8px 16px;
+  border-radius: 0;
+  background: #f4ecd6;
+  border: 2px solid #6b3f16;
+  box-shadow: 0 4px 0 #6b3f16;
+  font: 700 12px ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: #6b3f16;
+}
+#farm-pause .vg-pause-sound:active {
   transform: translateY(2px);
   box-shadow: 0 2px 0 #6b3f16;
 }
@@ -464,6 +484,7 @@ export const pauseOverlay = createPauseShell({
   css: CSS,
   fadeMs: 220,
   modalOpen: () => helpModal !== null,
+  mute: { get: () => Sound.muted, set: (next) => Sound.setMuted(next) },
   onHide: closeHelp,
   render: renderSign,
   styleId: STYLE_ID,

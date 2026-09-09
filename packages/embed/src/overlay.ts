@@ -8,6 +8,7 @@
 import { controlHints } from "./controls";
 import type { ControlsManifest } from "./controls";
 import { createPauseShell } from "./pause-shell";
+import type { MuteAccessor } from "./pause-shell";
 
 /** One control hint row: input ("SPACE", "🤳 face cam") + what it does. */
 export type ControlHint = readonly [input: string, action: string];
@@ -32,6 +33,8 @@ export interface PauseOverlayOptions {
    * content that must not clutter gameplay.
    */
   help?: readonly HelpSection[];
+  /** Sound toggle rendered by the pause shell; omit for a game with no audio. */
+  mute?: MuteAccessor;
 }
 
 export interface PauseOverlay {
@@ -118,6 +121,7 @@ export const createPauseOverlay = (options: PauseOverlayOptions = {}): PauseOver
 
   return createPauseShell({
     modalOpen: () => helpModal !== null,
+    mute: options.mute,
     onHide: closeHelp,
     render(root) {
       const coarse = window.matchMedia("(pointer: coarse)").matches;

@@ -17,15 +17,7 @@ import { dist2 } from "../sim/math";
 import type { Vec2 } from "../sim/math";
 import { buyItem, createWorld, dashHero, issueOrder, spawnHero, step } from "../sim/world";
 import type { Order, Unit, World } from "../sim/types";
-import {
-  isMuted,
-  resetSound,
-  resumeAudio,
-  setMuted,
-  sfx,
-  toggleMute,
-  updateSoundscape,
-} from "../render/audio";
+import { resetSound, resumeAudio, sfx, toggleMute, updateSoundscape } from "../render/audio";
 import { readSoundscape } from "../render/score";
 import { structureAnnouncement } from "../render/objective-guidance";
 import { presentationSettings, watchPresentationSettings } from "../render/presentation-settings";
@@ -771,7 +763,6 @@ export class GameScene extends Scene {
     kb.on("keydown-M", () => {
       toggleMute();
       resumeAudio();
-      this.touchControls?.sync();
     });
 
     // Movement: arrow keys (right hand, held). Space = basic attack. Camera follows.
@@ -794,18 +785,11 @@ export class GameScene extends Scene {
    *  captures touches on its interactive objects. */
   private bindTouch(): void {
     this.bindPad();
-    // Pause is Escape-bound and mute is M-bound, so without this a phone player
-    // cannot leave the match and never learns the game has sound.
+    // Pause is Escape-bound, so without this a phone player cannot leave the
+    // match or reach the pause plaque's sound toggle.
     this.touchControls = createTouchControls({
       className: "moba-touch",
       css: TOUCH_CONTROLS_CSS,
-      mute: {
-        get: () => isMuted(),
-        set: (next) => {
-          setMuted(next);
-          resumeAudio();
-        },
-      },
       styleId: "moba-touch-controls",
     });
   }

@@ -191,8 +191,8 @@ export class Hud {
   drawMinimap(now: number): void {
     const g = this.layers.minimapGfx;
     g.clear();
-    // trailer HUD policy: no minimap
-    if (this.link.trailer) {
+    // trailer HUD policy: no minimap; nor before play begins
+    if (this.link.trailer || !this.link.started) {
       return;
     }
     // Safe-area insets keep the corner box off the home indicator/notch.

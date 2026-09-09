@@ -9,7 +9,7 @@
 // Nothing lighter than the paper tone, no greys the dither couldn't print.
 
 import { controlGroups, createPauseShell } from "@repo/embed";
-import type { ControlMethod } from "@repo/embed";
+import type { ControlMethod, MuteAccessor } from "@repo/embed";
 
 import { visibleControls } from "./controls";
 
@@ -70,7 +70,8 @@ const renderCard = (overlay: HTMLElement, matchContinues: boolean): void => {
 
   // Visuals only — positioning/z-index/fade already live on the shell's root.
   overlay.style.cssText +=
-    "display:flex;align-items:center;justify-content:center;padding:24px;" +
+    "display:flex;flex-direction:column;align-items:center;justify-content:center;" +
+    "gap:18px;padding:24px;" +
     `background:${SCRIM};` +
     `color:${INK};font-family:${FONT};text-align:center`;
 
@@ -144,8 +145,32 @@ const renderCard = (overlay: HTMLElement, matchContinues: boolean): void => {
   overlay.append(card);
 };
 
-export const createPongPauseOverlay = (matchContinues: () => boolean): PongPauseOverlay =>
+/** The shell's sound toggle, reprinted as an ink chip under the card. */
+const SOUND_TOGGLE_CSS = `
+.pong-pause .vg-pause-sound {
+  margin: 0;
+  padding: 0 14px;
+  min-height: 44px;
+  border-radius: 0;
+  background: ${PAPER};
+  border: 2px solid ${INK};
+  box-shadow: 4px 4px 0 ${INK};
+  color: ${INK};
+  font: 800 11px ${FONT};
+  letter-spacing: 3px;
+  text-transform: uppercase;
+}
+`;
+
+export const createPongPauseOverlay = (
+  matchContinues: () => boolean,
+  mute: MuteAccessor,
+): PongPauseOverlay =>
   createPauseShell({
+    className: "pong-pause",
+    css: SOUND_TOGGLE_CSS,
     fadeMs: 220,
+    mute,
     render: (overlay) => renderCard(overlay, matchContinues()),
+    styleId: "pong-pause-css",
   });

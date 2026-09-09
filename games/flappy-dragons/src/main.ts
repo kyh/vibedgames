@@ -77,8 +77,12 @@ initPoseCamera(poseJump);
 // anything, so onResume only wakes what it put to sleep. Presentation (the
 // get-ready 3-2-1, sound, fanfares) is local-only, so it pauses in BOTH paths.
 let froze = false;
-// Mirrors the start screen's controls card (same manifest).
-const pauseOverlay = createFlappyPauseOverlay(CONTROLS);
+// Mirrors the start screen's controls card (same manifest). Sound lives here
+// too: it is the one screen a phone player can always reach.
+const pauseOverlay = createFlappyPauseOverlay(CONTROLS, {
+  get: () => gameScene()?.isMuted() ?? true,
+  set: (next) => gameScene()?.setMuted(next),
+});
 setPauseHandlers({
   onPause: () => {
     wrapperPaused = true;

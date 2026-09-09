@@ -236,8 +236,7 @@
       #banner-detail:empty {
         display: none;
       }
-      #match-action,
-      #sound-toggle {
+      #match-action {
         min-height: 44px;
         border: 2px solid #000;
         background: #000;
@@ -263,16 +262,6 @@
       button:focus-visible {
         outline: 2px dashed #000;
         outline-offset: 4px;
-      }
-      #sound-toggle {
-        position: fixed;
-        top: calc(12px + env(safe-area-inset-top));
-        left: calc(12px + env(safe-area-inset-left));
-        padding: 0 10px;
-        background: #d4d4d4;
-        color: #000;
-        font-size: 10px;
-        letter-spacing: 1px;
       }
       @media (max-width: 600px) {
         #hud {
@@ -300,15 +289,6 @@
         #shot-charge {
           margin-top: 4px;
         }
-        #sound-toggle {
-          left: auto;
-          right: calc(12px + env(safe-area-inset-right));
-        }
-      }
-      @media (pointer: coarse) {
-        #sound-toggle {
-          display: none;
-        }
       }
       @media (max-height: 300px) {
         #hud {
@@ -316,8 +296,14 @@
         }
       }
 
-      /* Ink-on-paper skin for @repo/embed's touch pause/mute cluster — the two
-         controls that are keyboard-only everywhere else. */
+      /* Nothing but the title card before the first serve. */
+      body:not(.vg-started) #hud,
+      body:not(.vg-started) #camera-panel {
+        display: none;
+      }
+
+      /* Ink-on-paper skin for @repo/embed's touch pause button — the one
+         control that is keyboard-only everywhere else. */
       .vg-touch-controls {
         --vg-touch-bg: #d4d4d4;
         --vg-touch-bg-active: #b3b3b3;
@@ -372,9 +358,12 @@
           right: auto;
         }
       }
-      /* Tap-minimized: the panel collapses to a "HAND CONTROL" pill (the
-         ::before label becomes the whole control); tracking keeps running. */
-      #camera-panel[data-min="1"] {
+      /* Tap-minimized, or nothing to preview yet (off / unavailable): the panel
+         collapses to a label pill (the ::before label becomes the whole
+         control). While live, tracking keeps running behind the pill. */
+      #camera-panel[data-min="1"],
+      #camera-panel[data-state="off"],
+      #camera-panel[data-state="error"] {
         width: auto;
         aspect-ratio: auto;
         height: 44px; /* comfortable touch target */
@@ -383,14 +372,18 @@
         padding: 0 14px;
         background: #000;
       }
-      #camera-panel[data-min="1"]::before {
+      #camera-panel[data-min="1"]::before,
+      #camera-panel[data-state="off"]::before,
+      #camera-panel[data-state="error"]::before {
         position: static;
         padding: 0;
         background: none;
       }
       #camera-panel[data-min="1"] video,
       #camera-panel[data-min="1"] canvas,
-      #camera-panel[data-min="1"] #camera-status {
+      #camera-panel[data-min="1"] #camera-status,
+      #camera-panel[data-state="off"] #camera-status,
+      #camera-panel[data-state="error"] #camera-status {
         display: none;
       }
       #camera-panel::before {
@@ -478,7 +471,6 @@
       </div>
       <div id="match-point" role="status"></div>
     </div>
-    <button id="sound-toggle" type="button" aria-pressed="false">SOUND OFF</button>
     <div id="combo"></div>
     <div id="point-callout" role="status"></div>
     <div id="shot-callout" role="status"></div>

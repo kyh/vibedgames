@@ -80,7 +80,17 @@ const framePacer = new FramePacer(isCoarsePointer() ? "60hz" : "display");
 framePacer.setHidden(document.hidden);
 
 // Wrapper pause: solo game, safe to fully freeze (see GameScene.requestPause).
-const pauseOverlay = createPauseOverlay(() => game.restartRun());
+const pauseOverlay = createPauseOverlay({
+  mute: {
+    get: () => game.muted,
+    set: (next) => {
+      if (next !== game.muted) {
+        game.toggleMute();
+      }
+    },
+  },
+  onRestart: () => game.restartRun(),
+});
 const renderHeightPx = (): number => window.innerHeight * renderer.getPixelRatio();
 game.resize(window.innerWidth / window.innerHeight, renderHeightPx());
 
