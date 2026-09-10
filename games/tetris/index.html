@@ -382,8 +382,10 @@
          grayscale feed, selfie-mirrored (video + skeleton overlay together). */
       #camera-panel {
         position: fixed;
-        right: 10px;
-        bottom: 10px;
+        /* Bottom-right, 12px in from the safe area — the one camera-panel
+           anchor every camera game shares. */
+        right: calc(12px + env(safe-area-inset-right, 0px));
+        bottom: calc(12px + env(safe-area-inset-bottom, 0px));
         width: 300px;
         height: 225px;
         border-radius: 10px;
@@ -526,17 +528,20 @@
         }
       }
 
-      /* Small or touch screens: shrink the webcam panel to a thumbnail pinned
-         top-right (bottom-right belongs to the button cluster); tap toggles an
-         expanded view. Pose stays fully live at every size. */
+      /* Small or touch screens: shrink the webcam panel to a thumbnail; tap
+         toggles an expanded view. Pose stays fully live at every size. It keeps
+         the shared bottom-right anchor; on touch, where the thumb cluster owns
+         the corner itself, it stacks directly above the cluster on the same
+         right edge (284px = three rows of buttons from the safe-area corner,
+         plus a 12px gap). */
       @media (max-width: 700px), (max-height: 550px), (pointer: coarse) {
         #camera-panel {
-          top: calc(env(safe-area-inset-top, 0px) + 156px);
-          bottom: auto;
-          right: calc(env(safe-area-inset-right, 0px) + 10px);
           width: 120px;
           height: 90px;
           cursor: pointer;
+        }
+        body.touch #camera-panel {
+          bottom: calc(env(safe-area-inset-bottom, 0px) + 296px);
         }
         #camera-panel.expanded {
           width: 240px;
@@ -557,13 +562,12 @@
           font-size: 11px;
         }
       }
-      /* Landscape phone: the thumbnail shares the right edge with the pause
-         button above it and the thumb buttons below, so it insets past the
-         button's column and expands only within the band between them. */
+      /* Landscape phone: the cluster folds to two rows (196px tall from the
+         safe-area corner), so the thumbnail sits that much higher and expands
+         only within the band it has left. */
       @media (max-height: 550px) {
-        #camera-panel {
-          top: calc(env(safe-area-inset-top, 0px) + 48px);
-          right: calc(env(safe-area-inset-right, 0px) + 64px);
+        body.touch #camera-panel {
+          bottom: calc(env(safe-area-inset-bottom, 0px) + 208px);
         }
         #camera-panel.expanded {
           width: 152px;
@@ -574,13 +578,12 @@
           height: 44px;
         }
       }
-      /* Keep teaching / results below the expanded feed on narrow screens. */
       @media (max-width: 700px) and (min-height: 551px) {
-        /* A live feed is opaque: leave the well's spawn height visible while
-           playing / catching, without cropping the 4:3 camera image. */
+        /* A live feed is opaque: keep the expanded view small enough to leave
+           the well's spawn height visible while playing / catching, without
+           cropping the 4:3 camera image. */
         body:has(#banner[data-phase="playing"]) #camera-panel.expanded,
         body:has(#banner[data-phase="collapsing"]) #camera-panel.expanded {
-          top: calc(env(safe-area-inset-top, 0px) + 70px);
           width: 180px;
           height: 135px;
         }
@@ -588,10 +591,6 @@
           --banner-top: max(260px, 32vh);
           top: var(--banner-top);
           padding: 0 16px;
-        }
-        body:has(#camera-panel.expanded) #banner {
-          --banner-top: max(350px, 39vh);
-          top: var(--banner-top);
         }
         #spatial-rule {
           padding: 10px 12px;

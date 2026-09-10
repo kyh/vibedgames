@@ -301,6 +301,14 @@
       body:not(.vg-started) #camera-panel {
         display: none;
       }
+      /* Pre-serve the card IS the start screen, so it sits mid-screen: the
+         wrapper page keeps its own chrome over the frame's bottom edge until
+         play begins, and a bottom-anchored card disappeared under it. */
+      body:not(.vg-started) #banner {
+        top: 50%;
+        bottom: auto;
+        transform: translate(-50%, -50%);
+      }
 
       /* Ink-on-paper skin for @repo/embed's touch pause button — the one
          control that is keyboard-only everywhere else. */
@@ -324,8 +332,10 @@
         color: inherit;
         font: inherit;
         position: fixed;
-        right: calc(14px + env(safe-area-inset-right));
-        bottom: calc(14px + env(safe-area-inset-bottom));
+        /* Bottom-right, 12px in from the safe area — the one camera-panel
+           anchor every camera game shares. */
+        right: calc(12px + env(safe-area-inset-right));
+        bottom: calc(12px + env(safe-area-inset-bottom));
         /* Clamped for phones off the SHORT side: 34vw is right in portrait but
            a landscape phone is 850+px wide, where the full 224px panel covers
            the player's own paddle at full right deflection. */
@@ -341,10 +351,21 @@
         outline: 3px solid #000;
         outline-offset: 5px;
       }
-      /* Narrow (portrait phone): sit above the #serve-meter zone. */
+      /* Narrow (portrait phone): the full-width serve card and the serve
+         meter would run under the panel, so THEY rise above it (the panel
+         keeps the shared bottom-right anchor). Panel height = 3/4 of its
+         width plus the 2px borders; a folded pill is 44px. */
       @media (max-width: 600px) {
-        #camera-panel {
-          bottom: calc(80px + env(safe-area-inset-bottom));
+        body.vg-started :is(#banner, #serve-meter) {
+          bottom: calc(28px + env(safe-area-inset-bottom) + 0.75 * min(224px, 34vmin));
+        }
+        body.vg-started:has(
+            #camera-panel[data-min="1"],
+            #camera-panel[data-state="off"],
+            #camera-panel[data-state="error"]
+          )
+          :is(#banner, #serve-meter) {
+          bottom: calc(68px + env(safe-area-inset-bottom));
         }
       }
       /* A landscape phone has no room in the bottom-right: the player's paddle

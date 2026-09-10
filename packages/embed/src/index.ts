@@ -13,6 +13,7 @@ export type {
   ControlsManifest,
 } from "./controls";
 export {
+  isEmbedded,
   isPausable,
   notifyGameStarted,
   pauseGame,
