@@ -1,4 +1,4 @@
-import { ColliderDesc } from "@dimforge/rapier3d-compat";
+import { ColliderDesc } from "#rapier";
 import type { Solid } from "../shared/types";
 
 const STATIC_HALF_HEIGHT = 6;

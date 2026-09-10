@@ -1,4 +1,5 @@
-import { choosePlayerSpawn } from "../world/player-spawn";
+import { choosePlayerSpawn, isPlayerSpawnSafe } from "../world/player-spawn";
+import type { PlayerSpawn } from "../world/player-spawn";
 import * as THREE from "three";
 import { createTouchControls, notifyGameStarted, watchControlContext } from "@repo/embed";
 import type { PlayerMap } from "@vibedgames/multiplayer";
@@ -63,7 +64,7 @@ import {
   WORLD_HALF_Z,
   WORLD_W,
 } from "../shared/constants";
-import { isJsonString, parseJsonText } from "../shared/json";
+import { isFiniteJsonNumber, isJsonObject, isJsonString, parseJsonText } from "../shared/json";
 import type { GameMode } from "../shared/types";
 import { STAGE_MARGIN } from "../trailer/scout";
 import { GaragePreview } from "../ui/garage-preview";
@@ -261,6 +262,31 @@ const storageSet = (key: string, value: string): void => {
     window.localStorage.setItem(key, value);
   } catch {
     // Blocked store just loses persistence — never the run.
+  }
+};
+
+const SPAWN_KEY = "crazy-waymo:spawn";
+/** A stored spawn is data from an older build: every field is re-checked, and
+ *  the caller still runs it through the safety test against today's world. */
+const parseSpawn = (raw: string | null): PlayerSpawn | null => {
+  if (!raw) {
+    return null;
+  }
+  try {
+    const value = parseJsonText(raw);
+    if (!isJsonObject(value)) {
+      return null;
+    }
+    const { x, z, yaw, gx, gz } = value;
+    return isFiniteJsonNumber(x) &&
+      isFiniteJsonNumber(z) &&
+      isFiniteJsonNumber(yaw) &&
+      isFiniteJsonNumber(gx) &&
+      isFiniteJsonNumber(gz)
+      ? { gx, gz, x, yaw, z }
+      : null;
+  } catch {
+    return null;
   }
 };
 
@@ -1743,15 +1769,26 @@ vec3 ocGerstner(vec2 p, float t) {
 
   // Revalidated after full readiness on every start. The early loading pose
   // uses available solids; actual play uses the complete static collision index.
+  // The spawn sticks between visits: the title gates on the tiles around it,
+  // so a returning player reloads a neighbourhood the browser already holds
+  // instead of downloading a fresh one. Trailers keep their own start.
   private computeSpawn(city: CityModel): WorldSpawn {
-    const spawn = choosePlayerSpawn({
+    const world = {
       decks: city.getDecks(),
-      heightAt: (x, z) => city.heightAt(x, z),
+      heightAt: (x: number, z: number) => city.heightAt(x, z),
       network: city.network,
       solids: this.solidIndex ?? new SolidIndex(city.solids),
-    });
+    };
+    const remembered = this.trailerMode ? null : parseSpawn(storageGet(SPAWN_KEY));
+    if (remembered && isPlayerSpawnSafe(world, remembered)) {
+      return remembered;
+    }
+    const spawn = choosePlayerSpawn(world);
     if (!spawn) {
       throw new Error("No safe player start exists in the street network");
+    }
+    if (!this.trailerMode) {
+      storageSet(SPAWN_KEY, JSON.stringify(spawn));
     }
     return spawn;
   }

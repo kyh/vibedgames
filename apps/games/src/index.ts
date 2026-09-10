@@ -15,12 +15,14 @@ import {
 /**
  * Content types R2 stores raw and Cloudflare's edge compression does not cover.
  * Rigged GLBs are the expensive case: they are plain binary buffers that gzip to
- * roughly a third, and an asset-heavy game ships a dozen megabytes of them.
+ * roughly a third, an asset-heavy game ships a dozen megabytes of them, and a
+ * physics engine's wasm shrinks to 40% (streaming instantiation reads the
+ * decoded bytes, so `application/wasm` survives the encoding).
  * Types that arrive already compressed (images, audio, video, and the gzipped
  * `.bin` world payloads games bake themselves) are deliberately absent — a
  * second pass costs CPU and returns nothing.
  */
-const COMPRESSIBLE_TYPES = new Set(["model/gltf-binary", "model/gltf+json"]);
+const COMPRESSIBLE_TYPES = new Set(["model/gltf-binary", "model/gltf+json", "application/wasm"]);
 
 const acceptsGzip = (request: Request): boolean =>
   (request.headers.get("accept-encoding") ?? "").toLowerCase().includes("gzip");
