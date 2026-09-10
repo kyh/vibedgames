@@ -1,6 +1,6 @@
 ---
 name: generate
-description: 'Use the `vg generate` CLI to search, inspect, run, and manage 1200+ generative model endpoints. Trigger when the user asks to "generate an image", "make a video", "search models", "run a model", "fetch schema", "check pricing", "upload an asset", "queue async job", "track request", or any direct interaction with the model endpoint catalog. This is the foundational skill. Every other media skill in this repo executes its work through `vg generate` commands. Use `--json` whenever the output will be parsed by an agent, or `--field path` to print a single value.'
+description: "Run the `vg generate` CLI: search models, inspect schemas and pricing, run endpoints, upload inputs, track async jobs. The base every media skill here builds on."
 ---
 
 # vg generate: model endpoint runner
@@ -71,6 +71,12 @@ vg generate status fal-ai/veo3.1 "$REQ" \
  --download "./out/{request_id}_{index}.{ext}" \
  --json
 ```
+
+**If a job's outcome is ever ambiguous, recover — don't resubmit.**
+
+- Capture `request_id` the moment a submit returns (`--field request_id`, or `request_id` in the `--json` result) and resume with `vg generate status <endpoint_id> <request_id>`.
+- Never re-`run` after an ambiguous failure (connection lost, unclear response). Reconcile the request id or job history first; if none can be recovered, say so and get authorization before a potentially duplicate paid request.
+- Retry only idempotent reads (`status`, `--download`) with backoff. A single transient error is not a completed recovery — exhausting bounded retries leaves the job pending, not permission to submit again.
 
 ### Upload then run
 

@@ -630,6 +630,34 @@ const readConsoleErrors = () => {
     .map((entry) => entry?.text ?? JSON.stringify(entry));
 };
 
+/**
+ * Renderer string of the game's own WebGL context, so a SwiftShader run can't
+ * pass as performance evidence. Null fields when the canvas isn't WebGL.
+ */
+const readGpuInfo = () => {
+  const info = evaluate(
+    `(() => {
+      const canvas = document.querySelector("canvas");
+      let gl = null;
+      try { gl = canvas?.getContext("webgl2") ?? canvas?.getContext("webgl") ?? null; } catch { gl = null; }
+      if (!gl) { return null; }
+      const debug = gl.getExtension("WEBGL_debug_renderer_info");
+      return {
+        renderer: debug ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
+        vendor: debug ? gl.getParameter(debug.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR),
+      };
+    })()`,
+  );
+  if (!isPlainObject(info) || !isString(info.renderer)) {
+    return { renderer: null, softwareRendered: null, vendor: null };
+  }
+  return {
+    renderer: info.renderer,
+    softwareRendered: /swiftshader|llvmpipe|software|basic render/iu.test(info.renderer),
+    vendor: isString(info.vendor) ? info.vendor : null,
+  };
+};
+
 /** The run's baseline, read the same way the per-step tracker reads. */
 const SAMPLE = `(() => { ${READ_FN} return __botRead(); })()`;
 
@@ -756,9 +784,16 @@ const main = () => {
   // what leaves the menu. Stash the frame it left off at so the wait below
   // proves the loop moved *after* the hooks, rather than passing instantly on
   // a game that was already past frame 10.
-  evaluate(
-    `(() => { const h = window.__GAME_TEST_HOOKS__; h.seed?.(${opts.seed}); h.setState?.('active-play'); window.__BOT_F0__ = h && window.__GAME_DIAGNOSTICS__.frame; })()`,
+  const ack = evaluate(
+    `(async () => { const h = window.__GAME_TEST_HOOKS__; h.seed?.(${opts.seed}); const ack = await h.setState?.('active-play'); window.__BOT_F0__ = h && window.__GAME_DIAGNOSTICS__.frame; return ack === undefined ? null : ack; })()`,
   );
+  // The ack is optional (void hooks keep working) but asserted when present:
+  // a hook that answers with a different state applied a different state.
+  if (ack !== null && (!isPlainObject(ack) || ack.state !== "active-play")) {
+    fail(
+      `setState('active-play') acknowledged ${JSON.stringify(ack)} instead of { state: 'active-play' } — the hook applied a different state or is a no-op (see references/bot-playtest.md).`,
+    );
+  }
 
   const live = playtest([
     "wait",
@@ -786,12 +821,16 @@ const main = () => {
   if (!Array.isArray(pageErrors)) {
     fail("`errors` returned a non-array `errors`.");
   }
+  const gpu = readGpuInfo();
 
   const report = {
     complete: prev.complete,
     consoleErrors,
     distanceTravelled: Number(distance.toFixed(2)),
     framesAdvanced: prev.frame - before.frame,
+    // Which GPU rasterized the run. Under software rendering the functional
+    // checks above still hold; any frame-rate read from the run does not.
+    gpu,
     longestStuckRun,
     maxStepDisplacement: Number(maxStepDisplacement.toFixed(2)),
     pageErrors,

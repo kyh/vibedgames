@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
- * Heuristic quality analysis of a skill: does it establish a philosophy, warn
- * about anti-patterns, encourage variation, organise itself, and empower
- * rather than constrain.
+ * Heuristic quality analysis of a skill: is the description short and
+ * trigger-precise, is the root a router over references and scripts, does it
+ * carry concrete facts rather than itinerary, name its traps, and say how to
+ * verify the result.
  *
  * Usage:
  *   node analyze-skill.mjs <path/to/skill>
@@ -46,7 +47,10 @@ const body = parts.slice(2).join("---").trim();
 
 console.log(`\n🔍 Analyzing skill at: ${skillPath}\n`);
 
-const analysis = analyzeSkillBody(frontmatter, body);
+const analysis = analyzeSkillBody(frontmatter, body, {
+  hasReferences: existsSync(path.join(skillPath, "references")),
+  hasScripts: existsSync(path.join(skillPath, "scripts")),
+});
 const rule = "=".repeat(60);
 
 console.log(rule);
@@ -68,26 +72,23 @@ console.log(rule);
 const scoreOf = (name) => analysis.categories.find((c) => c.category === name)?.score ?? 0;
 
 if (analysis.totalScore >= 80) {
-  console.log("\n🌟 Excellent! This skill follows best practices.");
+  console.log("\n🌟 Loads when it should and costs little to read.");
 } else if (analysis.totalScore >= 60) {
-  console.log("\n✅ Good skill. Consider the suggestions above to improve.");
-} else if (analysis.totalScore >= 40) {
-  console.log("\n⚠️  Needs improvement. Focus on:");
-  if (scoreOf("Philosophy") < 20) {
-    console.log("   - Add philosophical foundation");
-  }
-  if (scoreOf("Anti-Patterns") < 15) {
-    console.log("   - Include anti-pattern warnings");
-  }
-  if (scoreOf("Variation") < 10) {
-    console.log("   - Encourage variation in outputs");
-  }
+  console.log("\n✅ Sound. The lowest categories above are the cheap wins.");
 } else {
-  console.log("\n❌ Significant improvements needed:");
-  console.log("   - Establish a clear philosophical framework");
-  console.log("   - Add explicit anti-patterns section");
-  console.log("   - Encourage context-specific variation");
-  console.log("   - Improve organization and structure");
+  console.log("\n⚠️  Needs work. Start with:");
+  if (scoreOf("Description") < 15) {
+    console.log("   - Shorten the description to one trigger-precise sentence");
+  }
+  if (scoreOf("Router") < 15) {
+    console.log("   - Move depth into references/ and make the root point at it");
+  }
+  if (scoreOf("Verification") < 8) {
+    console.log("   - Say how the output is verified without a human");
+  }
+  if (scoreOf("Anti-Patterns") < 8) {
+    console.log("   - Name the traps a naive attempt falls into");
+  }
 }
 
 console.log("\n");

@@ -45,7 +45,10 @@ const body = parts.slice(2).join("---").trim();
 
 console.log(`\n🔧 Analyzing upgrade opportunities for: ${skillPath}\n`);
 
-const suggestions = generateSuggestions(frontmatter, body);
+const suggestions = generateSuggestions(frontmatter, body, {
+  hasReferences: existsSync(path.join(skillPath, "references")),
+  hasScripts: existsSync(path.join(skillPath, "scripts")),
+});
 const rule = "=".repeat(70);
 
 console.log(rule);
@@ -53,7 +56,9 @@ console.log(`UPGRADE SUGGESTIONS: ${frontmatter.name ?? "unknown"}`);
 console.log(rule);
 
 if (suggestions.length === 0) {
-  console.log("\n✅ No major improvements needed! This skill follows best practices.\n");
+  console.log(
+    "\n✅ Nothing to flag: short description, router root, traps and verification present.\n",
+  );
   process.exit(0);
 }
 

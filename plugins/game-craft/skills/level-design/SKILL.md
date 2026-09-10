@@ -1,6 +1,6 @@
 ---
 name: level-design
-description: "Level, wave, and arena design patterns from the canon (Nintendo's kishōtenketsu, Scott Rogers' Disneyland weenies, Celeste's room design, Valve's experiential density) — structure, pacing, teaching through geometry, guiding the eye, wave grammar for endless games. Use when designing or generating levels, waves, arenas, or difficulty progression: 'design levels for my platformer', 'the level feels empty/confusing', 'players don't know where to go', 'make better waves', 'how should difficulty ramp', 'add more levels'."
+description: "Design levels, waves, arenas and difficulty progression: structure, pacing, teaching through geometry, guiding the eye, wave grammar for endless games."
 ---
 
 # Level design

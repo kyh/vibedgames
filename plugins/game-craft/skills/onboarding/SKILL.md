@@ -1,6 +1,6 @@
 ---
 name: onboarding
-description: "First-30-seconds design, invisible tutorials, difficulty curves, failure/retry loops and assist modes for link-shared browser games — distilled from George Fan's PvZ tutorial rules, Jenova Chen's flow thesis, Koster's Theory of Fun, Juul's Art of Failure, and Celeste's Assist Mode. Use when: 'players don't get it', 'people quit immediately', 'does it need a tutorial?', 'too hard/too easy', 'tune the difficulty', 'make the start better', 'add an easy mode', or auditing a game's first minute before shipping."
+description: "Design a game's first minute: invisible tutorials, difficulty curves, failure and retry loops, assist modes. Use when players quit early or don't get it."
 ---
 
 # Onboarding & difficulty
@@ -23,11 +23,16 @@ skill to stay in the flow channel.
 - **Detect input device**: show touch hints to touch users, key hints to
   keyboard users — never a scheme the device can't use. If the core input is
   exotic (webcam, gamepad, mic), hint it explicitly and ship a plain
-  mouse/keyboard fallback that's announced, not silent.
+  mouse/keyboard fallback that's announced, not silent. Gimmick inputs
+  (webcam/face/pose/hand, 3D presentation) are the product's identity —
+  never drop them in a rebuild; standard inputs are fallbacks alongside. Hand
+  tracking is undiscoverable on touch — hint it.
 - **Browser permission prompts are modals.** Camera/mic/motion requests are
   the most common cold-open modal in browser games — make them opt-in behind
   a button, or defer until after first play. Never fire `getUserMedia` on
-  mount.
+  mount, and don't fetch the model before consent: the MediaPipe bundle
+  pulled pre-consent from CDN is the biggest per-game load lever (6.1 MB →
+  0.15 MB and 2.5 MB → 0.14 MB on two games once deferred).
 
 ## Teaching without a tutorial (George Fan's PvZ rules)
 
@@ -46,6 +51,8 @@ skill to stay in the flow channel.
 - **Bias the first decision**: make the correct opening move the cheap,
   shiny, obvious one (Fan made sunflowers cheap and sparkly).
 - **Never label anything "Tutorial".**
+- **Control hints live on the start screen only** — never persistent chrome
+  during play (allowed exceptions in `game-ui`).
 
 ## Difficulty curve
 

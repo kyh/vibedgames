@@ -22,11 +22,16 @@ window.__GAME_DIAGNOSTICS__ = {
 window.__GAME_TEST_HOOKS__ = {
   seed(n) {}, // reseed RNG AND restart/regenerate the run — see below
   setState(name) {}, // jump to a named state: 'active-play', 'fail', 'boss'
+  //   → returns { state: name } once applied (sync or Promise); throws on unknown names
   setPausedForScreenshot(paused) {},
   setReducedMotion(enabled) {}, // freeze shake/particles/time-based FX
   hideDebugUi() {},
 };
 ```
+
+**`setState(name)` acknowledges.** It returns `{ state: name }` — synchronously or via a Promise — only after the state is applied, and throws for a state it doesn't know. The bot awaits it and asserts the ack matches; a hook that returns `void` still works (the ack is optional), but an ack naming a different state, a thrown error, or a no-op that never changes the diagnostics fails the run. Games that return `void` today (`games/lunerfall/src/sys/diag.ts`, `games/starfall/src/shared/diag.ts`) can adopt the ack lazily.
+
+**Visual hooks must apply their changes while paused, without needing a gameplay tick.** `setPausedForScreenshot`, `setReducedMotion` and `hideDebugUi` are called on a frozen scene; a hook that only takes effect on the next update never takes effect. The capture order is in `canvas-determinism.md` § Screenshots.
 
 Rule: JSON-serializable primitives only, never raw engine objects — `vg playtest eval … --json` has to serialize whatever you return. If gameplay randomness bypasses the seeded RNG, bot metrics are noise.
 
@@ -59,7 +64,7 @@ node $SKILL/scripts/bot-playtest.mjs --url http://localhost:5173 --script ./swee
 | `--script <path>`       | JSON array of `{ keys?, pointer?, ms }` steps — each needs `keys` or a `pointer` |
 | `--expect-progress`     | Assert the objective advances (see below)                                        |
 | `--reaction-delay <ms>` | Idle gap after each step — models a slower player                                |
-| `--headed`              | Show the browser (needed for real-GPU and WebGPU capture)                        |
+| `--headed`              | Show the browser (needed for WebGPU capture on Linux/Windows)                    |
 | `--keep-open`           | Leave the page open afterwards so you can inspect it                             |
 
 Exit `0` = the game plays, `1` = it doesn't (the JSON report names which check failed), `2` = the harness itself failed (no browser, game never booted).
@@ -146,8 +151,12 @@ The only way to hold a properly-formed key is to dispatch the event yourself —
 
 Always release what you hold — a dangling keydown stays stuck in the game and poisons the next run against the same daemon.
 
+**Hold ≥ 80 ms.** A down and up in the same tick (Playwright `press()`, two back-to-back `eval`s) can fall between rAF samples, and edge-triggered input (Phaser `JustDown`) never sees it. The script's steps are seconds-long holds; a hand-driven tap keeps the key down for at least 80 ms. Schedule combo taps by wall-clock inside one `eval` (`setTimeout` chain), not one `vg playtest` call per key — eval round-trip latency becomes the tempo, and it varies.
+
 ## Headless WebGL Footguns
 
-- **Never report headless FPS as performance.** Headless Chrome renders WebGL on SwiftShader (software rasterizer) — ~2fps on scenes a real GPU runs at 120. Headless runs are for correctness only; capture FPS with `--headed` on a real GPU and label headless numbers functional-only.
+- **Verify the renderer before reporting a frame rate.** Headless is not one thing: `vg playtest` (agent-browser) and Playwright's `channel: "chrome"`/`"chromium"` render on the real GPU (`ANGLE Metal` on a Mac), while a bare Playwright `launch()` uses the headless shell and falls back to SwiftShader. The report's `gpu.renderer` / `gpu.softwareRendered` say which happened. SwiftShader ⇒ functional-only evidence, no FPS claims. A hardware renderer (ANGLE Metal/D3D/Vulkan on a real device) ⇒ a desktop-GPU signal — still not a phone; mobile performance needs a phone.
 - **WebGPU screenshots are black in headless Chrome on Linux and Windows** (rendering and in-page readbacks work; only the capture fails). Use `--headed`; on Linux with no `DISPLAY`, agent-browser starts Xvfb automatically. `vg playtest doctor --webgpu` verifies the whole pipeline.
-- **Don't run two playtests concurrently against WebGL games.** They share the software rasterizer; the frame-time collapse drifts game time from wall time and flakes every timed phase.
+- **Don't run two playtests concurrently against WebGL games.** The contexts contend for the GPU; the frame-time collapse drifts game time from wall time and flakes every timed phase. Run suites serially (`workers: 1`).
+
+Headed real-GPU flags, virtual time, screenshot stalls and phone emulation: `canvas-determinism.md` § Headless Footguns.

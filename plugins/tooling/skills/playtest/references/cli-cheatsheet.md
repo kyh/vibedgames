@@ -6,7 +6,7 @@ Every argument passes through to [agent-browser](https://github.com/vercel-labs/
 
 - A **daemon** holds the browser open between invocations. Commands are separate processes; the page is not. It shuts down after an idle timeout, or on `vg playtest close`.
 - **Refs (`@e1`, `@e2`) are per-snapshot.** Take a snapshot, act on its refs, and re-snapshot after anything that changes the page. A stale ref is the single most common mistake.
-- **Headless by default.** `--headed` when you need a real GPU or WebGPU capture.
+- **Headless by default**, on the real GPU (check the renderer string — SwiftShader means functional-only evidence). `--headed` for WebGPU capture on Linux/Windows.
 - **`--json` on read commands** when the output will be parsed rather than read.
 
 ## Open and Navigate
@@ -124,13 +124,29 @@ vg playtest batch --bail "open http://localhost:5173" "click @e1"
 
 ```sh
 vg playtest set viewport 1280 720           # lock before any baseline
-vg playtest set viewport 390 844 3          # phone-sized, DPR 3
-vg playtest set device "iPhone 14"          # touch-controls check
+vg playtest set viewport 390 844 3          # phone-sized layout, DPR 3
+vg playtest set device "iPhone 15"          # viewport + UA only — NOT a touch device
 vg playtest set media dark
 vg playtest set offline on
 ```
 
-`set device` is the fastest way to check on-screen touch controls without a phone.
+**`set device` does not make a phone.** It sets viewport and user-agent; the page still reports `pointer: fine`, `maxTouchPoints: 0`, no `ontouchstart`. Games gate their touch UI on `matchMedia('(pointer: coarse)')`, so a session set up this way runs the **desktop** build and every mobile finding from it is void. Assert before believing anything:
+
+```sh
+vg playtest eval "({ coarse: matchMedia('(pointer: coarse)').matches, touch: navigator.maxTouchPoints })" --json
+```
+
+Real emulation is CDP on the session's page target, from a client that **stays attached for the whole run** — Chrome reverts every `Emulation.*` override the moment the client detaches:
+
+1. `Emulation.setDeviceMetricsOverride { width, height, deviceScaleFactor, mobile: true }`
+2. `Emulation.setTouchEmulationEnabled { enabled: true, maxTouchPoints: 5 }`
+3. Navigate or `reload` **after** the override — `ontouchstart` and `maxTouchPoints` are fixed at renderer boot.
+
+Traps that silently corrupt mobile readings:
+
+- **Never enable `Emulation.setEmitTouchEventsForMouse`** — every Playwright `click`/`mouse` command hangs forever. Dispatch gestures with `Input.dispatchTouchEvent` (tap, hold, swipe, multi-finger); `click <selector>` is still fine for tapping a DOM control.
+- **`screenshot` re-applies the portrait viewport** and returns a stale frame while `innerWidth` still reports the old width. Re-assert the viewport after shooting. A second CDP client attaching can reset the holder's emulation too.
+- **`env(safe-area-inset-*)` reads 0 in the emulator.** A missing `env()` is checkable statically; a notch collision is not observable here — never claim you saw one.
 
 ## Sessions
 
@@ -146,7 +162,7 @@ vg playtest session list
 Two concurrent sessions genuinely are isolated — verified on 0.34: `p1` and `p2` each held their own page state against the same URL at the same time. So a two-client multiplayer check is possible, with two caveats:
 
 - Sync through the party server hasn't been exercised this way yet. Confirm both clients actually connected before trusting a finding.
-- Two concurrent WebGL contexts share the software rasterizer, so any _timing_ measured across two sessions is unreliable. Assert on state, not on latency.
+- Concurrent WebGL sessions contend for the GPU (~8 run fine), so any _timing_ measured under contention is noise. Assert on state; take load/perf numbers serially in a fresh session — `canvas-determinism.md` § Headless Footguns.
 
 ## Install and Diagnostics
 

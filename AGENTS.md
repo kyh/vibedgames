@@ -93,7 +93,9 @@ currently does.
 
 ## Verify a change end-to-end
 
-Static gate — run before every commit:
+Everything here is local and disposable — Miniflare D1/R2, seeded logins, headless browsers, no production access. Run it, fix failures your change caused, rerun what it touched, and do not stop to ask between steps. A change is done when this gate is green **and** the surface it touched has been driven once (a game via `vg playtest`, the web app via the recipe below); a first implementation that has not been run is not done.
+
+Static gate — before a commit:
 
 ```sh
 pnpm verify   # typecheck · lint · format · test

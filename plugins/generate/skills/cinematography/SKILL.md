@@ -1,6 +1,6 @@
 ---
 name: cinematography
-description: "Design cinematic image and video prompts for `vg generate`. Use this for shot language, camera movement, lighting, lens choices, color grade, film texture, scene blocking, and production-ready visual direction."
+description: "Write cinematic image and video prompts for `vg generate`: shot language, camera movement, lighting, lenses, colour grade, blocking."
 ---
 
 # Cinematography with `vg generate`

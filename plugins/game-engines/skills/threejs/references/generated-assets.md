@@ -125,9 +125,19 @@ Two more routes at this decision point:
   (`"<Component>__pivot"`) and sockets. Animate those pivots; never re-centre
   or uniform-scale the returned group — that moves the hinges.
 - Free **asset-kit GLBs** (e.g. Kenney kits) are the fastest fill for generic
-  set dressing. One trap: kit GLBs often reference an external per-kit
-  colormap — embed it via a gltf-transform read→write with `ALL_EXTENSIONS`
-  (preserving `KHR_texture_transform`) or the colors break on load.
+  set dressing. Traps:
+  - Kit GLBs often reference an external per-kit colormap — embed it via a
+    gltf-transform read→write with `ALL_EXTENSIONS` (preserving
+    `KHR_texture_transform`) or the colors break on load.
+  - Colour lives in that shared colormap, so runtime `material.color`
+    **multiplies** — it can only darken. Recolours are baked variants:
+    `gltf-transform copy in.glb out.gltf`, edit the atlas, repack.
+  - Measure axes before placement: `npx @gltf-transform/cli inspect model.glb`.
+    Kenney streetlight arms run local −Z; Meshy vehicles/props face ±X
+    (yaw −π/2, scale by the length axis, ground at y=0).
+  - Kits are authored at different scales (Kenney Car Kit ≈ 1.5×2.75 u, City
+    Kit 1 u tiles, Mini Characters 0.67 u). Pick one kit as native and scale
+    the others to it — never rescale the world per kit.
 
 ---
 

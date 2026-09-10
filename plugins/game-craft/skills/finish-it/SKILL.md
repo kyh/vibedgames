@@ -1,6 +1,6 @@
 ---
 name: finish-it
-description: "Scope-cutting and shipping discipline from Derek Yu's 'Finishing a Game' and 'Death Loops', jam culture, and veteran shipping practice — diagnose why a game project stalled, cut to a shippable core, define a binary finish line, ship it. Use when: a game project is stalled or sprawling, 'I keep adding features', 'it's never done', 'should I add X before shipping?' (usually no), 'help me finish this', 'is this ready to ship?', or scoping a new game so it actually ships."
+description: "Get a stalled or sprawling game project to ship: diagnose the death loop, cut to the core, set a binary finish line."
 ---
 
 # Finish it
@@ -82,10 +82,13 @@ scope creep — route it to `NEXT_GAME.md` and switch to finishing mode.
 - [ ] Page title + favicon + meta description set
 - [ ] Mobile viewport meta; page doesn't scroll/zoom under game input; canvas
       scales to the window
-- [ ] Touch controls, or an explicit "keyboard required" notice on mobile
+- [ ] Touch controls, or an explicit "keyboard required" notice on mobile —
+      actually driven on a touch viewport, not just screenshotted
+- [ ] Debug UI, FPS meters, `?test=` hooks hidden from players
 - [ ] SFX exist, start only after user gesture, mute toggle works
 - [ ] Tab-blur handled: no desync/physics spiral when backgrounded
-- [ ] No console errors across a full session
+- [ ] No console errors across a full session, verified against THIS game —
+      a non-blank canvas on a port another dev server owns proves nothing
 - [ ] Frame rate holds; no unbounded entity leaks over a long session
 - [ ] First-timer survives >15s; a deliberate player can lose
 - [ ] All assets load on the deployed path (no localhost/absolute refs)

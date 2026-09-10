@@ -102,3 +102,28 @@ Useful inference:
 Avoid:
 
 - Don’t treat tile ID 0 as empty unless the tileset flag indicates that convention (tileset flags mention empty-tile semantics).
+
+## 9) Export a Phaser-ready sheet (headless)
+
+`--ignore-layer` silently no-ops on some files, so hide layers in Lua and let the CLI export what is visible:
+
+```lua
+-- hide-editor-layers.lua
+local spr = app.activeSprite
+local hide = { bg = true, BG = true, Background = true, Text = true, Reflection = true, ["Layer 1"] = true }
+for _, layer in ipairs(spr.layers) do
+  if hide[layer.name] then layer.isVisible = false end
+end
+```
+
+```bash
+aseprite -b hero.aseprite --script hide-editor-layers.lua \
+  --sheet-type packed --format json-array \
+  --sheet hero.png --data hero.json          # NO --trim: feet-origins hold only on a fixed canvas
+```
+
+Then check the result before wiring it:
+
+- `aseprite-inspect.mjs hero.aseprite --json --decode-cels` → any empty frame at index 0 is a guide spacer; start tags at 1 or drop it from the sheet.
+- `hero.json` `frames[]` must be an array (json-array) with a per-frame `duration` — Phaser's `createFromAseprite` looks frames up by index string and builds anims from those durations.
+- Load: `this.load.aseprite("hero", "hero.png", "hero.json")`; `this.anims.createFromAseprite("hero")`; `sprite.play("attack")`. Retime with `anims.timeScale`, never `play({ duration })` (freezes on frame 1).

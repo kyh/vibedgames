@@ -1,6 +1,6 @@
 ---
 name: game-balance
-description: "Game systems, loops, economy and balance math — core-loop construction, sources/sinks, cost & power curves with real formulas, loot tables, pity timers, prestige math, dominant-strategy audits — from Schreiber's Game Balance Concepts, Daniel Cook's skill atoms & loot tables, Machinations, Hopson's reward schedules, and idle-game math. Use when: 'balance my game', 'tune the upgrades', 'design the economy', 'add progression/levels/XP', 'players found one strategy and spam it', 'design loot drops', 'add a prestige system', 'is my difficulty curve right?', or auditing for soft-locks and dominant strategies."
+description: "Design and tune game systems and economies: core loops, sources and sinks, cost and power curves, loot tables, progression, dominant-strategy and soft-lock audits."
 ---
 
 # Systems, loops & balance
@@ -37,6 +37,9 @@ figuring out what numbers to use. What the player can't perceive doesn't exist
 - **Faucet-of-last-resort**: every spendable resource needs an income path
   from zero (trickle, sell-back, free reroll) — fix soft-locks structurally,
   not with warnings.
+- **Purchase is a deliberate, separate key.** A fused unlock+play — a confirm
+  key that spends currency as a side effect — turns mashing restart into a
+  spend.
 
 ## Cost & power curves
 
@@ -89,6 +92,10 @@ figuring out what numbers to use. What the player can't perceive doesn't exist
   or make the snowball the point. Negative (rubber-banding) stabilizes —
   dampen the leader, never erase them; catch-up that cancels skill reads
   unfair. Don't use catch-up mechanics to mask a broken cost curve.
+- **Public-arena levelling**: keep the veteran↔newcomer power gap narrow — a
+  bounded cap of 3–5 big visible steps, modest per-level deltas, scale regen
+  not max HP, lose XP on death so leaders regress, and scale elite HP with
+  the room's max level so TTK stays level-invariant.
 - **Prestige = reset for a permanent multiplier.** Production formulas:
   Cookie Clicker `∛(lifetime/10¹²)`, AdVenture Capitalist
   `150·√(lifetime/10¹⁵)`, Egg Inc `(run/10⁶)^0.14`. Lifetime-based pushes

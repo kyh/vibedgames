@@ -1,6 +1,6 @@
 ---
 name: vfx
-description: "Real-time 2D VFX cookbook — layered explosions, hit sparks, muzzle flashes, trails, smoke, pickups, heals, shockwaves, weather — with particle parameter recipes, color/readability rules, and mobile-browser performance budgets, from Diablo's VFX talk, Riot's style guide, saint11, and the GDC VFX bootcamps. Use when: 'add effects', 'make the explosion better', 'hits need more impact' (visual side), 'add a trail/aura/sparkle', 'the effects look muddy/noisy', 'particles tank the framerate', or any Phaser particle emitter / blend mode / post-FX work."
+description: "Build real-time 2D effects in-engine — explosions, hit sparks, trails, smoke, pickups, shockwaves, weather — with particle recipes, readability rules and mobile budgets."
 ---
 
 # Real-time VFX
@@ -11,9 +11,23 @@ must learn (hit confirmed? danger radius?). Then the timing model:
 slow lingering decay. Fast in, slow out: peak size in the first ~20% of an
 effect's life, the rest is decay.
 
-Two more laws: **scale of importance** — a basic attack must never outshine
-an ultimate — and **if it feels long, it's way too long**: effects live in a
-busy scene, default shorter than feels right alone.
+Three more laws: **scale of importance** — a basic attack must never outshine
+an ultimate; **if it feels long, it's way too long**: effects live in a busy
+scene, default shorter than feels right alone; and **replace, don't layer** —
+a weak effect gets removed or replaced, never a new one stacked beside it.
+Stacking compounds draw calls, noise and maintenance, and reads muddier, not
+richer.
+
+## Before adding an effect
+
+- **Audit the fx dir first** and ask "what does this replace?" — the answer
+  is rarely "nothing".
+- **Style every surface**, not just the headline one: if streets get a
+  treatment, grass, sand and water get theirs.
+- **Generated spell/ability boards**: `pixel-art` Recipe 6 — 12-frame 4×3
+  board → 128px strip; energy on black, matter on chroma.
+- **3D weapon trails/ribbons**: `threejs/references/game-patterns.md`,
+  "Weapon trails".
 
 ## Anatomy of an explosion (layered)
 
@@ -115,12 +129,21 @@ static-feeling scene against these, all cheap:
   attribution is instant (Diablo).
 - **ADD for energy, NORMAL for matter**: fire/sparks/magic additive;
   smoke/dust/debris/blood alpha. Stacked additive whites out.
+- **`setTint` multiplies** — a yellow starburst can't become blue. Pick
+  natively coloured sequences or generate a board per colour.
 - **Survive busy backgrounds with value contrast**: a bright ADD core backed
   by a darker alpha rim/smoke reads everywhere; pure additive vanishes over
   bright tiles.
 - **Sharp shapes = energy, soft shapes = residue.** One focal point per
   effect; everything else smaller and dimmer.
 - **Stretch particles along velocity** — blurred movement reads as power.
+
+## Wiring FX to sim events
+
+Target-anchored art needs a sim event: cast art placed at the target only
+plays if the sim emits an ability/fx event for that effect; caster-anchored
+art rides the generic cast event. The gap is invisible in code review — ship
+an abilities smoke test that casts every kit and asserts the fx event fired.
 
 ## Performance (mobile browsers)
 
@@ -139,6 +162,14 @@ static-feeling scene against these, all cheap:
   behind a quality flag.
 - **Kill invisible work**: stop off-screen ambient emitters; shorten
   lifespans before cutting counts — lifetime is overdraw-time.
+
+## Verify
+
+Contact-sheet harness: a showcase scene behind `?viewer=1` exposes
+`window.__game`; `select(i)` + `demoCast('Q')`, then
+`game.renderer.snapshotArea(x, y, w, h, cb)` at +60/220/450/900 ms → one
+contact sheet per kit. Half-res sheets lose thin beams — check full-res
+before calling an effect invisible.
 
 Related skills: `game-feel` (hit stop/shake/flash that pair with these),
 `animation` (sprite-frame FX timing), `pixel-art` (generating FX sprites on
