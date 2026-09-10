@@ -1,4 +1,4 @@
-import type { RigidBody } from "@dimforge/rapier3d-compat";
+import type { RigidBody } from "#rapier";
 import * as THREE from "three";
 
 import type { ModelCache } from "../assets/loader";

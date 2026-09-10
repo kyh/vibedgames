@@ -1,4 +1,4 @@
-import type RAPIER from "@dimforge/rapier3d-compat";
+import type * as RAPIER from "#rapier";
 import type { WaterSampler } from "../world/water";
 import { DRY_WATER_CONTACT } from "./water-contact";
 import type { FloatingWaterContact, WaterContact } from "./water-contact";

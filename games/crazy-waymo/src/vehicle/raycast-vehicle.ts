@@ -1,5 +1,5 @@
-import { ColliderDesc, RigidBodyDesc } from "@dimforge/rapier3d-compat";
-import type { DynamicRayCastVehicleController, RigidBody, Vector } from "@dimforge/rapier3d-compat";
+import { ColliderDesc, RigidBodyDesc } from "#rapier";
+import type { DynamicRayCastVehicleController, RigidBody, Vector } from "#rapier";
 import * as THREE from "three";
 
 import type { PhysicsWorld } from "../physics/physics-world";
