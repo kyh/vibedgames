@@ -1,7 +1,7 @@
 /**
  * Application schema
  */
-import { relations, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { index, integer, primaryKey, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 import { user } from "./drizzle-schema-auth";
@@ -30,17 +30,8 @@ export const inviteCode = sqliteTable(
     revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
     usedCount: integer("used_count").notNull().default(0),
   },
-  (table) => ({
-    createdByIdx: index("invite_code_created_by_idx").on(table.createdBy),
-  }),
+  (table) => [index("invite_code_created_by_idx").on(table.createdBy)],
 );
-
-export const inviteCodeRelations = relations(inviteCode, ({ one }) => ({
-  createdBy: one(user, {
-    fields: [inviteCode.createdBy],
-    references: [user.id],
-  }),
-}));
 
 export const waitlist = sqliteTable(
   "waitlist",
@@ -52,17 +43,8 @@ export const waitlist = sqliteTable(
   },
   // SQLite doesn't auto-index FK columns; user deletions would otherwise
   // seq-scan to satisfy ON DELETE SET NULL.
-  (table) => ({
-    userIdx: index("waitlist_user_id_idx").on(table.userId),
-  }),
+  (table) => [index("waitlist_user_id_idx").on(table.userId)],
 );
-
-export const waitlistRelations = relations(waitlist, ({ one }) => ({
-  user: one(user, {
-    fields: [waitlist.userId],
-    references: [user.id],
-  }),
-}));
 
 /**
  * A user-owned game identified globally by a unique slug.
@@ -88,9 +70,7 @@ export const game = sqliteTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
   },
-  (table) => ({
-    userIdx: index("game_user_idx").on(table.userId),
-  }),
+  (table) => [index("game_user_idx").on(table.userId)],
 );
 
 /**
@@ -117,9 +97,7 @@ export const deployment = sqliteTable(
     status: text("status", { enum: ["pending", "ready", "failed"] }).notNull(),
     totalBytes: integer("total_bytes").notNull(),
   },
-  (table) => ({
-    gameIdx: index("deployment_game_idx").on(table.gameId),
-  }),
+  (table) => [index("deployment_game_idx").on(table.gameId)],
 );
 
 /**
@@ -138,12 +116,12 @@ export const deploymentFile = sqliteTable(
     sha256: text("sha256").notNull(),
     size: integer("size").notNull(),
   },
-  (table) => ({
-    pk: primaryKey({
+  (table) => [
+    primaryKey({
       columns: [table.deploymentId, table.path],
       name: "deployment_file_deployment_id_path_pk",
     }),
-  }),
+  ],
 );
 
 /**
@@ -184,17 +162,8 @@ export const creditEntry = sqliteTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
   },
-  (table) => ({
-    userIdx: index("credit_entry_user_idx").on(table.userId),
-  }),
+  (table) => [index("credit_entry_user_idx").on(table.userId)],
 );
-
-export const creditEntryRelations = relations(creditEntry, ({ one }) => ({
-  user: one(user, {
-    fields: [creditEntry.userId],
-    references: [user.id],
-  }),
-}));
 
 /**
  * One row per generation submitted through `generate.forward`, keyed by the
@@ -233,37 +202,5 @@ export const generation = sqliteTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
   },
-  (table) => ({
-    userIdx: index("generation_user_idx").on(table.userId),
-  }),
+  (table) => [index("generation_user_idx").on(table.userId)],
 );
-
-export const generationRelations = relations(generation, ({ one }) => ({
-  user: one(user, {
-    fields: [generation.userId],
-    references: [user.id],
-  }),
-}));
-
-export const gameRelations = relations(game, ({ one, many }) => ({
-  deployments: many(deployment),
-  user: one(user, {
-    fields: [game.userId],
-    references: [user.id],
-  }),
-}));
-
-export const deploymentRelations = relations(deployment, ({ one, many }) => ({
-  files: many(deploymentFile),
-  game: one(game, {
-    fields: [deployment.gameId],
-    references: [game.id],
-  }),
-}));
-
-export const deploymentFileRelations = relations(deploymentFile, ({ one }) => ({
-  deployment: one(deployment, {
-    fields: [deploymentFile.deploymentId],
-    references: [deployment.id],
-  }),
-}));
