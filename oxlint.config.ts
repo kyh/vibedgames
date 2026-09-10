@@ -50,7 +50,7 @@ const jsonPayloadModules = [
 export default defineConfig({
   extends: [core, react, antiSlop],
   ignorePatterns: [
-    ...core.ignorePatterns,
+    ...(core.ignorePatterns ?? []),
     "*.generated.ts",
     "dist-electron",
     ".wxt",
