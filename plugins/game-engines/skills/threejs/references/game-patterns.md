@@ -72,6 +72,10 @@ if (jumping) {
 }
 ```
 
+### Attack Timing: Measure Contact From the Bone Tracks
+
+Kit attack clips vary 0.9–4.3 s; a fixed ~340 ms one-shot window shows only the windup and damage lands before the blade appears. Never uniform-stretch a clip to fit a sim window — it destroys the authored telegraph. Keep one timing source per clip, `{ dur, contact }`, measured offline from the GLB's bone tracks (contact = peak speed of the weapon-hand bone, e.g. `handslot.r`); the sim windup and the render `action.timeScale` both read it, so damage lands on the contact frame by construction. Traps: sampling a bone's `matrixWorld` in a rAF loop without stepping the mixer returns the t=0 pose; `getEffectiveTimeScale()` read alongside the clip name is off by one action; mirror the weapon **object** (negative scale), never the clip. Muzzle flash and kickback fire at release, not at swing start.
+
 ---
 
 ## Facing Direction for Side-Scrollers
@@ -317,6 +321,18 @@ function updateFlashes(dt, materials) {
   }
 }
 ```
+
+---
+
+### Weapon Trails (slash ribbons)
+
+A ribbon that samples the real animated blade over the whole swing (base a fraction up the weapon, never the grip) beats a billboard crescent. Rules that only show at jittery frame rates:
+
+- **`NormalBlending`, not additive** — additive over a lit floor sums to white. Only the thin edge runs HDR (above the bloom threshold). Additive `DoubleSide` cylinders white out under bloom fast; keep alpha ≤ ~0.16.
+- **Depth prepass for self-overlap:** draw once with `{ colorWrite: false, depthWrite: true }`, then the colour pass with `depthWrite: false`. Never planar-project the ribbon to dodge overlap.
+- **Centripetal Catmull-Rom** (√distance knots) + subdivision + 3-tap control-point smoothing — uniform Catmull-Rom loops and overshoots under frame-dt jitter (comb teeth).
+- **Age segments on a render-dt clock**, never the fixed sim clock — a 30 Hz sim stamps fade/taper into 33 ms cohorts, a visible sawtooth.
+- **Verify under CPU throttle:** CDP `Emulation.setCPUThrottlingRate(5)`. Trail bugs hide at a steady 60 fps.
 
 ---
 

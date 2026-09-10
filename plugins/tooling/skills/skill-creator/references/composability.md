@@ -488,6 +488,48 @@ Skill C (metadata loaded) ──┘
 
 ---
 
+## Bundled script paths across install routes
+
+A skill is loaded four ways: project `.claude/skills/<name>`, global
+`~/.claude/skills/<name>`, a Claude Code plugin (`--plugin-dir` or the
+marketplace cache at `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/skills/<name>`,
+several versions retained), or a copy made by `npx skills add` into
+`.agents/skills/<name>` for Codex/Cursor, where `CLAUDE_SKILL_DIR` is never
+set. One snippet, placed in the SKILL.md body, covers all four:
+
+```bash
+# This skill's directory. Claude Code substitutes CLAUDE_SKILL_DIR (project, global
+# or plugin install); other agents fall back to wherever `skills add` put it.
+SKILL="${CLAUDE_SKILL_DIR}"
+[ -d "$SKILL" ] || for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
+  [ -d "$d/<name>" ] && SKILL=$d/<name> && break
+done
+```
+
+Rules the snippet relies on:
+
+- Substitution happens in the SKILL.md body, inside code fences too, for
+  project, global and `--plugin-dir` loads. Never probe the marketplace cache
+  by path; the substitution already points at the live version.
+- `${CLAUDE_PLUGIN_ROOT}` stays literal outside plugins, so it cannot appear
+  in a body that must also work from `.claude/skills/`.
+- A plugin install contains only its own plugin, so a reference to another
+  plugin's script (`pixel-art` → `pixel-snapper`) cannot resolve. Write "load
+  the `<owner>` skill and use its resolved directory" instead of a path.
+- Scripts still need their runtime deps in the target project; say which.
+
+Test both routes without a global install:
+
+- **Plugin route**: from a scratch dir with no `.claude/skills`, run
+  `claude -p 'Invoke <plugin>:<skill>. Reply with ONLY the bash block starting "# This skill'"'"'s directory", verbatim' --plugin-dir plugins/<plugin> --max-turns 3`
+  and execute the printed block — `$SKILL` must resolve.
+- **Codex/Cursor route**: in a scratch git repo run
+  `npx -y skills add <repo> --skill <name> -a codex -y`; it writes
+  `.agents/skills/<name>` and no `.claude/skills`. Run the block with
+  `CLAUDE_SKILL_DIR` unset — the probe must find it.
+
+---
+
 ## Summary
 
 **Composability makes the whole greater than the sum of parts.**

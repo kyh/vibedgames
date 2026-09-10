@@ -134,6 +134,16 @@ function parseGID(rawGid) {
 }
 ```
 
+**Phaser 4.x renders flipY-only tiles one tile right and up.** `renderNodes/transformer/TransformerTile.js` applies the flipY offset to `x` (`x += frameHeight`) instead of `y`. Never set `tile.flipY`. Flips compose before rotation, so `flipY ≡ flipX + rotation π`:
+
+```javascript
+// want: flipX = fx, flipY = true
+tile.flipX = !fx;
+tile.rotation += Math.PI;
+```
+
+Per-tile `Image` objects are unaffected — `setFlip(fx, fy)` + `setRotation` work as documented.
+
 ### Mapping GID to Tileset
 
 ```javascript
@@ -559,7 +569,7 @@ if (tile) {
   tile.alpha = 0.5;
   tile.tint = 0xff0000;
   tile.flipX = true;
-  tile.flipY = true;
+  tile.flipY = true; // BUGGY in Phaser 4.x: renders offset a tile right+up — use flipX + rotation π (see Flip Flags)
   tile.rotation = Math.PI / 4;
   tile.visible = false;
 }
@@ -752,6 +762,37 @@ create() {
 ---
 
 ## Procedural Tilemaps
+
+### From an In-Memory 2D Array
+
+No Tiled file, no `putTileAt` loop — hand the parsed grid straight to `make.tilemap`:
+
+```javascript
+// data: number[][] (row-major). Value = frame index into the tileset image,
+// -1 = empty (shows whatever is beneath). Single tileset → no firstgid offset:
+// 11 on a 10-wide sheet = row 1, col 1.
+const map = this.make.tilemap({ data, tileWidth: 16, tileHeight: 16 });
+const tiles = map.addTilesetImage("terrain", "terrainImageKey"); // returns null if the key is missing
+if (!tiles) throw new Error("tileset image not loaded");
+const layer = map.createLayer(0, tiles, 0, 0);
+
+// Banks / edges: land-vs-water mask → 4-bit neighbour autotile → frame index.
+const N = 8; // neighbour bits
+const E = 4;
+const S = 2;
+const W = 1;
+const AUTOTILE = [/* 16 frame indices, one per mask value */];
+function autotile(mask, x, y) {
+  let m = 0;
+  if (mask[y - 1]?.[x]) m |= N;
+  if (mask[y]?.[x + 1]) m |= E;
+  if (mask[y + 1]?.[x]) m |= S;
+  if (mask[y]?.[x - 1]) m |= W;
+  return AUTOTILE[m];
+}
+```
+
+The image is a plain `this.load.image(...)` (a spritesheet key also works — same texture). One layer ≈ one draw call; 100×100 is fine on a `TilemapLayer`.
 
 ### Create Blank Map
 

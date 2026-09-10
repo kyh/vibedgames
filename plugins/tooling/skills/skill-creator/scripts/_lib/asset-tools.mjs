@@ -219,39 +219,99 @@ var parseFrontmatter = (text) => {
 // src/skill/analyze.ts
 var countMatches = (text, pattern) => [...text.matchAll(pattern)].length;
 var keywordsFound = (bodyLower, keywords) => keywords.filter((keyword) => bodyLower.includes(keyword));
-var checkPhilosophy = (body) => {
+var DESCRIPTION_WORD_TARGET = 25;
+var DESCRIPTION_WORD_LIMIT = 40;
+var ROOT_LINE_TARGET = 150;
+var checkDescription = (description) => {
   let score = 0;
   const feedback = [];
-  const found = keywordsFound(body.toLowerCase(), [
-    "philosophy",
-    "approach",
-    "principle",
-    "mental model",
-    "framework",
-    "thinking",
-    "mindset",
-    "why",
-    "consider",
-    "understand"
-  ]);
-  if (found.length >= 3) {
-    score += 30;
-    feedback.push(`\u2705 Philosophy indicators found: ${found.slice(0, 5).join(", ")}`);
-  } else if (found.length >= 1) {
+  const words = description.split(/\s+/u).filter(Boolean).length;
+  if (words === 0) {
+    feedback.push("\u274C No description");
+    return { category: "Description", feedback, score };
+  }
+  if (words <= DESCRIPTION_WORD_TARGET) {
     score += 15;
-    feedback.push(`\u26A0\uFE0F  Some philosophy indicators found: ${found.join(", ")}`);
+    feedback.push(`\u2705 ${words} words`);
+  } else if (words <= DESCRIPTION_WORD_LIMIT) {
+    score += 8;
+    feedback.push(`\u26A0\uFE0F  ${words} words \u2014 aim for ${DESCRIPTION_WORD_TARGET}`);
   } else {
-    feedback.push("\u274C No clear philosophical foundation detected");
+    feedback.push(
+      `\u274C ${words} words \u2014 over ${DESCRIPTION_WORD_LIMIT}; hosts truncate this and the agent sees less of every skill`
+    );
   }
-  const questions = countMatches(body, /\?[^\n]*/gu);
-  if (questions >= 3) {
-    score += 10;
-    feedback.push(`\u2705 Contains ${questions} guiding questions`);
-  } else if (questions >= 1) {
+  const quoted = countMatches(description, /["'“‘][^"'”’]{3,}["'”’]/gu);
+  if (/\btriggers?\b/iu.test(description) || quoted >= 3) {
+    feedback.push("\u274C Reads as a trigger-phrase list \u2014 say the situation once instead");
+  } else {
     score += 5;
-    feedback.push(`\u26A0\uFE0F  Contains ${questions} guiding question(s)`);
   }
-  return { category: "Philosophy", feedback, score };
+  if (/\b(?:foundational|comprehensive|powerful|advanced|enhanced|complete)\b/iu.test(description)) {
+    feedback.push("\u26A0\uFE0F  Superlatives are pick-me energy, not a trigger");
+  } else {
+    score += 5;
+  }
+  return { category: "Description", feedback, score };
+};
+var checkRouter = (body, hasReferences, hasScripts) => {
+  let score = 0;
+  const feedback = [];
+  const lines = body.split("\n").length;
+  if (lines <= ROOT_LINE_TARGET) {
+    score += 12;
+    feedback.push(`\u2705 ${lines} lines`);
+  } else if (lines <= ROOT_LINE_TARGET * 2) {
+    score += 6;
+    feedback.push(`\u26A0\uFE0F  ${lines} lines \u2014 move depth into references/`);
+  } else {
+    feedback.push(`\u274C ${lines} lines \u2014 every load pays for all of it`);
+  }
+  const pointers = countMatches(body, /\b(?:references|scripts|assets)\/[\w./-]+/gu);
+  if (hasReferences || hasScripts) {
+    if (pointers >= 2) {
+      score += 8;
+      feedback.push(`\u2705 Points at ${pointers} supporting file(s)`);
+    } else {
+      feedback.push("\u274C Has supporting files but the root barely points at them");
+    }
+  } else if (lines > ROOT_LINE_TARGET) {
+    feedback.push("\u26A0\uFE0F  No references/ or scripts/ to route to");
+  } else {
+    score += 8;
+  }
+  const headers = countMatches(body, /^#{2,3}\s+.+$/gmu);
+  if (headers >= 3) {
+    score += 5;
+    feedback.push(`\u2705 ${headers} sections to navigate by`);
+  } else {
+    feedback.push("\u26A0\uFE0F  Fewer than 3 sections \u2014 hard to skip what does not apply");
+  }
+  return { category: "Router", feedback, score };
+};
+var checkConcreteness = (body) => {
+  let score = 0;
+  const feedback = [];
+  const numbers = countMatches(body, /\b\d+(?:\.\d+)?\s?(?:ms|s|px|fps|%|kb|mb|hz|deg|°)\b/giu);
+  const code = countMatches(body, /`[^`\n]+`/gu);
+  if (numbers + code >= 15) {
+    score += 15;
+    feedback.push(`\u2705 ${numbers} measured values, ${code} code references`);
+  } else if (numbers + code >= 5) {
+    score += 8;
+    feedback.push(
+      `\u26A0\uFE0F  ${numbers} measured values, ${code} code references \u2014 where are the numbers?`
+    );
+  } else {
+    feedback.push("\u274C Little concrete content \u2014 prose the model already knows");
+  }
+  const steps = countMatches(body, /^\s*\d+\.\s+/gmu);
+  if (steps > 12) {
+    feedback.push(`\u26A0\uFE0F  ${steps} numbered steps \u2014 itinerary; state the goal and the traps instead`);
+  } else {
+    score += 5;
+  }
+  return { category: "Concreteness", feedback, score };
 };
 var checkAntiPatterns = (body) => {
   let score = 0;
@@ -263,120 +323,61 @@ var checkAntiPatterns = (body) => {
     "do not",
     "anti-pattern",
     "mistake",
-    "common pitfall",
-    "warning",
-    "incorrect",
-    "wrong way"
+    "pitfall",
+    "trap",
+    "gotcha",
+    "silently"
   ]);
-  if (found.length >= 5) {
-    score += 25;
-    feedback.push(`\u2705 Strong anti-pattern guidance: ${found.slice(0, 5).join(", ")}`);
+  if (found.length >= 4) {
+    score += 15;
+    feedback.push(`\u2705 Names its traps: ${found.slice(0, 5).join(", ")}`);
   } else if (found.length >= 2) {
-    score += 12;
-    feedback.push(`\u26A0\uFE0F  Some anti-pattern guidance: ${found.join(", ")}`);
+    score += 8;
+    feedback.push(`\u26A0\uFE0F  Some traps named: ${found.join(", ")}`);
   } else {
-    feedback.push("\u274C No explicit anti-pattern warnings");
-  }
-  const strong = countMatches(body, /\b(?:NEVER|DO NOT|DON'T)\b/gu);
-  if (strong > 0) {
-    score += 10;
-    feedback.push(`\u2705 Contains ${strong} strong warning(s)`);
+    feedback.push("\u274C No traps named \u2014 what goes wrong when this is done naively?");
   }
   return { category: "Anti-Patterns", feedback, score };
 };
-var checkVariation = (body) => {
+var checkVerification = (body, hasScripts) => {
   let score = 0;
   const feedback = [];
-  const bodyLower = body.toLowerCase();
-  const found = keywordsFound(bodyLower, [
-    "vary",
-    "variation",
-    "different",
-    "diverse",
-    "context-specific",
-    "adapt",
-    "customize",
-    "unique",
-    "avoid repetition",
-    "not the same"
+  const found = keywordsFound(body.toLowerCase(), [
+    "verify",
+    "verification",
+    "check",
+    "harness",
+    "headless",
+    "screenshot",
+    "test",
+    "assert",
+    "smoke",
+    "review/"
   ]);
   if (found.length >= 3) {
-    score += 20;
-    feedback.push(`\u2705 Variation encouraged: ${found.slice(0, 5).join(", ")}`);
+    score += 12;
+    feedback.push(`\u2705 Says how to prove the result: ${found.slice(0, 4).join(", ")}`);
   } else if (found.length >= 1) {
-    score += 10;
-    feedback.push(`\u26A0\uFE0F  Some variation mentioned: ${found.join(", ")}`);
+    score += 6;
+    feedback.push(`\u26A0\uFE0F  Verification mentioned once: ${found.join(", ")}`);
   } else {
-    feedback.push("\u274C No explicit variation encouragement");
+    feedback.push("\u274C No way to verify the output without a human");
   }
-  const templateWarnings = countMatches(
-    bodyLower,
-    /(?:template|repetitive|generic|cookie-cutter|converge)/gu
-  );
-  if (templateWarnings > 0) {
-    score += 10;
-    feedback.push(`\u2705 Warns against generic patterns (${templateWarnings} mentions)`);
+  if (hasScripts) {
+    score += 3;
+    feedback.push("\u2705 Ships scripts");
   }
-  return { category: "Variation", feedback, score };
+  return { category: "Verification", feedback, score };
 };
-var checkOrganization = (body) => {
-  let score = 0;
-  const feedback = [];
-  const headers = countMatches(body, /^#+\s+.+$/gmu);
-  if (headers >= 5) {
-    score += 10;
-    feedback.push(`\u2705 Well-structured with ${headers} sections`);
-  } else if (headers >= 2) {
-    score += 5;
-    feedback.push(`\u26A0\uFE0F  Has ${headers} sections`);
-  } else {
-    feedback.push("\u274C Lacks clear organization");
-  }
-  const lists = countMatches(body, /^\s*[-*]\s+/gmu);
-  if (lists >= 10) {
-    score += 5;
-    feedback.push(`\u2705 Contains ${lists} list items (actionable)`);
-  }
-  return { category: "Organization", feedback, score };
-};
-var checkEmpowerment = (body) => {
-  let score = 0;
-  const feedback = [];
-  const bodyLower = body.toLowerCase();
-  const found = keywordsFound(bodyLower, [
-    "extraordinary",
-    "capable",
-    "unlock",
-    "enable",
-    "empower",
-    "creative",
-    "innovative",
-    "push boundaries",
-    "explore"
-  ]);
-  if (found.length >= 3) {
-    score += 10;
-    feedback.push(`\u2705 Empowering tone: ${found.join(", ")}`);
-  } else if (found.length >= 1) {
-    score += 5;
-    feedback.push(`\u26A0\uFE0F  Some empowering language: ${found.join(", ")}`);
-  }
-  const constraints = keywordsFound(bodyLower, ["must", "always", "required", "mandatory"]);
-  if (constraints.length > 20) {
-    score -= 5;
-    feedback.push(`\u26A0\uFE0F  Many rigid constraints (${constraints.length} instances)`);
-  }
-  return { category: "Empowerment", feedback, score };
-};
-var analyzeSkillBody = (frontmatter, body) => {
+var NO_SUPPORT_FILES = { hasReferences: false, hasScripts: false };
+var analyzeSkillBody = (frontmatter, body, support = NO_SUPPORT_FILES) => {
   const description = isJsonString(frontmatter.description) ? frontmatter.description : "";
   const categories = [
-    description.length > 50 ? { category: "Description", feedback: ["\u2705 Comprehensive description"], score: 5 } : { category: "Description", feedback: ["\u274C Description too brief"], score: 0 },
-    checkPhilosophy(body),
+    checkDescription(description),
+    checkRouter(body, support.hasReferences, support.hasScripts),
+    checkConcreteness(body),
     checkAntiPatterns(body),
-    checkVariation(body),
-    checkOrganization(body),
-    checkEmpowerment(body)
+    checkVerification(body, support.hasScripts)
   ];
   return {
     categories,
@@ -386,81 +387,69 @@ var analyzeSkillBody = (frontmatter, body) => {
 };
 
 // src/skill/upgrade.ts
-var generateSuggestions = (frontmatter, body) => {
+var generateSuggestions = (frontmatter, body, support = NO_SUPPORT_FILES) => {
   const suggestions = [];
   const bodyLower = body.toLowerCase();
-  if (!bodyLower.includes("philosophy") && !bodyLower.includes("principle")) {
-    suggestions.push({
-      category: "Philosophy",
-      example: `## Core Philosophy
-
-Before diving into procedures, understand the fundamental approach:
-- What is the underlying philosophy guiding this domain?
-- What questions should be asked before taking action?
-- What mental model helps make better decisions?`,
-      priority: "HIGH",
-      suggestion: "Add a philosophy or principles section"
-    });
-  }
-  if (!bodyLower.includes("anti-pattern") && !bodyLower.slice(0, 500).includes("avoid")) {
-    suggestions.push({
-      category: "Anti-Patterns",
-      example: `## Anti-Patterns to Avoid
-
-Common mistakes when [doing this task]:
-- \u274C **Template trap**: Using rigid templates that constrain creativity
-- \u274C **Context blindness**: Applying same approach regardless of situation
-- \u274C **Over-specification**: Adding unnecessary constraints`,
-      priority: "HIGH",
-      suggestion: 'Add anti-patterns or "what to avoid" section'
-    });
-  }
-  if (!bodyLower.includes("vary") && !bodyLower.includes("different")) {
-    suggestions.push({
-      category: "Variation",
-      example: `## Encouraging Variation
-
-**IMPORTANT**: Outputs should vary based on context. Avoid converging on "favorite" patterns:
-- Adapt to the specific use case
-- Consider different approaches for different scenarios
-- No two outputs should be identical unless requirements are identical`,
-      priority: "MEDIUM",
-      suggestion: "Add explicit variation encouragement"
-    });
-  }
-  if (!bodyLower.includes("extraordinary") && !bodyLower.includes("capable")) {
-    suggestions.push({
-      category: "Empowerment",
-      example: `## Remember
-
-Claude is capable of extraordinary work in this domain. These guidelines unlock that potential\u2014they don't constrain it. Use judgment, adapt to context, and push boundaries when appropriate.`,
-      priority: "LOW",
-      suggestion: "Add empowering conclusion"
-    });
-  }
   const description = isJsonString(frontmatter.description) ? frontmatter.description : "";
-  if (description.length < 100) {
+  const words = description.split(/\s+/u).filter(Boolean).length;
+  if (words > DESCRIPTION_WORD_LIMIT || /\btriggers?\b/iu.test(description)) {
     suggestions.push({
       category: "Description",
-      example: `Current: ${description}
+      example: `Current (${words} words): ${description}
 
-Suggested: Add more detail about when to use this skill, what triggers it, and what tasks it helps with. Aim for 100-200 characters with specific use cases.`,
+Rewrite as one or two sentences, about ${DESCRIPTION_WORD_TARGET} words: what it does, then the situation it is for, naming the neighbour it defers to if one exists. Drop trigger-phrase lists and superlatives \u2014 hosts truncate long descriptions and every skill shares that budget.`,
       priority: "HIGH",
-      suggestion: "Expand the description field in frontmatter"
+      suggestion: "Shorten the description to a trigger-precise sentence"
     });
   }
-  const sectionCount = body.split("\n##").length - 1;
-  if (sectionCount < 3) {
+  const lines = body.split("\n").length;
+  if (lines > ROOT_LINE_TARGET) {
     suggestions.push({
-      category: "Organization",
-      example: `Organize the skill into clear sections:
-## Philosophy/Principles
-## Core Guidelines
-## Anti-Patterns
-## Examples (optional)
-## Advanced Topics (optional)`,
+      category: "Router",
+      example: `SKILL.md is ${lines} lines; every load pays for all of it. Keep the root to: what and when, the three to six moves with their numbers and traps, one line per reference or script saying when to open it, and how to verify. Move the rest into references/<topic>.md and point at it:
+
+- \`references/<topic>.md\` \u2014 open when <situation>.`,
+      priority: "HIGH",
+      suggestion: `Turn SKILL.md into a router under ${ROOT_LINE_TARGET} lines`
+    });
+  } else if ((support.hasReferences || support.hasScripts) && !/\b(?:references|scripts)\//u.test(body)) {
+    suggestions.push({
+      category: "Router",
+      example: `## Pointers
+
+- \`references/<file>.md\` \u2014 open when <situation>.
+- \`scripts/<file>.mjs\` \u2014 run to <do what>; \`--help\` lists flags.`,
       priority: "MEDIUM",
-      suggestion: "Add more section headers for better organization"
+      suggestion: "Point the root at its references/ and scripts/"
+    });
+  }
+  const steps = [...body.matchAll(/^\s*\d+\.\s+/gmu)].length;
+  if (steps > 12) {
+    suggestions.push({
+      category: "Concreteness",
+      example: `${steps} numbered steps read as an itinerary. Replace with the goal, the constraints, and the traps \u2014 keep the numbers, commands and file names, drop the order unless order matters.`,
+      priority: "MEDIUM",
+      suggestion: "Replace the step-by-step recipe with goal + constraints + traps"
+    });
+  }
+  if (!bodyLower.includes("avoid") && !bodyLower.includes("never") && !bodyLower.includes("trap") && !bodyLower.includes("pitfall")) {
+    suggestions.push({
+      category: "Anti-Patterns",
+      example: `## Traps
+
+- <what a naive attempt does wrong>, because <mechanism>; do <this> instead.`,
+      priority: "MEDIUM",
+      suggestion: "Name the traps a naive attempt falls into"
+    });
+  }
+  if (!bodyLower.includes("verif") && !bodyLower.includes("harness") && !bodyLower.includes("check") && !bodyLower.includes("test")) {
+    suggestions.push({
+      category: "Verification",
+      example: `## Verify
+
+<the script, harness or headless recipe that proves the output works \u2014 screenshots, a smoke check, a sim harness \u2014 so the agent never has to ask a human whether it worked>`,
+      priority: "HIGH",
+      suggestion: "Say how to prove the output works without a human"
     });
   }
   return suggestions;
@@ -473,89 +462,34 @@ import path from "node:path";
 // src/skill/templates.ts
 var SKILL_TEMPLATE = (skillName, skillTitle) => `---
 name: ${skillName}
-description: "TODO: Complete and informative explanation of what the skill does and when to use it. Include WHEN to use this skill - specific scenarios, file types, or tasks that trigger it."
+description: "TODO: one or two sentences, about 25 words \u2014 what it does, then the situation it is for. Name the neighbour skill it defers to if one exists. No trigger-phrase lists."
 ---
 
 # ${skillTitle}
 
-## Overview
+TODO: a paragraph \u2014 what this produces and when an agent should reach for it.
 
-[TODO: 1-2 sentences explaining what this skill enables]
+## The moves
 
-## Structuring This Skill
+TODO: the three to six things the agent actually does, each with the numbers,
+commands, file names and traps that matter. Concrete facts earn their place;
+a numbered itinerary does not.
 
-[TODO: Choose the structure that best fits this skill's purpose. Common patterns:
+## Traps
 
-**1. Workflow-Based** (best for sequential processes)
-- Works well when there are clear step-by-step procedures
-- Example: DOCX skill with "Workflow Decision Tree" \u2192 "Reading" \u2192 "Creating" \u2192 "Editing"
-- Structure: ## Overview \u2192 ## Workflow Decision Tree \u2192 ## Step 1 \u2192 ## Step 2...
+- TODO: what a naive attempt gets wrong, why, and what to do instead.
 
-**2. Task-Based** (best for tool collections)
-- Works well when the skill offers different operations/capabilities
-- Example: PDF skill with "Quick Start" \u2192 "Merge PDFs" \u2192 "Split PDFs" \u2192 "Extract Text"
-- Structure: ## Overview \u2192 ## Quick Start \u2192 ## Task Category 1 \u2192 ## Task Category 2...
+## Verify
 
-**3. Reference/Guidelines** (best for standards or specifications)
-- Works well for brand guidelines, coding standards, or requirements
-- Example: Brand styling with "Brand Guidelines" \u2192 "Colors" \u2192 "Typography" \u2192 "Features"
-- Structure: ## Overview \u2192 ## Guidelines \u2192 ## Specifications \u2192 ## Usage...
+TODO: the script, harness or headless recipe that proves the output works
+without a human.
 
-**4. Capabilities-Based** (best for integrated systems)
-- Works well when the skill provides multiple interrelated features
-- Example: Product Management with "Core Capabilities" \u2192 numbered capability list
-- Structure: ## Overview \u2192 ## Core Capabilities \u2192 ### 1. Feature \u2192 ### 2. Feature...
+## Pointers
 
-Patterns can be mixed and matched as needed. Most skills combine patterns (e.g., start with task-based, add workflow for complex operations).
+- \`references/<topic>.md\` \u2014 open when TODO.
+- \`scripts/example.mjs\` \u2014 run to TODO; \`--help\` lists flags.
 
-Delete this entire "Structuring This Skill" section when done - it's just guidance.]
-
-## [TODO: Replace with the first main section based on chosen structure]
-
-[TODO: Add content here. See examples in existing skills:
-- Code samples for technical skills
-- Decision trees for complex workflows
-- Concrete examples with realistic user requests
-- References to scripts/templates/references as needed]
-
-## Resources
-
-This skill includes example resource directories that demonstrate how to organize different types of bundled resources:
-
-### scripts/
-Executable code (Python/Bash/etc.) that can be run directly to perform specific operations.
-
-**Examples from other skills:**
-- PDF skill: \`fill_fillable_fields.py\`, \`extract_form_field_info.py\` - utilities for PDF manipulation
-- DOCX skill: \`document.py\`, \`utilities.py\` - Python modules for document processing
-
-**Appropriate for:** Python scripts, shell scripts, or any executable code that performs automation, data processing, or specific operations.
-
-**Note:** Scripts may be executed without loading into context, but can still be read by Claude for patching or environment adjustments.
-
-### references/
-Documentation and reference material intended to be loaded into context to inform Claude's process and thinking.
-
-**Examples from other skills:**
-- Product management: \`communication.md\`, \`context_building.md\` - detailed workflow guides
-- BigQuery: API reference documentation and query examples
-- Finance: Schema documentation, company policies
-
-**Appropriate for:** In-depth documentation, API references, database schemas, comprehensive guides, or any detailed information that Claude should reference while working.
-
-### assets/
-Files not intended to be loaded into context, but rather used within the output Claude produces.
-
-**Examples from other skills:**
-- Brand styling: PowerPoint template files (.pptx), logo files
-- Frontend builder: HTML/React boilerplate project directories
-- Typography: Font files (.ttf, .woff2)
-
-**Appropriate for:** Templates, boilerplate code, document templates, images, icons, fonts, or any files meant to be copied or used in the final output.
-
----
-
-**Any unneeded directories can be deleted.** Not every skill requires all three types of resources.
+Delete any of references/, scripts/, assets/ this skill does not need.
 `;
 var EXAMPLE_REFERENCE = (skillTitle) => `# Reference Documentation for ${skillTitle}
 

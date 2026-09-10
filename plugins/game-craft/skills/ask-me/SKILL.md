@@ -1,6 +1,6 @@
 ---
 name: ask-me
-description: "Interview the user relentlessly about the game they want to make until the idea is build-ready, resolving each branch of the design tree one question at a time. Use when the user has a fuzzy or one-line game idea and wants to flesh it out before building: 'grill me about my game', 'help me figure out what game to make', 'stress-test my game idea', 'interview me about the game', 'I want to make a game but I'm not sure what'. Not for when the user already knows what they want built — go straight to game-playbook."
+description: "Interview the user about a fuzzy game idea, one question at a time, until it is build-ready. Skip when they already know what to build."
 ---
 
 # Grill the game idea

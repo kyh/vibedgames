@@ -1,11 +1,11 @@
 ---
 name: regenerate-3d
-description: Build a fully-interactive 3D character-selector experience powered entirely by `vg generate`. Generates stylized characters (FLUX.2 / GPT-Image-2), rigged animated GLBs (Meshy v6), themed companion creatures, per-character PATINA floor textures, looped Seedance video backgrounds, and a Three.js scene with palette swaps, breathing reflections, transition effects and a CREATE-YOUR-OWN flow.
+description: "Build a 3D character-selector scene entirely from `vg generate` output: stylised characters, rigged GLBs, companions, floor textures, looped video backgrounds, palette swaps."
 ---
 
 # regenerate-3d Skill
 
-> **Runtime:** Asset generation steps use the `vg generate` CLI (FLUX.2 / GPT-Image-2 / Meshy v6 / Seedance / etc.); the final deliverable is a static HTML page with Three.js and the generated assets bundled in. Install with `npm install -g vibedgames` (or `pnpm dogfood` in this repo). The generation credentials live on the vibedgames server, so there is no per-machine setup. See the `generate` skill for the command reference.
+> **Runtime:** Asset generation steps use the `vg generate` CLI (FLUX.2 / GPT-Image-2 / Meshy v6 / Seedance / etc.); the final deliverable is a static HTML page with Three.js and the generated assets bundled in. Install with `npm install -g vibedgames` (or `pnpm dogfood` in this repo). The generation credentials live on the vibedgames server, so there is no per-machine setup. See the `generate` skill for the command reference — including its async-job recovery rule (keep the `request_id`, resume with `status`, never re-`run` after an ambiguous failure).
 
 End-to-end recipe to ship a polished, multi-character 3D web experience using generative models.
 This is the recipe that powers a cyberpunk character selector with 10 unique operatives, each with a matching companion creature, environment-themed floor texture, animated background and color palette.
@@ -113,6 +113,7 @@ Curated dance / idle action IDs (full list at https://docs.meshy.ai/en/api/anima
 - **Reflection**: clone of the root with `scale.y = -1`, `BackSide`, `depthWrite = false`, `renderOrder = -1`. For characters whose origin is at the feet, `refl.position.y = root.position.y` produces a visible mirror; the floor's `transparent = true; opacity ≈ 0.5` lets it bleed through.
 - **Breathing**: per-frame `scale.setScalar(base * (1 + sin(t*1.3)*0.025))` + a small Y bob on companions. The reflection mirrors the bob so the mirror stays consistent.
 - **Palette swap**: `:root.style.setProperty('--c1', hex)` etc. Every UI element (sparklines, pulses, bars, model pills, edge map dots) derives its color from `var(--c1)` / `var(--c2)`.
+- **Normalisation**: Meshy vehicles/props come back facing ±X — yaw −π/2, scale by the length axis (not height), ground at y=0. Do it as a runtime `fit` per skin, not a bake, so a regenerated model drops in unchanged. Compress with `gltf-transform optimize in.glb out.glb --texture-compress webp --texture-size 1024`. Budget ~$1/model.
 - **Floor swap**: `texLoader.load()` 4 PBR maps from `assets/floor/{charId}/`, dispose old textures, set `floorMat.color` back to white (since the basecolor is already char-themed).
 - **Transition**: 9 diagonal lines sweep across the viewport (`@keyframes tfx-sweep`) on character click + a radial flash; bg video crossfades between two `<video>` elements; character GLB slides out and the new one slides in.
 

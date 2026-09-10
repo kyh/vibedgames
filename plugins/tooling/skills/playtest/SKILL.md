@@ -1,6 +1,6 @@
 ---
 name: playtest
-description: 'Drive a real browser to play a game and prove it works — smoke checks, scripted bot playtests, softlock detection, canvas/WebGL determinism, screenshots and visual diffs — via `vg playtest` (agent-browser). Use for canvas/WebGL games (Phaser, Three.js) and for verifying a deployed game. Trigger: "playtest", "test my game", "does it work", "is it broken", "softlock", "check the deployed game", "screenshot the game", "visual regression", "browser automation".'
+description: "Drive a real browser against a game with `vg playtest`: smoke checks, scripted bot playtests, softlock detection, screenshots and visual diffs, on localhost or a deployed URL."
 ---
 
 # Playtest
@@ -33,7 +33,7 @@ vg playtest skills get dogfood    # systematic exploratory testing / bug hunts
 vg playtest skills list           # everything available on this version
 ```
 
-**`skills get core` is the source of truth for the generic surface** — the snapshot-and-ref loop, sessions, waiting, forms, auth, troubleshooting. Don't re-derive it here, and don't trust a stale memory of it.
+**`skills get core` is the source of truth for the generic surface** — the snapshot-and-ref loop, sessions, waiting, forms, auth, troubleshooting. Don't re-derive it here, and don't trust a stale memory of it. An older agent-browser build with no `skills` subcommand falls back to `vg playtest --help`.
 
 This skill covers only what upstream can't know: the game diagnostics contract, the bot playtest, canvas/WebGL determinism, `--game`, and the traps we hit driving real games (see below). `references/cli-cheatsheet.md` is the game-shaped subset of commands.
 
@@ -111,7 +111,7 @@ Metric meanings, flags, difficulty/fairness runs, and the key-dispatch trap: `re
 
 ## Canvas & WebGL
 
-Two things will mislead you if you don't know them: **headless FPS is not performance** (software rasterization, ~2fps on scenes a GPU runs at 120), and **headless can't capture WebGPU canvases on Linux/Windows** (the screenshot comes out black even though rendering worked). Both are `--headed` problems with real consequences for what you report.
+Two things will mislead you if you don't know them. **Read the renderer string before you believe a frame rate**: headless can land on the real GPU (`vg playtest` does on a Mac — an `ANGLE Metal` renderer) or on SwiftShader (bare Playwright `launch()`); the bot report's `gpu` field says which. SwiftShader means functional-only evidence — it renders lit materials black and drops heavy games to ~3–4 fps, so a multiplayer host on it reads as frozen; a hardware renderer (ANGLE Metal/D3D/Vulkan on a real device) is a desktop-GPU signal, still not a phone. A headed or Playwright-launched run needs explicit flags to land on the real GPU (`references/canvas-determinism.md` § Headless Footguns). And **headless can't capture WebGPU canvases on Linux/Windows** (the screenshot comes out black even though rendering worked) — a `--headed` problem with real consequences for what you report.
 
 Determinism setup, readiness signals, flake classification, and the full footgun list: `references/canvas-determinism.md`.
 
@@ -130,6 +130,8 @@ A baseline taken without freezing the scene first is a flake generator — the f
 
 A diff catches a change; it can't tell you the frame was wrong to begin with. For 3D, pair the screenshots with the visual-defect rubric in the `threejs` skill (`references/debugging-and-profiling.md` § Visual defects) — z-fighting, shadow acne, wrong color space, and DPR blur all render "successfully" and pass every smoke check.
 
+**Metrics and eyes, both.** Appearance work reports numbers _and_ same-camera before/after pairs; a number that improves while the frame still looks wrong is a failure. A metric is worth most on the first problem and less on every one after — alternate a measured pass with a by-eye pass that carries no number, and ask "would you show this to someone?". A harness check can be true and useless: it covers what it was written for, not the frame.
+
 ## Anti-Patterns
 
 ❌ **Sleep-driven steps** — `wait 2000` then click
@@ -147,6 +149,9 @@ A diff catches a change; it can't tell you the frame was wrong to begin with. Fo
 ❌ **`keydown`/`keyup` for game input** — agent-browser 0.34 sends them with an empty `code` and `keyCode: 0`, so Phaser and friends ignore them entirely
 ✅ Dispatch the event via `eval` (what the bot script does), and always release what you hold — see `references/bot-playtest.md`
 
+❌ **`set device "iPhone 15"` as a phone check** — viewport + UA only; `pointer: coarse` stays false, so it's the desktop build
+✅ Held CDP touch emulation, and assert `coarse: true` before believing anything — `references/cli-cheatsheet.md` § Environment
+
 ❌ **Calling a game verified because it rendered**
 ✅ Run the bot; renders ≠ plays
 
@@ -157,6 +162,8 @@ A diff catches a change; it can't tell you the frame was wrong to begin with. Fo
 - [ ] Bot playtest moves, scores under `--script --expect-progress` with the game's core verb, and reports `longestStuckRun` ≤ 2
 - [ ] Fail state triggers and retry restores play (for games that can be lost)
 - [ ] Deployed build playtested with `vg playtest --game <slug>`, not just localhost
+- [ ] Evidence is fresh: a new run id / output dir whenever code or assets changed — never relabel an old report as current evidence
+- [ ] Expected viewport/state pairs declared before capturing; a required capture that failed is listed as failed, not dropped
 
 ## Bundled Resources
 

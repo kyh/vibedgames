@@ -120,7 +120,8 @@ const run = async (base) => {
   // Both clients must keep simulating; Chrome otherwise throttles whichever
   // window is not focused, which reads as a frozen peer.
   const browser = await chromium.launch({
-    // Metal keeps headless Chrome on the real GPU; SwiftShader renders this scene at ~1 fps.
+    // channel:"chrome" alone lands on ANGLE Metal; the flag is belt-and-braces
+    // against a GPU blocklist. SwiftShader renders this scene at ~1 fps.
     args: [
       "--use-angle=metal",
       "--ignore-gpu-blocklist",

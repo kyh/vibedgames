@@ -1,6 +1,6 @@
 ---
 name: animation
-description: "2D game animation craft — timing & spacing, frame budgets per clip (idle/walk/run/attack/death), the responsiveness-vs-weight contract, cancel windows, smears, silhouette readability, secondary motion — from Williams' Survival Kit, Mariel Cartwright's Skullgirls GDC talk, saint11, and fighting-game frame practice. Use when: 'the animation looks stiff/floaty/mushy', 'how many frames for a walk cycle?', 'attacks feel laggy', 'character feels dead', 'animate this sprite sheet', wiring sprite anims in Phaser, or cleaning AI-generated frames into a usable set. For GENERATING the frames see pixel-art / animated-spritesheets; this is what makes them good."
+description: "Make 2D sprite animation read well: frame budgets per clip, timing and spacing, cancel windows, smears, secondary motion, wiring clips in Phaser. Generating frames is pixel-art / animated-spritesheets."
 ---
 
 # Animation craft
@@ -19,7 +19,10 @@ frames beat smooth; even inbetweening reads as mush.
   near-instant strike (1–2 frames at ~30–60ms, one may be a smear), moderate
   recovery (~80–150ms). Even timing for cycles (walk ~80–150ms/frame, run
   ~50–80ms). In Phaser use per-frame `duration` overrides, not one global
-  `frameRate`, for non-cycles.
+  `frameRate`, for non-cycles. Aseprite-authored sheets: keep the exported
+  per-frame durations verbatim and set no `frameRate` — hand-guessed fps ran
+  40–120% fast. Never pass `duration` to `play()` (freezes on frame 1); retime
+  with `anims.timeScale`.
 - **Slow in, slow out**: cluster spacing at a pose's start/end, big jump
   mid-motion. Five frames = small, small, HUGE, small, small.
 - **Hold the follow-through pose** a beat longer; overshoot past rest on fast
@@ -69,6 +72,13 @@ follow-through and recovery, which don't delay input.
   never finish the old clip.
 - Give control back during follow-through: the player moves while cloth/hair
   finish their arcs.
+- **Damage lands on the contact frame, measured per clip.** For authored
+  sheets, find the strike frame in each attack clip (bone track / the frame
+  the blade crosses the target line) and time the hit to it; retimed
+  variants keep windup → `[0, a0]`, strike = `[a0, a1]`, held recovery after.
+  A uniform tempo-stretch of an attack clip is never the answer — it lands
+  damage 300–700 ms before the blade shows. When a boss shares an atlas with
+  variants, keep its authored telegraph timings; only the variants retime.
 
 ## Readability at small sizes
 

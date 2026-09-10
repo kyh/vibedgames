@@ -1,6 +1,6 @@
 ---
 name: pixel-art
-description: 'Generate 2D pixel art game assets, characters, sprite sheets, background removal, and game backgrounds. Trigger for "pixel art character", "sprite sheet", "walk cycle", "game sprites", "isometric sprites", "side-scroller assets", "RPG character sprites", "idle animation", "attack animation", "jump animation", "game background", "parallax background", "isometric map", "2D game art", "pixel art animation", "top-down character", "explosion sprite sheet", "animated FX from video", "fire/magic effect". Covers character generation (nano-banana-pro / gpt-image-2), sprite sheet animation (nano/edit or fal-ai/gpt-image-2/edit), top-down 4-directional walkers, background removal (Bria), background generation (parallax layers or isometric map), and animated VFX derived from a generated video rendered with additive blend.'
+description: "Generate 2D pixel art assets with `vg generate`: characters, still sprites, backgrounds and parallax layers, background removal, and effect sprites derived from generated video."
 metadata:
   author: vibedgames
   version: "0.1.0"
@@ -18,7 +18,11 @@ Always use `--json` so output is machine-readable. Use `--download` to save file
 
 **Craft rule (all paths): no baked shadows in the sprite.** Prompt against cast/contact/ground shadows, base ellipses, and floor lines — the engine adds shadows at render time, and a baked-in shadow fights the engine's.
 
+**Ship pixel art as PNG or lossless WebP, never lossy.** Lossy WebP makes flat-colour sheets 51–85% bigger than the PNG and smears the pixel grid.
+
 **Craft rule: the uniform-pixel-grid rule applies to sprites and tiles only.** FX, weather particles, and swung weapons may scale, rotate, and move sub-pixel — mixed pixel sizes on those layers read smoother, not wrong (every good pixel-art game cheats here). Don't pixel-snap particle/FX layers or force effects onto the sprite grid.
+
+**Convention: keep prompt + model per sequence in a `*-sources.json` next to the assets** (e.g. `combat-fx-sources.json`), so any sheet can be regenerated without the session that made it.
 
 ---
 
@@ -313,6 +317,14 @@ this.add.sprite(x, y, "explosion").setBlendMode(Phaser.BlendModes.ADD).play("exp
 ```
 
 This same pattern works for muzzle flashes, magic bursts, impact sparks, and portals — anything that reads as emitted light. For solid/opaque FX (smoke, debris) you still need real alpha (Bria per frame), so prefer ADD-friendly subjects when generating.
+
+**Still-image FX boards use the same two lanes.** `--background transparent` on the gpt-image endpoints does not work — it returns alpha≈254 with a painted glow. Energy art (fire, lightning, magic) goes on flat black → cut luma<28, draw additive. Matter art (smoke, debris, liquid) goes on flat `#00FF00` (`#FF00FF` for green effects) → chroma-key + despill.
+
+---
+
+## Recipe 6. Ability/spell FX boards (12 still frames)
+
+One board per effect: a 4×3 grid of 12 consecutive frames on a Recipe 5 matte (energy on black, matter on `#00FF00`), sliced to a 128-px 12×1 strip. Prompt shape, cost, packing and the aim/offset rules live in [references/fx-boards.md](references/fx-boards.md); the template is `$FX_BOARD_PROMPT` in [references/prompts.md](references/prompts.md) (Recipe 6).
 
 ---
 

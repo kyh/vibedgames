@@ -18,6 +18,12 @@
  * --mobile emulates a phone-class device (390×844 viewport, DPR 3, touch) and
  * applies the mobile render budget tier.
  *
+ * GPU: the browser is launched on the real GPU (`channel: "chrome"`, then
+ * `"chromium"`); only when neither is installed does it fall back to the bundled
+ * headless shell, which rasterizes on SwiftShader. The report's `gpu` block
+ * records the renderer string and `softwareRendered` — under software rendering
+ * pixel, budget and functional checks stay valid, FPS/frame-time evidence does not.
+ *
  * Render budget (advisory, never fails the check): if the page exposes
  * `window.__GAME_DIAGNOSTICS__.renderer` — a snapshot of renderer.info like
  * { calls, triangles, geometries, textures } (see
@@ -28,8 +34,9 @@
  *   1 = render failure: blank/solid canvas, or an uncaught page exception
  *   2 = error (no canvas, navigation failure, missing Playwright, bad args)
  *
- * Requires Playwright (already used by the `playwright` skill); Chromium is
- * pre-resolved via PLAYWRIGHT_BROWSERS_PATH in this environment.
+ * Requires Playwright: `playwright` must be resolvable from the game project —
+ * run the script from the game dir, or `npm i -D playwright` there. Browsers:
+ * an installed Chrome (channel "chrome"), else `npx playwright install chromium`.
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
@@ -256,6 +263,60 @@ const renderBudget = (rendererInfo, tier) => {
   }));
 };
 
+// Playwright's bare `launch()` is the headless shell, which has no GPU backend
+// and silently rasterizes on SwiftShader; a full Chrome/Chromium build in new
+// headless mode renders on the real GPU (ANGLE Metal/D3D/Vulkan).
+const launchBrowser = async (chromium) => {
+  for (const channel of ["chrome", "chromium"]) {
+    try {
+      return await chromium.launch({ channel });
+    } catch {
+      // try the next channel
+    }
+  }
+  console.error(
+    [
+      'warning: neither channel "chrome" nor "chromium" is available; falling back to the bundled headless shell.',
+      "  Rendering will be software (SwiftShader) and any FPS/frame-time evidence is invalid.",
+      "  Fix with: npx playwright install chromium",
+    ].join("\n"),
+  );
+  return chromium.launch();
+};
+
+/** Which GPU rasterized the run, so a software fallback can't pass as performance evidence. */
+const readGpuInfo = async (page) => {
+  const info = await page
+    .evaluate(() => {
+      const canvas = document.querySelector("canvas");
+      let gl = null;
+      try {
+        gl = canvas?.getContext("webgl2") ?? canvas?.getContext("webgl") ?? null;
+      } catch {
+        gl = null;
+      }
+      if (!gl) {
+        return null;
+      }
+      const debug = gl.getExtension("WEBGL_debug_renderer_info");
+      return {
+        renderer: debug
+          ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL)
+          : gl.getParameter(gl.RENDERER),
+        vendor: debug ? gl.getParameter(debug.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR),
+      };
+    })
+    .catch(() => null);
+  if (!info?.renderer) {
+    return { renderer: null, softwareRendered: null, vendor: null };
+  }
+  return {
+    renderer: info.renderer,
+    softwareRendered: /swiftshader|llvmpipe|software|basic render/iu.test(info.renderer),
+    vendor: info.vendor,
+  };
+};
+
 const failureReason = ({ blankLum, minStd, nearEmpty, pageErrors, stats }) => {
   if (pageErrors.length) {
     return `uncaught page error: ${pageErrors[0]}`;
@@ -306,7 +367,7 @@ const main = async () => {
   // uncaught exceptions — fail the check
   const pageErrors = [];
   try {
-    browser = await chromium.launch();
+    browser = await launchBrowser(chromium);
     const tier = opts.mobile ? "mobile" : "desktop";
     const page = await browser.newPage(PAGE_OPTIONS[tier]);
     page.on("console", (m) => m.type() === "error" && consoleErrors.push(m.text()));
@@ -337,6 +398,7 @@ const main = async () => {
       .evaluate(() => globalThis.__GAME_DIAGNOSTICS__?.renderer ?? null)
       .catch(() => null);
     const budget = renderBudget(rendererInfo, tier);
+    const gpu = await readGpuInfo(page);
 
     const stats = analyze(decodePng(png));
     // positive comparisons negated, so a non-finite metric fails (never a false pass)
@@ -345,7 +407,17 @@ const main = async () => {
     // an uncaught page exception is a real render regression even if pixels drew
     const ok = !blankLum && !nearEmpty && pageErrors.length === 0;
     const reason = failureReason({ blankLum, minStd: opts.minStd, nearEmpty, pageErrors, stats });
-    report(opts, { ok, reason, ...stats, budget, consoleErrors, out: opts.out, pageErrors, tier });
+    report(opts, {
+      ok,
+      reason,
+      ...stats,
+      budget,
+      consoleErrors,
+      gpu,
+      out: opts.out,
+      pageErrors,
+      tier,
+    });
     return ok ? 0 : 1;
   } catch (error) {
     report(opts, { consoleErrors, ok: false, pageErrors, reason: String(error?.message || error) });
@@ -370,6 +442,17 @@ const report = (opts, result) => {
   }
   if (result.out) {
     console.log(`  screenshot: ${result.out}`);
+  }
+  if (result.gpu) {
+    if (result.gpu.renderer === null) {
+      console.log("  gpu: no WebGL context on the canvas — renderer unknown");
+    } else if (result.gpu.softwareRendered) {
+      console.log(
+        `  gpu: ${result.gpu.renderer} (SOFTWARE) — pixel/budget/functional checks valid; FPS and frame-time numbers from this run are NOT performance evidence`,
+      );
+    } else {
+      console.log(`  gpu: ${result.gpu.renderer}`);
+    }
   }
   if (result.budget) {
     const over = result.budget.filter((row) => row.ok === false);

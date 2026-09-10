@@ -10,7 +10,11 @@
  * The default layout is a single horizontal strip, which loads cleanly with
  * Phaser's `load.spritesheet(key, url, { frameWidth, frameHeight })` plus
  * `anims.generateFrameNumbers(key, { start: 0, end: N-1 })`. Use --columns for
- * a grid when a strip would be too wide.
+ * a grid when a strip would be too wide: many mobile GPUs cap textures at
+ * 4096 px, and a wider strip uploads as an empty texture with 0 frames.
+ *
+ * Output is PNG. If you convert for shipping, use LOSSLESS WebP — lossy WebP
+ * makes flat-colour pixel sheets 51–85% bigger and blurs the pixel grid.
  *
  * Examples:
  *   node pack-spritesheet.mjs --input-dir runtime --out sheet.png
