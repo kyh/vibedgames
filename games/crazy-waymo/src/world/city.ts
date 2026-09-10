@@ -10,7 +10,7 @@ import { createTerrainMaterial } from "../render/terrain-material";
 import { StaticWorldGroup } from "../render/static-world-group";
 import { propShadowPolicy, propShadowsDisabled, setPropShadowPolicy } from "../render/prop-shadow";
 import type { PropShadowPolicy } from "../render/prop-shadow";
-import { isCoarsePointer, liveQuality } from "../render/quality";
+import { drawDistance, isCoarsePointer, liveQuality } from "../render/quality";
 import { renderCapabilities } from "../render/capabilities";
 import { releaseArraysAfterUpload } from "../render/gpu-only-geometry";
 import { compatiblePropBatch } from "./instanced-props";
@@ -18,7 +18,6 @@ import type { PropBatch, PropInstance } from "./instanced-props";
 import {
   CHUNK,
   CITY_SEED,
-  DRAW_DISTANCE,
   GRID_X,
   GRID_Z,
   ROAD_TILE,
@@ -411,7 +410,7 @@ interface Chunk {
 }
 
 /** Tiles are held this far out — just past the merged chunks' own draw distance. */
-export const TILE_HOLD_RADIUS = DRAW_DISTANCE + 60;
+export const tileHoldRadius = (): number => drawDistance() + 60;
 
 // Batched-instance streaming scratch (per-frame, allocation-free).
 // cells this close are always on (off-screen shadow casters)
@@ -2224,7 +2223,7 @@ export class CityModel {
           await this.addMergedChunkRecords(records, fallbacks, ccx, ccz, dist, cullRadius);
         };
         if (main.length > 0) {
-          await publishMerged(main, DRAW_DISTANCE);
+          await publishMerged(main, drawDistance());
         }
         if (detail.length > 0) {
           await publishMerged(detail, DETAIL_DISTANCE);
@@ -2345,7 +2344,7 @@ export class CityModel {
       this.chunks.push({
         cx: tile.position.x,
         cz: tile.position.z,
-        dist: DRAW_DISTANCE,
+        dist: drawDistance(),
         group: tile,
         radius: 660,
       });
@@ -3031,7 +3030,7 @@ export class CityModel {
   updateStreaming(camera: THREE.Camera, showAll = false): void {
     const camX = camera.position.x;
     const camZ = camera.position.z;
-    this.tileStreamer?.update(camX, camZ, showAll ? Infinity : TILE_HOLD_RADIUS);
+    this.tileStreamer?.update(camX, camZ, showAll ? Infinity : tileHoldRadius());
     this.parcelStreamer?.update(
       camX,
       camZ,

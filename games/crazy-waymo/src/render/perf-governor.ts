@@ -2,7 +2,7 @@ import type * as THREE from "three";
 
 import { FrameTimingWindow } from "./frame-timing-window";
 
-import { FULL_QUALITY, isCoarsePointer, setLiveQuality } from "./quality";
+import { FULL_QUALITY, PHONE_TOP_TIER, isCoarsePointer, setLiveQuality } from "./quality";
 import type { QualityFeatures } from "./quality";
 
 // Adaptive quality: keeps the game at target frame rate by stepping render
@@ -132,6 +132,8 @@ const installPerfDebug = (governor: PerfGovernor): void => {
 
 export class PerfGovernor {
   private readonly tiers: readonly Tier[];
+  // The best tier the governor may promote to (phones stop short of desktop).
+  private readonly topTier: number;
   private tier = 0;
   // grace at boot
   private cooldown = 1.5;
@@ -160,6 +162,7 @@ export class PerfGovernor {
     const native = Math.min(window.devicePixelRatio || 1, 2);
     const mobile = isCoarsePointer();
     this.tiers = qualityTiers(native, mobile);
+    this.topTier = mobile ? PHONE_TOP_TIER : 0;
     if (mobile) {
       // Boot LOW: the timing windows need ~10s to converge, and a phone
       // chugging through those first windows at desktop quality reads as a
@@ -234,7 +237,7 @@ export class PerfGovernor {
         this.upgradeCost = Math.min(UPGRADE_WINDOWS_MAX, this.upgradeCost * 2);
       }
       this.apply(this.tier + 1);
-    } else if (frameMs < FAST_MS && this.tier > 0) {
+    } else if (frameMs < FAST_MS && this.tier > this.topTier) {
       this.fastWindows += 1;
       if (this.fastWindows >= this.upgradeCost) {
         this.sinceUpgrade = 0;

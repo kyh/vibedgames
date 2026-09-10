@@ -1,4 +1,5 @@
-import { CHUNK, DRAW_DISTANCE, ROAD_TILE, WORLD_HALF_X, WORLD_HALF_Z } from "../shared/constants";
+import { CHUNK, ROAD_TILE, WORLD_HALF_X, WORLD_HALF_Z } from "../shared/constants";
+import { drawDistance } from "../render/quality";
 import { Rng } from "../shared/rng";
 import { pointInRing } from "./parcel-plan";
 import type { ParcelLot, ParcelPlan } from "./parcel-plan";
@@ -2358,7 +2359,7 @@ export const tierDistance = (
       return midImposter;
     }
     case "near": {
-      return DRAW_DISTANCE;
+      return drawDistance();
     }
     case "detail": {
       return detail;

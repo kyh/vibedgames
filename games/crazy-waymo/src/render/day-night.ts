@@ -1,5 +1,7 @@
 import * as THREE from "three";
 
+import { reachScale } from "./quality";
+
 import { setGradeNight, setGradeWarmth } from "./grade";
 import { NightSky } from "./night-sky";
 import type { Sky } from "./sky";
@@ -550,8 +552,11 @@ export class DayNight {
     ambient.color.lerpColors(a.ambColor, b.ambColor, t);
 
     fog.color.copy(this.scrColor.lerpColors(a.fog, b.fog, t));
-    fog.near = THREE.MathUtils.lerp(a.fogNear, b.fogNear, t);
-    fog.far = THREE.MathUtils.lerp(a.fogFar, b.fogFar, t);
+    // The stops are authored against the desktop draw distance; a phone's
+    // shorter world needs the haze pulled in with it or the cull edge shows.
+    const reach = reachScale();
+    fog.near = THREE.MathUtils.lerp(a.fogNear, b.fogNear, t) * reach;
+    fog.far = THREE.MathUtils.lerp(a.fogFar, b.fogFar, t) * reach;
 
     // Night sky: the physical Sky shader is plain BLACK once the sun sets —
     // the horizon used to read as a hole in the world. Below the horizon,
