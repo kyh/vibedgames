@@ -57,7 +57,7 @@ const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
-const probeCanvas = (): { canvas: HTMLCanvasElement; reason: () => string } => {
+const probeCanvas = () => {
   const canvas = document.createElement("canvas");
   let reason = "";
   canvas.addEventListener("webglcontextcreationerror", (event: Event) => {
