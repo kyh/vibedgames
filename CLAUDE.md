@@ -4,6 +4,8 @@
 
 **Read [`AGENTS.md`](./AGENTS.md) first.** It is the tool-agnostic, runnable guide: quickstart, the two env files, seeded logins, headless auth, the `pnpm verify` gate, an agent-browser recipe, and which surfaces are checkable at runtime versus which need a human. This file carries the product context, architectural decisions and conventions that sit on top of it.
 
+- **`pnpm lint` is a clean gate.** `oxlint.config.ts` extends the ultracite presets (core, react, anti-slop); every rule is an error. Fix the code, don't add config overrides; a `// oxlint-disable-next-line rule -- why` needs a stated reason.
+
 ## What This Is
 
 **vibedgames** — infrastructure platform for deploying, hosting, and adding multiplayer to browser games. Users build games locally, deploy via CLI (`vg deploy`), and their game is served at `{slug}.vibedgames.com`. The web app is the central hub for discovering and playing games.
@@ -22,16 +24,16 @@
 - **better-auth 1.7 scopes account identity by `(issuer, accountId)`.** `account.issuer` is NOT NULL with a unique `(issuer, accountId)` index (`account_issuer_account_id_uidx` in `packages/db/src/drizzle-schema-auth.ts`). Credential accounts carry `local:credential` with `accountId` = the owning user's id; an OAuth provider with no real issuer carries `local:oauth:<providerId>`. Keep `better-auth`, `@better-auth/api-key` and `@better-auth/expo` on the same minor. Nothing in `pnpm verify` touches D1, so a schema/column mismatch surfaces only as a failed sign-in against the live database — any further change to these tables needs a matching `db:push` plus a backfill of existing rows.
 - **Never regenerate the auth schema with `@better-auth/cli`.** It is stuck at 1.4.21: `generate:auth-schema` emits no `issuer`, and it strips the hand-curated `index(...)` calls and the hand-added `rate_limit` table. Edit `drizzle-schema-auth.ts` by hand.
 - **Multiplayer is host-authoritative, last-write-wins.** No conflict resolution. First player becomes host; if host leaves, reassigns. Good for turn-based and host-controlled games.
-- **Deploy on push to main.** GitHub Actions detects changed apps and deploys via wrangler. Never run `wrangler deploy` locally.
+- **Deploy on push to main.** GitHub Actions detects changed apps and deploys via wrangler. Never run `wrangler deploy` locally. Changed example games (`games/*`, plus anything downstream of a changed package) deploy the same way through `vg deploy`, authenticated by the `VG_TOKEN` repo secret — an API key from Settings.
 - **Per-user generation credits (micro-USD ledger).** Every account gets a $20 signup grant, materialized lazily on first credit access. `credit_entry` is an append-only ledger of integer micro-USD deltas — balance is `SUM(delta_micro)`, there is no cached balance column, and idempotency lives in deterministic entry ids (`signup:{userId}`, `hold:{requestId}`, ...). `generation` tracks the per-request lifecycle: `generate.forward` blocks queue submits at balance ≤ 0, debits an estimated hold at submit (provider historical per-call estimate, clamped $0.01–$5), settles to actual cost from the `x-fal-billable-units` result-fetch header, and refunds holds when a status poll reports FAILED/CANCELLED. Only generation is metered; deploys/hosting are free. Never bypass the gate or write ledger rows outside `packages/api/src/credits/`.
-- **Media goes through fal (internal only).** `vg generate` exposes `run`, `models`, `schema`, `upload`, `pricing`, `status`, `docs`. The server holds `FAL_API_KEY`; the CLI proxies through tRPC. fal is a gateway to OpenAI, Veo, Sora, Kling, Flux, ElevenLabs, Retro Diffusion, etc. — there's no per-provider routing. **End-user-facing surfaces (the `vg generate` CLI help and the skills under `plugins/generate/skills/`) must not name fal as a brand.** To the user this is just a CLI that generates assets; "fal" stays an implementation detail. The one exception is model endpoint IDs: they're passed through verbatim (e.g. `fal-ai/flux/dev`, `bytedance/seedance-2.0/...`), exactly as the upstream API expects — the CLI does no id rewriting. Keep branding out of prose and help text, but never alter an endpoint ID.
+- **Media goes through fal (internal only).** `vg generate` exposes `run`, `models`, `schema`, `upload`, `pricing`, `status`, `docs`. The server holds `FAL_API_KEY`; the CLI proxies through the API. fal is a gateway to OpenAI, Veo, Sora, Kling, Flux, ElevenLabs, Retro Diffusion, etc. — there's no per-provider routing. **End-user-facing surfaces (the `vg generate` CLI help and the skills under `plugins/generate/skills/`) must not name fal as a brand.** To the user this is just a CLI that generates assets; "fal" stays an implementation detail. The one exception is model endpoint IDs: they're passed through verbatim (e.g. `fal-ai/flux/dev`, `bytedance/seedance-2.0/...`), exactly as the upstream API expects — the CLI does no id rewriting. Keep branding out of prose and help text, but never alter an endpoint ID.
 
 ## Tech Stack
 
 - **Monorepo**: pnpm workspaces + Turborepo
 - **Web app**: TanStack Start (React 19, Vite SSR) on Cloudflare Workers
 - **Styling**: Tailwind CSS 4 + Radix UI primitives
-- **Backend**: tRPC, Drizzle ORM, Cloudflare D1 (SQLite)
+- **Backend**: oRPC, Drizzle ORM, Cloudflare D1 (SQLite)
 - **Auth**: better-auth (manages user/session/account tables — don't modify directly)
 - **Multiplayer**: PartyServer (Cloudflare Durable Objects)
 - **Game hosting**: Cloudflare Worker + R2
@@ -51,7 +53,7 @@ games/         # Bundled example games (not platform code)
   pong/        # (@repo/pong)
   starfall/    # (@repo/starfall)
 packages/
-  api/         # tRPC routers (@repo/api)
+  api/         # oRPC routers (@repo/api)
   db/          # Drizzle schema + migrations (@repo/db) — source of truth for data model
   multiplayer/ # Shared multiplayer hooks (@vibedgames/multiplayer) — published to npm
   ui/          # Shared UI components (@repo/ui)
@@ -78,8 +80,8 @@ pnpm test             # Run all tests (turbo run test)
 pnpm format           # Format check (oxfmt --check)
 pnpm format:fix       # Format + write
 pnpm db:push          # Push schema (drizzle-kit push) to REMOTE prod D1
+pnpm db:push          # Push schema to local D1 (Miniflare file)
 pnpm db:push-remote   # Push schema to prod (.env.production.local)
-pnpm db:push-local    # Push schema to the local Miniflare D1 (dev:web's D1)
 pnpm db:seed-local    # Seed local dev identity (wrangler d1 execute seed.sql)
 pnpm db:local         # push-local + seed-local (one-shot local DB setup)
 pnpm dogfood          # Link local vg CLI + sync plugin skills into .claude/skills/
@@ -89,23 +91,33 @@ pnpm verify           # typecheck + lint + format + test (run before every commi
 
 ## Environment
 
-Two files, two runtimes: root `.env` feeds anything reading `process.env` (drizzle-kit, the wrangler CLI); `apps/web/.dev.vars` feeds the dev Worker through the Cloudflare `env` binding. `BETTER_AUTH_SECRET` and the R2/fal keys only work in the second one. Full table + templates in `AGENTS.md` → Environment.
+One file, two consumers: root `.env` feeds anything reading `process.env` (drizzle-kit, the wrangler CLI) _and_ the dev Worker's `env` binding, because `apps/web/wrangler.jsonc` declares `secrets.required` — which makes wrangler fold `process.env` in, filtered to the declared names. A secret missing from that list never reaches the Worker. Creating `apps/web/.dev.vars` takes precedence and silently kills the root file; don't. Full table in `AGENTS.md` → Environment.
 
 ## Local development & headless verification
 
 Setup, seeded logins and the headless auth recipes live in `AGENTS.md`. What matters architecturally:
 
-The dev Worker (`pnpm dev:web`, http://localhost:5173) binds to a **local** Miniflare D1 — separate from prod, isolated, starts empty. Schema management is `drizzle-kit push` (TS schema is the source of truth, no SQL migration files): `db:push`/`db:push-remote` push to remote prod; `db:push-local` pushes the same schema to the local D1 (via `drizzle.config.local.ts`, which resolves the Miniflare SQLite path).
+The dev Worker (`pnpm dev:web`, http://localhost:5173) binds to a **local** Miniflare D1 — separate from prod, isolated, starts empty. Schema management is `drizzle-kit push` (TS schema is the source of truth, no SQL migration files). Following the fleet convention: `db:push` and `db:studio` target the local D1 via `drizzle.config.local.ts` (which resolves the Miniflare SQLite path); `db:push-remote` is the only command that reaches prod, and the only one that reads `.env.production.local`.
 
-Schema workflow: edit `packages/db/src/drizzle-schema*.ts` → `pnpm db:push-local` (local) / `pnpm db:push-remote` (prod). No migration files. Re-run `pnpm db:seed-local` anytime (idempotent); re-run `db:push-local` after schema changes, and restart `dev:web` if a change doesn't show.
+Schema workflow: edit `packages/db/src/drizzle-schema*.ts` → `pnpm db:push` (local) / `pnpm db:push-remote` (prod). No migration files. Re-run `pnpm db:seed-local` anytime (idempotent); re-run `db:push` after schema changes, and restart `dev:web` if a change doesn't show.
 
-**Local R2 is isolated too, and the isolation keys off the literal hostname.** `getServerContext` (`apps/web/src/auth/server.ts`) sets `proxyUploadBaseUrl`/`proxyUploadSecret` only when the Host header is `localhost` or `localhost:<port>`. With those set, `presignPut`/`presignGet` return HMAC-signed `/api/r2-upload` and `/api/r2-download` URLs instead of S3 presigned ones, so bytes flow through the `GAMES_BUCKET` binding — Miniflare-simulated locally. `deletePrefix` always uses the binding. Net: `vg deploy` against `http://localhost:5173` is fully local and the `R2_*` values in `.dev.vars` only need to be non-empty. `http://127.0.0.1:5173` misses the host check and presigns against **production** R2 — always address the dev worker as `localhost`.
+**Local R2 is isolated too, and the isolation keys off the literal hostname.** `getServerContext` (`apps/web/src/auth/server.ts`) sets `proxyUploadBaseUrl`/`proxyUploadSecret` only when the Host header is `localhost` or `localhost:<port>`. With those set, `presignPut`/`presignGet` return HMAC-signed `/api/r2-upload` and `/api/r2-download` URLs instead of S3 presigned ones, so bytes flow through the `GAMES_BUCKET` binding — Miniflare-simulated locally. `deletePrefix` always uses the binding. Net: `vg deploy` against `http://localhost:5173` is fully local and the `R2_*` values in `.env` only need to be non-empty. `http://127.0.0.1:5173` misses the host check and presigns against **production** R2 — always address the dev worker as `localhost`.
 
 ## Dogfooding (build games in ./games using local CLI + skills)
 
 `pnpm dogfood` builds + npm-links the local `vg` CLI and syncs `.claude/skills/` to match `plugins/*/skills/*` (creates new relative symlinks, removes stale ones). Symlinks are committed, so a fresh clone gets working skills automatically — only the `npm link` step is per-machine. `pnpm dogfood:reset` undoes the link.
 
 Re-run `pnpm dogfood` after adding or removing a skill, then commit the symlink change in `.claude/skills/`.
+
+### Using a skill outside this repo
+
+Skill docs resolve their scripts through a `SKILL` variable. Under Claude Code it is `${CLAUDE_SKILL_DIR}`, which Claude Code substitutes into the skill body for project, global and plugin (marketplace) installs alike. Other agents leave that literal unset, so the snippet falls back to probing `.agents/skills`, `.claude/skills`, `~/.agents/skills`, `~/.claude/skills` — every location `skills add` (what `vg init` runs) writes. In this repo the project probe hits the committed `.claude/skills/` symlinks; the home fallbacks only resolve for a skill you have deliberately linked there — one per skill, per machine, exactly like the `vg` `npm link`:
+
+```bash
+ln -s "$PWD/plugins/<plugin>/skills/<name>" ~/.claude/skills/<name>
+```
+
+Linked so far: `image-to-threejs`, `generate`. Do **not** bulk-link all 35 — `~/.claude/skills/` is the global namespace shared with `~/.agents/skills`, and `skill-creator` already exists there as a different skill that a link would shadow. Scripts still need their own runtime deps in the target project (`image-to-threejs` also wants `three`, `vite` and `playwright` there).
 
 ## Claude Code on the web (remote sessions)
 

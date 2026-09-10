@@ -19,7 +19,7 @@ const chose = (header: string | null | undefined) => {
 
 describe("negotiate", () => {
   // The published test vectors: https://acceptmarkdown.com/guides/accept-parsing
-  const vectors: Array<[string | null, string]> = [
+  const vectors: [string | null, string][] = [
     ["text/markdown", MARKDOWN],
     ["text/markdown, text/html;q=0.8", MARKDOWN],
     ["text/html", HTML],
@@ -95,9 +95,9 @@ describe("negotiate", () => {
 describe("parseAccept", () => {
   test("reads types, q-values and specificity", () => {
     assert.deepEqual(parseAccept("text/markdown, text/*;q=0.5, */*;q=0.1"), [
-      { type: "text", subtype: "markdown", q: 1, specificity: 2 },
-      { type: "text", subtype: "*", q: 0.5, specificity: 1 },
-      { type: "*", subtype: "*", q: 0.1, specificity: 0 },
+      { q: 1, specificity: 2, subtype: "markdown", type: "text" },
+      { q: 0.5, specificity: 1, subtype: "*", type: "text" },
+      { q: 0.1, specificity: 0, subtype: "*", type: "*" },
     ]);
   });
 
@@ -127,13 +127,13 @@ describe("responses", () => {
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("content-type"), "text/markdown; charset=utf-8");
     assert.equal(response.headers.get("vary"), VARY);
-    assert.match(VARY, /Accept/);
+    assert.match(VARY, /Accept/u);
   });
 
   test("markdownResponse init overrides status and headers", () => {
     const response = markdownResponse("# gone", {
-      status: 404,
       headers: { "Cache-Control": "no-store" },
+      status: 404,
     });
     assert.equal(response.status, 404);
     assert.equal(response.headers.get("cache-control"), "no-store");
@@ -146,8 +146,8 @@ describe("responses", () => {
     assert.equal(response.headers.get("cache-control"), "no-store");
     assert.equal(response.headers.get("vary"), VARY);
     const body = await response.text();
-    assert.match(body, /text\/html/);
-    assert.match(body, /text\/markdown/);
-    assert.match(body, /You requested: application\/pdf/);
+    assert.match(body, /text\/html/u);
+    assert.match(body, /text\/markdown/u);
+    assert.match(body, /You requested: application\/pdf/u);
   });
 });

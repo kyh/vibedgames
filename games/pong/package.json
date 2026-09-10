@@ -8,7 +8,9 @@
     "clean": "rm -rf .turbo dist node_modules",
     "dev": "vite",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test tools/test-*.mts",
+    "test:online": "node tools/two-client.mjs"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "1.0.1",
@@ -21,6 +23,8 @@
     "@kyh/tsconfig": "catalog:",
     "@types/node": "catalog:",
     "@types/three": "^0.185.4",
+    "playwright-core": "^1.62.1",
+    "tsx": "^4.23.12",
     "typescript": "catalog:",
     "vite": "catalog:"
   }

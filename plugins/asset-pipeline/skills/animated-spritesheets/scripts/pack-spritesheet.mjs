@@ -19,7 +19,6 @@
 import {
   getInt,
   getString,
-  fail,
   failUsage,
   main,
   packSpritesheet,
@@ -33,18 +32,20 @@ main(() => {
   });
   const inputDir = getString(args, "input-dir");
   const out = getString(args, "out");
-  if (!inputDir || !out) failUsage("--input-dir and --out are required");
+  if (!inputDir || !out) {
+    failUsage("--input-dir and --out are required");
+  }
 
   const columnsSpec = getString(args, "columns");
   const { manifest, sheet } = packSpritesheet(inputDir, out, {
-    glob: getString(args, "glob") ?? "frame-*.png",
+    action: getString(args, "action") ?? "anim",
     columns: columnsSpec === undefined ? null : getInt(args, "columns", 0),
     fps: getInt(args, "fps", 10),
-    action: getString(args, "action") ?? "anim",
+    glob: getString(args, "glob") ?? "frame-*.png",
   });
 
   sheet.toFile(out);
-  const manifestPath = getString(args, "json-out") ?? out.replace(/\.png$/i, ".json");
+  const manifestPath = getString(args, "json-out") ?? out.replace(/\.png$/iu, ".json");
   writeJsonFile(manifestPath, manifest);
 
   console.log(

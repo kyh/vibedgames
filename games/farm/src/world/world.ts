@@ -1,16 +1,18 @@
 import { MAP_W, MAP_H } from "../config";
 import type { CropId } from "../data/crops";
-import { CELL, type Cell, type WorldMap, buildSemantics } from "./worldmap";
+import { CELL, buildSemantics } from "./worldmap";
+import type { Cell, WorldMap } from "./worldmap";
 
 // Legacy ground vocabulary kept for the scenes: grass = tillable, water =
 // fishable/refill, sand = any other walkable ground.
-export const GROUND = { grass: 0, water: 1, sand: 2 } as const;
+export const GROUND = { grass: 0, sand: 2, water: 1 } as const;
 export type Ground = (typeof GROUND)[keyof typeof GROUND];
 
-export type CropState = {
+export interface CropState {
   crop: CropId;
-  daysGrown: number; // watered days accumulated
-};
+  // watered days accumulated
+  daysGrown: number;
+}
 
 export type ObjType =
   | "tree"
@@ -22,41 +24,53 @@ export type ObjType =
   | "barn"
   | "coop"
   | "forage"
-  | "ore"; // ore nodes used in the mine
+  // ore nodes used in the mine
+  | "ore";
 
-export type WorldObject = {
+export interface WorldObject {
   id: number;
   type: ObjType;
   tx: number;
-  ty: number; // anchor tile (bottom for buildings/trees)
-  w: number; // footprint width in tiles (collision)
-  h: number; // footprint height in tiles (collision)
+  // anchor tile (bottom for buildings/trees)
+  ty: number;
+  // footprint width in tiles (collision)
+  w: number;
+  // footprint height in tiles (collision)
+  h: number;
   hp: number;
   maxHp: number;
-  variant?: string; // e.g. forage kind, ore kind, tree art
-  solid?: boolean; // override: forage is non-solid (walk over to pick)
-};
-
-export function inBounds(tx: number, ty: number): boolean {
-  return tx >= 0 && ty >= 0 && tx < MAP_W && ty < MAP_H;
+  // e.g. forage kind, ore kind, tree art
+  variant?: string;
+  // override: forage is non-solid (walk over to pick)
+  solid?: boolean;
 }
+
+export const inBounds = (tx: number, ty: number): boolean =>
+  tx >= 0 && ty >= 0 && tx < MAP_W && ty < MAP_H;
+
+export const tileIdx = (tx: number, ty: number): number => ty * MAP_W + tx;
+
+// Wide footprints straddle their anchor column, leaning left on even widths.
+const footprintX0 = (o: WorldObject): number => o.tx - Math.floor((o.w - 1) / 2);
 
 // Buildings/trees occupy their footprint counting up from the anchor tile.
-function covers(o: WorldObject, tx: number, ty: number): boolean {
-  const x0 = o.tx - ((o.w - 1) >> 1);
+const covers = (o: WorldObject, tx: number, ty: number): boolean => {
+  const x0 = footprintX0(o);
   return tx >= x0 && tx <= x0 + o.w - 1 && ty >= o.ty - o.h + 1 && ty <= o.ty;
-}
+};
 
-function footprintKeys(o: WorldObject): number[] {
+const footprintKeys = (o: WorldObject): number[] => {
   const keys: number[] = [];
-  const x0 = o.tx - ((o.w - 1) >> 1);
-  for (let ty = o.ty - o.h + 1; ty <= o.ty; ty++) {
-    for (let tx = x0; tx < x0 + o.w; tx++) {
-      if (inBounds(tx, ty)) keys.push(ty * MAP_W + tx);
+  const x0 = footprintX0(o);
+  for (let ty = o.ty - o.h + 1; ty <= o.ty; ty += 1) {
+    for (let tx = x0; tx < x0 + o.w; tx += 1) {
+      if (inBounds(tx, ty)) {
+        keys.push(tileIdx(tx, ty));
+      }
     }
   }
   return keys;
-}
+};
 
 export class World {
   // static, derived from the world map — never serialized
@@ -72,15 +86,13 @@ export class World {
   private occupied = new Map<number, WorldObject>();
 
   constructor(worldMap?: WorldMap) {
-    if (worldMap) this.kind = buildSemantics(worldMap).kind;
-  }
-
-  idx(tx: number, ty: number): number {
-    return ty * MAP_W + tx;
+    if (worldMap) {
+      this.kind = buildSemantics(worldMap).kind;
+    }
   }
 
   cellKind(tx: number, ty: number): Cell {
-    const v = this.kind[this.idx(tx, ty)] ?? CELL.void;
+    const v = this.kind[tileIdx(tx, ty)] ?? CELL.void;
     // SAFETY: `kind` bytes are only ever written from CELL constants (the
     // buildSemantics classifiers), so every stored value is a Cell member.
     return v as Cell;
@@ -88,18 +100,22 @@ export class World {
 
   getGround(tx: number, ty: number): Ground {
     switch (this.cellKind(tx, ty)) {
-      case CELL.grass:
+      case CELL.grass: {
         return GROUND.grass;
+      }
       case CELL.water:
-      case CELL.void:
+      case CELL.void: {
         return GROUND.water;
-      default:
+      }
+      default: {
         return GROUND.sand;
+      }
     }
   }
 
   addObject(o: Omit<WorldObject, "id">): WorldObject {
-    const obj = { ...o, id: this.nextId++ };
+    const obj = { ...o, id: this.nextId };
+    this.nextId += 1;
     this.objects.push(obj);
     this.indexObject(obj);
     return obj;
@@ -107,54 +123,76 @@ export class World {
 
   removeObject(o: WorldObject): void {
     const i = this.objects.indexOf(o);
-    if (i >= 0) this.objects.splice(i, 1);
+    if (i !== -1) {
+      this.objects.splice(i, 1);
+    }
     for (const key of footprintKeys(o)) {
-      if (this.occupied.get(key) !== o) continue;
+      if (this.occupied.get(key) !== o) {
+        continue;
+      }
       this.occupied.delete(key);
       // an overlapping object may have been shadowed on this tile
       const tx = key % MAP_W;
-      const ty = (key / MAP_W) | 0;
+      const ty = Math.trunc(key / MAP_W);
       const other = this.objects.find((c) => covers(c, tx, ty));
-      if (other) this.occupied.set(key, other);
+      if (other) {
+        this.occupied.set(key, other);
+      }
     }
   }
 
   private indexObject(o: WorldObject): void {
     for (const key of footprintKeys(o)) {
-      if (!this.occupied.has(key)) this.occupied.set(key, o);
+      if (!this.occupied.has(key)) {
+        this.occupied.set(key, o);
+      }
     }
   }
 
   // Object occupying a tile (for collision / targeting).
   objectAt(tx: number, ty: number): WorldObject | null {
-    if (!inBounds(tx, ty)) return null;
-    return this.occupied.get(this.idx(tx, ty)) ?? null;
+    if (!inBounds(tx, ty)) {
+      return null;
+    }
+    return this.occupied.get(tileIdx(tx, ty)) ?? null;
   }
 
   isSolidTile(tx: number, ty: number): boolean {
-    if (!inBounds(tx, ty)) return true;
+    if (!inBounds(tx, ty)) {
+      return true;
+    }
     const k = this.cellKind(tx, ty);
-    if (k === CELL.solid || k === CELL.water || k === CELL.void) return true;
+    if (k === CELL.solid || k === CELL.water || k === CELL.void) {
+      return true;
+    }
     const o = this.objectAt(tx, ty);
     return o !== null && o.solid !== false;
   }
 
   canTill(tx: number, ty: number): boolean {
-    if (!inBounds(tx, ty)) return false;
-    if (this.cellKind(tx, ty) !== CELL.grass) return false;
-    if (this.tilled[this.idx(tx, ty)]) return false;
-    if (this.objectAt(tx, ty)) return false;
+    if (!inBounds(tx, ty)) {
+      return false;
+    }
+    if (this.cellKind(tx, ty) !== CELL.grass) {
+      return false;
+    }
+    if (this.tilled[tileIdx(tx, ty)]) {
+      return false;
+    }
+    if (this.objectAt(tx, ty)) {
+      return false;
+    }
     return true;
   }
 
   // ---- serialization (dynamic state only; terrain rebuilds from the world map) ----
   toJSON() {
     return {
-      tilled: Array.from(this.tilled),
-      watered: Array.from(this.watered),
-      crops: Array.from(this.crops.entries()),
-      objects: this.objects,
+      crops: [...this.crops.entries()],
       nextId: this.nextId,
+      objects: this.objects,
+      tilled: [...this.tilled],
+      watered: [...this.watered],
     };
   }
 
@@ -165,7 +203,9 @@ export class World {
     w.crops = new Map(d.crops);
     w.objects = d.objects;
     w.nextId = d.nextId;
-    for (const o of w.objects) w.indexObject(o);
+    for (const o of w.objects) {
+      w.indexObject(o);
+    }
     return w;
   }
 }

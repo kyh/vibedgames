@@ -1,0 +1,1459 @@
+{
+  "model": "Muni Shelter",
+  "parts": [
+    {
+      "name": "canopy",
+      "kind": "part",
+      "module": "canopy",
+      "triangles": 452
+    },
+    {
+      "name": "soffit",
+      "kind": "part",
+      "module": "soffit",
+      "triangles": 452
+    },
+    {
+      "name": "soffit-rib",
+      "kind": "part",
+      "module": "soffit-rib",
+      "triangles": 12
+    },
+    {
+      "name": "soffit-rib",
+      "kind": "part",
+      "module": "soffit-rib",
+      "triangles": 12
+    },
+    {
+      "name": "soffit-rib",
+      "kind": "part",
+      "module": "soffit-rib",
+      "triangles": 12
+    },
+    {
+      "name": "soffit-rib",
+      "kind": "part",
+      "module": "soffit-rib",
+      "triangles": 12
+    },
+    {
+      "name": "soffit-rib",
+      "kind": "part",
+      "module": "soffit-rib",
+      "triangles": 12
+    },
+    {
+      "name": "soffit-rib",
+      "kind": "part",
+      "module": "soffit-rib",
+      "triangles": 12
+    },
+    {
+      "name": "soffit-rib",
+      "kind": "part",
+      "module": "soffit-rib",
+      "triangles": 12
+    },
+    {
+      "name": "soffit-rib",
+      "kind": "part",
+      "module": "soffit-rib",
+      "triangles": 12
+    },
+    {
+      "name": "soffit-rib",
+      "kind": "part",
+      "module": "soffit-rib",
+      "triangles": 12
+    },
+    {
+      "name": "soffit-rib",
+      "kind": "part",
+      "module": "soffit-rib",
+      "triangles": 12
+    },
+    {
+      "name": "soffit-rib",
+      "kind": "part",
+      "module": "soffit-rib",
+      "triangles": 12
+    },
+    {
+      "name": "soffit-rib",
+      "kind": "part",
+      "module": "soffit-rib",
+      "triangles": 12
+    },
+    {
+      "name": "soffit-rib",
+      "kind": "part",
+      "module": "soffit-rib",
+      "triangles": 12
+    },
+    {
+      "name": "soffit-rib",
+      "kind": "part",
+      "module": "soffit-rib",
+      "triangles": 12
+    },
+    {
+      "name": "soffit-rib",
+      "kind": "part",
+      "module": "soffit-rib",
+      "triangles": 12
+    },
+    {
+      "name": "canopy-seam",
+      "kind": "part",
+      "module": "canopy-seam",
+      "triangles": 480
+    },
+    {
+      "name": "canopy-seam",
+      "kind": "part",
+      "module": "canopy-seam",
+      "triangles": 480
+    },
+    {
+      "name": "post",
+      "kind": "part",
+      "module": "post",
+      "triangles": 108
+    },
+    {
+      "name": "foot-plates",
+      "kind": "part",
+      "module": "foot-plates",
+      "triangles": 108
+    },
+    {
+      "name": "foot-collar",
+      "kind": "part",
+      "module": "foot-collar",
+      "triangles": 108
+    },
+    {
+      "name": "foot-fastener",
+      "kind": "part",
+      "module": "foot-fastener",
+      "triangles": 24
+    },
+    {
+      "name": "foot-fastener",
+      "kind": "part",
+      "module": "foot-fastener",
+      "triangles": 24
+    },
+    {
+      "name": "foot-fastener",
+      "kind": "part",
+      "module": "foot-fastener",
+      "triangles": 24
+    },
+    {
+      "name": "foot-fastener",
+      "kind": "part",
+      "module": "foot-fastener",
+      "triangles": 24
+    },
+    {
+      "name": "post",
+      "kind": "part",
+      "module": "post",
+      "triangles": 108
+    },
+    {
+      "name": "foot-plates",
+      "kind": "part",
+      "module": "foot-plates",
+      "triangles": 108
+    },
+    {
+      "name": "foot-collar",
+      "kind": "part",
+      "module": "foot-collar",
+      "triangles": 108
+    },
+    {
+      "name": "foot-fastener",
+      "kind": "part",
+      "module": "foot-fastener",
+      "triangles": 24
+    },
+    {
+      "name": "foot-fastener",
+      "kind": "part",
+      "module": "foot-fastener",
+      "triangles": 24
+    },
+    {
+      "name": "foot-fastener",
+      "kind": "part",
+      "module": "foot-fastener",
+      "triangles": 24
+    },
+    {
+      "name": "foot-fastener",
+      "kind": "part",
+      "module": "foot-fastener",
+      "triangles": 24
+    },
+    {
+      "name": "side-rail",
+      "kind": "part",
+      "module": "side-rail",
+      "triangles": 108
+    },
+    {
+      "name": "post",
+      "kind": "part",
+      "module": "post",
+      "triangles": 108
+    },
+    {
+      "name": "foot-plates",
+      "kind": "part",
+      "module": "foot-plates",
+      "triangles": 108
+    },
+    {
+      "name": "foot-collar",
+      "kind": "part",
+      "module": "foot-collar",
+      "triangles": 108
+    },
+    {
+      "name": "foot-fastener",
+      "kind": "part",
+      "module": "foot-fastener",
+      "triangles": 24
+    },
+    {
+      "name": "foot-fastener",
+      "kind": "part",
+      "module": "foot-fastener",
+      "triangles": 24
+    },
+    {
+      "name": "foot-fastener",
+      "kind": "part",
+      "module": "foot-fastener",
+      "triangles": 24
+    },
+    {
+      "name": "foot-fastener",
+      "kind": "part",
+      "module": "foot-fastener",
+      "triangles": 24
+    },
+    {
+      "name": "post",
+      "kind": "part",
+      "module": "post",
+      "triangles": 108
+    },
+    {
+      "name": "foot-plates",
+      "kind": "part",
+      "module": "foot-plates",
+      "triangles": 108
+    },
+    {
+      "name": "foot-collar",
+      "kind": "part",
+      "module": "foot-collar",
+      "triangles": 108
+    },
+    {
+      "name": "foot-fastener",
+      "kind": "part",
+      "module": "foot-fastener",
+      "triangles": 24
+    },
+    {
+      "name": "foot-fastener",
+      "kind": "part",
+      "module": "foot-fastener",
+      "triangles": 24
+    },
+    {
+      "name": "foot-fastener",
+      "kind": "part",
+      "module": "foot-fastener",
+      "triangles": 24
+    },
+    {
+      "name": "foot-fastener",
+      "kind": "part",
+      "module": "foot-fastener",
+      "triangles": 24
+    },
+    {
+      "name": "side-rail",
+      "kind": "part",
+      "module": "side-rail",
+      "triangles": 108
+    },
+    {
+      "name": "rear-top-rail",
+      "kind": "part",
+      "module": "rear-top-rail",
+      "triangles": 108
+    },
+    {
+      "name": "rear-bottom-rail",
+      "kind": "part",
+      "module": "rear-bottom-rail",
+      "triangles": 108
+    },
+    {
+      "name": "rear-mullion",
+      "kind": "part",
+      "module": "rear-mullion",
+      "triangles": 108
+    },
+    {
+      "name": "rear-mullion",
+      "kind": "part",
+      "module": "rear-mullion",
+      "triangles": 108
+    },
+    {
+      "name": "glass",
+      "kind": "part",
+      "module": "glass",
+      "triangles": 12
+    },
+    {
+      "name": "glass",
+      "kind": "part",
+      "module": "glass",
+      "triangles": 12
+    },
+    {
+      "name": "glass",
+      "kind": "part",
+      "module": "glass",
+      "triangles": 12
+    },
+    {
+      "name": "glass-return",
+      "kind": "part",
+      "module": "glass-return",
+      "triangles": 12
+    },
+    {
+      "name": "glass-return",
+      "kind": "part",
+      "module": "glass-return",
+      "triangles": 12
+    },
+    {
+      "name": "glass-clamp",
+      "kind": "part",
+      "module": "glass-clamp",
+      "triangles": 108
+    },
+    {
+      "name": "glass-clamp",
+      "kind": "part",
+      "module": "glass-clamp",
+      "triangles": 108
+    },
+    {
+      "name": "glass-clamp",
+      "kind": "part",
+      "module": "glass-clamp",
+      "triangles": 108
+    },
+    {
+      "name": "glass-clamp",
+      "kind": "part",
+      "module": "glass-clamp",
+      "triangles": 108
+    },
+    {
+      "name": "glass-clamp",
+      "kind": "part",
+      "module": "glass-clamp",
+      "triangles": 108
+    },
+    {
+      "name": "glass-clamp",
+      "kind": "part",
+      "module": "glass-clamp",
+      "triangles": 108
+    },
+    {
+      "name": "glass-clamp",
+      "kind": "part",
+      "module": "glass-clamp",
+      "triangles": 108
+    },
+    {
+      "name": "glass-clamp",
+      "kind": "part",
+      "module": "glass-clamp",
+      "triangles": 108
+    },
+    {
+      "name": "glass-clamp",
+      "kind": "part",
+      "module": "glass-clamp",
+      "triangles": 108
+    },
+    {
+      "name": "glass-clamp",
+      "kind": "part",
+      "module": "glass-clamp",
+      "triangles": 108
+    },
+    {
+      "name": "glass-clamp",
+      "kind": "part",
+      "module": "glass-clamp",
+      "triangles": 108
+    },
+    {
+      "name": "glass-clamp",
+      "kind": "part",
+      "module": "glass-clamp",
+      "triangles": 108
+    },
+    {
+      "name": "bench-seat-slat",
+      "kind": "part",
+      "module": "bench-seat-slat",
+      "triangles": 12
+    },
+    {
+      "name": "bench-seat-slat",
+      "kind": "part",
+      "module": "bench-seat-slat",
+      "triangles": 12
+    },
+    {
+      "name": "bench-seat-slat",
+      "kind": "part",
+      "module": "bench-seat-slat",
+      "triangles": 12
+    },
+    {
+      "name": "bench-seat-slat",
+      "kind": "part",
+      "module": "bench-seat-slat",
+      "triangles": 12
+    },
+    {
+      "name": "bench-seat-slat",
+      "kind": "part",
+      "module": "bench-seat-slat",
+      "triangles": 12
+    },
+    {
+      "name": "bench-seat-slat",
+      "kind": "part",
+      "module": "bench-seat-slat",
+      "triangles": 12
+    },
+    {
+      "name": "bench-seat-slat",
+      "kind": "part",
+      "module": "bench-seat-slat",
+      "triangles": 12
+    },
+    {
+      "name": "bench-back-slat",
+      "kind": "part",
+      "module": "bench-back-slat",
+      "triangles": 12
+    },
+    {
+      "name": "bench-back-slat",
+      "kind": "part",
+      "module": "bench-back-slat",
+      "triangles": 12
+    },
+    {
+      "name": "bench-back-slat",
+      "kind": "part",
+      "module": "bench-back-slat",
+      "triangles": 12
+    },
+    {
+      "name": "bench-back-slat",
+      "kind": "part",
+      "module": "bench-back-slat",
+      "triangles": 12
+    },
+    {
+      "name": "bench-back-slat",
+      "kind": "part",
+      "module": "bench-back-slat",
+      "triangles": 12
+    },
+    {
+      "name": "bench-back-slat",
+      "kind": "part",
+      "module": "bench-back-slat",
+      "triangles": 12
+    },
+    {
+      "name": "bench-back-slat",
+      "kind": "part",
+      "module": "bench-back-slat",
+      "triangles": 12
+    },
+    {
+      "name": "bench-cheek",
+      "kind": "part",
+      "module": "bench-cheek",
+      "triangles": 180
+    },
+    {
+      "name": "bench-cheek",
+      "kind": "part",
+      "module": "bench-cheek",
+      "triangles": 180
+    },
+    {
+      "name": "bench-leg",
+      "kind": "part",
+      "module": "bench-leg",
+      "triangles": 108
+    },
+    {
+      "name": "bench-foot",
+      "kind": "part",
+      "module": "bench-foot",
+      "triangles": 108
+    },
+    {
+      "name": "bench-leg",
+      "kind": "part",
+      "module": "bench-leg",
+      "triangles": 108
+    },
+    {
+      "name": "bench-foot",
+      "kind": "part",
+      "module": "bench-foot",
+      "triangles": 108
+    },
+    {
+      "name": "bench-divider",
+      "kind": "part",
+      "module": "bench-divider",
+      "triangles": 160
+    },
+    {
+      "name": "bench-divider",
+      "kind": "part",
+      "module": "bench-divider",
+      "triangles": 160
+    },
+    {
+      "name": "bench-divider",
+      "kind": "part",
+      "module": "bench-divider",
+      "triangles": 160
+    },
+    {
+      "name": "front-sign",
+      "kind": "part",
+      "module": "front-sign",
+      "triangles": 108
+    },
+    {
+      "name": "front-sign-enamel",
+      "kind": "part",
+      "module": "front-sign-enamel",
+      "triangles": 108
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-U",
+      "kind": "part",
+      "module": "letter-U",
+      "triangles": 12
+    },
+    {
+      "name": "letter-U",
+      "kind": "part",
+      "module": "letter-U",
+      "triangles": 12
+    },
+    {
+      "name": "letter-U",
+      "kind": "part",
+      "module": "letter-U",
+      "triangles": 12
+    },
+    {
+      "name": "letter-U",
+      "kind": "part",
+      "module": "letter-U",
+      "triangles": 12
+    },
+    {
+      "name": "letter-U",
+      "kind": "part",
+      "module": "letter-U",
+      "triangles": 12
+    },
+    {
+      "name": "letter-U",
+      "kind": "part",
+      "module": "letter-U",
+      "triangles": 12
+    },
+    {
+      "name": "letter-U",
+      "kind": "part",
+      "module": "letter-U",
+      "triangles": 12
+    },
+    {
+      "name": "letter-U",
+      "kind": "part",
+      "module": "letter-U",
+      "triangles": 12
+    },
+    {
+      "name": "letter-U",
+      "kind": "part",
+      "module": "letter-U",
+      "triangles": 12
+    },
+    {
+      "name": "letter-U",
+      "kind": "part",
+      "module": "letter-U",
+      "triangles": 12
+    },
+    {
+      "name": "letter-U",
+      "kind": "part",
+      "module": "letter-U",
+      "triangles": 12
+    },
+    {
+      "name": "letter-U",
+      "kind": "part",
+      "module": "letter-U",
+      "triangles": 12
+    },
+    {
+      "name": "letter-U",
+      "kind": "part",
+      "module": "letter-U",
+      "triangles": 12
+    },
+    {
+      "name": "letter-N",
+      "kind": "part",
+      "module": "letter-N",
+      "triangles": 12
+    },
+    {
+      "name": "letter-N",
+      "kind": "part",
+      "module": "letter-N",
+      "triangles": 12
+    },
+    {
+      "name": "letter-N",
+      "kind": "part",
+      "module": "letter-N",
+      "triangles": 12
+    },
+    {
+      "name": "letter-N",
+      "kind": "part",
+      "module": "letter-N",
+      "triangles": 12
+    },
+    {
+      "name": "letter-N",
+      "kind": "part",
+      "module": "letter-N",
+      "triangles": 12
+    },
+    {
+      "name": "letter-N",
+      "kind": "part",
+      "module": "letter-N",
+      "triangles": 12
+    },
+    {
+      "name": "letter-N",
+      "kind": "part",
+      "module": "letter-N",
+      "triangles": 12
+    },
+    {
+      "name": "letter-N",
+      "kind": "part",
+      "module": "letter-N",
+      "triangles": 12
+    },
+    {
+      "name": "letter-N",
+      "kind": "part",
+      "module": "letter-N",
+      "triangles": 12
+    },
+    {
+      "name": "letter-N",
+      "kind": "part",
+      "module": "letter-N",
+      "triangles": 12
+    },
+    {
+      "name": "letter-N",
+      "kind": "part",
+      "module": "letter-N",
+      "triangles": 12
+    },
+    {
+      "name": "letter-N",
+      "kind": "part",
+      "module": "letter-N",
+      "triangles": 12
+    },
+    {
+      "name": "letter-N",
+      "kind": "part",
+      "module": "letter-N",
+      "triangles": 12
+    },
+    {
+      "name": "letter-N",
+      "kind": "part",
+      "module": "letter-N",
+      "triangles": 12
+    },
+    {
+      "name": "letter-N",
+      "kind": "part",
+      "module": "letter-N",
+      "triangles": 12
+    },
+    {
+      "name": "letter-I",
+      "kind": "part",
+      "module": "letter-I",
+      "triangles": 12
+    },
+    {
+      "name": "letter-I",
+      "kind": "part",
+      "module": "letter-I",
+      "triangles": 12
+    },
+    {
+      "name": "letter-I",
+      "kind": "part",
+      "module": "letter-I",
+      "triangles": 12
+    },
+    {
+      "name": "letter-I",
+      "kind": "part",
+      "module": "letter-I",
+      "triangles": 12
+    },
+    {
+      "name": "letter-I",
+      "kind": "part",
+      "module": "letter-I",
+      "triangles": 12
+    },
+    {
+      "name": "letter-I",
+      "kind": "part",
+      "module": "letter-I",
+      "triangles": 12
+    },
+    {
+      "name": "letter-I",
+      "kind": "part",
+      "module": "letter-I",
+      "triangles": 12
+    },
+    {
+      "name": "letter-I",
+      "kind": "part",
+      "module": "letter-I",
+      "triangles": 12
+    },
+    {
+      "name": "sign-fastener",
+      "kind": "part",
+      "module": "sign-fastener",
+      "triangles": 24
+    },
+    {
+      "name": "sign-fastener",
+      "kind": "part",
+      "module": "sign-fastener",
+      "triangles": 24
+    },
+    {
+      "name": "sign-fastener",
+      "kind": "part",
+      "module": "sign-fastener",
+      "triangles": 24
+    },
+    {
+      "name": "sign-fastener",
+      "kind": "part",
+      "module": "sign-fastener",
+      "triangles": 24
+    },
+    {
+      "name": "route-panel-frame",
+      "kind": "part",
+      "module": "route-panel-frame",
+      "triangles": 108
+    },
+    {
+      "name": "route-panel",
+      "kind": "part",
+      "module": "route-panel",
+      "triangles": 108
+    },
+    {
+      "name": "route-header",
+      "kind": "part",
+      "module": "route-header",
+      "triangles": 108
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-M",
+      "kind": "part",
+      "module": "letter-M",
+      "triangles": 12
+    },
+    {
+      "name": "letter-U",
+      "kind": "part",
+      "module": "letter-U",
+      "triangles": 12
+    },
+    {
+      "name": "letter-U",
+      "kind": "part",
+      "module": "letter-U",
+      "triangles": 12
+    },
+    {
+      "name": "letter-U",
+      "kind": "part",
+      "module": "letter-U",
+      "triangles": 12
+    },
+    {
+      "name": "letter-U",
+      "kind": "part",
+      "module": "letter-U",
+      "triangles": 12
+    },
+    {
+      "name": "letter-U",
+      "kind": "part",
+      "module": "letter-U",
+      "triangles": 12
+    },
+    {
+      "name": "letter-U",
+      "kind": "part",
+      "module": "letter-U",
+      "triangles": 12
+    },
+    {
+      "name": "letter-U",
+      "kind": "part",
+      "module": "letter-U",
+      "triangles": 12
+    },
+    {
+      "name": "letter-U",
+      "kind": "part",
+      "module": "letter-U",
+      "triangles": 12
+    },
+    {
+      "name": "letter-U",
+      "kind": "part",
+      "module": "letter-U",
+      "triangles": 12
+    },
+    {
+      "name": "letter-U",
+      "kind": "part",
+      "module": "letter-U",
+      "triangles": 12
+    },
+    {
+      "name": "letter-U",
+      "kind": "part",
+      "module": "letter-U",
+      "triangles": 12
+    },
+    {
+      "name": "letter-U",
+      "kind": "part",
+      "module": "letter-U",
+      "triangles": 12
+    },
+    {
+      "name": "letter-U",
+      "kind": "part",
+      "module": "letter-U",
+      "triangles": 12
+    },
+    {
+      "name": "letter-N",
+      "kind": "part",
+      "module": "letter-N",
+      "triangles": 12
+    },
+    {
+      "name": "letter-N",
+      "kind": "part",
+      "module": "letter-N",
+      "triangles": 12
+    },
+    {
+      "name": "letter-N",
+      "kind": "part",
+      "module": "letter-N",
+      "triangles": 12
+    },
+    {
+      "name": "letter-N",
+      "kind": "part",
+      "module": "letter-N",
+      "triangles": 12
+    },
+    {
+      "name": "letter-N",
+      "kind": "part",
+      "module": "letter-N",
+      "triangles": 12
+    },
+    {
+      "name": "letter-N",
+      "kind": "part",
+      "module": "letter-N",
+      "triangles": 12
+    },
+    {
+      "name": "letter-N",
+      "kind": "part",
+      "module": "letter-N",
+      "triangles": 12
+    },
+    {
+      "name": "letter-N",
+      "kind": "part",
+      "module": "letter-N",
+      "triangles": 12
+    },
+    {
+      "name": "letter-N",
+      "kind": "part",
+      "module": "letter-N",
+      "triangles": 12
+    },
+    {
+      "name": "letter-N",
+      "kind": "part",
+      "module": "letter-N",
+      "triangles": 12
+    },
+    {
+      "name": "letter-N",
+      "kind": "part",
+      "module": "letter-N",
+      "triangles": 12
+    },
+    {
+      "name": "letter-N",
+      "kind": "part",
+      "module": "letter-N",
+      "triangles": 12
+    },
+    {
+      "name": "letter-N",
+      "kind": "part",
+      "module": "letter-N",
+      "triangles": 12
+    },
+    {
+      "name": "letter-N",
+      "kind": "part",
+      "module": "letter-N",
+      "triangles": 12
+    },
+    {
+      "name": "letter-N",
+      "kind": "part",
+      "module": "letter-N",
+      "triangles": 12
+    },
+    {
+      "name": "letter-I",
+      "kind": "part",
+      "module": "letter-I",
+      "triangles": 12
+    },
+    {
+      "name": "letter-I",
+      "kind": "part",
+      "module": "letter-I",
+      "triangles": 12
+    },
+    {
+      "name": "letter-I",
+      "kind": "part",
+      "module": "letter-I",
+      "triangles": 12
+    },
+    {
+      "name": "letter-I",
+      "kind": "part",
+      "module": "letter-I",
+      "triangles": 12
+    },
+    {
+      "name": "letter-I",
+      "kind": "part",
+      "module": "letter-I",
+      "triangles": 12
+    },
+    {
+      "name": "letter-I",
+      "kind": "part",
+      "module": "letter-I",
+      "triangles": 12
+    },
+    {
+      "name": "letter-I",
+      "kind": "part",
+      "module": "letter-I",
+      "triangles": 12
+    },
+    {
+      "name": "letter-I",
+      "kind": "part",
+      "module": "letter-I",
+      "triangles": 12
+    },
+    {
+      "name": "route-footer",
+      "kind": "part",
+      "module": "route-footer",
+      "triangles": 108
+    },
+    {
+      "name": "letter-S",
+      "kind": "part",
+      "module": "letter-S",
+      "triangles": 12
+    },
+    {
+      "name": "letter-S",
+      "kind": "part",
+      "module": "letter-S",
+      "triangles": 12
+    },
+    {
+      "name": "letter-S",
+      "kind": "part",
+      "module": "letter-S",
+      "triangles": 12
+    },
+    {
+      "name": "letter-S",
+      "kind": "part",
+      "module": "letter-S",
+      "triangles": 12
+    },
+    {
+      "name": "letter-S",
+      "kind": "part",
+      "module": "letter-S",
+      "triangles": 12
+    },
+    {
+      "name": "letter-S",
+      "kind": "part",
+      "module": "letter-S",
+      "triangles": 12
+    },
+    {
+      "name": "letter-S",
+      "kind": "part",
+      "module": "letter-S",
+      "triangles": 12
+    },
+    {
+      "name": "letter-F",
+      "kind": "part",
+      "module": "letter-F",
+      "triangles": 12
+    },
+    {
+      "name": "letter-F",
+      "kind": "part",
+      "module": "letter-F",
+      "triangles": 12
+    },
+    {
+      "name": "letter-F",
+      "kind": "part",
+      "module": "letter-F",
+      "triangles": 12
+    },
+    {
+      "name": "letter-F",
+      "kind": "part",
+      "module": "letter-F",
+      "triangles": 12
+    },
+    {
+      "name": "letter-F",
+      "kind": "part",
+      "module": "letter-F",
+      "triangles": 12
+    },
+    {
+      "name": "letter-F",
+      "kind": "part",
+      "module": "letter-F",
+      "triangles": 12
+    },
+    {
+      "name": "letter-F",
+      "kind": "part",
+      "module": "letter-F",
+      "triangles": 12
+    },
+    {
+      "name": "route-badge",
+      "kind": "part",
+      "module": "route-badge",
+      "triangles": 48
+    },
+    {
+      "name": "letter-7",
+      "kind": "part",
+      "module": "letter-7",
+      "triangles": 12
+    },
+    {
+      "name": "letter-7",
+      "kind": "part",
+      "module": "letter-7",
+      "triangles": 12
+    },
+    {
+      "name": "letter-7",
+      "kind": "part",
+      "module": "letter-7",
+      "triangles": 12
+    },
+    {
+      "name": "letter-7",
+      "kind": "part",
+      "module": "letter-7",
+      "triangles": 12
+    },
+    {
+      "name": "letter-7",
+      "kind": "part",
+      "module": "letter-7",
+      "triangles": 12
+    },
+    {
+      "name": "letter-7",
+      "kind": "part",
+      "module": "letter-7",
+      "triangles": 12
+    },
+    {
+      "name": "letter-7",
+      "kind": "part",
+      "module": "letter-7",
+      "triangles": 12
+    },
+    {
+      "name": "route-line",
+      "kind": "part",
+      "module": "route-line",
+      "triangles": 12
+    },
+    {
+      "name": "route-stop",
+      "kind": "part",
+      "module": "route-stop",
+      "triangles": 32
+    },
+    {
+      "name": "route-caption",
+      "kind": "part",
+      "module": "route-caption",
+      "triangles": 12
+    },
+    {
+      "name": "route-stop",
+      "kind": "part",
+      "module": "route-stop",
+      "triangles": 32
+    },
+    {
+      "name": "route-caption",
+      "kind": "part",
+      "module": "route-caption",
+      "triangles": 12
+    },
+    {
+      "name": "route-stop",
+      "kind": "part",
+      "module": "route-stop",
+      "triangles": 32
+    },
+    {
+      "name": "route-caption",
+      "kind": "part",
+      "module": "route-caption",
+      "triangles": 12
+    },
+    {
+      "name": "route-stop",
+      "kind": "part",
+      "module": "route-stop",
+      "triangles": 32
+    },
+    {
+      "name": "route-caption",
+      "kind": "part",
+      "module": "route-caption",
+      "triangles": 12
+    },
+    {
+      "name": "route-stop",
+      "kind": "part",
+      "module": "route-stop",
+      "triangles": 32
+    },
+    {
+      "name": "route-caption",
+      "kind": "part",
+      "module": "route-caption",
+      "triangles": 12
+    },
+    {
+      "name": "route-stop",
+      "kind": "part",
+      "module": "route-stop",
+      "triangles": 32
+    },
+    {
+      "name": "route-caption",
+      "kind": "part",
+      "module": "route-caption",
+      "triangles": 12
+    }
+  ],
+  "unnamedMeshes": 0,
+  "integralMeshes": 242
+}

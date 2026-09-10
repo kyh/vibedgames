@@ -21,19 +21,21 @@
 
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { dirname, extname, isAbsolute, relative, resolve } from "node:path";
+import { createServer } from "node:http";
+import type { IncomingMessage, Server, ServerResponse } from "node:http";
+import path from "node:path";
 
-import { isJsonObject, isJsonString, type JsonValue, parseJsonText } from "./json.js";
+import { isJsonObject, isJsonString, parseJsonText } from "./json.js";
+import type { JsonValue } from "./json.js";
 import {
   loadManifestJson,
   newMap,
   parseTilemap,
   sanitizeTilesets,
   tilemapPayload,
-  type TilesetMeta,
   tilesetMetaFromManifest,
 } from "./tilemap.js";
+import type { TilesetMeta } from "./tilemap.js";
 
 export const DEFAULT_MAP_WIDTH = 64;
 export const DEFAULT_MAP_HEIGHT = 36;
@@ -53,12 +55,12 @@ const CONTENT_TYPES = new Map([
  * the check — string prefixing would accept a sibling like `/srv/project-old`
  * for a root of `/srv/project`.
  */
-export function isInside(root: string, candidate: string): boolean {
-  const rel = relative(resolve(root), resolve(candidate));
-  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
-}
+export const isInside = (root: string, candidate: string): boolean => {
+  const rel = path.relative(path.resolve(root), path.resolve(candidate));
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+};
 
-export type EditorOptions = {
+export interface EditorOptions {
   manifestPath: string;
   /** Map to open at startup and quick-save to. */
   mapPath?: string | null;
@@ -68,64 +70,62 @@ export type EditorOptions = {
   html: string;
   /** Saves and loads are refused outside this directory. */
   writeRoot: string;
-};
+}
 
-export type EditorHandle = {
+export interface EditorHandle {
   server: Server;
   token: string;
   /** The URL to open, token included. */
   url: (port: number, host?: string) => string;
-};
-
-function sendJson(res: ServerResponse, status: number, body: JsonValue): void {
-  const payload = JSON.stringify(body);
-  res.writeHead(status, {
-    "content-type": "application/json; charset=utf-8",
-    "content-length": Buffer.byteLength(payload),
-    // Nothing here should ever be cached: the point is to reflect files on disk.
-    "cache-control": "no-store",
-  });
-  res.end(payload);
 }
 
-function readBody(req: IncomingMessage, limitBytes = 8 * 1024 * 1024): Promise<string> {
-  return new Promise((resolveBody, rejectBody) => {
+const sendJson = (res: ServerResponse, status: number, body: JsonValue): void => {
+  const payload = JSON.stringify(body);
+  // Nothing here should ever be cached: the point is to reflect files on disk.
+  res.writeHead(status, {
+    "cache-control": "no-store",
+    "content-length": Buffer.byteLength(payload),
+    "content-type": "application/json; charset=utf-8",
+  });
+  res.end(payload);
+};
+
+const readBody = (req: IncomingMessage, limitBytes = 8 * 1024 * 1024): Promise<string> =>
+  // oxlint-disable-next-line promise/avoid-new -- wraps the stream's event callbacks
+  new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let total = 0;
     req.on("data", (chunk: Buffer) => {
       total += chunk.length;
       if (total > limitBytes) {
-        rejectBody(new Error("Request body too large."));
+        reject(new Error("Request body too large."));
         req.destroy();
         return;
       }
       chunks.push(chunk);
     });
-    req.on("end", () => resolveBody(Buffer.concat(chunks).toString("utf8")));
-    req.on("error", rejectBody);
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
+    req.on("error", reject);
   });
-}
 
 /** Everything the page needs about one tileset, including where to fetch it. */
-function tilesetSummary(meta: TilesetMeta) {
-  return {
-    name: meta.name,
-    tileWidth: meta.tileW,
-    tileHeight: meta.tileH,
-    columns: meta.columns,
-    rows: meta.rows,
-    margin: meta.margin,
-    spacing: meta.spacing,
-    imageWidth: meta.imageW,
-    imageHeight: meta.imageH,
-    path: meta.path,
-  };
-}
+const tilesetSummary = (meta: TilesetMeta) => ({
+  columns: meta.columns,
+  imageHeight: meta.imageH,
+  imageWidth: meta.imageW,
+  margin: meta.margin,
+  name: meta.name,
+  path: meta.path,
+  rows: meta.rows,
+  spacing: meta.spacing,
+  tileHeight: meta.tileH,
+  tileWidth: meta.tileW,
+});
 
-export function createTilemapEditor(options: EditorOptions): EditorHandle {
+export const createTilemapEditor = (options: EditorOptions): EditorHandle => {
   const token = randomUUID();
-  const manifestPath = resolve(options.manifestPath);
-  const writeRoot = resolve(options.writeRoot);
+  const manifestPath = path.resolve(options.manifestPath);
+  const writeRoot = path.resolve(options.writeRoot);
 
   // Re-read the manifest per request rather than caching it: an agent editing
   // the manifest in another window should see the change on reload, which is
@@ -137,73 +137,88 @@ export function createTilemapEditor(options: EditorOptions): EditorHandle {
 
   const metaFor = (name: string): TilesetMeta => {
     const { manifest, tilesets } = readTilesets();
-    if (!(name in tilesets)) throw new Error(`No such tileset: ${name}`);
+    if (!(name in tilesets)) {
+      throw new Error(`No such tileset: ${name}`);
+    }
     return tilesetMetaFromManifest(manifestPath, manifest, name);
   };
 
   const resolveWritable = (raw: string): string => {
-    const target = resolve(writeRoot, raw);
+    const target = path.resolve(writeRoot, raw);
     if (!isInside(writeRoot, target)) {
       throw new Error(`Refusing to touch a path outside ${writeRoot}: ${raw}`);
     }
     return target;
   };
 
-  const handlers = new Map<string, (url: URL, req: IncomingMessage) => Promise<JsonValue>>([
+  const handlers = new Map<
+    string,
+    (url: URL, req: IncomingMessage) => JsonValue | Promise<JsonValue>
+  >([
     [
       "/api/state",
-      async () => {
+      () => {
         const { tilesets } = readTilesets();
-        const names = Object.keys(tilesets).sort();
+        const names = Object.keys(tilesets).toSorted();
+        const [first] = names;
+        if (first === undefined) {
+          throw new Error("Manifest has no tilesets.");
+        }
         const selected =
-          options.tileset && names.includes(options.tileset) ? options.tileset : names[0]!;
+          options.tileset && names.includes(options.tileset) ? options.tileset : first;
 
         const map =
           options.mapPath && existsSync(options.mapPath)
-            ? parseTilemap(parseJsonText(readFileSync(options.mapPath, "utf8")), {
-                width: DEFAULT_MAP_WIDTH,
+            ? parseTilemap(parseJsonText(readFileSync(options.mapPath, "utf-8")), {
                 height: DEFAULT_MAP_HEIGHT,
+                width: DEFAULT_MAP_WIDTH,
               })
             : {
-                width: DEFAULT_MAP_WIDTH,
-                height: DEFAULT_MAP_HEIGHT,
                 data: newMap(DEFAULT_MAP_WIDTH, DEFAULT_MAP_HEIGHT),
+                height: DEFAULT_MAP_HEIGHT,
                 tileset: null,
+                width: DEFAULT_MAP_WIDTH,
               };
 
         const initial = map.tileset && names.includes(map.tileset) ? map.tileset : selected;
         return {
           manifestPath,
-          mapPath: options.mapPath ?? null,
-          writeRoot,
-          tilesetNames: names,
-          tileset: tilesetSummary(metaFor(initial)),
           map,
+          mapPath: options.mapPath ?? null,
+          tileset: tilesetSummary(metaFor(initial)),
+          tilesetNames: names,
+          writeRoot,
         };
       },
     ],
 
     [
       "/api/tileset",
-      async (url) => {
+      (url) => {
         const name = url.searchParams.get("name");
-        if (!name) throw new Error("name is required");
+        if (!name) {
+          throw new Error("name is required");
+        }
         return tilesetSummary(metaFor(name));
       },
     ],
 
     [
       "/api/load",
-      async (url) => {
-        const path = url.searchParams.get("path");
-        if (!path) throw new Error("path is required");
-        const target = resolveWritable(path);
-        if (!existsSync(target)) throw new Error(`Map not found: ${path}`);
+      (url) => {
+        const rawPath = url.searchParams.get("path");
+        if (!rawPath) {
+          throw new Error("path is required");
+        }
+        const target = resolveWritable(rawPath);
+        if (!existsSync(target)) {
+          throw new Error(`Map not found: ${rawPath}`);
+        }
         return {
           path: target,
-          ...parseTilemap(parseJsonText(readFileSync(target, "utf8")), {
-            width: DEFAULT_MAP_WIDTH,
+          ...parseTilemap(parseJsonText(readFileSync(target, "utf-8")), {
             height: DEFAULT_MAP_HEIGHT,
+            width: DEFAULT_MAP_WIDTH,
           }),
         };
       },
@@ -213,30 +228,36 @@ export function createTilemapEditor(options: EditorOptions): EditorHandle {
       "/api/save",
       async (url, req) => {
         const body = parseJsonText(await readBody(req));
-        if (!isJsonObject(body)) throw new Error("Body must be an object.");
+        if (!isJsonObject(body)) {
+          throw new Error("Body must be an object.");
+        }
         const raw = isJsonString(body.path) && body.path ? body.path : options.mapPath;
-        if (!raw) throw new Error("No path given and no --map to fall back on.");
+        if (!raw) {
+          throw new Error("No path given and no --map to fall back on.");
+        }
         const target = resolveWritable(raw);
 
-        if (!isJsonString(body.tileset)) throw new Error("tileset is required");
+        if (!isJsonString(body.tileset)) {
+          throw new Error("tileset is required");
+        }
         const meta = metaFor(body.tileset);
         // Round-trip through the same reader the load path uses, so a bad
         // payload from the page is clamped and squared off exactly like a bad
         // file on disk rather than written through verbatim.
         const parsed = parseTilemap(
           {
-            meta: { width: body.width ?? null, height: body.height ?? null },
             data: body.data ?? null,
+            meta: { height: body.height ?? null, width: body.width ?? null },
           },
-          { width: DEFAULT_MAP_WIDTH, height: DEFAULT_MAP_HEIGHT },
+          { height: DEFAULT_MAP_HEIGHT, width: DEFAULT_MAP_WIDTH },
         );
 
-        mkdirSync(dirname(target), { recursive: true });
+        mkdirSync(path.dirname(target), { recursive: true });
         writeFileSync(
           target,
           `${JSON.stringify(tilemapPayload(meta, parsed.width, parsed.height, parsed.data), null, 2)}\n`,
         );
-        return { path: target, width: parsed.width, height: parsed.height };
+        return { height: parsed.height, path: target, width: parsed.width };
       },
     ],
   ]);
@@ -255,8 +276,8 @@ export function createTilemapEditor(options: EditorOptions): EditorHandle {
 
       if (url.pathname === "/") {
         res.writeHead(200, {
-          "content-type": "text/html; charset=utf-8",
           "cache-control": "no-store",
+          "content-type": "text/html; charset=utf-8",
         });
         res.end(options.html);
         return;
@@ -265,13 +286,15 @@ export function createTilemapEditor(options: EditorOptions): EditorHandle {
       if (url.pathname === "/api/sheet") {
         try {
           const name = url.searchParams.get("name");
-          if (!name) throw new Error("name is required");
+          if (!name) {
+            throw new Error("name is required");
+          }
           const meta = metaFor(name);
           const bytes = readFileSync(meta.path);
           res.writeHead(200, {
-            "content-type": CONTENT_TYPES.get(extname(meta.path).toLowerCase()) ?? "image/png",
-            "content-length": bytes.length,
             "cache-control": "no-store",
+            "content-length": bytes.length,
+            "content-type": CONTENT_TYPES.get(path.extname(meta.path).toLowerCase()) ?? "image/png",
           });
           res.end(bytes);
         } catch (error) {
@@ -298,4 +321,4 @@ export function createTilemapEditor(options: EditorOptions): EditorHandle {
     token,
     url: (port, host = "127.0.0.1") => `http://${host}:${port}/?t=${token}`,
   };
-}
+};

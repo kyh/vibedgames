@@ -9,9 +9,7 @@ import { getCloudflareEnv } from "@/lib/cloudflare";
 // server-side source cap.
 const MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
 
-function badRequest(message: string): Response {
-  return new Response(message, { status: 400 });
-}
+const badRequest = (message: string): Response => new Response(message, { status: 400 });
 
 /**
  * Worker-proxied R2 upload endpoint, used only when `presignPut` returns a
@@ -23,8 +21,10 @@ function badRequest(message: string): Response {
  * signature here before writing to the binding. No session cookie required
  * because the CLI's `uploadAll` fetches without auth headers.
  */
-async function handler(request: Request): Promise<Response> {
-  if (request.method !== "PUT") return badRequest("method not allowed");
+const handler = async (request: Request): Promise<Response> => {
+  if (request.method !== "PUT") {
+    return badRequest("method not allowed");
+  }
 
   const url = new URL(request.url);
   const key = url.searchParams.get("key");
@@ -42,13 +42,15 @@ async function handler(request: Request): Promise<Response> {
   }
 
   const verifyError = await verifyProxyUploadUrl({
-    key,
     contentType,
     exp,
-    sig,
+    key,
     secret: r2.proxyUploadSecret,
+    sig,
   });
-  if (verifyError) return badRequest(verifyError);
+  if (verifyError) {
+    return badRequest(verifyError);
+  }
 
   const declaredLength = Number(request.headers.get("content-length") ?? "");
   if (!Number.isFinite(declaredLength) || declaredLength < 0) {
@@ -69,7 +71,7 @@ async function handler(request: Request): Promise<Response> {
   });
 
   return new Response(null, { status: 200 });
-}
+};
 
 export const Route = createFileRoute("/api/r2-upload")({
   server: {

@@ -1,6 +1,6 @@
 # @repo/api
 
-tRPC API layer. Routers, auth configuration, and procedure helpers shared by the web app and consumed (type-only) by the CLI.
+oRPC API layer. Routers, auth configuration, and procedure helpers shared by the web app and consumed (type-only) by the CLI.
 
 ## Routers
 
@@ -18,7 +18,7 @@ tRPC API layer. Routers, auth configuration, and procedure helpers shared by the
 
 ## Stack
 
-- [tRPC](https://trpc.io) with [superjson](https://github.com/blitz-js/superjson) + [Zod](https://zod.dev)
+- [oRPC](https://orpc.unnoq.com) with [Zod](https://zod.dev)
 - [better-auth](https://better-auth.com) — config lives in `src/auth/auth.ts`
 - `@repo/db` for data access (Drizzle + D1)
 - `aws4fetch` for presigning R2 upload URLs (`src/deploy/r2-presign.ts`)
@@ -36,5 +36,5 @@ this directory.
 ## Notes
 
 - Runs inside the web app's Cloudflare Worker — context carries D1, R2, and auth bindings.
-- R2 types are declared structurally (`R2BucketLike` in `src/trpc.ts`) so `AppRouter` doesn't leak a `@cloudflare/workers-types` dependency to consumers.
+- R2 types are declared structurally (`R2BucketLike` in `src/orpc.ts`) so `AppRouter` doesn't leak a `@cloudflare/workers-types` dependency to consumers.
 - Local dev presigns through the Worker's R2 binding instead of S3 when the Host header is `localhost` — so `vg deploy` against `http://localhost:5173` never touches production R2. `127.0.0.1` misses that check.

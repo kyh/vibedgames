@@ -37,7 +37,9 @@ VALUES (
 -- `node --input-type=module -e "import {hashPassword} from 'better-auth/crypto';
 -- console.log(await hashPassword('password123'))"` if the hasher ever changes).
 -- Credential accounts follow better-auth's convention: provider_id
--- 'credential', account_id = user id.
+-- 'credential', account_id = user id, issuer 'local:credential'. Sign-in
+-- matches on the issuer, so an account row without it is invisible to
+-- better-auth and every password returns "Invalid email or password".
 
 INSERT OR REPLACE INTO user (id, name, email, email_verified, role, created_at, updated_at)
 VALUES
@@ -48,13 +50,13 @@ VALUES
    cast(unixepoch('subsecond') * 1000 as integer),
    cast(unixepoch('subsecond') * 1000 as integer));
 
-INSERT OR REPLACE INTO account (id, account_id, provider_id, user_id, password, created_at, updated_at)
+INSERT OR REPLACE INTO account (id, account_id, provider_id, issuer, user_id, password, created_at, updated_at)
 VALUES
-  ('dev-local-member-cred', 'dev-local-member', 'credential', 'dev-local-member',
+  ('dev-local-member-cred', 'dev-local-member', 'credential', 'local:credential', 'dev-local-member',
    'd1ea5799e425ed32cd5ba41fb3b6780f:2b514c99078ef449da467650ab2626666cb30c94550f0380264951a8e5352cd077073cb090ce09b4d5eaca92b7341de469209c94cc377c4fc5ba9e4db3d1e289',
    cast(unixepoch('subsecond') * 1000 as integer),
    cast(unixepoch('subsecond') * 1000 as integer)),
-  ('dev-local-admin-cred', 'dev-local-admin', 'credential', 'dev-local-admin',
+  ('dev-local-admin-cred', 'dev-local-admin', 'credential', 'local:credential', 'dev-local-admin',
    'd1ea5799e425ed32cd5ba41fb3b6780f:2b514c99078ef449da467650ab2626666cb30c94550f0380264951a8e5352cd077073cb090ce09b4d5eaca92b7341de469209c94cc377c4fc5ba9e4db3d1e289',
    cast(unixepoch('subsecond') * 1000 as integer),
    cast(unixepoch('subsecond') * 1000 as integer));

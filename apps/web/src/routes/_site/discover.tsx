@@ -10,15 +10,7 @@ import { docHandler, docHead, varyHeaders } from "@/lib/doc-route";
 import { FadeInBlur } from "@/components/ui/fade-in-blur";
 import { featuredGames, gameSearchSchema } from "@/components/game/data";
 
-export const Route = createFileRoute("/_site/discover")({
-  validateSearch: gameSearchSchema,
-  server: { handlers: { GET: docHandler(discoverDoc) } },
-  headers: varyHeaders(),
-  head: () => docHead(discoverDoc),
-  component: DiscoverPage,
-});
-
-function DiscoverPage() {
+const DiscoverPage = () => {
   const navigate = useNavigate();
   const { game: activeGame } = Route.useSearch();
   const { trigger } = useWebHaptics();
@@ -38,16 +30,18 @@ function DiscoverPage() {
                 type="button"
                 key={game.slug}
                 onMouseEnter={() => {
-                  if (activeGame === game.slug) return;
+                  if (activeGame === game.slug) {
+                    return;
+                  }
                   void navigate({
-                    to: "/discover",
-                    search: { game: game.slug },
                     replace: true,
+                    search: { game: game.slug },
+                    to: "/discover",
                   });
                 }}
                 onClick={() => {
                   trigger("selection");
-                  void navigate({ to: "/", search: { game: game.slug } });
+                  void navigate({ search: { game: game.slug }, to: "/" });
                 }}
                 className="hover:border-foreground relative aspect-video w-30 shrink-0 overflow-clip rounded-lg border border-transparent transition-colors"
               >
@@ -64,4 +58,12 @@ function DiscoverPage() {
       <GitHubLink />
     </>
   );
-}
+};
+
+export const Route = createFileRoute("/_site/discover")({
+  component: DiscoverPage,
+  head: () => docHead(discoverDoc),
+  headers: varyHeaders(),
+  server: { handlers: { GET: docHandler(discoverDoc) } },
+  validateSearch: gameSearchSchema,
+});

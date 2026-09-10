@@ -17,28 +17,30 @@
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { createInterface } from "node:readline";
-import { fileURLToPath } from "node:url";
+import path from "node:path";
+import { createInterface } from "node:readline/promises";
 
 import { hashPassword } from "better-auth/crypto";
 
-type Args = {
+interface Args {
   email: string;
   name: string;
   remote: boolean;
-};
+}
 
 const parseArgs = (argv: string[]): Args => {
   let email: string | undefined;
   let name: string | undefined;
   let remote = false;
-  for (let i = 0; i < argv.length; i++) {
+  for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === "--remote") remote = true;
-    else if (arg === "--email") email = argv[++i];
-    else if (arg === "--name") name = argv[++i];
-    else if (arg === "--help" || arg === "-h") {
+    if (arg === "--remote") {
+      remote = true;
+    } else if (arg === "--email") {
+      email = argv[(i += 1)];
+    } else if (arg === "--name") {
+      name = argv[(i += 1)];
+    } else if (arg === "--help" || arg === "-h") {
       console.log(
         "Usage: ADMIN_PASSWORD='...' pnpm admin:create -- --email <email> --name <name> [--remote]\n" +
           "       pnpm admin:create -- --email <email> --name <name>   # prompts for password",
@@ -60,10 +62,12 @@ const parseArgs = (argv: string[]): Args => {
  */
 const readPassword = async (): Promise<string> => {
   const fromEnv = process.env.ADMIN_PASSWORD;
-  if (fromEnv) return fromEnv;
+  if (fromEnv) {
+    return fromEnv;
+  }
 
   const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const stdin = process.stdin;
+  const { stdin } = process;
   process.stdout.write("Password: ");
 
   let muted = false;
@@ -71,20 +75,24 @@ const readPassword = async (): Promise<string> => {
   if (stdin.isTTY) {
     muted = true;
     process.stdout.write = (chunk: string | Uint8Array) => {
-      if (muted && !(chunk instanceof Uint8Array) && chunk !== "Password: ") return true;
+      if (muted && !(chunk instanceof Uint8Array) && chunk !== "Password: ") {
+        return true;
+      }
       return writeOriginal(chunk);
     };
   }
 
-  const password = await new Promise<string>((resolve) => rl.question("", resolve));
-  if (muted) process.stdout.write = writeOriginal;
+  const password = await rl.question("");
+  if (muted) {
+    process.stdout.write = writeOriginal;
+  }
   rl.close();
   process.stdout.write("\n");
   return password;
 };
 
 // SQLite/D1 string literal — single quotes doubled.
-const lit = (s: string) => `'${s.replace(/'/g, "''")}'`;
+const lit = (s: string) => `'${s.replaceAll("'", "''")}'`;
 
 const main = async () => {
   const args = parseArgs(process.argv.slice(2));
@@ -110,12 +118,12 @@ const main = async () => {
     `VALUES (${lit(accountId)}, ${lit(userId)}, 'credential', ${lit(userId)}, ${lit(passwordHash)}, ${now}, ${now});`,
   ].join(" ");
 
-  const tmpDir = mkdtempSync(join(tmpdir(), "vg-admin-"));
-  const sqlFile = join(tmpDir, "create-admin.sql");
+  const tmpDir = mkdtempSync(path.join(tmpdir(), "vg-admin-"));
+  const sqlFile = path.join(tmpDir, "create-admin.sql");
   writeFileSync(sqlFile, sql);
 
-  const repoRoot = join(fileURLToPath(import.meta.url), "..", "..");
-  const cwd = join(repoRoot, "apps", "web");
+  const repoRoot = path.join(import.meta.filename, "..", "..");
+  const cwd = path.join(repoRoot, "apps", "web");
   const wranglerArgs = [
     "wrangler",
     "d1",
@@ -127,7 +135,7 @@ const main = async () => {
 
   console.log(`Creating admin ${args.email} (${args.remote ? "remote" : "local"} D1)…`);
   const result = spawnSync("pnpm", ["exec", ...wranglerArgs], { cwd, stdio: "inherit" });
-  rmSync(tmpDir, { recursive: true, force: true });
+  rmSync(tmpDir, { force: true, recursive: true });
 
   if (result.status !== 0) {
     console.error("\nwrangler exited with code", result.status);

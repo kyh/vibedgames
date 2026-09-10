@@ -1,0 +1,14 @@
+{
+  "from": 95,
+  "to": 96,
+  "checks": {
+    "expectedRevisions": true,
+    "solidsIdentical": true,
+    "decksIdentical": true,
+    "instancesIdentical": true,
+    "allPayloadExceptShadowPolicyIdentical": true
+  },
+  "passed": true,
+  "solids": 21736,
+  "instances": 64049
+}

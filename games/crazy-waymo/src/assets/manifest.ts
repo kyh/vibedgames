@@ -3,9 +3,8 @@
 
 const BASE = import.meta.env.BASE_URL;
 
-export function modelUrl(category: string, name: string): string {
-  return `${BASE}models/${category}/${name}.glb`;
-}
+export const modelUrl = (category: string, name: string): string =>
+  `${BASE}models/${category}/${name}.glb`;
 
 // --- Cars ---
 export const PLAYER_CAR = "waymo";
@@ -19,7 +18,8 @@ export const TRAFFIC_CARS = [
   "delivery",
   "delivery-flat",
   "hatchback-sports",
-  "taxi", // the OTHER cab company — SF classic
+  // the OTHER cab company — SF classic
+  "taxi",
   "race",
   "race-future",
 ] as const;
@@ -49,64 +49,6 @@ export const ROAD_BRIDGE = "road-bridge";
 export const BRIDGE_PILLAR = "bridge-pillar";
 export const BRIDGE_PILLAR_WIDE = "bridge-pillar-wide";
 
-// --- Buildings (by district prefix) ---
-export const BUILDINGS_COMMERCIAL = [
-  "com-building-a",
-  "com-building-b",
-  "com-building-c",
-  "com-building-d",
-  "com-building-e",
-  "com-building-f",
-  "com-building-g",
-  "com-building-h",
-  "com-building-i",
-  "com-building-j",
-  "com-building-k",
-  "com-building-l",
-  "com-building-m",
-  "com-building-n",
-] as const;
-export const BUILDINGS_SKYSCRAPER = [
-  "com-building-skyscraper-a",
-  "com-building-skyscraper-b",
-  "com-building-skyscraper-c",
-  "com-building-skyscraper-d",
-  "com-building-skyscraper-e",
-] as const;
-export const BUILDINGS_INDUSTRIAL = [
-  "ind-building-a",
-  "ind-building-b",
-  "ind-building-c",
-  "ind-building-d",
-  "ind-building-e",
-  "ind-building-f",
-  "ind-building-g",
-  "ind-building-h",
-] as const;
-export const BUILDINGS_SUBURBAN = [
-  "sub-building-type-a",
-  "sub-building-type-b",
-  "sub-building-type-c",
-  "sub-building-type-d",
-  "sub-building-type-e",
-  "sub-building-type-f",
-  "sub-building-type-g",
-  "sub-building-type-h",
-  "sub-building-type-i",
-  "sub-building-type-j",
-  "sub-building-type-k",
-  "sub-building-type-l",
-  "sub-building-type-m",
-  "sub-building-type-n",
-  "sub-building-type-o",
-  "sub-building-type-p",
-  "sub-building-type-q",
-  "sub-building-type-r",
-  "sub-building-type-s",
-  "sub-building-type-t",
-  "sub-building-type-u",
-] as const;
-
 // --- Props ---
 export const TREE_LARGE = "tree-large";
 export const TREE_SMALL = "tree-small";
@@ -128,21 +70,10 @@ export const PARK_WALL_CORNER = "kk-park-wall-corner";
 export const PARK_ENTRY = "kk-park-entry";
 export const BUSHES = ["kk-bush-a", "kk-bush-b", "kk-bush-c"] as const;
 export const PARK_TREES = ["kk-tree-a", "kk-tree-b", "kk-tree-c"] as const;
-// The robotaxi garage (Kenney industrial building-s: orange roller doors).
-// Deliberately NOT in BUILDINGS_INDUSTRIAL — it only spawns as a garage.
+// The robotaxi garage (Kenney industrial building-s: orange roller doors) —
+// the one building model left; every other building is the parcel fabric.
 export const GARAGE_MODEL = "ind-building-s";
 
-// KayKit buildings + cars (City Builder Bits) — editor palette alongside Kenney.
-export const KK_BUILDINGS = [
-  "kk-building-a",
-  "kk-building-b",
-  "kk-building-c",
-  "kk-building-d",
-  "kk-building-e",
-  "kk-building-f",
-  "kk-building-g",
-  "kk-building-h",
-] as const;
 export const KK_CARS = [
   "kk-car-hatchback",
   "kk-car-police",
@@ -281,55 +212,58 @@ const ROADS = [ROAD_BRIDGE, BRIDGE_PILLAR, BRIDGE_PILLAR_WIDE] as const;
 // (terrain/streets/green cells/garage depots — city.ts buildPhase1) touch.
 // The title screen goes up after these; everything else streams behind it.
 // If buildPhase1 gains a new model, it MUST move into this list.
-export function earlyModelUrls(): string[] {
-  return [
-    modelUrl("cars", PLAYER_CAR),
-    modelUrl("props", TREE_LARGE),
-    modelUrl("props", TREE_SMALL),
-    modelUrl("props", PROP_WATERTOWER),
-    modelUrl("buildings", GARAGE_MODEL),
-  ];
-}
+export const earlyModelUrls = (): string[] => [
+  modelUrl("cars", PLAYER_CAR),
+  modelUrl("props", TREE_LARGE),
+  modelUrl("props", TREE_SMALL),
+  modelUrl("props", PROP_WATERTOWER),
+  modelUrl("buildings", GARAGE_MODEL),
+];
+
+// Everything the game preloads to play (early + late) — excludes the lazy
+// player skins and the editor-only kits above.
+export const allModelUrls = (): string[] => {
+  const urls: string[] = [];
+  urls.push(modelUrl("cars", PLAYER_CAR), modelUrl("cars", POLICE_CAR));
+  for (const c of TRAFFIC_CARS) {
+    urls.push(modelUrl("cars", c));
+  }
+  for (const c of SERVICE_CARS) {
+    urls.push(modelUrl("cars", c));
+  }
+  for (const c of CONSTRUCTION_VEHICLES) {
+    urls.push(modelUrl("cars", c));
+  }
+  for (const r of ROADS) {
+    urls.push(modelUrl("roads", r));
+  }
+  for (const p of PROPS) {
+    urls.push(modelUrl("props", p));
+  }
+  for (const t of PARK_TILES) {
+    urls.push(modelUrl("parks", t));
+  }
+  urls.push(modelUrl("buildings", GARAGE_MODEL));
+  for (const d of [...DEBRIS_SMALL, ...DEBRIS_BIG]) {
+    urls.push(modelUrl("debris", d));
+  }
+  for (const c of CHARACTERS) {
+    urls.push(modelUrl("characters", c));
+  }
+  return urls;
+};
 
 // Everything else — needed by the late city build (rebuildRest resolves
 // building/prop GLB refs), traffic, fares, debris. Preloaded behind the title.
-export function lateModelUrls(): string[] {
+export const lateModelUrls = (): string[] => {
   const early = new Set(earlyModelUrls());
   return allModelUrls().filter((u) => !early.has(u));
-}
+};
 
 // The kits only the map editor's roster can place: nothing in world gen or
 // `custom-props.ts` references them, so a player pays 11 requests for a
 // palette they will never open. `?editor=1` loads them itself.
-export function editorModelUrls(): string[] {
-  return [
-    ...KK_CARS.map((c) => modelUrl("cars", c)),
-    ...KK_PROPS_EXTRA.map((p) => modelUrl("props", p)),
-  ];
-}
-
-// Everything the game preloads to play (early + late) — excludes the lazy
-// player skins and the editor-only kits above.
-export function allModelUrls(): string[] {
-  const urls: string[] = [];
-  urls.push(modelUrl("cars", PLAYER_CAR));
-  urls.push(modelUrl("cars", POLICE_CAR));
-  for (const c of TRAFFIC_CARS) urls.push(modelUrl("cars", c));
-  for (const c of SERVICE_CARS) urls.push(modelUrl("cars", c));
-  for (const c of CONSTRUCTION_VEHICLES) urls.push(modelUrl("cars", c));
-  for (const r of ROADS) urls.push(modelUrl("roads", r));
-  for (const b of [
-    ...BUILDINGS_COMMERCIAL,
-    ...BUILDINGS_SKYSCRAPER,
-    ...BUILDINGS_INDUSTRIAL,
-    ...BUILDINGS_SUBURBAN,
-  ])
-    urls.push(modelUrl("buildings", b));
-  for (const p of PROPS) urls.push(modelUrl("props", p));
-  for (const t of PARK_TILES) urls.push(modelUrl("parks", t));
-  urls.push(modelUrl("buildings", GARAGE_MODEL));
-  for (const b of KK_BUILDINGS) urls.push(modelUrl("buildings", b));
-  for (const d of [...DEBRIS_SMALL, ...DEBRIS_BIG]) urls.push(modelUrl("debris", d));
-  for (const c of CHARACTERS) urls.push(modelUrl("characters", c));
-  return urls;
-}
+export const editorModelUrls = (): string[] => [
+  ...KK_CARS.map((c) => modelUrl("cars", c)),
+  ...KK_PROPS_EXTRA.map((p) => modelUrl("props", p)),
+];

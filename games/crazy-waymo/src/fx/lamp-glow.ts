@@ -16,7 +16,8 @@ import { STREET_SURFACE_MAX } from "../world/roads";
 // than the pier sheds they stood on. "Warm pools against cool shadow" is the
 // whole night brief, and the pool is the half that carries it: the pool got
 // bigger and much stronger, the halo smaller and softer.
-const HALO_SIZE = 1.7; // world units, quad edge
+// world units, quad edge
+const HALO_SIZE = 1.7;
 const POOL_SIZE = 17;
 // The pool spans asphalt AND the curb/sidewalk the lamp stands on, so it has
 // to clear the tallest draped street layer (roads.ts STREET_SURFACE_MAX) the
@@ -42,21 +43,23 @@ const POOL_ALPHA = 0.62;
 // decal with no bleed. HDR colour is what makes a lamp a LIGHT.
 const HALO_GAIN = 3.4;
 const POOL_GAIN = 2.1;
-const FADE_NEAR = 380; // camera distance where lamps start to fade
+// camera distance where lamps start to fade
+const FADE_NEAR = 380;
 const FADE_FAR = 650;
 
-export type LampHead = {
+export interface LampHead {
   readonly x: number;
-  readonly y: number; // world height of the lamp head
+  // world height of the lamp head
+  readonly y: number;
   readonly z: number;
   // Height of the pavement AS RENDERED under the lamp (the terraced drive
   // surface, not the raw height field) — the pool is drawn flat at this Y, so
   // a raw-field value detaches it by the terrace delta on every steep street.
   readonly ground: number;
-};
+}
 
 /** Soft radial gradient blob, generated at boot — no asset fetch. */
-function gradientTexture(stops: readonly (readonly [number, number])[]): THREE.CanvasTexture {
+const gradientTexture = (stops: readonly (readonly [number, number])[]): THREE.CanvasTexture => {
   const size = 128;
   const canvas = document.createElement("canvas");
   canvas.width = size;
@@ -64,38 +67,40 @@ function gradientTexture(stops: readonly (readonly [number, number])[]): THREE.C
   const ctx = canvas.getContext("2d");
   if (ctx) {
     const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-    for (const [at, a] of stops) g.addColorStop(at, `rgba(255,255,255,${a})`);
+    for (const [at, a] of stops) {
+      g.addColorStop(at, `rgba(255,255,255,${a})`);
+    }
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, size, size);
   }
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.NoColorSpace;
   return tex;
-}
+};
 
-// The lamp-head halo and every other point source in the game (beacons,
-// headlights, the player's own rig): a bright core with a wide soft skirt.
-export function radialGlowTexture(): THREE.CanvasTexture {
-  return gradientTexture([
+// A compact emitter with a faint skirt. A half-bright disc out to 35% of the
+// radius turned every lamp into bokeh even when the camera was in focus.
+export const radialGlowTexture = (): THREE.CanvasTexture =>
+  gradientTexture([
     [0, 1],
-    [0.35, 0.5],
+    [0.08, 0.9],
+    [0.22, 0.3],
+    [0.5, 0.06],
     [1, 0],
   ]);
-}
 
 // The pavement pool wants the opposite shape: a small hot centre directly under
 // the lamp and a long, fast-decaying tail, i.e. roughly inverse-square. The
 // halo's broad 0.5-at-35% skirt spread across a 17u quad reads as a uniform
 // warm haze on the asphalt — a fog, not a light with a source above it.
-function poolGlowTexture(): THREE.CanvasTexture {
-  return gradientTexture([
+export const poolGlowTexture = (): THREE.CanvasTexture =>
+  gradientTexture([
     [0, 1],
     [0.12, 0.86],
     [0.32, 0.34],
     [0.62, 0.09],
     [1, 0],
   ]);
-}
 
 const HALO_VERT = `
   attribute vec3 aCenter;
@@ -138,9 +143,12 @@ const FRAG = `
   }
 `;
 
-type Layer = { mesh: THREE.Mesh; geo: THREE.InstancedBufferGeometry };
+interface Layer {
+  mesh: THREE.Mesh;
+  geo: THREE.InstancedBufferGeometry;
+}
 
-type LayerSpec = {
+interface LayerSpec {
   readonly vert: string;
   readonly tex: THREE.CanvasTexture;
   readonly color: number;
@@ -149,14 +157,14 @@ type LayerSpec = {
   readonly alpha: number;
   /** Ground-hugging layers bias their depth to survive the street's slope. */
   readonly ground: boolean;
-};
+}
 
-function buildLayer(
+const buildLayer = (
   attr: THREE.InstancedBufferAttribute,
   count: number,
   spec: LayerSpec,
   intensity: { value: number },
-): Layer {
+): Layer => {
   const quad = new THREE.PlaneGeometry(1, 1);
   const geo = new THREE.InstancedBufferGeometry();
   geo.index = quad.index;
@@ -165,39 +173,40 @@ function buildLayer(
   geo.setAttribute("aCenter", attr);
   geo.instanceCount = count;
   const mat = new THREE.ShaderMaterial({
-    uniforms: {
-      uMap: { value: spec.tex },
-      uColor: { value: new THREE.Color(spec.color).multiplyScalar(spec.gain) },
-      uSize: { value: spec.size },
-      uAlpha: { value: spec.alpha },
-      uIntensity: intensity,
-    },
-    vertexShader: spec.vert,
-    fragmentShader: FRAG,
-    transparent: true,
-    depthWrite: false,
     blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    fragmentShader: FRAG,
     polygonOffset: spec.ground,
     polygonOffsetFactor: -4,
     polygonOffsetUnits: -8,
+    transparent: true,
+    uniforms: {
+      uAlpha: { value: spec.alpha },
+      uColor: { value: new THREE.Color(spec.color).multiplyScalar(spec.gain) },
+      uIntensity: intensity,
+      uMap: { value: spec.tex },
+      uSize: { value: spec.size },
+    },
+    vertexShader: spec.vert,
   });
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.frustumCulled = false; // instances span the whole map
+  // instances span the whole map
+  mesh.frustumCulled = false;
   mesh.renderOrder = 6;
-  return { mesh, geo };
-}
+  return { geo, mesh };
+};
 
 // Mobile: only the `cap` lamps nearest the camera get glow quads (rewritten on
 // a slow cadence, amortized like the ParkedCars culling); the light pools also
 // shrink. Desktop passes null and keeps every lamp, statically, as before.
-export type LampGlowBudget = {
+export interface LampGlowBudget {
   readonly cap: number;
   readonly poolScale: number;
-};
+}
 
 const NEAR_REFRESH_S = 0.5;
 
-type CappedState = {
+interface CappedState {
   readonly heads: readonly LampHead[];
   readonly haloArr: Float32Array;
   readonly poolArr: Float32Array;
@@ -207,7 +216,7 @@ type CappedState = {
   readonly pool: Layer;
   readonly cap: number;
   timer: number;
-};
+}
 
 export class LampGlow {
   readonly group = new THREE.Group();
@@ -215,15 +224,19 @@ export class LampGlow {
   private capped: CappedState | null = null;
 
   constructor(heads: readonly LampHead[], budget: LampGlowBudget | null = null) {
-    if (heads.length === 0) return;
+    if (heads.length === 0) {
+      return;
+    }
     const tex = radialGlowTexture();
     const cap = budget && heads.length > budget.cap ? budget.cap : 0;
     const n = cap > 0 ? cap : heads.length;
     const haloCenters = new Float32Array(n * 3);
     const poolCenters = new Float32Array(n * 3);
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < n; i += 1) {
       const h = heads[i];
-      if (!h) continue;
+      if (!h) {
+        continue;
+      }
       haloCenters.set([h.x, h.y, h.z], i * 3);
       poolCenters.set([h.x, h.ground + POOL_LIFT, h.z], i * 3);
     }
@@ -238,13 +251,13 @@ export class LampGlow {
       haloAttr,
       n,
       {
-        vert: HALO_VERT,
-        tex,
-        color: 0xffcf8a,
-        gain: HALO_GAIN,
-        size: HALO_SIZE,
         alpha: HALO_ALPHA,
+        color: 0xff_cf_8a,
+        gain: HALO_GAIN,
         ground: false,
+        size: HALO_SIZE,
+        tex,
+        vert: HALO_VERT,
       },
       this.intensity,
     );
@@ -252,13 +265,13 @@ export class LampGlow {
       poolAttr,
       n,
       {
-        vert: POOL_VERT,
-        tex: poolGlowTexture(),
-        color: 0xffb865,
-        gain: POOL_GAIN,
-        size: poolSize,
         alpha: POOL_ALPHA,
+        color: 0xff_b8_65,
+        gain: POOL_GAIN,
         ground: true,
+        size: poolSize,
+        tex: poolGlowTexture(),
+        vert: POOL_VERT,
       },
       this.intensity,
     );
@@ -267,14 +280,14 @@ export class LampGlow {
     this.group.visible = false;
     if (cap > 0) {
       this.capped = {
-        heads,
-        haloArr: haloCenters,
-        poolArr: poolCenters,
-        haloAttr,
-        poolAttr,
-        halo,
-        pool,
         cap,
+        halo,
+        haloArr: haloCenters,
+        haloAttr,
+        heads,
+        pool,
+        poolArr: poolCenters,
+        poolAttr,
         timer: 0,
       };
     }
@@ -282,7 +295,8 @@ export class LampGlow {
 
   setIntensity(f: number): void {
     this.intensity.value = f;
-    this.group.visible = f > 0.01; // skip both draws entirely in daylight
+    // skip both draws entirely in daylight
+    this.group.visible = f > 0.01;
   }
 
   // Capped mode only: every ~0.5s pick the lamps nearest the camera and
@@ -290,26 +304,36 @@ export class LampGlow {
   // so only candidates inside the fade radius compete for the budget.
   updateNear(camX: number, camZ: number, dt: number): void {
     const c = this.capped;
-    if (!c || !this.group.visible) return;
+    if (!c || !this.group.visible) {
+      return;
+    }
     c.timer -= dt;
-    if (c.timer > 0) return;
+    if (c.timer > 0) {
+      return;
+    }
     c.timer = NEAR_REFRESH_S;
     const picks: { d2: number; i: number }[] = [];
     const farSq = FADE_FAR * FADE_FAR;
-    for (let i = 0; i < c.heads.length; i++) {
+    for (let i = 0; i < c.heads.length; i += 1) {
       const h = c.heads[i];
-      if (!h) continue;
+      if (!h) {
+        continue;
+      }
       const dx = h.x - camX;
       const dz = h.z - camZ;
       const d2 = dx * dx + dz * dz;
-      if (d2 < farSq) picks.push({ d2, i });
+      if (d2 < farSq) {
+        picks.push({ d2, i });
+      }
     }
     picks.sort((a, b) => a.d2 - b.d2);
     const n = Math.min(c.cap, picks.length);
-    for (let k = 0; k < n; k++) {
+    for (let k = 0; k < n; k += 1) {
       const p = picks[k];
       const h = p ? c.heads[p.i] : undefined;
-      if (!h) continue;
+      if (!h) {
+        continue;
+      }
       c.haloArr.set([h.x, h.y, h.z], k * 3);
       c.poolArr.set([h.x, h.ground + POOL_LIFT, h.z], k * 3);
     }

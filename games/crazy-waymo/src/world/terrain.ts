@@ -7,12 +7,12 @@ import { WORLD_H, WORLD_HALF_X, WORLD_HALF_Z, WORLD_W } from "../shared/constant
 const MAP_REF = (WORLD_W + WORLD_H) / 2;
 
 // A hill in normalized map coords (u = west→east, v = north→south, both 0..1).
-export type Hill = {
+export interface Hill {
   readonly u: number;
   readonly v: number;
   readonly height: number;
   readonly radius: number;
-};
+}
 
 // Land mask: 1 = solid inland, 0 = open water; smooth across the shoreline.
 export type LandFactor = (u: number, v: number) => number;
@@ -27,14 +27,24 @@ export type LandFactor = (u: number, v: number) => number;
  * flat cell has no aspect. Sampled off the analytic field, not the drawn ground
  * mesh: banding wants the smooth shape, not the ~9u lattice's facets.
  */
-export type Flank = { height: number; slope: number; aspect: number };
-
-/** Reusable Flank for per-vertex loops (the ground painter runs ~100k times). */
-export function makeFlank(): Flank {
-  return { height: 0, slope: 0, aspect: 0 };
+export interface Flank {
+  height: number;
+  slope: number;
+  aspect: number;
 }
 
-const SHORE_DROP = 5; // how far the ground dips below sea level past the coast
+/** A visible surface the tessellated ground must remain below. */
+export interface GroundCeiling {
+  readonly x: number;
+  readonly z: number;
+  readonly y: number;
+}
+
+/** Reusable Flank for per-vertex loops (the ground painter runs ~100k times). */
+export const makeFlank = (): Flank => ({ aspect: 0, height: 0, slope: 0 });
+
+// how far the ground dips below sea level past the coast
+const SHORE_DROP = 5;
 // The cached field has to cover the WHOLE DRAWN GROUND, which overscans the map
 // by 1.08× (GROUND_SPAN below) — 4% of 3172u / 2600u past each edge. At the old
 // 24u every sample in the outer ~100u ring clamped to the border value, so the
@@ -47,7 +57,8 @@ const MARGIN = 132;
 // interpolated and the hills are broad Gaussians, so a 2u grid is visually
 // indistinguishable from 1u while quartering the cache (O(area) on the big map).
 const FIELD_STEP = 2;
-const NORMAL_EPS = 1.6; // finite-difference step for surface normals
+// finite-difference step for surface normals
+const NORMAL_EPS = 1.6;
 
 // Ground-mesh lattice. Shared by buildMesh and renderedHeightAt so the two can
 // never drift — the whole point of the sampler is that it reports the mesh as
@@ -71,24 +82,20 @@ const scrBasis = new THREE.Matrix4();
 // Orientation that keeps an object's facing along `yaw` (horizontal road/heading
 // direction) while tilting its up-axis to the terrain normal — WITHOUT the
 // incidental twist that setFromUnitVectors(UP, n) introduces on a slope.
-export function slopeQuaternion(
+export const slopeQuaternion = (
   out: THREE.Quaternion,
   yaw: number,
   n: THREE.Vector3,
-): THREE.Quaternion {
+): THREE.Quaternion => {
   scrFwd.set(Math.sin(yaw), 0, Math.cos(yaw));
   scrRight.crossVectors(n, scrFwd).normalize();
   scrRealFwd.crossVectors(scrRight, n).normalize();
   scrBasis.makeBasis(scrRight, n, scrRealFwd);
   return out.setFromRotationMatrix(scrBasis);
-}
+};
 
-function worldToU(x: number): number {
-  return x / WORLD_W + 0.5;
-}
-function worldToV(z: number): number {
-  return z / WORLD_H + 0.5;
-}
+const worldToU = (x: number): number => x / WORLD_W + 0.5;
+const worldToV = (z: number): number => z / WORLD_H + 0.5;
 
 // One smooth, continuous SF height field shared by EVERYTHING — the ground
 // mesh, the road geometry (subdivided + vertex-displaced through it), the car,
@@ -97,24 +104,60 @@ function worldToV(z: number): number {
 // per-tile tilting and therefore no seams. The raw field (island base +
 // Gaussian hills) is cached on a fine grid so per-frame lookups stay cheap.
 export class Terrain {
-  private field: Float32Array; // ~map-area samples; Float32 halves the cache
-  private nx: number; // cached samples east-west
-  private nz: number; // cached samples north-south
-  private minX: number; // world coordinate of sample 0 (x axis)
-  private minZ: number; // world coordinate of sample 0 (z axis)
+  // ~map-area samples; Float32 halves the cache
+  private field: Float32Array;
+  // cached samples east-west
+  private nx: number;
+  // cached samples north-south
+  private nz: number;
+  // world coordinate of sample 0 (x axis)
+  private minX: number;
+  // world coordinate of sample 0 (z axis)
+  private minZ: number;
+  private readonly hillTable: readonly {
+    readonly x: number;
+    readonly z: number;
+    readonly height: number;
+    readonly invDen: number;
+    readonly cull2: number;
+  }[];
+
+  private hills: readonly Hill[];
+  private land: LandFactor;
+  // Authored local landforms belong in the cached field, not a visual-only
+  // mesh offset. Omit for generic terrain fixtures.
+  private readonly heightPatch?: (x: number, z: number, height: number) => number;
 
   constructor(
-    private hills: readonly Hill[],
-    private land: LandFactor,
+    hills: readonly Hill[],
+    land: LandFactor,
+    heightPatch?: (x: number, z: number, height: number) => number,
   ) {
+    this.hills = hills;
+    this.land = land;
+    this.heightPatch = heightPatch;
     this.minX = -WORLD_HALF_X - MARGIN;
     this.minZ = -WORLD_HALF_Z - MARGIN;
     this.nx = Math.ceil((WORLD_W + MARGIN * 2) / FIELD_STEP) + 1;
     this.nz = Math.ceil((WORLD_H + MARGIN * 2) / FIELD_STEP) + 1;
     this.field = new Float32Array(this.nx * this.nz);
-    for (let ix = 0; ix < this.nx; ix++) {
+    // World-space hill table with a cull radius: past it a hill's Gaussian is
+    // below 1e-9 of its height, and the field fill (2.5M samples × every
+    // hill) was a second of the load with the exp evaluated everywhere.
+    this.hillTable = hills.map((hl) => {
+      const r = hl.radius * MAP_REF;
+      const den = r * r * 0.5;
+      return {
+        cull2: den * 21,
+        height: hl.height,
+        invDen: 1 / den,
+        x: (hl.u - 0.5) * WORLD_W - this.minX,
+        z: (hl.v - 0.5) * WORLD_H - this.minZ,
+      };
+    });
+    for (let ix = 0; ix < this.nx; ix += 1) {
       const x = this.minX + ix * FIELD_STEP;
-      for (let iz = 0; iz < this.nz; iz++) {
+      for (let iz = 0; iz < this.nz; iz += 1) {
         this.field[ix * this.nz + iz] = this.rawHeight(x, this.minZ + iz * FIELD_STEP);
       }
     }
@@ -124,16 +167,22 @@ export class Terrain {
   private rawHeight(x: number, z: number): number {
     const u = worldToU(x);
     const v = worldToV(z);
-    const landAmt = this.land(u, v); // 0 water .. 1 inland
+    // 0 water .. 1 inland
+    const landAmt = this.land(u, v);
     const t = THREE.MathUtils.smoothstep(landAmt, 0.28, 0.42);
     let h = THREE.MathUtils.lerp(-SHORE_DROP, 0.3, t);
-    for (const hl of this.hills) {
-      const du = (u - hl.u) * WORLD_W;
-      const dv = (v - hl.v) * WORLD_H;
-      const r = hl.radius * MAP_REF;
-      h += hl.height * t * Math.exp(-(du * du + dv * dv) / (r * r * 0.5));
+    const x0 = x - this.minX;
+    const z0 = z - this.minZ;
+    for (const hl of this.hillTable) {
+      const du = x0 - hl.x;
+      const dv = z0 - hl.z;
+      const d2 = du * du + dv * dv;
+      if (d2 > hl.cull2) {
+        continue;
+      }
+      h += hl.height * t * Math.exp(-d2 * hl.invDen);
     }
-    return h;
+    return this.heightPatch ? this.heightPatch(x, z, h) : h;
   }
 
   private sample(ix: number, iz: number): number {
@@ -214,6 +263,78 @@ export class Terrain {
     return h + (1 - u) * (at(i, j + 1) - h) + (1 - v) * (at(i + 1, j) - h);
   }
 
+  /**
+   * Lower the ground's actual triangle vertices only where a road pierces it.
+   * Each ceiling lowers all three supporting corners by the same excess, so
+   * later samples cannot undo earlier clearance. This uses the buildMesh
+   * lattice, not a second approximate terrain field; standing props query the
+   * returned offset through renderedHeightAt and see the same correction.
+   */
+  capGroundOffset(
+    offsetAt: (x: number, z: number) => number,
+    ceilings: Iterable<GroundCeiling>,
+  ): (x: number, z: number) => number {
+    const width = GROUND_TILES_X * GROUND_SEGS_X + 1;
+    const depth = GROUND_TILES_Z * GROUND_SEGS_Z + 1;
+    const heights = new Float32Array(width * depth).fill(Number.NaN);
+    const lower = new Float32Array(width * depth);
+    const key = (i: number, j: number): number => i * depth + j;
+    const height = (i: number, j: number): number => {
+      const k = key(i, j);
+      const cached = heights[k];
+      if (cached !== undefined && Number.isFinite(cached)) {
+        return cached;
+      }
+      const x = -GROUND_SPAN_X / 2 + i * GROUND_STEP_X;
+      const z = -GROUND_SPAN_Z / 2 + j * GROUND_STEP_Z;
+      const y = this.heightAt(x, z) + offsetAt(x, z);
+      heights[k] = y;
+      return y;
+    };
+    for (const p of ceilings) {
+      const fx = (p.x + GROUND_SPAN_X / 2) / GROUND_STEP_X;
+      const fz = (p.z + GROUND_SPAN_Z / 2) / GROUND_STEP_Z;
+      const i = Math.floor(fx);
+      const j = Math.floor(fz);
+      if (i < 0 || j < 0 || i >= width - 1 || j >= depth - 1) {
+        continue;
+      }
+      const u = fx - i;
+      const v = fz - j;
+      const near = u + v <= 1;
+      const a = near ? key(i, j) : key(i + 1, j + 1);
+      const b = key(i + 1, j);
+      const c = key(i, j + 1);
+      const h = near ? height(i, j) : height(i + 1, j + 1);
+      const y = near
+        ? h + u * (height(i + 1, j) - h) + v * (height(i, j + 1) - h)
+        : h + (1 - u) * (height(i, j + 1) - h) + (1 - v) * (height(i + 1, j) - h);
+      const excess = y - p.y;
+      if (excess <= 0) {
+        continue;
+      }
+      for (const k of [a, b, c]) {
+        lower[k] = Math.max(lower[k] ?? 0, excess);
+      }
+    }
+    return (x, z) => {
+      const fx = (x + GROUND_SPAN_X / 2) / GROUND_STEP_X;
+      const fz = (z + GROUND_SPAN_Z / 2) / GROUND_STEP_Z;
+      const i = Math.floor(fx);
+      const j = Math.floor(fz);
+      if (i < 0 || j < 0 || i >= width - 1 || j >= depth - 1) {
+        return offsetAt(x, z);
+      }
+      const u = fx - i;
+      const v = fz - j;
+      const a = lower[key(i, j)] ?? 0;
+      const b = lower[key(i + 1, j)] ?? 0;
+      const c = lower[key(i, j + 1)] ?? 0;
+      const d = lower[key(i + 1, j + 1)] ?? 0;
+      return offsetAt(x, z) - ((a * (1 - u) + b * u) * (1 - v) + (c * (1 - u) + d * u) * v);
+    };
+  }
+
   // A displaced ground mesh covering the island (the ocean plane sits below
   // it). `colorAt` grades the surface per vertex (sand, park green, concrete) —
   // pair it with a vertexColors material. `offsetAt` shifts vertex height
@@ -230,8 +351,8 @@ export class Terrain {
     // sample positions), so there are no seams.
     const group = new THREE.Group();
     const c = new THREE.Color();
-    for (let tx = 0; tx < GROUND_TILES_X; tx++) {
-      for (let tz = 0; tz < GROUND_TILES_Z; tz++) {
+    for (let tx = 0; tx < GROUND_TILES_X; tx += 1) {
+      for (let tz = 0; tz < GROUND_TILES_Z; tz += 1) {
         const w = GROUND_TILE_W;
         const d = GROUND_TILE_D;
         const cx = -GROUND_SPAN_X / 2 + (tx + 0.5) * w;
@@ -240,9 +361,10 @@ export class Terrain {
         const pos = geo.attributes.position;
         if (pos instanceof THREE.BufferAttribute) {
           const colors = colorAt ? new Float32Array(pos.count * 3) : null;
-          for (let i = 0; i < pos.count; i++) {
+          for (let i = 0; i < pos.count; i += 1) {
             const px = pos.getX(i) + cx;
-            const py = pos.getY(i) - cz; // -90° X rotation: local +Y → world -Z
+            // -90° X rotation: local +Y → world -Z
+            const py = pos.getY(i) - cz;
             pos.setZ(i, this.heightAt(px, -py) + (offsetAt ? offsetAt(px, -py) : 0));
             if (colors && colorAt) {
               colorAt(px, -py, c);
@@ -252,7 +374,9 @@ export class Terrain {
             }
           }
           pos.needsUpdate = true;
-          if (colors) geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+          if (colors) {
+            geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+          }
         }
         geo.computeVertexNormals();
         const mesh = new THREE.Mesh(geo, material);

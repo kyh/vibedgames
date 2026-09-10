@@ -11,65 +11,65 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
 /** The whole landmark palette. Anything drawn with one of these is packable. */
 export const MAT = {
-  orange: new THREE.MeshStandardMaterial({ color: 0xc0362c, roughness: 0.6 }),
+  /** Lombard's hydrangeas — rose, not Gate red: a red slab at kerb height
+   *  reads as a hazard barrier from the trailer's high lens. */
+  bloom: new THREE.MeshStandardMaterial({ color: 0xb8_6a_94, roughness: 0.95 }),
+  brick: new THREE.MeshStandardMaterial({ color: 0x9c_5f_45, roughness: 0.95 }),
+  concrete: new THREE.MeshStandardMaterial({ color: 0xb2_b1_a8, roughness: 1 }),
+  /** Warm brown copper cladding — the de Young. */
+  copper: new THREE.MeshStandardMaterial({ color: 0x99_63_37, metalness: 0.15, roughness: 0.8 }),
+  cream: new THREE.MeshStandardMaterial({ color: 0xe6_dc_c4, roughness: 0.75 }),
+  /** Ballpark turf. */
+  field: new THREE.MeshStandardMaterial({ color: 0x4f_8f_45, roughness: 1 }),
+  gateGreen: new THREE.MeshStandardMaterial({ color: 0x3e_7d_54, roughness: 0.6 }),
+  gateRed: new THREE.MeshStandardMaterial({ color: 0xb5_38_2e, roughness: 0.6 }),
+  glass: new THREE.MeshStandardMaterial({ color: 0xbf_d4_dd, metalness: 0.5, roughness: 0.25 }),
+  gold: new THREE.MeshStandardMaterial({ color: 0xd6_a9_43, metalness: 0.7, roughness: 0.32 }),
+  hedge: new THREE.MeshStandardMaterial({ color: 0x3f_6d_3a, roughness: 1 }),
+  /** Still ornamental water — the Palace lagoon, the flooded Sutro basins. */
+  lagoon: new THREE.MeshStandardMaterial({ color: 0x2f_6d_86, metalness: 0.2, roughness: 0.15 }),
+  // Lamps are light SOURCES: unlit + untonemapped, like the traffic signals,
+  // so they hold up as beacons after dark instead of dimming with the scene.
+  lamp: new THREE.MeshBasicMaterial({ color: 0xff_ee_c4, toneMapped: false }),
+  orange: new THREE.MeshStandardMaterial({ color: 0xc0_36_2c, roughness: 0.6 }),
+  /** Oxidised copper — City Hall's dome shell. */
+  patina: new THREE.MeshStandardMaterial({ color: 0x4f_8a_72, metalness: 0.2, roughness: 0.7 }),
+  rock: new THREE.MeshStandardMaterial({ color: 0x8a_85_78, roughness: 1 }),
+  slate: new THREE.MeshStandardMaterial({ color: 0x51_56_5c, roughness: 0.9 }),
+  steel: new THREE.MeshStandardMaterial({ color: 0x9a_a3_ad, metalness: 0.4, roughness: 0.5 }),
+  // Deeper glass for the big towers — the pale `glass` + distance fog read as
+  // a featureless beam of sky.
+  towerGlass: new THREE.MeshStandardMaterial({
+    color: 0x7d_9c_b2,
+    metalness: 0.35,
+    roughness: 0.4,
+  }),
   // Landmark white is NOT paper white. At 0xeceff2 it measured within a few
   // points of the noon sky, so the Pyramid, Coit and the Cliff House had no
   // silhouette from any distance — the one thing a beacon may not lack. This
   // is a warm off-white that still reads as "white building" up close and
   // holds a value edge against the sky band.
-  white: new THREE.MeshStandardMaterial({ color: 0xd8dae0, roughness: 0.7 }),
-  cream: new THREE.MeshStandardMaterial({ color: 0xe6dcc4, roughness: 0.75 }),
-  glass: new THREE.MeshStandardMaterial({ color: 0xbfd4dd, roughness: 0.25, metalness: 0.5 }),
-  // Deeper glass for the big towers — the pale `glass` + distance fog read as
-  // a featureless beam of sky.
-  towerGlass: new THREE.MeshStandardMaterial({
-    color: 0x7d9cb2,
-    roughness: 0.4,
-    metalness: 0.35,
-  }),
-  steel: new THREE.MeshStandardMaterial({ color: 0x9aa3ad, roughness: 0.5, metalness: 0.4 }),
-  gateRed: new THREE.MeshStandardMaterial({ color: 0xb5382e, roughness: 0.6 }),
-  gateGreen: new THREE.MeshStandardMaterial({ color: 0x3e7d54, roughness: 0.6 }),
-  rock: new THREE.MeshStandardMaterial({ color: 0x8a8578, roughness: 1 }),
-  gold: new THREE.MeshStandardMaterial({ color: 0xd6a943, roughness: 0.32, metalness: 0.7 }),
-  /** Oxidised copper — City Hall's dome shell. */
-  patina: new THREE.MeshStandardMaterial({ color: 0x4f8a72, roughness: 0.7, metalness: 0.2 }),
-  /** Warm brown copper cladding — the de Young. */
-  copper: new THREE.MeshStandardMaterial({ color: 0x996337, roughness: 0.8, metalness: 0.15 }),
-  brick: new THREE.MeshStandardMaterial({ color: 0x9c5f45, roughness: 0.95 }),
-  hedge: new THREE.MeshStandardMaterial({ color: 0x3f6d3a, roughness: 1 }),
-  /** Lombard's hydrangeas — rose, not Gate red: a red slab at kerb height
-   *  reads as a hazard barrier from the trailer's high lens. */
-  bloom: new THREE.MeshStandardMaterial({ color: 0xb86a94, roughness: 0.95 }),
-  concrete: new THREE.MeshStandardMaterial({ color: 0xb2b1a8, roughness: 1 }),
-  slate: new THREE.MeshStandardMaterial({ color: 0x51565c, roughness: 0.9 }),
-  /** Still ornamental water — the Palace lagoon, the flooded Sutro basins. */
-  lagoon: new THREE.MeshStandardMaterial({ color: 0x2f6d86, roughness: 0.15, metalness: 0.2 }),
-  /** Ballpark turf. */
-  field: new THREE.MeshStandardMaterial({ color: 0x4f8f45, roughness: 1 }),
-  // Lamps are light SOURCES: unlit + untonemapped, like the traffic signals,
-  // so they hold up as beacons after dark instead of dimming with the scene.
-  lamp: new THREE.MeshBasicMaterial({ color: 0xffeec4, toneMapped: false }),
+  white: new THREE.MeshStandardMaterial({ color: 0xd8_da_e0, roughness: 0.7 }),
 } as const;
 
 const PACKABLE: ReadonlySet<THREE.Material> = new Set<THREE.Material>(Object.values(MAT));
 
-export function mesh(
+export const mesh = (
   geo: THREE.BufferGeometry,
   mat: THREE.Material,
   x = 0,
   y = 0,
   z = 0,
-): THREE.Mesh {
+): THREE.Mesh => {
   const m = new THREE.Mesh(geo, mat);
   m.position.set(x, y, z);
   m.castShadow = true;
   m.receiveShadow = true;
   return m;
-}
+};
 
 /** Axis-aligned block, optionally yawed about its own centre. */
-export function box(
+export const box = (
   w: number,
   h: number,
   d: number,
@@ -78,11 +78,11 @@ export function box(
   y: number,
   z: number,
   yaw = 0,
-): THREE.Mesh {
+): THREE.Mesh => {
   const m = mesh(new THREE.BoxGeometry(w, h, d), mat, x, y, z);
   m.rotation.y = yaw;
   return m;
-}
+};
 
 /**
  * Paint every vertex of a freshly built mesh one flat colour.
@@ -99,14 +99,16 @@ export function box(
  * The material must be `vertexColors: true` with `color` left white — three
  * MULTIPLIES the two, so a tinted material would darken every vertex colour.
  */
-export function paint(m: THREE.Mesh, color: number): THREE.Mesh {
+export const paint = (m: THREE.Mesh, color: number): THREE.Mesh => {
   const pos = m.geometry.getAttribute("position");
   const c = new THREE.Color(color);
   const rgb = new Float32Array(pos.count * 3);
-  for (let i = 0; i < pos.count; i++) c.toArray(rgb, i * 3);
+  for (let i = 0; i < pos.count; i += 1) {
+    c.toArray(rgb, i * 3);
+  }
   m.geometry.setAttribute("color", new THREE.BufferAttribute(rgb, 3));
   return m;
-}
+};
 
 /**
  * Flat-shade a primitive in place.
@@ -119,15 +121,15 @@ export function paint(m: THREE.Mesh, color: number): THREE.Mesh {
  * recognisable four-faced silhouette. Anything whose faces are meant to be seen
  * as faces goes through here.
  */
-export function facet(geo: THREE.BufferGeometry): THREE.BufferGeometry {
+export const facet = (geo: THREE.BufferGeometry): THREE.BufferGeometry => {
   const flat = geo.index === null ? geo : geo.toNonIndexed();
   flat.computeVertexNormals();
   return flat;
-}
+};
 
 /** Upright cylinder / truncated cone, seated by its CENTRE like every other
  *  three primitive. */
-export function cyl(
+export const cyl = (
   rTop: number,
   rBot: number,
   h: number,
@@ -136,12 +138,10 @@ export function cyl(
   x: number,
   y: number,
   z: number,
-): THREE.Mesh {
-  return mesh(new THREE.CylinderGeometry(rTop, rBot, h, seg), mat, x, y, z);
-}
+): THREE.Mesh => mesh(new THREE.CylinderGeometry(rTop, rBot, h, seg), mat, x, y, z);
 
 /** Shallow dome: the top of a sphere, squashed to `h` tall, sitting on y. */
-export function dome(
+export const dome = (
   r: number,
   h: number,
   mat: THREE.Material,
@@ -149,9 +149,17 @@ export function dome(
   y: number,
   z: number,
   seg = 18,
-): THREE.Mesh {
+): THREE.Mesh => {
   const m = mesh(
-    new THREE.SphereGeometry(r, seg, Math.max(6, seg >> 1), 0, Math.PI * 2, 0, Math.PI / 2),
+    new THREE.SphereGeometry(
+      r,
+      seg,
+      Math.max(6, Math.floor(seg / 2)),
+      0,
+      Math.PI * 2,
+      0,
+      Math.PI / 2,
+    ),
     mat,
     x,
     y,
@@ -159,23 +167,23 @@ export function dome(
   );
   m.scale.set(1, h / r, 1);
   return m;
-}
+};
 
 /** A member spanning two points (cable, brace, strut). */
-export function strut(
+export const strut = (
   a: THREE.Vector3,
   b: THREE.Vector3,
   r: number,
   mat: THREE.Material,
   seg = 6,
-): THREE.Mesh {
+): THREE.Mesh => {
   const dir = new THREE.Vector3().subVectors(b, a);
   const len = dir.length() || 0.001;
   const m = mesh(new THREE.CylinderGeometry(r, r, len, seg), mat);
   m.position.copy(a).addScaledVector(dir, 0.5);
   m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.divideScalar(len));
   return m;
-}
+};
 
 /**
  * Ring / arc of identical uprights (peristyles, stadium bowls, parapets).
@@ -183,18 +191,18 @@ export function strut(
  * how the rest of the world talks about bearings; `cb` receives the local
  * point and the tangent yaw so callers can face pieces along the arc.
  */
-export function arc(
+export const arc = (
   count: number,
   radius: number,
   deg0: number,
   sweep: number,
-  cb: (x: number, z: number, yaw: number, i: number) => void,
-): void {
-  for (let i = 0; i < count; i++) {
+  place: (x: number, z: number, yaw: number, i: number) => void,
+): void => {
+  for (let i = 0; i < count; i += 1) {
     const a = THREE.MathUtils.degToRad(deg0 + (sweep * (i + 0.5)) / count);
-    cb(Math.sin(a) * radius, -Math.cos(a) * radius, -a, i);
+    place(Math.sin(a) * radius, -Math.cos(a) * radius, -a, i);
   }
-}
+};
 
 /**
  * Collapse a freshly built monument to one mesh per shared material: every
@@ -209,25 +217,36 @@ export function arc(
  * call each — the rule is that a material must be reused across the monument to
  * earn its keep, not that only `MAT` may be used.
  */
-export function packLandmark(src: THREE.Group, extra?: Iterable<THREE.Material>): THREE.Group {
+export const packLandmark = (src: THREE.Group, extra?: Iterable<THREE.Material>): THREE.Group => {
   const packable = extra ? new Set<THREE.Material>([...PACKABLE, ...extra]) : PACKABLE;
   src.updateMatrixWorld(true);
   const buckets = new Map<THREE.Material, THREE.BufferGeometry[]>();
   const packed: THREE.Mesh[] = [];
   src.traverse((o) => {
-    if (!(o instanceof THREE.Mesh)) return;
+    if (!(o instanceof THREE.Mesh)) {
+      return;
+    }
     const mat = o.material;
-    if (Array.isArray(mat) || !packable.has(mat)) return;
+    if (Array.isArray(mat) || !packable.has(mat)) {
+      return;
+    }
     const geo = o.geometry.clone().applyMatrix4(o.matrixWorld);
     const list = buckets.get(mat);
-    if (list) list.push(geo);
-    else buckets.set(mat, [geo]);
+    if (list) {
+      list.push(geo);
+    } else {
+      buckets.set(mat, [geo]);
+    }
     packed.push(o);
   });
-  for (const m of packed) m.removeFromParent();
+  for (const m of packed) {
+    m.removeFromParent();
+  }
   for (const [mat, list] of buckets) {
-    const first = list[0];
-    if (!first) continue;
+    const [first] = list;
+    if (!first) {
+      continue;
+    }
     // mergeGeometries rejects a mix of indexed and non-indexed inputs (the
     // polyhedron primitives are non-indexed) — level them first.
     const geos = list.every((g) => g.index !== null)
@@ -235,10 +254,12 @@ export function packLandmark(src: THREE.Group, extra?: Iterable<THREE.Material>)
       : list.map((g) => (g.index === null ? g : g.toNonIndexed()));
     const merged = geos.length === 1 ? first : mergeGeometries(geos, false);
     if (!merged) {
-      for (const g of geos) src.add(mesh(g, mat));
+      for (const g of geos) {
+        src.add(mesh(g, mat));
+      }
       continue;
     }
     src.add(mesh(merged, mat));
   }
   return src;
-}
+};

@@ -40,7 +40,7 @@ import { isCoarsePointer } from "./quality";
 // exposure, existing street-paint variety and the "felt, not read" +-10%
 // surface doctrine.
 
-export type BreakupConfig = {
+export interface BreakupConfig {
   /** Macro field A world period (m) — also the roughness field's period. */
   readonly period: number;
   /** Blend weight of the warm/cool hue-only drift (field A). */
@@ -60,7 +60,7 @@ export type BreakupConfig = {
   readonly settleFar: number;
   /** Scale on the dFdx-variance term (1 = reference strength). */
   readonly specAA: number;
-};
+}
 
 /** Non-integer period ratio between the two macro fields — they never re-phase. */
 export const MACRO_PERIOD_RATIO = 0.319;
@@ -73,16 +73,16 @@ export const SPEC_AA_CAP = 0.42;
 // Period matches the reference tarmac macro; amplitudes sit inside the road
 // shader's own +-10% band so the drift layers UNDER its patches and seams.
 export const ROAD_BREAKUP: BreakupConfig = {
-  period: 29.7,
+  cool: 0xdc_e6_ff,
   hueAmp: 0.15,
-  valueAmp: 0.08,
+  period: 29.7,
   roughAmp: 0.3,
   roughFloor: 0.62,
-  warm: 0xfff0dc,
-  cool: 0xdce6ff,
-  settleNear: 34,
   settleFar: 95,
+  settleNear: 34,
   specAA: 1,
+  valueAmp: 0.08,
+  warm: 0xff_f0_dc,
 };
 
 // Everything batched: kit facades, prisms, plinths, masonry, props. Period is
@@ -90,36 +90,38 @@ export const ROAD_BREAKUP: BreakupConfig = {
 // Floor 0.45 stays under the glass prisms' 0.55 roughness — it must catch
 // aliased glitter, not repaint the one deliberate sheen family.
 export const CITY_BREAKUP: BreakupConfig = {
-  period: 23.0,
+  cool: 0xd6_df_ea,
   hueAmp: 0.15,
-  valueAmp: 0.09,
+  period: 23,
   roughAmp: 0.2,
   roughFloor: 0.45,
-  warm: 0xffeed6,
-  cool: 0xd6dfea,
-  settleNear: 40,
   settleFar: 120,
+  settleNear: 40,
   specAA: 1,
+  valueAmp: 0.09,
+  warm: 0xff_ee_d6,
 };
 
 // GLSL float literal — String(0.1) has a dot, String(1) does not.
-function f(n: number): string {
+const f = (n: number): string => {
   const s = String(n);
   return s.includes(".") || s.includes("e") ? s : `${s}.0`;
-}
+};
 
 // Hex -> per-channel ratio with the max channel rescaled to 1 (a pure hue
 // shift, no energy change). Raw byte ratios on purpose, NOT THREE.Color: a
 // transfer curve applied to a ratio is meaningless (0xb3 means "70% of
 // whatever is there"; through 2.2 gamma it would mean 45%).
-function hueRatio(hex: number): string {
+const hueRatio = (hex: number): string => {
+  /* oxlint-disable no-bitwise -- unpacking an 0xRRGGBB literal */
   const r = ((hex >> 16) & 0xff) / 255;
   const g = ((hex >> 8) & 0xff) / 255;
   const b = (hex & 0xff) / 255;
+  /* oxlint-enable no-bitwise */
   const m = Math.max(r, g, b, 1e-6);
   const p = (v: number): string => f(Math.round((v / m) * 1000) / 1000);
   return `vec3(${p(r)}, ${p(g)}, ${p(b)})`;
-}
+};
 
 const FRAG_ANCHOR = "#include <lights_physical_fragment>";
 const VERT_ANCHOR = "#include <project_vertex>";
@@ -137,10 +139,16 @@ const applied = new WeakSet<THREE.Material>();
  * three cannot see inside onBeforeCompile, so without this two materials
  * differing only in breakup config would share one compiled program.
  */
-export function applyMaterialBreakup(mat: THREE.Material, cfg: BreakupConfig): void {
-  if (!(mat instanceof THREE.MeshStandardMaterial)) return;
-  if (mat.transparent || mat.polygonOffset) return;
-  if (applied.has(mat)) return;
+export const applyMaterialBreakup = (mat: THREE.Material, cfg: BreakupConfig): void => {
+  if (!(mat instanceof THREE.MeshStandardMaterial)) {
+    return;
+  }
+  if (mat.transparent || mat.polygonOffset) {
+    return;
+  }
+  if (applied.has(mat)) {
+    return;
+  }
   applied.add(mat);
 
   const prev = mat.onBeforeCompile;
@@ -224,4 +232,4 @@ ${FRAG_ANCHOR}`,
   // render during load); without the bump the renderer would keep it and the
   // injection would silently never run.
   mat.needsUpdate = true;
-}
+};

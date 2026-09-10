@@ -15,7 +15,9 @@ export const useShake = () => {
   const [scope, animate] = useAnimate();
   const reduceMotion = useReducedMotion();
   const shake = () => {
-    if (reduceMotion || !scope.current) return;
+    if (reduceMotion || !scope.current) {
+      return;
+    }
     animate(scope.current, SHAKE_KEYFRAMES, SHAKE_TRANSITION);
   };
   return [scope, shake] as const;

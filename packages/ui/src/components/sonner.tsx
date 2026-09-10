@@ -1,6 +1,7 @@
 "use client";
 
-import { Toaster as Sonner, toast, type ToasterProps } from "sonner";
+import { Toaster as Sonner } from "sonner";
+import type { ToasterProps } from "sonner";
 import {
   CircleCheckIcon,
   InfoIcon,
@@ -9,35 +10,33 @@ import {
   Loader2Icon,
 } from "lucide-react";
 
-const Toaster = ({ ...props }: ToasterProps) => {
-  return (
-    <Sonner
-      theme="system"
-      className="toaster group"
-      icons={{
-        success: <CircleCheckIcon className="size-4" />,
-        info: <InfoIcon className="size-4" />,
-        warning: <TriangleAlertIcon className="size-4" />,
-        error: <OctagonXIcon className="size-4" />,
-        loading: <Loader2Icon className="size-4 animate-spin" />,
-      }}
-      style={
-        // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: only `--*` custom properties, which the DOM style API accepts but the CSSProperties index type omits
-        {
-          "--normal-bg": "var(--popover)",
-          "--normal-text": "var(--popover-foreground)",
-          "--normal-border": "var(--border)",
-          "--border-radius": "var(--radius)",
-        } as React.CSSProperties
-      }
-      toastOptions={{
-        classNames: {
-          toast: "cn-toast",
-        },
-      }}
-      {...props}
-    />
-  );
-};
+export const Toaster = ({ ...props }: ToasterProps) => (
+  <Sonner
+    theme="system"
+    className="toaster group"
+    icons={{
+      error: <OctagonXIcon className="size-4" />,
+      info: <InfoIcon className="size-4" />,
+      loading: <Loader2Icon className="size-4 animate-spin" />,
+      success: <CircleCheckIcon className="size-4" />,
+      warning: <TriangleAlertIcon className="size-4" />,
+    }}
+    style={
+      // SAFETY: only `--*` custom properties, which the DOM style API accepts but the CSSProperties index type omits
+      {
+        "--border-radius": "var(--radius)",
+        "--normal-bg": "var(--popover)",
+        "--normal-border": "var(--border)",
+        "--normal-text": "var(--popover-foreground)",
+      } as React.CSSProperties
+    }
+    toastOptions={{
+      classNames: {
+        toast: "cn-toast",
+      },
+    }}
+    {...props}
+  />
+);
 
-export { Toaster, toast };
+export { toast } from "sonner";

@@ -2,6 +2,7 @@ import * as THREE from "three";
 
 import { CAR } from "../shared/constants";
 import type { Car } from "../vehicle/car";
+import type { WheelSurface } from "../world/land-class";
 import { FLAME_HOT, clampAxisToCone } from "./boost-plume";
 import type { Fx, FxTier } from "./particles";
 import { TIER_FX } from "./particles";
@@ -9,11 +10,20 @@ import { scorchTint } from "./skids";
 import type { SkidMarks } from "./skids";
 import { TIER_COLORS, tierColor } from "./tier";
 import type { DriftTrails } from "./trails";
+import {
+  isPavedSurface,
+  readTireContact,
+  SURFACE_FX,
+  TireEmissionClock,
+  tireThrow,
+} from "./surface-fx";
 
 // Sparks visibly slip from the contact patch but stay within ~1.5 m of it.
 const SPARK_INHERIT = 0.68;
-const SPARK_THROW_BACK = 2.0; // m/s backwards out of the patch
-const SPARK_THROW_OUT = 1.6; // m/s away from the turn
+// m/s backwards out of the patch
+const SPARK_THROW_BACK = 2;
+// m/s away from the turn
+const SPARK_THROW_OUT = 1.6;
 const JET_INHERIT = 0.66;
 // Promotion burst counts per wheel, indexed by the tier being entered.
 const PROMO_BURST = [0, 22, 46] as const;
@@ -31,10 +41,30 @@ const EXHAUST_SIDE = 0.55;
 const EXHAUST_UP = 0.5;
 const PLUME_ROOT_BIAS = 0.2;
 const PLUME_AXIS_UP = 0.1;
-const PLUME_AXIS_SLIP = 0.5; // rad of slip -> lateral axis lean (cone-clamped)
-const BURN_RAMP = 0.9; // s to full flame
-const BURN_FLOOR = 0.32; // a fresh boost still shows a real tongue
-const IGNITE_DEDUPE = 0.24; // s — item-boost + release can land the same frame
+// rad of slip -> lateral axis lean (cone-clamped)
+const PLUME_AXIS_SLIP = 0.5;
+// s to full flame
+const BURN_RAMP = 0.9;
+// a fresh boost still shows a real tongue
+const BURN_FLOOR = 0.32;
+// s — item-boost + release can land the same frame
+const IGNITE_DEDUPE = 0.24;
+
+/** Both rear contacts for one frame, resolved once and read by every emitter. */
+interface RearContacts {
+  grounded: boolean;
+  left: WheelSurface | null;
+  paved: boolean;
+  right: WheelSurface | null;
+}
+
+/** Ribbon color follows the mini-turbo tier: white grind → blue → orange. */
+const trailKind = (car: Car): 0 | 1 | 2 => {
+  if (car.isBoosting || car.driftTier === 2) {
+    return 2;
+  }
+  return car.driftTier === 1 ? 1 : 0;
+};
 
 // Rear-wheel FX rig: the drift/boost ground effects that hang off the rear
 // axle — light-ribbon trails, tier-channel sparks, tire smoke, scorch skids,
@@ -46,8 +76,11 @@ export class VehicleFxRig {
   private jetCarry = 0;
   private jetSide = 1;
   private pulseClock = 0;
-  private puffAccum = 0;
-  private kickAccum = 0;
+  private leftTire = new TireEmissionClock();
+  private rightTire = new TireEmissionClock();
+  private leftContact = new THREE.Vector3();
+  private rightContact = new THREE.Vector3();
+  private throwDirection = { x: 0, y: 0, z: 0 };
   private prevTier: FxTier = 0;
   private prevBoosting = false;
   private igniteCooldown = 0;
@@ -58,42 +91,78 @@ export class VehicleFxRig {
 
   // Scratch: rear-axle frame, recomputed once per update.
   private ax = 0;
+  private ay = 0;
   private az = 0;
   private px = 0;
+  private py = 0;
   private pz = 0;
+  private forward = new THREE.Vector3();
+  private left = new THREE.Vector3();
+  private up = new THREE.Vector3();
   private tmpColor = new THREE.Color();
   private tmpHot = new THREE.Color();
   private tmpScorch = new THREE.Color();
   private cone = { x: 0, y: 0, z: -1 };
-  private dir = { x: 0, z: 0, speed: 0 };
+  private dir = { speed: 0, x: 0, z: 0 };
+  // Rear-contact state for the frame, refilled by readContacts.
+  private readonly contacts: RearContacts = {
+    grounded: false,
+    left: null,
+    paved: false,
+    right: null,
+  };
 
-  constructor(
-    private readonly fx: Fx,
-    private readonly getTrails: () => DriftTrails | null,
-    private readonly getSkids: () => SkidMarks | null,
-  ) {}
+  private readonly fx: Fx;
+  private readonly getTrails: () => DriftTrails | null;
+  private readonly getSkids: () => SkidMarks | null;
+
+  constructor(fx: Fx, getTrails: () => DriftTrails | null, getSkids: () => SkidMarks | null) {
+    this.fx = fx;
+    this.getTrails = getTrails;
+    this.getSkids = getSkids;
+  }
 
   /** All ground FX for one frame. `drifting` is the scene's slip-gated flag;
    *  `brakingHard` mirrors the drift look for straight-line hard braking;
-   *  `surface` switches the off-road kick-up (grass clumps, sand spray). */
+   *  `surfaceAt` samples each contact independently, including its deck height. */
   update(
     dt: number,
     car: Car,
     drifting: boolean,
     brakingHard: boolean,
-    surface: "road" | "grass" | "sand" | "concrete" = "road",
+    surfaceAt: (x: number, z: number, y: number) => WheelSurface,
   ): void {
-    const fwdX = Math.sin(car.heading);
-    const fwdZ = Math.cos(car.heading);
-    this.ax = car.position.x - fwdX * 1.6; // rear axle centre
-    this.az = car.position.z - fwdZ * 1.6;
-    this.px = -fwdZ; // axle direction (perpendicular to heading)
-    this.pz = fwdX;
+    const water = car.waterContact;
+    this.fx.water.contact(
+      dt,
+      water,
+      car.position.x,
+      car.position.y,
+      car.position.z,
+      car.velX,
+      car.velZ,
+    );
+    const floating = water.kind === "floating";
+    const q = car.object3D.quaternion;
+    const forward = this.forward.set(0, 0, 1).applyQuaternion(q);
+    const left = this.left.set(-1, 0, 0).applyQuaternion(q);
+    this.up.set(0, 1, 0).applyQuaternion(q);
+    this.ax = car.position.x - forward.x * 1.6;
+    this.ay = car.position.y - forward.y * 1.6;
+    this.az = car.position.z - forward.z * 1.6;
+    this.px = left.x;
+    this.py = left.y;
+    this.pz = left.z;
+
+    this.readContacts(car, floating, surfaceAt);
+    const { grounded, left: leftSurface, paved, right: rightSurface } = this.contacts;
 
     // Promotion: every channel peaks on the raise frame — the in-flight
     // shower recolors, the ring/pool/flares/scorch all spawn in this call.
-    const tier: FxTier = drifting ? car.driftTier : 0;
-    if (tier > this.prevTier && drifting && !car.airborne) this.firePromotion(car, tier);
+    const tier: FxTier = drifting && !floating ? car.driftTier : 0;
+    if (tier > this.prevTier && drifting && grounded) {
+      this.firePromotion(car, tier, paved);
+    }
     this.prevTier = tier;
 
     // Boost ignition: rising isBoosting edge covers pad/item boosts too;
@@ -106,40 +175,96 @@ export class VehicleFxRig {
       this.igniteCooldown = IGNITE_DEDUPE;
       this.fireIgnition(car);
     }
-    this.drivePlume(dt, car, fwdX, fwdZ);
+    this.drivePlume(dt, car);
 
-    if (drifting || car.isBoosting || brakingHard) this.emitSmoke(dt, car, surface);
-    if ((drifting && !car.airborne) || brakingHard) this.stampSkids(car, drifting);
-    else this.lastSkid = null; // next streak starts fresh, not joined to this one
-    this.emitTrails(car, drifting);
-    if (drifting && !car.airborne) this.emitSparks(dt, car);
-    if ((surface === "grass" || surface === "sand") && !car.airborne && car.speed > 9) {
-      this.emitKickup(dt, car, surface);
+    const stressed = drifting || car.isBoosting || brakingHard;
+    const power = tireThrow(car.velX, car.velZ, this.throwDirection);
+    this.emitTire(dt, car, this.leftTire, this.leftContact, leftSurface, stressed, power);
+    this.emitTire(dt, car, this.rightTire, this.rightContact, rightSurface, stressed, power);
+    if (paved && (drifting || brakingHard)) {
+      this.stampSkids(car, drifting);
+    } else {
+      this.lastSkid = null;
+      // next streak starts fresh, not joined to this one
+    }
+    this.emitTrails(car, drifting, paved);
+    if (drifting && paved) {
+      this.emitSparks(dt, car);
+    } else {
+      this.sparkCarry = 0;
+      this.jetCarry = 0;
+      this.pulseClock = 0;
     }
   }
 
-  // Off-road wheels tear up the ground: steady debris spray off the rear
-  // axle, denser with speed — the terrain-change tell the asphalt never has.
-  private emitKickup(dt: number, car: Car, surface: "grass" | "sand"): void {
-    this.kickAccum += dt;
-    const cadence = car.speed > 25 ? 0.05 : 0.09;
-    if (this.kickAccum < cadence) return;
-    this.kickAccum = 0;
-    const power = 1.6 + Math.min(2.2, car.speed * 0.05);
-    const y = car.position.y;
-    this.fx.kickup(this.ax + this.px * 0.7, y, this.az + this.pz * 0.7, surface, power);
-    this.fx.kickup(this.ax - this.px * 0.7, y, this.az - this.pz * 0.7, surface, power);
+  /** Both rear contacts and the surfaces under them, into `contacts`. */
+  private readContacts(
+    car: Car,
+    floating: boolean,
+    surfaceAt: (x: number, z: number, y: number) => WheelSurface,
+  ): void {
+    this.leftContact.set(this.ax + this.px * 0.7, this.ay + this.py * 0.7, this.az + this.pz * 0.7);
+    this.rightContact.set(
+      this.ax - this.px * 0.7,
+      this.ay - this.py * 0.7,
+      this.az - this.pz * 0.7,
+    );
+    const controller = car.physicsVehicle?.controller ?? null;
+    const leftGrounded =
+      !floating && readTireContact(controller, 2, !car.airborne, this.leftContact);
+    const rightGrounded =
+      !floating && readTireContact(controller, 3, !car.airborne, this.rightContact);
+    const leftSurface = leftGrounded
+      ? surfaceAt(this.leftContact.x, this.leftContact.z, this.leftContact.y)
+      : null;
+    const rightSurface = rightGrounded
+      ? surfaceAt(this.rightContact.x, this.rightContact.z, this.rightContact.y)
+      : null;
+    this.contacts.left = leftSurface;
+    this.contacts.right = rightSurface;
+    this.contacts.paved =
+      leftSurface !== null &&
+      rightSurface !== null &&
+      isPavedSurface(leftSurface) &&
+      isPavedSurface(rightSurface);
+    this.contacts.grounded = leftGrounded || rightGrounded;
+  }
+
+  private emitTire(
+    dt: number,
+    car: Car,
+    clock: TireEmissionClock,
+    point: THREE.Vector3,
+    surface: WheelSurface | null,
+    stressed: boolean,
+    power: number,
+  ): void {
+    const bursts = clock.step(dt, surface, car.speed, stressed);
+    if (surface === null) {
+      return;
+    }
+    for (let i = 0; i < bursts; i += 1) {
+      if (isPavedSurface(surface)) {
+        this.fx.driftPuff(point.x, point.y, point.z, car.isBoosting, surface);
+      } else {
+        this.fx.kickup(point.x, point.y, point.z, SURFACE_FX[surface], this.throwDirection, power);
+      }
+    }
   }
 
   // Rear-wheel light ribbons: drift slides, charged drifts and boost runs each
   // get their own color; fast grip-cornering leaves a faint streak too.
-  private emitTrails(car: Car, drifting: boolean): void {
+  private emitTrails(car: Car, drifting: boolean, pavedContact: boolean): void {
     const trails = this.getTrails();
-    if (!trails || car.airborne) return;
+    if (!trails) {
+      return;
+    }
     const cornering = Math.abs(car.slip) > 0.12 && car.speed > 20;
-    if (!drifting && !car.isBoosting && !cornering) return;
-    // Ribbon color follows the mini-turbo tier: white grind → blue → orange.
-    const kind = car.isBoosting || car.driftTier === 2 ? 2 : car.driftTier === 1 ? 1 : 0;
+    if (!pavedContact || (!drifting && !car.isBoosting && !cornering)) {
+      trails.break();
+      return;
+    }
+    const kind = trailKind(car);
     const strength = Math.min(1, car.speed / CAR.maxSpeed);
     trails.emit(0, this.ax + this.px * 0.7, this.az + this.pz * 0.7, car.heading, kind, strength);
     trails.emit(1, this.ax - this.px * 0.7, this.az - this.pz * 0.7, car.heading, kind, strength);
@@ -154,12 +279,13 @@ export class VehicleFxRig {
     const tier = car.driftTier;
     const t = TIER_FX[tier];
     this.fx.setTierChannel(tierColor(tier));
-    const y = car.position.y + 0.25;
+    const y = this.ay + 0.25;
 
     this.sparkCarry += dt * t.rate;
     let n = Math.floor(this.sparkCarry);
     this.sparkCarry -= n;
-    n = Math.min(n, 10); // hitch guard: never dump a stalled frame's backlog
+    // hitch guard: never dump a stalled frame's backlog
+    n = Math.min(n, 10);
     if (n > 0) {
       // Thrown backwards + away from the turn, inheriting most of the car's
       // velocity so the cone swings with the drift angle.
@@ -183,7 +309,7 @@ export class VehicleFxRig {
       const nr = Math.max(1, Math.round(n * (outerLeft ? 0.75 : 1.25)));
       this.fx.driftShower(
         this.ax + this.px * 0.8,
-        y,
+        y + this.py * 0.8,
         this.az + this.pz * 0.8,
         tier,
         nl,
@@ -193,7 +319,7 @@ export class VehicleFxRig {
       );
       this.fx.driftShower(
         this.ax - this.px * 0.8,
-        y,
+        y - this.py * 0.8,
         this.az - this.pz * 0.8,
         tier,
         nr,
@@ -251,11 +377,12 @@ export class VehicleFxRig {
 
   // Tier promotion — burst + recolor + ring + pool + air flares + scorch, all
   // in one call so they crest on the same frame.
-  private firePromotion(car: Car, tier: FxTier): void {
-    this.fx.setTierChannel(tierColor(tier)); // repaints the in-flight shower too
-    const y = car.position.y;
+  private firePromotion(car: Car, tier: FxTier, paved: boolean): void {
+    // repaints the in-flight shower too
+    this.fx.setTierChannel(tierColor(tier));
+    const { y } = car.position;
     const burst = PROMO_BURST[tier];
-    const skids = this.getSkids();
+    const skids = paved ? this.getSkids() : null;
     scorchTint(this.tmpColor.set(tierColor(tier)), this.tmpScorch);
     const fwdX = Math.sin(car.heading);
     const fwdZ = Math.cos(car.heading);
@@ -286,7 +413,7 @@ export class VehicleFxRig {
       y + 0.12,
       car.position.z,
       0.6,
-      2.6 + 2.0 * tier,
+      2.6 + 2 * tier,
       0.22 + 0.04 * tier,
       0.06,
       this.tmpColor,
@@ -306,9 +433,9 @@ export class VehicleFxRig {
   // flash land on the same frame.
   private fireIgnition(car: Car): void {
     const tier = car.miniTurboTier;
-    const x = car.position.x;
-    const y = car.position.y;
-    const z = car.position.z;
+    const { x } = car.position;
+    const { y } = car.position;
+    const { z } = car.position;
     this.tmpColor.set(TIER_COLORS[2]);
     this.fx.rings.spawn(
       x,
@@ -347,7 +474,7 @@ export class VehicleFxRig {
       y + 1.05,
       z,
       2.2,
-      9.5 + 2.0 * tier,
+      9.5 + 2 * tier,
       0.2,
       0.035,
       this.tmpColor,
@@ -368,9 +495,12 @@ export class VehicleFxRig {
   // hide when the boost ends. The axis leans with slip but is clamped into
   // the 18-degree cone about straight-back — the cone, not the length, keeps
   // the flame behind the car.
-  private drivePlume(dt: number, car: Car, fwdX: number, fwdZ: number): void {
-    if (car.isBoosting) this.boostTime += dt;
-    else this.boostTime = 0;
+  private drivePlume(dt: number, car: Car): void {
+    if (car.isBoosting) {
+      this.boostTime += dt;
+    } else {
+      this.boostTime = 0;
+    }
     // Speed-scaled: a standstill boost put the camera nearly inside the ribbon
     // and the full-burn plume filled the frame (review pass) — the flame earns
     // its size with motion.
@@ -379,25 +509,28 @@ export class VehicleFxRig {
     const burn = car.isBoosting
       ? Math.min(1, Math.max(BURN_FLOOR, this.boostTime / BURN_RAMP)) * spdScale
       : 0;
-    const bx = car.position.x - fwdX * (EXHAUST_BACK + PLUME_ROOT_BIAS);
-    const bz = car.position.z - fwdZ * (EXHAUST_BACK + PLUME_ROOT_BIAS);
-    const y = car.position.y + EXHAUST_UP;
+    const fwd = this.forward;
+    const { up } = this;
+    const back = EXHAUST_BACK + PLUME_ROOT_BIAS;
+    const bx = car.position.x - fwd.x * back + up.x * EXHAUST_UP;
+    const by = car.position.y - fwd.y * back + up.y * EXHAUST_UP;
+    const bz = car.position.z - fwd.z * back + up.z * EXHAUST_UP;
     const lat = Math.max(-0.45, Math.min(0.45, car.slip * PLUME_AXIS_SLIP));
-    let axx = -fwdX + this.px * lat;
-    let axy = PLUME_AXIS_UP;
-    let axz = -fwdZ + this.pz * lat;
+    let axx = -fwd.x + this.px * lat + up.x * PLUME_AXIS_UP;
+    let axy = -fwd.y + this.py * lat + up.y * PLUME_AXIS_UP;
+    let axz = -fwd.z + this.pz * lat + up.z * PLUME_AXIS_UP;
     const al = Math.hypot(axx, axy, axz);
     axx /= al;
     axy /= al;
     axz /= al;
-    clampAxisToCone(axx, axy, axz, -fwdX, 0, -fwdZ, this.cone);
+    clampAxisToCone(axx, axy, axz, -fwd.x, -fwd.y, -fwd.z, this.cone);
     this.fx.plume.drive(
-      bx - fwdZ * EXHAUST_SIDE,
-      y,
-      bz + fwdX * EXHAUST_SIDE,
-      bx + fwdZ * EXHAUST_SIDE,
-      y,
-      bz - fwdX * EXHAUST_SIDE,
+      bx + this.px * EXHAUST_SIDE,
+      by + this.py * EXHAUST_SIDE,
+      bz + this.pz * EXHAUST_SIDE,
+      bx - this.px * EXHAUST_SIDE,
+      by - this.py * EXHAUST_SIDE,
+      bz - this.pz * EXHAUST_SIDE,
       this.cone.x,
       this.cone.y,
       this.cone.z,
@@ -405,34 +538,31 @@ export class VehicleFxRig {
     );
   }
 
-  private emitSmoke(dt: number, car: Car, surface: "road" | "grass" | "sand" | "concrete"): void {
-    this.puffAccum += dt;
-    if (this.puffAccum < 0.03) return;
-    this.puffAccum = 0;
-    const y = car.position.y;
-    this.fx.driftPuff(this.ax + this.px * 0.7, y, this.az + this.pz * 0.7, car.isBoosting, surface);
-    this.fx.driftPuff(this.ax - this.px * 0.7, y, this.az - this.pz * 0.7, car.isBoosting, surface);
-  }
-
   // Drift streaks scorch in the tier's hue (via the multiply-decal tint);
   // straight-line braking keeps plain rubber.
   private stampSkids(car: Car, drifting: boolean): void {
     const skids = this.getSkids();
-    if (!skids) return;
+    if (!skids) {
+      return;
+    }
     const now = {
-      lx: this.ax + this.px * 0.7,
-      lz: this.az + this.pz * 0.7,
-      rx: this.ax - this.px * 0.7,
-      rz: this.az - this.pz * 0.7,
+      lx: this.leftContact.x,
+      lz: this.leftContact.z,
+      rx: this.rightContact.x,
+      rz: this.rightContact.z,
     };
     const last = this.lastSkid;
     if (last) {
       const d = Math.hypot(now.lx - last.lx, now.lz - last.lz);
       if (d > 4) {
-        this.lastSkid = now; // teleport/lag spike — restart the streak
+        // teleport/lag spike — restart the streak
+        this.lastSkid = now;
         return;
       }
-      if (d < 0.3) return; // too short to matter; wait for more travel
+      if (d < 0.3) {
+        return;
+        // too short to matter; wait for more travel
+      }
       if (drifting) {
         scorchTint(this.tmpColor.set(tierColor(car.driftTier)), this.tmpScorch);
         skids.stampSegment(last.lx, last.lz, now.lx, now.lz, 0.7, this.tmpScorch);

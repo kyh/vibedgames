@@ -6,15 +6,18 @@
 // show/hide. This is the game's ONLY pause surface: Escape, P and pad START
 // all land here via the embed pause state machine.
 
-import { controlGroups, createPauseShell } from "@repo/embed";
+import { controlGroups, createPauseShell, PAUSE_OVERLAY_Z, sealPointerEvents } from "@repo/embed";
 import type { ControlGroup } from "@repo/embed";
 
 import { CONTROLS, METHOD_LABEL } from "./controls";
+import { isMuted, setMuted } from "./fx/sfx";
 
 // The game's palette (index.html): ink #d7dcf0 on #12131f, accent #8ea2ff,
 // pill borders rgba(120,134,200,·).
-const LINE = "rgba(120,134,200,"; // + alpha)
-const INK = "rgba(215,220,240,"; // + alpha)
+// + alpha)
+const LINE = "rgba(120,134,200,";
+// + alpha)
+const INK = "rgba(215,220,240,";
 
 // Positioning/z-index/cursor/fade live on the shell's root — visuals only here.
 const CSS = `
@@ -38,7 +41,7 @@ const CSS = `
 /** One legend-style row: method label + keycap-chip entries, wrap-centred.
  *  Shared with the title legend (#legend) so both instruction surfaces speak
  *  the same visual language. */
-export function groupRow(group: ControlGroup, coarse: boolean): HTMLElement {
+export const groupRow = (group: ControlGroup, coarse: boolean): HTMLElement => {
   const row = document.createElement("div");
   // 12px → 11px on touch, the same step #legend takes on small screens.
   row.style.cssText =
@@ -57,7 +60,6 @@ export function groupRow(group: ControlGroup, coarse: boolean): HTMLElement {
     item.style.cssText = "white-space:nowrap";
     const key = document.createElement("kbd");
     key.textContent = entry.input;
-    // Same chip as the in-play #hotkeys bar.
     key.style.cssText =
       `font:inherit;color:#8ea2ff;background:rgba(20,22,36,0.66);border:1px solid ${LINE}0.28);` +
       "border-radius:5px;padding:1px 6px;margin-right:6px";
@@ -65,21 +67,21 @@ export function groupRow(group: ControlGroup, coarse: boolean): HTMLElement {
     row.append(item);
   }
   return row;
-}
+};
 
 /** Thin gradient rule — the well's line weight, used as a section divider. */
-function rule(margin: string): HTMLElement {
+const rule = (margin: string): HTMLElement => {
   const el = document.createElement("div");
   el.setAttribute("aria-hidden", "true");
   el.style.cssText =
     `width:min(64vw,380px);height:1px;margin:${margin};position:relative;` +
     `background:linear-gradient(90deg,transparent,${LINE}0.6),transparent)`;
   return el;
-}
+};
 
 /** Overlay content, rebuilt fresh every show() so the legend rows track the
  *  live context (touch vs keys, pad only while connected). */
-function renderContent(overlay: HTMLElement): void {
+const renderContent = (overlay: HTMLElement): void => {
   const coarse = window.matchMedia("(pointer: coarse)").matches;
 
   // Faint square grid behind the content — the well's wireframe, flattened.
@@ -113,16 +115,53 @@ function renderContent(overlay: HTMLElement): void {
   legend.style.cssText =
     "position:relative;display:flex;flex-direction:column;align-items:center;" +
     "gap:13px;max-width:min(92vw,640px)";
-  for (const group of controlGroups(CONTROLS)) legend.append(groupRow(group, coarse));
+  for (const group of controlGroups(CONTROLS)) {
+    legend.append(groupRow(group, coarse));
+  }
 
   overlay.append(grid, title, hint, rule("24px 0 20px"), legend);
-}
+};
 
 /** show(): mount the overlay; hide(): fade it out. Both idempotent. */
 export const { show, hide } = createPauseShell({
   className: "tetris-pause",
   css: CSS,
-  styleId: "tetris-pause-style",
   fadeMs: 220,
+  mute: { get: isMuted, set: setMuted },
   render: renderContent,
+  styleId: "tetris-pause-style",
 });
+
+let recovery: { root: HTMLElement; unseal: () => void } | null = null;
+
+/** Graphics cannot resume yet. This surface owns no shell keys or pad polling. */
+export const showRecovery = (): void => {
+  if (recovery) {
+    return;
+  }
+  const root = document.createElement("div");
+  root.id = "tetris-graphics-recovery";
+  root.setAttribute("role", "status");
+  root.setAttribute("aria-live", "polite");
+  root.style.cssText =
+    `position:fixed;inset:0;z-index:${PAUSE_OVERLAY_Z};display:grid;place-content:center;` +
+    "padding:24px;background:rgba(14,15,26,.96);color:#d7dcf0;text-align:center;" +
+    "font:14px/1.6 ui-monospace,monospace;user-select:none;touch-action:none";
+  const title = document.createElement("strong");
+  title.textContent = "GRAPHICS INTERRUPTED";
+  title.style.cssText = "font-size:clamp(20px,5vw,32px);color:#8ea2ff;letter-spacing:.05em";
+  const hint = document.createElement("div");
+  hint.textContent = "Waiting for the display to recover.";
+  root.append(title, hint);
+  recovery = { root, unseal: sealPointerEvents(root) };
+  document.body.append(root);
+};
+
+export const hideRecovery = (): void => {
+  if (!recovery) {
+    return;
+  }
+  recovery.unseal();
+  recovery.root.remove();
+  recovery = null;
+};

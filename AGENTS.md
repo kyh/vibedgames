@@ -1,6 +1,6 @@
 # AGENTS.md
 
-**vibedgames** is an infrastructure platform for deploying, hosting and adding multiplayer to browser games: build a game locally, `vg deploy` it, and it is served at `{slug}.vibedgames.com`. The stack is a pnpm/Turborepo monorepo — TanStack Start (React 19 + Vite SSR) on Cloudflare Workers, tRPC + Drizzle on D1, better-auth, PartyServer on Durable Objects, R2 for game bundles.
+**vibedgames** is an infrastructure platform for deploying, hosting and adding multiplayer to browser games: build a game locally, `vg deploy` it, and it is served at `{slug}.vibedgames.com`. The stack is a pnpm/Turborepo monorepo — TanStack Start (React 19 + Vite SSR) on Cloudflare Workers, oRPC + Drizzle on D1, better-auth, PartyServer on Durable Objects, R2 for game bundles.
 
 This is the tool-agnostic guide for coding agents, and it is meant to be **run**, not just read. Claude also reads `CLAUDE.md` (product context, architectural decisions, conventions); both point back here.
 
@@ -8,11 +8,10 @@ This is the tool-agnostic guide for coding agents, and it is meant to be **run**
 
 ```sh
 pnpm install
-cp .env.example .env                              # drizzle-kit + wrangler CLI creds
-cp apps/web/.dev.vars.example apps/web/.dev.vars  # Worker secrets (see Environment)
-pnpm dev:web                                      # ← run once, then stop it
-pnpm db:local                                     # push schema + seed dev identities
-pnpm dev:web                                      # http://localhost:5173
+cp .env.example .env  # every credential, CLI and Worker alike (see Environment)
+pnpm dev:web          # ← run once, then stop it
+pnpm db:local         # db:push + seed dev identities
+pnpm dev:web          # http://localhost:5173
 ```
 
 **The double `dev:web` is not a typo.** `packages/db/drizzle.config.local.ts` resolves the Miniflare SQLite file out of `apps/web/.wrangler/state/v3/d1/miniflare-D1DatabaseObject/`, and that directory only exists after the dev Worker has booted once. Skip the first run and `pnpm db:local` dies with `Local D1 not found. Run 'pnpm dev:web' once to initialize it.`
@@ -23,14 +22,16 @@ There is no bootstrap script; the five commands above _are_ the provisioning ste
 
 ## Environment
 
-Two files, two different runtimes. Getting this wrong is the most common way to end up with an app that boots but can't authenticate.
+One file, two consumers. Everything lives in the repo-root `.env`; template is `.env.example`.
 
-| File                 | Read by                                                | Holds                                                                 |
-| -------------------- | ------------------------------------------------------ | --------------------------------------------------------------------- |
-| `.env` (repo root)   | anything reading `process.env` — drizzle-kit, wrangler | `CLOUDFLARE_ACCOUNT_ID` / `_DATABASE_ID` / `_D1_TOKEN` / `_API_TOKEN` |
-| `apps/web/.dev.vars` | the dev Worker, via the Cloudflare `env` binding       | `BETTER_AUTH_SECRET`, `R2_*`, `FAL_API_KEY` (optional)                |
+| Consumer                                         | Reaches it via                                                  | Holds                                                                 |
+| ------------------------------------------------ | --------------------------------------------------------------- | --------------------------------------------------------------------- |
+| drizzle-kit, the wrangler CLI                    | `process.env`, loaded by each package's `with-env` (dotenv-cli) | `CLOUDFLARE_ACCOUNT_ID` / `_DATABASE_ID` / `_D1_TOKEN` / `_API_TOKEN` |
+| the dev Worker, via the Cloudflare `env` binding | `secrets.required` in `apps/web/wrangler.jsonc`                 | `BETTER_AUTH_SECRET`, `R2_*`, `FAL_API_KEY`                           |
 
-The Worker never sees `process.env` — putting `BETTER_AUTH_SECRET` in `.env` silently does nothing. In production the same names are `wrangler secret put`. Templates: `.env.example`, `apps/web/.dev.vars.example`.
+**`secrets.required` is the whole mechanism.** Declaring a name there makes wrangler fold `process.env` into the Worker binding and filter it down to exactly the declared names — so a secret that is in `.env` but not in `secrets.required` silently never reaches the Worker. Adding one means editing three places: `.env.example`, `secrets.required`, and `apps/web/env.d.ts`.
+
+Do not reintroduce `apps/web/.dev.vars`. Wrangler prefers it and stops reading `.env`/`process.env` the moment it exists, so the root file goes quietly dead. In production the same names are `wrangler secret put`.
 
 ## Seeded logins
 
@@ -51,9 +52,11 @@ Headless auth without a browser:
 # CLI — overrides the saved login without clobbering ~/.config/vg/auth.json
 VG_API_URL=http://localhost:5173 VG_TOKEN=dev-local-session-token-0000000000 vg whoami
 
-# raw tRPC
-curl -s 'http://localhost:5173/api/trpc/deploy.list' \
-  -H 'Authorization: Bearer dev-local-session-token-0000000000'
+# raw oRPC — POST only; GET is not a supported method and 404s
+curl -s -X POST 'http://localhost:5173/api/orpc/deploy/list' \
+  -H 'Authorization: Bearer dev-local-session-token-0000000000' \
+  -H 'content-type: application/json' \
+  -d '{"json":{}}'
 
 # a real session cookie, for handing to a browser context
 curl -s -i -X POST http://localhost:5173/api/auth/sign-in/email \
@@ -96,6 +99,8 @@ Static gate — run before every commit:
 pnpm verify   # typecheck · lint · format · test
 ```
 
+**Lint is a clean gate.** `oxlint.config.ts` extends the ultracite presets (`ultracite/oxlint/core`, `react`, `anti-slop`); every rule is an error and `lint` fails on the first one. `no-await-in-loop` is the one deliberate override (sequential awaits are intentional). Prefer fixing code over `oxlint-disable` comments; when a rule is genuinely wrong for a line, disable that line with a `-- reason`.
+
 `pnpm test` covers the `vg` CLI's unit suites, the deterministic sim scripts in four example games, and `apps/web`'s content-negotiation / structured-data / page-content units. Nothing in `verify` renders a route or drives a browser, and there is still no test for `packages/api` — so a green `verify` is a floor, not proof. Drive the change: `vg playtest` for games (see the `playtest` skill), the recipe below for the web app.
 
 Runtime — the web app and the example games are both browser-reachable. `vg playtest` is the one browser driver (a passthrough to agent-browser; it installs itself and its browser on first use, so there is nothing to set up beyond `pnpm dogfood`). With `pnpm dev:web` running:
@@ -134,8 +139,8 @@ For the surfaces marked No, `pnpm typecheck` and `pnpm build` are the gate; a re
 ## Rules that matter
 
 - **Never `wrangler deploy` locally.** Deploys happen from GitHub Actions on push to `main`.
-- **`vg deploy` against `localhost` is safe — but only `localhost`.** When the Host header is `localhost[:port]`, `presignPut`/`presignGet` hand back HMAC-signed `/api/r2-upload` and `/api/r2-download` proxy URLs, so bytes land in the Miniflare-simulated `GAMES_BUCKET`, not prod R2 (`packages/api/src/deploy/r2-presign.ts`); `deletePrefix` always goes through the binding. The `R2_*` values in `apps/web/.dev.vars` only need to be non-empty for the config to be constructed — dummies work. The check is on the literal host string, so pointing the CLI at `http://127.0.0.1:5173` bypasses the proxy and presigns against **production** R2.
-- **Never push schema to remote.** `pnpm db:push` and `pnpm db:push-remote` both target production D1. Local work is `pnpm db:push-local` / `pnpm db:local`.
+- **`vg deploy` against `localhost` is safe — but only `localhost`.** When the Host header is `localhost[:port]`, `presignPut`/`presignGet` hand back HMAC-signed `/api/r2-upload` and `/api/r2-download` proxy URLs, so bytes land in the Miniflare-simulated `GAMES_BUCKET`, not prod R2 (`packages/api/src/deploy/r2-presign.ts`); `deletePrefix` always goes through the binding. The `R2_*` values in the root `.env` only need to be non-empty for the config to be constructed — dummies work. The check is on the literal host string, so pointing the CLI at `http://127.0.0.1:5173` bypasses the proxy and presigns against **production** R2.
+- **Never push schema to remote.** `pnpm db:push-remote` is the only command that touches production D1; it is the only one that reads `.env.production.local`. `pnpm db:push`, `db:studio` and `db:local` are local-only.
 - **Every mutation invalidates exactly the query keys it touches**, in its own `onSuccess`. There is no blanket invalidation in the query client; if a write should refresh a list, say so at the call site.
 - **No `any`, no non-null `!`, no `as` casts. Kebab-case filenames.** Make illegal states unrepresentable.
 - **Render dates through `apps/web/src/lib/format.ts`.** The Worker renders in UTC and the browser doesn't; an unpinned `toLocaleDateString()` is a hydration mismatch.
@@ -143,8 +148,8 @@ For the surfaces marked No, `pnpm typecheck` and `pnpm build` are the gate; a re
 
 ## Map
 
-- `apps/web` — the platform app (routes, auth, tRPC handler) · `apps/party` — multiplayer DO · `apps/games` — R2 game server · `apps/cli` — the published `vg` CLI · `apps/factory` — Bun/OpenTUI orchestrator
-- `packages/api` — tRPC routers, auth config, credits ledger · `packages/db` — Drizzle schema (source of truth for the data model) + `seed.sql` · `packages/ui`, `packages/multiplayer`, `packages/gamepad`, `packages/embed`
+- `apps/web` — the platform app (routes, auth, oRPC handler) · `apps/party` — multiplayer DO · `apps/games` — R2 game server · `apps/cli` — the published `vg` CLI · `apps/factory` — Bun/OpenTUI orchestrator
+- `packages/api` — oRPC routers, auth config, credits ledger · `packages/db` — Drizzle schema (source of truth for the data model) + `seed.sql` · `packages/ui`, `packages/multiplayer`, `packages/gamepad`, `packages/embed`
 - `games/*` — bundled example games, not platform code
 - `plugins/*/skills/*` — the skills shipped to end users; symlinked into `.claude/skills/` by `pnpm dogfood`
 - `CLAUDE.md` — product context, architectural decisions, command list

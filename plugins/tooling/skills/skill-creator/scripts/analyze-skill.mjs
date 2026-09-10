@@ -8,7 +8,7 @@
  *   node analyze-skill.mjs <path/to/skill>
  */
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import path from "node:path";
 
 import { analyzeSkillBody, parseFrontmatter } from "./_lib/asset-tools.mjs";
 
@@ -27,7 +27,7 @@ if (!existsSync(skillPath)) {
   process.exit(1);
 }
 
-const skillMd = join(skillPath, "SKILL.md");
+const skillMd = path.join(skillPath, "SKILL.md");
 if (!existsSync(skillMd)) {
   console.log(`❌ SKILL.md not found at ${skillMd}`);
   process.exit(1);
@@ -35,7 +35,7 @@ if (!existsSync(skillMd)) {
 
 // Split on the first two `---` fences, matching the original's
 // `content.split('---', 2)`.
-const content = readFileSync(skillMd, "utf8");
+const content = readFileSync(skillMd, "utf-8");
 const parts = content.split("---");
 if (parts.length < 3) {
   console.log("❌ Invalid SKILL.md format - missing frontmatter");
@@ -56,7 +56,9 @@ console.log(`\n📊 OVERALL SCORE: ${analysis.totalScore}/100\n`);
 
 for (const { category, score, feedback } of analysis.categories) {
   console.log(`\n${category}: ${score} points`);
-  for (const item of feedback) console.log(`  ${item}`);
+  for (const item of feedback) {
+    console.log(`  ${item}`);
+  }
 }
 
 console.log(`\n${rule}`);
@@ -71,9 +73,15 @@ if (analysis.totalScore >= 80) {
   console.log("\n✅ Good skill. Consider the suggestions above to improve.");
 } else if (analysis.totalScore >= 40) {
   console.log("\n⚠️  Needs improvement. Focus on:");
-  if (scoreOf("Philosophy") < 20) console.log("   - Add philosophical foundation");
-  if (scoreOf("Anti-Patterns") < 15) console.log("   - Include anti-pattern warnings");
-  if (scoreOf("Variation") < 10) console.log("   - Encourage variation in outputs");
+  if (scoreOf("Philosophy") < 20) {
+    console.log("   - Add philosophical foundation");
+  }
+  if (scoreOf("Anti-Patterns") < 15) {
+    console.log("   - Include anti-pattern warnings");
+  }
+  if (scoreOf("Variation") < 10) {
+    console.log("   - Encourage variation in outputs");
+  }
 } else {
   console.log("\n❌ Significant improvements needed:");
   console.log("   - Establish a clear philosophical framework");

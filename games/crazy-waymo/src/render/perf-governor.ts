@@ -1,6 +1,9 @@
 import type * as THREE from "three";
 
-import { FULL_QUALITY, isCoarsePointer, type QualityFeatures, setLiveQuality } from "./quality";
+import { FrameTimingWindow } from "./frame-timing-window";
+
+import { FULL_QUALITY, isCoarsePointer, setLiveQuality } from "./quality";
+import type { QualityFeatures } from "./quality";
 
 // Adaptive quality: keeps the game at target frame rate by stepping render
 // resolution (and, at the floor tier, shadow resolution) instead of letting it
@@ -12,117 +15,162 @@ import { FULL_QUALITY, isCoarsePointer, type QualityFeatures, setLiveQuality } f
 // desktop table pins every tier to FULL_QUALITY so a desktop that steps down
 // only ever loses resolution, exactly as before.
 //
-// Decisions run on the MEDIAN frame time of ~2s windows: shader-compile and
-// GC bursts are outliers a mean/EMA would absorb into a false "slow" verdict,
-// but they can't move a median unless more than half the window is actually
-// slow. Downgrade on one bad window; upgrade only after several consecutive
-// fast ones so the tier never flaps at a boundary.
+// Decisions use sustained frame cost over ~2s windows. The sampler rejects
+// isolated shader/GC stalls, while recurrent missed refreshes still count even
+// when the median hits vsync. Downgrade on one bad window; upgrade only after
+// several consecutive fast ones so the tier never flaps at a boundary.
 
-const WINDOW_FRAMES = 120; // ~1.2s at 100fps, ~2.5s at 48fps
-const SPIKE_MS = 100; // tab-away / breakpoint frames: not evidence
-const SLOW_MS = 21; // median worse than ~48fps → step down
-// "Fast" must include a 60Hz vsync-locked median (~16.7ms) — with a 13ms bar a
+// sustained worse than ~48fps → step down
+const SLOW_MS = 21;
+// "Fast" must include a 60Hz vsync-locked frame (~16.7ms) — with a 13ms bar a
 // 60Hz display could downgrade once and never climb back no matter how much
 // GPU headroom it has.
 const FAST_MS = 17;
-const UPGRADE_WINDOWS = 3; // consecutive fast windows before stepping up
+// consecutive fast windows before stepping up
+const UPGRADE_WINDOWS = 3;
 // Borderline machines are fast at tier N and slow at tier N-1 — each failed
 // upgrade doubles the fast-window requirement so the flapping dies out.
 const UPGRADE_WINDOWS_MAX = 24;
-const FLAP_WINDOW_S = 12; // a downgrade this soon after an upgrade = a flap
-const COOLDOWN_S = 2.5; // settle time after a tier change
+// a downgrade this soon after an upgrade = a flap
+const FLAP_WINDOW_S = 12;
+// settle time after a tier change
+const COOLDOWN_S = 2.5;
 const SHADOW_FULL = 2048;
 const SHADOW_LOW = 1024;
 
 type Tier = QualityFeatures & { readonly ratio: number; readonly shadow: number };
 
+/** Resolution and scene detail can improve without a fourfold phone shadow
+ * allocation or returning to the full sky shader. Desktop budgets stay intact. */
+export const qualityTiers = (native: number, mobile: boolean): readonly Tier[] => {
+  const ratios: readonly [number, number, number, number, number] = [
+    native,
+    Math.max(1, native * 0.8),
+    Math.max(0.9, native * 0.66),
+    Math.max(0.8, native * 0.55),
+    // floor for weak GPUs
+    Math.max(0.7, native * 0.45),
+  ];
+  if (!mobile) {
+    return ratios.map((ratio, i) => ({
+      ratio,
+      shadow: i >= 3 ? SHADOW_LOW : SHADOW_FULL,
+      ...FULL_QUALITY,
+    }));
+  }
+  // Phones keep a stable shadow allocation and baked sky at every tier.
+  // Higher tiers still earn resolution, cloud density, and the full-model band.
+  return [
+    { ratio: ratios[0], shadow: SHADOW_LOW, ...FULL_QUALITY, skyBake: true },
+    {
+      clouds: 1,
+      detailScale: 0.9,
+      ratio: ratios[1],
+      shadow: SHADOW_LOW,
+      shadowCast: true,
+      shadowEvery: 1,
+      skyBake: true,
+    },
+    {
+      clouds: 1,
+      detailScale: 0.78,
+      ratio: ratios[2],
+      shadow: SHADOW_LOW,
+      shadowCast: true,
+      shadowEvery: 2,
+      skyBake: true,
+    },
+    {
+      clouds: 1,
+      detailScale: 0.66,
+      ratio: ratios[3],
+      shadow: SHADOW_LOW,
+      shadowCast: true,
+      shadowEvery: 3,
+      skyBake: true,
+    },
+    {
+      clouds: 0,
+      detailScale: 0.55,
+      ratio: ratios[4],
+      shadow: SHADOW_LOW,
+      // floor: no shadow pass, no receiver sampling
+      shadowCast: false,
+      shadowEvery: 3,
+      skyBake: true,
+    },
+  ];
+};
+
+// DEV-only handle, same gate and same spirit as main.ts's `__renderer` /
+// `__waymo`: a headless perf run needs to WALK the tier ladder, and the tier
+// lives in a private field of an instance main.ts never publishes. Stripped
+// from production builds by the `import.meta.env.DEV` branch at the call site.
+declare global {
+  interface Window {
+    __perf?: {
+      tier: () => number;
+      tierCount: () => number;
+      pin: (tier: number | null) => void;
+      detail: (scale: number) => void;
+    };
+  }
+}
+
+const installPerfDebug = (governor: PerfGovernor): void => {
+  window.__perf = {
+    // Override the tier's model band live. A/B-ing a draw-distance change by
+    // reloading is worthless on a shared machine — the other tab's load moves
+    // the frame rate more than the change does; this measures both sides
+    // back-to-back in one session.
+    detail: (detailScale) => setLiveQuality({ ...governor.features, detailScale }),
+    pin: (tier) => governor.pinTier(tier),
+    tier: () => governor.currentTier,
+    tierCount: () => governor.tierCount,
+  };
+};
+
 export class PerfGovernor {
   private readonly tiers: readonly Tier[];
   private tier = 0;
-  private cooldown = 1.5; // grace at boot
-  private frames: number[] = [];
+  // grace at boot
+  private cooldown = 1.5;
+  private readonly frames = new FrameTimingWindow();
   private fastWindows = 0;
   private upgradeCost = UPGRADE_WINDOWS;
-  private sinceUpgrade = Infinity; // seconds since the last tier-up
-  private shadowClock = 0; // frames since the last cadenced shadow render
-  private pinned: number | null = null; // DEV: tier held by a measurement run
+  // seconds since the last tier-up
+  private sinceUpgrade = Infinity;
+  // frames since the last cadenced shadow render
+  private shadowClock = 0;
+  // DEV: tier held by a measurement run
+  private pinned: number | null = null;
+
+  private renderer: THREE.WebGLRenderer;
+  private sun: THREE.DirectionalLight;
+  private onApply: (features: QualityFeatures) => void;
 
   constructor(
-    private renderer: THREE.WebGLRenderer,
-    private sun: THREE.DirectionalLight,
-    private onApply: (features: QualityFeatures) => void,
+    renderer: THREE.WebGLRenderer,
+    sun: THREE.DirectionalLight,
+    onApply: (features: QualityFeatures) => void,
   ) {
+    this.renderer = renderer;
+    this.sun = sun;
+    this.onApply = onApply;
     const native = Math.min(window.devicePixelRatio || 1, 2);
-    const ratios = [
-      native,
-      Math.max(1, native * 0.8),
-      Math.max(0.9, native * 0.66),
-      Math.max(0.8, native * 0.55),
-      Math.max(0.7, native * 0.45), // floor for weak GPUs
-    ] as const;
-    if (isCoarsePointer()) {
-      // Phone ladder: tier 0 is still the full desktop look (an iPad Pro can
-      // earn it), everything below trades per-fragment work for frame rate.
-      //
-      // …and, from this pass, per-VERTEX work: `detailScale` walks the city's
-      // full-model band in from 360u so the fabric turns into its box imposter
-      // sooner. Below tier 1 a phone is not resolving a row house's roof pitch
-      // at 250u anyway, and geometry was the one budget the ladder never
-      // touched (measured: the floor tier submitted 1.69M triangles against
-      // tier 0's 1.87M — a 10% cut for four steps of quality).
-      this.tiers = [
-        { ratio: ratios[0], shadow: SHADOW_FULL, ...FULL_QUALITY },
-        {
-          ratio: ratios[1],
-          shadow: SHADOW_FULL,
-          shadowEvery: 1,
-          shadowCast: true,
-          skyBake: true,
-          clouds: 1,
-          detailScale: 0.9,
-        },
-        {
-          ratio: ratios[2],
-          shadow: SHADOW_FULL,
-          shadowEvery: 2,
-          shadowCast: true,
-          skyBake: true,
-          clouds: 1,
-          detailScale: 0.78,
-        },
-        {
-          ratio: ratios[3],
-          shadow: SHADOW_LOW,
-          shadowEvery: 3,
-          shadowCast: true,
-          skyBake: true,
-          clouds: 1,
-          detailScale: 0.66,
-        },
-        {
-          ratio: ratios[4],
-          shadow: SHADOW_LOW,
-          shadowEvery: 3,
-          shadowCast: false, // floor: no shadow pass, no receiver sampling
-          skyBake: true,
-          clouds: 0,
-          detailScale: 0.55,
-        },
-      ];
-      // Boot LOW: the median-window logic needs ~10s to converge, and a phone
+    const mobile = isCoarsePointer();
+    this.tiers = qualityTiers(native, mobile);
+    if (mobile) {
+      // Boot LOW: the timing windows need ~10s to converge, and a phone
       // chugging through those first windows at desktop quality reads as a
       // broken game. Dense screens start at the deeper tier; upgrades are
       // cheap if the device turns out to have headroom.
       this.apply(native >= 2 ? 3 : 2);
       this.cooldown = 1.5;
-    } else {
-      // Desktop: resolution/shadow-size steps only — features stay at full on
-      // every tier, so nothing about the desktop look changes at any tier.
-      this.tiers = ratios.map((ratio, i) =>
-        Object.assign({ ratio, shadow: i >= 3 ? SHADOW_LOW : SHADOW_FULL }, FULL_QUALITY),
-      );
     }
-    if (import.meta.env.DEV) installPerfDebug(this);
+    if (import.meta.env.DEV) {
+      installPerfDebug(this);
+    }
   }
 
   get currentTier(): number {
@@ -137,40 +185,57 @@ export class PerfGovernor {
     return this.tiers[this.tier] ?? FULL_QUALITY;
   }
 
+  /** A suspended scene has no useful performance history. Keep its tier, but
+   * require fresh active windows after resume instead of promoting from idle. */
+  resetTiming(): void {
+    this.frames.reset();
+    this.fastWindows = 0;
+    this.cooldown = COOLDOWN_S;
+  }
+
   // DEV/headless only: pin a tier so a measurement run can walk the whole
   // ladder. Without this the mobile tiers are unreachable from a scripted
-  // browser — the median-window logic owns the tier and moves it mid-capture,
+  // browser — the timing windows own the tier and move it mid-capture,
   // and no perf claim about "tier 3 on a phone" could ever be verified.
-  // `null` hands control back to the governor. See installPerfDebug below.
+  // `null` hands control back to the governor. See installPerfDebug.
   pinTier(tier: number | null): void {
     this.pinned = tier;
-    if (tier !== null) this.apply(Math.min(this.tiers.length - 1, Math.max(0, tier)));
+    if (tier !== null) {
+      this.apply(Math.min(this.tiers.length - 1, Math.max(0, tier)));
+    }
   }
 
   // Feed the RAW frame delta (seconds) every frame, before render.
   update(dt: number): void {
-    if (this.pinned !== null) return;
-    const ms = dt * 1000;
-    if (ms > SPIKE_MS) return;
-    this.sinceUpgrade += dt;
-    if (this.cooldown > 0) {
-      this.cooldown -= dt;
+    if (this.pinned !== null) {
       return;
     }
-    this.frames.push(ms);
-    if (this.frames.length < WINDOW_FRAMES) return;
-    const sorted = [...this.frames].sort((a, b) => a - b);
-    const median = sorted[sorted.length >> 1] ?? 1000 / 60;
-    this.frames.length = 0;
-    if (median > SLOW_MS && this.tier < this.tiers.length - 1) {
+    if (document.hidden) {
+      this.frames.reset();
+      return;
+    }
+    if (!Number.isFinite(dt) || dt <= 0) {
+      return;
+    }
+    const step = Math.min(dt, 0.25);
+    this.sinceUpgrade += step;
+    if (this.cooldown > 0) {
+      this.cooldown -= step;
+      return;
+    }
+    const frameMs = this.frames.sample(step);
+    if (frameMs === null) {
+      return;
+    }
+    if (frameMs > SLOW_MS && this.tier < this.tiers.length - 1) {
       // Downgrading right after an upgrade means the upgrade was wrong —
       // make the next attempt exponentially more patient.
       if (this.sinceUpgrade < FLAP_WINDOW_S) {
         this.upgradeCost = Math.min(UPGRADE_WINDOWS_MAX, this.upgradeCost * 2);
       }
       this.apply(this.tier + 1);
-    } else if (median < FAST_MS && this.tier > 0) {
-      this.fastWindows++;
+    } else if (frameMs < FAST_MS && this.tier > 0) {
+      this.fastWindows += 1;
       if (this.fastWindows >= this.upgradeCost) {
         this.sinceUpgrade = 0;
         this.apply(this.tier - 1);
@@ -188,7 +253,9 @@ export class PerfGovernor {
   // because the day-night dawn flip sets it back to true.
   syncShadow(shadowsActive: boolean): void {
     const t = this.tiers[this.tier];
-    if (!t || t.shadowEvery <= 1 || !t.shadowCast) return;
+    if (!t || t.shadowEvery <= 1 || !t.shadowCast) {
+      return;
+    }
     const sm = this.renderer.shadowMap;
     sm.autoUpdate = false;
     // No depth map yet (night boots): keep rendering the pass until one
@@ -198,8 +265,10 @@ export class PerfGovernor {
       sm.needsUpdate = true;
       return;
     }
-    if (!shadowsActive) return;
-    this.shadowClock++;
+    if (!shadowsActive) {
+      return;
+    }
+    this.shadowClock += 1;
     if (this.shadowClock >= t.shadowEvery) {
       this.shadowClock = 0;
       sm.needsUpdate = true;
@@ -208,18 +277,21 @@ export class PerfGovernor {
 
   private apply(tier: number): void {
     const t = this.tiers[tier];
-    if (!t) return;
+    if (!t) {
+      return;
+    }
     this.tier = tier;
     this.cooldown = COOLDOWN_S;
     this.fastWindows = 0;
-    this.frames.length = 0;
+    this.frames.reset();
     this.renderer.setPixelRatio(t.ratio);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    const shadow = this.sun.shadow;
+    const { shadow } = this.sun;
     if (shadow.mapSize.x !== t.shadow) {
       shadow.mapSize.set(t.shadow, t.shadow);
       shadow.map?.dispose();
-      shadow.map = null; // force reallocation at the new size
+      // force reallocation at the new size
+      shadow.map = null;
       // Re-render once even when the night path has shadowMap.autoUpdate off —
       // materials keep sampling the (now disposed) map otherwise.
       this.renderer.shadowMap.needsUpdate = true;
@@ -229,32 +301,4 @@ export class PerfGovernor {
     setLiveQuality(t);
     this.onApply(t);
   }
-}
-
-// DEV-only handle, same gate and same spirit as main.ts's `__renderer` /
-// `__waymo`: a headless perf run needs to WALK the tier ladder, and the tier
-// lives in a private field of an instance main.ts never publishes. Stripped
-// from production builds by the `import.meta.env.DEV` branch at the call site.
-declare global {
-  interface Window {
-    __perf?: {
-      tier(): number;
-      tierCount(): number;
-      pin(tier: number | null): void;
-      detail(scale: number): void;
-    };
-  }
-}
-
-function installPerfDebug(governor: PerfGovernor): void {
-  window.__perf = {
-    tier: () => governor.currentTier,
-    tierCount: () => governor.tierCount,
-    pin: (tier) => governor.pinTier(tier),
-    // Override the tier's model band live. A/B-ing a draw-distance change by
-    // reloading is worthless on a shared machine — the other tab's load moves
-    // the frame rate more than the change does; this measures both sides
-    // back-to-back in one session.
-    detail: (detailScale) => setLiveQuality({ ...governor.features, detailScale }),
-  };
 }

@@ -15,13 +15,15 @@
 // fallback.
 
 /** True when this page was booted with `?offline` / `?offline=1`. */
-export function isOfflineRequested(): boolean {
+export const isOfflineRequested = (): boolean => {
   // Guard for the games' headless sim harnesses, which import gameplay modules
   // under Node where there is no `location`.
-  if (!("location" in globalThis)) return false;
+  if (!("location" in globalThis)) {
+    return false;
+  }
   const value = new URLSearchParams(location.search).get("offline");
   // Presence alone is intent — a bare `?offline` from someone who mistyped the
   // documented form must never silently dial production. Only an explicit `0`
   // opts back in.
   return value !== null && value !== "0";
-}
+};

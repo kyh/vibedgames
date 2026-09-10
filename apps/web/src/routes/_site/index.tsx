@@ -18,39 +18,12 @@ import { docToMarkdown } from "@/lib/doc";
 import { docHead, varyHeaders } from "@/lib/doc-route";
 import { installResponse } from "@/lib/install-response";
 
-const AI_BOT_UA = /(ClaudeBot|Claude-User|Claude-SearchBot|GPTBot|ChatGPT-User|OAI-SearchBot)/i;
+const AI_BOT_UA = /(?:ClaudeBot|Claude-User|Claude-SearchBot|GPTBot|ChatGPT-User|OAI-SearchBot)/iu;
 
 /** `/` also branches on User-Agent, so its cache key has to include it. */
 const HOME_VARY = `${VARY}, User-Agent`;
 
-export const Route = createFileRoute("/_site/")({
-  validateSearch: gameSearchSchema,
-  server: {
-    handlers: {
-      GET: ({ request, next }) => {
-        const negotiation = negotiate(request.headers.get("accept"));
-        if (negotiation.kind === "not-acceptable") return notAcceptableResponse(request);
-
-        // Named AI crawlers get the install instructions rather than the page
-        // text: for them the useful answer to "what is this site" is the
-        // command that installs it.
-        const ua = request.headers.get("user-agent") ?? "";
-        if (AI_BOT_UA.test(ua)) return installResponse({ headers: { Vary: HOME_VARY } });
-
-        if (negotiation.kind === "match" && negotiation.type === MARKDOWN) {
-          return markdownResponse(docToMarkdown(homeDoc), { headers: { Vary: HOME_VARY } });
-        }
-
-        return next();
-      },
-    },
-  },
-  headers: varyHeaders(HOME_VARY),
-  head: () => docHead(homeDoc),
-  component: PlayPage,
-});
-
-function PlayPage() {
+const PlayPage = () => {
   const gameChromeHidden = useGameChromeHidden();
 
   return (
@@ -67,4 +40,35 @@ function PlayPage() {
       </motion.header>
     </>
   );
-}
+};
+
+export const Route = createFileRoute("/_site/")({
+  component: PlayPage,
+  head: () => docHead(homeDoc),
+  headers: varyHeaders(HOME_VARY),
+  server: {
+    handlers: {
+      GET: ({ request, next }) => {
+        const negotiation = negotiate(request.headers.get("accept"));
+        if (negotiation.kind === "not-acceptable") {
+          return notAcceptableResponse(request);
+        }
+
+        // Named AI crawlers get the install instructions rather than the page
+        // text: for them the useful answer to "what is this site" is the
+        // command that installs it.
+        const ua = request.headers.get("user-agent") ?? "";
+        if (AI_BOT_UA.test(ua)) {
+          return installResponse({ headers: { Vary: HOME_VARY } });
+        }
+
+        if (negotiation.kind === "match" && negotiation.type === MARKDOWN) {
+          return markdownResponse(docToMarkdown(homeDoc), { headers: { Vary: HOME_VARY } });
+        }
+
+        return next();
+      },
+    },
+  },
+  validateSearch: gameSearchSchema,
+});

@@ -40,6 +40,7 @@ yarn-error.log*
 # local env files
 .env
 .env*.local
+# wrangler prefers this over .env and would silently shadow it
 .dev.vars
 
 # typescript

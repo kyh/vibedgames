@@ -1,0 +1,401 @@
+{
+  "endpoint": "fal-ai/elevenlabs/sound-effects/v2",
+  "output_format": "mp3_44100_128",
+  "prompt_influence": 0.45,
+  "sounds": [
+    {
+      "name": "engine-loop",
+      "duration_seconds": 8,
+      "loop": true,
+      "source": {
+        "kind": "procedural",
+        "generator": "tools/generate-driving-audio.mjs",
+        "format": "wav",
+        "crossfade_seconds": 0.1,
+        "crossfade": "linear"
+      },
+      "processed": {
+        "seconds": 7.9,
+        "peakDb": -15.35,
+        "rmsDb": -19.51
+      }
+    },
+    {
+      "name": "road-loop",
+      "duration_seconds": 8,
+      "loop": true,
+      "source": {
+        "kind": "procedural",
+        "generator": "tools/generate-driving-audio.mjs",
+        "format": "wav",
+        "crossfade_seconds": 0.1,
+        "crossfade": "equal-power"
+      },
+      "processed": {
+        "seconds": 7.9,
+        "peakDb": -6.38,
+        "rmsDb": -19.56
+      }
+    },
+    {
+      "name": "drift-loop",
+      "duration_seconds": 3,
+      "loop": true,
+      "text": "Soft playful rubber tires sliding around a cartoon kart corner, gentle shuffling friction and rounded rubber squeak, seamless steady loop. Cozy, cushioned, no piercing screech, no engine, no music.",
+      "request_id": "01a074ef-a34d-7013-b5d4-477b131769c6",
+      "processed": {
+        "seconds": 2.92,
+        "peakDb": -5.51,
+        "rmsDb": -19.65
+      }
+    },
+    {
+      "name": "boost-loop",
+      "duration_seconds": 3,
+      "loop": true,
+      "text": "Soft magical kart speed boost sustained air whoosh, warm airy flutter with a faint sparkling shimmer, steady seamless loop. Cozy whimsical racing game, no engine buzz, no harsh hiss, no music.",
+      "request_id": "01a074ef-a89e-7ff0-8abb-51348a9096e7",
+      "processed": {
+        "seconds": 2.92,
+        "peakDb": -2.94,
+        "rmsDb": -19.61
+      }
+    },
+    {
+      "name": "scrape-loop",
+      "duration_seconds": 3,
+      "loop": true,
+      "text": "Soft rubber bumper brushing along a wooden fence, gentle low textured rubbing, steady seamless loop, cozy toy kart game. No metallic grinding, no engine buzz, no sharp squeal.",
+      "request_id": "01a074ef-af39-70d1-be0b-3428a86e7d16",
+      "processed": {
+        "seconds": 2.92,
+        "peakDb": -2.61,
+        "rmsDb": -22.08
+      }
+    },
+    {
+      "name": "water-loop",
+      "duration_seconds": 4,
+      "loop": true,
+      "text": "Tiny toy boat gliding through water, soft rippling bubbly wake, gentle stereo liquid swish, consistent seamless loop. Cozy playful game sound, no motor, no music.",
+      "request_id": "01a074ef-b52c-7e63-967d-3c86ada681ec",
+      "processed": {
+        "seconds": 3.92,
+        "peakDb": -2.48,
+        "rmsDb": -28.08
+      }
+    },
+    {
+      "name": "boost",
+      "duration_seconds": 0.8,
+      "loop": false,
+      "text": "One playful magical kart boost ignition: short rounded rising air whoosh with a warm glockenspiel sparkle at the top, immediate onset and clean soft tail. Cozy cartoon racing game. No buzz, no voice, no music bed.",
+      "request_id": "01a074ef-b83e-7761-9785-5fd064fc9162",
+      "processed": {
+        "seconds": 0.8,
+        "peakDb": -2.55,
+        "rmsDb": -16.47
+      }
+    },
+    {
+      "name": "impact-soft",
+      "duration_seconds": 0.5,
+      "loop": false,
+      "text": "One small rubber bumper bonk, soft hollow wooden knock with a tiny springy wobble. Gentle cartoon kart collision, cute and cushioned, immediate onset, quick decay, no metal, no glass, no music.",
+      "request_id": "01a074ef-ba6e-7f71-ad63-e0d1afc5a78e",
+      "processed": {
+        "seconds": 0.21,
+        "peakDb": -5.7,
+        "rmsDb": -16.38
+      }
+    },
+    {
+      "name": "impact-hard",
+      "duration_seconds": 0.7,
+      "loop": false,
+      "text": "One cushioned cartoon kart crash, rounded rubber thump then a short playful wooden clatter and spring boing. Noticeable but friendly and soft, immediate onset, no explosion, no glass, no harsh metal, no music.",
+      "request_id": "01a074ef-bc94-7ba0-a6bb-c30591635dd4",
+      "processed": {
+        "seconds": 0.612,
+        "peakDb": -2.41,
+        "rmsDb": -20.4
+      }
+    },
+    {
+      "name": "landing",
+      "duration_seconds": 0.6,
+      "loop": false,
+      "text": "One bouncy toy kart landing, soft rubber suspension pom-bop and tiny spring rebound, warm and rounded bass, immediate onset, short decay, cozy racing game, no metal slam, no voice, no music.",
+      "request_id": "01a074ef-be7c-71c1-b154-72b47b4413fc",
+      "processed": {
+        "seconds": 0.6,
+        "peakDb": -2.48,
+        "rmsDb": -23.19
+      }
+    },
+    {
+      "name": "splash",
+      "duration_seconds": 0.9,
+      "loop": false,
+      "text": "One small cartoon kart splashing into a pond: rounded liquid ploop then soft droplets and bubbles, playful cozy water splash, immediate onset, short clean tail, no voice, no music.",
+      "request_id": "01a074ef-c068-7a41-8594-d05cd976799a",
+      "processed": {
+        "seconds": 0.717,
+        "peakDb": -2.75,
+        "rmsDb": -25.09
+      }
+    },
+    {
+      "name": "horn",
+      "duration_seconds": 0.6,
+      "loop": false,
+      "text": "One friendly cartoon toy car horn, two short warm mellow rubber bulb toots, rounded woodwind tone, playful and polite. Soft attack, no buzzer, no harsh brass, no music.",
+      "request_id": "01a074ef-c2c3-7cd0-8d52-f67be7b0a26a",
+      "processed": {
+        "seconds": 0.6,
+        "peakDb": -6.41,
+        "rmsDb": -16.48
+      }
+    },
+    {
+      "name": "near-miss",
+      "duration_seconds": 0.5,
+      "loop": false,
+      "text": "One quick silky air swish passing by, soft and light cartoon kart near miss with a tiny rounded rising whistle accent. Immediate onset, quick fade, no piercing highs, no music.",
+      "request_id": "01a074ef-c4a2-7bb2-8d71-7700d1d3ed95",
+      "processed": {
+        "seconds": 0.48,
+        "peakDb": -5.42,
+        "rmsDb": -16.53
+      }
+    },
+    {
+      "name": "drift-ready",
+      "duration_seconds": 0.6,
+      "loop": false,
+      "text": "Two small rising wooden marimba notes with a delicate bell sparkle, a kart drift charge becomes ready. Warm playful satisfying notification, immediate onset, short clean tail, no voice, no music bed.",
+      "request_id": "01a074ef-c67b-70e2-8c72-0e0e059697a2",
+      "processed": {
+        "seconds": 0.6,
+        "peakDb": -2.49,
+        "rmsDb": -17.72
+      }
+    },
+    {
+      "name": "pickup",
+      "duration_seconds": 0.8,
+      "loop": false,
+      "text": "A happy passenger pickup sound: three rising rounded wooden marimba notes and one gentle bell, cozy cartoon driving game. Welcoming and clear, immediate onset, clean short tail, no voice, no music bed.",
+      "request_id": "01a074ef-c8c7-7502-8783-e3f4e6d5ca3b",
+      "processed": {
+        "seconds": 0.8,
+        "peakDb": -2.55,
+        "rmsDb": -21.18
+      }
+    },
+    {
+      "name": "dropoff",
+      "duration_seconds": 1.4,
+      "loop": false,
+      "text": "A short cozy reward flourish for delivering a passenger: bouncy ascending marimba and pizzicato plucks resolving into a warm bell chord. Playful kart game, original little melody, immediate onset, no voice, no percussion beat.",
+      "request_id": "01a074ef-ca97-7e50-ac39-8d3984297f99",
+      "processed": {
+        "seconds": 0.806,
+        "peakDb": -2.42,
+        "rmsDb": -18.55
+      }
+    },
+    {
+      "name": "countdown",
+      "duration_seconds": 0.5,
+      "loop": false,
+      "text": "One soft rounded wooden bell tick for a race countdown, warm clear midrange note, immediate onset and short decay, cozy whimsical kart game. No buzzer, no voice, no music.",
+      "request_id": "01a074ef-cc6d-7c23-8798-9cb480bfae70",
+      "processed": {
+        "seconds": 0.48,
+        "peakDb": -2.62,
+        "rmsDb": -17.3
+      }
+    },
+    {
+      "name": "go",
+      "duration_seconds": 0.9,
+      "loop": false,
+      "text": "A bright friendly race start cue, quick upward three-note marimba flourish landing on a soft bell chord. Playful cozy kart racing game, immediate onset, short clean tail, no voice, no buzzer, no music bed.",
+      "request_id": "01a074ef-ce5d-7262-b878-6a126aa86835",
+      "processed": {
+        "seconds": 0.88,
+        "peakDb": -2.49,
+        "rmsDb": -24.73
+      }
+    },
+    {
+      "name": "warning",
+      "duration_seconds": 0.6,
+      "loop": false,
+      "text": "Two gentle descending muted woodblock notes, a friendly reminder that a passenger is waiting, cozy cartoon driving game notification. Soft clear short notes, immediate onset, no alarm, no voice, no music bed.",
+      "request_id": "01a074ef-d073-7960-8bf7-24c8d1bc2b2d",
+      "processed": {
+        "seconds": 0.6,
+        "peakDb": -2.46,
+        "rmsDb": -21.68
+      }
+    },
+    {
+      "name": "fare-lost",
+      "duration_seconds": 1,
+      "loop": false,
+      "text": "A short sympathetic descending marimba phrase ending with a tiny rounded plop, passenger leaves a cozy cartoon taxi game. Lighthearted not punishing, immediate onset, soft clean tail, no voice, no music bed.",
+      "request_id": "01a074ef-d6b6-7a23-a0f3-881850833b53",
+      "processed": {
+        "seconds": 0.911,
+        "peakDb": -2.58,
+        "rmsDb": -17.65
+      }
+    },
+    {
+      "name": "finish",
+      "duration_seconds": 1.5,
+      "loop": false,
+      "text": "A gentle end-of-round musical sound effect: four warm descending music-box and marimba notes resolving peacefully. Cozy playful kart game, original phrase, immediate onset, no voice, no background beat.",
+      "request_id": "01a074ef-d8f8-7630-9d78-e564d794f704",
+      "processed": {
+        "seconds": 1.286,
+        "peakDb": -2.64,
+        "rmsDb": -19.54
+      }
+    },
+    {
+      "name": "record",
+      "duration_seconds": 2,
+      "loop": false,
+      "text": "A happy tiny high-score fanfare with warm marimba, pizzicato strings and delicate bells, four rising playful notes resolving into a soft major chord. Cozy cartoon kart game, original melody, immediate onset, no voice, no drums.",
+      "request_id": "01a074ef-dd0f-7413-b48e-72db6aeaae14",
+      "processed": {
+        "seconds": 2,
+        "peakDb": -5.72,
+        "rmsDb": -16.49
+      }
+    },
+    {
+      "name": "denied",
+      "duration_seconds": 0.5,
+      "loop": false,
+      "text": "One tiny friendly double wooden plop for an unavailable button, soft rounded muted marimba descending two notes. Cozy game interface, immediate onset, very short tail, no harsh error buzzer, no voice, no music.",
+      "request_id": "01a074ef-deea-7402-82e8-3eb508a2559a",
+      "processed": {
+        "seconds": 0.48,
+        "peakDb": -2.49,
+        "rmsDb": -20.02
+      }
+    },
+    {
+      "name": "ui-move",
+      "duration_seconds": 0.5,
+      "loop": false,
+      "text": "One tiny dry wooden tap with a soft bubble pop for moving between game menu options. Warm and tactile, immediate onset, very short decay, no reverb, no voice, no music.",
+      "request_id": "01a074ef-e0e0-7532-8eaf-6f3f1afa9219",
+      "processed": {
+        "seconds": 0.152,
+        "peakDb": -8.69,
+        "rmsDb": -16.51
+      }
+    },
+    {
+      "name": "ui-select",
+      "duration_seconds": 0.5,
+      "loop": false,
+      "text": "One soft satisfying wooden click followed by a tiny warm upward bell plink for selecting a game menu option. Immediate onset, very short decay, cozy playful interface, no voice, no music.",
+      "request_id": "01a074ef-e2e8-7891-901b-ddad9593f1dd",
+      "processed": {
+        "seconds": 0.465,
+        "peakDb": -2.38,
+        "rmsDb": -16.41
+      }
+    },
+    {
+      "name": "ui-back",
+      "duration_seconds": 0.5,
+      "loop": false,
+      "text": "One soft rounded descending wooden plonk for closing a cozy game menu. Tactile and gentle, immediate onset, very short decay, no reverb, no voice, no music.",
+      "request_id": "01a074ef-e4ed-7301-9fab-fbadb7398860",
+      "processed": {
+        "seconds": 0.307,
+        "peakDb": -2.39,
+        "rmsDb": -21.62
+      }
+    },
+    {
+      "name": "reset",
+      "duration_seconds": 0.8,
+      "loop": false,
+      "text": "One soft playful magical rewind swoop with two warm marimba plinks landing gently, resetting a toy kart onto the road. Immediate onset, clean short tail, cozy and friendly, no buzz, no voice, no music bed.",
+      "request_id": "01a074ef-e9ba-7f50-99c4-64c6e9529ebd",
+      "processed": {
+        "seconds": 0.745,
+        "peakDb": -2.4,
+        "rmsDb": -19.7
+      }
+    },
+    {
+      "name": "jump",
+      "duration_seconds": 0.5,
+      "loop": false,
+      "text": "One tiny airy springy upward boing for a toy kart hopping into the air. Rounded wooden spring and short breathy rising whistle, soft and playful, immediate onset, no piercing tone, no voice, no music.",
+      "request_id": "01a074ef-ec5a-7073-b048-75b993c5cfa9",
+      "processed": {
+        "seconds": 0.48,
+        "peakDb": -5.21,
+        "rmsDb": -16.48
+      }
+    },
+    {
+      "name": "boost-ready",
+      "duration_seconds": 0.7,
+      "loop": false,
+      "text": "Three tiny warm rising bell and marimba plinks, a kart boost meter is full. Clear gentle rewarding notification, cozy cartoon racer, immediate onset, short tail, no voice, no music bed.",
+      "request_id": "01a074ef-ee54-7871-a0d3-534c595dedd9",
+      "processed": {
+        "seconds": 0.68,
+        "peakDb": -2.47,
+        "rmsDb": -19.5
+      }
+    },
+    {
+      "name": "ambient-gulls",
+      "duration_seconds": 2,
+      "loop": false,
+      "text": "Two gentle distant seaside gull calls with space between, rounded and soft over a quiet waterfront. Relaxed cozy coastal game ambience, no harsh close squawk, no music, no people.",
+      "request_id": "01a074ef-f079-7e42-8209-fd0ddab2b741",
+      "processed": {
+        "seconds": 2,
+        "peakDb": -2.1,
+        "rmsDb": -19.44
+      }
+    },
+    {
+      "name": "ambient-bell",
+      "duration_seconds": 1.5,
+      "loop": false,
+      "text": "A distant San Francisco cable car softly rings its bell twice, mellow rounded resonant ding ding with short airy decay. Cozy quiet city ambience, no traffic rumble, no voices, no music.",
+      "request_id": "01a074ef-f386-75c3-ae49-0841cda945ac",
+      "processed": {
+        "seconds": 1.404,
+        "peakDb": -2.48,
+        "rmsDb": -21.22
+      }
+    },
+    {
+      "name": "ambient-foghorn",
+      "duration_seconds": 3,
+      "loop": false,
+      "text": "One very distant mellow ferry foghorn over a calm harbor, soft rounded low breathy horn swelling gently and fading. Cozy quiet waterfront, no abrasive buzz, no music, no voices.",
+      "request_id": "01a074ef-f53f-7832-87a7-21cc22f37a9e",
+      "processed": {
+        "seconds": 2.344,
+        "peakDb": -2.57,
+        "rmsDb": -17.38
+      }
+    }
+  ]
+}

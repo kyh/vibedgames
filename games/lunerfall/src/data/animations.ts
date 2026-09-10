@@ -40,7 +40,14 @@ const ALIASES = new Map<string, Record<string, string | string[]>>([
   ["salamander", { Hit: ["hit", "hurt"] }],
 ]);
 
-const slug = (tag: string): string => tag.toLowerCase().replace(/\s+/g, "-");
+const slug = (tag: string): string => tag.toLowerCase().replaceAll(/\s+/gu, "-");
+
+const clipNames = (tagName: string, mapped: string | string[] | undefined): string[] => {
+  if (mapped === undefined) {
+    return [slug(tagName)];
+  }
+  return Array.isArray(mapped) ? mapped : [mapped];
+};
 
 // Tags that are one authored multi-slash flurry we want to drive ONE hit per
 // press: split into equal contiguous frame slices, each its own clip the combo
@@ -51,58 +58,74 @@ const SPLITS = new Map<string, Record<string, string[]>>([
 ]);
 
 // Contiguous [from,to] atlas-frame ranges for n equal slices of a tag.
-function sliceRanges(from: number, to: number, n: number): [number, number][] {
+const sliceRanges = (from: number, to: number, n: number): [number, number][] => {
   const len = to - from + 1;
   const out: [number, number][] = [];
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < n; i += 1) {
     out.push([from + Math.floor((i * len) / n), from + Math.floor(((i + 1) * len) / n) - 1]);
   }
   return out;
-}
+};
 
-type AseFrame = { filename: string; duration: number };
+type AseFrame = {
+  filename: string;
+  duration: number;
+};
 type AseData = {
   frames: AseFrame[];
   meta: { frameTags: { name: string; from: number; to: number }[] };
 };
 
-function isAseData(v: JsonValue): v is AseData {
-  if (!isJsonObject(v) || !("frames" in v) || !("meta" in v)) return false;
-  const meta = v.meta;
-  if (!Array.isArray(v.frames) || !isJsonObject(meta) || !("frameTags" in meta)) return false;
+const isAseData = (v: JsonValue): v is AseData => {
+  if (!isJsonObject(v) || !("frames" in v) || !("meta" in v)) {
+    return false;
+  }
+  const { meta } = v;
+  if (!Array.isArray(v.frames) || !isJsonObject(meta) || !("frameTags" in meta)) {
+    return false;
+  }
   return Array.isArray(meta.frameTags);
-}
+};
 
 // Build one animation per Aseprite tag, with the tag's exact per-frame durations.
-export function buildAnimsFromAseprite(scene: Phaser.Scene, key: string): void {
+export const buildAnimsFromAseprite = (scene: Phaser.Scene, key: string): void => {
   const data: JsonValue = scene.cache.json.get(key);
-  if (!isAseData(data)) return;
+  if (!isAseData(data)) {
+    return;
+  }
   const alias = ALIASES.get(key) ?? {};
   for (const tag of data.meta.frameTags) {
-    if (tag.name === "Good!") continue; // pack's "select-all" meta tag
-    const mapped = alias[tag.name];
-    const clips =
-      mapped === undefined ? [slug(tag.name)] : Array.isArray(mapped) ? mapped : [mapped];
+    if (tag.name === "Good!") {
+      continue;
+      // pack's "select-all" meta tag
+    }
+    const clips = clipNames(tag.name, alias[tag.name]);
 
     const frames: Phaser.Types.Animations.AnimationFrame[] = [];
     let total = 0;
-    for (let i = tag.from; i <= tag.to; i++) {
+    for (let i = tag.from; i <= tag.to; i += 1) {
       const f = data.frames[i];
-      if (!f) continue;
-      frames.push({ key, frame: f.filename, duration: f.duration });
+      if (!f) {
+        continue;
+      }
+      frames.push({ duration: f.duration, frame: f.filename, key });
       total += f.duration;
     }
-    if (frames.length === 0) continue;
+    if (frames.length === 0) {
+      continue;
+    }
 
     for (const clip of clips) {
       const animKey = `${key}:${clip}`;
-      if (scene.anims.exists(animKey)) continue;
+      if (scene.anims.exists(animKey)) {
+        continue;
+      }
       // duration (not frameRate) + per-frame durations => Phaser honours each
       // frame's authored ms exactly (mirrors createFromAseprite / nextTick logic).
       scene.anims.create({
-        key: animKey,
-        frames,
         duration: total,
+        frames,
+        key: animKey,
         repeat: LOOPING.has(clip) ? -1 : 0,
       });
     }
@@ -110,80 +133,105 @@ export function buildAnimsFromAseprite(scene: Phaser.Scene, key: string): void {
     const splits = SPLITS.get(key)?.[tag.name];
     if (splits) {
       const ranges = sliceRanges(tag.from, tag.to, splits.length);
-      splits.forEach((clip, si) => {
+      for (const [si, clip] of splits.entries()) {
         const animKey = `${key}:${clip}`;
-        if (scene.anims.exists(animKey)) return;
+        if (scene.anims.exists(animKey)) {
+          continue;
+        }
         const [s, e] = ranges[si] ?? [tag.from, tag.to];
         const sf: Phaser.Types.Animations.AnimationFrame[] = [];
         let d = 0;
-        for (let i = s; i <= e; i++) {
+        for (let i = s; i <= e; i += 1) {
           const f = data.frames[i];
-          if (!f) continue;
-          sf.push({ key, frame: f.filename, duration: f.duration });
+          if (!f) {
+            continue;
+          }
+          sf.push({ duration: f.duration, frame: f.filename, key });
           d += f.duration;
         }
-        if (sf.length > 0) scene.anims.create({ key: animKey, frames: sf, duration: d, repeat: 0 });
-      });
+        if (sf.length > 0) {
+          scene.anims.create({ duration: d, frames: sf, key: animKey, repeat: 0 });
+        }
+      }
     }
   }
-}
+};
 
 // First real frame name for an atlas (frame 0 is a blank spacer), so a sprite has
 // a sane frame before it plays.
-export function firstFrame(scene: Phaser.Scene, key: string): string | undefined {
+export const firstFrame = (scene: Phaser.Scene, key: string): string | undefined => {
   const data: JsonValue = scene.cache.json.get(key);
   return isAseData(data) ? data.frames[1]?.filename : undefined;
-}
+};
 
-export type ClipInfo = { clip: string; frames: number; ms: number; loop: boolean };
+export interface ClipInfo {
+  clip: string;
+  frames: number;
+  ms: number;
+  loop: boolean;
+}
 
 // Enumerate an atlas's clips with their authored frame count + total duration —
 // the data behind the ?viewer page (and a quick way to spot a 1-frame / wrong
 // clip). Mirrors buildAnimsFromAseprite's tag→clip mapping; dedupes shared slugs.
-export function clipsFor(scene: Phaser.Scene, key: string): ClipInfo[] {
+export const clipsFor = (scene: Phaser.Scene, key: string): ClipInfo[] => {
   const data: JsonValue = scene.cache.json.get(key);
-  if (!isAseData(data)) return [];
+  if (!isAseData(data)) {
+    return [];
+  }
   const alias = ALIASES.get(key) ?? {};
   const out: ClipInfo[] = [];
   const seen = new Set<string>();
   for (const tag of data.meta.frameTags) {
-    if (tag.name === "Good!") continue;
-    const mapped = alias[tag.name];
-    const clips =
-      mapped === undefined ? [slug(tag.name)] : Array.isArray(mapped) ? mapped : [mapped];
+    if (tag.name === "Good!") {
+      continue;
+    }
+    const clips = clipNames(tag.name, alias[tag.name]);
     let frames = 0;
     let ms = 0;
-    for (let i = tag.from; i <= tag.to; i++) {
+    for (let i = tag.from; i <= tag.to; i += 1) {
       const f = data.frames[i];
-      if (!f) continue;
-      frames++;
+      if (!f) {
+        continue;
+      }
+      frames += 1;
       ms += f.duration;
     }
-    if (frames === 0) continue;
+    if (frames === 0) {
+      continue;
+    }
     for (const clip of clips) {
-      if (seen.has(clip)) continue;
+      if (seen.has(clip)) {
+        continue;
+      }
       seen.add(clip);
-      out.push({ clip, frames, ms, loop: LOOPING.has(clip) });
+      out.push({ clip, frames, loop: LOOPING.has(clip), ms });
     }
 
     const splits = SPLITS.get(key)?.[tag.name];
     if (splits) {
       const ranges = sliceRanges(tag.from, tag.to, splits.length);
-      splits.forEach((clip, si) => {
-        if (seen.has(clip)) return;
+      for (const [si, clip] of splits.entries()) {
+        if (seen.has(clip)) {
+          continue;
+        }
         seen.add(clip);
         const [s, e] = ranges[si] ?? [tag.from, tag.to];
         let fr = 0;
         let sms = 0;
-        for (let i = s; i <= e; i++) {
+        for (let i = s; i <= e; i += 1) {
           const f = data.frames[i];
-          if (!f) continue;
-          fr++;
+          if (!f) {
+            continue;
+          }
+          fr += 1;
           sms += f.duration;
         }
-        if (fr > 0) out.push({ clip, frames: fr, ms: sms, loop: false });
-      });
+        if (fr > 0) {
+          out.push({ clip, frames: fr, loop: false, ms: sms });
+        }
+      }
     }
   }
   return out;
-}
+};

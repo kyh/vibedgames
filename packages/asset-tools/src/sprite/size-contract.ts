@@ -1,10 +1,11 @@
 import { existsSync, statSync } from "node:fs";
-import { basename } from "node:path";
+import path from "node:path";
 
 import { Bitmap } from "../image/raster.js";
 import { roundHalfToEven } from "../pymath.js";
 import { globFrames, median } from "./frames.js";
-import { isFiniteNumber, isJsonComposite, isJsonObject, isString, type JsonValue } from "./json.js";
+import { isFiniteNumber, isJsonComposite, isJsonObject, isString } from "./json.js";
+import type { JsonValue } from "./json.js";
 
 /**
  * A size contract pins how big a character should appear and where it should
@@ -21,23 +22,23 @@ import { isFiniteNumber, isJsonComposite, isJsonObject, isString, type JsonValue
 export const FRAME_WIDTH = 256;
 export const FRAME_HEIGHT = 256;
 
-export type Tolerances = {
+export interface Tolerances {
   maxTargetHeightDriftPct: number | null;
   maxIntraHeightDriftPct: number | null;
   maxBottomDriftPx: number | null;
   maxWidthOverflowPct: number | null;
   maxCenterDriftPx: number | null;
-};
+}
 
 export const DEFAULT_TOLERANCES: Tolerances = {
-  maxTargetHeightDriftPct: 0.08,
-  maxIntraHeightDriftPct: 0.08,
   maxBottomDriftPx: 2,
-  maxWidthOverflowPct: 0.12,
   maxCenterDriftPx: null,
+  maxIntraHeightDriftPct: 0.08,
+  maxTargetHeightDriftPct: 0.08,
+  maxWidthOverflowPct: 0.12,
 };
 
-export type Measurement = {
+export interface Measurement {
   frame: string;
   source: string;
   frameSize: [number, number];
@@ -47,16 +48,16 @@ export type Measurement = {
   visibleHeight?: number;
   visibleCenterX?: number;
   visibleBottomY?: number;
-};
+}
 
 /** No visible pixels anywhere — nothing to measure beyond the frame count. */
-export type EmptySummary = {
+export interface EmptySummary {
   frames: number;
   nonEmptyFrames: 0;
   frameSize: null;
-};
+}
 
-export type PopulatedSummary = {
+export interface PopulatedSummary {
   frames: number;
   nonEmptyFrames: number;
   frameSize: [number, number] | null;
@@ -71,21 +72,19 @@ export type PopulatedSummary = {
   maxVisibleWidth: number;
   maxVisibleHeight: number;
   intraHeightDriftPct: number | null;
-};
+}
 
 export type Summary = EmptySummary | PopulatedSummary;
 
 /** `nonEmptyFrames === 0` and the missing measurement fields coincide by construction. */
-function isEmptySummary(summary: Summary): summary is EmptySummary {
-  return summary.nonEmptyFrames === 0;
-}
+const isEmptySummary = (summary: Summary): summary is EmptySummary => summary.nonEmptyFrames === 0;
 
 /**
  * A size contract is a hand-edited JSON file, so beyond the keys
  * `loadSizeContract` actually validates, fields stay `JsonValue` and readers
  * coerce them defensively.
  */
-export type SizeContract = {
+export interface SizeContract {
   version?: JsonValue;
   kind?: JsonValue;
   name?: JsonValue;
@@ -106,9 +105,9 @@ export type SizeContract = {
   measurementsSummary?: JsonValue;
   measurements?: JsonValue;
   promptGuidance?: JsonValue;
-};
+}
 
-export type SizeContractAudit = {
+export interface SizeContractAudit {
   version: number;
   kind: string;
   stage: string;
@@ -119,32 +118,32 @@ export type SizeContractAudit = {
   summary: Summary;
   checks: Check[];
   measurements: Measurement[];
-};
+}
 
 /** Python's `format(x, ".1%")` / `".0f"`, which round half to even. */
-function percent(value: number, digits = 1): string {
+const percent = (value: number, digits = 1): string => {
   const factor = 10 ** digits;
   return `${(roundHalfToEven(value * 100 * factor) / factor).toFixed(digits)}%`;
-}
+};
 
-function fixed0(value: number): string {
-  return roundHalfToEven(value).toFixed(0);
-}
+const fixed0 = (value: number): string => roundHalfToEven(value).toFixed(0);
 
-function optionalNumber(value: JsonValue | undefined): number | null {
-  if (value === null || value === undefined) return null;
+const optionalNumber = (value: JsonValue | undefined): number | null => {
+  if (value === null || value === undefined) {
+    return null;
+  }
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
-}
+};
 
-function measureBitmap(
+const measureBitmap = (
   image: Bitmap,
   label: string,
   source: string,
   frameSize: [number, number],
-): Measurement {
+): Measurement => {
   const bbox = image.getBBox();
-  const record: Measurement = { frame: label, source, frameSize };
+  const record: Measurement = { frame: label, frameSize, source };
   if (!bbox) {
     record.empty = true;
     return record;
@@ -156,25 +155,27 @@ function measureBitmap(
   record.visibleCenterX = (bbox.left + bbox.right - 1) / 2;
   record.visibleBottomY = bbox.bottom - 1;
   return record;
-}
+};
 
 /**
  * Measure a directory of frames, a packed sheet, or a single image. A file
  * whose dimensions divide evenly by the cell is treated as a sheet and split.
  */
-export function measureSource(
+export const measureSource = (
   source: string,
   cellSize: [number, number],
   frameGlob = "frame-*.png",
-): Measurement[] {
+): Measurement[] => {
   if (existsSync(source) && statSync(source).isDirectory()) {
     // A directory holds one frame per file, so each frame's own size is its cell.
-    return globFrames(source, frameGlob).map((path) => {
-      const image = Bitmap.fromFile(path);
-      return measureBitmap(image, basename(path), path, [image.width, image.height]);
+    return globFrames(source, frameGlob).map((file) => {
+      const image = Bitmap.fromFile(file);
+      return measureBitmap(image, path.basename(file), file, [image.width, image.height]);
     });
   }
-  if (!existsSync(source)) throw new Error(`missing size contract source: ${source}`);
+  if (!existsSync(source)) {
+    throw new Error(`missing size contract source: ${source}`);
+  }
 
   const image = Bitmap.fromFile(source);
   const [cellW, cellH] = cellSize;
@@ -191,10 +192,10 @@ export function measureSource(
       for (let col = 0; col < columns; col += 1) {
         const index = row * columns + col + 1;
         const cell = image.crop({
-          left: col * cellW,
-          top: row * cellH,
-          right: (col + 1) * cellW,
           bottom: (row + 1) * cellH,
+          left: col * cellW,
+          right: (col + 1) * cellW,
+          top: row * cellH,
         });
         out.push(
           measureBitmap(cell, `frame-${String(index).padStart(2, "0")}`, source, [cellW, cellH]),
@@ -203,47 +204,86 @@ export function measureSource(
     }
     return out;
   }
-  return [measureBitmap(image, basename(source), source, [image.width, image.height])];
-}
+  return [measureBitmap(image, path.basename(source), source, [image.width, image.height])];
+};
 
-export function summarizeMeasurements(measurements: Measurement[]): Summary {
-  const live = measurements.filter((m) => !m.empty);
+type LiveMeasurement = Measurement & {
+  visibleWidth: number;
+  visibleHeight: number;
+  visibleBottomY: number;
+  visibleCenterX: number;
+};
+
+/** `measureBitmap` sets every visible-* field together with `empty: false`. */
+const isLiveMeasurement = (m: Measurement): m is LiveMeasurement =>
+  !m.empty &&
+  m.visibleWidth !== undefined &&
+  m.visibleHeight !== undefined &&
+  m.visibleBottomY !== undefined &&
+  m.visibleCenterX !== undefined;
+
+export const summarizeMeasurements = (measurements: Measurement[]): Summary => {
+  const live = measurements.filter(isLiveMeasurement);
   if (live.length === 0) {
-    return { frames: measurements.length, nonEmptyFrames: 0, frameSize: null };
+    return { frameSize: null, frames: measurements.length, nonEmptyFrames: 0 };
   }
 
-  const widths = live.map((m) => m.visibleWidth!);
-  const heights = live.map((m) => m.visibleHeight!);
-  const bottoms = live.map((m) => m.visibleBottomY!);
-  const centers = live.map((m) => m.visibleCenterX!);
+  const widths = live.map((m) => m.visibleWidth);
+  const heights = live.map((m) => m.visibleHeight);
+  const bottoms = live.map((m) => m.visibleBottomY);
+  const centers = live.map((m) => m.visibleCenterX);
   const frameSizes = live.map((m) => m.frameSize).filter(Boolean);
-  const first = frameSizes[0];
+  const [first] = frameSizes;
   const uniform =
     first !== undefined && frameSizes.every((size) => size[0] === first[0] && size[1] === first[1]);
   const medianHeight = median(heights);
 
   return {
-    frames: measurements.length,
-    nonEmptyFrames: live.length,
     frameSize: uniform && first !== undefined ? first : null,
-    visibleWidthRange: [Math.min(...widths), Math.max(...widths)],
-    visibleHeightRange: [Math.min(...heights), Math.max(...heights)],
-    visibleBottomYRange: [Math.min(...bottoms), Math.max(...bottoms)],
-    visibleCenterXRange: [Math.min(...centers), Math.max(...centers)],
-    medianVisibleWidth: median(widths),
-    medianVisibleHeight: medianHeight,
-    medianBottomY: median(bottoms),
-    medianCenterX: median(centers),
-    maxVisibleWidth: Math.max(...widths),
-    maxVisibleHeight: Math.max(...heights),
+    frames: measurements.length,
     intraHeightDriftPct: medianHeight
       ? (Math.max(...heights) - Math.min(...heights)) / medianHeight
       : null,
+    maxVisibleHeight: Math.max(...heights),
+    maxVisibleWidth: Math.max(...widths),
+    medianBottomY: median(bottoms),
+    medianCenterX: median(centers),
+    medianVisibleHeight: medianHeight,
+    medianVisibleWidth: median(widths),
+    nonEmptyFrames: live.length,
+    visibleBottomYRange: [Math.min(...bottoms), Math.max(...bottoms)],
+    visibleCenterXRange: [Math.min(...centers), Math.max(...centers)],
+    visibleHeightRange: [Math.min(...heights), Math.max(...heights)],
+    visibleWidthRange: [Math.min(...widths), Math.max(...widths)],
   };
-}
+};
+
+/**
+ * A `[width, height]` pair, or nothing.
+ *
+ * A size contract is a JSON file people hand-edit, so `runtimeCell` arrives as
+ * whatever they typed. Reading it as `number[]` and trusting the two slots
+ * turns `"64x64"` or `[64]` into `NaN` that only surfaces later as a sprite
+ * scaled to nothing.
+ */
+const asCellPair = (value: JsonValue | undefined): [number, number] | null => {
+  if (!Array.isArray(value) || value.length !== 2) {
+    return null;
+  }
+  const [w, h] = value;
+  if (!isFiniteNumber(w) || !isFiniteNumber(h)) {
+    return null;
+  }
+  // A zero cell is not a cell. It passed as a pair, then made the whole sheet
+  // one frame and audited `pass` against a grid that does not exist.
+  if (w < 1 || h < 1) {
+    return null;
+  }
+  return [Math.trunc(w), Math.trunc(h)];
+};
 
 /** Prompt text that keeps a generated clip on-scale for the runtime cell. */
-export function promptGuidanceForContract(contract: SizeContract): string[] {
+export const promptGuidanceForContract = (contract: SizeContract): string[] => {
   const runtimeCell = asCellPair(contract.runtimeCell) ?? [FRAME_WIDTH, FRAME_HEIGHT];
   const targetHeight = optionalNumber(contract.targetVisibleHeight);
   const bottomY = optionalNumber(contract.targetBottomY);
@@ -267,41 +307,39 @@ export function promptGuidanceForContract(contract: SizeContract): string[] {
     );
   }
   return guidance;
-}
+};
 
-export type Check = {
+export interface Check {
   name: string;
   status: "pass" | "warn";
   message: string;
   observed?: unknown;
   target?: unknown;
-};
+}
 
-function check(
+const check = (
   name: string,
   passed: boolean,
   passMessage: string,
   warnMessage: string,
   observed: number | [number, number],
   target: number | [number, number],
-): Check {
-  return {
-    name,
-    status: passed ? "pass" : "warn",
-    message: passed ? passMessage : warnMessage,
-    observed,
-    target,
-  };
-}
+): Check => ({
+  message: passed ? passMessage : warnMessage,
+  name,
+  observed,
+  status: passed ? "pass" : "warn",
+  target,
+});
 
-export function contractChecks(summary: Summary, contract: SizeContract): Check[] {
+export const contractChecks = (summary: Summary, contract: SizeContract): Check[] => {
   const tolerances = {
     ...DEFAULT_TOLERANCES,
-    ...(contract.tolerances ?? {}),
+    ...contract.tolerances,
   };
   if (isEmptySummary(summary)) {
     return [
-      { name: "non-empty-frames", status: "warn", message: "No non-empty frames were found." },
+      { message: "No non-empty frames were found.", name: "non-empty-frames", status: "warn" },
     ];
   }
 
@@ -393,7 +431,7 @@ export function contractChecks(summary: Summary, contract: SizeContract): Check[
   }
 
   return checks;
-}
+};
 
 const BRIEF_KEYS: readonly (keyof SizeContract)[] = [
   "name",
@@ -409,49 +447,35 @@ const BRIEF_KEYS: readonly (keyof SizeContract)[] = [
   "tolerances",
 ];
 
-function copyBriefKey<K extends keyof SizeContract>(
+const copyBriefKey = <K extends keyof SizeContract>(
   contract: SizeContract,
   out: SizeContract,
   key: K,
-): void {
-  if (key in contract) out[key] = contract[key];
-}
+): void => {
+  if (key in contract) {
+    out[key] = contract[key];
+  }
+};
 
-function contractBrief(contract: SizeContract): SizeContract {
+const contractBrief = (contract: SizeContract): SizeContract => {
   const out: SizeContract = {};
-  for (const key of BRIEF_KEYS) copyBriefKey(contract, out, key);
+  for (const key of BRIEF_KEYS) {
+    copyBriefKey(contract, out, key);
+  }
   return out;
-}
+};
 
-/**
- * A `[width, height]` pair, or nothing.
- *
- * A size contract is a JSON file people hand-edit, so `runtimeCell` arrives as
- * whatever they typed. Reading it as `number[]` and trusting the two slots
- * turns `"64x64"` or `[64]` into `NaN` that only surfaces later as a sprite
- * scaled to nothing.
- */
-function asCellPair(value: JsonValue | undefined): [number, number] | null {
-  if (!Array.isArray(value) || value.length !== 2) return null;
-  const [w, h] = value;
-  if (!isFiniteNumber(w) || !isFiniteNumber(h)) return null;
-  // A zero cell is not a cell. It passed as a pair, then made the whole sheet
-  // one frame and audited `pass` against a grid that does not exist.
-  if (w < 1 || h < 1) return null;
-  return [Math.trunc(w), Math.trunc(h)];
-}
+export const cellSizeOf = (contract: SizeContract): [number, number] =>
+  asCellPair(contract.runtimeCell) ?? [FRAME_WIDTH, FRAME_HEIGHT];
 
-export function cellSizeOf(contract: SizeContract): [number, number] {
-  return asCellPair(contract.runtimeCell) ?? [FRAME_WIDTH, FRAME_HEIGHT];
-}
-
-export function loadSizeContract(payload: JsonValue, source: string): SizeContract {
+export const loadSizeContract = (payload: JsonValue, source: string): SizeContract => {
   if (!isJsonObject(payload)) {
     throw new Error(`size contract must be a JSON object: ${source}`);
   }
   const data = payload;
-  if (data.kind !== "sprite-size-contract")
+  if (data.kind !== "sprite-size-contract") {
     throw new Error(`not a sprite size contract: ${source}`);
+  }
 
   // Reject a malformed cell here, where the message can name the file, rather
   // than letting NaN travel into the measurements and audit.
@@ -462,25 +486,40 @@ export function loadSizeContract(payload: JsonValue, source: string): SizeContra
       `runtimeCell must be [width, height] numbers, got ${JSON.stringify(data.runtimeCell)}: ${source}`,
     );
   }
-  const tolerances = data.tolerances;
+  const { tolerances } = data;
   if (tolerances !== undefined && !isJsonComposite(tolerances)) {
     throw new Error(`tolerances must be an object, got ${JSON.stringify(tolerances)}: ${source}`);
   }
   // Defaults first, then the file's own keys — including ones this module does
   // not know about, which round-trip into audit reports.
   const mergedTolerances: Tolerances = { ...DEFAULT_TOLERANCES };
-  if (tolerances !== undefined) Object.assign(mergedTolerances, tolerances);
+  if (tolerances !== undefined) {
+    Object.assign(mergedTolerances, tolerances);
+  }
 
   return {
     ...data,
-    runtimeCell,
     anchorPolicy: data.anchorPolicy ?? "grounded",
     pivot: data.pivot ?? "base-center",
+    runtimeCell,
     tolerances: mergedTolerances,
   };
-}
+};
 
-export function deriveSizeContract(
+/**
+ * Widen a measured payload into the JSON domain.
+ *
+ * Every member of these payloads is JSON, but TypeScript grants an implicit
+ * index signature only to a type alias, never to an interface — declaration
+ * merging could add members later, so an interface's keys are never assumed
+ * and it is not assignable to `JsonValue`. Mapping a type parameter over its
+ * own keys checks the members instead, which keeps the exact payload typing
+ * that `JsonValue`'s "any key at all" index signature would discard.
+ */
+const asJson = <T extends { [K in keyof T]: JsonValue | undefined }>(value: T | T[]): JsonValue =>
+  value;
+
+export const deriveSizeContract = (
   source: string,
   options: {
     cellSize?: [number, number];
@@ -493,7 +532,7 @@ export function deriveSizeContract(
     sourceCanvas?: [number, number] | null;
     tolerances?: Partial<Tolerances>;
   } = {},
-): SizeContract {
+): SizeContract => {
   const {
     cellSize = [FRAME_WIDTH, FRAME_HEIGHT],
     frameGlob = "frame-*.png",
@@ -517,39 +556,39 @@ export function deriveSizeContract(
   const isDir = existsSync(source) && statSync(source).isDirectory();
 
   return {
-    version: 1,
-    kind: "sprite-size-contract",
-    name: name ?? basename(source).replace(/\.[^.]+$/, ""),
-    source,
-    sourceKind: isDir ? "directory" : "image",
     action,
-    direction,
-    runtimeCell: [cellSize[0], cellSize[1]],
-    sourceCanvas: sourceCanvas ?? summary.frameSize ?? null,
     anchorPolicy,
-    pivot,
-    targetVisibleHeight,
-    targetVisibleWidth: roundHalfToEven(summary.medianVisibleWidth),
+    direction,
+    kind: "sprite-size-contract",
     maxVisibleWidth: summary.maxVisibleWidth,
+    measurements: asJson(measurements),
+    measurementsSummary: asJson(summary),
+    name: name ?? path.basename(source).replace(/\.[^.]+$/u, ""),
+    pivot,
+    promptGuidance: promptGuidanceForContract({
+      pivot,
+      runtimeCell: [cellSize[0], cellSize[1]],
+      targetBottomY,
+      targetVisibleHeight,
+    }),
+    runtimeCell: [cellSize[0], cellSize[1]],
+    source,
+    sourceCanvas: sourceCanvas ?? summary.frameSize ?? null,
+    sourceKind: isDir ? "directory" : "image",
     targetBottomY,
     targetCenterX: roundHalfToEven(summary.medianCenterX),
+    targetVisibleHeight,
+    targetVisibleWidth: roundHalfToEven(summary.medianVisibleWidth),
     tolerances: { ...DEFAULT_TOLERANCES, ...tolerances },
-    measurementsSummary: summary,
-    measurements,
-    promptGuidance: promptGuidanceForContract({
-      runtimeCell: [cellSize[0], cellSize[1]],
-      targetVisibleHeight,
-      targetBottomY,
-      pivot,
-    }),
+    version: 1,
   };
-}
+};
 
-export function auditSizeContract(
+export const auditSizeContract = (
   source: string,
   contract: SizeContract,
   options: { cellSize?: [number, number] | null; frameGlob?: string; stage?: string } = {},
-): SizeContractAudit {
+): SizeContractAudit => {
   const { cellSize = null, frameGlob = "frame-*.png", stage = "runtime" } = options;
   const measurements = measureSource(source, cellSize ?? cellSizeOf(contract), frameGlob);
   const summary = summarizeMeasurements(measurements);
@@ -557,15 +596,15 @@ export function auditSizeContract(
   const passed = checks.every((c) => c.status === "pass");
 
   return {
-    version: 1,
-    kind: "sprite-size-contract-audit",
-    stage,
-    source,
-    contract: contractBrief(contract),
-    status: passed ? "pass" : "warn",
-    passed,
-    summary,
     checks,
+    contract: contractBrief(contract),
+    kind: "sprite-size-contract-audit",
     measurements,
+    passed,
+    source,
+    stage,
+    status: passed ? "pass" : "warn",
+    summary,
+    version: 1,
   };
-}
+};

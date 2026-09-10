@@ -5,14 +5,15 @@ import * as THREE from "three";
 // (rounded rect + tail), billboarded by THREE.Sprite, popping in and fading
 // out. One canvas/texture per ACTIVE bubble — a handful at most.
 
-type Bubble = {
+interface Bubble {
   sprite: THREE.Sprite;
   texture: THREE.CanvasTexture;
   anchor: THREE.Object3D | (() => THREE.Vector3 | null);
   lift: number;
   age: number;
   dur: number;
-};
+  screenWidth?: number;
+}
 
 const MAX_BUBBLES = 10;
 const FONT = "700 26px system-ui, -apple-system, sans-serif";
@@ -30,18 +31,16 @@ const MAX_SCREEN_FRAC = 0.5;
 /** Wrap width in canvas px. Portrait wraps sooner: once the whole bubble is
  *  capped to half the frame, a tall narrow block keeps its type legible where
  *  one long line would shrink to nothing. */
-function maxLineWidth(): number {
-  return window.innerWidth < window.innerHeight ? 210 : 340;
-}
+const maxLineWidth = (): number => (window.innerWidth < window.innerHeight ? 210 : 340);
 
-function drawBubble(text: string, accent: string): HTMLCanvasElement {
+const drawBubble = (text: string, accent: string): HTMLCanvasElement => {
   const measure = document.createElement("canvas").getContext("2d");
   const wrapAt = maxLineWidth();
   const lines: string[] = [];
   if (measure) {
     measure.font = FONT;
     let line = "";
-    for (const word of text.split(/\s+/)) {
+    for (const word of text.split(/\s+/u)) {
       const probe = line ? `${line} ${word}` : word;
       if (measure.measureText(probe).width > wrapAt && line) {
         lines.push(line);
@@ -50,7 +49,9 @@ function drawBubble(text: string, accent: string): HTMLCanvasElement {
         line = probe;
       }
     }
-    if (line) lines.push(line);
+    if (line) {
+      lines.push(line);
+    }
   } else {
     lines.push(text);
   }
@@ -62,7 +63,9 @@ function drawBubble(text: string, accent: string): HTMLCanvasElement {
   canvas.width = w + 8;
   canvas.height = h + TAIL_H + 8;
   const ctx = canvas.getContext("2d");
-  if (!ctx) return canvas;
+  if (!ctx) {
+    return canvas;
+  }
   const x = 4;
   const y = 4;
   // bubble body
@@ -93,37 +96,54 @@ function drawBubble(text: string, accent: string): HTMLCanvasElement {
   ctx.fillStyle = "#1c2030";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  lines.forEach((l, i) => {
+  for (const [i, l] of lines.entries()) {
     ctx.fillText(l, x + w / 2, y + PAD_Y + lineH * (i + 0.5));
-  });
+  }
   return canvas;
-}
+};
 
 export class SpeechBubbles {
   readonly group = new THREE.Group();
   private bubbles: Bubble[] = [];
+
+  clear(): void {
+    for (const bubble of this.bubbles) {
+      this.dispose(bubble);
+    }
+    this.bubbles = [];
+  }
 
   // Show a bubble above `anchor` (an object, or a fn returning a world pos —
   // return null to hide early). One bubble per anchor: a new say() replaces.
   say(
     anchor: THREE.Object3D | (() => THREE.Vector3 | null),
     text: string,
-    opts?: { dur?: number; lift?: number; accent?: string },
+    opts?: {
+      dur?: number;
+      lift?: number;
+      accent?: string;
+      /** Optional share of the camera frame, stable as the speaker moves. */
+      screenWidth?: number;
+    },
   ): void {
     const clean = text.trim().slice(0, 90);
-    if (!clean) return;
+    if (!clean) {
+      return;
+    }
     this.dismiss(anchor);
     while (this.bubbles.length >= MAX_BUBBLES) {
       const oldest = this.bubbles.shift();
-      if (oldest) this.dispose(oldest);
+      if (oldest) {
+        this.dispose(oldest);
+      }
     }
     const canvas = drawBubble(clean, opts?.accent ?? "#1c2030");
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
     const material = new THREE.SpriteMaterial({
+      depthTest: false,
       map: texture,
       transparent: true,
-      depthTest: false,
     });
     const sprite = new THREE.Sprite(material);
     // Provisional — update() re-solves it against the live frame, and the
@@ -132,30 +152,39 @@ export class SpeechBubbles {
     sprite.renderOrder = 50;
     this.group.add(sprite);
     this.bubbles.push({
+      age: 0,
+      anchor,
+      dur: opts?.dur ?? 6,
+      lift: opts?.lift ?? 3.2,
+      screenWidth:
+        opts?.screenWidth !== undefined && Number.isFinite(opts.screenWidth)
+          ? THREE.MathUtils.clamp(opts.screenWidth, 0, MAX_SCREEN_FRAC)
+          : undefined,
       sprite,
       texture,
-      anchor,
-      lift: opts?.lift ?? 3.2,
-      age: 0,
-      dur: opts?.dur ?? 6,
     });
   }
 
   dismiss(anchor: THREE.Object3D | (() => THREE.Vector3 | null)): void {
     const i = this.bubbles.findIndex((b) => b.anchor === anchor);
-    if (i >= 0) {
+    if (i !== -1) {
       const b = this.bubbles[i];
-      if (b) this.dispose(b);
+      if (b) {
+        this.dispose(b);
+      }
       this.bubbles.splice(i, 1);
     }
   }
 
   update(dt: number, camera: THREE.PerspectiveCamera): void {
     const pos = new THREE.Vector3();
+    const viewPos = new THREE.Vector3();
     const halfTan = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
-    for (let i = this.bubbles.length - 1; i >= 0; i--) {
+    for (let i = this.bubbles.length - 1; i >= 0; i -= 1) {
       const b = this.bubbles[i];
-      if (!b) continue;
+      if (!b) {
+        continue;
+      }
       b.age += dt;
       let anchored = false;
       if (b.anchor instanceof THREE.Object3D) {
@@ -186,8 +215,15 @@ export class SpeechBubbles {
       const ch = canvas instanceof HTMLCanvasElement ? canvas.height : 80;
       // Frame width at the bubble's own depth: the cap is what keeps a
       // portrait phone's narrow horizontal field from being papered over.
-      const frameW = 2 * camera.position.distanceTo(b.sprite.position) * halfTan * camera.aspect;
-      const perPx = Math.min(UNITS_PER_PX, (frameW * MAX_SCREEN_FRAC) / cw);
+      const depth =
+        b.screenWidth === undefined
+          ? camera.position.distanceTo(b.sprite.position)
+          : Math.max(0, -viewPos.copy(b.sprite.position).applyMatrix4(camera.matrixWorldInverse).z);
+      const frameW = 2 * depth * halfTan * camera.aspect;
+      const perPx =
+        b.screenWidth === undefined
+          ? Math.min(UNITS_PER_PX, (frameW * MAX_SCREEN_FRAC) / cw)
+          : (frameW * b.screenWidth) / cw;
       b.sprite.scale.set(cw * perPx * s, ch * perPx * s, 1);
       if (b.sprite.material instanceof THREE.SpriteMaterial) {
         b.sprite.material.opacity = popIn * fade;
@@ -198,13 +234,21 @@ export class SpeechBubbles {
   private dispose(b: Bubble): void {
     this.group.remove(b.sprite);
     b.texture.dispose();
-    if (b.sprite.material instanceof THREE.SpriteMaterial) b.sprite.material.dispose();
+    if (b.sprite.material instanceof THREE.SpriteMaterial) {
+      b.sprite.material.dispose();
+    }
   }
 }
 
 // --- NPC heckling: what SF has actually said/done to robotaxis, playfully ---
 // (coning protests, the 50-Waymo dead-end prank, backflips off roofs,
 // "there's no driver?!", holiday gridlock screaming — see project notes)
+export const TRAFFIC_QUIPS = {
+  brakes: "Your free trial of brakes expired.",
+  spreadsheet: "Did a spreadsheet just cut me off?",
+};
+export type TrafficQuip = keyof typeof TRAFFIC_QUIPS;
+
 export const HECKLES: readonly string[] = [
   "THERE'S NO DRIVER?!",
   "Somebody get a cone!",
@@ -223,7 +267,7 @@ export const HECKLES: readonly string[] = [
   "One star. ONE STAR.",
   "It's driving itself?! In THIS economy?",
   "Watch the paint, Siri!",
-  "Did a spreadsheet just cut me off?",
+  TRAFFIC_QUIPS.spreadsheet,
   "Fifty of you blocked my street last week!",
   "Go back to Phoenix!",
   "Eyes on the road, chatbot!",
@@ -238,4 +282,5 @@ export const HECKLES: readonly string[] = [
   "Empty?! I got yelled at by an EMPTY CAR?!",
   "You saw what happened to the last one… 🔥",
   "Keep it up and you'll end up like the one in LA 🔥",
+  TRAFFIC_QUIPS.brakes,
 ];

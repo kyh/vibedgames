@@ -1,0 +1,514 @@
+{
+  "url": "http://localhost:5193/?time=night&offline=1",
+  "checkedAt": "2026-09-05T13:55:53.593Z",
+  "checks": [
+    {
+      "name": "actual coarse-pointer path",
+      "passed": true,
+      "evidence": {
+        "coarse": true,
+        "touch": 5,
+        "dpr": 3,
+        "width": 390,
+        "height": 844
+      }
+    },
+    {
+      "name": "hidden start button cannot take focus or intercept steering",
+      "passed": true,
+      "evidence": {
+        "point": {
+          "x": 109.40139770507812,
+          "y": 452.89842224121094,
+          "id": 1
+        },
+        "focused": false,
+        "intercepts": false,
+        "hit": "CANVAS"
+      }
+    },
+    {
+      "name": "touch accelerates and steers from the former start-button bounds",
+      "passed": true,
+      "evidence": {
+        "before": {
+          "x": -396.5,
+          "z": -286,
+          "y": 5.082742576599121,
+          "speed": 0,
+          "heading": 0,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.42008196721311475,
+            "v": 0.42851923076923076
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 108.3,
+            "wrecked": false,
+            "y": 2.1
+          }
+        },
+        "driven": {
+          "x": -396.5,
+          "z": -280.87106445312503,
+          "y": 5.353232795715331,
+          "speed": 13.81240844753858,
+          "heading": 0.000006873451869780236,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.42008196721311475,
+            "v": 0.42851923076923076
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 85.6,
+            "wrecked": false,
+            "y": 2.6
+          }
+        },
+        "steered": {
+          "x": -397.99040795898435,
+          "z": -273.83158984375,
+          "y": 6.685870323181148,
+          "speed": 21.319218292124173,
+          "heading": -0.35900444775556206,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.42008196721311475,
+            "v": 0.42851923076923076
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 90,
+            "wrecked": false,
+            "y": 2.6
+          }
+        }
+      }
+    },
+    {
+      "name": "touch nitro boost",
+      "passed": true,
+      "evidence": {
+        "x": -396.5,
+        "z": -280.1616108398438,
+        "y": 5.48678300666809,
+        "speed": 16.791725159130678,
+        "heading": 0.000007927281529473442,
+        "airborne": false,
+        "drifting": false,
+        "boosting": true,
+        "carrying": false,
+        "objective": {
+          "u": 0.42008196721311475,
+          "v": 0.42851923076923076
+        },
+        "wreckedCount": 0,
+        "nearestTraffic": {
+          "dist": 86.6,
+          "wrecked": false,
+          "y": 2.6
+        }
+      }
+    },
+    {
+      "name": "touch brake and steering drift",
+      "passed": true,
+      "evidence": {
+        "x": -396.23014184570314,
+        "z": -276.8801213378906,
+        "y": 6.10966774368286,
+        "speed": 18.066110547139676,
+        "heading": -0.2853194544035222,
+        "airborne": false,
+        "drifting": true,
+        "boosting": true,
+        "carrying": false,
+        "objective": {
+          "u": 0.42008196721311475,
+          "v": 0.42851923076923076
+        },
+        "wreckedCount": 0,
+        "nearestTraffic": {
+          "dist": 87.5,
+          "wrecked": false,
+          "y": 2.6
+        }
+      }
+    },
+    {
+      "name": "touch pedal reverses from stop",
+      "passed": true,
+      "evidence": {
+        "reverseDistance": -0.2642421875000309,
+        "reversed": {
+          "x": -396.5,
+          "z": -286.2642421875,
+          "y": 4.353461297988891,
+          "speed": 3.349915744515011,
+          "heading": -0.0000010603196587769047,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.42008196721311475,
+            "v": 0.42851923076923076
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 84.7,
+            "wrecked": false,
+            "y": 2.6
+          }
+        }
+      }
+    },
+    {
+      "name": "pause holds vehicle",
+      "passed": true,
+      "evidence": {
+        "parked": {
+          "x": -396.5,
+          "z": -286.5925561523438,
+          "y": 4.411430673599243,
+          "speed": 2.670261145287108,
+          "heading": -1.5352328290869182e-7,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.42008196721311475,
+            "v": 0.42851923076923076
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 84.6,
+            "wrecked": false,
+            "y": 2.6
+          }
+        },
+        "paused": {
+          "x": -396.5,
+          "z": -286.5925561523438,
+          "y": 4.411430673599243,
+          "speed": 2.670261145287108,
+          "heading": -1.5352328290869182e-7,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.42008196721311475,
+            "v": 0.42851923076923076
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 84.6,
+            "wrecked": false,
+            "y": 2.6
+          }
+        }
+      }
+    },
+    {
+      "name": "paused phone stops GPU and simulation work",
+      "passed": true,
+      "evidence": {
+        "idleBefore": {
+          "draws": 6,
+          "updates": 5,
+          "tier": 3
+        },
+        "idleAfter": {
+          "draws": 6,
+          "updates": 5,
+          "tier": 3
+        }
+      }
+    },
+    {
+      "name": "paused resize redraws once without advancing simulation",
+      "passed": true,
+      "evidence": {
+        "idleAfter": {
+          "draws": 6,
+          "updates": 5,
+          "tier": 3
+        },
+        "resized": {
+          "draws": 7,
+          "updates": 5,
+          "width": 844,
+          "height": 390
+        }
+      }
+    },
+    {
+      "name": "resumed phone renders at most 60 Hz",
+      "passed": true,
+      "evidence": {
+        "drawHz": 59.88820867903626,
+        "activeBefore": {
+          "draws": 8,
+          "updates": 5,
+          "at": 16838.5
+        },
+        "activeAfter": {
+          "draws": 98,
+          "updates": 95,
+          "at": 18341.299999952316
+        }
+      }
+    },
+    {
+      "name": "touch resume and restart",
+      "passed": true,
+      "evidence": {
+        "x": 760.5,
+        "z": -448.5,
+        "y": 1.0114153444766991,
+        "speed": 0,
+        "heading": -0.78539819245999,
+        "airborne": false,
+        "drifting": false,
+        "boosting": false,
+        "carrying": false,
+        "objective": {
+          "u": 0.6622093303991736,
+          "v": 0.34289538308699175
+        },
+        "wreckedCount": 0,
+        "nearestTraffic": {
+          "dist": 52.4,
+          "wrecked": false,
+          "y": 0.3
+        }
+      }
+    },
+    {
+      "name": "restart gives a drivable route and clear chase camera",
+      "passed": true,
+      "evidence": {
+        "start": {
+          "x": 760.5,
+          "z": -448.5,
+          "y": 1.0114153444766991,
+          "speed": 0,
+          "heading": -0.78539819245999,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.6622093303991736,
+            "v": 0.34289538308699175
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 52.4,
+            "wrecked": false,
+            "y": 0.3
+          }
+        },
+        "probe": {
+          "x": 737.715828125,
+          "z": -425.71247631835945,
+          "y": 0.3623403015136719,
+          "speed": 30.192506565860466,
+          "heading": -0.7853976509924034,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.6622093303991736,
+            "v": 0.34289538308699175
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 48.8,
+            "wrecked": false,
+            "y": 0.3
+          }
+        },
+        "cameraDistance": 20.945735840307588
+      }
+    },
+    {
+      "name": "portrait-night fits viewport",
+      "passed": true,
+      "evidence": {
+        "coarse": true,
+        "width": 390,
+        "height": 844,
+        "overflow": false,
+        "stream": {
+          "cells": 836,
+          "resident": 133,
+          "detailedCells": 15,
+          "verts": 333485,
+          "bytes": 8698248,
+          "builtMs": 1154.8999998569489,
+          "pending": 0
+        }
+      }
+    },
+    {
+      "name": "portrait district clears HUD controls",
+      "passed": true,
+      "evidence": []
+    },
+    {
+      "name": "landscape-night fits viewport",
+      "passed": true,
+      "evidence": {
+        "coarse": true,
+        "width": 844,
+        "height": 390,
+        "overflow": false,
+        "stream": {
+          "cells": 836,
+          "resident": 203,
+          "detailedCells": 15,
+          "verts": 1512402,
+          "bytes": 39271572,
+          "builtMs": 1602.6000003814697,
+          "pending": 0
+        }
+      }
+    },
+    {
+      "name": "landscape-noon fits viewport",
+      "passed": true,
+      "evidence": {
+        "coarse": true,
+        "width": 844,
+        "height": 390,
+        "overflow": false,
+        "stream": {
+          "cells": 836,
+          "resident": 214,
+          "detailedCells": 16,
+          "verts": 1496245,
+          "bytes": 38246386,
+          "builtMs": 1957.2000012397766,
+          "pending": 0
+        }
+      }
+    },
+    {
+      "name": "all phone tiers retain bounded shadows and baked sky",
+      "passed": true,
+      "evidence": [
+        {
+          "tier": 0,
+          "shadowWidth": 1024,
+          "shadowHeight": 1024,
+          "skyBake": true,
+          "shadowCast": true,
+          "ratio": 2
+        },
+        {
+          "tier": 1,
+          "shadowWidth": 1024,
+          "shadowHeight": 1024,
+          "skyBake": true,
+          "shadowCast": true,
+          "ratio": 1.6
+        },
+        {
+          "tier": 2,
+          "shadowWidth": 1024,
+          "shadowHeight": 1024,
+          "skyBake": true,
+          "shadowCast": true,
+          "ratio": 1.32
+        },
+        {
+          "tier": 3,
+          "shadowWidth": 1024,
+          "shadowHeight": 1024,
+          "skyBake": true,
+          "shadowCast": true,
+          "ratio": 1.1
+        },
+        {
+          "tier": 4,
+          "shadowWidth": 1024,
+          "shadowHeight": 1024,
+          "skyBake": true,
+          "shadowCast": false,
+          "ratio": 0.9
+        }
+      ]
+    },
+    {
+      "name": "no mobile page errors",
+      "passed": true,
+      "evidence": []
+    }
+  ],
+  "views": [
+    {
+      "name": "portrait-night",
+      "coarse": true,
+      "width": 390,
+      "height": 844,
+      "overflow": false,
+      "stream": {
+        "cells": 836,
+        "resident": 133,
+        "detailedCells": 15,
+        "verts": 333485,
+        "bytes": 8698248,
+        "builtMs": 1154.8999998569489,
+        "pending": 0
+      }
+    },
+    {
+      "name": "landscape-night",
+      "coarse": true,
+      "width": 844,
+      "height": 390,
+      "overflow": false,
+      "stream": {
+        "cells": 836,
+        "resident": 203,
+        "detailedCells": 15,
+        "verts": 1512402,
+        "bytes": 39271572,
+        "builtMs": 1602.6000003814697,
+        "pending": 0
+      }
+    },
+    {
+      "name": "landscape-noon",
+      "coarse": true,
+      "width": 844,
+      "height": 390,
+      "overflow": false,
+      "stream": {
+        "cells": 836,
+        "resident": 214,
+        "detailedCells": 16,
+        "verts": 1496245,
+        "bytes": 38246386,
+        "builtMs": 1957.2000012397766,
+        "pending": 0
+      }
+    }
+  ],
+  "worldRevision": 90
+}

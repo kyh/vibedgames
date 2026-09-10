@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.0 — 2026-08-25
+
+- **The CLI now speaks oRPC to `/api/orpc`.** No command surface changes. Older installs pointing at the retired endpoint get an upgrade prompt from the server — run `npm i -g vibedgames@latest` (the daily auto-update applies it on its own within ~24h).
+
 ## 0.4.1 — 2026-08-17
 
 - **Unknown flags are rejected instead of ignored.** citty parses an undeclared flag and drops it, so `vg deploy ./dist --slugg wrong` deployed to the _default_ slug and exited 0 — a human spots the wrong URL, an agent reads success and carries on. Commands with a closed flag set now exit 2 with `unrecognized arguments`, matching the skill scripts. `vg generate run` stays permissive (it forwards arbitrary model params), as do the `playtest`/`factory` passthroughs.
@@ -43,7 +47,7 @@
 
 - `vg` auto-update — CLI checks for and applies newer published versions
 - game-craft skill suite (gamedev canon: game-feel, level-design, vfx, balance, etc.)
-- tRPC media router renamed to `generate` (matches `vg generate`)
+- media router renamed to `generate` (matches `vg generate`)
 - bundled example games rebuilt idiomatically, signature controls intact
 
 ## 0.1.0 — 2026-06-04

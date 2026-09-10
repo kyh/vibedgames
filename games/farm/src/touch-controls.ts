@@ -1,12 +1,9 @@
-// Pause is Escape-only and mute is M-only, so on a phone neither exists: the
-// valley cannot be paused (the wooden pause sign, with the controls and the
-// how-to-play, is unreachable) and — since the game boots muted — it stays
-// silent forever. The shared @repo/embed cluster is a no-op on a fine pointer.
+// Pause is Escape-only, so on a phone it does not exist: the valley cannot be
+// paused and the wooden pause sign (controls, how-to-play, sound) is
+// unreachable. The shared @repo/embed cluster is a no-op on a fine pointer.
 
 import { createTouchControls } from "@repo/embed";
 import type { TouchControls } from "@repo/embed";
-
-import { Sound } from "./render/audio";
 
 // Farm's palette (parchment on wood, as the pause sign), dropped below the
 // HUD's gold/health panel so the two never overlap, and rounded to match the
@@ -26,17 +23,10 @@ let controls: TouchControls | null = null;
 
 /** Mount once, from the title screen — the cluster outlives every scene, and
  *  the gallery and trailer routes never reach it. */
-export function mountTouchControls(): void {
+export const mountTouchControls = (): void => {
   controls ??= createTouchControls({
     className: "farm-touch",
     css: CSS,
     styleId: "farm-touch-style",
-    mute: { get: () => Sound.muted, set: (next) => Sound.setMuted(next) },
   });
-}
-
-/** Redraw the mute glyph after something else changed the same state — a
- *  device can have both a keyboard and a touchscreen. */
-export function syncTouchControls(): void {
-  controls?.sync();
-}
+};

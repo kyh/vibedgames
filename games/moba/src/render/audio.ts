@@ -1,166 +1,554 @@
-// Tiny procedural sound system (WebAudio). No audio assets — every SFX is
-// synthesised. Lazily created and resumed on first user gesture (autoplay
-// policy). Globally throttled so a busy teamfight doesn't turn into noise.
+// Procedural WebAudio. SFX are short synth phrases (plus an optional recorded
+// foley accent per hero); the score is a step grid driven by sim time, so a
+// paused or muted stretch never queues catch-up beats.
+
+import { ScoreClock } from "./score";
+import { abilityFoley, abilityNotes } from "./ability-sound";
+import type { FoleyKey, SynthTone, SynthNoise } from "./ability-sound";
+import type { ScoreNote, SoundscapeFrame } from "./score";
 
 const SOUND_KEY = "moba:sound";
+const MASTER_GAIN = 0.32;
+const VOICE_LIMIT = 32;
+// Ordinary SFX leave eight voices for the player's own feedback (local hits,
+// casts, level-ups, victory), which must never be crowded out by a teamfight.
+const ROUTINE_LIMIT = 24;
+const MUSIC_LIMIT = 6;
+const AMBIENCE_LIMIT = 2;
+const FOLEY_FILES: readonly [FoleyKey, string][] = [
+  ["buckler", "audio/foley/buckler.ogg"],
+  ["blade", "audio/foley/blade.ogg"],
+  ["bowstring", "audio/foley/bowstring.ogg"],
+  ["fire", "audio/foley/fire.ogg"],
+  ["mechanism", "audio/foley/mechanism.ogg"],
+  ["potion", "audio/foley/potion.ogg"],
+];
 
 // localStorage throws in some embeds (sandboxed iframes, blocked cookies,
 // private modes). The game must boot and run without persistence.
-function storageGet(key: string): string | null {
+const storageGet = (key: string): string | null => {
   try {
     return window.localStorage.getItem(key);
   } catch {
     return null;
   }
-}
-function storageSet(key: string, value: string): void {
+};
+const storageSet = (key: string, value: string): void => {
   try {
     window.localStorage.setItem(key, value);
   } catch {
     // Blocked store just loses persistence — never the run.
   }
+};
+
+interface Bus {
+  context: AudioContext;
+  master: GainNode;
+}
+type BedKind = "music" | "ambience";
+interface Phrase {
+  kind: "sfx" | BedKind;
+  essential: boolean;
+  voices: Set<Voice>;
+}
+interface Voice {
+  source: AudioScheduledSourceNode;
+  nodes: AudioNode[];
+  phrase: Phrase;
+}
+interface Sample {
+  kind: "sample";
+  buffer: AudioBuffer;
+  gain: number;
+  at: number;
+  dur: number;
+}
+type Note = SynthTone | SynthNoise | ScoreNote | Sample;
+interface Reaction {
+  important?: boolean;
+  gain?: number;
+}
+interface Throttle {
+  key: string;
+  minMs: number;
 }
 
-let ctx: AudioContext | null = null;
-let master: GainNode | null = null;
+let bus: Bus | null = null;
+let contextTransition: Promise<void> | null = null;
+let paused = false;
 // Muted by default; sound is opt-in ("1") and the choice persists.
 let muted = storageGet(SOUND_KEY) !== "1";
+const voices = new Set<Voice>();
+const phrases: Phrase[] = [];
+const noiseBufs = new Map<number, AudioBuffer>();
+const foleyBufs = new Map<FoleyKey, AudioBuffer>();
+const lastAt = new Map<string, number>();
+const scoreClock = new ScoreClock();
+const bedBuses = new Map<BedKind, GainNode>();
 
-function ac(): AudioContext | null {
-  if (typeof window === "undefined") return null;
-  if (!ctx) {
-    const Ctor = window.AudioContext;
-    if (!Ctor) return null;
-    ctx = new Ctor();
-    master = ctx.createGain();
-    master.gain.value = muted ? 0 : 0.32;
-    master.connect(ctx.destination);
+const blocked = (): boolean => muted || paused;
+
+const setMaster = (): void => {
+  if (!bus) {
+    return;
   }
-  return ctx;
-}
+  const t = bus.context.currentTime;
+  bus.master.gain.cancelScheduledValues(t);
+  bus.master.gain.setValueAtTime(blocked() ? 0 : MASTER_GAIN, t);
+};
 
-export function resumeAudio(): void {
-  const c = ac();
-  if (c && c.state === "suspended") void c.resume();
-}
+/** One resume/suspend in flight at a time; a pause/mute that lands mid-flight
+ *  is reconciled when the transition settles. */
+const reconcileContext = (): void => {
+  if (!bus || contextTransition) {
+    return;
+  }
+  const ctx = bus.context;
+  const shouldRun = !blocked();
+  if (ctx.state === (shouldRun ? "running" : "suspended")) {
+    return;
+  }
+  const operation = shouldRun ? ctx.resume() : ctx.suspend();
+  const settle = async (): Promise<void> => {
+    try {
+      await operation;
+    } catch {
+      // A rejected resume/suspend still ends the flight; the state is re-read below.
+    }
+    contextTransition = null;
+    if (shouldRun !== !blocked()) {
+      reconcileContext();
+    }
+  };
+  contextTransition = settle();
+};
 
-export function isMuted(): boolean {
-  return muted;
-}
+const fetchFoley = async (context: AudioContext, key: FoleyKey, file: string): Promise<void> => {
+  try {
+    const response = await fetch(file);
+    if (!response.ok) {
+      return;
+    }
+    const bytes = await response.arrayBuffer();
+    const buffer = await context.decodeAudioData(bytes);
+    foleyBufs.set(key, buffer);
+  } catch {
+    // Accents are optional: a missing or undecodable sample leaves the synth phrase alone.
+  }
+};
 
-export function setMuted(next: boolean): void {
+// Accents are optional: until (or unless) a sample lands, the synth phrase plays alone.
+const loadFoley = (context: AudioContext): void => {
+  for (const [key, file] of FOLEY_FILES) {
+    void fetchFoley(context, key, file);
+  }
+};
+
+const audio = (): Bus | null => {
+  if (blocked()) {
+    return null;
+  }
+  if (!bus) {
+    const Ctor = window.AudioContext;
+    if (!Ctor) {
+      return null;
+    }
+    const context = new Ctor();
+    const master = context.createGain();
+    master.gain.value = MASTER_GAIN;
+    master.connect(context.destination);
+    bus = { context, master };
+    loadFoley(context);
+  }
+  reconcileContext();
+  // Never queue notes behind the autoplay gate or an in-flight transition.
+  return bus.context.state === "running" && !contextTransition ? bus : null;
+};
+
+const release = (voice: Voice): void => {
+  if (!voices.delete(voice)) {
+    return;
+  }
+  voice.phrase.voices.delete(voice);
+  if (voice.phrase.voices.size === 0) {
+    const i = phrases.indexOf(voice.phrase);
+    if (i !== -1) {
+      phrases.splice(i, 1);
+    }
+  }
+  // Every source has its end scheduled at creation and a second stop() throws
+  // once that has fired, so an early release only unplugs it: silent at once,
+  // reaped on schedule.
+  voice.source.disconnect();
+  for (const node of voice.nodes) {
+    node.disconnect();
+  }
+};
+
+const stopPhrase = (phrase: Phrase): void => {
+  for (const voice of phrase.voices) {
+    release(voice);
+  }
+};
+
+const stopBackground = (kind?: BedKind): void => {
+  for (const voice of voices) {
+    if (voice.phrase.kind !== "sfx" && (!kind || voice.phrase.kind === kind)) {
+      release(voice);
+    }
+  }
+};
+
+const stopAll = (): void => {
+  for (const voice of voices) {
+    release(voice);
+  }
+  const now = bus?.context.currentTime ?? 0;
+  for (const gain of bedBuses.values()) {
+    gain.gain.cancelScheduledValues(now);
+    gain.gain.setValueAtTime(1, now);
+  }
+};
+
+const applyIntent = (): void => {
+  setMaster();
+  if (blocked()) {
+    stopAll();
+  }
+  reconcileContext();
+};
+
+export const resumeAudio = (): void => {
+  audio();
+};
+
+export const isMuted = (): boolean => muted;
+
+export const setMuted = (next: boolean): void => {
   muted = next;
-  if (master) master.gain.value = muted ? 0 : 0.32;
   storageSet(SOUND_KEY, muted ? "0" : "1");
-}
+  applyIntent();
+};
 
-export function toggleMute(): boolean {
+export const toggleMute = (): boolean => {
   setMuted(!muted);
   return muted;
-}
+};
 
-/** Session-only mute override: flips the live gain but — unlike toggleMute —
- *  never persists, so the player's saved opt-in choice survives. Trailer mode
- *  uses this to unmute for its run without rewriting normal-play preferences. */
-export function setMutedTransient(next: boolean): void {
+/** Session-only mute override: never persists, so the player's saved opt-in
+ *  survives. Trailer mode uses this to unmute for its run. */
+export const setMutedTransient = (next: boolean): void => {
   muted = next;
-  if (master) master.gain.value = muted ? 0 : 0.32;
-}
+  applyIntent();
+};
 
-function tone(
+export const setSoundPaused = (next: boolean): void => {
+  paused = next;
+  applyIntent();
+};
+
+/** Match/shot boundary: drop pending notes and gates; keep the user's intent. */
+export const resetSound = (): void => {
+  stopAll();
+  lastAt.clear();
+  scoreClock.reset();
+};
+
+const tone = (
   freq: number,
   dur: number,
   type: OscillatorType,
   gain: number,
   slideTo?: number,
-): void {
-  const c = ac();
-  if (!c || !master || muted) return;
-  const t = c.currentTime;
-  const osc = c.createOscillator();
-  const g = c.createGain();
-  osc.type = type;
-  osc.frequency.setValueAtTime(freq, t);
-  if (slideTo) osc.frequency.exponentialRampToValueAtTime(Math.max(40, slideTo), t + dur);
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(gain, t + 0.008);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  osc.connect(g).connect(master);
-  osc.start(t);
-  osc.stop(t + dur + 0.02);
-}
+  at = 0,
+): SynthTone => ({ at, dur, freq, gain, kind: "tone", slideTo, type });
+const noise = (
+  dur: number,
+  gain: number,
+  frequency: number,
+  at = 0,
+  filter: BiquadFilterType = "lowpass",
+): SynthNoise => ({ at, dur, filter, frequency, gain, kind: "noise" });
 
-// Synthesising a fresh AudioBuffer per SFX call was needless per-hit work — the
-// decaying white noise is indistinguishable between calls, so cache one buffer
-// per duration and replay it through a fresh (cheap) BufferSource each time.
-const noiseBufs = new Map<number, AudioBuffer>();
-function noiseBuffer(c: AudioContext, dur: number): AudioBuffer {
+// Decaying white noise is indistinguishable between calls: cache one buffer per
+// duration and replay it through a fresh (cheap) BufferSource each time.
+const noiseBuffer = (ctx: AudioContext, dur: number): AudioBuffer => {
   const cached = noiseBufs.get(dur);
-  if (cached) return cached;
-  const n = Math.floor(c.sampleRate * dur);
-  const buf = c.createBuffer(1, n, c.sampleRate);
-  const data = buf.getChannelData(0);
-  for (let i = 0; i < n; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / n);
-  noiseBufs.set(dur, buf);
-  return buf;
-}
+  if (cached) {
+    return cached;
+  }
+  const n = Math.floor(ctx.sampleRate * dur);
+  const buffer = ctx.createBuffer(1, n, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < n; i += 1) {
+    data[i] = (Math.random() * 2 - 1) * (1 - i / n);
+  }
+  noiseBufs.set(dur, buffer);
+  return buffer;
+};
 
-function noise(dur: number, gain: number, lp: number): void {
-  const c = ac();
-  if (!c || !master || muted) return;
-  const t = c.currentTime;
-  const src = c.createBufferSource();
-  src.buffer = noiseBuffer(c, dur);
-  const filt = c.createBiquadFilter();
-  filt.type = "lowpass";
-  filt.frequency.value = lp;
-  const g = c.createGain();
-  g.gain.value = gain;
-  src.connect(filt).connect(g).connect(master);
-  src.start(t);
-}
+const bedDestination = (target: Bus, kind: BedKind): GainNode => {
+  const existing = bedBuses.get(kind);
+  if (existing) {
+    return existing;
+  }
+  const gain = target.context.createGain();
+  gain.connect(target.master);
+  bedBuses.set(kind, gain);
+  return gain;
+};
 
-// ---- throttling ------------------------------------------------------------
-const lastAt: Record<string, number> = {};
-function gate(key: string, minMs: number): boolean {
-  const now = performance.now();
-  if ((lastAt[key] ?? 0) + minMs > now) return false;
-  lastAt[key] = now;
+const schedule = (target: Bus, phrase: Phrase, note: Note, now: number, level: number): void => {
+  const { context: ctx, master } = target;
+  const t = now + note.at;
+  const gain = ctx.createGain();
+  const nodes: AudioNode[] = [gain];
+  let source: AudioScheduledSourceNode;
+  if (note.kind === "tone") {
+    const osc = ctx.createOscillator();
+    osc.type = note.type;
+    osc.frequency.setValueAtTime(note.freq, t);
+    if (note.slideTo) {
+      osc.frequency.exponentialRampToValueAtTime(Math.max(40, note.slideTo), t + note.dur);
+    }
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(note.gain * level, t + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + note.dur);
+    osc.connect(gain);
+    source = osc;
+  } else if (note.kind === "noise") {
+    const bufferSource = ctx.createBufferSource();
+    bufferSource.buffer = noiseBuffer(ctx, note.dur);
+    const filter = ctx.createBiquadFilter();
+    filter.type = note.filter;
+    filter.frequency.value = note.frequency;
+    if (note.attack === undefined) {
+      gain.gain.value = note.gain * level;
+    } else {
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.linearRampToValueAtTime(note.gain * level, t + note.attack);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + note.dur);
+    }
+    bufferSource.connect(filter).connect(gain);
+    nodes.push(filter);
+    source = bufferSource;
+  } else if (note.kind === "sample") {
+    const bufferSource = ctx.createBufferSource();
+    bufferSource.buffer = note.buffer;
+    gain.gain.setValueAtTime(0, t);
+    gain.gain.linearRampToValueAtTime(note.gain * level, t + 0.002);
+    gain.gain.setValueAtTime(note.gain * level, t + Math.max(0.002, note.dur - 0.02));
+    gain.gain.linearRampToValueAtTime(0, t + note.dur);
+    bufferSource.connect(gain);
+    source = bufferSource;
+  } else {
+    const filter = ctx.createBiquadFilter();
+    filter.type = note.kind === "score-tone" ? "lowpass" : note.filter;
+    filter.frequency.value = note.kind === "score-tone" ? note.cutoff : note.frequency;
+    filter.Q.value = 0.7;
+    nodes.push(filter);
+    if (note.kind === "score-tone") {
+      const osc = ctx.createOscillator();
+      osc.type = note.wave;
+      osc.frequency.setValueAtTime(note.freq, t);
+      if (note.endFreq) {
+        osc.frequency.exponentialRampToValueAtTime(note.endFreq, t + note.dur);
+      }
+      osc.connect(filter);
+      source = osc;
+    } else {
+      const bufferSource = ctx.createBufferSource();
+      bufferSource.buffer = noiseBuffer(ctx, note.dur);
+      bufferSource.connect(filter);
+      source = bufferSource;
+    }
+    filter.connect(gain);
+    const attack = Math.min(note.attack, note.dur * 0.4);
+    const releaseAt = Math.max(attack, note.dur - note.release);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.linearRampToValueAtTime(note.gain * level, t + attack);
+    gain.gain.setValueAtTime(note.gain * level, t + releaseAt);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + note.dur);
+  }
+  gain.connect(phrase.kind === "sfx" ? master : bedDestination(target, phrase.kind));
+  const voice: Voice = { nodes, phrase, source };
+  voices.add(voice);
+  phrase.voices.add(voice);
+  source.addEventListener("ended", () => release(voice), { once: true });
+  source.start(t);
+  if (note.kind === "tone" || note.kind === "score-tone") {
+    source.stop(t + note.dur + 0.02);
+  }
+};
+
+/** Background beds yield first; important sounds may then bump the oldest
+ *  ordinary phrase, but nothing evicts another important sound. False when
+ *  the voices still don't fit. */
+const makeRoom = (count: number, important: boolean): boolean => {
+  const limit = important ? VOICE_LIMIT : ROUTINE_LIMIT;
+  while (voices.size + count > limit) {
+    const victim =
+      phrases.find((p) => p.kind === "ambience") ??
+      phrases.find((p) => p.kind === "music") ??
+      (important ? phrases.find((p) => !p.essential) : undefined);
+    if (!victim) {
+      return false;
+    }
+    stopPhrase(victim);
+  }
   return true;
-}
+};
+
+/** Duck the beds under the player's own feedback. */
+const duckBeds = (t: number): void => {
+  for (const [kind, bed] of bedBuses) {
+    bed.gain.cancelScheduledValues(t);
+    bed.gain.setValueAtTime(bed.gain.value, t);
+    bed.gain.linearRampToValueAtTime(kind === "music" ? 0.4 : 0.15, t + 0.015);
+    bed.gain.linearRampToValueAtTime(1, t + 0.28);
+  }
+};
+
+const play = (
+  notes: readonly Note[],
+  { important = false, gain = 1 }: Reaction = {},
+  throttle?: Throttle,
+): void => {
+  const level = Math.max(0, Math.min(1, gain));
+  if (level === 0 || notes.length === 0) {
+    return;
+  }
+  const target = audio();
+  if (!target) {
+    return;
+  }
+  // The player's own reaction is gated separately so a busy fight can't swallow it.
+  const gate = throttle && (important ? `${throttle.key}:local` : throttle.key);
+  const now = performance.now();
+  if (throttle && gate && (lastAt.get(gate) ?? -Infinity) + throttle.minMs > now) {
+    return;
+  }
+  if (!makeRoom(notes.length, important)) {
+    return;
+  }
+  if (gate) {
+    lastAt.set(gate, now);
+  }
+  const phrase: Phrase = { essential: important, kind: "sfx", voices: new Set() };
+  phrases.push(phrase);
+  const t = target.context.currentTime;
+  if (important) {
+    duckBeds(t);
+  }
+  for (const note of notes) {
+    schedule(target, phrase, note, t, level);
+  }
+};
+
+const playBed = (target: Bus, kind: BedKind, notes: readonly ScoreNote[]): void => {
+  if (notes.length === 0) {
+    return;
+  }
+  let category = 0;
+  for (const voice of voices) {
+    if (voice.phrase.kind === kind) {
+      category += 1;
+    }
+  }
+  const limit = kind === "music" ? MUSIC_LIMIT : AMBIENCE_LIMIT;
+  if (category + notes.length > limit || voices.size + notes.length > ROUTINE_LIMIT) {
+    return;
+  }
+  const phrase: Phrase = { essential: false, kind, voices: new Set() };
+  phrases.push(phrase);
+  const now = target.context.currentTime + 0.015;
+  for (const note of notes) {
+    schedule(target, phrase, note, now, 1);
+  }
+};
+
+/** Call once per frame after the frame's SFX, with accepted simulation time.
+ *  Muted or paused frames only advance the cursor — no old music waits for unlock. */
+export const updateSoundscape = (frame: SoundscapeFrame): void => {
+  const previous = scoreClock.mode;
+  const previousStep = scoreClock.step;
+  const rewound = scoreClock.isRewind(frame.time);
+  if (frame.kind === "silent" || frame.kind === "ended") {
+    scoreClock.observe(frame, false);
+    stopBackground();
+    return;
+  }
+  const target = audio();
+  const step = scoreClock.observe(frame, target !== null);
+  if (
+    scoreClock.mode === "silent" ||
+    rewound ||
+    (step && (step.step < previousStep || step.step > previousStep + 2))
+  ) {
+    stopBackground();
+  }
+  if (scoreClock.mode !== "quiet") {
+    stopBackground("ambience");
+  }
+  if (scoreClock.mode === "fallen" && previous !== "fallen") {
+    stopBackground("music");
+  }
+  if (!step || !target) {
+    return;
+  }
+  playBed(target, "music", step.music);
+  playBed(target, "ambience", step.ambience);
+};
 
 export const sfx = {
-  hit(): void {
-    if (!gate("hit", 60)) return;
-    noise(0.06, 0.07, 1400);
+  ability(effect = "", gain = 1, local = false): void {
+    const notes: Note[] = [...abilityNotes(effect)];
+    const accent = abilityFoley(effect);
+    const buffer = accent ? foleyBufs.get(accent.key) : undefined;
+    const [first] = notes;
+    // The recorded accent replaces the first synth voice rather than doubling it.
+    if (buffer && accent && first) {
+      notes[0] = { at: first.at, buffer, dur: buffer.duration, gain: accent.gain, kind: "sample" };
+    }
+    play(notes, { gain, important: local }, { key: `ability:${effect}`, minMs: 90 });
   },
-  ability(): void {
-    if (!gate("ability", 90)) return;
-    tone(440, 0.18, "sawtooth", 0.06, 880);
+  death(reaction: Reaction = {}): void {
+    play([tone(330, 0.2, "square", 0.06, 110)], reaction, { key: "death", minMs: 90 });
   },
-  explosion(): void {
-    if (!gate("explosion", 110)) return;
-    noise(0.28, 0.16, 700);
-    tone(120, 0.3, "sine", 0.1, 50);
-  },
-  level(): void {
-    tone(660, 0.12, "triangle", 0.12);
-    setTimeout(() => tone(990, 0.16, "triangle", 0.12), 90);
-  },
-  structureDown(): void {
-    noise(0.5, 0.22, 500);
-    tone(90, 0.5, "sine", 0.14, 40);
-  },
-  death(): void {
-    if (!gate("death", 90)) return;
-    tone(330, 0.2, "square", 0.06, 110);
+  explosion(reaction: Reaction = {}): void {
+    play([noise(0.28, 0.16, 700), tone(120, 0.3, "sine", 0.1, 50)], reaction, {
+      key: "explosion",
+      minMs: 110,
+    });
   },
   gold(): void {
-    if (!gate("gold", 120)) return;
-    tone(1200, 0.06, "square", 0.04);
+    play([tone(1200, 0.06, "square", 0.04)], {}, { key: "gold", minMs: 120 });
+  },
+  hit(reaction: Reaction = {}): void {
+    play([noise(0.06, 0.07, 1400)], reaction, { key: "hit", minMs: 60 });
+  },
+  level(): void {
+    play([tone(660, 0.12, "triangle", 0.12), tone(990, 0.16, "triangle", 0.12, undefined, 0.09)], {
+      important: true,
+    });
+  },
+  structureDown(): void {
+    play([noise(0.5, 0.22, 500), tone(90, 0.5, "sine", 0.14, 40)], { important: true });
   },
   victory(win: boolean): void {
-    const notes = win ? [523, 659, 784, 1047] : [392, 330, 262];
-    notes.forEach((f, i) => setTimeout(() => tone(f, 0.3, "triangle", 0.16), i * 160));
+    play(
+      (win ? [523, 659, 784, 1047] : [392, 330, 262]).map((freq, i) =>
+        tone(freq, 0.3, "triangle", 0.16, undefined, i * 0.16),
+      ),
+      { important: true },
+    );
   },
 };
+
+export const soundDiagnostics = () => ({
+  context: bus?.context.state ?? "uncreated",
+  muted,
+  paused,
+  score: { mode: scoreClock.mode, step: scoreClock.step },
+  voices: voices.size,
+});

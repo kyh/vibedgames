@@ -6,88 +6,83 @@ import { siteConfig } from "@/lib/site-config";
 
 const isInternal = (href: string) => href.startsWith("/");
 
-const Inline = ({ nodes }: { nodes: InlineNode[] }) => (
-  <>
-    {nodes.map((node, i) => {
-      switch (node.kind) {
-        case "text":
-          return <span key={i}>{node.text}</span>;
-        case "strong":
-          return (
-            <strong key={i} className="text-foreground font-medium">
-              {node.text}
-            </strong>
-          );
-        case "code":
-          return (
-            <code key={i} className="bg-input/40 rounded px-1 py-0.5 font-mono text-[0.9em]">
-              {node.text}
-            </code>
-          );
-        case "link":
-          return isInternal(node.href) ? (
-            <a key={i} href={node.href} className="text-foreground underline underline-offset-4">
-              {node.text}
-            </a>
-          ) : (
-            <a
-              key={i}
-              href={node.href}
-              rel="noopener noreferrer"
-              className="text-foreground underline underline-offset-4"
-            >
-              {node.text}
-            </a>
-          );
-      }
-    })}
-  </>
-);
+const LINK_CLASS = "text-foreground underline underline-offset-4";
+
+const InlineLink = ({ node }: { node: Extract<InlineNode, { kind: "link" }> }) =>
+  isInternal(node.href) ? (
+    <a href={node.href} className={LINK_CLASS}>
+      {node.text}
+    </a>
+  ) : (
+    <a href={node.href} rel="noopener noreferrer" className={LINK_CLASS}>
+      {node.text}
+    </a>
+  );
+
+const renderInline = (node: InlineNode, key: number) => {
+  if (node.kind === "strong") {
+    return (
+      <strong key={key} className="text-foreground font-medium">
+        {node.text}
+      </strong>
+    );
+  }
+  if (node.kind === "code") {
+    return (
+      <code key={key} className="bg-input/40 rounded px-1 py-0.5 font-mono text-[0.9em]">
+        {node.text}
+      </code>
+    );
+  }
+  if (node.kind === "link") {
+    return <InlineLink key={key} node={node} />;
+  }
+  return <span key={key}>{node.text}</span>;
+};
+
+const Inline = ({ nodes }: { nodes: InlineNode[] }) => <>{nodes.map(renderInline)}</>;
 
 const Text = ({ text }: { text: string }) => <Inline nodes={parseInline(text)} />;
 
-export const Blocks = ({ blocks }: { blocks: Block[] }) => (
-  <>
-    {blocks.map((block, i) => {
-      switch (block.kind) {
-        case "p":
-          return (
-            <p key={i} className="text-muted-foreground leading-relaxed">
-              <Text text={block.text} />
-            </p>
-          );
-        case "ul":
-          return (
-            <ul key={i} className="text-muted-foreground list-disc space-y-2 pl-5 leading-relaxed">
-              {block.items.map((item, j) => (
-                <li key={j}>
-                  <Text text={item} />
-                </li>
-              ))}
-            </ul>
-          );
-        case "code":
-          return (
-            <pre
-              key={i}
-              className="bg-input/40 overflow-x-auto rounded-md p-4 font-mono text-xs leading-relaxed"
-            >
-              <code>{block.code}</code>
-            </pre>
-          );
-      }
-    })}
-  </>
-);
+const renderBlock = (block: Block, key: number) => {
+  if (block.kind === "p") {
+    return (
+      <p key={key} className="text-muted-foreground leading-relaxed">
+        <Text text={block.text} />
+      </p>
+    );
+  }
+  if (block.kind === "ul") {
+    return (
+      <ul key={key} className="text-muted-foreground list-disc space-y-2 pl-5 leading-relaxed">
+        {block.items.map((item, j) => (
+          <li key={j}>
+            <Text text={item} />
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  return (
+    <pre
+      key={key}
+      className="bg-input/40 overflow-x-auto rounded-md p-4 font-mono text-xs leading-relaxed"
+    >
+      <code>{block.code}</code>
+    </pre>
+  );
+};
+
+export const Blocks = ({ blocks }: { blocks: Block[] }) => <>{blocks.map(renderBlock)}</>;
 
 const FOOTER_LINKS = [
-  { to: "/", label: "Play" },
-  { to: "/discover", label: "Discover" },
-  { to: "/build", label: "Build" },
-  { to: "/docs", label: "Docs" },
-  { to: "/about", label: "About" },
-  { to: "/contact", label: "Contact" },
-  { to: "/privacy", label: "Privacy" },
+  { label: "Play", to: "/" },
+  { label: "Discover", to: "/discover" },
+  { label: "Build", to: "/build" },
+  { label: "Docs", to: "/docs" },
+  { label: "About", to: "/about" },
+  { label: "Contact", to: "/contact" },
+  { label: "Privacy", to: "/privacy" },
 ] as const;
 
 /**

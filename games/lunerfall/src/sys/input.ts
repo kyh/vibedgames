@@ -1,4 +1,4 @@
-import Phaser from "phaser";
+import { Input as PhaserInput } from "phaser";
 
 import { PhysicalGamepad } from "@vibedgames/gamepad/phaser";
 import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
@@ -6,7 +6,7 @@ import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
 // One frame's worth of intent. `*Pressed` are edge-triggered (true only the
 // frame the key went down); the rest are held state. Buffering happens in the
 // controller so a fixed-step loop consumes edges exactly once.
-export type InputState = {
+export interface InputState {
   left: boolean;
   right: boolean;
   up: boolean;
@@ -16,9 +16,20 @@ export type InputState = {
   dashPressed: boolean;
   attackPressed: boolean;
   specialPressed: boolean;
+}
+export const NEUTRAL_INPUT: InputState = {
+  attackPressed: false,
+  dashPressed: false,
+  down: false,
+  jumpHeld: false,
+  jumpPressed: false,
+  left: false,
+  right: false,
+  specialPressed: false,
+  up: false,
 };
 
-const K = Phaser.Input.Keyboard.KeyCodes;
+const K = PhaserInput.Keyboard.KeyCodes;
 
 // Stick → held-direction thresholds (on the 0–1 magnitude components).
 // Horizontal is forgiving for run feel; vertical is deliberate so a diagonal
@@ -39,7 +50,9 @@ export class Input {
     // confirmed the hub's "descend") doesn't read as a fresh press on frame 1.
     this.phys.update();
     const kb = scene.input.keyboard;
-    if (!kb) return;
+    if (!kb) {
+      return;
+    }
     const add = (name: string, code: number) => {
       this.keys[name] = kb.addKey(code, true, false);
     };
@@ -59,6 +72,22 @@ export class Input {
     add("k", K.K);
   }
 
+  /** Clear pause/transport input without manufacturing a fresh pad edge. */
+  reset(): void {
+    for (const key of Object.values(this.keys)) {
+      key.reset();
+    }
+    this.pad?.pad.reset();
+    this.pad?.pad.nextFrame();
+    this.pad?.pad.nextFrame();
+    this.phys.update();
+    this.phys.update();
+  }
+
+  destroy(): void {
+    this.phys.destroy();
+  }
+
   private held(name: string): boolean {
     const k = this.keys[name];
     return k ? k.isDown : false;
@@ -66,7 +95,7 @@ export class Input {
 
   private justDown(name: string): boolean {
     const k = this.keys[name];
-    return k ? Phaser.Input.Keyboard.JustDown(k) : false;
+    return k ? PhaserInput.Keyboard.JustDown(k) : false;
   }
 
   // Poll the physical pad and publish its press edges. The scene loop calls
@@ -82,48 +111,89 @@ export class Input {
   // and reading them is idempotent within a frame — only Phaser's JustDown is
   // consume-on-read.
   sample(): InputState {
-    const gp = this.pad;
-    let sx = 0;
-    let sy = 0;
-    const stick = gp?.getStick();
-    if (stick && stick.active && !stick.inDeadZone) {
-      sx = Math.cos(stick.angle) * stick.magnitude;
-      sy = Math.sin(stick.angle) * stick.magnitude; // screen-space: +y is down
-    }
-    // Physical left stick: raw axes, same thresholds as the virtual stick
-    // (STICK_X/STICK_Y); the d-pad is the digital equivalent.
-    const ps = this.phys.getStick();
-    const px = ps.inDeadZone ? 0 : ps.dx;
-    const py = ps.inDeadZone ? 0 : ps.dy;
-    const left =
-      this.held("a") ||
-      this.held("left") ||
-      sx < -STICK_X ||
-      px < -STICK_X ||
-      this.phys.isButtonDown("left");
-    const right =
-      this.held("d") ||
-      this.held("right") ||
-      sx > STICK_X ||
-      px > STICK_X ||
-      this.phys.isButtonDown("right");
-    const up =
-      this.held("w") ||
-      this.held("up") ||
-      sy < -STICK_Y ||
-      py < -STICK_Y ||
-      this.phys.isButtonDown("up");
-    const down =
-      this.held("s") ||
-      this.held("down") ||
-      sy > STICK_Y ||
-      py > STICK_Y ||
-      this.phys.isButtonDown("down");
+    const { down, left, right, up } = this.heldDirs();
+    // Fixed read order: Phaser's JustDown is consume-on-read.
+    const { attackPressed, dashPressed } = this.attackDashEdges();
+    const { jumpHeld, jumpPressed } = this.jumpButtons();
+    const specialPressed =
+      this.justDown("k") || (this.pad?.justPressed("sp") ?? false) || this.phys.justPressed("y");
     return {
+      attackPressed,
+      dashPressed,
+      down,
+      jumpHeld,
+      jumpPressed,
       left,
       right,
+      specialPressed,
       up,
-      down,
+    };
+  }
+
+  // Virtual stick (polar) + physical left stick (raw axes), both in screen space.
+  private axes() {
+    let sx = 0;
+    let sy = 0;
+    const stick = this.pad?.getStick();
+    if (stick && stick.active && !stick.inDeadZone) {
+      sx = Math.cos(stick.angle) * stick.magnitude;
+      // screen-space: +y is down
+      sy = Math.sin(stick.angle) * stick.magnitude;
+    }
+    const ps = this.phys.getStick();
+    return { px: ps.inDeadZone ? 0 : ps.dx, py: ps.inDeadZone ? 0 : ps.dy, sx, sy };
+  }
+
+  // Held directions: keys, either stick past STICK_X/STICK_Y, or the d-pad.
+  private heldDirs() {
+    const { sx, sy, px, py } = this.axes();
+    return {
+      down:
+        this.held("s") ||
+        this.held("down") ||
+        sy > STICK_Y ||
+        py > STICK_Y ||
+        this.phys.isButtonDown("down"),
+      left:
+        this.held("a") ||
+        this.held("left") ||
+        sx < -STICK_X ||
+        px < -STICK_X ||
+        this.phys.isButtonDown("left"),
+      right:
+        this.held("d") ||
+        this.held("right") ||
+        sx > STICK_X ||
+        px > STICK_X ||
+        this.phys.isButtonDown("right"),
+      up:
+        this.held("w") ||
+        this.held("up") ||
+        sy < -STICK_Y ||
+        py < -STICK_Y ||
+        this.phys.isButtonDown("up"),
+    };
+  }
+
+  private attackDashEdges() {
+    const gp = this.pad;
+    return {
+      attackPressed:
+        this.justDown("j") ||
+        this.justDown("x") ||
+        (gp?.justPressed("atk") ?? false) ||
+        this.phys.justPressed("x"),
+      dashPressed:
+        this.justDown("shift") ||
+        this.justDown("l") ||
+        (gp?.justPressed("dash") ?? false) ||
+        this.phys.justPressed("b"),
+    };
+  }
+
+  private jumpButtons() {
+    const gp = this.pad;
+    return {
       jumpHeld:
         this.held("space") ||
         this.held("w") ||
@@ -136,18 +206,6 @@ export class Input {
         this.justDown("up") ||
         (gp?.justPressed("jump") ?? false) ||
         this.phys.justPressed("a"),
-      dashPressed:
-        this.justDown("shift") ||
-        this.justDown("l") ||
-        (gp?.justPressed("dash") ?? false) ||
-        this.phys.justPressed("b"),
-      attackPressed:
-        this.justDown("j") ||
-        this.justDown("x") ||
-        (gp?.justPressed("atk") ?? false) ||
-        this.phys.justPressed("x"),
-      specialPressed:
-        this.justDown("k") || (gp?.justPressed("sp") ?? false) || this.phys.justPressed("y"),
     };
   }
 }

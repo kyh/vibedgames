@@ -7,44 +7,51 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { onLandUV, rdp, ringArea, projU, projV, WORLD_H, WORLD_W } from "./lib.mjs";
 
-const raw = JSON.parse(readFileSync(new URL("./sf-piers.raw.json", import.meta.url)));
+const waterAt = ([x, z]) => !onLandUV(x / WORLD_W + 0.5, z / WORLD_H + 0.5);
+
+const raw = JSON.parse(readFileSync(new URL("sf-piers.raw.json", import.meta.url)));
 const ways = raw.elements.filter((e) => e.type === "way" && e.geometry);
 console.log(`pier ways: ${ways.length}`);
 
-const closed = []; // { p: flat ring, area }
-const open = []; // { p: flat polyline }
+// { p: flat ring, area }
+const closed = [];
+// { p: flat polyline }
+const open = [];
 let landDrop = 0;
 for (const w of ways) {
   const g = w.geometry;
-  if (g.length < 2) continue;
-  const isClosed = g[0].lat === g[g.length - 1].lat && g[0].lon === g[g.length - 1].lon;
+  if (g.length < 2) {
+    continue;
+  }
+  const isClosed = g[0].lat === g.at(-1).lat && g[0].lon === g.at(-1).lon;
   let pts = (isClosed ? g.slice(0, -1) : g).map((q) => {
     const u = projU(q.lon);
     const v = projV(q.lat);
     return [(u - 0.5) * WORLD_W, (v - 0.5) * WORLD_H];
   });
   // In-world bounds only.
-  if (pts.some(([x, z]) => Math.abs(x) > WORLD_W / 2 || Math.abs(z) > WORLD_H / 2)) continue;
+  if (pts.some(([x, z]) => Math.abs(x) > WORLD_W / 2 || Math.abs(z) > WORLD_H / 2)) {
+    continue;
+  }
   // The game's traced coast sits seaward of the real shoreline along the
   // Embarcadero, which swallows exactly the finger piers that make the
   // waterfront read as SF. Land-locked piers SLIDE seaward along their own
   // long axis until they hang off the traced coast; only piers with no water
   // within reach are dropped.
-  const waterAt = ([x, z]) => !onLandUV(x / WORLD_W + 0.5, z / WORLD_H + 0.5);
   const waterFrac = pts.filter(waterAt).length / pts.length;
   if (waterFrac < 0.35) {
     // Only substantial closed piers earn the slide — swallowed marina slips
     // and walkways just drop.
     if (!isClosed) {
-      landDrop++;
+      landDrop += 1;
       continue;
     }
     // Principal axis from the farthest-apart vertex pair (piers are long).
     let ax = 1;
     let az = 0;
     let bestD = 0;
-    for (let i = 0; i < pts.length; i++) {
-      for (let j = i + 1; j < pts.length; j++) {
+    for (let i = 0; i < pts.length; i += 1) {
+      for (let j = i + 1; j < pts.length; j += 1) {
         const dx = (pts[j][0] ?? 0) - (pts[i][0] ?? 0);
         const dz = (pts[j][1] ?? 0) - (pts[i][1] ?? 0);
         const d2 = dx * dx + dz * dz;
@@ -57,7 +64,7 @@ for (const w of ways) {
     }
     const len = Math.sqrt(bestD) || 1;
     if (len < 15) {
-      landDrop++;
+      landDrop += 1;
       continue;
     }
     ax /= len;
@@ -83,22 +90,26 @@ for (const w of ways) {
       }
     }
     if (!shift) {
-      landDrop++;
+      landDrop += 1;
       continue;
     }
     pts = pts.map(([x, z]) => [x + shift[0], z + shift[1]]);
     if (pts.some(([x, z]) => Math.abs(x) > WORLD_W / 2 || Math.abs(z) > WORLD_H / 2)) {
-      landDrop++;
+      landDrop += 1;
       continue;
     }
   }
   pts = rdp(pts, 0.25);
   if (isClosed && pts.length >= 3) {
     let ring = pts;
-    if (ringArea(ring) < 0) ring = ring.reverse();
+    if (ringArea(ring) < 0) {
+      ring = ring.toReversed();
+    }
     const area = Math.abs(ringArea(ring));
-    if (area < 8 || ring.length > 48) continue;
-    closed.push({ p: ring.flat().map((n) => Math.round(n * 10) / 10), area });
+    if (area < 8 || ring.length > 48) {
+      continue;
+    }
+    closed.push({ area, p: ring.flat().map((n) => Math.round(n * 10) / 10) });
   } else if (!isClosed && pts.length >= 2) {
     open.push({ p: pts.flat().map((n) => Math.round(n * 10) / 10) });
   }

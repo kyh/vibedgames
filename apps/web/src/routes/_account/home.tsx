@@ -20,13 +20,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@repo/ui/components/too
 import { SkeletonReveal } from "@/components/ui/skeleton-reveal";
 import { formatDateCompact } from "@/lib/format";
 import { INSTALL_PROMPT } from "@/lib/install-prompt";
-import { useTRPC } from "@/lib/trpc";
+import { useORPC } from "@/lib/orpc";
 import { useCopyToClipboard } from "@/lib/use-copy-to-clipboard";
-
-export const Route = createFileRoute("/_account/home")({
-  head: () => ({ meta: [{ title: "Home — Vibedgames" }] }),
-  component: GamesPage,
-});
 
 const gameUrl = (slug: string) => `https://${slug}.vibedgames.com`;
 
@@ -38,7 +33,7 @@ const gameUrl = (slug: string) => `https://${slug}.vibedgames.com`;
  * uploading, or an abandoned one). The current deployment can only ever be
  * a finalized/ready one, so there's no in-between state to render.
  */
-function GameTile({ slug, name, live }: { slug: string; name: string; live: boolean }) {
+const GameTile = ({ slug, name, live }: { slug: string; name: string; live: boolean }) => {
   const [faviconFailed, setFaviconFailed] = useState(false);
 
   return (
@@ -64,9 +59,9 @@ function GameTile({ slug, name, live }: { slug: string; name: string; live: bool
       <TooltipContent side="top">{live ? "live" : "not deployed"}</TooltipContent>
     </Tooltip>
   );
-}
+};
 
-function NoGamesYet() {
+const NoGamesYet = () => {
   const { copy } = useCopyToClipboard();
 
   return (
@@ -81,43 +76,43 @@ function NoGamesYet() {
             Ask your coding agent to{" "}
             <button
               type="button"
-              onClick={() => void copy(INSTALL_PROMPT)}
+              onClick={() => {
+                void copy(INSTALL_PROMPT);
+              }}
               className="hover:text-foreground cursor-pointer rounded-sm underline underline-offset-2 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-white/30"
             >
               build one
             </button>
             ,
           </p>
-          <p>then ask it to "ship it"</p>
+          <p>then ask it to &quot;ship it&quot;</p>
         </EmptyDescription>
       </EmptyHeader>
     </Empty>
   );
-}
+};
 
-function GamesSkeleton() {
-  return (
-    <div>
-      <div className="text-muted-foreground flex items-center justify-between border-b border-white/10 pb-2 text-xs">
-        <span>Game</span>
-        <span>Last Updated</span>
-      </div>
-      <ul className="pt-1">
-        {Array.from({ length: 4 }, (_, i) => (
-          <li key={i} className="flex items-center gap-3 py-2">
-            <Skeleton className="size-7" />
-            <Skeleton className="h-4 w-24" />
-            <Skeleton className="h-3 w-44" />
-            <Skeleton className="ml-auto h-3 w-10" />
-          </li>
-        ))}
-      </ul>
+const GamesSkeleton = () => (
+  <div>
+    <div className="text-muted-foreground flex items-center justify-between border-b border-white/10 pb-2 text-xs">
+      <span>Game</span>
+      <span>Last Updated</span>
     </div>
-  );
-}
+    <ul className="pt-1">
+      {Array.from({ length: 4 }, (_, i) => (
+        <li key={i} className="flex items-center gap-3 py-2">
+          <Skeleton className="size-7" />
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-3 w-44" />
+          <Skeleton className="ml-auto h-3 w-10" />
+        </li>
+      ))}
+    </ul>
+  </div>
+);
 
-function GamesPage() {
-  const trpc = useTRPC();
+const GamesPage = () => {
+  const orpc = useORPC();
   const qc = useQueryClient();
   // One shared row highlight that springs to the hovered row (motion
   // layoutId) instead of per-row hover backgrounds. Hover and focus-within
@@ -125,11 +120,11 @@ function GamesPage() {
   // recipe app-wide; keep them in lockstep.
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
 
-  const list = useQuery(trpc.deploy.list.queryOptions());
+  const list = useQuery(orpc.deploy.list.queryOptions());
   const remove = useMutation(
-    trpc.deploy.delete.mutationOptions({
+    orpc.deploy.delete.mutationOptions({
       onSuccess: () => {
-        qc.invalidateQueries({ queryKey: trpc.deploy.list.queryKey() });
+        qc.invalidateQueries({ queryKey: orpc.deploy.list.queryKey() });
         toast.success("Game deleted");
       },
     }),
@@ -137,14 +132,14 @@ function GamesPage() {
 
   const confirmDelete = (game: { id: string; slug: string }) => {
     alertDialog.open(`Delete ${game.slug}?`, {
-      description:
-        "This takes the game offline and permanently deletes its files and source. There is no undo.",
       action: {
         label: "Delete",
         onClick: async () => {
           await remove.mutateAsync({ gameId: game.id });
         },
       },
+      description:
+        "This takes the game offline and permanently deletes its files and source. There is no undo.",
     });
   };
 
@@ -153,7 +148,9 @@ function GamesPage() {
       <h1 className="sr-only">Home</h1>
 
       {list.isError && (
-        <p className="text-muted-foreground text-sm">Couldn't load your games. Try reloading.</p>
+        <p className="text-muted-foreground text-sm">
+          Couldn&apos;t load your games. Try reloading.
+        </p>
       )}
 
       {!list.isError && (
@@ -166,11 +163,13 @@ function GamesPage() {
                 <span>Game</span>
                 <span>Last Updated</span>
               </div>
+              {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- hover-only row highlight; the keyboard path is the CSS :focus-within styling on each row */}
               <ul className="pt-1 text-sm" onMouseLeave={() => setHoveredRow(null)}>
                 {list.data.games.map((g) => {
                   const name = g.name ?? g.slug;
                   const deployed = g.deployment !== null;
                   return (
+                    // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- hover-only row highlight; the keyboard path is the CSS :focus-within styling below
                     <li
                       key={g.id}
                       onMouseEnter={() => setHoveredRow(g.id)}
@@ -179,7 +178,7 @@ function GamesPage() {
                       {hoveredRow === g.id && (
                         <motion.span
                           layoutId="row-highlight"
-                          transition={{ type: "spring", bounce: 0.15, duration: 0.3 }}
+                          transition={{ bounce: 0.15, duration: 0.3, type: "spring" }}
                           className="absolute inset-0 -z-10 rounded-lg bg-white/10 shadow-[inset_0_1px_0_rgb(255_255_255/0.06)] backdrop-blur-sm"
                         />
                       )}
@@ -227,4 +226,9 @@ function GamesPage() {
       )}
     </section>
   );
-}
+};
+
+export const Route = createFileRoute("/_account/home")({
+  component: GamesPage,
+  head: () => ({ meta: [{ title: "Home — Vibedgames" }] }),
+});

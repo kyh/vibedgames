@@ -10,9 +10,21 @@
 
 import { WELL_DEPTH, WELL_HEIGHT, WELL_WIDTH } from "../shared/constants";
 
-export type Cell = { x: number; y: number; z: number };
+export interface Cell {
+  x: number;
+  y: number;
+  z: number;
+}
 
-export type ClearResult = {
+export interface LockedCube {
+  x: number;
+  y: number;
+  z: number;
+  colorIndex: number;
+  id: number;
+}
+
+export interface ClearResult {
   /** Full columns (fixed x, spanning z). */
   xColumns: number;
   /** Full rows (fixed z, spanning x). */
@@ -20,20 +32,24 @@ export type ClearResult = {
   lines: number;
   /** Cubes removed this clear (for scoring / fx). */
   cubes: number;
-};
+  /** Exact pre-drop footprint, with crossing row/column intersections once. */
+  clearedCells: Cell[];
+}
 
 /** Clockwise rotation of an XZ footprint = transpose + reverse rows. */
-export function rotateCW(m: number[][]): number[][] {
+export const rotateCW = (m: number[][]): number[][] => {
   const rows = m.length;
   const cols = m[0]?.length ?? 0;
   const out: number[][] = [];
-  for (let c = 0; c < cols; c++) {
+  for (let c = 0; c < cols; c += 1) {
     const row: number[] = [];
-    for (let r = rows - 1; r >= 0; r--) row.push(m[r]?.[c] ?? 0);
+    for (let r = rows - 1; r >= 0; r -= 1) {
+      row.push(m[r]?.[c] ?? 0);
+    }
     out.push(row);
   }
   return out;
-}
+};
 
 export class Board {
   readonly width = WELL_WIDTH;
@@ -59,16 +75,27 @@ export class Board {
   }
 
   occupied(x: number, y: number, z: number): boolean {
-    if (!this.inBounds(x, z) || y < 0 || y >= this.height) return false;
+    if (!this.inBounds(x, z) || y < 0 || y >= this.height) {
+      return false;
+    }
     return (this.cells[this.idx(x, y, z)] ?? 0) > 0;
   }
 
   /** Would any of these cells hit a wall, the floor, or a locked cube? */
   collides(cells: Cell[]): boolean {
     for (const c of cells) {
-      if (!this.inBounds(c.x, c.z)) return true; // wall
-      if (c.y < 0) return true; // floor
-      if (c.y < this.height && (this.cells[this.idx(c.x, c.y, c.z)] ?? 0) > 0) return true; // locked
+      // Wall.
+      if (!this.inBounds(c.x, c.z)) {
+        return true;
+      }
+      // Floor.
+      if (c.y < 0) {
+        return true;
+      }
+      // Locked cube.
+      if (c.y < this.height && (this.cells[this.idx(c.x, c.y, c.z)] ?? 0) > 0) {
+        return true;
+      }
     }
     return false;
   }
@@ -80,7 +107,8 @@ export class Board {
       if (this.inBounds(c.x, c.z) && c.y >= 0 && c.y < this.height) {
         const i = this.idx(c.x, c.y, c.z);
         this.cells[i] = colorIndex;
-        this.ids[i] = this.nextId++;
+        this.ids[i] = this.nextId;
+        this.nextId += 1;
         layer = Math.max(layer, c.y);
       }
     }
@@ -89,7 +117,7 @@ export class Board {
 
   /** Drop the column at (x,z) down by one from layer `from` upward. */
   private dropColumnAbove(x: number, z: number, from: number): void {
-    for (let yy = from; yy < this.height - 1; yy++) {
+    for (let yy = from; yy < this.height - 1; yy += 1) {
       const dst = this.idx(x, yy, z);
       const src = this.idx(x, yy + 1, z);
       this.cells[dst] = this.cells[src] ?? 0;
@@ -106,13 +134,16 @@ export class Board {
    * each cleared pillar down by one. Returns counts for scoring/fx.
    */
   clearLayer(y: number): ClearResult {
-    const empty: ClearResult = { xColumns: 0, zRows: 0, lines: 0, cubes: 0 };
-    if (y < 0 || y >= this.height) return empty;
+    const empty: ClearResult = { clearedCells: [], cubes: 0, lines: 0, xColumns: 0, zRows: 0 };
+    if (y < 0 || y >= this.height) {
+      return empty;
+    }
 
-    const fullX: boolean[] = []; // fullX[x] = column x (all z) full
-    for (let x = 0; x < this.width; x++) {
+    // fullX[x] = column x (all z) full.
+    const fullX: boolean[] = [];
+    for (let x = 0; x < this.width; x += 1) {
       let full = true;
-      for (let z = 0; z < this.depth; z++) {
+      for (let z = 0; z < this.depth; z += 1) {
         if (!this.occupied(x, y, z)) {
           full = false;
           break;
@@ -120,10 +151,11 @@ export class Board {
       }
       fullX[x] = full;
     }
-    const fullZ: boolean[] = []; // fullZ[z] = row z (all x) full
-    for (let z = 0; z < this.depth; z++) {
+    // fullZ[z] = row z (all x) full.
+    const fullZ: boolean[] = [];
+    for (let z = 0; z < this.depth; z += 1) {
       let full = true;
-      for (let x = 0; x < this.width; x++) {
+      for (let x = 0; x < this.width; x += 1) {
         if (!this.occupied(x, y, z)) {
           full = false;
           break;
@@ -134,35 +166,49 @@ export class Board {
 
     const xColumns = fullX.filter(Boolean).length;
     const zRows = fullZ.filter(Boolean).length;
-    if (xColumns === 0 && zRows === 0) return empty;
+    if (xColumns === 0 && zRows === 0) {
+      return empty;
+    }
 
     // Collect (x,z) pillars to drop. A pillar in both a cleared column and row
     // appears once (deduped) so it drops by exactly one.
     const pillars = new Set<number>();
-    for (let x = 0; x < this.width; x++) {
-      if (fullX[x]) for (let z = 0; z < this.depth; z++) pillars.add(x * this.depth + z);
+    for (let x = 0; x < this.width; x += 1) {
+      if (fullX[x]) {
+        for (let z = 0; z < this.depth; z += 1) {
+          pillars.add(x * this.depth + z);
+        }
+      }
     }
-    for (let z = 0; z < this.depth; z++) {
-      if (fullZ[z]) for (let x = 0; x < this.width; x++) pillars.add(x * this.depth + z);
+    for (let z = 0; z < this.depth; z += 1) {
+      if (fullZ[z]) {
+        for (let x = 0; x < this.width; x += 1) {
+          pillars.add(x * this.depth + z);
+        }
+      }
     }
 
     let cubes = 0;
+    const clearedCells: Cell[] = [];
     for (const k of pillars) {
       const x = Math.floor(k / this.depth);
       const z = k % this.depth;
-      if (this.occupied(x, y, z)) cubes += 1;
+      if (this.occupied(x, y, z)) {
+        cubes += 1;
+        clearedCells.push({ x, y, z });
+      }
       this.dropColumnAbove(x, z, y);
     }
-    return { xColumns, zRows, lines: xColumns + zRows, cubes };
+    return { clearedCells, cubes, lines: xColumns + zRows, xColumns, zRows };
   }
 
   /** Charged power-sweep: clear the lowest layer that has any cube and drop
    *  everything above it. Returns cubes removed (0 if the well is empty). */
   sweepLowestLayer(): number {
     let y = -1;
-    for (let yy = 0; yy < this.height && y < 0; yy++) {
-      for (let x = 0; x < this.width && y < 0; x++) {
-        for (let z = 0; z < this.depth; z++) {
+    for (let yy = 0; yy < this.height && y < 0; yy += 1) {
+      for (let x = 0; x < this.width && y < 0; x += 1) {
+        for (let z = 0; z < this.depth; z += 1) {
           if (this.occupied(x, yy, z)) {
             y = yy;
             break;
@@ -170,11 +216,15 @@ export class Board {
         }
       }
     }
-    if (y < 0) return 0;
+    if (y < 0) {
+      return 0;
+    }
     let removed = 0;
-    for (let x = 0; x < this.width; x++) {
-      for (let z = 0; z < this.depth; z++) {
-        if (this.occupied(x, y, z)) removed += 1;
+    for (let x = 0; x < this.width; x += 1) {
+      for (let z = 0; z < this.depth; z += 1) {
+        if (this.occupied(x, y, z)) {
+          removed += 1;
+        }
         this.dropColumnAbove(x, z, y);
       }
     }
@@ -187,10 +237,10 @@ export class Board {
    * their colour and id so the renderer can rebuild from this.
    */
   collapseDown(): void {
-    for (let x = 0; x < this.width; x++) {
-      for (let z = 0; z < this.depth; z++) {
+    for (let x = 0; x < this.width; x += 1) {
+      for (let z = 0; z < this.depth; z += 1) {
         let writeY = 0;
-        for (let y = 0; y < this.height; y++) {
+        for (let y = 0; y < this.height; y += 1) {
           const i = this.idx(x, y, z);
           if ((this.cells[i] ?? 0) > 0) {
             if (y !== writeY) {
@@ -207,14 +257,20 @@ export class Board {
     }
   }
 
-  /** Visit every locked cube (for rendering / physics handoff). */
-  forEachCube(cb: (x: number, y: number, z: number, colorIndex: number, id: number) => void): void {
-    for (let x = 0; x < this.width; x++) {
-      for (let y = 0; y < this.height; y++) {
-        for (let z = 0; z < this.depth; z++) {
+  /**
+   * Every locked cube (for rendering / physics handoff).
+   *
+   * @yields {LockedCube} each occupied cell with its color index and stable id.
+   */
+  *cubes(): Generator<LockedCube> {
+    for (let x = 0; x < this.width; x += 1) {
+      for (let y = 0; y < this.height; y += 1) {
+        for (let z = 0; z < this.depth; z += 1) {
           const i = this.idx(x, y, z);
           const c = this.cells[i] ?? 0;
-          if (c > 0) cb(x, y, z, c, this.ids[i] ?? 0);
+          if (c > 0) {
+            yield { colorIndex: c, id: this.ids[i] ?? 0, x, y, z };
+          }
         }
       }
     }

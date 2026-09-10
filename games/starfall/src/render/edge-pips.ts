@@ -10,35 +10,39 @@
  * screen size at any zoom (phones floor at 0.75).
  */
 
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { BlendModes, Math as PhaserMath } from "phaser";
 
 import { PIP_EDGE_MARGIN, PIP_SIZE } from "../shared/constants";
 
 export type PipGlyph = "diamond" | "triangle" | "circle";
 
-export type PipTarget = {
+export interface PipTarget {
   x: number;
   y: number;
   tint: number;
   glyph: PipGlyph;
   /** 2Hz blink (UFO marker language). */
   blink?: boolean;
-};
+}
 
 export class EdgePips {
   private gfx: Phaser.GameObjects.Graphics;
 
   constructor(scene: Phaser.Scene, depth: number) {
-    this.gfx = scene.add.graphics().setDepth(depth).setBlendMode(Phaser.BlendModes.ADD);
+    this.gfx = scene.add.graphics().setDepth(depth).setBlendMode(BlendModes.ADD);
   }
 
   /** Redraw all pips for this frame. Targets already on-viewport are skipped. */
-  draw(cam: Phaser.Cameras.Scene2D.Camera, targets: ReadonlyArray<PipTarget>, now: number): void {
+  draw(cam: Phaser.Cameras.Scene2D.Camera, targets: readonly PipTarget[], now: number): void {
     const g = this.gfx;
     g.clear();
-    if (targets.length === 0) return;
+    if (targets.length === 0) {
+      return;
+    }
     const view = cam.worldView;
-    const s = 1 / Math.max(0.01, cam.zoom); // screen px → world px
+    // screen px → world px
+    const s = 1 / Math.max(0.01, cam.zoom);
     const margin = PIP_EDGE_MARGIN * s;
     const size = PIP_SIZE * s;
     for (const t of targets) {
@@ -52,9 +56,11 @@ export class EdgePips {
       ) {
         continue;
       }
-      if (t.blink && Math.floor(now / 250) % 2 === 1) continue;
-      const px = Phaser.Math.Clamp(t.x, view.x + margin, view.right - margin);
-      const py = Phaser.Math.Clamp(t.y, view.y + margin, view.bottom - margin);
+      if (t.blink && Math.floor(now / 250) % 2 === 1) {
+        continue;
+      }
+      const px = PhaserMath.Clamp(t.x, view.x + margin, view.right - margin);
+      const py = PhaserMath.Clamp(t.y, view.y + margin, view.bottom - margin);
       const ang = Math.atan2(t.y - py, t.x - px);
       if (t.glyph === "triangle") {
         // Filled arrowhead pointing at the target.

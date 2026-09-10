@@ -1,6 +1,6 @@
 import { siteConfig } from "@/lib/site-config";
 
-const url = siteConfig.url;
+const { url } = siteConfig;
 
 /**
  * `/llms.txt`, per the https://llmstxt.org/ format: an H1, a blockquote

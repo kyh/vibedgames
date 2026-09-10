@@ -10,10 +10,12 @@
   },
   "scripts": {
     "clean": "rm -rf .cache .turbo dist node_modules",
+    "test": "node --import tsx tools/pause-key-smoke.mjs",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
+    "tsx": "^4.23.12",
     "typescript": "catalog:"
   }
 }

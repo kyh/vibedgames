@@ -9,7 +9,7 @@
  *   node upgrade-skill.mjs <path/to/skill>
  */
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import path from "node:path";
 
 import { generateSuggestions, parseFrontmatter } from "./_lib/asset-tools.mjs";
 
@@ -28,13 +28,13 @@ if (!existsSync(skillPath)) {
   process.exit(1);
 }
 
-const skillMd = join(skillPath, "SKILL.md");
+const skillMd = path.join(skillPath, "SKILL.md");
 if (!existsSync(skillMd)) {
   console.log(`❌ SKILL.md not found at ${skillMd}`);
   process.exit(1);
 }
 
-const content = readFileSync(skillMd, "utf8");
+const content = readFileSync(skillMd, "utf-8");
 const parts = content.split("---");
 if (parts.length < 3) {
   console.log("❌ Invalid SKILL.md format - missing frontmatter");
@@ -63,13 +63,15 @@ for (const [priority, heading] of [
   ["LOW", "🟢 LOW PRIORITY IMPROVEMENTS"],
 ]) {
   const group = suggestions.filter((s) => s.priority === priority);
-  if (group.length === 0) continue;
+  if (group.length === 0) {
+    continue;
+  }
   console.log(`\n${heading}`);
   console.log("-".repeat(70));
-  group.forEach((s, i) => {
+  for (const [i, s] of group.entries()) {
     console.log(`\n${i + 1}. ${s.category}: ${s.suggestion}`);
     console.log(`\nExample:\n${s.example}\n`);
-  });
+  }
 }
 
 console.log(rule);

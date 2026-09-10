@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" />
+  <title>SF tree study</title>
+  <style>
+    body {
+      margin: 0;
+      background: #e9e8e4;
+      font: 13px system-ui;
+      color: #3c4539;
+    }
+    canvas {
+      display: block;
+    }
+    footer {
+      position: fixed;
+      inset: auto 0 24px;
+      display: flex;
+      justify-content: space-around;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+  </style>
+  <footer>
+    <span>Monterey cypress · 526 triangles</span><span>Street broadleaf · 516 triangles</span>
+  </footer>
+  <script type="module">
+    import * as THREE from "three";
+    import { createSfTreeModel } from "../../src/assets/sf-trees.ts";
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.1;
+    document.body.appendChild(renderer.domElement);
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xe9e8e4);
+    scene.add(new THREE.HemisphereLight(0xeaf4ff, 0x8c8579, 2));
+    const key = new THREE.DirectionalLight(0xfff2cf, 3);
+    key.position.set(-3, 7, 4);
+    key.castShadow = true;
+    key.shadow.mapSize.set(2048, 2048);
+    key.shadow.camera.left = -6;
+    key.shadow.camera.right = 6;
+    key.shadow.camera.bottom = -6;
+    key.shadow.camera.top = 6;
+    key.shadow.normalBias = 0.02;
+    scene.add(key);
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(200, 200),
+      new THREE.MeshStandardMaterial({ color: 0xe9e8e4, roughness: 1 }),
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = -0.012;
+    ground.receiveShadow = true;
+    scene.add(ground);
+    for (const [i, kind] of ["cypress", "broadleaf"].entries()) {
+      const tree = createSfTreeModel(kind);
+      const bounds = new THREE.Box3().setFromObject(tree);
+      tree.scale.setScalar(3.4 / (bounds.max.y - bounds.min.y));
+      tree.position.x = i === 0 ? -1.6 : 1.6;
+      tree.rotation.y = -0.24;
+      scene.add(tree);
+    }
+    const camera = new THREE.PerspectiveCamera(34, innerWidth / innerHeight, 0.1, 100);
+    camera.position.set(3.5, 3.2, 12.5);
+    camera.lookAt(0, 1.7, 0);
+    renderer.setAnimationLoop(() => renderer.render(scene, camera));
+    Object.assign(window, { treeStudy: { scene, camera, renderer } });
+  </script>
+</html>

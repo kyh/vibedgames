@@ -18,16 +18,18 @@ import { siteConfig } from "@/lib/site-config";
  * {@link varyHeaders}), which is the supported way to decorate a response the
  * framework produces downstream of us.
  */
-export function docHandler<TNext>(doc: Doc) {
-  return ({ request, next }: { request: Request; next: () => TNext }) => {
+export const docHandler =
+  <TNext>(doc: Doc) =>
+  ({ request, next }: { request: Request; next: () => TNext }) => {
     const result = negotiate(request.headers.get("accept"));
-    if (result.kind === "not-acceptable") return notAcceptableResponse(request);
+    if (result.kind === "not-acceptable") {
+      return notAcceptableResponse(request);
+    }
     if (result.kind === "match" && result.type === MARKDOWN) {
       return markdownResponse(docToMarkdown(doc));
     }
     return next();
   };
-}
 
 /**
  * Response headers for a negotiated page. Without `Vary: Accept` a CDN can
@@ -39,20 +41,20 @@ export const varyHeaders =
   () => ({ Vary: vary });
 
 /** `<head>` tags for a prose page: title, description, canonical, Open Graph. */
-export function docHead(doc: Doc) {
+export const docHead = (doc: Doc) => {
   const title = doc.title.includes(siteConfig.name)
     ? doc.title
     : `${doc.title} — ${siteConfig.name}`;
   const canonical = `${siteConfig.url}${doc.path}`;
   return {
+    links: [{ href: canonical, rel: "canonical" }],
     meta: [
       { title },
-      { name: "description", content: doc.description },
-      { property: "og:title", content: title },
-      { property: "og:description", content: doc.description },
-      { property: "og:url", content: canonical },
-      { property: "og:type", content: "website" },
+      { content: doc.description, name: "description" },
+      { content: title, property: "og:title" },
+      { content: doc.description, property: "og:description" },
+      { content: canonical, property: "og:url" },
+      { content: "website", property: "og:type" },
     ],
-    links: [{ rel: "canonical", href: canonical }],
   };
-}
+};

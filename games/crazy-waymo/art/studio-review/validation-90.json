@@ -1,0 +1,49 @@
+{
+  "scope": "Historical environment-pass validation before release cleanup and mobile performance fixes; see release-validation.json for current checks.",
+  "worldRevision": 90,
+  "productionBundle": "index-TVy2lyUT.js",
+  "gameChecks": {
+    "passed": 140,
+    "failed": 0,
+    "log": "game-tests-90.log"
+  },
+  "repositoryTests": {
+    "tasksPassed": 11,
+    "tasksTotal": 11
+  },
+  "typecheck": {
+    "tasksPassed": 24,
+    "tasksTotal": 24
+  },
+  "lint": "pass; existing repository warnings remain",
+  "gameFormatting": "pass, 215 files checked after final reports were saved",
+  "repositoryFormatting": {
+    "status": "unrelated existing failure",
+    "file": "apps/games/tests/worker.mjs",
+    "fileChanged": false
+  },
+  "productionBuild": "pass; Vite notes a large main chunk",
+  "desktop": {
+    "report": "report.json",
+    "checksPassed": 9,
+    "checksFailed": 0,
+    "pageErrors": 0
+  },
+  "mobile": {
+    "report": "mobile/report.json",
+    "checksPassed": 12,
+    "checksFailed": 0,
+    "pageErrors": 0
+  },
+  "limits": [
+    "Fare lifecycle uses staged pickup/dropoff positions.",
+    "Mobile input and layout are emulated on a desktop GPU. Physical phone performance is unmeasured.",
+    "Offline rehearsals do not verify multiplayer."
+  ],
+  "publication": "Local files only; no commit, push or deployment.",
+  "productionSmoke": {
+    "report": "production-90.json",
+    "checksPassed": 5,
+    "pageErrors": 0
+  }
+}

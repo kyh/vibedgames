@@ -10,11 +10,9 @@ import { siteConfig } from "@/lib/site-config";
  * on its own — llms.txt for orientation, the sitemap for what exists, and the
  * docs index for the developer surface.
  */
-export function notFoundDoc(pathname?: string): Doc {
+export const notFoundDoc = (pathname?: string): Doc => {
   const requested = pathname && pathname !== "/" ? pathname : null;
   return {
-    path: "/404",
-    title: "404 — page not found",
     description: requested
       ? `There is no page at ${requested} on ${siteConfig.url}.`
       : `That page does not exist on ${siteConfig.url}.`,
@@ -24,12 +22,11 @@ export function notFoundDoc(pathname?: string): Doc {
         text: "The URL is wrong, or the page has moved. Nothing on this domain is generated on demand, so a path that 404s here does not exist — retrying it will not help.",
       },
     ],
+    path: "/404",
     sections: [
       {
-        heading: "Where to look next",
         blocks: [
           {
-            kind: "ul",
             items: [
               "[/llms.txt](/llms.txt) — what Vibedgames is for, when to use it, and the first command to run.",
               "[/sitemap.xml](/sitemap.xml) — every page on this domain.",
@@ -38,15 +35,18 @@ export function notFoundDoc(pathname?: string): Doc {
               "[/discover](/discover) — games shipped on the platform.",
               "[/about](/about) · [/contact](/contact) · [/privacy](/privacy) — who runs this and how to reach them.",
             ],
+            kind: "ul",
           },
           {
             kind: "p",
             text: "Looking for a game? Games live on their own subdomains, at `{slug}.vibedgames.com` — not under a path on this one.",
           },
         ],
+        heading: "Where to look next",
       },
     ],
+    title: "404 — page not found",
   };
-}
+};
 
 export const notFoundMarkdown = (pathname?: string) => docToMarkdown(notFoundDoc(pathname));

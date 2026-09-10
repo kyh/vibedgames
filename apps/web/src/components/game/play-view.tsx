@@ -5,16 +5,18 @@ import {
   InputGroupButton,
   InputGroupInput,
 } from "@repo/ui/components/input-group";
-import { cn } from "@repo/ui/lib/utils";
+import { cn } from "cn";
 import { CompassIcon, RefreshCwIcon } from "lucide-react";
 import { motion } from "motion/react";
+import { getRouteApi } from "@tanstack/react-router";
 
 import { FadeInBlur } from "@/components/ui/fade-in-blur";
-import { Route } from "@/routes/_site/index";
 import { gameUrl } from "./data";
 
+const route = getRouteApi("/_site/");
+
 export const PlayView = () => {
-  const { game } = Route.useSearch();
+  const { game } = route.useSearch();
   const url = gameUrl(game);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [loading, setLoading] = useState(false);
@@ -24,18 +26,24 @@ export const PlayView = () => {
   const refresh = useCallback(() => {
     const iframe =
       iframeRef.current ?? document.querySelector<HTMLIFrameElement>("iframe[title='Game']");
-    if (!iframe) return;
+    if (!iframe) {
+      return;
+    }
     setLoading(true);
-    if (timerRef.current) clearTimeout(timerRef.current);
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+    }
     timerRef.current = setTimeout(() => setLoading(false), 1500);
-    const url = new URL(iframe.src);
-    url.searchParams.set("t", Date.now().toString());
-    iframe.src = url.toString();
+    const src = new URL(iframe.src);
+    src.searchParams.set("t", Date.now().toString());
+    iframe.src = src.toString();
   }, []);
 
   useEffect(
     () => () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
     },
     [],
   );

@@ -1,0 +1,35 @@
+{
+  "worldRevision": 90,
+  "issue": "Construction scaffolds read as blank burgundy billboards. Their local-X run was rotated across the curb even though placement clearance checked along the street.",
+  "change": "Scaffold-only yaw now aligns local +X with the street tangent. Open debris mesh and three cross-braced bays replace the opaque canvas sheet. Center, collision behavior and original local bounds remain unchanged.",
+  "installedArtifact": {
+    "sourceGeometryMatchTolerance": 0.001,
+    "matchedRawGeometryIndices": [28, 22, 85],
+    "scaffoldCount": 22,
+    "minimumAbsoluteDotWithNearestStreetTangent": 0.9999999999999967,
+    "misalignedInstances": 0
+  },
+  "sourceChecks": {
+    "sharedMaterials": 3,
+    "triangles": 784,
+    "localBounds": {
+      "x": [-4.555, 4.555],
+      "y": [0, 6.2],
+      "z": [-0.905, 0.915]
+    },
+    "footprintCases": "All geometry vertices against actual road strips for seven cardinal/diagonal tangents, both curb sides.",
+    "minimumVertexClearanceFromAsphalt": 1.835,
+    "openBackingOccludedViewRays": 4,
+    "openBackingSampledViewRays": 128
+  },
+  "validation": {
+    "scope": "Scaffold source checks ran before the revision 90 bake; installed-artifact matching and alignment were checked after installation.",
+    "typecheck": "passed",
+    "gameTests": { "passed": 128, "failed": 0 },
+    "scopedLint": "no errors; existing furniture warnings only",
+    "format": "passed"
+  },
+  "tests": "tools/test-scaffold-kit.mts; wired into tools/test-world.mts",
+  "bakeRequired": true,
+  "bakeInstalled": true
+}

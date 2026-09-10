@@ -1,7 +1,5 @@
-import { fileURLToPath } from "node:url";
-
 import { defineCommand } from "citty";
-import consola from "consola";
+import { consola } from "consola";
 
 import {
   detectPackageManager,
@@ -18,44 +16,54 @@ const description = "Install/update vibedgames skills and the vg CLI";
 
 const skillsAddArgs = (agents: string[], global: boolean, yes: boolean) => {
   const args = ["-y", "skills", "add", REPO];
-  for (const agent of agents) args.push("-a", agent);
-  if (global) args.push("-g");
-  if (yes) args.push("-y");
+  for (const agent of agents) {
+    args.push("-a", agent);
+  }
+  if (global) {
+    args.push("-g");
+  }
+  if (yes) {
+    args.push("-y");
+  }
   return args;
 };
 
 const skillsUpdateArgs = (global: boolean, yes: boolean) => {
   const args = ["-y", "skills", "update"];
-  if (global) args.push("-g");
-  if (yes) args.push("-y");
+  if (global) {
+    args.push("-g");
+  }
+  if (yes) {
+    args.push("-y");
+  }
   return args;
 };
 
 const initArgs = {
   agent: {
-    type: "string",
-    description:
-      "Comma-separated target agents. Default installs for Claude Code, Cursor, and Codex (symlinked from a shared .agents/skills/ dir). Pass '*' for every supported agent.",
     alias: "a",
     default: DEFAULT_AGENTS,
+    description:
+      "Comma-separated target agents. Default installs for Claude Code, Cursor, and Codex (symlinked from a shared .agents/skills/ dir). Pass '*' for every supported agent.",
+    type: "string",
   },
   global: {
-    type: "boolean",
-    description: "Install to user directory instead of project",
-    default: false,
     alias: "g",
+    default: false,
+    description: "Install to user directory instead of project",
+    type: "boolean",
   },
   yes: {
-    type: "boolean",
-    description: "Skip confirmation prompts",
-    default: true,
     alias: "y",
+    default: true,
+    description: "Skip confirmation prompts",
+    type: "boolean",
   },
 } as const;
 
 export const initCommand = defineCommand({
-  meta: { name: "init", description },
   args: initArgs,
+  meta: { description, name: "init" },
   run: async ({ args, rawArgs }) => {
     assertKnownFlags(rawArgs, initArgs);
 
@@ -67,7 +75,7 @@ export const initCommand = defineCommand({
     // Whatever installed this CLI is what should upgrade it. Installing with a
     // different manager writes a second copy into a prefix the shell may not
     // even be looking at, so `vg --version` would not move.
-    const manager = detectPackageManager(fileURLToPath(import.meta.url));
+    const manager = detectPackageManager(import.meta.filename);
 
     consola.start(
       "Installing/updating vibedgames skills and the vg CLI (this takes a few minutes — `skills` fetches the repo once per skill)...",
@@ -86,7 +94,9 @@ export const initCommand = defineCommand({
             `the skills yourself with: npx skills add ${REPO}`,
         );
       }
-      if (add.output.trim()) consola.error(add.output.trim());
+      if (add.output.trim()) {
+        consola.error(add.output.trim());
+      }
       throw new Error(`skills add exited with code ${add.code}`);
     }
     consola.success(`Installed vibedgames skills for ${agents.join(", ")}`);
@@ -94,17 +104,21 @@ export const initCommand = defineCommand({
     const update = await run("npx", skillsUpdateArgs(args.global, args.yes), {
       stream: true,
     });
-    if (update.code !== 0) {
-      if (update.output.trim()) consola.warn(update.output.trim());
+    if (update.code === 0) {
+      consola.success("Refreshed installed skills to latest");
+    } else {
+      if (update.output.trim()) {
+        consola.warn(update.output.trim());
+      }
       consola.warn(
         `'skills update' exited with code ${update.code}. Skills were just installed via 'add', so they should already be current.`,
       );
-    } else {
-      consola.success("Refreshed installed skills to latest");
     }
 
     if (cli.code !== 0) {
-      if (cli.output.trim() && !isMissingCommand(cli)) consola.warn(cli.output.trim());
+      if (cli.output.trim() && !isMissingCommand(cli)) {
+        consola.warn(cli.output.trim());
+      }
       consola.warn(
         isMissingCommand(cli)
           ? `Couldn't find ${manager} to update the vg CLI. Update manually: ${globalInstallCommand(manager)}`

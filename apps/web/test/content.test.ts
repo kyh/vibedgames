@@ -25,16 +25,16 @@ describe("every prose page", () => {
       });
 
       test("names the product, so a title-based search can find it", () => {
-        assert.match(`${doc.title} ${doc.description}`, new RegExp(siteConfig.name, "i"));
+        assert.match(`${doc.title} ${doc.description}`, new RegExp(siteConfig.name, "iu"));
       });
 
       test("round-trips to markdown with an H1 and a summary blockquote", () => {
         const markdown = docToMarkdown(doc);
-        assert.match(markdown, /^# .+\n\n> .+/);
+        assert.match(markdown, /^# .+\n\n> .+/u);
       });
 
       test("has no site-relative link left in its markdown form", () => {
-        assert.doesNotMatch(docToMarkdown(doc), /\]\(\/[^)]*\)/);
+        assert.doesNotMatch(docToMarkdown(doc), /\]\(\/[^)]*\)/u);
       });
     });
   }
@@ -54,13 +54,13 @@ describe("trust anchor pages", () => {
 
   test("/contact names a reachable support channel", () => {
     const markdown = docToMarkdown(contactDoc);
-    assert.match(markdown, new RegExp(siteConfig.issues.replace(/[/.]/g, "\\$&")));
+    assert.match(markdown, new RegExp(siteConfig.issues.replaceAll(/[/.]/gu, "\\$&"), "u"));
   });
 
   test("/privacy covers what is stored, who processes it and deletion", () => {
     const markdown = docToMarkdown(privacyDoc).toLowerCase();
     for (const topic of ["cookie", "delet", "retention", "cloudflare"]) {
-      assert.match(markdown, new RegExp(topic));
+      assert.match(markdown, new RegExp(topic, "u"));
     }
   });
 });
@@ -69,39 +69,43 @@ describe("/docs", () => {
   const markdown = docToMarkdown(docsDoc);
 
   test("names the developer resources an agent searches for", () => {
-    for (const needle of ["vg deploy", "vg generate", "tRPC", "better-auth", "VG_TOKEN"]) {
-      assert.match(markdown, new RegExp(needle.replace(/[/.]/g, "\\$&")));
+    for (const needle of ["vg deploy", "vg generate", "oRPC", "better-auth", "VG_TOKEN"]) {
+      assert.match(markdown, new RegExp(needle.replaceAll(/[/.]/gu, "\\$&"), "u"));
     }
   });
 
   test("links the machine-readable endpoints", () => {
     for (const path of ["/llms.txt", "/install", "/sitemap.xml", "/.well-known/agent-skills"]) {
-      assert.match(markdown, new RegExp(path.replace(/[/.]/g, "\\$&")));
+      assert.match(markdown, new RegExp(path.replaceAll(/[/.]/gu, "\\$&"), "u"));
     }
   });
 });
 
 describe("llms.txt", () => {
   test("follows the llmstxt.org shape: H1, blockquote, then H2 sections", () => {
-    assert.match(llmsTxt, /^# Vibedgames\n\n> .+/);
+    assert.match(llmsTxt, /^# Vibedgames\n\n> .+/u);
     assert.ok(llmsTxt.includes("\n## Start here\n"));
   });
 
   test("carries explicit when-to-use guidance, not marketing copy", () => {
     assert.ok(llmsTxt.includes("## When to use Vibedgames"));
-    assert.match(llmsTxt, /Reach for Vibedgames when/);
-    assert.match(llmsTxt, /Do \*\*not\*\* reach for Vibedgames/);
+    assert.match(llmsTxt, /Reach for Vibedgames when/u);
+    assert.match(llmsTxt, /Do \*\*not\*\* reach for Vibedgames/u);
   });
 
   test("tells an agent the first command to run", () => {
     assert.ok(llmsTxt.includes("## How to call it"));
-    assert.match(llmsTxt, /npx vibedgames init/);
+    assert.match(llmsTxt, /npx vibedgames init/u);
   });
 
   test("uses absolute URLs, since it is read away from its origin", () => {
-    const links = [...llmsTxt.matchAll(/\]\(([^)]+)\)/g)].map((match) => match[1] ?? "");
+    const links = [...llmsTxt.matchAll(/\]\((?<href>[^)]+)\)/gu)].map(
+      (match) => match.groups?.href ?? "",
+    );
     assert.ok(links.length > 0);
-    for (const link of links) assert.match(link, /^https:\/\//);
+    for (const link of links) {
+      assert.match(link, /^https:\/\//u);
+    }
   });
 });
 
@@ -109,17 +113,17 @@ describe("404 body", () => {
   const markdown = notFoundMarkdown("/does-not-exist");
 
   test("says which path was missed", () => {
-    assert.match(markdown, /\/does-not-exist/);
+    assert.match(markdown, /\/does-not-exist/u);
   });
 
   test("points at the files an agent can recover from", () => {
     for (const path of ["/llms.txt", "/sitemap.xml", "/docs"]) {
-      assert.match(markdown, new RegExp(path.replace(/[/.]/g, "\\$&")));
+      assert.match(markdown, new RegExp(path.replaceAll(/[/.]/gu, "\\$&"), "u"));
     }
   });
 
   test("works without a pathname", () => {
-    assert.match(notFoundMarkdown(), /^# 404/);
+    assert.match(notFoundMarkdown(), /^# 404/u);
   });
 });
 

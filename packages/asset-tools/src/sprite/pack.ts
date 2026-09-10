@@ -1,4 +1,4 @@
-import { basename } from "node:path";
+import path from "node:path";
 
 import { Bitmap } from "../image/raster.js";
 import { loadFrames } from "./frames.js";
@@ -15,7 +15,7 @@ import { loadFrames } from "./frames.js";
  * animation.
  */
 
-export type SpritesheetManifest = {
+export interface SpritesheetManifest {
   image: string;
   frameWidth: number;
   frameHeight: number;
@@ -24,16 +24,19 @@ export type SpritesheetManifest = {
   frameCount: number;
   fps: number;
   animations: Record<string, { fps: number; frames: number[] }>;
-};
+}
 
 export type PackResult = SpritesheetManifest & {
   _manifestPath: string;
   _sheetPath: string;
 };
 
-export type PackedSheet = { manifest: SpritesheetManifest; sheet: Bitmap };
+export interface PackedSheet {
+  manifest: SpritesheetManifest;
+  sheet: Bitmap;
+}
 
-export function packSpritesheet(
+export const packSpritesheet = (
   inputDir: string,
   out: string,
   options: {
@@ -42,7 +45,7 @@ export function packSpritesheet(
     fps?: number;
     action?: string;
   } = {},
-): PackedSheet {
+): PackedSheet => {
   const { glob = "frame-*.png", columns = null, fps = 10, action = "anim" } = options;
   const frames = loadFrames(inputDir, glob);
 
@@ -51,35 +54,39 @@ export function packSpritesheet(
   const sizes = new Set(frames.map((f) => `${f.image.width}x${f.image.height}`));
   if (sizes.size !== 1) {
     throw new Error(
-      `frames are not a uniform size (${[...sizes].sort().join(", ")}); normalize them first (run \`vg sprite normalize-canvas\`).`,
+      `frames are not a uniform size (${[...sizes].toSorted().join(", ")}); normalize them first (run \`vg sprite normalize-canvas\`).`,
     );
   }
 
-  const frameWidth = frames[0]!.image.width;
-  const frameHeight = frames[0]!.image.height;
+  const [firstFrame] = frames;
+  if (firstFrame === undefined) {
+    throw new Error(`no frames matching ${glob} in ${inputDir}`);
+  }
+  const frameWidth = firstFrame.image.width;
+  const frameHeight = firstFrame.image.height;
   const count = frames.length;
   const cols = columns === null || columns === 0 ? count : Math.min(columns, count);
   const rows = Math.ceil(count / cols);
 
   const sheet = Bitmap.create(cols * frameWidth, rows * frameHeight);
-  frames.forEach((frame, i) => {
+  for (const [i, frame] of frames.entries()) {
     const row = Math.floor(i / cols);
     const col = i - row * cols;
     // Exact cell, no gap, alpha copied rather than blended.
     sheet.paste(frame.image, col * frameWidth, row * frameHeight);
-  });
+  }
 
   return {
-    sheet,
     manifest: {
-      image: basename(out),
-      frameWidth,
-      frameHeight,
-      columns: cols,
-      rows,
-      frameCount: count,
-      fps,
       animations: { [action]: { fps, frames: Array.from({ length: count }, (_, i) => i) } },
+      columns: cols,
+      fps,
+      frameCount: count,
+      frameHeight,
+      frameWidth,
+      image: path.basename(out),
+      rows,
     },
+    sheet,
   };
-}
+};

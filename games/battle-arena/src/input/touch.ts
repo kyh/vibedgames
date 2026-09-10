@@ -1,3 +1,5 @@
+import type { AbilityReadiness } from "../render/hud-readability";
+import { CHAMP_BY_ID } from "../data/champions";
 // Touch controls (build-doc §12). Left half = floating move stick (camera-
 // relative forward/strafe); right half = floating LOOK stick — it turns the
 // camera FPS-style (the scene folds its deflection into yaw/pitch at pad
@@ -12,18 +14,21 @@ import { abilityIcon } from "../data/icons";
 import { ALL_ABILITY_KEYS } from "../sim/types";
 import type { AbilityKey } from "../sim/types";
 
-type Stick = { id: number; baseX: number; baseY: number; dx: number; dy: number };
+interface Stick {
+  id: number;
+  baseX: number;
+  baseY: number;
+  dx: number;
+  dy: number;
+}
 
 const STICK_R = 60;
 const KNOB_R = 28;
 
 /** Boot-time input mode for instruction copy. */
-export function isTouchInput(): boolean {
-  return (
-    "ontouchstart" in window ||
-    ("matchMedia" in window && window.matchMedia("(pointer:coarse)").matches)
-  );
-}
+export const isTouchInput = (): boolean =>
+  "ontouchstart" in window ||
+  ("matchMedia" in window && window.matchMedia("(pointer:coarse)").matches);
 
 // "DASH"/"JUMP" are AbilityKeys → their buttons carry cooldown sweeps and icons
 // like Q/W/E/R. "J" is the plain hop (Space), "B" the shop toggle.
@@ -44,11 +49,64 @@ const ABILITY_IDS = new Set<string>(["Q", "W", "E", "R", "DASH", "JUMP"]);
 // tappable timer) belong to that UI — they must never spawn a stick.
 const INTERACTIVE_SEL = "button,input,#ba-shop,#ba-end,#ba-timer,.ba-item-chip";
 
-type Btn = {
+interface Btn {
   el: HTMLDivElement;
   label: HTMLSpanElement;
   cd: HTMLDivElement | null;
   lastCd: number;
+  state: HTMLSpanElement;
+  lastState: string;
+}
+
+let touchStyleInjected = false;
+const injectTouchStyle = (): void => {
+  if (touchStyleInjected) {
+    return;
+  }
+  touchStyleInjected = true;
+  const s = document.createElement("style");
+  s.textContent = `
+.ba-tbtn{position:relative;width:58px;height:58px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(20,26,42,.7);border:2px solid rgba(255,255,255,.25);color:#fff;overflow:hidden;background-size:cover;background-position:center;touch-action:none}
+.ba-tbtn.press{filter:brightness(1.6);border-color:rgba(255,209,71,.8)}
+.ba-tbtn .ba-tl{font:800 18px ui-monospace,monospace;pointer-events:none}
+.ba-tbtn .ba-tl.word{font-size:11px;letter-spacing:.5px}
+.ba-tbtn .ba-tl.kc{position:absolute;right:6px;bottom:4px;font:800 10px/14px ui-monospace,monospace;color:#ffd24a;background:rgba(5,8,16,.85);border-radius:4px;padding:0 4px}
+.ba-tbtn.blocked{filter:saturate(.35)}.ba-tbtn.queued{border-color:#ffd24a}.ba-tstate{position:absolute;left:0;right:0;top:18px;text-align:center;font:800 9px ui-monospace,monospace;background:#09101dcc;color:#ffe7a4;pointer-events:none}.ba-tstate:empty{display:none}
+.ba-tcd{position:absolute;inset:0;border-radius:50%;background:conic-gradient(rgba(5,8,16,.75) calc(var(--cd,0)*1%),transparent 0);pointer-events:none}
+`;
+  document.head.append(s);
+};
+
+const readinessLabel = (readiness: AbilityReadiness): string => {
+  if (readiness.kind === "blocked") {
+    return readiness.label;
+  }
+  return readiness.queued ? "QUEUED" : "";
+};
+
+const stickEl = (): StickHandle => {
+  const el = document.createElement("div");
+  el.style.cssText = `position:absolute;display:none;pointer-events:none`;
+  const base = document.createElement("div");
+  base.className = "base";
+  const knob = document.createElement("div");
+  knob.className = "knob";
+  el.append(base, knob);
+  base.style.cssText = `position:absolute;width:${STICK_R * 2}px;height:${STICK_R * 2}px;border-radius:50%;background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.2);transform:translate(-50%,-50%)`;
+  knob.style.cssText = `position:absolute;width:${KNOB_R * 2}px;height:${KNOB_R * 2}px;border-radius:50%;background:rgba(255,255,255,.35);transform:translate(-50%,-50%)`;
+  return { base, el, knob };
+};
+
+const place = ({ el, base, knob }: StickHandle, s: Stick | null): void => {
+  if (!s) {
+    el.style.display = "none";
+    return;
+  }
+  el.style.display = "block";
+  base.style.left = `${s.baseX}px`;
+  base.style.top = `${s.baseY}px`;
+  knob.style.left = `${s.baseX + s.dx * STICK_R}px`;
+  knob.style.top = `${s.baseY + s.dy * STICK_R}px`;
 };
 
 export class TouchControls {
@@ -57,9 +115,12 @@ export class TouchControls {
   private aim: Stick | null = null;
   private queue: AbilityKey[] = [];
   private buy = false;
-  private jump = false; // plain hop (Space)
-  private dash = false; // cast DASH
-  private jumpAttack = false; // cast JUMP (leaping strike)
+  // plain hop (Space)
+  private jump = false;
+  // cast DASH
+  private dash = false;
+  // cast JUMP (leaping strike)
+  private jumpAttack = false;
   private layer: HTMLDivElement;
   private moveEl: StickHandle;
   private aimEl: StickHandle;
@@ -90,35 +151,50 @@ export class TouchControls {
       // The bottom row is the one that shares its band with the item belt pinned
       // bottom-LEFT on phones, so it starts at column 2: HOP · B, with column 1
       // left empty. Placing HOP in column 1 put it over the belt's last chip.
-      if (b.id === "J") el.style.gridColumn = "2";
-      if (b.id === "B") el.style.gridColumn = "3";
+      if (b.id === "J") {
+        el.style.gridColumn = "2";
+      }
+      if (b.id === "B") {
+        el.style.gridColumn = "3";
+      }
       const label = document.createElement("span");
       label.className = "ba-tl";
       label.textContent = b.label;
-      if (b.label.length > 1) label.classList.add("word");
-      el.appendChild(label);
+      if (b.label.length > 1) {
+        label.classList.add("word");
+      }
+      el.append(label);
       let cd: HTMLDivElement | null = null;
       if (ABILITY_IDS.has(b.id)) {
         cd = document.createElement("div");
         cd.className = "ba-tcd";
-        el.appendChild(cd);
+        el.append(cd);
       }
       el.addEventListener("pointerdown", (e) => {
         e.stopPropagation();
         el.classList.add("press");
-        if (b.id === "B") this.buy = true;
-        else if (b.id === "J") this.jump = true;
-        else if (b.id === "DASH") this.dash = true;
-        else if (b.id === "JUMP") this.jumpAttack = true;
-        else this.queue.push(b.id);
+        if (b.id === "B") {
+          this.buy = true;
+        } else if (b.id === "J") {
+          this.jump = true;
+        } else if (b.id === "DASH") {
+          this.dash = true;
+        } else if (b.id === "JUMP") {
+          this.jumpAttack = true;
+        } else {
+          this.queue.push(b.id);
+        }
       });
       el.addEventListener("pointerup", () => el.classList.remove("press"));
       el.addEventListener("pointercancel", () => el.classList.remove("press"));
-      this.buttons.set(b.id, { el, label, cd, lastCd: -1 });
-      pad.appendChild(el);
+      const state = document.createElement("span");
+      state.className = "ba-tstate";
+      el.append(state);
+      this.buttons.set(b.id, { cd, el, label, lastCd: -1, lastState: "", state });
+      pad.append(el);
     }
-    this.layer.appendChild(pad);
-    document.body.appendChild(this.layer);
+    this.layer.append(pad);
+    document.body.append(this.layer);
 
     window.addEventListener("pointerdown", this.onDown, { passive: false });
     window.addEventListener("pointermove", this.onMove, { passive: false });
@@ -136,13 +212,20 @@ export class TouchControls {
    *  labels to corner keycaps. DASH/JUMP get the shared glyph icon (abilityIcon
    *  special-cases them) but keep their word label. Idempotent per champ. */
   bindChamp(champId: string): void {
-    if (champId === this.champBound) return;
+    if (champId === this.champBound) {
+      return;
+    }
     this.champBound = champId;
     for (const key of ALL_ABILITY_KEYS) {
       const btn = this.buttons.get(key);
-      if (!btn) continue;
+      if (!btn) {
+        continue;
+      }
+      btn.el.setAttribute("aria-label", CHAMP_BY_ID[champId]?.abilities[key].name ?? key);
       btn.el.style.backgroundImage = `url("${abilityIcon(champId, key)}")`;
-      if (key === "Q" || key === "W" || key === "E" || key === "R") btn.label.classList.add("kc");
+      if (key === "Q" || key === "W" || key === "E" || key === "R") {
+        btn.label.classList.add("kc");
+      }
     }
   }
 
@@ -150,46 +233,82 @@ export class TouchControls {
    *  (0 = ready, 1 = just cast). Change-gated to whole-percent writes. */
   setCooldown(key: AbilityKey, pct: number): void {
     const btn = this.buttons.get(key);
-    if (!btn || !btn.cd) return;
+    if (!btn || !btn.cd) {
+      return;
+    }
     const v = Math.round(Math.max(0, Math.min(1, pct)) * 100);
-    if (v === btn.lastCd) return;
+    if (v === btn.lastCd) {
+      return;
+    }
     btn.lastCd = v;
     btn.cd.style.setProperty("--cd", `${v}`);
   }
 
+  /** Informative only: taps still reach the authoritative cast/buffer path. */
+  setReadiness(key: AbilityKey, readiness: AbilityReadiness): void {
+    const button = this.buttons.get(key);
+    if (!button) {
+      return;
+    }
+    const text = readinessLabel(readiness);
+    if (text !== button.lastState) {
+      button.lastState = text;
+      button.state.textContent = text;
+    }
+    button.el.classList.toggle("blocked", readiness.kind === "blocked");
+    button.el.classList.toggle("queued", readiness.queued);
+  }
+
   private activate(): void {
-    if (this.active) return;
+    if (this.active) {
+      return;
+    }
     this.active = true;
     this.layer.style.display = "block";
     document.body.classList.add("ba-touch-on");
   }
 
   private onDown = (e: PointerEvent): void => {
-    if (e.pointerType !== "touch") return;
+    if (e.pointerType !== "touch") {
+      return;
+    }
     this.activate();
     // the layer is pointer-events:none, so e.target is the real element under
     // the finger — interactive HUD wins over stick spawning
     const t = e.target;
-    if (t instanceof Element && t.closest(INTERACTIVE_SEL)) return;
+    if (t instanceof Element && t.closest(INTERACTIVE_SEL)) {
+      return;
+    }
     // menus own the pointer (shop / end screen — Controls.setMouseMode): taps
     // there browse UI, they never steer or auto-fire
-    if (document.body.classList.contains("ba-mouse-mode")) return;
+    if (document.body.classList.contains("ba-mouse-mode")) {
+      return;
+    }
     // cancel compat mouse events so a stick touch never mousedown's the canvas
     // (that path requests pointer lock + fires LMB attacks on desktop)
     e.preventDefault();
     if (e.clientX < window.innerWidth / 2) {
-      if (!this.move)
-        this.move = { id: e.pointerId, baseX: e.clientX, baseY: e.clientY, dx: 0, dy: 0 };
+      if (!this.move) {
+        this.move = { baseX: e.clientX, baseY: e.clientY, dx: 0, dy: 0, id: e.pointerId };
+      }
     } else if (!this.aim) {
-      this.aim = { id: e.pointerId, baseX: e.clientX, baseY: e.clientY, dx: 0, dy: 0 };
+      this.aim = { baseX: e.clientX, baseY: e.clientY, dx: 0, dy: 0, id: e.pointerId };
     }
     this.render();
   };
 
+  private stickFor(pointerId: number): Stick | null {
+    if (this.move?.id === pointerId) {
+      return this.move;
+    }
+    return this.aim?.id === pointerId ? this.aim : null;
+  }
+
   private onMove = (e: PointerEvent): void => {
-    const s =
-      this.move?.id === e.pointerId ? this.move : this.aim?.id === e.pointerId ? this.aim : null;
-    if (!s) return;
+    const s = this.stickFor(e.pointerId);
+    if (!s) {
+      return;
+    }
     const dx = e.clientX - s.baseX;
     const dy = e.clientY - s.baseY;
     const len = Math.hypot(dx, dy) || 1;
@@ -200,8 +319,12 @@ export class TouchControls {
   };
 
   private onUp = (e: PointerEvent): void => {
-    if (this.move?.id === e.pointerId) this.move = null;
-    if (this.aim?.id === e.pointerId) this.aim = null;
+    if (this.move?.id === e.pointerId) {
+      this.move = null;
+    }
+    if (this.aim?.id === e.pointerId) {
+      this.aim = null;
+    }
     this.render();
   };
 
@@ -220,6 +343,20 @@ export class TouchControls {
   }
   attackDown(): boolean {
     return this.aim !== null && Math.hypot(this.aim.dx, this.aim.dy) > 0.2;
+  }
+  /** An overlay can consume pointer-up; release the owned sticks and edges. */
+  resetInput(): void {
+    this.move = null;
+    this.aim = null;
+    this.queue = [];
+    this.buy = false;
+    this.jump = false;
+    this.dash = false;
+    this.jumpAttack = false;
+    for (const button of this.buttons.values()) {
+      button.el.classList.remove("press");
+    }
+    this.render();
   }
   consumeAbilities(): AbilityKey[] {
     const out = this.queue;
@@ -250,45 +387,8 @@ export class TouchControls {
   }
 }
 
-let touchStyleInjected = false;
-function injectTouchStyle(): void {
-  if (touchStyleInjected) return;
-  touchStyleInjected = true;
-  const s = document.createElement("style");
-  s.textContent = `
-.ba-tbtn{position:relative;width:58px;height:58px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(20,26,42,.7);border:2px solid rgba(255,255,255,.25);color:#fff;overflow:hidden;background-size:cover;background-position:center;touch-action:none}
-.ba-tbtn.press{filter:brightness(1.6);border-color:rgba(255,209,71,.8)}
-.ba-tbtn .ba-tl{font:800 18px ui-monospace,monospace;pointer-events:none}
-.ba-tbtn .ba-tl.word{font-size:11px;letter-spacing:.5px}
-.ba-tbtn .ba-tl.kc{position:absolute;right:6px;bottom:4px;font:800 10px/14px ui-monospace,monospace;color:#ffd24a;background:rgba(5,8,16,.85);border-radius:4px;padding:0 4px}
-.ba-tcd{position:absolute;inset:0;border-radius:50%;background:conic-gradient(rgba(5,8,16,.75) calc(var(--cd,0)*1%),transparent 0);pointer-events:none}
-`;
-  document.head.appendChild(s);
-}
-
-type StickHandle = { el: HTMLDivElement; base: HTMLDivElement; knob: HTMLDivElement };
-
-function stickEl(): StickHandle {
-  const el = document.createElement("div");
-  el.style.cssText = `position:absolute;display:none;pointer-events:none`;
-  const base = document.createElement("div");
-  base.className = "base";
-  const knob = document.createElement("div");
-  knob.className = "knob";
-  el.append(base, knob);
-  base.style.cssText = `position:absolute;width:${STICK_R * 2}px;height:${STICK_R * 2}px;border-radius:50%;background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.2);transform:translate(-50%,-50%)`;
-  knob.style.cssText = `position:absolute;width:${KNOB_R * 2}px;height:${KNOB_R * 2}px;border-radius:50%;background:rgba(255,255,255,.35);transform:translate(-50%,-50%)`;
-  return { el, base, knob };
-}
-
-function place({ el, base, knob }: StickHandle, s: Stick | null): void {
-  if (!s) {
-    el.style.display = "none";
-    return;
-  }
-  el.style.display = "block";
-  base.style.left = `${s.baseX}px`;
-  base.style.top = `${s.baseY}px`;
-  knob.style.left = `${s.baseX + s.dx * STICK_R}px`;
-  knob.style.top = `${s.baseY + s.dy * STICK_R}px`;
+interface StickHandle {
+  el: HTMLDivElement;
+  base: HTMLDivElement;
+  knob: HTMLDivElement;
 }

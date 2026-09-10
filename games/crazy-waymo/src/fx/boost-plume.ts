@@ -1,15 +1,12 @@
 import * as THREE from "three";
 
-import { REINHARD_CLIP, REINHARD_GLSL } from "./reinhard";
+import { REINHARD_CLIP } from "./reinhard";
 
 // Boost flame as a MESH, not particles: two crossed ribbons per exhaust that
 // pivot about the exhaust axis in the vertex shader (billboard clouds lose the
 // axis under a chase cam; a rigid oriented tongue never does). The fragment
 // ramp is the kart-racer 3-stop flame: the hot end is a COLOR (#ff9d2e), white
-// is confined to a blue-white root kiss on <=7.5% of the tongue. Also home to
-// the shared instanced ground-ring pool (ignition stacks, drift promotion,
-// tier pulse) — rings are always ground-plane, thin, fast, and inherit the
-// car's velocity.
+// is confined to a blue-white root kiss on <=7.5% of the tongue.
 
 // Flame ramp (kart-racer art bible). FLAME_MID deliberately equals the tier-2
 // orange so a sustained burn and the tier ladder share one orange.
@@ -35,7 +32,8 @@ const PLUME_INT_BURN = 0.8;
 const PLUME_IGNITE_LEN = 0.3;
 const PLUME_IGNITE_RAD = 0.18;
 const PLUME_IGNITE_INT = 0.55;
-const PLUME_IGNITE_DECAY = 2.9; // 1/s — onset spike over plateau
+// 1/s — onset spike over plateau
+const PLUME_IGNITE_DECAY = 2.9;
 const PLUME_ALPHA = 0.88;
 // Screen-space budget as fractions of frame height, evaluated per frame in
 // the VS from the true view depth — waymo's chase cam sits closer than the
@@ -47,11 +45,12 @@ const PLUME_L_BUDGET = 0.36;
 const PLUME_SHORTEN = 0.26;
 const PLUME_WIDEN = 0.7;
 const PLUME_SEGS = 11;
-const PLUME_BURN_ATTACK = 12; // 1/s ease toward the drive target
+// 1/s ease toward the drive target
+const PLUME_BURN_ATTACK = 12;
 const PLUME_BURN_RELEASE = 8;
 
 /** Clamp unit vector (ax,ay,az) into the cone about unit (bx,by,bz). */
-export function clampAxisToCone(
+export const clampAxisToCone = (
   ax: number,
   ay: number,
   az: number,
@@ -59,7 +58,7 @@ export function clampAxisToCone(
   by: number,
   bz: number,
   out: { x: number; y: number; z: number },
-): void {
+): void => {
   const d = ax * bx + ay * by + az * bz;
   if (d >= PLUME_CONE_COS) {
     out.x = ax;
@@ -83,8 +82,9 @@ export function clampAxisToCone(
   out.x = bx * PLUME_CONE_COS + px * PLUME_CONE_SIN;
   out.y = by * PLUME_CONE_COS + py * PLUME_CONE_SIN;
   out.z = bz * PLUME_CONE_COS + pz * PLUME_CONE_SIN;
-}
+};
 
+// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
 const PLUME_VERT = /* glsl */ `
   attribute vec3 aMeta; // x: exhaust stack (0|1), y: roll (0 tongue | 1 fin), z: seed
   uniform float uTime;
@@ -144,6 +144,7 @@ const PLUME_VERT = /* glsl */ `
 
 // Coverage-driven knee: overlapping tongues saturate toward orange instead of
 // paper — the knee widens with alpha so dense coverage compresses harder.
+// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
 const PLUME_FRAG = /* glsl */ `
   uniform float uIntensity;
   uniform float uGain;
@@ -194,7 +195,8 @@ export class BoostPlume {
   private igniteT = 0;
 
   constructor(gain: THREE.IUniform<number>) {
-    const ribs = 4; // 2 exhaust stacks x (tongue + fin)
+    // 2 exhaust stacks x (tongue + fin)
+    const ribs = 4;
     const rows = PLUME_SEGS + 1;
     const verts = ribs * rows * 2;
     const pos = new Float32Array(verts * 3);
@@ -202,13 +204,13 @@ export class BoostPlume {
     const index = new Uint16Array(ribs * PLUME_SEGS * 6);
     const seeds = [0.13, 0.61, 0.37, 0.89];
     let ii = 0;
-    for (let r = 0; r < ribs; r++) {
-      const stack = r >> 1;
-      const roll = r & 1;
+    for (let r = 0; r < ribs; r += 1) {
+      const stack = Math.trunc(r / 2);
+      const roll = r % 2;
       const seed = seeds[r] ?? 0.5;
-      for (let i = 0; i < rows; i++) {
+      for (let i = 0; i < rows; i += 1) {
         const u = i / PLUME_SEGS;
-        for (let sIdx = 0; sIdx < 2; sIdx++) {
+        for (let sIdx = 0; sIdx < 2; sIdx += 1) {
           const v = (r * rows + i) * 2 + sIdx;
           pos[v * 3] = u;
           pos[v * 3 + 1] = sIdx === 0 ? -1 : 1;
@@ -219,12 +221,18 @@ export class BoostPlume {
         if (i > 0) {
           const a = (r * rows + i - 1) * 2;
           const b = (r * rows + i) * 2;
-          index[ii++] = a;
-          index[ii++] = b;
-          index[ii++] = a + 1;
-          index[ii++] = b;
-          index[ii++] = b + 1;
-          index[ii++] = a + 1;
+          index[ii] = a;
+          ii += 1;
+          index[ii] = b;
+          ii += 1;
+          index[ii] = a + 1;
+          ii += 1;
+          index[ii] = b;
+          ii += 1;
+          index[ii] = b + 1;
+          ii += 1;
+          index[ii] = a + 1;
+          ii += 1;
         }
       }
     }
@@ -234,23 +242,23 @@ export class BoostPlume {
     geo.setIndex(new THREE.BufferAttribute(index, 1));
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
     const mat = new THREE.ShaderMaterial({
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      fragmentShader: PLUME_FRAG,
+      side: THREE.DoubleSide,
+      transparent: true,
       uniforms: {
-        uTime: this.uTime,
+        uAxis: this.uAxis,
+        uGain: gain,
+        uIntensity: this.uIntensity,
+        uLen: this.uLen,
         uOriginL: this.uOriginL,
         uOriginR: this.uOriginR,
-        uAxis: this.uAxis,
-        uLen: this.uLen,
         uRad: this.uRad,
-        uIntensity: this.uIntensity,
+        uTime: this.uTime,
         uTint: this.uTint,
-        uGain: gain,
       },
       vertexShader: PLUME_VERT,
-      fragmentShader: PLUME_FRAG,
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide,
     });
     this.mesh = new THREE.Mesh(geo, mat);
     this.mesh.frustumCulled = false;
@@ -297,187 +305,9 @@ export class BoostPlume {
     this.uLen.value = (PLUME_LEN_BASE + PLUME_LEN_BURN * this.burn) * (1 + PLUME_IGNITE_LEN * ig);
     this.uRad.value = (PLUME_RAD_BASE + PLUME_RAD_BURN * this.burn) * (1 + PLUME_IGNITE_RAD * ig);
     this.uIntensity.value =
-      (PLUME_INT_BASE + PLUME_INT_BURN * this.burn) * (1 + PLUME_IGNITE_INT * ig);
+      (PLUME_INT_BASE + PLUME_INT_BURN * this.burn) *
+      (1 + PLUME_IGNITE_INT * ig) *
+      Math.min(1, this.burn / 0.25);
     this.mesh.visible = this.burn > 0.02;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Instanced ground-ring pool. Grammar: ground-plane, thin (3.5-9% of radius),
-// fast (0.20-0.42 s), and the centre inherits the car's velocity with drag —
-// a world-pinned ring is metres adrift of the car by the time it fades.
-
-const RING_COUNT = 16;
-const RING_SEGS = 48;
-
-const RING_VERT = /* glsl */ `
-  attribute vec4 aCenter; // xyz + birth
-  attribute vec4 aShape;  // r0, r1, life, thickness (fraction of radius)
-  attribute vec4 aColor;  // rgb premultiplied by intensity, w = alpha
-  attribute vec4 aDrift;  // vx, vz, drag
-  uniform float uTime;
-  varying float vR;
-  varying float vA;
-  varying vec3 vCol;
-  void main() {
-    float age = uTime - aCenter.w;
-    float life = max(aShape.z, 0.001);
-    float u = age / life;
-    if (u < 0.0 || u > 1.0) {
-      vR = 0.0; vA = 0.0; vCol = vec3(0.0);
-      gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
-      return;
-    }
-    float e = 1.0 - pow(1.0 - u, 2.8); // fastest the instant it is born
-    float r = mix(aShape.x, aShape.y, e);
-    float k = max(aDrift.z, 0.001);
-    float slide = (1.0 - exp(-k * age)) / k;
-    vec3 c = aCenter.xyz + vec3(aDrift.x, 0.0, aDrift.y) * slide;
-    float rad = r * (1.0 + (position.z * 2.0 - 1.0) * aShape.w);
-    vec3 wp = c + vec3(position.x, 0.0, position.y) * rad;
-    vR = position.z;
-    vA = aColor.w * (1.0 - u) * (1.0 - u) * smoothstep(0.0, 0.10, u);
-    vCol = aColor.rgb;
-    gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
-  }
-`;
-
-// Radial profile reaches zero at BOTH rims — a plateau profile plus additive
-// color reads as an opaque matte torus, not a wave.
-const RING_FRAG = /* glsl */ `
-  uniform float uGain;
-  varying float vR;
-  varying float vA;
-  varying vec3 vCol;
-  ${REINHARD_GLSL}
-  void main() {
-    float e = sin(vR * 3.14159265);
-    float a = vA * (0.34 * pow(e, 1.7) + 0.66 * pow(e, 5.5));
-    vec3 rgb = reinhardClip(vCol * uGain);
-    gl_FragColor = vec4(rgb, a);
-  }
-`;
-
-export class FxRings {
-  readonly mesh: THREE.Mesh;
-  private uTime = { value: 0 };
-  private center: Float32Array;
-  private profile: Float32Array;
-  private color: Float32Array;
-  private drift: Float32Array;
-  private centerAttr: THREE.InstancedBufferAttribute;
-  private profileAttr: THREE.InstancedBufferAttribute;
-  private colorAttr: THREE.InstancedBufferAttribute;
-  private driftAttr: THREE.InstancedBufferAttribute;
-  private cursor = 0;
-  private lastDeath = 0;
-
-  constructor(gain: THREE.IUniform<number>) {
-    const rows = RING_SEGS + 1;
-    const pos = new Float32Array(rows * 2 * 3);
-    const index = new Uint16Array(RING_SEGS * 6);
-    let ii = 0;
-    for (let i = 0; i < rows; i++) {
-      const ang = (i / RING_SEGS) * Math.PI * 2;
-      const co = Math.cos(ang);
-      const so = Math.sin(ang);
-      for (let e = 0; e < 2; e++) {
-        const v = i * 2 + e;
-        pos[v * 3] = co;
-        pos[v * 3 + 1] = so;
-        pos[v * 3 + 2] = e; // 0 inner rim, 1 outer rim
-      }
-      if (i > 0) {
-        const a = (i - 1) * 2;
-        const b = i * 2;
-        index[ii++] = a;
-        index[ii++] = b;
-        index[ii++] = a + 1;
-        index[ii++] = b;
-        index[ii++] = b + 1;
-        index[ii++] = a + 1;
-      }
-    }
-    const geo = new THREE.InstancedBufferGeometry();
-    geo.instanceCount = RING_COUNT;
-    geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-    geo.setIndex(new THREE.BufferAttribute(index, 1));
-    this.center = new Float32Array(RING_COUNT * 4);
-    this.profile = new Float32Array(RING_COUNT * 4);
-    this.color = new Float32Array(RING_COUNT * 4);
-    this.drift = new Float32Array(RING_COUNT * 4);
-    // Dead until spawned: birth 0 with life epsilon collapses in the VS.
-    this.centerAttr = new THREE.InstancedBufferAttribute(this.center, 4);
-    this.profileAttr = new THREE.InstancedBufferAttribute(this.profile, 4);
-    this.colorAttr = new THREE.InstancedBufferAttribute(this.color, 4);
-    this.driftAttr = new THREE.InstancedBufferAttribute(this.drift, 4);
-    for (const a of [this.centerAttr, this.profileAttr, this.colorAttr, this.driftAttr]) {
-      a.setUsage(THREE.DynamicDrawUsage);
-    }
-    geo.setAttribute("aCenter", this.centerAttr);
-    geo.setAttribute("aShape", this.profileAttr);
-    geo.setAttribute("aColor", this.colorAttr);
-    geo.setAttribute("aDrift", this.driftAttr);
-    geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
-    const mat = new THREE.ShaderMaterial({
-      uniforms: { uTime: this.uTime, uGain: gain },
-      vertexShader: RING_VERT,
-      fragmentShader: RING_FRAG,
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide,
-    });
-    this.mesh = new THREE.Mesh(geo, mat);
-    this.mesh.frustumCulled = false;
-    this.mesh.renderOrder = 3;
-    this.mesh.visible = false;
-  }
-
-  spawn(
-    x: number,
-    y: number,
-    z: number,
-    r0: number,
-    r1: number,
-    life: number,
-    thickness: number,
-    color: THREE.Color,
-    intensity: number,
-    alpha: number,
-    velX: number,
-    velZ: number,
-    drag: number,
-  ): void {
-    const i = this.cursor;
-    this.cursor = (this.cursor + 1) % RING_COUNT;
-    const b = i * 4;
-    const t = this.uTime.value;
-    this.center[b] = x;
-    this.center[b + 1] = y;
-    this.center[b + 2] = z;
-    this.center[b + 3] = t;
-    this.profile[b] = r0;
-    this.profile[b + 1] = r1;
-    this.profile[b + 2] = life;
-    this.profile[b + 3] = thickness;
-    this.color[b] = color.r * intensity;
-    this.color[b + 1] = color.g * intensity;
-    this.color[b + 2] = color.b * intensity;
-    this.color[b + 3] = alpha;
-    this.drift[b] = velX;
-    this.drift[b + 1] = velZ;
-    this.drift[b + 2] = drag;
-    this.centerAttr.needsUpdate = true;
-    this.profileAttr.needsUpdate = true;
-    this.colorAttr.needsUpdate = true;
-    this.driftAttr.needsUpdate = true;
-    this.lastDeath = Math.max(this.lastDeath, t + life);
-    this.mesh.visible = true;
-  }
-
-  update(dt: number): void {
-    this.uTime.value += dt;
-    if (this.mesh.visible && this.uTime.value > this.lastDeath) this.mesh.visible = false;
   }
 }

@@ -1,0 +1,114 @@
+{
+  "url": "http://localhost:5199/?time=noon&offline=1",
+  "checkedAt": "2026-09-05T20:00:12.249Z",
+  "environment": "Headed desktop Chrome; coarse pointer, DPR 3, CPU throttle stress proxy. Not a physical-phone measurement.",
+  "runs": [
+    {
+      "name": "portrait",
+      "rate": 2,
+      "median": 8.299999999999272,
+      "p95": 10.200000000000728,
+      "max": 133.20000000000073,
+      "over50": 1,
+      "frames": 967,
+      "maxMph": 64,
+      "movingFrames": 511,
+      "width": 390,
+      "height": 844,
+      "overflow": false,
+      "coarse": true
+    },
+    {
+      "name": "landscape",
+      "rate": 2,
+      "median": 8.30000000000291,
+      "p95": 10.299999999999272,
+      "max": 176.70000000000073,
+      "over50": 1,
+      "frames": 956,
+      "maxMph": 64,
+      "movingFrames": 429,
+      "width": 844,
+      "height": 390,
+      "overflow": false,
+      "coarse": true
+    }
+  ],
+  "readyMs": 10413,
+  "cold": {
+    "installedAt": 5.5,
+    "longTasks": [
+      {
+        "start": 155.39999985694885,
+        "duration": 148
+      },
+      {
+        "start": 303.89999985694885,
+        "duration": 92
+      },
+      {
+        "start": 468.7999999523163,
+        "duration": 1160
+      },
+      {
+        "start": 1629,
+        "duration": 204
+      },
+      {
+        "start": 1852.7000000476837,
+        "duration": 267
+      },
+      {
+        "start": 2140,
+        "duration": 63
+      },
+      {
+        "start": 2378,
+        "duration": 107
+      },
+      {
+        "start": 7436.299999952316,
+        "duration": 382
+      },
+      {
+        "start": 7865.399999856949,
+        "duration": 53
+      },
+      {
+        "start": 7919.399999856949,
+        "duration": 300
+      },
+      {
+        "start": 8450.599999904633,
+        "duration": 657
+      },
+      {
+        "start": 9110.099999904633,
+        "duration": 65
+      },
+      {
+        "start": 9178,
+        "duration": 275
+      },
+      {
+        "start": 9486,
+        "duration": 161
+      },
+      {
+        "start": 9685.599999904633,
+        "duration": 51
+      },
+      {
+        "start": 9931.599999904633,
+        "duration": 61
+      }
+    ]
+  },
+  "device": {
+    "coarse": true,
+    "dpr": 3,
+    "touch": 5,
+    "debugHooks": "undefined"
+  },
+  "pageErrors": []
+}

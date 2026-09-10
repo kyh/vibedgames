@@ -8,10 +8,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckIcon, CopyIcon, PencilIcon } from "lucide-react";
 
 import { SkeletonReveal } from "@/components/ui/skeleton-reveal";
-import { useTRPC } from "@/lib/trpc";
+import { useORPC } from "@/lib/orpc";
 
 const buildInviteLink = (code: string) => {
-  if (typeof window === "undefined") return `/auth/register?invite=${code}`;
+  if (typeof window === "undefined") {
+    return `/auth/register?invite=${code}`;
+  }
   return `${window.location.origin}/auth/register?invite=${code}`;
 };
 
@@ -34,41 +36,48 @@ const codeStatus = (row: {
   maxUses: number | null;
   usedCount: number;
 }) => {
-  if (row.revokedAt) return "revoked";
-  if (row.expiresAt && row.expiresAt.getTime() < Date.now()) return "expired";
-  if (row.maxUses != null && row.usedCount >= row.maxUses) return "used";
+  if (row.revokedAt) {
+    return "revoked";
+  }
+  if (row.expiresAt && row.expiresAt.getTime() < Date.now()) {
+    return "expired";
+  }
+  if (row.maxUses !== null && row.usedCount >= row.maxUses) {
+    return "used";
+  }
   return "available";
 };
 
+const STATUS_BADGE: Record<ReturnType<typeof codeStatus>, string> = {
+  available: "rounded bg-green-900/40 px-2 py-0.5 text-xs text-green-200",
+  expired: "rounded bg-red-900/40 px-2 py-0.5 text-xs text-red-200",
+  revoked: "rounded bg-red-900/40 px-2 py-0.5 text-xs text-red-200",
+  used: "rounded bg-zinc-800 px-2 py-0.5 text-xs text-zinc-300",
+};
+
+const updateToast = (revoked: boolean | undefined) => {
+  if (revoked === true) {
+    return "Code revoked";
+  }
+  if (revoked === false) {
+    return "Code restored";
+  }
+  return "Code updated";
+};
+
 export const InviteAdmin = () => {
-  const trpc = useTRPC();
+  const orpc = useORPC();
   const qc = useQueryClient();
 
-  const list = useQuery(trpc.auth.listInvites.queryOptions());
+  const list = useQuery(orpc.auth.listInvites.queryOptions());
   const create = useMutation(
-    trpc.auth.createInvites.mutationOptions({
+    orpc.auth.createInvites.mutationOptions({
       onSuccess: () => {
-        qc.invalidateQueries({ queryKey: trpc.auth.listInvites.queryKey() });
+        qc.invalidateQueries({ queryKey: orpc.auth.listInvites.queryKey() });
         toast.success("Invite codes created");
       },
     }),
   );
-  const update = useMutation(
-    trpc.auth.updateInvite.mutationOptions({
-      onSuccess: (_data, variables) => {
-        qc.invalidateQueries({ queryKey: trpc.auth.listInvites.queryKey() });
-        toast.success(
-          variables.revoked === true
-            ? "Code revoked"
-            : variables.revoked === false
-              ? "Code restored"
-              : "Code updated",
-        );
-        setEditing(null);
-      },
-    }),
-  );
-
   const [count, setCount] = useState(1);
   const [maxUses, setMaxUses] = useState<number | "">(1);
   const [note, setNote] = useState("");
@@ -77,16 +86,27 @@ export const InviteAdmin = () => {
   // Row currently having its max-uses edited inline; "" = unlimited.
   const [editing, setEditing] = useState<{ id: string; maxUses: number | "" } | null>(null);
 
+  const update = useMutation(
+    orpc.auth.updateInvite.mutationOptions({
+      onSuccess: (_data, variables) => {
+        qc.invalidateQueries({ queryKey: orpc.auth.listInvites.queryKey() });
+        toast.success(updateToast(variables.revoked));
+        setEditing(null);
+      },
+    }),
+  );
+
   const trimmedCustomCode = customCode.trim();
 
-  const copyLink = (code: string) => {
-    navigator.clipboard
-      .writeText(buildInviteLink(code))
-      .then(() => {
-        setCopied(code);
-        setTimeout(() => setCopied((c) => (c === code ? null : c)), 1500);
-      })
-      .catch(() => toast.error("Copy failed"));
+  const copyLink = async (code: string) => {
+    try {
+      await navigator.clipboard.writeText(buildInviteLink(code));
+    } catch {
+      toast.error("Copy failed");
+      return;
+    }
+    setCopied(code);
+    setTimeout(() => setCopied((c) => (c === code ? null : c)), 1500);
   };
 
   return (
@@ -106,11 +126,11 @@ export const InviteAdmin = () => {
           onSubmit={(e) => {
             e.preventDefault();
             create.mutate({
-              count,
-              maxUses: maxUses === "" ? null : maxUses,
-              expiresAt: null,
-              note: note.trim() || null,
               code: trimmedCustomCode === "" ? null : trimmedCustomCode,
+              count,
+              expiresAt: null,
+              maxUses: maxUses === "" ? null : maxUses,
+              note: note.trim() || null,
             });
           }}
           className="bg-input/40 space-y-4 rounded-md p-4 backdrop-blur-sm"
@@ -183,7 +203,9 @@ export const InviteAdmin = () => {
           skeleton={<CodesSkeleton />}
         >
           {list.isError && (
-            <p className="text-muted-foreground text-sm">Couldn't load codes. Try reloading.</p>
+            <p className="text-muted-foreground text-sm">
+              Couldn&apos;t load codes. Try reloading.
+            </p>
           )}
           {list.data?.codes.length === 0 && (
             <p className="text-muted-foreground text-sm">No codes yet.</p>
@@ -195,17 +217,7 @@ export const InviteAdmin = () => {
                 return (
                   <li key={row.id} className="flex items-center gap-3 py-3 text-sm">
                     <code className="font-mono text-base">{row.code}</code>
-                    <span
-                      className={
-                        status === "available"
-                          ? "rounded bg-green-900/40 px-2 py-0.5 text-xs text-green-200"
-                          : status === "used"
-                            ? "rounded bg-zinc-800 px-2 py-0.5 text-xs text-zinc-300"
-                            : "rounded bg-red-900/40 px-2 py-0.5 text-xs text-red-200"
-                      }
-                    >
-                      {status}
-                    </span>
+                    <span className={STATUS_BADGE[status]}>{status}</span>
                     {editing?.id === row.id ? (
                       <form
                         className="flex shrink-0 items-center gap-1"
@@ -274,7 +286,9 @@ export const InviteAdmin = () => {
                         type="button"
                         variant="ghost"
                         size="sm"
-                        onClick={() => copyLink(row.code)}
+                        onClick={() => {
+                          void copyLink(row.code);
+                        }}
                       >
                         {copied === row.code ? (
                           <CheckIcon className="size-3.5" />

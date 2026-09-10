@@ -1,0 +1,1472 @@
+{
+  "url": "http://localhost:5193/?time=noon&offline=1",
+  "checkedAt": "2026-09-05T07:10:30.492Z",
+  "environment": "Headed desktop Chrome; coarse pointer, DPR 3, CPU throttle stress proxy. Not a physical-phone measurement.",
+  "runs": [
+    {
+      "rate": 2,
+      "scenario": "adaptive",
+      "traffic": "isolated route: fleet relocated, recycler held",
+      "before": {
+        "car": {
+          "x": -740.004638671875,
+          "z": 604.5015258789062,
+          "y": 1.1495242166519164,
+          "speed": 0,
+          "heading": -1.570760292234212,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 908.4,
+            "wrecked": false,
+            "y": 22.1
+          }
+        },
+        "tier": 3,
+        "stream": {
+          "cells": 836,
+          "resident": 205,
+          "detailedCells": 15,
+          "verts": 1326094,
+          "bytes": 34808508,
+          "builtMs": 1312.0999991893768
+        }
+      },
+      "frames": {
+        "count": 964,
+        "median": 8.299999999999272,
+        "p95": 10.200000000000728,
+        "p99": 10.30000000000291,
+        "max": 16.799999999999272,
+        "over33": 0,
+        "over50": 0,
+        "over100": 0
+      },
+      "movingFrames": {
+        "count": 940,
+        "median": 8.299999999999272,
+        "p95": 10.200000000000728,
+        "p99": 10.30000000000291,
+        "max": 16.799999999999272,
+        "over33": 0,
+        "over50": 0,
+        "over100": 0
+      },
+      "tiers": [
+        {
+          "tier": 3,
+          "time": 15323.5
+        },
+        {
+          "tier": 2,
+          "time": 20886
+        }
+      ],
+      "updateMs": {
+        "count": 965,
+        "median": 1.3999998569488525,
+        "p95": 2.0999999046325684,
+        "p99": 7.799999952316284,
+        "max": 11.699999809265137,
+        "over33": 0,
+        "over50": 0,
+        "over100": 0
+      },
+      "streamMs": {
+        "count": 965,
+        "median": 0.10000014305114746,
+        "p95": 0.5,
+        "p99": 5.700000047683716,
+        "max": 9.900000095367432,
+        "over33": 0,
+        "over50": 0,
+        "over100": 0
+      },
+      "renderMs": {
+        "count": 965,
+        "median": 4.099999904632568,
+        "p95": 5.099999904632568,
+        "p99": 5.5,
+        "max": 6.299999952316284,
+        "over33": 0,
+        "over50": 0,
+        "over100": 0
+      },
+      "calls": {
+        "count": 965,
+        "median": 177,
+        "p95": 239,
+        "p99": 246,
+        "max": 249,
+        "over33": 965,
+        "over50": 965,
+        "over100": 965
+      },
+      "triangles": {
+        "count": 965,
+        "median": 504996,
+        "p95": 781593,
+        "p99": 791288,
+        "max": 814078,
+        "over33": 965,
+        "over50": 965,
+        "over100": 965
+      },
+      "longTasks": [],
+      "trajectory": [
+        {
+          "x": -740.004638671875,
+          "z": 604.5015258789062,
+          "y": 1.1495242166519164,
+          "speed": 0,
+          "heading": -1.5707596125892416,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 908.2,
+            "wrecked": false,
+            "y": 22.2
+          }
+        },
+        {
+          "x": -740.7676794433594,
+          "z": 604.5015258789062,
+          "y": 1.134035246372223,
+          "speed": 6.1490839439842455,
+          "heading": -1.5704549060363693,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 906.3,
+            "wrecked": false,
+            "y": 22.4
+          }
+        },
+        {
+          "x": -743.0834829101562,
+          "z": 604.5013693847657,
+          "y": 1.0893609294891355,
+          "speed": 12.294140150531726,
+          "heading": -1.5705120606706051,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 906.8,
+            "wrecked": false,
+            "y": 22.5
+          }
+        },
+        {
+          "x": -746.9023861083984,
+          "z": 604.501220703125,
+          "y": 1.021077662467956,
+          "speed": 18.42842495451935,
+          "heading": -1.5705275971947326,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 909.3,
+            "wrecked": false,
+            "y": 22.5
+          }
+        },
+        {
+          "x": -752.3012319335937,
+          "z": 604.5010375976562,
+          "y": 0.9340414631366728,
+          "speed": 24.549434746643975,
+          "heading": -1.570551724396508,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 913.3,
+            "wrecked": false,
+            "y": 22.5
+          }
+        },
+        {
+          "x": -759.2028619384766,
+          "z": 604.5007934570312,
+          "y": 0.8378070230483999,
+          "speed": 30.255506550266276,
+          "heading": -1.57058224497239,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 919.3,
+            "wrecked": false,
+            "y": 22.5
+          }
+        },
+        {
+          "x": -766.7874461669923,
+          "z": 604.5006103515625,
+          "y": 0.7500236506462089,
+          "speed": 30.34397130788573,
+          "heading": -1.570775167753932,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 927.4,
+            "wrecked": false,
+            "y": 22.3
+          }
+        },
+        {
+          "x": -774.5877723388672,
+          "z": 604.5003662109375,
+          "y": 0.6748556857109066,
+          "speed": 30.41682630558635,
+          "heading": -1.5707457484046603,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 933.8,
+            "wrecked": false,
+            "y": 22.3
+          }
+        },
+        {
+          "x": -782.2428145751953,
+          "z": 604.500244140625,
+          "y": 0.614186231851578,
+          "speed": 30.480749179637037,
+          "heading": -1.570752053123727,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 938.8,
+            "wrecked": false,
+            "y": 22.4
+          }
+        },
+        {
+          "x": -790.390716796875,
+          "z": 604.5001181640625,
+          "y": 0.5616381368637083,
+          "speed": 30.53255465702246,
+          "heading": -1.570753906726347,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 943,
+            "wrecked": false,
+            "y": 22.6
+          }
+        },
+        {
+          "x": -798.0162280273438,
+          "z": 604.5,
+          "y": 0.521653208732605,
+          "speed": 30.571826976837333,
+          "heading": -1.5707533063351984,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 946.1,
+            "wrecked": false,
+            "y": 23
+          }
+        },
+        {
+          "x": -805.6170776367187,
+          "z": 604.4998779296875,
+          "y": 0.489318846464157,
+          "speed": 30.60176089712299,
+          "heading": -1.5707519709026092,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 949.5,
+            "wrecked": false,
+            "y": 23.5
+          }
+        },
+        {
+          "x": -813.2739858398438,
+          "z": 604.4998168945312,
+          "y": 0.46292570638656605,
+          "speed": 30.627935450765673,
+          "heading": -1.57075102464665,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 952.9,
+            "wrecked": false,
+            "y": 24
+          }
+        },
+        {
+          "x": -820.9794267578126,
+          "z": 604.499755859375,
+          "y": 0.4414958424568175,
+          "speed": 30.650264778796355,
+          "heading": -1.5707503011886457,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 956.3,
+            "wrecked": false,
+            "y": 24.5
+          }
+        },
+        {
+          "x": -828.6528359375001,
+          "z": 604.4996948242188,
+          "y": 0.424451111793518,
+          "speed": 30.666902577874655,
+          "heading": -1.5707498202375447,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 959.8,
+            "wrecked": false,
+            "y": 25
+          }
+        },
+        {
+          "x": -836.3089013671874,
+          "z": 604.4996948242188,
+          "y": 0.41088800430297845,
+          "speed": 30.680204426092256,
+          "heading": -1.5707495389261357,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 963.2,
+            "wrecked": false,
+            "y": 25.5
+          }
+        },
+        {
+          "x": -843.9344482421875,
+          "z": 604.4996337890625,
+          "y": 0.40013391852378855,
+          "speed": 30.69009212028247,
+          "heading": -1.5707493560323686,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 966.6,
+            "wrecked": false,
+            "y": 26
+          }
+        },
+        {
+          "x": -851.654013671875,
+          "z": 604.4996337890625,
+          "y": 0.39154023647308345,
+          "speed": 30.69903186204646,
+          "heading": -1.5707492263880687,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 970.1,
+            "wrecked": false,
+            "y": 26.5
+          }
+        },
+        {
+          "x": -859.2867495117188,
+          "z": 604.4995727539062,
+          "y": 0.38486916160583495,
+          "speed": 30.705150637203907,
+          "heading": -1.5707491639854434,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 973.6,
+            "wrecked": false,
+            "y": 27
+          }
+        },
+        {
+          "x": -866.9901049804688,
+          "z": 604.4995727539062,
+          "y": 0.3795768398046494,
+          "speed": 30.710653337695938,
+          "heading": -1.570749112530195,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 977.1,
+            "wrecked": false,
+            "y": 27.4
+          }
+        },
+        {
+          "x": -874.6664765625001,
+          "z": 604.4995727539062,
+          "y": 0.3754970898628235,
+          "speed": 30.714612994408935,
+          "heading": -1.5707490804831188,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 980.6,
+            "wrecked": false,
+            "y": 27.8
+          }
+        },
+        {
+          "x": -882.3674195556641,
+          "z": 604.4995727539062,
+          "y": 0.3723173639774322,
+          "speed": 30.71770671437016,
+          "heading": -1.5707490626886529,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 984.1,
+            "wrecked": false,
+            "y": 28.3
+          }
+        },
+        {
+          "x": -890.0560200195313,
+          "z": 604.49951171875,
+          "y": 0.36987287807464597,
+          "speed": 30.72007182835334,
+          "heading": -1.5707490546643013,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 987.7,
+            "wrecked": false,
+            "y": 29.1
+          }
+        },
+        {
+          "x": -897.98427734375,
+          "z": 604.49951171875,
+          "y": 0.3679440426826477,
+          "speed": 30.72192004673666,
+          "heading": -1.5707490463320204,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 989.2,
+            "wrecked": false,
+            "y": 30.3
+          }
+        },
+        {
+          "x": -905.6698642578125,
+          "z": 604.49951171875,
+          "y": 0.36652935385704044,
+          "speed": 30.723329578827194,
+          "heading": -1.5707490434403804,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 992.5,
+            "wrecked": false,
+            "y": 30.9
+          }
+        },
+        {
+          "x": -913.3492465820312,
+          "z": 604.49951171875,
+          "y": 0.3654564154148102,
+          "speed": 30.724380527926936,
+          "heading": -1.5707490412100262,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 996.4,
+            "wrecked": false,
+            "y": 31.4
+          }
+        },
+        {
+          "x": -920.9676064453125,
+          "z": 604.49951171875,
+          "y": 0.3646521301269531,
+          "speed": 30.725177799338404,
+          "heading": -1.5707490401306687,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 1001,
+            "wrecked": false,
+            "y": 31.8
+          }
+        },
+        {
+          "x": -928.6875908203125,
+          "z": 604.49951171875,
+          "y": 0.36403888392448425,
+          "speed": 30.725788149119808,
+          "heading": -1.5707490392018657,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 1006,
+            "wrecked": false,
+            "y": 32
+          }
+        },
+        {
+          "x": -936.3829892578125,
+          "z": 604.49951171875,
+          "y": 0.3635829215049744,
+          "speed": 30.726228748573618,
+          "heading": -1.5707490384160712,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 1008,
+            "wrecked": false,
+            "y": 1.2
+          }
+        },
+        {
+          "x": -944.0783876953125,
+          "z": 604.49951171875,
+          "y": 0.36324572515487674,
+          "speed": 30.726552997532814,
+          "heading": -1.5707490382851377,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 1008.4,
+            "wrecked": false,
+            "y": 1.1
+          }
+        },
+        {
+          "x": -951.7123212890625,
+          "z": 604.49951171875,
+          "y": 0.36299688649177553,
+          "speed": 30.72679523085174,
+          "heading": -1.5707490381435707,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 1008.8,
+            "wrecked": false,
+            "y": 1.1
+          }
+        },
+        {
+          "x": -959.4261591796876,
+          "z": 604.49951171875,
+          "y": 0.36281344938278204,
+          "speed": 30.726993595120394,
+          "heading": -1.5707490380867675,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.2614596469104666,
+            "v": 0.6275
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 1009.2,
+            "wrecked": false,
+            "y": 1
+          }
+        },
+        {
+          "x": -967.075458984375,
+          "z": 604.49951171875,
+          "y": 0.36267955303192134,
+          "speed": 30.727108036032252,
+          "heading": -1.5707490380616271,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.14260718789407312,
+            "v": 0.6925
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 1009.6,
+            "wrecked": false,
+            "y": 0.9
+          }
+        }
+      ],
+      "after": {
+        "car": {
+          "x": -968.095775390625,
+          "z": 604.49951171875,
+          "y": 0.3626647553443909,
+          "speed": 30.727123294845182,
+          "heading": -1.5707490380585727,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.14260718789407312,
+            "v": 0.6925
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 1009.7,
+            "wrecked": false,
+            "y": 0.9
+          }
+        },
+        "tier": 2,
+        "ratio": 1.32,
+        "stream": {
+          "cells": 836,
+          "resident": 201,
+          "detailedCells": 16,
+          "verts": 1277815,
+          "bytes": 33732210,
+          "builtMs": 1461.199999332428
+        }
+      },
+      "transition": {
+        "syncMs": 0.40000009536743164,
+        "frameMax": 192,
+        "streamMax": 137.79999995231628,
+        "longFrames": 1,
+        "stream": {
+          "cells": 836,
+          "resident": 133,
+          "detailedCells": 15,
+          "verts": 333485,
+          "bytes": 8698248,
+          "builtMs": 1596.5999994277954
+        }
+      }
+    },
+    {
+      "rate": 4,
+      "scenario": "adaptive",
+      "traffic": "isolated route: fleet relocated, recycler held",
+      "before": {
+        "car": {
+          "x": -740.004638671875,
+          "z": 604.5015258789062,
+          "y": 1.1495243833065034,
+          "speed": 0,
+          "heading": -1.5707869244899064,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.3092843631778058,
+            "v": 0.7375
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 930.7,
+            "wrecked": false,
+            "y": 27.5
+          }
+        },
+        "tier": 3,
+        "stream": {
+          "cells": 836,
+          "resident": 205,
+          "detailedCells": 15,
+          "verts": 1326094,
+          "bytes": 34808508,
+          "builtMs": 3193.5999994277954
+        }
+      },
+      "frames": {
+        "count": 580,
+        "median": 15.400000000001455,
+        "p95": 18.799999999995634,
+        "p99": 32,
+        "max": 40.70000000000073,
+        "over33": 4,
+        "over50": 0,
+        "over100": 0
+      },
+      "movingFrames": {
+        "count": 564,
+        "median": 15.400000000001455,
+        "p95": 18.799999999995634,
+        "p99": 32,
+        "max": 40.70000000000073,
+        "over33": 4,
+        "over50": 0,
+        "over100": 0
+      },
+      "tiers": [
+        {
+          "tier": 3,
+          "time": 29691.800000190735
+        },
+        {
+          "tier": 2,
+          "time": 36106.700000047684
+        }
+      ],
+      "updateMs": {
+        "count": 581,
+        "median": 3,
+        "p95": 11.100000143051147,
+        "p99": 18.200000047683716,
+        "max": 29.199999809265137,
+        "over33": 0,
+        "over50": 0,
+        "over100": 0
+      },
+      "streamMs": {
+        "count": 581,
+        "median": 0.20000004768371582,
+        "p95": 2.9000000953674316,
+        "p99": 13.799999952316284,
+        "max": 20.100000143051147,
+        "over33": 0,
+        "over50": 0,
+        "over100": 0
+      },
+      "renderMs": {
+        "count": 581,
+        "median": 8.299999952316284,
+        "p95": 10.599999904632568,
+        "p99": 11.599999904632568,
+        "max": 12.699999809265137,
+        "over33": 0,
+        "over50": 0,
+        "over100": 0
+      },
+      "calls": {
+        "count": 581,
+        "median": 180,
+        "p95": 242,
+        "p99": 250,
+        "max": 253,
+        "over33": 581,
+        "over50": 581,
+        "over100": 581
+      },
+      "triangles": {
+        "count": 581,
+        "median": 499692,
+        "p95": 781987,
+        "p99": 791197,
+        "max": 813504,
+        "over33": 581,
+        "over50": 581,
+        "over100": 581
+      },
+      "longTasks": [],
+      "trajectory": [
+        {
+          "x": -740.004638671875,
+          "z": 604.5015258789062,
+          "y": 1.1495244550704955,
+          "speed": 0,
+          "heading": -1.5707858591635986,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.3092843631778058,
+            "v": 0.7375
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 931.1,
+            "wrecked": false,
+            "y": 27.6
+          }
+        },
+        {
+          "x": -741.8649643554687,
+          "z": 604.5014104003906,
+          "y": 1.1127094383239746,
+          "speed": 9.426916381805693,
+          "heading": -1.5705195636403777,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.3092843631778058,
+            "v": 0.7375
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 933.2,
+            "wrecked": false,
+            "y": 11.8
+          }
+        },
+        {
+          "x": -748.1853930664063,
+          "z": 604.5011596679688,
+          "y": 0.9994081082344061,
+          "speed": 20.061744756947075,
+          "heading": -1.5705605050306832,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.3092843631778058,
+            "v": 0.7375
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 935.9,
+            "wrecked": false,
+            "y": 12
+          }
+        },
+        {
+          "x": -758.7328507080078,
+          "z": 604.5007934570312,
+          "y": 0.8438581094741816,
+          "speed": 30.24913979390711,
+          "heading": -1.5706024475941194,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.3092843631778058,
+            "v": 0.7375
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 943.5,
+            "wrecked": false,
+            "y": 12.1
+          }
+        },
+        {
+          "x": -772.3266977539063,
+          "z": 604.5004272460938,
+          "y": 0.6950377264022826,
+          "speed": 30.398817079467833,
+          "heading": -1.5707750310994413,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.3092843631778058,
+            "v": 0.7375
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 954,
+            "wrecked": false,
+            "y": 12.1
+          }
+        },
+        {
+          "x": -784.7550107421876,
+          "z": 604.5001831054688,
+          "y": 0.596643440723419,
+          "speed": 30.49490548963785,
+          "heading": -1.570779589267366,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.3092843631778058,
+            "v": 0.7375
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 963.3,
+            "wrecked": false,
+            "y": 11.9
+          }
+        },
+        {
+          "x": -797.2743671875,
+          "z": 604.5,
+          "y": 0.5251782617568969,
+          "speed": 30.56702614853755,
+          "heading": -1.570780283737648,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.3092843631778058,
+            "v": 0.7375
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 973.4,
+            "wrecked": false,
+            "y": 11.7
+          }
+        },
+        {
+          "x": -809.0012353515625,
+          "z": 604.4998779296875,
+          "y": 0.4769065322875975,
+          "speed": 30.614734656645815,
+          "heading": -1.5707782657795921,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.3092843631778058,
+            "v": 0.7375
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 981.4,
+            "wrecked": false,
+            "y": 11.8
+          }
+        },
+        {
+          "x": -822.4720517578126,
+          "z": 604.499755859375,
+          "y": 0.437880136489868,
+          "speed": 30.65271378390175,
+          "heading": -1.5707770161829149,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.3092843631778058,
+            "v": 0.7375
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 989.1,
+            "wrecked": false,
+            "y": 12.4
+          }
+        },
+        {
+          "x": -834.7415297851563,
+          "z": 604.4996948242188,
+          "y": 0.4134054670333861,
+          "speed": 30.676971440928114,
+          "heading": -1.5707763960233845,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.3092843631778058,
+            "v": 0.7375
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 995.8,
+            "wrecked": false,
+            "y": 13
+          }
+        },
+        {
+          "x": -847.540283203125,
+          "z": 604.4996337890625,
+          "y": 0.39587533950805665,
+          "speed": 30.69482422422303,
+          "heading": -1.570776092835144,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.3092843631778058,
+            "v": 0.7375
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 1003.3,
+            "wrecked": false,
+            "y": 13.5
+          }
+        },
+        {
+          "x": -860.0277182617187,
+          "z": 604.4995727539062,
+          "y": 0.38430367088317874,
+          "speed": 30.705913550177222,
+          "heading": -1.570775959122028,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.3092843631778058,
+            "v": 0.7375
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 1012.5,
+            "wrecked": false,
+            "y": 13.7
+          }
+        },
+        {
+          "x": -872.8531040039062,
+          "z": 604.4995727539062,
+          "y": 0.3763673009872437,
+          "speed": 30.713638312283734,
+          "heading": -1.570775891432843,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.3092843631778058,
+            "v": 0.7375
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 1022.9,
+            "wrecked": false,
+            "y": 13.8
+          }
+        },
+        {
+          "x": -884.890314453125,
+          "z": 604.4995727539062,
+          "y": 0.37143932843208316,
+          "speed": 30.718399054716173,
+          "heading": -1.5707758655989577,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.3092843631778058,
+            "v": 0.7375
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 1032.9,
+            "wrecked": false,
+            "y": 13.8
+          }
+        },
+        {
+          "x": -898.2054453124999,
+          "z": 604.49951171875,
+          "y": 0.3678980031013489,
+          "speed": 30.721918111572638,
+          "heading": -1.5707758527649345,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.3092843631778058,
+            "v": 0.7375
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 1042.6,
+            "wrecked": false,
+            "y": 13.9
+          }
+        },
+        {
+          "x": -911.2553793945311,
+          "z": 604.49951171875,
+          "y": 0.3657202520370484,
+          "speed": 30.724132544193235,
+          "heading": -1.570775847133005,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.3092843631778058,
+            "v": 0.7375
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 1050.4,
+            "wrecked": false,
+            "y": 14.2
+          }
+        },
+        {
+          "x": -923.755037109375,
+          "z": 604.49951171875,
+          "y": 0.36441008281707765,
+          "speed": 30.725391394273498,
+          "heading": -1.5707758451762506,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.3092843631778058,
+            "v": 0.7375
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 1058.1,
+            "wrecked": false,
+            "y": 14.7
+          }
+        },
+        {
+          "x": -936.3256220703124,
+          "z": 604.49951171875,
+          "y": 0.36358593630790714,
+          "speed": 30.726226813176545,
+          "heading": -1.5707758438208124,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.3092843631778058,
+            "v": 0.7375
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 1065.8,
+            "wrecked": false,
+            "y": 15.3
+          }
+        },
+        {
+          "x": -949.1625546875001,
+          "z": 604.49951171875,
+          "y": 0.3630715160369873,
+          "speed": 30.72671700168402,
+          "heading": -1.5707758435947903,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.3092843631778058,
+            "v": 0.7375
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 1076.2,
+            "wrecked": false,
+            "y": 15.2
+          }
+        },
+        {
+          "x": -961.4422060546876,
+          "z": 604.49951171875,
+          "y": 0.36277414321899415,
+          "speed": 30.72702217745757,
+          "heading": -1.5707758434811427,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.3092843631778058,
+            "v": 0.7375
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 1081.7,
+            "wrecked": false,
+            "y": 21.3
+          }
+        }
+      ],
+      "after": {
+        "car": {
+          "x": -965.2680307617188,
+          "z": 604.49951171875,
+          "y": 0.36270742177963256,
+          "speed": 30.503076559741498,
+          "heading": -1.5707758455338865,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.3092843631778058,
+            "v": 0.7375
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 1083.2,
+            "wrecked": false,
+            "y": 20.8
+          }
+        },
+        "tier": 2,
+        "ratio": 1.32,
+        "stream": {
+          "cells": 836,
+          "resident": 201,
+          "detailedCells": 16,
+          "verts": 1277815,
+          "bytes": 33732210,
+          "builtMs": 3491.299999475479
+        }
+      },
+      "transition": {
+        "syncMs": 0.40000009536743164,
+        "frameMax": 316.59999999999854,
+        "streamMax": 269.7000000476837,
+        "longFrames": 1,
+        "stream": {
+          "cells": 836,
+          "resident": 133,
+          "detailedCells": 15,
+          "verts": 333485,
+          "bytes": 8698248,
+          "builtMs": 3756.9999992847443
+        }
+      }
+    }
+  ],
+  "readyMs": 9420,
+  "device": {
+    "coarse": true,
+    "touch": 5,
+    "dpr": 3,
+    "width": 390,
+    "height": 844,
+    "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Max, Unspecified Version)",
+    "ratio": 1.1,
+    "post": false
+  },
+  "route": {
+    "u": 0.2667087011349306,
+    "v": 0.7325,
+    "yaw": -1.5707963267948966,
+    "length": 275.69239044189453
+  },
+  "pageErrors": []
+}

@@ -13,6 +13,119 @@ const STDERR_TAIL_MAX = 16_000;
 const fmtMs = (ms: number): string =>
   ms >= 60_000 ? `${Math.round(ms / 60_000)}m` : `${Math.round(ms / 1000)}s`;
 
+const parseCodexItem = (value: JsonValue | undefined): CodexItem | undefined => {
+  const item = asJsonObject(value);
+  if (!item) {
+    return undefined;
+  }
+  return {
+    changes: Array.isArray(item.changes)
+      ? item.changes.map((change) => ({ path: asString(asJsonObject(change)?.path) }))
+      : undefined,
+    command: asString(item.command),
+    message: asString(item.message),
+    query: asString(item.query),
+    server: asString(item.server),
+    text: asString(item.text),
+    tool: asString(item.tool),
+    type: asString(item.type),
+  };
+};
+/**
+ * Decode one `codex exec --json` line into a typed event at the process
+ * boundary — the CLI's output is untrusted bytes until each used field is
+ * validated. Null for non-JSON noise and event types this view doesn't consume.
+ */
+const parseCodexEvent = (text: string): CodexEvent | null => {
+  const evt = asJsonObject(parseJson(text));
+  if (!evt) {
+    return null;
+  }
+  switch (evt.type) {
+    case "thread.started": {
+      return { thread_id: asString(evt.thread_id), type: "thread.started" };
+    }
+    case "turn.started":
+    case "turn.completed": {
+      return { type: evt.type };
+    }
+    case "turn.failed": {
+      const error = asJsonObject(evt.error);
+      return { error: error && { message: asString(error.message) }, type: "turn.failed" };
+    }
+    case "error": {
+      return { message: asString(evt.message), type: "error" };
+    }
+    case "item.started":
+    case "item.completed": {
+      return { item: parseCodexItem(evt.item), type: evt.type };
+    }
+    default: {
+      return null;
+    }
+  }
+};
+const oneLine = (s: string, max = 80): string => {
+  const flat = s.replaceAll(/\s+/gu, " ").trim();
+  return flat.length > max ? `${flat.slice(0, max)}…` : flat;
+};
+/** Tool-ish items are reported once, when they start. */
+const startedActivity = (item: CodexItem): Activity | null => {
+  switch (item.type) {
+    case "command_execution": {
+      return item.command ? { detail: oneLine(item.command), kind: "tool", name: "shell" } : null;
+    }
+    case "mcp_tool_call": {
+      return {
+        detail: undefined,
+        kind: "tool",
+        name: [item.server, item.tool].filter(Boolean).join(".") || "mcp",
+      };
+    }
+    case "web_search": {
+      return {
+        detail: item.query ? oneLine(item.query) : undefined,
+        kind: "tool",
+        name: "web_search",
+      };
+    }
+    default: {
+      return null;
+    }
+  }
+};
+
+/** Messages and edits are reported once, when they complete. */
+const finishedActivity = (item: CodexItem): Activity | null => {
+  switch (item.type) {
+    case "agent_message": {
+      return item.text?.trim() ? { kind: "text", text: item.text.trim() } : null;
+    }
+    case "file_change": {
+      const paths = (item.changes ?? [])
+        .map((c) => c.path)
+        .filter((path): path is string => Boolean(path))
+        .join(", ");
+      return { detail: paths ? oneLine(paths) : undefined, kind: "tool", name: "edit" };
+    }
+    case "error": {
+      // Codex surfaces non-fatal warnings as error items (skills budget etc.).
+      return item.message ? { kind: "text", text: `⚠ ${oneLine(item.message, 160)}` } : null;
+    }
+    default: {
+      return null;
+    }
+  }
+};
+
+/** Map a codex thread item onto the reporter's Activity view. */
+const itemActivity = (item: CodexItem | undefined, started: boolean): Activity | null => {
+  if (!item?.type) {
+    return null;
+  }
+  return started ? startedActivity(item) : finishedActivity(item);
+};
+
 /**
  * Invoke a headless Codex session (`codex exec --json`) with the same contract
  * as runClaude: one fresh session per phase, Activity events streamed as they
@@ -20,14 +133,20 @@ const fmtMs = (ms: number): string =>
  * separate system-prompt channel, so the role prompt is prepended to the task;
  * it reports token usage but not dollar cost, so costUsd stays undefined.
  */
-export function runCodex(opts: RunOptions): Promise<RunResult> {
+export const runCodex = (opts: RunOptions): Promise<RunResult> => {
   const args = ["exec", "--json", "--skip-git-repo-check", "--model", opts.model];
-  if (opts.skipPermissions) args.push("--dangerously-bypass-approvals-and-sandbox");
-  else args.push("--sandbox", "workspace-write");
-  for (const dir of opts.addDirs ?? []) args.push("--add-dir", dir);
+  if (opts.skipPermissions) {
+    args.push("--dangerously-bypass-approvals-and-sandbox");
+  } else {
+    args.push("--sandbox", "workspace-write");
+  }
+  for (const dir of opts.addDirs ?? []) {
+    args.push("--add-dir", dir);
+  }
   args.push(`${opts.systemPrompt}\n\n---\n\nYOUR TASK:\n\n${opts.prompt}`);
 
-  return new Promise((resolvePromise) => {
+  // oxlint-disable-next-line promise/avoid-new -- child_process.spawn is event-based
+  return new Promise((resolve) => {
     let child: ReturnType<typeof spawn> | undefined;
     let rl: ReturnType<typeof createInterface> | undefined;
     let sessionId: string | undefined;
@@ -39,32 +158,17 @@ export function runCodex(opts: RunOptions): Promise<RunResult> {
     let idleTimer: ReturnType<typeof setTimeout> | undefined;
     let sessionTimer: ReturnType<typeof setTimeout> | undefined;
 
-    // Watchdog: no output at all for idleTimeoutMs means the process is wedged
-    // (or a tool is stuck) — kill it and fail so the phase loop and workspace
-    // lock can never block forever. Reset on every event.
-    const pokeIdle = (): void => {
-      if (opts.idleTimeoutMs <= 0 || settled) return;
-      if (idleTimer) clearTimeout(idleTimer);
-      idleTimer = setTimeout(() => {
-        try {
-          child?.kill("SIGKILL");
-        } catch {
-          /* already gone */
-        }
-        settle({
-          ok: false,
-          result: "",
-          error: `no output for ${fmtMs(opts.idleTimeoutMs)} — treating codex as hung`,
-        });
-      }, opts.idleTimeoutMs);
-      idleTimer.unref?.();
-    };
-
     const settle = (res: RunResult): void => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
-      if (idleTimer) clearTimeout(idleTimer);
-      if (sessionTimer) clearTimeout(sessionTimer);
+      if (idleTimer) {
+        clearTimeout(idleTimer);
+      }
+      if (sessionTimer) {
+        clearTimeout(sessionTimer);
+      }
       try {
         rl?.close();
       } catch {
@@ -77,26 +181,52 @@ export function runCodex(opts: RunOptions): Promise<RunResult> {
       } catch {
         /* ignore */
       }
-      resolvePromise(res);
+      resolve(res);
+    };
+
+    // Watchdog: no output at all for idleTimeoutMs means the process is wedged
+    // (or a tool is stuck) — kill it and fail so the phase loop and workspace
+    // lock can never block forever. Reset on every event.
+    const pokeIdle = (): void => {
+      if (opts.idleTimeoutMs <= 0 || settled) {
+        return;
+      }
+      if (idleTimer) {
+        clearTimeout(idleTimer);
+      }
+      idleTimer = setTimeout(() => {
+        try {
+          child?.kill("SIGKILL");
+        } catch {
+          /* already gone */
+        }
+        settle({
+          error: `no output for ${fmtMs(opts.idleTimeoutMs)} — treating codex as hung`,
+          ok: false,
+          result: "",
+        });
+      }, opts.idleTimeoutMs);
+      idleTimer.unref?.();
     };
 
     try {
       child = spawn(opts.bin, args, {
         cwd: opts.cwd,
         env: { ...process.env },
-        stdio: ["ignore", "pipe", "pipe"],
         signal: opts.signal,
+        stdio: ["ignore", "pipe", "pipe"],
       });
-    } catch (err) {
+    } catch (error) {
       settle({
+        error: `failed to spawn ${opts.bin}: ${error instanceof Error ? error.message : String(error)}`,
         ok: false,
         result: "",
-        error: `failed to spawn ${opts.bin}: ${err instanceof Error ? err.message : String(err)}`,
       });
       return;
     }
 
-    pokeIdle(); // arm the inactivity watchdog before the first byte arrives
+    // arm the inactivity watchdog before the first byte arrives
+    pokeIdle();
 
     // Absolute ceiling: fires even while the session is actively streaming.
     if (opts.maxSessionMs > 0) {
@@ -107,26 +237,39 @@ export function runCodex(opts: RunOptions): Promise<RunResult> {
           /* already gone */
         }
         settle({
+          error: `exceeded the ${fmtMs(opts.maxSessionMs)} session limit — killed`,
           ok: false,
           result: "",
-          error: `exceeded the ${fmtMs(opts.maxSessionMs)} session limit — killed`,
         });
       }, opts.maxSessionMs);
       sessionTimer.unref?.();
     }
 
-    rl = createInterface({ input: child.stdout! });
+    if (child.stdout) {
+      rl = createInterface({ input: child.stdout });
+    }
+    if (!rl) {
+      settle({ error: "codex produced no stdout pipe", ok: false, result: "", sessionId });
+      return;
+    }
     rl.on("line", (line) => {
-      pokeIdle(); // any output is a sign of life
+      // any output is a sign of life
+      pokeIdle();
       const trimmed = line.trim();
-      if (!trimmed) return;
+      if (!trimmed) {
+        return;
+      }
       const evt = parseCodexEvent(trimmed);
-      if (evt === null) return; // ignore non-JSON noise and unknown event types
+      if (evt === null) {
+        return;
+        // ignore non-JSON noise and unknown event types
+      }
       switch (evt.type) {
-        case "thread.started":
+        case "thread.started": {
           sessionId = evt.thread_id;
           opts.onActivity({ kind: "init", model: opts.model });
           return;
+        }
         case "item.started":
         case "item.completed": {
           const activity = itemActivity(evt.item, evt.type === "item.started");
@@ -138,27 +281,33 @@ export function runCodex(opts: RunOptions): Promise<RunResult> {
           }
           return;
         }
-        case "turn.completed":
+        case "turn.completed": {
           turnCompleted = true;
           return;
-        case "turn.failed":
+        }
+        case "turn.failed": {
           failure = evt.error?.message ?? "codex turn failed";
-          return;
-        case "error":
+          break;
+        }
+        case "error": {
           failure = evt.message ?? failure;
-          return;
-        default:
-          return;
+          break;
+        }
+        default: {
+          break;
+        }
       }
     });
 
-    child.stderr!.on("data", (d: Buffer) => {
-      pokeIdle(); // stderr output is also a sign of life
-      stderr = (stderr + d.toString()).slice(-STDERR_TAIL_MAX); // bounded tail
+    child.stderr?.on("data", (d: Buffer) => {
+      // stderr output is also a sign of life
+      pokeIdle();
+      // bounded tail
+      stderr = (stderr + d.toString()).slice(-STDERR_TAIL_MAX);
     });
 
     child.on("error", (err: Error) => {
-      settle({ ok: false, result: "", error: `${opts.bin}: ${err.message}` });
+      settle({ error: `${opts.bin}: ${err.message}`, ok: false, result: "" });
     });
 
     child.on("close", (code) => {
@@ -167,19 +316,19 @@ export function runCodex(opts: RunOptions): Promise<RunResult> {
       // rather than silently advancing the phase.
       if (failure || code !== 0 || !turnCompleted) {
         settle({
+          error: failure ?? stderr.trim() ?? `codex exited with code ${code}`,
           ok: false,
           result: lastMessage,
           sessionId,
-          error: failure ?? stderr.trim() ?? `codex exited with code ${code}`,
         });
         return;
       }
       settle({ ok: true, result: lastMessage, sessionId });
     });
   });
-}
+};
 
-type CodexItem = {
+interface CodexItem {
   type?: string;
   text?: string;
   message?: string;
@@ -188,7 +337,7 @@ type CodexItem = {
   server?: string;
   query?: string;
   changes?: { path?: string }[];
-};
+}
 
 type CodexEvent =
   | { type: "thread.started"; thread_id?: string }
@@ -197,94 +346,3 @@ type CodexEvent =
   | { type: "turn.failed"; error?: { message?: string } }
   | { type: "error"; message?: string }
   | { type: "item.started" | "item.completed"; item?: CodexItem };
-
-/**
- * Decode one `codex exec --json` line into a typed event at the process
- * boundary — the CLI's output is untrusted bytes until each used field is
- * validated. Null for non-JSON noise and event types this view doesn't consume.
- */
-function parseCodexEvent(text: string): CodexEvent | null {
-  const evt = asJsonObject(parseJson(text));
-  if (!evt) return null;
-  switch (evt.type) {
-    case "thread.started":
-      return { type: "thread.started", thread_id: asString(evt.thread_id) };
-    case "turn.started":
-    case "turn.completed":
-      return { type: evt.type };
-    case "turn.failed": {
-      const error = asJsonObject(evt.error);
-      return { type: "turn.failed", error: error && { message: asString(error.message) } };
-    }
-    case "error":
-      return { type: "error", message: asString(evt.message) };
-    case "item.started":
-    case "item.completed":
-      return { type: evt.type, item: parseCodexItem(evt.item) };
-    default:
-      return null;
-  }
-}
-
-function parseCodexItem(value: JsonValue | undefined): CodexItem | undefined {
-  const item = asJsonObject(value);
-  if (!item) return undefined;
-  return {
-    type: asString(item.type),
-    text: asString(item.text),
-    message: asString(item.message),
-    command: asString(item.command),
-    tool: asString(item.tool),
-    server: asString(item.server),
-    query: asString(item.query),
-    changes: Array.isArray(item.changes)
-      ? item.changes.map((change) => ({ path: asString(asJsonObject(change)?.path) }))
-      : undefined,
-  };
-}
-
-const oneLine = (s: string, max = 80): string => {
-  const flat = s.replace(/\s+/g, " ").trim();
-  return flat.length > max ? `${flat.slice(0, max)}…` : flat;
-};
-
-/** Map a codex thread item onto the reporter's Activity view. Tool-ish items
- * are reported once when they start; messages once when they complete. */
-function itemActivity(item: CodexItem | undefined, started: boolean): Activity | null {
-  if (!item?.type) return null;
-  switch (item.type) {
-    case "agent_message":
-      return !started && item.text?.trim() ? { kind: "text", text: item.text.trim() } : null;
-    case "command_execution":
-      return started && item.command
-        ? { kind: "tool", name: "shell", detail: oneLine(item.command) }
-        : null;
-    case "file_change": {
-      if (started) return null;
-      const paths = (item.changes ?? [])
-        .map((c) => c.path)
-        .filter((p): p is string => Boolean(p))
-        .join(", ");
-      return { kind: "tool", name: "edit", detail: paths ? oneLine(paths) : undefined };
-    }
-    case "mcp_tool_call":
-      return started
-        ? {
-            kind: "tool",
-            name: [item.server, item.tool].filter(Boolean).join(".") || "mcp",
-            detail: undefined,
-          }
-        : null;
-    case "web_search":
-      return started
-        ? { kind: "tool", name: "web_search", detail: item.query ? oneLine(item.query) : undefined }
-        : null;
-    case "error":
-      // Codex surfaces non-fatal warnings as error items (skills budget etc.).
-      return !started && item.message
-        ? { kind: "text", text: `⚠ ${oneLine(item.message, 160)}` }
-        : null;
-    default:
-      return null;
-  }
-}

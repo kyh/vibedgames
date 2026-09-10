@@ -1,5 +1,5 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import path from "node:path";
 
 import { decodePng, encodePng, readPngSize } from "./png.js";
 
@@ -11,9 +11,202 @@ import { decodePng, encodePng, readPngSize } from "./png.js";
  * pixel maths a direct transcription of the numpy indexing it replaces.
  */
 
-export type Rect = { left: number; top: number; right: number; bottom: number };
+export interface Rect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
 
 export type ResampleMode = "nearest" | "bilinear" | "bicubic" | "lanczos";
+
+/** A sample from a pixel buffer; the callers index within bounds, so the fallback never fires. */
+const at = (buffer: Uint8Array | Float64Array, i: number): number => buffer[i] ?? 0;
+
+const clamp8 = (value: number): number => {
+  if (value <= 0) {
+    return 0;
+  }
+  if (value >= 255) {
+    return 255;
+  }
+  return Math.round(value);
+};
+
+/**
+ * Filter kernels and their support radii, matching Pillow's definitions.
+ * `support` is the half-width of the kernel in source pixels before the
+ * downscale widening is applied.
+ */
+const FILTERS = {
+  bicubic: {
+    // Catmull-Rom variant with a = -0.5, which is Pillow's BICUBIC and the
+    // default filter for `Image.resize`.
+    kernel: (x) => {
+      const a = -0.5;
+      const t = Math.abs(x);
+      if (t < 1) {
+        return ((a + 2) * t - (a + 3)) * t * t + 1;
+      }
+      if (t < 2) {
+        return (((t - 5) * t + 8) * t - 4) * a;
+      }
+      return 0;
+    },
+    support: 2,
+  },
+  bilinear: {
+    kernel: (x) => {
+      const t = Math.abs(x);
+      return t < 1 ? 1 - t : 0;
+    },
+    support: 1,
+  },
+  lanczos: {
+    kernel: (x) => {
+      const t = Math.abs(x);
+      if (t === 0) {
+        return 1;
+      }
+      if (t >= 3) {
+        return 0;
+      }
+      const pix = Math.PI * t;
+      return (3 * Math.sin(pix) * Math.sin(pix / 3)) / (pix * pix);
+    },
+    support: 3,
+  },
+} satisfies Record<
+  Exclude<ResampleMode, "nearest">,
+  { kernel: (x: number) => number; support: number }
+>;
+
+/**
+ * Multiply by 255 with round-to-nearest using only integer ops — Pillow's
+ * `MULDIV255`. Plain `Math.round(v * a / 255)` disagrees on a handful of
+ * values, which is enough to shift a resampled sprite by one level.
+ */
+const mulDiv255 = (value: number, alpha: number): number => {
+  const tmp = value * alpha + 128;
+  return Math.floor((tmp + Math.floor(tmp / 256)) / 256);
+};
+
+/** RGBA -> premultiplied RGBa in 8-bit, as Pillow does before resampling. */
+const premultiply = (data: Uint8Array): Float64Array => {
+  const out = new Float64Array(data.length);
+  for (let i = 0; i < data.length; i += 4) {
+    const a = at(data, i + 3);
+    out[i] = mulDiv255(at(data, i), a);
+    out[i + 1] = mulDiv255(at(data, i + 1), a);
+    out[i + 2] = mulDiv255(at(data, i + 2), a);
+    out[i + 3] = a;
+  }
+  return out;
+};
+
+/** Clip a float working buffer back to the 8-bit range, in place. */
+const quantizeInPlace = (buffer: Float64Array): void => {
+  for (let i = 0; i < buffer.length; i += 1) {
+    buffer[i] = clamp8(at(buffer, i));
+  }
+};
+
+/** Premultiplied RGBa -> straight RGBA. Pillow truncates the division. */
+const unpremultiply = (src: Float64Array, out: Uint8Array): void => {
+  for (let i = 0; i < src.length; i += 4) {
+    const a = clamp8(at(src, i + 3));
+    out[i + 3] = a;
+    if (a === 0) {
+      out[i] = 0;
+      out[i + 1] = 0;
+      out[i + 2] = 0;
+      continue;
+    }
+    for (let c = 0; c < 3; c += 1) {
+      const premul = clamp8(at(src, i + c));
+      out[i + c] = Math.min(255, Math.floor((premul * 255) / a));
+    }
+  }
+};
+
+/** Resample every row of a planar RGBA float buffer from `srcW` to `dstW`. */
+const resamplePass = (
+  src: Float64Array,
+  srcW: number,
+  rows: number,
+  dstW: number,
+  kernel: (x: number) => number,
+  support: number,
+): Float64Array => {
+  const out = new Float64Array(dstW * rows * 4);
+  const scale = srcW / dstW;
+  // Downscaling widens the filter footprint; upscaling keeps the base support.
+  const filterScale = Math.max(1, scale);
+  const radius = support * filterScale;
+
+  for (let x = 0; x < dstW; x += 1) {
+    const center = (x + 0.5) * scale;
+    // Pillow truncates toward zero on both bounds after the +0.5 nudge; using
+    // floor/ceil instead shifts the footprint and drifts from its output.
+    const start = Math.max(0, Math.trunc(center - radius + 0.5));
+    const end = Math.min(srcW, Math.trunc(center + radius + 0.5));
+
+    const weights: number[] = [];
+    let total = 0;
+    for (let sx = start; sx < end; sx += 1) {
+      const w = kernel((sx + 0.5 - center) / filterScale);
+      weights.push(w);
+      total += w;
+    }
+    if (total === 0) {
+      // Degenerate footprint (possible at extreme ratios): fall back to the
+      // nearest source column rather than emitting a transparent stripe.
+      const nearest = Math.min(srcW - 1, Math.max(0, Math.floor(center)));
+      for (let y = 0; y < rows; y += 1) {
+        for (let c = 0; c < 4; c += 1) {
+          out[(y * dstW + x) * 4 + c] = at(src, (y * srcW + nearest) * 4 + c);
+        }
+      }
+      continue;
+    }
+
+    for (let y = 0; y < rows; y += 1) {
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      let a = 0;
+      for (const [i, weight] of weights.entries()) {
+        const w = weight / total;
+        const si = (y * srcW + start + i) * 4;
+        r += at(src, si) * w;
+        g += at(src, si + 1) * w;
+        b += at(src, si + 2) * w;
+        a += at(src, si + 3) * w;
+      }
+      const di = (y * dstW + x) * 4;
+      out[di] = r;
+      out[di + 1] = g;
+      out[di + 2] = b;
+      out[di + 3] = a;
+    }
+  }
+  return out;
+};
+
+const transpose = (src: Float64Array, width: number, height: number): Float64Array => {
+  const out = new Float64Array(src.length);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const si = (y * width + x) * 4;
+      const di = (x * height + y) * 4;
+      out[di] = at(src, si);
+      out[di + 1] = at(src, si + 1);
+      out[di + 2] = at(src, si + 2);
+      out[di + 3] = at(src, si + 3);
+    }
+  }
+  return out;
+};
 
 export class Bitmap {
   readonly width: number;
@@ -36,23 +229,25 @@ export class Bitmap {
   /** A blank bitmap filled with `fill` (defaults to fully transparent). */
   static create(width: number, height: number, fill: RGBA = [0, 0, 0, 0]): Bitmap {
     const bmp = new Bitmap(width, height);
-    if (fill[0] || fill[1] || fill[2] || fill[3]) bmp.fill(fill);
+    if (fill[0] || fill[1] || fill[2] || fill[3]) {
+      bmp.fill(fill);
+    }
     return bmp;
   }
 
-  static fromFile(path: string): Bitmap {
-    const buffer = readFileSync(path);
+  static fromFile(file: string): Bitmap {
+    const buffer = readFileSync(file);
     const { width, height, data } = decodePng(buffer);
     return new Bitmap(width, height, data);
   }
 
-  toFile(path: string): void {
-    mkdirSync(dirname(resolve(path)), { recursive: true });
-    writeFileSync(path, encodePng({ width: this.width, height: this.height, data: this.data }));
+  toFile(file: string): void {
+    mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
+    writeFileSync(file, encodePng({ data: this.data, height: this.height, width: this.width }));
   }
 
   toBuffer(): Buffer {
-    return encodePng({ width: this.width, height: this.height, data: this.data });
+    return encodePng({ data: this.data, height: this.height, width: this.width });
   }
 
   copy(): Bitmap {
@@ -70,11 +265,13 @@ export class Bitmap {
 
   getPixel(x: number, y: number): RGBA {
     const i = this.index(x, y);
-    return [this.data[i]!, this.data[i + 1]!, this.data[i + 2]!, this.data[i + 3]!];
+    return [at(this.data, i), at(this.data, i + 1), at(this.data, i + 2), at(this.data, i + 3)];
   }
 
   putPixel(x: number, y: number, [r, g, b, a]: RGBA): void {
-    if (!this.contains(x, y)) return;
+    if (!this.contains(x, y)) {
+      return;
+    }
     const i = this.index(x, y);
     this.data[i] = r;
     this.data[i + 1] = g;
@@ -102,16 +299,20 @@ export class Bitmap {
     const out = new Bitmap(Math.max(0, width), Math.max(0, height));
     for (let y = 0; y < out.height; y += 1) {
       const sy = box.top + y;
-      if (sy < 0 || sy >= this.height) continue;
+      if (sy < 0 || sy >= this.height) {
+        continue;
+      }
       for (let x = 0; x < out.width; x += 1) {
         const sx = box.left + x;
-        if (sx < 0 || sx >= this.width) continue;
+        if (sx < 0 || sx >= this.width) {
+          continue;
+        }
         const si = this.index(sx, sy);
         const di = out.index(x, y);
-        out.data[di] = this.data[si]!;
-        out.data[di + 1] = this.data[si + 1]!;
-        out.data[di + 2] = this.data[si + 2]!;
-        out.data[di + 3] = this.data[si + 3]!;
+        out.data[di] = at(this.data, si);
+        out.data[di + 1] = at(this.data, si + 1);
+        out.data[di + 2] = at(this.data, si + 2);
+        out.data[di + 3] = at(this.data, si + 3);
       }
     }
     return out;
@@ -125,16 +326,20 @@ export class Bitmap {
   paste(src: Bitmap, left: number, top: number): void {
     for (let y = 0; y < src.height; y += 1) {
       const dy = top + y;
-      if (dy < 0 || dy >= this.height) continue;
+      if (dy < 0 || dy >= this.height) {
+        continue;
+      }
       for (let x = 0; x < src.width; x += 1) {
         const dx = left + x;
-        if (dx < 0 || dx >= this.width) continue;
+        if (dx < 0 || dx >= this.width) {
+          continue;
+        }
         const si = src.index(x, y);
         const di = this.index(dx, dy);
-        this.data[di] = src.data[si]!;
-        this.data[di + 1] = src.data[si + 1]!;
-        this.data[di + 2] = src.data[si + 2]!;
-        this.data[di + 3] = src.data[si + 3]!;
+        this.data[di] = at(src.data, si);
+        this.data[di + 1] = at(src.data, si + 1);
+        this.data[di + 2] = at(src.data, si + 2);
+        this.data[di + 3] = at(src.data, si + 3);
       }
     }
   }
@@ -155,15 +360,21 @@ export class Bitmap {
   pasteMasked(src: Bitmap, left: number, top: number, mask: Uint8Array): void {
     for (let y = 0; y < src.height; y += 1) {
       const dy = top + y;
-      if (dy < 0 || dy >= this.height) continue;
+      if (dy < 0 || dy >= this.height) {
+        continue;
+      }
       for (let x = 0; x < src.width; x += 1) {
         const dx = left + x;
-        if (dx < 0 || dx >= this.width) continue;
-        const m = mask[y * src.width + x]! / 255;
+        if (dx < 0 || dx >= this.width) {
+          continue;
+        }
+        const m = at(mask, y * src.width + x) / 255;
         const si = src.index(x, y);
         const di = this.index(dx, dy);
         for (let c = 0; c < 4; c += 1) {
-          this.data[di + c] = Math.round(this.data[di + c]! * (1 - m) + src.data[si + c]! * m);
+          this.data[di + c] = Math.round(
+            at(this.data, di + c) * (1 - m) + at(src.data, si + c) * m,
+          );
         }
       }
     }
@@ -173,23 +384,29 @@ export class Bitmap {
   alphaComposite(src: Bitmap, left = 0, top = 0): void {
     for (let y = 0; y < src.height; y += 1) {
       const dy = top + y;
-      if (dy < 0 || dy >= this.height) continue;
+      if (dy < 0 || dy >= this.height) {
+        continue;
+      }
       for (let x = 0; x < src.width; x += 1) {
         const dx = left + x;
-        if (dx < 0 || dx >= this.width) continue;
+        if (dx < 0 || dx >= this.width) {
+          continue;
+        }
         const si = src.index(x, y);
         const di = this.index(dx, dy);
-        const sa = src.data[si + 3]! / 255;
-        if (sa === 0) continue;
-        const da = this.data[di + 3]! / 255;
+        const sa = at(src.data, si + 3) / 255;
+        if (sa === 0) {
+          continue;
+        }
+        const da = at(this.data, di + 3) / 255;
         const outA = sa + da * (1 - sa);
         if (outA === 0) {
-          this.data[di] = this.data[di + 1] = this.data[di + 2] = this.data[di + 3] = 0;
+          this.data.fill(0, di, di + 4);
           continue;
         }
         for (let c = 0; c < 3; c += 1) {
-          const s = src.data[si + c]!;
-          const d = this.data[di + c]!;
+          const s = at(src.data, si + c);
+          const d = at(this.data, di + c);
           this.data[di + c] = Math.round((s * sa + d * da * (1 - sa)) / outA);
         }
         this.data[di + 3] = Math.round(outA * 255);
@@ -209,21 +426,35 @@ export class Bitmap {
     let maxY = -1;
     for (let y = 0; y < this.height; y += 1) {
       for (let x = 0; x < this.width; x += 1) {
-        if (this.data[this.index(x, y) + 3]! <= alphaThreshold) continue;
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
+        if (at(this.data, this.index(x, y) + 3) <= alphaThreshold) {
+          continue;
+        }
+        if (x < minX) {
+          minX = x;
+        }
+        if (x > maxX) {
+          maxX = x;
+        }
+        if (y < minY) {
+          minY = y;
+        }
+        if (y > maxY) {
+          maxY = y;
+        }
       }
     }
-    if (maxX < 0) return null;
-    return { left: minX, top: minY, right: maxX + 1, bottom: maxY + 1 };
+    if (maxX < 0) {
+      return null;
+    }
+    return { bottom: maxY + 1, left: minX, right: maxX + 1, top: minY };
   }
 
   /** Extract one channel as a width*height byte array (Pillow's `split`). */
   channel(offset: 0 | 1 | 2 | 3): Uint8Array {
     const out = new Uint8Array(this.width * this.height);
-    for (let i = 0; i < out.length; i += 1) out[i] = this.data[i * 4 + offset]!;
+    for (let i = 0; i < out.length; i += 1) {
+      out[i] = at(this.data, i * 4 + offset);
+    }
     return out;
   }
 
@@ -233,7 +464,7 @@ export class Bitmap {
     for (let i = 0; i < out.length; i += 1) {
       const p = i * 4;
       out[i] = Math.round(
-        this.data[p]! * 0.299 + this.data[p + 1]! * 0.587 + this.data[p + 2]! * 0.114,
+        at(this.data, p) * 0.299 + at(this.data, p + 1) * 0.587 + at(this.data, p + 2) * 0.114,
       );
     }
     return out;
@@ -243,9 +474,9 @@ export class Bitmap {
   flatten(background: RGB = [0, 0, 0]): Bitmap {
     const out = new Bitmap(this.width, this.height);
     for (let i = 0; i < this.data.length; i += 4) {
-      const a = this.data[i + 3]! / 255;
+      const a = at(this.data, i + 3) / 255;
       for (let c = 0; c < 3; c += 1) {
-        out.data[i + c] = Math.round(this.data[i + c]! * a + background[c]! * (1 - a));
+        out.data[i + c] = Math.round(at(this.data, i + c) * a + (background[c] ?? 0) * (1 - a));
       }
       out.data[i + 3] = 255;
     }
@@ -253,8 +484,12 @@ export class Bitmap {
   }
 
   resize(width: number, height: number, mode: ResampleMode = "nearest"): Bitmap {
-    if (width === this.width && height === this.height) return this.copy();
-    if (mode === "nearest") return this.resizeNearest(width, height);
+    if (width === this.width && height === this.height) {
+      return this.copy();
+    }
+    if (mode === "nearest") {
+      return this.resizeNearest(width, height);
+    }
     return this.resampleFiltered(width, height, mode);
   }
 
@@ -271,10 +506,10 @@ export class Bitmap {
         const sx = Math.min(this.width - 1, Math.floor((x + 0.5) * xRatio));
         const si = this.index(sx, sy);
         const di = out.index(x, y);
-        out.data[di] = this.data[si]!;
-        out.data[di + 1] = this.data[si + 1]!;
-        out.data[di + 2] = this.data[si + 2]!;
-        out.data[di + 3] = this.data[si + 3]!;
+        out.data[di] = at(this.data, si);
+        out.data[di + 1] = at(this.data, si + 1);
+        out.data[di + 2] = at(this.data, si + 2);
+        out.data[di + 3] = at(this.data, si + 3);
       }
     }
     return out;
@@ -334,182 +569,51 @@ export class Bitmap {
 export type RGB = [number, number, number];
 export type RGBA = [number, number, number, number];
 
-function clamp8(value: number): number {
-  return value <= 0 ? 0 : value >= 255 ? 255 : Math.round(value);
-}
-
-/**
- * Filter kernels and their support radii, matching Pillow's definitions.
- * `support` is the half-width of the kernel in source pixels before the
- * downscale widening is applied.
- */
-const FILTERS = {
-  bilinear: {
-    support: 1,
-    kernel: (x) => {
-      const t = Math.abs(x);
-      return t < 1 ? 1 - t : 0;
-    },
-  },
-  bicubic: {
-    support: 2,
-    // Catmull-Rom variant with a = -0.5, which is Pillow's BICUBIC and the
-    // default filter for `Image.resize`.
-    kernel: (x) => {
-      const a = -0.5;
-      const t = Math.abs(x);
-      if (t < 1) return ((a + 2) * t - (a + 3)) * t * t + 1;
-      if (t < 2) return (((t - 5) * t + 8) * t - 4) * a;
-      return 0;
-    },
-  },
-  lanczos: {
-    support: 3,
-    kernel: (x) => {
-      const t = Math.abs(x);
-      if (t === 0) return 1;
-      if (t >= 3) return 0;
-      const pix = Math.PI * t;
-      return (3 * Math.sin(pix) * Math.sin(pix / 3)) / (pix * pix);
-    },
-  },
-} satisfies Record<
-  Exclude<ResampleMode, "nearest">,
-  { kernel: (x: number) => number; support: number }
->;
-
-/**
- * Multiply by 255 with round-to-nearest using only integer ops — Pillow's
- * `MULDIV255`. Plain `Math.round(v * a / 255)` disagrees on a handful of
- * values, which is enough to shift a resampled sprite by one level.
- */
-function mulDiv255(value: number, alpha: number): number {
-  const tmp = value * alpha + 128;
-  return (tmp + (tmp >> 8)) >> 8;
-}
-
-/** RGBA -> premultiplied RGBa in 8-bit, as Pillow does before resampling. */
-function premultiply(data: Uint8Array): Float64Array {
-  const out = new Float64Array(data.length);
-  for (let i = 0; i < data.length; i += 4) {
-    const a = data[i + 3]!;
-    out[i] = mulDiv255(data[i]!, a);
-    out[i + 1] = mulDiv255(data[i + 1]!, a);
-    out[i + 2] = mulDiv255(data[i + 2]!, a);
-    out[i + 3] = a;
-  }
-  return out;
-}
-
-/** Clip a float working buffer back to the 8-bit range, in place. */
-function quantizeInPlace(buffer: Float64Array): void {
-  for (let i = 0; i < buffer.length; i += 1) buffer[i] = clamp8(buffer[i]!);
-}
-
-/** Premultiplied RGBa -> straight RGBA. Pillow truncates the division. */
-function unpremultiply(src: Float64Array, out: Uint8Array): void {
-  for (let i = 0; i < src.length; i += 4) {
-    const a = clamp8(src[i + 3]!);
-    out[i + 3] = a;
-    if (a === 0) {
-      out[i] = out[i + 1] = out[i + 2] = 0;
+const readJpegSize = (buffer: Buffer): { width: number; height: number } | null => {
+  let pos = 2;
+  while (pos + 9 < buffer.length) {
+    if (buffer[pos] !== 0xff) {
+      pos += 1;
       continue;
     }
-    for (let c = 0; c < 3; c += 1) {
-      const premul = clamp8(src[i + c]!);
-      out[i + c] = Math.min(255, Math.floor((premul * 255) / a));
+    const marker = at(buffer, pos + 1);
+    // SOF0-SOF15, excluding the non-frame markers DHT (c4), JPG (c8), DAC (cc).
+    if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
+      return { height: buffer.readUInt16BE(pos + 5), width: buffer.readUInt16BE(pos + 7) };
     }
+    pos += 2 + buffer.readUInt16BE(pos + 2);
   }
-}
+  return null;
+};
 
-/** Resample every row of a planar RGBA float buffer from `srcW` to `dstW`. */
-function resamplePass(
-  src: Float64Array,
-  srcW: number,
-  rows: number,
-  dstW: number,
-  kernel: (x: number) => number,
-  support: number,
-): Float64Array {
-  const out = new Float64Array(dstW * rows * 4);
-  const scale = srcW / dstW;
-  // Downscaling widens the filter footprint; upscaling keeps the base support.
-  const filterScale = Math.max(1, scale);
-  const radius = support * filterScale;
-
-  for (let x = 0; x < dstW; x += 1) {
-    const center = (x + 0.5) * scale;
-    // Pillow truncates toward zero on both bounds after the +0.5 nudge; using
-    // floor/ceil instead shifts the footprint and drifts from its output.
-    const start = Math.max(0, Math.trunc(center - radius + 0.5));
-    const end = Math.min(srcW, Math.trunc(center + radius + 0.5));
-
-    const weights: number[] = [];
-    let total = 0;
-    for (let sx = start; sx < end; sx += 1) {
-      const w = kernel((sx + 0.5 - center) / filterScale);
-      weights.push(w);
-      total += w;
-    }
-    if (total === 0) {
-      // Degenerate footprint (possible at extreme ratios): fall back to the
-      // nearest source column rather than emitting a transparent stripe.
-      const nearest = Math.min(srcW - 1, Math.max(0, Math.floor(center)));
-      for (let y = 0; y < rows; y += 1) {
-        for (let c = 0; c < 4; c += 1) {
-          out[(y * dstW + x) * 4 + c] = src[(y * srcW + nearest) * 4 + c]!;
-        }
-      }
-      continue;
-    }
-
-    for (let y = 0; y < rows; y += 1) {
-      let r = 0;
-      let g = 0;
-      let b = 0;
-      let a = 0;
-      for (let i = 0; i < weights.length; i += 1) {
-        const w = weights[i]! / total;
-        const si = (y * srcW + start + i) * 4;
-        r += src[si]! * w;
-        g += src[si + 1]! * w;
-        b += src[si + 2]! * w;
-        a += src[si + 3]! * w;
-      }
-      const di = (y * dstW + x) * 4;
-      out[di] = r;
-      out[di + 1] = g;
-      out[di + 2] = b;
-      out[di + 3] = a;
-    }
+const readWebpSize = (buffer: Buffer): { width: number; height: number } | null => {
+  const format = buffer.subarray(12, 16).toString("ascii");
+  if (format === "VP8X") {
+    return {
+      height: 1 + buffer.readUIntLE(27, 3),
+      width: 1 + buffer.readUIntLE(24, 3),
+    };
   }
-  return out;
-}
-
-function transpose(src: Float64Array, width: number, height: number): Float64Array {
-  const out = new Float64Array(src.length);
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const si = (y * width + x) * 4;
-      const di = (x * height + y) * 4;
-      out[di] = src[si]!;
-      out[di + 1] = src[si + 1]!;
-      out[di + 2] = src[si + 2]!;
-      out[di + 3] = src[si + 3]!;
-    }
+  if (format === "VP8 ") {
+    return { height: buffer.readUInt16LE(28) % 0x40_00, width: buffer.readUInt16LE(26) % 0x40_00 };
   }
-  return out;
-}
-
+  if (format === "VP8L") {
+    const bits = buffer.readUInt32LE(21);
+    return { height: 1 + (Math.floor(bits / 0x40_00) % 0x40_00), width: 1 + (bits % 0x40_00) };
+  }
+  return null;
+};
 /** Read image dimensions without decoding pixels. PNG, JPEG, GIF and WebP. */
-export function readImageSize(path: string): { width: number; height: number } | null {
-  const buffer = readFileSync(path);
+export const readImageSize = (file: string): { width: number; height: number } | null => {
+  const buffer = readFileSync(file);
   if (buffer.length >= 24 && buffer[0] === 0x89 && buffer[1] === 0x50) {
     return readPngSize(buffer);
   }
-  if (buffer[0] === 0xff && buffer[1] === 0xd8) return readJpegSize(buffer);
+  if (buffer[0] === 0xff && buffer[1] === 0xd8) {
+    return readJpegSize(buffer);
+  }
   if (buffer.subarray(0, 3).toString("ascii") === "GIF") {
-    return { width: buffer.readUInt16LE(6), height: buffer.readUInt16LE(8) };
+    return { height: buffer.readUInt16LE(8), width: buffer.readUInt16LE(6) };
   }
   if (
     buffer.subarray(0, 4).toString("ascii") === "RIFF" &&
@@ -518,39 +622,4 @@ export function readImageSize(path: string): { width: number; height: number } |
     return readWebpSize(buffer);
   }
   return null;
-}
-
-function readJpegSize(buffer: Buffer): { width: number; height: number } | null {
-  let pos = 2;
-  while (pos + 9 < buffer.length) {
-    if (buffer[pos] !== 0xff) {
-      pos += 1;
-      continue;
-    }
-    const marker = buffer[pos + 1]!;
-    // SOF0-SOF15, excluding the non-frame markers DHT (c4), JPG (c8), DAC (cc).
-    if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
-      return { height: buffer.readUInt16BE(pos + 5), width: buffer.readUInt16BE(pos + 7) };
-    }
-    pos += 2 + buffer.readUInt16BE(pos + 2);
-  }
-  return null;
-}
-
-function readWebpSize(buffer: Buffer): { width: number; height: number } | null {
-  const format = buffer.subarray(12, 16).toString("ascii");
-  if (format === "VP8X") {
-    return {
-      width: 1 + (buffer[24]! | (buffer[25]! << 8) | (buffer[26]! << 16)),
-      height: 1 + (buffer[27]! | (buffer[28]! << 8) | (buffer[29]! << 16)),
-    };
-  }
-  if (format === "VP8 ") {
-    return { width: buffer.readUInt16LE(26) & 0x3fff, height: buffer.readUInt16LE(28) & 0x3fff };
-  }
-  if (format === "VP8L") {
-    const bits = buffer.readUInt32LE(21);
-    return { width: 1 + (bits & 0x3fff), height: 1 + ((bits >> 14) & 0x3fff) };
-  }
-  return null;
-}
+};

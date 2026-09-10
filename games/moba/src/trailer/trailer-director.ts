@@ -20,14 +20,15 @@
 // This module is only ever loaded via the ?trailer=1 branch in BootScene —
 // zero footprint in normal play.
 
-import Phaser from "phaser";
+import type { Game } from "phaser";
+import { Math as PhaserMath, Scene } from "phaser";
 
 import { SIM_DT, abilityRankCap } from "../data/config";
 import type { CreepKind, Team } from "../data/config";
 import type { AbilityKey } from "../data/heroes";
 import { NEUTRAL_CAMPS, WORLD } from "../data/map";
 import type { LaneId } from "../data/map";
-import { castAbility, useItem } from "../sim/abilities";
+import { activateItem, castAbility } from "../sim/abilities";
 import { dealDamage, updateStructureGating } from "../sim/combat";
 import { recomputeHeroStats } from "../sim/herokit";
 import { addStatus } from "../sim/stats";
@@ -41,7 +42,7 @@ import {
   step,
 } from "../sim/world";
 import type { Unit, World } from "../sim/types";
-import { resumeAudio, setMutedTransient, sfx } from "../render/audio";
+import { resetSound, resumeAudio, setMutedTransient, sfx } from "../render/audio";
 import { WorldView } from "../render/view";
 import { runTrailer } from "./trailer-shell";
 import type { TrailerConfig, TrailerScene } from "./trailer-shell";
@@ -50,15 +51,25 @@ const ABILITY_KEYS: AbilityKey[] = ["Q", "W", "E", "R"];
 
 // ---- camera rig --------------------------------------------------------------
 
-type CamPose = { x: number; y: number; z: number };
+interface CamPose {
+  x: number;
+  y: number;
+  z: number;
+}
 type Ease = (k: number) => number;
-const easeInOut: Ease = (k) => (k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2);
-const easeOut: Ease = (k) => 1 - Math.pow(1 - k, 3);
+const easeInOut: Ease = (k) => (k < 0.5 ? 4 * k * k * k : 1 - (-2 * k + 2) ** 3 / 2);
+const easeOut: Ease = (k) => 1 - (1 - k) ** 3;
 
-type CamMove = { from: CamPose; to: CamPose; dur: number; t: number; ease: Ease };
+interface CamMove {
+  from: CamPose;
+  to: CamPose;
+  dur: number;
+  t: number;
+  ease: Ease;
+}
 /** Clamp a camera centre so a `half`-extent view stays inside [0, max]. */
 const clampAxis = (v: number, half: number, max: number): number =>
-  half * 2 >= max ? max / 2 : Phaser.Math.Clamp(v, half, max - half);
+  half * 2 >= max ? max / 2 : PhaserMath.Clamp(v, half, max - half);
 type CamFollow =
   | { kind: "none" }
   | { kind: "unit"; id: string; k: number }
@@ -66,200 +77,21 @@ type CamFollow =
 
 // ---- timeline cues -------------------------------------------------------------
 
-type Cue = { at: number; fn: () => void; fired?: boolean };
+interface Cue {
+  at: number;
+  fn: () => void;
+  fired?: boolean;
+}
 
-type SceneScript = {
+interface SceneScript {
   cues?: Cue[];
   frame?: (t: number, dt: number) => void;
   done?: () => void;
-};
-
-// ---- the stage scene -----------------------------------------------------------
-
-class TrailerStage extends Phaser.Scene {
-  private world!: World;
-  private view!: WorldView;
-  private acc = 0;
-  private labelTimer = 0;
-  private pose: CamPose = { x: WORLD.width / 2, y: WORLD.height / 2, z: 0.5 };
-  private camMove: CamMove | null = null;
-  private camFollow: CamFollow = { kind: "none" };
-  /** Frozen between a scene's setup() and its first run() tick. The stage stays
-   *  black across setup and the dip-to-black cut, and any sim/camera time spent
-   *  under it plays the staged action out behind black and burns the camera
-   *  glides set in setup. setup() itself blocks for a while (installWorld +
-   *  pump), so the first Phaser tick after it carries an outsized delta. */
-  hold = false;
-
-  constructor() {
-    super("TrailerStage");
-  }
-
-  create(): void {
-    this.view = new WorldView(this);
-    this.view.buildTerrain();
-    this.view.buildStructures();
-    const cam = this.cameras.main;
-    cam.roundPixels = true;
-    cam.setBackgroundColor("#0a0e16");
-
-    // an ambient world behind the shell's lead-in black (no combat)
-    this.installWorld(7);
-    this.cut(WORLD.width / 2, WORLD.height / 2, this.zMap());
-
-    // The trailer rolls with no user gesture, so the browser keeps the
-    // AudioContext suspended and anything scheduled before it resumes is either
-    // dropped or piles up to fire at once. Hard-mute the session (a muted SFX
-    // synthesises nothing at all) and unmute from the shell's onGesture.
-    // Transient on purpose: toggleMute would persist the flip into the player's
-    // saved preference for NORMAL play off the back of one trailer view.
-    setMutedTransient(true);
-
-    runTrailer(buildConfig(this));
-  }
-
-  // ---- world staging ----------------------------------------------------------
-
-  /** Swap in a freshly staged world: no scheduled waves/camps, clean unit views,
-   *  structures restored. Every trailer scene starts here, so no scene depends on
-   *  a previous scene's state (incl. `&loop=1` replays). */
-  installWorld(seed: number): World {
-    const w = createWorld(seed);
-    w.nextWaveAt = Number.POSITIVE_INFINITY;
-    for (const c of NEUTRAL_CAMPS) w.campRespawnAt[c.id] = Number.POSITIVE_INFINITY;
-    this.view.clearUnitViews();
-    this.view.setTarget("");
-    this.view.playerHeroId = "";
-    this.view.playerTeam = "radiant";
-    this.world = w;
-    this.view.resetStructures(w);
-    this.acc = 0;
-    this.camMove = null;
-    this.camFollow = { kind: "none" };
-    return w;
-  }
-
-  get worldView(): WorldView {
-    return this.view;
-  }
-
-  /** Pre-roll the simulation (while the shell masks the stage) so the first
-   *  visible frame is mid-action: creeps marching, swings winding, arrows flying. */
-  pump(seconds: number): void {
-    const steps = Math.max(1, Math.round(seconds / SIM_DT));
-    for (let i = 0; i < steps; i++) step(this.world, SIM_DT);
-  }
-
-  // ---- camera -------------------------------------------------------------------
-
-  /** The visible 16:9 stage (the shell letterboxes the page to this crop). */
-  private stageSize() {
-    const sw = Math.min(this.scale.width, (this.scale.height * 16) / 9);
-    return { w: sw, h: (sw * 9) / 16 };
-  }
-  /** Base zoom (mirrors GameScene's height-derived zoom), scaled per shot.
-   *  zb(f) frames 1600/f x 900/f world px regardless of viewport size. */
-  zb(f = 1): number {
-    return Phaser.Math.Clamp(this.stageSize().h / 900, 0.45, 1.35) * f;
-  }
-  /** Zoom at which the full map width fills the 16:9 stage. */
-  zMap(): number {
-    return this.stageSize().w / WORLD.width;
-  }
-
-  cut(x: number, y: number, z: number): void {
-    this.pose = { x, y, z };
-    this.camMove = null;
-    this.camFollow = { kind: "none" };
-  }
-  glide(x: number, y: number, z: number, durMs: number, ease: Ease = easeInOut): void {
-    this.camMove = { from: { ...this.pose }, to: { x, y, z }, dur: durMs, t: 0, ease };
-  }
-  followUnit(id: string, stiffness = 4): void {
-    this.camFollow = { kind: "unit", id, k: stiffness };
-  }
-  followFireball(stiffness = 9): void {
-    this.camFollow = { kind: "fireball", k: stiffness, lastX: this.pose.x, lastY: this.pose.y };
-  }
-  flash(ms = 150): void {
-    this.cameras.main.flash(ms, 255, 244, 214);
-  }
-
-  private applyCamera(dt: number): void {
-    const m = this.camMove;
-    if (m) {
-      m.t += dt * 1000;
-      const k = m.ease(Math.min(1, m.t / m.dur));
-      this.pose = {
-        x: Phaser.Math.Linear(m.from.x, m.to.x, k),
-        y: Phaser.Math.Linear(m.from.y, m.to.y, k),
-        z: Phaser.Math.Linear(m.from.z, m.to.z, k),
-      };
-      if (m.t >= m.dur) this.camMove = null;
-    }
-    const f = this.camFollow;
-    if (f.kind === "unit") {
-      const u = this.world.units.get(f.id);
-      if (u) {
-        const k = 1 - Math.exp(-f.k * dt);
-        this.pose.x += (u.x - this.pose.x) * k;
-        this.pose.y += (u.y - 30 - this.pose.y) * k;
-      }
-    } else if (f.kind === "fireball") {
-      for (const p of this.world.projectiles.values()) {
-        if (p.kind === "fireball") {
-          f.lastX = p.x;
-          f.lastY = p.y;
-          break;
-        }
-      }
-      const k = 1 - Math.exp(-f.k * dt);
-      this.pose.x += (f.lastX - this.pose.x) * k;
-      this.pose.y += (f.lastY - this.pose.y) * k;
-    }
-
-    const cam = this.cameras.main;
-    const z = this.pose.z;
-    cam.setZoom(z);
-    // Clamp the STAGE-visible rect (not the whole window) inside the world so the
-    // letterboxed crop never shows void — Phaser's setBounds+zoom clamps wrong at
-    // corners, so we clamp scroll manually (see memory: phaser4 camera bounds).
-    const { w: sw, h: sh } = this.stageSize();
-    const cx = clampAxis(this.pose.x, sw / (2 * z), WORLD.width);
-    const cy = clampAxis(this.pose.y, sh / (2 * z), WORLD.height);
-    cam.setScroll(cx - cam.width / 2 + this.view.shakeX, cy - cam.height / 2 + this.view.shakeY);
-    cam.setRotation(this.view.shakeRot);
-  }
-
-  // ---- loop ----------------------------------------------------------------------
-
-  override update(_t: number, deltaMs: number): void {
-    if (!this.world) return;
-    const dt = Math.min(0.05, deltaMs / 1000);
-    // While held (black) the sim and camera rig freeze, but the view keeps
-    // syncing so the cut lifts onto a live, fully-drawn frame.
-    if (!this.hold) {
-      this.acc += dt;
-      let steps = 0;
-      while (this.acc >= SIM_DT && steps < 5) {
-        step(this.world, SIM_DT);
-        this.acc -= SIM_DT;
-        steps++;
-      }
-    }
-    this.view.sync(this.world, dt);
-    this.labelTimer += dt;
-    if (this.labelTimer > 0.25) {
-      this.labelTimer = 0;
-      this.view.refreshLabels(this.world);
-    }
-    this.applyCamera(this.hold ? 0 : dt);
-  }
 }
 
 // ---- staging helpers -------------------------------------------------------------
 
-type HeroOpts = {
+interface HeroOpts {
   level?: number;
   bot?: boolean;
   hpFrac?: number;
@@ -272,12 +104,12 @@ type HeroOpts = {
   /** Seed the XP bar (e.g. just under a level threshold, so a filmed last hit
    *  fires a real level-up through awardCreepKill -> grantXp). */
   xp?: number;
-};
+}
 
 /** Spawn a hero through the real spawn path, stage its level/ranks/items/pools
  *  (the Showcase pattern: rank via cap, recompute, refill), then move it to its
  *  mark. Order matters: the shop gate is a distance check against the fountain. */
-function heroAt(
+const heroAt = (
   w: World,
   defId: string,
   team: Team,
@@ -285,7 +117,7 @@ function heroAt(
   x: number,
   y: number,
   o: HeroOpts = {},
-): Unit {
+): Unit => {
   const u = spawnHero(w, defId, team, tag, o.bot ?? false, o.slot ?? 0);
   const h = u.hero;
   if (h) {
@@ -293,26 +125,33 @@ function heroAt(
     h.level = level;
     h.xp = o.xp ?? 0;
     h.abilityPoints = 0;
-    for (const k of ABILITY_KEYS) h.abilities[k].rank = abilityRankCap(k, level);
+    for (const k of ABILITY_KEYS) {
+      h.abilities[k].rank = abilityRankCap(k, level);
+    }
     if (o.items && o.items.length > 0) {
-      h.gold = 20000; // a staged wallet; buyItem still runs every real gate
-      for (const id of o.items) buyItem(w, u, id);
+      // a staged wallet; buyItem still runs every real gate
+      h.gold = 20_000;
+      for (const id of o.items) {
+        buyItem(w, u, id);
+      }
     }
     h.gold = 0;
     recomputeHeroStats(u);
     u.hp = u.maxHp;
     u.mp = u.maxMp;
-    if (o.hpFrac !== undefined) u.hp = Math.max(1, u.maxHp * o.hpFrac);
+    if (o.hpFrac !== undefined) {
+      u.hp = Math.max(1, u.maxHp * o.hpFrac);
+    }
   }
   u.x = x;
   u.y = y;
   u.facing = o.facing ?? (team === "radiant" ? 1 : -1);
   u.order = { type: "hold" };
   return u;
-}
+};
 
 /** A tight pack of staged lane creeps around (x,y), spread down-column. */
-function creepPack(
+const creepPack = (
   w: World,
   team: Team,
   lane: LaneId,
@@ -320,33 +159,40 @@ function creepPack(
   x: number,
   y: number,
   spreadY = 56,
-): Unit[] {
-  return kinds.map((k, i) =>
+): Unit[] =>
+  kinds.map((k, i) =>
     spawnCreepAt(w, team, lane, k, x + (i % 2) * 34, y + (i - (kinds.length - 1) / 2) * spreadY),
   );
-}
 
 /** Open a neutral camp now (createWorld schedules them for 60s/300s in). One sim
  *  step after this, the camp pack stands at its authored spot. */
-function openCamp(w: World, campId: string): void {
+const openCamp = (w: World, campId: string): void => {
   w.campRespawnAt[campId] = 0;
-}
+};
 
-function campUnits(w: World, campId: string): Unit[] {
+const campUnits = (w: World, campId: string): Unit[] => {
   const out: Unit[] = [];
-  for (const u of w.units.values()) if (u.creep?.camp === campId && u.alive) out.push(u);
+  for (const u of w.units.values()) {
+    if (u.creep?.camp === campId && u.alive) {
+      out.push(u);
+    }
+  }
   return out;
-}
+};
 
 /** The live pack member closest to death — the one a last hit should land on. */
-function weakest(units: Unit[]): Unit | undefined {
+const weakest = (units: Unit[]): Unit | undefined => {
   let best: Unit | undefined;
   for (const u of units) {
-    if (!u.alive) continue;
-    if (!best || u.hp < best.hp) best = u;
+    if (!u.alive) {
+      continue;
+    }
+    if (!best || u.hp < best.hp) {
+      best = u;
+    }
   }
   return best;
-}
+};
 
 /** Guarantee a filmed kill through the real damage/death path.
  *  dealDamage mitigates (armor, magic resist, damage reduction) and shields
@@ -355,66 +201,64 @@ function weakest(units: Unit[]): Unit | undefined {
  *  until the real death path runs. An Aegis revive counts as "it ran": the hero
  *  comes back at full HP and hitting again would delete the revive the shot is
  *  staged around, so watch the death counter, not just `alive`. */
-function finish(w: World, attacker: Unit, victim: Unit | undefined, crit = false): void {
-  if (!victim || !victim.alive) return;
+const finish = (w: World, attacker: Unit, victim: Unit | undefined, crit = false): void => {
+  if (!victim || !victim.alive) {
+    return;
+  }
   const deaths = victim.hero?.deaths ?? -1;
   for (let raw = 9999; raw < 1e7; raw *= 8) {
     dealDamage(w, attacker, victim, raw, "physical", { crit });
-    if (!victim.alive) return;
-    if (victim.hero && victim.hero.deaths !== deaths) return;
+    if (!victim.alive) {
+      return;
+    }
+    if (victim.hero && victim.hero.deaths !== deaths) {
+      return;
+    }
   }
-}
+};
 
 /** Stage a cast that must land: top mana + clear cooldown, then the real cast. */
-function forceCast(
+const forceCast = (
   w: World,
   u: Unit,
   key: AbilityKey,
   aim: { point?: { x: number; y: number }; targetId?: string } = {},
-): void {
+): void => {
   const h = u.hero;
-  if (!h || !u.alive) return;
+  if (!h || !u.alive) {
+    return;
+  }
   u.mp = u.maxMp;
   h.abilities[key].readyAt = 0;
   castAbility(w, u, { key, point: aim.point, targetId: aim.targetId });
-}
+};
 
 /** Silently retire a structure during staging (off-screen gating only — filmed
  *  structure kills always go through dealDamage so the destruction FX play). */
-function retireStructure(w: World, id: string): void {
+const retireStructure = (w: World, id: string): void => {
   const u = w.units.get(id);
-  if (!u || u.kind !== "structure") return;
+  if (!u || u.kind !== "structure") {
+    return;
+  }
   u.alive = false;
   u.hp = 0;
   updateStructureGating(w);
-}
+};
 
 // ---- scene assembly ----------------------------------------------------------------
 
-function scene(
+const scene = (
   stage: TrailerStage,
   id: string,
   duration: number,
   build: (s: TrailerStage) => SceneScript,
-): TrailerScene {
+): TrailerScene => {
   let cues: Cue[] = [];
   let frame: SceneScript["frame"];
   let done: SceneScript["done"];
   return {
-    id,
     duration,
-    setup: (): void => {
-      // build() constructs a fresh cue array per invocation, so &loop=1 replays
-      // start with unfired cues.
-      const r = build(stage);
-      cues = r.cues ?? [];
-      frame = r.frame;
-      done = r.done;
-      // Freeze until run()'s first tick: the shell keeps the stage black across
-      // setup and the cut, and unheld sim time would play the staging out
-      // behind that black and consume glides before the shot is visible.
-      stage.hold = true;
-    },
+    id,
     run: (t, dt): void => {
       stage.hold = false;
       for (const c of cues) {
@@ -425,12 +269,23 @@ function scene(
       }
       frame?.(t, dt);
     },
+    setup: (): void => {
+      // build() constructs a fresh cue array per invocation, so &loop=1 replays
+      // start with unfired cues.
+      const r = build(stage);
+      cues = r.cues ?? [];
+      ({ done, frame } = r);
+      // Freeze until run()'s first tick: the shell keeps the stage black across
+      // setup and the cut, and unheld sim time would play the staging out
+      // behind that black and consume glides before the shot is visible.
+      stage.hold = true;
+    },
     teardown: (): void => {
       done?.();
       stage.worldView.setTarget("");
     },
   };
-}
+};
 
 // =====================================================================================
 // The seventeen scenes.
@@ -442,7 +297,7 @@ function scene(
 // pull-back — and no shot after the mid-point opens wider than zb(1.55).
 // =====================================================================================
 
-function buildConfig(stage: TrailerStage): TrailerConfig {
+const buildConfig = (stage: TrailerStage): TrailerConfig => {
   const scenes: TrailerScene[] = [
     // ---- 1 · HOOK — Emberhex's Conflagration erupting in the Roshan pit. The
     //          biggest single blast in the game, on the map's one dark plate,
@@ -454,8 +309,10 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
       s.worldView.playerHeroId = ember.id;
       s.pump(0.25);
       // aim ahead of the pack — they charge her, so the fuse pops right on them
-      forceCast(w, ember, "R", { point: { x: 2060, y: 1500 } }); // 0.9s fuse
-      s.pump(0.2); // bloom already burning at reveal; detonation ≈ 0.7s in
+      // 0.9s fuse
+      forceCast(w, ember, "R", { point: { x: 2060, y: 1500 } });
+      // bloom already burning at reveal; detonation ≈ 0.7s in
+      s.pump(0.2);
       // tight enough that the zone ring's circumference falls outside the crop
       // and only fill + flames remain in frame
       s.cut(2040, 1494, s.zb(2.3));
@@ -469,10 +326,10 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
       // defenders (our side, screen-left) vs divers (screen-right), under r-top-t1
       const dusk = heroAt(w, "duskblade", "radiant", "co-dusk", 1660, 640, { level: 9 });
       const storm = heroAt(w, "stormcaller", "radiant", "co-storm", 1560, 570, { level: 9 });
-      const iron = heroAt(w, "ironvow", "dire", "co-iron", 1830, 620, { level: 9, hpFrac: 0.4 });
+      const iron = heroAt(w, "ironvow", "dire", "co-iron", 1830, 620, { hpFrac: 0.4, level: 9 });
       const ember = heroAt(w, "emberhex", "dire", "co-ember", 1930, 545, {
-        level: 9,
         hpFrac: 0.85,
+        level: 9,
       });
       creepPack(
         w,
@@ -484,12 +341,14 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
         44,
       );
       creepPack(w, "dire", "top", ["melee", "melee", "melee", "ranged", "ranged"], 1876, 662, 44);
-      issueOrder(w, dusk, { type: "attackUnit", targetId: iron.id });
-      issueOrder(w, storm, { type: "attackUnit", targetId: ember.id });
-      issueOrder(w, iron, { type: "attackUnit", targetId: dusk.id }); // tower priority: punished
-      issueOrder(w, ember, { type: "attackUnit", targetId: storm.id });
+      issueOrder(w, dusk, { targetId: iron.id, type: "attackUnit" });
+      issueOrder(w, storm, { targetId: ember.id, type: "attackUnit" });
+      // tower priority: punished
+      issueOrder(w, iron, { targetId: dusk.id, type: "attackUnit" });
+      issueOrder(w, ember, { targetId: storm.id, type: "attackUnit" });
       s.worldView.playerHeroId = dusk.id;
-      s.pump(1.2); // swings winding, tower shots already arcing in
+      // swings winding, tower shots already arcing in
+      s.pump(1.2);
       // the brawl collapses east toward the bridge, so lead it: the radiant
       // tower that does the punishing stays frame-left in both poses
       s.cut(1810, 608, s.zb(1.9));
@@ -502,7 +361,7 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
             at: 1250,
             fn: () => {
               forceCast(w, dusk, "Q", { point: { x: ember.x, y: ember.y } });
-              issueOrder(w, dusk, { type: "attackUnit", targetId: ember.id });
+              issueOrder(w, dusk, { targetId: ember.id, type: "attackUnit" });
             },
           },
           { at: 1600, fn: () => forceCast(w, iron, "Q", { targetId: dusk.id }) },
@@ -540,7 +399,9 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
       // and the jungle awake: at reveal scale the island interiors are the only
       // part of the map with nothing standing on them, and camps are exactly what
       // normally occupies them (createWorld schedules them for 60s in).
-      for (const c of NEUTRAL_CAMPS) openCamp(w, c.id);
+      for (const c of NEUTRAL_CAMPS) {
+        openCamp(w, c.id);
+      }
       s.pump(1.6);
       s.cut(2050, 578, s.zb(1.6));
       // stop short of full-map: the world border stays cropped and lane creeps
@@ -565,17 +426,18 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
     scene(stage, "the-run", 1600, (s) => {
       const w = s.installWorld(45);
       const storm = heroAt(w, "stormcaller", "radiant", "run", 2700, 2496, {
+        // bought at the fountain through buyItem
+        items: ["boots", "scepter"],
         level: 10,
-        items: ["boots", "scepter"], // bought at the fountain through buyItem
       });
       // the threat: two dire heroes chasing her off their side of the map
       const hunter = heroAt(w, "duskblade", "dire", "run-d1", 2905, 2452, {
-        level: 12,
         facing: -1,
+        level: 12,
       });
       const caster = heroAt(w, "emberhex", "dire", "run-d2", 2950, 2548, {
-        level: 12,
         facing: -1,
+        level: 12,
       });
       // home: her own wave marching out of the west bank to meet her, so the
       // landing frame is a friendly line and a tower, not a lone hero on grass
@@ -588,15 +450,27 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
         2500,
         40,
       );
-      issueOrder(w, storm, { type: "move", to: { x: 1450, y: 2500 } }); // real A* down the lane
-      for (const d of [hunter, caster])
-        issueOrder(w, d, { type: "attackUnit", targetId: storm.id });
+      // real A* down the lane
+      issueOrder(w, storm, { to: { x: 1450, y: 2500 }, type: "move" });
+      for (const d of [hunter, caster]) {
+        issueOrder(w, d, { targetId: storm.id, type: "attackUnit" });
+      }
       // the hunters' own wave running the lane behind them: the shot's back half
       // used to be a hero, two chasers and grass
-      for (const c of creepPack(w, "dire", "bottom", ["melee", "melee", "ranged"], 3040, 2496, 44))
-        issueOrder(w, c, { type: "attackUnit", targetId: storm.id });
+      for (const c of creepPack(
+        w,
+        "dire",
+        "bottom",
+        ["melee", "melee", "ranged"],
+        3040,
+        2496,
+        44,
+      )) {
+        issueOrder(w, c, { targetId: storm.id, type: "attackUnit" });
+      }
       s.worldView.playerHeroId = storm.id;
-      s.pump(0.3); // the chase is already running at the reveal
+      // the chase is already running at the reveal
+      s.pump(0.3);
       s.cut(2600, 2466, s.zb(2.2));
       s.followUnit(storm.id, 3.4);
       return {
@@ -613,15 +487,16 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
           {
             at: 950,
             fn: () => {
-              useItem(w, storm, "scepter", { x: storm.x - 620, y: storm.y + 10 });
-              s.followUnit(storm.id, 6); // the cam has 600px to make up
+              activateItem(w, storm, "scepter", { x: storm.x - 620, y: storm.y + 10 });
+              // the cam has 600px to make up
+              s.followUnit(storm.id, 6);
             },
           },
           // and she turns at the tower line — the escape ends in a stand, not in
           // more jogging
           {
             at: 1050,
-            fn: () => issueOrder(w, storm, { type: "attackMove", to: { x: 2050, y: 2500 } }),
+            fn: () => issueOrder(w, storm, { to: { x: 2050, y: 2500 }, type: "attackMove" }),
           },
         ],
       };
@@ -654,15 +529,18 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
       // the lane needs an actual opponent: a melee laner who walks into the wave
       // during the pre-roll and takes the mark mid-frame.
       const foe = heroAt(w, "duskblade", "dire", "lane-foe", 2440, 618, {
-        level: 5,
-        hpFrac: 0.75,
         facing: -1,
+        hpFrac: 0.75,
+        level: 5,
       });
-      issueOrder(w, storm, { type: "attackMove", to: { x: 2270, y: 600 } });
-      const head = mine[0];
-      if (head) issueOrder(w, foe, { type: "attackUnit", targetId: head.id });
+      issueOrder(w, storm, { to: { x: 2270, y: 600 }, type: "attackMove" });
+      const [head] = mine;
+      if (head) {
+        issueOrder(w, foe, { targetId: head.id, type: "attackUnit" });
+      }
       s.worldView.playerHeroId = storm.id;
-      s.pump(1.4); // the clash is fully developed at the reveal
+      // the clash is fully developed at the reveal
+      s.pump(1.4);
       s.cut(2225, 552, s.zb(1.6));
       s.glide(2295, 548, s.zb(1.78), 2600, easeInOut);
       return {
@@ -705,13 +583,14 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
         1620,
         0,
       );
-      line.forEach((c, i) => {
+      for (const [i, c] of line.entries()) {
         c.x = 980 + i * 30;
         c.y = 1620 + (i % 2) * 14;
         c.order = { type: "hold" };
-      });
+      }
       s.worldView.playerHeroId = storm.id;
-      s.pump(0.3); // arrows already trading; the base tower is already firing
+      // arrows already trading; the base tower is already firing
+      s.pump(0.3);
       s.cut(826, 1704, s.zb(2.15));
       s.glide(830, 1712, s.zb(2.25), 1400, easeOut);
       return {
@@ -738,14 +617,15 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
       // toward the pit rather than into the channel
       const dusk = heroAt(w, "duskblade", "radiant", "r3", 1730, 1540);
       const vic = heroAt(w, "stormcaller", "dire", "r3v", 1852, 1534, {
-        level: 9,
-        hpFrac: 0.3,
         facing: -1,
+        hpFrac: 0.3,
+        level: 9,
       });
       // his escort, closing on the stalker: two more bodies on the planks so the
       // card is a fight interrupted, not a duel in an empty corridor
-      for (const c of creepPack(w, "dire", "top", ["melee", "ranged"], 1900, 1536, 44))
-        issueOrder(w, c, { type: "attackUnit", targetId: dusk.id });
+      for (const c of creepPack(w, "dire", "top", ["melee", "ranged"], 1900, 1536, 44)) {
+        issueOrder(w, c, { targetId: dusk.id, type: "attackUnit" });
+      }
       s.worldView.playerHeroId = dusk.id;
       s.pump(0.3);
       s.cut(1756, 1532, s.zb(2.38));
@@ -774,16 +654,20 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
     //          last body drops instead of holding on a hero next to skulls.
     scene(stage, "signature-solo", 2000, (s) => {
       const w = s.installWorld(13);
-      openCamp(w, "camp-lb"); // large camp: gnoll + two skulls at (1216, 2016)
+      // large camp: gnoll + two skulls at (1216, 2016)
+      openCamp(w, "camp-lb");
       // 220px north of the old mark. The camp's landmark is the gold mine headframe
       // drawn at (1216, 1952) — 192x128 of timber and rock — and the old crop sat
       // entirely below it, so the fight played out on bare grass with the one built
       // thing in the pocket off the top of frame. Pulled up, the mine fills the top
       // third and the south jungle plateau's cliff runs along the left.
       const solo = heroAt(w, "boomtinker", "radiant", "solo", 1190, 2075, { level: 6 });
-      s.pump(0.4); // camp spawned; it acquires him (420 aggro, inside its 360 leash)
+      // camp spawned; it acquires him (420 aggro, inside its 360 leash)
+      s.pump(0.4);
       const gnoll = campUnits(w, "camp-lb").find((u) => u.maxHp >= 700);
-      if (gnoll) s.worldView.setTarget(gnoll.id);
+      if (gnoll) {
+        s.worldView.setTarget(gnoll.id);
+      }
       s.worldView.playerHeroId = solo.id;
       s.cut(1212, 1974, s.zb(2.6));
       s.glide(1216, 1996, s.zb(2.85), 2000, easeInOut);
@@ -801,7 +685,9 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
             at: 600,
             fn: () => {
               forceCast(w, solo, "E");
-              if (gnoll?.alive) issueOrder(w, solo, { type: "attackUnit", targetId: gnoll.id });
+              if (gnoll?.alive) {
+                issueOrder(w, solo, { targetId: gnoll.id, type: "attackUnit" });
+              }
             },
           },
           // dynamite lands at ~1.25s, into the same window the mines pop in: two
@@ -821,7 +707,10 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
     scene(stage, "lane-push", 4000, (s) => {
       const w = s.installWorld(31);
       const tower = w.units.get("d-top-t1");
-      if (tower) tower.hp = tower.maxHp * 0.3; // siege in progress: tower already burning
+      if (tower) {
+        tower.hp = tower.maxHp * 0.3;
+        // siege in progress: tower already burning
+      }
       // the clash sits on dire land at the tower's feet — the bridge corridor is
       // only two cells tall, so wide packs must stage east of it. 50px further
       // west than before, and the camera trails it, so the planks and the channel
@@ -844,9 +733,10 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
         555,
         44,
       );
-      s.pump(1.1); // the clash is fully developed before the hero arrives
+      // the clash is fully developed before the hero arrives
+      s.pump(1.1);
       const storm = heroAt(w, "stormcaller", "radiant", "push", 2030, 570);
-      issueOrder(w, storm, { type: "move", to: { x: 2310, y: 545 } });
+      issueOrder(w, storm, { to: { x: 2310, y: 545 }, type: "move" });
       s.worldView.playerHeroId = storm.id;
       // rides ~60px high of the lane: the tower keeps the middle of the frame and
       // the north water rim takes the top edge, instead of a quarter-frame of
@@ -891,12 +781,12 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
       // whole prowl and the blink is a real fall through 48px of terrain
       const dusk = heroAt(w, "duskblade", "radiant", "amb", 1300, 1200);
       // the victim sits ~100px below the cliff base, on the shore strip
-      const vic = heroAt(w, "emberhex", "dire", "ambv", 1580, 1440, { level: 9, hpFrac: 0.5 });
+      const vic = heroAt(w, "emberhex", "dire", "ambv", 1580, 1440, { hpFrac: 0.5, level: 9 });
       creepPack(w, "dire", "top", ["melee", "melee"], 1520, 1512, 50);
       creepPack(w, "radiant", "top", ["melee", "melee"], 1636, 1540, 50);
       // the prowl to the lip is issued in SETUP so the first visible frame already
       // has her walking the high ground
-      issueOrder(w, dusk, { type: "move", to: { x: 1448, y: 1290 } });
+      issueOrder(w, dusk, { to: { x: 1448, y: 1290 }, type: "move" });
       s.worldView.playerHeroId = dusk.id;
       s.pump(0.2);
       // corner at ~55% width / ~50% height: cliff band across the middle of frame,
@@ -910,7 +800,9 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
             at: 900,
             fn: () => {
               forceCast(w, dusk, "Q", { point: { x: vic.x, y: vic.y } });
-              if (vic.alive) issueOrder(w, dusk, { type: "attackUnit", targetId: vic.id });
+              if (vic.alive) {
+                issueOrder(w, dusk, { targetId: vic.id, type: "attackUnit" });
+              }
             },
           },
           { at: 1150, fn: () => forceCast(w, dusk, "W", { point: { x: vic.x, y: vic.y } }) },
@@ -947,12 +839,15 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
         40,
       );
       s.worldView.playerHeroId = ember.id;
-      s.pump(1.0); // wave marching the planks toward her
+      // wave marching the planks toward her
+      s.pump(1);
       // the blast must pay off: rank-4 Q lands ~230 after magic resist, but
       // melee creeps carry 280hp — pre-weaken the pack so the tracked impact
       // drops everything in the radius (skulls + dust dead-center on the
       // camera's landing spot) instead of reading as a whiff.
-      for (const c of pack) c.hp = Math.min(c.hp, 150);
+      for (const c of pack) {
+        c.hp = Math.min(c.hp, 150);
+      }
       s.cut(1740, 2466, s.zb(1.6));
       return {
         cues: [
@@ -965,7 +860,7 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
               const cx = alive.length ? alive.reduce((a, c) => a + c.x, 0) / alive.length : 2000;
               const cy = alive.length ? alive.reduce((a, c) => a + c.y, 0) / alive.length : 2496;
               let px = cx;
-              for (let i = 0; i < 3; i++) {
+              for (let i = 0; i < 3; i += 1) {
                 const flight = Math.max(0, (px - ember.x - 40) / 700);
                 px = cx - 240 * flight;
               }
@@ -979,9 +874,12 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
             at: 1050,
             fn: () => {
               const next = tail.find((c) => c.alive);
-              if (!next) return;
+              if (!next) {
+                return;
+              }
               s.followUnit(next.id, 2.2);
-              s.glide(next.x, next.y, s.zb(2.05), 700, easeOut); // follow drives x/y, this drives zoom
+              // follow drives x/y, this drives zoom
+              s.glide(next.x, next.y, s.zb(2.05), 700, easeOut);
             },
           },
         ],
@@ -998,15 +896,18 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
       const storm = heroAt(w, "stormcaller", "radiant", "ro-storm", 1862, 1430);
       const brew = heroAt(w, "brewkeeper", "radiant", "ro-brew", 1848, 1582);
       openCamp(w, "roshan");
-      s.pump(0.1); // one tick of tickNeutrals spawns the Minotaur in its pit
-      const boss = campUnits(w, "roshan")[0];
+      // one tick of tickNeutrals spawns the Minotaur in its pit
+      s.pump(0.1);
+      const [boss] = campUnits(w, "roshan");
       if (boss) {
-        for (const u of [iron, storm, brew])
-          issueOrder(w, u, { type: "attackUnit", targetId: boss.id });
+        for (const u of [iron, storm, brew]) {
+          issueOrder(w, u, { targetId: boss.id, type: "attackUnit" });
+        }
         s.worldView.setTarget(boss.id);
       }
       s.worldView.playerHeroId = storm.id;
-      s.pump(0.7); // swings landing, boss already hitting back
+      // swings landing, boss already hitting back
+      s.pump(0.7);
       // sprites.ts cannot make the Minotaur bigger without changing normal play,
       // so his scale has to come from the crop: zb(2.05) is tight enough that the
       // pit floor fills the frame and he reads as the thing being worked, not as
@@ -1015,8 +916,10 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
       s.glide(2035, 1500, s.zb(2.5), 2550, easeInOut);
       return {
         cues: [
-          { at: 400, fn: () => forceCast(w, iron, "W") }, // Oathguard: shield shimmer + reflect
-          { at: 1100, fn: () => forceCast(w, brew, "Q", { targetId: iron.id }) }, // +heal on the tank
+          // Oathguard: shield shimmer + reflect
+          { at: 400, fn: () => forceCast(w, iron, "W") },
+          // +heal on the tank
+          { at: 1100, fn: () => forceCast(w, brew, "Q", { targetId: iron.id }) },
           // cut ~450ms after the gold/Aegis burst instead of holding a further
           // second on three heroes standing around a skull
           { at: 2200, fn: () => finish(w, storm, boss) },
@@ -1047,16 +950,20 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
       // at x 1727 — one row further north and the lead creep spawns in the water.
       const kinds: CreepKind[] = ["melee", "melee", "melee", "melee", "ranged", "ranged"];
       const creeps = creepPack(w, "dire", "top", kinds, 1668, 2020, 36);
-      for (const f of [...foes, ...creeps])
-        issueOrder(w, f, { type: "attackUnit", targetId: ally.id });
+      for (const f of [...foes, ...creeps]) {
+        issueOrder(w, f, { targetId: ally.id, type: "attackUnit" });
+      }
       s.worldView.playerHeroId = iron.id;
-      s.pump(0.5); // the collapse onto the carry is already under way
+      // the collapse onto the carry is already under way
+      s.pump(0.5);
       s.cut(1584, 1994, s.zb(1.95));
       s.glide(1580, 1990, s.zb(2.05), 2000, easeOut);
       return {
         cues: [
-          { at: 0, fn: () => forceCast(w, iron, "W") }, // armor + shield + melee reflect
-          { at: 380, fn: () => forceCast(w, iron, "R") }, // 360-radius taunt + damage reduction
+          // armor + shield + melee reflect
+          { at: 0, fn: () => forceCast(w, iron, "W") },
+          // 360-radius taunt + damage reduction
+          { at: 380, fn: () => forceCast(w, iron, "R") },
         ],
       };
     }),
@@ -1072,11 +979,11 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
       heroAt(w, "duskblade", "radiant", "tf-dusk", 1935, 1410, { bot: true, slot: 1 });
       const brew = heroAt(w, "brewkeeper", "radiant", "tf-brew", 1990, 1606, {
         bot: true,
-        slot: 2,
         // 0.45, not 0.2: at 0.2 he is 109hp of 1680 and real bot damage deleted
         // him at 0.6s, before the fight had read. 0.45 survives the crowd's
         // opening burst, so the death is the one the cue fires at 2400.
         hpFrac: 0.45,
+        slot: 2,
       });
       heroAt(w, "emberhex", "dire", "tf-ember", 2100, 1490, { bot: true, slot: 0 });
       heroAt(w, "stormcaller", "dire", "tf-storm", 2118, 1408, { bot: true, slot: 1 });
@@ -1087,7 +994,8 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
       // back at full HP where he fell (handleDeath's aegis branch).
       addStatus(iron, { kind: "aegis", until: w.now + 300_000 });
       s.worldView.playerHeroId = iron.id;
-      s.pump(0.55); // bots have committed: first ults already casting at reveal
+      // bots have committed: first ults already casting at reveal
+      s.pump(0.55);
       s.cut(2030, 1495, s.zb(1.55));
       s.glide(2030, 1495, s.zb(1.9), 3400, easeInOut);
       let sweepAt = 0;
@@ -1101,18 +1009,24 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
             at: 2400,
             fn: () => {
               const b = w.units.get(brew.id);
-              if (!b || !b.alive) return;
+              if (!b || !b.alive) {
+                return;
+              }
               let killer: Unit | undefined;
               let bd = Infinity;
               for (const e of w.units.values()) {
-                if (e.kind !== "hero" || e.team !== "dire" || !e.alive) continue;
+                if (e.kind !== "hero" || e.team !== "dire" || !e.alive) {
+                  continue;
+                }
                 const d = (e.x - b.x) ** 2 + (e.y - b.y) ** 2;
                 if (d < bd) {
                   bd = d;
                   killer = e;
                 }
               }
-              if (killer) finish(w, killer, b);
+              if (killer) {
+                finish(w, killer, b);
+              }
             },
           },
           {
@@ -1123,14 +1037,18 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
               let killer: Unit | undefined;
               let bd = Infinity;
               for (const e of w.units.values()) {
-                if (e.kind !== "hero" || e.team !== "dire" || !e.alive || !i) continue;
+                if (e.kind !== "hero" || e.team !== "dire" || !e.alive || !i) {
+                  continue;
+                }
                 const d = (e.x - i.x) ** 2 + (e.y - i.y) ** 2;
                 if (d < bd) {
                   bd = d;
                   killer = e;
                 }
               }
-              if (killer) finish(w, killer, i);
+              if (killer) {
+                finish(w, killer, i);
+              }
             },
           },
           // a punch in on the revive instead of a cut — the climax's only internal
@@ -1138,26 +1056,34 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
           { at: 3600, fn: () => s.glide(2040, 1500, s.zb(2.15), 900, easeOut) },
         ],
         frame: (t): void => {
-          if (t < sweepAt) return;
+          if (t < sweepAt) {
+            return;
+          }
           sweepAt = t + 400;
           // keep the brawl a brawl: no bot slinks off to fountain mid-shot, and
           // mana stays topped so kits keep firing (cooldowns stay real).
           for (const u of w.units.values()) {
-            if (u.kind !== "hero" || !u.hero?.isBot || !u.alive) continue;
+            if (u.kind !== "hero" || !u.hero?.isBot || !u.alive) {
+              continue;
+            }
             u.hero.botRetreating = false;
             u.mp = u.maxMp;
             if (u.order.type === "fountain") {
               let foe: Unit | undefined;
               let bd = Infinity;
               for (const e of w.units.values()) {
-                if (e.kind !== "hero" || e.team === u.team || !e.alive) continue;
+                if (e.kind !== "hero" || e.team === u.team || !e.alive) {
+                  continue;
+                }
                 const d = (e.x - u.x) ** 2 + (e.y - u.y) ** 2;
                 if (d < bd) {
                   bd = d;
                   foe = e;
                 }
               }
-              if (foe) issueOrder(w, u, { type: "attackUnit", targetId: foe.id });
+              if (foe) {
+                issueOrder(w, u, { targetId: foe.id, type: "attackUnit" });
+              }
             }
           }
         },
@@ -1194,17 +1120,21 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
         2496,
         24,
       );
-      for (const c of pack) issueOrder(w, c, { type: "attackUnit", targetId: iron.id });
-      issueOrder(w, ember, { type: "attackUnit", targetId: dusk.id });
+      for (const c of pack) {
+        issueOrder(w, c, { targetId: iron.id, type: "attackUnit" });
+      }
+      issueOrder(w, ember, { targetId: dusk.id, type: "attackUnit" });
       // burning ground under the wounded pair — the fire is the reason the heal reads
       forceCast(w, ember, "W", { point: { x: 1810, y: 2540 } });
       s.worldView.playerHeroId = brew.id;
       s.pump(0.45);
-      s.cut(1842, 2524, s.zb(1.85)); // held: no glide for the first 1.7s
+      // held: no glide for the first 1.7s
+      s.cut(1842, 2524, s.zb(1.85));
       return {
         cues: [
           { at: 150, fn: () => forceCast(w, brew, "R", { point: { x: brew.x, y: brew.y } }) },
-          { at: 700, fn: () => forceCast(w, brew, "E") }, // shield shimmer snaps onto both
+          // shield shimmer snaps onto both
+          { at: 700, fn: () => forceCast(w, brew, "E") },
           { at: 1400, fn: () => forceCast(w, brew, "Q", { targetId: iron.id }) },
           { at: 1700, fn: () => s.glide(1832, 2530, s.zb(1.95), 1000, easeOut) },
         ],
@@ -1243,9 +1173,9 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
       // so the crit execute is a second beat instead of a cue that no-ops on a
       // corpse the ult already made.
       const mark = heroAt(w, "duskblade", "dire", "ult-mark", 2536, 1442, {
-        level: 12,
-        hpFrac: 0.5,
         facing: -1,
+        hpFrac: 0.5,
+        level: 12,
       });
       // a real skirmish anchors the victims in place (not statues) AND fills the
       // crop: at zb(2.75) the frame is 582x327 world px, so five bodies inside the
@@ -1262,12 +1192,13 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
         1440,
         48,
       );
-      const siege = packDire[2];
+      const siege = packDire.at(2);
       // allies (the blast cannot hurt them) holding the corner behind him
       creepPack(w, "radiant", "top", ["melee", "melee", "ranged"], 2716, 1508, 46);
       s.worldView.playerHeroId = boom.id;
       s.pump(0.6);
-      s.cut(2680, 1442, s.zb(1.9)); // the quiet beat: one breath, both actors in frame
+      // the quiet beat: one breath, both actors in frame
+      s.cut(2680, 1442, s.zb(1.9));
       return {
         cues: [
           {
@@ -1306,9 +1237,14 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
       retireStructure(w, "d-bot-t2");
       retireStructure(w, "d-base-1");
       const gate = w.units.get("d-base-2");
-      if (gate) gate.hp = gate.maxHp * 0.15; // burning, one push from falling
+      if (gate) {
+        gate.hp = gate.maxHp * 0.15;
+        // burning, one push from falling
+      }
       const ancient = w.units.get("d-ancient");
-      if (ancient) ancient.hp = ancient.maxHp * 0.1;
+      if (ancient) {
+        ancient.hp = ancient.maxHp * 0.1;
+      }
       // west of the dire fountain pool: standing IN the enemy healing pool read
       // as a staging accident, and it sat the winners on top of a teal disc
       const iron = heroAt(w, "ironvow", "radiant", "v-iron", 3210, 1730);
@@ -1316,12 +1252,12 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
       const storm = heroAt(w, "stormcaller", "radiant", "v-storm", 3196, 1800);
       // live defenders: the last stand, not an undefended building
       const dEmber = heroAt(w, "emberhex", "dire", "v-ember", 3400, 1580, {
-        hpFrac: 0.4,
         facing: -1,
+        hpFrac: 0.4,
       });
       const dBoom = heroAt(w, "boomtinker", "dire", "v-boom", 3440, 1630, {
-        hpFrac: 0.4,
         facing: -1,
+        hpFrac: 0.4,
       });
       creepPack(
         w,
@@ -1332,11 +1268,15 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
         1852,
         44,
       );
-      for (const u of [iron, dusk, storm])
-        issueOrder(w, u, { type: "attackUnit", targetId: "d-base-2" });
-      for (const d of [dEmber, dBoom]) issueOrder(w, d, { type: "attackUnit", targetId: iron.id });
+      for (const u of [iron, dusk, storm]) {
+        issueOrder(w, u, { targetId: "d-base-2", type: "attackUnit" });
+      }
+      for (const d of [dEmber, dBoom]) {
+        issueOrder(w, d, { targetId: iron.id, type: "attackUnit" });
+      }
       s.worldView.playerHeroId = iron.id;
-      s.pump(0.6); // swings mid-arc at reveal
+      // swings mid-arc at reveal
+      s.pump(0.6);
       s.cut(3330, 1700, s.zb(1.7));
       s.glide(3410, 1648, s.zb(1.9), 2500, easeInOut);
       return {
@@ -1346,8 +1286,9 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
             // the gate is down, so the Ancient is attackable — the heroes turn
             at: 520,
             fn: () => {
-              for (const u of [iron, dusk, storm])
-                issueOrder(w, u, { type: "attackUnit", targetId: "d-ancient" });
+              for (const u of [iron, dusk, storm]) {
+                issueOrder(w, u, { targetId: "d-ancient", type: "attackUnit" });
+              }
             },
           },
           { at: 1900, fn: () => finish(w, dusk, w.units.get("d-ancient")) },
@@ -1364,11 +1305,204 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
     },
     scenes,
   };
+};
+
+// ---- the stage scene -----------------------------------------------------------
+
+class TrailerStage extends Scene {
+  private world!: World;
+  private view!: WorldView;
+  private acc = 0;
+  private labelTimer = 0;
+  private pose: CamPose = { x: WORLD.width / 2, y: WORLD.height / 2, z: 0.5 };
+  private camMove: CamMove | null = null;
+  private camFollow: CamFollow = { kind: "none" };
+  /** Frozen between a scene's setup() and its first run() tick. The stage stays
+   *  black across setup and the dip-to-black cut, and any sim/camera time spent
+   *  under it plays the staged action out behind black and burns the camera
+   *  glides set in setup. setup() itself blocks for a while (installWorld +
+   *  pump), so the first Phaser tick after it carries an outsized delta. */
+  hold = false;
+
+  constructor() {
+    super("TrailerStage");
+  }
+
+  create(): void {
+    this.view = new WorldView(this);
+    this.view.buildTerrain();
+    this.view.buildStructures();
+    const cam = this.cameras.main;
+    cam.roundPixels = true;
+    cam.setBackgroundColor("#0a0e16");
+
+    // an ambient world behind the shell's lead-in black (no combat)
+    this.installWorld(7);
+    this.cut(WORLD.width / 2, WORLD.height / 2, this.zMap());
+
+    // The trailer rolls with no user gesture, so the browser keeps the
+    // AudioContext suspended and anything scheduled before it resumes is either
+    // dropped or piles up to fire at once. Hard-mute the session (a muted SFX
+    // synthesises nothing at all) and unmute from the shell's onGesture.
+    // Transient on purpose: toggleMute would persist the flip into the player's
+    // saved preference for NORMAL play off the back of one trailer view.
+    setMutedTransient(true);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, resetSound);
+
+    runTrailer(buildConfig(this));
+  }
+
+  // ---- world staging ----------------------------------------------------------
+
+  /** Swap in a freshly staged world: no scheduled waves/camps, clean unit views,
+   *  structures restored. Every trailer scene starts here, so no scene depends on
+   *  a previous scene's state (incl. `&loop=1` replays). */
+  installWorld(seed: number): World {
+    resetSound();
+    const w = createWorld(seed);
+    w.nextWaveAt = Number.POSITIVE_INFINITY;
+    for (const c of NEUTRAL_CAMPS) {
+      w.campRespawnAt[c.id] = Number.POSITIVE_INFINITY;
+    }
+    this.view.clearUnitViews();
+    this.view.setTarget("");
+    this.view.playerHeroId = "";
+    this.view.playerTeam = "radiant";
+    this.world = w;
+    this.view.resetStructures(w);
+    this.acc = 0;
+    this.camMove = null;
+    this.camFollow = { kind: "none" };
+    return w;
+  }
+
+  get worldView(): WorldView {
+    return this.view;
+  }
+
+  /** Pre-roll the simulation (while the shell masks the stage) so the first
+   *  visible frame is mid-action: creeps marching, swings winding, arrows flying. */
+  pump(seconds: number): void {
+    const steps = Math.max(1, Math.round(seconds / SIM_DT));
+    for (let i = 0; i < steps; i += 1) {
+      step(this.world, SIM_DT);
+    }
+  }
+
+  // ---- camera -------------------------------------------------------------------
+
+  /** The visible 16:9 stage (the shell letterboxes the page to this crop). */
+  private stageSize() {
+    const sw = Math.min(this.scale.width, (this.scale.height * 16) / 9);
+    return { h: (sw * 9) / 16, w: sw };
+  }
+  /** Base zoom (mirrors GameScene's height-derived zoom), scaled per shot.
+   *  zb(f) frames 1600/f x 900/f world px regardless of viewport size. */
+  zb(f = 1): number {
+    return PhaserMath.Clamp(this.stageSize().h / 900, 0.45, 1.35) * f;
+  }
+  /** Zoom at which the full map width fills the 16:9 stage. */
+  zMap(): number {
+    return this.stageSize().w / WORLD.width;
+  }
+
+  cut(x: number, y: number, z: number): void {
+    this.pose = { x, y, z };
+    this.camMove = null;
+    this.camFollow = { kind: "none" };
+  }
+  glide(x: number, y: number, z: number, durMs: number, ease: Ease = easeInOut): void {
+    this.camMove = { dur: durMs, ease, from: { ...this.pose }, t: 0, to: { x, y, z } };
+  }
+  followUnit(id: string, stiffness = 4): void {
+    this.camFollow = { id, k: stiffness, kind: "unit" };
+  }
+  followFireball(stiffness = 9): void {
+    this.camFollow = { k: stiffness, kind: "fireball", lastX: this.pose.x, lastY: this.pose.y };
+  }
+  flash(ms = 150): void {
+    this.cameras.main.flash(ms, 255, 244, 214);
+  }
+
+  private applyCamera(dt: number): void {
+    const m = this.camMove;
+    if (m) {
+      m.t += dt * 1000;
+      const k = m.ease(Math.min(1, m.t / m.dur));
+      this.pose = {
+        x: PhaserMath.Linear(m.from.x, m.to.x, k),
+        y: PhaserMath.Linear(m.from.y, m.to.y, k),
+        z: PhaserMath.Linear(m.from.z, m.to.z, k),
+      };
+      if (m.t >= m.dur) {
+        this.camMove = null;
+      }
+    }
+    const f = this.camFollow;
+    if (f.kind === "unit") {
+      const u = this.world.units.get(f.id);
+      if (u) {
+        const k = 1 - Math.exp(-f.k * dt);
+        this.pose.x += (u.x - this.pose.x) * k;
+        this.pose.y += (u.y - 30 - this.pose.y) * k;
+      }
+    } else if (f.kind === "fireball") {
+      for (const p of this.world.projectiles.values()) {
+        if (p.kind === "fireball") {
+          f.lastX = p.x;
+          f.lastY = p.y;
+          break;
+        }
+      }
+      const k = 1 - Math.exp(-f.k * dt);
+      this.pose.x += (f.lastX - this.pose.x) * k;
+      this.pose.y += (f.lastY - this.pose.y) * k;
+    }
+
+    const cam = this.cameras.main;
+    const { z } = this.pose;
+    cam.setZoom(z);
+    // Clamp the STAGE-visible rect (not the whole window) inside the world so the
+    // letterboxed crop never shows void — Phaser's setBounds+zoom clamps wrong at
+    // corners, so we clamp scroll manually (see memory: phaser4 camera bounds).
+    const { w: sw, h: sh } = this.stageSize();
+    const cx = clampAxis(this.pose.x, sw / (2 * z), WORLD.width);
+    const cy = clampAxis(this.pose.y, sh / (2 * z), WORLD.height);
+    cam.setScroll(cx - cam.width / 2 + this.view.shakeX, cy - cam.height / 2 + this.view.shakeY);
+    cam.setRotation(this.view.shakeRot);
+  }
+
+  // ---- loop ----------------------------------------------------------------------
+
+  override update(_t: number, deltaMs: number): void {
+    if (!this.world) {
+      return;
+    }
+    const dt = Math.min(0.05, deltaMs / 1000);
+    // While held (black) the sim and camera rig freeze, but the view keeps
+    // syncing so the cut lifts onto a live, fully-drawn frame.
+    if (!this.hold) {
+      this.acc += dt;
+      let steps = 0;
+      while (this.acc >= SIM_DT && steps < 5) {
+        step(this.world, SIM_DT);
+        this.acc -= SIM_DT;
+        steps += 1;
+      }
+    }
+    this.view.sync(this.world, dt);
+    this.labelTimer += dt;
+    if (this.labelTimer > 0.25) {
+      this.labelTimer = 0;
+      this.view.refreshLabels(this.world);
+    }
+    this.applyCamera(this.hold ? 0 : dt);
+  }
 }
 
 // ---- entry -----------------------------------------------------------------------
 
 /** Called from BootScene's ?trailer=1 branch (after assets + anims are ready). */
-export function launchTrailer(game: Phaser.Game): void {
+export const launchTrailer = (game: Game): void => {
   game.scene.add("TrailerStage", TrailerStage, true);
-}
+};

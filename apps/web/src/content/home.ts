@@ -12,8 +12,6 @@ import { siteConfig } from "@/lib/site-config";
  * that negotiates `Accept: text/markdown`.
  */
 export const homeDoc: Doc = {
-  path: "/",
-  title: `${siteConfig.name} — a game studio for your agent`,
   description: siteConfig.summary,
   lead: [
     {
@@ -25,35 +23,34 @@ export const homeDoc: Doc = {
       text: "This page embeds one of the games already shipped on the platform. Use the game switcher to change which one, Discover to browse them all, and Build to copy the prompt that installs everything into your agent.",
     },
   ],
+  path: "/",
   sections: [
     {
-      heading: "Get started",
       blocks: [
         {
           kind: "p",
           text: "Paste this into your coding agent, or run the install directly:",
         },
-        { kind: "code", lang: "sh", code: "npx vibedgames init" },
+        { code: "npx vibedgames init", kind: "code", lang: "sh" },
         {
           kind: "p",
           text: "Agents: read [/llms.txt](/llms.txt) for when to reach for this platform and which command to run first, and [/docs](/docs) for the full command and API surface.",
         },
       ],
+      heading: "Get started",
     },
     {
-      heading: `Games on ${siteConfig.name}`,
       blocks: [
         {
-          kind: "ul",
           items: featuredGames.map((game) => `[${game.name}](${gameUrl(game.slug)})`),
+          kind: "ul",
         },
       ],
+      heading: `Games on ${siteConfig.name}`,
     },
     {
-      heading: "Elsewhere on this site",
       blocks: [
         {
-          kind: "ul",
           items: [
             "[Discover](/discover) — every game shipped on the platform.",
             "[Build](/build) — the prompt that installs the CLI and skills into your agent.",
@@ -62,8 +59,11 @@ export const homeDoc: Doc = {
             "[Contact](/contact) — support, security and press channels.",
             "[Privacy](/privacy) — what is stored and how to have it deleted.",
           ],
+          kind: "ul",
         },
       ],
+      heading: "Elsewhere on this site",
     },
   ],
+  title: `${siteConfig.name} — a game studio for your agent`,
 };

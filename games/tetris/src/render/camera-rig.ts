@@ -44,6 +44,7 @@ export class CameraRig {
   private peekPitchTarget = 0;
 
   private readonly trauma = new TraumaCamera();
+  private readonly reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
   // Scratch (no per-frame allocation).
   private readonly rel = new Vector3();
@@ -55,14 +56,15 @@ export class CameraRig {
     // most of the depth buffer inside the first metre and let the floor grid
     // shimmer at grazing orbit angles.
     this.camera = new PerspectiveCamera(CAMERA_FOV, aspect, 1, 400);
-    this.resize(aspect); // portrait boots need the FOV correction from frame 1
-    this.cornerPosition(0, this.target);
+    // portrait boots need the FOV correction from frame 1
+    this.resize(aspect);
+    CameraRig.cornerPosition(0, this.target);
     this.baseEye.copy(this.target);
     this.camera.position.copy(this.target);
     this.camera.lookAt(this.center);
   }
 
-  private cornerPosition(i: number, out: Vector3): Vector3 {
+  private static cornerPosition(i: number, out: Vector3): Vector3 {
     // Quadrants: 0:+x+z  1:-x+z  2:-x-z  3:+x-z (matches Well.setCorner).
     const angle = (i * 90 + 45) * (Math.PI / 180);
     out.set(
@@ -76,7 +78,7 @@ export class CameraRig {
   /** Step to the next/previous corner. dir > 0 = right, < 0 = left. */
   orbit(dir: number, nowMs: number): number {
     this.corner = (((this.corner + (dir > 0 ? 1 : -1)) % 4) + 4) % 4;
-    this.cornerPosition(this.corner, this.target);
+    CameraRig.cornerPosition(this.corner, this.target);
     this.inMotionUntil = nowMs + ORBIT_PAUSE_MS;
     return this.corner;
   }
@@ -84,6 +86,10 @@ export class CameraRig {
   /** True while the camera is swinging to a new corner (gravity pauses). */
   isInMotion(nowMs: number): boolean {
     return nowMs < this.inMotionUntil;
+  }
+
+  shiftWallClock(pausedMs: number): void {
+    this.inMotionUntil += pausedMs;
   }
 
   addTrauma(amount: number): void {
@@ -95,6 +101,7 @@ export class CameraRig {
   }
 
   update(dt: number, nowMs: number): void {
+    const reduced = this.reducedMotion.matches;
     // 1. ease the base eye toward the active corner.
     this.baseEye.lerp(this.target, frameLerp(CAMERA_LERP_PER_FRAME, dt));
 
@@ -102,8 +109,8 @@ export class CameraRig {
     // of the stack is always glimpsed. Never touches the logical corner, so the
     // camera-relative controls stay stable.
     const tp = (nowMs / AUTO_PEEK_PERIOD_MS) * Math.PI * 2;
-    this.peekYawTarget = Math.sin(tp) * PEEK_YAW_MAX;
-    this.peekPitchTarget = Math.sin(tp * 0.6 + 1.3) * PEEK_PITCH_MAX;
+    this.peekYawTarget = reduced ? 0 : Math.sin(tp) * PEEK_YAW_MAX;
+    this.peekPitchTarget = reduced ? 0 : Math.sin(tp * 0.6 + 1.3) * PEEK_PITCH_MAX;
     const y = smoothDamp(this.peekYaw, this.peekYawTarget, this.peekYawVel, PEEK_OMEGA, dt);
     this.peekYaw = y.pos;
     this.peekYawVel = y.vel;
@@ -120,15 +127,17 @@ export class CameraRig {
 
     // 4. idle breathing wobble.
     const t = nowMs / 2000;
-    this.camera.position.x += (Math.sin(t) * CAMERA_WOBBLE) / 2;
-    this.camera.position.y += (Math.cos(t * 1.3) * CAMERA_WOBBLE) / 2;
+    if (!reduced) {
+      this.camera.position.x += (Math.sin(t) * CAMERA_WOBBLE) / 2;
+      this.camera.position.y += (Math.cos(t * 1.3) * CAMERA_WOBBLE) / 2;
+    }
 
     this.camera.up.copy(UP);
     this.camera.lookAt(this.center);
 
     // 5. trauma shake AFTER lookAt so it jitters without re-aiming.
     const shake = this.trauma.update(dt, nowMs / 1000);
-    if (shake.ox !== 0 || shake.oy !== 0 || shake.rot !== 0) {
+    if (!reduced && (shake.ox !== 0 || shake.oy !== 0 || shake.rot !== 0)) {
       this.camera.translateX(shake.ox);
       this.camera.translateY(shake.oy);
       this.camera.rotateZ(shake.rot);

@@ -1,26 +1,27 @@
 import { setPauseHandlers } from "@repo/embed";
-import Phaser from "phaser";
+import type { Types } from "phaser";
+import { Game, Scale, WEBGL } from "phaser";
 
+import { isMuted, pauseAudio, setMuted } from "./fx/sfx";
 import { createBombermanPauseOverlay } from "./pause-overlay";
 import { BootScene } from "./scenes/boot-scene";
 import { GameScene } from "./scenes/game-scene";
-import { pauseClock, resumeClock } from "./util/clock";
 
-const config: Phaser.Types.Core.GameConfig = {
-  type: Phaser.WEBGL,
-  parent: "game",
+const config: Types.Core.GameConfig = {
   backgroundColor: "#0e1020",
-  scale: {
-    // Fill the window; GameScene owns the follow-camera + zoom.
-    mode: Phaser.Scale.RESIZE,
-    width: "100%",
-    height: "100%",
-  },
+  parent: "game",
   pixelArt: true,
+  // Fill the window; GameScene owns the follow-camera + zoom.
+  scale: {
+    height: "100%",
+    mode: Scale.RESIZE,
+    width: "100%",
+  },
   scene: [BootScene, GameScene],
+  type: WEBGL,
 };
 
-const game = new Phaser.Game(config);
+const game = new Game(config);
 
 // Scale.RESIZE can read stale parent bounds when a resize lands while the tab
 // is hidden or the browser throttles events (tab switch, phone rotation): the
@@ -32,35 +33,46 @@ const refreshScale = (): void => {
 };
 window.addEventListener("resize", refreshScale);
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) refreshScale();
+  if (!document.hidden) {
+    refreshScale();
+  }
 });
 
-// Wrapper pause. The overlay always shows; we only truly FREEZE the game when
-// no other human is in the arena — freezing a shared online round would stall
-// the other players (their sim is wall-clock driven too). When we do freeze,
-// `pauseClock()` stops the sim clock so fuses/round/AI deadlines hold: a bomb
-// with 2s of fuse left before the pause still has ~2s after resume, instead of
-// every stored deadline firing at once when the loop wakes. The embed package
-// re-announces the game as started after onResume.
+// Wrapper pause. The overlay always shows and local input + audio always stop;
+// the sim only FREEZES when no other human is in the arena — freezing a shared
+// online round would stall the other players (their sim is wall-clock driven
+// too). GameScene.pauseSimulation stops the sim clock so fuses/round/AI
+// deadlines hold: a bomb with 2s of fuse left before the pause still has ~2s
+// after resume, instead of every stored deadline firing at once when the loop
+// wakes. The embed package re-announces the game as started after onResume.
 let froze = false;
-const pauseOverlay = createBombermanPauseOverlay();
+const pauseOverlay = createBombermanPauseOverlay({ get: isMuted, set: setMuted });
+const gameScene = (): GameScene | null =>
+  game.scene.isActive("Game") ? game.scene.getScene<GameScene>("Game") : null;
 setPauseHandlers({
   onPause: () => {
     pauseOverlay.show();
-    const scene = game.scene.getScene<GameScene>("Game");
+    pauseAudio(true);
+    const scene = gameScene();
+    scene?.setPresentationPaused(true);
     // Other humans present (live online round) — leave the sim running.
-    if (!scene || !scene.freezable) return;
+    if (!scene || !scene.freezable) {
+      return;
+    }
     froze = true;
-    pauseClock();
-    game.loop.sleep(); // stops update() until wake()
+    scene.pauseSimulation();
     game.sound.pauseAll();
   },
   onResume: () => {
     pauseOverlay.hide();
-    if (!froze) return;
+    pauseAudio(false);
+    const scene = gameScene();
+    scene?.setPresentationPaused(false);
+    if (!froze) {
+      return;
+    }
     froze = false;
-    resumeClock();
-    game.loop.wake();
+    scene?.resumeSimulation();
     game.sound.resumeAll();
   },
 });

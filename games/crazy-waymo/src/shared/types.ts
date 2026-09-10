@@ -16,19 +16,19 @@ export const DIR_DELTA = {
 // A connection mask is a 4-bit set: bit d (1<<d) means "connected toward Dir d".
 export type Mask = number;
 
-export function maskHas(mask: Mask, d: Dir): boolean {
-  return (mask & (1 << d)) !== 0;
-}
+/* oxlint-disable no-bitwise -- connection masks are bit sets */
+export const maskHas = (mask: Mask, d: Dir): boolean => (mask & (1 << d)) !== 0;
 
-export function maskCount(mask: Mask): number {
-  return (mask & 1) + ((mask >> 1) & 1) + ((mask >> 2) & 1) + ((mask >> 3) & 1);
-}
+export const maskCount = (mask: Mask): number =>
+  (mask & 1) + ((mask >> 1) & 1) + ((mask >> 2) & 1) + ((mask >> 3) & 1);
+/* oxlint-enable no-bitwise */
 
 // Game state as a discriminated union — illegal states are unrepresentable.
 export type GameMode =
   | { readonly kind: "loading"; readonly progress: number }
   | { readonly kind: "title" }
-  | { readonly kind: "countdown"; t: number } // 3-2-1-GO launch + camera swoop
+  // 3-2-1-GO launch + camera swoop
+  | { readonly kind: "countdown"; t: number }
   | { readonly kind: "playing" }
   | { readonly kind: "gameover"; readonly score: number; readonly fares: number };
 
@@ -38,9 +38,6 @@ export type Solid = {
   readonly maxX: number;
   readonly minZ: number;
   readonly maxZ: number;
-  // World-space top of the obstacle, when it CAN be jumped over (traffic).
-  // Absent = infinitely tall (buildings, walls).
-  readonly maxY?: number;
   // Rotation about the box CENTRE (three.js rotation.y convention). min/max
   // describe the UNROTATED box; consumers (car collision, camera clip,
   // physics) transform into the box's local frame. Absent = axis-aligned.
@@ -52,7 +49,13 @@ export type Solid = {
   // Deliberately has NO visual (map-edge walls). Anything else the player can
   // hit must be visible — the e2e census fails on untagged sightless solids.
   readonly unseen?: string;
-};
+} &
+  // New barriers carry their full visible vertical span. Legacy maxY-only
+  // solids remain ground anchored; no heights means the traditional tall box.
+  (
+    | { readonly minY: number; readonly maxY: number }
+    | { readonly minY?: never; readonly maxY?: number }
+  );
 
 // A drivable surface patch floating over the terrain (pier deck, bridge ramp).
 export type SurfaceDeck = {
@@ -60,6 +63,8 @@ export type SurfaceDeck = {
   readonly maxX: number;
   readonly minZ: number;
   readonly maxZ: number;
-  readonly y: number; // height at minZ
-  readonly y2?: number; // height at maxZ (sloped ramp when set)
+  // height at minZ
+  readonly y: number;
+  // height at maxZ (sloped ramp when set)
+  readonly y2?: number;
 };

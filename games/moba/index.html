@@ -37,7 +37,11 @@
         font-family: "Lilita One";
         font-style: normal;
         font-weight: 400;
-        font-display: swap;
+        /* `swap` reflowed the veil wordmark when the face landed. Preloaded,
+           same-origin and 11k, so it wins the `optional` race in practice; on
+           the connection where it does not, one visit in system-ui beats a
+           visible re-fit under the loading spinner. */
+        font-display: optional;
         src: url("assets/fonts/lilita-one-latin.woff2") format("woff2");
       }
       * {

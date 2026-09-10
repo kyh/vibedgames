@@ -1,20 +1,32 @@
 /** A 2D point / vector in screen-space pixels. */
-export type Vec2 = { x: number; y: number };
+export interface Vec2 {
+  x: number;
+  y: number;
+}
 
 /** Device safe-area insets (notch / home indicator), screen-space px. */
-export type Inset = { top: number; right: number; bottom: number; left: number };
+export interface Inset {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
 
 /** Current canvas size + safe-area insets, used to re-anchor fixed buttons on
  *  resize. Position resolvers should keep bottom/side-anchored buttons clear
  *  of `inset` (zeros on devices without notches). */
-export type Viewport = { width: number; height: number; inset: Inset };
+export interface Viewport {
+  width: number;
+  height: number;
+  inset: Inset;
+}
 
 /** When the overlay is shown: after the first touch (default), pre-shown on
  *  coarse-pointer devices so buttons are discoverable, or always. */
 export type VisibilityPolicy = "touch" | "coarse" | "always";
 
 /** Tuning for the floating analog stick. All distances are screen-space px. */
-export type StickOptions = {
+export interface StickOptions {
   /** Drag distance from the anchor that maps to full magnitude (1.0). */
   radius?: number;
   /** No magnitude / no aim within this drag of the anchor — a parked thumb
@@ -29,10 +41,10 @@ export type StickOptions = {
    * movement input. Default: anywhere.
    */
   region?: (point: Vec2, viewport: Viewport) => boolean;
-};
+}
 
 /** A button on the virtual gamepad. */
-export type ButtonOptions = {
+export interface ButtonOptions {
   /** Stable id you read back with `isButtonDown(id)`. */
   id: string;
   /** Fixed on-screen button: resolves a center given the current viewport, so
@@ -44,9 +56,9 @@ export type ButtonOptions = {
   radius?: number;
   /** Optional glyph/label a custom renderer may draw. */
   label?: string;
-};
+}
 
-export type VirtualGamepadOptions = {
+export interface VirtualGamepadOptions {
   /** Floating analog stick config, or `false` to disable the stick entirely. */
   stick?: StickOptions | false;
   /** Action buttons (fixed or "rest"). Evaluated in order on each touch — put
@@ -58,10 +70,10 @@ export type VirtualGamepadOptions = {
   onButtonDown?: (id: string) => void;
   /** Edge callback when the last finger leaves a button (down→up). */
   onButtonUp?: (id: string) => void;
-};
+}
 
 /** A read-only snapshot of the stick. Fields collapse to 0 when idle. */
-export type StickState = {
+export interface StickState {
   /** A finger is on the stick. */
   active: boolean;
   /** Where the finger first landed. */
@@ -81,17 +93,17 @@ export type StickState = {
   magnitude: number;
   /** Drag is within the dead zone — don't re-aim or thrust this frame. */
   inDeadZone: boolean;
-};
+}
 
 /** Resolved stick tuning (defaults applied), for renderers. */
-export type StickGeometry = {
+export interface StickGeometry {
   radius: number;
   deadZone: number;
   knobRadius: number;
-};
+}
 
 /** Resolved button geometry + state, for renderers. */
-export type ButtonLayout = {
+export interface ButtonLayout {
   id: string;
   /** Center (0,0 for rest buttons, which have no fixed position). */
   x: number;
@@ -101,7 +113,7 @@ export type ButtonLayout = {
   pressed: boolean;
   /** Rest buttons have no fixed position — renderers skip them. */
   rest: boolean;
-};
+}
 
 /** Four-way snapped direction (screen-space: +y is down). */
 export type Dir4 = "up" | "down" | "left" | "right";

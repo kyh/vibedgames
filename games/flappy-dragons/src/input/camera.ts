@@ -34,12 +34,8 @@
  * shows the error and the game stays fully playable with keyboard/tap.
  */
 
-import {
-  DrawingUtils,
-  FilesetResolver,
-  PoseLandmarker,
-  type NormalizedLandmark,
-} from "@mediapipe/tasks-vision";
+import { DrawingUtils, FilesetResolver, PoseLandmarker } from "@mediapipe/tasks-vision";
+import type { NormalizedLandmark } from "@mediapipe/tasks-vision";
 
 // ---- legacy tuning (recovered from git — do not retune) ------------------------
 
@@ -108,7 +104,7 @@ type PoseState = "idle" | "loading" | "warming" | "detecting" | "jumping";
  */
 export type PoseJumpHandler = (strength: number, refire: boolean) => void;
 
-type Panel = {
+interface Panel {
   root: HTMLDivElement;
   screen: HTMLDivElement;
   video: HTMLVideoElement;
@@ -116,11 +112,32 @@ type Panel = {
   button: HTMLButtonElement;
   recal: HTMLButtonElement;
   status: HTMLSpanElement;
-};
+  cap: HTMLDivElement;
+}
 
 // ---- state machine ---------------------------------------------------------------
 
+// ---- pure helpers --------------------------------------------------------------------------
+
+const getSmoothedY = (positions: number[]): number => {
+  if (positions.length === 0) {
+    return 0;
+  }
+  return positions.reduce((sum, val) => sum + val, 0) / positions.length;
+};
+
+const errorMessage = (cause: unknown): string =>
+  cause instanceof Error ? cause.message : String(cause);
+
 class PoseCamera {
+  /**
+   * Startup attempt token. A failure (denied permission, track ended, tracking
+   * exception) invalidates every async continuation of the attempt it belongs
+   * to, so a late model load can't resurrect a camera the retry already replaced.
+   */
+  private attempt = 0;
+  private raf: number | null = null;
+  private releaseMediaEvents: (() => void) | null = null;
   private state: PoseState = "idle";
   private baselineY = 0;
   private minY = Infinity;
@@ -139,24 +156,34 @@ class PoseCamera {
   private landmarker: PoseLandmarker | null = null;
   private stream: MediaStream | null = null;
   private detectionStarted = false;
+  /** Observation only: never used by the detectors or baseline. */
+  private noseVisible = false;
+  private armsVisible = false;
   /** Overlay 2d context + DrawingUtils, created once when the stream is sized. */
   private overlayCtx: CanvasRenderingContext2D | null = null;
   private drawingUtils: DrawingUtils | null = null;
 
-  constructor(
-    private readonly ui: Panel,
-    private onJump: PoseJumpHandler,
-    autoStart: boolean,
-  ) {
+  private readonly ui: Panel;
+  private onJump: PoseJumpHandler;
+  private readonly autoStart: boolean;
+  /** The player chose a panel size by hand; a later live stream must not undo it. */
+  private userSized = false;
+
+  constructor(ui: Panel, onJump: PoseJumpHandler, autoStart: boolean) {
+    this.ui = ui;
+    this.autoStart = autoStart;
+    this.onJump = onJump;
     this.setStatus(autoStart ? "Click 'Start' to begin" : "Tap to enable the pose cam");
     this.ui.button.addEventListener("click", (e) => {
-      e.stopPropagation(); // don't also toggle the panel size
+      // Don't also toggle the panel size.
+      e.stopPropagation();
       // Drop focus so Space (a game input) can't re-activate the button.
       this.ui.button.blur();
       this.handleMainAction();
     });
     this.ui.recal.addEventListener("click", (e) => {
-      e.stopPropagation(); // don't also toggle the panel size
+      // Don't also toggle the panel size.
+      e.stopPropagation();
       this.ui.recal.blur();
       this.recalibrate();
     });
@@ -165,8 +192,32 @@ class PoseCamera {
     // getUserMedia until this user gesture).
     this.ui.screen.addEventListener("click", () => {
       const expanding = this.collapsed;
+      this.userSized = true;
       this.setCollapsed(!this.collapsed);
-      if (expanding && this.state === "idle") this.start();
+      if (expanding && this.state === "idle") {
+        this.start();
+      }
+    });
+    // Keyboard activation of the focused preview must not leak Space/Enter to
+    // the game as a flap, so both edges are swallowed here.
+    const isActivationKey = (event: KeyboardEvent): boolean =>
+      event.target === this.ui.screen && (event.key === "Enter" || event.key === " ");
+    this.ui.screen.addEventListener("keydown", (event) => {
+      if (!isActivationKey(event)) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      if (!event.repeat) {
+        this.ui.screen.click();
+      }
+    });
+    this.ui.screen.addEventListener("keyup", (event) => {
+      if (!isActivationKey(event)) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
     });
     if (autoStart) {
       // Legacy mounted the component on page load and auto-started immediately.
@@ -184,10 +235,10 @@ class PoseCamera {
     this.state = state;
     // The button exists only to retry after a startup failure; normal play is
     // clickless (the baseline locks itself at game-start).
-    this.ui.button.style.display = state === "idle" ? "" : "none";
+    this.ui.button.classList.toggle("fd-cam__btn--off", state !== "idle");
     // Recalibrate only makes sense once tracking is live.
     const tracking = state === "detecting" || state === "jumping";
-    this.ui.recal.style.display = tracking ? "" : "none";
+    this.ui.recal.classList.toggle("fd-cam__btn--off", !tracking);
   }
 
   /** Freeze the baseline for a run (true) / resume rolling between runs (false). */
@@ -200,7 +251,9 @@ class PoseCamera {
   recalibrate(): void {
     // Only meaningful once tracking is live — warm-up already self-seeds, and
     // resetting mid-load would corrupt the startup state machine.
-    if (this.state !== "detecting" && this.state !== "jumping") return;
+    if (this.state !== "detecting" && this.state !== "jumping") {
+      return;
+    }
     this.yPositions = [];
     this.minY = Infinity;
     this.wristYs = [];
@@ -216,108 +269,219 @@ class PoseCamera {
 
   private setCollapsed(collapsed: boolean): void {
     this.ui.root.classList.toggle("fd-cam--collapsed", collapsed);
+    this.ui.screen.setAttribute("aria-expanded", String(!collapsed));
   }
 
   private setStatus(text: string): void {
-    this.ui.status.textContent = text;
+    if (this.ui.status.textContent !== text) {
+      this.ui.status.textContent = text;
+    }
   }
 
   /** The button is only shown in "idle" — a retry after a startup failure. */
   private handleMainAction(): void {
-    if (this.state === "idle") this.start();
+    if (this.state === "idle") {
+      this.start();
+    }
   }
 
   // ---- startup --------------------------------------------------------------------
 
   private start(): void {
-    if (this.state !== "idle") return;
+    if (this.state !== "idle") {
+      return;
+    }
+    this.attempt += 1;
+    const { attempt } = this;
     this.setState("loading");
+    this.ui.cap.textContent = "📷 LOADING";
+    this.ui.screen.setAttribute("aria-label", "Pose camera preview");
+    this.ui.screen.title = "";
     this.setStatus("Starting camera and loading model...");
-    void this.startCamera();
+    void this.startCamera(attempt);
   }
 
-  private async startCamera(): Promise<void> {
-    try {
-      // A retry after a partial failure replaces any previous stream.
-      if (this.stream) {
-        for (const track of this.stream.getTracks()) track.stop();
-        this.stream = null;
-      }
+  private current(attempt: number): boolean {
+    return attempt === this.attempt;
+  }
 
+  private releaseCapture(): void {
+    if (this.raf !== null) {
+      cancelAnimationFrame(this.raf);
+    }
+    this.raf = null;
+    this.detectionStarted = false;
+    this.releaseMediaEvents?.();
+    this.releaseMediaEvents = null;
+    this.ui.video.pause();
+    this.ui.video.srcObject = null;
+    if (this.stream) {
+      for (const track of this.stream.getTracks()) {
+        track.stop();
+      }
+    }
+    this.stream = null;
+    this.landmarker?.close();
+    this.landmarker = null;
+    this.drawingUtils?.close();
+    this.drawingUtils = null;
+    this.overlayCtx = null;
+  }
+
+  private failStart(attempt: number, message: string): void {
+    if (!this.current(attempt)) {
+      return;
+    }
+    this.attempt += 1;
+    this.releaseCapture();
+    this.ui.root.classList.remove("fd-cam--live");
+    this.setStatus(message);
+    this.setState("idle");
+    this.ui.cap.textContent = "📷 RETRY";
+    this.ui.screen.setAttribute("aria-label", "Camera unavailable. Retry pose camera");
+    this.ui.screen.title = `${message}. Click to retry.`;
+    this.setCollapsed(true);
+  }
+
+  private async startCamera(attempt: number): Promise<void> {
+    try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user" },
         audio: false,
+        video: { facingMode: "user" },
       });
+      if (!this.current(attempt)) {
+        for (const track of stream.getTracks()) {
+          track.stop();
+        }
+        return;
+      }
       this.stream = stream;
 
-      const video = this.ui.video;
-      video.srcObject = stream;
-      void video.play();
-      video.addEventListener(
-        "loadedmetadata",
-        () => {
+      const { video } = this.ui;
+      const tracks = stream.getTracks();
+      const onEnded = (): void => this.failStart(attempt, "Camera stream ended");
+      const onVideoError = (): void => {
+        if (video.srcObject !== stream || video.error === null) {
+          return;
+        }
+        this.failStart(
+          attempt,
+          `Camera interrupted: ${video.error.message || "Video playback failed"}`,
+        );
+      };
+      // Reached from the event or, if the stream was already sized, directly
+      // below; overlayCtx marks it done for this attempt.
+      const onMetadata = (): void => {
+        if (!this.current(attempt) || this.overlayCtx !== null) {
+          return;
+        }
+        try {
           // Reveal the video only once it has real dimensions — a stream-less
           // <video> renders at its 300×150 default and bloats the pill.
           this.ui.root.classList.add("fd-cam--live");
+          // Desktop unfolds the preview by itself once there is something to
+          // show; a cramped window stays a pill like touch does.
+          if (
+            this.autoStart &&
+            !this.userSized &&
+            Math.min(window.innerWidth, window.innerHeight) >= 560
+          ) {
+            this.setCollapsed(false);
+          }
           this.ui.overlay.width = video.videoWidth;
           this.ui.overlay.height = video.videoHeight;
           const ctx = this.ui.overlay.getContext("2d");
           if (!ctx) {
-            this.setStatus("Error: overlay canvas has no 2d context");
-            this.setState("idle");
+            this.failStart(attempt, "Error: overlay canvas has no 2d context");
             return;
           }
           this.overlayCtx = ctx;
           this.drawingUtils = new DrawingUtils(ctx);
-          void this.loadModel();
-        },
-        { once: true },
-      );
+          void this.loadModel(attempt);
+        } catch (error) {
+          this.failStart(attempt, `Error: ${errorMessage(error)}`);
+        }
+      };
+      for (const track of tracks) {
+        track.addEventListener("ended", onEnded);
+      }
+      video.addEventListener("error", onVideoError);
+      video.addEventListener("loadedmetadata", onMetadata, { once: true });
+      this.releaseMediaEvents = () => {
+        for (const track of tracks) {
+          track.removeEventListener("ended", onEnded);
+        }
+        video.removeEventListener("error", onVideoError);
+        video.removeEventListener("loadedmetadata", onMetadata);
+      };
+      video.srcObject = stream;
+      if (tracks.some((track) => track.readyState === "ended")) {
+        onEnded();
+        return;
+      }
+      if (video.readyState >= 1 && video.videoWidth > 0) {
+        onMetadata();
+      }
+      if (!this.current(attempt)) {
+        return;
+      }
+      await video.play();
     } catch (error) {
       // Graceful degradation: show why, fall back to keyboard/tap input.
-      this.ui.root.classList.remove("fd-cam--live");
-      this.setStatus(`Error: ${errorMessage(error)}`);
-      this.setState("idle");
+      this.failStart(attempt, `Error: ${errorMessage(error)}`);
     }
   }
 
-  private async loadModel(): Promise<void> {
+  private async loadModel(attempt: number): Promise<void> {
     try {
       this.setStatus("Loading pose detection model...");
 
       const vision = await FilesetResolver.forVisionTasks(WASM_BASE_URL);
-      this.landmarker = await PoseLandmarker.createFromOptions(vision, {
+      if (!this.current(attempt)) {
+        return;
+      }
+      const landmarker = await PoseLandmarker.createFromOptions(vision, {
         baseOptions: {
-          modelAssetPath: MODEL_URL,
           delegate: "GPU",
+          modelAssetPath: MODEL_URL,
         },
-        runningMode: "VIDEO",
         numPoses: 1,
+        runningMode: "VIDEO",
       });
+      if (!this.current(attempt)) {
+        landmarker.close();
+        return;
+      }
+      this.landmarker = landmarker;
 
       this.beginWarmup();
-      this.startDetection();
+      this.startDetection(attempt);
     } catch (error) {
-      this.setStatus(`Error loading model: ${errorMessage(error)}`);
-      this.setState("idle");
+      this.failStart(attempt, `Error loading model: ${errorMessage(error)}`);
     }
   }
 
   // ---- detection loop ----------------------------------------------------------------
 
-  private startDetection(): void {
-    if (this.detectionStarted) return;
+  private startDetection(attempt: number): void {
+    if (!this.current(attempt) || this.detectionStarted) {
+      return;
+    }
     this.detectionStarted = true;
 
     let lastVideoTime = -1;
     let lastTimestamp = 0;
 
     const detectFrame = (): void => {
-      const video = this.ui.video;
-      const landmarker = this.landmarker;
+      if (!this.current(attempt)) {
+        return;
+      }
+      this.raf = null;
+      const { video } = this.ui;
+      const { landmarker } = this;
 
       if (video.readyState !== 4 || landmarker === null) {
-        requestAnimationFrame(detectFrame);
+        this.raf = requestAnimationFrame(detectFrame);
         return;
       }
 
@@ -330,7 +494,9 @@ class PoseCamera {
 
         try {
           const result = landmarker.detectForVideo(video, timestamp);
-          const landmarks = result.landmarks[0];
+          const [landmarks] = result.landmarks;
+          this.noseVisible = false;
+          this.armsVisible = false;
           if (landmarks) {
             this.drawSkeleton(landmarks);
 
@@ -338,20 +504,31 @@ class PoseCamera {
             // calibrated baseline matches the legacy numbers.
             const nose = landmarks[NOSE_INDEX];
             if (nose && nose.visibility > MIN_VISIBILITY) {
+              this.noseVisible = true;
               const noseY = nose.y * (video.videoHeight || 1);
               this.yPositions.unshift(noseY);
-              if (this.yPositions.length > SMOOTHING_WINDOW) this.yPositions.pop();
+              if (this.yPositions.length > SMOOTHING_WINDOW) {
+                this.yPositions.pop();
+              }
 
               this.processSample();
             }
+            if (!this.current(attempt)) {
+              return;
+            }
             this.processArmFlap(landmarks);
+          } else {
+            this.overlayCtx?.clearRect(0, 0, this.ui.overlay.width, this.ui.overlay.height);
           }
+          this.showReadiness();
         } catch (error) {
-          this.setStatus(`Error: ${errorMessage(error)}`);
+          this.failStart(attempt, `Tracking interrupted: ${errorMessage(error)}`);
         }
       }
 
-      requestAnimationFrame(detectFrame);
+      if (this.current(attempt)) {
+        this.raf = requestAnimationFrame(detectFrame);
+      }
     };
 
     detectFrame();
@@ -362,7 +539,8 @@ class PoseCamera {
   /** Enter warm-up: collect samples to seed the baseline, then arm jumps automatically. */
   private beginWarmup(): void {
     this.setState("warming");
-    this.setStatus("Centering... stand naturally");
+    this.ui.cap.textContent = "📷 CENTERING";
+    this.setStatus("Centering · stand naturally");
     this.warmupSamples = 0;
     this.warmupTotal = 0;
     this.baselineY = 0;
@@ -377,11 +555,10 @@ class PoseCamera {
 
     if (this.state === "warming") {
       this.warmupTotal += currentY;
-      this.warmupSamples++;
+      this.warmupSamples += 1;
       if (this.warmupSamples >= WARMUP_SAMPLES) {
         this.baselineY = this.warmupTotal / this.warmupSamples;
         this.setState("detecting");
-        this.setStatus("Jump or flap your arms!");
       }
       return;
     }
@@ -404,7 +581,6 @@ class PoseCamera {
 
     if (heightDiff > jumpThreshold && this.state === "detecting") {
       this.setState("jumping");
-      this.setStatus("Jumping!");
       this.minY = currentY;
       this.jumpStartedAt = performance.now();
 
@@ -427,12 +603,10 @@ class PoseCamera {
       Math.abs(currentY - this.baselineY) < jumpThreshold / 2
     ) {
       this.setState("detecting");
-      this.setStatus("Jump or flap your arms!");
     } else if (this.state === "jumping" && performance.now() - this.jumpStartedAt > JUMP_STUCK_MS) {
       // Never landed — stuck read. Re-arm detection and let the baseline
       // re-track from wherever the player settled.
       this.setState("detecting");
-      this.setStatus("Jump or flap your arms!");
     }
   }
 
@@ -445,12 +619,16 @@ class PoseCamera {
    * double-fire.
    */
   private processArmFlap(landmarks: NormalizedLandmark[]): void {
-    if (this.state !== "detecting" && this.state !== "jumping") return;
+    if (this.state !== "detecting" && this.state !== "jumping") {
+      return;
+    }
     const ls = landmarks[LEFT_SHOULDER];
     const rs = landmarks[RIGHT_SHOULDER];
     const lw = landmarks[LEFT_WRIST];
     const rw = landmarks[RIGHT_WRIST];
-    if (!ls || !rs || !lw || !rw) return;
+    if (!ls || !rs || !lw || !rw) {
+      return;
+    }
     if (
       ls.visibility < MIN_VISIBILITY ||
       rs.visibility < MIN_VISIBILITY ||
@@ -460,10 +638,15 @@ class PoseCamera {
       return;
     }
     const scale = Math.abs(ls.x - rs.x);
-    if (scale < MIN_SHOULDER_WIDTH) return;
+    if (scale < MIN_SHOULDER_WIDTH) {
+      return;
+    }
+    this.armsVisible = true;
 
     this.wristYs.unshift((lw.y + rw.y) / 2);
-    if (this.wristYs.length > FLAP_SMOOTHING_WINDOW) this.wristYs.pop();
+    if (this.wristYs.length > FLAP_SMOOTHING_WINDOW) {
+      this.wristYs.pop();
+    }
     const wy = getSmoothedY(this.wristYs);
 
     if (this.flapArmed) {
@@ -477,7 +660,6 @@ class PoseCamera {
         // A body-jump already flapped this instant — don't double-fire.
         if (this.state !== "jumping") {
           const strength = Math.min(stroke / (FLAP_STROKE * scale * MAX_FLAP_FACTOR), 1);
-          this.setStatus("Flap!");
           this.onJump(strength, false);
         }
       }
@@ -490,72 +672,57 @@ class PoseCamera {
     }
   }
 
+  /** Read-only projection of tracking; these labels never arm or gate controls. */
+  private showReadiness(): void {
+    const [label, detail] = this.readiness();
+    const cap = `📷 ${label}`;
+    if (this.ui.cap.textContent !== cap) {
+      this.ui.cap.textContent = cap;
+    }
+    this.setStatus(detail);
+  }
+
+  private readiness(): [label: string, detail: string] {
+    if (this.state === "warming") {
+      const n = `${this.warmupSamples}/${WARMUP_SAMPLES}`;
+      return this.noseVisible
+        ? [`CENTER ${n}`, `Centering ${n} · stand naturally`]
+        : ["FIND FACE", "Step into view to center your pose"];
+    }
+    if (this.noseVisible && this.armsVisible) {
+      return ["POSE READY", "Ready · jump or flap your arms"];
+    }
+    if (this.noseVisible) {
+      return ["JUMP READY", "Jump ready · show wrists to flap too"];
+    }
+    if (this.armsVisible) {
+      return ["ARMS READY", "Arms ready · show your face to jump too"];
+    }
+    return ["FIND YOU", "Step into view · keyboard and tap still work"];
+  }
+
   // ---- skeleton overlay ------------------------------------------------------
 
   /** Skeleton overlay: red landmark dots (r=3) + blue connectors (lineWidth=2). */
   private drawSkeleton(landmarks: NormalizedLandmark[]): void {
     const ctx = this.overlayCtx;
-    const drawingUtils = this.drawingUtils;
-    if (!ctx || !drawingUtils) return;
+    const { drawingUtils } = this;
+    if (!ctx || !drawingUtils) {
+      return;
+    }
 
     ctx.clearRect(0, 0, this.ui.overlay.width, this.ui.overlay.height);
 
     drawingUtils.drawLandmarks(landmarks, {
-      radius: 3,
       color: "red",
       fillColor: "red",
+      radius: 3,
     });
     drawingUtils.drawConnectors(landmarks, PoseLandmarker.POSE_CONNECTIONS, {
       color: "blue",
       lineWidth: 2,
     });
   }
-}
-
-// ---- module API ------------------------------------------------------------------------
-
-let active: PoseCamera | null = null;
-
-/** Coarse-pointer/touch detection — decide input-aware copy + layout at boot. */
-export function isCoarsePointer(): boolean {
-  return window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
-}
-
-/**
- * Create the bottom-right webcam panel and begin camera + model startup
- * (idempotent — repeat calls just swap the jump handler). Failures degrade to
- * a visible status message while keyboard/tap input keeps working. Touch
- * devices boot collapsed with getUserMedia deferred behind a tap on the pill;
- * desktop keeps the legacy auto-start.
- */
-export function initPoseCamera(onJump: PoseJumpHandler): void {
-  if (active !== null) {
-    active.setHandler(onJump);
-    return;
-  }
-  const touch = isCoarsePointer();
-  const compact = touch || Math.min(window.innerWidth, window.innerHeight) < 560;
-  active = new PoseCamera(buildPanel(document.body, compact), onJump, !touch);
-}
-
-/**
- * Lock the resting baseline for a run (true) or let it roll between runs
- * (false). The game calls this on its ready→playing / →gameover transitions so
- * the baseline "locks in place" the moment you start and re-tracks while idle.
- * No-op if the camera never initialised (permission denied / not started).
- */
-export function setPoseLocked(locked: boolean): void {
-  active?.setLocked(locked);
-}
-
-/**
- * Re-seed the resting pose baseline (the game calls this when its start
- * countdown begins, so calibration captures the player once they're in
- * position). No-op if the camera never initialised or isn't tracking yet —
- * recalibrate() only has effect past warm-up, and warm-up already self-seeds.
- */
-export function recalibratePose(): void {
-  active?.recalibrate();
 }
 
 // ---- DOM (styled to match the app's dark "glass pill" HUD) --------------------------------
@@ -573,8 +740,10 @@ const PANEL_STYLE_ID = "fd-pose-cam-style";
  * the buttons are interactive — a click on the view toggles its size, so the
  * panel consumes its own taps instead of flapping.
  */
-function injectStyles(): void {
-  if (document.getElementById(PANEL_STYLE_ID)) return;
+const injectStyles = (): void => {
+  if (document.querySelector(`#${PANEL_STYLE_ID}`)) {
+    return;
+  }
   const style = document.createElement("style");
   style.id = PANEL_STYLE_ID;
   style.textContent = `
@@ -603,6 +772,12 @@ function injectStyles(): void {
       cursor: pointer;
       pointer-events: auto; touch-action: manipulation;
       -webkit-tap-highlight-color: transparent;
+    }
+    @media (min-width: 600px) {
+      .fd-cam:not(.fd-cam--collapsed) { width: min(512px, 45vw); }
+    }
+    @media (max-height: 520px) and (min-width: 600px) {
+      .fd-cam:not(.fd-cam--collapsed) { width: min(320px, 45vw); }
     }
     .fd-cam--collapsed { width: 120px; }
     .fd-cam--collapsed .fd-cam__screen { min-height: 44px; }
@@ -637,16 +812,19 @@ function injectStyles(): void {
     }
     .fd-cam__btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.26); }
     .fd-cam__btn:disabled { opacity: 0.5; cursor: default; }
+    /* Hidden, not removed: the state machine swaps which button is showing and
+       display:none slid the status text sideways under the player. */
+    .fd-cam__btn--off { visibility: hidden; }
     .fd-cam__status {
       min-width: 0; letter-spacing: 0.5px;
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      white-space: normal; line-height: 1.4;
       text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75);
     }
   `;
-  document.head.appendChild(style);
-}
+  document.head.append(style);
+};
 
-function buildPanel(parent: HTMLElement, collapsed: boolean): Panel {
+const buildPanel = (parent: HTMLElement, collapsed: boolean): Panel => {
   injectStyles();
 
   const root = document.createElement("div");
@@ -654,6 +832,10 @@ function buildPanel(parent: HTMLElement, collapsed: boolean): Panel {
 
   const screen = document.createElement("div");
   screen.className = "fd-cam__screen";
+  screen.tabIndex = 0;
+  screen.setAttribute("role", "button");
+  screen.setAttribute("aria-label", "Pose camera preview");
+  screen.setAttribute("aria-expanded", String(!collapsed));
 
   const video = document.createElement("video");
   video.className = "fd-cam__video";
@@ -679,34 +861,69 @@ function buildPanel(parent: HTMLElement, collapsed: boolean): Panel {
   recal.className = "fd-cam__btn";
   recal.textContent = "Recalibrate";
   recal.title = "Re-capture your resting position";
-  recal.style.display = "none";
+  recal.classList.add("fd-cam__btn--off");
 
   const status = document.createElement("span");
   status.className = "fd-cam__status";
+  status.setAttribute("role", "status");
 
   controls.append(button, recal, status);
   screen.append(video, overlay, cap, controls);
   root.append(screen);
-  parent.appendChild(root);
+  parent.append(root);
 
   // The bottom-centred HUD pills reach under this panel on a narrow screen and
   // disappear behind it once it expands, so publish how much of the bottom-right
   // corner it currently owns and let index.html lift them clear.
   new ResizeObserver(() => {
-    const height = root.getBoundingClientRect().height;
+    const { height } = root.getBoundingClientRect();
     document.documentElement.style.setProperty("--fd-cam-h", `${Math.round(height)}px`);
   }).observe(root);
 
-  return { root, screen, video, overlay, button, recal, status };
-}
+  return { button, cap, overlay, recal, root, screen, status, video };
+};
 
-// ---- pure helpers --------------------------------------------------------------------------
+// ---- module API ------------------------------------------------------------------------
 
-function getSmoothedY(positions: number[]): number {
-  if (positions.length === 0) return 0;
-  return positions.reduce((sum, val) => sum + val, 0) / positions.length;
-}
+let active: PoseCamera | null = null;
 
-function errorMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
-}
+/** Coarse-pointer/touch detection — decide input-aware copy + layout at boot. */
+export const isCoarsePointer = (): boolean =>
+  window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+
+/**
+ * Create the bottom-right webcam panel and begin camera + model startup
+ * (idempotent — repeat calls just swap the jump handler). Failures degrade to
+ * a status message on the collapsed pill while keyboard/tap input keeps
+ * working. The panel boots as a pill everywhere — the preview only unfolds
+ * once a stream is live, so a denied or unsupported camera never parks a
+ * blank frame on the start screen. Touch defers getUserMedia behind a tap on
+ * the pill; desktop keeps the legacy auto-start.
+ */
+export const initPoseCamera = (onJump: PoseJumpHandler): void => {
+  if (active !== null) {
+    active.setHandler(onJump);
+    return;
+  }
+  active = new PoseCamera(buildPanel(document.body, true), onJump, !isCoarsePointer());
+};
+
+/**
+ * Lock the resting baseline for a run (true) or let it roll between runs
+ * (false). The game calls this on its ready→playing / →gameover transitions so
+ * the baseline "locks in place" the moment you start and re-tracks while idle.
+ * No-op if the camera never initialised (permission denied / not started).
+ */
+export const setPoseLocked = (locked: boolean): void => {
+  active?.setLocked(locked);
+};
+
+/**
+ * Re-seed the resting pose baseline (the game calls this when its start
+ * countdown begins, so calibration captures the player once they're in
+ * position). No-op if the camera never initialised or isn't tracking yet —
+ * recalibrate() only has effect past warm-up, and warm-up already self-seeds.
+ */
+export const recalibratePose = (): void => {
+  active?.recalibrate();
+};

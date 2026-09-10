@@ -35,9 +35,9 @@ const FOOTER_STACK = `mt-6 h-4 items-center justify-items-center ${SUBTITLE_STAC
  * thing moving, so it shouldn't compete with the form's own motion.
  */
 const SUBTITLE_MOTION = {
-  initial: { opacity: 0 },
   animate: { opacity: 1 },
   exit: { opacity: 0 },
+  initial: { opacity: 0 },
   transition: { duration: 0.16 },
 };
 
@@ -48,7 +48,7 @@ const SUBTITLE_MOTION = {
  * out and a spinner takes its place, so the feedback sits where the eye
  * already is instead of crowding the code row.
  */
-function RegisterPage() {
+const RegisterPage = () => {
   const [verifiedCode, setVerifiedCode] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
   const showSpinner = useDelayedFlag(verifying, SPINNER_DELAY_MS);
@@ -104,15 +104,14 @@ function RegisterPage() {
         <div className={FOOTER_STACK}>
           <AnimatePresence mode="popLayout" initial={false}>
             {showSpinner ? (
-              <motion.span
+              <motion.output
                 key="checking"
                 {...BLUR_FADE}
-                role="status"
                 aria-label="Checking invite code"
                 className="text-muted-foreground"
               >
                 <Spinner className="size-4" />
-              </motion.span>
+              </motion.output>
             ) : (
               <motion.p
                 key="login-prompt"
@@ -130,9 +129,9 @@ function RegisterPage() {
       </div>
     </MotionConfig>
   );
-}
+};
 
 export const Route = createFileRoute("/auth/register")({
-  head: () => ({ meta: [{ title: "Register" }] }),
   component: RegisterPage,
+  head: () => ({ meta: [{ title: "Register" }] }),
 });

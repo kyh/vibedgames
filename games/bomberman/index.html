@@ -7,29 +7,47 @@
       content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
     <title>Bomberman</title>
+    <link rel="icon" href="data:," />
     <meta
       name="description"
       content="Drop bombs, snag power-ups, trap your rivals. Last one standing wins."
     />
     <style>
       :root {
-        --ink: #eef2ff;
+        --ink: #f5f0da;
+        --brass: #cbb57c;
+        --stone: #172723;
       }
       * {
         box-sizing: border-box;
       }
+      [hidden] {
+        display: none !important;
+      }
       html,
       body {
         margin: 0;
-        padding: 0;
         height: 100%;
         overflow: hidden;
-        background: #0e1020;
+        background: #101b19;
         color: var(--ink);
         font-family:
           system-ui,
           -apple-system,
           sans-serif;
+      }
+      button {
+        font: inherit;
+        cursor: pointer;
+        touch-action: manipulation;
+      }
+      button:focus-visible {
+        outline: 3px solid #fff4bd;
+        outline-offset: 4px;
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
       }
       #game {
         position: fixed;
@@ -39,12 +57,14 @@
       #game canvas {
         display: block;
       }
-
+      /* Nothing but the start card until play begins. */
+      body:not(.vg-started) #hud {
+        visibility: hidden;
+      }
       #hud {
         position: fixed;
         inset: 0;
         pointer-events: none;
-        /* Keep edge-anchored pills clear of the notch / home indicator. */
         padding: calc(14px + env(safe-area-inset-top, 0px))
           calc(14px + env(safe-area-inset-right, 0px)) calc(14px + env(safe-area-inset-bottom, 0px))
           calc(14px + env(safe-area-inset-left, 0px));
@@ -55,101 +75,335 @@
         display: flex;
         justify-content: space-between;
         align-items: flex-start;
-        gap: 12px;
+        gap: 10px;
+        min-width: 0;
       }
       .pill {
-        background: rgba(10, 12, 28, 0.62);
-        border: 1px solid rgba(120, 140, 220, 0.22);
+        background: rgba(20, 34, 30, 0.91);
+        border: 1px solid rgba(203, 181, 124, 0.48);
         padding: 7px 12px;
-        border-radius: 10px;
+        border-radius: 9px;
         font:
-          13px/1.3 ui-monospace,
+          12px/1.4 ui-monospace,
           "SF Mono",
           Menlo,
           monospace;
-        backdrop-filter: blur(6px);
-        -webkit-backdrop-filter: blur(6px);
-        box-shadow: 0 4px 18px rgba(0, 0, 0, 0.3);
+        box-shadow: 0 4px 12px #0004;
+      }
+      #status {
+        flex-shrink: 0;
       }
       #players {
-        text-align: right;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 8px;
+        max-width: min(65%, 660px);
+        overflow-wrap: anywhere;
       }
-      @media (pointer: coarse) {
-        /* Yield the top-right corner to the shared touch pause button. */
-        #players {
-          margin-right: 54px;
-        }
+      .roster-count {
+        color: #f4d994;
+        white-space: nowrap;
+        font-size: 11px;
+      }
+      .roster-fighters {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px 9px;
+      }
+      .roster-fighter {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        white-space: nowrap;
+      }
+      .roster-fighter.local {
+        font-weight: 800;
+      }
+      .roster-fighter.out {
+        color: #b7b5a8;
+        text-decoration: line-through;
+      }
+      .roster-fighter.out .roster-dot {
+        opacity: 0.4;
+      }
+      .roster-dot {
+        width: 6px;
+        height: 6px;
+        flex: 0 0 6px;
+        border-radius: 50%;
+        box-shadow: 0 0 0 1px #071713;
       }
       #stats {
         align-self: center;
         margin-top: auto;
         margin-bottom: 6px;
+        display: flex;
+        gap: 12px;
+        padding: 5px 12px;
         font-size: 18px;
-        letter-spacing: 2px;
-        padding: 8px 16px;
+        font-variant-numeric: tabular-nums;
       }
-      #stats:empty {
-        display: none;
+      .stat {
+        display: flex;
+        gap: 3px;
+        align-items: center;
+        transition: color 120ms;
       }
-
-      #banner {
-        position: fixed;
-        top: 38%;
-        left: 0;
-        right: 0;
-        text-align: center;
+      .stat img {
+        width: 30px;
+        height: 30px;
+        object-fit: contain;
+      }
+      .stat b {
+        min-width: 1ch;
+      }
+      .bomb-stock {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 3ch;
+        line-height: 1.1;
+      }
+      #bomb-availability.empty b {
+        color: #c6c6b5;
+      }
+      #bomb-refill {
+        width: 100%;
+        height: 3px;
+        overflow: hidden;
+        background: #071510;
+        border-radius: 1px;
+      }
+      #bomb-refill-fill {
+        display: block;
+        height: 100%;
+        width: 0;
+        background: #e7c474;
+      }
+      #placement-tip {
+        align-self: center;
+        max-width: min(100%, 330px);
+        margin: 8px 0 0;
+        padding: 7px 10px;
+        border: 1px solid #8c8257;
+        border-radius: 6px;
+        background: #14221eeb;
+        color: #efe2b7;
         font:
-          800 clamp(34px, 7vw, 76px)/1 system-ui,
-          sans-serif;
-        color: #fff;
-        text-shadow:
-          0 4px 0 rgba(0, 0, 0, 0.35),
-          0 0 28px rgba(120, 150, 255, 0.6);
+          12px/1.4 ui-monospace,
+          monospace;
+        text-align: center;
+      }
+      #stats[data-pickup="bomb"] .stat-bomb,
+      #stats[data-pickup="fire"] .stat-fire,
+      #stats[data-pickup="speed"] .stat-speed {
+        color: #ffe18b;
+        text-shadow: 0 0 12px #f8ca54;
+      }
+      #pickup-note {
+        position: fixed;
+        bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+        left: 50%;
+        transform: translateX(-50%);
+        color: #ffe4a0;
+        font:
+          700 12px/1.2 ui-monospace,
+          monospace;
+        letter-spacing: 1px;
+        white-space: nowrap;
+        padding: 7px 10px;
+        border: 1px solid #ae965a;
+        border-radius: 6px;
+        background: rgba(20, 34, 30, 0.95);
         opacity: 0;
-        transition: opacity 0.25s ease;
+        transition: opacity 120ms;
         pointer-events: none;
       }
-
-      /* Initial screen. The only place controls are taught — once play starts
-         the field carries no instruction text. Removed from the DOM on start. */
+      #pickup-note.on {
+        opacity: 1;
+      }
+      .courtyard-card {
+        color: var(--ink);
+        background: linear-gradient(145deg, #30433a, #162721 75%);
+        border: 2px solid #b7a36c;
+        border-radius: 14px;
+        box-shadow:
+          inset 0 0 0 4px #182b24,
+          inset 0 0 0 5px #87957850,
+          0 16px 56px #0009;
+      }
+      .primary {
+        min-height: 48px;
+        padding: 10px 26px;
+        border: 1px solid #f8d897;
+        border-radius: 7px;
+        color: #2a2417;
+        background: linear-gradient(#eed6a0, #bd9659);
+        box-shadow:
+          inset 0 1px #fff3cc,
+          0 3px 0 #73572f;
+        font-weight: 800;
+        letter-spacing: 0.03em;
+      }
+      .primary:hover:not(:disabled) {
+        filter: brightness(1.09);
+      }
+      .primary:active:not(:disabled) {
+        box-shadow: inset 0 2px 3px #72582f55;
+      }
+      #banner {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        padding: calc(76px + env(safe-area-inset-top, 0px))
+          calc(20px + env(safe-area-inset-right, 0px)) calc(24px + env(safe-area-inset-bottom, 0px))
+          calc(20px + env(safe-area-inset-left, 0px));
+        pointer-events: none;
+        z-index: 4;
+      }
+      #round-card {
+        width: min(100%, 390px);
+        max-height: 100%;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        touch-action: pan-y;
+        padding: 24px;
+        text-align: center;
+        pointer-events: auto;
+      }
+      #round-eyebrow {
+        margin: 0 0 8px;
+        color: #c6bc93;
+        font:
+          700 10px/1.4 ui-monospace,
+          monospace;
+        letter-spacing: 0.17em;
+      }
+      #round-title {
+        margin: 0;
+        font-size: clamp(27px, 5vw, 36px);
+        line-height: 1.12;
+      }
+      #banner[data-outcome="won"] #round-title {
+        color: #ffe2a0;
+      }
+      #banner[data-outcome="eliminated"] #round-title {
+        color: #f0c6a5;
+      }
+      #round-detail {
+        margin: 12px 0 20px;
+        font-size: 14px;
+        line-height: 1.5;
+        color: #e1e5d6;
+      }
+      #round-restart {
+        width: 100%;
+      }
+      #round-note {
+        margin: 14px 0 0;
+        color: #bac7b7;
+        font-size: 12px;
+        line-height: 1.4;
+      }
       #start {
         position: fixed;
         inset: 0;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 18px;
-        text-align: center;
-        /* Same inset treatment as #hud — "tap to start" otherwise lands under
-           the home indicator in landscape. */
-        padding: calc(24px + env(safe-area-inset-top, 0px))
-          calc(24px + env(safe-area-inset-right, 0px)) calc(24px + env(safe-area-inset-bottom, 0px))
-          calc(24px + env(safe-area-inset-left, 0px));
-        overflow: hidden;
-        /* Lighter than before: a soft center vignette keeps the copy readable
-           while the real arena (generated maze + grass) reads through the edges,
-           so the field behind feels alive rather than blacked out. */
-        background: radial-gradient(
-          ellipse at center,
-          rgba(8, 10, 24, 0.5) 0%,
-          rgba(8, 10, 24, 0.74) 100%
-        );
-        backdrop-filter: blur(2.5px) saturate(1.08);
-        -webkit-backdrop-filter: blur(2.5px) saturate(1.08);
+        display: grid;
+        place-items: center;
+        padding: calc(20px + env(safe-area-inset-top, 0px))
+          calc(20px + env(safe-area-inset-right, 0px)) calc(20px + env(safe-area-inset-bottom, 0px))
+          calc(20px + env(safe-area-inset-left, 0px));
+        background: radial-gradient(ellipse, #14241b55, #0b1815bd);
         z-index: 10;
-        transition: opacity 0.28s ease;
+        opacity: 0;
+        transition: opacity 280ms;
+      }
+      #start.ready {
+        opacity: 1;
       }
       #start.hide {
         opacity: 0;
         pointer-events: none;
       }
-
-      /* Rising embers — a few cheap CSS particles drifting up behind the copy. */
+      #start-card {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        max-height: 100%;
+        width: min(100%, 550px);
+        padding: 20px 24px;
+        text-align: center;
+      }
+      #start h1 {
+        flex-shrink: 0;
+        margin: 0 0 6px;
+      }
+      #start h1 img {
+        display: block;
+        width: min(100%, 420px);
+        height: auto;
+        margin: auto;
+        filter: drop-shadow(0 4px 7px #07130a88);
+      }
+      #start-reading {
+        min-height: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        touch-action: pan-y;
+        padding: 0 6px 12px;
+        scrollbar-color: #aa9660 #15291f;
+      }
+      #start-objective {
+        margin: 8px 0 12px;
+        font-size: 15px;
+        line-height: 1.45;
+        color: #e7eadc;
+      }
+      #start-pickups {
+        display: flex;
+        justify-content: center;
+        gap: 20px;
+        margin: 12px 0 6px;
+      }
+      #start-pickups span {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+        color: #d8dec8;
+        font-size: 12px;
+      }
+      #start-pickups img {
+        width: 36px;
+        height: 36px;
+      }
+      #start-actions {
+        flex-shrink: 0;
+        padding-top: 14px;
+        border-top: 1px solid #cbb57c44;
+      }
+      #start-buttons {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+      }
+      #start-play {
+        min-width: 180px;
+      }
+      #start-go {
+        margin: 13px 0 0;
+        font:
+          11px/1.35 ui-monospace,
+          monospace;
+        color: #c6cdb8;
+      }
       #start-embers {
         position: absolute;
         inset: 0;
-        z-index: 0;
         pointer-events: none;
         overflow: hidden;
       }
@@ -159,7 +413,7 @@
         width: 7px;
         height: 7px;
         border-radius: 50%;
-        background: radial-gradient(circle, #ffd66b 0%, #ff7a2a 55%, rgba(255, 90, 30, 0) 75%);
+        background: radial-gradient(circle, #ffd66b, #ff7a2a 55%, transparent 75%);
         animation: ember-rise linear infinite;
       }
       @keyframes ember-rise {
@@ -168,79 +422,175 @@
           transform: translateY(0) scale(0.5);
         }
         12% {
-          opacity: 0.9;
+          opacity: 0.8;
         }
         100% {
           opacity: 0;
-          transform: translateY(-46vh) scale(1);
+          transform: translateY(-46vh);
         }
       }
-
-      #start h1 {
-        position: relative;
-        z-index: 1;
-        margin: 0;
-      }
-      #start h1 img {
-        display: block;
-        width: clamp(320px, 60vw, 700px);
-        max-width: 88vw;
-        filter: drop-shadow(0 0 30px rgba(255, 130, 50, 0.35));
-        animation: title-pop 0.6s cubic-bezier(0.2, 1.5, 0.35, 1) backwards;
-      }
-      @keyframes title-pop {
-        from {
-          opacity: 0;
-          transform: translateY(26px) scale(0.6);
+      @media (max-width: 600px) {
+        #hud {
+          padding: calc(10px + env(safe-area-inset-top, 0px))
+            calc(10px + env(safe-area-inset-right, 0px))
+            calc(10px + env(safe-area-inset-bottom, 0px))
+            calc(10px + env(safe-area-inset-left, 0px));
+        }
+        .row {
+          flex-direction: column;
+          gap: 5px;
+        }
+        #players {
+          justify-content: flex-start;
+          max-width: 100%;
+          font-size: 11px;
+        }
+        #placement-tip {
+          align-self: flex-start;
+          max-width: calc(100% - 100px);
+          font-size: 11px;
+          text-align: left;
+        }
+        #stats {
+          align-self: flex-start;
+          gap: 8px;
+          padding: 4px 8px;
+          font-size: 16px;
+        }
+        .stat img {
+          width: 26px;
+          height: 26px;
+        }
+        #pickup-note {
+          left: calc(12px + env(safe-area-inset-left, 0px));
+          transform: none;
+          font-size: 11px;
+          bottom: calc(66px + env(safe-area-inset-bottom, 0px));
+        }
+        #start {
+          padding: calc(14px + env(safe-area-inset-top, 0px))
+            calc(14px + env(safe-area-inset-right, 0px))
+            calc(14px + env(safe-area-inset-bottom, 0px))
+            calc(14px + env(safe-area-inset-left, 0px));
+        }
+        #start-card {
+          padding: 18px 15px;
+        }
+        #start-pickups {
+          gap: 9px;
+        }
+        #start-pickups img {
+          width: 30px;
+          height: 30px;
+        }
+        #start-play {
+          min-width: 150px;
         }
       }
-
-      /* Hosts the grouped keycap rows built by src/pause-overlay.ts
-         (buildControls) — same card the pause overlay renders. */
-      #start-controls {
-        position: relative;
-        z-index: 1;
-        color: #cbd3f0;
-        font:
-          14px ui-monospace,
-          "SF Mono",
-          Menlo,
-          monospace;
-      }
-      #start-go {
-        position: relative;
-        z-index: 1;
-        color: #ffbf6b;
-        font:
-          600 14px/1 ui-monospace,
-          monospace;
-        letter-spacing: 1px;
-        animation: start-pulse 1.6s ease-in-out infinite;
-      }
-      @keyframes start-pulse {
-        50% {
-          opacity: 0.35;
+      @media (pointer: coarse) {
+        .row {
+          padding-right: 100px;
+        }
+        #players {
+          max-width: 100%;
+        }
+        #stats {
+          align-self: flex-start;
+        }
+        #pickup-note {
+          left: calc(12px + env(safe-area-inset-left, 0px));
+          transform: none;
         }
       }
-      /* Landscape phone: the title alone is half the viewport, so the column
-         overflows and the prompt is pushed off the bottom. Shrink it instead. */
       @media (max-height: 480px) {
         #start {
-          gap: 10px;
+          padding-top: calc(10px + env(safe-area-inset-top, 0px));
+          padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+        }
+        #start-card {
+          padding: 12px 20px;
         }
         #start h1 img {
-          width: clamp(180px, 30vw, 380px);
+          width: 210px;
+        }
+        #start-actions {
+          padding-top: 9px;
+        }
+        #start-go {
+          margin-top: 8px;
+        }
+        #banner {
+          padding-top: 60px;
+          padding-bottom: 12px;
+        }
+        #round-card {
+          padding: 16px 22px;
+        }
+        #round-detail {
+          margin: 8px 0 12px;
+        }
+      }
+      @media (min-width: 601px) and (max-height: 480px) {
+        #start-card {
+          display: grid;
+          grid-template-columns: minmax(0, 1.15fr) minmax(240px, 1fr);
+          grid-template-rows: auto minmax(0, 1fr);
+          grid-template-areas: "logo actions" "reading actions";
+          column-gap: 18px;
+          width: min(100%, 760px);
+        }
+        #start h1 {
+          grid-area: logo;
+        }
+        #start-reading {
+          grid-area: reading;
+          padding: 0 0 2px;
+        }
+        #start-objective {
+          margin: 4px 0 8px;
+          font-size: 14px;
+          line-height: 1.35;
+        }
+        #start-pickups {
+          gap: 10px;
+          margin: 4px 0 8px;
+        }
+        #start-pickups img {
+          width: 28px;
+          height: 28px;
+        }
+        #start-controls .bm-pause-method {
+          margin-top: 8px;
+        }
+        #start-controls .bm-pause-rows {
+          margin-top: 6px;
+          gap: 4px 10px;
+        }
+        #start-controls .bm-pause-key {
+          padding: 2px 6px;
+        }
+        #start-actions {
+          grid-area: actions;
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          border-top: 0;
+          border-left: 1px solid #cbb57c44;
+          padding: 12px 0 12px 18px;
+        }
+        #start-play {
+          min-width: 0;
+          flex: 1;
         }
       }
       @media (prefers-reduced-motion: reduce) {
         #start-embers {
           display: none;
         }
-        #start-go,
-        #start h1 img {
-          animation: none;
-          opacity: 1;
-          transform: none;
+        #start,
+        #pickup-note,
+        .stat {
+          transition: none;
         }
       }
     </style>
@@ -252,9 +602,38 @@
         <div class="pill" id="status">Connecting…</div>
         <div class="pill" id="players"></div>
       </div>
-      <div class="pill" id="stats"></div>
+      <p id="placement-tip" hidden>Turn a corner. Walls block the blast.</p>
+      <div class="pill" id="stats" hidden>
+        <span
+          class="stat stat-bomb"
+          id="bomb-availability"
+          role="group"
+          aria-label="1 of 1 bombs available."
+          ><img src="/assets/pow-bomb-v2.webp" alt="" /><span class="bomb-stock"
+            ><b id="stat-bomb">1/1</b
+            ><span id="bomb-refill" aria-hidden="true" hidden
+              ><i id="bomb-refill-fill"></i></span></span
+        ></span>
+        <span class="stat stat-fire" title="Blast reach"
+          ><img src="/assets/pow-fire-v2.webp" alt="Blast reach" /><b id="stat-fire">2</b></span
+        >
+        <span class="stat stat-speed" title="Speed upgrades"
+          ><img src="/assets/pow-speed-v2.webp" alt="Speed upgrades" /><b id="stat-speed"
+            >0</b
+          ></span
+        >
+      </div>
     </div>
-    <div id="banner"></div>
+    <section id="banner" hidden aria-hidden="true" aria-labelledby="round-title">
+      <div id="round-card" class="courtyard-card">
+        <p id="round-eyebrow"></p>
+        <h2 id="round-title" role="status"></h2>
+        <p id="round-detail"></p>
+        <button id="round-restart" class="primary" disabled>Restart round</button>
+        <p id="round-note"></p>
+      </div>
+    </section>
+    <div id="pickup-note" role="status"></div>
     <div id="start">
       <div id="start-embers" aria-hidden="true">
         <span style="left: 12%; animation-duration: 3.4s; animation-delay: 0s"></span>
@@ -266,11 +645,26 @@
         <span style="left: 88%; animation-duration: 3.2s; animation-delay: 0.3s"></span>
         <span style="left: 95%; animation-duration: 4.8s; animation-delay: 2.4s"></span>
       </div>
-      <h1>
-        <img src="/title.webp" alt="Bomberman" />
-      </h1>
-      <div id="start-controls"></div>
-      <div id="start-go"></div>
+      <section id="start-card" class="courtyard-card" aria-label="Bomberman controls">
+        <h1><img src="/title.webp" width="1052" height="408" alt="Bomberman" /></h1>
+        <div id="start-reading" tabindex="0" aria-label="How to play">
+          <p id="start-objective">
+            Break crates. Collect upgrades.<br />Be the last fighter standing.
+          </p>
+          <div id="start-pickups" aria-label="Upgrades">
+            <span><img src="/assets/pow-bomb-v2.webp" alt="" />Capacity</span>
+            <span><img src="/assets/pow-fire-v2.webp" alt="" />Reach</span>
+            <span><img src="/assets/pow-speed-v2.webp" alt="" />Speed</span>
+          </div>
+          <div id="start-controls"></div>
+        </div>
+        <div id="start-actions">
+          <div id="start-buttons">
+            <button id="start-play" class="primary">Play</button>
+          </div>
+          <p id="start-go"></p>
+        </div>
+      </section>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

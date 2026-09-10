@@ -8,14 +8,18 @@
 import { controlHints } from "./controls";
 import type { ControlsManifest } from "./controls";
 import { createPauseShell } from "./pause-shell";
+import type { MuteAccessor } from "./pause-shell";
 
 /** One control hint row: input ("SPACE", "🤳 face cam") + what it does. */
 export type ControlHint = readonly [input: string, action: string];
 
 /** One section of the overlay's "how to play" modal. */
-export type HelpSection = { readonly title: string; readonly body: string };
+export interface HelpSection {
+  readonly title: string;
+  readonly body: string;
+}
 
-export type PauseOverlayOptions = {
+export interface PauseOverlayOptions {
   /**
    * The game's controls manifest — the same single source the start screen
    * renders from, so a returning player never has to leave the pause screen
@@ -29,14 +33,16 @@ export type PauseOverlayOptions = {
    * content that must not clutter gameplay.
    */
   help?: readonly HelpSection[];
-};
+  /** Sound toggle rendered by the pause shell; omit for a game with no audio. */
+  mute?: MuteAccessor;
+}
 
-export type PauseOverlay = {
+export interface PauseOverlay {
   /** Mount the overlay. Idempotent while shown. */
   show: () => void;
   /** Unmount (fade out). Idempotent while hidden. */
   hide: () => void;
-};
+}
 
 const BUTTON_CSS =
   "padding:8px 18px;border-radius:999px;cursor:pointer;" +
@@ -49,16 +55,18 @@ const BUTTON_CSS =
  * pointer events (backdrop or "back" returns to the pause screen), and except
  * Escape, which the core keydown listener already toggles.
  */
-export function createPauseOverlay(options: PauseOverlayOptions = {}): PauseOverlay {
+export const createPauseOverlay = (options: PauseOverlayOptions = {}): PauseOverlay => {
   let helpModal: HTMLElement | null = null;
 
-  function closeHelp(): void {
+  const closeHelp = (): void => {
     helpModal?.remove();
     helpModal = null;
-  }
+  };
 
-  function openHelp(host: HTMLElement, sections: readonly HelpSection[]): void {
-    if (helpModal) return;
+  const openHelp = (host: HTMLElement, sections: readonly HelpSection[]): void => {
+    if (helpModal) {
+      return;
+    }
 
     helpModal = document.createElement("div");
     helpModal.setAttribute("role", "dialog");
@@ -70,7 +78,9 @@ export function createPauseOverlay(options: PauseOverlayOptions = {}): PauseOver
     // panel does nothing — neither may fall through to the overlay's resume.
     helpModal.addEventListener("pointerup", (event) => {
       event.stopPropagation();
-      if (event.target === helpModal) closeHelp();
+      if (event.target === helpModal) {
+        closeHelp();
+      }
     });
 
     const panel = document.createElement("div");
@@ -98,7 +108,7 @@ export function createPauseOverlay(options: PauseOverlayOptions = {}): PauseOver
     const back = document.createElement("button");
     back.type = "button";
     back.textContent = "back";
-    back.style.cssText = "margin-top:18px;" + BUTTON_CSS;
+    back.style.cssText = `margin-top:18px;${BUTTON_CSS}`;
     back.addEventListener("pointerup", (event) => {
       event.stopPropagation();
       closeHelp();
@@ -107,10 +117,11 @@ export function createPauseOverlay(options: PauseOverlayOptions = {}): PauseOver
 
     helpModal.append(panel);
     host.append(helpModal);
-  }
+  };
 
   return createPauseShell({
     modalOpen: () => helpModal !== null,
+    mute: options.mute,
     onHide: closeHelp,
     render(root) {
       const coarse = window.matchMedia("(pointer: coarse)").matches;
@@ -149,12 +160,12 @@ export function createPauseOverlay(options: PauseOverlayOptions = {}): PauseOver
         root.append(list);
       }
 
-      const help = options.help;
+      const { help } = options;
       if (help && help.length > 0) {
         const helpBtn = document.createElement("button");
         helpBtn.type = "button";
         helpBtn.textContent = "how to play";
-        helpBtn.style.cssText = "margin-top:16px;" + BUTTON_CSS;
+        helpBtn.style.cssText = `margin-top:16px;${BUTTON_CSS}`;
         // The shell's interactive-child check already keeps this from
         // resuming; stopPropagation is belt-and-braces.
         helpBtn.addEventListener("pointerup", (event) => {
@@ -165,4 +176,4 @@ export function createPauseOverlay(options: PauseOverlayOptions = {}): PauseOver
       }
     },
   });
-}
+};

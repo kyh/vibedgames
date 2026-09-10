@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 import { closeSync, existsSync, openSync, readSync, statSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import path from "node:path";
 
 import { defineCommand, runMain } from "citty";
-import consola from "consola";
+import { consola } from "consola";
 
 import type { RoleName } from "./agents.ts";
 
@@ -20,7 +20,7 @@ import {
 } from "./config.ts";
 import { isRunner, RUNNERS } from "./runner.ts";
 import { runAgent } from "./orchestrator.ts";
-import { ConsoleReporter } from "./reporter.ts";
+import { createConsoleReporter } from "./reporter.ts";
 import {
   approvalPending,
   blackboard,
@@ -34,16 +34,16 @@ import { runTui } from "./tui/main.tsx";
 const MAX_CONTEXT_BYTES = 20_000;
 
 /** Read at most maxBytes from a file without loading the whole thing. */
-function readBounded(path: string, maxBytes: number): string {
-  const fd = openSync(path, "r");
+const readBounded = (file: string, maxBytes: number): string => {
+  const fd = openSync(file, "r");
   try {
     const buf = Buffer.alloc(maxBytes);
     const n = readSync(fd, buf, 0, maxBytes, 0);
-    return buf.subarray(0, n).toString("utf8");
+    return buf.subarray(0, n).toString("utf-8");
   } finally {
     closeSync(fd);
   }
-}
+};
 
 /**
  * Resolve the optional --context value into a brief (and maybe a reference dir
@@ -52,44 +52,50 @@ function readBounded(path: string, maxBytes: number): string {
  * isn't an existing path is treated as literal brief text. A path that exists
  * but can't be read is a hard error (don't silently treat it as text).
  */
-type ResolvedContext = { context?: string; contextDir?: string };
+interface ResolvedContext {
+  context?: string;
+  contextDir?: string;
+}
 
-function resolveContext(raw: string | undefined): ResolvedContext {
+const resolveContext = (raw: string | undefined): ResolvedContext => {
   const value = (raw ?? "").trim();
-  if (!value) return {};
-  const p = resolve(process.cwd(), value);
+  if (!value) {
+    return {};
+  }
+  const p = path.resolve(process.cwd(), value);
 
   let stat;
   try {
     stat = statSync(p);
-  } catch (err) {
-    if (err instanceof Error && "code" in err && err.code === "ENOENT") {
-      return { context: value }; // not a path — a literal brief
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      // not a path — a literal brief
+      return { context: value };
     }
     consola.error(
-      `Could not access --context path ${p}: ${err instanceof Error ? err.message : String(err)}`,
+      `Could not access --context path ${p}: ${error instanceof Error ? error.message : String(error)}`,
     );
     process.exit(1);
   }
 
   if (stat.isDirectory()) {
     return {
-      contextDir: p,
       context: `Reference material is provided in this directory (you have read access): ${p}\nExplore it and take direction from / build upon what's there.`,
+      contextDir: p,
     };
   }
   if (stat.isFile()) {
     try {
       return { context: readBounded(p, MAX_CONTEXT_BYTES) };
-    } catch (err) {
+    } catch (error) {
       consola.error(
-        `Could not read --context file ${p}: ${err instanceof Error ? err.message : String(err)}`,
+        `Could not read --context file ${p}: ${error instanceof Error ? error.message : String(error)}`,
       );
       process.exit(1);
     }
   }
   return { context: value };
-}
+};
 
 const ROLE_NAMES: readonly RoleName[] = [
   "director",
@@ -101,7 +107,7 @@ const ROLE_NAMES: readonly RoleName[] = [
 ];
 
 /** Parse + validate --codex-roles, exiting on an unknown role (CLI edge only). */
-function parseCodexRoles(raw: string): RoleName[] {
+const parseCodexRoles = (raw: string): RoleName[] => {
   const names = raw
     .split(",")
     .map((s) => s.trim().toLowerCase())
@@ -116,10 +122,10 @@ function parseCodexRoles(raw: string): RoleName[] {
     roles.push(match);
   }
   return roles;
-}
+};
 
 /** Validate a slug or exit with a helpful message (CLI edge only). */
-function requireSlug(raw: string): string {
+const requireSlug = (raw: string): string => {
   const slug = normalizeSlug(raw);
   if (!slug) {
     consola.error(
@@ -128,106 +134,122 @@ function requireSlug(raw: string): string {
     process.exit(1);
   }
   return slug;
-}
+};
 
+/**
+ * Parse a CLI integer strictly: only a plain non-negative integer (>= min) is
+ * accepted; anything malformed or out of range falls back, so a typo can't
+ * silently disable a timeout or set a nonsensical budget.
+ */
+const toInt = (v: string | undefined, fallback: number, min = 0): number => {
+  if (v === undefined) {
+    return fallback;
+  }
+  const t = v.trim();
+  if (!/^\d+$/u.test(t)) {
+    return fallback;
+  }
+  const n = Number(t);
+  return Number.isSafeInteger(n) && n >= min ? n : fallback;
+};
 const startCommand = defineCommand({
-  meta: {
-    name: "start",
-    description:
-      "Start (or resume) the autonomous agent for a game. In a terminal this opens the interactive dashboard — run it with no slug to configure a new game on the setup screen. Deploys are gated on approval unless --auto-deploy is set.",
-  },
   args: {
+    "auto-deploy": {
+      default: false,
+      description:
+        "Deploy automatically without per-release approval. Default is OFF: nothing goes live until you approve (pnpm approve <slug> or the A key).",
+      type: "boolean",
+    },
+    "checkpoint-wait": {
+      description:
+        "Seconds an agent checkpoint waits for your feedback before auto-continuing (default 120; 0 = never wait).",
+      type: "string",
+    },
+    "codex-model": {
+      default: "",
+      description: `Model for codex-routed roles (default ${defaultModelFor("codex")}).`,
+      type: "string",
+    },
+    "codex-roles": {
+      default: "",
+      description:
+        'Comma-separated roles to run on the codex CLI even when the main runner is claude (e.g. "engineer"). Routes bulk build work to a cheaper runner; judgment roles stay on claude.',
+      type: "string",
+    },
+    context: {
+      description:
+        "Extra context for the build: literal text, a path to a file (read inline), or a path to a directory (the agents get read access and build upon it).",
+      type: "string",
+    },
+    dir: {
+      description:
+        "Where the game lives — its project directory (default apps/factory/.workspaces/<slug>). Points at an existing project? The agent builds upon it. Outside this repo, run `vg init` first so the skills path.resolve.",
+      type: "string",
+    },
+    guarded: {
+      default: false,
+      description:
+        "Do NOT pass --dangerously-skip-permissions. Agents will block waiting for approval — breaks unattended autonomy. For debugging only.",
+      type: "boolean",
+    },
+    idea: {
+      default: "",
+      description:
+        'Seed idea, e.g. --idea "a neon roguelike where you fight with sound". Optional when --dir points at an existing project or you pass --context.',
+      type: "string",
+    },
+    "idle-timeout": {
+      description: `Kill a specialist that emits no output for this many minutes (default ${DEFAULT_IDLE_MINUTES}; 0 disables).`,
+      type: "string",
+    },
+    interval: {
+      description: "Milliseconds to pause between specialist runs (default 0).",
+      type: "string",
+    },
+    "max-cycles": {
+      description: "Stop after N specialist runs (default 0 = run forever).",
+      type: "string",
+    },
+    "max-turns": {
+      description: `Per-specialist agentic turn ceiling (default ${DEFAULT_MAX_TURNS}).`,
+      type: "string",
+    },
+    model: {
+      default: "",
+      description: `Model for the runner (default ${defaultModelFor("claude")} for claude, ${defaultModelFor("codex")} for codex; pass a cheaper tier for a budget run).`,
+      type: "string",
+    },
+    "no-tui": {
+      default: false,
+      description:
+        "Disable the interactive dashboard and stream plain logs instead (automatic when stdout isn't a TTY).",
+      type: "boolean",
+    },
+    runner: {
+      default: DEFAULT_RUNNER,
+      description: `Which coding-agent CLI runs the subagents: ${RUNNERS.join(" | ")} (default ${DEFAULT_RUNNER}).`,
+      type: "string",
+    },
+    "session-timeout": {
+      description: `Absolute cap on a single specialist session in minutes (default ${DEFAULT_SESSION_MINUTES}; 0 disables).`,
+      type: "string",
+    },
+    "skip-ship": {
+      default: false,
+      description: "Skip the deploy phase entirely — never even prepare a release.",
+      type: "boolean",
+    },
     slug: {
-      type: "positional",
       description:
         "Lowercase, hyphenated game slug — the deploy subdomain. Optional: derived from --dir's folder name or the --idea when omitted; with neither, the dashboard opens on the setup screen.",
       required: false,
+      type: "positional",
     },
-    idea: {
-      type: "string",
-      description:
-        'Seed idea, e.g. --idea "a neon roguelike where you fight with sound". Optional when --dir points at an existing project or you pass --context.',
-      default: "",
-    },
-    context: {
-      type: "string",
-      description:
-        "Extra context for the build: literal text, a path to a file (read inline), or a path to a directory (the agents get read access and build upon it).",
-    },
-    runner: {
-      type: "string",
-      description: `Which coding-agent CLI runs the subagents: ${RUNNERS.join(" | ")} (default ${DEFAULT_RUNNER}).`,
-      default: DEFAULT_RUNNER,
-    },
-    model: {
-      type: "string",
-      description: `Model for the runner (default ${defaultModelFor("claude")} for claude, ${defaultModelFor("codex")} for codex; pass a cheaper tier for a budget run).`,
-      default: "",
-    },
-    "codex-roles": {
-      type: "string",
-      description:
-        'Comma-separated roles to run on the codex CLI even when the main runner is claude (e.g. "engineer"). Routes bulk build work to a cheaper runner; judgment roles stay on claude.',
-      default: "",
-    },
-    "codex-model": {
-      type: "string",
-      description: `Model for codex-routed roles (default ${defaultModelFor("codex")}).`,
-      default: "",
-    },
-    dir: {
-      type: "string",
-      description:
-        "Where the game lives — its project directory (default apps/factory/.workspaces/<slug>). Points at an existing project? The agent builds upon it. Outside this repo, run `vg init` first so the skills resolve.",
-    },
-    "max-turns": {
-      type: "string",
-      description: `Per-specialist agentic turn ceiling (default ${DEFAULT_MAX_TURNS}).`,
-    },
-    "idle-timeout": {
-      type: "string",
-      description: `Kill a specialist that emits no output for this many minutes (default ${DEFAULT_IDLE_MINUTES}; 0 disables).`,
-    },
-    "session-timeout": {
-      type: "string",
-      description: `Absolute cap on a single specialist session in minutes (default ${DEFAULT_SESSION_MINUTES}; 0 disables).`,
-    },
-    "max-cycles": {
-      type: "string",
-      description: "Stop after N specialist runs (default 0 = run forever).",
-    },
-    "checkpoint-wait": {
-      type: "string",
-      description:
-        "Seconds an agent checkpoint waits for your feedback before auto-continuing (default 120; 0 = never wait).",
-    },
-    interval: {
-      type: "string",
-      description: "Milliseconds to pause between specialist runs (default 0).",
-    },
-    "skip-ship": {
-      type: "boolean",
-      description: "Skip the deploy phase entirely — never even prepare a release.",
-      default: false,
-    },
-    "auto-deploy": {
-      type: "boolean",
-      description:
-        "Deploy automatically without per-release approval. Default is OFF: nothing goes live until you approve (pnpm approve <slug> or the A key).",
-      default: false,
-    },
-    guarded: {
-      type: "boolean",
-      description:
-        "Do NOT pass --dangerously-skip-permissions. Agents will block waiting for approval — breaks unattended autonomy. For debugging only.",
-      default: false,
-    },
-    "no-tui": {
-      type: "boolean",
-      description:
-        "Disable the interactive dashboard and stream plain logs instead (automatic when stdout isn't a TTY).",
-      default: false,
-    },
+  },
+  meta: {
+    description:
+      "Start (or resume) the autonomous agent for a game. In a terminal this opens the interactive dashboard — run it with no slug to configure a new game on the setup screen. Deploys are gated on approval unless --auto-deploy is set.",
+    name: "start",
   },
   run: async ({ args }) => {
     const { context, contextDir } = resolveContext(args.context);
@@ -235,25 +257,25 @@ const startCommand = defineCommand({
       consola.error(`Unknown --runner "${args.runner}". Use ${RUNNERS.join(" or ")}.`);
       process.exit(1);
     }
-    const runner = args.runner;
+    const { runner } = args;
     const codexRoles = parseCodexRoles(args["codex-roles"]);
     const knobs = {
-      idea: args.idea.trim(),
-      runner,
-      model: args.model.trim() || defaultModelFor(runner),
-      codexRoles,
-      codexModel: args["codex-model"].trim() || defaultModelFor("codex"),
-      maxTurns: toInt(args["max-turns"], DEFAULT_MAX_TURNS, 1),
-      idleTimeoutMs: toInt(args["idle-timeout"], DEFAULT_IDLE_MINUTES) * 60_000,
-      maxSessionMs: toInt(args["session-timeout"], DEFAULT_SESSION_MINUTES) * 60_000,
-      maxCycles: toInt(args["max-cycles"], 0),
-      checkpointWaitMs: toInt(args["checkpoint-wait"], 120) * 1000,
-      interval: toInt(args.interval, 0),
-      noShip: Boolean(args["skip-ship"]),
       autoDeploy: Boolean(args["auto-deploy"]),
-      skipPermissions: !args.guarded,
+      checkpointWaitMs: toInt(args["checkpoint-wait"], 120) * 1000,
+      codexModel: args["codex-model"].trim() || defaultModelFor("codex"),
+      codexRoles,
       context,
       contextDir,
+      idea: args.idea.trim(),
+      idleTimeoutMs: toInt(args["idle-timeout"], DEFAULT_IDLE_MINUTES) * 60_000,
+      interval: toInt(args.interval, 0),
+      maxCycles: toInt(args["max-cycles"], 0),
+      maxSessionMs: toInt(args["session-timeout"], DEFAULT_SESSION_MINUTES) * 60_000,
+      maxTurns: toInt(args["max-turns"], DEFAULT_MAX_TURNS, 1),
+      model: args.model.trim() || defaultModelFor(runner),
+      noShip: Boolean(args["skip-ship"]),
+      runner,
+      skipPermissions: !args.guarded,
     };
 
     // The interactive dashboard needs a real terminal on both ends (keyboard +
@@ -265,21 +287,23 @@ const startCommand = defineCommand({
       // Validate an explicit slug here so a typo fails fast with the usual CLI
       // error; the setup screen re-validates whatever the user types in.
       const slug = args.slug ? requireSlug(args.slug) : undefined;
-      await runTui({ ...knobs, slug, dir: args.dir });
+      await runTui({ ...knobs, dir: args.dir, slug });
       return;
     }
 
     // The slug is only the deploy identity — derive it when omitted (folder
     // name, else the idea's first words), exactly like the setup screen does.
     const explicit = args.slug ? requireSlug(args.slug) : undefined;
-    let slug = deriveSlug({ slug: explicit, dir: args.dir, idea: knobs.idea || undefined });
+    let slug = deriveSlug({ dir: args.dir, idea: knobs.idea || undefined, slug: explicit });
     if (!slug) {
       consola.error(
         'Nothing identifies the game: pass a slug, --dir <folder>, or --idea "your one-line idea".',
       );
       process.exit(1);
     }
-    if (!explicit && !args.dir) slug = availableSlug(slug);
+    if (!explicit && !args.dir) {
+      slug = availableSlug(slug);
+    }
     const workspace = resolveWorkspace(slug, args.dir);
     const bb = blackboard(workspace);
     const fresh = !existsSync(bb.state);
@@ -299,19 +323,21 @@ const startCommand = defineCommand({
     // A stale STOP sentinel is cleared inside runAgent once the workspace lock
     // is held, so a restart can never wipe a still-running process's stop.
 
-    const started = await runAgent({ ...knobs, slug, workspace }, new ConsoleReporter());
-    if (!started) process.exit(1);
+    const started = await runAgent({ ...knobs, slug, workspace }, createConsoleReporter());
+    if (!started) {
+      process.exit(1);
+    }
   },
 });
 
 const stopCommand = defineCommand({
-  meta: {
-    name: "stop",
-    description: "Signal a running agent to stop after its current step (writes a STOP sentinel).",
-  },
   args: {
-    slug: { type: "positional", description: "Game slug.", required: true },
-    dir: { type: "string", description: "Game directory (if you set --dir on start)." },
+    dir: { description: "Game directory (if you set --dir on start).", type: "string" },
+    slug: { description: "Game slug.", required: true, type: "positional" },
+  },
+  meta: {
+    description: "Signal a running agent to stop after its current step (writes a STOP sentinel).",
+    name: "stop",
   },
   run: ({ args }) => {
     const slug = requireSlug(args.slug);
@@ -328,14 +354,14 @@ const stopCommand = defineCommand({
 });
 
 const statusCommand = defineCommand({
-  meta: {
-    name: "status",
-    description: "Show the current state of a game's agent.",
-  },
   args: {
-    slug: { type: "positional", description: "Game slug.", required: true },
-    dir: { type: "string", description: "Game directory (if you set --dir on start)." },
-    json: { type: "boolean", description: "Machine-readable output.", default: false },
+    dir: { description: "Game directory (if you set --dir on start).", type: "string" },
+    json: { default: false, description: "Machine-readable output.", type: "boolean" },
+    slug: { description: "Game slug.", required: true, type: "positional" },
+  },
+  meta: {
+    description: "Show the current state of a game's agent.",
+    name: "status",
   },
   run: ({ args }) => {
     const slug = requireSlug(args.slug);
@@ -368,14 +394,14 @@ const statusCommand = defineCommand({
 });
 
 const approveCommand = defineCommand({
+  args: {
+    dir: { description: "Game directory (if you set --dir on start).", type: "string" },
+    slug: { description: "Game slug.", required: true, type: "positional" },
+  },
   meta: {
-    name: "approve",
     description:
       "Approve the current build for ONE deployment. A running agent publishes it at its next ship step (or immediately if it's waiting); the next release needs fresh approval.",
-  },
-  args: {
-    slug: { type: "positional", description: "Game slug.", required: true },
-    dir: { type: "string", description: "Game directory (if you set --dir on start)." },
+    name: "approve",
   },
   run: ({ args }) => {
     const slug = requireSlug(args.slug);
@@ -393,29 +419,16 @@ const approveCommand = defineCommand({
 
 const main = defineCommand({
   meta: {
-    name: "factory",
     description:
       "vibedgames factory — one autonomous agent per game: it builds a browser game end-to-end and evolves it like a studio (a durable, checkpointed loop of clean-context subagents). Deploys require approval.",
+    name: "factory",
   },
   subCommands: {
-    start: startCommand,
-    stop: stopCommand,
-    status: statusCommand,
     approve: approveCommand,
+    start: startCommand,
+    status: statusCommand,
+    stop: stopCommand,
   },
 });
-
-/**
- * Parse a CLI integer strictly: only a plain non-negative integer (>= min) is
- * accepted; anything malformed or out of range falls back, so a typo can't
- * silently disable a timeout or set a nonsensical budget.
- */
-function toInt(v: string | undefined, fallback: number, min = 0): number {
-  if (v == null) return fallback;
-  const t = v.trim();
-  if (!/^\d+$/.test(t)) return fallback;
-  const n = Number(t);
-  return Number.isSafeInteger(n) && n >= min ? n : fallback;
-}
 
 runMain(main);

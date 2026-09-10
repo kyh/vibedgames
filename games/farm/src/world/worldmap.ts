@@ -4,15 +4,15 @@
 import { isJsonNumber, isJsonObject, isJsonString } from "../json";
 import type { JsonValue } from "../json";
 
-export type WorldMapTileLayer = {
+export interface WorldMapTileLayer {
   name: string;
   w: number;
   h: number;
   // -1 = empty; else atlas index | flipX<<20 | flipY<<21 | rotate<<22
   grid: number[];
-};
+}
 
-export type WorldMapSprite = {
+export interface WorldMapSprite {
   layer: string;
   sprite: string;
   x: number;
@@ -20,116 +20,136 @@ export type WorldMapSprite = {
   sx: number;
   sy: number;
   speed: number;
-};
+}
 
-export type DecoDef = {
+export interface DecoDef {
   frames: number;
   fw: number;
   fh: number;
   ox: number;
   oy: number;
   fps: number;
-};
+}
 
-export type WorldMap = {
+export interface DecoMap {
+  [sprite: string]: DecoDef;
+}
+
+export interface WorldMap {
   w: number;
   h: number;
   tileLayers: WorldMapTileLayer[];
   sprites: WorldMapSprite[];
-  deco: Record<string, DecoDef>;
+  deco: DecoMap;
   animations: number[][];
   animationFps: number;
-};
+}
 
-export const tileIndex = (v: number): number => v & 0xfffff;
+/* oxlint-disable no-bitwise -- the tile word packs the atlas index with flip/rotate flags; unpacking it IS bit math */
+export const tileIndex = (v: number): number => v & 0xf_ff_ff;
 export const tileFlipX = (v: number): boolean => ((v >> 20) & 1) === 1;
 export const tileFlipY = (v: number): boolean => ((v >> 21) & 1) === 1;
 // 90° clockwise, applied after flips.
 export const tileRotate = (v: number): boolean => ((v >> 22) & 1) === 1;
+/* oxlint-enable no-bitwise */
 
-function isNumberArray(v: JsonValue | undefined): v is number[] {
-  return Array.isArray(v) && v.every(isJsonNumber);
-}
+const isNumberArray = (v: JsonValue | undefined): v is number[] =>
+  Array.isArray(v) && v.every(isJsonNumber);
+
+const parseTileLayers = (raw: JsonValue | undefined, w: number, h: number): WorldMapTileLayer[] => {
+  if (!Array.isArray(raw)) {
+    throw new TypeError("map.json: bad tileLayers");
+  }
+  const out: WorldMapTileLayer[] = [];
+  for (const l of raw) {
+    if (!isJsonObject(l)) {
+      throw new Error("map.json: bad layer");
+    }
+    const { name, grid } = l;
+    if (!isJsonString(name) || !isNumberArray(grid)) {
+      throw new Error("map.json: bad layer");
+    }
+    out.push({ grid, h, name, w });
+  }
+  return out;
+};
+
+const parseSprites = (raw: JsonValue | undefined): WorldMapSprite[] => {
+  if (!Array.isArray(raw)) {
+    throw new TypeError("map.json: bad sprites");
+  }
+  const out: WorldMapSprite[] = [];
+  for (const s of raw) {
+    if (!isJsonObject(s)) {
+      continue;
+    }
+    const { sprite, x, layer, y, sx, sy, speed } = s;
+    if (!isJsonString(sprite) || !isJsonNumber(x)) {
+      continue;
+    }
+    out.push({
+      layer: isJsonString(layer) ? layer : "Assets_1",
+      speed: isJsonNumber(speed) ? speed : 1,
+      sprite,
+      sx: isJsonNumber(sx) ? sx : 1,
+      sy: isJsonNumber(sy) ? sy : 1,
+      x,
+      y: isJsonNumber(y) ? y : 0,
+    });
+  }
+  return out;
+};
+
+const parseDeco = (raw: JsonValue | undefined): DecoMap => {
+  const deco: DecoMap = {};
+  if (!isJsonObject(raw)) {
+    return deco;
+  }
+  for (const [k, d] of Object.entries(raw)) {
+    if (!isJsonObject(d)) {
+      continue;
+    }
+    const { frames, fw, fh, ox, oy, fps } = d;
+    deco[k] = {
+      fh: isJsonNumber(fh) ? fh : 16,
+      fps: isJsonNumber(fps) ? fps : 8,
+      frames: isJsonNumber(frames) ? frames : 1,
+      fw: isJsonNumber(fw) ? fw : 16,
+      ox: isJsonNumber(ox) ? ox : 0,
+      oy: isJsonNumber(oy) ? oy : 0,
+    };
+  }
+  return deco;
+};
 
 // Narrow the fetched JSON. The file is produced by our own tool, so checks are
 // structural rather than exhaustive.
-export function parseWorldMap(v: JsonValue): WorldMap {
-  if (!isJsonObject(v)) throw new Error("map.json: not an object");
+export const parseWorldMap = (v: JsonValue): WorldMap => {
+  if (!isJsonObject(v)) {
+    throw new Error("map.json: not an object");
+  }
   const o = v;
-  const w = o["w"];
-  const h = o["h"];
-  if (!isJsonNumber(w) || !isJsonNumber(h)) throw new Error("map.json: bad size");
-  const tileLayers: WorldMapTileLayer[] = [];
-  if (!Array.isArray(o["tileLayers"])) throw new Error("map.json: bad tileLayers");
-  for (const l of o["tileLayers"]) {
-    if (!isJsonObject(l)) throw new Error("map.json: bad layer");
-    const lo = l;
-    const name = lo["name"];
-    const grid = lo["grid"];
-    if (!isJsonString(name) || !isNumberArray(grid)) throw new Error("map.json: bad layer");
-    tileLayers.push({ name, w, h, grid });
+  const { w, h, animationFps } = o;
+  if (!isJsonNumber(w) || !isJsonNumber(h)) {
+    throw new Error("map.json: bad size");
   }
-  const sprites: WorldMapSprite[] = [];
-  if (!Array.isArray(o["sprites"])) throw new Error("map.json: bad sprites");
-  for (const s of o["sprites"]) {
-    if (!isJsonObject(s)) continue;
-    const so = s;
-    const sprite = so["sprite"];
-    const x = so["x"];
-    if (!isJsonString(sprite) || !isJsonNumber(x)) continue;
-    const layer = so["layer"];
-    const y = so["y"];
-    const sx = so["sx"];
-    const sy = so["sy"];
-    const speed = so["speed"];
-    sprites.push({
-      layer: isJsonString(layer) ? layer : "Assets_1",
-      sprite,
-      x,
-      y: isJsonNumber(y) ? y : 0,
-      sx: isJsonNumber(sx) ? sx : 1,
-      sy: isJsonNumber(sy) ? sy : 1,
-      speed: isJsonNumber(speed) ? speed : 1,
-    });
-  }
-  const deco: Record<string, DecoDef> = {};
-  const decoRaw = o["deco"];
-  if (isJsonObject(decoRaw)) {
-    for (const [k, d] of Object.entries(decoRaw)) {
-      if (!isJsonObject(d)) continue;
-      const dd = d;
-      const frames = dd["frames"];
-      const fw = dd["fw"];
-      const fh = dd["fh"];
-      const ox = dd["ox"];
-      const oy = dd["oy"];
-      const fps = dd["fps"];
-      deco[k] = {
-        frames: isJsonNumber(frames) ? frames : 1,
-        fw: isJsonNumber(fw) ? fw : 16,
-        fh: isJsonNumber(fh) ? fh : 16,
-        ox: isJsonNumber(ox) ? ox : 0,
-        oy: isJsonNumber(oy) ? oy : 0,
-        fps: isJsonNumber(fps) ? fps : 8,
-      };
-    }
-  }
+  const tileLayers = parseTileLayers(o["tileLayers"], w, h);
+  const sprites = parseSprites(o["sprites"]);
+  const deco = parseDeco(o["deco"]);
   const animations = Array.isArray(o["animations"]) ? o["animations"].filter(isNumberArray) : [];
-  const animationFps = o["animationFps"];
   return {
-    w,
-    h,
-    tileLayers,
-    sprites,
-    deco,
-    animations,
     animationFps: isJsonNumber(animationFps) ? animationFps : 5,
+    animations,
+    deco,
+    h,
+    sprites,
+    tileLayers,
+    w,
   };
-}
+};
 
-export function layerByName(map: WorldMap, name: string): WorldMapTileLayer | null {
-  return map.tileLayers.find((l) => l.name === name) ?? null;
-}
+export const layerByName = (map: WorldMap, name: string): WorldMapTileLayer | null =>
+  map.tileLayers.find((l) => l.name === name) ?? null;
 
 // ---------------------------------------------------------------- semantics
 
@@ -210,31 +230,47 @@ const DECO_SOLID = new Set([
 ]);
 
 export const CELL = {
-  void: 0, // open sea / sky — solid, fishable
-  grass: 1, // walk + till
-  sand: 2, // walk
-  dirt: 3, // walk (mining yard, paths)
-  water: 4, // river/sea visible — solid, fishable
-  solid: 5, // cliff/building/fence — static collision
+  // walk (mining yard, paths)
+  dirt: 3,
+  // walk + till
+  grass: 1,
+  // walk
+  sand: 2,
+  // cliff/building/fence — static collision
+  solid: 5,
+  // open sea / sky — solid, fishable
+  void: 0,
+  // river/sea visible — solid, fishable
+  water: 4,
 } as const;
 export type Cell = (typeof CELL)[keyof typeof CELL];
 
 // The farm field on the top-left plateau: the map's crop dressing is suppressed
 // here and the plot tiles till like grass.
-export const FIELD_RECT = { x0: 9, y0: 6, x1: 21, y1: 11 } as const;
+export const FIELD_RECT = { x0: 9, x1: 21, y0: 6, y1: 11 } as const;
 export const inField = (tx: number, ty: number): boolean =>
   tx >= FIELD_RECT.x0 && tx <= FIELD_RECT.x1 && ty >= FIELD_RECT.y0 && ty <= FIELD_RECT.y1;
 
-export type Semantics = { kind: Uint8Array };
+export interface Semantics {
+  kind: Uint8Array;
+}
 
 // Per-layer classification, shared by buildSemantics and the ?gallery page.
-export function classifyLandIndex(i: number): Cell {
-  if (LAND_GRASS.has(i)) return CELL.grass;
-  if (LAND_SAND.has(i)) return CELL.sand;
-  if (LAND_DIRT.has(i)) return CELL.dirt;
-  if (LAND_WATER.has(i)) return CELL.water;
+export const classifyLandIndex = (i: number): Cell => {
+  if (LAND_GRASS.has(i)) {
+    return CELL.grass;
+  }
+  if (LAND_SAND.has(i)) {
+    return CELL.sand;
+  }
+  if (LAND_DIRT.has(i)) {
+    return CELL.dirt;
+  }
+  if (LAND_WATER.has(i)) {
+    return CELL.water;
+  }
   return CELL.solid;
-}
+};
 export const isKnownLandIndex = (i: number): boolean =>
   LAND_GRASS.has(i) ||
   LAND_SAND.has(i) ||
@@ -242,68 +278,96 @@ export const isKnownLandIndex = (i: number): boolean =>
   LAND_WATER.has(i) ||
   LAND_SOLID.has(i);
 export type PathClass = "solid" | "walk" | "overlay";
-export function classifyPathIndex(i: number): PathClass {
-  if (PATH_SOLID.has(i)) return "solid";
-  if (PATH_OVERLAY.has(i)) return "overlay";
+export const classifyPathIndex = (i: number): PathClass => {
+  if (PATH_SOLID.has(i)) {
+    return "solid";
+  }
+  if (PATH_OVERLAY.has(i)) {
+    return "overlay";
+  }
   return "walk";
-}
+};
+
+type Layer = WorldMapTileLayer | null;
+
+const landKindAt = (land: Layer, i: number, unknownLand: Set<number>): Cell | null => {
+  const lv = land?.grid[i] ?? -1;
+  if (lv < 0) {
+    return null;
+  }
+  const li = tileIndex(lv);
+  if (!isKnownLandIndex(li)) {
+    unknownLand.add(li);
+  }
+  return classifyLandIndex(li);
+};
+
+// Solid props block, then ladders climb over anything (cliff faces, the stone wall).
+const decoKindAt = (deco: readonly Layer[], i: number, inFieldCell: boolean, base: Cell): Cell => {
+  let kind = base;
+  for (const d of deco) {
+    const dv = d?.grid[i] ?? -1;
+    if (dv >= 0 && DECO_SOLID.has(tileIndex(dv)) && !inFieldCell) {
+      kind = CELL.solid;
+    }
+  }
+  for (const d of deco) {
+    const dv = d?.grid[i] ?? -1;
+    if (dv >= 0 && DECO_CLIMB.has(tileIndex(dv))) {
+      kind = CELL.dirt;
+    }
+  }
+  return kind;
+};
 
 // Collapse the painted layers into one gameplay cell kind per tile.
-export function buildSemantics(map: WorldMap): Semantics {
+export const buildSemantics = (map: WorldMap): Semantics => {
   const { w, h } = map;
   const kind = new Uint8Array(w * h).fill(CELL.void);
-  const sea = layerByName(map, "sea");
   const land = layerByName(map, "land");
   const paths = layerByName(map, "paths");
-  const deco1 = layerByName(map, "decoration_01");
-  const deco2 = layerByName(map, "decoration_02");
+  const deco: readonly Layer[] = [
+    layerByName(map, "decoration_01"),
+    layerByName(map, "decoration_02"),
+  ];
   const building = layerByName(map, "building");
   const walls = layerByName(map, "walls");
   const unknownLand = new Set<number>();
 
-  for (let i = 0; i < w * h; i++) {
-    if (sea && sea.grid[i] !== undefined && (sea.grid[i] ?? -1) >= 0) kind[i] = CELL.void;
-    const lv = land?.grid[i] ?? -1;
-    if (lv >= 0) {
-      const li = tileIndex(lv);
-      kind[i] = classifyLandIndex(li);
-      if (!isKnownLandIndex(li)) unknownLand.add(li);
-    }
+  for (let i = 0; i < w * h; i += 1) {
+    let cell: Cell = landKindAt(land, i, unknownLand) ?? CELL.void;
     // walkway overrides (bridges, stairs, decks); fringe tiles inherit land
     const pv = paths?.grid[i] ?? -1;
     const pc = pv >= 0 ? classifyPathIndex(tileIndex(pv)) : null;
-    if (pc === "solid") kind[i] = CELL.solid;
-    else if (pc === "walk") kind[i] = CELL.dirt;
+    if (pc === "solid") {
+      cell = CELL.solid;
+    } else if (pc === "walk") {
+      cell = CELL.dirt;
+    }
     // field plots till like grass
-    const tx = i % w;
-    const ty = (i / w) | 0;
-    if (inField(tx, ty) && kind[i] !== CELL.solid) kind[i] = CELL.grass;
+    const inFieldCell = inField(i % w, Math.trunc(i / w));
+    if (inFieldCell && cell !== CELL.solid) {
+      cell = CELL.grass;
+    }
     // Solid structures override everything EXCEPT a walkway: where GM paints
     // road tiles through a structure (the village archway) the road passes
     // underneath — the structure y-sorts over the player. The forest layer is
     // treetop canopy, not collision: the player walks beneath it (it renders
     // above); trunks block via the placed tree objects instead.
     const structure = (building?.grid[i] ?? -1) >= 0 || (walls?.grid[i] ?? -1) >= 0;
-    if (structure && pc !== "walk") kind[i] = CELL.solid;
-    for (const d of [deco1, deco2]) {
-      const dv = d?.grid[i] ?? -1;
-      if (dv >= 0 && DECO_SOLID.has(tileIndex(dv)) && !inField(tx, ty)) kind[i] = CELL.solid;
+    if (structure && pc !== "walk") {
+      cell = CELL.solid;
     }
-    // ladders climb over anything (cliff faces, the stone wall)
-    for (const d of [deco1, deco2]) {
-      const dv = d?.grid[i] ?? -1;
-      if (dv >= 0 && DECO_CLIMB.has(tileIndex(dv))) kind[i] = CELL.dirt;
-    }
+    kind[i] = decoKindAt(deco, i, inFieldCell, cell);
   }
-  if (unknownLand.size > 0)
+  if (unknownLand.size > 0) {
     console.warn(`worldmap: ${unknownLand.size} unclassified land tile indices treated as solid:`, [
       ...unknownLand,
     ]);
+  }
   return { kind };
-}
+};
 
 // Solid props on decoration layers that should y-sort against the player
 // (fences, graves, rocks) rather than render under everything.
-export function isDecoSolidIndex(i: number): boolean {
-  return DECO_SOLID.has(i);
-}
+export const isDecoSolidIndex = (i: number): boolean => DECO_SOLID.has(i);

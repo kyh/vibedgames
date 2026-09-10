@@ -1,6 +1,5 @@
 import { createFileRoute, notFound } from "@tanstack/react-router";
 
-import { NotFoundPage } from "@/components/site/not-found";
 import { notFoundMarkdown } from "@/content/not-found";
 import {
   MARKDOWN,
@@ -23,7 +22,9 @@ export const Route = createFileRoute("/$")({
     handlers: {
       GET: ({ request, next }) => {
         const result = negotiate(request.headers.get("accept"));
-        if (result.kind === "not-acceptable") return notAcceptableResponse(request);
+        if (result.kind === "not-acceptable") {
+          return notAcceptableResponse(request);
+        }
         if (result.kind === "match" && result.type === MARKDOWN) {
           return markdownResponse(notFoundMarkdown(new URL(request.url).pathname), {
             status: 404,

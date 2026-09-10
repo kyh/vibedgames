@@ -1,14 +1,14 @@
 # @repo/web
 
 Main web app for vibedgames. Game hub, authentication, dashboard — and the host
-Worker for the tRPC API.
+Worker for the oRPC API.
 
 ## Stack
 
 - [TanStack Start](https://tanstack.com/start) + React 19
 - [Cloudflare Workers](https://workers.cloudflare.com) via `@cloudflare/vite-plugin`
 - [better-auth](https://better-auth.com) for authentication
-- [tRPC](https://trpc.io) for API layer ([`@repo/api`](../../packages/api) runs inside this Worker)
+- [oRPC](https://orpc.unnoq.com) for API layer ([`@repo/api`](../../packages/api) runs inside this Worker)
 - [Tailwind CSS 4](https://tailwindcss.com) + [`@repo/ui`](../../packages/ui)
 
 ## Surfaces
@@ -22,7 +22,7 @@ Worker for the tRPC API.
 | `/home`, `/settings`                       | signed-in dashboard: your games, account, credits                |
 | `/admin`                                   | admin-only: users, invites                                       |
 | `/auth/*`                                  | login, register, password reset, and `cli` (device-code confirm) |
-| `/api/trpc/*`, `/api/auth/*`               | tRPC + better-auth handlers                                      |
+| `/api/orpc/*`, `/api/auth/*`               | oRPC + better-auth handlers                                      |
 | `/api/r2-upload`, `/api/r2-download`       | local-dev R2 proxy (HMAC-signed, `localhost` Host only)          |
 | `/.well-known/agent-skills/*`              | the vibedgames skills, served for agents to fetch                |
 | `/llms.txt`, `/robots.txt`, `/sitemap.xml` | machine-readable site descriptions                               |
@@ -80,6 +80,9 @@ featured game). Seeded logins and headless auth recipes:
 
 ## Environment
 
-Worker secrets (`BETTER_AUTH_SECRET`, `R2_*`, `FAL_API_KEY`) go in
-`apps/web/.dev.vars` — the Worker never reads `process.env`, so putting them in
-the root `.env` silently does nothing. Bindings are declared in `wrangler.jsonc`.
+Worker secrets (`BETTER_AUTH_SECRET`, `R2_*`, `FAL_API_KEY`) go in the
+repo-root `.env`, alongside the CLI credentials. They reach the Worker because
+`wrangler.jsonc` lists them under `secrets.required`, which makes wrangler fold
+`process.env` into the binding and filter it to those names — so a secret that
+is not listed there never arrives. Other bindings are declared in
+`wrangler.jsonc` as usual.

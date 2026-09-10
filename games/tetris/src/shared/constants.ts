@@ -36,8 +36,9 @@ export const MAX_DT = 0.05;
 /** A cleared X-line is WELL_WIDTH cubes; a Z-line is WELL_DEPTH. Score adds
  *  the line length, then a combo bonus when both axes clear at once. */
 export const DOUBLE_CLEAR_BONUS = 50;
-export const HARD_DROP_POINTS = 2; // per cell fallen
-export const SOFT_DROP_POINTS = 1; // per cell fallen
+// Both per cell fallen.
+export const HARD_DROP_POINTS = 2;
+export const SOFT_DROP_POINTS = 1;
 
 // ---- charge / power-sweep ---------------------------------------------------
 
@@ -49,7 +50,11 @@ export const POWER_SCORE_PER_CUBE = 5;
 // ---- pieces -----------------------------------------------------------------
 
 export type Footprint = number[][];
-export type PieceDef = { name: string; color: number; footprint: Footprint };
+export interface PieceDef {
+  name: string;
+  color: number;
+  footprint: Footprint;
+}
 
 /**
  * The 7 tetrominoes as flat XZ footprints (rows = Z, cols = X). Order is the
@@ -57,54 +62,54 @@ export type PieceDef = { name: string; color: number; footprint: Footprint };
  * straight to an index. Rotation is rotateCW in the XZ plane (see board.ts).
  */
 export const PIECES: PieceDef[] = [
-  { name: "I", color: 0x00e5ff, footprint: [[1, 1, 1, 1]] },
+  { color: 0x00_e5_ff, footprint: [[1, 1, 1, 1]], name: "I" },
   {
-    name: "O",
-    color: 0xffd500,
+    color: 0xff_d5_00,
     footprint: [
       [1, 1],
       [1, 1],
     ],
+    name: "O",
   },
   {
-    name: "T",
-    color: 0xb15dff,
+    color: 0xb1_5d_ff,
     footprint: [
       [0, 1, 0],
       [1, 1, 1],
     ],
+    name: "T",
   },
   {
+    color: 0x32_d7_4b,
+    footprint: [
+      [1, 1, 0],
+      [0, 1, 1],
+    ],
     name: "S",
-    color: 0x32d74b,
-    footprint: [
-      [1, 1, 0],
-      [0, 1, 1],
-    ],
   },
   {
+    color: 0xff_45_3a,
+    footprint: [
+      [0, 1, 1],
+      [1, 1, 0],
+    ],
     name: "Z",
-    color: 0xff453a,
-    footprint: [
-      [0, 1, 1],
-      [1, 1, 0],
-    ],
   },
   {
-    name: "L",
-    color: 0xff9f0a,
+    color: 0xff_9f_0a,
     footprint: [
       [1, 1, 1],
       [1, 0, 0],
     ],
+    name: "L",
   },
   {
-    name: "J",
-    color: 0x4d7cff,
+    color: 0x4d_7c_ff,
     footprint: [
       [1, 1, 1],
       [0, 0, 1],
     ],
+    name: "J",
   },
 ];
 
@@ -128,7 +133,8 @@ export const CAMERA_WOBBLE = 0.14;
  *  WITHOUT changing the logical corner or the camera-relative controls. */
 export const PEEK_YAW_MAX = 0.32;
 export const PEEK_PITCH_MAX = 0.06;
-export const PEEK_OMEGA = 9; // spring stiffness easing toward the swaying target
+// Spring stiffness easing toward the swaying target.
+export const PEEK_OMEGA = 9;
 /** Full back-and-forth period of the auto peek-sway. */
 export const AUTO_PEEK_PERIOD_MS = 7000;
 
@@ -156,13 +162,19 @@ export const POSE_TIMEOUT_MS = 600;
 export const HOLD_COOLDOWN_MS = 700;
 /** T-pose (both wrists out past the shoulders, at shoulder height) → power-sweep
  *  when the charge meter is full (edge-triggered). */
-export const TPOSE_WRIST_OUT = 0.18; // wrist must be this far (frac of width) outside the shoulder
+// Wrist must be this far (fraction of width) outside the shoulder.
+export const TPOSE_WRIST_OUT = 0.18;
+/** Vertical slack (frac of shoulder width) still counted as "shoulder height".
+ *  The post-pause neutral gate needs the same number: a wrist inside this band
+ *  is still a T-pose, so clearing the gate there would re-fire power at once. */
+export const TPOSE_LEVEL_SLACK = 0.6;
 export const POWER_COOLDOWN_MS = 800;
 
 // ---- keyboard (DAS/ARR for held steering) -----------------------------------
 
-export const DAS_MS = 170; // delay before auto-repeat
-export const ARR_MS = 60; // auto-repeat interval
+// Delay before auto-repeat, then the auto-repeat interval.
+export const DAS_MS = 170;
+export const ARR_MS = 60;
 
 // ---- touch (on-screen gamepad) ------------------------------------------------
 
@@ -172,16 +184,19 @@ export const TOUCH_DAS_MS = 220;
 export const TOUCH_ARR_MS = 90;
 /** DROP released within this = hard drop (tap); held longer = soft drop only. */
 export const DROP_TAP_MS = 250;
+/** A free touch that travels further than this before lifting is a drag (the
+ *  title / results banner scrolls), not a start tap. */
+export const TOUCH_TAP_SLOP_PX = 12;
 
 // ---- look / palette ---------------------------------------------------------
 
 /** Background + enclosure: dark, slightly desaturated navy (Tokyo-Night-ish). */
-export const BG = 0x12131f;
-export const ENCLOSURE = 0x1c2030;
+export const BG = 0x12_13_1f;
+export const ENCLOSURE = 0x1c_20_30;
 /** Faint grid line on the floor/walls. */
-export const GRID_LINE = 0x2c3350;
+export const GRID_LINE = 0x2c_33_50;
 /** Landing-ghost wireframe tint. */
-export const GHOST_COLOR = 0xaab4e8;
+export const GHOST_COLOR = 0xaa_b4_e8;
 
 // ---- trauma shake (per event) ----------------------------------------------
 

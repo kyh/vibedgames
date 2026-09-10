@@ -1,22 +1,25 @@
 import { APIError } from "better-auth/api";
-import { TRPCError } from "@trpc/server";
+import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 
-import { createTRPCRouter, sessionOnlyProcedure } from "../trpc";
+import { sessionOnlyProcedure } from "../orpc";
 
 const DAY_SECONDS = 24 * 60 * 60;
 
-// Map better-auth APIError statuses (HTTP-status name strings) to tRPC error
-// codes. Anything not listed falls back to INTERNAL_SERVER_ERROR.
-const API_ERROR_TO_TRPC = new Map<string, TRPCError["code"]>([
-  ["NOT_FOUND", "NOT_FOUND"],
-  ["UNAUTHORIZED", "UNAUTHORIZED"],
-  ["FORBIDDEN", "FORBIDDEN"],
-  ["BAD_REQUEST", "BAD_REQUEST"],
-  ["TOO_MANY_REQUESTS", "TOO_MANY_REQUESTS"],
-]);
+// better-auth APIError statuses (HTTP-status name strings) that name an oRPC
+// error code too, so they pass straight through. `as const` keeps the literal
+// union — `ORPCError` takes any string, so a typo here would otherwise compile
+// and quietly become an unknown code served as a 500. Anything not listed
+// falls back to INTERNAL_SERVER_ERROR.
+const PASSTHROUGH_API_ERROR_STATUSES = [
+  "NOT_FOUND",
+  "UNAUTHORIZED",
+  "FORBIDDEN",
+  "BAD_REQUEST",
+  "TOO_MANY_REQUESTS",
+] as const;
 
-// Thin tRPC wrappers over the @better-auth/api-key plugin's server API. They
+// Thin oRPC wrappers over the @better-auth/api-key plugin's server API. They
 // use `sessionOnlyProcedure`, so managing keys requires a real session (web
 // cookie or a `vg login` token) — an API-key-authenticated caller is rejected,
 // which is the posture we want for CI credentials (a leaked key can't mint or
@@ -26,67 +29,72 @@ const API_ERROR_TO_TRPC = new Map<string, TRPCError["code"]>([
 // Field names are mapped to the shape the CLI/web already consume:
 // `keyPrefix` ← the plugin's `start` (first chars incl. prefix),
 // `lastUsedAt` ← `lastRequest`.
-export const apiKeyRouter = createTRPCRouter({
-  list: sessionOnlyProcedure.query(async ({ ctx }) => {
-    const { apiKeys } = await ctx.auth.api.listApiKeys({ headers: ctx.headers });
-    const keys = apiKeys.map((k) => ({
-      id: k.id,
-      name: k.name,
-      keyPrefix: k.start ?? k.prefix ?? "",
-      createdAt: k.createdAt,
-      lastUsedAt: k.lastRequest,
-      expiresAt: k.expiresAt,
-    }));
-    return { keys };
-  }),
-
+export const apiKeyRouter = {
   // Mint a new key. The raw `key` is returned exactly once here and is never
   // recoverable afterwards — the plugin stores only its hash.
   create: sessionOnlyProcedure
     .input(
       z.object({
-        name: z.string().trim().min(1).max(100),
         expiresInDays: z.number().int().min(1).max(3650).nullable().default(null),
+        name: z.string().trim().min(1).max(100),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
-      const created = await ctx.auth.api.createApiKey({
-        headers: ctx.headers,
+    .handler(async ({ context, input }) => {
+      const created = await context.auth.api.createApiKey({
         body: {
+          expiresIn: input.expiresInDays === null ? null : input.expiresInDays * DAY_SECONDS,
           name: input.name,
-          expiresIn: input.expiresInDays == null ? null : input.expiresInDays * DAY_SECONDS,
         },
+        headers: context.headers,
       });
 
       return {
-        id: created.id,
-        name: created.name,
-        keyPrefix: created.start ?? created.prefix ?? "",
         createdAt: created.createdAt,
         expiresAt: created.expiresAt,
+        id: created.id,
         // `key` is the only time the caller sees the raw value.
         key: created.key,
+        keyPrefix: created.start ?? created.prefix ?? "",
+        name: created.name,
       };
     }),
 
+  list: sessionOnlyProcedure.handler(async ({ context }) => {
+    const { apiKeys } = await context.auth.api.listApiKeys({ headers: context.headers });
+    const keys = apiKeys.map((k) => ({
+      createdAt: k.createdAt,
+      expiresAt: k.expiresAt,
+      id: k.id,
+      keyPrefix: k.start ?? k.prefix ?? "",
+      lastUsedAt: k.lastRequest,
+      name: k.name,
+    }));
+    return { keys };
+  }),
+
   revoke: sessionOnlyProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ ctx, input }) => {
+    .handler(async ({ context, input }) => {
       try {
-        await ctx.auth.api.deleteApiKey({ headers: ctx.headers, body: { keyId: input.id } });
+        await context.auth.api.deleteApiKey({
+          body: { keyId: input.id },
+          headers: context.headers,
+        });
         return { id: input.id };
-      } catch (err) {
-        // Translate the plugin's APIError to the matching tRPC code (a missing
+      } catch (error) {
+        // Translate the plugin's APIError to the matching oRPC code (a missing
         // key is NOT_FOUND, a bad input BAD_REQUEST, etc.) instead of flattening
         // everything — so callers see the real failure. Unknown statuses fall
         // back to INTERNAL_SERVER_ERROR.
-        if (err instanceof APIError) {
-          throw new TRPCError({
-            code: API_ERROR_TO_TRPC.get(String(err.status)) ?? "INTERNAL_SERVER_ERROR",
-            message: err.message || "Failed to revoke key",
-          });
+        if (error instanceof APIError) {
+          const status = String(error.status);
+          throw new ORPCError(
+            PASSTHROUGH_API_ERROR_STATUSES.find((code) => code === status) ??
+              "INTERNAL_SERVER_ERROR",
+            { message: error.message || "Failed to revoke key" },
+          );
         }
-        throw err;
+        throw error;
       }
     }),
-});
+};

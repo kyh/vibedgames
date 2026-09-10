@@ -10,8 +10,8 @@ const terrain = makeTerrain();
 const plan = generateCity();
 
 const parts = buildRoadParts(network, terrain);
-let roadBytes = 0,
-  roadVerts = 0;
+let roadBytes = 0;
+let roadVerts = 0;
 for (const p of parts) {
   roadBytes += p.position.byteLength + p.normal.byteLength + (p.uv?.byteLength ?? 0);
   roadVerts += p.position.length / 3;
@@ -22,16 +22,22 @@ const ground = terrain.buildMesh(
   makeGroundColorAt(plan, terrain),
   makeGroundOffset(network),
 );
-let tileBytes = 0,
-  tileVerts = 0;
+let tileBytes = 0;
+let tileVerts = 0;
 for (const t of ground.children) {
-  if (!(t instanceof THREE.Mesh)) continue;
+  if (!(t instanceof THREE.Mesh)) {
+    continue;
+  }
   const g = t.geometry;
   for (const k of ["position", "normal", "color"]) {
     const a = g.getAttribute(k);
-    if (a) tileBytes += a.array.byteLength;
+    if (a) {
+      tileBytes += a.array.byteLength;
+    }
   }
-  if (g.index) tileBytes += g.index.array.byteLength;
+  if (g.index) {
+    tileBytes += g.index.array.byteLength;
+  }
   tileVerts += g.getAttribute("position").count;
 }
 console.log(

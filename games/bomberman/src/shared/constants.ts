@@ -1,3 +1,6 @@
+import type { Arena } from "./arena";
+import type { ClockStamp } from "../util/clock";
+
 // ---- board geometry ---------------------------------------------------------
 
 export const TILE = 64;
@@ -43,11 +46,28 @@ export type Cell = { kind: "empty" } | { kind: "wall" } | { kind: "crate" };
 
 export type Dir = "up" | "down" | "left" | "right";
 
+export const DIRS: readonly Dir[] = ["up", "down", "left", "right"];
+
+export const DIR_VECT = {
+  down: [0, 1],
+  left: [-1, 0],
+  right: [1, 0],
+  up: [0, -1],
+} satisfies Record<Dir, [number, number]>;
+
 export type PowerupKind = "bomb" | "fire" | "speed";
 
-export type Powerup = { col: number; row: number; kind: PowerupKind };
+export type Powerup = {
+  col: number;
+  row: number;
+  kind: PowerupKind;
+};
 
-export type PlayerStats = { bombs: number; range: number; speed: number };
+export type PlayerStats = {
+  bombs: number;
+  range: number;
+  speed: number;
+};
 
 export type Bomb = {
   id: string;
@@ -60,7 +80,7 @@ export type Bomb = {
 
 export type Blast = {
   id: string;
-  tiles: Array<{ col: number; row: number }>;
+  tiles: { col: number; row: number }[];
   placedAt: number;
 };
 
@@ -68,13 +88,13 @@ export type Blast = {
  * Per-player networked state. `dir`/`moving` let remote clients pick the
  * right walk animation; `col`/`row` are the authoritative grid position.
  */
-export type PlayerState = {
+export interface PlayerState {
   col: number;
   row: number;
   colorIdx: number;
   dir: Dir;
   moving: boolean;
-};
+}
 
 /**
  * A host-controlled CPU fighter. Lives in shared state (not a real
@@ -97,6 +117,10 @@ export type Bot = {
  * wholesale — every field that can reset MUST be present in `emptyShared()`.
  */
 export type SharedState = {
+  /** Missing only in legacy rooms; read through readArena at the boundary. */
+  arena?: Arena;
+  /** Missing only in legacy rooms; every current host write carries its clock. */
+  clock?: ClockStamp;
   grid: Cell[][];
   bombs: Record<string, Bomb>;
   blasts: Record<string, Blast>;
@@ -109,17 +133,20 @@ export type SharedState = {
 };
 
 // Player identity colors (ring + label tint), distinct and readable on dark.
-export const COLORS = [0xff5d5d, 0x5d9bff, 0x5dff8b, 0xffd95d, 0xc15dff, 0x5dffe0];
+export const COLORS = [0xff_5d_5d, 0x5d_9b_ff, 0x5d_ff_8b, 0xff_d9_5d, 0xc1_5d_ff, 0x5d_ff_e0];
 
-export function baseStats(): PlayerStats {
-  return { bombs: BASE_BOMBS, range: BASE_RANGE, speed: BASE_MOVE_MS };
+export const baseStats = (): PlayerStats => ({
+  bombs: BASE_BOMBS,
+  range: BASE_RANGE,
+  speed: BASE_MOVE_MS,
+});
+
+export const tileKey = (col: number, row: number): string => `${col},${row}`;
+
+interface Spawn {
+  col: number;
+  row: number;
 }
-
-export function tileKey(col: number, row: number): string {
-  return `${col},${row}`;
-}
-
-type Spawn = { col: number; row: number };
 
 export const SPAWN_POINTS: readonly [Spawn, Spawn, Spawn, Spawn] = [
   { col: 1, row: 1 },
@@ -129,20 +156,17 @@ export const SPAWN_POINTS: readonly [Spawn, Spawn, Spawn, Spawn] = [
 ];
 
 /** True for the 2x2 corner pockets kept crate-free so players can break out. */
-function isSafeCorner(c: number, r: number): boolean {
-  return (
-    (c <= 2 && r <= 2) ||
-    (c >= GRID_COLS - 3 && r <= 2) ||
-    (c <= 2 && r >= GRID_ROWS - 3) ||
-    (c >= GRID_COLS - 3 && r >= GRID_ROWS - 3)
-  );
-}
+const isSafeCorner = (c: number, r: number): boolean =>
+  (c <= 2 && r <= 2) ||
+  (c >= GRID_COLS - 3 && r <= 2) ||
+  (c <= 2 && r >= GRID_ROWS - 3) ||
+  (c >= GRID_COLS - 3 && r >= GRID_ROWS - 3);
 
-export function newGrid(): Cell[][] {
+export const newGrid = (): Cell[][] => {
   const grid: Cell[][] = [];
-  for (let r = 0; r < GRID_ROWS; r++) {
+  for (let r = 0; r < GRID_ROWS; r += 1) {
     const row: Cell[] = [];
-    for (let c = 0; c < GRID_COLS; c++) {
+    for (let c = 0; c < GRID_COLS; c += 1) {
       const edge = r === 0 || c === 0 || r === GRID_ROWS - 1 || c === GRID_COLS - 1;
       const pillar = r % 2 === 0 && c % 2 === 0;
       row.push(edge || pillar ? { kind: "wall" } : { kind: "empty" });
@@ -151,13 +175,19 @@ export function newGrid(): Cell[][] {
   }
   for (const [r, row] of grid.entries()) {
     for (const [c, cell] of row.entries()) {
-      if (cell.kind !== "empty") continue;
-      if (isSafeCorner(c, r)) continue;
-      if (Math.random() < 0.72) row[c] = { kind: "crate" };
+      if (cell.kind !== "empty") {
+        continue;
+      }
+      if (isSafeCorner(c, r)) {
+        continue;
+      }
+      if (Math.random() < 0.72) {
+        row[c] = { kind: "crate" };
+      }
     }
   }
   return grid;
-}
+};
 
 /** How long to wait for the party server before starting a solo match. */
 export const OFFLINE_FALLBACK_MS = 4000;

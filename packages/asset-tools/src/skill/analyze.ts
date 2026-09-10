@@ -11,18 +11,19 @@
 import { isJsonString } from "../asset/json.js";
 import type { YamlValue } from "./frontmatter.js";
 
-export type CategoryResult = { category: string; score: number; feedback: string[] };
+export interface CategoryResult {
+  category: string;
+  score: number;
+  feedback: string[];
+}
 
 /** Count regex matches without materialising them. */
-function countMatches(text: string, pattern: RegExp): number {
-  return [...text.matchAll(pattern)].length;
-}
+const countMatches = (text: string, pattern: RegExp): number => [...text.matchAll(pattern)].length;
 
-function keywordsFound(bodyLower: string, keywords: string[]): string[] {
-  return keywords.filter((keyword) => bodyLower.includes(keyword));
-}
+const keywordsFound = (bodyLower: string, keywords: string[]): string[] =>
+  keywords.filter((keyword) => bodyLower.includes(keyword));
 
-export function checkPhilosophy(body: string): CategoryResult {
+export const checkPhilosophy = (body: string): CategoryResult => {
   let score = 0;
   const feedback: string[] = [];
   const found = keywordsFound(body.toLowerCase(), [
@@ -50,7 +51,7 @@ export function checkPhilosophy(body: string): CategoryResult {
 
   // Guiding questions are a strong signal that the skill teaches reasoning
   // rather than dictating steps.
-  const questions = countMatches(body, /\?[^\n]*/g);
+  const questions = countMatches(body, /\?[^\n]*/gu);
   if (questions >= 3) {
     score += 10;
     feedback.push(`✅ Contains ${questions} guiding questions`);
@@ -59,10 +60,10 @@ export function checkPhilosophy(body: string): CategoryResult {
     feedback.push(`⚠️  Contains ${questions} guiding question(s)`);
   }
 
-  return { category: "Philosophy", score, feedback };
-}
+  return { category: "Philosophy", feedback, score };
+};
 
-export function checkAntiPatterns(body: string): CategoryResult {
+export const checkAntiPatterns = (body: string): CategoryResult => {
   let score = 0;
   const feedback: string[] = [];
   const found = keywordsFound(body.toLowerCase(), [
@@ -89,16 +90,16 @@ export function checkAntiPatterns(body: string): CategoryResult {
   }
 
   // Capitalised warnings, which read as hard rules rather than suggestions.
-  const strong = countMatches(body, /\b(NEVER|DO NOT|DON'T)\b/g);
+  const strong = countMatches(body, /\b(?:NEVER|DO NOT|DON'T)\b/gu);
   if (strong > 0) {
     score += 10;
     feedback.push(`✅ Contains ${strong} strong warning(s)`);
   }
 
-  return { category: "Anti-Patterns", score, feedback };
-}
+  return { category: "Anti-Patterns", feedback, score };
+};
 
-export function checkVariation(body: string): CategoryResult {
+export const checkVariation = (body: string): CategoryResult => {
   let score = 0;
   const feedback: string[] = [];
   const bodyLower = body.toLowerCase();
@@ -127,21 +128,21 @@ export function checkVariation(body: string): CategoryResult {
 
   const templateWarnings = countMatches(
     bodyLower,
-    /(template|repetitive|generic|cookie-cutter|converge)/g,
+    /(?:template|repetitive|generic|cookie-cutter|converge)/gu,
   );
   if (templateWarnings > 0) {
     score += 10;
     feedback.push(`✅ Warns against generic patterns (${templateWarnings} mentions)`);
   }
 
-  return { category: "Variation", score, feedback };
-}
+  return { category: "Variation", feedback, score };
+};
 
-export function checkOrganization(body: string): CategoryResult {
+export const checkOrganization = (body: string): CategoryResult => {
   let score = 0;
   const feedback: string[] = [];
 
-  const headers = countMatches(body, /^#+\s+(.+)$/gm);
+  const headers = countMatches(body, /^#+\s+.+$/gmu);
   if (headers >= 5) {
     score += 10;
     feedback.push(`✅ Well-structured with ${headers} sections`);
@@ -152,16 +153,16 @@ export function checkOrganization(body: string): CategoryResult {
     feedback.push("❌ Lacks clear organization");
   }
 
-  const lists = countMatches(body, /^\s*[-*]\s+/gm);
+  const lists = countMatches(body, /^\s*[-*]\s+/gmu);
   if (lists >= 10) {
     score += 5;
     feedback.push(`✅ Contains ${lists} list items (actionable)`);
   }
 
-  return { category: "Organization", score, feedback };
-}
+  return { category: "Organization", feedback, score };
+};
 
-export function checkEmpowerment(body: string): CategoryResult {
+export const checkEmpowerment = (body: string): CategoryResult => {
   let score = 0;
   const feedback: string[] = [];
   const bodyLower = body.toLowerCase();
@@ -193,21 +194,24 @@ export function checkEmpowerment(body: string): CategoryResult {
     feedback.push(`⚠️  Many rigid constraints (${constraints.length} instances)`);
   }
 
-  return { category: "Empowerment", score, feedback };
-}
+  return { category: "Empowerment", feedback, score };
+};
 
-export type Analysis = {
+export interface Analysis {
   name: string;
   totalScore: number;
   categories: CategoryResult[];
-};
+}
 
-export function analyzeSkillBody(frontmatter: Record<string, YamlValue>, body: string): Analysis {
+export const analyzeSkillBody = (
+  frontmatter: Record<string, YamlValue>,
+  body: string,
+): Analysis => {
   const description = isJsonString(frontmatter.description) ? frontmatter.description : "";
   const categories: CategoryResult[] = [
     description.length > 50
-      ? { category: "Description", score: 5, feedback: ["✅ Comprehensive description"] }
-      : { category: "Description", score: 0, feedback: ["❌ Description too brief"] },
+      ? { category: "Description", feedback: ["✅ Comprehensive description"], score: 5 }
+      : { category: "Description", feedback: ["❌ Description too brief"], score: 0 },
     checkPhilosophy(body),
     checkAntiPatterns(body),
     checkVariation(body),
@@ -216,8 +220,8 @@ export function analyzeSkillBody(frontmatter: Record<string, YamlValue>, body: s
   ];
 
   return {
+    categories,
     name: isJsonString(frontmatter.name) ? frontmatter.name : "unknown",
     totalScore: categories.reduce((sum, c) => sum + c.score, 0),
-    categories,
   };
-}
+};

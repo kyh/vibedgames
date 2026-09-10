@@ -36,7 +36,9 @@ describe("siteGraph", () => {
     const organization = findNode("Organization");
     assert.ok(organization);
     assert.ok(organization.sameAs.length > 0);
-    for (const profile of organization.sameAs) assert.match(profile, /^https:\/\//);
+    for (const profile of organization.sameAs) {
+      assert.match(profile, /^https:\/\//u);
+    }
   });
 
   test("optional contact fields appear only when configured", () => {
@@ -45,7 +47,9 @@ describe("siteGraph", () => {
     assert.equal(organization.email !== undefined, siteConfig.contact.email !== null);
     assert.equal(organization.telephone !== undefined, siteConfig.contact.telephone !== null);
     assert.equal(organization.address !== undefined, siteConfig.contact.address !== null);
-    if (organization.address) assert.equal(organization.address["@type"], "PostalAddress");
+    if (organization.address) {
+      assert.equal(organization.address["@type"], "PostalAddress");
+    }
   });
 
   test("WebSite has name, description, url and points back at the Organization", () => {
@@ -75,7 +79,7 @@ describe("siteGraph", () => {
     const games = nodes.filter((node) => node["@type"] === "VideoGame");
     assert.ok(games.length > 0);
     for (const game of games) {
-      assert.match(game.url, /^https:\/\/[a-z0-9-]+\.vibedgames\.com$/);
+      assert.match(game.url, /^https:\/\/[a-z0-9-]+\.vibedgames\.com$/u);
       assert.ok(game.name.length > 0);
     }
   });
@@ -89,11 +93,11 @@ describe("serializeJsonLd", () => {
   test("escapes `<` so a string can never close the script tag", () => {
     const payload = "</script><script>alert(1)</script>";
     const serialized = serializeJsonLd({ x: payload });
-    assert.doesNotMatch(serialized, /<\/script>/);
+    assert.doesNotMatch(serialized, /<\/script>/u);
     assert.equal(JSON.parse(serialized).x, payload);
   });
 
   test("the real graph is embeddable without breaking out of the tag", () => {
-    assert.doesNotMatch(serializeJsonLd(graph), /</);
+    assert.doesNotMatch(serializeJsonLd(graph), /</u);
   });
 });

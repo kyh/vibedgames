@@ -7,32 +7,33 @@
 // animation packs and reconcile (a few low-hand-speed casts are hand-tuned
 // there — see the OVERRIDE notes in that file).
 import { readFileSync, readdirSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import nodePath from "node:path";
 
-const ANIM_DIR = join(dirname(fileURLToPath(import.meta.url)), "../public/models/animations");
+const ANIM_DIR = nodePath.join(import.meta.dirname, "../public/models/animations");
 
 // ── minimal GLB parse (JSON chunk + BIN chunk, float32 accessors) ──
-function parseGlb(path) {
+const parseGlb = (path) => {
   const buf = readFileSync(path);
   const jsonLen = buf.readUInt32LE(12);
-  const json = JSON.parse(buf.subarray(20, 20 + jsonLen).toString("utf8"));
+  const json = JSON.parse(buf.subarray(20, 20 + jsonLen).toString("utf-8"));
   const bin = buf.subarray(20 + jsonLen + 8);
-  return { json, bin };
-}
+  return { bin, json };
+};
 
-function accessorData({ json, bin }, idx) {
+const accessorData = ({ json, bin }, idx) => {
   const acc = json.accessors[idx];
   const bv = json.bufferViews[acc.bufferView];
   const compCount = { SCALAR: 1, VEC3: 3, VEC4: 4 }[acc.type];
   const byteOff = (bv.byteOffset ?? 0) + (acc.byteOffset ?? 0);
-  if (acc.componentType !== 5126) throw new Error(`unsupported componentType ${acc.componentType}`);
+  if (acc.componentType !== 5126) {
+    throw new Error(`unsupported componentType ${acc.componentType}`);
+  }
   return new Float32Array(bin.buffer, bin.byteOffset + byteOff, acc.count * compCount);
-}
+};
 
 // ── math ──
-function quatSlerp(a, b, t) {
-  let [ax, ay, az, aw] = a;
+const quatSlerp = (a, b, t) => {
+  const [ax, ay, az, aw] = a;
   let [bx, by, bz, bw] = b;
   let dot = ax * bx + ay * by + az * bz + aw * bw;
   if (dot < 0) {
@@ -52,22 +53,22 @@ function quatSlerp(a, b, t) {
   const wa = Math.sin((1 - t) * th) / s;
   const wb = Math.sin(t * th) / s;
   return [ax * wa + bx * wb, ay * wa + by * wb, az * wa + bz * wb, aw * wa + bw * wb];
-}
+};
 
-function composeMat(t, q, s) {
+const composeMat = (t, q, s) => {
   const [x, y, z, w] = q;
-  const x2 = x + x,
-    y2 = y + y,
-    z2 = z + z;
-  const xx = x * x2,
-    xy = x * y2,
-    xz = x * z2;
-  const yy = y * y2,
-    yz = y * z2,
-    zz = z * z2;
-  const wx = w * x2,
-    wy = w * y2,
-    wz = w * z2;
+  const x2 = x + x;
+  const y2 = y + y;
+  const z2 = z + z;
+  const xx = x * x2;
+  const xy = x * y2;
+  const xz = x * z2;
+  const yy = y * y2;
+  const yz = y * z2;
+  const zz = z * z2;
+  const wx = w * x2;
+  const wy = w * y2;
+  const wz = w * z2;
   const [sx, sy, sz] = s;
   return [
     (1 - (yy + zz)) * sx,
@@ -87,40 +88,56 @@ function composeMat(t, q, s) {
     t[2],
     1,
   ];
-}
+};
 
-function mulMat(a, b) {
-  const o = new Array(16).fill(0);
-  for (let c = 0; c < 4; c++)
-    for (let r = 0; r < 4; r++)
-      for (let k = 0; k < 4; k++) o[c * 4 + r] += a[k * 4 + r] * b[c * 4 + k];
+const mulMat = (a, b) => {
+  const o = Array.from({ length: 16 }, () => 0);
+  for (let c = 0; c < 4; c += 1) {
+    for (let r = 0; r < 4; r += 1) {
+      for (let k = 0; k < 4; k += 1) {
+        o[c * 4 + r] += a[k * 4 + r] * b[c * 4 + k];
+      }
+    }
+  }
   return o;
-}
+};
 
-function sampleTrack(times, values, comps, t, isQuat) {
+const sampleTrack = (times, values, comps, t, isQuat) => {
   const n = times.length;
-  if (t <= times[0]) return Array.from(values.subarray(0, comps));
-  if (t >= times[n - 1]) return Array.from(values.subarray((n - 1) * comps, n * comps));
+  if (t <= times[0]) {
+    return [...values.subarray(0, comps)];
+  }
+  if (t >= times[n - 1]) {
+    return [...values.subarray((n - 1) * comps, n * comps)];
+  }
   let i = 1;
-  while (times[i] < t) i++;
+  while (times[i] < t) {
+    i += 1;
+  }
   const t0 = times[i - 1];
   const t1 = times[i];
   const k = t1 - t0 > 0 ? (t - t0) / (t1 - t0) : 0;
-  const a = Array.from(values.subarray((i - 1) * comps, i * comps));
-  const b = Array.from(values.subarray(i * comps, (i + 1) * comps));
+  const a = [...values.subarray((i - 1) * comps, i * comps)];
+  const b = [...values.subarray(i * comps, (i + 1) * comps)];
   return isQuat ? quatSlerp(a, b, k) : a.map((v, j) => v + (b[j] - v) * k);
-}
+};
 
-const norm = (name) => name.replace(/[^a-z0-9]/gi, "").toLowerCase();
+const norm = (name) => name.replaceAll(/[^a-z0-9]/giu, "").toLowerCase();
 
-function analyze(path) {
+const analyze = (path) => {
   const glb = parseGlb(path);
   const { json } = glb;
-  const nodes = json.nodes;
-  const parent = new Array(nodes.length).fill(-1);
-  nodes.forEach((n, i) => (n.children ?? []).forEach((c) => (parent[c] = i)));
+  const { nodes } = json;
+  const parent = Array.from({ length: nodes.length }, () => -1);
+  for (const [i, n] of nodes.entries()) {
+    for (const c of n.children ?? []) {
+      parent[c] = i;
+    }
+  }
   const handIdx = nodes.findIndex((n) => norm(n.name ?? "") === "handslotr");
-  if (handIdx < 0) return {};
+  if (handIdx === -1) {
+    return {};
+  }
 
   const results = {};
   for (const anim of json.animations ?? []) {
@@ -130,20 +147,28 @@ function analyze(path) {
       const s = anim.samplers[ch.sampler];
       const times = accessorData(glb, s.input);
       const values = accessorData(glb, s.output);
-      dur = Math.max(dur, times[times.length - 1]);
-      if (!tracks.has(ch.target.node)) tracks.set(ch.target.node, {});
+      dur = Math.max(dur, times.at(-1));
+      if (!tracks.has(ch.target.node)) {
+        tracks.set(ch.target.node, {});
+      }
       tracks.get(ch.target.node)[ch.target.path] = { times, values };
     }
-    if (dur === 0) continue;
+    if (dur === 0) {
+      continue;
+    }
 
     const STEPS = 120;
     const handPos = [];
-    for (let step = 0; step <= STEPS; step++) {
+    for (let step = 0; step <= STEPS; step += 1) {
       const t = (step / STEPS) * dur;
       const world = new Map();
       const worldOf = (idx) => {
-        if (idx < 0) return null;
-        if (world.has(idx)) return world.get(idx);
+        if (idx < 0) {
+          return null;
+        }
+        if (world.has(idx)) {
+          return world.get(idx);
+        }
         const n = nodes[idx];
         const tr = tracks.get(idx);
         const T = tr?.translation
@@ -167,7 +192,7 @@ function analyze(path) {
 
     let peakI = 0;
     let peakV = 0;
-    for (let i = 1; i < handPos.length; i++) {
+    for (let i = 1; i < handPos.length; i += 1) {
       const [ax, ay, az] = handPos[i - 1];
       const [bx, by, bz] = handPos[i];
       const v = Math.hypot(bx - ax, by - ay, bz - az) * (STEPS / dur);
@@ -177,21 +202,24 @@ function analyze(path) {
       }
     }
     results[anim.name] = {
-      dur: Math.round(dur * 1000) / 1000,
       contact: Math.round((peakI / STEPS) * 100) / 100,
-      peakHandSpeed: Math.round(peakV * 100) / 100, // low (<5) → weak proxy, hand-tune
+      dur: Math.round(dur * 1000) / 1000,
+      // low (<5) → weak proxy, hand-tune
+      peakHandSpeed: Math.round(peakV * 100) / 100,
     };
   }
   return results;
-}
+};
 
 const out = {};
 for (const f of readdirSync(ANIM_DIR)
-  .filter((f) => f.endsWith(".glb"))
-  .sort()) {
+  .filter((name) => name.endsWith(".glb"))
+  .toSorted()) {
   const prefix = f.startsWith("Rig_Large") ? "Large/" : "";
-  for (const [k, v] of Object.entries(analyze(join(ANIM_DIR, f)))) {
-    if (!(prefix + k in out)) out[prefix + k] = v;
+  for (const [k, v] of Object.entries(analyze(nodePath.join(ANIM_DIR, f)))) {
+    if (!(prefix + k in out)) {
+      out[prefix + k] = v;
+    }
   }
 }
 console.log(JSON.stringify(out, null, 2));

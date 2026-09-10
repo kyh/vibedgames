@@ -1,4 +1,4 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
 
 type K = Phaser.Input.Keyboard.Key;
 type Plugin = Phaser.Input.Keyboard.KeyboardPlugin;
@@ -6,7 +6,7 @@ type Plugin = Phaser.Input.Keyboard.KeyboardPlugin;
 // Typed key bundles so accessing a named key is a Key, not Key | undefined
 // (which noUncheckedIndexedAccess would give for a string-indexed Record).
 
-export type GameKeys = {
+export interface GameKeys {
   W: K;
   A: K;
   S: K;
@@ -30,7 +30,7 @@ export type GameKeys = {
   EIGHT: K;
   NINE: K;
   ZERO: K;
-};
+}
 
 // The mine has no inventory/mute bindings; a GameKeys is structurally a
 // MineKeys, so MineScene reuses makeGameKeys.
@@ -51,31 +51,31 @@ const NUMS = [
 export type NumKeyName = (typeof NUMS)[number];
 export const NUM_KEY_NAMES: readonly NumKeyName[] = NUMS;
 
-export function makeGameKeys(kb: Plugin): GameKeys {
+export const makeGameKeys = (kb: Plugin): GameKeys => {
   const a = (n: string): K => kb.addKey(n, false);
   return {
-    W: a("W"),
     A: a("A"),
-    S: a("S"),
     D: a("D"),
-    UP: a("UP"),
     DOWN: a("DOWN"),
-    LEFT: a("LEFT"),
-    RIGHT: a("RIGHT"),
-    SPACE: a("SPACE"),
     E: a("E"),
-    SHIFT: a("SHIFT"),
-    I: a("I"),
-    M: a("M"),
-    ONE: a("ONE"),
-    TWO: a("TWO"),
-    THREE: a("THREE"),
-    FOUR: a("FOUR"),
-    FIVE: a("FIVE"),
-    SIX: a("SIX"),
-    SEVEN: a("SEVEN"),
     EIGHT: a("EIGHT"),
+    FIVE: a("FIVE"),
+    FOUR: a("FOUR"),
+    I: a("I"),
+    LEFT: a("LEFT"),
+    M: a("M"),
     NINE: a("NINE"),
+    ONE: a("ONE"),
+    RIGHT: a("RIGHT"),
+    S: a("S"),
+    SEVEN: a("SEVEN"),
+    SHIFT: a("SHIFT"),
+    SIX: a("SIX"),
+    SPACE: a("SPACE"),
+    THREE: a("THREE"),
+    TWO: a("TWO"),
+    UP: a("UP"),
+    W: a("W"),
     ZERO: a("ZERO"),
   };
-}
+};

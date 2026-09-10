@@ -9,8 +9,8 @@ export const installResponse = (init: ResponseInit = {}) =>
   new Response(installMd, {
     ...init,
     headers: {
-      "Content-Type": "text/markdown; charset=utf-8",
       "Cache-Control": "public, max-age=300",
+      "Content-Type": "text/markdown; charset=utf-8",
       ...init.headers,
     },
   });

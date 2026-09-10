@@ -24,60 +24,72 @@ import {
   PLAYER_BODY_H,
   PLAYER_HALF_W,
   rectsOverlap,
-  type BodyInput,
 } from "../src/entities/player-body.ts";
-import { COLS, Grid, ROWS } from "../src/sys/grid.ts";
+import type { BodyInput } from "../src/entities/player-body.ts";
+import { Grid, ROWS } from "../src/sys/grid.ts";
 import { RunManager } from "../src/sys/run.ts";
+import { BossActing, enemyPose, remoteBlend } from "../src/data/actor-presentation.ts";
+import { readRunRecap } from "../src/data/run-recap.ts";
+import { specialReadiness } from "../src/data/special-readiness.ts";
+import { parseRoomCode, partyLink } from "../src/hub/party-link.ts";
+import { readCheckpoint } from "../src/net/checkpoint.ts";
+import type { ExpeditionCheckpoint } from "../src/net/checkpoint.ts";
+import type { NetRoom } from "../src/net/snapshot.ts";
+import { checkpointRng, rand, reseed, restoreRng } from "../src/sys/rng.ts";
 
 const STEP = 1 / 60;
-const FLOOR_Y = (ROWS - 2) * TILE; // feet rest here on the test floor
+// feet rest here on the test floor
+const FLOOR_Y = (ROWS - 2) * TILE;
 
 let pass = 0;
 let fail = 0;
-function check(name: string, cond: boolean, detail = "") {
+const check = (name: string, cond: boolean, detail = "") => {
   if (cond) {
-    pass++;
+    pass += 1;
     console.log(`  ok   ${name}${detail ? `  (${detail})` : ""}`);
   } else {
-    fail++;
+    fail += 1;
     console.log(`  FAIL ${name}${detail ? `  (${detail})` : ""}`);
   }
-}
+};
 
 const NEUTRAL: BodyInput = {
-  left: false,
-  right: false,
-  up: false,
+  dashPressed: false,
   down: false,
   jumpHeld: false,
   jumpPressed: false,
-  dashPressed: false,
+  left: false,
+  right: false,
   specialPressed: false,
+  up: false,
 };
 const inp = (o: Partial<BodyInput>): BodyInput => ({ ...NEUTRAL, ...o });
+// A checkpoint crosses the wire as JSON; round-trip it the same way.
+// oxlint-disable-next-line unicorn/prefer-structured-clone -- the JSON round trip IS the thing under test; structuredClone keeps what the wire drops
+const wire = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
 
 // Settle onto the floor first (a couple steps of gravity + contact).
-function spawn(x = 240, y = FLOOR_Y, hero: keyof typeof HEROES = "axion"): PlayerBody {
+const spawn = (x = 240, y = FLOOR_Y, hero: keyof typeof HEROES = "axion"): PlayerBody => {
   const b = new PlayerBody(Grid.test(), x, y, HEROES[hero].kit);
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 5; i += 1) {
     b.buffer(NEUTRAL);
     b.step(STEP);
   }
   return b;
-}
+};
 
 // Run `frames` steps holding `held`; `pressOn` fires edge inputs on given frame.
-function run(
+const run = (
   b: PlayerBody,
   frames: number,
   held: Partial<BodyInput>,
   pressOn: Record<number, Partial<BodyInput>> = {},
-) {
-  for (let f = 0; f < frames; f++) {
-    b.buffer(inp({ ...held, ...(pressOn[f] ?? {}) }));
+) => {
+  for (let f = 0; f < frames; f += 1) {
+    b.buffer(inp({ ...held, ...pressOn[f] }));
     b.step(STEP);
   }
-}
+};
 
 console.log("lunerfall physics sim\n");
 
@@ -94,8 +106,9 @@ console.log("lunerfall physics sim\n");
   let apex = b.y;
   b.buffer(inp({ jumpHeld: true, jumpPressed: true }));
   b.step(STEP);
-  for (let f = 0; f < 120; f++) {
-    b.buffer(inp({ jumpHeld: b.vy < 0 })); // hold on the way up
+  for (let f = 0; f < 120; f += 1) {
+    // hold on the way up
+    b.buffer(inp({ jumpHeld: b.vy < 0 }));
     b.step(STEP);
     apex = Math.min(apex, b.y);
   }
@@ -110,8 +123,9 @@ console.log("lunerfall physics sim\n");
   tap.buffer(inp({ jumpHeld: true, jumpPressed: true }));
   tap.step(STEP);
   let tapApex = tap.y;
-  for (let f = 0; f < 120; f++) {
-    tap.buffer(NEUTRAL); // released
+  for (let f = 0; f < 120; f += 1) {
+    // released
+    tap.buffer(NEUTRAL);
     tap.step(STEP);
     tapApex = Math.min(tapApex, tap.y);
   }
@@ -119,7 +133,7 @@ console.log("lunerfall physics sim\n");
   hold.buffer(inp({ jumpHeld: true, jumpPressed: true }));
   hold.step(STEP);
   let holdApex = hold.y;
-  for (let f = 0; f < 120; f++) {
+  for (let f = 0; f < 120; f += 1) {
     hold.buffer(inp({ jumpHeld: hold.vy < 0 }));
     hold.step(STEP);
     holdApex = Math.min(holdApex, hold.y);
@@ -141,14 +155,20 @@ console.log("lunerfall physics sim\n");
   let airborneAt = -1;
   let jumpFrame = -1;
   let jumpedUp = false;
-  for (let f = 0; f < 30; f++) {
-    if (b.grounded === false && airborneAt < 0) airborneAt = f;
+  for (let f = 0; f < 30; f += 1) {
+    if (b.grounded === false && airborneAt < 0) {
+      airborneAt = f;
+    }
     // jump 2 frames after leaving the ledge — inside the 0.1s coyote window.
     const press = airborneAt >= 0 && f === airborneAt + 2;
-    if (press) jumpFrame = f;
-    b.buffer(inp({ right: true, jumpHeld: jumpFrame >= 0, jumpPressed: press }));
+    if (press) {
+      jumpFrame = f;
+    }
+    b.buffer(inp({ jumpHeld: jumpFrame >= 0, jumpPressed: press, right: true }));
     b.step(STEP);
-    if (jumpFrame >= 0 && f >= jumpFrame && b.vy < 0) jumpedUp = true;
+    if (jumpFrame >= 0 && f >= jumpFrame && b.vy < 0) {
+      jumpedUp = true;
+    }
   }
   check("coyote jump after leaving ledge", jumpedUp, `airborne@${airborneAt}`);
 }
@@ -157,10 +177,11 @@ console.log("lunerfall physics sim\n");
 {
   const b = spawn();
   const x0 = b.x;
-  b.buffer(inp({ right: true, dashPressed: true }));
+  b.buffer(inp({ dashPressed: true, right: true }));
   b.step(STEP);
   check("i-frames active during dash", b.iframes > 0 && b.dashing);
-  run(b, 9, { right: true }); // dash duration ~0.15s = 9 frames
+  // dash duration ~0.15s = 9 frames
+  run(b, 9, { right: true });
   const dist = b.x - x0;
   check("dash covers 35–60px", dist > 35 && dist < 60, `${dist.toFixed(1)}px`);
 }
@@ -170,10 +191,12 @@ console.log("lunerfall physics sim\n");
   // Spawn airborne next to the right wall (col 29 solid), press right + fall.
   const b = new PlayerBody(Grid.test(), (Grid.test().cols - 1) * TILE - 7, 60);
   let maxFall = 0;
-  for (let f = 0; f < 40; f++) {
+  for (let f = 0; f < 40; f += 1) {
     b.buffer(inp({ right: true }));
     b.step(STEP);
-    if (b.wallDir === 1) maxFall = Math.max(maxFall, b.vy);
+    if (b.wallDir === 1) {
+      maxFall = Math.max(maxFall, b.vy);
+    }
   }
   check("touches right wall", b.wallDir === 1 || b.grounded);
   check(
@@ -188,9 +211,11 @@ console.log("lunerfall physics sim\n");
   // low-left one-way at row 12, cols 3..7. Spawn just above it, falling.
   const owY = 12 * TILE;
   const b = new PlayerBody(Grid.test(), 5 * TILE, owY - 20);
-  run(b, 30, {}); // fall onto it
+  // fall onto it
+  run(b, 30, {});
   check("lands on one-way", b.grounded && Math.abs(b.y - owY) < 1, `y=${b.y.toFixed(1)}`);
-  run(b, 20, { down: true }); // hold down to drop through
+  // hold down to drop through
+  run(b, 20, { down: true });
   check("drops through on down", b.y > owY + 4, `y=${b.y.toFixed(1)}`);
 }
 
@@ -200,7 +225,7 @@ console.log("lunerfall physics sim\n");
   let maxStep = 0;
   // 150 frames: each swing runs for its (tempo-scaled) `dur`, and the next chains
   // when it ends, so 3 hits span ~2.6s at SWING_TEMPO 4 — widen the window to suit.
-  for (let f = 0; f < 150; f++) {
+  for (let f = 0; f < 150; f += 1) {
     b.buffer(inp({ attackPressed: true }));
     b.step(STEP);
     maxStep = Math.max(maxStep, b.attackStep);
@@ -215,15 +240,18 @@ console.log("lunerfall physics sim\n");
 // 9. Attack hitbox is live in front during the active window.
 {
   const b = spawn(100, FLOOR_Y);
-  run(b, 3, { right: true }); // face right
+  // face right
+  run(b, 3, { right: true });
   let boxSeen = false;
-  b.buffer(inp({ right: true, attackPressed: true }));
+  b.buffer(inp({ attackPressed: true, right: true }));
   b.step(STEP);
-  for (let f = 0; f < 12; f++) {
+  for (let f = 0; f < 12; f += 1) {
     // Box reaches in front (right > x); it also overlaps the body a little for
     // point-blank hits, so the near edge sits just behind center.
     const box = b.attackBox();
-    if (box && box.right > b.x && box.left >= b.x - 10) boxSeen = true;
+    if (box && box.right > b.x && box.left >= b.x - 10) {
+      boxSeen = true;
+    }
     b.buffer(inp({ right: true }));
     b.step(STEP);
   }
@@ -253,7 +281,7 @@ console.log("lunerfall physics sim\n");
   run(
     b,
     30,
-    { right: true, jumpHeld: true },
+    { jumpHeld: true, right: true },
     { 0: { jumpPressed: true }, 10: { attackPressed: true } },
   );
   check(
@@ -264,7 +292,9 @@ console.log("lunerfall physics sim\n");
   check("downed body is invulnerable", b.applyHurt(1) === false);
   const air = new PlayerBody(Grid.test(), 240, FLOOR_Y - 60, HEROES.axion.kit);
   air.down();
-  for (let f = 0; f < 90; f++) air.step(STEP);
+  for (let f = 0; f < 90; f += 1) {
+    air.step(STEP);
+  }
   check(
     "downed body still falls to the floor",
     air.grounded && Math.abs(air.y - FLOOR_Y) < 1,
@@ -283,10 +313,12 @@ console.log("lunerfall physics sim\n");
   const tx = 210;
   let sawAttack = false;
   let minDist = 999;
-  for (let f = 0; f < 180; f++) {
+  for (let f = 0; f < 180; f += 1) {
     w.step(STEP, tx, FLOOR_Y);
     minDist = Math.min(minDist, Math.abs(w.x - tx));
-    if (w.attackBox()) sawAttack = true;
+    if (w.attackBox()) {
+      sawAttack = true;
+    }
   }
   check("warrior closes on target", minDist < 30, `minDist=${minDist.toFixed(0)}`);
   check("warrior swings in range", sawAttack);
@@ -296,10 +328,16 @@ console.log("lunerfall physics sim\n");
 {
   const g = Grid.test();
   const w = new EnemyBody(ENEMIES.warrior, g, 200, FLOOR_Y);
-  for (let f = 0; f < 30; f++) w.step(STEP, 200, FLOOR_Y); // let spawn elapse
+  // let spawn elapse
+  for (let f = 0; f < 30; f += 1) {
+    w.step(STEP, 200, FLOOR_Y);
+  }
   w.takeHit(1, 100, 1);
   const aliveMid = !w.dead;
-  for (let f = 0; f < 12; f++) w.step(STEP, 200, FLOOR_Y); // clear i-frames
+  // clear i-frames
+  for (let f = 0; f < 12; f += 1) {
+    w.step(STEP, 200, FLOOR_Y);
+  }
   w.takeHit(1, 100, 1);
   check("warrior dies after 2 hits", aliveMid && w.dead);
 }
@@ -310,9 +348,11 @@ console.log("lunerfall physics sim\n");
   const a = new EnemyBody(ENEMIES.archer, g, 120, FLOOR_Y);
   const tx = 260;
   let proj: Projectile | null = null;
-  for (let f = 0; f < 120 && !proj; f++) {
+  for (let f = 0; f < 120 && !proj; f += 1) {
     a.step(STEP, tx, FLOOR_Y);
-    if (a.pendingProjectile) proj = a.pendingProjectile;
+    if (a.pendingProjectile) {
+      proj = a.pendingProjectile;
+    }
   }
   check("archer fires toward target", proj !== null && proj.vx > 0);
 }
@@ -322,9 +362,11 @@ console.log("lunerfall physics sim\n");
   const g = Grid.test();
   const bomber = new EnemyBody(ENEMIES.bomber, g, 240, FLOOR_Y);
   let blast = false;
-  for (let f = 0; f < 240 && !blast; f++) {
+  for (let f = 0; f < 240 && !blast; f += 1) {
     bomber.step(STEP, 250, FLOOR_Y);
-    if (bomber.pendingBlast) blast = true;
+    if (bomber.pendingBlast) {
+      blast = true;
+    }
   }
   check("bomber explodes near target", blast && bomber.dead);
 }
@@ -333,15 +375,16 @@ console.log("lunerfall physics sim\n");
 check(
   "rectsOverlap basic",
   rectsOverlap(
-    { left: 0, top: 0, right: 10, bottom: 10 },
-    { left: 5, top: 5, right: 15, bottom: 15 },
+    { bottom: 10, left: 0, right: 10, top: 0 },
+    { bottom: 15, left: 5, right: 15, top: 5 },
   ),
 );
 
+const inRoom = (r: { cols: number; rows: number }, s: { x: number; y: number }) =>
+  s.x > 0 && s.x < r.cols * TILE && s.y > 0 && s.y <= r.rows * TILE;
+
 // 16. Room templates are well-formed.
 {
-  const inRoom = (r: { cols: number; rows: number }, s: { x: number; y: number }) =>
-    s.x > 0 && s.x < r.cols * TILE && s.y > 0 && s.y <= r.rows * TILE;
   const start = START();
   check(
     "start has a door + spawn",
@@ -355,24 +398,28 @@ check(
 
 // 17. A run reaches the boss, then descends to a harder biome.
 {
-  const run = new RunManager();
-  run.begin();
+  const manager = new RunManager();
+  manager.begin();
   let sawBoss = false;
-  for (let i = 0; i < 15 && run.type !== "boss"; i++) {
-    const offers = run.offers();
-    const first = offers[0];
-    if (!first) break;
-    if (first.type === "boss") sawBoss = true;
-    run.choose(first);
+  for (let i = 0; i < 15 && manager.type !== "boss"; i += 1) {
+    const offers = manager.offers();
+    const [first] = offers;
+    if (!first) {
+      break;
+    }
+    if (first.type === "boss") {
+      sawBoss = true;
+    }
+    manager.choose(first);
   }
   check(
     "run reaches the boss",
-    run.type === "boss" && sawBoss,
-    `biome${run.biome} depth${run.depth}`,
+    manager.type === "boss" && sawBoss,
+    `biome${manager.biome} depth${manager.depth}`,
   );
-  const b0 = run.biome;
-  run.choose(run.offers()[0] ?? { type: "start" });
-  check("beating boss descends a biome", run.biome === b0 + 1 && run.depth === 1);
+  const b0 = manager.biome;
+  manager.choose(manager.offers()[0] ?? { type: "start" });
+  check("beating boss descends a biome", manager.biome === b0 + 1 && manager.depth === 1);
 }
 
 // 18. Hero specials: blink teleports, heal queues HP, flame-wave fires a shot.
@@ -398,8 +445,10 @@ check(
   let shot = false;
   sal.buffer(inp({ specialPressed: true }));
   sal.step(STEP);
-  for (let f = 0; f < 40 && !shot; f++) {
-    if (sal.pendingShot && sal.pendingShot.vx > 0) shot = true;
+  for (let f = 0; f < 40 && !shot; f += 1) {
+    if (sal.pendingShot && sal.pendingShot.vx > 0) {
+      shot = true;
+    }
     sal.buffer(NEUTRAL);
     sal.step(STEP);
   }
@@ -410,18 +459,19 @@ check(
 {
   const g = Grid.test();
   const boss = new BossBody(g, 240, FLOOR_Y, 1);
-  const maxHp = boss.maxHp;
+  const { maxHp } = boss;
   let sawAttack = false;
   let sawWave = false;
-  for (let f = 0; f < 300; f++) {
+  for (let f = 0; f < 300; f += 1) {
     boss.step(STEP, 200, FLOOR_Y);
     if (
       boss.state === "wave" ||
       boss.state === "jump" ||
       boss.state === "punch" ||
       boss.state === "slam"
-    )
+    ) {
       sawAttack = true;
+    }
     if (boss.pendingWave) {
       sawWave = true;
       boss.pendingWave = null;
@@ -441,7 +491,8 @@ check(
   boss.takeHit(2, 0, 1);
   check("boss enters phase 2 at half HP", boss.phase === 2, `hp=${boss.hp}/${maxHp}`);
   let guard = 0;
-  while (!boss.dead && guard++ < 400) {
+  while (!boss.dead && guard < 400) {
+    guard += 1;
     boss.step(STEP, 200, FLOOR_Y);
     boss.takeHit(3, 0, 1);
   }
@@ -466,16 +517,17 @@ check(
   const picks = pickRelics(3, new Set());
   const ids = new Set(picks.map((r) => r.id));
   check("shop offers 3 distinct relics", picks.length === 3 && ids.size === 3);
-  const excl = new Set(RELICS.slice(0, RELICS.length - 1).map((r) => r.id));
+  const excl = new Set(RELICS.slice(0, -1).map((r) => r.id));
   check("shop respects owned exclusions", pickRelics(3, excl).length === 1);
 }
 
 // 21. Meta: runs bank shards, shards unlock warriors, gating holds.
 {
-  const m = { shards: 0, unlocked: ["axion", "reaper"], bestDepth: 0, runs: 0, upgrades: {} };
+  const m = { bestDepth: 0, runs: 0, shards: 0, unlocked: ["axion", "reaper"], upgrades: {} };
   check("free warriors start unlocked", isUnlocked(m, "axion") && isUnlocked(m, "reaper"));
   check("paid warriors start locked", !isUnlocked(m, "riven") && !isUnlocked(m, "mooni"));
-  const earned = bankRun(m, 40, 5, 2); // 10 + 10 + 6
+  // 10 + 10 + 6
+  const earned = bankRun(m, 40, 5, 2);
   check(
     "run banks shards + best depth",
     earned === 26 && m.shards === 26 && m.bestDepth === 5,
@@ -493,16 +545,18 @@ check(
 
 // 21b. Meta upgrades: buying spends shards, caps at max, and feeds run bonuses.
 {
-  const m = { shards: 300, unlocked: ["axion"], bestDepth: 0, runs: 0, upgrades: {} };
+  const m = { bestDepth: 0, runs: 0, shards: 300, unlocked: ["axion"], upgrades: {} };
   check(
     "buy upgrade spends shards",
     buyUpgrade(m, "vitality") && upgradeLevel(m, "vitality") === 1 && m.shards === 270,
   );
   check("run bonus reflects level", runBonuses(m).hearts === 1);
-  buyUpgrade(m, "vitality"); // → 2
-  buyUpgrade(m, "vitality"); // → 3 = max (vitality total 30+56+82 = 168)
+  // → 2
+  buyUpgrade(m, "vitality");
+  // → 3 = max (vitality total 30+56+82 = 168)
+  buyUpgrade(m, "vitality");
   check("upgrade caps at max", !buyUpgrade(m, "vitality") && upgradeLevel(m, "vitality") === 3);
-  const poor = { shards: 0, unlocked: ["axion"], bestDepth: 0, runs: 0, upgrades: {} };
+  const poor = { bestDepth: 0, runs: 0, shards: 0, unlocked: ["axion"], upgrades: {} };
   check(
     "unaffordable upgrade refused",
     !buyUpgrade(poor, "edge") && upgradeLevel(poor, "edge") === 0,
@@ -523,7 +577,9 @@ check(
     m.damage("guest", 2) === false && m.hp.guest === VS_HEARTS,
   );
   let t: string | null = null;
-  for (let f = 0; f < 180 && t !== "fight"; f++) t = m.step(STEP);
+  for (let f = 0; f < 180 && t !== "fight"; f += 1) {
+    t = m.step(STEP);
+  }
   check("countdown releases into fighting", t === "fight" && m.phase === "fighting" && !m.frozen);
   check(
     "a hit takes the victim's OWN hearts",
@@ -534,24 +590,34 @@ check(
     m.damage("guest", 99) === false && m.hp.guest === VS_HEARTS - 1 - VS_HIT_CAP,
   );
   let ended = false;
-  for (let i = 0; i < 9 && !ended; i++) ended = m.damage("guest", 2);
+  for (let i = 0; i < 9 && !ended; i += 1) {
+    ended = m.damage("guest", 2);
+  }
   check(
     "a KO ends the round for the survivor",
     ended && m.phase === "roundEnd" && m.winner === "host" && m.score.host === 1,
   );
   t = null;
-  for (let f = 0; f < 300 && t === null; f++) t = m.step(STEP);
+  for (let f = 0; f < 300 && t === null; f += 1) {
+    t = m.step(STEP);
+  }
   check(
     "round end resets a fresh round",
     t === "respawn" && m.round === 2 && m.hp.guest === VS_HEARTS && m.phase === "countdown",
   );
   let sawEnd: string | null = null;
-  for (let r = 0; r < 8 && m.phase !== "matchEnd"; r++) {
-    while (m.phase === "countdown") m.step(STEP);
-    while (m.phase === "fighting") m.damage("guest", VS_HIT_CAP);
+  for (let r = 0; r < 8 && m.phase !== "matchEnd"; r += 1) {
+    while (m.phase === "countdown") {
+      m.step(STEP);
+    }
+    while (m.phase === "fighting") {
+      m.damage("guest", VS_HIT_CAP);
+    }
     while (m.phase === "roundEnd") {
       const x = m.step(STEP);
-      if (x) sawEnd = x;
+      if (x) {
+        sawEnd = x;
+      }
     }
   }
   check(
@@ -559,7 +625,9 @@ check(
     sawEnd === "matchEnd" && m.winner === "host" && m.score.host === VS_WIN_SCORE,
   );
   check("rematch waits out the end hold", m.canRematch === false);
-  for (let f = 0; f < 180; f++) m.step(STEP);
+  for (let f = 0; f < 180; f += 1) {
+    m.step(STEP);
+  }
   check("rematch arms after the hold", m.canRematch);
   m.beginMatch();
   check(
@@ -573,7 +641,9 @@ check(
   );
   const h = new VersusMatch();
   h.beginMatch();
-  while (h.phase === "countdown") h.step(STEP);
+  while (h.phase === "countdown") {
+    h.step(STEP);
+  }
   h.damage("host", 1);
   h.heal("host", 5);
   check("self-heal restores own hearts, capped", h.hp.host === VS_HEARTS);
@@ -583,9 +653,13 @@ check(
 {
   const a = VERSUS();
   let sym = true;
-  for (let y = 0; y < a.rows; y++)
-    for (let x = 0; x < a.cols; x++)
-      if (a.grid.cells[y * a.cols + x] !== a.grid.cells[y * a.cols + (a.cols - 1 - x)]) sym = false;
+  for (let y = 0; y < a.rows; y += 1) {
+    for (let x = 0; x < a.cols; x += 1) {
+      if (a.grid.cells[y * a.cols + x] !== a.grid.cells[y * a.cols + (a.cols - 1 - x)]) {
+        sym = false;
+      }
+    }
+  }
   check("versus arena is mirror-symmetric", sym);
   const sp = a.playerSpawn;
   const mid = (a.cols * TILE) / 2;
@@ -619,16 +693,20 @@ check(
     let movingSince = 0;
     let lastJump = -1e9;
     let closest = Infinity;
-    for (let f = 0; f < 180; f++) {
+    for (let f = 0; f < 180; f += 1) {
       const t = (f / 60) * 1000;
       const dx = mirrorX - host.x;
       closest = Math.min(closest, Math.abs(dx));
       const moved = Math.abs(host.x - lastX) > 0.5;
       lastX = host.x;
-      if (moved || Math.abs(dx) <= 30) movingSince = t;
+      if (moved || Math.abs(dx) <= 30) {
+        movingSince = t;
+      }
       const stalled = t - movingSince > 120 && t - lastJump > 500;
-      if (stalled) lastJump = t;
-      host.buffer(inp({ right: dx > 30, left: dx < -30, jumpHeld: true, jumpPressed: stalled }));
+      if (stalled) {
+        lastJump = t;
+      }
+      host.buffer(inp({ jumpHeld: true, jumpPressed: stalled, left: dx < -30, right: dx > 30 }));
       host.step(1 / 60);
     }
     check(
@@ -639,20 +717,22 @@ check(
   }
 }
 
+// A fixed input reel the prediction tests replay on two bodies.
+const script = (f: number): Partial<BodyInput> => ({
+  attackPressed: f === 20,
+  dashPressed: f === 70,
+  jumpHeld: f % 50 < 10,
+  jumpPressed: f % 50 === 0,
+  left: f >= 40 && f <= 90,
+  right: f < 40 || f > 90,
+});
+
 // 24. Guest prediction: identical bodies + identical input never diverge (the
 // property that makes client-side prediction viable at all).
 {
   const a = spawn();
   const b = spawn();
-  const script = (f: number): Partial<BodyInput> => ({
-    right: f < 40 || f > 90,
-    left: f >= 40 && f <= 90,
-    jumpHeld: f % 50 < 10,
-    jumpPressed: f % 50 === 0,
-    dashPressed: f === 70,
-    attackPressed: f === 20,
-  });
-  for (let f = 0; f < 120; f++) {
+  for (let f = 0; f < 120; f += 1) {
     a.buffer(inp(script(f)));
     a.step(STEP);
     b.buffer(inp(script(f)));
@@ -669,10 +749,15 @@ check(
 // correction; small deviations blend; big ones snap; blends converge.
 {
   const r = new Reconciler();
-  for (let f = 0; f < 30; f++) r.record(100 + f * 4, 200); // running right @240px/s
-  const lag = r.reconcile(100 + 20 * 4, 200); // authority ≈ 10 steps behind
+  // running right @240px/s
+  for (let f = 0; f < 30; f += 1) {
+    r.record(100 + f * 4, 200);
+  }
+  // authority ≈ 10 steps behind
+  const lag = r.reconcile(100 + 20 * 4, 200);
   check("authority on recent trajectory → aligned", lag.kind === "aligned");
-  const off = r.reconcile(100 + 20 * 4, 212); // 12px off the whole trajectory
+  // 12px off the whole trajectory
+  const off = r.reconcile(100 + 20 * 4, 212);
   check(
     "small deviation blends a fraction",
     off.kind === "blend" && Math.abs(off.dy - 12 * BLEND_RATE) < 0.01,
@@ -682,13 +767,19 @@ check(
   check("large deviation snaps", far.kind === "snap");
 
   const r2 = new Reconciler();
-  for (let f = 0; f < 30; f++) r2.record(0, 0);
+  for (let f = 0; f < 30; f += 1) {
+    r2.record(0, 0);
+  }
   let corrected = 0;
   let aligned = false;
-  for (let i = 0; i < 30 && !aligned; i++) {
-    const c = r2.reconcile(10, 0); // authority holds a 10px real divergence
-    if (c.kind === "blend") corrected += c.dx;
-    else aligned = c.kind === "aligned";
+  for (let i = 0; i < 30 && !aligned; i += 1) {
+    // authority holds a 10px real divergence
+    const c = r2.reconcile(10, 0);
+    if (c.kind === "blend") {
+      corrected += c.dx;
+    } else {
+      aligned = c.kind === "aligned";
+    }
   }
   check(
     "repeated blends converge to authority",
@@ -711,13 +802,22 @@ check(
   let empty = 0;
   let doorless = 0;
   let firstTry = 0;
-  for (let seed = 1; seed <= N; seed++) {
+  for (let seed = 1; seed <= N; seed += 1) {
     const biome = 1 + (seed % 5);
     const def = genCombatRoom(seed, biome);
-    if (!verifyRoom(def)) broken++;
-    if (def.enemySpawns.length === 0) empty++;
-    if (def.doorSlots.length === 0) doorless++;
-    if (verifyRoom(genAttempt(seed, biome))) firstTry++; // did the raw attempt already pass?
+    if (!verifyRoom(def)) {
+      broken += 1;
+    }
+    if (def.enemySpawns.length === 0) {
+      empty += 1;
+    }
+    if (def.doorSlots.length === 0) {
+      doorless += 1;
+    }
+    // did the raw attempt already pass?
+    if (verifyRoom(genAttempt(seed, biome))) {
+      firstTry += 1;
+    }
   }
   check("every generated room is fully reachable", broken === 0, `${broken}/${N} broken`);
   check(
@@ -729,6 +829,304 @@ check(
     "generator rarely needs the fallback",
     firstTry / N > 0.9,
     `${Math.round((firstTry / N) * 100)}% first-try`,
+  );
+}
+
+// ── Host-migration checkpoints ────────────────────────────────────────────────
+// A body restored from its checkpoint must continue exactly as the original
+// would have: the successor host resumes the sim mid-swing, mid-dash, mid-fuse.
+{
+  const p = spawn(120, FLOOR_Y, "reaper");
+  run(p, 30, { right: true }, { 12: { dashPressed: true }, 3: { jumpPressed: true } });
+  p.buffer(inp({ attackPressed: true }));
+  p.step(STEP);
+  const twin = new PlayerBody(Grid.test(), 0, 0, HEROES.reaper.kit);
+  twin.restore(wire(p.checkpoint()));
+  check(
+    "player checkpoint survives the wire",
+    JSON.stringify(twin.checkpoint()) === JSON.stringify(p.checkpoint()),
+  );
+  run(p, 40, { left: true }, { 20: { jumpPressed: true }, 5: { specialPressed: true } });
+  run(twin, 40, { left: true }, { 20: { jumpPressed: true }, 5: { specialPressed: true } });
+  check(
+    "restored player body replays identically",
+    JSON.stringify(twin.checkpoint()) === JSON.stringify(p.checkpoint()),
+  );
+  const g = Grid.test();
+  for (const kind of [ENEMIES.warrior, ENEMIES.archer, ENEMIES.bomber, ENEMIES.spearman]) {
+    const e = new EnemyBody(kind, g, 300, FLOOR_Y);
+    for (let i = 0; i < 50; i += 1) {
+      e.step(STEP, 200, FLOOR_Y);
+    }
+    const copy = new EnemyBody(kind, g, 0, 0);
+    copy.restore(wire(e.checkpoint()));
+    for (let i = 0; i < 90; i += 1) {
+      e.step(STEP, 200 + i, FLOOR_Y);
+      copy.step(STEP, 200 + i, FLOOR_Y);
+    }
+    check(
+      `restored ${kind.name} replays identically`,
+      JSON.stringify(copy.checkpoint()) === JSON.stringify(e.checkpoint()),
+      `${e.state}`,
+    );
+  }
+  const boss = new BossBody(g, 240, FLOOR_Y, 2);
+  for (let i = 0; i < 200; i += 1) {
+    boss.step(STEP, 120, FLOOR_Y);
+  }
+  const bossCopy = new BossBody(g, 0, 0, 2);
+  bossCopy.restore(wire(boss.checkpoint()));
+  for (let i = 0; i < 120; i += 1) {
+    boss.step(STEP, 120 + i, FLOOR_Y);
+    bossCopy.step(STEP, 120 + i, FLOOR_Y);
+  }
+  check(
+    "restored boss replays identically",
+    JSON.stringify(bossCopy.checkpoint()) === JSON.stringify(boss.checkpoint()),
+    boss.state,
+  );
+
+  const vs = new VersusMatch();
+  vs.beginMatch();
+  vs.step(5);
+  vs.damage("guest", 2);
+  const vsCopy = new VersusMatch();
+  vsCopy.restore(wire(vs.checkpoint()));
+  check(
+    "versus match checkpoint round-trips",
+    JSON.stringify(vsCopy.checkpoint()) === JSON.stringify(vs.checkpoint()) &&
+      vsCopy.encode().guestHp === VS_HEARTS - 2,
+  );
+
+  reseed(7);
+  rand();
+  rand();
+  const word = checkpointRng();
+  const expected = [rand(), rand(), rand()];
+  restoreRng(word);
+  check(
+    "rng checkpoint resumes the exact stream without a draw",
+    expected.every((v) => v === rand()),
+  );
+
+  const readiness = p.checkpoint();
+  check(
+    "special readiness: idle body is ready",
+    specialReadiness({
+      ...readiness,
+      attackStep: 0,
+      dashTime: 0,
+      dead: false,
+      downed: false,
+      hurtStun: 0,
+      specialActive: false,
+      specialCd: 0,
+    }).kind === "ready",
+  );
+  check(
+    "special readiness: cooldown reports remaining",
+    specialReadiness({
+      ...readiness,
+      attackStep: 0,
+      dashTime: 0,
+      dead: false,
+      downed: false,
+      hurtStun: 0,
+      specialActive: false,
+      specialCd: 1.5,
+    }).kind === "cooldown",
+  );
+  check(
+    "special readiness: a downed body is busy",
+    specialReadiness({ ...readiness, downed: true, specialCd: 0 }).kind === "busy",
+  );
+
+  // The validator must admit exactly what the host encodes — nothing looser.
+  const def = START();
+  const room: NetRoom = {
+    cells: [...def.grid.cells],
+    cols: def.grid.cols,
+    doors: [],
+    mode: "coop",
+    mustClear: false,
+    propKey: "",
+    rows: def.grid.rows,
+    seq: 3,
+    spawnX: def.playerSpawn.x,
+    spawnY: def.playerSpawn.y,
+    type: "start",
+  };
+  const checkpoint: ExpeditionCheckpoint = {
+    accumulator: 0,
+    arrows: [],
+    boss: boss.checkpoint(),
+    bossDeathAge: 0,
+    cleared: true,
+    combo: 0,
+    comboTime: 0,
+    enemies: [
+      {
+        body: new EnemyBody(ENEMIES.warrior, g, 300, FLOOR_Y).checkpoint(),
+        deathAge: null,
+        id: 1,
+        name: "warrior",
+        tint: 0xff_ff_ff,
+      },
+    ],
+    feature: null,
+    freeze: 0,
+    gold: 12,
+    hazards: [],
+    hearts: 3,
+    lastStand: { bleed: 4, id: "guest", revive: 0.5 },
+    maxHearts: 3,
+    merchant: [],
+    mode: "coop",
+    mods: baseMods(),
+    nextEnemyId: 2,
+    phase: { kind: "active" },
+    players: [
+      {
+        body: p.checkpoint(),
+        combat: {
+          bossSpecial: -1,
+          bossSwing: -1,
+          hitSpecial: [],
+          hitSwing: [1],
+          lastSpecial: -1,
+          lastSwing: 2,
+        },
+        hero: "reaper",
+        id: "host",
+        versusHits: { special: 0, swing: 0 },
+      },
+      {
+        body: twin.checkpoint(),
+        combat: {
+          bossSpecial: -1,
+          bossSwing: -1,
+          hitSpecial: [],
+          hitSwing: [],
+          lastSpecial: -1,
+          lastSwing: -1,
+        },
+        hero: "axion",
+        id: "guest",
+        versusHits: { special: 0, swing: 0 },
+      },
+    ],
+    relics: [RELICS[0]?.id ?? ""],
+    rng: word,
+    room: 3,
+    run: { biome: 1, depth: 1, offers: ["combat", "elite"], type: "start" },
+    runId: "host:1",
+    score: 40,
+    seats: { guest: "guest", host: "host" },
+    shots: [
+      {
+        dmg: 1,
+        hit: [1],
+        hitBoss: false,
+        hitP: [],
+        life: 1,
+        owner: "host",
+        vx: 3,
+        vy: 0,
+        x: 1,
+        y: 2,
+      },
+    ],
+    term: 0,
+    tick: 400,
+    version: 1,
+    versus: null,
+    writer: "host",
+  };
+  const ok = readCheckpoint(wire({ checkpoint, room }));
+  check("validator admits a host-shaped checkpoint", ok.kind === "ready");
+  check(
+    "absent shared state is absent, not invalid",
+    readCheckpoint(null).kind === "absent" && readCheckpoint({}).kind === "absent",
+  );
+  const reject = (label: string, patch: Partial<ExpeditionCheckpoint>, r: NetRoom = room) =>
+    check(
+      `validator rejects ${label}`,
+      readCheckpoint(wire({ checkpoint: { ...checkpoint, ...patch }, room: r })).kind === "invalid",
+    );
+  reject("a room seq mismatch", { room: 4 });
+  const [first] = checkpoint.players;
+  if (first) {
+    reject("a swing hit on an unknown enemy", {
+      players: [{ ...first, combat: { ...first.combat, hitSwing: [9] } }],
+    });
+  }
+  reject("a last stand on a missing seat", { lastStand: { bleed: 1, id: "ghost", revive: 0 } });
+  reject("an enemy id past the allocator", { nextEnemyId: 1 });
+  reject("a versus checkpoint carrying last stand", {
+    lastStand: { bleed: 1, id: "host", revive: 0 },
+    mode: "versus",
+    versus: vs.checkpoint(),
+  });
+  reject("a coop checkpoint on a versus room", {}, { ...room, mode: "vs" });
+}
+
+// ── Pure hub / presentation helpers ──────────────────────────────────────────
+{
+  check("room code parses case-insensitively", parseRoomCode(" ab3z ") === "AB3Z");
+  check(
+    "room code rejects the wrong length",
+    parseRoomCode("ABC") === null && parseRoomCode("ABCDE") === null,
+  );
+  const link = partyLink("https://lunerfall.vibedgames.com/?hero=axion&debug=1#x", "AB3Z", "vs");
+  check(
+    "invite link carries only room + mode",
+    link === "https://lunerfall.vibedgames.com/?party=AB3Z&mode=vs",
+  );
+  check("coop invite omits mode", !partyLink("https://x.test/", "AB3Z", "coop").includes("mode"));
+
+  const banked = {
+    bestScore: 120,
+    biome: 2,
+    depth: 5,
+    gold: 30,
+    hero: "axion",
+    kind: "banked",
+    score: 90,
+    shardsEarned: 12,
+  };
+  check("run recap accepts a banked receipt", readRunRecap(banked)?.kind === "banked");
+  check("run recap rejects best below score", readRunRecap({ ...banked, bestScore: 10 }) === null);
+  check("run recap rejects an unknown hero", readRunRecap({ ...banked, hero: "nobody" }) === null);
+  check(
+    "run recap accepts a guest receipt",
+    readRunRecap({ biome: 1, depth: 1, gold: 0, hero: "reaper", kind: "coop-guest" })?.kind ===
+      "coop-guest",
+  );
+
+  check(
+    "remote blend matches the 0.35/frame fraction at 60Hz",
+    Math.abs(remoteBlend(1 / 60) - 0.35) < 1e-9,
+  );
+  check(
+    "remote blend is monotone in dt",
+    remoteBlend(1 / 30) > remoteBlend(1 / 60) && remoteBlend(0) === 0,
+  );
+  const strike = enemyPose(ENEMIES.warrior, { elapsed: 0, state: "attack" });
+  check("melee attack holds the contact frame", strike?.clip === "strike" && strike.frame === 3);
+  check(
+    "locomotion keeps the authored loop",
+    enemyPose(ENEMIES.warrior, { elapsed: 1, state: "chase" }) === null,
+  );
+  const acting = new BossActing();
+  acting.pose({ elapsed: 0.1, state: "slam" });
+  const landing = acting.pose({ elapsed: 0.05, state: "idle" });
+  check(
+    "boss slam landing finishes its drawing after touchdown",
+    landing?.clip === "flame-slam" && landing.frame >= 11,
+  );
+  check(
+    "boss idle without a slam has no pose",
+    new BossActing().pose({ elapsed: 0.05, state: "idle" }) === null,
   );
 }
 

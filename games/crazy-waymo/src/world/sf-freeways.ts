@@ -4,7 +4,10 @@
 // street network.
 export const FREEWAYS_GEN_ID = "2026-07-31T18:29:43.189Z";
 
-export type FreewayLine = { readonly half: number; readonly p: readonly number[] };
+export interface FreewayLine {
+  readonly half: number;
+  readonly p: readonly number[];
+}
 
 export const SF_FREEWAYS: readonly FreewayLine[] = [
   { half: 5.2, p: [-711.1, 1222.8, -722.8, 1376.2, -716.9, 1531] },

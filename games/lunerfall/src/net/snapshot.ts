@@ -7,6 +7,7 @@
 
 import { isJsonObject } from "./json";
 import type { JsonValue } from "./json";
+import type { BossAction, EnemyAction } from "../data/actor-presentation";
 
 export type NetPlayer = {
   id: string;
@@ -20,7 +21,8 @@ export type NetPlayer = {
   dashing: boolean;
   hurting: boolean;
   dead: boolean;
-  downed: boolean; // co-op last stand: frozen awaiting a revive
+  // co-op last stand: frozen awaiting a revive
+  downed: boolean;
   iframes: number;
   attackStep: number;
   swingId: number;
@@ -39,6 +41,8 @@ export type NetEnemy = {
   flip: boolean;
   dead: boolean;
   flash: boolean;
+  action?: EnemyAction;
+  tint?: number;
 };
 export type NetBoss = {
   clip: string;
@@ -49,6 +53,7 @@ export type NetBoss = {
   flash: boolean;
   telegraph: boolean;
   dead: boolean;
+  action?: BossAction;
 };
 
 // Guest → host input. Held state travels as booleans; each action carries a
@@ -65,30 +70,45 @@ export type NetInput = {
   a: number;
   s: number;
 };
-export type NetProj = { k: "arrow" | "shot" | "hazard"; x: number; y: number; vx: number };
+export type NetProj = {
+  k: "arrow" | "shot" | "hazard";
+  x: number;
+  y: number;
+  vx: number;
+};
 
 // Co-op last stand: broadcast while a player is downed. bleed = seconds left on
 // the bleed-out clock; rev = 0..1 revive-hold progress. Which player is downed
 // travels on NetPlayer.downed; both clients render the marker from these.
-export type NetLastStand = { bleed: number; rev: number };
+export type NetLastStand = {
+  bleed: number;
+  rev: number;
+};
 
 // Online versus: the match state, broadcast every snapshot while in versus mode.
 // Sides are fixed (host = left duelist, guest = right) so hearts/scores never
 // need a player-id mapping on either client.
 export type NetVersus = {
   phase: "waiting" | "countdown" | "fighting" | "roundEnd" | "matchEnd";
-  round: number; // 1-based; 0 while waiting for the challenger
-  t: number; // seconds left in the current timed phase
+  // 1-based; 0 while waiting for the challenger
+  round: number;
+  // seconds left in the current timed phase
+  t: number;
   hostHp: number;
   guestHp: number;
   hostScore: number;
   guestScore: number;
-  winner: "host" | "guest" | null; // round winner in roundEnd, match in matchEnd
+  // round winner in roundEnd, match in matchEnd
+  winner: "host" | "guest" | null;
 };
 
 export type Snapshot = {
-  t: number; // host frame counter — interpolation + stall detection
-  room: number; // room seq; guest rebuilds its room when this changes
+  runId?: string;
+  term?: number;
+  // host frame counter — interpolation + stall detection
+  t: number;
+  // room seq; guest rebuilds its room when this changes
+  room: number;
   players: NetPlayer[];
   enemies: NetEnemy[];
   boss: NetBoss | null;
@@ -100,7 +120,8 @@ export type Snapshot = {
   depth: number;
   cleared: boolean;
   lastStand: NetLastStand | null;
-  vs: NetVersus | null; // versus mode only; null in co-op
+  // versus mode only; null in co-op
+  vs: NetVersus | null;
   banner: string;
 };
 
@@ -115,7 +136,8 @@ export type NetDoor = {
 };
 export type NetRoom = {
   seq: number;
-  mode: string; // "coop" | "vs" — versus arenas mirror the guest spawn, no doors
+  // "coop" | "vs" — versus arenas mirror the guest spawn, no doors
+  mode: string;
   type: string;
   cols: number;
   rows: number;
@@ -127,10 +149,8 @@ export type NetRoom = {
   mustClear: boolean;
 };
 
-export function isSnapshot(v: JsonValue | undefined): v is Snapshot {
-  return isJsonObject(v) && "players" in v && "t" in v && Array.isArray(v.players);
-}
+export const isSnapshot = (v: JsonValue | undefined): v is Snapshot =>
+  isJsonObject(v) && "players" in v && "t" in v && Array.isArray(v.players);
 
-export function isRoom(v: JsonValue | undefined): v is NetRoom {
-  return isJsonObject(v) && "cells" in v && "seq" in v && Array.isArray(v.cells);
-}
+export const isRoom = (v: JsonValue | undefined): v is NetRoom =>
+  isJsonObject(v) && "cells" in v && "seq" in v && Array.isArray(v.cells);

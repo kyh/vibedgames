@@ -18,16 +18,23 @@ export const ROOM_TYPES: readonly RoomType[] = [
 ];
 export const parseRoomType = (s: string): RoomType | null =>
   ROOM_TYPES.find((t) => t === s) ?? null;
-export type Spawn = { x: number; y: number };
+export interface Spawn {
+  x: number;
+  y: number;
+}
 
 // Rooms are now multi-screen: each RoomDef sizes its own Grid (cols × rows) and
 // the camera scrolls over it. Bottom 2 rows are the floor; feet stand on tile
 // cy+1, so the ground stand row is `rows - 3`.
+// Spawn point at the centre-bottom of a tile.
+const feet = (cx: number, cy: number): Spawn => ({ x: (cx + 0.5) * TILE, y: (cy + 1) * TILE });
+
 export class RoomDef {
   readonly grid: Grid;
   readonly cols: number;
   readonly rows: number;
-  readonly stand: number; // ground stand row (feet marker cy)
+  // ground stand row (feet marker cy)
+  readonly stand: number;
   playerSpawn: Spawn;
   enemySpawns: Spawn[] = [];
   doorSlots: Spawn[] = [];
@@ -42,17 +49,15 @@ export class RoomDef {
     this.playerSpawn = { x: 3 * TILE, y: (this.stand + 1) * TILE };
   }
 
-  private feet(cx: number, cy: number): Spawn {
-    return { x: (cx + 0.5) * TILE, y: (cy + 1) * TILE };
-  }
-
   arena(): this {
-    for (let y = 0; y < this.rows; y++) {
+    for (let y = 0; y < this.rows; y += 1) {
       this.grid.set(0, y, 1);
       this.grid.set(this.cols - 1, y, 1);
     }
-    this.grid.fill(0, 0, this.cols - 1, 0, 1); // ceiling
-    this.grid.fill(0, this.rows - 2, this.cols - 1, this.rows - 1, 1); // floor
+    // ceiling
+    this.grid.fill(0, 0, this.cols - 1, 0, 1);
+    // floor
+    this.grid.fill(0, this.rows - 2, this.cols - 1, this.rows - 1, 1);
     return this;
   }
   // A solid platform that's `h` tiles thick (chunky ledge, like the art).
@@ -65,45 +70,48 @@ export class RoomDef {
     return this;
   }
   player(cx: number, cy: number): this {
-    this.playerSpawn = this.feet(cx, cy);
+    this.playerSpawn = feet(cx, cy);
     return this;
   }
   enemy(cx: number, cy: number): this {
-    this.enemySpawns.push(this.feet(cx, cy));
+    this.enemySpawns.push(feet(cx, cy));
     return this;
   }
   door(cx: number, cy: number): this {
-    this.doorSlots.push(this.feet(cx, cy));
+    this.doorSlots.push(feet(cx, cy));
     return this;
   }
   feature(cx: number, cy: number): this {
-    this.featureSpot = this.feet(cx, cy);
+    this.featureSpot = feet(cx, cy);
     return this;
   }
   boss(cx: number, cy: number): this {
-    this.bossSpawn = this.feet(cx, cy);
+    this.bossSpawn = feet(cx, cy);
     return this;
   }
 }
 
-// Standard room extent (tiles). ~2.7 screens wide, taller for verticality.
-const RW = 52;
+// Standard room height (tiles) — taller than the screen, for verticality.
 const RH = 21;
-const S = RH - 3; // 18 — ground stand row
+// 18 — ground stand row
+const S = RH - 3;
 
 export const START = (): RoomDef =>
   new RoomDef(46, RH)
     .arena()
-    .block(9, S - 3, 15) // gentle left step
+    // gentle left step
+    .block(9, S - 3, 15)
     .oneway(20, S - 5, 27)
-    .block(31, S - 4, 38) // right ledge with the exit
+    // right ledge with the exit
+    .block(31, S - 4, 38)
     .player(4, S)
     .door(35, S - 5);
 
 export const SAFE = (): RoomDef =>
   new RoomDef(44, RH)
     .arena()
-    .block(17, S - 3, 26) // central shrine dais
+    // central shrine dais
+    .block(17, S - 3, 26)
     .oneway(6, S - 5, 13)
     .oneway(30, S - 5, 37)
     .player(4, S)
@@ -117,10 +125,14 @@ export const SAFE = (): RoomDef =>
 export const VERSUS = (): RoomDef =>
   new RoomDef(32, 17)
     .arena()
-    .block(14, 13, 17, 1) // low centre riser
-    .block(4, 12, 9, 2) // left ledge
-    .block(22, 12, 27, 2) // right ledge (mirror)
-    .oneway(12, 9, 19) // high centre platform
+    // low centre riser
+    .block(14, 13, 17, 1)
+    // left ledge
+    .block(4, 12, 9, 2)
+    // right ledge (mirror)
+    .block(22, 12, 27, 2)
+    // high centre platform
+    .oneway(12, 9, 19)
     // Col 11 (mirror: col 20) is the only band clear of BOTH the side ledges
     // (cols 4-9 / 22-27) and the centre riser. Spawning under a ledge wedged the
     // 22px body into its underside — solid at row 13 — and both duelists were
@@ -143,21 +155,21 @@ export const BOSS = (): RoomDef =>
     .door(43, RH - 6);
 
 export const ROOM_ICON = {
-  start: "◆",
+  boss: "✦",
   combat: "⚔",
   elite: "☠",
   merchant: "◈",
   rest: "✚",
+  start: "◆",
   treasure: "◇",
-  boss: "✦",
 } satisfies Record<RoomType, string>;
 
 export const ROOM_LABEL = {
-  start: "START",
+  boss: "BOSS",
   combat: "FIGHT",
   elite: "ELITE",
   merchant: "SHRINE",
   rest: "REST",
+  start: "START",
   treasure: "CACHE",
-  boss: "BOSS",
 } satisfies Record<RoomType, string>;

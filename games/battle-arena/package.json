@@ -7,8 +7,10 @@
     "build": "vite build",
     "clean": "rm -rf .turbo dist node_modules",
     "dev": "vite",
+    "fx:shots": "node tools/fx-shots.mjs",
     "preview": "vite preview",
-    "test": "tsx tools/verify-timing.mts",
+    "test": "tsx tools/verify-timing.mts && tsx --test tools/verify-logic.mts",
+    "test:online": "node tools/two-client.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -21,6 +23,7 @@
     "@kyh/tsconfig": "catalog:",
     "@types/node": "catalog:",
     "@types/three": "^0.185.4",
+    "playwright-core": "^1.62.1",
     "tsx": "^4.23.12",
     "typescript": "catalog:",
     "vite": "catalog:"

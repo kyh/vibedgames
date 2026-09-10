@@ -9,7 +9,7 @@ pnpm dev:tetris   # http://localhost:5187
 pnpm --filter @repo/tetris typecheck   # tsc --noEmit
 pnpm --filter @repo/tetris build       # vite build
 pnpm --filter @repo/tetris preview     # vite preview
-npx tsx games/tetris/scripts/smoke.ts  # headless game-core smoke checks (no three.js)
+pnpm --filter @repo/tetris test        # headless game-core smoke checks (scripts/smoke.ts, no three.js)
 ```
 
 ## Routes

@@ -4,17 +4,17 @@ import { test } from "node:test";
 import { formatField, isJsonOutput, selectField, writeStructured } from "../src/lib/output.js";
 
 const RESULT = {
-  status: "completed",
+  downloaded_files: ["out/a.png", "out/b.png"],
   request_id: "req_123",
   result: {
     images: [
       { url: "https://cdn/a.png", width: 512 },
       { url: "https://cdn/b.png", width: 1024 },
     ],
-    seed: 42,
     nsfw: [false, false],
+    seed: 42,
   },
-  downloaded_files: ["out/a.png", "out/b.png"],
+  status: "completed",
 };
 
 test("selectField walks dotted paths", () => {
@@ -51,7 +51,7 @@ test("formatField prints scalars bare for shell capture", () => {
   assert.equal(formatField(42), "42");
   assert.equal(formatField(false), "false");
   assert.equal(formatField(null), "");
-  assert.equal(formatField(undefined), "");
+  assert.equal(formatField(), "");
 });
 
 test("formatField prints scalar arrays one per line so a shell can loop", () => {
@@ -67,13 +67,13 @@ test("formatField falls back to JSON for structural values", () => {
 });
 
 /** Capture whatever a body writes to stdout. */
-function captureStdout(body: () => void): string {
+const captureStdout = (body: () => void): string => {
   const original = process.stdout.write.bind(process.stdout);
   let captured = "";
   // SAFETY: test double for the write overloads; the code under test only
   // ever calls the single-chunk form.
   process.stdout.write = ((chunk: string | Uint8Array) => {
-    captured += chunk instanceof Uint8Array ? Buffer.from(chunk).toString("utf8") : chunk;
+    captured += chunk instanceof Uint8Array ? Buffer.from(chunk).toString("utf-8") : chunk;
     return true;
   }) as typeof process.stdout.write;
   try {
@@ -82,7 +82,7 @@ function captureStdout(body: () => void): string {
     process.stdout.write = original;
   }
   return captured;
-}
+};
 
 test("writeStructured returns false when neither flag is set", () => {
   const out = captureStdout(() => {
@@ -100,7 +100,7 @@ test("--json prints the whole payload", () => {
 
 test("--field wins over --json, since it is the more specific request", () => {
   const out = captureStdout(() => {
-    writeStructured(RESULT, { json: true, field: "request_id" });
+    writeStructured(RESULT, { field: "request_id", json: true });
   });
   assert.equal(out, "req_123\n");
 });
@@ -113,8 +113,11 @@ test("VG_JSON_OUTPUT=1 turns on JSON without the flag", () => {
     const out = captureStdout(() => writeStructured({ a: 1 }, {}));
     assert.equal(out, '{\n  "a": 1\n}\n');
   } finally {
-    if (previous === undefined) delete process.env.VG_JSON_OUTPUT;
-    else process.env.VG_JSON_OUTPUT = previous;
+    if (previous === undefined) {
+      delete process.env.VG_JSON_OUTPUT;
+    } else {
+      process.env.VG_JSON_OUTPUT = previous;
+    }
   }
 });
 
@@ -136,7 +139,7 @@ test("a field that does not resolve exits non-zero rather than printing nothing"
     return true;
   }) as typeof process.stderr.write;
   try {
-    assert.throws(() => writeStructured(RESULT, { field: "typo" }), /exit/);
+    assert.throws(() => writeStructured(RESULT, { field: "typo" }), /exit/u);
   } finally {
     process.exit = originalExit;
     process.stderr.write = originalErr;

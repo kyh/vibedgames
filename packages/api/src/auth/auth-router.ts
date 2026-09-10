@@ -1,154 +1,153 @@
 import { and, desc, eq } from "@repo/db";
 import { inviteCode } from "@repo/db/drizzle-schema";
 import { user, verification } from "@repo/db/drizzle-schema-auth";
-import { TRPCError } from "@trpc/server";
+import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 
-import {
-  adminProcedure,
-  createTRPCRouter,
-  protectedProcedure,
-  publicProcedure,
-  sessionOnlyProcedure,
-} from "../trpc";
+import { adminProcedure, protectedProcedure, publicProcedure, sessionOnlyProcedure } from "../orpc";
 import { buildInviteRows, MAX_INVITE_BATCH } from "./invite-create";
 import { inviteCodeAvailabilityClause, normalizeInviteCode } from "./invite-claim";
 import { generateShortCode } from "./utils";
 
-const CLI_CODE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+// 5 minutes
+const CLI_CODE_TTL_MS = 5 * 60 * 1000;
 const CLI_IDENTIFIER_PREFIX = "cli-auth:";
 
-export const authRouter = createTRPCRouter({
-  // Current authenticated identity. Works for both better-auth sessions and
-  // API keys (both resolve to `ctx.session` in the tRPC context), so the CLI
-  // can use it for `vg whoami` regardless of how it authenticated.
-  me: protectedProcedure.query(({ ctx }) => ({
-    id: ctx.session.user.id,
-    name: ctx.session.user.name,
-    email: ctx.session.user.email,
-    role: ctx.session.user.role ?? null,
-  })),
-
-  // ---------------------------------------------------------------------------
-  // CLI device-code flow
-  // ---------------------------------------------------------------------------
-
-  cliInit: publicProcedure.mutation(async ({ ctx }) => {
-    const code = generateShortCode();
-    const id = crypto.randomUUID();
-    const now = new Date();
-
-    await ctx.db.insert(verification).values({
-      id,
-      identifier: `${CLI_IDENTIFIER_PREFIX}${code}`,
-      value: "",
-      expiresAt: new Date(now.getTime() + CLI_CODE_TTL_MS),
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    return { code };
-  }),
-
+export const authRouter = {
   // sessionOnlyProcedure (not protectedProcedure): this persists
-  // `ctx.session.session.token` as the CLI's login credential, so the caller
+  // `context.session.session.token` as the CLI's login credential, so the caller
   // must hold a real better-auth session. An API-key session's synthetic
   // `apikey:` token would be handed to the CLI and rejected by getSession.
   cliConfirm: sessionOnlyProcedure
     .input(z.object({ code: z.string() }))
-    .mutation(async ({ ctx, input }) => {
+    .handler(async ({ context, input }) => {
       const identifier = `${CLI_IDENTIFIER_PREFIX}${input.code}`;
-      const rows = await ctx.db
+      const rows = await context.db
         .select()
         .from(verification)
         .where(eq(verification.identifier, identifier))
         .limit(1);
 
-      const row = rows[0];
+      const [row] = rows;
       if (!row || row.expiresAt < new Date()) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Code expired or invalid" });
+        throw new ORPCError("NOT_FOUND", { message: "Code expired or invalid" });
       }
       if (row.value !== "") {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Code already confirmed" });
+        throw new ORPCError("BAD_REQUEST", { message: "Code already confirmed" });
       }
 
       // Store the raw session token — the CLI uses it as a Bearer token
-      await ctx.db
+      await context.db
         .update(verification)
-        .set({ value: ctx.session.session.token, updatedAt: new Date() })
+        .set({ updatedAt: new Date(), value: context.session.session.token })
         .where(eq(verification.id, row.id));
 
       return { ok: true };
     }),
 
-  cliPoll: publicProcedure.input(z.object({ code: z.string() })).query(async ({ ctx, input }) => {
-    const identifier = `${CLI_IDENTIFIER_PREFIX}${input.code}`;
-    const rows = await ctx.db
-      .select()
-      .from(verification)
-      .where(eq(verification.identifier, identifier))
-      .limit(1);
+  // ---------------------------------------------------------------------------
+  // CLI device-code flow
+  // ---------------------------------------------------------------------------
+  cliInit: publicProcedure.handler(async ({ context }) => {
+    const code = generateShortCode();
+    const id = crypto.randomUUID();
+    const now = new Date();
 
-    const row = rows[0];
-    if (!row || row.expiresAt < new Date()) {
-      return { status: "expired" as const };
-    }
+    await context.db.insert(verification).values({
+      createdAt: now,
+      expiresAt: new Date(now.getTime() + CLI_CODE_TTL_MS),
+      id,
+      identifier: `${CLI_IDENTIFIER_PREFIX}${code}`,
+      updatedAt: now,
+      value: "",
+    });
 
-    if (row.value === "") {
-      return { status: "pending" as const };
-    }
-
-    // Clean up after successful read
-    await ctx.db.delete(verification).where(eq(verification.id, row.id));
-
-    return { status: "confirmed" as const, token: row.value };
+    return { code };
   }),
 
-  // ---------------------------------------------------------------------------
-  // Invite codes
-  // ---------------------------------------------------------------------------
-
-  // Pre-flight check used by the register page so users get immediate feedback
-  // on a bad code before they fill in email/password. Shares
-  // `inviteCodeAvailabilityClause` with the signup hook so the two stay in
-  // lockstep — a code that validates here will be accepted by the hook
-  // (modulo races on single-use codes). Generic error message matches the
-  // hook's so we don't leak which codes exist. The atomic single-use claim
-  // still happens inside the hook — success here does NOT reserve the code.
-  validateInvite: publicProcedure
+  cliPoll: publicProcedure
     .input(z.object({ code: z.string() }))
-    .mutation(async ({ ctx, input }) => {
-      const code = normalizeInviteCode(input.code);
-      if (!code) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Invite code is required." });
-      }
-
-      const rows = await ctx.db
-        .select({ id: inviteCode.id })
-        .from(inviteCode)
-        .where(and(eq(inviteCode.code, code), inviteCodeAvailabilityClause(new Date())))
+    .handler(async ({ context, input }) => {
+      const identifier = `${CLI_IDENTIFIER_PREFIX}${input.code}`;
+      const rows = await context.db
+        .select()
+        .from(verification)
+        .where(eq(verification.identifier, identifier))
         .limit(1);
 
-      if (rows.length === 0) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Invalid or expired invite code." });
+      const [row] = rows;
+      if (!row || row.expiresAt < new Date()) {
+        return { status: "expired" as const };
       }
 
-      return { code };
+      if (row.value === "") {
+        return { status: "pending" as const };
+      }
+
+      // Clean up after successful read
+      await context.db.delete(verification).where(eq(verification.id, row.id));
+
+      return { status: "confirmed" as const, token: row.value };
     }),
 
-  listInvites: adminProcedure.query(async ({ ctx }) => {
-    const rows = await ctx.db
+  createInvites: adminProcedure
+    .input(
+      z.object({
+        // Explicit code instead of random generation; overrides `count`.
+        code: z.string().max(50).nullable().default(null),
+        count: z.number().int().min(1).max(MAX_INVITE_BATCH).default(1),
+        expiresAt: z.date().nullable().default(null),
+        maxUses: z.number().int().min(1).nullable().default(1),
+        note: z.string().max(200).nullable().default(null),
+      }),
+    )
+    .handler(async ({ context, input }) => {
+      let rows;
+      try {
+        rows = buildInviteRows({
+          code: input.code,
+          count: input.count,
+          createdBy: context.session.user.id,
+          expiresAt: input.expiresAt,
+          maxUses: input.maxUses,
+          note: input.note,
+        });
+      } catch (error) {
+        // buildInviteRows throws on a malformed custom code — a caller
+        // mistake, not a server fault.
+        throw new ORPCError("BAD_REQUEST", {
+          message: error instanceof Error ? error.message : "Invalid invite code",
+        });
+      }
+
+      try {
+        const created = await context.db.insert(inviteCode).values(rows).returning();
+        return { codes: created };
+      } catch (error) {
+        // Drizzle wraps the D1 constraint failure; the "UNIQUE" detail sits
+        // somewhere down the `cause` chain, not on the top-level message.
+        for (let e: unknown = error; e instanceof Error; e = e.cause) {
+          if (input.code !== null && e.message.includes("UNIQUE")) {
+            throw new ORPCError("CONFLICT", { message: "That invite code already exists." });
+          }
+        }
+        throw error;
+      }
+    }),
+
+  listInvites: adminProcedure.handler(async ({ context }) => {
+    const rows = await context.db
       .select({
-        id: inviteCode.id,
         code: inviteCode.code,
-        createdBy: inviteCode.createdBy,
         createdAt: inviteCode.createdAt,
-        expiresAt: inviteCode.expiresAt,
-        maxUses: inviteCode.maxUses,
-        usedCount: inviteCode.usedCount,
-        revokedAt: inviteCode.revokedAt,
-        note: inviteCode.note,
+        createdBy: inviteCode.createdBy,
         creatorEmail: user.email,
+        expiresAt: inviteCode.expiresAt,
+        id: inviteCode.id,
+        maxUses: inviteCode.maxUses,
+        note: inviteCode.note,
+        revokedAt: inviteCode.revokedAt,
+        usedCount: inviteCode.usedCount,
       })
       .from(inviteCode)
       .leftJoin(user, eq(inviteCode.createdBy, user.id))
@@ -157,51 +156,15 @@ export const authRouter = createTRPCRouter({
     return { codes: rows };
   }),
 
-  createInvites: adminProcedure
-    .input(
-      z.object({
-        count: z.number().int().min(1).max(MAX_INVITE_BATCH).default(1),
-        maxUses: z.number().int().min(1).nullable().default(1),
-        expiresAt: z.date().nullable().default(null),
-        note: z.string().max(200).nullable().default(null),
-        // Explicit code instead of random generation; overrides `count`.
-        code: z.string().max(50).nullable().default(null),
-      }),
-    )
-    .mutation(async ({ ctx, input }) => {
-      let rows;
-      try {
-        rows = buildInviteRows({
-          count: input.count,
-          maxUses: input.maxUses,
-          expiresAt: input.expiresAt,
-          note: input.note,
-          code: input.code,
-          createdBy: ctx.session.user.id,
-        });
-      } catch (err) {
-        // buildInviteRows throws on a malformed custom code — a caller
-        // mistake, not a server fault.
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: err instanceof Error ? err.message : "Invalid invite code",
-        });
-      }
-
-      try {
-        const created = await ctx.db.insert(inviteCode).values(rows).returning();
-        return { codes: created };
-      } catch (err) {
-        // Drizzle wraps the D1 constraint failure; the "UNIQUE" detail sits
-        // somewhere down the `cause` chain, not on the top-level message.
-        for (let e: unknown = err; e instanceof Error; e = e.cause) {
-          if (input.code != null && e.message.includes("UNIQUE")) {
-            throw new TRPCError({ code: "CONFLICT", message: "That invite code already exists." });
-          }
-        }
-        throw err;
-      }
-    }),
+  // Current authenticated identity. Works for both better-auth sessions and
+  // API keys (both resolve to `context.session` in the oRPC context), so the CLI
+  // can use it for `vg whoami` regardless of how it authenticated.
+  me: protectedProcedure.handler(({ context }) => ({
+    email: context.session.user.email,
+    id: context.session.user.id,
+    name: context.session.user.name,
+    role: context.session.user.role ?? null,
+  })),
 
   // Revoke, unrevoke, or change the use limit of an existing code. Omitted
   // fields are left untouched. Lowering `maxUses` below `usedCount` is allowed
@@ -216,25 +179,60 @@ export const authRouter = createTRPCRouter({
         revoked: z.boolean().optional(),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
+    .handler(async ({ context, input }) => {
       const patch: Partial<typeof inviteCode.$inferInsert> = {};
-      if (input.maxUses !== undefined) patch.maxUses = input.maxUses;
-      if (input.revoked !== undefined) patch.revokedAt = input.revoked ? new Date() : null;
-
-      if (Object.keys(patch).length === 0) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Nothing to update" });
+      if (input.maxUses !== undefined) {
+        patch.maxUses = input.maxUses;
+      }
+      if (input.revoked !== undefined) {
+        patch.revokedAt = input.revoked ? new Date() : null;
       }
 
-      const [updated] = await ctx.db
+      if (Object.keys(patch).length === 0) {
+        throw new ORPCError("BAD_REQUEST", { message: "Nothing to update" });
+      }
+
+      const [updated] = await context.db
         .update(inviteCode)
         .set(patch)
         .where(eq(inviteCode.id, input.id))
         .returning();
 
       if (!updated) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Code not found" });
+        throw new ORPCError("NOT_FOUND", { message: "Code not found" });
       }
 
       return { code: updated };
     }),
-});
+
+  // ---------------------------------------------------------------------------
+  // Invite codes
+  // ---------------------------------------------------------------------------
+  // Pre-flight check used by the register page so users get immediate feedback
+  // on a bad code before they fill in email/password. Shares
+  // `inviteCodeAvailabilityClause` with the signup hook so the two stay in
+  // lockstep — a code that validates here will be accepted by the hook
+  // (modulo races on single-use codes). Generic error message matches the
+  // hook's so we don't leak which codes exist. The atomic single-use claim
+  // still happens inside the hook — success here does NOT reserve the code.
+  validateInvite: publicProcedure
+    .input(z.object({ code: z.string() }))
+    .handler(async ({ context, input }) => {
+      const code = normalizeInviteCode(input.code);
+      if (!code) {
+        throw new ORPCError("BAD_REQUEST", { message: "Invite code is required." });
+      }
+
+      const rows = await context.db
+        .select({ id: inviteCode.id })
+        .from(inviteCode)
+        .where(and(eq(inviteCode.code, code), inviteCodeAvailabilityClause(new Date())))
+        .limit(1);
+
+      if (rows.length === 0) {
+        throw new ORPCError("FORBIDDEN", { message: "Invalid or expired invite code." });
+      }
+
+      return { code };
+    }),
+};

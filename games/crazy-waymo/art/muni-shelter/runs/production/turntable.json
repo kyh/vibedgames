@@ -1,0 +1,93 @@
+{
+  "angles": [
+    {
+      "azimuth": 45.0,
+      "path": "games/crazy-waymo/art/muni-shelter/runs/production/az45.png",
+      "isReference": true,
+      "segmented": true,
+      "holed": false,
+      "interiorHolePixelCount": 0,
+      "interiorHoleFraction": 0.0,
+      "largestHolePixelCount": 0,
+      "largestHoleBBox": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0
+      },
+      "areaFraction": 0.08086988661024305,
+      "ratio": 1.0,
+      "degenerate": false
+    },
+    {
+      "azimuth": 135.0,
+      "path": "games/crazy-waymo/art/muni-shelter/runs/production/az135.png",
+      "isReference": false,
+      "segmented": true,
+      "holed": false,
+      "interiorHolePixelCount": 381,
+      "interiorHoleFraction": 0.007165425411870909,
+      "largestHolePixelCount": 282,
+      "largestHoleBBox": {
+        "x": 329,
+        "y": 331,
+        "width": 46,
+        "height": 13
+      },
+      "areaFraction": 0.09014892578125,
+      "ratio": 1.1147403509507536,
+      "degenerate": false
+    },
+    {
+      "azimuth": 225.0,
+      "path": "games/crazy-waymo/art/muni-shelter/runs/production/az225.png",
+      "isReference": false,
+      "segmented": true,
+      "holed": false,
+      "interiorHolePixelCount": 395,
+      "interiorHoleFraction": 0.007445946200682388,
+      "largestHolePixelCount": 271,
+      "largestHoleBBox": {
+        "x": 386,
+        "y": 330,
+        "width": 46,
+        "height": 13
+      },
+      "areaFraction": 0.08994038899739583,
+      "ratio": 1.112161680538376,
+      "degenerate": false
+    },
+    {
+      "azimuth": 315.0,
+      "path": "games/crazy-waymo/art/muni-shelter/runs/production/az315.png",
+      "isReference": false,
+      "segmented": true,
+      "holed": false,
+      "interiorHolePixelCount": 0,
+      "interiorHoleFraction": 0.0,
+      "largestHolePixelCount": 0,
+      "largestHoleBBox": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0
+      },
+      "areaFraction": 0.0809054904513889,
+      "ratio": 1.0004402608021135,
+      "degenerate": false
+    }
+  ],
+  "referenceAzimuth": 45.0,
+  "requiredAzimuths": [45.0, 135.0, 225.0, 315.0],
+  "azimuthTolerance": 5.0,
+  "missingAzimuths": [],
+  "covered": true,
+  "collapseRatio": 0.15,
+  "degenerate": false,
+  "allowHoles": true,
+  "holed": false,
+  "unsegmentedAzimuths": [],
+  "segmentationReliable": true,
+  "passed": true,
+  "note": "deterministic; zero token; mandatory azimuth coverage catches off-axis-only defects, interior-hole flood fill catches silhouette-enclosed background that an area-only check misses"
+}

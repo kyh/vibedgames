@@ -4,12 +4,14 @@
 
 import { Inventory } from "./inventory";
 import { Skills } from "./skills";
+import { Collections } from "./collections";
 import type { AnimalSave } from "./save";
 import { MAX_HP, MAX_ENERGY, START_GOLD } from "../config";
 
 class Store {
   inv: Inventory = Inventory.fresh();
   skills: Skills = Skills.fresh();
+  collections = Collections.empty();
   gold = START_GOLD;
   energy = MAX_ENERGY;
   hp = MAX_HP;
@@ -26,6 +28,7 @@ class Store {
   initNew(): void {
     this.inv = Inventory.fresh();
     this.skills = Skills.fresh();
+    this.collections = Collections.empty();
     this.gold = START_GOLD;
     this.energy = MAX_ENERGY;
     this.hp = MAX_HP;

@@ -48,7 +48,7 @@ apps/
   factory/       Autonomous agent that builds a game and runs it like a studio
 games/           Example games, all deployed and playable
 packages/
-  api/           tRPC routers + better-auth
+  api/           oRPC routers + better-auth
   db/            Drizzle ORM schema + Cloudflare D1
   multiplayer/   Multiplayer client + React hooks (npm: @vibedgames/multiplayer)
   gamepad/       Touch + physical controller input (npm: @vibedgames/gamepad)
@@ -65,11 +65,10 @@ example games, [`plugins/`](./plugins) for the skills, and
 
 ```sh
 pnpm install
-cp .env.example .env                              # drizzle-kit + wrangler CLI creds
-cp apps/web/.dev.vars.example apps/web/.dev.vars  # Worker secrets (BETTER_AUTH_SECRET, R2, fal)
-pnpm dev:web                                      # run once, then stop — creates the local D1
-pnpm db:local                                     # push schema + seed dev logins
-pnpm dev                                          # http://localhost:5173
+cp .env.example .env  # every credential, CLI and Worker alike
+pnpm dev:web          # run once, then stop — creates the local D1
+pnpm db:local         # db:push + db:seed-local
+pnpm dev              # http://localhost:5173
 ```
 
 The first `dev:web` is not a typo — the Miniflare D1 file has to exist before
@@ -86,7 +85,8 @@ pnpm dev:<game>       # one example game (see games/README.md)
 pnpm build            # build everything
 pnpm typecheck        # type check all packages
 pnpm verify           # typecheck + lint + format + test (run before every commit)
-pnpm db:local         # push schema to local D1 + seed dev identity
+pnpm db:push          # push schema to local D1
+pnpm db:local         # db:push + seed dev identity
 pnpm db:push-remote   # push schema to production
 pnpm dogfood          # link the local vg CLI + sync plugin skills into .claude/skills
 ```

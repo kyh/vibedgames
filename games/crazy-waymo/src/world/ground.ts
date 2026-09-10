@@ -1,13 +1,16 @@
 import * as THREE from "three";
 
 import { GRID_X, GRID_Z, ROAD_TILE, WORLD_HALF_X, WORLD_HALF_Z } from "../shared/constants";
-import { type DrapeField } from "./conform";
-import { CUSTOM_MAP, type FloorKind, loadLocalOverrides } from "./custom-map";
+import { DRAPE_MAX_ERROR } from "./conform";
+import type { DrapeField } from "./conform";
+import { CUSTOM_MAP, loadLocalOverrides } from "./custom-map";
+import type { FloorKind } from "./custom-map";
 import type { CityPlan } from "./grid";
-import { dominantCover, type GroundCover, type LandClassAt, makeLandClassAt } from "./land-class";
-import type { RoadNetwork } from "./network";
-import { lowDetailSurfaces, SIDEWALK_W, walkFor } from "./roads";
-import type { Terrain } from "./terrain";
+import { dominantCover, makeLandClassAt } from "./land-class";
+import type { GroundCover, LandClass, LandClassAt } from "./land-class";
+import type { NetEdge, RoadNetwork } from "./network";
+import { SIDEWALK_W, walkFor } from "./roads";
+import type { GroundCeiling, Terrain } from "./terrain";
 
 // Ground shading + street-depression callbacks, extracted so the gen worker
 // and the main thread run EXACTLY the same code (a fork here would paint two
@@ -35,292 +38,178 @@ import type { Terrain } from "./terrain";
 // changes VERTEX OUTPUT: it is baked, and needs a WORLD_REV bump plus
 // `pnpm bake:world`.
 const COVER_COLOR = {
-  pavement: new THREE.Color(0x8b887c),
-  yard: new THREE.Color(0x86816f),
-  rearYard: new THREE.Color(0x757161),
-  plaza: new THREE.Color(0x9b968a),
-  parking: new THREE.Color(0x77756f),
-  court: new THREE.Color(0x6e6d68),
-  industrial: new THREE.Color(0x8a806a),
-  railyard: new THREE.Color(0x736c62),
-  quay: new THREE.Color(0x938e82),
-  path: new THREE.Color(0xa2916f),
-  lawn: new THREE.Color(0x718d4b),
-  meadow: new THREE.Color(0x8a9556),
-  grove: new THREE.Color(0x586c43),
-  conifer: new THREE.Color(0x3f513a),
-  woodland: new THREE.Color(0x52663f),
-  grassland: new THREE.Color(0xb0a26a),
-  cemetery: new THREE.Color(0x849060),
-  rock: new THREE.Color(0x847b70),
-  sand: new THREE.Color(0xc7b78e),
-  dune: new THREE.Color(0xb5a87b),
-  water: new THREE.Color(0x2f4d5c),
+  cemetery: new THREE.Color(0x84_90_60),
+  conifer: new THREE.Color(0x3f_51_3a),
+  court: new THREE.Color(0x6e_6d_68),
+  dune: new THREE.Color(0xb5_a8_7b),
+  grassland: new THREE.Color(0xb0_a2_6a),
+  grove: new THREE.Color(0x58_6c_43),
+  industrial: new THREE.Color(0x8a_80_6a),
+  lawn: new THREE.Color(0x71_8d_4b),
+  meadow: new THREE.Color(0x8a_95_56),
+  parking: new THREE.Color(0x77_75_6f),
+  path: new THREE.Color(0xa2_91_6f),
+  pavement: new THREE.Color(0x8b_88_7c),
+  plaza: new THREE.Color(0x9b_96_8a),
+  quay: new THREE.Color(0x93_8e_82),
+  railyard: new THREE.Color(0x73_6c_62),
+  rearYard: new THREE.Color(0x75_71_61),
+  rock: new THREE.Color(0x84_7b_70),
+  sand: new THREE.Color(0xc7_b7_8e),
+  water: new THREE.Color(0x2f_4d_5c),
+  woodland: new THREE.Color(0x52_66_3f),
+  yard: new THREE.Color(0x86_81_6f),
 } satisfies Readonly<Record<GroundCover, THREE.Color>>;
 
-const WET_SAND = new THREE.Color(0xa9946b); // darker band right at the waterline
-const TURF_SUN = new THREE.Color(0x9caa66); // sunlit two-tone partner for turf
-const STRAW_PALE = new THREE.Color(0xc2b586); // bleached crest of a dry flank
-const STRAW_DAMP = new THREE.Color(0x94955e); // the gullies that stay green
+// darker band right at the waterline
+const WET_SAND = new THREE.Color(0xa9_94_6b);
+// sunlit two-tone partner for turf
+const TURF_SUN = new THREE.Color(0x9c_aa_66);
+// bleached crest of a dry flank
+const STRAW_PALE = new THREE.Color(0xc2_b5_86);
+// the gullies that stay green
+const STRAW_DAMP = new THREE.Color(0x94_95_5e);
 
 // Editor "Floor" paint. Hand-painted cells win outright — no shore, no flank,
 // no patches — so what the editor shows is what ships.
 const PAINTED_FLOOR = {
-  plaza: COVER_COLOR.plaza,
   grass: COVER_COLOR.lawn,
+  plaza: COVER_COLOR.plaza,
   sand: COVER_COLOR.sand,
 } satisfies Readonly<Record<FloorKind, THREE.Color>>;
 
 // How a cover varies across a patch: irrigated turf drifts toward sunlit
 // yellow-green, dry ground between bleached crest and damp gully.
-function patchTreatment(cover: GroundCover): "turf" | "dry" | "none" {
+const patchTreatment = (cover: GroundCover): "turf" | "dry" | "none" => {
   switch (cover) {
     case "lawn":
     case "meadow":
     case "grove":
     case "conifer":
     case "woodland":
-    case "cemetery":
+    case "cemetery": {
       return "turf";
+    }
     case "grassland":
-    case "dune":
+    case "dune": {
       return "dry";
-    default:
+    }
+    default: {
       return "none";
+    }
   }
-}
+};
 
 // Low-frequency organic patches (~40–90u) so ground reads as rolling two-tone
 // cover instead of one flat fill — the Mario Kart grass trick.
-function meadowPatch(x: number, z: number): number {
+const meadowPatch = (x: number, z: number): number => {
   const a = Math.sin(x * 0.043 + Math.sin(z * 0.051) * 1.9);
   const b = Math.sin(z * 0.037 + Math.sin(x * 0.029) * 1.6);
   return 0.5 + 0.5 * a * b;
-}
+};
 
 const gridX = (x: number): number => Math.floor((x + WORLD_HALF_X) / ROAD_TILE);
 const gridZ = (z: number): number => Math.floor((z + WORLD_HALF_Z) / ROAD_TILE);
 
-// Ground grain: a runtime shader pass on the ground material (covers live AND
-// baked worlds — vertex colors stay untouched). Octaves of world-space
-// variation — fine grain, a smooth mid-scale value noise, broad patches, and
-// the PARCEL FIELD below — so the terrain reads as ground instead of flat fill.
-//
-// The octaves are applied to EVERY hue. Green-dominance now only selects the
-// TREATMENT on top: turf gets the olive/blue-green patch drift it always had,
-// hard ground gets aggregate grit and a warm/cool district shift, and sand
-// (warm, r >> b) gets wind ripples. The old code gated the whole pass on
-// green-dominance, which left every concrete and sand pixel in the city
-// perfectly flat AND would have zeroed the noise on any future non-green
-// palette (golden hills), so the gate was structurally trapping the ground in
-// green rather than describing it.
-//
-// THE PARCEL FIELD (2026-07-26) is what the noise octaves could not do. Noise
-// has no RUN-LENGTH: three smooth octaves over a 30u gap between two houses
-// average out to one tan value at any distance past a few metres, which is
-// exactly what every aerial showed. Ground in a city is not noise, it is a
-// mosaic of OWNED PATCHES — lot, yard, hardstand, apron — each a flat value
-// with a hard edge against its neighbour. `grCells` is that mosaic: one value
-// per cell plus the seam where two cells meet, over a lookup point warped by
-// `grWarp` so the mosaic is roughly rectilinear (which lots are) without being
-// a visible lattice (which they are not).
-//
-// It runs at THREE scales because each viewing range only resolves one of them:
-// block (~50u, value only) is all that survives an aerial, parcel (~10u) is the
-// low oblique, slab (~4u) is the windscreen. Both seam scales fade out with
-// pixel size, so nothing that would alias into a dark grid ever reaches an
-// aerial.
-//
-// The dominance test is RELATIVE (green over local brightness), not the
-// absolute difference it started as. Vertex colours reach the shader in linear
-// space, where a dark canopy green (conifer, g − r ≈ 0.04 linear) falls below
-// any absolute threshold that an open lawn (≈ 0.12) passes — the Presidio's
-// whole canopy was dropping out of the turf branch purely for being dark.
-//
-// Sand's ripple gate is the one hue test left and it asks for WARMTH. Measured
-// in linear: dry sand r − b ≈ 0.42, wet sand ≈ 0.33, straw ≈ 0.39. Straw and
-// wet sand are NOT separable on that axis at any threshold, so the straw hills
-// do pick up a faint (3.5%, ~4u) ripple — it reads as wind in dry grass, and
-// rfade kills it well before the hills are seen at distance. Sand also opts
-// OUT of the parcel field for the same reason it opts out of the district
-// drift: a beach has no lot lines.
-export function applyGrassMottle(mat: THREE.MeshStandardMaterial): void {
-  mat.onBeforeCompile = (shader) => {
-    shader.vertexShader = shader.vertexShader
-      .replace(
-        "#include <common>",
-        "#include <common>\nvarying vec3 vGroundPos;\nvarying vec3 vGroundNrm;",
-      )
-      .replace(
-        "#include <begin_vertex>",
-        `#include <begin_vertex>
-vGroundPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
-// World normal of the ground mesh, for the flank shading below. Length-guarded
-// so a geometry that ever shipped without normals cannot normalize a zero.
-vec3 gNrm = mat3(modelMatrix) * objectNormal;
-float gNrmL = length(gNrm);
-vGroundNrm = gNrmL > 1e-4 ? gNrm / gNrmL : vec3(0.0, 1.0, 0.0);`,
-      );
-    shader.fragmentShader = shader.fragmentShader
-      .replace(
-        "#include <common>",
-        `#include <common>
-${lowDetailSurfaces() ? "" : "#define GROUND_GRAIN_FULL 1"}
-varying vec3 vGroundPos;
-varying vec3 vGroundNrm;
-float grHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float grNoise(vec2 p) {
-  vec2 i = floor(p);
-  vec2 f = p - i;
-  vec2 u = f * f * (3.0 - 2.0 * f);
-  return mix(
-    mix(grHash(i), grHash(i + vec2(1.0, 0.0)), u.x),
-    mix(grHash(i + vec2(0.0, 1.0)), grHash(i + vec2(1.0, 1.0)), u.x),
-    u.y);
-}
-// Warp for the parcel mosaic below: two octaves, computed ONCE and shared by
-// every scale that reads it. The long octave (~48u) shears whole blocks; the
-// short one (~13u) is what stops the mosaic being a lattice — it distorts each
-// cell differently from its neighbour, so the field keeps the straight runs
-// that make ground read as parcelled without ever reading as tiling.
-vec2 grWarp(vec2 wp, float amt) {
-  return wp
-    + amt * (vec2(grNoise(wp * 0.021), grNoise(wp * 0.019 + 37.0)) - 0.5)
-    + amt * 0.5 * (vec2(grNoise(wp * 0.075 + 5.0), grNoise(wp * 0.081 + 11.0)) - 0.5);
-}
-// The parcel mosaic. Returns (value in [-0.5, 0.5] for this cell, seam coverage
-// in [0, 1] at the boundary with its neighbours). Rows slide by a per-row hash
-// — a running bond, the way lots actually meet along a block face — so even the
-// unwarped low-detail variant never lines up into a checkerboard.
-//
-// \`px\` is the world size of a pixel. The seam is a fixed-width WORLD line, so
-// it has to be widened to a pixel up close and faded out once a pixel is wider
-// than the line is, or it aliases into a dark grid from the air. \`seamW\` = 0
-// asks for the value only — what the block scale wants, since blocks are
-// separated by streets and a line between them would sit on nothing.
-vec2 grCells(vec2 w, float px, vec2 cell, float seamW, float seed) {
-  vec2 g = w / cell;
-  float row = floor(g.y);
-  g.x += grHash(vec2(row, seed + 3.0)) * 2.7;
-  vec2 c = vec2(floor(g.x), row);
-  vec2 f = g - c;
-  float seam = 0.0;
-  if (seamW > 0.0) {
-    vec2 ed = min(f, 1.0 - f) * cell; // world units to this cell's edges
-    seam = (1.0 - smoothstep(0.0, seamW + px, min(ed.x, ed.y)))
-      * (1.0 - smoothstep(seamW * 2.0, seamW * 7.0, px));
+/** One floor-override lookup for both baked color and runtime material weights. */
+export const makePaintedFloorAt = (): ((x: number, z: number) => FloorKind | undefined) => {
+  const floorAt = new Map<string, FloorKind>();
+  const local = loadLocalOverrides();
+  for (const [gx, gz, kind] of [...CUSTOM_MAP.floor, ...local.floor]) {
+    floorAt.set(`${gx},${gz}`, kind);
   }
-  return vec2(grHash(c + seed) - 0.5, seam);
-}`,
-      )
-      .replace(
-        "#include <color_fragment>",
-        `#include <color_fragment>
-{
-  vec2 wp = vGroundPos.xz;
-  // Derivatives stay in UNIFORM control flow: the grass/hard gate below splits
-  // quads wherever turf meets a beach or a plaza, and fwidth() inside a
-  // divergent branch is undefined.
-  vec2 dwp = fwidth(wp);
-  float px = max(dwp.x, dwp.y);
-  float grass = smoothstep(0.05, 0.25,
-    (diffuseColor.g - max(diffuseColor.r, diffuseColor.b)) / (diffuseColor.g + 0.05));
-  float fine = grHash(floor(wp * 2.1));
-  float broad = grNoise(wp * 0.045);
-  // Sand-ripple phase and its screen-space rate live outside the branches for
-  // the same reason dwp does.
-  float rphase = dot(wp, vec2(1.28, 0.79)) + broad * 7.0; // broad noise curves the bands
-  float rfade = 1.0 - smoothstep(0.9, 2.2, fwidth(rphase));
-  // THREE SCALES, because each range only sees one of them. From 250u a parcel
-  // is two pixels wide and averages away — which is why the noise octaves alone
-  // left every aerial as one flat tan sheet — so the BLOCK scale carries the
-  // read there. Lot carries the low oblique, slab carries the windscreen.
-  #ifdef GROUND_GRAIN_FULL
-    float mid = grNoise(wp * 0.16);
-    vec2 wq = grWarp(wp, 7.0);
-    vec2 blk = grCells(wq, px, vec2(55.0, 47.0), 0.0, 173.0);
-    vec2 lot = grCells(wq, px, vec2(8.0, 12.5), 0.32, 0.0);
-    vec2 slab = grCells(wq, px, vec2(4.2), 0.11, 61.0);
-    // A worn track: the thin ridge of a slow noise, so it wanders ACROSS the
-    // parcel mosaic the way a shortcut does instead of following it.
-    float trackN = grNoise(wp * 0.021 + 91.0);
-    float track = (1.0 - smoothstep(0.0, 0.055, abs(trackN - 0.5)))
-      * (1.0 - smoothstep(0.7, 1.8, px));
-  #else
-    // Phones keep the mid octave only where it does the most work — turf — and
-    // take the parcel field unwarped (four noise fetches saved on the largest
-    // fill in the frame). The running bond keeps it off a checkerboard even so.
-    float mid = 0.5;
-    if (grass > 0.01) mid = grNoise(wp * 0.16);
-    vec2 blk = grCells(wp, px, vec2(55.0, 47.0), 0.0, 173.0);
-    vec2 lot = grCells(wp, px, vec2(8.0, 12.5), 0.32, 0.0);
-    vec2 slab = vec2(0.0);
-    float track = 0.0;
-  #endif
-  // Hard ground still gets most of the octave amplitude; max() (not mix) is
-  // what keeps green ground identical to before.
-  float amp = max(grass, 0.55);
-  diffuseColor.rgb *= 1.0 + ((fine - 0.5) * 0.05 + (mid - 0.5) * 0.12 + (broad - 0.5) * 0.14) * amp;
-  // Unlit flank shading. The tessellated ground's normal is smooth over ~9u, so
-  // this is a broad form term rather than an edge: it keeps a hill reading as a
-  // hill on the side the sun is not on, which is most of Twin Peaks most of the
-  // day and every rooftop-height frame at dusk.
-  diffuseColor.rgb *= 1.0 - smoothstep(0.03, 0.5, 1.0 - clamp(vGroundNrm.y, 0.0, 1.0)) * 0.09;
-  if (grass > 0.01) {
-    // Broad patches drift warm (olive) or cool (blue-green) — turf, not paint.
-    float drift = (broad - 0.5) * 0.7 * grass;
-    diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.08, 1.0, 0.78), clamp(drift, 0.0, 1.0));
-    diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.88, 1.0, 1.05), clamp(-drift, 0.0, 1.0));
-    // Desire paths: turf worn through to the dirt under it.
-    diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.20, 1.02, 0.70),
-      track * grass * 0.45);
-  }
-  float hard = 1.0 - grass;
-  if (hard > 0.01) {
-    // Aggregate: concrete's chips and sand's tooth, an octave finer than the
-    // meadow grain.
-    float grit = grHash(floor(wp * 3.3)) - 0.5;
-    // Sand only — the one hue test left, and it asks for WARMTH rather than
-    // the absence of green, so a straw hill (r - b ~ 0.25) stays out of it.
-    float sand = smoothstep(0.30, 0.40, diffuseColor.r - diffuseColor.b);
-    float ripple = sin(rphase) * sand * rfade;
-    // The parcel mosaic is BUILT ground only: beaches and dunes keep the
-    // ripples and skip the lot lines.
-    float built = hard * (1.0 - sand);
-    float parcel = blk.x * 0.17 + lot.x * 0.13 - lot.y * 0.09
-      + slab.x * 0.035 - slab.y * 0.035;
-    vec3 grain = vec3(1.0 + hard * (grit * 0.05 + ripple * 0.035) + built * parcel);
-    // Concrete picks up the same warm/cool district drift the asphalt has.
-    grain += (broad - 0.5) * built * vec3(0.05, 0.015, -0.05);
-    // A track over hard ground is COMPACTED, not worn away: darker, not paler.
-    grain *= 1.0 - built * track * 0.11;
-    diffuseColor.rgb *= grain;
-  }
-}`,
-      );
+  return (x, z) => {
+    const gx = Math.min(GRID_X - 1, Math.max(0, gridX(x)));
+    const gz = Math.min(GRID_Z - 1, Math.max(0, gridZ(z)));
+    return floorAt.get(`${gx},${gz}`);
   };
+};
+
+/** Non-color material weights. The unused remainder is paved ground. */
+export interface GroundBlend {
+  turf: number;
+  sand: number;
+  stone: number;
+  loose: number;
 }
+export type GroundBlendAt = (x: number, z: number, into: GroundBlend) => void;
+const TURF_BLEND: Readonly<GroundBlend> = { loose: 0, sand: 0, stone: 0, turf: 1 };
+const SAND_BLEND: Readonly<GroundBlend> = { loose: 0, sand: 1, stone: 0, turf: 0 };
+const PAVED_BLEND: Readonly<GroundBlend> = { loose: 0, sand: 0, stone: 0, turf: 0 };
+const GRAVEL_BLEND: Readonly<GroundBlend> = { loose: 0.3, sand: 0, stone: 0.7, turf: 0 };
+
+const COVER_BLEND = {
+  cemetery: TURF_BLEND,
+  conifer: TURF_BLEND,
+  court: PAVED_BLEND,
+  dune: { loose: 0, sand: 0.85, stone: 0, turf: 0.15 },
+  grassland: TURF_BLEND,
+  grove: TURF_BLEND,
+  industrial: { loose: 1, sand: 0, stone: 0, turf: 0 },
+  lawn: TURF_BLEND,
+  meadow: TURF_BLEND,
+  parking: PAVED_BLEND,
+  path: GRAVEL_BLEND,
+  pavement: PAVED_BLEND,
+  plaza: PAVED_BLEND,
+  quay: PAVED_BLEND,
+  railyard: GRAVEL_BLEND,
+  rearYard: PAVED_BLEND,
+  rock: { loose: 0, sand: 0, stone: 1, turf: 0 },
+  sand: SAND_BLEND,
+  water: PAVED_BLEND,
+  woodland: TURF_BLEND,
+  yard: PAVED_BLEND,
+} satisfies Readonly<Record<GroundCover, Readonly<GroundBlend>>>;
+
+const FLOOR_BLEND = {
+  grass: TURF_BLEND,
+  plaza: PAVED_BLEND,
+  sand: SAND_BLEND,
+} satisfies Readonly<Record<FloorKind, Readonly<GroundBlend>>>;
+
+/** Match the painter's cover/under transition, independently of its palette. */
+export const groundBlendInto = (land: LandClass, into: GroundBlend): void => {
+  const under = COVER_BLEND[land.under];
+  const cover = COVER_BLEND[land.cover];
+  const weight = land.strength;
+  into.turf = under.turf + (cover.turf - under.turf) * weight;
+  into.sand = under.sand + (cover.sand - under.sand) * weight;
+  into.stone = under.stone + (cover.stone - under.stone) * weight;
+  into.loose = under.loose + (cover.loose - under.loose) * weight;
+};
+
+export const makeGroundBlendAt =
+  (
+    landClassAt: LandClassAt,
+    paintedFloorAt: (x: number, z: number) => FloorKind | undefined = makePaintedFloorAt(),
+  ): GroundBlendAt =>
+  (x, z, into) => {
+    const painted = paintedFloorAt(x, z);
+    if (painted === undefined) {
+      groundBlendInto(landClassAt(x, z), into);
+      return;
+    }
+    const blend = FLOOR_BLEND[painted];
+    into.turf = blend.turf;
+    into.sand = blend.sand;
+    into.stone = blend.stone;
+    into.loose = blend.loose;
+  };
 
 /**
  * The ground painter. `landClassAt` defaults to a resolver built for this world;
  * a caller that already has one (city.ts's wheel FX needs the same rule) can
  * pass it in so the ~600 KB of fabric/wildness fields are built once.
  */
-export function makeGroundColorAt(
+export const makeGroundColorAt = (
   plan: CityPlan,
   terrain: Terrain,
   landClassAt: LandClassAt = makeLandClassAt(plan, terrain),
-): (x: number, z: number, into: THREE.Color) => void {
-  // Painted floors (editor "Floor" mode): baked + this browser's local edits.
-  const floorAt = new Map<string, FloorKind>();
-  const local = loadLocalOverrides();
-  for (const [fgx, fgz, kind] of [...CUSTOM_MAP.floor, ...local.floor]) {
-    floorAt.set(`${fgx},${fgz}`, kind);
-  }
+): ((x: number, z: number, into: THREE.Color) => void) => {
+  const paintedFloorAt = makePaintedFloorAt();
   return (x, z, into) => {
-    const gx = Math.min(GRID_X - 1, Math.max(0, gridX(x)));
-    const gz = Math.min(GRID_Z - 1, Math.max(0, gridZ(z)));
-    const painted = floorAt.get(`${gx},${gz}`);
+    const painted = paintedFloorAt(x, z);
     if (painted !== undefined) {
       into.copy(PAINTED_FLOOR[painted]);
       return;
@@ -330,7 +219,9 @@ export function makeGroundColorAt(
     // the tree line, a beach apron running inland — feather into the ground
     // they sit on instead of ending on a line.
     into.copy(COVER_COLOR[land.under]);
-    if (land.cover !== land.under) into.lerp(COVER_COLOR[land.cover], land.strength);
+    if (land.cover !== land.under) {
+      into.lerp(COVER_COLOR[land.cover], land.strength);
+    }
     // The darker wet-sand band right at the waterline: the Mario Kart shore
     // read, and the water shader laps its foam against exactly this band.
     if (land.shore.kind === "beach" && land.shore.wet > 0) {
@@ -338,21 +229,24 @@ export function makeGroundColorAt(
     }
     const patch = meadowPatch(x, z);
     switch (patchTreatment(dominantCover(land))) {
-      case "turf":
+      case "turf": {
         into.lerp(TURF_SUN, patch * 0.32);
         break;
-      case "dry":
+      }
+      case "dry": {
         // Straw is never uniform: bleached where the sun sits on the crest,
         // still green down the gullies. This is the read that makes a golden
         // hill look like a hill and not a flat gold decal.
         into.lerp(STRAW_PALE, patch * 0.34);
         into.lerp(STRAW_DAMP, (1 - patch) * 0.26);
         break;
-      case "none":
+      }
+      default: {
         break;
+      }
     }
   };
-}
+};
 
 // Park cells are TILE territory: the ground flattens each park cell to one
 // terraced height (sampled at the cell centre) so KayKit park tiles seat on it
@@ -362,7 +256,7 @@ export function makeGroundColorAt(
 // keeps a second copy of it: `parkCellHeight` below is the only park-specific
 // thing the ground itself owns.
 
-export function parkCellHeight(terrain: Terrain, gx: number, gz: number): number {
+export const parkCellHeight = (terrain: Terrain, gx: number, gz: number): number => {
   // Seat at the HIGHEST corner. No quantization: tiles only go on flat
   // cells now, where neighbours land within centimetres of each other —
   // no visible layering. Sunk 0.3 below the high corner: seated fully proud,
@@ -378,9 +272,9 @@ export function parkCellHeight(terrain: Terrain, gx: number, gz: number): number
     terrain.heightAt(x0 + ROAD_TILE / 2, z0 + ROAD_TILE / 2),
   );
   return h - 0.25;
-}
+};
 
-export function parkCellFloor(terrain: Terrain, gx: number, gz: number): number {
+export const parkCellFloor = (terrain: Terrain, gx: number, gz: number): number => {
   const x0 = gx * ROAD_TILE - WORLD_HALF_X;
   const z0 = gz * ROAD_TILE - WORLD_HALF_Z;
   return Math.min(
@@ -389,7 +283,7 @@ export function parkCellFloor(terrain: Terrain, gx: number, gz: number): number 
     terrain.heightAt(x0, z0 + ROAD_TILE),
     terrain.heightAt(x0 + ROAD_TILE, z0 + ROAD_TILE),
   );
-}
+};
 
 // --- SF step-ladder streets -------------------------------------------------
 // Real SF hill streets are ENGINEERED: constant-grade ramps block to block
@@ -399,10 +293,14 @@ export function parkCellFloor(terrain: Terrain, gx: number, gz: number): number 
 // feeds all three height consumers (road drape, ground mesh, drive surface),
 // so they cannot disagree.
 const TERRACE_RES = ROAD_TILE / 4;
-const LANDING_R = 6; // flat pad radius around each intersection node
-const TERRACE_FEATHER = 7; // world units past the sidewalk to fade the delta
-const TERRACE_CAP = 2.4; // max |delta| — beyond this reads as a broken cliff
-const MAX_RAMP_GRADE = 0.42; // steepest engineered pitch (≈ real SF's 22nd St)
+// flat pad radius around each intersection node
+const LANDING_R = 6;
+// world units past the sidewalk to fade the delta
+const TERRACE_FEATHER = 7;
+// max |delta| — beyond this reads as a broken cliff
+const TERRACE_CAP = 2.4;
+// steepest engineered pitch (≈ real SF's 22nd St)
+const MAX_RAMP_GRADE = 0.42;
 // Chord grade where terracing starts/saturates. Below the low end the smooth
 // drape is indistinguishable from the engineered profile anyway.
 const TERRACE_GRADE_LO = 0.07;
@@ -411,10 +309,142 @@ const TERRACE_GRADE_HI = 0.13;
 // ends there is no room for a ramp — the profile degenerates into a cliff.
 const TERRACE_MIN_LEN = 15;
 
-function smooth01(t: number): number {
-  const c = t < 0 ? 0 : t > 1 ? 1 : t;
+const smooth01 = (t: number): number => {
+  const c = t < 0 ? 0 : Math.min(1, t);
   return c * c * (3 - 2 * c);
+};
+
+interface TerraceScratch {
+  readonly FW: number;
+  readonly FH: number;
+  readonly sumW: Float32Array;
+  readonly sumWV: Float32Array;
+  /** Per-edge scratch: nearest-segment dist/value/weight + touched list. */
+  readonly sd: Float32Array;
+  readonly sv: Float32Array;
+  readonly sw: Float32Array;
+  readonly touched: number[];
 }
+
+interface TerraceProfile {
+  /** Arclength at each polyline point. */
+  readonly arc: Float32Array;
+  readonly steep: number;
+  /** Engineered height at arclength s. */
+  readonly at: (s: number) => number;
+}
+
+/** An edge's engineered profile, or null where the smooth drape already serves. */
+const terraceProfile = (e: NetEdge, terrain: Terrain): TerraceProfile | null => {
+  const { pts } = e;
+  if (pts.length < 4) {
+    return null;
+  }
+  // Arclength table + chord grade from the endpoint node heights.
+  const n = pts.length / 2;
+  const arc = new Float32Array(n);
+  for (let i = 1; i < n; i += 1) {
+    const dx = (pts[i * 2] ?? 0) - (pts[i * 2 - 2] ?? 0);
+    const dz = (pts[i * 2 + 1] ?? 0) - (pts[i * 2 - 1] ?? 0);
+    arc[i] = (arc[i - 1] ?? 0) + Math.hypot(dx, dz);
+  }
+  const len = arc[n - 1] ?? 0;
+  if (len < TERRACE_MIN_LEN) {
+    return null;
+    // no room for a ramp between landings
+  }
+  const hA = terrain.heightAt(pts[0] ?? 0, pts[1] ?? 0);
+  const hB = terrain.heightAt(pts[n * 2 - 2] ?? 0, pts[n * 2 - 1] ?? 0);
+  const dh = Math.abs(hB - hA);
+  const steep =
+    smooth01((dh / len - TERRACE_GRADE_LO) / (TERRACE_GRADE_HI - TERRACE_GRADE_LO)) *
+    smooth01((len - TERRACE_MIN_LEN) / 8);
+  if (steep <= 0) {
+    return null;
+  }
+  // Engineered profile along arclength s: flat landing at each node, then
+  // a constant-grade ramp between the landing edges. Landings SHRINK when
+  // the block is short enough that a full-size pair would push the ramp
+  // past MAX_RAMP_GRADE — the pitch caps at real-SF steep, never a cliff.
+  // The grade break at the landing edge stays HARD on purpose: cresting an
+  // intersection at speed is the SF car-chase hop.
+  let landing = LANDING_R;
+  const needRamp = dh / MAX_RAMP_GRADE;
+  if (len - 2 * landing < needRamp) {
+    landing = Math.max(2, (len - needRamp) / 2);
+  }
+  const rampLen = Math.max(1, len - landing * 2);
+  const at = (s: number): number => {
+    const sr = Math.min(Math.max((s - landing) / rampLen, 0), 1);
+    return hA + (hB - hA) * sr;
+  };
+  return { arc, at, steep };
+};
+
+/** Stamp segment k of the edge into the per-edge scratch (nearest segment wins). */
+const rasterizeTerraceSegment = (
+  scratch: TerraceScratch,
+  e: NetEdge,
+  k: number,
+  band: number,
+  profile: TerraceProfile,
+  terrain: Terrain,
+): void => {
+  const { FW, FH, sd, sv, sw, touched } = scratch;
+  const { pts } = e;
+  const ax = pts[k] ?? 0;
+  const az = pts[k + 1] ?? 0;
+  const bx = pts[k + 2] ?? 0;
+  const bz = pts[k + 3] ?? 0;
+  const s0 = profile.arc[k / 2] ?? 0;
+  const s1 = profile.arc[k / 2 + 1] ?? 0;
+  const i0 = Math.max(0, Math.floor((Math.min(ax, bx) - band + WORLD_HALF_X) / TERRACE_RES));
+  const i1 = Math.min(FW - 1, Math.ceil((Math.max(ax, bx) + band + WORLD_HALF_X) / TERRACE_RES));
+  const j0 = Math.max(0, Math.floor((Math.min(az, bz) - band + WORLD_HALF_Z) / TERRACE_RES));
+  const j1 = Math.min(FH - 1, Math.ceil((Math.max(az, bz) + band + WORLD_HALF_Z) / TERRACE_RES));
+  const dx = bx - ax;
+  const dz = bz - az;
+  const l2 = dx * dx + dz * dz || 1;
+  for (let i = i0; i <= i1; i += 1) {
+    const px = i * TERRACE_RES - WORLD_HALF_X;
+    for (let j = j0; j <= j1; j += 1) {
+      const pz = j * TERRACE_RES - WORLD_HALF_Z;
+      let t = ((px - ax) * dx + (pz - az) * dz) / l2;
+      t = t < 0 ? 0 : Math.min(1, t);
+      const d = Math.hypot(px - (ax + dx * t), pz - (az + dz * t));
+      if (d > band) {
+        continue;
+      }
+      const idx = i * FH + j;
+      const prior = sd[idx] ?? 1e9;
+      if (d >= prior) {
+        continue;
+        // a closer segment of THIS edge won
+      }
+      if (prior === 1e9) {
+        touched.push(idx);
+      }
+      const feather = 1 - smooth01((d - e.half - walkFor(e.half)) / TERRACE_FEATHER);
+      const want = profile.at(s0 + (s1 - s0) * t) - terrain.heightAt(px, pz);
+      const capped = Math.min(TERRACE_CAP, Math.max(-TERRACE_CAP, want));
+      sd[idx] = d;
+      sv[idx] = capped * profile.steep;
+      sw[idx] = feather;
+    }
+  }
+};
+
+/** Merge this edge's contribution into the field and reset the scratch. */
+const mergeTerraceEdge = (scratch: TerraceScratch): void => {
+  const { sumW, sumWV, sd, sv, sw, touched } = scratch;
+  for (const idx of touched) {
+    const w = sw[idx] ?? 0;
+    sumW[idx] = (sumW[idx] ?? 0) + w;
+    sumWV[idx] = (sumWV[idx] ?? 0) + w * (sv[idx] ?? 0);
+    sd[idx] = 1e9;
+  }
+  touched.length = 0;
+};
 
 /** Delta between the engineered street profile and the raw field, for every
  *  point within a steep street's corridor (0 elsewhere). EVERY edge whose
@@ -425,119 +455,53 @@ function smooth01(t: number): number {
  *  Landings pin every edge to the shared node height, so the blend converges
  *  there. Each edge contributes once per point (nearest of its segments),
  *  via a per-edge scratch pass. */
-export function makeStreetTerrace(
+export const makeStreetTerrace = (
   network: RoadNetwork,
   terrain: Terrain,
-): (x: number, z: number) => number {
+): ((x: number, z: number) => number) => {
   const FW = Math.ceil((WORLD_HALF_X * 2) / TERRACE_RES) + 2;
   const FH = Math.ceil((WORLD_HALF_Z * 2) / TERRACE_RES) + 2;
-  const sumW = new Float32Array(FW * FH);
-  const sumWV = new Float32Array(FW * FH);
-  // Per-edge scratch: nearest-segment dist/value/weight + touched list.
-  const sd = new Float32Array(FW * FH).fill(1e9);
-  const sv = new Float32Array(FW * FH);
-  const sw = new Float32Array(FW * FH);
-  const touched: number[] = [];
+  const scratch: TerraceScratch = {
+    FH,
+    FW,
+    sd: new Float32Array(FW * FH).fill(1e9),
+    sumW: new Float32Array(FW * FH),
+    sumWV: new Float32Array(FW * FH),
+    sv: new Float32Array(FW * FH),
+    sw: new Float32Array(FW * FH),
+    touched: [],
+  };
   for (const e of network.edges) {
-    const pts = e.pts;
-    if (pts.length < 4) continue;
-    // Arclength table + chord grade from the endpoint node heights.
-    const n = pts.length / 2;
-    const arc = new Float32Array(n);
-    for (let i = 1; i < n; i++) {
-      const dx = (pts[i * 2] ?? 0) - (pts[i * 2 - 2] ?? 0);
-      const dz = (pts[i * 2 + 1] ?? 0) - (pts[i * 2 - 1] ?? 0);
-      arc[i] = (arc[i - 1] ?? 0) + Math.hypot(dx, dz);
+    const profile = terraceProfile(e, terrain);
+    if (!profile) {
+      continue;
     }
-    const len = arc[n - 1] ?? 0;
-    if (len < TERRACE_MIN_LEN) continue; // no room for a ramp between landings
-    const hA = terrain.heightAt(pts[0] ?? 0, pts[1] ?? 0);
-    const hB = terrain.heightAt(pts[n * 2 - 2] ?? 0, pts[n * 2 - 1] ?? 0);
-    const dh = Math.abs(hB - hA);
-    const steep =
-      smooth01((dh / len - TERRACE_GRADE_LO) / (TERRACE_GRADE_HI - TERRACE_GRADE_LO)) *
-      smooth01((len - TERRACE_MIN_LEN) / 8);
-    if (steep <= 0) continue;
-    // Engineered profile along arclength s: flat landing at each node, then
-    // a constant-grade ramp between the landing edges. Landings SHRINK when
-    // the block is short enough that a full-size pair would push the ramp
-    // past MAX_RAMP_GRADE — the pitch caps at real-SF steep, never a cliff.
-    // The grade break at the landing edge stays HARD on purpose: cresting an
-    // intersection at speed is the SF car-chase hop.
-    let landing = LANDING_R;
-    const needRamp = dh / MAX_RAMP_GRADE;
-    if (len - 2 * landing < needRamp) landing = Math.max(2, (len - needRamp) / 2);
-    const rampLen = Math.max(1, len - landing * 2);
-    const profile = (s: number): number => {
-      const sr = Math.min(Math.max((s - landing) / rampLen, 0), 1);
-      return hA + (hB - hA) * sr;
-    };
     const band = e.half + walkFor(e.half) + TERRACE_FEATHER;
-    for (let k = 0; k + 3 < pts.length; k += 2) {
-      const ax = pts[k] ?? 0;
-      const az = pts[k + 1] ?? 0;
-      const bx = pts[k + 2] ?? 0;
-      const bz = pts[k + 3] ?? 0;
-      const s0 = arc[k / 2] ?? 0;
-      const s1 = arc[k / 2 + 1] ?? 0;
-      const i0 = Math.max(0, Math.floor((Math.min(ax, bx) - band + WORLD_HALF_X) / TERRACE_RES));
-      const i1 = Math.min(
-        FW - 1,
-        Math.ceil((Math.max(ax, bx) + band + WORLD_HALF_X) / TERRACE_RES),
-      );
-      const j0 = Math.max(0, Math.floor((Math.min(az, bz) - band + WORLD_HALF_Z) / TERRACE_RES));
-      const j1 = Math.min(
-        FH - 1,
-        Math.ceil((Math.max(az, bz) + band + WORLD_HALF_Z) / TERRACE_RES),
-      );
-      const dx = bx - ax;
-      const dz = bz - az;
-      const l2 = dx * dx + dz * dz || 1;
-      for (let i = i0; i <= i1; i++) {
-        const px = i * TERRACE_RES - WORLD_HALF_X;
-        for (let j = j0; j <= j1; j++) {
-          const pz = j * TERRACE_RES - WORLD_HALF_Z;
-          let t = ((px - ax) * dx + (pz - az) * dz) / l2;
-          t = t < 0 ? 0 : t > 1 ? 1 : t;
-          const d = Math.hypot(px - (ax + dx * t), pz - (az + dz * t));
-          if (d > band) continue;
-          const idx = i * FH + j;
-          if (d >= (sd[idx] ?? 1e9)) continue; // a closer segment of THIS edge won
-          if ((sd[idx] ?? 1e9) === 1e9) touched.push(idx);
-          const feather = 1 - smooth01((d - e.half - walkFor(e.half)) / TERRACE_FEATHER);
-          const want = profile(s0 + (s1 - s0) * t) - terrain.heightAt(px, pz);
-          const capped = Math.min(TERRACE_CAP, Math.max(-TERRACE_CAP, want));
-          sd[idx] = d;
-          sv[idx] = capped * steep;
-          sw[idx] = feather;
-        }
-      }
+    for (let k = 0; k + 3 < e.pts.length; k += 2) {
+      rasterizeTerraceSegment(scratch, e, k, band, profile, terrain);
     }
-    // Merge this edge's contribution and reset the scratch.
-    for (const idx of touched) {
-      const w = sw[idx] ?? 0;
-      sumW[idx] = (sumW[idx] ?? 0) + w;
-      sumWV[idx] = (sumWV[idx] ?? 0) + w * (sv[idx] ?? 0);
-      sd[idx] = 1e9;
-    }
-    touched.length = 0;
+    mergeTerraceEdge(scratch);
   }
   // Collapse into one field, then sample it BILINEARLY. A nearest-cell
   // lookup quantized the profile into 3.25u plateaus — the whole hill became
   // a washboard of ankle-high risers that pinned the car. max(1, sum):
   // fringe weights fade the delta (feather), overlaps average, never stack.
   const field = new Float32Array(FW * FH);
-  for (let idx = 0; idx < field.length; idx++) {
-    const w = sumW[idx] ?? 0;
-    if (w <= 0.0001) continue;
-    field[idx] = (sumWV[idx] ?? 0) / Math.max(1, w);
+  for (let idx = 0; idx < field.length; idx += 1) {
+    const w = scratch.sumW[idx] ?? 0;
+    if (w <= 0.0001) {
+      continue;
+    }
+    field[idx] = (scratch.sumWV[idx] ?? 0) / Math.max(1, w);
   }
   return (x: number, z: number): number => {
     const fx = (x + WORLD_HALF_X) / TERRACE_RES;
     const fz = (z + WORLD_HALF_Z) / TERRACE_RES;
     const i = Math.floor(fx);
     const j = Math.floor(fz);
-    if (i < 0 || j < 0 || i >= FW - 1 || j >= FH - 1) return 0;
+    if (i < 0 || j < 0 || i >= FW - 1 || j >= FH - 1) {
+      return 0;
+    }
     const tx = fx - i;
     const tz = fz - j;
     const a = field[i * FH + j] ?? 0;
@@ -546,11 +510,11 @@ export function makeStreetTerrace(
     const d = field[(i + 1) * FH + j + 1] ?? 0;
     return (a * (1 - tx) + b * tx) * (1 - tz) + (c * (1 - tx) + d * tx) * tz;
   };
-}
+};
 
 // Terrain + street terrace as ONE drape target for the road builder — roads
 // must render exactly the engineered profile the drive surface reports.
-export function makeTerracedDrapeField(network: RoadNetwork, terrain: Terrain): DrapeField {
+export const makeTerracedDrapeField = (network: RoadNetwork, terrain: Terrain): DrapeField => {
   const terraceAt = makeStreetTerrace(network, terrain);
   const heightAt = (x: number, z: number): number => terrain.heightAt(x, z) + terraceAt(x, z);
   const EPS = 1.6;
@@ -562,7 +526,7 @@ export function makeTerracedDrapeField(network: RoadNetwork, terrain: Terrain): 
       return out.set(-hx, 2 * EPS, -hz).normalize();
     },
   };
-}
+};
 
 /**
  * Height of the surface a static prop STANDS ON — the two things that are
@@ -572,36 +536,41 @@ export function makeTerracedDrapeField(network: RoadNetwork, terrain: Terrain): 
  * its ~9u lattice. Seating on `terrain.heightAt` buried or floated props by up
  * to the full terrace cap — half a lamp post underground, hydrants in the air.
  */
-export function makeStandingSurface(
-  network: RoadNetwork,
-  terrain: Terrain,
-  groundOffset: (x: number, z: number) => number,
-  roadDrape: DrapeField,
-): (x: number, z: number) => number {
-  return (x: number, z: number): number => {
+export const makeStandingSurface =
+  (
+    network: RoadNetwork,
+    terrain: Terrain,
+    groundOffset: (x: number, z: number) => number,
+    roadDrape: DrapeField,
+  ): ((x: number, z: number) => number) =>
+  (x: number, z: number): number => {
     const hit = network.nearest(x, z, ROAD_TILE * 1.4);
-    if (hit && hit.dist <= hit.edge.half + walkFor(hit.edge.half)) return roadDrape.heightAt(x, z);
+    if (hit && hit.dist <= hit.edge.half + walkFor(hit.edge.half)) {
+      return roadDrape.heightAt(x, z);
+    }
     return terrain.renderedHeightAt(x, z, groundOffset);
   };
-}
 
 // Street depression profile: the ground drops −0.35 under the pavement
 // (clearance v < 1.6 beyond the asphalt edge) and feathers back to the
 // natural field by v = 4.6.
-function streetDepression(v: number): number {
-  if (v > 4.6) return 0;
+const streetDepression = (v: number): number => {
+  if (v > 4.6) {
+    return 0;
+  }
   return v < 1.6 ? -0.35 : -0.35 * Math.max(0, 1 - (v - 1.6) / 3);
-}
+};
 
 // Clearance field: for every ~3.25u cell, (distance to nearest edge
 // centreline − that edge's half width; 1e9 far from any street). Stamped once
 // along each edge — O(street length) — then lookups are O(1).
-function makeClearanceAt(network: RoadNetwork): (x: number, z: number) => number {
+const makeClearanceAt = (network: RoadNetwork): ((x: number, z: number) => number) => {
   const RES = ROAD_TILE / 4;
   const FW = Math.ceil((WORLD_HALF_X * 2) / RES) + 2;
   const FH = Math.ceil((WORLD_HALF_Z * 2) / RES) + 2;
   const field = new Float32Array(FW * FH).fill(1e9);
-  const BAND = 5.2; // pave apron 1.6 + feather 3 + slack
+  // pave apron 1.6 + feather 3 + slack
+  const BAND = 5.2;
   for (const e of network.edges) {
     const band = e.half + BAND;
     for (let k = 0; k + 3 < e.pts.length; k += 2) {
@@ -616,16 +585,18 @@ function makeClearanceAt(network: RoadNetwork): (x: number, z: number) => number
       const dx = bx - ax;
       const dz = bz - az;
       const l2 = dx * dx + dz * dz || 1;
-      for (let i = i0; i <= i1; i++) {
+      for (let i = i0; i <= i1; i += 1) {
         const px = i * RES - WORLD_HALF_X;
-        for (let j = j0; j <= j1; j++) {
+        for (let j = j0; j <= j1; j += 1) {
           const pz = j * RES - WORLD_HALF_Z;
           let t = ((px - ax) * dx + (pz - az) * dz) / l2;
-          t = t < 0 ? 0 : t > 1 ? 1 : t;
+          t = t < 0 ? 0 : Math.min(1, t);
           const d = Math.hypot(px - (ax + dx * t), pz - (az + dz * t)) - e.half;
           const idx = i * FH + j;
           const cur = field[idx];
-          if (cur === undefined || d < cur) field[idx] = d;
+          if (cur === undefined || d < cur) {
+            field[idx] = d;
+          }
         }
       }
     }
@@ -635,11 +606,13 @@ function makeClearanceAt(network: RoadNetwork): (x: number, z: number) => number
     const j = Math.round((z + WORLD_HALF_Z) / RES);
     if (i >= 0 && j >= 0 && i < FW && j < FH) {
       const v = field[i * FH + j];
-      if (v !== undefined) return v;
+      if (v !== undefined) {
+        return v;
+      }
     }
     return 1e9;
   };
-}
+};
 
 // Ground-mesh vertex offset: the street depression plus the step-ladder
 // street terracing (the ground shoulders track the engineered profile and
@@ -648,13 +621,13 @@ function makeClearanceAt(network: RoadNetwork): (x: number, z: number) => number
 // mesh's ~9.5u vertices interpolate straight through the profile's landing
 // kinks, and with only the 0.35 depression of headroom the bow pokes up
 // through the draped asphalt (the m22 bug class, at terrace magnitude).
-export function makeGroundOffset(
+export const makeGroundOffset = (
   network: RoadNetwork,
   terrain?: Terrain,
-): (x: number, z: number) => number {
+): ((x: number, z: number) => number) => {
   const clearanceAt = makeClearanceAt(network);
   const terraceAt = terrain ? makeStreetTerrace(network, terrain) : null;
-  return (x, z) => {
+  const offsetAt = (x: number, z: number): number => {
     const v = clearanceAt(x, z);
     const t = terraceAt ? terraceAt(x, z) : 0;
     // Full burial mid-asphalt, tapering to zero at the sidewalk's outer edge
@@ -663,7 +636,38 @@ export function makeGroundOffset(
     const bury = 1.1 * cover * THREE.MathUtils.smoothstep(Math.abs(t), 0.05, 0.3);
     return streetDepression(v) + t - bury;
   };
-}
+  if (!terrain) {
+    return offsetAt;
+  }
+  // A 9u ground triangle can bridge over the street trench even when every
+  // sampled offset is correct. Cap its supporting vertices against the road,
+  // leaving the rest of the terrain alone. The dense corridor probes include
+  // both kerbs and reserve the road drape's full sag tolerance.
+  const ceilings = function* ceilings(): Generator<GroundCeiling> {
+    if (!terrain) {
+      return;
+    }
+    for (const edge of network.edges) {
+      const half = edge.half + walkFor(edge.half);
+      const along = Math.max(1, Math.ceil(edge.len / 1.5));
+      const across = Math.max(1, Math.ceil((half * 2) / 1.5));
+      for (let i = 0; i <= along; i += 1) {
+        const p = network.sample(edge, (i / along) * edge.len);
+        for (let j = 0; j <= across; j += 1) {
+          const lateral = ((j / across) * 2 - 1) * half;
+          const x = p.x - p.tz * lateral;
+          const z = p.z + p.tx * lateral;
+          yield {
+            x,
+            y: terrain.heightAt(x, z) + (terraceAt ? terraceAt(x, z) : 0) - DRAPE_MAX_ERROR,
+            z,
+          };
+        }
+      }
+    }
+  };
+  return terrain.capGroundOffset(offsetAt, ceilings());
+};
 
 // Offset of the RENDERED top surface relative to the raw height field, for
 // the driving/height queries (city.heightAt). The paved band — curb +
@@ -673,16 +677,23 @@ export function makeGroundOffset(
 // field next to downhill kerbs (the visible ground there sits up to 0.35
 // lower). Terraced streets add their profile delta in BOTH zones so the car
 // rides exactly what the road drape renders.
-export function makeDriveSurfaceOffset(
+export const makeDriveSurfaceOffset = (
   network: RoadNetwork,
   terrain?: Terrain,
-): (x: number, z: number) => number {
+): ((x: number, z: number) => number) => {
   const clearanceAt = makeClearanceAt(network);
   const terraceAt = terrain ? makeStreetTerrace(network, terrain) : null;
+  const groundOffset = terrain ? makeGroundOffset(network, terrain) : null;
   return (x, z) => {
     const t = terraceAt ? terraceAt(x, z) : 0;
     const v = clearanceAt(x, z);
-    if (v <= SIDEWALK_W) return t; // asphalt / curb / sidewalk
+    if (v <= SIDEWALK_W) {
+      return t;
+      // asphalt / curb / sidewalk
+    }
+    if (terrain && groundOffset) {
+      return terrain.renderedHeightAt(x, z, groundOffset) - terrain.heightAt(x, z);
+    }
     return streetDepression(v) + t;
   };
-}
+};

@@ -31,6 +31,11 @@ re-sends `game-started` so the wrapper can tuck its chrome away again.
 
 Everything no-ops when the game runs standalone (not in an iframe).
 
+`createTouchControls()` is the one piece that runs the other way round: the
+touch-only pause button mounts only when the game is standalone on a coarse
+pointer. Inside the wrapper the wrapper's own pause button covers the action,
+so nothing mounts and the game keeps its top-right corner.
+
 ## Overlays that a tap dismisses
 
 Any full-screen overlay a player taps away — the pause overlay, a game's own

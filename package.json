@@ -1,6 +1,7 @@
 {
   "name": "vibedgames",
   "private": true,
+  "type": "module",
   "scripts": {
     "build": "turbo run build",
     "clean": "rm -rf .turbo node_modules",
@@ -8,9 +9,8 @@
     "deploy:games": "turbo run build --filter=./games/* --filter=vibedgames && for d in games/*/; do node apps/cli/dist/index.js deploy \"$d\" || exit 1; done",
     "db:push": "pnpm -F db push",
     "db:push-remote": "pnpm -F db push:remote",
-    "db:push-local": "pnpm -F db push:local",
     "db:seed-local": "pnpm -C apps/web exec wrangler d1 execute vibedgames --local --file=../../packages/db/seed.sql",
-    "db:local": "pnpm db:push-local && pnpm db:seed-local",
+    "db:local": "pnpm db:push && pnpm db:seed-local",
     "admin:create": "tsx scripts/create-admin.ts",
     "dogfood": "tsx scripts/dogfood.ts",
     "dogfood:reset": "tsx scripts/dogfood-reset.ts",
@@ -40,29 +40,17 @@
     "verify": "pnpm typecheck && pnpm lint && pnpm format && pnpm test"
   },
   "devDependencies": {
-    "@kyh/oxlint": "^0.2.0",
+    "@libsql/client": "^0.17.4",
     "dotenv-cli": "^11.0.0",
-    "oxfmt": "^0.64.0",
-    "oxlint": "^1.79.0",
+    "oxfmt": "^0.65.0",
+    "oxlint": "^1.80.0",
     "tsx": "^4.23.12",
-    "turbo": "^2.10.11",
-    "typescript": "catalog:"
+    "turbo": "^2.10.12",
+    "typescript": "catalog:",
+    "ultracite": "^7.11.0"
   },
   "engines": {
-    "node": ">=24"
+    "node": "24.x"
   },
-  "packageManager": "pnpm@10.33.0",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@swc/core",
-      "@tailwindcss/oxide",
-      "core-js",
-      "esbuild",
-      "sharp",
-      "workerd"
-    ],
-    "overrides": {
-      "react-hook-form": "^7.72.1"
-    }
-  }
+  "packageManager": "pnpm@12.3.4"
 }

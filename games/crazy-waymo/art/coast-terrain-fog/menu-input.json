@@ -1,0 +1,187 @@
+{
+  "url": "http://localhost:5193/?time=noon&offline=1",
+  "checkedAt": "2026-09-05T17:51:54.311Z",
+  "checks": [
+    {
+      "name": "first trusted touch starts on release before a compatibility click",
+      "passed": true,
+      "evidence": {
+        "mode": "playing",
+        "chatting": false,
+        "events": [
+          {
+            "type": "pointerdown",
+            "trusted": true,
+            "pointer": "touch",
+            "cta": true,
+            "mode": "title"
+          },
+          {
+            "type": "pointerup",
+            "trusted": true,
+            "pointer": "touch",
+            "cta": true,
+            "mode": "countdown"
+          },
+          {
+            "type": "click",
+            "trusted": true,
+            "pointer": "touch",
+            "cta": false,
+            "mode": "countdown"
+          }
+        ],
+        "clicks": [],
+        "active": ""
+      }
+    },
+    {
+      "name": "cancelled trusted touch leaves Start available",
+      "passed": true,
+      "evidence": {
+        "mode": "title",
+        "chatting": false,
+        "events": [
+          {
+            "type": "pointerdown",
+            "trusted": true,
+            "pointer": "touch",
+            "cta": true,
+            "mode": "title"
+          },
+          {
+            "type": "pointercancel",
+            "trusted": true,
+            "pointer": "touch",
+            "cta": true,
+            "mode": "title"
+          }
+        ],
+        "clicks": [],
+        "active": ""
+      }
+    },
+    {
+      "name": "dragging then returning to Start does not activate it",
+      "passed": true,
+      "evidence": {
+        "mode": "title",
+        "chatting": false,
+        "events": [
+          {
+            "type": "pointerdown",
+            "trusted": true,
+            "pointer": "touch",
+            "cta": true,
+            "mode": "title"
+          },
+          {
+            "type": "pointercancel",
+            "trusted": true,
+            "pointer": "touch",
+            "cta": true,
+            "mode": "title"
+          },
+          {
+            "type": "pointerdown",
+            "trusted": true,
+            "pointer": "touch",
+            "cta": true,
+            "mode": "title"
+          },
+          {
+            "type": "pointerup",
+            "trusted": true,
+            "pointer": "touch",
+            "cta": true,
+            "mode": "title"
+          }
+        ],
+        "clicks": [],
+        "active": ""
+      }
+    },
+    {
+      "name": "Enter activates Start once without opening chat",
+      "passed": true,
+      "evidence": {
+        "mode": "playing",
+        "chatting": false,
+        "events": [
+          {
+            "type": "pointerdown",
+            "trusted": true,
+            "pointer": "touch",
+            "cta": true,
+            "mode": "title"
+          },
+          {
+            "type": "pointercancel",
+            "trusted": true,
+            "pointer": "touch",
+            "cta": true,
+            "mode": "title"
+          },
+          {
+            "type": "pointerdown",
+            "trusted": true,
+            "pointer": "touch",
+            "cta": true,
+            "mode": "title"
+          },
+          {
+            "type": "pointerup",
+            "trusted": true,
+            "pointer": "touch",
+            "cta": true,
+            "mode": "title"
+          },
+          {
+            "type": "click",
+            "trusted": true,
+            "pointer": "",
+            "cta": true,
+            "mode": "countdown"
+          }
+        ],
+        "clicks": [
+          {
+            "trusted": true,
+            "detail": 0
+          }
+        ],
+        "active": ""
+      }
+    },
+    {
+      "name": "Space activates Start once without opening chat",
+      "passed": true,
+      "evidence": {
+        "mode": "playing",
+        "chatting": false,
+        "events": [
+          {
+            "type": "click",
+            "trusted": true,
+            "pointer": "",
+            "cta": true,
+            "mode": "countdown"
+          }
+        ],
+        "clicks": [
+          {
+            "trusted": true,
+            "detail": 0
+          }
+        ],
+        "active": ""
+      }
+    },
+    {
+      "name": "No page errors",
+      "passed": true,
+      "evidence": []
+    }
+  ],
+  "passed": true
+}

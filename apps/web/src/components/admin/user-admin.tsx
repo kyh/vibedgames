@@ -18,21 +18,21 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { SkeletonReveal } from "@/components/ui/skeleton-reveal";
 import { formatUsd } from "@/lib/credits-format";
 import { formatDate } from "@/lib/format";
-import { useTRPC } from "@/lib/trpc";
+import { useORPC } from "@/lib/orpc";
 
 type Role = "user" | "admin";
 
-type UserForm = {
+interface UserForm {
   email: string;
   password: string;
   name: string;
   role: Role;
-};
+}
 
 const initialForm: UserForm = {
   email: "",
-  password: "",
   name: "",
+  password: "",
   role: "user",
 };
 
@@ -53,30 +53,11 @@ const UsersSkeleton = () => (
 );
 
 export const UserAdmin = () => {
-  const trpc = useTRPC();
+  const orpc = useORPC();
   const qc = useQueryClient();
 
-  const list = useQuery(trpc.admin.users.list.queryOptions());
-  const balances = useQuery(trpc.admin.credits.balances.queryOptions());
-  const create = useMutation(
-    trpc.admin.users.create.mutationOptions({
-      onSuccess: () => {
-        qc.invalidateQueries({ queryKey: trpc.admin.users.list.queryKey() });
-        setForm(initialForm);
-        toast.success("User created");
-      },
-    }),
-  );
-  const grant = useMutation(
-    trpc.admin.credits.grant.mutationOptions({
-      onSuccess: ({ balanceMicro }) => {
-        qc.invalidateQueries({ queryKey: trpc.admin.credits.balances.queryKey() });
-        setGrantTarget(null);
-        toast.success(`Credits updated — new balance ${formatUsd(balanceMicro)}`);
-      },
-    }),
-  );
-
+  const list = useQuery(orpc.admin.users.list.queryOptions());
+  const balances = useQuery(orpc.admin.credits.balances.queryOptions());
   const [form, setForm] = useState(initialForm);
   const [grantTarget, setGrantTarget] = useState<{ id: string; email: string } | null>(null);
   const [amount, setAmount] = useState("");
@@ -86,11 +67,32 @@ export const UserAdmin = () => {
   // starts a fresh grant.
   const [grantKey, setGrantKey] = useState("");
 
+  const create = useMutation(
+    orpc.admin.users.create.mutationOptions({
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: orpc.admin.users.list.queryKey() });
+        setForm(initialForm);
+        toast.success("User created");
+      },
+    }),
+  );
+  const grant = useMutation(
+    orpc.admin.credits.grant.mutationOptions({
+      onSuccess: ({ balanceMicro }) => {
+        qc.invalidateQueries({ queryKey: orpc.admin.credits.balances.queryKey() });
+        setGrantTarget(null);
+        toast.success(`Credits updated — new balance ${formatUsd(balanceMicro)}`);
+      },
+    }),
+  );
+
   const balanceByUser = new Map(
-    balances.data?.balances.map((b): [string, number] => [b.userId, b.balanceMicro]) ?? [],
+    balances.data?.balances.map((b): [string, number] => [b.userId, b.balanceMicro]),
   );
   const balanceLabel = (userId: string) => {
-    if (!balances.data) return "—";
+    if (!balances.data) {
+      return "—";
+    }
     // Users without ledger rows get the signup grant on first use.
     return formatUsd(balanceByUser.get(userId) ?? balances.data.signupGrantMicro);
   };
@@ -189,7 +191,9 @@ export const UserAdmin = () => {
           skeleton={<UsersSkeleton />}
         >
           {list.isError && (
-            <p className="text-muted-foreground text-sm">Couldn't load users. Try reloading.</p>
+            <p className="text-muted-foreground text-sm">
+              Couldn&apos;t load users. Try reloading.
+            </p>
           )}
           {list.data?.users.length === 0 && (
             <p className="text-muted-foreground text-sm">No users yet.</p>
@@ -219,7 +223,7 @@ export const UserAdmin = () => {
                     variant="ghost"
                     size="sm"
                     className="shrink-0"
-                    onClick={() => openGrant({ id: u.id, email: u.email })}
+                    onClick={() => openGrant({ email: u.email, id: u.id })}
                   >
                     Grant credits
                   </Button>
@@ -233,7 +237,9 @@ export const UserAdmin = () => {
       <Dialog
         open={grantTarget !== null}
         onOpenChange={(open) => {
-          if (!open) setGrantTarget(null);
+          if (!open) {
+            setGrantTarget(null);
+          }
         }}
       >
         <DialogContent>
@@ -247,7 +253,9 @@ export const UserAdmin = () => {
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              if (!grantTarget) return;
+              if (!grantTarget) {
+                return;
+              }
               const amountUsd = Number(amount);
               if (
                 !Number.isFinite(amountUsd) ||
@@ -260,10 +268,10 @@ export const UserAdmin = () => {
               }
               const trimmedNote = note.trim();
               grant.mutate({
-                userId: grantTarget.id,
                 amountUsd,
-                note: trimmedNote === "" ? undefined : trimmedNote,
                 key: grantKey,
+                note: trimmedNote === "" ? undefined : trimmedNote,
+                userId: grantTarget.id,
               });
             }}
             className="space-y-3"

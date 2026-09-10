@@ -10,14 +10,14 @@ import {
   Matrix4,
   MeshBasicMaterial,
   Quaternion,
-  type Scene,
   SphereGeometry,
   Vector3,
 } from "three";
+import type { Scene } from "three";
 
 import { BG } from "../shared/constants";
 
-export type BurstOptions = {
+export interface BurstOptions {
   x: number;
   y: number;
   z: number;
@@ -30,9 +30,9 @@ export type BurstOptions = {
   gravity?: number;
   life: number;
   size: number;
-};
+}
 
-type Particle = {
+interface Particle {
   pos: Vector3;
   vel: Vector3;
   color: Color;
@@ -40,7 +40,7 @@ type Particle = {
   life: number;
   size: number;
   gravity: number;
-};
+}
 
 const BG_COLOR = new Color(BG);
 const SCRATCH_MATRIX = new Matrix4();
@@ -58,15 +58,15 @@ export class ParticlePool {
     this.mesh.instanceMatrix.setUsage(DynamicDrawUsage);
     this.mesh.count = 0;
     this.mesh.frustumCulled = false;
-    for (let i = 0; i < max; i++) {
+    for (let i = 0; i < max; i += 1) {
       this.pool.push({
-        pos: new Vector3(),
-        vel: new Vector3(),
-        color: new Color(),
         age: 0,
-        life: 1,
-        size: 1,
+        color: new Color(),
         gravity: 0,
+        life: 1,
+        pos: new Vector3(),
+        size: 1,
+        vel: new Vector3(),
       });
       this.mesh.setColorAt(i, BG_COLOR);
     }
@@ -74,9 +74,11 @@ export class ParticlePool {
   }
 
   burst(opts: BurstOptions): void {
-    for (let i = 0; i < opts.count; i++) {
+    for (let i = 0; i < opts.count; i += 1) {
       const p = this.take();
-      if (!p) return;
+      if (!p) {
+        return;
+      }
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(2 * Math.random() - 1);
       const speed = opts.speedMin + Math.random() * (opts.speedMax - opts.speedMin);
@@ -96,11 +98,15 @@ export class ParticlePool {
 
   update(dt: number): void {
     // Idle pool: nothing live and the final zero-count flush already happened.
-    if (this.live === 0 && this.mesh.count === 0) return;
+    if (this.live === 0 && this.mesh.count === 0) {
+      return;
+    }
     let i = 0;
     while (i < this.live) {
       const p = this.pool[i];
-      if (!p) break;
+      if (!p) {
+        break;
+      }
       p.age += dt;
       if (p.age >= p.life) {
         this.live -= 1;
@@ -116,9 +122,11 @@ export class ParticlePool {
       i += 1;
     }
 
-    for (let j = 0; j < this.live; j++) {
+    for (let j = 0; j < this.live; j += 1) {
       const p = this.pool[j];
-      if (!p) break;
+      if (!p) {
+        break;
+      }
       const t = p.age / p.life;
       const scale = Math.max(1e-4, p.size * (1 - t));
       SCRATCH_MATRIX.compose(p.pos, SCRATCH_QUAT, SCRATCH_SCALE.setScalar(scale));
@@ -127,14 +135,25 @@ export class ParticlePool {
     }
     this.mesh.count = this.live;
     this.mesh.instanceMatrix.needsUpdate = true;
-    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+    if (this.mesh.instanceColor) {
+      this.mesh.instanceColor.needsUpdate = true;
+    }
   }
 
   private take(): Particle | null {
-    if (this.live >= this.pool.length) return null;
+    if (this.live >= this.pool.length) {
+      return null;
+    }
     const p = this.pool[this.live];
-    if (!p) return null;
+    if (!p) {
+      return null;
+    }
     this.live += 1;
     return p;
+  }
+
+  reset(): void {
+    this.live = 0;
+    this.mesh.count = 0;
   }
 }

@@ -1,4 +1,4 @@
-import { cn } from "@repo/ui/lib/utils";
+import { cn } from "cn";
 import { Link } from "@tanstack/react-router";
 import { motion } from "motion/react";
 
@@ -14,12 +14,12 @@ const tabClass = (active: boolean) =>
     active && "text-foreground",
   );
 
-type NavTabProps = {
+interface NavTabProps {
   to: "/" | "/discover" | "/build";
   label: string;
   active: boolean;
   search: { game?: string };
-};
+}
 
 const NavTab = ({ to, label, active, search }: NavTabProps) => (
   <Link to={to} search={search} className={tabClass(active)}>

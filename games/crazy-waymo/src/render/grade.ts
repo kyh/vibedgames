@@ -23,32 +23,26 @@ let motionSpeed = 0;
 let motionBoost = false;
 
 /** 0 = broad daylight .. 1 = full night. Called by DayNight.update only. */
-export function setGradeNight(value: number): void {
+export const setGradeNight = (value: number): void => {
   night = value;
-}
+};
 
-export function gradeNight(): number {
-  return night;
-}
+export const gradeNight = (): number => night;
 
 /** 0 = neutral daylight .. 1 = full golden-hour warmth. DayNight.update only. */
-export function setGradeWarmth(value: number): void {
+export const setGradeWarmth = (value: number): void => {
   warmth = value;
-}
+};
 
-export function gradeWarmth(): number {
-  return warmth;
-}
+export const gradeWarmth = (): number => warmth;
 
 /**
  * Player motion for the speed-reactive lens: speed as a 0..1 fraction of the
  * boost top speed, plus the boost flag. GameScene.update only.
  */
-export function setGradeMotion(speedFrac: number, boosting: boolean): void {
+export const setGradeMotion = (speedFrac: number, boosting: boolean): void => {
   motionSpeed = speedFrac;
   motionBoost = boosting;
-}
+};
 
-export function gradeMotion() {
-  return { speed: motionSpeed, boost: motionBoost };
-}
+export const gradeMotion = () => ({ boost: motionBoost, speed: motionSpeed });

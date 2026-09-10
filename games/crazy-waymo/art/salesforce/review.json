@@ -1,0 +1,37 @@
+{
+  "reference": "reference.png",
+  "source": "../../src/world/sf-salesforce.ts",
+  "specValidation": "upstream1.5.1 strict-quality PASS",
+  "geometry": {
+    "triangles": 14276,
+    "materials": 6,
+    "geometryMiB": 0.573,
+    "maxRadius": 4.1735,
+    "minY": 0,
+    "maxY": 49.435,
+    "degenerateTriangles": 0
+  },
+  "reviewStages": [
+    {
+      "stage": "canonical browser render",
+      "result": "Valid six-material model, no page errors. Default skill framing too distant to judge detail."
+    },
+    {
+      "stage": "tight whole/lobby/crown/grid browser review",
+      "result": "Curved grid, recessed entrance, open crown and night illumination inspected. Stripped view confirms physical projecting fins and ledges."
+    },
+    {
+      "stage": "shadow diagnosis",
+      "result": "Fine bands beneath ledges disappear with shadow-map rendering disabled; no coplanar face defect found."
+    },
+    {
+      "stage": "packed attributes",
+      "result": "Normals and colors packed after geometric review; repeated tight renders show retained form. Six focused checks and game typecheck pass."
+    }
+  ],
+  "limitations": [
+    "No full locked reference-fidelity pipeline completion claimed.",
+    "Generated reference perspective differs from the fixed gameplay envelope.",
+    "Final in-game revision 90 lighting and placement were reviewed in ../studio-review/downtown-noon.png and downtown-night.png."
+  ]
+}

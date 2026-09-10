@@ -1,5 +1,5 @@
 import { readdirSync } from "node:fs";
-import { join } from "node:path";
+import path from "node:path";
 
 import { Bitmap } from "../image/raster.js";
 
@@ -10,10 +10,21 @@ import { Bitmap } from "../image/raster.js";
  */
 
 /** Translate a shell glob into an anchored regex. Only `*` and `?` are used. */
-function globToRegExp(pattern: string): RegExp {
-  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`^${escaped.replaceAll("*", "[^/]*").replaceAll("?", "[^/]")}$`);
-}
+const globToRegExp = (pattern: string): RegExp => {
+  const escaped = pattern.replaceAll(/[.+^${}()|[\]\\]/gu, "\\$&");
+  return new RegExp(`^${escaped.replaceAll("*", "[^/]*").replaceAll("?", "[^/]")}$`, "u");
+};
+
+/** Plain code-unit order, as Python sorts `str` — never locale-aware. */
+const compareNames = (a: string, b: string): number => {
+  if (a < b) {
+    return -1;
+  }
+  if (a > b) {
+    return 1;
+  }
+  return 0;
+};
 
 /**
  * Non-recursive glob over one directory, sorted by filename.
@@ -22,7 +33,7 @@ function globToRegExp(pattern: string): RegExp {
  * lexicographic sort over the directory listing gives the same frame order —
  * which is what keeps `frame-02` before `frame-10` for zero-padded names.
  */
-export function globFrames(dir: string, pattern = "frame-*.png"): string[] {
+export const globFrames = (dir: string, pattern = "frame-*.png"): string[] => {
   const re = globToRegExp(pattern);
   let entries: string[];
   try {
@@ -32,26 +43,34 @@ export function globFrames(dir: string, pattern = "frame-*.png"): string[] {
   }
   return entries
     .filter((name) => re.test(name))
-    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
-    .map((name) => join(dir, name));
-}
+    .toSorted(compareNames)
+    .map((name) => path.join(dir, name));
+};
 
-export type LoadedFrame = { path: string; image: Bitmap };
+export interface LoadedFrame {
+  path: string;
+  image: Bitmap;
+}
 
 /** Load every frame matching `pattern`, failing loudly when none match. */
-export function loadFrames(dir: string, pattern = "frame-*.png"): LoadedFrame[] {
+export const loadFrames = (dir: string, pattern = "frame-*.png"): LoadedFrame[] => {
   const paths = globFrames(dir, pattern);
-  if (paths.length === 0) throw new Error(`no frames matching ${pattern} in ${dir}`);
-  return paths.map((path) => ({ path, image: Bitmap.fromFile(path) }));
-}
+  if (paths.length === 0) {
+    throw new Error(`no frames matching ${pattern} in ${dir}`);
+  }
+  return paths.map((file) => ({ image: Bitmap.fromFile(file), path: file }));
+};
 
 /**
  * Median of a numeric list, matching `statistics.median`: the mean of the two
  * middle values for an even-length input, not the lower of them.
  */
-export function median(values: number[]): number {
-  if (values.length === 0) throw new Error("median of an empty sequence");
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = sorted.length >> 1;
-  return sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
-}
+export const median = (values: number[]): number => {
+  if (values.length === 0) {
+    throw new Error("median of an empty sequence");
+  }
+  const sorted = [...values].toSorted((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const upper = sorted[mid] ?? 0;
+  return sorted.length % 2 === 1 ? upper : ((sorted[mid - 1] ?? 0) + upper) / 2;
+};

@@ -14,20 +14,17 @@ jobs:
       web: ${{ steps.check.outputs.web }}
       party: ${{ steps.check.outputs.party }}
       games: ${{ steps.check.outputs.games }}
+      example_games: ${{ steps.check.outputs.example_games }}
       r2_lifecycle: ${{ steps.check.outputs.r2_lifecycle }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v6
+      - uses: pnpm/setup@v2
         with:
-          node-version: 24
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
+          runtime: node@24
+          cache: true
 
       - name: Detect changed apps
         id: check
@@ -37,6 +34,7 @@ jobs:
             echo "web=true" >> "$GITHUB_OUTPUT"
             echo "party=true" >> "$GITHUB_OUTPUT"
             echo "games=true" >> "$GITHUB_OUTPUT"
+            echo "example_games=$(ls -d games/*/ | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
             echo "r2_lifecycle=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -49,6 +47,11 @@ jobs:
               echo "${app}=false" >> "$GITHUB_OUTPUT"
             fi
           done
+
+          # Example games plus anything downstream of a changed package
+          # (@repo/embed, @vibedgames/gamepad, ...). Space-separated dirs.
+          example_games=$(pnpm turbo ls --filter="...[${BASE}]" | awk '$2 ~ /^games\// { printf "%s/ ", $2 }')
+          echo "example_games=${example_games}" >> "$GITHUB_OUTPUT"
 
           if git diff --name-only "$BASE" HEAD -- apps/web/infra/r2/vibedgames-games.lifecycle.json | grep -q .; then
             echo "r2_lifecycle=true" >> "$GITHUB_OUTPUT"
@@ -63,14 +66,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v6
+      - uses: pnpm/setup@v2
         with:
-          node-version: 24
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
+          runtime: node@24
+          cache: true
 
       - name: Apply R2 lifecycle
         run: pnpm r2:lifecycle
@@ -84,14 +83,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v6
+      - uses: pnpm/setup@v2
         with:
-          node-version: 24
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
+          runtime: node@24
+          cache: true
 
       - name: Build & deploy web
         run: pnpm turbo run build --filter=@repo/web... && pnpm -F @repo/web exec wrangler deploy
@@ -105,14 +100,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v6
+      - uses: pnpm/setup@v2
         with:
-          node-version: 24
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
+          runtime: node@24
+          cache: true
 
       - name: Build & deploy party
         run: pnpm turbo run build --filter=@repo/party... && pnpm -F @repo/party exec wrangler deploy --name vibedgames-party
@@ -126,16 +117,45 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v6
+      - uses: pnpm/setup@v2
         with:
-          node-version: 24
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
+          runtime: node@24
+          cache: true
 
       - name: Build & deploy games
         run: pnpm turbo run build --filter=@repo/games... && pnpm -F @repo/games exec wrangler deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+  deploy-example-games:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.example_games != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/setup@v2
+        with:
+          runtime: node@24
+          cache: true
+
+      - name: Build changed games and the CLI
+        run: |
+          filters=""
+          for d in ${{ needs.detect-changes.outputs.example_games }}; do
+            filters="$filters --filter=./$d"
+          done
+          pnpm turbo run build --filter=vibedgames $filters
+
+      - name: Deploy changed games
+        run: |
+          failed=""
+          for d in ${{ needs.detect-changes.outputs.example_games }}; do
+            node apps/cli/dist/index.js deploy "$d" || failed="$failed $d"
+          done
+          if [ -n "$failed" ]; then
+            echo "::error::deploy failed for:$failed"
+            exit 1
+          fi
+        env:
+          VG_TOKEN: ${{ secrets.VG_TOKEN }}

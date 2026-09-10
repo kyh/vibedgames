@@ -41,18 +41,26 @@ import {
 } from "../assets/manifest";
 import { GRID_X, GRID_Z, ROAD_TILE, ROAD_Y, WORLD_H, WORLD_W } from "../shared/constants";
 import type { Rng } from "../shared/rng";
-import { type Dir, DIR_DELTA, E, N, S, W } from "../shared/types";
-import { facadeOffset, type Solid, STEEP_CLIFF } from "./city";
+import { DIR_DELTA, E, N, S, W } from "../shared/types";
+import type { Dir, Solid, SurfaceDeck } from "../shared/types";
+import { facadeOffset, STEEP_CLIFF } from "./frontage";
 import { GGP_LAKE, isParkDistrictLand } from "./land-class";
+import { stowBasinOverlapsBox, STOW_WATER_SEGMENTS, STOW_WATER_Y } from "./lake";
 import { controlArms, junctionControl } from "./junction-control";
-import { conformToTerrain, DRAPE_MAX_ERROR, type DrapeField } from "./conform";
+import type { DrapeField } from "./conform";
 
 import type { NetEdge, RoadNetwork } from "./network";
 import type { CityPlan, RoadResolved } from "./grid";
-import { type District, type DistrictChar, districtAt } from "./sf-map";
+import { districtAt } from "./sf-map";
+import type { District, DistrictChar } from "./sf-map";
 import { parkPathMaskAt } from "./sf-streets";
-import { SF_TRANSIT, SF_TRANSIT_LINES, TRANSIT_MODES, type TransitMode } from "./sf-transit";
+import { SF_TRANSIT, SF_TRANSIT_LINES, TRANSIT_MODES } from "./sf-transit";
+import type { TransitMode } from "./sf-transit";
 import type { Terrain } from "./terrain";
+import { getMuniShelterKit } from "./sf-street-kit";
+import type { ParcelClearance } from "./parcel-clearance";
+import { getTreeTrunks } from "./tree-clearance";
+import type { TreeClearance } from "./tree-clearance";
 
 // Street-furniture pass: streetlights, parked cars, awnings, suburban yards,
 // industrial smokestacks, construction chicanes, Golden Gate Park allées, the
@@ -61,14 +69,7 @@ import type { Terrain } from "./terrain";
 // handful of collision Solids (parked cars, barriers, pier railings/buildings)
 // are appended.
 
-// Lifts for lot-draped pieces (BAKED into public/world — changes here only
-// land via a rebake). These conform to the ground mesh AS DRAWN (groundDrape),
-// so they only have to clear their own drape bow — not the coarse-lattice
-// error the mesh adds on top of the field, which used to double the lift and
-// leave the paths visibly hovering over the grass.
-const LOT_DECAL_LIFT = DRAPE_MAX_ERROR * 0.5; // 0.045
-
-export type FurnitureCtx = {
+export interface FurnitureCtx {
   readonly plan: CityPlan;
   readonly network: RoadNetwork;
   readonly terrain: Terrain;
@@ -78,7 +79,10 @@ export type FurnitureCtx = {
   readonly groundOffset: (x: number, z: number) => number;
   readonly cache: ModelCache;
   readonly rng: Rng;
-  readonly reserved: ReadonlySet<string>; // "gx,gz" cells to leave alone (landmarks)
+  // "gx,gz" cells to leave alone (landmarks)
+  readonly reserved: ReadonlySet<string>;
+  readonly parcelClear: ParcelClearance;
+  readonly treeClear: TreeClearance;
   /**
    * Did the frontage walk actually build a WALL on the facade plane here?
    * This module can COMPUTE the plane (facadeOffset) but has no view of the
@@ -90,52 +94,71 @@ export type FurnitureCtx = {
   readonly facadeAt: (x: number, z: number) => boolean;
   readonly worldX: (gx: number) => number;
   readonly worldZ: (gz: number) => number;
-};
+}
 
-export type PierDeck = { minX: number; maxX: number; minZ: number; maxZ: number; y: number };
-export type ParkedSpec = { x: number; z: number; yaw: number; model: string };
+export type ParkedSpec = {
+  x: number;
+  z: number;
+  yaw: number;
+  model: string;
+};
 // World position of a lamp's light source + the pavement under it — the
 // night-time glow pass (fx/lamp-glow.ts) draws halos and light pools here.
-export type LampHead = { x: number; y: number; z: number; ground: number };
-
-export type FurnitureResult = {
-  readonly objects: THREE.Object3D[]; // static, world-transform set; caller merges
-  readonly solids: Solid[]; // collision boxes to append
-  readonly openWaterCells: ReadonlySet<string>; // water cells the shoreline-wall pass must skip (piers)
-  readonly pierDecks: readonly PierDeck[]; // drivable flat decks (caller overrides surface height)
-  readonly parkedCars: readonly ParkedSpec[]; // punt-able parked cars (physics, not static)
-  readonly lampHeads: readonly LampHead[]; // streetlight glow anchors
+export type LampHead = {
+  x: number;
+  y: number;
+  z: number;
+  ground: number;
 };
+
+export interface FurnitureResult {
+  // static, world-transform set; caller merges
+  readonly objects: THREE.Object3D[];
+  // collision boxes to append
+  readonly solids: Solid[];
+  // supported decks and continuous ramps
+  readonly pierDecks: readonly SurfaceDeck[];
+  // punt-able parked cars (physics, not static)
+  readonly parkedCars: readonly ParkedSpec[];
+  // streetlight glow anchors
+  readonly lampHeads: readonly LampHead[];
+}
 
 const HALF_PI = Math.PI / 2;
 const DIRS: readonly Dir[] = [N, E, S, W];
 
 // --- Tunables ---
-const LIGHT_HEIGHT = 5; // streetlight world height
-const PIER_DECK_Y = 0.55; // flat pier deck height over the water
-const PIER_WIDTH = ROAD_TILE * 1.03; // decks scaled like road tiles
-const PIER_RAMP_RUN = ROAD_TILE * 0.6; // horizontal run of the shore→deck ramp
-const PIER_DECK_MAT = new THREE.MeshStandardMaterial({ color: 0x9c8158, roughness: 0.9 });
+// streetlight world height
+const LIGHT_HEIGHT = 5;
+// flat pier deck height over the water
+const PIER_DECK_Y = 0.55;
+// decks scaled like road tiles
+const PIER_WIDTH = ROAD_TILE * 1.03;
+// horizontal run of the shore→deck ramp
+const PIER_RAMP_RUN = ROAD_TILE * 0.6;
+const PIER_DECK_MAT = new THREE.MeshStandardMaterial({ color: 0x9c_81_58, roughness: 0.9 });
 const CONSTRUCTION_POCKETS = 6;
 
 // Model catalogs used only here.
 const CHIMNEYS: readonly string[] = [PROP_CHIMNEY_SMALL, PROP_CHIMNEY_MEDIUM, PROP_CHIMNEY_LARGE];
 // Pier 39 stand-ins at the middle pier's end (commercial kit, tinted brick-red).
 const PIER_END_BUILDINGS: readonly string[] = ["com-building-a", "com-building-f"];
-const PIER_BUILDING_TINT = 0xc45a3a;
+const PIER_BUILDING_TINT = 0xc4_5a_3a;
 // KayKit props run warmer than the Kenney kits — nudge them toward the Kenney
 // paper tone so the street reads as one palette. Tints go through tintMaterial,
 // so each (material, tint) pair clones exactly once and merged batches stay few.
-const KK_TINT = 0xd8d2c4;
+const KK_TINT = 0xd8_d2_c4;
 const KK_TINT_AMT = 0.15;
 // KayKit pass caps + sizes. The old 40/50 covered a couple of blocks of a
 // 244×200 city: most blocks got nothing at all. A kerbside prop is a ~38 B
 // batch record, so these are cheap; the real limiter is the claim hash keeping
 // them off each other.
 const HYDRANT_CAP = 340;
-const SEATING_CAP = 280; // benches + trash cans combined
+// benches + trash cans combined
+const SEATING_CAP = 280;
 const VICTORIAN_LAMP_HEIGHT = 4.2;
-const PARK_SKIRT_DEPTH = 1.6; // stone skirt under a flat park tile
+// stone skirt under a flat park tile
+const PARK_SKIRT_DEPTH = 1.6;
 
 // Shared static geometry/materials at module scope so merged batches stay few.
 const UNIT_BOX = new THREE.BoxGeometry(1, 1, 1);
@@ -163,31 +186,33 @@ const STOP_RIM = new THREE.CylinderGeometry(0.48, 0.48, 0.04, 8)
   .rotateY(Math.PI / 8)
   .rotateX(Math.PI / 2);
 const STOP_POLE = new THREE.CylinderGeometry(0.05, 0.05, 1, 6);
-const STOP_RED_MAT = new THREE.MeshStandardMaterial({ color: 0xc0392b, roughness: 0.7 });
-const STOP_WHITE_MAT = new THREE.MeshStandardMaterial({ color: 0xf4f7f4, roughness: 0.7 });
-const POLE_MAT = new THREE.MeshStandardMaterial({ color: 0x8f979e, roughness: 0.9 });
-const RAIL_MAT = new THREE.MeshStandardMaterial({ color: 0x8a6f4d, roughness: 0.9 }); // pier wood
-const SEAWALL_MAT = new THREE.MeshStandardMaterial({ color: 0x9aa2a6, roughness: 1 }); // concrete lip
-const LAKE_MAT = new THREE.MeshStandardMaterial({ color: 0x3f6f8f, roughness: 0.4 }); // Stow Lake
-const PATH_MAT = new THREE.MeshStandardMaterial({ color: 0xd9c3a1, roughness: 1 }); // park paths
+const STOP_RED_MAT = new THREE.MeshStandardMaterial({ color: 0xc0_39_2b, roughness: 0.7 });
+const STOP_WHITE_MAT = new THREE.MeshStandardMaterial({ color: 0xf4_f7_f4, roughness: 0.7 });
+const POLE_MAT = new THREE.MeshStandardMaterial({ color: 0x8f_97_9e, roughness: 0.9 });
+// pier wood
+const RAIL_MAT = new THREE.MeshStandardMaterial({ color: 0x8a_6f_4d, roughness: 0.9 });
+// concrete lip
+const SEAWALL_MAT = new THREE.MeshStandardMaterial({ color: 0x9a_a2_a6, roughness: 1 });
+// Stow Lake
+const LAKE_MAT = new THREE.MeshStandardMaterial({ color: 0x3f_6f_8f, roughness: 0.4 });
 // SF street-dressing palette. Every material here is one BatchedMesh (one draw
 // call) for the whole city, so the count is the draw-call budget: 6 additions
 // dress ~35 distinct prop types because per-instance tint (userData.tint,
 // picked up by the city batcher's setColorAt) supplies all colour variation.
 const WIRE_MAT = new THREE.MeshStandardMaterial({
-  color: 0x24262a,
-  roughness: 0.5,
+  color: 0x24_26_2a,
   metalness: 0.3,
-}); // catenary, guys, fire escapes, shutters
-const MUNI_MAT = new THREE.MeshStandardMaterial({ color: 0x5c4634, roughness: 0.8 }); // Muni brown
-const GLASS_MAT = new THREE.MeshStandardMaterial({
-  color: 0xa9c2cd,
-  roughness: 0.12,
-  metalness: 0.1,
-}); // shelter glazing
-const BLADE_MAT = new THREE.MeshStandardMaterial({ color: 0x25604a, roughness: 0.75 }); // street blades
-const CANVAS_MAT = new THREE.MeshStandardMaterial({ color: 0xb5384a, roughness: 0.92 }); // awnings, news racks, murals
-const FROND_MAT = new THREE.MeshStandardMaterial({ color: 0x4d7a4a, roughness: 0.85 }); // palm crowns
+  roughness: 0.5,
+  // catenary, guys, fire escapes, shutters
+});
+// Muni brown
+const MUNI_MAT = new THREE.MeshStandardMaterial({ color: 0x5c_46_34, roughness: 0.8 });
+// street blades
+const BLADE_MAT = new THREE.MeshStandardMaterial({ color: 0x25_60_4a, roughness: 0.75 });
+// awnings, news racks, murals
+const CANVAS_MAT = new THREE.MeshStandardMaterial({ color: 0xb5_38_4a, roughness: 0.92 });
+// palm crowns
+const FROND_MAT = new THREE.MeshStandardMaterial({ color: 0x4d_7a_4a, roughness: 0.85 });
 
 // ---------------------------------------------------------------------------
 // PROCEDURAL STREET KIT
@@ -210,15 +235,18 @@ const UNIT_CYL = new THREE.CylinderGeometry(0.5, 0.5, 1, 8);
 // ones instead of forking a second draw call. Faces local +Z.
 const UNIT_PLANE = new THREE.PlaneGeometry(1, 1);
 
-type KitPiece = {
+interface KitPiece {
   readonly geo: THREE.BufferGeometry;
   readonly mat: THREE.MeshStandardMaterial;
   readonly at?: readonly [number, number, number];
   readonly size?: readonly [number, number, number];
   /** Euler radians, applied YXZ (yaw, then pitch, then roll). */
   readonly rot?: readonly [number, number, number];
-};
-type KitPart = { readonly geo: THREE.BufferGeometry; readonly mat: THREE.MeshStandardMaterial };
+}
+interface KitPart {
+  readonly geo: THREE.BufferGeometry;
+  readonly mat: THREE.MeshStandardMaterial;
+}
 
 const KIT_M = new THREE.Matrix4();
 const KIT_E = new THREE.Euler();
@@ -226,7 +254,7 @@ const KIT_Q = new THREE.Quaternion();
 const KIT_V = new THREE.Vector3();
 const KIT_S = new THREE.Vector3();
 
-function buildKit(pieces: readonly KitPiece[]): readonly KitPart[] {
+const buildKit = (pieces: readonly KitPiece[]): readonly KitPart[] => {
   const byMat = new Map<THREE.MeshStandardMaterial, THREE.BufferGeometry[]>();
   for (const p of pieces) {
     const size = p.size ?? [1, 1, 1];
@@ -240,37 +268,42 @@ function buildKit(pieces: readonly KitPiece[]): readonly KitPart[] {
     );
     const geo = p.geo.clone().applyMatrix4(KIT_M);
     const list = byMat.get(p.mat);
-    if (list) list.push(geo);
-    else byMat.set(p.mat, [geo]);
+    if (list) {
+      list.push(geo);
+    } else {
+      byMat.set(p.mat, [geo]);
+    }
   }
   const parts: KitPart[] = [];
   for (const [mat, geos] of byMat) {
-    const first = geos[0];
-    if (!first) continue;
+    const [first] = geos;
+    if (!first) {
+      continue;
+    }
     parts.push({ geo: geos.length === 1 ? first : mergeGeometries(geos, false), mat });
   }
   return parts;
-}
+};
 
 // A lazily-built kit: nothing is uploaded for a prop type the city never
 // places (the west-side utility poles never build on a downtown-only map).
-function lazyKit(build: () => readonly KitPiece[]): () => readonly KitPart[] {
+const lazyKit = (build: () => readonly KitPiece[]): (() => readonly KitPart[]) => {
   let parts: readonly KitPart[] | null = null;
   return () => (parts ??= buildKit(build()));
-}
+};
 
 const kBox = (
   mat: THREE.MeshStandardMaterial,
   at: readonly [number, number, number],
   size: readonly [number, number, number],
   rot?: readonly [number, number, number],
-): KitPiece => (rot ? { geo: UNIT_BOX, mat, at, size, rot } : { geo: UNIT_BOX, mat, at, size });
+): KitPiece => (rot ? { at, geo: UNIT_BOX, mat, rot, size } : { at, geo: UNIT_BOX, mat, size });
 const kTube = (
   mat: THREE.MeshStandardMaterial,
   at: readonly [number, number, number],
   size: readonly [number, number, number],
   rot?: readonly [number, number, number],
-): KitPiece => (rot ? { geo: UNIT_CYL, mat, at, size, rot } : { geo: UNIT_CYL, mat, at, size });
+): KitPiece => (rot ? { at, geo: UNIT_CYL, mat, rot, size } : { at, geo: UNIT_CYL, mat, size });
 
 // --- Overhead wire ----------------------------------------------------------
 // One unit-length sagging span along +X, placed by aiming +X down the span and
@@ -278,18 +311,21 @@ const kTube = (
 // a real catenary does, and thickness grows with span so a 130-metre wire is
 // still a visible line at draw distance (a true 2 cm wire is sub-pixel and the
 // city reads as if the wires were never there).
-const WIRE_SAG = 0.055; // fraction of span
-const WIRE_GAUGE = 0.0019; // fraction of span
+// fraction of span
+const WIRE_SAG = 0.055;
+// fraction of span
+const WIRE_GAUGE = 0.0019;
 const WIRE_SEGS = 4;
 const wireKit = lazyKit(() => {
   const pieces: KitPiece[] = [];
   const yAt = (t: number): number => -WIRE_SAG * 4 * t * (1 - t);
-  for (let i = 0; i < WIRE_SEGS; i++) {
+  for (let i = 0; i < WIRE_SEGS; i += 1) {
     const t0 = i / WIRE_SEGS;
     const t1 = (i + 1) / WIRE_SEGS;
     const y0 = yAt(t0);
     const y1 = yAt(t1);
-    const len = Math.hypot(t1 - t0, y1 - y0) * 1.06; // overlap the joints
+    // overlap the joints
+    const len = Math.hypot(t1 - t0, y1 - y0) * 1.06;
     pieces.push(
       kBox(
         WIRE_MAT,
@@ -333,24 +369,7 @@ const powerPoleKit = lazyKit(() => {
 });
 
 // --- Muni ------------------------------------------------------------------
-// Glass box, cantilever roof, bench, and the brown pole with a route flag.
-const shelterKit = lazyKit(() => [
-  // roof + frame (local +Z is the kerb side; the glass wall is at -Z)
-  kBox(MUNI_MAT, [0, 2.62, 0], [4.4, 0.14, 1.9]),
-  kBox(MUNI_MAT, [0, 2.72, -0.85], [4.4, 0.22, 0.2]),
-  kBox(MUNI_MAT, [-2.05, 1.3, -0.8], [0.16, 2.6, 0.16]),
-  kBox(MUNI_MAT, [2.05, 1.3, -0.8], [0.16, 2.6, 0.16]),
-  kBox(MUNI_MAT, [-2.05, 1.3, 0.8], [0.16, 2.6, 0.16]),
-  kBox(MUNI_MAT, [2.05, 1.3, 0.8], [0.16, 2.6, 0.16]),
-  // glazing: back wall + two returns
-  kBox(GLASS_MAT, [0, 1.42, -0.86], [4.0, 2.3, 0.05]),
-  kBox(GLASS_MAT, [-2.02, 1.42, 0], [0.05, 2.3, 1.6]),
-  kBox(GLASS_MAT, [2.02, 1.42, 0], [0.05, 2.3, 1.6]),
-  // perch bench against the glass
-  kBox(RAIL_MAT, [0, 0.66, -0.62], [3.4, 0.1, 0.42]),
-  kBox(RAIL_MAT, [-1.5, 0.33, -0.62], [0.12, 0.66, 0.12]),
-  kBox(RAIL_MAT, [1.5, 0.33, -0.62], [0.12, 0.66, 0.12]),
-]);
+// The shelter is an image-derived shared kit; stop poles stay lightweight.
 const STOP_POLE_H = 3.4;
 const stopPoleKit = lazyKit(() => [
   kTube(MUNI_MAT, [0, STOP_POLE_H / 2, 0], [0.14, STOP_POLE_H, 0.14]),
@@ -364,15 +383,15 @@ const TURNTABLE_R = 4.6;
 const turntableKit = lazyKit(() => {
   const pieces: KitPiece[] = [
     {
+      at: [0, -0.08, 0],
       geo: UNIT_CYL,
       mat: SEAWALL_MAT,
-      at: [0, -0.08, 0],
       size: [TURNTABLE_R * 2, 0.3, TURNTABLE_R * 2],
     },
     {
+      at: [0, 0.09, 0],
       geo: UNIT_CYL,
       mat: RAIL_MAT,
-      at: [0, 0.09, 0],
       size: [TURNTABLE_R * 1.82, 0.12, TURNTABLE_R * 1.82],
     },
   ];
@@ -380,7 +399,7 @@ const turntableKit = lazyKit(() => {
   for (const z of [-0.26, 0.26] as const) {
     pieces.push(kBox(POLE_MAT, [0, 0.17, z], [TURNTABLE_R * 1.8, 0.08, 0.14]));
   }
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 8; i += 1) {
     const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
     pieces.push(
       kTube(
@@ -407,20 +426,22 @@ const newsBoxKit = lazyKit(() => [
 const mailboxKit = lazyKit(() => [
   kBox(CANVAS_MAT, [0, 0.82, 0], [0.72, 0.78, 0.56]),
   {
+    at: [0, 1.21, 0],
     geo: UNIT_CYL,
     mat: CANVAS_MAT,
-    at: [0, 1.21, 0],
-    size: [0.72, 0.56, 0.56],
     rot: [0, 0, Math.PI / 2],
+    size: [0.72, 0.56, 0.56],
   },
   kBox(CANVAS_MAT, [0, 0.22, 0], [0.3, 0.44, 0.3]),
 ]);
 const bikeRackKit = lazyKit(() => {
   const pieces: KitPiece[] = [];
   for (const x of [-0.9, 0.9] as const) {
-    pieces.push(kTube(POLE_MAT, [x - 0.32, 0.4, 0], [0.09, 0.8, 0.09]));
-    pieces.push(kTube(POLE_MAT, [x + 0.32, 0.4, 0], [0.09, 0.8, 0.09]));
-    pieces.push(kBox(POLE_MAT, [x, 0.79, 0], [0.72, 0.09, 0.09]));
+    pieces.push(
+      kTube(POLE_MAT, [x - 0.32, 0.4, 0], [0.09, 0.8, 0.09]),
+      kTube(POLE_MAT, [x + 0.32, 0.4, 0], [0.09, 0.8, 0.09]),
+      kBox(POLE_MAT, [x, 0.79, 0], [0.72, 0.09, 0.09]),
+    );
   }
   return pieces;
 });
@@ -429,18 +450,18 @@ const scooterKit = lazyKit(() => [
   kTube(WIRE_MAT, [0.38, 0.6, 0], [0.06, 0.9, 0.06], [0, 0, -0.12]),
   kBox(WIRE_MAT, [0.44, 1.03, 0], [0.08, 0.06, 0.44]),
   {
+    at: [0.42, 0.14, 0],
     geo: UNIT_CYL,
     mat: WIRE_MAT,
-    at: [0.42, 0.14, 0],
-    size: [0.26, 0.07, 0.26],
     rot: [0, 0, Math.PI / 2],
+    size: [0.26, 0.07, 0.26],
   },
   {
+    at: [-0.42, 0.14, 0],
     geo: UNIT_CYL,
     mat: WIRE_MAT,
-    at: [-0.42, 0.14, 0],
-    size: [0.26, 0.07, 0.26],
     rot: [0, 0, Math.PI / 2],
+    size: [0.26, 0.07, 0.26],
   },
 ]);
 const cabinetKit = lazyKit(() => [
@@ -449,14 +470,14 @@ const cabinetKit = lazyKit(() => [
   kBox(WIRE_MAT, [0, 0.66, 0.29], [0.86, 1.06, 0.03]),
 ]);
 const aBoardKit = lazyKit(() => [
-  kBox(CANVAS_MAT, [0, 0.5, -0.16], [0.6, 1.0, 0.04], [0.28, 0, 0]),
-  kBox(CANVAS_MAT, [0, 0.5, 0.16], [0.6, 1.0, 0.04], [-0.28, 0, 0]),
+  kBox(CANVAS_MAT, [0, 0.5, -0.16], [0.6, 1, 0.04], [0.28, 0, 0]),
+  kBox(CANVAS_MAT, [0, 0.5, 0.16], [0.6, 1, 0.04], [-0.28, 0, 0]),
 ]);
 // A frontage under repair: pavement gantry, plank deck, debris net.
 const SCAFFOLD_RUN = 9;
-const scaffoldKit = lazyKit(() => {
+export const getScaffoldKit = lazyKit(() => {
   const pieces: KitPiece[] = [];
-  for (let i = 0; i <= 3; i++) {
+  for (let i = 0; i <= 3; i += 1) {
     const x = -SCAFFOLD_RUN / 2 + (SCAFFOLD_RUN * i) / 3;
     for (const z of [-0.85, 0.85] as const) {
       pieces.push(kTube(POLE_MAT, [x, 3.1, z], [0.11, 6.2, 0.11]));
@@ -469,9 +490,31 @@ const scaffoldKit = lazyKit(() => {
     }
   }
   pieces.push(kBox(RAIL_MAT, [0, 2.6, 0], [SCAFFOLD_RUN, 0.08, 1.7]));
-  pieces.push(kBox(CANVAS_MAT, [0, 4.4, 0.9], [SCAFFOLD_RUN, 3.5, 0.03]));
+  // An opaque canvas slab read as a blank billboard. Open debris mesh lets
+  // the working facade show through; three braced bays make the gantry read
+  // from either approach. These pieces stay inside the original envelope.
+  const braceAngle = Math.atan2(2.9, 3.4);
+  const braceLength = Math.hypot(2.9, 3.4);
+  for (const x of [-3, 0, 3]) {
+    for (const sign of [-1, 1]) {
+      pieces.push(
+        kBox(POLE_MAT, [x, 4.4, 0.85], [0.055, braceLength, 0.07], [0, 0, sign * braceAngle]),
+      );
+    }
+  }
+  for (let i = 0; i <= 20; i += 1) {
+    const x = -SCAFFOLD_RUN / 2 + 0.025 + ((SCAFFOLD_RUN - 0.05) * i) / 20;
+    pieces.push(kBox(WIRE_MAT, [x, 4.4, 0.9], [0.025, 3.5, 0.03]));
+  }
+  for (let i = 0; i <= 7; i += 1) {
+    pieces.push(kBox(WIRE_MAT, [0, 2.675 + (3.45 * i) / 7, 0.9], [SCAFFOLD_RUN, 0.025, 0.03]));
+  }
   return pieces;
 });
+
+/** The scaffold's nine-unit run is local +X; its clearance probes follow
+ *  the street tangent. Local +Z belongs across the sidewalk. */
+export const scaffoldYaw = (tx: number, tz: number): number => Math.atan2(-tz, tx);
 
 // --- Regulatory plate on a pole (no-parking / tow-away) ---------------------
 const regulatoryKit = lazyKit(() => [
@@ -501,11 +544,13 @@ const awningKit = lazyKit(() => [
 const fireEscapeKit = lazyKit(() => {
   const pieces: KitPiece[] = [];
   for (const y of [3.6, 6.6] as const) {
-    pieces.push(kBox(WIRE_MAT, [0, y, 0.55], [2.6, 0.08, 1.1]));
-    pieces.push(kBox(WIRE_MAT, [0, y + 0.5, 1.08], [2.6, 0.06, 0.06]));
-    pieces.push(kBox(WIRE_MAT, [0, y + 0.95, 1.08], [2.6, 0.06, 0.06]));
+    pieces.push(
+      kBox(WIRE_MAT, [0, y, 0.55], [2.6, 0.08, 1.1]),
+      kBox(WIRE_MAT, [0, y + 0.5, 1.08], [2.6, 0.06, 0.06]),
+      kBox(WIRE_MAT, [0, y + 0.95, 1.08], [2.6, 0.06, 0.06]),
+    );
     for (const x of [-1.25, 0, 1.25] as const) {
-      pieces.push(kBox(WIRE_MAT, [x, y + 0.5, 1.08], [0.06, 1.0, 0.06]));
+      pieces.push(kBox(WIRE_MAT, [x, y + 0.5, 1.08], [0.06, 1, 0.06]));
     }
     // stair stringer down to the landing below
     pieces.push(kBox(WIRE_MAT, [0.9, y - 1.5, 0.75], [0.08, 3.4, 0.5], [0, 0, 0.62]));
@@ -515,7 +560,7 @@ const fireEscapeKit = lazyKit(() => {
 const muralKit = lazyKit(() => [{ geo: UNIT_PLANE, mat: CANVAS_MAT, size: [5.2, 4.4, 1] }]);
 const shutterKit = lazyKit(() => {
   const pieces: KitPiece[] = [kBox(WIRE_MAT, [0, 1.35, 0], [3.4, 2.7, 0.07])];
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < 7; i += 1) {
     pieces.push(kBox(WIRE_MAT, [0, 0.24 + i * 0.37, 0.05], [3.4, 0.1, 0.04]));
   }
   return pieces;
@@ -529,8 +574,10 @@ const TREE_WELL_R = 0.82;
 const treeWellKit = lazyKit(() => {
   const pieces: KitPiece[] = [];
   for (const s of [-1, 1] as const) {
-    pieces.push(kBox(SEAWALL_MAT, [s * TREE_WELL_R, 0.06, 0], [0.2, 0.16, TREE_WELL_R * 2 + 0.2]));
-    pieces.push(kBox(SEAWALL_MAT, [0, 0.06, s * TREE_WELL_R], [TREE_WELL_R * 2 - 0.2, 0.16, 0.2]));
+    pieces.push(
+      kBox(SEAWALL_MAT, [s * TREE_WELL_R, 0.06, 0], [0.2, 0.16, TREE_WELL_R * 2 + 0.2]),
+      kBox(SEAWALL_MAT, [0, 0.06, s * TREE_WELL_R], [TREE_WELL_R * 2 - 0.2, 0.16, 0.2]),
+    );
   }
   return pieces;
 });
@@ -540,7 +587,7 @@ const treeWellKit = lazyKit(() => {
 const palmKit = lazyKit(() => {
   const pieces: KitPiece[] = [];
   const H = 8.4;
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < 7; i += 1) {
     const t = i / 6;
     pieces.push(
       kTube(
@@ -550,15 +597,15 @@ const palmKit = lazyKit(() => {
       ),
     );
   }
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 8; i += 1) {
     const a = (i / 8) * Math.PI * 2;
     const droop = i % 2 === 0 ? 0.45 : 0.72;
     pieces.push({
+      at: [0.5 + Math.cos(a) * 1.3, H - 0.15 - droop * 0.9, Math.sin(a) * 1.3],
       geo: UNIT_BOX,
       mat: FROND_MAT,
-      at: [0.5 + Math.cos(a) * 1.3, H - 0.15 - droop * 0.9, Math.sin(a) * 1.3],
-      size: [2.9, 0.07, 0.62],
       rot: [0, -a, droop],
+      size: [2.9, 0.07, 0.62],
     });
   }
   return pieces;
@@ -574,6 +621,20 @@ const palmKit = lazyKit(() => {
 // ---------------------------------------------------------------------------
 const GLYPHS: ReadonlyMap<string, readonly [number, number, number, number, number]> = new Map(
   Object.entries({
+    " ": [0, 0, 0, 0, 0],
+    "'": [0b0100, 0b0100, 0b0000, 0b0000, 0b0000],
+    "-": [0b0000, 0b0000, 0b1110, 0b0000, 0b0000],
+    ".": [0b0000, 0b0000, 0b0000, 0b0000, 0b0100],
+    "0": [0b0110, 0b1011, 0b1101, 0b1001, 0b0110],
+    "1": [0b0010, 0b0110, 0b0010, 0b0010, 0b0111],
+    "2": [0b1110, 0b0001, 0b0110, 0b1000, 0b1111],
+    "3": [0b1110, 0b0001, 0b0110, 0b0001, 0b1110],
+    "4": [0b1010, 0b1010, 0b1111, 0b0010, 0b0010],
+    "5": [0b1111, 0b1000, 0b1110, 0b0001, 0b1110],
+    "6": [0b0111, 0b1000, 0b1110, 0b1001, 0b0110],
+    "7": [0b1111, 0b0001, 0b0010, 0b0100, 0b0100],
+    "8": [0b0110, 0b1001, 0b0110, 0b1001, 0b0110],
+    "9": [0b0110, 0b1001, 0b0111, 0b0001, 0b1110],
     A: [0b0110, 0b1001, 0b1111, 0b1001, 0b1001],
     B: [0b1110, 0b1001, 0b1110, 0b1001, 0b1110],
     C: [0b0111, 0b1000, 0b1000, 0b1000, 0b0111],
@@ -600,30 +661,16 @@ const GLYPHS: ReadonlyMap<string, readonly [number, number, number, number, numb
     X: [0b1001, 0b1001, 0b0110, 0b1001, 0b1001],
     Y: [0b1001, 0b1001, 0b0110, 0b0110, 0b0110],
     Z: [0b1111, 0b0011, 0b0110, 0b1100, 0b1111],
-    "0": [0b0110, 0b1011, 0b1101, 0b1001, 0b0110],
-    "1": [0b0010, 0b0110, 0b0010, 0b0010, 0b0111],
-    "2": [0b1110, 0b0001, 0b0110, 0b1000, 0b1111],
-    "3": [0b1110, 0b0001, 0b0110, 0b0001, 0b1110],
-    "4": [0b1010, 0b1010, 0b1111, 0b0010, 0b0010],
-    "5": [0b1111, 0b1000, 0b1110, 0b0001, 0b1110],
-    "6": [0b0111, 0b1000, 0b1110, 0b1001, 0b0110],
-    "7": [0b1111, 0b0001, 0b0010, 0b0100, 0b0100],
-    "8": [0b0110, 0b1001, 0b0110, 0b1001, 0b0110],
-    "9": [0b0110, 0b1001, 0b0111, 0b0001, 0b1110],
-    "-": [0b0000, 0b0000, 0b1110, 0b0000, 0b0000],
-    ".": [0b0000, 0b0000, 0b0000, 0b0000, 0b0100],
-    "'": [0b0100, 0b0100, 0b0000, 0b0000, 0b0000],
-    " ": [0, 0, 0, 0, 0],
   } satisfies Record<string, readonly [number, number, number, number, number]>),
 );
-const GLYPH_PX = 0.075; // world units per font pixel
-const GLYPH_ADVANCE = 5 * GLYPH_PX; // 4-wide cell + 1 gap
+// world units per font pixel
+const GLYPH_PX = 0.075;
+// 4-wide cell + 1 gap
+const GLYPH_ADVANCE = 5 * GLYPH_PX;
 const GLYPH_H = 5 * GLYPH_PX;
 
 /** Width of a rendered label, world units. */
-function labelWidth(text: string): number {
-  return Math.max(0, text.length * GLYPH_ADVANCE - GLYPH_PX);
-}
+const labelWidth = (text: string): number => Math.max(0, text.length * GLYPH_ADVANCE - GLYPH_PX);
 
 const labelCache = new Map<string, THREE.BufferGeometry>();
 
@@ -632,26 +679,34 @@ const labelCache = new Map<string, THREE.BufferGeometry>();
  * Cached by string: a city with 240 blades across 40 named streets uploads 40
  * geometries, not 480.
  */
-function labelGeo(text: string): THREE.BufferGeometry | null {
+const labelGeo = (text: string): THREE.BufferGeometry | null => {
   const cached = labelCache.get(text);
-  if (cached) return cached;
+  if (cached) {
+    return cached;
+  }
   const w = labelWidth(text);
   const quads: THREE.BufferGeometry[] = [];
   const m = new THREE.Matrix4();
-  for (let c = 0; c < text.length; c++) {
+  for (let c = 0; c < text.length; c += 1) {
     const rows = GLYPHS.get(text.charAt(c));
-    if (!rows) continue;
+    if (!rows) {
+      continue;
+    }
     const x0 = -w / 2 + c * GLYPH_ADVANCE;
-    for (let r = 0; r < 5; r++) {
+    for (let r = 0; r < 5; r += 1) {
       const bits = rows[r] ?? 0;
       let col = 0;
       while (col < 4) {
+        // oxlint-disable-next-line no-bitwise -- a glyph row is a 4-bit mask, MSB is column 0
         if ((bits & (1 << (3 - col))) === 0) {
-          col++;
+          col += 1;
           continue;
         }
         let run = 1;
-        while (col + run < 4 && (bits & (1 << (3 - col - run))) !== 0) run++;
+        // oxlint-disable-next-line no-bitwise -- same row mask, walked to the end of the lit run
+        while (col + run < 4 && (bits & (1 << (3 - col - run))) !== 0) {
+          run += 1;
+        }
         m.makeScale(run * GLYPH_PX, GLYPH_PX, 1);
         m.setPosition(x0 + (col + run / 2) * GLYPH_PX, GLYPH_H / 2 - (r + 0.5) * GLYPH_PX, 0);
         quads.push(UNIT_PLANE.clone().applyMatrix4(m));
@@ -659,41 +714,49 @@ function labelGeo(text: string): THREE.BufferGeometry | null {
       }
     }
   }
-  const first = quads[0];
-  if (!first) return null;
+  const [first] = quads;
+  if (!first) {
+    return null;
+  }
   const geo = quads.length === 1 ? first : mergeGeometries(quads, false);
   labelCache.set(text, geo);
   return geo;
-}
+};
 
 /** SF blade text: strip the way-type suffix, cap the length. */
-function bladeText(street: string): string | null {
-  let t = street.toUpperCase().replace(/^THE /, "");
+const bladeText = (street: string): string | null => {
+  let t = street.toUpperCase().replace(/^THE /u, "");
   t = t
-    .replace(/ STREET$/, "")
-    .replace(/ AVENUE$/, " AVE")
-    .replace(/ BOULEVARD$/, " BLVD")
-    .replace(/ FREEWAY$/, " FWY")
-    .replace(/ DRIVE$/, " DR")
-    .replace(/ PLACE$/, " PL")
-    .replace(/ ROAD$/, " RD")
-    .replace(/ WAY$/, " WAY")
-    .replace(/ TERRACE$/, " TER");
-  t = t.replace(/[^A-Z0-9'. -]/g, "");
-  if (t.length === 0 || t.length > 13) return null;
-  for (const ch of t) if (!GLYPHS.has(ch)) return null;
+    .replace(/ STREET$/u, "")
+    .replace(/ AVENUE$/u, " AVE")
+    .replace(/ BOULEVARD$/u, " BLVD")
+    .replace(/ FREEWAY$/u, " FWY")
+    .replace(/ DRIVE$/u, " DR")
+    .replace(/ PLACE$/u, " PL")
+    .replace(/ ROAD$/u, " RD")
+    .replace(/ WAY$/u, " WAY")
+    .replace(/ TERRACE$/u, " TER");
+  t = t.replaceAll(/[^A-Z0-9'. -]/gu, "");
+  if (t.length === 0 || t.length > 13) {
+    return null;
+  }
+  for (const ch of t) {
+    if (!GLYPHS.has(ch)) {
+      return null;
+    }
+  }
   return t;
-}
+};
 
 // Tint via per-instance color (picked up by the city batcher's setColorAt) —
 // tint variants no longer clone materials or multiply batch count.
-function tintNode(node: THREE.Object3D, hex: number, amt: number): void {
+const tintNode = (node: THREE.Object3D, hex: number, amt: number): void => {
   node.traverse((c) => {
     if (c instanceof THREE.Mesh && c.material instanceof THREE.MeshStandardMaterial) {
       c.userData.tint = c.material.color.clone().lerp(new THREE.Color(hex), amt);
     }
   });
-}
+};
 
 const cellKey = (gx: number, gz: number): string => `${gx},${gz}`;
 const inBounds = (gx: number, gz: number): boolean =>
@@ -710,60 +773,97 @@ const toGz = (z: number): number => Math.floor((z + WORLD_H / 2) / ROAD_TILE);
 const claimKey = (x: number, z: number): string => `${Math.floor(x / 8)},${Math.floor(z / 8)}`;
 
 /** A seated point on one kerb of one edge — what every dressing pass consumes. */
-type KerbPoint = {
+interface KerbPoint {
   readonly x: number;
   readonly z: number;
-  readonly tx: number; // unit tangent along the edge
+  // unit tangent along the edge
+  readonly tx: number;
   readonly tz: number;
-  readonly side: 1 | -1; // which kerb
-  readonly half: number; // the edge's asphalt half-width
+  // which kerb
+  readonly side: 1 | -1;
+  // the edge's asphalt half-width
+  readonly half: number;
   readonly district: District;
-};
+}
 /** Yaw that points a kit's local +Z at the roadway from a kerb point. */
 const facingRoad = (p: KerbPoint): number => Math.atan2(-p.tz * p.side, -p.tx * p.side);
 
 // Yaw that points local +Z toward the given grid direction (matches city.ts).
-function dirToYaw(d: Dir): number {
+const dirToYaw = (d: Dir): number => {
   switch (d) {
-    case N:
+    case N: {
       return Math.PI;
-    case S:
+    }
+    case S: {
       return 0;
-    case E:
+    }
+    case E: {
       return -HALF_PI;
-    case W:
+    }
+    case W: {
       return HALF_PI;
-    default:
+    }
+    default: {
       return 0;
+    }
   }
-}
+};
 
-// Streetlight model per district character.
-function lightFor(c: DistrictChar): string {
-  switch (c) {
-    case "residential":
-    case "victorian":
-    case "park":
-      return LIGHT_CURVED;
-    case "downtown":
-    case "highrise":
-    case "industrial":
-      return LIGHT_SQUARE;
-    case "commercial":
-      return LIGHT_SQUARE_DOUBLE;
-    case "wharf":
-      return LIGHT_CURVED_CROSS;
+// Quarter-turn for a two-neighbour park-path corner; the kit's base piece is S|W
+// and the rotations run CCW in N,E,S,W order. Null when the pair is a straight.
+const cornerQuarter = (bit: (d: Dir) => boolean): number | null => {
+  if (bit(S) && bit(W)) {
+    return 0;
   }
-}
+  if (bit(W) && bit(N)) {
+    return 1;
+  }
+  if (bit(N) && bit(E)) {
+    return 2;
+  }
+  if (bit(E) && bit(S)) {
+    return 3;
+  }
+  return null;
+};
 
-export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult> {
+// Streetlight model per district character. A table rather than a switch so the
+// compiler still demands an entry when a character is added.
+const LIGHT_FOR = {
+  commercial: LIGHT_SQUARE_DOUBLE,
+  downtown: LIGHT_SQUARE,
+  highrise: LIGHT_SQUARE,
+  industrial: LIGHT_SQUARE,
+  park: LIGHT_CURVED,
+  residential: LIGHT_CURVED,
+  victorian: LIGHT_CURVED,
+  wharf: LIGHT_CURVED_CROSS,
+} satisfies Record<DistrictChar, string>;
+
+// districtAt takes GRID coords — feeding it normalized 0..1 map fractions
+// (the old bug here) made every lookup land on the map's NW corner (a park
+// district), so inPark was constant-true and the streetlight walk placed
+// ZERO lamps on every build.
+const inPark = (x: number, z: number): boolean =>
+  districtAt(Math.floor((x + WORLD_W / 2) / ROAD_TILE), Math.floor((z + WORLD_H / 2) / ROAD_TILE))
+    .character === "park";
+
+// oxlint-disable-next-line complexity -- one sequential dressing pipeline of ~20 passes over a scope of shared placement helpers; splitting it is a refactor, not a lint fix
+export const buildFurniture = async (ctx: FurnitureCtx): Promise<FurnitureResult> => {
   // Painted yield, time-gated: only give up the thread when ~a frame's worth
   // of work has accumulated — per-iteration yields would add seconds of pure
   // frame-waiting across 195k-cell loops.
   let lastYield = performance.now();
   const breathe = async (): Promise<void> => {
-    if (performance.now() - lastYield < 12) return;
-    await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+    if (performance.now() - lastYield < 12) {
+      return;
+    }
+    // oxlint-disable-next-line promise/avoid-new -- wraps requestAnimationFrame plus setTimeout
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => {
+        setTimeout(resolve, 0);
+      });
+    });
     lastYield = performance.now();
   };
   const {
@@ -781,8 +881,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   } = ctx;
   const objects: THREE.Object3D[] = [];
   const solids: Solid[] = [];
-  const openWaterCells = new Set<string>();
-  const pierDecks: PierDeck[] = [];
+  const pierDecks: SurfaceDeck[] = [];
   const parkedCars: ParkedSpec[] = [];
   const lampHeads: LampHead[] = [];
 
@@ -803,18 +902,11 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   // the terrace over its ~9u lattice. Seating on terrain.heightAt buried or
   // floated a prop by up to the full terrace cap — half a lamp post gone.
   const surfaceAt = makeStandingSurface(network, terrain, groundOffset, roadDrape);
-  // Lot decals (front paths, fences, Stow Lake) conform to the GROUND MESH as
-  // drawn rather than to the field it samples — the coarse lattice was the
-  // second error LOT_DECAL_LIFT had to clear, and clearing it by floating is
-  // what a decal must never do.
-  const groundDrape: DrapeField = {
-    heightAt: (x: number, z: number): number => terrain.renderedHeightAt(x, z, groundOffset),
-    normalInto: (out: THREE.Vector3, x: number, z: number): THREE.Vector3 =>
-      terrain.normalInto(out, x, z),
-  };
   const nonCardinalStreet = (gx: number, gz: number): boolean => {
     const hit = network.nearest(worldX(gx), worldZ(gz), ROAD_TILE * 1.6);
-    if (!hit) return false;
+    if (!hit) {
+      return false;
+    }
     return Math.abs(Math.sin(2 * Math.atan2(hit.tx, hit.tz))) >= 0.18;
   };
   const cellAt = (gx: number, gz: number): "road" | "lot" | "water" | null =>
@@ -829,13 +921,17 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     Math.hypot(gx - centreX, gz - centreZ) <= r;
 
   // Place a cached model with world transform baked (caller merges).
-  const place = (url: string, x: number, y: number, z: number, yaw: number, s: number): void => {
+  const place = (url: string, x: number, y: number, z: number, yaw: number, s: number): boolean => {
+    if (!ctx.treeClear(url, { scaleX: s, scaleZ: s, x, yaw, z })) {
+      return false;
+    }
     const node = cache.instance(url);
     node.scale.setScalar(s);
     node.rotation.y = yaw;
     node.position.set(x, y, z);
     node.updateMatrixWorld(true);
     objects.push(node);
+    return true;
   };
   // WHERE A MODEL STANDS vs WHERE ITS INSTANCE MATRIX SAYS IT IS. Every kit
   // model this module seats is authored feet-at-origin — measured, all of
@@ -867,12 +963,23 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     s: number,
     allowAsphalt = false,
   ): boolean => {
-    if (!allowAsphalt && onAsphalt(x, z, 0.2)) return false;
-    place(url, x, surfaceAt(x, z), z, yaw, s);
-    return true;
+    if (!allowAsphalt && onAsphalt(x, z, 0.2)) {
+      return false;
+    }
+    return place(url, x, surfaceAt(x, z), z, yaw, s);
   };
   // KayKit variants: same as place/seat but tinted toward the Kenney palette.
-  const placeKK = (url: string, x: number, y: number, z: number, yaw: number, s: number): void => {
+  const placeKK = (
+    url: string,
+    x: number,
+    y: number,
+    z: number,
+    yaw: number,
+    s: number,
+  ): boolean => {
+    if (!ctx.treeClear(url, { scaleX: s, scaleZ: s, x, yaw, z })) {
+      return false;
+    }
     const node = cache.instance(url);
     tintNode(node, KK_TINT, KK_TINT_AMT);
     node.scale.setScalar(s);
@@ -880,44 +987,27 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     node.position.set(x, y, z);
     node.updateMatrixWorld(true);
     objects.push(node);
+    return true;
   };
   const seatKK = (url: string, x: number, z: number, yaw: number, s: number): boolean => {
-    if (onAsphalt(x, z, 0.2)) return false;
-    placeKK(url, x, surfaceAt(x, z), z, yaw, s);
-    return true;
+    if (onAsphalt(x, z, 0.2)) {
+      return false;
+    }
+    return placeKK(url, x, surfaceAt(x, z), z, yaw, s);
   };
   // True when a 4-neighbor is a junction tile (crossroad or T).
   const nextToJunction = (gx: number, gz: number): boolean => {
     for (const d of DIRS) {
       const [dx, dz] = DIR_DELTA[d];
       const nb = roadAt(gx + dx, gz + dz);
-      if (nb && (nb.kind === "cross" || nb.kind === "tee")) return true;
+      if (nb && (nb.kind === "cross" || nb.kind === "tee")) {
+        return true;
+      }
     }
     return false;
   };
   const scaleToHeight = (url: string, h: number): number =>
     h / Math.max(cache.bounds(url).size.y, 0.001);
-  // Bake a node to world space, drape its geometry over the terrain, and emit
-  // identity-transform meshes (thin ground pieces: fences, paths, the lake).
-  const drape = (node: THREE.Object3D, lift: number): void => {
-    node.updateMatrixWorld(true);
-    node.traverse((c) => {
-      if (!(c instanceof THREE.Mesh) || !(c.geometry instanceof THREE.BufferGeometry)) return;
-      const mat = c.material;
-      if (Array.isArray(mat)) return;
-      const baked = c.geometry.clone();
-      baked.applyMatrix4(c.matrixWorld);
-      const mesh = new THREE.Mesh(conformToTerrain(baked, groundDrape, lift), mat);
-      mesh.updateMatrixWorld(true);
-      // Unique world-baked buffers belong in the chunk MERGE path (like road
-      // ribbons) — as batch items they bloat buckets with one-off geometries.
-      mesh.userData.merge = true;
-      // Textured (colormap) material can't serialize as a descriptor — carry
-      // the source ref so the city-rest cache resolves it from the GLB.
-      if (c.userData.src) mesh.userData.srcMat = c.userData.src;
-      objects.push(mesh);
-    });
-  };
   // World-baked box helper (pier railings, seawall lips).
   const box = (
     mat: THREE.Material,
@@ -940,14 +1030,6 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   const cornerClean = (gx: number, gz: number, sx: 1 | -1, sz: 1 | -1): boolean =>
     cellAt(gx + sx, gz + sz) !== "road";
 
-  // districtAt takes GRID coords — feeding it normalized 0..1 map fractions
-  // (the old bug here) made every lookup land on the map's NW corner (a park
-  // district), so inPark was constant-true and the streetlight walk placed
-  // ZERO lamps on every build.
-  const inPark = (x: number, z: number): boolean =>
-    districtAt(Math.floor((x + WORLD_W / 2) / ROAD_TILE), Math.floor((z + WORLD_H / 2) / ROAD_TILE))
-      .character === "park";
-
   // ------------------------------------------------------------------
   // KERB-ANCHORED DRESSING: shared machinery for passes 15-21.
   //
@@ -963,18 +1045,25 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   const claim = (x: number, z: number): void => {
     const k = claimKey(x, z);
     const list = claims.get(k);
-    if (list) list.push([x, z]);
-    else claims.set(k, [[x, z]]);
+    if (list) {
+      list.push([x, z]);
+    } else {
+      claims.set(k, [[x, z]]);
+    }
   };
   const claimFree = (x: number, z: number, r: number): boolean => {
     const bx = Math.floor(x / 8);
     const bz = Math.floor(z / 8);
-    for (let i = -1; i <= 1; i++) {
-      for (let j = -1; j <= 1; j++) {
+    for (let i = -1; i <= 1; i += 1) {
+      for (let j = -1; j <= 1; j += 1) {
         const list = claims.get(`${bx + i},${bz + j}`);
-        if (!list) continue;
+        if (!list) {
+          continue;
+        }
         for (const [px, pz] of list) {
-          if (Math.hypot(px - x, pz - z) < r) return false;
+          if (Math.hypot(px - x, pz - z) < r) {
+            return false;
+          }
         }
       }
     }
@@ -982,8 +1071,12 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   };
   /** Claim-and-place in one step: false when the spot is taken or on asphalt. */
   const claimSeat = (x: number, z: number, r: number): boolean => {
-    if (!claimFree(x, z, r)) return false;
-    if (onAsphalt(x, z, 0.25)) return false;
+    if (!claimFree(x, z, r)) {
+      return false;
+    }
+    if (onAsphalt(x, z, 0.25)) {
+      return false;
+    }
     claim(x, z);
     return true;
   };
@@ -1004,7 +1097,9 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       mesh.position.set(x, y, z);
       mesh.rotation.y = yaw;
       mesh.scale.setScalar(s);
-      if (tint) mesh.userData.tint = tint;
+      if (tint) {
+        mesh.userData.tint = tint;
+      }
       mesh.updateMatrixWorld(true);
       objects.push(mesh);
     }
@@ -1022,7 +1117,9 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     z1: number,
   ): void => {
     const len = Math.hypot(x1 - x0, y1 - y0, z1 - z0);
-    if (len < 1) return;
+    if (len < 1) {
+      return;
+    }
     const mesh = new THREE.Mesh(wireKit()[0]?.geo ?? UNIT_BOX, WIRE_MAT);
     mesh.position.set(x0, y0, z0);
     mesh.quaternion.setFromUnitVectors(
@@ -1045,7 +1142,9 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     for (const corridor of SF_TRANSIT[mode]) {
       for (const id of corridor.edges) {
         set.add(id);
-        if (corridor.street) edgeStreet.set(id, corridor.street);
+        if (corridor.street) {
+          edgeStreet.set(id, corridor.street);
+        }
       }
       if (corridor.street) {
         streetLength.set(
@@ -1059,7 +1158,9 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   // `network.edges` is DENSE but SF_EDGES is sparse, so array position is not
   // the coverage-list index — `edge.id` is. Index by it.
   const byEdgeId = new Map<number, NetEdge>();
-  for (const edge of network.edges) byEdgeId.set(edge.id, edge);
+  for (const edge of network.edges) {
+    byEdgeId.set(edge.id, edge);
+  }
   const edgeById = (id: number): NetEdge | null => byEdgeId.get(id) ?? null;
   /** The longest corridors of one mode, longest first — the "top N" slice. */
   const topCorridors = (mode: TransitMode, n: number): readonly NetEdge[] => {
@@ -1067,7 +1168,9 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     for (const corridor of SF_TRANSIT[mode].slice(0, n)) {
       for (const id of corridor.edges) {
         const edge = edgeById(id);
-        if (edge) out.push(edge);
+        if (edge) {
+          out.push(edge);
+        }
       }
     }
     return out;
@@ -1085,25 +1188,31 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   ): void => {
     const trimA = network.nodeTrim(edge.a) + 2.5;
     const trimB = network.nodeTrim(edge.b) + 2.5;
-    if (edge.len - trimA - trimB < spacing * 0.5) return;
+    if (edge.len - trimA - trimB < spacing * 0.5) {
+      return;
+    }
     for (let s = trimA + spacing * 0.5; s < edge.len - trimB; s += spacing) {
-      const side: 1 | -1 = sideOf ? sideOf(s) : rng.chance(0.5) ? 1 : -1;
+      const side: 1 | -1 = sideOf?.(s) ?? (rng.chance(0.5) ? 1 : -1);
       const smp = network.sample(edge, s);
       const off = (edge.half + lateral) * side;
       const px = smp.x - smp.tz * off;
       const pz = smp.z + smp.tx * off;
       const gx = toGx(px);
       const gz = toGz(pz);
-      if (!inBounds(gx, gz)) continue;
-      if (reserved.has(cellKey(gx, gz))) continue;
+      if (!inBounds(gx, gz)) {
+        continue;
+      }
+      if (reserved.has(cellKey(gx, gz))) {
+        continue;
+      }
       visit({
-        x: px,
-        z: pz,
+        district: districtAt(gx, gz),
+        half: edge.half,
+        side,
         tx: smp.tx,
         tz: smp.tz,
-        side,
-        half: edge.half,
-        district: districtAt(gx, gz),
+        x: px,
+        z: pz,
       });
     }
   };
@@ -1112,13 +1221,17 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   // sides, clear of junction trims. Works identically on axis streets,
   // diagonals and curves.
   // ------------------------------------------------------------------
-  const lightSide = new Map<string, 1 | -1>(); // cell -> lamp side (bench clash check)
+  // cell -> lamp side (bench clash check)
+  const lightSide = new Map<string, 1 | -1>();
   const LAMP_SPACING = ROAD_TILE * 4.5;
   let lampFlip = false;
   for (const edge of network.edges) {
     await breathe();
     const mid = network.sample(edge, edge.len / 2);
-    if (inPark(mid.x, mid.z)) continue; // park promenades stay unlit + unparked
+    if (inPark(mid.x, mid.z)) {
+      continue;
+      // park promenades stay unlit + unparked
+    }
     const trimA = network.nodeTrim(edge.a) + 2;
     const trimB = network.nodeTrim(edge.b) + 2;
     for (let s = trimA + LAMP_SPACING * 0.5; s < edge.len - trimB; s += LAMP_SPACING) {
@@ -1130,7 +1243,9 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       const pz = smp.z + smp.tx * off;
       const gx = toGx(px);
       const gz = toGz(pz);
-      if (reserved.has(cellKey(gx, gz))) continue;
+      if (reserved.has(cellKey(gx, gz))) {
+        continue;
+      }
       // Arm points back at the road centreline. The Kenney lamp arms run
       // along LOCAL -Z (bbox z -0.2..0.025) — the old +Z assumption swung
       // every arm out over the houses ("street lights face the wrong way").
@@ -1142,28 +1257,33 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       // there, and the glow head must skip with it or it floats unpoled.
       if (char === "victorian") {
         const url = modelUrl("props", LIGHT_OLD);
-        if (!seatKK(url, px, pz, yaw, scaleToHeight(url, VICTORIAN_LAMP_HEIGHT))) continue;
+        if (!seatKK(url, px, pz, yaw, scaleToHeight(url, VICTORIAN_LAMP_HEIGHT))) {
+          continue;
+        }
         lampHeads.push({
+          ground: groundY,
           x: px,
           y: groundY + VICTORIAN_LAMP_HEIGHT * 0.85,
           z: pz,
-          ground: groundY,
         });
       } else {
-        const url = modelUrl("props", lightFor(char));
+        const url = modelUrl("props", LIGHT_FOR[char]);
         const sc = scaleToHeight(url, LIGHT_HEIGHT);
-        if (!seat(url, px, pz, yaw, sc)) continue;
+        if (!seat(url, px, pz, yaw, sc)) {
+          continue;
+        }
         const reach = cache.bounds(url).size.z * sc * 0.5;
         // Head hangs along the arm (local -Z).
         lampHeads.push({
+          ground: groundY,
           x: px - Math.sin(yaw) * reach,
           y: groundY + LIGHT_HEIGHT * 0.92,
           z: pz - Math.cos(yaw) * reach,
-          ground: groundY,
         });
       }
       lightSide.set(cellKey(gx, gz), side);
-      claim(px, pz); // trees + kerb clutter grow off a lamp post otherwise
+      // trees + kerb clutter grow off a lamp post otherwise
+      claim(px, pz);
     }
   }
 
@@ -1176,14 +1296,22 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     const trimA = network.nodeTrim(edge.a) + 3;
     const trimB = network.nodeTrim(edge.b) + 3;
     for (let s = trimA; s < edge.len - trimB; s += ROAD_TILE) {
-      if (!rng.chance(0.3)) continue;
+      if (!rng.chance(0.3)) {
+        continue;
+      }
       const smp = network.sample(edge, s);
       const gx = toGx(smp.x);
       const gz = toGz(smp.z);
-      if (reserved.has(cellKey(gx, gz))) continue;
-      if (nearCentre(gx, gz, 2)) continue;
+      if (reserved.has(cellKey(gx, gz))) {
+        continue;
+      }
+      if (nearCentre(gx, gz, 2)) {
+        continue;
+      }
       const char = districtAt(gx, gz).character;
-      if (char !== "residential" && char !== "victorian" && char !== "commercial") continue;
+      if (char !== "residential" && char !== "victorian" && char !== "commercial") {
+        continue;
+      }
       const side: 1 | -1 = rng.chance(0.5) ? 1 : -1;
       const off = (edge.half - 1.05) * side;
       const px = smp.x - smp.tz * off;
@@ -1193,10 +1321,12 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       // 31 cars came to be parked mid-junction (worst 6.8u deep). Park only
       // where no other edge claims the spot as roadway.
       const owner = network.nearest(px, pz, ROAD_TILE * 1.4);
-      if (owner && owner.edge.id !== edge.id && owner.dist < owner.edge.half - 1.05) continue;
+      if (owner && owner.edge.id !== edge.id && owner.dist < owner.edge.half - 1.05) {
+        continue;
+      }
       // Nose along the travel direction of this kerb's lane.
       const yaw = Math.atan2(smp.tx, smp.tz) + (side > 0 ? 0 : Math.PI) + rng.range(-0.04, 0.04);
-      parkedCars.push({ x: px, z: pz, yaw, model: rng.pick(TRAFFIC_CARS) });
+      parkedCars.push({ model: rng.pick(TRAFFIC_CARS), x: px, yaw, z: pz });
     }
   }
 
@@ -1224,12 +1354,21 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     return Math.max(...hs) - Math.min(...hs) > STEEP_CLIFF;
   };
   for (const b of plan.buildingCells) {
-    if (reserved.has(cellKey(b.gx, b.gz))) continue;
-    if (steepLot(b.gx, b.gz)) continue;
+    if (reserved.has(cellKey(b.gx, b.gz))) {
+      continue;
+    }
+    if (steepLot(b.gx, b.gz)) {
+      continue;
+    }
     const district = districtAt(b.gx, b.gz);
-    const [dx, dz] = DIR_DELTA[b.faceDir]; // toward the street
-    if (nonCardinalStreet(b.gx, b.gz)) continue; // rotated building, skip dressing
-    const perpX = dz; // lot-side axis (perpendicular to faceDir)
+    // toward the street
+    const [dx, dz] = DIR_DELTA[b.faceDir];
+    if (nonCardinalStreet(b.gx, b.gz)) {
+      continue;
+      // rotated building, skip dressing
+    }
+    // lot-side axis (perpendicular to faceDir)
+    const perpX = dz;
     const perpZ = dx;
     const wx = worldX(b.gx);
     const wz = worldZ(b.gz);
@@ -1254,7 +1393,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       // Dogpatch skyline: 1–2 smokestacks at the lot's back corners.
       const stacks = 1 + rng.int(2);
       const firstCorner: 1 | -1 = rng.chance(0.5) ? 1 : -1;
-      for (let i = 0; i < stacks; i++) {
+      for (let i = 0; i < stacks; i += 1) {
         const corner = i === 0 ? firstCorner : -firstCorner;
         const url = modelUrl("props", rng.pick(CHIMNEYS));
         const px = wx - dx * ROAD_TILE * 0.32 + perpX * corner * ROAD_TILE * 0.3;
@@ -1279,14 +1418,18 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     const coneScale = scaleToHeight(coneUrl, 0.75);
     const barrierUrl = modelUrl("props", PROP_BARRIER);
     const lightUrl = modelUrl("props", PROP_CONSTRUCTION_LIGHT);
-    for (let p = 0; p < CONSTRUCTION_POCKETS && eligible.length > 0; p++) {
+    for (let p = 0; p < CONSTRUCTION_POCKETS && eligible.length > 0; p += 1) {
       const edge = eligible[rng.int(eligible.length)];
-      if (!edge) continue;
+      if (!edge) {
+        continue;
+      }
       const s0 = rng.range(edge.len * 0.25, edge.len * 0.7);
       const smp = network.sample(edge, s0);
       const gx = toGx(smp.x);
       const gz = toGz(smp.z);
-      if (reserved.has(cellKey(gx, gz)) || nearCentre(gx, gz, 3)) continue;
+      if (reserved.has(cellKey(gx, gz)) || nearCentre(gx, gz, 3)) {
+        continue;
+      }
       const side: 1 | -1 = rng.chance(0.5) ? 1 : -1;
       // Diagonal from the lane edge in to the centreline — a chicane.
       const at = (t: number) => {
@@ -1295,7 +1438,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
         return { x: p2.x - p2.tz * lat, z: p2.z + p2.tx * lat };
       };
       const cones = 3 + rng.int(2);
-      for (let i = 0; i < cones; i++) {
+      for (let i = 0; i < cones; i += 1) {
         const t = cones > 1 ? i / (cones - 1) : 0.5;
         const pos = at(t);
         seat(
@@ -1304,18 +1447,20 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
           pos.z + rng.range(-0.3, 0.3),
           rng.range(0, Math.PI * 2),
           coneScale,
-          true, // chicanes live on the asphalt by design
+          // chicanes live on the asphalt by design
+          true,
         );
       }
       const bPos = at(0.5);
-      const bYaw = Math.atan2(smp.tz, -smp.tx); // long axis across the lane
+      // long axis across the lane
+      const bYaw = Math.atan2(smp.tz, -smp.tx);
       seat(barrierUrl, bPos.x, bPos.z, bYaw, scaleToHeight(barrierUrl, 1.1), true);
       solids.push({
-        minX: bPos.x - 1,
         maxX: bPos.x + 1,
-        minZ: bPos.z - 1,
-        maxZ: bPos.z + 1,
         maxY: surfaceAt(bPos.x, bPos.z) + 1.6,
+        maxZ: bPos.z + 1,
+        minX: bPos.x - 1,
+        minZ: bPos.z - 1,
       });
       const lPos = at(0.08);
       seat(lightUrl, lPos.x, lPos.z, bYaw, scaleToHeight(lightUrl, 2), true);
@@ -1327,11 +1472,11 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
         const vYaw = Math.atan2(smp.tx, smp.tz) + (rng.chance(0.5) ? 0 : Math.PI);
         seat(vUrl, vPos.x, vPos.z, vYaw + rng.range(-0.15, 0.15), scaleToHeight(vUrl, 1.9), true);
         solids.push({
-          minX: vPos.x - 1.2,
           maxX: vPos.x + 1.2,
-          minZ: vPos.z - 1.2,
-          maxZ: vPos.z + 1.2,
           maxY: surfaceAt(vPos.x, vPos.z) + 1.9,
+          maxZ: vPos.z + 1.2,
+          minX: vPos.x - 1.2,
+          minZ: vPos.z - 1.2,
         });
       }
     }
@@ -1346,23 +1491,37 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   const treeUrl = modelUrl("props", TREE_LARGE);
   const planterUrl = modelUrl("props", PROP_PLANTER);
   const planterScale = 1.5 / Math.max(cache.bounds(planterUrl).size.x, 0.001);
-  for (let gx = 0; gx < GRID_X; gx++) {
-    for (let gz = 0; gz < GRID_Z; gz++) {
+  for (let gx = 0; gx < GRID_X; gx += 1) {
+    for (let gz = 0; gz < GRID_Z; gz += 1) {
       await breathe();
-      if (!isGGPark(gx, gz)) continue;
-      if (reserved.has(cellKey(gx, gz))) continue;
-      if (cellAt(gx, gz) !== "lot") continue; // keep park roads + water clear
+      if (!isGGPark(gx, gz)) {
+        continue;
+      }
+      if (reserved.has(cellKey(gx, gz))) {
+        continue;
+      }
+      if (cellAt(gx, gz) !== "lot") {
+        continue;
+        // keep park roads + water clear
+      }
       const wx = worldX(gx);
       const wz = worldZ(gz);
       // Regular allées along the park's north/south edge bands (spacing T/2).
       const edges: number[] = [];
-      if (!isGGPark(gx, gz - 1)) edges.push(-1);
-      if (!isGGPark(gx, gz + 1)) edges.push(1);
+      if (!isGGPark(gx, gz - 1)) {
+        edges.push(-1);
+      }
+      if (!isGGPark(gx, gz + 1)) {
+        edges.push(1);
+      }
       for (const edge of edges) {
         const tz = wz + edge * (ROAD_TILE * 0.5 - 0.9);
         for (const off of [-0.25, 0.25] as const) {
           const tx = wx + off * ROAD_TILE;
-          if (onAsphalt(tx, tz, 1.6)) continue; // smoothed diagonals cut raster lots
+          if (onAsphalt(tx, tz, 1.6)) {
+            continue;
+            // smoothed diagonals cut raster lots
+          }
           const planted = seat(
             treeUrl,
             tx,
@@ -1372,10 +1531,10 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
           );
           if (planted) {
             solids.push({
-              minX: tx - 0.55,
               maxX: tx + 0.55,
-              minZ: tz - 0.55,
               maxZ: tz + 0.55,
+              minX: tx - 0.55,
+              minZ: tz - 0.55,
               noBody: true,
             });
           }
@@ -1384,27 +1543,29 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       // Planter clusters as flower beds.
       if (rng.chance(0.25)) {
         const count = 3 + rng.int(3);
-        for (let i = 0; i < count; i++) {
+        for (let i = 0; i < count; i += 1) {
           const px = wx + rng.range(-2.6, 2.6);
           const pz = wz + rng.range(-2.6, 2.6);
-          if (onAsphalt(px, pz, 1.2)) continue;
+          if (onAsphalt(px, pz, 1.2)) {
+            continue;
+          }
           seat(planterUrl, px, pz, rng.range(0, Math.PI * 2), planterScale);
         }
       }
     }
   }
-  // Stow Lake: a flat blue ellipse draped into the park bowl. Its extent comes
-  // from GGP_LAKE (world/land-class.ts), which is also the ellipse the ground
-  // painter fills with water — one definition, so the mesh and the paint cannot
-  // drift apart.
+  // Level water over the shared terrain basin. Draping this plane used to
+  // turn the lake into a sloping blue hill, impossible to float on.
   const lakeGx = Math.round(GGP_LAKE.u * GRID_X - 0.5);
   const lakeGz = Math.round(GGP_LAKE.v * GRID_Z - 0.5);
   if (isGGPark(lakeGx, lakeGz) && !reserved.has(cellKey(lakeGx, lakeGz))) {
-    const lake = new THREE.Mesh(new THREE.CircleGeometry(1, 48), LAKE_MAT);
+    const lake = new THREE.Mesh(new THREE.CircleGeometry(1, STOW_WATER_SEGMENTS), LAKE_MAT);
     lake.scale.set(GGP_LAKE.ru, GGP_LAKE.rv, 1);
     lake.rotation.x = -HALF_PI;
-    lake.position.set((GGP_LAKE.u - 0.5) * WORLD_W, 0, (GGP_LAKE.v - 0.5) * WORLD_H);
-    drape(lake, LOT_DECAL_LIFT);
+    lake.position.set((GGP_LAKE.u - 0.5) * WORLD_W, STOW_WATER_Y, (GGP_LAKE.v - 0.5) * WORLD_H);
+    lake.name = "stow-water";
+    lake.updateMatrixWorld(true);
+    objects.push(lake);
   }
 
   // ------------------------------------------------------------------
@@ -1429,17 +1590,32 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     let mask = 0;
     for (const d of DIRS) {
       const [dx, dz] = DIR_DELTA[d];
-      if (isPathCell(gx + dx, gz + dz) || cellAt(gx + dx, gz + dz) === "road") mask |= 1 << d;
+      if (isPathCell(gx + dx, gz + dz) || cellAt(gx + dx, gz + dz) === "road") {
+        // oxlint-disable-next-line no-bitwise -- the neighbour mask is a bit set, one bit per Dir
+        mask |= 1 << d;
+      }
     }
     return mask;
   };
+  const pathStraight = (): string => {
+    if (rng.chance(0.5)) {
+      return "park-road-straight";
+    }
+    return rng.chance(0.5) ? "park-road-straight-decorated-A" : "park-road-straight-decorated-B";
+  };
+  const cornerName = (): string =>
+    rng.chance(0.5) ? "park-road-corner" : "park-road-corner-decorated";
   // KayKit park-road autotile. Native masks assume the kit's straight runs
   // along local Z (N|S), matching the wall pieces; corner S|W, tsplit E|S|W
   // (open toward +Z) — verified visually, adjust here if a piece reads wrong.
   const pathTileFor = (mask: number): { name: string; quarter: number } | null => {
+    // oxlint-disable-next-line no-bitwise -- reads one Dir's bit out of the neighbour mask
     const bit = (d: Dir): boolean => (mask & (1 << d)) !== 0;
+    // oxlint-disable-next-line no-bitwise -- popcount over the four Dir bits
     const count = (mask & 1 ? 1 : 0) + (mask & 2 ? 1 : 0) + (mask & 4 ? 1 : 0) + (mask & 8 ? 1 : 0);
-    if (count >= 4) return { name: "park-road-junction", quarter: 0 };
+    if (count >= 4) {
+      return { name: "park-road-junction", quarter: 0 };
+    }
     if (count === 3) {
       // tsplit closed side: the missing direction.
       const missing = ([N, E, S, W] as const).find((d) => !bit(d)) ?? N;
@@ -1450,13 +1626,16 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       };
     }
     if (count === 2) {
-      if (bit(N) && bit(S)) return { name: pathStraight(), quarter: 0 };
-      if (bit(E) && bit(W)) return { name: pathStraight(), quarter: 1 };
-      // corners: base S|W, rotate CCW-order N,E,S,W
-      if (bit(S) && bit(W)) return { name: cornerName(), quarter: 0 };
-      if (bit(W) && bit(N)) return { name: cornerName(), quarter: 1 };
-      if (bit(N) && bit(E)) return { name: cornerName(), quarter: 2 };
-      if (bit(E) && bit(S)) return { name: cornerName(), quarter: 3 };
+      if (bit(N) && bit(S)) {
+        return { name: pathStraight(), quarter: 0 };
+      }
+      if (bit(E) && bit(W)) {
+        return { name: pathStraight(), quarter: 1 };
+      }
+      const corner = cornerQuarter(bit);
+      if (corner !== null) {
+        return { name: cornerName(), quarter: corner };
+      }
     }
     if (count === 1) {
       // dead-end: run a straight toward the single neighbour.
@@ -1464,36 +1643,49 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     }
     return null;
   };
-  const pathStraight = (): string =>
-    rng.chance(0.5)
-      ? "park-road-straight"
-      : rng.chance(0.5)
-        ? "park-road-straight-decorated-A"
-        : "park-road-straight-decorated-B";
-  const cornerName = (): string =>
-    rng.chance(0.5) ? "park-road-corner" : "park-road-corner-decorated";
   const wallUrl = modelUrl("props", PARK_WALL);
   const wallBounds = cache.bounds(wallUrl);
-  const wallH = 1.1 / Math.max(wallBounds.size.y, 0.001); // low stone wall
-  const parkBenchUrl = modelUrl("props", PROP_BENCH);
-  const parkLampUrl = modelUrl("props", LIGHT_OLD);
-  for (let gx = 0; gx < GRID_X; gx++) {
-    for (let gz = 0; gz < GRID_Z; gz++) {
+  // low stone wall
+  const wallH = 1.1 / Math.max(wallBounds.size.y, 0.001);
+  for (let gx = 0; gx < GRID_X; gx += 1) {
+    for (let gz = 0; gz < GRID_Z; gz += 1) {
       await breathe();
-      if (!isParkCell(gx, gz)) continue;
-      if (reserved.has(cellKey(gx, gz))) continue;
+      if (!isParkCell(gx, gz)) {
+        continue;
+      }
+      if (reserved.has(cellKey(gx, gz))) {
+        continue;
+      }
       const wx = worldX(gx);
       const wz = worldZ(gz);
+      // A tile's centre can be dry while its lawn and skirt cover the basin.
+      // The closest point on its complete footprint tests ellipse overlap.
+      if (
+        stowBasinOverlapsBox(
+          wx - ROAD_TILE / 2,
+          wx + ROAD_TILE / 2,
+          wz - ROAD_TILE / 2,
+          wz + ROAD_TILE / 2,
+        )
+      ) {
+        continue;
+      }
       // Smoothed diagonals cut through raster park lots — leave those as lawn.
-      if (onAsphalt(wx, wz, ROAD_TILE * 0.55)) continue;
+      if (onAsphalt(wx, wz, ROAD_TILE * 0.55)) {
+        continue;
+      }
 
       // Walls + a centre entry on every edge that faces a road.
       for (const d of DIRS) {
         const [dx, dz] = DIR_DELTA[d];
-        if (cellAt(gx + dx, gz + dz) !== "road") continue;
+        if (cellAt(gx + dx, gz + dz) !== "road") {
+          continue;
+        }
         const edgeOff = ROAD_TILE / 2 - 0.5;
-        const along = dx === 0 ? "x" : "z"; // wall runs perpendicular to dir
-        const runLen = ROAD_TILE / 2 - 2.2; // leave a 4.4u centre gap
+        // wall runs perpendicular to dir
+        const along = dx === 0 ? "x" : "z";
+        // leave a 4.4u centre gap
+        const runLen = ROAD_TILE / 2 - 2.2;
         // The KayKit wall piece runs along its LOCAL Z — scale the run there
         // and yaw so that axis lies along the park edge (X-edges need the 90°).
         const wallRun = runLen / Math.max(wallBounds.size.z, 0.001);
@@ -1550,18 +1742,18 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
           solids.push(
             along === "x"
               ? {
-                  minX: px - runLen / 2,
                   maxX: px + runLen / 2,
-                  minZ: pz - t,
-                  maxZ: pz + t,
                   maxY: wallY + 1.4,
+                  maxZ: pz + t,
+                  minX: px - runLen / 2,
+                  minZ: pz - t,
                 }
               : {
-                  minX: px - t,
                   maxX: px + t,
-                  minZ: pz - runLen / 2,
-                  maxZ: pz + runLen / 2,
                   maxY: wallY + 1.4,
+                  maxZ: pz + runLen / 2,
+                  minX: px - t,
+                  minZ: pz - runLen / 2,
                 },
           );
         }
@@ -1574,7 +1766,9 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
         for (const side of [-2.2, 2.2] as const) {
           const px = along === "x" ? wx + side : wx + dx * edgeOff;
           const pz = along === "x" ? wz + dz * edgeOff : wz + side;
-          if (onAsphalt(px, pz, 1)) continue;
+          if (onAsphalt(px, pz, 1)) {
+            continue;
+          }
           const post = new THREE.Mesh(GATE_POST_BOX, SEAWALL_MAT);
           post.scale.set(0.9, 2.4, 0.9);
           post.position.set(px, surfaceAt(px, pz) + 1.2, pz);
@@ -1600,31 +1794,40 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
         // reaches whatever is drawn just outside the cell, so ask that
         // directly — the two constants are one rule.
         let lip = 0;
-        for (let a = 0; a < 8; a++) {
+        for (let a = 0; a < 8; a += 1) {
           const th = (a / 8) * Math.PI * 2;
           const drop =
             seatY -
             surfaceAt(wx + Math.cos(th) * ROAD_TILE * 0.62, wz + Math.sin(th) * ROAD_TILE * 0.62);
-          if (drop > lip) lip = drop;
+          if (drop > lip) {
+            lip = drop;
+          }
         }
         const roll = rng.range(0, 1);
         if (spread <= 0.8 && lip <= PARK_SKIRT_DEPTH) {
           const path = isPathCell(gx, gz) ? pathTileFor(pathMask(gx, gz)) : null;
-          const name =
-            path?.name ??
-            (spread < 0.3 && roll < 0.015
-              ? rng.pick(PARK_TILE_PLAZAS)
-              : roll < 0.4
-                ? "park-base-decorated-trees"
-                : roll < 0.6
-                  ? "park-base-decorated-bushes"
-                  : "park-base");
+          let name = path?.name;
+          if (name === undefined) {
+            if (spread < 0.3 && roll < 0.015) {
+              name = rng.pick(PARK_TILE_PLAZAS);
+            } else if (roll < 0.4) {
+              name = "park-base-decorated-trees";
+            } else if (roll < 0.6) {
+              name = "park-base-decorated-bushes";
+            } else {
+              name = "park-base";
+            }
+          }
           const url = modelUrl("parks", name);
           const b = cache.bounds(url);
           const sc = ROAD_TILE / Math.max(b.size.x, b.size.z, 0.001);
-          const node = cache.instance(url);
+          const yaw = HALF_PI * (path ? path.quarter : rng.int(4));
+          // A decorated tile contains four independent trunks. Preserve its
+          // lawn when one would intersect a wall; never leave a ghost collider.
+          const planted = ctx.treeClear(url, { scaleX: sc, scaleZ: sc, x: wx, yaw, z: wz });
+          const node = cache.instance(planted ? url : modelUrl("parks", "park-base"));
           node.scale.setScalar(sc);
-          node.rotation.y = HALF_PI * (path ? path.quarter : rng.int(4));
+          node.rotation.y = yaw;
           node.position.set(wx, seatY, wz);
           node.updateMatrixWorld(true);
           objects.push(node);
@@ -1643,14 +1846,18 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
           skirt.position.set(wx, seatY - PARK_SKIRT_DEPTH / 2, wz);
           skirt.updateMatrixWorld(true);
           objects.push(skirt);
-          if (name === "park-base-decorated-trees") {
-            solids.push({
-              minX: wx - 0.6,
-              maxX: wx + 0.6,
-              minZ: wz - 0.6,
-              maxZ: wz + 0.6,
-              noBody: true,
-            });
+          if (planted && name === "park-base-decorated-trees") {
+            for (const trunk of getTreeTrunks(cache, url)) {
+              const x = wx + (trunk.rootX * Math.cos(yaw) + trunk.rootZ * Math.sin(yaw)) * sc;
+              const z = wz + (-trunk.rootX * Math.sin(yaw) + trunk.rootZ * Math.cos(yaw)) * sc;
+              solids.push({
+                maxX: x + 0.55,
+                maxZ: z + 0.55,
+                minX: x - 0.55,
+                minZ: z - 0.55,
+                noBody: true,
+              });
+            }
           }
         } else {
           // hillside: blobby kit-tree cluster straight on the terrain.
@@ -1658,11 +1865,11 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
           // a cluster-center solid was an invisible wall whenever the trees
           // scattered away from it or failed to seat entirely (asphalt).
           const clusters = 1 + rng.int(2);
-          for (let c = 0; c < clusters; c++) {
+          for (let c = 0; c < clusters; c += 1) {
             const cx2 = wx + rng.range(-4, 4);
             const cz2 = wz + rng.range(-4, 4);
             const count = 2 + rng.int(4);
-            for (let i = 0; i < count; i++) {
+            for (let i = 0; i < count; i += 1) {
               const tUrl = modelUrl("props", rng.pick(PARK_TREES));
               const ptx = cx2 + rng.range(-2.4, 2.4);
               const ptz = cz2 + rng.range(-2.4, 2.4);
@@ -1675,10 +1882,10 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
               );
               if (planted) {
                 solids.push({
-                  minX: ptx - 0.55,
                   maxX: ptx + 0.55,
-                  minZ: ptz - 0.55,
                   maxZ: ptz + 0.55,
+                  minX: ptx - 0.55,
+                  minZ: ptz - 0.55,
                   noBody: true,
                 });
               }
@@ -1704,29 +1911,43 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   // flat road-tile decks on bridge-pillar stilts, railed so the taxi can
   // drive out but not fall off. The middle pier gets Pier 39 buildings.
   // ------------------------------------------------------------------
-  type PierColumn = { gx: number; landGz: number };
+  interface PierColumn {
+    gx: number;
+    landGz: number;
+  }
   const pierCandidates: PierColumn[] = [];
-  for (let gx = 0; gx < GRID_X; gx++) {
+  for (let gx = 0; gx < GRID_X; gx += 1) {
     let landGz = -1;
-    for (let gz = 0; gz < GRID_Z; gz++) {
+    for (let gz = 0; gz < GRID_Z; gz += 1) {
       await breathe();
       if (cellAt(gx, gz) !== "water") {
         landGz = gz;
         break;
       }
     }
-    if (landGz < 2) continue; // need at least two water cells to the north
-    if (districtAt(gx, landGz).name !== "Fisherman's Wharf") continue;
+    if (landGz < 2) {
+      continue;
+      // need at least two water cells to the north
+    }
+    if (districtAt(gx, landGz).name !== "Fisherman's Wharf") {
+      continue;
+    }
     // The pier must connect to something drivable: a shore road, or at least
     // an unbuilt lot (built lots have a solid the ramp would dead-end into).
     const shoreKind = cellAt(gx, landGz);
     const shoreBuilt = plan.buildingCells.some((b) => b.gx === gx && b.gz === landGz);
-    if (shoreKind !== "road" && shoreBuilt) continue;
-    let anyReserved = reserved.has(cellKey(gx, landGz));
-    for (let gz = 0; gz < landGz; gz++) {
-      if (reserved.has(cellKey(gx, gz))) anyReserved = true;
+    if (shoreKind !== "road" && shoreBuilt) {
+      continue;
     }
-    if (anyReserved) continue;
+    let anyReserved = reserved.has(cellKey(gx, landGz));
+    for (let gz = 0; gz < landGz; gz += 1) {
+      if (reserved.has(cellKey(gx, gz))) {
+        anyReserved = true;
+      }
+    }
+    if (anyReserved) {
+      continue;
+    }
     pierCandidates.push({ gx, landGz });
   }
   const chosenPiers: PierColumn[] = [];
@@ -1734,22 +1955,28 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     const idxs = [0, Math.floor((pierCandidates.length - 1) / 2), pierCandidates.length - 1];
     for (const i of idxs) {
       const col = pierCandidates[i];
-      if (col && !chosenPiers.includes(col)) chosenPiers.push(col);
+      if (col && !chosenPiers.includes(col)) {
+        chosenPiers.push(col);
+      }
     }
   }
   const pillarUrl = modelUrl("roads", BRIDGE_PILLAR);
   const pillarBounds = cache.bounds(pillarUrl);
-  for (let pierIdx = 0; pierIdx < chosenPiers.length; pierIdx++) {
+  for (let pierIdx = 0; pierIdx < chosenPiers.length; pierIdx += 1) {
     const pier = chosenPiers[pierIdx];
-    if (pier === undefined) continue;
-    const deckY = PIER_DECK_Y + pierIdx * 0.02; // stagger so adjacent decks never z-fight
-    const len = Math.min(2 + rng.int(2), pier.landGz); // 2–3 tiles over water
+    if (pier === undefined) {
+      continue;
+    }
+    // stagger so adjacent decks never z-fight
+    const deckY = PIER_DECK_Y + pierIdx * 0.02;
+    // 2–3 tiles over water
+    const len = Math.min(2 + rng.int(2), pier.landGz);
     const px = worldX(pier.gx);
-    const boundary = worldZ(pier.landGz) - ROAD_TILE / 2; // shore edge (water is north = -Z)
+    // shore edge (water is north = -Z)
+    const boundary = worldZ(pier.landGz) - ROAD_TILE / 2;
     // Deck tiles + stilts, one per water cell, flat at deck height.
-    for (let i = 1; i <= len; i++) {
+    for (let i = 1; i <= len; i += 1) {
       const gz = pier.landGz - i;
-      openWaterCells.add(cellKey(pier.gx, gz));
       // Generated deck slab — top face exactly at deck height.
       const tile = new THREE.Mesh(
         new THREE.BoxGeometry(PIER_WIDTH, 0.5, PIER_WIDTH),
@@ -1771,8 +1998,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       pillar.updateMatrixWorld(true);
       objects.push(pillar);
     }
-    // Ramp slab connecting the shore grid to the deck (pitched box; the car
-    // rides the stepped surface rects below, the slab just has to match).
+    // Ramp slab and drive surface share one continuous incline.
     const shoreH = terrain.heightAt(px, boundary + PIER_RAMP_RUN) + ROAD_Y;
     const drop = deckY - shoreH;
     const rampLen = Math.hypot(PIER_RAMP_RUN, drop);
@@ -1783,36 +2009,30 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     ramp.position.set(px, (deckY + shoreH) / 2 - 0.25, boundary + PIER_RAMP_RUN / 2);
     ramp.updateMatrixWorld(true);
     objects.push(ramp);
-    // Drivable surface rects: the flat deck plus stepped slices down the ramp
-    // (callers snap the car to rect y inside these).
+    // Real Rapier deck support cannot use the old three staircase samples:
+    // their vertical risers caught the chassis. Match the visible ramp plane.
     const halfW = PIER_WIDTH / 2;
     const zNorth = worldZ(pier.landGz - len) - PIER_WIDTH / 2;
-    pierDecks.push({ minX: px - halfW, maxX: px + halfW, minZ: zNorth, maxZ: boundary, y: deckY });
-    const rampSteps = 3;
-    for (let i = 0; i < rampSteps; i++) {
-      pierDecks.push({
-        minX: px - halfW,
+    pierDecks.push(
+      { maxX: px + halfW, maxZ: boundary, minX: px - halfW, minZ: zNorth, y: deckY },
+      {
         maxX: px + halfW,
-        minZ: boundary + (PIER_RAMP_RUN * i) / rampSteps,
-        maxZ: boundary + (PIER_RAMP_RUN * (i + 1)) / rampSteps,
-        y: deckY + (shoreH - deckY) * ((i + 0.5) / rampSteps),
-      });
-    }
-    // Wood railings (visual box + matching Solid): both sides + the far end.
-    const railLen = boundary - zNorth;
-    const railMidZ = (boundary + zNorth) / 2;
-    for (const sideSign of [1, -1] as const) {
-      const rx = px + sideSign * (halfW - 0.13);
-      box(RAIL_MAT, 0.26, 0.6, railLen, rx, deckY + 0.3, railMidZ);
-      solids.push({ minX: rx - 0.3, maxX: rx + 0.3, minZ: zNorth, maxZ: boundary });
-    }
-    box(RAIL_MAT, PIER_WIDTH, 0.6, 0.26, px, deckY + 0.3, zNorth + 0.13);
-    solids.push({ minX: px - halfW, maxX: px + halfW, minZ: zNorth - 0.1, maxZ: zNorth + 0.4 });
+        maxZ: boundary + PIER_RAMP_RUN,
+        minX: px - halfW,
+        minZ: boundary,
+        y: deckY,
+        y2: shoreH,
+      },
+    );
+    // The shared shoreline contour supplies matching rails after all deck
+    // footprints are known, including the ramp and open shore connection.
     // Pier 39: two tinted commercial buildings at the middle pier's end.
     if (pierIdx === 1) {
-      for (let i = 0; i < PIER_END_BUILDINGS.length; i++) {
+      for (let i = 0; i < PIER_END_BUILDINGS.length; i += 1) {
         const name = PIER_END_BUILDINGS[i];
-        if (name === undefined) continue;
+        if (name === undefined) {
+          continue;
+        }
         const url = modelUrl("buildings", name);
         const bnd = cache.bounds(url);
         const s = (ROAD_TILE * 0.4) / Math.max(bnd.size.x, bnd.size.z, 0.001);
@@ -1821,12 +2041,13 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
         const node = cache.instance(url);
         tintNode(node, PIER_BUILDING_TINT, 0.5);
         node.scale.setScalar(s);
-        node.rotation.y = Math.PI; // face back down the pier toward shore
+        // face back down the pier toward shore
+        node.rotation.y = Math.PI;
         node.position.set(bx, deckY, bz);
         node.updateMatrixWorld(true);
         objects.push(node);
         const half = ROAD_TILE * 0.19;
-        solids.push({ minX: bx - half, maxX: bx + half, minZ: bz - half, maxZ: bz + half });
+        solids.push({ maxX: bx + half, maxZ: bz + half, minX: bx - half, minZ: bz - half });
       }
     }
   }
@@ -1838,33 +2059,53 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   const hydrantUrl = modelUrl("props", PROP_HYDRANT);
   const hydrantScale = scaleToHeight(hydrantUrl, 0.9);
   let hydrants = 0;
-  for (let gx = 0; gx < GRID_X && hydrants < HYDRANT_CAP; gx++) {
-    for (let gz = 0; gz < GRID_Z && hydrants < HYDRANT_CAP; gz++) {
-      if (!roadAt(gx, gz)) continue;
-      if (reserved.has(cellKey(gx, gz))) continue;
+  for (let gx = 0; gx < GRID_X && hydrants < HYDRANT_CAP; gx += 1) {
+    for (let gz = 0; gz < GRID_Z && hydrants < HYDRANT_CAP; gz += 1) {
+      if (!roadAt(gx, gz)) {
+        continue;
+      }
+      if (reserved.has(cellKey(gx, gz))) {
+        continue;
+      }
       // Every street in San Francisco has hydrants, not just the three
       // characters this used to gate on — only the car-free parks are exempt.
       const char = districtAt(gx, gz).character;
-      if (char === "park") continue;
-      if (!nextToJunction(gx, gz)) continue;
-      if (!rng.chance(0.45)) continue;
+      if (char === "park") {
+        continue;
+      }
+      if (!nextToJunction(gx, gz)) {
+        continue;
+      }
+      if (!rng.chance(0.45)) {
+        continue;
+      }
       let sx: 1 | -1 = rng.chance(0.5) ? 1 : -1;
       let sz: 1 | -1 = rng.chance(0.5) ? 1 : -1;
       // Slide around the tile until the corner is real sidewalk.
       let ok = false;
-      for (let c = 0; c < 4 && !ok; c++) {
-        if (cornerClean(gx, gz, sx, sz)) ok = true;
-        else if (c % 2 === 0) sx = sx > 0 ? -1 : 1;
-        else sz = sz > 0 ? -1 : 1;
+      for (let c = 0; c < 4 && !ok; c += 1) {
+        if (cornerClean(gx, gz, sx, sz)) {
+          ok = true;
+        } else if (c % 2 === 0) {
+          sx = sx > 0 ? -1 : 1;
+        } else {
+          sz = sz > 0 ? -1 : 1;
+        }
       }
-      if (!ok) continue;
+      if (!ok) {
+        continue;
+      }
       const px = worldX(gx) + sx * ROAD_TILE * 0.42;
       const pz = worldZ(gz) + sz * ROAD_TILE * 0.42;
-      if (onAsphalt(px, pz)) continue;
-      if (!claimFree(px, pz, 1.6)) continue;
+      if (onAsphalt(px, pz)) {
+        continue;
+      }
+      if (!claimFree(px, pz, 1.6)) {
+        continue;
+      }
       claim(px, pz);
       seatKK(hydrantUrl, px, pz, rng.range(0, Math.PI * 2), hydrantScale);
-      hydrants++;
+      hydrants += 1;
     }
   }
 
@@ -1876,18 +2117,24 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   // ------------------------------------------------------------------
   const signalUrl = modelUrl("props", PROP_TRAFFICLIGHT);
   const signalScale = scaleToHeight(signalUrl, 5);
-  for (let n = 0; n < network.nodes.length; n++) {
+  for (let n = 0; n < network.nodes.length; n += 1) {
     const control = junctionControl(network, n);
-    if (control === "none") continue;
+    if (control === "none") {
+      continue;
+    }
     const node = network.nodes[n];
-    if (!node) continue;
+    if (!node) {
+      continue;
+    }
     const arms = controlArms(network, n);
     if (control === "signal") {
       for (const a of arms) {
         // Right side of INCOMING traffic, past the crosswalk + stop bar.
         const px = a.px + a.tx * 4.6 + a.tz * (a.half + 1.2);
         const pz = a.pz + a.tz * 4.6 - a.tx * (a.half + 1.2);
-        if (onAsphalt(px, pz)) continue;
+        if (onAsphalt(px, pz)) {
+          continue;
+        }
         // The arm hangs along local -X; point it back toward the junction.
         const dl = Math.hypot(node[0] - px, node[1] - pz) || 1;
         const yaw = Math.atan2((node[1] - pz) / dl, -(node[0] - px) / dl);
@@ -1900,7 +2147,9 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     for (const a of arms) {
       const px = a.px + a.tx * 1.6 + a.tz * (a.half + 0.8);
       const pz = a.pz + a.tz * 1.6 - a.tx * (a.half + 0.8);
-      if (onAsphalt(px, pz, 0.2)) continue;
+      if (onAsphalt(px, pz, 0.2)) {
+        continue;
+      }
       const gy = surfaceAt(px, pz);
       // Face plane normal points outward along the arm — straight at the
       // driver approaching the junction.
@@ -1931,13 +2180,19 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   const benchUrl = modelUrl("props", PROP_BENCH);
   const benchScale = scaleToHeight(benchUrl, 0.85);
   let seating = 0;
-  for (let gx = 0; gx < GRID_X && seating < SEATING_CAP; gx++) {
-    for (let gz = 0; gz < GRID_Z && seating < SEATING_CAP; gz++) {
+  for (let gx = 0; gx < GRID_X && seating < SEATING_CAP; gx += 1) {
+    for (let gz = 0; gz < GRID_Z && seating < SEATING_CAP; gz += 1) {
       const road = roadAt(gx, gz);
-      if (!road) continue;
-      if (reserved.has(cellKey(gx, gz))) continue;
+      if (!road) {
+        continue;
+      }
+      if (reserved.has(cellKey(gx, gz))) {
+        continue;
+      }
       const char = districtAt(gx, gz).character;
-      if (char === "industrial" || char === "highrise") continue;
+      if (char === "industrial" || char === "highrise") {
+        continue;
+      }
       let lotDir: Dir | null = null;
       for (const d of DIRS) {
         const [dx, dz] = DIR_DELTA[d];
@@ -1946,8 +2201,12 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
           break;
         }
       }
-      if (lotDir === null) continue;
-      if (!rng.chance(char === "wharf" || char === "park" ? 0.4 : 0.16)) continue;
+      if (lotDir === null) {
+        continue;
+      }
+      if (!rng.chance(char === "wharf" || char === "park" ? 0.4 : 0.16)) {
+        continue;
+      }
       const [dx, dz] = DIR_DELTA[lotDir];
       // If this cell's streetlight took the same kerb, slide down the block.
       const lampSide = lightSide.get(cellKey(gx, gz));
@@ -1957,14 +2216,23 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       // perp (dz, dx) runs along the kerb; lotDir is the lateral axis.
       const bx = worldX(gx) + dx * ROAD_TILE * 0.42 + dz * slide;
       const bz = worldZ(gz) + dz * ROAD_TILE * 0.42 + dx * slide;
-      if (onAsphalt(bx, bz)) continue;
-      if (!claimFree(bx, bz, 2.4)) continue;
+      if (onAsphalt(bx, bz)) {
+        continue;
+      }
+      if (!claimFree(bx, bz, 2.4)) {
+        continue;
+      }
       claim(bx, bz);
       // Back to the lot: bench long axis (local X) runs parallel to the road.
       seatKK(benchUrl, bx, bz, dirToYaw(lotDir) + Math.PI, benchScale);
-      seating++;
-      if (seating >= SEATING_CAP) break;
-      const along: 1 | -1 = clash ? 1 : rng.chance(0.5) ? 1 : -1;
+      seating += 1;
+      if (seating >= SEATING_CAP) {
+        break;
+      }
+      let along: 1 | -1 = 1;
+      if (!clash) {
+        along = rng.chance(0.5) ? 1 : -1;
+      }
       const trashUrl = modelUrl("props", rng.chance(0.5) ? PROP_TRASH_A : PROP_TRASH_B);
       const trashBounds = cache.bounds(trashUrl);
       // KayKit's "trash" is a low kerbside pile, not a can — size it by
@@ -1977,7 +2245,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
         rng.range(0, Math.PI * 2),
         trashScale,
       );
-      seating++;
+      seating += 1;
     }
   }
 
@@ -1988,10 +2256,17 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   const dumpsterUrl = modelUrl("props", PROP_DUMPSTER);
   const dumpsterScale = scaleToHeight(dumpsterUrl, 1.5);
   for (const b of plan.buildingCells) {
-    if (reserved.has(cellKey(b.gx, b.gz))) continue;
-    if (districtAt(b.gx, b.gz).character !== "industrial") continue;
+    if (reserved.has(cellKey(b.gx, b.gz))) {
+      continue;
+    }
+    if (districtAt(b.gx, b.gz).character !== "industrial") {
+      continue;
+    }
     const [dx, dz] = DIR_DELTA[b.faceDir];
-    if (nonCardinalStreet(b.gx, b.gz)) continue; // rotated building
+    if (nonCardinalStreet(b.gx, b.gz)) {
+      continue;
+      // rotated building
+    }
     const perpX = dz;
     const perpZ = dx;
     const wx = worldX(b.gx);
@@ -2005,7 +2280,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     }
     if (rng.chance(0.5)) {
       const crates = 1 + rng.int(2);
-      for (let i = 0; i < crates; i++) {
+      for (let i = 0; i < crates; i += 1) {
         const url = modelUrl("props", rng.chance(0.5) ? PROP_BOX_A : PROP_BOX_B);
         const back = 0.28 + rng.range(0, 0.1);
         const lat = rng.range(-0.24, 0.24);
@@ -2021,17 +2296,24 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   // tall enough that the tank clears the host building's roofline.
   // ------------------------------------------------------------------
   const towerLots = plan.buildingCells.filter((b) => {
-    if (reserved.has(cellKey(b.gx, b.gz))) return false;
-    if (districtAt(b.gx, b.gz).character !== "industrial") return false;
-    return !nonCardinalStreet(b.gx, b.gz); // rotated buildings opt out
+    if (reserved.has(cellKey(b.gx, b.gz))) {
+      return false;
+    }
+    if (districtAt(b.gx, b.gz).character !== "industrial") {
+      return false;
+    }
+    // rotated buildings opt out
+    return !nonCardinalStreet(b.gx, b.gz);
   });
   const towerUrl = modelUrl("props", PROP_WATERTOWER);
   const towerScale = scaleToHeight(towerUrl, 13);
   const towerCount = Math.min(2 + rng.int(2), towerLots.length);
-  for (let i = 0; i < towerCount; i++) {
+  for (let i = 0; i < towerCount; i += 1) {
     const idx = rng.int(towerLots.length);
     const lot = towerLots[idx];
-    if (lot === undefined) continue;
+    if (lot === undefined) {
+      continue;
+    }
     towerLots.splice(idx, 1);
     const [dx, dz] = DIR_DELTA[lot.faceDir];
     const px = worldX(lot.gx) - dx * ROAD_TILE * 0.18;
@@ -2064,8 +2346,10 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   const bump = (k: string, n = 1): void => {
     census[k] = (census[k] ?? 0) + n;
   };
-  const TROLLEY_CORRIDOR_COUNT = 8; // top-8 by length ≈ 8,540u of 22,128u
-  const TROLLEY_SPAN = 30; // mast pitch, world units
+  // top-8 by length ≈ 8,540u of 22,128u
+  const TROLLEY_CORRIDOR_COUNT = 8;
+  // mast pitch, world units
+  const TROLLEY_SPAN = 30;
   const POWER_POLE_CAP = 320;
   const POWER_SPAN = 42;
   {
@@ -2081,7 +2365,9 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       // then crosses the street at an angle.
       const trimA = network.nodeTrim(edge.a) + 3;
       const trimB = network.nodeTrim(edge.b) + 3;
-      if (edge.len - trimA - trimB < TROLLEY_SPAN) continue;
+      if (edge.len - trimA - trimB < TROLLEY_SPAN) {
+        continue;
+      }
       let prev: { lx: number; lz: number; rx: number; rz: number; ly: number; ry: number } | null =
         null;
       for (let s = trimA; s <= edge.len - trimB; s += TROLLEY_SPAN) {
@@ -2104,7 +2390,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
           claim(lx, lz);
           claim(rx, rz);
           bump("trolleyMast", 2);
-          stations++;
+          stations += 1;
           // Span wire across the street, and the two running wires back to the
           // previous station.
           placeWire(lx, ly + spanY, lz, rx, ry + spanY, rz);
@@ -2121,11 +2407,12 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
             placeWire(lx, ly + spanY, lz, lx - smp.tx * 3.2, ly + 0.3, lz - smp.tz * 3.2);
           }
           bump("trolleySpan", prev ? 3 : 2);
-          if (++sinceTransformer >= 7) {
+          sinceTransformer += 1;
+          if (sinceTransformer >= 7) {
             sinceTransformer = 0;
             placeKit(transformerKit(), lx, ly + 4.4, lz, Math.atan2(-smp.tz, -smp.tx));
           }
-          prev = { lx, lz, rx, rz, ly, ry };
+          prev = { lx, ly, lz, rx, ry, rz };
         } else {
           prev = null;
         }
@@ -2136,23 +2423,38 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     // and only west of the downtown grid where SF really is still on poles.
     let poles = 0;
     for (const edge of network.edges) {
-      if (poles >= POWER_POLE_CAP) break;
+      if (poles >= POWER_POLE_CAP) {
+        break;
+      }
       await breathe();
       const mid = network.sample(edge, edge.len / 2);
-      if (uOf(mid.x) > 0.6) continue;
-      if (inPark(mid.x, mid.z)) continue;
+      if (uOf(mid.x) > 0.6) {
+        continue;
+      }
+      if (inPark(mid.x, mid.z)) {
+        continue;
+      }
       const char = districtAt(toGx(mid.x), toGz(mid.z)).character;
-      if (char !== "residential" && char !== "victorian") continue;
-      if (edge.len < POWER_SPAN * 1.6) continue;
-      if (!rng.chance(0.3)) continue;
+      if (char !== "residential" && char !== "victorian") {
+        continue;
+      }
+      if (edge.len < POWER_SPAN * 1.6) {
+        continue;
+      }
+      if (!rng.chance(0.3)) {
+        continue;
+      }
       const side: 1 | -1 = rng.chance(0.5) ? 1 : -1;
       let prev: { x: number; y: number; z: number } | null = null;
       kerbWalk(
         edge,
         POWER_SPAN,
         1.1,
+        // oxlint-disable-next-line no-loop-func -- kerbWalk runs the visitor synchronously inside this iteration; `prev` is this edge's own span state and `poles` is the pass-wide cap, both shared on purpose
         (p) => {
-          if (poles >= POWER_POLE_CAP) return;
+          if (poles >= POWER_POLE_CAP) {
+            return;
+          }
           if (!claimSeat(p.x, p.z, 2.2)) {
             prev = null;
             return;
@@ -2160,8 +2462,10 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
           const y = surfaceAt(p.x, p.z);
           placeKit(powerPoleKit(), p.x, y, p.z, Math.atan2(p.tx, p.tz));
           bump("powerPole");
-          poles++;
-          if (prev) bump("powerSpan", 2);
+          poles += 1;
+          if (prev) {
+            bump("powerSpan", 2);
+          }
           if (prev) {
             for (const dyz of [
               [POWER_POLE_H - 0.28, -1.25],
@@ -2192,77 +2496,163 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   // ------------------------------------------------------------------
   const SHELTER_CAP = 140;
   const STOP_CAP = 260;
-  const STOP_PITCH = 92; // ~3 SF blocks
+  // ~3 SF blocks
+  const STOP_PITCH = 92;
   // Real route numbers for the corridors a player will recognise. Anything else
   // gets the system mark rather than a made-up number.
   const ROUTE_FOR: ReadonlyMap<string, string> = new Map(
     Object.entries({
-      "Market Street": "F",
-      "Mission Street": "14",
-      "Divisadero Street": "24",
-      "Fillmore Street": "22",
-      "Sutter Street": "2",
-      "Sacramento Street": "1",
-      "Clay Street": "1",
-      "Union Street": "45",
-      "Castro Street": "24",
       "16th Street": "22",
-      "Eddy Street": "31",
       "3rd Street": "T",
-      "The Embarcadero": "E",
       "California Street": "1",
-      "Hyde Street": "PH",
-      "Powell Street": "PM",
-      "Mason Street": "PM",
+      "Castro Street": "24",
+      "Clay Street": "1",
       "Columbus Avenue": "30",
-      "Van Ness Avenue": "49",
+      "Divisadero Street": "24",
+      "Eddy Street": "31",
+      "Fillmore Street": "22",
       "Geary Street": "38",
+      "Hyde Street": "PH",
+      "Market Street": "F",
+      "Mason Street": "PM",
+      "Mission Street": "14",
+      "Powell Street": "PM",
+      "Sacramento Street": "1",
+      "Sutter Street": "2",
+      "The Embarcadero": "E",
+      "Union Street": "45",
+      "Van Ness Avenue": "49",
     } satisfies Record<string, string>),
   );
   {
     let shelters = 0;
     let stops = 0;
-    const shelterParts = shelterKit();
+    const { parcelClear } = ctx;
+    const shelterParts = getMuniShelterKit();
     const poleParts = stopPoleKit();
     const served = new Set<number>();
     for (const mode of ["trolleybus", "tram", "cable", "light_rail"] as const) {
       const take = mode === "trolleybus" ? TROLLEY_CORRIDOR_COUNT : SF_TRANSIT[mode].length;
       for (const edge of topCorridors(mode, take)) {
-        if (stops >= STOP_CAP) break;
-        if (served.has(edge.id)) continue;
+        if (stops >= STOP_CAP) {
+          break;
+        }
+        if (served.has(edge.id)) {
+          continue;
+        }
         served.add(edge.id);
         await breathe();
         const street = edgeStreet.get(edge.id) ?? "";
         const route = ROUTE_FOR.get(street) ?? "MUNI";
         const routeGeo = labelGeo(route);
+        // oxlint-disable-next-line no-loop-func -- kerbWalk runs the visitor synchronously inside this iteration; it needs this edge's `routeGeo` and the pass-wide `stops` cap
         kerbWalk(edge, STOP_PITCH, 1.4, (p) => {
-          if (stops >= STOP_CAP) return;
-          // A shelter is 4.4u wide — it needs a clear stretch of pavement, and
-          // it has to sit BACK from the kerb far enough that its roof does not
-          // overhang the traffic lane.
-          const bx = p.x - p.tz * p.side * 1.15;
-          const bz = p.z + p.tx * p.side * 1.15;
-          const roomy =
-            shelters < SHELTER_CAP &&
-            claimFree(bx, bz, 5.2) &&
-            !onAsphalt(bx - p.tx * 2.4, bz - p.tz * 2.4, 0.5) &&
-            !onAsphalt(bx + p.tx * 2.4, bz + p.tz * 2.4, 0.5) &&
-            !onAsphalt(bx, bz, 1.4);
-          if (roomy) {
+          if (stops >= STOP_CAP) {
+            return;
+          }
+          // Search a bounded stretch of this stop's own curb. The exact parcel
+          // ring gate includes facade depth; prop claims alone know no walls.
+          const shelterYaw = Math.atan2(p.tz * p.side, -p.tx * p.side);
+          const cos = Math.cos(shelterYaw);
+          const sin = Math.sin(shelterYaw);
+          const footOffsets: readonly (readonly [number, number])[] = [
+            [-1.91, -0.7],
+            [-1.91, 0.69],
+            [1.91, -0.7],
+            [1.91, 0.69],
+            [-1.33, -0.23],
+            [1.14, -0.23],
+          ];
+          const candidates = [0, -5, 5].flatMap((along) =>
+            [1.15, 0.65, 0.15].map((back) => ({
+              x: p.x + p.tx * along - p.tz * p.side * back,
+              z: p.z + p.tz * along + p.tx * p.side * back,
+            })),
+          );
+          let site: {
+            readonly x: number;
+            readonly z: number;
+            readonly top: number;
+            readonly feet: readonly {
+              readonly x: number;
+              readonly y: number;
+              readonly z: number;
+            }[];
+          } | null = null;
+          if (shelters < SHELTER_CAP) {
+            for (const candidate of candidates) {
+              const { x: bx, z: bz } = candidate;
+              const gx = Math.floor((bx + WORLD_W / 2) / ROAD_TILE);
+              const gz = Math.floor((bz + WORLD_H / 2) / ROAD_TILE);
+              if (reserved.has(cellKey(gx, gz)) || !claimFree(bx, bz, 5.2)) {
+                continue;
+              }
+              if (network.nearest(bx, bz, ROAD_TILE)?.edge.id !== edge.id) {
+                continue;
+              }
+              if (
+                !parcelClear(
+                  { halfDepth: 0.95, halfWidth: 2.2, x: bx, yaw: shelterYaw, z: bz },
+                  0.6,
+                )
+              ) {
+                continue;
+              }
+              const laneClear = [-2.2, 0, 2.2].every((x) =>
+                [-0.95, 0, 0.95].every(
+                  (z) => !onAsphalt(bx + x * cos + z * sin, bz - x * sin + z * cos, 0.5),
+                ),
+              );
+              if (!laneClear) {
+                continue;
+              }
+              const feet = footOffsets.map(([x, z]) => {
+                const fx = bx + x * cos + z * sin;
+                const fz = bz - x * sin + z * cos;
+                return { x: fx, y: surfaceAt(fx, fz), z: fz };
+              });
+              const top = Math.max(...feet.map((f) => f.y));
+              const bottom = Math.min(...feet.map((f) => f.y));
+              if (top - bottom > 0.8) {
+                continue;
+              }
+              site = { feet, top, x: bx, z: bz };
+              break;
+            }
+          }
+          if (site) {
+            const { x: bx, z: bz, feet, top } = site;
             claim(bx, bz);
-            placeKit(shelterParts, bx, surfaceAt(bx, bz), bz, facingRoad(p) + HALF_PI);
+            // Level roof, individually grounded shoes. Unsuitable stops keep
+            // the ordinary flag pole instead of pushing a roof through a wall.
+            const seatY = top + 0.025;
+            placeKit(shelterParts, bx, seatY, bz, shelterYaw);
+            for (const foot of feet) {
+              const height = seatY - foot.y;
+              box(
+                SEAWALL_MAT,
+                0.26,
+                height + 0.02,
+                0.25,
+                foot.x,
+                foot.y + height / 2 - 0.01,
+                foot.z,
+              );
+            }
             solids.push({
-              minX: bx - 2.3,
               maxX: bx + 2.3,
-              minZ: bz - 2.3,
               maxZ: bz + 2.3,
+              minX: bx - 2.3,
+              minZ: bz - 2.3,
               noBody: true,
             });
             bump("shelter");
-            shelters++;
+            shelters += 1;
           }
-          // The flag pole goes at the kerb whether or not a shelter fitted.
-          if (!claimSeat(p.x, p.z, 1.8)) return;
+          // A separate flag pole stays at the kerb wherever it fits.
+          if (!claimSeat(p.x, p.z, 1.8)) {
+            return;
+          }
           const y = surfaceAt(p.x, p.z);
           const yaw = facingRoad(p);
           placeKit(poleParts, p.x, y, p.z, yaw);
@@ -2279,7 +2669,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
             objects.push(label);
           }
           bump("stopPole");
-          stops++;
+          stops += 1;
         });
       }
     }
@@ -2296,14 +2686,18 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     const done: [number, number][] = [];
     const parts = turntableKit();
     for (const line of SF_TRANSIT_LINES) {
-      if (line.mode !== "cable") continue;
-      const p = line.p;
+      if (line.mode !== "cable") {
+        continue;
+      }
+      const { p } = line;
       const ends: readonly (readonly [number, number])[] = [
         [p[0] ?? 0, p[1] ?? 0],
-        [p[p.length - 2] ?? 0, p[p.length - 1] ?? 0],
+        [p.at(-2) ?? 0, p.at(-1) ?? 0],
       ];
       for (const [ex, ez] of ends) {
-        if (done.some(([dx2, dz2]) => Math.hypot(dx2 - ex, dz2 - ez) < 12)) continue;
+        if (done.some(([dx2, dz2]) => Math.hypot(dx2 - ex, dz2 - ez) < 12)) {
+          continue;
+        }
         // Sit the disc on the pavement beside the terminal, not in the
         // junction: nudge it to the nearest spot clear of asphalt.
         let px = ex;
@@ -2316,7 +2710,9 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
           px = hit.x + (Math.abs(nx) + Math.abs(nz) < 0.5 ? -hit.tz : nx) * push;
           pz = hit.z + (Math.abs(nx) + Math.abs(nz) < 0.5 ? hit.tx : nz) * push;
         }
-        if (onAsphalt(px, pz, TURNTABLE_R * 0.4)) continue;
+        if (onAsphalt(px, pz, TURNTABLE_R * 0.4)) {
+          continue;
+        }
         done.push([ex, ez]);
         claim(px, pz);
         bump("turntable");
@@ -2335,20 +2731,35 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   // Japantown is not one of the 52 district boxes (it is inside Pacific
   // Heights / Alamo Square), so it gets its own u/v box, calibrated the same
   // way the shoreline trace is.
-  const JAPANTOWN = { uMin: 0.5, uMax: 0.565, vMin: 0.222, vMax: 0.268 } as const;
-  const TREE_CAP = 1500;
-  const TREE_PITCH = ROAD_TILE * 2.1;
+  const JAPANTOWN = { uMax: 0.565, uMin: 0.5, vMax: 0.268, vMin: 0.222 } as const;
+  // The cap is a runaway guard, not the planting plan. At 1500 it WAS the
+  // plan: the walk fills in edge-array order, so the first districts in the
+  // list got a full canopy and everything after (most of the grid — the
+  // Mission read completely bare) got none. The NYC street-tree census our
+  // reference tile draws from plants ~1000 trees per km²; this map is ~8 km².
+  // The pitch/chance below yield ~7k trees network-wide, comfortably under the
+  // cap, so coverage is decided by geometry again instead of iteration order.
+  const TREE_CAP = 9000;
+  const TREE_PITCH = ROAD_TILE * 1.8;
   type TreeKind = "cypress" | "eucalyptus" | "palm" | "plane" | "cherry" | "mixed";
   const treeKindAt = (x: number, z: number, district: District, street: string): TreeKind => {
-    if (district.name === "the Presidio") return rng.chance(0.5) ? "eucalyptus" : "cypress";
-    if (street === "Market Street") return "plane";
+    if (district.name === "the Presidio") {
+      return rng.chance(0.5) ? "eucalyptus" : "cypress";
+    }
+    if (street === "Market Street") {
+      return "plane";
+    }
     const u = uOf(x);
     const v = vOf(z);
     if (u >= JAPANTOWN.uMin && u <= JAPANTOWN.uMax && v >= JAPANTOWN.vMin && v <= JAPANTOWN.vMax) {
       return "cherry";
     }
-    if (district.name === "the Embarcadero" || district.name === "Mission Dolores") return "palm";
-    if (u < 0.42) return rng.chance(0.55) ? "cypress" : "eucalyptus";
+    if (district.name === "the Embarcadero" || district.name === "Mission Dolores") {
+      return "palm";
+    }
+    if (u < 0.42) {
+      return rng.chance(0.55) ? "cypress" : "eucalyptus";
+    }
     return "mixed";
   };
   {
@@ -2356,23 +2767,62 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     const palmParts = palmKit();
     let trees = 0;
     for (const edge of network.edges) {
-      if (trees >= TREE_CAP) break;
+      if (trees >= TREE_CAP) {
+        break;
+      }
       await breathe();
       const mid = network.sample(edge, edge.len / 2);
       // Parks grow their own trees from the park-tile pass; the Presidio is the
       // one park district whose ROADS want a planted verge.
       const midDistrict = districtAt(toGx(mid.x), toGz(mid.z));
-      if (midDistrict.character === "park" && midDistrict.name !== "the Presidio") continue;
+      if (midDistrict.character === "park" && midDistrict.name !== "the Presidio") {
+        continue;
+      }
       const street = edgeStreet.get(edge.id) ?? "";
+      // oxlint-disable-next-line no-loop-func -- kerbWalk runs the visitor synchronously inside this iteration; it needs this edge's `street` and the pass-wide `trees` cap
       kerbWalk(edge, TREE_PITCH, 1.5, (p) => {
-        if (trees >= TREE_CAP) return;
-        if (!rng.chance(0.6)) return;
-        if (!claimSeat(p.x, p.z, 3.2)) return;
+        if (trees >= TREE_CAP) {
+          return;
+        }
+        if (!rng.chance(0.72)) {
+          return;
+        }
+        if (!claimSeat(p.x, p.z, 3.2)) {
+          return;
+        }
+        // The walk offsets 1.5u outside ITS OWN kerb, but near a junction the
+        // spot can still sit inside a CROSSING street's asphalt — the seat must
+        // clear the nearest edge, whichever street that is, or the well lands
+        // in a travel lane (the kerb-intrusion ratchet counts exactly these).
+        const roadHit = network.nearest(p.x, p.z, ROAD_TILE * 1.4);
+        if (roadHit !== null && roadHit.dist < roadHit.edge.half + 0.9) {
+          return;
+        }
         const y = surfaceAt(p.x, p.z);
         const kind = treeKindAt(p.x, p.z, p.district, street);
-        placeKit(wellParts, p.x, y, p.z, Math.atan2(p.tx, p.tz));
+        // Count the same planting attempts and draw their random parameters
+        // before rejecting: a blocked tree must not reshuffle later districts.
+        trees += 1;
         if (kind === "palm") {
-          placeKit(palmParts, p.x, y, p.z, rng.range(0, Math.PI * 2), rng.range(0.82, 1.15));
+          const yaw = rng.range(0, Math.PI * 2);
+          const scale = rng.range(0.82, 1.15);
+          // The authored leaning trunk occupies X[-.28,.67], Z[-.28,.28].
+          // Its wide fronds remain free to overhang a neighboring facade.
+          if (
+            !ctx.parcelClear(
+              {
+                halfDepth: 0.28 * scale,
+                halfWidth: 0.475 * scale,
+                x: p.x + 0.195 * scale * Math.cos(yaw),
+                yaw,
+                z: p.z - 0.195 * scale * Math.sin(yaw),
+              },
+              0.05,
+            )
+          ) {
+            return;
+          }
+          placeKit(palmParts, p.x, y, p.z, yaw, scale);
         } else {
           // Species read as proportion + tint on the two kit trees: a cypress
           // is a tall narrow spire, a eucalyptus taller and greyer, a plane
@@ -2380,38 +2830,64 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
           const small = kind === "cherry";
           const url = modelUrl("props", small ? TREE_SMALL : TREE_LARGE);
           const bounds = cache.bounds(url);
-          const height =
-            kind === "eucalyptus"
-              ? rng.range(9, 11.5)
-              : kind === "cypress"
-                ? rng.range(7, 9)
-                : kind === "plane"
-                  ? rng.range(5.6, 7)
-                  : kind === "cherry"
-                    ? rng.range(3.6, 4.6)
-                    : rng.range(5, 7);
-          const spread =
-            kind === "eucalyptus" ? 0.58 : kind === "cypress" ? 0.66 : kind === "plane" ? 1.2 : 1;
+          let height: number;
+          if (kind === "eucalyptus") {
+            height = rng.range(9, 11.5);
+          } else if (kind === "cypress") {
+            height = rng.range(7, 9);
+          } else if (kind === "plane") {
+            height = rng.range(5.6, 7);
+          } else if (kind === "cherry") {
+            height = rng.range(3.6, 4.6);
+          } else {
+            height = rng.range(5, 7);
+          }
+          let spread = 1;
+          if (kind === "eucalyptus") {
+            spread = 0.58;
+          } else if (kind === "cypress") {
+            spread = 0.66;
+          } else if (kind === "plane") {
+            spread = 1.2;
+          }
           const sy = height / Math.max(bounds.size.y, 0.001);
+          const yaw = rng.range(0, Math.PI * 2);
+          if (
+            !ctx.treeClear(url, {
+              scaleX: sy * spread,
+              scaleZ: sy * spread,
+              x: p.x,
+              yaw,
+              z: p.z,
+            })
+          ) {
+            return;
+          }
           const node = cache.instance(url);
           node.scale.set(sy * spread, sy, sy * spread);
-          node.rotation.y = rng.range(0, Math.PI * 2);
+          node.rotation.y = yaw;
           node.position.set(p.x, y, p.z);
-          if (kind === "eucalyptus") tintNode(node, 0xb9c4ae, 0.32);
-          if (kind === "cherry") tintNode(node, 0xf2b8cc, 0.6);
-          if (kind === "cypress") tintNode(node, 0x6f8a6b, 0.22);
+          if (kind === "eucalyptus") {
+            tintNode(node, 0xb9_c4_ae, 0.32);
+          }
+          if (kind === "cherry") {
+            tintNode(node, 0xf2_b8_cc, 0.6);
+          }
+          if (kind === "cypress") {
+            tintNode(node, 0x6f_8a_6b, 0.22);
+          }
           node.updateMatrixWorld(true);
           objects.push(node);
           solids.push({
-            minX: p.x - 0.5,
             maxX: p.x + 0.5,
-            minZ: p.z - 0.5,
             maxZ: p.z + 0.5,
+            minX: p.x - 0.5,
+            minZ: p.z - 0.5,
             noBody: true,
           });
         }
+        placeKit(wellParts, p.x, y, p.z, Math.atan2(p.tx, p.tz));
         bump(`tree.${kind}`);
-        trees++;
       });
     }
   }
@@ -2438,6 +2914,16 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   // Per-character weights, summed to pick. Downtown is metered and racked,
   // residential is cabinets and bins, wharf is A-boards and planters.
   const CLUTTER_MIX = {
+    commercial: [
+      ["meter", 5],
+      ["aboard", 4],
+      ["news", 3],
+      ["planter", 3],
+      ["bike", 2],
+      ["scooter", 2],
+      ["dumpster", 2],
+      ["mailbox", 1],
+    ],
     downtown: [
       ["meter", 5],
       ["news", 3],
@@ -2457,24 +2943,12 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       ["scaffold", 2],
       ["mailbox", 1],
     ],
-    commercial: [
-      ["meter", 5],
-      ["aboard", 4],
-      ["news", 3],
-      ["planter", 3],
-      ["bike", 2],
-      ["scooter", 2],
-      ["dumpster", 2],
-      ["mailbox", 1],
+    industrial: [
+      ["dumpster", 5],
+      ["cabinet", 3],
+      ["scaffold", 1],
     ],
-    wharf: [
-      ["aboard", 4],
-      ["planter", 4],
-      ["bike", 3],
-      ["news", 2],
-      ["meter", 2],
-      ["dumpster", 1],
-    ],
+    park: [],
     residential: [
       ["cabinet", 4],
       ["meter", 3],
@@ -2494,118 +2968,176 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       ["planter", 2],
       ["aboard", 1],
     ],
-    industrial: [
-      ["dumpster", 5],
-      ["cabinet", 3],
-      ["scaffold", 1],
+    wharf: [
+      ["aboard", 4],
+      ["planter", 4],
+      ["bike", 3],
+      ["news", 2],
+      ["meter", 2],
+      ["dumpster", 1],
     ],
-    park: [],
-  } satisfies Record<DistrictChar, ReadonlyArray<readonly [ClutterKind, number]>>;
+  } satisfies Record<DistrictChar, readonly (readonly [ClutterKind, number])[]>;
   {
     const parts = {
+      aboard: aBoardKit(),
+      bike: bikeRackKit(),
+      cabinet: cabinetKit(),
+      mailbox: mailboxKit(),
       meter: meterKit(),
       news: newsBoxKit(),
-      mailbox: mailboxKit(),
-      bike: bikeRackKit(),
+      scaffold: getScaffoldKit(),
       scooter: scooterKit(),
-      cabinet: cabinetKit(),
-      aboard: aBoardKit(),
-      scaffold: scaffoldKit(),
     };
-    const NEWS_TINTS = [0x2f6f4f, 0x2b4a8f, 0xa8562f, 0x6f4a7a, 0x4a4a4a] as const;
-    const ABOARD_TINT = 0x3a3630;
-    const MAIL_TINT = 0x24457f;
-    const CABINET_TINT = 0x8f9a8f;
-    const SCAFFOLD_TINT = 0x9fb4c4;
+    const NEWS_TINTS = [0x2f_6f_4f, 0x2b_4a_8f, 0xa8_56_2f, 0x6f_4a_7a, 0x4a_4a_4a] as const;
+    const ABOARD_TINT = 0x3a_36_30;
+    const MAIL_TINT = 0x24_45_7f;
+    const CABINET_TINT = 0x8f_9a_8f;
+    const SCAFFOLD_TINT = 0x9f_b4_c4;
     const planterUrl2 = modelUrl("props", PROP_PLANTER);
     const planterScale2 = 1.5 / Math.max(cache.bounds(planterUrl2).size.x, 0.001);
     const dumpUrl = modelUrl("props", PROP_DUMPSTER);
     const dumpScale = scaleToHeight(dumpUrl, 1.5);
+    // Weights are summed, not normalised: a district dials its own density by
+    // how much weight it spends.
+    const pickClutter = (mix: readonly (readonly [ClutterKind, number])[]): ClutterKind => {
+      let total = 0;
+      for (const [, w] of mix) {
+        total += w;
+      }
+      let roll = rng.range(0, total);
+      let kind: ClutterKind = "meter";
+      for (const [k, w] of mix) {
+        roll -= w;
+        if (roll <= 0) {
+          kind = k;
+          break;
+        }
+      }
+      return kind;
+    };
+    const placeClutter = (
+      kind: ClutterKind,
+      p: KerbPoint,
+      px: number,
+      pz: number,
+      y: number,
+    ): void => {
+      const faceOut = facingRoad(p);
+      const alongKerb = Math.atan2(p.tx, p.tz);
+      switch (kind) {
+        case "planter": {
+          seat(planterUrl2, px, pz, rng.range(0, Math.PI * 2), planterScale2);
+          break;
+        }
+        case "dumpster": {
+          seatKK(dumpUrl, px, pz, alongKerb + rng.range(-0.08, 0.08), dumpScale);
+          break;
+        }
+        case "news": {
+          placeKit(parts.news, px, y, pz, faceOut, 1, new THREE.Color(rng.pick(NEWS_TINTS)));
+          break;
+        }
+        case "mailbox": {
+          placeKit(parts.mailbox, px, y, pz, faceOut, 1, new THREE.Color(MAIL_TINT));
+          break;
+        }
+        case "cabinet": {
+          placeKit(parts.cabinet, px, y, pz, faceOut, 1, new THREE.Color(CABINET_TINT));
+          break;
+        }
+        case "aboard": {
+          placeKit(
+            parts.aboard,
+            px,
+            y,
+            pz,
+            alongKerb + rng.range(-0.4, 0.4),
+            1,
+            new THREE.Color(ABOARD_TINT),
+          );
+          break;
+        }
+        case "bike": {
+          placeKit(parts.bike, px, y, pz, alongKerb);
+          break;
+        }
+        case "scooter": {
+          placeKit(parts.scooter, px, y, pz, alongKerb + rng.range(-0.25, 0.25));
+          break;
+        }
+        case "scaffold": {
+          placeKit(
+            parts.scaffold,
+            px,
+            y,
+            pz,
+            scaffoldYaw(p.tx, p.tz),
+            1,
+            new THREE.Color(SCAFFOLD_TINT),
+          );
+          break;
+        }
+        case "meter": {
+          placeKit(parts.meter, px, y, pz, faceOut);
+          break;
+        }
+        default: {
+          break;
+        }
+      }
+    };
     let clutter = 0;
+    const seatClutter = (p: KerbPoint): void => {
+      if (clutter >= CLUTTER_CAP) {
+        return;
+      }
+      const mix = CLUTTER_MIX[p.district.character];
+      if (mix.length === 0) {
+        return;
+      }
+      if (!rng.chance(0.55)) {
+        return;
+      }
+      const kind = pickClutter(mix);
+      // Scaffolding is 9u long and 6u tall — it needs the clear run and the
+      // set-back a hoarding really takes, so it is checked hardest.
+      let radius = 1.7;
+      if (kind === "scaffold") {
+        radius = 6.5;
+      } else if (kind === "dumpster") {
+        radius = 2.6;
+      }
+      const back = kind === "scaffold" ? 1.5 : 0;
+      const px = p.x - p.tz * p.side * back;
+      const pz = p.z + p.tx * p.side * back;
+      if (!claimFree(px, pz, radius)) {
+        return;
+      }
+      if (
+        kind === "scaffold" &&
+        (onAsphalt(px - p.tx * 4.6, pz - p.tz * 4.6, 0.4) ||
+          onAsphalt(px + p.tx * 4.6, pz + p.tz * 4.6, 0.4))
+      ) {
+        return;
+      }
+      if (onAsphalt(px, pz, 0.25)) {
+        return;
+      }
+      claim(px, pz);
+      placeClutter(kind, p, px, pz, surfaceAt(px, pz));
+      bump(`clutter.${kind}`);
+      clutter += 1;
+    };
     for (const edge of network.edges) {
-      if (clutter >= CLUTTER_CAP) break;
+      if (clutter >= CLUTTER_CAP) {
+        break;
+      }
       await breathe();
       const mid = network.sample(edge, edge.len / 2);
-      if (inPark(mid.x, mid.z)) continue;
-      kerbWalk(edge, CLUTTER_PITCH, 1.25, (p) => {
-        if (clutter >= CLUTTER_CAP) return;
-        const mix = CLUTTER_MIX[p.district.character];
-        if (mix.length === 0) return;
-        if (!rng.chance(0.55)) return;
-        let total = 0;
-        for (const [, w] of mix) total += w;
-        let roll = rng.range(0, total);
-        let kind: ClutterKind = "meter";
-        for (const [k, w] of mix) {
-          roll -= w;
-          if (roll <= 0) {
-            kind = k;
-            break;
-          }
-        }
-        // Scaffolding is 9u long and 6u tall — it needs the clear run and the
-        // set-back a hoarding really takes, so it is checked hardest.
-        const radius = kind === "scaffold" ? 6.5 : kind === "dumpster" ? 2.6 : 1.7;
-        const back = kind === "scaffold" ? 1.5 : 0;
-        const px = p.x - p.tz * p.side * back;
-        const pz = p.z + p.tx * p.side * back;
-        if (!claimFree(px, pz, radius)) return;
-        if (kind === "scaffold") {
-          if (
-            onAsphalt(px - p.tx * 4.6, pz - p.tz * 4.6, 0.4) ||
-            onAsphalt(px + p.tx * 4.6, pz + p.tz * 4.6, 0.4)
-          ) {
-            return;
-          }
-        }
-        if (onAsphalt(px, pz, 0.25)) return;
-        claim(px, pz);
-        const y = surfaceAt(px, pz);
-        const faceOut = facingRoad(p);
-        const alongKerb = Math.atan2(p.tx, p.tz);
-        switch (kind) {
-          case "planter":
-            seat(planterUrl2, px, pz, rng.range(0, Math.PI * 2), planterScale2);
-            break;
-          case "dumpster":
-            seatKK(dumpUrl, px, pz, alongKerb + rng.range(-0.08, 0.08), dumpScale);
-            break;
-          case "news":
-            placeKit(parts.news, px, y, pz, faceOut, 1, new THREE.Color(rng.pick(NEWS_TINTS)));
-            break;
-          case "mailbox":
-            placeKit(parts.mailbox, px, y, pz, faceOut, 1, new THREE.Color(MAIL_TINT));
-            break;
-          case "cabinet":
-            placeKit(parts.cabinet, px, y, pz, faceOut, 1, new THREE.Color(CABINET_TINT));
-            break;
-          case "aboard":
-            placeKit(
-              parts.aboard,
-              px,
-              y,
-              pz,
-              alongKerb + rng.range(-0.4, 0.4),
-              1,
-              new THREE.Color(ABOARD_TINT),
-            );
-            break;
-          case "bike":
-            placeKit(parts.bike, px, y, pz, alongKerb);
-            break;
-          case "scooter":
-            placeKit(parts.scooter, px, y, pz, alongKerb + rng.range(-0.25, 0.25));
-            break;
-          case "scaffold":
-            placeKit(parts.scaffold, px, y, pz, alongKerb, 1, new THREE.Color(SCAFFOLD_TINT));
-            break;
-          case "meter":
-            placeKit(parts.meter, px, y, pz, faceOut);
-            break;
-        }
-        bump(`clutter.${kind}`);
-        clutter++;
-      });
+      if (inPark(mid.x, mid.z)) {
+        continue;
+      }
+      kerbWalk(edge, CLUTTER_PITCH, 1.25, seatClutter);
     }
   }
 
@@ -2623,7 +3155,8 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   // flag, and the road-surface glyph work is the roads pass's; inventing the
   // direction would put a wrong arrow on a real street.
   // ------------------------------------------------------------------
-  const BLADE_STREET_CAP = 40; // distinct names that earn a label geometry
+  // distinct names that earn a label geometry
+  const BLADE_STREET_CAP = 40;
   const BLADE_CAP = 260;
   const REGULATORY_CAP = 240;
   {
@@ -2636,40 +3169,64 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       let best: string | null = null;
       let bestLen = 0;
       for (const [street, len] of streetLength) {
-        if (bladeFor.has(street) || rejected.has(street)) continue;
+        if (bladeFor.has(street) || rejected.has(street)) {
+          continue;
+        }
         if (len > bestLen) {
           best = street;
           bestLen = len;
         }
       }
-      if (best === null) break;
+      if (best === null) {
+        break;
+      }
       const text = bladeText(best);
-      if (text) bladeFor.set(best, text);
-      else rejected.add(best);
+      if (text) {
+        bladeFor.set(best, text);
+      } else {
+        rejected.add(best);
+      }
     }
     let blades = 0;
-    for (let n = 0; n < network.nodes.length && blades < BLADE_CAP; n++) {
-      if (junctionControl(network, n) === "none") continue; // real junctions only
+    for (let n = 0; n < network.nodes.length && blades < BLADE_CAP; n += 1) {
+      if (junctionControl(network, n) === "none") {
+        continue;
+        // real junctions only
+      }
       const node = network.nodes[n];
-      if (!node) continue;
+      if (!node) {
+        continue;
+      }
       const labels: string[] = [];
       for (const id of network.nodeEdges[n] ?? []) {
         const street = edgeStreet.get(id);
-        if (!street) continue;
+        if (!street) {
+          continue;
+        }
         const text = bladeFor.get(street);
-        if (text && !labels.includes(text)) labels.push(text);
+        if (text && !labels.includes(text)) {
+          labels.push(text);
+        }
       }
-      if (labels.length === 0) continue;
+      if (labels.length === 0) {
+        continue;
+      }
       const arms = controlArms(network, n);
       // Mount on the first arm whose kerb corner is real pavement, set further
       // back than the signal so the two do not intersect.
       let mounted = false;
       for (const a of arms) {
-        if (mounted) break;
-        const px = a.px + a.tx * 2.2 + a.tz * (a.half + 2.0);
-        const pz = a.pz + a.tz * 2.2 - a.tx * (a.half + 2.0);
-        if (onAsphalt(px, pz, 0.2)) continue;
-        if (!claimFree(px, pz, 2.0)) continue;
+        if (mounted) {
+          break;
+        }
+        const px = a.px + a.tx * 2.2 + a.tz * (a.half + 2);
+        const pz = a.pz + a.tz * 2.2 - a.tx * (a.half + 2);
+        if (onAsphalt(px, pz, 0.2)) {
+          continue;
+        }
+        if (!claimFree(px, pz, 2)) {
+          continue;
+        }
         claim(px, pz);
         const y = surfaceAt(px, pz);
         const poleH = 3.6;
@@ -2683,11 +3240,15 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
         // Stacking the second 0.78u lower made every two-street junction ship
         // the same sign geometry at two different heights, which is a kind
         // whose own baseline calls half its instances misplaced.
-        for (let i = 0; i < Math.min(2, labels.length); i++) {
+        for (let i = 0; i < Math.min(2, labels.length); i += 1) {
           const text = labels[i];
-          if (text === undefined) continue;
+          if (text === undefined) {
+            continue;
+          }
           const geo = labelGeo(text);
-          if (!geo) continue;
+          if (!geo) {
+            continue;
+          }
           const scale = 1.9;
           const w = labelWidth(text) * scale;
           const yaw = Math.atan2(a.tx, a.tz) + (i === 0 ? 0 : HALF_PI);
@@ -2706,7 +3267,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
           objects.push(label);
         }
         bump("blade", Math.min(2, labels.length));
-        blades++;
+        blades += 1;
         mounted = true;
       }
     }
@@ -2714,20 +3275,33 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     // Regulatory plates: tow-away / no-parking, correct on any SF kerb.
     const regParts = regulatoryKit();
     let plates = 0;
+    const seatPlate = (p: KerbPoint): void => {
+      if (plates >= REGULATORY_CAP) {
+        return;
+      }
+      if (p.district.character === "park") {
+        return;
+      }
+      if (!claimSeat(p.x, p.z, 2)) {
+        return;
+      }
+      placeKit(regParts, p.x, surfaceAt(p.x, p.z), p.z, facingRoad(p));
+      bump("regulatoryPlate");
+      plates += 1;
+    };
     for (const edge of network.edges) {
-      if (plates >= REGULATORY_CAP) break;
+      if (plates >= REGULATORY_CAP) {
+        break;
+      }
       await breathe();
       const mid = network.sample(edge, edge.len / 2);
-      if (inPark(mid.x, mid.z)) continue;
-      if (!rng.chance(0.12)) continue;
-      kerbWalk(edge, ROAD_TILE * 5, 1.2, (p) => {
-        if (plates >= REGULATORY_CAP) return;
-        if (p.district.character === "park") return;
-        if (!claimSeat(p.x, p.z, 2.0)) return;
-        placeKit(regParts, p.x, surfaceAt(p.x, p.z), p.z, facingRoad(p));
-        bump("regulatoryPlate");
-        plates++;
-      });
+      if (inPark(mid.x, mid.z)) {
+        continue;
+      }
+      if (!rng.chance(0.12)) {
+        continue;
+      }
+      kerbWalk(edge, ROAD_TILE * 5, 1.2, seatPlate);
     }
   }
 
@@ -2764,30 +3338,45 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     const escapeParts = fireEscapeKit();
     const muralParts = muralKit();
     const shutterParts = shutterKit();
-    const AWNING_TINTS = [0xb5384a, 0x2f6f5a, 0x2b4a7a, 0x8f6f3a, 0x6f3a5a, 0x3a3a3a] as const;
-    const MURAL_TINTS = [0xd8783a, 0x3a8fa8, 0xc9483a, 0x6f9e4a, 0xe0b03a] as const;
+    const AWNING_TINTS = [
+      0xb5_38_4a, 0x2f_6f_5a, 0x2b_4a_7a, 0x8f_6f_3a, 0x6f_3a_5a, 0x3a_3a_3a,
+    ] as const;
+    const MURAL_TINTS = [0xd8_78_3a, 0x3a_8f_a8, 0xc9_48_3a, 0x6f_9e_4a, 0xe0_b0_3a] as const;
     let awnings = 0;
     let escapes = 0;
     let murals = 0;
     let shutters = 0;
+    const onFacade = (p: KerbPoint, edge: NetEdge): boolean => {
+      const char = p.district.character;
+      if (char === "park" || char === "downtown" || char === "highrise") {
+        return false;
+      }
+      // The wall plane is only trustworthy when THIS edge is the closest one:
+      // at a corner the nearest edge is the cross street and the row that
+      // actually faces us was built off that one instead.
+      const near = network.nearest(p.x, p.z, ROAD_TILE * 1.6);
+      if (!near || near.edge.id !== edge.id) {
+        return false;
+      }
+      // …and only when a wall was actually BUILT here. The plane is where a
+      // frontage lot's front face WOULD be; alleys between runs, refused
+      // lots and blocks the real-footprint pass owns have no wall on it, and
+      // a 9u awning panel hanging over open pavement is the loudest
+      // "generated" tell on the whole map.
+      return facadeAt(p.x, p.z);
+    };
     for (const edge of network.edges) {
       await breathe();
       const mid = network.sample(edge, edge.len / 2);
-      if (inPark(mid.x, mid.z)) continue;
+      if (inPark(mid.x, mid.z)) {
+        continue;
+      }
+      // oxlint-disable-next-line no-loop-func -- kerbWalk runs the visitor synchronously inside this iteration; it needs this `edge` to verify the wall plane, plus the four pass-wide caps
       kerbWalk(edge, FACADE_PITCH, frontPlane(edge), (p) => {
+        if (!onFacade(p, edge)) {
+          return;
+        }
         const char = p.district.character;
-        if (char === "park" || char === "downtown" || char === "highrise") return;
-        // The wall plane is only trustworthy when THIS edge is the closest one:
-        // at a corner the nearest edge is the cross street and the row that
-        // actually faces us was built off that one instead.
-        const near = network.nearest(p.x, p.z, ROAD_TILE * 1.6);
-        if (!near || near.edge.id !== edge.id) return;
-        // …and only when a wall was actually BUILT here. The plane is where a
-        // frontage lot's front face WOULD be; alleys between runs, refused
-        // lots and blocks the real-footprint pass owns have no wall on it, and
-        // a 9u awning panel hanging over open pavement is the loudest
-        // "generated" tell on the whole map.
-        if (!facadeAt(p.x, p.z)) return;
         const y = surfaceAt(p.x, p.z);
         // local +Z points at the street: the props are authored that way.
         const yaw = facingRoad(p);
@@ -2807,16 +3396,16 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
             new THREE.Color(rng.pick(AWNING_TINTS)),
           );
           bump("awning");
-          awnings++;
+          awnings += 1;
         } else if (
           shopfront &&
           shutters < SHUTTER_CAP &&
           char === "commercial" &&
           rng.chance(0.18)
         ) {
-          placeKit(shutterParts, p.x, y, p.z, yaw, 1, new THREE.Color(0x8f9298));
+          placeKit(shutterParts, p.x, y, p.z, yaw, 1, new THREE.Color(0x8f_92_98));
           bump("shutter");
-          shutters++;
+          shutters += 1;
         }
         if (
           escapes < FIRE_ESCAPE_CAP &&
@@ -2825,7 +3414,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
         ) {
           placeKit(escapeParts, p.x, y, p.z, yaw, rng.range(0.92, 1.08));
           bump("fireEscape");
-          escapes++;
+          escapes += 1;
         }
         if (murals < MURAL_CAP && MURAL_DISTRICTS.has(p.district.name) && rng.chance(0.1)) {
           // Flat on the wall, above the shopfront band.
@@ -2839,7 +3428,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
             new THREE.Color(rng.pick(MURAL_TINTS)),
           );
           bump("mural");
-          murals++;
+          murals += 1;
         }
       });
     }
@@ -2854,5 +3443,5 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       .map(([k, n]) => `${k}=${n}`)
       .join(" ")}`,
   );
-  return { objects, solids, openWaterCells, pierDecks, parkedCars, lampHeads };
-}
+  return { lampHeads, objects, parkedCars, pierDecks, solids };
+};

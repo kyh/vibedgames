@@ -8,7 +8,10 @@
  * prints a bare scalar that a shell can capture directly.
  */
 
-export type OutputArgs = { json?: boolean; field?: string };
+export interface OutputArgs {
+  json?: boolean;
+  field?: string;
+}
 
 /**
  * What the commands hand to stdout: JSON, plus `undefined` so payload types
@@ -24,70 +27,92 @@ export type OutputValue =
   | OutputValue[]
   | { [key: string]: OutputValue };
 
-type OutputObject = { [key: string]: OutputValue };
+interface OutputObject {
+  [key: string]: OutputValue;
+}
 
-function isOutputObject(value: OutputValue): value is OutputObject {
+/**
+ * What a command may hand to `writeStructured`: a JSON value, or a payload
+ * type declared member by member.
+ *
+ * The second arm exists because TypeScript grants an implicit index signature
+ * only to a type alias, never to an interface — declaration merging could add
+ * members later, so an interface's keys are never assumed and it is not
+ * assignable to `OutputValue`'s object arm. Mapping the payload's own keys
+ * checks each one against `OutputValue` instead, which still rejects a `Date`
+ * or a method where `[key: string]: unknown` on every payload would not.
+ */
+type OutputPayload<T> = OutputValue | { [K in keyof T]: OutputValue };
+
+const isOutputObject = (value: OutputValue): value is OutputObject =>
   // Object() is the identity only on objects; arrays are split off explicitly.
-  return Object(value) === value && !Array.isArray(value);
-}
+  Object(value) === value && !Array.isArray(value);
 
-export function isJsonOutput(args: OutputArgs): boolean {
-  return Boolean(args.json) || process.env.VG_JSON_OUTPUT === "1";
-}
+export const isJsonOutput = (args: OutputArgs): boolean =>
+  Boolean(args.json) || process.env.VG_JSON_OUTPUT === "1";
 
-export function writeJson(value: OutputValue): void {
+export const writeJson = (value: OutputValue): void => {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
-}
+};
 
 /**
  * Resolve a dotted path against a decoded JSON value. Supports array indexing
  * in both `items[0]` and `items.0` spellings, since agents write both.
  * Returns `undefined` for any path that doesn't resolve.
  */
-export function selectField(value: OutputValue, path: string): OutputValue {
+export const selectField = (value: OutputValue, path: string): OutputValue => {
   const segments = path
-    .replace(/\[(-?\d+)\]/g, ".$1")
+    .replaceAll(/\[(?<index>-?\d+)\]/gu, ".$<index>")
     .split(".")
     .filter(Boolean);
 
   let current: OutputValue = value;
   for (const segment of segments) {
-    if (current === null || current === undefined) return undefined;
+    if (current === null || current === undefined) {
+      return undefined;
+    }
     if (Array.isArray(current)) {
       const index = Number(segment);
-      if (!Number.isInteger(index)) return undefined;
+      if (!Number.isInteger(index)) {
+        return undefined;
+      }
       // Negative indices count from the end, which is handy for "the last
       // frame" style selections.
       current = current.at(index);
       continue;
     }
-    if (!isOutputObject(current)) return undefined;
+    if (!isOutputObject(current)) {
+      return undefined;
+    }
     current = current[segment];
   }
   return current;
-}
+};
 
 // A value that prints as one bare token: null or a primitive.
-function isScalarEntry(value: OutputValue): boolean {
-  return value === null || (value !== undefined && Object(value) !== value);
-}
+const isScalarEntry = (value: OutputValue): boolean =>
+  value === null || (value !== undefined && Object(value) !== value);
 
 /**
  * Render one selected value for shell capture. Scalars print bare so
  * `$(vg ... --field url)` needs no unquoting; arrays of scalars print one per
  * line so they can be looped over; anything structural falls back to JSON.
  */
-export function formatField(value: OutputValue): string {
-  if (value === null || value === undefined) return "";
+export const formatField = (value: OutputValue): string => {
+  if (value === null || value === undefined) {
+    return "";
+  }
   if (Array.isArray(value)) {
     if (value.every(isScalarEntry)) {
       return value.map((v) => (v === null ? "" : String(v))).join("\n");
     }
     return JSON.stringify(value, null, 2);
   }
-  if (isOutputObject(value)) return JSON.stringify(value, null, 2);
+  if (isOutputObject(value)) {
+    return JSON.stringify(value, null, 2);
+  }
   return String(value);
-}
+};
 
 /**
  * The standard exit path for a command that produced structured data.
@@ -95,7 +120,10 @@ export function formatField(value: OutputValue): string {
  * value is the more specific request. Returns false when neither flag was
  * given, so the caller can fall through to its human-readable rendering.
  */
-export function writeStructured(value: OutputValue, args: OutputArgs): boolean {
+export const writeStructured = <T extends OutputPayload<T>>(
+  value: T,
+  args: OutputArgs,
+): boolean => {
   if (args.field) {
     const selected = selectField(value, args.field);
     if (selected === undefined) {
@@ -112,14 +140,14 @@ export function writeStructured(value: OutputValue, args: OutputArgs): boolean {
     return true;
   }
   return false;
-}
+};
 
 /** The `--json`/`--field` arg pair, for spreading into a citty `args` block. */
 export const outputArgs = {
-  json: { type: "boolean", description: "Print structured JSON to stdout." },
   field: {
-    type: "string",
     description:
       "Print a single value from the JSON result, e.g. --field request_id or --field images[0].url. Prints scalars bare for shell capture.",
+    type: "string",
   },
+  json: { description: "Print structured JSON to stdout.", type: "boolean" },
 } as const;

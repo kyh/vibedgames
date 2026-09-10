@@ -1,0 +1,17 @@
+{
+  "meshCount": 6,
+  "meshNames": [
+    "salesforce-glass",
+    "salesforce-lit",
+    "salesforce-metal",
+    "salesforce-crown",
+    "salesforce-stone",
+    "salesforce-dark"
+  ],
+  "materialCount": 6,
+  "geometryCount": 6,
+  "sockets": [],
+  "pivots": [],
+  "boundsSize": [7.436215400695801, 49.435001373291016, 7.538107633590698],
+  "problems": []
+}

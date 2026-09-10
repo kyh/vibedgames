@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { animate, motion, useMotionValue, useReducedMotion, useTransform } from "motion/react";
 
-import { cn } from "@repo/ui/lib/utils";
+import { cn } from "cn";
 
 const WIPE_DURATION = 0.6;
 
@@ -39,7 +39,9 @@ export const SkeletonReveal = ({
   const [revealedFor, setRevealedFor] = useState(ready);
   if (revealedFor !== ready) {
     setRevealedFor(ready);
-    if (!ready) setWipeDone(false);
+    if (!ready) {
+      setWipeDone(false);
+    }
   }
 
   // Reduced motion still needs the skeleton to get out of the way — it just
@@ -64,7 +66,9 @@ export const SkeletonReveal = ({
       progress.set(-100);
       return;
     }
-    if (retired) return;
+    if (retired) {
+      return;
+    }
     const controls = animate(progress, 100, {
       duration: WIPE_DURATION,
       ease: "easeInOut",
@@ -78,8 +82,8 @@ export const SkeletonReveal = ({
       <motion.div
         style={
           retired
-            ? { maskImage: "none", WebkitMaskImage: "none" }
-            : { maskImage: contentMask, WebkitMaskImage: contentMask }
+            ? { WebkitMaskImage: "none", maskImage: "none" }
+            : { WebkitMaskImage: contentMask, maskImage: contentMask }
         }
       >
         {ready ? children : null}
@@ -88,7 +92,7 @@ export const SkeletonReveal = ({
         <motion.div
           aria-hidden
           className={ready ? "pointer-events-none absolute inset-0 overflow-hidden" : undefined}
-          style={ready ? { maskImage: skeletonMask, WebkitMaskImage: skeletonMask } : undefined}
+          style={ready ? { WebkitMaskImage: skeletonMask, maskImage: skeletonMask } : undefined}
         >
           {skeleton}
         </motion.div>

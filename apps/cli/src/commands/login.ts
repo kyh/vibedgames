@@ -1,33 +1,31 @@
 import { exec } from "node:child_process";
+import { setTimeout as sleep } from "node:timers/promises";
 import { defineCommand } from "citty";
-import consola from "consola";
+import { consola } from "consola";
 
 import { createPublicClient } from "../lib/api.js";
 import { getBaseUrl, saveConfig } from "../lib/config.js";
 
-const POLL_INTERVAL_MS = 2_000;
-const MAX_POLLS = 150; // 5 min at 2s intervals
+const POLL_INTERVAL_MS = 2000;
+// 5 min at 2s intervals
+const MAX_POLLS = 150;
 
-function openBrowser(url: string): void {
-  const cmd =
-    process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
+const openBrowser = (url: string): void => {
+  const openers: Partial<Record<NodeJS.Platform, string>> = { darwin: "open", win32: "start" };
+  const cmd = openers[process.platform] ?? "xdg-open";
   exec(`${cmd} "${url}"`);
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+};
 
 export const loginCommand = defineCommand({
   meta: {
-    name: "login",
     description: "Authenticate with vibedgames",
+    name: "login",
   },
   run: async () => {
     const baseUrl = getBaseUrl();
     const client = createPublicClient(baseUrl);
 
-    const { code } = await client.auth.cliInit.mutate();
+    const { code } = await client.auth.cliInit();
 
     consola.box(`Code: ${code}`);
     consola.info("Opening browser to complete authentication...");
@@ -37,13 +35,13 @@ export const loginCommand = defineCommand({
 
     consola.start("Waiting for confirmation...");
 
-    for (let i = 0; i < MAX_POLLS; i++) {
+    for (let i = 0; i < MAX_POLLS; i += 1) {
       await sleep(POLL_INTERVAL_MS);
 
-      const result = await client.auth.cliPoll.query({ code });
+      const result = await client.auth.cliPoll({ code });
 
       if (result.status === "confirmed") {
-        saveConfig({ token: result.token, baseUrl });
+        saveConfig({ baseUrl, token: result.token });
         consola.success("Logged in successfully");
         return;
       }

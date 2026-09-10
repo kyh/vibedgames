@@ -12,8 +12,7 @@
     "clean": "rm -rf .turbo .wrangler dist node_modules"
   },
   "dependencies": {
-    "@repo/db": "workspace:^",
-    "drizzle-orm": "^0.45.2"
+    "@repo/db": "workspace:^"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",

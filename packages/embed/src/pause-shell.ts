@@ -7,12 +7,15 @@
 //   - the dismissing tap stays ON the overlay: it neither bubbles to the
 //     game's window-level listeners nor leaves a compatibility mouse burst
 //     behind for the canvas (./pointer-seal)
-//   - resume on keyup, EXCEPT Escape — the core keydown toggle (./game) owns
-//     Escape; acting on its keyup too would double-fire one press
+//   - resume on a fresh key's release, EXCEPT Escape — the core toggle owns
+//     Escape; releasing a key held before pausing must not undo the pause
 //   - resume on a FRESH physical-pad button press (the game loop is usually
 //     frozen while paused, so nothing else polls the pad)
 //   - a `modalOpen` gate: while a child modal owns input, keys and clicks
 //     belong to it and must not resume
+//   - an optional sound toggle (`mute`) — the pause screen is the one place
+//     every player, phone or desktop, can reach, so it is where sound lives;
+//     M toggles it here too instead of resuming
 //   - idempotent show()/hide(), fade in/out with pointer-events off during
 //     fade-out, removal after the fade, prefers-reduced-motion → no fade
 //
@@ -24,7 +27,7 @@ import { resumeGame } from "./game";
 import { sealPointerEvents } from "./pointer-seal";
 
 /** z-index of every pause overlay — above any game HUD. */
-export const PAUSE_OVERLAY_Z = 2147483000;
+export const PAUSE_OVERLAY_Z = 2_147_483_000;
 
 /**
  * While a pause UI is visible the game loop is often frozen, so nothing polls
@@ -33,7 +36,7 @@ export const PAUSE_OVERLAY_Z = 2147483000;
  * press that triggered a pause can't instantly undo it). Call on show(), call
  * the returned stop on hide().
  */
-export function resumeOnPadPress(): () => void {
+export const resumeOnPadPress = (): (() => void) => {
   let raf = 0;
   let prev: readonly boolean[] | null = null;
   const poll = (): void => {
@@ -48,10 +51,11 @@ export function resumeOnPadPress(): () => void {
     }
     const cur = pad ? pad.buttons.map((b) => b.pressed) : null;
     if (cur && prev) {
-      for (let i = 0; i < cur.length; i++) {
+      for (let i = 0; i < cur.length; i += 1) {
         if (cur[i] === true && prev[i] !== true) {
           resumeGame();
-          return; // resumed — stop polling (hide() also cancels, harmlessly)
+          // resumed — stop polling (hide() also cancels, harmlessly)
+          return;
         }
       }
     }
@@ -60,9 +64,14 @@ export function resumeOnPadPress(): () => void {
   };
   raf = requestAnimationFrame(poll);
   return () => cancelAnimationFrame(raf);
+};
+
+export interface MuteAccessor {
+  get: () => boolean;
+  set: (next: boolean) => void;
 }
 
-export type PauseShellOptions = {
+export interface PauseShellOptions {
   /**
    * Build the overlay's content into the full-screen root the shell provides.
    * Called fresh on every show(), so content that depends on the moment —
@@ -88,53 +97,116 @@ export type PauseShellOptions = {
   modalOpen?: () => boolean;
   /** Sweep side state (close modals, …). Runs at the start of every hide(). */
   onHide?: () => void;
-};
+  /**
+   * Read/write the game's muted state. Appends a `.vg-pause-sound` toggle as
+   * the root's last child — a column-flex root puts it under your content —
+   * styled by an injected stylesheet your own CSS overrides, and binds M
+   * while paused. Omit for a game with no audio.
+   */
+  mute?: MuteAccessor;
+}
 
-export type PauseShell = {
+export interface PauseShell {
   /** Mount the overlay. Idempotent while shown. */
   show: () => void;
   /** Unmount (fade out). Idempotent while hidden. */
   hide: () => void;
+}
+
+/** Default look for the sound toggle; injected first so a game's own rule of
+ *  equal specificity wins on every property. */
+const SOUND_TOGGLE_CSS = `
+.vg-pause-sound {
+  margin-top: 16px;
+  padding: 8px 18px;
+  border-radius: 999px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  color: inherit;
+  font: 600 12px ui-monospace, 'SF Mono', Menlo, monospace;
+}
+`;
+
+const injectCss = (css: string, id: string): void => {
+  if (document.querySelector(`#${id}`)) {
+    return;
+  }
+  const style = document.createElement("style");
+  style.id = id;
+  style.textContent = css;
+  document.head.append(style);
 };
 
-function isInteractive(target: EventTarget | null): boolean {
-  return (
-    target instanceof Element &&
-    target.closest("button, a, input, select, textarea, [data-pause-keep]") !== null
-  );
-}
+const isInteractive = (target: EventTarget | null): boolean =>
+  target instanceof Element &&
+  target.closest("button, a, input, select, textarea, [data-pause-keep]") !== null;
 
-function reducedMotion(): boolean {
-  return (
-    typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
-}
+const reducedMotion = (): boolean =>
+  typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /** Build a pause overlay with the shared behavior contract; see module doc. */
-export function createPauseShell(options: PauseShellOptions): PauseShell {
+export const createPauseShell = (options: PauseShellOptions): PauseShell => {
   let root: HTMLElement | null = null;
   let stopPadResume: (() => void) | null = null;
+  const resumeKeys = new Set<string>();
+  let soundToggle: HTMLButtonElement | null = null;
+
+  const drawSound = (): void => {
+    const { mute } = options;
+    if (!mute || !soundToggle) {
+      return;
+    }
+    const muted = mute.get();
+    soundToggle.textContent = muted ? "sound off" : "sound on";
+    soundToggle.setAttribute("aria-pressed", String(!muted));
+  };
+
+  const toggleSound = (): void => {
+    const { mute } = options;
+    if (!mute) {
+      return;
+    }
+    mute.set(!mute.get());
+    drawSound();
+  };
+
+  const onResumeKeydown = (event: KeyboardEvent): void => {
+    if (event.key === "Escape" || event.repeat || (options.modalOpen?.() ?? false)) {
+      return;
+    }
+    resumeKeys.add(event.code);
+  };
 
   const onResumeKeyup = (event: KeyboardEvent): void => {
     // Escape is handled on keydown by the core toggle listener; resuming here
     // too would double-fire on the keydown+keyup of one press.
-    if (event.key === "Escape" || (options.modalOpen?.() ?? false)) return;
+    const fresh = resumeKeys.delete(event.code);
+    if (!fresh || event.key === "Escape" || (options.modalOpen?.() ?? false)) {
+      return;
+    }
+    if (event.code === "KeyM" && options.mute) {
+      toggleSound();
+      return;
+    }
     resumeGame();
   };
 
-  function show(): void {
-    if (root) return;
+  const show = (): void => {
+    if (root) {
+      return;
+    }
+    if (options.mute) {
+      injectCss(SOUND_TOGGLE_CSS, "vg-pause-sound-css");
+    }
     if (options.css !== undefined && options.styleId !== undefined) {
-      if (!document.getElementById(options.styleId)) {
-        const style = document.createElement("style");
-        style.id = options.styleId;
-        style.textContent = options.css;
-        document.head.append(style);
-      }
+      injectCss(options.css, options.styleId);
     }
 
     root = document.createElement("div");
-    if (options.className !== undefined) root.className = options.className;
+    if (options.className !== undefined) {
+      root.className = options.className;
+    }
     root.setAttribute("role", "button");
     root.setAttribute("aria-label", options.ariaLabel ?? "Resume game");
     // Behavioral invariants only — everything visual is the consumer's CSS.
@@ -151,30 +223,52 @@ export function createPauseShell(options: PauseShellOptions): PauseShell {
     }
 
     options.render(root);
+    if (options.mute) {
+      soundToggle = document.createElement("button");
+      soundToggle.type = "button";
+      soundToggle.className = "vg-pause-sound";
+      soundToggle.setAttribute("aria-label", "Sound");
+      soundToggle.addEventListener("pointerup", (event) => {
+        event.stopPropagation();
+        toggleSound();
+      });
+      drawSound();
+      root.append(soundToggle);
+    }
     document.body.append(root);
     sealPointerEvents(root, { keepClick: isInteractive });
     stopPadResume = resumeOnPadPress();
-    if (fade > 0) requestAnimationFrame(() => root?.style.setProperty("opacity", "1"));
+    if (fade > 0) {
+      requestAnimationFrame(() => root?.style.setProperty("opacity", "1"));
+    }
 
     root.addEventListener("pointerup", (event) => {
-      if ((options.modalOpen?.() ?? false) || isInteractive(event.target)) return;
+      if ((options.modalOpen?.() ?? false) || isInteractive(event.target)) {
+        return;
+      }
       resumeGame();
     });
     // keyup, not keydown — a keydown dismissal leaks the paired keyup into the
     // game as a phantom release. Registered CAPTURE on window: while paused
     // the core key gate (./game) stops propagation at window, and only
     // same-node capture listeners survive that.
+    window.addEventListener("keydown", onResumeKeydown, true);
     window.addEventListener("keyup", onResumeKeyup, true);
-  }
+  };
 
-  function hide(): void {
+  const hide = (): void => {
+    window.removeEventListener("keydown", onResumeKeydown, true);
     window.removeEventListener("keyup", onResumeKeyup, true);
+    resumeKeys.clear();
     stopPadResume?.();
     stopPadResume = null;
     options.onHide?.();
+    soundToggle = null;
     const el = root;
     root = null;
-    if (!el) return;
+    if (!el) {
+      return;
+    }
     const fade = reducedMotion() ? 0 : (options.fadeMs ?? 240);
     if (fade === 0) {
       el.remove();
@@ -183,7 +277,7 @@ export function createPauseShell(options: PauseShellOptions): PauseShell {
     el.style.pointerEvents = "none";
     el.style.opacity = "0";
     window.setTimeout(() => el.remove(), fade + 40);
-  }
+  };
 
-  return { show, hide };
-}
+  return { hide, show };
+};

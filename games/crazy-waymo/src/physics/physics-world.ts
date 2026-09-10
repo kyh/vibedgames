@@ -1,14 +1,14 @@
-import RAPIER from "@dimforge/rapier3d-compat";
-import * as THREE from "three";
+import { ColliderDesc, init, RigidBodyDesc, RigidBodyType, World } from "@dimforge/rapier3d-compat";
+import type { Collider, RigidBody } from "@dimforge/rapier3d-compat";
+import type * as THREE from "three";
 
 import { WORLD_H, WORLD_HALF_X, WORLD_HALF_Z, WORLD_W } from "../shared/constants";
 import type { Solid } from "../world/city";
 import type { Terrain } from "../world/terrain";
+import { staticSolidBox, staticSolidCollider } from "./static-solid";
+import type { StaticSolidBox } from "./static-solid";
 
-// Rapier-backed rigid-body world for everything the taxi is NOT: traffic cars
-// become dynamic bodies when punted, and slide/tumble against the terrain and
-// the city's static colliders. The taxi itself stays on the custom arcade
-// controller — kinematic feel is the game — it just applies impulses here.
+// Rapier owns the player's raycast vehicle, traffic bodies and static scenery.
 
 const FIXED_DT = 1 / 60;
 // Per frame; time beyond this is dropped (tab-back spike guard). Phones and
@@ -23,7 +23,6 @@ const MAX_STEPS = window.matchMedia("(pointer: coarse)").matches ? 2 : 4;
 // on invisible chord ridges mid-street. A heightfield collider (no BVH,
 // O(1) queries) makes fine sampling affordable where a trimesh was not.
 const GROUND_SAMPLE = 4;
-const STATIC_HALF_HEIGHT = 6; // buildings/walls modeled as tall boxes
 
 // Static solids stream in around the taxi instead of living in the world all
 // at once: Rapier's step pays a ~linear per-resident-collider cost even when
@@ -37,41 +36,61 @@ const STATIC_HALF_HEIGHT = 6; // buildings/walls modeled as tall boxes
 // line into `updatePhysicsControls` whenever a RaycastVehicle is attached —
 // i.e. always, in the shipped game — so the arcade `resolveCollisions` is dead
 // code and these boxes are the ONLY thing the taxi collides with.
-const SOLID_STREAM_IN = 160; // boxes closer than this become colliders
-const SOLID_STREAM_OUT = 200; // resident boxes farther than this are removed
-const SOLID_RESTREAM_DIST = 24; // re-scan after the taxi moves this far
+// boxes closer than this become colliders
+const SOLID_STREAM_IN = 160;
+// resident boxes farther than this are removed
+const SOLID_STREAM_OUT = 200;
+// re-scan after the taxi moves this far
+const SOLID_RESTREAM_DIST = 24;
 
-type SolidBox = {
-  readonly x: number;
-  readonly y: number;
-  readonly z: number;
-  readonly hx: number;
-  readonly hy: number;
-  readonly hz: number;
-  readonly yaw: number;
-  readonly reach: number; // conservative footprint radius: max(hx, hz)
-  collider: RAPIER.Collider | null;
+// Struct-of-arrays: x, y, z, hx, hy, hz, yaw, reach per box. The city holds
+// ~250k boxes (every parcel wall), and one object per box was ~35 MB of heap
+// on a phone for a table the stream scan only ever reads numerically. The
+// parcel walls come and go with their world tile, so boxes live in blocks:
+// one for the base city, one per resident tile.
+const BOX_STRIDE = 8;
+// conservative footprint radius: max(hx, hz)
+const BOX_REACH = 7;
+const BASE_BLOCK = -1;
+
+interface SolidBlock {
+  readonly boxes: Float32Array;
+  readonly count: number;
+  readonly resident: Map<number, Collider>;
+}
+
+const boxAt = (b: Float32Array, i: number): StaticSolidBox => {
+  const o = i * BOX_STRIDE;
+  return {
+    hx: b[o + 3] ?? 0,
+    hy: b[o + 4] ?? 0,
+    hz: b[o + 5] ?? 0,
+    x: b[o] ?? 0,
+    y: b[o + 1] ?? 0,
+    yaw: b[o + 6] ?? 0,
+    z: b[o + 2] ?? 0,
+  };
 };
 
 export class PhysicsWorld {
-  private world: RAPIER.World;
+  private world: World;
   private acc = 0;
-  private solidBoxes: SolidBox[] = [];
+  private readonly blocks = new Map<number, SolidBlock>();
   private streamX = Infinity;
   private streamZ = Infinity;
 
   static async create(): Promise<PhysicsWorld> {
-    await RAPIER.init();
+    await init();
     return new PhysicsWorld();
   }
 
   private constructor() {
-    this.world = new RAPIER.World({ x: 0, y: -30, z: 0 });
+    this.world = new World({ x: 0, y: -30, z: 0 });
     this.world.timestep = FIXED_DT;
   }
 
   // The raw Rapier world — the raycast vehicle builds its controller on it.
-  raw(): RAPIER.World {
+  raw(): World {
     return this.world;
   }
 
@@ -81,19 +100,21 @@ export class PhysicsWorld {
   addGround(heightAt: (x: number, z: number) => number): void {
     const spanX = WORLD_W * 1.06;
     const spanZ = WORLD_H * 1.06;
-    const ncols = Math.ceil(spanX / GROUND_SAMPLE); // columns run along X
-    const nrows = Math.ceil(spanZ / GROUND_SAMPLE); // rows run along Z
+    // columns run along X
+    const ncols = Math.ceil(spanX / GROUND_SAMPLE);
+    // rows run along Z
+    const nrows = Math.ceil(spanZ / GROUND_SAMPLE);
     const heights = new Float32Array((nrows + 1) * (ncols + 1));
-    for (let col = 0; col <= ncols; col++) {
+    for (let col = 0; col <= ncols; col += 1) {
       const x = -spanX / 2 + (col / ncols) * spanX;
-      for (let row = 0; row <= nrows; row++) {
+      for (let row = 0; row <= nrows; row += 1) {
         const z = -spanZ / 2 + (row / nrows) * spanZ;
         heights[col * (nrows + 1) + row] = heightAt(x, z);
       }
     }
-    const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
+    const body = this.world.createRigidBody(RigidBodyDesc.fixed());
     this.world.createCollider(
-      RAPIER.ColliderDesc.heightfield(nrows, ncols, heights, {
+      ColliderDesc.heightfield(nrows, ncols, heights, {
         x: spanX,
         y: 1,
         z: spanZ,
@@ -108,54 +129,59 @@ export class PhysicsWorld {
   // two-level drivable surfaces the single heightfield cannot express.
   addStaticTrimesh(positions: Float32Array): void {
     const indices = new Uint32Array(positions.length / 3);
-    for (let i = 0; i < indices.length; i++) indices[i] = i;
-    const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
-    this.world.createCollider(
-      RAPIER.ColliderDesc.trimesh(positions, indices).setFriction(0.9),
-      body,
-    );
+    for (let i = 0; i < indices.length; i += 1) {
+      indices[i] = i;
+    }
+    const body = this.world.createRigidBody(RigidBodyDesc.fixed());
+    this.world.createCollider(ColliderDesc.trimesh(positions, indices).setFriction(0.9), body);
   }
 
   // City solids (buildings, walls, railings) as tall static boxes; rotated
   // solids (avenue-aligned buildings) carry their yaw. Nothing becomes a
   // collider here — boxes are precomputed and streamSolids() keeps only the
   // ones near the taxi resident.
-  addStaticSolids(solids: readonly Solid[], terrain: Terrain): void {
+  addStaticSolids(solids: readonly Solid[], terrain: Terrain, tile = BASE_BLOCK): void {
+    this.removeStaticSolids(tile);
+    const boxes = new Float32Array(solids.length * BOX_STRIDE);
+    let count = 0;
     for (const s of solids) {
-      if (s.noBody) continue; // tree trunks etc — arcade-collision only
+      if (s.noBody) {
+        continue;
+        // tree trunks etc — arcade-collision only
+      }
       const cx = (s.minX + s.maxX) / 2;
       const cz = (s.minZ + s.maxZ) / 2;
-      if (Math.abs(cx) > WORLD_HALF_X + 30 || Math.abs(cz) > WORLD_HALF_Z + 30) continue;
-      const hx = Math.max(0.1, (s.maxX - s.minX) / 2);
-      const hz = Math.max(0.1, (s.maxZ - s.minZ) / 2);
-      // Ground-anchored, ALWAYS — which is wrong for anything standing on a
-      // drivable deck rather than on the terrain (see the Golden Gate's rails
-      // in world/golden-gate.ts: over water this puts the box on the seabed,
-      // 6u below the carriageway). Anchoring such a box to the deck instead
-      // was measured and is worse — Rapier then ejects the chassis out of the
-      // box's bottom face, because a SurfaceDeck is not a collider and nothing
-      // resists the push. Fixing that means giving the decks colliders or
-      // clamping the chassis to the drive surface after the step.
-      const base = terrain.heightAt(cx, cz);
-      // Height-capped solids (maxY — construction barriers etc) get a box of
-      // their REAL height: the default tall box walled off any drivable deck
-      // above them (a chicane under a freeway ramp blocked the ramp).
-      const hy =
-        s.maxY !== undefined
-          ? Math.min(STATIC_HALF_HEIGHT, Math.max(0.3, (s.maxY - base) / 2))
-          : STATIC_HALF_HEIGHT;
-      this.solidBoxes.push({
-        x: cx,
-        y: base + hy - 1,
-        z: cz,
-        hx,
-        hy,
-        hz,
-        yaw: s.yaw ?? 0,
-        reach: Math.max(hx, hz),
-        collider: null,
-      });
+      if (Math.abs(cx) > WORLD_HALF_X + 30 || Math.abs(cz) > WORLD_HALF_Z + 30) {
+        continue;
+      }
+      const box = staticSolidBox(s, (x, z) => terrain.heightAt(x, z));
+      const o = count * BOX_STRIDE;
+      boxes[o] = box.x;
+      boxes[o + 1] = box.y;
+      boxes[o + 2] = box.z;
+      boxes[o + 3] = box.hx;
+      boxes[o + 4] = box.hy;
+      boxes[o + 5] = box.hz;
+      boxes[o + 6] = box.yaw;
+      boxes[o + BOX_REACH] = Math.max(box.hx, box.hz);
+      count += 1;
     }
+    this.blocks.set(tile, { boxes, count, resident: new Map() });
+    // A block added mid-drive must stream on the next frame, not after the
+    // taxi moves another SOLID_RESTREAM_DIST.
+    this.streamX = Infinity;
+  }
+
+  /** Drop a tile's boxes, resident colliders included. */
+  removeStaticSolids(tile: number): void {
+    const block = this.blocks.get(tile);
+    if (!block) {
+      return;
+    }
+    for (const collider of block.resident.values()) {
+      this.world.removeCollider(collider, true);
+    }
+    this.blocks.delete(tile);
   }
 
   // Keep the static-solid colliders near (x, z) resident and evict the rest.
@@ -165,22 +191,23 @@ export class PhysicsWorld {
   // updates — dozens per re-scan, not thousands.
   streamSolids(x: number, z: number): void {
     const moved = Math.hypot(x - this.streamX, z - this.streamZ);
-    if (moved < SOLID_RESTREAM_DIST) return;
+    if (moved < SOLID_RESTREAM_DIST) {
+      return;
+    }
     this.streamX = x;
     this.streamZ = z;
-    for (const box of this.solidBoxes) {
-      const d = Math.hypot(x - box.x, z - box.z) - box.reach;
-      if (box.collider === null && d < SOLID_STREAM_IN) {
-        const desc = RAPIER.ColliderDesc.cuboid(box.hx, box.hy, box.hz)
-          .setFriction(0.6)
-          .setTranslation(box.x, box.y, box.z);
-        if (box.yaw !== 0) {
-          desc.setRotation({ x: 0, y: Math.sin(box.yaw / 2), z: 0, w: Math.cos(box.yaw / 2) });
+    for (const block of this.blocks.values()) {
+      const b = block.boxes;
+      for (let i = 0; i < block.count; i += 1) {
+        const o = i * BOX_STRIDE;
+        const d = Math.hypot(x - (b[o] ?? 0), z - (b[o + 2] ?? 0)) - (b[o + BOX_REACH] ?? 0);
+        const collider = block.resident.get(i);
+        if (collider === undefined && d < SOLID_STREAM_IN) {
+          block.resident.set(i, this.world.createCollider(staticSolidCollider(boxAt(b, i))));
+        } else if (collider !== undefined && d > SOLID_STREAM_OUT) {
+          this.world.removeCollider(collider, true);
+          block.resident.delete(i);
         }
-        box.collider = this.world.createCollider(desc);
-      } else if (box.collider !== null && d > SOLID_STREAM_OUT) {
-        this.world.removeCollider(box.collider, true);
-        box.collider = null;
       }
     }
   }
@@ -190,42 +217,33 @@ export class PhysicsWorld {
   // transfers real weight — the heavier taxi wins and drives through, but the
   // car resists and shoves aside instead of flinging off like a beach ball.
   // Restitution near zero so it thuds and settles, never pings.
-  createCarBody(x: number, y: number, z: number): RAPIER.RigidBody {
+  createCarBody(x: number, y: number, z: number): RigidBody {
     const body = this.world.createRigidBody(
-      RAPIER.RigidBodyDesc.kinematicPositionBased()
+      RigidBodyDesc.kinematicPositionBased()
         .setTranslation(x, y, z)
         .setLinearDamping(1.8)
         .setAngularDamping(1.6),
     );
     this.world.createCollider(
-      RAPIER.ColliderDesc.cuboid(1.0, 0.75, 1.25)
-        .setFriction(0.7)
-        .setRestitution(0.05)
-        .setDensity(18),
+      ColliderDesc.cuboid(1, 0.75, 1.25).setFriction(0.7).setRestitution(0.05).setDensity(18),
       body,
     );
     return body;
   }
 
   // A launched traffic cone: light dynamic cylinder born with its fling velocity.
-  createConeBody(
-    x: number,
-    y: number,
-    z: number,
-    vx: number,
-    vy: number,
-    vz: number,
-  ): RAPIER.RigidBody {
+  createConeBody(x: number, y: number, z: number, vx: number, vy: number, vz: number): RigidBody {
     const body = this.world.createRigidBody(
-      RAPIER.RigidBodyDesc.dynamic()
+      RigidBodyDesc.dynamic()
         .setTranslation(x, y, z)
         .setLinvel(vx, vy, vz)
-        .setAngvel({ x: vz * 0.8, y: 0, z: -vx * 0.8 }) // tumble across travel
+        // tumble across travel
+        .setAngvel({ x: vz * 0.8, y: 0, z: -vx * 0.8 })
         .setLinearDamping(0.3)
         .setAngularDamping(1.1),
     );
     this.world.createCollider(
-      RAPIER.ColliderDesc.cylinder(0.42, 0.3).setFriction(0.8).setRestitution(0.35).setDensity(0.5),
+      ColliderDesc.cylinder(0.42, 0.3).setFriction(0.8).setRestitution(0.35).setDensity(0.5),
       body,
     );
     return body;
@@ -235,41 +253,41 @@ export class PhysicsWorld {
   // makeDynamic() lets it bounce. Yawed to face along its curb. `density`
   // defaults to the normal-play value; the trailer's staged plow row passes a
   // lighter one so a full-speed plow launches cars instead of spinning the taxi.
-  createParkedBody(x: number, y: number, z: number, yaw: number, density = 18): RAPIER.RigidBody {
+  createParkedBody(x: number, y: number, z: number, yaw: number, density = 18): RigidBody {
     const body = this.world.createRigidBody(
-      RAPIER.RigidBodyDesc.kinematicPositionBased()
+      RigidBodyDesc.kinematicPositionBased()
         .setTranslation(x, y, z)
-        .setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) })
+        .setRotation({ w: Math.cos(yaw / 2), x: 0, y: Math.sin(yaw / 2), z: 0 })
         .setLinearDamping(1.8)
         .setAngularDamping(1.6),
     );
     this.world.createCollider(
-      RAPIER.ColliderDesc.cuboid(1.0, 0.75, 1.25)
-        .setFriction(0.7)
-        .setRestitution(0.05)
-        .setDensity(density),
+      ColliderDesc.cuboid(1, 0.75, 1.25).setFriction(0.7).setRestitution(0.05).setDensity(density),
       body,
     );
     return body;
   }
 
-  remove(body: RAPIER.RigidBody): void {
+  remove(body: RigidBody): void {
     this.world.removeRigidBody(body);
   }
 
-  makeDynamic(body: RAPIER.RigidBody): void {
-    body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
+  // oxlint-disable-next-line class-methods-use-this -- part of the PhysicsWorld facade; callers hold the instance, not the class
+  makeDynamic(body: RigidBody): void {
+    body.setBodyType(RigidBodyType.Dynamic, true);
   }
 
-  makeKinematic(body: RAPIER.RigidBody): void {
-    body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
+  // oxlint-disable-next-line class-methods-use-this -- part of the PhysicsWorld facade; callers hold the instance, not the class
+  makeKinematic(body: RigidBody): void {
+    body.setBodyType(RigidBodyType.KinematicPositionBased, true);
     body.setLinvel({ x: 0, y: 0, z: 0 }, false);
     body.setAngvel({ x: 0, y: 0, z: 0 }, false);
   }
 
-  teleport(body: RAPIER.RigidBody, x: number, y: number, z: number, q: THREE.Quaternion): void {
+  // oxlint-disable-next-line class-methods-use-this -- part of the PhysicsWorld facade; callers hold the instance, not the class
+  teleport(body: RigidBody, x: number, y: number, z: number, q: THREE.Quaternion): void {
     body.setTranslation({ x, y, z }, false);
-    body.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, false);
+    body.setRotation({ w: q.w, x: q.x, y: q.y, z: q.z }, false);
     body.setLinvel({ x: 0, y: 0, z: 0 }, false);
     body.setAngvel({ x: 0, y: 0, z: 0 }, false);
   }
@@ -299,8 +317,10 @@ export class PhysicsWorld {
       this.world.step();
       onStepped?.();
       this.acc -= FIXED_DT;
-      steps++;
+      steps += 1;
     }
-    if (steps === MAX_STEPS) this.acc = 0;
+    if (steps === MAX_STEPS) {
+      this.acc = 0;
+    }
   }
 }

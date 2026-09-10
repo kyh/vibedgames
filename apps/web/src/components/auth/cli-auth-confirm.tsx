@@ -1,19 +1,19 @@
 import { useEffect, useRef } from "react";
 import { useMutation } from "@tanstack/react-query";
 
-import { useTRPC } from "@/lib/trpc";
+import { useORPC } from "@/lib/orpc";
 
-type CliAuthConfirmProps = {
+interface CliAuthConfirmProps {
   code: string;
   userName: string;
-};
+}
 
 export const CliAuthConfirm = ({ code, userName }: CliAuthConfirmProps) => {
-  const trpc = useTRPC();
+  const orpc = useORPC();
   // Deliberately invalidates nothing: `cliConfirm` writes the device-code
   // row that `auth.cliPoll` reads, and cliPoll is only ever called by the
   // CLI over HTTP — no query in this app observes it.
-  const confirm = useMutation(trpc.auth.cliConfirm.mutationOptions());
+  const confirm = useMutation(orpc.auth.cliConfirm.mutationOptions());
 
   // Auto-confirm on mount: reaching this page is the authorization. The loader
   // already gated on an authenticated session (redirecting to login otherwise),
@@ -23,7 +23,9 @@ export const CliAuthConfirm = ({ code, userName }: CliAuthConfirmProps) => {
   const { mutate } = confirm;
   const firedRef = useRef(false);
   useEffect(() => {
-    if (firedRef.current) return;
+    if (firedRef.current) {
+      return;
+    }
     firedRef.current = true;
     mutate({ code });
   }, [mutate, code]);
