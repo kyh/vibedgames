@@ -1,9 +1,14 @@
 // The one control a phone player has no other way to reach.
 //
-// Pause is Escape-bound (./game), so on a coarse pointer a session cannot be
-// paused at all. Everything else a paused player might want — sound on/off,
-// controls, help — lives on the pause overlay itself (./pause-shell), so this
-// stays a single button that only exists while a pause would actually work.
+// Pause is Escape-bound (./game), so on a coarse pointer a STANDALONE session
+// cannot be paused at all. Everything else a paused player might want — sound
+// on/off, controls, help — lives on the pause overlay itself (./pause-shell),
+// so this stays a single button that only exists while a pause would actually
+// work.
+//
+// Embedded in the wrapper page, nothing mounts: the wrapper draws its own pause
+// button over the frame, and a second one in the game's top-right corner was
+// a duplicate control that also cost every game its top-right HUD corner.
 //
 // This is a shared affordance rather than eleven bespoke HUD buttons: it is the
 // same action everywhere, it has to clear the notch and the home indicator
@@ -11,7 +16,7 @@
 // through `className`/`css` and the CSS custom properties below.
 
 import { isCoarsePointer } from "./controls";
-import { isPausable, pauseGame, watchPausable } from "./game";
+import { isEmbedded, isPausable, pauseGame, watchPausable } from "./game";
 import { PAUSE_OVERLAY_Z } from "./pause-shell";
 import { sealPointerEvents } from "./pointer-seal";
 
@@ -123,10 +128,16 @@ const reserveCorner = (root: HTMLElement): void => {
 /**
  * Mount the touch-only pause button. No-op on a fine pointer, so calling it
  * unconditionally at boot is correct — a desktop player keeps Escape and sees
- * nothing.
+ * nothing. Also a no-op inside the wrapper page, whose own pause button
+ * covers the same action; `--vg-touch-reserve` then stays unset (0px) and the
+ * game keeps its whole top edge.
  */
 export const createTouchControls = (options: TouchControlsOptions = {}): TouchControls => {
   if (typeof document === "undefined" || !isCoarsePointer()) {
+    return { destroy: noop };
+  }
+  // Pause is the cluster's only button, so with it gone nothing else mounts.
+  if (options.pause === false || isEmbedded()) {
     return { destroy: noop };
   }
 
@@ -165,22 +176,19 @@ export const createTouchControls = (options: TouchControlsOptions = {}): TouchCo
   // `pauseGame()` no-ops until the game announces it started, so a pause button
   // rendered on the start screen is a dead control — it looks tappable and does
   // nothing. Show it only while it would actually work.
-  let unwatchPausable: (() => void) | null = null;
-  if (options.pause !== false) {
-    const pauseEl = button("Pause", "⏸", () => pauseGame());
-    const drawPause = (): void => {
-      pauseEl.hidden = !isPausable();
-    };
-    drawPause();
-    unwatchPausable = watchPausable(drawPause);
-  }
+  const pauseEl = button("Pause", "⏸", () => pauseGame());
+  const drawPause = (): void => {
+    pauseEl.hidden = !isPausable();
+  };
+  drawPause();
+  const unwatchPausable = watchPausable(drawPause);
 
   document.body.append(root);
   reserveCorner(root);
 
   return {
     destroy: () => {
-      unwatchPausable?.();
+      unwatchPausable();
       root.remove();
       document.documentElement.style.removeProperty(RESERVE_VAR);
     },

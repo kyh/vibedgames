@@ -1346,27 +1346,28 @@ export class GameScene extends Scene {
       return;
     }
     this.resultLayoutKey = key;
-    let cardWidth = width;
     let x = this.scale.width / 2;
     let y = Math.min(
       this.scale.height - height - 16,
       this.scale.height / 2 + (this.scale.height <= 520 ? 30 : 48),
     );
-    // Overlapping the camera: sit beside it when there's room, else above it.
+    // Overlapping the camera: sit beside it only when the FULL card fits in
+    // the space to its left (desktop); otherwise stay centred and rise above
+    // it. Shrinking the card to fit beside a phone's thumbnail pushed the
+    // whole results screen off-centre for a few pixels of camera.
     if (camera && x + width / 2 > camera.left && y + height > camera.top - 12) {
-      if (camera.left >= 272) {
-        cardWidth = Math.min(width, camera.left - 32);
+      if (camera.left - 32 >= width) {
         x = camera.left / 2;
       } else {
         y = Math.max(90, Math.min(y, camera.top - height - 16));
       }
     }
-    card.style.width = `${cardWidth}px`;
+    card.style.width = `${width}px`;
     card.style.left = `${x}px`;
     card.style.top = `${y}px`;
     const zoom = this.viewZoom();
     this.overImg
-      .setScale(Math.min(ART_SCALE, (cardWidth - 16) / zoom / this.overImg.width))
+      .setScale(Math.min(ART_SCALE, (width - 16) / zoom / this.overImg.width))
       .setPosition(x / zoom, this.viewTop() + (y - 48) / zoom);
   }
 

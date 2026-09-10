@@ -34,6 +34,13 @@ let listening = false;
 
 const embedded = (): boolean => typeof window !== "undefined" && window.parent !== window;
 
+/**
+ * Whether the game runs inside a wrapper page (the vibedgames play view) rather
+ * than standalone at its own origin. The wrapper owns chrome the game must not
+ * duplicate — its own pause button, for one.
+ */
+export const isEmbedded = (): boolean => embedded();
+
 /** Escape must not steal keystrokes from text entry (chat boxes, name fields). */
 const isTypingTarget = (target: EventTarget | null): boolean =>
   target instanceof HTMLElement &&
