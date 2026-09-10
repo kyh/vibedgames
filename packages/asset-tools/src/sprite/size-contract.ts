@@ -38,7 +38,7 @@ export const DEFAULT_TOLERANCES: Tolerances = {
   maxWidthOverflowPct: 0.12,
 };
 
-export type Measurement = {
+export interface Measurement {
   frame: string;
   source: string;
   frameSize: [number, number];
@@ -48,7 +48,7 @@ export type Measurement = {
   visibleHeight?: number;
   visibleCenterX?: number;
   visibleBottomY?: number;
-};
+}
 
 /** No visible pixels anywhere — nothing to measure beyond the frame count. */
 export interface EmptySummary {
@@ -57,7 +57,7 @@ export interface EmptySummary {
   frameSize: null;
 }
 
-export type PopulatedSummary = {
+export interface PopulatedSummary {
   frames: number;
   nonEmptyFrames: number;
   frameSize: [number, number] | null;
@@ -72,7 +72,7 @@ export type PopulatedSummary = {
   maxVisibleWidth: number;
   maxVisibleHeight: number;
   intraHeightDriftPct: number | null;
-};
+}
 
 export type Summary = EmptySummary | PopulatedSummary;
 
@@ -506,6 +506,19 @@ export const loadSizeContract = (payload: JsonValue, source: string): SizeContra
   };
 };
 
+/**
+ * Widen a measured payload into the JSON domain.
+ *
+ * Every member of these payloads is JSON, but TypeScript grants an implicit
+ * index signature only to a type alias, never to an interface — declaration
+ * merging could add members later, so an interface's keys are never assumed
+ * and it is not assignable to `JsonValue`. Mapping a type parameter over its
+ * own keys checks the members instead, which keeps the exact payload typing
+ * that `JsonValue`'s "any key at all" index signature would discard.
+ */
+const asJson = <T extends { [K in keyof T]: JsonValue | undefined }>(value: T | T[]): JsonValue =>
+  value;
+
 export const deriveSizeContract = (
   source: string,
   options: {
@@ -548,8 +561,8 @@ export const deriveSizeContract = (
     direction,
     kind: "sprite-size-contract",
     maxVisibleWidth: summary.maxVisibleWidth,
-    measurements,
-    measurementsSummary: summary,
+    measurements: asJson(measurements),
+    measurementsSummary: asJson(summary),
     name: name ?? path.basename(source).replace(/\.[^.]+$/u, ""),
     pivot,
     promptGuidance: promptGuidanceForContract({
