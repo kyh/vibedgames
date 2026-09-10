@@ -86,9 +86,15 @@ const createRenderer = async (): Promise<THREE.WebGLRenderer> => {
       await sleep(350 * (i + 1));
     }
   }
+  // Chrome blocks WebGL for a domain for the rest of the browser session once
+  // a page has crashed the GPU process twice; only a full browser restart
+  // clears it, so a retry offer would be a lie.
+  const blocked = /blocked/iu.test(reason);
   showFatal(
-    `WebGL unavailable${reason ? ` (${reason})` : ""} — tap to retry, or enable hardware acceleration.`,
-    true,
+    blocked
+      ? "Chrome blocked graphics for this site after a crash. Close Chrome fully (swipe it away from recents), reopen it, and come back."
+      : `WebGL unavailable${reason ? ` (${reason})` : ""} — tap to retry, or enable hardware acceleration.`,
+    !blocked,
   );
   throw lastError instanceof Error ? lastError : new Error("WebGL init failed");
 };
