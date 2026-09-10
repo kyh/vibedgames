@@ -7,19 +7,19 @@ export const PAUSE_GAME_MESSAGE = "vibedgames:pause-game";
 export const GAME_PAUSED_MESSAGE = "vibedgames:game-paused";
 
 /** Game → wrapper: active play began (or resumed) — hide the wrapper chrome. */
-export type GameStartedMessage = {
+export interface GameStartedMessage {
   readonly type: typeof GAME_STARTED_MESSAGE;
-};
+}
 
 /** Wrapper → game: the player asked for the wrapper back — pause the game. */
-export type PauseGameMessage = {
+export interface PauseGameMessage {
   readonly type: typeof PAUSE_GAME_MESSAGE;
-};
+}
 
 /** Game → wrapper: the game paused itself (Escape) — show the wrapper chrome. */
-export type GamePausedMessage = {
+export interface GamePausedMessage {
   readonly type: typeof GAME_PAUSED_MESSAGE;
-};
+}
 
 /** What `MessageEvent.data` can carry over this protocol — plain JSON. */
 export type MessageData =
@@ -30,14 +30,22 @@ export type MessageData =
   | MessageData[]
   | { [key: string]: MessageData };
 
-const hasType = (value: MessageData, type: string): boolean =>
-  value instanceof Object && !Array.isArray(value) && value.type === type;
+/** The one field every message on this protocol carries. */
+interface TaggedMessage {
+  readonly type: string;
+}
 
-export const isGameStartedMessage = (value: MessageData): value is GameStartedMessage =>
+// The guards take `unknown` because a message crosses an origin boundary: the
+// sender is free to post anything, so nothing about `event.data` is known until
+// this has picked the tag out of it.
+const hasType = (value: unknown, type: string): value is TaggedMessage =>
+  value instanceof Object && !Array.isArray(value) && "type" in value && value.type === type;
+
+export const isGameStartedMessage = (value: unknown): value is GameStartedMessage =>
   hasType(value, GAME_STARTED_MESSAGE);
 
-export const isPauseGameMessage = (value: MessageData): value is PauseGameMessage =>
+export const isPauseGameMessage = (value: unknown): value is PauseGameMessage =>
   hasType(value, PAUSE_GAME_MESSAGE);
 
-export const isGamePausedMessage = (value: MessageData): value is GamePausedMessage =>
+export const isGamePausedMessage = (value: unknown): value is GamePausedMessage =>
   hasType(value, GAME_PAUSED_MESSAGE);

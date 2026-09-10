@@ -3141,6 +3141,7 @@ var loadSizeContract = (payload, source) => {
     tolerances: mergedTolerances
   };
 };
+var asJson = (value) => value;
 var deriveSizeContract = (source, options = {}) => {
   const {
     cellSize = [FRAME_WIDTH, FRAME_HEIGHT],
@@ -3167,8 +3168,8 @@ var deriveSizeContract = (source, options = {}) => {
     direction,
     kind: "sprite-size-contract",
     maxVisibleWidth: summary.maxVisibleWidth,
-    measurements,
-    measurementsSummary: summary,
+    measurements: asJson(measurements),
+    measurementsSummary: asJson(summary),
     name: name ?? path5.basename(source).replace(/\.[^.]+$/u, ""),
     pivot,
     promptGuidance: promptGuidanceForContract({

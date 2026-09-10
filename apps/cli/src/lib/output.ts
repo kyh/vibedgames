@@ -31,6 +31,19 @@ interface OutputObject {
   [key: string]: OutputValue;
 }
 
+/**
+ * What a command may hand to `writeStructured`: a JSON value, or a payload
+ * type declared member by member.
+ *
+ * The second arm exists because TypeScript grants an implicit index signature
+ * only to a type alias, never to an interface — declaration merging could add
+ * members later, so an interface's keys are never assumed and it is not
+ * assignable to `OutputValue`'s object arm. Mapping the payload's own keys
+ * checks each one against `OutputValue` instead, which still rejects a `Date`
+ * or a method where `[key: string]: unknown` on every payload would not.
+ */
+type OutputPayload<T> = OutputValue | { [K in keyof T]: OutputValue };
+
 const isOutputObject = (value: OutputValue): value is OutputObject =>
   // Object() is the identity only on objects; arrays are split off explicitly.
   Object(value) === value && !Array.isArray(value);
@@ -107,7 +120,10 @@ export const formatField = (value: OutputValue): string => {
  * value is the more specific request. Returns false when neither flag was
  * given, so the caller can fall through to its human-readable rendering.
  */
-export const writeStructured = (value: OutputValue, args: OutputArgs): boolean => {
+export const writeStructured = <T extends OutputPayload<T>>(
+  value: T,
+  args: OutputArgs,
+): boolean => {
   if (args.field) {
     const selected = selectField(value, args.field);
     if (selected === undefined) {

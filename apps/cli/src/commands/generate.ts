@@ -18,25 +18,22 @@ import { isJsonOutput, outputArgs, writeJson, writeStructured } from "../lib/out
 import { isJsonNumber, isJsonObject, isJsonString } from "../lib/types.js";
 import type { JsonObject, JsonValue } from "../lib/types.js";
 
-type DownloadFailure = {
-  url: string;
-  error: string;
-};
-type FormatMismatch = {
-  path: string;
-  actual: string;
-};
+// One source of truth for the download shapes: they are `downloadMedia`'s own
+// result, not a second copy that can drift from it.
+type DownloadOutcome = Awaited<ReturnType<typeof downloadMedia>>;
+type DownloadFailure = DownloadOutcome["failed"][number];
+type FormatMismatch = DownloadOutcome["mislabeled"][number];
 
 // Action-specific fields for the status-command payload. `result` wraps
 // the raw fal payload under `result:` so fal's own keys can't clobber
 // our top-level (action / endpoint_id / request_id). `status` cherry-
 // picks known fields for the same reason.
-type ActionFields = {
+interface ActionFields {
   status?: string;
   queue_position?: number;
   logs?: JsonValue;
   result?: JsonValue;
-};
+}
 
 const buildActionFields = (
   action: "status" | "result" | "cancel",
@@ -160,8 +157,6 @@ const runViaCodex = async (opts: {
     process.exit(1);
   }
 };
-type DownloadOutcome = Awaited<ReturnType<typeof downloadMedia>>;
-
 const buildRunPayload = (
   endpointId: string,
   completed: { request_id: string; result: JsonValue },
@@ -300,7 +295,7 @@ const runCommand = defineCommand({
   },
 });
 
-type RunCompletedPayload = {
+interface RunCompletedPayload {
   status: string;
   endpoint_id: string;
   request_id: string;
@@ -308,9 +303,9 @@ type RunCompletedPayload = {
   downloaded_files?: string[];
   download_failures?: DownloadFailure[];
   download_format_mismatches?: FormatMismatch[];
-};
+}
 
-type CodexRunPayload = {
+interface CodexRunPayload {
   status: string;
   provider: string;
   endpoint_id: string;
@@ -319,7 +314,7 @@ type CodexRunPayload = {
   downloaded_files: string[];
   download_failures?: DownloadFailure[];
   ignored_references?: string[];
-};
+}
 
 // ---- status -----------------------------------------------------------------
 
@@ -466,15 +461,14 @@ const statusCommand = defineCommand({
   },
 });
 
-// A type alias, not an interface: it must stay assignable to the JSON index-signature type.
-type StatusPayload = ActionFields & {
+interface StatusPayload extends ActionFields {
   action: "status" | "result" | "cancel";
   endpoint_id: string;
   request_id: string;
   downloaded_files?: string[];
   download_failures?: DownloadFailure[];
   download_format_mismatches?: FormatMismatch[];
-};
+}
 
 // ---- models -----------------------------------------------------------------
 

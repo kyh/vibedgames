@@ -4,17 +4,18 @@ import core from "ultracite/oxlint/core";
 import react from "ultracite/oxlint/react";
 import tanstack from "ultracite/oxlint/tanstack";
 
-// Modules whose payload types must stay `type X = { ... }`. TypeScript grants
-// a type alias an implicit index signature but never an interface — declaration
-// merging can add members later, so the compiler cannot assume an interface's
-// keys. Everything declared here is handed to a JSON-shaped index-signature
-// type (`OutputValue`, `MessageData`, `JsonValue`, `JsonRecord`, world-bin's
-// wire trees, a `ShaderMaterial` uniform map), which an interface cannot
-// satisfy. The escape the rule pushes toward — `[key: string]: unknown` on
-// every interface — is strictly worse: it admits any key at all and discards
-// the exact payloads these unions exist to enforce.
+// Game modules whose payload types must stay `type X = { ... }`. TypeScript
+// grants a type alias an implicit index signature but never an interface —
+// declaration merging can add members later, so the compiler cannot assume an
+// interface's keys. Everything declared here is handed to a JSON-shaped
+// index-signature type (`JsonValue`, `JsonRecord`, world-bin's wire trees, a
+// `ShaderMaterial` uniform map), which an interface cannot satisfy. The escape
+// the rule pushes toward — `[key: string]: unknown` on every interface — is
+// strictly worse: it admits any key at all and discards the exact payloads
+// these unions exist to enforce. Each game is independent, so each one carries
+// its own entries; the fix outside `games/` was to make the consuming boundary
+// generic over the payload type instead.
 const jsonPayloadModules = [
-  "apps/cli/src/commands/generate.ts",
   "games/battle-arena/src/net/snapshot.ts",
   "games/battle-arena/src/render/fx-bolt.ts",
   "games/battle-arena/src/render/fx-pillar.ts",
@@ -44,8 +45,6 @@ const jsonPayloadModules = [
   "games/moba/src/sim/types.ts",
   "games/starfall/src/shared/constants.ts",
   "games/starfall/src/trailer/trailer-director.ts",
-  "packages/asset-tools/src/sprite/size-contract.ts",
-  "packages/embed/src/protocol.ts",
 ];
 
 export default defineConfig({
