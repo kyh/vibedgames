@@ -1,10 +1,12 @@
 import type { Db } from "@repo/db/drizzle-client";
+// relations-v2, not `better-auth/adapters/drizzle`: the default entry reads `db._.fullSchema`, gone in
+// drizzle 1.0; relations-v2 resolves tables through `db._.relations`, which `createDb` supplies.
+import { drizzleAdapter } from "@better-auth/drizzle-adapter/relations-v2";
 import { apiKey } from "@better-auth/api-key";
 import { expo } from "@better-auth/expo";
 import { eq } from "@repo/db";
 import { user as userTable } from "@repo/db/drizzle-schema-auth";
 import { betterAuth } from "better-auth";
-import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError } from "better-auth/api";
 import { admin, bearer, oAuthProxy } from "better-auth/plugins";
 
