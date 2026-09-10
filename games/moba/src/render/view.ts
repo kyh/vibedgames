@@ -21,10 +21,12 @@ import {
 } from "../data/map";
 import type { Team } from "../data/config";
 import type { World, Unit, Projectile, GroundEffect, FxEvent } from "../sim/types";
+import type { Vec2 } from "../sim/math";
 import { CLIFF_FRAMES, FLAT_AUTOTILE, SLOPE_FRAMES, autotileFrame, autotileMask } from "./autotile";
 import { sfx } from "./audio";
 import { FONT } from "./font";
 import { abilityCastFx, effectColor, groundFxKind, hitColor } from "./fx-map";
+import type { SpellCastFx } from "./fx-map";
 import { CommonFx } from "./common-fx";
 import { layoutHeroPlates } from "./combat-plates";
 import type { HeroPlate } from "./combat-plates";
@@ -260,6 +262,9 @@ export class WorldView {
   private reticle: Phaser.GameObjects.Image | null = null;
   // unit the player is currently targeting/hovering
   private reticleId = "";
+  // where the local hero's next point cast goes (unit vector); null hides it
+  private aimDir: Vec2 | null = null;
+  private aimChevron: Phaser.GameObjects.Image | null = null;
   private plateLeaders: Phaser.GameObjects.Graphics | null = null;
   private reducedMotion = false;
   private focused = false;
@@ -1003,6 +1008,7 @@ export class WorldView {
     this.syncGrounds(world, dt);
     this.syncMines(world);
     this.syncReticle(world);
+    this.syncAimChevron();
     this.drainFx(world);
     this.commonFx.update(dt);
     this.tickAmbientSplashes(dt);
@@ -1056,6 +1062,30 @@ export class WorldView {
     this.shakeY = Math.cos(t * 0.063 + 1.3) * 15 * s;
     // ≤ ~1.3°, keeps pixels calm
     this.shakeRot = Math.sin(t * 0.048 + 0.7) * 0.022 * s;
+  }
+
+  /** The local hero's resolved cast aim, shown as a chevron on the ground ring. */
+  setAim(dir: Vec2 | null): void {
+    this.aimDir = dir;
+  }
+
+  private syncAimChevron(): void {
+    const v = this.aimDir ? this.units.get(this.playerHeroId) : undefined;
+    if (!v || v.dead || !this.aimDir) {
+      this.aimChevron?.setVisible(false);
+      return;
+    }
+    if (!this.aimChevron) {
+      this.aimChevron = this.scene.add.image(0, 0, "fx-chevron").setTint(0xff_e1_4a).setAlpha(0.9);
+    }
+    const { x, y } = this.aimDir;
+    // sits on the ring ellipse (56×26 around the feet, +10 down) so it reads as
+    // part of the selection mark, and sorts just under the body
+    this.aimChevron
+      .setVisible(true)
+      .setPosition(v.container.x + x * 34, v.container.y + 10 + y * 16)
+      .setRotation(Math.atan2(y, x))
+      .setDepth(v.container.depth - 0.5);
   }
 
   /** Position the target reticle over the currently-targeted unit (4 corner
@@ -2418,21 +2448,10 @@ export class WorldView {
       y: fx.y - 6,
     });
     // Conflagration's fuse emits an ability cue; only this real detonation
-    // releases the flame columns. Their feet stay inside the damaged area.
-    if (fx.color === 0xff_5a_1a) {
-      const offsets = this.focused || this.reducedMotion ? [0] : [-0.35, 0, 0.35];
-      for (const offset of offsets) {
-        this.commonFx.sprite({
-          depth: fx.y + 403,
-          priority: "important",
-          radius: fx.radius + 160,
-          scale: 1.05,
-          sheet: "sp-fire-pillar",
-          startFrame: 1,
-          x: fx.x + offset * fx.radius,
-          y: fx.y - 76,
-        });
-      }
+    // draws the rune igniting into its pillar.
+    const conflagration = abilityCastFx("emberhex:R");
+    if (fx.color === 0xff_5a_1a && conflagration) {
+      this.spawnSpellSprite(fx.x, fx.y, conflagration);
     }
     // Authored explosion sheets retain their own palette and frame timing.
     const key = fx.radius >= 130 && s.anims.exists("fx-explode2") ? "fx-explode2" : "fx-explode1";
@@ -2664,30 +2683,28 @@ export class WorldView {
     // self/aura cast bursts (windfoot, flashfire, powder keg, blink puff…)
     const spec = abilityCastFx(fx.effect);
     if (spec && spec.at === "caster") {
-      this.spawnSpellSprite(fx.x, fx.y, spec.sheet, spec.scale, spec.tint, spec.startFrame);
+      this.spawnSpellSprite(fx.x, fx.y, spec);
     }
   }
 
-  /** Play a one-shot spell-effect sprite centred at (x,y). The packed effect art
-   *  carries its own palette, so tint is applied lightly (ADD) only when given. */
-  private spawnSpellSprite(
-    x: number,
-    y: number,
-    sheet: string,
-    scale: number,
-    tint?: number,
-    startFrame = 0,
-  ): void {
+  /** Play a one-shot spell-effect sprite at (x,y). `rotation` turns aimed
+   *  art toward its target; `delay` staggers copies laid along a shot. */
+  private spawnSpellSprite(x: number, y: number, spec: SpellCastFx, rotation = 0, delay = 0): void {
+    const ox = (spec.offsetX ?? 0) * spec.scale;
+    const oy = (spec.offsetY ?? 0) * spec.scale;
     this.commonFx.sprite({
+      additive: spec.additive,
+      delay,
       depth: y + 360,
       priority: "important",
-      radius: 160 + scale * 128,
-      scale,
-      sheet,
-      startFrame,
-      tint,
-      x,
-      y,
+      radius: 160 + spec.scale * 128,
+      rotation,
+      scale: spec.scale,
+      sheet: spec.sheet,
+      startFrame: spec.startFrame,
+      tint: spec.tint,
+      x: x + Math.cos(rotation) * ox,
+      y: y + oy + Math.sin(rotation) * ox,
     });
   }
 
@@ -2697,16 +2714,19 @@ export class WorldView {
       return;
     }
     const col = effectColor(fx.effect);
-    // targeted spell bursts (shield bash, fanned daggers, death waltz, hex, heal…)
     const spec = abilityCastFx(fx.effect);
-    if (spec && spec.at === "target") {
-      this.spawnSpellSprite(fx.x2, fx.y2, spec.sheet, spec.scale, spec.tint, spec.startFrame);
-    }
-    // the one true skillshot LINE (Piercing Shot) → a soft electric beam, never a
-    // bare white line.
+    // the one true skillshot LINE (Piercing Shot) → a soft electric beam with
+    // the lightning-arrow art laid along it, never a bare white line.
     if (fx.effect === "stormcaller:Q") {
-      this.spawnBeam(fx.x, fx.y - 16, fx.x2, fx.y2 - 16, 0x8f_d0_ff);
+      this.spawnBeam(fx.x, fx.y - 16, fx.x2, fx.y2 - 16, 0x8f_d0_ff, spec);
       return;
+    }
+    // targeted spell bursts (shield bash, death waltz, hex, heal…) and aimed
+    // cones (fanned daggers) that start on the caster facing the target
+    if (spec?.at === "target") {
+      this.spawnSpellSprite(fx.x2, fx.y2, spec);
+    } else if (spec?.at === "aimed") {
+      this.spawnSpellSprite(fx.x, fx.y - 12, spec, Math.atan2(fx.y2 - fx.y, fx.x2 - fx.x));
     }
     // area abilities → a soft radial impact glow sized to the zone (the detailed
     // art is the cast-fx sprite / explosion / ground zone; this just reads the AoE),
@@ -2722,7 +2742,14 @@ export class WorldView {
 
   /** A soft glowing energy beam (stretched radial glow + bright core), not a flat
    *  line — for the piercing skillshot. */
-  private spawnBeam(x1: number, y1: number, x2: number, y2: number, col: number): void {
+  private spawnBeam(
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    col: number,
+    arrow: SpellCastFx | null,
+  ): void {
     const len = Math.hypot(x2 - x1, y2 - y1);
     if (len < 1) {
       return;
@@ -2732,7 +2759,7 @@ export class WorldView {
     const y = (y1 + y2) / 2;
     const depth = Math.max(y1, y2) + 320;
     this.commonFx.image({
-      alpha: 0.65,
+      alpha: 0.85,
       depth,
       endScale: len / 128,
       endScaleY: 0.08,
@@ -2742,7 +2769,7 @@ export class WorldView {
       radius: len / 2 + 80,
       rotation,
       scale: len / 128,
-      scaleY: 0.32,
+      scaleY: 0.45,
       texture: "glow",
       tint: col,
       x,
@@ -2765,9 +2792,11 @@ export class WorldView {
       x,
       y,
     });
-    if (!this.focused && !this.reducedMotion) {
-      for (const t of [0.25, 0.75]) {
-        this.spawnSpellSprite(x1 + (x2 - x1) * t, y1 + (y2 - y1) * t, "sp-arc", 1, undefined, 3);
+    if (arrow) {
+      // three arrows fired in quick succession read as travel along the shot
+      const stops = this.focused || this.reducedMotion ? [0.5] : [0.2, 0.5, 0.8];
+      for (const [i, t] of stops.entries()) {
+        this.spawnSpellSprite(x1 + (x2 - x1) * t, y1 + (y2 - y1) * t, arrow, rotation, i * 0.045);
       }
     }
   }

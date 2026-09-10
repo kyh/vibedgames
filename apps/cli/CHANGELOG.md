@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **OpenAI image models run through your own Codex plan by default.** With no `--provider` set, `vg generate run openai/gpt-image-*` uses a locally installed `codex` CLI (nothing billed to vibedgames) when the run is synchronous and its references are local files; a stderr line says so. Other endpoints are untouched — Codex cannot run Flux, video or audio. `--provider vibedgames` or `VG_GENERATE_PROVIDER=vibedgames` pins the catalog.
+
 ## 0.5.0 — 2026-08-25
 
 - **The CLI now speaks oRPC to `/api/orpc`.** No command surface changes. Older installs pointing at the retired endpoint get an upgrade prompt from the server — run `npm i -g vibedgames@latest` (the daily auto-update applies it on its own within ~24h).

@@ -42,6 +42,19 @@ const ARC_START_DEG = 2;
 // ...and R lands level with it (quarter arc)
 const ARC_SPAN_DEG = 88;
 const DEG = Math.PI / 180;
+// Desktop info card: gold/clock/KDA above a hairline rule, then one flat action
+// row (shop · scores · recall · ability guide) inside the same parchment — one
+// card, no nested buttons. The DOM guide toggle mirrors these in ability-guide.ts.
+const INFO_W = 288;
+const INFO_H = 104;
+const INFO_PAD = 12;
+const ACTION_ROW_TOP = 64;
+const ACTION_ROW_H = 34;
+const ACTION_CELL_PAD = 14;
+const GUIDE_CELL_W = 84;
+const ACTION_INK = "#4a3320";
+const ACTION_HOT_INK = "#9c2f2f";
+const ACTION_KEY_INK = "#8a7350";
 const AVAILABILITY_LABEL = {
   cooldown: "WAIT",
   dead: "DEAD",
@@ -193,15 +206,21 @@ export class HudScene extends Scene {
   private itemColX = 0;
   private itemColY = 0;
 
-  // touch/mouse utility buttons (shop / scores / recall). `bg`+word label on
-  // desktop, `img` roundel + glyph on compact — layout() flips which is live.
+  // touch/mouse utility buttons (shop / scores / recall). Desktop: a flat label
+  // over its key hint on the info card's action row (`zone` is the hit area);
+  // compact: `img` roundel + glyph — layout() flips which form is live.
   private uiButtons: {
-    bg: Phaser.GameObjects.NineSlice;
+    zone: Phaser.GameObjects.Zone;
     img: Phaser.GameObjects.Image;
     txt: Phaser.GameObjects.Text;
+    keyTxt: Phaser.GameObjects.Text;
     word: string;
+    key: string;
     glyph: string;
   }[] = [];
+  // desktop: the action-row cell the DOM ability-guide toggle fills
+  private guideCell = { w: GUIDE_CELL_W, x: 0, y: 0 };
+  private infoRule!: Phaser.GameObjects.Rectangle;
   // compact stand-in for the ribbon
   private scorePanel!: Phaser.GameObjects.Image;
 
@@ -297,6 +316,7 @@ export class HudScene extends Scene {
     this.buildAbilityGuide();
     this.layout();
     this.input.keyboard?.on("keydown-B", () => this.toggleShop());
+    this.input.keyboard?.on("keydown-G", () => this.guide?.toggleGuide());
     // keyboard shop navigation (active only while the shop is open)
     this.input.keyboard?.on("keydown-UP", () => this.shopOpen && this.moveShopSel(-1));
     this.input.keyboard?.on("keydown-DOWN", () => this.shopOpen && this.moveShopSel(1));
@@ -408,6 +428,7 @@ export class HudScene extends Scene {
       fontFamily: FONT,
       fontSize: "14px",
     });
+    this.infoRule = this.add.rectangle(0, 0, 256, 1, 0x4a_33_20, 0.25).setOrigin(0, 0.5);
 
     // center bottom: portrait + bars + abilities (positioned in layout)
     this.barPanel = this.add
@@ -580,12 +601,13 @@ export class HudScene extends Scene {
     }
 
     // utility buttons — the touch-reachable path to shop/scores/recall
-    // (each has a keyboard twin: B / Tab / H). Desktop keeps the word pills;
-    // compact swaps to small glyph roundels (layout() flips visibility, and
-    // invisible objects receive no input, so only the live form is tappable).
-    const mkBtn = (word: string, glyph: string, onTap: () => void): void => {
-      const bg = this.add
-        .nineslice(0, 0, "ui-btn-blue", 0, 92, 46, 28, 28, 20, 26)
+    // (each has a keyboard twin: B / Tab / H). Desktop draws them as flat text
+    // on the info card's action row; compact swaps to small glyph roundels
+    // (layout() flips visibility, and invisible objects receive no input, so
+    // only the live form is tappable).
+    const mkBtn = (word: string, key: string, glyph: string, onTap: () => void): void => {
+      const zone = this.add
+        .zone(0, 0, GUIDE_CELL_W, ACTION_ROW_H)
         .setDepth(40_010)
         .setInteractive({ useHandCursor: true });
       const img = this.add
@@ -595,30 +617,37 @@ export class HudScene extends Scene {
         .setVisible(false)
         .setInteractive({ useHandCursor: true });
       const txt = this.add
-        .text(0, 0, word, { color: "#1e3a44", fontFamily: FONT, fontSize: "13px" })
-        .setOrigin(0.5)
+        .text(0, 0, word, { color: ACTION_INK, fontFamily: FONT, fontSize: "12px" })
+        .setOrigin(0.5, 0)
         .setDepth(40_011);
+      const keyTxt = this.add
+        .text(0, 0, key, { color: ACTION_KEY_INK, fontFamily: FONT, fontSize: "9px" })
+        .setOrigin(0.5, 0)
+        .setDepth(40_011);
+      const hot = (): void => {
+        txt.setColor(ACTION_HOT_INK);
+      };
       const up = (): void => {
-        bg.setTexture("ui-btn-blue");
+        txt.setColor(ACTION_INK);
         img.clearTint();
       };
-      bg.on("pointerdown", () => {
-        bg.setTexture("ui-btn-blue-pressed");
+      zone.on("pointerover", hot);
+      zone.on("pointerdown", () => {
+        hot();
         onTap();
       });
-      bg.on("pointerup", up);
-      bg.on("pointerout", up);
+      zone.on("pointerout", up);
       img.on("pointerdown", () => {
         img.setTint(0xff_d2_4a);
         onTap();
       });
       img.on("pointerup", up);
       img.on("pointerout", up);
-      this.uiButtons.push({ bg, glyph, img, txt, word });
+      this.uiButtons.push({ glyph, img, key, keyTxt, txt, word, zone });
     };
-    mkBtn("SHOP", "🛒", () => this.toggleShop());
-    mkBtn("SCORES", "🏆", () => this.toggleBoard());
-    mkBtn("RECALL", "⌂", () => this.gs.recall());
+    mkBtn("SHOP", "B", "🛒", () => this.toggleShop());
+    mkBtn("SCORES", "TAB", "🏆", () => this.toggleBoard());
+    mkBtn("RECALL", "H", "⌂", () => this.gs.recall());
 
     this.respawnText = this.add
       .text(0, 0, "", {
@@ -676,16 +705,27 @@ export class HudScene extends Scene {
     });
   }
 
+  /** Desktop: the toggle is the last cell of the info card's action row and the
+   *  dialog hangs under the card; compact: both stack under the minimap. */
   private layoutAbilityGuide(): void {
     const W = this.scale.width;
     const H = this.scale.height;
     const portrait = H > W;
-    const x = this.compact ? this.mapX : this.infoPanel.x;
-    const y = this.compact ? this.mapY + this.mapH + 10 : this.infoPanel.y + 122;
+    const x = this.compact ? this.mapX : this.guideCell.x;
+    const y = this.compact ? this.mapY + this.mapH + 10 : this.guideCell.y;
+    const panelX = this.compact ? this.mapX : this.infoPanel.x;
+    const panelY = this.compact ? y + 52 : this.infoPanel.y + this.infoPanel.height + 8;
     this.guide?.place({
-      maxHeight: Math.max(150, Math.min(H - y - 64, this.compact && portrait ? H * 0.23 : 390)),
-      panelWidth: this.guidePanelWidth(portrait, W, x),
-      toggleWidth: this.compact ? this.mapW : this.infoPanel.width,
+      flat: !this.compact,
+      maxHeight: Math.max(
+        150,
+        Math.min(H - panelY - 64, this.compact && portrait ? H * 0.23 : 390),
+      ),
+      panelWidth: this.guidePanelWidth(portrait, W, panelX),
+      panelX,
+      panelY,
+      toggleHeight: this.compact ? 44 : ACTION_ROW_H,
+      toggleWidth: this.compact ? this.mapW : this.guideCell.w,
       x,
       y,
     });
@@ -1284,11 +1324,13 @@ export class HudScene extends Scene {
       this.clockText.setPosition(stripX + 80, iy + 8);
       this.kdaText.setPosition(stripX + 134, iy + 8);
     } else {
-      this.infoPanel.setPosition(left, iy).setSize(288, 118);
+      this.infoPanel.setPosition(left, iy).setSize(INFO_W, INFO_H);
       this.goldText.setPosition(left + 16, iy + 12);
-      this.clockText.setOrigin(1, 0).setPosition(left + 272, iy + 14);
+      this.clockText.setOrigin(1, 0).setPosition(left + INFO_W - 16, iy + 14);
       this.kdaText.setPosition(left + 16, iy + 38);
+      this.infoRule.setPosition(left + 16, iy + ACTION_ROW_TOP - 4).setSize(INFO_W - 32, 1);
     }
+    this.infoRule.setVisible(!compact);
     this.apText.setVisible(!compact).setOrigin(0.5, 1).setColor("#fff0bf").setStroke("#30291d", 3);
     this.layoutObjectiveText(ctx, stripX);
   }
@@ -1313,26 +1355,45 @@ export class HudScene extends Scene {
     }
   }
 
-  /** Utility buttons: glyph roundels under the info strip on compact, the
-   *  classic word-pill column under the info panel on desktop. */
+  /** Utility buttons: glyph roundels under the info strip on compact; on desktop
+   *  one flat action row along the bottom of the info card — label over key
+   *  hint, cells sized to their text and spread evenly, with the ability-guide
+   *  toggle (DOM) taking the last cell. */
   private layoutUiButtons(ctx: LayoutCtx, stripX: number): void {
     const { compact, portraitOrient, narrowHeader, left, iy } = ctx;
     for (const [i, b] of this.uiButtons.entries()) {
-      b.bg.setVisible(!compact);
+      b.zone.setVisible(!compact);
       b.img.setVisible(compact);
-      b.txt.setText(compact ? b.glyph : b.word).setFontSize(compact ? 17 : 13);
+      b.keyTxt.setVisible(!compact);
+      b.txt.setText(compact ? b.glyph : b.word).setFontSize(compact ? 17 : 12);
       if (compact) {
         const bx = stripX + (narrowHeader ? 22 + i * 44 : 20 + i * 46);
         const by = iy + (portraitOrient ? 62 : 52);
         b.img.setPosition(bx, by);
-        b.txt.setPosition(bx, by - 1);
+        b.txt.setOrigin(0.5).setPosition(bx, by - 1);
       } else {
-        const bx = left + 48 + i * 96;
-        const by = iy + 88;
-        b.bg.setPosition(bx, by).setSize(88, 46);
-        b.txt.setPosition(bx, by - 3);
+        b.txt.setOrigin(0.5, 0);
       }
     }
+    if (compact) {
+      return;
+    }
+    const cellWidth = (b: (typeof this.uiButtons)[number]): number =>
+      Math.max(b.txt.width, b.keyTxt.width) + ACTION_CELL_PAD;
+    const rowWidth = INFO_W - 2 * INFO_PAD;
+    const used = this.uiButtons.reduce((sum, b) => sum + cellWidth(b), GUIDE_CELL_W);
+    const gap = Math.max(0, (rowWidth - used) / this.uiButtons.length);
+    const rowTop = iy + ACTION_ROW_TOP;
+    let x = left + INFO_PAD;
+    for (const b of this.uiButtons) {
+      const w = cellWidth(b);
+      const cx = x + w / 2;
+      b.zone.setPosition(cx, rowTop + ACTION_ROW_H / 2).setSize(w, ACTION_ROW_H);
+      b.txt.setPosition(cx, rowTop + 5);
+      b.keyTxt.setPosition(cx, rowTop + 20);
+      x += w + gap;
+    }
+    this.guideCell = { w: GUIDE_CELL_W, x, y: rowTop };
   }
 
   /** Score: top-center ribbon on desktop; a small capsule on compact

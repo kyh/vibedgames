@@ -42,25 +42,29 @@ const CSS = `
   color: #d8dee6;
   font-family: monospace;
   line-height: 1.4;
-  border: 1px solid #33445e;
-  border-radius: 2px;
-  background: #0b0e14f5;
   overscroll-behavior: contain;
 }
 .lf-build[hidden] { display: none; }
-.lf-build[open] { width: var(--lf-build-width); }
+.lf-build[open] {
+  width: var(--lf-build-width);
+  border: 1px solid #33445e;
+  border-radius: 2px;
+  background: #0b0e14f5;
+}
 .lf-build summary {
   box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: .65em;
-  padding: .3em .65em;
   color: #34e5c8;
+  text-shadow: var(--lf-build-stroke);
   cursor: pointer;
   touch-action: manipulation;
   user-select: none;
   list-style: none;
 }
+.lf-build[open] summary { padding: .3em .65em; text-shadow: none; }
+.lf-build summary:hover { color: #f4f7fb; }
 .lf-build summary::-webkit-details-marker { display: none; }
 .lf-build summary::before { content: '+'; }
 .lf-build[open] summary::before { content: '−'; }
@@ -354,6 +358,15 @@ export class ExpeditionHud {
       `${(BASE_W - 16 - ins.left - ins.right) * 0.46 * scale}px`,
     );
     this.build.style.fontSize = `${Math.max(12, 9 * scale)}px`;
+    // Collapsed, the summary is bare text over the scene like the Phaser HUD
+    // lines beside it; this mirrors their 2px pixel stroke at the canvas scale.
+    const stroke = Math.max(1, Math.round(scale));
+    this.build.style.setProperty(
+      "--lf-build-stroke",
+      [-stroke, 0, stroke]
+        .flatMap((dx) => [-stroke, 0, stroke].map((dy) => `${dx}px ${dy}px #05070b`))
+        .join(","),
+    );
     this.summary.style.minHeight = `${Math.max(44, 20 * scale)}px`;
     this.list.style.maxHeight = `${Math.min(150, 102 * scale)}px`;
     this.renderOffer(true);
