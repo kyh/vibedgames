@@ -18,7 +18,7 @@ import { PhysicsWorld } from "../physics/physics-world";
 import { Rng } from "../shared/rng";
 import { Car, skinById, skinModelUrl } from "../vehicle/car";
 import { RaycastVehicle } from "../vehicle/raycast-vehicle";
-import { CityModel, TILE_HOLD_RADIUS } from "../world/city";
+import { CityModel, tileHoldRadius } from "../world/city";
 import type { CityRestPayload } from "../world/city";
 import { editorMode, loadLocalOverrides } from "../world/custom-map";
 import { freewayPhysics } from "../world/freeways";
@@ -74,7 +74,7 @@ interface RestSource {
 // The title waits for the tiles this close to the spawn. A phone downloads
 // its neighbourhood and lets the rest stream in behind the title (the fog
 // hides most of it); a desktop pipe takes everything in draw range up front.
-const GATE_RADIUS = isCoarsePointer() ? 480 : TILE_HOLD_RADIUS;
+const GATE_RADIUS = isCoarsePointer() ? 480 : tileHoldRadius();
 
 interface WorldLoaderDeps {
   readonly scene: THREE.Scene;
