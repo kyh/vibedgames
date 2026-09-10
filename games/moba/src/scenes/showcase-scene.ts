@@ -14,6 +14,7 @@ import type { AbilityKey, HeroDef } from "../data/heroes";
 import { NEUTRAL_CAMPS } from "../data/map";
 import { castAbility } from "../sim/abilities";
 import { dealDamage } from "../sim/combat";
+import { dist } from "../sim/math";
 import { N_BOSS, N_LARGE, N_SMALL, baseUnit, issueOrder, spawnHero, step } from "../sim/world";
 import type { Unit, World } from "../sim/types";
 import { nextId } from "../sim/types";
@@ -292,6 +293,11 @@ export class ShowcaseScene extends Scene {
     sub.hero.abilities[key].readyAt = 0;
     if (def.targeting === "unit") {
       const ally = def.effect === "brewkeeper:Q";
+      // short-range unit casts (Shield Bash) step in from the mark; the pin
+      // above returns the caster once the grace window ends
+      if (!ally && dist(sub, this.dummy) > def.castRange) {
+        sub.x = this.dummy.x - def.castRange;
+      }
       castAbility(this.world, sub, { key, targetId: ally ? sub.id : this.dummy.id });
     } else if (def.targeting === "point") {
       castAbility(this.world, sub, { key, point: { x: this.dummy.x, y: this.dummy.y } });

@@ -78,6 +78,10 @@ const TOUCH_CONTROLS_CSS = `
 // keys (right hand), ABILITIES on Q/W/E/R (left hand), F = dash, Space = attack.
 const ABILITY_KEYS: AbilityKey[] = ["Q", "W", "E", "R"];
 const DASH_KEY = "F";
+// How long after its last movement the mouse keeps aiming point casts. Long
+// enough to survive a strafe between mouse moves, short enough that a parked
+// mouse never yanks a keyboard-only player's spells off their facing.
+const MOUSE_AIM_HOLD_MS = 4000;
 export const SLOT_LABEL = { E: "E", Q: "Q", R: "R", W: "W" } satisfies Record<AbilityKey, string>;
 
 // Physical pad: face buttons cast (A is the attack button, so R lands on RB).
@@ -182,6 +186,8 @@ export class GameScene extends Scene {
   private lastDir = { dx: 0, dy: 0 };
   // last movement direction — drives keyboard ability aim
   private aimDir = { x: 1, y: 0 };
+  // scene time until which a recently moved mouse owns point-cast aim
+  private mouseAimUntil = 0;
   // set by the HUD while a modal (shop) is open — pauses hero input
   uiBlocking = false;
   // kill feed / announcements drained from world.fx for the HUD (which reads them
@@ -245,6 +251,7 @@ export class GameScene extends Scene {
     this.needsPauseHold = false;
     this.lastDir = { dx: 0, dy: 0 };
     this.aimDir = { x: 1, y: 0 };
+    this.mouseAimUntil = 0;
     this.uiBlocking = false;
     this.net = null;
     this.picks = {};
@@ -719,12 +726,18 @@ export class GameScene extends Scene {
     // Mouse is a full complement to the keyboard scheme (which stays the primary,
     // keyboard-first control): LEFT or RIGHT click moves to the point, or attacks
     // an enemy clicked on. Keyboard steering/abilities remain fully usable.
+    this.input.on("pointermove", (p: Phaser.Input.Pointer) => {
+      if (!p.wasTouch) {
+        this.mouseAimUntil = this.time.now + MOUSE_AIM_HOLD_MS;
+      }
+    });
     this.input.on("pointerdown", (p: Phaser.Input.Pointer) => {
       resumeAudio();
       // touches steer the virtual stick, never click-to-move
       if (p.wasTouch) {
         return;
       }
+      this.mouseAimUntil = this.time.now + MOUSE_AIM_HOLD_MS;
       // shop/modal open — ignore world clicks
       if (this.uiBlocking) {
         return;
@@ -1100,8 +1113,10 @@ export class GameScene extends Scene {
     if (fromHud) {
       return this.touchAimPoint(me, r);
     }
-    if (this.lastDir.dx !== 0 || this.lastDir.dy !== 0) {
-      // keyboard/stick steering: fire along the direction you're holding
+    // The aim source is whichever the player is actually using, never a mix:
+    // a mouse that moved recently aims every cast (even mid-strafe), a parked
+    // mouse hands aim to the movement facing so keyboard-only play is stable.
+    if (this.time.now > this.mouseAimUntil) {
       return { x: me.x + this.aimDir.x * r, y: me.y + this.aimDir.y * r };
     }
     // aim at the cursor, clamped to cast range
@@ -1109,6 +1124,25 @@ export class GameScene extends Scene {
     const dy = cursor.y - me.y;
     const d = Math.hypot(dx, dy);
     return d > r && d > 0 ? { x: me.x + (dx / d) * r, y: me.y + (dy / d) * r } : cursor;
+  }
+
+  /** The direction a point cast would take right now — the same rule as
+   *  pointCastAim — for the on-hero chevron. A live mouse always shows (touch
+   *  laptops included); otherwise touch/pad casts auto-target from the HUD, so
+   *  there is nothing truthful to show them, and keyboard play shows facing. */
+  private aimDirection(): Vec2 | null {
+    const me = this.player;
+    if (!me?.alive) {
+      return null;
+    }
+    if (this.time.now > this.mouseAimUntil) {
+      return this.touchControls ? null : this.aimDir;
+    }
+    const cursor = this.cam.getWorldPoint(this.input.activePointer.x, this.input.activePointer.y);
+    const dx = cursor.x - me.x;
+    const dy = cursor.y - me.y;
+    const d = Math.hypot(dx, dy);
+    return d < 12 ? this.aimDir : { x: dx / d, y: dy / d };
   }
 
   /** Aim for HUD-tapped point casts: the nearest enemy hero in range, else any
@@ -1326,6 +1360,7 @@ export class GameScene extends Scene {
 
     this.collectFeed();
     this.updateTargetReticle();
+    this.view.setAim(this.aimDirection());
     this.view.sync(this.world, dt);
     updateSoundscape(
       this.result

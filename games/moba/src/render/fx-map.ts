@@ -10,20 +10,35 @@ export interface SpellSheet {
   fps: number;
 }
 export const SPELL_SHEETS: SpellSheet[] = [
+  // craftpix packs: projectile + persistent zone art
   { fps: 26, frame: 128, frames: 15, key: "sp-fireball" },
   { fps: 14, frame: 128, frames: 10, key: "sp-fire" },
   { fps: 26, frame: 256, frames: 10, key: "sp-lightning" },
-  { fps: 22, frame: 128, frames: 11, key: "sp-spikes" },
   { fps: 18, frame: 128, frames: 11, key: "sp-water" },
-  { fps: 20, frame: 128, frames: 10, key: "sp-smoke" },
-  { fps: 16, frame: 128, frames: 4, key: "sp-light" },
-  { fps: 18, frame: 128, frames: 11, key: "sp-tornado" },
-  { fps: 20, frame: 64, frames: 14, key: "sp-gypno" },
-  { fps: 30, frame: 128, frames: 12, key: "sp-arc" },
-  { fps: 24, frame: 128, frames: 8, key: "sp-flare-ring" },
-  { fps: 22, frame: 160, frames: 8, key: "sp-fire-pillar" },
-  { fps: 22, frame: 128, frames: 7, key: "sp-geyser" },
-  { fps: 28, frame: 128, frames: 20, key: "sp-skull" },
+  // generated per-ability cast art (tools: scratch gen-fx/pack-fx, see
+  // combat-fx-sources.json) — 12-frame boards, one signature per spell
+  { fps: 24, frame: 128, frames: 12, key: "sp-ironvow-q" },
+  { fps: 20, frame: 128, frames: 12, key: "sp-ironvow-w" },
+  { fps: 18, frame: 128, frames: 12, key: "sp-ironvow-r" },
+  { fps: 20, frame: 128, frames: 12, key: "sp-duskblade-q" },
+  { fps: 22, frame: 128, frames: 9, key: "sp-duskblade-w" },
+  { fps: 18, frame: 128, frames: 12, key: "sp-duskblade-r" },
+  { fps: 24, frame: 128, frames: 12, key: "sp-stormcaller-q" },
+  { fps: 20, frame: 128, frames: 12, key: "sp-stormcaller-w" },
+  { fps: 20, frame: 128, frames: 12, key: "sp-stormcaller-e" },
+  { fps: 16, frame: 128, frames: 12, key: "sp-stormcaller-r" },
+  { fps: 20, frame: 128, frames: 12, key: "sp-emberhex-q" },
+  { fps: 20, frame: 128, frames: 12, key: "sp-emberhex-w" },
+  { fps: 20, frame: 128, frames: 12, key: "sp-emberhex-e" },
+  { fps: 18, frame: 128, frames: 12, key: "sp-emberhex-r" },
+  { fps: 20, frame: 128, frames: 12, key: "sp-boomtinker-q" },
+  { fps: 18, frame: 128, frames: 12, key: "sp-boomtinker-w" },
+  { fps: 20, frame: 128, frames: 12, key: "sp-boomtinker-e" },
+  { fps: 16, frame: 128, frames: 12, key: "sp-boomtinker-r" },
+  { fps: 20, frame: 128, frames: 12, key: "sp-brewkeeper-q" },
+  { fps: 20, frame: 128, frames: 12, key: "sp-brewkeeper-w" },
+  { fps: 20, frame: 128, frames: 12, key: "sp-brewkeeper-e" },
+  { fps: 16, frame: 128, frames: 12, key: "sp-brewkeeper-r" },
 ];
 
 /** Frame order inside `assets/spell/icons.webp` — one packed 6×3 sheet of 64px
@@ -88,38 +103,66 @@ export const abilityIconFrame = (effect: string): number | null => {
 };
 
 /** A one-shot sprite burst played when an ability is cast (on top of the
- *  procedural ring/beam). `at` chooses caster vs the targeted point. */
+ *  procedural ring/beam). `at` chooses caster vs the targeted point; `aimed`
+ *  sits on the caster rotated toward the target (cones, skillshots). */
 export interface SpellCastFx {
   sheet: string;
-  at: "caster" | "target";
+  at: "caster" | "target" | "aimed";
   scale: number;
   tint?: number;
   startFrame?: number;
+  /** Energy art is authored on black and composites additively; matter art
+   *  (smoke, debris, liquid) is alpha-cut and blends normally. */
+  additive?: boolean;
+  /** Nudge in sheet pixels (× scale): ground-anchored art lands its base on
+   *  the point (offsetY), aimed art starts its origin at the caster (offsetX). */
+  offsetX?: number;
+  offsetY?: number;
 }
 
 export const ABILITY_CAST_FX = {
-  "boomtinker:E": { at: "caster", scale: 1.2, sheet: "sp-light", tint: 0xff_e0_8a },
-  // toss puff
-  "boomtinker:Q": { at: "caster", scale: 0.9, sheet: "sp-smoke", tint: 0xd8_c0_a0 },
-  "boomtinker:R": { at: "target", scale: 1.6, sheet: "fx-explode1" },
-  "boomtinker:W": { at: "target", scale: 1, sheet: "sp-smoke", tint: 0xff_d2_4d },
-  "brewkeeper:E": { at: "caster", scale: 1.5, sheet: "sp-light", tint: 0x9b_f0_b0 },
-  "brewkeeper:Q": { at: "target", scale: 0.9, sheet: "sp-geyser", startFrame: 2 },
-  // last call
-  "brewkeeper:R": { at: "caster", scale: 2.3, sheet: "sp-light", tint: 0x9b_f0_b0 },
-  "brewkeeper:W": { at: "target", scale: 1.9, sheet: "sp-gypno", tint: 0xc7_8b_ff },
-  "duskblade:Q": { at: "caster", scale: 1, sheet: "sp-smoke", tint: 0xb0_6b_ff },
-  "duskblade:R": { at: "target", scale: 2.2, sheet: "sp-skull", startFrame: 5, tint: 0xc8_9b_ff },
-  "duskblade:W": { at: "target", scale: 1.4, sheet: "sp-spikes", startFrame: 3 },
-  "emberhex:E": { at: "caster", scale: 1.1, sheet: "sp-flare-ring", startFrame: 1 },
-  "emberhex:Q": { at: "caster", scale: 0.9, sheet: "sp-fire", startFrame: 3 },
-  "emberhex:W": { at: "caster", scale: 1, sheet: "sp-fire", startFrame: 6 },
-  "ironvow:Q": { at: "target", scale: 0.9, sheet: "sp-light" },
-  "ironvow:R": { at: "caster", scale: 2.6, sheet: "sp-light", tint: 0xbc_d6_ff },
-  "ironvow:W": { at: "caster", scale: 1.3, sheet: "sp-light", tint: 0xbc_d6_ff },
-  "stormcaller:E": { at: "caster", scale: 1.25, sheet: "sp-tornado", tint: 0xbf_e6_ff },
-  "stormcaller:R": { at: "target", scale: 1.3, sheet: "sp-lightning", startFrame: 3 },
-  "stormcaller:W": { at: "target", scale: 1.2, sheet: "sp-arc", startFrame: 3 },
+  "boomtinker:E": { at: "caster", scale: 1.4, sheet: "sp-boomtinker-e" },
+  "boomtinker:Q": { at: "caster", offsetY: -20, scale: 1, sheet: "sp-boomtinker-q" },
+  "boomtinker:R": { at: "target", offsetY: -20, scale: 2, sheet: "sp-boomtinker-r" },
+  "boomtinker:W": { at: "target", scale: 1, sheet: "sp-boomtinker-w" },
+  "brewkeeper:E": { at: "caster", scale: 1.5, sheet: "sp-brewkeeper-e" },
+  "brewkeeper:Q": { at: "target", offsetY: -10, scale: 1.2, sheet: "sp-brewkeeper-q" },
+  "brewkeeper:R": { at: "caster", offsetY: -30, scale: 2, sheet: "sp-brewkeeper-r" },
+  "brewkeeper:W": { at: "target", scale: 1.3, sheet: "sp-brewkeeper-w" },
+  "duskblade:Q": { at: "caster", offsetY: -16, scale: 1.2, sheet: "sp-duskblade-q" },
+  "duskblade:R": {
+    additive: true,
+    at: "target",
+    offsetY: -16,
+    scale: 1.3,
+    sheet: "sp-duskblade-r",
+  },
+  "duskblade:W": { at: "aimed", offsetX: 44, scale: 2, sheet: "sp-duskblade-w" },
+  "emberhex:E": { additive: true, at: "caster", scale: 1.5, sheet: "sp-emberhex-e" },
+  "emberhex:Q": { additive: true, at: "caster", offsetY: -24, scale: 1, sheet: "sp-emberhex-q" },
+  // played by the detonation, not the cast (the fuse only warns)
+  "emberhex:R": { additive: true, at: "target", offsetY: -34, scale: 2.2, sheet: "sp-emberhex-r" },
+  "emberhex:W": { additive: true, at: "target", offsetY: -30, scale: 1.3, sheet: "sp-emberhex-w" },
+  "ironvow:Q": { additive: true, at: "target", offsetY: -16, scale: 1, sheet: "sp-ironvow-q" },
+  "ironvow:R": { at: "caster", scale: 2.4, sheet: "sp-ironvow-r" },
+  "ironvow:W": { additive: true, at: "caster", offsetY: -22, scale: 1.1, sheet: "sp-ironvow-w" },
+  "stormcaller:E": { additive: true, at: "caster", scale: 1.2, sheet: "sp-stormcaller-e" },
+  // the beam renderer lays several of these along the shot
+  "stormcaller:Q": { additive: true, at: "aimed", scale: 2.2, sheet: "sp-stormcaller-q" },
+  "stormcaller:R": {
+    additive: true,
+    at: "target",
+    offsetY: -50,
+    scale: 1.6,
+    sheet: "sp-stormcaller-r",
+  },
+  "stormcaller:W": {
+    additive: true,
+    at: "target",
+    offsetY: -16,
+    scale: 1.1,
+    sheet: "sp-stormcaller-w",
+  },
 } satisfies Record<string, SpellCastFx>;
 
 const CAST_FX_LOOKUP = new Map<string, SpellCastFx>(Object.entries(ABILITY_CAST_FX));

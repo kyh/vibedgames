@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, statSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 
@@ -35,10 +35,11 @@ export class CodexError extends Error {
 }
 
 /**
- * Resolve the effective provider from the `--provider` flag, falling back
- * to the `VG_GENERATE_PROVIDER` env var and finally the vibedgames
+ * Resolve an explicitly named provider from the `--provider` flag, falling
+ * back to the `VG_GENERATE_PROVIDER` env var and finally the vibedgames
  * default. Unknown values throw so a typo (`--provider coddex`) fails
- * loudly instead of silently hitting the paid backend.
+ * loudly instead of silently hitting the paid backend. `chooseProvider`
+ * layers the automatic Codex routing on top of this.
  */
 export const resolveProvider = (flag?: string): Provider => {
   const raw = (flag ?? process.env.VG_GENERATE_PROVIDER ?? "").trim().toLowerCase();
@@ -49,6 +50,38 @@ export const resolveProvider = (flag?: string): Provider => {
     return "vibedgames";
   }
   throw new Error(`Unknown --provider "${raw}". Supported: vibedgames (default), codex.`);
+};
+
+/** The OpenAI image family — the models a signed-in Codex plan serves itself. */
+export const isOpenAiImageEndpoint = (endpointId: string): boolean =>
+  endpointId === "codex" || /^openai\/gpt-image/iu.test(endpointId);
+
+/**
+ * The `codex` binary this machine would run: `VG_CODEX_BIN` when set (and
+ * present), else the first `codex` on PATH. Null when there is none — the
+ * signal that keeps automatic routing on the vibedgames runner.
+ */
+export const findCodexBinary = (env: NodeJS.ProcessEnv = process.env): string | null => {
+  const pinned = env.VG_CODEX_BIN;
+  if (pinned) {
+    return existsSync(pinned) ? pinned : null;
+  }
+  for (const dir of (env.PATH ?? "").split(path.delimiter)) {
+    if (!dir) {
+      continue;
+    }
+    for (const name of ["codex", "codex.cmd"]) {
+      const candidate = path.join(dir, name);
+      try {
+        if (statSync(candidate).isFile()) {
+          return candidate;
+        }
+      } catch {
+        // not here; keep walking PATH
+      }
+    }
+  }
+  return null;
 };
 
 // Input keys we map onto Codex's natural-language image request. Codex
@@ -137,6 +170,44 @@ export const parseCodexInput = (input: JsonObject): CodexInput => {
   }
 
   return { count, prompt, referenceCandidates, sizeHint: buildSizeHint(input) };
+};
+
+export interface AutoRouteContext {
+  endpointId: string;
+  async: boolean;
+  input: JsonObject;
+  codexInstalled: boolean;
+}
+
+export interface ProviderChoice {
+  provider: Provider;
+  /** True when nothing named the provider and Codex was picked for it. */
+  auto: boolean;
+}
+
+const isLocalReference = (ref: string): boolean => !/^(?:https?:|data:)/iu.test(ref);
+
+/**
+ * Pick the backend for one `run`. An explicit `--provider` or
+ * `VG_GENERATE_PROVIDER` always wins. Left unset, an OpenAI image endpoint
+ * goes to a locally installed Codex CLI — the same model family on the
+ * user's own plan, nothing billed to vibedgames — whenever Codex can honour
+ * the request (synchronous, local references only). Everything else stays
+ * on the vibedgames runner, so video/audio and non-OpenAI image models are
+ * unaffected by having Codex installed.
+ */
+export const chooseProvider = (flag: string | undefined, ctx: AutoRouteContext): ProviderChoice => {
+  const named = (flag ?? process.env.VG_GENERATE_PROVIDER ?? "").trim();
+  if (named !== "") {
+    return { auto: false, provider: resolveProvider(named) };
+  }
+  const refs = parseCodexInput(ctx.input).referenceCandidates;
+  const eligible =
+    ctx.codexInstalled &&
+    !ctx.async &&
+    isOpenAiImageEndpoint(ctx.endpointId) &&
+    refs.every((ref) => isLocalReference(ref));
+  return { auto: eligible, provider: eligible ? "codex" : "vibedgames" };
 };
 
 /**

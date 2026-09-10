@@ -36,6 +36,7 @@ type SpriteFx = PointFx & {
   delay?: number;
   additive?: boolean;
   startFrame?: number;
+  rotation?: number;
 };
 type LabelFx = PointFx & {
   group?: string;
@@ -225,7 +226,7 @@ export class CommonFx {
       .setPosition(recipe.x, recipe.y)
       .setDepth(recipe.depth)
       .setScale(recipe.scale)
-      .setRotation(0)
+      .setRotation(recipe.rotation ?? 0)
       .setTint(recipe.tint ?? 0xff_ff_ff)
       .setAlpha(recipe.alpha ?? 1)
       .setFlipX(recipe.flip ?? false)
