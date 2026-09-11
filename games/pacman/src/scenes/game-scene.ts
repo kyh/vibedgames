@@ -199,6 +199,21 @@ const TOUCH_CONTROLS_CSS = `
 }
 `;
 
+export const UPDATE_STEPS = [
+  "net",
+  "board",
+  "pad",
+  "presentation",
+  "actors",
+  "halo",
+  "hud",
+  "fx",
+  "camera",
+  "music",
+  "netOut",
+] as const;
+export type UpdateStep = (typeof UPDATE_STEPS)[number];
+
 export interface GameDiagnostics {
   score: number;
   complete: boolean;
@@ -1047,15 +1062,24 @@ export class GameScene {
 
   // ---- per-frame update ---------------------------------------------------------
 
-  update(dt: number): void {
+  /** `allow` is a probe hook (src/gpu-probe.ts): each named step runs only
+   *  when it says so, so a driver crash can be bisected to one of them. */
+  // oxlint-disable-next-line complexity -- the per-step gates are probe scaffolding, removed with src/gpu-probe.ts
+  update(dt: number, allow: (step: UpdateStep) => boolean = () => true): void {
     const dtMs = dt * 1000;
     this.t += dt;
     const scaredMsBefore = this.scaredMs;
 
-    this.net.tick();
-    this.rivalIds = this.presentRivals();
-    this.reconcileBoard();
-    this.pollPad();
+    if (allow("net")) {
+      this.net.tick();
+      this.rivalIds = this.presentRivals();
+    }
+    if (allow("board")) {
+      this.reconcileBoard();
+    }
+    if (allow("pad")) {
+      this.pollPad();
+    }
 
     if (this.phase === "ready") {
       this.readyMs -= dtMs;
@@ -1100,14 +1124,30 @@ export class GameScene {
       sfx.play("warn");
     }
 
-    this.updatePresentation(dt);
-    this.renderActors(dt);
-    this.powerHalo.update(this.pac.x, this.pac.z, scared ? this.scaredMs : 0);
-    this.updateChainHud();
-    this.fx.update(dt);
-    this.updateCamera(dt);
-    music.update(dt, this.phase, this.nearestDanger());
-    this.updateNet(dt);
+    if (allow("presentation")) {
+      this.updatePresentation(dt);
+    }
+    if (allow("actors")) {
+      this.renderActors(dt);
+    }
+    if (allow("halo")) {
+      this.powerHalo.update(this.pac.x, this.pac.z, scared ? this.scaredMs : 0);
+    }
+    if (allow("hud")) {
+      this.updateChainHud();
+    }
+    if (allow("fx")) {
+      this.fx.update(dt);
+    }
+    if (allow("camera")) {
+      this.updateCamera(dt);
+    }
+    if (allow("music")) {
+      music.update(dt, this.phase, this.nearestDanger());
+    }
+    if (allow("netOut")) {
+      this.updateNet(dt);
+    }
   }
 
   /** Maze-cell distance to the closest ghost that can catch us; null while none can. */

@@ -227,7 +227,7 @@ if (probeMode) {
       renderer,
       game.scene,
       game.camera,
-      (dt) => game.update(dt),
+      (dt, allow) => game.update(dt, allow),
       () => JSON.stringify(diag).slice(0, 160),
     );
   void (async () => {

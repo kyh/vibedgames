@@ -1,6 +1,9 @@
 import type * as THREE from "three";
 import { InstancedMesh } from "three";
 
+import { UPDATE_STEPS } from "./scenes/game-scene";
+import type { UpdateStep } from "./scenes/game-scene";
+
 // `?gpuprobe=1` — bisect a GPU-process crash against the REAL scene. The
 // generic feature probe (public/probe.html) passes on a driver that still
 // kills this game on its first frame, so the culprit is a combination only
@@ -82,9 +85,17 @@ export const runGpuLoopProbe = (
   renderer: THREE.WebGLRenderer,
   scene: THREE.Scene,
   camera: THREE.Camera,
-  step: (dt: number) => void,
+  step: (dt: number, allow: (name: UpdateStep) => boolean) => void,
   state: () => string,
 ): void => {
+  // Cumulative bisect: every SEGMENT_S another update step joins the frame,
+  // in UPDATE_STEPS order. The step that was added last when the context
+  // dies is the one the driver did not survive.
+  const SEGMENT_S = 3;
+  const startedAt = performance.now();
+  const enabledCount = (): number =>
+    Math.min(UPDATE_STEPS.length, Math.floor((performance.now() - startedAt) / 1000 / SEGMENT_S));
+  const allow = (name: UpdateStep): boolean => UPDATE_STEPS.indexOf(name) < enabledCount();
   const panel = probePanel();
   panel.style.cssText =
     "position:fixed;left:0;right:0;top:0;z-index:2147483001;margin:0;padding:12px;" +
@@ -102,10 +113,11 @@ export const runGpuLoopProbe = (
     const now = performance.now();
     const dt = Math.min((now - last) / 1000, 0.1);
     last = now;
-    step(dt);
+    step(dt, allow);
     renderer.render(scene, camera);
     frame += 1;
-    const line = `f${frame} t=${(now / 1000).toFixed(1)}s prog=${info.programs?.length ?? 0} tex=${info.memory.textures} geo=${info.memory.geometries} calls=${info.render.calls} tris=${info.render.triangles} ${state()}`;
+    const on = UPDATE_STEPS.slice(0, enabledCount());
+    const line = `f${frame} t=${(now / 1000).toFixed(1)}s steps=${on.length}/${UPDATE_STEPS.length} last=${on.at(-1) ?? "none"} prog=${info.programs?.length ?? 0} tex=${info.memory.textures} geo=${info.memory.geometries} calls=${info.render.calls} tris=${info.render.triangles} ${state()}`;
     recent.push(line);
     if (recent.length > 8) {
       recent.shift();
@@ -115,7 +127,7 @@ export const runGpuLoopProbe = (
       recent.push("LOST — the frames above are what the driver did not survive. Screenshot this.");
     }
     if (frame % 3 === 0 || lost) {
-      panel.textContent = `gpuprobe loop: live counters (last 8 frames)\n${recent.join("\n")}`;
+      panel.textContent = `gpuprobe loop: one more update step every ${SEGMENT_S}s (${UPDATE_STEPS.join(" → ")})\n${recent.join("\n")}`;
     }
     if (!lost) {
       requestAnimationFrame(tick);
