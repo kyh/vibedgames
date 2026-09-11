@@ -33,13 +33,7 @@ export const clearSafeMode = (): void => {
 let cached: boolean | null = null;
 let fragileGpu = false;
 
-/** A driver known to die under the shadow pass boots on the floor tier
- *  without having to crash first; `?safe=0` still overrides for a visit. */
-export const markFragileGpu = (fragile: boolean): void => {
-  fragileGpu = fragile;
-};
-
-export const safeMode = (): boolean => {
+const requested = (): boolean => {
   if (cached !== null) {
     return cached;
   }
@@ -48,10 +42,22 @@ export const safeMode = (): boolean => {
     clearSafeMode();
     cached = false;
   } else {
-    cached = p === "1" || stored() || fragileGpu;
+    cached = p === "1" || stored();
   }
   return cached;
 };
+
+/** A driver known to die under the shadow pass boots on the floor tier
+ *  without having to crash first. Not folded into the cache: module-level
+ *  callers run before the renderer exists to be asked about its GPU. */
+export const markFragileGpu = (fragile: boolean): void => {
+  fragileGpu = fragile;
+};
+
+/** `?safe=0` still overrides, so a fragile device can be retried on purpose. */
+export const isFragileGpu = (): boolean => fragileGpu && param() !== "0";
+
+export const safeMode = (): boolean => requested() || isFragileGpu();
 
 /** Called from the context-lost handler: the next boot runs small. */
 export const recordContextLoss = (): void => {

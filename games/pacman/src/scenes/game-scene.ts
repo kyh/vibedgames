@@ -199,24 +199,6 @@ const TOUCH_CONTROLS_CSS = `
 }
 `;
 
-export const UPDATE_STEPS = [
-  "net",
-  "board",
-  "pad",
-  "presentation",
-  "actors",
-  "ghosts",
-  "hearts",
-  "pellets",
-  "halo",
-  "hud",
-  "fx",
-  "camera",
-  "music",
-  "netOut",
-] as const;
-export type UpdateStep = (typeof UPDATE_STEPS)[number];
-
 export interface GameDiagnostics {
   score: number;
   complete: boolean;
@@ -1065,24 +1047,15 @@ export class GameScene {
 
   // ---- per-frame update ---------------------------------------------------------
 
-  /** `allow` is a probe hook (src/gpu-probe.ts): each named step runs only
-   *  when it says so, so a driver crash can be bisected to one of them. */
-  // oxlint-disable-next-line complexity -- the per-step gates are probe scaffolding, removed with src/gpu-probe.ts
-  update(dt: number, allow: (step: UpdateStep) => boolean = () => true): void {
+  update(dt: number): void {
     const dtMs = dt * 1000;
     this.t += dt;
     const scaredMsBefore = this.scaredMs;
 
-    if (allow("net")) {
-      this.net.tick();
-      this.rivalIds = this.presentRivals();
-    }
-    if (allow("board")) {
-      this.reconcileBoard();
-    }
-    if (allow("pad")) {
-      this.pollPad();
-    }
+    this.net.tick();
+    this.rivalIds = this.presentRivals();
+    this.reconcileBoard();
+    this.pollPad();
 
     if (this.phase === "ready") {
       this.readyMs -= dtMs;
@@ -1127,30 +1100,14 @@ export class GameScene {
       sfx.play("warn");
     }
 
-    if (allow("presentation")) {
-      this.updatePresentation(dt);
-    }
-    if (allow("actors")) {
-      this.renderActors(dt, allow);
-    }
-    if (allow("halo")) {
-      this.powerHalo.update(this.pac.x, this.pac.z, scared ? this.scaredMs : 0);
-    }
-    if (allow("hud")) {
-      this.updateChainHud();
-    }
-    if (allow("fx")) {
-      this.fx.update(dt);
-    }
-    if (allow("camera")) {
-      this.updateCamera(dt);
-    }
-    if (allow("music")) {
-      music.update(dt, this.phase, this.nearestDanger());
-    }
-    if (allow("netOut")) {
-      this.updateNet(dt);
-    }
+    this.updatePresentation(dt);
+    this.renderActors(dt);
+    this.powerHalo.update(this.pac.x, this.pac.z, scared ? this.scaredMs : 0);
+    this.updateChainHud();
+    this.fx.update(dt);
+    this.updateCamera(dt);
+    music.update(dt, this.phase, this.nearestDanger());
+    this.updateNet(dt);
   }
 
   /** Maze-cell distance to the closest ghost that can catch us; null while none can. */
@@ -1974,7 +1931,7 @@ export class GameScene {
 
   // ---- rendering ---------------------------------------------------------------
 
-  private renderActors(dt: number, allow: (step: UpdateStep) => boolean): void {
+  private renderActors(dt: number): void {
     const tMs = this.t * 1000;
 
     // Pacman rig: world position + axis-aligned squash & stretch.
@@ -2020,15 +1977,9 @@ export class GameScene {
     this.mouthAngle += (target - this.mouthAngle) * Math.min(dt * MOUTH_LERP_RATE, 1);
     this.syncMouth(this.pac.isMoving ? this.mouthAngle : 0);
 
-    if (allow("ghosts")) {
-      this.renderGhosts(dt, tMs);
-    }
-    if (allow("hearts")) {
-      this.renderHearts();
-    }
-    if (allow("pellets")) {
-      this.pelletField.update(this.t);
-    }
+    this.renderGhosts(dt, tMs);
+    this.renderHearts();
+    this.pelletField.update(this.t);
   }
 
   /** Ghosts: staggered bob, face toward travel direction, tremble + worry

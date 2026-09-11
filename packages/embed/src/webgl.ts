@@ -105,7 +105,7 @@ export const showWebGLVeil = (
   veil.id = VEIL_ID;
   veil.setAttribute("role", "alert");
   veil.style.cssText =
-    "position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;" +
+    "position:fixed;inset:0;z-index:2147483000;display:flex;flex-direction:column;align-items:center;justify-content:center;" +
     "padding:24px;background:#0b0e14;color:#f4f7fb;font:15px/1.5 system-ui,sans-serif;text-align:center;cursor:pointer";
   // Chrome keys the block on the top-level host, so a game framed under the
   // hub can still run on its own origin: the tap takes the player there.

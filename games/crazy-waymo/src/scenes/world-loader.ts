@@ -77,9 +77,10 @@ interface RestSource {
 // hides most of it); a desktop pipe takes everything in draw range up front.
 // A phone gates on a fixed ring around the spawn; safe mode shrinks it with
 // the rest of the reach so the title frame is smaller too.
-const GATE_RADIUS = isCoarsePointer()
-  ? Math.round(480 * (safeMode() ? SAFE_REACH / PHONE_REACH : 1))
-  : tileHoldRadius();
+const gateRadius = (): number =>
+  isCoarsePointer()
+    ? Math.round(480 * (safeMode() ? SAFE_REACH / PHONE_REACH : 1))
+    : tileHoldRadius();
 
 interface WorldLoaderDeps {
   readonly scene: THREE.Scene;
@@ -373,7 +374,7 @@ const finishLoad = async (
   });
   if (meta) {
     deps.setStage("DOWNLOADING THE CITY…");
-    await city.streamGate(spawn.x, spawn.z, GATE_RADIUS, (done, total) => {
+    await city.streamGate(spawn.x, spawn.z, gateRadius(), (done, total) => {
       const f = total > 0 ? done / total : 1;
       deps.setLoading(buildTo + f * (0.84 - buildTo), "Downloading San Francisco…");
     });

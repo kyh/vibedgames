@@ -1,6 +1,6 @@
 import { choosePlayerSpawn, isPlayerSpawnSafe } from "../world/player-spawn";
 import type { PlayerSpawn } from "../world/player-spawn";
-import { safeMode } from "../render/safe-mode";
+import { isFragileGpu, safeMode } from "../render/safe-mode";
 import * as THREE from "three";
 import { createTouchControls, notifyGameStarted, watchControlContext } from "@repo/embed";
 import type { PlayerMap } from "@vibedgames/multiplayer";
@@ -269,6 +269,9 @@ const storageSet = (key: string, value: string): void => {
 // The note is the only sign the device is on the floor tier; without it a
 // player who compares phones reads the flatter city as a regression.
 const startBannerStats = (best: number): string => {
+  if (isFragileGpu()) {
+    return "Low-graphics mode — this phone's graphics driver cannot run the full version.";
+  }
   if (safeMode()) {
     return "Low-graphics mode — the graphics stopped here last time. Add ?safe=0 to the address to retry full quality.";
   }

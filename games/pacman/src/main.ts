@@ -8,7 +8,6 @@ import {
 } from "@repo/embed";
 
 import { setAudioPaused, unlockAudio } from "./audio/sfx";
-import { gpuProbeMode, runGpuDietProbe, runGpuLoopProbe, runGpuProbe } from "./gpu-probe";
 import { FaceCamera } from "./input/face-camera";
 import type { FaceCameraState } from "./input/face-camera";
 import { IS_TOUCH } from "./input/input-mode";
@@ -226,37 +225,7 @@ const diag: GameDiagnostics & { frame: number; paused: boolean } = {
 Reflect.set(globalThis, "__GAME_DIAGNOSTICS__", diag);
 
 const timer = new THREE.Timer();
-const probeMode = gpuProbeMode();
-if (probeMode) {
-  const loop = (): void =>
-    runGpuLoopProbe(
-      renderer,
-      game.scene,
-      game.camera,
-      (dt, allow) => game.update(dt, allow),
-      () => JSON.stringify(diag).slice(0, 160),
-    );
-  void (async () => {
-    if (probeMode === "diet") {
-      runGpuDietProbe(
-        renderer,
-        game.scene,
-        game.camera,
-        (dt) => game.update(dt),
-        () => JSON.stringify(diag).slice(0, 160),
-      );
-      return;
-    }
-    if (probeMode === "reveal") {
-      await runGpuProbe(renderer, game.scene, game.camera);
-    }
-    loop();
-  })();
-}
 renderer.setAnimationLoop((time) => {
-  if (probeMode) {
-    return;
-  }
   timer.update(time);
   const dt = Math.min(timer.getDelta(), MAX_DT);
   if (!paused) {
