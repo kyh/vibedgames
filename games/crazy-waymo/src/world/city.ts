@@ -11,7 +11,7 @@ import { StaticWorldGroup } from "../render/static-world-group";
 import { propShadowPolicy, propShadowsDisabled, setPropShadowPolicy } from "../render/prop-shadow";
 import type { PropShadowPolicy } from "../render/prop-shadow";
 import { drawDistance, isCoarsePointer, liveQuality, reachScale } from "../render/quality";
-import { safeMode } from "../render/safe-mode";
+import { contextLostBefore } from "../render/safe-mode";
 import { renderCapabilities } from "../render/capabilities";
 import { releaseArraysAfterUpload } from "../render/gpu-only-geometry";
 import { compatiblePropBatch } from "./instanced-props";
@@ -459,7 +459,7 @@ export const IMPOSTER_DISTANCE = 1400;
 // The imposter reach is kept on ordinary phones (the horizon is the look);
 // a device that already lost its context trades the far skyline for a
 // resident set it can carry.
-const imposterReach = (): number => (safeMode() ? reachScale() : 1);
+const imposterReach = (): number => (contextLostBefore() ? reachScale() : 1);
 export const imposterDistance = (): number => IMPOSTER_DISTANCE * imposterReach();
 export const midImposterDistance = (): number => MID_IMPOSTER_DISTANCE * imposterReach();
 // --- Landmarks: the LOD unit is the STRUCTURE, not the member ---------------

@@ -83,6 +83,20 @@ const DISTRICT_SPAWN_WEIGHT = {
 
 const districtSpawnWeight = (c: DistrictChar): number => DISTRICT_SPAWN_WEIGHT[c];
 
+// Asphalt half-widths come in four classes (3.2 local, 4.6 collector, 5.4
+// arterial, 7 freeway). Local streets are six tenths of all road length, so
+// a district-only weight parks most of the fleet on quiet blocks; the wide
+// roads are where traffic reads as traffic.
+const roadSpawnWeight = (half: number): number => {
+  if (half >= 6.5) {
+    return 4;
+  }
+  if (half > 4.7) {
+    return 3;
+  }
+  return half > 4 ? 2 : 1;
+};
+
 export interface TrafficOpts {
   seed?: number;
   avoid?: RoadCell;
@@ -127,7 +141,9 @@ export class Traffic {
         continue;
       }
       const mid = this.network.sample(e, e.len / 2);
-      const w = districtSpawnWeight(districtAt(city.gridX(mid.x), city.gridZ(mid.z)).character);
+      const w =
+        districtSpawnWeight(districtAt(city.gridX(mid.x), city.gridZ(mid.z)).character) *
+        roadSpawnWeight(e.half);
       for (let i = 0; i < w; i += 1) {
         this.weightedEdges.push(e);
       }

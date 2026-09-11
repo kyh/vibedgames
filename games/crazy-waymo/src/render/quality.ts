@@ -7,7 +7,7 @@
 // multi-draw also use instanced props to reduce submission cost.
 //
 import { DRAW_DISTANCE } from "../shared/constants";
-import { safeMode } from "./safe-mode";
+import { contextLostBefore } from "./safe-mode";
 
 // Node tools import the world modules at load; there is no window there.
 export const isCoarsePointer = (): boolean =>
@@ -23,7 +23,7 @@ export const PHONE_REACH = 0.72;
 // A device that already lost its context once holds a smaller world still.
 export const SAFE_REACH = 0.55;
 export const reachScale = (): number => {
-  if (safeMode()) {
+  if (contextLostBefore()) {
     return SAFE_REACH;
   }
   return isCoarsePointer() ? PHONE_REACH : 1;

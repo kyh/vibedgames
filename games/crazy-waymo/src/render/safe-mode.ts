@@ -36,7 +36,9 @@ let cached: boolean | null = null;
 const coarsePointer = (): boolean =>
   typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
 
-export const safeMode = (): boolean => {
+/** The device lost a context before (or `?safe=1` says to act as if): the
+ *  world shrinks further than a phone's default reach. */
+export const contextLostBefore = (): boolean => {
   if (cached !== null) {
     return cached;
   }
@@ -45,10 +47,12 @@ export const safeMode = (): boolean => {
     clearSafeMode();
     cached = false;
   } else {
-    cached = p === "1" || stored() || coarsePointer();
+    cached = p === "1" || stored();
   }
   return cached;
 };
+
+export const safeMode = (): boolean => contextLostBefore() || (coarsePointer() && param() !== "0");
 
 /** Called from the context-lost handler: the next boot runs small. */
 export const recordContextLoss = (): void => {

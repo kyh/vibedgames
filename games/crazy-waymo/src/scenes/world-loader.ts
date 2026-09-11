@@ -19,7 +19,7 @@ import { Rng } from "../shared/rng";
 import { Car, skinById, skinModelUrl } from "../vehicle/car";
 import { RaycastVehicle } from "../vehicle/raycast-vehicle";
 import { CityModel, tileHoldRadius } from "../world/city";
-import { safeMode } from "../render/safe-mode";
+import { contextLostBefore } from "../render/safe-mode";
 import type { CityRestPayload } from "../world/city";
 import { editorMode, loadLocalOverrides } from "../world/custom-map";
 import { freewayPhysics } from "../world/freeways";
@@ -75,11 +75,12 @@ interface RestSource {
 // The title waits for the tiles this close to the spawn. A phone downloads
 // its neighbourhood and lets the rest stream in behind the title (the fog
 // hides most of it); a desktop pipe takes everything in draw range up front.
-// A phone gates on a fixed ring around the spawn; safe mode shrinks it with
-// the rest of the reach so the title frame is smaller too.
+// A phone gates on a fixed ring around the spawn; a device that lost a
+// context before shrinks it with the rest of the reach so the title frame is
+// smaller too.
 const gateRadius = (): number =>
   isCoarsePointer()
-    ? Math.round(480 * (safeMode() ? SAFE_REACH / PHONE_REACH : 1))
+    ? Math.round(480 * (contextLostBefore() ? SAFE_REACH / PHONE_REACH : 1))
     : tileHoldRadius();
 
 interface WorldLoaderDeps {
