@@ -7,11 +7,11 @@
 // multi-draw also use instanced props to reduce submission cost.
 //
 import { DRAW_DISTANCE } from "../shared/constants";
+import { safeMode } from "./safe-mode";
 
-export const isCoarsePointer = (): boolean => window.matchMedia("(pointer: coarse)").matches;
-
-// Node tools import the world modules; there is no window there.
-const coarse = (): boolean => typeof window !== "undefined" && isCoarsePointer();
+// Node tools import the world modules at load; there is no window there.
+export const isCoarsePointer = (): boolean =>
+  typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
 
 // Phones see a shorter world. Resident GPU memory scales with the AREA inside
 // the draw distance, and a WebGL context lost to memory pressure is the one
@@ -20,7 +20,14 @@ const coarse = (): boolean => typeof window !== "undefined" && isCoarsePointer()
 // fabric band; the skyline imposters keep their own reach, so the horizon
 // still reads. Fog tracks the same scale so the cull edge stays hidden.
 export const PHONE_REACH = 0.72;
-export const reachScale = (): number => (coarse() ? PHONE_REACH : 1);
+// A device that already lost its context once holds a smaller world still.
+export const SAFE_REACH = 0.55;
+export const reachScale = (): number => {
+  if (safeMode()) {
+    return SAFE_REACH;
+  }
+  return isCoarsePointer() ? PHONE_REACH : 1;
+};
 export const drawDistance = (): number => Math.round(DRAW_DISTANCE * reachScale());
 
 // The tier a phone may climb to. Tiers 0-1 are desktop resolution and the full

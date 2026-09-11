@@ -1,3 +1,4 @@
+import { reachScale } from "../render/quality";
 import type { RigidBody } from "#rapier";
 import * as THREE from "three";
 
@@ -53,7 +54,8 @@ interface TemplatePart {
 const bucketKey = (p: TemplatePart): string => `${p.mat.uuid}|${geoLayoutKey(p.geo)}`;
 
 const CULL_DIST = 340;
-const CULL_DIST_SQ = CULL_DIST * CULL_DIST;
+// Phones see less street; the shorter world keeps its cars with it.
+const cullDistSq = (): number => (CULL_DIST * reachScale()) ** 2;
 
 export class ParkedCars {
   readonly group = new THREE.Group();
@@ -257,16 +259,28 @@ export class ParkedCars {
       return;
     }
     // full sweep every ~6 frames
-    const step = Math.max(1, Math.ceil(n / 6));
-    for (let i = 0; i < step; i += 1) {
-      const idx = (this.cullCursor + i) % n;
+    this.cullRange(camX, camZ, this.cullCursor, Math.max(1, Math.ceil(n / 6)));
+  }
+
+  /** One synchronous sweep of every car — for the first frame, before the
+   *  amortised cull has been round once. Every placed car starts visible, and
+   *  the title's hilltop orbit sees thousands of them at once otherwise. */
+  cullAll(camX: number, camZ: number): void {
+    this.cullRange(camX, camZ, 0, this.cars.length);
+  }
+
+  private cullRange(camX: number, camZ: number, from: number, count: number): void {
+    const n = this.cars.length;
+    const limit = cullDistSq();
+    for (let i = 0; i < count; i += 1) {
+      const idx = (from + i) % n;
       const c = this.cars[idx];
       if (!c) {
         continue;
       }
       const dx = c.x - camX;
       const dz = c.z - camZ;
-      const vis: 0 | 1 = c.hit || dx * dx + dz * dz < CULL_DIST_SQ ? 1 : 0;
+      const vis: 0 | 1 = c.hit || dx * dx + dz * dz < limit ? 1 : 0;
       if (this.visible[idx] !== vis) {
         this.visible[idx] = vis;
         for (const p of c.parts) {
@@ -274,7 +288,7 @@ export class ParkedCars {
         }
       }
     }
-    this.cullCursor = (this.cullCursor + step) % n;
+    this.cullCursor = (from + count) % n;
   }
 
   // The taxi rammed near (px,pz) moving at (vx,vz): hand the parked car it's
