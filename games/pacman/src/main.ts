@@ -28,15 +28,23 @@ if (!webgl.ok) {
   throw new Error(`WebGL unavailable: ${webgl.reason}`);
 }
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+// Phones share one GPU process across every tab; a 4× multisampled buffer at
+// DPR 2 plus soft shadows is the desktop recipe, and on a phone it is the
+// allocation that gets the process killed a few seconds after boot. Dense
+// screens hide the aliasing the resolve pass would have removed.
+const dense = IS_TOUCH && window.devicePixelRatio >= 2;
+const renderer = new THREE.WebGLRenderer({
+  antialias: !dense,
+  powerPreference: "high-performance",
+});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, IS_TOUCH ? 1.5 : 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 // r3f Canvas defaults the legacy build rendered through, plus a touch of
 // extra exposure for the airy cream look.
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = TONE_EXPOSURE;
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = IS_TOUCH ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
 container.append(renderer.domElement);
 renderer.domElement.addEventListener("webglcontextlost", () => {
   console.error("WebGL context lost");

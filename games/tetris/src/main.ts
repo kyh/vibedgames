@@ -23,8 +23,15 @@ if (!webgl.ok) {
   throw new Error(`WebGL unavailable: ${webgl.reason}`);
 }
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-// Phones cap DPR lower — the antialiased 3D well is fill-rate bound at DPR 3.
+// Phones cap DPR lower — the antialiased 3D well is fill-rate bound at DPR 3 —
+// and skip the multisample buffer on dense screens, where the subpixel
+// density hides the aliasing and the buffer is what a shared GPU process
+// runs out of.
+const dense = isCoarsePointer() && window.devicePixelRatio >= 2;
+const renderer = new THREE.WebGLRenderer({
+  antialias: !dense,
+  powerPreference: "high-performance",
+});
 const dprCap = isCoarsePointer() ? 1.5 : 2;
 const applyPixelRatio = () => renderer.setPixelRatio(Math.min(window.devicePixelRatio, dprCap));
 applyPixelRatio();
