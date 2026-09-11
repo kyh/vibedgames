@@ -12,7 +12,9 @@ import {
   createTouchControls,
   isOfflineRequested,
   notifyGameStarted,
+  probeWebGL,
   setPauseHandlers,
+  showWebGLVeil,
 } from "@repo/embed";
 import * as THREE from "three";
 import { ModelLibrary } from "./render/models";
@@ -185,7 +187,20 @@ const showFailure = (cause: unknown): void => {
 };
 
 const main = async (): Promise<void> => {
+  const webgl = probeWebGL();
+  if (!webgl.ok) {
+    console.error(`WebGL unavailable: ${webgl.reason}`);
+    showWebGLVeil(webgl);
+    return;
+  }
   const view = new View(container);
+  view.renderer.domElement.addEventListener("webglcontextlost", () => {
+    console.error("WebGL context lost");
+    showWebGLVeil(
+      { blocked: false, ok: false, reason: "context lost" },
+      "The browser stopped the graphics (usually low memory).",
+    );
+  });
   const lib = new ModelLibrary();
   // in parallel with the model loads
   const bundledMapJob = fetchBundledMap();
