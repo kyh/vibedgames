@@ -22,6 +22,11 @@ export type WebGLProbe =
 
 const BLOCK_PATTERN = /blocked|blocklist|too many|context limit/iu;
 
+// Captured by the boot probe so a later failure veil can say what the device
+// is — a lost context cannot be asked, and a phone's player cannot open
+// chrome://gpu for us.
+let gpuDescription = "";
+
 /**
  * Try to create a context on a throwaway canvas. Cheap: a probe context is
  * released immediately, and the browser's creation-error event carries the
@@ -45,6 +50,11 @@ export const probeWebGL = (): WebGLProbe => {
     gl = null;
   }
   if (gl) {
+    const info = gl.getExtension("WEBGL_debug_renderer_info");
+    const renderer = info
+      ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL)
+      : gl.getParameter(gl.RENDERER);
+    gpuDescription = `${typeof renderer === "string" ? renderer : "unknown GPU"} · ${gl instanceof WebGL2RenderingContext ? "WebGL2" : "WebGL1"}`;
     gl.getExtension("WEBGL_lose_context")?.loseContext();
     return { ok: true };
   }
@@ -83,7 +93,18 @@ export const showWebGLVeil = (
   const text = document.createElement("div");
   text.style.maxWidth = "28em";
   text.textContent = `${message} Tap to reload.`;
-  veil.append(text);
+  // The diagnostic line is what a screenshot from a phone has to carry.
+  const detail = document.createElement("div");
+  detail.style.cssText = "margin-top:14px;font-size:11px;color:#8b95a1;word-break:break-word";
+  detail.textContent = [
+    gpuDescription || "GPU unknown",
+    `${Math.round(performance.now() / 1000)} s after load`,
+    probe.reason,
+    `${screen.width}×${screen.height} @${window.devicePixelRatio}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  veil.append(text, detail);
   veil.addEventListener("click", () => window.location.reload());
   document.body.append(veil);
 };
