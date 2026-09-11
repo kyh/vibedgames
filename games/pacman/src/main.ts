@@ -1,11 +1,5 @@
 import * as THREE from "three";
-import {
-  gpuDescription,
-  probeWebGL,
-  setPauseHandlers,
-  shadowFragileGpu,
-  showWebGLVeil,
-} from "@repo/embed";
+import { probeWebGL, setPauseHandlers, showWebGLVeil } from "@repo/embed";
 
 import { setAudioPaused, unlockAudio } from "./audio/sfx";
 import { FaceCamera } from "./input/face-camera";
@@ -49,7 +43,8 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 // extra exposure for the airy cream look.
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = TONE_EXPOSURE;
-renderer.shadowMap.enabled = !shadowFragileGpu(gpuDescription());
+// Phone drivers have died under the shadow pass alone; touch devices skip it.
+renderer.shadowMap.enabled = !IS_TOUCH;
 renderer.shadowMap.type = IS_TOUCH ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
 container.append(renderer.domElement);
 renderer.domElement.addEventListener("webglcontextlost", () => {

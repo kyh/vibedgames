@@ -38,15 +38,6 @@ export const describeGpu = (gl: WebGLRenderingContext | WebGL2RenderingContext):
   );
 };
 
-// Chrome's PowerVR DXT support (Pixel 10, via ANGLE) loses the context within
-// seconds of three's shadow pass starting, on a scene that otherwise runs for
-// minutes; a game with shadows must fall back before the driver decides.
-const FRAGILE_SHADOW_GPU = /PowerVR/iu;
-
-/** True for drivers known to die under a shadow-map pass. */
-export const shadowFragileGpu = (description: string): boolean =>
-  FRAGILE_SHADOW_GPU.test(description);
-
 /**
  * Try to create a context on a throwaway canvas. Cheap: a probe context is
  * released immediately, and the browser's creation-error event carries the

@@ -1,12 +1,12 @@
 import * as THREE from "three";
-import { describeGpu, setPauseHandlers, shadowFragileGpu } from "@repo/embed";
+import { describeGpu, setPauseHandlers } from "@repo/embed";
 
 import { FramePacer } from "./render/frame-pacer";
 import { hasReleasedArrays } from "./render/gpu-only-geometry";
 import { PerfGovernor } from "./render/perf-governor";
 import { PostPipeline } from "./render/post";
 import { setRenderCapabilities } from "./render/capabilities";
-import { isFragileGpu, markFragileGpu, recordContextLoss, safeMode } from "./render/safe-mode";
+import { recordContextLoss, safeMode } from "./render/safe-mode";
 import { isCoarsePointer } from "./render/quality";
 import { GameScene } from "./scenes/game-scene";
 import { MAX_DT } from "./shared/constants";
@@ -131,11 +131,10 @@ container.append(renderer.domElement);
 const trailerMode = new URLSearchParams(window.location.search).has("trailer");
 setRenderCapabilities({ multiDraw: renderer.extensions.has("WEBGL_multi_draw") });
 const gpu = describeGpu(renderer.getContext());
-markFragileGpu(shadowFragileGpu(gpu));
 // The floor tier switches the sun off, but the sky bake and the first title
-// frames can render before the governor applies it; on a driver that dies
-// under the shadow pass the map must never exist.
-if (isFragileGpu()) {
+// frames can render before the governor applies it; in safe mode the shadow
+// map must never exist at all.
+if (safeMode()) {
   renderer.shadowMap.enabled = false;
 }
 const game = new GameScene(window.innerWidth / window.innerHeight, trailerMode);
@@ -203,12 +202,6 @@ document.addEventListener("visibilitychange", () => {
 // keeps updating over it as if nothing happened. Say so, and offer the one
 // recovery that works on iOS — a reload (the world caches make it a short
 // one). three already asks the browser for restoration; if it comes, resume.
-const qualityState = (): string => {
-  if (isFragileGpu()) {
-    return "fragile gpu";
-  }
-  return safeMode() ? "safe mode" : "full quality";
-};
 renderer.domElement.addEventListener("webglcontextlost", () => {
   console.error("[crazy-waymo] WebGL context lost");
   recordContextLoss();
@@ -220,7 +213,7 @@ renderer.domElement.addEventListener("webglcontextlost", () => {
       gpu,
       `${Math.round(performance.now() / 1000)} s after load`,
       `tier ${governor.currentTier}/${governor.tierCount - 1}`,
-      qualityState(),
+      safeMode() ? "safe mode" : "full quality",
       game.modeKind,
       `${memory.geometries} geo · ${memory.textures} tex · ${render.triangles} tris`,
       `${screen.width}×${screen.height} @${window.devicePixelRatio}`,

@@ -35,7 +35,6 @@ export {
   describeGpu,
   gpuDescription,
   probeWebGL,
-  shadowFragileGpu,
   showWebGLVeil,
   webglFailureMessage,
 } from "./webgl";
