@@ -38,6 +38,12 @@ Screenshot this page when it says DONE, or as soon as a step says LOST.
   line(`${screen.width}×${screen.height} @${devicePixelRatio} · ${navigator.userAgent.match(/Chrome\/[\d.]+/)?.[0] ?? ""} · hold ${HOLD_S}s`);
   line("");
 
+
+  const lit = (color) => new THREE.MeshStandardMaterial({ color, roughness: 0.7 });
+  const box = (s, color, x, z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.4, 1.4), lit(color)); m.position.set(x, 0.7, z); s.add(m); return m; };
+  const noiseTexture = (size) => { const c = document.createElement("canvas"); c.width = c.height = size; const x = c.getContext("2d"); const img = x.createImageData(size, size); for (let i = 0; i < img.data.length; i += 4) { img.data[i] = Math.random() * 255; img.data[i + 1] = 120 + Math.random() * 100; img.data[i + 2] = 80; img.data[i + 3] = 255; } x.putImageData(img, 0, 0); const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; return t; };
+  const screenQuad = (map) => { const s = new THREE.Scene(); s.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ map }))); const c = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1); return { scene: s, camera: c }; };
+
   // Reload test: the game plays, then a refresh comes back "blocked" — Chrome
   // blamed the page for a loss that happened while the old page was torn
   // down. Build a resident set like the game's, hold it, reload once, and
@@ -70,11 +76,6 @@ Screenshot this page when it says DONE, or as soon as a step says LOST.
     }
     throw new Error("reload test owns the page");
   }
-
-  const lit = (color) => new THREE.MeshStandardMaterial({ color, roughness: 0.7 });
-  const box = (s, color, x, z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.4, 1.4), lit(color)); m.position.set(x, 0.7, z); s.add(m); return m; };
-  const noiseTexture = (size) => { const c = document.createElement("canvas"); c.width = c.height = size; const x = c.getContext("2d"); const img = x.createImageData(size, size); for (let i = 0; i < img.data.length; i += 4) { img.data[i] = Math.random() * 255; img.data[i + 1] = 120 + Math.random() * 100; img.data[i + 2] = 80; img.data[i + 3] = 255; } x.putImageData(img, 0, 0); const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; return t; };
-  const screenQuad = (map) => { const s = new THREE.Scene(); s.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ map }))); const c = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1); return { scene: s, camera: c }; };
 
   const steps = [
     ["1 baseline: 200 lit boxes, fog, ACES", (s, r) => { s.fog = new THREE.Fog(0xdde6f0, 10, 80); r.toneMapping = THREE.ACESFilmicToneMapping; for (let i = 0; i < 200; i++) box(s, 0x88aaff, (i % 20) * 2 - 20, Math.floor(i / 20) * 2 - 10); return () => {}; }],
