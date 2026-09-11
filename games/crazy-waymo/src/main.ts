@@ -6,7 +6,7 @@ import { hasReleasedArrays } from "./render/gpu-only-geometry";
 import { PerfGovernor } from "./render/perf-governor";
 import { PostPipeline } from "./render/post";
 import { setRenderCapabilities } from "./render/capabilities";
-import { markFragileGpu, recordContextLoss } from "./render/safe-mode";
+import { isFragileGpu, markFragileGpu, recordContextLoss, safeMode } from "./render/safe-mode";
 import { isCoarsePointer } from "./render/quality";
 import { GameScene } from "./scenes/game-scene";
 import { MAX_DT } from "./shared/constants";
@@ -24,13 +24,21 @@ document.querySelector("#loading")?.addEventListener("click", () => {
   }
 });
 
-const showFatal = (message: string, tapToReload = false): void => {
+const showFatal = (message: string, tapToReload = false, detail = ""): void => {
   const loading = document.querySelector<HTMLElement>("#loading");
   if (loading) {
     // Trailer boots keep the veil hidden from the first paint (see index.html)
     // — a dead context still has to be reported, so force it back on screen.
     loading.style.display = "flex";
     loading.innerHTML = `<div class="lt">CRAZY WAYMO</div><div class="ls" style="opacity:1;color:#ff8a8a">${message}</div>`;
+    if (detail) {
+      // What a phone screenshot has to carry: a lost context cannot be asked.
+      const line = document.createElement("div");
+      line.style.cssText =
+        "margin-top:12px;font-size:11px;color:#8b95a1;word-break:break-word;max-width:28em";
+      line.textContent = detail;
+      loading.append(line);
+    }
     reloadOnVeilTap = tapToReload;
   }
 };
@@ -96,6 +104,13 @@ const createRenderer = async (): Promise<THREE.WebGLRenderer> => {
       ? "Chrome paused graphics for this site after a crash. Wait two minutes, then tap to reload."
       : `WebGL unavailable${reason ? ` (${reason})` : ""} — tap to retry, or enable hardware acceleration.`,
     true,
+    [
+      reason,
+      `${Math.round(performance.now() / 1000)} s after load`,
+      `${screen.width}×${screen.height} @${window.devicePixelRatio}`,
+    ]
+      .filter(Boolean)
+      .join(" · "),
   );
   throw lastError instanceof Error ? lastError : new Error("WebGL init failed");
 };
@@ -115,7 +130,8 @@ container.append(renderer.domElement);
 // below — zero cost normally.
 const trailerMode = new URLSearchParams(window.location.search).has("trailer");
 setRenderCapabilities({ multiDraw: renderer.extensions.has("WEBGL_multi_draw") });
-markFragileGpu(shadowFragileGpu(describeGpu(renderer.getContext())));
+const gpu = describeGpu(renderer.getContext());
+markFragileGpu(shadowFragileGpu(gpu));
 const game = new GameScene(window.innerWidth / window.innerHeight, trailerMode);
 game.applyEnvironment(renderer);
 
@@ -181,12 +197,28 @@ document.addEventListener("visibilitychange", () => {
 // keeps updating over it as if nothing happened. Say so, and offer the one
 // recovery that works on iOS — a reload (the world caches make it a short
 // one). three already asks the browser for restoration; if it comes, resume.
+const qualityState = (): string => {
+  if (isFragileGpu()) {
+    return "fragile gpu";
+  }
+  return safeMode() ? "safe mode" : "full quality";
+};
 renderer.domElement.addEventListener("webglcontextlost", () => {
   console.error("[crazy-waymo] WebGL context lost");
   recordContextLoss();
+  const { memory, render } = renderer.info;
   showFatal(
     "The browser stopped the graphics (usually low memory). Tap to reload — the game will come back in low-graphics mode.",
     true,
+    [
+      gpu,
+      `${Math.round(performance.now() / 1000)} s after load`,
+      `tier ${governor.currentTier}/${governor.tierCount - 1}`,
+      qualityState(),
+      game.modeKind,
+      `${memory.geometries} geo · ${memory.textures} tex · ${render.triangles} tris`,
+      `${screen.width}×${screen.height} @${window.devicePixelRatio}`,
+    ].join(" · "),
   );
 });
 renderer.domElement.addEventListener("webglcontextrestored", () => {

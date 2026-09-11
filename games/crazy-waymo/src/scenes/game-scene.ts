@@ -468,6 +468,10 @@ export class GameScene {
     return this.loadDone;
   }
 
+  get modeKind(): GameMode["kind"] {
+    return this.mode.kind;
+  }
+
   // ---- wrapper pause -----------------------------------------------------
   // Solo game, no wall-clock gameplay timers (fares/score/patience are all
   // dt-driven — see GameState.update/FareManager) — a full freeze is safe.
