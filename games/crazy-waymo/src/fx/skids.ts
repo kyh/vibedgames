@@ -169,6 +169,8 @@ export class SkidMarks {
     this.writeVert(p + 3, x0 + rx, z0 + rz);
     this.writeVert(p + 6, x1 - rx, z1 - rz);
     this.writeVert(p + 9, x1 + rx, z1 + rz);
+    // One quad per stamp goes up, not the 600-quad ring.
+    this.posAttr.addUpdateRange(p, 12);
     this.posAttr.needsUpdate = true;
 
     const b = q * 4;
@@ -176,9 +178,11 @@ export class SkidMarks {
     this.births[b + 1] = this.time;
     this.births[b + 2] = this.time;
     this.births[b + 3] = this.time;
+    this.birthAttr.addUpdateRange(b, 4);
     this.birthAttr.needsUpdate = true;
 
     this.writeQuadColor(q, alpha, tint);
+    this.colAttr.addUpdateRange(q * 16, 16);
     this.colAttr.needsUpdate = true;
   }
 

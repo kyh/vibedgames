@@ -116,7 +116,9 @@ export class SignalLights {
 
   // Flip lamps to match the signal cycle at time t (the traffic sim clock):
   // color changes AND the box slides to the matching housing lamp (top red,
-  // bottom green). Buffers only re-upload when at least one lamp changed.
+  // bottom green). Only the lamps that flipped go back to the GPU: with ~2.6k
+  // heads on staggered cycles some lamp flips in nearly every frame, and a
+  // whole-buffer upload made that a 200 KB transfer per frame.
   private readonly m4 = new THREE.Matrix4();
   update(t: number): void {
     let dirty = false;
@@ -134,6 +136,8 @@ export class SignalLights {
         this.zs[i] ?? 0,
       );
       this.mesh.setMatrixAt(i, this.m4);
+      this.mesh.instanceMatrix.addUpdateRange(i * 16, 16);
+      this.mesh.instanceColor?.addUpdateRange(i * 3, 3);
       dirty = true;
     }
     if (dirty) {

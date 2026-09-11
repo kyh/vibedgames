@@ -249,10 +249,16 @@ export class DriftTrails {
     geo.setDrawRange(0, ii);
     this.mesh.visible = anyAlive;
     if (anyAlive) {
+      this.posAttr.clearUpdateRanges();
+      this.posAttr.addUpdateRange(0, vi);
       this.posAttr.needsUpdate = true;
+      this.colAttr.clearUpdateRanges();
+      this.colAttr.addUpdateRange(0, (vi / 3) * 4);
       this.colAttr.needsUpdate = true;
       const idx = geo.getIndex();
       if (idx) {
+        idx.clearUpdateRanges();
+        idx.addUpdateRange(0, ii);
         idx.needsUpdate = true;
       }
     }

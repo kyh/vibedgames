@@ -247,13 +247,15 @@ export class SmashCones {
   }
 
   update(dt: number): void {
-    let dirty = false;
+    let lo = this.cones.length;
+    let hi = -1;
     for (let i = 0; i < this.cones.length; i += 1) {
       const c = this.cones[i];
       if (!c || c.mode === "resting" || c.mode === "dead") {
         continue;
       }
-      dirty = true;
+      lo = Math.min(lo, i);
+      hi = i;
       if (c.mode === "physical" && c.body) {
         const t = c.body.translation();
         const r = c.body.rotation();
@@ -280,7 +282,8 @@ export class SmashCones {
       }
       this.write(i);
     }
-    if (dirty) {
+    if (hi >= lo) {
+      this.mesh.instanceMatrix.addUpdateRange(lo * 16, (hi - lo + 1) * 16);
       this.mesh.instanceMatrix.needsUpdate = true;
     }
   }
@@ -314,6 +317,8 @@ export class SmashCones {
     for (let i = 0; i < this.cones.length; i += 1) {
       this.write(i);
     }
+    // a pending partial range from update() would otherwise clip this upload
+    this.mesh.instanceMatrix.clearUpdateRanges();
     this.mesh.instanceMatrix.needsUpdate = true;
   }
 }

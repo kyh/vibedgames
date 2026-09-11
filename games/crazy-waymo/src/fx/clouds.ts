@@ -103,7 +103,6 @@ export class SkyClouds {
   private karlT = Math.random() * 900;
   // full (uncapped) width per sheet
   private fogWidth: Float32Array;
-  private highSpeed: Float32Array;
   private level: CloudQuality = 2;
   private highActive = HIGH_COUNT;
   private fogActive = FOG_COUNT;
@@ -183,7 +182,8 @@ export class SkyClouds {
     // Cluster spawner (see CLUSTER_*): a hero puff plus overlapping shoulder
     // puffs per anchor. Members are contiguous in the instance buffer, so the
     // mobile instanceCount cut drops whole clusters instead of gutting each.
-    this.highSpeed = new Float32Array(HIGH_COUNT);
+    // Drift runs in the cumulus shader; wrap around the extended sky box.
+    this.high.wrapU.value.set(-WORLD_HALF_X * 1.7, WORLD_HALF_X * 3.4);
     let i = 0;
     while (i < HIGH_COUNT) {
       const puffs = Math.min(
@@ -214,7 +214,7 @@ export class SkyClouds {
         this.high.sizes.set([w, w * (0.42 + Math.random() * 0.16)], i * 2);
         this.high.alphas[i] = hero ? 0.85 + Math.random() * 0.15 : 0.55 + Math.random() * 0.35;
         this.high.seeds[i] = Math.random();
-        this.highSpeed[i] = speed;
+        this.high.drifts[i] = speed;
       }
     }
     this.fogSpeed = new Float32Array(FOG_COUNT);
@@ -297,7 +297,6 @@ export class SkyClouds {
     for (let i = prevFog; i < this.fogActive; i += 1) {
       this.spawnFog(i, true);
     }
-    this.high.markDirty();
     this.fog.markDirty();
   }
 
@@ -311,14 +310,8 @@ export class SkyClouds {
   }
 
   update(dt: number): void {
-    // High cumulus: constant drift, wrap around the extended sky box.
-    for (let i = 0; i < this.highActive; i += 1) {
-      let x = (this.high.centers[i * 3] ?? 0) + (this.highSpeed[i] ?? 0) * dt;
-      if (x > WORLD_HALF_X * 1.7) {
-        x = -WORLD_HALF_X * 1.7;
-      }
-      this.high.centers[i * 3] = x;
-    }
+    // High cumulus drift on the GPU (cloud-layer.ts CUMULUS_VERT).
+    this.high.timeU.value += dt;
     // Karl breathes as WEATHER, not a constant: two incommensurate sines
     // (~7 min swell + ~100 s ripple) sweep his presence between wisps (0.55)
     // and a bank half again heavier than the old constant (1.45) — and at the
@@ -347,7 +340,10 @@ export class SkyClouds {
         this.spawnFog(i, false);
       }
     }
-    this.high.markDirty();
-    this.fog.markDirty();
+    // The sheets' alpha is an integrator (fade-in feeds on last frame's
+    // value), so Karl stays on the CPU — but only the live sheets go up.
+    if (this.fogActive > 0) {
+      this.fog.markDirty(this.fogActive);
+    }
   }
 }

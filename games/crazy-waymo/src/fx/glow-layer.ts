@@ -201,9 +201,17 @@ export class GlowLayer {
     this.normals[i * 3 + 2] = normal?.z ?? 0;
   }
 
+  // Uploads the pushed range only: the arrays are sized to capacity, and a
+  // dynamic caller with a handful of lights was paying for the whole pool.
   commit(): void {
-    this.geo.instanceCount = this.cursor;
+    const n = this.cursor;
+    this.geo.instanceCount = n;
+    if (n === 0) {
+      return;
+    }
     for (const a of this.attrs) {
+      a.clearUpdateRanges();
+      a.addUpdateRange(0, n * a.itemSize);
       a.needsUpdate = true;
     }
   }
