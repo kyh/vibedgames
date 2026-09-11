@@ -7,8 +7,16 @@ import { InstancedMesh } from "three";
 // this scene builds. Reveal the scene one top-level object at a time, draw a
 // few frames each, and keep the current object's description on screen above
 // every other surface: the DOM survives a lost context, the canvas does not.
-export const isGpuProbeRequested = (): boolean =>
-  new URLSearchParams(window.location.search).get("gpuprobe") === "1";
+export type GpuProbeMode = "reveal" | "loop" | null;
+
+/** `1` reveals the scene then runs the loop; `2` runs the loop straight away. */
+export const gpuProbeMode = (): GpuProbeMode => {
+  const v = new URLSearchParams(window.location.search).get("gpuprobe");
+  if (v === "1") {
+    return "reveal";
+  }
+  return v === "2" ? "loop" : null;
+};
 
 const describe = (o: THREE.Object3D): string => {
   const parts = [o.name || o.type];
@@ -54,12 +62,79 @@ const frames = (n: number): Promise<void> =>
     requestAnimationFrame(tick);
   });
 
+const PANEL_ID = "gpuprobe-panel";
+const probePanel = (): HTMLPreElement => {
+  const existing = document.querySelector(`#${PANEL_ID}`);
+  if (existing instanceof HTMLPreElement) {
+    return existing;
+  }
+  const panel = document.createElement("pre");
+  panel.id = PANEL_ID;
+  return panel;
+};
+
+/**
+ * Phase two: the real loop, with the renderer's resource counters on screen
+ * every frame. A driver that dies once play starts leaves the last frames'
+ * program / texture / geometry counts and the game state on the panel.
+ */
+export const runGpuLoopProbe = (
+  renderer: THREE.WebGLRenderer,
+  scene: THREE.Scene,
+  camera: THREE.Camera,
+  step: (dt: number) => void,
+  state: () => string,
+): void => {
+  const panel = probePanel();
+  panel.style.cssText =
+    "position:fixed;left:0;right:0;top:0;z-index:2147483001;margin:0;padding:12px;" +
+    "background:rgba(11,14,20,.92);color:#f4f7fb;font:12px/1.4 monospace;white-space:pre-wrap;word-break:break-word;max-height:60vh;overflow:auto";
+  document.body.append(panel);
+  const recent: string[] = [];
+  let last = performance.now();
+  let frame = 0;
+  let lost = false;
+  const { info } = renderer;
+  const tick = (): void => {
+    if (lost) {
+      return;
+    }
+    const now = performance.now();
+    const dt = Math.min((now - last) / 1000, 0.1);
+    last = now;
+    step(dt);
+    renderer.render(scene, camera);
+    frame += 1;
+    const line = `f${frame} t=${(now / 1000).toFixed(1)}s prog=${info.programs?.length ?? 0} tex=${info.memory.textures} geo=${info.memory.geometries} calls=${info.render.calls} tris=${info.render.triangles} ${state()}`;
+    recent.push(line);
+    if (recent.length > 8) {
+      recent.shift();
+    }
+    if (renderer.getContext().isContextLost()) {
+      lost = true;
+      recent.push("LOST — the frames above are what the driver did not survive. Screenshot this.");
+    }
+    if (frame % 3 === 0 || lost) {
+      panel.textContent = `gpuprobe loop: live counters (last 8 frames)\n${recent.join("\n")}`;
+    }
+    if (!lost) {
+      requestAnimationFrame(tick);
+    }
+  };
+  renderer.domElement.addEventListener("webglcontextlost", () => {
+    lost = true;
+    recent.push("LOST (event) — screenshot this.");
+    panel.textContent = `gpuprobe loop: live counters (last 8 frames)\n${recent.join("\n")}`;
+  });
+  requestAnimationFrame(tick);
+};
+
 export const runGpuProbe = async (
   renderer: THREE.WebGLRenderer,
   scene: THREE.Scene,
   camera: THREE.Camera,
 ): Promise<void> => {
-  const panel = document.createElement("pre");
+  const panel = probePanel();
   panel.style.cssText =
     "position:fixed;left:0;right:0;top:0;z-index:2147483001;margin:0;padding:12px;" +
     "background:rgba(11,14,20,.92);color:#f4f7fb;font:12px/1.4 monospace;white-space:pre-wrap;word-break:break-word;max-height:70vh;overflow:auto";

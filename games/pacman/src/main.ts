@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { probeWebGL, setPauseHandlers, showWebGLVeil } from "@repo/embed";
 
 import { setAudioPaused, unlockAudio } from "./audio/sfx";
-import { isGpuProbeRequested, runGpuProbe } from "./gpu-probe";
+import { gpuProbeMode, runGpuLoopProbe, runGpuProbe } from "./gpu-probe";
 import { FaceCamera } from "./input/face-camera";
 import type { FaceCameraState } from "./input/face-camera";
 import { IS_TOUCH } from "./input/input-mode";
@@ -220,11 +220,25 @@ const diag: GameDiagnostics & { frame: number; paused: boolean } = {
 Reflect.set(globalThis, "__GAME_DIAGNOSTICS__", diag);
 
 const timer = new THREE.Timer();
-if (isGpuProbeRequested()) {
-  void runGpuProbe(renderer, game.scene, game.camera);
+const probeMode = gpuProbeMode();
+if (probeMode) {
+  const loop = (): void =>
+    runGpuLoopProbe(
+      renderer,
+      game.scene,
+      game.camera,
+      (dt) => game.update(dt),
+      () => JSON.stringify(diag).slice(0, 160),
+    );
+  void (async () => {
+    if (probeMode === "reveal") {
+      await runGpuProbe(renderer, game.scene, game.camera);
+    }
+    loop();
+  })();
 }
 renderer.setAnimationLoop((time) => {
-  if (isGpuProbeRequested()) {
+  if (probeMode) {
     return;
   }
   timer.update(time);
