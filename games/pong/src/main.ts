@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { createTouchControls, setPauseHandlers } from "@repo/embed";
+import { createTouchControls, probeWebGL, setPauseHandlers, showWebGLVeil } from "@repo/embed";
 
 import { isMuted, resumeSound, setMuted, setSoundPaused } from "./fx/sfx";
 import { createHandCamera } from "./input/camera";
@@ -13,6 +13,13 @@ import { COARSE_INPUT } from "./shared/input-mode";
 const container = document.querySelector("#game");
 if (!container) {
   throw new Error("missing #game container");
+}
+
+const webgl = probeWebGL();
+if (!webgl.ok) {
+  showWebGLVeil(webgl);
+  // Module-level boot has no early return: the uncaught throw logs the reason and stops.
+  throw new Error(`WebGL unavailable: ${webgl.reason}`);
 }
 
 // No MSAA: the scene renders into the dither pass's low-res target, where
@@ -33,6 +40,13 @@ const applyPixelRatio = (): void => {
 applyPixelRatio();
 renderer.setSize(window.innerWidth, window.innerHeight);
 container.append(renderer.domElement);
+renderer.domElement.addEventListener("webglcontextlost", () => {
+  console.error("WebGL context lost");
+  showWebGLVeil(
+    { blocked: false, ok: false, reason: "context lost" },
+    "The browser stopped the graphics (usually low memory).",
+  );
+});
 
 // Unlock audio on the first real gesture (capture: before that gesture serves).
 for (const event of ["pointerdown", "keydown"]) {

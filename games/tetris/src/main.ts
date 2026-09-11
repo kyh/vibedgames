@@ -1,4 +1,4 @@
-import { isPausable, pauseGame, setPauseHandlers } from "@repo/embed";
+import { isPausable, pauseGame, probeWebGL, setPauseHandlers, showWebGLVeil } from "@repo/embed";
 import * as THREE from "three";
 
 import { setSoundPaused } from "./fx/sfx";
@@ -15,6 +15,13 @@ if (!container) {
 }
 // Suppress long-press menus.
 container.addEventListener("contextmenu", (e) => e.preventDefault());
+
+const webgl = probeWebGL();
+if (!webgl.ok) {
+  showWebGLVeil(webgl);
+  // Module-level boot has no early return: the uncaught throw logs the reason and stops.
+  throw new Error(`WebGL unavailable: ${webgl.reason}`);
+}
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
 // Phones cap DPR lower — the antialiased 3D well is fill-rate bound at DPR 3.

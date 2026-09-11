@@ -1,6 +1,6 @@
 import type { Types } from "phaser";
 import { Game, Scale, WEBGL } from "phaser";
-import { setPauseHandlers } from "@repo/embed";
+import { probeWebGL, setPauseHandlers, showWebGLVeil } from "@repo/embed";
 
 import { hide as hidePauseOverlay, show as showPauseOverlay } from "./pause-overlay";
 import { setSoundPaused, soundDiagnostics } from "./render/audio";
@@ -46,7 +46,20 @@ declare global {
 
 const boot = async (): Promise<void> => {
   await fontReady;
+  const webgl = probeWebGL();
+  if (!webgl.ok) {
+    console.error(`WebGL unavailable: ${webgl.reason}`);
+    showWebGLVeil(webgl);
+    return;
+  }
   const game = new Game(config);
+  game.canvas.addEventListener("webglcontextlost", () => {
+    console.error("WebGL context lost");
+    showWebGLVeil(
+      { blocked: false, ok: false, reason: "context lost" },
+      "The browser stopped the graphics (usually low memory).",
+    );
+  });
   const activeGame = (): GameScene | null => {
     const scene = game.scene.getScene("Game");
     return scene instanceof GameScene && game.scene.isActive("Game") ? scene : null;

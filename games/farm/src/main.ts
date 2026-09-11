@@ -1,6 +1,6 @@
 import type { Types } from "phaser";
 import { Game, Scale, WEBGL } from "phaser";
-import { setPauseHandlers } from "@repo/embed";
+import { probeWebGL, setPauseHandlers, showWebGLVeil } from "@repo/embed";
 
 import { pauseOverlay } from "./pause-overlay";
 import { BootScene } from "./scenes/boot-scene";
@@ -41,7 +41,21 @@ declare global {
   }
 }
 
+const webgl = probeWebGL();
+if (!webgl.ok) {
+  showWebGLVeil(webgl);
+  // Module-level boot has no early return: the uncaught throw logs the reason and stops.
+  throw new Error(`WebGL unavailable: ${webgl.reason}`);
+}
+
 const game = new Game(config);
+game.canvas.addEventListener("webglcontextlost", () => {
+  console.error("WebGL context lost");
+  showWebGLVeil(
+    { blocked: false, ok: false, reason: "context lost" },
+    "The browser stopped the graphics (usually low memory).",
+  );
+});
 if (import.meta.env.DEV) {
   window.__game = game;
 }

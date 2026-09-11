@@ -1,6 +1,6 @@
 import { Game, Scale, WEBGL } from "phaser";
 import type { Types } from "phaser";
-import { setPauseHandlers } from "@repo/embed";
+import { probeWebGL, setPauseHandlers, showWebGLVeil } from "@repo/embed";
 
 import { CONTROLS } from "./controls";
 import { initPoseCamera } from "./input/camera";
@@ -35,7 +35,21 @@ const config: Types.Core.GameConfig = {
   type: WEBGL,
 };
 
+const webgl = probeWebGL();
+if (!webgl.ok) {
+  showWebGLVeil(webgl);
+  // Module-level boot has no early return: the uncaught throw logs the reason and stops.
+  throw new Error(`WebGL unavailable: ${webgl.reason}`);
+}
+
 const game = new Game(config);
+game.canvas.addEventListener("webglcontextlost", () => {
+  console.error("WebGL context lost");
+  showWebGLVeil(
+    { blocked: false, ok: false, reason: "context lost" },
+    "The browser stopped the graphics (usually low memory).",
+  );
+});
 
 // Scale.RESIZE can read stale parent bounds when a resize lands while the tab
 // is hidden or the browser throttles events (tab switch, phone rotation): the

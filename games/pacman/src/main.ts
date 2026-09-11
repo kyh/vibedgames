@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { setPauseHandlers } from "@repo/embed";
+import { probeWebGL, setPauseHandlers, showWebGLVeil } from "@repo/embed";
 
 import { setAudioPaused, unlockAudio } from "./audio/sfx";
 import { FaceCamera } from "./input/face-camera";
@@ -21,6 +21,13 @@ if (IS_TOUCH) {
   document.body.classList.add("touch");
 }
 
+const webgl = probeWebGL();
+if (!webgl.ok) {
+  showWebGLVeil(webgl);
+  // Module-level boot has no early return: the uncaught throw logs the reason and stops.
+  throw new Error(`WebGL unavailable: ${webgl.reason}`);
+}
+
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -31,6 +38,13 @@ renderer.toneMappingExposure = TONE_EXPOSURE;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 container.append(renderer.domElement);
+renderer.domElement.addEventListener("webglcontextlost", () => {
+  console.error("WebGL context lost");
+  showWebGLVeil(
+    { blocked: false, ok: false, reason: "context lost" },
+    "The browser stopped the graphics (usually low memory).",
+  );
+});
 
 const game = new GameScene();
 
