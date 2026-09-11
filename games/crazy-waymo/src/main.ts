@@ -132,6 +132,12 @@ const trailerMode = new URLSearchParams(window.location.search).has("trailer");
 setRenderCapabilities({ multiDraw: renderer.extensions.has("WEBGL_multi_draw") });
 const gpu = describeGpu(renderer.getContext());
 markFragileGpu(shadowFragileGpu(gpu));
+// The floor tier switches the sun off, but the sky bake and the first title
+// frames can render before the governor applies it; on a driver that dies
+// under the shadow pass the map must never exist.
+if (isFragileGpu()) {
+  renderer.shadowMap.enabled = false;
+}
 const game = new GameScene(window.innerWidth / window.innerHeight, trailerMode);
 game.applyEnvironment(renderer);
 
