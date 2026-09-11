@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { probeWebGL, setPauseHandlers, showWebGLVeil } from "@repo/embed";
 
 import { setAudioPaused, unlockAudio } from "./audio/sfx";
-import { gpuProbeMode, runGpuLoopProbe, runGpuProbe } from "./gpu-probe";
+import { gpuProbeMode, runGpuDietProbe, runGpuLoopProbe, runGpuProbe } from "./gpu-probe";
 import { FaceCamera } from "./input/face-camera";
 import type { FaceCameraState } from "./input/face-camera";
 import { IS_TOUCH } from "./input/input-mode";
@@ -231,6 +231,16 @@ if (probeMode) {
       () => JSON.stringify(diag).slice(0, 160),
     );
   void (async () => {
+    if (probeMode === "diet") {
+      runGpuDietProbe(
+        renderer,
+        game.scene,
+        game.camera,
+        (dt) => game.update(dt),
+        () => JSON.stringify(diag).slice(0, 160),
+      );
+      return;
+    }
     if (probeMode === "reveal") {
       await runGpuProbe(renderer, game.scene, game.camera);
     }

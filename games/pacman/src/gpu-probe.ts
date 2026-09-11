@@ -1,4 +1,4 @@
-import type * as THREE from "three";
+import * as THREE from "three";
 import { InstancedMesh } from "three";
 
 import { UPDATE_STEPS } from "./scenes/game-scene";
@@ -10,13 +10,18 @@ import type { UpdateStep } from "./scenes/game-scene";
 // this scene builds. Reveal the scene one top-level object at a time, draw a
 // few frames each, and keep the current object's description on screen above
 // every other surface: the DOM survives a lost context, the canvas does not.
-export type GpuProbeMode = "reveal" | "loop" | null;
+export type GpuProbeMode = "reveal" | "loop" | "diet" | null;
 
-/** `1` reveals the scene then runs the loop; `2` runs the loop straight away. */
+/** `1` reveals the scene then runs the loop; `2` runs the loop straight away;
+ *  `3` runs the full game from a minimal render load, adding one GPU cost
+ *  every ten seconds. */
 export const gpuProbeMode = (): GpuProbeMode => {
   const v = new URLSearchParams(window.location.search).get("gpuprobe");
   if (v === "1") {
     return "reveal";
+  }
+  if (v === "3") {
+    return "diet";
   }
   return v === "2" ? "loop" : null;
 };
@@ -76,26 +81,29 @@ const probePanel = (): HTMLPreElement => {
   return panel;
 };
 
+interface ProbeStage {
+  name: string;
+  apply: () => void;
+}
+
 /**
- * Phase two: the real loop, with the renderer's resource counters on screen
- * every frame. A driver that dies once play starts leaves the last frames'
- * program / texture / geometry counts and the game state on the panel.
+ * The real loop with the renderer's resource counters on screen every frame,
+ * advancing through `stages` one every `holdS` seconds. The stage that was
+ * added last when the context dies is the one the driver did not survive; a
+ * ten-second hold matters because the loss lands at a random moment under a
+ * steady load, so twelve frames of anything prove nothing.
  */
-export const runGpuLoopProbe = (
+const runStagedProbe = (
   renderer: THREE.WebGLRenderer,
   scene: THREE.Scene,
   camera: THREE.Camera,
-  step: (dt: number, allow: (name: UpdateStep) => boolean) => void,
+  step: (dt: number) => void,
   state: () => string,
+  stages: readonly ProbeStage[],
+  holdS: number,
+  title: string,
 ): void => {
-  // Cumulative bisect: every SEGMENT_S another update step joins the frame,
-  // in UPDATE_STEPS order. The step that was added last when the context
-  // dies is the one the driver did not survive.
-  const SEGMENT_S = 3;
   const startedAt = performance.now();
-  const enabledCount = (): number =>
-    Math.min(UPDATE_STEPS.length, Math.floor((performance.now() - startedAt) / 1000 / SEGMENT_S));
-  const allow = (name: UpdateStep): boolean => UPDATE_STEPS.indexOf(name) < enabledCount();
   const panel = probePanel();
   panel.style.cssText =
     "position:fixed;left:0;right:0;top:0;z-index:2147483001;margin:0;padding:12px;" +
@@ -105,19 +113,24 @@ export const runGpuLoopProbe = (
   let last = performance.now();
   let frame = 0;
   let lost = false;
+  let applied = 0;
   const { info } = renderer;
   const tick = (): void => {
     if (lost) {
       return;
     }
     const now = performance.now();
+    const due = Math.min(stages.length, Math.floor((now - startedAt) / 1000 / holdS) + 1);
+    while (applied < due) {
+      stages[applied]?.apply();
+      applied += 1;
+    }
     const dt = Math.min((now - last) / 1000, 0.1);
     last = now;
-    step(dt, allow);
+    step(dt);
     renderer.render(scene, camera);
     frame += 1;
-    const on = UPDATE_STEPS.slice(0, enabledCount());
-    const line = `f${frame} t=${(now / 1000).toFixed(1)}s steps=${on.length}/${UPDATE_STEPS.length} last=${on.at(-1) ?? "none"} prog=${info.programs?.length ?? 0} tex=${info.memory.textures} geo=${info.memory.geometries} calls=${info.render.calls} tris=${info.render.triangles} ${state()}`;
+    const line = `f${frame} t=${((now - startedAt) / 1000).toFixed(1)}s stage=${applied}/${stages.length} last=${stages[applied - 1]?.name ?? "none"} prog=${info.programs?.length ?? 0} tex=${info.memory.textures} geo=${info.memory.geometries} calls=${info.render.calls} tris=${info.render.triangles} pr=${renderer.getPixelRatio()} ${state()}`;
     recent.push(line);
     if (recent.length > 8) {
       recent.shift();
@@ -127,7 +140,7 @@ export const runGpuLoopProbe = (
       recent.push("LOST — the frames above are what the driver did not survive. Screenshot this.");
     }
     if (frame % 3 === 0 || lost) {
-      panel.textContent = `gpuprobe loop: one more update step every ${SEGMENT_S}s (${UPDATE_STEPS.join(" → ")})\n${recent.join("\n")}`;
+      panel.textContent = `${title}\n${recent.join("\n")}`;
     }
     if (!lost) {
       requestAnimationFrame(tick);
@@ -136,9 +149,127 @@ export const runGpuLoopProbe = (
   renderer.domElement.addEventListener("webglcontextlost", () => {
     lost = true;
     recent.push("LOST (event) — screenshot this.");
-    panel.textContent = `gpuprobe loop: live counters (last 8 frames)\n${recent.join("\n")}`;
+    panel.textContent = `${title}\n${recent.join("\n")}`;
   });
   requestAnimationFrame(tick);
+};
+
+/** Phase two: cumulative bisect over the update steps, in UPDATE_STEPS order. */
+export const runGpuLoopProbe = (
+  renderer: THREE.WebGLRenderer,
+  scene: THREE.Scene,
+  camera: THREE.Camera,
+  step: (dt: number, allow: (name: UpdateStep) => boolean) => void,
+  state: () => string,
+): void => {
+  const SEGMENT_S = 3;
+  let enabled = 0;
+  const allow = (name: UpdateStep): boolean => UPDATE_STEPS.indexOf(name) < enabled;
+  const stages = UPDATE_STEPS.map((name) => ({
+    apply: () => {
+      enabled += 1;
+    },
+    name,
+  }));
+  runStagedProbe(
+    renderer,
+    scene,
+    camera,
+    (dt) => step(dt, allow),
+    state,
+    stages,
+    SEGMENT_S,
+    `gpuprobe loop: one more update step every ${SEGMENT_S}s (${UPDATE_STEPS.join(" → ")})`,
+  );
+};
+
+const markMaterials = (scene: THREE.Scene): void => {
+  scene.traverse((o) => {
+    if (!("material" in o)) {
+      return;
+    }
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    for (const m of mats) {
+      if (m instanceof THREE.Material) {
+        m.needsUpdate = true;
+      }
+    }
+  });
+};
+
+/**
+ * Phase three: the full game under a render diet, adding one GPU cost every
+ * ten seconds. The two biggest instanced meshes are the maze walls (~384k
+ * triangles, shadow-cast and -received) and the pellets; together with the
+ * shadow pass and the pixel ratio they are the whole triangle and fill budget.
+ */
+export const runGpuDietProbe = (
+  renderer: THREE.WebGLRenderer,
+  scene: THREE.Scene,
+  camera: THREE.Camera,
+  step: (dt: number) => void,
+  state: () => string,
+): void => {
+  const HOLD_S = 10;
+  const instanced: InstancedMesh[] = [];
+  scene.traverse((o) => {
+    if (o instanceof InstancedMesh) {
+      instanced.push(o);
+    }
+  });
+  instanced.sort((a, b) => b.count - a.count);
+  const [walls, pellets] = instanced;
+  const fullRatio = renderer.getPixelRatio();
+  const stages: ProbeStage[] = [
+    {
+      apply: () => {
+        renderer.shadowMap.enabled = false;
+        markMaterials(scene);
+        renderer.setPixelRatio(1);
+        if (walls) {
+          walls.visible = false;
+        }
+        if (pellets) {
+          pellets.visible = false;
+        }
+      },
+      name: "base(no shadows,dpr1,no walls,no pellets)",
+    },
+    {
+      apply: () => {
+        if (pellets) {
+          pellets.visible = true;
+        }
+      },
+      name: "+pellets",
+    },
+    {
+      apply: () => {
+        if (walls) {
+          walls.visible = true;
+        }
+      },
+      name: "+walls",
+    },
+    { apply: () => renderer.setPixelRatio(fullRatio), name: `+dpr${fullRatio}` },
+    {
+      apply: () => {
+        renderer.shadowMap.enabled = true;
+        markMaterials(scene);
+      },
+      name: "+shadows",
+    },
+  ];
+  runStagedProbe(
+    renderer,
+    scene,
+    camera,
+    step,
+    state,
+    stages,
+    HOLD_S,
+    `gpuprobe diet: one more GPU cost every ${HOLD_S}s, then holds (${stages.map((s) => s.name).join(" → ")})`,
+  );
 };
 
 export const runGpuProbe = async (
