@@ -3,6 +3,7 @@
 // Chunks arc under gravity, bounce once on the floor, then shrink out.
 import * as THREE from "three";
 import { terrainHeight } from "../data/terrain";
+import { uploadPrefix } from "./buffer-upload";
 import { createRockGeometry } from "./fx-geometry";
 
 const MAX_CHUNKS = 64;
@@ -38,6 +39,8 @@ export class ChunkPool {
   private mesh: THREE.InstancedMesh;
   private free: number[] = [];
   private active: Chunk[] = [];
+  // slots ever handed out since the pool last emptied — the upload/draw prefix
+  private highWater = 0;
   private dummy = new THREE.Object3D();
   private color = new THREE.Color();
 
@@ -89,6 +92,9 @@ export class ChunkPool {
         return;
         // saturated — drop
       }
+      if (idx >= this.highWater) {
+        this.highWater = idx + 1;
+      }
       const a = Math.random() * Math.PI * 2;
       const spd = speed * (0.5 + Math.random());
       const c: Chunk = {
@@ -116,7 +122,7 @@ export class ChunkPool {
       this.mesh.setColorAt(idx, this.color.clone().multiplyScalar(v));
     }
     if (this.mesh.instanceColor) {
-      this.mesh.instanceColor.needsUpdate = true;
+      uploadPrefix(this.mesh.instanceColor, this.highWater * 3);
     }
   }
 
@@ -178,10 +184,14 @@ export class ChunkPool {
       this.dummy.updateMatrix();
       this.mesh.setMatrixAt(c.idx, this.dummy.matrix);
     }
-    // indices are sparse (free-list), so draw the full range while anything
-    // lives and nothing at all when idle
-    this.mesh.count = this.active.length > 0 ? MAX_CHUNKS : 0;
-    this.mesh.instanceMatrix.needsUpdate = true;
+    // indices are sparse (free-list) but bounded by the high-water mark: draw
+    // and upload that prefix while anything lives, nothing at all when idle
+    const n = this.highWater;
+    this.mesh.count = this.active.length > 0 ? n : 0;
+    uploadPrefix(this.mesh.instanceMatrix, n * 16);
+    if (this.active.length === 0) {
+      this.highWater = 0;
+    }
   }
 
   clear(): void {
