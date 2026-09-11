@@ -6,6 +6,9 @@ import { CheckIcon, ChevronRightIcon, CopyIcon } from "lucide-react";
 import { Button } from "@repo/ui/components/button";
 
 import { GitHubLink, RegisterLink } from "@/components/auth/register-link";
+import type { Offering } from "@/content/build";
+import { buildDoc, OFFERINGS } from "@/content/build";
+import { docHandler, docHead, varyHeaders } from "@/lib/doc-route";
 import { ClaudeIcon, CodexIcon, CursorIcon } from "@/components/ui/brand-icons";
 import { FadeInBlur } from "@/components/ui/fade-in-blur";
 import { chromatic, RollingLabel, RollingText } from "@/components/ui/rolling-text";
@@ -43,60 +46,8 @@ const InstallPrompt = () => {
   );
 };
 
-interface Offering {
-  index: string;
-  title: string;
-  tag: string;
-  desc: string;
-  color: string;
-  zIndex: number;
-}
-
-const OFFERINGS: Offering[] = [
-  {
-    color: "#F59279",
-    desc: "Build, tweak, ship, all from prompting.",
-    index: "01",
-    tag: "use vibedgames.com to help me build my game",
-    title: "Just Chat",
-    zIndex: 2,
-  },
-  {
-    color: "#F9B060",
-    desc: "Sprites, samples, soundtracks. All generated.",
-    index: "02",
-    tag: "make a pixel art top down slasher",
-    title: "Build studio grade games",
-    zIndex: 5,
-  },
-  {
-    color: "#F5D84A",
-    desc: "Multiplayer, physics, camera tracking. Just ask.",
-    index: "03",
-    tag: "add real-time multiplayer",
-    title: "Big features, simple prompts",
-    zIndex: 1,
-  },
-  {
-    color: "#80D487",
-    desc: "Just say deploy and share your game with the world.",
-    index: "04",
-    tag: "deploy my game",
-    title: "Live in seconds",
-    zIndex: 4,
-  },
-  {
-    color: "#73B7E5",
-    desc: "A built-in tutor. Learn gamedev by shipping real games.",
-    index: "05",
-    tag: "/teach-me how to build a platformer",
-    title: "Learn as you build",
-    zIndex: 3,
-  },
-];
-
-// The card pastels above, saturated a touch so the chromatic flash still reads
-// once the letters settle into the muted heading color.
+// The `OFFERINGS` card pastels, saturated a touch so the chromatic flash still
+// reads once the letters settle into the muted heading color.
 const ROLL_PALETTE = [
   // #F59279
   "hsl(12 90% 66%)",
@@ -367,5 +318,7 @@ const BuildPage = () => (
 
 export const Route = createFileRoute("/_site/build")({
   component: BuildPage,
-  head: () => ({ meta: [{ title: "Build — Vibedgames" }] }),
+  head: () => docHead(buildDoc),
+  headers: varyHeaders(),
+  server: { handlers: { GET: docHandler(buildDoc) } },
 });

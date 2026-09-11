@@ -34,6 +34,12 @@ const body = [
   "",
   `Sitemap: ${siteConfig.url}/sitemap.xml`,
   "",
+  "# Agent-facing entry points (not part of RFC 9309, listed for discovery)",
+  `# llms.txt: ${siteConfig.url}/llms.txt`,
+  `# Install: ${siteConfig.url}/install`,
+  `# Docs: ${siteConfig.url}/docs`,
+  `# Agent skills: ${siteConfig.url}/.well-known/agent-skills/index.json`,
+  "",
 ].join("\n");
 
 export const Route = createFileRoute("/robots.txt")({
