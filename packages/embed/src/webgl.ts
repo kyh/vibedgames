@@ -27,9 +27,6 @@ const BLOCK_PATTERN = /blocked|blocklist|too many|context limit/iu;
 // chrome://gpu for us.
 let captured = "";
 
-/** What the boot probe learned about the GPU; empty before `probeWebGL`. */
-export const gpuDescription = (): string => captured;
-
 /** Vendor and model of the live context's GPU, unmasked where the browser allows it. */
 export const describeGpu = (gl: WebGLRenderingContext | WebGL2RenderingContext): string => {
   const info = gl.getExtension("WEBGL_debug_renderer_info");

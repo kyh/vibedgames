@@ -14,9 +14,8 @@ import {
 //
 // The bob runs in the vertex shader from a per-instance phase and a time
 // uniform, so the instance buffer is uploaded when the board changes and
-// never per frame: rewriting and re-uploading every matrix each frame is
-// the one thing this scene did that the Pixel 10's PowerVR driver did not
-// survive, and it was 350 matrix writes a frame for nothing.
+// never per frame: re-uploading every matrix each frame for a cosmetic
+// motion is the kind of work phone drivers fall over on.
 
 export interface PelletCell {
   col: number;
