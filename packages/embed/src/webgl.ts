@@ -25,7 +25,27 @@ const BLOCK_PATTERN = /blocked|blocklist|too many|context limit/iu;
 // Captured by the boot probe so a later failure veil can say what the device
 // is — a lost context cannot be asked, and a phone's player cannot open
 // chrome://gpu for us.
-let gpuDescription = "";
+let captured = "";
+
+/** What the boot probe learned about the GPU; empty before `probeWebGL`. */
+export const gpuDescription = (): string => captured;
+
+/** Vendor and model of the live context's GPU, unmasked where the browser allows it. */
+export const describeGpu = (gl: WebGLRenderingContext | WebGL2RenderingContext): string => {
+  const info = gl.getExtension("WEBGL_debug_renderer_info");
+  return String(
+    info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
+  );
+};
+
+// Chrome's PowerVR DXT support (Pixel 10, via ANGLE) loses the context within
+// seconds of three's shadow pass starting, on a scene that otherwise runs for
+// minutes; a game with shadows must fall back before the driver decides.
+const FRAGILE_SHADOW_GPU = /PowerVR/iu;
+
+/** True for drivers known to die under a shadow-map pass. */
+export const shadowFragileGpu = (description: string): boolean =>
+  FRAGILE_SHADOW_GPU.test(description);
 
 /**
  * Try to create a context on a throwaway canvas. Cheap: a probe context is
@@ -50,11 +70,8 @@ export const probeWebGL = (): WebGLProbe => {
     gl = null;
   }
   if (gl) {
-    const info = gl.getExtension("WEBGL_debug_renderer_info");
-    const renderer = String(
-      info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
-    );
-    gpuDescription = `${renderer} · ${gl instanceof WebGL2RenderingContext ? "WebGL2" : "WebGL1"}`;
+    const renderer = describeGpu(gl);
+    captured = `${renderer} · ${gl instanceof WebGL2RenderingContext ? "WebGL2" : "WebGL1"}`;
     gl.getExtension("WEBGL_lose_context")?.loseContext();
     return { ok: true };
   }
@@ -64,7 +81,7 @@ export const probeWebGL = (): WebGLProbe => {
 /** What to tell the player. Plain text; the game owns the surface it lands on. */
 export const webglFailureMessage = (probe: Extract<WebGLProbe, { ok: false }>): string => {
   if (probe.blocked) {
-    return "Chrome paused graphics for this site after a game crashed. Wait two minutes, then reload.";
+    return "Chrome paused graphics for this site after a game crashed. It lifts two minutes after the last crash.";
   }
   const detail = probe.reason ? ` (${probe.reason})` : "";
   return `Graphics are unavailable in this browser${detail}. Try reloading, another browser, or enabling hardware acceleration.`;
@@ -90,14 +107,17 @@ export const showWebGLVeil = (
   veil.style.cssText =
     "position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;" +
     "padding:24px;background:#0b0e14;color:#f4f7fb;font:15px/1.5 system-ui,sans-serif;text-align:center;cursor:pointer";
+  // Chrome keys the block on the top-level host, so a game framed under the
+  // hub can still run on its own origin: the tap takes the player there.
+  const escape = probe.blocked && window.top !== window.self;
   const text = document.createElement("div");
   text.style.maxWidth = "28em";
-  text.textContent = `${message} Tap to reload.`;
+  text.textContent = `${message} ${escape ? "Tap to open the game on its own page." : "Tap to reload."}`;
   // The diagnostic line is what a screenshot from a phone has to carry.
   const detail = document.createElement("div");
   detail.style.cssText = "margin-top:14px;font-size:11px;color:#8b95a1;word-break:break-word";
   detail.textContent = [
-    gpuDescription || "GPU unknown",
+    captured || "GPU unknown",
     `${Math.round(performance.now() / 1000)} s after load`,
     probe.reason,
     `${screen.width}×${screen.height} @${window.devicePixelRatio}`,
@@ -105,6 +125,12 @@ export const showWebGLVeil = (
     .filter(Boolean)
     .join(" · ");
   veil.append(text, detail);
-  veil.addEventListener("click", () => window.location.reload());
+  veil.addEventListener("click", () => {
+    if (escape) {
+      window.open(window.location.href, "_top");
+    } else {
+      window.location.reload();
+    }
+  });
   document.body.append(veil);
 };

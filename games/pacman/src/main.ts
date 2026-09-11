@@ -1,5 +1,11 @@
 import * as THREE from "three";
-import { probeWebGL, setPauseHandlers, showWebGLVeil } from "@repo/embed";
+import {
+  gpuDescription,
+  probeWebGL,
+  setPauseHandlers,
+  shadowFragileGpu,
+  showWebGLVeil,
+} from "@repo/embed";
 
 import { setAudioPaused, unlockAudio } from "./audio/sfx";
 import { gpuProbeMode, runGpuDietProbe, runGpuLoopProbe, runGpuProbe } from "./gpu-probe";
@@ -44,7 +50,7 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 // extra exposure for the airy cream look.
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = TONE_EXPOSURE;
-renderer.shadowMap.enabled = true;
+renderer.shadowMap.enabled = !shadowFragileGpu(gpuDescription());
 renderer.shadowMap.type = IS_TOUCH ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
 container.append(renderer.domElement);
 renderer.domElement.addEventListener("webglcontextlost", () => {

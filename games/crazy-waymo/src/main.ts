@@ -1,12 +1,12 @@
 import * as THREE from "three";
-import { setPauseHandlers } from "@repo/embed";
+import { describeGpu, setPauseHandlers, shadowFragileGpu } from "@repo/embed";
 
 import { FramePacer } from "./render/frame-pacer";
 import { hasReleasedArrays } from "./render/gpu-only-geometry";
 import { PerfGovernor } from "./render/perf-governor";
 import { PostPipeline } from "./render/post";
 import { setRenderCapabilities } from "./render/capabilities";
-import { recordContextLoss } from "./render/safe-mode";
+import { markFragileGpu, recordContextLoss } from "./render/safe-mode";
 import { isCoarsePointer } from "./render/quality";
 import { GameScene } from "./scenes/game-scene";
 import { MAX_DT } from "./shared/constants";
@@ -115,6 +115,7 @@ container.append(renderer.domElement);
 // below — zero cost normally.
 const trailerMode = new URLSearchParams(window.location.search).has("trailer");
 setRenderCapabilities({ multiDraw: renderer.extensions.has("WEBGL_multi_draw") });
+markFragileGpu(shadowFragileGpu(describeGpu(renderer.getContext())));
 const game = new GameScene(window.innerWidth / window.innerHeight, trailerMode);
 game.applyEnvironment(renderer);
 

@@ -31,5 +31,12 @@ export { sealPointerEvents } from "./pointer-seal";
 export type { PointerSealOptions } from "./pointer-seal";
 export { createTouchControls } from "./touch-controls";
 export type { TouchControls, TouchControlsOptions } from "./touch-controls";
-export { probeWebGL, showWebGLVeil, webglFailureMessage } from "./webgl";
+export {
+  describeGpu,
+  gpuDescription,
+  probeWebGL,
+  shadowFragileGpu,
+  showWebGLVeil,
+  webglFailureMessage,
+} from "./webgl";
 export type { WebGLProbe } from "./webgl";

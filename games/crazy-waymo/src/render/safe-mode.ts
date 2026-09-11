@@ -31,6 +31,13 @@ export const clearSafeMode = (): void => {
 };
 
 let cached: boolean | null = null;
+let fragileGpu = false;
+
+/** A driver known to die under the shadow pass boots on the floor tier
+ *  without having to crash first; `?safe=0` still overrides for a visit. */
+export const markFragileGpu = (fragile: boolean): void => {
+  fragileGpu = fragile;
+};
 
 export const safeMode = (): boolean => {
   if (cached !== null) {
@@ -41,7 +48,7 @@ export const safeMode = (): boolean => {
     clearSafeMode();
     cached = false;
   } else {
-    cached = p === "1" || stored();
+    cached = p === "1" || stored() || fragileGpu;
   }
   return cached;
 };

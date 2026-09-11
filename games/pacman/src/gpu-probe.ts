@@ -254,10 +254,21 @@ export const runGpuDietProbe = (
     { apply: () => renderer.setPixelRatio(fullRatio), name: `+dpr${fullRatio}` },
     {
       apply: () => {
+        if (walls) {
+          walls.castShadow = false;
+        }
         renderer.shadowMap.enabled = true;
         markMaterials(scene);
       },
-      name: "+shadows",
+      name: "+shadows(actors cast)",
+    },
+    {
+      apply: () => {
+        if (walls) {
+          walls.castShadow = true;
+        }
+      },
+      name: "+walls cast",
     },
   ];
   runStagedProbe(
