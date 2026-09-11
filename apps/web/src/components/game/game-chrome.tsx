@@ -1,5 +1,6 @@
 import { isGamePausedMessage, isGameStartedMessage, requestGamePause } from "@repo/embed/host";
 import type { MessageData } from "@repo/embed/host";
+import { AnimatePresence, motion } from "motion/react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 import { featuredGames, gameUrl } from "@/components/game/data";
@@ -31,9 +32,8 @@ interface GameChromeProps {
 
 /**
  * Owns the played-game ↔ wrapper handshake: hides the chrome when the embedded
- * game announces it started and brings it back when the game pauses. Pausing
- * belongs to the game (Escape, or its own touch button); Escape with wrapper
- * focus is mirrored so the key works wherever focus landed.
+ * game announces it started, and shows a small pause button that asks the game
+ * to pause and brings the chrome back.
  */
 export const GameChrome = ({ children }: GameChromeProps) => {
   const pathname = usePathname();
@@ -100,6 +100,23 @@ export const GameChrome = ({ children }: GameChromeProps) => {
   }, [hidden, pause]);
 
   return (
-    <GameChromeHiddenContext.Provider value={hidden}>{children}</GameChromeHiddenContext.Provider>
+    <GameChromeHiddenContext.Provider value={hidden}>
+      {children}
+      <AnimatePresence>
+        {hidden && (
+          <motion.button
+            type="button"
+            onClick={pause}
+            aria-label="Pause game and show menu"
+            className="text-muted-foreground hover:text-foreground fixed bottom-0 left-0 z-10 cursor-pointer px-4 py-6 font-mono text-xs transition-colors before:content-['['] after:content-[']']"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, transition: { delay: 0.35 }, y: 0 }}
+            exit={{ opacity: 0, y: 12 }}
+          >
+            <span className="px-3 py-1.5">Pause</span>
+          </motion.button>
+        )}
+      </AnimatePresence>
+    </GameChromeHiddenContext.Provider>
   );
 };

@@ -6,13 +6,17 @@
 // so this stays a single button that only exists while a pause would actually
 // work.
 //
+// Embedded in the wrapper page, nothing mounts: the wrapper draws its own pause
+// button over the frame, and a second one in the game's top-right corner was
+// a duplicate control that also cost every game its top-right HUD corner.
+//
 // This is a shared affordance rather than eleven bespoke HUD buttons: it is the
 // same action everywhere, it has to clear the notch and the home indicator
 // everywhere, and it has to be big enough to hit everywhere. Games theme it
 // through `className`/`css` and the CSS custom properties below.
 
 import { isCoarsePointer } from "./controls";
-import { isPausable, pauseGame, watchPausable } from "./game";
+import { isEmbedded, isPausable, pauseGame, watchPausable } from "./game";
 import { PAUSE_OVERLAY_Z } from "./pause-shell";
 import { sealPointerEvents } from "./pointer-seal";
 
@@ -124,15 +128,16 @@ const reserveCorner = (root: HTMLElement): void => {
 /**
  * Mount the touch-only pause button. No-op on a fine pointer, so calling it
  * unconditionally at boot is correct — a desktop player keeps Escape and sees
- * nothing. The wrapper page draws no pause of its own, so this mounts there
- * too and is the one pause a phone player has in either context.
+ * nothing. Also a no-op inside the wrapper page, whose own pause button
+ * covers the same action; `--vg-touch-reserve` then stays unset (0px) and the
+ * game keeps its whole top edge.
  */
 export const createTouchControls = (options: TouchControlsOptions = {}): TouchControls => {
   if (typeof document === "undefined" || !isCoarsePointer()) {
     return { destroy: noop };
   }
   // Pause is the cluster's only button, so with it gone nothing else mounts.
-  if (options.pause === false) {
+  if (options.pause === false || isEmbedded()) {
     return { destroy: noop };
   }
 
