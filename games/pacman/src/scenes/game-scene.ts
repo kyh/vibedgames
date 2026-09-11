@@ -205,6 +205,9 @@ export const UPDATE_STEPS = [
   "pad",
   "presentation",
   "actors",
+  "ghosts",
+  "hearts",
+  "pellets",
   "halo",
   "hud",
   "fx",
@@ -1128,7 +1131,7 @@ export class GameScene {
       this.updatePresentation(dt);
     }
     if (allow("actors")) {
-      this.renderActors(dt);
+      this.renderActors(dt, allow);
     }
     if (allow("halo")) {
       this.powerHalo.update(this.pac.x, this.pac.z, scared ? this.scaredMs : 0);
@@ -1971,7 +1974,7 @@ export class GameScene {
 
   // ---- rendering ---------------------------------------------------------------
 
-  private renderActors(dt: number): void {
+  private renderActors(dt: number, allow: (step: UpdateStep) => boolean): void {
     const tMs = this.t * 1000;
 
     // Pacman rig: world position + axis-aligned squash & stretch.
@@ -2017,8 +2020,15 @@ export class GameScene {
     this.mouthAngle += (target - this.mouthAngle) * Math.min(dt * MOUTH_LERP_RATE, 1);
     this.syncMouth(this.pac.isMoving ? this.mouthAngle : 0);
 
-    this.renderGhosts(dt, tMs);
-    this.renderHearts();
+    if (allow("ghosts")) {
+      this.renderGhosts(dt, tMs);
+    }
+    if (allow("hearts")) {
+      this.renderHearts();
+    }
+    if (allow("pellets")) {
+      this.pelletField.update(this.t);
+    }
   }
 
   /** Ghosts: staggered bob, face toward travel direction, tremble + worry
@@ -2051,7 +2061,6 @@ export class GameScene {
 
   /** Pearls shimmer (instanced); power hearts breathe and twirl. */
   private renderHearts(): void {
-    this.pelletField.update(this.t);
     for (const heart of this.hearts.values()) {
       const pulse = 1 + HEART_PULSE_AMP * Math.sin(this.t * HEART_PULSE_FREQ + heart.phase);
       heart.mesh.scale.setScalar(pulse);
