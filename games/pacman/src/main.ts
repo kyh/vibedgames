@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { probeWebGL, setPauseHandlers, showWebGLVeil } from "@repo/embed";
 
 import { setAudioPaused, unlockAudio } from "./audio/sfx";
+import { isGpuProbeRequested, runGpuProbe } from "./gpu-probe";
 import { FaceCamera } from "./input/face-camera";
 import type { FaceCameraState } from "./input/face-camera";
 import { IS_TOUCH } from "./input/input-mode";
@@ -219,7 +220,13 @@ const diag: GameDiagnostics & { frame: number; paused: boolean } = {
 Reflect.set(globalThis, "__GAME_DIAGNOSTICS__", diag);
 
 const timer = new THREE.Timer();
+if (isGpuProbeRequested()) {
+  void runGpuProbe(renderer, game.scene, game.camera);
+}
 renderer.setAnimationLoop((time) => {
+  if (isGpuProbeRequested()) {
+    return;
+  }
   timer.update(time);
   const dt = Math.min(timer.getDelta(), MAX_DT);
   if (!paused) {
