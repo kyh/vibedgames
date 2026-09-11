@@ -2249,6 +2249,7 @@ vec3 ocGerstner(vec2 p, float t) {
     car.update(dt, input, solids);
     this.handleTrafficImpacts(car, traffic, dt);
     this.handleParkedImpacts(car, dt);
+    traffic.setHour(this.dayNight.hour);
     traffic.update(dt, city, car.position.x, car.position.z, car.heading);
     this.signalLights?.update(traffic.time);
     this.physics?.streamSolids(car.position.x, car.position.z);

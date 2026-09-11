@@ -254,7 +254,7 @@ export const FARE = {
 
 // --- Traffic ---
 export const TRAFFIC = {
-  count: 64,
+  count: 88,
   maxSpeed: 18,
   minSpeed: 8,
 } as const;

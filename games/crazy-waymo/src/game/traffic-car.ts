@@ -63,6 +63,10 @@ const BODY_OFFSET = new THREE.Vector3();
 // kinematic targets and teleport the body back under the car on re-entry.
 const BODY_FAR = 80;
 const BODY_FAR_SQ = BODY_FAR * BODY_FAR;
+// Where dormant cars and their bodies wait: far outside the map, so nothing
+// near the taxi can touch them and every distance test reads them as gone.
+const DEPOT_X = 100_000;
+const DEPOT_Z = 100_000;
 
 export type VehicleKind = "civilian" | "service" | "police";
 
@@ -115,6 +119,10 @@ export class TrafficCar {
   // True while the kinematic body is far from the taxi and left un-fed
   // (cleared by the re-entry teleport in update, or by Traffic.restoreBody).
   bodyParked = false;
+  // Off the road for the hour: hidden, parked at the depot with its body,
+  // skipped by the sim. Woken cars respawn through the normal recycle path.
+  dormant = false;
+  awaitingPlacement = false;
   wrecked = false;
   wreckTime = 0;
   puntCooldown = 0;
@@ -166,6 +174,27 @@ export class TrafficCar {
   attachParts(parts: readonly FleetPart[]): void {
     this.parts = parts;
     this.writeMatrices();
+  }
+
+  setDormant(on: boolean, physics: PhysicsWorld | null): void {
+    if (this.dormant === on) {
+      return;
+    }
+    this.dormant = on;
+    for (const p of this.parts) {
+      p.batch.setVisibleAt(p.instanceId, !on);
+    }
+    if (on) {
+      this.position.set(DEPOT_X, 0, DEPOT_Z);
+      this.object3D.position.copy(this.position);
+      if (this.body && physics) {
+        physics.makeKinematic(this.body);
+        physics.teleport(this.body, DEPOT_X, BODY_LIFT, DEPOT_Z, this.object3D.quaternion);
+        this.bodyParked = true;
+      }
+    } else {
+      this.awaitingPlacement = true;
+    }
   }
 
   // Push object3D's pose into the fleet batches (carMatrix × partLocal).

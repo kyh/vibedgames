@@ -21,7 +21,7 @@ import type { FleetPart, VehicleKind } from "./traffic-car";
 // beyond this, teleport ahead of the player
 const RECYCLE_DIST = ROAD_TILE * 20;
 const RESPAWN_MIN = ROAD_TILE * 6;
-const RESPAWN_MAX = ROAD_TILE * 12;
+const RESPAWN_MAX = ROAD_TILE * 10;
 // last resort: never this close
 const RESPAWN_GUARD = ROAD_TILE * 4;
 // A recycle is a teleport, so both ends of it must be off camera: fog starts
@@ -83,6 +83,37 @@ const DISTRICT_SPAWN_WEIGHT = {
 
 const districtSpawnWeight = (c: DistrictChar): number => DISTRICT_SPAWN_WEIGHT[c];
 
+// Share of the fleet on the road by San Francisco clock hour: two rush
+// peaks, a lighter midday and evening, a thin small-hours trickle. Linear
+// between anchors; the last anchor wraps to the first.
+const DENSITY_BY_HOUR: readonly (readonly [number, number])[] = [
+  [0, 0.45],
+  [5, 0.45],
+  [7, 0.85],
+  [8, 1],
+  [9.5, 1],
+  [11, 0.75],
+  [15, 0.75],
+  [16.5, 1],
+  [18.5, 1],
+  [20, 0.8],
+  [22, 0.6],
+  [24, 0.45],
+];
+
+export const trafficDensity = (hour: number): number => {
+  const h = ((hour % 24) + 24) % 24;
+  for (let i = 0; i + 1 < DENSITY_BY_HOUR.length; i += 1) {
+    const a = DENSITY_BY_HOUR[i];
+    const b = DENSITY_BY_HOUR[i + 1];
+    if (!a || !b || h > b[0]) {
+      continue;
+    }
+    return a[1] + ((b[1] - a[1]) * (h - a[0])) / (b[0] - a[0]);
+  }
+  return 1;
+};
+
 // Asphalt half-widths come in four classes (3.2 local, 4.6 collector, 5.4
 // arterial, 7 freeway). Local streets are six tenths of all road length, so
 // a district-only weight parks most of the fleet on quiet blocks; the wide
@@ -124,6 +155,7 @@ export class Traffic {
   private readonly fleetBatches: THREE.BatchedMesh[] = [];
   // Edges repeated by district weight — random index = district-weighted pick.
   private readonly weightedEdges: NetEdge[] = [];
+  private activeCount = -1;
 
   constructor(
     cache: ModelCache,
@@ -388,6 +420,18 @@ export class Traffic {
     c.bodyParked = false;
   }
 
+  /** Park or wake cars so the active fleet matches the hour's density. */
+  setHour(hour: number): void {
+    const active = Math.round(this.cars.length * trafficDensity(hour));
+    if (active === this.activeCount) {
+      return;
+    }
+    this.activeCount = active;
+    for (const [i, c] of this.cars.entries()) {
+      c.setDormant(i >= active, this.physics);
+    }
+  }
+
   update(
     dt: number,
     city: CityModel,
@@ -412,12 +456,12 @@ export class Traffic {
     }
     for (let i = 0; i < this.cars.length; i += 1) {
       const a = this.cars[i];
-      if (!a || a.wrecked) {
+      if (!a || a.wrecked || a.dormant) {
         continue;
       }
       for (let j = 0; j < this.cars.length; j += 1) {
         const b = this.cars[j];
-        if (!b || a === b) {
+        if (!b || a === b || b.dormant) {
           continue;
         }
         const dx = b.position.x - a.position.x;
@@ -453,10 +497,14 @@ export class Traffic {
     hz: number,
   ): void {
     for (const c of this.cars) {
+      if (c.dormant) {
+        continue;
+      }
       const d = Math.hypot(c.position.x - playerX, c.position.z - playerZ);
       const recycleWreck = c.wrecked && c.wreckTime > WRECK_RESPAWN_S;
       const onCamera = inPlayerView(c.position.x, c.position.z, playerX, playerZ, hx, hz);
-      if (!this.holdRecycle && !onCamera && (d > RECYCLE_DIST || recycleWreck)) {
+      const recycle = !this.holdRecycle && !onCamera && (d > RECYCLE_DIST || recycleWreck);
+      if (c.awaitingPlacement || recycle) {
         // Respawn in a ring ahead of the player but out of shot — the wedge
         // down a side street or around the corner. Fallback: anywhere off
         // camera inside the recycle radius, so a car can never land beyond
@@ -486,9 +534,13 @@ export class Traffic {
             return this.clearOfCars(x, z, c);
           });
         if (spot) {
+          c.awaitingPlacement = false;
           c.respawn(spot.edge, spot.s, spot.dir);
           c.update(0, city, 0, 0);
           this.restoreBody(c);
+        } else if (c.awaitingPlacement) {
+          // No room this frame: stay at the depot rather than drive from it.
+          continue;
         }
       }
       c.update(dt, city, playerX, playerZ, this.physics, this.simTime);

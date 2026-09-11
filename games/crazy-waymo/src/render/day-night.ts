@@ -323,6 +323,22 @@ const hourToPhase = (hour: number): number => {
 // ?time= override: pins the cycle to a chosen hour instead of the SF clock.
 // Presets are HOURS (not phases) so `?time=sunset` and `?time=18:30` are the
 // same thing by construction — both go through hourToPhase.
+/** Inverse of `hourToPhase` over the same anchors; `phase` in [0, 1). */
+const phaseToHour = (phase: number): number => {
+  const [first] = HOUR_ANCHORS;
+  const q = first && phase < first[1] ? phase + 1 : phase;
+  for (let i = 0; i + 1 < HOUR_ANCHORS.length; i += 1) {
+    const a = HOUR_ANCHORS[i];
+    const b = HOUR_ANCHORS[i + 1];
+    if (!a || !b || q > b[1]) {
+      continue;
+    }
+    const t = (q - a[1]) / (b[1] - a[1]);
+    return (a[0] + (b[0] - a[0]) * Math.min(1, Math.max(0, t))) % 24;
+  }
+  return 12;
+};
+
 const TIME_PRESETS: ReadonlyMap<string, number> = new Map([
   ["dawn", 6],
   ["sunrise", 6.75],
@@ -428,6 +444,11 @@ export class DayNight {
   }
 
   // Debug: pin the cycle to a phase (breaks the SF-clock link for the session).
+  /** Clock hour (0-24) behind the current phase, pinned or live. */
+  get hour(): number {
+    return phaseToHour(this.phase);
+  }
+
   setPhase(p: number): void {
     this.override = ((p % 1) + 1) % 1;
   }
