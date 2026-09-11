@@ -6,6 +6,7 @@ import { hasReleasedArrays } from "./render/gpu-only-geometry";
 import { PerfGovernor } from "./render/perf-governor";
 import { PostPipeline } from "./render/post";
 import { setRenderCapabilities } from "./render/capabilities";
+import { recordContextLoss } from "./render/safe-mode";
 import { isCoarsePointer } from "./render/quality";
 import { GameScene } from "./scenes/game-scene";
 import { MAX_DT } from "./shared/constants";
@@ -86,15 +87,15 @@ const createRenderer = async (): Promise<THREE.WebGLRenderer> => {
       await sleep(350 * (i + 1));
     }
   }
-  // Chrome blocks WebGL for a domain for the rest of the browser session once
-  // a page has crashed the GPU process twice; only a full browser restart
-  // clears it, so a retry offer would be a lie.
+  // Chrome blocks WebGL for the top-level page's host for two minutes after
+  // a page under it loses its context twice. Retrying inside that window
+  // fails the same way, so the veil says to wait instead.
   const blocked = /blocked/iu.test(reason);
   showFatal(
     blocked
-      ? "Chrome blocked graphics for this site after a crash. Close Chrome fully (swipe it away from recents), reopen it, and come back."
+      ? "Chrome paused graphics for this site after a crash. Wait two minutes, then tap to reload."
       : `WebGL unavailable${reason ? ` (${reason})` : ""} — tap to retry, or enable hardware acceleration.`,
-    !blocked,
+    true,
   );
   throw lastError instanceof Error ? lastError : new Error("WebGL init failed");
 };
@@ -181,7 +182,11 @@ document.addEventListener("visibilitychange", () => {
 // one). three already asks the browser for restoration; if it comes, resume.
 renderer.domElement.addEventListener("webglcontextlost", () => {
   console.error("[crazy-waymo] WebGL context lost");
-  showFatal("The browser stopped the graphics (usually low memory). Tap to reload.", true);
+  recordContextLoss();
+  showFatal(
+    "The browser stopped the graphics (usually low memory). Tap to reload — the game will come back in low-graphics mode.",
+    true,
+  );
 });
 renderer.domElement.addEventListener("webglcontextrestored", () => {
   console.warn("[crazy-waymo] WebGL context restored");

@@ -4,6 +4,7 @@ import { FrameTimingWindow } from "./frame-timing-window";
 
 import { FULL_QUALITY, PHONE_TOP_TIER, isCoarsePointer, setLiveQuality } from "./quality";
 import type { QualityFeatures } from "./quality";
+import { safeMode } from "./safe-mode";
 
 // Adaptive quality: keeps the game at target frame rate by stepping render
 // resolution (and, at the floor tier, shadow resolution) instead of letting it
@@ -162,8 +163,17 @@ export class PerfGovernor {
     const native = Math.min(window.devicePixelRatio || 1, 2);
     const mobile = isCoarsePointer();
     this.tiers = qualityTiers(native, mobile);
-    this.topTier = mobile ? PHONE_TOP_TIER : 0;
-    if (mobile) {
+    const floor = this.tiers.length - 1;
+    if (safeMode()) {
+      // The floor is the tier without a shadow pass; a device that lost its
+      // context stays there for the visit.
+      this.topTier = floor;
+      this.apply(floor);
+      this.cooldown = 1.5;
+    } else {
+      this.topTier = mobile ? PHONE_TOP_TIER : 0;
+    }
+    if (mobile && !safeMode()) {
       // Boot LOW: the timing windows need ~10s to converge, and a phone
       // chugging through those first windows at desktop quality reads as a
       // broken game. Dense screens start at the deeper tier; upgrades are

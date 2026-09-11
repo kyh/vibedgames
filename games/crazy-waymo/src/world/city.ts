@@ -10,7 +10,8 @@ import { createTerrainMaterial } from "../render/terrain-material";
 import { StaticWorldGroup } from "../render/static-world-group";
 import { propShadowPolicy, propShadowsDisabled, setPropShadowPolicy } from "../render/prop-shadow";
 import type { PropShadowPolicy } from "../render/prop-shadow";
-import { drawDistance, isCoarsePointer, liveQuality } from "../render/quality";
+import { drawDistance, isCoarsePointer, liveQuality, reachScale } from "../render/quality";
+import { safeMode } from "../render/safe-mode";
 import { renderCapabilities } from "../render/capabilities";
 import { releaseArraysAfterUpload } from "../render/gpu-only-geometry";
 import { compatiblePropBatch } from "./instanced-props";
@@ -455,6 +456,12 @@ const TALL_DETAIL_DISTANCE = 700;
 // that had to get shorter.
 export const MID_IMPOSTER_DISTANCE = 1100;
 export const IMPOSTER_DISTANCE = 1400;
+// The imposter reach is kept on ordinary phones (the horizon is the look);
+// a device that already lost its context trades the far skyline for a
+// resident set it can carry.
+const imposterReach = (): number => (safeMode() ? reachScale() : 1);
+export const imposterDistance = (): number => IMPOSTER_DISTANCE * imposterReach();
+export const midImposterDistance = (): number => MID_IMPOSTER_DISTANCE * imposterReach();
 // --- Landmarks: the LOD unit is the STRUCTURE, not the member ---------------
 //
 // Every gate above asks how tall ONE instance is, which is the right question
@@ -1451,7 +1458,7 @@ export class CityModel {
     const built = await buildParcelFabric(
       skyline,
       [],
-      { detail: DETAIL_DISTANCE, imposter: IMPOSTER_DISTANCE, midImposter: MID_IMPOSTER_DISTANCE },
+      { detail: DETAIL_DISTANCE, imposter: imposterDistance(), midImposter: midImposterDistance() },
       detail,
       () => this.breathe(),
     );
@@ -2392,7 +2399,7 @@ export class CityModel {
     const built = await buildParcelFabric(
       skyline,
       [],
-      { detail: DETAIL_DISTANCE, imposter: IMPOSTER_DISTANCE, midImposter: MID_IMPOSTER_DISTANCE },
+      { detail: DETAIL_DISTANCE, imposter: imposterDistance(), midImposter: midImposterDistance() },
       detail,
       () => this.breathe(),
     );
@@ -3080,14 +3087,14 @@ export class CityModel {
     const cz = (Math.floor(key / nx) + 0.5) * STREAM_CELL - WORLD_HALF_Z;
     const dist = Math.hypot(camX - cx, camZ - cz);
     let inFrustum = false;
-    if (dist - pad < IMPOSTER_DISTANCE) {
+    if (dist - pad < imposterDistance()) {
       STREAM_SPHERE.center.set(cx, 14, cz);
       // tall roofs/trees overhang the tile
       STREAM_SPHERE.radius = pad + 30;
       inFrustum = STREAM_FRUSTUM.intersectsSphere(STREAM_SPHERE);
     }
     const near = dist < NEAR_ALWAYS;
-    const visFar: 0 | 1 = showAll || near || (inFrustum && dist - pad < IMPOSTER_DISTANCE) ? 1 : 0;
+    const visFar: 0 | 1 = showAll || near || (inFrustum && dist - pad < imposterDistance()) ? 1 : 0;
     // The model band tests the cell CENTRE, unpadded, while the imposter band
     // below keeps its half-diagonal pad: dropping a far cell too early leaves
     // a hole in the skyline, but swapping a near cell to its box too early
@@ -3142,7 +3149,7 @@ export class CityModel {
     this.imposterMidVisible ??= new Uint8Array(pass.total).fill(0);
     const visImp: 0 | 1 = visFar === 1 && visNear === 0 ? 1 : 0;
     flipImposters(this.imposterVisible, key, visImp, this.imposterInstances, mesh);
-    const visMid: 0 | 1 = visImp === 1 && dist - pass.pad < MID_IMPOSTER_DISTANCE ? 1 : 0;
+    const visMid: 0 | 1 = visImp === 1 && dist - pass.pad < midImposterDistance() ? 1 : 0;
     flipImposters(this.imposterMidVisible, key, visMid, this.imposterMidInstances, mesh);
   }
 

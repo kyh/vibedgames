@@ -1,5 +1,6 @@
 import { choosePlayerSpawn, isPlayerSpawnSafe } from "../world/player-spawn";
 import type { PlayerSpawn } from "../world/player-spawn";
+import { safeMode } from "../render/safe-mode";
 import * as THREE from "three";
 import { createTouchControls, notifyGameStarted, watchControlContext } from "@repo/embed";
 import type { PlayerMap } from "@vibedgames/multiplayer";
@@ -265,6 +266,16 @@ const storageSet = (key: string, value: string): void => {
   }
 };
 
+// The note is the only sign the device is on the floor tier; without it a
+// player who compares phones reads the flatter city as a regression.
+const startBannerStats = (best: number): string => {
+  if (safeMode()) {
+    return "Low-graphics mode — the graphics stopped here last time. Add ?safe=0 to the address to retry full quality.";
+  }
+  return best > 0
+    ? `BEST $${best.toLocaleString("en-US")}`
+    : `Chain drop-offs to run the combo up to ${FARE.comboMax}×.`;
+};
 const SPAWN_KEY = "crazy-waymo:spawn";
 /** A stored spawn is data from an older build: every field is re-checked, and
  *  the caller still runs it through the safety test against today's world. */
@@ -1179,6 +1190,8 @@ vec3 ocGerstner(vec2 p, float t) {
       },
       onParked: (parked) => {
         this.parked = parked;
+        // The first frame must not draw every car in the city.
+        parked.cullAll(this.rig.camera.position.x, this.rig.camera.position.z);
       },
       onPhysics: (physics) => {
         this.physics = physics;
@@ -1327,10 +1340,7 @@ vec3 ocGerstner(vec2 p, float t) {
       // chat are left to be discovered.
       controls: bannerControls(),
       cta: this.touchUi ? "START DRIVING" : "START DRIVING ⏎",
-      stats:
-        best > 0
-          ? `BEST $${best.toLocaleString("en-US")}`
-          : `Chain drop-offs to run the combo up to ${FARE.comboMax}×.`,
+      stats: startBannerStats(best),
       sub: "Pick up fares, chain combos, drive like a maniac.",
       title: "CRAZY WAYMO",
     });
@@ -2109,6 +2119,9 @@ vec3 ocGerstner(vec2 p, float t) {
       car.position.z + Math.sin(a) * r,
     );
     this.rig.camera.lookAt(car.position.x, car.position.y + 1, car.position.z);
+    // The orbit is the one camera that sees the whole hillside: keep the
+    // parked-car cull running here, not only once driving starts.
+    this.parked?.updateCulling(this.rig.camera.position.x, this.rig.camera.position.z);
     // fade out leftover streaks
     this.speedLines?.update(dt, this.rig.camera, 0);
     // and drain the post lens the same way
