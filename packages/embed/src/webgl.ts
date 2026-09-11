@@ -51,10 +51,10 @@ export const probeWebGL = (): WebGLProbe => {
   }
   if (gl) {
     const info = gl.getExtension("WEBGL_debug_renderer_info");
-    const renderer = info
-      ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL)
-      : gl.getParameter(gl.RENDERER);
-    gpuDescription = `${typeof renderer === "string" ? renderer : "unknown GPU"} · ${gl instanceof WebGL2RenderingContext ? "WebGL2" : "WebGL1"}`;
+    const renderer = String(
+      info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
+    );
+    gpuDescription = `${renderer} · ${gl instanceof WebGL2RenderingContext ? "WebGL2" : "WebGL1"}`;
     gl.getExtension("WEBGL_lose_context")?.loseContext();
     return { ok: true };
   }
