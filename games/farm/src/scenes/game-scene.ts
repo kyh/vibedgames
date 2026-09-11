@@ -144,6 +144,7 @@ export class GameScene extends Scene {
   private ambience: FarmAmbience | null = null;
   objSprites = new Map<number, Phaser.GameObjects.Sprite>();
   private highlight!: Phaser.GameObjects.Graphics;
+  private highlightIdx = -1;
   private nightOverlay!: Phaser.GameObjects.Rectangle;
 
   private keys!: GameKeys;
@@ -299,6 +300,8 @@ export class GameScene extends Scene {
     this.farmReady = true;
 
     this.highlight = this.add.graphics().setDepth(DEPTH.highlight);
+    // scene instances persist across restarts: a stale idx would skip the first draw
+    this.highlightIdx = -1;
 
     this.nightOverlay = this.add
       .rectangle(0, 0, this.scale.width, this.scale.height, 0x14_22_4a, 0)
@@ -1249,18 +1252,18 @@ export class GameScene extends Scene {
   }
 
   private updateHighlight(): void {
-    this.highlight.clear();
     // trailer shots: no target-tile chrome
-    if (trailerStaging) {
+    const hidden = trailerStaging || this.uiOpen || this.transitioning || this.fishing.active;
+    const idx = hidden ? -1 : this.targetIdx();
+    if (idx === this.highlightIdx) {
       return;
     }
-    if (this.uiOpen || this.transitioning || this.fishing.active) {
+    this.highlightIdx = idx;
+    this.highlight.clear();
+    if (idx < 0) {
       return;
     }
     const { tx, ty } = this.targetTile();
-    if (!inBounds(tx, ty)) {
-      return;
-    }
     const x = tx * TILE;
     const y = ty * TILE;
     this.highlight.lineStyle(1, 0xff_ff_ff, 0.55);

@@ -31,6 +31,7 @@ export class InventoryScene extends Scene {
   private journal: JournalView | null = null;
   private closing = false;
   private nextJournalRefresh = 0;
+  private drawSig = "";
 
   constructor() {
     super("Inventory");
@@ -260,11 +261,49 @@ export class InventoryScene extends Scene {
       }
       return;
     }
-    // live-refresh in case qty changed elsewhere
-    this.draw();
+    // live-refresh in case qty changed elsewhere; the redraw is a pure function
+    // of this signature, so equal frames skip the clear + rebuild.
+    const sig = this.drawSignature();
+    if (sig !== this.drawSig) {
+      this.draw();
+    }
+  }
+
+  private drawSignature(): string {
+    const { px, py, panelW, panelH } = this.panel;
+    const { x, y, w, h } = this.skillPanel;
+    const parts: (string | number)[] = [
+      this.sz,
+      this.skillRow,
+      px,
+      py,
+      panelW,
+      panelH,
+      x,
+      y,
+      w,
+      h,
+      this.picked,
+      store.gold,
+    ];
+    for (let i = 0; i < TOTAL; i += 1) {
+      const slot = store.inv.slotAt(i);
+      if (slot) {
+        const ic = itemIcon(slot.item);
+        parts.push(ic.key, ic.frame ?? -1, slot.qty);
+      } else {
+        parts.push("·");
+      }
+    }
+    for (const id of SKILL_IDS) {
+      const s = store.skills.get(id);
+      parts.push(s.level, s.xp);
+    }
+    return parts.join("|");
   }
 
   private draw(): void {
+    this.drawSig = this.drawSignature();
     const { g } = this;
     const { sz } = this;
     g.clear();

@@ -1,4 +1,4 @@
-import type { Scene } from "phaser";
+import type { GameObjects, Scene } from "phaser";
 
 import { sfx } from "../audio/sfx";
 import { COLORS } from "../config";
@@ -16,6 +16,14 @@ import type { VsSide } from "../sys/versus";
 import type { BannerHud } from "./banner-hud";
 import type { Combat, DuelTarget } from "./combat";
 import type { SceneChrome, SceneHooks } from "./scene-hooks";
+
+// setText skips equal strings; setColor always re-rasterises, so guard it.
+const paint = (text: GameObjects.Text, value: string, color: string): void => {
+  text.setText(value);
+  if (text.style.color !== color) {
+    text.setColor(color);
+  }
+};
 
 export interface VersusFlowDeps {
   scene: Scene;
@@ -326,8 +334,8 @@ export class VersusFlow implements DuelTarget {
       const pl = this.duelist(side);
       return pl ? `#${pl.color.toString(16).padStart(6, "0")}` : "#8b95a1";
     };
-    this.chrome.heartsText.setText(line("host", v.hostHp, v.hostScore)).setColor(hex("host"));
-    this.chrome.infoText.setText(line("guest", v.guestHp, v.guestScore)).setColor(hex("guest"));
+    paint(this.chrome.heartsText, line("host", v.hostHp, v.hostScore), hex("host"));
+    paint(this.chrome.infoText, line("guest", v.guestHp, v.guestScore), hex("guest"));
   }
 
   frozen(): boolean {
