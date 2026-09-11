@@ -47,14 +47,58 @@ const hideFatal = (): void => {
 // the aliasing, and skipping the resolve pass buys real GPU time. Desktop
 // keeps MSAA exactly as before.
 const msaa = !(isCoarsePointer() && (window.devicePixelRatio || 1) >= 2);
-let renderer: THREE.WebGLRenderer;
-try {
-  renderer = new THREE.WebGLRenderer({ antialias: msaa, powerPreference: "high-performance" });
-} catch (error) {
-  console.error("[crazy-waymo] WebGL init failed", error);
-  showFatal("WebGL unavailable — try a different browser or enable hardware acceleration.");
-  throw error instanceof Error ? error : new Error("WebGL init failed");
-}
+// Context creation fails transiently on phones: Chrome's GPU process was just
+// restarted (a background tab reclaimed it) or the page hit the per-process
+// context cap. Retrying after a beat recovers those; the last attempt drops
+// the high-performance / MSAA asks, which a blocklisted or low-power GPU may
+// refuse outright. The browser's own reason is captured so the veil can show it.
+const sleep = (ms: number): Promise<void> =>
+  // oxlint-disable-next-line promise/avoid-new -- wraps the setTimeout callback API
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+const probeCanvas = () => {
+  const canvas = document.createElement("canvas");
+  let reason = "";
+  canvas.addEventListener("webglcontextcreationerror", (event: Event) => {
+    if (event instanceof WebGLContextEvent && event.statusMessage) {
+      reason = event.statusMessage;
+    }
+  });
+  return { canvas, reason: () => reason };
+};
+const createRenderer = async (): Promise<THREE.WebGLRenderer> => {
+  const attempts: THREE.WebGLRendererParameters[] = [
+    { antialias: msaa, powerPreference: "high-performance" },
+    { antialias: msaa, powerPreference: "high-performance" },
+    { antialias: false, powerPreference: "default" },
+  ];
+  let reason = "";
+  let lastError: unknown;
+  for (const [i, params] of attempts.entries()) {
+    const probe = probeCanvas();
+    try {
+      return new THREE.WebGLRenderer({ ...params, canvas: probe.canvas });
+    } catch (error) {
+      lastError = error;
+      reason = probe.reason() || reason;
+      console.error(`[crazy-waymo] WebGL init attempt ${i + 1} failed`, reason || error);
+      await sleep(350 * (i + 1));
+    }
+  }
+  // Chrome blocks WebGL for a domain for the rest of the browser session once
+  // a page has crashed the GPU process twice; only a full browser restart
+  // clears it, so a retry offer would be a lie.
+  const blocked = /blocked/iu.test(reason);
+  showFatal(
+    blocked
+      ? "Chrome blocked graphics for this site after a crash. Close Chrome fully (swipe it away from recents), reopen it, and come back."
+      : `WebGL unavailable${reason ? ` (${reason})` : ""} — tap to retry, or enable hardware acceleration.`,
+    !blocked,
+  );
+  throw lastError instanceof Error ? lastError : new Error("WebGL init failed");
+};
+const renderer = await createRenderer();
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
