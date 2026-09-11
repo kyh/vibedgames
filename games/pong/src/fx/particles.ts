@@ -114,6 +114,10 @@ export class ParticlePool {
   }
 
   update(dt: number): void {
+    // Idle pool: nothing live and the final zero-count flush already happened.
+    if (this.live === 0 && this.mesh.count === 0) {
+      return;
+    }
     // Integrate and retire (swap-remove keeps the live range contiguous).
     let i = 0;
     while (i < this.live) {
@@ -149,9 +153,19 @@ export class ParticlePool {
       this.mesh.setColorAt(j, SCRATCH_COLOR.copy(INK_COLOR).lerp(PAPER_COLOR, t * t));
     }
     this.mesh.count = this.live;
-    this.mesh.instanceMatrix.needsUpdate = true;
-    if (this.mesh.instanceColor) {
-      this.mesh.instanceColor.needsUpdate = true;
+    if (this.live === 0) {
+      return;
+    }
+    // Only the live slots reach the GPU; the dead tail is never drawn.
+    const matrix = this.mesh.instanceMatrix;
+    matrix.clearUpdateRanges();
+    matrix.addUpdateRange(0, this.live * matrix.itemSize);
+    matrix.needsUpdate = true;
+    const color = this.mesh.instanceColor;
+    if (color) {
+      color.clearUpdateRanges();
+      color.addUpdateRange(0, this.live * color.itemSize);
+      color.needsUpdate = true;
     }
   }
 
