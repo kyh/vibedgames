@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { getTableColumns, is, Table } from "drizzle-orm";
+import { getColumns, is, Table } from "drizzle-orm";
 import * as drizzleSchema from "@repo/db/drizzle-schema-auth";
 import { getAuthTables } from "better-auth/db";
 
@@ -53,7 +53,7 @@ for (const key of Object.keys(authTables)) {
       if (!authTable || !table) {
         return;
       }
-      const properties = new Set(Object.keys(getTableColumns(table)));
+      const properties = new Set(Object.keys(getColumns(table)));
       const missing = fieldNamesOf(authTable).filter((fieldName) => !properties.has(fieldName));
       assert.deepEqual(missing, []);
     });
@@ -63,7 +63,7 @@ for (const key of Object.keys(authTables)) {
         return;
       }
       const known = new Set([...fieldNamesOf(authTable), "id"]);
-      const extra = Object.keys(getTableColumns(table)).filter((property) => !known.has(property));
+      const extra = Object.keys(getColumns(table)).filter((property) => !known.has(property));
       assert.deepEqual(extra, []);
     });
 
@@ -71,7 +71,7 @@ for (const key of Object.keys(authTables)) {
       if (!authTable || !table) {
         return;
       }
-      const columns = getTableColumns(table);
+      const columns = getColumns(table);
       const mismatched = Object.entries(authTable.fields)
         .map(([fieldKey, field]) => ({
           fieldName: field.fieldName ?? fieldKey,

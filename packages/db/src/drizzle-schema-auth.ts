@@ -71,12 +71,7 @@ export const account = sqliteTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
   },
-  (table) => ({
-    issuerAccountIdx: uniqueIndex("account_issuer_accountId_uidx").on(
-      table.issuer,
-      table.accountId,
-    ),
-  }),
+  (table) => [uniqueIndex("account_issuer_accountId_uidx").on(table.issuer, table.accountId)],
 );
 
 export const verification = sqliteTable("verification", {
@@ -95,7 +90,7 @@ export const verification = sqliteTable("verification", {
 
 // Managed by the @better-auth/api-key plugin. Property names MUST match the
 // plugin's logical field names (the drizzle adapter looks tables up by field
-// name); SQL column names are snake_cased by the drizzle client's `casing`.
+// name); SQL column names are spelled explicitly, in snake_case.
 // `referenceId` is the owning user id (the plugin's default `references: user`).
 export const apikey = sqliteTable(
   "apikey",
@@ -130,11 +125,11 @@ export const apikey = sqliteTable(
       .$onUpdate(() => new Date())
       .notNull(),
   },
-  (table) => ({
-    configIdx: index("apikey_configId_idx").on(table.configId),
-    keyIdx: index("apikey_key_idx").on(table.key),
-    referenceIdx: index("apikey_referenceId_idx").on(table.referenceId),
-  }),
+  (table) => [
+    index("apikey_configId_idx").on(table.configId),
+    index("apikey_key_idx").on(table.key),
+    index("apikey_referenceId_idx").on(table.referenceId),
+  ],
 );
 
 // better-auth's database rate-limit store (rateLimit.storage = "database" in
