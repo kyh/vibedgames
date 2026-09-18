@@ -8,6 +8,7 @@ How to drive the game — `vg playtest` (see the playtest skill), used two ways:
 
 - **Exploratory playtesting: fast look-act-screenshot loops**, no test code to write. `vg playtest open <url>`, then `snapshot` / `eval` / `screenshot`. The browser installs itself on first use, so there is nothing to set up.
 - **Progression + regression: the bot playtest.** `node <project-root>/.claude/skills/playtest/scripts/bot-playtest.mjs --url <url>` drives a scripted input sweep and reports frames advanced, distance travelled, score delta, and softlock windows. Run it in the FOREGROUND and wait for it.
+- **A player who is trying: the pilot playtest.** When `TYPESAFE_API_KEY` is set, `node <project-root>/.claude/skills/playtest/scripts/pilot-playtest.mjs --url <url> --goal "<what wins, what kills, which way is progress>"` hands the controls to a decision model that reads `__GAME_DIAGNOSTICS__` each tick. Its `timeline` and `decisions.meanConfidence` are onboarding and readability evidence: a model told the rules that still can't find the score, or can't prefer a direction, is a finding about what the game shows. Skip it without the key — the scripted bot still runs.
 
 Known traps:
 

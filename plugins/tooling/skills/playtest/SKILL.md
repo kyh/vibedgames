@@ -1,6 +1,6 @@
 ---
 name: playtest
-description: "Drive a real browser against a game with `vg playtest`: smoke checks, scripted bot playtests, softlock detection, screenshots and visual diffs, on localhost or a deployed URL."
+description: "Drive a real browser against a game with `vg playtest`: smoke checks, scripted bot playtests, a model-piloted playtester that decides its own inputs, softlock detection, screenshots and visual diffs, on localhost or a deployed URL."
 ---
 
 # Playtest
@@ -109,6 +109,21 @@ Adapt `--script` to the game's core verb: a runner holds forward and switches la
 
 Metric meanings, flags, difficulty/fairness runs, and the key-dispatch trap: `references/bot-playtest.md`.
 
+## Pilot Playtest: Let a Model Play It
+
+The sweep proves the game _can_ be played. It cannot tell you whether a player who is _trying_ gets anywhere — whether the objective is findable from what the game shows, whether the first hazard is readable, whether a run ends in a wall. For that, hand the controls to a model:
+
+```sh
+export TYPESAFE_API_KEY=…   # https://console.typesafe.ai/settings/keys
+node $SKILL/scripts/pilot-playtest.mjs --url http://localhost:5173 --goal "Reach the flag on the right; pits kill, jump them"
+```
+
+Each tick the pilot reads `__GAME_DIAGNOSTICS__`, asks [Jev](https://docs.typesafe.ai) — TypeSafe's decision-only model, typed answers in ~100–300 ms, no text — which movement to hold and which actions to take, dispatches them as real held input, and repeats. Code does perception and keystrokes; the model only decides. Same report shape and exit codes as the bot, plus `decisions` (what it chose, how sure it was), `model` (calls, tokens, latency) and a per-tick `timeline`. Sixty ticks cost well under a cent.
+
+Two things to know before trusting a run. **The model sees only the diagnostics** — no pixels — so a pilot that can't decide (`decisions.meanConfidence` below 0.3 warns) is an audit finding about the contract: add hazard, pickup and goal positions and it plays better. And **`--goal` is the flag that matters**: say what wins, what kills, and which way progress is; the model has no memory between ticks beyond the `recent` block the harness supplies. Games whose verbs aren't WASD + Space describe them in a `--controls` JSON file — the option descriptions are literally what the model chooses between.
+
+Run the pilot beside the sweep, not instead of it. The sweep is deterministic and free; the pilot is for the questions that need someone trying — onboarding, readability, difficulty at two decision rates. Flags, the controls schema, what Jev sees each tick, and how to read a run as a playtest: [pilot-playtest.md](references/pilot-playtest.md).
+
 ## Canvas & WebGL
 
 Two things will mislead you if you don't know them. **Read the renderer string before you believe a frame rate**: headless can land on the real GPU (`vg playtest` does on a Mac — an `ANGLE Metal` renderer) or on SwiftShader (bare Playwright `launch()`); the bot report's `gpu` field says which. SwiftShader means functional-only evidence — it renders lit materials black and drops heavy games to ~3–4 fps, so a multiplayer host on it reads as frozen; a hardware renderer (ANGLE Metal/D3D/Vulkan on a real device) is a desktop-GPU signal, still not a phone. A headed or Playwright-launched run needs explicit flags to land on the real GPU (`references/canvas-determinism.md` § Headless Footguns). And **headless can't capture WebGPU canvases on Linux/Windows** (the screenshot comes out black even though rendering worked) — a `--headed` problem with real consequences for what you report.
@@ -160,6 +175,7 @@ A diff catches a change; it can't tell you the frame was wrong to begin with. Fo
 - [ ] Smoke check passes: boots, reaches a live frame, zero console/page errors
 - [ ] Diagnostics contract exposed and honest (no silent no-op hooks)
 - [ ] Bot playtest moves, scores under `--script --expect-progress` with the game's core verb, and reports `longestStuckRun` ≤ 2
+- [ ] Pilot playtest with a written `--goal` scores within the run and reports `meanConfidence` ≥ 0.3 — or the diagnostics gained what it was missing
 - [ ] Fail state triggers and retry restores play (for games that can be lost)
 - [ ] Deployed build playtested with `vg playtest --game <slug>`, not just localhost
 - [ ] Evidence is fresh: a new run id / output dir whenever code or assets changed — never relabel an old report as current evidence
@@ -168,7 +184,10 @@ A diff catches a change; it can't tell you the frame was wrong to begin with. Fo
 ## Bundled Resources
 
 - `scripts/bot-playtest.mjs` — the progression-measuring bot; run it, read the JSON report
+- `scripts/pilot-playtest.mjs` — the model-piloted playtester; needs `TYPESAFE_API_KEY`
+- `scripts/lib/harness.mjs` — what both share: `vg playtest` plumbing, held-key and pointer dispatch, the motion tracker, boot and seeding
 - `references/bot-playtest.md` — diagnostics contract, metrics, difficulty/fairness runs
+- `references/pilot-playtest.md` — the pilot: controls schema, what the model sees, reading a run as a playtest
 - `references/canvas-determinism.md` — deterministic mode, readiness, flake triage, Phaser/Three.js specifics
 - `references/cli-cheatsheet.md` — the game-shaped subset of the `vg playtest` command surface
 

@@ -107,6 +107,8 @@ Key names are [KeyboardEvent codes](https://developer.mozilla.org/en-US/docs/Web
 
 When raw keys can't express the verb — placing a tower, choosing a card, triggering a wave — add a game-specific hook (`forceWave()`, `placeTower(x, y)`) to `__GAME_TEST_HOOKS__` and call it via `vg playtest eval`. A bot that can't perform the core verb measures nothing.
 
+A script is a fixed sweep. For a playtester that chooses its inputs from the game state as it plays — and so can tell you whether the objective is findable, not just reachable — see [pilot-playtest.md](pilot-playtest.md). Both scripts share `scripts/lib/harness.mjs`: the key/pointer dispatch, the motion tracker, and the boot/seed sequence described here are one implementation.
+
 ## Difficulty and Fairness Runs
 
 For games with fail states, run the bot twice and compare:

@@ -123,6 +123,6 @@ Linked so far: `image-to-threejs`, `generate`. Do **not** bulk-link all 35 — `
 
 A fresh remote clone resolves `.claude/skills/` automatically (the symlinks are committed), but `node_modules` and the `vg` CLI are not present and `vg` is not on PATH. Most sessions only need `pnpm install`; for end-to-end CLI testing (`vg deploy`/`generate`/`whoami`) run `pnpm install && pnpm dogfood` (see Dogfooding above). To reach the backend you also need:
 
-- **Auth:** `VG_TOKEN` set as an environment secret (device-code `vg login` needs a browser and blocks an agent). `VG_API_URL` defaults to prod; override for local/staging.
+- **Auth:** `VG_TOKEN` set as an environment secret (device-code `vg login` needs a browser and blocks an agent). `VG_API_URL` defaults to prod; override for local/staging. `TYPESAFE_API_KEY` only if the session runs the playtest skill's model-piloted `pilot-playtest.mjs`; the scripted bot needs no key.
 - **Network:** egress allowed to `registry.npmjs.org` and the target API host.
 - **R2 (above):** only a `localhost[:port]` `VG_API_URL` gets the local upload proxy. Against prod — or against `127.0.0.1` — a successful `vg deploy` writes to **production** R2.
