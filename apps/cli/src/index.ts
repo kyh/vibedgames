@@ -13,6 +13,7 @@ import { initCommand } from "./commands/init.js";
 import { loginCommand } from "./commands/login.js";
 import { logoutCommand } from "./commands/logout.js";
 import { newCommand } from "./commands/new.js";
+import { pilotCommand } from "./commands/pilot.js";
 import { playtestCommand, runPlaytest } from "./commands/playtest.js";
 import { updateCommand } from "./commands/update.js";
 import { whoamiCommand } from "./commands/whoami.js";
@@ -42,6 +43,7 @@ const main = defineCommand({
     login: loginCommand,
     logout: logoutCommand,
     new: newCommand,
+    pilot: pilotCommand,
     playtest: playtestCommand,
     update: updateCommand,
     whoami: whoamiCommand,

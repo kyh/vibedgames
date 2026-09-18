@@ -4,6 +4,7 @@ import { authRouter } from "./auth/auth-router";
 import { creditsRouter } from "./credits/credits-router";
 import { deployRouter } from "./deploy/deploy-router";
 import { generateRouter } from "./generate/generate-router";
+import { pilotRouter } from "./pilot/pilot-router";
 import { waitlistRouter } from "./waitlist/waitlist-router";
 
 export const appRouter = {
@@ -13,6 +14,7 @@ export const appRouter = {
   credits: creditsRouter,
   deploy: deployRouter,
   generate: generateRouter,
+  pilot: pilotRouter,
   waitlist: waitlistRouter,
 };
 

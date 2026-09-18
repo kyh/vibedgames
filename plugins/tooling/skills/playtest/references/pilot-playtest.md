@@ -1,119 +1,140 @@
 # Pilot Playtest: Let a Model Play It
 
-The scripted bot proves a game _can_ be played: held keys move the player, the objective is reachable, nothing throws. It cannot tell you whether a player who is _trying_ gets anywhere — whether the first hazard is readable, whether the objective is findable from the state, whether a run ends in a wall or a win. That needs something that decides, and `scripts/pilot-playtest.mjs` is a playtester that decides its own inputs from the game state, several times a second, with no human involved.
+The scripted bot proves a game _can_ be played: held keys move the player, the objective is reachable, nothing throws. It cannot tell you whether a player who is _trying_ gets anywhere — whether the first hazard is readable, whether the objective is findable from what the game shows, whether a run ends in a wall or a win. That needs something that decides. `vg pilot` is a playtester that decides its own inputs from the game state, several times a second, with no human involved.
+
+```sh
+vg pilot --url http://localhost:5173
+vg pilot --game my-game --goal "Reach the flag on the right; pits kill, jump them" --json
+```
 
 ## How It Works
 
-The pilot is a two-layer loop, the same shape as the community Jev game bots (TerraBlind's boss combat, JevPilot's autopilot):
+The pilot is the two-layer loop the community Jev game bots use (TerraBlind's boss combat, JevPilot's autopilot):
 
-1. **Perception is code.** Each tick the harness reads `window.__GAME_DIAGNOSTICS__` — the same contract the bot uses — and adds what the last inputs achieved: displacement, score delta, a short position trail, how many ticks in a row the player has been stuck.
-2. **Decision is the model.** That state goes to [Jev](https://docs.typesafe.ai), TypeSafe's decision-only model: it doesn't generate text, it answers typed questions with calibrated probabilities in roughly 100–300 ms. One call per tick answers everything at once — a `choice` for which movement to hold, a yes/no (`noul`) per action ("should the player jump right now?").
-3. **Execution is code.** The answers become properly-formed held keys and pointer events through the harness in `scripts/lib/harness.mjs`, dispatched the way the bot does it (never `vg playtest keydown`). Keys stay down across the decision gap, like a player holding a direction while thinking.
+1. **Perception is code.** Each tick `vg pilot` reads `window.__GAME_DIAGNOSTICS__` — the same contract the bot uses — and adds what the last inputs achieved: displacement, score delta, a short position trail, how many ticks in a row the player has been stuck.
+2. **Decision is the model.** That state goes to Jev, TypeSafe's decision-only model, through the vibedgames API (`pilot.decide`; the server holds the key, you need nothing but `vg login`). It doesn't generate text: it answers typed questions with calibrated probabilities. One call answers everything at once — a `choice` for which movement to hold, a yes/no per action ("should the player jump right now?").
+3. **Execution is code.** The answers become properly-formed held keys and pointer events, dispatched the way the bot does it (never agent-browser's `keydown`, which Phaser ignores).
 
-There is no vision. The model sees exactly what the diagnostics expose, which makes the pilot an honest audit of the contract: **a pilot that can't decide is telling you the diagnostics don't describe what a player sees.** Add positions of hazards, pickups and the goal, and it gets better. The report's `decisions.meanConfidence` is the signal — a low value warns about exactly this.
+**The decision is the hold.** There is no fixed tick. The previous inputs stay down while the model answers, so the game runs continuously and the pilot decides as fast as answers arrive — typically 3–5 times a second, about a player's reaction time. `--tick-ms` is a floor, not a period: the default (150 ms) only stops a very fast answer from playing at a jittery superhuman rate; raise it for a slower player. The report's `decisionsPerSecond` and `model.meanDecisionMs` say what a run actually did.
 
-## Running It
+There is no vision. The model sees exactly what the diagnostics expose, which makes the pilot an honest audit of the contract: **a pilot that can't decide is telling you the diagnostics don't describe what a player sees.** `decisions.meanConfidence` is the signal — below 0.3 the report says so.
 
-Needs `TYPESAFE_API_KEY` (create one at [console.typesafe.ai](https://console.typesafe.ai/settings/keys)). The key is read by the script and sent only to the TypeSafe API; nothing in vibedgames proxies or meters it. A run of 60 ticks costs well under a cent at published pricing — the report carries `model.inputTokens` so you can check.
+## Make Your Game Pilotable
 
-```bash
-# This skill's directory. Claude Code substitutes CLAUDE_SKILL_DIR (project, global
-# or plugin install); other agents fall back to wherever `skills add` put it.
-SKILL="${CLAUDE_SKILL_DIR}"
-[ -d "$SKILL" ] || for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
-  [ -d "$d/playtest" ] && SKILL=$d/playtest && break
-done
+Three things, all in the game's own code, all cheap. The first two are the diagnostics contract every playtest needs; the third is what lets the pilot play without a controls file.
+
+### 1. Publish state the way a player sees it
+
+```js
+// Updated every frame from the game loop. Primitives only — never engine objects.
+window.__GAME_DIAGNOSTICS__ = {
+  frame: 0, // the loop's heartbeat
+  score: 0, // the objective metric: points, distance, waves, gems
+  complete: false, // win or fail state reached
+  player: { x: 0, y: 0, speed: 0 }, // x/z for 3D games
+  entities: 0,
+  // What the pilot decides FROM. Relative vectors beat absolute lists:
+  nearestHazard: { dx: 120, dy: 0, kind: "spike" }, // null when none in view
+  nearestPickup: { dx: -40, dy: -30, kind: "coin" },
+  goalDirection: { dx: 900, dy: 0 }, // where progress is
+  hp: 3,
+  canJump: true, // grounded / cooldown ready
+};
 ```
 
-```sh
-export TYPESAFE_API_KEY=…
-node $SKILL/scripts/pilot-playtest.mjs --url http://localhost:5173
-node $SKILL/scripts/pilot-playtest.mjs --game my-game --seed 42 --ticks 120     # a deployed game
-node $SKILL/scripts/pilot-playtest.mjs --url http://localhost:5173 --goal "Reach the exit on the right without touching lava"
-node $SKILL/scripts/pilot-playtest.mjs --url http://localhost:5173 --controls ./controls.json --expect-progress
+Rules of thumb: a few kilobytes at most (the whole object is sent each tick; a 500-entity array is cost without signal); the nearest few threats and pickups with `dx`/`dy` from the player, not everything; the game's own verbs as booleans (`canJump`, `reloading`, `onLadder`); and `score` monotonic so `after > before` is a sound assertion. Field names are free-form — the model reads the JSON — but describe them in the goal if they aren't obvious.
+
+### 2. Expose the hooks a playtest needs
+
+```js
+window.__GAME_TEST_HOOKS__ = {
+  seed(n) {}, // reseed the RNG AND restart the run — see bot-playtest.md
+  setState(name) {}, // 'active-play' skips the menu; returns { state: name } once applied
+  setPausedForScreenshot(paused) {},
+};
 ```
 
-| Flag                              | Meaning                                                                                      |
-| --------------------------------- | -------------------------------------------------------------------------------------------- |
-| `--url <url>`                     | Where the game is served (mutually exclusive with `--game`)                                  |
-| `--game <slug>`                   | Playtest the deployed game (follows `VG_API_URL`)                                            |
-| `--seed <n>`                      | Seed passed to `__GAME_TEST_HOOKS__.seed()` / `?seed=` (default `12345`)                     |
-| `--ticks <n>`                     | Decisions to make (default `60`); the run also stops when `complete` turns true              |
-| `--tick-ms <ms>`                  | How long each decision's inputs are held before the next read (default `300`, range 80–5000) |
-| `--controls <wasd\|arrows\|path>` | Control scheme: a preset, or a JSON file (below). Default `wasd`                             |
-| `--goal <text>`                   | What the pilot is trying to do — the single most useful flag. Overrides the scheme's `goal`  |
-| `--model <id>`                    | Jev model id (default `jev-latest`)                                                          |
-| `--expect-progress`               | Assert the objective advances                                                                |
-| `--headed`                        | Show the browser                                                                             |
-| `--keep-open`                     | Leave the page open afterwards                                                               |
+Gate both behind dev mode or `?test=1` if you don't want them shipping to players; `vg pilot --game <slug>` opens the deployed URL as-is, so a game that gates on `?test=1` needs `--url https://<slug>.vibedgames.com/?test=1`.
 
-Exit `0` = the game plays under the pilot, `1` = it doesn't (the JSON report names which check failed), `2` = the harness itself failed (no key, no browser, the game never booted, the model unreachable). `TYPESAFE_BASE_URL` overrides the API host, as the TypeSafe SDK does.
+### 3. Describe the controls, in words the model chooses between
 
-**Tick cadence.** A tick is the hold (`--tick-ms`) plus one `vg playtest eval` round trip plus one model call, so the effective rate is 1–2 decisions per second — JevPilot's clear-road rate, slower than TerraBlind's 5 Hz. The window each tick measures runs from the previous decision to the end of this hold, so it includes the decision latency, during which the previous inputs were still held. `wallMs` and `model.meanDecisionMs` in the report tell you the real cadence of a run.
-
-## The Controls File
-
-Presets cover WASD and arrows with a Space action. Real games need their own verbs — write them down, because the descriptions are literally what the model chooses between:
-
-```json
-{
-  "goal": "Cross the level to the flag on the right. Pits and spikes kill; jump over them. Coins raise the score.",
-  "move": {
-    "none": { "description": "Stand still", "keys": [] },
-    "left": { "description": "Run left", "keys": ["ArrowLeft"] },
-    "right": { "description": "Run right (towards the flag)", "keys": ["ArrowRight"] },
-    "right_jump": {
-      "description": "Run right while jumping — clears pits and spikes",
-      "keys": ["ArrowRight", "Space"]
-    }
+```js
+window.__GAME_PILOT__ = {
+  goal: "Cross the level to the flag on the right. Pits and spikes kill; jump over them (nearestHazard.dx tells you how far). Coins raise the score.",
+  move: {
+    none: { description: "Stand still", keys: [] },
+    left: { description: "Run left", keys: ["ArrowLeft"] },
+    right: { description: "Run right (towards the flag)", keys: ["ArrowRight"] },
+    right_jump: {
+      description: "Run right while jumping — clears pits and spikes",
+      keys: ["ArrowRight", "Space"],
+    },
   },
-  "actions": {
-    "fire": {
-      "description": "fire the blaster at an enemy in front of the player",
-      "keys": ["KeyX"]
-    }
-  }
-}
+  actions: {
+    fire: { description: "fire the blaster at an enemy in front of the player", keys: ["KeyX"] },
+  },
+};
 ```
 
-- **`move`** — one `choice` question. Each option holds `keys` and/or a `pointer` (`{ x, y, down? }` in viewport fractions, for aim-and-thrust and twin-stick games) for the whole tick. A `none` option is added if you leave it out. Key names are [KeyboardEvent codes](https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/code), the same set the bot accepts.
+`vg pilot` reads this at launch and needs no `--controls`. The descriptions are literally the criteria the model picks from, so write them as a coach would ("towards the flag", "clears pits"), and put the rules in `goal`: what wins, what kills, which way progress is, what the diagnostic fields mean. The model has no memory between ticks beyond the `recent` block the harness supplies — the goal is where continuity lives.
+
+- **`move`** — one `choice` question per tick; the chosen option's `keys` and/or `pointer` are held until the next decision. `pointer` is `{ x, y, down? }` in viewport fractions, for games that steer from the cursor (aim-and-thrust, twin-stick, point-to-move — `games/pong` parks the cursor in five lanes). A `none` option is added if you leave it out.
 - **`actions`** — one yes/no question each, held for the tick when the answer is ≥ 0.5. Keys only; a mouse-fire game puts `down: true` on its pointer moves instead.
-- **`goal`** — plain prose. Say what wins, what kills, and which direction progress is. The model has no memory between ticks beyond the `recent` block the harness supplies, so the goal is where continuity lives.
+- Combos the game needs held together are `move` options (`right_jump`); independent verbs are `actions`. Key names are [KeyboardEvent codes](https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/code) — `Key<A-Z>`, `Digit<0-9>`, arrows, `Space`, `Enter`, `Shift*`, and the rest the bot accepts.
 
-Combos belong in `move` options (`right_jump` above) when the game needs them held together; independent verbs belong in `actions`. Where raw input can't express the verb — placing a tower, picking a card — add a hook to `__GAME_TEST_HOOKS__` and a diagnostic that shows its effect; the pilot can only pull levers that exist as input.
+Where raw input can't express the verb — placing a tower, choosing a card — add a hook to `__GAME_TEST_HOOKS__` and a diagnostic that shows the choices; the pilot can only pull levers that exist as input.
 
-## What Jev Sees
+The same JSON works as a `--controls` file for a game you don't own or can't edit, and `--goal` overrides the goal either way.
 
-Each call sends `{ goal, game, recent, tick }`:
+## Flags
 
-- `game` — a JSON snapshot of `__GAME_DIAGNOSTICS__`, whole. Keep it primitives-only (the contract already says so) and under a few kilobytes: the model's context is ~32k tokens per call, and a 500-entity array every tick is cost with no signal. Prefer `nearestEnemy: { dx, dy, dist }` over `entities: [...]`.
+| Flag                              | Meaning                                                                                                                                      |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--url <url>`                     | Where the game is served (mutually exclusive with `--game`)                                                                                  |
+| `--game <slug>`                   | Pilot the deployed game (follows `VG_API_URL`)                                                                                               |
+| `--goal <text>`                   | What the pilot is trying to do — the single most useful flag. Overrides the manifest's or scheme's goal                                      |
+| `--controls <wasd\|arrows\|path>` | Control scheme: a preset, or a JSON file in the `__GAME_PILOT__` shape. Default: the game's manifest, else `wasd`                            |
+| `--ticks <n>`                     | Decisions to make (default `60`); the run also stops when `complete` turns true                                                              |
+| `--tick-ms <ms>`                  | Minimum time each decision's inputs stay held (default `150`, about a quick player's cadence; `0` = as fast as decisions arrive; max `5000`) |
+| `--seed <n>`                      | Seed passed to `__GAME_TEST_HOOKS__.seed()` / `?seed=` (default `12345`)                                                                     |
+| `--expect-progress`               | Assert the objective advances                                                                                                                |
+| `--model <id>`                    | Decision model id (default `jev-latest`)                                                                                                     |
+| `--headed`                        | Show the browser                                                                                                                             |
+| `--keep-open`                     | Leave the page open afterwards                                                                                                               |
+| `--json` / `--field <path>`       | The full report as JSON, or one value from it                                                                                                |
+
+Exit `0` = the game plays under the pilot, `1` = it doesn't (the report names which check failed), `2` = the harness itself failed (bad flags, no browser, the game never booted, the model unreachable). Not logged in exits `1` like every other command.
+
+## What the Model Sees
+
+Each decision sends `{ goal, game, recent, tick }`:
+
+- `game` — the JSON snapshot of `__GAME_DIAGNOSTICS__` taken when the previous inputs were applied, whole.
 - `recent` — `held` (last move and actions), `movedLastTick` (peak displacement), `scoreDeltaLastTick`, `stuckTicksInARow`, a six-point position `trail`, and `blockedMoves`.
-- `tick` — `{ index, of, tickMs }`, so "no time left" is knowable.
+- `tick` — `{ index, of }`, so "no time left" is knowable.
 
-**The reflex.** A move that produced no motion for two ticks running is withdrawn from the next question's options. Omission, not persuasion: Jev cannot answer outside its schema, so removing the option is the one nudge that always lands. Only that move, only for one tick — the model still chooses among the rest.
+**The reflex.** A move that produced no motion for two ticks running is withdrawn from the next question's options. Omission, not persuasion: the model cannot answer outside its schema, so removing the option is the one nudge that always lands. Only that move, only for one tick — the model still chooses among the rest.
+
+Per-call state is capped at 64 KB and 32 questions server-side; a run of 60 decisions costs a fraction of a cent and is not metered against credits.
 
 ## Metrics and What They Mean
 
-The play metrics are the bot's, measured per tick instead of per step, and the thresholds live in `THRESHOLDS` at the top of the script:
+The play metrics are the bot's, measured per decision instead of per scripted step; the thresholds live in `THRESHOLDS` in the CLI's `lib/pilot/run.ts`:
 
 - `framesAdvanced`, `maxTickDisplacement`, `longestStuckRun`, `consoleErrors`, `pageErrors` — the same gates as [bot-playtest.md](bot-playtest.md), and they fail for the same reasons. A wedged pilot is one that kept choosing moves that went nowhere _despite_ the reflex — geometry it can't read its way out of.
 - `scoreAfter > scoreBefore`, `tickOfFirstScore` — an assertion only under `--expect-progress`. A pilot that never scores under a well-written goal is a real finding about discoverability; under the default goal it's a warning.
-- `complete`, `completedAtTick` — the run stops when the game reports `complete`. Whether that was a win or a death is in the timeline's last entries (`scoreDelta`, `game` state before it), and in your knowledge of the game.
-- `decisions` — histograms of `moves` and `actions`, and `meanConfidence` for the move choice. Below 0.3 the report warns: the state isn't giving the model enough to prefer one direction over another.
-- `model` — `calls`, `inputTokens`, `outputTokens`, `meanDecisionMs`, `maxDecisionMs`. Cost and cadence, so a slow run can be attributed.
-- `timeline` — one entry per tick: the move and actions chosen, the move's confidence, each action's probability, `peak`/`path`, `scoreDelta`, `frames`, `stuck`. This is the playtest log; read it before deciding anything about the game.
+- `complete`, `completedAtTick` — the run stops when the game reports `complete`. Whether that was a win or a death is in the timeline's last entries and in your knowledge of the game.
+- `decisions` — histograms of `moves` and `actions`, and `meanConfidence` for the move choice.
+- `decisionsPerSecond`, `model` — cadence and cost (`calls`, `inputTokens`, `meanDecisionMs`, `maxDecisionMs`), so a slow run can be attributed.
+- `timeline` — one entry per decision: the move and actions chosen, the move's confidence, each action's probability, `peak`/`path`, `scoreDelta`, `frames`, `stuck`. This is the playtest log; read it before deciding anything about the game.
 
 ## Reading a Run Like a Playtest
 
 The pilot is not a benchmark; it is a cheap, tireless first player. Things it surfaces that the scripted sweep cannot:
 
-- **Onboarding:** does the objective get scored at all in the first 60 ticks under a goal that says what to do? If a model that has been told the rules can't find the score, a player who hasn't been told won't either.
+- **Onboarding:** does the objective get scored at all in 60 decisions under a goal that says what to do? If a model that has been told the rules can't find the score, a player who hasn't been told won't either.
 - **Readability:** run with the honest diagnostics, then add `nearestHazard` and run again. If `meanConfidence` jumps and deaths drop, that information is what a player needs to _see_ — check the art is showing it.
-- **Difficulty:** run the pilot at `--tick-ms 200` and `--tick-ms 600`. A slower decision rate models a slower player; if both survive equally, the pressure is decorative. The scripted bot's `--reaction-delay` runs measure the same thing without any judgement in the loop — report both.
-- **Determinism:** same `--seed`, same controls, and the decisions still differ tick to tick — the model isn't deterministic, so compare distributions across a few runs, not single runs.
+- **Difficulty:** run at the default cadence and at `--tick-ms 600`. A slower decision rate models a slower player; if both survive equally, the pressure is decorative. The scripted bot's `--reaction-delay` runs measure the same thing without any judgement in the loop — report both.
+- **Determinism:** same `--seed`, same controls, and the decisions still differ run to run — the model isn't deterministic, so compare distributions across a few runs, not single runs.
 
-Pair a pilot run with the scripted sweep, not instead of it: the sweep is deterministic and cheap enough to run on every change; the pilot is for the questions that need someone trying.
-
-## Adding a Game-Specific Question
-
-The default questions are movement and actions. When a game's core verb is something else — which tower to place, which card to play — the cleanest path is a hook on `__GAME_TEST_HOOKS__` plus a diagnostic that exposes the choices, then a copy of `pilot-playtest.mjs` whose `buildQuestions` adds a `choice` over those options and whose `inputsFor` calls the hook via `evaluate`. The harness module does the rest.
+Pair a pilot run with the scripted sweep, not instead of it: the sweep is deterministic and free; the pilot is for the questions that need someone trying.

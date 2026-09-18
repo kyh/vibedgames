@@ -27,7 +27,7 @@ One file, two consumers. Everything lives in the repo-root `.env`; template is `
 | Consumer                                         | Reaches it via                                                  | Holds                                                                 |
 | ------------------------------------------------ | --------------------------------------------------------------- | --------------------------------------------------------------------- |
 | drizzle-kit, the wrangler CLI                    | `process.env`, loaded by each package's `with-env` (dotenv-cli) | `CLOUDFLARE_ACCOUNT_ID` / `_DATABASE_ID` / `_D1_TOKEN` / `_API_TOKEN` |
-| the dev Worker, via the Cloudflare `env` binding | `secrets.required` in `apps/web/wrangler.jsonc`                 | `BETTER_AUTH_SECRET`, `R2_*`, `FAL_API_KEY`                           |
+| the dev Worker, via the Cloudflare `env` binding | `secrets.required` in `apps/web/wrangler.jsonc`                 | `BETTER_AUTH_SECRET`, `R2_*`, `FAL_API_KEY`, `TYPESAFE_API_KEY`       |
 
 **`secrets.required` is the whole mechanism.** Declaring a name there makes wrangler fold `process.env` into the Worker binding and filter it down to exactly the declared names — so a secret that is in `.env` but not in `secrets.required` silently never reaches the Worker. Adding one means editing three places: `.env.example`, `secrets.required`, and `apps/web/env.d.ts`.
 

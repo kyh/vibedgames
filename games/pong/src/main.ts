@@ -132,6 +132,15 @@ interface TestHooks {
   setPausedForScreenshot: (paused: boolean) => void;
   setReducedMotion: (enabled: boolean) => void;
 }
+/** What `vg pilot` may do to this game, in words the decision model chooses between. */
+interface PilotManifest {
+  goal: string;
+  move: Record<
+    string,
+    { description: string; keys?: string[]; pointer?: { x: number; y: number; down?: boolean } }
+  >;
+  actions?: Record<string, { description: string; keys: string[] }>;
+}
 declare global {
   interface Window {
     /** Dev-only hooks; __pongHand(x) drives the gesture→paddle path synthetically (x ∈ [0,1]). */
@@ -139,6 +148,7 @@ declare global {
     __pongHand?: (x: number) => void;
     __pongCamera?: HandCamera;
     __GAME_TEST_HOOKS__?: TestHooks;
+    __GAME_PILOT__?: PilotManifest;
   }
 }
 Object.defineProperty(window, "__GAME_DIAGNOSTICS__", {
@@ -154,7 +164,35 @@ if (import.meta.env.DEV || new URLSearchParams(window.location.search).get("test
     setReducedMotion: (enabled) => game.setReducedMotion(enabled),
     setState: (name) => game.setTestState(name),
   };
-  Object.assign(window, { __GAME_TEST_HOOKS__: hooks });
+  // The paddle follows the pointer's x, so the pilot steers by parking the
+  // cursor; five lanes are enough to get under the ball. Read at launch by
+  // `vg pilot` so no --controls file is needed for this game.
+  const pilot: PilotManifest = {
+    actions: {
+      serve: {
+        description: "serve the ball, or fire a charged power shot (Space)",
+        keys: ["Space"],
+      },
+    },
+    goal: "You control the bottom paddle; it follows the pointer's x. Keep the paddle under the ball (game.ball.x, your paddle is game.player.x; the court runs about -5 to 5 across). Return every ball. Serve when the ball is not moving. game.score is your points; game.opponentScore is theirs.",
+    move: {
+      centre: {
+        description: "Park the paddle in the centre of the court",
+        pointer: { x: 0.5, y: 0.5 },
+      },
+      far_left: {
+        description: "Park the paddle at the far left of the court",
+        pointer: { x: 0.1, y: 0.5 },
+      },
+      far_right: {
+        description: "Park the paddle at the far right of the court",
+        pointer: { x: 0.9, y: 0.5 },
+      },
+      left: { description: "Park the paddle left of centre", pointer: { x: 0.3, y: 0.5 } },
+      right: { description: "Park the paddle right of centre", pointer: { x: 0.7, y: 0.5 } },
+    },
+  };
+  Object.assign(window, { __GAME_PILOT__: pilot, __GAME_TEST_HOOKS__: hooks });
 }
 if (import.meta.env.DEV) {
   Object.assign(window, {

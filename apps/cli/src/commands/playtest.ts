@@ -82,13 +82,13 @@ const installedVersion = (bin: string): string | null => {
  */
 const meetsMinimum = (version: string): boolean => !isNewerVersion(MIN_VERSION, version);
 
-interface Binary {
+export interface Binary {
   bin: string;
   version: string;
 }
 
 /** The agent-browser binary to use. VG_AGENT_BROWSER_BIN overrides (dev). */
-const resolveBinary = (): Binary | null => {
+export const resolveBinary = (): Binary | null => {
   const override = process.env.VG_AGENT_BROWSER_BIN;
   // A dev-pointed binary is taken on trust — it is typically a local build with
   // no npm version to read, and `meetsMinimum` waves an unparseable one through.
@@ -115,7 +115,7 @@ const installGlobal = (): Binary | null => {
  * fetches Chrome for Testing and reuses an existing Chrome/Brave/Playwright
  * install when it finds one), so a first run pays for both.
  */
-const bootstrap = (): Binary => {
+export const bootstrap = (): Binary => {
   consola.start(`Installing the playtest browser (${PKG})…`);
   const resolved = installGlobal();
   if (!resolved) {
@@ -160,7 +160,7 @@ const recentlyFailed = (stamp: string): boolean => {
  * leave an older global install — already on PATH from some earlier project —
  * driving every run, which is how a documented contract silently stops holding.
  */
-const ensureMinimum = (resolved: Binary): Binary => {
+export const ensureMinimum = (resolved: Binary): Binary => {
   if (meetsMinimum(resolved.version)) {
     return resolved;
   }
@@ -219,7 +219,7 @@ const projectSlug = (): string => {
  * staging rather than silently hitting production the way a hardcoded apex
  * would. Mirrors the derivation the deploy router does server-side.
  */
-const resolveGameUrl = (slug: string | null): string => {
+export const resolveGameUrl = (slug: string | null): string => {
   const resolved = slug ?? projectSlug();
 
   // The slug lands in the host, so anything outside the deploy grammar could
@@ -387,20 +387,27 @@ export const withScopedSession = (args: string[], sessionId: () => string): stri
  * one so every command run from anywhere inside the project shares a browser,
  * and on the cwd otherwise. Hashed because the name lands in a socket path.
  */
-const projectSessionId = (): string => {
+export const projectSessionId = (): string => {
   const root = findProjectRoot(process.cwd()) ?? process.cwd();
   const digest = createHash("sha256").update(root).digest("hex").slice(0, 12);
   return `vg-${digest}`;
 };
 
+/**
+ * The agent-browser to drive: installed on first use, upgraded to the floor
+ * when older. Bootstrap covers `install` too: on a fresh machine that's the
+ * most natural first command, and re-running the provision step it just did
+ * is harmless.
+ */
+export const ensureAgentBrowser = (): Binary => {
+  const resolved = resolveBinary();
+  return resolved ? ensureMinimum(resolved) : bootstrap();
+};
+
 /** Resolve (installing on first use) and exec agent-browser. Never returns. */
 export const runPlaytest = (rawArgs: string[]): never => {
   const args = withScopedSession(expandGameFlag(rawArgs), projectSessionId);
-
-  // Bootstrap covers `install` too: on a fresh machine that's the most natural
-  // first command, and re-running the provision step it just did is harmless.
-  const resolved = resolveBinary();
-  const { bin } = resolved ? ensureMinimum(resolved) : bootstrap();
+  const { bin } = ensureAgentBrowser();
 
   const result = spawn.sync(bin, args, { stdio: "inherit" });
   process.exit(result.status ?? 1);
