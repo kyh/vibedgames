@@ -12,13 +12,13 @@ import { protectedProcedure } from "../orpc";
 
 // ---- The decision-model proxy -----------------------------------------------
 //
-// `pilot.decide` is the one hop the CLI's `vg pilot` makes per tick: game state
+// `playtest.decide` is the one hop the CLI's `vg playtest run` makes per tick: game state
 // plus typed questions in, calibrated answers out. The server holds the
 // TypeSafe key; the CLI never sees it. Unlike `generate.forward` this is not
 // a generic passthrough — the request shape is TypeSafe's System One request
 // and nothing else, so a caller cannot use the key against any other path.
 //
-// Not metered. A whole pilot run costs a fraction of a cent at the provider's
+// Not metered. A whole run costs a fraction of a cent at the provider's
 // published pricing, so the credit ledger would record noise; the size caps
 // below bound what one call can spend.
 
@@ -127,7 +127,7 @@ const readErrorText = async (res: Response): Promise<string> => {
 /**
  * One decision: forward `{ model, questions, state }` to the provider with
  * the server's key and return its answers verbatim. Typed per question on the
- * client (`vg pilot` narrows what it asked for); this layer only guarantees
+ * client (`vg playtest run` narrows what it asked for); this layer only guarantees
  * the request is a System One request and the reply has answers.
  */
 export const forwardDecision = async (
@@ -187,7 +187,7 @@ export const forwardDecision = async (
   return parsed;
 };
 
-export const pilotRouter = {
+export const playtestRouter = {
   decide: protectedProcedure
     .input(decideInput)
     .handler(async ({ context, input }) => await forwardDecision(context.decision, input)),

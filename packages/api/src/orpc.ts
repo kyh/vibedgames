@@ -74,7 +74,7 @@ export interface MediaProviderConfig {
 }
 
 /**
- * Server-held config for the decision-model proxy behind `pilot.decide`.
+ * Server-held config for the decision-model proxy behind `playtest.decide`.
  * `typesafe` is the TypeSafe API key; the base URL override exists for a
  * gateway prefix or a local stand-in, never for a different provider.
  */

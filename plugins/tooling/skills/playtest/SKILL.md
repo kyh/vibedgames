@@ -1,6 +1,6 @@
 ---
 name: playtest
-description: "Drive a real browser against a game with `vg playtest`: smoke checks, scripted bot playtests, `vg pilot` (a model plays the game and reports), softlock detection, screenshots and visual diffs, on localhost or a deployed URL."
+description: "Drive a real browser against a game with `vg playtest`: smoke checks, scripted bot playtests, `vg playtest run` (a model plays the game and reports), softlock detection, screenshots and visual diffs, on localhost or a deployed URL."
 ---
 
 # Playtest
@@ -109,22 +109,24 @@ Adapt `--script` to the game's core verb: a runner holds forward and switches la
 
 Metric meanings, flags, difficulty/fairness runs, and the key-dispatch trap: `references/bot-playtest.md`.
 
-## Pilot Playtest: Let a Model Play It
+## Model Playtest: Let a Model Play It
 
 The sweep proves the game _can_ be played. It cannot tell you whether a player who is _trying_ gets anywhere — whether the objective is findable from what the game shows, whether the first hazard is readable, whether a run ends in a wall. For that, hand the controls to a model:
 
 ```sh
-vg pilot --url http://localhost:5173 --goal "Reach the flag on the right; pits kill, jump them"
-vg pilot --game my-game --json        # the deployed game, full report as JSON
+vg playtest run --url http://localhost:5173 --goal "Reach the flag on the right; pits kill, jump them"
+vg playtest run --game my-game --json        # the deployed game, full report as JSON
 ```
 
-Several times a second the pilot reads `__GAME_DIAGNOSTICS__`, asks a decision-only model (through the vibedgames API — nothing to configure beyond `vg login`) which movement to hold and which actions to take, dispatches them as real held input, and repeats. Code does perception and keystrokes; the model only decides, and the decision latency is the hold, so it plays at about a player's reaction time. Same report shape and exit codes as the bot, plus `decisions` (what it chose, how sure it was), `decisionsPerSecond`, `model` (calls, tokens, latency) and a per-decision `timeline`.
+`run` is the one `vg playtest` verb that is ours rather than agent-browser's, so `vg playtest run --help` documents it and `vg playtest --help` (the binary's help) does not list it.
 
-**Make the game pilotable first** — that is most of the work, and it's the game author's. Publish what a player sees in `__GAME_DIAGNOSTICS__` (nearest hazard and pickup as `dx`/`dy`, where the goal is, `canJump`), and describe the controls and the rules in `window.__GAME_PILOT__` so the pilot needs no `--controls` file. The snippet for both is in [pilot-playtest.md](references/pilot-playtest.md) § Make Your Game Pilotable; `games/pong/src/main.ts` is a live example.
+Several times a second the playtester reads `__GAME_DIAGNOSTICS__`, asks a decision-only model (through the vibedgames API — nothing to configure beyond `vg login`) which movement to hold and which actions to take, dispatches them as real held input, and repeats. Code does perception and keystrokes; the model only decides, and the decision latency is the hold, so it plays at about a player's reaction time. Same report shape and exit codes as the bot, plus `decisions` (what it chose, how sure it was), `decisionsPerSecond`, `model` (calls, tokens, latency) and a per-decision `timeline`.
 
-Two things to know before trusting a run. **The model sees only the diagnostics** — no pixels — so a pilot that can't decide (`decisions.meanConfidence` below 0.3 warns) is an audit finding about the contract, not about the model. And **the goal is where the rules live**: what wins, what kills, which way progress is; the model has no memory between decisions beyond the `recent` block the harness supplies.
+**Make the game playable by the model first** — that is most of the work, and it's the game author's. Publish what a player sees in `__GAME_DIAGNOSTICS__` (nearest hazard and pickup as `dx`/`dy`, where the goal is, `canJump`), and describe the controls and the rules in `window.__GAME_PLAYTEST__` so the playtester needs no `--controls` file. The snippet for both is in [model-playtest.md](references/model-playtest.md) § Make Your Game Playable by the Model; `games/pong/src/main.ts` is a live example.
 
-Run the pilot beside the sweep, not instead of it. The sweep is deterministic and free; the pilot is for the questions that need someone trying — onboarding, readability, difficulty at two decision rates. Flags, the manifest schema, what the model sees, and how to read a run as a playtest: [pilot-playtest.md](references/pilot-playtest.md).
+Two things to know before trusting a run. **The model sees only the diagnostics** — no pixels — so a playtester that can't decide (`decisions.meanConfidence` below 0.3 warns) is an audit finding about the contract, not about the model. And **the goal is where the rules live**: what wins, what kills, which way progress is; the model has no memory between decisions beyond the `recent` block the harness supplies.
+
+Run the playtester beside the sweep, not instead of it. The sweep is deterministic and free; the playtester is for the questions that need someone trying — onboarding, readability, difficulty at two decision rates. Flags, the manifest schema, what the model sees, and how to read a run as a playtest: [model-playtest.md](references/model-playtest.md).
 
 ## Canvas & WebGL
 
@@ -177,7 +179,7 @@ A diff catches a change; it can't tell you the frame was wrong to begin with. Fo
 - [ ] Smoke check passes: boots, reaches a live frame, zero console/page errors
 - [ ] Diagnostics contract exposed and honest (no silent no-op hooks)
 - [ ] Bot playtest moves, scores under `--script --expect-progress` with the game's core verb, and reports `longestStuckRun` ≤ 2
-- [ ] `__GAME_PILOT__` published, and `vg pilot` scores within the run with `meanConfidence` ≥ 0.3 — or the diagnostics gained what the pilot was missing
+- [ ] `__GAME_PLAYTEST__` published, and `vg playtest run` scores within the run with `meanConfidence` ≥ 0.3 — or the diagnostics gained what the playtester was missing
 - [ ] Fail state triggers and retry restores play (for games that can be lost)
 - [ ] Deployed build playtested with `vg playtest --game <slug>`, not just localhost
 - [ ] Evidence is fresh: a new run id / output dir whenever code or assets changed — never relabel an old report as current evidence
@@ -188,7 +190,7 @@ A diff catches a change; it can't tell you the frame was wrong to begin with. Fo
 - `scripts/bot-playtest.mjs` — the progression-measuring bot; run it, read the JSON report
 - `scripts/lib/harness.mjs` — the bot's `vg playtest` plumbing, held-key and pointer dispatch, motion tracker, boot and seeding
 - `references/bot-playtest.md` — diagnostics contract, metrics, difficulty/fairness runs
-- `references/pilot-playtest.md` — `vg pilot`: making a game pilotable (`__GAME_PILOT__`), flags, what the model sees, reading a run as a playtest
+- `references/model-playtest.md` — `vg playtest run`: making a game playable by the model (`__GAME_PLAYTEST__`), flags, what the model sees, reading a run as a playtest
 - `references/canvas-determinism.md` — deterministic mode, readiness, flake triage, Phaser/Three.js specifics
 - `references/cli-cheatsheet.md` — the game-shaped subset of the `vg playtest` command surface
 

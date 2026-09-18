@@ -13,7 +13,7 @@ import { initCommand } from "./commands/init.js";
 import { loginCommand } from "./commands/login.js";
 import { logoutCommand } from "./commands/logout.js";
 import { newCommand } from "./commands/new.js";
-import { pilotCommand } from "./commands/pilot.js";
+import { playtestRunCommand } from "./commands/playtest-run.js";
 import { playtestCommand, runPlaytest } from "./commands/playtest.js";
 import { updateCommand } from "./commands/update.js";
 import { whoamiCommand } from "./commands/whoami.js";
@@ -43,8 +43,10 @@ const main = defineCommand({
     login: loginCommand,
     logout: logoutCommand,
     new: newCommand,
-    pilot: pilotCommand,
-    playtest: playtestCommand,
+    // `run` is the one `vg playtest` verb that is ours rather than
+    // agent-browser's: the model-driven playtest. index.ts routes every other
+    // `vg playtest …` straight to the binary below.
+    playtest: defineCommand({ ...playtestCommand, subCommands: { run: playtestRunCommand } }),
     update: updateCommand,
     whoami: whoamiCommand,
   },
@@ -65,7 +67,7 @@ if (subcommand === "factory") {
   runFactory(process.argv.slice(3));
 }
 
-if (subcommand === "playtest") {
+if (subcommand === "playtest" && process.argv.at(3) !== "run") {
   runPlaytest(process.argv.slice(3));
 }
 

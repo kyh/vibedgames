@@ -4,33 +4,33 @@ import { defineCommand } from "citty";
 import { consola } from "consola";
 
 import type { JsonValue } from "../lib/types.js";
-import type { Controls } from "../lib/pilot/controls.js";
-import type { Decide, DecideInput, RunOptions } from "../lib/pilot/run.js";
+import type { Controls } from "../lib/playtest/controls.js";
+import type { Decide, DecideInput, RunOptions } from "../lib/playtest/run.js";
 import { authErrorCode, createClient } from "../lib/api.js";
 import { getToken } from "../lib/config.js";
 import { outputArgs, writeStructured } from "../lib/output.js";
-import { GameBrowser } from "../lib/pilot/browser.js";
+import { GameBrowser } from "../lib/playtest/browser.js";
 import {
   DEFAULT_PRESET,
   PRESETS,
   PRESET_NAMES,
   parseControls,
   readControlsArg,
-} from "../lib/pilot/controls.js";
-import { HarnessError } from "../lib/pilot/errors.js";
-import { buildReport, runTicks, verdict } from "../lib/pilot/run.js";
+} from "../lib/playtest/controls.js";
+import { HarnessError } from "../lib/playtest/errors.js";
+import { buildReport, runTicks, verdict } from "../lib/playtest/run.js";
 import { assertKnownFlags } from "../lib/strict-args.js";
 import { ensureAgentBrowser, projectSessionId, resolveGameUrl } from "./playtest.js";
 
 /**
- * `vg pilot` — let a model play the game, and report how it went.
+ * `vg playtest run` — let a model play the game, and report how it went.
  *
- * Each tick the pilot reads `window.__GAME_DIAGNOSTICS__`, asks the decision
- * model (through `pilot.decide`; the server holds the key) which movement to
+ * Each tick the playtester reads `window.__GAME_DIAGNOSTICS__`, asks the decision
+ * model (through `playtest.decide`; the server holds the key) which movement to
  * hold and which actions to take, dispatches them as real held input, and
  * repeats. Code does perception and keystrokes; the model only decides.
  *
- * Exit 0 = the game plays under the pilot. Exit 1 = it doesn't (the report
+ * Exit 0 = the game plays under the model. Exit 1 = it doesn't (the report
  * says why). Exit 2 = the harness itself failed (bad flags, no browser, the
  * game never booted, the model unreachable).
  */
@@ -45,9 +45,9 @@ const DECISION_RETRIES = 2;
  */
 const DEFAULT_TICK_MS = 150;
 
-const pilotArgs = {
+const runArgs = {
   controls: {
-    description: `Control scheme: a preset (${PRESET_NAMES.join(", ")}) or a JSON file. Default: the game's window.__GAME_PILOT__ if it publishes one, else ${DEFAULT_PRESET}.`,
+    description: `Control scheme: a preset (${PRESET_NAMES.join(", ")}) or a JSON file. Default: the game's window.__GAME_PLAYTEST__ if it publishes one, else ${DEFAULT_PRESET}.`,
     type: "string",
   },
   expectProgress: {
@@ -55,12 +55,12 @@ const pilotArgs = {
     type: "boolean",
   },
   game: {
-    description: "Deployed game slug to pilot (mutually exclusive with --url).",
+    description: "Deployed game slug to playtest (mutually exclusive with --url).",
     type: "string",
   },
   goal: {
     description:
-      "What the pilot is trying to do — what wins, what kills, which way is progress. Overrides the scheme's goal.",
+      "What the playtester is trying to do — what wins, what kills, which way is progress. Overrides the scheme's goal.",
     type: "string",
   },
   headed: { description: "Show the browser.", type: "boolean" },
@@ -69,7 +69,7 @@ const pilotArgs = {
   seed: { default: "12345", description: "Seed for the game's RNG.", type: "string" },
   tickMs: {
     default: String(DEFAULT_TICK_MS),
-    description: `Minimum time each decision's inputs stay held (ms). The default caps the pilot near a fast player's cadence; 0 = as fast as decisions arrive.`,
+    description: `Minimum time each decision's inputs stay held (ms). The default caps the playtester near a fast player's cadence; 0 = as fast as decisions arrive.`,
     type: "string",
   },
   ticks: { default: "60", description: "Decisions to make.", type: "string" },
@@ -170,7 +170,7 @@ const chooseControls = (settings: Settings, manifest: JsonValue | null): Control
     controls =
       manifest === null
         ? PRESETS.get(DEFAULT_PRESET)
-        : parseControls(manifest, "window.__GAME_PILOT__");
+        : parseControls(manifest, "window.__GAME_PLAYTEST__");
   }
   if (!controls) {
     throw new HarnessError("no control scheme available.");
@@ -180,7 +180,7 @@ const chooseControls = (settings: Settings, manifest: JsonValue | null): Control
 
 /**
  * One decision through the API, with a short backoff on a rate limit or an
- * upstream fault. Anything else is a harness failure: a pilot with no
+ * upstream fault. Anything else is a harness failure: a playtester with no
  * decisions plays nothing.
  */
 const decideVia =
@@ -188,7 +188,7 @@ const decideVia =
   async (input: DecideInput): Promise<JsonValue> => {
     for (let attempt = 0; ; attempt += 1) {
       try {
-        return await client.pilot.decide(input);
+        return await client.playtest.decide(input);
       } catch (error) {
         const code = authErrorCode(error);
         const message = error instanceof Error ? error.message : String(error);
@@ -219,7 +219,7 @@ const summarize = (
 ): void => {
   const rate = report.decisionsPerSecond === null ? "" : ` at ${report.decisionsPerSecond}/s`;
   consola.log(
-    `Pilot made ${report.ticksRun} decisions${rate} (mean ${report.model.meanDecisionMs ?? "?"} ms each) on ${report.target}`,
+    `The model made ${report.ticksRun} decisions${rate} (mean ${report.model.meanDecisionMs ?? "?"} ms each) on ${report.target}`,
   );
   consola.log(
     `  frames +${report.framesAdvanced}  moved ${report.distanceTravelled} (peak ${report.maxTickDisplacement}/tick)  score ${report.scoreBefore} → ${report.scoreAfter}  stuck ${report.stuckTicks} (longest run ${report.longestStuckRun})`,
@@ -240,15 +240,15 @@ const summarize = (
   }
 };
 
-export const pilotCommand = defineCommand({
-  args: pilotArgs,
+export const playtestRunCommand = defineCommand({
+  args: runArgs,
   meta: {
     description:
       "Let a model play the game and report how it went — reads the game's diagnostics each tick, decides what to hold, drives real input. Needs the diagnostics contract (see the playtest skill).",
-    name: "pilot",
+    name: "run",
   },
   run: async ({ args, rawArgs }) => {
-    assertKnownFlags(rawArgs, pilotArgs);
+    assertKnownFlags(rawArgs, runArgs);
 
     let settings: Settings;
     try {
@@ -306,7 +306,9 @@ export const pilotCommand = defineCommand({
     } catch (error) {
       browser.releaseHeldInputs();
       const message = error instanceof Error ? error.message : String(error);
-      consola.error(error instanceof HarnessError ? message : `pilot harness failed: ${message}`);
+      consola.error(
+        error instanceof HarnessError ? message : `playtest harness failed: ${message}`,
+      );
       process.exit(HARNESS_FAILURE);
     }
 

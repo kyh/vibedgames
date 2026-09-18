@@ -13,7 +13,6 @@ const SUBCOMMANDS = [
   "logout",
   "deploy",
   "playtest",
-  "pilot",
   "factory",
   "fork",
   "generate",

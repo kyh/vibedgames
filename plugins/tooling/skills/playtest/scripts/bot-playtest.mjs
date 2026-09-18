@@ -19,7 +19,7 @@
  * harness itself failed (browser missing, game never booted).
  *
  * For a playtester that decides its own inputs from the game state, see
- * pilot-playtest.mjs.
+ * model-playtest.
  */
 
 import { readFileSync } from "node:fs";

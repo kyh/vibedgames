@@ -1,5 +1,5 @@
 /**
- * The pilot loop: decide, apply, measure, repeat.
+ * The model playtest loop: decide, apply, measure, repeat.
  *
  * There is no in-page hold. The decision call IS the hold — the previous
  * inputs stay down while the model answers, so the game runs continuously
@@ -27,7 +27,7 @@ export const THRESHOLDS = {
   displacement: 5,
   /**
    * Frames a run must advance to count as alive — the bot's gate — capped by
-   * `minFps` × the run's wall time, because a pilot run can legitimately be
+   * `minFps` × the run's wall time, because a model-driven run can legitimately be
    * a couple of seconds long where the scripted sweep is twelve.
    */
   framesAdvanced: 100,
@@ -43,7 +43,7 @@ const TRAIL_LENGTH = 6;
 /** How long the last decision is held before its window is read. */
 const FINAL_HOLD_MS = 250;
 
-export type DecideInput = RouterInputs["pilot"]["decide"];
+export type DecideInput = RouterInputs["playtest"]["decide"];
 export type Decide = (input: DecideInput) => Promise<JsonValue>;
 
 export interface RunOptions {
@@ -84,9 +84,9 @@ const measure = (
   if (progressed && metrics.tickOfFirstScore === null) {
     metrics.tickOfFirstScore = index;
   }
-  // Stuck signature: frames advanced, the pilot asked the player to move, and
+  // Stuck signature: frames advanced, the playtester asked the player to move, and
   // nothing came of it. Counted as a RUN: one dead tick is a wall, several in
-  // a row is a player wedged in geometry — or a pilot that keeps choosing the
+  // a row is a player wedged in geometry — or a playtester that keeps choosing the
   // wall, which the reflex exists to break.
   let stuck = false;
   if (asksToMove(controls, decision.move)) {
@@ -161,7 +161,7 @@ export interface Verdict {
   warnings: string[];
 }
 
-/** Per-run histograms of what the pilot chose, and how sure it was about moving. */
+/** Per-run histograms of what the playtester chose, and how sure it was about moving. */
 const summarizeDecisions = (timeline: TimelineEntry[]) => {
   const moves: Record<string, number> = {};
   const actions: Record<string, number> = {};
@@ -395,12 +395,12 @@ export const verdict = (report: Report, opts: RunOptions): Verdict => {
   // would drift past a total-distance threshold.
   if (report.maxTickDisplacement <= THRESHOLDS.displacement) {
     failures.push(
-      `player did not respond to input (maxTickDisplacement ${report.maxTickDisplacement}) — if this game steers with the mouse, give it pointer moves in __GAME_PILOT__ or --controls`,
+      `player did not respond to input (maxTickDisplacement ${report.maxTickDisplacement}) — if this game steers with the mouse, give it pointer moves in __GAME_PLAYTEST__ or --controls`,
     );
   }
   if (report.longestStuckRun > THRESHOLDS.stuckRun) {
     failures.push(
-      `player wedged for ${report.longestStuckRun} consecutive movement ticks (longestStuckRun) — the pilot kept choosing moves that went nowhere`,
+      `player wedged for ${report.longestStuckRun} consecutive movement ticks (longestStuckRun) — the playtester kept choosing moves that went nowhere`,
     );
   }
   if (report.scoreAfter <= report.scoreBefore) {
@@ -415,7 +415,7 @@ export const verdict = (report: Report, opts: RunOptions): Verdict => {
   }
   if (report.completedAtTick !== null) {
     warnings.push(
-      `the run ended at tick ${report.completedAtTick} of ${opts.ticks} (complete became true) — a win, or a fail state the pilot couldn't avoid; read the timeline to tell which`,
+      `the run ended at tick ${report.completedAtTick} of ${opts.ticks} (complete became true) — a win, or a fail state the playtester couldn't avoid; read the timeline to tell which`,
     );
   }
   const { meanConfidence } = report.decisions;

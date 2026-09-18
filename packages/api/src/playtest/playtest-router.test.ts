@@ -10,10 +10,10 @@ import {
   MAX_STATE_BYTES,
   decideInput,
   forwardDecision,
-} from "./pilot-router";
+} from "./playtest-router";
 
 /**
- * `pilot.decide` is the only place the TypeSafe key is used, so what leaves
+ * `playtest.decide` is the only place the TypeSafe key is used, so what leaves
  * the server matters: exactly a System One request, with the key, to the
  * configured host, and nothing else. The provider is a stubbed `fetch`.
  */

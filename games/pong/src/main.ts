@@ -132,8 +132,8 @@ interface TestHooks {
   setPausedForScreenshot: (paused: boolean) => void;
   setReducedMotion: (enabled: boolean) => void;
 }
-/** What `vg pilot` may do to this game, in words the decision model chooses between. */
-interface PilotManifest {
+/** What `vg playtest run` may do to this game, in the words the decision model chooses between. */
+interface PlaytestManifest {
   goal: string;
   move: Record<
     string,
@@ -148,7 +148,7 @@ declare global {
     __pongHand?: (x: number) => void;
     __pongCamera?: HandCamera;
     __GAME_TEST_HOOKS__?: TestHooks;
-    __GAME_PILOT__?: PilotManifest;
+    __GAME_PLAYTEST__?: PlaytestManifest;
   }
 }
 Object.defineProperty(window, "__GAME_DIAGNOSTICS__", {
@@ -164,10 +164,10 @@ if (import.meta.env.DEV || new URLSearchParams(window.location.search).get("test
     setReducedMotion: (enabled) => game.setReducedMotion(enabled),
     setState: (name) => game.setTestState(name),
   };
-  // The paddle follows the pointer's x, so the pilot steers by parking the
-  // cursor; five lanes are enough to get under the ball. Read at launch by
-  // `vg pilot` so no --controls file is needed for this game.
-  const pilot: PilotManifest = {
+  // The paddle follows the pointer's x, so the playtester steers by parking
+  // the cursor; five lanes are enough to get under the ball. Read at launch by
+  // `vg playtest run` so no --controls file is needed for this game.
+  const manifest: PlaytestManifest = {
     actions: {
       serve: {
         description: "serve the ball, or fire a charged power shot (Space)",
@@ -192,7 +192,7 @@ if (import.meta.env.DEV || new URLSearchParams(window.location.search).get("test
       right: { description: "Park the paddle right of centre", pointer: { x: 0.7, y: 0.5 } },
     },
   };
-  Object.assign(window, { __GAME_PILOT__: pilot, __GAME_TEST_HOOKS__: hooks });
+  Object.assign(window, { __GAME_PLAYTEST__: manifest, __GAME_TEST_HOOKS__: hooks });
 }
 if (import.meta.env.DEV) {
   Object.assign(window, {

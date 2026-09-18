@@ -3,7 +3,7 @@
  * subprocess plumbing, properly-formed held-key and pointer dispatch, the
  * in-page motion tracker, and the boot/seed sequence that gets a game to a
  * live, seeded run. `bot-playtest.mjs` (a scripted sweep) and
- * `pilot-playtest.mjs` (a Jev-driven pilot) both build on it.
+ * the CLI's `vg playtest run` (model-driven) carries a TypeScript port of it.
  *
  * Zero dependencies. Shells out to `vg playtest` (agent-browser). The game
  * must expose the diagnostics contract — see references/bot-playtest.md.

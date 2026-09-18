@@ -4,9 +4,9 @@ import path from "node:path";
 import { afterEach, test } from "node:test";
 
 import { makeCleanups, makeTmpDir } from "./_helpers.js";
-import type { Window } from "../src/lib/pilot/browser.js";
-import type { Decision } from "../src/lib/pilot/controls.js";
-import type { RunOptions, RunResult } from "../src/lib/pilot/run.js";
+import type { Window } from "../src/lib/playtest/browser.js";
+import type { Decision } from "../src/lib/playtest/controls.js";
+import type { RunOptions, RunResult } from "../src/lib/playtest/run.js";
 import type { JsonValue } from "../src/lib/types.js";
 import {
   ACTION_THRESHOLD,
@@ -16,13 +16,13 @@ import {
   parseControls,
   readControlsArg,
   readDecision,
-} from "../src/lib/pilot/controls.js";
-import { HarnessError } from "../src/lib/pilot/errors.js";
-import { keyFields, keyParts, pointerParts } from "../src/lib/pilot/keys.js";
-import { THRESHOLDS, buildReport, verdict } from "../src/lib/pilot/run.js";
+} from "../src/lib/playtest/controls.js";
+import { HarnessError } from "../src/lib/playtest/errors.js";
+import { keyFields, keyParts, pointerParts } from "../src/lib/playtest/keys.js";
+import { THRESHOLDS, buildReport, verdict } from "../src/lib/playtest/run.js";
 
 /**
- * `vg pilot`'s pure core: how a control scheme is read, how it becomes the
+ * `vg playtest run`'s pure core: how a control scheme is read, how it becomes the
  * model's questions, how answers become held input, and how a run is judged.
  * The browser and the API are behind interfaces and not exercised here.
  */
@@ -31,7 +31,7 @@ const { cleanups, drain } = makeCleanups();
 afterEach(drain);
 
 const file = (contents: JsonValue | string): string => {
-  const target = path.join(makeTmpDir(cleanups, "pilot-"), "controls.json");
+  const target = path.join(makeTmpDir(cleanups, "playtest-run-"), "controls.json");
   writeFileSync(target, String(contents) === contents ? contents : JSON.stringify(contents));
   return target;
 };
@@ -107,7 +107,7 @@ test("presets resolve by name and files by path", () => {
 });
 
 test("names a --controls value that is neither a preset nor a readable file", () => {
-  const dir = makeTmpDir(cleanups, "pilot-");
+  const dir = makeTmpDir(cleanups, "playtest-run-");
   rejects(
     () => readControlsArg(path.join(dir, "absent.json")),
     /couldn't read --controls .*arrows, wasd/u,
@@ -115,7 +115,7 @@ test("names a --controls value that is neither a preset nor a readable file", ()
   rejects(() => readControlsArg(file("{not json")), /isn't valid JSON/u);
 });
 
-test("rejects a scheme the pilot could not act on, naming the source", () => {
+test("rejects a scheme the playtester could not act on, naming the source", () => {
   const cases: [JsonValue, RegExp][] = [
     [[], /must be a JSON object/u],
     [{ move: {} }, /`move` must map at least one option/u],
@@ -146,8 +146,8 @@ test("rejects a scheme the pilot could not act on, naming the source", () => {
     ],
   ];
   for (const [raw, message] of cases) {
-    rejects(() => parseControls(raw, "window.__GAME_PILOT__"), message);
-    rejects(() => parseControls(raw, "window.__GAME_PILOT__"), /window\.__GAME_PILOT__/u);
+    rejects(() => parseControls(raw, "window.__GAME_PLAYTEST__"), message);
+    rejects(() => parseControls(raw, "window.__GAME_PLAYTEST__"), /window\.__GAME_PLAYTEST__/u);
   }
 });
 

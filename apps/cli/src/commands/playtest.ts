@@ -416,7 +416,7 @@ export const runPlaytest = (rawArgs: string[]): never => {
 export const playtestCommand = defineCommand({
   meta: {
     description:
-      "Drive a real browser to play a game — snapshot, click, hold keys, read state, screenshot, diff (installs the browser on first use). All arguments pass through: `vg playtest open <url>`, `vg playtest --game <slug>` to open a deployed game, `vg playtest --help` for the full command surface.",
+      "Drive a real browser to play a game — snapshot, click, hold keys, read state, screenshot, diff (installs the browser on first use). All arguments pass through: `vg playtest open <url>`, `vg playtest --game <slug>` to open a deployed game, `vg playtest --help` for the full command surface. `vg playtest run` is the exception: a model plays the game and reports (`vg playtest run --help`).",
     name: "playtest",
   },
   run: ({ rawArgs }) => {

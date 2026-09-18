@@ -1,7 +1,7 @@
 /**
- * The pilot's browser: agent-browser, driven directly rather than through
+ * The playtester's browser: agent-browser, driven directly rather than through
  * `vg playtest`. Each `vg playtest` call is a node start plus a version probe
- * (~230 ms); the binary itself answers an eval in under 10 ms, and a pilot
+ * (~230 ms); the binary itself answers an eval in under 10 ms, and a playtester
  * that decides several times a second can't afford the wrapper.
  *
  * Holds the in-page motion tracker and the record of what is currently
@@ -132,7 +132,7 @@ export interface LaunchOptions {
 export interface Launched {
   before: Sample;
   seedApplied: "hook" | "boot-param";
-  /** The game's own `window.__GAME_PILOT__`, if it publishes one. */
+  /** The game's own `window.__GAME_PLAYTEST__`, if it publishes one. */
   manifest: JsonValue | null;
 }
 
@@ -252,7 +252,7 @@ export class GameBrowser {
     this.boot(
       url,
       headed,
-      "the game never published window.__GAME_DIAGNOSTICS__ / window.__GAME_TEST_HOOKS__. Either it crashed on boot, or it doesn't implement the diagnostics contract (see the playtest skill's references/pilot-playtest.md).",
+      "the game never published window.__GAME_DIAGNOSTICS__ / window.__GAME_TEST_HOOKS__. Either it crashed on boot, or it doesn't implement the diagnostics contract (see the playtest skill's references/model-playtest.md).",
     );
     const seedApplied = this.applySeed(seed, headed);
 
@@ -284,7 +284,7 @@ export class GameBrowser {
       ? { complete: sample.complete === true, frame: num(sample.frame), score: num(sample.score) }
       : { complete: false, frame: 0, score: 0 };
     const manifest = this.evaluate(
-      "(() => { try { return JSON.parse(JSON.stringify(window.__GAME_PILOT__ ?? null)); } catch { return null; } })()",
+      "(() => { try { return JSON.parse(JSON.stringify(window.__GAME_PLAYTEST__ ?? null)); } catch { return null; } })()",
     );
     return { before, manifest, seedApplied };
   }

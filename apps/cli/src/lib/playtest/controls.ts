@@ -1,5 +1,5 @@
 /**
- * What the pilot can do to a game, and the questions that turn that into a
+ * What the playtester can do to a game, and the questions that turn that into a
  * decision. A control scheme is a `move` choice (one option held per tick)
  * plus independent yes/no `actions`, each described in prose — the
  * descriptions are literally the model's criteria, so they carry the game's
@@ -7,7 +7,7 @@
  *
  * Schemes come from three places, in precedence order: an explicit
  * `--controls` (preset name or JSON file), the game's own
- * `window.__GAME_PILOT__` manifest, and the `wasd` preset.
+ * `window.__GAME_PLAYTEST__` manifest, and the `wasd` preset.
  */
 
 import { readFileSync } from "node:fs";
@@ -181,7 +181,7 @@ const readActionOption = (value: JsonValue, where: string): ActionOption => {
 
 /**
  * Validate a scheme from JSON (a `--controls` file or the game's
- * `__GAME_PILOT__`). `source` names where it came from in every error, so a
+ * `__GAME_PLAYTEST__`). `source` names where it came from in every error, so a
  * game author knows which manifest to fix.
  */
 export const parseControls = (raw: JsonValue, source: string): Controls => {
@@ -201,7 +201,7 @@ export const parseControls = (raw: JsonValue, source: string): Controls => {
     moves[label] = readMoveOption(option, `${source} move.${label}`);
   }
   if (!Object.values(moves).some((option) => option.keys.length > 0 || option.pointer)) {
-    fail(`${source}: no \`move\` option holds any input, so the pilot could never move.`);
+    fail(`${source}: no \`move\` option holds any input, so the playtester could never move.`);
   }
   // A no-input option is what the reflex falls back to when it withdraws a
   // move, and what "do nothing" means to the model — supplied when absent.
@@ -245,7 +245,7 @@ export const readControlsArg = (value: string): Controls => {
   return parseControls(raw, `--controls ${value}`);
 };
 
-type Questions = RouterInputs["pilot"]["decide"]["questions"];
+type Questions = RouterInputs["playtest"]["decide"]["questions"];
 
 /** Question key for an action, kept off `move`'s namespace. */
 export const actionKey = (label: string): string => `act:${label}`;
