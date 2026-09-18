@@ -81,6 +81,8 @@ export interface MediaProviderConfig {
 export interface DecisionProviderConfig {
   typesafe?: string;
   typesafeBaseUrl?: string;
+  /** Signs the short-lived tokens the in-page playtester carries (see playtest/session-token.ts). */
+  tokenSecret?: string;
 }
 
 /**

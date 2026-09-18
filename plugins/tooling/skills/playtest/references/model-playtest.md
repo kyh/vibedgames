@@ -9,15 +9,17 @@ vg playtest run --game my-game --goal "Reach the flag on the right; pits kill, j
 
 ## How It Works
 
-The playtester is the two-layer loop the community Jev game bots use (TerraBlind's boss combat, JevPilot's autopilot):
+The playtester is the two-layer loop the community Jev game bots use (TerraBlind's boss combat, JevPilot's autopilot), and it runs **inside the game's page**: `vg playtest run` boots the game, injects a small agent, and waits. Nothing crosses to the CLI per decision.
 
-1. **Perception is code.** Each tick `vg playtest run` reads `window.__GAME_DIAGNOSTICS__` — the same contract the bot uses — and adds what the last inputs achieved: displacement, score delta, a short position trail, how many ticks in a row the player has been stuck.
-2. **Decision is the model.** That state goes to Jev, TypeSafe's decision-only model, through the vibedgames API (`playtest.decide`; the server holds the key, you need nothing but `vg login`). It doesn't generate text: it answers typed questions with calibrated probabilities. One call answers everything at once — a `choice` for which movement to hold, a yes/no per action ("should the player jump right now?").
-3. **Execution is code.** The answers become properly-formed held keys and pointer events, dispatched the way the bot does it (never agent-browser's `keydown`, which Phaser ignores).
+1. **Perception is code.** Several times a second the agent reads `window.__GAME_DIAGNOSTICS__` — the same contract the bot uses — and adds what the last inputs achieved: displacement, score delta, a short position trail, how many ticks in a row the player has been stuck.
+2. **Decision is the model.** That state goes straight from the page to `POST /api/playtest-decide` on the vibedgames API, carrying a short-lived token the CLI minted for this run (`playtest.session`). The server holds the provider key and forwards one System One request to Jev, TypeSafe's decision-only model: typed questions in, calibrated probabilities out, no text. One call answers everything — a `choice` for which movement to hold, a yes/no (`noul`) per action.
+3. **Execution is code, at two speeds.** The answer becomes properly-formed held keys and pointer events, dispatched in the page (never agent-browser's `keydown`, which Phaser ignores). If the chosen move carries a `reflex` in `__GAME_PLAYTEST__`, that function runs **every frame** while the move is the model's intent, and its inputs are what is held — the model sets intent a few times a second, the reflex turns it into input at 60 fps. That is what makes a fast game playable: nothing waits on a round trip.
 
-**The decision is the hold.** There is no fixed tick. The previous inputs stay down while the model answers, so the game runs continuously and the playtester decides as fast as answers arrive — typically 3–5 times a second, about a player's reaction time. `--tick-ms` is a floor, not a period: the default (150 ms) only stops a very fast answer from playing at a jittery superhuman rate; raise it for a slower player. The report's `decisionsPerSecond` and `model.meanDecisionMs` say what a run actually did.
+**The decision is the hold.** There is no fixed tick. The previous inputs stay down while the model answers, so the game runs continuously and the agent decides as fast as answers arrive — the model's own latency plus one hop to the API, typically 3–6 times a second. `--tick-ms` is a floor, not a period: the default (150 ms) only stops a very fast answer from playing at a jittery superhuman rate; raise it for a slower player. The report's `decisionsPerSecond` and `model.meanDecisionMs` say what a run actually did.
 
-There is no vision. The model sees exactly what the diagnostics expose, which makes the playtester an honest audit of the contract: **a playtester that can't decide is telling you the diagnostics don't describe what a player sees.** `decisions.meanConfidence` is the signal — below 0.3 the report says so.
+**The page is untrusted, and gets exactly one credential.** The token the agent carries is HMAC-signed, bound to your user, expires in 15 minutes, and is honoured by that one endpoint only — never by the rest of the API. A game that captured it could spend decision-model tokens in your name until it expired, and nothing else. Your session and API key never enter the page.
+
+There is no vision. The model sees exactly what the diagnostics expose, which makes the playtester an honest audit of the contract: **a model that can't decide is telling you the diagnostics don't describe what a player sees.** `decisions.meanConfidence` is the signal — below 0.3 the report says so.
 
 ## Make Your Game Playable by the Model
 
@@ -76,9 +78,10 @@ window.__GAME_PLAYTEST__ = {
 };
 ```
 
-`vg playtest run` reads this at launch and needs no `--controls`. The descriptions are literally the criteria the model picks from, so write them as a coach would ("towards the flag", "clears pits"), and put the rules in `goal`: what wins, what kills, which way progress is, what the diagnostic fields mean. The model has no memory between ticks beyond the `recent` block the harness supplies — the goal is where continuity lives.
+`vg playtest run` reads this at launch and needs no `--controls`. When the model's decisions can't keep up with your game, don't ask for a faster model — give the move that needs speed a `reflex` (below). The descriptions are literally the criteria the model picks from, so write them as a coach would ("towards the flag", "clears pits"), and put the rules in `goal`: what wins, what kills, which way progress is, what the diagnostic fields mean. The model has no memory between ticks beyond the `recent` block the harness supplies — the goal is where continuity lives.
 
 - **`move`** — one `choice` question per tick; the chosen option's `keys` and/or `pointer` are held until the next decision. `pointer` is `{ x, y, down? }` in viewport fractions, for games that steer from the cursor (aim-and-thrust, twin-stick, point-to-move — `games/pong` parks the cursor in five lanes). A `none` option is added if you leave it out.
+- **`reflex(game)`** on a move — optional, and the fast-game path. While the option is the model's current intent, the agent calls it every frame with the live diagnostics and holds what it returns: `{ keys?: string[], pointer?: { x, y, down? } | null }`. Put the per-frame skill here — tracking a ball, strafing around a target, leading a shot — and leave the model the judgment call of _when_ to do it. Actions the model chose stay held alongside. `games/pong`'s `track_ball` is a five-line controller that walks the cursor under the ball; the model's part is choosing it over parking. Because the manifest is read live in the page, `reflex` can be a real function with closure state; it is simply absent from the JSON a `--controls` file can carry.
 - **`actions`** — one yes/no question each, held for the tick when the answer is ≥ 0.5. Keys only; a mouse-fire game puts `down: true` on its pointer moves instead.
 - Combos the game needs held together are `move` options (`right_jump`); independent verbs are `actions`. Key names are [KeyboardEvent codes](https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/code) — `Key<A-Z>`, `Digit<0-9>`, arrows, `Space`, `Enter`, `Shift*`, and the rest the bot accepts.
 
@@ -117,7 +120,7 @@ Each decision sends `{ goal, game, recent, tick }`:
 
 **The reflex.** A move that produced no motion for two ticks running is withdrawn from the next question's options. Omission, not persuasion: the model cannot answer outside its schema, so removing the option is the one nudge that always lands. Only that move, only for one tick — the model still chooses among the rest.
 
-Per-call state is capped at 64 KB and 32 questions server-side; a run of 60 decisions costs a fraction of a cent and is not metered against credits.
+Per-call state is capped at 64 KB and 32 questions server-side; a run of 60 decisions costs a fraction of a cent and is not metered against credits. The run's token expires after 15 minutes, so a very long `--ticks` at a slow `--tick-ms` ends with an authorization error — start a new run.
 
 ## Metrics and What They Mean
 
@@ -126,7 +129,7 @@ The play metrics are the bot's, measured per decision instead of per scripted st
 - `framesAdvanced`, `maxTickDisplacement`, `longestStuckRun`, `consoleErrors`, `pageErrors` — the same gates as [bot-playtest.md](bot-playtest.md), and they fail for the same reasons. A wedged playtester is one that kept choosing moves that went nowhere _despite_ the reflex — geometry it can't read its way out of.
 - `scoreAfter > scoreBefore`, `tickOfFirstScore` — an assertion only under `--expect-progress`. A playtester that never scores under a well-written goal is a real finding about discoverability; under the default goal it's a warning.
 - `complete`, `completedAtTick` — the run stops when the game reports `complete`. Whether that was a win or a death is in the timeline's last entries and in your knowledge of the game.
-- `decisions` — histograms of `moves` and `actions`, and `meanConfidence` for the move choice.
+- `decisions` — histograms of `moves` and `actions`, `meanConfidence` for the move choice, and `reflexFrames`: how many frames a reflex produced the held input (zero means no chosen move had one).
 - `decisionsPerSecond`, `model` — cadence and cost (`calls`, `inputTokens`, `meanDecisionMs`, `maxDecisionMs`), so a slow run can be attributed.
 - `timeline` — one entry per decision: the move and actions chosen, the move's confidence, each action's probability, `peak`/`path`, `scoreDelta`, `frames`, `stuck`. This is the playtest log; read it before deciding anything about the game.
 

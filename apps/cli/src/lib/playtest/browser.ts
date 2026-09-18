@@ -4,22 +4,17 @@
  * (~230 ms); the binary itself answers an eval in under 10 ms, and a playtester
  * that decides several times a second can't afford the wrapper.
  *
- * Holds the in-page motion tracker and the record of what is currently
- * pressed, so an early exit can release it: a keydown left dangling stays
- * stuck in the game and poisons the next run against the same daemon.
+ * The loop itself runs in the page (see agent.ts); this class boots the
+ * game, injects the agent, polls it, and reads the result back — and on an
+ * early exit tells the agent to stop, so a keydown it holds can't stay stuck
+ * in the game and poison the next run against the same daemon.
  */
 
 import { spawnSync } from "node:child_process";
 
 import type { JsonValue } from "../types.js";
 import { isJsonObject, isJsonString } from "../types.js";
-import type { HeldInputs } from "./controls.js";
-import { NOTHING_HELD } from "./controls.js";
 import { HarnessError } from "./errors.js";
-import { keyParts, pointerParts, samePointer } from "./keys.js";
-
-/** How often the in-page tracker samples player state. */
-const SAMPLE_MS = 40;
 
 /**
  * Read player state the same way at every sample site. All three axes,
@@ -30,43 +25,6 @@ const READ_FN = `const __botRead = () => {
   return { x: p.x ?? 0, y: p.y ?? 0, z: p.z ?? 0, frame: (d && d.frame) ?? 0, score: (d && d.score) ?? 0, complete: !!(d && d.complete) };
 };
 const __botDist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);`;
-
-/**
- * Start sampling player state inside the page. Peak displacement and path
- * length across a window are what tell a real stuck-on-geometry case from a
- * round trip — net displacement is zero for a jump that works perfectly.
- */
-const TRACK_BEGIN = `{
-  const s = __botRead();
-  const t = { start: s, last: s, path: 0, peak: 0, score: s.score };
-  window.__BOT_TRACK__ = t;
-  clearInterval(window.__BOT_TICK__);
-  window.__BOT_TICK__ = setInterval(() => {
-    const c = __botRead();
-    t.path += __botDist(c, t.last);
-    t.peak = Math.max(t.peak, __botDist(c, t.start));
-    t.last = c;
-    if (c.score > t.score) t.score = c.score;
-  }, ${SAMPLE_MS});
-}`;
-
-/**
- * Fold the latest sample in, summarise the window since the last flush, and
- * start a new window from here WITHOUT stopping the sampler — the next
- * window begins immediately, so nothing between decisions is lost.
- */
-const FLUSH = `(() => {
-  const t = window.__BOT_TRACK__;
-  if (!t) return null;
-  const c = __botRead();
-  t.path += __botDist(c, t.last);
-  const out = { path: +t.path.toFixed(3), peak: +Math.max(t.peak, __botDist(c, t.start)).toFixed(3), frameBefore: t.start.frame, frame: c.frame, scoreBefore: t.start.score, score: Math.max(t.score, c.score), x: c.x, y: c.y, z: c.z, complete: c.complete };
-  t.start = c; t.last = c; t.path = 0; t.peak = 0; t.score = c.score;
-  return out;
-})()`;
-
-/** A JSON-safe copy of the game's diagnostics, or null if they can't be serialized. */
-const SNAPSHOT = `(() => { try { return JSON.parse(JSON.stringify(window.__GAME_DIAGNOSTICS__ ?? null)); } catch { return null; } })()`;
 
 const CONTRACT_READY =
   "window.__GAME_DIAGNOSTICS__ !== undefined && window.__GAME_TEST_HOOKS__ !== undefined";
@@ -92,11 +50,6 @@ export interface Sample {
   complete: boolean;
 }
 
-export interface TickResult {
-  window: Window;
-  game: JsonValue;
-}
-
 export interface GpuInfo {
   renderer: string | null;
   softwareRendered: boolean | null;
@@ -104,24 +57,6 @@ export interface GpuInfo {
 }
 
 const num = (value: JsonValue | undefined): number => (Number.isFinite(value) ? Number(value) : 0);
-
-const readWindow = (value: JsonValue): Window | null => {
-  if (!isJsonObject(value)) {
-    return null;
-  }
-  return {
-    complete: value.complete === true,
-    frame: num(value.frame),
-    frameBefore: num(value.frameBefore),
-    path: num(value.path),
-    peak: num(value.peak),
-    score: num(value.score),
-    scoreBefore: num(value.scoreBefore),
-    x: num(value.x),
-    y: num(value.y),
-    z: num(value.z),
-  };
-};
 
 export interface LaunchOptions {
   url: string;
@@ -143,7 +78,6 @@ interface CommandResult {
 }
 
 export class GameBrowser {
-  private held: HeldInputs | null = null;
   private readonly bin: string;
   private readonly session: string;
 
@@ -289,75 +223,42 @@ export class GameBrowser {
     return { before, manifest, seedApplied };
   }
 
-  /** The game's diagnostics right now, and start the motion tracker. */
-  start(): JsonValue {
-    return this.evaluate(`(() => { ${READ_FN} ${TRACK_BEGIN} return ${SNAPSHOT}; })()`);
+  /** Evaluate the injected agent's source in the page. */
+  inject(source: string): void {
+    this.evaluate(source);
+  }
+
+  /** Whether the agent has finished, and why if it stopped early. Null if the page lost it. */
+  agentStatus(): { done: boolean; error: string | null } | null {
+    const status = this.evaluate(
+      "(() => { const a = window.__PLAYTEST_AGENT__; return a ? { done: a.done === true, error: a.error ?? null } : null; })()",
+    );
+    if (!isJsonObject(status)) {
+      return null;
+    }
+    return { done: status.done === true, error: isJsonString(status.error) ? status.error : null };
+  }
+
+  /** The agent's published result, as JSON. */
+  agentResult(): JsonValue {
+    return this.evaluate(
+      "(() => { try { return JSON.parse(JSON.stringify(window.__PLAYTEST_AGENT__ ?? null)); } catch { return null; } })()",
+    );
   }
 
   /**
-   * Switch the held inputs to `next`, then report what moved since the last
-   * flush (everything under the previous inputs) and what the game looks
-   * like now — one round trip. Claims `next` BEFORE dispatching: an eval that
-   * fails part-way can still have pressed something.
+   * Best-effort stop on the failure path: raw spawn, no throw. The agent
+   * releases whatever it holds and cancels its frame loop.
    */
-  apply(next: HeldInputs): TickResult {
-    const prev = this.held ?? NOTHING_HELD;
-    const release = prev.keys.filter((code) => !next.keys.includes(code));
-    const press = next.keys.filter((code) => !prev.keys.includes(code));
-    const pointerChanged = !samePointer(prev.pointer, next.pointer);
-    const parts = [
-      READ_FN,
-      `const w = ${FLUSH};`,
-      ...(pointerChanged ? pointerParts(prev.pointer, "up") : []),
-      ...keyParts("keyup", release),
-      ...(pointerChanged ? pointerParts(next.pointer, "down") : []),
-      ...keyParts("keydown", press),
-      `return { window: w, game: ${SNAPSHOT} };`,
-    ];
-    this.held = next;
-    const result = this.evaluate(`(() => { ${parts.join("\n")} })()`);
-    const window = isJsonObject(result) ? readWindow(result.window ?? null) : null;
-    if (!window) {
-      throw new HarnessError("the page lost its in-page tracker; it probably navigated mid-run.");
-    }
-    return { game: isJsonObject(result) ? (result.game ?? null) : null, window };
-  }
-
-  /** Release everything, stop the sampler, and return the final window. */
-  finish(): Window | null {
-    const held = this.held ?? NOTHING_HELD;
-    const parts = [
-      READ_FN,
-      ...keyParts("keyup", held.keys),
-      ...pointerParts(held.pointer, "up"),
-      `const out = ${FLUSH};`,
-      "clearInterval(window.__BOT_TICK__);",
-      "return out;",
-    ];
-    const result = this.evaluate(`(() => { ${parts.join("\n")} })()`);
-    // Only disown once the release has actually landed.
-    this.held = null;
-    return readWindow(result);
-  }
-
-  /**
-   * Best-effort release on the failure path: one eval, raw spawn, no throw.
-   * Disowns before dispatching so a release that itself fails can't recurse.
-   */
-  releaseHeldInputs(): void {
-    const { held } = this;
-    this.held = null;
-    if (!held) {
-      return;
-    }
-    const parts = [
-      "clearInterval(window.__BOT_TICK__);",
-      ...keyParts("keyup", held.keys),
-      ...pointerParts(held.pointer, "up"),
-    ];
+  stopAgent(): void {
     spawnSync(
       this.bin,
-      ["--session", this.session, "eval", `(() => { ${parts.join("\n")}\nreturn true; })()`],
+      [
+        "--session",
+        this.session,
+        "eval",
+        "(() => { window.__PLAYTEST_AGENT__?.stop?.(); return true; })()",
+      ],
       { encoding: "utf-8", timeout: 30_000 },
     );
   }

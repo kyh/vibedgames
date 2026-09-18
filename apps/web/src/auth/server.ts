@@ -70,6 +70,7 @@ export const getServerContext = () => {
   };
 
   const decision: DecisionProviderConfig = {
+    tokenSecret: env.BETTER_AUTH_SECRET,
     typesafe: env.TYPESAFE_API_KEY,
     typesafeBaseUrl: env.TYPESAFE_BASE_URL,
   };

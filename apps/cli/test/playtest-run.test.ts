@@ -5,26 +5,25 @@ import { afterEach, test } from "node:test";
 
 import { makeCleanups, makeTmpDir } from "./_helpers.js";
 import type { Window } from "../src/lib/playtest/browser.js";
-import type { Decision } from "../src/lib/playtest/controls.js";
 import type { RunOptions, RunResult } from "../src/lib/playtest/run.js";
 import type { JsonValue } from "../src/lib/types.js";
-import {
-  ACTION_THRESHOLD,
-  PRESETS,
-  buildQuestions,
-  inputsFor,
-  parseControls,
-  readControlsArg,
-  readDecision,
-} from "../src/lib/playtest/controls.js";
+import { PRESETS, parseControls, readControlsArg } from "../src/lib/playtest/controls.js";
 import { HarnessError } from "../src/lib/playtest/errors.js";
-import { keyFields, keyParts, pointerParts } from "../src/lib/playtest/keys.js";
-import { THRESHOLDS, buildReport, verdict } from "../src/lib/playtest/run.js";
+import { keyFields, keyInitsFor, keyTable } from "../src/lib/playtest/keys.js";
+import {
+  THRESHOLDS,
+  agentConfig,
+  agentSource,
+  buildReport,
+  resultFromAgent,
+  verdict,
+} from "../src/lib/playtest/run.js";
 
 /**
- * `vg playtest run`'s pure core: how a control scheme is read, how it becomes the
- * model's questions, how answers become held input, and how a run is judged.
- * The browser and the API are behind interfaces and not exercised here.
+ * `vg playtest run`'s CLI-side core: how a control scheme is read, how it
+ * becomes the in-page agent's config, how the agent's records become a
+ * report, and how a run is judged. The loop itself is covered in
+ * agent.test.ts; the browser and the API are behind interfaces.
  */
 
 const { cleanups, drain } = makeCleanups();
@@ -69,20 +68,25 @@ test("keyFields maps every documented key family and rejects the rest", () => {
   }
 });
 
-test("keyParts dispatches at the focused element with code, key and keyCode", () => {
-  const [source] = keyParts("keydown", ["ShiftLeft", "KeyW"]);
-  assert.ok(source);
-  assert.match(source, /document\.activeElement/u);
-  assert.match(source, /"code":"KeyW","key":"W","keyCode":87/u, "shift uppercases the companion");
-  assert.match(source, /"shiftKey":true/u);
-  assert.deepEqual(keyParts("keyup", []), []);
-});
-
-test("pointerParts releases only a held button", () => {
-  assert.deepEqual(pointerParts({ x: 0.5, y: 0.5 }, "up"), []);
-  assert.equal(pointerParts({ down: true, x: 0.5, y: 0.5 }, "up").length, 2);
-  assert.equal(pointerParts({ down: true, x: 0.5, y: 0.5 }, "down").length, 3);
-  assert.deepEqual(pointerParts(null, "down"), []);
+test("keyInitsFor builds full event inits, with modifiers reflected on companions", () => {
+  const [shift, w] = keyInitsFor(["ShiftLeft", "KeyW"]);
+  assert.deepEqual(shift, {
+    altKey: false,
+    bubbles: true,
+    code: "ShiftLeft",
+    ctrlKey: false,
+    key: "Shift",
+    keyCode: 16,
+    shiftKey: true,
+    which: 16,
+  });
+  assert.equal(w?.key, "W", "shift uppercases the companion key");
+  assert.equal(w?.keyCode, 87);
+  const table = keyTable();
+  assert.equal(table.Space?.key, " ");
+  assert.equal(table.KeyZ?.keyCode, 90);
+  assert.equal(table.Digit0?.key, "0");
+  assert.equal(table.F13, undefined);
 });
 
 test("presets resolve by name and files by path", () => {
@@ -151,112 +155,120 @@ test("rejects a scheme the playtester could not act on, naming the source", () =
   }
 });
 
-test("buildQuestions asks one choice for movement and one yes/no per action, omitting blocked moves", () => {
-  const controls = wasd();
-  const questions = buildQuestions(controls, new Set(["up"]));
-  const { move } = questions;
-  assert.ok(move && move.type === "choice");
-  assert.equal(move.criteria.up, undefined, "a blocked move is not offered");
-  assert.equal(move.criteria.none, controls.move.none?.description);
-  assert.equal(move.criteria.down_left, controls.move.down_left?.description);
-  const action = questions["act:action"];
-  assert.ok(action && action.type === "noul");
-  assert.match(action.instructions, /press the action key/u);
-  assert.equal(Object.keys(questions).length, 2);
-});
-
-test("readDecision accepts only an offered move and thresholds each action", () => {
-  const controls = wasd();
-  const questions = buildQuestions(controls, new Set());
-  const decision = readDecision(
-    {
-      answers: {
-        "act:action": { noul: ACTION_THRESHOLD, type: "noul" },
-        move: { choice: "right", confidence: 0.61234, probabilities: {}, type: "choice" },
-      },
-      usage: { input_tokens: 210, output_tokens: 31 },
-    },
-    controls,
-    questions,
-  );
-  assert.equal(decision.move, "right");
-  assert.deepEqual(decision.actions, ["action"], "a probability at the threshold counts");
-  assert.equal(decision.confidence, 0.612);
-  assert.equal(decision.inputTokens, 210);
-
-  rejects(
-    () =>
-      readDecision({ answers: { move: { choice: "warp", type: "choice" } } }, controls, questions),
-    /outside the offered options/u,
-  );
-  rejects(
-    () =>
-      readDecision(
-        { answers: { "act:action": { type: "noul" }, move: { choice: "up", type: "choice" } } },
-        controls,
-        questions,
-      ),
-    /without a probability/u,
-  );
-  rejects(() => readDecision({ model: "x" }, controls, questions), /no answers/u);
-});
-
-test("inputsFor holds the move's keys plus each chosen action's keys, once each", () => {
-  const decision: Decision = {
-    actionProbabilities: {},
-    actions: ["action"],
-    confidence: null,
-    inputTokens: 0,
-    move: "up_right",
-    outputTokens: 0,
-  };
-  const held = inputsFor(wasd(), decision);
-  assert.deepEqual(held.keys, ["KeyW", "KeyD", "Space"]);
-  assert.equal(held.pointer, null);
-});
-
 const options = (overrides: Partial<RunOptions> = {}): RunOptions => ({
   controls: wasd(),
   expectProgress: false,
   model: "jev-latest",
-  tickMs: 0,
+  tickMs: 150,
   ticks: 10,
   ...overrides,
 });
 
-const lastWindow: Window = {
+test("agentConfig resolves every key to an event init and carries the session", () => {
+  const cfg = agentConfig(options(), { decideUrl: "https://x/api/playtest-decide", token: "pt.t" });
+  assert.equal(cfg.token, "pt.t");
+  assert.equal(cfg.decideUrl, "https://x/api/playtest-decide");
+  assert.deepEqual(
+    cfg.move.up_left?.inits.map((init) => [init.code, init.keyCode]),
+    [
+      ["KeyW", 87],
+      ["KeyA", 65],
+    ],
+  );
+  assert.equal(cfg.move.none?.inits.length, 0);
+  assert.equal(cfg.actions.action?.inits[0]?.code, "Space");
+  assert.equal(cfg.motionEpsilon, THRESHOLDS.motionEpsilon);
+  assert.equal(cfg.ticks, 10);
+  // The page source is one expression: the agent applied to its config and the browser env.
+  const source = agentSource(cfg);
+  assert.match(source, /^\(.*\)\(\{.*\}, \(.*\)\(\)\)$/su);
+  // oxlint-disable-next-line no-new-func -- parse-only check of the page source
+  assert.doesNotThrow(() => new Function(`return ${source}`));
+});
+
+const window = (overrides: Partial<Window> = {}): Window => ({
   complete: false,
-  frame: 500,
-  frameBefore: 480,
-  path: 3,
-  peak: 3,
+  frame: 40,
+  frameBefore: 20,
+  path: 6,
+  peak: 6,
   score: 0,
   scoreBefore: 0,
-  x: 0,
+  x: 6,
   y: 0,
   z: 0,
-};
+  ...overrides,
+});
+
+/** A record whose window advances 20 frames from where the previous tick's ended. */
+const record = (tick: number, overrides: Partial<Record<string, JsonValue>> = {}): JsonValue => ({
+  actionProbabilities: { action: 0.1 },
+  actions: [],
+  askedToMove: true,
+  confidence: 0.6,
+  decisionMs: 200,
+  inputTokens: 100,
+  move: "right",
+  outputTokens: 5,
+  reflexFrames: 0,
+  tick,
+  window: window({ frame: 40 + tick * 20, frameBefore: 20 + tick * 20 }),
+  ...overrides,
+});
+
+const published = (records: JsonValue[], extra: Record<string, JsonValue> = {}): JsonValue => ({
+  completedAtTick: null,
+  done: true,
+  error: null,
+  records,
+  usage: {},
+  wallMs: 2000,
+  ...extra,
+});
+
+test("resultFromAgent folds records into metrics, a timeline and usage", () => {
+  const stuckWindow = window({ frame: 60, frameBefore: 40, path: 0, peak: 0, x: 6 });
+  const run = resultFromAgent(
+    published([
+      record(0),
+      record(1, { window: stuckWindow }),
+      record(2, { window: stuckWindow }),
+      record(3, { window: stuckWindow }),
+      record(4, { move: "none", window: { ...stuckWindow, score: 3 } }),
+    ]),
+  );
+  assert.equal(run.timeline.length, 5);
+  assert.equal(run.usage.calls, 5);
+  assert.equal(run.usage.inputTokens, 500);
+  assert.equal(run.usage.maxDecisionMs, 200);
+  assert.equal(run.metrics.maxTickDisplacement, 6);
+  assert.equal(run.metrics.stuckTicks, 3);
+  assert.equal(run.metrics.longestStuckRun, 3);
+  assert.equal(run.metrics.tickOfFirstScore, 4);
+  assert.equal(run.lastWindow?.score, 3);
+  assert.equal(run.wallMs, 2000);
+  assert.deepEqual(
+    run.timeline.map((entry) => entry.stuck),
+    [false, true, true, true, false],
+  );
+});
+
+test("resultFromAgent surfaces the agent's own failure as a harness failure", () => {
+  rejects(
+    () => resultFromAgent(published([], { error: "decision failed (HTTP 401): nope" })),
+    /HTTP 401/u,
+  );
+  rejects(() => resultFromAgent(null), /lost the agent/u);
+  rejects(() => resultFromAgent(published(["not a record"])), /malformed record/u);
+});
 
 const runResult = (overrides: Partial<RunResult> = {}): RunResult => ({
-  completedAtTick: null,
-  lastWindow,
-  metrics: {
-    distance: 120,
-    longestStuckRun: 1,
-    maxTickDisplacement: 12,
-    stuckRun: 0,
-    stuckTicks: 1,
-    tickOfFirstScore: null,
-  },
-  timeline: [],
-  usage: {
-    calls: 10,
-    inputTokens: 2000,
-    maxDecisionMs: 300,
-    outputTokens: 100,
-    totalDecisionMs: 2000,
-  },
-  wallMs: 4000,
+  ...resultFromAgent(
+    published(
+      Array.from({ length: 10 }, (_, tick) => record(tick)),
+      { wallMs: 4000 },
+    ),
+  ),
   ...overrides,
 });
 
@@ -275,11 +287,8 @@ const report = (opts: RunOptions, run: RunResult) =>
 test("verdict passes a live, responsive run and only warns about progress by default", () => {
   const opts = options();
   const built = report(opts, runResult());
-  // 480 frames over 4 s clears the gate; so does a short run at a healthy
-  // frame rate, which the bot's absolute 100-frame gate would have failed.
-  const short = report(opts, runResult({ lastWindow: { ...lastWindow, frame: 60 }, wallMs: 1500 }));
-  assert.deepEqual(verdict(short, opts).failures, []);
-  assert.equal(built.decisionsPerSecond, 0, "an empty timeline made no decisions");
+  assert.equal(built.decisionsPerSecond, 2.5);
+  assert.equal(built.decisions.meanConfidence, 0.6);
   const { failures, warnings } = verdict(built, opts);
   assert.deepEqual(failures, []);
   assert.equal(warnings.length, 1);
@@ -287,20 +296,21 @@ test("verdict passes a live, responsive run and only warns about progress by def
   assert.deepEqual(verdict(built, options({ expectProgress: true })).failures, [
     "the run never progressed the objective",
   ]);
+  // A short run at a healthy frame rate clears the gate the bot's absolute
+  // 100-frame threshold would have failed.
+  const short = report(opts, runResult({ lastWindow: window({ frame: 60 }), wallMs: 1500 }));
+  assert.deepEqual(verdict(short, opts).failures, []);
 });
 
 test("verdict fails a stalled loop, dead input, a wedged player and page errors", () => {
   const opts = options();
-  const stalled = runResult({
-    // 20 frames over 4 s: under 10 fps, so stalled even though the bot's
-    // absolute gate would be capped down for a shorter run.
-    lastWindow: { ...lastWindow, frame: 40 },
-    metrics: {
-      ...runResult().metrics,
-      longestStuckRun: THRESHOLDS.stuckRun + 1,
-      maxTickDisplacement: 0,
-    },
-  });
+  const base = runResult();
+  const stalled: RunResult = {
+    ...base,
+    // 20 frames over 4 s: under 10 fps, so stalled.
+    lastWindow: window({ frame: 40 }),
+    metrics: { ...base.metrics, longestStuckRun: THRESHOLDS.stuckRun + 1, maxTickDisplacement: 0 },
+  };
   const built = { ...report(opts, stalled), pageErrors: ["boom"] };
   const { failures } = verdict(built, opts);
   assert.match(failures.join("\n"), /game loop stalled/u);
@@ -311,23 +321,12 @@ test("verdict fails a stalled loop, dead input, a wedged player and page errors"
 
 test("verdict warns when the model was rarely sure, pointing at the diagnostics", () => {
   const opts = options();
-  const entry = {
-    actionProbabilities: {},
-    actions: [],
-    confidence: 0.1,
-    decisionMs: 200,
-    frames: 20,
-    move: "up",
-    path: 4,
-    peak: 4,
-    progressed: false,
-    scoreDelta: 0,
-    stuck: false,
-    tick: 0,
-  };
-  const built = report(opts, runResult({ timeline: [entry, { ...entry, tick: 1 }] }));
+  const run = resultFromAgent(
+    published([record(0, { confidence: 0.1 }), record(1, { confidence: 0.1 })]),
+  );
+  const built = report(opts, run);
   assert.equal(built.decisions.meanConfidence, 0.1);
-  assert.equal(built.decisionsPerSecond, 0.5);
+  assert.equal(built.decisionsPerSecond, 1);
   const { warnings } = verdict(built, opts);
   assert.match(warnings.join("\n"), /rarely sure which way to move .* __GAME_DIAGNOSTICS__/u);
 });

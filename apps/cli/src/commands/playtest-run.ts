@@ -1,13 +1,11 @@
-import { setTimeout as delay } from "node:timers/promises";
-
 import { defineCommand } from "citty";
 import { consola } from "consola";
 
 import type { JsonValue } from "../lib/types.js";
 import type { Controls } from "../lib/playtest/controls.js";
-import type { Decide, DecideInput, RunOptions } from "../lib/playtest/run.js";
+import type { RunOptions, Session } from "../lib/playtest/run.js";
 import { authErrorCode, createClient } from "../lib/api.js";
-import { getToken } from "../lib/config.js";
+import { getBaseUrl, getToken } from "../lib/config.js";
 import { outputArgs, writeStructured } from "../lib/output.js";
 import { GameBrowser } from "../lib/playtest/browser.js";
 import {
@@ -18,17 +16,20 @@ import {
   readControlsArg,
 } from "../lib/playtest/controls.js";
 import { HarnessError } from "../lib/playtest/errors.js";
-import { buildReport, runTicks, verdict } from "../lib/playtest/run.js";
+import { buildReport, runInPage, verdict } from "../lib/playtest/run.js";
 import { assertKnownFlags } from "../lib/strict-args.js";
 import { ensureAgentBrowser, projectSessionId, resolveGameUrl } from "./playtest.js";
 
 /**
  * `vg playtest run` — let a model play the game, and report how it went.
  *
- * Each tick the playtester reads `window.__GAME_DIAGNOSTICS__`, asks the decision
- * model (through `playtest.decide`; the server holds the key) which movement to
- * hold and which actions to take, dispatches them as real held input, and
- * repeats. Code does perception and keystrokes; the model only decides.
+ * The loop runs inside the game's page: several times a second it reads
+ * `window.__GAME_DIAGNOSTICS__`, asks the decision model (via
+ * `/api/playtest-decide` with a short-lived token; the server holds the
+ * provider key) which movement to hold and which actions to take, dispatches
+ * them as real held input, and repeats — with a per-frame reflex where the
+ * game's `__GAME_PLAYTEST__` provides one. Code does perception and
+ * keystrokes; the model only decides.
  *
  * Exit 0 = the game plays under the model. Exit 1 = it doesn't (the report
  * says why). Exit 2 = the harness itself failed (bad flags, no browser, the
@@ -36,7 +37,6 @@ import { ensureAgentBrowser, projectSessionId, resolveGameUrl } from "./playtest
  */
 
 const HARNESS_FAILURE = 2;
-const DECISION_RETRIES = 2;
 
 /**
  * Floor on the hold, so a fast model doesn't play at a jittery superhuman
@@ -179,38 +179,25 @@ const chooseControls = (settings: Settings, manifest: JsonValue | null): Control
 };
 
 /**
- * One decision through the API, with a short backoff on a rate limit or an
- * upstream fault. Anything else is a harness failure: a playtester with no
- * decisions plays nothing.
+ * A token for this run, from `playtest.session`, and where the page should
+ * send decisions. The token is all the (untrusted) game page ever holds.
  */
-const decideVia =
-  (client: ReturnType<typeof createClient>): Decide =>
-  async (input: DecideInput): Promise<JsonValue> => {
-    for (let attempt = 0; ; attempt += 1) {
-      try {
-        return await client.playtest.decide(input);
-      } catch (error) {
-        const code = authErrorCode(error);
-        const message = error instanceof Error ? error.message : String(error);
-        if (code === "UNAUTHORIZED" || code === "FORBIDDEN") {
-          throw new HarnessError(
-            "Not authenticated. Run `vg login`, or check your VG_TOKEN / API key.",
-          );
-        }
-        if (
-          code === "PRECONDITION_FAILED" ||
-          code === "BAD_REQUEST" ||
-          code === "PAYLOAD_TOO_LARGE"
-        ) {
-          throw new HarnessError(message);
-        }
-        if (attempt >= DECISION_RETRIES) {
-          throw new HarnessError(`decision failed after ${attempt + 1} attempts: ${message}`);
-        }
-        await delay(500 * 2 ** attempt);
-      }
+const mintSession = async (client: ReturnType<typeof createClient>): Promise<Session> => {
+  try {
+    const { token } = await client.playtest.session();
+    return { decideUrl: new URL("/api/playtest-decide", getBaseUrl()).toString(), token };
+  } catch (error) {
+    const code = authErrorCode(error);
+    if (code === "UNAUTHORIZED" || code === "FORBIDDEN") {
+      throw new HarnessError(
+        "Not authenticated. Run `vg login`, or check your VG_TOKEN / API key.",
+      );
     }
-  };
+    throw new HarnessError(
+      `couldn't start a playtest session: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+};
 
 const summarize = (
   report: ReturnType<typeof buildReport>,
@@ -271,7 +258,7 @@ export const playtestRunCommand = defineCommand({
     // page that outlives this process — the same poison an early exit causes.
     for (const signal of ["SIGINT", "SIGTERM"] as const) {
       process.on(signal, () => {
-        browser.releaseHeldInputs();
+        browser.stopAgent();
         process.exit(HARNESS_FAILURE);
       });
     }
@@ -279,6 +266,7 @@ export const playtestRunCommand = defineCommand({
     let opts: RunOptions;
     let payload: ReturnType<typeof buildReport> & { failures: string[]; warnings: string[] };
     try {
+      const session = await mintSession(client);
       const launched = browser.launch({
         headed: settings.headed,
         seed: settings.seed,
@@ -291,7 +279,7 @@ export const playtestRunCommand = defineCommand({
         tickMs: settings.tickMs,
         ticks: settings.ticks,
       };
-      const run = await runTicks(browser, opts, decideVia(client));
+      const run = await runInPage(browser, opts, session);
       const report = buildReport(opts, {
         before: launched.before,
         consoleErrors: browser.consoleErrors(),
@@ -304,7 +292,7 @@ export const playtestRunCommand = defineCommand({
       });
       payload = { ...report, ...verdict(report, opts) };
     } catch (error) {
-      browser.releaseHeldInputs();
+      browser.stopAgent();
       const message = error instanceof Error ? error.message : String(error);
       consola.error(
         error instanceof HarnessError ? message : `playtest harness failed: ${message}`,

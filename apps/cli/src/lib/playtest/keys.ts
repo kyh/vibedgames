@@ -1,8 +1,8 @@
 /**
  * Properly-formed held input for a game page: KeyboardEvent inits that carry
- * `code`, `key` and `keyCode`, and PointerEvent dispatch in viewport
- * fractions. A port of the playtest skill's `scripts/lib/harness.mjs`, which
- * the scripted bot still uses; the two must agree on what a key looks like.
+ * `code`, `key` and `keyCode`, built here and dispatched by the in-page agent.
+ * A port of the playtest skill's `scripts/lib/harness.mjs`, which the
+ * scripted bot still uses; the two must agree on what a key looks like.
  *
  * NOT agent-browser's `keydown`/`keyup`: as of 0.34 those dispatch an event
  * with an empty `code` and `keyCode: 0`, which engines that match on keyCode
@@ -123,42 +123,59 @@ export const keyFields = (code: string): [keyCode: number, key: string] => {
   throw new HarnessError(`unsupported key code "${code}". Supported: ${SUPPORTED_KEYS_HINT}.`);
 };
 
-const keyInits = (codes: string[]): string[] => {
-  // Modifiers held together have to show up as flags on their companions
-  // too, or `Shift+W` arrives as a plain `w` and the binding never fires.
-  const modifiers = {
-    altKey: codes.some((c) => c === "AltLeft" || c === "AltRight"),
-    ctrlKey: codes.some((c) => c === "ControlLeft" || c === "ControlRight"),
-    shiftKey: codes.some((c) => c === "ShiftLeft" || c === "ShiftRight"),
-  };
+/** A properly-formed KeyboardEventInit for `code`, with modifier flags. */
+export interface KeyInit {
+  code: string;
+  key: string;
+  keyCode: number;
+  which: number;
+  altKey: boolean;
+  ctrlKey: boolean;
+  shiftKey: boolean;
+  bubbles: true;
+}
+
+const modifiersOf = (codes: string[]) => ({
+  altKey: codes.some((c) => c === "AltLeft" || c === "AltRight"),
+  ctrlKey: codes.some((c) => c === "ControlLeft" || c === "ControlRight"),
+  shiftKey: codes.some((c) => c === "ShiftLeft" || c === "ShiftRight"),
+});
+
+/**
+ * Inits for a set of keys held together. Modifiers held in the same set show
+ * up as flags on their companions too, or `Shift+W` arrives as a plain `w`
+ * and the binding a scheme was written to exercise never fires.
+ */
+export const keyInitsFor = (codes: string[]): KeyInit[] => {
+  const modifiers = modifiersOf(codes);
   return codes.map((code) => {
     const [keyCode, key] = keyFields(code);
-    const reported = modifiers.shiftKey ? shiftedKey(code, key) : key;
-    return JSON.stringify({
+    return {
+      bubbles: true,
       code,
-      key: reported,
+      key: modifiers.shiftKey ? shiftedKey(code, key) : key,
       keyCode,
       which: keyCode,
       ...modifiers,
-      bubbles: true,
-    });
+    };
   });
 };
 
-/**
- * In-page source pressing or releasing a set of keys — all of them in one
- * statement, since simultaneous keys should land together. Dispatched at the
- * focused element, not `window`: a real keypress starts there and bubbles up
- * through document to window, so listeners on all three fire once.
- */
-export const keyParts = (type: "keydown" | "keyup", codes: string[]): string[] => {
-  if (codes.length === 0) {
-    return [];
-  }
-  return [
-    `{ const t = document.activeElement ?? document.body ?? window;
-      for (const init of [${keyInits(codes).join(",")}]) t.dispatchEvent(new KeyboardEvent(${JSON.stringify(type)}, init)); }`,
+/** Every supported code, each as if pressed alone — for inputs a reflex returns by code. */
+export const keyTable = () => {
+  const codes = [
+    ...Array.from({ length: 26 }, (_, i) => `Key${String.fromCodePoint(65 + i)}`),
+    ...Array.from({ length: 10 }, (_, i) => `Digit${i}`),
+    ...NAMED_KEYS.keys(),
   ];
+  const table: Record<string, KeyInit> = {};
+  for (const code of codes) {
+    const [init] = keyInitsFor([code]);
+    if (init) {
+      table[code] = init;
+    }
+  }
+  return table;
 };
 
 /** A cursor position in viewport fractions, optionally with the primary button down. */
@@ -167,39 +184,3 @@ export interface Pointer {
   y: number;
   down?: boolean;
 }
-
-/**
- * Pointer dispatch, for games that steer from the cursor rather than the
- * keyboard. Both the PointerEvent and its MouseEvent twin go out: engines
- * listen for one or the other.
- */
-const POINTER_FN = `window.__botPointer = (frac, type, buttons) => {
-  const cx = Math.round(window.innerWidth * frac.x);
-  const cy = Math.round(window.innerHeight * frac.y);
-  const target = document.elementFromPoint(cx, cy) || document.querySelector("canvas") || window;
-  const init = { clientX: cx, clientY: cy, screenX: cx, screenY: cy, bubbles: true, cancelable: true, composed: true, pointerId: 1, isPrimary: true, pointerType: "mouse", button: 0, buttons };
-  target.dispatchEvent(new PointerEvent(type, init));
-  target.dispatchEvent(new MouseEvent(type === "pointermove" ? "mousemove" : type === "pointerdown" ? "mousedown" : "mouseup", init));
-};`;
-
-const pointerCall = (pointer: Pointer, type: string, buttons: number): string =>
-  `window.__botPointer(${JSON.stringify({ x: pointer.x, y: pointer.y })}, ${JSON.stringify(type)}, ${buttons});`;
-
-/** In-page source moving/pressing (`"down"`) or releasing (`"up"`) the cursor. */
-export const pointerParts = (pointer: Pointer | null, phase: "down" | "up"): string[] => {
-  if (!pointer) {
-    return [];
-  }
-  const down = pointer.down === true;
-  if (phase === "up") {
-    return down ? [POINTER_FN, pointerCall(pointer, "pointerup", 0)] : [];
-  }
-  return [
-    POINTER_FN,
-    pointerCall(pointer, "pointermove", down ? 1 : 0),
-    ...(down ? [pointerCall(pointer, "pointerdown", 1)] : []),
-  ];
-};
-
-export const samePointer = (a: Pointer | null, b: Pointer | null): boolean =>
-  JSON.stringify(a ?? null) === JSON.stringify(b ?? null);

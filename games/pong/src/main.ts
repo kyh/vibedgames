@@ -132,12 +132,25 @@ interface TestHooks {
   setPausedForScreenshot: (paused: boolean) => void;
   setReducedMotion: (enabled: boolean) => void;
 }
-/** What `vg playtest run` may do to this game, in the words the decision model chooses between. */
+/**
+ * What `vg playtest run` may do to this game, in the words the decision model
+ * chooses between. A move may carry a `reflex`: while it is the model's
+ * current intent, the reflex runs every frame and its inputs are what is
+ * held — the model decides a few times a second, the reflex acts at 60 fps.
+ */
 interface PlaytestManifest {
   goal: string;
   move: Record<
     string,
-    { description: string; keys?: string[]; pointer?: { x: number; y: number; down?: boolean } }
+    {
+      description: string;
+      keys?: string[];
+      pointer?: { x: number; y: number; down?: boolean };
+      reflex?: (game: ReturnType<GameScene["diagnostics"]>) => {
+        keys?: string[];
+        pointer?: { x: number; y: number; down?: boolean } | null;
+      } | null;
+    }
   >;
   actions?: Record<string, { description: string; keys: string[] }>;
 }
@@ -167,6 +180,19 @@ if (import.meta.env.DEV || new URLSearchParams(window.location.search).get("test
   // The paddle follows the pointer's x, so the playtester steers by parking
   // the cursor; five lanes are enough to get under the ball. Read at launch by
   // `vg playtest run` so no --controls file is needed for this game.
+  // `track_ball` is the fast-game path: a per-frame controller that walks
+  // the pointer until the paddle sits under the ball. The pointer→paddle map
+  // is a raycast, so rather than invert it the reflex nudges the cursor by
+  // the paddle's error each frame and lets the game close the loop.
+  let cursorX = 0.5;
+  const trackBall: NonNullable<PlaytestManifest["move"][string]["reflex"]> = (diag) => {
+    const error = diag.ball.x - diag.player.x;
+    cursorX = Math.min(
+      0.95,
+      Math.max(0.05, cursorX + Math.min(0.04, Math.max(-0.04, error * 0.03))),
+    );
+    return { pointer: { x: cursorX, y: 0.5 } };
+  };
   const manifest: PlaytestManifest = {
     actions: {
       serve: {
@@ -174,7 +200,7 @@ if (import.meta.env.DEV || new URLSearchParams(window.location.search).get("test
         keys: ["Space"],
       },
     },
-    goal: "You control the bottom paddle; it follows the pointer's x. Keep the paddle under the ball (game.ball.x, your paddle is game.player.x; the court runs about -5 to 5 across). Return every ball. Serve when the ball is not moving. game.score is your points; game.opponentScore is theirs.",
+    goal: "You control the bottom paddle; it follows the pointer's x. Return every ball: `track_ball` keeps the paddle under it automatically, the parked positions are for waiting or baiting. Serve when the ball is not moving (game.phase). game.score is your points; game.opponentScore is theirs.",
     move: {
       centre: {
         description: "Park the paddle in the centre of the court",
@@ -190,6 +216,11 @@ if (import.meta.env.DEV || new URLSearchParams(window.location.search).get("test
       },
       left: { description: "Park the paddle left of centre", pointer: { x: 0.3, y: 0.5 } },
       right: { description: "Park the paddle right of centre", pointer: { x: 0.7, y: 0.5 } },
+      track_ball: {
+        description:
+          "Follow the ball — keep the paddle under it every frame (the default for a rally)",
+        reflex: trackBall,
+      },
     },
   };
   Object.assign(window, { __GAME_PLAYTEST__: manifest, __GAME_TEST_HOOKS__: hooks });

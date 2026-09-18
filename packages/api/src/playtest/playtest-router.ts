@@ -9,6 +9,7 @@ import {
   throwProviderError,
 } from "../generate/provider-io";
 import { protectedProcedure } from "../orpc";
+import { mintPlaytestToken } from "./session-token";
 
 // ---- The decision-model proxy -----------------------------------------------
 //
@@ -191,4 +192,19 @@ export const playtestRouter = {
   decide: protectedProcedure
     .input(decideInput)
     .handler(async ({ context, input }) => await forwardDecision(context.decision, input)),
+
+  /**
+   * A token for one in-page playtest run: minutes-long, bound to this user,
+   * honoured only by `/api/playtest-decide`. The CLI hands it to the game
+   * page it is driving, which is untrusted code — so this is all it gets.
+   */
+  session: protectedProcedure.handler(async ({ context }) => {
+    const secret = context.decision?.tokenSecret;
+    if (!secret) {
+      throw new ORPCError("PRECONDITION_FAILED", {
+        message: "Playtest tokens are not configured on the server.",
+      });
+    }
+    return await mintPlaytestToken(secret, context.session.user.id);
+  }),
 };
