@@ -1,4 +1,4 @@
-# Model Playtest: Let a Model Play It
+# Autonomous Playtest: Let a Model Play It
 
 The scripted bot proves a game _can_ be played: held keys move the player, the objective is reachable, nothing throws. It cannot tell you whether a player who is _trying_ gets anywhere — whether the first hazard is readable, whether the objective is findable from what the game shows, whether a run ends in a wall or a win. That needs something that decides. `vg playtest run` is a playtester that decides its own inputs from the game state, several times a second, with no human involved.
 
@@ -69,7 +69,7 @@ Rules of thumb: a few kilobytes at most (the whole object is sent each tick; a 5
 if (import.meta.env.DEV || isPlaytestRequested()) {
   // isPlaytestRequested() is `?test=1` in the URL
   publishTestHooks({
-    seed: (n) => game.restart(n), // reseed the RNG AND restart the run — see bot-playtest.md
+    seed: (n) => game.restart(n), // reseed the RNG AND restart the run — see scripted-playtest.md
     setState: (name) => {
       game.jumpTo(name); // 'active-play' skips the menu
       return { state: name }; // once applied
@@ -186,7 +186,7 @@ Per-call state is capped at 64 KB and 32 questions server-side; a run of 60 deci
 
 The play metrics are the bot's, measured per decision instead of per scripted step; the thresholds live in `THRESHOLDS` in the CLI's `lib/playtest/run.ts`:
 
-- `framesAdvanced`, `maxTickDisplacement`, `longestStuckRun`, `consoleErrors`, `pageErrors` — the same gates as [bot-playtest.md](bot-playtest.md), and they fail for the same reasons. `maxTickDisplacement` is held to the scheme's `minDisplacement`. `longestStuckRun` fails at 5, not the bot's 3: the decision after a withdrawal is already in flight when it lands, so walking into one wall costs three stuck ticks by construction. A wedged playtester is one that kept going nowhere _after_ the withdrawals — geometry it can't read its way out of, which usually means the diagnostics don't describe the walls.
+- `framesAdvanced`, `maxTickDisplacement`, `longestStuckRun`, `consoleErrors`, `pageErrors` — the same gates as [scripted-playtest.md](scripted-playtest.md), and they fail for the same reasons. `maxTickDisplacement` is held to the scheme's `minDisplacement`. `longestStuckRun` fails at 5, not the bot's 3: the decision after a withdrawal is already in flight when it lands, so walking into one wall costs three stuck ticks by construction. A wedged playtester is one that kept going nowhere _after_ the withdrawals — geometry it can't read its way out of, which usually means the diagnostics don't describe the walls.
 - `scoreAfter > scoreBefore`, `tickOfFirstScore` — an assertion only under `--expect-progress`. A playtester that never scores under a well-written goal is a real finding about discoverability; under the default goal it's a warning.
 - `complete`, `completedAtTick` — the run stops when the game reports `complete`. Whether that was a win or a death is in the timeline's last entries and in your knowledge of the game.
 - `decisions` — histograms of `moves` and `actions`, `meanConfidence` for the move choice, `reflexFrames`: how many frames a reflex produced the held input (zero means no chosen move had one), and `progress` — `{ first, last, mean, max }` of the model's own 0–1 read of how close the player got to the goal. A run whose `score` never rose but whose `progress.last` beats `progress.first` did something the score field can't see; the warning says which case you have.

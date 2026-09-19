@@ -2,11 +2,11 @@
  * Shared harness for the playtest skill's bot scripts: the `vg playtest`
  * subprocess plumbing, properly-formed held-key and pointer dispatch, the
  * in-page motion tracker, and the boot/seed sequence that gets a game to a
- * live, seeded run. `bot-playtest.mjs` (a scripted sweep) and
+ * live, seeded run. `scripted-playtest.mjs` (a scripted sweep) and
  * the CLI's `vg playtest run` (model-driven) carries a TypeScript port of it.
  *
  * Zero dependencies. Shells out to `vg playtest` (agent-browser). The game
- * must expose the diagnostics contract — see references/bot-playtest.md.
+ * must expose the diagnostics contract — see references/scripted-playtest.md.
  */
 
 import { spawnSync } from "node:child_process";
@@ -577,7 +577,7 @@ export const launch = ({ headed, seed, target }) => {
   boot(
     target,
     headed,
-    "the game never published window.__GAME_DIAGNOSTICS__ / window.__GAME_TEST_HOOKS__. Either it crashed on boot, or it doesn't implement the diagnostics contract (see references/bot-playtest.md).",
+    "the game never published window.__GAME_DIAGNOSTICS__ / window.__GAME_TEST_HOOKS__. Either it crashed on boot, or it doesn't implement the diagnostics contract (see references/scripted-playtest.md).",
   );
 
   const seedApplied = applySeed(seed, headed);
@@ -594,7 +594,7 @@ export const launch = ({ headed, seed, target }) => {
   // a hook that answers with a different state applied a different state.
   if (ack !== null && (!isPlainObject(ack) || ack.state !== "active-play")) {
     fail(
-      `setState('active-play') acknowledged ${JSON.stringify(ack)} instead of { state: 'active-play' } — the hook applied a different state or is a no-op (see references/bot-playtest.md).`,
+      `setState('active-play') acknowledged ${JSON.stringify(ack)} instead of { state: 'active-play' } — the hook applied a different state or is a no-op (see references/scripted-playtest.md).`,
     );
   }
 
@@ -607,7 +607,7 @@ export const launch = ({ headed, seed, target }) => {
   ]);
   if (live.status !== 0) {
     fail(
-      "diagnostics are published but the loop never advanced after seed()/setState('active-play') — check they aren't no-ops (see references/bot-playtest.md).",
+      "diagnostics are published but the loop never advanced after seed()/setState('active-play') — check they aren't no-ops (see references/scripted-playtest.md).",
     );
   }
 

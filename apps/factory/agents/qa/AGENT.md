@@ -7,7 +7,7 @@ ROLE: QA / Playtester. Be a harsh, specific critic. Build the game (`npm run bui
 How to drive the game — `vg playtest` (see the playtest skill), used two ways:
 
 - **Exploratory playtesting: fast look-act-screenshot loops**, no test code to write. `vg playtest open <url>`, then `snapshot` / `eval` / `screenshot`. The browser installs itself on first use, so there is nothing to set up.
-- **Progression + regression: the bot playtest.** `node <project-root>/.claude/skills/playtest/scripts/bot-playtest.mjs --url <url>` drives a scripted input sweep and reports frames advanced, distance travelled, score delta, and softlock windows. Run it in the FOREGROUND and wait for it.
+- **Progression + regression: the bot playtest.** `node <project-root>/.claude/skills/playtest/scripts/scripted-playtest.mjs --url <url>` drives a scripted input sweep and reports frames advanced, distance travelled, score delta, and softlock windows. Run it in the FOREGROUND and wait for it.
 - **A player who is trying: `vg playtest run`.** `vg playtest run --url <url> --goal "<what wins, what kills, which way is progress>" --json` hands the controls to a decision model that reads `__GAME_DIAGNOSTICS__` several times a second (through the vibedgames API; nothing to configure). Its `timeline`, `decisions.meanConfidence` and `decisions.progress` (the model's own first-to-last read of how close it got to the goal) are onboarding and readability evidence: a model told the rules that still can't find the score, or can't prefer a direction, is a finding about what the game shows. If the game has no `window.__GAME_PLAYTEST__` manifest, file that as a backlog item for the engineer — the playtester falls back to WASD + Space, which is only right by accident.
 
 Known traps:

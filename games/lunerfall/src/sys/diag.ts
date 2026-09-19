@@ -16,7 +16,7 @@ import { Pilot } from "./pilot";
 import type { Intent, PilotTarget, PilotView } from "./pilot";
 import type { RunManager } from "./run";
 
-// The playtest contract (see the playtest skill's references/model-playtest.md):
+// The playtest contract (see the playtest skill's references/autonomous-playtest.md):
 // __GAME_DIAGNOSTICS__ is read-only telemetry, __GAME_TEST_HOOKS__ the mutations
 // a test may perform, __GAME_PLAYTEST__ the controls a decision model chooses
 // between. Diagnostics are a live getter, so a build nobody is playtesting

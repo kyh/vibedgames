@@ -1,6 +1,6 @@
 // The playtest contract beyond diagnostics: the hooks that stage a solo brawl
 // and the manifest `vg playtest run`'s decision model chooses from. See
-// plugins/tooling/skills/playtest/references/model-playtest.md.
+// plugins/tooling/skills/playtest/references/autonomous-playtest.md.
 
 import { publishPlaytest, publishTestHooks } from "@vibedgames/playtest";
 
@@ -14,7 +14,7 @@ const GOAL = [
 ].join(" ");
 
 /**
- * Publish the test hooks and the model-playtest manifest. Every staged state
+ * Publish the test hooks and the autonomous-playtest manifest. Every staged state
  * is a solo brawl against bots — a room is shared, so nothing here may write
  * into one.
  */

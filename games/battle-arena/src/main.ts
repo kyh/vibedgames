@@ -435,7 +435,7 @@ const main = async (): Promise<void> => {
     },
   });
 
-  // See plugins/tooling/skills/playtest/references/model-playtest.md. The hooks
+  // See plugins/tooling/skills/playtest/references/autonomous-playtest.md. The hooks
   // only ever stage a SOLO match: a seeded world written into a live room would
   // be every other player's match too.
   let leaveLobby: (() => void) | null = null;

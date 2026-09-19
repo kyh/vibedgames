@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * bot-playtest — drive a scripted input sweep through a browser game and
+ * scripted-playtest — drive a scripted input sweep through a browser game and
  * measure whether it actually PLAYS: loop alive, input alive, objective
  * reachable, no softlocks, no errors.
  *
@@ -8,18 +8,18 @@
  * keeps the browser alive between calls, but each call still pays a CLI start,
  * so the loop keeps invocations to roughly one per step.
  *
- * The game must expose the diagnostics contract — see references/bot-playtest.md.
+ * The game must expose the diagnostics contract — see references/scripted-playtest.md.
  *
- *   node bot-playtest.mjs --url http://localhost:5173
- *   node bot-playtest.mjs --game my-game --seed 42
- *   node bot-playtest.mjs --url http://localhost:5173 --script ./sweep.json
- *   node bot-playtest.mjs --url http://localhost:5173 --reaction-delay 300
+ *   node scripted-playtest.mjs --url http://localhost:5173
+ *   node scripted-playtest.mjs --game my-game --seed 42
+ *   node scripted-playtest.mjs --url http://localhost:5173 --script ./sweep.json
+ *   node scripted-playtest.mjs --url http://localhost:5173 --reaction-delay 300
  *
  * Exit 0 = the game plays. Exit 1 = it doesn't (report says why). Exit 2 = the
  * harness itself failed (browser missing, game never booted).
  *
  * For a playtester that decides its own inputs from the game state, see
- * model-playtest.
+ * autonomous-playtest.
  */
 
 import { readFileSync } from "node:fs";
@@ -46,7 +46,7 @@ import {
   validatePointer,
 } from "./lib/harness.mjs";
 
-setProgramName("bot-playtest");
+setProgramName("scripted-playtest");
 
 // A generic sweep: hold each direction long enough to cross a room, so a
 // stuck-on-geometry game shows up as a run of stuck steps rather than as noise.
@@ -391,13 +391,13 @@ const main = () => {
   }
 
   if (failures.length > 0) {
-    console.error(`\nbot-playtest: FAILED — ${failures.join("; ")}`);
+    console.error(`\nscripted-playtest: FAILED — ${failures.join("; ")}`);
     process.exit(1);
   }
   for (const warning of warnings) {
-    console.error(`bot-playtest: warning — ${warning}`);
+    console.error(`scripted-playtest: warning — ${warning}`);
   }
-  console.error("\nbot-playtest: PASSED");
+  console.error("\nscripted-playtest: PASSED");
 };
 
 main();
