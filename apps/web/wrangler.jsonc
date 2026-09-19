@@ -24,6 +24,7 @@
       "R2_ACCESS_KEY_ID",
       "R2_SECRET_ACCESS_KEY",
       "FAL_API_KEY",
+      "TYPESAFE_API_KEY",
     ],
   },
   "d1_databases": [

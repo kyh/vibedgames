@@ -36,6 +36,7 @@
 
 import { DrawingUtils, FilesetResolver, PoseLandmarker } from "@mediapipe/tasks-vision";
 import type { NormalizedLandmark } from "@mediapipe/tasks-vision";
+import { isPlaytestRequested } from "@vibedgames/playtest";
 
 // ---- legacy tuning (recovered from git — do not retune) ------------------------
 
@@ -905,7 +906,10 @@ export const initPoseCamera = (onJump: PoseJumpHandler): void => {
     active.setHandler(onJump);
     return;
   }
-  active = new PoseCamera(buildPanel(document.body, true), onJump, !isCoarsePointer());
+  // A playtest browser denies the camera and the rejection fails the run, so
+  // under ?test=1 desktop waits for a click on the pill like touch does.
+  const autoStart = !isCoarsePointer() && !isPlaytestRequested();
+  active = new PoseCamera(buildPanel(document.body, true), onJump, autoStart);
 };
 
 /**

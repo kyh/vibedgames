@@ -94,11 +94,21 @@ const makeInstanced = (
   return mesh;
 };
 
+/** Upload only the live slots; an idle pool touches no buffer at all. */
 const commit = (mesh: THREE.InstancedMesh, count: number): void => {
   mesh.count = count;
-  mesh.instanceMatrix.needsUpdate = true;
-  if (mesh.instanceColor) {
-    mesh.instanceColor.needsUpdate = true;
+  if (count === 0) {
+    return;
+  }
+  const matrix = mesh.instanceMatrix;
+  matrix.clearUpdateRanges();
+  matrix.addUpdateRange(0, count * matrix.itemSize);
+  matrix.needsUpdate = true;
+  const color = mesh.instanceColor;
+  if (color) {
+    color.clearUpdateRanges();
+    color.addUpdateRange(0, count * color.itemSize);
+    color.needsUpdate = true;
   }
 };
 
@@ -130,20 +140,27 @@ const softDotTexture = (): THREE.CanvasTexture => {
   return tex;
 };
 
-/** Ambient dust motes drifting up through the maze air — quiet, constant. */
-const makeMotes = () => {
+const MOTE_Y_MIN = 0.15;
+const MOTE_Y_MAX = 2.8;
+
+const glslFloat = (n: number): string => (Number.isInteger(n) ? `${n}.0` : String(n));
+
+/** Ambient dust motes drifting up through the maze air — quiet, constant.
+ *  The drift is a function of a per-mote velocity and a time uniform, so the
+ *  position buffer is uploaded once and the GPU wraps each mote itself. */
+const makeMotes = (time: { value: number }): THREE.Points => {
   const positions = new Float32Array(MOTE_COUNT * 3);
-  // [vx, vy] per mote.
   const velocities = new Float32Array(MOTE_COUNT * 2);
   for (let i = 0; i < MOTE_COUNT; i += 1) {
     positions[i * 3] = Math.random() * GRID_COLS;
-    positions[i * 3 + 1] = 0.15 + Math.random() * 2.5;
+    positions[i * 3 + 1] = MOTE_Y_MIN + Math.random() * 2.5;
     positions[i * 3 + 2] = Math.random() * GRID_ROWS;
     velocities[i * 2] = (Math.random() - 0.5) * 0.08;
     velocities[i * 2 + 1] = 0.06 + Math.random() * 0.1;
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute("aVel", new THREE.BufferAttribute(velocities, 2));
   // Blush-tinted: white motes measure ~0 contrast against the cream fog.
   const mat = new THREE.PointsMaterial({
     color: 0xf2_a9_bf,
@@ -154,21 +171,28 @@ const makeMotes = () => {
     sizeAttenuation: true,
     transparent: true,
   });
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = time;
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nattribute vec2 aVel;\nuniform float uTime;")
+      .replace(
+        "#include <begin_vertex>",
+        [
+          "#include <begin_vertex>",
+          `transformed.x = mod(transformed.x + aVel.x * uTime, ${glslFloat(GRID_COLS)});`,
+          `transformed.y = ${glslFloat(MOTE_Y_MIN)} + mod(transformed.y - ${glslFloat(MOTE_Y_MIN)} + aVel.y * uTime, ${glslFloat(MOTE_Y_MAX - MOTE_Y_MIN)});`,
+        ].join("\n"),
+      );
+  };
+  mat.customProgramCacheKey = () => "mote-drift";
   const points = new THREE.Points(geo, mat);
   points.frustumCulled = false;
-  return { points, velocities };
+  return points;
 };
 
 const randomUnit = (): THREE.Vector3 => {
   const v = new THREE.Vector3(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1);
   return v.lengthSq() < 1e-6 ? v.set(0, 1, 0) : v.normalize();
-};
-
-const wrapX = (x: number): number => {
-  if (x < 0) {
-    return GRID_COLS;
-  }
-  return x > GRID_COLS ? 0 : x;
 };
 
 const rand = (min: number, max: number): number => min + Math.random() * (max - min);
@@ -181,8 +205,7 @@ export class FxPool {
   private hearts: Heart[] = [];
   private confetti: Confetti[] = [];
   private rings: Ring[] = [];
-  private motes: THREE.Points;
-  private moteVel: Float32Array;
+  private readonly moteTime = { value: 0 };
   private dummy = new THREE.Object3D();
   private elapsed = 0;
 
@@ -207,10 +230,7 @@ export class FxPool {
       this.rings.push({ bornAt: -1, mat, mesh, r1: 1 });
     }
 
-    const { points, velocities } = makeMotes();
-    this.motes = points;
-    this.moteVel = velocities;
-    scene.add(this.motes);
+    scene.add(makeMotes(this.moteTime));
   }
 
   /** Soft round burst — the workhorse (pellet pops, ghost poofs, dust). */
@@ -320,7 +340,7 @@ export class FxPool {
     this.updateConfetti(dt);
     this.updateRings();
     if (!REDUCED_MOTION.matches) {
-      this.updateMotes(dt);
+      this.moteTime.value += dt;
     }
   }
 
@@ -431,23 +451,5 @@ export class FxPool {
       r.mesh.scale.setScalar(radius);
       r.mat.opacity = 0.55 * (1 - t);
     }
-  }
-
-  private updateMotes(dt: number): void {
-    const pos = this.motes.geometry.getAttribute("position");
-    if (!(pos instanceof THREE.BufferAttribute)) {
-      return;
-    }
-    const arr = pos.array;
-    if (!(arr instanceof Float32Array)) {
-      return;
-    }
-    for (let i = 0; i < MOTE_COUNT; i += 1) {
-      const x = (arr[i * 3] ?? 0) + (this.moteVel[i * 2] ?? 0) * dt;
-      arr[i * 3] = wrapX(x);
-      const y = (arr[i * 3 + 1] ?? 0) + (this.moteVel[i * 2 + 1] ?? 0) * dt;
-      arr[i * 3 + 1] = y > 2.8 ? 0.15 : y;
-    }
-    pos.needsUpdate = true;
   }
 }

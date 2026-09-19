@@ -1,11 +1,11 @@
-import { ColliderDesc, init, World } from "@dimforge/rapier3d-compat";
+import { ColliderDesc, ready, World } from "#rapier";
 import { RaycastVehicle } from "../src/vehicle/raycast-vehicle.ts";
 
 type Check = (name: string, passed: boolean, detail?: string) => void;
 
 /** A parked taxi must not slide sideways into a building on SF's hills. */
 export const checkVehicleParking = async (check: Check): Promise<void> => {
-  await init();
+  await ready();
   const world = new World({ x: 0, y: -30, z: 0 });
   world.timestep = 1 / 60;
   const pitch = Math.atan(0.4);

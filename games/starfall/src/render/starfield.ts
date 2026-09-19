@@ -58,6 +58,7 @@ interface Star {
   twinkle: boolean;
   halfMs: number;
   phaseMs: number;
+  dim: boolean;
 }
 
 interface TrailPoint {
@@ -96,6 +97,7 @@ const rerollStar = (star: Star): void => {
   star.twinkle = edge < 0.6 && Math.random() < TWINKLE_CHANCE;
   star.halfMs = randBetween(TWINKLE_HALF_MS_MIN, TWINKLE_HALF_MS_MAX);
   star.phaseMs = Math.random() * star.halfMs * 2;
+  star.dim = false;
   // smaller outward
   const px = STAR_PX * (0.5 + 0.5 * fade);
   star.img.setPosition(x, y).setDisplaySize(px, px).setTint(tint).setAlpha(star.base);
@@ -127,7 +129,7 @@ export class Starfield {
         .setOrigin(0)
         .setDisplaySize(STAR_PX, STAR_PX)
         .setDepth(0);
-      const star: Star = { base: 1, halfMs: 1, img, phaseMs: 0, twinkle: false };
+      const star: Star = { base: 1, dim: false, halfMs: 1, img, phaseMs: 0, twinkle: false };
       rerollStar(star);
       this.stars.push(star);
     }
@@ -154,7 +156,11 @@ export class Starfield {
         continue;
       }
       const dim = Math.floor((timeMs + star.phaseMs) / star.halfMs) % 2 === 1;
-      star.img.setAlpha(dim ? star.base * DIM_FACTOR : star.base);
+      // ~1000 twinklers; alpha only flips every 2-4s, so skip the no-op sets
+      if (dim !== star.dim) {
+        star.dim = dim;
+        star.img.setAlpha(dim ? star.base * DIM_FACTOR : star.base);
+      }
     }
 
     this.regenAcc += dt * 1000;

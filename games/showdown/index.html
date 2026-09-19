@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <link rel="icon" href="data:," />
+    <title>Showdown</title>
+    <meta
+      name="description"
+      content="3D top-down battle royale. Last brawler standing — the sun sets as the poison gas closes in."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Nunito:wght@600;800&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+
+    <div id="hud" class="hidden">
+      <div id="gas-warn"></div>
+      <div id="hurt"></div>
+      <div id="overheads"></div>
+      <div id="floaters"></div>
+      <div id="feed"></div>
+      <div id="topbar">
+        <div class="pill" id="left-count">BRAWLERS LEFT <b>8</b></div>
+        <div class="pill" id="clock">15:24</div>
+        <div class="pill net" id="net-status" hidden>Connecting&hellip;</div>
+      </div>
+      <div id="spectate" class="outline" hidden>SPECTATING &middot; next brawl after this one</div>
+      <div id="banner" class="outline"></div>
+      <div id="hints">
+        <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp; <kbd>Mouse</kbd> aim &nbsp;
+        <kbd>Click</kbd> shoot<br /><kbd>Space</kbd> / <kbd>Right-click</kbd> hold to aim super,
+        release to fire<br /><kbd>T</kbd> time of day &nbsp; <kbd>P</kbd> pause &nbsp;
+        <kbd>M</kbd> mute
+      </div>
+      <div id="sticks">
+        <div class="stick" id="stick-move"><i></i><b>MOVE</b></div>
+        <div class="stick" id="stick-aim"><i></i><b>DRAG TO AIM &middot; TAP TO AUTO-AIM</b></div>
+      </div>
+      <div id="super"><div class="core" id="super-core">SUPER</div></div>
+    </div>
+
+    <button id="gear" title="Lighting &amp; graphics">&#9881;</button>
+    <div id="settings">
+      <h3>Settings</h3>
+      <h4>BOTS</h4>
+      <div class="seg" id="difficulty-seg"></div>
+      <h4>QUALITY</h4>
+      <div class="seg" id="quality-seg"></div>
+      <h4>TIME OF DAY</h4>
+      <div class="row">
+        <label for="auto-time">Follow the match (afternoon &rarr; night)</label
+        ><input type="checkbox" id="auto-time" checked />
+      </div>
+      <div class="row">
+        <span id="time-label">15:24</span
+        ><input type="range" id="time-slider" min="0" max="24" step="0.05" value="15.4" />
+      </div>
+      <div class="tip">
+        Drag to scrub the sun. Press <kbd>T</kbd> in game to jump between noon, golden hour, dusk
+        and night.
+      </div>
+      <h4>EFFECTS</h4>
+      <div class="row">
+        <label for="tog-ao">Ambient occlusion (GTAO)</label
+        ><input type="checkbox" id="tog-ao" checked />
+      </div>
+      <div class="row">
+        <label for="tog-bloom">Bloom</label><input type="checkbox" id="tog-bloom" checked />
+      </div>
+      <div class="row">
+        <label for="tog-mute">Mute sound (<kbd>M</kbd>)</label
+        ><input type="checkbox" id="tog-mute" />
+      </div>
+      <div id="stats"></div>
+    </div>
+
+    <div id="menu" class="screen">
+      <h1 id="title">SHOWDOWN</h1>
+      <div id="tagline">Last brawler standing. The sun sets as the gas closes in.</div>
+      <div id="cards"></div>
+      <div id="lobby">
+        <input
+          type="text"
+          id="lobby-name"
+          maxlength="12"
+          placeholder="Your name"
+          autocomplete="off"
+          aria-label="Your name"
+        />
+        <span id="lobby-online">
+          <input
+            type="text"
+            id="lobby-room"
+            maxlength="12"
+            placeholder="Room code"
+            autocomplete="off"
+            aria-label="Room code"
+          />
+        </span>
+      </div>
+      <div id="play-row">
+        <button class="big-btn" id="play">PLAY vs BOTS</button>
+        <button class="big-btn online" id="play-online">PLAY ONLINE</button>
+      </div>
+      <div id="menu-hint">
+        <div id="menu-legend"></div>
+        <div class="menu-note"><kbd>&#9881;</kbd> time of day &middot; graphics</div>
+      </div>
+    </div>
+
+    <div id="result" class="screen">
+      <h1 id="result-title">VICTORY!</h1>
+      <div id="result-rank" class="outline"></div>
+      <div id="result-stats"></div>
+      <div id="result-best" hidden></div>
+      <div id="result-wait" hidden></div>
+      <button class="big-btn" id="again">PLAY AGAIN</button>
+      <button class="ghost-btn" id="to-menu">CHANGE BRAWLER</button>
+    </div>
+
+    <div id="toast"></div>
+    <div id="loading">Lighting the lamps&hellip;</div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

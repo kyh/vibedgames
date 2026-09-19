@@ -141,7 +141,7 @@ const winThenRematch = async (host, guest, from, label) => {
   const restarted = (await rally(host, 3000)) && (await rally(guest, 3000));
   const scores = await diag(guest);
   check(
-    restarted && scores.score === 0 && scores.opponentScore === 0,
+    restarted && scores.points === 0 && scores.opponentScore === 0,
     `rematch from ${label} restarts at 0-0 on both sides`,
   );
   await track(guest, true);
@@ -276,7 +276,7 @@ const main = async () => {
     const newHost = await diag(guest.page);
     const oldHost = await diag(host.page);
     check(
-      oldHost.score === newHost.opponentScore && oldHost.opponentScore === newHost.score,
+      oldHost.points === newHost.opponentScore && oldHost.opponentScore === newHost.points,
       "scores stay mirrored across the swap",
     );
     await track(host.page, true);

@@ -9,6 +9,7 @@
 // the erosion dissolve, `across` shapes the crescent cross-section with a
 // white-hot edge at the blade line.
 import * as THREE from "three";
+import { uploadPrefix } from "./buffer-upload";
 import { fxTex } from "./fx-textures";
 
 // raw blade samples retained (one per render frame)
@@ -200,7 +201,11 @@ export class WeaponTrail {
     this.geom = new THREE.BufferGeometry();
     this.posAttr = new THREE.BufferAttribute(this.posArr, 3).setUsage(THREE.DynamicDrawUsage);
     this.ageAttr = new THREE.BufferAttribute(this.ageArr, 1).setUsage(THREE.DynamicDrawUsage);
-    this.acrossAttr = new THREE.BufferAttribute(this.acrossArr, 1).setUsage(THREE.DynamicDrawUsage);
+    // every row is base-edge then tip-edge, so `across` never changes: filled once
+    for (let r = 0; r < MAX_ROWS; r += 1) {
+      this.acrossArr[r * 2 + 1] = 1;
+    }
+    this.acrossAttr = new THREE.BufferAttribute(this.acrossArr, 1);
     this.alongAttr = new THREE.BufferAttribute(this.alongArr, 1).setUsage(THREE.DynamicDrawUsage);
     this.geom.setAttribute("position", this.posAttr);
     this.geom.setAttribute("aAge", this.ageAttr);
@@ -311,7 +316,6 @@ export class WeaponTrail {
     // petals. Subdividing along the spline keeps the crescent one smooth sheet.
     const pos = this.posArr;
     const age = this.ageArr;
-    const across = this.acrossArr;
     const along = this.alongArr;
     let row = 0;
     const { segs } = this;
@@ -335,8 +339,6 @@ export class WeaponTrail {
       const o2 = row * 2;
       age[o2] = a;
       age[o2 + 1] = a;
-      across[o2] = 0;
-      across[o2 + 1] = 1;
       along[o2] = s;
       along[o2 + 1] = s;
       row += 1;
@@ -393,10 +395,10 @@ export class WeaponTrail {
         );
       }
     }
-    this.posAttr.needsUpdate = true;
-    this.ageAttr.needsUpdate = true;
-    this.acrossAttr.needsUpdate = true;
-    this.alongAttr.needsUpdate = true;
+    const verts = row * 2;
+    uploadPrefix(this.posAttr, verts * 3);
+    uploadPrefix(this.ageAttr, verts);
+    uploadPrefix(this.alongAttr, verts);
     // 6 indices per quad row
     this.geom.setDrawRange(0, (row - 1) * 6);
   }

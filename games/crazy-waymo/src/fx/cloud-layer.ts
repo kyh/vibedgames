@@ -81,6 +81,9 @@ const CUMULUS_VERT = /* glsl */ `
   attribute vec3 aCenter;
   attribute vec2 aSize;
   attribute float aSeed;
+  attribute float aDrift;
+  uniform float uTime;
+  uniform vec2 uWrap; // west edge of the sky box, span to the east edge
   varying vec3 vCloudNormal;
   void main() {
     // Fixed world rotation, unlike a billboard: cloud shoulders keep their
@@ -90,7 +93,10 @@ const CUMULUS_VERT = /* glsl */ `
     float s = sin(yaw);
     vec3 scale = vec3(aSize.x, aSize.y, aSize.x * 0.62);
     vec3 p = position * scale;
-    vec3 world = aCenter + vec3(p.x * c + p.z * s, p.y, -p.x * s + p.z * c);
+    // Constant eastward drift, wrapped across the sky box — the centre
+    // buffer is uploaded once, never per frame.
+    float x = uWrap.x + mod(aCenter.x + aDrift * uTime - uWrap.x, uWrap.y);
+    vec3 world = vec3(x, aCenter.yz) + vec3(p.x * c + p.z * s, p.y, -p.x * s + p.z * c);
     vec3 n = normal / scale;
     vCloudNormal = normalize(vec3(n.x * c + n.z * s, n.y, -n.x * s + n.z * c));
     gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
@@ -137,6 +143,12 @@ type LayerOpts = {
     }
 );
 
+const uploadRange = (attr: THREE.InstancedBufferAttribute, count: number): void => {
+  attr.clearUpdateRanges();
+  attr.addUpdateRange(0, count * attr.itemSize);
+  attr.needsUpdate = true;
+};
+
 export class CloudLayer {
   readonly mesh: THREE.Mesh;
   readonly geo: THREE.InstancedBufferGeometry;
@@ -159,6 +171,7 @@ export class CloudLayer {
 
     this.centers = new Float32Array(opts.count * 3);
     this.alphas = new Float32Array(opts.count);
+    this.drifts = new Float32Array(opts.count);
     const sizes = new Float32Array(opts.count * 2);
     const seeds = new Float32Array(opts.count);
     this.centerAttr = new THREE.InstancedBufferAttribute(this.centers, 3);
@@ -170,6 +183,9 @@ export class CloudLayer {
     this.sizeAttr = new THREE.InstancedBufferAttribute(sizes, 2);
     geo.setAttribute("aSize", this.sizeAttr);
     geo.setAttribute("aSeed", new THREE.InstancedBufferAttribute(seeds, 1));
+    if (sculpted) {
+      geo.setAttribute("aDrift", new THREE.InstancedBufferAttribute(this.drifts, 1));
+    }
     this.sizes = sizes;
     this.seeds = seeds;
 
@@ -186,6 +202,8 @@ export class CloudLayer {
         uSunCol: this.sunColU,
         uSunDir: this.sunDirU,
         uSunW: this.sunWU,
+        uTime: this.timeU,
+        uWrap: this.wrapU,
       },
       vertexShader: sculpted ? CUMULUS_VERT : VERT,
     });
@@ -202,6 +220,11 @@ export class CloudLayer {
 
   readonly sizes: Float32Array;
   readonly seeds: Float32Array;
+  /** Cumulus only: eastward drift speed per instance (u/s); the shader
+   *  integrates it against `timeU` inside `wrapU` = (west edge, span). */
+  readonly drifts: Float32Array;
+  readonly timeU = { value: 0 };
+  readonly wrapU = { value: new THREE.Vector2(0, 1) };
   dimUniform = { value: 1 };
   // Live sun feed (SkyClouds writes the high layer's each frame; the marine
   // layer keeps the defaults — its shader never reads them).
@@ -219,8 +242,9 @@ export class CloudLayer {
     this.tint.lerpColors(this.dayColor, this.nightColor, f);
   }
 
-  markDirty(): void {
-    this.centerAttr.needsUpdate = true;
-    this.alphaAttr.needsUpdate = true;
+  /** Upload centres + alphas for the first `count` instances (default: all). */
+  markDirty(count = this.geo.instanceCount): void {
+    uploadRange(this.centerAttr, count);
+    uploadRange(this.alphaAttr, count);
   }
 }

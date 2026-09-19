@@ -1,4 +1,4 @@
-import type { DynamicRayCastVehicleController } from "@dimforge/rapier3d-compat";
+import type { DynamicRayCastVehicleController } from "#rapier";
 
 import type { WheelSurface } from "../world/land-class";
 

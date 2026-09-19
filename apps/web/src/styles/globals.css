@@ -1,1 +1,7 @@
 @import "@repo/ui/globals.css";
+
+/* The bottom nav is `fixed`, so nothing reserves room for it. Anything that has
+   to clear it sizes off this token instead of re-measuring the nav's padding. */
+@theme {
+  --spacing-nav: 4.75rem;
+}

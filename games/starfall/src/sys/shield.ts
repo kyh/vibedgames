@@ -465,6 +465,22 @@ export class Shield {
    * ship radius. Every source computes a drain and runs the one applyDamage
    * pipeline; the victim reports its own killer and adjudicates its own mods.
    */
+  /** Full shield, no mod, no pending immunity: a run rebuilt from nothing (the playtest seed hook). */
+  restart(): void {
+    this.recentConsumedShots.clear();
+    this.shieldHp = SHIELD_MAX;
+    this.overHp = 0;
+    this.lastDamageAt = 0;
+    this.regenActive = false;
+    this.shieldMod = null;
+    this.shieldModUntil = 0;
+    this.phasedUntil = 0;
+    this.phaseReadyAt = 0;
+    this.contactIframeUntil = 0;
+    this.ramImmunity.clear();
+    this.impactArcs = [];
+  }
+
   detectIncomingDamage(now: number, dt: number): void {
     if (!this.pilot.alive || !this.pilot.spawned) {
       return;

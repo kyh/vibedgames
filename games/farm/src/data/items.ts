@@ -187,9 +187,6 @@ export const sellValue = (item: Item): number => {
     case "resource": {
       return RES_VALUE[item.res];
     }
-    case "seed": {
-      return Math.floor(CROPS[item.crop].seedPrice / 2);
-    }
     case "fish": {
       return FISH[item.fish].value;
     }
@@ -199,6 +196,7 @@ export const sellValue = (item: Item): number => {
     case "forage": {
       return FORAGE_VALUE[item.forage];
     }
+    case "seed":
     case "tool": {
       return 0;
     }
@@ -206,5 +204,7 @@ export const sellValue = (item: Item): number => {
   }
 };
 
-// Sellable = anything but tools.
-export const isSellable = (item: Item): boolean => item.kind !== "tool";
+// Selling is always "everything at once" (the bin, the shop's sell-all), so
+// whatever the farmer still means to use is never for sale: tools, and seeds —
+// a sale would take the stock they have yet to plant.
+export const isSellable = (item: Item): boolean => item.kind !== "tool" && item.kind !== "seed";

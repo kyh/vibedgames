@@ -1,6 +1,7 @@
 import * as THREE from "three";
 
-import { DRAW_DISTANCE, WORLD_HALF_X, WORLD_HALF_Z } from "../shared/constants";
+import { WORLD_HALF_X, WORLD_HALF_Z } from "../shared/constants";
+import { drawDistance } from "../render/quality";
 import { parcelMeshOf } from "./parcel-build";
 import { buildParcelGeometrySteps } from "./parcel-mesh";
 import type { DetailLevel, ParcelGeometry } from "./parcel-mesh";
@@ -45,8 +46,12 @@ export const parcelDetailForDistance = (
 };
 
 /** Radius the fabric is held to, for a quality tier's model band. */
+// Low tiers and phones hold less fabric than the draw distance would fill;
+// the ring past it sits deep in the fog, and on a phone that ring is the
+// difference between a resident set the GPU process survives and one it
+// does not.
 export const streamRadiusFor = (detailScale: number, detail: DetailLevel = 2): number =>
-  (DRAW_DISTANCE + STREAM_PAD) * (detail === 1 || detailScale < 1 ? 0.72 : 1);
+  (drawDistance() + STREAM_PAD) * (detail === 1 || detailScale < 1 ? 0.72 : 1);
 
 export const streamCellKey = (x: number, z: number): number =>
   Math.floor((x + WORLD_HALF_X) / STREAM_CELL) * 4096 +

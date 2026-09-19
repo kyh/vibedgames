@@ -162,7 +162,7 @@ const isSafeCorner = (c: number, r: number): boolean =>
   (c <= 2 && r >= GRID_ROWS - 3) ||
   (c >= GRID_COLS - 3 && r >= GRID_ROWS - 3);
 
-export const newGrid = (): Cell[][] => {
+export const newGrid = (random: () => number = Math.random): Cell[][] => {
   const grid: Cell[][] = [];
   for (let r = 0; r < GRID_ROWS; r += 1) {
     const row: Cell[] = [];
@@ -181,7 +181,7 @@ export const newGrid = (): Cell[][] => {
       if (isSafeCorner(c, r)) {
         continue;
       }
-      if (Math.random() < 0.72) {
+      if (random() < 0.72) {
         row[c] = { kind: "crate" };
       }
     }

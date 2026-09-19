@@ -486,7 +486,8 @@ export class AmbientLife {
     const rise = SCATTER_ATTACK * dt;
     const fall = SCATTER_SETTLE * dt;
     const rSq = SCATTER_R * SCATTER_R;
-    let dirty = false;
+    let lo = p.count;
+    let hi = -1;
     for (let i = 0; i < p.count; i += 1) {
       const prev = p.alarms[i] ?? 0;
       const dx = (p.perch[i * 3] ?? 0) - carX;
@@ -494,10 +495,12 @@ export class AmbientLife {
       const next = dx * dx + dz * dz < rSq ? Math.min(1, prev + rise) : Math.max(0, prev - fall);
       if (next !== prev) {
         p.alarms[i] = next;
-        dirty = true;
+        lo = Math.min(lo, i);
+        hi = i;
       }
     }
-    if (dirty) {
+    if (hi >= lo) {
+      p.alarmAttr.addUpdateRange(lo, hi - lo + 1);
       p.alarmAttr.needsUpdate = true;
     }
   }

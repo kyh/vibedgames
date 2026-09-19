@@ -52,6 +52,7 @@ export class MineHudScene extends Scene {
   private vitals: { hp: Phaser.GameObjects.Text; energy: Phaser.GameObjects.Text } | null = null;
   private zones: Phaser.GameObjects.Zone[] = [];
   private zoneSlot = 0;
+  private hudSig = "";
   private inset: Inset = { bottom: 0, left: 0, right: 0, top: 0 };
   private gamepad?: PhaserGamepad;
   private onResize?: () => void;
@@ -70,6 +71,7 @@ export class MineHudScene extends Scene {
     this.slotLabels = [];
     this.zones = [];
     this.zoneSlot = 0;
+    this.hudSig = "";
     this.inset = safeAreaInset();
     this.buildVignette();
     this.g = this.add.graphics().setDepth(10);
@@ -200,15 +202,53 @@ export class MineHudScene extends Scene {
   }
 
   override update(): void {
+    this.gamepad?.update();
+    // Everything drawn here is a pure function of this signature; a clear +
+    // rebuild on frames where nothing moved is wasted GPU work on phones.
+    const sig = this.hudSignature();
+    if (sig === this.hudSig) {
+      return;
+    }
+    this.hudSig = sig;
     if (this.trailerHideUi) {
       this.hideAll();
       return;
     }
-    this.gamepad?.update();
     this.g.clear();
     this.drawVitals();
     this.drawHint();
     this.drawHotbar();
+  }
+
+  private hudSignature(): string {
+    const { top, right, bottom, left } = this.inset;
+    const parts: (string | number | boolean)[] = [
+      this.trailerHideUi,
+      this.scale.width,
+      this.scale.height,
+      top,
+      right,
+      bottom,
+      left,
+      this.mine.depth,
+      this.mine.onLadder(),
+      this.mine.savePending,
+      store.gold,
+      store.hp,
+      store.maxHp(),
+      store.energy,
+      store.inv.selected,
+    ];
+    for (let i = 0; i < HOTBAR; i += 1) {
+      const slot = store.inv.slots[i];
+      if (slot) {
+        const ic = itemIcon(slot.item);
+        parts.push(ic.key, ic.frame ?? -1, slot.qty);
+      } else {
+        parts.push("·");
+      }
+    }
+    return parts.join("|");
   }
 
   private drawVitals(): void {

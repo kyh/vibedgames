@@ -94,4 +94,11 @@ export const featuredGames: FeaturedGame[] = [
     previewPortrait: "/covers/farm-portrait.webp",
     slug: "farm",
   },
+  {
+    colorScheme: "light",
+    name: "Showdown",
+    preview: "/covers/showdown.webp",
+    previewPortrait: "/covers/showdown-portrait.webp",
+    slug: "showdown",
+  },
 ];

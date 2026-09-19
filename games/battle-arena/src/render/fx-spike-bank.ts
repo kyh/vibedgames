@@ -10,6 +10,8 @@ export class Bank {
   readonly free: number[] = [];
   readonly birth: THREE.InstancedBufferAttribute;
   live = 0;
+  /** Slots ever handed out since the bank last emptied — the upload/draw prefix. */
+  highWater = 0;
 
   constructor(scene: THREE.Scene, geo: THREE.BufferGeometry, mat: THREE.Material) {
     const seeds = new Float32Array(BANK_SIZE);

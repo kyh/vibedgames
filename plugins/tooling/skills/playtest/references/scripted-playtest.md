@@ -1,10 +1,12 @@
-# Bot Playtest: Prove the Game Plays, Not Just Renders
+# Scripted Playtest: Prove the Game Plays, Not Just Renders
 
 A smoke check proves the game renders; a bot playtest proves it _plays_. The bot drives real scripted input and measures **progression** — objective movement, player responsiveness, stuck runs, error-free runtime. A game that renders beautifully but can't be progressed by a scripted sweep is not ready. Engine-agnostic: works for Phaser and Three.js alike.
 
 ## The Diagnostics Contract
 
 The bot needs machine-readable game state. Expose two globals:
+
+`@vibedgames/playtest` publishes these with types (`publishDiagnostics(() => ({ … }))`, `publishTestHooks({ … })`) — see `autonomous-playtest.md` § Make Your Game Playable by the Model. The shape is the same either way:
 
 ```javascript
 // Read-only, updated every frame from the game loop
@@ -51,9 +53,9 @@ done
 ```
 
 ```sh
-node $SKILL/scripts/bot-playtest.mjs --url http://localhost:5173
-node $SKILL/scripts/bot-playtest.mjs --game my-game --seed 42      # a deployed game
-node $SKILL/scripts/bot-playtest.mjs --url http://localhost:5173 --script ./sweep.json
+node $SKILL/scripts/scripted-playtest.mjs --url http://localhost:5173
+node $SKILL/scripts/scripted-playtest.mjs --game my-game --seed 42      # a deployed game
+node $SKILL/scripts/scripted-playtest.mjs --url http://localhost:5173 --script ./sweep.json
 ```
 
 | Flag                    | Meaning                                                                          |
@@ -107,13 +109,15 @@ Key names are [KeyboardEvent codes](https://developer.mozilla.org/en-US/docs/Web
 
 When raw keys can't express the verb — placing a tower, choosing a card, triggering a wave — add a game-specific hook (`forceWave()`, `placeTower(x, y)`) to `__GAME_TEST_HOOKS__` and call it via `vg playtest eval`. A bot that can't perform the core verb measures nothing.
 
+A script is a fixed sweep. For a playtester that chooses its inputs from the game state as it plays — and so can tell you whether the objective is findable, not just reachable — see [autonomous-playtest.md](autonomous-playtest.md) (`vg playtest run`). It drives keys and pointer, tracks motion and boots the game the same way this script does; `scripts/lib/harness.mjs` is this script's copy of that plumbing.
+
 ## Difficulty and Fairness Runs
 
 For games with fail states, run the bot twice and compare:
 
 ```sh
-node $SKILL/scripts/bot-playtest.mjs --url http://localhost:5173 --reaction-delay 0
-node $SKILL/scripts/bot-playtest.mjs --url http://localhost:5173 --reaction-delay 300
+node $SKILL/scripts/scripted-playtest.mjs --url http://localhost:5173 --reaction-delay 0
+node $SKILL/scripts/scripted-playtest.mjs --url http://localhost:5173 --reaction-delay 300
 ```
 
 - Delayed bot does as well as the fast one → difficulty pressure is decorative.
@@ -147,7 +151,7 @@ vg playtest errors
 
 The only way to hold a properly-formed key is to dispatch the event yourself — the sequence shown under [Manual Bot Steps](#manual-bot-steps) above.
 
-`scripts/bot-playtest.mjs` does exactly this, including the `code` → `keyCode` mapping. The one tradeoff is `isTrusted: false`, which matters only for games that explicitly check it.
+`scripts/scripted-playtest.mjs` does exactly this, including the `code` → `keyCode` mapping. The one tradeoff is `isTrusted: false`, which matters only for games that explicitly check it.
 
 Always release what you hold — a dangling keydown stays stuck in the game and poisons the next run against the same daemon.
 

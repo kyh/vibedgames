@@ -40,6 +40,7 @@ import { Fx } from "../render/fx";
 import type { Audio } from "../render/audio";
 import { Hud } from "../render/hud";
 import { Hints } from "../render/hints";
+import { sensePlaytest } from "../playtest/sense";
 
 // camera fly-in length; solo holds the sim this long (NEVER online)
 const INTRO_S = 2.4;
@@ -57,7 +58,13 @@ export interface SceneOpts {
   name: string;
   online: boolean;
   room: string;
+  /** Playtest staging (offline only): the solo world's RNG seed, and whether
+   *  to drop the 3-2-1 hold so the first input lands on a live sim. */
+  seed?: number;
+  skipIntro?: boolean;
 }
+
+const SOLO_SEED = 0x1_23_4a_bc;
 
 /** Connection-derived authority. `lastFxSeq: null` means the next prepare takes
  * a fresh FX baseline, so nothing broadcast before it can replay. */
@@ -175,6 +182,8 @@ export class GameScene {
   private matchGeneration: number | null = null;
   private controlsPaused = false;
   private neutralPending = false;
+  // enemies (creeps + champions) the local player has slain this match
+  private takedowns = 0;
   /** A closed tab must vacate its seat now: an un-destroyed socket parks the
    * host in the server's reconnect grace and guests stare at a frozen world. */
   private readonly onPageHide = (event: PageTransitionEvent): void => {
@@ -212,19 +221,10 @@ export class GameScene {
         room: opts.room,
       });
     } else {
-      // soloMercy: hidden bot-damage softening for struggling humans — OFFLINE
-      // ONLY (never set online; it must not shift the shared sim's balance)
-      this.world = createWorld(0x1_23_4a_bc, { soloMercy: true });
-      spawnHero(this.world, {
-        champId: this.champId,
-        id: this.localId,
-        isBot: false,
-        name: this.name,
-        ownerId: "local",
-        slot: 0,
-        team: "local",
-      });
-      ensureBots(this.world);
+      this.world = this.createSoloWorld(opts.seed ?? SOLO_SEED);
+      if (opts.skipIntro) {
+        this.introTime = INTRO_S;
+      }
     }
 
     this.worldView = new WorldView(view.scene, lib);
@@ -282,6 +282,40 @@ export class GameScene {
     this.net?.subscribe(() => this.syncConnection());
   }
 
+  private createSoloWorld(seed: number): World {
+    // soloMercy: hidden bot-damage softening for struggling humans — OFFLINE
+    // ONLY (never set online; it must not shift the shared sim's balance)
+    const world = createWorld(seed, { soloMercy: true });
+    spawnHero(world, {
+      champId: this.champId,
+      id: this.localId,
+      isBot: false,
+      name: this.name,
+      ownerId: "local",
+      slot: 0,
+      team: "local",
+    });
+    ensureBots(world);
+    return world;
+  }
+
+  /** Playtest hook: a fresh seeded solo match, live at once. Never online —
+   *  a staged world must not be written into a shared room. */
+  restartSolo(seed: number): void {
+    if (this.net) {
+      return;
+    }
+    this.world = this.createSoloWorld(seed);
+    this.acc = 0;
+    this.takedowns = 0;
+    this.introTime = INTRO_S;
+    this.resetMatchPresentation();
+  }
+
+  get isOffline(): boolean {
+    return this.net === null;
+  }
+
   private get amHost(): boolean {
     return this.online.kind === "offline" || this.online.kind === "host";
   }
@@ -329,6 +363,7 @@ export class GameScene {
       this.fx.bestStreak = 0;
       this.fx.lastDeath = null;
     }
+    this.countTakedowns();
     // FX drains events first (it may arm a hit-stop), then the visual layer runs
     // on the slowed render-dt while the SIM already stepped on the real frameDt.
     this.fx.update(this.world, frameDt);
@@ -1205,11 +1240,22 @@ export class GameScene {
     return this.fx.audio;
   }
 
+  private countTakedowns(): void {
+    const owner = this.fx.localOwnerId;
+    for (const event of this.world.fx) {
+      if (event.t === "death" && event.by === owner) {
+        this.takedowns += 1;
+      }
+    }
+  }
+
   diagnostics() {
     const me = this.localUnit();
     return {
       audio: this.fx.audio.diagnostics(),
       complete: this.world.phase === "ended",
+      fight: me ? sensePlaytest(this.world, me) : null,
+      kills: me?.kills ?? 0,
       online: this.net
         ? {
             authority: this.amHost,
@@ -1220,8 +1266,8 @@ export class GameScene {
           }
         : null,
       phase: this.world.phase,
-      player: me ? { alive: me.alive, hp: me.hp, x: me.x, y: me.y } : null,
-      score: me?.kills ?? 0,
+      player: me ? { alive: me.alive, hp: me.hp, x: me.x, y: me.y } : undefined,
+      score: this.takedowns,
     };
   }
 

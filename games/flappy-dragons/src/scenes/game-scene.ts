@@ -3,11 +3,13 @@ import type { GameObjects, Time, Types } from "phaser";
 import { createTouchControls, notifyGameStarted, watchControlContext } from "@repo/embed";
 import type { TouchControls } from "@repo/embed";
 import { PhysicalGamepad, safeAreaInset } from "@vibedgames/gamepad";
+import { isPlaytestRequested } from "@vibedgames/playtest";
 
 import { CONTROLS } from "../controls";
 import { buildControls, ensureStyle as ensureControlsStyle } from "../pause-overlay";
 import { isCoarsePointer, recalibratePose, setPoseLocked } from "../input/camera";
 import { NetSession, isJsonNumber } from "../net/session";
+import { publishPlaytestSurface } from "../playtest";
 import type { JsonObject } from "../net/session";
 import type { Player } from "@vibedgames/multiplayer";
 import { FlightFx, prefersReducedMotion } from "./flight-fx";
@@ -107,6 +109,14 @@ const TOUCH = isCoarsePointer();
 /** DEV-only room override (?room=): the two-client harness isolates each run
  *  so a stale room's course can't leak into assertions. */
 const ROOM = (import.meta.env.DEV && new URLSearchParams(location.search).get("room")) || MP_ROOM;
+
+const createSession = (forceOffline: boolean): NetSession =>
+  new NetSession({
+    fallbackMs: OFFLINE_FALLBACK_MS,
+    forceOffline,
+    maxPlayers: MP_MAX_PLAYERS,
+    room: ROOM,
+  });
 
 const HINT_FLAP = TOUCH ? "TAP TO FLAP" : "CLICK · SPACE — FLAP";
 const HINT_RESTART = TOUCH ? "TAP ANYWHERE TO RESTART" : "CLICK OR PRESS SPACE TO RESTART";
@@ -336,11 +346,9 @@ export class GameScene extends Scene {
     // Escape is keyboard-only, so a phone otherwise has no way to leave a run.
     this.touchControls = createTouchControls();
 
-    this.net = new NetSession({
-      fallbackMs: OFFLINE_FALLBACK_MS,
-      maxPlayers: MP_MAX_PLAYERS,
-      room: ROOM,
-    });
+    // A playtest is a solo run: it must never join (or stage state into) the
+    // shared public room.
+    this.net = createSession(isPlaytestRequested());
 
     this.bgLayers = BG_FACTORS.map((factor, i) => ({
       factor,
@@ -411,23 +419,113 @@ export class GameScene extends Scene {
 
     if (import.meta.env.DEV) {
       window.__fb = { net: this.net, scene: this };
-      Object.defineProperty(window, "__GAME_DIAGNOSTICS__", {
-        configurable: true,
-        get: () => this.diagnostics(),
-      });
+    }
+    if (import.meta.env.DEV || isPlaytestRequested()) {
+      publishPlaytestSurface(this);
     }
   }
 
+  /**
+   * Everything is relative to the dragon's body box, in course px with y
+   * pointing DOWN: a negative dy is above the dragon. `player.x` is the
+   * distance flown, so it climbs while the run is alive.
+   */
   diagnostics() {
+    const gap = this.gapAhead(0);
+    const after = this.gapAhead(1);
+    const centreY = this.birdY + BIRD_H / 2;
     return {
+      canFlap: this.started && !this.countingDown && this.phase !== "gameover",
       complete: this.phase === "gameover",
       entities: this.pipes.size + this.ghosts.size + 1,
+      floorDy: Math.round(COURSE_H - (this.birdY + BIRD_H)),
       frame: this.game.loop.frame,
+      gapAfter: after && {
+        centreDy: Math.round(after.centreY - centreY),
+        dx: Math.round(after.x - (BIRD_X + BIRD_W)),
+      },
       gates: this.gates,
+      nextCoin:
+        gap?.coinY === undefined || gap.coinY === null
+          ? null
+          : {
+              dx: Math.round(gap.x + PIPE_WIDTH / 2 - (BIRD_X + BIRD_W / 2)),
+              dy: Math.round(gap.coinY - centreY),
+            },
+      nextGap: gap && {
+        centreDy: Math.round(gap.centreY - centreY),
+        dx: Math.round(gap.x - (BIRD_X + BIRD_W)),
+        inside: gap.x < BIRD_X + BIRD_W,
+        roomAbove: Math.round(this.birdY - gap.top),
+        roomBelow: Math.round(gap.top + PIPE_GAP - (this.birdY + BIRD_H)),
+      },
       phase: this.phase,
-      player: { alive: this.alive, x: BIRD_X, y: this.birdY },
+      player: { alive: this.alive, x: Math.round(this.worldX) + BIRD_X, y: this.birdY },
       score: this.score,
+      vy: Math.round(this.vy),
     };
+  }
+
+  /**
+   * The `n`th gap the dragon has not cleared yet, straight from the seeded
+   * course — so it is known on the runway, before any trunk is on screen.
+   */
+  private gapAhead(
+    n: number,
+  ): { centreY: number; coinY: number | null; top: number; x: number } | null {
+    if (this.seed === 0) {
+      return null;
+    }
+    const i = Math.max(0, this.frontIndex() + 1) + n;
+    const top = topHeightFor(this.seed, i);
+    return {
+      centreY: top + PIPE_GAP / 2,
+      coinY:
+        coinPresentFor(this.seed, i) && !this.collectedCoins.has(i)
+          ? coinYFor(this.seed, i, top)
+          : null,
+      top,
+      x: this.screenX(i),
+    };
+  }
+
+  // ---- playtest hooks (see ../playtest.ts) -----------------------------------
+
+  /** Staged state must never reach a live room: swap to a local session first. */
+  private goSolo(): void {
+    if (this.net.offline) {
+      return;
+    }
+    this.net.destroy();
+    this.net = createSession(true);
+    if (import.meta.env.DEV) {
+      window.__fb = { net: this.net, scene: this };
+    }
+  }
+
+  /** Reseed the course and restart the run on it, skipping the get-ready count. */
+  testSeed(seed: number): void {
+    this.goSolo();
+    this.cancelCountdown();
+    this.resetRun(1 + (Math.abs(Math.trunc(seed)) % 0x7f_ff_ff_ff));
+  }
+
+  /**
+   * `active-play` is past the start screen and the 3-2-1, in the ready hover
+   * where the first flap launches the run — where a player is when the count
+   * ends. Returns the state actually applied.
+   */
+  testState(name: string): string {
+    if (name !== "active-play") {
+      return this.phase;
+    }
+    this.goSolo();
+    this.dismissStartScreen();
+    this.cancelCountdown();
+    if (this.phase !== "ready") {
+      this.resetRun(this.seed === 0 ? randomSeed() : this.seed);
+    }
+    return name;
   }
 
   private buildStartScreen(): void {
@@ -528,6 +626,14 @@ export class GameScene extends Scene {
     if (this.started) {
       return;
     }
+    this.dismissStartScreen();
+    this.runCountdown();
+  }
+
+  private dismissStartScreen(): void {
+    if (this.started) {
+      return;
+    }
     this.started = true;
     this.unwatchControls?.();
     this.unwatchControls = null;
@@ -538,7 +644,17 @@ export class GameScene extends Scene {
     // Play begins HERE, not at the first flap — arming the wrapper pause now
     // means Escape works during the 3-2-1 and the ready hover too.
     notifyGameStarted();
-    this.runCountdown();
+  }
+
+  private cancelCountdown(): void {
+    this.countdownTimer?.remove();
+    this.countdownTimer = null;
+    this.countingDown = false;
+    const el = document.querySelector("#countdown");
+    if (el) {
+      el.classList.remove("show", "pop");
+      el.textContent = "";
+    }
   }
 
   /**
@@ -857,12 +973,20 @@ export class GameScene extends Scene {
     this.collectedCoins.clear();
   }
 
-  /** Solo: the existing retry input starts another get-ready countdown. */
+  /**
+   * Solo: the retry input gets the same get-ready count as a fresh boot — time
+   * to get back in frame while the pose recalibrates; then the first flap launches.
+   */
   private restart(): void {
+    this.resetRun(randomSeed());
+    this.runCountdown();
+  }
+
+  /** Solo: start the course over on `seed`, dragon back in the ready hover. */
+  private resetRun(seed: number): void {
     this.score = 0;
-    // Solo: start the course over.
     this.worldX = 0;
-    this.seed = randomSeed();
+    this.seed = seed;
     // Publish the reroll, or ensureSeed() re-adopts the stale shared seed
     // next frame and every solo run replays the identical course. (Offline
     // this writes the local loopback state; a non-host can't be alone.)
@@ -871,12 +995,10 @@ export class GameScene extends Scene {
 
     this.skin = rollSkin();
     this.bird.setPosition(BIRD_X + DRAGON_SPRITE_OFFSET_X, BIRD_SPAWN_Y + DRAGON_SPRITE_OFFSET_Y);
-    // Solo restart gets the same get-ready count as a fresh boot: time to get
-    // back in frame, pose recalibrates, then the first flap launches.
     this.reviveBird();
     this.birdY = BIRD_SPAWN_Y;
+    this.vy = 0;
     this.setPhase("ready");
-    this.runCountdown();
   }
 
   /** Multiplayer: respawn into the still-scrolling shared course. */

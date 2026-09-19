@@ -1,4 +1,10 @@
-import { isPausable, pauseGame, setPauseHandlers } from "@repo/embed";
+import { isPausable, pauseGame, probeWebGL, setPauseHandlers, showWebGLVeil } from "@repo/embed";
+import {
+  isPlaytestRequested,
+  publishDiagnostics,
+  publishPlaytest,
+  publishTestHooks,
+} from "@vibedgames/playtest";
 import * as THREE from "three";
 
 import { setSoundPaused } from "./fx/sfx";
@@ -6,6 +12,8 @@ import { PoseCamera } from "./input/camera";
 import { PoseControls } from "./input/pose-control";
 import { isCoarsePointer } from "./input/touch";
 import * as pauseOverlay from "./pause-overlay";
+import { playtestManifest } from "./playtest";
+import type { PlaytestDiagnostics } from "./playtest";
 import { GameScene } from "./scenes/game-scene";
 import { MAX_DT } from "./shared/constants";
 
@@ -16,8 +24,22 @@ if (!container) {
 // Suppress long-press menus.
 container.addEventListener("contextmenu", (e) => e.preventDefault());
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-// Phones cap DPR lower — the antialiased 3D well is fill-rate bound at DPR 3.
+const webgl = probeWebGL();
+if (!webgl.ok) {
+  showWebGLVeil(webgl);
+  // Module-level boot has no early return: the uncaught throw logs the reason and stops.
+  throw new Error(`WebGL unavailable: ${webgl.reason}`);
+}
+
+// Phones cap DPR lower — the antialiased 3D well is fill-rate bound at DPR 3 —
+// and skip the multisample buffer on dense screens, where the subpixel
+// density hides the aliasing and the buffer is what a shared GPU process
+// runs out of.
+const dense = isCoarsePointer() && window.devicePixelRatio >= 2;
+const renderer = new THREE.WebGLRenderer({
+  antialias: !dense,
+  powerPreference: "high-performance",
+});
 const dprCap = isCoarsePointer() ? 1.5 : 2;
 const applyPixelRatio = () => renderer.setPixelRatio(Math.min(window.devicePixelRatio, dprCap));
 applyPixelRatio();
@@ -34,7 +56,9 @@ const game = new GameScene(window.innerWidth / window.innerHeight);
 const poseControls = new PoseControls(game.poseActions);
 game.attachPoseControls(poseControls);
 const poseCamera = new PoseCamera(poseControls.handlePose);
-if (!isCoarsePointer()) {
+// A playtest browser denies the camera, and the rejection is a console error
+// — a failed playtest for a reason that has nothing to do with the game.
+if (!isCoarsePointer() && !isPlaytestRequested()) {
   void poseCamera.start();
 }
 
@@ -123,11 +147,13 @@ renderer.domElement.addEventListener("webglcontextrestored", () => {
   }
 });
 
+let frozenForScreenshot = false;
+
 const timer = new THREE.Timer();
 renderer.setAnimationLoop((time) => {
   timer.update(time);
   const dt = Math.min(timer.getDelta(), MAX_DT);
-  if (wrapperPausedAt === null) {
+  if (wrapperPausedAt === null && !frozenForScreenshot) {
     game.update(dt);
   }
   if (graphics.kind === "ready") {
@@ -135,9 +161,20 @@ renderer.setAnimationLoop((time) => {
   }
 });
 
-Object.defineProperty(window, "__GAME_DIAGNOSTICS__", {
-  get: () => ({ ...game.diagnostics(), paused: wrapperPausedAt !== null }),
-});
+publishDiagnostics((): PlaytestDiagnostics => ({
+  ...game.diagnostics(),
+  paused: wrapperPausedAt !== null,
+}));
+if (import.meta.env.DEV || isPlaytestRequested()) {
+  publishTestHooks({
+    seed: (seed) => game.seed(seed),
+    setPausedForScreenshot: (paused) => {
+      frozenForScreenshot = paused;
+    },
+    setState: (name) => (game.setTestState(name) ? { state: name } : undefined),
+  });
+  publishPlaytest(playtestManifest);
+}
 
 if (import.meta.env.DEV) {
   // __tetris: the scene; __pose: feed synthetic poses or recenter() in the console.

@@ -34,10 +34,24 @@ export interface LockEvent {
   gameOver: boolean;
 }
 
-const shuffledBag = (): number[] => {
+/** Deterministic PRNG (mulberry32) so a seeded run deals the same bags. */
+const seededRandom = (seed: number): (() => number) => {
+  /* oxlint-disable no-bitwise -- mulberry32 IS its xor-shifts and uint32 wraps */
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d_2b_79_f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
+  };
+  /* oxlint-enable no-bitwise */
+};
+
+const shuffledBag = (random: () => number): number[] => {
   const bag = [0, 1, 2, 3, 4, 5, 6];
   for (let i = bag.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(random() * (i + 1));
     const a = bag[i] ?? 0;
     bag[i] = bag[j] ?? 0;
     bag[j] = a;
@@ -57,6 +71,7 @@ export class Engine {
   charge = 0;
 
   private bag: number[] = [];
+  private random: () => number = Math.random;
   private fallAccumMs = 0;
   /** One hold per piece (standard Tetris). */
   private holdUsed = false;
@@ -67,9 +82,14 @@ export class Engine {
 
   private drawFromBag(): number {
     if (this.bag.length === 0) {
-      this.bag = shuffledBag();
+      this.bag = shuffledBag(this.random);
     }
     return this.bag.pop() ?? 0;
+  }
+
+  /** Deal from a seeded sequence from the next reset on. */
+  seed(seed: number): void {
+    this.random = seededRandom(seed);
   }
 
   reset(): void {

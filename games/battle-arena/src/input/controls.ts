@@ -78,9 +78,15 @@ export class Controls {
   private uiMode = false;
 
   private canvas: HTMLElement;
+  private absoluteAim: boolean;
 
-  constructor(canvas: HTMLElement) {
+  /** `absoluteAim` is how the playtest harness steers: its synthetic mouse
+   *  events carry a position but no movementX, so a relative look never turns.
+   *  Under it an untrusted pointer's x IS the heading (screen centre = yaw 0,
+   *  one full width = one full turn); a real mouse still steers by motion. */
+  constructor(canvas: HTMLElement, opts: { absoluteAim?: boolean } = {}) {
     this.canvas = canvas;
+    this.absoluteAim = opts.absoluteAim ?? false;
     window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener("keyup", this.onKeyUp);
     window.addEventListener("mousemove", this.onMouseMove);
@@ -262,6 +268,11 @@ export class Controls {
     if (this.uiMode) {
       return;
       // free cursor is browsing menus, not steering
+    }
+    if (this.absoluteAim && !e.isTrusted) {
+      this.yaw = (0.5 - e.clientX / window.innerWidth) * Math.PI * 2;
+      this.hadInput = true;
+      return;
     }
     // turn/tilt by relative motion (works locked or not); crosshair stays
     // centered. mouse-right turns the view right → decrease yaw; mouse-up

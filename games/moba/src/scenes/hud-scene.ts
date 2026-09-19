@@ -1875,7 +1875,11 @@ export class HudScene extends Scene {
       const it = ITEM_BY_ID[r.id];
       const owned = h.items.includes(r.id);
       const afford = h.gold >= (it?.cost ?? 0);
-      r.cost.setColor(shopCostColor(owned, afford));
+      // setColor re-rasterises unconditionally (setText/setFontSize do not)
+      const color = shopCostColor(owned, afford);
+      if (r.cost.style.color !== color) {
+        r.cost.setColor(color);
+      }
       r.cost.setText(owned ? "OWNED" : `${it?.cost}`);
     }
   }

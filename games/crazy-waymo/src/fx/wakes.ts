@@ -198,9 +198,20 @@ export class Wakes {
         }
       }
     }
+    this.mesh.geometry.setDrawRange(0, idx);
+    // Only the live samples travel; an empty fleet sends nothing at all.
+    this.mesh.visible = v > 0;
+    if (v === 0) {
+      return;
+    }
+    this.posAttr.clearUpdateRanges();
+    this.posAttr.addUpdateRange(0, v);
+    this.colAttr.clearUpdateRanges();
+    this.colAttr.addUpdateRange(0, (v / 3) * 4);
+    this.idxAttr.clearUpdateRanges();
+    this.idxAttr.addUpdateRange(0, idx);
     this.posAttr.needsUpdate = true;
     this.colAttr.needsUpdate = true;
     this.idxAttr.needsUpdate = true;
-    this.mesh.geometry.setDrawRange(0, idx);
   }
 }

@@ -121,6 +121,10 @@ export class FareManager {
     this.group.add(this.carryBeacon.group);
   }
 
+  reseed(seed: number): void {
+    this.rng.reseed(seed);
+  }
+
   reset(carX: number, carZ: number): void {
     this.clock = 0;
     this.spawnAt = 0;

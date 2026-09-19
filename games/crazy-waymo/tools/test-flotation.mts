@@ -1,4 +1,4 @@
-import { ColliderDesc, init, World } from "@dimforge/rapier3d-compat";
+import { ColliderDesc, ready, World } from "#rapier";
 import { Vector3 } from "three";
 import { RaycastVehicle } from "../src/vehicle/raycast-vehicle";
 import { waterBodyContains, waterBedHeight } from "../src/world/water";
@@ -215,7 +215,7 @@ const checkShoreCrossing = (check: Check): void => {
 };
 
 export const checkFlotation = async (check: Check): Promise<void> => {
-  await init();
+  await ready();
   const forwardCoastTravel = checkWaterEntry(check);
   checkWaterBrake(check, forwardCoastTravel);
   checkAuthoredWaterBodies(check);

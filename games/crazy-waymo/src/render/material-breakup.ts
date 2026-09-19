@@ -143,6 +143,14 @@ export const applyMaterialBreakup = (mat: THREE.Material, cfg: BreakupConfig): v
   if (!(mat instanceof THREE.MeshStandardMaterial)) {
     return;
   }
+  // Phones keep the stock program. The injection folds its config into the
+  // program cache key, so every material that carries a different config is
+  // its own ~90 KB fragment shader — over a hundred of them on a full city,
+  // and compiling that set is what a mobile GPU process does not survive.
+  // The breakup itself is a subtle albedo drift a phone screen barely shows.
+  if (isCoarsePointer()) {
+    return;
+  }
   if (mat.transparent || mat.polygonOffset) {
     return;
   }
@@ -166,7 +174,6 @@ export const applyMaterialBreakup = (mat: THREE.Material, cfg: BreakupConfig): v
       console.warn("[material-breakup] anchor missing, injection skipped:", mat.name || mat.uuid);
       return;
     }
-    const full = !isCoarsePointer();
     shader.vertexShader = shader.vertexShader
       .replace("#include <common>", "#include <common>\nvarying vec3 vKbWorld;")
       .replace(
@@ -188,7 +195,6 @@ ${VERT_ANCHOR}`,
       .replace(
         "#include <common>",
         `#include <common>
-${full ? "#define KB_MACRO_FULL 1" : ""}
 varying vec3 vKbWorld;
 float kbHash(vec2 p) { return fract(sin(dot(p, vec2(157.31, 269.53))) * 43758.5453); }
 float kbNoise(vec2 p) {
@@ -212,13 +218,11 @@ vec2 kbPlane(vec3 p, float period) { return (p.xz + p.y * 0.71) / period; }`,
         `{
   float kbA = kbNoise(kbPlane(vKbWorld, ${f(cfg.period)})) - 0.5;
   diffuseColor.rgb *= mix(vec3(1.0), mix(${hueRatio(cfg.cool)}, ${hueRatio(cfg.warm)}, kbA + 0.5), ${f(cfg.hueAmp)});
-#ifdef KB_MACRO_FULL
   float kbSettle = smoothstep(${f(cfg.settleNear)}, ${f(cfg.settleFar)}, distance(vKbWorld, cameraPosition));
   float kbB = kbNoise(kbPlane(vKbWorld, ${f(cfg.period * MACRO_PERIOD_RATIO)}) + vec2(0.19, 0.57)) - 0.5;
   diffuseColor.rgb *= 1.0 + kbB * ${f(cfg.valueAmp)} * (1.0 - kbSettle);
   float kbR = kbNoise(kbPlane(vKbWorld, ${f(cfg.period)}) + vec2(0.21, 0.83));
   roughnessFactor *= 1.0 - kbR * ${f(cfg.roughAmp)};
-#endif
   roughnessFactor = max(roughnessFactor, ${f(cfg.roughFloor)});
   vec3 kbDxy = max(abs(dFdx(normal)), abs(dFdy(normal)));
   float kbVar = min(max(max(kbDxy.x, kbDxy.y), kbDxy.z) * ${f(SPEC_AA_GAIN * cfg.specAA)}, ${f(SPEC_AA_CAP)});
@@ -227,7 +231,7 @@ vec2 kbPlane(vec3 p, float period) { return (p.xz + p.y * 0.71) / period; }`,
 ${FRAG_ANCHOR}`,
       );
   };
-  mat.customProgramCacheKey = () => `${prevKey}|${cfgKey}|${isCoarsePointer() ? "lo" : "hi"}`;
+  mat.customProgramCacheKey = () => `${prevKey}|${cfgKey}`;
   // A shared kit material may already have a compiled program (dynamic props
   // render during load); without the bump the renderer would keep it and the
   // injection would silently never run.

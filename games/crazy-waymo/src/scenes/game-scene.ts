@@ -1,6 +1,8 @@
-import { choosePlayerSpawn } from "../world/player-spawn";
+import { choosePlayerSpawn, isPlayerSpawnSafe } from "../world/player-spawn";
+import type { PlayerSpawn } from "../world/player-spawn";
 import * as THREE from "three";
 import { createTouchControls, notifyGameStarted, watchControlContext } from "@repo/embed";
+import { isPlaytestRequested } from "@vibedgames/playtest";
 import type { PlayerMap } from "@vibedgames/multiplayer";
 
 import { ModelCache } from "../assets/loader";
@@ -39,6 +41,7 @@ import { NetSession } from "../net/session";
 import { readTransform } from "../net/remote-cars";
 import type { RemoteCars } from "../net/remote-cars";
 import type { PhysicsWorld } from "../physics/physics-world";
+import type { PlaytestView } from "../playtest/navigator";
 import { installAerialFog } from "../render/aerial-fog";
 import { MarineSky } from "../render/marine-sky";
 import { DayNight } from "../render/day-night";
@@ -63,7 +66,7 @@ import {
   WORLD_HALF_Z,
   WORLD_W,
 } from "../shared/constants";
-import { isJsonString, parseJsonText } from "../shared/json";
+import { isFiniteJsonNumber, isJsonObject, isJsonString, parseJsonText } from "../shared/json";
 import type { GameMode } from "../shared/types";
 import { STAGE_MARGIN } from "../trailer/scout";
 import { GaragePreview } from "../ui/garage-preview";
@@ -264,6 +267,36 @@ const storageSet = (key: string, value: string): void => {
   }
 };
 
+const startBannerStats = (best: number): string =>
+  best > 0
+    ? `BEST $${best.toLocaleString("en-US")}`
+    : `Chain drop-offs to run the combo up to ${FARE.comboMax}×.`;
+
+const SPAWN_KEY = "crazy-waymo:spawn";
+/** A stored spawn is data from an older build: every field is re-checked, and
+ *  the caller still runs it through the safety test against today's world. */
+const parseSpawn = (raw: string | null): PlayerSpawn | null => {
+  if (!raw) {
+    return null;
+  }
+  try {
+    const value = parseJsonText(raw);
+    if (!isJsonObject(value)) {
+      return null;
+    }
+    const { x, z, yaw, gx, gz } = value;
+    return isFiniteJsonNumber(x) &&
+      isFiniteJsonNumber(z) &&
+      isFiniteJsonNumber(yaw) &&
+      isFiniteJsonNumber(gx) &&
+      isFiniteJsonNumber(gz)
+      ? { gx, gz, x, yaw, z }
+      : null;
+  } catch {
+    return null;
+  }
+};
+
 const readBest = (): number => {
   const raw = storageGet(BEST_KEY);
   const n = raw === null ? 0 : Number(raw);
@@ -437,10 +470,15 @@ export class GameScene {
     return this.loadDone;
   }
 
+  get modeKind(): GameMode["kind"] {
+    return this.mode.kind;
+  }
+
   // ---- wrapper pause -----------------------------------------------------
   // Solo game, no wall-clock gameplay timers (fares/score/patience are all
   // dt-driven — see GameState.update/FareManager) — a full freeze is safe.
   private paused = false;
+  private frame = 0;
 
   /** Wrapper asked us to pause: skip update() entirely (sim + physics both
    *  gate on it) and kill the continuous engine/screech/scrape/boost loops
@@ -562,7 +600,8 @@ export class GameScene {
     this.rig = new ChaseCamera(aspect);
     this.net = new NetSession({
       fallbackMs: OFFLINE_FALLBACK_MS,
-      forceOffline: this.trailerMode,
+      // A playtest stages its own run; that must never reach a live room.
+      forceOffline: this.trailerMode || isPlaytestRequested(),
       maxPlayers: MP_MAX_PLAYERS,
       room: MP_ROOM,
     });
@@ -1153,6 +1192,8 @@ vec3 ocGerstner(vec2 p, float t) {
       },
       onParked: (parked) => {
         this.parked = parked;
+        // The first frame must not draw every car in the city.
+        parked.cullAll(this.rig.camera.position.x, this.rig.camera.position.z);
       },
       onPhysics: (physics) => {
         this.physics = physics;
@@ -1301,10 +1342,7 @@ vec3 ocGerstner(vec2 p, float t) {
       // chat are left to be discovered.
       controls: bannerControls(),
       cta: this.touchUi ? "START DRIVING" : "START DRIVING ⏎",
-      stats:
-        best > 0
-          ? `BEST $${best.toLocaleString("en-US")}`
-          : `Chain drop-offs to run the combo up to ${FARE.comboMax}×.`,
+      stats: startBannerStats(best),
       sub: "Pick up fares, chain combos, drive like a maniac.",
       title: "CRAZY WAYMO",
     });
@@ -1743,17 +1781,63 @@ vec3 ocGerstner(vec2 p, float t) {
 
   // Revalidated after full readiness on every start. The early loading pose
   // uses available solids; actual play uses the complete static collision index.
+  // The spawn sticks between visits: the title gates on the tiles around it,
+  // so a returning player reloads a neighbourhood the browser already holds
+  // instead of downloading a fresh one. Trailers keep their own start.
   private computeSpawn(city: CityModel): WorldSpawn {
-    const spawn = choosePlayerSpawn({
+    const world = {
       decks: city.getDecks(),
-      heightAt: (x, z) => city.heightAt(x, z),
+      heightAt: (x: number, z: number) => city.heightAt(x, z),
       network: city.network,
       solids: this.solidIndex ?? new SolidIndex(city.solids),
-    });
+    };
+    const remembered = this.trailerMode ? null : parseSpawn(storageGet(SPAWN_KEY));
+    if (remembered && isPlayerSpawnSafe(world, remembered)) {
+      return remembered;
+    }
+    const spawn = choosePlayerSpawn(world);
     if (!spawn) {
       throw new Error("No safe player start exists in the street network");
     }
+    if (!this.trailerMode) {
+      storageSet(SPAWN_KEY, JSON.stringify(spawn));
+    }
     return spawn;
+  }
+
+  /** What src/playtest reads; null until the world is in. */
+  playtestView(): PlaytestView | null {
+    const { car, city, fares } = this;
+    if (!car || !city || !fares) {
+      return null;
+    }
+    return {
+      car,
+      fares,
+      frame: this.frame,
+      phase: this.mode.kind,
+      state: this.state,
+      traffic: this.traffic,
+      world: { heightAt: (x, z) => city.heightAt(x, z), network: city.network },
+    };
+  }
+
+  /** Playtest hook: reseed what a run rolls, then restart it. */
+  playtestSeed(seed: number): void {
+    this.fares?.reseed(seed);
+    this.traffic?.reseed(seed);
+    this.restartRun();
+  }
+
+  /** Playtest hook: a fresh run, already past the title and the countdown. */
+  playtestStart(): boolean {
+    this.start();
+    if (this.mode.kind !== "countdown" || !this.car) {
+      return false;
+    }
+    this.rig.snapTo(this.car);
+    this.mode = { kind: "playing" };
+    return true;
   }
 
   // DEV-only: drop the taxi on the road CENTRELINE nearest to normalized map
@@ -1882,6 +1966,7 @@ vec3 ocGerstner(vec2 p, float t) {
     if (this.paused) {
       return;
     }
+    this.frame += 1;
     this.pollInput();
     this.updateGarages(dt);
     this.heckleCooldown = Math.max(0, this.heckleCooldown - dt);
@@ -2072,6 +2157,9 @@ vec3 ocGerstner(vec2 p, float t) {
       car.position.z + Math.sin(a) * r,
     );
     this.rig.camera.lookAt(car.position.x, car.position.y + 1, car.position.z);
+    // The orbit is the one camera that sees the whole hillside: keep the
+    // parked-car cull running here, not only once driving starts.
+    this.parked?.updateCulling(this.rig.camera.position.x, this.rig.camera.position.z);
     // fade out leftover streaks
     this.speedLines?.update(dt, this.rig.camera, 0);
     // and drain the post lens the same way
@@ -2201,6 +2289,7 @@ vec3 ocGerstner(vec2 p, float t) {
     car.update(dt, input, solids);
     this.handleTrafficImpacts(car, traffic, dt);
     this.handleParkedImpacts(car, dt);
+    traffic.setHour(this.dayNight.hour);
     traffic.update(dt, city, car.position.x, car.position.z, car.heading);
     this.signalLights?.update(traffic.time);
     this.physics?.streamSolids(car.position.x, car.position.z);

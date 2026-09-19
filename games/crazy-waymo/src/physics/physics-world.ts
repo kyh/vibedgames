@@ -1,5 +1,5 @@
-import { ColliderDesc, init, RigidBodyDesc, RigidBodyType, World } from "@dimforge/rapier3d-compat";
-import type { Collider, RigidBody } from "@dimforge/rapier3d-compat";
+import { ColliderDesc, ready, RigidBodyDesc, RigidBodyType, World } from "#rapier";
+import type { Collider, RigidBody } from "#rapier";
 import type * as THREE from "three";
 
 import { WORLD_H, WORLD_HALF_X, WORLD_HALF_Z, WORLD_W } from "../shared/constants";
@@ -80,7 +80,7 @@ export class PhysicsWorld {
   private streamZ = Infinity;
 
   static async create(): Promise<PhysicsWorld> {
-    await init();
+    await ready();
     return new PhysicsWorld();
   }
 

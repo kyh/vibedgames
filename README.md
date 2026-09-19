@@ -2,19 +2,17 @@
 
 **Seed your coding agent with the abilities of a full game studio.**
 
-Describe what you want to your LLM and we handle the rest — infrastructure, assets, features, and shipping.
+Describe what you want to your LLM and vg will handle the rest - infrastructure, assets, features, and shipping.
 
 No engine to learn. No servers to rent. No art pipeline to assemble. Just chat.
 
-## How it works
+## What Vibedgames(vg) is
 
-Three things, on demand:
+Behind the scenes is a CLI and a series of skills to help:
 
 - **Infrastructure** — Hosting, multiplayer, storage. Provisioned for you.
-- **Assets** — Generated as you ask for them.
-- **Features** — Prompted into your game.
-
-Then ship it, anywhere.
+- **Assets** — Generated through the cli as you ask for them.
+- **Features** — Prebuilt skills for certain features and game polish.
 
 ## Get started
 
@@ -26,7 +24,7 @@ Use vibedgames.com to help me build my game
 
 Your agent picks up the vibedgames skills and CLI. From there, just keep prompting.
 
-Or run it yourself:
+#### Or you can manullay install it yourself:
 
 ```sh
 npx vibedgames init                                # install the skills into your project
@@ -52,6 +50,7 @@ packages/
   db/            Drizzle ORM schema + Cloudflare D1
   multiplayer/   Multiplayer client + React hooks (npm: @vibedgames/multiplayer)
   gamepad/       Touch + physical controller input (npm: @vibedgames/gamepad)
+  playtest/      Diagnostics, hooks + control manifest so a playtest can play the game (npm: @vibedgames/playtest)
   embed/         postMessage bridge between an embedded game and its wrapper
   ui/            Shared UI components (Base UI + Tailwind)
 plugins/         Claude Code plugins — the game-building skills the CLI installs
@@ -59,7 +58,7 @@ plugins/         Claude Code plugins — the game-building skills the CLI instal
 
 Every app and package has its own README. Start with [`games/`](./games) for the
 example games, [`plugins/`](./plugins) for the skills, and
-[`apps/factory/`](./apps/factory) for the autonomous build loop.
+[`apps/factory/`](./apps/factory) is an autonomous game factory build loop.
 
 ## Local development
 
@@ -91,13 +90,11 @@ pnpm db:push-remote   # push schema to production
 pnpm dogfood          # link the local vg CLI + sync plugin skills into .claude/skills
 ```
 
-Platform workers deploy on push to `main` — never run `wrangler deploy`
-locally. `pnpm format:fix` rewrites the **whole** repo, so format only the files
-you touched.
+Platform workers deploy on push to `main`
 
 ## Acknowledgements
 
-What this is built on and learned from.
+My inspirations
 
 - [phaserjs/template-vite-ts](https://github.com/phaserjs/template-vite-ts)
 - [@chongdashu](https://x.com/chongdashu)

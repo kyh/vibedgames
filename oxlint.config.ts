@@ -45,6 +45,8 @@ const jsonPayloadModules = [
   "games/moba/src/sim/types.ts",
   "games/starfall/src/shared/constants.ts",
   "games/starfall/src/trailer/trailer-director.ts",
+  "games/showdown/src/net/presentation.ts",
+  "games/showdown/src/net/snapshot.ts",
 ];
 
 export default defineConfig({

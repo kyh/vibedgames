@@ -10,7 +10,7 @@ import { SIM_DT, SNAPSHOT_HZ, TEAMS } from "../data/config";
 import type { Team } from "../data/config";
 import { HEROES, HERO_BY_ID } from "../data/heroes";
 import type { AbilityDef, AbilityKey } from "../data/heroes";
-import { ELEV_LIFT, WORLD, elevationFrac } from "../data/map";
+import { ELEV_LIFT, TOWERS, WORLD, elevationFrac } from "../data/map";
 import { activateItem, autoLevel, castAbility, levelAbility } from "../sim/abilities";
 import { dealDamage, isEnemy } from "../sim/combat";
 import { dist2 } from "../sim/math";
@@ -22,6 +22,7 @@ import { readSoundscape } from "../render/score";
 import { structureAnnouncement } from "../render/objective-guidance";
 import { presentationSettings, watchPresentationSettings } from "../render/presentation-settings";
 import { WorldView } from "../render/view";
+import { createPlaytestSense } from "../playtest/sense";
 import {
   INTENT_EVENT,
   MULTIPLAYER_HOST,
@@ -44,6 +45,13 @@ import type { Snapshot } from "../net/snapshot";
 import type { JsonValue } from "../net/json";
 
 const TEAM_SIZE = 3;
+const DEFAULT_SEED = 1234;
+// A playtest's decisions are worth nothing while the lanes are empty: the
+// first wave leaves at 0:15 and meets mid-lane near 0:30.
+const LANE_SKIP_MAX_S = 45;
+const LANE_SKIP_CONTACT = 900;
+// Towers sit beside the lane, not on it.
+const LANE_POST_OFFSET = 110;
 // A slow frame owes the sim its full wall time, else a laggy host's world
 // crawls for every guest. Both caps bound the burst so a machine that cannot
 // keep up degrades to slow motion instead of spiralling into longer frames.
@@ -170,6 +178,11 @@ export class GameScene extends Scene {
   private cam!: Phaser.Cameras.Scene2D.Camera;
   private followGo = false;
   private heroChoice = "ironvow";
+  private seed = DEFAULT_SEED;
+  private skipToLane = false;
+  private damageDealt = 0;
+  private scoreBaseline = 0;
+  private sense = createPlaytestSense();
   private ended = false;
   private result: MatchResult | null = null;
   // brief sim freeze on nearby hero kills (game feel)
@@ -226,10 +239,12 @@ export class GameScene extends Scene {
     super("Game");
   }
 
-  init(data: { heroId?: string; online?: boolean }): void {
+  init(data: { heroId?: string; online?: boolean; seed?: number; skipToLane?: boolean }): void {
     if (data?.heroId) {
       this.heroChoice = data.heroId;
     }
+    this.seed = data?.seed ?? DEFAULT_SEED;
+    this.skipToLane = data?.skipToLane === true;
     // The one choke point for online mode — both the lobby's PLAY ONLINE
     // button and the `?online=1` deep link arrive here, so `?offline=1` is
     // enforced once and no socket can be opened behind it.
@@ -240,6 +255,9 @@ export class GameScene extends Scene {
   private resetMatchState(): void {
     resetSound();
     this.result = null;
+    this.damageDealt = 0;
+    this.scoreBaseline = 0;
+    this.sense = createPlaytestSense();
     this.playerId = "";
     this.acc = 0;
     this.hostClock = null;
@@ -336,7 +354,7 @@ export class GameScene extends Scene {
 
   // ---- modes ---------------------------------------------------------------
   private startLocal(): void {
-    this.world = createWorld(1234);
+    this.world = createWorld(this.seed);
     const player = spawnHero(this.world, this.heroChoice, "radiant", "you", false, 0);
     this.playerId = player.id;
     this.view.playerHeroId = player.id;
@@ -347,6 +365,43 @@ export class GameScene extends Scene {
     for (const [i, id] of pickRoster("emberhex", TEAM_SIZE).entries()) {
       spawnHero(this.world, id, "dire", `botD${i}`, true, i);
     }
+    if (this.skipToLane) {
+      this.walkToLane(player);
+    }
+  }
+
+  /** Play out the empty opening — the hero walks to its outer tower as a
+   *  player would — and stop at first contact with the enemy wave. Mid-lane
+   *  itself is no place to wait: the enemy outer tower covers the bridge mouth. */
+  private walkToLane(player: Unit): void {
+    const tower = TOWERS.find((t) => t.team === player.team && t.lane === "top" && t.tier === "t1");
+    if (!tower) {
+      return;
+    }
+    const post = { x: tower.x, y: tower.y + LANE_POST_OFFSET };
+    issueOrder(this.world, player, { to: post, type: "attackMove" });
+    const contact = (): boolean => {
+      for (const u of this.world.units.values()) {
+        if (
+          u.kind === "creep" &&
+          !u.neutral &&
+          u.alive &&
+          isEnemy(player, u) &&
+          dist2(player, u) < LANE_SKIP_CONTACT * LANE_SKIP_CONTACT
+        ) {
+          return true;
+        }
+      }
+      return false;
+    };
+    for (let t = 0; t < LANE_SKIP_MAX_S && !contact(); t += SIM_DT) {
+      step(this.world, SIM_DT);
+    }
+    issueOrder(this.world, player, { type: "hold" });
+    // The skipped seconds' hits and deaths would all play on the first frame.
+    this.world.fx.length = 0;
+    // Whatever the walk-in earned (an assist off a bot's kill) was not played for.
+    this.scoreBaseline = this.playScore();
   }
 
   private startOnline(): void {
@@ -988,6 +1043,11 @@ export class GameScene extends Scene {
           ...structureAnnouncement(this.world, fx, me?.team ?? null),
           at: now,
         });
+      } else if (fx.t === "hit") {
+        const target = this.world.units.get(fx.targetId);
+        if (me?.hero && fx.attackerHero === me.hero.defId && target && isEnemy(me, target)) {
+          this.damageDealt += fx.amount;
+        }
       } else if (
         fx.t === "death" &&
         fx.kind === "hero" &&
@@ -1626,16 +1686,52 @@ export class GameScene extends Scene {
     this.scene.launch("Hud", { game: this });
   }
 
+  /** Gold ticks up on its own, so it cannot tell play from standing still;
+   *  every term here is something the hero did, and none ever falls. */
+  private playScore(): number {
+    const h = this.player?.hero;
+    return h
+      ? Math.round(this.damageDealt) +
+          h.lastHits * 50 +
+          h.denies * 25 +
+          h.kills * 500 +
+          h.assists * 200
+      : 0;
+  }
+
   diagnostics() {
     const me = this.player;
+    const h = me?.hero;
     return {
       complete: this.world.phase === "ended",
       entities: this.world.units.size,
       frame: this.game.loop.frame,
       fx: this.view.fxCounts(),
       phase: this.world.phase,
-      player: me ? { alive: me.alive, hp: me.hp, x: me.x, y: me.y } : null,
-      score: me?.hero?.gold ?? 0,
+      player: me
+        ? {
+            alive: me.alive,
+            hp: Math.round(me.hp),
+            hpPct: Math.round((me.hp / me.maxHp) * 100) / 100,
+            level: h?.level ?? 1,
+            mp: Math.round(me.mp),
+            respawnInSec: me.alive || !h ? 0 : Math.ceil((h.respawnAt - this.world.now) / 1000),
+            x: Math.round(me.x),
+            y: Math.round(me.y),
+          }
+        : undefined,
+      score: this.playScore() - this.scoreBaseline,
+      stats: h
+        ? {
+            assists: h.assists,
+            damageDealt: Math.round(this.damageDealt),
+            deaths: h.deaths,
+            gold: Math.floor(h.gold),
+            kills: h.kills,
+            lastHits: h.lastHits,
+          }
+        : undefined,
+      ...(me ? this.sense(this.world, me, this.cam.worldView) : undefined),
     };
   }
 

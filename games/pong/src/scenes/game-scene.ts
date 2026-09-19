@@ -312,6 +312,8 @@ export class GameScene {
   private scoreAi = 0;
   private rallySpeed = RALLY_SPEED_BASE;
   private rallyHits = 0;
+  /** Balls this client's paddle has returned, for the playtest's score. */
+  private returns = 0;
   private longestRally = 0;
   // Elapsed time of the next auto-serve.
   private serveAt: number | null = null;
@@ -1124,6 +1126,9 @@ export class GameScene {
     this.rallyHits += 1;
     this.longestRally = Math.max(this.longestRally, this.rallyHits);
     this.rallySpeed = Math.min(RALLY_SPEED_MAX, this.rallySpeed + RALLY_SPEED_STEP);
+    if ((side === "player") === this.mySlotA) {
+      this.returns += 1;
+    }
     const accepted = acceptReturn(side === "player" ? this.chargeA : this.chargeB);
     if (side === "player") {
       this.chargeA = accepted.charge;
@@ -1770,6 +1775,7 @@ export class GameScene {
       charge: {
         armed: this.myCharge.kind === "armed",
         hits: chargeHits(this.myCharge),
+        ready: this.myCharge.kind === "ready",
         rivalHits: chargeHits(this.mySlotA ? this.chargeB : this.chargeA),
       },
       complete: this.phase === "won",
@@ -1777,6 +1783,7 @@ export class GameScene {
       frame: this.frame,
       handActive: this.currentHandX() !== null,
       longestRally: this.longestRally,
+      opponent: { x: this.flip * this.oppPaddle },
       opponentScore: this.scoreAi,
       paused: this.pause === "frozen",
       phase: this.phase,
@@ -1784,10 +1791,13 @@ export class GameScene {
         x: this.flip * this.myPaddle,
         y: -PADDLE_Y,
       },
+      points: this.scoreYou,
       powerShots: this.powerShots,
       rallyHits: this.rallyHits,
       reducedMotion: this.reducedMotion,
-      score: this.scoreYou,
+      // A point takes about a minute against this rival, longer than most
+      // playtests run; a return is the player's own work and lands in seconds.
+      score: this.scoreYou * 10 + this.returns,
       spinShots: this.spinShots,
     };
   }
@@ -1820,6 +1830,7 @@ export class GameScene {
     this.lastHandX = null;
     this.spinShots = 0;
     this.powerShots = 0;
+    this.returns = 0;
     this.resetCharge();
     this.longestRally = 0;
     this.hud.setPoint("");

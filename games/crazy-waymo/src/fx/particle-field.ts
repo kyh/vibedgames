@@ -56,6 +56,12 @@ const VERT = `
   }
 `;
 
+/** Queue `count` items from `first` for the next upload (ranges accumulate). */
+const mark = (attr: THREE.BufferAttribute, first: number, count: number): void => {
+  attr.addUpdateRange(first * attr.itemSize, count * attr.itemSize);
+  attr.needsUpdate = true;
+};
+
 export class ParticleField {
   readonly points: THREE.Points;
   private n: number;
@@ -70,8 +76,11 @@ export class ParticleField {
   private grav: Float32Array;
   private drag: Float32Array;
   private cursor = 0;
-  private wasEmpty = false;
   private mat: THREE.ShaderMaterial;
+  private readonly posAttr: THREE.BufferAttribute;
+  private readonly lifeAttr: THREE.BufferAttribute;
+  // aColor, aSize, aMax, aChannel, aGrain only change in emit()
+  private readonly emitAttrs: readonly THREE.BufferAttribute[];
   private scaleUniform = { value: typeof window === "undefined" ? 1 : window.innerHeight };
 
   constructor(
@@ -94,13 +103,24 @@ export class ParticleField {
     this.drag = new Float32Array(n);
 
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.BufferAttribute(this.pos, 3));
-    geo.setAttribute("aColor", new THREE.BufferAttribute(this.col, 3));
-    geo.setAttribute("aSize", new THREE.BufferAttribute(this.size, 1));
-    geo.setAttribute("aLife", new THREE.BufferAttribute(this.life, 1));
-    geo.setAttribute("aMax", new THREE.BufferAttribute(this.max, 1));
-    geo.setAttribute("aChannel", new THREE.BufferAttribute(this.chan, 1));
-    geo.setAttribute("aGrain", new THREE.BufferAttribute(this.grain, 1));
+    this.posAttr = new THREE.BufferAttribute(this.pos, 3);
+    this.lifeAttr = new THREE.BufferAttribute(this.life, 1);
+    const colAttr = new THREE.BufferAttribute(this.col, 3);
+    const sizeAttr = new THREE.BufferAttribute(this.size, 1);
+    const maxAttr = new THREE.BufferAttribute(this.max, 1);
+    const chanAttr = new THREE.BufferAttribute(this.chan, 1);
+    const grainAttr = new THREE.BufferAttribute(this.grain, 1);
+    this.emitAttrs = [colAttr, sizeAttr, maxAttr, chanAttr, grainAttr];
+    for (const a of [this.posAttr, this.lifeAttr, ...this.emitAttrs]) {
+      a.setUsage(THREE.DynamicDrawUsage);
+    }
+    geo.setAttribute("position", this.posAttr);
+    geo.setAttribute("aColor", colAttr);
+    geo.setAttribute("aSize", sizeAttr);
+    geo.setAttribute("aLife", this.lifeAttr);
+    geo.setAttribute("aMax", maxAttr);
+    geo.setAttribute("aChannel", chanAttr);
+    geo.setAttribute("aGrain", grainAttr);
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
 
     this.mat = new THREE.ShaderMaterial({
@@ -126,6 +146,7 @@ export class ParticleField {
     const dy = dir ? dir.y * ds : 0;
     const dz = dir ? dir.z * ds : 0;
     const intensity = o.intensity ?? 1;
+    const first = this.cursor;
     for (let k = 0; k < o.count; k += 1) {
       const i = this.cursor;
       this.cursor = (this.cursor + 1) % this.n;
@@ -148,16 +169,34 @@ export class ParticleField {
       this.grav[i] = o.gravity;
       this.drag[i] = o.drag;
     }
+    // Upload from here, not from update(): the game emits after the fields
+    // tick, and a burst has to show on the frame it fires. A ring wrap just
+    // sends the whole pool once.
+    const wrapped = first + o.count > this.n;
+    const start = wrapped ? 0 : first;
+    const count = wrapped ? this.n : o.count;
+    if (count === 0) {
+      return;
+    }
+    mark(this.posAttr, start, count);
+    mark(this.lifeAttr, start, count);
+    for (const a of this.emitAttrs) {
+      mark(a, start, count);
+    }
   }
 
   update(dt: number): void {
-    let alive = 0;
+    // Touched span: every particle that was alive going in, including the
+    // ones that die this step — their aLife <= 0 is what hides them.
+    let lo = this.n;
+    let hi = -1;
     for (let i = 0; i < this.n; i += 1) {
       const life = this.life[i] ?? 0;
       if (life <= 0) {
         continue;
       }
-      alive += 1;
+      lo = Math.min(lo, i);
+      hi = i;
       this.life[i] = life - dt;
       const dragF = Math.exp(-(this.drag[i] ?? 0) * dt);
       const b = i * 3;
@@ -171,18 +210,10 @@ export class ParticleField {
       this.pos[b + 1] = (this.pos[b + 1] ?? 0) + vy * dt;
       this.pos[b + 2] = (this.pos[b + 2] ?? 0) + vz * dt;
     }
-    // One idle frame still uploads (to clear the last dying particle), then rest.
-    if (alive === 0 && this.wasEmpty) {
+    if (hi < lo) {
       return;
     }
-    this.wasEmpty = alive === 0;
-    const geo = this.points.geometry;
-    geo.getAttribute("position").needsUpdate = true;
-    geo.getAttribute("aColor").needsUpdate = true;
-    geo.getAttribute("aSize").needsUpdate = true;
-    geo.getAttribute("aLife").needsUpdate = true;
-    geo.getAttribute("aMax").needsUpdate = true;
-    geo.getAttribute("aChannel").needsUpdate = true;
-    geo.getAttribute("aGrain").needsUpdate = true;
+    mark(this.posAttr, lo, hi - lo + 1);
+    mark(this.lifeAttr, lo, hi - lo + 1);
   }
 }

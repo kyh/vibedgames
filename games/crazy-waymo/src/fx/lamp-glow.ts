@@ -339,7 +339,11 @@ export class LampGlow {
     }
     c.halo.geo.instanceCount = n;
     c.pool.geo.instanceCount = n;
+    c.haloAttr.clearUpdateRanges();
+    c.haloAttr.addUpdateRange(0, n * 3);
     c.haloAttr.needsUpdate = true;
+    c.poolAttr.clearUpdateRanges();
+    c.poolAttr.addUpdateRange(0, n * 3);
     c.poolAttr.needsUpdate = true;
   }
 }

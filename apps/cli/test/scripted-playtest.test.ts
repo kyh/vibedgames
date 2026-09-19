@@ -9,7 +9,7 @@ import { makeCleanups, makeTmpDir } from "./_helpers.js";
 import type { JsonValue } from "../src/lib/types.js";
 
 /**
- * `scripts/bot-playtest.mjs` ships with the playtest skill rather than this
+ * `scripts/scripted-playtest.mjs` ships with the playtest skill rather than this
  * package, but it only runs through `vg playtest` and is the least-exercised
  * code in that pairing — so its input contract is covered here rather than
  * nowhere. These drive the real script as a subprocess.
@@ -21,7 +21,10 @@ import type { JsonValue } from "../src/lib/types.js";
  * goes on to launch a real browser: slow, and flaky under turbo's parallelism.
  */
 const BOT = fileURLToPath(
-  new URL("../../../plugins/tooling/skills/playtest/scripts/bot-playtest.mjs", import.meta.url),
+  new URL(
+    "../../../plugins/tooling/skills/playtest/scripts/scripted-playtest.mjs",
+    import.meta.url,
+  ),
 );
 
 /** Exit code the script uses for "the harness itself failed". */
@@ -42,7 +45,7 @@ const { cleanups, drain } = makeCleanups();
 afterEach(drain);
 
 const scriptFile = (steps: JsonValue): string => {
-  const file = path.join(makeTmpDir(cleanups, "bot-playtest-"), "sweep.json");
+  const file = path.join(makeTmpDir(cleanups, "scripted-playtest-"), "sweep.json");
   writeFileSync(file, JSON.stringify(steps));
   return file;
 };
@@ -118,7 +121,7 @@ test("rejects malformed steps", () => {
 });
 
 test("reports a bad --script file as a mistake, not a crash", () => {
-  const dir = makeTmpDir(cleanups, "bot-playtest-");
+  const dir = makeTmpDir(cleanups, "scripted-playtest-");
   const malformed = path.join(dir, "malformed.json");
   writeFileSync(malformed, "{not json");
 

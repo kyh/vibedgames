@@ -272,7 +272,11 @@ export class WaterFx {
     this.mesh.geometry.setDrawRange(0, live * INDICES);
     this.mesh.visible = live > 0;
     if (live > 0) {
+      this.positions.clearUpdateRanges();
+      this.positions.addUpdateRange(0, live * VERTICES * 3);
       this.positions.needsUpdate = true;
+      this.colors.clearUpdateRanges();
+      this.colors.addUpdateRange(0, live * VERTICES * 4);
       this.colors.needsUpdate = true;
     }
   }
