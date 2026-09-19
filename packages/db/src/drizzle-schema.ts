@@ -2,7 +2,15 @@
  * Application schema
  */
 import { sql } from "drizzle-orm";
-import { index, integer, primaryKey, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  primaryKey,
+  real,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 import { user } from "./drizzle-schema-auth";
 
@@ -18,7 +26,7 @@ import { user } from "./drizzle-schema-auth";
 export const inviteCode = sqliteTable(
   "invite_code",
   {
-    code: text("code").notNull().unique(),
+    code: text("code").notNull(),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
       .notNull(),
@@ -30,7 +38,10 @@ export const inviteCode = sqliteTable(
     revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
     usedCount: integer("used_count").notNull().default(0),
   },
-  (table) => [index("invite_code_created_by_idx").on(table.createdBy)],
+  (table) => [
+    uniqueIndex("invite_code_code_unique").on(table.code),
+    index("invite_code_created_by_idx").on(table.createdBy),
+  ],
 );
 
 export const waitlist = sqliteTable(
@@ -61,7 +72,7 @@ export const game = sqliteTable(
     currentDeploymentId: text("current_deployment_id"),
     id: text("id").primaryKey().notNull(),
     name: text("name"),
-    slug: text("slug").notNull().unique(),
+    slug: text("slug").notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" })
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
       .$onUpdate(() => new Date())
@@ -70,7 +81,10 @@ export const game = sqliteTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
   },
-  (table) => [index("game_user_idx").on(table.userId)],
+  (table) => [
+    uniqueIndex("game_slug_unique").on(table.slug),
+    index("game_user_idx").on(table.userId),
+  ],
 );
 
 /**
@@ -119,7 +133,7 @@ export const deploymentFile = sqliteTable(
   (table) => [
     primaryKey({
       columns: [table.deploymentId, table.path],
-      name: "deployment_file_deployment_id_path_pk",
+      name: "deployment_file_pk",
     }),
   ],
 );
