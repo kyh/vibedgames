@@ -21,6 +21,13 @@ vg playtest reload
 vg playtest close
 ```
 
+For a run where a model plays the game and reports (needs the diagnostics contract and, ideally, a `__GAME_PLAYTEST__` manifest — see `references/model-playtest.md`):
+
+```sh
+vg playtest run --url http://localhost:5173 --goal "what wins, what kills, which way is progress"
+vg playtest run --game my-game --json
+```
+
 `--game` expands to the game's URL wherever you put it, so it also works with an explicit verb and with multi-URL subcommands:
 
 ```sh

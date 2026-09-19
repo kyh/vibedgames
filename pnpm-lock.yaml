@@ -767,6 +767,9 @@ importers:
       '@vibedgames/multiplayer':
         specifier: workspace:^
         version: link:../../packages/multiplayer
+      '@vibedgames/playtest':
+        specifier: workspace:^
+        version: link:../../packages/playtest
       three:
         specifier: ^0.185.1
         version: 0.185.1
@@ -992,6 +995,18 @@ importers:
       react:
         specifier: 'catalog:'
         version: 19.2.8
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+
+  packages/playtest:
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.4.0
+      tsx:
+        specifier: ^4.23.12
+        version: 4.23.12
       typescript:
         specifier: 'catalog:'
         version: 7.0.2

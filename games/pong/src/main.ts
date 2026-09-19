@@ -1,5 +1,12 @@
 import * as THREE from "three";
 import { createTouchControls, probeWebGL, setPauseHandlers, showWebGLVeil } from "@repo/embed";
+import {
+  isPlaytestRequested,
+  pointerTracker,
+  publishDiagnostics,
+  publishPlaytest,
+  publishTestHooks,
+} from "@vibedgames/playtest";
 
 import { isMuted, resumeSound, setMuted, setSoundPaused } from "./fx/sfx";
 import { createHandCamera } from "./input/camera";
@@ -126,35 +133,71 @@ renderer.setAnimationLoop((time) => {
 
 // See plugins/tooling/skills/playtest/references/bot-playtest.md. State hooks
 // opt into a solo match, never write a staged score into a live room.
-interface TestHooks {
-  seed: (seed: number) => void;
-  setState: (name: string) => void;
-  setPausedForScreenshot: (paused: boolean) => void;
-  setReducedMotion: (enabled: boolean) => void;
-}
+type PongDiagnostics = ReturnType<GameScene["diagnostics"]> & {
+  renderer: { calls: number; triangles: number };
+};
 declare global {
   interface Window {
     /** Dev-only hooks; __pongHand(x) drives the gesture→paddle path synthetically (x ∈ [0,1]). */
     __pong?: GameScene;
     __pongHand?: (x: number) => void;
     __pongCamera?: HandCamera;
-    __GAME_TEST_HOOKS__?: TestHooks;
   }
 }
-Object.defineProperty(window, "__GAME_DIAGNOSTICS__", {
-  get: () => ({
-    ...game.diagnostics(),
-    renderer: { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles },
-  }),
-});
-if (import.meta.env.DEV || new URLSearchParams(window.location.search).get("test") === "1") {
-  const hooks: TestHooks = {
+publishDiagnostics((): PongDiagnostics => ({
+  ...game.diagnostics(),
+  renderer: { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles },
+}));
+if (import.meta.env.DEV || isPlaytestRequested()) {
+  publishTestHooks({
     seed: (seed) => game.seed(seed),
     setPausedForScreenshot: (paused) => (paused ? game.requestPause() : game.requestResume()),
     setReducedMotion: (enabled) => game.setReducedMotion(enabled),
-    setState: (name) => game.setTestState(name),
-  };
-  Object.assign(window, { __GAME_TEST_HOOKS__: hooks });
+    setState: (name) => {
+      game.setTestState(name);
+      return { state: name };
+    },
+  });
+  // What `vg playtest run` may do to this game, in the words the decision
+  // model chooses between. The paddle follows the pointer's x, so the
+  // playtester steers by parking the cursor; five lanes are enough to get
+  // under the ball. `track_ball` is the fast-game path: a per-frame reflex
+  // that walks the pointer until the paddle sits under the ball. The
+  // pointer→paddle map is a raycast, so rather than invert it the tracker
+  // nudges the cursor by the paddle's error each frame and lets the game
+  // close the loop — the model decides a few times a second, this runs at
+  // 60 fps while it is the model's intent.
+  const track = pointerTracker();
+  publishPlaytest<PongDiagnostics>({
+    actions: {
+      serve: {
+        description: "serve the ball, or fire a charged power shot (Space)",
+        keys: ["Space"],
+      },
+    },
+    goal: "You control the bottom paddle; it follows the pointer's x. Return every ball: `track_ball` keeps the paddle under it automatically, the parked positions are for waiting or baiting. Serve when the ball is not moving (game.phase). game.score is your points; game.opponentScore is theirs.",
+    move: {
+      centre: {
+        description: "Park the paddle in the centre of the court",
+        pointer: { x: 0.5, y: 0.5 },
+      },
+      far_left: {
+        description: "Park the paddle at the far left of the court",
+        pointer: { x: 0.1, y: 0.5 },
+      },
+      far_right: {
+        description: "Park the paddle at the far right of the court",
+        pointer: { x: 0.9, y: 0.5 },
+      },
+      left: { description: "Park the paddle left of centre", pointer: { x: 0.3, y: 0.5 } },
+      right: { description: "Park the paddle right of centre", pointer: { x: 0.7, y: 0.5 } },
+      track_ball: {
+        description:
+          "Follow the ball — keep the paddle under it every frame (the default for a rally)",
+        reflex: (diag) => (diag ? track(diag.ball.x - diag.player.x) : null),
+      },
+    },
+  });
 }
 if (import.meta.env.DEV) {
   Object.assign(window, {
