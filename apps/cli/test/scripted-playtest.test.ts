@@ -21,7 +21,10 @@ import type { JsonValue } from "../src/lib/types.js";
  * goes on to launch a real browser: slow, and flaky under turbo's parallelism.
  */
 const BOT = fileURLToPath(
-  new URL("../../../plugins/tooling/skills/playtest/scripts/scripted-playtest.mjs", import.meta.url),
+  new URL(
+    "../../../plugins/tooling/skills/playtest/scripts/scripted-playtest.mjs",
+    import.meta.url,
+  ),
 );
 
 /** Exit code the script uses for "the harness itself failed". */
