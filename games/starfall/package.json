@@ -22,8 +22,8 @@
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
     "@types/node": "catalog:",
-    "playwright-core": "^1.62.1",
-    "tsx": "^4.23.12",
+    "playwright-core": "^1.63.0",
+    "tsx": "^4.23.13",
     "typescript": "catalog:",
     "vite": "catalog:"
   }

@@ -76,5 +76,9 @@ export default defineConfig({
   rules: {
     // Sequential awaits in loops are deliberate here (rate-limited source reads, ordered writes).
     "no-await-in-loop": "off",
+    // Scripts read top-down: entry point first, helpers below. A reference from
+    // inside a function body runs after the module has evaluated, so only
+    // same-scope use (a real TDZ error) is worth failing on.
+    "no-use-before-define": ["error", { functions: false, variables: false }],
   },
 });

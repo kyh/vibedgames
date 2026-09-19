@@ -331,11 +331,10 @@ const OTPInput = ({
                     {char}
                   </motion.span>
                 )}
-                {active &&
-                  !char && (
-                    // The fake caret: a hard blink (a step, not a fade).
-                    <span className="h-5 w-[1.5px] animate-[otp-caret-blink_1.1s_linear_infinite] rounded-[1px] bg-foreground motion-reduce:animate-none" />
-                  )}
+                {active && !char && (
+                  // The fake caret: a hard blink (a step, not a fade).
+                  <span className="h-5 w-[1.5px] animate-[otp-caret-blink_1.1s_linear_infinite] rounded-[1px] bg-foreground motion-reduce:animate-none" />
+                )}
               </div>
             );
           })}

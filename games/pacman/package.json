@@ -17,13 +17,13 @@
     "@vibedgames/gamepad": "workspace:^",
     "@vibedgames/multiplayer": "workspace:^",
     "@vibedgames/playtest": "workspace:^",
-    "three": "^0.185.1"
+    "three": "^0.186.0"
   },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
     "@types/node": "catalog:",
-    "@types/three": "^0.185.4",
-    "playwright-core": "^1.62.1",
+    "@types/three": "^0.186.0",
+    "playwright-core": "^1.63.0",
     "typescript": "catalog:",
     "vite": "catalog:"
   }

@@ -146,7 +146,6 @@ const KEY_RENAMES = new Map([
 const renameTableKeys = (table: JsonObject): JsonObject => {
   const out: Record<string, LuaValue> = {};
   for (const [key, nested] of Object.entries(table)) {
-    // oxlint-disable-next-line no-use-before-define -- mutually recursive with renameKeys
     out[KEY_RENAMES.get(key) ?? key] = renameKeys(nested);
   }
   return out;
@@ -183,7 +182,6 @@ const rewriteTablePaths = (base: string, sourceRoot: string, table: JsonObject):
       const rel = path.relative(path.resolve(base), absolute);
       out[key] = rel ? rel.split(/[/\\]/u).join("/") : nested;
     } else {
-      // oxlint-disable-next-line no-use-before-define -- mutually recursive with rewritePaths
       out[key] = rewritePaths(base, sourceRoot, nested);
     }
   }
