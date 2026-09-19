@@ -7,7 +7,7 @@ import type { Brawler } from "./entities/brawler";
 import { clamp } from "./utils";
 
 /** `root.querySelector(selector)` that refuses to return nothing. */
-export const mustQuery = (root: ParentNode, selector: string): HTMLElement => {
+const mustQuery = (root: ParentNode, selector: string): HTMLElement => {
   const el = root.querySelector(selector);
   if (!(el instanceof HTMLElement)) {
     throw new Error(`missing HUD element "${selector}"`);

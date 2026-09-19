@@ -23,8 +23,6 @@ import { buildSettingsPanel, renderStats, syncSettingsPanel } from "./hud-settin
 import type { FeedRecorder, FloatRecorder } from "./net/presentation";
 import { clamp } from "./utils";
 
-export { mustGet, mustGetInput } from "./dom";
-
 /** 15.4 → "15:24". */
 const padTime = (hour: number): string => {
   const h = Math.floor(hour) % 24;
@@ -54,21 +52,63 @@ const FLOATER_POOL = 36;
 /** Half the stick's travel range in px; a full deflection moves the knob this far. */
 const STICK_TRAVEL = 58;
 
+/** A stick's DOM node plus the last pose written to it, so an idle stick costs no style writes. */
+interface StickView {
+  el: HTMLElement;
+  held: boolean;
+  knob: HTMLElement | null;
+  kx: number;
+  ky: number;
+  x: number;
+  y: number;
+}
+
+const createStickView = (el: HTMLElement): StickView => {
+  const knob = el.firstElementChild;
+  return {
+    el,
+    held: false,
+    knob: knob instanceof HTMLElement ? knob : null,
+    kx: Number.NaN,
+    ky: Number.NaN,
+    x: Number.NaN,
+    y: Number.NaN,
+  };
+};
+
 /** A stick sits at its rest point until a thumb lands, then follows the touch origin. */
-const positionStick = (el: HTMLElement, stick: Stick, restX: number, restY: number): void => {
+const positionStick = (view: StickView, stick: Stick, restX: number, restY: number): void => {
   const held = stick.id !== null;
   const x = held ? stick.ox : restX;
   const y = held ? stick.oy : restY;
-  el.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
-  el.classList.toggle("on", held);
-  const knob = el.firstElementChild;
-  if (knob instanceof HTMLElement) {
-    knob.style.transform = `translate(${(stick.x * STICK_TRAVEL).toFixed(1)}px, ${(stick.y * STICK_TRAVEL).toFixed(1)}px)`;
+  if (x !== view.x || y !== view.y) {
+    view.x = x;
+    view.y = y;
+    view.el.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
+  }
+  if (held !== view.held) {
+    view.held = held;
+    view.el.classList.toggle("on", held);
+  }
+  const kx = stick.x * STICK_TRAVEL;
+  const ky = stick.y * STICK_TRAVEL;
+  if (view.knob && (kx !== view.kx || ky !== view.ky)) {
+    view.kx = kx;
+    view.ky = ky;
+    view.knob.style.transform = `translate(${kx.toFixed(1)}px, ${ky.toFixed(1)}px)`;
   }
 };
 const TOAST_MS = 3200;
 const FEED_MS = 3500;
 const FEED_MAX = 2;
+
+/** Player names come off the wire, so they land as text, never as markup. */
+const feedName = (role: "k" | "v", name: string, isYou: boolean): HTMLElement => {
+  const el = document.createElement("span");
+  el.className = isYou ? `${role} you` : role;
+  el.textContent = name;
+  return el;
+};
 
 export class Hud {
   readonly game: Game;
@@ -78,22 +118,27 @@ export class Hud {
   readonly overheads = new Map<number, Overhead>();
   readonly boxBars = new Map<LootBox, BoxBar>();
   readonly floaters: Floater[];
-  floaterCursor = 0;
-  bannerT = 0;
-  hurt = 0;
   selected: BrawlerId = "dusty";
-  lastLeft = -1;
-  lastTime = "";
-  lastSuper = -1;
-  private lastEvade = "";
-  statsT = 0;
-  frames = 0;
-  fps = 0;
-  touch = false;
-  readonly stickEls: { aim: HTMLElement; move: HTMLElement };
   /** While hosting online, floating numbers and kills are also written here for guests. */
   floatRecorder: FloatRecorder | null = null;
   feedRecorder: FeedRecorder | null = null;
+  private floaterCursor = 0;
+  private bannerT = 0;
+  private hurt = 0;
+  private lastHurt = "";
+  private lastInGas = false;
+  private lastLeft = -1;
+  private lastTime = "";
+  private lastSuper = -1;
+  private lastEvade = "";
+  private statsT = 0;
+  private frames = 0;
+  private fps = 0;
+  private touch = false;
+  private readonly sticks: { aim: StickView; move: StickView };
+  private readonly hurtEl = mustGet("hurt");
+  private readonly gasWarnEl = mustGet("gas-warn");
+  private readonly feedEl = mustGet("feed");
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(game: Game) {
@@ -102,7 +147,10 @@ export class Hud {
     this.overheadLayer = mustGet("overheads");
     this.floaterLayer = mustGet("floaters");
     this.floaters = createFloaters(this.floaterLayer, FLOATER_POOL);
-    this.stickEls = { aim: mustGet("stick-aim"), move: mustGet("stick-move") };
+    this.sticks = {
+      aim: createStickView(mustGet("stick-aim")),
+      move: createStickView(mustGet("stick-move")),
+    };
     this.buildMenu();
     buildLobby(game, game.params);
     buildSettingsPanel(game);
@@ -121,8 +169,8 @@ export class Hud {
     const { sticks } = this.game.input;
     const w = window.innerWidth;
     const h = window.innerHeight;
-    positionStick(this.stickEls.move, sticks.move, Math.max(80, w * 0.14), h - 118);
-    positionStick(this.stickEls.aim, sticks.aim, w - Math.max(104, w * 0.13), h - 128);
+    positionStick(this.sticks.move, sticks.move, Math.max(80, w * 0.14), h - 118);
+    positionStick(this.sticks.aim, sticks.aim, w - Math.max(104, w * 0.13), h - 128);
   }
 
   private buildMenu(): void {
@@ -206,7 +254,7 @@ export class Hud {
       floater.life = 0;
       floater.el.hidden = true;
     }
-    mustGet("feed").innerHTML = "";
+    this.feedEl.replaceChildren();
     this.lastLeft = -1;
     this.hideResult();
   }
@@ -224,11 +272,10 @@ export class Hud {
     }
   }
 
-  // oxlint-disable-next-line class-methods-use-this -- instance API, see showResult
-  feed(html: string): void {
-    const feed = mustGet("feed");
+  private feed(...parts: readonly (string | HTMLElement)[]): void {
+    const feed = this.feedEl;
     const line = document.createElement("div");
-    line.innerHTML = html;
+    line.append(...parts);
     feed.append(line);
     while (feed.children.length > FEED_MAX) {
       feed.firstChild?.remove();
@@ -243,12 +290,12 @@ export class Hud {
     killerIsYou: boolean,
     victimIsYou: boolean,
   ): void {
-    const v = `<span class="v ${victimIsYou ? "you" : ""}">${victim}</span>`;
+    const v = feedName("v", victim, victimIsYou);
     if (killer === null) {
-      this.feed(`${v} ☠ poison gas`);
+      this.feed(v, " ☠ poison gas");
       return;
     }
-    this.feed(`<span class="k ${killerIsYou ? "you" : ""}">${killer}</span> ⚔ ${v}`);
+    this.feed(feedName("k", killer, killerIsYou), " ⚔ ", v);
   }
 
   /** Announce a takedown: the feed line here, and the record for guests when hosting. */
@@ -441,14 +488,21 @@ export class Hud {
       }
     }
     this.hurt = Math.max(0, this.hurt - dt * 2.2);
-    mustGet("hurt").style.opacity = this.hurt.toFixed(2);
+    const hurt = this.hurt.toFixed(2);
+    if (hurt !== this.lastHurt) {
+      this.lastHurt = hurt;
+      this.hurtEl.style.opacity = hurt;
+    }
     const { player } = game;
     const inGas =
       player !== null &&
       player.alive &&
       game.gas.active &&
       game.gas.depthAt(player.x, player.z) > 0.35;
-    mustGet("gas-warn").style.opacity = inGas ? "1" : "0";
+    if (inGas !== this.lastInGas) {
+      this.lastInGas = inGas;
+      this.gasWarnEl.style.opacity = inGas ? "1" : "0";
+    }
     this.updateStats(dt);
   }
 }

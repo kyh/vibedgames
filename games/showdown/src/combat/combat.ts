@@ -27,7 +27,7 @@ export interface Bullet {
   dz: number;
   isSuper: boolean;
   hitTargets: Set<number>;
-  /** Legacy wire field: melee sweeps never create projectiles. */
+  /** Wire flag guests read to pick a shape; a sweep resolves on the spot and never becomes a bullet. */
   melee: false;
   owner: Brawler;
   radius: number;
@@ -74,7 +74,6 @@ export interface Bomb {
 export interface LootBox {
   alive: boolean;
   hp: number;
-  isBox: true;
   mat: THREE.MeshStandardMaterial;
   maxHp: number;
   mesh: THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial>;
@@ -99,8 +98,23 @@ export interface Cube {
 }
 
 const BOMB_POOL_SIZE = 14;
+
+/** Drop finished entries in place, keeping order; these lists are pruned every frame. */
+const retain = <T>(items: T[], keep: (item: T) => boolean): void => {
+  let write = 0;
+  for (const item of items) {
+    if (keep(item)) {
+      items[write] = item;
+      write += 1;
+    }
+  }
+  items.length = write;
+};
+const isAlive = (item: { alive: boolean }): boolean => item.alive;
+const isPending = (bomb: Bomb): boolean => !bomb.done;
 const MARKER_COLOR = 0xff_40_30;
 const SUPER_MARKER_COLOR = 0xff_c2_3a;
+const PICKUP_RADIUS_SQ = 0.78 * 0.78;
 // Debris tint per breakable prop style: stone, crate, barrel, cactus.
 const RUBBLE_COLORS = [0xb9_a5_8c, 0xb0_7a_3c, 0x9a_5f_2e, 0x4f_9a_4a];
 
@@ -216,14 +230,17 @@ const blastBrawlers = (
   damage: number,
 ): void => {
   const { blast } = attack;
+  const reach = blast + 0.24;
   for (const target of brawlers) {
     if (!target.alive || target === owner || target.airborne || target.evadingInvulnerable) {
       continue;
     }
-    const d = Math.hypot(target.x - x, target.z - z);
-    if (d > blast + 0.24) {
+    const ox = target.x - x;
+    const oz = target.z - z;
+    if (ox * ox + oz * oz > reach * reach) {
       continue;
     }
+    const d = Math.hypot(ox, oz);
     target.takeDamage(damage, owner);
     if (attack.knockback) {
       const force = attack.knockback * (1 - (d / (blast + 0.5)) * 0.5);
@@ -248,7 +265,6 @@ export class Combat {
   cubeGeo: THREE.OctahedronGeometry;
   cubeMat: THREE.MeshStandardMaterial;
   cubeLight: THREE.Color;
-  orange: THREE.Color;
 
   constructor(game: Game) {
     this.game = game;
@@ -282,7 +298,6 @@ export class Combat {
       roughness: 0.25,
     });
     this.cubeLight = new THREE.Color(0xa2_ce_82);
-    this.orange = new THREE.Color(0xff_8a_3a);
   }
 
   addBox(tx: number, ty: number): LootBox {
@@ -307,7 +322,6 @@ export class Combat {
     const box: LootBox = {
       alive: true,
       hp: TUNING.boxHp,
-      isBox: true,
       mat,
       maxHp: TUNING.boxHp,
       mesh,
@@ -369,7 +383,7 @@ export class Combat {
   removeCube(cube: Cube): void {
     cube.alive = false;
     this.game.scene.remove(cube.mesh);
-    this.cubes = this.cubes.filter((other) => other.alive);
+    retain(this.cubes, isAlive);
   }
 
   spawnCube(sx: number, sz: number, x: number, z: number): void {
@@ -391,9 +405,8 @@ export class Combat {
 
   // Scatter the cubes a downed brawler carried around where they fell.
   dropCubes(x: number, z: number, count: number): void {
-    const { world } = this.game;
+    const { rng, world } = this.game;
     for (let i = 0; i < count; i += 1) {
-      const { rng } = this.game;
       const angle = (i / count) * Math.PI * 2 + rng();
       const spread = count === 1 ? 0 : 0.7 + rng() * 0.5;
       const spot = world.nearestOpen(x + Math.cos(angle) * spread, z + Math.sin(angle) * spread);
@@ -532,8 +545,11 @@ export class Combat {
     const { blast } = attack;
     const damage = attack.damage * owner.damageMul;
     blastBrawlers(game.brawlers, x, z, attack, owner, damage);
+    const boxReach = blast + 0.4;
     for (const box of this.boxes) {
-      if (box.alive && Math.hypot(box.x - x, box.z - z) < blast + 0.4) {
+      const ox = box.x - x;
+      const oz = box.z - z;
+      if (box.alive && ox * ox + oz * oz < boxReach * boxReach) {
         this.damageBox(box, damage, owner);
       }
     }
@@ -600,7 +616,7 @@ export class Combat {
       }
       lightBullet(this.game, bullet, dt);
     }
-    this.bullets = this.bullets.filter((bullet) => bullet.alive);
+    retain(this.bullets, isAlive);
     finishProjectileMesh(this.bulletMesh, arrows);
     finishProjectileMesh(this.thornMesh, thorns);
   }
@@ -609,7 +625,7 @@ export class Combat {
     for (const bomb of this.bombs) {
       stepBomb(this, bomb, dt);
     }
-    this.bombs = this.bombs.filter((bomb) => !bomb.done);
+    retain(this.bombs, isPending);
   }
 
   // Boxes wobble and glow brighter for a moment after each hit.
@@ -645,17 +661,15 @@ export class Combat {
         this.collectCube(cube);
       }
     }
-    this.cubes = this.cubes.filter((cube) => cube.alive);
+    retain(this.cubes, isAlive);
   }
 
   private collectCube(cube: Cube): void {
     const { game } = this;
     for (const brawler of game.brawlers) {
-      if (
-        !brawler.alive ||
-        brawler.airborne ||
-        Math.hypot(brawler.x - cube.x, brawler.z - cube.z) >= 0.78
-      ) {
+      const ox = brawler.x - cube.x;
+      const oz = brawler.z - cube.z;
+      if (!brawler.alive || brawler.airborne || ox * ox + oz * oz >= PICKUP_RADIUS_SQ) {
         continue;
       }
       cube.alive = false;
@@ -700,8 +714,8 @@ export class Combat {
     for (const box of this.boxes) {
       if (box.alive) {
         scene.remove(box.mesh);
+        box.mat.dispose();
       }
-      box.mat.dispose();
     }
     this.boxes.length = 0;
     for (const cube of this.cubes) {

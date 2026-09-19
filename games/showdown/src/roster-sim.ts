@@ -15,20 +15,24 @@ const BUSH_REVEAL_RANGE = 2.4;
 /** Resolve body overlap symmetrically; airborne and downed brawlers do not collide. */
 export const separateBrawlers = (brawlers: readonly Brawler[]): void => {
   const minGap = BRAWLER_RADIUS * 1.9;
-  for (const [i, a] of brawlers.entries()) {
-    if (!a.alive || a.airborne) {
+  const minGapSq = minGap * minGap;
+  for (let i = 0; i < brawlers.length; i += 1) {
+    const a = brawlers[i];
+    if (!a || !a.alive || a.airborne) {
       continue;
     }
-    for (const b of brawlers.slice(i + 1)) {
-      if (!b.alive || b.airborne) {
+    for (let j = i + 1; j < brawlers.length; j += 1) {
+      const b = brawlers[j];
+      if (!b || !b.alive || b.airborne) {
         continue;
       }
       const dx = b.x - a.x;
       const dz = b.z - a.z;
-      const d = Math.hypot(dx, dz);
-      if (d >= minGap || d < 1e-4) {
+      const dSq = dx * dx + dz * dz;
+      if (dSq >= minGapSq || dSq < 1e-8) {
         continue;
       }
+      const d = Math.sqrt(dSq);
       const push = (minGap - d) * 0.5;
       const nx = dx / d;
       const nz = dz / d;

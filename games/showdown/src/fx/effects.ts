@@ -57,7 +57,7 @@ export class Effects {
     this.fireflyUniforms = swarm.uniforms;
   }
 
-  buildFireflies(): void {
+  private buildFireflies(): void {
     const swarm = this.mountFireflies();
     this.fireflies = swarm.points;
     this.fireflyMat = swarm.material;
@@ -557,7 +557,6 @@ export class Effects {
     this.fireflyUniforms.uScale.value = pixelScale;
     this.fireflyUniforms.uTime.value = game.elapsed;
     this.fireflyUniforms.uNight.value = 0.08 + lighting.night * 0.92;
-    this.fireflies.visible = true;
     this.glow.update(dt);
     this.smoke.update(dt);
     this.flashes.update(dt, lighting);

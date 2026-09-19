@@ -4,6 +4,8 @@ import { seededRandom } from "../utils";
 import { GRID, gridIndex, tileCenter } from "./grid";
 import { terrainHeight } from "./terrain";
 
+const FLOWER_CAP = 360;
+
 interface LandmarkHost {
   group: THREE.Group;
   disposables: { dispose: () => void }[];
@@ -16,7 +18,7 @@ const buildFlowers = (world: LandmarkHost): void => {
   const rng = seededRandom(world.seed + 415);
   const geometry = new THREE.IcosahedronGeometry(0.06, 0);
   const material = new THREE.MeshStandardMaterial({ color: 0xff_ef_bb, roughness: 1 });
-  const flowers = new THREE.InstancedMesh(geometry, material, 360);
+  const flowers = new THREE.InstancedMesh(geometry, material, FLOWER_CAP);
   const matrix = new THREE.Matrix4();
   let count = 0;
   for (let i = 0; i < 180; i += 1) {
@@ -33,11 +35,11 @@ const buildFlowers = (world: LandmarkHost): void => {
       matrix.makeTranslation(px, terrainHeight(px, pz) + 0.09, pz);
       flowers.setMatrixAt(count, matrix);
       count += 1;
-      if (count === 360) {
+      if (count === FLOWER_CAP) {
         break;
       }
     }
-    if (count === 360) {
+    if (count === FLOWER_CAP) {
       break;
     }
   }

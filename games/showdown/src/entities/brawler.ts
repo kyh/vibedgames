@@ -24,7 +24,7 @@ import type { BrawlerModel } from "./brawler-model";
 import { advanceEvasion, createEvasion, EVADE, evadeStyle, evasionInvulnerable } from "./evasion";
 import type { EvasionState } from "./evasion";
 import { sampleMeleePose } from "./melee-pose";
-import type { MeleeCue } from "./melee-pose";
+import type { MeleeCue, MeleePose } from "./melee-pose";
 import { rangedPoseDuration, sampleRangedPose } from "./ranged-pose";
 import type { RangedCue } from "./ranged-pose";
 
@@ -141,10 +141,8 @@ export class Brawler {
   hidden: boolean;
   flash: number;
   recoil: number;
-  readonly punch: [number, number];
   walkPhase: number;
   squash: number;
-  spawnT: number;
   /** Seconds this body holds still after dealing or taking a telling hit. */
   freezeT = 0;
   readonly lightColor: THREE.Color;
@@ -193,7 +191,7 @@ export class Brawler {
     );
     this.ring.position.y = 0.04;
     this.ring.renderOrder = 2;
-    this.ring.userData["noAO"] = true;
+    this.ring.userData.noAO = true;
     this.root.add(this.ring);
 
     this.disc = null;
@@ -209,7 +207,7 @@ export class Brawler {
       );
       disc.position.y = 0.035;
       disc.renderOrder = 2;
-      disc.userData["noAO"] = true;
+      disc.userData.noAO = true;
       this.root.add(disc);
       this.disc = disc;
     }
@@ -226,7 +224,7 @@ export class Brawler {
     );
     this.superRing.position.y = 0.045;
     this.superRing.renderOrder = 3;
-    this.superRing.userData["noAO"] = true;
+    this.superRing.userData.noAO = true;
     this.root.add(this.superRing);
 
     this.maxHp = def.hp;
@@ -262,10 +260,8 @@ export class Brawler {
     this.hidden = false;
     this.flash = 0;
     this.recoil = 0;
-    this.punch = [0, 0];
     this.walkPhase = Math.random() * 6;
     this.squash = 0;
-    this.spawnT = 0;
     this.lightColor = new THREE.Color(def.attack.color);
     this.superColor = new THREE.Color(def.super.color);
   }
@@ -294,7 +290,6 @@ export class Brawler {
     return evasionInvulnerable(this.evasion);
   }
 
-  /** A person plays this brawler (locally or from another client), not a bot brain. */
   /** Hidden mercy only ever softens bots against the solo player. */
   private mercyScale(): number {
     return this.isPlayer && this.game.mode === "solo" ? this.game.mercy.damageScale : 1;
@@ -310,6 +305,7 @@ export class Brawler {
     }
   }
 
+  /** A person plays this brawler (locally or from another client), not a bot brain. */
   get isHuman(): boolean {
     return this.isPlayer || this.owner !== null;
   }
@@ -539,7 +535,7 @@ export class Brawler {
   // Returns the damage actually absorbed (capped at remaining hp) so the
   // attacker's super charge reflects what landed, not overkill.
   takeDamage(amount: number, source: Brawler | null = null, isGas = false): number {
-    if (!this.alive || this.airborne || this.spawnT > 0 || (!isGas && this.evadingInvulnerable)) {
+    if (!this.alive || this.airborne || (!isGas && this.evadingInvulnerable)) {
       return 0;
     }
     let dealt = amount;
@@ -736,14 +732,11 @@ export class Brawler {
         this.meleeCue = null;
       }
     }
-    this.spawnT = Math.max(0, this.spawnT - dt);
     this.fireCooldown = Math.max(0, this.fireCooldown - dt);
     this.aimHold = Math.max(0, this.aimHold - dt);
     this.revealT = Math.max(0, this.revealT - dt);
     this.flash = Math.max(0, this.flash - dt * 7);
     this.recoil = damp(this.recoil, 0, this.def.attack.kind === "melee" ? 8 : 14, dt);
-    this.punch[0] = damp(this.punch[0], 0, 16, dt);
-    this.punch[1] = damp(this.punch[1], 0, 16, dt);
     this.squash = damp(this.squash, 0, 12, dt);
   }
 
@@ -915,13 +908,18 @@ export class Brawler {
       }
     }
     const stride = moving ? Math.sin(this.walkPhase) * 0.8 : 0;
-    this.animateBody(dt, moving, stride);
-    this.animateArms(moving, stride);
+    const melee = this.def.attack.kind === "melee" ? this.def.attack : null;
+    const pose = sampleMeleePose(
+      this.leap || this.netAir ? null : this.meleeCue,
+      melee ? melee.style : "cleave",
+    );
+    this.animateBody(dt, moving, stride, pose);
+    this.animateArms(moving, stride, pose);
     this.animateEvasion();
     this.animateOverlays(dt);
   }
 
-  private animateBody(dt: number, moving: boolean, stride: number): void {
+  private animateBody(dt: number, moving: boolean, stride: number, pose: MeleePose): void {
     const { model } = this;
     const [leftLeg, rightLeg] = model.legs;
     const bob = moving
@@ -929,10 +927,6 @@ export class Brawler {
       : Math.sin(this.game.elapsed * 2.3 + this.id) * 0.012;
     const { squash } = this;
     const melee = this.def.attack.kind === "melee";
-    const pose = sampleMeleePose(
-      this.leap || this.netAir ? null : this.meleeCue,
-      this.def.attack.kind === "melee" ? this.def.attack.style : "cleave",
-    );
     const step = melee ? pose.advance : 0;
     leftLeg.rotation.x = damp(leftLeg.rotation.x, stride - step * 1.35, 20, dt);
     rightLeg.rotation.x = damp(rightLeg.rotation.x, -stride + step * 0.7, 20, dt);
@@ -1008,15 +1002,11 @@ export class Brawler {
     rig.quaternion.setFromEuler(this.evasionRotation);
   }
 
-  private animateArms(moving: boolean, stride: number): void {
+  private animateArms(moving: boolean, stride: number, attack: MeleePose): void {
     const { arms, pose, weapon } = this.model;
     const [leftArm, rightArm] = arms;
     const [leftBase, rightBase] = pose.armBase;
     if (this.def.attack.kind === "melee") {
-      const attack = sampleMeleePose(
-        this.leap || this.netAir ? null : this.meleeCue,
-        this.def.attack.style,
-      );
       const sway = moving && !this.meleeCue ? stride * 0.14 : 0;
       if (this.def.attack.style === "flurry") {
         leftArm.rotation.set(

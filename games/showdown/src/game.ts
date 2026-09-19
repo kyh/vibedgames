@@ -49,8 +49,6 @@ import type { Rng } from "./utils";
 import { saltedSeed } from "./world/grid";
 import { World } from "./world/world";
 
-export { SETTINGS_KEY } from "./settings-store";
-
 export type GameState = "menu" | "countdown" | "playing" | "ended";
 
 /** Who advances the world: this client alone, this client for the room, or the room's host. */
@@ -768,36 +766,6 @@ export class Game {
   shake(amount: number, x: number, z: number): void {
     const d = dist(x, z, this.focus.x, this.focus.z);
     this.shakeAmp = Math.max(this.shakeAmp, amount * clamp(1 - d / 8, 0, 1));
-  }
-
-  clearBots(): void {
-    for (const b of this.brawlers) {
-      if (b.isPlayer) {
-        continue;
-      }
-      this.hud.overheads.get(b.id)?.root.remove();
-      this.hud.overheads.delete(b.id);
-      b.dispose();
-    }
-    this.brawlers = this.brawlers.filter((b) => b.isPlayer);
-    this.brains = [];
-  }
-
-  spawnBot(id: string, x: number, z: number, name?: string, withBrain = false): Brawler {
-    const def = isBrawlerId(id) ? BRAWLERS[id] : BRAWLERS.dusty;
-    const brawler = new Brawler(this, def, {
-      hueShift: rand(-0.06, 0.06),
-      isPlayer: false,
-      name: name || (BOT_NAMES[this.brawlers.length % BOT_NAMES.length] ?? "Bot"),
-      x,
-      z,
-    });
-    this.brawlers.push(brawler);
-    this.hud.addBrawler(brawler);
-    if (withBrain) {
-      this.brains.push(new Bot(this, brawler, this.rng));
-    }
-    return brawler;
   }
 
   /** The clock idles forward on the menu and tracks match progress in play. */

@@ -1,5 +1,5 @@
 // Netcode protocol. Guests send INTENT events; only the host runs the sim and
-// broadcasts the snapshot under sharedState.snap. Mirrors games/battle-arena.
+// broadcasts the snapshot under sharedState.snap.
 import type { BrawlerId } from "../config";
 
 /**

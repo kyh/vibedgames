@@ -8,9 +8,9 @@ import { clamp, damp, smoothstep } from "./utils";
 
 export const CAMERA_FOV = 32;
 /** Pitch of the match camera above the ground plane. */
-export const CAMERA_PITCH = (50 * Math.PI) / 180;
+const CAMERA_PITCH = (50 * Math.PI) / 180;
 /** Base distance from the focus point at zoom 1 on a wide screen. */
-export const CAMERA_DISTANCE = 22;
+const CAMERA_DISTANCE = 22;
 
 /** Portrait and square screens need the camera further out to keep the same width in view. */
 const aspectFit = (aspect: number): number => clamp(1.55 / aspect, 1, 1.75);

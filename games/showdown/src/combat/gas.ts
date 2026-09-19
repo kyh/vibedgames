@@ -91,7 +91,6 @@ export class Gas {
   half: number;
   round: number;
   active: boolean;
-  layers: THREE.Mesh[];
   tickT: number;
   ticks: number;
   private readonly sheets: GasSheet[];
@@ -101,7 +100,6 @@ export class Gas {
     this.half = TUNING.gasStartHalf;
     this.round = START_ROUND;
     this.active = false;
-    this.layers = [];
     this.sheets = [];
     this.tickT = 0;
     this.ticks = 0;
@@ -134,7 +132,6 @@ export class Gas {
       mesh.userData.noAO = true;
       mesh.frustumCulled = false;
       game.scene.add(mesh);
-      this.layers.push(mesh);
       this.sheets.push({ alpha, mesh, uniforms });
     }
     this.reset();
@@ -145,8 +142,8 @@ export class Gas {
     this.tickT = 0;
     this.ticks = 0;
     this.active = false;
-    for (const layer of this.layers) {
-      layer.visible = false;
+    for (const sheet of this.sheets) {
+      sheet.mesh.visible = false;
     }
   }
 

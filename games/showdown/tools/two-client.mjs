@@ -227,6 +227,11 @@ const run = async (base) => {
       await wait(2000);
       const later = await status(guest.page);
       assert.ok(later.seq > first.seq, `guest snapshots advance (${first.seq} → ${later.seq})`);
+      const bytes = await guest.page.evaluate(() => {
+        const { fx, snap } = window.__game.session.client.sharedState;
+        return { fx: JSON.stringify(fx ?? []).length, snap: JSON.stringify(snap).length };
+      });
+      console.log(`two-client: wire snapshot ${bytes.snap} B + fx ${bytes.fx} B per tick`);
       await until(
         host.page,
         () => window.__game.session.playerCount === 2,

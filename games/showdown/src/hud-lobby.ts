@@ -9,8 +9,8 @@ import { mustGet, mustGetInput } from "./dom";
 import type { Game } from "./game";
 import { MAX_NAME_LENGTH, roomId } from "./net/protocol";
 
-export const NAME_KEY = "showdown-name";
-export const ROOM_KEY = "showdown-room";
+const NAME_KEY = "showdown-name";
+const ROOM_KEY = "showdown-room";
 const DEFAULT_NAME = "Player";
 
 /** Preferences are optional; storage denial must never block a match. */

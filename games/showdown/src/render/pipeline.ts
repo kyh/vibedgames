@@ -148,7 +148,9 @@ export class Pipeline {
     renderer.toneMappingExposure = 1;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = shadowMapTypeFor(this.pcssAvailable);
-    // the lighting rig decides when shadow maps refresh (see render())
+    // The composer renders the scene more than once per frame (GTAO's
+    // normal/depth pre-pass), so render() arms the shadow maps by hand and only
+    // the first scene render redraws them.
     renderer.shadowMap.autoUpdate = false;
     renderer.setClearColor(CLEAR_COLOR, 1);
     this.qualityName = "high";
@@ -194,8 +196,7 @@ export class Pipeline {
       for (const pass of this.composer.passes) {
         pass.dispose();
       }
-      this.composer.renderTarget1.dispose();
-      this.composer.renderTarget2.dispose();
+      this.composer.dispose();
     }
     const bufferSize = renderer.getDrawingBufferSize(new THREE.Vector2());
     const composer = new EffectComposer(

@@ -10,6 +10,7 @@ import type { HelpSection, MuteAccessor, PauseOverlay } from "@repo/embed";
 import { BRAWLERS, TUNING } from "./config";
 import type { AttackDef, BrawlerDef } from "./config";
 import { CONTROLS } from "./controls";
+import { EVADE } from "./entities/evasion";
 
 export interface ShowdownPauseOverlayOptions {
   /** True while the arena keeps simulating behind the overlay (online play). */
@@ -22,7 +23,7 @@ const BANNER_ID = "showdown-pause-banner";
 /** Game tokens (src/style.css): display face, gold, ink. */
 const FONT = "'Fredoka', 'Arial Rounded MT Bold', 'Segoe UI', system-ui, sans-serif";
 const GOLD = "#e8c778";
-const INK = "#17342d";
+const INK = "#193a32";
 
 const describeAttack = (attack: AttackDef): string => {
   switch (attack.kind) {
@@ -54,7 +55,7 @@ const describeBrawler = (def: BrawlerDef): string =>
 /** Long-form mechanics behind the overlay's "how to play" button. */
 const HELP: readonly HelpSection[] = [
   {
-    body: `Eight champions enter the woodland tournament; be the last one standing. ${TUNING.bots} bots hunt with the same kits you can pick.`,
+    body: `${TUNING.bots + 1} champions enter the woodland tournament; be the last one standing. ${TUNING.bots} bots hunt with the same kits you can pick.`,
     title: "The showdown",
   },
   {
@@ -65,7 +66,7 @@ const HELP: readonly HelpSection[] = [
     body:
       "Press Shift, B / LB on a controller, or the dodge button to evade in your movement direction. " +
       "Stand still to evade toward your aim. The opening of the roll, dash or blink avoids weapon hits. " +
-      "Evading interrupts attacks, recharges in 2.4 seconds, and cannot cross walls or escape gas damage.",
+      `Evading interrupts attacks, recharges in ${EVADE.cooldown} seconds, and cannot cross walls or escape gas damage.`,
     title: "Evasion",
   },
   {

@@ -5,8 +5,8 @@
 import { MultiplayerClient } from "@vibedgames/multiplayer";
 import type { PlayerMap } from "@vibedgames/multiplayer";
 import { isBrawlerId } from "../config";
-import type { JsonValue } from "./json";
-import { isJsonNumber, isJsonObject, isJsonString } from "./json";
+import type { JsonValue } from "../json";
+import { isJsonNumber, isJsonObject, isJsonString } from "../json";
 import { parseInputState, shouldSendInput } from "./input-intent";
 import type { InputState } from "./input-intent";
 import type { FxRecord } from "./presentation";
@@ -93,26 +93,26 @@ const parseIntent = (payload: JsonValue): Intent | null => {
   }
 };
 
-interface BlippableSocket {
-  close: (code: number) => void;
-  reconnect: () => void;
-}
-
 declare global {
   interface Window {
     __net?: { blip: () => void; client: MultiplayerClient };
   }
 }
 
+// oxlint-disable-next-line anti-slop/no-runtime-typeof -- the client's private socket publishes no contract; the dev blip hook only needs two callables
+const isMethod = (v: unknown): v is (...args: number[]) => void => typeof v === "function";
+
 export class Session {
   readonly client: MultiplayerClient;
   readonly room: string;
   readonly name: string;
-  /** Once true, a later drop is transient: reconnect, never fall back to bots. */
-  everConnected = false;
   /** Sequence of the last snapshot sent (host) or applied (guest). */
   seq = 0;
+  /** Once true, a later drop is transient: reconnect, never fall back to bots. */
+  private everConnected = false;
   private uptime = 0;
+  private snapSource: JsonValue | undefined;
+  private snapParsed: Snapshot | null = null;
   private intents: RemoteIntent[] = [];
   private lastJoinAt = Number.NEGATIVE_INFINITY;
   private lastInput: InputState = { look: null, mx: 0, mz: 0 };
@@ -240,14 +240,13 @@ export class Session {
 
   /** The room's current snapshot, or null when absent or malformed. */
   readSnapshot(): Snapshot | null {
-    const { snap } = this.client.sharedState;
-    return isSnapshot(snap) ? snap : null;
+    return this.parsedSnapshot();
   }
 
   /** True when the room holds shared state that is not a valid snapshot (never overwrite blindly). */
   get hasMalformedSnapshot(): boolean {
     const { snap } = this.client.sharedState;
-    return snap !== undefined && snap !== null && !isSnapshot(snap);
+    return snap !== undefined && snap !== null && this.parsedSnapshot() === null;
   }
 
   /** Forget the fx watermark: the next batch observed becomes the baseline and nothing replays. */
@@ -288,6 +287,16 @@ export class Session {
     }
   }
 
+  /** Each patch replaces `snap` wholesale, so one validation per object serves every frame it is read. */
+  private parsedSnapshot(): Snapshot | null {
+    const { snap } = this.client.sharedState;
+    if (snap !== this.snapSource) {
+      this.snapSource = snap;
+      this.snapParsed = isSnapshot(snap) ? snap : null;
+    }
+    return this.snapParsed;
+  }
+
   /** Runs on every server message so a batch is never lost between two render frames. */
   private collectFx(): void {
     if (this.client.connectionStatus !== "connected") {
@@ -323,13 +332,16 @@ export class Session {
   /** Test hook: drop the transport without leaving, as a network blip would. */
   private blip(): void {
     const socket: unknown = Object.entries(this.client).find(([key]) => key === "socket")?.[1];
-    if (!(socket instanceof Object) || !("close" in socket) || !("reconnect" in socket)) {
+    if (
+      !(socket instanceof Object) ||
+      !("close" in socket) ||
+      !isMethod(socket.close) ||
+      !("reconnect" in socket) ||
+      !isMethod(socket.reconnect)
+    ) {
       return;
     }
-    // SAFETY: the client's private PartySocket is the only object stored under
-    // `socket`; the shape check above confirms the two methods a blip needs.
-    const partySocket = socket as BlippableSocket;
-    partySocket.close(4000);
-    partySocket.reconnect();
+    socket.close(4000);
+    socket.reconnect();
   }
 }

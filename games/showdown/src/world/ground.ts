@@ -176,24 +176,19 @@ export const composeGround = (
 type Vec3 = readonly [number, number, number];
 type Uv = readonly [number, number];
 
-/** Accumulates textured quads into flat attribute arrays. */
+/**
+ * Accumulates textured quads into flat attribute arrays. Normals come from
+ * `computeVertexNormals` so quads draped over the terraces shade correctly.
+ */
 class QuadBuilder {
   readonly positions: number[] = [];
   readonly uvs: number[] = [];
-  readonly normals: number[] = [];
   readonly indices: number[] = [];
 
-  push(
-    corners: readonly [Vec3, Vec3, Vec3, Vec3],
-    normal: Vec3,
-    uvs: readonly [Uv, Uv, Uv, Uv],
-  ): void {
+  push(corners: readonly [Vec3, Vec3, Vec3, Vec3], uvs: readonly [Uv, Uv, Uv, Uv]): void {
     const base = this.positions.length / 3;
     for (const corner of corners) {
       this.positions.push(corner[0], corner[1] + terrainHeight(corner[0], corner[2]), corner[2]);
-    }
-    for (let i = 0; i < 4; i += 1) {
-      this.normals.push(normal[0], normal[1], normal[2]);
     }
     for (const uv of uvs) {
       this.uvs.push(uv[0], uv[1]);
@@ -204,7 +199,6 @@ class QuadBuilder {
   toGeometry(): THREE.BufferGeometry {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.Float32BufferAttribute(this.positions, 3));
-    geometry.setAttribute("normal", new THREE.Float32BufferAttribute(this.normals, 3));
     geometry.setAttribute("uv", new THREE.Float32BufferAttribute(this.uvs, 2));
     geometry.setIndex(this.indices);
     geometry.computeVertexNormals();
@@ -238,7 +232,6 @@ const pushBanks = (quads: QuadBuilder, tiles: Uint8Array, x: number, y: number):
         [x1, d, z0],
         [x0, d, z0],
       ],
-      [0, 0, 1],
       [
         [uvX(x), uvY(y) + u],
         [uvX(x + 1), uvY(y) + u],
@@ -255,7 +248,6 @@ const pushBanks = (quads: QuadBuilder, tiles: Uint8Array, x: number, y: number):
         [x0, d, z1],
         [x1, d, z1],
       ],
-      [0, 0, -1],
       [
         [uvX(x + 1), uvY(y + 1) - u],
         [uvX(x), uvY(y + 1) - u],
@@ -272,7 +264,6 @@ const pushBanks = (quads: QuadBuilder, tiles: Uint8Array, x: number, y: number):
         [x0, d, z0],
         [x0, d, z1],
       ],
-      [1, 0, 0],
       [
         [uvX(x) - u, uvY(y + 1)],
         [uvX(x) - u, uvY(y)],
@@ -289,7 +280,6 @@ const pushBanks = (quads: QuadBuilder, tiles: Uint8Array, x: number, y: number):
         [x1, d, z1],
         [x1, d, z0],
       ],
-      [-1, 0, 0],
       [
         [uvX(x + 1) + u, uvY(y)],
         [uvX(x + 1) + u, uvY(y + 1)],
@@ -320,7 +310,6 @@ export const buildGroundGeometry = (tiles: Uint8Array): THREE.BufferGeometry => 
           [x1, 0, z1],
           [x1, 0, z0],
         ],
-        [0, 1, 0],
         [
           [uvX(x), uvY(y)],
           [uvX(x), uvY(y + 1)],
@@ -350,7 +339,6 @@ export const buildWaterGeometry = (tiles: Uint8Array): THREE.BufferGeometry => {
           [x0 + 1, -0.17, z0 + 1],
           [x0 + 1, -0.17, z0],
         ],
-        [0, 1, 0],
         [
           [uvX(x), uvY(y)],
           [uvX(x), uvY(y + 1)],

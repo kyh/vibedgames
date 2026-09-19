@@ -10,13 +10,13 @@ import { rangedPoseDuration } from "../entities/ranged-pose";
 import type { Game } from "../game";
 import { clamp } from "../utils";
 import type { World } from "../world/world";
-import type { JsonObject, JsonValue } from "./json";
+import type { JsonObject, JsonValue } from "../json";
 import {
   isJsonBoolean as isBool,
   isJsonNumber as isNum,
   isJsonObject as isObj,
   isJsonString as isStr,
-} from "./json";
+} from "../json";
 
 export type NetPhase = "countdown" | "playing" | "ended";
 

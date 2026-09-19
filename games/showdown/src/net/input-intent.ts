@@ -1,5 +1,5 @@
-import type { JsonObject, JsonValue } from "./json";
-import { isJsonNumber } from "./json";
+import type { JsonObject, JsonValue } from "../json";
+import { isJsonNumber } from "../json";
 
 export interface InputState {
   mx: number;

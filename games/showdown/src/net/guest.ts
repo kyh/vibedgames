@@ -1,8 +1,8 @@
 // Guest-side mirror of the host's sim: puppets per snapshot row, the world
-// rebuilt when the seed changes, loot boxes and cubes as real (uncollected)
-// combat objects so a promotion can adopt them, bullets and bombs as
-// render-only pools extrapolated between snapshots, and the HUD banners the
-// local client derives from phase and roster edges.
+// rebuilt when the seed changes, loot boxes and cubes as real combat objects
+// so Combat.present animates them exactly as on the host, bullets and bombs
+// as render-only pools extrapolated between snapshots, and the HUD banners
+// the local client derives from phase and roster edges.
 import * as THREE from "three";
 import { conformGroundGeometry } from "../world/terrain";
 import { BULLET_Y, drawProjectile, finishProjectileMesh } from "../combat/bullets";

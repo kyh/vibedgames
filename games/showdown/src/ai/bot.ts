@@ -13,16 +13,14 @@ import type { TileCoord } from "../world/grid";
 import { escapeGoal, fleeGoal, nearestBox, nearestCube } from "./goals";
 import { BUSH_SIGHT_RANGE, pickTarget, SIGHT_RANGE } from "./targeting";
 
-export { BOT_NOTICE_RANGE, BUSH_SIGHT_RANGE, SIGHT_RANGE } from "./targeting";
-
-export type BotState = "box" | "cube" | "escape" | "fight" | "flee" | "loot" | "wander";
+type BotState = "box" | "cube" | "escape" | "fight" | "flee" | "loot" | "wander";
 
 export interface Point {
   x: number;
   z: number;
 }
 
-export interface AimSolution {
+interface AimSolution {
   dx: number;
   dz: number;
   x: number;

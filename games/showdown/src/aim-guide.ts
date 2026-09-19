@@ -25,12 +25,15 @@ const guideMaterial = (): THREE.MeshBasicMaterial =>
 
 type GuideMesh = THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
 
+const GROUND_POINT = new THREE.Vector3();
+
 export class AimGuide {
   readonly group: THREE.Group;
   private readonly rect: GuideMesh;
   private readonly sector: GuideMesh;
   private readonly circle: GuideMesh;
   private readonly ring: GuideMesh;
+  private readonly meshes: readonly GuideMesh[];
   private readonly sectorGeos: Partial<Record<GuideSlot, THREE.CircleGeometry>> = {};
 
   constructor(scene: THREE.Scene) {
@@ -57,6 +60,7 @@ export class AimGuide {
       mesh.renderOrder = 3;
       group.add(mesh);
     }
+    this.meshes = [this.rect, this.sector, this.circle, this.ring];
     this.group = group;
     scene.add(group);
   }
@@ -162,8 +166,8 @@ export class AimGuide {
 
   private conformToGround(world: World): void {
     this.group.updateMatrixWorld(true);
-    const point = new THREE.Vector3();
-    for (const mesh of [this.rect, this.sector, this.circle, this.ring]) {
+    const point = GROUND_POINT;
+    for (const mesh of this.meshes) {
       if (!mesh.visible || (mesh === this.ring && !this.circle.visible)) {
         continue;
       }

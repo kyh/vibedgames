@@ -17,7 +17,7 @@ export const TEAM_RING_GEOMETRY = new THREE.RingGeometry(0.5, 0.64, 44).rotateX(
 export const PLAYER_DISC_GEOMETRY = new THREE.CircleGeometry(0.5, 36).rotateX(-Math.PI / 2);
 export const SUPER_RING_GEOMETRY = new THREE.RingGeometry(0.7, 0.8, 44).rotateX(-Math.PI / 2);
 
-export const standardMaterial = (
+const standardMaterial = (
   color: number,
   extra: THREE.MeshStandardMaterialParameters = {},
 ): THREE.MeshStandardMaterial =>
@@ -40,9 +40,7 @@ interface ModelMaterials {
 export type ArmRest = [rotationX: number, rotationZ: number];
 export interface ArmPose {
   armBase: [ArmRest, ArmRest];
-  swingArms: boolean;
   swingLeft: boolean;
-  punch: boolean;
 }
 
 export interface BrawlerModel {
@@ -100,8 +98,6 @@ interface Kit {
 
 const restPose = (left: ArmRest, right: ArmRest, swingLeft = true): ArmPose => ({
   armBase: [left, right],
-  punch: false,
-  swingArms: false,
   swingLeft,
 });
 

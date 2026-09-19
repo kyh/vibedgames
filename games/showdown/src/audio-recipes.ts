@@ -130,3 +130,6 @@ export const SOUND_RECIPES = {
 } satisfies Record<string, Recipe>;
 
 export type SoundName = keyof typeof SOUND_RECIPES;
+
+/** A name off the wire is untrusted; `SOUND_RECIPES[name]` must never be undefined. */
+export const isSoundName = (name: string): name is SoundName => Object.hasOwn(SOUND_RECIPES, name);

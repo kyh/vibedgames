@@ -199,7 +199,7 @@ export const buildBarrels = (host: PropHost, rng: Rng, spots: TileCoord[]): void
   }
 };
 
-/** Coppiced woodland trees share the old obstacle slot, preserving seeded map IDs. */
+/** Coppiced woodland trees; they keep the `CACTUS` prop id so seeded layouts stay stable. */
 export const buildCactusGeometry = (): THREE.BufferGeometry => {
   const parts = [
     new THREE.CylinderGeometry(0.12, 0.19, 1.1, 7).toNonIndexed().translate(0, 0.55, 0),
@@ -294,7 +294,6 @@ export const buildRocks = (
       SCRATCH_COLOR,
     );
   }
-  mesh.instanceMatrix.needsUpdate = true;
 };
 
 /** Woodland trees on obstacle tiles and in the surrounding forest. */

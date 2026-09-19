@@ -229,6 +229,7 @@ const NDC = new THREE.Vector2();
 const GROUND_PLANE = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const HIT = new THREE.Vector3();
 const CENTER = new THREE.Vector3();
+const CORNERS: readonly THREE.Vector3[] = SCREEN_CORNERS.map(() => new THREE.Vector3());
 
 const CONE_VERTEX = `
         varying vec3 vN; varying vec3 vView; varying float vH;
@@ -315,22 +316,24 @@ const makeRequest = (): LightRequest => ({
 /**
  * Where the four screen corners and the top/bottom edge midpoints land on
  * the ground plane, so the shadow frustum can be fitted to what is visible.
+ * Writes into the shared `CORNERS` scratch.
  */
-const projectScreenCorners = (camera: THREE.Camera): THREE.Vector3[] => {
-  const corners: THREE.Vector3[] = [];
-  for (const [x, y] of SCREEN_CORNERS) {
+const projectScreenCorners = (camera: THREE.Camera): readonly THREE.Vector3[] => {
+  for (const [index, [x, y]] of SCREEN_CORNERS.entries()) {
+    const corner = at(CORNERS, index);
     NDC.set(x, y);
     RAYCASTER.setFromCamera(NDC, camera);
     const hit = RAYCASTER.ray.intersectPlane(GROUND_PLANE, HIT);
     if (hit && RAYCASTER.ray.origin.distanceTo(hit) < CORNER_REACH) {
-      corners.push(hit.clone());
+      corner.copy(hit);
     } else {
-      corners.push(
-        RAYCASTER.ray.origin.clone().addScaledVector(RAYCASTER.ray.direction, CORNER_REACH).setY(0),
-      );
+      corner
+        .copy(RAYCASTER.ray.origin)
+        .addScaledVector(RAYCASTER.ray.direction, CORNER_REACH)
+        .setY(0);
     }
   }
-  return corners;
+  return CORNERS;
 };
 
 export class Lighting {
@@ -376,6 +379,7 @@ export class Lighting {
   lampGlass: THREE.MeshStandardMaterial | null = null;
   readonly cones: THREE.Mesh[] = [];
   readonly coneMaterial: THREE.ShaderMaterial;
+  private coneGeometry: THREE.BufferGeometry | null = null;
   private readonly coneStrength: THREE.IUniform<number> = { value: 0 };
   private readonly background: THREE.Color;
 
@@ -396,7 +400,7 @@ export class Lighting {
 
     const fill = new THREE.DirectionalLight(0xdd_e8_ff, 0.4);
     fill.position.set(2.5, 9, 10);
-    scene.add(fill);
+    scene.add(fill, fill.target);
     this.fill = fill;
 
     const hemi = new THREE.HemisphereLight(0xcf_e4_ff, 0xa8_8e_68, 1.2);
@@ -532,6 +536,7 @@ export class Lighting {
       this.scene.remove(cone);
     }
     this.cones.length = 0;
+    this.coneGeometry?.dispose();
     this.lamps = lanterns.map((lantern) => ({
       d: 0,
       phase: Math.random() * 10,
@@ -549,6 +554,7 @@ export class Lighting {
       true,
     );
     geometry.translate(0, height / 2, 0);
+    this.coneGeometry = geometry;
     for (const lamp of this.lamps) {
       const cone = new THREE.Mesh(geometry, this.coneMaterial);
       cone.position.set(lamp.x, lamp.y, lamp.z);
@@ -692,7 +698,7 @@ export class Lighting {
     for (const lamp of this.lamps) {
       lamp.d = Math.hypot(lamp.x - focus.x, lamp.z - (focus.z - 2));
     }
-    this.lamps = this.lamps.toSorted((a, b) => a.d - b.d);
+    this.lamps.sort((a, b) => a.d - b.d);
     for (const [index, slot] of this.lampSlots.entries()) {
       const lamp = this.lamps[index];
       if (!lamp) {
@@ -762,9 +768,6 @@ export class Lighting {
     this.fill.target.position.copy(CENTER);
     this.fill.position.set(CENTER.x + 2.5, 9, CENTER.z + 10);
     this.fill.target.updateMatrixWorld();
-    if (!this.fill.target.parent) {
-      this.scene.add(this.fill.target);
-    }
   }
 
   /** Force the next `fitShadow` to refit from scratch (e.g. after a camera cut). */

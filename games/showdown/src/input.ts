@@ -12,8 +12,6 @@
 import { PhysicalGamepad } from "@vibedgames/gamepad";
 import type { StickState } from "@vibedgames/gamepad";
 
-export { isPadConnected } from "@vibedgames/gamepad";
-
 export interface Stick {
   /** Pointer id currently holding this stick, or null when idle. */
   id: number | null;
@@ -76,7 +74,7 @@ const FALLBACK_KEY_CODES = new Map<string, string>([
 export const keyCode = (e: KeyboardEvent): string =>
   e.code || FALLBACK_KEY_CODES.get((e.key || "").toLowerCase()) || "";
 
-export const makeStick = (): Stick => ({
+const makeStick = (): Stick => ({
   id: null,
   mag: 0,
   moved: false,
@@ -113,6 +111,8 @@ const PAD_BINDINGS = {
   super: ["lt", "rb"],
 } as const;
 
+const PAD_ACTIONS = Object.keys(PAD_BINDINGS);
+
 /** A pad stick as a unit direction (right = +x, down = +z), or null inside the dead zone. */
 const stickDirection = (stick: StickState): Axis | null => {
   if (!stick.active || stick.inDeadZone || stick.distance === 0) {
@@ -123,7 +123,7 @@ const stickDirection = (stick: StickState): Axis | null => {
 
 /** Any pad input a player would notice: a fresh button or a deflected stick. */
 const padTouched = (pad: PhysicalGamepad): boolean =>
-  Object.keys(PAD_BINDINGS).some((action) => pad.justPressed(action)) ||
+  PAD_ACTIONS.some((action) => pad.justPressed(action)) ||
   !pad.getStick("left").inDeadZone ||
   !pad.getStick("right").inDeadZone;
 
@@ -150,14 +150,8 @@ export class Input {
   sticks: Sticks = { aim: makeStick(), move: makeStick(), super: makeStick() };
   shots: Shot[] = [];
   private readonly pad = new PhysicalGamepad({ bindings: PAD_BINDINGS });
-  /** Set once the host calls poll(); until then axis() polls on demand. */
-  private hostPolls = false;
 
-  constructor(
-    canvas: HTMLElement,
-    superButton: HTMLElement | null,
-    evadeButton: HTMLElement | null = null,
-  ) {
+  constructor(canvas: HTMLElement, superButton: HTMLElement, evadeButton: HTMLElement) {
     this.bindKeyboard();
     this.bindMouse(canvas);
     this.bindTouch(canvas, superButton);
@@ -225,8 +219,8 @@ export class Input {
     window.addEventListener("blur", () => this.clear());
   }
 
-  private bindEvadeButton(button: HTMLElement | null): void {
-    button?.addEventListener("pointerdown", (e) => {
+  private bindEvadeButton(button: HTMLElement): void {
+    button.addEventListener("pointerdown", (e) => {
       if (!this.enabled || e.pointerType !== "touch") {
         return;
       }
@@ -235,7 +229,7 @@ export class Input {
       this.evadePressed = true;
       e.preventDefault();
     });
-    button?.addEventListener("click", () => {
+    button.addEventListener("click", () => {
       if (this.enabled && !this.recentTouch()) {
         this.evadePressed = true;
       }
@@ -276,16 +270,14 @@ export class Input {
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
   }
 
-  private bindTouch(canvas: HTMLElement, superButton: HTMLElement | null): void {
+  private bindTouch(canvas: HTMLElement, superButton: HTMLElement): void {
     canvas.addEventListener("pointerdown", (e) => this.beginTouch(e, "field"));
-    if (superButton) {
-      superButton.addEventListener("pointerdown", (e) => this.beginTouch(e, "super"));
-      superButton.addEventListener("click", () => {
-        if (this.enabled && !this.recentTouch()) {
-          this.shots.push({ cancelled: false, kind: "super", mag: 0, tap: true, x: 0, y: 0 });
-        }
-      });
-    }
+    superButton.addEventListener("pointerdown", (e) => this.beginTouch(e, "super"));
+    superButton.addEventListener("click", () => {
+      if (this.enabled && !this.recentTouch()) {
+        this.shots.push({ cancelled: false, kind: "super", mag: 0, tap: true, x: 0, y: 0 });
+      }
+    });
     window.addEventListener("pointermove", (e) => this.moveTouch(e));
     const release = (e: PointerEvent) => this.endTouch(e);
     window.addEventListener("pointerup", release);
@@ -389,14 +381,9 @@ export class Input {
    * Poll the physical gamepad and fold it into the keyboard/mouse fields.
    * Game must call this once per frame, before the paused early-return and
    * before any input read, so a START press still toggles pause while the
-   * sim is frozen. Until Game does, axis() polls on demand.
+   * sim is frozen.
    */
   poll(): void {
-    this.hostPolls = true;
-    this.pollPad();
-  }
-
-  private pollPad(): void {
     const { pad } = this;
     pad.update();
     if (!pad.connected || !this.enabled) {
@@ -438,10 +425,6 @@ export class Input {
     return this.enabled ? stickDirection(this.pad.getStick("right")) : null;
   }
 
-  padAimHeld(): boolean {
-    return this.padAim() !== null;
-  }
-
   /** Press edge of a pad button or d-pad direction by its raw name (`"a"`, `"start"`, `"left"`…). */
   padJustPressed(button: string): boolean {
     return this.enabled && this.pad.connected && this.pad.justPressed(button);
@@ -480,9 +463,6 @@ export class Input {
   axis(): Axis {
     if (!this.enabled) {
       return { x: 0, z: 0 };
-    }
-    if (!this.hostPolls) {
-      this.pollPad();
     }
     const { move } = this.sticks;
     if (move.id !== null && move.mag > STICK_DEAD_ZONE) {

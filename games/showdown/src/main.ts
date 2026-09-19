@@ -52,6 +52,13 @@ const game = new Game({
   onMatchStart: notifyGameStarted,
   selected: autoKit,
 });
+game.pipeline.renderer.domElement.addEventListener("webglcontextlost", () => {
+  console.error("WebGL context lost");
+  showWebGLVeil(
+    { blocked: false, ok: false, reason: "context lost" },
+    "The browser stopped the graphics (usually low memory).",
+  );
+});
 installDiagnostics(game, () => sensePlaytest(game));
 if (import.meta.env.DEV || isPlaytestRequested()) {
   installPlaytest(game);

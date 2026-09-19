@@ -15,10 +15,14 @@ interface MenuPadHost {
   readonly hud: { selected: BrawlerId; select: (id: BrawlerId) => void };
 }
 
-const isOpen = (id: string): boolean => mustGet(id).classList.contains("open");
+const isOpen = (screen: HTMLElement): boolean => screen.classList.contains("open");
 
 export class MenuPad {
   private readonly host: MenuPadHost;
+  private readonly menu = mustGet("menu");
+  private readonly result = mustGet("result");
+  private readonly play = mustGet("play");
+  private readonly again = mustGet("again");
   private stickArmed = true;
 
   constructor(host: MenuPadHost) {
@@ -28,18 +32,19 @@ export class MenuPad {
   /** Once per frame, after `input.poll()`. */
   update(): void {
     const { input } = this.host;
-    if (isOpen("menu")) {
+    if (isOpen(this.menu)) {
       this.stepCards(this.navigationEdge(input));
       if (input.padJustPressed("a") || input.padJustPressed("start")) {
-        mustGet("play").click();
+        this.play.click();
       }
       return;
     }
-    if (isOpen("result") && (input.padJustPressed("a") || input.padJustPressed("start"))) {
-      const again = mustGet("again");
-      if (!again.hidden) {
-        again.click();
-      }
+    if (
+      isOpen(this.result) &&
+      !this.again.hidden &&
+      (input.padJustPressed("a") || input.padJustPressed("start"))
+    ) {
+      this.again.click();
     }
   }
 

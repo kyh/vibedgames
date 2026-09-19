@@ -2,6 +2,9 @@
 // screen reads it back as a delta ("Best: #2") so a loss lands as an approach,
 // not a dead end, and a new record is called out the moment it happens.
 
+import { isJsonNumber, isJsonObject, parseJson } from "../json";
+import type { JsonValue } from "../json";
+
 const BEST_KEY = "showdown-best";
 
 export interface RunResult {
@@ -9,20 +12,6 @@ export interface RunResult {
   kills: number;
   rank: number;
 }
-
-// What JSON.parse can hand back; scalars are told apart without `typeof`.
-type JsonValue = string | number | boolean | null | JsonValue[] | JsonObject;
-interface JsonObject {
-  [key: string]: JsonValue;
-}
-
-const isJsonObject = (value: JsonValue | undefined): value is JsonObject =>
-  value instanceof Object && !Array.isArray(value);
-
-const isJsonNumber = (value: JsonValue | undefined): value is number => Number.isFinite(value);
-
-/** `JSON.parse`, typed at the boundary: its output is a JSON value by construction. */
-const parseJson = (text: string): JsonValue => JSON.parse(text);
 
 const readRun = (value: JsonValue): RunResult | null => {
   if (!isJsonObject(value)) {
@@ -35,7 +24,7 @@ const readRun = (value: JsonValue): RunResult | null => {
   return { cubes, kills, rank };
 };
 
-export const loadBestRun = (): RunResult | null => {
+const loadBestRun = (): RunResult | null => {
   try {
     return readRun(parseJson(localStorage.getItem(BEST_KEY) ?? "null"));
   } catch {

@@ -4,6 +4,8 @@
 
 import { isDifficultyName, isQualityName } from "./config";
 import type { DifficultyName, QualityName } from "./config";
+import { isJsonBoolean, isJsonNumber, isJsonObject, isJsonString, parseJson } from "./json";
+import type { JsonValue } from "./json";
 
 export const SETTINGS_KEY = "showdown-settings";
 
@@ -16,26 +18,6 @@ export interface SavedSettings {
   quality?: string;
   time?: number;
 }
-
-// What JSON.parse can hand back. The guards below discriminate scalars
-// without `typeof` by leaning on JSON's limits: no NaN, no boxed primitives.
-type JsonValue = string | number | boolean | null | JsonValue[] | JsonObject;
-interface JsonObject {
-  [key: string]: JsonValue;
-}
-
-const isJsonObject = (value: JsonValue | undefined): value is JsonObject =>
-  value instanceof Object && !Array.isArray(value);
-
-const isJsonString = (value: JsonValue | undefined): value is string => String(value) === value;
-
-const isJsonNumber = (value: JsonValue | undefined): value is number => Number.isFinite(value);
-
-const isJsonBoolean = (value: JsonValue | undefined): value is boolean =>
-  value === true || value === false;
-
-/** `JSON.parse`, typed at the boundary: its output is a JSON value by construction. */
-const parseJson = (text: string): JsonValue => JSON.parse(text);
 
 const readStored = (): JsonValue => {
   try {

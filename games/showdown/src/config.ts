@@ -573,7 +573,7 @@ export interface Quality {
   lampShadows: boolean;
   msaa: number;
   pcss: boolean;
-  // how many lamps get a real point light at once
+  // transient point lights (shots, bombs, flashes) alive at once; lamps are lit separately
   poolLights: number;
   // sun shadow map size
   shadowMap: number;

@@ -104,8 +104,8 @@ const GRASS_SALT = 2821;
 // Instanced mesh that holds each breakable wall style, by prop id.
 const WALL_MESH_NAMES = ["stone", "crate", "barrel", "cactus"];
 
-// Seconds a dirty occlusion map waits before rebaking, so a burst of
-// destruction costs one bake rather than one per tile.
+// Minimum seconds between occlusion rebakes: the first destroyed tile rebakes
+// at once, the rest of a burst is folded into one more bake.
 const AO_REBAKE_DELAY = 0.3;
 
 export class World {

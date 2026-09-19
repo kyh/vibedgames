@@ -424,15 +424,6 @@ body.touch #super .core {
 #stick-aim i {
   background: var(--ember);
 }
-.for-touch {
-  display: none;
-}
-body.touch .for-touch {
-  display: inline;
-}
-body.touch .for-keys {
-  display: none;
-}
 #super.ready {
   box-shadow:
     0 3px #0006,

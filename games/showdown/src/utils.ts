@@ -39,7 +39,7 @@ export const rand = (min = 0, max = 1): number => min + Math.random() * (max - m
 export const randIn = (rng: Rng, min: number, max: number): number => min + rng() * (max - min);
 
 // Shortest signed rotation from `from` to `to`, in (-PI, PI].
-export const angleDelta = (from: number, to: number): number => {
+const angleDelta = (from: number, to: number): number => {
   let delta = (to - from) % (Math.PI * 2);
   if (delta > Math.PI) {
     delta -= Math.PI * 2;
@@ -60,7 +60,7 @@ export const makeCanvas = (width: number, height: number): HTMLCanvasElement => 
   return canvas;
 };
 
-export const dist2 = (x0: number, z0: number, x1: number, z1: number): number =>
+const dist2 = (x0: number, z0: number, x1: number, z1: number): number =>
   (x0 - x1) * (x0 - x1) + (z0 - z1) * (z0 - z1);
 
 export const dist = (x0: number, z0: number, x1: number, z1: number): number =>

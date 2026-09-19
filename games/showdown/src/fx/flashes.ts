@@ -17,7 +17,7 @@ interface Flash {
 }
 
 export class FlashList {
-  private flashes: Flash[] = [];
+  private readonly flashes: Flash[] = [];
 
   add(
     x: number,
@@ -32,7 +32,9 @@ export class FlashList {
   }
 
   update(dt: number, lighting: Lighting): void {
-    for (const flash of this.flashes) {
+    const { flashes } = this;
+    let kept = 0;
+    for (const flash of flashes) {
       flash.t += dt;
       const fade = 1 - clamp(flash.t / flash.T, 0, 1);
       lighting.addLight(
@@ -43,7 +45,11 @@ export class FlashList {
         flash.intensity * fade * fade,
         flash.distance,
       );
+      if (flash.t < flash.T) {
+        flashes[kept] = flash;
+        kept += 1;
+      }
     }
-    this.flashes = this.flashes.filter((flash) => flash.t < flash.T);
+    flashes.length = kept;
   }
 }

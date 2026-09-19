@@ -51,6 +51,8 @@ export class ParticlePool {
   uniforms: { uDim: { value: number }; uScale: { value: number } };
   material: THREE.ShaderMaterial;
   points: THREE.Points;
+  /** Set by emit; the buffers upload while anything is alive and once more after. */
+  private dirty = false;
   private readonly positionAttr: THREE.BufferAttribute;
   private readonly colorAttr: THREE.BufferAttribute;
   private readonly sizeAttr: THREE.BufferAttribute;
@@ -112,6 +114,7 @@ export class ParticlePool {
   ): void {
     const i = this.cursor;
     this.cursor = (i + 1) % this.cap;
+    this.dirty = true;
     this.pos[i * 3] = x;
     this.pos[i * 3 + 1] = y;
     this.pos[i * 3 + 2] = z;
@@ -131,42 +134,53 @@ export class ParticlePool {
   }
 
   update(dt: number): void {
-    const { pos, vel, life, maxLife, size, size0, size1, col, alpha, drag, grav } = this;
+    const { life, size } = this;
+    let live = 0;
     for (let i = 0; i < this.cap; i += 1) {
       if ((life[i] ?? 0) <= 0) {
         size[i] = 0;
         continue;
       }
-      const remaining = (life[i] ?? 0) - dt;
-      life[i] = remaining;
-      const t = 1 - Math.max(0, remaining) / (maxLife[i] ?? 1);
-      const decay = Math.exp(-(drag[i] ?? 0) * dt);
-      const gravity = grav[i] ?? 0;
-      const velX = (vel[i * 3] ?? 0) * decay;
-      let velY = (vel[i * 3 + 1] ?? 0) * decay - gravity * dt;
-      const velZ = (vel[i * 3 + 2] ?? 0) * decay;
-      let posY = (pos[i * 3 + 1] ?? 0) + velY * dt;
-      // Falling particles bounce off the ground, losing most of their energy.
-      const posX = (pos[i * 3] ?? 0) + velX * dt;
-      const posZ = (pos[i * 3 + 2] ?? 0) + velZ * dt;
-      const floor = terrainHeight(posX, posZ) + FLOOR_Y;
-      if (posY < floor && gravity > 0) {
-        posY = floor;
-        velY *= -0.35;
-      }
-      vel[i * 3] = velX;
-      vel[i * 3 + 1] = velY;
-      vel[i * 3 + 2] = velZ;
-      pos[i * 3] = posX;
-      pos[i * 3 + 1] = posY;
-      pos[i * 3 + 2] = posZ;
-      const from = size0[i] ?? 0;
-      const to = size1[i] ?? 0;
-      size[i] = remaining <= 0 ? 0 : from + (to - from) * t;
-      col[i * 4 + 3] = (alpha[i] ?? 0) * (1 - t * t);
+      live += 1;
+      this.integrate(i, dt);
     }
+    if (live === 0 && !this.dirty) {
+      return;
+    }
+    this.dirty = live > 0;
     this.positionAttr.needsUpdate = true;
     this.colorAttr.needsUpdate = true;
     this.sizeAttr.needsUpdate = true;
+  }
+
+  private integrate(i: number, dt: number): void {
+    const { pos, vel, life, maxLife, size, size0, size1, col, alpha, drag, grav } = this;
+    const remaining = (life[i] ?? 0) - dt;
+    life[i] = remaining;
+    const t = 1 - Math.max(0, remaining) / (maxLife[i] ?? 1);
+    const decay = Math.exp(-(drag[i] ?? 0) * dt);
+    const gravity = grav[i] ?? 0;
+    const velX = (vel[i * 3] ?? 0) * decay;
+    let velY = (vel[i * 3 + 1] ?? 0) * decay - gravity * dt;
+    const velZ = (vel[i * 3 + 2] ?? 0) * decay;
+    let posY = (pos[i * 3 + 1] ?? 0) + velY * dt;
+    // Falling particles bounce off the ground, losing most of their energy.
+    const posX = (pos[i * 3] ?? 0) + velX * dt;
+    const posZ = (pos[i * 3 + 2] ?? 0) + velZ * dt;
+    const floor = terrainHeight(posX, posZ) + FLOOR_Y;
+    if (posY < floor && gravity > 0) {
+      posY = floor;
+      velY *= -0.35;
+    }
+    vel[i * 3] = velX;
+    vel[i * 3 + 1] = velY;
+    vel[i * 3 + 2] = velZ;
+    pos[i * 3] = posX;
+    pos[i * 3 + 1] = posY;
+    pos[i * 3 + 2] = posZ;
+    const from = size0[i] ?? 0;
+    const to = size1[i] ?? 0;
+    size[i] = remaining <= 0 ? 0 : from + (to - from) * t;
+    col[i * 4 + 3] = (alpha[i] ?? 0) * (1 - t * t);
   }
 }

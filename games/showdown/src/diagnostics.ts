@@ -1,7 +1,8 @@
 // Read-only state snapshot for the repo's playtest tooling, published as
 // window.__GAME_DIAGNOSTICS__ (see the playtest skill). Typed through a small
-// structural view of Game so this file compiles whatever the game class is
-// growing at the moment — the online fields are read only when present.
+// structural view of Game so the builder needs no renderer to run.
+
+import { publishDiagnostics } from "@vibedgames/playtest";
 
 import type { PlaytestSense } from "./playtest-sense";
 
@@ -15,21 +16,21 @@ export interface DiagnosticsPlayer {
 }
 
 export interface DiagnosticsSession {
-  isHost?: boolean;
-  playerCount?: number;
-  playerId?: string | null;
-  seq?: number;
-  status?: string;
+  isHost: boolean;
+  playerCount: number;
+  playerId: string | null;
+  seq: number;
+  status: string;
 }
 
 export interface DiagnosticsSource {
   brawlers: readonly { alive: boolean }[];
-  frameStats?: { calls: number; triangles: number };
-  mode?: string;
+  frameStats: { calls: number; triangles: number };
+  mode: string;
   paused: boolean;
   pendingResult: object | null;
   player: DiagnosticsPlayer | null;
-  session?: DiagnosticsSession | null;
+  session: DiagnosticsSession | null;
   state: string;
 }
 
@@ -57,7 +58,7 @@ export interface Diagnostics extends Partial<PlaytestSense> {
   paused: boolean;
   phase: string;
   player: DiagnosticsPlayer | null;
-  renderer: { calls: number; triangles: number } | null;
+  renderer: { calls: number; triangles: number };
   score: number;
 }
 
@@ -70,7 +71,7 @@ export const tick = (): void => {
 
 const onlineDiagnostics = (game: DiagnosticsSource): OnlineDiagnostics | null => {
   const { mode, session } = game;
-  if (mode === undefined || mode === "solo") {
+  if (mode === "solo") {
     return null;
   }
   return {
@@ -107,24 +108,15 @@ export const buildDiagnostics = (
           z: player.z,
         }
       : null,
-    renderer: game.frameStats ? { ...game.frameStats } : null,
+    renderer: { ...game.frameStats },
     score: player ? player.kills * KILL_SCORE + player.cubes * CUBE_SCORE : 0,
   };
 };
-
-declare global {
-  interface Window {
-    __GAME_DIAGNOSTICS__?: Diagnostics;
-  }
-}
 
 /** Publish a live getter; every read builds a fresh snapshot. `sense` adds what the player can see. */
 export const installDiagnostics = (
   game: DiagnosticsSource,
   sense: () => PlaytestSense | null = () => null,
 ): void => {
-  Object.defineProperty(window, "__GAME_DIAGNOSTICS__", {
-    configurable: true,
-    get: () => buildDiagnostics(game, sense()),
-  });
+  publishDiagnostics(() => buildDiagnostics(game, sense()));
 };

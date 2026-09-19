@@ -27,7 +27,6 @@ export class GameAudio implements Synth {
   listener = { x: 0, z: 0 };
   noiseBuffer: AudioBuffer | null = null;
   lastPlayed = new Map<SoundName, number>();
-  timeOffset = 0;
   /** While hosting online, every play request is also written here for guests. */
   recorder: SfxRecorder | null = null;
 
@@ -44,7 +43,7 @@ export class GameAudio implements Synth {
     }
   }
 
-  attach(ctx: AudioContext): void {
+  private attach(ctx: AudioContext): void {
     this.ctx = ctx;
     this.master = ctx.createGain();
     this.master.gain.value = this.muted ? 0 : MASTER_GAIN;
@@ -78,7 +77,7 @@ export class GameAudio implements Synth {
     if (!ctx || !master) {
       return;
     }
-    const at = ctx.currentTime + this.timeOffset + delay;
+    const at = ctx.currentTime + delay;
     const osc = ctx.createOscillator();
     const env = ctx.createGain();
     osc.type = wave;
@@ -105,7 +104,7 @@ export class GameAudio implements Synth {
     if (!ctx || !master) {
       return;
     }
-    const at = ctx.currentTime + this.timeOffset + delay;
+    const at = ctx.currentTime + delay;
     const source = ctx.createBufferSource();
     source.buffer = this.noiseBuffer;
     source.playbackRate.value = 0.8 + Math.random() * 0.4;
@@ -145,7 +144,7 @@ export class GameAudio implements Synth {
     if (loudness < 0.02 || !this.ctx) {
       return;
     }
-    const now = this.ctx.currentTime + this.timeOffset;
+    const now = this.ctx.currentTime;
     if (now - (this.lastPlayed.get(name) ?? -1) < MIN_REPEAT_GAP) {
       return;
     }

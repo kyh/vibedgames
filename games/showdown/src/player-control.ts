@@ -8,7 +8,6 @@ import type { AttackDef } from "./config";
 import type { Brawler } from "./entities/brawler";
 import type { Game } from "./game";
 import type { GuideSlot } from "./aim-guide";
-import type { Input } from "./input";
 import { STICK_DEAD_ZONE } from "./input";
 import { dist } from "./utils";
 import { terrainAimDistance } from "./world/terrain";
@@ -91,25 +90,6 @@ const evade = (game: Game, player: Brawler): void => {
     player.netTarget.evadePending = seq;
     session?.sendIntent({ dx, dz, kind: "evade", seq });
   }
-};
-
-/** A stick direction from a physical gamepad, as the input layer may report it. */
-interface PadAim {
-  x: number;
-  z: number;
-}
-
-/** The input layer with the optional right-stick aim a gamepad build adds. */
-interface PadAimSource {
-  axis: Input["axis"];
-  padAim?: () => PadAim | null;
-}
-
-/** A physical gamepad's right stick, when the input layer provides one. */
-const padAimOf = (input: Input): PadAim | null => {
-  const source: PadAimSource = input;
-  const aim = source.padAim?.() ?? null;
-  return aim && Number.isFinite(aim.x) && Number.isFinite(aim.z) ? aim : null;
 };
 
 /** Lobs and leaps travel as far as the stick is pushed; everything else goes full range. */
@@ -235,7 +215,7 @@ const previewTouchAim = (game: Game, player: Brawler): void => {
 /** Where the mouse (or a pad's right stick) points: the aim point lands on the shoulder plane. */
 const readMouseAim = (game: Game, player: Brawler): Aim => {
   const { input, aimPoint } = game;
-  const pad = padAimOf(input);
+  const pad = input.padAim();
   if (pad || input.aimMethod === "pad") {
     const reach = player.def.attack.range;
     const angle = player.lookAngle ?? player.facing;

@@ -1,8 +1,8 @@
 // Percentage-closer soft shadows, spliced into three's shadow-map shader chunk.
-// The stock chunk picks between PCF, PCF-soft and VSM lookups at compile time;
-// this replaces the VSM branch so that `BasicShadowMap` (no hardware
-// filtering) plus our own blocker search and variable-width filter gives sun
-// and lamp shadows a contact-hardening penumbra.
+// The stock chunk picks between PCF, VSM and a basic single-tap lookup at
+// compile time; this replaces the basic branch, so `BasicShadowMap` (no
+// hardware filtering) plus our own blocker search and variable-width filter
+// gives sun and lamp shadows a contact-hardening penumbra.
 //
 // `shadowRadius` is repurposed as a packed parameter: its integer part is the
 // sample tier (0-3), the fraction the softness, and a negative sign marks a
@@ -142,8 +142,8 @@ interface ChunkRange {
 const VSM_BRANCH = "#elif defined( SHADOWMAP_TYPE_VSM )";
 const GET_SHADOW_SIGNATURE = "float getShadow( sampler2D shadowMap";
 
-// Locate the VSM `getShadow` implementation inside the shadow chunk: from the
-// end of the `#else` line that follows the VSM `#elif` (skipping any nested
+// Locate the basic-lookup `getShadow` inside the shadow chunk: from the end of
+// the `#else` line that follows the VSM `#elif` (skipping any nested
 // preprocessor blocks) up to the matching `#endif`.
 const findVsmBranch = (source: string): ChunkRange | undefined => {
   const branchAt = source.indexOf(VSM_BRANCH);

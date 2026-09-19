@@ -7,10 +7,11 @@
 // recorded, so nothing plays twice.
 import * as THREE from "three";
 import type { SoundName } from "../audio-recipes";
+import { isSoundName } from "../audio-recipes";
 import type { Effects } from "../fx/effects";
 import type { Hud } from "../hud";
-import type { JsonObject, JsonValue } from "./json";
-import { isJsonNumber as isNum, isJsonObject as isObj, isJsonString as isStr } from "./json";
+import type { JsonObject, JsonValue } from "../json";
+import { isJsonNumber as isNum, isJsonObject as isObj, isJsonString as isStr } from "../json";
 
 /** Effects methods that replay on guests, keyed by name. */
 export type FxMethod =
@@ -81,7 +82,10 @@ const isFxRow = (v: JsonObject): boolean =>
   isFxMethod(v["m"]) && Array.isArray(v["a"]) && v["a"].every((n) => isNum(n));
 
 const isSfxRow = (v: JsonObject): boolean =>
-  isStr(v["n"]) && (v["x"] === null || isNum(v["x"])) && (v["z"] === null || isNum(v["z"]));
+  isStr(v["n"]) &&
+  isSoundName(v["n"]) &&
+  (v["x"] === null || isNum(v["x"])) &&
+  (v["z"] === null || isNum(v["z"]));
 
 const isFloatRow = (v: JsonObject): boolean =>
   isNum(v["x"]) && isNum(v["y"]) && isNum(v["z"]) && isStr(v["text"]) && isStr(v["cls"]);

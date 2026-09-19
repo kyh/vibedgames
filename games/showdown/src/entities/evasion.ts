@@ -12,9 +12,9 @@ export const EVADE = {
   distance: 3,
   duration: 0.36,
   invulnerable: 0.24,
-};
+} as const;
 
-export type EvadeStyle = "roll" | "dash" | "blink";
+type EvadeStyle = "roll" | "dash" | "blink";
 
 export const evadeStyle = (id: BrawlerId): EvadeStyle => {
   switch (id) {
