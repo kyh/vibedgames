@@ -26,6 +26,13 @@ export const featuredGames: FeaturedGame[] = [
   },
   {
     colorScheme: "light",
+    name: "Showdown",
+    preview: "/covers/showdown.webp",
+    previewPortrait: "/covers/showdown-portrait.webp",
+    slug: "showdown",
+  },
+  {
+    colorScheme: "light",
     name: "Flappy Dragons",
     preview: "/covers/flappy-dragons.webp",
     previewPortrait: "/covers/flappy-dragons-portrait.webp",

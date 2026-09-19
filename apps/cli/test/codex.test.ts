@@ -5,6 +5,7 @@ import { afterEach, test } from "node:test";
 
 import {
   buildCodexPrompt,
+  codexExecArgs,
   CodexError,
   parseCodexInput,
   placeCodexOutputs,
@@ -246,4 +247,20 @@ test("findCodexBinary: VG_CODEX_BIN, then PATH, else null", () => {
   assert.equal(findCodexBinary({ PATH: dir, VG_CODEX_BIN: bin }), bin);
   assert.equal(findCodexBinary({ PATH: dir, VG_CODEX_BIN: path.join(dir, "nope") }), null);
   assert.equal(findCodexBinary({}), null);
+});
+
+test("codexExecArgs: the prompt survives a variadic -i by sitting behind --", () => {
+  const args = codexExecArgs("/tmp/w", ["/a.png", "/b.png"], "make it stormy");
+  assert.deepEqual(args.slice(-6), ["-i", "/a.png", "-i", "/b.png", "--", "make it stormy"]);
+  assert.deepEqual(codexExecArgs("/tmp/w", [], "a fox").slice(-2), ["--", "a fox"]);
+});
+
+test("buildCodexPrompt: a size is a target Codex must not stop to resize for", () => {
+  const prompt = buildCodexPrompt(
+    parseCodexInput({ height: 864, prompt: "a cover", width: 1536 }),
+    ["output-0.png"],
+    false,
+  );
+  assert.match(prompt, /aim for .*1536/u);
+  assert.match(prompt, /never resize, crop or ask/u);
 });
