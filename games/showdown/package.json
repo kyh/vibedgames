@@ -1,0 +1,30 @@
+{
+  "name": "@repo/showdown",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "clean": "rm -rf .turbo dist node_modules",
+    "dev": "vite",
+    "preview": "vite preview",
+    "test": "node --import tsx --test tools/*-smoke.mts",
+    "test:online": "node tools/two-client.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@repo/embed": "workspace:*",
+    "@vibedgames/gamepad": "workspace:^",
+    "@vibedgames/multiplayer": "workspace:^",
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@kyh/tsconfig": "catalog:",
+    "@types/node": "catalog:",
+    "@types/three": "^0.185.4",
+    "playwright-core": "^1.62.1",
+    "tsx": "^4.23.12",
+    "typescript": "catalog:",
+    "vite": "catalog:"
+  }
+}

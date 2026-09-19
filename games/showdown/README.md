@@ -1,0 +1,90 @@
+# Showdown
+
+3D top-down battle royale brawler (Three.js): pick one of four brawlers, drop into a
+procedurally laid-out arena with seven bots, and be the last one standing while the
+sun sets and the poison gas closes in. Single-player. Deployed at
+`showdown.vibedgames.com`.
+
+## Develop
+
+```bash
+pnpm dev:showdown   # http://localhost:5195
+pnpm --filter @repo/showdown typecheck   # tsc --noEmit
+pnpm --filter @repo/showdown build       # vite build
+pnpm --filter @repo/showdown preview     # vite preview
+pnpm --filter @repo/showdown test        # headless config/utils smoke checks (tools/boot-smoke.mts, no three.js)
+```
+
+## Routes
+
+| URL                    | What                                                         |
+| ---------------------- | ------------------------------------------------------------ |
+| `/`                    | the game (brawler select, then PLAY vs BOTS or PLAY ONLINE)  |
+| `/?online[&room=CODE]` | skip the menu and join a room (the public room when no code) |
+| `/?auto=<brawler>`     | skip the menu and start a solo brawl                         |
+
+## Options
+
+| Param              | Effect                                                                          |
+| ------------------ | ------------------------------------------------------------------------------- |
+| `?q=<quality>`     | `low` / `medium` / `high` / `ultra`; disables the automatic GPU benchmark       |
+| `?bots=<level>`    | bot difficulty: `easy` / `normal` / `hard`                                      |
+| `?time=<hour>`     | pin the time of day (0–24, e.g. `19.4` for dusk) instead of following the match |
+| `?seed=<int>`      | deterministic arena layout for the first match                                  |
+| `?auto=<brawler>`  | skip the menu and start as `dusty` / `ace` / `fuse` / `titan`                   |
+| `?zoom=<factor>`   | camera distance multiplier (default `1`)                                        |
+| `?speed=<n>`       | simulation steps per rendered frame, 1–16 (fast-forward for tests)              |
+| `?ss=<factor>`     | supersample factor 0–3, overriding the quality tier's pixel ratio               |
+| `?online`          | instant online match; `&room=CODE` picks a lobby, `&name=NAME` your name        |
+| `?offline=1`       | never dial the party server — PLAY ONLINE is hidden, `?online` plays solo       |
+| `?party=PORT\|URL` | dev-only party-server override (ignored in production builds)                   |
+
+## Controls
+
+| Input                                         | Action                                  |
+| --------------------------------------------- | --------------------------------------- |
+| WASD (left thumb, pad left stick)             | move                                    |
+| Mouse (right thumb drag, pad right stick)     | aim                                     |
+| Click (release the right thumb, pad RT / A)   | shoot                                   |
+| Tap                                           | auto-aim shot (touch)                   |
+| Space / Right-click (SUPER button, pad LT/RB) | hold to aim the super, release to fire  |
+| T                                             | cycle time of day (noon → dusk → night) |
+| P / Escape (pad START)                        | pause                                   |
+| M                                             | mute (also on the pause overlay)        |
+| ⚙                                             | settings: quality, bots, time, effects  |
+
+The manifest in `src/controls.ts` feeds the start-screen legend, the pause overlay
+and the web app's controls panel; a pad also walks the brawler cards (d-pad or
+stick) and presses PLAY with A / START. Touch keeps its own two-thumb sticks
+because the game needs a drag-to-aim, release-to-fire right stick that the
+shared virtual pad's single stick cannot express.
+
+## Rendering
+
+A custom pipeline on top of three.js: a PCSS soft-shadow patch for the sun and the
+street lamps (falling back to PCF on the low tier), GTAO ambient occlusion, bloom, a
+grade pass, and a time-of-day lighting rig that drives the sun, sky, fog, lamp
+pool and fireflies from afternoon to night as the match progresses. Quality is
+picked automatically from a startup benchmark and stepped down in play when the
+frame rate drops, unless the player chooses a tier under ⚙.
+
+## Multiplayer
+
+Host-authoritative via `@vibedgames/multiplayer`: the first player in a room runs
+the brawl, guests send intents (move axis, attack, super) and render 15 Hz
+snapshots with their own body predicted locally. Rooms hold eight seats
+(`showdown-<code>`, public room when no code) and bots fill whatever humans
+leave empty; a human arriving mid-brawl spectates and is seated for the next
+one, which the host starts eight seconds after a result. If the host leaves,
+the promoted guest rebuilds the brawl from the last snapshot and the departed
+host's seat becomes a bot. Solo play never opens a socket, and `?offline=1`
+forces solo.
+
+```bash
+pnpm dev:party                                    # party server on :8787
+pnpm --filter @repo/showdown test:online  # two headless clients: join, move, shoot, host handoff, late join
+```
+
+Presentation (particles, sounds, damage numbers, the kill feed) is replayed on
+guests from a compact record the host writes alongside each snapshot
+(`src/net/presentation.ts`), so the sim itself never needs to know about the wire.
