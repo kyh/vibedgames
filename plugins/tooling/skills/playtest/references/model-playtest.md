@@ -12,7 +12,7 @@ vg playtest run --game my-game --goal "Reach the flag on the right; pits kill, j
 The playtester is the two-layer loop the community Jev game bots use (TerraBlind's boss combat, JevPilot's autopilot), and it runs **inside the game's page**: `vg playtest run` boots the game, injects a small agent, and waits. Nothing crosses to the CLI per decision.
 
 1. **Perception is code.** Several times a second the agent reads `window.__GAME_DIAGNOSTICS__` — the same contract the bot uses — and adds what the last inputs achieved: displacement, score delta, a short position trail, how many ticks in a row the player has been stuck.
-2. **Decision is the model.** That state goes straight from the page to `POST /api/playtest-decide` on the vibedgames API, carrying a short-lived token the CLI minted for this run (`playtest.session`). The server holds the provider key and forwards one System One request to Jev, TypeSafe's decision-only model: typed questions in, calibrated probabilities out, no text. One call answers everything — a `choice` for which movement to hold, a yes/no (`noul`) per action.
+2. **Decision is the model.** That state goes straight from the page to `POST /api/playtest/decide` on the vibedgames API, carrying a short-lived token the CLI minted for this run (`playtest.session`). The server holds the provider key and forwards one System One request to Jev, TypeSafe's decision-only model: typed questions in, calibrated probabilities out, no text. One call answers everything — a `choice` for which movement to hold, a yes/no (`noul`) per action, and a `score` for how close the player is to the goal (the model's own read, 0–1, reported as `progress`).
 3. **Execution is code, at two speeds.** The answer becomes properly-formed held keys and pointer events, dispatched in the page (never agent-browser's `keydown`, which Phaser ignores). If the chosen move carries a `reflex` in `__GAME_PLAYTEST__`, that function runs **every frame** while the move is the model's intent, and its inputs are what is held — the model sets intent a few times a second, the reflex turns it into input at 60 fps. That is what makes a fast game playable: nothing waits on a round trip.
 
 **The decision is the hold.** There is no fixed tick. The previous inputs stay down while the model answers, so the game runs continuously and the agent decides as fast as answers arrive — the model's own latency plus one hop to the API, typically 3–6 times a second. `--tick-ms` is a floor, not a period: the default (150 ms) only stops a very fast answer from playing at a jittery superhuman rate; raise it for a slower player. The report's `decisionsPerSecond` and `model.meanDecisionMs` say what a run actually did.
@@ -23,45 +23,70 @@ There is no vision. The model sees exactly what the diagnostics expose, which ma
 
 ## Make Your Game Playable by the Model
 
-Three things, all in the game's own code, all cheap. The first two are the diagnostics contract every playtest needs; the third is what lets the playtester play without a controls file.
+Three things, all in the game's own code, all cheap. The first two are the diagnostics contract every playtest needs; the third is what lets the playtester play without a controls file. They are three window globals; `@vibedgames/playtest` types and publishes them, and checks the manifest the way the CLI will:
+
+```sh
+npm install @vibedgames/playtest
+```
+
+```ts
+import {
+  isPlaytestRequested,
+  publishDiagnostics,
+  publishPlaytest,
+  publishTestHooks,
+} from "@vibedgames/playtest";
+```
+
+The package is the typed way to do what follows, not a requirement — the globals are the contract, and the CLI reads them however they got there. The snippets below show both.
 
 ### 1. Publish state the way a player sees it
 
-```js
-// Updated every frame from the game loop. Primitives only — never engine objects.
-window.__GAME_DIAGNOSTICS__ = {
-  frame: 0, // the loop's heartbeat
-  score: 0, // the objective metric: points, distance, waves, gems
-  complete: false, // win or fail state reached
-  player: { x: 0, y: 0, speed: 0 }, // x/z for 3D games
-  entities: 0,
+```ts
+// A live getter: read on every access, so the playtest always sees the current
+// frame. Primitives only — never engine objects.
+publishDiagnostics(() => ({
+  frame: game.frame, // the loop's heartbeat
+  score: game.score, // the objective metric: points, distance, waves, gems
+  complete: game.over, // win or fail state reached
+  player: { x: game.player.x, y: game.player.y, speed: game.player.speed }, // x/z for 3D games
+  entities: game.entities.length,
   // What the playtester decides FROM. Relative vectors beat absolute lists:
-  nearestHazard: { dx: 120, dy: 0, kind: "spike" }, // null when none in view
-  nearestPickup: { dx: -40, dy: -30, kind: "coin" },
-  goalDirection: { dx: 900, dy: 0 }, // where progress is
-  hp: 3,
-  canJump: true, // grounded / cooldown ready
-};
+  nearestHazard: game.nearestHazard(), // { dx: 120, dy: 0, kind: "spike" } | null when none in view
+  nearestPickup: game.nearestPickup(), // { dx: -40, dy: -30, kind: "coin" }
+  goalDirection: { dx: game.flag.x - game.player.x, dy: 0 }, // where progress is
+  hp: game.player.hp,
+  canJump: game.player.grounded, // grounded / cooldown ready
+}));
+// By hand: assign the same object to window.__GAME_DIAGNOSTICS__ every frame.
 ```
 
 Rules of thumb: a few kilobytes at most (the whole object is sent each tick; a 500-entity array is cost without signal); the nearest few threats and pickups with `dx`/`dy` from the player, not everything; the game's own verbs as booleans (`canJump`, `reloading`, `onLadder`); and `score` monotonic so `after > before` is a sound assertion. Field names are free-form — the model reads the JSON — but describe them in the goal if they aren't obvious.
 
 ### 2. Expose the hooks a playtest needs
 
-```js
-window.__GAME_TEST_HOOKS__ = {
-  seed(n) {}, // reseed the RNG AND restart the run — see bot-playtest.md
-  setState(name) {}, // 'active-play' skips the menu; returns { state: name } once applied
-  setPausedForScreenshot(paused) {},
-};
+```ts
+if (import.meta.env.DEV || isPlaytestRequested()) {
+  // isPlaytestRequested() is `?test=1` in the URL
+  publishTestHooks({
+    seed: (n) => game.restart(n), // reseed the RNG AND restart the run — see bot-playtest.md
+    setState: (name) => {
+      game.jumpTo(name); // 'active-play' skips the menu
+      return { state: name }; // once applied
+    },
+    setPausedForScreenshot: (paused) => game.setFrozen(paused),
+  });
+  publishPlaytest({/* step 3 */});
+}
+// By hand: window.__GAME_TEST_HOOKS__ = { seed, setState, setPausedForScreenshot }.
 ```
 
 Gate both behind dev mode or `?test=1` if you don't want them shipping to players; `vg playtest run --game <slug>` opens the deployed URL as-is, so a game that gates on `?test=1` needs `--url https://<slug>.vibedgames.com/?test=1`.
 
 ### 3. Describe the controls, in words the model chooses between
 
-```js
-window.__GAME_PLAYTEST__ = {
+```ts
+publishPlaytest({
   goal: "Cross the level to the flag on the right. Pits and spikes kill; jump over them (nearestHazard.dx tells you how far). Coins raise the score.",
   move: {
     none: { description: "Stand still", keys: [] },
@@ -75,13 +100,14 @@ window.__GAME_PLAYTEST__ = {
   actions: {
     fire: { description: "fire the blaster at an enemy in front of the player", keys: ["KeyX"] },
   },
-};
+});
+// By hand: window.__GAME_PLAYTEST__ = { goal, move, actions }.
 ```
 
-`vg playtest run` reads this at launch and needs no `--controls`. When the model's decisions can't keep up with your game, don't ask for a faster model — give the move that needs speed a `reflex` (below). The descriptions are literally the criteria the model picks from, so write them as a coach would ("towards the flag", "clears pits"), and put the rules in `goal`: what wins, what kills, which way progress is, what the diagnostic fields mean. The model has no memory between ticks beyond the `recent` block the harness supplies — the goal is where continuity lives.
+`publishPlaytest` throws in the game's console on what `vg playtest run` would reject at launch — a missing description, a pointer in pixels, an action with no keys — and `publishPlaytest<MyDiagnostics>(…)` types every `reflex`'s argument as your own diagnostics shape. `vg playtest run` reads the manifest at launch and needs no `--controls`. When the model's decisions can't keep up with your game, don't ask for a faster model — give the move that needs speed a `reflex` (below). The descriptions are literally the criteria the model picks from, so write them as a coach would ("towards the flag", "clears pits"), and put the rules in `goal`: what wins, what kills, which way progress is, what the diagnostic fields mean. The model has no memory between ticks beyond the `recent` block the harness supplies — the goal is where continuity lives.
 
 - **`move`** — one `choice` question per tick; the chosen option's `keys` and/or `pointer` are held until the next decision. `pointer` is `{ x, y, down? }` in viewport fractions, for games that steer from the cursor (aim-and-thrust, twin-stick, point-to-move — `games/pong` parks the cursor in five lanes). A `none` option is added if you leave it out.
-- **`reflex(game)`** on a move — optional, and the fast-game path. While the option is the model's current intent, the agent calls it every frame with the live diagnostics and holds what it returns: `{ keys?: string[], pointer?: { x, y, down? } | null }`. Put the per-frame skill here — tracking a ball, strafing around a target, leading a shot — and leave the model the judgment call of _when_ to do it. Actions the model chose stay held alongside. `games/pong`'s `track_ball` is a five-line controller that walks the cursor under the ball; the model's part is choosing it over parking. Because the manifest is read live in the page, `reflex` can be a real function with closure state; it is simply absent from the JSON a `--controls` file can carry.
+- **`reflex(game)`** on a move — optional, and the fast-game path. While the option is the model's current intent, the agent calls it every frame with the live diagnostics and holds what it returns: `{ keys?: string[], pointer?: { x, y, down? } | null }`. Put the per-frame skill here — tracking a ball, strafing around a target, leading a shot — and leave the model the judgment call of _when_ to do it. Actions the model chose stay held alongside. `games/pong`'s `track_ball` is `pointerTracker()` from `@vibedgames/playtest` — a cursor that walks towards a signed error each frame, clamped and rate-limited — fed `ball.x - player.x`; the model's part is choosing it over parking. Because the manifest is read live in the page, `reflex` can be a real function with closure state; it is simply absent from the JSON a `--controls` file can carry.
 - **`actions`** — one yes/no question each, held for the tick when the answer is ≥ 0.5. Keys only; a mouse-fire game puts `down: true` on its pointer moves instead.
 - Combos the game needs held together are `move` options (`right_jump`); independent verbs are `actions`. Key names are [KeyboardEvent codes](https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/code) — `Key<A-Z>`, `Digit<0-9>`, arrows, `Space`, `Enter`, `Shift*`, and the rest the bot accepts.
 
@@ -118,6 +144,8 @@ Each decision sends `{ goal, game, recent, tick }`:
 - `recent` — `held` (last move and actions), `movedLastTick` (peak displacement), `scoreDeltaLastTick`, `stuckTicksInARow`, a six-point position `trail`, and `blockedMoves`.
 - `tick` — `{ index, of }`, so "no time left" is knowable.
 
+And asks three kinds of question of it: `move` (a `choice` among the manifest's options), one `noul` per action, and `progress` (a `score` on five levels from "no progress, or losing" to "achieved", normalised to 0–1). The score is the model's judgment of the run against the _goal_ — the one signal that tracks a goal the game's `score` field can't see, like "survive the wave". It is advisory: it shapes the report, never a gate.
+
 **The reflex.** A move that produced no motion for two ticks running is withdrawn from the next question's options. Omission, not persuasion: the model cannot answer outside its schema, so removing the option is the one nudge that always lands. Only that move, only for one tick — the model still chooses among the rest.
 
 Per-call state is capped at 64 KB and 32 questions server-side; a run of 60 decisions costs a fraction of a cent and is not metered against credits. The run's token expires after 15 minutes, so a very long `--ticks` at a slow `--tick-ms` ends with an authorization error — start a new run.
@@ -129,9 +157,9 @@ The play metrics are the bot's, measured per decision instead of per scripted st
 - `framesAdvanced`, `maxTickDisplacement`, `longestStuckRun`, `consoleErrors`, `pageErrors` — the same gates as [bot-playtest.md](bot-playtest.md), and they fail for the same reasons. A wedged playtester is one that kept choosing moves that went nowhere _despite_ the reflex — geometry it can't read its way out of.
 - `scoreAfter > scoreBefore`, `tickOfFirstScore` — an assertion only under `--expect-progress`. A playtester that never scores under a well-written goal is a real finding about discoverability; under the default goal it's a warning.
 - `complete`, `completedAtTick` — the run stops when the game reports `complete`. Whether that was a win or a death is in the timeline's last entries and in your knowledge of the game.
-- `decisions` — histograms of `moves` and `actions`, `meanConfidence` for the move choice, and `reflexFrames`: how many frames a reflex produced the held input (zero means no chosen move had one).
+- `decisions` — histograms of `moves` and `actions`, `meanConfidence` for the move choice, `reflexFrames`: how many frames a reflex produced the held input (zero means no chosen move had one), and `progress` — `{ first, last, mean, max }` of the model's own 0–1 read of how close the player got to the goal. A run whose `score` never rose but whose `progress.last` beats `progress.first` did something the score field can't see; the warning says which case you have.
 - `decisionsPerSecond`, `model` — cadence and cost (`calls`, `inputTokens`, `meanDecisionMs`, `maxDecisionMs`), so a slow run can be attributed.
-- `timeline` — one entry per decision: the move and actions chosen, the move's confidence, each action's probability, `peak`/`path`, `scoreDelta`, `frames`, `stuck`. This is the playtest log; read it before deciding anything about the game.
+- `timeline` — one entry per decision: the move and actions chosen, the move's confidence, each action's probability, the model's `progress` read, `peak`/`path`, `scoreDelta`, `frames`, `stuck`. This is the playtest log; read it before deciding anything about the game.
 
 ## Reading a Run Like a Playtest
 
@@ -139,6 +167,7 @@ The model playtester is not a benchmark; it is a cheap, tireless first player. T
 
 - **Onboarding:** does the objective get scored at all in 60 decisions under a goal that says what to do? If a model that has been told the rules can't find the score, a player who hasn't been told won't either.
 - **Readability:** run with the honest diagnostics, then add `nearestHazard` and run again. If `meanConfidence` jumps and deaths drop, that information is what a player needs to _see_ — check the art is showing it.
+- **Goals the score can't see:** "survive", "reach the door", "don't get caught" never move `score`. Watch `decisions.progress` across the timeline instead — a read that climbs then collapses at a fixed tick is the moment the game turns on the player.
 - **Difficulty:** run at the default cadence and at `--tick-ms 600`. A slower decision rate models a slower player; if both survive equally, the pressure is decorative. The scripted bot's `--reaction-delay` runs measure the same thing without any judgement in the loop — report both.
 - **Determinism:** same `--seed`, same controls, and the decisions still differ run to run — the model isn't deterministic, so compare distributions across a few runs, not single runs.
 

@@ -6,7 +6,7 @@ import { decideInput, forwardDecision } from "./playtest-router";
 import { verifyPlaytestToken } from "./session-token";
 
 /**
- * `POST /api/playtest-decide`: the in-page playtester's one endpoint.
+ * `POST /api/playtest/decide`: the in-page playtester's one endpoint.
  *
  * Deliberately NOT an oRPC procedure. The RPC transport refuses cross-origin
  * requests because it is reachable with the session cookie; this route is

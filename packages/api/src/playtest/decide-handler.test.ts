@@ -45,7 +45,7 @@ const post = (init: {
   if (init.origin) {
     headers.set("origin", init.origin);
   }
-  return new Request("https://vibedgames.com/api/playtest-decide", {
+  return new Request("https://vibedgames.com/api/playtest/decide", {
     body: init.body ?? JSON.stringify(body),
     headers,
     method: "POST",
@@ -63,7 +63,7 @@ const status = async (response: Response): Promise<[number, string]> => {
 
 test("answers a preflight from any origin without credentials", async () => {
   const res = await handlePlaytestDecide(
-    new Request("https://vibedgames.com/api/playtest-decide", {
+    new Request("https://vibedgames.com/api/playtest/decide", {
       headers: { origin: "http://localhost:5173" },
       method: "OPTIONS",
     }),
@@ -158,7 +158,7 @@ test("maps provider and configuration failures to JSON errors with the right sta
     "PRECONDITION_FAILED",
   ]);
   const get = await handlePlaytestDecide(
-    new Request("https://vibedgames.com/api/playtest-decide", { method: "GET" }),
+    new Request("https://vibedgames.com/api/playtest/decide", { method: "GET" }),
     decision,
   );
   assert.equal(get.status, 405);

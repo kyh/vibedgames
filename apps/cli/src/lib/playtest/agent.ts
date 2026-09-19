@@ -109,6 +109,11 @@ export interface AgentRecord {
   outputTokens: number;
   /** Frames on which the option's reflex produced the held input. */
   reflexFrames: number;
+  /**
+   * The model's own read of how close the player is to `goal`, 0–1, from the
+   * `progress` score question; null when it gave none.
+   */
+  progress: number | null;
   /** Whether the move asked the player to move at all, so a still window can count as stuck. */
   askedToMove: boolean;
   window: AgentWindow;
@@ -425,6 +430,7 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
     actions: string[];
     actionProbabilities: Record<string, number>;
     confidence: number | null;
+    progress: number | null;
     inputTokens: number;
     outputTokens: number;
   }
@@ -450,10 +456,30 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
     criteria: { false: string; true: string };
   }
 
+  interface ScoreQuestion {
+    type: "score";
+    instructions: string;
+    criteria: string[];
+  }
+
   interface Questions {
     move: ChoiceQuestion;
-    [action: string]: ChoiceQuestion | NoulQuestion;
+    progress: ScoreQuestion;
+    [action: string]: ChoiceQuestion | NoulQuestion | ScoreQuestion;
   }
+
+  // Ordered lowest to highest; the answer is a probability-weighted position
+  // along them, which the agent normalises to 0–1. The model reads the same
+  // state it moves from, so this is its judgment of the run, not a metric —
+  // useful because it is the one signal that tracks the GOAL rather than the
+  // game's score field, which a goal like "survive" never raises.
+  const PROGRESS_LEVELS = [
+    "No progress: the player is not moving towards the goal, or is losing (dying, falling behind)",
+    "Barely started: moving, but the goal is far off or the player is in trouble",
+    "Halfway: clear progress towards the goal and out of immediate danger",
+    "Nearly there: the goal is close, or the score is rising steadily",
+    "Achieved, or about to be",
+  ];
 
   interface DecisionState {
     game: Json;
@@ -507,6 +533,12 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
           "Which movement input should the player hold next to pursue `goal`? Decide from `game` (the live state) and `recent` (what the last inputs achieved). Options that recently produced no movement have been removed.",
         type: "choice",
       },
+      progress: {
+        criteria: PROGRESS_LEVELS,
+        instructions:
+          "How close is the player to achieving `goal` right now, judging from `game` and `recent`?",
+        type: "score",
+      },
     };
     for (const [label, action] of Object.entries(config.actions)) {
       out[`act:${label}`] = {
@@ -553,6 +585,11 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
     }
     const usageBody = isObject(body) && isObject(body.usage) ? body.usage : {};
     const confidence = Number(move.confidence);
+    // Advisory, so a missing or malformed score never fails the run.
+    const scored = Number(answerFor(answers, "progress").score);
+    const progress = Number.isFinite(scored)
+      ? Number(Math.min(1, Math.max(0, scored / (PROGRESS_LEVELS.length - 1))).toFixed(3))
+      : null;
     return {
       actionProbabilities,
       actions,
@@ -560,6 +597,7 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
       inputTokens: Number(usageBody.input_tokens) || 0,
       move: choice,
       outputTokens: Number(usageBody.output_tokens) || 0,
+      progress,
     };
   };
 
@@ -713,6 +751,7 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
       inputTokens: done.decision.inputTokens,
       move: done.decision.move,
       outputTokens: done.decision.outputTokens,
+      progress: done.decision.progress,
       reflexFrames: done.reflexFrames,
       tick: done.tick,
       window: measured,

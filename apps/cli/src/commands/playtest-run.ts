@@ -25,7 +25,7 @@ import { ensureAgentBrowser, projectSessionId, resolveGameUrl } from "./playtest
  *
  * The loop runs inside the game's page: several times a second it reads
  * `window.__GAME_DIAGNOSTICS__`, asks the decision model (via
- * `/api/playtest-decide` with a short-lived token; the server holds the
+ * `/api/playtest/decide` with a short-lived token; the server holds the
  * provider key) which movement to hold and which actions to take, dispatches
  * them as real held input, and repeats — with a per-frame reflex where the
  * game's `__GAME_PLAYTEST__` provides one. Code does perception and
@@ -185,7 +185,7 @@ const chooseControls = (settings: Settings, manifest: JsonValue | null): Control
 const mintSession = async (client: ReturnType<typeof createClient>): Promise<Session> => {
   try {
     const { token } = await client.playtest.session();
-    return { decideUrl: new URL("/api/playtest-decide", getBaseUrl()).toString(), token };
+    return { decideUrl: new URL("/api/playtest/decide", getBaseUrl()).toString(), token };
   } catch (error) {
     const code = authErrorCode(error);
     if (code === "UNAUTHORIZED" || code === "FORBIDDEN") {
@@ -214,8 +214,10 @@ const summarize = (
   const moves = Object.entries(report.decisions.moves)
     .map(([label, count]) => `${label}×${count}`)
     .join(" ");
+  const { progress } = report.decisions;
+  const judged = progress === null ? "n/a" : `${progress.first} → ${progress.last}`;
   consola.log(
-    `  moves: ${moves || "none"}  confidence ${report.decisions.meanConfidence ?? "n/a"}  tokens ${report.model.inputTokens}`,
+    `  moves: ${moves || "none"}  confidence ${report.decisions.meanConfidence ?? "n/a"}  progress ${judged}  tokens ${report.model.inputTokens}`,
   );
   for (const warning of warnings) {
     consola.warn(warning);

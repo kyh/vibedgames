@@ -195,7 +195,7 @@ export const playtestRouter = {
 
   /**
    * A token for one in-page playtest run: minutes-long, bound to this user,
-   * honoured only by `/api/playtest-decide`. The CLI hands it to the game
+   * honoured only by `/api/playtest/decide`. The CLI hands it to the game
    * page it is driving, which is untrusted code — so this is all it gets.
    */
   session: protectedProcedure.handler(async ({ context }) => {

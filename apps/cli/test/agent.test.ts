@@ -36,6 +36,7 @@ interface FakeAnswer {
   choice?: string;
   confidence?: number;
   noul?: number;
+  score?: number;
 }
 
 interface FakeReply {
@@ -48,6 +49,8 @@ interface AnswerScript {
   /** Called per request with the offered move labels; returns the move to pick. */
   pick: (offered: string[], tick: number) => string;
   actionProbability?: number;
+  /** The `progress` score answer per tick, in levels (0–4); omitted = the model gave none. */
+  progress?: (tick: number) => number;
   status?: number;
   failTimes?: number;
 }
@@ -94,6 +97,9 @@ const makePage = (script: AnswerScript, reflexes: Record<string, Reflex> = {}): 
     const answers = new Map<string, FakeAnswer>([
       ["move", { choice, confidence: 0.75, type: "choice" }],
     ]);
+    if (script.progress !== undefined) {
+      answers.set("progress", { score: script.progress(body.state.tick.index), type: "score" });
+    }
     for (const key of Object.keys(body.questions)) {
       if (key.startsWith("act:")) {
         answers.set(key, { noul: script.actionProbability ?? 0.1, type: "noul" });
@@ -189,7 +195,7 @@ const inits = (codes: string[]): AgentKeyInit[] => keyInitsFor(codes);
 const config = (overrides: Partial<AgentConfig> = {}): AgentConfig => ({
   actionThreshold: 0.5,
   actions: { jump: { description: "jump", inits: inits(["Space"]) } },
-  decideUrl: "https://vibedgames.test/api/playtest-decide",
+  decideUrl: "https://vibedgames.test/api/playtest/decide",
   decisionRetries: 2,
   decisionTimeoutMs: 1000,
   finalHoldMs: 100,
@@ -230,8 +236,8 @@ const complete = async (
 const keyEvents = (page: FakePage): string[] =>
   page.dispatched.filter((d) => d.kind === "key").map((d) => `${d.type}:${d.code}`);
 
-test("asks one choice for movement plus one yes/no per action, with the token", async () => {
-  const page = makePage({ pick: () => "right" });
+test("asks one choice for movement, a progress score, and one yes/no per action, with the token", async () => {
+  const page = makePage({ pick: () => "right", progress: (tick) => tick * 2 });
   const result = await complete(page, config({ ticks: 2 }));
   assert.equal(result.error, null);
   assert.equal(page.requests.length, 2);
@@ -240,7 +246,14 @@ test("asks one choice for movement plus one yes/no per action, with the token", 
   assert.equal(first.headers.authorization, "Bearer pt.test");
   const body = JSON.parse(first.body);
   assert.equal(body.model, "jev-latest");
-  assert.deepEqual(Object.keys(body.questions), ["move", "act:jump"]);
+  assert.deepEqual(Object.keys(body.questions), ["move", "progress", "act:jump"]);
+  assert.equal(body.questions.progress.type, "score");
+  assert.equal(body.questions.progress.criteria.length, 5);
+  // Levels 0 and 2 of 4, normalised to 0–1.
+  assert.deepEqual(
+    result.records.map((r) => r.progress),
+    [0, 0.5],
+  );
   assert.deepEqual(Object.keys(body.questions.move.criteria).toSorted(), [
     "left",
     "none",
@@ -288,6 +301,7 @@ test("records a window per decision with usage, and measures motion under it", a
     assert.equal(record.move, "right");
     assert.equal(record.askedToMove, true);
     assert.equal(record.confidence, 0.75);
+    assert.equal(record.progress, null, "a model that gave no score is recorded as none");
     assert.equal(record.inputTokens, 100);
     assert.ok(record.window.peak > 0, "the player moved during the window");
     assert.ok(record.window.frame > record.window.frameBefore);

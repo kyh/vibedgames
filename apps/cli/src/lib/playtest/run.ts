@@ -162,6 +162,7 @@ const timelineEntry = (record: AgentRecord, progressed: boolean, stuck: boolean)
   move: record.move,
   path: record.window.path,
   peak: record.window.peak,
+  progress: record.progress,
   progressed,
   reflexFrames: record.reflexFrames,
   scoreDelta: record.window.score - record.window.scoreBefore,
@@ -228,6 +229,7 @@ const readRecord = (value: JsonValue): AgentRecord => {
     inputTokens: num(value.inputTokens),
     move: value.move,
     outputTokens: num(value.outputTokens),
+    progress: Number.isFinite(value.progress) ? Number(value.progress) : null,
     reflexFrames: num(value.reflexFrames),
     tick: num(value.tick),
     window,
@@ -303,7 +305,34 @@ export const runInPage = async (
   return resultFromAgent(browser.agentResult());
 };
 
-/** Per-run histograms of what the model chose, and how sure it was about moving. */
+/**
+ * The model's own progress judgments folded into one trajectory — its read at
+ * the first and last decision, 0–1, plus the mean and the high-water mark —
+ * or null when it gave none. Inferred rather than named so the report stays
+ * a plain JSON shape for `--json` / `--field`.
+ */
+const summarizeProgress = (timeline: TimelineEntry[]) => {
+  const scored = timeline.map((entry) => entry.progress).filter((p) => p !== null);
+  const [first] = scored;
+  const last = scored.at(-1);
+  if (first === undefined || last === undefined) {
+    return null;
+  }
+  let sum = 0;
+  let max = 0;
+  for (const value of scored) {
+    sum += value;
+    max = Math.max(max, value);
+  }
+  return {
+    first: round(first),
+    last: round(last),
+    max: round(max),
+    mean: round(sum / scored.length),
+  };
+};
+
+/** Per-run histograms of what the model chose, how sure it was about moving, and how it judged the run. */
 const summarizeDecisions = (timeline: TimelineEntry[]) => {
   const moves: Record<string, number> = {};
   const actions: Record<string, number> = {};
@@ -325,6 +354,7 @@ const summarizeDecisions = (timeline: TimelineEntry[]) => {
     actions,
     meanConfidence: confidenceCount > 0 ? round(confidenceSum / confidenceCount) : null,
     moves,
+    progress: summarizeProgress(timeline),
     reflexFrames,
   };
 };
@@ -419,7 +449,19 @@ export const verdict = (report: Report, opts: RunOptions): Verdict => {
     );
   }
   if (report.scoreAfter <= report.scoreBefore) {
-    const message = "the run never progressed the objective";
+    const { progress } = report.decisions;
+    // The model's read of the goal is the tie-breaker the score field lacks:
+    // a goal like "survive the wave" never raises `score`, but a model that
+    // judged the player closer to it at the end than at the start did play.
+    let judged = "";
+    if (progress !== null) {
+      const trend = `progress ${progress.first} → ${progress.last}`;
+      judged =
+        progress.last > progress.first
+          ? ` (though the model judged the player closer to the goal by the end: ${trend})`
+          : ` (and the model agreed: ${trend})`;
+    }
+    const message = `the run never progressed the objective${judged}`;
     if (opts.expectProgress) {
       failures.push(message);
     } else {

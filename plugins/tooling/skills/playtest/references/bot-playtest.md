@@ -6,6 +6,8 @@ A smoke check proves the game renders; a bot playtest proves it _plays_. The bot
 
 The bot needs machine-readable game state. Expose two globals:
 
+`@vibedgames/playtest` publishes these with types (`publishDiagnostics(() => ({ … }))`, `publishTestHooks({ … })`) — see `model-playtest.md` § Make Your Game Playable by the Model. The shape is the same either way:
+
 ```javascript
 // Read-only, updated every frame from the game loop
 window.__GAME_DIAGNOSTICS__ = {

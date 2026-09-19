@@ -1,5 +1,12 @@
 import * as THREE from "three";
 import { createTouchControls, probeWebGL, setPauseHandlers, showWebGLVeil } from "@repo/embed";
+import {
+  isPlaytestRequested,
+  pointerTracker,
+  publishDiagnostics,
+  publishPlaytest,
+  publishTestHooks,
+} from "@vibedgames/playtest";
 
 import { isMuted, resumeSound, setMuted, setSoundPaused } from "./fx/sfx";
 import { createHandCamera } from "./input/camera";
@@ -126,74 +133,42 @@ renderer.setAnimationLoop((time) => {
 
 // See plugins/tooling/skills/playtest/references/bot-playtest.md. State hooks
 // opt into a solo match, never write a staged score into a live room.
-interface TestHooks {
-  seed: (seed: number) => void;
-  setState: (name: string) => void;
-  setPausedForScreenshot: (paused: boolean) => void;
-  setReducedMotion: (enabled: boolean) => void;
-}
-/**
- * What `vg playtest run` may do to this game, in the words the decision model
- * chooses between. A move may carry a `reflex`: while it is the model's
- * current intent, the reflex runs every frame and its inputs are what is
- * held — the model decides a few times a second, the reflex acts at 60 fps.
- */
-interface PlaytestManifest {
-  goal: string;
-  move: Record<
-    string,
-    {
-      description: string;
-      keys?: string[];
-      pointer?: { x: number; y: number; down?: boolean };
-      reflex?: (game: ReturnType<GameScene["diagnostics"]>) => {
-        keys?: string[];
-        pointer?: { x: number; y: number; down?: boolean } | null;
-      } | null;
-    }
-  >;
-  actions?: Record<string, { description: string; keys: string[] }>;
-}
+type PongDiagnostics = ReturnType<GameScene["diagnostics"]> & {
+  renderer: { calls: number; triangles: number };
+};
 declare global {
   interface Window {
     /** Dev-only hooks; __pongHand(x) drives the gesture→paddle path synthetically (x ∈ [0,1]). */
     __pong?: GameScene;
     __pongHand?: (x: number) => void;
     __pongCamera?: HandCamera;
-    __GAME_TEST_HOOKS__?: TestHooks;
-    __GAME_PLAYTEST__?: PlaytestManifest;
   }
 }
-Object.defineProperty(window, "__GAME_DIAGNOSTICS__", {
-  get: () => ({
-    ...game.diagnostics(),
-    renderer: { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles },
-  }),
-});
-if (import.meta.env.DEV || new URLSearchParams(window.location.search).get("test") === "1") {
-  const hooks: TestHooks = {
+publishDiagnostics((): PongDiagnostics => ({
+  ...game.diagnostics(),
+  renderer: { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles },
+}));
+if (import.meta.env.DEV || isPlaytestRequested()) {
+  publishTestHooks({
     seed: (seed) => game.seed(seed),
     setPausedForScreenshot: (paused) => (paused ? game.requestPause() : game.requestResume()),
     setReducedMotion: (enabled) => game.setReducedMotion(enabled),
-    setState: (name) => game.setTestState(name),
-  };
-  // The paddle follows the pointer's x, so the playtester steers by parking
-  // the cursor; five lanes are enough to get under the ball. Read at launch by
-  // `vg playtest run` so no --controls file is needed for this game.
-  // `track_ball` is the fast-game path: a per-frame controller that walks
-  // the pointer until the paddle sits under the ball. The pointer→paddle map
-  // is a raycast, so rather than invert it the reflex nudges the cursor by
-  // the paddle's error each frame and lets the game close the loop.
-  let cursorX = 0.5;
-  const trackBall: NonNullable<PlaytestManifest["move"][string]["reflex"]> = (diag) => {
-    const error = diag.ball.x - diag.player.x;
-    cursorX = Math.min(
-      0.95,
-      Math.max(0.05, cursorX + Math.min(0.04, Math.max(-0.04, error * 0.03))),
-    );
-    return { pointer: { x: cursorX, y: 0.5 } };
-  };
-  const manifest: PlaytestManifest = {
+    setState: (name) => {
+      game.setTestState(name);
+      return { state: name };
+    },
+  });
+  // What `vg playtest run` may do to this game, in the words the decision
+  // model chooses between. The paddle follows the pointer's x, so the
+  // playtester steers by parking the cursor; five lanes are enough to get
+  // under the ball. `track_ball` is the fast-game path: a per-frame reflex
+  // that walks the pointer until the paddle sits under the ball. The
+  // pointer→paddle map is a raycast, so rather than invert it the tracker
+  // nudges the cursor by the paddle's error each frame and lets the game
+  // close the loop — the model decides a few times a second, this runs at
+  // 60 fps while it is the model's intent.
+  const track = pointerTracker();
+  publishPlaytest<PongDiagnostics>({
     actions: {
       serve: {
         description: "serve the ball, or fire a charged power shot (Space)",
@@ -219,11 +194,10 @@ if (import.meta.env.DEV || new URLSearchParams(window.location.search).get("test
       track_ball: {
         description:
           "Follow the ball — keep the paddle under it every frame (the default for a rally)",
-        reflex: trackBall,
+        reflex: (diag) => (diag ? track(diag.ball.x - diag.player.x) : null),
       },
     },
-  };
-  Object.assign(window, { __GAME_PLAYTEST__: manifest, __GAME_TEST_HOOKS__: hooks });
+  });
 }
 if (import.meta.env.DEV) {
   Object.assign(window, {

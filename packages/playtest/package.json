@@ -1,0 +1,47 @@
+{
+  "name": "@vibedgames/playtest",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Make a browser game playtestable: publish diagnostics, test hooks and a control manifest so `vg playtest` — and the model behind `vg playtest run` — can play it",
+  "keywords": [
+    "agent",
+    "diagnostics",
+    "gamedev",
+    "playtest",
+    "qa",
+    "testing",
+    "vibedgames"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kyh/vibedgames",
+    "directory": "packages/playtest"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf .cache .turbo dist node_modules",
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit && tsc -p test --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "tsx": "^4.23.12",
+    "typescript": "catalog:"
+  }
+}

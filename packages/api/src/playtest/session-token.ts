@@ -2,7 +2,7 @@
  * Short-lived, single-purpose tokens for the in-page playtester.
  *
  * `vg playtest run` injects a loop into the game's page that calls
- * `/api/playtest-decide` directly, so the page needs a credential — and a
+ * `/api/playtest/decide` directly, so the page needs a credential — and a
  * game is untrusted user code, so it must never see the user's session or
  * API key. This token is the one thing it gets: HMAC-signed by the server,
  * bound to the user who started the run, valid for minutes, and honoured by

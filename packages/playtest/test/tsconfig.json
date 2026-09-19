@@ -1,0 +1,12 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    // Tests run under Node (node:test + tsx); src/ targets the browser and
+    // emits declarations, so it keeps its own rootDir/outDir.
+    "types": ["node"],
+    "rootDir": "..",
+    "noEmit": true,
+    "incremental": false
+  },
+  "include": [".", "../src"]
+}

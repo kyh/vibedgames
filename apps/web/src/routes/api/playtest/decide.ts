@@ -10,7 +10,7 @@ import { getServerContext } from "@/auth/server";
 const handler = (request: Request): Promise<Response> =>
   handlePlaytestDecide(request, getServerContext().decision);
 
-export const Route = createFileRoute("/api/playtest-decide")({
+export const Route = createFileRoute("/api/playtest/decide")({
   server: {
     handlers: {
       OPTIONS: ({ request }) => handler(request),

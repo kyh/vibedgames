@@ -165,9 +165,9 @@ const options = (overrides: Partial<RunOptions> = {}): RunOptions => ({
 });
 
 test("agentConfig resolves every key to an event init and carries the session", () => {
-  const cfg = agentConfig(options(), { decideUrl: "https://x/api/playtest-decide", token: "pt.t" });
+  const cfg = agentConfig(options(), { decideUrl: "https://x/api/playtest/decide", token: "pt.t" });
   assert.equal(cfg.token, "pt.t");
-  assert.equal(cfg.decideUrl, "https://x/api/playtest-decide");
+  assert.equal(cfg.decideUrl, "https://x/api/playtest/decide");
   assert.deepEqual(
     cfg.move.up_left?.inits.map((init) => [init.code, init.keyCode]),
     [
@@ -210,6 +210,7 @@ const record = (tick: number, overrides: Partial<Record<string, JsonValue>> = {}
   inputTokens: 100,
   move: "right",
   outputTokens: 5,
+  progress: 0.25,
   reflexFrames: 0,
   tick,
   window: window({ frame: 40 + tick * 20, frameBefore: 20 + tick * 20 }),
@@ -289,13 +290,23 @@ test("verdict passes a live, responsive run and only warns about progress by def
   const built = report(opts, runResult());
   assert.equal(built.decisionsPerSecond, 2.5);
   assert.equal(built.decisions.meanConfidence, 0.6);
+  assert.deepEqual(built.decisions.progress, { first: 0.25, last: 0.25, max: 0.25, mean: 0.25 });
   const { failures, warnings } = verdict(built, opts);
   assert.deepEqual(failures, []);
   assert.equal(warnings.length, 1);
-  assert.match(warnings[0] ?? "", /never progressed the objective/u);
+  assert.match(warnings[0] ?? "", /never progressed the objective \(and the model agreed/u);
   assert.deepEqual(verdict(built, options({ expectProgress: true })).failures, [
-    "the run never progressed the objective",
+    "the run never progressed the objective (and the model agreed: progress 0.25 → 0.25)",
   ]);
+  // A goal the score field can't see: the model's own read is the tie-breaker.
+  const judged = report(
+    opts,
+    resultFromAgent(published([record(0, { progress: 0.2 }), record(1, { progress: 0.8 })])),
+  );
+  assert.deepEqual(judged.decisions.progress, { first: 0.2, last: 0.8, max: 0.8, mean: 0.5 });
+  assert.match(verdict(judged, opts).warnings[0] ?? "", /though the model judged .* 0\.2 → 0\.8/u);
+  const unscored = report(opts, resultFromAgent(published([record(0, { progress: null })])));
+  assert.equal(unscored.decisions.progress, null);
   // A short run at a healthy frame rate clears the gate the bot's absolute
   // 100-frame threshold would have failed.
   const short = report(opts, runResult({ lastWindow: window({ frame: 60 }), wallMs: 1500 }));

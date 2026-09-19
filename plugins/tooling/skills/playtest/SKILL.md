@@ -9,7 +9,7 @@ A build that compiles proves nothing. A game that renders proves almost nothing.
 
 ## The Tool: `vg playtest`
 
-Everything here runs through one command. `vg playtest` is a passthrough to [agent-browser](https://github.com/vercel-labs/agent-browser), a native browser-automation CLI built for agents — `vg` installs it and its browser on first use, so **there is nothing to add to the game's `package.json`**. No test runner, no devDependencies, no MCP server to configure.
+Everything here runs through one command. `vg playtest` is a passthrough to [agent-browser](https://github.com/vercel-labs/agent-browser), a native browser-automation CLI built for agents — `vg` installs it and its browser on first use, so **there is nothing to add to the game's `package.json` to drive it**. No test runner, no devDependencies, no MCP server to configure. (The one optional dependency is on the game's side: `@vibedgames/playtest` types and publishes the diagnostics contract below.)
 
 ```sh
 vg playtest open http://localhost:5173   # launch + navigate (headless by default)
@@ -77,6 +77,8 @@ The browser can see pixels; it can't see whether the player is stuck. Games expo
 
 **The full field list and rules live in `references/bot-playtest.md`** — that is the address `games/lunerfall/src/sys/diag.ts` and `games/starfall/src/shared/diag.ts` both cite, so it stays the one copy to edit.
 
+`npm install @vibedgames/playtest` gives the contract as types and three publishers — `publishDiagnostics(read)` (a live getter), `publishTestHooks(hooks)`, `publishPlaytest(manifest)` — plus `isPlaytestRequested()` for the `?test=1` gate and `pointerTracker()` for cursor-steered games. Optional: the globals are the contract, and setting them by hand is just as valid. `games/pong/src/main.ts` uses the package.
+
 Two rules worth knowing before you read it: JSON-serializable primitives only, never raw engine objects; and `seed(n)` must **restart** the run, not just reseed it, or everything measured afterwards is still unseeded.
 
 Adding this contract to a game is a prerequisite, not an optional extra. Without it a playtest can only assert "pixels changed".
@@ -120,9 +122,9 @@ vg playtest run --game my-game --json        # the deployed game, full report as
 
 `run` is the one `vg playtest` verb that is ours rather than agent-browser's, so `vg playtest run --help` documents it and `vg playtest --help` (the binary's help) does not list it.
 
-The loop runs inside the game's page. Several times a second it reads `__GAME_DIAGNOSTICS__`, asks a decision-only model (straight from the page to the vibedgames API with a short-lived token — nothing to configure beyond `vg login`) which movement to hold and which actions to take, dispatches them as real held input, and repeats. Code does perception and keystrokes; the model only decides, and the decision latency is the hold, so it plays at about a player's reaction time. For fast games, a move in `__GAME_PLAYTEST__` can carry a `reflex(game)` that runs every frame while it is the model's intent — the model picks _what_ to do a few times a second, the reflex does it at 60 fps. Same report shape and exit codes as the bot, plus `decisions` (what it chose, how sure it was, `reflexFrames`), `decisionsPerSecond`, `model` (calls, tokens, latency) and a per-decision `timeline`.
+The loop runs inside the game's page. Several times a second it reads `__GAME_DIAGNOSTICS__`, asks a decision-only model (straight from the page to the vibedgames API with a short-lived token — nothing to configure beyond `vg login`) which movement to hold and which actions to take, dispatches them as real held input, and repeats. Code does perception and keystrokes; the model only decides, and the decision latency is the hold, so it plays at about a player's reaction time. For fast games, a move in `__GAME_PLAYTEST__` can carry a `reflex(game)` that runs every frame while it is the model's intent — the model picks _what_ to do a few times a second, the reflex does it at 60 fps. Same report shape and exit codes as the bot, plus `decisions` (what it chose, how sure it was, `reflexFrames`, and `progress` — the model's own 0–1 read of how close the player got to the goal, first to last), `decisionsPerSecond`, `model` (calls, tokens, latency) and a per-decision `timeline`.
 
-**Make the game playable by the model first** — that is most of the work, and it's the game author's. Publish what a player sees in `__GAME_DIAGNOSTICS__` (nearest hazard and pickup as `dx`/`dy`, where the goal is, `canJump`), and describe the controls and the rules in `window.__GAME_PLAYTEST__` so the playtester needs no `--controls` file. The snippet for both is in [model-playtest.md](references/model-playtest.md) § Make Your Game Playable by the Model; `games/pong/src/main.ts` is a live example.
+**Make the game playable by the model first** — that is most of the work, and it's the game author's. Publish what a player sees in `__GAME_DIAGNOSTICS__` (nearest hazard and pickup as `dx`/`dy`, where the goal is, `canJump`), and describe the controls and the rules in `window.__GAME_PLAYTEST__` so the playtester needs no `--controls` file — `publishDiagnostics` / `publishPlaytest` from `@vibedgames/playtest`, or the bare globals. The snippet for both is in [model-playtest.md](references/model-playtest.md) § Make Your Game Playable by the Model; `games/pong/src/main.ts` is a live example.
 
 Two things to know before trusting a run. **The model sees only the diagnostics** — no pixels — so a playtester that can't decide (`decisions.meanConfidence` below 0.3 warns) is an audit finding about the contract, not about the model. And **the goal is where the rules live**: what wins, what kills, which way progress is; the model has no memory between decisions beyond the `recent` block the harness supplies.
 
