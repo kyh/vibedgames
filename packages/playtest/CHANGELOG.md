@@ -1,7 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — 2026-09-18
 
+- `ReflexInputs.stuck` — a reflex reports that it is wedged, so the playtest can withdraw the move
 - `keyTapper()` — press/release cycling for keydown-edge verbs inside a reflex
 - `pointerAim(dx, dy)` — 2D cursor-as-heading reflex helper
 - `TestHooks.setState` may return a Promise; `TestHooks.seed` is optional (the playtest falls back to a `?seed=` reload)

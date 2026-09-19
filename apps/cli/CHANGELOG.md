@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.1 — 2026-09-18
+
+- `vg playtest run --pin-move <name>` — hold one move for the whole run and never call the model: deterministic, free reflex tuning, same report.
+- A reflex can return `stuck: true`; its still windows then count as stuck, so an all-reflex game gets the same withdrawal and wedge check as held keys.
+- A reflex that returns `null` now releases what it held (it used to leave the last frame's keys down).
+- A pointer held down while it moves is dispatched as a drag — one press, moves, one release — and pointer moves carry `movementX`/`movementY`, so relative-look games steer.
+
 ## 0.6.0 — 2026-09-18
 
 - **`vg playtest run` — a model plays your game and reports how it went.** The loop runs inside the game's page: several times a second it reads `window.__GAME_DIAGNOSTICS__`, asks a decision-only model which movement to hold and which actions to take, and dispatches them as real held input. Nothing to configure beyond `vg login`; not metered. `--url` / `--game`, `--goal`, `--controls <wasd|arrows|file>`, `--ticks`, `--tick-ms`, `--expect-progress`, `--min-displacement`, `--json` / `--field`. Exit `0` it plays, `1` it doesn't (the report says why), `2` the harness failed.
