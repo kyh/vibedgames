@@ -110,7 +110,9 @@ const handCamera = createHandCamera(
   (x) => game.handleHandPosition(x),
   () => game.handleGestureConfirm(),
 );
-if (!COARSE_INPUT) {
+// A playtest browser denies the camera, and the rejection is a console error
+// — which is a failed playtest for a reason that has nothing to do with pong.
+if (!COARSE_INPUT && !isPlaytestRequested()) {
   window.addEventListener("load", () => handCamera.enable(), { once: true });
 }
 
@@ -176,6 +178,8 @@ if (import.meta.env.DEV || isPlaytestRequested()) {
       },
     },
     goal: "You control the bottom paddle; it follows the pointer's x. Return every ball: `track_ball` keeps the paddle under it automatically, the parked positions are for waiting or baiting. Serve when the ball is not moving (game.phase). game.score is your points; game.opponentScore is theirs.",
+    // The court is a few world units wide, not a few hundred pixels.
+    minDisplacement: 0.05,
     move: {
       centre: {
         description: "Park the paddle in the centre of the court",

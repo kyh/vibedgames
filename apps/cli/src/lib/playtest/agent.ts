@@ -384,6 +384,22 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
     heldKeys = next.keys;
   };
 
+  /**
+   * Release these keys if held, so the next `hold` presses them again. An
+   * action the model picks on consecutive decisions would otherwise stay down
+   * as one long press, and a game that acts on the keydown edge — jump, fire,
+   * drop a bomb — would see the first of them and none of the rest.
+   */
+  const release = (inits: AgentKeyInit[]): void => {
+    const codes = new Set(inits.map((init) => init.code));
+    for (const init of heldKeys) {
+      if (codes.has(init.code)) {
+        env.dispatchKey("keyup", init);
+      }
+    }
+    heldKeys = heldKeys.filter((init) => !codes.has(init.code));
+  };
+
   // ---- motion tracker ----------------------------------------------------
   const dist = (a: AgentSample, b: AgentSample): number =>
     Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
@@ -601,6 +617,13 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
     };
   };
 
+  // A hung request would otherwise hold the last inputs down until the CLI's
+  // whole-run budget expired; a timed-out attempt is retried like a dropped one.
+  const timeout = async (): Promise<never> => {
+    await env.delay(config.decisionTimeoutMs);
+    throw new Error(`no answer within ${config.decisionTimeoutMs} ms`);
+  };
+
   /** One decision, with a short backoff on a rate limit, an upstream fault or a dropped connection. */
   const decide = async (state: DecisionState): Promise<Decision> => {
     const offered = offeredMoves();
@@ -609,11 +632,17 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
       let response: AgentResponse | null = null;
       let failure = "";
       try {
-        response = await env.fetch(config.decideUrl, {
-          body,
-          headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" },
-          method: "POST",
-        });
+        response = await Promise.race([
+          env.fetch(config.decideUrl, {
+            body,
+            headers: {
+              authorization: `Bearer ${config.token}`,
+              "content-type": "application/json",
+            },
+            method: "POST",
+          }),
+          timeout(),
+        ]);
       } catch (error) {
         failure = error instanceof Error ? error.message : String(error);
       }
@@ -716,9 +745,12 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
   // ---- the run -----------------------------------------------------------
   const settle = (done: Pending, measured: AgentWindow): void => {
     const option = config.move[done.decision.move];
+    // Only a held direction can be "stuck". A parked pointer that has arrived
+    // and a reflex that has converged are both still because they worked.
     const askedToMove =
+      done.reflex === null &&
       option !== undefined &&
-      (option.inits.length > 0 || option.pointer !== null || done.reflex !== null);
+      (option.inits.length > 0 || option.pointer?.down === true);
     const progressed = measured.score > measured.scoreBefore;
     let stuck = false;
     if (askedToMove) {
@@ -729,14 +761,21 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
       stuckRun = stuck ? stuckRun + 1 : 0;
     }
     // The reflex layer for the model: a move that produced nothing for two
-    // ticks running is withdrawn from the next question, as long as at least
-    // two options remain.
-    const withdraw =
+    // ticks running is withdrawn from the question. Withdrawals accumulate
+    // while the player stays stuck — with a single slot the model alternates
+    // between the same two walls — and clear the moment it moves. At least
+    // two options always remain.
+    if (measured.peak >= config.motionEpsilon || progressed) {
+      blocked = [];
+    } else if (
       stuck &&
       stuckRun >= config.stuckRun &&
       done.decision.move !== "none" &&
-      Object.keys(config.move).length - 1 >= 2;
-    blocked = withdraw ? [done.decision.move] : [];
+      !blocked.includes(done.decision.move) &&
+      Object.keys(config.move).length - blocked.length - 1 >= 2
+    ) {
+      blocked = [...blocked, done.decision.move];
+    }
     trail.push({ x: round(measured.x), y: round(measured.y), z: round(measured.z) });
     if (trail.length > config.trailLength) {
       trail.shift();
@@ -807,6 +846,7 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
       // (empty) static inputs first would drop the pointer the reflex holds,
       // and a held button would be released and re-pressed on every decision.
       const reflex = env.reflexFor(decision.move);
+      release(decision.actions.flatMap((label) => config.actions[label]?.inits ?? []));
       if (!reflex) {
         hold(staticInputs(decision));
       }

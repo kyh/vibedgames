@@ -87,6 +87,13 @@ missing description, a pointer given in pixels instead of viewport fractions,
 an action with no keys — and throws in the game's own console, so the mistake
 shows up before the CLI is involved.
 
+**A game in world units sets `minDisplacement`.** The run's input-alive gate
+is "the player moved more than 5 in one decision", which is a pixel-scale
+number. A Three.js court a few units wide never moves 5 of anything, and fails
+as "player did not respond to input" while playing perfectly — give the
+manifest `minDisplacement: 0.05` (a fraction of what one decision's hold moves
+the player, in the units of `player.x/y/z`).
+
 ## Reflexes: the fast-game path
 
 A model decides a few times a second. For a game that needs 60 fps hands, give

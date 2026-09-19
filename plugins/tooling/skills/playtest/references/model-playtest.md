@@ -81,6 +81,8 @@ if (import.meta.env.DEV || isPlaytestRequested()) {
 // By hand: window.__GAME_TEST_HOOKS__ = { seed, setState, setPausedForScreenshot }.
 ```
 
+**Keep camera, microphone and other permission-gated features off under `?test=1`.** A playtest browser denies them, the rejection lands as a console error, and any console error fails the run — for a reason that has nothing to do with whether the game plays. `games/pong` skips its hand-tracking auto-start when `isPlaytestRequested()`.
+
 Gate both behind dev mode or `?test=1` if you don't want them shipping to players; `vg playtest run --game <slug>` opens the deployed URL as-is, so a game that gates on `?test=1` needs `--url https://<slug>.vibedgames.com/?test=1`.
 
 ### 3. Describe the controls, in words the model chooses between
@@ -108,10 +110,13 @@ publishPlaytest({
 
 - **`move`** — one `choice` question per tick; the chosen option's `keys` and/or `pointer` are held until the next decision. `pointer` is `{ x, y, down? }` in viewport fractions, for games that steer from the cursor (aim-and-thrust, twin-stick, point-to-move — `games/pong` parks the cursor in five lanes). A `none` option is added if you leave it out.
 - **`reflex(game)`** on a move — optional, and the fast-game path. While the option is the model's current intent, the agent calls it every frame with the live diagnostics and holds what it returns: `{ keys?: string[], pointer?: { x, y, down? } | null }`. Put the per-frame skill here — tracking a ball, strafing around a target, leading a shot — and leave the model the judgment call of _when_ to do it. Actions the model chose stay held alongside. `games/pong`'s `track_ball` is `pointerTracker()` from `@vibedgames/playtest` — a cursor that walks towards a signed error each frame, clamped and rate-limited — fed `ball.x - player.x`; the model's part is choosing it over parking. Because the manifest is read live in the page, `reflex` can be a real function with closure state; it is simply absent from the JSON a `--controls` file can carry.
-- **`actions`** — one yes/no question each, held for the tick when the answer is ≥ 0.5. Keys only; a mouse-fire game puts `down: true` on its pointer moves instead.
-- Combos the game needs held together are `move` options (`right_jump`); independent verbs are `actions`. Key names are [KeyboardEvent codes](https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/code) — `Key<A-Z>`, `Digit<0-9>`, arrows, `Space`, `Enter`, `Shift*`, and the rest the bot accepts.
+- **`actions`** — one yes/no question each, held for the tick when the answer is ≥ 0.5, and **pressed again on every decision that says yes** — so a verb the game reads on the keydown edge (jump, fire, drop a bomb) fires each time. Keys only; a mouse-fire game puts `down: true` on its pointer moves instead.
+- **`minDisplacement`** — optional. The per-decision movement that proves input reaches the player, in the units of `player.x/y/z`. The default, `5`, is a pixel-scale number; a game that measures in world units (most Three.js games — `games/pong`'s court is a few units wide and it sets `0.05`) never moves 5 of anything in one decision and fails as "player did not respond to input" while playing perfectly. Set it to a fraction of what one decision's hold really moves the player. `--min-displacement` overrides it; the report echoes the gate as `minDisplacement`.
+- Combos the game needs held together are `move` options (`right_jump`); independent verbs are `actions`. A move chosen twice running is one continuous hold, not two presses — right for a direction, wrong for an edge-triggered key inside a combo. If the jump in `right_jump` only fires on keydown, the model has to alternate it with `right` to jump again; make the jump an action instead when it needs to repeat. Key names are [KeyboardEvent codes](https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/code) — `Key<A-Z>`, `Digit<0-9>`, arrows, `Space`, `Enter`, `Shift*`, and the rest the bot accepts.
 
 Where raw input can't express the verb — placing a tower, choosing a card — add a hook to `__GAME_TEST_HOOKS__` and a diagnostic that shows the choices; the playtester can only pull levers that exist as input.
+
+**Write the goal for a player whose eyes are one decision behind.** The state the model decides from is ~150–250 ms old by the time its answer becomes input — at 4 px a frame that is 40–60 px of travel. A rule like "jump when `nearestHazard.dx` is between 30 and 90" reads fine and still loses: one snapshot says 95 (no), the next says 55 (yes), and the jump lands at 15. Give thresholds lead — at least two decisions' travel wide, starting early — and for anything tighter than that, stop asking the model to time it: make it a move with a `reflex` and let the model choose _whether_, not _when_.
 
 The same JSON works as a `--controls` file for a game you don't own or can't edit, and `--goal` overrides the goal either way.
 
@@ -129,12 +134,15 @@ The same JSON works as a `--controls` file for a game you don't own or can't edi
 | `--tick-ms <ms>`                  | Minimum time each decision's inputs stay held (default `150`, about a quick player's cadence; `0` = as fast as decisions arrive; max `5000`) |
 | `--seed <n>`                      | Seed passed to `__GAME_TEST_HOOKS__.seed()` / `?seed=` (default `12345`)                                                                     |
 | `--expect-progress`               | Assert the objective advances                                                                                                                |
+| `--min-displacement <n>`          | The input-alive gate, in the game's `player` units (default `5`, pixel-scale). Overrides the manifest's `minDisplacement`                    |
 | `--model <id>`                    | Decision model id (default `jev-latest`)                                                                                                     |
 | `--headed`                        | Show the browser                                                                                                                             |
 | `--keep-open`                     | Leave the page open afterwards                                                                                                               |
 | `--json` / `--field <path>`       | The full report as JSON, or one value from it                                                                                                |
 
 Exit `0` = the game plays under the playtester, `1` = it doesn't (the report names which check failed), `2` = the harness itself failed (bad flags, no browser, the game never booted, the model unreachable). Not logged in exits `1` like every other command.
+
+The page calls the API itself, so the two have to be able to reach each other: a local game against the deployed API works, a deployed game against the deployed API works, and a **deployed game against a `localhost` `VG_API_URL` does not** — Chrome refuses a public page a request to a loopback address. `run` says so up front (exit `2`) rather than failing every decision with "Failed to fetch".
 
 ## What the Model Sees
 
@@ -146,7 +154,7 @@ Each decision sends `{ goal, game, recent, tick }`:
 
 And asks three kinds of question of it: `move` (a `choice` among the manifest's options), one `noul` per action, and `progress` (a `score` on five levels from "no progress, or losing" to "achieved", normalised to 0–1). The score is the model's judgment of the run against the _goal_ — the one signal that tracks a goal the game's `score` field can't see, like "survive the wave". It is advisory: it shapes the report, never a gate.
 
-**The reflex.** A move that produced no motion for two ticks running is withdrawn from the next question's options. Omission, not persuasion: the model cannot answer outside its schema, so removing the option is the one nudge that always lands. Only that move, only for one tick — the model still chooses among the rest.
+**The stuck reflex.** A move that produced no motion for two ticks running is withdrawn from the question's options. Omission, not persuasion: the model cannot answer outside its schema, so removing the option is the one nudge that always lands. Withdrawals accumulate while the player stays stuck — walk into a corner and first one wall goes, then the other — and all come back the moment the player moves; at least two options always remain. Only a _held direction_ can be stuck: keys, or a pointer with `down: true`. A parked pointer that has arrived and a `reflex` that has converged are still because they worked, and are never counted.
 
 Per-call state is capped at 64 KB and 32 questions server-side; a run of 60 decisions costs a fraction of a cent and is not metered against credits. The run's token expires after 15 minutes, so a very long `--ticks` at a slow `--tick-ms` ends with an authorization error — start a new run.
 
@@ -154,7 +162,7 @@ Per-call state is capped at 64 KB and 32 questions server-side; a run of 60 deci
 
 The play metrics are the bot's, measured per decision instead of per scripted step; the thresholds live in `THRESHOLDS` in the CLI's `lib/playtest/run.ts`:
 
-- `framesAdvanced`, `maxTickDisplacement`, `longestStuckRun`, `consoleErrors`, `pageErrors` — the same gates as [bot-playtest.md](bot-playtest.md), and they fail for the same reasons. A wedged playtester is one that kept choosing moves that went nowhere _despite_ the reflex — geometry it can't read its way out of.
+- `framesAdvanced`, `maxTickDisplacement`, `longestStuckRun`, `consoleErrors`, `pageErrors` — the same gates as [bot-playtest.md](bot-playtest.md), and they fail for the same reasons. `maxTickDisplacement` is held to the scheme's `minDisplacement`. `longestStuckRun` fails at 5, not the bot's 3: the decision after a withdrawal is already in flight when it lands, so walking into one wall costs three stuck ticks by construction. A wedged playtester is one that kept going nowhere _after_ the withdrawals — geometry it can't read its way out of, which usually means the diagnostics don't describe the walls.
 - `scoreAfter > scoreBefore`, `tickOfFirstScore` — an assertion only under `--expect-progress`. A playtester that never scores under a well-written goal is a real finding about discoverability; under the default goal it's a warning.
 - `complete`, `completedAtTick` — the run stops when the game reports `complete`. Whether that was a win or a death is in the timeline's last entries and in your knowledge of the game.
 - `decisions` — histograms of `moves` and `actions`, `meanConfidence` for the move choice, `reflexFrames`: how many frames a reflex produced the held input (zero means no chosen move had one), and `progress` — `{ first, last, mean, max }` of the model's own 0–1 read of how close the player got to the goal. A run whose `score` never rose but whose `progress.last` beats `progress.first` did something the score field can't see; the warning says which case you have.

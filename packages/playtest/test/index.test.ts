@@ -90,6 +90,14 @@ test("publishPlaytest rejects what `vg playtest run` would reject, naming the op
     },
     /actions\.fire .*keys/u,
   );
+  rejects(
+    {
+      goal: "Go",
+      minDisplacement: 0,
+      move: { right: { description: "Run right", keys: ["KeyD"] } },
+    },
+    /minDisplacement/u,
+  );
 });
 
 test("isPlaytestRequested reads ?test=1 and nothing else", () => {

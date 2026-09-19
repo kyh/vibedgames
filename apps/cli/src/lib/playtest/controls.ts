@@ -22,6 +22,8 @@ export interface MoveOption {
   description: string;
   keys: string[];
   pointer: Pointer | null;
+  /** The game's manifest carries a per-frame `reflex` for this move (it lives in the page, not here). */
+  reflex: boolean;
 }
 
 export interface ActionOption {
@@ -33,6 +35,12 @@ export interface Controls {
   goal: string;
   move: Record<string, MoveOption>;
   actions: Record<string, ActionOption>;
+  /**
+   * The per-decision movement that proves input reaches the player, in the
+   * units of `player.x/y/z`. Null = the pixel-scale default; a game that
+   * measures in world units (most 3D games) moves a fraction of that.
+   */
+  minDisplacement: number | null;
 }
 
 export const DEFAULT_GOAL =
@@ -42,12 +50,14 @@ const NONE: MoveOption = {
   description: "Hold no movement input — stay still",
   keys: [],
   pointer: null,
+  reflex: false,
 };
 
 const move = (description: string, keys: string[]): MoveOption => ({
   description,
   keys,
   pointer: null,
+  reflex: false,
 });
 
 const directions = (up: string, down: string, left: string, right: string) => ({
@@ -72,6 +82,7 @@ export const PRESETS = new Map<string, Controls>([
     {
       actions: ACTION_PRESET,
       goal: DEFAULT_GOAL,
+      minDisplacement: null,
       move: directions("ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"),
     },
   ],
@@ -80,6 +91,7 @@ export const PRESETS = new Map<string, Controls>([
     {
       actions: ACTION_PRESET,
       goal: DEFAULT_GOAL,
+      minDisplacement: null,
       move: directions("KeyW", "KeyS", "KeyA", "KeyD"),
     },
   ],
@@ -158,6 +170,7 @@ const readMoveOption = (value: JsonValue, where: string): MoveOption => {
     description: readDescription(value, where),
     keys: readKeys(value.keys, where),
     pointer: readPointer(value.pointer, where),
+    reflex: value.reflex === true,
   };
 };
 
@@ -198,7 +211,11 @@ export const parseControls = (raw: JsonValue, source: string): Controls => {
   for (const [label, option] of Object.entries(raw.move)) {
     moves[label] = readMoveOption(option, `${source} move.${label}`);
   }
-  if (!Object.values(moves).some((option) => option.keys.length > 0 || option.pointer)) {
+  if (
+    !Object.values(moves).some(
+      (option) => option.keys.length > 0 || option.pointer || option.reflex,
+    )
+  ) {
     fail(`${source}: no \`move\` option holds any input, so the playtester could never move.`);
   }
   // A no-input option is what the reflex falls back to when it withdraws a
@@ -215,7 +232,19 @@ export const parseControls = (raw: JsonValue, source: string): Controls => {
       actions[label] = readActionOption(option, `${source} actions.${label}`);
     }
   }
-  return { actions, goal: nonEmptyString(raw.goal) ? raw.goal : DEFAULT_GOAL, move: moves };
+  const { minDisplacement } = raw;
+  if (
+    minDisplacement !== undefined &&
+    (!Number.isFinite(minDisplacement) || Number(minDisplacement) <= 0)
+  ) {
+    fail(`${source}: \`minDisplacement\` must be a positive number, in the units of player.x/y.`);
+  }
+  return {
+    actions,
+    goal: nonEmptyString(raw.goal) ? raw.goal : DEFAULT_GOAL,
+    minDisplacement: minDisplacement === undefined ? null : Number(minDisplacement),
+    move: moves,
+  };
 };
 
 /** Resolve `--controls`: a preset name, or a JSON file. */

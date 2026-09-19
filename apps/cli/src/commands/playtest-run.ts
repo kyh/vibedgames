@@ -65,6 +65,11 @@ const runArgs = {
   },
   headed: { description: "Show the browser.", type: "boolean" },
   keepOpen: { description: "Leave the page open afterwards.", type: "boolean" },
+  minDisplacement: {
+    description:
+      "Per-decision movement that proves input works, in the units of the game's player.x/y (default 5 — pixels; a game in world units needs far less). Overrides the scheme's.",
+    type: "string",
+  },
   model: { default: "jev-latest", description: "Decision model id.", type: "string" },
   seed: { default: "12345", description: "Seed for the game's RNG.", type: "string" },
   tickMs: {
@@ -87,6 +92,7 @@ interface ParsedArgs {
   goal?: string;
   headed?: boolean;
   keepOpen?: boolean;
+  minDisplacement?: string;
   model: string;
   seed: string;
   tickMs: string;
@@ -114,6 +120,7 @@ interface Settings {
   goal: string | null;
   headed: boolean;
   keepOpen: boolean;
+  minDisplacement: number | null;
   model: string;
   seed: number;
   target: string;
@@ -141,6 +148,15 @@ const settingsFrom = (args: ParsedArgs): Settings => {
     goal: args.goal ?? null,
     headed: args.headed === true,
     keepOpen: args.keepOpen === true,
+    minDisplacement:
+      args.minDisplacement === undefined
+        ? null
+        : numberArg(
+            args.minDisplacement,
+            "--min-displacement",
+            (n) => Number.isFinite(n) && n > 0,
+            "a positive number",
+          ),
     model: args.model,
     seed: numberArg(args.seed, "--seed", Number.isFinite, "a finite number"),
     target: args.game ? `game:${args.game}` : (args.url ?? ""),
@@ -175,7 +191,29 @@ const chooseControls = (settings: Settings, manifest: JsonValue | null): Control
   if (!controls) {
     throw new HarnessError("no control scheme available.");
   }
-  return settings.goal === null ? controls : { ...controls, goal: settings.goal };
+  return {
+    ...controls,
+    goal: settings.goal ?? controls.goal,
+    minDisplacement: settings.minDisplacement ?? controls.minDisplacement,
+  };
+};
+
+const isLoopback = (url: string): boolean => {
+  const host = URL.canParse(url) ? new URL(url).hostname : null;
+  return host === "localhost" || host === "127.0.0.1" || host === "[::1]";
+};
+
+/**
+ * The page calls the API itself, and Chrome refuses a public page a request
+ * to a loopback address. Said up front, because in the page it is only ever
+ * "Failed to fetch".
+ */
+const assertReachable = (gameUrl: string): void => {
+  if (isLoopback(getBaseUrl()) && !isLoopback(gameUrl)) {
+    throw new HarnessError(
+      `the game at ${gameUrl} is a public page and the API (${getBaseUrl()}) is on localhost — the browser blocks that request. Serve the game locally, or point VG_API_URL at a deployed API.`,
+    );
+  }
 };
 
 /**
@@ -268,6 +306,7 @@ export const playtestRunCommand = defineCommand({
     let opts: RunOptions;
     let payload: ReturnType<typeof buildReport> & { failures: string[]; warnings: string[] };
     try {
+      assertReachable(settings.url);
       const session = await mintSession(client);
       const launched = browser.launch({
         headed: settings.headed,

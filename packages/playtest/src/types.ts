@@ -111,6 +111,14 @@ export interface PlaytestManifest<TGame extends Diagnostics = Diagnostics> {
   move: Record<string, MoveOption<TGame>>;
   /** One yes/no per decision, each. */
   actions?: Record<string, ActionOption>;
+  /**
+   * The per-decision movement that proves input reaches the player, in the
+   * units of `player.x/y/z`. Defaults to 5, which suits pixels; a game that
+   * measures in world units (most 3D games) should set what one decision's
+   * worth of movement really is there, or the run fails as "did not respond
+   * to input".
+   */
+  minDisplacement?: number;
 }
 
 /** The three globals, on whatever object stands in for `window`. */

@@ -125,6 +125,10 @@ test("rejects a scheme the playtester could not act on, naming the source", () =
     [{ move: {} }, /`move` must map at least one option/u],
     [{ move: { wait: { description: "wait" } } }, /no `move` option holds any input/u],
     [{ move: { up: { keys: ["KeyW"] } } }, /move\.up needs a non-empty `description`/u],
+    [
+      { minDisplacement: -1, move: { up: { description: "up", keys: ["KeyW"] } } },
+      /`minDisplacement` must be a positive number/u,
+    ],
     [{ move: { up: { description: "up", keys: ["F13"] } } }, /unsupported key code "F13"/u],
     [
       {
@@ -164,6 +168,16 @@ const options = (overrides: Partial<RunOptions> = {}): RunOptions => ({
   ...overrides,
 });
 
+test("a move that is only a reflex counts as input, and minDisplacement is carried", () => {
+  // `reflex: true` is what the launch step leaves where the page had a function.
+  const controls = parseControls(
+    { minDisplacement: 0.05, move: { track: { description: "follow the ball", reflex: true } } },
+    "window.__GAME_PLAYTEST__",
+  );
+  assert.equal(controls.move.track?.reflex, true);
+  assert.equal(controls.minDisplacement, 0.05);
+});
+
 test("agentConfig resolves every key to an event init and carries the session", () => {
   const cfg = agentConfig(options(), { decideUrl: "https://x/api/playtest/decide", token: "pt.t" });
   assert.equal(cfg.token, "pt.t");
@@ -177,7 +191,12 @@ test("agentConfig resolves every key to an event init and carries the session", 
   );
   assert.equal(cfg.move.none?.inits.length, 0);
   assert.equal(cfg.actions.action?.inits[0]?.code, "Space");
-  assert.equal(cfg.motionEpsilon, THRESHOLDS.motionEpsilon);
+  assert.equal(cfg.motionEpsilon, THRESHOLDS.displacement * THRESHOLDS.motionEpsilonRatio);
+  const worldUnits = agentConfig(
+    options({ controls: { ...options().controls, minDisplacement: 0.1 } }),
+    { decideUrl: "https://x/api/playtest/decide", token: "pt.x" },
+  );
+  assert.equal(worldUnits.motionEpsilon, 0.1 * THRESHOLDS.motionEpsilonRatio);
   assert.equal(cfg.ticks, 10);
   // The page source is one expression: the agent applied to its config and the browser env.
   const source = agentSource(cfg);
@@ -320,13 +339,13 @@ test("verdict fails a stalled loop, dead input, a wedged player and page errors"
     ...base,
     // 20 frames over 4 s: under 10 fps, so stalled.
     lastWindow: window({ frame: 40 }),
-    metrics: { ...base.metrics, longestStuckRun: THRESHOLDS.stuckRun + 1, maxTickDisplacement: 0 },
+    metrics: { ...base.metrics, longestStuckRun: THRESHOLDS.wedgedRun, maxTickDisplacement: 0 },
   };
   const built = { ...report(opts, stalled), pageErrors: ["boom"] };
   const { failures } = verdict(built, opts);
   assert.match(failures.join("\n"), /game loop stalled/u);
   assert.match(failures.join("\n"), /did not respond to input/u);
-  assert.match(failures.join("\n"), /wedged for 3 consecutive/u);
+  assert.match(failures.join("\n"), /wedged for 5 consecutive/u);
   assert.match(failures.join("\n"), /1 uncaught page error/u);
 });
 
