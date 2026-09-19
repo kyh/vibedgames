@@ -1,6 +1,7 @@
-import { baseStats, DIRS, DIR_VECT, EXPLOSION_MS, FUSE_MS, tileKey } from "../shared/constants";
-import type { Bomb, Cell, Dir, PowerupKind, SharedState } from "../shared/constants";
-import { bombOn, computeBlastTiles } from "./host-sim";
+import { baseStats, DIR_VECT, FUSE_MS, tileKey } from "../shared/constants";
+import type { Cell, Dir, PowerupKind, SharedState } from "../shared/constants";
+import { bombOn, burnWindows, computeBlastTiles, restable, search } from "./burn-map";
+import type { Burn, Reach } from "./burn-map";
 
 // What a playtester decides from. A decision model has no eyes, so this is the
 // board the way a player reads it — the four cells around them, where the
@@ -48,25 +49,6 @@ export interface PlaytestViewInput {
   cooldownMs: number;
 }
 
-/** When a tile is on fire: `from` is -Infinity for a blast already burning. */
-interface Burn {
-  from: number;
-  to: number;
-}
-
-type FuseBomb = Pick<Bomb, "col" | "row" | "range" | "placedAt">;
-
-interface Reach {
-  steps: number;
-  first: Dir | null;
-}
-
-interface SearchNode {
-  col: number;
-  row: number;
-  first: Dir;
-}
-
 /** A blast line is at most this many steps from cover, well inside one fuse. */
 const ESCAPE_STEPS = 4;
 const FLEE_STEPS = 8;
@@ -74,111 +56,6 @@ const TRAVEL_STEPS = 48;
 /** Slack around a burn window: the host resolves deaths on a 70 ms tick and
  *  the step that leaves a tile lands a frame or two after it is decided. */
 const BURN_MARGIN_MS = 160;
-
-/**
- * Every tile that is burning or will burn, and when. A bomb caught in an
- * earlier blast goes off with it, so fuses are relaxed until they settle.
- */
-const burnWindows = (state: SharedState, bombs: readonly FuseBomb[]): Map<string, Burn> => {
-  const fused = bombs.map((bomb) => ({
-    at: bomb.placedAt + FUSE_MS,
-    bomb,
-    tiles: computeBlastTiles(state.grid, bomb).tiles,
-  }));
-  let settled = false;
-  while (!settled) {
-    settled = true;
-    for (const source of fused) {
-      for (const other of fused) {
-        const caught = source.tiles.some(
-          (tile) => tile.col === other.bomb.col && tile.row === other.bomb.row,
-        );
-        if (caught && other.at > source.at) {
-          other.at = source.at;
-          settled = false;
-        }
-      }
-    }
-  }
-  const burns = new Map<string, Burn>();
-  const mark = (key: string, from: number, to: number): void => {
-    const known = burns.get(key);
-    burns.set(
-      key,
-      known ? { from: Math.min(known.from, from), to: Math.max(known.to, to) } : { from, to },
-    );
-  };
-  for (const blast of Object.values(state.blasts)) {
-    for (const tile of blast.tiles) {
-      mark(tileKey(tile.col, tile.row), -Infinity, blast.placedAt + EXPLOSION_MS);
-    }
-  }
-  for (const { at, tiles } of fused) {
-    for (const tile of tiles) {
-      mark(tileKey(tile.col, tile.row), at, at + EXPLOSION_MS);
-    }
-  }
-  return burns;
-};
-
-const search = (
-  state: SharedState,
-  from: { col: number; row: number },
-  canEnter: (key: string, steps: number) => boolean,
-  isGoal: (col: number, row: number, key: string, steps: number) => boolean,
-  maxSteps: number,
-): Reach | null => {
-  const startKey = tileKey(from.col, from.row);
-  if (isGoal(from.col, from.row, startKey, 0)) {
-    return { first: null, steps: 0 };
-  }
-  const visited = new Set<string>([startKey]);
-  let frontier: SearchNode[] = [];
-  const expand = (
-    node: { col: number; row: number; first: Dir | null },
-    steps: number,
-    out: SearchNode[],
-  ): Dir | null => {
-    const { col, row, first } = node;
-    for (const dir of DIRS) {
-      const [dc, dr] = DIR_VECT[dir];
-      const c = col + dc;
-      const r = row + dr;
-      const key = tileKey(c, r);
-      if (visited.has(key)) {
-        continue;
-      }
-      visited.add(key);
-      if (
-        state.grid[r]?.[c]?.kind !== "empty" ||
-        bombOn(state.bombs, c, r) ||
-        !canEnter(key, steps)
-      ) {
-        continue;
-      }
-      if (isGoal(c, r, key, steps)) {
-        return first ?? dir;
-      }
-      out.push({ col: c, first: first ?? dir, row: r });
-    }
-    return null;
-  };
-  const opening = expand({ ...from, first: null }, 1, frontier);
-  if (opening) {
-    return { first: opening, steps: 1 };
-  }
-  for (let steps = 2; steps <= maxSteps && frontier.length > 0; steps += 1) {
-    const next: SearchNode[] = [];
-    for (const node of frontier) {
-      const found = expand(node, steps, next);
-      if (found) {
-        return { first: found, steps };
-      }
-    }
-    frontier = next;
-  }
-  return null;
-};
 
 const nearest = <T extends { col: number; row: number }>(
   items: readonly T[],
@@ -215,12 +92,6 @@ const stepOf = (reach: Reach | null, atTarget: PlanStep): PlanStep => {
   }
   return reach.first ?? atTarget;
 };
-
-/** A tile to stop on: nothing burning, nothing lit that will reach it. */
-const restable =
-  (windows: Map<string, Burn>) =>
-  (_c: number, _r: number, key: string): boolean =>
-    !windows.has(key);
 
 export const playtestView = (input: PlaytestViewInput): PlaytestView => {
   const { state, myId, col, row, now, stepMs, cooldownMs } = input;

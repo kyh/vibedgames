@@ -1,7 +1,10 @@
 // Small numeric helpers shared across the game.
 
-// mulberry32: a tiny seeded PRNG so a `?seed=` match lays out the same map.
-export const seededRandom = (seed: number): (() => number) => {
+/** A stream of uniform draws in [0, 1). */
+export type Rng = () => number;
+
+// mulberry32: a tiny seeded PRNG so a `?seed=` match lays out the same map and plays the same brawl.
+export const seededRandom = (seed: number): Rng => {
   // oxlint-disable-next-line no-bitwise, unicorn/prefer-math-trunc -- `| 0` wraps the seed to a 32-bit integer, which Math.trunc would not
   let state = seed | 0;
   return () => {
@@ -30,7 +33,10 @@ export const smoothstep = (edge0: number, edge1: number, x: number): number => {
 export const damp = (from: number, to: number, lambda: number, dt: number): number =>
   lerp(from, to, 1 - Math.exp(-lambda * dt));
 
+/** Cosmetic draws only: anything the sim reads comes from the match's seeded stream via `randIn`. */
 export const rand = (min = 0, max = 1): number => min + Math.random() * (max - min);
+
+export const randIn = (rng: Rng, min: number, max: number): number => min + rng() * (max - min);
 
 // Shortest signed rotation from `from` to `to`, in (-PI, PI].
 export const angleDelta = (from: number, to: number): number => {

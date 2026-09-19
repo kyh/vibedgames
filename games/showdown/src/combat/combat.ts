@@ -326,8 +326,9 @@ export class Combat {
   dropCubes(x: number, z: number, count: number): void {
     const { world } = this.game;
     for (let i = 0; i < count; i += 1) {
-      const angle = (i / count) * Math.PI * 2 + Math.random();
-      const spread = count === 1 ? 0 : 0.7 + Math.random() * 0.5;
+      const { rng } = this.game;
+      const angle = (i / count) * Math.PI * 2 + rng();
+      const spread = count === 1 ? 0 : 0.7 + rng() * 0.5;
       const spot = world.nearestOpen(x + Math.cos(angle) * spread, z + Math.sin(angle) * spread);
       this.spawnCube(x, z, spot.x, spot.z);
     }

@@ -293,15 +293,16 @@ export const BOT_NAMES: readonly string[] = [
 export type DifficultyName = "easy" | "normal" | "hard";
 
 export interface Difficulty {
-  // bot reaction delay multiplier
+  // multiplier on the pause between a bot's shots at a human (lower = faster fire)
   cadence: number;
   // bot damage multiplier against the player
   damage: number;
-  // distance at which bots start a fight
+  // distance inside which a bot picks a fight with the player unprovoked
   engage: number;
-  // how many bots actively hunt the player
+  // how many bots may hunt the player at once; a provoked or point-blank bot ignores the cap
   hunters: number;
   label: string;
+  // multiplier on the delay before a bot acts on a new target
   react: number;
   // [min, max] bot aim skill
   skill: readonly [number, number];
@@ -319,22 +320,22 @@ export const DIFFICULTIES: Record<DifficultyName, Difficulty> = {
     skill: [0.3, 0.6],
   },
   normal: {
-    cadence: 1.3,
-    damage: 0.68,
-    engage: 6.5,
-    hunters: 2,
+    cadence: 1,
+    damage: 0.88,
+    engage: 8,
+    hunters: 3,
     label: "Normal",
-    react: 1.4,
-    skill: [0.45, 0.78],
+    react: 0.95,
+    skill: [0.6, 0.9],
   },
   hard: {
-    cadence: 1,
-    damage: 0.85,
+    cadence: 0.9,
+    damage: 0.95,
     engage: 9,
-    hunters: 3,
+    hunters: 4,
     label: "Hard",
-    react: 1,
-    skill: [0.62, 0.95],
+    react: 0.85,
+    skill: [0.68, 0.96],
   },
 };
 

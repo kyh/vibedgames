@@ -51,7 +51,6 @@ import type { SkillId } from "../systems/skills";
 import { store } from "../systems/store";
 import { CROPS, cropStage, isMature } from "../data/crops";
 import type { CropId } from "../data/crops";
-import { isSellable, sellValue } from "../data/items";
 import type { Item, ForageId, ToolId } from "../data/items";
 import { loadSave, writeSave } from "../systems/save";
 import type { SaveData } from "../systems/save";
@@ -125,6 +124,10 @@ export class GameScene extends Scene {
   timeMin = DAY_START_MIN;
   canCharge = CAN_MAX;
   uiOpen = false;
+  /** The E / A press that answers a modal can reach this scene in the same
+   *  frame, after the Hud has closed it — it must not also act on the world
+   *  (facing the bed, it would reopen the prompt). */
+  private uiClosedFrame = -1;
   controlsPaused = false;
   weather: Weather = "sunny";
   private shipping: DayRecap = { day: 1, shipments: 0, shippedGold: 0 };
@@ -1308,6 +1311,9 @@ export class GameScene extends Scene {
     if (this.controlsPaused || this.uiOpen || this.acting || this.transitioning) {
       return;
     }
+    if (this.game.loop.frame === this.uiClosedFrame) {
+      return;
+    }
     if (this.fishing.active) {
       this.fishing.onActionPress();
       return;
@@ -1793,18 +1799,7 @@ export class GameScene extends Scene {
   }
 
   sellAll(): number {
-    let total = 0;
-    const sellFrom = (arr: typeof store.inv.slots) => {
-      for (let i = 0; i < arr.length; i += 1) {
-        const s = arr[i];
-        if (s && isSellable(s.item)) {
-          total += sellValue(s.item) * s.qty;
-          arr[i] = null;
-        }
-      }
-    };
-    sellFrom(store.inv.slots);
-    sellFrom(store.inv.pack);
+    const total = store.inv.sellAll();
     if (total > 0) {
       store.gold += total;
       store.work.goldEarned += total;
@@ -1841,6 +1836,7 @@ export class GameScene extends Scene {
 
   closeUi(): void {
     this.uiOpen = false;
+    this.uiClosedFrame = this.game.loop.frame;
   }
 
   private confirmSleep(): void {
@@ -1867,7 +1863,7 @@ export class GameScene extends Scene {
   // ---------------------------------------------------------------- day cycle
 
   doSleep(): void {
-    this.uiOpen = false;
+    this.closeUi();
     // Only the host may end the day: a guest's overnight pass would advance
     // crops + refill energy locally, then snap back to the host clock —
     // leaving the worlds diverged (and a free-energy exploit).

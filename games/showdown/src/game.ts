@@ -44,7 +44,9 @@ import { Pipeline } from "./render/pipeline";
 import { separateBrawlers, updateVisibility } from "./roster-sim";
 import { loadSettings, resolveDifficulty, resolveQuality, storeSettings } from "./settings-store";
 import type { SavedSettings } from "./settings-store";
-import { clamp, dist, lerp, rand } from "./utils";
+import { clamp, dist, lerp, rand, seededRandom } from "./utils";
+import type { Rng } from "./utils";
+import { saltedSeed } from "./world/grid";
 import { World } from "./world/world";
 
 export { SETTINGS_KEY } from "./settings-store";
@@ -103,6 +105,9 @@ const MAX_CATCH_UP_S = 0.25;
 const OFFLINE_TOAST = "Couldn't reach the party server — playing vs bots";
 const GUEST_WAIT = "Waiting for the next brawl…";
 
+/** Gives the brawl its own random stream off the map seed, apart from the world builder's. */
+const MATCH_SALT = 0x6d_61_74_63;
+
 const randomSeed = (): number => Math.trunc(Math.random() * 1e9);
 
 /** A numeric query param; NaN when absent or blank, so callers can `||` a default. */
@@ -111,9 +116,9 @@ const numberParam = (params: URLSearchParams, name: string): number => {
   return raw === null || raw.trim() === "" ? Number.NaN : Number(raw);
 };
 
-const shuffle = <T>(items: T[]): T[] => {
+const shuffle = <T>(items: T[], rng: Rng): T[] => {
   for (let i = items.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(rng() * (i + 1));
     const a = items[i];
     const b = items[j];
     if (a !== undefined && b !== undefined) {
@@ -183,6 +188,12 @@ export class Game {
   fixedSeed: number | null;
   readonly maxAniso: number;
   world: World;
+  /**
+   * Every draw the sim makes (spawns, kits, bot brains, weapon spread, cube
+   * scatter), reseeded with each world so a seed replays the same brawl.
+   * Cosmetic draws stay on Math.random so they never shift this stream.
+   */
+  rng: Rng;
   readonly effects: Effects;
   readonly combat: Combat;
   readonly gas: Gas;
@@ -253,6 +264,7 @@ export class Game {
     this.fixedSeed = Number.isFinite(seedParam) ? seedParam : null;
     this.maxAniso = this.pipeline.renderer.capabilities.getMaxAnisotropy();
     this.world = new World(this.scene, this.nextSeed, this.maxAniso);
+    this.rng = seededRandom(saltedSeed(this.world.seed, MATCH_SALT));
     this.lighting.setLamps(this.world.lanterns, this.world.lampGlass);
     this.effects = new Effects(this);
     this.combat = new Combat(this);
@@ -410,6 +422,7 @@ export class Game {
       this.nextSeed = seed;
     }
     this.world = new World(this.scene, this.nextSeed, this.maxAniso);
+    this.rng = seededRandom(saltedSeed(this.world.seed, MATCH_SALT));
     this.lighting.setLamps(this.world.lanterns, this.world.lampGlass);
     this.effects.rebuildFireflies();
   }
@@ -433,8 +446,9 @@ export class Game {
   private spawnRoster(playerId: BrawlerId | null): void {
     this.clearEntities();
     const { world } = this;
-    const spawns = shuffle([...world.spawns]);
-    const names = shuffle([...BOT_NAMES]);
+    const { rng } = this;
+    const spawns = shuffle([...world.spawns], rng);
+    const names = shuffle([...BOT_NAMES], rng);
     const kits = Object.keys(BRAWLERS).filter(isBrawlerId);
     const seats = this.rosterSeats(playerId);
     const count = TUNING.bots + 1;
@@ -446,7 +460,7 @@ export class Game {
       const [tx, ty] = spawn;
       const seat = seats[i];
       const isPlayer = seat?.isLocal ?? false;
-      const kitId = seat ? seat.kit : kits[(i + Math.floor(Math.random() * 4)) % 4];
+      const kitId = seat ? seat.kit : kits[(i + Math.floor(rng() * 4)) % 4];
       const def = BRAWLERS[kitId ?? "dusty"];
       const owner = seat && seat.owner !== "" ? seat.owner : null;
       const brawler = new Brawler(this, def, {
@@ -463,7 +477,7 @@ export class Game {
       if (isPlayer) {
         this.player = brawler;
       } else if (!seat) {
-        this.brains.push(new Bot(this, brawler));
+        this.brains.push(new Bot(this, brawler, this.rng));
       }
     }
     for (const [tx, ty] of world.boxSpots) {
@@ -492,6 +506,11 @@ export class Game {
     this.state = "countdown";
     this.countdownT = COUNTDOWN_S;
     this.lastCount = 4;
+    // The sim clock and the camera lean restart with the match: both feed the sim
+    // (combat timers, the mouse-aim ray), so leftovers would make a seed replay drift.
+    this.elapsed = 0;
+    this.leanX = 0;
+    this.leanZ = 0;
     this.matchTime = 0;
     this.pendingResult = null;
     this.shakeAmp = 0;
@@ -500,6 +519,10 @@ export class Game {
       this.focus.set(player.x, 0, player.z);
       this.guide.setupFor(player.def);
     }
+    // Mouse aim unprojects through the camera, so the match view is in place before the
+    // first step rather than inherited from whatever screen came before.
+    updateCamera(this, 0);
+    this.camera.updateMatrixWorld();
     if (this.autoTime) {
       this.lighting.setTime(TUNING.startHour);
     }
@@ -601,7 +624,7 @@ export class Game {
     this.brawlers.push(b);
     this.hud.addBrawler(b);
     if (withBrain) {
-      this.brains.push(new Bot(this, b));
+      this.brains.push(new Bot(this, b, this.rng));
     }
   }
 
@@ -777,7 +800,7 @@ export class Game {
     this.brawlers.push(brawler);
     this.hud.addBrawler(brawler);
     if (withBrain) {
-      this.brains.push(new Bot(this, brawler));
+      this.brains.push(new Bot(this, brawler, this.rng));
     }
     return brawler;
   }

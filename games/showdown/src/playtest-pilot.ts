@@ -89,8 +89,14 @@ export class Pilot {
   /** The bots' route planner, bound to whoever the player is this match. */
   private navigator(player: Brawler): Bot {
     if (this.nav?.b !== player) {
-      this.nav = new Bot(this.game, player);
+      // Route planning draws nothing; Math.random keeps this navigator off the match's stream.
+      this.nav = new Bot(this.game, player, Math.random);
       this.planned = null;
+      // game.elapsed restarts with each match, so stamps from the last one would sit in the future.
+      this.strafeDir = 1;
+      this.strafeAt = 0;
+      this.checkAt = 0;
+      this.sidestepUntil = 0;
     }
     return this.nav;
   }
@@ -211,7 +217,12 @@ export class Pilot {
 
   private livePlayer(): Brawler | null {
     const { player, state } = this.game;
-    return player?.alive && state === "playing" ? player : null;
+    if (!player?.alive || state !== "playing") {
+      return null;
+    }
+    // Binds the pilot to this match's brawler before any reflex reads its stamps.
+    this.navigator(player);
+    return player;
   }
 
   private safeGoal(player: Brawler): Point {

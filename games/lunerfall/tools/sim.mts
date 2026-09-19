@@ -94,6 +94,9 @@ const run = (
   }
 };
 
+const embedded = (g: Grid, b: PlayerBody): boolean =>
+  g.solidInRect(b.x - PLAYER_HALF_W, b.y - PLAYER_BODY_H, b.x + PLAYER_HALF_W, b.y);
+
 console.log("lunerfall physics sim\n");
 
 // 1. Spawns and rests on the floor.
@@ -1203,6 +1206,128 @@ const script = (f: number): Partial<BodyInput> => ({
     reached / total >= 0.97,
     `${reached}/${total}`,
   );
+}
+
+// ── Collision integrity: a body never ends a step inside a solid tile ────────
+{
+  const arena = Grid.test();
+  // Shoulder 1px under the right end of the left ledge (cols 6–10, row 10).
+  const lipX = 11 * TILE + PLAYER_HALF_W - 1;
+  {
+    const b = spawn(lipX);
+    let worst = false;
+    let apex = b.y;
+    for (let f = 0; f < 70; f += 1) {
+      b.buffer(inp({ jumpHeld: true, jumpPressed: f === 0, left: f > 12 }));
+      b.step(STEP);
+      worst ||= embedded(arena, b);
+      apex = Math.min(apex, b.y);
+    }
+    check("a jump that clips a lip by 1px never embeds the shoulder", !worst);
+    check(
+      "…and is nudged round the lip instead of losing the jump",
+      FLOOR_Y - apex > 40,
+      `${(FLOOR_Y - apex).toFixed(1)}px`,
+    );
+  }
+  {
+    // Dead-centre under the ledge is a real ceiling: bonk, not a nudge.
+    const b = spawn(8 * TILE + 8);
+    const x0 = b.x;
+    run(b, 40, { jumpHeld: true }, { 0: { jumpPressed: true } });
+    check("a square head-bonk still stops the jump without shifting x", b.x === x0 && b.grounded);
+  }
+
+  {
+    // Guest reconciliation can blend the body across a tile edge.
+    const b = spawn(lipX + 8);
+    b.nudge(-10, -(FLOOR_Y - 11 * TILE) + 4);
+    check("a reconcile nudge into a tile is pushed back out", !embedded(arena, b));
+    run(b, 30, { left: true });
+    check("…and the body walks on from there without embedding", !embedded(arena, b));
+  }
+
+  // One-way platforms: low-left one-way is cols 3–7, row 12.
+  const owTop = 12 * TILE;
+  {
+    const b = spawn(5 * TILE);
+    let groundedRising = false;
+    let apex = b.y;
+    for (let f = 0; f < 40; f += 1) {
+      b.buffer(inp({ jumpHeld: true, jumpPressed: f === 0 }));
+      b.step(STEP);
+      groundedRising ||= b.grounded && b.vy < 0;
+      apex = Math.min(apex, b.y);
+    }
+    check("rising through a one-way never reads grounded", !groundedRising);
+    check(
+      "jump height through a one-way matches open air",
+      FLOOR_Y - apex > 40 && FLOOR_Y - apex < 72,
+      `${(FLOOR_Y - apex).toFixed(1)}px`,
+    );
+    run(b, 60, {});
+    check(
+      "…and lands on top of it on the way down",
+      b.grounded && b.y <= owTop && owTop - b.y < 2,
+      `y=${b.y.toFixed(2)}`,
+    );
+  }
+  {
+    const b = new PlayerBody(Grid.test(), 5 * TILE, owTop + 1, HEROES.axion.kit);
+    run(b, 3, {});
+    check("feet 1px inside a one-way do not rest there", !b.grounded && b.y > owTop + 1);
+  }
+
+  // Fuzz: random jump/dash/move inputs across generated + authored rooms.
+  // Park–Miller, kept local so the fuzz never perturbs the game rng stream.
+  let seed = 5_371_230;
+  const roll = (): number => {
+    seed = (seed * 48_271) % 2_147_483_647;
+    return seed / 2_147_483_647;
+  };
+  const rooms = [START(), SAFE(), BOSS(), VERSUS()];
+  for (let s = 1; s <= 40; s += 1) {
+    rooms.push(genCombatRoom(s, 1 + (s % 3)));
+  }
+  let steps = 0;
+  let firstEmbed = "";
+  let firstBadGround = "";
+  for (const [ri, def] of rooms.entries()) {
+    const b = new PlayerBody(def.grid, def.playerSpawn.x, def.playerSpawn.y, HEROES.axion.kit);
+    let held: Partial<BodyInput> = {};
+    let hold = 0;
+    for (let f = 0; f < 1500; f += 1) {
+      if (hold <= 0) {
+        const dir = roll();
+        held = {
+          down: roll() < 0.15,
+          jumpHeld: roll() < 0.6,
+          left: dir < 0.4,
+          right: dir > 0.6,
+          up: roll() < 0.25,
+        };
+        hold = 2 + Math.floor(roll() * 30);
+      }
+      hold -= 1;
+      b.buffer(inp({ ...held, dashPressed: roll() < 0.06, jumpPressed: roll() < 0.12 }));
+      b.step(STEP);
+      steps += 1;
+      if (!firstEmbed && embedded(def.grid, b)) {
+        firstEmbed = `room ${ri} f${f} x=${b.x.toFixed(2)} y=${b.y.toFixed(2)}`;
+      }
+      const onSolid = def.grid.solidInRect(b.x - PLAYER_HALF_W, b.y, b.x + PLAYER_HALF_W, b.y + 2);
+      if (
+        !firstBadGround &&
+        b.grounded &&
+        !onSolid &&
+        (b.vy < 0 || (TILE - (b.y % TILE)) % TILE >= 2)
+      ) {
+        firstBadGround = `room ${ri} f${f} y=${b.y.toFixed(2)} vy=${b.vy.toFixed(1)}`;
+      }
+    }
+  }
+  check(`fuzz: body never overlaps a solid tile (${steps} steps)`, !firstEmbed, firstEmbed);
+  check("fuzz: a one-way only grounds a falling body at its top", !firstBadGround, firstBadGround);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

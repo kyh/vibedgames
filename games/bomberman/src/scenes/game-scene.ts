@@ -26,7 +26,8 @@ import { blastFrame, fireCells, freshCue } from "../render/blast-frame";
 import { RoundHud } from "../render/round-hud";
 import { playtestManifest } from "../playtest-manifest";
 import type { BombermanDiagnostics } from "../playtest-manifest";
-import { bombOn, hostTick as simHostTick, placeBomb } from "../sim/host-sim";
+import { bombOn } from "../sim/burn-map";
+import { hostTick as simHostTick, placeBomb } from "../sim/host-sim";
 import { PlaytestScore, playtestView } from "../sim/playtest-view";
 import type { Human } from "../sim/host-sim";
 import {

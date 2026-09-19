@@ -13,6 +13,7 @@ pnpm --filter @repo/showdown typecheck   # tsc --noEmit
 pnpm --filter @repo/showdown build       # vite build
 pnpm --filter @repo/showdown preview     # vite preview
 pnpm --filter @repo/showdown test        # headless config/utils smoke checks (tools/boot-smoke.mts, no three.js)
+pnpm --filter @repo/showdown test:seed   # headless Chromium: the same seed replays the same brawl (tools/seed-smoke.mjs; --soak N for balance runs)
 ```
 
 ## Routes
@@ -30,7 +31,7 @@ pnpm --filter @repo/showdown test        # headless config/utils smoke checks (t
 | `?q=<quality>`     | `low` / `medium` / `high` / `ultra`; disables the automatic GPU benchmark       |
 | `?bots=<level>`    | bot difficulty: `easy` / `normal` / `hard`                                      |
 | `?time=<hour>`     | pin the time of day (0–24, e.g. `19.4` for dusk) instead of following the match |
-| `?seed=<int>`      | deterministic arena layout for the first match                                  |
+| `?seed=<int>`      | deterministic first match: arena, spawns, bot kits and every bot decision       |
 | `?auto=<brawler>`  | skip the menu and start as `dusty` / `ace` / `fuse` / `titan`                   |
 | `?zoom=<factor>`   | camera distance multiplier (default `1`)                                        |
 | `?speed=<n>`       | simulation steps per rendered frame, 1–16 (fast-forward for tests)              |

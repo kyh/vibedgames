@@ -348,7 +348,7 @@ export class Brawler {
     const muzzle = this.muzzleWorld(new THREE.Vector3());
     for (let i = 0; i < a.pellets; i += 1) {
       const fan = a.pellets === 1 ? 0 : i / (a.pellets - 1) - 0.5;
-      const angle = this.aimAngle + fan * a.spread + (Math.random() - 0.5) * 0.04;
+      const angle = this.aimAngle + fan * a.spread + (this.game.rng() - 0.5) * 0.04;
       this.game.combat.spawnBullet(
         this,
         muzzle.x,
@@ -357,7 +357,7 @@ export class Brawler {
         Math.cos(angle),
         a,
         isSuper,
-        a.speed * (0.94 + Math.random() * 0.12),
+        a.speed * (0.94 + this.game.rng() * 0.12),
       );
     }
     this.game.effects.muzzle(
@@ -427,7 +427,7 @@ export class Brawler {
     this.muzzleIndex += 1;
     this.recoil = 1;
     const muzzle = this.muzzleWorld(new THREE.Vector3());
-    const angle = Math.atan2(burst.dirX, burst.dirZ) + (Math.random() - 0.5) * 2 * a.jitter;
+    const angle = Math.atan2(burst.dirX, burst.dirZ) + (this.game.rng() - 0.5) * 2 * a.jitter;
     const dirX = Math.sin(angle);
     const dirZ = Math.cos(angle);
     this.game.combat.spawnBullet(this, muzzle.x, muzzle.z, dirX, dirZ, a, burst.isSuper, a.speed);

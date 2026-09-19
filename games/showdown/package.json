@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "test": "node --import tsx --test tools/*-smoke.mts",
     "test:online": "node tools/two-client.mjs",
+    "test:seed": "node tools/seed-smoke.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

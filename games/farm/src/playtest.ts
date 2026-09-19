@@ -14,7 +14,17 @@ import type { Work } from "./systems/store";
 import { GROUND, inBounds, tileIdx } from "./world/world";
 import type { World } from "./world/world";
 
-const CHORES = ["till", "plant", "water", "harvest", "forage", "chop", "ship", "refill"] as const;
+const CHORES = [
+  "till",
+  "plant",
+  "water",
+  "harvest",
+  "forage",
+  "chop",
+  "ship",
+  "refill",
+  "sleep",
+] as const;
 type ChoreId = (typeof CHORES)[number];
 type Step = -1 | 0 | 1;
 
@@ -45,6 +55,8 @@ interface FarmView {
   /** Mid-swing, mid-fade or behind a modal: input is ignored until it clears. */
   busy: boolean;
   modal: boolean;
+  /** The open modal is the farmhouse's "Rest for the night?". */
+  sleepPrompt: boolean;
   energy: number;
   water: number;
   seeds: number;
@@ -189,7 +201,12 @@ const planFor = (
   };
 };
 
-const planChores = (scene: GameScene): Record<ChoreId, Plan | null> => {
+/** Evening: from here the farmhouse is worth the walk whatever is left undone. */
+const BEDTIME_MIN = 20 * 60;
+const SWING_ENERGY = 2;
+const isLate = (scene: GameScene): boolean => scene.timeMin >= BEDTIME_MIN;
+
+const planChores = (scene: GameScene, plots: FarmView["plots"]): Record<ChoreId, Plan | null> => {
   const { world } = scene;
   const feet = scene.feetTile();
   const start = tileIdx(feet.tx, feet.ty);
@@ -198,6 +215,11 @@ const planChores = (scene: GameScene): Record<ChoreId, Plan | null> => {
   const hasEnergy = store.energy > 0;
   const seeds = slotOf((it) => it.kind === "seed" && CROPS[it.crop].seasons.includes(season));
   const goods = store.inv.count((it) => it.kind !== "tool" && it.kind !== "seed");
+  // Crops only grow overnight: once today's are in and watered, bed is the next chore.
+  const farmed =
+    plots.ripe === 0 &&
+    plots.dry === 0 &&
+    (seeds === undefined || (plots.empty === 0 && !hasEnergy));
   const crop = (tx: number, ty: number) => world.crops.get(tileIdx(tx, ty));
   const plan = (able: boolean, wants: (tx: number, ty: number) => boolean, standOn = false) =>
     able ? planFor(scene, route, start, wants, standOn) : null;
@@ -221,6 +243,10 @@ const planChores = (scene: GameScene): Record<ChoreId, Plan | null> => {
       (tx, ty) => world.getGround(tx, ty) === GROUND.water,
     ),
     ship: plan(goods > 0, (tx, ty) => world.objectAt(tx, ty)?.type === "bin"),
+    sleep: plan(
+      isLate(scene) || store.energy < SWING_ENERGY || farmed,
+      (tx, ty) => world.objectAt(tx, ty)?.type === "house",
+    ),
     till: plan(hasEnergy && toolSlot("hoe") !== undefined, (tx, ty) => world.canTill(tx, ty)),
     water: plan(hasEnergy && scene.canCharge > 0 && toolSlot("can") !== undefined, (tx, ty) => {
       const cs = crop(tx, ty);
@@ -244,6 +270,7 @@ const plansFor = (scene: GameScene): NonNullable<typeof planned> => {
     facing.x,
     facing.y,
     scene.day,
+    isLate(scene),
     scene.canCharge,
     store.energy,
     scene.world.objects.length,
@@ -252,7 +279,8 @@ const plansFor = (scene: GameScene): NonNullable<typeof planned> => {
     workScore(store.work),
   ].join(":");
   if (planned?.key !== key) {
-    planned = { key, plans: planChores(scene), plots: countPlots(scene.world) };
+    const plots = countPlots(scene.world);
+    planned = { key, plans: planChores(scene, plots), plots };
   }
   return planned;
 };
@@ -295,7 +323,7 @@ const liveChore = (scene: GameScene, plan: Plan | null): Chore | null => {
   return { ...base, facing: false, stepX: stepX === 0 && stepY === 0 ? 1 : stepX, stepY };
 };
 
-const farmView = (scene: GameScene, modal: boolean): FarmView => {
+const farmView = (scene: GameScene, modal: boolean, sleepPrompt: boolean): FarmView => {
   const feet = scene.feetTile();
   const { plans, plots } = plansFor(scene);
   const season = scene.season();
@@ -308,6 +336,7 @@ const farmView = (scene: GameScene, modal: boolean): FarmView => {
       plant: liveChore(scene, plans.plant),
       refill: liveChore(scene, plans.refill),
       ship: liveChore(scene, plans.ship),
+      sleep: liveChore(scene, plans.sleep),
       till: liveChore(scene, plans.till),
       water: liveChore(scene, plans.water),
     },
@@ -322,6 +351,7 @@ const farmView = (scene: GameScene, modal: boolean): FarmView => {
     modal,
     plots,
     seeds: store.inv.count((it) => it.kind === "seed"),
+    sleepPrompt,
     slot: store.inv.selected + 1,
     slots: {
       axe: toolSlot("axe"),
@@ -343,13 +373,14 @@ export const readDiagnostics = (game: Game): FarmDiagnostics => {
   const base = { complete: false, frame: game.loop.frame, score: workScore(store.work) };
   if (scene instanceof GameScene) {
     const hud = game.scene.getScene("Hud");
-    const modal = (hud instanceof HudScene && hud.modalOpen) || game.scene.isActive("Inventory");
+    const prompt = hud instanceof HudScene ? hud.openModal : null;
+    const modal = prompt !== null || game.scene.isActive("Inventory");
     return {
       ...base,
       entities: scene.world.objects.length,
       phase: "farm",
       player: { x: scene.player.x, y: scene.player.y },
-      ...farmView(scene, modal),
+      ...farmView(scene, modal, prompt === "sleep"),
     };
   }
   if (scene instanceof MineScene) {
@@ -367,13 +398,19 @@ const RUN_BEYOND_STEPS = 3;
  * use the tool — then on to the next nearest, for as long as the model keeps
  * choosing it. Facing is tile-exact and the action key is edge-triggered, so
  * none of it survives a decision's latency; which chore is worth doing next is
- * the judgment left to the model.
+ * the judgment left to the model. A modal in the way is backed out of, bar
+ * the one this chore came for: `confirms` answers the bed's prompt with the
+ * same action key that raised it.
  */
-const choreReflex = (id: ChoreId, needs: HeldSlot | null): Reflex<FarmDiagnostics> => {
+const choreReflex = (
+  id: ChoreId,
+  needs: HeldSlot | null,
+  confirms: "sleepPrompt" | null = null,
+): Reflex<FarmDiagnostics> => {
   const tap = keyTapper({ downFrames: 3, upFrames: 6 });
   return (diag) => {
     if (diag?.modal) {
-      return { keys: tap(["Escape"]) };
+      return { keys: tap([confirms && diag[confirms] ? "Space" : "Escape"]) };
     }
     const chore = diag?.chores?.[id];
     if (!diag || !chore || diag.busy) {
@@ -407,9 +444,9 @@ export const farmManifest: PlaytestManifest<FarmDiagnostics> = {
   goal: [
     "You are a farmer on a new farm with a hoe, a watering can, an axe and parsnip seeds. Nothing kills you and nothing wins; game.score counts finished work and only goes up: +1 for each tile tilled, each seed planted and each crop watered, +2 per mushroom foraged, +3 per tree felled, +5 per ripe crop harvested, plus every gold coin earned at the shipping bin.",
     "Each move is a whole chore: choose it and the farmer walks to the nearest place for it, faces the tile and uses the right tool, then carries on to the next one for as long as you keep choosing it. A swing takes about a second, so a chore needs several decisions in a row to score — keep choosing it.",
-    "game.plots counts farmland: empty (tilled, no seed), dry (seeded, not watered), growing, ripe. Choose by this priority, top first: (1) `harvest` if plots.ripe > 0. (2) `water` if plots.dry > 0. (3) `plant` if plots.empty > 0 and game.seeds > 0. (4) `till` if game.seeds > 0 and game.energy > 0. (5) otherwise `forage` or `chop`, whichever has the smaller game.chores.<move>.steps.",
+    "game.plots counts farmland: empty (tilled, no seed), dry (seeded, not watered), growing, ripe. Crops grow one stage per night and only if they were watered that day, so a harvest takes several days: farm, sleep, water again. Choose by this priority, top first: (1) `harvest` if plots.ripe > 0. (2) `water` if plots.dry > 0. (3) `plant` if plots.empty > 0 and game.seeds > 0. (4) `till` if game.seeds > 0 and game.energy > 0. (5) `ship` if game.goods > 0. (6) `sleep` if game.chores.sleep is not null — the day's farming is done, it is late, or game.energy has run out; sleeping starts the next day with full energy and a full can. (7) otherwise `forage` or `chop`, whichever has the smaller game.chores.<move>.steps.",
     "game.chores.<move> is that chore's nearest target: dx/dy in tiles from the farmer, steps the walking distance. It is null when the chore is impossible right now (nothing to do it on, no seeds, no energy, empty can) — NEVER choose a move whose game.chores entry is null, the farmer would stand still.",
-    "till, water and chop cost 2 game.energy a swing; plant, harvest, forage and ship are free. `ship` sells EVERYTHING in the bag, unplanted seeds included, so never ship while game.seeds > 0. `refill` only when game.water is 0.",
+    "till, water and chop cost 2 game.energy a swing; plant, harvest, forage, ship and sleep are free. `ship` sells the crops, wood and mushrooms in the bag; tools and seeds stay. `refill` only when game.water is 0. At game.minutesToPassOut 0 the farmer collapses and wakes with half energy, so sleep before then.",
   ].join(" "),
   move: {
     chop: {
@@ -438,8 +475,13 @@ export const farmManifest: PlaytestManifest<FarmDiagnostics> = {
     },
     ship: {
       description:
-        "Carry the bag to the shipping bin and sell everything in it for gold. Only when game.goods is above 0 and game.seeds is 0",
+        "Carry the bag to the shipping bin and sell its crops, wood and mushrooms for gold (seeds and tools are kept). Whenever game.goods is above 0 and no crop needs harvesting, watering or planting",
       reflex: choreReflex("ship", null),
+    },
+    sleep: {
+      description:
+        "Walk home, go to bed and confirm: ends the day, grows every watered crop a stage, refills energy and the can. Whenever game.chores.sleep is not null and no crop needs harvesting, watering or planting — it is the only way to reach the next day",
+      reflex: choreReflex("sleep", null, "sleepPrompt"),
     },
     till: {
       description:
