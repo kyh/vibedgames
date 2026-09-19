@@ -18,6 +18,33 @@
         "export PATH=\"$HOME/Library/Application Support/fnm/aliases/default/bin:$PATH\"; cd games/crazy-waymo && exec node node_modules/vite/bin/vite.js"
       ],
       "port": 5193
+    },
+    {
+      "name": "showdown",
+      "runtimeExecutable": "/bin/zsh",
+      "runtimeArgs": [
+        "-c",
+        "export PATH=\"$HOME/Library/Application Support/fnm/aliases/default/bin:$PATH\"; cd games/showdown && exec node node_modules/vite/bin/vite.js"
+      ],
+      "port": 5195
+    },
+    {
+      "name": "moba",
+      "runtimeExecutable": "/bin/zsh",
+      "runtimeArgs": [
+        "-c",
+        "export PATH=\"$HOME/Library/Application Support/fnm/aliases/default/bin:$PATH\"; cd games/moba && exec node node_modules/vite/bin/vite.js"
+      ],
+      "port": 5182
+    },
+    {
+      "name": "lunerfall",
+      "runtimeExecutable": "/bin/zsh",
+      "runtimeArgs": [
+        "-c",
+        "export PATH=\"$HOME/Library/Application Support/fnm/aliases/default/bin:$PATH\"; cd games/lunerfall && exec node node_modules/vite/bin/vite.js"
+      ],
+      "port": 5192
     }
   ]
 }
