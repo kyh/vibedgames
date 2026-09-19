@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.2 — 2026-09-19
+
+- **`vg generate` image edits through Codex work.** With a reference image, `codex exec`'s variadic `-i` swallowed the prompt and every edit run failed; the prompt now follows `--`.
+- A requested size (`--width/--height`, `--image_size`) is a target on the Codex path: asked for exact pixels, Codex stopped to ask permission to resize and the run ended with no file.
+- The Codex store fallback finds images again — Codex files them per session, one folder down.
+- The playtest skill's references are now `scripted-playtest.md` and `autonomous-playtest.md`; the CLI's "no diagnostics contract" error points at the new name.
+
 ## 0.6.1 — 2026-09-18
 
 - `vg playtest run --pin-move <name>` — hold one move for the whole run and never call the model: deterministic, free reflex tuning, same report.
