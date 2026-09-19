@@ -4,32 +4,32 @@ packages:
   - packages/*
 
 catalog:
-  "@cloudflare/vite-plugin": ^1.54.4
-  "@cloudflare/workers-types": ^5.20260906.1
+  "@cloudflare/vite-plugin": ^1.56.0
+  "@cloudflare/workers-types": ^5.20260918.1
   "@kyh/tsconfig": ^1.2.0
   "@orpc/client": 2.0.0-beta.31
   "@orpc/server": 2.0.0-beta.31
   "@orpc/tanstack-query": 2.0.0-beta.31
   "@tailwindcss/vite": ^4.3.3
-  "@tanstack/react-query": ^5.102.8
-  "@tanstack/react-router": ^1.170.32
-  "@tanstack/react-router-ssr-query": ^1.167.2
-  "@tanstack/react-start": ^1.168.49
-  "@types/node": ^26.4.1
-  "@types/react": ^19.2.18
-  "@types/react-dom": ^19.2.7
+  "@tanstack/react-query": ^5.103.1
+  "@tanstack/react-router": ^1.170.38
+  "@tanstack/react-router-ssr-query": ^1.167.3
+  "@tanstack/react-start": ^1.168.56
+  "@types/node": ^26.6.1
+  "@types/react": ^19.3.0
+  "@types/react-dom": ^19.3.0
   "@vitejs/plugin-react": ^6.1.1
   "@vitejs/plugin-react-swc": ^4.3.1
-  cn: ^0.2.5
+  cn: ^0.2.6
   globals: ^17.6.0
-  react: ^19.2.8
-  react-dom: ^19.2.8
+  react: ^19.3.0
+  react-dom: ^19.3.0
   tailwindcss: ^4.3.3
   typescript: ^7.0.2
-  vite: ^8.2.2
+  vite: ^8.3.0
   vite-tsconfig-paths: ^6.1.1
-  wrangler: ^4.129.0
-  zod: ^4.5.4
+  wrangler: ^4.135.0
+  zod: ^4.6.5
 
 linkWorkspacePackages: true
 

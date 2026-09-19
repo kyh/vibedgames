@@ -8,11 +8,18 @@ import { toast } from "@repo/ui/components/sonner";
 // hand the client a string where the server had a Date.
 const serializer = new RPCSerializer();
 
-export function createQueryClient() {
-  return new QueryClient({
+export const createQueryClient = () =>
+  new QueryClient({
     defaultOptions: {
-      queries: {
-        staleTime: 30 * 1000,
+      dehydrate: {
+        // FormData cannot ride the hydration payload into the browser, so keep
+        // blobs inline in the JSON.
+        serializeData: (data) => serializer.serialize(data, { useFormDataForBlobFields: false }),
+        shouldDehydrateQuery: (query) =>
+          query.state.status === "pending" || query.state.status === "success",
+      },
+      hydrate: {
+        deserializeData: (data) => serializer.deserialize(data),
       },
       mutations: {
         // No default `onSuccess`. Every mutation invalidates exactly the
@@ -30,16 +37,8 @@ export function createQueryClient() {
           toast.error(error.message);
         },
       },
-      dehydrate: {
-        // FormData cannot ride the hydration payload into the browser, so keep
-        // blobs inline in the JSON.
-        serializeData: (data) => serializer.serialize(data, { useFormDataForBlobFields: false }),
-        shouldDehydrateQuery: (query) =>
-          query.state.status === "pending" || query.state.status === "success",
-      },
-      hydrate: {
-        deserializeData: (data) => serializer.deserialize(data),
+      queries: {
+        staleTime: 30 * 1000,
       },
     },
   });
-}

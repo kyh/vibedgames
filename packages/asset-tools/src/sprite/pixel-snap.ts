@@ -33,7 +33,7 @@ import { Bitmap } from "../image/raster.js";
  * it doesn't. Runs stay fully deterministic for a given `--seed`.
  */
 
-export type SnapConfig = {
+export interface SnapConfig {
   kColors: number;
   kSeed: number;
   maxKmeansIterations: number;
@@ -44,193 +44,262 @@ export type SnapConfig = {
   walkerStrengthThreshold: number;
   fallbackTargetSegments: number;
   maxStepRatio: number;
-};
+}
 
 export const DEFAULT_SNAP_CONFIG: SnapConfig = {
+  fallbackTargetSegments: 64,
   kColors: 16,
   kSeed: 42,
   maxKmeansIterations: 15,
-  peakThresholdMultiplier: 0.2,
-  peakDistanceFilter: 4,
-  walkerSearchWindowRatio: 0.35,
-  walkerMinSearchWindow: 2,
-  walkerStrengthThreshold: 0.5,
-  fallbackTargetSegments: 64,
   maxStepRatio: 1.8,
+  peakDistanceFilter: 4,
+  peakThresholdMultiplier: 0.2,
+  walkerMinSearchWindow: 2,
+  walkerSearchWindowRatio: 0.35,
+  walkerStrengthThreshold: 0.5,
 };
 
 /** mulberry32 — small, fast, and fully determined by its seed. */
-function makeRandom(seed: number): () => number {
+/* oxlint-disable no-bitwise -- mulberry32 is defined on uint32 wraparound and xorshift mixing */
+const makeRandom = (seed: number): (() => number) => {
   let state = seed >>> 0;
   return () => {
-    state = (state + 0x6d2b79f5) >>> 0;
+    state = (state + 0x6d_2b_79_f5) >>> 0;
     let t = state;
     t = Math.imul(t ^ (t >>> 15), t | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
   };
-}
+};
+/* oxlint-enable no-bitwise */
 
 /** `count` distinct indices below `limit`, via a partial Fisher-Yates shuffle. */
-function sampleWithoutReplacement(limit: number, count: number, seed: number): number[] {
+const sampleWithoutReplacement = (limit: number, count: number, seed: number): number[] => {
   const random = makeRandom(seed);
   const pool = new Int32Array(limit);
-  for (let i = 0; i < limit; i += 1) pool[i] = i;
+  for (let i = 0; i < limit; i += 1) {
+    pool[i] = i;
+  }
   for (let i = 0; i < count; i += 1) {
     const j = i + Math.floor(random() * (limit - i));
-    const tmp = pool[i]!;
-    pool[i] = pool[j]!;
+    const tmp = pool[i] ?? 0;
+    pool[i] = pool[j] ?? 0;
     pool[j] = tmp;
   }
-  return Array.from(pool.subarray(0, count));
-}
+  return [...pool.subarray(0, count)];
+};
+
+type Rgb = [number, number, number];
+
+const rgbAt = (data: Uint8Array, p: number): Rgb => [
+  data[p] ?? 0,
+  data[p + 1] ?? 0,
+  data[p + 2] ?? 0,
+];
+
+const nearestCenter = ([r, g, b]: Rgb, centers: Rgb[]): number => {
+  let best = 0;
+  let bestDist = Infinity;
+  for (const [c, center] of centers.entries()) {
+    const dr = r - center[0];
+    const dg = g - center[1];
+    const db = b - center[2];
+    const dist = dr * dr + dg * dg + db * db;
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = c;
+    }
+  }
+  return best;
+};
+
+/** Move every centre to its members' mean; reports whether any centre moved. */
+const updateCenters = (
+  image: Bitmap,
+  opaque: number[],
+  labels: Int32Array,
+  centers: Rgb[],
+): boolean => {
+  let moved = false;
+  for (const [c, center] of centers.entries()) {
+    let sumR = 0;
+    let sumG = 0;
+    let sumB = 0;
+    let members = 0;
+    for (let n = 0; n < opaque.length; n += 1) {
+      if (labels[n] !== c) {
+        continue;
+      }
+      const [r, g, b] = rgbAt(image.data, opaque[n] ?? 0);
+      sumR += r;
+      sumG += g;
+      sumB += b;
+      members += 1;
+    }
+    // An empty cluster keeps its centre rather than collapsing to the origin.
+    if (members === 0) {
+      continue;
+    }
+    const next: Rgb = [sumR / members, sumG / members, sumB / members];
+    // The original's convergence test: a centre that shifts less than half a
+    // level counts as settled.
+    if (
+      Math.abs(next[0] - center[0]) > 0.5 ||
+      Math.abs(next[1] - center[1]) > 0.5 ||
+      Math.abs(next[2] - center[2]) > 0.5
+    ) {
+      moved = true;
+    }
+    centers[c] = next;
+  }
+  return moved;
+};
 
 /** K-means over the opaque pixels; returns a palette-quantized copy. */
-export function quantize(image: Bitmap, config: SnapConfig): Bitmap {
+export const quantize = (image: Bitmap, config: SnapConfig): Bitmap => {
   const opaque: number[] = [];
   for (let i = 0; i < image.data.length; i += 4) {
-    if (image.data[i + 3]! > 0) opaque.push(i);
+    if ((image.data[i + 3] ?? 0) > 0) {
+      opaque.push(i);
+    }
   }
-  if (opaque.length === 0) return image.copy();
+  if (opaque.length === 0) {
+    return image.copy();
+  }
 
   const k = Math.min(config.kColors, opaque.length);
-  const centers = sampleWithoutReplacement(opaque.length, k, config.kSeed).map((index) => {
-    const p = opaque[index]!;
-    return [image.data[p]!, image.data[p + 1]!, image.data[p + 2]!];
-  });
+  const centers = sampleWithoutReplacement(opaque.length, k, config.kSeed).map((index) =>
+    rgbAt(image.data, opaque[index] ?? 0),
+  );
 
   const labels = new Int32Array(opaque.length);
   for (let iteration = 0; iteration < config.maxKmeansIterations; iteration += 1) {
     for (let n = 0; n < opaque.length; n += 1) {
-      const p = opaque[n]!;
-      const r = image.data[p]!;
-      const g = image.data[p + 1]!;
-      const b = image.data[p + 2]!;
-      let best = 0;
-      let bestDist = Infinity;
-      for (let c = 0; c < centers.length; c += 1) {
-        const center = centers[c]!;
-        const dr = r - center[0]!;
-        const dg = g - center[1]!;
-        const db = b - center[2]!;
-        const dist = dr * dr + dg * dg + db * db;
-        if (dist < bestDist) {
-          bestDist = dist;
-          best = c;
-        }
-      }
-      labels[n] = best;
+      labels[n] = nearestCenter(rgbAt(image.data, opaque[n] ?? 0), centers);
     }
-
-    let moved = false;
-    for (let c = 0; c < centers.length; c += 1) {
-      let sumR = 0;
-      let sumG = 0;
-      let sumB = 0;
-      let members = 0;
-      for (let n = 0; n < opaque.length; n += 1) {
-        if (labels[n] !== c) continue;
-        const p = opaque[n]!;
-        sumR += image.data[p]!;
-        sumG += image.data[p + 1]!;
-        sumB += image.data[p + 2]!;
-        members += 1;
-      }
-      // An empty cluster keeps its centre rather than collapsing to the origin.
-      if (members === 0) continue;
-      const next = [sumR / members, sumG / members, sumB / members];
-      const center = centers[c]!;
-      // The original's convergence test: a centre that shifts less than half a
-      // level counts as settled.
-      if (next.some((value, i) => Math.abs(value - center[i]!) > 0.5)) moved = true;
-      centers[c] = next;
+    if (!updateCenters(image, opaque, labels, centers)) {
+      break;
     }
-    if (!moved) break;
   }
 
   const out = image.copy();
   for (let n = 0; n < opaque.length; n += 1) {
-    const p = opaque[n]!;
-    const center = centers[labels[n]!]!;
-    out.data[p] = Math.round(center[0]!);
-    out.data[p + 1] = Math.round(center[1]!);
-    out.data[p + 2] = Math.round(center[2]!);
+    const p = opaque[n] ?? 0;
+    const center = centers[labels[n] ?? 0];
+    if (center === undefined) {
+      continue;
+    }
+    out.data[p] = Math.round(center[0]);
+    out.data[p + 1] = Math.round(center[1]);
+    out.data[p + 2] = Math.round(center[2]);
   }
   return out;
+};
+
+export interface AxisProfiles {
+  columns: Float64Array;
+  rows: Float64Array;
 }
 
-export type AxisProfiles = { columns: Float64Array; rows: Float64Array };
-
 /** Per-column and per-row edge-gradient sums; transparent pixels weigh zero. */
-export function computeProfiles(image: Bitmap): AxisProfiles {
+export const computeProfiles = (image: Bitmap): AxisProfiles => {
   const { width: w, height: h } = image;
-  if (w < 3 || h < 3) throw new Error("Image too small (minimum 3x3)");
+  if (w < 3 || h < 3) {
+    throw new Error("Image too small (minimum 3x3)");
+  }
 
   const luma = new Float64Array(w * h);
   for (let i = 0; i < luma.length; i += 1) {
     const p = i * 4;
-    if (image.data[p + 3] === 0) continue;
-    luma[i] = 0.299 * image.data[p]! + 0.587 * image.data[p + 1]! + 0.114 * image.data[p + 2]!;
+    if (image.data[p + 3] === 0) {
+      continue;
+    }
+    luma[i] =
+      0.299 * (image.data[p] ?? 0) +
+      0.587 * (image.data[p + 1] ?? 0) +
+      0.114 * (image.data[p + 2] ?? 0);
   }
 
   // Central differences, leaving the outermost row/column at zero.
   const columns = new Float64Array(w);
   for (let x = 1; x < w - 1; x += 1) {
     let sum = 0;
-    for (let y = 0; y < h; y += 1) sum += Math.abs(luma[y * w + x + 1]! - luma[y * w + x - 1]!);
+    for (let y = 0; y < h; y += 1) {
+      sum += Math.abs((luma[y * w + x + 1] ?? 0) - (luma[y * w + x - 1] ?? 0));
+    }
     columns[x] = sum;
   }
 
   const rows = new Float64Array(h);
   for (let y = 1; y < h - 1; y += 1) {
     let sum = 0;
-    for (let x = 0; x < w; x += 1) sum += Math.abs(luma[(y + 1) * w + x]! - luma[(y - 1) * w + x]!);
+    for (let x = 0; x < w; x += 1) {
+      sum += Math.abs((luma[(y + 1) * w + x] ?? 0) - (luma[(y - 1) * w + x] ?? 0));
+    }
     rows[y] = sum;
   }
 
   return { columns, rows };
-}
+};
 
-function medianOf(values: number[]): number {
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = sorted.length >> 1;
-  return sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
-}
+const medianOf = (values: number[]): number => {
+  const sorted = [...values].toSorted((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const upper = sorted[mid] ?? 0;
+  return sorted.length % 2 === 1 ? upper : ((sorted[mid - 1] ?? 0) + upper) / 2;
+};
 
 /** Median spacing between gradient peaks — the estimated cell pitch. */
-export function estimateStepSize(profile: Float64Array, config: SnapConfig): number | null {
-  if (profile.length === 0) return null;
+export const estimateStepSize = (profile: Float64Array, config: SnapConfig): number | null => {
+  if (profile.length === 0) {
+    return null;
+  }
   let max = 0;
-  for (const value of profile) if (value > max) max = value;
-  if (max === 0) return null;
+  for (const value of profile) {
+    if (value > max) {
+      max = value;
+    }
+  }
+  if (max === 0) {
+    return null;
+  }
   const threshold = max * config.peakThresholdMultiplier;
 
   const peaks: number[] = [];
   for (let i = 1; i < profile.length - 1; i += 1) {
-    const value = profile[i]!;
-    if (value > threshold && value > profile[i - 1]! && value > profile[i + 1]!) peaks.push(i);
+    const value = profile[i] ?? 0;
+    if (value > threshold && value > (profile[i - 1] ?? 0) && value > (profile[i + 1] ?? 0)) {
+      peaks.push(i);
+    }
   }
-  if (peaks.length < 2) return null;
+  if (peaks.length < 2) {
+    return null;
+  }
 
   // Collapse peaks that sit within the distance filter of the previous keeper,
   // so one thick edge does not read as several cells.
-  const clean = [peaks[0]!];
-  for (const peak of peaks.slice(1)) {
-    if (peak - clean[clean.length - 1]! > config.peakDistanceFilter - 1) clean.push(peak);
+  const clean: number[] = [];
+  for (const peak of peaks) {
+    const last = clean.at(-1);
+    if (last === undefined || peak - last > config.peakDistanceFilter - 1) {
+      clean.push(peak);
+    }
   }
-  if (clean.length < 2) return null;
+  if (clean.length < 2) {
+    return null;
+  }
 
-  const diffs = clean.slice(1).map((value, i) => value - clean[i]!);
+  const diffs = clean.slice(1).map((value, i) => value - (clean[i] ?? 0));
   return medianOf(diffs);
-}
+};
 
-export function resolveStepSizes(
+export const resolveStepSizes = (
   sx: number | null,
   sy: number | null,
   width: number,
   height: number,
   config: SnapConfig,
-): [number, number] {
+): [number, number] => {
   if (sx !== null && sy !== null) {
     // Wildly different pitches mean one axis was misread; trust the smaller.
     const ratio = Math.max(sx, sy) / Math.min(sx, sy);
@@ -241,20 +310,26 @@ export function resolveStepSizes(
     const average = (sx + sy) / 2;
     return [average, average];
   }
-  if (sx !== null) return [sx, sx];
-  if (sy !== null) return [sy, sy];
+  if (sx !== null) {
+    return [sx, sx];
+  }
+  if (sy !== null) {
+    return [sy, sy];
+  }
   const fallback = Math.max(Math.min(width, height) / config.fallbackTargetSegments, 1);
   return [fallback, fallback];
-}
+};
 
 /** Place cuts one pitch apart, snapping each to a nearby gradient peak. */
-export function walk(
+export const walk = (
   profile: Float64Array,
   stepSize: number,
   limit: number,
   config: SnapConfig,
-): number[] {
-  if (profile.length === 0) throw new Error("Empty profile");
+): number[] => {
+  if (profile.length === 0) {
+    throw new Error("Empty profile");
+  }
   const cuts = [0];
   let pos = 0;
   const window = Math.max(stepSize * config.walkerSearchWindowRatio, config.walkerMinSearchWindow);
@@ -276,8 +351,9 @@ export function walk(
     let localMax = -Infinity;
     let localIndex = start;
     for (let i = start; i < end; i += 1) {
-      if (profile[i]! > localMax) {
-        localMax = profile[i]!;
+      const value = profile[i] ?? 0;
+      if (value > localMax) {
+        localMax = value;
         localIndex = i;
       }
     }
@@ -293,64 +369,89 @@ export function walk(
     }
   }
   return cuts;
-}
+};
 
-export function sanitizeCuts(cuts: number[], limit: number): number[] {
-  const seen = [...new Set(cuts.filter((c) => c >= 0 && c <= limit))].sort((a, b) => a - b);
-  if (seen.length === 0 || seen[0] !== 0) seen.unshift(0);
-  if (seen[seen.length - 1] !== limit) seen.push(limit);
+export const sanitizeCuts = (cuts: number[], limit: number): number[] => {
+  const seen = [...new Set(cuts.filter((c) => c >= 0 && c <= limit))].toSorted((a, b) => a - b);
+  if (seen.length === 0 || seen[0] !== 0) {
+    seen.unshift(0);
+  }
+  if (seen.at(-1) !== limit) {
+    seen.push(limit);
+  }
 
   const deduped: number[] = [];
   for (const cut of seen) {
-    if (deduped.length === 0 || cut > deduped[deduped.length - 1]!) deduped.push(cut);
+    const last = deduped.at(-1);
+    if (last === undefined || cut > last) {
+      deduped.push(cut);
+    }
   }
   return deduped;
-}
+};
+
+type Rgba = [number, number, number, number];
+
+/** The most common opaque colour in a cell, or null when it is wholly transparent. */
+const majorityColor = (
+  image: Bitmap,
+  x0: number,
+  x1: number,
+  y0: number,
+  y1: number,
+): Rgba | null => {
+  const counts = new Map<number, { count: number; rgba: Rgba }>();
+  for (let y = y0; y < y1; y += 1) {
+    for (let x = x0; x < x1; x += 1) {
+      if (!image.contains(x, y)) {
+        continue;
+      }
+      const p = image.index(x, y);
+      const alpha = image.data[p + 3] ?? 0;
+      if (alpha <= 0) {
+        continue;
+      }
+      const rgba: Rgba = [...rgbAt(image.data, p), alpha];
+      const key = rgba[0] * 2 ** 24 + rgba[1] * 2 ** 16 + rgba[2] * 2 ** 8 + rgba[3];
+      const entry = counts.get(key);
+      if (entry) {
+        entry.count += 1;
+      } else {
+        counts.set(key, { count: 1, rgba });
+      }
+    }
+  }
+
+  // Ties go to the colour seen first, matching Counter.most_common.
+  let best: { count: number; rgba: Rgba } | null = null;
+  for (const entry of counts.values()) {
+    if (!best || entry.count > best.count) {
+      best = entry;
+    }
+  }
+  return best ? best.rgba : null;
+};
 
 /** One output pixel per cell, taking the most common opaque colour. */
-export function resample(image: Bitmap, colCuts: number[], rowCuts: number[]): Bitmap {
+export const resample = (image: Bitmap, colCuts: number[], rowCuts: number[]): Bitmap => {
   const out = Bitmap.create(colCuts.length - 1, rowCuts.length - 1);
   for (let j = 0; j < out.height; j += 1) {
-    const y0 = rowCuts[j]!;
-    const y1 = rowCuts[j + 1]!;
+    const y0 = rowCuts[j] ?? 0;
+    const y1 = rowCuts[j + 1] ?? 0;
     for (let i = 0; i < out.width; i += 1) {
-      const x0 = colCuts[i]!;
-      const x1 = colCuts[i + 1]!;
-      const counts = new Map<number, { count: number; rgba: [number, number, number, number] }>();
-      let first = true;
-      for (let y = y0; y < y1; y += 1) {
-        for (let x = x0; x < x1; x += 1) {
-          if (!image.contains(x, y)) continue;
-          const p = image.index(x, y);
-          if (image.data[p + 3]! <= 0) continue;
-          const rgba: [number, number, number, number] = [
-            image.data[p]!,
-            image.data[p + 1]!,
-            image.data[p + 2]!,
-            image.data[p + 3]!,
-          ];
-          const key = (rgba[0] << 24) | (rgba[1] << 16) | (rgba[2] << 8) | rgba[3];
-          const entry = counts.get(key);
-          if (entry) entry.count += 1;
-          else counts.set(key, { count: 1, rgba });
-          first = false;
-        }
+      const x0 = colCuts[i] ?? 0;
+      const x1 = colCuts[i + 1] ?? 0;
+      const color = majorityColor(image, x0, x1, y0, y1);
+      if (color) {
+        out.putPixel(i, j, color);
       }
-      if (first) continue; // wholly transparent cell stays transparent
-
-      // Ties go to the colour seen first, matching Counter.most_common.
-      let best: { count: number; rgba: [number, number, number, number] } | null = null;
-      for (const entry of counts.values()) {
-        if (!best || entry.count > best.count) best = entry;
-      }
-      if (best) out.putPixel(i, j, best.rgba);
     }
   }
   return out;
-}
+};
 
 /** Run the full pipeline, returning the snapped image. */
-export function snapImage(inputPath: string, config: SnapConfig): Bitmap {
+export const snapImage = (inputPath: string, config: SnapConfig): Bitmap => {
   const image = Bitmap.fromFile(inputPath);
   const quantized = quantize(image, config);
   const { columns, rows } = computeProfiles(quantized);
@@ -364,7 +465,7 @@ export function snapImage(inputPath: string, config: SnapConfig): Bitmap {
   const colCuts = sanitizeCuts(walk(columns, stepX, image.width, config), image.width);
   const rowCuts = sanitizeCuts(walk(rows, stepY, image.height, config), image.height);
   return resample(quantized, colCuts, rowCuts);
-}
+};
 
 /**
  * Below this the "recovered grid" is not a sprite. It happens when the image is
@@ -381,7 +482,7 @@ const DEGENERATE_SIDE = 8;
  * writing it is a legal outcome — so the judgement has to live next to the
  * dimensions rather than inside the pipeline.
  */
-export function snapWarning(input: Bitmap, output: Bitmap, config: SnapConfig): string | null {
+export const snapWarning = (input: Bitmap, output: Bitmap, config: SnapConfig): string | null => {
   if (output.width < DEGENERATE_SIDE || output.height < DEGENERATE_SIDE) {
     return (
       `recovered grid collapsed to ${output.width}x${output.height} from ` +
@@ -398,16 +499,19 @@ export function snapWarning(input: Bitmap, output: Bitmap, config: SnapConfig): 
     );
   }
   return null;
-}
+};
 
-export type SheetSnapInfo = {
+export interface SheetSnapInfo {
   inputDims: [number, number];
   inputFrameDims: [number, number];
   targetFrameDims: [number, number];
   outputDims: [number, number];
-};
+}
 
-export type SheetSnapResult = { image: Bitmap; info: SheetSnapInfo };
+export interface SheetSnapResult {
+  image: Bitmap;
+  info: SheetSnapInfo;
+}
 
 /**
  * Spritesheet-aware snapping: crop the sheet into frames, snap them all to ONE
@@ -419,12 +523,12 @@ export type SheetSnapResult = { image: Bitmap; info: SheetSnapInfo };
  * into a single strip and snapping that once leaves one pitch to recover, so
  * every frame lands at the same scale with no size drift between them.
  */
-export function snapSheet(
+export const snapSheet = (
   image: Bitmap,
   cols: number,
   rows: number,
   config: SnapConfig,
-): SheetSnapResult {
+): SheetSnapResult => {
   const { width: W, height: H } = image;
   if (W % cols !== 0 || H % rows !== 0) {
     throw new Error(
@@ -443,7 +547,7 @@ export function snapSheet(
     const r = Math.floor(index / cols);
     const c = index - r * cols;
     strip.paste(
-      image.crop({ left: c * fw, top: r * fh, right: (c + 1) * fw, bottom: (r + 1) * fh }),
+      image.crop({ bottom: (r + 1) * fh, left: c * fw, right: (c + 1) * fw, top: r * fh }),
       index * fw,
       0,
     );
@@ -473,7 +577,7 @@ export function snapSheet(
     const r = Math.floor(index / cols);
     const c = index - r * cols;
     out.paste(
-      snapped.crop({ left: index * tw, top: 0, right: (index + 1) * tw, bottom: sh }),
+      snapped.crop({ bottom: sh, left: index * tw, right: (index + 1) * tw, top: 0 }),
       c * tw,
       r * sh,
     );
@@ -484,8 +588,8 @@ export function snapSheet(
     info: {
       inputDims: [W, H],
       inputFrameDims: [fw, fh],
-      targetFrameDims: [tw, sh],
       outputDims: [tw * cols, sh * rows],
+      targetFrameDims: [tw, sh],
     },
   };
-}
+};

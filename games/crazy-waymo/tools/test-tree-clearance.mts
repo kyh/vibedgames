@@ -11,11 +11,12 @@ import {
   measureTreeTrunks,
   treeSourceKind,
   buildTreeClearance,
-  type TreeTrunkProfile,
 } from "../src/world/tree-clearance.ts";
+import type { TreeTrunkProfile } from "../src/world/tree-clearance.ts";
 import { districtAt } from "../src/world/sf-map.ts";
 import { GGP_LAKE, inLake } from "../src/world/land-class.ts";
-import { waterBodyContains, type WaterBody } from "../src/world/water.ts";
+import { waterBodyContains } from "../src/world/water.ts";
+import type { WaterBody } from "../src/world/water.ts";
 import {
   ROAD_TILE,
   WORLD_H,
@@ -26,7 +27,10 @@ import {
 import type { PropInstance } from "./geometry-audit.mts";
 
 type Check = (name: string, condition: boolean, detail?: string) => void;
-type Source = { readonly trunks: readonly TreeTrunkProfile[]; readonly node: THREE.Matrix4 };
+interface Source {
+  readonly trunks: readonly TreeTrunkProfile[];
+  readonly node: THREE.Matrix4;
+}
 const SOURCES = [
   "props/tree-large.glb",
   "props/tree-small.glb",
@@ -37,8 +41,10 @@ const SOURCES = [
 ];
 const sourceCache = new Map<string, Source>();
 
-async function loadTreeSources(): Promise<ReadonlyMap<string, Source>> {
-  if (sourceCache.size === SOURCES.length) return sourceCache;
+const loadTreeSources = async (): Promise<ReadonlyMap<string, Source>> => {
+  if (sourceCache.size === SOURCES.length) {
+    return sourceCache;
+  }
   const cache = new ModelCache();
   const io = new NodeIO()
     .registerExtensions(ALL_EXTENSIONS)
@@ -47,22 +53,28 @@ async function loadTreeSources(): Promise<ReadonlyMap<string, Source>> {
   for (const path of SOURCES) {
     const url = `/models/${path}`;
     const kind = treeSourceKind(url);
-    if (!kind) throw new Error(`Missing tree source classification: ${path}`);
+    if (!kind) {
+      throw new Error(`Missing tree source classification: ${path}`);
+    }
     const meshes: THREE.Mesh[] = [];
     if (kind === "sf") {
       await cache.ensure(url);
       const mesh = cache.srcMesh(url, 0);
-      if (mesh) meshes.push(mesh);
+      if (mesh) {
+        meshes.push(mesh);
+      }
     } else {
       const doc = await io.read(`public/models/${path}`);
-      for (const node of doc.getRoot().listNodes())
+      for (const node of doc.getRoot().listNodes()) {
         for (const primitive of node.getMesh()?.listPrimitives() ?? []) {
           const position = primitive.getAttribute("POSITION");
           const uv = primitive.getAttribute("TEXCOORD_0");
-          if (!position || !uv) throw new Error(`Tree source lacks geometry or bark UVs: ${path}`);
+          if (!position || !uv) {
+            throw new Error(`Tree source lacks geometry or bark UVs: ${path}`);
+          }
           const positions: number[] = [];
           const uvs: number[] = [];
-          for (let i = 0; i < position.getCount(); i++) {
+          for (let i = 0; i < position.getCount(); i += 1) {
             positions.push(...position.getElement(i, []));
             uvs.push(...uv.getElement(i, []));
           }
@@ -72,7 +84,9 @@ async function loadTreeSources(): Promise<ReadonlyMap<string, Source>> {
           const accessor = primitive.getIndices();
           if (accessor) {
             const indices: number[] = [];
-            for (let i = 0; i < accessor.getCount(); i++) indices.push(accessor.getScalar(i));
+            for (let i = 0; i < accessor.getCount(); i += 1) {
+              indices.push(accessor.getScalar(i));
+            }
             geometry.setIndex(indices);
           }
           const mesh = new THREE.Mesh(geometry);
@@ -81,38 +95,44 @@ async function loadTreeSources(): Promise<ReadonlyMap<string, Source>> {
           mesh.updateMatrixWorld(true);
           meshes.push(mesh);
         }
+      }
     }
-    if (meshes.length !== 1 || !meshes[0])
+    if (meshes.length !== 1 || !meshes[0]) {
       throw new Error(`Tree audit needs explicit multi-mesh source handling: ${path}`);
+    }
     sourceCache.set(path, {
-      trunks: measureTreeTrunks(meshes, kind),
       node: meshes[0].matrixWorld.clone(),
+      trunks: measureTreeTrunks(meshes, kind),
     });
   }
   return sourceCache;
-}
+};
 
 /** Serialized matrices locate mesh nodes. The geometry-derived root centroid
  * locates the plant. Multi-stem park tiles retain one seat sample per asset. */
-function treeSeat(source: Source, meshWorld: THREE.Matrix4): THREE.Vector3 {
-  if (source.trunks.length === 0) throw new Error("Tree seat lacks measured roots");
+const treeSeat = (source: Source, meshWorld: THREE.Matrix4): THREE.Vector3 => {
+  if (source.trunks.length === 0) {
+    throw new Error("Tree seat lacks measured roots");
+  }
   const root = new THREE.Vector3();
-  for (const trunk of source.trunks)
+  for (const trunk of source.trunks) {
     root.add(new THREE.Vector3(trunk.rootX, trunk.minY, trunk.rootZ));
+  }
   root.divideScalar(source.trunks.length);
   return root.applyMatrix4(meshWorld.clone().multiply(source.node.clone().invert()));
-}
+};
 
 /** Correct only the seating coordinates; preserve every instance and its
  * identity so shoreline filtering and the rest of the geometry audit agree. */
-export async function treeRootSeatSamples(
+export const treeRootSeatSamples = async (
   rest: CityRestPayload,
   props: readonly PropInstance[],
 ): Promise<
   ReadonlyMap<PropInstance, { readonly x: number; readonly y: number; readonly z: number }>
-> {
-  if (props.length !== rest.batchItems.length)
+> => {
+  if (props.length !== rest.batchItems.length) {
     throw new Error("Seat samples lost instance correspondence");
+  }
   const sources = await loadTreeSources();
   const result = new Map<
     PropInstance,
@@ -120,16 +140,20 @@ export async function treeRootSeatSamples(
   >();
   for (const [i, item] of rest.batchItems.entries()) {
     const prop = props[i];
-    if (!prop || !item.url) continue;
+    if (!prop || !item.url) {
+      continue;
+    }
     const source = sources.get(item.url.slice(item.url.indexOf("models/") + 7));
-    if (!source) continue;
+    if (!source) {
+      continue;
+    }
     const root = treeSeat(source, new THREE.Matrix4().fromArray(item.m));
     result.set(prop, { x: root.x, y: root.y, z: root.z });
   }
   return result;
-}
+};
 
-export async function checkTreeClearanceSources(check: Check): Promise<void> {
+export const checkTreeClearanceSources = async (check: Check): Promise<void> => {
   const sources = await loadTreeSources();
   for (const [path, source] of sources) {
     const expected = path.startsWith("parks/") ? 4 : 1;
@@ -141,7 +165,9 @@ export async function checkTreeClearanceSources(check: Check): Promise<void> {
   }
   const geometry = new THREE.BoxGeometry(0.6, 2, 0.8).translate(0.3, 1, -0.4);
   const uv = geometry.getAttribute("uv");
-  for (let i = 0; i < uv.count; i++) uv.setXY(i, 0.01, 0.1);
+  for (let i = 0; i < uv.count; i += 1) {
+    uv.setXY(i, 0.01, 0.1);
+  }
   const mesh = new THREE.Mesh(geometry);
   mesh.position.set(0.7, 2, -1.3);
   mesh.scale.setScalar(0.5);
@@ -177,13 +203,13 @@ export async function checkTreeClearanceSources(check: Check): Promise<void> {
   await cache.ensure(url);
   const clear = buildParcelClearance([
     {
-      ring: new Float32Array([0, -10, 10, -10, 10, 10, 0, 10]),
       n: 4,
-      obb: { cx: 5, cz: 0, halfA: 5, halfB: 10, ex: 1, ez: 0 },
+      obb: { cx: 5, cz: 0, ex: 1, ez: 0, halfA: 5, halfB: 10 },
+      ring: new Float32Array([0, -10, 10, -10, 10, 10, 0, 10]),
     },
   ]);
   const tree = buildTreeClearance(cache, clear);
-  const placement = { x: -1, z: 0, yaw: 0, scaleX: 10, scaleZ: 10 };
+  const placement = { scaleX: 10, scaleZ: 10, x: -1, yaw: 0, z: 0 };
   check(
     "tree gate keeps canopy overhang but rejects planted stems",
     tree(url, placement) &&
@@ -203,30 +229,30 @@ export async function checkTreeClearanceSources(check: Check): Promise<void> {
     JSON.stringify(first) === JSON.stringify(second),
   );
   const pool: WaterBody = {
-    kind: "ellipse",
-    x: -80,
-    z: -35,
-    y: 0,
     halfX: 3,
     halfZ: 2,
+    kind: "ellipse",
+    x: -80,
+    y: 0,
     yaw: 0.6,
+    z: -35,
   };
   const poolClear = buildTreeClearance(cache, clear, [pool]);
   check(
     "authored lagoon rejects planted roots while keeping dry surrounding trees",
-    !poolClear(url, { ...placement, x: pool.x, z: pool.z, scaleX: 1, scaleZ: 1 }) &&
-      poolClear(url, { ...placement, x: pool.x - 10, z: pool.z, scaleX: 1, scaleZ: 1 }),
+    !poolClear(url, { ...placement, scaleX: 1, scaleZ: 1, x: pool.x, z: pool.z }) &&
+      poolClear(url, { ...placement, scaleX: 1, scaleZ: 1, x: pool.x - 10, z: pool.z }),
   );
   const lakeX = (GGP_LAKE.u - 0.5) * WORLD_W;
   const lakeZ = (GGP_LAKE.v - 0.5) * WORLD_H;
   check(
     "planting keeps dry lake banks but rejects water roots",
-    !tree(url, { ...placement, x: lakeX, z: lakeZ, yaw: 1.8 }) &&
-      tree(url, { ...placement, x: lakeX + GGP_LAKE.ru + 1, z: lakeZ, yaw: 1.8 }),
+    !tree(url, { ...placement, x: lakeX, yaw: 1.8, z: lakeZ }) &&
+      tree(url, { ...placement, x: lakeX + GGP_LAKE.ru + 1, yaw: 1.8, z: lakeZ }),
   );
-}
+};
 
-export type TreeClearanceReport = {
+export interface TreeClearanceReport {
   readonly instances: number;
   readonly stems: number;
   readonly parkStems: number;
@@ -239,130 +265,193 @@ export type TreeClearanceReport = {
     readonly z: number;
     readonly parcel: number;
   }[];
-};
+}
 
-/** Inspect the installed instance matrices, including the source child transform.
- * Exact XZ stem boxes are tested only against vertically overlapping buildings.
- */
-export async function auditTreeClearance(
-  rest: CityRestPayload,
-  plans: readonly ParcelPlan[],
-  waterBodies: readonly WaterBody[],
-): Promise<TreeClearanceReport> {
-  const sources = await loadTreeSources();
+const bucketParcels = (plans: readonly ParcelPlan[]): Map<string, ParcelPlan[]> => {
   const buckets = new Map<string, ParcelPlan[]>();
   for (const parcel of plans) {
     const o = parcel.obb;
     const rx = Math.abs(o.ex * o.halfA) + Math.abs(o.ez * o.halfB);
     const rz = Math.abs(o.ez * o.halfA) + Math.abs(o.ex * o.halfB);
-    for (let x = Math.floor((o.cx - rx) / 32); x <= Math.floor((o.cx + rx) / 32); x++)
-      for (let z = Math.floor((o.cz - rz) / 32); z <= Math.floor((o.cz + rz) / 32); z++) {
-        const key = `${x},${z}`,
-          list = buckets.get(key);
-        if (list) list.push(parcel);
-        else buckets.set(key, [parcel]);
+    for (let x = Math.floor((o.cx - rx) / 32); x <= Math.floor((o.cx + rx) / 32); x += 1) {
+      for (let z = Math.floor((o.cz - rz) / 32); z <= Math.floor((o.cz + rz) / 32); z += 1) {
+        const key = `${x},${z}`;
+        const list = buckets.get(key);
+        if (list) {
+          list.push(parcel);
+        } else {
+          buckets.set(key, [parcel]);
+        }
       }
+    }
   }
-  let instances = 0,
-    stems = 0,
-    parkStems = 0,
-    embeddedStems = 0,
-    missingEmbeddedColliders = 0;
+  return buckets;
+};
+
+const embeddedTreeSolids = (rest: CityRestPayload): Map<string, { x: number; z: number }[]> => {
   const treeSolids = new Map<string, { x: number; z: number }[]>();
   for (const solid of rest.solids) {
     if (
       !solid.noBody ||
       Math.abs(solid.maxX - solid.minX - 1.1) > 0.01 ||
       Math.abs(solid.maxZ - solid.minZ - 1.1) > 0.01
-    )
+    ) {
       continue;
+    }
     const x = (solid.minX + solid.maxX) / 2;
     const z = (solid.minZ + solid.maxZ) / 2;
     const key = `${Math.floor(x)},${Math.floor(z)}`;
     const list = treeSolids.get(key);
-    if (list) list.push({ x, z });
-    else treeSolids.set(key, [{ x, z }]);
+    if (list) {
+      list.push({ x, z });
+    } else {
+      treeSolids.set(key, [{ x, z }]);
+    }
   }
+  return treeSolids;
+};
+
+const seatedOnCollider = (
+  treeSolids: ReadonlyMap<string, { x: number; z: number }[]>,
+  foot: THREE.Vector3,
+): boolean => {
+  for (let x = Math.floor(foot.x - 0.02); x <= Math.floor(foot.x + 0.02); x += 1) {
+    for (let z = Math.floor(foot.z - 0.02); z <= Math.floor(foot.z + 0.02); z += 1) {
+      for (const solid of treeSolids.get(`${x},${z}`) ?? []) {
+        if (Math.hypot(solid.x - foot.x, solid.z - foot.z) < 0.02) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+};
+
+const blockingParcel = (
+  buckets: ReadonlyMap<string, ParcelPlan[]>,
+  center: THREE.Vector3,
+  stem: { hw: number; hd: number; yaw: number; minY: number; maxY: number },
+): ParcelPlan | null => {
+  const { hw, hd, yaw, minY, maxY } = stem;
+  const rx = Math.abs(Math.cos(yaw) * hw) + Math.abs(Math.sin(yaw) * hd) + 0.01;
+  const rz = Math.abs(Math.sin(yaw) * hw) + Math.abs(Math.cos(yaw) * hd) + 0.01;
+  const candidates = new Set<ParcelPlan>();
+  for (let x = Math.floor((center.x - rx) / 32); x <= Math.floor((center.x + rx) / 32); x += 1) {
+    for (let z = Math.floor((center.z - rz) / 32); z <= Math.floor((center.z + rz) / 32); z += 1) {
+      for (const p of buckets.get(`${x},${z}`) ?? []) {
+        candidates.add(p);
+      }
+    }
+  }
+  for (const p of candidates) {
+    if (maxY <= p.footY + 0.01 || minY >= p.seatY + p.height - 0.01) {
+      continue;
+    }
+    if (
+      buildParcelClearance([p])(
+        { halfDepth: hd, halfWidth: hw, x: center.x, yaw, z: center.z },
+        0.01,
+      )
+    ) {
+      continue;
+    }
+    return p;
+  }
+  return null;
+};
+
+const instanceTransform = (m: readonly number[], node: THREE.Matrix4) => {
+  const instance = new THREE.Matrix4().fromArray(m).multiply(node.clone().invert());
+  const e = instance.elements;
+  return {
+    instance,
+    sx: Math.hypot(e[0] ?? 0, e[1] ?? 0, e[2] ?? 0),
+    sy: Math.hypot(e[4] ?? 0, e[5] ?? 0, e[6] ?? 0),
+    sz: Math.hypot(e[8] ?? 0, e[9] ?? 0, e[10] ?? 0),
+    yaw: Math.atan2(e[8] ?? 0, e[10] ?? 0),
+  };
+};
+
+const rootInWater = (foot: THREE.Vector3, waterBodies: readonly WaterBody[]): boolean =>
+  inLake(foot.x, foot.z) || waterBodies.some((body) => waterBodyContains(body, foot.x, foot.z));
+
+/** Inspect the installed instance matrices, including the source child transform.
+ * Exact XZ stem boxes are tested only against vertically overlapping buildings.
+ */
+export const auditTreeClearance = async (
+  rest: CityRestPayload,
+  plans: readonly ParcelPlan[],
+  waterBodies: readonly WaterBody[],
+): Promise<TreeClearanceReport> => {
+  const sources = await loadTreeSources();
+  const buckets = bucketParcels(plans);
+  let embeddedStems = 0;
+  let instances = 0;
+  let missingEmbeddedColliders = 0;
+  let parkStems = 0;
+  let stems = 0;
+  const treeSolids = embeddedTreeSolids(rest);
   const blocked: { url: string; x: number; z: number; parcel: number }[] = [];
   const waterRoots: { url: string; x: number; z: number }[] = [];
   for (const item of rest.batchItems) {
-    const url = item.url;
-    if (!url) continue;
+    const { url } = item;
+    if (!url) {
+      continue;
+    }
     const path = url.slice(url.indexOf("models/") + 7);
     const source = sources.get(path);
-    if (!source) continue;
-    instances++;
-    const instance = new THREE.Matrix4().fromArray(item.m).multiply(source.node.clone().invert());
-    const m = instance.elements;
-    const sx = Math.hypot(m[0] ?? 0, m[1] ?? 0, m[2] ?? 0);
-    const sy = Math.hypot(m[4] ?? 0, m[5] ?? 0, m[6] ?? 0);
-    const sz = Math.hypot(m[8] ?? 0, m[9] ?? 0, m[10] ?? 0);
-    const yaw = Math.atan2(m[8] ?? 0, m[10] ?? 0);
+    if (!source) {
+      continue;
+    }
+    instances += 1;
+    const { instance, sx, sy, sz, yaw } = instanceTransform(item.m, source.node);
     for (const trunk of source.trunks) {
-      stems++;
+      stems += 1;
       const foot = new THREE.Vector3(trunk.rootX, 0, trunk.rootZ).applyMatrix4(instance);
-      if (
-        inLake(foot.x, foot.z) ||
-        waterBodies.some((body) => waterBodyContains(body, foot.x, foot.z))
-      )
+      if (rootInWater(foot, waterBodies)) {
         waterRoots.push({ url, x: foot.x, z: foot.z });
+      }
       if (path.startsWith("parks/")) {
-        embeddedStems++;
-        let seated = false;
-        for (let x = Math.floor(foot.x - 0.02); x <= Math.floor(foot.x + 0.02); x++)
-          for (let z = Math.floor(foot.z - 0.02); z <= Math.floor(foot.z + 0.02); z++)
-            for (const solid of treeSolids.get(`${x},${z}`) ?? [])
-              if (Math.hypot(solid.x - foot.x, solid.z - foot.z) < 0.02) seated = true;
-        if (!seated) missingEmbeddedColliders++;
+        embeddedStems += 1;
+        if (!seatedOnCollider(treeSolids, foot)) {
+          missingEmbeddedColliders += 1;
+        }
       }
       const center = new THREE.Vector3(trunk.x, 0, trunk.z).applyMatrix4(instance);
       const district = districtAt(
         Math.floor((center.x + WORLD_HALF_X) / ROAD_TILE),
         Math.floor((center.z + WORLD_HALF_Z) / ROAD_TILE),
       );
-      if (district.character === "park") parkStems++;
+      if (district.character === "park") {
+        parkStems += 1;
+      }
       const minY = center.y + trunk.minY * sy;
       const maxY = center.y + trunk.maxY * sy;
-      const hw = trunk.halfWidth * sx,
-        hd = trunk.halfDepth * sz;
-      const rx = Math.abs(Math.cos(yaw) * hw) + Math.abs(Math.sin(yaw) * hd) + 0.01;
-      const rz = Math.abs(Math.sin(yaw) * hw) + Math.abs(Math.cos(yaw) * hd) + 0.01;
-      const candidates = new Set<ParcelPlan>();
-      for (let x = Math.floor((center.x - rx) / 32); x <= Math.floor((center.x + rx) / 32); x++)
-        for (let z = Math.floor((center.z - rz) / 32); z <= Math.floor((center.z + rz) / 32); z++) {
-          for (const p of buckets.get(`${x},${z}`) ?? []) candidates.add(p);
-        }
-      for (const p of candidates) {
-        if (maxY <= p.footY + 0.01 || minY >= p.seatY + p.height - 0.01) continue;
-        if (
-          buildParcelClearance([p])(
-            { x: center.x, z: center.z, halfWidth: hw, halfDepth: hd, yaw },
-            0.01,
-          )
-        )
-          continue;
-        blocked.push({ url, x: center.x, z: center.z, parcel: p.id });
-        break;
+      const hw = trunk.halfWidth * sx;
+      const hd = trunk.halfDepth * sz;
+      const blocker = blockingParcel(buckets, center, { hd, hw, maxY, minY, yaw });
+      if (blocker) {
+        blocked.push({ parcel: blocker.id, url, x: center.x, z: center.z });
       }
     }
   }
   return {
-    instances,
-    stems,
-    parkStems,
-    embeddedStems,
-    missingEmbeddedColliders,
-    waterRoots,
     blocked,
+    embeddedStems,
+    instances,
+    missingEmbeddedColliders,
+    parkStems,
+    stems,
+    waterRoots,
   };
-}
+};
 
-export async function checkBakedTreeClearance(
+export const checkBakedTreeClearance = async (
   check: Check,
   rest: CityRestPayload,
   plans: readonly ParcelPlan[],
   waterBodies: readonly WaterBody[],
-): Promise<void> {
+): Promise<void> => {
   const report = await auditTreeClearance(rest, plans, waterBodies);
   check(
     "installed tree roots stay outside Stow and authored landmark water",
@@ -376,12 +465,12 @@ export async function checkBakedTreeClearance(
   );
   check(
     "tree clearance preserves planted parks",
-    report.parkStems >= 10000,
+    report.parkStems >= 10_000,
     `${report.parkStems} park stems, ${report.embeddedStems} embedded stems`,
   );
   check(
     "tree clearance retains city planting",
-    report.stems >= 17000,
+    report.stems >= 17_000,
     `${report.instances} instances / ${report.stems} stems`,
   );
   check(
@@ -389,4 +478,4 @@ export async function checkBakedTreeClearance(
     report.missingEmbeddedColliders === 0,
     `${report.missingEmbeddedColliders}/${report.embeddedStems} missing root colliders`,
   );
-}
+};

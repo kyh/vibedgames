@@ -22,12 +22,12 @@ export const auth = betterAuth({
   // Codegen/test only: an in-memory adapter satisfies better-auth's init
   // without opening a connection. The real Worker uses drizzleAdapter(d1).
   database: memoryAdapter({}),
-  plugins: [oAuthProxy(), bearer(), expo(), admin(), apiKey()],
   emailAndPassword: { enabled: true },
+  plugins: [oAuthProxy(), bearer(), expo(), admin(), apiKey()],
+  rateLimit: { enabled: true, storage: "database" },
   user: {
     additionalFields: {
-      invitedByCode: { type: "string", required: false, input: false },
+      invitedByCode: { input: false, required: false, type: "string" },
     },
   },
-  rateLimit: { enabled: true, storage: "database" },
 });

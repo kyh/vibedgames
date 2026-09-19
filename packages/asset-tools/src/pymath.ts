@@ -14,10 +14,14 @@
  * case on every frame, so using `Math.round` shifts entire sheets by one
  * column relative to the art they were aligned against.
  */
-export function roundHalfToEven(value: number): number {
+export const roundHalfToEven = (value: number): number => {
   const floor = Math.floor(value);
   const diff = value - floor;
-  if (diff > 0.5) return floor + 1;
-  if (diff < 0.5) return floor;
+  if (diff > 0.5) {
+    return floor + 1;
+  }
+  if (diff < 0.5) {
+    return floor;
+  }
   return floor % 2 === 0 ? floor : floor + 1;
-}
+};

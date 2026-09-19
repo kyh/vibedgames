@@ -6,15 +6,15 @@ import { Bitmap } from "./raster.js";
  * assertions.
  */
 
-export type DiffResult = {
+export interface DiffResult {
   image: Bitmap;
   /** Root-mean-square across all four channels, 0 when identical. */
   rms: number;
   /** Per-channel RMS in R, G, B, A order. */
   channelRms: number[];
-};
+}
 
-export function diffImages(baseline: Bitmap, current: Bitmap): DiffResult {
+export const diffImages = (baseline: Bitmap, current: Bitmap): DiffResult => {
   if (baseline.width !== current.width || baseline.height !== current.height) {
     throw new Error(
       `Different sizes: (${baseline.width}, ${baseline.height}) vs (${current.width}, ${current.height})`,
@@ -26,13 +26,14 @@ export function diffImages(baseline: Bitmap, current: Bitmap): DiffResult {
   // `ImageStat.Stat(diff).rms` reports for the difference image.
   const sums = [0, 0, 0, 0];
   for (let i = 0; i < out.data.length; i += 1) {
-    const delta = Math.abs(baseline.data[i]! - current.data[i]!);
+    const delta = Math.abs((baseline.data[i] ?? 0) - (current.data[i] ?? 0));
     out.data[i] = delta;
-    sums[i % 4]! += delta * delta;
+    const channel = i % 4;
+    sums[channel] = (sums[channel] ?? 0) + delta * delta;
   }
 
   const pixels = baseline.width * baseline.height;
   const channelRms = sums.map((sum) => Math.sqrt(sum / pixels));
   const rms = Math.sqrt(channelRms.reduce((sum, v) => sum + v * v, 0) / channelRms.length);
-  return { image: out, rms, channelRms };
-}
+  return { channelRms, image: out, rms };
+};

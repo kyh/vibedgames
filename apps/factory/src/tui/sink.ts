@@ -24,7 +24,7 @@ export class TuiSink implements Reporter {
   }
 
   start(setup: RunSetup): void {
-    this.#store.set({ screen: "dashboard", running: true, stopping: false, setup });
+    this.#store.set({ running: true, screen: "dashboard", setup, stopping: false });
   }
 
   turnStart(turn: TurnInfo): void {
@@ -32,7 +32,7 @@ export class TuiSink implements Reporter {
     this.#store.push(
       "marker",
       `▶ ${turn.emoji} ${turn.role} — ${turn.phase} · cycle ${turn.cycle}${
-        turn.iteration !== null ? ` · iteration ${turn.iteration}` : ""
+        turn.iteration === null ? "" : ` · iteration ${turn.iteration}`
       }`,
     );
   }
@@ -40,21 +40,24 @@ export class TuiSink implements Reporter {
   activity(activity: Activity): void {
     this.#store.bumpEvents();
     switch (activity.kind) {
-      case "init":
+      case "init": {
         this.#store.push(
           "info",
           `session started (${activity.model ?? "model"}, ${activity.tools ?? 0} tools)`,
         );
         return;
-      case "text":
+      }
+      case "text": {
         this.#store.push("text", activity.text);
         return;
-      case "tool":
+      }
+      case "tool": {
         this.#store.push(
           "tool",
           `⚙ ${activity.name}${activity.detail ? ` · ${activity.detail}` : ""}`,
         );
-        return;
+      }
+      // no default
     }
   }
 
@@ -88,7 +91,7 @@ export class TuiSink implements Reporter {
 
   checkpointStarted(message: string, waitMs: number): void {
     this.#store.push("marker", `⏸ checkpoint: ${message}`);
-    this.#store.set({ checkpoint: { message, deadline: Date.now() + waitMs } });
+    this.#store.set({ checkpoint: { deadline: Date.now() + waitMs, message } });
   }
 
   checkpointEnded(): void {
@@ -101,6 +104,8 @@ export class TuiSink implements Reporter {
       "marker",
       `■ agent stopped — ${summary.cycles} cycles · ${summary.iterations} iterations · ~$${summary.totalCostUsd.toFixed(2)}`,
     );
-    if (summary.deployUrl) this.#store.push("info", `live at ${summary.deployUrl}`);
+    if (summary.deployUrl) {
+      this.#store.push("info", `live at ${summary.deployUrl}`);
+    }
   }
 }

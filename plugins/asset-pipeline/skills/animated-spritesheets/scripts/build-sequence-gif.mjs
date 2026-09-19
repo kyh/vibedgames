@@ -12,7 +12,7 @@
  *       --out review/walk.gif --durations-ms 120,90,120,90 --flat-bg '#202028'
  */
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import path from "node:path";
 
 import {
   buildSequenceGif,
@@ -31,15 +31,23 @@ main(() => {
   const inputDir = getString(args, "input-dir");
   const order = getString(args, "order");
   const out = getString(args, "out");
-  if (!inputDir) failUsage("--input-dir is required");
-  if (!order) failUsage("--order is required, e.g. --order 01,03,02,04");
-  if (!out) failUsage("--out is required");
+  if (!inputDir) {
+    failUsage("--input-dir is required");
+  }
+  if (!order) {
+    failUsage("--order is required, e.g. --order 01,03,02,04");
+  }
+  if (!out) {
+    failUsage("--out is required");
+  }
 
   const ids = order
     .split(",")
     .map((part) => part.trim())
     .filter(Boolean);
-  if (ids.length === 0) fail("No frames selected");
+  if (ids.length === 0) {
+    fail("No frames selected");
+  }
 
   const pattern = getString(args, "pattern") ?? "frame-{id}.png";
   const durationsSpec = getString(args, "durations-ms");
@@ -57,8 +65,8 @@ main(() => {
 
   const flatBg = getString(args, "flat-bg");
   const frames = ids.map((id, i) => ({
-    path: resolve(inputDir, pattern.replace("{id}", id)),
     delayMs: durations ? durations[i] : 120,
+    path: path.resolve(inputDir, pattern.replace("{id}", id)),
   }));
 
   let gif;
@@ -66,11 +74,13 @@ main(() => {
     gif = buildSequenceGif(frames, flatBg ? parseColor(flatBg) : null);
   } catch (error) {
     // A missing frame is the common failure and the path is the useful part.
-    if (error && error.code === "ENOENT") fail(`frame file not found: ${error.path}`);
+    if (error && error.code === "ENOENT") {
+      fail(`frame file not found: ${error.path}`);
+    }
     throw error;
   }
 
-  mkdirSync(dirname(resolve(out)), { recursive: true });
+  mkdirSync(path.dirname(path.resolve(out)), { recursive: true });
   writeFileSync(out, gif);
   console.log(out);
 });

@@ -10,7 +10,11 @@
  * The default layout is a single horizontal strip, which loads cleanly with
  * Phaser's `load.spritesheet(key, url, { frameWidth, frameHeight })` plus
  * `anims.generateFrameNumbers(key, { start: 0, end: N-1 })`. Use --columns for
- * a grid when a strip would be too wide.
+ * a grid when a strip would be too wide: many mobile GPUs cap textures at
+ * 4096 px, and a wider strip uploads as an empty texture with 0 frames.
+ *
+ * Output is PNG. If you convert for shipping, use LOSSLESS WebP — lossy WebP
+ * makes flat-colour pixel sheets 51–85% bigger and blurs the pixel grid.
  *
  * Examples:
  *   node pack-spritesheet.mjs --input-dir runtime --out sheet.png
@@ -19,7 +23,6 @@
 import {
   getInt,
   getString,
-  fail,
   failUsage,
   main,
   packSpritesheet,
@@ -33,18 +36,20 @@ main(() => {
   });
   const inputDir = getString(args, "input-dir");
   const out = getString(args, "out");
-  if (!inputDir || !out) failUsage("--input-dir and --out are required");
+  if (!inputDir || !out) {
+    failUsage("--input-dir and --out are required");
+  }
 
   const columnsSpec = getString(args, "columns");
   const { manifest, sheet } = packSpritesheet(inputDir, out, {
-    glob: getString(args, "glob") ?? "frame-*.png",
+    action: getString(args, "action") ?? "anim",
     columns: columnsSpec === undefined ? null : getInt(args, "columns", 0),
     fps: getInt(args, "fps", 10),
-    action: getString(args, "action") ?? "anim",
+    glob: getString(args, "glob") ?? "frame-*.png",
   });
 
   sheet.toFile(out);
-  const manifestPath = getString(args, "json-out") ?? out.replace(/\.png$/i, ".json");
+  const manifestPath = getString(args, "json-out") ?? out.replace(/\.png$/iu, ".json");
   writeJsonFile(manifestPath, manifest);
 
   console.log(

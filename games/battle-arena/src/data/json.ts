@@ -5,16 +5,13 @@
 // yields NaN/Infinity, boxed primitives, or functions.
 
 export type JsonValue = string | number | boolean | null | JsonValue[] | JsonObject;
-export type JsonObject = { [k: string]: JsonValue };
-
-export function isJsonObject(v: JsonValue | undefined): v is JsonObject {
-  return v instanceof Object && !Array.isArray(v);
+export interface JsonObject {
+  [k: string]: JsonValue;
 }
 
-export function isJsonNumber(v: JsonValue | undefined): v is number {
-  return Number.isFinite(v);
-}
+export const isJsonObject = (v: JsonValue | undefined): v is JsonObject =>
+  v instanceof Object && !Array.isArray(v);
 
-export function isJsonString(v: JsonValue | undefined): v is string {
-  return String(v) === v;
-}
+export const isJsonNumber = (v: JsonValue | undefined): v is number => Number.isFinite(v);
+
+export const isJsonString = (v: JsonValue | undefined): v is string => String(v) === v;

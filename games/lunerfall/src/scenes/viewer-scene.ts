@@ -1,15 +1,9 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { Scene, Scenes } from "phaser";
 
 import { BASE_H, BASE_W, COLORS, ENEMY_ORIGIN_Y, HERO_ORIGIN_Y } from "../config";
-import {
-  type ClipInfo,
-  clipsFor,
-  type EnemyName,
-  ENEMY_NAMES,
-  firstFrame,
-  type HeroName,
-  HERO_NAMES,
-} from "../data/animations";
+import { clipsFor, ENEMY_NAMES, firstFrame, HERO_NAMES } from "../data/animations";
+import type { ClipInfo, EnemyName, HeroName } from "../data/animations";
 import { kitClipKey } from "../data/clip-timing";
 import { HEROES } from "../data/heroes";
 import { clipGameMs } from "../entities/player";
@@ -23,8 +17,8 @@ import { HIT_BACK, HIT_DOWN, HIT_UP } from "../entities/player-body";
 
 type Char = { key: HeroName; hero: true } | { key: EnemyName; hero: false };
 const CHARS: Char[] = [
-  ...HERO_NAMES.map((key): Char => ({ key, hero: true })),
-  ...ENEMY_NAMES.map((key): Char => ({ key, hero: false })),
+  ...HERO_NAMES.map((key): Char => ({ hero: true, key })),
+  ...ENEMY_NAMES.map((key): Char => ({ hero: false, key })),
 ];
 
 const STAGE_X = BASE_W / 2;
@@ -34,25 +28,72 @@ const ENEMY_SCALE_ED = 5.8;
 
 // The in-game control that triggers each clip (heroes only — enemies are AI).
 // Swing clips fire on Attack (J), the special on K; the rest map to movement.
-function hotkeyFor(char: Char, clip: string): string {
-  if (!char.hero) return "";
-  const kit = HEROES[char.key].kit;
-  if (kit.swings.some((s) => s.clip === clip)) return "J";
-  const sp = kit.special;
-  if (sp.clip === clip || ("outClip" in sp && sp.outClip === clip)) return "K";
-  switch (clip) {
-    case "run":
-      return "← →";
-    case "jump":
-      return "↑ / Spc";
-    case "dash":
-      return "⇧ / L";
-    default:
-      return ""; // idle / fall / hurt / death / idle-break — contextual, no key
+const hotkeyFor = (char: Char, clip: string): string => {
+  if (!char.hero) {
+    return "";
   }
-}
+  const { kit } = HEROES[char.key];
+  if (kit.swings.some((s) => s.clip === clip)) {
+    return "J";
+  }
+  const sp = kit.special;
+  if (sp.clip === clip || ("outClip" in sp && sp.outClip === clip)) {
+    return "K";
+  }
+  switch (clip) {
+    case "run": {
+      return "← →";
+    }
+    case "jump": {
+      return "↑ / Spc";
+    }
+    case "dash": {
+      return "⇧ / L";
+    }
+    default: {
+      return "";
+      // idle / fall / hurt / death / idle-break — contextual, no key
+    }
+  }
+};
 
-export class ViewerScene extends Phaser.Scene {
+let styled = false;
+const injectStyle = () => {
+  if (styled) {
+    return;
+  }
+  styled = true;
+  const s = document.createElement("style");
+  s.textContent = `
+#lf-viewer{position:fixed;inset:0;z-index:40;pointer-events:none;font-family:ui-monospace,"Courier New",monospace;color:#f4f7fb}
+#lf-viewer button{pointer-events:auto;cursor:pointer;font:600 11px ui-monospace,monospace;color:#c7d0db;background:rgba(20,26,42,.85);border:1px solid rgba(255,255,255,.14);border-radius:7px;padding:6px 9px}
+#lf-viewer button:hover{border-color:#34e5c8;color:#34e5c8}
+#lf-viewer .on{border-color:#34e5c8;color:#34e5c8;background:rgba(20,54,54,.9)}
+.lf-top{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:10px;padding:9px 14px;background:linear-gradient(#05070bee,#05070b00)}
+.lf-logo{font:900 italic 18px system-ui,sans-serif;letter-spacing:-1px;color:#34e5c8}
+.lf-sub{font:800 10px ui-monospace,monospace;letter-spacing:2px;opacity:.55}
+.lf-status{font:600 11px ui-monospace,monospace;color:#ffd15c;margin-left:auto}
+.lf-panel{position:absolute;top:48px;bottom:42px;display:flex;flex-direction:column;gap:6px;background:rgba(8,10,18,.82);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:8px;pointer-events:auto}
+.lf-roster{left:12px;width:150px}
+.lf-clips{right:12px;width:186px}
+.lf-h{font:800 10px ui-monospace,monospace;letter-spacing:1.5px;opacity:.5;padding:2px 2px 4px}
+.lf-scroll{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:4px;min-height:0}
+#lf-viewer .lf-char{display:flex;align-items:center;gap:8px;text-align:left}
+#lf-viewer .lf-char i{width:12px;height:12px;border-radius:50%;flex:none;box-shadow:0 0 6px currentColor}
+#lf-viewer .lf-char span{flex:1;text-transform:capitalize}
+#lf-viewer .lf-char em{font:700 8px ui-monospace,monospace;opacity:.5;font-style:normal;letter-spacing:1px}
+#lf-viewer .lf-clip{display:flex;flex-direction:column;align-items:stretch;gap:2px;text-align:left}
+.lf-clip-row{display:flex;align-items:center;justify-content:space-between;gap:6px;width:100%}
+#lf-viewer .lf-clip span{font-weight:700}
+#lf-viewer .lf-clip kbd{flex:none;font:800 9px ui-monospace,monospace;color:#ffd15c;background:rgba(255,209,92,.12);border:1px solid rgba(255,209,92,.5);border-radius:4px;padding:1px 5px;box-shadow:0 1px 0 rgba(255,209,92,.25)}
+#lf-viewer .lf-clip em{font:600 9px ui-monospace,monospace;opacity:.6;font-style:normal}
+#lf-viewer .lf-warn{color:#ff8a5c}
+.lf-help{position:absolute;left:0;right:0;bottom:0;text-align:center;padding:9px;font:600 10px ui-monospace,monospace;opacity:.55;background:linear-gradient(#05070b00,#05070bdd)}
+`;
+  document.head.append(s);
+};
+
+export class ViewerScene extends Scene {
   private ci = 0;
   private clipI = 0;
   private clips: ClipInfo[] = [];
@@ -67,8 +108,8 @@ export class ViewerScene extends Phaser.Scene {
 
   create() {
     // Stage: blue-grey backdrop + a ground line the character stands on.
-    this.add.rectangle(0, 0, BASE_W, BASE_H, 0x475066).setOrigin(0);
-    this.add.rectangle(0, BASE_H * 0.5, BASE_W, BASE_H * 0.5, 0x2b3242).setOrigin(0);
+    this.add.rectangle(0, 0, BASE_W, BASE_H, 0x47_50_66).setOrigin(0);
+    this.add.rectangle(0, BASE_H * 0.5, BASE_W, BASE_H * 0.5, 0x2b_32_42).setOrigin(0);
     this.add.rectangle(0, GROUND_Y, BASE_W, 2, COLORS.teal, 0.35).setOrigin(0, 0.5).setDepth(1);
     this.shadow = this.add.ellipse(STAGE_X, GROUND_Y + 2, 76, 16, COLORS.ink, 0.4).setDepth(2);
     this.fxLayer = this.add.graphics().setDepth(4);
@@ -88,11 +129,13 @@ export class ViewerScene extends Phaser.Scene {
 
     const want = new URLSearchParams(location.search).get("char");
     const at = want ? CHARS.findIndex((c) => c.key === want) : -1;
-    if (at >= 0) this.ci = at;
+    if (at >= 0) {
+      this.ci = at;
+    }
 
     this.buildUI();
     this.selectChar(this.ci);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+    this.events.once(Scenes.Events.SHUTDOWN, () => {
       this.ui?.remove();
       this.ui = undefined;
     });
@@ -105,9 +148,13 @@ export class ViewerScene extends Phaser.Scene {
   // Play the first clip triggered by the given in-game key (J / K / dash).
   private playHotkey(key: string) {
     const char = CHARS[this.ci];
-    if (!char) return;
+    if (!char) {
+      return;
+    }
     const idx = this.clips.findIndex((c) => hotkeyFor(char, c.clip) === key);
-    if (idx >= 0) this.selectClip(idx);
+    if (idx !== -1) {
+      this.selectClip(idx);
+    }
   }
 
   // Switch character: rebuild the big sprite (new texture/origin/scale), refill
@@ -115,7 +162,9 @@ export class ViewerScene extends Phaser.Scene {
   private selectChar(i: number) {
     this.ci = i;
     const char = CHARS[i];
-    if (!char) return;
+    if (!char) {
+      return;
+    }
     this.clips = clipsFor(this, char.key);
     this.sprite?.destroy();
     const originY = char.hero ? HERO_ORIGIN_Y : ENEMY_ORIGIN_Y;
@@ -130,11 +179,15 @@ export class ViewerScene extends Phaser.Scene {
   }
 
   private selectClip(i: number) {
-    if (this.clips.length === 0) return;
+    if (this.clips.length === 0) {
+      return;
+    }
     this.clipI = (i + this.clips.length) % this.clips.length;
     const info = this.clips[this.clipI];
     const char = CHARS[this.ci];
-    if (!info || !char || !this.sprite) return;
+    if (!info || !char || !this.sprite) {
+      return;
+    }
     const hero = char.hero ? HEROES[char.key] : undefined;
     // Preview the retimed @kit variant when the game would play one, so the
     // viewer shows true in-game attack timing (contact frame on the hitbox).
@@ -154,10 +207,14 @@ export class ViewerScene extends Phaser.Scene {
   // actually connects — now legible at stage scale.
   private drawFx(char: Char, clip: string) {
     const g = this.fxLayer;
-    if (!g) return;
+    if (!g) {
+      return;
+    }
     g.clear();
-    if (!char.hero) return;
-    const kit = HEROES[char.key].kit;
+    if (!char.hero) {
+      return;
+    }
+    const { kit } = HEROES[char.key];
     // Draw the ACTUAL melee hitbox (player-body's attackBox, facing right),
     // scaled by the stage zoom and anchored at the character's feet — so what's
     // shown is exactly what connects in-game.
@@ -205,19 +262,23 @@ export class ViewerScene extends Phaser.Scene {
         <div class="lf-scroll" id="lf-cliplist"></div>
       </div>
       <div class="lf-help">← → character&nbsp;&nbsp;·&nbsp;&nbsp;↑ ↓ clip&nbsp;&nbsp;·&nbsp;&nbsp;badge = in-game key&nbsp;&nbsp;·&nbsp;&nbsp;J / K / L fire attack / special / dash</div>`;
-    document.body.appendChild(ui);
+    document.body.append(ui);
     this.ui = ui;
-    ui.querySelectorAll<HTMLButtonElement>(".lf-char").forEach((btn) => {
+    for (const btn of ui.querySelectorAll<HTMLButtonElement>(".lf-char")) {
       btn.addEventListener("click", () => {
-        const i = Number.parseInt(btn.dataset["i"] ?? "", 10);
-        if (Number.isFinite(i)) this.selectChar(i);
+        const i = Number(btn.dataset["i"]);
+        if (Number.isFinite(i)) {
+          this.selectChar(i);
+        }
       });
-    });
+    }
   }
 
   private fillClipList() {
-    const list = document.getElementById("lf-cliplist");
-    if (!list) return;
+    const list = document.querySelector("#lf-cliplist");
+    if (!list) {
+      return;
+    }
     const char = CHARS[this.ci];
     list.innerHTML = this.clips
       .map((info, i) => {
@@ -227,68 +288,40 @@ export class ViewerScene extends Phaser.Scene {
         return `<button class="lf-clip" data-i="${i}"><div class="lf-clip-row"><span>${info.clip}</span>${badge}</div><em>${info.frames}f · ${info.ms}ms${warn}</em></button>`;
       })
       .join("");
-    list.querySelectorAll<HTMLButtonElement>(".lf-clip").forEach((btn) => {
+    for (const btn of list.querySelectorAll<HTMLButtonElement>(".lf-clip")) {
       btn.addEventListener("click", () => {
-        const i = Number.parseInt(btn.dataset["i"] ?? "", 10);
-        if (Number.isFinite(i)) this.selectClip(i);
+        const i = Number(btn.dataset["i"]);
+        if (Number.isFinite(i)) {
+          this.selectClip(i);
+        }
       });
-    });
+    }
   }
 
   private highlightRoster() {
-    this.ui?.querySelectorAll<HTMLButtonElement>(".lf-char").forEach((btn) => {
+    for (const btn of this.ui?.querySelectorAll<HTMLButtonElement>(".lf-char") ?? []) {
       btn.classList.toggle("on", btn.dataset["i"] === String(this.ci));
-    });
+    }
   }
 
   private highlightClip() {
     const active = this.ui?.querySelector(`.lf-clip[data-i="${this.clipI}"]`);
-    this.ui?.querySelectorAll<HTMLButtonElement>(".lf-clip").forEach((btn) => {
+    for (const btn of this.ui?.querySelectorAll<HTMLButtonElement>(".lf-clip") ?? []) {
       btn.classList.toggle("on", btn === active);
-    });
-    if (active instanceof HTMLElement) active.scrollIntoView({ block: "nearest" });
+    }
+    if (active instanceof HTMLElement) {
+      active.scrollIntoView({ block: "nearest" });
+    }
   }
 
   private updateStatus(info: ClipInfo, gameMs: number | undefined) {
-    const el = document.getElementById("lf-status");
-    if (!el) return;
+    const el = document.querySelector("#lf-status");
+    if (!el) {
+      return;
+    }
     const char = CHARS[this.ci];
     const timing =
       gameMs !== undefined && gameMs !== info.ms ? `${info.ms}→${gameMs}ms` : `${info.ms}ms`;
     el.textContent = `${char?.key ?? ""}  ·  ${info.clip}  ·  ${info.frames}f  ·  ${timing}`;
   }
-}
-
-let styled = false;
-function injectStyle() {
-  if (styled) return;
-  styled = true;
-  const s = document.createElement("style");
-  s.textContent = `
-#lf-viewer{position:fixed;inset:0;z-index:40;pointer-events:none;font-family:ui-monospace,"Courier New",monospace;color:#f4f7fb}
-#lf-viewer button{pointer-events:auto;cursor:pointer;font:600 11px ui-monospace,monospace;color:#c7d0db;background:rgba(20,26,42,.85);border:1px solid rgba(255,255,255,.14);border-radius:7px;padding:6px 9px}
-#lf-viewer button:hover{border-color:#34e5c8;color:#34e5c8}
-#lf-viewer .on{border-color:#34e5c8;color:#34e5c8;background:rgba(20,54,54,.9)}
-.lf-top{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:10px;padding:9px 14px;background:linear-gradient(#05070bee,#05070b00)}
-.lf-logo{font:900 italic 18px system-ui,sans-serif;letter-spacing:-1px;color:#34e5c8}
-.lf-sub{font:800 10px ui-monospace,monospace;letter-spacing:2px;opacity:.55}
-.lf-status{font:600 11px ui-monospace,monospace;color:#ffd15c;margin-left:auto}
-.lf-panel{position:absolute;top:48px;bottom:42px;display:flex;flex-direction:column;gap:6px;background:rgba(8,10,18,.82);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:8px;pointer-events:auto}
-.lf-roster{left:12px;width:150px}
-.lf-clips{right:12px;width:186px}
-.lf-h{font:800 10px ui-monospace,monospace;letter-spacing:1.5px;opacity:.5;padding:2px 2px 4px}
-.lf-scroll{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:4px;min-height:0}
-#lf-viewer .lf-char{display:flex;align-items:center;gap:8px;text-align:left}
-#lf-viewer .lf-char i{width:12px;height:12px;border-radius:50%;flex:none;box-shadow:0 0 6px currentColor}
-#lf-viewer .lf-char span{flex:1;text-transform:capitalize}
-#lf-viewer .lf-char em{font:700 8px ui-monospace,monospace;opacity:.5;font-style:normal;letter-spacing:1px}
-#lf-viewer .lf-clip{display:flex;flex-direction:column;align-items:stretch;gap:2px;text-align:left}
-.lf-clip-row{display:flex;align-items:center;justify-content:space-between;gap:6px;width:100%}
-#lf-viewer .lf-clip span{font-weight:700}
-#lf-viewer .lf-clip kbd{flex:none;font:800 9px ui-monospace,monospace;color:#ffd15c;background:rgba(255,209,92,.12);border:1px solid rgba(255,209,92,.5);border-radius:4px;padding:1px 5px;box-shadow:0 1px 0 rgba(255,209,92,.25)}
-#lf-viewer .lf-clip em{font:600 9px ui-monospace,monospace;opacity:.6;font-style:normal}
-#lf-viewer .lf-warn{color:#ff8a5c}
-.lf-help{position:absolute;left:0;right:0;bottom:0;text-align:center;padding:9px;font:600 10px ui-monospace,monospace;opacity:.55;background:linear-gradient(#05070b00,#05070bdd)}
-`;
-  document.head.appendChild(s);
 }

@@ -1,3 +1,4 @@
+/* oxlint-disable no-bitwise -- ZIP container writer: CRC32 hashing and DOS date/time bit packing */
 import { deflateRawSync } from "node:zlib";
 
 /**
@@ -14,20 +15,24 @@ const crcTable = (() => {
   const table = new Int32Array(256);
   for (let n = 0; n < 256; n += 1) {
     let c = n;
-    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    for (let k = 0; k < 8; k += 1) {
+      c = c & 1 ? 0xed_b8_83_20 ^ (c >>> 1) : c >>> 1;
+    }
     table[n] = c;
   }
   return table;
 })();
 
-function crc32(bytes: Uint8Array): number {
-  let c = 0xffffffff;
-  for (let i = 0; i < bytes.length; i += 1) c = crcTable[(c ^ bytes[i]!) & 0xff]! ^ (c >>> 8);
-  return (c ^ 0xffffffff) >>> 0;
-}
+const crc32 = (bytes: Uint8Array): number => {
+  let c = 0xff_ff_ff_ff;
+  for (const byte of bytes) {
+    c = (crcTable[(c ^ byte) & 0xff] ?? 0) ^ (c >>> 8);
+  }
+  return (c ^ 0xff_ff_ff_ff) >>> 0;
+};
 
 /** Convert a JS date to the DOS date/time pair ZIP headers use. */
-function dosDateTime(date: Date) {
+const dosDateTime = (date: Date) => {
   const time =
     (Math.floor(date.getSeconds() / 2) & 0x1f) |
     ((date.getMinutes() & 0x3f) << 5) |
@@ -36,8 +41,8 @@ function dosDateTime(date: Date) {
     (date.getDate() & 0x1f) |
     (((date.getMonth() + 1) & 0x0f) << 5) |
     ((Math.max(0, date.getFullYear() - 1980) & 0x7f) << 9);
-  return { time, date: day };
-}
+  return { date: day, time };
+};
 
 /**
  * General-purpose bit 11: "the filename is UTF-8".
@@ -46,17 +51,21 @@ function dosDateTime(date: Date) {
  * with the flags at zero, a reader is entitled to decode them as CP437, and a
  * skill carrying `é.png` extracts as `Ã©.png`, breaking every link to it.
  */
-const FLAG_UTF8 = 0x0800;
+const FLAG_UTF8 = 0x08_00;
 
-export type ZipEntry = { name: string; data: Uint8Array; mtime?: Date };
+export interface ZipEntry {
+  name: string;
+  data: Uint8Array;
+  mtime?: Date;
+}
 
-export function createZip(entries: ZipEntry[]): Buffer {
+export const createZip = (entries: ZipEntry[]): Buffer => {
   const locals: Buffer[] = [];
   const central: Buffer[] = [];
   let offset = 0;
 
   for (const entry of entries) {
-    const nameBytes = Buffer.from(entry.name, "utf8");
+    const nameBytes = Buffer.from(entry.name, "utf-8");
     const crc = crc32(entry.data);
     const deflated = deflateRawSync(entry.data, { level: 9 });
     // Fall back to stored when compression does not pay for itself.
@@ -66,9 +75,11 @@ export function createZip(entries: ZipEntry[]): Buffer {
     const { time, date } = dosDateTime(entry.mtime ?? new Date());
 
     const header = Buffer.alloc(30);
-    header.writeUInt32LE(0x04034b50, 0);
-    header.writeUInt16LE(20, 4); // version needed
-    header.writeUInt16LE(FLAG_UTF8, 6); // general-purpose flags
+    header.writeUInt32LE(0x04_03_4b_50, 0);
+    // version needed
+    header.writeUInt16LE(20, 4);
+    // general-purpose flags
+    header.writeUInt16LE(FLAG_UTF8, 6);
     header.writeUInt16LE(method, 8);
     header.writeUInt16LE(time, 10);
     header.writeUInt16LE(date, 12);
@@ -76,14 +87,18 @@ export function createZip(entries: ZipEntry[]): Buffer {
     header.writeUInt32LE(payload.length, 18);
     header.writeUInt32LE(entry.data.length, 22);
     header.writeUInt16LE(nameBytes.length, 26);
-    header.writeUInt16LE(0, 28); // extra length
+    // extra length
+    header.writeUInt16LE(0, 28);
     locals.push(header, nameBytes, payload);
 
     const entryHeader = Buffer.alloc(46);
-    entryHeader.writeUInt32LE(0x02014b50, 0);
-    entryHeader.writeUInt16LE(20, 4); // version made by
-    entryHeader.writeUInt16LE(20, 6); // version needed
-    entryHeader.writeUInt16LE(FLAG_UTF8, 8); // general-purpose flags
+    entryHeader.writeUInt32LE(0x02_01_4b_50, 0);
+    // version made by
+    entryHeader.writeUInt16LE(20, 4);
+    // version needed
+    entryHeader.writeUInt16LE(20, 6);
+    // general-purpose flags
+    entryHeader.writeUInt16LE(FLAG_UTF8, 8);
     entryHeader.writeUInt16LE(method, 10);
     entryHeader.writeUInt16LE(time, 12);
     entryHeader.writeUInt16LE(date, 14);
@@ -91,11 +106,16 @@ export function createZip(entries: ZipEntry[]): Buffer {
     entryHeader.writeUInt32LE(payload.length, 20);
     entryHeader.writeUInt32LE(entry.data.length, 24);
     entryHeader.writeUInt16LE(nameBytes.length, 28);
-    entryHeader.writeUInt16LE(0, 30); // extra
-    entryHeader.writeUInt16LE(0, 32); // comment
-    entryHeader.writeUInt16LE(0, 34); // disk number
-    entryHeader.writeUInt16LE(0, 36); // internal attrs
-    entryHeader.writeUInt32LE(0o644 << 16, 38); // external attrs: regular file
+    // extra
+    entryHeader.writeUInt16LE(0, 30);
+    // comment
+    entryHeader.writeUInt16LE(0, 32);
+    // disk number
+    entryHeader.writeUInt16LE(0, 34);
+    // internal attrs
+    entryHeader.writeUInt16LE(0, 36);
+    // external attrs: regular file
+    entryHeader.writeUInt32LE(0o644 << 16, 38);
     entryHeader.writeUInt32LE(offset, 42);
     central.push(entryHeader, nameBytes);
 
@@ -104,14 +124,17 @@ export function createZip(entries: ZipEntry[]): Buffer {
 
   const centralBuffer = Buffer.concat(central);
   const end = Buffer.alloc(22);
-  end.writeUInt32LE(0x06054b50, 0);
-  end.writeUInt16LE(0, 4); // this disk
-  end.writeUInt16LE(0, 6); // disk with central directory
+  end.writeUInt32LE(0x06_05_4b_50, 0);
+  // this disk
+  end.writeUInt16LE(0, 4);
+  // disk with central directory
+  end.writeUInt16LE(0, 6);
   end.writeUInt16LE(entries.length, 8);
   end.writeUInt16LE(entries.length, 10);
   end.writeUInt32LE(centralBuffer.length, 12);
   end.writeUInt32LE(offset, 16);
-  end.writeUInt16LE(0, 20); // comment length
+  // comment length
+  end.writeUInt16LE(0, 20);
 
   return Buffer.concat([...locals, centralBuffer, end]);
-}
+};

@@ -20,7 +20,7 @@ import type { JsonRecord, JsonValue } from "./types.js";
  * Minimal vendored Standard Schema v1 interface (the spec is designed to be
  * copied, not depended on). Any library exposing `~standard` satisfies it.
  */
-export type StandardSchemaV1<Input = unknown, Output = Input> = {
+export interface StandardSchemaV1<Input = unknown, Output = Input> {
   readonly "~standard": {
     readonly version: 1;
     readonly vendor: string;
@@ -28,16 +28,16 @@ export type StandardSchemaV1<Input = unknown, Output = Input> = {
       value: Input,
     ) => StandardSchemaResult<Output> | Promise<StandardSchemaResult<Output>>;
   };
-};
+}
 
-export type StandardSchemaIssue = {
+export interface StandardSchemaIssue {
   readonly message: string;
-  readonly path?: ReadonlyArray<PropertyKey | { readonly key: PropertyKey }> | undefined;
-};
+  readonly path?: readonly (PropertyKey | { readonly key: PropertyKey })[] | undefined;
+}
 
 export type StandardSchemaResult<Output> =
   | { readonly value: Output; readonly issues?: undefined }
-  | { readonly issues: ReadonlyArray<StandardSchemaIssue> };
+  | { readonly issues: readonly StandardSchemaIssue[] };
 
 /**
  * Ceiling on a single websocket message, in UTF-16 code units (≈ bytes for
@@ -63,23 +63,37 @@ const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 // check per element, keeping the walk proportional to container count, not
 // payload size. The 1 MiB message cap bounds total work.
 const walk = (value: JsonValue, depth: number): string | null => {
-  if (depth > MAX_STATE_DEPTH) return `nesting exceeds ${MAX_STATE_DEPTH} levels`;
+  if (depth > MAX_STATE_DEPTH) {
+    return `nesting exceeds ${MAX_STATE_DEPTH} levels`;
+  }
   if (Array.isArray(value)) {
     for (const item of value) {
-      if (!(item instanceof Object)) continue;
+      if (!(item instanceof Object)) {
+        continue;
+      }
       const issue = walk(item, depth + 1);
-      if (issue) return issue;
+      if (issue) {
+        return issue;
+      }
     }
     return null;
   }
   if (value instanceof Object) {
     for (const key in value) {
-      if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
-      if (FORBIDDEN_KEYS.has(key)) return `forbidden key "${key}"`;
+      if (!Object.hasOwn(value, key)) {
+        continue;
+      }
+      if (FORBIDDEN_KEYS.has(key)) {
+        return `forbidden key "${key}"`;
+      }
       const child = value[key];
-      if (child === undefined || !(child instanceof Object)) continue;
+      if (child === undefined || !(child instanceof Object)) {
+        continue;
+      }
       const issue = walk(child, depth + 1);
-      if (issue) return issue;
+      if (issue) {
+        return issue;
+      }
     }
   }
   return null;
@@ -99,19 +113,19 @@ export const findStructuralIssue = (data: JsonValue): string | null => {
   return walk(data, 1);
 };
 
-export type SchemaViolation = {
+export interface SchemaViolation {
   /** Which registered schema flagged the data. */
   channel: "sharedState" | "playerState";
   /** `outgoing` = blocked before send (local bug); `incoming` = dropped on receive. */
   direction: "outgoing" | "incoming";
   /** Player id the data came from, when known (incoming player state). */
   from?: string;
-  issues: ReadonlyArray<StandardSchemaIssue>;
+  issues: readonly StandardSchemaIssue[];
   /** The full candidate state that failed (post-merge, not the raw patch). */
   data: JsonRecord;
-};
+}
 
-export type MultiplayerSchemas = {
+export interface MultiplayerSchemas {
   /**
    * Validated against the FULL shared state after a patch merges (never a
    * partial patch), so write it to describe the whole object. States start
@@ -123,4 +137,4 @@ export type MultiplayerSchemas = {
   playerState?: StandardSchemaV1<unknown, JsonRecord>;
   /** Observe violations (metrics, dev overlays). Default logs a console.warn. */
   onViolation?: (violation: SchemaViolation) => void;
-};
+}

@@ -120,6 +120,7 @@ To add rim glow, dissolve, scrolling emissive, or wind sway to a lit surface, in
 - **Cache key (silent-failure gotcha):** any material whose `onBeforeCompile` injects code **must set `customProgramCacheKey`** returning a string unique to that injection. Without it Three.js can hand back a cached program compiled from a different, un-injected material of the same type — your code silently never runs, and it costs hours.
 - **Animating uniforms:** `onBeforeCompile` fires **once** per compiled program, so stash the shader (`material.userData.shader = shader`) and write uniforms each frame: `if (m.userData.shader) m.userData.shader.uniforms.uTime.value = t;`.
 - **Sharing:** reuse one material instance across meshes and its uniforms update once for all. For per-object variation, use separate instances (same cache key still reuses the program) or drive it from `instanceMatrix`.
+- **Reserved words:** `half` and `patch` are GLSL reserved — an injected `float half = ...` fails to compile. And `customProgramCacheKey` must read `window`/`devicePixelRatio` lazily inside the function, never captured at module load (workers and SSR have no `window`).
 
 ### Fresnel rim glow
 
@@ -307,6 +308,23 @@ Each is one draw call or less, mobile-safe, and solves a constant real need.
 - **Vertex-color AO** — bake occlusion into the mesh: darken a `color` attribute in cavities/creases, material `{ vertexColors: true }`. Static props and terrain get contact darkness for one attribute, zero extra draw calls.
 - **Matcap background props** — `new THREE.MeshMatcapMaterial({ matcap })` bakes lighting into one texture; needs no lights or env map. The cheapest lit-looking material for background/stylized props. It **ignores scene lights**, so never use it where a dynamic light or state glow must show.
 - **Emissive LOD signals** — far pickups/beacons keep reading by swapping `emissiveIntensity` by distance instead of adding geometry. Keep the signal color constant across the swap so identity survives.
+- **Plinths and skirts, not terrain surgery** — when a prop's footprint doesn't align to the terrain tessellation, flattening the terrain per cell cuts ramps through the neighbouring tiles. Seat the prop at its highest footprint corner and fill the downhill gap with a plinth/skirt box (2% overlap kills hairline gaps). Seat props and decals on the **drawn** (draped) surface — raycast the mesh or use the drape's own sampler — never on an analytic height field the mesh only approximates.
+
+---
+
+## Pixel-Look Post Pass (dither / pixelate)
+
+Render the scene to a low-res target and nearest-upscale to the canvas. The grid stays square only when one game pixel is an integer number of device pixels: with `PIXEL_SIZE × devicePixelRatio` fractional (DPR 1.25 / 1.75 under Windows scaling) every Nth column is a pixel wider. Snap the renderer's ratio and recompute on resize (DPR changes on zoom and monitor moves):
+
+```javascript
+const PIXEL_SIZE = 3; // device px per game px
+const fitPixelRatio = () =>
+  renderer.setPixelRatio(Math.round(PIXEL_SIZE * devicePixelRatio) / PIXEL_SIZE);
+fitPixelRatio();
+addEventListener("resize", fitPixelRatio);
+```
+
+For a 2-tone dither (ink on paper) only luminance survives: colour is meaningless and anything at or above paper luminance is invisible. Background fills must be unlit `MeshBasicMaterial` darker than the paper, and fades are luminance ramps ink→background, not opacity — opacity on a dithered surface reads as a density change, not a fade.
 
 ---
 
@@ -379,6 +397,8 @@ Shadows have three distinct failure looks, and they pull in opposite directions 
    ```
 
    Halving the frustum buys the same sharpness as doubling `mapSize`, and costs nothing. Use `CameraHelper(light.shadow.camera)` to see what you're actually covering — most "blurry shadows" are a frustum ten times bigger than the scene.
+
+Runtime rules: **never toggle `light.castShadow` with `shadowMap.autoUpdate = false`** — the light binds a stale depth texture and the console floods with `GL_INVALID_OPERATION`. Fade `light.shadow.intensity` to 0 instead, and after disposing a shadow map force one pass (`renderer.shadowMap.needsUpdate = true`). Static scenes take a one-shot map: `autoUpdate = false` plus `needsUpdate = true` once after setup; shadows off entirely on `(pointer: coarse)`. `PCFSoftShadowMap` is coerced to `PCFShadowMap` in r184 — not a quality knob.
 
 A shadow that outlives the object casting it is not a shadow bug: the mesh was removed from the scene graph but its geometry was never disposed, or a pooled object was hidden with `visible = false` (which still casts). Set `castShadow = false` when parking a pooled object.
 

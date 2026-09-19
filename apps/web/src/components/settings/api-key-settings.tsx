@@ -34,6 +34,14 @@ export const ApiKeySettings = () => {
   const qc = useQueryClient();
 
   const list = useQuery(orpc.apiKeys.list.queryOptions());
+  const [name, setName] = useState("");
+  const [expiresInDays, setExpiresInDays] = useState<number | "">("");
+  const [newKey, setNewKey] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  // Expiry badges are dated against the fetch the rows came from, so they stay
+  // put across renders instead of drifting with the wall clock.
+  const openedAt = list.dataUpdatedAt;
+
   const create = useMutation(
     orpc.apiKeys.create.mutationOptions({
       onSuccess: (data) => {
@@ -54,23 +62,18 @@ export const ApiKeySettings = () => {
     }),
   );
 
-  const [name, setName] = useState("");
-  const [expiresInDays, setExpiresInDays] = useState<number | "">("");
-  const [newKey, setNewKey] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  // Read the clock once so the rendered expiry badges don't shift under React
-  // between two renders of the same list.
-  const [openedAt] = useState(() => Date.now());
-
-  const copyKey = () => {
-    if (!newKey) return;
-    navigator.clipboard
-      .writeText(newKey)
-      .then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      })
-      .catch(() => toast.error("Copy failed"));
+  const copyKey = async () => {
+    if (!newKey) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(newKey);
+    } catch {
+      toast.error("Copy failed");
+      return;
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
   };
 
   return (
@@ -90,13 +93,20 @@ export const ApiKeySettings = () => {
         {newKey && (
           <div className="space-y-2 rounded-md border border-green-500/30 bg-green-900/20 p-4">
             <p className="text-sm font-medium text-green-200">
-              Copy your key now — it won't be shown again.
+              Copy your key now — it won&apos;t be shown again.
             </p>
             <div className="flex items-center gap-2">
               <code className="flex-1 truncate rounded bg-black/40 px-3 py-2 font-mono text-sm">
                 {newKey}
               </code>
-              <Button type="button" variant="ghost" size="sm" onClick={copyKey}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  void copyKey();
+                }}
+              >
                 {copied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
                 Copy
               </Button>
@@ -107,10 +117,12 @@ export const ApiKeySettings = () => {
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            if (!name.trim()) return;
+            if (!name.trim()) {
+              return;
+            }
             create.mutate({
-              name: name.trim(),
               expiresInDays: expiresInDays === "" ? null : expiresInDays,
+              name: name.trim(),
             });
           }}
           className="bg-input/40 space-y-2 rounded-md p-4 backdrop-blur-sm"
@@ -153,7 +165,9 @@ export const ApiKeySettings = () => {
             skeleton={<KeysSkeleton />}
           >
             {list.isError && (
-              <p className="text-muted-foreground text-sm">Couldn't load keys. Try reloading.</p>
+              <p className="text-muted-foreground text-sm">
+                Couldn&apos;t load keys. Try reloading.
+              </p>
             )}
             {list.data?.keys.length === 0 && (
               <p className="text-muted-foreground text-sm">No keys yet.</p>
@@ -161,7 +175,8 @@ export const ApiKeySettings = () => {
             {list.data && list.data.keys.length > 0 && (
               <ul className="divide-y divide-white/10 border-t border-white/10">
                 {list.data.keys.map((k) => {
-                  const expired = k.expiresAt != null && new Date(k.expiresAt).getTime() < openedAt;
+                  const expired =
+                    k.expiresAt !== null && new Date(k.expiresAt).getTime() < openedAt;
                   return (
                     <li key={k.id} className="flex items-center gap-3 py-4 text-sm">
                       <div className="min-w-0">

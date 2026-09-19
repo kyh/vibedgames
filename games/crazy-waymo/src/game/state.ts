@@ -1,19 +1,18 @@
 import { FARE } from "../shared/constants";
 
-export type DropoffReward = {
+export interface DropoffReward {
   readonly fare: number;
   readonly tip: number;
   readonly gross: number;
   readonly timeBonus: number;
-  readonly overflowCash: number; // seconds lost to the time cap, paid as $
+  // seconds lost to the time cap, paid as $
+  readonly overflowCash: number;
   readonly combo: number;
-};
+}
 
 // How long a "par" delivery of `tiles` takes — tips and passenger patience key
 // off it. Tight enough that only a clean fast run earns the full tip.
-export function parSeconds(tiles: number): number {
-  return tiles * 0.9 + 3;
-}
+export const parSeconds = (tiles: number): number => tiles * 0.9 + 3;
 
 // Owns the run's numbers: score, clock, combo. Pure logic, no rendering.
 export class GameState {
@@ -24,6 +23,8 @@ export class GameState {
   comboTimer = 0;
   bestDrift = 0;
   bestAir = 0;
+  // Cash taken back by traffic hits: `score + lost` is what the run has earned.
+  private lost = 0;
   private driftAccum = 0;
   // Stunt cash (drift/air/smash/near-miss) only pays WITH a passenger aboard —
   // empty cruising earns nothing but still bleeds on traffic hits.
@@ -37,6 +38,7 @@ export class GameState {
     this.comboTimer = 0;
     this.bestDrift = 0;
     this.bestAir = 0;
+    this.lost = 0;
     this.driftAccum = 0;
     this.carrying = false;
   }
@@ -50,12 +52,18 @@ export class GameState {
     // math but never counts down to a game over.
     if (this.comboTimer > 0 && carrying) {
       this.comboTimer -= dt;
-      if (this.comboTimer <= 0) this.combo = 1;
+      if (this.comboTimer <= 0) {
+        this.combo = 1;
+      }
     }
   }
 
   get timedOut(): boolean {
     return this.timeLeft <= 0;
+  }
+  /** Everything earned this run, penalties ignored — never decreases. */
+  get earned(): number {
+    return Math.floor(this.score + this.lost);
   }
   get displayScore(): number {
     return Math.floor(this.score);
@@ -82,7 +90,7 @@ export class GameState {
     this.score += gross + overflowCash;
     this.fares += 1;
     this.timeLeft += timeBonus;
-    return { fare: fareBase, tip, gross, timeBonus, overflowCash, combo: this.combo };
+    return { combo: this.combo, fare: fareBase, gross, overflowCash, timeBonus, tip };
   }
 
   // A bailed passenger pays nothing; the chain breaks.
@@ -93,8 +101,12 @@ export class GameState {
 
   addDrift(dt: number): void {
     this.driftAccum += dt;
-    if (this.carrying) this.score += FARE.driftScorePerSec * dt;
-    if (this.driftAccum > this.bestDrift) this.bestDrift = this.driftAccum;
+    if (this.carrying) {
+      this.score += FARE.driftScorePerSec * dt;
+    }
+    if (this.driftAccum > this.bestDrift) {
+      this.bestDrift = this.driftAccum;
+    }
   }
   endDrift(): void {
     this.driftAccum = 0;
@@ -104,15 +116,21 @@ export class GameState {
   // scoped to fare payouts (its timer only runs while carrying, so letting it
   // multiply stunts would make a parked 8× chain farmable risk-free).
   landAir(airTime: number): number {
-    if (airTime > this.bestAir) this.bestAir = airTime;
-    if (!this.carrying) return 0;
+    if (airTime > this.bestAir) {
+      this.bestAir = airTime;
+    }
+    if (!this.carrying) {
+      return 0;
+    }
     const pts = Math.round(40 * airTime);
     this.score += pts;
     return pts;
   }
 
   smash(): number {
-    if (!this.carrying) return 0;
+    if (!this.carrying) {
+      return 0;
+    }
     this.score += FARE.smashBonus;
     return FARE.smashBonus;
   }
@@ -120,13 +138,16 @@ export class GameState {
   // Ramming traffic costs money (cones are toys; cars are not).
   trafficHit(impact: number): number {
     const pen = Math.min(80, Math.round(12 + impact * 1.4));
+    this.lost += Math.min(pen, this.score);
     this.score = Math.max(0, this.score - pen);
     return pen;
   }
 
   // Near-miss pays with the risk: up to 3× at boost speed (no combo — see landAir).
   nearMiss(speedFrac: number): number {
-    if (!this.carrying) return 0;
+    if (!this.carrying) {
+      return 0;
+    }
     const pts = Math.round(FARE.nearMissBonus * (1 + 2 * Math.min(1, speedFrac)));
     this.score += pts;
     return pts;

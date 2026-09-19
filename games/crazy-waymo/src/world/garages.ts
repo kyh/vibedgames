@@ -11,13 +11,23 @@ import type { Terrain } from "./terrain";
 // A robotaxi garage: the depot building plus the drive-in pad in front where
 // the skin-swap UI opens. Spots are derived deterministically from the plan,
 // so BOTH the generated and the baked-artifact boot paths agree on them.
-export type Garage = { x: number; z: number; yaw: number; padX: number; padZ: number };
+export interface Garage {
+  x: number;
+  z: number;
+  yaw: number;
+  padX: number;
+  padZ: number;
+}
 
 const GARAGE_COUNT = 7;
 const GARAGE_MIN_DIST = 350;
 
-export function pickGarageSpots(plan: CityPlan, terrain: Terrain, network: RoadNetwork): Garage[] {
-  const cells = plan.cells;
+export const pickGarageSpots = (
+  plan: CityPlan,
+  terrain: Terrain,
+  network: RoadNetwork,
+): Garage[] => {
+  const { cells } = plan;
   const dirs: readonly (readonly [number, number])[] = [
     [1, 0],
     [-1, 0],
@@ -25,15 +35,26 @@ export function pickGarageSpots(plan: CityPlan, terrain: Terrain, network: RoadN
     [0, -1],
   ];
   const cellAt = (gx: number, gz: number): string | undefined => cells[gx]?.[gz];
-  type Cand = { gx: number; gz: number; dx: number; dz: number };
+  interface Cand {
+    gx: number;
+    gz: number;
+    dx: number;
+    dz: number;
+  }
   const cands: Cand[] = [];
   for (let gx = 4; gx < GRID_X - 4; gx += 2) {
     for (let gz = 4; gz < GRID_Z - 4; gz += 2) {
-      if (cellAt(gx, gz) !== "lot") continue;
+      if (cellAt(gx, gz) !== "lot") {
+        continue;
+      }
       for (const [dx, dz] of dirs) {
-        if (cellAt(gx + dx, gz + dz) !== "road") continue;
+        if (cellAt(gx + dx, gz + dz) !== "road") {
+          continue;
+        }
         // depth: the cell behind must be lot too (the depot is deep)
-        if (cellAt(gx - dx, gz - dz) !== "lot") continue;
+        if (cellAt(gx - dx, gz - dz) !== "lot") {
+          continue;
+        }
         const wx = (gx + 0.5) * ROAD_TILE - WORLD_HALF_X;
         const wz = (gz + 0.5) * ROAD_TILE - WORLD_HALF_Z;
         const r = ROAD_TILE;
@@ -43,15 +64,18 @@ export function pickGarageSpots(plan: CityPlan, terrain: Terrain, network: RoadN
           terrain.heightAt(wx - r, wz + r),
           terrain.heightAt(wx + r, wz + r),
         ];
-        if (Math.max(...hs) - Math.min(...hs) > 1.4) continue; // flat pads only
-        cands.push({ gx, gz, dx, dz });
+        if (Math.max(...hs) - Math.min(...hs) > 1.4) {
+          continue;
+          // flat pads only
+        }
+        cands.push({ dx, dz, gx, gz });
         break;
       }
     }
   }
   // Seeded shuffle, then greedy max-spread accept.
-  const rng = new Rng(424242);
-  for (let i = cands.length - 1; i > 0; i--) {
+  const rng = new Rng(424_242);
+  for (let i = cands.length - 1; i > 0; i -= 1) {
     const j = rng.int(i + 1);
     const a = cands[i];
     const b = cands[j];
@@ -62,10 +86,14 @@ export function pickGarageSpots(plan: CityPlan, terrain: Terrain, network: RoadN
   }
   const picked: Garage[] = [];
   for (const c of cands) {
-    if (picked.length >= GARAGE_COUNT) break;
+    if (picked.length >= GARAGE_COUNT) {
+      break;
+    }
     const wx = (c.gx + 0.5) * ROAD_TILE - WORLD_HALF_X;
     const wz = (c.gz + 0.5) * ROAD_TILE - WORLD_HALF_Z;
-    if (picked.some((g) => Math.hypot(g.x - wx, g.z - wz) < GARAGE_MIN_DIST)) continue;
+    if (picked.some((g) => Math.hypot(g.x - wx, g.z - wz) < GARAGE_MIN_DIST)) {
+      continue;
+    }
     // Depot footprint must not clip a vector lane: the grid says "lot" but
     // straightened OSM centrelines cut lot cells, and a depot corner in the
     // roadway is an (invisible from the lane) wall.
@@ -83,14 +111,17 @@ export function pickGarageSpots(plan: CityPlan, terrain: Terrain, network: RoadN
         break;
       }
     }
-    if (clipsLane) continue;
+    if (clipsLane) {
+      continue;
+    }
     picked.push({
-      x: wx,
-      z: wz,
-      yaw: Math.atan2(c.dx, c.dz), // model faces +Z — turn it toward the road
       padX: wx + c.dx * ROAD_TILE * 1.15,
       padZ: wz + c.dz * ROAD_TILE * 1.15,
+      x: wx,
+      // model faces +Z — turn it toward the road
+      yaw: Math.atan2(c.dx, c.dz),
+      z: wz,
     });
   }
   return picked;
-}
+};

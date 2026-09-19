@@ -49,7 +49,9 @@ export const CreditsSettings = () => {
 
       <div className="md:col-span-2">
         {credits.isError && (
-          <p className="text-muted-foreground text-sm">Couldn't load credits. Try reloading.</p>
+          <p className="text-muted-foreground text-sm">
+            Couldn&apos;t load credits. Try reloading.
+          </p>
         )}
 
         {!credits.isError && (
@@ -78,7 +80,7 @@ export const CreditsSettings = () => {
                               {kindLabel(e.kind, e.deltaMicro)}
                             </div>
                             <div className="text-muted-foreground text-xs">
-                              {e.endpointId != null && (
+                              {e.endpointId !== null && (
                                 <>
                                   <code className="font-mono">{e.endpointId}</code> ·{" "}
                                 </>

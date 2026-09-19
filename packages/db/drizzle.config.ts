@@ -12,14 +12,14 @@ import type { Config } from "drizzle-kit";
  *   CLOUDFLARE_D1_TOKEN
  */
 export default {
-  dialect: "sqlite",
-  driver: "d1-http",
-  schema: ["./src/drizzle-schema-auth.ts", "./src/drizzle-schema.ts"],
-  out: "./drizzle",
   casing: "snake_case",
   dbCredentials: {
     accountId: process.env.CLOUDFLARE_ACCOUNT_ID ?? "",
     databaseId: process.env.CLOUDFLARE_DATABASE_ID ?? "",
     token: process.env.CLOUDFLARE_D1_TOKEN ?? "",
   },
+  dialect: "sqlite",
+  driver: "d1-http",
+  out: "./drizzle",
+  schema: ["./src/drizzle-schema-auth.ts", "./src/drizzle-schema.ts"],
 } satisfies Config;

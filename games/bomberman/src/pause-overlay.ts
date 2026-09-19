@@ -1,29 +1,29 @@
 // Bespoke pause overlay — Bomberman's arcade attract-screen card on the
 // shared @repo/embed pause shell (which owns resume behavior, fade, and the
-// full-screen root): chunky NES-dialog pixel frame, ember palette from the
+// full-screen root): brass-edged courtyard frame, warm palette from the
 // start screen, a bomb with a live fuse spark. Renders control GROUPS from the
 // shared CONTROLS manifest, re-filtered on every show().
 
 import { controlGroups, createPauseShell } from "@repo/embed";
-import type { ControlMethod } from "@repo/embed";
+import type { ControlMethod, MuteAccessor } from "@repo/embed";
 
 import { CONTROLS } from "./controls";
 
 const STYLE_ID = "bm-pause-style";
 
-// Palette lifted from index.html: #0e1020 field, #eef2ff ink, #cbd3f0 copy,
-// rgba(120,140,220,…) pill borders, #ffbf6b / #ff7a2a ember accents.
+// Courtyard stone, cream ink and brass; shared by pause and title controls.
 // Positioning/z-index/fade live on the shell's root — visuals only here.
 const CSS = `
 .bm-pause {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 24px;
-  color: #eef2ff;
+  color: #f5f0da;
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   text-align: center;
-  background: radial-gradient(ellipse at center, rgba(8, 10, 24, 0.6) 0%, rgba(8, 10, 24, 0.84) 100%);
+  background: radial-gradient(ellipse at center, rgba(13, 28, 20, 0.6) 0%, rgba(9, 22, 16, 0.84) 100%);
   backdrop-filter: blur(3px) saturate(1.08);
   -webkit-backdrop-filter: blur(3px) saturate(1.08);
 }
@@ -54,12 +54,13 @@ const CSS = `
   max-height: min(84vh, 560px);
   overflow-y: auto;
   padding: 26px 30px 24px;
-  background: rgba(12, 14, 32, 0.94);
-  /* NES-dialog frame: ink border, dark gap, faint blue halo. */
-  border: 4px solid #eef2ff;
+  background: rgba(22, 38, 29, 0.96);
+  /* The same brass edge as the courtyard props and result card. */
+  border: 2px solid #b7a36c;
+  border-radius: 12px;
   box-shadow:
-    0 0 0 4px #0e1020,
-    0 0 0 6px rgba(120, 140, 220, 0.4),
+    0 0 0 4px #14241c,
+    0 0 0 6px rgba(183, 163, 108, 0.4),
     0 14px 44px rgba(0, 0, 0, 0.55);
 }
 .bm-pause-rivet {
@@ -123,7 +124,7 @@ const CSS = `
   height: 2px;
   background: repeating-linear-gradient(
     to right,
-    rgba(120, 140, 220, 0.45) 0 6px,
+    rgba(183, 163, 108, 0.45) 0 6px,
     transparent 6px 12px
   );
 }
@@ -133,7 +134,7 @@ const CSS = `
   font-weight: 700;
   letter-spacing: 0.3em;
   text-indent: 0.3em;
-  color: #8f9cd0;
+  color: #adbea8;
 }
 .bm-pause-rows {
   margin-top: 8px;
@@ -149,16 +150,28 @@ const CSS = `
   padding: 3px 8px;
   font-weight: 700;
   white-space: nowrap;
-  color: #eef2ff;
-  background: rgba(120, 140, 220, 0.16);
-  border: 1px solid rgba(120, 140, 220, 0.45);
+  color: #f5f0da;
+  background: rgba(183, 163, 108, 0.16);
+  border: 1px solid rgba(183, 163, 108, 0.45);
   box-shadow: inset 0 -2px 0 rgba(10, 12, 28, 0.8);
 }
 .bm-pause-action {
   justify-self: start;
   text-align: left;
-  color: #cbd3f0;
+  color: #d7decf;
   opacity: 0.85;
+}
+.bm-pause .vg-pause-sound {
+  margin-top: 18px;
+  padding: 8px 16px;
+  border-radius: 0;
+  font: 700 12px ui-monospace, "SF Mono", Menlo, monospace;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #f5f0da;
+  background: rgba(183, 163, 108, 0.16);
+  border: 1px solid rgba(183, 163, 108, 0.45);
+  box-shadow: inset 0 -2px 0 rgba(10, 12, 28, 0.8);
 }
 @media (prefers-reduced-motion: reduce) {
   .bm-pause-hint, .bm-pause-spark { animation: none; }
@@ -167,39 +180,45 @@ const CSS = `
 `;
 
 const METHOD_LABELS = {
+  camera: "CAMERA",
+  controller: "GAMEPAD",
   keys: "KEYBOARD",
   mouse: "MOUSE",
   touch: "TOUCH",
-  camera: "CAMERA",
-  controller: "GAMEPAD",
 } satisfies Record<ControlMethod, string>;
 
 /** Inject the shared control-card styles (pause overlay AND start screen). */
-export function ensureStyle(): void {
-  if (document.getElementById(STYLE_ID)) return;
+export const ensureStyle = (): void => {
+  if (document.querySelector(`#${STYLE_ID}`)) {
+    return;
+  }
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = CSS;
   document.head.append(style);
-}
+};
 
-function el(className: string, text?: string): HTMLDivElement {
+const el = (className: string, text?: string): HTMLDivElement => {
   const node = document.createElement("div");
   node.className = className;
-  if (text !== undefined) node.textContent = text;
+  if (text !== undefined) {
+    node.textContent = text;
+  }
   return node;
-}
+};
 
 /**
  * The grouped keycap rows both instruction surfaces render — the start screen
  * and the pause overlay teach controls with the SAME UI. Null when nothing is
  * visible for the current device/pad context.
  */
-export function buildControls(coarse: boolean): HTMLElement | null {
+export const buildControls = (coarse: boolean): HTMLElement | null => {
   // Fresh groups every render: touch rows on coarse pointers, keyboard rows
   // on fine ones, gamepad rows only while a pad is actually connected.
   const groups = controlGroups(CONTROLS, { coarse });
-  if (groups.length === 0) return null;
+  if (groups.length === 0) {
+    return null;
+  }
   const wrap = document.createElement("div");
   for (const group of groups) {
     wrap.append(el("bm-pause-method", METHOD_LABELS[group.method]));
@@ -216,28 +235,16 @@ export function buildControls(coarse: boolean): HTMLElement | null {
     wrap.append(rows);
   }
   return wrap;
-}
+};
 
-export type BombermanPauseOverlay = {
+export interface BombermanPauseOverlay {
   /** Mount the overlay. Idempotent while shown. */
   show: () => void;
   /** Unmount (fade out). Idempotent while hidden. */
   hide: () => void;
-};
-
-/**
- * Build Bomberman's pause overlay on the shared @repo/embed pause shell — the
- * shell owns resume behavior (pointerup / non-Escape keyup / fresh pad press),
- * this file owns the arcade attract-card look.
- */
-export function createBombermanPauseOverlay(): BombermanPauseOverlay {
-  return createPauseShell({
-    className: "bm-pause",
-    render: renderCard,
-  });
 }
 
-function renderCard(overlay: HTMLElement): void {
+const renderCard = (overlay: HTMLElement): void => {
   ensureStyle();
   const coarse = window.matchMedia("(pointer: coarse)").matches;
 
@@ -278,7 +285,20 @@ function renderCard(overlay: HTMLElement): void {
   card.append(el("bm-pause-hint", coarse ? "TAP TO RESUME" : "CLICK OR PRESS ANY KEY TO RESUME"));
 
   const controlsEl = buildControls(coarse);
-  if (controlsEl) card.append(el("bm-pause-rule"), controlsEl);
+  if (controlsEl) {
+    card.append(el("bm-pause-rule"), controlsEl);
+  }
 
   overlay.append(card);
-}
+};
+/**
+ * Build Bomberman's pause overlay on the shared @repo/embed pause shell — the
+ * shell owns resume behavior (pointerup / non-Escape keyup / fresh pad press),
+ * this file owns the arcade attract-card look.
+ */
+export const createBombermanPauseOverlay = (mute: MuteAccessor): BombermanPauseOverlay =>
+  createPauseShell({
+    className: "bm-pause",
+    mute,
+    render: renderCard,
+  });

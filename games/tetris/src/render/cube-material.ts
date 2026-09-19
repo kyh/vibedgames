@@ -7,6 +7,7 @@
 
 import { Color, ShaderMaterial } from "three";
 
+// oxlint-disable-next-line no-inline-comments -- /* glsl */ tags the literal for editor highlighting
 const VERTEX = /* glsl */ `
   varying vec3 vNormal;
   varying vec2 vUv;
@@ -17,6 +18,7 @@ const VERTEX = /* glsl */ `
   }
 `;
 
+// oxlint-disable-next-line no-inline-comments -- /* glsl */ tags the literal for editor highlighting
 const FRAGMENT = /* glsl */ `
   varying vec3 vNormal;
   varying vec2 vUv;
@@ -30,34 +32,38 @@ const FRAGMENT = /* glsl */ `
     if (n.y > 0.5) shade = 1.0;    // top/bottom
     else if (n.x > 0.5) shade = 0.82; // left/right
     vec3 color = uColor * shade * uBright;
-    if (vUv.x < uEdge || vUv.x > 1.0 - uEdge || vUv.y < uEdge || vUv.y > 1.0 - uEdge) {
-      color = uEdgeColor;
-    }
+    // Filter the ink boundary at the rendered pixel width, including grazing views.
+    vec2 toEdge = min(vUv, 1.0 - vUv);
+    float edgeDistance = min(toEdge.x, toEdge.y);
+    float pixelWidth = max(fwidth(edgeDistance), 0.0001);
+    float face = smoothstep(uEdge - pixelWidth * 0.5, uEdge + pixelWidth * 0.5, edgeDistance);
+    color = mix(uEdgeColor, color, face);
     gl_FragColor = vec4(color, 1.0);
     #include <colorspace_fragment>
   }
 `;
 
-const EDGE_COLOR = new Color(0x0a0b12);
+const EDGE_COLOR = new Color(0x0a_0b_12);
 
-export function makeCubeMaterial(colorHex: number): ShaderMaterial {
-  return new ShaderMaterial({
+export const makeCubeMaterial = (colorHex: number): ShaderMaterial =>
+  new ShaderMaterial({
+    fragmentShader: FRAGMENT,
     uniforms: {
+      uBright: { value: 1 },
       uColor: { value: new Color(colorHex) },
-      uEdgeColor: { value: EDGE_COLOR.clone() },
       uEdge: { value: 0.055 },
-      uBright: { value: 1.0 },
+      uEdgeColor: { value: EDGE_COLOR.clone() },
     },
     vertexShader: VERTEX,
-    fragmentShader: FRAGMENT,
   });
-}
 
 /** Shaded material for the active (falling) slab — slightly brighter so it
  *  pops against the locked stack. */
-export function makeActiveMaterial(colorHex: number): ShaderMaterial {
+export const makeActiveMaterial = (colorHex: number): ShaderMaterial => {
   const m = makeCubeMaterial(colorHex);
   const u = m.uniforms.uBright;
-  if (u) u.value = 1.18;
+  if (u) {
+    u.value = 1.18;
+  }
   return m;
-}
+};

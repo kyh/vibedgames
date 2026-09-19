@@ -1,6 +1,6 @@
 ---
 name: game-ui
-description: "Game interface craft — HUD zoning and hierarchy, fixed-width numerals, alert-color roles, meters over stat cards, menu/overlay states, touch controls (44px targets, safe-area insets, pointer-release handling) — for Phaser, Three.js, and DOM overlays. Use when: building or reviewing a HUD, score/timer/health display, pause/fail/win menus, on-screen touch controls, 'the UI looks like a website', clipped or shifting text, or any in-game interface work."
+description: "Design in-game interfaces: HUD zoning and hierarchy, meters and numerals, menu and overlay states, touch targets and safe areas, for Phaser, Three.js or DOM."
 ---
 
 # Game UI
@@ -28,6 +28,12 @@ at glance-speed mid-dodge; a card is not.
   indicators, damage numbers, prompts anchored to the thing itself.
 - Keep all UI out of the play path — away from the player, threats, pickups,
   and the next decision.
+- **No control instructions during play.** "M to mute", "WASD to move" and
+  standing hint bars belong on the initial screen only. Allowed in play:
+  pause/game-over/match-end modals (keep "P to resume"), just-in-time prompts
+  gated on a transient state, ability-bar keycap glyphs, `?editor=` /
+  `?gallery=` scenes. Mute renders icon-only with an `aria-label`. If
+  stripping a hint leaves it untaught, build a start screen.
 
 ## Numbers that don't dance
 
@@ -57,6 +63,17 @@ channels (color + shape/motion/sound) — never color alone.
   ships as player UI.
 - UI reads from the game state (single source of truth) and dispatches
   intents; check for stale values after restart.
+- **Nothing before start.** Gate HUD, thumb pads and restart on a `started`
+  state; camera panels fold to one pill until a stream is live. Sound toggle
+  - the M binding live on the pause shell (games boot muted; phones still
+    need an unmute path) — never on the touch cluster, which is pause-only.
+- **Start overlay over a live sim**: dismiss on key/pointer RELEASE
+  (`keyboard.once("keyup")`) — keydown lets the same SPACE also fire. The
+  overlay covers the canvas, so attach the pointer listener to the overlay
+  element. A pause hook that no-ops before `started` makes a start-screen
+  pause button a dead control — hide it until it works.
+- Trap: `.x button { display: grid }` beats the UA `[hidden]` rule, so
+  `el.hidden = true` silently no-ops. Add `button[hidden] { display: none }`.
 
 ## Touch controls (mobile)
 
@@ -67,7 +84,10 @@ channels (color + shape/motion/sound) — never color alone.
 - **Release paths**: handle `pointerup`, `pointercancel`,
   `lostpointercapture`, window `blur`, and visibility change — a stuck
   virtual button is a stuck key. Controls emit the same game intents as
-  keyboard.
+  keyboard. `preventDefault()` on `pointerup` does not stop the compat
+  `click` that follows `touchend` ~1 ms later — cancel `touchend`.
+- The touch cluster is pause-only; every other action lives on the pause
+  overlay.
 - `touch-action: none` only on the game surface and control regions, so page
   scroll/zoom can't steal input.
 - Don't scale text with viewport width; use `clamp()` with sane floors.
@@ -81,6 +101,7 @@ channels (color + shape/motion/sound) — never color alone.
 - [ ] Score/timer/ammo use fixed-width numerals; longest value tested.
 - [ ] Alert colors consistent; critical states have ≥2 feedback channels.
 - [ ] Pause, fail/retry (one input, <2s), win states exist and work.
+- [ ] No control hints in play; start screen teaches them; mute is icon-only.
 - [ ] Text legible over bright, dark, and moving backgrounds.
 - [ ] Mobile: 44px targets, safe-area insets, release-path handling, no
       overlap between controls and HUD warnings.

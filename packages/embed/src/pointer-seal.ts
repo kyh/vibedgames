@@ -33,7 +33,7 @@ const SEALED_EVENTS = [
   "click",
 ] as const;
 
-export type PointerSealOptions = {
+export interface PointerSealOptions {
   /**
    * Targets whose synthesized click must survive, e.g. an overlay's own "how
    * to play" button wired on `click`. Propagation into the game is stopped
@@ -41,7 +41,7 @@ export type PointerSealOptions = {
    * click at all.
    */
   keepClick?: (target: EventTarget | null) => boolean;
-};
+}
 
 /**
  * Contain every pointer gesture that lands on `el`: the game never sees it,
@@ -53,16 +53,27 @@ export type PointerSealOptions = {
  *
  * Returns an unseal for an element that outlives the overlay.
  */
-export function sealPointerEvents(el: HTMLElement, options: PointerSealOptions = {}): () => void {
+export const sealPointerEvents = (
+  el: HTMLElement,
+  options: PointerSealOptions = {},
+): (() => void) => {
   const seal = (event: Event): void => {
     event.stopPropagation();
-    if (event.type !== "touchend" || !event.cancelable) return;
-    if (options.keepClick?.(event.target) ?? false) return;
+    if (event.type !== "touchend" || !event.cancelable) {
+      return;
+    }
+    if (options.keepClick?.(event.target) ?? false) {
+      return;
+    }
     event.preventDefault();
   };
   // Non-passive: the touchend branch above cancels the event.
-  for (const type of SEALED_EVENTS) el.addEventListener(type, seal, { passive: false });
+  for (const type of SEALED_EVENTS) {
+    el.addEventListener(type, seal, { passive: false });
+  }
   return () => {
-    for (const type of SEALED_EVENTS) el.removeEventListener(type, seal);
+    for (const type of SEALED_EVENTS) {
+      el.removeEventListener(type, seal);
+    }
   };
-}
+};

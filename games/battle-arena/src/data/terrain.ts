@@ -13,12 +13,10 @@
 // `grep -rn 'data/terrain' src/sim` must be empty.)
 import { groundHeight } from "../sim/elevation";
 
-export function smoothstep(a: number, b: number, x: number): number {
+export const smoothstep = (a: number, b: number, x: number): number => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);
-}
+};
 
 /** Render height of the ground at sim-plane (x, y). */
-export function terrainHeight(x: number, y: number): number {
-  return groundHeight(x, y);
-}
+export const terrainHeight = (x: number, y: number): number => groundHeight(x, y);

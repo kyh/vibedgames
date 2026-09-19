@@ -23,20 +23,20 @@ export type PadButton =
 const BUTTON_INDEX = {
   a: 0,
   b: 1,
-  x: 2,
-  y: 3,
+  down: 13,
   lb: 4,
-  rb: 5,
+  left: 14,
+  ls: 10,
   lt: 6,
+  rb: 5,
+  right: 15,
+  rs: 11,
   rt: 7,
   select: 8,
   start: 9,
-  ls: 10,
-  rs: 11,
   up: 12,
-  down: 13,
-  left: 14,
-  right: 15,
+  x: 2,
+  y: 3,
 } satisfies Readonly<Record<PadButton, number>>;
 
 const PAD_BUTTONS: readonly PadButton[] = [
@@ -60,11 +60,9 @@ const PAD_BUTTONS: readonly PadButton[] = [
 
 const PAD_BUTTON_NAMES: ReadonlySet<string> = new Set(PAD_BUTTONS);
 
-function isPadButton(id: string): id is PadButton {
-  return PAD_BUTTON_NAMES.has(id);
-}
+const isPadButton = (id: string): id is PadButton => PAD_BUTTON_NAMES.has(id);
 
-export type PhysicalGamepadOptions = {
+export interface PhysicalGamepadOptions {
   /**
    * Game action id → physical buttons, so a game reads the SAME ids from this
    * pad as from its {@link VirtualGamepad} buttons (e.g. `"jump"`, `"fire"`).
@@ -80,8 +78,8 @@ export type PhysicalGamepadOptions = {
   /** Fired when the last pad disappears. */
   onDisconnect?: () => void;
   /** Pad source, injectable for tests. Default `navigator.getGamepads()`. */
-  poll?: () => ReadonlyArray<Gamepad | null>;
-};
+  poll?: () => readonly (Gamepad | null)[];
+}
 
 const DEFAULT_STICK_DEAD_ZONE = 0.15;
 const DEFAULT_TRIGGER_THRESHOLD = 0.05;
@@ -90,27 +88,22 @@ const IDLE_STICK: StickState = {
   active: false,
   anchorX: 0,
   anchorY: 0,
+  angle: 0,
   curX: 0,
   curY: 0,
+  distance: 0,
   dx: 0,
   dy: 0,
-  distance: 0,
-  angle: 0,
-  magnitude: 0,
   inDeadZone: true,
+  magnitude: 0,
 };
 
-function defaultPoll(): ReadonlyArray<Gamepad | null> {
-  return typeof navigator !== "undefined" && "getGamepads" in navigator
-    ? navigator.getGamepads()
-    : [];
-}
+const defaultPoll = (): readonly (Gamepad | null)[] =>
+  typeof navigator !== "undefined" && "getGamepads" in navigator ? navigator.getGamepads() : [];
 
 /** True if any physical pad is currently connected — e.g. to decide whether
  *  controller rows belong on an instructions screen. */
-export function isPadConnected(): boolean {
-  return defaultPoll().some((pad) => pad?.connected ?? false);
-}
+export const isPadConnected = (): boolean => defaultPoll().some((pad) => pad?.connected ?? false);
 
 /**
  * Physical controller input, API-mirroring {@link VirtualGamepad} so a game's
@@ -133,7 +126,7 @@ export class PhysicalGamepad {
   private readonly triggerThreshold: number;
   private readonly onConnect?: () => void;
   private readonly onDisconnect?: () => void;
-  private readonly poll: () => ReadonlyArray<Gamepad | null>;
+  private readonly poll: () => readonly (Gamepad | null)[];
 
   private wasConnected = false;
   private axes: readonly number[] = [];
@@ -164,8 +157,11 @@ export class PhysicalGamepad {
     const connected = pad !== null;
     if (connected !== this.wasConnected) {
       this.wasConnected = connected;
-      if (connected) this.onConnect?.();
-      else this.onDisconnect?.();
+      if (connected) {
+        this.onConnect?.();
+      } else {
+        this.onDisconnect?.();
+      }
     }
 
     // Swap, then rebuild — prevDown keeps last frame's state for edge reads.
@@ -173,15 +169,21 @@ export class PhysicalGamepad {
     this.down.clear();
     this.values.clear();
     this.axes = pad ? [...pad.axes] : [];
-    if (!pad) return;
+    if (!pad) {
+      return;
+    }
 
     for (const name of PAD_BUTTONS) {
       const button = pad.buttons[BUTTON_INDEX[name]];
-      if (!button) continue;
+      if (!button) {
+        continue;
+      }
       this.values.set(name, button.value);
       // Triggers report analog values; some pads never set `pressed` for a
       // light pull, so a value past the threshold also counts as down.
-      if (button.pressed || button.value > this.triggerThreshold) this.down.add(name);
+      if (button.pressed || button.value > this.triggerThreshold) {
+        this.down.add(name);
+      }
     }
   }
 
@@ -218,7 +220,9 @@ export class PhysicalGamepad {
    * `active` while a pad is connected; dead-zoned like the virtual stick.
    */
   getStick(side: "left" | "right" = "left"): StickState {
-    if (!this.wasConnected) return { ...IDLE_STICK };
+    if (!this.wasConnected) {
+      return { ...IDLE_STICK };
+    }
     const base = side === "left" ? 0 : 2;
     const dx = this.axes[base] ?? 0;
     const dy = this.axes[base + 1] ?? 0;
@@ -228,14 +232,14 @@ export class PhysicalGamepad {
       active: true,
       anchorX: 0,
       anchorY: 0,
+      angle: Math.atan2(dy, dx),
       curX: dx,
       curY: dy,
+      distance,
       dx,
       dy,
-      distance,
-      angle: Math.atan2(dy, dx),
-      magnitude: Math.min(1, Math.max(0, (distance - this.stickDeadZone) / span)),
       inDeadZone: distance <= this.stickDeadZone,
+      magnitude: Math.min(1, Math.max(0, (distance - this.stickDeadZone) / span)),
     };
   }
 
@@ -250,7 +254,9 @@ export class PhysicalGamepad {
 
   private resolve(id: string): readonly PadButton[] {
     const bound = this.bindings[id];
-    if (bound) return bound;
+    if (bound) {
+      return bound;
+    }
     return isPadButton(id) ? [id] : [];
   }
 }

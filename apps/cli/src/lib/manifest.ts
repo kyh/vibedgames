@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import path from "node:path";
 
-export type ManifestFile = {
+export interface ManifestFile {
   /** forward-slash relative path, e.g. "assets/sprite.png" */
   path: string;
   /** absolute filesystem path */
@@ -10,7 +10,7 @@ export type ManifestFile = {
   size: number;
   sha256: string;
   contentType: string;
-};
+}
 
 const IGNORED_TOP_LEVEL = new Set([
   "node_modules",
@@ -23,83 +23,91 @@ const IGNORED_TOP_LEVEL = new Set([
 
 const CONTENT_TYPES = new Map(
   Object.entries({
-    html: "text/html; charset=utf-8",
-    htm: "text/html; charset=utf-8",
-    js: "application/javascript; charset=utf-8",
-    mjs: "application/javascript; charset=utf-8",
+    avif: "image/avif",
     cjs: "application/javascript; charset=utf-8",
     css: "text/css; charset=utf-8",
-    json: "application/json; charset=utf-8",
-    map: "application/json; charset=utf-8",
-    svg: "image/svg+xml",
-    png: "image/png",
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
     gif: "image/gif",
-    webp: "image/webp",
-    avif: "image/avif",
-    ico: "image/x-icon",
-    wasm: "application/wasm",
     glb: "model/gltf-binary",
     gltf: "model/gltf+json",
-    mp3: "audio/mpeg",
-    ogg: "audio/ogg",
-    wav: "audio/wav",
+    htm: "text/html; charset=utf-8",
+    html: "text/html; charset=utf-8",
+    ico: "image/x-icon",
+    jpeg: "image/jpeg",
+    jpg: "image/jpeg",
+    js: "application/javascript; charset=utf-8",
+    json: "application/json; charset=utf-8",
     m4a: "audio/mp4",
+    map: "application/json; charset=utf-8",
+    mjs: "application/javascript; charset=utf-8",
+    mp3: "audio/mpeg",
     mp4: "video/mp4",
-    webm: "video/webm",
-    ttf: "font/ttf",
+    ogg: "audio/ogg",
     otf: "font/otf",
+    png: "image/png",
+    svg: "image/svg+xml",
+    ttf: "font/ttf",
+    txt: "text/plain; charset=utf-8",
+    wasm: "application/wasm",
+    wav: "audio/wav",
+    webm: "video/webm",
+    webp: "image/webp",
     woff: "font/woff",
     woff2: "font/woff2",
-    txt: "text/plain; charset=utf-8",
     xml: "application/xml",
   }),
 );
 
-function contentTypeForPath(path: string): string {
-  const ext = path.split(".").pop()?.toLowerCase() ?? "";
+const contentTypeForPath = (file: string): string => {
+  const ext = file.split(".").pop()?.toLowerCase() ?? "";
   return CONTENT_TYPES.get(ext) ?? "application/octet-stream";
-}
+};
 
-function shouldIgnore(relPath: string): boolean {
-  const top = relPath.split(sep)[0] ?? "";
-  if (IGNORED_TOP_LEVEL.has(top)) return true;
+const shouldIgnore = (relPath: string): boolean => {
+  const top = relPath.split(path.sep)[0] ?? "";
+  if (IGNORED_TOP_LEVEL.has(top)) {
+    return true;
+  }
   // skip hidden files anywhere in the tree
-  if (relPath.split(sep).some((seg) => seg.startsWith("."))) return true;
+  if (relPath.split(path.sep).some((seg) => seg.startsWith("."))) {
+    return true;
+  }
   return false;
-}
+};
 
-export function buildManifest(rootDir: string): ManifestFile[] {
+export const buildManifest = (rootDir: string): ManifestFile[] => {
   const files: ManifestFile[] = [];
 
   const walk = (dir: string): void => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const abs = join(dir, entry.name);
-      const rel = relative(rootDir, abs);
-      if (shouldIgnore(rel)) continue;
+      const abs = path.join(dir, entry.name);
+      const rel = path.relative(rootDir, abs);
+      if (shouldIgnore(rel)) {
+        continue;
+      }
 
       if (entry.isDirectory()) {
         walk(abs);
         continue;
       }
-      if (!entry.isFile()) continue;
+      if (!entry.isFile()) {
+        continue;
+      }
 
       const stat = statSync(abs);
       const buf = readFileSync(abs);
       const sha256 = createHash("sha256").update(buf).digest("hex");
-      const posixPath = rel.split(sep).join("/");
+      const posixPath = rel.split(path.sep).join("/");
 
       files.push({
-        path: posixPath,
         absolutePath: abs,
-        size: stat.size,
-        sha256,
         contentType: contentTypeForPath(posixPath),
+        path: posixPath,
+        sha256,
+        size: stat.size,
       });
     }
   };
 
   walk(rootDir);
   return files;
-}
+};

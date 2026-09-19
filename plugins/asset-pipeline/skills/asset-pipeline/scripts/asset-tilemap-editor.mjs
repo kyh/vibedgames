@@ -24,14 +24,7 @@
  *       --map maps/level1.json --edit
  */
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-
-// The lint bans runtime `typeof`; these checks are typeof-free equivalents for
-// values decoded from JSON (plain objects and primitive strings only).
-const isPlainObject = (v) => Object.prototype.toString.call(v) === "[object Object]";
-const isString = (v) => String(v) === v;
-
+import path from "node:path";
 import {
   createTilemapEditor,
   exportMapRender,
@@ -52,8 +45,13 @@ import {
   writeJsonFile,
 } from "./_lib/asset-tools.mjs";
 
+// The lint bans runtime `typeof`; these checks are typeof-free equivalents for
+// values decoded from JSON (plain objects and primitive strings only).
+const isPlainObject = (v) => Object.prototype.toString.call(v) === "[object Object]";
+const isString = (v) => String(v) === v;
+
 /** An explicit path, a folder holding a manifest, or a conventional name. */
-function resolveManifest(explicit) {
+const resolveManifest = (explicit) => {
   if (!explicit) {
     const found = MANIFEST_JSON_CANDIDATES.find((c) => existsSync(c));
     if (!found) {
@@ -65,7 +63,7 @@ function resolveManifest(explicit) {
   }
   if (existsSync(explicit) && statSync(explicit).isDirectory()) {
     const inside = ["assets_index.json", "asset_index.json"]
-      .map((n) => join(explicit, n))
+      .map((n) => path.join(explicit, n))
       .find((c) => existsSync(c));
     if (!inside) {
       fail(
@@ -74,9 +72,11 @@ function resolveManifest(explicit) {
     }
     return inside;
   }
-  if (!existsSync(explicit)) fail(`Manifest not found: ${explicit}`);
+  if (!existsSync(explicit)) {
+    fail(`Manifest not found: ${explicit}`);
+  }
   return explicit;
-}
+};
 
 /**
  * Serve the editor page and block until interrupted.
@@ -85,17 +85,17 @@ function resolveManifest(explicit) {
  * repeat — a local port is reachable by anything else on the machine, and this
  * one can write files.
  */
-function startEditor(args, manifestPath, tileset) {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const html = readFileSync(join(here, "tilemap-editor.html"), "utf8");
+const startEditor = (args, manifestPath, tileset) => {
+  const here = import.meta.dirname;
+  const html = readFileSync(path.join(here, "tilemap-editor.html"), "utf-8");
   const host = getString(args, "host") ?? "127.0.0.1";
   const port = getInt(args, "port", 0);
 
   const editor = createTilemapEditor({
+    html,
     manifestPath,
     mapPath: getString(args, "map") ?? null,
     tileset,
-    html,
     writeRoot: getString(args, "write-root") ?? process.cwd(),
   });
 
@@ -118,10 +118,11 @@ function startEditor(args, manifestPath, tileset) {
     editor.server.close();
     process.exit(0);
   });
-}
+};
 
 main(() => {
   const args = parseArgs(process.argv.slice(2), {
+    booleans: ["edit", "label-ids", "trim"],
     values: [
       "bg",
       "export-map-render",
@@ -136,12 +137,11 @@ main(() => {
       "tileset",
       "write-root",
     ],
-    booleans: ["edit", "label-ids", "trim"],
   });
   const manifestPath = resolveManifest(getString(args, "manifest"));
   const manifest = loadManifestJson(manifestPath);
   const tilesets = sanitizeTilesets(manifest);
-  const name = getString(args, "tileset") ?? Object.keys(tilesets).sort()[0];
+  const name = getString(args, "tileset") ?? Object.keys(tilesets).toSorted()[0];
   let meta = tilesetMetaFromManifest(manifestPath, manifest, name);
 
   const scale = getInt(args, "scale", 4);
@@ -162,44 +162,46 @@ main(() => {
   }
 
   if (gridOut) {
-    exportTilesetGrid(meta, gridOut, { scale, labelIds: getFlag(args, "label-ids"), trim });
+    exportTilesetGrid(meta, gridOut, { labelIds: getFlag(args, "label-ids"), scale, trim });
     console.log(`Wrote ${gridOut}`);
   }
 
   if (renderOut) {
     const mapPath = getString(args, "map");
-    if (!mapPath) fail("--export-map-render requires --map PATH");
-    const mapPayload = JSON.parse(readFileSync(mapPath, "utf8"));
+    if (!mapPath) {
+      fail("--export-map-render requires --map PATH");
+    }
+    const mapPayload = JSON.parse(readFileSync(mapPath, "utf-8"));
     if (!isPlainObject(mapPayload)) {
       fail("Map JSON must be an object at top-level.");
     }
 
     // A map may name its own tileset, which wins over the CLI default.
     const mapMeta = mapPayload.meta;
-    if (isPlainObject(mapMeta) && isString(mapMeta.tileset)) {
-      if (mapMeta.tileset in tilesets) {
-        meta = tilesetMetaFromManifest(manifestPath, manifest, mapMeta.tileset);
-      }
+    if (isPlainObject(mapMeta) && isString(mapMeta.tileset) && mapMeta.tileset in tilesets) {
+      meta = tilesetMetaFromManifest(manifestPath, manifest, mapMeta.tileset);
     }
 
     const fills = getAll(args, "fill-rect").map((spec) => {
       const parts = spec.split(",").map((p) => p.trim());
-      if (parts.length !== 5) fail("--fill-rect must be x,y,w,h,#RRGGBB[AA]");
+      if (parts.length !== 5) {
+        fail("--fill-rect must be x,y,w,h,#RRGGBB[AA]");
+      }
       return {
+        color: parseColor(parts[4]),
+        h: Number(parts[3]),
+        w: Number(parts[2]),
         x: Number(parts[0]),
         y: Number(parts[1]),
-        w: Number(parts[2]),
-        h: Number(parts[3]),
-        color: parseColor(parts[4]),
       };
     });
 
     const bg = getString(args, "bg");
     exportMapRender(meta, renderOut, {
-      mapPayload,
-      scale,
       background: bg ? parseColor(bg) : null,
       fills,
+      mapPayload,
+      scale,
       trim,
     });
     console.log(`Wrote ${renderOut}`);

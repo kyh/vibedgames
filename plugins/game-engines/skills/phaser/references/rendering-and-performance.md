@@ -13,6 +13,8 @@ Performance work starts with one question: what is actually expensive? Usually o
 
 Default. Use sprites, images, text, and tilemaps when entities are interactive, state changes frequently, gameplay logic is per-object, or debugging clarity matters more than max counts. Don't move to a specialized path just because it sounds faster.
 
+- **Tiled ground without a tilemap**: one `TileSprite` of the default tile as the base, then one static `Image` per non-default tile. Same-texture images batch into one draw call — 2000 static tiles scroll smooth. Zero-risk alternative to a `RenderTexture` ground (nothing to `render()`, no <4.2 draw-mode surprises).
+
 ### `SpriteGPULayer`
 
 Huge numbers of mostly simple quads with predictable animation. Fast because it avoids per-object CPU work; the tradeoff is flexibility.
@@ -48,13 +50,15 @@ rt.draw(sprite, x, y);
 rt.render(); // do not skip this
 ```
 
-Use `preserve()` to retain commands for re-rendering across frames. Use `renderMode` on `RenderTexture` to control whether it draws itself or only updates its texture.
+Use `preserve()` to retain commands for re-rendering across frames. Use `renderMode` on `RenderTexture` (`render` | `redraw` | `all`) to control whether it draws itself or only updates its texture. If the RT stays transparent you skipped `render()` or are on <4.2 (`draw`/`repeat` silently no-op there); the TileSprite + Images ground above is the zero-risk alternative.
 
 ## Batch Breakers
 
 Valuable but not free — each can break the current batch, forcing a new draw call: filters, lighting, shader changes, unusual blend behavior, render target switches. Use where the effect is visible and justified (a subtle glow on one hero, not on every prop).
 
 Lighting specifically changes the shader: one lit object in a batch of 200 unlit sprites breaks the batch.
+
+**Scroll jank on a pixel game is batch breaks, not fill rate.** The canvas backing store is game-res (e.g. 478×270 at DPR 2), so it was never fill-bound. A `Rectangle` or `Graphics` interleaved in depth between batched `Image`s splits the sprite batch at every depth boundary: same-texture sprites first (contiguous depth band), overlays in a second pass above them. Measure frame-time p95/max WHILE MOVING — an idle profile hides it.
 
 ## New in Phaser 4
 
@@ -88,6 +92,7 @@ If the scene has transforms everywhere, forcing full rounding can trade shimmer 
 
 When performance is poor:
 
+0. Read `game.loop.actualFps` first. A 60+ fps pixel game that "feels low-fps" on a 120/144 Hz display is fixed-timestep judder, not draw load: positions advance in one step per sim tick and the extra refreshes repeat a frame. Fix with render interpolation — keep `prevX/prevY`, draw at `lerp(prev, cur, alpha)` — which keeps `roundPixels: true` and advances 1 px per refresh.
 1. Count object types and churn.
 2. Check whether filters or lighting are everywhere.
 3. Identify whether a GPU layer would simplify the scene.

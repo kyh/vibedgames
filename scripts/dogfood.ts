@@ -14,17 +14,18 @@ import {
   rmSync,
   symlinkSync,
 } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import path from "node:path";
 import { checkSkillRefs, reportSkillRefs } from "./check-skill-refs.ts";
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const PLUGINS = join(ROOT, "plugins");
-const SKILLS_DIR = join(ROOT, ".claude/skills");
+const ROOT = path.resolve(import.meta.dirname, "..");
+const PLUGINS = path.join(ROOT, "plugins");
+const SKILLS_DIR = path.join(ROOT, ".claude/skills");
 
 const run = (cmd: string, args: string[], cwd = ROOT) => {
   const result = spawnSync(cmd, args, { cwd, stdio: "inherit" });
-  if (result.status !== 0) process.exit(result.status ?? 1);
+  if (result.status !== 0) {
+    process.exit(result.status ?? 1);
+  }
 };
 
 console.log("→ bundling asset-tools into skill scripts/_lib/");
@@ -35,29 +36,36 @@ run("pnpm", ["--filter", "vibedgames", "build"]);
 
 console.log("→ linking vg globally (points at apps/cli/dist)");
 // pnpm link --global needs PNPM_HOME setup; npm link works everywhere.
-run("npm", ["link"], join(ROOT, "apps/cli"));
+run("npm", ["link"], path.join(ROOT, "apps/cli"));
 
 console.log("→ syncing .claude/skills/ with plugins/");
 mkdirSync(SKILLS_DIR, { recursive: true });
 
-const expected = new Map<string, string>(); // skill name → plugin source
+// skill name → plugin source
+const expected = new Map<string, string>();
 for (const plugin of readdirSync(PLUGINS)) {
-  const skillsRoot = join(PLUGINS, plugin, "skills");
-  if (!existsSync(skillsRoot)) continue;
+  const skillsRoot = path.join(PLUGINS, plugin, "skills");
+  if (!existsSync(skillsRoot)) {
+    continue;
+  }
   for (const skill of readdirSync(skillsRoot)) {
-    expected.set(skill, join(skillsRoot, skill));
+    expected.set(skill, path.join(skillsRoot, skill));
   }
 }
 
 // Remove orphaned symlinks (point into ./plugins but the source is gone, or the
 // target name doesn't match any current skill).
 for (const name of readdirSync(SKILLS_DIR)) {
-  const entry = join(SKILLS_DIR, name);
-  if (!lstatSync(entry).isSymbolicLink()) continue;
+  const entry = path.join(SKILLS_DIR, name);
+  if (!lstatSync(entry).isSymbolicLink()) {
+    continue;
+  }
   const target = readlinkSync(entry);
-  const absTarget = resolve(SKILLS_DIR, target);
-  const intoPlugins = absTarget.startsWith(PLUGINS + "/");
-  if (!intoPlugins) continue;
+  const absTarget = path.resolve(SKILLS_DIR, target);
+  const intoPlugins = absTarget.startsWith(`${PLUGINS}/`);
+  if (!intoPlugins) {
+    continue;
+  }
   if (!expected.has(name) || expected.get(name) !== absTarget) {
     rmSync(entry);
     console.log(`  removed stale ${name}`);
@@ -66,7 +74,7 @@ for (const name of readdirSync(SKILLS_DIR)) {
 
 let linked = 0;
 for (const [skill, src] of expected) {
-  const dest = join(SKILLS_DIR, skill);
+  const dest = path.join(SKILLS_DIR, skill);
   const stat = lstatSync(dest, { throwIfNoEntry: false });
   if (stat) {
     if (stat.isSymbolicLink()) {
@@ -79,8 +87,8 @@ for (const [skill, src] of expected) {
     }
   }
   // Use relative paths so symlinks work for anyone who clones the repo.
-  symlinkSync(relative(SKILLS_DIR, src), dest);
-  linked++;
+  symlinkSync(path.relative(SKILLS_DIR, src), dest);
+  linked += 1;
 }
 console.log(`  ${linked} skills linked`);
 
@@ -93,7 +101,7 @@ if (!reportSkillRefs(refs, ROOT)) {
   console.log("  ⚠ skill references above are broken — fix before committing.");
 }
 
-const which = spawnSync("sh", ["-c", "command -v vg"], { encoding: "utf8" });
+const which = spawnSync("sh", ["-c", "command -v vg"], { encoding: "utf-8" });
 const vgPath = which.stdout?.trim();
 
 console.log();

@@ -96,34 +96,40 @@ interface QueuedMove {
   deltaSeconds?: number;
 }
 
-function toVec3(value?: Vector3): Vector3 {
-  return value ? value.clone() : new Vector3();
-}
+const toVec3 = (value?: Vector3): Vector3 => (value ? value.clone() : new Vector3());
 
-function createColliderDesc(
+const createColliderDesc = (
   rapier: typeof RAPIER,
   geometry: ColliderGeometry,
   options: ColliderOptions,
-): RAPIER.ColliderDesc {
+): RAPIER.ColliderDesc => {
   let desc: RAPIER.ColliderDesc;
-  if (geometry.type === "capsule")
+  if (geometry.type === "capsule") {
     desc = rapier.ColliderDesc.capsule(geometry.halfHeight, geometry.radius);
-  else if (geometry.type === "cuboid")
+  } else if (geometry.type === "cuboid") {
     desc = rapier.ColliderDesc.cuboid(geometry.halfX, geometry.halfY, geometry.halfZ);
-  else desc = rapier.ColliderDesc.ball(geometry.radius);
+  } else {
+    desc = rapier.ColliderDesc.ball(geometry.radius);
+  }
 
   desc.setFriction(options.friction ?? 0);
   desc.setRestitution(options.restitution ?? 0);
-  if (options.collisionGroups !== undefined) desc.setCollisionGroups(options.collisionGroups);
-  if (options.solverGroups !== undefined) desc.setSolverGroups(options.solverGroups);
-  if (options.sensor !== undefined) desc.setSensor(options.sensor);
+  if (options.collisionGroups !== undefined) {
+    desc.setCollisionGroups(options.collisionGroups);
+  }
+  if (options.solverGroups !== undefined) {
+    desc.setSolverGroups(options.solverGroups);
+  }
+  if (options.sensor !== undefined) {
+    desc.setSensor(options.sensor);
+  }
   return desc;
-}
+};
 
-function configureController(
+const configureController = (
   controller: RAPIER.KinematicCharacterController,
   options: ControllerOptions,
-): void {
+): void => {
   controller.setUp(UP);
   if (options.autostep) {
     controller.enableAutostep(
@@ -139,27 +145,43 @@ function configureController(
   } else {
     controller.disableSnapToGround();
   }
-  if (options.maxSlopeClimbAngle !== undefined)
+  if (options.maxSlopeClimbAngle !== undefined) {
     controller.setMaxSlopeClimbAngle(options.maxSlopeClimbAngle);
-  if (options.minSlopeSlideAngle !== undefined)
+  }
+  if (options.minSlopeSlideAngle !== undefined) {
     controller.setMinSlopeSlideAngle(options.minSlopeSlideAngle);
-  if (options.applyImpulsesToDynamicBodies !== undefined)
+  }
+  if (options.applyImpulsesToDynamicBodies !== undefined) {
     controller.setApplyImpulsesToDynamicBodies(options.applyImpulsesToDynamicBodies);
-  if (options.characterMass !== undefined) controller.setCharacterMass(options.characterMass);
-  if (options.slide !== undefined) controller.setSlideEnabled(options.slide);
-}
+  }
+  if (options.characterMass !== undefined) {
+    controller.setCharacterMass(options.characterMass);
+  }
+  if (options.slide !== undefined) {
+    controller.setSlideEnabled(options.slide);
+  }
+};
 
 export class KinematicResolver {
   private readonly actorColliderHandles = new Set<number>();
   private readonly queuedMoves: QueuedMove[] = [];
   private readonly results = new Map<Actor, MoveResult>();
+  private readonly world: RAPIER.World;
+  private readonly rapier: typeof RAPIER;
+  private readonly defaultMode: ActorCollisionMode;
+  private readonly minStepSeconds: number;
 
   constructor(
-    private readonly world: RAPIER.World,
-    private readonly rapier: typeof RAPIER,
-    private readonly defaultMode: ActorCollisionMode = "start-positions",
-    private readonly minStepSeconds = 1 / 240,
-  ) {}
+    world: RAPIER.World,
+    rapier: typeof RAPIER,
+    defaultMode: ActorCollisionMode = "start-positions",
+    minStepSeconds = 1 / 240,
+  ) {
+    this.world = world;
+    this.rapier = rapier;
+    this.defaultMode = defaultMode;
+    this.minStepSeconds = minStepSeconds;
+  }
 
   createActor(options: CreateActorOptions): Actor {
     const anchor = toVec3(options.position);
@@ -184,12 +206,12 @@ export class KinematicResolver {
     );
 
     const actor: Actor = {
-      characterController,
-      rigidBody,
-      collider,
       bodyOffset,
+      characterController,
+      collider,
       groundedProbeDistance: options.groundedProbeDistance ?? 0,
       ignoreActors: options.ignoreActors ?? null,
+      rigidBody,
     };
     this.actorColliderHandles.add(collider.handle);
     this.world.updateSceneQueries();
@@ -206,10 +228,13 @@ export class KinematicResolver {
     this.results.delete(actor);
     // Drop any queued move for this actor so a mid-frame removal can't sweep a freed collider.
     for (let i = this.queuedMoves.length - 1; i >= 0; i -= 1) {
-      if (this.queuedMoves[i].actor === actor) this.queuedMoves.splice(i, 1);
+      if (this.queuedMoves[i].actor === actor) {
+        this.queuedMoves.splice(i, 1);
+      }
     }
     this.world.removeCharacterController(actor.characterController);
-    this.world.removeRigidBody(actor.rigidBody); // also removes its attached collider
+    // also removes its attached collider
+    this.world.removeRigidBody(actor.rigidBody);
   }
 
   /** Clear last frame's queued moves and results. Call once per frame before queueing. */
@@ -219,7 +244,7 @@ export class KinematicResolver {
   }
 
   /** Teleport an actor (e.g. respawn) without a collision sweep. */
-  syncActor(actor: Actor, position: Vector3): void {
+  static syncActor(actor: Actor, position: Vector3): void {
     const bodyPosition = position.clone().add(actor.bodyOffset);
     actor.rigidBody.setTranslation(bodyPosition, true);
     actor.rigidBody.setNextKinematicTranslation(bodyPosition);
@@ -228,9 +253,9 @@ export class KinematicResolver {
   queueMove(actor: Actor, move: MoveRequest): void {
     this.queuedMoves.push({
       actor,
-      startPosition: toVec3(move.startPosition),
-      desiredDelta: toVec3(move.desiredDelta),
       deltaSeconds: move.deltaSeconds,
+      desiredDelta: toVec3(move.desiredDelta),
+      startPosition: toVec3(move.startPosition),
     });
   }
 
@@ -242,7 +267,7 @@ export class KinematicResolver {
 
     if (mode === "sequential") {
       for (const move of this.queuedMoves) {
-        this.syncActor(move.actor, move.startPosition);
+        KinematicResolver.syncActor(move.actor, move.startPosition);
         this.world.updateSceneQueries();
         this.results.set(
           move.actor,
@@ -250,7 +275,9 @@ export class KinematicResolver {
         );
       }
     } else {
-      for (const move of this.queuedMoves) this.syncActor(move.actor, move.startPosition);
+      for (const move of this.queuedMoves) {
+        KinematicResolver.syncActor(move.actor, move.startPosition);
+      }
       this.world.updateSceneQueries();
 
       for (const move of this.queuedMoves) {
@@ -307,7 +334,9 @@ export class KinematicResolver {
       y: body.y + correctedDelta.y,
       z: body.z + correctedDelta.z,
     };
-    if (commitTranslation) actor.rigidBody.setTranslation(nextBody, true);
+    if (commitTranslation) {
+      actor.rigidBody.setTranslation(nextBody, true);
+    }
     actor.rigidBody.setNextKinematicTranslation(nextBody);
 
     const position = new Vector3(
@@ -325,18 +354,20 @@ export class KinematicResolver {
       actor.characterController.computedGrounded() || this.probeGrounded(actor, nextBody);
 
     return {
-      position,
-      velocity,
-      correctedDelta,
-      grounded,
       blocked: collisions > 0,
       collisions,
+      correctedDelta,
+      grounded,
+      position,
+      velocity,
     };
   }
 
   private probeGrounded(actor: Actor, origin: RAPIER.Vector): boolean {
     const distance = Math.max(0, actor.groundedProbeDistance);
-    if (distance <= 0) return false;
+    if (distance <= 0) {
+      return false;
+    }
     // Computed access: the lint bans "shape" identifiers; castShape/shape are Rapier API.
     const hit = this.world["castShape"](
       origin,
@@ -355,7 +386,9 @@ export class KinematicResolver {
   }
 
   private stepWorld(deltaSeconds: number): void {
-    if (deltaSeconds <= 0) return;
+    if (deltaSeconds <= 0) {
+      return;
+    }
     this.world.timestep = Math.max(this.minStepSeconds, deltaSeconds);
     this.world.step();
     this.world.updateSceneQueries();

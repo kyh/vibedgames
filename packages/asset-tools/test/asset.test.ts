@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { globSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { globSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import path from "node:path";
 import { test } from "node:test";
 
 import { getAll, getFlag, getString, parseArgs } from "../src/args.js";
-import { isJsonObject, type JsonValue } from "../src/asset/json.js";
+import { must } from "./must.js";
+import { isJsonObject } from "../src/asset/json.js";
+import type { JsonValue } from "../src/asset/json.js";
 import { LuaParseError, parseLua } from "../src/asset/lua.js";
 import { checkManifest, exportManifest } from "../src/asset/manifest.js";
 import { parseFrame, prettyPath, walkFiles } from "../src/asset/paths.js";
@@ -32,36 +34,40 @@ import { roundHalfToEven } from "../src/pymath.js";
  * generated corpus.
  */
 
-function workspace(): string {
-  return mkdtempSync(join(tmpdir(), "vg-asset-"));
-}
+const workspace = (): string => mkdtempSync(path.join(tmpdir(), "vg-asset-"));
 
 /** Narrow a parsed manifest value to a table, failing the test loudly otherwise. */
-function asTable(value: JsonValue | undefined) {
-  if (!isJsonObject(value)) throw new Error(`expected a table, got ${JSON.stringify(value)}`);
+const asTable = (value: JsonValue | undefined) => {
+  if (!isJsonObject(value)) {
+    throw new Error(`expected a table, got ${JSON.stringify(value)}`);
+  }
   return value;
-}
+};
 
-function asList(value: JsonValue | undefined) {
-  if (!Array.isArray(value)) throw new Error(`expected a list, got ${JSON.stringify(value)}`);
+const asList = (value: JsonValue | undefined) => {
+  if (!Array.isArray(value)) {
+    throw new TypeError(`expected a list, got ${JSON.stringify(value)}`);
+  }
   return value;
-}
+};
 
 /**
  * A sheet whose sprites sit at a different vertical offset per cell, with a
  * softer alpha border — the drift that `sprite-baseline` exists to remove.
  */
-function buildSheet(
-  path: string,
+const buildSheet = (
+  file: string,
   cols: number,
   rows: number,
   frame: number,
-  skip: Set<string> = new Set(),
-): void {
+  skip = new Set<string>(),
+): void => {
   const sheet = Bitmap.create(cols * frame, rows * frame);
   for (let r = 0; r < rows; r += 1) {
     for (let c = 0; c < cols; c += 1) {
-      if (skip.has(`${c},${r}`)) continue;
+      if (skip.has(`${c},${r}`)) {
+        continue;
+      }
       const offset = (c + r) % 5;
       const size = frame / 2;
       const x0 = c * frame + (frame - size) / 2;
@@ -74,14 +80,14 @@ function buildSheet(
       }
     }
   }
-  sheet.toFile(path);
-}
+  sheet.toFile(file);
+};
 
 /**
  * A blobby figure per cell — nothing about it fills a whole bounding-box edge,
  * which is what separates real art from a drawn cell outline.
  */
-function buildFigureSheet(path: string, count: number, frame: number): Bitmap {
+const buildFigureSheet = (file: string, count: number, frame: number): Bitmap => {
   const sheet = Bitmap.create(count * frame, frame);
   for (let i = 0; i < count; i += 1) {
     const cx = i * frame + frame / 2;
@@ -93,12 +99,12 @@ function buildFigureSheet(path: string, count: number, frame: number): Bitmap {
       }
     }
   }
-  sheet.toFile(path);
+  sheet.toFile(file);
   return sheet;
-}
+};
 
 /** Ink the cell outlines, exactly as a pose-board model does when it ignores the prompt. */
-function inkCellOutlines(sheet: Bitmap, count: number, frame: number, path: string): void {
+const inkCellOutlines = (sheet: Bitmap, count: number, frame: number, file: string): void => {
   for (let i = 0; i < count; i += 1) {
     const x0 = i * frame + 8;
     const x1 = i * frame + frame - 9;
@@ -117,12 +123,12 @@ function inkCellOutlines(sheet: Bitmap, count: number, frame: number, path: stri
       }
     }
   }
-  sheet.toFile(path);
-}
+  sheet.toFile(file);
+};
 
 test("sheet-qc flags an inked cell outline, and leaves clean art alone", () => {
   const dir = workspace();
-  const clean = join(dir, "clean.png");
+  const clean = path.join(dir, "clean.png");
   const sheet = buildFigureSheet(clean, 4, 64);
   const before = runQc(clean, 64, 64);
   assert.equal(
@@ -131,7 +137,7 @@ test("sheet-qc flags an inked cell outline, and leaves clean art alone", () => {
     "figures do not fill a whole bbox edge, so nothing looks ruled",
   );
 
-  const ruled = join(dir, "ruled.png");
+  const ruled = path.join(dir, "ruled.png");
   inkCellOutlines(sheet, 4, 64, ruled);
   const after = runQc(ruled, 64, 64);
   const grid = after.checks.find((c) => c.check === "grid");
@@ -142,7 +148,7 @@ test("sheet-qc flags an inked cell outline, and leaves clean art alone", () => {
 
 test("sheet-qc does not mistake a solid rectangular sprite for a drawn grid", () => {
   const dir = workspace();
-  const sheet = join(dir, "blocks.png");
+  const sheet = path.join(dir, "blocks.png");
   buildSheet(sheet, 4, 1, 32);
   const report = runQc(sheet, 32, 32);
   assert.equal(
@@ -153,18 +159,18 @@ test("sheet-qc does not mistake a solid rectangular sprite for a drawn grid", ()
 });
 
 test("parseFrame accepts WxH and rejects anything else", () => {
-  assert.deepEqual(parseFrame("32x32"), { width: 32, height: 32 });
-  assert.deepEqual(parseFrame(" 256 X 128 "), { width: 256, height: 128 });
-  assert.throws(() => parseFrame("32"), /WxH/);
-  assert.throws(() => parseFrame("0x8"), /positive/);
+  assert.deepEqual(parseFrame("32x32"), { height: 32, width: 32 });
+  assert.deepEqual(parseFrame(" 256 X 128 "), { height: 128, width: 256 });
+  assert.throws(() => parseFrame("32"), /WxH/u);
+  assert.throws(() => parseFrame("0x8"), /positive/u);
 });
 
 test("sheet-probe reports the grid and which cells hold art", () => {
   const dir = workspace();
-  const sheet = join(dir, "hero.png");
+  const sheet = path.join(dir, "hero.png");
   buildSheet(sheet, 4, 2, 32, new Set(["3,1", "0,1"]));
 
-  const result = probeSheet(sheet, { width: 32, height: 32 }, true);
+  const result = probeSheet(sheet, { height: 32, width: 32 }, true);
   assert.deepEqual(result.grid, { columns: 4, rows: 2 });
   assert.equal(result.non_empty.length, 6);
   assert.equal(result.empty_count, 2);
@@ -179,28 +185,26 @@ test("sheet-probe reports the grid and which cells hold art", () => {
 
 test("sheet-probe refuses a frame size that doesn't divide the sheet", () => {
   const dir = workspace();
-  const sheet = join(dir, "hero.png");
+  const sheet = path.join(dir, "hero.png");
   buildSheet(sheet, 4, 2, 32);
-  assert.throws(() => probeSheet(sheet, { width: 30, height: 32 }, false), /not divisible/);
+  assert.throws(() => probeSheet(sheet, { height: 32, width: 30 }, false), /not divisible/u);
 });
 
 test("sprite-baseline measures per-frame drift and normalises it away", () => {
   const dir = workspace();
-  const sheet = join(dir, "hero.png");
-  const fixed = join(dir, "fixed.png");
+  const sheet = path.join(dir, "hero.png");
+  const fixed = path.join(dir, "fixed.png");
   buildSheet(sheet, 4, 2, 32, new Set(["3,1", "0,1"]));
 
-  const before = analyzeBaseline(sheet, { width: 32, height: 32 }, 30, 16, fixed);
+  const before = analyzeBaseline(sheet, { height: 32, width: 32 }, 30, 16, fixed);
   // Sprites were authored 0-4px apart vertically, so the audit must see a range.
   assert.notDeepEqual(before.visibleBottomYRange, null);
-  assert.ok(
-    before.visibleBottomYRange![1] > before.visibleBottomYRange![0],
-    "expected the corpus to actually drift",
-  );
+  const [rangeLow, rangeHigh] = must(before.visibleBottomYRange);
+  assert.ok(rangeHigh > rangeLow, "expected the corpus to actually drift");
   assert.equal(before.frames.filter((f) => f.empty).length, 2);
 
   // Re-auditing the corrected sheet must show every sprite on one baseline.
-  const after = analyzeBaseline(fixed, { width: 32, height: 32 }, 30, 16, null);
+  const after = analyzeBaseline(fixed, { height: 32, width: 32 }, 30, 16, null);
   assert.deepEqual(after.visibleBottomYRange, [30, 30], "all frames share the target baseline");
   assert.deepEqual(after.shiftYRange, [0, 0], "nothing left to correct");
 });
@@ -218,17 +222,21 @@ test("sprite-baseline rounds half-way shifts the way Python does", () => {
   assert.equal(roundHalfToEven(2.6), 3);
 
   const dir = workspace();
-  const sheet = join(dir, "hero.png");
+  const sheet = path.join(dir, "hero.png");
   buildSheet(sheet, 1, 1, 32);
-  const report = analyzeBaseline(sheet, { width: 32, height: 32 }, 30, 16, null);
-  assert.equal(report.frames[0]!.visibleCenterX, 15.5);
-  assert.deepEqual(report.frames[0]!.shiftToTarget![0], 0, "half-way shift rounds to even");
+  const report = analyzeBaseline(sheet, { height: 32, width: 32 }, 30, 16, null);
+  assert.equal(must(report.frames[0]).visibleCenterX, 15.5);
+  assert.deepEqual(
+    must(must(report.frames[0]).shiftToTarget)[0],
+    0,
+    "half-way shift rounds to even",
+  );
 });
 
 test("sizes walks a tree and renders CSV", () => {
   const dir = workspace();
-  buildSheet(join(dir, "b.png"), 2, 2, 16);
-  buildSheet(join(dir, "a.png"), 1, 1, 8);
+  buildSheet(path.join(dir, "b.png"), 2, 2, 16);
+  buildSheet(path.join(dir, "a.png"), 1, 1, 8);
 
   const rows = collectSizes(dir);
   assert.equal(rows.length, 2);
@@ -237,20 +245,23 @@ test("sizes walks a tree and renders CSV", () => {
     ["8x8", "32x32"],
     "sorted by path, so a.png precedes b.png",
   );
-  assert.match(sizesToCsv(rows), /^width,height,path\n8,8,/);
+  assert.match(sizesToCsv(rows), /^width,height,path\n8,8,/u);
 });
 
 test("walkFiles sorts by path and ignores other extensions", () => {
   const dir = workspace();
-  buildSheet(join(dir, "z.png"), 1, 1, 8);
-  buildSheet(join(dir, "a.png"), 1, 1, 8);
-  writeFileSync(join(dir, "notes.txt"), "ignore me");
+  buildSheet(path.join(dir, "z.png"), 1, 1, 8);
+  buildSheet(path.join(dir, "a.png"), 1, 1, 8);
+  writeFileSync(path.join(dir, "notes.txt"), "ignore me");
   const found = walkFiles(dir).map((p) => p.slice(dir.length + 1));
   assert.deepEqual(found, ["a.png", "z.png"]);
 });
 
 test("prettyPath prefers a cwd-relative rendering", () => {
-  assert.equal(prettyPath(join(process.cwd(), "src", "index.ts")), join("src", "index.ts"));
+  assert.equal(
+    prettyPath(path.join(process.cwd(), "src", "index.ts")),
+    path.join("src", "index.ts"),
+  );
 });
 
 test("parses Lua manifests into JSON-shaped data", () => {
@@ -279,25 +290,25 @@ test("parses Lua manifests into JSON-shaped data", () => {
 
 test("reports Lua syntax errors instead of silently returning junk", () => {
   assert.throws(() => parseLua("return { unterminated = 'oops }"), LuaParseError);
-  assert.throws(() => parseLua("return { } trailing"), /Trailing tokens/);
-  assert.throws(() => parseLua("return { key = someFunction }"), /Unsupported identifier/);
+  assert.throws(() => parseLua("return { } trailing"), /Trailing tokens/u);
+  assert.throws(() => parseLua("return { key = someFunction }"), /Unsupported identifier/u);
 });
 
 test("manifest-export renames terse keys and rebases paths", () => {
   const dir = workspace();
-  const manifest = join(dir, "assets_index.lua");
+  const manifest = path.join(dir, "assets_index.lua");
   writeFileSync(
     manifest,
     `return {
        meta = { root = "assets" },
-       sprites = { { path = "${join(dir, "hero.png").replaceAll("\\", "/")}", w = 4, h = 8, frameW = 2, frameH = 3, tileW = 5, tileH = 6 } },
+       sprites = { { path = "${path.join(dir, "hero.png").replaceAll("\\", "/")}", w = 4, h = 8, frameW = 2, frameH = 3, tileW = 5, tileH = 6 } },
      }`,
   );
-  buildSheet(join(dir, "hero.png"), 1, 1, 8);
+  buildSheet(path.join(dir, "hero.png"), 1, 1, 8);
 
   const exported = asTable(exportManifest(manifest, true));
   const sprite = asTable(asList(exported.sprites)[0]);
-  assert.deepEqual(Object.keys(sprite).sort(), [
+  assert.deepEqual(Object.keys(sprite).toSorted(), [
     "frameHeight",
     "frameWidth",
     "height",
@@ -312,9 +323,9 @@ test("manifest-export renames terse keys and rebases paths", () => {
 
 test("manifest-check separates undeclared art from missing art", () => {
   const dir = workspace();
-  buildSheet(join(dir, "declared.png"), 1, 1, 8);
-  buildSheet(join(dir, "undeclared.png"), 1, 1, 8);
-  const manifest = join(dir, "assets_index.lua");
+  buildSheet(path.join(dir, "declared.png"), 1, 1, 8);
+  buildSheet(path.join(dir, "undeclared.png"), 1, 1, 8);
+  const manifest = path.join(dir, "assets_index.lua");
   writeFileSync(
     manifest,
     `return { sprites = {
@@ -327,15 +338,15 @@ test("manifest-check separates undeclared art from missing art", () => {
   assert.equal(report.actual_pngs, 2);
   assert.equal(report.manifest_paths, 2);
   assert.equal(report.missing.length, 1, "undeclared.png is on disk but unlisted");
-  assert.match(report.missing[0]!, /undeclared\.png$/);
+  assert.match(must(report.missing[0]), /undeclared\.png$/u);
   assert.equal(report.extra.length, 1, "ghost.png is listed but absent");
-  assert.match(report.extra[0]!, /ghost\.png$/);
+  assert.match(must(report.extra[0]), /ghost\.png$/u);
 });
 
 test("manifest-check reads JSON manifests and honours meta.root", () => {
   const dir = workspace();
-  buildSheet(join(dir, "hero.png"), 1, 1, 8);
-  const manifest = join(dir, "assets_index.json");
+  buildSheet(path.join(dir, "hero.png"), 1, 1, 8);
+  const manifest = path.join(dir, "assets_index.json");
   writeFileSync(manifest, JSON.stringify({ meta: { root: "." }, sprites: [{ path: "hero.png" }] }));
   const report = checkManifest(manifest, dir);
   assert.deepEqual(report.missing, []);
@@ -344,9 +355,9 @@ test("manifest-check reads JSON manifests and honours meta.root", () => {
 
 test("manifest-check honours meta.root in Lua manifests too", () => {
   const dir = workspace();
-  mkdirSync(join(dir, "assets"), { recursive: true });
-  buildSheet(join(dir, "assets", "hero.png"), 1, 1, 8);
-  const manifest = join(dir, "assets_index.lua");
+  mkdirSync(path.join(dir, "assets"), { recursive: true });
+  buildSheet(path.join(dir, "assets", "hero.png"), 1, 1, 8);
+  const manifest = path.join(dir, "assets_index.lua");
   writeFileSync(
     manifest,
     `return {
@@ -355,16 +366,16 @@ test("manifest-check honours meta.root in Lua manifests too", () => {
      }`,
   );
 
-  const report = checkManifest(manifest, join(dir, "assets"));
+  const report = checkManifest(manifest, path.join(dir, "assets"));
   assert.deepEqual(report.extra, [], "hero.png is declared and present, not absent");
   assert.deepEqual(report.missing, [], "hero.png is on disk and declared, not undeclared");
 });
 
 test("manifest-export resolves relative paths through meta.root, not the cwd", () => {
   const dir = workspace();
-  mkdirSync(join(dir, "assets", "Tilesets"), { recursive: true });
-  buildSheet(join(dir, "assets", "Tilesets", "desert.png"), 1, 1, 8);
-  const manifest = join(dir, "assets_index.lua");
+  mkdirSync(path.join(dir, "assets", "Tilesets"), { recursive: true });
+  buildSheet(path.join(dir, "assets", "Tilesets", "desert.png"), 1, 1, 8);
+  const manifest = path.join(dir, "assets_index.lua");
   writeFileSync(
     manifest,
     `return {
@@ -385,27 +396,29 @@ test("manifest-export resolves relative paths through meta.root, not the cwd", (
 
 test("manifest-export rebases onto the output folder when one is given", () => {
   const dir = workspace();
-  mkdirSync(join(dir, "assets"), { recursive: true });
-  mkdirSync(join(dir, "tmp"), { recursive: true });
-  buildSheet(join(dir, "assets", "hero.png"), 1, 1, 8);
-  const manifest = join(dir, "assets_index.lua");
+  mkdirSync(path.join(dir, "assets"), { recursive: true });
+  mkdirSync(path.join(dir, "tmp"), { recursive: true });
+  buildSheet(path.join(dir, "assets", "hero.png"), 1, 1, 8);
+  const manifest = path.join(dir, "assets_index.lua");
   writeFileSync(
     manifest,
     `return { meta = { root = "assets" }, sprites = { { path = "hero.png" } } }`,
   );
 
-  const exported = asTable(exportManifest(manifest, true, join(dir, "tmp", "assets_index.json")));
+  const exported = asTable(
+    exportManifest(manifest, true, path.join(dir, "tmp", "assets_index.json")),
+  );
   const sprite = asTable(asList(exported.sprites)[0]);
   assert.equal(sprite.path, "../assets/hero.png", "relative to the output folder, as documented");
 });
 
 test("written PNGs are readable by the decoder that wrote them", () => {
   const dir = workspace();
-  const path = join(dir, "roundtrip.png");
-  buildSheet(path, 2, 1, 16);
-  const reread = Bitmap.fromFile(path);
+  const file = path.join(dir, "roundtrip.png");
+  buildSheet(file, 2, 1, 16);
+  const reread = Bitmap.fromFile(file);
   assert.deepEqual([reread.width, reread.height], [32, 16]);
-  assert.ok(readFileSync(path).length > 0);
+  assert.ok(readFileSync(file).length > 0);
 });
 
 // ---- argv parsing ---------------------------------------------------------
@@ -434,8 +447,8 @@ test("-h prints the script's own docblock and exits 0", () => {
   // `parseArgs` answers help itself and exits, so this has to be a subprocess:
   // asserting in-process would take the test runner down with it.
   const dir = workspace();
-  const entry = join(dir, "helped.ts");
-  const argsModule = join(import.meta.dirname, "..", "src", "args.ts");
+  const entry = path.join(dir, "helped.ts");
+  const argsModule = path.join(import.meta.dirname, "..", "src", "args.ts");
   writeFileSync(
     entry,
     `#!/usr/bin/env node\n/**\n * helped — a one-line summary.\n *\n * Usage:\n *   node helped.ts <in>\n */\n` +
@@ -444,13 +457,15 @@ test("-h prints the script's own docblock and exits 0", () => {
       `process.stdout.write("RAN BODY");\n`,
   );
   for (const flag of ["-h", "--help"]) {
-    const run = spawnSync(process.execPath, ["--import", "tsx", entry, flag], { encoding: "utf8" });
+    const run = spawnSync(process.execPath, ["--import", "tsx", entry, flag], {
+      encoding: "utf-8",
+    });
     assert.equal(run.status, 0, `${flag} should exit 0: ${run.stderr}`);
-    assert.match(run.stdout, /helped — a one-line summary\./);
-    assert.match(run.stdout, /Usage:/);
+    assert.match(run.stdout, /helped — a one-line summary\./u);
+    assert.match(run.stdout, /Usage:/u);
     // Help short-circuits: the script body never runs, and a missing required
     // positional is not reported as an error on top of the help.
-    assert.doesNotMatch(run.stdout, /RAN BODY/);
+    assert.doesNotMatch(run.stdout, /RAN BODY/u);
   }
 });
 
@@ -478,27 +493,37 @@ test("repeated options keep their order", () => {
  * trusting that they were all updated.
  */
 test("every skill script declares the boolean flags it reads", () => {
-  const repoRoot = join(import.meta.dirname, "..", "..", "..");
+  const repoRoot = path.join(import.meta.dirname, "..", "..", "..");
   const scripts = globSync("plugins/*/skills/*/scripts/*.mjs", { cwd: repoRoot }).map((rel) =>
-    join(repoRoot, rel),
+    path.join(repoRoot, rel),
   );
   assert.ok(scripts.length >= 20, `expected the skill scripts, found ${scripts.length}`);
 
   const offenders: string[] = [];
-  for (const path of scripts) {
-    const source = readFileSync(path, "utf8");
-    if (!source.includes('from "./_lib/asset-tools.mjs"')) continue;
+  for (const script of scripts) {
+    const source = readFileSync(script, "utf-8");
+    if (!source.includes('from "./_lib/asset-tools.mjs"')) {
+      continue;
+    }
 
-    const read = [...source.matchAll(/getFlag\(\s*args\s*,\s*"([^"]+)"/g)].map((m) => m[1]!);
-    if (read.length === 0) continue;
+    const read = [...source.matchAll(/getFlag\(\s*args\s*,\s*"(?<name>[^"]+)"/gu)].map((m) =>
+      must(m.groups?.name),
+    );
+    if (read.length === 0) {
+      continue;
+    }
 
     const declared = new Set(
-      [...(/booleans:\s*\[([^\]]*)\]/.exec(source)?.[1] ?? "").matchAll(/"([^"]+)"/g)].map(
-        (m) => m[1]!,
-      ),
+      [
+        ...(/booleans:\s*\[(?<list>[^\]]*)\]/u.exec(source)?.groups?.list ?? "").matchAll(
+          /"(?<name>[^"]+)"/gu,
+        ),
+      ].map((m) => must(m.groups?.name)),
     );
     const missing = [...new Set(read)].filter((name) => !declared.has(name));
-    if (missing.length > 0) offenders.push(`${basename(path)}: ${missing.join(", ")}`);
+    if (missing.length > 0) {
+      offenders.push(`${path.basename(script)}: ${missing.join(", ")}`);
+    }
   }
   assert.deepEqual(offenders, []);
 });
@@ -512,39 +537,49 @@ test("every skill script declares the boolean flags it reads", () => {
  * declared, read as a value, or visibly take one.
  */
 test("every flag a script advertises is declared or takes a value", () => {
-  const repoRoot = join(import.meta.dirname, "..", "..", "..");
+  const repoRoot = path.join(import.meta.dirname, "..", "..", "..");
   const scripts = globSync("plugins/*/skills/*/scripts/*.mjs", { cwd: repoRoot }).map((rel) =>
-    join(repoRoot, rel),
+    path.join(repoRoot, rel),
   );
 
   const offenders: string[] = [];
-  for (const path of scripts) {
-    const source = readFileSync(path, "utf8");
-    if (!source.includes('from "./_lib/asset-tools.mjs"')) continue;
+  for (const script of scripts) {
+    const source = readFileSync(script, "utf-8");
+    if (!source.includes('from "./_lib/asset-tools.mjs"')) {
+      continue;
+    }
 
     const declared = new Set(
-      [...(/booleans:\s*\[([^\]]*)\]/.exec(source)?.[1] ?? "").matchAll(/"([^"]+)"/g)].map(
-        (m) => m[1]!,
-      ),
+      [
+        ...(/booleans:\s*\[(?<list>[^\]]*)\]/u.exec(source)?.groups?.list ?? "").matchAll(
+          /"(?<name>[^"]+)"/gu,
+        ),
+      ].map((m) => must(m.groups?.name)),
     );
     const valued = new Set(
-      [...source.matchAll(/get(?:String|Number|Int|All)\(\s*args\s*,\s*"([^"]+)"/g)].map(
-        (m) => m[1]!,
+      [...source.matchAll(/get(?:String|Number|Int|All)\(\s*args\s*,\s*"(?<name>[^"]+)"/gu)].map(
+        (m) => must(m.groups?.name),
       ),
     );
     // `--size WxH` / `--out <path>`: a metavar after the flag means it takes one.
     const metavar = new Set(
-      [...source.matchAll(/--([a-z0-9][a-z0-9-]*)[= ](?:[A-Z_]{2,}|<)/g)].map((m) => m[1]!),
+      [...source.matchAll(/--(?<name>[a-z0-9][a-z0-9-]*)[= ](?:[A-Z_]{2,}|<)/gu)].map((m) =>
+        must(m.groups?.name),
+      ),
     );
 
-    const advertised = new Set([...source.matchAll(/--([a-z0-9][a-z0-9-]*)/g)].map((m) => m[1]!));
+    const advertised = new Set(
+      [...source.matchAll(/--(?<name>[a-z0-9][a-z0-9-]*)/gu)].map((m) => must(m.groups?.name)),
+    );
     // `--help` is free on every script — `parseArgs` answers it before a script
     // sees the arguments — so no script has to declare it.
     advertised.delete("help");
     const gap = [...advertised].filter(
       (name) => !declared.has(name) && !valued.has(name) && !metavar.has(name),
     );
-    if (gap.length > 0) offenders.push(`${basename(path)}: ${gap.sort().join(", ")}`);
+    if (gap.length > 0) {
+      offenders.push(`${path.basename(script)}: ${gap.toSorted().join(", ")}`);
+    }
   }
   assert.deepEqual(offenders, []);
 });
@@ -552,20 +587,22 @@ test("every flag a script advertises is declared or takes a value", () => {
 // ---- zip ------------------------------------------------------------------
 
 test("filenames are flagged UTF-8 in both headers", () => {
-  const zip = createZip([{ name: "assets/é.png", data: new Uint8Array([1, 2, 3]) }]);
+  const zip = createZip([{ data: new Uint8Array([1, 2, 3]), name: "assets/é.png" }]);
 
   // Local header: signature at 0, general-purpose flags at offset 6.
-  assert.equal(zip.readUInt32LE(0), 0x04034b50);
-  assert.equal(zip.readUInt16LE(6) & 0x0800, 0x0800, "local header missing the UTF-8 bit");
+  assert.equal(zip.readUInt32LE(0), 0x04_03_4b_50);
+  // oxlint-disable-next-line no-bitwise -- tests the UTF-8 flag bit in the zip header
+  assert.equal(zip.readUInt16LE(6) & 0x08_00, 0x08_00, "local header missing the UTF-8 bit");
 
   // Central directory: find its signature, flags at offset 8 from there.
   const central = zip.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
   assert.ok(central > 0, "no central directory");
-  assert.equal(zip.readUInt16LE(central + 8) & 0x0800, 0x0800, "central header missing the bit");
+  // oxlint-disable-next-line no-bitwise -- tests the UTF-8 flag bit in the zip header
+  assert.equal(zip.readUInt16LE(central + 8) & 0x08_00, 0x08_00, "central header missing the bit");
 
   // And the name really is UTF-8, which is what the bit is promising.
   const nameLength = zip.readUInt16LE(26);
-  assert.equal(zip.subarray(30, 30 + nameLength).toString("utf8"), "assets/é.png");
+  assert.equal(zip.subarray(30, 30 + nameLength).toString("utf-8"), "assets/é.png");
 });
 
 // ---- size contract --------------------------------------------------------
@@ -577,7 +614,7 @@ test("a malformed runtimeCell is rejected where the message can name the file", 
   for (const bad of ["64x64", [64], [64, 64, 64], ["64", "64"], [64, null], []]) {
     assert.throws(
       () => loadSizeContract({ ...base, runtimeCell: bad }, "contract.json"),
-      /runtimeCell must be \[width, height\] numbers.*contract\.json/,
+      /runtimeCell must be \[width, height\] numbers.*contract\.json/u,
       `accepted ${JSON.stringify(bad)}`,
     );
   }
@@ -589,7 +626,7 @@ test("a malformed runtimeCell is rejected where the message can name the file", 
 test("a non-object tolerances is rejected rather than spread", () => {
   assert.throws(
     () => loadSizeContract({ kind: "sprite-size-contract", tolerances: 3 }, "c.json"),
-    /tolerances must be an object.*c\.json/,
+    /tolerances must be an object.*c\.json/u,
   );
   const merged = loadSizeContract(
     { kind: "sprite-size-contract", tolerances: { visibleHeightPx: 9 } },
@@ -610,27 +647,31 @@ test("cellSizeOf falls back rather than producing NaN", () => {
  * format-checked clean — the bundle is a plain `.mjs` those tools do not follow
  * into. Only running the file finds it, so run every one.
  */
-test("every skill script loads and reports a usage error, not a crash", () => {
-  const repoRoot = join(import.meta.dirname, "..", "..", "..");
+test("every skill script loads and reports a usage error, not a crash", (t) => {
+  const repoRoot = path.join(import.meta.dirname, "..", "..", "..");
   const scripts = globSync("plugins/*/skills/*/scripts/*.mjs", { cwd: repoRoot })
     .filter((rel) => !rel.includes("/_lib/"))
-    .map((rel) => join(repoRoot, rel));
+    .map((rel) => path.join(repoRoot, rel));
   assert.ok(scripts.length >= 20, `expected the skill scripts, found ${scripts.length}`);
+  // Some bare commands inspect cwd. Keep this import/usage check independent
+  // of unrelated files in the machine's shared temporary directory.
+  const cwd = workspace();
+  t.after(() => rmSync(cwd, { force: true, recursive: true }));
 
   const offenders: string[] = [];
-  for (const path of scripts) {
-    const run = spawnSync(process.execPath, [path], {
-      encoding: "utf8",
-      cwd: tmpdir(),
+  for (const script of scripts) {
+    const run = spawnSync(process.execPath, [script], {
+      cwd,
+      encoding: "utf-8",
       timeout: 30_000,
     });
     const output = `${run.stdout ?? ""}${run.stderr ?? ""}`;
     // A bare invocation should explain itself and exit 0/1/2 — never a
     // ReferenceError, a TypeError or a raw stack trace.
-    if (/\b(?:Reference|Type|Syntax)Error\b|^\s+at .+:\d+:\d+$/m.test(output)) {
-      offenders.push(`${basename(path)}: ${output.trim().split("\n")[0]}`);
+    if (/\b(?:Reference|Type|Syntax)Error\b|^\s+at .+:\d+:\d+$/mu.test(output)) {
+      offenders.push(`${path.basename(script)}: ${output.trim().split("\n")[0]}`);
     } else if (![0, 1, 2].includes(run.status ?? -1)) {
-      offenders.push(`${basename(path)}: exit ${run.status}`);
+      offenders.push(`${path.basename(script)}: exit ${run.status}`);
     }
   }
   assert.deepEqual(offenders, []);
@@ -644,8 +685,8 @@ test("every skill script loads and reports a usage error, not a crash", () => {
  */
 test("an option outside the declared surface is rejected", () => {
   const dir = workspace();
-  const entry = join(dir, "entry.ts");
-  const argsModule = join(import.meta.dirname, "..", "src", "args.ts");
+  const entry = path.join(dir, "entry.ts");
+  const argsModule = path.join(import.meta.dirname, "..", "src", "args.ts");
   writeFileSync(
     entry,
     `import { parseArgs } from ${JSON.stringify(argsModule)};\n` +
@@ -653,13 +694,13 @@ test("an option outside the declared surface is rejected", () => {
       `process.stdout.write("parsed");\n`,
   );
   const run = (...argv: string[]) =>
-    spawnSync(process.execPath, ["--import", "tsx", entry, ...argv], { encoding: "utf8" });
+    spawnSync(process.execPath, ["--import", "tsx", entry, ...argv], { encoding: "utf-8" });
 
   const typo = run("--k-colours", "4");
   assert.equal(typo.status, 2, `a misspelled option must be a usage error: ${typo.stderr}`);
-  assert.match(typo.stderr, /unrecognized arguments: --k-colours/);
+  assert.match(typo.stderr, /unrecognized arguments: --k-colours/u);
   // The value it swallowed is not reported as a second complaint.
-  assert.doesNotMatch(typo.stderr, /\b4\b/);
+  assert.doesNotMatch(typo.stderr, /\b4\b/u);
 
   assert.equal(run("--k-colors", "4").status, 0, "the correct spelling still parses");
   assert.equal(run("--snap").status, 0, "a declared boolean still parses");
@@ -676,36 +717,36 @@ test("an option outside the declared surface is rejected", () => {
  */
 test("frameGeometry covers every row, and refuses a manifest it cannot read", () => {
   const dir = workspace();
-  const sheetPath = join(dir, "sheet.png");
+  const sheetPath = path.join(dir, "sheet.png");
   buildSheet(sheetPath, 8, 8, 32);
   const sheet = Bitmap.fromFile(sheetPath);
 
   const explicit = frameGeometry(sheet, sheetPath, 32, 32);
   assert.deepEqual(
-    { columns: explicit.columns, rows: explicit.rows, count: explicit.count },
-    { columns: 8, rows: 8, count: 64 },
+    { columns: explicit.columns, count: explicit.count, rows: explicit.rows },
+    { columns: 8, count: 64, rows: 8 },
     "an 8x8 sheet has 64 frames, not the first row's 8",
   );
 
   // A single row still resolves to a single row.
-  const strip = join(dir, "strip.png");
+  const strip = path.join(dir, "strip.png");
   buildSheet(strip, 4, 1, 16);
   const oneRow = frameGeometry(Bitmap.fromFile(strip), strip, 16, 16);
-  assert.deepEqual({ rows: oneRow.rows, count: oneRow.count }, { rows: 1, count: 4 });
+  assert.deepEqual({ count: oneRow.count, rows: oneRow.rows }, { count: 4, rows: 1 });
 
   // A sibling manifest missing or misdeclaring a field is an error, not NaN.
-  const manifest = join(dir, "sheet.json");
+  const manifest = path.join(dir, "sheet.json");
   writeFileSync(manifest, JSON.stringify({ notFrameCount: 1 }));
   assert.throws(
     () => frameGeometry(sheet, sheetPath, null, null),
-    /"frameCount" must be a positive/,
+    /"frameCount" must be a positive/u,
   );
-  writeFileSync(manifest, JSON.stringify({ frameCount: 4, frameWidth: 32, frameHeight: "32" }));
+  writeFileSync(manifest, JSON.stringify({ frameCount: 4, frameHeight: "32", frameWidth: 32 }));
   assert.throws(
     () => frameGeometry(sheet, sheetPath, null, null),
-    /"frameHeight" must be a positive/,
+    /"frameHeight" must be a positive/u,
   );
-  writeFileSync(manifest, JSON.stringify({ frameCount: 4, frameWidth: 32, frameHeight: 32 }));
+  writeFileSync(manifest, JSON.stringify({ frameCount: 4, frameHeight: 32, frameWidth: 32 }));
   assert.equal(frameGeometry(sheet, sheetPath, null, null).count, 4, "a good manifest still reads");
 });
 
@@ -716,8 +757,8 @@ test("frameGeometry covers every row, and refuses a manifest it cannot read", ()
  */
 test("integer options refuse a fractional value, float options keep it", () => {
   const dir = workspace();
-  const entry = join(dir, "nums.ts");
-  const argsModule = join(import.meta.dirname, "..", "src", "args.ts");
+  const entry = path.join(dir, "nums.ts");
+  const argsModule = path.join(import.meta.dirname, "..", "src", "args.ts");
   writeFileSync(
     entry,
     `import { parseArgs, getInt, getNumber } from ${JSON.stringify(argsModule)};\n` +
@@ -725,11 +766,11 @@ test("integer options refuse a fractional value, float options keep it", () => {
       `process.stdout.write(String(getInt(args, "rows", 1)) + "/" + String(getNumber(args, "tolerance", 90)));\n`,
   );
   const run = (...argv: string[]) =>
-    spawnSync(process.execPath, ["--import", "tsx", entry, ...argv], { encoding: "utf8" });
+    spawnSync(process.execPath, ["--import", "tsx", entry, ...argv], { encoding: "utf-8" });
 
   const fractional = run("--rows", "3.7");
   assert.equal(fractional.status, 2, "a fractional row count is a usage error");
-  assert.match(fractional.stderr, /--rows must be a whole number, got "3\.7"/);
+  assert.match(fractional.stderr, /--rows must be a whole number, got "3\.7"/u);
   assert.equal(run("--rows", "abc").status, 2);
 
   assert.equal(run("--rows", "3").stdout, "3/90", "whole numbers still parse");
@@ -746,29 +787,37 @@ test("integer options refuse a fractional value, float options keep it", () => {
  * instead, and compare them with what the body actually calls.
  */
 test("every skill script imports the library names it calls", () => {
-  const repoRoot = join(import.meta.dirname, "..", "..", "..");
+  const repoRoot = path.join(import.meta.dirname, "..", "..", "..");
   const scripts = globSync("plugins/*/skills/*/scripts/*.mjs", { cwd: repoRoot })
     .filter((rel) => !rel.includes("/_lib/"))
-    .map((rel) => join(repoRoot, rel));
+    .map((rel) => path.join(repoRoot, rel));
 
   const offenders: string[] = [];
-  for (const path of scripts) {
-    const source = readFileSync(path, "utf8");
-    const importMatch = /import \{([^}]*)\} from "\.\/_lib\/asset-tools\.mjs";/.exec(source);
-    if (!importMatch) continue;
+  for (const script of scripts) {
+    const source = readFileSync(script, "utf-8");
+    const importMatch = /import \{(?<names>[^}]*)\} from "\.\/_lib\/asset-tools\.mjs";/u.exec(
+      source,
+    );
+    if (!importMatch) {
+      continue;
+    }
 
     const imported = new Set(
-      importMatch[1]!
+      must(importMatch.groups?.names)
         .split(",")
         .map((name) => name.trim())
         .filter(Boolean),
     );
     const body = source.slice(importMatch.index + importMatch[0].length);
     const called = new Set(
-      [...body.matchAll(/\b(get[A-Z]\w*|failUsage|fail|main|parseArgs)\s*\(/g)].map((m) => m[1]!),
+      [...body.matchAll(/\b(?<name>get[A-Z]\w*|failUsage|fail|main|parseArgs)\s*\(/gu)].map((m) =>
+        must(m.groups?.name),
+      ),
     );
-    const missing = [...called].filter((name) => !imported.has(name)).sort();
-    if (missing.length > 0) offenders.push(`${basename(path)}: ${missing.join(", ")}`);
+    const missing = [...called].filter((name) => !imported.has(name)).toSorted();
+    if (missing.length > 0) {
+      offenders.push(`${path.basename(script)}: ${missing.join(", ")}`);
+    }
   }
   assert.deepEqual(offenders, []);
 });
@@ -783,15 +832,18 @@ test("every skill script imports the library names it calls", () => {
 test("an unquoted description containing a colon is rejected", () => {
   const dir = workspace();
   const write = (frontmatter: string): string => {
-    const skill = join(dir, "s");
+    const skill = path.join(dir, "s");
     mkdirSync(skill, { recursive: true });
-    writeFileSync(join(skill, "SKILL.md"), `---\n${frontmatter}\n---\n\n# S\n\nBody text here.\n`);
+    writeFileSync(
+      path.join(skill, "SKILL.md"),
+      `---\n${frontmatter}\n---\n\n# S\n\nBody text here.\n`,
+    );
     return skill;
   };
 
   const bad = validateSkill(write("name: s\ndescription: Does things. Args optional: a and b."));
   assert.equal(bad.valid, false);
-  assert.match(bad.message, /not quoted|nested mapping/);
+  assert.match(bad.message, /not quoted|nested mapping/u);
 
   // Quoting it is the fix, in either quote style.
   assert.equal(

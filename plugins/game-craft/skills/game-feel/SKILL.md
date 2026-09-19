@@ -1,6 +1,6 @@
 ---
 name: game-feel
-description: "Deep game-feel and juice reference — input forgiveness windows, movement curves, movement depth & player expression, hit stop, trauma-based screen shake, squash & stretch, camera kick, audio feel — with concrete numbers from the canonical sources (Swink, Vlambeer, Celeste, Smash). Use when tuning how a game FEELS: 'the controls feel floaty/sluggish/slippery', 'jumping feels bad', 'hits don't land', 'make combat feel weighty', 'add juice', 'coyote time', 'input buffering', 'screen shake feels wrong', or any movement/impact tuning pass. The game-playbook craft checklist covers the basics; this is the deep module with the tuning values."
+description: "Tune how a game feels — input forgiveness, movement curves, hit stop, screen shake, squash and stretch, camera and audio feel — with concrete numbers."
 ---
 
 # Game feel: the numbers
@@ -16,6 +16,12 @@ delta-time-based**. Per-frame integration (`x += vx`) runs 2× fast on a 120Hz
 display; this is the single most common feel bug in browser games. Multiply
 all motion by `dt`, and convert the frame windows below to ms when your loop
 isn't fixed-step.
+
+- **Never derive a bounce/return angle from penetration depth** at the
+  detection frame (`atan2(ball.y − paddle.y, …)`): depth ∈ (band − v·dt, band]
+  is integration noise, so the same hit returns steep at 144 Hz and shallow at
+  30 Hz. Use the tangential offset only (x-offset across the face → linear
+  angle curve), or back-project to the band-entry point first.
 
 ## Input forgiveness (the invisible half of "tight controls")
 
@@ -98,6 +104,12 @@ Working method:
   multiple fights overlap. In non-Phaser loops (rAF/`useFrame`), implement as
   a freeze timer that skips integration for the frozen entities while
   rendering continues.
+- **Hit window ≠ animation length.** Keep the hit early (~100ms into the
+  cycle) for responsiveness and let the swing _read_ slow; never tie the hit
+  to a "make it look slower" multiplier. Pin the hit to the measured contact
+  frame, compress windup, hold follow-through. Derive damage from duration
+  (`dmg = round(dur × k)`) so slow kits hit harder and the DPS band stays
+  level.
 - **Knockback both ways**: victim recoils from hits; shooter kicks back 1–2px
   on fire. Suspend AI steering ~150ms so the shove reads.
 - **Hit flash**: solid white tint 1–3 frames.
@@ -143,6 +155,10 @@ Working method:
 - **Duck or sting music** on death/level-clear; silence after noise is itself
   an effect.
 - Browser: unlock audio on first gesture; pool instances to avoid GC hitches.
+- **Web Audio double-stop throws**: a source with `stop(t)` scheduled at
+  creation throws on a second `stop()` — a forced release only `disconnect()`s.
+- **Face/pose-only players never fire the unlock gesture.** Show a sound-hint
+  pill while the context is locked; silence reads as a broken game.
 
 ## Tuning session
 

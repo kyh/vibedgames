@@ -25,10 +25,10 @@ import { readFileSync, writeFileSync } from "node:fs";
 const GRID_X = 244;
 const GRID_Z = 200;
 // Same calibrated projection as bake-network.mts.
-const U_M = 6.2462,
-  U_B = 765.2557;
-const V_M = -9.6095,
-  V_B = 363.344;
+const U_B = 765.2557;
+const U_M = 6.2462;
+const V_M = -9.6095;
+const V_B = 363.344;
 // Sub-rows per cell for the scanline fill (x is exact within each sub-row).
 const SUB_ROWS = 4;
 // A cell has to be a third covered before it takes a class. Below that the
@@ -66,24 +66,24 @@ const ID = new Map(CLASSES.map((c, i) => [c, i]));
 // class is the best `coverage × specificity` — the broad background classes are
 // discounted and the small distinctive features can win the cell they sit in.
 const WEIGHT = {
-  park: 1,
-  plaza: 1,
-  grass: 1.1,
-  wood: 1.2,
-  scrub: 1.2,
-  railyard: 1.2,
-  parking: 1.3,
-  turf: 1.4,
-  court: 1.4,
   cemetery: 1.5,
+  court: 1.4,
   garden: 1.5,
+  grass: 1.1,
+  industrial: 0.95,
+  institution: 0.9,
+  park: 1,
+  parking: 1.3,
+  plaza: 1,
+  port: 0.95,
+  railyard: 1.2,
+  retail: 0.85,
   rock: 1.5,
   sand: 1.6,
+  scrub: 1.2,
+  turf: 1.4,
   water: 1.6,
-  industrial: 0.95,
-  port: 0.95,
-  institution: 0.9,
-  retail: 0.85,
+  wood: 1.2,
 };
 // Classes the ground reads as vegetated. landuseGreenAt gates park tiles, the
 // car-free park clip and the meadow patches, so this stays conservative:
@@ -118,116 +118,197 @@ const TURF_SPORT = new Set([
   "multi",
 ]);
 
-function classOf(tags) {
-  const t = tags ?? {};
-  const leisure = t.leisure ?? "";
-  const landuse = t.landuse ?? "";
-  const natural = t.natural ?? "";
-  const amenity = t.amenity ?? "";
-  const manMade = t.man_made ?? "";
-  if (natural === "beach" || natural === "sand") return "sand";
-  if (natural === "bare_rock" || natural === "cliff") return "rock";
-  if (natural === "water" || natural === "wetland") return "water";
-  if (natural === "wood") return "wood";
-  if (natural === "scrub" || natural === "heath") return "scrub";
-  if (natural === "grassland") return "grass";
-  if (leisure === "pitch" || leisure === "track" || leisure === "playground") {
-    const surface = t.surface ?? "";
-    if (GRASS_SURFACE.has(surface)) return "turf";
-    if (HARD_SURFACE.has(surface)) return "court";
-    return leisure === "playground" ? "court" : TURF_SPORT.has(t.sport ?? "") ? "turf" : "court";
+const NATURAL_CLASS = new Map([
+  ["bare_rock", "rock"],
+  ["beach", "sand"],
+  ["cliff", "rock"],
+  ["grassland", "grass"],
+  ["heath", "scrub"],
+  ["sand", "sand"],
+  ["scrub", "scrub"],
+  ["wetland", "water"],
+  ["water", "water"],
+  ["wood", "wood"],
+]);
+
+const LEISURE_CLASS = new Map([
+  ["common", "park"],
+  ["dog_park", "park"],
+  ["garden", "garden"],
+  ["golf_course", "turf"],
+  ["nature_reserve", "park"],
+  ["park", "park"],
+  ["recreation_ground", "grass"],
+  ["sports_centre", "court"],
+  ["stadium", "court"],
+]);
+
+const LANDUSE_CLASS = new Map([
+  ["allotments", "garden"],
+  ["brownfield", "industrial"],
+  ["cemetery", "cemetery"],
+  ["commercial", "retail"],
+  ["construction", "industrial"],
+  ["forest", "wood"],
+  ["grass", "grass"],
+  ["industrial", "industrial"],
+  ["meadow", "grass"],
+  ["military", "institution"],
+  ["orchard", "garden"],
+  ["port", "port"],
+  ["quarry", "industrial"],
+  ["railway", "railyard"],
+  ["recreation_ground", "grass"],
+  ["retail", "retail"],
+  ["village_green", "park"],
+]);
+
+const AMENITY_CLASS = new Map([
+  ["college", "institution"],
+  ["hospital", "institution"],
+  ["parking", "parking"],
+  ["school", "institution"],
+  ["university", "institution"],
+]);
+
+const MAN_MADE_CLASS = new Map([
+  ["breakwater", "port"],
+  ["pier", "port"],
+  ["quay", "port"],
+  ["works", "industrial"],
+]);
+
+const PITCH_LEISURE = new Set(["pitch", "playground", "track"]);
+
+// A pitch is turf or hard court; the tagged surface decides when it is present,
+// otherwise the sport does (and a playground is always hard).
+const pitchClass = (t) => {
+  const surface = t.surface ?? "";
+  if (GRASS_SURFACE.has(surface)) {
+    return "turf";
   }
-  if (leisure === "golf_course") return "turf";
-  if (leisure === "stadium" || leisure === "sports_centre") return "court";
-  if (leisure === "park" || leisure === "common" || leisure === "nature_reserve") return "park";
-  if (leisure === "dog_park") return "park";
-  if (leisure === "garden") return "garden";
-  if (leisure === "recreation_ground") return "grass";
-  if (landuse === "cemetery") return "cemetery";
-  if (landuse === "forest") return "wood";
-  if (landuse === "grass" || landuse === "meadow" || landuse === "recreation_ground")
-    return "grass";
-  if (landuse === "village_green") return "park";
-  if (landuse === "allotments" || landuse === "orchard") return "garden";
-  if (landuse === "railway") return "railyard";
-  if (landuse === "port") return "port";
-  if (landuse === "industrial" || landuse === "brownfield") return "industrial";
-  if (landuse === "construction" || landuse === "quarry") return "industrial";
-  if (landuse === "military") return "institution";
-  if (landuse === "retail" || landuse === "commercial") return "retail";
-  if (amenity === "parking") return "parking";
-  if (amenity === "school" || amenity === "university" || amenity === "college")
-    return "institution";
-  if (amenity === "hospital") return "institution";
-  if (manMade === "pier" || manMade === "quay" || manMade === "breakwater") return "port";
-  if (manMade === "works") return "industrial";
-  if (t.highway === "pedestrian" || t.place === "square") return "plaza";
+  if (HARD_SURFACE.has(surface)) {
+    return "court";
+  }
+  if (t.leisure === "playground") {
+    return "court";
+  }
+  return TURF_SPORT.has(t.sport ?? "") ? "turf" : "court";
+};
+
+const classOf = (tags) => {
+  const t = tags ?? {};
+  const natural = NATURAL_CLASS.get(t.natural ?? "");
+  if (natural) {
+    return natural;
+  }
+  if (PITCH_LEISURE.has(t.leisure ?? "")) {
+    return pitchClass(t);
+  }
+  const leisure = LEISURE_CLASS.get(t.leisure ?? "");
+  if (leisure) {
+    return leisure;
+  }
+  const landuse = LANDUSE_CLASS.get(t.landuse ?? "");
+  if (landuse) {
+    return landuse;
+  }
+  const amenity = AMENITY_CLASS.get(t.amenity ?? "");
+  if (amenity) {
+    return amenity;
+  }
+  const manMade = MAN_MADE_CLASS.get(t.man_made ?? "");
+  if (manMade) {
+    return manMade;
+  }
+  if (t.highway === "pedestrian" || t.place === "square") {
+    return "plaza";
+  }
   return null;
-}
+};
 
 // --- Rings ------------------------------------------------------------------
 // Grid-space ring: [x0, z0, x1, z1, …] in CELL units (x = gx + frac).
 const toGrid = (geometry) => {
   const ring = [];
-  for (const g of geometry) ring.push((U_M * g.lon + U_B) * GRID_X, (V_M * g.lat + V_B) * GRID_Z);
+  for (const g of geometry) {
+    ring.push((U_M * g.lon + U_B) * GRID_X, (V_M * g.lat + V_B) * GRID_Z);
+  }
   return ring;
 };
 
 const key = (g) => `${g.lat.toFixed(7)},${g.lon.toFixed(7)}`;
-const isClosed = (g) => g.length > 3 && key(g[0]) === key(g[g.length - 1]);
+const isClosed = (g) => g.length > 3 && key(g[0]) === key(g.at(-1));
 
 // Stitch a relation's member ways into closed rings. Members arrive as
 // arbitrarily-ordered, arbitrarily-directed fragments; a ring is done when it
 // bites its own tail. Fragments that never close are dropped (a relation with a
 // gap has no interior to fill).
-function stitch(members) {
+const stitch = (members) => {
   const open = members.map((m) => m.geometry).filter((g) => Array.isArray(g) && g.length > 1);
   const rings = [];
   const pending = [];
-  for (const g of open) (isClosed(g) ? rings : pending).push(g);
+  for (const g of open) {
+    (isClosed(g) ? rings : pending).push(g);
+  }
   while (pending.length > 0) {
-    let run = pending.pop();
+    const run = [...pending.pop()];
     let grew = true;
     while (grew && !isClosed(run)) {
       grew = false;
-      for (let i = 0; i < pending.length; i++) {
+      for (let i = 0; i < pending.length; i += 1) {
         const c = pending[i];
         const head = key(run[0]);
-        const tail = key(run[run.length - 1]);
-        if (key(c[0]) === tail) run = [...run, ...c.slice(1)];
-        else if (key(c[c.length - 1]) === tail) run = [...run, ...c.slice(0, -1).reverse()];
-        else if (key(c[c.length - 1]) === head) run = [...c.slice(0, -1), ...run];
-        else if (key(c[0]) === head) run = [...c.slice(1).reverse(), ...run];
-        else continue;
+        const tail = key(run.at(-1));
+        if (key(c[0]) === tail) {
+          run.push(...c.slice(1));
+        } else if (key(c.at(-1)) === tail) {
+          run.push(...c.slice(0, -1).toReversed());
+        } else if (key(c.at(-1)) === head) {
+          run.unshift(...c.slice(0, -1));
+        } else if (key(c[0]) === head) {
+          run.unshift(...c.slice(1).toReversed());
+        } else {
+          continue;
+        }
         pending.splice(i, 1);
         grew = true;
         break;
       }
     }
-    if (isClosed(run)) rings.push(run);
+    if (isClosed(run)) {
+      rings.push(run);
+    }
   }
   return rings;
-}
+};
 
-const raw = JSON.parse(readFileSync(new URL("./sf-landuse.raw.json", import.meta.url)));
-const rings = []; // { cls, ring, inner }
+const raw = JSON.parse(readFileSync(new URL("sf-landuse.raw.json", import.meta.url)));
+// { cls, ring, inner }
+const rings = [];
 let skippedTags = 0;
 let relRings = 0;
 for (const e of raw.elements ?? []) {
   const cls = classOf(e.tags);
   if (cls === null) {
-    skippedTags++;
+    skippedTags += 1;
     continue;
   }
   if (e.type === "way") {
-    if (!Array.isArray(e.geometry) || e.geometry.length < 3) continue;
-    rings.push({ cls, ring: toGrid(e.geometry), inner: false });
+    if (!Array.isArray(e.geometry) || e.geometry.length < 3) {
+      continue;
+    }
+    rings.push({ cls, inner: false, ring: toGrid(e.geometry) });
   } else if (e.type === "relation") {
     const members = (e.members ?? []).filter((m) => m.type === "way");
     const outers = stitch(members.filter((m) => m.role !== "inner"));
     const inners = stitch(members.filter((m) => m.role === "inner"));
-    for (const g of outers) rings.push({ cls, ring: toGrid(g), inner: false });
-    for (const g of inners) rings.push({ cls, ring: toGrid(g), inner: true });
+    for (const g of outers) {
+      rings.push({ cls, inner: false, ring: toGrid(g) });
+    }
+    for (const g of inners) {
+      rings.push({ cls, inner: true, ring: toGrid(g) });
+    }
     relRings += outers.length + inners.length;
   }
 }
@@ -240,10 +321,10 @@ console.log(
 // sorted and each inside span adds its true overlap with every cell it touches.
 // That is real area coverage, not a centre-point coin flip.
 const cover = CLASSES.map(() => new Float32Array(GRID_X * GRID_Z));
-function fill(target, ring, sign) {
+const fill = (target, ring, sign) => {
   const n = ring.length / 2;
-  let minZ = Infinity,
-    maxZ = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
   for (let i = 1; i < ring.length; i += 2) {
     minZ = Math.min(minZ, ring[i]);
     maxZ = Math.max(maxZ, ring[i]);
@@ -251,44 +332,57 @@ function fill(target, ring, sign) {
   const gz0 = Math.max(0, Math.floor(minZ));
   const gz1 = Math.min(GRID_Z - 1, Math.ceil(maxZ));
   const xs = [];
-  for (let gz = gz0; gz <= gz1; gz++) {
-    for (let s = 0; s < SUB_ROWS; s++) {
+  for (let gz = gz0; gz <= gz1; gz += 1) {
+    for (let s = 0; s < SUB_ROWS; s += 1) {
       const pz = gz + (s + 0.5) / SUB_ROWS;
       xs.length = 0;
-      for (let i = 0, j = n - 1; i < n; j = i++) {
+      for (let i = 0; i < n; i += 1) {
+        const j = (i + n - 1) % n;
         const zi = ring[i * 2 + 1];
         const zj = ring[j * 2 + 1];
-        if (zi > pz === zj > pz) continue;
+        if (zi > pz === zj > pz) {
+          continue;
+        }
         const xi = ring[i * 2];
         const xj = ring[j * 2];
         xs.push(xi + ((xj - xi) * (pz - zi)) / (zj - zi));
       }
-      if (xs.length < 2) continue;
+      if (xs.length < 2) {
+        continue;
+      }
       xs.sort((a, b) => a - b);
       for (let k = 0; k + 1 < xs.length; k += 2) {
         const x0 = Math.max(0, xs[k]);
         const x1 = Math.min(GRID_X, xs[k + 1]);
-        if (x1 <= x0) continue;
-        for (let gx = Math.floor(x0); gx <= Math.min(GRID_X - 1, Math.floor(x1)); gx++) {
+        if (x1 <= x0) {
+          continue;
+        }
+        for (let gx = Math.floor(x0); gx <= Math.min(GRID_X - 1, Math.floor(x1)); gx += 1) {
           const overlap = Math.min(x1, gx + 1) - Math.max(x0, gx);
-          if (overlap > 0) target[gx * GRID_Z + gz] += (sign * overlap) / SUB_ROWS;
+          if (overlap > 0) {
+            target[gx * GRID_Z + gz] += (sign * overlap) / SUB_ROWS;
+          }
         }
       }
     }
   }
+};
+for (const r of rings) {
+  fill(cover[ID.get(r.cls)], r.ring, r.inner ? -1 : 1);
 }
-for (const r of rings) fill(cover[ID.get(r.cls)], r.ring, r.inner ? -1 : 1);
 
 // --- Classify ---------------------------------------------------------------
 const cls = new Uint8Array(GRID_X * GRID_Z);
 const counts = CLASSES.map(() => 0);
 const weightOf = CLASSES.map((c) => WEIGHT[c] ?? 1);
-for (let i = 0; i < cls.length; i++) {
+for (let i = 0; i < cls.length; i += 1) {
   let best = 0;
   let bestScore = 0;
-  for (let c = 1; c < CLASSES.length; c++) {
+  for (let c = 1; c < CLASSES.length; c += 1) {
     const v = cover[c][i];
-    if (v < MIN_COVER) continue;
+    if (v < MIN_COVER) {
+      continue;
+    }
     const score = v * weightOf[c];
     if (score > bestScore) {
       bestScore = score;
@@ -296,24 +390,28 @@ for (let i = 0; i < cls.length; i++) {
     }
   }
   cls[i] = best;
-  counts[best]++;
+  counts[best] += 1;
 }
 const classified = cls.length - counts[0];
 console.log(
   `classified ${classified}/${cls.length} cells (${((classified / cls.length) * 100).toFixed(1)}%)`,
 );
-for (let c = 1; c < CLASSES.length; c++) {
-  if (counts[c] > 0) console.log(`  ${CLASSES[c].padEnd(13)} ${counts[c]}`);
+for (let c = 1; c < CLASSES.length; c += 1) {
+  if (counts[c] > 0) {
+    console.log(`  ${CLASSES[c].padEnd(13)} ${counts[c]}`);
+  }
 }
 
 // One byte per cell, two hex chars, column-major — the same shape as
 // sf-streets.ts's `cols`. Trailing unclassified runs are trimmed off each
 // column (the bay margins), which is most of the payload.
 const cols = [];
-for (let gx = 0; gx < GRID_X; gx++) {
+for (let gx = 0; gx < GRID_X; gx += 1) {
   let hex = "";
-  for (let gz = 0; gz < GRID_Z; gz++) hex += cls[gx * GRID_Z + gz].toString(16).padStart(2, "0");
-  cols.push(hex.replace(/(?:00)+$/, ""));
+  for (let gz = 0; gz < GRID_Z; gz += 1) {
+    hex += cls[gx * GRID_Z + gz].toString(16).padStart(2, "0");
+  }
+  cols.push(hex.replace(/(?:00)+$/u, ""));
 }
 
 const union = (names) => names.map((n) => JSON.stringify(n)).join(" | ");

@@ -2,7 +2,8 @@ import { GRID_X, GRID_Z } from "../shared/constants";
 import { SF_STREET_MASK, streetMaskAt } from "./sf-streets";
 import { CUSTOM_MAP, loadLocalOverrides } from "./custom-map";
 import { isLandCell } from "./sf-map";
-import { type Dir, DIR_DELTA, E, type Mask, maskCount, maskHas, N, S, W } from "../shared/types";
+import { DIR_DELTA, E, maskCount, maskHas, N, S, W } from "../shared/types";
+import type { Dir, Mask } from "../shared/types";
 
 export type CellKind = "road" | "lot" | "water";
 
@@ -11,37 +12,50 @@ export type CellKind = "road" | "lot" | "water";
 // renderer that no longer exists (streets are procedural, world/roads.ts);
 // gameplay only ever matched on the shape.
 export type RoadKind = "straight" | "bend" | "tee" | "cross" | "end";
-export type RoadResolved = { readonly kind: RoadKind };
-export type BuildingCell = { readonly gx: number; readonly gz: number; readonly faceDir: Dir };
-export type GreenCell = { readonly gx: number; readonly gz: number };
+export interface RoadResolved {
+  readonly kind: RoadKind;
+}
+export interface BuildingCell {
+  readonly gx: number;
+  readonly gz: number;
+  readonly faceDir: Dir;
+}
+export interface GreenCell {
+  readonly gx: number;
+  readonly gz: number;
+}
 
-export type CityPlan = {
+export interface CityPlan {
   readonly sizeX: number;
   readonly sizeZ: number;
   readonly cells: readonly (readonly CellKind[])[];
   readonly roads: readonly (readonly (RoadResolved | null)[])[];
   readonly buildingCells: readonly BuildingCell[];
   readonly greenCells: readonly GreenCell[];
-};
+}
 
-function resolveRoad(mask: Mask): RoadResolved {
+const resolveRoad = (mask: Mask): RoadResolved => {
   const count = maskCount(mask);
-  if (count >= 4) return { kind: "cross" };
-  if (count === 3) return { kind: "tee" };
+  if (count >= 4) {
+    return { kind: "cross" };
+  }
+  if (count === 3) {
+    return { kind: "tee" };
+  }
   if (count === 2) {
     const opposite =
       (maskHas(mask, N) && maskHas(mask, S)) || (maskHas(mask, E) && maskHas(mask, W));
     return { kind: opposite ? "straight" : "bend" };
   }
-  if (count === 1) return { kind: "end" };
+  if (count === 1) {
+    return { kind: "end" };
+  }
   return { kind: "straight" };
-}
+};
 
-function key(gx: number, gz: number): string {
-  return `${gx},${gz}`;
-}
+const key = (gx: number, gz: number): string => `${gx},${gz}`;
 
-export function generateCity(): CityPlan {
+export const generateCity = (): CityPlan => {
   // The road network IS the real San Francisco street grid (OpenStreetMap),
   // rasterized to this game grid by tools/sf-data/rasterize.mjs. The baked mask
   // must be generated at the same resolution as the grid, or streets misalign.
@@ -58,16 +72,31 @@ export function generateCity(): CityPlan {
   const local = loadLocalOverrides();
   const addSet = new Set<string>();
   const removeSet = new Set<string>();
-  for (const [gx, gz] of [...CUSTOM_MAP.add, ...local.add]) addSet.add(key(gx, gz));
-  for (const [gx, gz] of [...CUSTOM_MAP.remove, ...local.remove]) removeSet.add(key(gx, gz));
+  for (const [gx, gz] of [...CUSTOM_MAP.add, ...local.add]) {
+    addSet.add(key(gx, gz));
+  }
+  for (const [gx, gz] of [...CUSTOM_MAP.remove, ...local.remove]) {
+    removeSet.add(key(gx, gz));
+  }
   const isRoadRaw = (gx: number, gz: number): boolean => {
-    if (gx < 0 || gz < 0 || gx >= GRID_X || gz >= GRID_Z) return false;
-    if (!isLandCell(gx, gz)) return false;
-    if (removeSet.has(key(gx, gz))) return false;
-    if (addSet.has(key(gx, gz))) return true; // hand edits always win
+    if (gx < 0 || gz < 0 || gx >= GRID_X || gz >= GRID_Z) {
+      return false;
+    }
+    if (!isLandCell(gx, gz)) {
+      return false;
+    }
+    if (removeSet.has(key(gx, gz))) {
+      return false;
+    }
+    if (addSet.has(key(gx, gz))) {
+      return true;
+      // hand edits always win
+    }
     // The baked mask is already park-cleared (rasterized from the park-clipped
     // vector network in bake-network.mts), so no runtime park filter is needed.
-    if (!streetMaskAt(gx, gz)) return false;
+    if (!streetMaskAt(gx, gz)) {
+      return false;
+    }
     return true;
   };
 
@@ -77,16 +106,20 @@ export function generateCity(): CityPlan {
   let mainRoads = new Set<string>();
   {
     const seen = new Set<string>();
-    for (let sgx = 0; sgx < GRID_X; sgx++) {
-      for (let sgz = 0; sgz < GRID_Z; sgz++) {
-        if (!isRoadRaw(sgx, sgz) || seen.has(key(sgx, sgz))) continue;
+    for (let sgx = 0; sgx < GRID_X; sgx += 1) {
+      for (let sgz = 0; sgz < GRID_Z; sgz += 1) {
+        if (!isRoadRaw(sgx, sgz) || seen.has(key(sgx, sgz))) {
+          continue;
+        }
         const comp = new Set<string>();
         const stack = [{ gx: sgx, gz: sgz }];
         comp.add(key(sgx, sgz));
         seen.add(key(sgx, sgz));
         while (stack.length > 0) {
           const cur = stack.pop();
-          if (!cur) break;
+          if (!cur) {
+            break;
+          }
           for (const d of [N, E, S, W] as const) {
             const [dx, dz] = DIR_DELTA[d];
             const nx = cur.gx + dx;
@@ -99,7 +132,9 @@ export function generateCity(): CityPlan {
             }
           }
         }
-        if (comp.size > mainRoads.size) mainRoads = comp;
+        if (comp.size > mainRoads.size) {
+          mainRoads = comp;
+        }
       }
     }
   }
@@ -109,14 +144,19 @@ export function generateCity(): CityPlan {
     let mask = 0;
     for (const d of [N, E, S, W] as const) {
       const [dx, dz] = DIR_DELTA[d];
-      if (isRoad(gx + dx, gz + dz)) mask |= 1 << d;
+      if (isRoad(gx + dx, gz + dz)) {
+        // oxlint-disable-next-line no-bitwise -- connection masks are bit sets
+        mask |= 1 << d;
+      }
     }
     return mask;
   };
   const frontageDir = (gx: number, gz: number): Dir | null => {
     for (const d of [S, E, N, W] as const) {
       const [dx, dz] = DIR_DELTA[d];
-      if (isRoad(gx + dx, gz + dz)) return d;
+      if (isRoad(gx + dx, gz + dz)) {
+        return d;
+      }
     }
     return null;
   };
@@ -126,10 +166,10 @@ export function generateCity(): CityPlan {
   const buildingCells: BuildingCell[] = [];
   const greenCells: GreenCell[] = [];
 
-  for (let gx = 0; gx < GRID_X; gx++) {
+  for (let gx = 0; gx < GRID_X; gx += 1) {
     const cellCol: CellKind[] = [];
     const roadCol: (RoadResolved | null)[] = [];
-    for (let gz = 0; gz < GRID_Z; gz++) {
+    for (let gz = 0; gz < GRID_Z; gz += 1) {
       if (!isLandCell(gx, gz)) {
         cellCol[gz] = "water";
         roadCol[gz] = null;
@@ -140,13 +180,16 @@ export function generateCity(): CityPlan {
         cellCol[gz] = "lot";
         roadCol[gz] = null;
         const face = frontageDir(gx, gz);
-        if (face !== null) buildingCells.push({ gx, gz, faceDir: face });
-        else greenCells.push({ gx, gz });
+        if (face === null) {
+          greenCells.push({ gx, gz });
+        } else {
+          buildingCells.push({ faceDir: face, gx, gz });
+        }
       }
     }
     cells[gx] = cellCol;
     roads[gx] = roadCol;
   }
 
-  return { sizeX: GRID_X, sizeZ: GRID_Z, cells, roads, buildingCells, greenCells };
-}
+  return { buildingCells, cells, greenCells, roads, sizeX: GRID_X, sizeZ: GRID_Z };
+};

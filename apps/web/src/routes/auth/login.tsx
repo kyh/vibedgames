@@ -2,12 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 
 import { LoginForm } from "@/components/auth/auth-form";
 
-export const Route = createFileRoute("/auth/login")({
-  head: () => ({ meta: [{ title: "Login" }] }),
-  component: LoginPage,
-});
-
-function LoginPage() {
+const LoginPage = () => {
   const { callbackUrl } = Route.useSearch();
 
   return (
@@ -19,11 +14,16 @@ function LoginPage() {
         <LoginForm callbackUrl={callbackUrl} />
       </div>
       <p className="text-muted-foreground mt-6 px-8 text-center text-xs">
-        Don't have an account?{" "}
+        Don&apos;t have an account?{" "}
         <Link to="/auth/register" className="underline">
           Register
         </Link>
       </p>
     </div>
   );
-}
+};
+
+export const Route = createFileRoute("/auth/login")({
+  component: LoginPage,
+  head: () => ({ meta: [{ title: "Login" }] }),
+});

@@ -3,10 +3,10 @@ import { useMutation } from "@tanstack/react-query";
 
 import { useORPC } from "@/lib/orpc";
 
-type CliAuthConfirmProps = {
+interface CliAuthConfirmProps {
   code: string;
   userName: string;
-};
+}
 
 export const CliAuthConfirm = ({ code, userName }: CliAuthConfirmProps) => {
   const orpc = useORPC();
@@ -23,7 +23,9 @@ export const CliAuthConfirm = ({ code, userName }: CliAuthConfirmProps) => {
   const { mutate } = confirm;
   const firedRef = useRef(false);
   useEffect(() => {
-    if (firedRef.current) return;
+    if (firedRef.current) {
+      return;
+    }
     firedRef.current = true;
     mutate({ code });
   }, [mutate, code]);

@@ -33,3 +33,5 @@ pnpm --filter @repo/pacman preview     # vite preview
 On touch the porthole boots as a pill and the face camera starts on the tap that opens it — phones only grant `getUserMedia` inside a gesture, and nothing of the ~6 MB face stack is fetched until then.
 
 Multiplayer: auto-joins the shared `pacman-default` room (up to 4 players), solo fallback when the party server is unreachable.
+
+Power hearts draw a draining blush ring under Pacman (another heart refills the clock); quick pellet streaks show the pearl-chain counter; the music swells when a ghost closes in. First round shows a STEP/TURN coach card. A finished round (win or game over) shows a result card: score, best, ghosts chomped, maze left.

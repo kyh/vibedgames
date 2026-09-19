@@ -3,7 +3,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { Bitmap } from "../image/raster.js";
 import { roundHalfToEven } from "../pymath.js";
 import { median } from "./frames.js";
-import { isFiniteNumber, isJsonObject, type JsonValue } from "./json.js";
+import { isFiniteNumber, isJsonObject } from "./json.js";
+import type { JsonValue } from "./json.js";
 
 /**
  * Quality-control a packed spritesheet — the eval that tells an agent whether
@@ -54,7 +55,7 @@ const RULE_INNER_OFFSET = 3;
 // anything — a 4px-wide sprite fills its own edges by accident.
 const RULE_MIN_SPAN = 12;
 
-export type FrameMetrics = {
+export interface FrameMetrics {
   empty: boolean;
   area_frac: number;
   height: number;
@@ -63,17 +64,17 @@ export type FrameMetrics = {
   baseline_frac: number;
   border_frac: number;
   rule_edges: number;
-};
+}
 
-export type QcCheck = {
+export interface QcCheck {
   check: "empty" | "clip" | "grid" | "baseline" | "size" | "facing";
   severity: "warn" | "hint";
   frames: number[];
   detail: string;
   height_cov?: number;
-};
+}
 
-export type QcReport = {
+export interface QcReport {
   sheet: string;
   frameWidth: number;
   frameHeight: number;
@@ -83,49 +84,50 @@ export type QcReport = {
   verdict: "clean" | "review" | "warn";
   checks: QcCheck[];
   frames: FrameMetrics[];
-};
-
-/** Python's `round(value, digits)`: nearest, ties to even. */
-function roundTo(value: number, digits: number): number {
-  const factor = 10 ** digits;
-  return roundHalfToEven(value * factor) / factor;
 }
 
+/** Python's `round(value, digits)`: nearest, ties to even. */
+const roundTo = (value: number, digits: number): number => {
+  const factor = 10 ** digits;
+  return roundHalfToEven(value * factor) / factor;
+};
+
+const clamp = (value: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, value));
+
 /** Population standard deviation, matching `statistics.pstdev`. */
-function pstdev(values: number[]): number {
+const pstdev = (values: number[]): number => {
   const mean = values.reduce((sum, v) => sum + v, 0) / values.length;
   const variance = values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / values.length;
   return Math.sqrt(variance);
-}
+};
 
 /**
  * Python's `format(x, ".Np%")`. Percent formatting rounds half to even there,
  * so a baseline spread of exactly 0.125 renders as "12%", not "13%" — the
  * boundary is reachable on real sheets, so `toFixed` alone disagrees.
  */
-function percent(value: number, digits = 0): string {
-  return `${roundTo(value * 100, digits).toFixed(digits)}%`;
-}
+const percent = (value: number, digits = 0): string =>
+  `${roundTo(value * 100, digits).toFixed(digits)}%`;
 
-export type FrameGrid = {
+export interface FrameGrid {
   frameWidth: number;
   frameHeight: number;
   count: number;
   columns: number;
   rows: number;
-};
+}
 
 /**
  * Resolve the frame grid: an explicit override wins, then a sibling
  * `spritesheet.json` (which carries the real columns/rows for multi-row
  * sheets), else assume a single row of squares.
  */
-export function frameGeometry(
+export const frameGeometry = (
   sheet: Bitmap,
   sheetPath: string,
   frameWidth: number | null,
   frameHeight: number | null,
-): FrameGrid {
+): FrameGrid => {
   if (frameWidth !== null && frameHeight !== null) {
     if (frameWidth <= 0 || frameHeight <= 0) {
       throw new Error("--frame-width and --frame-height must be positive");
@@ -135,12 +137,12 @@ export function frameGeometry(
     // silently inspected an eighth of an 8-row sheet and reported CLEAN is
     // worse than no QC at all.
     const rows = Math.max(1, Math.floor(sheet.height / frameHeight));
-    return { frameWidth, frameHeight, count: columns * rows, columns, rows };
+    return { columns, count: columns * rows, frameHeight, frameWidth, rows };
   }
 
-  const manifestPath = sheetPath.replace(/\.[^./\\]+$/, ".json");
+  const manifestPath = sheetPath.replace(/\.[^./\\]+$/u, ".json");
   if (existsSync(manifestPath)) {
-    const parsed: JsonValue = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const parsed: JsonValue = JSON.parse(readFileSync(manifestPath, "utf-8"));
     if (!isJsonObject(parsed)) {
       throw new Error(`${manifestPath}: expected an object`);
     }
@@ -158,7 +160,9 @@ export function frameGeometry(
     };
     const optional = (key: string, fallback: number): number => {
       const value = m[key];
-      if (value === undefined) return fallback;
+      if (value === undefined) {
+        return fallback;
+      }
       if (!isFiniteNumber(value) || value <= 0) {
         throw new Error(
           `${manifestPath}: "${key}" must be a positive number, got ${String(value)}`,
@@ -168,25 +172,25 @@ export function frameGeometry(
     };
     const count = required("frameCount");
     return {
-      frameWidth: required("frameWidth"),
-      frameHeight: required("frameHeight"),
-      count,
       columns: optional("columns", count),
+      count,
+      frameHeight: required("frameHeight"),
+      frameWidth: required("frameWidth"),
       rows: optional("rows", 1),
     };
   }
 
   const side = sheet.height;
   const columns = Math.max(1, Math.floor(sheet.width / side));
-  return { frameWidth: side, frameHeight: side, count: columns, columns, rows: 1 };
-}
+  return { columns, count: columns, frameHeight: side, frameWidth: side, rows: 1 };
+};
 
 /** Per-frame alpha statistics, row-major across a possibly multi-row grid. */
-export function frameMetrics(
+export const frameMetrics = (
   sheet: Bitmap,
   index: number,
   geometry: { frameWidth: number; frameHeight: number; columns: number },
-): FrameMetrics {
+): FrameMetrics => {
   const { frameWidth: fw, frameHeight: fh, columns } = geometry;
   const row = Math.floor(index / columns);
   const col = index - row * columns;
@@ -204,27 +208,39 @@ export function frameMetrics(
     for (let x = 0; x < fw; x += 1) {
       const sx = originX + x;
       const sy = originY + y;
-      if (!sheet.contains(sx, sy)) continue;
-      if (sheet.data[sheet.index(sx, sy) + 3]! <= ALPHA_ON) continue;
+      if (!sheet.contains(sx, sy)) {
+        continue;
+      }
+      if ((sheet.data[sheet.index(sx, sy) + 3] ?? 0) <= ALPHA_ON) {
+        continue;
+      }
       opaque += 1;
       xs.push(x);
-      if (x < minX) minX = x;
-      if (x > maxX) maxX = x;
-      if (y < minY) minY = y;
-      if (y > maxY) maxY = y;
+      if (x < minX) {
+        minX = x;
+      }
+      if (x > maxX) {
+        maxX = x;
+      }
+      if (y < minY) {
+        minY = y;
+      }
+      if (y > maxY) {
+        maxY = y;
+      }
     }
   }
 
   if (opaque === 0) {
     return {
-      empty: true,
       area_frac: 0,
-      height: 0,
-      width: 0,
-      cx_frac: 0,
       baseline_frac: 1,
       border_frac: 0,
+      cx_frac: 0,
+      empty: true,
+      height: 0,
       rule_edges: 0,
+      width: 0,
     };
   }
 
@@ -236,8 +252,9 @@ export function frameMetrics(
     borderTotal += 1;
     const sx = originX + x;
     const sy = originY + y;
-    if (sheet.contains(sx, sy) && sheet.data[sheet.index(sx, sy) + 3]! > ALPHA_ON)
+    if (sheet.contains(sx, sy) && (sheet.data[sheet.index(sx, sy) + 3] ?? 0) > ALPHA_ON) {
       borderOpaque += 1;
+    }
   };
   for (let x = 0; x < fw; x += 1) {
     sample(x, 0);
@@ -254,45 +271,60 @@ export function frameMetrics(
   // `clip` check.
   const on = (x: number, y: number) =>
     sheet.contains(originX + x, originY + y) &&
-    sheet.data[sheet.index(originX + x, originY + y) + 3]! > ALPHA_ON;
+    (sheet.data[sheet.index(originX + x, originY + y) + 3] ?? 0) > ALPHA_ON;
   const spanX = maxX - minX + 1;
   const spanY = maxY - minY + 1;
   const rowFrac = (y: number) => {
     let n = 0;
-    for (let x = minX; x <= maxX; x += 1) if (on(x, y)) n += 1;
+    for (let x = minX; x <= maxX; x += 1) {
+      if (on(x, y)) {
+        n += 1;
+      }
+    }
     return n / spanX;
   };
   const colFrac = (x: number) => {
     let n = 0;
-    for (let y = minY; y <= maxY; y += 1) if (on(x, y)) n += 1;
+    for (let y = minY; y <= maxY; y += 1) {
+      if (on(x, y)) {
+        n += 1;
+      }
+    }
     return n / spanY;
   };
   const ruled = (outer: number, inner: number) =>
     outer >= RULE_EDGE_FRAC && inner <= RULE_INNER_FRAC;
-  const clamp = (value: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, value));
   let ruleEdges = 0;
   if (spanX >= RULE_MIN_SPAN && spanY >= RULE_MIN_SPAN) {
     const inset = RULE_INNER_OFFSET;
-    if (ruled(rowFrac(minY), rowFrac(clamp(minY + inset, minY, maxY)))) ruleEdges += 1;
-    if (ruled(rowFrac(maxY), rowFrac(clamp(maxY - inset, minY, maxY)))) ruleEdges += 1;
-    if (ruled(colFrac(minX), colFrac(clamp(minX + inset, minX, maxX)))) ruleEdges += 1;
-    if (ruled(colFrac(maxX), colFrac(clamp(maxX - inset, minX, maxX)))) ruleEdges += 1;
+    if (ruled(rowFrac(minY), rowFrac(clamp(minY + inset, minY, maxY)))) {
+      ruleEdges += 1;
+    }
+    if (ruled(rowFrac(maxY), rowFrac(clamp(maxY - inset, minY, maxY)))) {
+      ruleEdges += 1;
+    }
+    if (ruled(colFrac(minX), colFrac(clamp(minX + inset, minX, maxX)))) {
+      ruleEdges += 1;
+    }
+    if (ruled(colFrac(maxX), colFrac(clamp(maxX - inset, minX, maxX)))) {
+      ruleEdges += 1;
+    }
   }
 
   const meanX = xs.reduce((sum, v) => sum + v, 0) / xs.length;
   return {
-    empty: false,
     area_frac: roundTo(opaque / (fw * fh), 4),
-    height: maxY - minY + 1,
-    width: maxX - minX + 1,
-    // Horizontal mass offset from the cell centre, as a fraction of width.
-    cx_frac: roundTo((meanX - fw / 2) / fw, 4),
     // Foot baseline: bottom of the figure as a fraction from the top.
     baseline_frac: roundTo((maxY + 1) / fh, 4),
     border_frac: roundTo(borderOpaque / borderTotal, 4),
+    // Horizontal mass offset from the cell centre, as a fraction of width.
+    cx_frac: roundTo((meanX - fw / 2) / fw, 4),
+    empty: false,
+    height: maxY - minY + 1,
     rule_edges: ruleEdges,
+    width: maxX - minX + 1,
   };
-}
+};
 
 /**
  * True when `values[i]` is a spike or dip against both neighbours, so it is
@@ -300,15 +332,17 @@ export function frameMetrics(
  * legitimate pose arc: a death collapse shrinks steadily and is spared, while
  * one oddly-sized cell in an otherwise uniform run is flagged.
  */
-function isLocalExtremum(values: number[], i: number): boolean {
-  if (i === 0 || i === values.length - 1) return false;
-  const prev = values[i - 1]!;
-  const next = values[i + 1]!;
-  const value = values[i]!;
+const isLocalExtremum = (values: number[], i: number): boolean => {
+  if (i === 0 || i === values.length - 1) {
+    return false;
+  }
+  const prev = values[i - 1] ?? 0;
+  const next = values[i + 1] ?? 0;
+  const value = values[i] ?? 0;
   return (value > prev && value > next) || (value < prev && value < next);
-}
+};
 
-export function qc(metrics: FrameMetrics[]): QcCheck[] {
+export const qc = (metrics: FrameMetrics[]): QcCheck[] => {
   const checks: QcCheck[] = [];
   const live = metrics.map((m, i) => ({ index: i, m })).filter((entry) => !entry.m.empty);
 
@@ -318,9 +352,9 @@ export function qc(metrics: FrameMetrics[]): QcCheck[] {
   if (empty.length > 0) {
     checks.push({
       check: "empty",
-      severity: "warn",
-      frames: empty,
       detail: `${empty.length} frame(s) blank or near-blank (area < ${percent(EMPTY_AREA_FRAC, 1)})`,
+      frames: empty,
+      severity: "warn",
     });
   }
 
@@ -330,9 +364,9 @@ export function qc(metrics: FrameMetrics[]): QcCheck[] {
   if (clipped.length > 0) {
     checks.push({
       check: "clip",
-      severity: "warn",
-      frames: clipped,
       detail: `${clipped.length} frame(s) touch the cell border (likely cut off)`,
+      frames: clipped,
+      severity: "warn",
     });
   }
 
@@ -340,14 +374,14 @@ export function qc(metrics: FrameMetrics[]): QcCheck[] {
   if (ruled.length > 0) {
     checks.push({
       check: "grid",
-      severity: "warn",
-      frames: ruled,
       detail:
         `${ruled.length} frame(s) contain a straight ruled line spanning the whole ` +
         `bounding box — the model inked the pose-board cell outlines and the slice ` +
         `baked them in. The rule also skews every size/baseline/facing measurement, ` +
         `so regenerate the board (restate "no grid lines, cell outlines or borders") ` +
         `rather than trusting the rest of this report`,
+      frames: ruled,
+      severity: "warn",
     });
   }
 
@@ -357,13 +391,13 @@ export function qc(metrics: FrameMetrics[]): QcCheck[] {
     if (spread > BASELINE_TOL) {
       const medianBaseline = median(baselines);
       const worst = live
-        .filter((_, k) => Math.abs(baselines[k]! - medianBaseline) > BASELINE_TOL / 2)
+        .filter((entry) => Math.abs(entry.m.baseline_frac - medianBaseline) > BASELINE_TOL / 2)
         .map((entry) => entry.index + 1);
       checks.push({
         check: "baseline",
-        severity: "warn",
-        frames: worst,
         detail: `foot baseline varies ${percent(spread)} of cell height (should be pinned by normalize)`,
+        frames: worst,
+        severity: "warn",
       });
     }
 
@@ -372,53 +406,60 @@ export function qc(metrics: FrameMetrics[]): QcCheck[] {
     const cov = medianHeight ? roundTo(pstdev(heights) / medianHeight, 3) : 0;
     const drift = heights.map((h) => h / medianHeight);
     const sizeFrames = live
-      .filter((_, k) => Math.abs(drift[k]! - 1) > SIZE_DRIFT_TOL && isLocalExtremum(drift, k))
+      .filter(
+        (entry, k) =>
+          Math.abs(entry.m.height / medianHeight - 1) > SIZE_DRIFT_TOL && isLocalExtremum(drift, k),
+      )
       .map((entry) => entry.index + 1);
     if (sizeFrames.length > 0) {
       checks.push({
         check: "size",
-        severity: "hint",
-        frames: sizeFrames,
-        height_cov: cov,
         detail:
           `frame(s) are isolated size outliers (>${percent(SIZE_DRIFT_TOL)} off median height) ` +
           `— verify it is an intended pose change, not the model drawing the character ` +
           `at a different scale. height CoV=${cov}`,
+        frames: sizeFrames,
+        height_cov: cov,
+        severity: "hint",
       });
     }
 
     const cxs = live.map((entry) => entry.m.cx_frac);
     const medianCx = median(cxs);
     const facingFrames = live
-      .filter((_, k) => Math.abs(cxs[k]! - medianCx) > FACING_CX_TOL)
+      .filter((entry) => Math.abs(entry.m.cx_frac - medianCx) > FACING_CX_TOL)
       .map((entry) => entry.index + 1);
     if (facingFrames.length > 0) {
       const signed = `${medianCx >= 0 ? "+" : ""}${medianCx.toFixed(2)}`;
       checks.push({
         check: "facing",
-        severity: "hint",
-        frames: facingFrames,
         detail:
           `frame(s) have horizontal mass far from the others (median cx=${signed}) ` +
           `— possible mirrored/flipped facing; eyeball the review gif`,
+        frames: facingFrames,
+        severity: "hint",
       });
     }
   }
 
   return checks;
-}
+};
 
-export function verdictFor(checks: QcCheck[]): QcReport["verdict"] {
-  if (checks.some((c) => c.severity === "warn")) return "warn";
-  if (checks.some((c) => c.severity === "hint")) return "review";
+export const verdictFor = (checks: QcCheck[]): QcReport["verdict"] => {
+  if (checks.some((c) => c.severity === "warn")) {
+    return "warn";
+  }
+  if (checks.some((c) => c.severity === "hint")) {
+    return "review";
+  }
   return "clean";
-}
+};
 
-export function runQc(
+export const runQc = (
   sheetPath: string,
   frameWidth: number | null,
   frameHeight: number | null,
-): QcReport {
+): QcReport => {
   const sheet = Bitmap.fromFile(sheetPath);
   const geometry = frameGeometry(sheet, sheetPath, frameWidth, frameHeight);
   const metrics = Array.from({ length: geometry.count }, (_, i) =>
@@ -426,14 +467,14 @@ export function runQc(
   );
   const checks = qc(metrics);
   return {
-    sheet: sheetPath,
-    frameWidth: geometry.frameWidth,
-    frameHeight: geometry.frameHeight,
-    frameCount: geometry.count,
-    columns: geometry.columns,
-    rows: geometry.rows,
-    verdict: verdictFor(checks),
     checks,
+    columns: geometry.columns,
+    frameCount: geometry.count,
+    frameHeight: geometry.frameHeight,
+    frameWidth: geometry.frameWidth,
     frames: metrics,
+    rows: geometry.rows,
+    sheet: sheetPath,
+    verdict: verdictFor(checks),
   };
-}
+};

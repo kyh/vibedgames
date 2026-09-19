@@ -1,12 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import {
-  screenSpacePosition,
-  screenSpaceTransform,
-  type CameraView,
-  type ScreenSpaceTransform,
-} from "../src/screen-space.js";
+import { screenSpacePosition, screenSpaceTransform } from "../src/screen-space.js";
+import type { CameraView, ScreenSpaceTransform } from "../src/screen-space.js";
 
 /**
  * Phaser's transform for a `scrollFactor(0)` object, measured off the
@@ -17,7 +13,7 @@ import {
  *
  *   canvas = pivot + R(rotation) * zoom * (local - pivot)
  */
-function throughCamera(view: CameraView, x: number, y: number): [number, number] {
+const throughCamera = (view: CameraView, x: number, y: number): [number, number] => {
   const px = view.width * view.originX;
   const py = view.height * view.originY;
   const dx = (x - px) * view.zoom;
@@ -25,27 +21,27 @@ function throughCamera(view: CameraView, x: number, y: number): [number, number]
   const cos = Math.cos(view.rotation);
   const sin = Math.sin(view.rotation);
   return [px + dx * cos - dy * sin, py + dx * sin + dy * cos];
-}
+};
 
 /** A game object's own ITRS, applied to a point in its local space. */
-function throughObject(t: ScreenSpaceTransform, x: number, y: number): [number, number] {
+const throughObject = (t: ScreenSpaceTransform, x: number, y: number): [number, number] => {
   const cos = Math.cos(t.rotation);
   const sin = Math.sin(t.rotation);
   return [t.x + (x * cos - y * sin) * t.scale, t.y + (x * sin + y * cos) * t.scale];
-}
+};
 
 /** What `setScrollFactor(0)` alone gives you: no counter-transform at all. */
-const UNPINNED: ScreenSpaceTransform = { x: 0, y: 0, rotation: 0, scale: 1 };
+const UNPINNED: ScreenSpaceTransform = { rotation: 0, scale: 1, x: 0, y: 0 };
 
 const PORTRAIT: CameraView = {
-  width: 393,
   height: 852,
   originX: 0.5,
   originY: 0.5,
-  zoom: 0.81875,
   rotation: 0,
+  width: 393,
+  zoom: 0.81875,
 };
-const LANDSCAPE: CameraView = { ...PORTRAIT, width: 852, height: 393, zoom: 0.6463815789473685 };
+const LANDSCAPE: CameraView = { ...PORTRAIT, height: 393, width: 852, zoom: 0.6463815789473685 };
 
 /** Every zoom the affected games reach: moba 0.55, bomberman 0.65–0.82,
  *  starfall's phone floor, desktop 1, and bomberman's 2.4 ceiling. */
@@ -63,7 +59,7 @@ test("a pinned overlay draws where it hit-tests, at every zoom and roll", () => 
   for (const view of [PORTRAIT, LANDSCAPE]) {
     for (const zoom of ZOOMS) {
       for (const rotation of ROLLS) {
-        const camera: CameraView = { ...view, zoom, rotation };
+        const camera: CameraView = { ...view, rotation, zoom };
         const pin = screenSpaceTransform(camera);
         for (const [x, y] of POINTS) {
           const [cx, cy] = throughCamera(camera, ...throughObject(pin, x, y));

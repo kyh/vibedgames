@@ -10,14 +10,16 @@
 import { controlGroups, createPauseShell } from "@repo/embed";
 import type { ControlMethod } from "@repo/embed";
 
+import { toggleSound, unlockAudio } from "./audio/sfx";
+import { isSoundOn } from "./audio/sound-pref";
 import { CONTROLS } from "./controls";
 
 const METHOD_LABELS = {
+  camera: "face cam",
+  controller: "controller",
   keys: "keys",
   mouse: "mouse",
   touch: "touch",
-  camera: "face cam",
-  controller: "controller",
 } satisfies Record<ControlMethod, string>;
 
 const STYLE_ID = "pacman-pause-style";
@@ -28,8 +30,10 @@ const STYLE_ID = "pacman-pause-style";
 const CSS = `
 #pacman-pause {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 14px;
   padding: calc(18px + env(safe-area-inset-top)) calc(18px + env(safe-area-inset-right))
     calc(18px + env(safe-area-inset-bottom)) calc(18px + env(safe-area-inset-left));
   background: rgba(253, 241, 230, 0.72);
@@ -199,6 +203,19 @@ const CSS = `
   text-align: left;
 }
 
+/* The shell's sound toggle, reskinned as a plush HUD pill. */
+#pacman-pause .vg-pause-sound {
+  margin: 0;
+  padding: 10px 20px;
+  min-height: 44px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.86);
+  border: 1.5px solid var(--card-edge);
+  box-shadow: 0 6px 20px rgba(212, 150, 167, 0.35);
+  font: 800 12px/1.3 var(--round-font);
+  color: var(--ink);
+}
+
 /* Resume affordance — a butter pill, same shape family as the HUD pills. */
 #pacman-pause .pp-hint {
   display: inline-block;
@@ -226,22 +243,33 @@ const CSS = `
 `;
 
 /** Inject the shared control-card styles (pause overlay AND title banner). */
-export function ensureStyle(): void {
-  if (document.getElementById(STYLE_ID)) return;
+export const ensureStyle = (): void => {
+  if (document.querySelector(`#${STYLE_ID}`)) {
+    return;
+  }
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = CSS;
   document.head.append(style);
-}
+};
+
+const div = (className: string, parent: HTMLElement): HTMLDivElement => {
+  const node = document.createElement("div");
+  node.className = className;
+  parent.append(node);
+  return node;
+};
 
 /**
  * The grouped chip rows both instruction surfaces render — the title banner
  * and the pause overlay teach controls with the SAME UI. Null when nothing is
  * visible for the current device/pad context.
  */
-export function buildControls(coarse: boolean): HTMLElement | null {
+export const buildControls = (coarse: boolean): HTMLElement | null => {
   const groups = controlGroups(CONTROLS, { coarse });
-  if (groups.length === 0) return null;
+  if (groups.length === 0) {
+    return null;
+  }
   const list = document.createElement("div");
   list.className = "pp-groups";
   for (const group of groups) {
@@ -261,16 +289,9 @@ export function buildControls(coarse: boolean): HTMLElement | null {
     list.append(section);
   }
   return list;
-}
+};
 
-function div(className: string, parent: HTMLElement): HTMLDivElement {
-  const node = document.createElement("div");
-  node.className = className;
-  parent.append(node);
-  return node;
-}
-
-function buildChompRow(parent: HTMLElement): void {
+const buildChompRow = (parent: HTMLElement): void => {
   const row = div("pp-chomp-row", parent);
   const chomp = div("pp-chomp", row);
   const jawTop = div("pp-jaw pp-jaw-top", chomp);
@@ -278,13 +299,28 @@ function buildChompRow(parent: HTMLElement): void {
   const jawBot = div("pp-jaw pp-jaw-bot", chomp);
   div("pp-cheek", jawBot);
   const pellets = div("pp-pellets", row);
-  for (let i = 0; i < 3; i++) div("pp-pellet", pellets);
-}
+  for (let i = 0; i < 3; i += 1) {
+    div("pp-pellet", pellets);
+  }
+};
 
 let root: HTMLElement | null = null;
 
 const shell = createPauseShell({
   fadeMs: 220,
+  mute: {
+    get: () => !isSoundOn(),
+    set: (muted) => {
+      if (muted === !isSoundOn()) {
+        return;
+      }
+      // The overlay seals its pointer events, so the window listener that
+      // normally unlocks audio never sees the tap that turned sound on.
+      if (toggleSound()) {
+        unlockAudio();
+      }
+    },
+  },
   // Dropping `.shown` at the start of hide() lets the card spring back down
   // while the shell fades the root out — same exit as the hand-rolled version.
   onHide: () => {
@@ -308,7 +344,9 @@ const shell = createPauseShell({
     sub.textContent = "taking a little breather ♥";
 
     const list = buildControls(coarse);
-    if (list) card.append(list);
+    if (list) {
+      card.append(list);
+    }
 
     const hint = div("pp-hint", card);
     hint.textContent = coarse ? "tap anywhere to resume" : "click or press any key to resume";
@@ -318,10 +356,10 @@ const shell = createPauseShell({
 });
 
 /** Mount the overlay. Idempotent while shown. */
-export const show = shell.show;
+export const { show } = shell;
 
 /** Unmount (fade out). Idempotent while hidden. */
-export const hide = shell.hide;
+export const { hide } = shell;
 
 /** Drop-in for the stock createPauseOverlay() return shape. */
 export const pauseOverlay = shell;

@@ -19,7 +19,9 @@ export const ProfileSettings = ({ user }: { user: ShellUser }) => {
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!dirty) return;
+    if (!dirty) {
+      return;
+    }
     setSaving(true);
     const { error } = await authClient.updateUser({ name: trimmed });
     setSaving(false);
@@ -44,7 +46,9 @@ export const ProfileSettings = ({ user }: { user: ShellUser }) => {
       </header>
 
       <form
-        onSubmit={(e) => void save(e)}
+        onSubmit={(e) => {
+          void save(e);
+        }}
         className="bg-input/40 space-y-4 rounded-md p-4 backdrop-blur-sm md:col-span-2"
       >
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

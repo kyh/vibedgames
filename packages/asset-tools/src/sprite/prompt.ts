@@ -13,14 +13,20 @@ import { lookup } from "./json.js";
  * paraphrase these strings.
  */
 
-export type Direction = {
+export interface Direction {
   id: string;
   label: string;
   promptName: string;
   screenFacing: string;
-};
+}
 
 export const DIRECTIONS = {
+  e: {
+    id: "e",
+    label: "East",
+    promptName: "east / right-facing",
+    screenFacing: "profile facing screen-right",
+  },
   n: {
     id: "n",
     label: "North",
@@ -32,6 +38,12 @@ export const DIRECTIONS = {
     label: "North-East",
     promptName: "north-east / back-right-facing",
     screenFacing: "diagonal back-right-facing, away from the viewer",
+  },
+  nw: {
+    id: "nw",
+    label: "North-West",
+    promptName: "north-west / back-left-facing",
+    screenFacing: "diagonal back-left-facing, away toward screen-left",
   },
   s: {
     id: "s",
@@ -45,12 +57,6 @@ export const DIRECTIONS = {
     promptName: "south-east / front-right-facing",
     screenFacing: "diagonal front-right-facing, toward screen-right",
   },
-  e: {
-    id: "e",
-    label: "East",
-    promptName: "east / right-facing",
-    screenFacing: "profile facing screen-right",
-  },
   sw: {
     id: "sw",
     label: "South-West",
@@ -63,15 +69,9 @@ export const DIRECTIONS = {
     promptName: "west / left-facing",
     screenFacing: "profile facing screen-left",
   },
-  nw: {
-    id: "nw",
-    label: "North-West",
-    promptName: "north-west / back-left-facing",
-    screenFacing: "diagonal back-left-facing, away toward screen-left",
-  },
 };
 
-export function getDirection(directionId: string): Direction {
+export const getDirection = (directionId: string): Direction => {
   const resolved = (directionId || "").trim().toLowerCase();
   const direction = lookup(DIRECTIONS, resolved);
   if (!direction) {
@@ -80,61 +80,61 @@ export function getDirection(directionId: string): Direction {
     );
   }
   return direction;
-}
+};
 
 export const ANCHOR_GAME_VIEWS = {
-  platformer: "side-scrolling / side-view platformer or action game",
   adventure: "point-and-click adventure character view",
-  "point-and-click": "point-and-click adventure character view",
-  "top-down": "experimental loose top-down or three-quarter top-down game",
-  "rts-oblique": "Warcraft-like elevated oblique RTS unit camera",
-  isometric: "experimental true isometric tactics / diamond-tile game",
   generic: "generic 2D game asset pipeline",
+  isometric: "experimental true isometric tactics / diamond-tile game",
+  platformer: "side-scrolling / side-view platformer or action game",
+  "point-and-click": "point-and-click adventure character view",
+  "rts-oblique": "Warcraft-like elevated oblique RTS unit camera",
+  "top-down": "experimental loose top-down or three-quarter top-down game",
 };
 
 export const ANCHOR_ROLES = {
   character: "playable or NPC character",
   enemy: "enemy or creature",
+  object: "non-character game object",
   prop: "small interactive or decorative prop",
   turret: "planted turret or mechanical hazard",
-  object: "non-character game object",
 };
 
 const VIEW_ALIASES = {
-  "side-scroller": "platformer",
+  "adventure-game": "adventure",
+  "iso-rts": "rts-oblique",
+  "isometric-rts": "rts-oblique",
+  isometric_rts: "rts-oblique",
+  "oblique-rts": "rts-oblique",
+  pnc: "adventure",
   "point-and-click": "adventure",
   point_and_click: "adventure",
-  pnc: "adventure",
-  "adventure-game": "adventure",
   rts: "rts-oblique",
   "rts-oblique": "rts-oblique",
   rts_oblique: "rts-oblique",
+  "side-scroller": "platformer",
   warcraft: "rts-oblique",
   "warcraft-rts": "rts-oblique",
-  "oblique-rts": "rts-oblique",
-  "isometric-rts": "rts-oblique",
-  "iso-rts": "rts-oblique",
-  isometric_rts: "rts-oblique",
 };
 
-export function resolveAnchorGameView(gameView: string | null): string {
+export const resolveAnchorGameView = (gameView: string | null): string => {
   let resolved = (gameView || "platformer").trim().toLowerCase();
   resolved = lookup(VIEW_ALIASES, resolved) ?? resolved;
   if (!(resolved in ANCHOR_GAME_VIEWS)) {
-    const known = Object.keys(ANCHOR_GAME_VIEWS).sort().join(", ");
+    const known = Object.keys(ANCHOR_GAME_VIEWS).toSorted().join(", ");
     throw new Error(`unknown anchor game view '${gameView}'; expected one of: ${known}`);
   }
   return resolved;
-}
+};
 
-export function resolveAnchorRole(anchorRole: string | null): string {
+export const resolveAnchorRole = (anchorRole: string | null): string => {
   const resolved = (anchorRole || "character").trim().toLowerCase();
   if (!(resolved in ANCHOR_ROLES)) {
-    const known = Object.keys(ANCHOR_ROLES).sort().join(", ");
+    const known = Object.keys(ANCHOR_ROLES).toSorted().join(", ");
     throw new Error(`unknown anchor role '${anchorRole}'; expected one of: ${known}`);
   }
   return resolved;
-}
+};
 
 /** Valid action ids; any other id still works via a generic fallback. */
 export const ACTION_IDS = [
@@ -165,18 +165,22 @@ export const ACTION_IDS = [
   "heavy_attack",
 ];
 
-export function getActionId(actionId: string): string {
+export const getActionId = (actionId: string): string => {
   const resolved = (actionId || "").trim().toLowerCase();
-  if (!resolved) throw new Error("an action id is required (e.g. walk, run, attack)");
+  if (!resolved) {
+    throw new Error("an action id is required (e.g. walk, run, attack)");
+  }
   return resolved;
-}
+};
 
 /**
  * Style presets. The blocks spell out the visual constraints so the project's
  * own preset name is never sent to a model.
  */
-export function styleBlock(style: string | null): string {
-  if (style === null || style === undefined) return "";
+export const styleBlock = (style: string | null): string => {
+  if (style === null || style === undefined) {
+    return "";
+  }
   if (style === "lobit-v1") {
     return `
 Style constraints (low-bit pixel-sprite production art):
@@ -214,63 +218,63 @@ Style constraints (source-faithful preservation):
   throw new Error(
     `unknown style '${style}'; expected one of: lobit-v1, high-fidelity-v1, preserve-reference-v1`,
   );
-}
+};
 
-export function withStyle(prompt: string, style: string | null): string {
+export const withStyle = (prompt: string, style: string | null): string => {
   const block = styleBlock(style);
   return block ? `${prompt}${block}` : prompt;
-}
+};
 
-function chromaPhrase(chroma: string): string {
+const chromaPhrase = (chroma: string): string => {
   const names = {
+    "#0000FF": "chroma blue #0000FF",
     "#00FF00": "chroma green #00FF00",
     "#FF00FF": "chroma magenta #FF00FF",
-    "#0000FF": "chroma blue #0000FF",
   };
   return lookup(names, chroma.toUpperCase()) ?? `chroma color ${chroma}`;
-}
+};
 
 /** The colour's name alone, for a line that states the hex separately. */
-function chromaName(chroma: string): string {
+const chromaName = (chroma: string): string => {
   const names = {
+    "#0000FF": "chroma blue",
     "#00FF00": "chroma green",
     "#FF00FF": "chroma magenta",
-    "#0000FF": "chroma blue",
   };
   return lookup(names, chroma.toUpperCase()) ?? "chroma color";
-}
+};
 
-function directionLine(direction: Direction, gameView: string): string {
+const directionLine = (direction: Direction, gameView: string): string => {
   if (gameView === "adventure") {
     const lines = {
-      s: "south / front-facing adventure standing view",
-      se: "south-east / front-right three-quarter adventure view",
-      sw: "south-west / front-left three-quarter adventure view",
       e: "east / screen-right adventure profile",
-      w: "west / screen-left adventure profile",
       n: "north / back-facing adventure standing view",
       ne: "north-east / back-right three-quarter adventure view",
       nw: "north-west / back-left three-quarter adventure view",
+      s: "south / front-facing adventure standing view",
+      se: "south-east / front-right three-quarter adventure view",
+      sw: "south-west / front-left three-quarter adventure view",
+      w: "west / screen-left adventure profile",
     };
     return lookup(lines, direction.id) ?? direction.screenFacing;
   }
   if (gameView === "rts-oblique") {
     const lines = {
+      e: "east / screen-right-facing from the fixed elevated RTS camera, not a pure side profile",
       n: "north / back-facing as a compact unit rotated on an oblique RTS ground plane",
       ne: "north-east / back-right-facing as a compact unit rotated on an oblique RTS ground plane",
-      e: "east / screen-right-facing from the fixed elevated RTS camera, not a pure side profile",
-      se: "south-east / front-right-facing as a compact unit rotated on an oblique RTS ground plane",
+      nw: "north-west / back-left-facing as a compact unit rotated on an oblique RTS ground plane",
       s: "south / front-facing from the fixed elevated RTS camera, not a straight-on portrait",
+      se: "south-east / front-right-facing as a compact unit rotated on an oblique RTS ground plane",
       sw: "south-west / front-left-facing as a compact unit rotated on an oblique RTS ground plane",
       w: "west / screen-left-facing from the fixed elevated RTS camera, not a pure side profile",
-      nw: "north-west / back-left-facing as a compact unit rotated on an oblique RTS ground plane",
     };
     return lookup(lines, direction.id) ?? direction.screenFacing;
   }
   return direction.screenFacing;
-}
+};
 
-function anchorCompositionGuidance(gameView: string): string {
+const anchorCompositionGuidance = (gameView: string): string => {
   if (gameView === "adventure") {
     return `- One isolated full-height point-and-click adventure character centered on the canvas.
 - Whole body visible from head to feet with a clear grounded standing silhouette.
@@ -287,9 +291,9 @@ function anchorCompositionGuidance(gameView: string): string {
   }
   return `- One isolated full-body sprite centered on the canvas.
 - Full body visible from head to feet.`;
-}
+};
 
-function anchorAvoidGuidance(gameView: string): string {
+const anchorAvoidGuidance = (gameView: string): string => {
   if (gameView === "adventure") {
     return `- not a side-view platformer profile unless direction is explicitly east or west
 - not an overhead top-down unit
@@ -306,9 +310,9 @@ function anchorAvoidGuidance(gameView: string): string {
 - not a large character illustration`;
   }
   return "";
-}
+};
 
-function directionViewGuidance(direction: Direction, gameView: string): string {
+const directionViewGuidance = (direction: Direction, gameView: string): string => {
   if (gameView === "adventure") {
     if (direction.id === "sw" || direction.id === "se") {
       const side = direction.id === "sw" ? "screen-left" : "screen-right";
@@ -365,9 +369,9 @@ function directionViewGuidance(direction: Direction, gameView: string): string {
   }
   return `- Make the requested direction readable as a neutral 2D game sprite view.
 - Keep the camera orthographic and asset-focused.`;
-}
+};
 
-function anchorRoleGuidance(anchorRole: string): string {
+const anchorRoleGuidance = (anchorRole: string): string => {
   if (anchorRole === "enemy") {
     return `- Preserve the enemy's core body plan, threat shape, and readable attack silhouette.
 - Do not turn it into a different creature type, vehicle, turret, quadruped, or humanoid unless image 1 already establishes that shape.`;
@@ -382,16 +386,16 @@ function anchorRoleGuidance(anchorRole: string): string {
   }
   return `- Preserve the character's body plan, outfit blocks, readable pose language, and silhouette.
 - Do not add or remove major anatomy.`;
-}
+};
 
-function anchorContextGuidance(anchorContext: string | null): string {
+const anchorContextGuidance = (anchorContext: string | null): string => {
   const context = (anchorContext || "").trim();
   return context
     ? `Additional game context: ${context}`
     : "Additional game context: none supplied.";
-}
+};
 
-export function renderAnchorPrompt(
+export const renderAnchorPrompt = (
   direction: Direction,
   options: {
     gameView?: string;
@@ -400,7 +404,7 @@ export function renderAnchorPrompt(
     chroma?: string;
     guideImage?: boolean;
   } = {},
-): string {
+): string => {
   const {
     gameView = "platformer",
     anchorRole = "character",
@@ -462,77 +466,74 @@ Avoid:
 - non-green backgrounds
 ${anchorAvoidGuidance(resolvedView)}
 `;
-}
+};
 
-export type PoseBoardPreset = {
+export interface PoseBoardPreset {
   id: string;
   width: number;
   height: number;
   columns: number;
   rows: number;
-};
+}
 
 export const POSE_BOARD_PRESETS = {
-  standard: { id: "standard", width: 1536, height: 1152, columns: 4, rows: 3 },
-  hires: { id: "hires", width: 2048, height: 1536, columns: 4, rows: 3 },
+  hires: { columns: 4, height: 1536, id: "hires", rows: 3, width: 2048 },
+  standard: { columns: 4, height: 1152, id: "standard", rows: 3, width: 1536 },
 };
 
 export const cellWidth = (p: PoseBoardPreset) => Math.floor(p.width / p.columns);
 export const cellHeight = (p: PoseBoardPreset) => Math.floor(p.height / p.rows);
 export const totalCells = (p: PoseBoardPreset) => p.columns * p.rows;
 
-export function resolvePoseBoardPreset(presetId: string | null): PoseBoardPreset {
+export const resolvePoseBoardPreset = (presetId: string | null): PoseBoardPreset => {
+  // oxlint-disable-next-line unicorn/prefer-default-parameters -- null and "" both mean the default; a default parameter only covers undefined
   const resolved = presetId || "standard";
   const preset = lookup(POSE_BOARD_PRESETS, resolved);
   if (!preset) {
-    const known = Object.keys(POSE_BOARD_PRESETS).sort().join(", ");
+    const known = Object.keys(POSE_BOARD_PRESETS).toSorted().join(", ");
     throw new Error(`unknown pose board preset '${resolved}'; expected one of: ${known}`);
   }
   if (preset.width % preset.columns || preset.height % preset.rows) {
     throw new Error(`pose board preset '${preset.id}' does not divide evenly into its grid`);
   }
   return preset;
-}
+};
 
 /**
  * Map frame `index` onto a label list. When the requested frame count differs
  * from the list length the labels are sampled evenly, so a 6-frame attack still
  * walks the same arc as a 10-frame one rather than truncating it.
  */
-function labelForIndex(labels: string[], index: number, frameCount: number): string {
-  if (frameCount <= 1) return labels[0]!;
-  if (frameCount === labels.length) return labels[index - 1]!;
-  return labels[roundHalfToEven(((index - 1) * (labels.length - 1)) / (frameCount - 1))]!;
-}
+const labelForIndex = (labels: string[], index: number, frameCount: number): string => {
+  let position: number;
+  if (frameCount <= 1) {
+    position = 0;
+  } else if (frameCount === labels.length) {
+    position = index - 1;
+  } else {
+    position = roundHalfToEven(((index - 1) * (labels.length - 1)) / (frameCount - 1));
+  }
+  const label = labels[position];
+  if (label === undefined) {
+    throw new Error(`frame ${index} of ${frameCount} has no label`);
+  }
+  return label;
+};
 
 const LABELS = {
-  idle: [
-    "settled idle",
-    "tiny breathing rise",
-    "breathing rise",
-    "breathing peak",
-    "soft blink or cloth sway",
-    "small breathing fall",
-    "settling fall",
-    "near neutral",
-    "return to settled idle",
-    "loop hold matching frame 1",
-  ],
-  hurt: [
-    "idle start",
-    "impact anticipation",
-    "impact recoil",
-    "hit peak",
-    "recover balance",
-    "return to guard",
-  ],
-  jump: [
-    "ready stance",
-    "crouch anticipation",
-    "takeoff",
-    "airborne peak",
-    "falling",
-    "landing recovery",
+  // Spatial-progression labels (a single arc, not abstract beats) so the model
+  // advances the weapon monotonically along one swing instead of drawing N poses.
+  attack: [
+    "ready stance, weapon held back",
+    "anticipation, weapon drawing back and up",
+    "wind-up peak, weapon at the top of the back-swing",
+    "swing begins, weapon starting forward along the strike arc",
+    "mid-strike, weapon sweeping across the body centerline",
+    "contact, weapon at the far forward end of the arc",
+    "follow-through, weapon overshooting past contact",
+    "recovery, weapon returning toward the ready guard",
+    "settle toward ready",
+    "return to ready stance",
   ],
   crouch: [
     "upright ready stance",
@@ -553,70 +554,6 @@ const LABELS = {
     "still pose",
     "final still",
     "final hold",
-  ],
-  // Spatial-progression labels (a single arc, not abstract beats) so the model
-  // advances the weapon monotonically along one swing instead of drawing N poses.
-  attack: [
-    "ready stance, weapon held back",
-    "anticipation, weapon drawing back and up",
-    "wind-up peak, weapon at the top of the back-swing",
-    "swing begins, weapon starting forward along the strike arc",
-    "mid-strike, weapon sweeping across the body centerline",
-    "contact, weapon at the far forward end of the arc",
-    "follow-through, weapon overshooting past contact",
-    "recovery, weapon returning toward the ready guard",
-    "settle toward ready",
-    "return to ready stance",
-  ],
-  talk: [
-    "settled speaking idle",
-    "small head turn",
-    "hand gesture begins",
-    "gesture opens",
-    "gesture peak",
-    "soft emphasis",
-    "gesture relaxes",
-    "hand returns",
-    "near speaking idle",
-    "loop hold matching frame 1",
-  ],
-  interact: [
-    "idle start",
-    "anticipate reach",
-    "arm extends",
-    "operate or take peak",
-    "brief contact hold",
-    "release",
-    "arm returns",
-    "settle",
-    "return to idle",
-    "idle hold",
-  ],
-  pick_up: [
-    "idle start",
-    "look toward target",
-    "bend begins",
-    "reach downward",
-    "lowest reach",
-    "grasp implied object",
-    "lift begins",
-    "rise with hand close",
-    "settle upright",
-    "return to idle",
-    "idle hold",
-    "loop-safe idle",
-  ],
-  use: [
-    "idle start",
-    "anticipate reach",
-    "reach outward",
-    "hand meets implied control",
-    "operate peak",
-    "brief hold",
-    "release",
-    "arm returns",
-    "settle",
-    "return to idle",
   ],
   examine: [
     "idle start",
@@ -642,6 +579,60 @@ const LABELS = {
     "settle",
     "return to idle",
   ],
+  hurt: [
+    "idle start",
+    "impact anticipation",
+    "impact recoil",
+    "hit peak",
+    "recover balance",
+    "return to guard",
+  ],
+  idle: [
+    "settled idle",
+    "tiny breathing rise",
+    "breathing rise",
+    "breathing peak",
+    "soft blink or cloth sway",
+    "small breathing fall",
+    "settling fall",
+    "near neutral",
+    "return to settled idle",
+    "loop hold matching frame 1",
+  ],
+  interact: [
+    "idle start",
+    "anticipate reach",
+    "arm extends",
+    "operate or take peak",
+    "brief contact hold",
+    "release",
+    "arm returns",
+    "settle",
+    "return to idle",
+    "idle hold",
+  ],
+  jump: [
+    "ready stance",
+    "crouch anticipation",
+    "takeoff",
+    "airborne peak",
+    "falling",
+    "landing recovery",
+  ],
+  pick_up: [
+    "idle start",
+    "look toward target",
+    "bend begins",
+    "reach downward",
+    "lowest reach",
+    "grasp implied object",
+    "lift begins",
+    "rise with hand close",
+    "settle upright",
+    "return to idle",
+    "idle hold",
+    "loop-safe idle",
+  ],
   shrug: [
     "idle start",
     "confused anticipation",
@@ -654,17 +645,45 @@ const LABELS = {
     "settle",
     "return to idle",
   ],
+  talk: [
+    "settled speaking idle",
+    "small head turn",
+    "hand gesture begins",
+    "gesture opens",
+    "gesture peak",
+    "soft emphasis",
+    "gesture relaxes",
+    "hand returns",
+    "near speaking idle",
+    "loop hold matching frame 1",
+  ],
+  use: [
+    "idle start",
+    "anticipate reach",
+    "reach outward",
+    "hand meets implied control",
+    "operate peak",
+    "brief hold",
+    "release",
+    "arm returns",
+    "settle",
+    "return to idle",
+  ],
 } satisfies Record<string, string[]>;
 
-export function frameLabel(action: string, index: number, frameCount: number): string {
-  if (action === "knockdown") return labelForIndex(LABELS.death, index, frameCount);
+export const frameLabel = (action: string, index: number, frameCount: number): string => {
+  if (action === "knockdown") {
+    return labelForIndex(LABELS.death, index, frameCount);
+  }
   if (action === "light_attack" || action === "heavy_attack") {
     return labelForIndex(LABELS.attack, index, frameCount);
   }
   const labels = lookup(LABELS, action);
-  if (labels) return labelForIndex(labels, index, frameCount);
+  if (labels) {
+    return labelForIndex(labels, index, frameCount);
+  }
   return `${action} pose ${index}`;
-}
+};
 
 const ADVENTURE_ACTIONS = new Set([
   "talk",
@@ -676,11 +695,11 @@ const ADVENTURE_ACTIONS = new Set([
   "shrug",
 ]);
 
-export function renderFrameGuidance(
+export const renderFrameGuidance = (
   action: string,
   frameCount: number,
   framePromptStyle: string,
-): string {
+): string => {
   if (framePromptStyle !== "specific" && framePromptStyle !== "loose") {
     throw new Error("frame_prompt_style must be specific or loose");
   }
@@ -710,7 +729,7 @@ export function renderFrameGuidance(
 - Use clear beginning, middle, and end poses with smooth in-betweens.
 - Let the model choose the exact in-between poses; do not force a named pose into every frame.
 - Keep identity, scale, facing direction, and foot baseline consistent across all frames.`;
-}
+};
 
 const LOOPING_ACTIONS = new Set(["idle", "run", "walk", "walk_forward", "walk_backward", "talk"]);
 
@@ -719,7 +738,7 @@ const LOOPING_ACTIONS = new Set(["idle", "run", "walk", "walk_forward", "walk_ba
  * Without it the model reads each grid cell as an independent dramatic pose;
  * with it, it samples a single continuous motion at evenly-spaced instants.
  */
-function motionContinuityBlock(actionId: string, frameCount: number): string {
+const motionContinuityBlock = (actionId: string, frameCount: number): string => {
   const ending = LOOPING_ACTIONS.has(actionId)
     ? `Frame ${frameCount} returns toward frame 1 so the cycle loops seamlessly.`
     : `Frame 1 is the start of the motion and frame ${frameCount} is its end.`;
@@ -734,10 +753,10 @@ function motionContinuityBlock(actionId: string, frameCount: number): string {
     `different dramatic poses; draw the SAME motion decomposed into ${frameCount} evenly spaced ` +
     `in-between frames. ${ending}\n`
   );
-}
+};
 
 /** Keep every cell facing the same way — the model loves to mirror frame 1. */
-function poseBoardFacingLock(direction: Direction): string {
+const poseBoardFacingLock = (direction: Direction): string => {
   let base =
     `Facing lock: every single cell must keep the SAME facing — ${direction.screenFacing}. ` +
     `Never mirror, flip, rotate, or reverse the body to face the other way in any frame, including ` +
@@ -750,9 +769,9 @@ function poseBoardFacingLock(direction: Direction): string {
       `profile, a front view, or a back view in any cell.`;
   }
   return base;
-}
+};
 
-export function renderPoseBoardPrompt(
+export const renderPoseBoardPrompt = (
   actionId: string,
   direction: Direction,
   frameCount: number,
@@ -762,7 +781,7 @@ export function renderPoseBoardPrompt(
     chroma?: string;
     guideImage?: boolean;
   } = {},
-): string {
+): string => {
   const {
     poseBoard = null,
     framePromptStyle = "specific",
@@ -833,4 +852,4 @@ Avoid:
 - floor shadows or environment backdrops
 - non-chroma backgrounds
 `;
-}
+};

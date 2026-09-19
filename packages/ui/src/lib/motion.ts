@@ -8,8 +8,8 @@ export const SHAKE_KEYFRAMES = { x: [0, 6, -6, 4, 0] };
 
 export const SHAKE_TRANSITION = {
   duration: 0.28,
-  times: [0, 0.2857, 0.5714, 0.7857, 1],
   ease: EASE_OUT,
+  times: [0, 0.2857, 0.5714, 0.7857, 1],
 };
 
 /**
@@ -27,7 +27,7 @@ export const SHAKE_TRANSITION = {
  * it can blur freely; a resting one must stay filter-free.
  */
 export const BLUR_FADE = {
-  initial: { opacity: 0 },
   animate: { opacity: 1, transition: { duration: 0.22, ease: EASE_OUT } },
-  exit: { opacity: 0, filter: "blur(4px)", transition: { duration: 0.12, ease: EASE_OUT } },
+  exit: { filter: "blur(4px)", opacity: 0, transition: { duration: 0.12, ease: EASE_OUT } },
+  initial: { opacity: 0 },
 };

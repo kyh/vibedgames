@@ -9,13 +9,18 @@ import { SKID_LIFT } from "../fx/skids";
 // every hour and on phones, so it is the grounding that survives the shadow
 // map's low-sun fade and the composer-less mobile path (no AO there at all).
 
-export const SHADOW_LOBE_R = 0.56; // lobe radius at rest
-export const SHADOW_DROOP = 0.1; // droop past which no contact patch remains
-export const SHADOW_LOAD = 0.09; // compression at which the patch is tightest
-export const SHADOW_LOBE_MAX = 0.78; // peak occlusion at contact
-export const SHADOW_BODY = 0.46; // chassis-ellipse occlusion
+// lobe radius at rest
+export const SHADOW_LOBE_R = 0.56;
+// droop past which no contact patch remains
+export const SHADOW_DROOP = 0.1;
+// compression at which the patch is tightest
+export const SHADOW_LOAD = 0.09;
+// peak occlusion at contact
+export const SHADOW_LOBE_MAX = 0.78;
+// chassis-ellipse occlusion
+export const SHADOW_BODY = 0.46;
 // Never black, COOL — reads as sky occlusion, not a paint stain.
-export const SHADOW_TINT = 0x0c161c;
+export const SHADOW_TINT = 0x0c_16_1c;
 // Clearance over the draped asphalt: same worst-case budget as skid marks
 // (asphalt lift + drape bow), plus a hair so the blob sits under fresh marks.
 // polygonOffset carries the rest at grazing angles, per the SKID_LIFT pattern.
@@ -38,7 +43,7 @@ const DEFAULT_LAYOUT: readonly { x: number; z: number }[] = [
   { x: 0.62, z: -1.28 },
 ];
 
-const VERT = /* glsl */ `
+const VERT = `
 varying vec2 vP;
 void main() {
 	vP = position.xz;
@@ -46,7 +51,7 @@ void main() {
 }
 `;
 
-const FRAG = /* glsl */ `
+const FRAG = `
 uniform vec3 uTint;
 uniform float uBodyK;
 uniform vec2 uBodyRadii;
@@ -95,23 +100,24 @@ export class ContactShadow {
     const geo = new THREE.PlaneGeometry(2, 2);
     geo.rotateX(-Math.PI / 2);
     const mat = new THREE.ShaderMaterial({
+      depthWrite: false,
+      fragmentShader: FRAG,
+      polygonOffset: true,
+      polygonOffsetFactor: -4,
+      polygonOffsetUnits: -16,
+      transparent: true,
       uniforms: {
-        uTint: { value: new THREE.Color(SHADOW_TINT) },
         uBodyK: this.uBodyK,
         uBodyRadii: this.uBodyRadii,
         uHalf: this.uHalf,
         uLobe: this.uLobe,
+        uTint: { value: new THREE.Color(SHADOW_TINT) },
       },
       vertexShader: VERT,
-      fragmentShader: FRAG,
-      transparent: true,
-      depthWrite: false,
-      polygonOffset: true,
-      polygonOffsetFactor: -4,
-      polygonOffsetUnits: -16,
     });
     this.mesh = new THREE.Mesh(geo, mat);
-    this.mesh.renderOrder = -1; // under skids (0) and trails (2)
+    // under skids (0) and trails (2)
+    this.mesh.renderOrder = -1;
     this.setLayout(DEFAULT_LAYOUT);
   }
 
@@ -121,9 +127,11 @@ export class ContactShadow {
     const pts = wheels.length >= 4 ? wheels : DEFAULT_LAYOUT;
     let maxX = 0;
     let maxZ = 0;
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 4; i += 1) {
       const p = pts[i];
-      if (!p) continue;
+      if (!p) {
+        continue;
+      }
       this.uLobe.value[i]?.set(p.x, p.z, SHADOW_LOBE_R, 0);
       maxX = Math.max(maxX, Math.abs(p.x));
       maxZ = Math.max(maxZ, Math.abs(p.z));
@@ -137,19 +145,23 @@ export class ContactShadow {
   }
 
   setWheelTravel(i: number, travel: number): void {
-    if (i >= 0 && i < 4) this.travels[i] = travel;
+    if (i >= 0 && i < 4) {
+      this.travels[i] = travel;
+    }
   }
 
   update(dt: number, grounded: boolean): void {
     const target = grounded ? 1 : 0;
     this.airFade += (target - this.airFade) * Math.min(1, dt * AIR_FADE_RATE);
     this.uBodyK.value = SHADOW_BODY * this.airFade;
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 4; i += 1) {
       const travel = this.travels[i] ?? 0;
       const planted = THREE.MathUtils.clamp((travel + SHADOW_DROOP) / SHADOW_DROOP, 0, 1);
       const load = THREE.MathUtils.clamp(travel / SHADOW_LOAD, 0, 1);
       const u = this.uLobe.value[i];
-      if (!u) continue;
+      if (!u) {
+        continue;
+      }
       // Loaded = the same darkness in a smaller lobe (reads as weight);
       // drooped = wide and faint, then gone.
       u.z = SHADOW_LOBE_R * (1 + 0.3 * (1 - planted) - 0.22 * load);

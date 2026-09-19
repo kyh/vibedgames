@@ -24,7 +24,7 @@
 //   &loop=1        auto-replay shortly after the final cut
 //   Esc            exits back to the normal game
 
-export type TrailerScene = {
+export interface TrailerScene {
   /** Stable id, exposed on window.__trailer for tooling. */
   id: string;
   /** Milliseconds the scene plays (excludes cut time). */
@@ -41,9 +41,9 @@ export type TrailerScene = {
   run?: (t: number, dt: number) => void;
   /** Cleanup before the next scene stages. */
   teardown?: () => void;
-};
+}
 
-export type TrailerConfig = {
+export interface TrailerConfig {
   /** Dip-to-black duration between scenes. Default 120ms. */
   cutMs?: number;
   /** Black held before the first scene reveals, covering boot. Default 600ms. */
@@ -58,14 +58,14 @@ export type TrailerConfig = {
    */
   onGesture?: () => void;
   scenes: TrailerScene[];
-};
+}
 
-export type TrailerState = {
+export interface TrailerState {
   sceneId: string;
   sceneIndex: number;
   t: number;
   done: boolean;
-};
+}
 
 declare global {
   interface Window {
@@ -74,18 +74,19 @@ declare global {
   }
 }
 
-export function isTrailerMode(): boolean {
-  return new URLSearchParams(window.location.search).has("trailer");
-}
+export const isTrailerMode = (): boolean =>
+  new URLSearchParams(window.location.search).has("trailer");
 
-const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+const wait = (ms: number): Promise<void> =>
+  // oxlint-disable-next-line no-promise-executor-return, promise/avoid-new -- setTimeout sleep has no promise form in the browser
+  new Promise((resolve) => setTimeout(resolve, ms));
 
-function el(tag: string, cls: string, parent: Element): HTMLElement {
+const el = (tag: string, cls: string, parent: Element): HTMLElement => {
   const node = document.createElement(tag);
   node.className = cls;
-  parent.appendChild(node);
+  parent.append(node);
   return node;
-}
+};
 
 const CSS = `
 .vgt-root { position: fixed; inset: 0; z-index: 2147480000; pointer-events: none;
@@ -99,40 +100,48 @@ const CSS = `
 `;
 
 /** The only mutable layer left: the black plate every cut fades through. */
-function buildDom(config: TrailerConfig): HTMLElement {
+const buildDom = (config: TrailerConfig): HTMLElement => {
   const style = document.createElement("style");
   style.textContent = CSS;
-  document.head.appendChild(style);
+  document.head.append(style);
 
   const root = el("div", "vgt-root", document.body);
   const stage = el("div", "vgt-stage", root);
-  if (config.vignette !== false) el("div", "vgt-vignette", stage);
+  if (config.vignette !== false) {
+    el("div", "vgt-vignette", stage);
+  }
   return el("div", "vgt-cut", stage);
-}
+};
 
 /** Black held after the final cut before ?loop=1 restarts the trailer. */
 const LOOP_GAP_MS = 900;
 
-export function runTrailer(config: TrailerConfig): void {
+export const runTrailer = (config: TrailerConfig): void => {
   const params = new URLSearchParams(window.location.search);
   const autoloop = params.has("loop");
   const cutMs = config.cutMs ?? 120;
   const cutPlate = buildDom(config);
 
-  const state: TrailerState = { sceneId: "", sceneIndex: -1, t: 0, done: false };
+  const state: TrailerState = { done: false, sceneId: "", sceneIndex: -1, t: 0 };
   window.__trailer = state;
 
   window.addEventListener("keydown", (e) => {
-    if (e.key !== "Escape") return;
+    if (e.key !== "Escape") {
+      return;
+    }
     const url = new URL(window.location.href);
-    for (const p of ["trailer", "loop"]) url.searchParams.delete(p);
+    for (const p of ["trailer", "loop"]) {
+      url.searchParams.delete(p);
+    }
     window.location.href = url.toString();
   });
 
   if (config.onGesture) {
-    const onGesture = config.onGesture;
+    const { onGesture } = config;
     const fire = (e: Event): void => {
-      if (!e.isTrusted) return;
+      if (!e.isTrusted) {
+        return;
+      }
       window.removeEventListener("pointerdown", fire);
       window.removeEventListener("keydown", fire);
       onGesture();
@@ -153,20 +162,26 @@ export function runTrailer(config: TrailerConfig): void {
     // Dip to black so the next scene's staging never shows on screen.
     setCut(1, cutMs * 0.4);
     await wait(cutMs * 0.4);
-    if (myGen !== generation) return;
+    if (myGen !== generation) {
+      return;
+    }
 
     activeScene?.teardown?.();
     activeScene = scene;
     try {
       await scene.setup();
-    } catch (err) {
-      console.error(`[trailer] setup failed for scene "${scene.id}"`, err);
+    } catch (error) {
+      console.error(`[trailer] setup failed for scene "${scene.id}"`, error);
     }
-    if (myGen !== generation) return;
+    if (myGen !== generation) {
+      return;
+    }
 
     if (scene.hold !== undefined && scene.hold > 0) {
       await wait(scene.hold);
-      if (myGen !== generation) return;
+      if (myGen !== generation) {
+        return;
+      }
     }
 
     await wait(cutMs * 0.2);
@@ -176,20 +191,25 @@ export function runTrailer(config: TrailerConfig): void {
     state.sceneIndex = index;
     state.t = 0;
 
+    // oxlint-disable-next-line promise/avoid-new -- wraps the requestAnimationFrame callback loop
     await new Promise<void>((resolve) => {
       const start = performance.now();
       let last = start;
       const frame = (now: number): void => {
-        if (myGen !== generation) return resolve();
+        if (myGen !== generation) {
+          return resolve();
+        }
         const t = now - start;
         state.t = t;
         try {
           scene.run?.(t, now - last);
-        } catch (err) {
-          console.error(`[trailer] run failed for scene "${scene.id}"`, err);
+        } catch (error) {
+          console.error(`[trailer] run failed for scene "${scene.id}"`, error);
         }
         last = now;
-        if (t >= scene.duration) return resolve();
+        if (t >= scene.duration) {
+          return resolve();
+        }
         requestAnimationFrame(frame);
       };
       requestAnimationFrame(frame);
@@ -197,24 +217,37 @@ export function runTrailer(config: TrailerConfig): void {
   };
 
   const playFrom = async (startIndex: number): Promise<void> => {
-    const myGen = ++generation;
+    generation += 1;
+    const myGen = generation;
     state.done = false;
-    for (let i = startIndex; i < config.scenes.length; i++) {
+    for (let i = startIndex; i < config.scenes.length; i += 1) {
       const scene = config.scenes[i];
-      if (scene === undefined) break;
+      if (scene === undefined) {
+        break;
+      }
       await playScene(scene, i, myGen);
-      if (myGen !== generation) return;
+      if (myGen !== generation) {
+        return;
+      }
     }
-    if (myGen !== generation) return;
+    if (myGen !== generation) {
+      return;
+    }
     activeScene?.teardown?.();
     activeScene = null;
     setCut(1, 400);
     await wait(420);
-    if (myGen !== generation) return;
+    if (myGen !== generation) {
+      return;
+    }
     state.done = true;
-    if (!autoloop) return;
+    if (!autoloop) {
+      return;
+    }
     await wait(LOOP_GAP_MS);
-    if (myGen === generation) void playFrom(0);
+    if (myGen === generation) {
+      void playFrom(0);
+    }
   };
 
   window.__trailerJump = (sceneIndex: number): void => {
@@ -226,6 +259,8 @@ export function runTrailer(config: TrailerConfig): void {
   // __trailerJump during the lead-in — that claimed generation 1, and starting
   // scene 0 here would silently clobber the jump.
   window.setTimeout(() => {
-    if (generation === 0) void playFrom(0);
+    if (generation === 0) {
+      void playFrom(0);
+    }
   }, config.leadInMs ?? 600);
-}
+};

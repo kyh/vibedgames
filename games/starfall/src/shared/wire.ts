@@ -29,124 +29,122 @@ import type {
 } from "./constants";
 
 /** 0.1px — positions, velocities, radii, beam endpoints, asteroid verts. */
-function q1(n: number): number {
-  return Math.round(n * 10) / 10;
-}
+const q1 = (n: number): number => Math.round(n * 10) / 10;
 /** 0.001 rad (~0.06°) — headings. */
-function q3(n: number): number {
-  return Math.round(n * 1000) / 1000;
-}
+const q3 = (n: number): number => Math.round(n * 1000) / 1000;
 /** Whole ms — host-clock deadlines/timestamps (sub-ms precision is noise). */
 const qms = Math.round;
 
-function qVec(v: Vec): Vec {
-  return { x: q1(v.x), y: q1(v.y) };
-}
+const qVec = (v: Vec): Vec => ({ x: q1(v.x), y: q1(v.y) });
 
-export function asteroidToWire(a: AsteroidState): AsteroidState {
-  return {
-    id: a.id,
-    x: q1(a.x),
-    y: q1(a.y),
-    vx: q1(a.vx),
-    vy: q1(a.vy),
-    radius: q1(a.radius),
-    rot: q3(a.rot),
-  };
-}
+export const asteroidToWire = (a: AsteroidState): AsteroidState => ({
+  id: a.id,
+  radius: q1(a.radius),
+  rot: q3(a.rot),
+  vx: q1(a.vx),
+  vy: q1(a.vy),
+  x: q1(a.x),
+  y: q1(a.y),
+});
 
-export function ufoToWire(u: UfoState): UfoState {
-  return {
-    id: u.id,
-    x: q1(u.x),
-    y: q1(u.y),
-    destX: q1(u.destX),
-    destY: q1(u.destY),
-    hp: q1(u.hp),
-    blinkUntil: qms(u.blinkUntil),
-  };
-}
+export const ufoToWire = (u: UfoState): UfoState => ({
+  blinkUntil: qms(u.blinkUntil),
+  destX: q1(u.destX),
+  destY: q1(u.destY),
+  hp: q1(u.hp),
+  id: u.id,
+  x: q1(u.x),
+  y: q1(u.y),
+});
 
-export function itemToWire(it: ItemState): ItemState {
-  return {
-    ...it,
-    x: q1(it.x),
-    y: q1(it.y),
-    vx: q1(it.vx),
-    vy: q1(it.vy),
-    diesAt: qms(it.diesAt),
-  };
-}
+export const itemToWire = (it: ItemState): ItemState => ({
+  ...it,
+  diesAt: qms(it.diesAt),
+  vx: q1(it.vx),
+  vy: q1(it.vy),
+  x: q1(it.x),
+  y: q1(it.y),
+});
 
-export function enemyToWire(e: EnemyState): EnemyState {
-  return {
-    id: e.id,
-    kind: e.kind,
-    x: q1(e.x),
-    y: q1(e.y),
-    vx: q1(e.vx),
-    vy: q1(e.vy),
-    angle: q3(e.angle),
-    hp: q1(e.hp),
-    telegraphUntil: qms(e.telegraphUntil),
-    chargeUntil: qms(e.chargeUntil),
-    blinkUntil: qms(e.blinkUntil),
-    graceUntil: qms(e.graceUntil),
-    maxHp: e.maxHp,
-    lances: e.lances.map(qVec),
-    shielded: e.shielded,
-  };
-}
+export const enemyToWire = (e: EnemyState): EnemyState => ({
+  angle: q3(e.angle),
+  attackAt: qms(e.attackAt),
+  blinkUntil: qms(e.blinkUntil),
+  chargeUntil: qms(e.chargeUntil),
+  graceUntil: qms(e.graceUntil),
+  hp: q1(e.hp),
+  id: e.id,
+  kind: e.kind,
+  lances: e.lances.map(qVec),
+  maxHp: e.maxHp,
+  shielded: e.shielded,
+  telegraphUntil: qms(e.telegraphUntil),
+  vx: q1(e.vx),
+  vy: q1(e.vy),
+  x: q1(e.x),
+  y: q1(e.y),
+});
 
-export function enemyShotToWire(s: EnemyShotState): EnemyShotState {
-  return { id: s.id, x: q1(s.x), y: q1(s.y), vx: q1(s.vx), vy: q1(s.vy), diesAt: qms(s.diesAt) };
-}
+export const enemyShotToWire = (s: EnemyShotState): EnemyShotState => ({
+  diesAt: qms(s.diesAt),
+  id: s.id,
+  vx: q1(s.vx),
+  vy: q1(s.vy),
+  x: q1(s.x),
+  y: q1(s.y),
+});
 
-export function shardToWire(s: ShardState): ShardState {
-  return { id: s.id, x: q1(s.x), y: q1(s.y), vx: q1(s.vx), vy: q1(s.vy), diesAt: qms(s.diesAt) };
-}
+export const shardToWire = (s: ShardState): ShardState => ({
+  diesAt: qms(s.diesAt),
+  id: s.id,
+  vx: q1(s.vx),
+  vy: q1(s.vy),
+  x: q1(s.x),
+  y: q1(s.y),
+});
 
-export function beaconToWire(b: BeaconState): BeaconState {
-  return {
-    x: q1(b.x),
-    y: q1(b.y),
-    activeAt: qms(b.activeAt),
-    diesAt: qms(b.diesAt),
-    controllerId: b.controllerId,
-    contested: b.contested,
-  };
-}
+export const beaconToWire = (b: BeaconState): BeaconState => ({
+  activeAt: qms(b.activeAt),
+  contested: b.contested,
+  controllerId: b.controllerId,
+  diesAt: qms(b.diesAt),
+  x: q1(b.x),
+  y: q1(b.y),
+});
 
-export function pullToWire(p: PullState): PullState {
-  return { id: p.id, x: q1(p.x), y: q1(p.y), until: qms(p.until) };
-}
+export const pullToWire = (p: PullState): PullState => ({
+  id: p.id,
+  until: qms(p.until),
+  x: q1(p.x),
+  y: q1(p.y),
+});
 
-export function beamToWire(b: SerializedBeam): SerializedBeam {
+export const beamToWire = (b: SerializedBeam): SerializedBeam => {
   const out: SerializedBeam = {
     ...b,
+    explosionRadius: q1(b.explosionRadius),
     hx: q1(b.hx),
     hy: q1(b.hy),
     tx: q1(b.tx),
     ty: q1(b.ty),
-    explosionRadius: q1(b.explosionRadius),
   };
-  if (b.chain) out.chain = b.chain.map(qVec);
+  if (b.chain) {
+    out.chain = b.chain.map(qVec);
+  }
   return out;
-}
+};
 
-export function playerToWire(s: PlayerNetState): PlayerNetState {
-  return {
-    ...s,
-    x: q1(s.x),
-    y: q1(s.y),
-    angle: q3(s.angle),
-    vx: q1(s.vx),
-    vy: q1(s.vy),
-    // 0.01 windup steps — remotes only drive a glow alpha from it.
-    windup: Math.round(s.windup * 100) / 100,
-    shieldMod: s.shieldMod ? { ...s.shieldMod, until: qms(s.shieldMod.until) } : null,
-    boosts: s.boosts.map((b) => ({ kind: b.kind, until: qms(b.until) })),
-    sentry: s.sentry ? { x: q1(s.sentry.x), y: q1(s.sentry.y), until: qms(s.sentry.until) } : null,
-    beams: s.beams.map(beamToWire),
-  };
-}
+export const playerToWire = (s: PlayerNetState): PlayerNetState => ({
+  ...s,
+  angle: q3(s.angle),
+  beams: s.beams.map(beamToWire),
+  boosts: s.boosts.map((b) => ({ kind: b.kind, until: qms(b.until) })),
+  sentry: s.sentry ? { until: qms(s.sentry.until), x: q1(s.sentry.x), y: q1(s.sentry.y) } : null,
+  shieldMod: s.shieldMod ? { ...s.shieldMod, until: qms(s.shieldMod.until) } : null,
+  vx: q1(s.vx),
+  vy: q1(s.vy),
+  // 0.01 windup steps — remotes only drive a glow alpha from it.
+  windup: Math.round(s.windup * 100) / 100,
+  x: q1(s.x),
+  y: q1(s.y),
+});

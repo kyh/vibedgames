@@ -5,11 +5,11 @@ import { ModelCache } from "../src/assets/loader.ts";
 type Check = (name: string, condition: boolean, detail?: string) => void;
 
 /** Cached source identity is the contract shared by live and baked trees. */
-export async function checkTreeTemplates(check: Check): Promise<void> {
+export const checkTreeTemplates = async (check: Check): Promise<void> => {
   const cache = new ModelCache();
   const templates = [
-    { url: "/models/props/tree-large.glb", height: 0.7669999599456787 },
-    { url: "/models/props/tree-small.glb", height: 0.5670000314712524 },
+    { height: 0.7669999599456787, url: "/models/props/tree-large.glb" },
+    { height: 0.5670000314712524, url: "/models/props/tree-small.glb" },
   ];
   for (const template of templates) {
     await cache.ensure(template.url);
@@ -18,7 +18,9 @@ export async function checkTreeTemplates(check: Check): Promise<void> {
       `tree template retains one baked mesh index: ${template.url}`,
       mesh !== null && cache.srcMesh(template.url, 1) === null,
     );
-    if (!mesh) continue;
+    if (!mesh) {
+      continue;
+    }
     const bounds = cache.bounds(template.url);
     check(
       `tree template retains source ground and height: ${template.url}`,
@@ -30,8 +32,8 @@ export async function checkTreeTemplates(check: Check): Promise<void> {
       triangles > 0 && triangles <= 560,
       `${triangles} triangles`,
     );
-    const first = cache.instance(template.url).children[0];
-    const second = cache.instance(template.url).children[0];
+    const [first] = cache.instance(template.url).children;
+    const [second] = cache.instance(template.url).children;
     check(
       `tree instances share geometry and material: ${template.url}`,
       first instanceof THREE.Mesh &&
@@ -39,10 +41,10 @@ export async function checkTreeTemplates(check: Check): Promise<void> {
         first.geometry === second.geometry &&
         first.material === second.material,
     );
-    const material = mesh.material;
+    const { material } = mesh;
     check(
       `tree material has a restorable source: ${template.url}`,
       !Array.isArray(material) && cache.srcOfMaterial(material) !== null,
     );
   }
-}
+};

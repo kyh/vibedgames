@@ -16,8 +16,10 @@
 //      pinned with no hint where the way up was.
 import type { Vec2 } from "./math";
 
-export const PLATEAU_R = 11; // plateau radius (== THRONE_RADIUS): inside is level 1
-export const PLATEAU_H = 2.0; // height of the platform top above the plaza
+// plateau radius (== THRONE_RADIUS): inside is level 1
+export const PLATEAU_R = 11;
+// height of the platform top above the plaza
+export const PLATEAU_H = 2;
 export const STAIR_ANGLES = [Math.PI / 4, (3 * Math.PI) / 4, (5 * Math.PI) / 4, (7 * Math.PI) / 4];
 /** Walkable stair-gap half-width (radians). 0.26 rad ≈ 15° → a ~5.7u-wide gap at
  *  the plateau edge: two bodies abreast. (Was 0.18 — only 8 of 36 approach
@@ -41,18 +43,16 @@ const WALL_SLIDE = 1.25;
  *  into the cliff — eases it out over a few frames instead of snapping. */
 const DEPENETRATE = 0.06;
 
-export function onPlateau(x: number, y: number): boolean {
-  return x * x + y * y < PLATEAU_R * PLATEAU_R;
-}
+export const onPlateau = (x: number, y: number): boolean => x * x + y * y < PLATEAU_R * PLATEAU_R;
 
-function smoothstep(t: number): number {
+const smoothstep = (t: number): number => {
   const c = Math.min(1, Math.max(0, t));
   return c * c * (3 - 2 * c);
-}
+};
 
 /** Signed angular distance from `ang` to the nearest stair centreline, and that
  *  centreline. Positive `delta` means `ang` sits counter-clockwise of the stair. */
-function nearestStairAngle(ang: number) {
+const nearestStairAngle = (ang: number) => {
   let center = STAIR_ANGLES[0] ?? 0;
   let delta = Infinity;
   for (const s of STAIR_ANGLES) {
@@ -63,42 +63,49 @@ function nearestStairAngle(ang: number) {
     }
   }
   return { center, delta: delta === Infinity ? 0 : delta };
-}
+};
 
 /** Whether a heading points through one of the stair gaps (crossing allowed). */
-function inStairGap(ang: number): boolean {
-  return Math.abs(nearestStairAngle(ang).delta) < STAIR_HALF;
-}
+const inStairGap = (ang: number): boolean => Math.abs(nearestStairAngle(ang).delta) < STAIR_HALF;
 
 /** Walkable ground height at (x, y) — the ONE height function. Flat plaza at 0,
  *  flat platform top at PLATEAU_H, and a real ramp up each stair run between
  *  them. Renderer reads this for unit feet, camera, and the stair mesh fit. */
-export function groundHeight(x: number, y: number): number {
+export const groundHeight = (x: number, y: number): number => {
   const r = Math.hypot(x, y);
-  if (r <= PLATEAU_R) return PLATEAU_H;
-  if (r >= PLATEAU_R + STAIR_RUN) return 0;
+  if (r <= PLATEAU_R) {
+    return PLATEAU_H;
+  }
+  if (r >= PLATEAU_R + STAIR_RUN) {
+    return 0;
+  }
   const { delta } = nearestStairAngle(Math.atan2(y, x));
   // outside the stair wedge (plus its feathered cheeks) the edge is a wall — the
   // plaza floor runs right up to it
   const lateral = 1 - smoothstep((Math.abs(delta) - STAIR_HALF) / STAIR_FEATHER);
-  if (lateral <= 0) return 0;
-  const climb = 1 - (r - PLATEAU_R) / STAIR_RUN; // 1 at the top step, 0 at the foot
+  if (lateral <= 0) {
+    return 0;
+  }
+  // 1 at the top step, 0 at the foot
+  const climb = 1 - (r - PLATEAU_R) / STAIR_RUN;
   return PLATEAU_H * climb * lateral;
-}
+};
 
 /** Block a move that crosses the plateau edge unless it's through a stair gap.
  *  A blocked move keeps its tangential speed AND is nudged around the wall
  *  toward the nearest stair, so holding "forward" into the wall walks you to the
  *  way up instead of pinning you. */
-export function resolveElevation(
+export const resolveElevation = (
   fromX: number,
   fromY: number,
   toX: number,
   toY: number,
   radius: number,
-): Vec2 {
+): Vec2 => {
   // Through a stair gap you may change level freely — that's the whole point.
-  if (inStairGap(Math.atan2(toY, toX))) return { x: toX, y: toY };
+  if (inStairGap(Math.atan2(toY, toX))) {
+    return { x: toX, y: toY };
+  }
 
   // Off-gap the cliff is solid, so a body's radius is confined to ONE side of it.
   // The legal band and the block test must use the SAME limit: the old code
@@ -113,7 +120,9 @@ export function resolveElevation(
   // is always legal (this is also how a body that got posted into the wall by a
   // blink or a knockback digs itself out)
   const legal = fromIn ? rTo <= Math.max(limit, rNow) : rTo >= Math.min(limit, rNow);
-  if (legal) return { x: toX, y: toY };
+  if (legal) {
+    return { x: toX, y: toY };
+  }
 
   // Blocked: freeze the radius (gently depenetrating if something posted us into
   // the cliff), keep whatever tangential motion the player had…
@@ -129,24 +138,26 @@ export function resolveElevation(
   // …and convert the radial speed the wall just ate into a slide toward the
   // nearest stair. Without this, walking straight at the wall is a dead stop with
   // no hint where the way up is.
-  const into = ((toX - fromX) * fromX + (toY - fromY) * fromY) / rNow; // + = outward
+  // + = outward
+  const into = ((toX - fromX) * fromX + (toY - fromY) * fromY) / rNow;
   const radialKilled = Math.max(0, fromIn ? into : -into);
   const { delta } = nearestStairAngle(fromAng);
-  const toward = delta > 0 ? -1 : 1; // rotate back toward the stair centreline
+  // rotate back toward the stair centreline
+  const toward = delta > 0 ? -1 : 1;
   // never overshoot the gap in one tick — a slide can at most reach the centreline
   const swing = Math.min((radialKilled * WALL_SLIDE) / wall, Math.abs(delta));
   const slide = toward * swing;
 
   const ang = fromAng + tangential + slide;
   return { x: Math.cos(ang) * wall, y: Math.sin(ang) * wall };
-}
+};
 
 /** A waypoint just outside the nearest stair gap — bots steer here to reach the
  *  plateau instead of grinding the wall. */
-export function nearestStair(x: number, y: number): Vec2 {
+export const nearestStair = (x: number, y: number): Vec2 => {
   const { center } = nearestStairAngle(Math.atan2(y, x));
   return {
     x: Math.cos(center) * (PLATEAU_R + STAIR_RUN * 0.5),
     y: Math.sin(center) * (PLATEAU_R + STAIR_RUN * 0.5),
   };
-}
+};

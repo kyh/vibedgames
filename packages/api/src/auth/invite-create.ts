@@ -11,9 +11,9 @@ export const MAX_INVITE_BATCH = 100;
 // Custom codes must match what signup can redeem: exactly INVITE_CODE_LENGTH
 // alphanumeric chars (the web auth form's fixed-length OTP field), else the
 // code would be unredeemable through the registration UI or a `?invite=` link.
-const CUSTOM_CODE_RE = new RegExp(`^[A-Z0-9]{${INVITE_CODE_LENGTH}}$`);
+const CUSTOM_CODE_RE = new RegExp(`^[A-Z0-9]{${INVITE_CODE_LENGTH}}$`, "u");
 
-export type BuildInviteRowsOptions = {
+export interface BuildInviteRowsOptions {
   /** Number of random codes to mint. Ignored when `code` is set. */
   count?: number;
   /** Uses per code before exhaustion; `null` = unlimited. Defaults to 1. */
@@ -24,7 +24,7 @@ export type BuildInviteRowsOptions = {
   createdBy?: string | null;
   /** A single explicit code (normalized like signup). Overrides `count`. */
   code?: string | null;
-};
+}
 
 /**
  * Normalize a custom code the same way signup does (upper-case, trimmed) and
@@ -43,8 +43,8 @@ const normalizeCustomCode = (raw: string): string => {
 };
 
 /** Validate the requested batch size, defaulting to 1. Throws on bad input. */
-const resolveCount = (count: number | undefined): number => {
-  const n = count ?? 1;
+const resolveCount = (count = 1): number => {
+  const n = count;
   if (!Number.isInteger(n) || n < 1 || n > MAX_INVITE_BATCH) {
     throw new Error(`count must be an integer between 1 and ${MAX_INVITE_BATCH}; got ${n}.`);
   }
@@ -54,7 +54,9 @@ const resolveCount = (count: number | undefined): number => {
 /** `n` distinct random codes — regenerates on the vanishingly rare in-batch repeat. */
 const uniqueCodes = (n: number): string[] => {
   const set = new Set<string>();
-  while (set.size < n) set.add(generateShortCode());
+  while (set.size < n) {
+    set.add(generateShortCode());
+  }
   return [...set];
 };
 
@@ -71,11 +73,11 @@ export const buildInviteRows = (opts: BuildInviteRowsOptions = {}): NewInviteCod
     ? [normalizeCustomCode(opts.code)]
     : uniqueCodes(resolveCount(opts.count));
   return codes.map((code) => ({
-    id: crypto.randomUUID(),
     code,
     createdBy: opts.createdBy ?? null,
-    maxUses: opts.maxUses === undefined ? 1 : opts.maxUses,
     expiresAt: opts.expiresAt ?? null,
+    id: crypto.randomUUID(),
+    maxUses: opts.maxUses === undefined ? 1 : opts.maxUses,
     note: opts.note ?? null,
   }));
 };

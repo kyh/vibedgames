@@ -11,43 +11,48 @@ type BooleanVehicleParam = {
   [K in keyof VehicleParams]: VehicleParams[K] extends boolean ? K : never;
 }[keyof VehicleParams];
 
-type NumSpec = { key: NumericVehicleParam; min: number; max: number; step: number };
+interface NumSpec {
+  key: NumericVehicleParam;
+  min: number;
+  max: number;
+  step: number;
+}
 
 const NUMS: NumSpec[] = [
-  { key: "engineForce", min: 1000, max: 12000, step: 100 },
-  { key: "boostMultiplier", min: 1, max: 3, step: 0.05 },
-  { key: "cruiseSpeed", min: 10, max: 60, step: 1 },
-  { key: "maxSpeed", min: 20, max: 80, step: 1 },
-  { key: "maxSteer", min: 0.2, max: 1, step: 0.01 },
-  { key: "steerSpeed", min: 1, max: 16, step: 0.5 },
-  { key: "highSpeedSteer", min: 0.2, max: 1, step: 0.05 },
-  { key: "brakeDecel", min: 5, max: 80, step: 1 },
-  { key: "brakeRamp", min: 0.05, max: 1, step: 0.05 },
-  { key: "slideAngle", min: 0.15, max: 0.9, step: 0.01 },
-  { key: "arcMin", min: 0.3, max: 2.5, step: 0.05 },
-  { key: "arcMax", min: 1, max: 4.5, step: 0.05 },
-  { key: "driftDecay", min: 0, max: 10, step: 0.5 },
-  { key: "turbo1T", min: 0.3, max: 2, step: 0.05 },
-  { key: "turbo2T", min: 0.6, max: 3.5, step: 0.05 },
-  { key: "turbo1Boost", min: 4, max: 24, step: 1 },
-  { key: "turbo2Boost", min: 8, max: 36, step: 1 },
-  { key: "airborneGravityScale", min: 1, max: 3, step: 0.05 },
-  { key: "suspensionStiffness", min: 10, max: 160, step: 1 },
-  { key: "suspensionRestLength", min: 0.2, max: 1, step: 0.01 },
-  { key: "maxSuspensionTravel", min: 0.1, max: 1, step: 0.01 },
-  { key: "frictionSlip", min: 1, max: 20, step: 0.1 },
-  { key: "dampingCompression", min: 0.5, max: 10, step: 0.1 },
-  { key: "dampingRelaxation", min: 0.5, max: 10, step: 0.1 },
-  { key: "tiltClampAirborne", min: 0, max: 10, step: 0.5 },
-  { key: "cornerLiftDamping", min: 0.2, max: 1, step: 0.05 },
-  { key: "gripLoadCap", min: 1, max: 5, step: 0.1 },
-  { key: "landingGripTime", min: 0, max: 1, step: 0.05 },
-  { key: "landingGripFactor", min: 0, max: 1, step: 0.05 },
+  { key: "engineForce", max: 12_000, min: 1000, step: 100 },
+  { key: "boostMultiplier", max: 3, min: 1, step: 0.05 },
+  { key: "cruiseSpeed", max: 60, min: 10, step: 1 },
+  { key: "maxSpeed", max: 80, min: 20, step: 1 },
+  { key: "maxSteer", max: 1, min: 0.2, step: 0.01 },
+  { key: "steerSpeed", max: 16, min: 1, step: 0.5 },
+  { key: "highSpeedSteer", max: 1, min: 0.2, step: 0.05 },
+  { key: "brakeDecel", max: 80, min: 5, step: 1 },
+  { key: "brakeRamp", max: 1, min: 0.05, step: 0.05 },
+  { key: "slideAngle", max: 0.9, min: 0.15, step: 0.01 },
+  { key: "arcMin", max: 2.5, min: 0.3, step: 0.05 },
+  { key: "arcMax", max: 4.5, min: 1, step: 0.05 },
+  { key: "driftDecay", max: 10, min: 0, step: 0.5 },
+  { key: "turbo1T", max: 2, min: 0.3, step: 0.05 },
+  { key: "turbo2T", max: 3.5, min: 0.6, step: 0.05 },
+  { key: "turbo1Boost", max: 24, min: 4, step: 1 },
+  { key: "turbo2Boost", max: 36, min: 8, step: 1 },
+  { key: "airborneGravityScale", max: 3, min: 1, step: 0.05 },
+  { key: "suspensionStiffness", max: 160, min: 10, step: 1 },
+  { key: "suspensionRestLength", max: 1, min: 0.2, step: 0.01 },
+  { key: "maxSuspensionTravel", max: 1, min: 0.1, step: 0.01 },
+  { key: "frictionSlip", max: 20, min: 1, step: 0.1 },
+  { key: "dampingCompression", max: 10, min: 0.5, step: 0.1 },
+  { key: "dampingRelaxation", max: 10, min: 0.5, step: 0.1 },
+  { key: "tiltClampAirborne", max: 10, min: 0, step: 0.5 },
+  { key: "cornerLiftDamping", max: 1, min: 0.2, step: 0.05 },
+  { key: "gripLoadCap", max: 5, min: 1, step: 0.1 },
+  { key: "landingGripTime", max: 1, min: 0, step: 0.05 },
+  { key: "landingGripFactor", max: 1, min: 0, step: 0.05 },
 ];
 
 const BOOLS: BooleanVehicleParam[] = ["antiWheelie", "uprightAssist"];
 
-export function mountTunePanel(vehicle: RaycastVehicle): void {
+export const mountTunePanel = (vehicle: RaycastVehicle): void => {
   const wrap = document.createElement("div");
   wrap.id = "tune";
   wrap.style.cssText =
@@ -57,10 +62,12 @@ export function mountTunePanel(vehicle: RaycastVehicle): void {
   const title = document.createElement("div");
   title.textContent = "VEHICLE TUNING";
   title.style.cssText = "color:#ffd24a;font-size:12px;margin-bottom:8px";
-  wrap.appendChild(title);
+  wrap.append(title);
 
   const reapply = (): void => {
-    for (let i = 0; i < 4; i++) vehicle.applyWheelParams(i);
+    for (let i = 0; i < 4; i += 1) {
+      vehicle.applyWheelParams(i);
+    }
   };
 
   for (const spec of NUMS) {
@@ -83,7 +90,7 @@ export function mountTunePanel(vehicle: RaycastVehicle): void {
       reapply();
     });
     row.append(name, input);
-    wrap.appendChild(row);
+    wrap.append(row);
   }
   for (const key of BOOLS) {
     const row = document.createElement("label");
@@ -95,7 +102,7 @@ export function mountTunePanel(vehicle: RaycastVehicle): void {
       vehicle.params[key] = input.checked;
     });
     row.append(input, document.createTextNode(String(key)));
-    wrap.appendChild(row);
+    wrap.append(row);
   }
-  document.body.appendChild(wrap);
-}
+  document.body.append(wrap);
+};

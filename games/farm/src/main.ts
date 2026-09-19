@@ -1,7 +1,15 @@
-import Phaser from "phaser";
-import { setPauseHandlers } from "@repo/embed";
+import type { Types } from "phaser";
+import { Game, Scale, WEBGL } from "phaser";
+import { probeWebGL, setPauseHandlers, showWebGLVeil } from "@repo/embed";
+import {
+  isPlaytestRequested,
+  publishDiagnostics,
+  publishPlaytest,
+  publishTestHooks,
+} from "@vibedgames/playtest";
 
 import { pauseOverlay } from "./pause-overlay";
+import { farmManifest, readDiagnostics } from "./playtest";
 import { BootScene } from "./scenes/boot-scene";
 import { TitleScene } from "./scenes/title-scene";
 import { GameScene } from "./scenes/game-scene";
@@ -9,27 +17,86 @@ import { MineScene } from "./scenes/mine-scene";
 import { MineHudScene } from "./scenes/mine-hud-scene";
 import { HudScene } from "./scenes/hud-scene";
 import { InventoryScene } from "./scenes/inventory-scene";
+import { Sound } from "./render/audio";
+import { disableSaves } from "./systems/save";
 
-const config: Phaser.Types.Core.GameConfig = {
-  type: Phaser.WEBGL,
-  parent: "game",
+const config: Types.Core.GameConfig = {
   backgroundColor: "#1c2030",
-  scale: { mode: Phaser.Scale.RESIZE, width: "100%", height: "100%" },
+  parent: "game",
+  physics: { arcade: { debug: false, gravity: { x: 0, y: 0 } }, default: "arcade" },
   pixelArt: true,
   roundPixels: true,
-  physics: { default: "arcade", arcade: { gravity: { x: 0, y: 0 }, debug: false } },
+  scale: { height: "100%", mode: Scale.RESIZE, width: "100%" },
   scene: [BootScene, TitleScene, GameScene, MineScene, MineHudScene, HudScene, InventoryScene],
+  type: WEBGL,
 };
 
 declare global {
   interface Window {
     /** DEV-only hook for headless verification. */
-    __game?: Phaser.Game;
+    __game?: Game;
   }
 }
 
-const game = new Phaser.Game(config);
-if (import.meta.env.DEV) window.__game = game;
+const webgl = probeWebGL();
+if (!webgl.ok) {
+  showWebGLVeil(webgl);
+  // Module-level boot has no early return: the uncaught throw logs the reason and stops.
+  throw new Error(`WebGL unavailable: ${webgl.reason}`);
+}
+
+const game = new Game(config);
+game.canvas.addEventListener("webglcontextlost", () => {
+  console.error("WebGL context lost");
+  showWebGLVeil(
+    { blocked: false, ok: false, reason: "context lost" },
+    "The browser stopped the graphics (usually low memory).",
+  );
+});
+if (import.meta.env.DEV) {
+  window.__game = game;
+}
+publishDiagnostics(() => readDiagnostics(game));
+if (import.meta.env.DEV || isPlaytestRequested()) {
+  const DEFAULT_SEED = 12_345;
+  let soloSeed: number | null = null;
+  // A staged run is a fresh SOLO farm: it never joins the shared room, and it
+  // neither reads nor overwrites the player's real save.
+  const startSolo = (seed: number): void => {
+    disableSaves();
+    soloSeed = seed;
+    for (const key of ["Title", "Mine", "MineHud", "Inventory"]) {
+      game.scene.stop(key);
+    }
+    game.scene.start("Game", { mode: "new", solo: { seed } });
+  };
+  const publishHooks = (): void => {
+    publishTestHooks({
+      seed: startSolo,
+      setPausedForScreenshot: (paused) => (paused ? game.loop.sleep() : game.loop.wake()),
+      setState: (name) => {
+        if (name !== "active-play") {
+          return { state: "unsupported" };
+        }
+        if (soloSeed === null || !game.scene.isActive("Game")) {
+          startSolo(soloSeed ?? DEFAULT_SEED);
+        }
+        return { state: name };
+      },
+    });
+    publishPlaytest(farmManifest);
+  };
+  // A playtest calls the hooks the moment they exist, and starting the farm
+  // before Boot has loaded its textures crashes it — so they are published
+  // only once the title is up.
+  const publishWhenBooted = (): void => {
+    if (game.scene.isActive("Title")) {
+      game.events.off("poststep", publishWhenBooted);
+      publishHooks();
+    }
+  };
+  game.events.on("poststep", publishWhenBooted);
+}
 
 // Scale.RESIZE can read stale parent bounds when a resize lands while the tab
 // is hidden or the browser throttles events (tab switch, phone rotation): the
@@ -41,39 +108,78 @@ const refreshScale = (): void => {
 };
 window.addEventListener("resize", refreshScale);
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) refreshScale();
+  if (!document.hidden) {
+    refreshScale();
+  }
 });
 
 // Sim is entirely delta-driven (update(_t, dms)), so the wrapper's pause can
 // freeze/resume the loop directly — except in live co-op, where freezing would
-// stall heartbeats and desync the room. `froze` ensures onResume only wakes
-// what onPause put to sleep.
-const isOnline = (): boolean => {
-  const scene = game.scene.getScene("Game");
-  return game.scene.isActive("Game") && scene instanceof GameScene && scene.isOnline();
+// stall heartbeats and desync the room; there only the local farmer is fenced.
+// The farm owns the session and survives mine trips, so the mine answers
+// isOnline() through it and follows the same rule.
+// `froze` ensures onResume only wakes what onPause put to sleep.
+const activeWorld = (): GameScene | MineScene | null => {
+  for (const key of ["Game", "Mine"]) {
+    if (!game.scene.isActive(key)) {
+      continue;
+    }
+    const scene = game.scene.getScene(key);
+    if (scene instanceof GameScene || scene instanceof MineScene) {
+      return scene;
+    }
+  }
+  return null;
 };
 let froze = false;
+let paused = false;
+const freeze = (): void => {
+  froze = true;
+  game.loop.sleep();
+  game.sound.pauseAll();
+};
+// A mine fade committed before an online pause finishes while still paused:
+// the new floor is fenced like the farm was (frozen only if the room is gone).
+game.events.on("farm-enter-mine", (mine: MineScene) => {
+  if (!paused) {
+    return;
+  }
+  mine.setControlsPaused(true);
+  if (!froze && !mine.isOnline()) {
+    freeze();
+  }
+});
 // Bespoke wooden-sign pause overlay (./pause-overlay) — renders CONTROLS and
 // the How-to-Play systems knowledge in the game's own cozy pixel-farm look.
 setPauseHandlers({
+  // Escape closes an open inventory/modal first; only a bare Escape pauses.
+  escapePauses: () => {
+    if (game.scene.isActive("Inventory")) {
+      return false;
+    }
+    const hud = game.scene.getScene("Hud");
+    return !(hud instanceof HudScene && hud.modalOpen);
+  },
   onPause: () => {
+    paused = true;
+    const world = activeWorld();
+    world?.setControlsPaused(true);
+    Sound.setPaused(true);
     pauseOverlay.show();
-    if (isOnline()) return;
-    froze = true;
-    game.loop.sleep();
-    game.sound.pauseAll();
+    if (!world?.isOnline()) {
+      freeze();
+    }
   },
   onResume: () => {
+    paused = false;
+    activeWorld()?.setControlsPaused(false);
     pauseOverlay.hide();
-    if (!froze) return;
+    Sound.setPaused(false);
+    if (!froze) {
+      return;
+    }
     froze = false;
     game.loop.wake();
     game.sound.resumeAll();
-  },
-  // Escape closes an open inventory/modal first; only a bare Escape pauses.
-  escapePauses: () => {
-    if (game.scene.isActive("Inventory")) return false;
-    const hud = game.scene.getScene("Hud");
-    return !(hud instanceof HudScene && hud.modalOpen);
   },
 });

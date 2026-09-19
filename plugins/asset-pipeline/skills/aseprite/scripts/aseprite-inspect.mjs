@@ -45,13 +45,13 @@ options:
 
 main(() => {
   const args = parseArgs(process.argv.slice(2), {
-    values: ["max-decompress-mib", "palette-entries"],
     // `json` is accepted and ignored — JSON is the only output — but it still
     // has to be declared, or `--json file.ase` would eat the filename.
     booleans: ["decode-cels", "json", "pretty", "treat-index0-transparent"],
+    values: ["max-decompress-mib", "palette-entries"],
   });
 
-  const file = args.positionals[0];
+  const [file] = args.positionals;
   if (file === undefined) {
     process.stderr.write(`${USAGE}\n\nerror: the following arguments are required: file\n`);
     process.exit(2);

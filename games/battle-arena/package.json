@@ -9,19 +9,22 @@
     "dev": "vite",
     "fx:shots": "node tools/fx-shots.mjs",
     "preview": "vite preview",
-    "test": "tsx tools/verify-timing.mts",
+    "test": "tsx tools/verify-timing.mts && tsx --test tools/verify-logic.mts",
+    "test:online": "node tools/two-client.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@repo/embed": "workspace:*",
     "@vibedgames/gamepad": "workspace:^",
     "@vibedgames/multiplayer": "workspace:^",
+    "@vibedgames/playtest": "workspace:^",
     "three": "^0.185.1"
   },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
     "@types/node": "catalog:",
     "@types/three": "^0.185.4",
+    "playwright-core": "^1.63.0",
     "tsx": "^4.23.13",
     "typescript": "catalog:",
     "vite": "catalog:"

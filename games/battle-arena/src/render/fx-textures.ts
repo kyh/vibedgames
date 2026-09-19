@@ -12,33 +12,48 @@ const pending: Promise<void>[] = [];
 
 /** Options: `wrap` for tiling erosion/noise maps; `srgb` for COLORED sprites
  *  (grayscale masks sample raw — sRGB would gamma-crush the erosion ramps). */
-export function fxTex(name: string, opts: { wrap?: boolean; srgb?: boolean } = {}): THREE.Texture {
+export const fxTex = (
+  name: string,
+  opts: { wrap?: boolean; srgb?: boolean } = {},
+): THREE.Texture => {
   // Keyed on the options, not just the name: three's own texture cache keys on
   // wrapS/wrapT, so a wrapped and an unwrapped copy are two GPU textures. One
   // cache slot per name handed whichever variant loaded first to every caller.
   const key = `${name}|${opts.wrap ? "w" : ""}${opts.srgb ? "s" : ""}`;
   const cached = cache.get(key);
-  if (cached) return cached;
-  let settle = (): void => {};
-  pending.push(new Promise<void>((resolve) => (settle = resolve)));
+  if (cached) {
+    return cached;
+  }
+  let settle: (() => void) | undefined;
+  pending.push(
+    // oxlint-disable-next-line promise/avoid-new -- bridges TextureLoader's load/error callbacks, which have no promise form that also resolves on error
+    new Promise<void>((resolve) => {
+      settle = resolve;
+    }),
+  );
   // Resolve on error too: one missing sprite must not hold the upload pass
   // hostage for every other texture.
   const t = LOADER.load(
     `./fx/${name}.png`,
-    () => settle(),
+    () => settle?.(),
     undefined,
-    () => settle(),
+    () => settle?.(),
   );
-  if (opts.wrap) t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  if (opts.srgb) t.colorSpace = THREE.SRGBColorSpace;
+  if (opts.wrap) {
+    t.wrapS = THREE.RepeatWrapping;
+    t.wrapT = THREE.RepeatWrapping;
+  }
+  if (opts.srgb) {
+    t.colorSpace = THREE.SRGBColorSpace;
+  }
   cache.set(key, t);
   return t;
-}
+};
 
 /** Resolves once every texture requested so far has decoded (or failed). */
-export function whenFxTexturesReady(): Promise<void> {
-  return Promise.all(pending).then(() => undefined);
-}
+export const whenFxTexturesReady = async (): Promise<void> => {
+  await Promise.all(pending);
+};
 
 /**
  * Push every loaded FX texture to the GPU.
@@ -51,19 +66,25 @@ export function whenFxTexturesReady(): Promise<void> {
  * Safe to call repeatedly and safe to call early: a texture whose image has not
  * decoded yet is skipped and will upload lazily as before.
  */
-export function uploadFxTextures(renderer: THREE.WebGLRenderer): void {
+export const uploadFxTextures = (renderer: THREE.WebGLRenderer): void => {
   for (const t of cache.values()) {
-    if (t.image) renderer.initTexture(t);
+    if (t.image) {
+      renderer.initTexture(t);
+    }
   }
-}
+};
 
 /** Warm every texture the FX layer uses at runtime. */
-export function preloadFxTextures(): void {
-  for (const n of ["noise-streak", "noise-caustic"]) fxTex(n, { wrap: true });
+export const preloadFxTextures = (): void => {
+  for (const n of ["noise-streak", "noise-caustic"]) {
+    fxTex(n, { wrap: true });
+  }
   // texShell clones these with RepeatWrapping, and wrap mode IS part of three's
   // texture cache key — so the wrapped copy is a second GPU texture and needs
   // warming in its own right.
-  for (const n of ["hex-shield", "electro-ball"]) fxTex(n, { wrap: true });
+  for (const n of ["hex-shield", "electro-ball"]) {
+    fxTex(n, { wrap: true });
+  }
   for (const n of [
     "shockwave",
     "slash-white",
@@ -87,6 +108,7 @@ export function preloadFxTextures(): void {
     "dark-shock",
     "rune-circle-a",
     "rune-circle-b",
-  ])
+  ]) {
     fxTex(n);
-}
+  }
+};

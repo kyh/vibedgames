@@ -13,6 +13,7 @@ import { initCommand } from "./commands/init.js";
 import { loginCommand } from "./commands/login.js";
 import { logoutCommand } from "./commands/logout.js";
 import { newCommand } from "./commands/new.js";
+import { playtestRunCommand } from "./commands/playtest-run.js";
 import { playtestCommand, runPlaytest } from "./commands/playtest.js";
 import { updateCommand } from "./commands/update.js";
 import { whoamiCommand } from "./commands/whoami.js";
@@ -20,37 +21,46 @@ import { maybeScheduleAutoUpdate } from "./lib/update.js";
 
 // SAFETY: this is the CLI's own package.json, shipped alongside dist — npm
 // refuses to publish a package without a string `version`.
-const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf-8")) as {
   version: string;
 };
 
 const main = defineCommand({
   meta: {
-    name: "vg",
-    version: pkg.version,
     description:
       "vibedgames CLI — agent-native game deploy & asset tooling (use --json for machine-readable output)",
+    name: "vg",
+    version: pkg.version,
   },
   subCommands: {
-    new: newCommand,
-    init: initCommand,
-    login: loginCommand,
-    logout: logoutCommand,
+    completions: completionsCommand,
+    credits: creditsCommand,
     deploy: deployCommand,
-    playtest: playtestCommand,
     factory: factoryCommand,
     fork: forkCommand,
     generate: generateCommand,
-    credits: creditsCommand,
+    init: initCommand,
+    login: loginCommand,
+    logout: logoutCommand,
+    new: newCommand,
+    // `run` is the one `vg playtest` verb that is ours rather than
+    // agent-browser's: the model-driven playtest. index.ts routes every other
+    // `vg playtest …` straight to the binary below. Only the meta is reused:
+    // citty runs a parent's `run` AFTER its subcommand, so carrying the
+    // passthrough here would forward `run …` to agent-browser once the
+    // playtest had finished and turn every passing run into an exit 1.
+    playtest: defineCommand({
+      meta: playtestCommand.meta,
+      subCommands: { run: playtestRunCommand },
+    }),
     update: updateCommand,
-    completions: completionsCommand,
     whoami: whoamiCommand,
   },
 });
 
 // Skip for update/init (they already update) and completions (runs in shell
 // startup — must stay side-effect free).
-const subcommand = process.argv[2];
+const subcommand = process.argv.at(2);
 if (subcommand && !["update", "init", "completions"].includes(subcommand)) {
   maybeScheduleAutoUpdate();
 }
@@ -63,7 +73,7 @@ if (subcommand === "factory") {
   runFactory(process.argv.slice(3));
 }
 
-if (subcommand === "playtest") {
+if (subcommand === "playtest" && process.argv.at(3) !== "run") {
   runPlaytest(process.argv.slice(3));
 }
 

@@ -53,20 +53,20 @@ import * as THREE from "three";
  * the shore grey — visually the same stone, and its own material.
  */
 export const MASONRY = {
-  /** The reference ashlar face. */
-  face: new THREE.MeshStandardMaterial({ color: 0x9ba3a7, roughness: 1 }),
-  /** A block from a paler bed of the same quarry. */
-  light: new THREE.MeshStandardMaterial({ color: 0xa5adb0, roughness: 1 }),
   /** ...and a darker one. */
-  dark: new THREE.MeshStandardMaterial({ color: 0x8e969b, roughness: 1 }),
-  /** Up-facing ledges: sun-bleached, and the only surface rain actually
-   *  washes clean. */
-  wash: new THREE.MeshStandardMaterial({ color: 0xafb5b6, roughness: 1 }),
+  dark: new THREE.MeshStandardMaterial({ color: 0x8e_96_9b, roughness: 1 }),
+  /** The reference ashlar face. */
+  face: new THREE.MeshStandardMaterial({ color: 0x9b_a3_a7, roughness: 1 }),
+  /** A block from a paler bed of the same quarry. */
+  light: new THREE.MeshStandardMaterial({ color: 0xa5_ad_b0, roughness: 1 }),
   /** Recessed bed joints and every down-facing return. Carries the ambient
    *  occlusion the flat lighting will not give a 0.07u reveal on its own. */
-  shade: new THREE.MeshStandardMaterial({ color: 0x767e83, roughness: 1 }),
+  shade: new THREE.MeshStandardMaterial({ color: 0x76_7e_83, roughness: 1 }),
   /** Drip staining under a cornice, and the damp at the foot of a wall. */
-  stain: new THREE.MeshStandardMaterial({ color: 0x848780, roughness: 1 }),
+  stain: new THREE.MeshStandardMaterial({ color: 0x84_87_80, roughness: 1 }),
+  /** Up-facing ledges: sun-bleached, and the only surface rain actually
+   *  washes clean. */
+  wash: new THREE.MeshStandardMaterial({ color: 0xaf_b5_b6, roughness: 1 }),
 } as const;
 
 export type MasonryTone = keyof typeof MASONRY;
@@ -79,34 +79,34 @@ export type MasonryTone = keyof typeof MASONRY;
  * built, and they should be the same size and carry the same weight.
  */
 export const WEATHER = {
-  /** Nominal bed-course height. The concrete shader's form-board seams run at
-   *  0.62u; masonry courses are the coarser rhythm of the same idea. */
-  courseH: 0.78,
-  /** Nominal stone length along a face (perpend pitch). */
-  stoneLen: 1.7,
-  /** Depth of a recessed bed joint, and the height of its reveal. */
-  jointDepth: 0.075,
-  jointHeight: 0.11,
   /** Chamfer cut off every vertical arris. A stone block with a mathematically
    *  sharp corner is the single loudest "this is a primitive" tell; the real
    *  ones are always arris-cut, and the cut catches its own highlight. */
   chamfer: 0.16,
+  /** Nominal bed-course height. The concrete shader's form-board seams run at
+   *  0.62u; masonry courses are the coarser rhythm of the same idea. */
+  courseH: 0.78,
+  /** How far the damp climbs from the foot of a wall. */
+  dampRise: 1.6,
   /** How far a drip stain runs down from under a cornice, in world units. The
    *  concrete shader's exponential streak decays over 3.2u; same number. */
   dripRun: 3.2,
-  /** ...and how far the damp climbs from the foot of a wall. */
-  dampRise: 1.6,
-  /** Peak share of stones that take the stain tone directly under a drip line. */
-  stainShare: 0.5,
   // --- Value amplitudes. The masonry palette above is cut to these, and the
   // cast-concrete shader in freeways.ts multiplies by them directly, so "how
   // dark is a joint" is one number for the whole material family.
-  /** Darkening of a joint / seam line against the face it cuts. */
-  jointValue: 0.18,
   /** Peak darkening of a drip streak directly under the edge that sheds it. */
   dripValue: 0.24,
   /** Peak-to-peak aggregate speckle. Felt, never read. */
   grainValue: 0.05,
+  /** Depth of a recessed bed joint, and the height of its reveal. */
+  jointDepth: 0.075,
+  jointHeight: 0.11,
+  /** Darkening of a joint / seam line against the face it cuts. */
+  jointValue: 0.18,
+  /** Peak share of stones that take the stain tone directly under a drip line. */
+  stainShare: 0.5,
+  /** Nominal stone length along a face (perpend pitch). */
+  stoneLen: 1.7,
 } as const;
 
 // THERE IS DELIBERATELY NO OUT-OF-PLANE JITTER PER STONE, and the reason is
@@ -120,10 +120,10 @@ export const WEATHER = {
 // first. The tone mosaic carries that read instead.
 
 /** Deterministic 0..1 hash — world generation must not consume Math.random. */
-function hash(a: number, b: number): number {
-  const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
+const hash = (a: number, b: number): number => {
+  const s = Math.sin(a * 127.1 + b * 311.7) * 43_758.5453;
   return s - Math.floor(s);
-}
+};
 
 /** A plan outline: closed loop of (x, z) offsets from the block's own centre. */
 type Outline = readonly (readonly [number, number])[];
@@ -133,7 +133,7 @@ type Outline = readonly (readonly [number, number])[];
  * normal of edge (a → b) is `(dz, -dx)`. The chamfers are real faces: they are
  * what stops a 22u prism reading as a box, and they cost four quads a course.
  */
-function chamferedPlan(hx: number, hz: number, c: number): Outline {
+const chamferedPlan = (hx: number, hz: number, c: number): Outline => {
   const cx = Math.min(c, hx * 0.4);
   const cz = Math.min(c, hz * 0.4);
   return [
@@ -146,7 +146,7 @@ function chamferedPlan(hx: number, hz: number, c: number): Outline {
     [-hx + cx, -hz],
     [hx - cx, -hz],
   ];
-}
+};
 
 /**
  * One horizontal layer of the mass. A block is a STACK of these and nothing
@@ -155,21 +155,23 @@ function chamferedPlan(hx: number, hz: number, c: number): Outline {
  * ashlar, bed joints, string courses, plinths and cornice mouldings, which is
  * why none of them can drift out of the same vocabulary.
  */
-type Ring = {
+interface Ring {
   /** Signed offset of every face from the shaft outline, in world units. */
   readonly outset: number;
   readonly h: number;
   /** `stone` splits its faces into individual blocks; the rest run continuous. */
   readonly kind: "stone" | "joint" | "trim";
-};
+}
 
 type Sink = Map<MasonryTone, { pos: number[]; nor: number[] }>;
 
-function sinkFor(sink: Sink, tone: MasonryTone): { pos: number[]; nor: number[] } {
+const sinkFor = (sink: Sink, tone: MasonryTone): { pos: number[]; nor: number[] } => {
   let s = sink.get(tone);
-  if (!s) sink.set(tone, (s = { pos: [], nor: [] }));
+  if (!s) {
+    sink.set(tone, (s = { nor: [], pos: [] }));
+  }
   return s;
-}
+};
 
 type P3 = readonly [number, number, number];
 
@@ -179,7 +181,7 @@ type P3 = readonly [number, number, number];
  * single-sided, so a reversed winding is an invisible face and a hole into the
  * inside of the mass — check the winding, not the geometry, when one appears.
  */
-function tri(sink: Sink, tone: MasonryTone, a: P3, b: P3, c: P3): void {
+const tri = (sink: Sink, tone: MasonryTone, a: P3, b: P3, c: P3): void => {
   const ux = b[0] - a[0];
   const uy = b[1] - a[1];
   const uz = b[2] - a[2];
@@ -190,7 +192,10 @@ function tri(sink: Sink, tone: MasonryTone, a: P3, b: P3, c: P3): void {
   let ny = uz * vx - ux * vz;
   let nz = ux * vy - uy * vx;
   const nl = Math.hypot(nx, ny, nz);
-  if (nl < 1e-9) return; // degenerate: a zero-length stone or a collapsed ring
+  if (nl < 1e-9) {
+    return;
+    // degenerate: a zero-length stone or a collapsed ring
+  }
   nx /= nl;
   ny /= nl;
   nz /= nl;
@@ -199,13 +204,201 @@ function tri(sink: Sink, tone: MasonryTone, a: P3, b: P3, c: P3): void {
     s.pos.push(p[0], p[1], p[2]);
     s.nor.push(nx, ny, nz);
   }
-}
+};
 
 /** Planar quad (a, b, c, d) wound the same way as `tri`. */
-function quad(sink: Sink, tone: MasonryTone, a: P3, b: P3, c: P3, d: P3): void {
+const quad = (sink: Sink, tone: MasonryTone, a: P3, b: P3, c: P3, d: P3): void => {
   tri(sink, tone, a, b, c);
   tri(sink, tone, a, c, d);
+};
+
+interface RingSpec {
+  readonly courses: number;
+  readonly stoneH: number;
+  readonly jointH: number;
+  readonly jointDepth: number;
+  readonly wantCornice: boolean;
+  readonly corniceH: number;
+  readonly corniceOut: number;
 }
+
+const masonryRings = (spec: RingSpec): Ring[] => {
+  const rings: Ring[] = [];
+  for (let k = 0; k < spec.courses; k += 1) {
+    if (k > 0) {
+      rings.push({ h: spec.jointH, kind: "joint", outset: -spec.jointDepth });
+    }
+    rings.push({ h: spec.stoneH, kind: "stone", outset: 0 });
+  }
+  if (spec.wantCornice && spec.corniceH >= 0.5) {
+    // Fillet, corona, cap. The corona is the member that does the work: it
+    // projects far enough to throw a shadow onto the shaft and to shed water
+    // clear of it, and the cap above steps back so the profile reads as three
+    // planes rather than as one lump.
+    rings.push(
+      { h: spec.corniceH * 0.26, kind: "trim", outset: spec.corniceOut * 0.29 },
+      { h: spec.corniceH * 0.46, kind: "trim", outset: spec.corniceOut },
+      { h: spec.corniceH * 0.28, kind: "trim", outset: spec.corniceOut * 0.55 },
+    );
+  } else if (spec.wantCornice) {
+    // Too little height for a profile: one coping stone. A garden wall has one
+    // and a three-part moulding on a parapet would be a doll's-house cornice.
+    rings.push({ h: spec.corniceH, kind: "trim", outset: spec.corniceOut });
+  }
+  return rings;
+};
+
+type Row = readonly (readonly [number, number])[];
+
+/**
+ * The horizontal return between the ring below and this one. Growing
+ * outward means we are standing under an overhang (a cornice soffit, seen
+ * from below); shrinking means we are looking down at a ledge the weather
+ * washes. The two want opposite windings as well as opposite tones.
+ */
+const ringReturn = (sink: Sink, prevTop: Row, lo: Row, y: number): void => {
+  const n = lo.length;
+  const rBelow = Math.hypot(prevTop[0]?.[0] ?? 0, prevTop[0]?.[1] ?? 0);
+  const rHere = Math.hypot(lo[0]?.[0] ?? 0, lo[0]?.[1] ?? 0);
+  const grew = rHere > rBelow;
+  // Only a REAL ledge is washed. The 0.075u return at the top of a bed
+  // joint is a reveal inside a shadow, and painting it `wash` drew a bright
+  // line at every single course — a stack of pancakes rather than a wall.
+  const tone: MasonryTone = !grew && rBelow - rHere > 0.2 ? "wash" : "shade";
+  for (let i = 0; i < n; i += 1) {
+    const a = prevTop[i];
+    const b = prevTop[(i + 1) % n];
+    const c = lo[(i + 1) % n];
+    const e = lo[i];
+    if (!a || !b || !c || !e) {
+      continue;
+    }
+    if (grew) {
+      quad(sink, tone, [a[0], y, a[1]], [b[0], y, b[1]], [c[0], y, c[1]], [e[0], y, e[1]]);
+    } else {
+      quad(sink, tone, [a[0], y, a[1]], [e[0], y, e[1]], [c[0], y, c[1]], [b[0], y, b[1]]);
+    }
+  }
+};
+
+interface RingBand {
+  readonly ring: Ring;
+  readonly lo: Row;
+  readonly hi: Row;
+  readonly y: number;
+}
+
+type StoneTone = (k: number, faceIdx: number, si: number, yMid: number) => MasonryTone;
+
+/** The vertical faces of one ring: a single quad per side for joints and
+ *  trim, running-bond stones for a course. */
+const ringFaces = (sink: Sink, band: RingBand, courseIdx: number, stoneTone: StoneTone): void => {
+  const { ring, lo, hi, y } = band;
+  const n = lo.length;
+  for (let i = 0; i < n; i += 1) {
+    const a0 = lo[i];
+    const b0 = lo[(i + 1) % n];
+    const a1 = hi[i];
+    const b1 = hi[(i + 1) % n];
+    if (!a0 || !b0 || !a1 || !b1) {
+      continue;
+    }
+    const len = Math.hypot(b0[0] - a0[0], b0[1] - a0[1]);
+    if (ring.kind !== "stone") {
+      quad(
+        sink,
+        ring.kind === "joint" ? "shade" : "face",
+        [a0[0], y, a0[1]],
+        [a1[0], y + ring.h, a1[1]],
+        [b1[0], y + ring.h, b1[1]],
+        [b0[0], y, b0[1]],
+      );
+      continue;
+    }
+    // Running bond: every other course starts its perpends half a stone
+    // along, so the vertical joints never stack into a column of weakness.
+    const stones = Math.max(1, Math.round(len / WEATHER.stoneLen));
+    const phase = courseIdx % 2 === 0 ? 0 : 0.5 / stones;
+    const cuts: number[] = [0];
+    for (let s = 1; s < stones; s += 1) {
+      cuts.push(Math.min(1, s / stones + phase));
+    }
+    cuts.push(1);
+    const at = (row: Row, t: number, yy: number): P3 => {
+      const a = row[i];
+      const b = row[(i + 1) % n];
+      if (!a || !b) {
+        return [0, yy, 0];
+      }
+      return [a[0] + (b[0] - a[0]) * t, yy, a[1] + (b[1] - a[1]) * t];
+    };
+    for (let s = 0; s + 1 < cuts.length; s += 1) {
+      const t0 = cuts[s] ?? 0;
+      const t1 = cuts[s + 1] ?? 1;
+      if (t1 - t0 < 1e-4) {
+        continue;
+      }
+      quad(
+        sink,
+        stoneTone(courseIdx, i, s, y + ring.h / 2),
+        at(lo, t0, y),
+        at(hi, t0, y + ring.h),
+        at(hi, t1, y + ring.h),
+        at(lo, t1, y),
+      );
+    }
+  }
+};
+
+/**
+ * Caps. The top is the only one anyone sees from a hill; the bottom exists so
+ * the mass is closed however far a caller sinks it into the ground. The plan
+ * winding puts the interior on the left of each edge, which fans DOWN — so
+ * the top fan runs the other way round.
+ */
+const masonryCaps = (sink: Sink, top: Row | null, y: number, base: Row): void => {
+  if (top) {
+    const [a] = top;
+    for (let i = 1; i + 1 < top.length; i += 1) {
+      const b = top[i];
+      const c = top[i + 1];
+      if (!a || !b || !c) {
+        continue;
+      }
+      // `light`, not `wash`. From a car the top of a coping is edge-on, so it
+      // is a one-pixel rim and the palest tone in the set has no room to read
+      // as anything but a bright line. `wash` is for a ledge wide enough to
+      // look DOWN at, which is what the cornice returns are.
+      tri(sink, "light", [a[0], y, a[1]], [c[0], y, c[1]], [b[0], y, b[1]]);
+    }
+  }
+  const [a] = base;
+  for (let i = 1; i + 1 < base.length; i += 1) {
+    const b = base[i];
+    const c = base[i + 1];
+    if (!a || !b || !c) {
+      continue;
+    }
+    tri(sink, "shade", [a[0], 0, a[1]], [b[0], 0, b[1]], [c[0], 0, c[1]]);
+  }
+};
+
+const sinkGroup = (sink: Sink): THREE.Group => {
+  const group = new THREE.Group();
+  for (const [tone, buf] of sink) {
+    if (buf.pos.length === 0) {
+      continue;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(buf.pos), 3));
+    geo.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(buf.nor), 3));
+    const mesh = new THREE.Mesh(geo, MASONRY[tone]);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  }
+  return group;
+};
 
 /**
  * A stone mass, drawn as engineered masonry: coursed ashlar with recessed bed
@@ -221,7 +414,7 @@ function quad(sink: Sink, tone: MasonryTone, a: P3, b: P3, c: P3, d: P3): void {
  * the mass's own half-width over its full height. It is what tells the eye
  * this thing is holding something back.
  */
-export function masonryBlock(opts: {
+export const masonryBlock = (opts: {
   readonly w: number;
   readonly d: number;
   readonly h: number;
@@ -233,7 +426,7 @@ export function masonryBlock(opts: {
   readonly cornice?: boolean;
   /** Override the bed-course height (small parapets want a coarser course). */
   readonly courseH?: number;
-}): THREE.Group {
+}): THREE.Group => {
   const { w, d, h, seed } = opts;
   const batter = opts.batter ?? 0;
   const wantCornice = opts.cornice ?? true;
@@ -266,24 +459,15 @@ export function masonryBlock(opts: {
   // is exactly `h` however the division lands.
   const stoneH = (shaftH - jointH * (courses - 1)) / courses;
 
-  const rings: Ring[] = [];
-  for (let k = 0; k < courses; k++) {
-    if (k > 0) rings.push({ outset: -jointDepth, h: jointH, kind: "joint" });
-    rings.push({ outset: 0, h: stoneH, kind: "stone" });
-  }
-  if (wantCornice && corniceH >= 0.5) {
-    // Fillet, corona, cap. The corona is the member that does the work: it
-    // projects far enough to throw a shadow onto the shaft and to shed water
-    // clear of it, and the cap above steps back so the profile reads as three
-    // planes rather than as one lump.
-    rings.push({ outset: corniceOut * 0.29, h: corniceH * 0.26, kind: "trim" });
-    rings.push({ outset: corniceOut, h: corniceH * 0.46, kind: "trim" });
-    rings.push({ outset: corniceOut * 0.55, h: corniceH * 0.28, kind: "trim" });
-  } else if (wantCornice) {
-    // Too little height for a profile: one coping stone. A garden wall has one
-    // and a three-part moulding on a parapet would be a doll's-house cornice.
-    rings.push({ outset: corniceOut, h: corniceH, kind: "trim" });
-  }
+  const rings = masonryRings({
+    corniceH,
+    corniceOut,
+    courses,
+    jointDepth,
+    jointH,
+    stoneH,
+    wantCornice,
+  });
 
   // Outline of the shaft at height y, before a ring's own outset.
   const plan = chamferedPlan(shaftHx, shaftHz, chamfer);
@@ -304,148 +488,45 @@ export function masonryBlock(opts: {
     // metres down — the same exponential the concrete shader runs.
     const fromTop = shaftH - yMid;
     const stainP = WEATHER.stainShare * Math.exp(-fromTop / WEATHER.dripRun);
-    if (hash(seed + faceIdx * 7.7 + si * 3.3, k * 1.9 + 41.3) < stainP) return "stain";
+    if (hash(seed + faceIdx * 7.7 + si * 3.3, k * 1.9 + 41.3) < stainP) {
+      return "stain";
+    }
     // Damp at the foot: rising ground water, and the only reason the bottom of
     // an old abutment is never the colour of its top.
     if (hash(seed + faceIdx + si * 5.1, k + 91.7) < 0.55 * Math.exp(-yMid / WEATHER.dampRise)) {
       return "dark";
     }
     const pick = hash(seed + faceIdx * 2.3 + si * 11.7, k * 5.3);
-    return pick < 0.3 ? "light" : pick < 0.62 ? "face" : "dark";
+    if (pick < 0.3) {
+      return "light";
+    }
+    return pick < 0.62 ? "face" : "dark";
   };
 
   let y = 0;
   let prevTop: [number, number][] | null = null;
-  for (let r = 0; r < rings.length; r++) {
-    const ring = rings[r];
-    if (!ring) continue;
+  for (const [r, ring] of rings.entries()) {
     const lo = outlineAt(y, ring.outset);
     const hi = outlineAt(y + ring.h, ring.outset);
-    const n = lo.length;
-
-    // The horizontal return between the ring below and this one. Growing
-    // outward means we are standing under an overhang (a cornice soffit, seen
-    // from below); shrinking means we are looking down at a ledge the weather
-    // washes. The two want opposite windings as well as opposite tones.
     if (prevTop) {
-      const rBelow = Math.hypot(prevTop[0]?.[0] ?? 0, prevTop[0]?.[1] ?? 0);
-      const rHere = Math.hypot(lo[0]?.[0] ?? 0, lo[0]?.[1] ?? 0);
-      const grew = rHere > rBelow;
-      // Only a REAL ledge is washed. The 0.075u return at the top of a bed
-      // joint is a reveal inside a shadow, and painting it `wash` drew a bright
-      // line at every single course — a stack of pancakes rather than a wall.
-      const tone: MasonryTone = !grew && rBelow - rHere > 0.2 ? "wash" : "shade";
-      for (let i = 0; i < n; i++) {
-        const a = prevTop[i];
-        const b = prevTop[(i + 1) % n];
-        const c = lo[(i + 1) % n];
-        const e = lo[i];
-        if (!a || !b || !c || !e) continue;
-        if (grew) {
-          quad(sink, tone, [a[0], y, a[1]], [b[0], y, b[1]], [c[0], y, c[1]], [e[0], y, e[1]]);
-        } else {
-          quad(sink, tone, [a[0], y, a[1]], [e[0], y, e[1]], [c[0], y, c[1]], [b[0], y, b[1]]);
-        }
-      }
+      ringReturn(sink, prevTop, lo, y);
     }
-
-    const courseIdx = Math.floor(r / 2);
-    for (let i = 0; i < n; i++) {
-      const a0 = lo[i];
-      const b0 = lo[(i + 1) % n];
-      const a1 = hi[i];
-      const b1 = hi[(i + 1) % n];
-      if (!a0 || !b0 || !a1 || !b1) continue;
-      const len = Math.hypot(b0[0] - a0[0], b0[1] - a0[1]);
-      if (ring.kind !== "stone") {
-        quad(
-          sink,
-          ring.kind === "joint" ? "shade" : "face",
-          [a0[0], y, a0[1]],
-          [a1[0], y + ring.h, a1[1]],
-          [b1[0], y + ring.h, b1[1]],
-          [b0[0], y, b0[1]],
-        );
-        continue;
-      }
-      // Running bond: every other course starts its perpends half a stone
-      // along, so the vertical joints never stack into a column of weakness.
-      const stones = Math.max(1, Math.round(len / WEATHER.stoneLen));
-      const phase = courseIdx % 2 === 0 ? 0 : 0.5 / stones;
-      const cuts: number[] = [0];
-      for (let s = 1; s < stones; s++) cuts.push(Math.min(1, s / stones + phase));
-      cuts.push(1);
-      for (let s = 0; s + 1 < cuts.length; s++) {
-        const t0 = cuts[s] ?? 0;
-        const t1 = cuts[s + 1] ?? 1;
-        if (t1 - t0 < 1e-4) continue;
-        const at = (row: [number, number][], t: number, yy: number): [number, number, number] => {
-          const a = row[i];
-          const b = row[(i + 1) % n];
-          if (!a || !b) return [0, yy, 0];
-          return [a[0] + (b[0] - a[0]) * t, yy, a[1] + (b[1] - a[1]) * t];
-        };
-        quad(
-          sink,
-          stoneTone(courseIdx, i, s, y + ring.h / 2),
-          at(lo, t0, y),
-          at(hi, t0, y + ring.h),
-          at(hi, t1, y + ring.h),
-          at(lo, t1, y),
-        );
-      }
-    }
+    ringFaces(sink, { hi, lo, ring, y }, Math.floor(r / 2), stoneTone);
     prevTop = hi;
     y += ring.h;
   }
 
-  // Caps. The top is the only one anyone sees from a hill; the bottom exists so
-  // the mass is closed however far a caller sinks it into the ground. The plan
-  // winding puts the interior on the left of each edge, which fans DOWN — so
-  // the top fan runs the other way round.
-  const top = prevTop;
-  if (top) {
-    for (let i = 1; i + 1 < top.length; i++) {
-      const a = top[0];
-      const b = top[i];
-      const c = top[i + 1];
-      if (!a || !b || !c) continue;
-      // `light`, not `wash`. From a car the top of a coping is edge-on, so it
-      // is a one-pixel rim and the palest tone in the set has no room to read
-      // as anything but a bright line. `wash` is for a ledge wide enough to
-      // look DOWN at, which is what the cornice returns are.
-      tri(sink, "light", [a[0], y, a[1]], [c[0], y, c[1]], [b[0], y, b[1]]);
-    }
-  }
-  const base = outlineAt(0, 0);
-  for (let i = 1; i + 1 < base.length; i++) {
-    const a = base[0];
-    const b = base[i];
-    const c = base[i + 1];
-    if (!a || !b || !c) continue;
-    tri(sink, "shade", [a[0], 0, a[1]], [b[0], 0, b[1]], [c[0], 0, c[1]]);
-  }
+  masonryCaps(sink, prevTop, y, outlineAt(0, 0));
 
-  const group = new THREE.Group();
-  for (const [tone, buf] of sink) {
-    if (buf.pos.length === 0) continue;
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(buf.pos), 3));
-    geo.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(buf.nor), 3));
-    const mesh = new THREE.Mesh(geo, MASONRY[tone]);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    group.add(mesh);
-  }
-  return group;
-}
+  return sinkGroup(sink);
+};
 
 /**
  * `masonryBlock`, seated and yawed in one call — the shape every caller in
  * this world actually wants. `y` is the FOOT of the mass, matching how
  * `ground.ts makeStandingSurface` hands out a seating height.
  */
-export function seatMasonry(opts: {
+export const seatMasonry = (opts: {
   readonly w: number;
   readonly d: number;
   readonly h: number;
@@ -457,10 +538,10 @@ export function seatMasonry(opts: {
   readonly batter?: number;
   readonly cornice?: boolean;
   readonly courseH?: number;
-}): THREE.Group {
+}): THREE.Group => {
   const g = masonryBlock(opts);
   g.position.set(opts.x, opts.y, opts.z);
   g.rotation.y = opts.yaw ?? 0;
   g.updateMatrixWorld(true);
   return g;
-}
+};

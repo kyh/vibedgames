@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion, type PanInfo } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
+import type { PanInfo } from "motion/react";
 
 // Animation constants
 const ANIMATION_DURATION = 0.6;
@@ -27,26 +28,26 @@ const isSwipe = ({ offset, velocity }: PanInfo) =>
 
 // Z-depth values for card stacking
 const Z_DEPTHS = {
-  mobile: {
-    active: { stacked: "-20vw", unstacked: "0vw" },
-    next: { stacked: "-30vw", unstacked: "-10vw" },
-    previous: { stacked: "-20vw", unstacked: "0vw" },
-    behind: { stacked: "-40vw", unstacked: "-20vw" },
-  },
   desktop: {
     active: { stacked: "-70vw", unstacked: "0vw" },
+    behind: { stacked: "-90vw", unstacked: "-20vw" },
     next: { stacked: "-80vw", unstacked: "-10vw" },
     previous: { stacked: "-70vw", unstacked: "0vw" },
-    behind: { stacked: "-90vw", unstacked: "-20vw" },
+  },
+  mobile: {
+    active: { stacked: "-20vw", unstacked: "0vw" },
+    behind: { stacked: "-40vw", unstacked: "-20vw" },
+    next: { stacked: "-30vw", unstacked: "-10vw" },
+    previous: { stacked: "-20vw", unstacked: "0vw" },
   },
 } as const;
 
 // Y positions
 const Y_POSITIONS = {
   active: 0,
+  behind: "-10vh",
   next: "-5vh",
   previous: "150vh",
-  behind: "-10vh",
 } as const;
 
 /**
@@ -60,7 +61,7 @@ const Y_POSITIONS = {
  */
 export type StackMode = "stack" | "zoom" | "hidden";
 
-type GameCardProps = {
+interface GameCardProps {
   index: number;
   total: number;
   mode: StackMode;
@@ -70,7 +71,7 @@ type GameCardProps = {
   swipedRef: React.RefObject<boolean>;
   onSwipe?: () => void;
   children: React.ReactNode;
-};
+}
 
 const getCardVariants = (
   isActive: boolean,
@@ -84,29 +85,29 @@ const getCardVariants = (
 
   if (isActive) {
     return {
-      z: stacked ? depths.active.stacked : depths.active.unstacked,
       y: Y_POSITIONS.active,
+      z: stacked ? depths.active.stacked : depths.active.unstacked,
     };
   }
 
   if (isNext) {
     return {
-      z: stacked ? depths.next.stacked : depths.next.unstacked,
       y: Y_POSITIONS.next,
+      z: stacked ? depths.next.stacked : depths.next.unstacked,
     };
   }
 
   if (isPrevious) {
     return {
-      z: stacked ? depths.previous.stacked : depths.previous.unstacked,
       y: Y_POSITIONS.previous,
+      z: stacked ? depths.previous.stacked : depths.previous.unstacked,
     };
   }
 
   const baseZ = stacked ? depths.behind.stacked : depths.behind.unstacked;
   return {
-    z: `calc(${baseZ} - ${cardsBehind}px)`,
     y: Y_POSITIONS.behind,
+    z: `calc(${baseZ} - ${cardsBehind}px)`,
   };
 };
 
@@ -139,7 +140,9 @@ const GameCard = ({
   const [armedFor, setArmedFor] = useState(mode);
   if (armedFor !== mode) {
     setArmedFor(mode);
-    if (mode === "stack") setHasCompletedExit(false);
+    if (mode === "stack") {
+      setHasCompletedExit(false);
+    }
   }
 
   const handleAnimationComplete = () => {
@@ -149,9 +152,13 @@ const GameCard = ({
   };
 
   // The zoom is a solo act: only the active card plays it, the rest leave at once.
-  if (mode === "zoom" && !isActive) return null;
+  if (mode === "zoom" && !isActive) {
+    return null;
+  }
   // Once faded/zoomed out, stop rendering.
-  if (mode !== "stack" && hasCompletedExit) return null;
+  if (mode !== "stack" && hasCompletedExit) {
+    return null;
+  }
 
   // Only the front card of the stack is swipeable, and only on touch-sized screens.
   const isDraggable = isMobile && mode === "stack" && isActive && !!onSwipe;
@@ -159,7 +166,9 @@ const GameCard = ({
   const handleDragEnd = (_: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
     swipedRef.current = Math.hypot(info.offset.x, info.offset.y) > TAP_SLOP;
 
-    if (isSwipe(info)) onSwipe?.();
+    if (isSwipe(info)) {
+      onSwipe?.();
+    }
   };
 
   return (
@@ -173,9 +182,9 @@ const GameCard = ({
       animate={{ ...variants, opacity: mode === "hidden" ? 0 : 1 }}
       exit={variants}
       transition={{
-        type: "spring",
         duration: ANIMATION_DURATION,
         opacity: { duration: FADE_OUT_DURATION },
+        type: "spring",
       }}
       onAnimationComplete={handleAnimationComplete}
     >
@@ -194,13 +203,15 @@ const GameCard = ({
   );
 };
 
-type Props<T extends { preview: string; previewPortrait?: string; name: string; slug: string }> = {
+interface Props<
+  T extends { preview: string; previewPortrait?: string; name: string; slug: string },
+> {
   data: T[];
   activeSlug?: string;
   mode: StackMode;
   onPreviewClick?: (game: T) => void;
   onSwipe?: (game: T) => void;
-};
+}
 
 const useIsMobile = () => {
   const [isMobile, setIsMobile] = useState(false);
@@ -234,12 +245,14 @@ export const GameStack = <
   const swipedRef = useRef(false);
 
   const foundIndex = data.findIndex((item) => item.slug === activeSlug);
-  const currentIndex = foundIndex >= 0 ? foundIndex : 0;
+  const currentIndex = Math.max(foundIndex, 0);
 
   const handleSwipe = onSwipe
     ? () => {
         const next = data[(currentIndex + 1) % data.length];
-        if (next) onSwipe(next);
+        if (next) {
+          onSwipe(next);
+        }
       }
     : undefined;
 
@@ -268,9 +281,9 @@ export const GameStack = <
                   }
                   onPreviewClick?.(item);
                 }}
-                initial={{ opacity: 0, filter: `blur(${BLUR_AMOUNT})` }}
-                animate={{ opacity: 1, filter: "blur(0px)" }}
-                exit={{ opacity: 0, filter: `blur(${BLUR_AMOUNT})` }}
+                initial={{ filter: `blur(${BLUR_AMOUNT})`, opacity: 0 }}
+                animate={{ filter: "blur(0px)", opacity: 1 }}
+                exit={{ filter: `blur(${BLUR_AMOUNT})`, opacity: 0 }}
                 transition={{ duration: 0.2 }}
               >
                 <picture>

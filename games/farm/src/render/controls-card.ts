@@ -5,25 +5,25 @@
 // content re-renders from the shared CONTROLS manifest per device / connected
 // pad (callers rebuild on watchControlContext).
 
-import Phaser from "phaser";
+import type Phaser from "phaser";
 import { controlGroups } from "@repo/embed";
 import type { ControlEntry, ControlMethod } from "@repo/embed";
 
 import { CONTROLS } from "../controls";
 
 const METHOD_LABELS = {
+  camera: "CAMERA",
+  controller: "CONTROLLER",
   keys: "KEYBOARD",
   mouse: "MOUSE",
   touch: "TOUCH",
-  camera: "CAMERA",
-  controller: "CONTROLLER",
 } satisfies Record<ControlMethod, string>;
 
 // Palette lifted from the pause sign: parchment #f4ecd6 chips bordered and
 // dropped in #6b3f16, chip lettering #4a3010, cream actions #f8f0da, and the
 // sign's pale-green group labels #eaffd0.
-const CHIP_FILL = 0xf4ecd6;
-const CHIP_EDGE = 0x6b3f16;
+const CHIP_FILL = 0xf4_ec_d6;
+const CHIP_EDGE = 0x6b_3f_16;
 const CHIP_TEXT = "#4a3010";
 const ACTION_TEXT = "#f8f0da";
 const LABEL_TEXT = "#eaffd0";
@@ -39,48 +39,131 @@ const LABEL_GAP = 9;
 const TEXT_SHADOW = "rgba(58,33,8,0.55)";
 
 const LABEL_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  color: LABEL_TEXT,
   fontFamily: FONT,
   fontSize: "10px",
   fontStyle: "bold",
-  color: LABEL_TEXT,
 };
 
-export type ControlsCardOptions = {
+export interface ControlsCardOptions {
   /** The band the card has to live in. Long groups then reflow into more,
    *  shorter columns whenever that reads larger than uniformly shrinking one
    *  column per method — a landscape phone has width to spare and almost no
    *  height, and 12px copy scaled to a third of size is a smear. */
   readonly maxWidth?: number;
   readonly maxHeight?: number;
-};
+}
 
-export type ControlsCard = {
+export interface ControlsCard {
   readonly container: Phaser.GameObjects.Container;
   readonly width: number;
   readonly height: number;
-};
+}
 
 /** A built, measured row: its objects plus what they cost horizontally. */
-type Row = {
+interface Row {
   readonly chip: Phaser.GameObjects.Text;
   readonly action: Phaser.GameObjects.Text;
   readonly chipW: number;
   readonly actionW: number;
+}
+
+interface Group {
+  readonly label: string;
+  readonly rows: readonly Row[];
+}
+
+const buildRow = (scene: Phaser.Scene, entry: ControlEntry): Row => {
+  const chip = scene.add
+    .text(0, 0, entry.input, {
+      color: CHIP_TEXT,
+      fontFamily: FONT,
+      fontSize: "12px",
+      fontStyle: "bold",
+    })
+    .setOrigin(0.5);
+  const action = scene.add
+    .text(0, 0, entry.action, { color: ACTION_TEXT, fontFamily: FONT, fontSize: "12px" })
+    .setOrigin(0, 0.5)
+    .setAlpha(0.92);
+  action.setShadow(0, 1, TEXT_SHADOW, 0);
+  return {
+    action,
+    actionW: Math.ceil(action.width),
+    chip,
+    chipW: Math.ceil(chip.width) + CHIP_PAD_X * 2,
+  };
 };
 
-type Group = { readonly label: string; readonly rows: readonly Row[] };
+const columnWidth = (rows: readonly Row[]): number =>
+  Math.max(...rows.map((r) => r.chipW)) + GUTTER + Math.max(...rows.map((r) => r.actionW));
+
+const cardSize = (measured: readonly Group[], perColumn: number, headerH: number) => {
+  let width = 0;
+  let columns = 0;
+  let tallest = 0;
+  for (const group of measured) {
+    for (let start = 0; start < group.rows.length; start += perColumn) {
+      const rows = group.rows.slice(start, start + perColumn);
+      width += columnWidth(rows);
+      columns += 1;
+      tallest = Math.max(tallest, rows.length);
+    }
+  }
+  return {
+    columns,
+    height: headerH + CHIP_H + tallest * ROW_PITCH - ROW_GAP,
+    width: width + COL_GAP * (columns - 1),
+  };
+};
+
+/**
+ * Rows per column that render largest inside the caller's band. Ties break to
+ * the fewest columns — so an unconstrained card is one column per method, and
+ * only a viewport that cannot afford the height spends width instead — and
+ * then to the shortest column, which evens out the last one.
+ */
+const bestSplit = (
+  measured: readonly Group[],
+  headerH: number,
+  { maxWidth, maxHeight }: ControlsCardOptions,
+): number => {
+  const longest = Math.max(...measured.map((g) => g.rows.length));
+  if (maxWidth === undefined && maxHeight === undefined) {
+    return longest;
+  }
+  let best = longest;
+  let bestScale = -1;
+  let bestColumns = Number.POSITIVE_INFINITY;
+  for (let perColumn = longest; perColumn >= 1; perColumn -= 1) {
+    const size = cardSize(measured, perColumn, headerH);
+    const scale = Math.min(
+      1,
+      maxHeight === undefined ? 1 : maxHeight / size.height,
+      maxWidth === undefined ? 1 : maxWidth / size.width,
+    );
+    if (scale > bestScale || (scale === bestScale && size.columns <= bestColumns)) {
+      bestScale = scale;
+      bestColumns = size.columns;
+      best = perColumn;
+    }
+  }
+  return best;
+};
 
 /**
  * Build the grouped keycap card as a Phaser container (origin at its center).
  * Null when nothing is visible for the current device/pad context.
  */
-export function buildControlsCard(
+export const buildControlsCard = (
   scene: Phaser.Scene,
   options: ControlsCardOptions = {},
-): ControlsCard | null {
+): ControlsCard | null => {
   const coarse = window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
   const groups = controlGroups(CONTROLS, { coarse });
-  if (groups.length === 0) return null;
+  if (groups.length === 0) {
+    return null;
+  }
 
   // Measure first: chips right-align against a central gutter like the sign's
   // grid, so every column's width needs its widest chip and action up front.
@@ -111,7 +194,8 @@ export function buildControlsCard(
 
       let y = -height / 2 + headerH + CHIP_H / 2;
       for (const row of rows) {
-        const cx = x + chipCol - row.chipW / 2; // right-aligned to the gutter
+        // right-aligned to the gutter
+        const cx = x + chipCol - row.chipW / 2;
         // Chunky parchment chip: hard 3px drop, square pixel corners.
         const drop = scene.add.rectangle(cx, y + 3, row.chipW, CHIP_H, CHIP_EDGE);
         const face = scene.add
@@ -126,82 +210,5 @@ export function buildControlsCard(
     }
   }
 
-  return { container, width, height };
-}
-
-function buildRow(scene: Phaser.Scene, entry: ControlEntry): Row {
-  const chip = scene.add
-    .text(0, 0, entry.input, {
-      fontFamily: FONT,
-      fontSize: "12px",
-      fontStyle: "bold",
-      color: CHIP_TEXT,
-    })
-    .setOrigin(0.5);
-  const action = scene.add
-    .text(0, 0, entry.action, { fontFamily: FONT, fontSize: "12px", color: ACTION_TEXT })
-    .setOrigin(0, 0.5)
-    .setAlpha(0.92);
-  action.setShadow(0, 1, TEXT_SHADOW, 0);
-  return {
-    chip,
-    action,
-    chipW: Math.ceil(chip.width) + CHIP_PAD_X * 2,
-    actionW: Math.ceil(action.width),
-  };
-}
-
-function columnWidth(rows: readonly Row[]): number {
-  return Math.max(...rows.map((r) => r.chipW)) + GUTTER + Math.max(...rows.map((r) => r.actionW));
-}
-
-function cardSize(measured: readonly Group[], perColumn: number, headerH: number) {
-  let width = 0;
-  let columns = 0;
-  let tallest = 0;
-  for (const group of measured) {
-    for (let start = 0; start < group.rows.length; start += perColumn) {
-      const rows = group.rows.slice(start, start + perColumn);
-      width += columnWidth(rows);
-      columns++;
-      tallest = Math.max(tallest, rows.length);
-    }
-  }
-  return {
-    width: width + COL_GAP * (columns - 1),
-    height: headerH + CHIP_H + tallest * ROW_PITCH - ROW_GAP,
-    columns,
-  };
-}
-
-/**
- * Rows per column that render largest inside the caller's band. Ties break to
- * the fewest columns — so an unconstrained card is one column per method, and
- * only a viewport that cannot afford the height spends width instead — and
- * then to the shortest column, which evens out the last one.
- */
-function bestSplit(
-  measured: readonly Group[],
-  headerH: number,
-  { maxWidth, maxHeight }: ControlsCardOptions,
-): number {
-  const longest = Math.max(...measured.map((g) => g.rows.length));
-  if (maxWidth === undefined && maxHeight === undefined) return longest;
-  let best = longest;
-  let bestScale = -1;
-  let bestColumns = Number.POSITIVE_INFINITY;
-  for (let perColumn = longest; perColumn >= 1; perColumn--) {
-    const size = cardSize(measured, perColumn, headerH);
-    const scale = Math.min(
-      1,
-      maxHeight === undefined ? 1 : maxHeight / size.height,
-      maxWidth === undefined ? 1 : maxWidth / size.width,
-    );
-    if (scale > bestScale || (scale === bestScale && size.columns <= bestColumns)) {
-      bestScale = scale;
-      bestColumns = size.columns;
-      best = perColumn;
-    }
-  }
-  return best;
-}
+  return { container, height, width };
+};

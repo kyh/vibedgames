@@ -9,9 +9,9 @@ const UPGRADE_MESSAGE = "Your vibedgames CLI is out of date — run `npm i -g vi
 
 // tRPC's JSON-RPC code for BAD_REQUEST. Inlined so this route needs no
 // @trpc/server dependency.
-const TRPC_BAD_REQUEST = -32600;
+const TRPC_BAD_REQUEST = -32_600;
 
-function upgradeRequiredResponse(req: Request): Response {
+const upgradeRequiredResponse = (req: Request): Response => {
   // Match tRPC's HTTP error shape so the client (httpBatchLink) surfaces the
   // message instead of throwing "unable to transform response". The CLI's
   // links use the superjson transformer, which deserializes the `error`
@@ -20,18 +20,18 @@ function upgradeRequiredResponse(req: Request): Response {
   const errorObj = {
     error: {
       json: {
-        message: UPGRADE_MESSAGE,
         code: TRPC_BAD_REQUEST,
         data: {
           code: "BAD_REQUEST",
           httpStatus: 400,
         },
+        message: UPGRADE_MESSAGE,
       },
     },
   };
   const url = new URL(req.url);
   const isBatch = url.searchParams.has("batch");
-  let body: typeof errorObj | Array<typeof errorObj> = errorObj;
+  let body: typeof errorObj | (typeof errorObj)[] = errorObj;
   if (isBatch) {
     // tRPC batch URLs encode procedures as a comma-separated path
     // segment (e.g. /api/trpc/x.a,y.b). httpBatchLink expects one
@@ -41,11 +41,11 @@ function upgradeRequiredResponse(req: Request): Response {
     const count = Math.max(1, lastSegment.split(",").filter((s) => s.length > 0).length);
     body = Array.from({ length: count }, () => errorObj);
   }
-  return new Response(JSON.stringify(body), {
-    status: 400,
+  return Response.json(body, {
     headers: { "content-type": "application/json" },
+    status: 400,
   });
-}
+};
 
 const handler = (req: Request): Response => {
   // Time this route's removal off real traffic.

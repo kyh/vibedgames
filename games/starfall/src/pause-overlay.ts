@@ -7,16 +7,16 @@
 // uppercase copy in #9fb6e6, neon #7fb2ff accents, rgba(90,160,255) glows.
 
 import { controlGroups, createPauseShell } from "@repo/embed";
-import type { ControlMethod, PauseOverlay } from "@repo/embed";
+import type { ControlMethod, MuteAccessor, PauseOverlay } from "@repo/embed";
 import { CONTROLS } from "./controls";
 
 /** Section headers for the grouped control rows, in HUD voice. */
 const METHOD_LABELS = {
+  camera: "camera",
+  controller: "gamepad",
   keys: "keyboard",
   mouse: "mouse",
   touch: "touch",
-  camera: "camera",
-  controller: "gamepad",
 } satisfies Record<ControlMethod, string>;
 
 const STYLE_ID = "sf-pause-style";
@@ -25,6 +25,7 @@ const STYLE_ID = "sf-pause-style";
 const CSS = `
 #sf-pause {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 24px;
@@ -165,6 +166,17 @@ const CSS = `
 @keyframes sf-pause-pulse {
   50% { opacity: 0.32; }
 }
+#sf-pause .vg-pause-sound {
+  margin-top: 18px;
+  padding: 8px 16px;
+  border: 1px solid rgba(127, 178, 255, 0.3);
+  border-radius: 3px;
+  background: rgba(3, 7, 22, 0.62);
+  color: #cfe0ff;
+  font: 600 11px ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
 /* Bigger legible rows on touch devices (same bump index.html gives the HUD). */
 @media (pointer: coarse) {
   .sf-pause-key, .sf-pause-action { font-size: 13px; }
@@ -175,31 +187,37 @@ const CSS = `
 }
 `;
 
-function el(tag: string, className: string, text?: string): HTMLElement {
+const el = (tag: string, className: string, text?: string): HTMLElement => {
   const node = document.createElement(tag);
   node.className = className;
-  if (text !== undefined) node.textContent = text;
+  if (text !== undefined) {
+    node.textContent = text;
+  }
   return node;
-}
+};
 
 /** Inject the shared control-card styles (pause overlay AND start screen).
  *  Same STYLE_ID the pause shell uses, so whichever runs first wins. */
-export function ensureStyle(): void {
-  if (document.getElementById(STYLE_ID)) return;
+export const ensureStyle = (): void => {
+  if (document.querySelector(`#${STYLE_ID}`)) {
+    return;
+  }
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = CSS;
   document.head.append(style);
-}
+};
 
 /**
  * The grouped keycap rows both instruction surfaces render — the start screen
  * and the pause overlay teach controls with the SAME UI. Null when nothing is
  * visible for the current device/pad context.
  */
-export function buildControls(coarse: boolean): HTMLElement | null {
+export const buildControls = (coarse: boolean): HTMLElement | null => {
   const groups = controlGroups(CONTROLS, { coarse });
-  if (groups.length === 0) return null;
+  if (groups.length === 0) {
+    return null;
+  }
   const controls = el("div", "sf-pause-controls");
   for (const group of groups) {
     controls.append(el("div", "sf-pause-method", METHOD_LABELS[group.method]));
@@ -213,25 +231,11 @@ export function buildControls(coarse: boolean): HTMLElement | null {
     controls.append(rows);
   }
   return controls;
-}
+};
 
-/**
- * Build Starfall's pause overlay on the shared @repo/embed pause shell — the
- * shell owns resume behavior (pointerup / non-Escape keyup / fresh pad press),
- * this file owns the holographic HUD look. Control rows re-render from the
- * shared manifest fresh on every show(), so plugging a pad in mid-run adds
- * its rows on the next pause.
- */
-export function createStarfallPauseOverlay(): PauseOverlay {
-  return createPauseShell({
-    css: CSS,
-    styleId: STYLE_ID,
-    render: renderPanel,
-  });
-}
-
-function renderPanel(root: HTMLElement): void {
-  root.id = "sf-pause"; // the CSS hook (kept from the pre-shell overlay)
+const renderPanel = (root: HTMLElement): void => {
+  // the CSS hook (kept from the pre-shell overlay)
+  root.id = "sf-pause";
   const coarse = window.matchMedia("(pointer: coarse)").matches;
 
   const panel = el("div", "sf-pause-panel");
@@ -245,10 +249,27 @@ function renderPanel(root: HTMLElement): void {
   );
 
   const controls = buildControls(coarse);
-  if (controls) panel.append(controls);
+  if (controls) {
+    panel.append(controls);
+  }
 
   panel.append(
     el("div", "sf-pause-resume", coarse ? "tap to resume" : "click or any key to resume"),
   );
   root.append(panel);
-}
+};
+
+/**
+ * Build Starfall's pause overlay on the shared @repo/embed pause shell — the
+ * shell owns resume behavior (pointerup / non-Escape keyup / fresh pad press),
+ * this file owns the holographic HUD look. Control rows re-render from the
+ * shared manifest fresh on every show(), so plugging a pad in mid-run adds
+ * its rows on the next pause.
+ */
+export const createStarfallPauseOverlay = (mute: MuteAccessor): PauseOverlay =>
+  createPauseShell({
+    css: CSS,
+    mute,
+    render: renderPanel,
+    styleId: STYLE_ID,
+  });

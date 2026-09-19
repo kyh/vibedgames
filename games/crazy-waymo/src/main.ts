@@ -1,41 +1,121 @@
 import * as THREE from "three";
-import { setPauseHandlers } from "@repo/embed";
+import { describeGpu, setPauseHandlers } from "@repo/embed";
 
 import { FramePacer } from "./render/frame-pacer";
+import { hasReleasedArrays } from "./render/gpu-only-geometry";
 import { PerfGovernor } from "./render/perf-governor";
 import { PostPipeline } from "./render/post";
 import { setRenderCapabilities } from "./render/capabilities";
+import { recordContextLoss, safeMode } from "./render/safe-mode";
 import { isCoarsePointer } from "./render/quality";
+import { installPlaytest } from "./playtest/install";
 import { GameScene } from "./scenes/game-scene";
 import { MAX_DT } from "./shared/constants";
 import { createPauseOverlay } from "./ui/pause-overlay";
 
-const container = document.getElementById("game");
-if (!container) throw new Error("missing #game container");
+const container = document.querySelector("#game");
+if (!container) {
+  throw new Error("missing #game container");
+}
 
-function showFatal(message: string): void {
-  const loading = document.getElementById("loading");
+let reloadOnVeilTap = false;
+document.querySelector("#loading")?.addEventListener("click", () => {
+  if (reloadOnVeilTap) {
+    window.location.reload();
+  }
+});
+
+const showFatal = (message: string, tapToReload = false, detail = ""): void => {
+  const loading = document.querySelector<HTMLElement>("#loading");
   if (loading) {
     // Trailer boots keep the veil hidden from the first paint (see index.html)
     // — a dead context still has to be reported, so force it back on screen.
     loading.style.display = "flex";
     loading.innerHTML = `<div class="lt">CRAZY WAYMO</div><div class="ls" style="opacity:1;color:#ff8a8a">${message}</div>`;
+    if (detail) {
+      // What a phone screenshot has to carry: a lost context cannot be asked.
+      const line = document.createElement("div");
+      line.style.cssText =
+        "margin-top:12px;font-size:11px;color:#8b95a1;word-break:break-word;max-width:28em";
+      line.textContent = detail;
+      loading.append(line);
+    }
+    reloadOnVeilTap = tapToReload;
   }
-}
+};
+
+const hideFatal = (): void => {
+  const loading = document.querySelector<HTMLElement>("#loading");
+  if (loading) {
+    loading.style.display = "none";
+  }
+  reloadOnVeilTap = false;
+};
 
 // MSAA can't be changed after context creation. On dense phone screens the
 // subpixel density plus the sub-native render ratio the governor picks hide
 // the aliasing, and skipping the resolve pass buys real GPU time. Desktop
 // keeps MSAA exactly as before.
 const msaa = !(isCoarsePointer() && (window.devicePixelRatio || 1) >= 2);
-let renderer: THREE.WebGLRenderer;
-try {
-  renderer = new THREE.WebGLRenderer({ antialias: msaa, powerPreference: "high-performance" });
-} catch (err) {
-  console.error("[crazy-waymo] WebGL init failed", err);
-  showFatal("WebGL unavailable — try a different browser or enable hardware acceleration.");
-  throw err instanceof Error ? err : new Error("WebGL init failed");
-}
+// Context creation fails transiently on phones: Chrome's GPU process was just
+// restarted (a background tab reclaimed it) or the page hit the per-process
+// context cap. Retrying after a beat recovers those; the last attempt drops
+// the high-performance / MSAA asks, which a blocklisted or low-power GPU may
+// refuse outright. The browser's own reason is captured so the veil can show it.
+const sleep = (ms: number): Promise<void> =>
+  // oxlint-disable-next-line promise/avoid-new -- wraps the setTimeout callback API
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+const probeCanvas = () => {
+  const canvas = document.createElement("canvas");
+  let reason = "";
+  canvas.addEventListener("webglcontextcreationerror", (event: Event) => {
+    if (event instanceof WebGLContextEvent && event.statusMessage) {
+      reason = event.statusMessage;
+    }
+  });
+  return { canvas, reason: () => reason };
+};
+const createRenderer = async (): Promise<THREE.WebGLRenderer> => {
+  const attempts: THREE.WebGLRendererParameters[] = [
+    { antialias: msaa, powerPreference: "high-performance" },
+    { antialias: msaa, powerPreference: "high-performance" },
+    { antialias: false, powerPreference: "default" },
+  ];
+  let reason = "";
+  let lastError: unknown;
+  for (const [i, params] of attempts.entries()) {
+    const probe = probeCanvas();
+    try {
+      return new THREE.WebGLRenderer({ ...params, canvas: probe.canvas });
+    } catch (error) {
+      lastError = error;
+      reason = probe.reason() || reason;
+      console.error(`[crazy-waymo] WebGL init attempt ${i + 1} failed`, reason || error);
+      await sleep(350 * (i + 1));
+    }
+  }
+  // Chrome blocks WebGL for the top-level page's host for two minutes after
+  // a page under it loses its context twice. Retrying inside that window
+  // fails the same way, so the veil says to wait instead.
+  const blocked = /blocked/iu.test(reason);
+  showFatal(
+    blocked
+      ? "Chrome paused graphics for this site after a crash. Wait two minutes, then tap to reload."
+      : `WebGL unavailable${reason ? ` (${reason})` : ""} — tap to retry, or enable hardware acceleration.`,
+    true,
+    [
+      reason,
+      `${Math.round(performance.now() / 1000)} s after load`,
+      `${screen.width}×${screen.height} @${window.devicePixelRatio}`,
+    ]
+      .filter(Boolean)
+      .join(" · "),
+  );
+  throw lastError instanceof Error ? lastError : new Error("WebGL init failed");
+};
+const renderer = await createRenderer();
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
@@ -44,13 +124,20 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.62;
-container.appendChild(renderer.domElement);
+container.append(renderer.domElement);
 
 // Trailer mode (?trailer=1): forces an offline solo session at construction
 // and skips the landing screen; the director itself is a lazy chunk loaded
 // below — zero cost normally.
 const trailerMode = new URLSearchParams(window.location.search).has("trailer");
 setRenderCapabilities({ multiDraw: renderer.extensions.has("WEBGL_multi_draw") });
+const gpu = describeGpu(renderer.getContext());
+// The floor tier switches the sun off, but the sky bake and the first title
+// frames can render before the governor applies it; in safe mode the shadow
+// map must never exist at all.
+if (safeMode()) {
+  renderer.shadowMap.enabled = false;
+}
 const game = new GameScene(window.innerWidth / window.innerHeight, trailerMode);
 game.applyEnvironment(renderer);
 
@@ -61,25 +148,18 @@ const framePacer = new FramePacer(isCoarsePointer() ? "60hz" : "display");
 framePacer.setHidden(document.hidden);
 
 // Wrapper pause: solo game, safe to fully freeze (see GameScene.requestPause).
-const pauseOverlay = createPauseOverlay(() => game.restartRun());
-setPauseHandlers({
-  onPause: () => {
-    pauseOverlay.show();
-    game.requestPause();
-    framePacer.setPaused(true);
-    governor.resetTiming();
+const pauseOverlay = createPauseOverlay({
+  mute: {
+    get: () => game.muted,
+    set: (next) => {
+      if (next !== game.muted) {
+        game.toggleMute();
+      }
+    },
   },
-  onResume: () => {
-    pauseOverlay.hide();
-    game.requestResume();
-    framePacer.setPaused(false);
-    governor.resetTiming();
-  },
+  onRestart: () => game.restartRun(),
 });
-
-function renderHeightPx(): number {
-  return window.innerHeight * renderer.getPixelRatio();
-}
+const renderHeightPx = (): number => window.innerHeight * renderer.getPixelRatio();
 game.resize(window.innerWidth / window.innerHeight, renderHeightPx());
 
 window.addEventListener("resize", () => {
@@ -98,24 +178,85 @@ const governor = new PerfGovernor(renderer, game.sunLight, (features) => {
   game.resize(window.innerWidth / window.innerHeight, renderHeightPx());
 });
 
+setPauseHandlers({
+  onPause: () => {
+    pauseOverlay.show();
+    game.requestPause();
+    framePacer.setPaused(true);
+    governor.resetTiming();
+  },
+  onResume: () => {
+    pauseOverlay.hide();
+    game.requestResume();
+    framePacer.setPaused(false);
+    governor.resetTiming();
+  },
+});
+
 document.addEventListener("visibilitychange", () => {
   framePacer.setHidden(document.hidden);
   governor.resetTiming();
 });
 
+// A lost WebGL context is what a phone browser hands back when the tab runs
+// out of memory: three stops drawing, the canvas goes blank, and the DOM HUD
+// keeps updating over it as if nothing happened. Say so, and offer the one
+// recovery that works on iOS — a reload (the world caches make it a short
+// one). three already asks the browser for restoration; if it comes, resume.
+renderer.domElement.addEventListener("webglcontextlost", () => {
+  console.error("[crazy-waymo] WebGL context lost");
+  recordContextLoss();
+  const { memory, render } = renderer.info;
+  showFatal(
+    "The browser stopped the graphics (usually low memory). Tap to reload — the game will come back in low-graphics mode.",
+    true,
+    [
+      gpu,
+      `${Math.round(performance.now() / 1000)} s after load`,
+      `tier ${governor.currentTier}/${governor.tierCount - 1}`,
+      safeMode() ? "safe mode" : "full quality",
+      game.modeKind,
+      `${memory.geometries} geo · ${memory.textures} tex · ${render.triangles} tris`,
+      `${screen.width}×${screen.height} @${window.devicePixelRatio}`,
+    ].join(" · "),
+  );
+});
+renderer.domElement.addEventListener("webglcontextrestored", () => {
+  console.warn("[crazy-waymo] WebGL context restored");
+  // Restoration re-uploads every geometry from its heap array. Phones have
+  // released the static ones (render/gpu-only-geometry.ts), so the rebuilt
+  // city would be empty — a reload is the only complete recovery there.
+  if (hasReleasedArrays()) {
+    showFatal("Graphics restored — reloading…");
+    window.location.reload();
+    return;
+  }
+  hideFatal();
+  governor.resetTiming();
+  framePacer.invalidate();
+});
+
 if (import.meta.env.DEV) {
-  void import("./debug/dev-hooks").then(({ installDevHooks }) => installDevHooks(game, governor));
-  Object.assign(window, { __renderer: renderer, __waymo: game, __post: post });
+  void (async () => {
+    const { installDevHooks } = await import("./debug/dev-hooks");
+    installDevHooks(game, governor);
+  })();
+  Object.assign(window, { __post: post, __renderer: renderer, __waymo: game });
 }
 
-function drawScene(): void {
-  if (post) post.render();
-  else renderer.render(game.scene, game.camera);
-}
+const drawScene = (): void => {
+  if (post) {
+    post.render();
+  } else {
+    renderer.render(game.scene, game.camera);
+  }
+};
 
 renderer.setAnimationLoop((t) => {
   const frame = framePacer.next(t);
-  if (frame.kind === "skip") return;
+  if (frame.kind === "skip") {
+    return;
+  }
   if (frame.kind === "draw") {
     drawScene();
     return;
@@ -123,7 +264,9 @@ renderer.setAnimationLoop((t) => {
   // Build/paused frames are not gameplay cost. Phone pairs normalize 90 Hz
   // callback quantization while preserving the governor's elapsed wall time.
   if (game.isReady && frame.timing) {
-    for (let i = 0; i < frame.timing.samples; i++) governor.update(frame.timing.dt);
+    for (let i = 0; i < frame.timing.samples; i += 1) {
+      governor.update(frame.timing.dt);
+    }
   }
   const dt = Math.min(frame.dt, MAX_DT);
   const tU = performance.now();
@@ -142,26 +285,38 @@ renderer.setAnimationLoop((t) => {
 
 const loaded = game.load();
 
+// The contract appears only once a run can start: `vg playtest run` waits for
+// it, then calls setState('active-play') straight away. A trailer owns its run.
+if (!trailerMode) {
+  void (async () => {
+    await loaded;
+    await game.ready;
+    installPlaytest(game);
+  })();
+}
+
 // Map editor: open with ?editor=1, place assets, export JSON for
 // world/custom-props.ts. Lazy chunk — costs nothing on normal loads.
 if (new URLSearchParams(window.location.search).has("editor")) {
-  void Promise.all([import("./editor/map-editor"), loaded]).then(async ([{ startEditor }]) => {
-    await game.ready; // editor needs the fully built city
+  void (async () => {
+    const [{ startEditor }] = await Promise.all([import("./editor/map-editor"), loaded]);
+    // editor needs the fully built city
+    await game.ready;
     await startEditor(game, renderer);
-  });
+  })();
 }
 
 // TRAILER MODE: ?trailer=1 plays a fully staged in-game trailer (see
 // src/trailer/). Lazy chunk, mirrors the editor wiring.
 if (trailerMode) {
-  void Promise.all([import("./trailer/trailer-director"), loaded]).then(
-    async ([{ startTrailer }]) => {
-      await game.ready; // staging needs traffic/physics/cones — full readiness
-      await game.prepareTrailer();
-      startTrailer(game, () => {
-        drawScene();
-        return renderer.domElement;
-      });
-    },
-  );
+  void (async () => {
+    const [{ startTrailer }] = await Promise.all([import("./trailer/trailer-director"), loaded]);
+    // staging needs traffic/physics/cones — full readiness
+    await game.ready;
+    await game.prepareTrailer();
+    startTrailer(game, () => {
+      drawScene();
+      return renderer.domElement;
+    });
+  })();
 }

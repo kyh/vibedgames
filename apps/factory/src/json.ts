@@ -12,17 +12,19 @@ export type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
-export type JsonObject = { [key: string]: JsonValue };
+export interface JsonObject {
+  [key: string]: JsonValue;
+}
 
 /** Parse text as JSON, or undefined when malformed (JSON never encodes undefined). */
-export function parseJson(text: string): JsonValue | undefined {
+export const parseJson = (text: string): JsonValue | undefined => {
   try {
     const value: JsonValue = JSON.parse(text);
     return value;
   } catch {
     return undefined;
   }
-}
+};
 
 // `String(v) === v` / `Number(v) === v` hold exactly for primitive strings /
 // numbers (strict equality never coerces), so these predicates are sound

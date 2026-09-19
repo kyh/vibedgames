@@ -1,6 +1,6 @@
 ---
 name: image-to-threejs
-description: "REQUIRES `uv` + Python 3.12 and a one-time `git clone` — unlike the other asset skills, this one is not Node-only. Turn a generated reference image into a rigged, procedural Three.js prop — code, not a mesh file. Generate ONE clean product-shot reference with `vg generate`, author a component spec (parts, materials, pivots, sockets, colliders), emit a TypeScript factory, normalize it, and drop it into a Three.js game with its hinge/socket rig intact. Use for hero props that need to ANIMATE or come apart: chests, doors, levers, crates, weapons, machines. Triggers: 'make a 3d chest/door/prop', 'image to three.js code', 'procedural three.js model', 'model this object in code', 'openable chest', 'rigged prop'."
+description: "Turn a reference image into a rigged, procedural Three.js prop as TypeScript code (hinges, sockets, colliders) for props that must animate or come apart. Needs uv + Python 3.12."
 metadata:
   short-description: "Reference image -> component spec -> procedural Three.js factory with pivots + sockets."
 ---
@@ -303,7 +303,7 @@ the authoring step calls for). Details and traps: `references/spec-contract.md`.
   internals that change upstream — safety is enforced at the typed import site.
 
 Name it `<object>-factory.generated.ts` — the `.generated.ts` suffix is what
-`.oxlintrc.json` ignores (keeping the generator's `Record<string, any>` out of
+`oxlint.config.ts` ignores (keeping the generator's `Record<string, any>` out of
 `pnpm lint`), and the object-named prefix keeps a second prop from colliding.
 Pass `--keep-action-profile` if you read colliders or fracture groups at
 runtime.

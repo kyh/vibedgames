@@ -7,25 +7,27 @@ import { createMobileSession } from "./mobile-browser-session.mjs";
 const url = process.argv[2] ?? "http://localhost:5193/?time=noon&offline=1";
 const output = path.resolve(process.argv[3] ?? "/private/tmp/waymo-sfx");
 const { call, evaluate, until, sleep, screenshot, close, pageErrors } = await createMobileSession({
-  sessionPrefix: "crazy-waymo-sfx",
   output,
+  sessionPrefix: "crazy-waymo-sfx",
 });
-const report = { url, checkedAt: new Date().toISOString(), checks: [] };
-function check(name, passed, evidence) {
-  report.checks.push({ name, passed, evidence });
-  console.log(JSON.stringify({ name, passed, evidence }));
-  if (!passed) throw new Error(name);
-}
+const report = { checkedAt: new Date().toISOString(), checks: [], url };
+const check = (name, passed, evidence) => {
+  report.checks.push({ evidence, name, passed });
+  console.log(JSON.stringify({ evidence, name, passed }));
+  if (!passed) {
+    throw new Error(name);
+  }
+};
 const count = (method) =>
   evaluate(`window.__sfxEvents.filter(event => event.method === ${JSON.stringify(method)}).length`);
 const diagnostics = () => evaluate("window.__taxi.game.sfx.diagnostics()");
-async function key(name, code, virtualKey, hold = 80) {
-  const event = { key: name, code, windowsVirtualKeyCode: virtualKey };
+const key = async (name, code, virtualKey, hold = 80) => {
+  const event = { code, key: name, windowsVirtualKeyCode: virtualKey };
   await call("Input.dispatchKeyEvent", { ...event, type: "keyDown" });
   await sleep(hold);
   await call("Input.dispatchKeyEvent", { ...event, type: "keyUp" });
-}
-async function click(selector) {
+};
+const click = async (selector) => {
   await until(
     `(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)return false;const r=e.getBoundingClientRect();return r.width>0&&r.height>0&&e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))})()`,
   );
@@ -34,19 +36,19 @@ async function click(selector) {
   );
   await call("Input.dispatchMouseEvent", { type: "mouseMoved", ...point });
   await call("Input.dispatchMouseEvent", {
-    type: "mousePressed",
     button: "left",
     clickCount: 1,
+    type: "mousePressed",
     ...point,
   });
   await call("Input.dispatchMouseEvent", {
-    type: "mouseReleased",
     button: "left",
     clickCount: 1,
+    type: "mouseReleased",
     ...point,
   });
-}
-async function stageFareObjective() {
+};
+const stageFareObjective = async () => {
   await evaluate(`(()=>{
     const game = window.__taxi.game;
     const objective = game.fares.objective();
@@ -60,15 +62,15 @@ async function stageFareObjective() {
     game.car.reset(hit.x + dx / distance * offset, hit.z + dz / distance * offset, Math.atan2(hit.tx, hit.tz));
     game.rig.snapTo(game.car);
   })()`);
-}
+};
 try {
   await call("Runtime.enable");
   await call("Page.enable");
   await call("Emulation.setDeviceMetricsOverride", {
-    width: 1440,
-    height: 900,
     deviceScaleFactor: 1,
+    height: 900,
     mobile: false,
+    width: 1440,
   });
   await call("Page.navigate", { url });
   await until('window.__taxi?.game.isReady && window.__taxi.game.mode.kind === "title"');
@@ -83,13 +85,15 @@ try {
       };
     }
   })()`);
-  if (await evaluate("window.__taxi.game.sfx.muted")) await key("m", "KeyM", 77);
+  if (await evaluate("window.__taxi.game.sfx.muted")) {
+    await key("m", "KeyM", 77);
+  }
   await click("#banner-cta");
   await until('window.__taxi.game.mode.kind === "playing"');
   await until(
     "(()=>{const bank=window.__taxi.game.sfx.diagnostics().bank;return bank.loaded + bank.failed.length === bank.total})()",
   );
-  const bank = (await diagnostics()).bank;
+  const { bank } = await diagnostics();
   if (bank.failed.length > 0) {
     report.assetFailures = await evaluate(`(async()=>{
       const ctx = new AudioContext();
@@ -126,7 +130,7 @@ try {
       return { rms: Math.sqrt(sum / (12 * values.length)), peak };
     };
   })()`);
-  const motion = (await diagnostics()).loops;
+  const { loops: motion } = await diagnostics();
   check(
     "every motion layer uses a generated clip",
     motion.length === 6 && motion.every((loop) => loop.sampled),
@@ -140,9 +144,9 @@ try {
 
   await evaluate("window.__taxi.teleport(0.37, 0.39)");
   await call("Input.dispatchKeyEvent", {
-    type: "keyDown",
-    key: "w",
     code: "KeyW",
+    key: "w",
+    type: "keyDown",
     windowsVirtualKeyCode: 87,
   });
   await until("window.__taxi.game.car.speed > 10");
@@ -154,9 +158,9 @@ try {
   );
   await key("Shift", "ShiftLeft", 16, 400);
   await call("Input.dispatchKeyEvent", {
-    type: "keyUp",
-    key: "w",
     code: "KeyW",
+    key: "w",
+    type: "keyUp",
     windowsVirtualKeyCode: 87,
   });
   await until('window.__sfxEvents.some(event => event.method === "boostEnd")');
@@ -184,9 +188,10 @@ try {
   await screenshot("paused");
   await key("Escape", "Escape", 27);
   await until("!window.__taxi.game.paused");
+  const resumed = await diagnostics();
   check(
     "resume restores audio",
-    (await diagnostics()).paused === false && (await count("resume")) === 1,
+    resumed.paused === false && (await count("resume")) === 1,
     await diagnostics(),
   );
   await key("r", "KeyR", 82);
@@ -259,15 +264,17 @@ try {
   const { targetId: otherTab } = await call("Target.createTarget", { url: "about:blank" });
   await call("Target.activateTarget", { targetId: otherTab });
   await until("document.hidden && window.__taxi.game.sfx.diagnostics().context === 'suspended'");
+  const hidden = await diagnostics();
   check(
     "hidden page suspends audio",
-    (await diagnostics()).hidden === true && (await diagnostics()).context === "suspended",
+    hidden.hidden === true && hidden.context === "suspended",
     await diagnostics(),
   );
   await call("Target.activateTarget", { targetId: targetInfo.targetId });
   await call("Target.closeTarget", { targetId: otherTab });
   await until("!document.hidden && window.__taxi.game.sfx.diagnostics().context === 'running'");
-  check("visible page restores audio", (await diagnostics()).hidden === false, await diagnostics());
+  const visible = await diagnostics();
+  check("visible page restores audio", visible.hidden === false, await diagnostics());
   await key("Escape", "Escape", 27);
   await until("window.__taxi.game.paused");
   const { targetId: pausedTab } = await call("Target.createTarget", { url: "about:blank" });
@@ -296,13 +303,19 @@ try {
   try {
     report.finalAudio = await diagnostics();
     report.events = await evaluate("window.__sfxEvents");
-  } catch {}
+  } catch {
+    // A dead page cannot describe its own audio; the failure above is the report.
+  }
   try {
     await screenshot("failure");
-  } catch {}
+  } catch {
+    // A dead page cannot be photographed; the failure above is the report.
+  }
 } finally {
   report.passed = !report.failure && report.checks.every((entry) => entry.passed);
   writeFileSync(path.join(output, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
   close();
 }
-if (!report.passed) process.exitCode = 1;
+if (!report.passed) {
+  process.exitCode = 1;
+}

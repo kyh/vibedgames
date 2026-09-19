@@ -5,16 +5,16 @@ import { isFiniteJsonNumber, isJsonObject, parseJsonText } from "../shared/json"
 // Cells are [gx, gz] grid coordinates. `add` turns a cell into road; `remove`
 // deletes a road cell. Applied in grid.ts on top of the baked OSM mask —
 // paint in the editor, Copy map JSON, paste here, reload/deploy.
-type CustomMapEdits = {
+interface CustomMapEdits {
   add: readonly (readonly [number, number])[];
   remove: readonly (readonly [number, number])[];
   floor: readonly (readonly [number, number, FloorKind])[];
-};
+}
 
 export const CUSTOM_MAP: CustomMapEdits = {
   add: [],
-  remove: [],
   floor: [],
+  remove: [],
 };
 
 // Paintable ground surfaces (editor "Floor" mode).
@@ -24,46 +24,54 @@ export const FLOOR_KINDS: readonly FloorKind[] = ["plaza", "grass", "sand"];
 // Browser-local (unbaked) edits live here between editor sessions.
 export const MAP_OVERRIDES_KEY = "crazy-waymo:map-overrides";
 
-export type MapOverrides = {
+export interface MapOverrides {
   add: [number, number][];
   remove: [number, number][];
   floor: [number, number, FloorKind][];
   // Cells where GENERATED content (buildings, props, park tiles) is
   // suppressed — the editor's "clear" brush. Applied on rebuild.
   clear?: [number, number][];
-};
+}
 
 // Local (per-browser) edits ONLY apply inside the editor. Normal play must
 // run the canonical baked map — multiplayer shares one deterministic city,
 // and a locally forked map would desync it. Ship edits to everyone by
 // pasting Copy-map-JSON into CUSTOM_MAP above.
-export function editorMode(): boolean {
+export const editorMode = (): boolean => {
   try {
     return new URLSearchParams(window.location.search).has("editor");
   } catch {
     return false;
   }
-}
+};
 
-export function loadLocalOverrides(): MapOverrides {
+export const loadLocalOverrides = (): MapOverrides => {
   const rt = getRuntimeMap();
   if (rt) {
     return {
       add: rt.streets.add,
-      remove: rt.streets.remove,
-      floor: rt.floor,
       clear: rt.clear ?? [],
+      floor: rt.floor,
+      remove: rt.streets.remove,
     };
   }
-  if (!editorMode()) return { add: [], remove: [], floor: [] };
+  if (!editorMode()) {
+    return { add: [], floor: [], remove: [] };
+  }
   try {
     const raw = window.localStorage.getItem(MAP_OVERRIDES_KEY);
-    if (!raw) return { add: [], remove: [], floor: [] };
+    if (!raw) {
+      return { add: [], floor: [], remove: [] };
+    }
     const parsed = parseJsonText(raw);
-    if (!isJsonObject(parsed)) return { add: [], remove: [], floor: [] };
+    if (!isJsonObject(parsed)) {
+      return { add: [], floor: [], remove: [] };
+    }
     const pick = (k: "add" | "remove"): [number, number][] => {
       const v = parsed[k];
-      if (!Array.isArray(v)) return [];
+      if (!Array.isArray(v)) {
+        return [];
+      }
       const out: [number, number][] = [];
       for (const c of v) {
         if (Array.isArray(c) && isFiniteJsonNumber(c[0]) && isFiniteJsonNumber(c[1])) {
@@ -86,16 +94,16 @@ export function loadLocalOverrides(): MapOverrides {
         }
       }
     }
-    return { add: pick("add"), remove: pick("remove"), floor };
+    return { add: pick("add"), floor, remove: pick("remove") };
   } catch {
-    return { add: [], remove: [], floor: [] };
+    return { add: [], floor: [], remove: [] };
   }
-}
+};
 
-export function saveLocalOverrides(o: MapOverrides): void {
+export const saveLocalOverrides = (o: MapOverrides): void => {
   try {
     window.localStorage.setItem(MAP_OVERRIDES_KEY, JSON.stringify(o));
   } catch {
     // Sandboxed storage just loses persistence, never the editor.
   }
-}
+};

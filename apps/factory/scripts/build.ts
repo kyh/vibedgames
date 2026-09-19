@@ -13,25 +13,25 @@
 // right platform package on first use and execs its binary.
 import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import path from "node:path";
 
 import { asJsonObject, isJsonString } from "../src/json.ts";
 import type { JsonValue } from "../src/json.ts";
 
-type Target = {
+interface Target {
   os: "darwin" | "linux" | "win32";
   cpu: "x64" | "arm64";
   bunTarget: string;
-};
+}
 
 // opentui also ships win32-arm64, but bun can't cross-compile to it yet.
 // Linux targets are glibc; musl users are out of luck for now.
 const allTargets: Target[] = [
-  { os: "darwin", cpu: "arm64", bunTarget: "bun-darwin-arm64" },
-  { os: "darwin", cpu: "x64", bunTarget: "bun-darwin-x64" },
-  { os: "linux", cpu: "arm64", bunTarget: "bun-linux-arm64" },
-  { os: "linux", cpu: "x64", bunTarget: "bun-linux-x64" },
-  { os: "win32", cpu: "x64", bunTarget: "bun-windows-x64" },
+  { bunTarget: "bun-darwin-arm64", cpu: "arm64", os: "darwin" },
+  { bunTarget: "bun-darwin-x64", cpu: "x64", os: "darwin" },
+  { bunTarget: "bun-linux-arm64", cpu: "arm64", os: "linux" },
+  { bunTarget: "bun-linux-x64", cpu: "x64", os: "linux" },
+  { bunTarget: "bun-windows-x64", cpu: "x64", os: "win32" },
 ];
 
 const hostOnly = process.argv.includes("--host");
@@ -42,24 +42,24 @@ if (targets.length === 0) {
   throw new Error(`No build target matches this host (${process.platform}-${process.arch}).`);
 }
 
-const rootDir = join(import.meta.dirname, "..");
-const outDir = join(rootDir, "dist", "npm");
+const rootDir = path.join(import.meta.dirname, "..");
+const outDir = path.join(rootDir, "dist", "npm");
 
-const manifest: JsonValue = JSON.parse(readFileSync(join(rootDir, "package.json"), "utf8"));
+const manifest: JsonValue = JSON.parse(readFileSync(path.join(rootDir, "package.json"), "utf-8"));
 const version = asJsonObject(manifest)?.version;
 if (!isJsonString(version)) {
   throw new Error("apps/factory/package.json is missing a string version");
 }
 const description = "vibedgames factory — an autonomous agent that builds and runs browser games";
 
-rmSync(outDir, { recursive: true, force: true });
+rmSync(outDir, { force: true, recursive: true });
 
 const platformPackageName = (target: Target) => `@vibedgames/factory-${target.os}-${target.cpu}`;
 
 for (const target of targets) {
-  const packageDir = join(outDir, `factory-${target.os}-${target.cpu}`);
+  const packageDir = path.join(outDir, `factory-${target.os}-${target.cpu}`);
   const binName = target.os === "win32" ? "vg-factory.exe" : "vg-factory";
-  mkdirSync(join(packageDir, "bin"), { recursive: true });
+  mkdirSync(path.join(packageDir, "bin"), { recursive: true });
 
   const result = spawnSync(
     "bun",
@@ -67,27 +67,27 @@ for (const target of targets) {
       "build",
       "--compile",
       `--target=${target.bunTarget}`,
-      join(rootDir, "src", "index.ts"),
+      path.join(rootDir, "src", "index.ts"),
       "--outfile",
-      join(packageDir, "bin", binName),
+      path.join(packageDir, "bin", binName),
     ],
-    { stdio: "inherit", cwd: rootDir },
+    { cwd: rootDir, stdio: "inherit" },
   );
   if (result.status !== 0) {
     throw new Error(`bun build failed for ${target.bunTarget}`);
   }
 
   writeFileSync(
-    join(packageDir, "package.json"),
+    path.join(packageDir, "package.json"),
     JSON.stringify(
       {
-        name: platformPackageName(target),
-        version,
-        description: `${description} (${target.os}-${target.cpu} binary)`,
-        os: [target.os],
         cpu: [target.cpu],
+        description: `${description} (${target.os}-${target.cpu} binary)`,
         files: ["bin"],
+        name: platformPackageName(target),
+        os: [target.os],
         publishConfig: { access: "public" },
+        version,
       },
       null,
       2,

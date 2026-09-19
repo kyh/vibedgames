@@ -33,30 +33,38 @@ export const SIGN_LABEL_ASPECT =
 export const SIGN_ATLAS_BYTES = (SIGN_ATLAS_WIDTH * SIGN_ATLAS_HEIGHT * 4 * 4) / 3;
 
 /** District vocabulary, varied per shop without implying real business locations. */
-export function shopSignIndex(district: string, seed: number, unit: number): number {
-  const variant = ((seed >>> 6) + unit) % 2;
+export const shopSignIndex = (district: string, seed: number, unit: number): number => {
+  const variant = (Math.floor(seed / 64) + unit) % 2;
   switch (district) {
-    case "the Sunset":
+    case "the Sunset": {
       return variant;
-    case "the Richmond":
+    }
+    case "the Richmond": {
       return 2 + variant;
+    }
     case "North Beach":
-    case "Russian Hill":
+    case "Russian Hill": {
       return 4 + variant;
-    case "Chinatown":
+    }
+    case "Chinatown": {
       return 6 + variant;
+    }
     case "the Haight":
     case "Hayes Valley":
-    case "Alamo Square":
+    case "Alamo Square": {
       return 8 + variant;
+    }
     case "the Mission":
-    case "the Outer Mission":
+    case "the Outer Mission": {
       return 10 + variant;
+    }
     case "SoMa":
     case "Dogpatch":
-    case "the Embarcadero":
+    case "the Embarcadero": {
       return 12 + variant;
-    default:
+    }
+    default: {
       return 14 + variant;
+    }
   }
-}
+};

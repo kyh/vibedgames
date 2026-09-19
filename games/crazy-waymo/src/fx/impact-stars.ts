@@ -13,7 +13,7 @@ const LIFE = 0.7;
 const HOLD = 0.45;
 
 /** 5-point star, warm yellow fill + thin white rim, generated at boot. */
-function starTexture(): THREE.CanvasTexture {
+const starTexture = (): THREE.CanvasTexture => {
   const size = 128;
   const canvas = document.createElement("canvas");
   canvas.width = size;
@@ -25,13 +25,16 @@ function starTexture(): THREE.CanvasTexture {
     const outer = size * 0.44;
     const inner = outer * 0.48;
     ctx.beginPath();
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 10; i += 1) {
       const r = i % 2 === 0 ? outer : inner;
       const a = (i / 10) * Math.PI * 2 - Math.PI / 2;
       const x = cx + Math.cos(a) * r;
       const y = cy + Math.sin(a) * r;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
+      if (i === 0) {
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
+      }
     }
     ctx.closePath();
     ctx.fillStyle = "#ffd147";
@@ -44,19 +47,22 @@ function starTexture(): THREE.CanvasTexture {
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
-}
+};
 
-type Star = {
+interface Star {
   readonly sprite: THREE.Sprite;
   readonly mat: THREE.SpriteMaterial;
   vx: number;
   vy: number;
   vz: number;
-  spin: number; // rad/s
+  // rad/s
+  spin: number;
   size: number;
-  life: number; // remaining; <= 0 = idle
-  stamp: number; // activation order, for stealing the oldest
-};
+  // remaining; <= 0 = idle
+  life: number;
+  // activation order, for stealing the oldest
+  stamp: number;
+}
 
 export class ImpactStars {
   readonly group = new THREE.Group();
@@ -65,19 +71,20 @@ export class ImpactStars {
 
   constructor() {
     const tex = starTexture();
-    for (let i = 0; i < POOL; i++) {
+    for (let i = 0; i < POOL; i += 1) {
       // Per-sprite material: SpriteMaterial.rotation is what spins the star.
       const mat = new THREE.SpriteMaterial({
-        map: tex,
-        transparent: true,
         depthWrite: false,
+        map: tex,
         opacity: 0,
+        transparent: true,
       });
       const sprite = new THREE.Sprite(mat);
       sprite.visible = false;
-      sprite.renderOrder = 12; // above the car and the smoke/spark pools
+      // above the car and the smoke/spark pools
+      sprite.renderOrder = 12;
       this.group.add(sprite);
-      this.stars.push({ sprite, mat, vx: 0, vy: 0, vz: 0, spin: 0, size: 1, life: 0, stamp: 0 });
+      this.stars.push({ life: 0, mat, size: 1, spin: 0, sprite, stamp: 0, vx: 0, vy: 0, vz: 0 });
     }
   }
 
@@ -85,7 +92,7 @@ export class ImpactStars {
   burst(x: number, y: number, z: number, power: number): void {
     const count = 3 + Math.round(Math.min(1, Math.max(0, power)) * 2);
     const base = Math.random() * Math.PI * 2;
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < count; i += 1) {
       const star = this.claim();
       // Loose ring: even spacing plus jitter, so the burst reads as a shape
       // (the dustRing lesson: coherent ring beats noisy swarm).
@@ -97,7 +104,8 @@ export class ImpactStars {
       star.spin = (Math.random() < 0.5 ? -1 : 1) * (3 + Math.random() * 5);
       star.size = 0.5 + power * 0.3 + Math.random() * 0.1;
       star.life = LIFE * (0.85 + Math.random() * 0.3);
-      star.stamp = ++this.clock;
+      this.clock += 1;
+      star.stamp = this.clock;
       star.sprite.position.set(x, y + 0.6, z);
       star.sprite.scale.setScalar(star.size);
       star.mat.rotation = Math.random() * Math.PI * 2;
@@ -108,7 +116,9 @@ export class ImpactStars {
 
   update(dt: number): void {
     for (const star of this.stars) {
-      if (star.life <= 0) continue;
+      if (star.life <= 0) {
+        continue;
+      }
       star.life -= dt;
       if (star.life <= 0) {
         star.sprite.visible = false;
@@ -126,16 +136,21 @@ export class ImpactStars {
   }
 
   private claim(): Star {
-    let best = this.stars[0];
+    let [best] = this.stars;
     let bestStamp = Infinity;
     for (const star of this.stars) {
-      if (star.life <= 0) return star;
+      if (star.life <= 0) {
+        return star;
+      }
       if (star.stamp < bestStamp) {
         bestStamp = star.stamp;
         best = star;
       }
     }
-    if (best) return best;
-    throw new Error("impact-star pool is empty"); // unreachable: POOL > 0
+    if (best) {
+      return best;
+    }
+    // unreachable: POOL > 0
+    throw new Error("impact-star pool is empty");
   }
 }

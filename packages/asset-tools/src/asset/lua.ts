@@ -19,14 +19,18 @@ export class LuaParseError extends Error {
 export type LuaValue = string | number | boolean | null | LuaValue[] | { [key: string]: LuaValue };
 
 type TokenType = "{" | "}" | "[" | "]" | "=" | "," | ";" | "string" | "number" | "ident" | "eof";
-type Token = { type: TokenType; value: string; pos: number };
+interface Token {
+  type: TokenType;
+  value: string;
+  pos: number;
+}
 
-const IDENT_START = /[A-Za-z_]/;
-const IDENT_BODY = /[A-Za-z0-9_]/;
+const IDENT_START = /[A-Za-z_]/u;
+const IDENT_BODY = /[A-Za-z0-9_]/u;
 
 type Punctuation = "{" | "}" | "[" | "]" | "=" | "," | ";";
 
-function punctuationOf(ch: string): Punctuation | null {
+const punctuationOf = (ch: string): Punctuation | null => {
   switch (ch) {
     case "{":
     case "}":
@@ -34,125 +38,156 @@ function punctuationOf(ch: string): Punctuation | null {
     case "]":
     case "=":
     case ",":
-    case ";":
+    case ";": {
       return ch;
-    default:
+    }
+    default: {
       return null;
+    }
   }
+};
+
+const isSpace = (ch: string): boolean => ch !== "" && /\s/u.test(ch);
+
+const isDigit = (ch: string): boolean => ch >= "0" && ch <= "9";
+
+/** Where the lexer is in the source; `charAt` past the end reads as "". */
+interface Cursor {
+  readonly text: string;
+  i: number;
 }
 
-function isSpace(ch: string): boolean {
-  return ch !== "" && /\s/.test(ch);
-}
+const peek = (cur: Cursor, n = 0): string => cur.text.charAt(cur.i + n);
 
-function isDigit(ch: string): boolean {
-  return ch >= "0" && ch <= "9";
-}
-
-function tokenize(text: string): Token[] {
-  const tokens: Token[] = [];
-  let i = 0;
-
-  const peek = (n = 0) => (i + n < text.length ? text[i + n]! : "");
-
-  const skipTrivia = () => {
-    for (;;) {
-      while (isSpace(peek())) i += 1;
-      if (peek() !== "-" || peek(1) !== "-") return;
-      i += 2;
-      if (peek() === "[" && peek(1) === "[") {
-        i += 2;
-        const end = text.indexOf("]]", i);
-        // An unterminated long comment swallows the rest of the file, which
-        // is what the Lua lexer itself does.
-        i = end === -1 ? text.length : end + 2;
-      } else {
-        while (peek() !== "" && peek() !== "\n") i += 1;
+const skipTrivia = (cur: Cursor): void => {
+  for (;;) {
+    while (isSpace(peek(cur))) {
+      cur.i += 1;
+    }
+    if (peek(cur) !== "-" || peek(cur, 1) !== "-") {
+      return;
+    }
+    cur.i += 2;
+    if (peek(cur) === "[" && peek(cur, 1) === "[") {
+      cur.i += 2;
+      const end = cur.text.indexOf("]]", cur.i);
+      // An unterminated long comment swallows the rest of the file, which
+      // is what the Lua lexer itself does.
+      cur.i = end === -1 ? cur.text.length : end + 2;
+    } else {
+      while (peek(cur) !== "" && peek(cur) !== "\n") {
+        cur.i += 1;
       }
     }
-  };
+  }
+};
+
+const ESCAPES = new Map([
+  ["n", "\n"],
+  ["t", "\t"],
+  ["r", "\r"],
+  ['"', '"'],
+  ["'", "'"],
+  ["\\", "\\"],
+]);
+
+/** Read a quoted string; the cursor sits on the opening quote. */
+const readString = (cur: Cursor): string => {
+  const quote = peek(cur);
+  cur.i += 1;
+  const out: string[] = [];
+  for (;;) {
+    const c = peek(cur);
+    if (c === "") {
+      throw new LuaParseError("Unterminated string");
+    }
+    if (c === quote) {
+      cur.i += 1;
+      return out.join("");
+    }
+    if (c === "\\") {
+      cur.i += 1;
+      const esc = peek(cur);
+      // Unknown escapes are preserved verbatim rather than dropped, so a
+      // Windows path in a manifest survives the round trip.
+      out.push(ESCAPES.get(esc) ?? `\\${esc}`);
+      if (esc !== "") {
+        cur.i += 1;
+      }
+      continue;
+    }
+    out.push(c);
+    cur.i += 1;
+  }
+};
+
+const readWhile = (cur: Cursor, from: number, accept: (ch: string) => boolean): string => {
+  let j = from;
+  while (j < cur.text.length && accept(cur.text.charAt(j))) {
+    j += 1;
+  }
+  const value = cur.text.slice(cur.i, j);
+  cur.i = j;
+  return value;
+};
+
+const tokenize = (text: string): Token[] => {
+  const tokens: Token[] = [];
+  const cur: Cursor = { i: 0, text };
 
   for (;;) {
-    skipTrivia();
-    if (i >= text.length) {
-      tokens.push({ type: "eof", value: "", pos: i });
+    skipTrivia(cur);
+    if (cur.i >= text.length) {
+      tokens.push({ pos: cur.i, type: "eof", value: "" });
       return tokens;
     }
 
-    const ch = peek();
-    const pos = i;
+    const ch = peek(cur);
+    const pos = cur.i;
 
     const punctuation = punctuationOf(ch);
     if (punctuation !== null) {
-      tokens.push({ type: punctuation, value: punctuation, pos });
-      i += 1;
+      tokens.push({ pos, type: punctuation, value: punctuation });
+      cur.i += 1;
       continue;
     }
 
     if (ch === "'" || ch === '"') {
-      const quote = ch;
-      i += 1;
-      const out: string[] = [];
-      for (;;) {
-        const c = peek();
-        if (c === "") throw new LuaParseError("Unterminated string");
-        if (c === quote) {
-          i += 1;
-          break;
-        }
-        if (c === "\\") {
-          i += 1;
-          const esc = peek();
-          if (esc === "n") out.push("\n");
-          else if (esc === "t") out.push("\t");
-          else if (esc === "r") out.push("\r");
-          else if (esc === '"' || esc === "'" || esc === "\\") out.push(esc);
-          // Unknown escapes are preserved verbatim rather than dropped, so a
-          // Windows path in a manifest survives the round trip.
-          else out.push(`\\${esc}`);
-          if (esc !== "") i += 1;
-          continue;
-        }
-        out.push(c);
-        i += 1;
-      }
-      tokens.push({ type: "string", value: out.join(""), pos });
+      tokens.push({ pos, type: "string", value: readString(cur) });
       continue;
     }
 
-    if (isDigit(ch) || (ch === "-" && isDigit(peek(1)))) {
-      let j = ch === "-" ? i + 1 : i;
-      while (j < text.length && (isDigit(text[j]!) || text[j] === ".")) j += 1;
-      tokens.push({ type: "number", value: text.slice(i, j), pos });
-      i = j;
+    if (isDigit(ch) || (ch === "-" && isDigit(peek(cur, 1)))) {
+      const from = ch === "-" ? cur.i + 1 : cur.i;
+      const value = readWhile(cur, from, (c) => isDigit(c) || c === ".");
+      tokens.push({ pos, type: "number", value });
       continue;
     }
 
     if (IDENT_START.test(ch)) {
-      let j = i + 1;
-      while (j < text.length && IDENT_BODY.test(text[j]!)) j += 1;
-      tokens.push({ type: "ident", value: text.slice(i, j), pos });
-      i = j;
+      const value = readWhile(cur, cur.i + 1, (c) => IDENT_BODY.test(c));
+      tokens.push({ pos, type: "ident", value });
       continue;
     }
 
     throw new LuaParseError(`Unexpected character at ${pos}: '${ch}'`);
   }
-}
+};
 
 type TableKey = { kind: "index"; index: number } | { kind: "name"; name: string };
 
-function numberTokenValue(raw: string): number {
-  return raw.includes(".") ? Number.parseFloat(raw) : Number.parseInt(raw, 10);
-}
+const numberTokenValue = (raw: string): number =>
+  // oxlint-disable-next-line unicorn/prefer-number-coercion -- a token like `1.2.3` must read its leading number, not NaN
+  raw.includes(".") ? Number.parseFloat(raw) : Number.parseInt(raw, 10);
 
 /** Parse a Lua table literal (optionally `return`-prefixed) into JSON data. */
-export function parseLua(text: string): LuaValue {
+export const parseLua = (text: string): LuaValue => {
   const tokens = tokenize(text);
   let k = 0;
 
-  const cur = () => tokens[k]!;
-  const peek = (n = 1) => tokens[Math.min(k + n, tokens.length - 1)]!;
+  const EOF: Token = { pos: text.length, type: "eof", value: "" };
+  const cur = () => tokens[k] ?? EOF;
+  const peekToken = (n = 1) => tokens[Math.min(k + n, tokens.length - 1)] ?? EOF;
   const eat = (type?: TokenType) => {
     const token = cur();
     if (type !== undefined && token.type !== type) {
@@ -164,7 +199,10 @@ export function parseLua(text: string): LuaValue {
 
   const parseValue = (): LuaValue => {
     const token = cur();
-    if (token.type === "{") return parseTable();
+    if (token.type === "{") {
+      // oxlint-disable-next-line no-use-before-define -- mutually recursive with parseTable
+      return parseTable();
+    }
     if (token.type === "string") {
       eat("string");
       return token.value;
@@ -197,7 +235,7 @@ export function parseLua(text: string): LuaValue {
     let arrayIndex = 1;
 
     while (cur().type !== "}") {
-      if (cur().type === "ident" && peek().type === "=") {
+      if (cur().type === "ident" && peekToken().type === "=") {
         const key = eat("ident").value;
         eat("=");
         items.push([{ kind: "name", name: key }, parseValue()]);
@@ -210,36 +248,41 @@ export function parseLua(text: string): LuaValue {
         parseValue();
         eat("]");
         eat("=");
-        const key: TableKey | null =
-          keyToken.type === "string"
-            ? { kind: "name", name: keyToken.value }
-            : keyToken.type === "number"
-              ? { kind: "index", index: numberTokenValue(keyToken.value) }
-              : null;
-        if (key === null) {
+        if (keyToken.type === "string") {
+          items.push([{ kind: "name", name: keyToken.value }, parseValue()]);
+        } else if (keyToken.type === "number") {
+          items.push([{ index: numberTokenValue(keyToken.value), kind: "index" }, parseValue()]);
+        } else {
           throw new LuaParseError("Only string/int table keys are supported");
         }
-        items.push([key, parseValue()]);
       } else {
-        items.push([{ kind: "index", index: arrayIndex }, parseValue()]);
+        items.push([{ index: arrayIndex, kind: "index" }, parseValue()]);
         arrayIndex += 1;
       }
 
-      if (cur().type === "," || cur().type === ";") eat();
+      if (cur().type === "," || cur().type === ";") {
+        eat();
+      }
     }
     eat("}");
 
     // A table whose keys are exactly 1..n is a Lua array, and becomes a JSON
     // array. Anything else — string keys, or gaps — stays an object.
     const numeric: number[] = [];
-    for (const [key] of items) if (key.kind === "index") numeric.push(key.index);
+    for (const [key] of items) {
+      if (key.kind === "index") {
+        numeric.push(key.index);
+      }
+    }
     if (items.length > 0 && numeric.length === items.length) {
       const max = Math.max(...numeric);
       const dense = new Set(numeric).size === numeric.length && max === numeric.length;
       if (dense) {
         const out: LuaValue[] = Array.from({ length: max }, () => null);
         for (const [key, value] of items) {
-          if (key.kind === "index") out[key.index - 1] = value;
+          if (key.kind === "index") {
+            out[key.index - 1] = value;
+          }
         }
         return out;
       }
@@ -252,8 +295,12 @@ export function parseLua(text: string): LuaValue {
     return out;
   };
 
-  if (cur().type === "ident" && cur().value === "return") eat("ident");
+  if (cur().type === "ident" && cur().value === "return") {
+    eat("ident");
+  }
   const value = parseValue();
-  if (cur().type !== "eof") throw new LuaParseError(`Trailing tokens at ${cur().pos}`);
+  if (cur().type !== "eof") {
+    throw new LuaParseError(`Trailing tokens at ${cur().pos}`);
+  }
   return value;
-}
+};

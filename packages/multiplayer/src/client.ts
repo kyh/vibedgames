@@ -1,4 +1,4 @@
-import PartySocket from "partysocket";
+import { PartySocket } from "partysocket";
 
 import type {
   ClientMessage,
@@ -21,19 +21,26 @@ import type { MultiplayerSchemas, SchemaViolation } from "./validation.js";
 /** Accept a single id or a list; undefined stays undefined so the field can be
  *  omitted from the wire message entirely. */
 const normalizeIds = (ids: string | string[] | undefined): string[] | undefined => {
-  if (ids === undefined) return undefined;
+  if (ids === undefined) {
+    return undefined;
+  }
   return Array.isArray(ids) ? ids : [ids];
 };
 
 /** A coalesced event waiting for the next microtask flush. */
-type PendingEvent = {
+interface PendingEvent {
   event: string;
   payload: JsonValue;
   to?: string[];
   except?: string[];
-};
+}
 
-type EmitData = { event: string; payload: JsonValue; to?: string[]; except?: string[] };
+interface EmitData {
+  event: string;
+  payload: JsonValue;
+  to?: string[];
+  except?: string[];
+}
 
 /** Emit-message data with targeting fields omitted (not undefined) when
  *  untargeted, so plain broadcasts stay byte-identical to the pre-targeting
@@ -45,8 +52,12 @@ const emitData = (
   except: string[] | undefined,
 ): EmitData => {
   const data: EmitData = { event, payload };
-  if (to) data.to = to;
-  if (except) data.except = except;
+  if (to) {
+    data.to = to;
+  }
+  if (except) {
+    data.except = except;
+  }
   return data;
 };
 
@@ -68,7 +79,7 @@ export type MultiplayerClientOptions = MultiplayerOptions & {
   schemas?: MultiplayerSchemas;
 };
 
-export type MultiplayerSnapshot = {
+export interface MultiplayerSnapshot {
   connectionStatus: MultiplayerConnectionStatus;
   playerId: string | null;
   hostId: string | null;
@@ -80,7 +91,7 @@ export type MultiplayerSnapshot = {
    * (`{room}~2`, …) the server redirected this client into.
    */
   room: string;
-};
+}
 
 type Listener = () => void;
 
@@ -107,7 +118,9 @@ const cryptoHost: typeof globalThis & {
  */
 const generateReconnectToken = (): string => {
   const uuid = cryptoHost.crypto?.randomUUID?.();
-  if (uuid) return uuid;
+  if (uuid) {
+    return uuid;
+  }
   return `t-${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
 };
 
@@ -130,8 +143,12 @@ const changedKeys = (prev: JsonRecord, candidate: JsonRecord): JsonRecord | null
   for (const key of Object.keys(candidate)) {
     const value = candidate[key];
     // A runtime `undefined` can't ride JSON — stringify would drop the key.
-    if (value === undefined) continue;
-    if (isPrimitive(value) && isPrimitive(prev[key]) && Object.is(prev[key], value)) continue;
+    if (value === undefined) {
+      continue;
+    }
+    if (isPrimitive(value) && isPrimitive(prev[key]) && Object.is(prev[key], value)) {
+      continue;
+    }
     delta ??= {};
     delta[key] = value;
   }
@@ -144,7 +161,7 @@ type StateUpdater = (prev: JsonRecord) => JsonRecord;
 // instanceof rather than typeof (banned): updaters are always constructed in
 // the caller's realm alongside the client, so the realm caveat doesn't bite.
 const isUpdaterFn = (updater: JsonRecord | StateUpdater): updater is StateUpdater =>
-  updater instanceof Function;
+  typeof updater === "function";
 
 /**
  * Framework-agnostic multiplayer client.
@@ -216,8 +233,8 @@ export class MultiplayerClient {
     this.socket = new PartySocket({
       host: options.host,
       party: options.party,
-      room: options.room,
       query: this.connectionQuery(),
+      room: options.room,
     });
 
     // Listeners are registered once and survive PartySocket's reconnects,
@@ -237,7 +254,9 @@ export class MultiplayerClient {
     const ping = (t: number): void => {
       if (t - this.lastHeartbeatAt >= HEARTBEAT_INTERVAL_MS) {
         this.lastHeartbeatAt = t;
-        if (this._connectionStatus === "connected") this.send({ type: "heartbeat" });
+        if (this._connectionStatus === "connected") {
+          this.send({ type: "heartbeat" });
+        }
       }
     };
     // bind to the host so browsers don't throw "Illegal invocation" on a detached rAF
@@ -251,7 +270,9 @@ export class MultiplayerClient {
     } else {
       // non-browser fallback (SSR/tests) — liveness isn't meaningful there anyway
       this.heartbeatTimer = setInterval(() => {
-        if (this._connectionStatus === "connected") this.send({ type: "heartbeat" });
+        if (this._connectionStatus === "connected") {
+          this.send({ type: "heartbeat" });
+        }
       }, HEARTBEAT_INTERVAL_MS);
     }
   }
@@ -297,7 +318,7 @@ export class MultiplayerClient {
     // listeners first — so clearing synchronously is safe and lets genuine
     // overflow-connection failures still surface as error/disconnected.
     this.redirecting = true;
-    this.socket.updateProperties({ room, query: this.connectionQuery() });
+    this.socket.updateProperties({ query: this.connectionQuery(), room });
     this.socket.reconnect();
     this.redirecting = false;
 
@@ -333,11 +354,11 @@ export class MultiplayerClient {
   getSnapshot(): MultiplayerSnapshot {
     return {
       connectionStatus: this._connectionStatus,
-      playerId: this._playerId,
       hostId: this._hostId,
-      sharedState: this._sharedState,
+      playerId: this._playerId,
       players: this._players,
       room: this._room,
+      sharedState: this._sharedState,
     };
   }
 
@@ -353,7 +374,9 @@ export class MultiplayerClient {
   updateSharedState(updater: JsonRecord | StateUpdater): void {
     const prev = this._sharedState;
     const next = isUpdaterFn(updater) ? updater(prev) : { ...prev, ...updater };
-    if (!this.passesSchema("sharedState", "outgoing", next)) return;
+    if (!this.passesSchema("sharedState", "outgoing", next)) {
+      return;
+    }
     this._sharedState = next;
     // Flush unconditionally — coalesced events must precede whatever state
     // message goes out next, even when this particular delta turns out empty.
@@ -362,16 +385,22 @@ export class MultiplayerClient {
     // the object form the game already named the keys it means to write; for
     // the function form, diff the returned state against the previous one.
     const delta = changedKeys(prev, isUpdaterFn(updater) ? next : updater);
-    if (delta) this.send({ type: "state_patch", data: delta });
+    if (delta) {
+      this.send({ data: delta, type: "state_patch" });
+    }
     this.notify();
   }
 
   /** Update this player's state (merged with current). Only changed keys ride the wire. */
   updateMyState(updater: JsonRecord | StateUpdater): void {
-    if (!this._playerId) return;
+    if (!this._playerId) {
+      return;
+    }
     const current = this._players[this._playerId]?.state ?? {};
     const next = isUpdaterFn(updater) ? updater(current) : { ...current, ...updater };
-    if (!this.passesSchema("playerState", "outgoing", next)) return;
+    if (!this.passesSchema("playerState", "outgoing", next)) {
+      return;
+    }
 
     const existing = this._players[this._playerId] ?? { id: this._playerId };
     this._players = {
@@ -382,7 +411,9 @@ export class MultiplayerClient {
 
     this.flushCoalescedEvents();
     const delta = changedKeys(current, isUpdaterFn(updater) ? next : updater);
-    if (delta) this.send({ type: "player_state_patch", data: delta });
+    if (delta) {
+      this.send({ data: delta, type: "player_state_patch" });
+    }
     this.notify();
   }
 
@@ -408,10 +439,10 @@ export class MultiplayerClient {
       // different victims must not collapse into one (the survivor's payload
       // would reach the wrong audience).
       const key = `${event}\u0000${to?.join(",") ?? ""}\u0000${except?.join(",") ?? ""}`;
-      this.pendingCoalesced.set(key, { event, payload, to, except });
+      this.pendingCoalesced.set(key, { event, except, payload, to });
       if (!this.coalesceFlushScheduled) {
         this.coalesceFlushScheduled = true;
-        Promise.resolve().then(() => {
+        queueMicrotask(() => {
           this.coalesceFlushScheduled = false;
           this.flushCoalescedEvents();
         });
@@ -419,7 +450,11 @@ export class MultiplayerClient {
       return;
     }
     this.flushCoalescedEvents();
-    this.send({ type: "emit", data: emitData(event, payload, to, except) });
+    this.send({ data: emitData(event, payload, to, except), type: "emit" });
+  }
+
+  get onEvent(): MultiplayerOptions["onEvent"] {
+    return this._onEvent;
   }
 
   /** Set the onEvent callback. */
@@ -454,9 +489,11 @@ export class MultiplayerClient {
 
   /** Send pending coalesced events now, latest payload per key, in first-queued order. */
   private flushCoalescedEvents(): void {
-    if (this.pendingCoalesced.size === 0) return;
+    if (this.pendingCoalesced.size === 0) {
+      return;
+    }
     for (const { event, payload, to, except } of this.pendingCoalesced.values()) {
-      this.send({ type: "emit", data: emitData(event, payload, to, except) });
+      this.send({ data: emitData(event, payload, to, except), type: "emit" });
     }
     this.pendingCoalesced.clear();
   }
@@ -475,10 +512,14 @@ export class MultiplayerClient {
     state: JsonRecord,
     from?: string,
   ): boolean {
-    const schemas = this.options.schemas;
+    const { schemas } = this.options;
     const schema = channel === "sharedState" ? schemas?.sharedState : schemas?.playerState;
-    if (!schema) return true;
-    if (Object.keys(state).length === 0) return true;
+    if (!schema) {
+      return true;
+    }
+    if (Object.keys(state).length === 0) {
+      return true;
+    }
 
     const result = schema["~standard"].validate(state);
     if (result instanceof Promise) {
@@ -490,15 +531,19 @@ export class MultiplayerClient {
       }
       return true;
     }
-    if (!result.issues) return true;
+    if (!result.issues) {
+      return true;
+    }
 
     const violation: SchemaViolation = {
       channel,
+      data: state,
       direction,
       issues: result.issues,
-      data: state,
     };
-    if (from !== undefined) violation.from = from;
+    if (from !== undefined) {
+      violation.from = from;
+    }
     if (schemas?.onViolation) {
       schemas.onViolation(violation);
     } else {
@@ -508,7 +553,9 @@ export class MultiplayerClient {
   }
 
   private notify(): void {
-    for (const listener of this.listeners) listener();
+    for (const listener of this.listeners) {
+      listener();
+    }
   }
 
   private handleOpen = (): void => {
@@ -523,7 +570,9 @@ export class MultiplayerClient {
     // While redirecting to an overflow room, mask the interim close(s) — both
     // the synchronous one from reconnect() and the server's async close(4001)
     // — until `sync` admits us to the new room (which clears `redirecting`).
-    if (this.redirecting) return;
+    if (this.redirecting) {
+      return;
+    }
     this._connectionStatus = "disconnected";
     this.notify();
   };
@@ -551,7 +600,51 @@ export class MultiplayerClient {
       !this.remoteStateSeen
     ) {
       this.initialStateApplied = true;
-      this.send({ type: "state_patch", data: this.options.initialState });
+      this.send({ data: this.options.initialState, type: "state_patch" });
+    }
+  }
+
+  /**
+   * `sync` is the admission signal: now we're really in the room, so surface
+   * "connected" and adopt our playerId.
+   */
+  private applySync(data: Extract<ServerMessage, { type: "sync" }>["data"]): void {
+    this._connectionStatus = "connected";
+    this._playerId = this.socket.id ?? null;
+    this._hostId = data.hostId;
+    this._players = data.players;
+    // remoteStateSeen tracks the SERVER's view, so it is set even when
+    // the local schema rejects the payload — the room has live state
+    // either way, and a promoted host must never re-seed over it.
+    if (Object.keys(data.state).length > 0) {
+      this.remoteStateSeen = true;
+    }
+    const merged =
+      Object.keys(this._sharedState).length === 0
+        ? data.state
+        : { ...this._sharedState, ...data.state };
+    // On violation keep the previous local state — refusing admission
+    // over bad room data would strand the player on "connecting".
+    if (this.passesSchema("sharedState", "incoming", merged)) {
+      this._sharedState = merged;
+    }
+
+    this.maybeSeedInitialState(data.hostId);
+
+    // Every reconnect is a brand-new connection server-side, with an empty
+    // player state — and `sync` is the one signal that fires on each of
+    // them. Without re-announcing, our state would stay empty for everyone
+    // else until the game happened to call updateMyState again.
+    if (this._playerId && Object.keys(this._myState).length > 0) {
+      this._players = {
+        ...this._players,
+        [this._playerId]: {
+          ...this._players[this._playerId],
+          id: this._playerId,
+          state: this._myState,
+        },
+      };
+      this.send({ data: this._myState, type: "player_state_patch" });
     }
   }
 
@@ -571,45 +664,7 @@ export class MultiplayerClient {
           break;
         }
         case "sync": {
-          // `sync` is the admission signal: now we're really in the room, so
-          // surface "connected" and adopt our playerId.
-          this._connectionStatus = "connected";
-          this._playerId = this.socket.id ?? null;
-          this._hostId = message.data.hostId;
-          this._players = message.data.players;
-          // remoteStateSeen tracks the SERVER's view, so it is set even when
-          // the local schema rejects the payload — the room has live state
-          // either way, and a promoted host must never re-seed over it.
-          if (Object.keys(message.data.state).length > 0) this.remoteStateSeen = true;
-          {
-            const merged =
-              Object.keys(this._sharedState).length === 0
-                ? message.data.state
-                : { ...this._sharedState, ...message.data.state };
-            // On violation keep the previous local state — refusing admission
-            // over bad room data would strand the player on "connecting".
-            if (this.passesSchema("sharedState", "incoming", merged)) {
-              this._sharedState = merged;
-            }
-          }
-
-          this.maybeSeedInitialState(message.data.hostId);
-
-          // Every reconnect is a brand-new connection server-side, with an empty
-          // player state — and `sync` is the one signal that fires on each of
-          // them. Without re-announcing, our state would stay empty for everyone
-          // else until the game happened to call updateMyState again.
-          if (this._playerId && Object.keys(this._myState).length > 0) {
-            this._players = {
-              ...this._players,
-              [this._playerId]: {
-                ...this._players[this._playerId],
-                id: this._playerId,
-                state: this._myState,
-              },
-            };
-            this.send({ type: "player_state_patch", data: this._myState });
-          }
+          this.applySync(message.data);
           break;
         }
         case "player_joined": {
@@ -617,9 +672,8 @@ export class MultiplayerClient {
           break;
         }
         case "player_left": {
-          const updated = { ...this._players };
-          delete updated[message.data.id];
-          this._players = updated;
+          const { [message.data.id]: _left, ...remaining } = this._players;
+          this._players = remaining;
           break;
         }
         case "host": {
@@ -630,7 +684,9 @@ export class MultiplayerClient {
         case "state_patch": {
           this.remoteStateSeen = true;
           const merged = { ...this._sharedState, ...message.data };
-          if (!this.passesSchema("sharedState", "incoming", merged)) break;
+          if (!this.passesSchema("sharedState", "incoming", merged)) {
+            break;
+          }
           this._sharedState = merged;
           break;
         }
@@ -657,7 +713,9 @@ export class MultiplayerClient {
           // the grace window. The player is still in the room, so only flip the
           // flag — `player_left` is what actually removes them.
           const holder = this._players[message.data.id];
-          if (!holder) break;
+          if (!holder) {
+            break;
+          }
           this._players = {
             ...this._players,
             [message.data.id]: { ...holder, connected: message.data.connected },
@@ -674,6 +732,9 @@ export class MultiplayerClient {
           // the shard keeps the same cap; redirectTo notifies on its own.
           this.redirectTo(message.data.room, message.data.capacity);
           return;
+        }
+        default: {
+          break;
         }
       }
 

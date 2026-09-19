@@ -32,8 +32,8 @@ import { createInterface } from "node:readline";
 
 import { onLandUV, plLen, rdp, ringArea, WORLD_H, WORLD_W } from "./lib.mjs";
 
-const objPath = process.argv[2];
-const outPath = process.argv[3] ?? new URL("./sf-landuse-obj.json", import.meta.url).pathname;
+const [objPath, outArg] = process.argv.slice(2);
+const outPath = outArg ?? new URL("sf-landuse-obj.json", import.meta.url).pathname;
 if (!objPath) {
   console.error("usage: node extract-landuse-obj.mjs <obj> [out.json]");
   process.exit(1);
@@ -42,11 +42,12 @@ if (!objPath) {
 // --- Model → world transform (see extract-footprints.mjs for the fit) -------
 // Anchored on Salesforce/Transamerica (model-h / real-m = 1.598 for both),
 // hill-climbed against the street mask with INDEPENDENT x/z scales, NO z-flip.
-const CAL = { sx: 0.17829, sz: 0.17909, bx: 325.2, bz: -400.5 };
-const CAL_SY = 1 / (1.598 * 4.446); // world runs 4.446 m/u
+const CAL = { bx: 325.2, bz: -400.5, sx: 0.17829, sz: 0.17909 };
+// world runs 4.446 m/u
+const CAL_SY = 1 / (1.598 * 4.446);
 const M_PER_U = 4.446;
 const ANCHORS = [
-  ["Salesforce", 2458.4, -2088.9, 760.0, -770.1],
+  ["Salesforce", 2458.4, -2088.9, 760, -770.1],
   ["Transamerica", 1809.9, -2842.1, 644.9, -907.7],
 ];
 const toWorldX = (x) => x * CAL.sx + CAL.bx;
@@ -57,10 +58,10 @@ const toV = (wz) => wz / WORLD_H + 0.5;
 // --- lon/lat → world (the game's own OSM projection, from lib.mjs) ----------
 // Kept local because lib.mjs exposes it as (u,v) in 0..1 and everything here
 // works in world units.
-const U_M = 6.2462,
-  U_B = 765.2557;
-const V_M = -9.6095,
-  V_B = 363.344;
+const U_B = 765.2557;
+const U_M = 6.2462;
+const V_M = -9.6095;
+const V_B = 363.344;
 const osmX = (lon) => (U_M * lon + U_B - 0.5) * WORLD_W;
 const osmZ = (lat) => (V_M * lat + V_B - 0.5) * WORLD_H;
 
@@ -72,10 +73,15 @@ const GRID_Z = 200;
 // material is intact. Road ribbons (highway_*, route_*, restriction_*,
 // name_<street>_*) all carry usemtl "roads" — that plus a name test is enough
 // to isolate the ground-area groups.
-const ROADISH_NAME = /^(highway_|route_|restriction_|name_.)/;
-const BUILDING_NAME = /^(height=|buildin|builds)/;
+const ROADISH_NAME = /^(?:highway_|route_|restriction_|name_.)/u;
+const BUILDING_NAME = /^(?:height=|buildin|builds)/u;
 // Ground groups that are really thin extruded LINES, not areas.
-const STRIPY_NAME = /^(barrier|man_stroke)$/;
+const STRIPY_NAME = /^(?:barrier|man_stroke)$/u;
+
+const CH_SPACE = 32;
+const CH_F = 102;
+const CH_O = 111;
+const CH_V = 118;
 
 const vx = [];
 const vy = [];
@@ -86,19 +92,23 @@ let curName = null;
 let curMtl = "";
 let objLines = 0;
 
-const rl = createInterface({ input: createReadStream(objPath), crlfDelay: Infinity });
+const rl = createInterface({ crlfDelay: Infinity, input: createReadStream(objPath) });
 rl.on("line", (l) => {
-  const c0 = l.charCodeAt(0);
-  if (c0 === 118 /* v */ && l.charCodeAt(1) === 32) {
+  const c0 = l.codePointAt(0);
+  if (c0 === CH_V && l.codePointAt(1) === CH_SPACE) {
     let i = 2;
-    while (l.charCodeAt(i) === 32) i++;
+    while (l.codePointAt(i) === CH_SPACE) {
+      i += 1;
+    }
     const j = l.indexOf(" ", i);
     const k = l.indexOf(" ", j + 1);
     vx.push(Number(l.slice(i, j)));
     vy.push(Number(l.slice(j + 1, k)));
     vz.push(Number(l.slice(k + 1)));
-  } else if (c0 === 102 /* f */ && l.charCodeAt(1) === 32) {
-    if (!curName) return;
+  } else if (c0 === CH_F && l.codePointAt(1) === CH_SPACE) {
+    if (!curName) {
+      return;
+    }
     const key = `${curName}|${curMtl}`;
     let g = groups.get(key);
     if (!g) {
@@ -106,16 +116,18 @@ rl.on("line", (l) => {
       groups.set(key, g);
     }
     const ids = [];
-    for (const part of l.slice(2).trim().split(/\s+/)) {
-      const s = part.indexOf("/") >= 0 ? part.slice(0, part.indexOf("/")) : part;
+    for (const part of l.slice(2).trim().split(/\s+/u)) {
+      const s = part.includes("/") ? part.slice(0, part.indexOf("/")) : part;
       let id = Number(s);
-      if (id < 0) id = vx.length + 1 + id;
+      if (id < 0) {
+        id = vx.length + 1 + id;
+      }
       ids.push(id - 1);
     }
     g.push(ids);
-  } else if (c0 === 111 /* o */ && l.charCodeAt(1) === 32) {
+  } else if (c0 === CH_O && l.codePointAt(1) === CH_SPACE) {
     curName = l.slice(2).trim();
-    objLines++;
+    objLines += 1;
   } else if (l.startsWith("usemtl")) {
     curMtl = l.slice(7).trim();
   }
@@ -143,32 +155,45 @@ rl.on("close", () => {
  * ids), the same split extract-footprints.mjs uses: one OBJ object aggregates
  * every OSM area that shared a tag value, so components ARE the source areas.
  */
-function components(faces) {
+const components = (faces) => {
   const parent = new Map();
   const find = (a) => {
     let r = a;
-    while (parent.get(r) !== r) r = parent.get(r);
-    while (parent.get(a) !== r) {
-      const nxt = parent.get(a);
-      parent.set(a, r);
-      a = nxt;
+    while (parent.get(r) !== r) {
+      r = parent.get(r);
+    }
+    let walk = a;
+    while (parent.get(walk) !== r) {
+      const nxt = parent.get(walk);
+      parent.set(walk, r);
+      walk = nxt;
     }
     return r;
   };
   const union = (a, b) => {
-    if (!parent.has(a)) parent.set(a, a);
-    if (!parent.has(b)) parent.set(b, b);
+    if (!parent.has(a)) {
+      parent.set(a, a);
+    }
+    if (!parent.has(b)) {
+      parent.set(b, b);
+    }
     const ra = find(a);
     const rb = find(b);
-    if (ra !== rb) parent.set(ra, rb);
+    if (ra !== rb) {
+      parent.set(ra, rb);
+    }
   };
-  for (const f of faces) for (let i = 1; i < f.length; i++) union(f[0], f[i]);
+  for (const f of faces) {
+    for (let i = 1; i < f.length; i += 1) {
+      union(f[0], f[i]);
+    }
+  }
   const out = new Map();
   for (const f of faces) {
     const root = find(f[0]);
     let c = out.get(root);
     if (!c) {
-      c = { faces: [], minX: 1e9, maxX: -1e9, minY: 1e9, maxY: -1e9, minZ: 1e9, maxZ: -1e9 };
+      c = { faces: [], maxX: -1e9, maxY: -1e9, maxZ: -1e9, minX: 1e9, minY: 1e9, minZ: 1e9 };
       out.set(root, c);
     }
     c.faces.push(f);
@@ -176,16 +201,28 @@ function components(faces) {
       const x = vx[id];
       const y = vy[id];
       const z = vz[id];
-      if (x < c.minX) c.minX = x;
-      if (x > c.maxX) c.maxX = x;
-      if (y < c.minY) c.minY = y;
-      if (y > c.maxY) c.maxY = y;
-      if (z < c.minZ) c.minZ = z;
-      if (z > c.maxZ) c.maxZ = z;
+      if (x < c.minX) {
+        c.minX = x;
+      }
+      if (x > c.maxX) {
+        c.maxX = x;
+      }
+      if (y < c.minY) {
+        c.minY = y;
+      }
+      if (y > c.maxY) {
+        c.maxY = y;
+      }
+      if (z < c.minZ) {
+        c.minZ = z;
+      }
+      if (z > c.maxZ) {
+        c.maxZ = z;
+      }
     }
   }
   return [...out.values()];
-}
+};
 
 /**
  * ALL boundary loops of a component's TOP faces (edges used by exactly one
@@ -200,22 +237,27 @@ function components(faces) {
  * "component" is routinely a dozen separate parcels. A largest-loop walk threw
  * ~47% of them away.
  */
-function topRings(c) {
-  // Adaptive epsilon: 0.75 model units is right for a building (tens of units
-  // tall) but swallows a 0.5-unit-tall painted strip whole.
-  const eps = Math.max(1e-4, Math.min(0.75, (c.maxY - c.minY) * 0.1));
-  const top = c.faces.filter((f) => f.every((id) => vy[id] >= c.maxY - eps));
-  if (top.length === 0) return [];
+const edgeAngle = (a, b) => Math.atan2(vz[b] - vz[a], vx[b] - vx[a]);
+
+/**
+ * Directed successor multi-map over the edges that appear exactly once in the
+ * top-face soup, i.e. the outline of that cap.
+ */
+const boundaryEdges = (top) => {
   const count = new Map();
   const dir = new Map();
   for (const f of top) {
-    for (let i = 0; i < f.length; i++) {
+    for (let i = 0; i < f.length; i += 1) {
       const a = f[i];
       const b = f[(i + 1) % f.length];
-      if (a === b) continue;
+      if (a === b) {
+        continue;
+      }
       const k = a < b ? `${a},${b}` : `${b},${a}`;
       count.set(k, (count.get(k) ?? 0) + 1);
-      if (!dir.has(k)) dir.set(k, [a, b]);
+      if (!dir.has(k)) {
+        dir.set(k, [a, b]);
+      }
     }
   }
   // Multi-map: a pinch vertex shared by two parcels has two outgoing boundary
@@ -223,44 +265,59 @@ function topRings(c) {
   const next = new Map();
   let edges = 0;
   for (const [k, n] of count) {
-    if (n !== 1) continue;
+    if (n !== 1) {
+      continue;
+    }
     const d = dir.get(k);
-    if (!d) continue;
+    if (!d) {
+      continue;
+    }
     let l = next.get(d[0]);
     if (!l) {
       l = [];
       next.set(d[0], l);
     }
     l.push(d[1]);
-    edges++;
+    edges += 1;
   }
-  if (edges < 3) return [];
-  // Cycle decomposition, consuming each directed boundary edge exactly once.
-  // At a PINCH vertex (two parcels meeting at one welded point) there are two
-  // ways out, and taking an arbitrary one splices the two parcels into a
-  // self-intersecting bowtie — that is what turned the Western Addition
-  // neighbourhood outline into a bogus 2.6 km² "square". Pick the successor by
-  // planar face traversal instead: the first edge swept from the reversed
-  // incoming direction, which keeps the walk on one side of one face.
-  const ang = (a, b) => Math.atan2(vz[b] - vz[a], vx[b] - vx[a]);
+  return { edges, next };
+};
+
+/**
+ * Cycle decomposition, consuming each directed boundary edge exactly once.
+ * At a PINCH vertex (two parcels meeting at one welded point) there are two
+ * ways out, and taking an arbitrary one splices the two parcels into a
+ * self-intersecting bowtie — that is what turned the Western Addition
+ * neighbourhood outline into a bogus 2.6 km² "square". Pick the successor by
+ * planar face traversal instead: the first edge swept from the reversed
+ * incoming direction, which keeps the walk on one side of one face.
+ */
+const traceRings = (next, edges) => {
   const rings = [];
-  for (const start of [...next.keys()]) {
+  for (const start of next.keys()) {
     while ((next.get(start)?.length ?? 0) > 0) {
       const loop = [];
       let prev = -1;
       let cur = start;
       let guard = 0;
-      while (guard++ < edges + 2) {
+      while (guard < edges + 2) {
+        guard += 1;
         const outs = next.get(cur);
-        if (!outs || outs.length === 0) break;
+        if (!outs || outs.length === 0) {
+          break;
+        }
         let pick = 0;
         if (outs.length > 1 && prev >= 0) {
-          const base = ang(cur, prev);
+          const base = edgeAngle(cur, prev);
           let bestD = Infinity;
-          for (let i = 0; i < outs.length; i++) {
-            let d = base - ang(cur, outs[i]);
-            while (d <= 1e-9) d += Math.PI * 2;
-            while (d > Math.PI * 2) d -= Math.PI * 2;
+          for (let i = 0; i < outs.length; i += 1) {
+            let d = base - edgeAngle(cur, outs[i]);
+            while (d <= 1e-9) {
+              d += Math.PI * 2;
+            }
+            while (d > Math.PI * 2) {
+              d -= Math.PI * 2;
+            }
             if (d < bestD) {
               bestD = d;
               pick = i;
@@ -269,15 +326,35 @@ function topRings(c) {
         }
         loop.push(cur);
         prev = cur;
-        cur = outs.splice(pick, 1)[0];
-        if (cur === start) break;
+        [cur] = outs.splice(pick, 1);
+        if (cur === start) {
+          break;
+        }
       }
-      if (cur === start && loop.length >= 3)
+      if (cur === start && loop.length >= 3) {
         rings.push(loop.map((id) => [toWorldX(vx[id]), toWorldZ(vz[id])]));
+      }
     }
   }
   return rings;
-}
+};
+
+const topRings = (c) => {
+  // Adaptive epsilon: 0.75 model units is right for a building (tens of units
+  // tall) but swallows a 0.5-unit-tall painted strip whole.
+  const eps = Math.max(1e-4, Math.min(0.75, (c.maxY - c.minY) * 0.1));
+  const top = c.faces.filter((f) => f.every((id) => vy[id] >= c.maxY - eps));
+  if (top.length === 0) {
+    return [];
+  }
+  const { edges, next } = boundaryEdges(top);
+  if (edges < 3) {
+    return [];
+  }
+  return traceRings(next, edges);
+};
+
+const cross = (p, q, s) => (q[0] - p[0]) * (s[1] - p[1]) - (q[1] - p[1]) * (s[0] - p[0]);
 
 /**
  * Is the ring simple (no self-crossing)? A handful of components are welded
@@ -285,28 +362,32 @@ function topRings(c) {
  * garbage area and must not reach the raster. O(n²), so only run on the small
  * rings — the dense traced outlines are the ones that are never spliced.
  */
-function isSimpleRing(r) {
-  if (r.length > 120) return true;
-  const cross = (p, q, s) => (q[0] - p[0]) * (s[1] - p[1]) - (q[1] - p[1]) * (s[0] - p[0]);
-  for (let i = 0; i < r.length; i++) {
+const isSimpleRing = (r) => {
+  if (r.length > 120) {
+    return true;
+  }
+  for (let i = 0; i < r.length; i += 1) {
     const a = r[i];
     const b = r[(i + 1) % r.length];
-    for (let k = i + 2; k < r.length; k++) {
-      if (i === 0 && k === r.length - 1) continue;
+    for (let k = i + 2; k < r.length; k += 1) {
+      if (i === 0 && k === r.length - 1) {
+        continue;
+      }
       const c = r[k];
       const d = r[(k + 1) % r.length];
-      if (cross(c, d, a) > 0 !== cross(c, d, b) > 0 && cross(a, b, c) > 0 !== cross(a, b, d) > 0)
+      if (cross(c, d, a) > 0 !== cross(c, d, b) > 0 && cross(a, b, c) > 0 !== cross(a, b, d) > 0) {
         return false;
+      }
     }
   }
   return true;
-}
+};
 
 const centroidOf = (ring) => {
   let a = 0;
   let cx = 0;
   let cz = 0;
-  for (let i = 0; i < ring.length; i++) {
+  for (let i = 0; i < ring.length; i += 1) {
     const [x0, z0] = ring[i];
     const [x1, z1] = ring[(i + 1) % ring.length];
     const cr = x0 * z1 - x1 * z0;
@@ -342,71 +423,96 @@ const TAG_KEYS = [
   "railway",
 ];
 
+const tagsOf = (element) => {
+  const tags = [];
+  for (const k of TAG_KEYS) {
+    if (element.tags?.[k]) {
+      tags.push(`${k}=${element.tags[k]}`);
+    }
+  }
+  return tags;
+};
+
+/**
+ * Rings an element contributes. A multipolygon relation's outer members each
+ * become their own ring with the relation's tags. Golden Gate Park and the
+ * Presidio only exist as relations, so a way-only pull leaves the two biggest
+ * green areas in the city unclassified.
+ */
+const ringGeometriesOf = (element) => {
+  if (element.type === "way") {
+    return element.geometry?.length >= 2 ? [element.geometry] : [];
+  }
+  if (element.type === "relation") {
+    return (element.members ?? [])
+      .filter((m) => m.role !== "inner" && m.geometry?.length >= 3)
+      .map((m) => m.geometry);
+  }
+  return [];
+};
+
 /** Every OSM way in the dumps, projected to world units, with its full tag. */
-function loadOsm() {
+const loadOsm = () => {
   const ways = [];
   const seen = new Set();
   for (const file of ["sf-landuse.raw.json", "sf-osm-tags.raw.json"]) {
-    const url = new URL(`./${file}`, import.meta.url);
+    const url = new URL(`${file}`, import.meta.url);
     if (!existsSync(url)) {
       console.log(`WARN ${file} missing — decode coverage will be reduced`);
       continue;
     }
-    const raw = JSON.parse(readFileSync(url, "utf8"));
+    const raw = JSON.parse(readFileSync(url, "utf-8"));
     let n = 0;
     let rel = 0;
     for (const e of raw.elements ?? []) {
       const key = `${e.type}/${e.id}`;
-      if (seen.has(key)) continue;
-      const tags = [];
-      for (const k of TAG_KEYS) if (e.tags?.[k]) tags.push(`${k}=${e.tags[k]}`);
-      if (tags.length === 0) continue;
-      // A multipolygon relation's outer members each become their own ring
-      // with the relation's tags. Golden Gate Park and the Presidio only exist
-      // as relations, so a way-only pull leaves the two biggest green areas in
-      // the city unclassified.
-      const geoms =
-        e.type === "way" && e.geometry?.length >= 2
-          ? [e.geometry]
-          : e.type === "relation"
-            ? (e.members ?? [])
-                .filter((m) => m.role !== "inner" && m.geometry?.length >= 3)
-                .map((m) => m.geometry)
-            : [];
-      if (geoms.length === 0) continue;
+      if (seen.has(key)) {
+        continue;
+      }
+      const tags = tagsOf(e);
+      if (tags.length === 0) {
+        continue;
+      }
+      const geoms = ringGeometriesOf(e);
+      if (geoms.length === 0) {
+        continue;
+      }
       seen.add(key);
-      if (e.type === "relation") rel++;
+      if (e.type === "relation") {
+        rel += 1;
+      }
       for (const geom of geoms) {
         const ring = geom.map((g) => [osmX(g.lon), osmZ(g.lat)]);
         const closed = ring.length > 3;
         const [cx, cz] = closed ? centroidOf(ring) : ring[Math.floor(ring.length / 2)];
         ways.push({
-          id: e.id,
-          tags,
+          area: closed ? Math.abs(ringArea(ring)) : 0,
           cx,
           cz,
-          ring: closed ? ring : null,
-          area: closed ? Math.abs(ringArea(ring)) : 0,
+          id: e.id,
           len: plLen(ring),
           name: e.tags?.name ?? null,
+          ring: closed ? ring : null,
+          tags,
         });
-        n++;
+        n += 1;
       }
     }
     console.log(`osm ${file}: ${n} new tagged rings (${rel} from multipolygon relations)`);
   }
   return ways;
-}
+};
+
+const CELL = 64;
+const cellKey = (gx, gz) => gx * 100_000 + gz;
 
 /** Uniform grid index over OSM way centroids, 64u cells. */
-function indexWays(ways) {
-  const CELL = 64;
+const indexWays = (ways) => {
   const map = new Map();
-  const key = (gx, gz) => gx * 100000 + gz;
-  for (let i = 0; i < ways.length; i++) {
+  for (let i = 0; i < ways.length; i += 1) {
     const gx = Math.floor(ways[i].cx / CELL);
     const gz = Math.floor(ways[i].cz / CELL);
-    const k = key(gx, gz);
+    const k = cellKey(gx, gz);
     let b = map.get(k);
     if (!b) {
       b = [];
@@ -421,88 +527,91 @@ function indexWays(ways) {
       const g1x = Math.floor((x + r) / CELL);
       const g0z = Math.floor((z - r) / CELL);
       const g1z = Math.floor((z + r) / CELL);
-      for (let gx = g0x; gx <= g1x; gx++)
-        for (let gz = g0z; gz <= g1z; gz++) {
-          const b = map.get(key(gx, gz));
-          if (b) out.push(...b);
+      for (let gx = g0x; gx <= g1x; gx += 1) {
+        for (let gz = g0z; gz <= g1z; gz += 1) {
+          const b = map.get(cellKey(gx, gz));
+          if (b) {
+            out.push(...b);
+          }
         }
+      }
       return out;
     },
   };
-}
+};
 
 // --- Class taxonomy for the rasterised grid ---------------------------------
 // Decoded OSM tag → the ground class the game should actually draw. The rank
 // is the raster priority: a cell takes the HIGHEST-ranked class covering it,
 // so a pitch inside a park stays a pitch and water beats everything.
 const CLASS_OF = {
-  "natural=water": ["water", 90],
-  "waterway=riverbank": ["water", 90],
-  "waterway=dock": ["water", 90],
-  "natural=beach": ["sand", 80],
-  "natural=sand": ["sand", 80],
-  "natural=bare_rock": ["rock", 78],
-  "natural=cliff": ["rock", 78],
-  "natural=scrub": ["scrub", 42],
-  "natural=shrubbery": ["scrub", 42],
-  "natural=wood": ["wood", 46],
-  "natural=grassland": ["grass", 40],
-  "natural=tree_row": ["wood", 46],
-  "landuse=forest": ["wood", 46],
-  "landuse=grass": ["grass", 40],
-  "landuse=meadow": ["grass", 40],
-  "landuse=village_green": ["grass", 40],
-  "landuse=flowerbed": ["garden", 50],
-  "landuse=tree_pit": ["garden", 50],
-  "landuse=allotments": ["garden", 50],
-  "landuse=cemetery": ["cemetery", 52],
-  "landuse=religious": ["cemetery", 52],
-  "landuse=recreation_ground": ["recreation", 48],
-  "landuse=residential": ["residential", 10],
-  "landuse=retail": ["retail", 20],
-  "landuse=commercial": ["commercial", 18],
-  "landuse=industrial": ["industrial", 24],
-  "landuse=brownfield": ["brownfield", 26],
-  "landuse=construction": ["construction", 28],
-  "landuse=railway": ["railyard", 30],
-  "landuse=military": ["military", 32],
-  "landuse=port": ["port", 30],
-  "leisure=park": ["park", 60],
-  "leisure=garden": ["garden", 50],
-  "leisure=common": ["park", 60],
-  "leisure=dog_park": ["park", 60],
-  "leisure=nature_reserve": ["park", 60],
-  "leisure=pitch": ["pitch", 70],
-  "leisure=track": ["pitch", 70],
-  "leisure=playground": ["playground", 72],
-  "leisure=swimming_pool": ["water", 90],
-  "leisure=golf_course": ["golf", 44],
-  "leisure=marina": ["water", 90],
-  "leisure=sports_centre": ["recreation", 48],
-  "leisure=stadium": ["recreation", 48],
-  "leisure=slipway": ["port", 30],
-  "leisure=parklet": ["garden", 50],
-  "leisure=outdoor_seating": ["plaza", 64],
-  "leisure=fitness_station": ["recreation", 48],
-  "leisure=bleachers": ["recreation", 48],
+  "amenity=bicycle_parking": ["parking", 34],
+  "amenity=college": ["institution", 14],
+  "amenity=fountain": ["plaza", 64],
+  "amenity=hospital": ["institution", 14],
+  "amenity=kindergarten": ["institution", 14],
+  "amenity=motorcycle_parking": ["parking", 34],
   "amenity=parking": ["parking", 34],
   "amenity=parking_space": ["parking", 34],
-  "amenity=motorcycle_parking": ["parking", 34],
-  "amenity=bicycle_parking": ["parking", 34],
-  "amenity=school": ["institution", 14],
-  "amenity=university": ["institution", 14],
-  "amenity=college": ["institution", 14],
-  "amenity=kindergarten": ["institution", 14],
-  "amenity=hospital": ["institution", 14],
   "amenity=place_of_worship": ["institution", 14],
-  "amenity=fountain": ["plaza", 64],
+  "amenity=school": ["institution", 14],
   "amenity=shelter": ["plaza", 64],
-  "place=square": ["plaza", 66],
-  "man_made=pier": ["pier", 36],
+  "amenity=university": ["institution", 14],
+  "landuse=allotments": ["garden", 50],
+  "landuse=brownfield": ["brownfield", 26],
+  "landuse=cemetery": ["cemetery", 52],
+  "landuse=commercial": ["commercial", 18],
+  "landuse=construction": ["construction", 28],
+  "landuse=flowerbed": ["garden", 50],
+  "landuse=forest": ["wood", 46],
+  "landuse=grass": ["grass", 40],
+  "landuse=industrial": ["industrial", 24],
+  "landuse=meadow": ["grass", 40],
+  "landuse=military": ["military", 32],
+  "landuse=port": ["port", 30],
+  "landuse=railway": ["railyard", 30],
+  "landuse=recreation_ground": ["recreation", 48],
+  "landuse=religious": ["cemetery", 52],
+  "landuse=residential": ["residential", 10],
+  "landuse=retail": ["retail", 20],
+  "landuse=tree_pit": ["garden", 50],
+  "landuse=village_green": ["grass", 40],
+  "leisure=bleachers": ["recreation", 48],
+  "leisure=common": ["park", 60],
+  "leisure=dog_park": ["park", 60],
+  "leisure=fitness_station": ["recreation", 48],
+  "leisure=garden": ["garden", 50],
+  "leisure=golf_course": ["golf", 44],
+  "leisure=marina": ["water", 90],
+  "leisure=nature_reserve": ["park", 60],
+  "leisure=outdoor_seating": ["plaza", 64],
+  "leisure=park": ["park", 60],
+  "leisure=parklet": ["garden", 50],
+  "leisure=pitch": ["pitch", 70],
+  "leisure=playground": ["playground", 72],
+  "leisure=slipway": ["port", 30],
+  "leisure=sports_centre": ["recreation", 48],
+  "leisure=stadium": ["recreation", 48],
+  "leisure=swimming_pool": ["water", 90],
+  "leisure=track": ["pitch", 70],
   "man_made=breakwater": ["pier", 36],
+  "man_made=pier": ["pier", 36],
   "man_made=storage_tank": ["industrial", 24],
+  "natural=bare_rock": ["rock", 78],
+  "natural=beach": ["sand", 80],
+  "natural=cliff": ["rock", 78],
+  "natural=grassland": ["grass", 40],
+  "natural=sand": ["sand", 80],
+  "natural=scrub": ["scrub", 42],
+  "natural=shrubbery": ["scrub", 42],
+  "natural=tree_row": ["wood", 46],
+  "natural=water": ["water", 90],
+  "natural=wood": ["wood", 46],
+  "place=square": ["plaza", 66],
   "tourism=attraction": ["plaza", 64],
   "tourism=picnic_site": ["park", 60],
+  "waterway=dock": ["water", 90],
+  "waterway=riverbank": ["water", 90],
 };
 const classFor = (tag) => CLASS_OF[tag] ?? null;
 
@@ -528,6 +637,7 @@ const NAME_HINTS = {
   "landuse=r*": ["residential", "retail", "religious", "railway", "recreation_ground"],
   "landuse=ra": ["railway"],
   "landuse=wa": ["wasteland", "water"],
+  "leisure=PO": ["POPS"],
   "leisure=b*": ["bleachers", "beach_resort"],
   "leisure=c*": ["common"],
   "leisure=do": ["dog_park"],
@@ -539,196 +649,227 @@ const NAME_HINTS = {
   "leisure=ou": ["outdoor_seating"],
   "leisure=p*": ["park", "pitch", "playground", "parklet", "picnic_table"],
   "leisure=pl": ["playground"],
-  "leisure=PO": ["POPS"],
   "leisure=pr": ["practice_pitch"],
   "leisure=s*": ["swimming_pool", "sports_centre", "slipway", "stadium"],
   "leisure=sl": ["slipway"],
   "leisure=sp": ["sports_centre"],
 };
 /** Candidate OSM values for a truncated object name, if the name says anything. */
-function nameHint(objName) {
-  const m = /^(landuse|leisure)=(..)$/.exec(objName);
-  if (!m) return null;
-  const [, key, suf] = m;
+const nameHint = (objName) => {
+  const m = /^(?<tagKey>landuse|leisure)=(?<suffix>..)$/u.exec(objName);
+  if (!m?.groups) {
+    return null;
+  }
+  const { suffix, tagKey } = m.groups;
   // A trailing digit is C4D's collision counter, so only the first letter is
   // real evidence.
-  const wild = /\d$/.test(suf) ? `${key}=${suf[0]}*` : `${key}=${suf}`;
-  return NAME_HINTS[wild] ? { pattern: wild, candidates: NAME_HINTS[wild] } : null;
-}
+  const wild = /\d$/u.test(suffix) ? `${tagKey}=${suffix[0]}*` : `${tagKey}=${suffix}`;
+  return NAME_HINTS[wild] ? { candidates: NAME_HINTS[wild], pattern: wild } : null;
+};
 
 // --- Main -------------------------------------------------------------------
 
-function main() {
-  const ways = loadOsm();
-  const idx = indexWays(ways);
-
-  // ===== 1. GROUND POLYGONS ================================================
-  const groundBuckets = [];
+/** OBJ groups that carry ground areas: not base/rail/power, not a building, not road-material. */
+const groundBucketsOf = () => {
+  const buckets = [];
   for (const [key, faces] of groups) {
     const [name, mtl] = key.split("|");
-    if (name === "base" || name === "railway" || name === "power") continue;
-    if (BUILDING_NAME.test(name) || ROADISH_NAME.test(name)) continue;
-    if (mtl === "roads") continue;
-    groundBuckets.push({ key, name, mtl, faces });
+    if (name === "base" || name === "railway" || name === "power") {
+      continue;
+    }
+    if (BUILDING_NAME.test(name) || ROADISH_NAME.test(name)) {
+      continue;
+    }
+    if (mtl === "roads") {
+      continue;
+    }
+    buckets.push({ faces, key, mtl, name });
   }
+  return buckets;
+};
 
-  const polys = []; // { group, ring, cx, cz, area, strip }
+const groundPolyOf = (bucket, c, ring) => {
+  let r = rdp(ring, 0.4);
+  if (r.length < 3) {
+    return null;
+  }
+  // normalise CCW
+  if (ringArea(r) < 0) {
+    r = r.toReversed();
+  }
+  const area = Math.abs(ringArea(r));
+  // < ~8 m² — exporter sliver
+  if (area < 0.4) {
+    return null;
+  }
+  const per = plLen([...r, r[0]]);
+  const [cx, cz] = centroidOf(r);
+  return {
+    area,
+    // Compactness 4πA/P²: ~1 for a disc, ~0 for a fence line.
+    compact: per > 0 ? (4 * Math.PI * area) / (per * per) : 0,
+    cx,
+    cz,
+    group: bucket.key,
+    name: bucket.name,
+    ring: r,
+    simple: isSimpleRing(r),
+    strip: STRIPY_NAME.test(bucket.name),
+    y: c.maxY * CAL_SY,
+  };
+};
+
+/** { group, ring, cx, cz, area, strip } per welded component boundary loop. */
+const buildGroundPolys = (buckets) => {
+  const polys = [];
   let comps = 0;
   let ringFail = 0;
-  for (const b of groundBuckets) {
+  for (const b of buckets) {
     for (const c of components(b.faces)) {
-      comps++;
+      comps += 1;
       const rings = topRings(c);
       if (rings.length === 0) {
-        ringFail++;
+        ringFail += 1;
         continue;
       }
       for (const ring of rings) {
-        let r = rdp(ring, 0.4);
-        if (r.length < 3) continue;
-        if (ringArea(r) < 0) r = r.reverse(); // normalise CCW
-        const area = Math.abs(ringArea(r));
-        if (area < 0.4) continue; // < ~8 m² — exporter sliver
-        const per = plLen([...r, r[0]]);
-        const [cx, cz] = centroidOf(r);
-        polys.push({
-          group: b.key,
-          name: b.name,
-          ring: r,
-          cx,
-          cz,
-          area,
-          // Compactness 4πA/P²: ~1 for a disc, ~0 for a fence line.
-          compact: per > 0 ? (4 * Math.PI * area) / (per * per) : 0,
-          strip: STRIPY_NAME.test(b.name),
-          simple: isSimpleRing(r),
-          y: c.maxY * CAL_SY,
-        });
+        const poly = groundPolyOf(b, c, ring);
+        if (poly) {
+          polys.push(poly);
+        }
       }
     }
   }
-  const nonSimple = polys.filter((p) => !p.simple).length;
-  console.log(
-    `ground: ${groundBuckets.length} buckets, ${comps} welded components -> ${polys.length} rings ` +
-      `(${ringFail} components yielded no boundary loop; ${nonSimple} rings self-intersect and are ` +
-      `kept out of the raster)`,
-  );
+  return { comps, polys, ringFail };
+};
 
-  // --- Decode: match each polygon to an untruncated OSM way ---------------
-  // Two passes: the first measures the systematic offset between the OBJ's
-  // hill-climbed CAL and the game's lon/lat projection, the second re-matches
-  // with that offset removed. Both are reported.
-  const match = (p, dx, dz, radius) => {
-    const x = p.cx - dx;
-    const z = p.cz - dz;
-    let best = null;
-    let bestScore = Infinity;
-    for (const i of idx.near(x, z, radius)) {
-      const w = ways[i];
-      const d = Math.hypot(w.cx - x, w.cz - z);
-      if (d > radius) continue;
-      // Area agreement matters as much as position: SF stacks a pitch, a
-      // garden and a park on the same centroid.
-      const ratio =
-        p.area > 1 && w.area > 1
-          ? Math.abs(Math.log(w.area / p.area))
-          : w.area > 1 || p.area > 1
-            ? 1.5
-            : 0;
-      // Hard veto on wildly mismatched areas. Without it a 1.7 km² Port of San
-      // Francisco ring happily "matched" a 500 m² pier that happened to sit
-      // near its centroid.
-      if (p.area > 200 && w.area > 200 && ratio > 0.7) continue;
-      if (p.area > 2000 !== w.area > 2000) continue;
-      const score = d / radius + ratio;
-      if (score < bestScore) {
-        bestScore = score;
-        best = w;
-      }
+/**
+ * Area-disagreement penalty. SF stacks a pitch, a garden and a park on the
+ * same centroid, so area agreement matters as much as position.
+ */
+const areaPenalty = (pArea, wArea) => {
+  if (pArea > 1 && wArea > 1) {
+    return Math.abs(Math.log(wArea / pArea));
+  }
+  return wArea > 1 || pArea > 1 ? 1.5 : 0;
+};
+
+/** Nearest OSM way to a polygon centroid, offset-corrected, or null. */
+const matchWay = (ways, idx, p, dx, dz, radius) => {
+  const x = p.cx - dx;
+  const z = p.cz - dz;
+  let best = null;
+  let bestScore = Infinity;
+  for (const i of idx.near(x, z, radius)) {
+    const w = ways[i];
+    const d = Math.hypot(w.cx - x, w.cz - z);
+    if (d > radius) {
+      continue;
     }
-    return bestScore < 1.2 ? best : null;
-  };
+    const ratio = areaPenalty(p.area, w.area);
+    // Hard veto on wildly mismatched areas. Without it a 1.7 km² Port of San
+    // Francisco ring happily "matched" a 500 m² pier that happened to sit
+    // near its centroid.
+    if (p.area > 200 && w.area > 200 && ratio > 0.7) {
+      continue;
+    }
+    if (p.area > 2000 !== w.area > 2000) {
+      continue;
+    }
+    const score = d / radius + ratio;
+    if (score < bestScore) {
+      bestScore = score;
+      best = w;
+    }
+  }
+  return bestScore < 1.2 ? best : null;
+};
 
+const median = (a) => [...a].toSorted((x, y) => x - y)[Math.floor(a.length / 2)];
+
+/**
+ * Systematic offset between the OBJ's hill-climbed CAL and the game's lon/lat
+ * projection. Two passes: the first measures it, the second re-measures with
+ * the first estimate removed.
+ */
+const measureOsmOffset = (polys, ways, idx) => {
   let dx = 0;
   let dz = 0;
-  for (let pass = 0; pass < 2; pass++) {
+  for (let pass = 0; pass < 2; pass += 1) {
     const ex = [];
     const ez = [];
     for (const p of polys) {
-      const w = match(p, dx, dz, 45);
-      if (!w) continue;
+      const w = matchWay(ways, idx, p, dx, dz, 45);
+      if (!w) {
+        continue;
+      }
       ex.push(p.cx - dx - w.cx);
       ez.push(p.cz - dz - w.cz);
     }
-    if (ex.length < 20) break;
-    const med = (a) => a.slice().sort((x, y) => x - y)[Math.floor(a.length / 2)];
-    dx += med(ex);
-    dz += med(ez);
-  }
-  console.log(
-    `OBJ↔OSM systematic offset: dx=${dx.toFixed(2)}u dz=${dz.toFixed(2)}u ` +
-      `(${(Math.hypot(dx, dz) * M_PER_U).toFixed(1)} m) — removed before matching`,
-  );
-
-  let matched = 0;
-  for (const p of polys) {
-    const w = match(p, dx, dz, 45);
-    if (w) {
-      matched++;
-      p.tags = w.tags;
-      p.osmName = w.name;
-      p.dist = Math.hypot(p.cx - dx - w.cx, p.cz - dz - w.cz);
+    if (ex.length < 20) {
+      break;
     }
+    dx += median(ex);
+    dz += median(ez);
   }
-  console.log(
-    `decode: ${matched}/${polys.length} polygons matched an OSM way (${((matched / polys.length) * 100).toFixed(1)}%)`,
-  );
+  return { dx, dz };
+};
 
-  // --- Vote per OBJ group ---------------------------------------------------
+/** Modal OSM tag per OBJ group, with the full vote spectrum behind it. */
+const voteGroups = (polys) => {
   const groupInfo = new Map();
   for (const p of polys) {
     let g = groupInfo.get(p.group);
     if (!g) {
-      g = { group: p.group, polys: 0, matched: 0, votes: new Map(), area: 0 };
+      g = { area: 0, group: p.group, matched: 0, polys: 0, votes: new Map() };
       groupInfo.set(p.group, g);
     }
-    g.polys++;
+    g.polys += 1;
     g.area += p.area;
-    if (!p.tags) continue;
-    g.matched++;
-    for (const t of p.tags) g.votes.set(t, (g.votes.get(t) ?? 0) + 1);
+    if (!p.tags) {
+      continue;
+    }
+    g.matched += 1;
+    for (const t of p.tags) {
+      g.votes.set(t, (g.votes.get(t) ?? 0) + 1);
+    }
   }
   const decoded = [];
   for (const g of groupInfo.values()) {
-    const ranked = [...g.votes.entries()].sort((a, b) => b[1] - a[1]);
-    const top = ranked[0];
+    const ranked = [...g.votes.entries()].toSorted((a, b) => b[1] - a[1]);
+    const [top] = ranked;
     // Confidence = the winner's share of matched polygons in the group.
     const conf = top ? top[1] / Math.max(1, g.matched) : 0;
     const hint = nameHint(g.group.split("|")[0]);
     decoded.push({
+      areaU2: Math.round(g.area),
+      confidence: +conf.toFixed(3),
+      decoded: top?.[0] ?? null,
       group: g.group,
-      nameHint: hint?.candidates ?? null,
       // Does the truncated name agree with the geometry? A false here means
       // one of the two is wrong; take the geometry and flag it.
       hintAgrees: hint ? hint.candidates.some((c) => top?.[0]?.endsWith(`=${c}`)) : null,
-      polygons: g.polys,
-      matched: g.matched,
       matchRate: +(g.matched / g.polys).toFixed(3),
-      areaU2: Math.round(g.area),
-      decoded: top?.[0] ?? null,
-      confidence: +conf.toFixed(3),
+      matched: g.matched,
+      nameHint: hint?.candidates ?? null,
+      polygons: g.polys,
+      runnersUp: ranked.slice(1, 5).map(([t, n]) => `${t} x${n}`),
       // A single verdict is a lie for the mixed groups. The full tag spectrum
       // is what the emit phase should read.
       tagSpectrum: ranked.slice(0, 8).map(([t, n]) => `${t} x${n}`),
-      runnersUp: ranked.slice(1, 5).map(([t, n]) => `${t} x${n}`),
     });
   }
   decoded.sort((a, b) => b.areaU2 - a.areaU2);
+  return decoded;
+};
 
-  // Per-polygon class: its own matched tag first, else its group's verdict.
-  // The group vote is only a fallback — several OBJ objects genuinely mix
-  // classes (the exporter merged whatever shared a 10-char name), so trusting
-  // the vote over the polygon's own match would smear them.
+/**
+ * Per-polygon class: its own matched tag first, else its group's verdict.
+ * The group vote is only a fallback — several OBJ objects genuinely mix
+ * classes (the exporter merged whatever shared a 10-char name), so trusting
+ * the vote over the polygon's own match would smear them.
+ */
+const assignPolyClasses = (polys, decoded) => {
   const groupVerdict = new Map(
     // Only trust a group vote that is actually a majority. Half these objects
     // are a bag of unrelated OSM areas that happened to share ten characters.
@@ -743,31 +884,135 @@ function main() {
     p.tag = p.tags?.find((t) => classFor(t)) ?? groupVerdict.get(p.group) ?? null;
     p.fromGroupVote = !own && !!grp;
   }
+};
 
-  // DISTRICT rings, not ground classes. Anything over 20,000u² (0.4 km²) is
-  // bigger than every real parcel in this OBJ's footprint — the largest true
-  // ground area is Fort Mason at 13,400u² — so a ring that size is an
-  // administrative / neighbourhood outline (the `boundary` and `name` objects
-  // carry several). They are reported separately and kept OUT of the raster,
-  // where they would otherwise repaint whole quadrants.
-  const DISTRICT_MIN = 20000;
-  const districts = polys
-    .filter((p) => p.area >= DISTRICT_MIN || p.name === "boundary")
+// Anything over 20,000u² (0.4 km²) is bigger than every real parcel in this
+// OBJ's footprint — the largest true ground area is Fort Mason at 13,400u².
+const DISTRICT_MIN = 20_000;
+const isDistrict = (p) => p.area >= DISTRICT_MIN || p.name === "boundary";
+
+/**
+ * DISTRICT rings, not ground classes: a ring that size is an administrative /
+ * neighbourhood outline (the `boundary` and `name` objects carry several).
+ * They are reported separately and kept OUT of the raster, where they would
+ * otherwise repaint whole quadrants.
+ */
+const districtRings = (polys) =>
+  polys
+    .filter((p) => isDistrict(p))
     .map((p) => ({
+      areaKm2: +((p.area * M_PER_U * M_PER_U) / 1e6).toFixed(2),
+      areaU2: Math.round(p.area),
       group: p.group,
+      matchedOsm: !!p.tags,
+      name: p.osmName ?? null,
+      ring: p.ring.flatMap(([x, z]) => [Math.round(x * 10) / 10, Math.round(z * 10) / 10]),
       // Own match only — a group vote is meaningless at this size and would
       // stamp "hospital" on a 6.8 km² administrative ring.
       tag: p.tags?.[0] ?? null,
-      matchedOsm: !!p.tags,
-      name: p.osmName ?? null,
-      areaU2: Math.round(p.area),
-      areaKm2: +((p.area * M_PER_U * M_PER_U) / 1e6).toFixed(2),
       u: +toU(p.cx).toFixed(4),
       v: +toV(p.cz).toFixed(4),
-      ring: p.ring.flatMap(([x, z]) => [Math.round(x * 10) / 10, Math.round(z * 10) / 10]),
     }))
-    .sort((a, b) => b.areaU2 - a.areaU2);
-  for (const p of polys) if (p.area >= DISTRICT_MIN || p.name === "boundary") p.cls = null;
+    .toSorted((a, b) => b.areaU2 - a.areaU2);
+
+// The licensed model only covers the north-east quadrant, which is where the
+// game is driven — worth knowing whether the classes land there or out in the
+// avenues.
+const OBJ_BOX = { u0: 0.43, u1: 0.89, v0: -0.07, v1: 0.49 };
+
+/** Classified-cell coverage of a raster, split by the OBJ's own footprint. */
+const coverageOf = (grid) => {
+  let inBox = 0;
+  let inBoxCls = 0;
+  let outBox = 0;
+  let outBoxCls = 0;
+  let land = 0;
+  let landCls = 0;
+  for (let gx = 0; gx < GRID_X; gx += 1) {
+    for (let gz = 0; gz < GRID_Z; gz += 1) {
+      const u = (gx + 0.5) / GRID_X;
+      const v = (gz + 0.5) / GRID_Z;
+      const has = Number.parseInt(grid.cols[gx].slice(gz * 2, gz * 2 + 2), 16) > 0;
+      // Land is the honest denominator — over a third of the rectangle is bay.
+      if (onLandUV(u, v)) {
+        land += 1;
+        if (has) {
+          landCls += 1;
+        }
+      }
+      if (u >= OBJ_BOX.u0 && u <= OBJ_BOX.u1 && v >= OBJ_BOX.v0 && v <= OBJ_BOX.v1) {
+        inBox += 1;
+        if (has) {
+          inBoxCls += 1;
+        }
+      } else {
+        outBox += 1;
+        if (has) {
+          outBoxCls += 1;
+        }
+      }
+    }
+  }
+  return {
+    insideObjFootprint: {
+      cells: inBox,
+      classified: inBoxCls,
+      pct: +((inBoxCls / inBox) * 100).toFixed(1),
+    },
+    landCells: { cells: land, classified: landCls, pct: +((landCls / land) * 100).toFixed(1) },
+    objFootprint: OBJ_BOX,
+    outsideObjFootprint: {
+      cells: outBox,
+      classified: outBoxCls,
+      pct: +((outBoxCls / outBox) * 100).toFixed(1),
+    },
+  };
+};
+
+const main = () => {
+  const ways = loadOsm();
+  const idx = indexWays(ways);
+
+  // ===== 1. GROUND POLYGONS ================================================
+  const groundBuckets = groundBucketsOf();
+  const { comps, polys, ringFail } = buildGroundPolys(groundBuckets);
+  const nonSimple = polys.filter((p) => !p.simple).length;
+  console.log(
+    `ground: ${groundBuckets.length} buckets, ${comps} welded components -> ${polys.length} rings ` +
+      `(${ringFail} components yielded no boundary loop; ${nonSimple} rings self-intersect and are ` +
+      `kept out of the raster)`,
+  );
+
+  // --- Decode: match each polygon to an untruncated OSM way ---------------
+  const { dx, dz } = measureOsmOffset(polys, ways, idx);
+  console.log(
+    `OBJ↔OSM systematic offset: dx=${dx.toFixed(2)}u dz=${dz.toFixed(2)}u ` +
+      `(${(Math.hypot(dx, dz) * M_PER_U).toFixed(1)} m) — removed before matching`,
+  );
+
+  let matched = 0;
+  for (const p of polys) {
+    const w = matchWay(ways, idx, p, dx, dz, 45);
+    if (w) {
+      matched += 1;
+      p.tags = w.tags;
+      p.osmName = w.name;
+      p.dist = Math.hypot(p.cx - dx - w.cx, p.cz - dz - w.cz);
+    }
+  }
+  console.log(
+    `decode: ${matched}/${polys.length} polygons matched an OSM way (${((matched / polys.length) * 100).toFixed(1)}%)`,
+  );
+
+  // --- Vote per OBJ group ---------------------------------------------------
+  const decoded = voteGroups(polys);
+  assignPolyClasses(polys, decoded);
+  const districts = districtRings(polys);
+  for (const p of polys) {
+    if (isDistrict(p)) {
+      p.cls = null;
+    }
+  }
 
   // ===== 2. MASSING ========================================================
   const massing = analyseMassing();
@@ -779,7 +1024,7 @@ function main() {
   // Strips (fences, kerbs, pier edges) never claim a cell — they are lines.
   const objInput = polys
     .filter((p) => p.cls && p.simple && !p.strip && p.compact >= 0.12)
-    .map((p) => ({ ring: p.ring, cls: p.cls }));
+    .map((p) => ({ cls: p.cls, ring: p.ring }));
   const objGrid = rasteriseAreas(objInput, 0.06);
 
   // Honesty check: how much of the same raster do we get from a straight
@@ -788,10 +1033,14 @@ function main() {
   // so the shipped raster should be the union, OSM first.
   const osmInput = [];
   for (const w of ways) {
-    if (!w.ring) continue;
+    if (!w.ring) {
+      continue;
+    }
     const cls = w.tags.map((t) => classFor(t)).find(Boolean);
     // Same district guard: OSM carries protected-area and neighbourhood rings.
-    if (cls && w.area < 20000) osmInput.push({ ring: w.ring, cls: cls[0] });
+    if (cls && w.area < 20_000) {
+      osmInput.push({ cls: cls[0], ring: w.ring });
+    }
   }
   const osmGrid = rasteriseAreas(osmInput, 0.06);
   const grid = {
@@ -800,52 +1049,14 @@ function main() {
     note: "Union of the OBJ-decoded polygons and the Overpass pull. THIS is the raster the game should ship.",
     ...rasteriseAreas([...osmInput, ...objInput], 0.06),
   };
-  // Coverage split by the OBJ's own footprint. The licensed model only covers
-  // the north-east quadrant, which is where the game is driven — worth knowing
-  // whether the classes land there or out in the avenues.
-  const OBJ_BOX = { u0: 0.43, u1: 0.89, v0: -0.07, v1: 0.49 };
-  let inBox = 0;
-  let inBoxCls = 0;
-  let outBox = 0;
-  let outBoxCls = 0;
-  let land = 0;
-  let landCls = 0;
-  for (let gx = 0; gx < GRID_X; gx++)
-    for (let gz = 0; gz < GRID_Z; gz++) {
-      const u = (gx + 0.5) / GRID_X;
-      const v = (gz + 0.5) / GRID_Z;
-      const has = parseInt(grid.cols[gx].substr(gz * 2, 2), 16) > 0;
-      // Land is the honest denominator — over a third of the rectangle is bay.
-      if (onLandUV(u, v)) {
-        land++;
-        if (has) landCls++;
-      }
-      if (u >= OBJ_BOX.u0 && u <= OBJ_BOX.u1 && v >= OBJ_BOX.v0 && v <= OBJ_BOX.v1) {
-        inBox++;
-        if (has) inBoxCls++;
-      } else {
-        outBox++;
-        if (has) outBoxCls++;
-      }
-    }
-  const coverage = {
-    objFootprint: OBJ_BOX,
-    landCells: { cells: land, classified: landCls, pct: +((landCls / land) * 100).toFixed(1) },
-    insideObjFootprint: {
-      cells: inBox,
-      classified: inBoxCls,
-      pct: +((inBoxCls / inBox) * 100).toFixed(1),
-    },
-    outsideObjFootprint: {
-      cells: outBox,
-      classified: outBoxCls,
-      pct: +((outBoxCls / outBox) * 100).toFixed(1),
-    },
-  };
+  const coverage = coverageOf(grid);
+  const { classified: landCls, cells: land } = coverage.landCells;
+  const { classified: inBoxCls, cells: inBox } = coverage.insideObjFootprint;
+  const { classified: outBoxCls, cells: outBox } = coverage.outsideObjFootprint;
   console.log(
     `raster: OBJ polygons alone classify ${objGrid.classified}/48800 cells; ` +
       `a straight Overpass pull classifies ${osmGrid.classified}/48800; ` +
-      `union ${grid.classified}/48800 (${((grid.classified / 48800) * 100).toFixed(1)}%)`,
+      `union ${grid.classified}/48800 (${((grid.classified / 48_800) * 100).toFixed(1)}%)`,
   );
   console.log(
     `  LAND cells only: ${landCls}/${land} (${coverage.landCells.pct}%). ` +
@@ -858,50 +1069,50 @@ function main() {
   const emitPolys = polys
     .filter((p) => p.cls || p.strip)
     .map((p) => ({
+      a: Math.round(p.area),
       cls: p.cls,
-      tag: p.tag,
       grp: p.group,
       name: p.osmName ?? undefined,
-      a: Math.round(p.area),
-      strip: p.strip || p.compact < 0.12 ? 1 : undefined,
-      selfIntersects: p.simple ? undefined : 1,
       r: p.ring.flatMap(([x, z]) => [Math.round(x * 10) / 10, Math.round(z * 10) / 10]),
+      selfIntersects: p.simple ? undefined : 1,
+      strip: p.strip || p.compact < 0.12 ? 1 : undefined,
+      tag: p.tag,
     }));
 
   const out = {
-    meta: {
-      source: objPath,
-      generator: "tools/sf-data/extract-landuse-obj.mjs",
-      cal: CAL,
-      calSY: CAL_SY,
-      metresPerUnit: M_PER_U,
-      world: { w: WORLD_W, h: WORLD_H, gridX: GRID_X, gridZ: GRID_Z },
-      objVerts: vx.length,
-      objObjects: objLines,
-      objBuckets: groups.size,
-      osmOffset: { dx: +dx.toFixed(2), dz: +dz.toFixed(2) },
-      note: "u = x/3172+0.5, v = z/2600+0.5. Lower v = north.",
-    },
+    grid: { ...grid, coverage },
+    infrastructure: infra,
     landuse: {
-      groups: decoded,
       districts,
+      groups: decoded,
       polygonCount: emitPolys.length,
       polygons: emitPolys,
     },
     massing,
-    infrastructure: infra,
-    grid: { ...grid, coverage },
+    meta: {
+      cal: CAL,
+      calSY: CAL_SY,
+      generator: "tools/sf-data/extract-landuse-obj.mjs",
+      metresPerUnit: M_PER_U,
+      note: "u = x/3172+0.5, v = z/2600+0.5. Lower v = north.",
+      objBuckets: groups.size,
+      objObjects: objLines,
+      objVerts: vx.length,
+      osmOffset: { dx: +dx.toFixed(2), dz: +dz.toFixed(2) },
+      source: objPath,
+      world: { gridX: GRID_X, gridZ: GRID_Z, h: WORLD_H, w: WORLD_W },
+    },
     objOnlyGrid: {
-      note: "OBJ-decoded polygons only — what the licensed model can supply on its own.",
       classes: objGrid.classes,
-      histogram: objGrid.histogram,
       classified: objGrid.classified,
+      histogram: objGrid.histogram,
+      note: "OBJ-decoded polygons only — what the licensed model can supply on its own.",
     },
     osmGrid: {
-      note: "Same rasteriser, fed straight from the Overpass dumps instead of the OBJ — the coverage baseline the OBJ layer has to beat, and loses to.",
       classes: osmGrid.classes,
-      histogram: osmGrid.histogram,
       classified: osmGrid.classified,
+      histogram: osmGrid.histogram,
+      note: "Same rasteriser, fed straight from the Overpass dumps instead of the OBJ — the coverage baseline the OBJ layer has to beat, and loses to.",
     },
     renderPlan: RENDER_PLAN,
   };
@@ -921,27 +1132,32 @@ function main() {
     );
   }
   console.log("\n=== DISTRICT RINGS (>0.4 km² — kept OUT of the raster) ===");
-  for (const d of districts)
+  for (const d of districts) {
     console.log(
       `${String(d.name ?? d.tag ?? "(no OSM match)").padEnd(28)} ${String(d.areaKm2).padStart(6)} km²  ` +
         `u=${d.u} v=${d.v}  from ${d.group}`,
     );
+  }
   console.log("\n=== GRID CLASS HISTOGRAM (244x200 = 48800 cells) ===");
   const objH = new Map(objGrid.histogram);
   const osmH = new Map(osmGrid.histogram);
   const unionH = new Map(grid.histogram);
-  for (const [cls, n] of grid.histogram)
+  for (const [cls, n] of grid.histogram) {
     console.log(
-      `${cls.padEnd(14)} union ${String(n).padStart(6)} (${((n / 48800) * 100).toFixed(2)}%)` +
+      `${cls.padEnd(14)} union ${String(n).padStart(6)} (${((n / 48_800) * 100).toFixed(2)}%)` +
         `   obj ${String(objH.get(cls) ?? 0).padStart(6)}   osm ${String(osmH.get(cls) ?? 0).padStart(6)}`,
     );
-  for (const [cls, n] of osmGrid.histogram)
-    if (!unionH.has(cls)) console.log(`${cls.padEnd(14)} union      0   obj      0   osm ${n}`);
+  }
+  for (const [cls, n] of osmGrid.histogram) {
+    if (!unionH.has(cls)) {
+      console.log(`${cls.padEnd(14)} union      0   obj      0   osm ${n}`);
+    }
+  }
   console.log("\n=== MASSING ===");
   console.log(massing.summary.join("\n"));
   console.log("\n=== INFRASTRUCTURE ===");
   console.log(infra.summary.join("\n"));
-}
+};
 
 // --- 2. Tower massing -------------------------------------------------------
 
@@ -952,89 +1168,128 @@ function main() {
  * structure (three or more distinct vertex levels, with the upper level's
  * footprint narrower than the base)?
  */
-function analyseMassing() {
+/**
+ * Distinct vertex LEVELS of a component. Bin at 0.5 model units (~0.31 m real,
+ * well under any real floor-to-floor) so a level is a genuine plane, not float
+ * noise.
+ */
+const levelsOf = (c) => {
+  const lv = new Map();
+  for (const f of c.faces) {
+    for (const id of f) {
+      const b = Math.round(vy[id] * 2) / 2;
+      let e = lv.get(b);
+      if (!e) {
+        e = { maxX: -1e9, maxZ: -1e9, minX: 1e9, minZ: 1e9, n: 0 };
+        lv.set(b, e);
+      }
+      e.n += 1;
+      if (vx[id] < e.minX) {
+        e.minX = vx[id];
+      }
+      if (vx[id] > e.maxX) {
+        e.maxX = vx[id];
+      }
+      if (vz[id] < e.minZ) {
+        e.minZ = vz[id];
+      }
+      if (vz[id] > e.maxZ) {
+        e.maxZ = vz[id];
+      }
+    }
+  }
+  return [...lv.entries()]
+    .filter(([, e]) => e.n >= 3)
+    .toSorted((a, b) => a[0] - b[0])
+    .map(([y, e]) => ({
+      area: +((e.maxX - e.minX) * CAL.sx * ((e.maxZ - e.minZ) * CAL.sz)).toFixed(1),
+      h: +((y - c.minY) * CAL_SY).toFixed(2),
+      n: e.n,
+    }));
+};
+
+/** Plan extent of everything in a normalised height band of the component. */
+const bandExtent = (c, lo, hi) => {
+  const ext = c.maxY - c.minY;
+  let x0 = 1e9;
+  let x1 = -1e9;
+  let z0 = 1e9;
+  let z1 = -1e9;
+  let n = 0;
+  for (const f of c.faces) {
+    for (const id of f) {
+      const t = ext > 0 ? (vy[id] - c.minY) / ext : 0;
+      if (t < lo || t > hi) {
+        continue;
+      }
+      n += 1;
+      if (vx[id] < x0) {
+        x0 = vx[id];
+      }
+      if (vx[id] > x1) {
+        x1 = vx[id];
+      }
+      if (vz[id] < z0) {
+        z0 = vz[id];
+      }
+      if (vz[id] > z1) {
+        z1 = vz[id];
+      }
+    }
+  }
+  return n === 0 ? 0 : (x1 - x0) * CAL.sx * ((z1 - z0) * CAL.sz);
+};
+
+const massingOf = (key, c, w, d) => {
+  // Per-level bbox is noisy (one level may hold only a mullion ring), so the
+  // podium/setback verdict uses QUARTILE bands instead: the plan extent of the
+  // bottom quarter vs the top quarter of the component's height. 1.0 = a
+  // straight prism, <1 = it tapers.
+  const lowA = bandExtent(c, 0, 0.25);
+  const highA = bandExtent(c, 0.75, 1);
+  return {
+    base: +(c.minY * CAL_SY).toFixed(2),
+    bboxArea: +(w * d).toFixed(1),
+    group: key,
+    h: +((c.maxY - c.minY) * CAL_SY).toFixed(2),
+    levels: levelsOf(c),
+    taper: lowA > 0 ? +(highA / lowA).toFixed(3) : 1,
+    wx: +toWorldX((c.minX + c.maxX) / 2).toFixed(1),
+    wz: +toWorldZ((c.minZ + c.maxZ) / 2).toFixed(1),
+    x: +((c.minX + c.maxX) / 2).toFixed(1),
+    z: +((c.minZ + c.maxZ) / 2).toFixed(1),
+  };
+};
+
+const analyseMassing = () => {
   const comps = [];
   for (const [key, faces] of groups) {
     const [name, mtl] = key.split("|");
-    if (mtl !== "building" || !BUILDING_NAME.test(name)) continue;
+    if (mtl !== "building" || !BUILDING_NAME.test(name)) {
+      continue;
+    }
     for (const c of components(faces)) {
       const w = (c.maxX - c.minX) * CAL.sx;
       const d = (c.maxZ - c.minZ) * CAL.sz;
-      if (w < 3 * CAL.sx || d < 3 * CAL.sz) continue;
-      if (w > 900 * CAL.sx || d > 900 * CAL.sz) continue;
-      // Distinct vertex LEVELS. Bin at 0.5 model units (~0.31 m real, well
-      // under any real floor-to-floor) so a level is a genuine plane, not
-      // float noise.
-      const lv = new Map();
-      for (const f of c.faces)
-        for (const id of f) {
-          const b = Math.round(vy[id] * 2) / 2;
-          let e = lv.get(b);
-          if (!e) {
-            e = { n: 0, minX: 1e9, maxX: -1e9, minZ: 1e9, maxZ: -1e9 };
-            lv.set(b, e);
-          }
-          e.n++;
-          if (vx[id] < e.minX) e.minX = vx[id];
-          if (vx[id] > e.maxX) e.maxX = vx[id];
-          if (vz[id] < e.minZ) e.minZ = vz[id];
-          if (vz[id] > e.maxZ) e.maxZ = vz[id];
-        }
-      const levels = [...lv.entries()]
-        .filter(([, e]) => e.n >= 3)
-        .sort((a, b) => a[0] - b[0])
-        .map(([y, e]) => ({
-          h: +((y - c.minY) * CAL_SY).toFixed(2),
-          n: e.n,
-          area: +((e.maxX - e.minX) * CAL.sx * ((e.maxZ - e.minZ) * CAL.sz)).toFixed(1),
-        }));
-      // Per-level bbox is noisy (one level may hold only a mullion ring), so
-      // the podium/setback verdict uses QUARTILE bands instead: the plan
-      // extent of everything in the bottom quarter vs the top quarter of the
-      // component's height. 1.0 = a straight prism, <1 = it tapers.
-      const ext = c.maxY - c.minY;
-      const band = (lo, hi) => {
-        let x0 = 1e9;
-        let x1 = -1e9;
-        let z0 = 1e9;
-        let z1 = -1e9;
-        let n = 0;
-        for (const f of c.faces)
-          for (const id of f) {
-            const t = ext > 0 ? (vy[id] - c.minY) / ext : 0;
-            if (t < lo || t > hi) continue;
-            n++;
-            if (vx[id] < x0) x0 = vx[id];
-            if (vx[id] > x1) x1 = vx[id];
-            if (vz[id] < z0) z0 = vz[id];
-            if (vz[id] > z1) z1 = vz[id];
-          }
-        return n === 0 ? 0 : (x1 - x0) * CAL.sx * ((z1 - z0) * CAL.sz);
-      };
-      const lowA = band(0, 0.25);
-      const highA = band(0.75, 1);
-      comps.push({
-        taper: lowA > 0 ? +(highA / lowA).toFixed(3) : 1,
-        group: key,
-        x: +((c.minX + c.maxX) / 2).toFixed(1),
-        z: +((c.minZ + c.maxZ) / 2).toFixed(1),
-        wx: +toWorldX((c.minX + c.maxX) / 2).toFixed(1),
-        wz: +toWorldZ((c.minZ + c.maxZ) / 2).toFixed(1),
-        h: +((c.maxY - c.minY) * CAL_SY).toFixed(2),
-        base: +(c.minY * CAL_SY).toFixed(2),
-        bboxArea: +(w * d).toFixed(1),
-        levels,
-      });
+      if (w < 3 * CAL.sx || d < 3 * CAL.sz) {
+        continue;
+      }
+      if (w > 900 * CAL.sx || d > 900 * CAL.sz) {
+        continue;
+      }
+      comps.push(massingOf(key, c, w, d));
     }
   }
   comps.sort((a, b) => b.h - a.h);
 
-  const hs = comps.map((c) => c.h).sort((a, b) => a - b);
+  const hs = comps.map((c) => c.h).toSorted((a, b) => a - b);
   const q = (t) => hs[Math.min(hs.length - 1, Math.floor(hs.length * t))];
   // Height histogram in 1u (4.45 m) buckets.
   const hist = new Map();
-  for (const h of hs) hist.set(Math.floor(h), (hist.get(Math.floor(h)) ?? 0) + 1);
-  const histogram = [...hist.entries()].sort((a, b) => a[0] - b[0]);
+  for (const h of hs) {
+    hist.set(Math.floor(h), (hist.get(Math.floor(h)) ?? 0) + 1);
+  }
+  const histogram = [...hist.entries()].toSorted((a, b) => a[0] - b[0]);
 
   // Distinct heights: the model quantises to the OSM height tag, so this
   // counts how many DISTINCT tag values the city actually carries.
@@ -1055,16 +1310,16 @@ function analyseMassing() {
     const set = comps.filter(test);
     const prisms = set.filter((c) => c.levels.length <= 2).length;
     const tapered = set.filter((c) => c.taper < 0.8).length;
-    const taperSorted = set.map((c) => c.taper).sort((a, b) => a - b);
+    const taperSorted = set.map((c) => c.taper).toSorted((a, b) => a - b);
     const medTaper = set.length ? taperSorted[Math.floor(set.length / 2)].toFixed(2) : "-";
     return {
       band: label,
+      flatPrismPct: set.length ? +((prisms / set.length) * 100).toFixed(1) : 0,
+      flatPrisms: prisms,
+      medianTaper: +medTaper,
       n: set.length,
       pctOfCity: +((set.length / comps.length) * 100).toFixed(2),
-      flatPrisms: prisms,
-      flatPrismPct: set.length ? +((prisms / set.length) * 100).toFixed(1) : 0,
       taperedBelow80pct: tapered,
-      medianTaper: +medTaper,
     };
   });
 
@@ -1072,19 +1327,28 @@ function analyseMassing() {
   const setbacks = [];
   for (const c of comps) {
     const n = c.levels.length;
-    if (n <= 2) tiers[2]++;
-    else if (n === 3) tiers[3]++;
-    else if (n === 4) tiers[4]++;
-    else tiers["5+"]++;
-    if (n >= 3 && c.taper < 0.8) setbacks.push(c);
+    if (n <= 2) {
+      tiers[2] += 1;
+    } else if (n === 3) {
+      tiers[3] += 1;
+    } else if (n === 4) {
+      tiers[4] += 1;
+    } else {
+      tiers["5+"] += 1;
+    }
+    if (n >= 3 && c.taper < 0.8) {
+      setbacks.push(c);
+    }
   }
 
   // The 20 heights the city actually repeats — the real "tier" set the game
   // is trying to approximate with its 3-way pool pick.
   const hCount = new Map();
-  for (const c of comps) hCount.set(c.h, (hCount.get(c.h) ?? 0) + 1);
+  for (const c of comps) {
+    hCount.set(c.h, (hCount.get(c.h) ?? 0) + 1);
+  }
   const modalHeights = [...hCount.entries()]
-    .sort((a, b) => b[1] - a[1])
+    .toSorted((a, b) => b[1] - a[1])
     .slice(0, 20)
     .map(([h, n]) => ({ h, m: +(h * M_PER_U).toFixed(1), n }));
 
@@ -1101,7 +1365,7 @@ function analyseMassing() {
 
   const summary = [
     `components: ${comps.length}`,
-    `height (world u, 1u = ${M_PER_U} m): min ${hs[0].toFixed(2)} p25 ${q(0.25).toFixed(2)} p50 ${q(0.5).toFixed(2)} p75 ${q(0.75).toFixed(2)} p90 ${q(0.9).toFixed(2)} p99 ${q(0.99).toFixed(2)} max ${hs[hs.length - 1].toFixed(2)}`,
+    `height (world u, 1u = ${M_PER_U} m): min ${hs[0].toFixed(2)} p25 ${q(0.25).toFixed(2)} p50 ${q(0.5).toFixed(2)} p75 ${q(0.75).toFixed(2)} p90 ${q(0.9).toFixed(2)} p99 ${q(0.99).toFixed(2)} max ${hs.at(-1).toFixed(2)}`,
     `distinct height values: ${distinct.size} — the model carries the OSM height/levels tag, so heights are QUANTISED. Top 5 repeats: ${modalHeights
       .slice(0, 5)
       .map((x) => `${x.h}u x${x.n}`)
@@ -1120,53 +1384,14 @@ function analyseMassing() {
   ];
 
   return {
-    summary,
-    componentCount: comps.length,
     bandStats,
-    modalHeights,
-    heightQuantiles: {
-      min: hs[0],
-      p10: q(0.1),
-      p25: q(0.25),
-      p50: q(0.5),
-      p75: q(0.75),
-      p90: q(0.9),
-      p99: q(0.99),
-      max: hs[hs.length - 1],
-    },
+    componentCount: comps.length,
     distinctHeightValues: distinct.size,
-    heightHistogram: histogram,
-    levelHistogram: tiers,
-    setbackCount: setbacks.length,
-    setbackSamples: setbacks
-      .sort((a, b) => b.h - a.h)
-      .slice(0, 40)
-      .map((c) => ({
-        wx: c.wx,
-        wz: c.wz,
-        u: +toU(c.wx).toFixed(4),
-        v: +toV(c.wz).toFixed(4),
-        h: c.h,
-        taper: c.taper,
-        levels: c.levels,
-      })),
-    tallest: comps.slice(0, 150).map((c) => ({
-      wx: c.wx,
-      wz: c.wz,
-      u: +toU(c.wx).toFixed(4),
-      v: +toV(c.wz).toFixed(4),
-      h: c.h,
-      m: +(c.h * M_PER_U).toFixed(0),
-      bboxArea: c.bboxArea,
-      levels: c.levels.length,
-      taper: c.taper,
-      group: c.group,
-    })),
     fidiCluster: {
-      note: "h>=20u components inside u .66-.80 / v .12-.27. [u, v, height(u), taper, bboxArea(u²)]",
       count: fidi.length,
+      note: "h>=20u components inside u .66-.80 / v .12-.27. [u, v, height(u), taper, bboxArea(u²)]",
       towers: fidi
-        .sort((a, b) => b.h - a.h)
+        .toSorted((a, b) => b.h - a.h)
         .map((c) => [
           +toU(c.wx).toFixed(4),
           +toV(c.wz).toFixed(4),
@@ -1175,8 +1400,47 @@ function analyseMassing() {
           Math.round(c.bboxArea),
         ]),
     },
+    heightHistogram: histogram,
+    heightQuantiles: {
+      max: hs.at(-1),
+      min: hs[0],
+      p10: q(0.1),
+      p25: q(0.25),
+      p50: q(0.5),
+      p75: q(0.75),
+      p90: q(0.9),
+      p99: q(0.99),
+    },
+    levelHistogram: tiers,
+    modalHeights,
+    setbackCount: setbacks.length,
+    setbackSamples: setbacks
+      .toSorted((a, b) => b.h - a.h)
+      .slice(0, 40)
+      .map((c) => ({
+        h: c.h,
+        levels: c.levels,
+        taper: c.taper,
+        u: +toU(c.wx).toFixed(4),
+        v: +toV(c.wz).toFixed(4),
+        wx: c.wx,
+        wz: c.wz,
+      })),
+    summary,
+    tallest: comps.slice(0, 150).map((c) => ({
+      bboxArea: c.bboxArea,
+      group: c.group,
+      h: c.h,
+      levels: c.levels.length,
+      m: +(c.h * M_PER_U).toFixed(0),
+      taper: c.taper,
+      u: +toU(c.wx).toFixed(4),
+      v: +toV(c.wz).toFixed(4),
+      wx: c.wx,
+      wz: c.wz,
+    })),
   };
-}
+};
 
 // --- 3. Power + rail --------------------------------------------------------
 
@@ -1184,121 +1448,129 @@ function analyseMassing() {
  * The `power` and `railway` objects. Both are drawn as flat ribbons, so a
  * component is either a LINE (long, thin) or an AREA (a substation / yard).
  */
-function analyseInfra(ways, idx, dx, dz) {
+const nearestInfraWay = (ways, idx, which, cx, cz, dx, dz) => {
+  let best = null;
+  let bd = 60;
+  for (const i of idx.near(cx - dx, cz - dz, 60)) {
+    const wobj = ways[i];
+    if (!wobj.tags.some((t) => t.startsWith(`${which}=`))) {
+      continue;
+    }
+    const dd = Math.hypot(wobj.cx - (cx - dx), wobj.cz - (cz - dz));
+    if (dd < bd) {
+      bd = dd;
+      best = wobj;
+    }
+  }
+  return best;
+};
+
+const infraItemOf = (which, key, c, ways, idx, dx, dz) => {
+  // Largest loop is the right choice here: an infrastructure component is one
+  // line or one yard, and the inner loops are just holes.
+  const [ring] = topRings(c).toSorted((a, b) => Math.abs(ringArea(b)) - Math.abs(ringArea(a)));
+  const w = (c.maxX - c.minX) * CAL.sx;
+  const d = (c.maxZ - c.minZ) * CAL.sz;
+  const r = ring ? rdp(ring, 0.5) : null;
+  const area = r ? Math.abs(ringArea(r)) : 0;
+  const per = r ? plLen([...r, r[0]]) : 0;
+  const best = r ? nearestInfraWay(ways, idx, which, ...centroidOf(r), dx, dz) : null;
+  return {
+    area: +area.toFixed(1),
+    compact: +(per > 0 ? (4 * Math.PI * area) / (per * per) : 0).toFixed(3),
+    key,
+    name: best?.name ?? null,
+    ring: r ? r.flatMap(([x, z]) => [Math.round(x * 10) / 10, Math.round(z * 10) / 10]) : null,
+    span: +Math.max(w, d).toFixed(1),
+    tag: best?.tags.find((t) => t.startsWith(`${which}=`)) ?? null,
+    thin: +Math.min(w, d).toFixed(1),
+    u: +toU(toWorldX((c.minX + c.maxX) / 2)).toFixed(4),
+    v: +toV(toWorldZ((c.minZ + c.maxZ) / 2)).toFixed(4),
+    wx: +toWorldX((c.minX + c.maxX) / 2).toFixed(1),
+    wz: +toWorldZ((c.minZ + c.maxZ) / 2).toFixed(1),
+    yMax: +(c.maxY * CAL_SY).toFixed(2),
+    yMin: +(c.minY * CAL_SY).toFixed(2),
+  };
+};
+
+const analyseInfra = (ways, idx, dx, dz) => {
   const out = { summary: [] };
   for (const which of ["power", "railway"]) {
     const buckets = [...groups.entries()].filter(([k]) => k.split("|")[0] === which);
     const items = [];
     for (const [key, faces] of buckets) {
       for (const c of components(faces)) {
-        // Largest loop is the right choice here: an infrastructure component
-        // is one line or one yard, and the inner loops are just holes.
-        const ring = topRings(c).sort((a, b) => Math.abs(ringArea(b)) - Math.abs(ringArea(a)))[0];
-        const w = (c.maxX - c.minX) * CAL.sx;
-        const d = (c.maxZ - c.minZ) * CAL.sz;
-        const span = Math.max(w, d);
-        const thin = Math.min(w, d);
-        const r = ring ? rdp(ring, 0.5) : null;
-        const area = r ? Math.abs(ringArea(r)) : 0;
-        const per = r ? plLen([...r, r[0]]) : 0;
-        const compact = per > 0 ? (4 * Math.PI * area) / (per * per) : 0;
-        // Decode against OSM.
-        let tag = null;
-        let nm = null;
-        if (r) {
-          const [cx, cz] = centroidOf(r);
-          let best = null;
-          let bd = 60;
-          for (const i of idx.near(cx - dx, cz - dz, 60)) {
-            const wobj = ways[i];
-            if (!wobj.tags.some((t) => t.startsWith(`${which}=`))) continue;
-            const dd = Math.hypot(wobj.cx - (cx - dx), wobj.cz - (cz - dz));
-            if (dd < bd) {
-              bd = dd;
-              best = wobj;
-            }
-          }
-          if (best) {
-            tag = best.tags.find((t) => t.startsWith(`${which}=`)) ?? null;
-            nm = best.name;
-          }
-        }
-        items.push({
-          key,
-          span: +span.toFixed(1),
-          thin: +thin.toFixed(1),
-          area: +area.toFixed(1),
-          compact: +compact.toFixed(3),
-          yMin: +(c.minY * CAL_SY).toFixed(2),
-          yMax: +(c.maxY * CAL_SY).toFixed(2),
-          wx: +toWorldX((c.minX + c.maxX) / 2).toFixed(1),
-          wz: +toWorldZ((c.minZ + c.maxZ) / 2).toFixed(1),
-          u: +toU(toWorldX((c.minX + c.maxX) / 2)).toFixed(4),
-          v: +toV(toWorldZ((c.minZ + c.maxZ) / 2)).toFixed(4),
-          tag,
-          name: nm,
-          ring: r
-            ? r.flatMap(([x, z]) => [Math.round(x * 10) / 10, Math.round(z * 10) / 10])
-            : null,
-        });
+        items.push(infraItemOf(which, key, c, ways, idx, dx, dz));
       }
     }
     const lines = items.filter((i) => i.compact < 0.15 && i.span > 8);
     const areas = items.filter((i) => !(i.compact < 0.15 && i.span > 8));
     const tagHist = new Map();
-    for (const i of items) if (i.tag) tagHist.set(i.tag, (tagHist.get(i.tag) ?? 0) + 1);
+    for (const i of items) {
+      if (i.tag) {
+        tagHist.set(i.tag, (tagHist.get(i.tag) ?? 0) + 1);
+      }
+    }
     const yMin = Math.min(...items.map((i) => i.yMin));
     const yMax = Math.max(...items.map((i) => i.yMax));
     out[which] = {
-      components: items.length,
-      lineLike: lines.length,
       areaLike: areas.length,
-      totalLineSpanU: +lines.reduce((s, i) => s + i.span, 0).toFixed(0),
+      components: items.length,
+      items: items.toSorted((a, b) => b.span - a.span).slice(0, 200),
+      lineLike: lines.length,
+      osmTags: [...tagHist.entries()].toSorted((a, b) => b[1] - a[1]),
       totalAreaU2: +areas.reduce((s, i) => s + i.area, 0).toFixed(0),
-      yRangeU: [yMin, yMax],
+      totalLineSpanU: +lines.reduce((s, i) => s + i.span, 0).toFixed(0),
       yRangeM: [+(yMin * M_PER_U).toFixed(1), +(yMax * M_PER_U).toFixed(1)],
-      osmTags: [...tagHist.entries()].sort((a, b) => b[1] - a[1]),
-      items: items.sort((a, b) => b.span - a.span).slice(0, 200),
+      yRangeU: [yMin, yMax],
     };
     // What OSM has for this key that the OBJ did NOT model — the gap between
     // "the licensed model gives us this for free" and "we would have to pull
     // it ourselves".
     const avail = new Map();
-    for (const w of ways)
-      for (const t of w.tags) if (t.startsWith(`${which}=`)) avail.set(t, (avail.get(t) ?? 0) + 1);
-    out[which].osmAvailableNotInObj = [...avail.entries()].sort((a, b) => b[1] - a[1]);
+    for (const w of ways) {
+      for (const t of w.tags) {
+        if (t.startsWith(`${which}=`)) {
+          avail.set(t, (avail.get(t) ?? 0) + 1);
+        }
+      }
+    }
+    out[which].osmAvailableNotInObj = [...avail.entries()].toSorted((a, b) => b[1] - a[1]);
     out.summary.push(
       `${which}: ${items.length} components — ${lines.length} line-like, ${areas.length} area-like; ` +
         `y ${yMin.toFixed(2)}..${yMax.toFixed(2)}u (${(yMin * M_PER_U).toFixed(1)}..${(yMax * M_PER_U).toFixed(1)} m); ` +
         `OSM tags: ${[...tagHist.entries()]
-          .sort((a, b) => b[1] - a[1])
+          .toSorted((a, b) => b[1] - a[1])
           .slice(0, 6)
           .map(([t, n]) => `${t} x${n}`)
           .join(", ")}`,
-    );
-    out.summary.push(
       `  OSM has, in the same bbox: ${[...avail.entries()]
-        .sort((a, b) => b[1] - a[1])
+        .toSorted((a, b) => b[1] - a[1])
         .slice(0, 8)
         .map(([t, n]) => `${t} x${n}`)
         .join(", ")}`,
     );
   }
   return out;
-}
+};
 
 // --- 4. Rasterise to the game grid -----------------------------------------
 
-const CELL_W = WORLD_W / GRID_X; // 13u = 57.8 m
+// 13u = 57.8 m
+const CELL_W = WORLD_W / GRID_X;
 const CELL_H = WORLD_H / GRID_Z;
 const CELL_AREA = CELL_W * CELL_H;
 
 const inRing = (ring, px, pz) => {
   let inside = false;
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+  let j = ring.length - 1;
+  for (let i = 0; i < ring.length; i += 1) {
     const [xi, zi] = ring[i];
     const [xj, zj] = ring[j];
-    if (zi > pz !== zj > pz && px < ((xj - xi) * (pz - zi)) / (zj - zi) + xi) inside = !inside;
+    if (zi > pz !== zj > pz && px < ((xj - xi) * (pz - zi)) / (zj - zi) + xi) {
+      inside = !inside;
+    }
+    j = i;
   }
   return inside;
 };
@@ -1313,35 +1585,77 @@ const inRing = (ring, px, pz) => {
  * breaking ties by the class rank (water > sand > pitch > park > ... > land
  * use). A cell must be `minFill` covered to claim a class at all.
  */
-function rasteriseAreas(items, minFill) {
-  const acc = new Map(); // cellIndex -> Map<class, area>
-  const STEP = 1.5;
-  for (const p of items) {
-    let minX = 1e9;
-    let maxX = -1e9;
-    let minZ = 1e9;
-    let maxZ = -1e9;
-    for (const [x, z] of p.ring) {
-      if (x < minX) minX = x;
-      if (x > maxX) maxX = x;
-      if (z < minZ) minZ = z;
-      if (z > maxZ) maxZ = z;
+const STEP = 1.5;
+
+const ringBounds = (ring) => {
+  let minX = 1e9;
+  let maxX = -1e9;
+  let minZ = 1e9;
+  let maxZ = -1e9;
+  for (const [x, z] of ring) {
+    if (x < minX) {
+      minX = x;
     }
-    const w = STEP * STEP;
-    for (let x = minX + STEP / 2; x < maxX; x += STEP)
-      for (let z = minZ + STEP / 2; z < maxZ; z += STEP) {
-        if (!inRing(p.ring, x, z)) continue;
-        const gx = Math.floor((x + WORLD_W / 2) / CELL_W);
-        const gz = Math.floor((z + WORLD_H / 2) / CELL_H);
-        if (gx < 0 || gx >= GRID_X || gz < 0 || gz >= GRID_Z) continue;
-        const k = gx * GRID_Z + gz;
-        let m = acc.get(k);
-        if (!m) {
-          m = new Map();
-          acc.set(k, m);
-        }
-        m.set(p.cls, (m.get(p.cls) ?? 0) + w);
+    if (x > maxX) {
+      maxX = x;
+    }
+    if (z < minZ) {
+      minZ = z;
+    }
+    if (z > maxZ) {
+      maxZ = z;
+    }
+  }
+  return { maxX, maxZ, minX, minZ };
+};
+
+/** Add one polygon's covered area, sampled on a STEP lattice, into acc. */
+const accumulateCoverage = (acc, p) => {
+  const { maxX, maxZ, minX, minZ } = ringBounds(p.ring);
+  const w = STEP * STEP;
+  for (let x = minX + STEP / 2; x < maxX; x += STEP) {
+    for (let z = minZ + STEP / 2; z < maxZ; z += STEP) {
+      if (!inRing(p.ring, x, z)) {
+        continue;
       }
+      const gx = Math.floor((x + WORLD_W / 2) / CELL_W);
+      const gz = Math.floor((z + WORLD_H / 2) / CELL_H);
+      if (gx < 0 || gx >= GRID_X || gz < 0 || gz >= GRID_Z) {
+        continue;
+      }
+      const k = gx * GRID_Z + gz;
+      let m = acc.get(k);
+      if (!m) {
+        m = new Map();
+        acc.set(k, m);
+      }
+      m.set(p.cls, (m.get(p.cls) ?? 0) + w);
+    }
+  }
+};
+
+const RANK_OF = new Map(Object.values(CLASS_OF).map(([c, r]) => [c, r]));
+
+/** Winning class of one cell: most covered area, ties broken by class rank. */
+const bestClassOf = (m) => {
+  let bestC = null;
+  let bestA = 0;
+  let total = 0;
+  for (const [c, a] of m) {
+    total += a;
+    if (a > bestA || (a === bestA && (RANK_OF.get(c) ?? 0) > (RANK_OF.get(bestC) ?? 0))) {
+      bestA = a;
+      bestC = c;
+    }
+  }
+  return { bestA, bestC, total };
+};
+
+const rasteriseAreas = (items, minFill) => {
+  // cellIndex -> Map<class, area>
+  const acc = new Map();
+  for (const p of items) {
+    accumulateCoverage(acc, p);
   }
   const classes = [];
   const classId = new Map();
@@ -1356,42 +1670,35 @@ function rasteriseAreas(items, minFill) {
   };
   const cell = new Int16Array(GRID_X * GRID_Z).fill(-1);
   const fill = new Float32Array(GRID_X * GRID_Z);
-  const rankOf = new Map(Object.values(CLASS_OF).map(([c, r]) => [c, r]));
   for (const [k, m] of acc) {
-    let bestC = null;
-    let bestA = 0;
-    let total = 0;
-    for (const [c, a] of m) {
-      total += a;
-      if (a > bestA || (a === bestA && (rankOf.get(c) ?? 0) > (rankOf.get(bestC) ?? 0))) {
-        bestA = a;
-        bestC = c;
-      }
-    }
+    const { bestA, bestC, total } = bestClassOf(m);
     fill[k] = total / CELL_AREA;
-    if (bestC && bestA / CELL_AREA >= minFill) cell[k] = idOf(bestC);
+    if (bestC && bestA / CELL_AREA >= minFill) {
+      cell[k] = idOf(bestC);
+    }
   }
   const counts = new Map();
-  for (let i = 0; i < cell.length; i++) {
-    const c = cell[i] < 0 ? "unclassified" : classes[cell[i]];
+  for (const v of cell) {
+    const c = v < 0 ? "unclassified" : classes[v];
     counts.set(c, (counts.get(c) ?? 0) + 1);
   }
   // Hex-encode a column per gx (2 chars per cell, class id + 1, 00 = none),
   // the same shape sf-streets.ts uses, so the emit phase's loader is a copy.
   const cols = [];
-  for (let gx = 0; gx < GRID_X; gx++) {
+  for (let gx = 0; gx < GRID_X; gx += 1) {
     let s = "";
-    for (let gz = 0; gz < GRID_Z; gz++)
+    for (let gz = 0; gz < GRID_Z; gz += 1) {
       s += (cell[gx * GRID_Z + gz] + 1).toString(16).padStart(2, "0");
+    }
     cols.push(s);
   }
   return {
     classes,
-    histogram: [...counts.entries()].sort((a, b) => b[1] - a[1]),
-    cols,
     classified: cell.reduce((s, v) => s + (v >= 0 ? 1 : 0), 0),
+    cols,
+    histogram: [...counts.entries()].toSorted((a, b) => b[1] - a[1]),
   };
-}
+};
 
 // --- Render plan ------------------------------------------------------------
 const RENDER_PLAN = [

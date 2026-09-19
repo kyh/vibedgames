@@ -12,7 +12,7 @@ export const RUNNERS: readonly Runner[] = ["claude", "codex"];
 
 export const isRunner = (v: string): v is Runner => RUNNERS.some((runner) => runner === v);
 
-export type RunOptions = {
+export interface RunOptions {
   /** The task prompt (the "user" turn). */
   prompt: string;
   /** Role definition. Claude appends it to the system prompt; codex has no
@@ -51,9 +51,9 @@ export type RunOptions = {
    * finishes — which the idle watchdog can't, since output keeps resetting it.
    */
   maxSessionMs: number;
-};
+}
 
-export type RunResult = {
+export interface RunResult {
   ok: boolean;
   result: string;
   sessionId?: string;
@@ -61,4 +61,4 @@ export type RunResult = {
   costUsd?: number;
   numTurns?: number;
   error?: string;
-};
+}

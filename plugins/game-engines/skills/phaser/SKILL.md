@@ -1,6 +1,6 @@
 ---
 name: phaser
-description: "Build 2D browser games with Phaser 4: scene lifecycle, sprites, Arcade/Matter physics, tilemaps, WebGL rendering, filters, lighting, shaders, DynamicTexture/RenderTexture, SpriteGPULayer, TilemapGPULayer, and Phaser 3 to 4 migration. Trigger: phaser, phaser 4, phaser v4, create phaser game, add phaser scene, phaser sprite, phaser physics, phaser tilemap, phaser arcade, phaser webgl renderer, phaser filters, phaser SpriteGPULayer, phaser TilemapGPULayer, migrate phaser 3 to 4."
+description: "Build 2D browser games with Phaser 4: scenes, sprites, Arcade/Matter physics, tilemaps, WebGL filters and GPU layers, and Phaser 3 to 4 migration."
 ---
 
 # Phaser 4 Game Development
@@ -130,6 +130,8 @@ scenes/
 └── GameOverScene.ts  # End screen and restart flow
 ```
 
+HUD, vignette and other `setScrollFactor(0)` chrome go in the parallel unzoomed `UIScene` — inside a zoomed camera they get zoom-transformed off-screen.
+
 ### Scene Transitions
 
 ```ts
@@ -163,6 +165,8 @@ const config: Phaser.Types.Core.GameConfig = {
 };
 ```
 
+`Scale.RESIZE` keeps stale bounds after a tab switch (canvas stays tiny). Debounce `this.scale.refresh()` on `resize` AND on `visibilitychange` → visible.
+
 ### Scene Lifecycle
 
 ```ts
@@ -174,6 +178,28 @@ class GameScene extends Phaser.Scene {
 }
 ```
 
+#### Scene instances are reused
+
+One instance per scene key; `create()` re-runs on every `start`/`restart`, class-field initializers do not. Per-scene plugins (`this.input`, `this.input.keyboard`) clear their listeners on shutdown; `Key` objects and game-level singletons do not.
+
+```ts
+create() {
+  this.entities = []; this.byId = new Map(); this.netPuppets.clear(); // reset EVERY field here
+  this.keys = this.input.keyboard.addKeys("W,A,S,D,SPACE"); // returns the SAME Key objects each time
+  for (const k of Object.values(this.keys)) k.removeAllListeners(); // else .on("down") stacks → double-fire
+  this.scale.off("resize", this.onResize); // ScaleManager survives scene stop; never scale.off("resize") bare — kills other scenes' handlers
+  this.onResize = () => this.layout();
+  this.scale.on("resize", this.onResize);
+  this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.scale.off("resize", this.onResize));
+}
+```
+
+Same rule for `game.events.on(...)` and `window.addEventListener(...)`: store the handler, `off` it in `create`, `off` it on SHUTDOWN — they keep firing against destroyed objects while the scene is stopped.
+
+### Input
+
+`JustDown` edges are consumed on read — sample input ONCE per frame into a struct and share it; a second `JustDown(k)` in the same frame returns `false`.
+
 ### Frame-Rate Independent Movement
 
 ```ts
@@ -184,6 +210,16 @@ this.player.x += this.speed * (delta / 1000);
 this.player.x += this.speed;
 ```
 
+`delta` is clamped to one target frame while the window is unfocused (`TimeStep` `!inFocus`), so a sim that trusts it crawls in a background tab — a multiplayer host stalls every guest. Authoritative sims owe wall-clock time (`performance.now()` deltas), not `delta`.
+
+### Animations
+
+Aseprite/authored sheets carry per-frame durations: create the anim with `frames: [{ key, frame, duration }]` and no `frameRate`. Never pass `duration` in `play()` — it overrides `frameRate`, and `getFirstTick` only consults `currentFrame.duration` when `state.frameRate === anim.frameRate`, so the clip freezes on frame 1. Retime with `sprite.anims.timeScale = authoredMs / targetMs`. Verify `anims.currentFrame.index` advances (1-based). Depth in `references/spritesheets-and-textures.md`.
+
+### Audio
+
+With no audio device the sound manager stub drops `sound.mute` writes and reads back `false`. Own the mute flag in your code; treat `this.sound.mute` as write-only.
+
 ### Phaser 4 Migration Replacements
 
 ```ts
@@ -192,6 +228,8 @@ sprite.setTintFill(0xff0000);
 // Phaser 4
 sprite.setTint(0xff0000).setTintMode(Phaser.TintModes.FILL);
 ```
+
+`setTint` multiplies — a yellow sprite cannot be tinted blue. Palette variants need natively coloured sequences or baked sheets; tint only darkens/shifts within the source hue.
 
 ```ts
 // Phaser 3
@@ -234,7 +272,7 @@ rt.draw(sprite, 0, 0);
 rt.render(); // required — without this, nothing lands on the texture
 ```
 
-Use `preserve()` or render modes only when they solve a concrete problem. Extra indirection complicates debugging quickly.
+Use `preserve()` or render modes (`renderMode`: `render` | `redraw` | `all`) only when they solve a concrete problem. Extra indirection complicates debugging quickly. If the RT stays transparent you skipped `render()` or are on <4.2; a TileSprite base + per-tile Images ground is the zero-risk alternative (`references/rendering-and-performance.md`).
 
 ### TilemapGPULayer
 
@@ -297,20 +335,26 @@ e.body.enable = e.z === 0; // airborne = no hitbox, so jumps dodge attacks
 
 The shadow sells the arc — without it a lifted sprite just looks like it slid up the screen.
 
+The origin must sit on the ART's feet row, not the frame's bottom edge: measure the trim box (`asset-pipeline/scripts/asset-sprite-baseline.mjs`, or `magick frame.png -format "%@" info:`) and set `originY = (trimY + trimH + 0.5) / frameH` — a mis-set origin is why shadows and collision look "detached".
+
 ## Anti-Patterns to Avoid
 
-| Anti-pattern                                                    | Why it hurts                                                      | Better                                                        |
-| --------------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------- |
-| Treating Phaser 4 as a drop-in Phaser 3 upgrade                 | You miss renderer, filter, shader, and texture changes            | Audit migration hotspots first, then port intentionally       |
-| Starting new work on Canvas-first assumptions                   | Many Phaser 4 features are WebGL-centric or unavailable in Canvas | Design for WebGL; treat Canvas as fallback only if required   |
-| Guessing spritesheet or atlas metadata                          | Visual corruption appears far from the actual mistake             | Measure frames, spacing, margin, and bounds before loading    |
-| Using filters or shaders for every visual effect                | More complexity, more batch breaks, harder debugging              | Use plain sprites, textures, and tint where possible          |
-| Applying lighting or filters everywhere                         | Shader changes break batches and can tank performance             | Reserve them for objects that benefit visually                |
-| Forgetting `render()` on `DynamicTexture` or `RenderTexture`    | Queued work never lands on the texture                            | Make render execution explicit in the workflow                |
-| Using `SpriteGPULayer` for frequently mutated gameplay entities | Its strength is scale, not arbitrary object behavior              | Keep complex interactive entities on normal game objects      |
-| Assuming `TilemapGPULayer` is a universal tilemap replacement   | It is orthographic-only and more constrained                      | Use it when the layer size and rendering profile justify it   |
-| Making raw `gl` calls outside supported integration points      | You can desync Phaser's renderer state                            | Use `Extern` or higher-level Phaser APIs                      |
-| "The port compiles, so the migration is done"                   | Rendering, shader, and texture bugs survive the first compile     | Re-test visuals explicitly after every render-touching change |
+| Anti-pattern                                                    | Why it hurts                                                         | Better                                                        |
+| --------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------- |
+| Treating Phaser 4 as a drop-in Phaser 3 upgrade                 | You miss renderer, filter, shader, and texture changes               | Audit migration hotspots first, then port intentionally       |
+| Starting new work on Canvas-first assumptions                   | Many Phaser 4 features are WebGL-centric or unavailable in Canvas    | Design for WebGL; treat Canvas as fallback only if required   |
+| Guessing spritesheet or atlas metadata                          | Visual corruption appears far from the actual mistake                | Measure frames, spacing, margin, and bounds before loading    |
+| Using filters or shaders for every visual effect                | More complexity, more batch breaks, harder debugging                 | Use plain sprites, textures, and tint where possible          |
+| Applying lighting or filters everywhere                         | Shader changes break batches and can tank performance                | Reserve them for objects that benefit visually                |
+| Forgetting `render()` on `DynamicTexture` or `RenderTexture`    | Queued work never lands on the texture                               | Make render execution explicit in the workflow                |
+| Using `SpriteGPULayer` for frequently mutated gameplay entities | Its strength is scale, not arbitrary object behavior                 | Keep complex interactive entities on normal game objects      |
+| Assuming `TilemapGPULayer` is a universal tilemap replacement   | It is orthographic-only and more constrained                         | Use it when the layer size and rendering profile justify it   |
+| Making raw `gl` calls outside supported integration points      | You can desync Phaser's renderer state                               | Use `Extern` or higher-level Phaser APIs                      |
+| "The port compiles, so the migration is done"                   | Rendering, shader, and texture bugs survive the first compile        | Re-test visuals explicitly after every render-touching change |
+| Registering listeners in `create()` without removing the old    | Scene instances are reused: keys double-fire, resize crashes         | Reset fields, `removeAllListeners` on keys, `off` on SHUTDOWN |
+| `TileSprite` with a 0 width or height                           | Kills the WebGL context / the tab ("Target crashed", no JS error)    | `Math.max(1, w)`, `Math.max(1, h)` before construction        |
+| Relying on a `Container`'s depth for input hit-testing          | Hit-test uses each object's OWN depth; a veil at N eats the click    | `setDepth(N+1)` on the interactive children themselves        |
+| Bare `localStorage` reads/writes                                | Throws in sandboxed iframes (games embed in the web app) → boot-dead | Wrap every access in `try/catch`, fall back to in-memory      |
 
 ## Variation Guidance
 

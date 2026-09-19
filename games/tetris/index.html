@@ -74,6 +74,27 @@
       #charge {
         color: #ffd86b;
       }
+      .well-cues {
+        align-self: flex-start;
+        margin-top: 12px;
+        text-align: left;
+        font-size: 11px;
+        letter-spacing: 1px;
+      }
+      #fx-notice {
+        min-height: 18px;
+        opacity: 0;
+        text-shadow: 0 2px 4px #12131f;
+      }
+      #height-warning {
+        margin-top: 5px;
+        padding: 5px 8px;
+        border: 1px solid rgba(255, 189, 115, 0.35);
+        border-radius: 6px;
+        background: rgba(20, 22, 36, 0.8);
+        color: #ffbd73;
+        font-size: 10px;
+      }
       .preview {
         display: flex;
         align-items: center;
@@ -90,37 +111,35 @@
         width: 100px;
         height: 66px;
       }
-      /* Bottom strip: a quiet hotkey bar while playing. The full legend lives
-         centred in the banner (title/over); the scene shows exactly one. */
-      .bottom {
-        margin-top: auto;
-        margin-bottom: 6px;
+      .hold-label {
         display: flex;
         flex-direction: column;
-        align-items: center;
-        gap: 8px;
+        gap: 4px;
       }
-      #hotkeys {
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: center;
-        gap: 6px 12px;
-        font-size: 11px;
-        letter-spacing: 0.4px;
-        color: rgba(215, 220, 240, 0.45);
+      #hold-status {
+        color: #ffbd73;
+        font-size: 9px;
+        letter-spacing: 0.5px;
       }
-      #hotkeys kbd {
-        font: inherit;
-        color: #8ea2ff;
-        background: rgba(20, 22, 36, 0.66);
-        border: 1px solid rgba(120, 134, 200, 0.28);
-        border-radius: 5px;
-        padding: 1px 5px;
-        margin-right: 5px;
+      .hold-piece {
+        display: grid;
+        place-items: center;
       }
-      /* Touch devices: the labeled buttons ARE the reference — no keyboard bar. */
-      body.touch #hotkeys {
-        display: none;
+      .hold-piece > * {
+        grid-area: 1 / 1;
+      }
+      #hold-preview[data-spent="true"] canvas {
+        opacity: 0.25;
+      }
+      #hold-hint {
+        width: 100px;
+        font-size: 10px;
+        line-height: 1.3;
+        letter-spacing: 0;
+        text-align: center;
+        text-shadow:
+          0 1px 3px #12131f,
+          0 0 5px #12131f;
       }
       /* Title legend: rows come from the pause overlay's shared groupRow
          builder (method label + keycap chips), styled inline — this is just
@@ -137,9 +156,15 @@
       }
       #banner {
         position: fixed;
-        top: 32%;
+        --banner-top: clamp(128px, 24vh, 240px);
+        top: var(--banner-top);
+        max-height: calc(100svh - var(--banner-top) - 16px);
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        touch-action: pan-y;
         left: 0;
         right: 0;
+        padding: 0 20px;
         text-align: center;
         opacity: 0;
         transition: opacity 0.25s ease;
@@ -160,13 +185,207 @@
         color: rgba(215, 220, 240, 0.85);
         text-shadow: 0 2px 0 rgba(0, 0, 0, 0.45);
       }
+      #spatial-rule {
+        width: min(100%, 470px);
+        margin: 16px auto 0;
+        padding: 12px 16px;
+        border: 1px solid rgba(142, 162, 255, 0.25);
+        border-radius: 12px;
+        background: rgba(18, 19, 31, 0.9);
+        text-align: left;
+      }
+      #spatial-rule:not([hidden]) {
+        display: block;
+        pointer-events: auto;
+      }
+      .rule-content {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+      .rule-copy {
+        min-width: 0;
+      }
+      .rule-cell {
+        fill: transparent;
+        stroke: #69739d;
+        stroke-width: 0.7;
+      }
+      .rule-cell-clear {
+        fill: #8ea2ff;
+      }
+      .rule-cell-locked {
+        fill: #4e5879;
+      }
+      .rule-cell-landing {
+        stroke: #00e5ff;
+        stroke-width: 1.7;
+      }
+      .rule-navigation {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        margin-top: 6px;
+      }
+      .rule-navigation button {
+        width: 44px;
+        min-height: 44px;
+        padding: 0;
+        border: 1px solid rgba(142, 162, 255, 0.3);
+        border-radius: 6px;
+        color: #eef0ff;
+        background: #24293f;
+        font:
+          18px ui-monospace,
+          monospace;
+        cursor: pointer;
+        touch-action: manipulation;
+      }
+      .rule-navigation button:disabled {
+        opacity: 0.35;
+        cursor: default;
+      }
+      .rule-navigation button:focus-visible {
+        outline: 2px solid #eef0ff;
+        outline-offset: 3px;
+      }
+      .rule-count {
+        color: #a7aecb;
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+      }
+      #run-actions {
+        display: flex;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 12px;
+        pointer-events: auto;
+      }
+      #run-actions[hidden] {
+        display: none;
+      }
+      #banner[data-phase="title"],
+      #banner[data-phase="gameOver"] {
+        pointer-events: auto;
+      }
+      #run-actions #compact-start {
+        margin: 0;
+      }
+      #banner[data-phase="title"] #compact-start:not([hidden]),
+      #banner[data-phase="gameOver"] #compact-start:not([hidden]) {
+        display: block;
+      }
+      #spatial-rule svg {
+        width: 64px;
+        height: 64px;
+        flex: none;
+      }
+      #spatial-rule strong {
+        font-size: 13px;
+        font-weight: 600;
+        color: #eef0ff;
+      }
+      #spatial-rule p {
+        margin: 5px 0 0;
+        font-size: 11px;
+        line-height: 1.5;
+        color: #a7aecb;
+      }
+      #spatial-rule .view-hint {
+        color: #c8d0f5;
+      }
+      #run-summary {
+        margin: 18px auto 0;
+        width: min(100%, 360px);
+        padding: 16px 20px;
+        border: 1px solid rgba(142, 162, 255, 0.3);
+        border-radius: 12px;
+        background: rgba(18, 19, 31, 0.92);
+      }
+      .result-label {
+        color: #a7aecb;
+        font-size: 10px;
+        letter-spacing: 2px;
+      }
+      #result-score {
+        margin: 3px 0;
+        font:
+          700 44px/1.1 system-ui,
+          sans-serif;
+        color: #fff;
+        font-variant-numeric: tabular-nums;
+      }
+      #result-best {
+        color: #ffd86b;
+        font-size: 11px;
+        letter-spacing: 1px;
+      }
+      #result-stats {
+        margin-top: 13px;
+        padding-top: 11px;
+        border-top: 1px solid rgba(142, 162, 255, 0.2);
+        white-space: pre-line;
+        font-size: 12px;
+        line-height: 1.7;
+        color: #c8d0f5;
+      }
+      #catch-meter {
+        width: min(80%, 300px);
+        margin: 18px auto 0;
+      }
+      #catch-track {
+        height: 8px;
+        overflow: hidden;
+        border-radius: 4px;
+        background: #292d46;
+        box-shadow: 0 0 0 1px rgba(142, 162, 255, 0.35);
+      }
+      #catch-fill {
+        height: 100%;
+        background: #c8d0ff;
+        transform-origin: left;
+      }
+      #catch-time {
+        margin-top: 9px;
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+        color: #eef0ff;
+      }
+      #compact-start {
+        display: none;
+        margin: 12px auto 0;
+        min-height: 44px;
+        padding: 8px 24px;
+        border: 1px solid #8ea2ff;
+        border-radius: 8px;
+        color: #eef0ff;
+        background: #303958;
+        font:
+          600 13px ui-monospace,
+          monospace;
+        cursor: pointer;
+      }
+      #compact-start:focus-visible {
+        outline: 2px solid #eef0ff;
+        outline-offset: 3px;
+      }
+
+      /* Nothing but the title banner before the first game. */
+      body:not(.vg-started) #hud,
+      body:not(.vg-started) #camera-panel {
+        display: none;
+      }
 
       /* Webcam pose panel: bottom-right, navy border + hard offset shadow,
          grayscale feed, selfie-mirrored (video + skeleton overlay together). */
       #camera-panel {
         position: fixed;
-        right: 10px;
-        bottom: 10px;
+        /* Bottom-right, 12px in from the safe area — the one camera-panel
+           anchor every camera game shares. */
+        right: calc(12px + env(safe-area-inset-right, 0px));
+        bottom: calc(12px + env(safe-area-inset-bottom, 0px));
         width: 300px;
         height: 225px;
         border-radius: 10px;
@@ -186,6 +405,30 @@
         transform: scaleX(-1);
         filter: grayscale(1) contrast(1.05);
       }
+      .camera-toggle {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        min-width: 44px;
+        min-height: 44px;
+        padding: 0;
+        border: 0;
+        border-radius: inherit;
+        color: inherit;
+        background: transparent;
+        cursor: pointer;
+        touch-action: manipulation;
+      }
+      .camera-toggle:focus-visible {
+        outline: 3px solid #eef0ff;
+        outline-offset: -4px;
+      }
+      #camera-panel video,
+      #camera-panel canvas,
+      #camera-status {
+        pointer-events: none;
+      }
       #camera-status {
         position: absolute;
         left: 8px;
@@ -196,6 +439,27 @@
         border: 1px solid rgba(120, 134, 200, 0.28);
         font-size: 11px;
         color: #d7dcf0;
+      }
+      /* No feed to preview (never asked / unavailable): the panel folds to
+         its status line, a pill-sized enable / retry affordance. */
+      #camera-panel:is([data-state="idle"], [data-state="unavailable"]) {
+        width: auto;
+        height: 44px;
+        display: flex;
+        align-items: center;
+        padding: 0 14px;
+        background: rgba(20, 22, 36, 0.66);
+      }
+      #camera-panel:is([data-state="idle"], [data-state="unavailable"]) video,
+      #camera-panel:is([data-state="idle"], [data-state="unavailable"]) canvas {
+        display: none;
+      }
+      #camera-panel:is([data-state="idle"], [data-state="unavailable"]) #camera-status {
+        position: static;
+        padding: 0;
+        border: 0;
+        background: none;
+        white-space: nowrap;
       }
 
       /* Small screens: compact pills, tiny previews, two-row wrap. A landscape
@@ -218,6 +482,10 @@
         .preview canvas {
           width: 60px;
           height: 40px;
+        }
+        #hold-hint {
+          width: 60px;
+          font-size: 9px;
         }
         #banner-sub {
           font-size: 13px;
@@ -251,30 +519,37 @@
         }
       }
 
-      /* Coarse pointers get @repo/embed's pause + mute cluster pinned to the
-         top-right corner (44px buttons stacked); keep the HUD out from under
-         it — every other control here is reachable by keyboard. */
+      /* Coarse pointers get @repo/embed's pause button pinned to the top-right
+         corner (44px); keep the HUD out from under it — every other control
+         here is reachable by keyboard. */
       @media (pointer: coarse) {
         #hud .row {
           padding-right: 54px;
         }
       }
 
-      /* Small or touch screens: shrink the webcam panel to a thumbnail pinned
-         top-right (bottom-right belongs to the button cluster); tap toggles an
-         expanded view. Pose stays fully live at every size. */
+      /* Small or touch screens: shrink the webcam panel to a thumbnail; tap
+         toggles an expanded view. Pose stays fully live at every size. It keeps
+         the shared bottom-right anchor; on touch, where the thumb cluster owns
+         the corner itself, it stacks directly above the cluster on the same
+         right edge (284px = three rows of buttons from the safe-area corner,
+         plus a 12px gap). */
       @media (max-width: 700px), (max-height: 550px), (pointer: coarse) {
         #camera-panel {
-          top: calc(env(safe-area-inset-top, 0px) + 156px);
-          bottom: auto;
-          right: calc(env(safe-area-inset-right, 0px) + 10px);
           width: 120px;
           height: 90px;
           cursor: pointer;
         }
+        body.touch #camera-panel {
+          bottom: calc(env(safe-area-inset-bottom, 0px) + 296px);
+        }
         #camera-panel.expanded {
           width: 240px;
           height: 180px;
+        }
+        #camera-panel:is([data-state="idle"], [data-state="unavailable"]) {
+          width: auto;
+          height: 44px;
         }
         #camera-status {
           left: 4px;
@@ -282,18 +557,190 @@
           padding: 3px 5px;
           font-size: 9px;
         }
+        #camera-panel:is([data-state="idle"], [data-state="unavailable"]) #camera-status {
+          padding: 0;
+          font-size: 11px;
+        }
       }
-      /* Landscape phone: the thumbnail shares the right edge with the pause /
-         mute cluster above it and the thumb buttons below, so it insets past
-         the cluster's column and expands only within the band between them. */
+      /* Landscape phone: the cluster folds to two rows (196px tall from the
+         safe-area corner), so the thumbnail sits that much higher and expands
+         only within the band it has left. */
       @media (max-height: 550px) {
-        #camera-panel {
-          top: calc(env(safe-area-inset-top, 0px) + 48px);
-          right: calc(env(safe-area-inset-right, 0px) + 64px);
+        body.touch #camera-panel {
+          bottom: calc(env(safe-area-inset-bottom, 0px) + 208px);
         }
         #camera-panel.expanded {
           width: 152px;
           height: 114px;
+        }
+        #camera-panel:is([data-state="idle"], [data-state="unavailable"]) {
+          width: auto;
+          height: 44px;
+        }
+      }
+      @media (max-width: 700px) and (min-height: 551px) {
+        /* A live feed is opaque: keep the expanded view small enough to leave
+           the well's spawn height visible while playing / catching, without
+           cropping the 4:3 camera image. */
+        body:has(#banner[data-phase="playing"]) #camera-panel.expanded,
+        body:has(#banner[data-phase="collapsing"]) #camera-panel.expanded {
+          width: 180px;
+          height: 135px;
+        }
+        #banner {
+          --banner-top: max(260px, 32vh);
+          top: var(--banner-top);
+          padding: 0 16px;
+        }
+        #spatial-rule {
+          padding: 10px 12px;
+        }
+        #spatial-rule:not([hidden]) {
+          gap: 12px;
+        }
+        #spatial-rule svg {
+          width: 48px;
+          height: 48px;
+        }
+        #banner-sub {
+          line-height: 1.5;
+        }
+        #legend {
+          margin-top: 14px;
+          gap: 9px;
+        }
+      }
+      /* The short-screen card uses the lane between the score column and
+         camera / thumb controls. The well and camera retain their framing. */
+      @media (max-height: 550px) and (min-width: 600px) {
+        #banner,
+        body.touch #banner {
+          top: 36px;
+          left: 166px;
+          right: 232px;
+          padding: 0;
+          max-height: calc(100svh - 48px);
+          overflow-y: auto;
+          overscroll-behavior: contain;
+          touch-action: pan-y;
+        }
+        #banner[data-phase="title"],
+        #banner[data-phase="gameOver"] {
+          pointer-events: auto;
+        }
+        #banner[data-phase="title"] #compact-start,
+        #banner[data-phase="gameOver"] #compact-start {
+          display: block;
+        }
+        body.touch #banner {
+          right: 290px;
+        }
+        #banner-title,
+        body.touch #banner-title {
+          font-size: clamp(26px, 4.5vw, 38px);
+        }
+        #banner-sub {
+          margin-top: 6px;
+          padding: 0;
+          font-size: 11px;
+          line-height: 1.5;
+        }
+        #spatial-rule {
+          margin-top: 8px;
+          padding: 8px;
+        }
+        #spatial-rule .rule-content {
+          gap: 8px;
+        }
+        #spatial-rule p {
+          margin-top: 3px;
+        }
+        #spatial-rule .rule-navigation {
+          margin-top: 4px;
+        }
+        #run-actions {
+          display: grid;
+          grid-auto-flow: column;
+          grid-auto-columns: minmax(0, 1fr);
+          gap: 8px;
+          margin-top: 8px;
+        }
+        #run-actions #compact-start {
+          min-width: 44px;
+          min-height: 44px;
+          padding: 7px 10px;
+        }
+        #spatial-rule svg {
+          width: 40px;
+          height: 40px;
+        }
+        #spatial-rule strong {
+          font-size: 11px;
+        }
+        #spatial-rule p {
+          font-size: 10px;
+          line-height: 1.4;
+        }
+        #legend {
+          margin-top: 10px;
+          gap: 8px;
+          max-width: 100%;
+        }
+        #run-summary {
+          margin-top: 12px;
+          padding: 12px;
+        }
+        #result-score {
+          font-size: 34px;
+        }
+        #result-stats {
+          margin-top: 9px;
+          padding-top: 9px;
+          font-size: 11px;
+        }
+      }
+      @media (max-height: 550px) and (max-width: 599px) {
+        #banner,
+        body.touch #banner {
+          top: 174px;
+          left: 12px;
+          right: 12px;
+          max-height: calc(100svh - 186px);
+          padding: 12px;
+          overflow-y: auto;
+          overscroll-behavior: contain;
+          touch-action: pan-y;
+          border-radius: 12px;
+          background: rgba(18, 19, 31, 0.95);
+        }
+        #banner[data-phase="title"],
+        #banner[data-phase="gameOver"] {
+          pointer-events: auto;
+        }
+        #banner[data-phase="title"] #compact-start,
+        #banner[data-phase="gameOver"] #compact-start {
+          display: block;
+        }
+        #banner-title,
+        body.touch #banner-title {
+          font-size: 28px;
+        }
+        #spatial-rule {
+          margin-top: 10px;
+          padding: 9px;
+        }
+        #spatial-rule:not([hidden]) {
+          gap: 10px;
+        }
+        #spatial-rule svg {
+          width: 40px;
+          height: 40px;
+        }
+        #spatial-rule strong {
+          font-size: 12px;
+        }
+        #legend {
+          max-width: 100%;
         }
       }
     </style>
@@ -309,9 +756,15 @@
             <span class="plabel">NEXT</span
             ><canvas id="next-canvas" width="200" height="132"></canvas>
           </div>
-          <div class="pill preview">
-            <span class="plabel">HOLD</span
-            ><canvas id="hold-canvas" width="200" height="132"></canvas>
+          <div class="pill preview" id="hold-preview" data-spent="false">
+            <span class="hold-label">
+              <span class="plabel">HOLD</span>
+              <span id="hold-status" hidden>USED</span>
+            </span>
+            <span class="hold-piece">
+              <canvas id="hold-canvas" width="200" height="132"></canvas>
+              <span id="hold-hint" role="status" hidden>Lock a piece to hold again</span>
+            </span>
           </div>
         </div>
         <div class="group">
@@ -319,21 +772,35 @@
           <div class="pill" id="input-owner">○ KEYS</div>
         </div>
       </div>
-      <div class="bottom">
-        <div id="hotkeys">
-          <span><kbd>←→↑↓</kbd>move</span>
-          <span><kbd>R</kbd>rotate</span>
-          <span><kbd>Q/E</kbd>view</span>
-          <span><kbd>SPACE</kbd>drop</span>
-          <span><kbd>SHIFT</kbd>soft</span>
-          <span><kbd>C</kbd>hold</span>
-          <span><kbd>F</kbd>power</span>
-        </div>
+      <div class="well-cues">
+        <div id="fx-notice" aria-live="polite"></div>
+        <div id="height-warning" hidden></div>
       </div>
     </div>
     <div id="banner">
       <div id="banner-title"></div>
+      <div id="spatial-rule" hidden></div>
       <div id="banner-sub"></div>
+      <div
+        id="catch-meter"
+        role="progressbar"
+        aria-label="Time remaining to catch"
+        aria-valuemin="0"
+        aria-valuemax="1"
+        hidden
+      >
+        <div id="catch-track" aria-hidden="true"><div id="catch-fill"></div></div>
+        <div id="catch-time"></div>
+      </div>
+      <div id="run-summary" hidden>
+        <div class="result-label">RUN SCORE</div>
+        <div id="result-score"></div>
+        <div id="result-best"></div>
+        <div id="result-stats"></div>
+      </div>
+      <div id="run-actions">
+        <button id="compact-start" type="button">Play</button>
+      </div>
       <!-- rows rendered from src/controls.ts, one per visible input method -->
       <div id="legend"></div>
     </div>

@@ -22,18 +22,17 @@ export interface Frame {
 }
 
 /** Unit forward direction for a yaw/pitch. yaw=0,pitch=0 → (0, 0, -1). */
-export function yawPitchToForward(yaw: number, pitch = 0, target = new Vector3()): Vector3 {
+export const yawPitchToForward = (yaw: number, pitch = 0, target = new Vector3()): Vector3 => {
   const cp = Math.cos(pitch);
   return target.set(-Math.sin(yaw) * cp, Math.sin(pitch), -Math.cos(yaw) * cp);
-}
+};
 
 /** Unit right direction for a yaw. yaw=0 → (1, 0, 0). */
-export function yawToRight(yaw: number, target = new Vector3()): Vector3 {
-  return target.set(Math.cos(yaw), 0, -Math.sin(yaw));
-}
+export const yawToRight = (yaw: number, target = new Vector3()): Vector3 =>
+  target.set(Math.cos(yaw), 0, -Math.sin(yaw));
 
 /** Orthonormal basis for a yaw/pitch(/roll) orientation. */
-export function orientationFrame(yaw: number, pitch = 0, roll = 0): Frame {
+export const orientationFrame = (yaw: number, pitch = 0, roll = 0): Frame => {
   const forward = yawPitchToForward(yaw, pitch).normalize();
   const right = yawToRight(yaw).normalize();
   const up = new Vector3().crossVectors(right, forward).normalize();
@@ -42,19 +41,21 @@ export function orientationFrame(yaw: number, pitch = 0, roll = 0): Frame {
     up.applyAxisAngle(forward, roll).normalize();
   }
   return { forward, right, up };
-}
+};
 
 /** Yaw that faces the given world direction along the ground plane. Inverse of yawPitchToForward. */
-export function forwardToYaw(forward: Vector3): number {
-  if (forward.x * forward.x + forward.z * forward.z < EPS_SQ) return 0;
+export const forwardToYaw = (forward: Vector3): number => {
+  if (forward.x * forward.x + forward.z * forward.z < EPS_SQ) {
+    return 0;
+  }
   return Math.atan2(-forward.x, -forward.z);
-}
+};
 
-function flattenUnit(value: Vector3, target = new Vector3()): Vector3 {
+const flattenUnit = (value: Vector3, target = new Vector3()): Vector3 => {
   target.set(value.x, 0, value.z);
   const lengthSq = target.lengthSq();
   return lengthSq > EPS_SQ ? target.multiplyScalar(1 / Math.sqrt(lengthSq)) : target.set(0, 0, 0);
-}
+};
 
 // ---------------------------------------------------------------------------
 // Character controller
@@ -78,18 +79,18 @@ export interface CharacterConfig {
 }
 
 export const DEFAULT_CHARACTER_CONFIG: CharacterConfig = {
-  walkSpeed: 6,
-  sprintSpeed: 9,
-  crouchSpeed: 3.2,
   accelLag: 0.04,
-  decelLag: 0.05,
   airAccelLag: 0.11,
-  turnLag: 0,
+  crouchSpeed: 3.2,
+  decelLag: 0.05,
   gravity: 9.81,
   jumpVelocity: 8.5,
   maxFallSpeed: 55,
-  pitchMin: -1.45,
   pitchMax: 1.45,
+  pitchMin: -1.45,
+  sprintSpeed: 9,
+  turnLag: 0,
+  walkSpeed: 6,
 };
 
 export interface PlanInput {
@@ -156,12 +157,21 @@ export class CharacterController {
   }
 
   setState(init: CharacterInit): this {
-    if (init.position) this.position.copy(init.position);
-    if (init.velocity) this.velocity.copy(init.velocity);
-    if (init.yaw !== undefined) this.yaw = init.yaw;
-    if (init.pitch !== undefined)
+    if (init.position) {
+      this.position.copy(init.position);
+    }
+    if (init.velocity) {
+      this.velocity.copy(init.velocity);
+    }
+    if (init.yaw !== undefined) {
+      this.yaw = init.yaw;
+    }
+    if (init.pitch !== undefined) {
       this.pitch = clamp(init.pitch, this.config.pitchMin, this.config.pitchMax);
-    if (init.grounded !== undefined) this.grounded = init.grounded;
+    }
+    if (init.grounded !== undefined) {
+      this.grounded = init.grounded;
+    }
     return this;
   }
 
@@ -172,16 +182,20 @@ export class CharacterController {
     const startPosition = this.position.clone();
     const moveDir = flattenUnit(input.moveDirection ?? new Vector3());
     const hasInput = moveDir.lengthSq() > EPS_SQ;
-    const targetSpeed = input.crouch
-      ? cfg.crouchSpeed
-      : input.sprint
-        ? cfg.sprintSpeed
-        : cfg.walkSpeed;
+    let targetSpeed = cfg.walkSpeed;
+    if (input.crouch) {
+      targetSpeed = cfg.crouchSpeed;
+    } else if (input.sprint) {
+      targetSpeed = cfg.sprintSpeed;
+    }
     const target = moveDir.multiplyScalar(targetSpeed);
 
     const velocity = this.velocity.clone();
-    let grounded = this.grounded;
-    const lag = hasInput ? (grounded ? cfg.accelLag : cfg.airAccelLag) : cfg.decelLag;
+    let { grounded } = this;
+    let lag = cfg.decelLag;
+    if (hasInput) {
+      lag = grounded ? cfg.accelLag : cfg.airAccelLag;
+    }
     velocity.x = smoothToward(velocity.x, target.x, lag, dt);
     velocity.z = smoothToward(velocity.z, target.z, lag, dt);
 
@@ -215,14 +229,14 @@ export class CharacterController {
 
     const desiredDelta = velocity.clone().multiplyScalar(dt);
     return {
-      startPosition,
-      desiredDelta,
-      position: startPosition.clone().add(desiredDelta),
-      velocity,
-      grounded,
-      yaw,
-      pitch,
       deltaSeconds: dt,
+      desiredDelta,
+      grounded,
+      pitch,
+      position: startPosition.clone().add(desiredDelta),
+      startPosition,
+      velocity,
+      yaw,
     };
   }
 
@@ -237,13 +251,19 @@ export class CharacterController {
     let grounded = resolved?.grounded ?? intent.grounded;
 
     // A ceiling clipped the upward move: cancel the remaining upward velocity.
-    if (intent.desiredDelta.y > correctedDelta.y + 1e-5 && velocity.y > 0) velocity.y = 0;
+    if (intent.desiredDelta.y > correctedDelta.y + 1e-5 && velocity.y > 0) {
+      velocity.y = 0;
+    }
     // Still rising into a jump this frame: stay airborne even if the probe says grounded.
     // Use the post-collision velocity so a jump stopped dead by a low ceiling (velocity
     // clipped to 0 above) doesn't get forced airborne for a frame.
-    if (!intent.grounded && velocity.y > 0) grounded = false;
+    if (!intent.grounded && velocity.y > 0) {
+      grounded = false;
+    }
     // Landed: drop residual downward velocity so the character doesn't sink.
-    if (grounded && velocity.y < 0) velocity.y = 0;
+    if (grounded && velocity.y < 0) {
+      velocity.y = 0;
+    }
 
     this.position.copy(position);
     this.velocity.copy(velocity);
@@ -255,12 +275,12 @@ export class CharacterController {
 
   state(): CharacterState {
     return {
+      frame: orientationFrame(this.yaw, this.pitch),
+      grounded: this.grounded,
+      pitch: this.pitch,
       position: this.position.clone(),
       velocity: this.velocity.clone(),
-      grounded: this.grounded,
       yaw: this.yaw,
-      pitch: this.pitch,
-      frame: orientationFrame(this.yaw, this.pitch),
     };
   }
 }

@@ -7,17 +7,23 @@
     "build": "vite build",
     "clean": "rm -rf .turbo dist node_modules",
     "dev": "vite",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --import tsx --test tools/*-smoke.mts",
+    "typecheck": "tsc --noEmit",
+    "test:online": "node tools/two-client.mjs"
   },
   "dependencies": {
     "@repo/embed": "workspace:*",
     "@vibedgames/gamepad": "workspace:^",
     "@vibedgames/multiplayer": "workspace:^",
+    "@vibedgames/playtest": "workspace:^",
     "phaser": "^4.2.1"
   },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
     "@types/node": "catalog:",
+    "playwright-core": "^1.63.0",
+    "tsx": "^4.23.13",
     "typescript": "catalog:",
     "vite": "catalog:"
   }

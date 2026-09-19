@@ -1,6 +1,6 @@
 ---
 name: character-design
-description: "Build consistent character designs and character media with `vg generate`. Use this for original characters, reference sheets, expression sheets, outfit variations, identity-preserving edits, and character-to-video workflows."
+description: "Create consistent characters with `vg generate`: reference and expression sheets, outfit variants, identity-preserving edits, character-to-video."
 ---
 
 # Character design with `vg generate`

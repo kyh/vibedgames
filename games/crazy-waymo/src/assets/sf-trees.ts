@@ -7,48 +7,48 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 // records address that mesh by index and already contain its transform.
 export type SfTreeKind = "cypress" | "broadleaf";
 
-type Crown = {
+interface Crown {
   readonly x: number;
   readonly y: number;
   readonly z: number;
   readonly rx: number;
   readonly ry: number;
   readonly rz: number;
-};
+}
 
 type Point = readonly [number, number, number];
 
 const CYPRESS_CROWNS: readonly Crown[] = [
-  { x: -0.2, y: 0.13, z: 0.035, rx: 0.23, ry: 0.13, rz: 0.23 },
-  { x: 0.17, y: 0.4, z: 0.01, rx: 0.26, ry: 0.14, rz: 0.23 },
-  { x: -0.17, y: 0.57, z: -0.04, rx: 0.21, ry: 0.13, rz: 0.21 },
-  { x: 0.06, y: 0.77, z: 0.02, rx: 0.31, ry: 0.23, rz: 0.27 },
-  { x: 0.22, y: 0.7, z: -0.08, rx: 0.19, ry: 0.15, rz: 0.2 },
+  { rx: 0.23, ry: 0.13, rz: 0.23, x: -0.2, y: 0.13, z: 0.035 },
+  { rx: 0.26, ry: 0.14, rz: 0.23, x: 0.17, y: 0.4, z: 0.01 },
+  { rx: 0.21, ry: 0.13, rz: 0.21, x: -0.17, y: 0.57, z: -0.04 },
+  { rx: 0.31, ry: 0.23, rz: 0.27, x: 0.06, y: 0.77, z: 0.02 },
+  { rx: 0.19, ry: 0.15, rz: 0.2, x: 0.22, y: 0.7, z: -0.08 },
 ];
 const BROADLEAF_CROWNS: readonly Crown[] = [
-  { x: -0.18, y: 0.25, z: 0.02, rx: 0.28, ry: 0.39, rz: 0.29 },
-  { x: 0.18, y: 0.23, z: 0.04, rx: 0.29, ry: 0.4, rz: 0.3 },
-  { x: -0.08, y: 0.57, z: -0.13, rx: 0.29, ry: 0.32, rz: 0.25 },
-  { x: 0.04, y: 0.63, z: 0.08, rx: 0.32, ry: 0.37, rz: 0.3 },
-  { x: 0.25, y: 0.57, z: -0.035, rx: 0.23, ry: 0.3, rz: 0.24 },
+  { rx: 0.28, ry: 0.39, rz: 0.29, x: -0.18, y: 0.25, z: 0.02 },
+  { rx: 0.29, ry: 0.4, rz: 0.3, x: 0.18, y: 0.23, z: 0.04 },
+  { rx: 0.29, ry: 0.32, rz: 0.25, x: -0.08, y: 0.57, z: -0.13 },
+  { rx: 0.32, ry: 0.37, rz: 0.3, x: 0.04, y: 0.63, z: 0.08 },
+  { rx: 0.23, ry: 0.3, rz: 0.24, x: 0.25, y: 0.57, z: -0.035 },
 ];
 
-const LEAF_SHADE = new THREE.Color(0x345d43);
-const LEAF_SUN = new THREE.Color(0x9cab58);
-const BARK_SHADE = new THREE.Color(0x574338);
-const BARK_SUN = new THREE.Color(0x997751);
+const LEAF_SHADE = new THREE.Color(0x34_5d_43);
+const LEAF_SUN = new THREE.Color(0x9c_ab_58);
+const BARK_SHADE = new THREE.Color(0x57_43_38);
+const BARK_SUN = new THREE.Color(0x99_77_51);
 const Y = new THREE.Vector3(0, 1, 0);
 
-function leafTexture(): THREE.DataTexture {
+const leafTexture = (): THREE.DataTexture => {
   const size = 128;
   const pixels = new Uint8Array(size * size * 4);
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
       const u = ((x - 16) / 112) * 9;
       const v = (y / size) * 7;
       const row = Math.floor(v);
       const col = Math.floor(u + (row % 2) * 0.5);
-      const seed = Math.sin(col * 127.1 + row * 311.7) * 43758.5453;
+      const seed = Math.sin(col * 127.1 + row * 311.7) * 43_758.5453;
       const variation = seed - Math.floor(seed);
       const dx = u + (row % 2) * 0.5 - col - 0.5;
       const dy = v - row - 0.5;
@@ -68,21 +68,23 @@ function leafTexture(): THREE.DataTexture {
   texture.generateMipmaps = true;
   texture.needsUpdate = true;
   return texture;
-}
+};
 
 const LEAF_TEXTURE = leafTexture();
 
-function paint(geometry: THREE.BufferGeometry, foliage: boolean, seed: number): void {
+const paint = (geometry: THREE.BufferGeometry, foliage: boolean, seed: number): void => {
   const position = geometry.getAttribute("position");
   const normal = geometry.getAttribute("normal");
   const uv = geometry.getAttribute("uv");
   const colors = new Float32Array(position.count * 3);
   const tint = new THREE.Color();
-  for (let i = 0; i < position.count; i++) {
+  for (let i = 0; i < position.count; i += 1) {
     // Bark samples the atlas's white margin; crown UVs retain the sphere's
     // continuous wrap. Mips settle this small leaf texture at street distance.
     uv.setX(i, foliage ? 0.14 + uv.getX(i) * 0.84 : 0.04);
-    if (!foliage) uv.setY(i, 0.5);
+    if (!foliage) {
+      uv.setY(i, 0.5);
+    }
     const top = normal.getY(i) * 0.5 + 0.5;
     const variation = Math.sin(position.getX(i) * 22 + position.getZ(i) * 17 + seed) * 0.035;
     tint.lerpColors(
@@ -95,9 +97,9 @@ function paint(geometry: THREE.BufferGeometry, foliage: boolean, seed: number): 
     colors[i * 3 + 2] = tint.b;
   }
   geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-}
+};
 
-function branch(start: Point, end: Point, base: number, tip: number): THREE.BufferGeometry {
+const branch = (start: Point, end: Point, base: number, tip: number): THREE.BufferGeometry => {
   const a = new THREE.Vector3(...start);
   const b = new THREE.Vector3(...end);
   const axis = b.clone().sub(a);
@@ -106,19 +108,19 @@ function branch(start: Point, end: Point, base: number, tip: number): THREE.Buff
   geometry.translate((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
   paint(geometry, false, a.y);
   return geometry;
-}
+};
 
-function trunk(points: readonly Point[], base: number, tip: number): THREE.BufferGeometry {
+const trunk = (points: readonly Point[], base: number, tip: number): THREE.BufferGeometry => {
   const curve = new THREE.CatmullRomCurve3(points.map((point) => new THREE.Vector3(...point)));
   const rings = 8;
   const sides = 6;
   const geometry = new THREE.TubeGeometry(curve, rings, 1, sides, false);
   const position = geometry.getAttribute("position");
-  for (let ring = 0; ring <= rings; ring++) {
+  for (let ring = 0; ring <= rings; ring += 1) {
     const t = ring / rings;
     const center = curve.getPointAt(t);
     const radius = THREE.MathUtils.lerp(base, tip, t);
-    for (let side = 0; side <= sides; side++) {
+    for (let side = 0; side <= sides; side += 1) {
       const i = ring * (sides + 1) + side;
       position.setXYZ(
         i,
@@ -131,9 +133,9 @@ function trunk(points: readonly Point[], base: number, tip: number): THREE.Buffe
   geometry.computeVertexNormals();
   paint(geometry, false, 0);
   return geometry;
-}
+};
 
-export function createSfTreeModel(kind: SfTreeKind): THREE.Group {
+export const createSfTreeModel = (kind: SfTreeKind): THREE.Group => {
   const pieces: THREE.BufferGeometry[] = [];
   const crowns = kind === "cypress" ? CYPRESS_CROWNS : BROADLEAF_CROWNS;
   if (kind === "cypress") {
@@ -148,10 +150,10 @@ export function createSfTreeModel(kind: SfTreeKind): THREE.Group {
         0.082,
         0.014,
       ),
+      branch([-0.03, -0.08, 0], [-0.2, 0.1, 0.035], 0.035, 0.012),
+      branch([-0.02, 0.1, 0.01], [0.17, 0.37, 0.01], 0.033, 0.011),
+      branch([0.02, 0.38, 0.02], [-0.17, 0.54, -0.04], 0.025, 0.01),
     );
-    pieces.push(branch([-0.03, -0.08, 0], [-0.2, 0.1, 0.035], 0.035, 0.012));
-    pieces.push(branch([-0.02, 0.1, 0.01], [0.17, 0.37, 0.01], 0.033, 0.011));
-    pieces.push(branch([0.02, 0.38, 0.02], [-0.17, 0.54, -0.04], 0.025, 0.01));
   } else {
     pieces.push(
       trunk(
@@ -163,9 +165,9 @@ export function createSfTreeModel(kind: SfTreeKind): THREE.Group {
         0.074,
         0.013,
       ),
+      branch([-0.03, -0.2, 0], [-0.19, 0.27, 0.01], 0.032, 0.012),
+      branch([-0.02, -0.12, 0], [0.19, 0.29, 0.02], 0.03, 0.011),
     );
-    pieces.push(branch([-0.03, -0.2, 0], [-0.19, 0.27, 0.01], 0.032, 0.012));
-    pieces.push(branch([-0.02, -0.12, 0], [0.19, 0.29, 0.02], 0.03, 0.011));
   }
   for (const [i, crown] of crowns.entries()) {
     const geometry = new THREE.SphereGeometry(1, 10, 5);
@@ -176,12 +178,18 @@ export function createSfTreeModel(kind: SfTreeKind): THREE.Group {
     pieces.push(geometry);
   }
   const geometry = mergeGeometries(pieces);
-  for (const piece of pieces) piece.dispose();
-  if (!geometry) throw new Error("SF tree geometry layouts must agree");
+  for (const piece of pieces) {
+    piece.dispose();
+  }
+  if (!geometry) {
+    throw new Error("SF tree geometry layouts must agree");
+  }
   geometry.scale(1.3, 1, 1.2);
   geometry.computeBoundingBox();
   const bounds = geometry.boundingBox;
-  if (!bounds) throw new Error("SF tree geometry must have bounds");
+  if (!bounds) {
+    throw new Error("SF tree geometry must have bounds");
+  }
   const yScale = 2 / (bounds.max.y - bounds.min.y);
   const yOffset = -1 - bounds.min.y * yScale;
   geometry.scale(1, yScale, 1);
@@ -190,9 +198,9 @@ export function createSfTreeModel(kind: SfTreeKind): THREE.Group {
   geometry.computeBoundingSphere();
   const material = new THREE.MeshStandardMaterial({
     map: LEAF_TEXTURE,
-    vertexColors: true,
-    roughness: 0.95,
     metalness: 0,
+    roughness: 0.95,
+    vertexColors: true,
   });
   material.name = "sf-tree-foliage-bark";
   const mesh = new THREE.Mesh(geometry, material);
@@ -208,4 +216,4 @@ export function createSfTreeModel(kind: SfTreeKind): THREE.Group {
   group.name = `sf-${kind}`;
   group.add(mesh);
   return group;
-}
+};

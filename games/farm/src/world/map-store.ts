@@ -5,11 +5,13 @@ import type { WorldMap } from "./worldmap";
 // two (the renderer's skip set is identity-based).
 let cached: WorldMap | null = null;
 
-export function setWorldMap(map: WorldMap): void {
+export const setWorldMap = (map: WorldMap): void => {
   cached = map;
-}
+};
 
-export function getWorldMap(): WorldMap {
-  if (!cached) throw new Error("world map not loaded yet (BootScene must run first)");
+export const getWorldMap = (): WorldMap => {
+  if (!cached) {
+    throw new Error("world map not loaded yet (BootScene must run first)");
+  }
   return cached;
-}
+};

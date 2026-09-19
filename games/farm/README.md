@@ -25,8 +25,16 @@ Multiplayer: shared farm via `@vibedgames/multiplayer` (auto-join, offline solo 
 - WASD / arrows — move (SHIFT runs)
 - E / SPACE or click — use tool / interact
 - 1–9 or scroll — switch tools
-- I — inventory
+- I — inventory and seasonal journal
 - M — sound on / off
 - Touch: drag stick to move, tap a square to act, tap hotbar to switch tools; the
   🔊 / ⏸ cluster (top right, touch only) covers what M and Escape do on a keyboard
 - Controller: stick to move, A to act, LB/RB to switch tools, Y for inventory
+
+## Seasonal journal
+
+Open the bag, then Journal. Harvesting a crop or catching a fish in its season
+records a personal discovery (only what fits in the bag counts; purchases and
+other farmers' finds don't). Finds persist across years.
+
+`pnpm --filter @repo/farm test` covers the journal and save rules.

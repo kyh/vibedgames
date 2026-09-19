@@ -1,8 +1,41 @@
-import { BOSS, type RoomDef, type RoomType, SAFE, START } from "../data/rooms";
+import { BOSS, SAFE, START } from "../data/rooms";
+import type { RoomDef, RoomType } from "../data/rooms";
 import { genCombatRoom } from "./gen";
 import { rand } from "./rng";
 
-export type Offer = { type: RoomType };
+export interface Offer {
+  type: RoomType;
+}
+
+const rollRoomType = (): RoomType => {
+  const pool: [RoomType, number][] = [
+    ["combat", 50],
+    ["elite", 14],
+    ["merchant", 12],
+    ["rest", 12],
+    ["treasure", 12],
+  ];
+  const total = pool.reduce((s, p) => s + p[1], 0);
+  let r = rand() * total;
+  for (const [type, w] of pool) {
+    r -= w;
+    if (r <= 0) {
+      return type;
+    }
+  }
+  return "combat";
+};
+
+const twoDistinct = (): Offer[] => {
+  const a = rollRoomType();
+  let b = rollRoomType();
+  let guard = 0;
+  while (b === a && guard < 8) {
+    guard += 1;
+    b = rollRoomType();
+  }
+  return [{ type: a }, { type: b }];
+};
 
 // Owns run structure: depth within a biome, which room type comes next, and the
 // branching door offers. A run is start → ~5 rooms (player picks the path) →
@@ -30,23 +63,29 @@ export class RunManager {
     return this.templateFor(type);
   }
 
-  isCombat(type: RoomType = this.type): boolean {
-    return type === "combat" || type === "elite" || type === "boss";
+  isCombat(type?: RoomType): boolean {
+    const t = type ?? this.type;
+    return t === "combat" || t === "elite" || t === "boss";
   }
 
   private templateFor(type: RoomType): RoomDef {
     switch (type) {
-      case "start":
+      case "start": {
         return START();
+      }
       case "combat":
-      case "elite":
+      case "elite": {
         return this.nextCombat();
+      }
       case "merchant":
       case "rest":
-      case "treasure":
+      case "treasure": {
         return SAFE();
-      case "boss":
+      }
+      case "boss": {
         return BOSS();
+      }
+      // no default
     }
   }
 
@@ -54,52 +93,34 @@ export class RunManager {
   // (see gen.ts). Every fight is a new dynamic space; the generator guarantees
   // every door + enemy is reachable from the spawn.
   private nextCombat(): RoomDef {
-    return genCombatRoom(Math.floor(rand() * 0x100000000), this.biome);
+    return genCombatRoom(Math.floor(rand() * 0x1_00_00_00_00), this.biome);
   }
 
   // Door offers for the current room's exits (after clearing).
   offers(): Offer[] {
-    if (this.type === "boss") return [{ type: "start" }]; // "descend" — next biome
-    if (this.type === "start") return [{ type: "combat" }];
-    if (this.depth + 1 >= this.bossAt) return [{ type: "boss" }];
-    return this.twoDistinct();
+    // "descend" — next biome
+    if (this.type === "boss") {
+      return [{ type: "start" }];
+    }
+    if (this.type === "start") {
+      return [{ type: "combat" }];
+    }
+    if (this.depth + 1 >= this.bossAt) {
+      return [{ type: "boss" }];
+    }
+    return twoDistinct();
   }
 
   // Advance into the room behind the chosen door; returns its template.
   choose(offer: Offer): RoomDef {
     if (this.type === "boss") {
-      this.biome++;
+      this.biome += 1;
       this.depth = 1;
       this.type = "start";
       return this.templateFor("start");
     }
-    this.depth++;
+    this.depth += 1;
     this.type = offer.type;
     return this.templateFor(offer.type);
-  }
-
-  private roll(): RoomType {
-    const pool: [RoomType, number][] = [
-      ["combat", 50],
-      ["elite", 14],
-      ["merchant", 12],
-      ["rest", 12],
-      ["treasure", 12],
-    ];
-    const total = pool.reduce((s, p) => s + p[1], 0);
-    let r = rand() * total;
-    for (const [type, w] of pool) {
-      r -= w;
-      if (r <= 0) return type;
-    }
-    return "combat";
-  }
-
-  private twoDistinct(): Offer[] {
-    const a = this.roll();
-    let b = this.roll();
-    let guard = 0;
-    while (b === a && guard++ < 8) b = this.roll();
-    return [{ type: a }, { type: b }];
   }
 }

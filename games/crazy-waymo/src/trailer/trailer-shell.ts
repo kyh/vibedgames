@@ -2,7 +2,7 @@
 // ?manual=1 stages before recording; ?clean=1 omits editorial graphics;
 // ?scene=<id> plays one reference shot; ?loop=1 repeats. Escape returns to play.
 
-export type TrailerScene = {
+export interface TrailerScene {
   id: string;
   duration: number;
   hold?: number;
@@ -12,9 +12,9 @@ export type TrailerScene = {
   reveal?: () => void;
   run?: (t: number, dt: number) => void;
   teardown?: () => void;
-};
+}
 
-export type TrailerConfig = {
+export interface TrailerConfig {
   scenes: TrailerScene[];
   onGesture?: () => void;
   /** Milliseconds of simulation, so a slow render cannot skip the action. */
@@ -22,9 +22,13 @@ export type TrailerConfig = {
   /** Re-render synchronously before copying the default WebGL framebuffer. */
   captureFrame: () => HTMLCanvasElement;
   branding?: { title: string; tagline: string; url: string; durationMs: number };
-};
+}
 
-type TimelineEntry = { id: string; startMs: number; endMs: number };
+interface TimelineEntry {
+  id: string;
+  startMs: number;
+  endMs: number;
+}
 type PlaybackStatus =
   | { phase: "staging" | "ready" | "playing" | "end-card"; done: false }
   | { phase: "done"; done: true }
@@ -45,13 +49,14 @@ declare global {
   }
 }
 
-export function isTrailerMode(): boolean {
-  return new URLSearchParams(window.location.search).has("trailer");
-}
+export const isTrailerMode = (): boolean =>
+  new URLSearchParams(window.location.search).has("trailer");
 
 const write = (parent: Element, selector: string, text: string): void => {
   const node = parent.querySelector(selector);
-  if (node) node.textContent = text;
+  if (node) {
+    node.textContent = text;
+  }
 };
 
 const CSS = `
@@ -73,18 +78,18 @@ const CSS = `
 @media (prefers-reduced-motion:reduce) { .vgt-caption { transition:none; transform:none; } }
 `;
 
-export function runTrailer(config: TrailerConfig): void {
+export const runTrailer = (config: TrailerConfig): void => {
   const params = new URLSearchParams(window.location.search);
   const clean = params.has("clean");
   const selected = params.get("scene");
   const scenes = selected ? config.scenes.filter((scene) => scene.id === selected) : config.scenes;
   const style = document.createElement("style");
   style.textContent = CSS;
-  document.head.appendChild(style);
+  document.head.append(style);
   const root = document.createElement("div");
   root.className = "vgt-root";
   root.innerHTML = `<div class="vgt-stage"><canvas class="vgt-hold"></canvas><div class="vgt-caption"><span class="vgt-label"></span><strong class="vgt-title"></strong></div><div class="vgt-end" hidden><strong class="vgt-title"></strong><p class="vgt-tagline"></p><span class="vgt-label">PLAY FREE IN YOUR BROWSER</span><a class="vgt-link"></a></div><div class="vgt-ready" hidden><strong class="vgt-title">CRAZY WAYMO</strong><span class="vgt-message">Trailer ready. Sound starts when you press play.</span><button type="button" class="vgt-play">Play trailer</button></div></div>`;
-  document.body.appendChild(root);
+  document.body.append(root);
   const hold = root.querySelector("canvas");
   const caption = root.querySelector(".vgt-caption");
   const end = root.querySelector(".vgt-end");
@@ -100,8 +105,10 @@ export function runTrailer(config: TrailerConfig): void {
     throw new Error("Trailer shell failed to mount");
   }
   const context = hold.getContext("2d");
-  if (!context) throw new Error("Trailer hold frame unavailable");
-  const branding = config.branding;
+  if (!context) {
+    throw new Error("Trailer hold frame unavailable");
+  }
+  const { branding } = config;
   write(end, ".vgt-title", branding?.title ?? "");
   write(end, ".vgt-tagline", branding?.tagline ?? "");
   const link = end.querySelector("a");
@@ -137,14 +144,14 @@ export function runTrailer(config: TrailerConfig): void {
     hold.hidden = false;
   };
   const fail = (err: Error): void => {
-    const message = err.message;
+    const { message } = err;
     console.error("[trailer]", message);
     ready.hidden = false;
     play.hidden = true;
     write(ready, ".vgt-message", `Trailer stopped: ${message}`);
-    publish({ phase: "error", done: true, error: message });
+    publish({ done: true, error: message, phase: "error" });
   };
-  publish({ phase: "staging", done: false });
+  publish({ done: false, phase: "staging" });
   let generation = 0;
   let gate: (() => void) | null = null;
   let started = !params.has("manual");
@@ -152,7 +159,9 @@ export function runTrailer(config: TrailerConfig): void {
   let running = Promise.resolve();
   let audioUnlocked = false;
   const unlock = (event: Event): void => {
-    if (!event.isTrusted || audioUnlocked) return;
+    if (!event.isTrusted || audioUnlocked) {
+      return;
+    }
     audioUnlocked = true;
     config.onGesture?.();
   };
@@ -165,9 +174,13 @@ export function runTrailer(config: TrailerConfig): void {
   };
   play.addEventListener("click", () => window["__trailerStart"]?.());
   window.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape") return;
+    if (event.key !== "Escape") {
+      return;
+    }
     const url = new URL(window.location.href);
-    for (const key of ["trailer", "loop", "manual", "clean", "scene"]) url.searchParams.delete(key);
+    for (const key of ["trailer", "loop", "manual", "clean", "scene"]) {
+      url.searchParams.delete(key);
+    }
     window.location.href = url.toString();
   });
 
@@ -176,11 +189,14 @@ export function runTrailer(config: TrailerConfig): void {
     token: number,
     body: (t: number, dt: number) => void,
   ): Promise<void> =>
+    // oxlint-disable-next-line promise/avoid-new -- rAF has no promise form in the browser
     new Promise((resolve, reject) => {
       const start = config.clock();
       let last = start;
       const frame = (): void => {
-        if (generation !== token) return resolve();
+        if (generation !== token) {
+          return resolve();
+        }
         const now = config.clock();
         const t = Math.min(duration, now - start);
         try {
@@ -190,85 +206,125 @@ export function runTrailer(config: TrailerConfig): void {
           return;
         }
         last = now;
-        if (t >= duration) resolve();
-        else requestAnimationFrame(frame);
+        if (t >= duration) {
+          resolve();
+        } else {
+          requestAnimationFrame(frame);
+        }
       };
       requestAnimationFrame(frame);
     });
 
+  const awaitGate = (): Promise<void> =>
+    // oxlint-disable-next-line promise/avoid-new -- the manual-start click has no promise form
+    new Promise<void>((resolve) => {
+      gate = resolve;
+    });
+
+  const finish = async (token: number): Promise<void> => {
+    freeze();
+    active?.teardown?.();
+    active = null;
+    caption.dataset["visible"] = "false";
+    if (clean || selected || !branding) {
+      return;
+    }
+    end.hidden = false;
+    sceneId = "end-card";
+    const entry = { endMs: 0, id: sceneId, startMs: performance.now() };
+    timeline.push(entry);
+    await runFrames(branding.durationMs, token, (t) =>
+      publish({ done: false, phase: "end-card" }, t),
+    );
+    entry.endMs = performance.now();
+  };
+
   const playFrom = async (index: number, token: number): Promise<void> => {
     timeline = [];
     end.hidden = true;
-    for (let i = index; i < scenes.length; i++) {
-      if (token !== generation) return;
+    for (let i = index; i < scenes.length; i += 1) {
+      if (token !== generation) {
+        return;
+      }
       const scene = scenes[i];
-      if (!scene) return;
+      if (!scene) {
+        return;
+      }
       caption.dataset["visible"] = "false";
-      if (active) freeze();
+      if (active) {
+        freeze();
+      }
       active?.teardown?.();
       active = scene;
       sceneId = scene.id;
       sceneIndex = i;
-      publish({ phase: "staging", done: false });
+      publish({ done: false, phase: "staging" });
       await scene.setup();
-      if (token !== generation) return;
+      if (token !== generation) {
+        return;
+      }
       if (!started) {
         ready.hidden = false;
-        publish({ phase: "ready", done: false });
-        await new Promise<void>((resolve) => {
-          gate = resolve;
-        });
-        if (token !== generation) return;
+        publish({ done: false, phase: "ready" });
+        await awaitGate();
+        if (token !== generation) {
+          return;
+        }
         ready.hidden = true;
       }
       write(caption, ".vgt-label", scene.caption?.label ?? "");
       write(caption, ".vgt-title", scene.caption?.title ?? "");
       scene.reveal?.();
       hold.hidden = true;
-      const entry = { id: scene.id, startMs: performance.now(), endMs: 0 };
+      const entry = { endMs: 0, id: scene.id, startMs: performance.now() };
       timeline.push(entry);
       await runFrames(scene.duration, token, (t, dt) => {
         scene.run?.(t, dt);
         caption.dataset["visible"] = String(
           !clean && Boolean(scene.caption) && t > 250 && t < scene.duration - 300,
         );
-        publish({ phase: "playing", done: false }, t);
+        publish({ done: false, phase: "playing" }, t);
       });
       entry.endMs = performance.now();
     }
-    if (token !== generation) return;
-    freeze();
-    active?.teardown?.();
-    active = null;
-    caption.dataset["visible"] = "false";
-    if (!clean && !selected && branding) {
-      end.hidden = false;
-      sceneId = "end-card";
-      const entry = { id: sceneId, startMs: performance.now(), endMs: 0 };
-      timeline.push(entry);
-      await runFrames(branding.durationMs, token, (t) =>
-        publish({ phase: "end-card", done: false }, t),
-      );
-      entry.endMs = performance.now();
+    if (token !== generation) {
+      return;
     }
-    if (token !== generation) return;
-    publish({ phase: "done", done: true });
-    if (params.has("loop")) window.setTimeout(() => window["__trailerJump"]?.(0), 900);
+    await finish(token);
+    if (token !== generation) {
+      return;
+    }
+    publish({ done: true, phase: "done" });
+    if (params.has("loop")) {
+      window.setTimeout(() => window["__trailerJump"]?.(0), 900);
+    }
   };
   const enqueue = (index: number): void => {
-    const token = ++generation;
+    generation += 1;
+    const token = generation;
     gate?.();
     gate = null;
-    running = running
-      .then(() => playFrom(index, token))
-      .catch((error) => fail(error instanceof Error ? error : new Error(String(error))));
+    const previous = running;
+    running = (async () => {
+      try {
+        await previous;
+        await playFrom(index, token);
+      } catch (error) {
+        fail(error instanceof Error ? error : new Error(String(error)));
+      }
+    })();
   };
   window["__trailerJump"] = (index) => {
-    if (!Number.isFinite(index)) return;
+    if (!Number.isFinite(index)) {
+      return;
+    }
     started = true;
     ready.hidden = true;
     enqueue(Math.max(0, Math.min(scenes.length - 1, Math.floor(index))));
   };
-  if (scenes.length === 0) fail(new Error(`Unknown trailer scene: ${selected}`));
-  else enqueue(0);
-}
+  if (scenes.length === 0) {
+    fail(new Error(`Unknown trailer scene: ${selected}`));
+  } else {
+    enqueue(0);
+  }
+};

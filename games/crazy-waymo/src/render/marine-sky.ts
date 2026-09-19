@@ -2,6 +2,19 @@ import * as THREE from "three";
 
 import { MARINE_COLOR_GLSL, MARINE_GLSL } from "./marine-profile";
 
+const fogColorSpace = (
+  renderer: THREE.WebGLRenderer,
+  target: THREE.WebGLRenderTarget | null,
+): string => {
+  if (target === null) {
+    return renderer.outputColorSpace;
+  }
+  if ("isXRRenderTarget" in target && target.isXRRenderTarget === true) {
+    return target.texture.colorSpace;
+  }
+  return THREE.ColorManagement.workingColorSpace;
+};
+
 /**
  * One horizon band, not stacked fog billboards. Ray integration runs only on
  * its coarse vertices; each covered pixel blends one interpolated fog value.
@@ -24,13 +37,23 @@ export class MarineSky {
       Math.PI * 0.4,
     );
     const material = new THREE.ShaderMaterial({
-      uniforms: { uFog: this.fog },
-      side: THREE.BackSide,
-      transparent: true,
       depthTest: true,
       depthWrite: false,
       fog: false,
+      // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
+      fragmentShader: /* glsl */ `
+        uniform vec3 uFog;
+        varying float vBank;
+        ${MARINE_COLOR_GLSL}
+        void main() {
+          gl_FragColor = vec4(sfMarineColor(uFog), vBank);
+        }
+      `,
+      side: THREE.BackSide,
       toneMapped: false,
+      transparent: true,
+      uniforms: { uFog: this.fog },
+      // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
       vertexShader: /* glsl */ `
         varying float vBank;
         ${MARINE_GLSL}
@@ -43,14 +66,6 @@ export class MarineSky {
           gl_Position.z *= 0.999999;
         }
       `,
-      fragmentShader: /* glsl */ `
-        uniform vec3 uFog;
-        varying float vBank;
-        ${MARINE_COLOR_GLSL}
-        void main() {
-          gl_FragColor = vec4(sfMarineColor(uFog), vBank);
-        }
-      `,
     });
     this.mesh = new THREE.Mesh(geometry, material);
     this.mesh.name = "coastal-marine-sky";
@@ -59,13 +74,7 @@ export class MarineSky {
       // Built-in fog is applied after output conversion. Match its public
       // Color.getRGB contract for the post target, direct phone and XR paths.
       const target = renderer.getRenderTarget();
-      const colorSpace =
-        target === null
-          ? renderer.outputColorSpace
-          : "isXRRenderTarget" in target && target.isXRRenderTarget === true
-            ? target.texture.colorSpace
-            : THREE.ColorManagement.workingColorSpace;
-      this.sourceFog.getRGB(this.fog.value, colorSpace);
+      this.sourceFog.getRGB(this.fog.value, fogColorSpace(renderer, target));
     };
     // Transparent objects render after opaque terrain. This draws before
     // cloud sheets and all gameplay transparencies, and never writes depth.

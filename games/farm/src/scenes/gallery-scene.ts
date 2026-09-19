@@ -1,15 +1,15 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { Math as PhaserMath, Scene } from "phaser";
 import { CROP_ORDER } from "../data/crops";
 import {
   CELL,
-  type Cell,
   classifyLandIndex,
   classifyPathIndex,
   isDecoSolidIndex,
   tileIndex,
   layerByName,
-  type WorldMap,
 } from "../world/worldmap";
+import type { Cell, WorldMap } from "../world/worldmap";
 import { getWorldMap } from "../world/map-store";
 
 // Asset inspection page (open the game with ?gallery). Every tile index the
@@ -18,12 +18,12 @@ import { getWorldMap } from "../world/map-store";
 // cell to pin its details in the top bar.
 
 const CLASS_COLOR = {
-  [CELL.void]: 0x16324f,
-  [CELL.grass]: 0x3fae49,
-  [CELL.sand]: 0xe8d36a,
-  [CELL.dirt]: 0xa9744a,
-  [CELL.water]: 0x3fc6e8,
-  [CELL.solid]: 0xe84a4a,
+  [CELL.void]: 0x16_32_4f,
+  [CELL.grass]: 0x3f_ae_49,
+  [CELL.sand]: 0xe8_d3_6a,
+  [CELL.dirt]: 0xa9_74_4a,
+  [CELL.water]: 0x3f_c6_e8,
+  [CELL.solid]: 0xe8_4a_4a,
 } satisfies Record<Cell, number>;
 const CLASS_NAME = {
   [CELL.void]: "void",
@@ -33,9 +33,9 @@ const CLASS_NAME = {
   [CELL.water]: "water",
   [CELL.solid]: "solid",
 } satisfies Record<Cell, string>;
-const PATH_COLOR = { solid: 0xe84a4a, walk: 0xa9744a, overlay: 0x888888 } as const;
+const PATH_COLOR = { overlay: 0x88_88_88, solid: 0xe8_4a_4a, walk: 0xa9_74_4a } as const;
 
-export class GalleryScene extends Phaser.Scene {
+export class GalleryScene extends Scene {
   private cursorY = 0;
   private info: Phaser.GameObjects.Text | null = null;
 
@@ -44,9 +44,9 @@ export class GalleryScene extends Phaser.Scene {
   }
 
   create(): void {
-    document.getElementById("veil")?.classList.add("hidden");
+    document.querySelector("#veil")?.classList.add("hidden");
     this.cursorY = 0;
-    this.cameras.main.setBackgroundColor(0x1d1f27);
+    this.cameras.main.setBackgroundColor(0x1d_1f_27);
     const map = getWorldMap();
 
     this.header(
@@ -67,7 +67,7 @@ export class GalleryScene extends Phaser.Scene {
       this.tileSection(map, name, (i) =>
         isDecoSolidIndex(i)
           ? { color: CLASS_COLOR[CELL.solid], label: "solid prop" }
-          : { color: 0x888888, label: "dressing" },
+          : { color: 0x88_88_88, label: "dressing" },
       );
     }
     for (const name of ["building", "walls", "forest"]) {
@@ -85,26 +85,23 @@ export class GalleryScene extends Phaser.Scene {
     this.input.on(
       "wheel",
       (_p: Phaser.Input.Pointer, _o: Phaser.GameObjects.GameObject[], _dx: number, dy: number) => {
-        cam.scrollY = Phaser.Math.Clamp(cam.scrollY + dy, 0, maxScroll);
+        cam.scrollY = PhaserMath.Clamp(cam.scrollY + dy, 0, maxScroll);
       },
     );
     const kb = this.input.keyboard;
     if (kb) {
-      kb.on("keydown-UP", () => (cam.scrollY = Phaser.Math.Clamp(cam.scrollY - 60, 0, maxScroll)));
-      kb.on(
-        "keydown-DOWN",
-        () => (cam.scrollY = Phaser.Math.Clamp(cam.scrollY + 60, 0, maxScroll)),
-      );
+      kb.on("keydown-UP", () => (cam.scrollY = PhaserMath.Clamp(cam.scrollY - 60, 0, maxScroll)));
+      kb.on("keydown-DOWN", () => (cam.scrollY = PhaserMath.Clamp(cam.scrollY + 60, 0, maxScroll)));
     }
 
     // pinned info bar on top of everything
     this.add
-      .rectangle(0, 0, this.scale.width, 26, 0x000000, 0.85)
+      .rectangle(0, 0, this.scale.width, 26, 0x00_00_00, 0.85)
       .setOrigin(0, 0)
       .setScrollFactor(0)
       .setDepth(10);
     this.info = this.add
-      .text(8, 6, "click a cell…", { fontFamily: "monospace", fontSize: "12px", color: "#9ee" })
+      .text(8, 6, "click a cell…", { color: "#9ee", fontFamily: "monospace", fontSize: "12px" })
       .setScrollFactor(0)
       .setDepth(11);
   }
@@ -112,9 +109,9 @@ export class GalleryScene extends Phaser.Scene {
   private header(text: string): void {
     this.cursorY += 34;
     this.add.text(12, this.cursorY, text, {
+      color: "#ccc",
       fontFamily: "monospace",
       fontSize: "11px",
-      color: "#ccc",
       wordWrap: { width: this.scale.width - 24 },
     });
     this.cursorY += 44;
@@ -123,9 +120,9 @@ export class GalleryScene extends Phaser.Scene {
   private title(text: string): void {
     this.cursorY += 14;
     this.add.text(12, this.cursorY, text, {
+      color: "#fff",
       fontFamily: "monospace",
       fontSize: "14px",
-      color: "#fff",
       fontStyle: "bold",
     });
     this.cursorY += 24;
@@ -138,68 +135,80 @@ export class GalleryScene extends Phaser.Scene {
     classify: (idx: number) => { color: number; label: string },
   ): void {
     const layer = layerByName(map, layerName);
-    if (!layer) return;
+    if (!layer) {
+      return;
+    }
     const counts = new Map<number, number>();
     for (const v of layer.grid) {
-      if (v < 0) continue;
+      if (v < 0) {
+        continue;
+      }
       const idx = tileIndex(v);
       counts.set(idx, (counts.get(idx) ?? 0) + 1);
     }
-    const indices = [...counts.keys()].sort((a, b) => a - b);
+    const indices = [...counts.keys()].toSorted((a, b) => a - b);
     this.title(`${layerName} — ${indices.length} tile indices`);
 
     const cellW = 64;
     const cellH = 76;
     const cols = Math.floor((this.scale.width - 24) / cellW);
-    indices.forEach((idx, n) => {
+    for (const [n, idx] of indices.entries()) {
       const x = 12 + (n % cols) * cellW + cellW / 2;
       const y = this.cursorY + Math.floor(n / cols) * cellH + 24;
       const { color, label } = classify(idx);
-      this.add.rectangle(x, y, 52, 52, 0x000000, 0.25).setStrokeStyle(2, color);
+      this.add.rectangle(x, y, 52, 52, 0x00_00_00, 0.25).setStrokeStyle(2, color);
       const img = this.add.image(x, y, "atlas", idx).setScale(3);
       this.add
         .text(x, y + 30, String(idx), {
+          color: "#aaa",
           fontFamily: "monospace",
           fontSize: "10px",
-          color: "#aaa",
         })
         .setOrigin(0.5, 0);
       img.setInteractive();
       img.on("pointerdown", () =>
         this.pin(`${layerName} idx ${idx} — ${label}, used ${counts.get(idx) ?? 0}×`),
       );
-    });
+    }
     this.cursorY += Math.ceil(indices.length / cols) * cellH + 12;
   }
 
   // every placed GM sprite, animating like in the world
   private decoSpriteSection(map: WorldMap): void {
     const placed = new Map<string, number>();
-    for (const s of map.sprites) placed.set(s.sprite, (placed.get(s.sprite) ?? 0) + 1);
-    const names = Object.keys(map.deco).sort();
+    for (const s of map.sprites) {
+      placed.set(s.sprite, (placed.get(s.sprite) ?? 0) + 1);
+    }
+    const names = Object.keys(map.deco).toSorted();
     this.title(`deco sprites — ${names.length} baked (label: placements × frames)`);
 
     const cellW = 130;
     const cellH = 130;
     const cols = Math.floor((this.scale.width - 24) / cellW);
-    names.forEach((name, n) => {
+    for (const [n, name] of names.entries()) {
       const def = map.deco[name];
-      if (!def) return;
+      if (!def) {
+        continue;
+      }
       const x = 12 + (n % cols) * cellW + cellW / 2;
       const y = this.cursorY + Math.floor(n / cols) * cellH + 52;
-      this.add.rectangle(x, y, cellW - 10, 104, 0x000000, 0.25).setStrokeStyle(1, 0x555555);
-      if (!this.textures.get("deco-atlas").has(`${name}/0`)) return;
+      this.add.rectangle(x, y, cellW - 10, 104, 0x00_00_00, 0.25).setStrokeStyle(1, 0x55_55_55);
+      if (!this.textures.get("deco-atlas").has(`${name}/0`)) {
+        continue;
+      }
       const spr = this.add.sprite(x, y, "deco-atlas", `${name}/0`);
       const scale = Math.min(2.5, 92 / Math.max(def.fw, def.fh));
       spr.setScale(scale);
-      if (def.frames > 1 && this.anims.exists(`deco-${name}`)) spr.play(`deco-${name}`);
-      const short = name.replace(/^spr_deco_/, "");
+      if (def.frames > 1 && this.anims.exists(`deco-${name}`)) {
+        spr.play(`deco-${name}`);
+      }
+      const short = name.replace(/^spr_deco_/u, "");
       this.add
         .text(x, y + 56, `${short}\n${placed.get(name) ?? 0}× · ${def.frames}f`, {
+          align: "center",
+          color: "#aaa",
           fontFamily: "monospace",
           fontSize: "9px",
-          color: "#aaa",
-          align: "center",
         })
         .setOrigin(0.5, 0);
       spr.setInteractive();
@@ -209,7 +218,7 @@ export class GalleryScene extends Phaser.Scene {
             `${def.frames} frames @${def.fps}fps, placed ${placed.get(name) ?? 0}×`,
         ),
       );
-    });
+    }
     this.cursorY += Math.ceil(names.length / cols) * cellH + 12;
   }
 
@@ -217,7 +226,7 @@ export class GalleryScene extends Phaser.Scene {
   private sheetSection(): void {
     this.title("characters · animals · crops");
     const y0 = this.cursorY + 60;
-    const entries: Array<{ label: string; make: (x: number, y: number) => void }> = [
+    const entries: { label: string; make: (x: number, y: number) => void }[] = [
       { label: "player idle", make: (x, y) => this.anim(x, y, "p-idle", 2) },
       { label: "player walk", make: (x, y) => this.anim(x, y, "p-walk", 2) },
       { label: "player axe", make: (x, y) => this.anim(x, y, "p-axe", 2) },
@@ -230,22 +239,22 @@ export class GalleryScene extends Phaser.Scene {
       { label: "mushroom", make: (x, y) => this.anim(x, y, "mushroom-red-bob", 3) },
     ];
     const cellW = 110;
-    entries.forEach((e, n) => {
+    for (const [n, e] of entries.entries()) {
       const x = 12 + n * cellW + cellW / 2;
       e.make(x, y0);
       this.add
-        .text(x, y0 + 44, e.label, { fontFamily: "monospace", fontSize: "10px", color: "#aaa" })
+        .text(x, y0 + 44, e.label, { color: "#aaa", fontFamily: "monospace", fontSize: "10px" })
         .setOrigin(0.5, 0);
-    });
+    }
     this.cursorY = y0 + 70;
 
     // crop growth rows
     for (const c of CROP_ORDER) {
       const y = this.cursorY + 24;
       this.add
-        .text(12, y - 8, c, { fontFamily: "monospace", fontSize: "10px", color: "#aaa" })
+        .text(12, y - 8, c, { color: "#aaa", fontFamily: "monospace", fontSize: "10px" })
         .setOrigin(0, 0);
-      for (let f = 0; f < 6; f++) {
+      for (let f = 0; f < 6; f += 1) {
         this.add.image(110 + f * 56 + 24, y, `crop-${c}`, f).setScale(2.5);
       }
       this.cursorY += 52;
@@ -256,11 +265,15 @@ export class GalleryScene extends Phaser.Scene {
   private anim(x: number, y: number, key: string, scale: number): void {
     const s = this.add.sprite(x, y, "__MISSING");
     s.setScale(scale);
-    if (this.anims.exists(key)) s.play(key);
+    if (this.anims.exists(key)) {
+      s.play(key);
+    }
   }
 
   private pin(text: string): void {
-    if (this.info) this.info.setText(text);
+    if (this.info) {
+      this.info.setText(text);
+    }
     console.log(`[gallery] ${text}`);
   }
 }

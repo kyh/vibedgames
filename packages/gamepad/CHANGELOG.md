@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.3 — 2026-09-10
+
+- Added: `setVisible(boolean)` on both the Phaser and DOM adapters. Hides the
+  overlay regardless of the `visible` policy — e.g. behind a start screen — and
+  brings it back; input keeps working while hidden.
+
 ## 0.1.2 — 2026-08-15
 
 - Fixed: the Phaser overlay drew where it was **not** hit-tested on any scene whose

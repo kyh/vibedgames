@@ -12,7 +12,9 @@ export const formatUsd = (micro: number): string => {
 };
 
 export const kindLabel = (kind: string, deltaMicro: number): string => {
-  if (kind === "admin_grant") return deltaMicro < 0 ? "Adjustment" : "Credit grant";
+  if (kind === "admin_grant") {
+    return deltaMicro < 0 ? "Adjustment" : "Credit grant";
+  }
   const labels = new Map([
     ["signup_grant", "Welcome credits"],
     ["generation_hold", "Generation"],

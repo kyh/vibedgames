@@ -1,6 +1,6 @@
 ---
 name: aseprite
-description: "Infer structure/metadata from Aseprite files (.ase/.aseprite; common typo .aes): parse headers/frames/chunks (layers, cels, tags, slices, palettes, tilesets), compute durations/bounds, and generate JSON for engines/tools."
+description: "Parse Aseprite files (.ase/.aseprite) — layers, cels, tags, slices, palettes, tilesets — into JSON, durations and bounds for engines and tools."
 ---
 
 # Aseprite Inference
@@ -64,6 +64,16 @@ Check layer visibility + opacity; whether a cel is **linked** to another frame; 
 ### 3) Convert slices to hitboxes/anchors
 
 Use slice keys per frame for runtime hitboxes. Use pivot when present; otherwise infer (e.g. slice center) and record it as a fallback.
+
+## Exporting for Phaser
+
+`aseprite -b` → `spritesheet.png` + `spritesheet.json`, then `this.load.aseprite(key, png, json)` + `this.anims.createFromAseprite(key)`. The rules that keep it correct:
+
+- **Hide editor-only layers with a Lua script, not `--ignore-layer`** — the CLI flag silently no-ops on some files. Match the usual suspects: `bg`, `BG`, `Background`, `Text`, `Reflection`, `Layer 1`. Recipe in `references/inference-recipes.md` §9.
+- **Frame 0 is often a blank guide spacer.** Check `--decode-cels` empty-frame detection and drop it from the tag range or the export, or every clip starts with a hole.
+- **`--format json-array`, `--sheet-type packed` or `rows`, NO `--trim`.** `createFromAseprite` looks frames up by index (`frames[i.toString()]`), which only the array layout gives; trim moves the feet per frame, so bottom-anchored origins drift. Keep the canvas fixed.
+- **Build anims from the exported per-frame `duration`s** — `createFromAseprite` does this; hand-rolled anims must pass `frames: [{ key, frame, duration }]` with no `frameRate`.
+- **Never pass `duration` to `play()`** — freezes on frame 1. Retime with `sprite.anims.timeScale`. Depth in the `phaser` skill, `references/spritesheets-and-textures.md`.
 
 ## Anti-Patterns
 

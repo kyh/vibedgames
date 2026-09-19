@@ -10,20 +10,20 @@
 // the fade — this file owns the sky-wash look.
 
 import { controlGroups, createPauseShell } from "@repo/embed";
-import type { ControlMethod, ControlsManifest } from "@repo/embed";
+import type { ControlMethod, ControlsManifest, MuteAccessor } from "@repo/embed";
 
 const METHOD_LABELS = {
+  camera: "camera",
+  controller: "controller",
   keys: "keyboard",
   mouse: "mouse",
   touch: "touch",
-  camera: "camera",
-  controller: "controller",
 } satisfies Record<ControlMethod, string>;
 
 const STYLE_ID = "fdp-style";
 // Positioning/z-index/fade live on the shell's root — visuals only here.
 const CSS = `
-.fdp-root{display:flex;align-items:center;
+.fdp-root{display:flex;flex-direction:column;align-items:center;
   justify-content:center;text-align:center;overflow:hidden;
   padding:24px calc(24px + env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom))
     calc(24px + env(safe-area-inset-left));
@@ -72,28 +72,36 @@ const CSS = `
 .fdp-act{justify-self:start;text-align:left;color:#1a2a52;
   font:700 13px/1.4 ui-monospace,'SF Mono',Menlo,monospace;
   text-shadow:0 1px 0 rgba(255,251,234,0.75),0 0 12px rgba(255,251,234,0.55)}
+.fdp-root .vg-pause-sound{position:relative;margin-top:22px;padding:8px 16px;border-radius:10px;
+  background:rgba(10,12,28,0.62);border:1px solid rgba(255,255,255,0.22);color:#eef2ff;
+  font:700 12px/1.3 ui-monospace,'SF Mono',Menlo,monospace;letter-spacing:1px;
+  text-transform:uppercase;box-shadow:0 4px 14px rgba(0,0,0,0.25)}
 @media (prefers-reduced-motion:reduce){
   .fdp-clouds{display:none}
   .fdp-hint{animation:none}
 }`;
 
 /** Inject the shared control-card styles (pause overlay AND start screen). */
-export function ensureStyle(): void {
-  if (document.getElementById(STYLE_ID)) return;
+export const ensureStyle = (): void => {
+  if (document.querySelector(`#${STYLE_ID}`)) {
+    return;
+  }
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = CSS;
   document.head.append(style);
-}
+};
 
 /**
  * The grouped keycap card both instruction surfaces render — the start screen
  * and the pause overlay teach controls with the SAME UI. Null when nothing is
  * visible for the current device/pad context.
  */
-export function buildControls(controls: ControlsManifest, coarse: boolean): HTMLElement | null {
+export const buildControls = (controls: ControlsManifest, coarse: boolean): HTMLElement | null => {
   const groups = controlGroups(controls, { coarse });
-  if (groups.length === 0) return null;
+  if (groups.length === 0) {
+    return null;
+  }
   const wrap = document.createElement("div");
   wrap.className = "fdp-controls";
   for (const group of groups) {
@@ -119,23 +127,16 @@ export function buildControls(controls: ControlsManifest, coarse: boolean): HTML
     wrap.append(section);
   }
   return wrap;
-}
+};
 
-export type FlappyPauseOverlay = {
+export interface FlappyPauseOverlay {
   /** Mount the overlay. Idempotent while shown. */
   show: () => void;
   /** Unmount (fade out). Idempotent while hidden. */
   hide: () => void;
-};
-
-export function createFlappyPauseOverlay(controls: ControlsManifest): FlappyPauseOverlay {
-  return createPauseShell({
-    className: "fdp-root",
-    render: (overlay) => renderCard(overlay, controls),
-  });
 }
 
-function renderCard(overlay: HTMLElement, controls: ControlsManifest): void {
+const renderCard = (overlay: HTMLElement, controls: ControlsManifest): void => {
   ensureStyle();
   // Fresh every show(): hint copy and control rows match the device / pad
   // connected the moment we pause.
@@ -163,7 +164,18 @@ function renderCard(overlay: HTMLElement, controls: ControlsManifest): void {
 
   card.append(title, hint);
   const controlsEl = buildControls(controls, coarse);
-  if (controlsEl) card.append(controlsEl);
+  if (controlsEl) {
+    card.append(controlsEl);
+  }
 
   overlay.append(clouds, card);
-}
+};
+export const createFlappyPauseOverlay = (
+  controls: ControlsManifest,
+  mute: MuteAccessor,
+): FlappyPauseOverlay =>
+  createPauseShell({
+    className: "fdp-root",
+    mute,
+    render: (overlay) => renderCard(overlay, controls),
+  });

@@ -8,7 +8,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { resolve } from "node:path";
+import path from "node:path";
 
 import { asJsonObject, asNumber } from "./json.ts";
 import type { JsonValue } from "./json.ts";
@@ -32,7 +32,7 @@ export type Phase =
   | "plan"
   | "work";
 
-export type AgentState = {
+export interface AgentState {
   slug: string;
   idea: string;
   model: string;
@@ -74,10 +74,10 @@ export type AgentState = {
   totalCostUsd: number;
   createdAt: string;
   updatedAt: string;
-};
+}
 
 /** Resolved paths for the per-game shared memory the subagents coordinate through. */
-export type Blackboard = {
+export interface Blackboard {
   root: string;
   dir: string;
   state: string;
@@ -96,37 +96,39 @@ export type Blackboard = {
   stop: string;
   approve: string;
   lock: string;
-};
-
-export function blackboard(workspace: string): Blackboard {
-  const dir = resolve(workspace, ".vgfactory");
-  return {
-    root: workspace,
-    dir,
-    state: resolve(dir, "state.json"),
-    spec: resolve(dir, "spec.md"),
-    backlog: resolve(dir, "backlog.json"),
-    next: resolve(dir, "next.json"),
-    playtest: resolve(dir, "playtest.md"),
-    journal: resolve(dir, "journal.md"),
-    context: resolve(dir, "context.md"),
-    directive: resolve(dir, "directive.md"),
-    checkpoint: resolve(dir, "checkpoint.md"),
-    trace: resolve(dir, "trace.jsonl"),
-    stop: resolve(dir, "STOP"),
-    approve: resolve(dir, "APPROVE"),
-    lock: resolve(dir, "agent.lock"),
-  };
 }
+
+export const blackboard = (workspace: string): Blackboard => {
+  const dir = path.resolve(workspace, ".vgfactory");
+  return {
+    approve: path.resolve(dir, "APPROVE"),
+    backlog: path.resolve(dir, "backlog.json"),
+    checkpoint: path.resolve(dir, "checkpoint.md"),
+    context: path.resolve(dir, "context.md"),
+    dir,
+    directive: path.resolve(dir, "directive.md"),
+    journal: path.resolve(dir, "journal.md"),
+    lock: path.resolve(dir, "agent.lock"),
+    next: path.resolve(dir, "next.json"),
+    playtest: path.resolve(dir, "playtest.md"),
+    root: workspace,
+    spec: path.resolve(dir, "spec.md"),
+    state: path.resolve(dir, "state.json"),
+    stop: path.resolve(dir, "STOP"),
+    trace: path.resolve(dir, "trace.jsonl"),
+  };
+};
 
 /**
  * Does the game directory already hold a project to build upon? True when it
  * contains anything other than the agent's own bookkeeping — so pointing the
  * factory at an existing app adopts it instead of scaffolding fresh.
  */
-export function hasExistingProject(dir: string): boolean {
+export const hasExistingProject = (dir: string): boolean => {
   try {
-    if (!existsSync(dir)) return false;
+    if (!existsSync(dir)) {
+      return false;
+    }
     // `.agent`/`.studio` are pre-rename bookkeeping dirs — still ignored so a
     // leftover legacy folder isn't misread as real game code.
     const ignore = new Set([".vgfactory", ".agent", ".studio", ".git", ".DS_Store"]);
@@ -134,7 +136,7 @@ export function hasExistingProject(dir: string): boolean {
   } catch {
     return false;
   }
-}
+};
 
 /**
  * Migrate a pre-rename workspace. The per-game dir was `.studio/`, then
@@ -146,12 +148,14 @@ export function hasExistingProject(dir: string): boolean {
  * failed migration just means a fresh start. Call it before the blackboard is
  * inspected (fresh/adopt detection, status/stop/approve lookups).
  */
-export function migrateLegacyLayout(workspace: string): void {
-  const current = resolve(workspace, ".vgfactory");
+export const migrateLegacyLayout = (workspace: string): void => {
+  const current = path.resolve(workspace, ".vgfactory");
   try {
-    if (existsSync(current)) return;
+    if (existsSync(current)) {
+      return;
+    }
     for (const name of [".agent", ".studio"]) {
-      const legacy = resolve(workspace, name);
+      const legacy = path.resolve(workspace, name);
       if (existsSync(legacy)) {
         renameSync(legacy, current);
         return;
@@ -160,69 +164,72 @@ export function migrateLegacyLayout(workspace: string): void {
   } catch {
     /* best-effort — leave the legacy dir in place and start fresh */
   }
-}
+};
 
-export function initWorkspace(bb: Blackboard, seed: AgentState): AgentState {
+export const loadState = (bb: Blackboard): AgentState =>
+  // SAFETY: state.json is this tool's own checkpoint, written only by
+  // saveState from a typed AgentState — a trusted same-process round-trip,
+  // not external input (runAgent re-backfills fields older files predate).
+  JSON.parse(readFileSync(bb.state, "utf-8")) as AgentState;
+
+export const saveState = (bb: Blackboard, state: AgentState): void => {
+  state.updatedAt = new Date().toISOString();
+  writeFileSync(bb.state, `${JSON.stringify(state, null, 2)}\n`);
+};
+
+export const initWorkspace = (bb: Blackboard, seed: AgentState): AgentState => {
   mkdirSync(bb.dir, { recursive: true });
   if (existsSync(bb.state)) {
     const existing = loadState(bb);
     // Preserve progress across restarts; refresh the idea/model if re-seeded.
     return existing;
   }
-  if (!existsSync(bb.backlog)) writeFileSync(bb.backlog, "[]\n");
+  if (!existsSync(bb.backlog)) {
+    writeFileSync(bb.backlog, "[]\n");
+  }
   if (!existsSync(bb.journal)) {
     writeFileSync(bb.journal, `# ${seed.slug} — studio journal\n\nSeed idea: ${seed.idea}\n`);
   }
   saveState(bb, seed);
   return seed;
-}
-
-export function loadState(bb: Blackboard): AgentState {
-  // SAFETY: state.json is this tool's own checkpoint, written only by
-  // saveState from a typed AgentState — a trusted same-process round-trip,
-  // not external input (runAgent re-backfills fields older files predate).
-  return JSON.parse(readFileSync(bb.state, "utf8")) as AgentState;
-}
-
-export function saveState(bb: Blackboard, state: AgentState): void {
-  state.updatedAt = new Date().toISOString();
-  writeFileSync(bb.state, `${JSON.stringify(state, null, 2)}\n`);
-}
+};
 
 /** Past this size the journal gets compacted — every subagent reads it, so it
  * must never grow to context-blowing size over a long-running loop. */
 const MAX_JOURNAL_BYTES = 32_000;
 const JOURNAL_KEEP_ENTRIES = 40;
 
-export function appendJournal(bb: Blackboard, line: string): void {
-  const stamp = new Date().toISOString();
-  const body = existsSync(bb.journal) ? readFileSync(bb.journal, "utf8") : "";
-  const next = `${body.replace(/\s*$/, "")}\n\n- [${stamp}] ${line}\n`;
-  writeFileSync(bb.journal, next.length > MAX_JOURNAL_BYTES ? compactJournal(next) : next);
-}
-
 /** Keep the header + the newest entries; older history lives in git. */
-function compactJournal(body: string): string {
-  const parts = body.split(/\n- \[/);
+const compactJournal = (body: string): string => {
+  const parts = body.split(/\n- \[/u);
   const header = parts[0] ?? "";
   const entries = parts.slice(1);
-  if (entries.length <= JOURNAL_KEEP_ENTRIES) return body;
+  if (entries.length <= JOURNAL_KEEP_ENTRIES) {
+    return body;
+  }
   const kept = entries.slice(-JOURNAL_KEEP_ENTRIES).map((e) => `- [${e.trimEnd()}`);
   return `${header.trimEnd()}\n\n> (older entries compacted — full history in the workspace git log)\n\n${kept.join("\n\n")}\n`;
-}
+};
+
+export const appendJournal = (bb: Blackboard, line: string): void => {
+  const stamp = new Date().toISOString();
+  const body = existsSync(bb.journal) ? readFileSync(bb.journal, "utf-8") : "";
+  const next = `${body.replace(/\s*$/u, "")}\n\n- [${stamp}] ${line}\n`;
+  writeFileSync(bb.journal, next.length > MAX_JOURNAL_BYTES ? compactJournal(next) : next);
+};
 
 /** The standing operator directive, or null when none is set. */
-export function readDirective(bb: Blackboard): string | null {
+export const readDirective = (bb: Blackboard): string | null => {
   try {
-    const text = readFileSync(bb.directive, "utf8").trim();
+    const text = readFileSync(bb.directive, "utf-8").trim();
     return text || null;
   } catch {
     return null;
   }
-}
+};
 
 /** Set (or with empty text, clear) the standing operator directive. */
-export function setDirective(bb: Blackboard, text: string): void {
+export const setDirective = (bb: Blackboard, text: string): void => {
   mkdirSync(bb.dir, { recursive: true });
   const trimmed = text.trim();
   if (!trimmed) {
@@ -234,13 +241,13 @@ export function setDirective(bb: Blackboard, text: string): void {
     return;
   }
   writeFileSync(bb.directive, `${trimmed}\n`);
-}
+};
 
 /** Read AND consume an agent-authored checkpoint note, if one is waiting. */
-export function takeCheckpoint(bb: Blackboard): string | null {
+export const takeCheckpoint = (bb: Blackboard): string | null => {
   let text: string;
   try {
-    text = readFileSync(bb.checkpoint, "utf8").trim();
+    text = readFileSync(bb.checkpoint, "utf-8").trim();
   } catch {
     return null;
   }
@@ -250,106 +257,121 @@ export function takeCheckpoint(bb: Blackboard): string | null {
     /* best-effort */
   }
   return text || null;
-}
+};
 
-export function stopRequested(bb: Blackboard): boolean {
-  return existsSync(bb.stop);
-}
+export const stopRequested = (bb: Blackboard): boolean => existsSync(bb.stop);
 
 /** Remove a stale STOP sentinel. Only safe to call while holding the lock. */
-export function clearStop(bb: Blackboard): void {
+export const clearStop = (bb: Blackboard): void => {
   try {
-    if (existsSync(bb.stop)) rmSync(bb.stop);
+    if (existsSync(bb.stop)) {
+      rmSync(bb.stop);
+    }
   } catch {
     /* ignore */
   }
-}
+};
 
 /** The current approval token (APPROVE file contents), or null if none. */
-export function approvalToken(bb: Blackboard): string | null {
+export const approvalToken = (bb: Blackboard): string | null => {
   try {
-    const token = readFileSync(bb.approve, "utf8").trim();
+    const token = readFileSync(bb.approve, "utf-8").trim();
     return token || null;
   } catch {
     return null;
   }
-}
+};
 
 /**
  * Is there an unacted-on deploy approval? Pending only when the sentinel's
  * token differs from the last one we consumed (tracked in persisted state), so
  * a one-shot approval can't be re-used even if the file fails to delete.
  */
-export function approvalPending(bb: Blackboard, lastApproval: string | null): boolean {
+export const approvalPending = (bb: Blackboard, lastApproval: string | null): boolean => {
   const token = approvalToken(bb);
   return token !== null && token !== lastApproval;
-}
+};
 
 /** Grant a one-shot deploy approval (written by `pnpm approve <slug>`). */
-export function requestApproval(bb: Blackboard): void {
+export const requestApproval = (bb: Blackboard): void => {
   mkdirSync(bb.dir, { recursive: true });
   // The nonce makes every approval a distinct token, so the orchestrator can
   // tell a fresh approval from one it already deployed.
   writeFileSync(bb.approve, `approved ${new Date().toISOString()} ${randomUUID()}\n`);
-}
+};
 
 /** Best-effort removal of the approval sentinel after it's been acted on. */
-export function consumeApproval(bb: Blackboard): void {
+export const consumeApproval = (bb: Blackboard): void => {
   try {
-    if (existsSync(bb.approve)) rmSync(bb.approve);
+    if (existsSync(bb.approve)) {
+      rmSync(bb.approve);
+    }
   } catch {
     /* ignore — consumption is authoritative via state.lastApproval */
   }
-}
+};
 
 type LockStatus =
-  | { state: "free" } // no lock file
-  | { state: "alive"; pid: number } // a live owner (possibly another user's process)
-  | { state: "stale" } // dead owner, our own prior pid, or junk contents — reclaimable
-  | { state: "unknown" }; // exists but couldn't be read (transient IO) — do NOT reclaim
+  // no lock file
+  | { state: "free" }
+  // a live owner (possibly another user's process)
+  | { state: "alive"; pid: number }
+  // dead owner, our own prior pid, or junk contents — reclaimable
+  | { state: "stale" }
+  // exists but couldn't be read (transient IO) — do NOT reclaim
+  | { state: "unknown" };
 
 /** The `code` of a thrown filesystem/process error, or undefined. */
-function errnoCode(cause: unknown): string | undefined {
-  if (!(cause instanceof Error) || !("code" in cause)) return undefined;
+const errnoCode = (cause: unknown): string | undefined => {
+  if (!(cause instanceof Error) || !("code" in cause)) {
+    return undefined;
+  }
   const { code } = cause;
   // Strict equality with the coerced copy never coerces, so it holds exactly
   // for primitive strings — a typeof-free narrowing.
   return String(code) === code ? code : undefined;
-}
+};
 
 /** The owning pid recorded in a lock payload, or undefined for junk contents. */
-function lockOwnerPid(raw: string): number | undefined {
+const lockOwnerPid = (raw: string): number | undefined => {
   const parsed: JsonValue = JSON.parse(raw);
   const pid = asNumber(asJsonObject(parsed)?.pid);
   return pid !== undefined && Number.isFinite(pid) ? pid : undefined;
-}
+};
 
 /** Inspect the lock file without mutating it. */
-function readLock(bb: Blackboard): LockStatus {
+const readLock = (bb: Blackboard): LockStatus => {
   let raw: string;
   try {
-    raw = readFileSync(bb.lock, "utf8");
-  } catch (err) {
+    raw = readFileSync(bb.lock, "utf-8");
+  } catch (error) {
     // Gone => free to take. Any other read error (e.g. transient EACCES) is
     // ambiguous; treat as held so we never delete a possibly-live lock.
-    return errnoCode(err) === "ENOENT" ? { state: "free" } : { state: "unknown" };
+    return errnoCode(error) === "ENOENT" ? { state: "free" } : { state: "unknown" };
   }
   let pid: number | undefined;
   try {
     pid = lockOwnerPid(raw);
   } catch {
-    return { state: "stale" }; // corrupt contents — safe to reclaim
+    // corrupt contents — safe to reclaim
+    return { state: "stale" };
   }
-  if (pid === undefined) return { state: "stale" };
-  if (pid === process.pid) return { state: "stale" }; // our own lock from a prior run
+  if (pid === undefined) {
+    return { state: "stale" };
+  }
+  if (pid === process.pid) {
+    return { state: "stale" };
+    // our own lock from a prior run
+  }
   try {
-    process.kill(pid, 0); // probe liveness without signalling
-    return { state: "alive", pid };
-  } catch (err) {
+    // probe liveness without signalling
+    process.kill(pid, 0);
+    return { pid, state: "alive" };
+  } catch (error) {
     // EPERM => the process exists but isn't ours (alive); ESRCH => gone (stale).
-    return errnoCode(err) === "EPERM" ? { state: "alive", pid } : { state: "stale" };
+    return errnoCode(error) === "EPERM" ? { pid, state: "alive" } : { state: "stale" };
   }
-}
+};
 
 /** Sentinel pid for "lock is held but we couldn't read whose it is". */
 export const LOCK_BUSY_UNKNOWN = -1;
@@ -361,19 +383,26 @@ export const LOCK_BUSY_UNKNOWN = -1;
  * owner pid (or LOCK_BUSY_UNKNOWN). Only a genuinely stale lock is reclaimed —
  * an unreadable lock file is treated as held, never deleted.
  */
-export function acquireLock(bb: Blackboard): number | null {
+export const acquireLock = (bb: Blackboard): number | null => {
   mkdirSync(bb.dir, { recursive: true });
-  const payload = `${JSON.stringify({ pid: process.pid, at: new Date().toISOString() })}\n`;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  const payload = `${JSON.stringify({ at: new Date().toISOString(), pid: process.pid })}\n`;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       // "wx" => fail if the file already exists; the create is atomic.
       writeFileSync(bb.lock, payload, { flag: "wx" });
       return null;
-    } catch (err) {
-      if (errnoCode(err) !== "EEXIST") throw err;
+    } catch (error) {
+      if (errnoCode(error) !== "EEXIST") {
+        throw error;
+      }
       const status = readLock(bb);
-      if (status.state === "alive") return status.pid;
-      if (status.state === "unknown") return LOCK_BUSY_UNKNOWN; // don't reclaim a lock we can't read
+      if (status.state === "alive") {
+        return status.pid;
+      }
+      if (status.state === "unknown") {
+        return LOCK_BUSY_UNKNOWN;
+        // don't reclaim a lock we can't read
+      }
       // free (vanished between create and read) or stale — drop and retry once.
       try {
         rmSync(bb.lock);
@@ -384,13 +413,15 @@ export function acquireLock(bb: Blackboard): number | null {
   }
   const final = readLock(bb);
   return final.state === "alive" ? final.pid : LOCK_BUSY_UNKNOWN;
-}
+};
 
 /** Release the lock if (and only if) we own it. */
-export function releaseLock(bb: Blackboard): void {
+export const releaseLock = (bb: Blackboard): void => {
   try {
-    if (lockOwnerPid(readFileSync(bb.lock, "utf8")) === process.pid) rmSync(bb.lock);
+    if (lockOwnerPid(readFileSync(bb.lock, "utf-8")) === process.pid) {
+      rmSync(bb.lock);
+    }
   } catch {
     /* ignore */
   }
-}
+};

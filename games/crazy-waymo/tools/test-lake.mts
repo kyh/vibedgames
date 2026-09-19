@@ -16,7 +16,7 @@ type Check = (name: string, condition: boolean, detail?: string) => void;
 const X = (GGP_LAKE.u - 0.5) * WORLD_W;
 const Z = (GGP_LAKE.v - 0.5) * WORLD_H;
 
-export function checkLake(check: Check, world: AuditWorld, rest: CityRestPayload): void {
+export const checkLake = (check: Check, world: AuditWorld, rest: CityRestPayload): void => {
   check(
     "park footprint exclusion catches edge overlap even when its centre is outside the basin",
     stowBasinOverlapsBox(X + GGP_LAKE.ru * 1.2, X + GGP_LAKE.ru * 1.8, Z - 2, Z + 2) &&
@@ -45,7 +45,7 @@ export function checkLake(check: Check, world: AuditWorld, rest: CityRestPayload
     `max half-unit rise ${maxStep.toFixed(3)}`,
   );
   let rimMin = Infinity;
-  for (let i = 0; i < 96; i++) {
+  for (let i = 0; i < 96; i += 1) {
     const angle = (i / 96) * Math.PI * 2;
     rimMin = Math.min(
       rimMin,
@@ -70,18 +70,26 @@ export function checkLake(check: Check, world: AuditWorld, rest: CityRestPayload
   let waterVertices = 0;
   let maxError = 0;
   for (const item of rest.batchItems) {
-    if (item.raw === null) continue;
+    if (item.raw === null) {
+      continue;
+    }
     const geometry = rest.rawGeos[item.raw];
-    if (!geometry || geometry.mat.color !== 0x3f6f8f) continue;
+    if (!geometry || geometry.mat.color !== 0x3f_6f_8f) {
+      continue;
+    }
     const transform = new Matrix4().fromArray(item.m);
     for (let i = 0; i < geometry.position.length; i += 3) {
-      const x = geometry.position[i],
-        y = geometry.position[i + 1],
-        z = geometry.position[i + 2];
-      if (x === undefined || y === undefined || z === undefined) continue;
+      const x = geometry.position[i];
+      const y = geometry.position[i + 1];
+      const z = geometry.position[i + 2];
+      if (x === undefined || y === undefined || z === undefined) {
+        continue;
+      }
       vertex.set(x, y, z).applyMatrix4(transform);
-      if (Math.hypot(vertex.x - X, vertex.z - Z) > GGP_LAKE.ru + 1) continue;
-      waterVertices++;
+      if (Math.hypot(vertex.x - X, vertex.z - Z) > GGP_LAKE.ru + 1) {
+        continue;
+      }
+      waterVertices += 1;
       maxError = Math.max(maxError, Math.abs(vertex.y - STOW_WATER_Y));
     }
   }
@@ -90,4 +98,4 @@ export function checkLake(check: Check, world: AuditWorld, rest: CityRestPayload
     waterVertices >= 49 && maxError < 0.001,
     `${waterVertices} vertices, error ${maxError.toFixed(5)}u`,
   );
-}
+};

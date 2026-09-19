@@ -27,14 +27,14 @@ const unavailable = (): never => {
 };
 
 const auth = createAuth({
-  db: createDb({
-    prepare: unavailable,
-    batch: unavailable,
-    exec: unavailable,
-    withSession: unavailable,
-    dump: unavailable,
-  }),
   baseURL: "https://vibedgames.com",
+  db: createDb({
+    batch: unavailable,
+    dump: unavailable,
+    exec: unavailable,
+    prepare: unavailable,
+    withSession: unavailable,
+  }),
   secret: "test-secret",
 });
 

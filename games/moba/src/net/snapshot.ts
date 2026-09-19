@@ -22,46 +22,60 @@ export type Snapshot = {
   campRespawnAt: Record<string, number>;
 };
 
-export function encodeWorld(w: World): Snapshot {
-  return {
-    now: w.now,
-    gameTime: w.gameTime,
-    phase: w.phase,
-    winner: w.winner,
-    nextWaveAt: w.nextWaveAt,
-    waveCount: w.waveCount,
-    seq: w.seq,
-    rngState: w.rngState,
-    units: Object.fromEntries(w.units),
-    projectiles: Object.fromEntries(w.projectiles),
-    mines: Object.fromEntries(w.mines),
-    grounds: w.groundEffects,
-    campRespawnAt: w.campRespawnAt,
-  };
-}
+/** A view, not a copy: units/projectiles/mines/grounds are the World's own
+ *  objects. The SDK serialises the patch synchronously on send, and every
+ *  consumer that keeps a snapshot copies it (restoreHostState), so the host's
+ *  local mirror aliasing its live world costs nothing and a deep clone at
+ *  15 Hz would only protect against a reader that doesn't exist. */
+export const encodeWorld = (w: World): Snapshot => ({
+  campRespawnAt: w.campRespawnAt,
+  gameTime: w.gameTime,
+  grounds: w.groundEffects,
+  mines: Object.fromEntries(w.mines),
+  nextWaveAt: w.nextWaveAt,
+  now: w.now,
+  phase: w.phase,
+  projectiles: Object.fromEntries(w.projectiles),
+  rngState: w.rngState,
+  seq: w.seq,
+  units: Object.fromEntries(w.units),
+  waveCount: w.waveCount,
+  winner: w.winner,
+});
 
 /** A fresh World a guest renders from (never simulated locally). */
-export function emptyGuestWorld(): World {
-  return {
-    now: 0,
-    gameTime: 0,
-    phase: "playing",
-    winner: null,
-    units: new Map(),
-    projectiles: new Map(),
-    nextWaveAt: 0,
-    waveCount: 0,
-    mines: new Map(),
-    groundEffects: [],
-    campRespawnAt: {},
-    fx: [],
-    seq: 0,
-    rngState: 1,
-  };
-}
+export const emptyGuestWorld = (): World => ({
+  campRespawnAt: {},
+  fx: [],
+  gameTime: 0,
+  groundEffects: [],
+  mines: new Map(),
+  nextWaveAt: 0,
+  now: 0,
+  phase: "playing",
+  projectiles: new Map(),
+  rngState: 1,
+  seq: 0,
+  units: new Map(),
+  waveCount: 0,
+  winner: null,
+});
+
+const rebuildMap = <T>(map: Map<string, T>, rec: Record<string, T>): void => {
+  const seen = new Set<string>();
+  for (const [k, val] of Object.entries(rec)) {
+    seen.add(k);
+    map.set(k, val);
+  }
+  for (const k of map.keys()) {
+    if (!seen.has(k)) {
+      map.delete(k);
+    }
+  }
+};
 
 /** Mutate a guest's World in place from a decoded snapshot (preserves identity). */
-export function applySnapshot(w: World, snap: Snapshot): void {
+export const applySnapshot = (w: World, snap: Snapshot): void => {
   w.now = snap.now;
   w.gameTime = snap.gameTime;
   w.phase = snap.phase;
@@ -75,38 +89,31 @@ export function applySnapshot(w: World, snap: Snapshot): void {
   rebuildMap(w.mines, snap.mines);
   w.groundEffects = snap.grounds ?? [];
   w.campRespawnAt = snap.campRespawnAt ?? {};
-}
-
-function rebuildMap<T>(map: Map<string, T>, rec: Record<string, T>): void {
-  const seen = new Set<string>();
-  for (const [k, val] of Object.entries(rec)) {
-    seen.add(k);
-    map.set(k, val);
-  }
-  for (const k of map.keys()) if (!seen.has(k)) map.delete(k);
-}
+};
 
 type SharedState = MultiplayerClient["sharedState"];
 
 /** The host-authored snapshot out of shared state, or null before the first
  *  broadcast. Only the hosting peer writes `snap` (encodeWorld output); the
  *  key-presence check filters empty rooms and foreign/stale documents. */
-export function sharedSnapshot(state: SharedState): Snapshot | null {
-  const snap = state["snap"];
-  if (!(snap instanceof Object) || !("units" in snap) || !("gameTime" in snap)) return null;
+export const sharedSnapshot = (state: SharedState): Snapshot | null => {
+  const { snap } = state;
+  if (!(snap instanceof Object) || !("units" in snap) || !("gameTime" in snap)) {
+    return null;
+  }
   // SAFETY: `snap` is written exclusively by the trusted host via encodeWorld
   // and transported as JSON, so an object carrying the units+gameTime
   // discriminators is the host's Snapshot; guests only read it for rendering.
   return snap as Snapshot;
-}
+};
 
 const isFiniteNumber = (x: SharedState[string] | undefined): x is number => Number.isFinite(x);
 
 /** The fx-batch sequence number the host wrote alongside `fx`, or null. */
-export function sharedFxSeq(state: SharedState): number | null {
+export const sharedFxSeq = (state: SharedState): number | null => {
   const v = state["fxSeq"];
   return isFiniteNumber(v) ? v : null;
-}
+};
 
 // Known one-shot fx tags, for validating a broadcast fx batch at ingest.
 const FX_TAGS = [
@@ -123,12 +130,43 @@ const FX_TAGS = [
   "notify",
   "ability",
 ];
+/** Older peers omit `actor`; anything malformed is stripped rather than trusted
+ *  to pick a body or claim local audio priority. */
+const castActor = (
+  value: MultiplayerClient["sharedState"][string] | undefined,
+): { unitId: string; at: number } | null => {
+  if (!(value instanceof Object) || !("unitId" in value) || !("at" in value)) {
+    return null;
+  }
+  const { unitId, at } = value;
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- protocol boundary
+  if (typeof unitId !== "string" || !unitId || unitId.length > 128) {
+    return null;
+  }
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- protocol boundary
+  if (typeof at !== "number" || !Number.isFinite(at) || at < 0) {
+    return null;
+  }
+  return { at, unitId };
+};
+
 /** Validate the broadcast fx array in shared state into typed FxEvents,
  *  dropping bad shapes. */
-export function sharedFxBatch(state: SharedState): FxEvent[] {
+export const sharedFxBatch = (state: SharedState): FxEvent[] => {
   const v = state["fx"];
-  if (!Array.isArray(v)) return [];
-  return v.filter(
-    (e): e is FxEvent => e instanceof Object && "t" in e && FX_TAGS.some((tag) => tag === e.t),
-  );
-}
+  if (!Array.isArray(v)) {
+    return [];
+  }
+  return v
+    .filter(
+      (e): e is FxEvent => e instanceof Object && "t" in e && FX_TAGS.some((tag) => tag === e.t),
+    )
+    .map((event) => {
+      if (event.t !== "cast") {
+        return event;
+      }
+      const actor = castActor(event.actor);
+      const { actor: _actor, ...cast } = event;
+      return actor ? { ...cast, actor } : cast;
+    });
+};

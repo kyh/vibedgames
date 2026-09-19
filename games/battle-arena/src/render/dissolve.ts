@@ -9,12 +9,12 @@
 //   d.set(k);                                  // 0 → 1 over 600ms (heroes cap at 0.55)
 import * as THREE from "three";
 
-export type DissolveHandle = {
+export interface DissolveHandle {
   /** Dissolve amount 0 (intact) → 1 (gone). Clamped. */
-  set(v: number): void;
+  set: (v: number) => void;
   /** Edge-glow color (hex). */
-  setEdge(color: number): void;
-};
+  setEdge: (color: number) => void;
+}
 
 const EDGE_BAND = 0.08;
 
@@ -22,9 +22,9 @@ const EDGE_BAND = 0.08;
  *  MeshBasic (anything whose fragment shader has `#include <opaque_fragment>`).
  *  Skinned meshes work: the noise samples `modelMatrix × transformed`, the same
  *  world position three's own chunks use. */
-export function applyDissolve(materials: THREE.Material[]): DissolveHandle {
+export const applyDissolve = (materials: THREE.Material[]): DissolveHandle => {
   const uDissolve: THREE.IUniform<number> = { value: 0 };
-  const uEdge: THREE.IUniform<THREE.Color> = { value: new THREE.Color(0xcfd8e0) };
+  const uEdge: THREE.IUniform<THREE.Color> = { value: new THREE.Color(0xcf_d8_e0) };
 
   for (const mat of materials) {
     mat.onBeforeCompile = (shader) => {
@@ -65,4 +65,4 @@ export function applyDissolve(materials: THREE.Material[]): DissolveHandle {
       uEdge.value.setHex(color);
     },
   };
-}
+};

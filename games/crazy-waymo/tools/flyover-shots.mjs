@@ -4,6 +4,7 @@
 //
 //   node tools/flyover-shots.mjs <outDir> [port]
 import { chromium } from "playwright-core";
+
 const OUT = process.argv[2] ?? "/tmp/shots";
 const PORT = process.argv[3] ?? "5199";
 const SPOTS = [
@@ -12,12 +13,12 @@ const SPOTS = [
   ["kit-overview", 620, 380, -380, 640, 0, -830],
   ["kit-soma-street", 640, 16, -560, 700, 6, -600],
 ];
-const browser = await chromium.launch({ headless: false, channel: "chrome" });
-const page = await browser.newPage({ viewport: { width: 1500, height: 950 } });
+const browser = await chromium.launch({ channel: "chrome", headless: false });
+const page = await browser.newPage({ viewport: { height: 950, width: 1500 } });
 await page.goto(`http://localhost:${PORT}/`, { waitUntil: "domcontentloaded" });
 await page.waitForFunction(() => globalThis.__taxi?.game?.isReady === true, null, {
-  timeout: 180000,
   polling: 500,
+  timeout: 180_000,
 });
 await page.evaluate(() => {
   globalThis.__taxi.game.handleStartPress();

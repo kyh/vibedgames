@@ -1,6 +1,10 @@
 import { defineCommand } from "citty";
 
-const SUPPORTED = new Set(["bash", "zsh", "fish"]);
+type Shell = "bash" | "zsh" | "fish";
+
+const SUPPORTED = new Set<string>(["bash", "zsh", "fish"]);
+
+const isShell = (value: string): value is Shell => SUPPORTED.has(value);
 
 const SUBCOMMANDS = [
   "new",
@@ -42,8 +46,8 @@ const GENERATE_FLAGS = [
   "--quiet",
 ];
 
-function bashScript(): string {
-  return `# vg completions for bash. Source this file or write it to a file in your
+const bashScript = (): string =>
+  `# vg completions for bash. Source this file or write it to a file in your
 # bash completion directory (e.g. /etc/bash_completion.d/vg).
 _vg_completions() {
   local cur prev cmd subcmd
@@ -75,10 +79,9 @@ _vg_completions() {
 }
 complete -F _vg_completions vg
 `;
-}
 
-function zshScript(): string {
-  return `# vg completions for zsh. Source this file or place it on your fpath.
+const zshScript = (): string =>
+  `# vg completions for zsh. Source this file or place it on your fpath.
 _vg() {
   local -a subcmds generate_subs generate_flags common_flags
   subcmds=(${SUBCOMMANDS.map((s) => `"${s}"`).join(" ")})
@@ -105,16 +108,15 @@ _vg() {
 }
 compdef _vg vg
 `;
-}
 
-function fishFlag(flag: string, condition: string): string {
+const fishFlag = (flag: string, condition: string): string => {
   const isShort = flag.startsWith("-") && !flag.startsWith("--");
-  const name = flag.replace(/^--?/, "");
+  const name = flag.replace(/^--?/u, "");
   const opt = isShort ? "-s" : "-l";
   return `complete -c vg -n '${condition}' ${opt} '${name}'`;
-}
+};
 
-function fishScript(): string {
+const fishScript = (): string => {
   const generateFlagLines = [...GENERATE_FLAGS, ...COMMON_FLAGS].map((flag) =>
     fishFlag(flag, "__fish_seen_subcommand_from generate"),
   );
@@ -134,29 +136,33 @@ ${GENERATE_SUBCOMMANDS.map(
 ${generateFlagLines.join("\n")}
 ${otherFlagLines.join("\n")}
 `;
-}
+};
 
 export const completionsCommand = defineCommand({
-  meta: {
-    name: "completions",
-    description: "Print shell completions for vg. Pipe into your shell's completion dir.",
-  },
   args: {
     shell: {
-      type: "positional",
       description: "Shell to generate completions for: bash | zsh | fish",
       required: true,
+      type: "positional",
     },
+  },
+  meta: {
+    description: "Print shell completions for vg. Pipe into your shell's completion dir.",
+    name: "completions",
   },
   run: ({ args }) => {
     const shell = String(args.shell ?? "");
-    if (!SUPPORTED.has(shell)) {
+    if (!isShell(shell)) {
       process.stderr.write(
-        `Unsupported shell "${shell}". Expected: ${Array.from(SUPPORTED).join(", ")}\n`,
+        `Unsupported shell "${shell}". Expected: ${[...SUPPORTED].join(", ")}\n`,
       );
       process.exit(1);
     }
-    const script = shell === "bash" ? bashScript() : shell === "zsh" ? zshScript() : fishScript();
-    process.stdout.write(script);
+    const scripts: Record<Shell, () => string> = {
+      bash: bashScript,
+      fish: fishScript,
+      zsh: zshScript,
+    };
+    process.stdout.write(scripts[shell]());
   },
 });

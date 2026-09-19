@@ -9,16 +9,16 @@
  * `Intl.DateTimeFormat` construction is the expensive part.
  */
 const dateFormatter = new Intl.DateTimeFormat("en-US", {
-  timeZone: "UTC",
-  month: "short",
   day: "numeric",
+  month: "short",
+  timeZone: "UTC",
   year: "numeric",
 });
 
 const shortDateFormatter = new Intl.DateTimeFormat("en-US", {
-  timeZone: "UTC",
-  month: "short",
   day: "numeric",
+  month: "short",
+  timeZone: "UTC",
 });
 
 /** "Jan 15, 2026". */

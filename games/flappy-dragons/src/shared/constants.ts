@@ -118,37 +118,35 @@ export const COURSE_H = 720;
  */
 export const MIN_VIEW_W = 480;
 
+/* oxlint-disable no-bitwise, eslint/operator-assignment -- mulberry32 is defined
+   over int32 wraparound; Math.trunc and ^= rewrites would change the sequence. */
 /** A stable 0..1 hash for course slot `i` under `seed` (mulberry32-style). */
-export function hash01(seed: number, i: number): number {
-  let t = (seed ^ (i * 0x9e3779b9)) >>> 0;
-  t = (t + 0x6d2b79f5) >>> 0;
+export const hash01 = (seed: number, i: number): number => {
+  let t = (seed ^ (i * 0x9e_37_79_b9)) >>> 0;
+  t = (t + 0x6d_2b_79_f5) >>> 0;
   let x = Math.imul(t ^ (t >>> 15), 1 | t);
   x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x;
-  return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
-}
+  return ((x ^ (x >>> 14)) >>> 0) / 4_294_967_296;
+};
+/* oxlint-enable no-bitwise, eslint/operator-assignment */
 
 /** Course x of pipe `i` (absolute, viewport-independent). */
-export function pipeCourseX(i: number): number {
-  return RUNWAY + i * PIPE_SPAWN_DISTANCE;
-}
+export const pipeCourseX = (i: number): number => RUNWAY + i * PIPE_SPAWN_DISTANCE;
 
 /**
  * Top-segment height for pipe `i` in the fixed COURSE_H logical space —
  * byte-identical on every client regardless of its viewport.
  */
-export function topHeightFor(seed: number, i: number): number {
-  return Math.round(hash01(seed, i) * (COURSE_H - PIPE_GAP - 100) + 50);
-}
+export const topHeightFor = (seed: number, i: number): number =>
+  Math.round(hash01(seed, i) * (COURSE_H - PIPE_GAP - 100) + 50);
 
 /** Whether pipe `i` carries a coin (deterministic). */
-export function coinPresentFor(seed: number, i: number): boolean {
-  return hash01(seed, i * 2 + 1) < COIN_CHANCE;
-}
+export const coinPresentFor = (seed: number, i: number): boolean =>
+  hash01(seed, i * 2 + 1) < COIN_CHANCE;
 
 /** Coin Y within pipe `i`'s gap (deterministic). */
-export function coinYFor(seed: number, i: number, topHeight: number): number {
-  return topHeight + COIN_MARGIN + hash01(seed, i * 2 + 7) * (PIPE_GAP - 2 * COIN_MARGIN);
-}
+export const coinYFor = (seed: number, i: number, topHeight: number): number =>
+  topHeight + COIN_MARGIN + hash01(seed, i * 2 + 7) * (PIPE_GAP - 2 * COIN_MARGIN);
 
 // ---- types ----------------------------------------------------------------------
 
@@ -162,12 +160,10 @@ export type Phase = "ready" | "playing" | "gameover";
  * converted to px/s: -480..-720. Key/tap inputs always pass strength 1;
  * webcam pose jumps produce variable strengths.
  */
-export function flapVelocityFor(strength: number): number {
+export const flapVelocityFor = (strength: number): number => {
   const s = Math.min(Math.max(strength, 0), 1);
   return FLAP_VELOCITY_MIN + (FLAP_VELOCITY - FLAP_VELOCITY_MIN) * s;
-}
+};
 
 /** Random skin index 1..DRAGON_SKINS. */
-export function rollSkin(): number {
-  return 1 + Math.floor(Math.random() * DRAGON_SKINS);
-}
+export const rollSkin = (): number => 1 + Math.floor(Math.random() * DRAGON_SKINS);

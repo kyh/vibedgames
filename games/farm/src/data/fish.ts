@@ -13,84 +13,86 @@ export type FishId =
   | "pufferfish"
   | "legend";
 
-export type FishDef = {
+export interface FishDef {
   id: FishId;
   name: string;
   value: number;
-  difficulty: number; // 1..5 — affects reel speed/erraticness
+  // 1..5 — affects reel speed/erraticness
+  difficulty: number;
   seasons: readonly Season[] | "all";
-  weight: number; // relative spawn weight before season/skill modifiers
-};
+  // relative spawn weight before season/skill modifiers
+  weight: number;
+}
 
 export type FishTable = { [K in FishId]: FishDef };
 
 export const FISH: FishTable = {
-  sardine: { id: "sardine", name: "Sardine", value: 18, difficulty: 1, seasons: "all", weight: 10 },
-  carp: { id: "carp", name: "Carp", value: 22, difficulty: 1, seasons: "all", weight: 9 },
-  bream: {
-    id: "bream",
-    name: "Bream",
-    value: 32,
-    difficulty: 2,
-    seasons: ["spring", "summer"],
-    weight: 7,
-  },
   bass: {
+    difficulty: 2,
     id: "bass",
     name: "Bass",
-    value: 45,
-    difficulty: 2,
     seasons: ["spring", "fall"],
+    value: 45,
     weight: 6,
   },
-  trout: {
-    id: "trout",
-    name: "Rainbow Trout",
-    value: 55,
-    difficulty: 3,
-    seasons: ["summer"],
-    weight: 5,
+  bream: {
+    difficulty: 2,
+    id: "bream",
+    name: "Bream",
+    seasons: ["spring", "summer"],
+    value: 32,
+    weight: 7,
   },
-  pike: {
-    id: "pike",
-    name: "Pike",
-    value: 70,
-    difficulty: 3,
-    seasons: ["fall", "winter"],
-    weight: 4,
-  },
-  salmon: { id: "salmon", name: "Salmon", value: 85, difficulty: 3, seasons: ["fall"], weight: 4 },
+  carp: { difficulty: 1, id: "carp", name: "Carp", seasons: "all", value: 22, weight: 9 },
   catfish: {
+    difficulty: 4,
     id: "catfish",
     name: "Catfish",
-    value: 110,
-    difficulty: 4,
     seasons: ["spring", "fall"],
+    value: 110,
     weight: 3,
-  },
-  tuna: {
-    id: "tuna",
-    name: "Tuna",
-    value: 130,
-    difficulty: 4,
-    seasons: ["summer", "winter"],
-    weight: 3,
-  },
-  pufferfish: {
-    id: "pufferfish",
-    name: "Pufferfish",
-    value: 160,
-    difficulty: 5,
-    seasons: ["summer"],
-    weight: 2,
   },
   legend: {
+    difficulty: 5,
     id: "legend",
     name: "The Legend",
-    value: 600,
-    difficulty: 5,
     seasons: "all",
+    value: 600,
     weight: 1,
+  },
+  pike: {
+    difficulty: 3,
+    id: "pike",
+    name: "Pike",
+    seasons: ["fall", "winter"],
+    value: 70,
+    weight: 4,
+  },
+  pufferfish: {
+    difficulty: 5,
+    id: "pufferfish",
+    name: "Pufferfish",
+    seasons: ["summer"],
+    value: 160,
+    weight: 2,
+  },
+  salmon: { difficulty: 3, id: "salmon", name: "Salmon", seasons: ["fall"], value: 85, weight: 4 },
+  sardine: { difficulty: 1, id: "sardine", name: "Sardine", seasons: "all", value: 18, weight: 10 },
+  trout: {
+    difficulty: 3,
+    id: "trout",
+    name: "Rainbow Trout",
+    seasons: ["summer"],
+    value: 55,
+    weight: 5,
+  },
+  tuna: {
+    difficulty: 4,
+    id: "tuna",
+    name: "Tuna",
+    seasons: ["summer", "winter"],
+    value: 130,
+    weight: 3,
   },
 };
 
@@ -108,18 +110,18 @@ export const FISH_IDS = [
   "legend",
 ] as const satisfies readonly FishId[];
 
-function inSeason(def: FishDef, season: Season): boolean {
-  return def.seasons === "all" || def.seasons.includes(season);
-}
+const inSeason = (def: FishDef, season: Season): boolean =>
+  def.seasons === "all" || def.seasons.includes(season);
 
 // Pick a fish weighted by season, with higher fishing skill nudging toward
 // rarer (lower-weight, higher-value) catches. rng() -> [0,1).
-export function rollFish(season: Season, fishingLevel: number, rng: () => number): FishDef {
+export const rollFish = (season: Season, fishingLevel: number, rng: () => number): FishDef => {
   const pool = FISH_IDS.map((id) => FISH[id]).filter((f) => inSeason(f, season));
   // skill shifts weight from common toward rare: rarePull in [0..~0.9]
   const rarePull = Math.min(0.9, fishingLevel * 0.09);
   const weighted = pool.map((f) => {
-    const rareness = 1 / f.weight; // higher for rarer fish
+    // higher for rarer fish
+    const rareness = 1 / f.weight;
     const w = f.weight * (1 - rarePull) + rareness * 40 * rarePull;
     return { f, w };
   });
@@ -127,7 +129,9 @@ export function rollFish(season: Season, fishingLevel: number, rng: () => number
   let r = rng() * total;
   for (const x of weighted) {
     r -= x.w;
-    if (r <= 0) return x.f;
+    if (r <= 0) {
+      return x.f;
+    }
   }
   return weighted[0]?.f ?? FISH.sardine;
-}
+};

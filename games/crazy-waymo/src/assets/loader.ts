@@ -4,11 +4,12 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 import { createSfTreeModel } from "./sf-trees";
 
-export type Bounds = {
-  readonly size: THREE.Vector3; // width(x), height(y), depth(z) of visible mesh
+export interface Bounds {
+  // width(x), height(y), depth(z) of visible mesh
+  readonly size: THREE.Vector3;
   readonly min: THREE.Vector3;
   readonly center: THREE.Vector3;
-};
+}
 
 // Batch-layout key: BatchedMesh requires every geometry in a batch to agree
 // on attribute names AND itemSize AND normalized — and it allocates the
@@ -18,7 +19,7 @@ export type Bounds = {
 // Int16, another's plain Float32), and material dedup makes cross-model
 // buckets the norm — so bucket keys must carry the full layout, not just the
 // attribute names.
-export function geoLayoutKey(geo: THREE.BufferGeometry): string {
+export const geoLayoutKey = (geo: THREE.BufferGeometry): string => {
   const parts: string[] = [];
   for (const [name, attr] of Object.entries(geo.attributes)) {
     const arrType = "array" in attr && attr.array ? attr.array.constructor.name : "gl";
@@ -26,11 +27,11 @@ export function geoLayoutKey(geo: THREE.BufferGeometry): string {
   }
   parts.sort();
   return `${parts.join(",")}|${geo.index ? "i" : "n"}`;
-}
+};
 
 // Mesh-only bounds (ignores empty groups/helpers). Models with no mesh fall
 // back to a unit box so placement math never divides by zero.
-function computeMeshBounds(obj: THREE.Object3D): Bounds {
+const computeMeshBounds = (obj: THREE.Object3D): Bounds => {
   const box = new THREE.Box3();
   let found = false;
   obj.updateWorldMatrix(true, true);
@@ -38,18 +39,26 @@ function computeMeshBounds(obj: THREE.Object3D): Bounds {
     if (child instanceof THREE.Mesh && child.geometry instanceof THREE.BufferGeometry) {
       child.geometry.computeBoundingBox();
       const bb = child.geometry.boundingBox;
-      if (!bb) return;
+      if (!bb) {
+        return;
+      }
       const mb = bb.clone();
       mb.applyMatrix4(child.matrixWorld);
       box.union(mb);
       found = true;
     }
   });
-  if (!found) box.set(new THREE.Vector3(-0.5, 0, -0.5), new THREE.Vector3(0.5, 1, 0.5));
+  if (!found) {
+    box.set(new THREE.Vector3(-0.5, 0, -0.5), new THREE.Vector3(0.5, 1, 0.5));
+  }
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
-  return { size, min: box.min.clone(), center };
-}
+  return { center, min: box.min.clone(), size };
+};
+
+// Baked artifacts may come from a build with a different vite base
+// ("/models/x" vs "./models/x") — match on the canonical tail.
+const canonTag = (u: string): string => u.replace(/^(?:\.\/|\/)+/u, "");
 
 export class ModelCache {
   private loader = new GLTFLoader();
@@ -77,8 +86,11 @@ export class ModelCache {
   // model looks like, so a collision here would be a real rendering bug.
   private textureFingerprint(tex: THREE.Texture): string {
     const cached = this.texFingerprints.get(tex);
-    if (cached) return cached;
-    let fp = tex.uuid; // fallback: unique → never deduped
+    if (cached) {
+      return cached;
+    }
+    // fallback: unique → never deduped
+    let fp = tex.uuid;
     const img: unknown = tex.image;
     const FP = 32;
     if (
@@ -98,13 +110,13 @@ export class ModelCache {
           ctx.imageSmoothingEnabled = false;
           ctx.clearRect(0, 0, FP, FP);
           ctx.drawImage(img, 0, 0, FP, FP);
-          const data = ctx.getImageData(0, 0, FP, FP).data;
+          const { data } = ctx.getImageData(0, 0, FP, FP);
           // FNV-1a over the sampled pixels — cheap and order-stable.
-          let h1 = 2166136261;
+          let h1 = 2_166_136_261;
           let h2 = 5381;
-          for (let i = 0; i < data.length; i++) {
-            const b = data[i] ?? 0;
-            h1 = Math.imul(h1 ^ b, 16777619);
+          /* oxlint-disable no-bitwise, unicorn/prefer-math-trunc -- FNV-1a/djb2: the xor and the int32 wrap ARE the algorithm */
+          for (const b of data) {
+            h1 = Math.imul(h1 ^ b, 16_777_619);
             h2 = (Math.imul(h2, 33) + b) | 0;
           }
           fp = [
@@ -112,6 +124,7 @@ export class ModelCache {
             img.height,
             h1 >>> 0,
             h2 >>> 0,
+            /* oxlint-enable no-bitwise, unicorn/prefer-math-trunc */
             tex.colorSpace,
             tex.channel,
             tex.flipY ? 1 : 0,
@@ -138,7 +151,9 @@ export class ModelCache {
   // Only the kit shape is deduped: MeshStandardMaterial with at most a base
   // color map — anything fancier keeps its own instance untouched.
   private dedupMaterial(mat: THREE.Material): THREE.Material {
-    if (!(mat instanceof THREE.MeshStandardMaterial)) return mat;
+    if (!(mat instanceof THREE.MeshStandardMaterial)) {
+      return mat;
+    }
     if (
       mat.normalMap ||
       mat.roughnessMap ||
@@ -168,7 +183,9 @@ export class ModelCache {
       mat.map ? this.textureFingerprint(mat.map) : "none",
     ].join("|");
     const canon = this.canonMats.get(key);
-    if (canon) return canon;
+    if (canon) {
+      return canon;
+    }
     this.canonMats.set(key, mat);
     return mat;
   }
@@ -178,7 +195,9 @@ export class ModelCache {
       if (child instanceof THREE.Mesh) {
         child.castShadow = true;
         child.receiveShadow = true;
-        if (!Array.isArray(child.material)) child.material = this.dedupMaterial(child.material);
+        if (!Array.isArray(child.material)) {
+          child.material = this.dedupMaterial(child.material);
+        }
       }
     });
     this.templates.set(url, scene);
@@ -195,6 +214,7 @@ export class ModelCache {
       this.storeTemplate(url, createSfTreeModel(kind));
       return Promise.resolve();
     }
+    /* oxlint-disable-next-line promise/avoid-new -- GLTFLoader only reports through success/error callbacks */
     return new Promise((resolve, reject) => {
       this.loader.load(
         url,
@@ -203,6 +223,7 @@ export class ModelCache {
           resolve();
         },
         undefined,
+        // oxlint-disable-next-line promise/prefer-await-to-callbacks -- GLTFLoader reports failure only through this callback
         (err) => reject(err instanceof Error ? err : new Error(String(err))),
       );
     });
@@ -219,14 +240,24 @@ export class ModelCache {
   // game. Settles (rather than retrying) so a caller polling on it terminates.
   private inFlight = new Map<string, Promise<void>>();
   ensure(url: string): Promise<void> {
-    if (this.templates.has(url)) return Promise.resolve();
+    if (this.templates.has(url)) {
+      return Promise.resolve();
+    }
     const pending = this.inFlight.get(url);
-    if (pending) return pending;
-    const load = this.loadOne(url).catch((cause: unknown) => {
-      console.warn("[assets] failed to load", url, cause);
-    });
+    if (pending) {
+      return pending;
+    }
+    const load = this.loadSettled(url);
     this.inFlight.set(url, load);
     return load;
+  }
+
+  private async loadSettled(url: string): Promise<void> {
+    try {
+      await this.loadOne(url);
+    } catch (error) {
+      console.warn("[assets] failed to load", url, error);
+    }
   }
 
   // Load all URLs, reporting fractional progress.
@@ -236,7 +267,7 @@ export class ModelCache {
     await Promise.all(
       urls.map(async (url) => {
         await this.ensure(url);
-        done++;
+        done += 1;
         onProgress(done / total);
       }),
     );
@@ -244,11 +275,13 @@ export class ModelCache {
 
   bounds(url: string): Bounds {
     const b = this.boundsCache.get(url);
-    if (b) return b;
+    if (b) {
+      return b;
+    }
     const fallback: Bounds = {
-      size: new THREE.Vector3(1, 1, 1),
-      min: new THREE.Vector3(-0.5, 0, -0.5),
       center: new THREE.Vector3(0, 0.5, 0),
+      min: new THREE.Vector3(-0.5, 0, -0.5),
+      size: new THREE.Vector3(1, 1, 1),
     };
     this.boundsCache.set(url, fallback);
     return fallback;
@@ -260,7 +293,7 @@ export class ModelCache {
     if (!tpl) {
       const mesh = new THREE.Mesh(
         new THREE.BoxGeometry(1, 1, 1),
-        new THREE.MeshStandardMaterial({ color: 0xff00ff }),
+        new THREE.MeshStandardMaterial({ color: 0xff_00_ff }),
       );
       mesh.position.y = 0.5;
       return mesh;
@@ -272,8 +305,8 @@ export class ModelCache {
     let idx = 0;
     clone.traverse((c) => {
       if (c instanceof THREE.Mesh) {
-        c.userData.src = { url, idx };
-        idx++;
+        c.userData.src = { idx, url };
+        idx += 1;
       }
     });
     return clone;
@@ -291,9 +324,9 @@ export class ModelCache {
         tpl.traverse((c) => {
           if (c instanceof THREE.Mesh) {
             if (!Array.isArray(c.material) && !this.matSrc?.has(c.material)) {
-              this.matSrc?.set(c.material, { url, idx: i });
+              this.matSrc?.set(c.material, { idx: i, url });
             }
-            i++;
+            i += 1;
           }
         });
       }
@@ -312,18 +345,23 @@ export class ModelCache {
       // ("/models/x" vs "./models/x") — match on the canonical tail.
       if (!this.canonMap) {
         this.canonMap = new Map();
-        const canon = (u: string): string => u.replace(/^(\.\/|\/)+/, "");
-        for (const [k, v] of this.templates) this.canonMap.set(canon(k), v);
+        for (const [k, v] of this.templates) {
+          this.canonMap.set(canonTag(k), v);
+        }
       }
-      tpl = this.canonMap.get(url.replace(/^(\.\/|\/)+/, ""));
+      tpl = this.canonMap.get(canonTag(url));
     }
-    if (!tpl) return null;
+    if (!tpl) {
+      return null;
+    }
     let i = 0;
     let found: THREE.Mesh | null = null;
     tpl.traverse((c) => {
       if (c instanceof THREE.Mesh) {
-        if (i === idx && !found) found = c;
-        i++;
+        if (i === idx && !found) {
+          found = c;
+        }
+        i += 1;
       }
     });
     return found;

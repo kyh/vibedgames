@@ -1,6 +1,6 @@
 {
   "name": "@vibedgames/gamepad",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": false,
   "description": "On-screen touch controls for browser games — framework-agnostic core + DOM and Phaser adapters",
   "keywords": [

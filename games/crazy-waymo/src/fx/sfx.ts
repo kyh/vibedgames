@@ -1,4 +1,5 @@
-import { SoundBank, type SoundName } from "./sfx-bank";
+import { SoundBank } from "./sfx-bank";
+import type { SoundName } from "./sfx-bank";
 
 // Cozy kart mix: quiet sampled motion under short musical/foley cues. No saws,
 // square waves, synthetic gear shifts, or stacked crash/glass layers.
@@ -21,12 +22,12 @@ const MELODY: readonly (number | null)[] = [
 ];
 const BASS: readonly number[] = [130.81, 110, 87.31, 98];
 
-export type AmbienceEnv = {
+export interface AmbienceEnv {
   readonly exposure: number;
   readonly shore: number;
   readonly night: number;
   readonly gatePan: number;
-};
+}
 
 type LoopName =
   | "engine-loop"
@@ -43,18 +44,80 @@ const LOOP_NAMES: readonly LoopName[] = [
   "scrape-loop",
   "water-loop",
 ];
-type LoopVoice = {
+interface LoopVoice {
   source: AudioBufferSourceNode;
   gain: GainNode;
   sampled: boolean;
   rate: number;
   level: number;
-};
+}
 type Bus = "gameplay" | "ui" | "ambient";
-type CueOptions = { volume?: number; rate?: number; pan?: number; cooldown?: number; bus?: Bus };
-type Voice = { source: AudioScheduledSourceNode; bus: Bus | "music" };
+interface CueOptions {
+  volume?: number;
+  rate?: number;
+  pan?: number;
+  cooldown?: number;
+  bus?: Bus;
+}
+interface Voice {
+  source: AudioScheduledSourceNode;
+  bus: Bus | "music";
+}
+
+// AudioContext resume()/suspend() reject when the tab flips again mid-
+// transition; the next visibility change reissues the call, so the rejection
+// is deliberately dropped.
+const settleAudio = async (transition: Promise<void>): Promise<void> => {
+  try {
+    await transition;
+  } catch {
+    // the next visibility change reissues it
+  }
+};
+
+const uiSound = (kind: "open" | "move" | "select" | "back"): SoundName => {
+  if (kind === "move") {
+    return "ui-move";
+  }
+  return kind === "back" ? "ui-back" : "ui-select";
+};
 
 const clamp = (n: number, min: number, max: number): number => Math.max(min, Math.min(max, n));
+
+/** A rounded, quiet fallback until the generated loop is decoded. */
+const fallbackLoop = (ctx: AudioContext, name: LoopName): AudioBuffer => {
+  const buffer = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  if (name === "engine-loop") {
+    for (let i = 0; i < data.length; i += 1) {
+      const phase = (i / ctx.sampleRate) * Math.PI * 2;
+      data[i] =
+        Math.sin(phase * 140) * 0.146 +
+        Math.sin(phase * 280) * 0.0292 +
+        Math.sin(phase * 420) * 0.0052;
+    }
+    return buffer;
+  }
+
+  // Equal-power overlap keeps the noise continuous at the wrap. Fading each
+  // buffer edge to zero would repeat a small dropout on every fallback lap.
+  const overlap = Math.round(ctx.sampleRate * 0.02);
+  const noise = new Float32Array(data.length + overlap);
+  let smooth = 0;
+  for (let i = -512; i < noise.length; i += 1) {
+    smooth += (Math.random() * 2 - 1 - smooth) * 0.09;
+    if (i >= 0) {
+      noise[i] = smooth * 0.25;
+    }
+  }
+  data.set(noise.subarray(overlap, data.length));
+  for (let i = 0; i < overlap; i += 1) {
+    const angle = (i / (overlap - 1)) * Math.PI * 0.5;
+    data[data.length - overlap + i] =
+      (noise[data.length + i] ?? 0) * Math.cos(angle) + (noise[i] ?? 0) * Math.sin(angle);
+  }
+  return buffer;
+};
 
 export class Sfx {
   private ctx: AudioContext | null = null;
@@ -70,9 +133,9 @@ export class Sfx {
   private paused = false;
   private hidden = false;
   private boostLoopOn = false;
-  private ambience: AmbienceEnv = { exposure: 0, shore: 0, night: 0, gatePan: 0 };
+  private ambience: AmbienceEnv = { exposure: 0, gatePan: 0, night: 0, shore: 0 };
   private ambientTimer: number | null = null;
-  private ambientDue = { "ambient-gulls": 9, "ambient-bell": 24, "ambient-foghorn": 32 };
+  private ambientDue = { "ambient-bell": 24, "ambient-foghorn": 32, "ambient-gulls": 9 };
   private musicOn = false;
   private musicTimer: number | null = null;
   private musicStep = 0;
@@ -83,12 +146,15 @@ export class Sfx {
   /** Call on a user gesture; all other methods remain safe before audio exists. */
   ensure(): void {
     if (this.ctx) {
-      if (!this.hidden && this.ctx.state === "suspended")
-        void this.ctx.resume().catch(() => undefined);
+      if (!this.hidden && this.ctx.state === "suspended") {
+        void settleAudio(this.ctx.resume());
+      }
       this.startMusicScheduler();
       return;
     }
-    if (!window.AudioContext) return;
+    if (!window.AudioContext) {
+      return;
+    }
     const ctx = new AudioContext();
     this.ctx = ctx;
     this.hidden = document.hidden;
@@ -105,85 +171,64 @@ export class Sfx {
     const bus = (level: number): GainNode => {
       const node = ctx.createGain();
       node.gain.value = level;
-      if (this.master) node.connect(this.master);
+      if (this.master) {
+        node.connect(this.master);
+      }
       return node;
     };
     this.gameplayBus = bus(this.paused ? 0 : 1);
     this.uiBus = bus(1);
     this.ambientBus = bus(this.paused ? 0 : 0.3);
     this.musicBus = bus(this.paused || !this.musicOn ? 0 : MUSIC_LEVEL);
-    for (const name of LOOP_NAMES) this.createLoop(ctx, name);
+    for (const name of LOOP_NAMES) {
+      this.createLoop(ctx, name);
+    }
     void this.bank.load(ctx, () => this.upgradeLoops());
     document.addEventListener("visibilitychange", () => {
       this.hidden = document.hidden;
       if (this.hidden) {
         this.clearVoices();
-        void ctx.suspend().catch(() => undefined);
+        void settleAudio(ctx.suspend());
       } else {
         this.nextNoteTime = ctx.currentTime + 0.05;
-        void ctx.resume().catch(() => undefined);
+        void settleAudio(ctx.resume());
       }
       this.updateGates();
     });
     this.ambientTimer = window.setInterval(() => this.tickAmbience(), 1000);
     this.startMusicScheduler();
-    if (this.hidden) void ctx.suspend().catch(() => undefined);
-  }
-
-  /** A rounded, quiet fallback until the generated loop is decoded. */
-  private fallbackLoop(ctx: AudioContext, name: LoopName): AudioBuffer {
-    const buffer = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    if (name === "engine-loop") {
-      for (let i = 0; i < data.length; i++) {
-        const phase = (i / ctx.sampleRate) * Math.PI * 2;
-        data[i] =
-          Math.sin(phase * 140) * 0.146 +
-          Math.sin(phase * 280) * 0.0292 +
-          Math.sin(phase * 420) * 0.0052;
-      }
-      return buffer;
+    if (this.hidden) {
+      void settleAudio(ctx.suspend());
     }
-
-    // Equal-power overlap keeps the noise continuous at the wrap. Fading each
-    // buffer edge to zero would repeat a small dropout on every fallback lap.
-    const overlap = Math.round(ctx.sampleRate * 0.02);
-    const noise = new Float32Array(data.length + overlap);
-    let smooth = 0;
-    for (let i = -512; i < noise.length; i++) {
-      smooth += (Math.random() * 2 - 1 - smooth) * 0.09;
-      if (i >= 0) noise[i] = smooth * 0.25;
-    }
-    data.set(noise.subarray(overlap, data.length));
-    for (let i = 0; i < overlap; i++) {
-      const angle = (i / (overlap - 1)) * Math.PI * 0.5;
-      data[data.length - overlap + i] =
-        (noise[data.length + i] ?? 0) * Math.cos(angle) + (noise[i] ?? 0) * Math.sin(angle);
-    }
-    return buffer;
   }
 
   private createLoop(ctx: AudioContext, name: LoopName): void {
     const out = this.gameplayBus;
-    if (!out) return;
+    if (!out) {
+      return;
+    }
     const source = ctx.createBufferSource();
-    source.buffer = this.fallbackLoop(ctx, name);
+    source.buffer = fallbackLoop(ctx, name);
     source.loop = true;
     const gain = ctx.createGain();
     gain.gain.value = 0;
     source.connect(gain);
     gain.connect(out);
     source.start();
-    this.loops.set(name, { source, gain, sampled: false, rate: 1, level: 0 });
+    this.loops.set(name, { gain, level: 0, rate: 1, sampled: false, source });
   }
 
   /** Late downloads inherit current gain/rate. They cannot revive stopped motion. */
   private upgradeLoops(): void {
-    const ctx = this.ctx;
-    if (!ctx) return;
+    const { ctx } = this;
+    if (!ctx) {
+      return;
+    }
     for (const [name, loop] of this.loops) {
       const buffer = this.bank.get(name);
-      if (!buffer || loop.sampled) continue;
+      if (!buffer || loop.sampled) {
+        continue;
+      }
       const old = loop.source;
       const oldGain = loop.gain;
       const source = ctx.createBufferSource();
@@ -193,7 +238,9 @@ export class Sfx {
       const gain = ctx.createGain();
       gain.gain.value = 0;
       source.connect(gain);
-      if (this.gameplayBus) gain.connect(this.gameplayBus);
+      if (this.gameplayBus) {
+        gain.connect(this.gameplayBus);
+      }
       source.start();
       gain.gain.setTargetAtTime(loop.level, ctx.currentTime, 0.08);
       oldGain.gain.setTargetAtTime(0, ctx.currentTime, 0.04);
@@ -213,9 +260,11 @@ export class Sfx {
   }
 
   private loop(name: LoopName, level: number, rate = 1): void {
-    const ctx = this.ctx;
+    const { ctx } = this;
     const loop = this.loops.get(name);
-    if (!ctx || !loop) return;
+    if (!ctx || !loop) {
+      return;
+    }
     loop.level = clamp(level, 0, 0.5);
     loop.rate = clamp(rate, 0.65, 1.65);
     loop.gain.gain.setTargetAtTime(loop.level, ctx.currentTime, 0.09);
@@ -224,7 +273,9 @@ export class Sfx {
 
   setMuted(muted: boolean): void {
     this.muted = muted;
-    if (muted) this.clearVoices();
+    if (muted) {
+      this.clearVoices();
+    }
     this.updateGates();
   }
 
@@ -239,8 +290,10 @@ export class Sfx {
   }
 
   private updateGates(): void {
-    const ctx = this.ctx;
-    if (!ctx) return;
+    const { ctx } = this;
+    if (!ctx) {
+      return;
+    }
     const t = ctx.currentTime;
     this.master?.gain.setTargetAtTime(this.muted || this.hidden ? 0 : MASTER_LEVEL, t, 0.025);
     this.gameplayBus?.gain.setTargetAtTime(this.paused ? 0 : 1, t, 0.025);
@@ -263,7 +316,9 @@ export class Sfx {
 
   /** Stops every motion layer; restart/countdown must never inherit a drift or boost. */
   stopEngine(): void {
-    for (const name of LOOP_NAMES) this.loop(name, 0);
+    for (const name of LOOP_NAMES) {
+      this.loop(name, 0);
+    }
     this.boostLoopOn = false;
   }
 
@@ -289,35 +344,52 @@ export class Sfx {
   }
 
   private tickAmbience(): void {
-    if (!this.ctx || this.muted || this.paused || this.hidden) return;
+    if (!this.ctx || this.muted || this.paused || this.hidden) {
+      return;
+    }
     const env = this.ambience;
     for (const name of ["ambient-gulls", "ambient-bell", "ambient-foghorn"] satisfies SoundName[]) {
-      this.ambientDue[name]--;
-      if (this.ambientDue[name] > 0) continue;
+      this.ambientDue[name] -= 1;
+      if (this.ambientDue[name] > 0) {
+        continue;
+      }
       this.ambientDue[name] =
         name === "ambient-gulls" ? 12 + Math.random() * 16 : 35 + Math.random() * 45;
-      if (name === "ambient-gulls" && (env.shore < 0.15 || env.night > 0.6)) continue;
-      if (name === "ambient-foghorn" && env.shore < 0.2) continue;
+      if (name === "ambient-gulls" && (env.shore < 0.15 || env.night > 0.6)) {
+        continue;
+      }
+      if (name === "ambient-foghorn" && env.shore < 0.2) {
+        continue;
+      }
       this.cue(name, {
         bus: "ambient",
-        volume: name === "ambient-bell" ? 0.18 : 0.15 + env.shore * 0.12,
         pan: name === "ambient-foghorn" ? env.gatePan : Math.random() * 1.4 - 0.7,
+        volume: name === "ambient-bell" ? 0.18 : 0.15 + env.shore * 0.12,
       });
     }
   }
 
   private output(bus: Bus): GainNode | null {
-    return bus === "ui" ? this.uiBus : bus === "ambient" ? this.ambientBus : this.gameplayBus;
+    if (bus === "ui") {
+      return this.uiBus;
+    }
+    return bus === "ambient" ? this.ambientBus : this.gameplayBus;
   }
 
   /** One voice per event, bounded polyphony and cooldowns keep traffic from piling up. */
   private cue(name: SoundName, options: CueOptions = {}): void {
-    const ctx = this.ctx;
+    const { ctx } = this;
     const { bus = "gameplay", volume = 0.48, rate = 1, pan = 0, cooldown = 0.1 } = options;
     const out = this.output(bus);
-    if (!ctx || !out || this.muted || this.hidden || (this.paused && bus !== "ui")) return;
-    if (ctx.currentTime - (this.lastCue.get(name) ?? -Infinity) < cooldown) return;
-    if (this.voices.size >= MAX_VOICES) return;
+    if (!ctx || !out || this.muted || this.hidden || (this.paused && bus !== "ui")) {
+      return;
+    }
+    if (ctx.currentTime - (this.lastCue.get(name) ?? -Infinity) < cooldown) {
+      return;
+    }
+    if (this.voices.size >= MAX_VOICES) {
+      return;
+    }
     this.lastCue.set(name, ctx.currentTime);
     const buffer = this.bank.get(name);
     if (!buffer) {
@@ -334,7 +406,7 @@ export class Sfx {
     source.connect(gain);
     gain.connect(panner);
     panner.connect(out);
-    const voice: Voice = { source, bus };
+    const voice: Voice = { bus, source };
     this.voices.add(voice);
     source.addEventListener(
       "ended",
@@ -351,7 +423,9 @@ export class Sfx {
 
   private clearVoices(bus?: Voice["bus"]): void {
     for (const voice of this.voices) {
-      if (bus !== undefined && voice.bus !== bus) continue;
+      if (bus !== undefined && voice.bus !== bus) {
+        continue;
+      }
       voice.source.stop();
       this.voices.delete(voice);
     }
@@ -366,67 +440,67 @@ export class Sfx {
     this.duck();
   }
   boostReady(): void {
-    this.cue("boost-ready", { volume: 0.42, cooldown: 2 });
+    this.cue("boost-ready", { cooldown: 2, volume: 0.42 });
   }
   boostEnd(): void {
-    this.cue("near-miss", { volume: 0.2, rate: 0.75 });
+    this.cue("near-miss", { rate: 0.75, volume: 0.2 });
   }
   driftArm(tier: 1 | 2 = 1): void {
-    this.cue("drift-ready", { volume: 0.46, rate: tier === 2 ? 1.25 : 1 });
+    this.cue("drift-ready", { rate: tier === 2 ? 1.25 : 1, volume: 0.46 });
   }
   crash(power: number): void {
     this.cue(power > 12 ? "impact-hard" : "impact-soft", {
-      volume: clamp(0.32 + power * 0.012, 0.32, 0.65),
       cooldown: 0.22,
+      volume: clamp(0.32 + power * 0.012, 0.32, 0.65),
     });
     this.duck();
   }
   thud(): void {
-    this.cue("impact-soft", { volume: 0.3, cooldown: 0.15 });
+    this.cue("impact-soft", { cooldown: 0.15, volume: 0.3 });
   }
   jump(): void {
-    this.cue("jump", { volume: 0.34, cooldown: 0.5 });
+    this.cue("jump", { cooldown: 0.5, volume: 0.34 });
   }
   landThud(power: number): void {
-    this.cue("landing", { volume: 0.3 + clamp(power, 0, 1) * 0.26, cooldown: 0.25 });
+    this.cue("landing", { cooldown: 0.25, volume: 0.3 + clamp(power, 0, 1) * 0.26 });
   }
   waterSplash(speed: number, verticalSpeed: number): void {
     this.cue("splash", {
-      volume: 0.3 + clamp((Math.abs(speed) + Math.abs(verticalSpeed)) / 35, 0, 1) * 0.3,
       cooldown: 0.35,
+      volume: 0.3 + clamp((Math.abs(speed) + Math.abs(verticalSpeed)) / 35, 0, 1) * 0.3,
     });
   }
   honk(pan: number): void {
-    this.cue("horn", { pan, volume: 0.3, cooldown: 0.7 });
+    this.cue("horn", { cooldown: 0.7, pan, volume: 0.3 });
   }
   nearMiss(pan = 0): void {
-    this.cue("near-miss", { pan, volume: 0.4, cooldown: 0.3 });
+    this.cue("near-miss", { cooldown: 0.3, pan, volume: 0.4 });
   }
   pickup(): void {
     this.cue("pickup", { volume: 0.58 });
     this.duck();
   }
   dropoff(combo: number): void {
-    this.cue("dropoff", { volume: 0.62, rate: 1 + Math.min(10, Math.max(0, combo)) * 0.015 });
+    this.cue("dropoff", { rate: 1 + Math.min(10, Math.max(0, combo)) * 0.015, volume: 0.62 });
     this.duck();
   }
   passengerWarning(): void {
-    this.cue("warning", { volume: 0.42, cooldown: 3 });
+    this.cue("warning", { cooldown: 3, volume: 0.42 });
   }
   passengerBail(): void {
     this.cue("fare-lost", { volume: 0.52 });
     this.duck();
   }
   beep(): void {
-    this.cue("warning", { volume: 0.36, cooldown: 0.8 });
+    this.cue("warning", { cooldown: 0.8, volume: 0.36 });
   }
   denied(): void {
-    this.cue("denied", { volume: 0.34, cooldown: 0.4, bus: "ui" });
+    this.cue("denied", { bus: "ui", cooldown: 0.4, volume: 0.34 });
   }
   countdown(step?: number): void {
     const n = clamp(step ?? this.countdownStep, 1, 3);
     this.countdownStep = n > 1 ? n - 1 : 3;
-    this.cue("countdown", { volume: 0.5, rate: 1 + (3 - n) * 0.12 });
+    this.cue("countdown", { rate: 1 + (3 - n) * 0.12, volume: 0.5 });
   }
   go(): void {
     this.countdownStep = 3;
@@ -445,11 +519,11 @@ export class Sfx {
   }
   ui(kind: "open" | "move" | "select" | "back"): void {
     this.ensure();
-    this.cue(kind === "move" ? "ui-move" : kind === "back" ? "ui-back" : "ui-select", {
+    this.cue(uiSound(kind), {
       bus: "ui",
-      volume: kind === "move" ? 0.25 : 0.38,
-      rate: kind === "open" ? 0.9 : 1,
       cooldown: 0.065,
+      rate: kind === "open" ? 0.9 : 1,
+      volume: kind === "move" ? 0.25 : 0.38,
     });
   }
   pause(): void {
@@ -464,10 +538,10 @@ export class Sfx {
     this.clearVoices();
     this.stopEngine();
     this.setPaused(false);
-    this.cue("reset", { volume: 0.46, bus: "ui" });
+    this.cue("reset", { bus: "ui", volume: 0.46 });
   }
   unlock(): void {
-    this.cue("record", { volume: 0.52, rate: 1.15, bus: "ui" });
+    this.cue("record", { bus: "ui", rate: 1.15, volume: 0.52 });
   }
 
   startMusic(): void {
@@ -477,32 +551,42 @@ export class Sfx {
   }
   stopMusic(): void {
     this.musicOn = false;
-    if (this.musicTimer !== null) window.clearInterval(this.musicTimer);
+    if (this.musicTimer !== null) {
+      window.clearInterval(this.musicTimer);
+    }
     this.musicTimer = null;
     this.clearVoices("music");
     this.updateGates();
   }
   private startMusicScheduler(): void {
-    if (!this.ctx || !this.musicOn || this.musicTimer !== null) return;
+    if (!this.ctx || !this.musicOn || this.musicTimer !== null) {
+      return;
+    }
     this.nextNoteTime = this.ctx.currentTime + 0.05;
     this.musicTimer = window.setInterval(() => this.scheduleMusic(), 25);
   }
   /** Sparse rounded plucks replace the relentless square bass and noisy hats. */
   private scheduleMusic(): void {
-    const ctx = this.ctx;
+    const { ctx } = this;
     const out = this.musicBus;
-    if (!ctx || !out || this.muted || this.paused || this.hidden) return;
-    if (this.nextNoteTime < ctx.currentTime - 0.2) this.nextNoteTime = ctx.currentTime + 0.05;
+    if (!ctx || !out || this.muted || this.paused || this.hidden) {
+      return;
+    }
+    if (this.nextNoteTime < ctx.currentTime - 0.2) {
+      this.nextNoteTime = ctx.currentTime + 0.05;
+    }
     while (this.nextNoteTime < ctx.currentTime + 0.1) {
       const t = this.nextNoteTime;
       const step = this.musicStep;
       const bass = BASS[Math.floor(step / 8) % BASS.length] ?? 130.81;
-      if (step % 4 === 0) this.tone(bass, t, 0.45, 0.18, out, "music");
+      if (step % 4 === 0) {
+        this.tone(bass, t, 0.45, 0.18, out, "music");
+      }
       const melody = MELODY[step % MELODY.length];
       if (melody && Math.floor(step / 8) % 2 === 0) {
         this.tone(melody, t, 0.25, 0.08, out, "music");
       }
-      this.musicStep++;
+      this.musicStep += 1;
       this.nextNoteTime += EIGHTH;
     }
   }
@@ -514,8 +598,10 @@ export class Sfx {
     out: AudioNode,
     bus: Voice["bus"],
   ): void {
-    const ctx = this.ctx;
-    if (!ctx || this.voices.size >= MAX_VOICES) return;
+    const { ctx } = this;
+    if (!ctx || this.voices.size >= MAX_VOICES) {
+      return;
+    }
     const source = ctx.createOscillator();
     source.type = "sine";
     source.frequency.value = freq;
@@ -525,7 +611,7 @@ export class Sfx {
     gain.gain.exponentialRampToValueAtTime(0.0001, at + duration);
     source.connect(gain);
     gain.connect(out);
-    const voice: Voice = { source, bus };
+    const voice: Voice = { bus, source };
     this.voices.add(voice);
     source.addEventListener(
       "ended",
@@ -540,9 +626,11 @@ export class Sfx {
     source.stop(at + duration + 0.02);
   }
   private duck(): void {
-    const ctx = this.ctx;
+    const { ctx } = this;
     const out = this.musicBus;
-    if (!ctx || !out || !this.musicOn || this.paused) return;
+    if (!ctx || !out || !this.musicOn || this.paused) {
+      return;
+    }
     out.gain.cancelScheduledValues(ctx.currentTime);
     out.gain.setTargetAtTime(MUSIC_LEVEL * 0.35, ctx.currentTime, 0.02);
     out.gain.setTargetAtTime(MUSIC_LEVEL, ctx.currentTime + 0.5, 0.18);
@@ -551,20 +639,20 @@ export class Sfx {
   /** Read-only browser QA: no buffers or engine objects escape. */
   diagnostics() {
     return {
+      activeOneShots: this.voices.size,
+      ambientScheduler: this.ambientTimer !== null,
       bank: this.bank.diagnostics(),
+      boostLoopOn: this.boostLoopOn,
       context: this.ctx?.state ?? "uninitialized",
+      hidden: this.hidden,
+      loops: [...this.loops].map(([name, voice]) => ({
+        level: voice.level,
+        name,
+        rate: voice.rate,
+        sampled: voice.sampled,
+      })),
       muted: this.muted,
       paused: this.paused,
-      hidden: this.hidden,
-      activeOneShots: this.voices.size,
-      boostLoopOn: this.boostLoopOn,
-      ambientScheduler: this.ambientTimer !== null,
-      loops: [...this.loops].map(([name, voice]) => ({
-        name,
-        sampled: voice.sampled,
-        level: voice.level,
-        rate: voice.rate,
-      })),
     };
   }
 }

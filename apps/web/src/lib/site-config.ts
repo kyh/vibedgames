@@ -1,7 +1,7 @@
 export const siteConfig = {
+  description: "A game studio for your agent",
   name: "Vibedgames",
   shortName: "Vibedgames",
-  description: "A game studio for your agent",
-  url: "https://vibedgames.com",
   twitter: "@kaiyuhsu",
+  url: "https://vibedgames.com",
 };

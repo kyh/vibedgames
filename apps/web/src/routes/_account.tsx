@@ -18,28 +18,28 @@ const requireAuth = createServerFn({ method: "GET" })
     const session = await auth.api.getSession({ headers });
 
     if (!session) {
-      throw redirect({ to: "/auth/login", search: { callbackUrl: redirectTo } });
+      throw redirect({ search: { callbackUrl: redirectTo }, to: "/auth/login" });
     }
 
     return {
       user: {
-        name: session.user.name,
         email: session.user.email,
         isAdmin: session.user.role === "admin",
+        name: session.user.name,
       },
     };
   });
 
-export const Route = createFileRoute("/_account")({
-  beforeLoad: ({ location }) => requireAuth({ data: location.pathname }),
-  component: AccountLayout,
-});
-
-function AccountLayout() {
+const AccountLayout = () => {
   const { user } = Route.useRouteContext();
   return (
     <AccountShell user={user}>
       <Outlet />
     </AccountShell>
   );
-}
+};
+
+export const Route = createFileRoute("/_account")({
+  beforeLoad: ({ location }) => requireAuth({ data: location.pathname }),
+  component: AccountLayout,
+});

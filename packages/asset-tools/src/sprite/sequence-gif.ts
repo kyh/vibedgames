@@ -1,5 +1,6 @@
 import { encodeGif } from "../image/gif.js";
-import { Bitmap, type RGBA } from "../image/raster.js";
+import { Bitmap } from "../image/raster.js";
+import type { RGBA } from "../image/raster.js";
 
 /**
  * Build a review GIF from a chosen frame order.
@@ -9,11 +10,13 @@ import { Bitmap, type RGBA } from "../image/raster.js";
  * were generated in — swapping two frames of a walk cycle, or holding a
  * wind-up longer — without renaming files.
  */
-export function buildSequenceGif(
+export const buildSequenceGif = (
   frames: { path: string; delayMs: number }[],
   flatBackground: RGBA | null,
-): Buffer {
-  if (frames.length === 0) throw new Error("No frames selected");
+): Buffer => {
+  if (frames.length === 0) {
+    throw new Error("No frames selected");
+  }
 
   const composed = frames.map(({ path, delayMs }) => {
     let bitmap = Bitmap.fromFile(path);
@@ -30,4 +33,4 @@ export function buildSequenceGif(
   });
 
   return encodeGif(composed);
-}
+};

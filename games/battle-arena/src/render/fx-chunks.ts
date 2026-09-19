@@ -3,14 +3,17 @@
 // Chunks arc under gravity, bounce once on the floor, then shrink out.
 import * as THREE from "three";
 import { terrainHeight } from "../data/terrain";
+import { uploadPrefix } from "./buffer-upload";
 import { createRockGeometry } from "./fx-geometry";
 
 const MAX_CHUNKS = 64;
 const GRAVITY = -26;
-const BOUNCE = 0.35; // velocity kept on the floor bounce
-const FLOOR_Y = 0.09; // rest height above the LOCAL ground (see terrainHeight)
+// velocity kept on the floor bounce
+const BOUNCE = 0.35;
+// rest height above the LOCAL ground (see terrainHeight)
+const FLOOR_Y = 0.09;
 
-type Chunk = {
+interface Chunk {
   idx: number;
   x: number;
   y: number;
@@ -18,22 +21,26 @@ type Chunk = {
   vx: number;
   vy: number;
   vz: number;
-  rx: number; // Euler spin state
+  // Euler spin state
+  rx: number;
   rz: number;
   spinX: number;
   spinZ: number;
   life: number;
   maxLife: number;
   size: number;
-  squashY: number; // per-shard aspect — one mesh, no two chips the same shape
+  // per-shard aspect — one mesh, no two chips the same shape
+  squashY: number;
   squashZ: number;
   bounced: boolean;
-};
+}
 
 export class ChunkPool {
   private mesh: THREE.InstancedMesh;
   private free: number[] = [];
   private active: Chunk[] = [];
+  // slots ever handed out since the pool last emptied — the upload/draw prefix
+  private highWater = 0;
   private dummy = new THREE.Object3D();
   private color = new THREE.Color();
 
@@ -42,18 +49,18 @@ export class ChunkPool {
     // faces — no more expensive than the box was — but it tumbles like broken
     // matter instead of flashing a clean rectangle at the camera every spin.
     const geo = createRockGeometry({
-      seed: 12,
+      craters: 0,
+      cutDepth: 0.3,
+      cuts: 4,
       detail: 0,
       lumpiness: 0.34,
       roughness: 0.3,
-      cuts: 4,
-      cutDepth: 0.3,
-      craters: 0,
+      seed: 12,
     });
     const mat = new THREE.MeshStandardMaterial({
-      roughness: 0.9,
-      metalness: 0,
       flatShading: true,
+      metalness: 0,
+      roughness: 0.9,
     });
     this.mesh = new THREE.InstancedMesh(geo, mat, MAX_CHUNKS);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -68,8 +75,8 @@ export class ChunkPool {
     // instanceColor is allocated here rather than on the first burst: setColorAt
     // adds USE_INSTANCING_COLOR to the program, and doing that lazily recompiles
     // the shader mid-fight (see Fx.warm).
-    const white = new THREE.Color(0xffffff);
-    for (let i = MAX_CHUNKS - 1; i >= 0; i--) {
+    const white = new THREE.Color(0xff_ff_ff);
+    for (let i = MAX_CHUNKS - 1; i >= 0; i -= 1) {
       this.free.push(i);
       this.mesh.setMatrixAt(i, this.dummy.matrix);
       this.mesh.setColorAt(i, white);
@@ -79,42 +86,55 @@ export class ChunkPool {
   /** Burst `n` shards at (x,z) in `color` (a wood/stone matter tint). */
   burst(x: number, z: number, n: number, color: number, speed = 5): void {
     this.color.setHex(color);
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < n; i += 1) {
       const idx = this.free.pop();
-      if (idx === undefined) return; // saturated — drop
+      if (idx === undefined) {
+        return;
+        // saturated — drop
+      }
+      if (idx >= this.highWater) {
+        this.highWater = idx + 1;
+      }
       const a = Math.random() * Math.PI * 2;
       const spd = speed * (0.5 + Math.random());
       const c: Chunk = {
+        bounced: false,
         idx,
-        x: x + (Math.random() - 0.5) * 0.4,
-        y: terrainHeight(x, z) + 0.5 + Math.random() * 0.5,
-        z: z + (Math.random() - 0.5) * 0.4,
+        life: 0,
+        maxLife: 0.9 + Math.random() * 0.5,
+        rx: Math.random() * Math.PI,
+        rz: Math.random() * Math.PI,
+        size: 0.16 + Math.random() * 0.2,
+        spinX: (Math.random() - 0.5) * 14,
+        spinZ: (Math.random() - 0.5) * 14,
+        squashY: 0.55 + Math.random() * 0.7,
+        squashZ: 0.7 + Math.random() * 0.6,
         vx: Math.cos(a) * spd,
         vy: 4 + Math.random() * 5,
         vz: Math.sin(a) * spd,
-        rx: Math.random() * Math.PI,
-        rz: Math.random() * Math.PI,
-        spinX: (Math.random() - 0.5) * 14,
-        spinZ: (Math.random() - 0.5) * 14,
-        life: 0,
-        maxLife: 0.9 + Math.random() * 0.5,
-        size: 0.16 + Math.random() * 0.2,
-        squashY: 0.55 + Math.random() * 0.7,
-        squashZ: 0.7 + Math.random() * 0.6,
-        bounced: false,
+        x: x + (Math.random() - 0.5) * 0.4,
+        y: terrainHeight(x, z) + 0.5 + Math.random() * 0.5,
+        z: z + (Math.random() - 0.5) * 0.4,
       };
       this.active.push(c);
       // slight per-shard tint variance so the pile doesn't read flat
       const v = 0.85 + Math.random() * 0.3;
       this.mesh.setColorAt(idx, this.color.clone().multiplyScalar(v));
     }
-    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+    if (this.mesh.instanceColor) {
+      uploadPrefix(this.mesh.instanceColor, this.highWater * 3);
+    }
   }
 
   update(dt: number): void {
-    if (this.active.length === 0 && this.mesh.count === 0) return;
-    for (let i = this.active.length - 1; i >= 0; i--) {
-      const c = this.active[i]!;
+    if (this.active.length === 0 && this.mesh.count === 0) {
+      return;
+    }
+    for (let i = this.active.length - 1; i >= 0; i -= 1) {
+      const c = this.active[i];
+      if (!c) {
+        continue;
+      }
       c.life += dt;
       if (c.life >= c.maxLife) {
         this.free.push(c.idx);
@@ -122,8 +142,10 @@ export class ChunkPool {
         this.dummy.scale.setScalar(0.0001);
         this.dummy.updateMatrix();
         this.mesh.setMatrixAt(c.idx, this.dummy.matrix);
-        const last = this.active[this.active.length - 1]!;
-        this.active[i] = last;
+        const last = this.active.at(-1);
+        if (last) {
+          this.active[i] = last;
+        }
         this.active.pop();
         continue;
       }
@@ -162,17 +184,33 @@ export class ChunkPool {
       this.dummy.updateMatrix();
       this.mesh.setMatrixAt(c.idx, this.dummy.matrix);
     }
-    // indices are sparse (free-list), so draw the full range while anything
-    // lives and nothing at all when idle
-    this.mesh.count = this.active.length > 0 ? MAX_CHUNKS : 0;
-    this.mesh.instanceMatrix.needsUpdate = true;
+    // indices are sparse (free-list) but bounded by the high-water mark: draw
+    // and upload that prefix while anything lives, nothing at all when idle
+    const n = this.highWater;
+    this.mesh.count = this.active.length > 0 ? n : 0;
+    uploadPrefix(this.mesh.instanceMatrix, n * 16);
+    if (this.active.length === 0) {
+      this.highWater = 0;
+    }
+  }
+
+  clear(): void {
+    for (const chunk of this.active) {
+      chunk.life = chunk.maxLife;
+    }
+    this.update(0);
   }
 
   dispose(): void {
     this.mesh.geometry.dispose();
-    const material = this.mesh.material;
-    if (Array.isArray(material)) for (const m of material) m.dispose();
-    else material.dispose();
+    const { material } = this.mesh;
+    if (Array.isArray(material)) {
+      for (const m of material) {
+        m.dispose();
+      }
+    } else {
+      material.dispose();
+    }
     this.mesh.removeFromParent();
     this.mesh.dispose();
   }

@@ -21,10 +21,12 @@ export const toDegrees = (radians: number): number => (radians * 180) / Math.PI;
  * the smoothing speed depend on framerate (twice the FPS = twice as fast), which is
  * the usual cause of "camera/movement feels different on my machine".
  */
-export function smoothingAlpha(lag: number, deltaSeconds: number): number {
-  if (lag <= 0) return 1;
+export const smoothingAlpha = (lag: number, deltaSeconds: number): number => {
+  if (lag <= 0) {
+    return 1;
+  }
   return 1 - Math.exp(-Math.max(0, deltaSeconds) / lag);
-}
+};
 
 /** Move `current` toward `target` with framerate-independent smoothing. */
 export const smoothToward = (
@@ -44,15 +46,18 @@ export class Random {
   private state: number;
 
   constructor(seed = 42) {
+    // oxlint-disable-next-line no-bitwise -- uint32 wrap of the seed
     this.state = seed >>> 0;
   }
 
   /** Next float in [0, 1). */
   next(): number {
-    this.state = (this.state + 0x6d2b79f5) >>> 0;
+    // oxlint-disable no-bitwise -- mulberry32 is defined on int32 mixing
+    this.state = (this.state + 0x6d_2b_79_f5) >>> 0;
     let t = Math.imul(this.state ^ (this.state >>> 15), 1 | this.state);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    t ^= t + Math.imul(t ^ (t >>> 7), 61 | t);
+    return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
+    // oxlint-enable no-bitwise
   }
 
   /** Float in [min, max). */

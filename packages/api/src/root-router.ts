@@ -4,16 +4,18 @@ import { authRouter } from "./auth/auth-router";
 import { creditsRouter } from "./credits/credits-router";
 import { deployRouter } from "./deploy/deploy-router";
 import { generateRouter } from "./generate/generate-router";
+import { playtestRouter } from "./playtest/playtest-router";
 import { waitlistRouter } from "./waitlist/waitlist-router";
 
 export const appRouter = {
-  auth: authRouter,
+  admin: adminRouter,
   apiKeys: apiKeyRouter,
-  waitlist: waitlistRouter,
+  auth: authRouter,
+  credits: creditsRouter,
   deploy: deployRouter,
   generate: generateRouter,
-  credits: creditsRouter,
-  admin: adminRouter,
+  playtest: playtestRouter,
+  waitlist: waitlistRouter,
 };
 
 // export type definition of API

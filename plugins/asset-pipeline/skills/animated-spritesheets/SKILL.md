@@ -1,6 +1,6 @@
 ---
 name: animated-spritesheets
-description: "Turn a character anchor into an engine-loadable animated spritesheet by generating ONE labeled pose-board image (a grid of the same character in the frames of an action) and slicing it. Works for any action — idle, run, jump, attack, hurt, crouch, death, roll. Generates a per-frame-labeled pose board on a flat chroma matte, recovers/slices the frames, keys + despills, snaps to crisp native pixels, normalizes with headroom, and packs spritesheet.png + a manifest. Triggers: 'sprite animation', 'animated spritesheet', 'attack animation', 'walk/run cycle', 'animate this character', 'game sprite animation', 'sprite pose sheet'."
+description: "Generate a character's animation frames (idle, run, attack, death…) as one labeled pose board, then slice, key and pack them into an engine-ready spritesheet."
 metadata:
   short-description: "Character anchor -> labeled pose-board image -> engine-loadable spritesheet."
 ---
@@ -82,6 +82,8 @@ this.anims.create({
   frames: this.anims.generateFrameNumbers("attack", { start: 0, end: 7 }),
 }); // end = frameCount - 1
 ```
+
+Ship it as PNG or **lossless** WebP (`--columns` so no side exceeds 4096 px — mobile GPUs load a wider strip as an empty texture). Lossy WebP makes pixel-art sheets 51–85% bigger, not smaller.
 
 ## What `process-sheet.mjs` does (under the hood)
 

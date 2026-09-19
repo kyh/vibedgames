@@ -80,3 +80,16 @@ ISO_MAP_PROMPT="Create a large, detailed top-down isometric pixel art game world
 ```bash
 EXPLOSION_PROMPT="A single fiery explosion fireball erupting in the dead center of the frame on a SOLID PURE BLACK background. Bright orange, yellow and white flames burst outward then dissipate. Completely static locked-off camera, no camera movement, no smoke, no grey haze, no debris, no text. Pure black everywhere except the central fireball."
 ```
+
+---
+
+## Recipe 6 — ability/spell FX boards (4×3, 12 frames)
+
+Fill `<effect_desc>`, the three beat slots and `<hexes>` per effect. Energy
+art stays on black; for smoke, debris or liquid swap the matte sentence to
+`flat solid #00FF00` (`#FF00FF` when the effect itself is green). Directional
+effects point RIGHT.
+
+```bash
+FX_BOARD_PROMPT="A sprite sheet of ONE game spell effect: <effect_desc>. Exactly 12 consecutive animation frames arranged in a 4-column by 3-row grid, read left to right, top to bottom. Every cell shows the effect at the SAME centre and the SAME scale, filling about 60% of the cell. Frames 1-3 anticipation: <beat>. Frames 4-8 peak: <beat>. Frames 9-12 decay: <beat>. If the effect has a direction it points to the RIGHT. Palette: <hexes>. Crisp pixel-art game VFX, sharp edges, no motion blur, no glow bleeding outside the shape. Flat SOLID PURE BLACK background in every cell. No grid lines, no cell borders, no labels, no numbers, no text, no characters, no ground shadow."
+```

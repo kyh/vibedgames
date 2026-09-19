@@ -1,28 +1,25 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { Math as PhaserMath } from "phaser";
 import { TILE, DEPTH } from "../config";
-import { World } from "../world/world";
+import type { World } from "../world/world";
 import { store } from "../systems/store";
-import {
-  ANIMALS,
-  isAnimalKind,
-  randomAnimalName,
-  type AnimalKind,
-  type BuildingKind,
-} from "../data/animals";
+import { ANIMALS, isAnimalKind, randomAnimalName } from "../data/animals";
+import type { AnimalKind, BuildingKind } from "../data/animals";
 import type { AnimalSave } from "../systems/save";
 import { floatText, burst } from "../render/fx";
 import { Sound } from "../render/audio";
 import type { GameScene } from "../scenes/game-scene";
 
-type Live = {
+interface Live {
   data: AnimalSave;
   spr: Phaser.GameObjects.Sprite;
   shadow: Phaser.GameObjects.Sprite;
   tx: number;
-  ty: number; // home building anchor
+  // home building anchor
+  ty: number;
   target: { x: number; y: number };
   rest: number;
-};
+}
 
 export class AnimalManager {
   private scene: GameScene;
@@ -37,12 +34,16 @@ export class AnimalManager {
 
   private homeOf(building: BuildingKind) {
     const o = this.world.objects.find((b) => b.type === building);
-    if (o) return { x: o.tx * TILE + 8, y: (o.ty + 2) * TILE };
+    if (o) {
+      return { x: o.tx * TILE + 8, y: (o.ty + 2) * TILE };
+    }
     return { x: 12 * TILE, y: 12 * TILE };
   }
 
   spawnAll(): void {
-    for (const d of store.animals) this.spawnOne(d);
+    for (const d of store.animals) {
+      this.spawnOne(d);
+    }
   }
 
   /** Trailer staging: add + spawn an animal at its saved x/y (real spawn path).
@@ -56,16 +57,20 @@ export class AnimalManager {
    *  approach/petting resolves the live position. Dead in normal play. */
   trailerTileOf(id: number): { tx: number; ty: number } | null {
     const l = this.live.find((a) => a.data.id === id);
-    if (!l) return null;
+    if (!l) {
+      return null;
+    }
     return { tx: Math.floor(l.spr.x / TILE), ty: Math.floor((l.spr.y - 1) / TILE) };
   }
 
   private spawnOne(d: AnimalSave): void {
-    if (!isAnimalKind(d.kind)) return;
+    if (!isAnimalKind(d.kind)) {
+      return;
+    }
     const def = ANIMALS[d.kind];
     const home = this.homeOf(d.building);
-    const x = d.x || home.x + Phaser.Math.Between(-20, 20);
-    const y = d.y || home.y + Phaser.Math.Between(-12, 12);
+    const x = d.x || home.x + PhaserMath.Between(-20, 20);
+    const y = d.y || home.y + PhaserMath.Between(-12, 12);
     const shadow = this.scene.add
       .sprite(x, y, "char-shadow-tex")
       .setOrigin(0.5, 0.5)
@@ -80,12 +85,12 @@ export class AnimalManager {
     spr.setInteractive({ useHandCursor: true });
     this.live.push({
       data: d,
-      spr,
+      rest: PhaserMath.FloatBetween(0, 2),
       shadow,
+      spr,
+      target: { x, y },
       tx: x,
       ty: y,
-      target: { x, y },
-      rest: Phaser.Math.FloatBetween(0, 2),
     });
   }
 
@@ -97,16 +102,18 @@ export class AnimalManager {
     }
     store.gold -= def.price;
     const home = this.homeOf(def.building);
+    const id = store.animalSeq;
+    store.animalSeq += 1;
     const data: AnimalSave = {
-      id: store.animalSeq++,
-      kind,
       building: def.building,
-      name: randomAnimalName(store.animalSeq),
-      friendship: 0,
       fed: true,
+      friendship: 0,
+      id,
+      kind,
+      name: randomAnimalName(store.animalSeq),
       producedToday: false,
-      x: home.x + Phaser.Math.Between(-18, 18),
-      y: home.y + Phaser.Math.Between(-10, 10),
+      x: home.x + PhaserMath.Between(-18, 18),
+      y: home.y + PhaserMath.Between(-10, 10),
     };
     store.animals.push(data);
     this.spawnOne(data);
@@ -118,23 +125,23 @@ export class AnimalManager {
 
   tryPet(tx: number, ty: number): boolean {
     for (const l of this.live) {
-      const ax = Math.floor(l.spr.x / TILE),
-        ay = Math.floor((l.spr.y - 1) / TILE);
+      const ax = Math.floor(l.spr.x / TILE);
+      const ay = Math.floor((l.spr.y - 1) / TILE);
       if (Math.abs(ax - tx) <= 1 && Math.abs(ay - ty) <= 1) {
-        if (!this.pettedToday.has(l.data.id)) {
+        if (this.pettedToday.has(l.data.id)) {
+          floatText(this.scene, l.spr.x, l.spr.y - 16, "♥", "#ffcdd8");
+        } else {
           this.pettedToday.add(l.data.id);
           l.data.friendship = Math.min(100, l.data.friendship + 8);
           burst(this.scene, l.spr.x, l.spr.y - 14, {
-            colors: [0xff5d7a, 0xff9ed2, 0xffffff],
+            colors: [0xff_5d_7a, 0xff_9e_d2, 0xff_ff_ff],
             count: 7,
-            up: true,
             speed: 40,
+            up: true,
           });
           floatText(this.scene, l.spr.x, l.spr.y - 16, "♥", "#ff8aa8");
           Sound.plant();
-          this.scene.tweens.add({ targets: l.spr, scaleY: 0.85, duration: 90, yoyo: true });
-        } else {
-          floatText(this.scene, l.spr.x, l.spr.y - 16, "♥", "#ffcdd8");
+          this.scene.tweens.add({ duration: 90, scaleY: 0.85, targets: l.spr, yoyo: true });
         }
         return true;
       }
@@ -149,20 +156,23 @@ export class AnimalManager {
       if (l.rest <= 0 && day) {
         const home = this.homeOf(l.data.building);
         l.target = {
-          x: home.x + Phaser.Math.Between(-28, 28),
-          y: home.y + Phaser.Math.Between(-16, 16),
+          x: home.x + PhaserMath.Between(-28, 28),
+          y: home.y + PhaserMath.Between(-16, 16),
         };
-        l.rest = Phaser.Math.FloatBetween(1.2, 3.5);
+        l.rest = PhaserMath.FloatBetween(1.2, 3.5);
       }
-      const dx = l.target.x - l.spr.x,
-        dy = l.target.y - l.spr.y;
+      const dx = l.target.x - l.spr.x;
+      const dy = l.target.y - l.spr.y;
       const dist = Math.hypot(dx, dy);
       if (dist > 1.5 && day) {
         const sp = 14 * dt;
         l.spr.x += (dx / dist) * sp;
         l.spr.y += (dy / dist) * sp;
-        if (dx < -0.2) l.spr.setFlipX(true);
-        else if (dx > 0.2) l.spr.setFlipX(false);
+        if (dx < -0.2) {
+          l.spr.setFlipX(true);
+        } else if (dx > 0.2) {
+          l.spr.setFlipX(false);
+        }
       }
       l.spr.setDepth(DEPTH.entityBase + l.spr.y);
       l.shadow.setPosition(l.spr.x, l.spr.y);
@@ -177,10 +187,14 @@ export class AnimalManager {
     this.pettedToday.clear();
     const counts = new Map<string, number>();
     for (const l of this.live) {
-      if (!isAnimalKind(l.data.kind)) continue;
+      if (!isAnimalKind(l.data.kind)) {
+        continue;
+      }
       const def = ANIMALS[l.data.kind];
       let qty = 1;
-      if (l.data.friendship >= 60 && Math.random() < 0.5) qty += 1;
+      if (l.data.friendship >= 60 && Math.random() < 0.5) {
+        qty += 1;
+      }
       store.inv.add({ kind: "animal_product", product: def.product }, qty);
       counts.set(def.product, (counts.get(def.product) ?? 0) + qty);
       l.data.producedToday = true;

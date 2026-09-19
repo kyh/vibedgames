@@ -10,17 +10,20 @@ import { THRONE_RADIUS } from "./config";
 import type { Vec2 } from "../sim/math";
 import type { FloorType, MapData } from "./map-format";
 
-export const HEX_R = 62; // center → vertex (units) — 62 ≈ 2× the old 44's AREA
-export const APOTHEM = HEX_R * Math.cos(Math.PI / 6); // center → edge ≈ 53.7
-export const HALF = HEX_R; // compat half-extent (== HEX_R) — coarse consumers only
+// center → vertex (units) — 62 ≈ 2× the old 44's AREA
+export const HEX_R = 62;
+// center → edge ≈ 53.7
+export const APOTHEM = HEX_R * Math.cos(Math.PI / 6);
+// compat half-extent (== HEX_R) — coarse consumers only
+export const HALF = HEX_R;
 /** Interior layout scale vs the original 44-radius hall — every hand-tuned
  *  mid-field radius below multiplies by this so the layout grows with HEX_R. */
 const S = HEX_R / 44;
 export const ARENA = {
+  apothem: APOTHEM,
   half: HALF,
   hexR: HEX_R,
-  apothem: APOTHEM,
-  throne: { x: 0, y: 0, radius: THRONE_RADIUS },
+  throne: { radius: THRONE_RADIUS, x: 0, y: 0 },
 } as const;
 
 /** Outward unit normal of hex edge k (edge centered at 30° + k·60°). */
@@ -30,17 +33,25 @@ export const EDGE_ANGLES: number[] = Array.from(
 );
 
 export const BOSS_POS: Vec2 = { x: 0, y: 0 };
-export const BOSS_PLATFORM_RADIUS = 5.5; // raised dais the boss stands on
-export const BOSS_HEIGHT = 1.6; // dais lift (render + the coin-throw origin)
+// raised dais the boss stands on
+export const BOSS_PLATFORM_RADIUS = 5.5;
+// dais lift (render + the coin-throw origin)
+export const BOSS_HEIGHT = 1.6;
 
-export type SpawnPoint = { slot: number; x: number; y: number; facing: number };
+export interface SpawnPoint {
+  slot: number;
+  x: number;
+  y: number;
+  facing: number;
+}
 
-const SPAWN_R = APOTHEM - 5; // ≈ 33.1 — base pad inset from its wall
+// ≈ 33.1 — base pad inset from its wall
+const SPAWN_R = APOTHEM - 5;
 /** Six bases at the six edge midpoints; each faces the center. */
 export const SPAWNS: SpawnPoint[] = EDGE_ANGLES.map((a, i) => {
   const x = Math.cos(a) * SPAWN_R;
   const y = Math.sin(a) * SPAWN_R;
-  return { slot: i, x, y, facing: Math.atan2(-y, -x) };
+  return { facing: Math.atan2(-y, -x), slot: i, x, y };
 });
 
 /** Catch-up delivery drop zones — on four of the six vertex axes, mid-field
@@ -61,43 +72,59 @@ export const RUNE_SPOTS: Vec2[] = Array.from({ length: 4 }, (_, i) => {
 /** Neutral skeleton camps — PvE pockets at the six hex vertices, between the
  *  bases. `pack` overrides the default skeleton lineup; `respawnSec` the
  *  cadence. */
-export type CampSpec = { id: string; x: number; y: number; pack?: string[]; respawnSec?: number };
+export interface CampSpec {
+  id: string;
+  x: number;
+  y: number;
+  pack?: string[];
+  respawnSec?: number;
+}
 export const CAMPS: CampSpec[] = Array.from({ length: 6 }, (_, i) => {
-  const a = (i * Math.PI) / 3; // the vertex axes (0° = +x)
+  // the vertex axes (0° = +x)
+  const a = (i * Math.PI) / 3;
   return { id: `camp${i}`, x: Math.cos(a) * 27 * S, y: Math.sin(a) * 27 * S };
 });
 // Elite lair: the Frost Golem miniboss holds the NE vertex corner, deeper in
 // behind camp1 — clear of pads, bases, and rune spots.
 CAMPS.push({
   id: "golem",
-  x: Math.cos(Math.PI / 3) * 35.5 * S,
-  y: Math.sin(Math.PI / 3) * 35.5 * S,
   pack: ["frostgolem"],
   respawnSec: 90,
+  x: Math.cos(Math.PI / 3) * 35.5 * S,
+  y: Math.sin(Math.PI / 3) * 35.5 * S,
 });
 
 /** `model` is a render hint only — the sim reads just x/y/radius. */
-export type Obstacle = { x: number; y: number; radius: number; height: number; model?: string };
+export interface Obstacle {
+  x: number;
+  y: number;
+  radius: number;
+  height: number;
+  model?: string;
+}
 
 /** Interior partition-wall runs (image-1 sub-room stubs): straight rows of
  *  circle colliders the renderer dresses as continuous low wall segments.
  *  angle = outward angle of the run's center; the run extends tangentially. */
-export type PartitionRun = {
+export interface PartitionRun {
   x: number;
   y: number;
-  /** tangent direction (radians, sim plane) */ dir: number;
-  /** collider centers along the tangent */ offsets: number[];
-};
+  /** tangent direction (radians, sim plane) */
+  dir: number;
+  /** collider centers along the tangent */
+  offsets: number[];
+}
 export const PARTITION_RUNS: PartitionRun[] = Array.from({ length: 6 }, (_, k) => {
   // one cover run per sextant at 12° past each vertex axis, radius 22 —
   // breaks the dais↔camp sightline while keeping every base→center lane
   // (edge angles 30°+k·60°) ≥ 4u clear on both sides.
   const a = (k * Math.PI) / 3 + (12 * Math.PI) / 180;
   return {
+    dir: a + Math.PI / 2,
+    // longer runs — cover scaled with the hall
+    offsets: [-4.5, -2.7, -0.9, 0.9, 2.7, 4.5],
     x: Math.cos(a) * 22 * S,
     y: Math.sin(a) * 22 * S,
-    dir: a + Math.PI / 2,
-    offsets: [-4.5, -2.7, -0.9, 0.9, 2.7, 4.5], // longer runs — cover scaled with the hall
   };
 });
 
@@ -105,7 +132,7 @@ export const PARTITION_RUNS: PartitionRun[] = Array.from({ length: 6 }, (_, k) =
  *  shrine statues watching the delivery pads. Kept off the base→center lanes
  *  so nobody spawns inside one. Exported separately from OBSTACLES so the map
  *  editor can recover the pristine default after a custom map was applied. */
-export function buildDefaultObstacles(): Obstacle[] {
+export const buildDefaultObstacles = (): Obstacle[] => {
   const out: Obstacle[] = [];
   // NO pillars on the 45° diagonals: those are the STAIR spokes — the only
   // four ways onto the plateau. A collider there jams everyone approaching
@@ -117,11 +144,11 @@ export function buildDefaultObstacles(): Obstacle[] {
     const ty = Math.sin(run.dir);
     for (const t of run.offsets) {
       out.push({
-        x: run.x + tx * t,
-        y: run.y + ty * t,
-        radius: 1.1,
         height: 2.4,
         model: "wall_run",
+        radius: 1.1,
+        x: run.x + tx * t,
+        y: run.y + ty * t,
       });
     }
   }
@@ -129,15 +156,15 @@ export function buildDefaultObstacles(): Obstacle[] {
   // r18) — outside the coin ring and ≥11u off the nearest base lane
   for (const a of PAD_ANGLES) {
     out.push({
-      x: Math.cos(a) * 21.5 * S,
-      y: Math.sin(a) * 21.5 * S,
-      radius: 0.55,
       height: 2.6,
       model: "paladin_statue",
+      radius: 0.55,
+      x: Math.cos(a) * 21.5 * S,
+      y: Math.sin(a) * 21.5 * S,
     });
   }
   return out;
-}
+};
 
 export const OBSTACLES: Obstacle[] = buildDefaultObstacles();
 
@@ -146,9 +173,7 @@ export const OBSTACLES: Obstacle[] = buildDefaultObstacles();
 let customMap = false;
 
 /** True once applyMapData replaced the default arena colliders. */
-export function hasCustomMap(): boolean {
-  return customMap;
-}
+export const hasCustomMap = (): boolean => customMap;
 
 /** Painted floor cells (render-only): "gx,gz" on the 4u tile grid → tile band.
  *  Filled by applyMapData / the editor; Environment.buildFloor consults it. */
@@ -158,40 +183,50 @@ export const floorKey = (gx: number, gz: number): string => `${gx},${gz}`;
 /** Replace the arena colliders with a custom map's — IN PLACE, because the sim
  *  (resolveObstacles) and the renderer both hold references to OBSTACLES. Must
  *  run before world creation and before Environment.setup. */
-export function applyMapData(data: MapData): void {
+export const applyMapData = (data: MapData): void => {
   customMap = true;
   OBSTACLES.length = 0;
   for (const c of data.colliders) {
-    OBSTACLES.push({ x: c.x, y: c.y, radius: c.radius, height: c.height, model: c.model });
+    OBSTACLES.push({ height: c.height, model: c.model, radius: c.radius, x: c.x, y: c.y });
   }
   FLOOR_OVERRIDES.clear();
-  for (const f of data.floor ?? []) FLOOR_OVERRIDES.set(floorKey(f.x, f.y), f.t);
-}
+  for (const f of data.floor ?? []) {
+    FLOOR_OVERRIDES.set(floorKey(f.x, f.y), f.t);
+  }
+};
 
 /** Partition runs the renderer dresses as continuous walls. The default arena
  *  uses the authored PARTITION_RUNS; custom maps reconstruct straight runs
  *  from their "wall_run" colliders (greedy chain clustering — circles within
  *  2.6u link into a run, singletons become short stubs). For the default
  *  collider set the reconstruction reproduces PARTITION_RUNS exactly. */
-export function activePartitionRuns(): PartitionRun[] {
-  if (!customMap) return PARTITION_RUNS;
+export const activePartitionRuns = (): PartitionRun[] => {
+  if (!customMap) {
+    return PARTITION_RUNS;
+  }
   const pts = OBSTACLES.filter((o) => o.model === "wall_run");
   const used = new Set<number>();
   const runs: PartitionRun[] = [];
-  for (let i = 0; i < pts.length; i++) {
+  for (let i = 0; i < pts.length; i += 1) {
     const seed = pts[i];
-    if (!seed || used.has(i)) continue;
+    if (!seed || used.has(i)) {
+      continue;
+    }
     used.add(i);
     const chain: Obstacle[] = [seed];
     let grew = true;
     while (grew) {
       grew = false;
-      for (let j = 0; j < pts.length; j++) {
+      for (let j = 0; j < pts.length; j += 1) {
         const p = pts[j];
-        if (!p || used.has(j)) continue;
-        const head = chain[0];
-        const tail = chain[chain.length - 1];
-        if (!head || !tail) continue;
+        if (!p || used.has(j)) {
+          continue;
+        }
+        const [head] = chain;
+        const tail = chain.at(-1);
+        if (!head || !tail) {
+          continue;
+        }
         if (Math.hypot(p.x - tail.x, p.y - tail.y) <= 2.6) {
           chain.push(p);
           used.add(j);
@@ -211,26 +246,28 @@ export function activePartitionRuns(): PartitionRun[] {
     }
     cx /= chain.length;
     cy /= chain.length;
-    const head = chain[0];
-    const tail = chain[chain.length - 1];
+    const [head] = chain;
+    const tail = chain.at(-1);
     let dir = 0;
     if (head && tail && chain.length > 1) {
       dir = Math.atan2(tail.y - head.y, tail.x - head.x);
-      if (dir < 0) dir += Math.PI; // normalize to [0, π) — offsets are symmetric
+      if (dir < 0) {
+        dir += Math.PI;
+        // normalize to [0, π) — offsets are symmetric
+      }
     }
     const offsets = chain
       .map((p) => (p.x - cx) * Math.cos(dir) + (p.y - cy) * Math.sin(dir))
-      .sort((a, b) => a - b);
-    runs.push({ x: cx, y: cy, dir, offsets });
+      .toSorted((a, b) => a - b);
+    runs.push({ dir, offsets, x: cx, y: cy });
   }
   return runs;
-}
+};
 
 // ── Pure spatial helpers ─────────────────────────────────────────────────────
 
-export function isInThrone(x: number, y: number): boolean {
-  return x * x + y * y <= THRONE_RADIUS * THRONE_RADIUS;
-}
+export const isInThrone = (x: number, y: number): boolean =>
+  x * x + y * y <= THRONE_RADIUS * THRONE_RADIUS;
 
 /** Signed distance helpers for the hex edge half-planes (edge normals at
  *  30° + k·60°). Precomputed — clampToArena runs per unit per tick. */
@@ -239,12 +276,12 @@ const EDGE_NY = EDGE_ANGLES.map((a) => Math.sin(a));
 
 /** Clamp a point inside the hexagonal arena, leaving a margin for the radius.
  *  Two passes over the 6 edge half-planes so vertex corners resolve cleanly. */
-export function clampToArena(x: number, y: number, radius = 0): Vec2 {
+export const clampToArena = (x: number, y: number, radius = 0): Vec2 => {
   const max = APOTHEM - radius;
   let px = x;
   let py = y;
-  for (let pass = 0; pass < 2; pass++) {
-    for (let k = 0; k < 6; k++) {
+  for (let pass = 0; pass < 2; pass += 1) {
+    for (let k = 0; k < 6; k += 1) {
       const nx = EDGE_NX[k] ?? 0;
       const ny = EDGE_NY[k] ?? 0;
       const d = px * nx + py * ny;
@@ -255,15 +292,15 @@ export function clampToArena(x: number, y: number, radius = 0): Vec2 {
     }
   }
   return { x: px, y: py };
-}
+};
 
 /** Push a circle (cx,cy,cr) out of any overlapping obstacle / the boss dais.
  *  Returns the corrected position. Used by the sim for collision. */
-export function resolveObstacles(cx: number, cy: number, cr: number): Vec2 {
+export const resolveObstacles = (cx: number, cy: number, cr: number): Vec2 => {
   let x = cx;
   let y = cy;
   const solids = OBSTACLES;
-  for (let pass = 0; pass < 2; pass++) {
+  for (let pass = 0; pass < 2; pass += 1) {
     for (const o of solids) {
       const dx = x - o.x;
       const dy = y - o.y;
@@ -289,4 +326,4 @@ export function resolveObstacles(cx: number, cy: number, cr: number): Vec2 {
     }
   }
   return { x, y };
-}
+};

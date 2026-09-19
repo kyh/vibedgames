@@ -1,6 +1,6 @@
 ---
 name: asset-pipeline
-description: "Asset pipeline utilities for 2D game projects: validate an asset manifest against PNGs on disk, probe sprite sheets/tilesets to find non-empty grid frames, and report PNG dimensions. Use when adding/updating art, debugging missing/unused assets, auditing sprite sheets, or generating frame/size metadata for import pipelines (especially for Love2D projects with Lua asset indexes)."
+description: "Audit 2D game art on disk: validate an asset manifest against PNGs, probe sprite sheets and tilesets for occupied frames, report sizes, fix sprite baselines."
 ---
 
 # Gamedev Assets
@@ -100,6 +100,8 @@ Conventions that worked (Love2D / Rocky Roads; keep your own "what worked" notes
 
 Frames are `[column, row]` pairs, zero-based (`[0,0]` = first cell). Grid is `frameWidth × frameHeight`. Use explicit `frames` for sparse sheets; group sequences + timing under `animations`.
 
+Sparse also means **padding cells inside a row**: a non-square pack lays clips on a fixed-width sheet (8 wide: idle = cells 0–5, walk = 8–13, cells 6/7/14/15 blank), so a naive `start..end` range sweeps blank frames into the clip. Stop each range before the padding — `asset-sheet-probe.mjs --list` tells you where. And derive `frameWidth` from the **smallest** PNG width in the pack folder (`asset-sizes.mjs`), not the biggest: the widest file is usually a strip of several cells.
+
 ### Workflow: Building an Asset Index
 
 1. **Inventory** — `asset-sizes.mjs` for all PNG dimensions.
@@ -191,6 +193,8 @@ node $SKILL/scripts/asset-sprite-baseline.mjs public/assets/kaede/idle-n.png --f
 node $SKILL/scripts/asset-sizes.mjs
 node $SKILL/scripts/asset-sizes.mjs --root assets/ --json tmp/sizes.json
 ```
+
+Shrinking sheets for shipping: pixel art goes to **lossless** WebP (`cwebp -lossless -z 9`, or `sharp().webp({ lossless: true })`). Lossy WebP makes flat-colour sheets 51–85% _bigger_ than the PNG and blurs the pixel grid; lossless is the only mode that wins on both.
 
 ### Tileset/Tilemap Exports and Editor (`asset-tilemap-editor.mjs`)
 

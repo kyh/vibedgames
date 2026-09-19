@@ -23,64 +23,65 @@ import * as THREE from "three";
 import { NOISE_GLSL } from "./fx-noise";
 
 const ROCK = {
-  crackScale: 2.7,
-  crackWidth: 0.075, // dark stone stays the dominant read even at full charge
+  cavity: 0.45,
   crackBranches: 0.65,
   crackGlow: 2.6,
+  crackScale: 2.7,
+  // dark stone stays the dominant read even at full charge
+  crackWidth: 0.075,
+  facetTint: 0.42,
   flow: 0.7,
   flowSpeed: 0.9,
-  rockScale: 3.0,
-  facetTint: 0.42,
-  cavity: 0.45,
-  soot: 0.95,
-  rimHeat: 1.0,
+  glow: 1,
   lead: 1.5,
   leadSharp: 2.6,
-  glow: 1.0,
+  rimHeat: 1,
+  rockScale: 3,
+  soot: 0.95,
 } as const;
 
 export type RockMaterial = THREE.MeshStandardMaterial & {
   /** 0..1 — how far into its run-up the rock is. Prises the seams open and
    *  lights the rim and leading facets, so the impact is something you saw
    *  coming rather than something that happened. */
-  setCharge(charge: number): void;
+  setCharge: (charge: number) => void;
   /** Unit direction of travel, world space — drives the compression heat on the
    *  facets that point along it. */
-  setHeading(x: number, y: number, z: number): void;
+  setHeading: (x: number, y: number, z: number) => void;
 };
 
-export function createBurningRockMaterial(clock: { value: number }): RockMaterial {
+export const createBurningRockMaterial = (clock: { value: number }): RockMaterial => {
   const material = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    roughness: 0.94,
-    metalness: 0.0,
+    color: 0xff_ff_ff,
     // Faceted, like the crystals: it is what makes a low-poly rock read as rock
     // rather than as a smooth ball with a texture on it.
     flatShading: true,
+    metalness: 0,
+    roughness: 0.94,
   });
 
   const uniforms = {
-    uTime: clock,
-    uRock: { value: new THREE.Color(0x4a3a34) },
-    uChar: { value: new THREE.Color(0x14100f) },
-    uCrack: { value: new THREE.Color(0xff5a1e) },
-    uHot: { value: new THREE.Color(0xffd9a0) },
-    uCrackScale: { value: ROCK.crackScale },
-    uCrackWidth: { value: ROCK.crackWidth },
+    uCavity: { value: ROCK.cavity },
+    uChar: { value: new THREE.Color(0x14_10_0f) },
+    uCharge: { value: 0 },
+    uCrack: { value: new THREE.Color(0xff_5a_1e) },
     uCrackBranches: { value: ROCK.crackBranches },
     uCrackGlow: { value: ROCK.crackGlow },
+    uCrackScale: { value: ROCK.crackScale },
+    uCrackWidth: { value: ROCK.crackWidth },
+    uFacetTint: { value: ROCK.facetTint },
     uFlow: { value: ROCK.flow },
     uFlowSpeed: { value: ROCK.flowSpeed },
-    uRockScale: { value: ROCK.rockScale },
-    uFacetTint: { value: ROCK.facetTint },
-    uCavity: { value: ROCK.cavity },
-    uSoot: { value: ROCK.soot },
-    uRimHeat: { value: ROCK.rimHeat },
+    uGlow: { value: ROCK.glow },
+    uHeading: { value: new THREE.Vector3(0, -1, 0) },
+    uHot: { value: new THREE.Color(0xff_d9_a0) },
     uLead: { value: ROCK.lead },
     uLeadSharp: { value: ROCK.leadSharp },
-    uHeading: { value: new THREE.Vector3(0, -1, 0) },
-    uCharge: { value: 0 },
-    uGlow: { value: ROCK.glow },
+    uRimHeat: { value: ROCK.rimHeat },
+    uRock: { value: new THREE.Color(0x4a_3a_34) },
+    uRockScale: { value: ROCK.rockScale },
+    uSoot: { value: ROCK.soot },
+    uTime: clock,
   };
 
   material.onBeforeCompile = (shader) => {
@@ -89,7 +90,7 @@ export function createBurningRockMaterial(clock: { value: number }): RockMateria
     shader.vertexShader = shader.vertexShader
       .replace(
         "#include <common>",
-        /* glsl */ `#include <common>
+        `#include <common>
         varying vec3  vRockLocal;
         varying vec3  vRockNormalW;`,
       )
@@ -98,7 +99,7 @@ export function createBurningRockMaterial(clock: { value: number }): RockMateria
       // leading-face term needs it in world space.
       .replace(
         "#include <begin_vertex>",
-        /* glsl */ `#include <begin_vertex>
+        `#include <begin_vertex>
         vRockLocal = transformed;
         #ifdef USE_INSTANCING
           vRockNormalW = normalize(mat3(modelMatrix) * (instanceMatrix * vec4(objectNormal, 0.0)).xyz);
@@ -110,7 +111,7 @@ export function createBurningRockMaterial(clock: { value: number }): RockMateria
     shader.fragmentShader = shader.fragmentShader
       .replace(
         "#include <common>",
-        /* glsl */ `#include <common>
+        `#include <common>
         uniform float uTime;
         uniform vec3  uRock;
         uniform vec3  uChar;
@@ -138,7 +139,7 @@ export function createBurningRockMaterial(clock: { value: number }): RockMateria
       )
       .replace(
         "#include <emissivemap_fragment>",
-        /* glsl */ `#include <emissivemap_fragment>
+        `#include <emissivemap_fragment>
         {
           vec3  N   = normalize(normal);
           float ndv = clamp(dot(N, normalize(vViewPosition)), 0.0, 1.0);
@@ -212,4 +213,4 @@ export function createBurningRockMaterial(clock: { value: number }): RockMateria
       uniforms.uHeading.value.set(x, y, z).normalize();
     },
   });
-}
+};

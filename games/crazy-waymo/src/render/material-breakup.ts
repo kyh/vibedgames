@@ -40,7 +40,7 @@ import { isCoarsePointer } from "./quality";
 // exposure, existing street-paint variety and the "felt, not read" +-10%
 // surface doctrine.
 
-export type BreakupConfig = {
+export interface BreakupConfig {
   /** Macro field A world period (m) — also the roughness field's period. */
   readonly period: number;
   /** Blend weight of the warm/cool hue-only drift (field A). */
@@ -60,7 +60,7 @@ export type BreakupConfig = {
   readonly settleFar: number;
   /** Scale on the dFdx-variance term (1 = reference strength). */
   readonly specAA: number;
-};
+}
 
 /** Non-integer period ratio between the two macro fields — they never re-phase. */
 export const MACRO_PERIOD_RATIO = 0.319;
@@ -73,16 +73,16 @@ export const SPEC_AA_CAP = 0.42;
 // Period matches the reference tarmac macro; amplitudes sit inside the road
 // shader's own +-10% band so the drift layers UNDER its patches and seams.
 export const ROAD_BREAKUP: BreakupConfig = {
-  period: 29.7,
+  cool: 0xdc_e6_ff,
   hueAmp: 0.15,
-  valueAmp: 0.08,
+  period: 29.7,
   roughAmp: 0.3,
   roughFloor: 0.62,
-  warm: 0xfff0dc,
-  cool: 0xdce6ff,
-  settleNear: 34,
   settleFar: 95,
+  settleNear: 34,
   specAA: 1,
+  valueAmp: 0.08,
+  warm: 0xff_f0_dc,
 };
 
 // Everything batched: kit facades, prisms, plinths, masonry, props. Period is
@@ -90,36 +90,38 @@ export const ROAD_BREAKUP: BreakupConfig = {
 // Floor 0.45 stays under the glass prisms' 0.55 roughness — it must catch
 // aliased glitter, not repaint the one deliberate sheen family.
 export const CITY_BREAKUP: BreakupConfig = {
-  period: 23.0,
+  cool: 0xd6_df_ea,
   hueAmp: 0.15,
-  valueAmp: 0.09,
+  period: 23,
   roughAmp: 0.2,
   roughFloor: 0.45,
-  warm: 0xffeed6,
-  cool: 0xd6dfea,
-  settleNear: 40,
   settleFar: 120,
+  settleNear: 40,
   specAA: 1,
+  valueAmp: 0.09,
+  warm: 0xff_ee_d6,
 };
 
 // GLSL float literal — String(0.1) has a dot, String(1) does not.
-function f(n: number): string {
+const f = (n: number): string => {
   const s = String(n);
   return s.includes(".") || s.includes("e") ? s : `${s}.0`;
-}
+};
 
 // Hex -> per-channel ratio with the max channel rescaled to 1 (a pure hue
 // shift, no energy change). Raw byte ratios on purpose, NOT THREE.Color: a
 // transfer curve applied to a ratio is meaningless (0xb3 means "70% of
 // whatever is there"; through 2.2 gamma it would mean 45%).
-function hueRatio(hex: number): string {
+const hueRatio = (hex: number): string => {
+  /* oxlint-disable no-bitwise -- unpacking an 0xRRGGBB literal */
   const r = ((hex >> 16) & 0xff) / 255;
   const g = ((hex >> 8) & 0xff) / 255;
   const b = (hex & 0xff) / 255;
+  /* oxlint-enable no-bitwise */
   const m = Math.max(r, g, b, 1e-6);
   const p = (v: number): string => f(Math.round((v / m) * 1000) / 1000);
   return `vec3(${p(r)}, ${p(g)}, ${p(b)})`;
-}
+};
 
 const FRAG_ANCHOR = "#include <lights_physical_fragment>";
 const VERT_ANCHOR = "#include <project_vertex>";
@@ -137,10 +139,24 @@ const applied = new WeakSet<THREE.Material>();
  * three cannot see inside onBeforeCompile, so without this two materials
  * differing only in breakup config would share one compiled program.
  */
-export function applyMaterialBreakup(mat: THREE.Material, cfg: BreakupConfig): void {
-  if (!(mat instanceof THREE.MeshStandardMaterial)) return;
-  if (mat.transparent || mat.polygonOffset) return;
-  if (applied.has(mat)) return;
+export const applyMaterialBreakup = (mat: THREE.Material, cfg: BreakupConfig): void => {
+  if (!(mat instanceof THREE.MeshStandardMaterial)) {
+    return;
+  }
+  // Phones keep the stock program. The injection folds its config into the
+  // program cache key, so every material that carries a different config is
+  // its own ~90 KB fragment shader — over a hundred of them on a full city,
+  // and compiling that set is what a mobile GPU process does not survive.
+  // The breakup itself is a subtle albedo drift a phone screen barely shows.
+  if (isCoarsePointer()) {
+    return;
+  }
+  if (mat.transparent || mat.polygonOffset) {
+    return;
+  }
+  if (applied.has(mat)) {
+    return;
+  }
   applied.add(mat);
 
   const prev = mat.onBeforeCompile;
@@ -158,7 +174,6 @@ export function applyMaterialBreakup(mat: THREE.Material, cfg: BreakupConfig): v
       console.warn("[material-breakup] anchor missing, injection skipped:", mat.name || mat.uuid);
       return;
     }
-    const full = !isCoarsePointer();
     shader.vertexShader = shader.vertexShader
       .replace("#include <common>", "#include <common>\nvarying vec3 vKbWorld;")
       .replace(
@@ -180,7 +195,6 @@ ${VERT_ANCHOR}`,
       .replace(
         "#include <common>",
         `#include <common>
-${full ? "#define KB_MACRO_FULL 1" : ""}
 varying vec3 vKbWorld;
 float kbHash(vec2 p) { return fract(sin(dot(p, vec2(157.31, 269.53))) * 43758.5453); }
 float kbNoise(vec2 p) {
@@ -204,13 +218,11 @@ vec2 kbPlane(vec3 p, float period) { return (p.xz + p.y * 0.71) / period; }`,
         `{
   float kbA = kbNoise(kbPlane(vKbWorld, ${f(cfg.period)})) - 0.5;
   diffuseColor.rgb *= mix(vec3(1.0), mix(${hueRatio(cfg.cool)}, ${hueRatio(cfg.warm)}, kbA + 0.5), ${f(cfg.hueAmp)});
-#ifdef KB_MACRO_FULL
   float kbSettle = smoothstep(${f(cfg.settleNear)}, ${f(cfg.settleFar)}, distance(vKbWorld, cameraPosition));
   float kbB = kbNoise(kbPlane(vKbWorld, ${f(cfg.period * MACRO_PERIOD_RATIO)}) + vec2(0.19, 0.57)) - 0.5;
   diffuseColor.rgb *= 1.0 + kbB * ${f(cfg.valueAmp)} * (1.0 - kbSettle);
   float kbR = kbNoise(kbPlane(vKbWorld, ${f(cfg.period)}) + vec2(0.21, 0.83));
   roughnessFactor *= 1.0 - kbR * ${f(cfg.roughAmp)};
-#endif
   roughnessFactor = max(roughnessFactor, ${f(cfg.roughFloor)});
   vec3 kbDxy = max(abs(dFdx(normal)), abs(dFdy(normal)));
   float kbVar = min(max(max(kbDxy.x, kbDxy.y), kbDxy.z) * ${f(SPEC_AA_GAIN * cfg.specAA)}, ${f(SPEC_AA_CAP)});
@@ -219,9 +231,9 @@ vec2 kbPlane(vec3 p, float period) { return (p.xz + p.y * 0.71) / period; }`,
 ${FRAG_ANCHOR}`,
       );
   };
-  mat.customProgramCacheKey = () => `${prevKey}|${cfgKey}|${isCoarsePointer() ? "lo" : "hi"}`;
+  mat.customProgramCacheKey = () => `${prevKey}|${cfgKey}`;
   // A shared kit material may already have a compiled program (dynamic props
   // render during load); without the bump the renderer would keep it and the
   // injection would silently never run.
   mat.needsUpdate = true;
-}
+};

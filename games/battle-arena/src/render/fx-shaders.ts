@@ -14,11 +14,12 @@ const CLOCK = { value: 0 };
 export const fxClock = CLOCK;
 
 /** Advance the global shader clock (call once per frame with the fx dt). */
-export function tickFxShaders(dt: number): void {
+export const tickFxShaders = (dt: number): void => {
   CLOCK.value += dt;
-}
+};
 
 // cheap value-ish noise, good enough for fire/energy wobble at game speed
+// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
 const CHEAP_NOISE_GLSL = /* glsl */ `
 float hash21(vec2 p){ p = fract(p*vec2(234.34,435.345)); p += dot(p,p+34.23); return fract(p.x*p.y); }
 float vnoise(vec2 p){
@@ -34,26 +35,15 @@ float fbm(vec2 p){ return 0.6*vnoise(p) + 0.4*vnoise(p*2.3 + 7.7); }`;
 const ballCache = new Map<number, THREE.ShaderMaterial>();
 
 /** Shared boiling-energy material for projectile cores, keyed by color. */
-export function energyBallMaterial(color: number): THREE.ShaderMaterial {
+export const energyBallMaterial = (color: number): THREE.ShaderMaterial => {
   let mat = ballCache.get(color);
-  if (mat) return mat;
+  if (mat) {
+    return mat;
+  }
   mat = new THREE.ShaderMaterial({
-    transparent: true,
-    depthWrite: false,
     blending: THREE.AdditiveBlending,
-    uniforms: {
-      uTime: CLOCK,
-      uColor: { value: new THREE.Color(color) },
-    },
-    vertexShader: /* glsl */ `
-      varying vec3 vN; varying vec3 vV; varying vec2 vUv;
-      void main(){
-        vUv = uv;
-        vN = normalize(normalMatrix * normal);
-        vec4 mv = modelViewMatrix * vec4(position,1.0);
-        vV = normalize(-mv.xyz);
-        gl_Position = projectionMatrix * mv;
-      }`,
+    depthWrite: false,
+    // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
     fragmentShader: /* glsl */ `
       uniform float uTime; uniform vec3 uColor;
       varying vec3 vN; varying vec3 vV; varying vec2 vUv;
@@ -68,31 +58,35 @@ export function energyBallMaterial(color: number): THREE.ShaderMaterial {
         float a = 0.5 + 0.4*boil;
         gl_FragColor = vec4(c, a);
       }`,
+    transparent: true,
+    uniforms: {
+      uColor: { value: new THREE.Color(color) },
+      uTime: CLOCK,
+    },
+    // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
+    vertexShader: /* glsl */ `
+      varying vec3 vN; varying vec3 vV; varying vec2 vUv;
+      void main(){
+        vUv = uv;
+        vN = normalize(normalMatrix * normal);
+        vec4 mv = modelViewMatrix * vec4(position,1.0);
+        vV = normalize(-mv.xyz);
+        gl_Position = projectionMatrix * mv;
+      }`,
   });
   ballCache.set(color, mat);
   return mat;
-}
+};
 
 // ── Shockwave ring ───────────────────────────────────────────────────────────
 // An AUTHORED ragged shock ring (fx/shockwave.png — spiky torn rim) tinted per
 // effect. The pool animates uT 0→1; expansion is mesh scale; uSeed spins the
 // sprite so back-to-back rings never read as the same stamp.
-export function makeRingMaterial(): THREE.ShaderMaterial {
-  return new THREE.ShaderMaterial({
-    transparent: true,
-    depthWrite: false,
+export const makeRingMaterial = (): THREE.ShaderMaterial =>
+  new THREE.ShaderMaterial({
     blending: THREE.AdditiveBlending,
-    side: THREE.DoubleSide,
-    uniforms: {
-      uMap: { value: fxTex("shockwave") },
-      uColor: { value: new THREE.Color(0xffffff) },
-      uT: { value: 0 }, // life progress 0→1
-      uAlpha: { value: 1 },
-      uSeed: { value: 0 },
-    },
-    vertexShader: /* glsl */ `
-      varying vec2 vUv;
-      void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    depthWrite: false,
+    // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
     fragmentShader: /* glsl */ `
       uniform sampler2D uMap; uniform vec3 uColor; uniform float uT; uniform float uAlpha; uniform float uSeed;
       varying vec2 vUv;
@@ -108,8 +102,21 @@ export function makeRingMaterial(): THREE.ShaderMaterial {
         if (a < 0.004) discard;
         gl_FragColor = vec4(c * lum, a);
       }`,
+    side: THREE.DoubleSide,
+    transparent: true,
+    uniforms: {
+      uAlpha: { value: 1 },
+      uColor: { value: new THREE.Color(0xff_ff_ff) },
+      uMap: { value: fxTex("shockwave") },
+      uSeed: { value: 0 },
+      // life progress 0→1,
+      uT: { value: 0 },
+    },
+    // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
+    vertexShader: /* glsl */ `
+      varying vec2 vUv;
+      void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
   });
-}
 
 // ── Crescent slash (anime sword arc) ─────────────────────────────────────────
 // AUTHORED slash sprites (fx/slash-*.png) tinted per champ, with the angular
@@ -117,27 +124,11 @@ export function makeRingMaterial(): THREE.ShaderMaterial {
 // driven by our own timing. Unit quad; set uUVOff/uUVScale to address a
 // sub-sprite on a sheet, uRot to register the art's opening toward local +X.
 // Animate uT 0→1 over the slash's life.
-export function makeSlashMaterial(): THREE.ShaderMaterial {
-  return new THREE.ShaderMaterial({
-    transparent: true,
-    depthWrite: false,
+export const makeSlashMaterial = (): THREE.ShaderMaterial =>
+  new THREE.ShaderMaterial({
     blending: THREE.AdditiveBlending,
-    side: THREE.DoubleSide,
-    uniforms: {
-      uMap: { value: fxTex("slash-white") },
-      uNoise: { value: fxTex("noise-caustic", { wrap: true }) },
-      uColor: { value: new THREE.Color(0xffffff) },
-      uT: { value: 0 },
-      uSpan: { value: 1.1 }, // angular half-width of the sweep reveal (radians)
-      uSeed: { value: 0 },
-      uDir: { value: 1 }, // sweep direction: 1 = CCW, -1 = CW (mirrored dual-wield)
-      uUVOff: { value: new THREE.Vector2(0, 0) },
-      uUVScale: { value: new THREE.Vector2(1, 1) },
-      uRot: { value: 0 }, // sprite registration spin (radians)
-    },
-    vertexShader: /* glsl */ `
-      varying vec2 vUv;
-      void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    depthWrite: false,
+    // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
     fragmentShader: /* glsl */ `
       uniform sampler2D uMap; uniform sampler2D uNoise;
       uniform vec3 uColor; uniform float uT; uniform float uSpan; uniform float uSeed; uniform float uDir;
@@ -166,8 +157,28 @@ export function makeSlashMaterial(): THREE.ShaderMaterial {
         if (a < 0.004) discard;
         gl_FragColor = vec4(c * shape, a);
       }`,
+    side: THREE.DoubleSide,
+    transparent: true,
+    uniforms: {
+      uColor: { value: new THREE.Color(0xff_ff_ff) },
+      // sweep direction: 1 = CCW, -1 = CW (mirrored dual-wield)
+      uDir: { value: 1 },
+      uMap: { value: fxTex("slash-white") },
+      uNoise: { value: fxTex("noise-caustic", { wrap: true }) },
+      // sprite registration spin (radians)
+      uRot: { value: 0 },
+      uSeed: { value: 0 },
+      // angular half-width of the sweep reveal (radians)
+      uSpan: { value: 1.1 },
+      uT: { value: 0 },
+      uUVOff: { value: new THREE.Vector2(0, 0) },
+      uUVScale: { value: new THREE.Vector2(1, 1) },
+    },
+    // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
+    vertexShader: /* glsl */ `
+      varying vec2 vUv;
+      void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
   });
-}
 
 // ── Ground cracks ────────────────────────────────────────────────────────────
 // The earth torn open: a branching fissure network with a hot seam that cools
@@ -182,29 +193,27 @@ export function makeSlashMaterial(): THREE.ShaderMaterial {
 // arms run OUTWARD from the impact instead of wandering across it.
 export type CrackMaterial = THREE.ShaderMaterial & {
   /** Arm a fresh decal: colour, noise offset, and whether the seam re-heats. */
-  arm(color: number, pulse: number): void;
+  arm: (color: number, pulse: number) => void;
   /** `t` is life progress 0→1 (cooling); `grow` is the tear-open front 0→1. */
-  step(t: number, grow: number): void;
+  step: (t: number, grow: number) => void;
 };
 
-export function makeCrackMaterial(): CrackMaterial {
+export const makeCrackMaterial = (): CrackMaterial => {
   const uniforms = {
-    uTime: CLOCK,
-    uColor: { value: new THREE.Color(0xff8040) }, // hot seam
-    uT: { value: 0 }, // life progress 0→1
-    uSeed: { value: 0 },
+    // hot seam
+    uColor: { value: new THREE.Color(0xff_80_40) },
+    // 0→1 as the network tears open (real seconds)
+    uGrow: { value: 0 },
     uPulse: { value: 0 },
-    uGrow: { value: 0 }, // 0→1 as the network tears open (real seconds)
+    uSeed: { value: 0 },
+    // life progress 0→1
+    uT: { value: 0 },
+    uTime: CLOCK,
   };
   const mat = new THREE.ShaderMaterial({
-    transparent: true,
-    depthWrite: false,
     blending: THREE.NormalBlending,
-    side: THREE.DoubleSide,
-    uniforms,
-    vertexShader: /* glsl */ `
-      varying vec2 vUv;
-      void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    depthWrite: false,
+    // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
     fragmentShader: /* glsl */ `
       uniform float uTime; uniform vec3 uColor; uniform float uT; uniform float uSeed; uniform float uPulse; uniform float uGrow;
       varying vec2 vUv;
@@ -255,6 +264,13 @@ export function makeCrackMaterial(): CrackMaterial {
         if (a < 0.01) discard;
         gl_FragColor = vec4(c, min(a, 1.0));
       }`,
+    side: THREE.DoubleSide,
+    transparent: true,
+    uniforms,
+    // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
+    vertexShader: /* glsl */ `
+      varying vec2 vUv;
+      void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
   });
 
   return Object.assign(mat, {
@@ -270,26 +286,17 @@ export function makeCrackMaterial(): CrackMaterial {
       uniforms.uGrow.value = grow;
     },
   });
-}
+};
 
 // ── Rune circle ──────────────────────────────────────────────────────────────
 // A rotating arcane ring: outer band, dashed inner band, tick glyphs. Used as
 // an arming telegraph (smite / grand hex / trap) and as the persistent
 // underfoot ring for buffs (Iron Stance / Bastion / Hunter's Focus).
-export function makeRuneMaterial(color: number): THREE.ShaderMaterial {
-  return new THREE.ShaderMaterial({
-    transparent: true,
-    depthWrite: false,
+export const makeRuneMaterial = (color: number): THREE.ShaderMaterial =>
+  new THREE.ShaderMaterial({
     blending: THREE.AdditiveBlending,
-    side: THREE.DoubleSide,
-    uniforms: {
-      uTime: CLOCK,
-      uColor: { value: new THREE.Color(color) },
-      uAlpha: { value: 1 },
-    },
-    vertexShader: /* glsl */ `
-      varying vec2 vUv;
-      void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    depthWrite: false,
+    // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
     fragmentShader: /* glsl */ `
       uniform float uTime; uniform vec3 uColor; uniform float uAlpha;
       varying vec2 vUv;
@@ -308,27 +315,27 @@ export function makeRuneMaterial(color: number): THREE.ShaderMaterial {
         if (a < 0.01) discard;
         gl_FragColor = vec4(uColor * 1.3, a);
       }`,
+    side: THREE.DoubleSide,
+    transparent: true,
+    uniforms: {
+      uAlpha: { value: 1 },
+      uColor: { value: new THREE.Color(color) },
+      uTime: CLOCK,
+    },
+    // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
+    vertexShader: /* glsl */ `
+      varying vec2 vUv;
+      void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
   });
-}
 
 // ── Vortex drum (whirlwind ult) / light pillar shell ─────────────────────────
 // Open-ended cylinder with diagonal energy stripes racing around it, fading
 // toward the top (uUp 0) or blooming upward from the ground (uUp 1).
-export function makeVortexMaterial(color: number, upward = false): THREE.ShaderMaterial {
-  return new THREE.ShaderMaterial({
-    transparent: true,
-    depthWrite: false,
+export const makeVortexMaterial = (color: number, upward = false): THREE.ShaderMaterial =>
+  new THREE.ShaderMaterial({
     blending: THREE.AdditiveBlending,
-    side: THREE.DoubleSide,
-    uniforms: {
-      uTime: CLOCK,
-      uColor: { value: new THREE.Color(color) },
-      uAlpha: { value: 1 },
-      uUp: { value: upward ? 1 : 0 },
-    },
-    vertexShader: /* glsl */ `
-      varying vec2 vUv;
-      void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    depthWrite: false,
+    // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
     fragmentShader: /* glsl */ `
       uniform float uTime; uniform vec3 uColor; uniform float uAlpha; uniform float uUp;
       varying vec2 vUv;
@@ -344,5 +351,16 @@ export function makeVortexMaterial(color: number, upward = false): THREE.ShaderM
         if (a < 0.004) discard;
         gl_FragColor = vec4(c, a);
       }`,
+    side: THREE.DoubleSide,
+    transparent: true,
+    uniforms: {
+      uAlpha: { value: 1 },
+      uColor: { value: new THREE.Color(color) },
+      uTime: CLOCK,
+      uUp: { value: upward ? 1 : 0 },
+    },
+    // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
+    vertexShader: /* glsl */ `
+      varying vec2 vUv;
+      void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
   });
-}

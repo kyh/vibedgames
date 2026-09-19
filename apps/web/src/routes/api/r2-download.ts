@@ -4,9 +4,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { getServerContext } from "@/auth/server";
 import { getCloudflareEnv } from "@/lib/cloudflare";
 
-function badRequest(message: string): Response {
-  return new Response(message, { status: 400 });
-}
+const badRequest = (message: string): Response => new Response(message, { status: 400 });
 
 /**
  * Worker-proxied R2 download endpoint, the GET counterpart to
@@ -15,8 +13,10 @@ function badRequest(message: string): Response {
  * direct S3 against prod R2 — which the dev worker's source uploads never
  * reach. Auth is the HMAC-signed query string, verified before streaming.
  */
-async function handler(request: Request): Promise<Response> {
-  if (request.method !== "GET") return badRequest("method not allowed");
+const handler = async (request: Request): Promise<Response> => {
+  if (request.method !== "GET") {
+    return badRequest("method not allowed");
+  }
 
   const url = new URL(request.url);
   const key = url.searchParams.get("key");
@@ -32,26 +32,30 @@ async function handler(request: Request): Promise<Response> {
   }
 
   const verifyError = await verifyProxyDownloadUrl({
-    key,
     exp: Number(expStr),
-    sig,
+    key,
     secret: r2.proxyUploadSecret,
+    sig,
   });
-  if (verifyError) return badRequest(verifyError);
+  if (verifyError) {
+    return badRequest(verifyError);
+  }
 
   const env = getCloudflareEnv();
   const object = await env.GAMES_BUCKET.get(key);
-  if (!object) return new Response("not found", { status: 404 });
+  if (!object) {
+    return new Response("not found", { status: 404 });
+  }
 
   return new Response(object.body, {
-    status: 200,
     headers: {
-      "content-type": object.httpMetadata?.contentType ?? "application/octet-stream",
-      "content-length": String(object.size),
       "cache-control": "no-store",
+      "content-length": String(object.size),
+      "content-type": object.httpMetadata?.contentType ?? "application/octet-stream",
     },
+    status: 200,
   });
-}
+};
 
 export const Route = createFileRoute("/api/r2-download")({
   server: {

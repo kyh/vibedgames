@@ -20,10 +20,14 @@
 // Hits / downs / deaths are corrected by the scene on their state EDGES (a
 // snap on a hit reads AS the hit); this class only owns positional convergence.
 
-export const SNAP_DIST = 48; // px of trajectory deviation that snaps to authority
-export const DEADZONE = 3; // px of deviation ignored as noise
-export const BLEND_RATE = 0.3; // fraction of a small deviation corrected per snapshot
-const HISTORY = 32; // predicted steps kept (~0.53s at 60Hz) — covers the RTT window
+// px of trajectory deviation that snaps to authority
+export const SNAP_DIST = 48;
+// px of deviation ignored as noise
+export const DEADZONE = 3;
+// fraction of a small deviation corrected per snapshot
+export const BLEND_RATE = 0.3;
+// predicted steps kept (~0.53s at 60Hz) — covers the RTT window
+const HISTORY = 32;
 
 export type Correction =
   | { kind: "aligned" }
@@ -36,7 +40,9 @@ export class Reconciler {
   /** Record the predicted position after each fixed sim step. */
   record(x: number, y: number): void {
     this.hist.push({ x, y });
-    if (this.hist.length > HISTORY) this.hist.shift();
+    if (this.hist.length > HISTORY) {
+      this.hist.shift();
+    }
   }
 
   /** Forget the trajectory (room change, snap, respawn). */
@@ -55,16 +61,23 @@ export class Reconciler {
         best = h;
       }
     }
-    if (!best) return { kind: "aligned" }; // no history yet (just spawned/reset)
+    if (!best) {
+      return { kind: "aligned" };
+      // no history yet (just spawned/reset)
+    }
     const dev = Math.sqrt(bd);
-    if (dev <= DEADZONE) return { kind: "aligned" };
-    if (dev >= SNAP_DIST) return { kind: "snap" };
+    if (dev <= DEADZONE) {
+      return { kind: "aligned" };
+    }
+    if (dev >= SNAP_DIST) {
+      return { kind: "snap" };
+    }
     const dx = (ax - best.x) * BLEND_RATE;
     const dy = (ay - best.y) * BLEND_RATE;
     for (const h of this.hist) {
       h.x += dx;
       h.y += dy;
     }
-    return { kind: "blend", dx, dy };
+    return { dx, dy, kind: "blend" };
   }
 }

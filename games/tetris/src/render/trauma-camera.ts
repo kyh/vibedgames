@@ -16,12 +16,15 @@ const MAX_OFFSET = 0.22;
 const MAX_ROT = 0.05;
 
 /** Layered sin "noise" in [-1, 1]: sin(t·31) + 0.5·sin(t·47), normalized. */
-function shakeNoise(t: number, phase: number): number {
-  return (Math.sin(t * 31 + phase) + 0.5 * Math.sin(t * 47 + phase * 1.7)) / 1.5;
-}
+const shakeNoise = (t: number, phase: number): number =>
+  (Math.sin(t * 31 + phase) + 0.5 * Math.sin(t * 47 + phase * 1.7)) / 1.5;
 
 /** Frame sample: positional offset (world units) + roll (radians). */
-export type ShakeSample = { ox: number; oy: number; rot: number };
+export interface ShakeSample {
+  ox: number;
+  oy: number;
+  rot: number;
+}
 
 export class TraumaCamera {
   private trauma = 0;
@@ -42,7 +45,9 @@ export class TraumaCamera {
   update(dt: number, tSec: number): ShakeSample {
     this.trauma = Math.max(0, this.trauma - TRAUMA_DECAY * dt);
     const shake = this.trauma * this.trauma;
-    if (shake <= 0.0001) return { ox: 0, oy: 0, rot: 0 };
+    if (shake <= 0.0001) {
+      return { ox: 0, oy: 0, rot: 0 };
+    }
     return {
       ox: MAX_OFFSET * shake * shakeNoise(tSec, this.phaseX),
       oy: MAX_OFFSET * shake * shakeNoise(tSec, this.phaseY),

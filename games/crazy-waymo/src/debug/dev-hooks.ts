@@ -6,16 +6,16 @@ import * as THREE from "three";
 import type { PerfGovernor } from "../render/perf-governor";
 import type { GameScene } from "../scenes/game-scene";
 
-export type TaxiDebugApi = {
+export interface TaxiDebugApi {
   readonly game: GameScene;
   readonly camera: THREE.PerspectiveCamera;
-  setFreecam(on: boolean): void;
+  setFreecam: (on: boolean) => void;
   // Park the camera at (x,y,z) looking at (tx,ty,tz); implies freecam.
-  lookFrom(x: number, y: number, z: number, tx: number, ty: number, tz: number): void;
+  lookFrom: (x: number, y: number, z: number, tx: number, ty: number, tz: number) => void;
   // Drop the taxi at normalized map coords (u,v in 0..1) facing `yaw`.
-  teleport(u: number, v: number, yaw?: number): void;
+  teleport: (u: number, v: number, yaw?: number) => void;
   // Live car probe for headless verification.
-  probe(): {
+  probe: () => {
     x: number;
     z: number;
     y: number;
@@ -30,20 +30,20 @@ export type TaxiDebugApi = {
     nearestTraffic: { dist: number; wrecked: boolean; y: number } | null;
   } | null;
   // Force the run clock (endgame testing).
-  setTime(seconds: number): void;
+  setTime: (seconds: number) => void;
   // Current perf-governor quality tier (0 = full; mobile boots lower).
-  tier(): number;
+  tier: () => number;
   // Jump the day-night cycle to a phase (0..1; ~0.25 day, 0.47 sunset, 0.7 night).
-  setPhase(p: number): void;
+  setPhase: (p: number) => void;
   // Nearest resting cone (verification).
-  nearestCone(): { u: number; v: number } | null;
+  nearestCone: () => { u: number; v: number } | null;
   // Launch the nearest resting cone through the physics path (verification).
-  smashCone(): boolean;
+  smashCone: () => boolean;
   // Raycast from the camera through NDC (nx, ny in -1..1); returns what's hit.
-  pick(
+  pick: (
     nx: number,
     ny: number,
-  ): {
+  ) => {
     name: string;
     chain: string;
     point: number[];
@@ -51,7 +51,7 @@ export type TaxiDebugApi = {
     verts: number;
     bbox: number[] | null;
   } | null;
-};
+}
 
 declare global {
   interface Window {
@@ -59,44 +59,25 @@ declare global {
   }
 }
 
-export function installDevHooks(game: GameScene, governor: PerfGovernor): void {
+export const installDevHooks = (game: GameScene, governor: PerfGovernor): void => {
   window.__taxi = {
-    game,
     camera: game.camera,
-    tier(): number {
-      return governor.currentTier;
-    },
-    setFreecam(on: boolean): void {
-      game.freecam = on;
-    },
+    game,
     lookFrom(x: number, y: number, z: number, tx: number, ty: number, tz: number): void {
       game.freecam = true;
       game.camera.position.set(x, y, z);
       game.camera.lookAt(tx, ty, tz);
     },
-    teleport(u: number, v: number, yaw = 0): void {
-      game.debugTeleport(u, v, yaw);
-    },
-    probe() {
-      return game.debugProbe();
-    },
-    setTime(seconds: number): void {
-      game.debugSetTime(seconds);
-    },
-    setPhase(p: number): void {
-      game.debugSetDayPhase(p);
-    },
     nearestCone() {
       return game.debugNearestCone();
-    },
-    smashCone(): boolean {
-      return game.debugSmashNearestCone();
     },
     pick(nx: number, ny: number) {
       const ray = new THREE.Raycaster();
       ray.setFromCamera(new THREE.Vector2(nx, ny), game.camera);
-      const hit = ray.intersectObjects(game.scene.children, true)[0];
-      if (!hit) return null;
+      const [hit] = ray.intersectObjects(game.scene.children, true);
+      if (!hit) {
+        return null;
+      }
       const chain: string[] = [];
       let o: THREE.Object3D | null = hit.object;
       while (o) {
@@ -107,20 +88,43 @@ export function installDevHooks(game: GameScene, governor: PerfGovernor): void {
       const mat =
         mesh && mesh.material instanceof THREE.MeshStandardMaterial ? mesh.material : null;
       const geo = mesh ? mesh.geometry : null;
-      if (geo && !geo.boundingBox) geo.computeBoundingBox();
+      if (geo && !geo.boundingBox) {
+        geo.computeBoundingBox();
+      }
       const bb = geo?.boundingBox ?? null;
       return {
-        name: hit.object.name || hit.object.type,
-        chain: chain.join(" < "),
-        point: [hit.point.x, hit.point.y, hit.point.z].map((v) => Math.round(v * 10) / 10),
-        color: mat ? `#${mat.color.getHexString()}` : null,
-        verts: geo ? geo.getAttribute("position").count : 0,
         bbox: bb
           ? [bb.min.x, bb.min.y, bb.min.z, bb.max.x, bb.max.y, bb.max.z].map(
               (v) => Math.round(v * 10) / 10,
             )
           : null,
+        chain: chain.join(" < "),
+        color: mat ? `#${mat.color.getHexString()}` : null,
+        name: hit.object.name || hit.object.type,
+        point: [hit.point.x, hit.point.y, hit.point.z].map((v) => Math.round(v * 10) / 10),
+        verts: geo ? geo.getAttribute("position").count : 0,
       };
     },
+    probe() {
+      return game.debugProbe();
+    },
+    setFreecam(on: boolean): void {
+      game.freecam = on;
+    },
+    setPhase(p: number): void {
+      game.debugSetDayPhase(p);
+    },
+    setTime(seconds: number): void {
+      game.debugSetTime(seconds);
+    },
+    smashCone(): boolean {
+      return game.debugSmashNearestCone();
+    },
+    teleport(u: number, v: number, yaw = 0): void {
+      game.debugTeleport(u, v, yaw);
+    },
+    tier(): number {
+      return governor.currentTier;
+    },
   };
-}
+};

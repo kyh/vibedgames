@@ -25,8 +25,7 @@ export const RIM_LIT_GAIN = 2.4;
  * Fragment replacement for `#include <opaque_fragment>` (strength baked as a
  * literal — pair every distinct strength with its own customProgramCacheKey).
  */
-export function rimGlsl(strength: number): string {
-  return /* glsl */ `
+export const rimGlsl = (strength: number): string => `
 #if NUM_DIR_LIGHTS > 0
 {
 	float rimNdv = abs( dot( normalize( vViewPosition ), normal ) );
@@ -37,7 +36,6 @@ export function rimGlsl(strength: number): string {
 #endif
 #include <opaque_fragment>
 `;
-}
 
 const rimApplied = new WeakSet<THREE.Material>();
 
@@ -45,12 +43,14 @@ const rimApplied = new WeakSet<THREE.Material>();
  *  (traffic kit materials, generated-GLB player skins). Idempotent, and it
  *  chains any injection already on the shared material instead of clobbering
  *  it (three can't see inside onBeforeCompile — the cache key chains too). */
-export function applySunRim(mat: THREE.MeshStandardMaterial, strength: number): void {
-  if (rimApplied.has(mat)) return;
+export const applySunRim = (mat: THREE.MeshStandardMaterial, strength: number): void => {
+  if (rimApplied.has(mat)) {
+    return;
+  }
   rimApplied.add(mat);
   const key = `waymo-sun-rim:${strength.toFixed(2)}`;
   const prev = mat.onBeforeCompile;
-  const prevKey = Object.prototype.hasOwnProperty.call(mat, "customProgramCacheKey")
+  const prevKey = Object.hasOwn(mat, "customProgramCacheKey")
     ? mat.customProgramCacheKey.bind(mat)
     : null;
   mat.onBeforeCompile = (shader, renderer) => {
@@ -62,7 +62,7 @@ export function applySunRim(mat: THREE.MeshStandardMaterial, strength: number): 
   };
   mat.customProgramCacheKey = () => (prevKey ? `${prevKey()}|` : "") + key;
   mat.needsUpdate = true;
-}
+};
 
 // Traffic + parked cars share the deduped kit materials, so patching the
 // materials reachable from each traffic model rims every fleet/curb instance
@@ -76,22 +76,28 @@ const rimmedModels = new Set<string>();
  * title (late preload), so this is retried until every model resolves to a
  * real template — returns true once all are patched.
  */
-export function applyTrafficSunRim(cache: ModelCache): boolean {
+export const applyTrafficSunRim = (cache: ModelCache): boolean => {
   for (const name of TRAFFIC_RIM_MODELS) {
-    if (rimmedModels.has(name)) continue;
+    if (rimmedModels.has(name)) {
+      continue;
+    }
     const inst = cache.instance(modelUrl("cars", name));
     let loaded = false;
     inst.traverse((c) => {
       // instance() tags real template meshes with userData.src; the magenta
       // fallback box (model not loaded yet) carries no tag.
-      if (!(c instanceof THREE.Mesh) || !("src" in c.userData)) return;
+      if (!(c instanceof THREE.Mesh) || !("src" in c.userData)) {
+        return;
+      }
       loaded = true;
       const m = c.material;
       if (!Array.isArray(m) && m instanceof THREE.MeshStandardMaterial) {
         applySunRim(m, RIM_TRAFFIC);
       }
     });
-    if (loaded) rimmedModels.add(name);
+    if (loaded) {
+      rimmedModels.add(name);
+    }
   }
   return rimmedModels.size === TRAFFIC_RIM_MODELS.length;
-}
+};

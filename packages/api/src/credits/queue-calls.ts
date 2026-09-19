@@ -27,17 +27,23 @@ export const classifyQueueCall = (method: string, path: string): QueueCall => {
     // A queue POST that isn't under /requests/ is a job submission. fal
     // endpoint ids are at least `{owner}/{model}` deep.
     if (method === "POST" && segments.length >= 2) {
-      return { kind: "submit", endpointId: segments.join("/") };
+      return { endpointId: segments.join("/"), kind: "submit" };
     }
     return { kind: "other" };
   }
 
   const requestId = segments[requestsIdx + 1];
-  if (requestId === undefined || requestsIdx === 0) return { kind: "other" };
+  if (requestId === undefined || requestsIdx === 0) {
+    return { kind: "other" };
+  }
   const tail = segments[requestsIdx + 2];
 
-  if (method === "GET" && tail === "status") return { kind: "status", requestId };
-  if (method === "GET" && tail === undefined) return { kind: "result", requestId };
+  if (method === "GET" && tail === "status") {
+    return { kind: "status", requestId };
+  }
+  if (method === "GET" && tail === undefined) {
+    return { kind: "result", requestId };
+  }
   return { kind: "other" };
 };
 
@@ -53,7 +59,9 @@ export const isUnbilledTerminalStatus = (status: string | null): boolean =>
 export const parseBillableUnits = (headerValue: string | null): number | null => {
   // Blank counts as absent — Number("") is 0, which would read as an
   // authoritative "billed zero units" and refund the whole hold.
-  if (headerValue === null || headerValue.trim().length === 0) return null;
+  if (headerValue === null || headerValue.trim().length === 0) {
+    return null;
+  }
   const units = Number(headerValue);
   return Number.isFinite(units) && units >= 0 ? units : null;
 };

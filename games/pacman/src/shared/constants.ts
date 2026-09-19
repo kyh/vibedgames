@@ -15,7 +15,7 @@
  * Ghost den: rows 11–13 × cols 13–17, doorway up at col 15 and down at
  * (15, 14).
  */
-export const MAP: ReadonlyArray<ReadonlyArray<number>> = [
+export const MAP: readonly (readonly number[])[] = [
   [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
   [1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1],
   [1, 3, 1, 2, 1, 1, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 1, 1, 2, 1, 3, 1],
@@ -67,9 +67,10 @@ export const MAX_DT = 0.1;
 export const SCORE_PELLET = 10;
 export const SCORE_POWER = 50;
 export const SCORE_GHOST = 200;
-export const SCARED_MS = 10_000; // legacy POWER_PELLET_DURATION
+// legacy POWER_PELLET_DURATION
+export const SCARED_MS = 10_000;
 /** Last stretch of power mode: ghosts blink + a soft warning note plays. */
-export const SCARED_WARN_MS = 2_000;
+export const SCARED_WARN_MS = 2000;
 export const SCARED_BLINK_INTERVAL_MS = 250;
 /** Odds a ghost greedily chases at a grid center (else pure random). */
 export const CHASE_CHANCE = 0.7;
@@ -77,17 +78,17 @@ export const CHASE_CHANCE = 0.7;
 export const START_LIVES = 3;
 export const READY_MS = 900;
 /** After a respawn, ghost contact can't kill for this long (anti spawn-camp). */
-export const SPAWN_GRACE_MS = 1_000;
+export const SPAWN_GRACE_MS = 1000;
 
 export const PACMAN_SPAWN = { col: 1, row: 1 } as const;
 /** Six ghosts for the bigger maze, spread across the center den. */
-export const GHOST_SPAWNS: ReadonlyArray<{ col: number; row: number; dir: Dir }> = [
-  { col: 13, row: 12, dir: "up" },
-  { col: 14, row: 12, dir: "left" },
-  { col: 15, row: 12, dir: "up" },
-  { col: 16, row: 12, dir: "right" },
-  { col: 17, row: 12, dir: "up" },
-  { col: 15, row: 11, dir: "up" },
+export const GHOST_SPAWNS: readonly { col: number; row: number; dir: Dir }[] = [
+  { col: 13, dir: "up", row: 12 },
+  { col: 14, dir: "left", row: 12 },
+  { col: 15, dir: "up", row: 12 },
+  { col: 16, dir: "right", row: 12 },
+  { col: 17, dir: "up", row: 12 },
+  { col: 15, dir: "up", row: 11 },
 ];
 export const GHOST_RESPAWN = { col: 15, row: 12 } as const;
 
@@ -101,11 +102,16 @@ export const EAT_DIST = 0.8;
 
 // ---- chase camera (legacy PacmanCamera) -----------------------------------------
 
-export const CAMERA_SMOOTHING = 0.1; // lerp factor per frame
-export const CAM_BACK = 2.5; // camera sits at pos - facing*2.5 (selfie: +2.5)
-export const CAM_HEIGHT = 2; // absolute camera y
-export const CAM_LOOK_AHEAD = 2; // lookAt = pos + facing*2
-export const CAM_SELFIE_LOOK_BACK = 1; // selfie lookAt = pos - facing*1
+// lerp factor per frame
+export const CAMERA_SMOOTHING = 0.1;
+// camera sits at pos - facing*2.5 (selfie: +2.5)
+export const CAM_BACK = 2.5;
+// absolute camera y
+export const CAM_HEIGHT = 2;
+// lookAt = pos + facing*2
+export const CAM_LOOK_AHEAD = 2;
+// selfie lookAt = pos - facing*1
+export const CAM_SELFIE_LOOK_BACK = 1;
 
 // ---- pacman model ---------------------------------------------------------------
 
@@ -158,31 +164,31 @@ export const HEART_PULSE_FREQ = 3.4;
 // ---- palette (plush clinic: cream, butter, blush, pastel mints) -------------------
 
 export const COLORS = {
-  pacman: 0xffd66b,
+  /** Page background + fog — everything melts into warm cream. */
+  bg: 0xfd_f1_e6,
+  blush: 0xff_9e_b5,
+  eye: 0x2e_2a_33,
+  floor: 0xfd_f4_ea,
+  floorDot: 0xf4_e2_d8,
+  heartGlow: 0xff_5c_8a,
   /** Warm near-black — pure #000 is too harsh for the soft look. */
-  mouth: 0x453941,
+  mouth: 0x45_39_41,
+  pacman: 0xff_d6_6b,
+  /** Butter pearls — cream-on-cream vanishes against the floor. */
+  pellet: 0xff_df_94,
+  pelletGlow: 0xff_b0_54,
+  power: 0xff_8f_ab,
   /**
    * Deep dusk periwinkle — deliberately OUTSIDE the pastel ghost palette so
    * "scared" reads at chase-cam distance (a pale tint was indistinguishable
    * from the periwinkle ghost's base coat).
    */
-  scared: 0x8c98d9,
+  scared: 0x8c_98_d9,
   /** Scared blink partner color for the wearing-off warning. */
-  scaredBlink: 0xf8f9ff,
-  power: 0xff8fab,
-  /** Butter pearls — cream-on-cream vanishes against the floor. */
-  pellet: 0xffdf94,
-  pelletGlow: 0xffb054,
-  heartGlow: 0xff5c8a,
-  wall: 0xf6cdd9,
-  floor: 0xfdf4ea,
-  floorDot: 0xf4e2d8,
-  eye: 0x2e2a33,
-  blush: 0xff9eb5,
-  /** Page background + fog — everything melts into warm cream. */
-  bg: 0xfdf1e6,
+  scaredBlink: 0xf8_f9_ff,
+  wall: 0xf6_cd_d9,
 } as const;
-export const GHOST_COLORS: ReadonlyArray<number> = [0xffb3c1, 0xffd6a5, 0xb8e8c8, 0xb5c7f7];
+export const GHOST_COLORS: readonly number[] = [0xff_b3_c1, 0xff_d6_a5, 0xb8_e8_c8, 0xb5_c7_f7];
 /** Deterministic per-wall lightness wobble so the candy blocks aren't flat. */
 export const WALL_TINT_WOBBLE = 0.04;
 /**
@@ -193,10 +199,10 @@ export const WALL_OPACITY = 0.85;
 
 // ---- lighting (hemisphere sky + warm key with soft shadows, ACES) ------------------
 
-export const HEMI_SKY = 0xfff6ec;
-export const HEMI_GROUND = 0xf3dce2;
+export const HEMI_SKY = 0xff_f6_ec;
+export const HEMI_GROUND = 0xf3_dc_e2;
 export const HEMI_INTENSITY = 0.85;
-export const KEY_COLOR = 0xfff2e0;
+export const KEY_COLOR = 0xff_f2_e0;
 export const KEY_INTENSITY = 1.6;
 export const TONE_EXPOSURE = 1.1;
 /** Fog near/far in world units. */
@@ -237,45 +243,45 @@ export const BEST_KEY = "pacman-best";
 // ---- directions ---------------------------------------------------------------
 
 export type Dir = "up" | "down" | "left" | "right";
-export const DIRS: ReadonlyArray<Dir> = ["up", "down", "left", "right"];
+export const DIRS: readonly Dir[] = ["up", "down", "left", "right"];
 /** [dCol, dRow] = [dWorldX, dWorldZ]; up = -z, matching legacy Vector3(0,0,-1). */
 export const DIR_VECT = {
-  up: [0, -1],
   down: [0, 1],
   left: [-1, 0],
   right: [1, 0],
+  up: [0, -1],
 } satisfies Record<Dir, readonly [number, number]>;
 export const OPPOSITE = {
-  up: "down",
   down: "up",
   left: "right",
   right: "left",
+  up: "down",
 } satisfies Record<Dir, Dir>;
 /** Relative 90° turns (legacy ArrowLeft/ArrowRight semantics). */
 export const TURN_LEFT = {
-  up: "left",
-  left: "down",
   down: "right",
+  left: "down",
   right: "up",
+  up: "left",
 } satisfies Record<Dir, Dir>;
 export const TURN_RIGHT = {
-  up: "right",
-  right: "down",
   down: "left",
   left: "up",
+  right: "down",
+  up: "right",
 } satisfies Record<Dir, Dir>;
 
 // ---- grid helpers -------------------------------------------------------------
 
 /** Walkable check. Out-of-bounds is a wall — no wraparound (legacy isValidMove). */
-export function isOpen(col: number, row: number): boolean {
-  if (col < 0 || row < 0 || col >= GRID_COLS || row >= GRID_ROWS) return false;
+export const isOpen = (col: number, row: number): boolean => {
+  if (col < 0 || row < 0 || col >= GRID_COLS || row >= GRID_ROWS) {
+    return false;
+  }
   return (MAP[row]?.[col] ?? 1) !== 1;
-}
+};
 
-export function cellKey(col: number, row: number): string {
-  return `${col},${row}`;
-}
+export const cellKey = (col: number, row: number): string => `${col},${row}`;
 
 // ---- multiplayer -------------------------------------------------------------
 // Shared-maze race: the maze + pellet layout come from the static MAP, so every

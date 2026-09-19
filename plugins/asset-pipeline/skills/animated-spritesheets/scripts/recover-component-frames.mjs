@@ -12,10 +12,9 @@
  *   node recover-component-frames.mjs board.png --rows 3 --cols 4 --frames 8 \
  *       --out-dir runs/hero-attack/recovered
  */
-import { join } from "node:path";
+import path from "node:path";
 
 import {
-  fail,
   failUsage,
   getInt,
   getString,
@@ -29,38 +28,44 @@ main(() => {
   const args = parseArgs(process.argv.slice(2), {
     values: ["cols", "frames", "out-dir", "prefix", "rows", "threshold"],
   });
-  const sheet = args.positionals[0];
-  if (!sheet) failUsage("A pose-board PNG path is required.");
+  const [sheet] = args.positionals;
+  if (!sheet) {
+    failUsage("A pose-board PNG path is required.");
+  }
 
   const outDir = getString(args, "out-dir");
-  if (!outDir) failUsage("--out-dir is required");
+  if (!outDir) {
+    failUsage("--out-dir is required");
+  }
 
   const rows = getInt(args, "rows", 0);
   const cols = getInt(args, "cols", 0);
-  if (!rows || !cols) failUsage("--rows and --cols are required");
+  if (!rows || !cols) {
+    failUsage("--rows and --cols are required");
+  }
 
   const prefix = getString(args, "prefix") ?? "frame";
   const frames = getString(args, "frames") === undefined ? null : getInt(args, "frames", 0);
 
   const { result, crops } = recoverFrames(sheet, {
-    rows,
     cols,
     frames,
+    rows,
     threshold: getInt(args, "threshold", 15),
   });
 
   for (const crop of crops) {
-    const path = join(outDir, `${prefix}-${crop.label}.png`);
-    crop.image.toFile(path);
+    const outPath = path.join(outDir, `${prefix}-${crop.label}.png`);
+    crop.image.toFile(outPath);
     result.frames.push({
-      frame: crop.label,
-      bbox: crop.bbox,
       area: crop.area,
+      bbox: crop.bbox,
       center: crop.center,
-      path,
+      frame: crop.label,
+      path: outPath,
     });
   }
 
-  writeJsonFile(join(outDir, `${prefix}-metadata.json`), result);
+  writeJsonFile(path.join(outDir, `${prefix}-metadata.json`), result);
   console.log(outDir);
 });

@@ -2,41 +2,41 @@ import { sql } from "drizzle-orm";
 import { index, sqliteTable, text, integer, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const user = sqliteTable("user", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  email: text("email").notNull().unique(),
-  emailVerified: integer("email_verified", { mode: "boolean" }).default(false).notNull(),
-  image: text("image"),
+  banExpires: integer("ban_expires", { mode: "timestamp_ms" }),
+  banReason: text("ban_reason"),
+  banned: integer("banned", { mode: "boolean" }).default(false),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
     .notNull(),
+  email: text("email").notNull().unique(),
+  emailVerified: integer("email_verified", { mode: "boolean" }).default(false).notNull(),
+  id: text("id").primaryKey(),
+  image: text("image"),
+  invitedByCode: text("invited_by_code"),
+  name: text("name").notNull(),
+  role: text("role"),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" })
     .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-    .$onUpdate(() => /* @__PURE__ */ new Date())
+    .$onUpdate(() => new Date())
     .notNull(),
-  role: text("role"),
-  banned: integer("banned", { mode: "boolean" }).default(false),
-  banReason: text("ban_reason"),
-  banExpires: integer("ban_expires", { mode: "timestamp_ms" }),
-  invitedByCode: text("invited_by_code"),
 });
 
 export const session = sqliteTable("session", {
-  id: text("id").primaryKey(),
-  expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
-  token: text("token").notNull().unique(),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
     .notNull(),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
-    .$onUpdate(() => /* @__PURE__ */ new Date())
-    .notNull(),
+  expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+  id: text("id").primaryKey(),
+  impersonatedBy: text("impersonated_by"),
   ipAddress: text("ip_address"),
+  token: text("token").notNull().unique(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+    .$onUpdate(() => new Date())
+    .notNull(),
   userAgent: text("user_agent"),
   userId: text("user_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
-  impersonatedBy: text("impersonated_by"),
 });
 
 // better-auth 1.7 scopes account identity by `(issuer, accountId)` rather than
@@ -46,30 +46,30 @@ export const session = sqliteTable("session", {
 export const account = sqliteTable(
   "account",
   {
-    id: text("id").primaryKey(),
-    accountId: text("account_id").notNull(),
-    providerId: text("provider_id").notNull(),
-    issuer: text("issuer").notNull(),
-    userId: text("user_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
     accessToken: text("access_token"),
-    refreshToken: text("refresh_token"),
-    idToken: text("id_token"),
     accessTokenExpiresAt: integer("access_token_expires_at", {
       mode: "timestamp_ms",
     }),
+    accountId: text("account_id").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .notNull(),
+    id: text("id").primaryKey(),
+    idToken: text("id_token"),
+    issuer: text("issuer").notNull(),
+    password: text("password"),
+    providerId: text("provider_id").notNull(),
+    refreshToken: text("refresh_token"),
     refreshTokenExpiresAt: integer("refresh_token_expires_at", {
       mode: "timestamp_ms",
     }),
     scope: text("scope"),
-    password: text("password"),
-    createdAt: integer("created_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-      .notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" })
-      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .$onUpdate(() => new Date())
       .notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
   },
   (table) => ({
     issuerAccountIdx: uniqueIndex("account_issuer_accountId_uidx").on(
@@ -80,17 +80,17 @@ export const account = sqliteTable(
 );
 
 export const verification = sqliteTable("verification", {
-  id: text("id").primaryKey(),
-  identifier: text("identifier").notNull(),
-  value: text("value").notNull(),
-  expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
     .notNull(),
+  expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+  id: text("id").primaryKey(),
+  identifier: text("identifier").notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" })
     .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-    .$onUpdate(() => /* @__PURE__ */ new Date())
+    .$onUpdate(() => new Date())
     .notNull(),
+  value: text("value").notNull(),
 });
 
 // Managed by the @better-auth/api-key plugin. Property names MUST match the
@@ -100,40 +100,40 @@ export const verification = sqliteTable("verification", {
 export const apikey = sqliteTable(
   "apikey",
   {
-    id: text("id").primaryKey().notNull(),
-    name: text("name"),
-    start: text("start"),
-    prefix: text("prefix"),
-    key: text("key").notNull(),
-    referenceId: text("reference_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
     configId: text("config_id").notNull(),
-    refillInterval: integer("refill_interval"),
-    refillAmount: integer("refill_amount"),
-    lastRefillAt: integer("last_refill_at", { mode: "timestamp_ms" }),
-    enabled: integer("enabled", { mode: "boolean" }).default(true),
-    rateLimitEnabled: integer("rate_limit_enabled", { mode: "boolean" }).default(true),
-    rateLimitTimeWindow: integer("rate_limit_time_window"),
-    rateLimitMax: integer("rate_limit_max"),
-    requestCount: integer("request_count").default(0),
-    remaining: integer("remaining"),
-    lastRequest: integer("last_request", { mode: "timestamp_ms" }),
-    expiresAt: integer("expires_at", { mode: "timestamp_ms" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
       .notNull(),
+    enabled: integer("enabled", { mode: "boolean" }).default(true),
+    expiresAt: integer("expires_at", { mode: "timestamp_ms" }),
+    id: text("id").primaryKey().notNull(),
+    key: text("key").notNull(),
+    lastRefillAt: integer("last_refill_at", { mode: "timestamp_ms" }),
+    lastRequest: integer("last_request", { mode: "timestamp_ms" }),
+    metadata: text("metadata"),
+    name: text("name"),
+    permissions: text("permissions"),
+    prefix: text("prefix"),
+    rateLimitEnabled: integer("rate_limit_enabled", { mode: "boolean" }).default(true),
+    rateLimitMax: integer("rate_limit_max"),
+    rateLimitTimeWindow: integer("rate_limit_time_window"),
+    referenceId: text("reference_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    refillAmount: integer("refill_amount"),
+    refillInterval: integer("refill_interval"),
+    remaining: integer("remaining"),
+    requestCount: integer("request_count").default(0),
+    start: text("start"),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" })
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .$onUpdate(() => new Date())
       .notNull(),
-    permissions: text("permissions"),
-    metadata: text("metadata"),
   },
   (table) => ({
-    referenceIdx: index("apikey_referenceId_idx").on(table.referenceId),
     configIdx: index("apikey_configId_idx").on(table.configId),
     keyIdx: index("apikey_key_idx").on(table.key),
+    referenceIdx: index("apikey_referenceId_idx").on(table.referenceId),
   }),
 );
 
@@ -143,8 +143,8 @@ export const apikey = sqliteTable(
 // (not a Date), so it stays a plain integer column. Hand-added — the @better-auth
 // CLI regen emits this table too, so keep it if you regenerate the schema.
 export const rateLimit = sqliteTable("rate_limit", {
+  count: integer("count").notNull(),
   id: text("id").primaryKey(),
   key: text("key").notNull().unique(),
-  count: integer("count").notNull(),
   lastRequest: integer("last_request").notNull(),
 });

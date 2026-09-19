@@ -23,29 +23,21 @@ const fetchCliAuth = createServerFn({ method: "GET" })
 
     if (!session) {
       throw redirect({
-        to: "/auth/login",
         search: {
           callbackUrl: `/auth/cli?code=${code}`,
         },
+        to: "/auth/login",
       });
     }
 
     return {
-      error: undefined,
       code,
+      error: undefined,
       userName: session.user.name,
     };
   });
 
-export const Route = createFileRoute("/auth/cli")({
-  validateSearch: cliSearchSchema,
-  loaderDeps: ({ search }) => ({ code: search.code }),
-  loader: ({ deps }) => fetchCliAuth({ data: deps }),
-  head: () => ({ meta: [{ title: "Authorize CLI" }] }),
-  component: CliAuthPage,
-});
-
-function CliAuthPage() {
+const CliAuthPage = () => {
   const data = Route.useLoaderData();
 
   if (data.error === "missing-code") {
@@ -66,4 +58,12 @@ function CliAuthPage() {
       <CliAuthConfirm code={data.code} userName={data.userName} />
     </div>
   );
-}
+};
+
+export const Route = createFileRoute("/auth/cli")({
+  component: CliAuthPage,
+  head: () => ({ meta: [{ title: "Authorize CLI" }] }),
+  loader: ({ deps }) => fetchCliAuth({ data: deps }),
+  loaderDeps: ({ search }) => ({ code: search.code }),
+  validateSearch: cliSearchSchema,
+});

@@ -1,4 +1,4 @@
-import type { MediaProviderConfig, R2Config } from "@repo/api/orpc";
+import type { DecisionProviderConfig, MediaProviderConfig, R2Config } from "@repo/api/orpc";
 import { createAuth as initAuth } from "@repo/api/auth/auth";
 import { createORPCContext } from "@repo/api/orpc";
 import { createDb } from "@repo/db/drizzle-client";
@@ -16,7 +16,7 @@ import { getCloudflareEnv } from "@/lib/cloudflare";
  * The baseUrl is derived from the incoming request's Host header so it
  * correctly reflects localhost in dev, preview domains, and production.
  */
-export function getServerContext() {
+export const getServerContext = () => {
   const env = getCloudflareEnv();
   const db = createDb(env.DB);
 
@@ -31,8 +31,8 @@ export function getServerContext() {
   const productionUrl = env.PRODUCTION_URL || baseUrl;
 
   const auth = initAuth({
-    db,
     baseURL: baseUrl,
+    db,
     productionURL: productionUrl,
     secret: env.BETTER_AUTH_SECRET,
   });
@@ -49,10 +49,10 @@ export function getServerContext() {
   let r2: R2Config | undefined;
   if (env.GAMES_BUCKET && env.R2_ACCOUNT_ID && env.R2_ACCESS_KEY_ID && env.R2_SECRET_ACCESS_KEY) {
     r2 = {
+      accessKeyId: env.R2_ACCESS_KEY_ID,
+      accountId: env.R2_ACCOUNT_ID,
       bucket: env.GAMES_BUCKET,
       bucketName: env.R2_BUCKET_NAME,
-      accountId: env.R2_ACCOUNT_ID,
-      accessKeyId: env.R2_ACCESS_KEY_ID,
       secretAccessKey: env.R2_SECRET_ACCESS_KEY,
     };
     if (isLocalhost) {
@@ -63,14 +63,20 @@ export function getServerContext() {
 
   const media: MediaProviderConfig = {
     fal: env.FAL_API_KEY,
-    falQueueBaseUrl: env.FAL_QUEUE_BASE_URL,
-    falPlatformBaseUrl: env.FAL_PLATFORM_BASE_URL,
     falDocsBaseUrl: env.FAL_DOCS_BASE_URL,
+    falPlatformBaseUrl: env.FAL_PLATFORM_BASE_URL,
+    falQueueBaseUrl: env.FAL_QUEUE_BASE_URL,
     falStorageBaseUrl: env.FAL_STORAGE_BASE_URL,
   };
 
-  return { db, auth, baseUrl, productionUrl, r2, media };
-}
+  const decision: DecisionProviderConfig = {
+    tokenSecret: env.BETTER_AUTH_SECRET,
+    typesafe: env.TYPESAFE_API_KEY,
+    typesafeBaseUrl: env.TYPESAFE_BASE_URL,
+  };
+
+  return { auth, baseUrl, db, decision, media, productionUrl, r2 };
+};
 
 /**
  * The one place the Worker bindings are mapped onto the oRPC context.
@@ -79,17 +85,18 @@ export function getServerContext() {
  * SSR client in `lib/orpc.tsx` — so a binding added here can't reach one and
  * silently miss the other.
  */
-export function createRpcContext(headers: Headers) {
-  const { db, auth: betterAuth, productionUrl, r2, media } = getServerContext();
+export const createRpcContext = (headers: Headers) => {
+  const { db, auth: betterAuth, productionUrl, r2, media, decision } = getServerContext();
   return createORPCContext({
-    headers,
-    db,
     auth: betterAuth,
+    db,
+    decision,
+    headers,
+    media,
     productionURL: productionUrl,
     r2,
-    media,
   });
-}
+};
 
 /**
  * Shorthand for handlers that only need `auth` (e.g. `api/auth.$.ts`).

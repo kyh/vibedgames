@@ -116,8 +116,9 @@ if (dir) this.step(dir);
 
 The Phaser adapter draws the joystick + fixed buttons into a screen-fixed
 `Graphics` object. Tune it with `render: { depth, tint, blendMode }`, recolor at
-runtime with `setTint(0xff00aa)`, or pass `render: false` and draw it yourself
-from `gamepad.pad` (see `getStickGeometry`, `getStick`, `getButtonLayout`).
+runtime with `setTint(0xff00aa)`, hide it behind a start screen with
+`setVisible(false)` (input keeps working), or pass `render: false` and draw it
+yourself from `gamepad.pad` (see `getStickGeometry`, `getStick`, `getButtonLayout`).
 
 ## Framework-agnostic core
 

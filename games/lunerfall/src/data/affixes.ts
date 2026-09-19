@@ -4,45 +4,48 @@ import { rand } from "../sys/rng";
 // bending its EnemyBody multipliers so the pack fights differently: a wall you
 // grind down, a swarm you outrun, or hits you can't facetank. Applied host-side
 // at spawn (see spawnEnemies); the tint reads the threat at a glance.
-export type Affix = {
+export interface Affix {
   id: string;
   name: string;
-  tint: number; // enemy recolour
+  // enemy recolour
+  tint: number;
   hpMult: number;
   speedMult: number;
-  dmgTakenMult: number; // <1 = tanky
-  dmgOutMult: number; // >1 = hits harder
-};
+  // <1 = tanky
+  dmgTakenMult: number;
+  // >1 = hits harder
+  dmgOutMult: number;
+}
 
 const ARMORED: Affix = {
+  dmgOutMult: 1,
+  dmgTakenMult: 0.45,
+  hpMult: 1.5,
   id: "armored",
   name: "Armored",
-  tint: 0x9fb4d8,
-  hpMult: 1.5,
   speedMult: 1,
-  dmgTakenMult: 0.45,
-  dmgOutMult: 1,
+  tint: 0x9f_b4_d8,
 };
 
 export const AFFIXES: readonly Affix[] = [
   ARMORED,
   {
+    dmgOutMult: 1,
+    dmgTakenMult: 1,
+    hpMult: 0.9,
     id: "swift",
     name: "Swift",
-    tint: 0xffe14a,
-    hpMult: 0.9,
     speedMult: 1.7,
-    dmgTakenMult: 1,
-    dmgOutMult: 1,
+    tint: 0xff_e1_4a,
   },
   {
+    dmgOutMult: 1.5,
+    dmgTakenMult: 1,
+    hpMult: 1.3,
     id: "brutal",
     name: "Brutal",
-    tint: 0xff5a5a,
-    hpMult: 1.3,
     speedMult: 1.1,
-    dmgTakenMult: 1,
-    dmgOutMult: 1.5,
+    tint: 0xff_5a_5a,
   },
 ];
 

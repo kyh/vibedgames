@@ -1,14 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
-import type {
-  JsonRecord,
-  JsonValue,
-  MultiplayerOptions,
-  PlayerMap,
-  SendEventOptions,
-} from "./types.js";
+import type { JsonRecord, JsonValue, MultiplayerOptions, SendEventOptions } from "./types.js";
 import { MultiplayerClient } from "./client.js";
-import type { MultiplayerClientOptions, MultiplayerSnapshot } from "./client.js";
+import type { MultiplayerSnapshot } from "./client.js";
 
 // ---------------------------------------------------------------------------
 // Core room hook
@@ -23,7 +17,7 @@ type SharedUpdaterFn<TShared> =
 // the caller's realm alongside the hook, so the realm caveat doesn't bite.
 const isSharedUpdaterFn = <TShared>(
   updater: Partial<TShared> | SharedUpdaterFn<TShared>,
-): updater is SharedUpdaterFn<TShared> => updater instanceof Function;
+): updater is SharedUpdaterFn<TShared> => typeof updater === "function";
 
 export type MultiplayerRoom<TShared = JsonRecord> = MultiplayerSnapshot & {
   sharedState: TShared;
@@ -36,47 +30,43 @@ export type UseMultiplayerRoomConfig<TShared> = MultiplayerOptions & {
   initialState?: TShared;
 };
 
-export function useMultiplayerRoom<TShared extends JsonRecord = JsonRecord>(
+export const useMultiplayerRoom = <TShared extends JsonRecord = JsonRecord>(
   config: UseMultiplayerRoomConfig<TShared>,
-): MultiplayerRoom<TShared> {
-  const onEventRef = useRef(config.onEvent);
-  onEventRef.current = config.onEvent;
-
-  // Stable client instance — only recreate if connection params change
-  const clientRef = useRef<MultiplayerClient | null>(null);
+): MultiplayerRoom<TShared> => {
+  // Stable client instance — only recreate if connection params change. The
+  // swap happens as a render-phase state reset so the rest of this render
+  // already sees the new client; the old one is torn down by effect cleanup.
   const key = `${config.host}/${config.party}/${config.room}/${config.maxPlayers ?? ""}`;
-  const keyRef = useRef(key);
-
-  if (!clientRef.current || keyRef.current !== key) {
-    clientRef.current?.destroy();
-    keyRef.current = key;
-    clientRef.current = new MultiplayerClient({
+  const [entry, setEntry] = useState<{ client: MultiplayerClient; key: string } | null>(null);
+  let client = entry !== null && entry.key === key ? entry.client : null;
+  if (client === null) {
+    client = new MultiplayerClient({
       host: config.host,
+      initialState: config.initialState,
+      maxPlayers: config.maxPlayers,
+      onEvent: config.onEvent,
       party: config.party,
       room: config.room,
-      maxPlayers: config.maxPlayers,
-      initialState: config.initialState,
-      onEvent: (event, payload, from) => onEventRef.current?.(event, payload, from),
     });
+    setEntry({ client, key });
   }
 
-  const client = clientRef.current;
-
-  // Keep onEvent in sync
-  useEffect(() => {
-    client.onEvent = (event, payload, from) => onEventRef.current?.(event, payload, from);
-  }, [client]);
-
-  // Clean up on unmount
   useEffect(
     () => () => {
-      clientRef.current?.destroy();
+      client.destroy();
     },
-    [],
+    [client],
   );
 
+  // The client outlives any one onEvent prop; keep its callback slot current.
+  const { onEvent } = config;
+  useEffect(() => {
+    // oxlint-disable-next-line react/immutability -- the client is a socket wrapper held in state only for its identity; reassigning its callback slot is the intended API
+    client.onEvent = onEvent;
+  }, [client, onEvent]);
+
   // Subscribe to client state via useSyncExternalStore
-  const subscribe = useCallback((cb: () => void) => client.subscribe(cb), [client]);
+  const subscribe = useCallback((listener: () => void) => client.subscribe(listener), [client]);
   const getSnapshot = useCallback(() => client.getSnapshot(), [client]);
   const snapshot = useSyncExternalStore(subscribe, getSnapshot);
 
@@ -112,26 +102,49 @@ export function useMultiplayerRoom<TShared extends JsonRecord = JsonRecord>(
   return useMemo(
     () => ({
       ...snapshot,
+      sendEvent,
       // SAFETY: same invariant as updateSharedState — the stored JsonRecord is
       // whatever TShared the game seeded and last wrote.
       sharedState: snapshot.sharedState as TShared,
-      updateSharedState,
       updateMyState,
-      sendEvent,
+      updateSharedState,
     }),
     [snapshot, updateSharedState, updateMyState, sendEvent],
   );
-}
+};
+
+// ---------------------------------------------------------------------------
+// Internal
+// ---------------------------------------------------------------------------
+
+const useRoom = <TShared extends JsonRecord = JsonRecord>(
+  roomOrConfig: MultiplayerRoom<TShared> | (MultiplayerOptions & { initialState?: TShared }),
+  initialState?: TShared,
+): MultiplayerRoom<TShared> => {
+  if ("connectionStatus" in roomOrConfig) {
+    return roomOrConfig;
+  }
+
+  // oxlint-disable-next-line react/hooks, react-hooks/rules-of-hooks -- the argument's shape is fixed per call site (a room or a config, never both over time), so this branch is stable across renders
+  return useMultiplayerRoom<TShared>({
+    host: roomOrConfig.host,
+    initialState: initialState ?? roomOrConfig.initialState,
+    maxPlayers: roomOrConfig.maxPlayers,
+    party: roomOrConfig.party,
+    room: roomOrConfig.room,
+  });
+};
 
 // ---------------------------------------------------------------------------
 // Convenience hooks
 // ---------------------------------------------------------------------------
 
-export function useMultiplayerState<TShared extends JsonRecord = JsonRecord>(
+export const useMultiplayerState = <TShared extends JsonRecord = JsonRecord>(
   roomOrConfig: MultiplayerRoom<TShared> | (MultiplayerOptions & { initialState?: TShared }),
   initialState?: TShared,
-): readonly [TShared, MultiplayerRoom<TShared>["updateSharedState"], MultiplayerRoom<TShared>] {
+): readonly [TShared, MultiplayerRoom<TShared>["updateSharedState"], MultiplayerRoom<TShared>] => {
   const room = useRoom(roomOrConfig, initialState);
+  const { hostId, playerId, updateSharedState } = room;
   // Track which player identity we've seeded for, not a lifetime boolean: an
   // overflow redirect (room_full) hands the client a fresh playerId, and the
   // new room needs seeding too. playerId is stable across host promotion, so
@@ -140,24 +153,25 @@ export function useMultiplayerState<TShared extends JsonRecord = JsonRecord>(
 
   useEffect(() => {
     if (
-      room.hostId === room.playerId &&
-      room.playerId !== null &&
+      hostId === playerId &&
+      playerId !== null &&
       initialState &&
-      seededForPlayer.current !== room.playerId
+      seededForPlayer.current !== playerId
     ) {
-      seededForPlayer.current = room.playerId;
-      room.updateSharedState((prev) => ({ ...initialState, ...prev }));
+      seededForPlayer.current = playerId;
+      updateSharedState((prev) => ({ ...initialState, ...prev }));
     }
-  }, [room.hostId, room.playerId, room.updateSharedState, initialState]);
+  }, [hostId, playerId, updateSharedState, initialState]);
 
   return useMemo(() => [room.sharedState, room.updateSharedState, room] as const, [room]);
-}
+};
 
-export function usePlayerState<TPlayerState extends JsonRecord = JsonRecord>(
+export const usePlayerState = <TPlayerState extends JsonRecord = JsonRecord>(
   roomOrConfig: MultiplayerRoom | (MultiplayerOptions & { initialState?: JsonRecord }),
   initialState?: TPlayerState,
-): readonly [TPlayerState, MultiplayerRoom["updateMyState"], MultiplayerRoom<JsonRecord>] {
-  const room = useRoom(roomOrConfig, undefined);
+): readonly [TPlayerState, MultiplayerRoom["updateMyState"], MultiplayerRoom<JsonRecord>] => {
+  const room = useRoom(roomOrConfig);
+  const { playerId, updateMyState } = room;
   // Per-player-identity seeding, same as useMultiplayerState above.
   const seededForPlayer = useRef<string | null>(null);
 
@@ -173,40 +187,18 @@ export function usePlayerState<TPlayerState extends JsonRecord = JsonRecord>(
   }, [initialState, room.playerId, room.players]);
 
   useEffect(() => {
-    if (initialState && room.playerId && seededForPlayer.current !== room.playerId) {
-      seededForPlayer.current = room.playerId;
-      room.updateMyState((prev) => ({ ...initialState, ...prev }));
+    if (initialState && playerId && seededForPlayer.current !== playerId) {
+      seededForPlayer.current = playerId;
+      updateMyState((prev) => ({ ...initialState, ...prev }));
     }
-  }, [room.playerId, room.updateMyState, initialState]);
+  }, [playerId, updateMyState, initialState]);
 
   return useMemo(() => [playerState, room.updateMyState, room] as const, [playerState, room]);
-}
+};
 
-export function useIsHost(
+export const useIsHost = (
   roomOrConfig: MultiplayerRoom | (MultiplayerOptions & { initialState?: JsonRecord }),
-): boolean {
-  const room = useRoom(roomOrConfig, undefined);
+): boolean => {
+  const room = useRoom(roomOrConfig);
   return room.hostId !== null && room.hostId === room.playerId;
-}
-
-// ---------------------------------------------------------------------------
-// Internal
-// ---------------------------------------------------------------------------
-
-function useRoom<TShared extends JsonRecord = JsonRecord>(
-  roomOrConfig: MultiplayerRoom<TShared> | (MultiplayerOptions & { initialState?: TShared }),
-  initialState?: TShared,
-): MultiplayerRoom<TShared> {
-  if ("connectionStatus" in roomOrConfig) {
-    return roomOrConfig;
-  }
-
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  return useMultiplayerRoom<TShared>({
-    host: roomOrConfig.host,
-    party: roomOrConfig.party,
-    room: roomOrConfig.room,
-    maxPlayers: roomOrConfig.maxPlayers,
-    initialState: initialState ?? roomOrConfig.initialState,
-  });
-}
+};

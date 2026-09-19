@@ -7,23 +7,9 @@ import { gameChromeMotion, useGameChromeHidden } from "@/components/game/game-ch
 import { PlayView } from "@/components/game/play-view";
 import { installResponse } from "@/lib/install-response";
 
-const AI_BOT_UA = /(ClaudeBot|Claude-User|Claude-SearchBot|GPTBot|ChatGPT-User|OAI-SearchBot)/i;
+const AI_BOT_UA = /(?:ClaudeBot|Claude-User|Claude-SearchBot|GPTBot|ChatGPT-User|OAI-SearchBot)/iu;
 
-export const Route = createFileRoute("/_site/")({
-  validateSearch: gameSearchSchema,
-  server: {
-    handlers: {
-      GET: ({ request, next }) => {
-        const ua = request.headers.get("user-agent") ?? "";
-        if (AI_BOT_UA.test(ua)) return installResponse();
-        return next();
-      },
-    },
-  },
-  component: PlayPage,
-});
-
-function PlayPage() {
+const PlayPage = () => {
   const gameChromeHidden = useGameChromeHidden();
 
   return (
@@ -34,4 +20,20 @@ function PlayPage() {
       <PlayView />
     </motion.header>
   );
-}
+};
+
+export const Route = createFileRoute("/_site/")({
+  component: PlayPage,
+  server: {
+    handlers: {
+      GET: ({ request, next }) => {
+        const ua = request.headers.get("user-agent") ?? "";
+        if (AI_BOT_UA.test(ua)) {
+          return installResponse();
+        }
+        return next();
+      },
+    },
+  },
+  validateSearch: gameSearchSchema,
+});

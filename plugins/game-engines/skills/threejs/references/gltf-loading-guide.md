@@ -407,6 +407,8 @@ function animate() {
 - This causes cloned models to stay at origin or move with the original
 - `SkeletonUtils.clone()` creates independent bone hierarchies for each clone
 
+**Clones share materials.** `SkeletonUtils.clone()` (and `.clone()`) reuse the material objects, and loaders dedupe kit materials across models on top of that — so a per-unit hit-flash, stealth fade or clearcoat edit on one instance leaks onto every instance of the same model. Where per-unit material state exists, clone per instance (`child.material = child.material.clone()` in a traverse), and reach for a `MeshPhysicalMaterial` clone only on the meshes that need clearcoat, not the whole model.
+
 ---
 
 ## Pattern 6: Model Normalization
@@ -644,6 +646,8 @@ Load compressed GLTF files for smaller file sizes:
   });
 </script>
 ```
+
+**Meshopt / quantized GLBs** (`gltf-transform optimize` output: `KHR_mesh_quantization` + `EXT_meshopt_compression`) arrive with `Int16` attributes and the dequantisation scale on the **node** matrix. Any geometry-level bake — `geometry.applyMatrix4`, `geometry.scale`, `mergeGeometries` — must first promote the attributes to `Float32` (or run `gltf-transform dequantize` offline), otherwise the bake lands in quantized units and the mesh explodes or collapses.
 
 ---
 

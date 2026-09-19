@@ -23,24 +23,28 @@ export class FrontmatterError extends Error {
 export type YamlValue = string | number | boolean | null | YamlValue[] | { [k: string]: YamlValue };
 
 /** Strip a trailing `#` comment that sits outside quotes. */
-function stripComment(line: string): string {
+const stripComment = (line: string): string => {
   let quote: string | null = null;
   for (let i = 0; i < line.length; i += 1) {
-    const ch = line[i]!;
+    const ch = line.charAt(i);
     if (quote) {
-      if (ch === quote) quote = null;
+      if (ch === quote) {
+        quote = null;
+      }
     } else if (ch === '"' || ch === "'") {
       quote = ch;
-    } else if (ch === "#" && (i === 0 || /\s/.test(line[i - 1]!))) {
+    } else if (ch === "#" && (i === 0 || /\s/u.test(line.charAt(i - 1)))) {
       return line.slice(0, i);
     }
   }
   return line;
-}
+};
 
-function parseScalar(raw: string): YamlValue {
+const parseScalar = (raw: string): YamlValue => {
   const text = raw.trim();
-  if (text === "") return "";
+  if (text === "") {
+    return "";
+  }
   if (
     (text.startsWith('"') && text.endsWith('"') && text.length >= 2) ||
     (text.startsWith("'") && text.endsWith("'") && text.length >= 2)
@@ -51,16 +55,28 @@ function parseScalar(raw: string): YamlValue {
   }
   if (text.startsWith("[") && text.endsWith("]")) {
     const inner = text.slice(1, -1).trim();
-    if (!inner) return [];
+    if (!inner) {
+      return [];
+    }
     return inner.split(",").map((item) => parseScalar(item));
   }
-  if (text === "true") return true;
-  if (text === "false") return false;
-  if (text === "null" || text === "~") return null;
-  if (/^-?\d+$/.test(text)) return Number.parseInt(text, 10);
-  if (/^-?\d*\.\d+$/.test(text)) return Number.parseFloat(text);
+  if (text === "true") {
+    return true;
+  }
+  if (text === "false") {
+    return false;
+  }
+  if (text === "null" || text === "~") {
+    return null;
+  }
+  if (/^-?\d+$/u.test(text)) {
+    return Math.trunc(Number(text));
+  }
+  if (/^-?\d*\.\d+$/u.test(text)) {
+    return Number(text);
+  }
   return text;
-}
+};
 
 /**
  * Join the lines of a block scalar the way YAML does.
@@ -68,8 +84,8 @@ function parseScalar(raw: string): YamlValue {
  * `|` keeps the newlines, `>` folds each run of them into a single space but
  * keeps a blank line as a real break. A trailing `-` strips the final newline.
  */
-function joinBlockScalar(lines: string[], style: string): string {
-  const indent = lines.find((l) => l.trim())?.match(/^\s*/)?.[0].length ?? 0;
+const joinBlockScalar = (lines: string[], style: string): string => {
+  const indent = lines.find((l) => l.trim())?.match(/^\s*/u)?.[0].length ?? 0;
   const stripped = lines.map((l) => l.slice(indent));
   const literal = style.startsWith("|");
 
@@ -78,59 +94,84 @@ function joinBlockScalar(lines: string[], style: string): string {
     text = stripped.join("\n");
   } else {
     for (const [i, line] of stripped.entries()) {
-      if (i === 0) text = line;
-      else if (line.trim() === "" || stripped[i - 1]!.trim() === "") text += `\n${line}`;
-      else text += ` ${line}`;
+      if (i === 0) {
+        text = line;
+      } else if (line.trim() === "" || (stripped[i - 1] ?? "").trim() === "") {
+        text += `\n${line}`;
+      } else {
+        text += ` ${line}`;
+      }
     }
   }
-  text = text.replace(/\s+$/, "");
+  text = text.replace(/\s+$/u, "");
   return style.endsWith("-") ? text : `${text}\n`;
-}
+};
+
+const NESTED_LINE_RE = /^\s+(?<key>[^:]+):\s*(?<value>.*)$/u;
+const LINE_RE = /^(?<key>[^:]+):\s*(?<value>.*)$/u;
+const BLOCK_SCALAR_RE = /^(?<style>[|>])(?<chomp>[+-]?)$/u;
+
+const splitKeyValue = (re: RegExp, line: string): { key: string; value: string } | null => {
+  const groups = re.exec(line)?.groups;
+  if (!groups) {
+    return null;
+  }
+  return { key: (groups.key ?? "").trim(), value: groups.value ?? "" };
+};
 
 /** Parse frontmatter YAML into an object. Throws `FrontmatterError` on input
  * this subset cannot represent, rather than silently returning something wrong. */
-export function parseFrontmatter(text: string) {
+export const parseFrontmatter = (text: string) => {
   const out: Record<string, YamlValue> = {};
   let currentKey: string | null = null;
   let nested: Record<string, YamlValue> | null = null;
 
   const rawLines = text.split("\n");
   for (let i = 0; i < rawLines.length; i += 1) {
-    const rawLine = rawLines[i]!;
+    const rawLine = rawLines[i] ?? "";
     const line = stripComment(rawLine);
-    if (!line.trim()) continue;
+    if (!line.trim()) {
+      continue;
+    }
 
-    const indented = /^\s/.test(line);
+    const indented = /^\s/u.test(line);
     if (indented) {
       if (!nested || currentKey === null) {
         throw new FrontmatterError(`unexpected indented line: ${rawLine.trim()}`);
       }
-      const match = /^\s+([^:]+):\s*(.*)$/.exec(line);
-      if (!match) throw new FrontmatterError(`could not parse nested line: ${rawLine.trim()}`);
-      nested[match[1]!.trim()] = parseScalar(match[2]!);
+      const pair = splitKeyValue(NESTED_LINE_RE, line);
+      if (!pair) {
+        throw new FrontmatterError(`could not parse nested line: ${rawLine.trim()}`);
+      }
+      nested[pair.key] = parseScalar(pair.value);
       continue;
     }
 
-    const match = /^([^:]+):\s*(.*)$/.exec(line);
-    if (!match) throw new FrontmatterError(`could not parse line: ${rawLine.trim()}`);
-    const key = match[1]!.trim();
-    const value = match[2]!;
+    const pair = splitKeyValue(LINE_RE, line);
+    if (!pair) {
+      throw new FrontmatterError(`could not parse line: ${rawLine.trim()}`);
+    }
+    const { key, value } = pair;
 
     // `key: >` / `key: |` opens a block scalar: every following line indented
     // under it is its text, taken verbatim — a `#` in prose is not a comment.
-    const block = /^([|>])([+-]?)$/.exec(value.trim());
+    const block = BLOCK_SCALAR_RE.exec(value.trim())?.groups;
     if (block) {
       const body: string[] = [];
-      while (i + 1 < rawLines.length) {
-        const next = rawLines[i + 1]!;
-        if (next.trim() !== "" && !/^\s/.test(next)) break;
+      for (;;) {
+        const next = rawLines[i + 1];
+        if (next === undefined || (next.trim() !== "" && !/^\s/u.test(next))) {
+          break;
+        }
         body.push(next);
         i += 1;
       }
-      while (body.length > 0 && body[body.length - 1]!.trim() === "") body.pop();
+      while (body.at(-1)?.trim() === "") {
+        body.pop();
+      }
       currentKey = null;
       nested = null;
-      out[key] = joinBlockScalar(body, block[1]! + block[2]!);
+      out[key] = joinBlockScalar(body, `${block.style ?? ""}${block.chomp ?? ""}`);
       continue;
     }
 
@@ -147,26 +188,30 @@ export function parseFrontmatter(text: string) {
     }
   }
   return out;
-}
+};
 
-export type SplitSkill = {
+export interface SplitSkill {
   frontmatterText: string;
   frontmatter: Record<string, YamlValue>;
   body: string;
-};
+}
 
 /**
  * Split a SKILL.md into its frontmatter and body. Returns null when the file
  * has no `---` delimited frontmatter at all.
  */
-export function splitSkill(content: string): SplitSkill | null {
-  if (!content.startsWith("---")) return null;
-  const match = /^---\n([\s\S]*?)\n---/.exec(content);
-  if (!match) return null;
-  const frontmatterText = match[1]!;
+export const splitSkill = (content: string): SplitSkill | null => {
+  if (!content.startsWith("---")) {
+    return null;
+  }
+  const match = /^---\n(?<front>[\s\S]*?)\n---/u.exec(content);
+  if (!match) {
+    return null;
+  }
+  const frontmatterText = match.groups?.front ?? "";
   return {
-    frontmatterText,
+    body: content.slice(match[0].length).replace(/^\n/u, ""),
     frontmatter: parseFrontmatter(frontmatterText),
-    body: content.slice(match[0].length).replace(/^\n/, ""),
+    frontmatterText,
   };
-}
+};

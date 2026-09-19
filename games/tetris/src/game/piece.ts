@@ -4,7 +4,8 @@
 // here the footprint matrix rotates whole, then the origin is nudged back
 // inside the walls before the move is accepted.
 
-import { type Board, type Cell, rotateCW } from "./board";
+import { rotateCW } from "./board";
+import type { Board, Cell } from "./board";
 import { PIECES, WELL_HEIGHT } from "../shared/constants";
 
 export class Piece {
@@ -15,6 +16,7 @@ export class Piece {
   private ox: number;
   private oz: number;
   private y: number;
+  private turns = 0;
 
   constructor(index: number, board: Board) {
     this.index = index;
@@ -30,15 +32,17 @@ export class Piece {
 
   /** Current world cells (all share this.y). */
   cells(): Cell[] {
-    return this.cellsAt(this.matrix, this.ox, this.oz, this.y);
+    return Piece.cellsAt(this.matrix, this.ox, this.oz, this.y);
   }
 
-  private cellsAt(m: number[][], ox: number, oz: number, y: number): Cell[] {
+  private static cellsAt(m: number[][], ox: number, oz: number, y: number): Cell[] {
     const out: Cell[] = [];
-    for (let r = 0; r < m.length; r++) {
+    for (let r = 0; r < m.length; r += 1) {
       const row = m[r] ?? [];
-      for (let c = 0; c < row.length; c++) {
-        if (row[c]) out.push({ x: ox + c, y, z: oz + r });
+      for (let c = 0; c < row.length; c += 1) {
+        if (row[c]) {
+          out.push({ x: ox + c, y, z: oz + r });
+        }
       }
     }
     return out;
@@ -46,8 +50,10 @@ export class Piece {
 
   /** Translate in the floor plane if it fits. Returns whether it moved. */
   move(board: Board, dx: number, dz: number): boolean {
-    const next = this.cellsAt(this.matrix, this.ox + dx, this.oz + dz, this.y);
-    if (board.collides(next)) return false;
+    const next = Piece.cellsAt(this.matrix, this.ox + dx, this.oz + dz, this.y);
+    if (board.collides(next)) {
+      return false;
+    }
     this.ox += dx;
     this.oz += dz;
     return true;
@@ -55,38 +61,70 @@ export class Piece {
 
   /** Step down one layer; returns false if it locked (couldn't descend). */
   fall(board: Board): boolean {
-    const next = this.cellsAt(this.matrix, this.ox, this.oz, this.y - 1);
-    if (board.collides(next)) return false;
+    const next = Piece.cellsAt(this.matrix, this.ox, this.oz, this.y - 1);
+    if (board.collides(next)) {
+      return false;
+    }
     this.y -= 1;
     return true;
   }
 
+  /** Quarter turns clockwise from the spawn orientation, 0..3. */
+  get rotation(): number {
+    return this.turns;
+  }
+
+  /** Cells after one clockwise turn (wall-kicked), or null if it would not fit. */
+  rotatedCells(board: Board): Cell[] | null {
+    const next = this.rotated(board);
+    return next ? Piece.cellsAt(next.matrix, next.ox, next.oz, this.y) : null;
+  }
+
   /** Rotate 90° CW in the XZ plane, kicking off walls. Returns whether it rotated. */
   rotate(board: Board): boolean {
+    const next = this.rotated(board);
+    if (!next) {
+      return false;
+    }
+    this.matrix = next.matrix;
+    this.ox = next.ox;
+    this.oz = next.oz;
+    this.turns = (this.turns + 1) % 4;
+    return true;
+  }
+
+  private rotated(board: Board): { matrix: number[][]; ox: number; oz: number } | null {
     const m = rotateCW(this.matrix);
-    let ox = this.ox;
-    let oz = this.oz;
+    let { ox } = this;
+    let { oz } = this;
     const cols = m[0]?.length ?? 0;
     const rows = m.length;
     // Kick the whole footprint back inside the x/z walls.
-    if (ox < 0) ox = 0;
-    if (oz < 0) oz = 0;
-    if (ox + cols > board.width) ox = board.width - cols;
-    if (oz + rows > board.depth) oz = board.depth - rows;
-    const next = this.cellsAt(m, ox, oz, this.y);
-    if (board.collides(next)) return false; // wall-kick failed → locked cube in the way
-    this.matrix = m;
-    this.ox = ox;
-    this.oz = oz;
-    return true;
+    if (ox < 0) {
+      ox = 0;
+    }
+    if (oz < 0) {
+      oz = 0;
+    }
+    if (ox + cols > board.width) {
+      ox = board.width - cols;
+    }
+    if (oz + rows > board.depth) {
+      oz = board.depth - rows;
+    }
+    // A locked cube in the way defeats the wall-kick.
+    if (board.collides(Piece.cellsAt(m, ox, oz, this.y))) {
+      return null;
+    }
+    return { matrix: m, ox, oz };
   }
 
   /** Cells where the slab would come to rest if hard-dropped now (the ghost). */
   landingCells(board: Board): Cell[] {
-    let y = this.y;
-    while (!board.collides(this.cellsAt(this.matrix, this.ox, this.oz, y - 1))) {
+    let { y } = this;
+    while (!board.collides(Piece.cellsAt(this.matrix, this.ox, this.oz, y - 1))) {
       y -= 1;
     }
-    return this.cellsAt(this.matrix, this.ox, this.oz, y);
+    return Piece.cellsAt(this.matrix, this.ox, this.oz, y);
   }
 }

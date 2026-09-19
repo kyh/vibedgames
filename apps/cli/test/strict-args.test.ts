@@ -5,10 +5,10 @@ import { unknownFlags } from "../src/lib/strict-args.js";
 
 const DEPLOY_ARGS = {
   dir: { type: "positional" },
+  field: { type: "string" },
+  json: { type: "boolean" },
   slug: { type: "string" },
   source: { type: "boolean" },
-  json: { type: "boolean" },
-  field: { type: "string" },
 } as const;
 
 test("declared flags pass, in both spellings", () => {
@@ -36,7 +36,7 @@ test("a --value that looks like a flag is treated as one", () => {
 });
 
 test("aliases count as declared", () => {
-  const args = { global: { type: "boolean", alias: "g" }, agent: { type: "string", alias: ["a"] } };
+  const args = { agent: { alias: ["a"], type: "string" }, global: { alias: "g", type: "boolean" } };
   assert.deepEqual(unknownFlags(["--global", "--agent", "codex"], args), []);
   assert.deepEqual(unknownFlags(["--a", "codex"], args), []);
 });

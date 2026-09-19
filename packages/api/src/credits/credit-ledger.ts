@@ -41,10 +41,10 @@ export const ensureSignupGrant = async (db: Db, userId: string): Promise<void> =
   await db
     .insert(creditEntry)
     .values({
-      id: `signup:${userId}`,
-      userId,
       deltaMicro: SIGNUP_GRANT_MICRO,
+      id: `signup:${userId}`,
       kind: "signup_grant",
+      userId,
     })
     .onConflictDoNothing();
 };
@@ -58,14 +58,14 @@ export const getBalanceMicro = async (db: Db, userId: string): Promise<number> =
   return rows[0]?.balance ?? 0;
 };
 
-export type HoldInput = {
+export interface HoldInput {
   userId: string;
   requestId: string;
   endpointId: string;
   unit: string | null;
   unitPriceMicro: number | null;
   holdMicro: number;
-};
+}
 
 /**
  * Record a submitted generation and debit its estimated cost. The two writes
@@ -78,24 +78,24 @@ export const holdGeneration = async (db: Db, input: HoldInput): Promise<void> =>
     db
       .insert(generation)
       .values({
-        requestId: input.requestId,
-        userId: input.userId,
         endpointId: input.endpointId,
+        holdMicro: input.holdMicro,
+        requestId: input.requestId,
+        status: "held",
         unit: input.unit,
         unitPriceMicro: input.unitPriceMicro,
-        holdMicro: input.holdMicro,
-        status: "held",
+        userId: input.userId,
       })
       .onConflictDoNothing(),
     db
       .insert(creditEntry)
       .values({
-        id: `hold:${input.requestId}`,
-        userId: input.userId,
         deltaMicro: -input.holdMicro,
+        endpointId: input.endpointId,
+        id: `hold:${input.requestId}`,
         kind: "generation_hold",
         requestId: input.requestId,
-        endpointId: input.endpointId,
+        userId: input.userId,
       })
       .onConflictDoNothing(),
   ]);
@@ -117,17 +117,17 @@ const settleEntrySelect = (db: Db, requestId: string) =>
       db
         // insert().select() requires every table column, in definition order.
         .select({
-          id: sql<string>`'settle:' || ${generation.requestId}`.as("id"),
-          userId: generation.userId,
+          createdAt: sql<number>`(cast(unixepoch('subsecond') * 1000 as integer))`.as("created_at"),
+          createdBy: sql<string | null>`NULL`.as("created_by"),
           deltaMicro: sql<number>`${generation.holdMicro} - ${generation.settledMicro}`.as(
             "delta_micro",
           ),
-          kind: sql<"generation_settle">`'generation_settle'`.as("kind"),
-          requestId: generation.requestId,
           endpointId: generation.endpointId,
+          id: sql<string>`'settle:' || ${generation.requestId}`.as("id"),
+          kind: sql<"generation_settle">`'generation_settle'`.as("kind"),
           note: sql<string | null>`NULL`.as("note"),
-          createdBy: sql<string | null>`NULL`.as("created_by"),
-          createdAt: sql<number>`(cast(unixepoch('subsecond') * 1000 as integer))`.as("created_at"),
+          requestId: generation.requestId,
+          userId: generation.userId,
         })
         .from(generation)
         .where(
@@ -146,15 +146,15 @@ const releaseEntrySelect = (db: Db, requestId: string) =>
     .select(
       db
         .select({
-          id: sql<string>`'release:' || ${generation.requestId}`.as("id"),
-          userId: generation.userId,
-          deltaMicro: generation.holdMicro,
-          kind: sql<"generation_release">`'generation_release'`.as("kind"),
-          requestId: generation.requestId,
-          endpointId: generation.endpointId,
-          note: sql<string | null>`NULL`.as("note"),
-          createdBy: sql<string | null>`NULL`.as("created_by"),
           createdAt: sql<number>`(cast(unixepoch('subsecond') * 1000 as integer))`.as("created_at"),
+          createdBy: sql<string | null>`NULL`.as("created_by"),
+          deltaMicro: generation.holdMicro,
+          endpointId: generation.endpointId,
+          id: sql<string>`'release:' || ${generation.requestId}`.as("id"),
+          kind: sql<"generation_release">`'generation_release'`.as("kind"),
+          note: sql<string | null>`NULL`.as("note"),
+          requestId: generation.requestId,
+          userId: generation.userId,
         })
         .from(generation)
         .where(and(eq(generation.requestId, requestId), eq(generation.status, "released"))),
@@ -183,8 +183,10 @@ export const settleGeneration = async (
     .from(generation)
     .where(eq(generation.requestId, requestId))
     .limit(1);
-  const row = rows[0];
-  if (!row || row.status === "released") return;
+  const [row] = rows;
+  if (!row || row.status === "released") {
+    return;
+  }
 
   const raw =
     billedUnits !== null && row.unitPriceMicro !== null
@@ -197,10 +199,10 @@ export const settleGeneration = async (
     db
       .update(generation)
       .set({
-        status: "settled",
         billedUnits,
-        settledMicro,
         settledAt: new Date(),
+        settledMicro,
+        status: "settled",
       })
       .where(and(eq(generation.requestId, requestId), eq(generation.status, "held"))),
     settleEntrySelect(db, requestId),
@@ -218,19 +220,21 @@ export const releaseGeneration = async (db: Db, requestId: string): Promise<void
     .from(generation)
     .where(eq(generation.requestId, requestId))
     .limit(1);
-  const row = rows[0];
-  if (!row || row.status === "settled") return;
+  const [row] = rows;
+  if (!row || row.status === "settled") {
+    return;
+  }
 
   await db.batch([
     db
       .update(generation)
-      .set({ status: "released", settledMicro: 0, settledAt: new Date() })
+      .set({ settledAt: new Date(), settledMicro: 0, status: "released" })
       .where(and(eq(generation.requestId, requestId), eq(generation.status, "held"))),
     releaseEntrySelect(db, requestId),
   ]);
 };
 
-export type GrantInput = {
+export interface GrantInput {
   userId: string;
   amountMicro: number;
   note: string | null;
@@ -241,7 +245,7 @@ export type GrantInput = {
    * same entry id and no-ops instead of granting twice.
    */
   key: string;
-};
+}
 
 /** Admin top-up. Returns the user's balance after the grant. */
 export const grantCredits = async (db: Db, input: GrantInput): Promise<number> => {
@@ -249,41 +253,39 @@ export const grantCredits = async (db: Db, input: GrantInput): Promise<number> =
   await db
     .insert(creditEntry)
     .values({
-      id: `grant:${input.key}`,
-      userId: input.userId,
+      createdBy: input.createdBy,
       deltaMicro: input.amountMicro,
+      id: `grant:${input.key}`,
       kind: "admin_grant",
       note: input.note,
-      createdBy: input.createdBy,
+      userId: input.userId,
     })
     .onConflictDoNothing();
   return getBalanceMicro(db, input.userId);
 };
 
-export const listEntries = async (db: Db, userId: string, limit: number) => {
-  return db
+export const listEntries = (db: Db, userId: string, limit: number) =>
+  db
     .select({
-      id: creditEntry.id,
-      deltaMicro: creditEntry.deltaMicro,
-      kind: creditEntry.kind,
-      requestId: creditEntry.requestId,
-      endpointId: creditEntry.endpointId,
-      note: creditEntry.note,
       createdAt: creditEntry.createdAt,
+      deltaMicro: creditEntry.deltaMicro,
+      endpointId: creditEntry.endpointId,
+      id: creditEntry.id,
+      kind: creditEntry.kind,
+      note: creditEntry.note,
+      requestId: creditEntry.requestId,
     })
     .from(creditEntry)
     .where(eq(creditEntry.userId, userId))
     .orderBy(desc(creditEntry.createdAt), desc(creditEntry.id))
     .limit(limit);
-};
 
 /** Per-user balances for the admin roster. */
-export const listBalances = async (db: Db) => {
-  return db
+export const listBalances = (db: Db) =>
+  db
     .select({
-      userId: creditEntry.userId,
       balanceMicro: sql<number>`sum(${creditEntry.deltaMicro})`,
+      userId: creditEntry.userId,
     })
     .from(creditEntry)
     .groupBy(creditEntry.userId);
-};

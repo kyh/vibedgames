@@ -3,7 +3,8 @@ import { generateCity } from "./grid";
 import { makeGroundOffset, makeStandingSurface, makeTerracedDrapeField } from "./ground";
 import { landmarkProtection } from "./landmarks";
 import { RoadNetwork } from "./network";
-import { type ParcelPlanResult, planParcels } from "./parcel-plan";
+import { planParcels } from "./parcel-plan";
+import type { ParcelPlanResult } from "./parcel-plan";
 import { decodeParcelSource } from "./parcel-source";
 import { buildReservation } from "./reservation";
 import { makeTerrain } from "./sf-map";
@@ -17,20 +18,20 @@ import { makeTerrain } from "./sf-map";
 // Edited cities (a grid-derived network, editor clears) never reach this
 // worker: the city plans them itself.
 
-export type ParcelWorkerRequest = {
+export interface ParcelWorkerRequest {
   readonly source: ArrayBuffer;
-};
+}
 
 /** The plan with its Set flattened: structured clone carries arrays and typed arrays. */
-export type ParcelWorkerResponse = {
+export interface ParcelWorkerResponse {
   readonly plans: ParcelPlanResult["plans"];
   readonly lots: ParcelPlanResult["lots"];
   readonly stats: ParcelPlanResult["stats"];
   readonly covered: readonly number[];
   readonly ms: number;
-};
+}
 
-self.onmessage = (ev: MessageEvent<ParcelWorkerRequest>): void => {
+self.addEventListener("message", (ev: MessageEvent<ParcelWorkerRequest>): void => {
   const t0 = performance.now();
   const source = decodeParcelSource(ev.data.source);
   const plan = generateCity();
@@ -40,19 +41,19 @@ self.onmessage = (ev: MessageEvent<ParcelWorkerRequest>): void => {
   const drape = makeTerracedDrapeField(network, terrain);
   const standAt = makeStandingSurface(network, terrain, groundOffset, drape);
   const reserved = buildReservation({
+    clears: [],
+    garages: pickGarageSpots(plan, terrain, network),
+    landmarks: landmarkProtection(plan, network).reserved,
     plan,
     terrain,
-    landmarks: landmarkProtection(plan, network).reserved,
-    garages: pickGarageSpots(plan, terrain, network),
-    clears: [],
   });
-  const result = planParcels({ source, network, terrain, reserved, standAt });
+  const result = planParcels({ network, reserved, source, standAt, terrain });
   const response: ParcelWorkerResponse = {
-    plans: result.plans,
-    lots: result.lots,
-    stats: result.stats,
     covered: [...result.covered],
+    lots: result.lots,
     ms: Math.round(performance.now() - t0),
+    plans: result.plans,
+    stats: result.stats,
   };
   postMessage(response);
-};
+});

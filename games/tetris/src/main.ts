@@ -1,25 +1,51 @@
-import { setPauseHandlers } from "@repo/embed";
+import { isPausable, pauseGame, probeWebGL, setPauseHandlers, showWebGLVeil } from "@repo/embed";
+import {
+  isPlaytestRequested,
+  publishDiagnostics,
+  publishPlaytest,
+  publishTestHooks,
+} from "@vibedgames/playtest";
 import * as THREE from "three";
 
+import { setSoundPaused } from "./fx/sfx";
 import { PoseCamera } from "./input/camera";
 import { PoseControls } from "./input/pose-control";
 import { isCoarsePointer } from "./input/touch";
 import * as pauseOverlay from "./pause-overlay";
+import { playtestManifest } from "./playtest";
+import type { PlaytestDiagnostics } from "./playtest";
 import { GameScene } from "./scenes/game-scene";
 import { MAX_DT } from "./shared/constants";
 
-const container = document.getElementById("game");
-if (!container) throw new Error("missing #game container");
-container.addEventListener("contextmenu", (e) => e.preventDefault()); // long-press menus
+const container = document.querySelector("#game");
+if (!container) {
+  throw new Error("missing #game container");
+}
+// Suppress long-press menus.
+container.addEventListener("contextmenu", (e) => e.preventDefault());
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-// Phones cap DPR lower — the antialiased 3D well is fill-rate bound at DPR 3.
+const webgl = probeWebGL();
+if (!webgl.ok) {
+  showWebGLVeil(webgl);
+  // Module-level boot has no early return: the uncaught throw logs the reason and stops.
+  throw new Error(`WebGL unavailable: ${webgl.reason}`);
+}
+
+// Phones cap DPR lower — the antialiased 3D well is fill-rate bound at DPR 3 —
+// and skip the multisample buffer on dense screens, where the subpixel
+// density hides the aliasing and the buffer is what a shared GPU process
+// runs out of.
+const dense = isCoarsePointer() && window.devicePixelRatio >= 2;
+const renderer = new THREE.WebGLRenderer({
+  antialias: !dense,
+  powerPreference: "high-performance",
+});
 const dprCap = isCoarsePointer() ? 1.5 : 2;
 const applyPixelRatio = () => renderer.setPixelRatio(Math.min(window.devicePixelRatio, dprCap));
 applyPixelRatio();
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
-container.appendChild(renderer.domElement);
+container.append(renderer.domElement);
 
 const game = new GameScene(window.innerWidth / window.innerHeight);
 
@@ -30,45 +56,127 @@ const game = new GameScene(window.innerWidth / window.innerHeight);
 const poseControls = new PoseControls(game.poseActions);
 game.attachPoseControls(poseControls);
 const poseCamera = new PoseCamera(poseControls.handlePose);
-if (!isCoarsePointer()) void poseCamera.start();
+// A playtest browser denies the camera, and the rejection is a console error
+// — a failed playtest for a reason that has nothing to do with the game.
+if (!isCoarsePointer() && !isPlaytestRequested()) {
+  void poseCamera.start();
+}
 
-window.addEventListener("resize", () => {
+const resize = (): void => {
   game.resize(window.innerWidth / window.innerHeight);
-  applyPixelRatio(); // DPR changes when the window moves between displays
+  // DPR changes when the window moves between displays.
+  applyPixelRatio();
   renderer.setSize(window.innerWidth, window.innerHeight);
-});
+};
+window.addEventListener("resize", resize);
 
 // Wrapper pause: skip update() (engine + collapse physics are dt-driven, so
 // they freeze cleanly) and keep rendering the frozen scene behind the overlay.
-// The one wall-clock gameplay deadline — the collapse catch window
-// (collapseStartedAt vs CATCH_WINDOW_MS) — gets shifted by the paused gap on
-// resume so a long pause can't insta-finalize game-over.
+// Wall-clock deadlines (collapse catch window, camera swing) shift by the
+// paused gap on resume so a long pause can't insta-finalize game-over.
 let wrapperPausedAt: number | null = null;
+const pausePresentation = (): void => {
+  if (wrapperPausedAt !== null) {
+    return;
+  }
+  wrapperPausedAt = performance.now();
+  game.releaseInputs();
+  poseControls.setActionsPaused(true);
+  setSoundPaused(true);
+};
+const resumePresentation = (): void => {
+  if (wrapperPausedAt === null) {
+    return;
+  }
+  game.shiftWallClock(performance.now() - wrapperPausedAt);
+  wrapperPausedAt = null;
+  game.releaseInputs();
+  poseControls.setActionsPaused(false);
+  setSoundPaused(false);
+};
+
+// A lost WebGL context freezes play under a recovery notice; the embed pause
+// stays held (canResume) until the browser restores the context.
+type Graphics = { kind: "ready" } | { kind: "lost"; returnTo: "pause" | "title" };
+let graphics: Graphics = { kind: "ready" };
+
 // Bespoke overlay (src/pause-overlay.ts) renders the same manifest the title
 // legend teaches — filtered per device / pad at show(). Escape, P and pad
 // START all funnel into this one pause state machine (@repo/embed).
 setPauseHandlers({
+  canResume: () => graphics.kind === "ready",
   onPause: () => {
-    pauseOverlay.show();
-    wrapperPausedAt = performance.now();
+    pausePresentation();
+    if (graphics.kind === "ready") {
+      pauseOverlay.show();
+    }
   },
   onResume: () => {
+    resumePresentation();
     pauseOverlay.hide();
-    if (wrapperPausedAt === null) return;
-    game.shiftWallClock(performance.now() - wrapperPausedAt);
-    wrapperPausedAt = null;
   },
 });
+
+renderer.domElement.addEventListener("webglcontextlost", (event) => {
+  event.preventDefault();
+  if (graphics.kind === "lost") {
+    return;
+  }
+  graphics = {
+    kind: "lost",
+    returnTo: wrapperPausedAt !== null || isPausable() ? "pause" : "title",
+  };
+  pausePresentation();
+  pauseGame();
+  pauseOverlay.hide();
+  pauseOverlay.showRecovery();
+});
+renderer.domElement.addEventListener("webglcontextrestored", () => {
+  if (graphics.kind === "ready") {
+    return;
+  }
+  const { returnTo } = graphics;
+  graphics = { kind: "ready" };
+  resize();
+  pauseOverlay.hideRecovery();
+  // A title screen was never pausable, so nothing re-announces it: unfreeze directly.
+  if (returnTo === "pause") {
+    pauseOverlay.show();
+  } else {
+    resumePresentation();
+  }
+});
+
+let frozenForScreenshot = false;
 
 const timer = new THREE.Timer();
 renderer.setAnimationLoop((time) => {
   timer.update(time);
   const dt = Math.min(timer.getDelta(), MAX_DT);
-  if (wrapperPausedAt === null) game.update(dt);
-  renderer.render(game.scene, game.camera);
+  if (wrapperPausedAt === null && !frozenForScreenshot) {
+    game.update(dt);
+  }
+  if (graphics.kind === "ready") {
+    renderer.render(game.scene, game.camera);
+  }
 });
+
+publishDiagnostics((): PlaytestDiagnostics => ({
+  ...game.diagnostics(),
+  paused: wrapperPausedAt !== null,
+}));
+if (import.meta.env.DEV || isPlaytestRequested()) {
+  publishTestHooks({
+    seed: (seed) => game.seed(seed),
+    setPausedForScreenshot: (paused) => {
+      frozenForScreenshot = paused;
+    },
+    setState: (name) => (game.setTestState(name) ? { state: name } : undefined),
+  });
+  publishPlaytest(playtestManifest);
+}
 
 if (import.meta.env.DEV) {
   // __tetris: the scene; __pose: feed synthetic poses or recenter() in the console.
-  Object.assign(window, { __tetris: game, __pose: poseControls });
+  Object.assign(window, { __camera: poseCamera, __pose: poseControls, __tetris: game });
 }

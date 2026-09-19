@@ -4,18 +4,13 @@
  * @param str - The input string to convert to a slug
  * @returns string - A URL-friendly slug
  */
-export const slugify = (str: string) => {
-  str = str.replace(/^\s+|\s+$/g, ""); // Trim leading/trailing whitespace
-  str = str.toLowerCase(); // Convert to lowercase
-
-  // Remove invalid characters, replace spaces and multiple hyphens with a single hyphen
-  str = str
-    .replace(/[^a-z0-9 -]/g, "") // Remove invalid chars
-    .replace(/\s+/g, "-") // Replace spaces with a single hyphen
-    .replace(/-+/g, "-"); // Collapse multiple hyphens
-
-  return str;
-};
+export const slugify = (str: string) =>
+  str
+    .replaceAll(/^\s+|\s+$/gu, "")
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9 -]/gu, "")
+    .replaceAll(/\s+/gu, "-")
+    .replaceAll(/-+/gu, "-");
 
 // Avoids `0/O/1/I` to keep codes unambiguous when read aloud or copied by hand.
 const UNAMBIGUOUS_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";

@@ -7,13 +7,17 @@ import type { AbilityKey } from "../sim/types";
  * `?party=http://host:port`. Lets QA point at a party server on a
  * non-default port without rebuilding. Ignored in production builds.
  */
-function devPartyHost(): string {
+const devPartyHost = (): string => {
   const fallback = "http://localhost:8787";
-  if (typeof window === "undefined") return fallback;
+  if (typeof window === "undefined") {
+    return fallback;
+  }
   const p = new URLSearchParams(location.search).get("party");
-  if (!p) return fallback;
-  return /^https?:\/\//.test(p) ? p : `http://localhost:${p}`;
-}
+  if (!p) {
+    return fallback;
+  }
+  return /^https?:\/\//u.test(p) ? p : `http://localhost:${p}`;
+};
 
 export const MULTIPLAYER_HOST = import.meta.env.DEV
   ? devPartyHost()
@@ -23,15 +27,12 @@ export const ROOM_PREFIX = "battle-arena-";
 export const INTENT_EVENT = "intent";
 
 /** Build the PartyServer room id from a short lobby code. */
-export function roomId(code: string): string {
-  return (
-    ROOM_PREFIX +
-    (code || "public")
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, "")
-      .slice(0, 12)
-  );
-}
+export const roomId = (code: string): string =>
+  ROOM_PREFIX +
+  (code || "public")
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9]/gu, "")
+    .slice(0, 12);
 
 export type Intent =
   | { kind: "join"; champId: string; name: string }

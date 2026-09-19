@@ -11,8 +11,8 @@ export const Route = createFileRoute("/.well-known/agent-skills/index.json")({
         const skills = await getSkillIndex();
         return new Response(JSON.stringify({ $schema: SCHEMA, skills }, null, 2), {
           headers: {
-            "Content-Type": "application/json; charset=utf-8",
             "Cache-Control": "public, max-age=3600",
+            "Content-Type": "application/json; charset=utf-8",
           },
         });
       },

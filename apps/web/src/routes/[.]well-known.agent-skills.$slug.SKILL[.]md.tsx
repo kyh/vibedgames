@@ -7,11 +7,13 @@ export const Route = createFileRoute("/.well-known/agent-skills/$slug/SKILL.md")
     handlers: {
       GET: ({ params }) => {
         const skill = getAgentSkill(params.slug);
-        if (!skill) return new Response("Not found", { status: 404 });
+        if (!skill) {
+          return new Response("Not found", { status: 404 });
+        }
         return new Response(skill.content, {
           headers: {
-            "Content-Type": "text/markdown; charset=utf-8",
             "Cache-Control": "public, max-age=3600",
+            "Content-Type": "text/markdown; charset=utf-8",
           },
         });
       },

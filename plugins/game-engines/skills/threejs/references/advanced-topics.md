@@ -72,6 +72,8 @@ renderer.setAnimationLoop(() => {
 
 **Bloom discipline:** threshold `0.85` keeps mid-bright materials out, so only authored emissives (`emissiveIntensity > 1`) bloom. Bloom sells a glow you designed; it must never be the main source of detail — if a shape only reads because it glows, the geometry is missing.
 
+Two more gates. The composer's HalfFloat targets clip at 65,504: a `Sky` sun disc is ~322,000 linear, which lands as +Inf, and bloom smears a half-degree disc over a third of the frame — bound the disc radiance at the source (or draw the sun as a bounded quad) before touching `threshold`. For particle FX, steady-state emitter gain must sit **under** the day threshold; only one-frame moments (ignition, promotion) cross it. Gain must be a per-emit attribute, not a material uniform — a held drift or trail piles seconds of additive emission into a few m², and a shared gain fuses the pile into one fireball. Grep for a legacy emitter before tuning the new one, and A/B by hiding meshes bucketed by `material.blending` one bucket at a time with a screenshot each.
+
 **Vignette** — a compact ShaderPass, added before `OutputPass`:
 
 ```javascript
@@ -223,6 +225,8 @@ new RGBELoader().load("environment.hdr", (texture) => {
 });
 ```
 
+**Never PMREM-bake a sky with an unbounded sun.** A `Sky` disc at ~322,000 linear overflows the HalfFloat mip chain (65,504) to NaN, `scene.environment` carries the NaN, and **every `MeshStandardMaterial` renders pure black** on GLES/SwiftShader/Android while unlit and additive materials still draw. For stylised skies use a bounded LDR gradient `CubeTexture` (six 16 px canvases, horizon→zenith) as `scene.environment`, and bound the disc radiance at the source. Diagnostic when only unlit things are visible: set `scene.environment = null` **first**.
+
 Concrete per-surface material values (`metalness`/`roughness`/`envMapIntensity`) are in [`graphics-recipes.md`](graphics-recipes.md).
 
 ---
@@ -251,6 +255,14 @@ for (let i = 0; i < count; i++) {
 
 scene.add(mesh);
 ```
+
+### BatchedMesh (many different geometries, one material)
+
+`BatchedMesh` draws many geometries under one material in one call, with per-instance frustum culling for free. Rules r184 enforces with a throw or a silent misfill:
+
+- **Bucket on the full attribute layout + indexness.** Every geometry in a batch must share attribute names, item sizes and whether it is indexed; key buckets on a layout string, not on the material. `mergeGeometries` has the same rule — it refuses mixed attribute sets, and one geometry missing an attribute the others carry silently kills the merge (a per-vertex GPU life-ramp attribute is the classic casualty).
+- **Distance culling is yours.** Frustum culling won't stop an instance in the view direction drawing from kilometres away; sweep `setVisibleAt` by distance, amortised across frames.
+- **Tint via `setColorAt`, never material clones** — every clone is another batch.
 
 ---
 

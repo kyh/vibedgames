@@ -1,13 +1,13 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import path from "node:path";
 
 import { migrateLegacyLayout } from "./state.ts";
 
 /** Is `dir` the vibedgames monorepo root? (not just any pnpm workspace) */
 const isVibedgamesRepo = (dir: string): boolean =>
-  existsSync(resolve(dir, "pnpm-workspace.yaml")) && existsSync(resolve(dir, "apps/factory"));
+  existsSync(path.resolve(dir, "pnpm-workspace.yaml")) &&
+  existsSync(path.resolve(dir, "apps/factory"));
 
 /**
  * Find the vibedgames monorepo root, or null when running installed (from
@@ -16,69 +16,75 @@ const isVibedgamesRepo = (dir: string): boolean =>
  * workspace gets its own skills via `vg init` (see preflight.ts) and callers
  * must not assume a repo exists.
  */
-export function findRepoRoot(start: string = process.cwd()): string | null {
+export const findRepoRoot = (start: string = process.cwd()): string | null => {
   let dir = start;
-  for (let i = 0; i < 25; i++) {
-    if (isVibedgamesRepo(dir)) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) break;
+  for (let i = 0; i < 25; i += 1) {
+    if (isVibedgamesRepo(dir)) {
+      return dir;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) {
+      break;
+    }
     dir = parent;
   }
   // Running the checkout's sources from an unrelated cwd: this file lives at
   // apps/factory/src/config.ts in the repo. An npm install fails this probe.
-  const fromSource = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+  const fromSource = path.resolve(import.meta.dirname, "../../..");
   return isVibedgamesRepo(fromSource) ? fromSource : null;
-}
+};
 
 /**
  * Where games live when no folder is given: gitignored .workspaces inside the
  * repo during development; a visible ~/vibedgames/<slug> for installed users —
  * stable regardless of cwd, so start/stop/status/approve always agree.
  */
-export function defaultWorkspace(slug: string): string {
+export const defaultWorkspace = (slug: string): string => {
   const repoRoot = findRepoRoot();
   return repoRoot
-    ? resolve(repoRoot, "apps/factory/.workspaces", slug)
-    : resolve(homedir(), "vibedgames", slug);
-}
+    ? path.resolve(repoRoot, "apps/factory/.workspaces", slug)
+    : path.resolve(homedir(), "vibedgames", slug);
+};
 
 /** Human label for where a new game would land ("~/vibedgames/<slug>"). */
-export function defaultWorkspaceLabel(): string {
+export const defaultWorkspaceLabel = (): string => {
   const repoRoot = findRepoRoot();
   return repoRoot ? "apps/factory/.workspaces/<slug>" : "~/vibedgames/<slug>";
-}
+};
 
-const SLUG_RE = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
+const SLUG_RE = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/u;
 
 /**
  * Validate + normalize a slug before it's ever used to build a filesystem
  * path. Rejecting anything outside [a-z0-9-] keeps `..`/path segments from
  * resolving `.vgfactory` outside the workspaces dir. Returns null when invalid.
  */
-export function normalizeSlug(raw: string): string | null {
+export const normalizeSlug = (raw: string): string | null => {
   const slug = raw.trim().toLowerCase();
   return SLUG_RE.test(slug) ? slug : null;
-}
+};
 
 /**
  * Loosely coerce arbitrary text (a folder name, the first words of an idea)
  * into a valid slug, or null when nothing usable survives. Long results are
  * clipped at a word boundary so derived subdomains stay readable.
  */
-export function slugify(raw: string): string | null {
+export const slugify = (raw: string): string | null => {
   let s = raw
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+    .replaceAll(/[^a-z0-9]+/gu, "-")
+    .replaceAll(/^-+|-+$/gu, "");
   if (s.length > 28) {
     s = s.slice(0, 28);
     const cut = s.lastIndexOf("-");
-    if (cut > 8) s = s.slice(0, cut);
-    s = s.replace(/-+$/, "");
+    if (cut > 8) {
+      s = s.slice(0, cut);
+    }
+    s = s.replace(/-+$/u, "");
   }
   return normalizeSlug(s);
-}
+};
 
 /**
  * The slug is only the game's deploy identity ({slug}.vibedgames.com and the
@@ -112,24 +118,32 @@ const SLUG_STOPWORDS = new Set([
   "like",
 ]);
 
-export function deriveSlug(input: { slug?: string; dir?: string; idea?: string }): string | null {
+export const deriveSlug = (input: {
+  slug?: string;
+  dir?: string;
+  idea?: string;
+}): string | null => {
   const explicit = input.slug?.trim();
-  if (explicit) return normalizeSlug(explicit);
+  if (explicit) {
+    return normalizeSlug(explicit);
+  }
   if (input.dir?.trim()) {
-    const fromDir = slugify(basename(resolve(input.dir)));
-    if (fromDir) return fromDir;
+    const fromDir = slugify(path.basename(path.resolve(input.dir)));
+    if (fromDir) {
+      return fromDir;
+    }
   }
   const idea = input.idea?.trim();
   if (idea) {
     // Keep the idea's meaningful words ("a tower defense with singing frogs"
     // → tower-defense-singing), falling back to the raw words if filtering
     // eats everything.
-    const words = idea.toLowerCase().split(/\s+/);
-    const meaningful = words.filter((w) => !SLUG_STOPWORDS.has(w.replace(/[^a-z0-9]/g, "")));
+    const words = idea.toLowerCase().split(/\s+/u);
+    const meaningful = words.filter((w) => !SLUG_STOPWORDS.has(w.replaceAll(/[^a-z0-9]/gu, "")));
     return slugify((meaningful.length > 0 ? meaningful : words).slice(0, 3).join(" "));
   }
   return null;
-}
+};
 
 /**
  * For idea-derived names only: two different games seeded with similar ideas
@@ -137,40 +151,41 @@ export function deriveSlug(input: { slug?: string; dir?: string; idea?: string }
  * explicit slug or folder expresses resume/adopt intent, so this never applies
  * there.
  */
-export function availableSlug(base: string): string {
+export const availableSlug = (base: string): string => {
   // Probe legacy blackboard names too: a pre-rename workspace is still taken
   // (it gets migrated to .vgfactory/ the moment it's resumed).
   const taken = (s: string): boolean =>
     [".vgfactory", ".agent", ".studio"].some((dir) =>
-      existsSync(resolve(defaultWorkspace(s), dir, "state.json")),
+      existsSync(path.resolve(defaultWorkspace(s), dir, "state.json")),
     );
-  if (!taken(base)) return base;
-  for (let i = 2; i < 100; i++) {
-    if (!taken(`${base}-${i}`)) return `${base}-${i}`;
+  if (!taken(base)) {
+    return base;
   }
-  return base; // 99 same-named games: let it resume rather than error
-}
+  for (let i = 2; i < 100; i += 1) {
+    if (!taken(`${base}-${i}`)) {
+      return `${base}-${i}`;
+    }
+  }
+  // 99 same-named games: let it resume rather than error
+  return base;
+};
 
 /**
  * Resolve a game's project directory from its slug and an optional --dir /
  * folder override, migrating any pre-rename `.studio/` layout before anything
  * inspects the blackboard.
  */
-export function resolveWorkspace(slug: string, override?: string): string {
-  const workspace = override ? resolve(process.cwd(), override) : defaultWorkspace(slug);
+export const resolveWorkspace = (slug: string, override?: string): string => {
+  const workspace = override ? path.resolve(process.cwd(), override) : defaultWorkspace(slug);
   migrateLegacyLayout(workspace);
   return workspace;
-}
+};
 
 /** Path to the `claude` CLI. Override with CLAUDE_BIN for non-PATH installs. */
-export function claudeBin(): string {
-  return process.env.CLAUDE_BIN ?? "claude";
-}
+export const claudeBin = (): string => process.env.CLAUDE_BIN ?? "claude";
 
 /** Path to the `codex` CLI. Override with CODEX_BIN for non-PATH installs. */
-export function codexBin(): string {
-  return process.env.CODEX_BIN ?? "codex";
-}
+export const codexBin = (): string => process.env.CODEX_BIN ?? "codex";
 
 /** Which coding-agent CLI runs the subagents by default. */
 export const DEFAULT_RUNNER = "claude";
@@ -180,9 +195,8 @@ export const DEFAULT_RUNNER = "claude";
  * the highest-craft games. Override with --model for a cheaper forever-loop
  * (e.g. --model sonnet).
  */
-export function defaultModelFor(runner: "claude" | "codex"): string {
-  return runner === "codex" ? "gpt-5.6-sol" : "claude-fable-5";
-}
+export const defaultModelFor = (runner: "claude" | "codex"): string =>
+  runner === "codex" ? "gpt-5.6-sol" : "claude-fable-5";
 
 /** Default per-role agentic turn ceiling. Keeps any single step bounded. */
 export const DEFAULT_MAX_TURNS = 40;

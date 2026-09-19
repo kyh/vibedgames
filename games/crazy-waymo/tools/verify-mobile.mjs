@@ -9,19 +9,19 @@ import { createMobileSession } from "./mobile-browser-session.mjs";
 const url = process.argv[2] ?? "http://localhost:5193/?time=night&offline=1";
 const output = path.resolve(process.argv[3] ?? "/private/tmp/waymo-mobile-review");
 const { call, evaluate, sleep, until, tap, touchPoint, screenshot, close, pageErrors } =
-  await createMobileSession({ sessionPrefix: "crazy-waymo-mobile-review", output });
-const report = { url, checkedAt: new Date().toISOString(), checks: [], views: [] };
-function check(name, passed, evidence) {
-  report.checks.push({ name, passed, evidence });
+  await createMobileSession({ output, sessionPrefix: "crazy-waymo-mobile-review" });
+const report = { checkedAt: new Date().toISOString(), checks: [], url, views: [] };
+const check = (name, passed, evidence) => {
+  report.checks.push({ evidence, name, passed });
   console.log(`${passed ? "PASS" : "FAIL"} ${name}: ${JSON.stringify(evidence)}`);
-}
+};
 try {
   await call("Runtime.enable");
   await call("Emulation.setDeviceMetricsOverride", {
-    width: 390,
-    height: 844,
     deviceScaleFactor: 3,
+    height: 844,
     mobile: true,
+    width: 390,
   });
   await call("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
   await call("Page.navigate", { url });
@@ -56,47 +56,47 @@ try {
   );
   const before = await evaluate("window.__taxi.probe()");
   await call("Input.dispatchTouchEvent", {
-    type: "touchStart",
     touchPoints: [formerCta],
+    type: "touchStart",
   });
   await until("window.__taxi.probe().speed > 12", 10_000);
   const driven = await evaluate("window.__taxi.probe()");
   await call("Input.dispatchTouchEvent", {
-    type: "touchMove",
     touchPoints: [{ ...formerCta, x: formerCta.x + 35 }],
+    type: "touchMove",
   });
   await sleep(400);
   const steered = await evaluate("window.__taxi.probe()");
-  await call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await call("Input.dispatchTouchEvent", { touchPoints: [], type: "touchEnd" });
   check(
     "touch accelerates and steers from the former start-button bounds",
     driven.speed > 12 && Math.abs(steered.heading - before.heading) > 0.02,
     { before, driven, steered },
   );
   await evaluate("window.__taxi.teleport(.37,.39)");
-  const stick = { x: 100, y: 520, id: 1 };
-  await call("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [stick] });
+  const stick = { id: 1, x: 100, y: 520 };
+  await call("Input.dispatchTouchEvent", { touchPoints: [stick], type: "touchStart" });
   await until("window.__taxi.probe().speed > 12", 10_000);
   const boostPoint = await touchPoint("#t-boost", 2);
-  await call("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [stick, boostPoint] });
+  await call("Input.dispatchTouchEvent", { touchPoints: [stick, boostPoint], type: "touchStart" });
   await until("window.__taxi.probe().boosting", 2000);
   check("touch nitro boost", true, await evaluate("window.__taxi.probe()"));
-  await call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [stick] });
+  await call("Input.dispatchTouchEvent", { touchPoints: [stick], type: "touchEnd" });
   const brakePoint = await touchPoint("#t-brake", 3);
-  await call("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [stick, brakePoint] });
+  await call("Input.dispatchTouchEvent", { touchPoints: [stick, brakePoint], type: "touchStart" });
   await call("Input.dispatchTouchEvent", {
-    type: "touchMove",
     touchPoints: [{ ...stick, x: 145 }, brakePoint],
+    type: "touchMove",
   });
   await until("window.__taxi.probe().drifting", 2000);
   check("touch brake and steering drift", true, await evaluate("window.__taxi.probe()"));
-  await call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await call("Input.dispatchTouchEvent", { touchPoints: [], type: "touchEnd" });
   await evaluate("window.__taxi.teleport(.37,.39)");
   const reverseStart = await evaluate("window.__taxi.probe()");
-  await call("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [brakePoint] });
+  await call("Input.dispatchTouchEvent", { touchPoints: [brakePoint], type: "touchStart" });
   await until("window.__taxi.probe().speed > 3", 5000);
   const reversed = await evaluate("window.__taxi.probe()");
-  await call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await call("Input.dispatchTouchEvent", { touchPoints: [], type: "touchEnd" });
   const reverseDistance =
     (reversed.x - reverseStart.x) * Math.sin(reverseStart.heading) +
     (reversed.z - reverseStart.z) * Math.cos(reverseStart.heading);
@@ -107,7 +107,8 @@ try {
     g.update=function(...args){window.__phoneWork.updates++;return update.apply(this,args);};})()`);
   await tap('[aria-label="Pause"]');
   await until("window.__taxi.game.paused === true");
-  await sleep(100); // Allow the single pause-entry redraw.
+  // Allow the single pause-entry redraw.
+  await sleep(100);
   const idleBefore = await evaluate("({...window.__phoneWork,tier:window.__perf.tier()})");
   const parked = await evaluate("window.__taxi.probe()");
   await sleep(1500);
@@ -122,13 +123,13 @@ try {
     idleAfter.draws === idleBefore.draws &&
       idleAfter.updates === idleBefore.updates &&
       idleAfter.tier === idleBefore.tier,
-    { idleBefore, idleAfter },
+    { idleAfter, idleBefore },
   );
   await call("Emulation.setDeviceMetricsOverride", {
-    width: 844,
-    height: 390,
     deviceScaleFactor: 3,
+    height: 390,
     mobile: true,
+    width: 844,
   });
   await sleep(350);
   const resized = await evaluate("({...window.__phoneWork,width:innerWidth,height:innerHeight})");
@@ -140,10 +141,10 @@ try {
     { idleAfter, resized },
   );
   await call("Emulation.setDeviceMetricsOverride", {
-    width: 390,
-    height: 844,
     deviceScaleFactor: 3,
+    height: 844,
     mobile: true,
+    width: 390,
   });
   await sleep(350);
   await tap("#waymo-pause .pcta");
@@ -154,9 +155,9 @@ try {
   const drawHz =
     ((activeAfter.draws - activeBefore.draws) * 1000) / (activeAfter.at - activeBefore.at);
   check("resumed phone renders at most 60 Hz", drawHz > 10 && drawHz <= 61, {
-    drawHz,
-    activeBefore,
     activeAfter,
+    activeBefore,
+    drawHz,
   });
   await tap('[aria-label="Pause"]');
   await until("window.__taxi.game.paused === true");
@@ -164,7 +165,7 @@ try {
   await until('window.__taxi.game.mode.kind === "playing" && !window.__taxi.game.paused');
   check("touch resume and restart", true, await evaluate("window.__taxi.probe()"));
   const restartStart = await evaluate("window.__taxi.probe()");
-  await call("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [stick] });
+  await call("Input.dispatchTouchEvent", { touchPoints: [stick], type: "touchStart" });
   await until(
     `(()=>{const p=window.__taxi.probe();return p.speed>15&&Math.hypot(p.x-(${restartStart.x}),p.z-(${restartStart.z}))>30})()`,
     8000,
@@ -172,7 +173,7 @@ try {
   const restartDrive = await evaluate(
     "(()=>{const t=window.__taxi;return {probe:t.probe(),cameraDistance:t.camera.position.distanceTo(t.game.car.position)}})()",
   );
-  await call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await call("Input.dispatchTouchEvent", { touchPoints: [], type: "touchEnd" });
   check(
     "restart gives a drivable route and clear chase camera",
     restartDrive.probe.speed > 15 && restartDrive.cameraDistance > 6,
@@ -184,10 +185,10 @@ try {
     ["landscape-noon", 844, 390, 0.437, 0.401, 0.25],
   ]) {
     await call("Emulation.setDeviceMetricsOverride", {
-      width,
-      height,
       deviceScaleFactor: 3,
+      height,
       mobile: true,
+      width,
     });
     await evaluate(`window.__taxi.teleport(${u},${v});window.__taxi.setPhase(${phase})`);
     await sleep(2500);
@@ -205,7 +206,7 @@ try {
     }
   }
   const tierBudget = [];
-  for (let tier = 0; tier < 5; tier++) {
+  for (let tier = 0; tier < 5; tier += 1) {
     await evaluate(`window.__perf.pin(${tier})`);
     await sleep(200);
     tierBudget.push(
@@ -227,7 +228,9 @@ try {
   );
   await evaluate("window.__perf.pin(null)");
   check("no mobile page errors", pageErrors.length === 0, pageErrors);
-  if (report.checks.some((entry) => !entry.passed)) process.exitCode = 1;
+  if (report.checks.some((entry) => !entry.passed)) {
+    process.exitCode = 1;
+  }
 } catch (error) {
   check("mobile run completed", false, String(error));
   await screenshot("failure");

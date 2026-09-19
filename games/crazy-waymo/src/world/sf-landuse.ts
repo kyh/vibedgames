@@ -294,19 +294,23 @@ const CLASS_COLS: readonly string[] = [
   "",
 ];
 
-function classId(gx: number, gz: number): number {
+const classId = (gx: number, gz: number): number => {
   const col = CLASS_COLS[gx];
-  if (col === undefined || gz < 0) return 0;
+  if (col === undefined || gz < 0) {
+    return 0;
+  }
   const at = gz * 2;
-  if (at + 2 > col.length) return 0; // column trimmed past its last class
+  if (at + 2 > col.length) {
+    return 0;
+    // column trimmed past its last class
+  }
   const id = Number.parseInt(col.slice(at, at + 2), 16);
   return Number.isNaN(id) ? 0 : id;
-}
+};
 
 /** What the ground at this cell is. "unclassified" = OSM says nothing. */
-export function landuseClassAt(gx: number, gz: number): LanduseClass {
-  return LANDUSE_CLASSES[classId(gx, gz)] ?? "unclassified";
-}
+export const landuseClassAt = (gx: number, gz: number): LanduseClass =>
+  LANDUSE_CLASSES[classId(gx, gz)] ?? "unclassified";
 
 // Vegetated classes. This gates park tiles, the car-free park clip and the
 // meadow patches, so it stays narrow: an asphalt schoolyard is a "court".
@@ -321,9 +325,7 @@ const GREEN_CLASSES: ReadonlySet<LanduseClass> = new Set([
 ]);
 const SAND_CLASSES: ReadonlySet<LanduseClass> = new Set(["sand"]);
 
-export function landuseGreenAt(gx: number, gz: number): boolean {
-  return GREEN_CLASSES.has(landuseClassAt(gx, gz));
-}
-export function landuseSandAt(gx: number, gz: number): boolean {
-  return SAND_CLASSES.has(landuseClassAt(gx, gz));
-}
+export const landuseGreenAt = (gx: number, gz: number): boolean =>
+  GREEN_CLASSES.has(landuseClassAt(gx, gz));
+export const landuseSandAt = (gx: number, gz: number): boolean =>
+  SAND_CLASSES.has(landuseClassAt(gx, gz));

@@ -1,6 +1,6 @@
 ---
 name: generate
-description: 'Use the `vg generate` CLI to search, inspect, run, and manage 1200+ generative model endpoints. Trigger when the user asks to "generate an image", "make a video", "search models", "run a model", "fetch schema", "check pricing", "upload an asset", "queue async job", "track request", or any direct interaction with the model endpoint catalog. This is the foundational skill. Every other media skill in this repo executes its work through `vg generate` commands. Use `--json` whenever the output will be parsed by an agent, or `--field path` to print a single value.'
+description: "Run the `vg generate` CLI: search models, inspect schemas and pricing, run endpoints, upload inputs, track async jobs. The base every media skill here builds on."
 ---
 
 # vg generate: model endpoint runner
@@ -33,7 +33,7 @@ For the full command surface (every flag, every option, every example), see [ref
 
 > `vg generate` is a model-call surface only. Install/update the CLI with `npm install -g vibedgames`; skills live in this repo under `plugins/generate/skills/` and sync via `pnpm dogfood`.
 
-> **Own a Codex plan with image generation?** Add `--provider codex` to `vg generate run` (or set `VG_GENERATE_PROVIDER=codex`) to generate **images** through your local `codex` CLI instead of the vibedgames catalog — nothing hits the vibedgames backend, and it needs no vibedgames auth (`vg login`/`VG_TOKEN` not required; only your signed-in Codex plan). Constraints an agent must respect: images only (no video/audio/3D — use the default provider), synchronous (no `--async`), and output is saved straight to disk — read `downloaded_files[]` from the `--json` result (there are no URLs). Requires the `codex` CLI on `PATH` and a signed-in Codex plan; if it's missing the command exits non-zero, so fall back to the default provider. Full contract (recognized inputs, JSON shape, failure semantics): [full-reference.md](references/full-reference.md#provider-codex-use-your-own-codex-plan-for-images).
+> **OpenAI image models run through your own Codex plan when `codex` is installed.** With no `--provider` set, `vg generate run openai/gpt-image-*` (or the literal endpoint `codex`) goes to the local `codex` CLI — nothing hits the vibedgames backend and no vibedgames auth is needed (`vg login`/`VG_TOKEN` not required; only your signed-in Codex plan). The command says so on stderr. Every other endpoint (Flux, video, audio, 3D) stays on the vibedgames catalog, as does an OpenAI image run that Codex cannot honour (`--async`, or a non-local reference URL). Force either side with `--provider vibedgames` / `--provider codex` or `VG_GENERATE_PROVIDER`. Constraints an agent must respect on the codex path: images only, synchronous (no `--async`), and output is saved straight to disk — read `downloaded_files[]` from the `--json` result (there are no URLs). If `codex` is missing the explicit `--provider codex` exits non-zero, so fall back to the default provider. Full contract (recognized inputs, JSON shape, failure semantics): [full-reference.md](references/full-reference.md#provider-codex-use-your-own-codex-plan-for-images).
 
 ## Credits
 
@@ -71,6 +71,12 @@ vg generate status fal-ai/veo3.1 "$REQ" \
  --download "./out/{request_id}_{index}.{ext}" \
  --json
 ```
+
+**If a job's outcome is ever ambiguous, recover — don't resubmit.**
+
+- Capture `request_id` the moment a submit returns (`--field request_id`, or `request_id` in the `--json` result) and resume with `vg generate status <endpoint_id> <request_id>`.
+- Never re-`run` after an ambiguous failure (connection lost, unclear response). Reconcile the request id or job history first; if none can be recovered, say so and get authorization before a potentially duplicate paid request.
+- Retry only idempotent reads (`status`, `--download`) with backoff. A single transient error is not a completed recovery — exhausting bounded retries leaves the job pending, not permission to submit again.
 
 ### Upload then run
 

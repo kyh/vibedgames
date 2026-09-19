@@ -11,7 +11,9 @@ export const useCopyToClipboard = () => {
 
   useEffect(
     () => () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
     },
     [],
   );
@@ -21,7 +23,9 @@ export const useCopyToClipboard = () => {
       await navigator.clipboard.writeText(text);
       setCopied(true);
       toast.success(SUCCESS_TOAST);
-      if (timerRef.current) clearTimeout(timerRef.current);
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
       timerRef.current = setTimeout(() => setCopied(false), RESET_MS);
     } catch {
       toast.error(ERROR_TOAST);

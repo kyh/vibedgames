@@ -20,12 +20,13 @@ import type {
   FaceLandmarkerResult,
   NormalizedLandmark,
 } from "@mediapipe/tasks-vision";
+import type * as TasksVision from "@mediapipe/tasks-vision";
 
 import { HEAD_DEBOUNCE_MS, HEAD_TURN_THRESHOLD, MOUTH_OPEN_RATIO } from "../shared/constants";
 import { IS_TOUCH } from "./input-mode";
 
 /** The lazily-imported module: `FaceLandmarker`'s statics are needed to draw. */
-type Vision = typeof import("@mediapipe/tasks-vision");
+type Vision = typeof TasksVision;
 
 /** Verbatim legacy CDN URL (the 0.10.35 JS lib shipped against these binaries). */
 const WASM_CDN = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm";
@@ -35,7 +36,8 @@ const MODEL_PATH = "face_landmarker.task";
 // Legacy landmark indices:
 const UPPER_LIP = 13;
 const LOWER_LIP = 14;
-const FACE_TOP = 10; // "nose" reference for face height
+// "Nose" reference for face height.
+const FACE_TOP = 10;
 const CHIN = 152;
 const NOSE_TIP = 4;
 const LEFT_CHEEK = 234;
@@ -43,7 +45,12 @@ const RIGHT_CHEEK = 454;
 
 type HeadPosition = "center" | "left" | "right";
 
-export type FaceCameraOptions = {
+export type FaceCameraState =
+  | { kind: "idle" | "unavailable" }
+  | { kind: "starting"; stage: "camera" | "model" }
+  | { kind: "live"; tracking: boolean };
+
+export interface FaceCameraOptions {
   video: HTMLVideoElement;
   overlay: HTMLCanvasElement;
   status: HTMLElement;
@@ -51,6 +58,68 @@ export type FaceCameraOptions = {
   onMouthChange?: (open: boolean) => void;
   onHeadTurnLeft?: () => void;
   onHeadTurnRight?: () => void;
+  onState?: (state: FaceCameraState) => void;
+}
+
+const statusText = (state: FaceCameraState): string | null => {
+  if (state.kind === "starting") {
+    return state.stage === "camera" ? "starting camera…" : "loading face model…";
+  }
+  if (state.kind === "unavailable") {
+    return IS_TOUCH
+      ? "camera unavailable — retry · swipe: ↑ step · ←/→ turn"
+      : "camera unavailable — retry · ←/→ turn · SPACE step";
+  }
+  if (state.kind === "live" && !state.tracking) {
+    return "camera ready — bring your face into view";
+  }
+  return null;
+};
+
+/**
+ * Mouth-open check (legacy detectMouthOpen): lip gap relative to face height
+ * (landmarks 13/14 lips, 10/152 vertical reference) above 0.07 = open.
+ */
+const detectMouthOpen = (landmarks: NormalizedLandmark[]): boolean => {
+  const upperLip = landmarks[UPPER_LIP];
+  const lowerLip = landmarks[LOWER_LIP];
+  const nose = landmarks[FACE_TOP];
+  const chin = landmarks[CHIN];
+  if (!upperLip || !lowerLip || !nose || !chin) {
+    return false;
+  }
+
+  const mouthOpenDistance = Math.abs(upperLip.y - lowerLip.y);
+  const faceHeight = Math.abs(nose.y - chin.y);
+  return mouthOpenDistance / faceHeight > MOUTH_OPEN_RATIO;
+};
+
+/**
+ * Head turn from nose-to-cheek asymmetry (legacy detectHeadTurn):
+ * ratio > 0.3 = left, < -0.3 = right, everything else = center. The legacy
+ * source had a hysteresis band (0.15–0.3) that "held the current state", but
+ * its stale closure meant the held state was always "center" — so as shipped
+ * the band resolved to "center", and we reproduce that.
+ */
+const detectHeadTurn = (landmarks: NormalizedLandmark[]): HeadPosition => {
+  const leftCheek = landmarks[LEFT_CHEEK];
+  const rightCheek = landmarks[RIGHT_CHEEK];
+  const noseTip = landmarks[NOSE_TIP];
+  if (!leftCheek || !rightCheek || !noseTip) {
+    return "center";
+  }
+
+  const leftDistance = Math.abs(noseTip.x - leftCheek.x);
+  const rightDistance = Math.abs(noseTip.x - rightCheek.x);
+  const asymmetryRatio = (leftDistance - rightDistance) / (leftDistance + rightDistance);
+
+  if (asymmetryRatio > HEAD_TURN_THRESHOLD) {
+    return "left";
+  }
+  if (asymmetryRatio < -HEAD_TURN_THRESHOLD) {
+    return "right";
+  }
+  return "center";
 };
 
 export class FaceCamera {
@@ -63,8 +132,20 @@ export class FaceCamera {
   private result: FaceLandmarkerResult | null = null;
   private lastVideoTime = -1;
   private lastHeadChange = 0;
-  /** Back to "idle" on failure, so tapping the porthole retries. */
-  private state: "idle" | "starting" | "live" = "idle";
+  private state: FaceCameraState = { kind: "idle" };
+  /**
+   * Bumped by every start/failure so an in-flight start (or its RAF loop) from
+   * a previous attempt notices it was superseded and stands down.
+   */
+  private attempt = 0;
+  private raf: number | null = null;
+  private releaseCaptureEvents: (() => void) | null = null;
+  private actionsPaused = false;
+  private mouthOpen = false;
+  private headPosition: HeadPosition = "center";
+  /** A gesture held across a pause must return to neutral before it fires again. */
+  private mouthArmed = true;
+  private headArmed = true;
 
   constructor(opts: FaceCameraOptions) {
     this.opts = opts;
@@ -76,119 +157,252 @@ export class FaceCamera {
    * live are ignored, so the porthole's collapse toggle can drive it.
    */
   async start(): Promise<void> {
-    if (this.state !== "idle") return;
-    this.state = "starting";
-    this.setStatus("starting camera…");
+    if (this.state.kind !== "idle" && this.state.kind !== "unavailable") {
+      return;
+    }
+    this.attempt += 1;
+    const { attempt } = this;
+    this.releaseCapture();
+    this.publish({ kind: "starting", stage: "camera" });
     try {
       const ctx = this.opts.overlay.getContext("2d");
-      if (!ctx) throw new Error("no 2d context for overlay canvas");
+      if (!ctx) {
+        throw new Error("no 2d context for overlay canvas");
+      }
       this.overlayCtx = ctx;
 
       // Camera BEFORE the model: a denied prompt must not have cost 6 MB of
       // wasm + weights, and on a phone the grant only survives inside the
       // gesture that called us.
-      this.stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user" },
+      const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
+        video: { facingMode: "user" },
       });
+      if (this.attempt !== attempt) {
+        for (const track of stream.getTracks()) {
+          track.stop();
+        }
+        return;
+      }
+      this.stream = stream;
+      const { video } = this.opts;
+      const tracks = stream.getTracks();
+      // A camera unplugged (or revoked) mid-session flips the porthole to
+      // "retry" instead of freezing on the last frame.
+      const onEnded = (): void => this.fail(attempt);
+      const onVideoError = (): void => {
+        if (video.srcObject === stream && video.error) {
+          this.fail(attempt);
+        }
+      };
+      for (const track of tracks) {
+        track.addEventListener("ended", onEnded);
+      }
+      video.addEventListener("error", onVideoError);
+      this.releaseCaptureEvents = () => {
+        for (const track of tracks) {
+          track.removeEventListener("ended", onEnded);
+        }
+        video.removeEventListener("error", onVideoError);
+      };
+      if (tracks.some((track) => track.readyState === "ended")) {
+        throw new Error("camera ended");
+      }
 
-      this.setStatus("loading face model…");
+      this.publish({ kind: "starting", stage: "model" });
       const vision = await import("@mediapipe/tasks-vision");
+      if (this.attempt !== attempt) {
+        return;
+      }
       this.vision = vision;
       this.drawingUtils = new vision.DrawingUtils(ctx);
       const fileset = await vision.FilesetResolver.forVisionTasks(WASM_CDN);
-      this.landmarker = await vision.FaceLandmarker.createFromOptions(fileset, {
+      if (this.attempt !== attempt) {
+        return;
+      }
+      const landmarker = await vision.FaceLandmarker.createFromOptions(fileset, {
         baseOptions: {
-          modelAssetPath: MODEL_PATH,
           delegate: "GPU",
+          modelAssetPath: MODEL_PATH,
         },
-        // Computed key: the lint bans "shape" identifiers; this is MediaPipe API.
-        ["outputFaceBlendshapes"]: true,
-        runningMode: "VIDEO",
         numFaces: 1,
+        // oxlint-disable-next-line anti-slop/no-shape-in-symbol-names -- MediaPipe option name
+        outputFaceBlendshapes: true,
+        runningMode: "VIDEO",
       });
+      if (this.attempt !== attempt) {
+        landmarker.close();
+        return;
+      }
+      this.landmarker = landmarker;
 
-      const video = this.opts.video;
-      video.srcObject = this.stream;
-      video.addEventListener(
-        "loadeddata",
-        () => {
-          this.opts.overlay.width = video.videoWidth;
-          this.opts.overlay.height = video.videoHeight;
-          this.setStatus(null);
-          this.predict();
-        },
-        { once: true },
-      );
-      void video.play();
-      this.state = "live";
-    } catch (err) {
+      let started = false;
+      const loaded = (): void => {
+        if (started || this.attempt !== attempt) {
+          return;
+        }
+        started = true;
+        this.opts.overlay.width = video.videoWidth;
+        this.opts.overlay.height = video.videoHeight;
+        this.publish({ kind: "live", tracking: false });
+        this.predict(attempt);
+      };
+      video.addEventListener("loadeddata", loaded, { once: true });
+      video.srcObject = stream;
+      await video.play();
+      // Some browsers have the first frame decoded before play() settles.
+      if (this.attempt === attempt && video.readyState >= 2 && video.videoWidth > 0) {
+        loaded();
+      }
+    } catch (error) {
       // warn, not error: denial is an expected, fully-handled degradation.
-      console.warn("face camera unavailable:", err);
-      // A stream granted before a later failure would leave the camera light
-      // on with nothing reading it.
-      for (const track of this.stream?.getTracks() ?? []) track.stop();
-      this.stream = null;
-      this.state = "idle";
-      this.setStatus(
-        IS_TOUCH
-          ? "camera unavailable — tap to retry · swipe: ↑ step · ←/→ turn"
-          : "camera unavailable — keyboard: ←/→ turn · SPACE step",
-      );
+      if (this.attempt === attempt) {
+        console.warn("face camera unavailable:", error);
+      }
+      this.fail(attempt);
     }
   }
 
-  private setStatus(text: string | null): void {
+  private fail(attempt: number): void {
+    if (this.attempt !== attempt) {
+      return;
+    }
+    this.attempt += 1;
+    this.releaseCapture();
+    this.publish({ kind: "unavailable" });
+  }
+
+  /** Stop the camera light + model; the next start() begins from scratch. */
+  private releaseCapture(): void {
+    if (this.raf !== null) {
+      window.cancelAnimationFrame(this.raf);
+    }
+    this.raf = null;
+    this.releaseCaptureEvents?.();
+    this.releaseCaptureEvents = null;
+    this.opts.video.pause();
+    this.opts.video.srcObject = null;
+    for (const track of this.stream?.getTracks() ?? []) {
+      track.stop();
+    }
+    this.stream = null;
+    this.landmarker?.close();
+    this.landmarker = null;
+    this.drawingUtils?.close();
+    this.drawingUtils = null;
+    this.vision = null;
+    this.overlayCtx = null;
+    this.result = null;
+    this.lastVideoTime = -1;
+    this.lastHeadChange = 0;
+  }
+
+  /** Keep recognition + preview live, but hold gestures until they pass through neutral. */
+  setActionsPaused(paused: boolean): void {
+    if (paused === this.actionsPaused) {
+      return;
+    }
+    this.actionsPaused = paused;
+    this.mouthArmed = !this.mouthOpen;
+    this.headArmed = this.headPosition === "center";
+  }
+
+  private publish(state: FaceCameraState): void {
+    if (
+      state.kind === "live" &&
+      this.state.kind === "live" &&
+      state.tracking === this.state.tracking
+    ) {
+      return;
+    }
+    this.state = state;
+    const text = statusText(state);
     this.opts.status.textContent = text ?? "";
     this.opts.status.style.display = text === null ? "none" : "";
+    this.opts.onState?.(state);
   }
 
   // ---- per-frame detection (legacy predictWebcam) ----------------------------
 
-  private predict = (): void => {
-    const video = this.opts.video;
+  private predict(attempt: number): void {
+    this.raf = null;
+    const { video } = this.opts;
     const canvas = this.opts.overlay;
     const ctx = this.overlayCtx;
-    if (!ctx || !this.landmarker || !this.drawingUtils) return;
-
-    if (this.lastVideoTime !== video.currentTime) {
-      this.lastVideoTime = video.currentTime;
-      this.result = this.landmarker.detectForVideo(video, performance.now());
+    if (!ctx || !this.landmarker || !this.drawingUtils) {
+      return;
     }
 
     ctx.save();
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    try {
+      if (this.lastVideoTime !== video.currentTime) {
+        this.lastVideoTime = video.currentTime;
+        this.result = this.landmarker.detectForVideo(video, performance.now());
+      }
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (this.result) {
+        this.publish({ kind: "live", tracking: this.result.faceLandmarks.length > 0 });
+        for (const landmarks of this.result.faceLandmarks) {
+          this.drawMesh(landmarks);
+          this.trackMouth(landmarks);
+          this.trackHead(landmarks);
+        }
+      }
+    } catch (error) {
+      // A lost GPU context or a torn-down wasm runtime surfaces here — same
+      // recovery as a start() failure: the porthole offers a retry.
+      console.warn("face camera unavailable:", error);
+      this.fail(attempt);
+      return;
+    } finally {
+      ctx.restore();
+    }
+    if (this.attempt === attempt) {
+      this.raf = window.requestAnimationFrame(() => this.predict(attempt));
+    }
+  }
 
-    if (this.result) {
-      for (const landmarks of this.result.faceLandmarks) {
-        this.drawMesh(landmarks);
+  private trackMouth(landmarks: NormalizedLandmark[]): void {
+    this.mouthOpen = detectMouthOpen(landmarks);
+    if (!this.mouthOpen) {
+      this.mouthArmed = true;
+    }
+    if (!this.actionsPaused && this.mouthArmed) {
+      this.opts.onMouthChange?.(this.mouthOpen);
+    }
+  }
 
-        this.opts.onMouthChange?.(detectMouthOpen(landmarks));
-
-        // Legacy-as-shipped behavior: the legacy RAF loop recursed on its
-        // render-1 closure, so `headPosition` was permanently the stale
-        // "center". Effectively: holding a turn re-fires every
-        // HEAD_DEBOUNCE_MS, and recentering fires nothing (and consumes no
-        // debounce slot).
-        const next = this.detectHeadTurn(landmarks);
-        const now = performance.now();
-        if (next !== "center" && now - this.lastHeadChange > HEAD_DEBOUNCE_MS) {
-          this.lastHeadChange = now;
-          if (next === "left") this.opts.onHeadTurnLeft?.();
-          else this.opts.onHeadTurnRight?.();
+  /** Legacy-as-shipped behavior: the legacy RAF loop recursed on its
+   *  render-1 closure, so `headPosition` was permanently the stale
+   *  "center". Effectively: holding a turn re-fires every
+   *  HEAD_DEBOUNCE_MS, and recentering fires nothing (and consumes no
+   *  debounce slot). */
+  private trackHead(landmarks: NormalizedLandmark[]): void {
+    const next = detectHeadTurn(landmarks);
+    this.headPosition = next;
+    if (next === "center") {
+      this.headArmed = true;
+    }
+    const now = performance.now();
+    if (next !== "center" && now - this.lastHeadChange > HEAD_DEBOUNCE_MS) {
+      this.lastHeadChange = now;
+      if (!this.actionsPaused && this.headArmed) {
+        if (next === "left") {
+          this.opts.onHeadTurnLeft?.();
+        } else {
+          this.opts.onHeadTurnRight?.();
         }
       }
     }
-
-    ctx.restore();
-    window.requestAnimationFrame(this.predict);
-  };
+  }
 
   /** Face-mesh overlay — legacy structure/order, restyled in pastels. */
   private drawMesh(landmarks: NormalizedLandmark[]): void {
     const du = this.drawingUtils;
     const face = this.vision?.FaceLandmarker;
-    if (!du || !face) return;
+    if (!du || !face) {
+      return;
+    }
     du.drawConnectors(landmarks, face.FACE_LANDMARKS_TESSELATION, {
       color: "#f5c9d655",
       lineWidth: 1,
@@ -202,42 +416,4 @@ export class FaceCamera {
     du.drawConnectors(landmarks, face.FACE_LANDMARKS_RIGHT_IRIS, { color: "#f08aab" });
     du.drawConnectors(landmarks, face.FACE_LANDMARKS_LEFT_IRIS, { color: "#f08aab" });
   }
-
-  /**
-   * Head turn from nose-to-cheek asymmetry (legacy detectHeadTurn):
-   * ratio > 0.3 = left, < -0.3 = right, everything else = center. The legacy
-   * source had a hysteresis band (0.15–0.3) that "held the current state", but
-   * its stale closure meant the held state was always "center" — so as shipped
-   * the band resolved to "center", and we reproduce that.
-   */
-  private detectHeadTurn(landmarks: NormalizedLandmark[]): HeadPosition {
-    const leftCheek = landmarks[LEFT_CHEEK];
-    const rightCheek = landmarks[RIGHT_CHEEK];
-    const noseTip = landmarks[NOSE_TIP];
-    if (!leftCheek || !rightCheek || !noseTip) return "center";
-
-    const leftDistance = Math.abs(noseTip.x - leftCheek.x);
-    const rightDistance = Math.abs(noseTip.x - rightCheek.x);
-    const asymmetryRatio = (leftDistance - rightDistance) / (leftDistance + rightDistance);
-
-    if (asymmetryRatio > HEAD_TURN_THRESHOLD) return "left";
-    if (asymmetryRatio < -HEAD_TURN_THRESHOLD) return "right";
-    return "center";
-  }
-}
-
-/**
- * Mouth-open check (legacy detectMouthOpen): lip gap relative to face height
- * (landmarks 13/14 lips, 10/152 vertical reference) above 0.07 = open.
- */
-function detectMouthOpen(landmarks: NormalizedLandmark[]): boolean {
-  const upperLip = landmarks[UPPER_LIP];
-  const lowerLip = landmarks[LOWER_LIP];
-  const nose = landmarks[FACE_TOP];
-  const chin = landmarks[CHIN];
-  if (!upperLip || !lowerLip || !nose || !chin) return false;
-
-  const mouthOpenDistance = Math.abs(upperLip.y - lowerLip.y);
-  const faceHeight = Math.abs(nose.y - chin.y);
-  return mouthOpenDistance / faceHeight > MOUTH_OPEN_RATIO;
 }

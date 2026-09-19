@@ -1,6 +1,6 @@
 ---
 name: playtest
-description: 'Drive a real browser to play a game and prove it works — smoke checks, scripted bot playtests, softlock detection, canvas/WebGL determinism, screenshots and visual diffs — via `vg playtest` (agent-browser). Use for canvas/WebGL games (Phaser, Three.js) and for verifying a deployed game. Trigger: "playtest", "test my game", "does it work", "is it broken", "softlock", "check the deployed game", "screenshot the game", "visual regression", "browser automation".'
+description: "Drive a real browser against a game with `vg playtest`: smoke checks, scripted playtests, `vg playtest run` (a model plays the game and reports), softlock detection, screenshots and visual diffs, on localhost or a deployed URL."
 ---
 
 # Playtest
@@ -9,7 +9,7 @@ A build that compiles proves nothing. A game that renders proves almost nothing.
 
 ## The Tool: `vg playtest`
 
-Everything here runs through one command. `vg playtest` is a passthrough to [agent-browser](https://github.com/vercel-labs/agent-browser), a native browser-automation CLI built for agents — `vg` installs it and its browser on first use, so **there is nothing to add to the game's `package.json`**. No test runner, no devDependencies, no MCP server to configure.
+Everything here runs through one command. `vg playtest` is a passthrough to [agent-browser](https://github.com/vercel-labs/agent-browser), a native browser-automation CLI built for agents — `vg` installs it and its browser on first use, so **there is nothing to add to the game's `package.json` to drive it**. No test runner, no devDependencies, no MCP server to configure. (The one optional dependency is on the game's side: `@vibedgames/playtest` types and publishes the diagnostics contract below.)
 
 ```sh
 vg playtest open http://localhost:5173   # launch + navigate (headless by default)
@@ -33,9 +33,9 @@ vg playtest skills get dogfood    # systematic exploratory testing / bug hunts
 vg playtest skills list           # everything available on this version
 ```
 
-**`skills get core` is the source of truth for the generic surface** — the snapshot-and-ref loop, sessions, waiting, forms, auth, troubleshooting. Don't re-derive it here, and don't trust a stale memory of it.
+**`skills get core` is the source of truth for the generic surface** — the snapshot-and-ref loop, sessions, waiting, forms, auth, troubleshooting. Don't re-derive it here, and don't trust a stale memory of it. An older agent-browser build with no `skills` subcommand falls back to `vg playtest --help`.
 
-This skill covers only what upstream can't know: the game diagnostics contract, the bot playtest, canvas/WebGL determinism, `--game`, and the traps we hit driving real games (see below). `references/cli-cheatsheet.md` is the game-shaped subset of commands.
+This skill covers only what upstream can't know: the game diagnostics contract, the scripted playtest, canvas/WebGL determinism, `--game`, and the traps we hit driving real games (see below). `references/cli-cheatsheet.md` is the game-shaped subset of commands.
 
 **Playtest a deployed game with no local setup at all:**
 
@@ -75,15 +75,17 @@ The browser can see pixels; it can't see whether the player is stuck. Games expo
 - `window.__GAME_DIAGNOSTICS__` — read-only per-frame telemetry (`frame`, `score`, `complete`, `player`, `entities`).
 - `window.__GAME_TEST_HOOKS__` — the mutations a playtest may perform (`seed`, `setState`, `setReducedMotion`, …).
 
-**The full field list and rules live in `references/bot-playtest.md`** — that is the address `games/lunerfall/src/sys/diag.ts` and `games/starfall/src/shared/diag.ts` both cite, so it stays the one copy to edit.
+**The full field list and rules live in `references/scripted-playtest.md`** — that is the address `games/lunerfall/src/sys/diag.ts` and `games/starfall/src/shared/diag.ts` both cite, so it stays the one copy to edit.
+
+`npm install @vibedgames/playtest` gives the contract as types and three publishers — `publishDiagnostics(read)` (a live getter), `publishTestHooks(hooks)`, `publishPlaytest(manifest)` — plus `isPlaytestRequested()` for the `?test=1` gate and `pointerTracker()` for cursor-steered games. Optional: the globals are the contract, and setting them by hand is just as valid. `games/pong/src/main.ts` uses the package.
 
 Two rules worth knowing before you read it: JSON-serializable primitives only, never raw engine objects; and `seed(n)` must **restart** the run, not just reseed it, or everything measured afterwards is still unseeded.
 
 Adding this contract to a game is a prerequisite, not an optional extra. Without it a playtest can only assert "pixels changed".
 
-## Bot Playtest: Prove It Plays
+## Scripted Playtest: Prove It Plays
 
-A smoke check proves the game loads; a bot playtest proves it _plays_. It drives real held input and measures **progression**:
+A smoke check proves the game loads; a scripted playtest proves it _plays_. It drives real held input and measures **progression**:
 
 ```bash
 # This skill's directory. Claude Code substitutes CLAUDE_SKILL_DIR (project, global
@@ -96,22 +98,41 @@ done
 
 ```sh
 # from the project root
-node $SKILL/scripts/bot-playtest.mjs --url http://localhost:5173 --seed 12345
+node $SKILL/scripts/scripted-playtest.mjs --url http://localhost:5173 --seed 12345
 ```
 
 The bundled script (zero dependencies — just Node and `vg`) drives a scripted sweep of held keys and pointer moves, samples diagnostics **during** each step, and prints a JSON report. It measures four things: the loop survived (`framesAdvanced`), input reaches the player (`distanceTravelled`), the objective is reachable (`scoreAfter` / `stepOfFirstScore`), and the player never wedged (`longestStuckRun`) — plus zero console and page errors. Exit `0` means it plays, `1` means it doesn't and the report names which check failed, `2` means the harness itself broke.
 
-Two defaults are deliberate, and both exist so a passing game passes: objective progression is a `warning` until you pass `--expect-progress`, and a game that steers with the mouse needs `pointer` steps rather than the WASD default. See [bot-playtest.md](references/bot-playtest.md).
+Two defaults are deliberate, and both exist so a passing game passes: objective progression is a `warning` until you pass `--expect-progress`, and a game that steers with the mouse needs `pointer` steps rather than the WASD default. See [scripted-playtest.md](references/scripted-playtest.md).
 
 The pass thresholds live in `THRESHOLDS` at the top of the script; read them there rather than from prose that can drift.
 
 Adapt `--script` to the game's core verb: a runner holds forward and switches lanes, an arena game sweeps the space, a tower defense places towers through test hooks. Game-specific hooks (`forceWave()`) are encouraged where raw keys can't express the verb.
 
-Metric meanings, flags, difficulty/fairness runs, and the key-dispatch trap: `references/bot-playtest.md`.
+Metric meanings, flags, difficulty/fairness runs, and the key-dispatch trap: `references/scripted-playtest.md`.
+
+## Autonomous Playtest: Let a Model Play It
+
+The sweep proves the game _can_ be played. It cannot tell you whether a player who is _trying_ gets anywhere — whether the objective is findable from what the game shows, whether the first hazard is readable, whether a run ends in a wall. For that, hand the controls to a model:
+
+```sh
+vg playtest run --url http://localhost:5173 --goal "Reach the flag on the right; pits kill, jump them"
+vg playtest run --game my-game --json        # the deployed game, full report as JSON
+```
+
+`run` is the one `vg playtest` verb that is ours rather than agent-browser's, so `vg playtest run --help` documents it and `vg playtest --help` (the binary's help) does not list it.
+
+The loop runs inside the game's page. Several times a second it reads `__GAME_DIAGNOSTICS__`, asks a decision-only model (straight from the page to the vibedgames API with a short-lived token — nothing to configure beyond `vg login`) which movement to hold and which actions to take, dispatches them as real held input, and repeats. Code does perception and keystrokes; the model only decides, and the decision latency is the hold, so it plays at about a player's reaction time. For fast games, a move in `__GAME_PLAYTEST__` can carry a `reflex(game)` that runs every frame while it is the model's intent — the model picks _what_ to do a few times a second, the reflex does it at 60 fps. Same report shape and exit codes as the bot, plus `decisions` (what it chose, how sure it was, `reflexFrames`, and `progress` — the model's own 0–1 read of how close the player got to the goal, first to last), `decisionsPerSecond`, `model` (calls, tokens, latency) and a per-decision `timeline`.
+
+**Make the game playable by the model first** — that is most of the work, and it's the game author's. Publish what a player sees in `__GAME_DIAGNOSTICS__` (nearest hazard and pickup as `dx`/`dy`, where the goal is, `canJump`), and describe the controls and the rules in `window.__GAME_PLAYTEST__` so the playtester needs no `--controls` file — `publishDiagnostics` / `publishPlaytest` from `@vibedgames/playtest`, or the bare globals. The snippet for both is in [autonomous-playtest.md](references/autonomous-playtest.md) § Make Your Game Playable by the Model; `games/pong/src/main.ts` is a live example.
+
+Two things to know before trusting a run. **The model sees only the diagnostics** — no pixels — so a playtester that can't decide (`decisions.meanConfidence` below 0.3 warns) is an audit finding about the contract, not about the model. And **the goal is where the rules live**: what wins, what kills, which way progress is; the model has no memory between decisions beyond the `recent` block the harness supplies.
+
+Run the playtester beside the sweep, not instead of it. The sweep is deterministic and free; the playtester is for the questions that need someone trying — onboarding, readability, difficulty at two decision rates. Flags, the manifest schema, what the model sees, and how to read a run as a playtest: [autonomous-playtest.md](references/autonomous-playtest.md).
 
 ## Canvas & WebGL
 
-Two things will mislead you if you don't know them: **headless FPS is not performance** (software rasterization, ~2fps on scenes a GPU runs at 120), and **headless can't capture WebGPU canvases on Linux/Windows** (the screenshot comes out black even though rendering worked). Both are `--headed` problems with real consequences for what you report.
+Two things will mislead you if you don't know them. **Read the renderer string before you believe a frame rate**: headless can land on the real GPU (`vg playtest` does on a Mac — an `ANGLE Metal` renderer) or on SwiftShader (bare Playwright `launch()`); the bot report's `gpu` field says which. SwiftShader means functional-only evidence — it renders lit materials black and drops heavy games to ~3–4 fps, so a multiplayer host on it reads as frozen; a hardware renderer (ANGLE Metal/D3D/Vulkan on a real device) is a desktop-GPU signal, still not a phone. A headed or Playwright-launched run needs explicit flags to land on the real GPU (`references/canvas-determinism.md` § Headless Footguns). And **headless can't capture WebGPU canvases on Linux/Windows** (the screenshot comes out black even though rendering worked) — a `--headed` problem with real consequences for what you report.
 
 Determinism setup, readiness signals, flake classification, and the full footgun list: `references/canvas-determinism.md`.
 
@@ -130,6 +151,8 @@ A baseline taken without freezing the scene first is a flake generator — the f
 
 A diff catches a change; it can't tell you the frame was wrong to begin with. For 3D, pair the screenshots with the visual-defect rubric in the `threejs` skill (`references/debugging-and-profiling.md` § Visual defects) — z-fighting, shadow acne, wrong color space, and DPR blur all render "successfully" and pass every smoke check.
 
+**Metrics and eyes, both.** Appearance work reports numbers _and_ same-camera before/after pairs; a number that improves while the frame still looks wrong is a failure. A metric is worth most on the first problem and less on every one after — alternate a measured pass with a by-eye pass that carries no number, and ask "would you show this to someone?". A harness check can be true and useless: it covers what it was written for, not the frame.
+
 ## Anti-Patterns
 
 ❌ **Sleep-driven steps** — `wait 2000` then click
@@ -145,7 +168,10 @@ A diff catches a change; it can't tell you the frame was wrong to begin with. Fo
 ✅ Re-`snapshot` after anything that changes the page; refs are per-snapshot
 
 ❌ **`keydown`/`keyup` for game input** — agent-browser 0.34 sends them with an empty `code` and `keyCode: 0`, so Phaser and friends ignore them entirely
-✅ Dispatch the event via `eval` (what the bot script does), and always release what you hold — see `references/bot-playtest.md`
+✅ Dispatch the event via `eval` (what the bot script does), and always release what you hold — see `references/scripted-playtest.md`
+
+❌ **`set device "iPhone 15"` as a phone check** — viewport + UA only; `pointer: coarse` stays false, so it's the desktop build
+✅ Held CDP touch emulation, and assert `coarse: true` before believing anything — `references/cli-cheatsheet.md` § Environment
 
 ❌ **Calling a game verified because it rendered**
 ✅ Run the bot; renders ≠ plays
@@ -154,14 +180,19 @@ A diff catches a change; it can't tell you the frame was wrong to begin with. Fo
 
 - [ ] Smoke check passes: boots, reaches a live frame, zero console/page errors
 - [ ] Diagnostics contract exposed and honest (no silent no-op hooks)
-- [ ] Bot playtest moves, scores under `--script --expect-progress` with the game's core verb, and reports `longestStuckRun` ≤ 2
+- [ ] Scripted playtest moves, scores under `--script --expect-progress` with the game's core verb, and reports `longestStuckRun` ≤ 2
+- [ ] `__GAME_PLAYTEST__` published, and `vg playtest run` scores within the run with `meanConfidence` ≥ 0.3 — or the diagnostics gained what the playtester was missing
 - [ ] Fail state triggers and retry restores play (for games that can be lost)
 - [ ] Deployed build playtested with `vg playtest --game <slug>`, not just localhost
+- [ ] Evidence is fresh: a new run id / output dir whenever code or assets changed — never relabel an old report as current evidence
+- [ ] Expected viewport/state pairs declared before capturing; a required capture that failed is listed as failed, not dropped
 
 ## Bundled Resources
 
-- `scripts/bot-playtest.mjs` — the progression-measuring bot; run it, read the JSON report
-- `references/bot-playtest.md` — diagnostics contract, metrics, difficulty/fairness runs
+- `scripts/scripted-playtest.mjs` — the progression-measuring bot; run it, read the JSON report
+- `scripts/lib/harness.mjs` — the bot's `vg playtest` plumbing, held-key and pointer dispatch, motion tracker, boot and seeding
+- `references/scripted-playtest.md` — diagnostics contract, metrics, difficulty/fairness runs
+- `references/autonomous-playtest.md` — `vg playtest run`: making a game playable by the model (`__GAME_PLAYTEST__`), flags, what the model sees, reading a run as a playtest
 - `references/canvas-determinism.md` — deterministic mode, readiness, flake triage, Phaser/Three.js specifics
 - `references/cli-cheatsheet.md` — the game-shaped subset of the `vg playtest` command surface
 

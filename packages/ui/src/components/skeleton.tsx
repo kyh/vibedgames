@@ -5,14 +5,12 @@ import { cn } from "cn";
  * layout mirroring the loaded content's shapes; keep real chrome (headings,
  * borders) rendered around it and let only the unknown data become blocks.
  */
-function Skeleton({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="skeleton"
-      className={cn("bg-muted animate-in fade-in-0 rounded-md duration-500", className)}
-      {...props}
-    />
-  );
-}
+const Skeleton = ({ className, ...props }: React.ComponentProps<"div">) => (
+  <div
+    data-slot="skeleton"
+    className={cn("bg-muted animate-in fade-in-0 rounded-md duration-500", className)}
+    {...props}
+  />
+);
 
 export { Skeleton };

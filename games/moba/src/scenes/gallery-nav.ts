@@ -1,4 +1,4 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
 
 import { FONT } from "../render/font";
 import { startGallery, startShowcase } from "./dev-scenes";
@@ -22,13 +22,18 @@ const TABS: { id: TabId; label: string }[] = [
 const TAB_W = 100;
 const GAP = 8;
 
-export function buildGalleryNav(scene: Phaser.Scene, current: string, y = 26): void {
+export const buildGalleryNav = (scene: Phaser.Scene, current: string, y = 26): void => {
   const go = (id: TabId): void => {
-    if (id === current) return;
+    if (id === current) {
+      return;
+    }
     // keep the address bar on the route scheme so any page is shareable/refreshable
     window.history.replaceState(null, "", id === "viewer" ? "?viewer" : `?gallery=${id}`);
-    if (id === "viewer") void startShowcase(scene);
-    else void startGallery(scene, id);
+    if (id === "viewer") {
+      void startShowcase(scene);
+    } else {
+      void startGallery(scene, id);
+    }
   };
 
   const total = TABS.length * TAB_W + (TABS.length - 1) * GAP;
@@ -36,26 +41,26 @@ export function buildGalleryNav(scene: Phaser.Scene, current: string, y = 26): v
   for (const t of TABS) {
     const active = t.id === current;
     const box = scene.add
-      .rectangle(x, y, TAB_W, 30, active ? 0x2b5c57 : 0x16302e, 0.95)
+      .rectangle(x, y, TAB_W, 30, active ? 0x2b_5c_57 : 0x16_30_2e, 0.95)
       .setOrigin(0, 0.5)
-      .setStrokeStyle(2, active ? 0xffe14a : 0x3f6f69)
+      .setStrokeStyle(2, active ? 0xff_e1_4a : 0x3f_6f_69)
       .setScrollFactor(0)
       .setDepth(5000)
       .setInteractive({ useHandCursor: true });
     scene.add
       .text(x + TAB_W / 2, y, t.label, {
+        color: active ? "#fff3c4" : "#cfeae6",
         fontFamily: FONT,
         fontSize: "14px",
-        color: active ? "#fff3c4" : "#cfeae6",
       })
       .setOrigin(0.5)
       .setScrollFactor(0)
       .setDepth(5001);
     if (!active) {
-      box.on("pointerover", () => box.setFillStyle(0x1f4641, 1));
-      box.on("pointerout", () => box.setFillStyle(0x16302e, 0.95));
+      box.on("pointerover", () => box.setFillStyle(0x1f_46_41, 1));
+      box.on("pointerout", () => box.setFillStyle(0x16_30_2e, 0.95));
     }
     box.on("pointerdown", () => go(t.id));
     x += TAB_W + GAP;
   }
-}
+};

@@ -12,22 +12,22 @@ const clearFor = (coordinates: readonly number[]) => {
   const maxZ = Math.max(...zs);
   return buildParcelClearance([
     {
-      ring,
       n: ring.length / 2,
       obb: {
         cx: (minX + maxX) / 2,
         cz: (minZ + maxZ) / 2,
-        halfA: (maxX - minX) / 2,
-        halfB: (maxZ - minZ) / 2,
         ex: 1,
         ez: 0,
+        halfA: (maxX - minX) / 2,
+        halfB: (maxZ - minZ) / 2,
       },
+      ring,
     },
   ]);
 };
 
-export function checkParcelClearance(check: Check): void {
-  const footprint = { x: 0, z: 0, halfWidth: 1, halfDepth: 1, yaw: 0 };
+export const checkParcelClearance = (check: Check): void => {
+  const footprint = { halfDepth: 1, halfWidth: 1, x: 0, yaw: 0, z: 0 };
 
   check(
     "prop clearance rejects full containment in a building",
@@ -53,15 +53,15 @@ export function checkParcelClearance(check: Check): void {
   const diagonal = clearFor([0.9, -1.1, 1.1, -1.1, 1.1, -0.9, 0.9, -0.9]);
   check(
     "prop clearance uses Three.js yaw orientation",
-    !diagonal({ ...footprint, halfWidth: 2, halfDepth: 0.2, yaw: Math.PI / 4 }, 0) &&
-      diagonal({ ...footprint, halfWidth: 2, halfDepth: 0.2, yaw: -Math.PI / 4 }, 0),
+    !diagonal({ ...footprint, halfDepth: 0.2, halfWidth: 2, yaw: Math.PI / 4 }, 0) &&
+      diagonal({ ...footprint, halfDepth: 0.2, halfWidth: 2, yaw: -Math.PI / 4 }, 0),
   );
   check(
     "prop clearance checks parcels across spatial-cell boundaries",
-    !clearFor([31.9, -2, 32.1, -2, 32.1, 2, 31.9, 2])({ ...footprint, x: 30.5, halfWidth: 2 }, 0),
+    !clearFor([31.9, -2, 32.1, -2, 32.1, 2, 31.9, 2])({ ...footprint, halfWidth: 2, x: 30.5 }, 0),
   );
   check(
     "prop clearance retains genuinely clear sites",
     clearFor([4, 4, 5, 4, 5, 5, 4, 5])(footprint, 0.6),
   );
-}
+};

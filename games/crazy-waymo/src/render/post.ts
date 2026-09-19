@@ -57,19 +57,7 @@ import { gradeMotion, gradeNight, gradeWarmth } from "./grade";
 // their chroma. Grading them together is what made the old night one flat
 // blue-grey wash with no lights in it.
 const GradeShader = {
-  name: "WaymoGradeShader",
-  uniforms: {
-    tDiffuse: { value: null },
-    uVibrance: { value: 0.14 },
-    uNight: { value: 0 },
-  },
-  vertexShader: /* glsl */ `
-    varying vec2 vUv;
-    void main() {
-      vUv = uv;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    }
-  `,
+  // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
   fragmentShader: /* glsl */ `
     uniform sampler2D tDiffuse;
     uniform float uVibrance;
@@ -114,6 +102,20 @@ const GradeShader = {
       gl_FragColor = c;
     }
   `,
+  name: "WaymoGradeShader",
+  uniforms: {
+    tDiffuse: { value: null },
+    uNight: { value: 0 },
+    uVibrance: { value: 0.14 },
+  },
+  // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
+  vertexShader: /* glsl */ `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
 };
 
 // The display transform + film look, in one pass (ported from a kart-racer
@@ -152,38 +154,7 @@ const GradeShader = {
 //  11. monochrome grain, midtone-weighted, rolled off in shadows.
 //  12. sRGB encode (this pass writes the canvas — no OutputPass follows).
 const FinalGradeShader = {
-  name: "WaymoFinalGradeShader",
-  uniforms: {
-    tDiffuse: { value: null },
-    uExposure: { value: 0.62 },
-    uNight: { value: 0 },
-    uWarmth: { value: 0 },
-    uContrast: { value: 0.16 },
-    uSaturation: { value: 1.08 },
-    // x amount, y inner-edge radius
-    uVignette: { value: new THREE.Vector2(0.18, 0.3) },
-    uCA: { value: 0.0 },
-    uGrain: { value: 0.0025 },
-    uTime: { value: 0 },
-    uAspect: { value: 16 / 9 },
-    uTexel: { value: new THREE.Vector2(1 / 1920, 1 / 1080) },
-    // Speed subject. uRush: x smear amount (0 = branch closed), y uv travel
-    // cap, z boost-comb strength. uStreak is the comb master gain, uKick the
-    // eased boost signal, uSubject the hero hold-out centre (world space).
-    uRush: { value: new THREE.Vector3() },
-    uStreak: { value: 0 },
-    uKick: { value: 0 },
-    uSubject: { value: new THREE.Vector3() },
-    uInvViewProj: { value: new THREE.Matrix4() },
-    tDepth: { value: null },
-  },
-  vertexShader: /* glsl */ `
-    varying vec2 vUv;
-    void main() {
-      vUv = uv;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    }
-  `,
+  // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
   fragmentShader: /* glsl */ `
     uniform sampler2D tDiffuse;
     uniform float uExposure;
@@ -378,6 +349,39 @@ const FinalGradeShader = {
       #include <colorspace_fragment>
     }
   `,
+  name: "WaymoFinalGradeShader",
+  uniforms: {
+    tDepth: { value: null },
+    tDiffuse: { value: null },
+    uAspect: { value: 16 / 9 },
+    uCA: { value: 0 },
+    uContrast: { value: 0.16 },
+    uExposure: { value: 0.62 },
+    uGrain: { value: 0.0025 },
+    uInvViewProj: { value: new THREE.Matrix4() },
+    uKick: { value: 0 },
+    uNight: { value: 0 },
+    // Speed subject. uRush: x smear amount (0 = branch closed), y uv travel
+    // cap, z boost-comb strength. uStreak is the comb master gain, uKick the
+    // eased boost signal, uSubject the hero hold-out centre (world space).
+    uRush: { value: new THREE.Vector3() },
+    uSaturation: { value: 1.08 },
+    uStreak: { value: 0 },
+    uSubject: { value: new THREE.Vector3() },
+    uTexel: { value: new THREE.Vector2(1 / 1920, 1 / 1080) },
+    uTime: { value: 0 },
+    // x amount, y inner-edge radius
+    uVignette: { value: new THREE.Vector2(0.18, 0.3) },
+    uWarmth: { value: 0 },
+  },
+  // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
+  vertexShader: /* glsl */ `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
 };
 
 // Bloom is a DAY setting and a NIGHT setting, not one setting. The two ends of
@@ -488,7 +492,7 @@ const BOOST_COMB_IGNITE = 0.55;
 // Speed-line master gain. REST MUST STAY 0 — the combs are a switch, not a
 // fade: a resting frame skips the branch and stays bit-identical to the
 // pre-port grade.
-const STREAK_REST = 0.0;
+const STREAK_REST = 0;
 const STREAK_BOOST = 0.46;
 // The comb gate opens across the first 42% of the eased fast signal.
 const STREAK_GATE_FAST = 0.42;
@@ -518,7 +522,7 @@ const SUBJECT_LIFT = 0.9;
 // which is what a soft 6-radius blur was doing to the wheel patches.
 const AO_RADIUS = 1.2;
 const AO_INTENSITY = 4.2;
-const AO_COLOR = 0x101c2a;
+const AO_COLOR = 0x10_1c_2a;
 // 2 left the paint drape's z-offset seams as black speckle dashes along every
 // painted line at speed (review pass); 4 + two iterations blurs the seam away
 // while the wheel-contact core survives.
@@ -542,14 +546,18 @@ const IGNITE_GAIN = 2.1;
 // bump that moves the internal degrades to "no rush smear", never a crash.
 // Caching the texture once is safe — three resizes an attached depth texture
 // in place, the object identity survives setSize.
-function sceneDepthOf(pass: N8AOPass): THREE.DepthTexture | null {
+const sceneDepthOf = (pass: N8AOPass): THREE.DepthTexture | null => {
   const holder: object = pass;
-  if (!("beautyRenderTarget" in holder)) return null;
+  if (!("beautyRenderTarget" in holder)) {
+    return null;
+  }
   const target: unknown = holder.beautyRenderTarget;
-  if (!(target instanceof THREE.WebGLRenderTarget)) return null;
+  if (!(target instanceof THREE.WebGLRenderTarget)) {
+    return null;
+  }
   const depth = target.depthTexture;
   return depth instanceof THREE.DepthTexture ? depth : null;
-}
+};
 
 export class PostPipeline {
   private composer: EffectComposer;
@@ -585,7 +593,7 @@ export class PostPipeline {
     this.composer = new EffectComposer(renderer, target);
     const ao = new N8AOPass(scene, camera, size.x, size.y);
     ao.configuration.aoRadius = AO_RADIUS;
-    ao.configuration.distanceFalloff = 1.0;
+    ao.configuration.distanceFalloff = 1;
     ao.configuration.intensity = AO_INTENSITY;
     ao.configuration.color = new THREE.Color(AO_COLOR);
     ao.configuration.aoSamples = 16;
@@ -609,7 +617,9 @@ export class PostPipeline {
     // smoothWidth is safe to own from here.
     this.bloom = new UnrealBloomPass(size, BLOOM_DAY_STRENGTH, BLOOM_RADIUS, BLOOM_DAY_THRESHOLD);
     this.bloomKnee = this.bloom.materialHighPassFilter.uniforms.smoothWidth;
-    if (this.bloomKnee) this.bloomKnee.value = BLOOM_DAY_KNEE;
+    if (this.bloomKnee) {
+      this.bloomKnee.value = BLOOM_DAY_KNEE;
+    }
     this.composer.addPass(this.bloom);
     this.grade = new ShaderPass(GradeShader);
     this.composer.addPass(this.grade);
@@ -620,7 +630,9 @@ export class PostPipeline {
     const depth = sceneDepthOf(ao);
     if (depth) {
       const d = this.finalGrade.uniforms.tDepth;
-      if (d) d.value = depth;
+      if (d) {
+        d.value = depth;
+      }
       this.smearDepthOk = true;
     }
     this.syncViewportUniforms(size.x, size.y);
@@ -641,7 +653,9 @@ export class PostPipeline {
   private syncViewportUniforms(width: number, height: number): void {
     const u = this.finalGrade.uniforms;
     const aspect = u.uAspect;
-    if (aspect) aspect.value = width / Math.max(1, height);
+    if (aspect) {
+      aspect.value = width / Math.max(1, height);
+    }
     const texel = u.uTexel;
     if (texel && texel.value instanceof THREE.Vector2) {
       texel.value.set(1 / Math.max(1, width), 1 / Math.max(1, height));
@@ -679,17 +693,27 @@ export class PostPipeline {
 
     const gu = this.grade.uniforms;
     const un = gu.uNight;
-    if (un) un.value = night;
+    if (un) {
+      un.value = night;
+    }
 
     const fu = this.finalGrade.uniforms;
     const exp = fu.uExposure;
-    if (exp) exp.value = this.renderer.toneMappingExposure;
+    if (exp) {
+      exp.value = this.renderer.toneMappingExposure;
+    }
     const fn = fu.uNight;
-    if (fn) fn.value = night;
+    if (fn) {
+      fn.value = night;
+    }
     const fw = fu.uWarmth;
-    if (fw) fw.value = warmth;
+    if (fw) {
+      fw.value = warmth;
+    }
     const ca = fu.uCA;
-    if (ca) ca.value = CA_REST + (CA_BOOST - CA_REST) * Math.min(1.35, drive + ignite * 0.55);
+    if (ca) {
+      ca.value = CA_REST + (CA_BOOST - CA_REST) * Math.min(1.35, drive + ignite * 0.55);
+    }
     const vig = fu.uVignette;
     if (vig && vig.value instanceof THREE.Vector2) {
       vig.value.set(
@@ -699,23 +723,58 @@ export class PostPipeline {
       );
     }
     const time = fu.uTime;
-    if (time) time.value = now % 600;
+    if (time) {
+      time.value = now % 600;
+    }
 
-    // Speed subject: comb master + boost comb + radial rush + hold-out.
+    this.updateSpeedUniforms(motion.speed, ignite);
+
+    // The cut falls on sqrt(night), not on night. `night` IS the lamp factor,
+    // so at dusk it is still only ~0.6 when every streetlight in the city is
+    // already burning. Square-rooting drops the gate toward the lamp budget
+    // early, in step with the lamps — at dusk the cut is ~1.0, under the lamp
+    // halos and the 1.6 headlights — and both ends of the ramp are unchanged.
+    // The knee rides the same ramp so the gate hardens as the emissive budget
+    // takes over from the sunlit-diffuse shoulder.
+    const gateRamp = Math.sqrt(night);
+    this.bloom.threshold =
+      BLOOM_DAY_THRESHOLD + (BLOOM_NIGHT_THRESHOLD - BLOOM_DAY_THRESHOLD) * gateRamp;
+    if (this.bloomKnee) {
+      this.bloomKnee.value = BLOOM_DAY_KNEE + (BLOOM_NIGHT_KNEE - BLOOM_DAY_KNEE) * gateRamp;
+    }
+    this.bloom.strength =
+      BLOOM_DAY_STRENGTH +
+      (BLOOM_NIGHT_STRENGTH - BLOOM_DAY_STRENGTH) * night +
+      BLOOM_FAST_LIFT * this.fast +
+      BLOOM_KICK_LIFT * this.kick +
+      BLOOM_IGNITE_LIFT * ignite;
+    // The wide day radius smears the authored point emissives (stars, lamp
+    // pools) into cotton after dark — night keeps the pre-port tight kernel.
+    this.bloom.radius = BLOOM_RADIUS + (BLOOM_NIGHT_RADIUS - BLOOM_RADIUS) * night;
+    this.composer.render();
+  }
+
+  /** Comb master + boost comb + radial rush + hero hold-out. */
+  private updateSpeedUniforms(motionSpeed: number, ignite: number): void {
+    const fu = this.finalGrade.uniforms;
     const gate = Math.max(
       THREE.MathUtils.smoothstep(this.fast, 0, STREAK_GATE_FAST),
       this.kick,
       ignite,
     );
     const streak = fu.uStreak;
-    if (streak) streak.value = STREAK_REST + (STREAK_BOOST - STREAK_REST) * gate;
+    if (streak) {
+      streak.value = STREAK_REST + (STREAK_BOOST - STREAK_REST) * gate;
+    }
     const kickU = fu.uKick;
-    if (kickU) kickU.value = this.kick;
+    if (kickU) {
+      kickU.value = this.kick;
+    }
     const boostComb = Math.min(BOOST_COMB_MAX, this.kick + BOOST_COMB_IGNITE * ignite);
-    const speed = THREE.MathUtils.clamp(motion.speed, 0, 1);
+    const speed = THREE.MathUtils.clamp(motionSpeed, 0, 1);
     const rushAmt =
       Math.max(
-        RUSH_FAST * Math.pow(this.fast, 1.5),
+        RUSH_FAST * this.fast ** 1.5,
         RUSH_SPEED_SQ * speed * speed + RUSH_KICK_SPEED * this.kick * speed,
       ) +
       RUSH_IGNITE * ignite;
@@ -749,31 +808,9 @@ export class PostPipeline {
         }
       }
       const subj = fu.uSubject;
-      if (subj && subj.value instanceof THREE.Vector3) subj.value.copy(this.subject);
+      if (subj && subj.value instanceof THREE.Vector3) {
+        subj.value.copy(this.subject);
+      }
     }
-
-    // The cut falls on sqrt(night), not on night. `night` IS the lamp factor,
-    // so at dusk it is still only ~0.6 when every streetlight in the city is
-    // already burning. Square-rooting drops the gate toward the lamp budget
-    // early, in step with the lamps — at dusk the cut is ~1.0, under the lamp
-    // halos and the 1.6 headlights — and both ends of the ramp are unchanged.
-    // The knee rides the same ramp so the gate hardens as the emissive budget
-    // takes over from the sunlit-diffuse shoulder.
-    const gateRamp = Math.sqrt(night);
-    this.bloom.threshold =
-      BLOOM_DAY_THRESHOLD + (BLOOM_NIGHT_THRESHOLD - BLOOM_DAY_THRESHOLD) * gateRamp;
-    if (this.bloomKnee) {
-      this.bloomKnee.value = BLOOM_DAY_KNEE + (BLOOM_NIGHT_KNEE - BLOOM_DAY_KNEE) * gateRamp;
-    }
-    this.bloom.strength =
-      BLOOM_DAY_STRENGTH +
-      (BLOOM_NIGHT_STRENGTH - BLOOM_DAY_STRENGTH) * night +
-      BLOOM_FAST_LIFT * this.fast +
-      BLOOM_KICK_LIFT * this.kick +
-      BLOOM_IGNITE_LIFT * ignite;
-    // The wide day radius smears the authored point emissives (stars, lamp
-    // pools) into cotton after dark — night keeps the pre-port tight kernel.
-    this.bloom.radius = BLOOM_RADIUS + (BLOOM_NIGHT_RADIUS - BLOOM_RADIUS) * night;
-    this.composer.render();
   }
 }

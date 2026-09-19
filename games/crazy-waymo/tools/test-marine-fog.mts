@@ -3,7 +3,7 @@ import { MarineSky } from "../src/render/marine-sky";
 
 type Check = (name: string, condition: boolean, detail?: string) => void;
 
-export function checkMarineFog(check: Check): void {
+export const checkMarineFog = (check: Check): void => {
   const sunset = { x: -1000, y: 8, z: 350 };
   const inland = { x: 400, y: 8, z: 350 };
   const sunsetBlock = marineOpacity(sunset, { ...sunset, z: sunset.z + 250 });
@@ -76,7 +76,9 @@ export function checkMarineFog(check: Check): void {
   let previous = 0;
   for (let y = 0; y <= 90; y += 0.1) {
     const opacity = marineOpacity({ ...sunset, y }, { ...sunset, y, z: sunset.z + 350 });
-    if (y > 0) maximumDelta = Math.max(maximumDelta, Math.abs(opacity - previous));
+    if (y > 0) {
+      maximumDelta = Math.max(maximumDelta, Math.abs(opacity - previous));
+    }
     previous = opacity;
   }
   check("cresting the marine lid has no visibility discontinuity", maximumDelta < 0.01);
@@ -94,5 +96,7 @@ export function checkMarineFog(check: Check): void {
     `${indices?.count ?? 0} indices`,
   );
   sky.mesh.geometry.dispose();
-  if (!Array.isArray(sky.mesh.material)) sky.mesh.material.dispose();
-}
+  if (!Array.isArray(sky.mesh.material)) {
+    sky.mesh.material.dispose();
+  }
+};

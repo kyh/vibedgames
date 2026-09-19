@@ -13,56 +13,34 @@
  * page is served untouched — partial merging would be unpredictable.
  */
 
-export type ShareMeta = {
+export interface ShareMeta {
   title: string;
   description: string;
   /** Canonical URL of the page being served. */
   url: string;
   /** Absolute URL of the share image. */
   imageUrl: string;
-};
+}
 
 /** Conventional deployment-root image paths, in preference order. */
 export const OG_IMAGE_CANDIDATES = ["og.jpg", "og.png", "og.webp"];
 
-export function hasOwnShareMeta(html: string): boolean {
-  return /<meta[^>]+property=["']og:/i.test(html);
-}
+const escapeAttr = (value: string): string =>
+  value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 
-export function extractTitle(html: string): string | null {
-  const m = /<title[^>]*>([^<]*)<\/title>/i.exec(html);
-  const t = m?.[1]?.trim();
-  return t ? decodeEntities(t) : null;
-}
+const decodeEntities = (value: string): string =>
+  value
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&#39;", "'")
+    .replaceAll("&amp;", "&");
 
-export function extractDescription(html: string): string | null {
-  const m =
-    /<meta[^>]+name=["']description["'][^>]+content=["']([^"']*)["']/i.exec(html) ??
-    /<meta[^>]+content=["']([^"']*)["'][^>]+name=["']description["']/i.exec(html);
-  const d = m?.[1]?.trim();
-  return d ? decodeEntities(d) : null;
-}
-
-/**
- * Insert the share-meta block at the end of `<head>`. Returns the original
- * HTML unchanged when no head boundary can be found (malformed documents are
- * served as-is rather than corrupted).
- */
-export function injectShareMeta(html: string, meta: ShareMeta): string {
-  const block = renderShareMeta(meta);
-  const headClose = /<\/head\s*>/i.exec(html);
-  if (headClose) {
-    return html.slice(0, headClose.index) + block + html.slice(headClose.index);
-  }
-  const headOpen = /<head[^>]*>/i.exec(html);
-  if (headOpen) {
-    const at = headOpen.index + headOpen[0].length;
-    return html.slice(0, at) + "\n" + block + html.slice(at);
-  }
-  return html;
-}
-
-function renderShareMeta(meta: ShareMeta): string {
+const renderShareMeta = (meta: ShareMeta): string => {
   const title = escapeAttr(meta.title);
   const description = escapeAttr(meta.description);
   const url = escapeAttr(meta.url);
@@ -79,21 +57,39 @@ function renderShareMeta(meta: ShareMeta): string {
   ]
     .map((line) => `    ${line}\n`)
     .join("");
-}
+};
 
-function escapeAttr(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
-}
+export const hasOwnShareMeta = (html: string): boolean => /<meta[^>]+property=["']og:/iu.test(html);
 
-function decodeEntities(value: string): string {
-  return value
-    .replaceAll("&lt;", "<")
-    .replaceAll("&gt;", ">")
-    .replaceAll("&quot;", '"')
-    .replaceAll("&#39;", "'")
-    .replaceAll("&amp;", "&");
-}
+export const extractTitle = (html: string): string | null => {
+  const m = /<title[^>]*>(?<text>[^<]*)<\/title>/iu.exec(html);
+  const t = m?.groups?.text?.trim();
+  return t ? decodeEntities(t) : null;
+};
+
+export const extractDescription = (html: string): string | null => {
+  const m =
+    /<meta[^>]+name=["']description["'][^>]+content=["'](?<text>[^"']*)["']/iu.exec(html) ??
+    /<meta[^>]+content=["'](?<text>[^"']*)["'][^>]+name=["']description["']/iu.exec(html);
+  const d = m?.groups?.text?.trim();
+  return d ? decodeEntities(d) : null;
+};
+
+/**
+ * Insert the share-meta block at the end of `<head>`. Returns the original
+ * HTML unchanged when no head boundary can be found (malformed documents are
+ * served as-is rather than corrupted).
+ */
+export const injectShareMeta = (html: string, meta: ShareMeta): string => {
+  const block = renderShareMeta(meta);
+  const headClose = /<\/head\s*>/iu.exec(html);
+  if (headClose) {
+    return html.slice(0, headClose.index) + block + html.slice(headClose.index);
+  }
+  const headOpen = /<head[^>]*>/iu.exec(html);
+  if (headOpen) {
+    const at = headOpen.index + headOpen[0].length;
+    return `${html.slice(0, at)}\n${block}${html.slice(at)}`;
+  }
+  return html;
+};

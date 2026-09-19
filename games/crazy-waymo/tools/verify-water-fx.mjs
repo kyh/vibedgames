@@ -1,7 +1,7 @@
 // Mobile water effects on the real taxi, using native CDP touch throughout.
 // Usage: node tools/verify-water-fx.mjs [dev-url] [output-directory] [--cpu=4] [--multi-draw]
 // Desktop Chrome CPU throttling is a stress proxy, never a physical-phone FPS claim.
-/* eslint-disable no-underscore-dangle, unicorn/consistent-function-scoping */
+/* eslint-disable unicorn/consistent-function-scoping */
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { createMobileSession } from "./mobile-browser-session.mjs";
@@ -9,98 +9,114 @@ import { createMobileSession } from "./mobile-browser-session.mjs";
 const url = process.argv[2] ?? "http://localhost:5193/?time=noon&offline=1";
 const output = path.resolve(process.argv[3] ?? "/private/tmp/waymo-water-fx");
 const cpuRate = Number(process.argv.find((value) => value.startsWith("--cpu="))?.slice(6) ?? 4);
-if (!Number.isFinite(cpuRate) || cpuRate < 1) throw new Error("Expected --cpu=1 or greater");
+if (!Number.isFinite(cpuRate) || cpuRate < 1) {
+  throw new Error("Expected --cpu=1 or greater");
+}
 const noMultiDraw = !process.argv.includes("--multi-draw");
 const { call, evaluate, until, tap, touchPoint, screenshot, close, pageErrors } =
-  await createMobileSession({ sessionPrefix: "crazy-waymo-water-fx", output });
+  await createMobileSession({ output, sessionPrefix: "crazy-waymo-water-fx" });
 const report = {
-  url,
   checkedAt: new Date().toISOString(),
-  cpuRate,
-  noMultiDraw,
-  interpretation: "Headed desktop Chrome stress proxy; not physical-phone performance",
   checks: [],
+  cpuRate,
+  interpretation: "Headed desktop Chrome stress proxy; not physical-phone performance",
+  noMultiDraw,
+  url,
   views: [],
 };
 const run = (fn, ...args) => evaluate(`(${fn.toString()})(...${JSON.stringify(args)})`);
-function check(name, passed, evidence) {
-  report.checks.push({ name, passed, evidence });
+const check = (name, passed, evidence) => {
+  report.checks.push({ evidence, name, passed });
   console.log(`${passed ? "PASS" : "FAIL"} ${name}: ${JSON.stringify(evidence)}`);
-}
+};
 
-function installMetrics() {
+const installMetrics = () => {
   const g = window.__taxi.game;
-  const fx = g.fx;
-  const water = fx.water;
+  const { fx } = g;
+  const { water } = fx;
   const r = window.__renderer;
-  const m = (window.__waterFxAudit = {
+  const m = {
     active: false,
+    capturing: false,
     entry: 0,
-    wake: 0,
     exit: 0,
-    tireWet: {},
-    peakParticles: 0,
+    frames: [],
+    pauseAtWetSeconds: 0,
     peakFoamDraws: 0,
     peakFoamTriangles: 0,
-    frames: [],
-    updateMs: [],
+    peakParticles: 0,
+    previousFrame: 0,
     renderMs: [],
     samples: [],
+    tireWet: {},
+    updateMs: [],
+    wake: 0,
     wetFrames: 0,
     wetSeconds: 0,
-    pauseAtWetSeconds: 0,
-    capturing: false,
-    previousFrame: 0,
-  });
-  const spray = water.spray;
-  water.spray = function (...args) {
-    if (m.active) m[args[6]]++;
-    return spray.apply(this, args);
   };
-  function tire(owner, key) {
-    if (!owner) return;
+  window.__waterFxAudit = m;
+  const baseSpray = water.spray;
+  water.spray = function spray(...args) {
+    if (m.active) {
+      m[args[6]] += 1;
+    }
+    return baseSpray.apply(this, args);
+  };
+  const tire = (owner, key) => {
+    if (!owner) {
+      return;
+    }
     const original = owner[key];
-    owner[key] = function (...args) {
+    owner[key] = function countingTire(...args) {
       if (m.active && g.car.waterContact.kind === "floating") {
         m.tireWet[key] = (m.tireWet[key] ?? 0) + 1;
       }
       return original.apply(this, args);
     };
-  }
-  for (const key of ["driftPuff", "kickup", "driftShower", "dustRing", "promotionBurst"])
+  };
+  for (const key of ["driftPuff", "kickup", "driftShower", "dustRing", "promotionBurst"]) {
     tire(fx, key);
+  }
   tire(g.trails, "emit");
   tire(g.skids, "stampSegment");
-  const update = g.update;
-  g.update = function (...args) {
+  const baseUpdate = g.update;
+  g.update = function update(...args) {
     const start = performance.now();
     const wasPaused = this.paused;
-    const result = update.apply(this, args);
-    if (!m.active || wasPaused || this.mode.kind !== "playing" || args[0] <= 0) return result;
-    if (!m.capturing) m.updateMs.push(performance.now() - start);
-    const car = this.car;
+    const result = baseUpdate.apply(this, args);
+    if (!m.active || wasPaused || this.mode.kind !== "playing" || args[0] <= 0) {
+      return result;
+    }
+    if (!m.capturing) {
+      m.updateMs.push(performance.now() - start);
+    }
+    const { car } = this;
     const wet = car.waterContact.kind === "floating";
     if (wet) {
-      m.wetFrames++;
+      m.wetFrames += 1;
       m.wetSeconds += args[0];
     }
     const life = fx.smoke.points.geometry.getAttribute("aLife");
     let live = 0;
-    for (let i = 0; i < life.count; i++) if (life.getX(i) > 0) live++;
+    for (let i = 0; i < life.count; i += 1) {
+      if (life.getX(i) > 0) {
+        live += 1;
+      }
+    }
     m.peakParticles = Math.max(m.peakParticles, live);
     m.peakFoamTriangles = Math.max(m.peakFoamTriangles, water.mesh.geometry.drawRange.count / 3);
     if (m.samples.length < 7200) {
       m.samples.push({
+        airTime: car.airTime,
+        airborne: car.airborne,
+        drifting: car.isDrifting,
+        heading: car.heading,
+        speed: car.speed,
+        tier: window.__perf.tier(),
+        water: car.waterContact.kind,
         x: car.position.x,
         y: car.position.y,
         z: car.position.z,
-        heading: car.heading,
-        speed: car.speed,
-        water: car.waterContact.kind,
-        airborne: car.airborne,
-        drifting: car.isDrifting,
-        airTime: car.airTime,
-        tier: window.__perf.tier(),
       });
     }
     if (m.pauseAtWetSeconds > 0 && m.wetSeconds >= m.pauseAtWetSeconds) {
@@ -112,29 +128,35 @@ function installMetrics() {
   let beforeFoam = 0;
   const before = water.mesh.onBeforeRender;
   const after = water.mesh.onAfterRender;
-  water.mesh.onBeforeRender = function (...args) {
+  water.mesh.onBeforeRender = function onBeforeRender(...args) {
     beforeFoam = r.info.render.calls;
     return before.apply(this, args);
   };
-  water.mesh.onAfterRender = function (...args) {
-    if (m.active) m.peakFoamDraws = Math.max(m.peakFoamDraws, r.info.render.calls - beforeFoam);
+  water.mesh.onAfterRender = function onAfterRender(...args) {
+    if (m.active) {
+      m.peakFoamDraws = Math.max(m.peakFoamDraws, r.info.render.calls - beforeFoam);
+    }
     return after.apply(this, args);
   };
-  const render = r.render;
-  r.render = function (...args) {
+  const baseRender = r.render;
+  r.render = function render(...args) {
     const presented = this.getRenderTarget() === null;
     const start = performance.now();
-    const result = render.apply(this, args);
+    const result = baseRender.apply(this, args);
     if (m.active && presented && !g.paused && !m.capturing) {
       m.renderMs.push(performance.now() - start);
-      if (m.previousFrame > 0) m.frames.push(start - m.previousFrame);
+      if (m.previousFrame > 0) {
+        m.frames.push(start - m.previousFrame);
+      }
       m.previousFrame = start;
-    } else m.previousFrame = 0;
+    } else {
+      m.previousFrame = 0;
+    }
     return result;
   };
-}
+};
 
-function resetMetrics(pauseAtWetSeconds = 0) {
+const resetMetrics = (pauseAtWetSeconds = 0) => {
   const m = window.__waterFxAudit;
   for (const key of [
     "entry",
@@ -146,46 +168,49 @@ function resetMetrics(pauseAtWetSeconds = 0) {
     "wetFrames",
     "wetSeconds",
     "previousFrame",
-  ])
+  ]) {
     m[key] = 0;
-  for (const key of ["frames", "updateMs", "renderMs", "samples"]) m[key].length = 0;
+  }
+  for (const key of ["frames", "updateMs", "renderMs", "samples"]) {
+    m[key].length = 0;
+  }
   m.tireWet = {};
   m.pauseAtWetSeconds = pauseAtWetSeconds;
   m.active = true;
-}
+};
 
-function summarize() {
+const summarize = () => {
   const m = window.__waterFxAudit;
   m.active = false;
-  function timing(values) {
+  const timing = (values) => {
     const sorted = values.toSorted((a, b) => a - b);
     return {
       count: sorted.length,
+      max: sorted.at(-1) ?? null,
       median: sorted[Math.floor(sorted.length * 0.5)] ?? null,
       p95: sorted[Math.floor(sorted.length * 0.95)] ?? null,
-      max: sorted.at(-1) ?? null,
     };
-  }
+  };
   return {
     entrySprays: m.entry,
-    wakeSprays: m.wake,
     exitSprays: m.exit,
-    tireWet: m.tireWet,
-    peakParticles: m.peakParticles,
+    frameMs: timing(m.frames),
     peakFoamDraws: m.peakFoamDraws,
     peakFoamTriangles: m.peakFoamTriangles,
-    samples: m.samples,
-    wetSeconds: m.wetSeconds,
-    frameMs: timing(m.frames),
-    updateMs: timing(m.updateMs),
+    peakParticles: m.peakParticles,
     renderMs: timing(m.renderMs),
+    samples: m.samples,
+    tireWet: m.tireWet,
+    updateMs: timing(m.updateMs),
+    wakeSprays: m.wake,
+    wetSeconds: m.wetSeconds,
   };
-}
+};
 
-async function release() {
-  await call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
-}
-async function capture(name) {
+const release = async () => {
+  await call("Input.dispatchTouchEvent", { touchPoints: [], type: "touchEnd" });
+};
+const capture = async (name) => {
   await evaluate("window.__waterFxAudit.capturing = true");
   try {
     await screenshot(name);
@@ -194,17 +219,19 @@ async function capture(name) {
       "window.__waterFxAudit.capturing = false; window.__waterFxAudit.previousFrame = 0",
     );
   }
-}
-async function metrics(width, height, waitForLayout = true) {
+};
+const metrics = async (width, height, waitForLayout = true) => {
   await call("Emulation.setDeviceMetricsOverride", {
-    width,
-    height,
     deviceScaleFactor: 3,
+    height,
     mobile: true,
+    width,
   });
-  if (waitForLayout) await until(`innerWidth === ${width} && innerHeight === ${height}`);
-}
-function checkRun(name, result, requireAllWet) {
+  if (waitForLayout) {
+    await until(`innerWidth === ${width} && innerHeight === ${height}`);
+  }
+};
+const checkRun = (name, result, requireAllWet) => {
   const wet = result.samples.filter((sample) => sample.water === "floating");
   check(
     `${name} keeps finite physical motion and clears drift/airtime afloat`,
@@ -215,10 +242,10 @@ function checkRun(name, result, requireAllWet) {
       ) &&
       wet.every((sample) => !sample.airborne && !sample.drifting && sample.airTime === 0),
     {
-      frames: result.samples.length,
-      wetFrames: wet.length,
       first: result.samples[0],
+      frames: result.samples.length,
       last: result.samples.at(-1),
+      wetFrames: wet.length,
     },
   );
   check(
@@ -235,7 +262,7 @@ function checkRun(name, result, requireAllWet) {
       triangles: result.peakFoamTriangles,
     },
   );
-}
+};
 
 try {
   await call("Page.enable");
@@ -262,13 +289,13 @@ try {
     const debug = gl.getExtension("WEBGL_debug_renderer_info");
     return {
       coarse: matchMedia("(pointer:coarse)").matches,
-      touch: navigator.maxTouchPoints,
       dpr: devicePixelRatio,
+      multiDraw: !!gl.getExtension("WEBGL_multi_draw"),
+      post: window.__post !== null,
       renderer: debug
         ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL)
         : gl.getParameter(gl.RENDERER),
-      multiDraw: !!gl.getExtension("WEBGL_multi_draw"),
-      post: window.__post !== null,
+      touch: navigator.maxTouchPoints,
     };
   });
   check(
@@ -288,7 +315,9 @@ try {
   const access = await evaluate(
     'import("/src/world/shoreline.ts").then(module => module.SHORE_ACCESS_SITES.find(site => site.id.includes("ocean")))',
   );
-  if (!access) throw new Error("Authored ocean access is missing");
+  if (!access) {
+    throw new Error("Authored ocean access is missing");
+  }
   report.access = access;
   await run((site) => {
     const g = window.__taxi.game;
@@ -301,20 +330,20 @@ try {
   );
   await until("(window.__taxi.game.city.parcelStreamStats()?.pending ?? 0) === 0");
   await run(resetMetrics, 0.1);
-  const stick = { x: 100, y: 520, id: 1 };
-  await call("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [stick] });
-  await until("window.__taxi.game.paused && window.__waterFxAudit.entry === 2", 45000);
+  const stick = { id: 1, x: 100, y: 520 };
+  await call("Input.dispatchTouchEvent", { touchPoints: [stick], type: "touchStart" });
+  await until("window.__taxi.game.paused && window.__waterFxAudit.entry === 2", 45_000);
   await capture("portrait-day-entry");
   await evaluate("window.__taxi.game.requestResume()");
-  await until("window.__waterFxAudit.wetSeconds >= 1.5", 15000);
+  await until("window.__waterFxAudit.wetSeconds >= 1.5", 15_000);
   await capture("portrait-day-wake");
   await release();
-  await until("window.__taxi.game.car.speed < .5", 15000);
+  await until("window.__taxi.game.car.speed < .5", 15_000);
   const brake = await touchPoint("#t-brake", 2);
-  await call("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [brake] });
+  await call("Input.dispatchTouchEvent", { touchPoints: [brake], type: "touchStart" });
   await until(
     'window.__waterFxAudit.exit === 2 && window.__taxi.game.car.waterContact.kind === "dry"',
-    45000,
+    45_000,
   );
   await capture("portrait-day-exit");
   await release();
@@ -323,7 +352,7 @@ try {
   check(
     "native touch entry and reverse exit each emit one paired splash",
     contactRun.entrySprays === 2 && contactRun.exitSprays === 2 && contactRun.wakeSprays > 4,
-    { entry: contactRun.entrySprays, wake: contactRun.wakeSprays, exit: contactRun.exitSprays },
+    { entry: contactRun.entrySprays, exit: contactRun.exitSprays, wake: contactRun.wakeSprays },
   );
   checkRun("shore transitions", contactRun, false);
 
@@ -339,7 +368,9 @@ try {
       window.__taxi.setPhase(day);
       g.car.reset(-1510, 200, 0);
       const waterY = g.city.waterHeightAt(-1510, 200);
-      if (waterY === null) throw new Error("Ocean staging point is dry");
+      if (waterY === null) {
+        throw new Error("Ocean staging point is dry");
+      }
       g.car.physicsVehicle.teleport(-1510, waterY + 0.7, 200, 0);
       g.rig.snapTo(g.car);
     }, phase);
@@ -348,15 +379,15 @@ try {
     );
     await until("(window.__taxi.game.city.parcelStreamStats()?.pending ?? 0) === 0");
     await run(resetMetrics);
-    const thumb = { x: width < height ? 100 : 250, y: height * 0.62, id: 1 };
+    const thumb = { id: 1, x: width < height ? 100 : 250, y: height * 0.62 };
     const start = await evaluate("window.__taxi.probe()");
-    await call("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [thumb] });
-    await until("window.__taxi.game.car.speed > 5", 15000);
+    await call("Input.dispatchTouchEvent", { touchPoints: [thumb], type: "touchStart" });
+    await until("window.__taxi.game.car.speed > 5", 15_000);
     await call("Input.dispatchTouchEvent", {
-      type: "touchMove",
       touchPoints: [{ ...thumb, x: thumb.x - 28 }],
+      type: "touchMove",
     });
-    await until("window.__waterFxAudit.wetSeconds >= 4", 25000);
+    await until("window.__waterFxAudit.wetSeconds >= 4", 25_000);
     const result = await run(summarize);
     await screenshot(name);
     const end = result.samples.at(-1);
@@ -371,7 +402,7 @@ try {
         Math.hypot(end.x - start.x, end.z - start.z) > 8 &&
         Math.abs(headingDelta) > 0.2 &&
         result.samples.every((sample) => Math.hypot(sample.x + 1510, sample.z - 200) < 60),
-      { start, end, headingDelta },
+      { end, headingDelta, start },
     );
     checkRun(name, result, true);
     check(
@@ -382,7 +413,9 @@ try {
     await release();
   }
   check("no water VFX page errors", pageErrors.length === 0, pageErrors);
-  if (report.checks.some((entry) => !entry.passed)) process.exitCode = 1;
+  if (report.checks.some((entry) => !entry.passed)) {
+    process.exitCode = 1;
+  }
 } catch (error) {
   check("water VFX run completed", false, String(error));
   process.exitCode = 1;

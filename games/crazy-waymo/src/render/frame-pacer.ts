@@ -9,7 +9,11 @@ export type FrameDecision =
       readonly timing: { readonly dt: number; readonly samples: 1 | 2 } | null;
     };
 
-type Clock = { last: number; due: number; pendingMs: number | null };
+interface Clock {
+  last: number;
+  due: number;
+  pendingMs: number | null;
+}
 
 const INTERVAL_MS = 1000 / 60;
 // Browser timestamps can be rounded to 0.1 ms and jitter slightly around
@@ -26,18 +30,25 @@ export class FramePacer {
   private paused = false;
   private hidden = false;
   private drawPending = false;
+  private readonly cadence: "display" | "60hz";
 
-  constructor(private readonly cadence: "display" | "60hz") {}
+  constructor(cadence: "display" | "60hz") {
+    this.cadence = cadence;
+  }
 
   setPaused(paused: boolean): void {
-    if (paused === this.paused) return;
+    if (paused === this.paused) {
+      return;
+    }
     this.paused = paused;
     this.clock = null;
     this.invalidate();
   }
 
   setHidden(hidden: boolean): void {
-    if (hidden === this.hidden) return;
+    if (hidden === this.hidden) {
+      return;
+    }
     this.hidden = hidden;
     this.clock = null;
     this.invalidate();
@@ -48,13 +59,17 @@ export class FramePacer {
   }
 
   next(now: number): FrameDecision {
-    if (this.hidden || !Number.isFinite(now) || now < 0) return { kind: "skip" };
-    if (this.paused) return this.redraw();
-    const clock = this.clock;
+    if (this.hidden || !Number.isFinite(now) || now < 0) {
+      return { kind: "skip" };
+    }
+    if (this.paused) {
+      return this.redraw();
+    }
+    const { clock } = this;
     if (!clock || now < clock.last) {
-      this.clock = { last: now, due: now + INTERVAL_MS, pendingMs: null };
+      this.clock = { due: now + INTERVAL_MS, last: now, pendingMs: null };
       this.drawPending = false;
-      return { kind: "advance", dt: 0, timing: null };
+      return { dt: 0, kind: "advance", timing: null };
     }
     if (now === clock.last || (this.cadence === "60hz" && now + ROUNDING_MS < clock.due)) {
       return this.redraw();
@@ -64,8 +79,8 @@ export class FramePacer {
     this.drawPending = false;
     if (this.cadence === "display") {
       return {
-        kind: "advance",
         dt: elapsedMs / 1000,
+        kind: "advance",
         timing: { dt: elapsedMs / 1000, samples: 1 },
       };
     }
@@ -76,14 +91,16 @@ export class FramePacer {
     const pending = clock.pendingMs;
     clock.pendingMs = pending === null ? elapsedMs : null;
     return {
-      kind: "advance",
       dt: elapsedMs / 1000,
+      kind: "advance",
       timing: pending === null ? null : { dt: (pending + elapsedMs) / 2000, samples: 2 },
     };
   }
 
   private redraw(): FrameDecision {
-    if (!this.drawPending) return { kind: "skip" };
+    if (!this.drawPending) {
+      return { kind: "skip" };
+    }
     this.drawPending = false;
     return { kind: "draw" };
   }

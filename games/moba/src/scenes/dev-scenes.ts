@@ -10,36 +10,37 @@ export const GALLERY_SECTIONS = ["units", "terrain", "fx", "map"] as const;
 export type GallerySection = (typeof GALLERY_SECTIONS)[number];
 
 /** Map a raw ?gallery value to a valid section (default: units). */
-export function gallerySection(raw: string | null): GallerySection {
-  return GALLERY_SECTIONS.find((s) => s === raw) ?? "units";
-}
+export const gallerySection = (raw: string | null): GallerySection =>
+  GALLERY_SECTIONS.find((s) => s === raw) ?? "units";
 
-async function ensureScene(
+const ensureScene = async (
   game: Phaser.Game,
   key: string,
   load: () => Promise<Phaser.Types.Scenes.SceneType>,
-): Promise<void> {
-  if (game.scene.getScene(key)) return;
+): Promise<void> => {
+  if (game.scene.getScene(key)) {
+    return;
+  }
   const scene = await load();
-  if (!game.scene.getScene(key)) game.scene.add(key, scene);
-}
+  if (!game.scene.getScene(key)) {
+    game.scene.add(key, scene);
+  }
+};
 
 /** Lazy-add + start the character/bot showcase (?viewer). */
-export async function startShowcase(from: Phaser.Scene): Promise<void> {
-  await ensureScene(
-    from.game,
-    "Showcase",
-    async () => (await import("./showcase-scene")).ShowcaseScene,
-  );
+export const startShowcase = async (from: Phaser.Scene): Promise<void> => {
+  await ensureScene(from.game, "Showcase", async () => {
+    const { ShowcaseScene } = await import("./showcase-scene");
+    return ShowcaseScene;
+  });
   from.scene.start("Showcase");
-}
+};
 
 /** Lazy-add + start an asset gallery page (?gallery=<section>). */
-export async function startGallery(from: Phaser.Scene, section: GallerySection): Promise<void> {
-  await ensureScene(
-    from.game,
-    "Gallery",
-    async () => (await import("./gallery-scene")).GalleryScene,
-  );
+export const startGallery = async (from: Phaser.Scene, section: GallerySection): Promise<void> => {
+  await ensureScene(from.game, "Gallery", async () => {
+    const { GalleryScene } = await import("./gallery-scene");
+    return GalleryScene;
+  });
   from.scene.start("Gallery", { section });
-}
+};

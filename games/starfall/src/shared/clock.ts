@@ -12,24 +12,32 @@
 // reads `now()` — net heartbeats, connection deadlines and logging stay on real
 // `Date.now()`, because pausing them would break reconnection.
 
-let pausedTotal = 0; // total ms elapsed while paused, accumulated across pauses
-let pausedAt = 0; // real timestamp the current pause began; 0 when not paused
+// total ms elapsed while paused, accumulated across pauses
+let pausedTotal = 0;
+// real timestamp the current pause began; 0 when not paused
+let pausedAt = 0;
 
 /** Sim clock: `Date.now()` minus all time spent paused. Frozen while paused. */
-export function now(): number {
-  if (pausedAt !== 0) return pausedAt - pausedTotal;
+export const now = (): number => {
+  if (pausedAt !== 0) {
+    return pausedAt - pausedTotal;
+  }
   return Date.now() - pausedTotal;
-}
+};
 
 /** Freeze the sim clock. Idempotent — a second call while paused is a no-op. */
-export function pauseClock(): void {
-  if (pausedAt !== 0) return;
+export const pauseClock = (): void => {
+  if (pausedAt !== 0) {
+    return;
+  }
   pausedAt = Date.now();
-}
+};
 
 /** Resume the sim clock, folding the pause span into the running offset. */
-export function resumeClock(): void {
-  if (pausedAt === 0) return;
+export const resumeClock = (): void => {
+  if (pausedAt === 0) {
+    return;
+  }
   pausedTotal += Date.now() - pausedAt;
   pausedAt = 0;
-}
+};

@@ -1,0 +1,748 @@
+@font-face {
+  font-family: "Luner Pixel";
+  src: url("/fonts/silkscreen-regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+.lf-hub {
+  --ink: #070b13;
+  --slate: #26364b;
+  --light: #627c99;
+  --shade: #142031;
+  --teal: #34e5c8;
+  --gold: #ffd15c;
+  --step: polygon(
+    0 4px,
+    4px 4px,
+    4px 0,
+    calc(100% - 4px) 0,
+    calc(100% - 4px) 4px,
+    100% 4px,
+    100% calc(100% - 4px),
+    calc(100% - 4px) calc(100% - 4px),
+    calc(100% - 4px) 100%,
+    4px 100%,
+    4px calc(100% - 4px),
+    0 calc(100% - 4px)
+  );
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  overflow: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  color: #d8e2ed;
+  font:
+    13px/1.5 Monaco,
+    monospace;
+  padding: max(24px, env(safe-area-inset-top)) max(28px, env(safe-area-inset-right))
+    max(20px, env(safe-area-inset-bottom)) max(28px, env(safe-area-inset-left));
+}
+.lf-hub *,
+.lf-hub *::before,
+.lf-hub *::after {
+  box-sizing: border-box;
+}
+.lf-hub [hidden] {
+  display: none;
+}
+.lf-hub-content {
+  max-width: 1120px;
+  min-height: 100%;
+  margin: auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-rows: auto 1fr auto;
+  gap: 18px 56px;
+  align-items: center;
+}
+.lf-hub-mast {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.lf-hub-bank {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 8px 14px;
+  color: var(--gold);
+  border: 4px solid var(--ink);
+  background: #242d38;
+  box-shadow:
+    inset 3px 3px #6b654a,
+    inset -3px -3px #121d29;
+  clip-path: var(--step);
+  font:
+    12px/1.4 "Luner Pixel",
+    monospace;
+  overflow-wrap: anywhere;
+}
+.lf-hub-utilities {
+  display: flex;
+  flex: none;
+  gap: 8px;
+  margin-left: auto;
+}
+.lf-hub-roster {
+  grid-column: 1;
+  min-width: 0;
+  text-align: center;
+}
+.lf-hub-showcase {
+  position: relative;
+  height: clamp(200px, 40dvh, 340px);
+  margin: 0 auto;
+  pointer-events: none;
+}
+.lf-hub-showcase::after {
+  content: "";
+  position: absolute;
+  left: 30%;
+  right: 30%;
+  bottom: 8px;
+  height: 8px;
+  background: var(--hero, #34e5c8);
+  opacity: 0.5;
+  clip-path: var(--step);
+}
+.lf-hub-hero-title {
+  color: var(--teal);
+  font:
+    400 clamp(24px, 3vw, 34px)/1.2 "Luner Pixel",
+    monospace;
+  margin: 10px 0 6px;
+  text-shadow: 3px 3px var(--ink);
+}
+.lf-hub-blurb {
+  max-width: 440px;
+  margin: 0 auto;
+  font-size: 12px;
+  color: #d8e2ed;
+  min-height: 36px;
+  text-wrap: balance;
+}
+.lf-hub-heroes {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  max-width: 540px;
+  margin: 18px auto 0;
+}
+.lf-hub-hero {
+  position: relative;
+  min-width: 0;
+  min-height: 44px;
+  border: 0;
+  padding: 4px;
+  color: #b3c1d1;
+  background: transparent;
+  cursor: pointer;
+}
+.lf-hub-art {
+  display: block;
+  height: 64px;
+}
+.lf-hub-name,
+.lf-hub-cost {
+  display: block;
+  font:
+    10px/1.4 "Luner Pixel",
+    monospace;
+}
+.lf-hub-name {
+  padding: 8px 1px 0;
+  color: #e4edf6;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lf-hub-cost {
+  min-height: 20px;
+  padding: 1px 1px 4px;
+  color: var(--gold);
+  font-size: 9px;
+}
+.lf-hub-hero::after {
+  content: "";
+  position: absolute;
+  width: 24px;
+  height: 4px;
+  left: calc(50% - 12px);
+  bottom: 3px;
+  background: transparent;
+}
+.lf-hub-hero[aria-pressed="true"]::after {
+  background: var(--hero);
+}
+.lf-hub-hero[aria-pressed="true"] .lf-hub-name {
+  color: var(--hero);
+}
+.lf-hub-hero:hover .lf-hub-name {
+  color: #ffffff;
+}
+.lf-hub-hero:focus-visible {
+  outline: none;
+}
+.lf-hub-hero:focus-visible::after {
+  left: 4px;
+  width: calc(100% - 8px);
+  height: 6px;
+  background: var(--gold);
+}
+.lf-hub-hero:focus-visible .lf-hub-name {
+  color: var(--gold);
+}
+.lf-hub-tools {
+  grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  align-self: end;
+  gap: 4px;
+  min-width: 0;
+}
+.lf-hub[data-mode="off"] .lf-hub-tools {
+  gap: 2px;
+}
+.lf-hub-button {
+  display: block;
+  min-height: 48px;
+  padding: 10px 14px 12px;
+  border: 4px solid var(--ink);
+  border-radius: 0;
+  color: #f1f5fa;
+  background: var(--slate);
+  box-shadow:
+    inset 3px 3px var(--light),
+    inset -4px -5px var(--shade);
+  clip-path: var(--step);
+  font:
+    400 12px/1.2 "Luner Pixel",
+    monospace;
+  cursor: pointer;
+}
+.lf-hub-utilities .lf-hub-button {
+  min-height: 44px;
+  padding: 8px 12px 10px;
+  font-size: 11px;
+}
+.lf-hub-modes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px;
+}
+.lf-hub-modes .lf-hub-button {
+  padding: 10px 4px 12px;
+  font-size: 11px;
+}
+.lf-hub-button[aria-pressed="true"],
+.lf-hub-go {
+  --slate: #34e5c8;
+  --light: #b5ffdf;
+  --shade: #148976;
+  color: #072923;
+}
+.lf-hub-go {
+  width: 100%;
+  min-height: 68px;
+  border-width: 5px;
+  font-size: 26px;
+  padding: 12px 18px 16px;
+}
+.lf-hub-go[data-locked="true"] {
+  --slate: #ffd15c;
+  --light: #fff0b0;
+  --shade: #a97b24;
+  color: #322305;
+  font-size: 17px;
+}
+.lf-hub-room,
+.lf-hub-receipt {
+  border: 4px solid var(--ink);
+  background: #182537;
+  box-shadow:
+    inset 3px 3px #526c88,
+    inset -3px -3px #0d1726;
+  clip-path: var(--step);
+}
+.lf-hub-room {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+.lf-hub-share {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+.lf-hub-code-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 4px 8px;
+  border: 3px solid #0b111c;
+  background: #0e1928;
+  box-shadow:
+    inset 2px 2px #050a10,
+    0 2px #526c88;
+}
+.lf-hub-code-box > span {
+  color: #becbda;
+  font:
+    9px/1.3 "Luner Pixel",
+    monospace;
+}
+.lf-hub-code {
+  color: var(--gold);
+  font:
+    19px/1 "Luner Pixel",
+    monospace;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.lf-hub-copy {
+  min-width: 96px;
+  padding: 8px;
+  font-size: 10px;
+}
+.lf-hub-join {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 8px;
+}
+.lf-hub-join-label {
+  grid-column: 1 / -1;
+  color: #d8e2ed;
+  font:
+    10px/1.5 "Luner Pixel",
+    monospace;
+}
+.lf-hub-code-input,
+.lf-hub-link-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  border: 3px solid #0a101a;
+  border-radius: 0;
+  padding: 10px;
+  color: #f4f7fb;
+  background: #0b1421;
+  box-shadow:
+    inset 3px 3px #05080f,
+    0 2px #526c88;
+  font:
+    14px/1.2 "Luner Pixel",
+    monospace;
+}
+.lf-hub-code-input {
+  text-transform: uppercase;
+}
+.lf-hub-code-input::placeholder {
+  color: #9babbe;
+  font-size: 10px;
+}
+.lf-hub-join-button {
+  min-width: 68px;
+  font-size: 11px;
+}
+.lf-hub-link-fallback {
+  min-width: 0;
+  color: var(--gold);
+  font-size: 11px;
+}
+.lf-hub-link-input {
+  display: block;
+  margin-top: 4px;
+  font:
+    11px/1.4 Monaco,
+    monospace;
+}
+.lf-hub-connection {
+  margin: 0;
+  color: #b3c1d1;
+  font:
+    9px/1.5 "Luner Pixel",
+    monospace;
+  text-align: center;
+}
+.lf-hub-status {
+  margin: 0;
+  color: var(--gold);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.lf-hub-status:empty {
+  display: none;
+}
+.lf-hub-receipt {
+  grid-column: 1 / -1;
+  padding: 0 12px;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.lf-hub-receipt summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  cursor: pointer;
+  list-style: none;
+  font-family: "Luner Pixel", monospace;
+}
+.lf-hub-receipt summary::-webkit-details-marker {
+  display: none;
+}
+.lf-hub-receipt summary::after {
+  content: "+";
+  color: var(--teal);
+  font-size: 18px;
+}
+.lf-hub-receipt[open] summary::after {
+  content: "−";
+}
+.lf-hub-receipt p {
+  margin: 0 0 8px;
+}
+.lf-hub-reward {
+  color: var(--gold);
+}
+.lf-hub-receipt summary .lf-hub-reward {
+  margin-left: auto;
+}
+.lf-hub button:not(.lf-hub-hero):hover {
+  filter: brightness(1.14);
+}
+.lf-hub button:not(.lf-hub-hero):active {
+  filter: brightness(0.92);
+}
+/* Keep focus inside the stepped silhouette instead of clipping an outer ring. */
+.lf-hub :is(button:not(.lf-hub-hero), input, summary):focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: -6px;
+}
+.lf-hub-control-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  margin: 0 0 18px;
+  font-size: 11px;
+}
+.lf-hub-control-line > span {
+  white-space: nowrap;
+}
+.lf-hub kbd {
+  display: inline-block;
+  color: var(--gold);
+  font:
+    10px/1.4 "Luner Pixel",
+    monospace;
+  padding: 3px 5px 5px;
+  border: 2px solid var(--ink);
+  background: var(--slate);
+  box-shadow:
+    inset 2px 2px var(--light),
+    inset -2px -2px var(--shade);
+}
+.lf-hub-help,
+.lf-hub-forge {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: 22px;
+  overflow: auto;
+  border: 4px solid #090e18;
+  border-radius: 0;
+  color: #d8e2ed;
+  background: #182537;
+  box-shadow:
+    inset 4px 4px #627c99,
+    inset -4px -4px #0c1523,
+    8px 8px #0009;
+  clip-path: var(--step);
+  font:
+    12px/1.5 Monaco,
+    monospace;
+}
+.lf-hub-help::backdrop,
+.lf-hub-forge::backdrop {
+  background: #05070bf2;
+}
+.lf-hub-forge-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 4px solid #0b1421;
+  box-shadow: 0 2px #526c88;
+}
+.lf-hub-forge-head h2 {
+  margin: 0;
+  color: var(--teal);
+  font:
+    18px/1.4 "Luner Pixel",
+    monospace;
+}
+.lf-hub-forge-head button {
+  width: auto;
+  flex: none;
+}
+.lf-hub-help-intro {
+  margin: 18px 0 22px;
+  color: #f4f7fb;
+}
+.lf-hub-help-modes {
+  margin: 18px 0;
+  padding-top: 14px;
+  border-top: 3px solid #526c88;
+}
+.lf-hub-hint,
+.lf-hub-records {
+  font-size: 11px;
+  color: #b3c1d1;
+}
+.lf-hub-records {
+  margin: 18px 0 0;
+  color: var(--gold);
+}
+.lf-hub-forge-sub {
+  font-size: 11px;
+  margin: 16px 0 4px;
+}
+.lf-hub-forge-bank {
+  color: var(--gold);
+  font-family: "Luner Pixel", monospace;
+  overflow-wrap: anywhere;
+}
+.lf-hub-upgrade {
+  width: 100%;
+  min-height: 70px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 10px;
+  text-align: left;
+  padding: 12px;
+  margin: 8px 0;
+  border: 4px solid var(--ink);
+  background: var(--slate);
+  box-shadow:
+    inset 3px 3px var(--light),
+    inset -3px -4px var(--shade);
+  clip-path: var(--step);
+  color: #d8e2ed;
+  font:
+    12px/1.5 Monaco,
+    monospace;
+  cursor: pointer;
+}
+.lf-hub-upgrade strong {
+  color: #f4f7fb;
+  font:
+    11px/1.5 "Luner Pixel",
+    monospace;
+}
+.lf-hub-upgrade-cost {
+  color: var(--gold);
+  font:
+    11px/1.5 "Luner Pixel",
+    monospace;
+}
+.lf-hub-upgrade-desc,
+.lf-hub-upgrade-level {
+  font-size: 11px;
+}
+.lf-hub-upgrade-level {
+  text-align: right;
+}
+.lf-hub-upgrade[aria-pressed="true"] {
+  --light: #4aab94;
+  --shade: #0c302d;
+  background: #174b41;
+  border-color: var(--teal);
+}
+.lf-hub-forge-hint {
+  font-size: 10px;
+  margin: 16px 0 0;
+}
+body.lf-in-hub #rotate {
+  display: none;
+}
+body.lf-in-hub .lf-touch {
+  --vg-touch-radius: 0;
+  --vg-touch-border: 4px solid #070b13;
+  --vg-touch-bg: #26364b;
+  --vg-touch-bg-active: #148976;
+  display: flex;
+}
+body.lf-in-hub .lf-touch button {
+  box-shadow:
+    inset 3px 3px #627c99,
+    inset -3px -4px #142031;
+}
+@media (pointer: coarse) {
+  .lf-hub-mast {
+    padding-right: 52px;
+  }
+}
+@media (max-width: 600px) {
+  .lf-hub {
+    padding: max(16px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right))
+      max(20px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
+  }
+  .lf-hub-content {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: 12px;
+  }
+  .lf-hub-mast {
+    width: 100%;
+    gap: 8px;
+  }
+  .lf-hub-bank {
+    padding: 8px;
+    font-size: 10px;
+  }
+  .lf-hub-utilities {
+    gap: 4px;
+  }
+  .lf-hub-utilities .lf-hub-button {
+    min-width: 44px;
+    font-size: 10px;
+    padding: 8px 10px 10px;
+  }
+  .lf-hub-roster,
+  .lf-hub-tools,
+  .lf-hub-receipt {
+    width: 100%;
+  }
+  .lf-hub-roster {
+    margin-block: auto;
+  }
+  .lf-hub-showcase {
+    height: clamp(150px, 24dvh, 220px);
+  }
+  .lf-hub-hero-title {
+    margin: 8px 0 5px;
+    font-size: 24px;
+  }
+  .lf-hub-blurb {
+    font-size: 11px;
+    min-height: 32px;
+  }
+  .lf-hub-heroes {
+    margin-top: 12px;
+    gap: 4px;
+  }
+  .lf-hub-art {
+    height: 48px;
+  }
+  .lf-hub-name {
+    padding-top: 7px;
+    font-size: 9px;
+  }
+  .lf-hub-cost {
+    font-size: 8px;
+    min-height: 18px;
+  }
+  .lf-hub-go {
+    min-height: 60px;
+  }
+  .lf-hub-room {
+    padding: 8px;
+    gap: 8px;
+  }
+  .lf-hub-status {
+    text-align: center;
+  }
+  .lf-hub-receipt {
+    font-size: 10px;
+  }
+}
+@media (max-height: 560px) and (min-width: 601px) {
+  .lf-hub {
+    padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+      max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  }
+  .lf-hub-content {
+    grid-template-columns: minmax(0, 1fr) 300px;
+    gap: 8px 24px;
+  }
+  .lf-hub-bank {
+    font-size: 10px;
+  }
+  .lf-hub-showcase {
+    height: clamp(76px, calc(100dvh - 286px), 170px);
+  }
+  .lf-hub-hero-title {
+    margin: 4px 0;
+    font-size: 22px;
+  }
+  .lf-hub-blurb {
+    min-height: 30px;
+    font-size: 10px;
+  }
+  .lf-hub-heroes {
+    margin-top: 8px;
+    gap: 5px;
+  }
+  .lf-hub-art {
+    height: 38px;
+  }
+  .lf-hub-name {
+    font-size: 9px;
+  }
+  .lf-hub-cost {
+    font-size: 8px;
+    min-height: 18px;
+  }
+  .lf-hub-modes .lf-hub-button,
+  .lf-hub-copy,
+  .lf-hub-join-button {
+    min-height: 44px;
+  }
+  .lf-hub-room {
+    padding: 8px;
+    gap: 6px;
+  }
+  .lf-hub-go {
+    min-height: 56px;
+  }
+  .lf-hub-connection {
+    font-size: 8px;
+  }
+  .lf-hub-receipt {
+    font-size: 10px;
+  }
+  .lf-hub-forge[open] {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 12px;
+    padding: 16px;
+  }
+  .lf-hub-forge-head,
+  .lf-hub-forge-sub,
+  .lf-hub-forge-bank,
+  .lf-hub-forge-hint,
+  .lf-hub-forge > .lf-hub-status {
+    grid-column: 1 / -1;
+  }
+  .lf-hub-forge-sub {
+    margin: 8px 0 0;
+  }
+  .lf-hub-forge-bank {
+    margin: 6px 0;
+  }
+  .lf-hub-upgrade {
+    margin: 4px 0;
+  }
+  .lf-hub-forge-hint {
+    margin-top: 8px;
+  }
+}

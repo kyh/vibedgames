@@ -30,29 +30,39 @@ import {
 } from "./_lib/asset-tools.mjs";
 
 /** Parse a `WxH` canvas spec. */
-function parseSize(text) {
-  const match = /^(\d+)\s*x\s*(\d+)$/i.exec(text.trim());
-  if (!match) fail(`--canvas must be WxH, e.g. 256x256 (got "${text}")`);
-  const width = Number(match[1]);
-  const height = Number(match[2]);
-  if (width <= 0 || height <= 0) fail(`--canvas dimensions must be positive, got: "${text}"`);
-  return { width, height };
-}
+const parseSize = (text) => {
+  const match = /^(?<w>\d+)\s*x\s*(?<h>\d+)$/iu.exec(text.trim());
+  if (!match) {
+    fail(`--canvas must be WxH, e.g. 256x256 (got "${text}")`);
+  }
+  const width = Number(match.groups?.w);
+  const height = Number(match.groups?.h);
+  if (width <= 0 || height <= 0) {
+    fail(`--canvas dimensions must be positive, got: "${text}"`);
+  }
+  return { height, width };
+};
 
 main(() => {
   const args = parseArgs(process.argv.slice(2), {
-    values: ["canvas", "char-fill", "glob", "input-dir", "out-dir", "pad", "target-height"],
     booleans: ["no-upscale"],
+    values: ["canvas", "char-fill", "glob", "input-dir", "out-dir", "pad", "target-height"],
   });
   const inputDir = getString(args, "input-dir");
   const outDir = getString(args, "out-dir");
-  if (!inputDir || !outDir) failUsage("--input-dir and --out-dir are required");
+  if (!inputDir || !outDir) {
+    failUsage("--input-dir and --out-dir are required");
+  }
 
   const pad = getInt(args, "pad", 6);
-  if (pad < 0) fail("--pad must be >= 0");
+  if (pad < 0) {
+    fail("--pad must be >= 0");
+  }
 
   const charFill = getNumber(args, "char-fill", 0.5);
-  if (!(charFill > 0 && charFill <= 1)) fail("--char-fill must be in (0, 1]");
+  if (!(charFill > 0 && charFill <= 1)) {
+    fail("--char-fill must be in (0, 1]");
+  }
 
   const targetHeightSpec = getString(args, "target-height");
   const targetHeight = targetHeightSpec === undefined ? null : getInt(args, "target-height", 0);
@@ -61,12 +71,12 @@ main(() => {
   }
 
   const written = normalizeCanvas(inputDir, outDir, {
-    glob: getString(args, "glob") ?? "frame-*.png",
-    canvas: parseSize(getString(args, "canvas") ?? "256x256"),
-    pad,
     allowUpscale: !getFlag(args, "no-upscale"),
-    targetHeight,
+    canvas: parseSize(getString(args, "canvas") ?? "256x256"),
     charFill,
+    glob: getString(args, "glob") ?? "frame-*.png",
+    pad,
+    targetHeight,
   });
 
   console.log(outDir);

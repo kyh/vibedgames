@@ -10,12 +10,13 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, relative, sep } from "node:path";
+import path from "node:path";
 
 import ignore from "ignore";
 import { create as tarCreate, extract as tarExtract } from "tar";
 
-import { isJsonObject, isJsonString, type JsonValue } from "./types.js";
+import { isJsonObject, isJsonString } from "./types.js";
+import type { JsonValue } from "./types.js";
 
 /**
  * Patterns ALWAYS excluded from a source archive, regardless of .gitignore —
@@ -53,14 +54,14 @@ const HARD_EXCLUDES = [
   "*.tar.gz",
 ];
 
-export type SourceArchive = {
+export interface SourceArchive {
   /** absolute path to the temp .tgz */
   path: string;
   sha256: string;
   bytes: number;
   /** posix relative paths included, for display */
   files: string[];
-};
+}
 
 /**
  * Build the exclusion predicate. HARD_EXCLUDES live in their OWN matcher,
@@ -68,45 +69,141 @@ export type SourceArchive = {
  * negation like `!.env` in a user ignore file can NOT un-exclude a secret.
  * A path is excluded if EITHER matcher says so.
  */
-function buildIgnorer(root: string): (rel: string) => boolean {
+const buildIgnorer = (root: string): ((rel: string) => boolean) => {
   const hard = ignore().add(HARD_EXCLUDES);
   const user = ignore();
   for (const name of [".gitignore", ".vibedgamesignore"]) {
-    const p = join(root, name);
-    if (existsSync(p)) user.add(readFileSync(p, "utf8"));
+    const p = path.join(root, name);
+    if (existsSync(p)) {
+      user.add(readFileSync(p, "utf-8"));
+    }
   }
   return (rel) => hard.ignores(rel) || user.ignores(rel);
-}
+};
 
 /** Walk `root`, returning posix relative paths of files not ignored. Ignored
  *  directories are pruned (not descended into) for speed. */
-function collectFiles(root: string, ignored: (rel: string) => boolean): string[] {
+const collectFiles = (root: string, ignored: (rel: string) => boolean): string[] => {
   const out: string[] = [];
   const walk = (dir: string): void => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const abs = join(dir, entry.name);
-      const rel = relative(root, abs).split(sep).join("/");
-      if (!rel) continue;
+      const abs = path.join(dir, entry.name);
+      const rel = path.relative(root, abs).split(path.sep).join("/");
+      if (!rel) {
+        continue;
+      }
       // `ignore` matches dirs via a trailing slash; test both forms.
       if (entry.isDirectory()) {
-        if (ignored(`${rel}/`) || ignored(rel)) continue;
+        if (ignored(`${rel}/`) || ignored(rel)) {
+          continue;
+        }
         walk(abs);
       } else if (entry.isFile()) {
-        if (ignored(rel)) continue;
+        if (ignored(rel)) {
+          continue;
+        }
         out.push(rel);
       }
     }
   };
   walk(root);
-  return out.sort();
-}
+  return out.toSorted();
+};
 
+/** Version of an installed dependency, searching node_modules up the tree. */
+const installedVersion = (root: string, name: string): string | null => {
+  let dir = root;
+  while (true) {
+    const p = path.join(dir, "node_modules", name, "package.json");
+    if (existsSync(p)) {
+      try {
+        const pkg: JsonValue = JSON.parse(readFileSync(p, "utf-8"));
+        const v = isJsonObject(pkg) ? pkg.version : undefined;
+        if (isJsonString(v)) {
+          return v;
+        }
+      } catch {
+        /* fall through to parent */
+      }
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) {
+      return null;
+    }
+    dir = parent;
+  }
+};
+const resolveSpec = (root: string, name: string, spec: string): string | null => {
+  if (spec.startsWith("workspace:")) {
+    const range = spec.slice("workspace:".length);
+    // Explicit range (e.g. workspace:^1.2.3) — keep the literal range.
+    if (/\d/u.test(range)) {
+      return range;
+    }
+    const v = installedVersion(root, name);
+    if (!v) {
+      return null;
+    }
+    if (range === "~") {
+      return `~${v}`;
+    }
+    if (range === "*") {
+      return v;
+      // exact pin
+    }
+    // "" or "^"
+    return `^${v}`;
+  }
+  // catalog: / catalog:<name> — resolve to the installed version, caret-pinned.
+  const v = installedVersion(root, name);
+  return v ? `^${v}` : null;
+};
+const DEP_FIELDS = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"];
+
+/**
+ * Rewrite `workspace:` / `catalog:` dep specs in package.json to the concrete
+ * versions currently installed in node_modules — mirroring what `pnpm publish`
+ * does — so the forked project installs from npm. Returns the rewritten JSON
+ * string, or null if there's nothing to change (the common standalone case).
+ */
+const rewriteWorkspaceProtocols = (root: string): string | null => {
+  let pkg: JsonValue;
+  try {
+    pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf-8"));
+  } catch {
+    return null;
+  }
+  if (!isJsonObject(pkg)) {
+    return null;
+  }
+  let changed = false;
+  for (const field of DEP_FIELDS) {
+    const deps = pkg[field];
+    if (!isJsonObject(deps)) {
+      continue;
+    }
+    for (const [name, spec] of Object.entries(deps)) {
+      if (!isJsonString(spec)) {
+        continue;
+      }
+      if (!spec.startsWith("workspace:") && !spec.startsWith("catalog:")) {
+        continue;
+      }
+      const resolved = resolveSpec(root, name, spec);
+      if (resolved && resolved !== spec) {
+        deps[name] = resolved;
+        changed = true;
+      }
+    }
+  }
+  return changed ? `${JSON.stringify(pkg, null, 2)}\n` : null;
+};
 /**
  * Create a gzipped tar of `root`'s source (respecting .gitignore +
  * HARD_EXCLUDES) at a temp path. Returns the archive path, its sha256, byte
  * size, and the list of included files.
  */
-export async function packSource(root: string, tmpDir: string): Promise<SourceArchive> {
+export const packSource = async (root: string, tmpDir: string): Promise<SourceArchive> => {
   const ignored = buildIgnorer(root);
   const files = collectFiles(root, ignored);
   if (files.length === 0) {
@@ -122,104 +219,37 @@ export async function packSource(root: string, tmpDir: string): Promise<SourceAr
   let cwd = root;
   let stage: string | null = null;
   if (rewritten) {
-    stage = mkdtempSync(join(tmpDir, "stage-"));
+    stage = mkdtempSync(path.join(tmpDir, "stage-"));
     for (const f of files) {
-      const dest = join(stage, f);
-      mkdirSync(dirname(dest), { recursive: true });
-      copyFileSync(join(root, f), dest);
+      const dest = path.join(stage, f);
+      mkdirSync(path.dirname(dest), { recursive: true });
+      copyFileSync(path.join(root, f), dest);
     }
-    writeFileSync(join(stage, "package.json"), rewritten);
+    writeFileSync(path.join(stage, "package.json"), rewritten);
     cwd = stage;
   }
 
-  const path = join(tmpDir, `vg-source-${process.pid}-${files.length}.tgz`);
+  const tarball = path.join(tmpDir, `vg-source-${process.pid}-${files.length}.tgz`);
   try {
-    await tarCreate({ gzip: true, file: path, cwd, portable: true }, files);
+    await tarCreate({ cwd, file: tarball, gzip: true, portable: true }, files);
   } finally {
-    if (stage) rmSync(stage, { recursive: true, force: true });
+    if (stage) {
+      rmSync(stage, { force: true, recursive: true });
+    }
   }
 
-  const buf = readFileSync(path);
+  const buf = readFileSync(tarball);
   return {
-    path,
-    sha256: createHash("sha256").update(buf).digest("hex"),
-    bytes: statSync(path).size,
+    bytes: statSync(tarball).size,
     files,
+    path: tarball,
+    sha256: createHash("sha256").update(buf).digest("hex"),
   };
-}
-
-const DEP_FIELDS = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"];
-
-/**
- * Rewrite `workspace:` / `catalog:` dep specs in package.json to the concrete
- * versions currently installed in node_modules — mirroring what `pnpm publish`
- * does — so the forked project installs from npm. Returns the rewritten JSON
- * string, or null if there's nothing to change (the common standalone case).
- */
-function rewriteWorkspaceProtocols(root: string): string | null {
-  let pkg: JsonValue;
-  try {
-    pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
-  } catch {
-    return null;
-  }
-  if (!isJsonObject(pkg)) return null;
-  let changed = false;
-  for (const field of DEP_FIELDS) {
-    const deps = pkg[field];
-    if (!isJsonObject(deps)) continue;
-    for (const [name, spec] of Object.entries(deps)) {
-      if (!isJsonString(spec)) continue;
-      if (!spec.startsWith("workspace:") && !spec.startsWith("catalog:")) continue;
-      const resolved = resolveSpec(root, name, spec);
-      if (resolved && resolved !== spec) {
-        deps[name] = resolved;
-        changed = true;
-      }
-    }
-  }
-  return changed ? `${JSON.stringify(pkg, null, 2)}\n` : null;
-}
-
-function resolveSpec(root: string, name: string, spec: string): string | null {
-  if (spec.startsWith("workspace:")) {
-    const range = spec.slice("workspace:".length);
-    // Explicit range (e.g. workspace:^1.2.3) — keep the literal range.
-    if (/\d/.test(range)) return range;
-    const v = installedVersion(root, name);
-    if (!v) return null;
-    if (range === "~") return `~${v}`;
-    if (range === "*") return v; // exact pin
-    return `^${v}`; // "" or "^"
-  }
-  // catalog: / catalog:<name> — resolve to the installed version, caret-pinned.
-  const v = installedVersion(root, name);
-  return v ? `^${v}` : null;
-}
-
-/** Version of an installed dependency, searching node_modules up the tree. */
-function installedVersion(root: string, name: string): string | null {
-  let dir = root;
-  while (true) {
-    const p = join(dir, "node_modules", name, "package.json");
-    if (existsSync(p)) {
-      try {
-        const pkg: JsonValue = JSON.parse(readFileSync(p, "utf8"));
-        const v = isJsonObject(pkg) ? pkg.version : undefined;
-        if (isJsonString(v)) return v;
-      } catch {
-        /* fall through to parent */
-      }
-    }
-    const parent = dirname(dir);
-    if (parent === dir) return null;
-    dir = parent;
-  }
-}
+};
 
 /** Extract a gzipped tar into `destDir` (created if needed). tar strips
  *  leading slashes and rejects `..` paths, so extraction stays inside dest. */
-export async function extractSource(archivePath: string, destDir: string): Promise<void> {
+export const extractSource = async (archivePath: string, destDir: string): Promise<void> => {
   mkdirSync(destDir, { recursive: true });
-  await tarExtract({ file: archivePath, cwd: destDir });
-}
+  await tarExtract({ cwd: destDir, file: archivePath });
+};

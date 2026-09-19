@@ -1,12 +1,12 @@
 import { defineCommand } from "citty";
-import consola from "consola";
+import { consola } from "consola";
 
 import { clearConfig } from "../lib/config.js";
 
 export const logoutCommand = defineCommand({
   meta: {
-    name: "logout",
     description: "Log out of vibedgames",
+    name: "logout",
   },
   run: () => {
     clearConfig();

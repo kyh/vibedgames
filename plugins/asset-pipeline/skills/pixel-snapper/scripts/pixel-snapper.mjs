@@ -26,8 +26,8 @@ import {
 
 main(() => {
   const args = parseArgs(process.argv.slice(2), {
-    values: ["k-colors", "seed"],
     booleans: ["strict"],
+    values: ["k-colors", "seed"],
   });
   const [input, output] = args.positionals;
   if (!input || !output) {
@@ -35,7 +35,9 @@ main(() => {
   }
 
   const kColors = getInt(args, "k-colors", 16);
-  if (kColors <= 0) fail("--k-colors must be a positive integer");
+  if (kColors <= 0) {
+    fail("--k-colors must be a positive integer");
+  }
 
   const config = { ...DEFAULT_SNAP_CONFIG, kColors, kSeed: getInt(args, "seed", 42) };
   const snapped = snapImage(input, config);
@@ -45,6 +47,8 @@ main(() => {
   const warning = snapWarning(Bitmap.fromFile(input), snapped, config);
   if (warning) {
     console.error(`[pixel_snapper] warning: ${warning}`);
-    if (getFlag(args, "strict")) process.exit(1);
+    if (getFlag(args, "strict")) {
+      process.exit(1);
+    }
   }
 });

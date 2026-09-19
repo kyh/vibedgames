@@ -194,6 +194,11 @@ const i = bodies.findIndex((p) => p.body === body);
 if (i !== -1) bodies.splice(i, 1);
 ```
 
+### Gotchas
+
+- **The first `world.step()` builds the broadphase lazily.** With a large static world that is a multi-second freeze, and it lands on the player's first input when the first step is input-driven. Prewarm by calling `world.step()` directly once before the playable gate opens — call the world, not the loop: a fixed-dt accumulator swallows a sub-threshold `step(1/240)`. Keep the prewarm world small (ground only) and stream the rest in during play (see Performance notes).
+- **Kinematic `body.mass()` reads 0**, so `applyImpulse(mass * x)` is silently zero — set `linvel` directly. A kinematic body is infinite mass to a dynamic hitter (the hitter bounces off, the kinematic never moves), so flip it to dynamic the frame contact is imminent (predictive reach `r + closing * dt`), not on contact.
+
 ---
 
 ## Performance notes
@@ -201,4 +206,4 @@ if (i !== -1) bodies.splice(i, 1);
 - **One `world.step()` per fixed step**, never per render frame (see the loop in [`gameplay-systems.md`](gameplay-systems.md)).
 - **Reuse scratch vectors** (`const _v = new THREE.Vector3()` at module scope) — never allocate in the step.
 - **Sleep static-heavy scenes** — Rapier auto-sleeps idle bodies; don't wake them by writing transforms every frame.
-- **Collider count, not mesh count, drives physics cost.** Use compound/simplified colliders for detailed models — a capsule or box, not the GLB's full mesh, unless you need precise collision.
+- **Collider count, not mesh count, drives physics cost.** Use compound/simplified colliders for detailed models — a capsule or box, not the GLB's full mesh, unless you need precise collision. The cost is per **resident** collider and is paid on every `world.step()` even when nothing moves (v0.19: 500 colliders → 0.03 ms, 8k → 0.2 ms, 32k → 1.6–3.4 ms; parentless colliders and one-body-many-colliders cost the same — colliders, not bodies). Never make a whole level resident: stream static colliders around the player — resident within ~160 u, removed past ~200 u (hysteresis), rescan after ~24 u of movement — as parentless colliders via `ColliderDesc.setTranslation/setRotation`. Lock residency with a test (`world.colliders.len() < N`).

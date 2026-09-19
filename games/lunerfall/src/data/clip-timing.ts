@@ -29,21 +29,29 @@ export const KIT_SUFFIX = "@kit";
 // re-verify these against a contact sheet.
 export const STRIKE_FRAME = new Map<HeroName, Record<string, number>>([
   ["axion", { "attack-3a": 3, "attack-3b": 2, "attack-3c": 0, "super-smash": 7 }],
-  ["reaper", { slash: 5, "double-slash": 3, attack: 14, skill: 14 }],
-  ["riven", { slash: 5, "double-slash": 4, "slash-heavy": 5 }],
-  ["mooni", { thrust: 6, spin: 6, smash: 11 }],
+  ["reaper", { attack: 14, "double-slash": 3, skill: 14, slash: 5 }],
+  ["riven", { "double-slash": 4, slash: 5, "slash-heavy": 5 }],
+  ["mooni", { smash: 11, spin: 6, thrust: 6 }],
   ["salamander", { "fire-punch": 6, "flame-slam": 11, "flame-wave": 7 }],
 ]);
 
 // One retimed clip: windup → strike-at-hitbox → weighted recovery (see above).
-type ActionWindow = { a0: number; a1: number; dur: number };
+interface ActionWindow {
+  a0: number;
+  a1: number;
+  dur: number;
+}
 
-function retime(scene: Phaser.Scene, hero: HeroName, clip: string, w: ActionWindow) {
+const retime = (scene: Phaser.Scene, hero: HeroName, clip: string, w: ActionWindow) => {
   const base = scene.anims.get(`${hero}:${clip}`);
   const strike = STRIKE_FRAME.get(hero)?.[clip];
-  if (!base || strike === undefined) return;
+  if (!base || strike === undefined) {
+    return;
+  }
   const kitKey = `${hero}:${clip}${KIT_SUFFIX}`;
-  if (scene.anims.exists(kitKey)) return;
+  if (scene.anims.exists(kitKey)) {
+    return;
+  }
 
   const n = base.frames.length;
   const k = Math.min(strike, n - 1);
@@ -57,33 +65,42 @@ function retime(scene: Phaser.Scene, hero: HeroName, clip: string, w: ActionWind
 
   const frames: Phaser.Types.Animations.AnimationFrame[] = [];
   let total = 0;
-  base.frames.forEach((f, i) => {
+  for (const [i, f] of base.frames.entries()) {
     let ms: number;
-    if (i < k) ms = windupMs / k;
-    else if (i === k) ms = k === 0 ? windupMs + strikeMs : strikeMs;
-    else ms = i === n - 1 ? recoverUnit * 2 : recoverUnit;
-    frames.push({ key: f.textureKey, frame: f.textureFrame, duration: ms });
+    if (i < k) {
+      ms = windupMs / k;
+    } else if (i === k) {
+      ms = k === 0 ? windupMs + strikeMs : strikeMs;
+    } else {
+      ms = i === n - 1 ? recoverUnit * 2 : recoverUnit;
+    }
+    frames.push({ duration: ms, frame: f.textureFrame, key: f.textureKey });
     total += ms;
-  });
-  scene.anims.create({ key: kitKey, frames, duration: total, repeat: 0 });
-}
+  }
+  scene.anims.create({ duration: total, frames, key: kitKey, repeat: 0 });
+};
 
 // Build every hero's retimed attack variants. Call once at boot, after
 // buildAnimsFromAseprite has created the base clips.
-export function buildKitClips(scene: Phaser.Scene) {
+export const buildKitClips = (scene: Phaser.Scene) => {
   for (const hero of Object.values(HEROES)) {
-    for (const sw of hero.kit.swings) retime(scene, hero.name, sw.clip, sw);
+    for (const sw of hero.kit.swings) {
+      retime(scene, hero.name, sw.clip, sw);
+    }
     const sp = hero.kit.special;
-    if (sp.kind === "aoe") retime(scene, hero.name, sp.clip, sp);
+    if (sp.kind === "aoe") {
+      retime(scene, hero.name, sp.clip, sp);
+    }
     // Projectile: the release frame shows while the wave spawns at fireAt.
-    else if (sp.kind === "projectile")
+    else if (sp.kind === "projectile") {
       retime(scene, hero.name, sp.clip, { a0: sp.fireAt, a1: sp.fireAt + 0.12, dur: sp.dur });
+    }
   }
-}
+};
 
 // The anim key playback should use for a hero clip — the retimed kit variant
 // when one exists, else the base authored clip. Shared by Player + the viewer.
-export function kitClipKey(scene: Phaser.Scene, hero: HeroName, clip: string): string {
+export const kitClipKey = (scene: Phaser.Scene, hero: HeroName, clip: string): string => {
   const kitKey = `${hero}:${clip}${KIT_SUFFIX}`;
   return scene.anims.exists(kitKey) ? kitKey : `${hero}:${clip}`;
-}
+};

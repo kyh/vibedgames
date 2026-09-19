@@ -141,6 +141,10 @@ Run `vg generate schema openai/gpt-image-2 --json` for authoritative list. Typic
 - `input_fidelity`: for edits, `high` enforces strict preservation
 - `image_urls`: array for edit / compositing modes
 - `mask_image_url`: optional mask for edit mode
+- `background`: `transparent` does not work — output comes back alpha≈254
+  with a painted glow. Generate on flat black (energy art, drawn additive) or
+  flat `#00FF00` (`#FF00FF` for green subjects) and key locally; lanes in
+  `pixel-art` Recipe 5.
 
 ## Quick code example
 

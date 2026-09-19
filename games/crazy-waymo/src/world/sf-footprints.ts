@@ -50567,8 +50567,8 @@ export const SF_FOOTPRINTS: readonly (readonly number[])[] = [
 // Dense-core coverage (8th..92nd pct) — procedural kit lots yield to the real
 // fabric inside this box.
 export const SF_FOOTPRINTS_BOUNDS = {
-  minX: -165,
   maxX: 665,
-  minZ: -1102,
   maxZ: -97,
+  minX: -165,
+  minZ: -1102,
 } as const;

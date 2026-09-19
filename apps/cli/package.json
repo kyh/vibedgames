@@ -1,6 +1,6 @@
 {
   "name": "vibedgames",
-  "version": "0.5.0",
+  "version": "0.6.2",
   "private": false,
   "bin": {
     "vg": "./dist/index.js"
@@ -21,7 +21,7 @@
     "citty": "^0.2.2",
     "consola": "^3.4.2",
     "cross-spawn": "^7.0.6",
-    "ignore": "^7.0.8",
+    "ignore": "^7.0.9",
     "tar": "^7.5.22",
     "tiged": "^2.12.8"
   },

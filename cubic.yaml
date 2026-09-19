@@ -2,7 +2,7 @@
 #
 # The only entries here are build output that is committed on purpose, so a
 # reviewer — human or otherwise — should read the source it was built from
-# instead. Keep this in step with the same lists in `.oxlintrc.json`,
+# instead. Keep this in step with the same lists in `oxlint.config.ts`,
 # `.oxfmtrc.json` and `.gitattributes`.
 ignorePatterns:
   # esbuild bundles of `@repo/asset-tools`, emitted by `pnpm dogfood` into every

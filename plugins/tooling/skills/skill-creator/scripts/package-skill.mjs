@@ -10,25 +10,28 @@
  *   node package-skill.mjs skills/public/my-skill ./dist
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import path from "node:path";
 
 import { createZip, validateSkill } from "./_lib/asset-tools.mjs";
 
 /** Every file under `dir`, sorted, so an archive is reproducible. */
-function walk(dir) {
+const walk = (dir) => {
   const out = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
+  for (const entry of readdirSync(dir, { withFileTypes: true }).toSorted((a, b) =>
     a.name < b.name ? -1 : 1,
   )) {
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...walk(full));
-    else if (entry.isFile()) out.push(full);
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      out.push(...walk(full));
+    } else if (entry.isFile()) {
+      out.push(full);
+    }
   }
   return out;
-}
+};
 
-function packageSkill(skillPathArg, outputDir) {
-  const skillPath = resolve(skillPathArg);
+const packageSkill = (skillPathArg, outputDir) => {
+  const skillPath = path.resolve(skillPathArg);
 
   if (!existsSync(skillPath)) {
     console.log(`❌ Error: Skill folder not found: ${skillPath}`);
@@ -38,7 +41,7 @@ function packageSkill(skillPathArg, outputDir) {
     console.log(`❌ Error: Path is not a directory: ${skillPath}`);
     return null;
   }
-  if (!existsSync(join(skillPath, "SKILL.md"))) {
+  if (!existsSync(path.join(skillPath, "SKILL.md"))) {
     console.log(`❌ Error: SKILL.md not found in ${skillPath}`);
     return null;
   }
@@ -52,18 +55,20 @@ function packageSkill(skillPathArg, outputDir) {
   }
   console.log(`✅ ${message}\n`);
 
-  const outputPath = outputDir ? resolve(outputDir) : process.cwd();
-  if (outputDir) mkdirSync(outputPath, { recursive: true });
-  const skillFilename = join(outputPath, `${basename(skillPath)}.skill`);
+  const outputPath = outputDir ? path.resolve(outputDir) : process.cwd();
+  if (outputDir) {
+    mkdirSync(outputPath, { recursive: true });
+  }
+  const skillFilename = path.join(outputPath, `${path.basename(skillPath)}.skill`);
 
   try {
     // Paths inside the archive are relative to the skill's parent, so the
     // bundle unpacks as a named skill directory rather than loose files.
-    const parent = dirname(skillPath);
+    const parent = path.dirname(skillPath);
     const entries = walk(skillPath).map((file) => {
-      const arcname = relative(parent, file).split(/[/\\]/).join("/");
+      const arcname = path.relative(parent, file).split(/[/\\]/u).join("/");
       console.log(`  Added: ${arcname}`);
-      return { name: arcname, data: readFileSync(file), mtime: statSync(file).mtime };
+      return { data: readFileSync(file), mtime: statSync(file).mtime, name: arcname };
     });
 
     writeFileSync(skillFilename, createZip(entries));
@@ -73,7 +78,7 @@ function packageSkill(skillPathArg, outputDir) {
     console.log(`❌ Error creating .skill file: ${error instanceof Error ? error.message : error}`);
     return null;
   }
-}
+};
 
 const [skillPath, outputDir] = process.argv.slice(2);
 const USAGE = [
@@ -93,7 +98,9 @@ if (!skillPath) {
 }
 
 console.log(`📦 Packaging skill: ${skillPath}`);
-if (outputDir) console.log(`   Output directory: ${outputDir}`);
+if (outputDir) {
+  console.log(`   Output directory: ${outputDir}`);
+}
 console.log();
 
 process.exit(packageSkill(skillPath, outputDir) ? 0 : 1);

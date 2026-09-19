@@ -10,13 +10,20 @@ export type VsPhase = NetVersus["phase"];
 // What a step() crossed into, for the scene to react (respawn, banners, stings).
 export type VsTransition = "fight" | "respawn" | "matchEnd" | null;
 
-export const VS_WIN_SCORE = 3; // round wins to take the match
-export const VS_HEARTS = 5; // per-duelist hearts, refilled every round
-export const VS_HIT_CAP = 2; // max hearts one hit can take (finishers/specials)
-export const VS_COUNTDOWN = 1.4; // s frozen at round start ("ROUND n")
-export const VS_ROUND_END = 1.8; // s of round-winner banner before the reset
-export const VS_END_HOLD = 1.2; // s before the match-end rematch prompt arms
-export const VS_BIOME = 5; // VOIDSANCTUM — the duel stage palette
+// round wins to take the match
+export const VS_WIN_SCORE = 3;
+// per-duelist hearts, refilled every round
+export const VS_HEARTS = 5;
+// max hearts one hit can take (finishers/specials)
+export const VS_HIT_CAP = 2;
+// s frozen at round start ("ROUND n")
+export const VS_COUNTDOWN = 1.4;
+// s of round-winner banner before the reset
+export const VS_ROUND_END = 1.8;
+// s before the match-end rematch prompt arms
+export const VS_END_HOLD = 1.2;
+// VOIDSANCTUM — the duel stage palette
+export const VS_BIOME = 5;
 
 export const vsOther = (s: VsSide): VsSide => (s === "host" ? "guest" : "host");
 
@@ -29,13 +36,35 @@ export class VersusMatch {
   phase: VsPhase = "waiting";
   round = 0;
   t = 0;
-  hp = { host: VS_HEARTS, guest: VS_HEARTS } satisfies Record<VsSide, number>;
-  score = { host: 0, guest: 0 } satisfies Record<VsSide, number>;
-  winner: VsSide | null = null; // round winner in roundEnd, match in matchEnd
+  hp = { guest: VS_HEARTS, host: VS_HEARTS } satisfies Record<VsSide, number>;
+  score = { guest: 0, host: 0 } satisfies Record<VsSide, number>;
+  // round winner in roundEnd, match in matchEnd
+  winner: VsSide | null = null;
+
+  /** Full precision for authority handoff (encode is the rounded wire view). */
+  checkpoint() {
+    return {
+      hp: { ...this.hp },
+      phase: this.phase,
+      round: this.round,
+      score: { ...this.score },
+      t: this.t,
+      winner: this.winner,
+    };
+  }
+
+  restore(state: VersusCheckpoint): void {
+    this.phase = state.phase;
+    this.round = state.round;
+    this.t = state.t;
+    this.hp = { ...state.hp };
+    this.score = { ...state.score };
+    this.winner = state.winner;
+  }
 
   /** Both duelists present (or a rematch): scores wiped, round 1 countdown. */
   beginMatch() {
-    this.score = { host: 0, guest: 0 };
+    this.score = { guest: 0, host: 0 };
     this.round = 0;
     this.startRound();
   }
@@ -45,14 +74,14 @@ export class VersusMatch {
     this.phase = "waiting";
     this.round = 0;
     this.t = 0;
-    this.hp = { host: VS_HEARTS, guest: VS_HEARTS };
-    this.score = { host: 0, guest: 0 };
+    this.hp = { guest: VS_HEARTS, host: VS_HEARTS };
+    this.score = { guest: 0, host: 0 };
     this.winner = null;
   }
 
   private startRound() {
-    this.round++;
-    this.hp = { host: VS_HEARTS, guest: VS_HEARTS };
+    this.round += 1;
+    this.hp = { guest: VS_HEARTS, host: VS_HEARTS };
     this.winner = null;
     this.phase = "countdown";
     this.t = VS_COUNTDOWN;
@@ -97,12 +126,16 @@ export class VersusMatch {
 
   /** Land a hit (capped) in the fighting phase; true when it ends the round. */
   damage(side: VsSide, dmg: number): boolean {
-    if (this.phase !== "fighting") return false;
+    if (this.phase !== "fighting") {
+      return false;
+    }
     this.hp[side] = Math.max(0, this.hp[side] - Math.min(VS_HIT_CAP, dmg));
-    if (this.hp[side] > 0) return false;
+    if (this.hp[side] > 0) {
+      return false;
+    }
     const w = vsOther(side);
     this.winner = w;
-    this.score[w]++;
+    this.score[w] += 1;
     this.phase = "roundEnd";
     this.t = VS_ROUND_END;
     return true;
@@ -110,20 +143,24 @@ export class VersusMatch {
 
   /** Self-heal (mooni's special) restores that duelist's own hearts, capped. */
   heal(side: VsSide, n: number) {
-    if (this.phase !== "fighting") return;
+    if (this.phase !== "fighting") {
+      return;
+    }
     this.hp[side] = Math.min(VS_HEARTS, this.hp[side] + n);
   }
 
   encode(): NetVersus {
     return {
+      guestHp: this.hp.guest,
+      guestScore: this.score.guest,
+      hostHp: this.hp.host,
+      hostScore: this.score.host,
       phase: this.phase,
       round: this.round,
       t: Math.round(this.t * 100) / 100,
-      hostHp: this.hp.host,
-      guestHp: this.hp.guest,
-      hostScore: this.score.host,
-      guestScore: this.score.guest,
       winner: this.winner,
     };
   }
 }
+
+export type VersusCheckpoint = ReturnType<VersusMatch["checkpoint"]>;

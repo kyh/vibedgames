@@ -8,22 +8,24 @@ import type { HeroStats } from "../data/heroes";
 import { ITEM_BY_ID } from "../data/items";
 import type { Unit } from "./types";
 
-function sumItems(itemIds: string[]) {
+const sumItems = (itemIds: string[]) => {
   const acc = {
+    armor: 0,
+    attackSpeed: 0,
     damage: 0,
     hp: 0,
-    mp: 0,
-    armor: 0,
-    moveSpeed: 0,
     hpRegen: 0,
-    mpRegen: 0,
-    attackSpeed: 0,
-    spellAmp: 0,
     lifesteal: 0,
+    moveSpeed: 0,
+    mp: 0,
+    mpRegen: 0,
+    spellAmp: 0,
   };
   for (const id of itemIds) {
     const it = ITEM_BY_ID[id];
-    if (!it) continue;
+    if (!it) {
+      continue;
+    }
     const s = it.stats;
     acc.damage += s.damage ?? 0;
     acc.hp += s.hp ?? 0;
@@ -37,14 +39,18 @@ function sumItems(itemIds: string[]) {
     acc.lifesteal += s.lifestealPct ?? 0;
   }
   return acc;
-}
+};
 
 /** Recompute the unit's combat fields from def+level+items. Returns max deltas. */
-export function recomputeHeroStats(u: Unit) {
+export const recomputeHeroStats = (u: Unit) => {
   const h = u.hero;
-  if (!h) return { hpDelta: 0, mpDelta: 0 };
+  if (!h) {
+    return { hpDelta: 0, mpDelta: 0 };
+  }
   const def = HERO_BY_ID[h.defId];
-  if (!def) return { hpDelta: 0, mpDelta: 0 };
+  if (!def) {
+    return { hpDelta: 0, mpDelta: 0 };
+  }
   const lvl = h.level;
   const st = (s: keyof HeroStats) => heroStatAt(def, s, lvl);
   const items = sumItems(h.items);
@@ -56,7 +62,8 @@ export function recomputeHeroStats(u: Unit) {
   u.maxMp = st("mp") + items.mp;
   u.baseDamage = st("damage") + items.damage;
   u.armor = st("armor") + items.armor;
-  u.attackRange = def.base.attackRange; // range doesn't grow
+  // range doesn't grow
+  u.attackRange = def.base.attackRange;
   u.attackSpeedBase = st("attackSpeed") * (1 + items.attackSpeed / 100);
   u.moveSpeedBase = st("moveSpeed") + items.moveSpeed;
   u.projectileSpeed = def.base.projectileSpeed;
@@ -70,20 +77,22 @@ export function recomputeHeroStats(u: Unit) {
   const hpDelta = u.maxHp - oldMaxHp;
   const mpDelta = u.maxMp - oldMaxMp;
   return { hpDelta, mpDelta };
-}
+};
 
-export function applyHeroLevel(u: Unit): void {
+export const applyHeroLevel = (u: Unit): void => {
   const { hpDelta, mpDelta } = recomputeHeroStats(u);
   if (u.alive) {
     u.hp = Math.min(u.maxHp, u.hp + Math.max(0, hpDelta));
     u.mp = Math.min(u.maxMp, u.mp + Math.max(0, mpDelta));
   }
-}
+};
 
 /** Recompute stats after `h.items` changed and grant the HP/MP the new maxes add. */
-export function applyItemPurchase(u: Unit): void {
-  if (!u.hero) return;
+export const applyItemPurchase = (u: Unit): void => {
+  if (!u.hero) {
+    return;
+  }
   const { hpDelta, mpDelta } = recomputeHeroStats(u);
   u.hp = Math.min(u.maxHp, u.hp + Math.max(0, hpDelta));
   u.mp = Math.min(u.maxMp, u.mp + Math.max(0, mpDelta));
-}
+};

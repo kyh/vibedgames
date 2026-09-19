@@ -5,14 +5,13 @@
  * use `git checkout .claude/skills/` to restore them if you delete by hand.
  */
 import { spawnSync } from "node:child_process";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import path from "node:path";
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const ROOT = path.resolve(import.meta.dirname, "..");
 
 console.log("→ unlinking vg CLI");
 spawnSync("npm", ["unlink", "-g", "vibedgames"], {
-  cwd: join(ROOT, "apps/cli"),
+  cwd: path.join(ROOT, "apps/cli"),
   stdio: "inherit",
 });
 

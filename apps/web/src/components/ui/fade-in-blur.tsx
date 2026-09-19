@@ -1,12 +1,13 @@
-import { motion, type HTMLMotionProps } from "motion/react";
+import { motion } from "motion/react";
+import type { HTMLMotionProps } from "motion/react";
 
 export const FadeInBlur = ({ children, ...rest }: HTMLMotionProps<"div">) => (
   <motion.div
-    transition={{ type: "spring", bounce: 0.1 }}
-    initial={{ opacity: 0, filter: "blur(5px)" }}
+    transition={{ bounce: 0.1, type: "spring" }}
+    initial={{ filter: "blur(5px)", opacity: 0 }}
     animate={{
-      opacity: 1,
       filter: "blur(0px)",
+      opacity: 1,
       transition: { delay: 0.05 },
     }}
     {...rest}

@@ -13,47 +13,47 @@ const CROWN_TOP = 49.4;
 const TAU = Math.PI * 2;
 type Vec3 = readonly [number, number, number];
 type MaterialKey = "glass" | "lit" | "metal" | "crown" | "stone" | "dark";
-export type SalesforcePart = {
+export interface SalesforcePart {
   readonly name: string;
   readonly geo: THREE.BufferGeometry;
   readonly mat: THREE.MeshStandardMaterial;
-};
+}
 
 const materials = {
-  glass: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 0.18 }),
-  lit: new THREE.MeshStandardMaterial({
-    vertexColors: true,
-    roughness: 0.32,
-    metalness: 0.16,
-    emissive: 0xffd49d,
-    emissiveIntensity: 0,
-  }),
-  metal: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.35 }),
   crown: new THREE.MeshStandardMaterial({
-    vertexColors: true,
-    roughness: 0.24,
-    metalness: 0.12,
-    transparent: true,
-    opacity: 0.24,
     depthWrite: false,
-    side: THREE.DoubleSide,
-    forceSinglePass: true,
-    emissive: 0x72d3f5,
+    emissive: 0x72_d3_f5,
     emissiveIntensity: 0,
+    forceSinglePass: true,
+    metalness: 0.12,
+    opacity: 0.24,
+    roughness: 0.24,
+    side: THREE.DoubleSide,
+    transparent: true,
+    vertexColors: true,
   }),
-  stone: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.72 }),
-  dark: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.36, metalness: 0.08 }),
+  dark: new THREE.MeshStandardMaterial({ metalness: 0.08, roughness: 0.36, vertexColors: true }),
+  glass: new THREE.MeshStandardMaterial({ metalness: 0.18, roughness: 0.3, vertexColors: true }),
+  lit: new THREE.MeshStandardMaterial({
+    emissive: 0xff_d4_9d,
+    emissiveIntensity: 0,
+    metalness: 0.16,
+    roughness: 0.32,
+    vertexColors: true,
+  }),
+  metal: new THREE.MeshStandardMaterial({ metalness: 0.35, roughness: 0.42, vertexColors: true }),
+  stone: new THREE.MeshStandardMaterial({ roughness: 0.72, vertexColors: true }),
 } satisfies Record<MaterialKey, THREE.MeshStandardMaterial>;
 
 /** Lamp factor from the game clock. No timers or material callbacks. */
-export function setSalesforceNight(night: number): void {
+export const setSalesforceNight = (night: number): void => {
   const amount = Number.isFinite(night) ? THREE.MathUtils.clamp(night, 0, 1) : 0;
   materials.lit.emissiveIntensity = amount * 0.24;
   materials.crown.emissiveIntensity = amount * 0.75;
-}
+};
 
 /** A bounded rounded-square section, with a steeper gentle curve at the crown. */
-function profile(angle: number, y: number, offset = 0): Vec3 {
+const profile = (angle: number, y: number, offset = 0): Vec3 => {
   const t = y / CROWN_TOP;
   const radius = 4.03 - 0.1 * t - 1.1 * t ** 4 + offset;
   const power = 2 / 3;
@@ -65,7 +65,7 @@ function profile(angle: number, y: number, offset = 0): Vec3 {
     y,
     (Math.sign(sz) * Math.abs(sz) ** power * radius) / normalize,
   ];
-}
+};
 
 class Surface {
   private readonly positions: number[] = [];
@@ -77,29 +77,33 @@ class Surface {
     const start = this.positions.length / 3;
     this.positions.push(...a, ...b, ...c, ...d);
     this.color.setHex(color);
-    for (let i = 0; i < 4; i++) this.colors.push(this.color.r, this.color.g, this.color.b);
+    for (let i = 0; i < 4; i += 1) {
+      this.colors.push(this.color.r, this.color.g, this.color.b);
+    }
     this.indices.push(start, start + 1, start + 2, start, start + 2, start + 3);
   }
 
   cap(y: number, offset: number, color: number): void {
-    for (let i = 0; i < COLUMNS; i++) {
+    for (let i = 0; i < COLUMNS; i += 1) {
       const a = profile((i * TAU) / COLUMNS, y, offset);
       const b = profile(((i + 1) * TAU) / COLUMNS, y, offset);
       const start = this.positions.length / 3;
       this.positions.push(0, y, 0, ...a, ...b);
       this.color.setHex(color);
-      for (let j = 0; j < 3; j++) this.colors.push(this.color.r, this.color.g, this.color.b);
+      for (let j = 0; j < 3; j += 1) {
+        this.colors.push(this.color.r, this.color.g, this.color.b);
+      }
       this.indices.push(start, start + 1, start + 2);
     }
   }
 
   box(x: number, y: number, z: number, w: number, h: number, d: number, color: number): void {
-    const x0 = x - w / 2,
-      x1 = x + w / 2;
-    const y0 = y - h / 2,
-      y1 = y + h / 2;
-    const z0 = z - d / 2,
-      z1 = z + d / 2;
+    const x0 = x - w / 2;
+    const x1 = x + w / 2;
+    const y0 = y - h / 2;
+    const y1 = y + h / 2;
+    const z0 = z - d / 2;
+    const z1 = z + d / 2;
     this.quad([x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1], color);
     this.quad([x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0], color);
     this.quad([x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1], color);
@@ -125,7 +129,7 @@ class Surface {
     // planar faces need no float precision for unit normals or linear colors.
     const normals = geo.getAttribute("normal");
     const packed = new Int8Array(normals.count * 3);
-    for (let i = 0; i < normals.count; i++) {
+    for (let i = 0; i < normals.count; i += 1) {
       packed[i * 3] = Math.round(normals.getX(i) * 127);
       packed[i * 3 + 1] = Math.round(normals.getY(i) * 127);
       packed[i * 3 + 2] = Math.round(normals.getZ(i) * 127);
@@ -138,12 +142,12 @@ class Surface {
 }
 
 /** Closed projecting ledge: upper, lower and outward faces cast real shade. */
-function ledge(surface: Surface, y: number, color: number, depth = 0.135, h = 0.075): void {
-  const lo = y - h / 2,
-    hi = y + h / 2;
-  for (let i = 0; i < COLUMNS; i++) {
-    const a = (i * TAU) / COLUMNS,
-      b = ((i + 1) * TAU) / COLUMNS;
+const ledge = (surface: Surface, y: number, color: number, depth = 0.135, h = 0.075): void => {
+  const lo = y - h / 2;
+  const hi = y + h / 2;
+  for (let i = 0; i < COLUMNS; i += 1) {
+    const a = (i * TAU) / COLUMNS;
+    const b = ((i + 1) * TAU) / COLUMNS;
     surface.quad(
       profile(a, hi, depth),
       profile(b, hi, depth),
@@ -166,38 +170,40 @@ function ledge(surface: Surface, y: number, color: number, depth = 0.135, h = 0.
       color,
     );
   }
-}
+};
 
 /** Three exposed fin faces; its hidden fourth face meets the curtain wall. */
-function fin(surface: Surface, angle: number, stations: readonly number[], offset = 0): void {
-  const a = angle - 0.007,
-    b = angle + 0.007;
-  const front = 0.15 + offset,
-    back = -0.025 + offset;
-  for (let i = 1; i < stations.length; i++) {
-    const lo = stations[i - 1],
-      hi = stations[i];
-    if (lo === undefined || hi === undefined) continue;
+const fin = (surface: Surface, angle: number, stations: readonly number[], offset = 0): void => {
+  const a = angle - 0.007;
+  const b = angle + 0.007;
+  const front = 0.15 + offset;
+  const back = -0.025 + offset;
+  for (let i = 1; i < stations.length; i += 1) {
+    const lo = stations[i - 1];
+    const hi = stations[i];
+    if (lo === undefined || hi === undefined) {
+      continue;
+    }
     surface.quad(
       profile(a, lo, front),
       profile(b, lo, front),
       profile(b, hi, front),
       profile(a, hi, front),
-      0xcbd5d8,
+      0xcb_d5_d8,
     );
     surface.quad(
       profile(a, lo, back),
       profile(a, lo, front),
       profile(a, hi, front),
       profile(a, hi, back),
-      0xb6c4ca,
+      0xb6_c4_ca,
     );
     surface.quad(
       profile(b, lo, front),
       profile(b, lo, back),
       profile(b, hi, back),
       profile(b, hi, front),
-      0xb6c4ca,
+      0xb6_c4_ca,
     );
   }
   const top = stations.at(-1);
@@ -207,35 +213,35 @@ function fin(surface: Surface, angle: number, stations: readonly number[], offse
       profile(a, top, front),
       profile(b, top, front),
       profile(b, top, back),
-      0xd7dfe0,
+      0xd7_df_e0,
     );
   }
-}
+};
 
-const PANE_COLORS = [0x397088, 0x467f96, 0x548ba0, 0x2e617a];
-function paneHash(row: number, column: number): number {
-  return (Math.imul(row + 1, 73856093) ^ Math.imul(column + 1, 19349663)) >>> 0;
-}
+const PANE_COLORS = [0x39_70_88, 0x46_7f_96, 0x54_8b_a0, 0x2e_61_7a];
+const paneHash = (row: number, column: number): number =>
+  // oxlint-disable-next-line no-bitwise -- integer hash mixing
+  (Math.imul(row + 1, 73_856_093) ^ Math.imul(column + 1, 19_349_663)) >>> 0;
 
-function buildKit(): readonly SalesforcePart[] {
+const buildKit = (): readonly SalesforcePart[] => {
   const surfaces = {
+    crown: new Surface(),
+    dark: new Surface(),
     glass: new Surface(),
     lit: new Surface(),
     metal: new Surface(),
-    crown: new Surface(),
     stone: new Surface(),
-    dark: new Surface(),
   } satisfies Record<MaterialKey, Surface>;
   const pitch = (OFFICE_TOP - LOBBY_TOP) / FLOORS;
-  for (let row = 0; row < FLOORS; row++) {
+  for (let row = 0; row < FLOORS; row += 1) {
     const lo = LOBBY_TOP + row * pitch + 0.055;
     const hi = LOBBY_TOP + (row + 1) * pitch - 0.055;
-    for (let column = 0; column < COLUMNS; column++) {
+    for (let column = 0; column < COLUMNS; column += 1) {
       const a = (column * TAU) / COLUMNS + 0.009;
       const b = ((column + 1) * TAU) / COLUMNS - 0.009;
       const hash = paneHash(row, column);
       const surface = hash % 11 < 2 ? surfaces.lit : surfaces.glass;
-      const color = PANE_COLORS[hash % PANE_COLORS.length] ?? 0x407d98;
+      const color = PANE_COLORS[hash % PANE_COLORS.length] ?? 0x40_7d_98;
       surface.quad(
         profile(a, lo, -0.025),
         profile(b, lo, -0.025),
@@ -245,88 +251,100 @@ function buildKit(): readonly SalesforcePart[] {
       );
     }
   }
-  for (let row = 0; row <= FLOORS; row++) {
-    ledge(surfaces.metal, LOBBY_TOP + row * pitch, 0xc6d2d5);
+  for (let row = 0; row <= FLOORS; row += 1) {
+    ledge(surfaces.metal, LOBBY_TOP + row * pitch, 0xc6_d2_d5);
   }
   const stations = [LOBBY_TOP, 13, 25, 33, 38, OFFICE_TOP, 46, 48, CROWN_TOP];
-  for (let i = 0; i < COLUMNS; i++) fin(surfaces.metal, (i * TAU) / COLUMNS, stations);
+  for (let i = 0; i < COLUMNS; i += 1) {
+    fin(surfaces.metal, (i * TAU) / COLUMNS, stations);
+  }
 
   // The crown's veil has actual gaps. It continues the structural grid above
   // a recessed mechanical core, so it reads as a light lattice in silhouette.
   const crownBands = 6;
-  for (let row = 0; row < crownBands; row++) {
+  for (let row = 0; row < crownBands; row += 1) {
     const lo = OFFICE_TOP + ((CROWN_TOP - OFFICE_TOP) * row) / crownBands;
     const hi = OFFICE_TOP + ((CROWN_TOP - OFFICE_TOP) * (row + 1)) / crownBands;
-    for (let i = 0; i < COLUMNS; i++) {
-      if ((i + row) % 4 === 0) continue;
-      const a = (i * TAU) / COLUMNS + 0.011,
-        b = ((i + 1) * TAU) / COLUMNS - 0.011;
+    for (let i = 0; i < COLUMNS; i += 1) {
+      if ((i + row) % 4 === 0) {
+        continue;
+      }
+      const a = (i * TAU) / COLUMNS + 0.011;
+      const b = ((i + 1) * TAU) / COLUMNS - 0.011;
       surfaces.crown.quad(
         profile(a, lo + 0.08, -0.06),
         profile(b, lo + 0.08, -0.06),
         profile(b, hi - 0.08, -0.06),
         profile(a, hi - 0.08, -0.06),
-        row % 2 === 0 ? 0x80b7ce : 0x9acbda,
+        row % 2 === 0 ? 0x80_b7_ce : 0x9a_cb_da,
       );
     }
-    ledge(surfaces.metal, hi, 0xd6dfe1, 0.1, 0.07);
+    ledge(surfaces.metal, hi, 0xd6_df_e1, 0.1, 0.07);
   }
-  surfaces.dark.cap(OFFICE_TOP - 0.07, -0.04, 0x334c59);
-  for (let i = 0; i < COLUMNS; i++) {
-    const a = (i * TAU) / COLUMNS,
-      b = ((i + 1) * TAU) / COLUMNS;
+  surfaces.dark.cap(OFFICE_TOP - 0.07, -0.04, 0x33_4c_59);
+  for (let i = 0; i < COLUMNS; i += 1) {
+    const a = (i * TAU) / COLUMNS;
+    const b = ((i + 1) * TAU) / COLUMNS;
     surfaces.dark.quad(
       profile(a, OFFICE_TOP, -1.15),
       profile(b, OFFICE_TOP, -1.15),
-      profile(b, 45.0, -1.15),
-      profile(a, 45.0, -1.15),
-      0x425966,
+      profile(b, 45, -1.15),
+      profile(a, 45, -1.15),
+      0x42_59_66,
     );
   }
-  surfaces.dark.cap(45.0, -1.15, 0x344852);
+  surfaces.dark.cap(45, -1.15, 0x34_48_52);
 
   // A tall, inset lobby grounds the tower. Its pale entrance frame and canopy
   // remain behind the old circular perimeter, including the canopy corners.
-  for (let i = 0; i < COLUMNS; i++) {
-    const a = (i * TAU) / COLUMNS,
-      b = ((i + 1) * TAU) / COLUMNS;
+  for (let i = 0; i < COLUMNS; i += 1) {
+    const a = (i * TAU) / COLUMNS;
+    const b = ((i + 1) * TAU) / COLUMNS;
     surfaces.dark.quad(
       profile(a, 0.16, -0.45),
       profile(b, 0.16, -0.45),
       profile(b, LOBBY_TOP, -0.45),
       profile(a, LOBBY_TOP, -0.45),
-      i % 3 === 0 ? 0x335769 : 0x254653,
+      i % 3 === 0 ? 0x33_57_69 : 0x25_46_53,
     );
     fin(surfaces.metal, a, [0.16, LOBBY_TOP], -0.46);
   }
-  ledge(surfaces.stone, 0.1, 0xc8cbc7, 0.08, 0.2);
-  surfaces.stone.cap(0.2, 0.03, 0xc8cbc7);
-  surfaces.stone.box(0, 2.52, 3.32, 2.7, 0.2, 1.0, 0xd7d8d2);
-  for (const x of [-1.2, 1.2]) surfaces.stone.box(x, 1.24, 3.27, 0.2, 2.48, 0.27, 0xc6caca);
-  surfaces.dark.box(0, 1.2, 3.12, 2.12, 2.25, 0.08, 0x233e4c);
-  for (const x of [-0.9, 0, 0.9]) surfaces.metal.box(x, 1.15, 3.18, 0.045, 2.14, 0.045, 0xafc2c9);
-  surfaces.metal.box(0, 2.18, 3.18, 1.85, 0.055, 0.05, 0xb7c9ce);
-  surfaces.lit.box(0, 2.29, 3.2, 1.95, 0.09, 0.04, 0xd4c4a4);
-  for (const x of [-0.08, 0.08]) surfaces.metal.box(x, 1.1, 3.22, 0.028, 0.36, 0.035, 0xd0dadd);
+  ledge(surfaces.stone, 0.1, 0xc8_cb_c7, 0.08, 0.2);
+  surfaces.stone.cap(0.2, 0.03, 0xc8_cb_c7);
+  surfaces.stone.box(0, 2.52, 3.32, 2.7, 0.2, 1, 0xd7_d8_d2);
+  for (const x of [-1.2, 1.2]) {
+    surfaces.stone.box(x, 1.24, 3.27, 0.2, 2.48, 0.27, 0xc6_ca_ca);
+  }
+  surfaces.dark.box(0, 1.2, 3.12, 2.12, 2.25, 0.08, 0x23_3e_4c);
+  for (const x of [-0.9, 0, 0.9]) {
+    surfaces.metal.box(x, 1.15, 3.18, 0.045, 2.14, 0.045, 0xaf_c2_c9);
+  }
+  surfaces.metal.box(0, 2.18, 3.18, 1.85, 0.055, 0.05, 0xb7_c9_ce);
+  surfaces.lit.box(0, 2.29, 3.2, 1.95, 0.09, 0.04, 0xd4_c4_a4);
+  for (const x of [-0.08, 0.08]) {
+    surfaces.metal.box(x, 1.1, 3.22, 0.028, 0.36, 0.035, 0xd0_da_dd);
+  }
 
   const keys: readonly MaterialKey[] = ["glass", "lit", "metal", "crown", "stone", "dark"];
   return keys.map((key) => ({
-    name: `salesforce-${key}`,
     geo: surfaces[key].geometry(),
     mat: materials[key],
+    name: `salesforce-${key}`,
   }));
-}
+};
 
 let kit: readonly SalesforcePart[] | null = null;
 /** Shared geometry/material ownership stays here; placement code must not dispose it. */
-export function getSalesforceKit(): readonly SalesforcePart[] {
-  if (kit === null) kit = buildKit();
+export const getSalesforceKit = (): readonly SalesforcePart[] => {
+  if (kit === null) {
+    kit = buildKit();
+  }
   return kit;
-}
+};
 
-export function createSalesforceModel(
+export const createSalesforceModel = (
   options: { readonly castShadow?: boolean; readonly receiveShadow?: boolean } = {},
-): THREE.Group {
+): THREE.Group => {
   const group = new THREE.Group();
   group.name = "salesforce-tower";
   for (const part of getSalesforceKit()) {
@@ -337,4 +355,4 @@ export function createSalesforceModel(
     group.add(mesh);
   }
   return group;
-}
+};

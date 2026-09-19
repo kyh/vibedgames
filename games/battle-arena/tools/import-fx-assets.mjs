@@ -7,9 +7,9 @@
 //   packs-root defaults to ~/Desktop/vg/outlast
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import nodePath from "node:path";
 
-const ROOT = process.argv[2] ?? join(homedir(), "Desktop/vg/outlast");
+const ROOT = process.argv[2] ?? nodePath.join(homedir(), "Desktop/vg/outlast");
 const PACKS = ["FX_Slash_Collection(URP)", "RPG Game VFX Collection(Built-in)"];
 const OUT = new URL("../public/fx/", import.meta.url).pathname;
 
@@ -65,18 +65,22 @@ const WANT = new Map([
 mkdirSync(OUT, { recursive: true });
 const found = new Map();
 for (const pack of PACKS) {
-  const dir = join(ROOT, pack);
+  const dir = nodePath.join(ROOT, pack);
   if (!existsSync(dir)) {
     console.warn(`skip missing pack: ${dir}`);
     continue;
   }
   for (const guid of readdirSync(dir)) {
-    const pn = join(dir, guid, "pathname");
-    const asset = join(dir, guid, "asset");
-    if (!existsSync(pn) || !existsSync(asset)) continue;
-    const path = readFileSync(pn, "utf8").split("\n")[0].trim();
+    const pn = nodePath.join(dir, guid, "pathname");
+    const asset = nodePath.join(dir, guid, "asset");
+    if (!existsSync(pn) || !existsSync(asset)) {
+      continue;
+    }
+    const path = readFileSync(pn, "utf-8").split("\n")[0].trim();
     for (const [suffix, outName] of WANT) {
-      if (path.endsWith(suffix) && !found.has(outName)) found.set(outName, asset);
+      if (path.endsWith(suffix) && !found.has(outName)) {
+        found.set(outName, asset);
+      }
     }
   }
 }
@@ -89,11 +93,11 @@ for (const [suffix, outName] of WANT) {
   const src = found.get(outName);
   if (!src) {
     console.error(`MISSING: ${suffix}`);
-    missing++;
+    missing += 1;
     continue;
   }
-  copyFileSync(src, join(OUT, outName));
-  const kb = Math.round(statSync(join(OUT, outName)).size / 1024);
+  copyFileSync(src, nodePath.join(OUT, outName));
+  const kb = Math.round(statSync(nodePath.join(OUT, outName)).size / 1024);
   console.log(`${outName}  (${kb} KB)  <- …/${suffix}`);
 }
 process.exit(missing > 0 ? 1 : 0);

@@ -8,6 +8,6 @@ export default {
   fetch(request, env, ctx) {
     const headers = new Headers(request.headers);
     headers.delete("host");
-    return worker.fetch(new Request(request.url, { method: request.method, headers }), env, ctx);
+    return worker.fetch(new Request(request.url, { headers, method: request.method }), env, ctx);
   },
 };

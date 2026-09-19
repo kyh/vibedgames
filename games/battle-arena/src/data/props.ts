@@ -9,26 +9,31 @@
 // spec index); the renderer looks the spec back up by that index.
 import { CAMPS, PARTITION_RUNS, SPAWNS } from "./map";
 
-export type PropSpec = {
-  model: string; // dungeon GLB the renderer instances
+export interface PropSpec {
+  // dungeon GLB the renderer instances
+  model: string;
   x: number;
   y: number;
-  rot: number; // render yaw (radians)
-  scale: number; // render scale
-  radius: number; // sim collision radius
+  // render yaw (radians)
+  rot: number;
+  // render scale
+  scale: number;
+  // sim collision radius
+  radius: number;
   hp: number;
-  explosive?: boolean; // breaks with a damaging blast (kegs)
-};
+  // breaks with a damaging blast (kegs)
+  explosive?: boolean;
+}
 
 // per-model base stats (radius/hp scale with the placement's `scale`)
-const BARREL = { radius: 0.48, hp: 60 };
-const CRATE = { radius: 0.58, hp: 100 };
-const STACK = { radius: 0.78, hp: 150 };
-const KEG = { radius: 0.45, hp: 60 };
+const BARREL = { hp: 60, radius: 0.48 };
+const CRATE = { hp: 100, radius: 0.58 };
+const STACK = { hp: 150, radius: 0.78 };
+const KEG = { hp: 60, radius: 0.45 };
 
 /** Blast stats for an exploding keg (damage is dealt to ENEMIES of whoever
  *  broke it — chain-detonating your own kegs onto foes is the fun part). */
-export const KEG_BLAST = { radius: 2.4, damage: 70 };
+export const KEG_BLAST = { damage: 70, radius: 2.4 };
 
 /** Gold coin a lucky prop drops (deterministic per-world roll on break). */
 export const PROP_COIN_GOLD = 20;
@@ -37,7 +42,7 @@ export const PROP_RESPAWN_MS = 50_000;
 
 /** The destructible prop layout for the current map. Deterministic — every
  *  client computes the identical list (order matters: unit.slot = index). */
-export function destructibleProps(): PropSpec[] {
+export const destructibleProps = (): PropSpec[] => {
   const out: PropSpec[] = [];
   const add = (
     model: string,
@@ -49,29 +54,31 @@ export function destructibleProps(): PropSpec[] {
     explosive?: boolean,
   ): void => {
     const spec: PropSpec = {
+      hp: Math.round(base.hp * scale),
       model,
-      x,
-      y,
+      radius: base.radius * scale,
       rot,
       scale,
-      radius: base.radius * scale,
-      hp: Math.round(base.hp * scale),
+      x,
+      y,
     };
-    if (explosive) spec.explosive = true;
+    if (explosive) {
+      spec.explosive = true;
+    }
     out.push(spec);
   };
 
   // ── camp stashes (was decor: crate + barrel 2.6u outward of each lair;
   //    cellar kegs/stack + the woodstore keg were themed extras) ──
   const lairs = CAMPS.filter((c) => c.id.startsWith("camp"));
-  lairs.forEach((c, i) => {
+  for (const [i, c] of lairs.entries()) {
     const ang = Math.atan2(c.y, c.x);
     const ox = Math.cos(ang);
     const oy = Math.sin(ang);
     const tx = -Math.sin(ang);
     const ty = Math.cos(ang);
     add("crate_large", CRATE, c.x + ox * 2.6, c.y + oy * 2.6, i, 0.85);
-    add("barrel_large", BARREL, c.x + ox * 2.6 + oy * 1.0, c.y + oy * 2.6 - ox * 1.0, i * 2, 0.78);
+    add("barrel_large", BARREL, c.x + ox * 2.6 + oy * 1, c.y + oy * 2.6 - ox * 1, i * 2, 0.78);
     if (i === 3) {
       // Cellar: the keg hoard — every keg is a bomb
       add("keg", KEG, c.x + ox * 2.6 + tx * 0.8, c.y + oy * 2.6 + ty * 0.8, 1.1, 0.9, true);
@@ -89,28 +96,30 @@ export function destructibleProps(): PropSpec[] {
         true,
       );
     }
-  });
+  }
 
   // ── base outposts (was decor: supply crates flanking each spawn) — if it
   //    looks like a barrel it breaks; no two barrel classes in one arena ──
-  SPAWNS.forEach((s, i) => {
+  for (const [i, s] of SPAWNS.entries()) {
     const ang = Math.atan2(s.y, s.x);
     const rx = -Math.sin(ang);
     const ry = Math.cos(ang);
     add("crate_large", CRATE, s.x + rx * 3.4, s.y + ry * 3.4, i, 0.8);
     add("barrel_large", BARREL, s.x - rx * 3.4, s.y - ry * 3.4, i * 2, 0.78);
-  });
+  }
 
   // ── partition ends (was decor: a barrel/crate closing each cover run) ──
-  PARTITION_RUNS.forEach((run, i) => {
+  for (const [i, run] of PARTITION_RUNS.entries()) {
     const tx = Math.cos(run.dir);
     const ty = Math.sin(run.dir);
-    const end = (run.offsets[run.offsets.length - 1] ?? 3) + 2.2;
+    const end = (run.offsets.at(-1) ?? 3) + 2.2;
     const side = i % 2 === 0 ? 1 : -1;
-    if (i % 3 === 0)
+    if (i % 3 === 0) {
       add("barrel_large", BARREL, run.x + tx * end * side, run.y + ty * end * side, i * 1.7, 0.8);
-    else add("crate_large", CRATE, run.x + tx * end * side, run.y + ty * end * side, i * 1.7, 0.8);
-  });
+    } else {
+      add("crate_large", CRATE, run.x + tx * end * side, run.y + ty * end * side, i * 1.7, 0.8);
+    }
+  }
 
   return out;
-}
+};

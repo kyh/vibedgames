@@ -1,6 +1,6 @@
 ---
 name: deploy
-description: "Deploy browser games to vibedgames. Use when the user wants to deploy, publish, ship, or host a game — especially static HTML/JS games built with Vite, Phaser, Three.js, or plain HTML. Triggers on: 'deploy this game', 'publish my game', 'ship it', 'host this', 'put this online', 'make it playable'."
+description: "Deploy a static browser game (Vite, Phaser, Three.js, plain HTML) to vibedgames with `vg deploy`."
 ---
 
 # Vibedgames Deploy
@@ -99,7 +99,16 @@ root gets a warning. Plain-HTML games (no `package.json`) deploy as-is.
 
 ### 4. Verify
 
-After deploy, the CLI prints the live URL. Open it to verify.
+After deploy, the CLI prints the live URL. Boot-check it headless before calling it shipped — canvas present, zero page errors, no 4xx sub-resources:
+
+```sh
+vg playtest --game my-game
+vg playtest wait --fn "document.querySelector('canvas') !== null"
+vg playtest errors                 # must be empty
+vg playtest network requests       # no 4xx
+```
+
+Full recipe in the `playtest` skill. Two expected non-failures: webcam / hand-tracking games throw `NotSupportedError` headless (no camera), and a split-artifact loader's first 404 is its probe (Rules below).
 
 > **Playable on mobile?** Deployed games are shared by link and frequently
 > opened on phones. If the game is mouse/keyboard-only, add on-screen touch
@@ -121,9 +130,12 @@ own `og:` tags — the platform then serves the page untouched.
 
 - **Always build before deploying** if the project uses a build tool
 - **Deploy the build output**, not the source directory (e.g. `dist/`, `build/`, `out/`)
+- **Preview the build you deploy** (`vite preview`, or any static server on `dist/`). The dev server is not the build — a wrong `base` or absolute asset URL breaks every asset on the deployed path and never shows locally
 - **Slug must be lowercase** with hyphens, 3-40 characters (e.g. `space-invaders`, `my-cool-game`)
 - **index.html is required** at the root of the deployed directory
-- **Max 50 MB total**, 10 MB per file, 500 files max
+- **Caps: 200 MB per deploy, 10 MB per file, 500 files; 100 MB for the `--source` archive** (`packages/api/src/deploy/deploy-router.ts`). The platform never splits files — a >10 MB artifact ships pre-split (`x.bin.0`, `x.bin.1` + `x.parts`), and a loader that probes the unsplit path first turns that 404 into the probe, by design
+- **Version-bust unversioned immutable assets.** Everything except `index.html` and the `og.*` cover is served `max-age=31536000, immutable`, so a rebaked `world.bin` on the same path never reaches a returning browser. Hash the filename or append `?v=REV`. The edge cache is keyed per deployment id; the browser cache is yours
+- **Guard `localStorage`.** Games run inside the web app's iframe; an unguarded access throws on boot and the game is dead. Wrap reads and writes in `try`/`catch` and treat storage as best-effort
 - If the user doesn't specify a slug, ask them for one or derive it from the project name
 - If `vibedgames.json` exists in the deploy directory, the slug is read from there automatically
 
@@ -146,3 +158,7 @@ Then just: `vg deploy ./dist`
 - **"No index.html"** → You're deploying the wrong directory. Use the build output.
 - **"Slug taken"** → Someone else owns that slug. Pick a different one.
 - **Build fails** → Fix build errors before deploying. Check for missing dependencies.
+- **Blank page live, fine on the dev server** → Static base path. Check `base` in the Vite config and any `/asset` absolute refs; reproduce with `vite preview` before redeploying.
+- **Over 500 files** → A project root with models/source got picked up. Deploy the build output explicitly: `vg deploy ./dist`.
+- **File over 10 MB** → Split it at bake time and reassemble in the loader (Rules); the CLI will not do it for you.
+- **Rebake invisible to returning players, fresh browser sees it** → Unversioned immutable path. Bust it (Rules).

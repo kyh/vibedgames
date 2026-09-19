@@ -2,14 +2,14 @@ import { VirtualGamepad } from "./core.js";
 import { preShow, safeAreaInset } from "./safe-area.js";
 import type { StickState, VirtualGamepadOptions, VisibilityPolicy } from "./types.js";
 
-export type DomGamepadRenderOptions = {
+export interface DomGamepadRenderOptions {
   /** z-index of the overlay container (default 40 — above the canvas, below
    *  modal HUD). */
   zIndex?: number;
   /** Knob + button accent as a CSS color (default "#fff"). Change at runtime
    *  with `setTint`. */
   tint?: string;
-};
+}
 
 export type DomGamepadOptions = VirtualGamepadOptions & {
   /** Element the overlay is appended to (default `document.body`). */
@@ -32,33 +32,150 @@ export type DomGamepadOptions = VirtualGamepadOptions & {
   ignore?: (target: EventTarget | null) => boolean;
 };
 
-export type DomGamepad = {
+export interface DomGamepad {
   /** The underlying framework-agnostic controller. */
   readonly pad: VirtualGamepad;
   /** True once any touch has been seen this session (stays true). */
   readonly isTouch: boolean;
-  getStick(): StickState;
-  isButtonDown(id: string): boolean;
+  getStick: () => StickState;
+  isButtonDown: (id: string) => boolean;
   /** Edge-triggered press since last `update()` (tap = one action). */
-  justPressed(id: string): boolean;
-  justReleased(id: string): boolean;
+  justPressed: (id: string) => boolean;
+  justReleased: (id: string) => boolean;
   /** Recolor the knob + buttons (CSS color). */
-  setTint(color: string): void;
+  setTint: (color: string) => void;
+  /** Hide the overlay regardless of `visible` policy — e.g. behind a start
+   *  screen — and bring it back. Input keeps working while hidden. */
+  setVisible: (visible: boolean) => void;
   /** Call once per frame from your game loop: publishes press edges and
    *  redraws the overlay. */
-  update(): void;
-  destroy(): void;
-};
+  update: () => void;
+  destroy: () => void;
+}
 
 const defaultIgnore = (target: EventTarget | null): boolean =>
   target instanceof Element &&
   target.closest("button, a, input, select, textarea, [data-gamepad-ignore]") !== null;
 
 const placement = (x: number, y: number, r: number) => ({
+  height: `${r * 2}px`,
   transform: `translate(${x - r}px, ${y - r}px)`,
   width: `${r * 2}px`,
-  height: `${r * 2}px`,
 });
+
+interface Overlay {
+  root: HTMLElement;
+  draw: (pad: VirtualGamepad, tint: string, show: boolean) => void;
+}
+
+// All chrome is drawn with white at fixed alphas; only the accent (knob fill,
+// button border) takes the tint — mirrors the Phaser renderer's look.
+const createOverlay = (parent: HTMLElement, opts: DomGamepadRenderOptions): Overlay => {
+  const root = document.createElement("div");
+  root.className = "vg-gamepad";
+  root.style.cssText =
+    `position:fixed;inset:0;pointer-events:none;z-index:${opts.zIndex ?? 40};` +
+    "font-family:system-ui,sans-serif;user-select:none;-webkit-user-select:none;";
+  parent.append(root);
+
+  // Nodes are positioned with transform (top-left stays 0,0) and every style
+  // write is diffed through this cache, so an idle overlay costs zero style
+  // recalcs and a moving knob is compositor-only.
+  const applied = new Map<HTMLElement, Record<string, string>>();
+  const set = (node: HTMLElement, styles: Record<string, string>): void => {
+    let prev = applied.get(node);
+    if (!prev) {
+      prev = {};
+      applied.set(node, prev);
+    }
+    for (const [key, value] of Object.entries(styles)) {
+      if (prev[key] === value) {
+        continue;
+      }
+      prev[key] = value;
+      if (key === "text") {
+        node.textContent = value;
+      } else {
+        node.style.setProperty(key, value);
+      }
+    }
+  };
+  const el = (cls: string, css: string): HTMLElement => {
+    const d = document.createElement("div");
+    d.className = cls;
+    d.style.cssText = css;
+    root.append(d);
+    return d;
+  };
+  const circle =
+    "position:absolute;left:0;top:0;border-radius:50%;box-sizing:border-box;display:none;will-change:transform;";
+  const base = el(
+    "vg-stick-base",
+    `${circle}background:rgba(255,255,255,.05);border:2px solid rgba(255,255,255,.2);`,
+  );
+  const knob = el("vg-stick-knob", `${circle}border:2px solid;`);
+  const buttons = new Map<string, HTMLElement>();
+
+  return {
+    draw(pad, tint, show) {
+      const stick = pad.getStick();
+      const geom = pad.getStickGeometry();
+      const stickOn = show && stick.active && geom !== null;
+      set(base, { display: stickOn ? "block" : "none" });
+      set(knob, { display: stickOn ? "block" : "none" });
+      if (stickOn && geom) {
+        // Puck clamps to the ring edge so it never escapes the base.
+        const clamped = Math.min(stick.distance, geom.radius);
+        const kx =
+          stick.distance > 0.001
+            ? stick.anchorX + (stick.dx / stick.distance) * clamped
+            : stick.anchorX;
+        const ky =
+          stick.distance > 0.001
+            ? stick.anchorY + (stick.dy / stick.distance) * clamped
+            : stick.anchorY;
+        set(base, placement(stick.anchorX, stick.anchorY, geom.radius));
+        set(knob, {
+          ...placement(kx, ky, geom.knobRadius),
+          background: `color-mix(in srgb, ${tint} 25%, transparent)`,
+          "border-color": tint,
+        });
+      }
+      for (const b of pad.getButtonLayout()) {
+        if (b.rest) {
+          continue;
+          // rest buttons have no on-screen position
+        }
+        let node = buttons.get(b.id);
+        if (!node) {
+          node = el(
+            "vg-btn",
+            `${circle}border:2px solid;align-items:center;justify-content:center;` +
+              "font-weight:600;letter-spacing:.04em;color:rgba(255,255,255,.92);",
+          );
+          node.dataset["id"] = b.id;
+          buttons.set(b.id, node);
+        }
+        if (!show) {
+          set(node, { display: "none" });
+          continue;
+        }
+        set(node, {
+          ...placement(b.x, b.y, b.radius),
+          background: b.pressed
+            ? `color-mix(in srgb, ${tint} 34%, transparent)`
+            : "rgba(255,255,255,.08)",
+          "border-color": tint,
+          display: "flex",
+          "font-size": `${Math.round(b.radius * 0.42)}px`,
+          opacity: b.pressed ? "1" : "0.55",
+          text: b.label ?? "",
+        });
+      }
+    },
+    root,
+  };
+};
 
 /**
  * Wire a {@link VirtualGamepad} to a plain DOM page — the adapter for
@@ -83,12 +200,13 @@ const placement = (x: number, y: number, r: number) => ({
  * if (gamepad.justPressed("jump")) jump();
  * ```
  */
-export function attachDomGamepad(options: DomGamepadOptions = {}): DomGamepad {
+export const attachDomGamepad = (options: DomGamepadOptions = {}): DomGamepad => {
   const pad = new VirtualGamepad(options);
   const ignore = options.ignore ?? defaultIgnore;
   const policy = options.visible ?? "touch";
   const renderOpts = options.render === false ? null : (options.render ?? {});
   let isTouch = false;
+  let visible = true;
   let tint = renderOpts?.tint ?? "#fff";
   let destroyed = false;
 
@@ -99,17 +217,24 @@ export function attachDomGamepad(options: DomGamepadOptions = {}): DomGamepad {
   syncViewport();
 
   const onDown = (e: PointerEvent): void => {
-    if (e.pointerType !== "touch") return; // mouse stays on the game's own controls
+    if (e.pointerType !== "touch") {
+      return;
+      // mouse stays on the game's own controls
+    }
     if (!isTouch) {
       isTouch = true;
       options.onFirstTouch?.();
     }
-    if (ignore(e.target)) return;
+    if (ignore(e.target)) {
+      return;
+    }
     live.add(e.pointerId);
     pad.pointerDown(e.pointerId, e.clientX, e.clientY);
   };
   const onMove = (e: PointerEvent): void => {
-    if (e.pointerType === "touch") pad.pointerMove(e.pointerId, e.clientX, e.clientY);
+    if (e.pointerType === "touch") {
+      pad.pointerMove(e.pointerId, e.clientX, e.clientY);
+    }
   };
   const onUp = (e: PointerEvent): void => {
     live.delete(e.pointerId);
@@ -130,24 +255,10 @@ export function attachDomGamepad(options: DomGamepadOptions = {}): DomGamepad {
   const view = renderOpts ? createOverlay(options.root ?? document.body, renderOpts) : null;
 
   return {
-    pad,
-    get isTouch() {
-      return isTouch;
-    },
-    getStick: () => pad.getStick(),
-    isButtonDown: (id) => pad.isButtonDown(id),
-    justPressed: (id) => pad.justPressed(id),
-    justReleased: (id) => pad.justReleased(id),
-    setTint(color) {
-      tint = color;
-    },
-    update() {
-      pad.reconcile(live);
-      pad.nextFrame();
-      view?.draw(pad, tint, isTouch || preShow(policy));
-    },
     destroy() {
-      if (destroyed) return;
+      if (destroyed) {
+        return;
+      }
       destroyed = true;
       window.removeEventListener("pointerdown", onDown);
       window.removeEventListener("pointermove", onMove);
@@ -157,114 +268,27 @@ export function attachDomGamepad(options: DomGamepadOptions = {}): DomGamepad {
       window.removeEventListener("resize", syncViewport);
       view?.root.remove();
     },
-  };
-}
-
-type Overlay = {
-  root: HTMLElement;
-  draw(pad: VirtualGamepad, tint: string, show: boolean): void;
-};
-
-// All chrome is drawn with white at fixed alphas; only the accent (knob fill,
-// button border) takes the tint — mirrors the Phaser renderer's look.
-function createOverlay(parent: HTMLElement, opts: DomGamepadRenderOptions): Overlay {
-  const root = document.createElement("div");
-  root.className = "vg-gamepad";
-  root.style.cssText =
-    `position:fixed;inset:0;pointer-events:none;z-index:${opts.zIndex ?? 40};` +
-    "font-family:system-ui,sans-serif;user-select:none;-webkit-user-select:none;";
-  parent.appendChild(root);
-
-  // Nodes are positioned with transform (top-left stays 0,0) and every style
-  // write is diffed through this cache, so an idle overlay costs zero style
-  // recalcs and a moving knob is compositor-only.
-  const applied = new Map<HTMLElement, Record<string, string>>();
-  const set = (node: HTMLElement, styles: Record<string, string>): void => {
-    let prev = applied.get(node);
-    if (!prev) {
-      prev = {};
-      applied.set(node, prev);
-    }
-    for (const [key, value] of Object.entries(styles)) {
-      if (prev[key] === value) continue;
-      prev[key] = value;
-      if (key === "text") node.textContent = value;
-      else node.style.setProperty(key, value);
-    }
-  };
-  const el = (cls: string, css: string): HTMLElement => {
-    const d = document.createElement("div");
-    d.className = cls;
-    d.style.cssText = css;
-    root.appendChild(d);
-    return d;
-  };
-  const circle =
-    "position:absolute;left:0;top:0;border-radius:50%;box-sizing:border-box;display:none;will-change:transform;";
-  const base = el(
-    "vg-stick-base",
-    `${circle}background:rgba(255,255,255,.05);border:2px solid rgba(255,255,255,.2);`,
-  );
-  const knob = el("vg-stick-knob", `${circle}border:2px solid;`);
-  const buttons = new Map<string, HTMLElement>();
-
-  return {
-    root,
-    draw(pad, tint, show) {
-      const stick = pad.getStick();
-      const geom = pad.getStickGeometry();
-      const stickOn = show && stick.active && geom !== null;
-      set(base, { display: stickOn ? "block" : "none" });
-      set(knob, { display: stickOn ? "block" : "none" });
-      if (stickOn && geom) {
-        // Puck clamps to the ring edge so it never escapes the base.
-        const clamped = Math.min(stick.distance, geom.radius);
-        const kx =
-          stick.distance > 0.001
-            ? stick.anchorX + (stick.dx / stick.distance) * clamped
-            : stick.anchorX;
-        const ky =
-          stick.distance > 0.001
-            ? stick.anchorY + (stick.dy / stick.distance) * clamped
-            : stick.anchorY;
-        set(base, placement(stick.anchorX, stick.anchorY, geom.radius));
-        set(knob, {
-          ...placement(kx, ky, geom.knobRadius),
-          "border-color": tint,
-          background: `color-mix(in srgb, ${tint} 25%, transparent)`,
-        });
-      }
-      for (const b of pad.getButtonLayout()) {
-        if (b.rest) continue; // rest buttons have no on-screen position
-        let node = buttons.get(b.id);
-        if (!node) {
-          node = el(
-            "vg-btn",
-            `${circle}border:2px solid;align-items:center;justify-content:center;` +
-              "font-weight:600;letter-spacing:.04em;color:rgba(255,255,255,.92);",
-          );
-          node.dataset["id"] = b.id;
-          buttons.set(b.id, node);
-        }
-        if (!show) {
-          set(node, { display: "none" });
-          continue;
-        }
-        set(node, {
-          ...placement(b.x, b.y, b.radius),
-          display: "flex",
-          text: b.label ?? "",
-          "font-size": `${Math.round(b.radius * 0.42)}px`,
-          "border-color": tint,
-          opacity: b.pressed ? "1" : "0.55",
-          background: b.pressed
-            ? `color-mix(in srgb, ${tint} 34%, transparent)`
-            : "rgba(255,255,255,.08)",
-        });
-      }
+    getStick: () => pad.getStick(),
+    isButtonDown: (id) => pad.isButtonDown(id),
+    get isTouch() {
+      return isTouch;
+    },
+    justPressed: (id) => pad.justPressed(id),
+    justReleased: (id) => pad.justReleased(id),
+    pad,
+    setTint(color) {
+      tint = color;
+    },
+    setVisible(next) {
+      visible = next;
+    },
+    update() {
+      pad.reconcile(live);
+      pad.nextFrame();
+      view?.draw(pad, tint, visible && (isTouch || preShow(policy)));
     },
   };
-}
+};
 
 export { VirtualGamepad, stickDirection4, stickDirection8 } from "./core.js";
 export { PhysicalGamepad, isPadConnected } from "./physical.js";

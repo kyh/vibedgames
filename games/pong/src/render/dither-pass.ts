@@ -22,6 +22,7 @@ const BAYER_8 = [
   63, 31, 55, 23, 61, 29, 53, 21,
 ];
 
+// oxlint-disable-next-line no-inline-comments -- /* glsl */ tags the literal for editor highlighting
 const VERTEX = /* glsl */ `
 varying vec2 vUv;
 void main() {
@@ -30,6 +31,7 @@ void main() {
 }
 `;
 
+// oxlint-disable-next-line no-inline-comments -- /* glsl */ tags the literal for editor highlighting
 const FRAGMENT = /* glsl */ `
 varying vec2 vUv;
 uniform sampler2D uScene;
@@ -61,9 +63,9 @@ void main() {
 }
 `;
 
-function bayerTexture(): THREE.DataTexture {
+const bayerTexture = (): THREE.DataTexture => {
   const data = new Uint8Array(64);
-  for (let i = 0; i < 64; i++) {
+  for (let i = 0; i < 64; i += 1) {
     const v = BAYER_8[i] ?? 0;
     data[i] = Math.round(((v + 0.5) / 64) * 255);
   }
@@ -74,20 +76,19 @@ function bayerTexture(): THREE.DataTexture {
   tex.wrapT = THREE.RepeatWrapping;
   tex.needsUpdate = true;
   return tex;
-}
+};
 
 /** Hex color as raw sRGB components (skips the linear working-space
  *  conversion) so the shader's direct-to-canvas output matches the CSS hex. */
-function rawColor(hex: number): THREE.Color {
-  return new THREE.Color().setHex(hex, THREE.LinearSRGBColorSpace);
-}
+const rawColor = (hex: number): THREE.Color =>
+  new THREE.Color().setHex(hex, THREE.LinearSRGBColorSpace);
 
 /** Luminance of a hex color in the linear working space — the space the
  *  scene actually renders in, so it matches what the shader samples. */
-function linearLuminance(hex: number): number {
+const linearLuminance = (hex: number): number => {
   const c = new THREE.Color(hex);
   return 0.299 * c.r + 0.587 * c.g + 0.114 * c.b;
-}
+};
 
 export class DitherPass {
   private readonly target: THREE.WebGLRenderTarget;
@@ -100,28 +101,28 @@ export class DitherPass {
     const w = Math.max(1, Math.floor(width / DITHER_PIXEL));
     const h = Math.max(1, Math.floor(height / DITHER_PIXEL));
     this.target = new THREE.WebGLRenderTarget(w, h, {
-      minFilter: THREE.NearestFilter,
       magFilter: THREE.NearestFilter,
+      minFilter: THREE.NearestFilter,
     });
     this.uSize = { value: new THREE.Vector2(w, h) };
     this.uInvert = { value: 0 };
 
     const material = new THREE.ShaderMaterial({
-      uniforms: {
-        uScene: { value: this.target.texture },
-        uBayer: { value: bayerTexture() },
-        uSize: this.uSize,
-        uInvert: this.uInvert,
-        uInk: { value: rawColor(INK) },
-        uPaper: { value: rawColor(BG) },
-        uBgLum: { value: linearLuminance(BG) },
-        uVignette: { value: VIGNETTE_STRENGTH },
-        uVigInner: { value: VIGNETTE_INNER },
-      },
-      vertexShader: VERTEX,
-      fragmentShader: FRAGMENT,
       depthTest: false,
       depthWrite: false,
+      fragmentShader: FRAGMENT,
+      uniforms: {
+        uBayer: { value: bayerTexture() },
+        uBgLum: { value: linearLuminance(BG) },
+        uInk: { value: rawColor(INK) },
+        uInvert: this.uInvert,
+        uPaper: { value: rawColor(BG) },
+        uScene: { value: this.target.texture },
+        uSize: this.uSize,
+        uVigInner: { value: VIGNETTE_INNER },
+        uVignette: { value: VIGNETTE_STRENGTH },
+      },
+      vertexShader: VERTEX,
     });
     this.quadScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material));
   }

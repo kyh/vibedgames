@@ -4,91 +4,113 @@ import { isJsonNumber, isJsonObject, isJsonString } from "../net/json";
 import type { JsonValue } from "../net/json";
 import type { HeroName } from "./animations";
 
-export type MetaState = {
+export interface MetaState {
   shards: number;
   unlocked: string[];
   bestDepth: number;
   runs: number;
-  upgrades: Record<string, number>; // permanent upgrade id → purchased level
-};
+  // permanent upgrade id → purchased level
+  upgrades: Record<string, number>;
+}
 
 const KEY = "lunerfall.meta.v1";
 const DEFAULT_UNLOCKED = ["axion", "reaper"];
 
 // Permanent meta upgrades bought with shards in the hub. Each level is applied at
 // run start (see runBonuses / bankRun), so a death always advances something.
-export type Upgrade = {
+export interface Upgrade {
   id: string;
   name: string;
   desc: string;
   max: number;
-  cost: (level: number) => number; // shards to go from `level` → level+1
-};
+  // shards to go from `level` → level+1
+  cost: (level: number) => number;
+}
 
 export const UPGRADES: readonly Upgrade[] = [
   {
-    id: "vitality",
-    name: "Vitality",
-    desc: "+1 starting max heart",
-    max: 3,
     cost: (l) => 30 + l * 26,
+    desc: "+1 starting max heart",
+    id: "vitality",
+    max: 3,
+    name: "Vitality",
   },
   {
-    id: "edge",
-    name: "Honed Edge",
-    desc: "+10% starting damage",
-    max: 4,
     cost: (l) => 22 + l * 20,
+    desc: "+10% starting damage",
+    id: "edge",
+    max: 4,
+    name: "Honed Edge",
   },
-  { id: "warding", name: "Warding", desc: "+8% block chance", max: 3, cost: (l) => 26 + l * 24 },
-  { id: "fortune", name: "Fortune", desc: "+15% shards earned", max: 3, cost: (l) => 20 + l * 22 },
+  { cost: (l) => 26 + l * 24, desc: "+8% block chance", id: "warding", max: 3, name: "Warding" },
+  { cost: (l) => 20 + l * 22, desc: "+15% shards earned", id: "fortune", max: 3, name: "Fortune" },
 ];
 
 export const upgradeLevel = (m: MetaState, id: string): number => m.upgrades[id] ?? 0;
 
 // Run-start bonuses derived from purchased upgrade levels.
-export type RunBonuses = { hearts: number; dmg: number; armor: number };
+export interface RunBonuses {
+  hearts: number;
+  dmg: number;
+  armor: number;
+}
 export const runBonuses = (m: MetaState): RunBonuses => ({
-  hearts: upgradeLevel(m, "vitality"),
-  dmg: upgradeLevel(m, "edge") * 0.1,
   armor: upgradeLevel(m, "warding") * 0.08,
+  dmg: upgradeLevel(m, "edge") * 0.1,
+  hearts: upgradeLevel(m, "vitality"),
 });
 
+export const saveMeta = (m: MetaState) => {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(m));
+  } catch {
+    /* storage unavailable — meta is best-effort */
+  }
+};
+
 // Spend shards to buy the next level of an upgrade. Returns true on success.
-export function buyUpgrade(m: MetaState, id: string): boolean {
+export const buyUpgrade = (m: MetaState, id: string): boolean => {
   const up = UPGRADES.find((u) => u.id === id);
-  if (!up) return false;
+  if (!up) {
+    return false;
+  }
   const level = upgradeLevel(m, id);
-  if (level >= up.max) return false;
+  if (level >= up.max) {
+    return false;
+  }
   const price = up.cost(level);
-  if (m.shards < price) return false;
+  if (m.shards < price) {
+    return false;
+  }
   m.shards -= price;
   m.upgrades[id] = level + 1;
   saveMeta(m);
   return true;
-}
+};
 
 // Warrior unlock costs in shards (0 = free from the start).
 export const UNLOCK_COST = {
   axion: 0,
+  mooni: 35,
   reaper: 0,
   riven: 20,
-  mooni: 35,
   salamander: 45,
 } satisfies Record<HeroName, number>;
 
 const fresh = (): MetaState => ({
-  shards: 0,
-  unlocked: [...DEFAULT_UNLOCKED],
   bestDepth: 0,
   runs: 0,
+  shards: 0,
+  unlocked: [...DEFAULT_UNLOCKED],
   upgrades: {},
 });
 
-export function loadMeta(): MetaState {
+export const loadMeta = (): MetaState => {
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return fresh();
+    if (!raw) {
+      return fresh();
+    }
     const p: JsonValue = JSON.parse(raw);
     const o = isJsonObject(p) ? p : {};
     const unlocked = Array.isArray(o.unlocked)
@@ -98,68 +120,67 @@ export function loadMeta(): MetaState {
     const rawUp = o.upgrades;
     if (isJsonObject(rawUp)) {
       for (const [k, v] of Object.entries(rawUp)) {
-        if (isJsonNumber(v)) upgrades[k] = Math.max(0, Math.floor(v));
+        if (isJsonNumber(v)) {
+          upgrades[k] = Math.max(0, Math.floor(v));
+        }
       }
     }
     return {
-      shards: isJsonNumber(o.shards) ? o.shards : 0,
-      unlocked: unlocked.length > 0 ? unlocked : [...DEFAULT_UNLOCKED],
       bestDepth: isJsonNumber(o.bestDepth) ? o.bestDepth : 0,
       runs: isJsonNumber(o.runs) ? o.runs : 0,
+      shards: isJsonNumber(o.shards) ? o.shards : 0,
+      unlocked: unlocked.length > 0 ? unlocked : [...DEFAULT_UNLOCKED],
       upgrades,
     };
   } catch {
     return fresh();
   }
-}
+};
 
-export function saveMeta(m: MetaState) {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(m));
-  } catch {
-    /* storage unavailable — meta is best-effort */
-  }
-}
-
-export function isUnlocked(m: MetaState, name: HeroName): boolean {
-  return UNLOCK_COST[name] === 0 || m.unlocked.includes(name);
-}
+export const isUnlocked = (m: MetaState, name: HeroName): boolean =>
+  UNLOCK_COST[name] === 0 || m.unlocked.includes(name);
 
 // Best run score — its own key so it stays independent of the shard economy.
 const SCORE_KEY = "lunerfall.bestscore.v1";
-export function loadBestScore(): number {
+export const loadBestScore = (): number => {
   try {
     const v = Number(localStorage.getItem(SCORE_KEY));
     return Number.isFinite(v) ? v : 0;
   } catch {
     return 0;
   }
-}
+};
 // Record a finished run's score; returns the (possibly new) best.
-export function recordBestScore(score: number): number {
+export const recordBestScore = (score: number): number => {
   const best = loadBestScore();
-  if (score <= best) return best;
+  if (score <= best) {
+    return best;
+  }
   try {
     localStorage.setItem(SCORE_KEY, String(score));
   } catch {
     /* storage unavailable — best score is best-effort */
   }
   return score;
-}
+};
 
 // Try to spend shards to unlock a warrior. Returns true if now unlocked.
-export function unlockHero(m: MetaState, name: HeroName): boolean {
-  if (isUnlocked(m, name)) return true;
+export const unlockHero = (m: MetaState, name: HeroName): boolean => {
+  if (isUnlocked(m, name)) {
+    return true;
+  }
   const cost = UNLOCK_COST[name];
-  if (m.shards < cost) return false;
+  if (m.shards < cost) {
+    return false;
+  }
   m.shards -= cost;
   m.unlocked.push(name);
   saveMeta(m);
   return true;
-}
+};
 
 // Bank a finished run; returns shards earned.
-export function bankRun(m: MetaState, gold: number, depth: number, biome: number): number {
+export const bankRun = (m: MetaState, gold: number, depth: number, biome: number): number => {
   const base = Math.floor(gold / 4) + depth * 2 + (biome - 1) * 6;
   const earned = Math.round(base * (1 + upgradeLevel(m, "fortune") * 0.15));
   m.shards += earned;
@@ -167,4 +188,4 @@ export function bankRun(m: MetaState, gold: number, depth: number, biome: number
   m.runs += 1;
   saveMeta(m);
   return earned;
-}
+};

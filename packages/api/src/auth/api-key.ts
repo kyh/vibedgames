@@ -34,13 +34,17 @@ const extractApiKeys = (headers: Headers): string[] => {
   const candidates: string[] = [];
 
   const direct = headers.get("x-api-key");
-  if (direct?.startsWith(API_KEY_PREFIX)) candidates.push(direct);
+  if (direct?.startsWith(API_KEY_PREFIX)) {
+    candidates.push(direct);
+  }
 
   // The auth scheme is case-insensitive per RFC 6750/7235, so match `Bearer`
   // in any case (and tolerate extra whitespace) — some clients send `bearer`.
   const auth = headers.get("authorization");
-  const token = auth ? /^Bearer\s+(.+)$/i.exec(auth)?.[1]?.trim() : undefined;
-  if (token?.startsWith(API_KEY_PREFIX)) candidates.push(token);
+  const token = auth ? /^Bearer\s+(?<token>.+)$/iu.exec(auth)?.groups?.token?.trim() : undefined;
+  if (token?.startsWith(API_KEY_PREFIX)) {
+    candidates.push(token);
+  }
 
   // De-dup so the same key in both headers isn't verified twice.
   return [...new Set(candidates)];
@@ -58,19 +62,25 @@ export const resolveApiKeySession = async (
   headers: Headers,
 ): Promise<Session | null> => {
   const candidates = extractApiKeys(headers);
-  if (candidates.length === 0) return null;
+  if (candidates.length === 0) {
+    return null;
+  }
 
   for (const key of candidates) {
     const { valid, key: record } = await auth.api.verifyApiKey({ body: { key } });
-    if (!valid || !record) continue;
+    if (!valid || !record) {
+      continue;
+    }
 
     const rows = await db
       .select()
       .from(userTable)
       .where(eq(userTable.id, record.referenceId))
       .limit(1);
-    const user = rows[0];
-    if (!user) continue;
+    const [user] = rows;
+    if (!user) {
+      continue;
+    }
 
     // Honor admin bans — the plugin's `verifyApiKey` only checks the key, so
     // without this a banned user's key would still pass every protected
@@ -84,19 +94,19 @@ export const resolveApiKeySession = async (
     // `session.token`) is read downstream; the token is namespaced so it can
     // never collide with a real session token.
     const now = new Date();
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: synthesized better-auth Session shape at the API-key boundary; only `user` and the namespaced token are read downstream
+    // SAFETY: synthesized better-auth Session shape at the API-key boundary; only `user` and the namespaced token are read downstream
     return {
-      user,
       session: {
-        id: `${API_KEY_SESSION_PREFIX}${record.id}`,
-        token: `${API_KEY_SESSION_PREFIX}${record.id}`,
-        userId: user.id,
-        expiresAt: record.expiresAt ?? new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000),
         createdAt: now,
-        updatedAt: now,
+        expiresAt: record.expiresAt ?? new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000),
+        id: `${API_KEY_SESSION_PREFIX}${record.id}`,
         ipAddress: null,
+        token: `${API_KEY_SESSION_PREFIX}${record.id}`,
+        updatedAt: now,
         userAgent: null,
+        userId: user.id,
       },
+      user,
     } as Session;
   }
 

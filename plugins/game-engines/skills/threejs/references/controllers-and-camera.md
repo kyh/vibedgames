@@ -125,6 +125,8 @@ function updateCamera(dt, smoothing = 0.0015) {
 }
 ```
 
+Two rules the code assumes: `updateCamera` runs at the tail of the update, after the physics step and before the draw — a camera placed in a later rAF callback frames the previous pose and square-waves at 120 Hz (see `gameplay-systems.md` § Fixed-timestep loop). And `camera.up` must be the world up axis (`camera.up.set(0, 0, 1)` in a Z-up world) when `lookAt` runs per frame while the camera moves laterally — any other up vector rolls the view.
+
 ### Lookahead (show where you're going)
 
 Bias the look target toward velocity so the camera reveals what's ahead in the direction of travel — the single biggest readability win for fast games:
@@ -162,6 +164,19 @@ Wire it into `updateCamera`, right after `_targetPos` is computed and before the
 clampToWalls(_targetPos); // pull the target in if a wall is between player and camera
 camera.position.lerp(_targetPos, t);
 ```
+
+---
+
+## Vehicles (arcade feel on a physics engine)
+
+Tie every number to world geometry — a slider that feels right in isolation is wrong at the first corner:
+
+- **Corner-makeable speed ≈ 0.75–0.8× top speed.** Turn radius is `R = v / (turnRate × authority)`; check it against the track/street corner radius.
+- **Steering radius ≫ one tile, drift radius ≈ one tile.** Plain steering is for lane-following and sweeping curves; a right-angle corner needs the drift, and drift is a committed state that owns the car while active, not emergent tyre slip.
+- **Drive angular velocity and shape the velocity vector directly.** Keyboard steering has no sweet spot in pure tyre friction — parameter-tweaking it never converges.
+- **Brake in velocity space.** Rapier `DynamicRayCastVehicleController` wheel brakes are bang-bang and load-limited; scale `linvel` toward zero instead. Keep gas commanded while braking so releasing the brake relaunches instead of coasting.
+- **Launch/airtime checks in acceleration space** — `groundAccel < -(g + 8)`. Position-gap thresholds are frame-rate dependent and never fire at 120 fps.
+- **Never snap orientation to per-frame terrain normals** — slerp the chassis toward the slope target; snapping is the jiggle.
 
 ---
 

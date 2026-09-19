@@ -7,6 +7,16 @@ import { useGameParam, usePathname } from "@/lib/use-game-param";
 import { GameStack } from "./game-stack";
 import { Iframe } from "./iframe";
 
+const deckMode = (isDiscover: boolean, isPlay: boolean) => {
+  if (isDiscover) {
+    return "stack";
+  }
+  if (isPlay) {
+    return "zoom";
+  }
+  return "hidden";
+};
+
 export const Canvas = () => {
   const navigate = useNavigate();
   const { trigger } = useWebHaptics();
@@ -17,7 +27,7 @@ export const Canvas = () => {
 
   // The zoom hand-off only makes sense between discover and play, where the iframe lands on
   // top of the card. Anywhere else (build, auth, ...) the deck just fades out.
-  const mode = isDiscover ? "stack" : isPlay ? "zoom" : "hidden";
+  const mode = deckMode(isDiscover, isPlay);
 
   return (
     <>
@@ -28,11 +38,11 @@ export const Canvas = () => {
           mode={mode}
           onPreviewClick={(g) => {
             trigger("selection");
-            void navigate({ to: "/", search: { game: g.slug } });
+            void navigate({ search: { game: g.slug }, to: "/" });
           }}
           onSwipe={(g) => {
             trigger("selection");
-            void navigate({ to: "/discover", search: { game: g.slug }, replace: true });
+            void navigate({ replace: true, search: { game: g.slug }, to: "/discover" });
           }}
         />
       </div>
@@ -41,9 +51,9 @@ export const Canvas = () => {
           <motion.div
             key={game}
             className="fixed inset-0 z-1"
-            initial={{ opacity: 0, filter: "blur(5px)" }}
-            animate={{ opacity: 1, filter: "blur(0px)" }}
-            exit={{ opacity: 0, filter: "blur(5px)" }}
+            initial={{ filter: "blur(5px)", opacity: 0 }}
+            animate={{ filter: "blur(0px)", opacity: 1 }}
+            exit={{ filter: "blur(5px)", opacity: 0 }}
             transition={{ duration: 0.2 }}
           >
             <Iframe url={gameUrl(game)} />

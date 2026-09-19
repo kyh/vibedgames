@@ -26,13 +26,21 @@ main(() => {
     values: ["csv", "json", "root"],
   });
   const root = defaultRoot(getString(args, "root"));
-  if (!existsSync(root)) fail(`Root not found: ${root}`);
+  if (!existsSync(root)) {
+    fail(`Root not found: ${root}`);
+  }
 
   const rows = collectSizes(root);
-  for (const row of rows) console.log(`${row.width}x${row.height}\t${row.path}`);
+  for (const row of rows) {
+    console.log(`${row.width}x${row.height}\t${row.path}`);
+  }
 
   const csv = getString(args, "csv");
-  if (csv) writeTextFile(csv, sizesToCsv(rows));
+  if (csv) {
+    writeTextFile(csv, sizesToCsv(rows));
+  }
   const json = getString(args, "json");
-  if (json) writeJsonFile(json, rows);
+  if (json) {
+    writeJsonFile(json, rows);
+  }
 });

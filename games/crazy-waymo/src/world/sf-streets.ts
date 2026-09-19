@@ -8,8 +8,6 @@
 export const STREETS_GEN_ID = "2026-07-31T18:29:43.189Z";
 
 export const SF_STREET_MASK = {
-  gx: 244,
-  gz: 200,
   // One hex string per column (gx); each nibble packs 4 rows (gz), MSB first.
   cols: [
     "00000000000000000000000000000000000000000000000000",
@@ -257,15 +255,27 @@ export const SF_STREET_MASK = {
     "00000000000000000000000000000000000000000000000000",
     "00000000000000000000000000000000000000000000000000",
   ],
+  gx: 244,
+  gz: 200,
 } as const;
 
-export function streetMaskAt(gx: number, gz: number): boolean {
-  const col = SF_STREET_MASK.cols[gx];
-  if (col === undefined) return false;
-  const nibble = col.charCodeAt(gz >> 2);
-  const val = nibble <= 57 ? nibble - 48 : nibble - 87; // '0'-'9','a'-'f'
+const nibbleMaskAt = (cols: readonly string[], gx: number, gz: number): boolean => {
+  const col = cols[gx];
+  if (col === undefined) {
+    return false;
+  }
+  const nibble = col.codePointAt(Math.floor(gz / 4));
+  if (nibble === undefined) {
+    return false;
+  }
+  // '0'-'9','a'-'f'
+  const val = nibble <= 57 ? nibble - 48 : nibble - 87;
+  // oxlint-disable-next-line no-bitwise -- selects row gz's bit inside the MSB-first nibble
   return (val & (8 >> (gz & 3))) !== 0;
-}
+};
+
+export const streetMaskAt = (gx: number, gz: number): boolean =>
+  nibbleMaskAt(SF_STREET_MASK.cols, gx, gz);
 
 // Major-street class (primary/secondary) for width styling downstream.
 export const SF_MAJOR_MASK = {
@@ -517,13 +527,8 @@ export const SF_MAJOR_MASK = {
   ],
 } as const;
 
-export function majorMaskAt(gx: number, gz: number): boolean {
-  const col = SF_MAJOR_MASK.cols[gx];
-  if (col === undefined) return false;
-  const nibble = col.charCodeAt(gz >> 2);
-  const val = nibble <= 57 ? nibble - 48 : nibble - 87;
-  return (val & (8 >> (gz & 3))) !== 0;
-}
+export const majorMaskAt = (gx: number, gz: number): boolean =>
+  nibbleMaskAt(SF_MAJOR_MASK.cols, gx, gz);
 
 // Park-interior street cells REMOVED from the shipped mask (park clipping) —
 // furniture.ts lays KayKit pedestrian paths along these old street lines.
@@ -776,10 +781,5 @@ export const PARK_PATH_MASK = {
   ],
 } as const;
 
-export function parkPathMaskAt(gx: number, gz: number): boolean {
-  const col = PARK_PATH_MASK.cols[gx];
-  if (col === undefined) return false;
-  const nibble = col.charCodeAt(gz >> 2);
-  const val = nibble <= 57 ? nibble - 48 : nibble - 87;
-  return (val & (8 >> (gz & 3))) !== 0;
-}
+export const parkPathMaskAt = (gx: number, gz: number): boolean =>
+  nibbleMaskAt(PARK_PATH_MASK.cols, gx, gz);

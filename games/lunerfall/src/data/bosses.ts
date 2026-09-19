@@ -9,87 +9,97 @@ import type { EnemyName } from "./animations";
 //   4 Blightmaw   — bruiser: charges across the arena, wide slams, spearman adds
 //   5 Void Sovereign — chaotic apex: tanky, charges AND fans, mixed adds
 // Beyond biome 5 the table cycles.
-export type BossKind = {
+export interface BossKind {
   name: string;
-  tint: number; // salamander recolour for this biome
-  hpMul: number; // scales the base HP curve
-  cd: readonly [number, number]; // attack cooldown [phase 1, phase 2]
-  waveSpeed: number; // ground-wave projectile speed
-  fan: number; // waves emitted per cast (1 = single, 3 = spread fan)
-  slamR: number; // jump-slam blast radius
-  ranged: boolean; // favours waves and holds distance
-  charges: boolean; // adds the horizontal lunge attack
-  adds: readonly EnemyName[]; // phase-2 summons
-  banner: string; // shown when the fight begins
-};
+  // salamander recolour for this biome
+  tint: number;
+  // scales the base HP curve
+  hpMul: number;
+  // attack cooldown [phase 1, phase 2]
+  cd: readonly [number, number];
+  // ground-wave projectile speed
+  waveSpeed: number;
+  // waves emitted per cast (1 = single, 3 = spread fan)
+  fan: number;
+  // jump-slam blast radius
+  slamR: number;
+  // favours waves and holds distance
+  ranged: boolean;
+  // adds the horizontal lunge attack
+  charges: boolean;
+  // phase-2 summons
+  adds: readonly EnemyName[];
+  // shown when the fight begins
+  banner: string;
+}
 
 const SALAMANDER: BossKind = {
-  name: "SALAMANDER",
-  tint: 0xffffff,
-  hpMul: 1,
-  cd: [1.15, 0.7],
-  waveSpeed: 150,
-  fan: 1,
-  slamR: 46,
-  ranged: false,
-  charges: false,
   adds: ["warrior", "archer"],
   banner: "SALAMANDER",
+  cd: [1.15, 0.7],
+  charges: false,
+  fan: 1,
+  hpMul: 1,
+  name: "SALAMANDER",
+  ranged: false,
+  slamR: 46,
+  tint: 0xff_ff_ff,
+  waveSpeed: 150,
 };
 
 export const BOSS_KINDS: readonly BossKind[] = [
   SALAMANDER,
   {
-    name: "CINDERKING",
-    tint: 0xff8a52,
-    hpMul: 1.0,
-    cd: [0.85, 0.55],
-    waveSpeed: 182,
-    fan: 3,
-    slamR: 52,
-    ranged: false,
-    charges: false,
     adds: ["bomber", "bomber"],
     banner: "CINDERKING · relentless flame",
+    cd: [0.85, 0.55],
+    charges: false,
+    fan: 3,
+    hpMul: 1,
+    name: "CINDERKING",
+    ranged: false,
+    slamR: 52,
+    tint: 0xff_8a_52,
+    waveSpeed: 182,
   },
   {
-    name: "RIMEWARDEN",
-    tint: 0x8fd0ff,
-    hpMul: 0.95,
-    cd: [0.9, 0.68],
-    waveSpeed: 224,
-    fan: 2,
-    slamR: 40,
-    ranged: true,
-    charges: false,
     adds: ["archer", "archer"],
     banner: "RIMEWARDEN · frost barrage",
+    cd: [0.9, 0.68],
+    charges: false,
+    fan: 2,
+    hpMul: 0.95,
+    name: "RIMEWARDEN",
+    ranged: true,
+    slamR: 40,
+    tint: 0x8f_d0_ff,
+    waveSpeed: 224,
   },
   {
-    name: "BLIGHTMAW",
-    tint: 0x9cff5a,
-    hpMul: 1.15,
-    cd: [1.0, 0.62],
-    waveSpeed: 150,
-    fan: 1,
-    slamR: 58,
-    ranged: false,
-    charges: true,
     adds: ["spearman", "spearman"],
     banner: "BLIGHTMAW · venom charge",
+    cd: [1, 0.62],
+    charges: true,
+    fan: 1,
+    hpMul: 1.15,
+    name: "BLIGHTMAW",
+    ranged: false,
+    slamR: 58,
+    tint: 0x9c_ff_5a,
+    waveSpeed: 150,
   },
   {
-    name: "VOID SOVEREIGN",
-    tint: 0xc86aff,
-    hpMul: 1.28,
-    cd: [0.8, 0.5],
-    waveSpeed: 205,
-    fan: 3,
-    slamR: 50,
-    ranged: true,
-    charges: true,
     adds: ["warrior", "spearman", "archer"],
     banner: "VOID SOVEREIGN · all is dust",
+    cd: [0.8, 0.5],
+    charges: true,
+    fan: 3,
+    hpMul: 1.28,
+    name: "VOID SOVEREIGN",
+    ranged: true,
+    slamR: 50,
+    tint: 0xc8_6a_ff,
+    waveSpeed: 205,
   },
 ];
 

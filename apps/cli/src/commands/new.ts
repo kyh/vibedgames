@@ -1,12 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import path from "node:path";
 
 import { defineCommand } from "citty";
-import consola from "consola";
+import { consola } from "consola";
 import tiged from "tiged";
 import { SLUG_RE } from "../lib/config-file.js";
 import { assertKnownFlags } from "../lib/strict-args.js";
-import { isJsonObject, isJsonString, type JsonObject, type JsonValue } from "../lib/types.js";
+import { isJsonObject, isJsonString } from "../lib/types.js";
+import type { JsonObject, JsonValue } from "../lib/types.js";
 
 type EnginePreset =
   | {
@@ -28,12 +29,12 @@ const ENGINES = new Map<string, EnginePreset>([
   [
     "phaser",
     {
-      repo: "phaserjs/template-vite-ts",
       label: "Phaser 4 + Vite + TypeScript (official)",
-      skill: "phaser",
       postNotes: [
         "The phaser template ships a `log.js` telemetry shim and uses `vite/config.*.mjs` for build configs — both are upstream, not vibedgames.",
       ],
+      repo: "phaserjs/template-vite-ts",
+      skill: "phaser",
     },
   ],
   // No officially-blessed Three.js starter exists. Using the most-starred
@@ -41,12 +42,12 @@ const ENGINES = new Map<string, EnginePreset>([
   [
     "threejs",
     {
-      repo: "pachoclo/vite-threejs-ts-template",
       label: "Three.js + Vite + TypeScript (community)",
-      skill: "threejs",
       postNotes: [
         "The demo scene (src/scene.ts) wires lil-gui, stats.js and Drag/OrbitControls as a showcase — replace it with your game and drop the debug deps for production.",
       ],
+      repo: "pachoclo/vite-threejs-ts-template",
+      skill: "threejs",
     },
   ],
   // React Three Fiber. Same author as the threejs preset — Vite + TS +
@@ -58,8 +59,8 @@ const ENGINES = new Map<string, EnginePreset>([
   [
     "react-r3f",
     {
-      repo: "pachoclo/vite-r3f-ts-template",
       label: "React + React Three Fiber + Vite + TypeScript (community)",
+      repo: "pachoclo/vite-r3f-ts-template",
       skill: "threejs",
     },
   ],
@@ -76,43 +77,42 @@ const ENGINES = new Map<string, EnginePreset>([
   ],
 ]);
 
-const NONE_FILES: ReadonlyArray<{ path: string; content: (slug: string) => string }> = [
+const NONE_FILES: readonly { path: string; content: (slug: string) => string }[] = [
   {
-    path: "package.json",
     content: (slug) =>
       `${JSON.stringify(
         {
+          devDependencies: { typescript: "^5.6.0", vite: "^7.0.0" },
           name: slug,
-          version: "0.0.0",
           private: true,
-          type: "module",
           scripts: {
-            dev: "vite",
             build: "vite build",
+            dev: "vite",
             preview: "vite preview",
           },
-          devDependencies: { typescript: "^5.6.0", vite: "^7.0.0" },
+          type: "module",
+          version: "0.0.0",
         },
         null,
         2,
       )}\n`,
+    path: "package.json",
   },
   {
-    path: "tsconfig.json",
     content: () =>
       `${JSON.stringify(
         {
           compilerOptions: {
-            target: "ES2022",
+            esModuleInterop: true,
+            isolatedModules: true,
             lib: ["ES2022", "DOM", "DOM.Iterable"],
             module: "Preserve",
             moduleResolution: "Bundler",
-            strict: true,
-            noUncheckedIndexedAccess: true,
-            isolatedModules: true,
-            esModuleInterop: true,
-            skipLibCheck: true,
             noEmit: true,
+            noUncheckedIndexedAccess: true,
+            skipLibCheck: true,
+            strict: true,
+            target: "ES2022",
             types: ["vite/client"],
           },
           include: ["src", "vite.config.ts"],
@@ -120,63 +120,181 @@ const NONE_FILES: ReadonlyArray<{ path: string; content: (slug: string) => strin
         null,
         2,
       )}\n`,
+    path: "tsconfig.json",
   },
   {
-    path: "vite.config.ts",
     content: () =>
       `import { defineConfig } from "vite";\n\nexport default defineConfig({\n  base: "./",\n  server: { port: 5173 },\n});\n`,
+    path: "vite.config.ts",
   },
   {
-    path: "index.html",
     content: (slug) =>
       `<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="UTF-8" />\n    <title>${slug}</title>\n    <style>html,body{margin:0;background:#0f1020;color:#fff;font-family:system-ui,sans-serif;}#game{display:flex;align-items:center;justify-content:center;height:100vh;}</style>\n  </head>\n  <body>\n    <div id="game"></div>\n    <script type="module" src="/src/main.ts"></script>\n  </body>\n</html>\n`,
+    path: "index.html",
   },
   {
-    path: "src/main.ts",
     content: (slug) =>
       `const canvas = document.createElement("canvas");\ncanvas.width = 800;\ncanvas.height = 600;\ndocument.getElementById("game")!.appendChild(canvas);\nconst ctx = canvas.getContext("2d")!;\n\nctx.fillStyle = "#fff";\nctx.textAlign = "center";\nctx.font = "28px system-ui";\nctx.fillText("${slug}", canvas.width / 2, canvas.height / 2 - 8);\nctx.font = "14px system-ui";\nctx.fillStyle = "#aaa";\nctx.fillText("Edit src/main.ts to start building.", canvas.width / 2, canvas.height / 2 + 22);\n`,
+    path: "src/main.ts",
   },
-  { path: ".gitignore", content: () => `node_modules\ndist\n.DS_Store\n` },
+  { content: () => `node_modules\ndist\n.DS_Store\n`, path: ".gitignore" },
 ];
 
 // Derived so `--help` and the error message can't drift from the presets again.
 const ENGINE_IDS = [...ENGINES.keys()];
 
 const newArgs = {
-  slug: {
-    type: "positional",
-    description: "Lowercase, hyphenated slug — used as the directory name and deploy subdomain.",
-    required: true,
-  },
   engine: {
-    type: "string",
-    description: `Engine preset: ${ENGINE_IDS.join(", ")} (default: phaser).`,
     default: "phaser",
-  },
-  template: {
+    description: `Engine preset: ${ENGINE_IDS.join(", ")} (default: phaser).`,
     type: "string",
-    description:
-      "Override the engine preset and fetch from an arbitrary degit spec (e.g. owner/repo, owner/repo#branch). Skips the engine preset entirely.",
-  },
-  here: {
-    type: "boolean",
-    description: "Write into the current directory instead of creating <slug>/.",
-    default: false,
   },
   force: {
-    type: "boolean",
-    description: "Overwrite an existing target directory.",
     default: false,
+    description: "Overwrite an existing target directory.",
+    type: "boolean",
+  },
+  here: {
+    default: false,
+    description: "Write into the current directory instead of creating <slug>/.",
+    type: "boolean",
+  },
+  slug: {
+    description: "Lowercase, hyphenated slug — used as the directory name and deploy subdomain.",
+    required: true,
+    type: "positional",
+  },
+  template: {
+    description:
+      "Override the engine preset and fetch from an arbitrary degit spec (e.g. owner/repo, owner/repo#branch). Skips the engine preset entirely.",
+    type: "string",
   },
 } as const;
 
+const fetchTemplate = async (repo: string, target: string, force: boolean): Promise<void> => {
+  const emitter = tiged(repo, { force, mode: "tar", verbose: false });
+  await emitter.clone(target);
+};
+/** Remove template-repo artifacts that never apply to a scaffolded game:
+ *  the template's own lockfile (wrong for whatever package manager the user
+ *  runs) and its CI workflows (reference the template repo, fail elsewhere). */
+const cleanTemplateArtifacts = (target: string): void => {
+  for (const f of ["package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb", "bun.lock"]) {
+    const p = path.resolve(target, f);
+    if (existsSync(p)) {
+      rmSync(p);
+    }
+  }
+  const gh = path.resolve(target, ".github");
+  if (existsSync(gh)) {
+    rmSync(gh, { recursive: true });
+  }
+};
+/** Some templates (threejs) ship no vite config at all, which means no
+ *  relative `base` — write a minimal one so built asset URLs are relative
+ *  and the bundle works wherever it's hosted. Never touches templates that
+ *  bring their own config (phaser uses a vite/ config dir wired into its
+ *  npm scripts). */
+const ensureViteConfig = (target: string): void => {
+  const hasConfig =
+    ["vite.config.ts", "vite.config.js", "vite.config.mjs"].some((f) =>
+      existsSync(path.resolve(target, f)),
+    ) || existsSync(path.resolve(target, "vite"));
+  if (hasConfig) {
+    return;
+  }
+  writeFileSync(
+    path.resolve(target, "vite.config.ts"),
+    `import { defineConfig } from "vite";\n\nexport default defineConfig({\n  base: "./",\n});\n`,
+  );
+};
+/** Agents lean on \`npm run typecheck\` to verify changes without a full
+ *  build — add it when the template doesn't define one. */
+const ensureTypecheckScript = (target: string): void => {
+  const pkgPath = path.resolve(target, "package.json");
+  if (!existsSync(pkgPath)) {
+    return;
+  }
+  try {
+    const pkg: JsonValue = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    if (!isJsonObject(pkg)) {
+      return;
+    }
+    const scripts: JsonObject = isJsonObject(pkg.scripts) ? pkg.scripts : {};
+    if (isJsonString(scripts.typecheck)) {
+      return;
+    }
+    scripts.typecheck = "tsc --noEmit";
+    pkg.scripts = scripts;
+    writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+  } catch {
+    // malformed package.json — rewritePackageName will warn about it
+  }
+};
+const writeInlineTemplate = (target: string, slug: string, force: boolean): void => {
+  for (const file of NONE_FILES) {
+    const dest = path.resolve(target, file.path);
+    if (existsSync(dest) && !force) {
+      continue;
+    }
+    mkdirSync(dest.slice(0, dest.lastIndexOf("/")), { recursive: true });
+    writeFileSync(dest, file.content(slug));
+  }
+};
+const rewritePackageName = (target: string, slug: string): void => {
+  const pkgPath = path.resolve(target, "package.json");
+  if (!existsSync(pkgPath)) {
+    return;
+  }
+  try {
+    const raw = readFileSync(pkgPath, "utf-8");
+    const pkg: JsonValue = JSON.parse(raw);
+    if (!isJsonObject(pkg)) {
+      throw new Error("package.json is not a JSON object");
+    }
+    pkg.name = slug;
+    delete pkg.repository;
+    delete pkg.bugs;
+    delete pkg.homepage;
+    writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+  } catch (error) {
+    consola.warn(
+      `Could not rewrite package.json name to ${slug}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+};
+const writeVibedgamesJson = (target: string, slug: string): void => {
+  writeFileSync(
+    path.resolve(target, "vibedgames.json"),
+    `${JSON.stringify({ name: slug.replaceAll("-", " "), slug }, null, 2)}\n`,
+  );
+};
+const writeReadme = (target: string, slug: string, preset: EnginePreset): void => {
+  const readmePath = path.resolve(target, "README.md");
+  // Keep the template's README if present (it usually has engine docs).
+  // Append a vibedgames-specific footer so devs see the deploy flow.
+  const footer =
+    `\n\n---\n\n## Vibedgames\n\n` +
+    `This project was scaffolded with \`vg new ${slug}\` (${preset.label}).\n\n` +
+    `\`\`\`sh\nnpm install\nnpm run dev      # local preview\nnpm run build\nvg deploy ./dist # ships to ${slug}.vibedgames.com\n\`\`\`\n\n` +
+    `For engine-specific work, the \`${preset.skill}\` skill loads automatically in Claude Code.\n`;
+  if (existsSync(readmePath)) {
+    const existing = readFileSync(readmePath, "utf-8");
+    if (existing.includes("## Vibedgames")) {
+      return;
+    }
+    writeFileSync(readmePath, existing.replace(/\s*$/u, "") + footer);
+    return;
+  }
+  writeFileSync(readmePath, `# ${slug}${footer}`);
+};
 export const newCommand = defineCommand({
+  args: newArgs,
   meta: {
-    name: "new",
     description:
       "Scaffold a new browser game. Pulls an engine template (phaser, threejs, react-r3f) or generates a minimal canvas starter.",
+    name: "new",
   },
-  args: newArgs,
   run: async ({ args, rawArgs }) => {
     assertKnownFlags(rawArgs, newArgs);
 
@@ -190,8 +308,8 @@ export const newCommand = defineCommand({
 
     const preset: EnginePreset | undefined = args.template
       ? {
-          repo: args.template,
           label: `custom: ${args.template}`,
+          repo: args.template,
           skill: "deploy",
         }
       : ENGINES.get(args.engine);
@@ -200,7 +318,7 @@ export const newCommand = defineCommand({
       process.exit(1);
     }
 
-    const target = args.here ? process.cwd() : resolve(process.cwd(), slug);
+    const target = args.here ? process.cwd() : path.resolve(process.cwd(), slug);
     if (!args.here) {
       if (existsSync(target) && !args.force) {
         consola.error(
@@ -218,9 +336,9 @@ export const newCommand = defineCommand({
     } else {
       try {
         await fetchTemplate(preset.repo, target, args.force);
-      } catch (err) {
+      } catch (error) {
         consola.error(
-          `Failed to fetch template ${preset.repo}: ${err instanceof Error ? err.message : String(err)}\n  ` +
+          `Failed to fetch template ${preset.repo}: ${error instanceof Error ? error.message : String(error)}\n  ` +
             `Check your network connection, or pass --engine none to scaffold a minimal starter offline.`,
         );
         process.exit(1);
@@ -240,7 +358,9 @@ export const newCommand = defineCommand({
 
     consola.success(`Scaffolded ${slug} in ${target}`);
     if ("postNotes" in preset && preset.postNotes) {
-      for (const n of preset.postNotes) consola.info(n);
+      for (const n of preset.postNotes) {
+        consola.info(n);
+      }
     }
     consola.log("");
     consola.info("Next steps:");
@@ -254,108 +374,3 @@ export const newCommand = defineCommand({
     );
   },
 });
-
-async function fetchTemplate(repo: string, target: string, force: boolean): Promise<void> {
-  const emitter = tiged(repo, { force, verbose: false, mode: "tar" });
-  await emitter.clone(target);
-}
-
-/** Remove template-repo artifacts that never apply to a scaffolded game:
- *  the template's own lockfile (wrong for whatever package manager the user
- *  runs) and its CI workflows (reference the template repo, fail elsewhere). */
-function cleanTemplateArtifacts(target: string): void {
-  for (const f of ["package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb", "bun.lock"]) {
-    const p = resolve(target, f);
-    if (existsSync(p)) rmSync(p);
-  }
-  const gh = resolve(target, ".github");
-  if (existsSync(gh)) rmSync(gh, { recursive: true });
-}
-
-/** Some templates (threejs) ship no vite config at all, which means no
- *  relative `base` — write a minimal one so built asset URLs are relative
- *  and the bundle works wherever it's hosted. Never touches templates that
- *  bring their own config (phaser uses a vite/ config dir wired into its
- *  npm scripts). */
-function ensureViteConfig(target: string): void {
-  const hasConfig =
-    ["vite.config.ts", "vite.config.js", "vite.config.mjs"].some((f) =>
-      existsSync(resolve(target, f)),
-    ) || existsSync(resolve(target, "vite"));
-  if (hasConfig) return;
-  writeFileSync(
-    resolve(target, "vite.config.ts"),
-    `import { defineConfig } from "vite";\n\nexport default defineConfig({\n  base: "./",\n});\n`,
-  );
-}
-
-/** Agents lean on \`npm run typecheck\` to verify changes without a full
- *  build — add it when the template doesn't define one. */
-function ensureTypecheckScript(target: string): void {
-  const pkgPath = resolve(target, "package.json");
-  if (!existsSync(pkgPath)) return;
-  try {
-    const pkg: JsonValue = JSON.parse(readFileSync(pkgPath, "utf8"));
-    if (!isJsonObject(pkg)) return;
-    const scripts: JsonObject = isJsonObject(pkg.scripts) ? pkg.scripts : {};
-    if (isJsonString(scripts.typecheck)) return;
-    scripts.typecheck = "tsc --noEmit";
-    pkg.scripts = scripts;
-    writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
-  } catch {
-    // malformed package.json — rewritePackageName will warn about it
-  }
-}
-
-function writeInlineTemplate(target: string, slug: string, force: boolean): void {
-  for (const file of NONE_FILES) {
-    const path = resolve(target, file.path);
-    if (existsSync(path) && !force) continue;
-    mkdirSync(path.slice(0, path.lastIndexOf("/")), { recursive: true });
-    writeFileSync(path, file.content(slug));
-  }
-}
-
-function rewritePackageName(target: string, slug: string): void {
-  const pkgPath = resolve(target, "package.json");
-  if (!existsSync(pkgPath)) return;
-  try {
-    const raw = readFileSync(pkgPath, "utf8");
-    const pkg: JsonValue = JSON.parse(raw);
-    if (!isJsonObject(pkg)) throw new Error("package.json is not a JSON object");
-    pkg.name = slug;
-    delete pkg.repository;
-    delete pkg.bugs;
-    delete pkg.homepage;
-    writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
-  } catch (err) {
-    consola.warn(
-      `Could not rewrite package.json name to ${slug}: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-}
-
-function writeVibedgamesJson(target: string, slug: string): void {
-  writeFileSync(
-    resolve(target, "vibedgames.json"),
-    `${JSON.stringify({ slug, name: slug.replace(/-/g, " ") }, null, 2)}\n`,
-  );
-}
-
-function writeReadme(target: string, slug: string, preset: EnginePreset): void {
-  const readmePath = resolve(target, "README.md");
-  // Keep the template's README if present (it usually has engine docs).
-  // Append a vibedgames-specific footer so devs see the deploy flow.
-  const footer =
-    `\n\n---\n\n## Vibedgames\n\n` +
-    `This project was scaffolded with \`vg new ${slug}\` (${preset.label}).\n\n` +
-    `\`\`\`sh\nnpm install\nnpm run dev      # local preview\nnpm run build\nvg deploy ./dist # ships to ${slug}.vibedgames.com\n\`\`\`\n\n` +
-    `For engine-specific work, the \`${preset.skill}\` skill loads automatically in Claude Code.\n`;
-  if (existsSync(readmePath)) {
-    const existing = readFileSync(readmePath, "utf8");
-    if (existing.includes("## Vibedgames")) return;
-    writeFileSync(readmePath, existing.replace(/\s*$/, "") + footer);
-    return;
-  }
-  writeFileSync(readmePath, `# ${slug}${footer}`);
-}

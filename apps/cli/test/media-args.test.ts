@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import path from "node:path";
 import { afterEach, test } from "node:test";
 
 import { parseDownloadFlag, parseRunInput, readExplicitLocalFile } from "../src/lib/media-args.js";
@@ -23,11 +23,11 @@ test("parseRunInput parses string, number, bool, and JSON object values", () => 
   ];
   const out = parseRunInput(argv);
   assert.deepEqual(out, {
-    prompt: "a cat",
-    num_images: 3,
-    enable_safety: true,
-    style: { variant: "painterly" },
     bare_flag: true,
+    enable_safety: true,
+    num_images: 3,
+    prompt: "a cat",
+    style: { variant: "painterly" },
   });
 });
 
@@ -42,7 +42,7 @@ test("parseRunInput skips known global flags but keeps their value-bearing neigh
   const out = parseRunInput(argv);
   // `--logs` is a status-only flag, so it stays as a passthrough to
   // the model — here it's a bare boolean (no value follows).
-  assert.deepEqual(out, { prompt: "x", logs: true });
+  assert.deepEqual(out, { logs: true, prompt: "x" });
 });
 
 test("parseRunInput passes --logs N through as a model parameter", () => {
@@ -50,8 +50,8 @@ test("parseRunInput passes --logs N through as a model parameter", () => {
   // `vg generate run` CLI flag, only `vg generate status` has it. Make sure
   // we don't swallow it.
   assert.deepEqual(parseRunInput(["--prompt", "x", "--logs", "5"]), {
-    prompt: "x",
     logs: 5,
+    prompt: "x",
   });
 });
 
@@ -64,9 +64,9 @@ test("parseRunInput handles GNU --key=value form", () => {
     '--style={"variant":"painterly"}',
   ]);
   assert.deepEqual(out, {
-    prompt: "hello world",
-    num_images: 4,
     enable_safety: true,
+    num_images: 4,
+    prompt: "hello world",
     style: { variant: "painterly" },
   });
 });
@@ -150,15 +150,15 @@ test("readExplicitLocalFile infers content type via extname (handles dotted dire
   // would have treated 'project/file.png' as the extension on a path
   // like '/tmp/my.project/file.png'. extname is basename-aware.
   const baseDir = makeTmpDir(cleanups, "vg-dot.dir-");
-  const dotted = join(baseDir, "my.project");
+  const dotted = path.join(baseDir, "my.project");
   mkdirSync(dotted);
-  const target = join(dotted, "frame.png");
+  const target = path.join(dotted, "frame.png");
   writeFileSync(target, "x");
   assert.equal(readExplicitLocalFile(target)?.contentType, "image/png");
 
   // Extensionless file inside the same dotted directory: must not
   // pick up "project/frame" as a phantom extension.
-  const noExt = join(dotted, "frame");
+  const noExt = path.join(dotted, "frame");
   writeFileSync(noExt, "x");
   assert.equal(readExplicitLocalFile(noExt)?.contentType, "application/octet-stream");
 });
@@ -172,10 +172,10 @@ test("readExplicitLocalFile accepts bare non-media filenames (3D/audio/etc)", ()
   process.chdir(dir);
   cleanups.push(() => process.chdir(cwd));
   for (const name of ["model.glb", "scene.fbx", "data.ply", "LICENSE"]) {
-    writeFileSync(join(dir, name), "x");
+    writeFileSync(path.join(dir, name), "x");
     const stat = readExplicitLocalFile(name);
     assert.ok(stat, `expected to find ${name}`);
-    assert.equal(stat!.filename, name);
+    assert.equal(stat.filename, name);
   }
   // Still rejects URLs and missing files.
   assert.equal(readExplicitLocalFile("https://example.com/model.glb"), null);
