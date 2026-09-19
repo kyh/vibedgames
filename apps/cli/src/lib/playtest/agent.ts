@@ -60,6 +60,8 @@ export interface AgentConfig {
   decideUrl: string;
   token: string;
   model: string;
+  /** Hold this move for the whole run and never call the model — for tuning a reflex. */
+  pinMove: string | null;
   goal: string;
   move: Record<string, AgentMove>;
   actions: Record<string, AgentAction>;
@@ -211,6 +213,8 @@ interface PointerInit {
   clientY: number;
   composed: boolean;
   isPrimary: boolean;
+  movementX: number;
+  movementY: number;
   pointerId: number;
   pointerType: string;
   screenX: number;
@@ -267,6 +271,9 @@ export const browserEnv = (): AgentEnv => {
     }
     return type === "pointerdown" ? "mousedown" : "mouseup";
   };
+  // Relative-look games steer from `movementX/Y`, which a synthetic event
+  // leaves at 0 unless told otherwise — so each move carries its real delta.
+  let lastPointer: { x: number; y: number } | null = null;
   const isFunction = (value: Reflex | undefined): value is Reflex =>
     Object.prototype.toString.call(value) === "[object Function]";
   return {
@@ -286,6 +293,12 @@ export const browserEnv = (): AgentEnv => {
       const cx = Math.round(window.innerWidth * pointer.x);
       const cy = Math.round(window.innerHeight * pointer.y);
       const pressed = type === "pointerdown" || (type === "pointermove" && pointer.down);
+      const moved = type === "pointermove" && lastPointer !== null;
+      const movementX = moved && lastPointer ? cx - lastPointer.x : 0;
+      const movementY = moved && lastPointer ? cy - lastPointer.y : 0;
+      if (type === "pointermove") {
+        lastPointer = { x: cx, y: cy };
+      }
       const init: PointerInit = {
         bubbles: true,
         button: 0,
@@ -295,6 +308,8 @@ export const browserEnv = (): AgentEnv => {
         clientY: cy,
         composed: true,
         isPrimary: true,
+        movementX,
+        movementY,
         pointerId: 1,
         pointerType: "mouse",
         screenX: cx,
@@ -362,12 +377,17 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
   /** Switch the held inputs, dispatching only the changes. */
   const hold = (next: HeldInputs): void => {
     if (!samePointer(heldPointer, next.pointer)) {
-      if (heldPointer?.down) {
+      // A button that stays down while the cursor moves is a drag: one
+      // press, moves, one release. Releasing and re-pressing per move would
+      // re-fire every click-edge verb 60 times a second under a reflex.
+      const wasDown = heldPointer?.down === true;
+      const staysDown = wasDown && next.pointer?.down === true;
+      if (heldPointer && wasDown && !staysDown) {
         env.dispatchPointer(heldPointer, "pointerup");
       }
       if (next.pointer) {
         env.dispatchPointer(next.pointer, "pointermove");
-        if (next.pointer.down) {
+        if (next.pointer.down && !staysDown) {
           env.dispatchPointer(next.pointer, "pointerdown");
         }
       }
@@ -637,6 +657,19 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
 
   /** One decision, with a short backoff on a rate limit, an upstream fault or a dropped connection. */
   const decide = async (state: DecisionState): Promise<Decision> => {
+    if (config.pinMove !== null) {
+      // One frame, so the loop still yields to the game between decisions.
+      await env.delay(0);
+      return {
+        actionProbabilities: {},
+        actions: [],
+        confidence: null,
+        inputTokens: 0,
+        move: config.pinMove,
+        outputTokens: 0,
+        progress: null,
+      };
+    }
     const offered = offeredMoves(state.tick.index);
     const body = JSON.stringify({ model: config.model, questions: questions(offered), state });
     for (let attempt = 0; ; attempt += 1) {
@@ -731,15 +764,16 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
     } catch {
       inputs = null;
     }
-    if (!inputs) {
-      return;
-    }
     // Actions the model chose stay held alongside whatever the reflex wants.
+    // A reflex that returns nothing (or throws) holds nothing: leaving the
+    // last frame's keys down would turn a tap into a press that never ends.
     hold({
-      keys: withActions(keysFrom(inputs.keys), current.decision),
-      pointer: pointerFrom(inputs.pointer),
+      keys: withActions(keysFrom(inputs?.keys), current.decision),
+      pointer: pointerFrom(inputs?.pointer),
     });
-    current.reflexFrames += 1;
+    if (inputs) {
+      current.reflexFrames += 1;
+    }
   };
 
   const frame = (): void => {

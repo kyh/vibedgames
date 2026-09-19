@@ -172,6 +172,7 @@ const options = (overrides: Partial<RunOptions> = {}): RunOptions => ({
   controls: wasd(),
   expectProgress: false,
   model: "jev-latest",
+  pinMove: null,
   tickMs: 150,
   ticks: 10,
   ...overrides,

@@ -130,6 +130,8 @@ export class GameScene extends Scene {
   private shipping: DayRecap = { day: 1, shipments: 0, shippedGold: 0 };
 
   private seed = 0;
+  /** A staged solo run (test hooks): never joins the co-op room, mine trips included. */
+  private solo = false;
   player!: Phaser.GameObjects.Sprite;
   private shadow!: Phaser.GameObjects.Sprite;
   facing = { x: 0, y: 1 };
@@ -230,6 +232,8 @@ export class GameScene extends Scene {
     fromMine?: boolean;
     fainted?: boolean;
     mineRecap?: MineRecap;
+    /** Test hooks only: a fresh farm that never touches the shared room. */
+    solo?: { seed: number };
   }): void {
     notifyGameStarted();
     document.querySelector("#veil")?.classList.add("hidden");
@@ -252,6 +256,7 @@ export class GameScene extends Scene {
     this.saveAcc = 0;
     this.trailerMove = null;
 
+    this.adoptSolo(data);
     if (data?.fromMine) {
       // returning from the mine — world/state already initialized; just rebuild
       this.restoreFromStore();
@@ -259,13 +264,7 @@ export class GameScene extends Scene {
         this.fainted = true;
       }
     } else {
-      const s = data?.mode === "continue" ? loadSave() : null;
-      if (s) {
-        this.loadFrom(s);
-      } else {
-        this.startNew();
-      }
-      this.shipping = { day: this.day, shipments: 0, shippedGold: 0 };
+      this.openFarm(data);
     }
     this.weather = weatherForDay(this.seed, this.day);
 
@@ -273,7 +272,7 @@ export class GameScene extends Scene {
     // save from before the fixed seed is a DIFFERENT map — half-merging two
     // worlds (tilling grass that is water elsewhere) is worse than playing it
     // solo (Phase 1). The session survives mine trips: only created once.
-    if (!trailerStaging && !this.net && this.seed === FARM_SEED) {
+    if (!trailerStaging && !this.solo && !this.net && this.seed === FARM_SEED) {
       this.net = new NetSession({
         fallbackMs: OFFLINE_FALLBACK_MS,
         maxPlayers: MP_MAX_PLAYERS,
@@ -399,11 +398,32 @@ export class GameScene extends Scene {
     );
   }
 
-  private startNew(): void {
+  private openFarm(data: { mode: "new" | "continue"; solo?: { seed: number } }): void {
+    const s = data.mode === "continue" ? loadSave() : null;
+    if (s) {
+      this.loadFrom(s);
+    } else {
+      this.startNew(data.solo?.seed);
+    }
+    this.shipping = { day: this.day, shipments: 0, shippedGold: 0 };
+  }
+
+  /** A mine trip keeps whichever kind of run it left; any other start decides afresh. */
+  private adoptSolo(data: { fromMine?: boolean; solo?: { seed: number } }): void {
+    if (!data.fromMine) {
+      this.solo = data.solo !== undefined;
+    }
+    if (this.solo) {
+      this.net?.destroy();
+      this.net = undefined;
+    }
+  }
+
+  private startNew(seed = FARM_SEED): void {
     // Fixed seed so every client builds the identical co-op farm (no seed
     // exchange needed). Solo new games are deterministic too — acceptable for
     // a demo, and it keeps the shared world trivially consistent.
-    this.seed = FARM_SEED;
+    this.seed = seed;
     const gen = generateFarm(this.seed, getWorldMap());
     this.world = gen.world;
     store.initNew();
@@ -1488,6 +1508,7 @@ export class GameScene extends Scene {
       return;
     }
     this.world.tilled[idx] = 1;
+    store.work.tilled += 1;
     this.ensureSoil(idx);
     const tx = idx % MAP_W;
     const ty = Math.trunc(idx / MAP_W);
@@ -1505,6 +1526,10 @@ export class GameScene extends Scene {
   }
 
   private waterTile(idx: number): void {
+    // Re-soaking wet soil is allowed but is not work done.
+    if (!this.world.watered[idx]) {
+      store.work.watered += 1;
+    }
     this.world.watered[idx] = 1;
     this.canCharge = Math.max(0, this.canCharge - 1);
     this.refreshSoilTint(idx);
@@ -1540,6 +1565,7 @@ export class GameScene extends Scene {
       return;
     }
     this.world.crops.set(idx, { crop, daysGrown: 0 });
+    store.work.planted += 1;
     this.ensureCrop(idx, crop, 0);
     const img = this.cropImgs.get(idx);
     if (img) {
@@ -1575,6 +1601,7 @@ export class GameScene extends Scene {
     const leftover = store.inv.add(item, n);
     const accepted = n - leftover;
     this.showDiscovery(store.collections.recordHarvest(cs.crop, this.season(), accepted));
+    store.work.harvested += 1;
     this.world.crops.delete(idx);
     const img = this.cropImgs.get(idx);
     if (img) {
@@ -1644,6 +1671,7 @@ export class GameScene extends Scene {
       }
       this.objSprites.delete(o.id);
       this.world.removeObject(o);
+      store.work.felled += 1;
       floatText(this, o.tx * TILE + 8, o.ty * TILE - 8, `+${got} Wood`, "#e8c79a");
       this.awardXP("foraging", 6);
     }
@@ -1684,6 +1712,7 @@ export class GameScene extends Scene {
       }
       this.objSprites.delete(o.id);
       this.world.removeObject(o);
+      store.work.quarried += 1;
       floatText(this, o.tx * TILE + 8, o.ty * TILE - 8, `+${got} Stone`, "#cdd6e0");
       this.awardXP("mining", 5);
     }
@@ -1697,6 +1726,7 @@ export class GameScene extends Scene {
       n += 1;
     }
     store.inv.add({ forage: kind, kind: "forage" }, n);
+    store.work.foraged += 1;
     const spr = this.objSprites.get(o.id);
     if (spr) {
       burst(this, spr.x, spr.y - 4, {
@@ -1777,6 +1807,7 @@ export class GameScene extends Scene {
     sellFrom(store.inv.pack);
     if (total > 0) {
       store.gold += total;
+      store.work.goldEarned += total;
       Sound.coins();
       this.requestSave();
     }

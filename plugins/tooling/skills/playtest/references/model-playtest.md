@@ -119,6 +119,28 @@ Where raw input can't express the verb — placing a tower, choosing a card — 
 
 The same JSON works as a `--controls` file for a game you don't own or can't edit, and `--goal` overrides the goal either way.
 
+## What Worked Across Twelve Games
+
+Every example game in the repo is wired for `vg playtest run` — `games/*/src/playtest*.ts` are the worked examples. The same lessons came up in almost all of them:
+
+**The model picks intent; a reflex does the hands.** Ten of twelve games ended up with _every_ move a reflex: `fight` / `kite` / `heal` (battle-arena), `eat_pellets` / `flee` (pacman), `till` / `plant` / `water` (farm), `thread_gap` / `grab_coin` (flappy-dragons). Anything that needs facing, timing, pathing or an edge-triggered key does not survive a 200 ms-stale decision. Raw `left` / `right` moves are for games slow enough that a wrong one costs nothing.
+
+**Pre-digest judgment into named fields.** The model cannot rank a table or path through a maze, and it leans towards the first option listed. Tetris handed it a 16-zone height table and it chose the first zone every tick; adding `bestZones` (ranked in code) fixed it. Publish `bestTarget`, `nearestPellet.step`, `chores.till` — the answer to "where", already computed — and order the `move` options so the safe default is first. Route-aware beats straight-line wherever there are walls: `dx`/`dy` to a pellet lies in a maze; the first step of the shortest path does not.
+
+**Words beat numbers, lists beat prose.** "Heal when `hpPct` < 0.3" had battle-arena healing at full health 80 ticks out of 80; publishing `condition: "healthy" | "hurt" | "critical"` and keying the descriptions on the word fixed it on the next run (0.99 confidence). Farm's goal as paragraphs of rules scored 7–11 at 0.5 confidence; the same rules as a priority list ("1. harvest if ripe, 2. water if dry, …") scored 16–19 at 0.89.
+
+**Edge-triggered verbs inside a reflex need a release.** A key a reflex returns every frame is one long press. `keyTapper()` from `@vibedgames/playtest` alternates press and release so each cycle is a fresh keydown; by hand, return the key for a couple of frames, then `{ keys: [] }`. A reflex that returns `null` holds nothing. Reflex input lands on the next frame, so the "give thresholds lead" rule is for goals the _model_ times — inside a reflex, lead overshoots. And do not give an `action` the same key a reflex taps: the action holds it down and the reflex never gets another edge.
+
+**Pointer games.** `pointerTracker()` walks a cursor along one axis by an error (pong). `pointerAim(dx, dy, { down })` parks it in a target's direction for camera-follow games where the cursor is a heading (starfall). A button that stays down while the cursor moves is dispatched as a drag — one press, moves, one release — and every move carries `movementX`/`movementY`, so relative-look games steer too. The agent aims at `document.elementFromPoint`, so a HUD element with `pointer-events: auto` under the cursor swallows the click: keep reflex pointers off the HUD, or make the HUD transparent to pointers.
+
+**`score` has to be something a first minute of play raises, and only play.** Bomberman's old score (any bot death) rose with no input, because the bots blow themselves up; farm's gold is spent as well as earned. Count the player's own work: crates opened by my bombs, tiles tilled, enemies slain by me. If the real win condition is minutes away, score the steps towards it.
+
+**`setState('active-play')` lands in SOLO, offline play.** A multiplayer game under `?test=1` must never dial the shared room — a seeded restart there resets everyone's match. It may return a Promise (the CLI awaits it) when assets have to load first; don't publish the hooks before the game can honour them. `seed` is optional: leave it out if the scene can only start once and the playtest reloads with `?seed=<n>` instead. `complete` must turn true on death as well as on a win, or the run idles on a game-over screen — or restarts it with the next `Space`.
+
+**Tune a reflex without the model.** `vg playtest run --pin-move <name>` holds one move for the whole run and never calls the model: deterministic, free, and the same report. Get the reflex surviving on its own, then let the model choose between them.
+
+**How long is a run?** 80 decisions is about 14 seconds — a first kill, four gates, one bed of crops. A whole match or level is 250–400 (`--ticks`); the token lasts 15 minutes.
+
 ## Flags
 
 `run` is the one `vg playtest` verb that belongs to `vg` rather than to agent-browser; `vg playtest run --help` is its reference, and every other `vg playtest …` still passes straight through to the binary.
@@ -132,6 +154,7 @@ The same JSON works as a `--controls` file for a game you don't own or can't edi
 | `--ticks <n>`                     | Decisions to make (default `60`); the run also stops when `complete` turns true                                                              |
 | `--tick-ms <ms>`                  | Minimum time each decision's inputs stay held (default `150`, about a quick player's cadence; `0` = as fast as decisions arrive; max `5000`) |
 | `--seed <n>`                      | Seed passed to `__GAME_TEST_HOOKS__.seed()` / `?seed=` (default `12345`)                                                                     |
+| `--pin-move <name>`               | Hold one move for the whole run and never call the model — for tuning a reflex                                                               |
 | `--expect-progress`               | Assert the objective advances                                                                                                                |
 | `--min-displacement <n>`          | The input-alive gate, in the game's `player` units (default `5`, pixel-scale). Overrides the manifest's `minDisplacement`                    |
 | `--model <id>`                    | Decision model id (default `jev-latest`)                                                                                                     |

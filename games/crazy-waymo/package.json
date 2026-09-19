@@ -26,6 +26,7 @@
     "@repo/embed": "workspace:*",
     "@vibedgames/gamepad": "workspace:^",
     "@vibedgames/multiplayer": "workspace:^",
+    "@vibedgames/playtest": "workspace:^",
     "n8ao": "^2.0.1",
     "polygon-clipping": "^0.15.7",
     "three": "^0.185.1"

@@ -246,7 +246,7 @@ const countTeamHeroesNear = (w: World, team: string, near: Unit, r: number): num
 
 /** The point a bot should fight toward: the frontmost allied creep in its lane,
  * else the nearest standing enemy structure in that lane, else enemy ancient. */
-const laneObjective = (w: World, u: Unit, lane: LaneId): Vec2 => {
+export const laneObjective = (w: World, u: Unit, lane: LaneId): Vec2 => {
   const path = lanePath(lane, u.team);
   // frontmost allied creep on this lane
   let front: Unit | null = null;

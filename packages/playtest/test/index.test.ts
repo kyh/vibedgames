@@ -5,6 +5,8 @@ import type { Diagnostics, PlaytestTarget } from "../src/index.js";
 import {
   definePlaytest,
   isPlaytestRequested,
+  keyTapper,
+  pointerAim,
   pointerTracker,
   publishDiagnostics,
   publishPlaytest,
@@ -126,4 +128,23 @@ test("pointerTracker walks towards the error, capped per frame and clamped to th
   assert.equal(track(Number.NaN).pointer?.x, 0.1);
   const pressed = pointerTracker({ down: true, start: 0.2, y: 0.8 });
   assert.deepEqual(pressed(0), { pointer: { down: true, x: 0.2, y: 0.8 } });
+});
+
+test("keyTapper alternates press and release so every cycle is a fresh keydown", () => {
+  const tap = keyTapper({ downFrames: 2, upFrames: 1 });
+  const frames = [1, 2, 3, 4, 5, 6].map(() => tap(["Space"]).join(","));
+  assert.deepEqual(frames, ["Space", "Space", "", "Space", "Space", ""]);
+  assert.deepEqual(tap([]), []);
+  assert.deepEqual(tap(["Space"]), ["Space"], "a new request starts on a press");
+});
+
+test("pointerAim parks the cursor in the target's direction, at the radius", () => {
+  assert.deepEqual(pointerAim(300, 0).pointer, { down: false, x: 0.85, y: 0.5 });
+  assert.deepEqual(pointerAim(0, -10, { down: true, radius: 0.2 }).pointer, {
+    down: true,
+    x: 0.5,
+    y: 0.3,
+  });
+  assert.deepEqual(pointerAim(0, 0).pointer, { down: false, x: 0.5, y: 0.5 });
+  assert.deepEqual(pointerAim(Number.NaN, 1).pointer, { down: false, x: 0.5, y: 0.5 });
 });

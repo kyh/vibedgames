@@ -2,6 +2,7 @@ import { choosePlayerSpawn, isPlayerSpawnSafe } from "../world/player-spawn";
 import type { PlayerSpawn } from "../world/player-spawn";
 import * as THREE from "three";
 import { createTouchControls, notifyGameStarted, watchControlContext } from "@repo/embed";
+import { isPlaytestRequested } from "@vibedgames/playtest";
 import type { PlayerMap } from "@vibedgames/multiplayer";
 
 import { ModelCache } from "../assets/loader";
@@ -40,6 +41,7 @@ import { NetSession } from "../net/session";
 import { readTransform } from "../net/remote-cars";
 import type { RemoteCars } from "../net/remote-cars";
 import type { PhysicsWorld } from "../physics/physics-world";
+import type { PlaytestView } from "../playtest/navigator";
 import { installAerialFog } from "../render/aerial-fog";
 import { MarineSky } from "../render/marine-sky";
 import { DayNight } from "../render/day-night";
@@ -476,6 +478,7 @@ export class GameScene {
   // Solo game, no wall-clock gameplay timers (fares/score/patience are all
   // dt-driven — see GameState.update/FareManager) — a full freeze is safe.
   private paused = false;
+  private frame = 0;
 
   /** Wrapper asked us to pause: skip update() entirely (sim + physics both
    *  gate on it) and kill the continuous engine/screech/scrape/boost loops
@@ -597,7 +600,8 @@ export class GameScene {
     this.rig = new ChaseCamera(aspect);
     this.net = new NetSession({
       fallbackMs: OFFLINE_FALLBACK_MS,
-      forceOffline: this.trailerMode,
+      // A playtest stages its own run; that must never reach a live room.
+      forceOffline: this.trailerMode || isPlaytestRequested(),
       maxPlayers: MP_MAX_PLAYERS,
       room: MP_ROOM,
     });
@@ -1801,6 +1805,41 @@ vec3 ocGerstner(vec2 p, float t) {
     return spawn;
   }
 
+  /** What src/playtest reads; null until the world is in. */
+  playtestView(): PlaytestView | null {
+    const { car, city, fares } = this;
+    if (!car || !city || !fares) {
+      return null;
+    }
+    return {
+      car,
+      fares,
+      frame: this.frame,
+      phase: this.mode.kind,
+      state: this.state,
+      traffic: this.traffic,
+      world: { heightAt: (x, z) => city.heightAt(x, z), network: city.network },
+    };
+  }
+
+  /** Playtest hook: reseed what a run rolls, then restart it. */
+  playtestSeed(seed: number): void {
+    this.fares?.reseed(seed);
+    this.traffic?.reseed(seed);
+    this.restartRun();
+  }
+
+  /** Playtest hook: a fresh run, already past the title and the countdown. */
+  playtestStart(): boolean {
+    this.start();
+    if (this.mode.kind !== "countdown" || !this.car) {
+      return false;
+    }
+    this.rig.snapTo(this.car);
+    this.mode = { kind: "playing" };
+    return true;
+  }
+
   // DEV-only: drop the taxi on the road CENTRELINE nearest to normalized map
   // coords (u,v), yaw aligned to the edge tangent (whichever direction is
   // closer to the requested one) so scripted drives start in a lane. Snapping
@@ -1927,6 +1966,7 @@ vec3 ocGerstner(vec2 p, float t) {
     if (this.paused) {
       return;
     }
+    this.frame += 1;
     this.pollInput();
     this.updateGarages(dt);
     this.heckleCooldown = Math.max(0, this.heckleCooldown - dt);

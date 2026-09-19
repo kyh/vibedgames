@@ -26,24 +26,36 @@ export interface Diagnostics {
   score: number;
   /** A win or a fail state has been reached; the run is over. */
   complete: boolean;
-  /** Where the player is, in world units. `z` for games whose travel is on x/z. */
-  player?: PlayerPosition;
+  /**
+   * Where the player is, in world units — any of x/y/z; a missing axis reads
+   * as 0, so a game whose travel is on x/z publishes just those. `null` while
+   * there is no player (a menu, a respawn).
+   */
+  player?: PlayerPosition | null;
   /** How many live entities the sim is tracking (a cheap load signal). */
   entities?: number;
 }
 
 export interface PlayerPosition {
-  x: number;
-  y: number;
+  x?: number;
+  y?: number;
   z?: number;
 }
 
 /** The mutations a playtest may perform. Gate them behind dev mode or `?test=1` if you like. */
 export interface TestHooks {
-  /** Reseed the RNG AND restart the run, so everything measured afterwards is seeded. */
-  seed: (seed: number) => void;
-  /** Jump to a named state — `'active-play'` skips the menu. Return `{ state }` once applied. */
-  setState: (name: string) => SetStateResult;
+  /**
+   * Reseed the RNG AND restart the run, so everything measured afterwards is
+   * seeded. Optional: a game whose scene can only start once leaves it out,
+   * and the playtest reloads the page with `?seed=<n>` instead.
+   */
+  seed?: (seed: number) => void;
+  /**
+   * Jump to a named state — `'active-play'` skips the menu. Return `{ state }`
+   * once applied; a Promise is awaited, for a game that has to finish loading
+   * or build a scene first.
+   */
+  setState: (name: string) => SetStateResult | Promise<SetStateResult>;
   /** Freeze the simulation for a deterministic screenshot, and thaw it. */
   setPausedForScreenshot?: (paused: boolean) => void;
   /** Turn off screen shake, particles and other visual noise a diff would catch. */

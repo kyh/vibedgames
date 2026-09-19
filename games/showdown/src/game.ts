@@ -518,6 +518,20 @@ export class Game {
     this.onMatchStart?.();
   }
 
+  /** A solo brawl on exactly this map, leaving any room first (the playtest hooks' restart). */
+  startSeeded(seed: number): void {
+    this.toMenu();
+    this.fixedSeed = seed;
+    this.startMatch(this.hud.selected);
+  }
+
+  /** Cut the 3-2-1 short: the next sim step calls GO. */
+  skipCountdown(): void {
+    if (this.state === "countdown") {
+      this.countdownT = COUNTDOWN_GO_S;
+    }
+  }
+
   // ── online lifecycle ──
 
   /** Join a room; `?offline=1` turns this into a plain solo brawl. */

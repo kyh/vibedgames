@@ -462,6 +462,9 @@ importers:
       '@vibedgames/multiplayer':
         specifier: workspace:^
         version: link:../../packages/multiplayer
+      '@vibedgames/playtest':
+        specifier: workspace:^
+        version: link:../../packages/playtest
       three:
         specifier: ^0.185.1
         version: 0.185.1
@@ -499,6 +502,9 @@ importers:
       '@vibedgames/multiplayer':
         specifier: workspace:^
         version: link:../../packages/multiplayer
+      '@vibedgames/playtest':
+        specifier: workspace:^
+        version: link:../../packages/playtest
       phaser:
         specifier: ^4.2.1
         version: 4.2.1
@@ -536,6 +542,9 @@ importers:
       '@vibedgames/multiplayer':
         specifier: workspace:^
         version: link:../../packages/multiplayer
+      '@vibedgames/playtest':
+        specifier: workspace:^
+        version: link:../../packages/playtest
       n8ao:
         specifier: ^2.0.1
         version: 2.0.1(postprocessing@6.39.4(three@0.185.1))(three@0.185.1)
@@ -591,6 +600,9 @@ importers:
       '@vibedgames/multiplayer':
         specifier: workspace:^
         version: link:../../packages/multiplayer
+      '@vibedgames/playtest':
+        specifier: workspace:^
+        version: link:../../packages/playtest
       phaser:
         specifier: ^4.2.1
         version: 4.2.1
@@ -628,6 +640,9 @@ importers:
       '@vibedgames/multiplayer':
         specifier: workspace:^
         version: link:../../packages/multiplayer
+      '@vibedgames/playtest':
+        specifier: workspace:^
+        version: link:../../packages/playtest
       phaser:
         specifier: ^4.2.1
         version: 4.2.1
@@ -659,6 +674,9 @@ importers:
       '@vibedgames/multiplayer':
         specifier: workspace:^
         version: link:../../packages/multiplayer
+      '@vibedgames/playtest':
+        specifier: workspace:^
+        version: link:../../packages/playtest
       phaser:
         specifier: ^4.2.1
         version: 4.2.1
@@ -693,6 +711,9 @@ importers:
       '@vibedgames/multiplayer':
         specifier: workspace:^
         version: link:../../packages/multiplayer
+      '@vibedgames/playtest':
+        specifier: workspace:^
+        version: link:../../packages/playtest
       phaser:
         specifier: ^4.2.1
         version: 4.2.1
@@ -730,6 +751,9 @@ importers:
       '@vibedgames/multiplayer':
         specifier: workspace:^
         version: link:../../packages/multiplayer
+      '@vibedgames/playtest':
+        specifier: workspace:^
+        version: link:../../packages/playtest
       three:
         specifier: ^0.185.1
         version: 0.185.1
@@ -807,6 +831,9 @@ importers:
       '@vibedgames/multiplayer':
         specifier: workspace:^
         version: link:../../packages/multiplayer
+      '@vibedgames/playtest':
+        specifier: workspace:^
+        version: link:../../packages/playtest
       three:
         specifier: ^0.185.1
         version: 0.185.1
@@ -844,6 +871,9 @@ importers:
       '@vibedgames/multiplayer':
         specifier: workspace:^
         version: link:../../packages/multiplayer
+      '@vibedgames/playtest':
+        specifier: workspace:^
+        version: link:../../packages/playtest
       phaser:
         specifier: ^4.2.1
         version: 4.2.1
@@ -878,6 +908,9 @@ importers:
       '@vibedgames/gamepad':
         specifier: workspace:^
         version: link:../../packages/gamepad
+      '@vibedgames/playtest':
+        specifier: workspace:^
+        version: link:../../packages/playtest
       cannon-es:
         specifier: ^0.20.0
         version: 0.20.0

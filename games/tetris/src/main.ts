@@ -1,4 +1,10 @@
 import { isPausable, pauseGame, probeWebGL, setPauseHandlers, showWebGLVeil } from "@repo/embed";
+import {
+  isPlaytestRequested,
+  publishDiagnostics,
+  publishPlaytest,
+  publishTestHooks,
+} from "@vibedgames/playtest";
 import * as THREE from "three";
 
 import { setSoundPaused } from "./fx/sfx";
@@ -6,6 +12,8 @@ import { PoseCamera } from "./input/camera";
 import { PoseControls } from "./input/pose-control";
 import { isCoarsePointer } from "./input/touch";
 import * as pauseOverlay from "./pause-overlay";
+import { playtestManifest } from "./playtest";
+import type { PlaytestDiagnostics } from "./playtest";
 import { GameScene } from "./scenes/game-scene";
 import { MAX_DT } from "./shared/constants";
 
@@ -48,7 +56,9 @@ const game = new GameScene(window.innerWidth / window.innerHeight);
 const poseControls = new PoseControls(game.poseActions);
 game.attachPoseControls(poseControls);
 const poseCamera = new PoseCamera(poseControls.handlePose);
-if (!isCoarsePointer()) {
+// A playtest browser denies the camera, and the rejection is a console error
+// — a failed playtest for a reason that has nothing to do with the game.
+if (!isCoarsePointer() && !isPlaytestRequested()) {
   void poseCamera.start();
 }
 
@@ -137,11 +147,13 @@ renderer.domElement.addEventListener("webglcontextrestored", () => {
   }
 });
 
+let frozenForScreenshot = false;
+
 const timer = new THREE.Timer();
 renderer.setAnimationLoop((time) => {
   timer.update(time);
   const dt = Math.min(timer.getDelta(), MAX_DT);
-  if (wrapperPausedAt === null) {
+  if (wrapperPausedAt === null && !frozenForScreenshot) {
     game.update(dt);
   }
   if (graphics.kind === "ready") {
@@ -149,9 +161,20 @@ renderer.setAnimationLoop((time) => {
   }
 });
 
-Object.defineProperty(window, "__GAME_DIAGNOSTICS__", {
-  get: () => ({ ...game.diagnostics(), paused: wrapperPausedAt !== null }),
-});
+publishDiagnostics((): PlaytestDiagnostics => ({
+  ...game.diagnostics(),
+  paused: wrapperPausedAt !== null,
+}));
+if (import.meta.env.DEV || isPlaytestRequested()) {
+  publishTestHooks({
+    seed: (seed) => game.seed(seed),
+    setPausedForScreenshot: (paused) => {
+      frozenForScreenshot = paused;
+    },
+    setState: (name) => (game.setTestState(name) ? { state: name } : undefined),
+  });
+  publishPlaytest(playtestManifest);
+}
 
 if (import.meta.env.DEV) {
   // __tetris: the scene; __pose: feed synthetic poses or recenter() in the console.

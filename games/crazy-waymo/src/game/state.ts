@@ -23,6 +23,8 @@ export class GameState {
   comboTimer = 0;
   bestDrift = 0;
   bestAir = 0;
+  // Cash taken back by traffic hits: `score + lost` is what the run has earned.
+  private lost = 0;
   private driftAccum = 0;
   // Stunt cash (drift/air/smash/near-miss) only pays WITH a passenger aboard —
   // empty cruising earns nothing but still bleeds on traffic hits.
@@ -36,6 +38,7 @@ export class GameState {
     this.comboTimer = 0;
     this.bestDrift = 0;
     this.bestAir = 0;
+    this.lost = 0;
     this.driftAccum = 0;
     this.carrying = false;
   }
@@ -57,6 +60,10 @@ export class GameState {
 
   get timedOut(): boolean {
     return this.timeLeft <= 0;
+  }
+  /** Everything earned this run, penalties ignored — never decreases. */
+  get earned(): number {
+    return Math.floor(this.score + this.lost);
   }
   get displayScore(): number {
     return Math.floor(this.score);
@@ -131,6 +138,7 @@ export class GameState {
   // Ramming traffic costs money (cones are toys; cars are not).
   trafficHit(impact: number): number {
     const pen = Math.min(80, Math.round(12 + impact * 1.4));
+    this.lost += Math.min(pen, this.score);
     this.score = Math.max(0, this.score - pen);
     return pen;
   }

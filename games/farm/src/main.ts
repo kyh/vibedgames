@@ -1,8 +1,15 @@
 import type { Types } from "phaser";
 import { Game, Scale, WEBGL } from "phaser";
 import { probeWebGL, setPauseHandlers, showWebGLVeil } from "@repo/embed";
+import {
+  isPlaytestRequested,
+  publishDiagnostics,
+  publishPlaytest,
+  publishTestHooks,
+} from "@vibedgames/playtest";
 
 import { pauseOverlay } from "./pause-overlay";
+import { farmManifest, readDiagnostics } from "./playtest";
 import { BootScene } from "./scenes/boot-scene";
 import { TitleScene } from "./scenes/title-scene";
 import { GameScene } from "./scenes/game-scene";
@@ -11,16 +18,7 @@ import { MineHudScene } from "./scenes/mine-hud-scene";
 import { HudScene } from "./scenes/hud-scene";
 import { InventoryScene } from "./scenes/inventory-scene";
 import { Sound } from "./render/audio";
-import { store } from "./systems/store";
-
-interface FarmDiagnostics {
-  frame: number;
-  phase: "farm" | "mine" | "menu";
-  score: number;
-  /** The valley is open-ended; there is no victory flag. */
-  complete: false;
-  player: { x: number; y: number } | null;
-}
+import { disableSaves } from "./systems/save";
 
 const config: Types.Core.GameConfig = {
   backgroundColor: "#1c2030",
@@ -37,7 +35,6 @@ declare global {
   interface Window {
     /** DEV-only hook for headless verification. */
     __game?: Game;
-    readonly __GAME_DIAGNOSTICS__: FarmDiagnostics;
   }
 }
 
@@ -59,26 +56,47 @@ game.canvas.addEventListener("webglcontextlost", () => {
 if (import.meta.env.DEV) {
   window.__game = game;
 }
-Object.defineProperty(window, "__GAME_DIAGNOSTICS__", {
-  get: (): FarmDiagnostics => {
-    const scene = game.scene
-      .getScenes(true)
-      .find((s) => s instanceof GameScene || s instanceof MineScene);
-    let phase: FarmDiagnostics["phase"] = "menu";
-    if (scene instanceof GameScene) {
-      phase = "farm";
-    } else if (scene instanceof MineScene) {
-      phase = "mine";
+publishDiagnostics(() => readDiagnostics(game));
+if (import.meta.env.DEV || isPlaytestRequested()) {
+  const DEFAULT_SEED = 12_345;
+  let soloSeed: number | null = null;
+  // A staged run is a fresh SOLO farm: it never joins the shared room, and it
+  // neither reads nor overwrites the player's real save.
+  const startSolo = (seed: number): void => {
+    disableSaves();
+    soloSeed = seed;
+    for (const key of ["Title", "Mine", "MineHud", "Inventory"]) {
+      game.scene.stop(key);
     }
-    return {
-      complete: false,
-      frame: game.loop.frame,
-      phase,
-      player: scene ? { x: scene.player.x, y: scene.player.y } : null,
-      score: store.gold,
-    };
-  },
-});
+    game.scene.start("Game", { mode: "new", solo: { seed } });
+  };
+  const publishHooks = (): void => {
+    publishTestHooks({
+      seed: startSolo,
+      setPausedForScreenshot: (paused) => (paused ? game.loop.sleep() : game.loop.wake()),
+      setState: (name) => {
+        if (name !== "active-play") {
+          return { state: "unsupported" };
+        }
+        if (soloSeed === null || !game.scene.isActive("Game")) {
+          startSolo(soloSeed ?? DEFAULT_SEED);
+        }
+        return { state: name };
+      },
+    });
+    publishPlaytest(farmManifest);
+  };
+  // A playtest calls the hooks the moment they exist, and starting the farm
+  // before Boot has loaded its textures crashes it — so they are published
+  // only once the title is up.
+  const publishWhenBooted = (): void => {
+    if (game.scene.isActive("Title")) {
+      game.events.off("poststep", publishWhenBooted);
+      publishHooks();
+    }
+  };
+  game.events.on("poststep", publishWhenBooted);
+}
 
 // Scale.RESIZE can read stale parent bounds when a resize lands while the tab
 // is hidden or the browser throttles events (tab switch, phone rotation): the

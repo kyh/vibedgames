@@ -71,6 +71,11 @@ const runArgs = {
     type: "string",
   },
   model: { default: "jev-latest", description: "Decision model id.", type: "string" },
+  pinMove: {
+    description:
+      "Hold this one move for the whole run and never call the model — for tuning a reflex deterministically, for free. The report's decisions are then yours, not the model's.",
+    type: "string",
+  },
   seed: { default: "12345", description: "Seed for the game's RNG.", type: "string" },
   tickMs: {
     default: String(DEFAULT_TICK_MS),
@@ -94,6 +99,7 @@ interface ParsedArgs {
   keepOpen?: boolean;
   minDisplacement?: string;
   model: string;
+  pinMove?: string;
   seed: string;
   tickMs: string;
   ticks: string;
@@ -122,6 +128,7 @@ interface Settings {
   keepOpen: boolean;
   minDisplacement: number | null;
   model: string;
+  pinMove: string | null;
   seed: number;
   target: string;
   tickMs: number;
@@ -158,6 +165,7 @@ const settingsFrom = (args: ParsedArgs): Settings => {
             "a positive number",
           ),
     model: args.model,
+    pinMove: args.pinMove ?? null,
     seed: numberArg(args.seed, "--seed", Number.isFinite, "a finite number"),
     target: args.game ? `game:${args.game}` : (args.url ?? ""),
     tickMs: numberArg(
@@ -313,10 +321,17 @@ export const playtestRunCommand = defineCommand({
         seed: settings.seed,
         url: settings.url,
       });
+      const controls = chooseControls(settings, launched.manifest);
+      if (settings.pinMove !== null && !Object.hasOwn(controls.move, settings.pinMove)) {
+        throw new HarnessError(
+          `--pin-move ${settings.pinMove} is not a move in this scheme — those are ${Object.keys(controls.move).join(", ")}.`,
+        );
+      }
       opts = {
-        controls: chooseControls(settings, launched.manifest),
+        controls,
         expectProgress: settings.expectProgress,
         model: settings.model,
+        pinMove: settings.pinMove,
         tickMs: settings.tickMs,
         ticks: settings.ticks,
       };

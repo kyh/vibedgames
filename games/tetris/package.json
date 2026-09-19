@@ -15,6 +15,7 @@
     "@mediapipe/tasks-vision": "1.0.1",
     "@repo/embed": "workspace:*",
     "@vibedgames/gamepad": "workspace:^",
+    "@vibedgames/playtest": "workspace:^",
     "cannon-es": "^0.20.0",
     "three": "^0.185.1"
   },

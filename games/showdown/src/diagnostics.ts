@@ -3,6 +3,8 @@
 // structural view of Game so this file compiles whatever the game class is
 // growing at the moment — the online fields are read only when present.
 
+import type { PlaytestSense } from "./playtest-sense";
+
 export interface DiagnosticsPlayer {
   alive: boolean;
   cubes: number;
@@ -40,7 +42,12 @@ export interface OnlineDiagnostics {
   seq: number;
 }
 
-export interface Diagnostics {
+/** Kills dominate; cubes make looting count, so progress shows before the first kill. */
+const KILL_SCORE = 100;
+const CUBE_SCORE = 10;
+
+/** The playtest sense fields are present whenever the local player exists. */
+export interface Diagnostics extends Partial<PlaytestSense> {
   brawlersLeft: number;
   /** A result screen is up: the match ended and its reveal delay has elapsed. */
   complete: boolean;
@@ -76,9 +83,13 @@ const onlineDiagnostics = (game: DiagnosticsSource): OnlineDiagnostics | null =>
   };
 };
 
-export const buildDiagnostics = (game: DiagnosticsSource): Diagnostics => {
+export const buildDiagnostics = (
+  game: DiagnosticsSource,
+  sense: PlaytestSense | null = null,
+): Diagnostics => {
   const { player } = game;
   return {
+    ...sense,
     brawlersLeft: game.brawlers.filter((b) => b.alive).length,
     complete: game.state === "ended" && game.pendingResult === null,
     entities: game.brawlers.length,
@@ -97,7 +108,7 @@ export const buildDiagnostics = (game: DiagnosticsSource): Diagnostics => {
         }
       : null,
     renderer: game.frameStats ? { ...game.frameStats } : null,
-    score: player?.kills ?? 0,
+    score: player ? player.kills * KILL_SCORE + player.cubes * CUBE_SCORE : 0,
   };
 };
 
@@ -107,10 +118,13 @@ declare global {
   }
 }
 
-/** Publish a live getter; every read builds a fresh snapshot. */
-export const installDiagnostics = (game: DiagnosticsSource): void => {
+/** Publish a live getter; every read builds a fresh snapshot. `sense` adds what the player can see. */
+export const installDiagnostics = (
+  game: DiagnosticsSource,
+  sense: () => PlaytestSense | null = () => null,
+): void => {
   Object.defineProperty(window, "__GAME_DIAGNOSTICS__", {
     configurable: true,
-    get: () => buildDiagnostics(game),
+    get: () => buildDiagnostics(game, sense()),
   });
 };

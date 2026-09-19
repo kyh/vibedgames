@@ -13,6 +13,7 @@ import {
 } from "../src/data/meta.ts";
 import { baseMods, pickRelics, RELICS } from "../src/data/relics.ts";
 import { BOSS, SAFE, START, VERSUS } from "../src/data/rooms.ts";
+import type { RoomDef, Spawn } from "../src/data/rooms.ts";
 import { VersusMatch, VS_HEARTS, VS_HIT_CAP, VS_WIN_SCORE } from "../src/sys/versus.ts";
 import { genAttempt, genCombatRoom, verifyRoom } from "../src/sys/gen.ts";
 import { BossBody } from "../src/entities/boss-body.ts";
@@ -27,6 +28,8 @@ import {
 } from "../src/entities/player-body.ts";
 import type { BodyInput } from "../src/entities/player-body.ts";
 import { Grid, ROWS } from "../src/sys/grid.ts";
+import { Navigator } from "../src/sys/nav.ts";
+import { Pilot } from "../src/sys/pilot.ts";
 import { RunManager } from "../src/sys/run.ts";
 import { BossActing, enemyPose, remoteBlend } from "../src/data/actor-presentation.ts";
 import { readRunRecap } from "../src/data/run-recap.ts";
@@ -1127,6 +1130,78 @@ const script = (f: number): Partial<BodyInput> => ({
   check(
     "boss idle without a slam has no pose",
     new BossActing().pose({ elapsed: 0.05, state: "idle" }) === null,
+  );
+}
+
+// The playtest pilot (sys/pilot.ts + sys/nav.ts): the hands `vg playtest run`
+// gives the decision model. Flown here through the real body and real rooms,
+// pressing buttons the way the browser does — held state in, edges derived.
+{
+  const fly = (def: RoomDef, target: Spawn): boolean => {
+    const b = new PlayerBody(def.grid, def.playerSpawn.x, def.playerSpawn.y, HEROES.axion.kit);
+    const nav = new Navigator();
+    const pilot = new Pilot();
+    let prev = { dash: false, jump: false, up: false };
+    for (let f = 0; f < 60 * 25; f += 1) {
+      const grounded = b.grounded && b.vy >= 0;
+      const step = nav.step(def.grid, { grounded, x: b.x, y: b.y }, target);
+      const door = { dx: target.x - b.x, dy: target.y - b.y, open: true, step };
+      const it = pilot.exit(
+        {
+          dashReady: b.dashReady,
+          exits: [door],
+          frame: f,
+          grounded,
+          nearestEnemy: null,
+          onWall: b.wallDir,
+          pickup: null,
+          player: { facing: b.facing, vy: b.vy },
+        },
+        0,
+      );
+      b.buffer(
+        inp({
+          dashPressed: it.dash && !prev.dash,
+          down: it.down,
+          jumpHeld: it.jump || it.up,
+          jumpPressed: (it.jump && !prev.jump) || (it.up && !prev.up),
+          left: it.left,
+          right: it.right,
+          up: it.up,
+        }),
+      );
+      prev = it;
+      b.step(STEP);
+      if (Math.abs(b.x - target.x) < 12 && Math.abs(b.y - target.y) < 20) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const start = START();
+  check(
+    "pilot climbs the start room to its door",
+    start.doorSlots.every((d) => fly(start, d)),
+  );
+  const safe = SAFE();
+  check(
+    "pilot reaches both safe-room doors and the shrine",
+    [...safe.doorSlots, safe.featureSpot].every((t) => t !== null && fly(safe, t)),
+  );
+  let reached = 0;
+  let total = 0;
+  for (let seed = 1; seed <= 60; seed += 1) {
+    const def = genCombatRoom(seed, 1 + (seed % 3));
+    for (const t of [...def.doorSlots, ...def.enemySpawns]) {
+      total += 1;
+      reached += fly(def, t) ? 1 : 0;
+    }
+  }
+  check(
+    "pilot reaches >=97% of doors and enemy spawns in generated rooms",
+    reached / total >= 0.97,
+    `${reached}/${total}`,
   );
 }
 

@@ -18,6 +18,9 @@ import { screenToWorld } from "../game/camera-correction";
 import type { ScreenDir } from "../game/camera-correction";
 import { Engine } from "../game/engine";
 import type { LockEvent } from "../game/engine";
+import type { Piece } from "../game/piece";
+import { pillarHeights, planZones, rankZones } from "../game/placement";
+import type { ZonePlan, ZonePlans } from "../game/placement";
 import type { Status } from "../game/state";
 import { ParticlePool } from "../fx/particles";
 import { resetSound, sfx, toggleMute } from "../fx/sfx";
@@ -39,6 +42,7 @@ import {
   CATCH_WINDOW_MS,
   CLEAR_BURST_COUNT,
   DAS_MS,
+  DEATH_HEIGHT,
   LOCK_DUST_COUNT,
   PIECES,
   POSE_TIMEOUT_MS,
@@ -92,9 +96,43 @@ export interface TetrisDiagnostics {
   score: number;
   lines: number;
   complete: boolean;
-  player: Cell | null;
+  /** The slab's centre on the floor plane (x/z); its height is `piece.y`. Holds the last slab's spot while none is falling. */
+  player: { x: number; y: number; z: number };
   entities: number;
+  piece: {
+    type: string;
+    /** Quarter turns clockwise from spawn, 0..3. */
+    rotation: number;
+    y: number;
+    /** Sim time since it spawned — a fresh slab has not been decided about yet. */
+    ageMs: number;
+    /** Floor cells it covers, as [x, z]. */
+    cells: [number, number][];
+  } | null;
+  next: string;
+  hold: string | null;
+  canHold: boolean;
+  powerReady: boolean;
+  /** Camera corner 0..3; the arrow keys are screen-relative, so this picks the world axis they push. */
+  corner: number;
+  /** One base-36 digit per pillar: `heights[z][x]` layers are stacked at (x, z). */
+  heights: string[];
+  maxHeight: number;
+  deathHeight: number;
+  /** What hard-dropping the slab over each 2x2 floor zone would do, as it is turned now. */
+  zones: ZonePlans;
+  /** Zone names, best drop first (a clear, else the lowest snug fit). */
+  bestZones: string[];
+  /** The best drop on offer now, and after one more clockwise turn. */
+  best: ZonePlan | null;
+  bestIfRotated: ZonePlan | null;
+  /** Milliseconds left to catch a toppling stack; null unless `phase` is "collapsing". */
+  catchMsLeft: number | null;
 }
+
+const bestPlan = (plans: ZonePlans): ZonePlan | null => plans[rankZones(plans)[0] ?? ""] ?? null;
+
+const pieceName = (index: number): string => PIECES[index]?.name ?? "?";
 
 const screenDirOf = (dir: -1 | 1, depthAxis: boolean): ScreenDir => {
   if (depthAxis) {
@@ -154,6 +192,9 @@ export class GameScene {
   private collapseStartedAt = 0;
   private lastPoseAt = -1e9;
   private frame = 0;
+  private agedPiece: Piece | null = null;
+  private activeAgeMs = 0;
+  private lastFloorCentre = { x: WELL_CENTER_X, y: 0, z: WELL_CENTER_Z };
   private maxHeight = -1;
   private piecesPlaced = 0;
   private rescues = 0;
@@ -208,16 +249,62 @@ export class GameScene {
     for (const _cube of this.engine.board.cubes()) {
       entities += 1;
     }
+    const { board } = this.engine;
+    const piece = this.engine.active;
     const active = this.engine.activeCells();
+    const centre = centroid(active);
+    const heights = pillarHeights(board);
+    const zones = planZones(board, heights, active);
+    const ranked = rankZones(zones);
+    const rotated = piece?.rotatedCells(board) ?? null;
     return {
+      best: zones[ranked[0] ?? ""] ?? null,
+      bestIfRotated: rotated ? bestPlan(planZones(board, heights, rotated)) : null,
+      bestZones: ranked.slice(0, 3),
+      canHold: piece !== null && !this.engine.holdSpent,
+      catchMsLeft: this.catchRemaining(performance.now()),
       complete: this.engine.state.status === "gameOver",
+      corner: this.rig.corner,
+      deathHeight: DEATH_HEIGHT,
       entities,
       frame: this.frame,
+      heights: heights.map((row) => row.map((h) => h.toString(36)).join("")),
+      hold: this.engine.holdIndex === null ? null : pieceName(this.engine.holdIndex),
       lines: this.engine.state.lines,
+      maxHeight: this.maxHeight + 1,
+      next: pieceName(this.engine.nextIndex),
       phase: this.engine.state.status,
-      player: active.length > 0 ? centroid(active) : null,
+      piece: piece
+        ? {
+            ageMs: Math.round(this.activeAgeMs),
+            cells: active.map((c) => [c.x, c.z]),
+            rotation: piece.rotation,
+            type: pieceName(piece.index),
+            y: centre.y,
+          }
+        : null,
+      // Floor plane only: the fall is gravity's doing, and would pass the
+      // playtest's input-alive gate with no input reaching the game at all.
+      player: piece ? { x: centre.x, y: 0, z: centre.z } : this.lastFloorCentre,
+      powerReady: this.engine.canPower(),
       score: this.engine.state.score,
+      zones,
     };
+  }
+
+  /** Playtest hook: deal a seeded sequence and restart on it. */
+  seed(seed: number): void {
+    this.engine.seed(seed);
+    this.startGame();
+  }
+
+  /** Playtest hook: `active-play` leaves the title or results for a live run. Returns whether the name was applied. */
+  setTestState(name: string): boolean {
+    if (name !== "active-play") {
+      return false;
+    }
+    this.startIfIdle();
+    return this.engine.state.status === "playing";
   }
 
   /** Wrapper pause ended: shift the collapse catch-window deadline (and the
@@ -597,6 +684,12 @@ export class GameScene {
     this.touch.update(dtMs);
     this.updatePad(now);
     const { status } = this.engine.state;
+    if (this.engine.active === this.agedPiece) {
+      this.activeAgeMs += dtMs;
+    } else {
+      this.agedPiece = this.engine.active;
+      this.activeAgeMs = 0;
+    }
 
     if (status === "playing") {
       this.routeSteering(dtMs);
@@ -625,6 +718,10 @@ export class GameScene {
     }
     this.wellFx.setHeight(this.maxHeight, this.engine.state.status === "playing");
     const active = this.engine.activeCells();
+    if (active.length > 0) {
+      const { x, z } = centroid(active);
+      this.lastFloorCentre = { x, y: 0, z };
+    }
     this.cubes.setActive(active, this.engine.activePieceIndex(), this.needSnap);
     this.cubes.setGhost(this.engine.ghostCells());
     this.needSnap = false;

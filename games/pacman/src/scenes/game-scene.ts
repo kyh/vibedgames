@@ -17,6 +17,7 @@ import * as THREE from "three";
 import { createTouchControls, notifyGameStarted, watchControlContext } from "@repo/embed";
 import { PhysicalGamepad, stickDirection4 } from "@vibedgames/gamepad";
 import type { Dir4 } from "@vibedgames/gamepad";
+import { isPlaytestRequested } from "@vibedgames/playtest";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 
 import { music } from "../audio/music";
@@ -34,6 +35,8 @@ import { RemotePacs } from "../net/remote-pacs";
 import { NetSession, isJsonNumber, isJsonObject, isJsonString } from "../net/session";
 import type { JsonValue } from "../net/session";
 import type { Dir } from "../shared/constants";
+import { fleeStep, flood, navTo, nearestCell, openDirs } from "../shared/maze-nav";
+import type { Cell, NavTarget } from "../shared/maze-nav";
 import {
   MP_ROOM,
   MP_MAX_PLAYERS,
@@ -199,6 +202,17 @@ const TOUCH_CONTROLS_CSS = `
 }
 `;
 
+/** What a sighted player reads off the maze, from the player's cell. */
+export interface MazeNav {
+  open: Record<Dir, boolean>;
+  pellet: NavTarget | null;
+  power: NavTarget | null;
+  /** Nearest two ghosts by path length. */
+  ghosts: (NavTarget & { frightened: boolean })[];
+  /** First step towards the nearest pickup the ghosts cannot cut off, else away from them. */
+  fleeStep: Dir | null;
+}
+
 export interface GameDiagnostics {
   score: number;
   complete: boolean;
@@ -206,7 +220,28 @@ export interface GameDiagnostics {
   player: { x: number; y: number };
   entities: number;
   powerMs: number;
+  facing: Dir;
+  moving: boolean;
+  lives: number;
+  pelletsLeft: number;
+  /** Spawn grace: ghosts cannot catch the player yet. */
+  invulnerable: boolean;
+  /** Null unless a playtest asked for it — two maze floods a frame. */
+  nav: MazeNav | null;
 }
+
+/* oxlint-disable no-bitwise -- mulberry32 is int32 hash arithmetic */
+/** Enough to make a seeded ghost run repeatable. */
+const seededRandom = (seed: number): (() => number) => {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d_2b_79_f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), a | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
+  };
+};
+/* oxlint-enable no-bitwise */
 
 /** Points a pellet cell is worth — from the map, never trusted from the wire. */
 const cellScore = (cell: { col: number; row: number }): number =>
@@ -439,7 +474,8 @@ const stepGhost = (
     dist -= step;
   }
 };
-const pick = <T>(arr: readonly T[]): T | undefined => arr[Math.floor(Math.random() * arr.length)];
+const pick = <T>(arr: readonly T[], random: () => number): T | undefined =>
+  arr[Math.floor(random() * arr.length)];
 /**
  * Ghost AI, evaluated at each grid center (legacy moveGhostsOnGrid): never
  * reverse unless dead-ended; scared = uniform random; otherwise 70% greedy
@@ -453,6 +489,7 @@ const chooseGhostDir = (
   scared: boolean,
   pacX: number,
   pacZ: number,
+  random: () => number,
 ): Dir | null => {
   const open = DIRS.filter((d) => {
     const [dx, dz] = DIR_VECT[d];
@@ -464,19 +501,19 @@ const chooseGhostDir = (
   const ahead = open.filter((d) => d !== OPPOSITE[dir]);
   const options = ahead.length > 0 ? ahead : open;
   if (scared) {
-    return pick(options) ?? null;
+    return pick(options, random) ?? null;
   }
-  if (Math.random() < CHASE_CHANCE) {
+  if (random() < CHASE_CHANCE) {
     const here = (col - pacX) ** 2 + (row - pacZ) ** 2;
     const closer = options.filter((d) => {
       const [dx, dz] = DIR_VECT[d];
       return (col + dx - pacX) ** 2 + (row + dz - pacZ) ** 2 < here;
     });
     if (closer.length > 0) {
-      return pick(closer) ?? null;
+      return pick(closer, random) ?? null;
     }
   }
-  return pick(options) ?? null;
+  return pick(options, random) ?? null;
 };
 const loadBest = (): number => {
   try {
@@ -520,6 +557,8 @@ export class GameScene {
     z: PACMAN_SPAWN.row,
   };
   private ghosts: Ghost[] = [];
+  private random: () => number = Math.random;
+  private navDiagnostics = false;
   private pelletField: PelletField;
   private hearts = new Map<string, Heart>();
   private score = 0;
@@ -533,6 +572,8 @@ export class GameScene {
   // Ghosts stay LOCAL — each player dodges their own. Solo/offline is unchanged.
   private net = new NetSession({
     fallbackMs: OFFLINE_FALLBACK_MS,
+    // A playtest stages state and restarts at will; that must never land in a live room.
+    forceOffline: isPlaytestRequested(),
     maxPlayers: MP_MAX_PLAYERS,
     onEvent: (event, payload, from) => this.handleNetEvent(event, payload, from),
     room: ROOM,
@@ -1125,12 +1166,74 @@ export class GameScene {
   /** Read-only telemetry for bot playtests; coordinates are maze cells. */
   writeDiagnostics(out: GameDiagnostics): void {
     out.score = this.score;
-    out.complete = this.phase === "win";
+    out.complete = this.phase === "win" || this.phase === "gameover";
     out.phase = this.phase;
     out.player.x = this.pac.x;
     out.player.y = this.pac.z;
     out.entities = this.ghosts.length + this.pelletsLeft() + 1;
     out.powerMs = this.scaredMs;
+    out.facing = this.pac.dir;
+    out.moving = this.pac.isMoving;
+    out.lives = this.lives;
+    out.pelletsLeft = this.pelletsLeft();
+    out.invulnerable = this.graceMs > 0;
+    out.nav = this.navDiagnostics ? this.readMaze() : null;
+  }
+
+  private readMaze(): MazeNav {
+    const here: Cell = { col: Math.round(this.pac.x), row: Math.round(this.pac.z) };
+    const fromHere = flood([here]);
+    const frightened = this.scaredMs > 0;
+    const ghostCells = this.ghosts.map((g) => ({ col: Math.round(g.x), row: Math.round(g.z) }));
+    const ghosts: MazeNav["ghosts"] = [];
+    for (const cell of ghostCells) {
+      const nav = navTo(here, cell, fromHere);
+      if (nav) {
+        ghosts.push({ ...nav, frightened });
+      }
+    }
+    ghosts.sort((a, b) => a.steps - b.steps);
+    const hearts: Cell[] = [];
+    for (const key of this.hearts.keys()) {
+      const cell = GameScene.parseCellKey(key);
+      if (cell) {
+        hearts.push(cell);
+      }
+    }
+    const pellet = nearestCell(this.pelletField.cells, fromHere);
+    const power = nearestCell(hearts, fromHere);
+    return {
+      fleeStep: frightened
+        ? null
+        : fleeStep(here, ghostCells, [...this.pelletField.cells, ...hearts]),
+      ghosts: ghosts.slice(0, 2),
+      open: openDirs(here),
+      pellet: pellet ? navTo(here, pellet, fromHere) : null,
+      power: power ? navTo(here, power, fromHere) : null,
+    };
+  }
+
+  // ---- playtest hooks (wired by main.ts behind DEV / ?test=1) ------------------
+
+  enableNavDiagnostics(): void {
+    this.navDiagnostics = true;
+  }
+
+  /** Reseed the ghost AI and restart the round, so the whole run is seeded. */
+  seed(seed: number): void {
+    this.random = seededRandom(seed);
+    this.resetGame();
+  }
+
+  /** 'active-play' leaves any banner for a live solo round; false for unknown names. */
+  setTestState(name: string): boolean {
+    if (name !== "active-play") {
+      return false;
+    }
+    if (this.onBanner) {
+      this.resetGame();
+    }
+    return true;
   }
 
   private updateChainHud(): void {
@@ -1627,6 +1730,7 @@ export class GameScene {
           this.scaredMs > 0,
           Math.round(this.pac.x),
           Math.round(this.pac.z),
+          this.random,
         ),
       );
     }

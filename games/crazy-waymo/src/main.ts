@@ -8,6 +8,7 @@ import { PostPipeline } from "./render/post";
 import { setRenderCapabilities } from "./render/capabilities";
 import { recordContextLoss, safeMode } from "./render/safe-mode";
 import { isCoarsePointer } from "./render/quality";
+import { installPlaytest } from "./playtest/install";
 import { GameScene } from "./scenes/game-scene";
 import { MAX_DT } from "./shared/constants";
 import { createPauseOverlay } from "./ui/pause-overlay";
@@ -283,6 +284,16 @@ renderer.setAnimationLoop((t) => {
 });
 
 const loaded = game.load();
+
+// The contract appears only once a run can start: `vg playtest run` waits for
+// it, then calls setState('active-play') straight away. A trailer owns its run.
+if (!trailerMode) {
+  void (async () => {
+    await loaded;
+    await game.ready;
+    installPlaytest(game);
+  })();
+}
 
 // Map editor: open with ?editor=1, place assets, export JSON for
 // world/custom-props.ts. Lazy chunk — costs nothing on normal loads.
