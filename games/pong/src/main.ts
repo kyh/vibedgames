@@ -14,7 +14,7 @@ import type { HandCamera } from "./input/camera";
 import { createPongPauseOverlay } from "./pause-overlay";
 import { DitherPass } from "./render/dither-pass";
 import { GameScene } from "./scenes/game-scene";
-import { DITHER_PIXEL, MAX_DT } from "./shared/constants";
+import { DITHER_PIXEL, HIT_HALF_X, MAX_DT } from "./shared/constants";
 import { COARSE_INPUT } from "./shared/input-mode";
 
 const container = document.querySelector("#game");
@@ -170,17 +170,30 @@ if (import.meta.env.DEV || isPlaytestRequested()) {
   // close the loop — the model decides a few times a second, this runs at
   // 60 fps while it is the model's intent.
   const track = pointerTracker();
+  // A dead-centre return goes straight back and the rival never misses one;
+  // the angle comes from where on the paddle the ball lands. Holding the
+  // paddle this far to one side of the ball is an off-centre hit on purpose.
+  const AIM_OFFSET = HIT_HALF_X * 0.6;
   publishPlaytest<PongDiagnostics>({
     actions: {
-      serve: {
-        description: "serve the ball, or fire a charged power shot (Space)",
+      confirm: {
+        description:
+          'press Space — yes when game.phase is "serving" (it serves), and yes when game.charge.ready is true during a rally (it arms a power shot: your next return is 40% faster). Otherwise no',
         keys: ["Space"],
       },
     },
-    goal: "You control the bottom paddle; it follows the pointer's x. Return every ball: `track_ball` keeps the paddle under it automatically, the parked positions are for waiting or baiting. Serve when the ball is not moving (game.phase). game.score is your points; game.opponentScore is theirs.",
+    goal: "You control the bottom paddle; it follows the pointer's x. A point is won when the rival (top paddle, game.opponent.x) fails to reach your return. `track_ball` returns the ball straight — safe, but the rival always reaches a straight ball, so it never wins a point. To WIN points, angle the return away from the rival: `aim_left` when game.opponent.x is greater than game.ball.x, `aim_right` when it is less. Every 4 returns game.charge.ready turns true: confirm then, and the next return is a power shot. game.score is your points; game.opponentScore is theirs; first to the target wins.",
     // The court is a few world units wide, not a few hundred pixels.
     minDisplacement: 0.05,
     move: {
+      aim_left: {
+        description: "Follow the ball and hit it off-centre so the return angles LEFT (-x)",
+        reflex: (diag) => (diag ? track(diag.ball.x + AIM_OFFSET - diag.player.x) : null),
+      },
+      aim_right: {
+        description: "Follow the ball and hit it off-centre so the return angles RIGHT (+x)",
+        reflex: (diag) => (diag ? track(diag.ball.x - AIM_OFFSET - diag.player.x) : null),
+      },
       centre: {
         description: "Park the paddle in the centre of the court",
         pointer: { x: 0.5, y: 0.5 },
@@ -196,8 +209,7 @@ if (import.meta.env.DEV || isPlaytestRequested()) {
       left: { description: "Park the paddle left of centre", pointer: { x: 0.3, y: 0.5 } },
       right: { description: "Park the paddle right of centre", pointer: { x: 0.7, y: 0.5 } },
       track_ball: {
-        description:
-          "Follow the ball — keep the paddle under it every frame (the default for a rally)",
+        description: "Follow the ball dead-centre — a safe, straight return that wins nothing",
         reflex: (diag) => (diag ? track(diag.ball.x - diag.player.x) : null),
       },
     },

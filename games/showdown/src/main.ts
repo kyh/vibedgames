@@ -9,10 +9,14 @@ import {
   showWebGLVeil,
 } from "@repo/embed";
 
+import { isPlaytestRequested } from "@vibedgames/playtest";
+
 import { isBrawlerId } from "./config";
 import { CONTROLS, METHOD_LABEL } from "./controls";
 import { installDiagnostics } from "./diagnostics";
 import { createShowdownPauseOverlay } from "./pause-overlay";
+import { installPlaytest } from "./playtest";
+import { sensePlaytest } from "./playtest-sense";
 import { mountStartLegend } from "./polish/start-legend";
 import { Game } from "./game";
 import { mustGet } from "./dom";
@@ -38,7 +42,10 @@ const auto = params.get("auto");
 const autoKit = auto && isBrawlerId(auto) ? auto : undefined;
 
 const game = new Game({ onMatchStart: notifyGameStarted, selected: autoKit });
-installDiagnostics(game);
+installDiagnostics(game, () => sensePlaytest(game));
+if (import.meta.env.DEV || isPlaytestRequested()) {
+  installPlaytest(game);
+}
 mountStartLegend(mustGet("menu-legend"), CONTROLS, METHOD_LABEL);
 if (import.meta.env.DEV) {
   window.__game = game;

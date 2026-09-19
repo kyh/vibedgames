@@ -364,6 +364,10 @@ export class Traffic {
     return true;
   }
 
+  reseed(seed: number): void {
+    this.rng.reseed(seed);
+  }
+
   // Scatter traffic back across the map, clear of the player's spawn.
   reset(avoid?: RoadCell, avoidR = 4): void {
     const ax = avoid ? this.city.worldX(avoid.gx) : 0;

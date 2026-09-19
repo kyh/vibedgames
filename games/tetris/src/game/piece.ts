@@ -16,6 +16,7 @@ export class Piece {
   private ox: number;
   private oz: number;
   private y: number;
+  private turns = 0;
 
   constructor(index: number, board: Board) {
     this.index = index;
@@ -68,8 +69,31 @@ export class Piece {
     return true;
   }
 
+  /** Quarter turns clockwise from the spawn orientation, 0..3. */
+  get rotation(): number {
+    return this.turns;
+  }
+
+  /** Cells after one clockwise turn (wall-kicked), or null if it would not fit. */
+  rotatedCells(board: Board): Cell[] | null {
+    const next = this.rotated(board);
+    return next ? Piece.cellsAt(next.matrix, next.ox, next.oz, this.y) : null;
+  }
+
   /** Rotate 90° CW in the XZ plane, kicking off walls. Returns whether it rotated. */
   rotate(board: Board): boolean {
+    const next = this.rotated(board);
+    if (!next) {
+      return false;
+    }
+    this.matrix = next.matrix;
+    this.ox = next.ox;
+    this.oz = next.oz;
+    this.turns = (this.turns + 1) % 4;
+    return true;
+  }
+
+  private rotated(board: Board): { matrix: number[][]; ox: number; oz: number } | null {
     const m = rotateCW(this.matrix);
     let { ox } = this;
     let { oz } = this;
@@ -88,15 +112,11 @@ export class Piece {
     if (oz + rows > board.depth) {
       oz = board.depth - rows;
     }
-    const next = Piece.cellsAt(m, ox, oz, this.y);
-    if (board.collides(next)) {
-      return false;
-      // wall-kick failed → locked cube in the way
+    // A locked cube in the way defeats the wall-kick.
+    if (board.collides(Piece.cellsAt(m, ox, oz, this.y))) {
+      return null;
     }
-    this.matrix = m;
-    this.ox = ox;
-    this.oz = oz;
-    return true;
+    return { matrix: m, ox, oz };
   }
 
   /** Cells where the slab would come to rest if hard-dropped now (the ghost). */

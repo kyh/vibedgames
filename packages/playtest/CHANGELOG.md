@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- `keyTapper()` — press/release cycling for keydown-edge verbs inside a reflex
+- `pointerAim(dx, dy)` — 2D cursor-as-heading reflex helper
+- `TestHooks.setState` may return a Promise; `TestHooks.seed` is optional (the playtest falls back to a `?seed=` reload)
+- `Diagnostics.player` accepts `null` and any subset of x/y/z
+
 ## 0.1.0 — 2026-09-19
 
 - First npm release

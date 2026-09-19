@@ -29,7 +29,7 @@ import type { RunState } from "../state/run-state";
 import { livePlayers, newSeatState } from "../state/seat-state";
 import type { SeatState } from "../state/seat-state";
 import { dust, wallSmoke } from "../sys/fx";
-import { diag } from "../sys/diag";
+import { attachDiag, tickDiag } from "../sys/diag";
 import { Grid } from "../sys/grid";
 import { reseed, unseed } from "../sys/rng";
 import { RunManager } from "../sys/run";
@@ -173,6 +173,7 @@ export class GameScene extends Scene implements SceneHooks {
     const player = this.spawnPlayer(HEROES[heroName], def?.grid ?? new Grid(), spawn.x, spawn.y);
     this.seat = newSeatState(heroName, mode, player);
     this.wireCollaborators(restartRequested);
+    attachDiag({ expedition: this.expedition, room: this.room, run: this.run, seat: this.seat });
     if (def) {
       this.rooms.build(def);
       this.updateHud();
@@ -358,6 +359,7 @@ export class GameScene extends Scene implements SceneHooks {
 
     // Death → hub: drop the socket; the hub has nothing to pause.
     this.events.once(Scenes.Events.SHUTDOWN, () => {
+      attachDiag(null);
       this.controls.destroy();
       this.gamepad.destroy();
       this.seat.session?.destroy();
@@ -591,7 +593,7 @@ export class GameScene extends Scene implements SceneHooks {
     const dts = Math.min(delta, 100) / 1000;
     this.banners.update(dts * 1000);
     this.demoT += dts;
-    this.publishDiag();
+    tickDiag();
     // Once per frame, before any sample(): reconciles lost touches, publishes
     // the justPressed edges the Input merge reads, and redraws the overlay.
     this.gamepad.update();
@@ -654,17 +656,6 @@ export class GameScene extends Scene implements SceneHooks {
     if (this.seat.role === "host") {
       this.hostNet.broadcast(dts);
     }
-  }
-
-  // Bot-playtest telemetry (sys/diag.ts): mutate the shared object in place.
-  private publishDiag() {
-    diag.frame += 1;
-    diag.score = this.run.score;
-    diag.complete = this.run.state === "dead";
-    diag.player.x = this.seat.player.x;
-    diag.player.y = this.seat.player.y;
-    diag.player.speed = Math.hypot(this.seat.player.body.vx, this.seat.player.body.vy);
-    diag.entities = this.room.enemies.length + this.room.guest.enemyPuppets.size;
   }
 
   private updateDead(dts: number) {

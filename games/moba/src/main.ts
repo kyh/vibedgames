@@ -1,8 +1,17 @@
 import type { Types } from "phaser";
-import { Game, Scale, WEBGL } from "phaser";
+import { Game, Scale, Scenes, WEBGL } from "phaser";
 import { probeWebGL, setPauseHandlers, showWebGLVeil } from "@repo/embed";
+import {
+  isPlaytestRequested,
+  publishDiagnostics,
+  publishPlaytest,
+  publishTestHooks,
+} from "@vibedgames/playtest";
 
+import { HERO_BY_ID } from "./data/heroes";
 import { hide as hidePauseOverlay, show as showPauseOverlay } from "./pause-overlay";
+import { createManifest } from "./playtest/manifest";
+import type { MobaDiagnostics } from "./playtest/manifest";
 import { setSoundPaused, soundDiagnostics } from "./render/audio";
 import { BootScene } from "./scenes/boot-scene";
 import { GameScene } from "./scenes/game-scene";
@@ -44,6 +53,65 @@ declare global {
   }
 }
 
+// A ranged carry: last hits land from behind the creep line, so a playtester's
+// first minute is about the lane, not about surviving the melee scrum.
+const PLAYTEST_HERO = "stormcaller";
+
+/** See plugins/tooling/skills/playtest/references/model-playtest.md. Every hook
+ *  starts a SOLO match against bots — never a staged state in a live room. */
+const publishPlaytestContract = (game: Game, activeGame: () => GameScene | null): void => {
+  const requested = new URLSearchParams(window.location.search).get("hero") ?? "";
+  const heroId = HERO_BY_ID[requested] ? requested : PLAYTEST_HERO;
+  let seed: number | undefined;
+  let frozen = false;
+  const startSolo = (): void => {
+    game.scene.stop("Menu");
+    game.scene.stop("Hud");
+    game.scene.start("Game", { heroId, online: false, seed, skipToLane: true });
+  };
+  const publish = (): void => {
+    publishTestHooks({
+      seed: (next) => {
+        seed = next;
+        if (activeGame()) {
+          startSolo();
+        }
+      },
+      setPausedForScreenshot: (paused) => {
+        if (paused === frozen || activeGame()?.isOnline()) {
+          return;
+        }
+        frozen = paused;
+        if (paused) {
+          game.loop.sleep();
+        } else {
+          game.loop.wake();
+        }
+      },
+      setState: (name) => {
+        if (name === "active-play") {
+          startSolo();
+        }
+        return { state: activeGame() || name === "active-play" ? "active-play" : "menu" };
+      },
+    });
+    publishPlaytest<MobaDiagnostics & { audio: ReturnType<typeof soundDiagnostics> }>(
+      createManifest(heroId),
+    );
+  };
+  // The hooks are what a playtest waits on, and a match started before the
+  // boot scene has loaded its textures renders nothing — so they appear only
+  // once the menu (which boot hands over to) is up.
+  game.events.once("ready", () => {
+    const menu = game.scene.getScene("Menu");
+    if (game.scene.isActive("Menu") || activeGame()) {
+      publish();
+    } else {
+      menu?.events.once(Scenes.Events.CREATE, publish);
+    }
+  });
+};
+
 const boot = async (): Promise<void> => {
   await fontReady;
   const webgl = probeWebGL();
@@ -64,21 +132,20 @@ const boot = async (): Promise<void> => {
     const scene = game.scene.getScene("Game");
     return scene instanceof GameScene && game.scene.isActive("Game") ? scene : null;
   };
-  Object.defineProperty(window, "__GAME_DIAGNOSTICS__", {
-    configurable: true,
-    get: () => ({
-      ...(activeGame()?.diagnostics() ?? {
-        complete: false,
-        frame: game.loop.frame,
-        phase: "menu",
-        player: null,
-        score: 0,
-      }),
-      audio: soundDiagnostics(),
+  publishDiagnostics(() => ({
+    ...(activeGame()?.diagnostics() ?? {
+      complete: false,
+      frame: game.loop.frame,
+      phase: "menu",
+      score: 0,
     }),
-  });
+    audio: soundDiagnostics(),
+  }));
   if (import.meta.env.DEV) {
     window.__game = game;
+  }
+  if (import.meta.env.DEV || isPlaytestRequested()) {
+    publishPlaytestContract(game, activeGame);
   }
   // Scale.RESIZE can read stale parent bounds when a resize lands while the
   // tab is hidden or the browser throttles events (tab switch, phone

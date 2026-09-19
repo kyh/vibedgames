@@ -504,14 +504,18 @@ export class TrafficCar {
   }
 
   // Drag the kinematic body along the route (it shoves wrecks aside) — but
-  // only near the taxi. Far cars park the body where it was (nothing out
-  // there can touch it) and teleport it back under themselves on re-entry:
-  // a swept kinematic move across the map would batter whatever it crossed.
+  // only near the taxi. Far cars park the body at the depot and teleport it
+  // back under themselves on re-entry: a swept kinematic move across the map
+  // would batter whatever it crossed, and a body left where the car went out
+  // of range is an invisible wall the taxi later drives into.
   private dragKinematicBody(playerX: number, playerZ: number, physics: PhysicsWorld | null): void {
     if (this.body) {
       const bdx = this.position.x - playerX;
       const bdz = this.position.z - playerZ;
       if (bdx * bdx + bdz * bdz > BODY_FAR_SQ) {
+        if (!this.bodyParked && physics) {
+          physics.teleport(this.body, DEPOT_X, BODY_LIFT, DEPOT_Z, this.object3D.quaternion);
+        }
         this.bodyParked = true;
       } else {
         if (this.bodyParked && physics) {

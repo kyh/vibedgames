@@ -221,3 +221,91 @@ export const pointerTracker = (options: PointerTrackerOptions = {}): PointerTrac
     return { pointer: { down, x, y } };
   };
 };
+
+export interface KeyTapperOptions {
+  /** Frames each tap stays down. */
+  downFrames?: number;
+  /** Frames between taps; the game has to see the key up to see the next keydown. */
+  upFrames?: number;
+}
+
+/** Turns "tap these keys" into the keys to hold this frame; see {@link keyTapper}. */
+export type KeyTapper = (codes: string[]) => string[];
+
+/**
+ * For verbs a game reads on the keydown EDGE — step one cell, rotate, flap,
+ * fire a single shot. A reflex holds what it returns, and a key returned on
+ * every frame is one long press: the game sees a single keydown. Call this
+ * each frame with the keys to tap and hold what it gives back — the keys for
+ * a few frames, then nothing for a few, so every cycle is a fresh keydown.
+ * Pass `[]` on frames with nothing to tap.
+ *
+ * @example
+ * const tap = keyTapper();
+ * flap_through_gap: {
+ *   description: "Fly through the next gap",
+ *   reflex: (game) => ({ keys: tap(game && game.player.y > game.gap.y ? ["Space"] : []) }),
+ * }
+ */
+export const keyTapper = (options: KeyTapperOptions = {}): KeyTapper => {
+  const downFrames = Math.max(1, options.downFrames ?? 2);
+  const upFrames = Math.max(1, options.upFrames ?? 2);
+  let frame = 0;
+  return (codes) => {
+    if (codes.length === 0) {
+      // The next request starts on a fresh press rather than mid-gap.
+      frame = 0;
+      return [];
+    }
+    const pressed = frame % (downFrames + upFrames) < downFrames;
+    frame += 1;
+    return pressed ? codes : [];
+  };
+};
+
+const clampUnit = (value: number): number => Math.min(1, Math.max(0, value));
+
+export interface PointerAimOptions {
+  /** Where the player sits on screen, in viewport fraction. Camera-follow games: the centre. */
+  centreX?: number;
+  centreY?: number;
+  /** How far from the centre to park the cursor, in viewport fraction of the shorter feel — 0.35 is "full tilt". */
+  radius?: number;
+  /** Hold the button down while aiming (mouse-fire, click-to-thrust). */
+  down?: boolean;
+}
+
+/**
+ * For games where the cursor is a heading — the ship flies towards it, the
+ * hero aims at it — and the camera follows the player. Give it the world
+ * vector to the target (`dx`, `dy` in the game's own units, y down) and it
+ * parks the cursor in that direction from the player. Direction only: the
+ * magnitude is `radius`, so no viewport size or camera zoom is needed.
+ * A zero vector parks the cursor on the player.
+ *
+ * @example
+ * attack: {
+ *   description: "Fly at the nearest target, firing",
+ *   reflex: (game) => (game?.target ? pointerAim(game.target.dx, game.target.dy, { down: true }) : null),
+ * }
+ */
+export const pointerAim = (
+  dx: number,
+  dy: number,
+  options: PointerAimOptions = {},
+): ReflexInputs => {
+  const centreX = options.centreX ?? 0.5;
+  const centreY = options.centreY ?? 0.5;
+  const radius = options.radius ?? 0.35;
+  const length = Math.hypot(dx, dy);
+  // A NaN component would survive `* 0`, so an unusable vector is no offset at all.
+  const scale = Number.isFinite(length) && length > 0 ? radius / length : null;
+  const offset = (component: number): number => (scale === null ? 0 : component * scale);
+  return {
+    pointer: {
+      down: options.down ?? false,
+      x: clampUnit(centreX + offset(dx)),
+      y: clampUnit(centreY + offset(dy)),
+    },
+  };
+};

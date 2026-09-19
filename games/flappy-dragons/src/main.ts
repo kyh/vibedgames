@@ -16,8 +16,6 @@ declare global {
     __fb?: { scene: GameScene; net: NetSession };
     /** Dev-only synthetic pose-jump driver: window.__fbPoseJump(0.8, false) */
     __fbPoseJump?: PoseJumpHandler;
-    /** Read-only per-frame telemetry for bot playtests (plugins/tooling/skills/playtest). */
-    __GAME_DIAGNOSTICS__?: ReturnType<GameScene["diagnostics"]>;
   }
 }
 

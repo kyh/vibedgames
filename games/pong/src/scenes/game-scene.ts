@@ -1770,6 +1770,7 @@ export class GameScene {
       charge: {
         armed: this.myCharge.kind === "armed",
         hits: chargeHits(this.myCharge),
+        ready: this.myCharge.kind === "ready",
         rivalHits: chargeHits(this.mySlotA ? this.chargeB : this.chargeA),
       },
       complete: this.phase === "won",
@@ -1777,6 +1778,7 @@ export class GameScene {
       frame: this.frame,
       handActive: this.currentHandX() !== null,
       longestRally: this.longestRally,
+      opponent: { x: this.flip * this.oppPaddle },
       opponentScore: this.scoreAi,
       paused: this.pause === "frozen",
       phase: this.phase,

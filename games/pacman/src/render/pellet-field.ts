@@ -70,6 +70,11 @@ export class PelletField {
     return this.live.length;
   }
 
+  /** Pellets still on the board. */
+  get cells(): readonly PelletCell[] {
+    return this.live;
+  }
+
   reset(cells: readonly PelletCell[]): void {
     this.live = cells.map((c) => ({ ...c }));
     this.index.clear();

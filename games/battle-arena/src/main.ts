@@ -16,6 +16,12 @@ import {
   setPauseHandlers,
   showWebGLVeil,
 } from "@repo/embed";
+import {
+  isPlaytestRequested,
+  publishDiagnostics,
+  publishPlaytest,
+  publishTestHooks,
+} from "@vibedgames/playtest";
 import * as THREE from "three";
 import { ModelLibrary } from "./render/models";
 import { View } from "./render/view";
@@ -31,6 +37,8 @@ import { DUNGEON_MODELS, MAP_STORAGE_KEY, parseMapData } from "./data/map-format
 import type { MapData } from "./data/map-format";
 import { applyMapData } from "./data/map";
 import { setDecorOverride } from "./data/decor";
+import { buildPlaytestManifest } from "./playtest/manifest";
+import type { BattleDiagnostics } from "./playtest/manifest";
 
 // Dev-console handles (assigned only in DEV builds).
 declare global {
@@ -235,6 +243,7 @@ const main = async (): Promise<void> => {
   const loadArena = (): Promise<void> => (arenaJob ??= loadArenaOnce());
 
   const params = new URLSearchParams(location.search);
+  const playtest = isPlaytestRequested();
 
   // Every branch below the lobby renders the arena itself, so they pay for it
   // up front behind the same progress bar the champion set just used.
@@ -243,7 +252,9 @@ const main = async (): Promise<void> => {
     params.has("editor") ||
     params.has("viewer") ||
     params.has("auto") ||
-    params.has("online")
+    params.has("online") ||
+    // setState('active-play') has to land in a live match synchronously
+    playtest
   ) {
     await loadArena();
   }
@@ -313,19 +324,17 @@ const main = async (): Promise<void> => {
   // live, whether it's online, and whether onPause actually froze it.
   let activeScene: GameScene | null = null;
   let frame = 0;
-  Object.defineProperty(window, "__GAME_DIAGNOSTICS__", {
-    configurable: true,
-    get: () => ({
-      frame,
-      ...(activeScene?.diagnostics() ?? {
-        audio: null,
-        complete: false,
-        phase: "menu",
-        player: null,
-        score: 0,
-      }),
+  publishDiagnostics(() => ({
+    frame,
+    ...(activeScene?.diagnostics() ?? {
+      audio: null,
+      complete: false,
+      fight: null,
+      phase: "menu",
+      player: undefined,
+      score: 0,
     }),
-  });
+  }));
   let onlineMatch = false;
   let froze = false;
   const matchLoop = (t: number): void => {
@@ -344,7 +353,9 @@ const main = async (): Promise<void> => {
     }
     // create input only when a match starts, so menu clicks never grab the
     // pointer (Controls' mousedown requests pointer lock).
-    const controls = new Controls(view.renderer.domElement);
+    const controls = new Controls(view.renderer.domElement, {
+      absoluteAim: import.meta.env.DEV || playtest,
+    });
     const touch = new TouchControls();
     const scene = new GameScene(view, lib, controls, opts, touch);
     activeScene = scene;
@@ -424,6 +435,47 @@ const main = async (): Promise<void> => {
     },
   });
 
+  // See plugins/tooling/skills/playtest/references/model-playtest.md. The hooks
+  // only ever stage a SOLO match: a seeded world written into a live room would
+  // be every other player's match too.
+  let leaveLobby: (() => void) | null = null;
+  if (import.meta.env.DEV || playtest) {
+    let seed: number | undefined;
+    publishTestHooks({
+      seed: (next) => {
+        seed = next;
+        activeScene?.restartSolo(next);
+      },
+      setPausedForScreenshot: (paused) => {
+        if (!activeScene?.isOffline) {
+          return;
+        }
+        timer.reset();
+        view.renderer.setAnimationLoop(paused ? null : matchLoop);
+      },
+      setState: (name) => {
+        if (name !== "active-play" || activeScene?.isOffline === false) {
+          return;
+        }
+        if (activeScene) {
+          activeScene.restartSolo(seed ?? 0);
+        } else {
+          leaveLobby?.();
+          launch({
+            champId: chosenChamp(),
+            name: chosenName(),
+            online: false,
+            room: "",
+            seed,
+            skipIntro: true,
+          });
+        }
+        return { state: name };
+      },
+    });
+    publishPlaytest<BattleDiagnostics>(buildPlaytestManifest(chosenChamp()));
+  }
+
   // Boot flow: bare URL = champion-select lobby (the right default for a cold
   // shared link — first-time visitors choose a champion instead of being
   // dropped into a match). Quick-start deep-links skip it: ?auto = instant solo
@@ -444,17 +496,26 @@ const main = async (): Promise<void> => {
     const stage = new MenuStage(view.renderer, lib, (id) => menu?.setSelected(id));
     const onMove = (e: PointerEvent): void => stage.onPointerMove(e.clientX, e.clientY);
     const onResize = (): void => stage.resize();
-    menu = new Menu({
+    const disposeLobby = (): void => {
+      view.renderer.setAnimationLoop(null);
+      canvas.removeEventListener("pointermove", onMove);
+      window.removeEventListener("resize", onResize);
+      stage.dispose();
+    };
+    const lobby = new Menu({
       initial: initialChamp,
       onSelect: (id) => stage.select(id),
       onStart: (opts) => {
-        view.renderer.setAnimationLoop(null);
-        canvas.removeEventListener("pointermove", onMove);
-        window.removeEventListener("resize", onResize);
-        stage.dispose();
+        disposeLobby();
         launch(opts);
       },
     });
+    menu = lobby;
+    leaveLobby = () => {
+      leaveLobby = null;
+      lobby.remove();
+      disposeLobby();
+    };
     canvas.addEventListener("pointermove", onMove);
     window.addEventListener("resize", onResize);
     // First touch or keypress in the lobby = someone who is going to play, so

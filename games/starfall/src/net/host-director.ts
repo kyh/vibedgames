@@ -182,6 +182,20 @@ export class HostDirector {
     this.hooks = deps.hooks;
   }
 
+  /** Back to a never-hosted director, for a run rebuilt from nothing (the
+   *  playtest seed hook): the next hostTick re-adopts every clock. */
+  restart(): void {
+    this.bossAlive = false;
+    this.lastBossKilledAt = 0;
+    this.playBoundsDirty = false;
+    this.shareAcc = 0;
+    this.wasHost = false;
+    this.lastBreatherDespawnAt = 0;
+    this.debuted = new Set();
+    this.debutSuppressUntil = 0;
+    this.lastBeaconStartedAt = 0;
+  }
+
   hostTick(now: number, dt: number, delta: number): void {
     if (!this.hooks.prepareHost()) {
       return;

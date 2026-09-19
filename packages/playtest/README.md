@@ -120,6 +120,14 @@ publishPlaytest<PongDiagnostics>({
 The generic parameter types the reflex's `game` argument as your own
 diagnostics shape. `pointerTracker` takes `{ gain, maxStep, min, max, start, y, down }`.
 
+## Helpers for reflexes
+
+- `pointerTracker(options)` — walk the cursor along one axis by a signed error each frame (a paddle under a ball).
+- `pointerAim(dx, dy, { down, radius })` — park the cursor in a target's direction, for camera-follow games where the cursor is a heading (a ship that flies towards the mouse). Direction only, so no viewport size or zoom is needed.
+- `keyTapper({ downFrames, upFrames })` — for verbs the game reads on the keydown edge (step a cell, rotate, flap). A key returned every frame is one long press; `tap(["Space"])` alternates press and release so each cycle is a fresh keydown. Pass `[]` when there is nothing to tap.
+
+A reflex that returns `null` holds nothing.
+
 ## API
 
 - `publishDiagnostics(read, target?)` — installs `__GAME_DIAGNOSTICS__` as a getter over `read`.

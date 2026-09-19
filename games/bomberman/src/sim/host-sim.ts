@@ -128,7 +128,7 @@ const grantPowerup = (stats: PlayerStats, kind: PowerupKind): PlayerStats => {
   }
 };
 
-const computeBlastTiles = (grid: Cell[][], bomb: Bomb) => {
+export const computeBlastTiles = (grid: Cell[][], bomb: Pick<Bomb, "col" | "row" | "range">) => {
   const tiles: Tile[] = [{ col: bomb.col, row: bomb.row }];
   const crates: Tile[] = [];
   for (const [dc, dr] of [
@@ -191,7 +191,7 @@ const occupiedTiles = (
 // ---- bot AI helpers ---------------------------------------------------------
 
 /** Tiles that are unsafe right now: every bomb's eventual blast + live blasts. */
-const dangerSet = (s: SharedState): Set<string> => {
+export const dangerSet = (s: SharedState): Set<string> => {
   const danger = new Set<string>();
   for (const bomb of Object.values(s.bombs)) {
     for (const t of computeBlastTiles(s.grid, bomb).tiles) {

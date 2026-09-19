@@ -297,6 +297,9 @@ export class PlayerBody {
   get dashing(): boolean {
     return this.dashTime > 0;
   }
+  get dashReady(): boolean {
+    return this.dashCd <= 0 && this.dashTime <= 0 && (this.grounded || this.airDash);
+  }
   get hurting(): boolean {
     return this.hurtStun > 0;
   }

@@ -211,6 +211,7 @@ const config = (overrides: Partial<AgentConfig> = {}): AgentConfig => ({
     right: { description: "Move right", inits: inits(["KeyD"]), pointer: null },
     track: { description: "Follow the ball", inits: [], pointer: null },
   },
+  pinMove: null,
   stuckRun: 2,
   tickMs: 0,
   ticks: 3,
@@ -422,6 +423,50 @@ test("runs an option's reflex every frame and holds what it returns", async () =
   assert.ok(keyEvents(page).includes("keydown:KeyD"));
   // The pointer never changed, so it was dispatched once, not once per frame.
   assert.equal(page.dispatched.filter((d) => d.type === "pointermove").length, 1);
+});
+
+test("a pinned move runs without ever calling the model", async () => {
+  const page = makePage({ pick: () => "left" });
+  const result = await complete(page, config({ pinMove: "right", ticks: 3 }));
+  assert.equal(result.error, null);
+  assert.equal(page.requests.length, 0);
+  assert.deepEqual(
+    result.records.map((r) => r.move),
+    ["right", "right", "right"],
+  );
+});
+
+test("a held-down pointer that moves is a drag, not a click per move", async () => {
+  let x = 0.2;
+  const page = makePage(
+    { pick: () => "track" },
+    {
+      track: () => {
+        x += 0.01;
+        return { pointer: { down: true, x, y: 0.5 } };
+      },
+    },
+  );
+  await complete(page, config({ ticks: 2 }));
+  const types = page.dispatched.filter((d) => d.kind === "pointer").map((d) => d.type);
+  assert.equal(types.filter((type) => type === "pointerdown").length, 1);
+  assert.ok(types.filter((type) => type === "pointermove").length > 1);
+  assert.equal(types.at(-1), "pointerup");
+});
+
+test("a reflex that returns null releases what it held", async () => {
+  let frames = 0;
+  const page = makePage(
+    { pick: () => "track" },
+    {
+      track: () => {
+        frames += 1;
+        return frames === 1 ? { keys: ["KeyD"] } : null;
+      },
+    },
+  );
+  await complete(page, config({ ticks: 1 }));
+  assert.deepEqual(keyEvents(page).slice(0, 2), ["keydown:KeyD", "keyup:KeyD"]);
 });
 
 test("stops on a rejected token without retrying, and retries an upstream fault", async () => {

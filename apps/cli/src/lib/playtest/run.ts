@@ -67,6 +67,8 @@ const POLL_MS = 250;
 
 export interface RunOptions {
   controls: Controls;
+  /** A move to hold for the whole run without calling the model, or null. */
+  pinMove: string | null;
   expectProgress: boolean;
   model: string;
   tickMs: number;
@@ -110,6 +112,7 @@ export const agentConfig = (opts: RunOptions, session: Session): AgentConfig => 
     model: opts.model,
     motionEpsilon: motionEpsilon(opts.controls),
     move,
+    pinMove: opts.pinMove,
     stuckRun: THRESHOLDS.stuckRun,
     tickMs: opts.tickMs,
     ticks: opts.ticks,
