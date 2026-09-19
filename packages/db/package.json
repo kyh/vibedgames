@@ -14,7 +14,7 @@
     "push": "drizzle-kit push --config drizzle.config.local.ts --force",
     "generate": "pnpm with-env drizzle-kit generate",
     "generate:auth-schema": "echo 'Disabled. @better-auth/cli is stuck at 1.4.21: it emits no account.issuer (required since better-auth 1.7) and strips hand-added indexes, RLS, and the rate_limit table. Running it silently breaks auth. Maintain src/drizzle-schema-auth.ts by hand until the CLI supports 1.7.' && exit 1",
-    "push:remote": "dotenv -e ../../.env.production.local -- drizzle-kit push",
+    "push:remote": "dotenv -e ../../.env.production.local -- sh -c 'drizzle-kit push --explain && printf \"Apply to PROD D1? Refuse any table recreate. [y/N] \" && read ok && [ \"$ok\" = y ] && drizzle-kit push'",
     "with-env": "dotenv -e ../../.env --"
   },
   "dependencies": {
