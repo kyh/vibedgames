@@ -126,7 +126,7 @@ diagnostics shape. `pointerTracker` takes `{ gain, maxStep, min, max, start, y, 
 - `pointerAim(dx, dy, { down, radius })` — park the cursor in a target's direction, for camera-follow games where the cursor is a heading (a ship that flies towards the mouse). Direction only, so no viewport size or zoom is needed.
 - `keyTapper({ downFrames, upFrames })` — for verbs the game reads on the keydown edge (step a cell, rotate, flap). A key returned every frame is one long press; `tap(["Space"])` alternates press and release so each cycle is a fresh keydown. Pass `[]` when there is nothing to tap.
 
-A reflex that returns `null` holds nothing.
+A reflex that returns `null` holds nothing. Return `stuck: true` with the inputs while the reflex is trying to travel and getting nowhere — the playtest cannot tell that from holding position on purpose, and withdraws the move so the model picks another.
 
 ## API
 

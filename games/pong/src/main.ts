@@ -174,6 +174,18 @@ if (import.meta.env.DEV || isPlaytestRequested()) {
   // the angle comes from where on the paddle the ball lands. Holding the
   // paddle this far to one side of the ball is an off-centre hit on purpose.
   const AIM_OFFSET = HIT_HALF_X * 0.6;
+  // Which way to send it is a per-ball read of where the rival stands — too
+  // fast and too fiddly for a decision a few times a second, so the reflex
+  // makes it. The side only flips once the rival is clearly across the ball,
+  // or a rival hovering under it would flip the paddle every frame.
+  let aimSide: 1 | -1 = 1;
+  const aimAway = (diag: PongDiagnostics) => {
+    const rivalOffset = diag.opponent.x - diag.ball.x;
+    if (Math.abs(rivalOffset) > HIT_HALF_X / 2) {
+      aimSide = rivalOffset > 0 ? 1 : -1;
+    }
+    return track(diag.ball.x + aimSide * AIM_OFFSET - diag.player.x);
+  };
   publishPlaytest<PongDiagnostics>({
     actions: {
       confirm: {
@@ -182,17 +194,14 @@ if (import.meta.env.DEV || isPlaytestRequested()) {
         keys: ["Space"],
       },
     },
-    goal: "You control the bottom paddle; it follows the pointer's x. A point is won when the rival (top paddle, game.opponent.x) fails to reach your return. `track_ball` returns the ball straight — safe, but the rival always reaches a straight ball, so it never wins a point. To WIN points, angle the return away from the rival: `aim_left` when game.opponent.x is greater than game.ball.x, `aim_right` when it is less. Every 4 returns game.charge.ready turns true: confirm then, and the next return is a power shot. game.score is your points; game.opponentScore is theirs; first to the target wins.",
+    goal: "You control the bottom paddle; it follows the pointer's x. A point is won when the rival (top paddle, game.opponent.x) fails to reach your return. `track_ball` returns the ball straight — safe, but the rival always reaches a straight ball, so it never wins a point. To WIN points choose `aim_away`: it returns every ball at an angle, to the side the rival is NOT on. Use `track_ball` only to play safe when game.opponentScore is one point from winning. Every 4 returns game.charge.ready turns true: confirm then, and the next return is a power shot. game.score is your points; game.opponentScore is theirs; first to the target wins.",
     // The court is a few world units wide, not a few hundred pixels.
     minDisplacement: 0.05,
     move: {
-      aim_left: {
-        description: "Follow the ball and hit it off-centre so the return angles LEFT (-x)",
-        reflex: (diag) => (diag ? track(diag.ball.x + AIM_OFFSET - diag.player.x) : null),
-      },
-      aim_right: {
-        description: "Follow the ball and hit it off-centre so the return angles RIGHT (+x)",
-        reflex: (diag) => (diag ? track(diag.ball.x - AIM_OFFSET - diag.player.x) : null),
+      aim_away: {
+        description:
+          "Follow the ball and return it at an angle, away from wherever the rival is standing — the way to win points (the default for a rally)",
+        reflex: (diag) => (diag ? aimAway(diag) : null),
       },
       centre: {
         description: "Park the paddle in the centre of the court",

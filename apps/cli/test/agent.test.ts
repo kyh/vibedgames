@@ -425,6 +425,25 @@ test("runs an option's reflex every frame and holds what it returns", async () =
   assert.equal(page.dispatched.filter((d) => d.type === "pointermove").length, 1);
 });
 
+test("a reflex that reports itself stuck is withdrawn like any wedged move", async () => {
+  const offeredPerTick: string[][] = [];
+  const page = makePage(
+    {
+      pick: (offered) => {
+        offeredPerTick.push(offered.toSorted());
+        return (
+          ["track", "right", "left", "none"].find((label) => offered.includes(label)) ?? "none"
+        );
+      },
+    },
+    { track: () => ({ keys: ["KeyD"], stuck: true }) },
+  );
+  const result = await complete(page, config({ ticks: 6 }), 0);
+  assert.equal(result.error, null);
+  assert.ok(result.records.filter((r) => r.move === "track").every((r) => r.askedToMove));
+  assert.ok(offeredPerTick.some((offered) => !offered.includes("track")));
+});
+
 test("a pinned move runs without ever calling the model", async () => {
   const page = makePage({ pick: () => "left" });
   const result = await complete(page, config({ pinMove: "right", ticks: 3 }));
