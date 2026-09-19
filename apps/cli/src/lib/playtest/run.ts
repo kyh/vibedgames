@@ -27,11 +27,32 @@ export const THRESHOLDS = {
    * a couple of seconds long where the scripted sweep is twelve.
    */
   framesAdvanced: 100,
+  /** Decisions a rested no-input option stays out of the question. */
+  idleRestTicks: 8,
+  /** Idle decisions in a row (holding nothing, going nowhere) before the no-input option is rested. */
+  idleRun: 3,
   minFps: 10,
-  /** Displacement (world units) below which a window counts as "didn't move". */
-  motionEpsilon: 0.2,
+  /**
+   * A window counts as "didn't move" below this fraction of the displacement
+   * gate, so both scale together when a game measures in world units.
+   */
+  motionEpsilonRatio: 0.04,
+  /** Stuck ticks in a row after which the agent withdraws the move. */
   stuckRun: 2,
+  /**
+   * Stuck ticks in a row that fail the run. The decision after a withdrawal
+   * was already in flight when it landed, so `stuckRun + 1` is what hitting
+   * one wall costs; past that the alternatives went nowhere too.
+   */
+  wedgedRun: 5,
 };
+
+/** The input-alive gate for this scheme, in the game's own `player` units. */
+export const displacementGate = (controls: Controls): number =>
+  controls.minDisplacement ?? THRESHOLDS.displacement;
+
+const motionEpsilon = (controls: Controls): number =>
+  displacementGate(controls) * THRESHOLDS.motionEpsilonRatio;
 
 /** A yes/no answer at or above this probability is acted on. */
 export const ACTION_THRESHOLD = 0.5;
@@ -83,9 +104,11 @@ export const agentConfig = (opts: RunOptions, session: Session): AgentConfig => 
     decisionTimeoutMs: DECISION_TIMEOUT_MS,
     finalHoldMs: FINAL_HOLD_MS,
     goal: opts.controls.goal,
+    idleRestTicks: THRESHOLDS.idleRestTicks,
+    idleRun: THRESHOLDS.idleRun,
     keyTable: keyTable(),
     model: opts.model,
-    motionEpsilon: THRESHOLDS.motionEpsilon,
+    motionEpsilon: motionEpsilon(opts.controls),
     move,
     stuckRun: THRESHOLDS.stuckRun,
     tickMs: opts.tickMs,
@@ -127,6 +150,7 @@ const measure = (
   window: Window,
   askedToMove: boolean,
   index: number,
+  epsilon: number,
 ): Outcome => {
   metrics.distance += window.path;
   metrics.maxTickDisplacement = Math.max(metrics.maxTickDisplacement, window.peak);
@@ -140,8 +164,7 @@ const measure = (
   // wall, which the agent's reflex exists to break.
   let stuck = false;
   if (askedToMove) {
-    stuck =
-      window.frame > window.frameBefore && window.peak < THRESHOLDS.motionEpsilon && !progressed;
+    stuck = window.frame > window.frameBefore && window.peak < epsilon && !progressed;
     if (stuck) {
       metrics.stuckTicks += 1;
       metrics.stuckRun += 1;
@@ -237,7 +260,10 @@ const readRecord = (value: JsonValue): AgentRecord => {
 };
 
 /** The agent's records, folded into metrics and a timeline. */
-export const resultFromAgent = (published: JsonValue): RunResult => {
+export const resultFromAgent = (
+  published: JsonValue,
+  epsilon = THRESHOLDS.displacement * THRESHOLDS.motionEpsilonRatio,
+): RunResult => {
   if (!isJsonObject(published)) {
     throw new HarnessError("the page lost the agent before its result could be read.");
   }
@@ -257,7 +283,13 @@ export const resultFromAgent = (published: JsonValue): RunResult => {
   const usage = { calls: 0, inputTokens: 0, maxDecisionMs: 0, outputTokens: 0, totalDecisionMs: 0 };
   let lastWindow: Window | null = null;
   for (const record of records) {
-    const { progressed, stuck } = measure(metrics, record.window, record.askedToMove, record.tick);
+    const { progressed, stuck } = measure(
+      metrics,
+      record.window,
+      record.askedToMove,
+      record.tick,
+      epsilon,
+    );
     timeline.push(timelineEntry(record, progressed, stuck));
     usage.calls += 1;
     usage.inputTokens += record.inputTokens;
@@ -302,7 +334,7 @@ export const runInPage = async (
     }
     await delay(POLL_MS);
   }
-  return resultFromAgent(browser.agentResult());
+  return resultFromAgent(browser.agentResult(), motionEpsilon(opts.controls));
 };
 
 /**
@@ -388,6 +420,8 @@ export const buildReport = (opts: RunOptions, input: ReportInputs) => {
     gpu: input.gpu,
     longestStuckRun: run.metrics.longestStuckRun,
     maxTickDisplacement: round(run.metrics.maxTickDisplacement),
+    // The gate `maxTickDisplacement` was held to, so the number reads in context.
+    minDisplacement: displacementGate(opts.controls),
     model: {
       calls: run.usage.calls,
       id: opts.model,
@@ -438,12 +472,26 @@ export const verdict = (report: Report, opts: RunOptions): Verdict => {
   // Gated on the largest displacement any ONE tick achieved, not on the
   // summed path: path accumulates every sampled wobble, and an idle bob
   // would drift past a total-distance threshold.
-  if (report.maxTickDisplacement <= THRESHOLDS.displacement) {
+  const gate = displacementGate(opts.controls);
+  const holdsInput = (label: string): boolean => {
+    const option = opts.controls.move[label];
+    return (
+      option !== undefined && (option.keys.length > 0 || option.pointer !== null || option.reflex)
+    );
+  };
+  const triedToMove = report.timeline.some((entry) => holdsInput(entry.move));
+  if (!triedToMove && report.timeline.length > 0) {
+    // Not dead input: input was never tried. Blaming the controls here sends
+    // the author to the wrong file.
     failures.push(
-      `player did not respond to input (maxTickDisplacement ${report.maxTickDisplacement}) — if this game steers with the mouse, give it pointer moves in __GAME_PLAYTEST__ or --controls`,
+      "the model never chose a movement — every decision held nothing. The diagnostics gave it no reason to go anywhere: expose where the goal, threats and pickups are (dx/dy from the player) in __GAME_DIAGNOSTICS__, and say which way progress is in the goal",
+    );
+  } else if (report.maxTickDisplacement <= gate) {
+    failures.push(
+      `player did not respond to input (maxTickDisplacement ${report.maxTickDisplacement}, needs > ${gate}) — if this game steers with the mouse, give it pointer moves in __GAME_PLAYTEST__ or --controls; if \`player\` is in world units rather than pixels, set \`minDisplacement\` in __GAME_PLAYTEST__ or pass --min-displacement`,
     );
   }
-  if (report.longestStuckRun > THRESHOLDS.stuckRun) {
+  if (report.longestStuckRun >= THRESHOLDS.wedgedRun) {
     failures.push(
       `player wedged for ${report.longestStuckRun} consecutive movement ticks (longestStuckRun) — the model kept choosing moves that went nowhere`,
     );

@@ -45,8 +45,14 @@ const main = defineCommand({
     new: newCommand,
     // `run` is the one `vg playtest` verb that is ours rather than
     // agent-browser's: the model-driven playtest. index.ts routes every other
-    // `vg playtest …` straight to the binary below.
-    playtest: defineCommand({ ...playtestCommand, subCommands: { run: playtestRunCommand } }),
+    // `vg playtest …` straight to the binary below. Only the meta is reused:
+    // citty runs a parent's `run` AFTER its subcommand, so carrying the
+    // passthrough here would forward `run …` to agent-browser once the
+    // playtest had finished and turn every passing run into an exit 1.
+    playtest: defineCommand({
+      meta: playtestCommand.meta,
+      subCommands: { run: playtestRunCommand },
+    }),
     update: updateCommand,
     whoami: whoamiCommand,
   },

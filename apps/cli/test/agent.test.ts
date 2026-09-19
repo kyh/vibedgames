@@ -200,6 +200,8 @@ const config = (overrides: Partial<AgentConfig> = {}): AgentConfig => ({
   decisionTimeoutMs: 1000,
   finalHoldMs: 100,
   goal: "Go right.",
+  idleRestTicks: 8,
+  idleRun: 3,
   keyTable: keyTable(),
   model: "jev-latest",
   motionEpsilon: 0.2,
@@ -267,7 +269,7 @@ test("asks one choice for movement, a progress score, and one yes/no per action,
   assert.deepEqual(JSON.parse(second.body).state.recent.held, { actions: [], move: "right" });
 });
 
-test("holds the chosen move and actions as key events, releasing on change and at the end", async () => {
+test("holds the chosen move, and presses a repeated action again on each decision", async () => {
   const page = makePage({
     actionProbability: 0.9,
     pick: (_, tick) => (tick === 0 ? "right" : "left"),
@@ -277,8 +279,11 @@ test("holds the chosen move and actions as key events, releasing on change and a
   assert.deepEqual(keyEvents(page), [
     "keydown:KeyD",
     "keydown:Space",
+    // Chosen again: released first, so a game acting on the keydown edge sees a second press.
+    "keyup:Space",
     "keyup:KeyD",
     "keydown:KeyA",
+    "keydown:Space",
     "keyup:KeyA",
     "keyup:Space",
   ]);
@@ -311,16 +316,20 @@ test("records a window per decision with usage, and measures motion under it", a
   assert.ok(result.wallMs > 0);
 });
 
-test("withdraws a move that produced nothing twice, and only that move", async () => {
+test("withdraws a move that produced nothing twice, then the next one, until the player moves", async () => {
   const offeredPerTick: string[][] = [];
   const page = makePage({
     pick: (offered) => {
       offeredPerTick.push(offered.toSorted());
-      return offered.includes("right") ? "right" : "left";
+      if (offered.includes("right")) {
+        return "right";
+      }
+      return offered.includes("left") ? "left" : "none";
     },
   });
   // The player never moves, so `right` is stuck from the first window.
-  const result = await complete(page, config({ ticks: 5 }), 0);
+  // Idle-resting is its own test; here it would pull `none` mid-assertion.
+  const result = await complete(page, config({ idleRun: 99, ticks: 9 }), 0);
   assert.equal(result.error, null);
   assert.deepEqual(offeredPerTick[0], ["left", "none", "right", "track"]);
   assert.deepEqual(
@@ -335,6 +344,58 @@ test("withdraws a move that produced nothing twice, and only that move", async (
     result.records.filter((r) => r.move === "right").length >= 2,
     "the withdrawn move was tried at least twice",
   );
+  // Still stuck on `left`: both walls are withdrawn together, not swapped.
+  assert.deepEqual(offeredPerTick.at(-1), ["none", "track"]);
+});
+
+test("rests the no-input option after the model idles, then offers it again", async () => {
+  const offeredPerTick: string[][] = [];
+  const page = makePage({
+    pick: (offered) => {
+      offeredPerTick.push(offered.toSorted());
+      return offered.includes("none") ? "none" : "right";
+    },
+  });
+  const result = await complete(page, config({ idleRestTicks: 2, ticks: 8 }), 0);
+  assert.equal(result.error, null);
+  const rested = offeredPerTick.findIndex((offered) => !offered.includes("none"));
+  assert.ok(rested >= 3, "three idle decisions come first");
+  assert.ok(
+    offeredPerTick.slice(rested + 2).some((offered) => offered.includes("none")),
+    "the rest is temporary",
+  );
+});
+
+test("a parked pointer that has arrived is not a stuck player", async () => {
+  const page = makePage({ pick: () => "park" });
+  const result = await complete(
+    page,
+    config({
+      move: {
+        none: { description: "stay", inits: [], pointer: null },
+        park: { description: "park", inits: [], pointer: { down: false, x: 0.5, y: 0.5 } },
+      },
+      ticks: 4,
+    }),
+    0,
+  );
+  assert.equal(result.error, null);
+  assert.ok(result.records.every((r) => !r.askedToMove));
+});
+
+test("gives up on a decision that never answers", async () => {
+  const page = makePage({ pick: () => "right" });
+  page.env.fetch = () =>
+    // oxlint-disable-next-line promise/avoid-new -- a request that hangs forever
+    new Promise(() => {
+      /* never settles */
+    });
+  const result = inPageAgent(config({ decisionRetries: 0, ticks: 1 }), page.env);
+  for (let i = 0; i < 10 && !result.done; i += 1) {
+    page.frame(500);
+    await page.settle();
+  }
+  assert.match(result.error ?? "", /no answer within 1000 ms/u);
 });
 
 test("runs an option's reflex every frame and holds what it returns", async () => {
@@ -353,8 +414,8 @@ test("runs an option's reflex every frame and holds what it returns", async () =
   assert.ok(calls > 0, "the reflex ran");
   assert.ok(result.records.every((r) => r.reflexFrames > 0));
   assert.ok(
-    result.records.every((r) => r.askedToMove),
-    "a reflex-only option still asks to move",
+    result.records.every((r) => !r.askedToMove),
+    "a converged reflex holds still on purpose, so its windows are never stuck",
   );
   const firstMove = page.dispatched.find((d) => d.kind === "pointer" && d.type === "pointermove");
   assert.equal(firstMove?.pointer?.x, 0.25);

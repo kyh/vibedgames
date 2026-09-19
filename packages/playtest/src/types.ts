@@ -107,10 +107,21 @@ export interface ActionOption {
 export interface PlaytestManifest<TGame extends Diagnostics = Diagnostics> {
   /** The rules: what wins, what kills, which way progress is, what the diagnostic fields mean. */
   goal: string;
-  /** One `choice` per decision; a `none` option is supplied if you leave it out. */
+  /**
+   * One `choice` per decision. Declare a no-input option only if standing
+   * still is a real play: given a thin state the model picks it every tick.
+   */
   move: Record<string, MoveOption<TGame>>;
   /** One yes/no per decision, each. */
   actions?: Record<string, ActionOption>;
+  /**
+   * The per-decision movement that proves input reaches the player, in the
+   * units of `player.x/y/z`. Defaults to 5, which suits pixels; a game that
+   * measures in world units (most 3D games) should set what one decision's
+   * worth of movement really is there, or the run fails as "did not respond
+   * to input".
+   */
+  minDisplacement?: number;
 }
 
 /** The three globals, on whatever object stands in for `window`. */

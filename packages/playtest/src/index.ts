@@ -143,6 +143,10 @@ export const publishPlaytest = <TGame extends Diagnostics>(
   for (const [label, option] of Object.entries(manifest.actions ?? {})) {
     checkAction(label, option);
   }
+  const { minDisplacement } = manifest;
+  if (minDisplacement !== undefined && !(Number.isFinite(minDisplacement) && minDisplacement > 0)) {
+    fail("`minDisplacement` must be a positive number, in the units of player.x/y.");
+  }
   // SAFETY: the manifest is generic over the game's own diagnostics type
   // only so its reflexes are typed at the call site; on the window it is
   // read by code that knows nothing of that type.

@@ -217,8 +217,10 @@ export class GameBrowser {
     const before: Sample = isJsonObject(sample)
       ? { complete: sample.complete === true, frame: num(sample.frame), score: num(sample.score) }
       : { complete: false, frame: 0, score: 0 };
+    // A reflex is a function and JSON drops it, which would make a move that
+    // is nothing BUT a reflex look like one that holds no input. Keep the fact.
     const manifest = this.evaluate(
-      "(() => { try { return JSON.parse(JSON.stringify(window.__GAME_PLAYTEST__ ?? null)); } catch { return null; } })()",
+      "(() => { try { return JSON.parse(JSON.stringify(window.__GAME_PLAYTEST__ ?? null, (key, value) => (key === 'reflex' && typeof value === 'function' ? true : value))); } catch { return null; } })()",
     );
     return { before, manifest, seedApplied };
   }

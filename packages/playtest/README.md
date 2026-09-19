@@ -53,7 +53,6 @@ if (import.meta.env.DEV || isPlaytestRequested()) {
   publishPlaytest({
     goal: "Cross the level to the flag on the right. Pits and spikes kill; jump them (nearestHazard.dx says how far). Coins raise the score.",
     move: {
-      none: { description: "Stand still", keys: [] },
       left: { description: "Run left", keys: ["ArrowLeft"] },
       right: { description: "Run right (towards the flag)", keys: ["ArrowRight"] },
       right_jump: {
@@ -86,6 +85,13 @@ vg playtest run --url http://localhost:5173
 missing description, a pointer given in pixels instead of viewport fractions,
 an action with no keys — and throws in the game's own console, so the mistake
 shows up before the CLI is involved.
+
+**A game in world units sets `minDisplacement`.** The run's input-alive gate
+is "the player moved more than 5 in one decision", which is a pixel-scale
+number. A Three.js court a few units wide never moves 5 of anything, and fails
+as "player did not respond to input" while playing perfectly — give the
+manifest `minDisplacement: 0.05` (a fraction of what one decision's hold moves
+the player, in the units of `player.x/y/z`).
 
 ## Reflexes: the fast-game path
 
