@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 — 2026-09-18
+
+- **`vg playtest run` — a model plays your game and reports how it went.** The loop runs inside the game's page: several times a second it reads `window.__GAME_DIAGNOSTICS__`, asks a decision-only model which movement to hold and which actions to take, and dispatches them as real held input. Nothing to configure beyond `vg login`; not metered. `--url` / `--game`, `--goal`, `--controls <wasd|arrows|file>`, `--ticks`, `--tick-ms`, `--expect-progress`, `--min-displacement`, `--json` / `--field`. Exit `0` it plays, `1` it doesn't (the report says why), `2` the harness failed.
+- Games describe their controls in `window.__GAME_PLAYTEST__` (`goal`, `move`, `actions`, optional per-frame `reflex`, `minDisplacement` for world-unit games) — typed and validated by the new `@vibedgames/playtest` package, or set by hand.
+- The report carries `decisions` (moves, actions, mean confidence, the model's own 0–1 `progress` read), `decisionsPerSecond`, `model` (calls, tokens, latency) and a per-decision `timeline`.
+- Every other `vg playtest …` still passes straight through to the browser binary.
+
+## 0.5.1 — 2026-09-10
 
 - **OpenAI image models run through your own Codex plan by default.** With no `--provider` set, `vg generate run openai/gpt-image-*` uses a locally installed `codex` CLI (nothing billed to vibedgames) when the run is synchronous and its references are local files; a stderr line says so. Other endpoints are untouched — Codex cannot run Flux, video or audio. `--provider vibedgames` or `VG_GENERATE_PROVIDER=vibedgames` pins the catalog.
 
