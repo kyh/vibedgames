@@ -52,6 +52,9 @@ const followSubject = (game: Game, subject: Brawler, dt: number): void => {
   game.focus.z = damp(game.focus.z, z, 5.5, dt);
 };
 
+const REDUCED_MOTION =
+  typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
 export const updateCamera = (game: Game, dt: number): void => {
   const { camera } = game;
   const fit = aspectFit(camera.aspect);
@@ -66,7 +69,8 @@ export const updateCamera = (game: Game, dt: number): void => {
   const pullBack = game.state === "countdown" ? smoothstep(0.4, 3.2, game.countdownT) : 0;
   const distance = CAMERA_DISTANCE * fit * game.camZoom * (1 + pullBack * 0.75);
   game.shakeAmp = damp(game.shakeAmp, 0, 9, dt);
-  const amp = game.shakeAmp;
+  // Sustained shake is the one motion effect that makes people queasy.
+  const amp = REDUCED_MOTION ? 0 : game.shakeAmp;
   const t = game.elapsed;
   const shakeX = Math.sin(t * 43) * amp * 0.3;
   const shakeZ = Math.cos(t * 37 + 1.3) * amp * 0.22;
