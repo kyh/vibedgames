@@ -7,7 +7,8 @@ import type { LootBox } from "../combat/combat";
 import type { AttackDef } from "../config";
 import type { Brawler } from "../entities/brawler";
 import type { Game } from "../game";
-import { dist, rand } from "../utils";
+import { dist, randIn } from "../utils";
+import type { Rng } from "../utils";
 import type { TileCoord } from "../world/grid";
 import { escapeGoal, fleeGoal, nearestBox, nearestCube } from "./goals";
 import { BUSH_SIGHT_RANGE, pickTarget, SIGHT_RANGE } from "./targeting";
@@ -56,6 +57,8 @@ const projectileSpeed = (def: AttackDef): number =>
 export class Bot {
   game: Game;
   b: Brawler;
+  /** The match's seeded stream; a navigator that never decides anything may pass any source. */
+  private readonly rng: Rng;
   thinkT: number;
   state: BotState;
   target: Brawler | null;
@@ -79,10 +82,11 @@ export class Bot {
   skill: number;
   thrower: boolean;
 
-  constructor(game: Game, brawler: Brawler) {
+  constructor(game: Game, brawler: Brawler, rng: Rng) {
     this.game = game;
     this.b = brawler;
-    this.thinkT = rand(0, 0.35);
+    this.rng = rng;
+    this.thinkT = randIn(rng, 0, 0.35);
     this.state = "loot";
     this.target = null;
     this.box = null;
@@ -90,10 +94,10 @@ export class Bot {
     this.path = null;
     this.pathI = 0;
     this.repathT = 0;
-    this.strafeDir = Math.random() < 0.5 ? 1 : -1;
-    this.strafeT = rand(0.6, 1.6);
+    this.strafeDir = rng() < 0.5 ? 1 : -1;
+    this.strafeT = randIn(rng, 0.6, 1.6);
     this.reactT = 0;
-    this.shootT = rand(0.4, 1);
+    this.shootT = randIn(rng, 0.4, 1);
     this.stuckT = 0;
     this.lastX = brawler.x;
     this.lastZ = brawler.z;
@@ -103,7 +107,7 @@ export class Bot {
     this.wanderT = 0;
     this.wanderGoal = null;
     const [lo, hi] = game.difficulty.skill;
-    this.skill = rand(lo, hi);
+    this.skill = randIn(rng, lo, hi);
     this.thrower = brawler.def.attack.kind === "lob";
   }
 
@@ -126,7 +130,7 @@ export class Bot {
     const { game } = this;
     const { target, range } = pickTarget(this);
     if (target !== this.target) {
-      this.reactT = rand(0.22, 0.5) * (2 - this.skill) * game.difficulty.react;
+      this.reactT = randIn(this.rng, 0.22, 0.5) * (2 - this.skill) * game.difficulty.react;
     }
     this.target = target;
     const { state, goal } = this.decide(target, range);
@@ -182,7 +186,10 @@ export class Bot {
     this.wanderT -= THINK_INTERVAL;
     if (!this.goal || this.wanderT <= 0 || dist(b.x, b.z, this.goal.x, this.goal.z) < 1.2) {
       const reach = Math.max(2, Math.min(game.gas.half - 4, 17));
-      this.wanderGoal = game.world.nearestOpen(rand(-reach, reach), rand(-reach, reach));
+      this.wanderGoal = game.world.nearestOpen(
+        randIn(this.rng, -reach, reach),
+        randIn(this.rng, -reach, reach),
+      );
       this.wanderT = 7;
     }
     return { goal: this.wanderGoal, state: "wander" };
@@ -247,7 +254,7 @@ export class Bot {
     const lead = 0.8 * this.skill;
     const px = x + vx * flight * lead;
     const pz = z + vz * flight * lead;
-    const wobble = (Math.random() - 0.5) * 2 * (0.05 + (1 - this.skill) * 0.3);
+    const wobble = (this.rng() - 0.5) * 2 * (0.05 + (1 - this.skill) * 0.3);
     const angle = Math.atan2(px - b.x, pz - b.z) + wobble;
     const reach = dist(b.x, b.z, px, pz);
     return {
@@ -324,7 +331,7 @@ export class Bot {
       }
       this.strafeT -= dt;
       if (this.strafeT <= 0) {
-        this.strafeT = rand(0.5, 1.5);
+        this.strafeT = randIn(this.rng, 0.5, 1.5);
         this.strafeDir *= -1;
       }
       const strafe = preferred < 2.5 ? 0.25 : 0.85;
@@ -347,7 +354,7 @@ export class Bot {
       const moved = dist(b.x, b.z, this.lastX, this.lastZ);
       if ((ax !== 0 || az !== 0) && moved < STUCK_DISTANCE) {
         this.jitterT = 0.4;
-        const angle = Math.random() * 6.28;
+        const angle = this.rng() * 6.28;
         this.jx = Math.cos(angle);
         this.jz = Math.sin(angle);
         this.strafeDir *= -1;
@@ -378,7 +385,8 @@ export class Bot {
       const aim = this.aimAt(target.x, target.z, target.vel.x, target.vel.y, attack);
       if (b.attack(aim.dx, aim.dz, aim.x, aim.z)) {
         this.shootT =
-          (rand(0.45, 1) + (b.ammo < 1 ? 0.4 : 0)) * (target.isHuman ? game.difficulty.cadence : 1);
+          (randIn(this.rng, 0.45, 1) + (b.ammo < 1 ? 0.4 : 0)) *
+          (target.isHuman ? game.difficulty.cadence : 1);
       }
     }
   }
@@ -388,10 +396,10 @@ export class Bot {
     const { super: def } = b.def;
     const maxRange = superReach(def);
     const minRange = def.kind === "leap" ? 2.5 : 0;
-    if (range < maxRange && range > minRange && Math.random() < 0.6) {
+    if (range < maxRange && range > minRange && this.rng() < 0.6) {
       const aim = this.aimAt(target.x, target.z, target.vel.x, target.vel.y, def);
       if (b.useSuper(aim.dx, aim.dz, aim.x, aim.z)) {
-        this.shootT = rand(0.4, 0.8);
+        this.shootT = randIn(this.rng, 0.4, 0.8);
       }
     }
   }
@@ -403,7 +411,7 @@ export class Bot {
       const ux = (box.x - b.x) / (range || 1);
       const uz = (box.z - b.z) / (range || 1);
       if (b.attack(ux, uz, box.x, box.z)) {
-        this.shootT = rand(0.35, 0.7);
+        this.shootT = randIn(this.rng, 0.35, 0.7);
       }
     }
   }

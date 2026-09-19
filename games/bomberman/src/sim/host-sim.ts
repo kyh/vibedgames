@@ -23,6 +23,8 @@ import {
   TARGET_FIGHTERS,
   tileKey,
 } from "../shared/constants";
+import { bombOn, burnWindows, computeBlastTiles, restable, search } from "./burn-map";
+import type { Burn } from "./burn-map";
 import type {
   Bomb,
   Bot,
@@ -109,10 +111,6 @@ const makeBomb = (ownerId: string, col: number, row: number, range: number, now:
   row,
 });
 
-/** Is there a bomb on this tile? */
-export const bombOn = (bombs: Record<string, Bomb>, col: number, row: number): boolean =>
-  Object.values(bombs).some((b) => b.col === col && b.row === row);
-
 const grantPowerup = (stats: PlayerStats, kind: PowerupKind): PlayerStats => {
   switch (kind) {
     case "bomb": {
@@ -126,32 +124,6 @@ const grantPowerup = (stats: PlayerStats, kind: PowerupKind): PlayerStats => {
     }
     // no default
   }
-};
-
-export const computeBlastTiles = (grid: Cell[][], bomb: Pick<Bomb, "col" | "row" | "range">) => {
-  const tiles: Tile[] = [{ col: bomb.col, row: bomb.row }];
-  const crates: Tile[] = [];
-  for (const [dc, dr] of [
-    [1, 0],
-    [-1, 0],
-    [0, 1],
-    [0, -1],
-  ] as const) {
-    for (let step = 1; step <= bomb.range; step += 1) {
-      const c = bomb.col + dc * step;
-      const r = bomb.row + dr * step;
-      const cell = grid[r]?.[c];
-      if (!cell || cell.kind === "wall") {
-        break;
-      }
-      tiles.push({ col: c, row: r });
-      if (cell.kind === "crate") {
-        crates.push({ col: c, row: r });
-        break;
-      }
-    }
-  }
-  return { crates, tiles };
 };
 
 /** [id, col, row] for every living fighter (humans + bots). */
@@ -190,21 +162,11 @@ const occupiedTiles = (
 
 // ---- bot AI helpers ---------------------------------------------------------
 
-/** Tiles that are unsafe right now: every bomb's eventual blast + live blasts. */
-export const dangerSet = (s: SharedState): Set<string> => {
-  const danger = new Set<string>();
-  for (const bomb of Object.values(s.bombs)) {
-    for (const t of computeBlastTiles(s.grid, bomb).tiles) {
-      danger.add(tileKey(t.col, t.row));
-    }
-  }
-  for (const blast of Object.values(s.blasts)) {
-    for (const t of blast.tiles) {
-      danger.add(tileKey(t.col, t.row));
-    }
-  }
-  return danger;
-};
+/** A bot steps on the first host tick past BOT_MOVE_MS, so a step can run this
+ *  much long; deaths resolve on that same tick grid, hence the margin. */
+const BOT_STEP_SLACK_MS = 100;
+const BURN_MARGIN_MS = 100;
+const BOT_FLEE_STEPS = 9;
 
 interface Neighbor {
   dir: Dir;
@@ -218,64 +180,29 @@ const neighborOf = (col: number, row: number, dir: Dir): Neighbor => {
   return { c: col + dc, dir, key: tileKey(col + dc, row + dr), r: row + dr };
 };
 
-interface FleeNode {
-  c: number;
-  r: number;
-  firstDir: Dir;
-}
-
 /**
- * Breadth-first search for the nearest tile not in `unsafe`, returning the
- * direction of the first step toward it (or null if no safe tile is reachable).
- * Walks only empty, bomb-free tiles. Used both to flee live danger and to
- * vet a prospective bomb's escape route.
+ * The first step of the shortest walk to a tile nothing will burn, crossing a
+ * blast line only when the bot is off it before the fire or on it after. The
+ * bot steps now, so tile `steps` is entered no sooner than `steps - 1` fast
+ * strides from now and left no later than `steps` slow ones. Null when every
+ * way out burns first. Flees live danger and vets a prospective bomb alike.
  */
-const fleeDir = (
-  grid: Cell[][],
-  bombs: Bomb[],
-  col: number,
-  row: number,
-  unsafe: Set<string>,
+const escapeDir = (
+  s: SharedState,
+  windows: Map<string, Burn>,
+  from: Tile,
+  now: number,
 ): Dir | null => {
-  const blocked = (c: number, r: number): boolean =>
-    grid[r]?.[c]?.kind !== "empty" || bombs.some((b) => b.col === c && b.row === r);
-  const visited = new Set<string>([tileKey(col, row)]);
-  let frontier: FleeNode[] = [];
-  for (const dir of DIRS) {
-    const [dc, dr] = DIR_VECT[dir];
-    const c = col + dc;
-    const r = row + dr;
-    const k = tileKey(c, r);
-    if (blocked(c, r)) {
-      continue;
+  const canCross = (key: string, steps: number): boolean => {
+    const burn = windows.get(key);
+    if (!burn) {
+      return true;
     }
-    visited.add(k);
-    if (!unsafe.has(k)) {
-      return dir;
-    }
-    frontier.push({ c, firstDir: dir, r });
-  }
-  for (let depth = 0; depth < 8 && frontier.length > 0; depth += 1) {
-    const nextF: FleeNode[] = [];
-    for (const node of frontier) {
-      for (const dir of DIRS) {
-        const [dc, dr] = DIR_VECT[dir];
-        const c = node.c + dc;
-        const r = node.r + dr;
-        const k = tileKey(c, r);
-        if (visited.has(k) || blocked(c, r)) {
-          continue;
-        }
-        visited.add(k);
-        if (!unsafe.has(k)) {
-          return node.firstDir;
-        }
-        nextF.push({ c, firstDir: node.firstDir, r });
-      }
-    }
-    frontier = nextF;
-  }
-  return null;
+    const enter = now + (steps - 1) * BOT_MOVE_MS;
+    const leave = now + steps * (BOT_MOVE_MS + BOT_STEP_SLACK_MS);
+    return leave + BURN_MARGIN_MS < burn.from || enter - BURN_MARGIN_MS > burn.to;
+  };
+  return search(s, from, canCross, restable(windows), BOT_FLEE_STEPS)?.first ?? null;
 };
 
 const botNeighbors = (s: SharedState, col: number, row: number): Neighbor[] => {
@@ -398,24 +325,27 @@ const addBomb = (
   next.bombs[bomb.id] = bomb;
 };
 
-/** Everything one bot's turn reads; built once per tick, shared by all bots. */
+/** What every bot's turn reads, built once per tick. Burn windows are not
+ *  here: a bot that bombs earlier in the tick changes them for the next bot. */
 interface BotContext {
   next: SharedState;
   humans: readonly Human[];
   now: number;
   random: () => number;
-  danger: Set<string>;
   enemies: Position[];
 }
 
-/** Offense: bomb a crate or a fighter in line, but only if a flee path out of
- *  the resulting blast exists (don't bomb yourself into a dead end). Returns
- *  true when the bot dropped a bomb and stepped away this turn. */
-const botAttack = (ctx: BotContext, bot: Bot, stats: PlayerStats, bombs: Bomb[]): boolean => {
-  const { next, now, random, danger, enemies } = ctx;
+/** Offense: bomb a crate or a fighter in line, but only when the bot can walk
+ *  clear of every blast that follows — its own, the ones already lit, and any
+ *  chain between them. Returns true when the bot dropped a bomb and stepped
+ *  away this turn. */
+const botAttack = (ctx: BotContext, bot: Bot, stats: PlayerStats): boolean => {
+  const { next, now, random, enemies } = ctx;
+  const bombs = Object.values(next.bombs);
   const activeBombs = bombs.filter((b) => b.ownerId === bot.id).length;
   if (
     activeBombs >= stats.bombs ||
+    bombOn(next.bombs, bot.col, bot.row) ||
     !(
       adjacentCrate(next.grid, bot.col, bot.row) ||
       enemyInLine(next.grid, bot, stats.range, enemies)
@@ -423,19 +353,8 @@ const botAttack = (ctx: BotContext, bot: Bot, stats: PlayerStats, bombs: Bomb[])
   ) {
     return false;
   }
-  const prospective: Bomb = {
-    col: bot.col,
-    id: "_",
-    ownerId: bot.id,
-    placedAt: now,
-    range: stats.range,
-    row: bot.row,
-  };
-  const blastKeys = new Set(
-    computeBlastTiles(next.grid, prospective).tiles.map((t) => tileKey(t.col, t.row)),
-  );
-  const unsafe = new Set([...danger, ...blastKeys]);
-  const escape = fleeDir(next.grid, [...bombs, prospective], bot.col, bot.row, unsafe);
+  const prospective = { col: bot.col, placedAt: now, range: stats.range, row: bot.row };
+  const escape = escapeDir(next, burnWindows(next, [...bombs, prospective]), bot, now);
   if (!escape || random() >= BOT_BOMB_CHANCE) {
     return false;
   }
@@ -448,14 +367,14 @@ const botAttack = (ctx: BotContext, bot: Bot, stats: PlayerStats, bombs: Bomb[])
 };
 
 /** Wander toward the nearest enemy (fallback: nearest crate to dig through).
- *  Only ever step onto a safe tile — if the sole neighbour is a tile that's
+ *  Only ever step onto a tile nothing will burn — if the sole neighbour is
  *  about to explode (e.g. waiting out our own bomb), hold. Prefer tiles no
  *  other fighter is on so bots don't stack/clip; fall back to any safe tile
  *  rather than freezing. */
-const botWander = (ctx: BotContext, bot: Bot): void => {
-  const { next, humans, now, random, danger, enemies } = ctx;
+const botWander = (ctx: BotContext, bot: Bot, windows: Map<string, Burn>): void => {
+  const { next, humans, now, random, enemies } = ctx;
   const opts = botNeighbors(next, bot.col, bot.row);
-  const safeOpts = opts.filter((o) => !danger.has(o.key));
+  const safeOpts = opts.filter((o) => !windows.has(o.key));
   const occupied = occupiedTiles(next, humans, bot.id);
   const freeOpts = safeOpts.filter((o) => !occupied.has(o.key));
   const wanderOpts = freeOpts.length > 0 ? freeOpts : safeOpts;
@@ -469,7 +388,7 @@ const botWander = (ctx: BotContext, bot: Bot): void => {
 
 /** One bot's turn. Returns true if the bot record changed. */
 const tickBot = (ctx: BotContext, bot: Bot): boolean => {
-  const { next, now, danger } = ctx;
+  const { next, now } = ctx;
   if (next.deaths[bot.id]) {
     if (bot.moving) {
       bot.moving = false;
@@ -480,19 +399,18 @@ const tickBot = (ctx: BotContext, bot: Bot): boolean => {
   if (now < bot.nextMoveAt) {
     return false;
   }
-  const stats = next.stats[bot.id] ?? baseStats();
-  const bombs = Object.values(next.bombs);
-  if (danger.has(tileKey(bot.col, bot.row))) {
-    // Step toward the nearest safe tile (BFS) — a single safe neighbour
-    // often doesn't exist next to one's own bomb, but a 2-3 step path does.
-    const dir = fleeDir(next.grid, bombs, bot.col, bot.row, danger);
+  const windows = burnWindows(next, Object.values(next.bombs));
+  if (windows.has(tileKey(bot.col, bot.row))) {
+    // No way out that beats the fire: hold, and look again next stride —
+    // a blast that burns out can open one.
+    const dir = escapeDir(next, windows, bot, now);
     moveBot(bot, dir ? neighborOf(bot.col, bot.row, dir) : null, now);
     return true;
   }
-  if (botAttack(ctx, bot, stats, bombs)) {
+  if (botAttack(ctx, bot, next.stats[bot.id] ?? baseStats())) {
     return true;
   }
-  botWander(ctx, bot);
+  botWander(ctx, bot, windows);
   return true;
 };
 
@@ -508,7 +426,6 @@ const tickBots = (
     return false;
   }
   const ctx: BotContext = {
-    danger: dangerSet(next),
     enemies: fighterPositions(next, humans),
     humans,
     next,

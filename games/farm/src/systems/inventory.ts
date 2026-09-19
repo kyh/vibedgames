@@ -1,5 +1,5 @@
 import type { Item, Slot } from "../data/items";
-import { itemStackable, sameItem } from "../data/items";
+import { isSellable, itemStackable, sameItem, sellValue } from "../data/items";
 import { BACKPACK } from "../config";
 
 export const HOTBAR = 12;
@@ -133,6 +133,19 @@ export class Inventory {
       }
     }
     return true;
+  }
+
+  // Empty every sellable slot; returns the gold it fetched.
+  sellAll(): number {
+    let total = 0;
+    for (let i = 0; i < TOTAL; i += 1) {
+      const s = this.at(i);
+      if (s && isSellable(s.item)) {
+        total += sellValue(s.item) * s.qty;
+        this.set(i, null);
+      }
+    }
+    return total;
   }
 
   // Swap/merge two combined-index slots (for the inventory UI).

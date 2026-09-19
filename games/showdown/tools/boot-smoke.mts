@@ -1,9 +1,11 @@
 // Pure-data checks: the brawler roster, the seeded PRNG and the numeric
 // helpers the sim relies on. No DOM, no three.js.
 import assert from "node:assert/strict";
+import { readFileSync, readdirSync } from "node:fs";
+import path from "node:path";
 import { test } from "node:test";
 import { BRAWLERS, DIFFICULTIES, QUALITIES, TUNING, isBrawlerId } from "../src/config.ts";
-import { clamp, damp, lerp, seededRandom, smoothstep } from "../src/utils.ts";
+import { clamp, damp, lerp, randIn, seededRandom, smoothstep } from "../src/utils.ts";
 
 test("four brawlers, each keyed by its own id with a super that outranges nothing absurd", () => {
   const ids = Object.keys(BRAWLERS);
@@ -16,6 +18,21 @@ test("four brawlers, each keyed by its own id with a super that outranges nothin
     assert.ok(def.attack.range > 0 && def.super.range > 0);
   }
   assert.ok(!isBrawlerId("constructor"));
+});
+
+test("each difficulty tier is at least as dangerous as the one below it", () => {
+  const { easy, normal, hard } = DIFFICULTIES;
+  for (const [softer, tougher] of [
+    [easy, normal],
+    [normal, hard],
+  ] as const) {
+    assert.ok(tougher.damage > softer.damage);
+    assert.ok(tougher.cadence < softer.cadence);
+    assert.ok(tougher.react < softer.react);
+    assert.ok(tougher.engage >= softer.engage);
+    assert.ok(tougher.hunters >= softer.hunters);
+    assert.ok(tougher.skill[0] > softer.skill[0] && tougher.skill[1] > softer.skill[1]);
+  }
 });
 
 test("difficulty and quality tables expose every tier the settings panel lists", () => {
@@ -36,6 +53,26 @@ test("seededRandom is deterministic per seed and stays in [0, 1)", () => {
   assert.notDeepEqual(runA, runC);
   for (const value of runA) {
     assert.ok(value >= 0 && value < 1);
+  }
+});
+
+test("randIn scales the stream it is handed and draws exactly once", () => {
+  const a = seededRandom(7);
+  const b = seededRandom(7);
+  const scaled = Array.from({ length: 8 }, () => randIn(a, -2, 6));
+  const raw = Array.from({ length: 8 }, () => -2 + b() * 8);
+  assert.deepEqual(scaled, raw);
+});
+
+// A match replays from its seed only while every sim draw comes off game.rng
+// (tools/seed-smoke.mjs proves the replay in a browser). The bot brain is all
+// sim, so an unseeded draw there is always a regression.
+test("the bot brain draws only from the match's seeded stream", () => {
+  const dir = path.resolve(import.meta.dirname, "../src/ai");
+  for (const file of readdirSync(dir)) {
+    const source = readFileSync(path.join(dir, file), "utf-8");
+    assert.ok(!source.includes("Math.random"), `src/ai/${file} calls Math.random`);
+    assert.ok(!/\brand\(/u.test(source), `src/ai/${file} calls the cosmetic rand()`);
   }
 });
 
