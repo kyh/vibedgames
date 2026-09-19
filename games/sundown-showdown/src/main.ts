@@ -2,14 +2,25 @@ import "./style.css";
 
 import {
   createTouchControls,
+  isOfflineRequested,
   notifyGameStarted,
   probeWebGL,
   setPauseHandlers,
   showWebGLVeil,
 } from "@repo/embed";
 
+import { isBrawlerId } from "./config";
 import { Game } from "./game";
 import { mustGet } from "./dom";
+import { chosenName } from "./hud-lobby";
+import { roomId } from "./net/protocol";
+
+// Dev-console handle (assigned only in DEV builds) for the two-client harness.
+declare global {
+  interface Window {
+    __game?: Game;
+  }
+}
 
 const webgl = probeWebGL();
 if (!webgl.ok) {
@@ -18,24 +29,51 @@ if (!webgl.ok) {
   throw new Error(`WebGL unavailable: ${webgl.reason}`);
 }
 
-const game = new Game({ onMatchStart: notifyGameStarted });
+const params = new URLSearchParams(location.search);
+const auto = params.get("auto");
+const autoKit = auto && isBrawlerId(auto) ? auto : undefined;
+
+const game = new Game({ onMatchStart: notifyGameStarted, selected: autoKit });
+if (import.meta.env.DEV) {
+  window.__game = game;
+}
+
+// The one launch choke point for deep links: `?online[&room=][&name=]` joins a
+// room, `?auto=<brawler>` starts solo; `?offline=1` turns any of them into a
+// solo brawl so no socket can open behind it (the menu's buttons call the same
+// game methods, and startOnline applies the same rule).
+const launch = (): void => {
+  if (params.has("online") && !isOfflineRequested()) {
+    game.startOnline({ name: chosenName(params), room: roomId(params.get("room") ?? "") });
+    return;
+  }
+  if (autoKit || params.has("online")) {
+    game.startMatch(autoKit ?? game.hud.selected);
+  }
+};
+launch();
 
 // Wrapper pause (Escape, or the play view's own button): freeze the sim behind
 // the settings-free frozen frame and silence the mix, then put the player's own
 // mute choice back on resume. The in-game P key keeps its toast; this path is
-// silent because the wrapper shows its chrome instead.
+// silent because the wrapper shows its chrome instead. Online the world is
+// shared, so only solo ever freezes — the overlay alone is the pause there.
 let mutedBeforePause = false;
 setPauseHandlers({
   // Escape closes the settings panel first; the next press pauses.
   escapePauses: () => !mustGet("settings").classList.contains("open"),
   onPause: () => {
-    game.setPaused(true, false);
+    if (game.mode === "solo") {
+      game.setPaused(true, false);
+    }
     mutedBeforePause = game.audio.muted;
     game.audio.setMuted(true);
   },
   onResume: () => {
     game.audio.setMuted(mutedBeforePause);
-    game.setPaused(false, false);
+    if (game.mode === "solo") {
+      game.setPaused(false, false);
+    }
   },
 });
 

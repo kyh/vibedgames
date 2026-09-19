@@ -120,6 +120,8 @@ export class World {
   disposables: Disposable[] = [];
   aoDirty = false;
   aoTimer = 0;
+  /** Tile indices destroyed so far, in order — a late joiner replays them. */
+  broken: number[] = [];
   grassUniforms: GrassUniforms;
   seed = 0;
   baseCanvas: HTMLCanvasElement;
@@ -400,6 +402,7 @@ export class World {
       }
     }
     this.tiles[i] = TILE.EMPTY;
+    this.broken.push(i);
     this.aoDirty = true;
     return broken;
   }

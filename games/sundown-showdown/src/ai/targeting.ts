@@ -42,10 +42,10 @@ const playerOffLimits = (bot: Bot, player: Brawler, range: number): boolean => {
 const isWorthFighting = (bot: Bot, other: Brawler, range: number): boolean => {
   const { b, game } = bot;
   const grudge = b.lastAttacker === other && game.elapsed - b.lastHitTime < 4;
-  if (!other.isPlayer && !grudge && range > BOT_NOTICE_RANGE) {
+  if (!other.isHuman && !grudge && range > BOT_NOTICE_RANGE) {
     return false;
   }
-  if (other.isPlayer && !grudge && bot.target !== other && playerOffLimits(bot, other, range)) {
+  if (other.isHuman && !grudge && bot.target !== other && playerOffLimits(bot, other, range)) {
     return false;
   }
   return true;

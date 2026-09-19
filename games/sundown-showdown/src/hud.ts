@@ -13,10 +13,12 @@ import type { Game } from "./game";
 import { FLOATER_LIFE, createFloaters, spawnFloater, styleFloater } from "./hud-floaters";
 import type { Floater } from "./hud-floaters";
 import type { Stick } from "./input";
+import { buildLobby } from "./hud-lobby";
 import { buildBrawlerCards, markSelectedCard } from "./hud-menu";
 import { createBoxBar, createOverhead, syncBoxBar, syncOverhead } from "./hud-overheads";
 import type { BoxBar, Overhead } from "./hud-overheads";
 import { buildSettingsPanel, renderStats, syncSettingsPanel } from "./hud-settings";
+import type { FeedRecorder, FloatRecorder } from "./net/presentation";
 import { clamp } from "./utils";
 
 export { mustGet, mustGetInput } from "./dom";
@@ -96,6 +98,9 @@ export class Hud {
   fps = 0;
   touch = false;
   readonly stickEls: { aim: HTMLElement; move: HTMLElement };
+  /** While hosting online, floating numbers and kills are also written here for guests. */
+  floatRecorder: FloatRecorder | null = null;
+  feedRecorder: FeedRecorder | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(game: Game) {
@@ -106,6 +111,7 @@ export class Hud {
     this.floaters = createFloaters(this.floaterLayer, FLOATER_POOL);
     this.stickEls = { aim: mustGet("stick-aim"), move: mustGet("stick-move") };
     this.buildMenu();
+    buildLobby(game, game.params);
     buildSettingsPanel(game);
   }
 
@@ -138,7 +144,7 @@ export class Hud {
       this.game.audio.unlock();
       this.game.startMatch(this.selected);
     });
-    mustGet("again").addEventListener("click", () => this.game.startMatch(this.selected));
+    mustGet("again").addEventListener("click", () => this.game.playAgain());
     mustGet("to-menu").addEventListener("click", () => this.game.toMenu());
   }
 
@@ -206,6 +212,7 @@ export class Hud {
   }
 
   floatText(x: number, y: number, z: number, text: string, className: string): void {
+    this.floatRecorder?.(x, y, z, text, className);
     const floater = this.floaters[this.floaterCursor];
     this.floaterCursor = (this.floaterCursor + 1) % this.floaters.length;
     if (floater) {
@@ -223,6 +230,28 @@ export class Hud {
       feed.firstChild?.remove();
     }
     setTimeout(() => line.remove(), FEED_MS);
+  }
+
+  /** One kill-feed line; `*IsYou` highlights the local player's own name. */
+  feedKill(
+    killer: string | null,
+    victim: string,
+    killerIsYou: boolean,
+    victimIsYou: boolean,
+  ): void {
+    const v = `<span class="v ${victimIsYou ? "you" : ""}">${victim}</span>`;
+    if (killer === null) {
+      this.feed(`${v} ☠ poison gas`);
+      return;
+    }
+    this.feed(`<span class="k ${killerIsYou ? "you" : ""}">${killer}</span> ⚔ ${v}`);
+  }
+
+  /** Announce a takedown: the feed line here, and the record for guests when hosting. */
+  announceKill(killer: Brawler | null, downed: Brawler): void {
+    const slayer = killer && killer !== downed ? killer : null;
+    this.feedRecorder?.(slayer?.name ?? null, downed.name, slayer?.netId ?? null, downed.netId);
+    this.feedKill(slayer?.name ?? null, downed.name, slayer?.isPlayer ?? false, downed.isPlayer);
   }
 
   banner(text: string, seconds = 1, small = false): void {

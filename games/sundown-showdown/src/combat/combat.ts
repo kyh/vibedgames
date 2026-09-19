@@ -287,6 +287,24 @@ export class Combat {
     this.spawnCube(box.x, box.z, box.x, box.z);
   }
 
+  /** Drop a box without the sim's break effects: a guest mirroring the host's roster. */
+  removeBox(box: LootBox): void {
+    if (!box.alive) {
+      return;
+    }
+    box.alive = false;
+    this.game.scene.remove(box.mesh);
+    box.mat.dispose();
+    this.game.world.setBlocker(box.tx, box.ty, false);
+  }
+
+  /** Take a cube out of the world without anyone collecting it. */
+  removeCube(cube: Cube): void {
+    cube.alive = false;
+    this.game.scene.remove(cube.mesh);
+    this.cubes = this.cubes.filter((other) => other.alive);
+  }
+
   spawnCube(sx: number, sz: number, x: number, z: number): void {
     const mesh = new THREE.Mesh(this.cubeGeo, this.cubeMat);
     mesh.castShadow = true;
@@ -461,6 +479,12 @@ export class Combat {
     this.updateCubes(dt);
   }
 
+  /** Render-only pass for a guest: boxes wobble and cubes bob, nothing is collected. */
+  present(dt: number): void {
+    this.updateBoxes(dt);
+    this.updateCubes(dt, false);
+  }
+
   private updateBullets(dt: number): void {
     let count = 0;
     for (const bullet of this.bullets) {
@@ -504,7 +528,7 @@ export class Combat {
 
   // Cubes arc from where they spawned to their resting tile, then bob and spin
   // until a brawler walks over them.
-  private updateCubes(dt: number): void {
+  private updateCubes(dt: number, collect = true): void {
     const { elapsed, lighting } = this.game;
     for (const cube of this.cubes) {
       cube.t += dt;
@@ -516,7 +540,7 @@ export class Combat {
       cube.mesh.position.set(x, y, z);
       cube.mesh.rotation.set(0.6, elapsed * 1.8 + cube.phase, 0.6);
       lighting.addLight(x, y + 0.1, z, this.cubeLight, 1.6 + lighting.night * 1.6, 3.4);
-      if (k >= 1) {
+      if (k >= 1 && collect) {
         this.collectCube(cube);
       }
     }

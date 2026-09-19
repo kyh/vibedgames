@@ -10,6 +10,9 @@ export type PropId = (typeof PROP)[keyof typeof PROP];
 
 export const BRAWLER_RADIUS = 0.4;
 
+/** Online: seconds the host shows the result before the next brawl starts on its own. */
+export const RESTART_DELAY_S = 8;
+
 export const TUNING = {
   bots: 7,
   boxHp: 4200,

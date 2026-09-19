@@ -2,8 +2,14 @@
 // roster and every subsystem, drives the frame loop, and runs the menu →
 // countdown → playing → ended state machine. Subsystems reach each other
 // through this object, so its public fields are the game's internal API.
+//
+// Online, the same object runs in one of three modes: the host steps the sim
+// exactly as solo does and broadcasts snapshots; a guest mirrors those
+// snapshots onto puppets and sends intents; "connecting" bridges the two.
 
 import * as THREE from "three";
+
+import { isOfflineRequested } from "@repo/embed";
 
 import { Bot } from "./ai/bot";
 import { AimGuide } from "./aim-guide";
@@ -11,13 +17,22 @@ import { GameAudio } from "./audio";
 import { updateCamera, CAMERA_FOV } from "./camera";
 import { Combat } from "./combat/combat";
 import { Gas } from "./combat/gas";
-import { BOT_NAMES, BRAWLERS, DIFFICULTIES, TUNING, isBrawlerId } from "./config";
+import { BOT_NAMES, BRAWLERS, DIFFICULTIES, RESTART_DELAY_S, TUNING, isBrawlerId } from "./config";
 import type { BrawlerId, Difficulty, DifficultyName, QualityName } from "./config";
 import { Brawler } from "./entities/brawler";
 import { Effects } from "./fx/effects";
 import { mustGet } from "./dom";
 import { Hud } from "./hud";
+import { setNetStatus, setResultMode, setResultWait, setSpectateCopy } from "./hud-lobby";
 import { Input, keyCode } from "./input";
+import { GuestView } from "./net/guest";
+import { applyRemoteIntents, onlineSeats, reconcileSeats, restoreFromSnapshot } from "./net/host";
+import type { Pick, Seat } from "./net/host";
+import { replayBatch, setRecorders } from "./net/presentation";
+import type { FxRecord } from "./net/presentation";
+import { SNAPSHOT_HZ, seatId } from "./net/protocol";
+import { Session } from "./net/session";
+import { encodeSnapshot } from "./net/snapshot";
 import { controlPlayer } from "./player-control";
 import { adaptQuality, benchmarkQuality } from "./quality-auto";
 import { Lighting } from "./render/lighting";
@@ -32,9 +47,19 @@ export { SETTINGS_KEY } from "./settings-store";
 
 export type GameState = "menu" | "countdown" | "playing" | "ended";
 
+/** Who advances the world: this client alone, this client for the room, or the room's host. */
+export type GameMode = "solo" | "connecting" | "host" | "guest";
+
+export interface OnlineOptions {
+  name: string;
+  room: string;
+}
+
 export interface GameOptions {
   /** Called whenever a match begins (the embed wrapper uses it to clear its chrome). */
   onMatchStart?: () => void;
+  /** Join a room straight away instead of showing the menu. */
+  online?: OnlineOptions;
   /** Pre-select a brawler card on the menu. */
   selected?: BrawlerId;
 }
@@ -47,7 +72,7 @@ export interface PerfState {
   t: number;
 }
 
-interface PendingResult {
+export interface PendingResult {
   rank: number;
   t: number;
   won: boolean;
@@ -67,6 +92,12 @@ const COUNTDOWN_S = 3.4;
 const COUNTDOWN_GO_S = 0.4;
 /** On the menu, a finished attract-mode brawl restarts after this many seconds. */
 const ATTRACT_RESTART_S = 2.5;
+/** Longest frame the sim steps at once; a longer frame is split into sub-steps. */
+const MAX_STEP_S = 0.05;
+/** A hosting tab that stalled catches up at most this far in one frame. */
+const MAX_CATCH_UP_S = 0.25;
+const OFFLINE_TOAST = "Couldn't reach the party server — playing vs bots";
+const GUEST_WAIT = "Waiting for the next brawl…";
 
 const randomSeed = (): number => Math.trunc(Math.random() * 1e9);
 
@@ -75,9 +106,6 @@ const numberParam = (params: URLSearchParams, name: string): number => {
   const raw = params.get(name);
   return raw === null || raw.trim() === "" ? Number.NaN : Number(raw);
 };
-
-/** Kill-feed class hook: the player's own name is highlighted. */
-const feedTag = (b: Brawler | null): string => (b?.isPlayer ? "you" : "");
 
 const shuffle = <T>(items: T[]): T[] => {
   for (let i = items.length - 1; i > 0; i -= 1) {
@@ -157,6 +185,24 @@ export class Game {
   readonly hud: Hud;
   readonly guide: AimGuide;
   readonly onMatchStart: (() => void) | null;
+  // ── online ──
+  mode: GameMode = "solo";
+  session: Session | null = null;
+  /** `p:<playerId>` once connected; the brawler with this net id is ours. */
+  localSeatId: string | null = null;
+  /** Bumps on every online restart so guests rebuild their mirror. */
+  generation = 0;
+  winner: string | null = null;
+  /** Every human's kit and name, keyed by player id, as announced by `join`. */
+  readonly picks = new Map<string, Pick>();
+  /** The host id last seen on the wire; the one we were following when promoted. */
+  private knownHostId: string | null = null;
+  private onlineKit: BrawlerId = "dusty";
+  private onlineName = "Player";
+  private guest: GuestView | null = null;
+  private netFx: FxRecord[] = [];
+  private snapAcc = 0;
+  private seqOut = 0;
   private last: number;
   private warmup = WARMUP_FRAMES;
 
@@ -215,9 +261,8 @@ export class Game {
     window.addEventListener("keydown", (event) => this.onHotkey(event));
     this.hud.syncSettings();
     this.toMenu();
-    const auto = this.params.get("auto");
-    if (auto && isBrawlerId(auto)) {
-      this.startMatch(auto);
+    if (options.online) {
+      this.startOnline(options.online);
     }
     this.last = performance.now();
     requestAnimationFrame(this.frame);
@@ -253,8 +298,20 @@ export class Game {
     }
   }
 
-  /** Freeze the simulation; `announce` shows the P-key hint toast. */
+  /**
+   * Freeze the simulation; `announce` shows the P-key hint toast. Online the
+   * world is shared, so nothing freezes and nothing is announced — the
+   * wrapper's overlay is the whole pause UI; only held movement is released.
+   */
   setPaused(paused: boolean, announce = true): void {
+    if (this.mode !== "solo") {
+      this.paused = false;
+      if (paused) {
+        this.input.keys.clear();
+        this.input.fire = false;
+      }
+      return;
+    }
     this.paused = paused;
     if (announce) {
       this.hud.toast(paused ? "Paused - press P to resume" : "Resumed");
@@ -320,7 +377,8 @@ export class Game {
     this.hud.toast(`Time of day locked to ${formatHour(hour)}`);
   }
 
-  private clearEntities(): void {
+  /** Dispose every brawler, projectile and loot item; the world itself stays. */
+  clearEntities(): void {
     for (const b of this.brawlers) {
       b.dispose();
     }
@@ -333,22 +391,43 @@ export class Game {
     this.hud.reset();
   }
 
-  private newWorld(): void {
+  /** Replace the arena: a fresh random layout, or exactly the host's when `seed` is given. */
+  rebuildWorld(seed: number | null): void {
     this.world.dispose();
-    this.nextSeed = this.fixedSeed === null ? randomSeed() : this.fixedSeed;
-    this.fixedSeed = null;
+    if (seed === null) {
+      this.nextSeed = this.fixedSeed === null ? randomSeed() : this.fixedSeed;
+      this.fixedSeed = null;
+    } else {
+      this.nextSeed = seed;
+    }
     this.world = new World(this.scene, this.nextSeed, this.maxAniso);
     this.lighting.setLamps(this.world.lanterns, this.world.lampGlass);
     this.effects.rebuildFireflies();
   }
 
-  /** Fill every spawn: the player (if any) first, then bots with random kits and names. */
+  private newWorld(): void {
+    this.rebuildWorld(null);
+  }
+
+  /** The seats humans take before bots fill the rest: the solo player, or the room's roster. */
+  private rosterSeats(playerId: BrawlerId | null): Seat[] {
+    if (this.mode === "host") {
+      return onlineSeats(this);
+    }
+    if (playerId === null) {
+      return [];
+    }
+    return [{ isLocal: true, kit: playerId, name: "YOU", owner: "" }];
+  }
+
+  /** Fill every spawn: humans first, then bots with random kits and names. */
   private spawnRoster(playerId: BrawlerId | null): void {
     this.clearEntities();
     const { world } = this;
     const spawns = shuffle([...world.spawns]);
     const names = shuffle([...BOT_NAMES]);
     const kits = Object.keys(BRAWLERS).filter(isBrawlerId);
+    const seats = this.rosterSeats(playerId);
     const count = TUNING.bots + 1;
     for (let i = 0; i < count; i += 1) {
       const spawn = spawns[i % spawns.length];
@@ -356,13 +435,17 @@ export class Game {
         break;
       }
       const [tx, ty] = spawn;
-      const isPlayer = i === 0 && playerId !== null;
-      const kitId = isPlayer ? playerId : kits[(i + Math.floor(Math.random() * 4)) % 4];
+      const seat = seats[i];
+      const isPlayer = seat?.isLocal ?? false;
+      const kitId = seat ? seat.kit : kits[(i + Math.floor(Math.random() * 4)) % 4];
       const def = BRAWLERS[kitId ?? "dusty"];
+      const owner = seat && seat.owner !== "" ? seat.owner : null;
       const brawler = new Brawler(this, def, {
-        hueShift: isPlayer ? 0 : rand(-0.07, 0.07),
+        hueShift: seat ? 0 : rand(-0.07, 0.07),
         isPlayer,
-        name: isPlayer ? "YOU" : (names[i % names.length] ?? "Bot"),
+        name: seat ? seat.name : (names[i % names.length] ?? "Bot"),
+        netId: owner === null ? `bot:${i}` : seatId(owner),
+        owner,
         x: world.center(tx),
         z: world.center(ty),
       });
@@ -370,7 +453,7 @@ export class Game {
       this.hud.addBrawler(brawler);
       if (isPlayer) {
         this.player = brawler;
-      } else {
+      } else if (!seat) {
         this.brains.push(new Bot(this, brawler));
       }
     }
@@ -382,6 +465,7 @@ export class Game {
   }
 
   toMenu(): void {
+    this.leaveSession();
     this.state = "menu";
     this.hud.showMenu(true);
     this.spawnRoster(null);
@@ -412,7 +496,163 @@ export class Game {
     if (this.input.touchMode && window.innerHeight > window.innerWidth) {
       this.hud.toast("Tip: turn your phone sideways for a wider view");
     }
+    if (this.mode === "host") {
+      this.generation += 1;
+      this.winner = null;
+      this.endT = 0;
+      this.world.broken = [];
+      this.netFx = [];
+      setSpectateCopy(player ? null : "SPECTATING · you are in this brawl's next round");
+    }
+    setResultMode(this.mode === "host" ? "host" : "solo");
     this.onMatchStart?.();
+  }
+
+  // ── online lifecycle ──
+
+  /** Join a room; `?offline=1` turns this into a plain solo brawl. */
+  startOnline(options: OnlineOptions): void {
+    if (isOfflineRequested()) {
+      this.startMatch(this.hud.selected);
+      return;
+    }
+    this.leaveSession();
+    this.audio.unlock();
+    this.audio.play("click");
+    this.onlineKit = this.hud.selected;
+    this.onlineName = options.name;
+    this.session = new Session({ name: options.name, room: options.room });
+    this.mode = "connecting";
+    this.hud.showMenu(false);
+    this.hud.hideResult();
+    setNetStatus("Connecting…");
+    this.onMatchStart?.();
+  }
+
+  /** The result screen's button: solo restarts, the host restarts the room's brawl now. */
+  playAgain(): void {
+    if (this.mode === "solo") {
+      this.startMatch(this.hud.selected);
+    } else if (this.mode === "host") {
+      this.startMatch(this.onlineKit);
+    }
+  }
+
+  /** Drop the room and every online-only view; the game is solo again afterwards. */
+  private leaveSession(): void {
+    if (!this.session) {
+      return;
+    }
+    setRecorders(this.effects, this.hud, null);
+    this.guest?.reset();
+    this.guest = null;
+    this.session.destroy();
+    this.session = null;
+    this.mode = "solo";
+    this.localSeatId = null;
+    this.knownHostId = null;
+    this.picks.clear();
+    this.netFx = [];
+    setNetStatus(null);
+    setSpectateCopy(null);
+    setResultMode("solo");
+  }
+
+  private fallBackOffline(): void {
+    this.leaveSession();
+    this.hud.toast(OFFLINE_TOAST);
+    this.startMatch(this.onlineKit);
+  }
+
+  /** A brawler is ours: the camera, the aim guide and the HUD follow it. */
+  adoptLocalSeat(b: Brawler): void {
+    this.player = b;
+    this.spectate = null;
+    this.focus.set(b.x, 0, b.z);
+    this.guide.setupFor(b.def);
+    setSpectateCopy(null);
+  }
+
+  addBrawler(b: Brawler, withBrain: boolean): void {
+    this.brawlers.push(b);
+    this.hud.addBrawler(b);
+    if (withBrain) {
+      this.brains.push(new Bot(this, b));
+    }
+  }
+
+  removeBrawler(b: Brawler, dropCubes: boolean): void {
+    if (dropCubes && b.alive) {
+      this.combat.dropCubes(b.x, b.z, 1 + Math.floor(b.cubes / 2));
+    }
+    this.hud.overheads.get(b.id)?.root.remove();
+    this.hud.overheads.delete(b.id);
+    b.dispose();
+    this.brawlers = this.brawlers.filter((other) => other !== b);
+    this.brains = this.brains.filter((brain) => brain.b !== b);
+    if (this.player === b) {
+      this.player = null;
+    }
+    if (this.spectate === b) {
+      this.spectate = null;
+    }
+  }
+
+  /** A leaver may have been the last opponent standing. */
+  afterRosterChange(): void {
+    if (this.state !== "playing") {
+      return;
+    }
+    const left = aliveCount(this.brawlers);
+    if (left === 1 && this.player?.alive) {
+      this.localWin();
+    }
+    if (this.mode === "host" && left <= 1) {
+      this.endOnlineMatch();
+    }
+  }
+
+  private becomeHost(departed: string | null): void {
+    const { session } = this;
+    if (!session) {
+      return;
+    }
+    this.guest?.reset();
+    this.guest = null;
+    this.mode = "host";
+    setRecorders(this.effects, this.hud, (row) => this.netFx.push(row));
+    this.netFx = [];
+    this.snapAcc = 0;
+    session.resetFxBaseline();
+    // Intents queued while we were a guest belong to the old host's brawl.
+    session.drainIntents();
+    const snap = session.readSnapshot();
+    if (snap) {
+      this.hud.showMenu(false);
+      this.hud.hideResult();
+      this.seqOut = snap.seq;
+      restoreFromSnapshot(this, snap, departed);
+      setResultMode("host");
+      setSpectateCopy(this.player ? null : "SPECTATING · you are in the next brawl");
+    } else {
+      this.startMatch(this.onlineKit);
+    }
+    this.broadcast(1 / SNAPSHOT_HZ);
+  }
+
+  private becomeGuest(): void {
+    const { session } = this;
+    if (!session) {
+      return;
+    }
+    setRecorders(this.effects, this.hud, null);
+    this.clearEntities();
+    this.mode = "guest";
+    this.guest = new GuestView(this);
+    session.resetFxBaseline();
+    this.hud.hideResult();
+    setResultMode("guest");
+    setResultWait(GUEST_WAIT);
   }
 
   onPlayerHurt(amount: number): void {
@@ -420,21 +660,45 @@ export class Game {
     this.shakeAmp = Math.max(this.shakeAmp, 0.07);
   }
 
+  /** The local player fell: solo ends the match; online the brawl goes on without us. */
+  localDown(rank: number, killer: Brawler | null): void {
+    if (this.mode === "solo") {
+      this.state = "ended";
+    }
+    this.spectate = killer?.alive ? killer : null;
+    this.pendingResult = { rank, t: 1.5, won: false };
+    this.audio.play("lose");
+  }
+
+  /** The local player is the last one standing. */
+  localWin(): void {
+    this.state = "ended";
+    if (this.player) {
+      this.player.rank = 1;
+    }
+    this.pendingResult = { rank: 1, t: 1.3, won: true };
+    this.audio.play("win");
+  }
+
+  /** Host: the brawl is decided; the room shows the result and restarts on a timer. */
+  private endOnlineMatch(): void {
+    this.state = "ended";
+    this.endT = 0;
+    this.winner = this.brawlers.find((b) => b.alive)?.name ?? null;
+  }
+
   /** Decide the match once the player falls or is the last one standing. */
   private resolveDown(downed: Brawler, killer: Brawler | null, left: number): void {
     const { player } = this;
     if (downed === player) {
-      this.state = "ended";
-      this.spectate = killer?.alive ? killer : null;
-      this.pendingResult = { rank: downed.rank, t: 1.5, won: false };
-      this.audio.play("lose");
+      this.localDown(downed.rank, killer);
     } else if (left === 1 && player?.alive) {
-      this.state = "ended";
-      player.rank = 1;
-      this.pendingResult = { rank: 1, t: 1.3, won: true };
-      this.audio.play("win");
+      this.localWin();
     } else if (left === 2 && player?.alive) {
       this.hud.banner("SHOWDOWN!", 1.5, true);
+    }
+    if (this.mode === "host" && left <= 1) {
+      this.endOnlineMatch();
     }
   }
 
@@ -447,13 +711,7 @@ export class Game {
     if (this.state === "menu") {
       return;
     }
-    if (killer && killer !== downed) {
-      this.hud.feed(
-        `<span class="k ${feedTag(killer)}">${killer.name}</span> ⚔ <span class="v ${feedTag(downed)}">${downed.name}</span>`,
-      );
-    } else {
-      this.hud.feed(`<span class="v ${feedTag(downed)}">${downed.name}</span> ☠ poison gas`);
-    }
+    this.hud.announceKill(killer, downed);
     if (this.state !== "playing") {
       return;
     }
@@ -509,20 +767,34 @@ export class Game {
     this.lighting.setTime(lerp(TUNING.startHour, TUNING.endHour, progress));
   }
 
-  private updateCountdown(dt: number): void {
-    this.countdownT -= dt;
+  /** The 3-2-1 numerals, once each, as `countdownT` crosses them. */
+  announceCount(): void {
     const count = Math.ceil(this.countdownT - COUNTDOWN_GO_S);
     if (count !== this.lastCount && count >= 1 && count <= 3) {
       this.lastCount = count;
       this.hud.banner(String(count), 0.8);
       this.audio.play("count");
     }
+  }
+
+  /** The countdown is over: the brawl is on. */
+  announceGo(): void {
+    this.lastCount = 0;
+    this.lighting.resetShadowFit();
+    this.hud.banner("BRAWL!", 0.9);
+    this.audio.play("go");
+  }
+
+  announceGas(): void {
+    this.hud.banner("POISON GAS IS CLOSING IN!", 2.2, true);
+  }
+
+  private updateCountdown(dt: number): void {
+    this.countdownT -= dt;
+    this.announceCount();
     if (this.countdownT <= COUNTDOWN_GO_S && this.lastCount !== 0) {
-      this.lastCount = 0;
       this.state = "playing";
-      this.lighting.resetShadowFit();
-      this.hud.banner("BRAWL!", 0.9);
-      this.audio.play("go");
+      this.announceGo();
     }
   }
 
@@ -530,7 +802,7 @@ export class Game {
     const wasActive = this.gas.active;
     this.gas.update(dt, this.matchTime);
     if (!wasActive && this.gas.active) {
-      this.hud.banner("POISON GAS IS CLOSING IN!", 2.2, true);
+      this.announceGas();
     }
   }
 
@@ -585,17 +857,37 @@ export class Game {
     this.hud.update(0);
   }
 
-  update(dt: number): void {
-    this.pipeline.resize();
-    if (this.paused) {
-      this.updatePaused(dt);
-      return;
+  /** Everything after the bodies moved: effects, camera, lights, HUD — shared by every mode. */
+  private present(dt: number): void {
+    this.effects.update(dt);
+    updateVisibility(this);
+    if (this.mode !== "guest") {
+      this.updateTime(dt);
     }
+    updateCamera(this, dt);
+    this.world.update(dt, this.elapsed);
+    this.addDynamicLights();
+    this.audio.listener.x = this.focus.x;
+    this.audio.listener.z = this.focus.z;
+    this.lighting.update(dt, this.elapsed, this.camera, this.focus);
+    if (this.state === "menu" && this.mode === "solo") {
+      this.updateAttract(dt);
+    }
+    this.updateResult(dt);
+    this.hud.update(dt);
+  }
+
+  /** One authoritative sim step, shared by solo play and the host. */
+  private stepSim(dt: number): void {
     this.elapsed += dt;
     if (this.state === "countdown") {
       this.updateCountdown(dt);
     } else if (this.state !== "menu") {
       this.matchTime += dt;
+    }
+    if (this.mode === "host") {
+      reconcileSeats(this);
+      applyRemoteIntents(this);
     }
     controlPlayer(this);
     for (const brain of this.brains) {
@@ -609,33 +901,176 @@ export class Game {
     if (this.state !== "menu") {
       this.updateGas(dt);
     }
-    this.effects.update(dt);
-    updateVisibility(this);
-    this.updateTime(dt);
-    updateCamera(this, dt);
-    this.world.update(dt, this.elapsed);
-    this.addDynamicLights();
-    this.audio.listener.x = this.focus.x;
-    this.audio.listener.z = this.focus.z;
-    this.lighting.update(dt, this.elapsed, this.camera, this.focus);
-    if (this.state === "menu") {
-      this.updateAttract(dt);
+    this.present(dt);
+  }
+
+  /** Connection edges shared by the host and guest paths; returns false once the room is gone. */
+  private pollSession(): boolean {
+    const { session } = this;
+    if (!session) {
+      return false;
     }
-    this.updateResult(dt);
-    this.hud.update(dt);
+    const id = session.playerId;
+    if (id === null) {
+      setNetStatus(session.status === "reconnecting" ? "Reconnecting…" : "Connecting…");
+      return true;
+    }
+    this.localSeatId = seatId(id);
+    this.picks.set(id, { kit: this.onlineKit, name: this.onlineName });
+    session.announce({ kind: "join", kit: this.onlineKit, name: this.onlineName });
+    setNetStatus(session.hostDropped ? "Host reconnecting…" : null);
+    const previousHost = this.knownHostId;
+    this.knownHostId = session.hostId;
+    if (this.mode === "host" && !session.isHost) {
+      this.becomeGuest();
+    } else if (this.mode === "guest" && session.isHost && !session.hasMalformedSnapshot) {
+      this.becomeHost(previousHost === id ? null : previousHost);
+    }
+    return true;
+  }
+
+  private updateConnecting(dt: number): void {
+    const { session } = this;
+    if (!session) {
+      this.mode = "solo";
+      return;
+    }
+    if (session.update(dt)) {
+      this.fallBackOffline();
+      return;
+    }
+    if (session.playerId !== null) {
+      this.pollSession();
+      if (session.isHost) {
+        if (!session.hasMalformedSnapshot) {
+          this.becomeHost(null);
+        }
+      } else {
+        this.becomeGuest();
+      }
+      return;
+    }
+    setNetStatus("Connecting…");
+    // The menu arena idles behind the pill; its brawl is not worth the CPU on a slow client.
+    this.elapsed += dt;
+    this.present(dt);
+  }
+
+  private broadcast(dt: number): void {
+    const { session } = this;
+    if (!session) {
+      return;
+    }
+    this.snapAcc += dt;
+    if (this.snapAcc < 1 / SNAPSHOT_HZ) {
+      return;
+    }
+    this.snapAcc = 0;
+    this.seqOut += 1;
+    session.broadcast(encodeSnapshot(this, this.seqOut), this.netFx);
+    this.netFx = [];
+  }
+
+  private updateHost(dt: number): void {
+    const { session } = this;
+    session?.update(dt);
+    if (!this.pollSession() || this.mode !== "host") {
+      return;
+    }
+    this.stepSim(dt);
+    if (this.state === "ended") {
+      this.endT += dt;
+      setResultWait(`Next brawl in ${Math.max(1, Math.ceil(RESTART_DELAY_S - this.endT))}`);
+      if (this.endT >= RESTART_DELAY_S) {
+        this.startMatch(this.onlineKit);
+      }
+    }
+    this.broadcast(dt);
+  }
+
+  private updateGuest(dt: number): void {
+    const { session, guest } = this;
+    session?.update(dt);
+    if (!this.pollSession() || this.mode !== "guest" || !session || !guest) {
+      return;
+    }
+    this.elapsed += dt;
+    applyRemoteIntents(this);
+    const snap = session.readSnapshot();
+    if (snap && snap.seq !== guest.seq) {
+      guest.apply(snap);
+      session.seq = snap.seq;
+    }
+    if (!guest.hasWorld) {
+      setNetStatus("Waiting for the host…");
+      this.present(dt);
+      return;
+    }
+    if (this.state !== "countdown") {
+      this.matchTime += dt;
+    }
+    controlPlayer(this);
+    for (const b of this.brawlers) {
+      b.update(dt);
+    }
+    guest.update(dt);
+    this.gas.update(dt, this.matchTime, false);
+    replayBatch(this.effects, this.hud, session.takeFx(), this.localSeatId);
+    this.present(dt);
+  }
+
+  update(dt: number): void {
+    this.pipeline.resize();
+    if (this.paused) {
+      this.updatePaused(dt);
+      return;
+    }
+    switch (this.mode) {
+      case "host": {
+        this.updateHost(dt);
+        break;
+      }
+      case "guest": {
+        this.updateGuest(dt);
+        break;
+      }
+      case "connecting": {
+        this.updateConnecting(dt);
+        break;
+      }
+      default: {
+        this.stepSim(dt);
+        break;
+      }
+    }
+  }
+
+  /** The host owes the room wall-clock time: a long frame becomes several fixed sub-steps. */
+  private stepFrame(raw: number): void {
+    if (this.mode !== "host") {
+      const dt = Math.min(MAX_STEP_S, Math.max(1e-4, raw));
+      for (let i = 0; i < this.simSteps; i += 1) {
+        this.update(dt);
+      }
+      return;
+    }
+    let remaining = Math.min(MAX_CATCH_UP_S, Math.max(1e-4, raw));
+    while (remaining > 0) {
+      const step = Math.min(MAX_STEP_S, remaining);
+      remaining -= step;
+      this.update(step);
+    }
   }
 
   private readonly frame = (now: number): void => {
     const raw = (now - this.last) / 1000;
-    const dt = Math.min(0.05, Math.max(1e-4, raw));
+    const dt = Math.min(MAX_STEP_S, Math.max(1e-4, raw));
     this.last = now;
     const { info } = this.pipeline.renderer;
     this.frameStats.calls = info.render.calls;
     this.frameStats.triangles = info.render.triangles;
     info.reset();
-    for (let i = 0; i < this.simSteps; i += 1) {
-      this.update(dt);
-    }
+    this.stepFrame(raw);
     this.pipeline.render(dt);
     if (this.warmup > 0) {
       this.warmup -= 1;

@@ -4,6 +4,7 @@
 // (`muzzle`, `explosion`, `leaves`, ...) and never touch the pools directly.
 import * as THREE from "three";
 import type { Game } from "../game";
+import type { FxMethod, FxRecorder } from "../net/presentation";
 import { rand } from "../utils";
 import { DebrisField } from "./debris";
 import { DecalPool } from "./decals";
@@ -19,6 +20,7 @@ const TURN = 6.28;
 const DEBRIS_CAP = 140;
 
 const scratchSize = new THREE.Vector2();
+const scratchColor = new THREE.Color();
 
 export class Effects {
   game: Game;
@@ -31,6 +33,10 @@ export class Effects {
   private readonly debrisField: DebrisField;
   private readonly decals: DecalPool;
   private readonly rings: RingPool;
+  /** While hosting online, every top-level recipe call is also written here for guests. */
+  recorder: FxRecorder | null = null;
+  /** Nesting depth of recipe calls: composites (explosion → flash + ring …) record once. */
+  private depth = 0;
 
   constructor(game: Game) {
     this.game = game;
@@ -68,6 +74,12 @@ export class Effects {
     this.buildFireflies();
   }
 
+  private record(m: FxMethod, a: number[]): void {
+    if (this.depth === 0) {
+      this.recorder?.(m, a);
+    }
+  }
+
   flash(
     x: number,
     y: number,
@@ -77,6 +89,7 @@ export class Effects {
     distance: number,
     duration: number,
   ): void {
+    this.record("flash", [x, y, z, color.getHex(), intensity, distance, duration]);
     this.flashes.add(x, y, z, color, intensity, distance, duration);
   }
 
@@ -121,6 +134,7 @@ export class Effects {
   }
 
   impact(x: number, y: number, z: number, color: THREE.Color, count: number): void {
+    this.record("impact", [x, y, z, color.getHex(), count]);
     for (let i = 0; i < count; i += 1) {
       const angle = Math.random() * TURN;
       const speed = rand(1.5, 5);
@@ -162,6 +176,7 @@ export class Effects {
   }
 
   burst(x: number, y: number, z: number, color: THREE.Color, count: number, speed: number): void {
+    this.record("burst", [x, y, z, color.getHex(), count, speed]);
     for (let i = 0; i < count; i += 1) {
       const angle = Math.random() * TURN;
       const v = rand(0.4, 1) * speed;
@@ -194,7 +209,10 @@ export class Effects {
     color: THREE.Color,
     scale: number,
   ): void {
+    this.record("muzzle", [x, y, z, dx, dz, color.getHex(), scale]);
+    this.depth += 1;
     this.flash(x + dx * 0.2, y + 0.1, z + dz * 0.2, color, 6.5 * scale, 5.5, 0.09);
+    this.depth -= 1;
     this.glow.emit(
       x + dx * 0.1,
       y,
@@ -254,6 +272,7 @@ export class Effects {
   }
 
   dust(x: number, z: number, count: number, speed: number): void {
+    this.record("dust", [x, z, count, speed]);
     for (let i = 0; i < count; i += 1) {
       const angle = Math.random() * TURN;
       const v = rand(0.4, 1) * speed;
@@ -298,6 +317,7 @@ export class Effects {
   }
 
   leaves(x: number, z: number, count: number): void {
+    this.record("leaves", [x, z, count]);
     for (let i = 0; i < count; i += 1) {
       const angle = Math.random() * TURN;
       this.smoke.emit(
@@ -321,6 +341,7 @@ export class Effects {
   }
 
   healPuff(x: number, z: number): void {
+    this.record("healPuff", [x, z]);
     for (let i = 0; i < 5; i += 1) {
       this.glow.emit(
         x + rand(-0.4, 0.4),
@@ -343,6 +364,7 @@ export class Effects {
   }
 
   debris(x: number, y: number, z: number, color: THREE.ColorRepresentation, count: number): void {
+    this.record("debris", [x, y, z, scratchColor.set(color).getHex(), count]);
     this.debrisField.spawn(x, y, z, color, count);
   }
 
@@ -354,14 +376,18 @@ export class Effects {
     duration = 0.4,
     brightness = 3,
   ): void {
+    this.record("ring", [x, z, radius, color.getHex(), duration, brightness]);
     this.rings.spawn(x, z, radius, color, duration, brightness);
   }
 
   decal(x: number, z: number, radius: number): void {
+    this.record("decal", [x, z, radius]);
     this.decals.stamp(x, z, radius);
   }
 
   explosion(x: number, z: number, radius: number, color: THREE.Color, big: boolean): void {
+    this.record("explosion", [x, z, radius, color.getHex(), big ? 1 : 0]);
+    this.depth += 1;
     const emberCount = big ? 46 : 24;
     this.flash(x, 1.1, z, color, big ? 95 : 48, big ? 15 : 10, big ? 0.5 : 0.34);
     this.ring(x, z, radius * 1.15, color, big ? 0.5 : 0.36);
@@ -428,9 +454,12 @@ export class Effects {
       );
     }
     this.dust(x, z, big ? 14 : 8, radius * 2.2);
+    this.depth -= 1;
   }
 
   slam(x: number, z: number, radius: number, color: THREE.Color): void {
+    this.record("slam", [x, z, radius, color.getHex()]);
+    this.depth += 1;
     this.flash(x, 0.9, z, color, 40, 10, 0.32);
     this.ring(x, z, radius * 1.2, color, 0.42, 2.4);
     this.decal(x, z, radius * 0.6);
@@ -456,9 +485,12 @@ export class Effects {
         8,
       );
     }
+    this.depth -= 1;
   }
 
   defeat(x: number, z: number, color: THREE.Color): void {
+    this.record("defeat", [x, z, color.getHex()]);
+    this.depth += 1;
     this.flash(x, 1, z, color, 26, 8, 0.4);
     this.ring(x, z, 1.6, color, 0.45, 2.2);
     this.burst(x, 0.8, z, color, 26, 5);
@@ -481,6 +513,7 @@ export class Effects {
         -0.3,
       );
     }
+    this.depth -= 1;
   }
 
   update(dt: number): void {

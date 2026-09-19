@@ -4,6 +4,7 @@
 
 import type { SoundName, Synth } from "./audio-recipes";
 import { SOUND_RECIPES } from "./audio-recipes";
+import type { SfxRecorder } from "./net/presentation";
 
 declare global {
   interface Window {
@@ -27,6 +28,8 @@ export class GameAudio implements Synth {
   noiseBuffer: AudioBuffer | null = null;
   lastPlayed = new Map<SoundName, number>();
   timeOffset = 0;
+  /** While hosting online, every play request is also written here for guests. */
+  recorder: SfxRecorder | null = null;
 
   unlock(): void {
     if (this.ctx) {
@@ -132,6 +135,7 @@ export class GameAudio implements Synth {
   }
 
   play(name: SoundName, x?: number, z?: number): void {
+    this.recorder?.(name, x ?? null, z ?? null);
     if (this.ctx && !this.muted) {
       this.emit(name, this.loudness(x, z));
     }

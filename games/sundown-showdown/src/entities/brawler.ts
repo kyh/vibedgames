@@ -9,6 +9,8 @@ import type {
 } from "../config";
 import { BRAWLER_RADIUS, TUNING } from "../config";
 import type { Game } from "../game";
+import type { BrawlerDrive, NetTarget } from "../net/interpolation";
+import { makeNetTarget, snapToTarget, steerPuppet } from "../net/interpolation";
 import { clamp, damp, dampAngle, lerp } from "../utils";
 import {
   buildBrawlerModel,
@@ -40,8 +42,14 @@ interface LeapState {
 }
 
 export interface BrawlerOptions {
+  /** Who advances this body each frame: the sim (solo/host), local prediction or snapshots. */
+  drive?: BrawlerDrive;
   isPlayer?: boolean;
   name: string;
+  /** Wire id (`p:<playerId>` / `bot:<n>`); defaults to a local-only id. */
+  netId?: string;
+  /** Owning player online, null for a bot or the solo player. */
+  owner?: string | null;
   x: number;
   z: number;
   hueShift?: number;
@@ -62,6 +70,14 @@ export class Brawler {
   readonly id: number;
   readonly isPlayer: boolean;
   readonly name: string;
+  readonly netId: string;
+  readonly owner: string | null;
+  readonly hueShift: number;
+  drive: BrawlerDrive;
+  /** The host's last pose, for a guest-driven body. */
+  readonly netTarget: NetTarget;
+  /** Mid-leap according to the host (guest bodies never hold a `leap`). */
+  netAir: boolean;
   readonly model: BrawlerModel;
   readonly root: THREE.Group;
   readonly ring: GroundMarker;
@@ -115,7 +131,13 @@ export class Brawler {
     nextBrawlerId += 1;
     this.isPlayer = options.isPlayer ?? false;
     this.name = options.name;
-    this.model = buildBrawlerModel(def, options.hueShift ?? 0);
+    this.netId = options.netId ?? `local:${this.id}`;
+    this.owner = options.owner ?? null;
+    this.hueShift = options.hueShift ?? 0;
+    this.drive = options.drive ?? "sim";
+    this.netTarget = makeNetTarget();
+    this.netAir = false;
+    this.model = buildBrawlerModel(def, this.hueShift);
     this.root = this.model.root;
     this.root.position.set(options.x, 0, options.z);
     game.scene.add(this.root);
@@ -225,7 +247,12 @@ export class Brawler {
   }
 
   get airborne(): boolean {
-    return this.leap !== null;
+    return this.leap !== null || this.netAir;
+  }
+
+  /** A person plays this brawler (locally or from another client), not a bot brain. */
+  get isHuman(): boolean {
+    return this.isPlayer || this.owner !== null;
   }
 
   // The current muzzle offset rotated by the aim angle into world space.
@@ -418,10 +445,10 @@ export class Brawler {
       return 0;
     }
     let dealt = amount;
-    if (source && !source.isPlayer) {
-      // Bots hit the player at the difficulty's rate and each other softly, so
+    if (source && !source.isHuman) {
+      // Bots hit humans at the difficulty's rate and each other softly, so
       // bot-on-bot fights thin the field without deciding the match.
-      dealt *= this.isPlayer ? this.game.difficulty.damage : 0.34;
+      dealt *= this.isHuman ? this.game.difficulty.damage : 0.34;
     }
     if (source) {
       this.lastAttacker = source;
@@ -495,6 +522,14 @@ export class Brawler {
   }
 
   update(dt: number): void {
+    if (this.drive === "puppet") {
+      this.updatePuppet(dt);
+      return;
+    }
+    if (this.drive === "predict") {
+      this.updatePredict(dt);
+      return;
+    }
     if (!this.alive) {
       this.updateDeath(dt);
       return;
@@ -511,6 +546,38 @@ export class Brawler {
     this.updateFacing(dt, moving);
     this.updateBush();
     this.tickRegen(dt);
+    this.animate(dt, moving);
+  }
+
+  // A remote body on a guest: chase the host's pose and animate what it implies.
+  private updatePuppet(dt: number): void {
+    if (!this.alive) {
+      this.updateDeath(dt);
+      return;
+    }
+    this.tickTimers(dt);
+    const moving = steerPuppet(this, dt);
+    this.root.rotation.y = this.facing;
+    this.animate(dt, moving);
+  }
+
+  // The guest's own body: local input moves it now; the host corrects it later.
+  private updatePredict(dt: number): void {
+    if (!this.alive) {
+      this.updateDeath(dt);
+      return;
+    }
+    this.tickTimers(dt);
+    let moving = false;
+    if (this.netAir) {
+      snapToTarget(this);
+    } else {
+      this.tickMovement(dt);
+      moving = this.vel.lengthSq() > 0.2;
+    }
+    this.updateFacing(dt, moving);
+    const pos = this.root.position;
+    this.inBush = !this.netAir && this.game.world.isBushAt(pos.x, pos.z);
     this.animate(dt, moving);
   }
 

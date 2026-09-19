@@ -378,8 +378,7 @@ export class Bot {
       const aim = this.aimAt(target.x, target.z, target.vel.x, target.vel.y, attack);
       if (b.attack(aim.dx, aim.dz, aim.x, aim.z)) {
         this.shootT =
-          (rand(0.45, 1) + (b.ammo < 1 ? 0.4 : 0)) *
-          (target.isPlayer ? game.difficulty.cadence : 1);
+          (rand(0.45, 1) + (b.ammo < 1 ? 0.4 : 0)) * (target.isHuman ? game.difficulty.cadence : 1);
       }
     }
   }

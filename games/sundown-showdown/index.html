@@ -31,7 +31,9 @@
       <div id="topbar">
         <div class="pill" id="left-count">BRAWLERS LEFT <b>8</b></div>
         <div class="pill" id="clock">15:24</div>
+        <div class="pill net" id="net-status" hidden>Connecting&hellip;</div>
       </div>
+      <div id="spectate" class="outline" hidden>SPECTATING &middot; next brawl after this one</div>
       <div id="banner" class="outline"></div>
       <div id="hints">
         <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp; <kbd>Mouse</kbd> aim &nbsp;
@@ -85,7 +87,30 @@
       <h1 id="title">SUNDOWN<span>SHOWDOWN</span></h1>
       <div id="tagline">Last brawler standing. The sun sets as the gas closes in.</div>
       <div id="cards"></div>
-      <button class="big-btn" id="play">PLAY</button>
+      <div id="lobby">
+        <input
+          type="text"
+          id="lobby-name"
+          maxlength="12"
+          placeholder="Your name"
+          autocomplete="off"
+          aria-label="Your name"
+        />
+        <span id="lobby-online">
+          <input
+            type="text"
+            id="lobby-room"
+            maxlength="12"
+            placeholder="Room code (optional)"
+            autocomplete="off"
+            aria-label="Room code"
+          />
+        </span>
+      </div>
+      <div id="play-row">
+        <button class="big-btn" id="play">PLAY vs BOTS</button>
+        <button class="big-btn online" id="play-online">PLAY ONLINE</button>
+      </div>
       <div id="menu-hint">
         <span class="for-keys"
           >Open <kbd>&#9881;</kbd> to scrub the time of day and tune shadows</span
@@ -100,6 +125,7 @@
       <h1 id="result-title">VICTORY!</h1>
       <div id="result-rank" class="outline"></div>
       <div id="result-stats"></div>
+      <div id="result-wait" hidden></div>
       <button class="big-btn" id="again">PLAY AGAIN</button>
       <button class="ghost-btn" id="to-menu">CHANGE BRAWLER</button>
     </div>

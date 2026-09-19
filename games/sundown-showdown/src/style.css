@@ -202,6 +202,35 @@ canvas#game {
   min-width: 96px;
   font-size: 17px;
 }
+.pill.net {
+  color: var(--gold);
+  font-size: 15px;
+  animation: 1.1s ease-in-out infinite alternate netPulse;
+}
+.pill.net[hidden] {
+  display: none;
+}
+@keyframes netPulse {
+  0% {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 1;
+  }
+}
+#spectate {
+  top: calc(66px + var(--sa-t));
+  color: var(--mint);
+  text-align: center;
+  letter-spacing: 0.5px;
+  font-size: 18px;
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+#spectate[hidden] {
+  display: none;
+}
 #feed {
   top: calc(16px + var(--sa-t));
   left: calc(16px + var(--sa-l));
@@ -691,6 +720,59 @@ body.touch #gear {
   box-shadow: 0 3px 0 var(--ink);
   transform: translateY(5px);
 }
+.big-btn.online {
+  background: linear-gradient(#c8ffd8, var(--mint) 45%, #33c96a);
+}
+#play-row {
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0 16px;
+  display: flex;
+}
+#lobby {
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 18px;
+  display: flex;
+}
+#lobby-online[hidden] {
+  display: none;
+}
+#lobby input {
+  background: var(--panel);
+  border: 3px solid var(--ink);
+  color: var(--paper);
+  text-align: center;
+  width: 210px;
+  border-radius: 12px;
+  padding: 8px 12px;
+  font-family: var(--body);
+  font-size: 16px;
+  font-weight: 800;
+  box-shadow: 0 4px #00000059;
+  -webkit-user-select: text;
+  user-select: text;
+}
+#lobby input::placeholder {
+  color: var(--lilac);
+  font-weight: 600;
+}
+#lobby input:focus {
+  border-color: var(--gold);
+  outline: none;
+}
+#result-wait {
+  color: var(--mint);
+  margin-top: 12px;
+  font-size: 20px;
+}
+#result-wait[hidden] {
+  display: none;
+}
+#again[hidden] {
+  display: none;
+}
 .ghost-btn {
   border: 3px solid var(--ink);
   color: #fff;
@@ -811,6 +893,14 @@ body.touch #gear {
     padding: 8px 44px 10px;
     font-size: 28px;
   }
+  #lobby {
+    margin-top: 12px;
+  }
+  #lobby input {
+    width: 160px;
+    padding: 6px 10px;
+    font-size: 14px;
+  }
   #menu-hint {
     margin-top: 12px;
     font-size: 12.5px;
@@ -884,6 +974,18 @@ body.touch #gear {
     margin-top: 10px;
     padding: 6px 40px 8px;
     font-size: 24px;
+  }
+  #lobby {
+    margin-top: 8px;
+  }
+  #lobby input {
+    width: 160px;
+    padding: 5px 10px;
+    font-size: 14px;
+  }
+  #spectate {
+    top: calc(50px + var(--sa-t));
+    font-size: 14px;
   }
   #menu-hint {
     display: none;

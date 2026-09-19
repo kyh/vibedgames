@@ -154,7 +154,8 @@ export class Gas {
     );
   }
 
-  update(dt: number, matchTime: number): void {
+  /** `simulate` false (a guest mirroring the host) drives the sheets without dealing damage. */
+  update(dt: number, matchTime: number, simulate = true): void {
     const progress = clamp((matchTime - TUNING.gasDelay) / TUNING.gasDuration, 0, 1);
     this.active = matchTime > TUNING.gasDelay - WARNING;
     this.half = lerp(TUNING.gasStartHalf, TUNING.gasEndHalf, progress);
@@ -162,7 +163,7 @@ export class Gas {
     // The sheets fade in over the warning window before the first tick lands.
     const fadeIn = smoothstep(TUNING.gasDelay - WARNING, TUNING.gasDelay, matchTime);
     this.updateSheets(fadeIn);
-    if (matchTime < TUNING.gasDelay) {
+    if (!simulate || matchTime < TUNING.gasDelay) {
       return;
     }
     this.tickT += dt;
