@@ -102,7 +102,7 @@ const errors = [];
 page.on("pageerror", (err) => errors.push(`pageerror: ${err.message}`));
 await page.addInitScript(installPadStub);
 
-await page.goto(`${baseUrl}/?q=low`, { waitUntil: "load" });
+await page.goto(`${baseUrl}/?q=low&speed=4`, { waitUntil: "load" });
 await page.waitForFunction(
   () => document.querySelector("#loading")?.classList.contains("done"),
   null,
@@ -112,16 +112,23 @@ check(true, "loading veil lifted");
 
 await page.evaluate(() => window.__pad.connect());
 await page.click("#play");
-// Past the countdown, so movement input reaches the brawler.
-await wait(4000);
+// Past the countdown, so movement input reaches the brawler. Software WebGL
+// runs the sim well below real time, so wait on the phase, not the clock.
+await page.waitForFunction(() => window.__GAME_DIAGNOSTICS__?.phase === "playing", null, {
+  timeout: 90_000,
+});
 
 const readPlayer = () => page.evaluate(() => window.__GAME_DIAGNOSTICS__?.player ?? null);
 const before = await readPlayer();
 check(before !== null, "diagnostics expose the player (installDiagnostics wired)");
 
 await page.evaluate(() => window.__pad.set({ axes: [1, 0, 0, 0] }));
-await wait(800);
-const after = await readPlayer();
+let after = before;
+const movedRight = () => before !== null && after !== null && after.x - before.x > 0.5;
+for (let i = 0; i < 60 && !movedRight(); i += 1) {
+  await wait(250);
+  after = await readPlayer();
+}
 await page.evaluate(() => window.__pad.set({ axes: [0, 0, 0, 0] }));
 
 const moved = before !== null && after !== null && after.x - before.x > 0.5;

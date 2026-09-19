@@ -16,7 +16,7 @@ and playable, and each has its own README with routes, options and controls.
 | [Pacman](./pacman)                     | Three.js          | shared room    | `pnpm dev:pacman`           | `pacman.vibedgames.com`           |
 | [Pong](./pong)                         | Three.js          | 1v1            | `pnpm dev:pong`             | `pong.vibedgames.com`             |
 | [Starfall](./starfall)                 | Phaser 4          | 32p arena      | `pnpm dev:starfall`         | `starfall.vibedgames.com`         |
-| [Sundown Showdown](./sundown-showdown) | Three.js          | —              | `pnpm dev:sundown-showdown` | `sundown-showdown.vibedgames.com` |
+| [Sundown Showdown](./sundown-showdown) | Three.js          | 8p royale      | `pnpm dev:sundown-showdown` | `sundown-showdown.vibedgames.com` |
 | [Tetris](./tetris)                     | Three.js          | —              | `pnpm dev:tetris`           | `tetris.vibedgames.com`           |
 
 Each `pnpm dev:<game>` serves on its own fixed port (see the game's README).

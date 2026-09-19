@@ -15,6 +15,8 @@ import type { Floater } from "./hud-floaters";
 import type { Stick } from "./input";
 import { buildLobby } from "./hud-lobby";
 import { buildBrawlerCards, markSelectedCard } from "./hud-menu";
+import { PlayHints } from "./polish/play-hints";
+import type { RunVerdict } from "./polish/best-run";
 import { createBoxBar, createOverhead, syncBoxBar, syncOverhead } from "./hud-overheads";
 import type { BoxBar, Overhead } from "./hud-overheads";
 import { buildSettingsPanel, renderStats, syncSettingsPanel } from "./hud-settings";
@@ -98,6 +100,8 @@ export class Hud {
   fps = 0;
   touch = false;
   readonly stickEls: { aim: HTMLElement; move: HTMLElement };
+  /** The in-play control strip, which retires itself once the player has shot. */
+  readonly playHints: PlayHints;
   /** While hosting online, floating numbers and kills are also written here for guests. */
   floatRecorder: FloatRecorder | null = null;
   feedRecorder: FeedRecorder | null = null;
@@ -110,6 +114,7 @@ export class Hud {
     this.floaterLayer = mustGet("floaters");
     this.floaters = createFloaters(this.floaterLayer, FLOATER_POOL);
     this.stickEls = { aim: mustGet("stick-aim"), move: mustGet("stick-move") };
+    this.playHints = new PlayHints(mustGet("hints"));
     this.buildMenu();
     buildLobby(game, game.params);
     buildSettingsPanel(game);
@@ -162,13 +167,24 @@ export class Hud {
   }
 
   // oxlint-disable-next-line class-methods-use-this -- part of the Hud facade; callers hold the instance, not the class
-  showResult(won: boolean, rank: number, total: number, kills: number, cubes: number): void {
+  showResult(
+    won: boolean,
+    rank: number,
+    total: number,
+    kills: number,
+    cubes: number,
+    verdict?: RunVerdict,
+  ): void {
     const title = mustGet("result-title");
     title.textContent = resultTitle(won, rank);
     title.classList.toggle("lose", !won);
     mustGet("result-rank").textContent = `RANK #${rank} of ${total}`;
     mustGet("result-stats").textContent =
       `${kills} takedown${kills === 1 ? "" : "s"}  ·  ${cubes} power cube${cubes === 1 ? "" : "s"}`;
+    const best = mustGet("result-best");
+    best.textContent = verdict?.line ?? "";
+    best.hidden = !verdict?.line;
+    best.classList.toggle("record", verdict?.record === true);
     mustGet("result").classList.add("open");
   }
 
@@ -391,6 +407,7 @@ export class Hud {
 
   update(dt: number): void {
     const { game } = this;
+    this.playHints.update(dt);
     this.updateOverheads();
     this.updateBoxBars();
     this.updateFloaters(dt);

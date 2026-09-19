@@ -20,6 +20,10 @@ import {
 } from "./brawler-model";
 import type { BrawlerModel } from "./brawler-model";
 
+/** Hit stop on a hit the player deals or takes: three frames, a kill holds longer. */
+const HIT_STOP_S = 0.05;
+const KILL_STOP_S = 0.12;
+
 // A multi-shot attack in flight: one shot fires every `a.interval` seconds
 // until `left` reaches zero, all along the direction captured at the trigger.
 interface BurstState {
@@ -118,6 +122,8 @@ export class Brawler {
   walkPhase: number;
   squash: number;
   spawnT: number;
+  /** Seconds this body holds still after dealing or taking a telling hit. */
+  freezeT = 0;
   readonly lightColor: THREE.Color;
   readonly superColor: THREE.Color;
 
@@ -251,6 +257,21 @@ export class Brawler {
   }
 
   /** A person plays this brawler (locally or from another client), not a bot brain. */
+  /** Hidden mercy only ever softens bots against the solo player. */
+  private mercyScale(): number {
+    return this.isPlayer && this.game.mode === "solo" ? this.game.mercy.damageScale : 1;
+  }
+
+  /** Freeze both parties briefly; only bodies the sim drives can hold. */
+  private hitStop(source: Brawler | null, seconds: number): void {
+    if (this.drive === "sim") {
+      this.freezeT = Math.max(this.freezeT, seconds);
+    }
+    if (source && source !== this && source.drive === "sim") {
+      source.freezeT = Math.max(source.freezeT, seconds);
+    }
+  }
+
   get isHuman(): boolean {
     return this.isPlayer || this.owner !== null;
   }
@@ -448,7 +469,7 @@ export class Brawler {
     if (source && !source.isHuman) {
       // Bots hit humans at the difficulty's rate and each other softly, so
       // bot-on-bot fights thin the field without deciding the match.
-      dealt *= this.isHuman ? this.game.difficulty.damage : 0.34;
+      dealt *= this.isHuman ? this.game.difficulty.damage * this.mercyScale() : 0.34;
     }
     if (source) {
       this.lastAttacker = source;
@@ -465,12 +486,24 @@ export class Brawler {
     if (this.def.id === "titan") {
       this.addCharge(dealt * 0.35);
     }
-    if (!this.hidden || this.isPlayer) {
-      this.game.hud.floatText(this.x, 1.7, this.z, `${dealt}`, this.isPlayer ? "dmg-self" : "dmg");
-    }
     if (source && source !== this) {
       source.addCharge(absorbed);
       source.lastCombat = this.game.elapsed;
+    }
+    this.presentHit(dealt, source, isGas);
+    if (this.hp <= 0) {
+      this.die(source);
+    }
+    return absorbed;
+  }
+
+  /** Everything a hit shows and sounds: the number, the beat, the thud, the flash. */
+  private presentHit(dealt: number, source: Brawler | null, isGas: boolean): void {
+    if (!this.hidden || this.isPlayer) {
+      this.game.hud.floatText(this.x, 1.7, this.z, `${dealt}`, this.isPlayer ? "dmg-self" : "dmg");
+    }
+    if (!isGas && (this.isPlayer || source?.isPlayer)) {
+      this.hitStop(source, this.hp <= 0 ? KILL_STOP_S : HIT_STOP_S);
     }
     if (!isGas) {
       this.game.audio.play("hit", this.x, this.z);
@@ -478,10 +511,6 @@ export class Brawler {
     if (this.isPlayer) {
       this.game.onPlayerHurt(dealt);
     }
-    if (this.hp <= 0) {
-      this.die(source);
-    }
-    return absorbed;
   }
 
   heal(amount: number): void {
@@ -532,6 +561,11 @@ export class Brawler {
     }
     if (!this.alive) {
       this.updateDeath(dt);
+      return;
+    }
+    if (this.freezeT > 0) {
+      // Hit stop: the parties to a blow hold still for a beat so it lands.
+      this.freezeT -= dt;
       return;
     }
     this.tickTimers(dt);

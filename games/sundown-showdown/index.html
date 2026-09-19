@@ -101,7 +101,7 @@
             type="text"
             id="lobby-room"
             maxlength="12"
-            placeholder="Room code (optional)"
+            placeholder="Room code"
             autocomplete="off"
             aria-label="Room code"
           />
@@ -112,12 +112,8 @@
         <button class="big-btn online" id="play-online">PLAY ONLINE</button>
       </div>
       <div id="menu-hint">
-        <span class="for-keys"
-          >Open <kbd>&#9881;</kbd> to scrub the time of day and tune shadows</span
-        ><span class="for-touch"
-          >Left thumb moves &middot; right thumb drags to aim, release to fire &middot; tap to
-          auto-aim</span
-        >
+        <div id="menu-legend"></div>
+        <div class="menu-note"><kbd>&#9881;</kbd> time of day &middot; graphics</div>
       </div>
     </div>
 
@@ -125,6 +121,7 @@
       <h1 id="result-title">VICTORY!</h1>
       <div id="result-rank" class="outline"></div>
       <div id="result-stats"></div>
+      <div id="result-best" hidden></div>
       <div id="result-wait" hidden></div>
       <button class="big-btn" id="again">PLAY AGAIN</button>
       <button class="ghost-btn" id="to-menu">CHANGE BRAWLER</button>

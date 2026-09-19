@@ -39,7 +39,9 @@ const guestCanAct = (game: Game, player: Brawler): boolean =>
 
 const fireAttack = (game: Game, player: Brawler, aim: Aim): void => {
   if (game.mode !== "guest") {
-    player.attack(aim.dx, aim.dz, aim.x, aim.z);
+    if (player.attack(aim.dx, aim.dz, aim.x, aim.z)) {
+      game.hud.playHints.markActed();
+    }
     return;
   }
   if (!guestCanAct(game, player) || player.ammo < 1 || player.fireCooldown > 0) {
@@ -48,12 +50,15 @@ const fireAttack = (game: Game, player: Brawler, aim: Aim): void => {
   player.fireCooldown = GUEST_FIRE_COOLDOWN;
   player.aimAngle = Math.atan2(aim.dx, aim.dz);
   player.aimHold = 0.55;
+  game.hud.playHints.markActed();
   game.session?.sendIntent({ dx: aim.dx, dz: aim.dz, kind: "attack", x: aim.x, z: aim.z });
 };
 
 const fireSuper = (game: Game, player: Brawler, aim: Aim): void => {
   if (game.mode !== "guest") {
-    player.useSuper(aim.dx, aim.dz, aim.x, aim.z);
+    if (player.useSuper(aim.dx, aim.dz, aim.x, aim.z)) {
+      game.hud.playHints.markActed();
+    }
     return;
   }
   if (!guestCanAct(game, player) || !player.superReady) {

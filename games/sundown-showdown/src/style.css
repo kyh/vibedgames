@@ -301,6 +301,13 @@ canvas#game {
   line-height: 1.5;
   position: absolute;
 }
+#hints {
+  transition: opacity 0.6s;
+}
+#hints.faded {
+  opacity: 0;
+  pointer-events: none;
+}
 #hints kbd {
   color: var(--ink);
   background: #fff;
@@ -788,6 +795,54 @@ body.touch #gear {
   color: #cfc8f0;
   margin-top: 16px;
   font-size: 14px;
+}
+#menu-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 18px;
+  max-width: 720px;
+  margin: 0 auto 8px;
+}
+.legend-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+.legend-group > b {
+  color: var(--gold);
+  letter-spacing: 0.5px;
+  font-weight: 400;
+  text-transform: uppercase;
+  font-size: 12px;
+}
+.legend-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.menu-note {
+  color: #b9b0e0;
+  font-size: 13px;
+}
+#result-best {
+  color: var(--lilac);
+  margin-top: 4px;
+  font-size: 16px;
+}
+#result-best.record {
+  color: var(--gold);
+  animation: 0.7s ease-in-out infinite alternate pulse;
+}
+.pill,
+#clock,
+.oh-hp,
+.floater,
+#result-rank,
+#result-stats {
+  font-variant-numeric: tabular-nums;
 }
 #menu-hint kbd,
 #settings kbd {

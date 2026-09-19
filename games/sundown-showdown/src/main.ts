@@ -10,6 +10,10 @@ import {
 } from "@repo/embed";
 
 import { isBrawlerId } from "./config";
+import { CONTROLS, METHOD_LABEL } from "./controls";
+import { installDiagnostics } from "./diagnostics";
+import { createSundownPauseOverlay } from "./pause-overlay";
+import { mountStartLegend } from "./polish/start-legend";
 import { Game } from "./game";
 import { mustGet } from "./dom";
 import { chosenName } from "./hud-lobby";
@@ -34,6 +38,8 @@ const auto = params.get("auto");
 const autoKit = auto && isBrawlerId(auto) ? auto : undefined;
 
 const game = new Game({ onMatchStart: notifyGameStarted, selected: autoKit });
+installDiagnostics(game);
+mountStartLegend(mustGet("menu-legend"), CONTROLS, METHOD_LABEL);
 if (import.meta.env.DEV) {
   window.__game = game;
 }
@@ -53,12 +59,14 @@ const launch = (): void => {
 };
 launch();
 
-// Wrapper pause (Escape, or the play view's own button): freeze the sim behind
-// the settings-free frozen frame and silence the mix, then put the player's own
-// mute choice back on resume. The in-game P key keeps its toast; this path is
-// silent because the wrapper shows its chrome instead. Online the world is
-// shared, so only solo ever freezes — the overlay alone is the pause there.
-let mutedBeforePause = false;
+// Wrapper pause (Escape, the play view's own button, or START on a pad): the
+// shared pause overlay carries the controls legend, a how-to-play page and the
+// sound toggle. Online the world is shared, so only solo ever freezes the sim —
+// the overlay alone is the pause there, and it says so.
+const pauseOverlay = createSundownPauseOverlay({
+  isLive: () => game.mode !== "solo",
+  mute: { get: () => game.audio.muted, set: (muted) => game.setMuted(muted) },
+});
 setPauseHandlers({
   // Escape closes the settings panel first; the next press pauses.
   escapePauses: () => !mustGet("settings").classList.contains("open"),
@@ -66,11 +74,10 @@ setPauseHandlers({
     if (game.mode === "solo") {
       game.setPaused(true, false);
     }
-    mutedBeforePause = game.audio.muted;
-    game.audio.setMuted(true);
+    pauseOverlay.show();
   },
   onResume: () => {
-    game.audio.setMuted(mutedBeforePause);
+    pauseOverlay.hide();
     if (game.mode === "solo") {
       game.setPaused(false, false);
     }

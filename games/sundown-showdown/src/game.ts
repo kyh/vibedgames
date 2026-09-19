@@ -25,6 +25,10 @@ import { mustGet } from "./dom";
 import { Hud } from "./hud";
 import { setNetStatus, setResultMode, setResultWait, setSpectateCopy } from "./hud-lobby";
 import { Input, keyCode } from "./input";
+import { MenuPad } from "./menu-pad";
+import { tick as tickDiagnostics } from "./diagnostics";
+import { Mercy } from "./polish/mercy";
+import { recordRun } from "./polish/best-run";
 import { GuestView } from "./net/guest";
 import { applyRemoteIntents, onlineSeats, reconcileSeats, restoreFromSnapshot } from "./net/host";
 import type { Pick, Seat } from "./net/host";
@@ -185,6 +189,10 @@ export class Game {
   readonly hud: Hud;
   readonly guide: AimGuide;
   readonly onMatchStart: (() => void) | null;
+  /** Pad navigation for the DOM screens. */
+  readonly menuPad: MenuPad;
+  /** Solo-only softening after a losing streak. */
+  readonly mercy = new Mercy();
   // ── online ──
   mode: GameMode = "solo";
   session: Session | null = null;
@@ -251,6 +259,7 @@ export class Game {
     this.gas = new Gas(this);
     this.hud = new Hud(this);
     this.guide = new AimGuide(this.scene);
+    this.menuPad = new MenuPad(this);
     if (options.selected) {
       this.hud.select(options.selected);
     }
@@ -479,6 +488,7 @@ export class Game {
     this.spawnRoster(id);
     this.hud.showMenu(false);
     this.hud.hideResult();
+    this.hud.playHints.reset();
     this.state = "countdown";
     this.countdownT = COUNTDOWN_S;
     this.lastCount = 4;
@@ -667,6 +677,9 @@ export class Game {
     }
     this.spectate = killer?.alive ? killer : null;
     this.pendingResult = { rank, t: 1.5, won: false };
+    if (this.mode === "solo") {
+      this.mercy.record(rank);
+    }
     this.audio.play("lose");
   }
 
@@ -677,6 +690,7 @@ export class Game {
       this.player.rank = 1;
     }
     this.pendingResult = { rank: 1, t: 1.3, won: true };
+    this.mercy.record(1);
     this.audio.play("win");
   }
 
@@ -846,6 +860,7 @@ export class Game {
         this.brawlers.length,
         player.kills,
         player.cubes,
+        recordRun({ cubes: player.cubes, kills: player.kills, rank: result.rank }),
       );
     }
   }
@@ -1066,6 +1081,10 @@ export class Game {
     const raw = (now - this.last) / 1000;
     const dt = Math.min(MAX_STEP_S, Math.max(1e-4, raw));
     this.last = now;
+    // Pad edges are published once per rendered frame, before any sim step reads them.
+    this.input.poll();
+    this.menuPad.update();
+    tickDiagnostics();
     const { info } = this.pipeline.renderer;
     this.frameStats.calls = info.render.calls;
     this.frameStats.triangles = info.render.triangles;
