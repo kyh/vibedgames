@@ -12,7 +12,7 @@ import {
 import { isBrawlerId } from "./config";
 import { CONTROLS, METHOD_LABEL } from "./controls";
 import { installDiagnostics } from "./diagnostics";
-import { createSundownPauseOverlay } from "./pause-overlay";
+import { createShowdownPauseOverlay } from "./pause-overlay";
 import { mountStartLegend } from "./polish/start-legend";
 import { Game } from "./game";
 import { mustGet } from "./dom";
@@ -63,7 +63,7 @@ launch();
 // shared pause overlay carries the controls legend, a how-to-play page and the
 // sound toggle. Online the world is shared, so only solo ever freezes the sim —
 // the overlay alone is the pause there, and it says so.
-const pauseOverlay = createSundownPauseOverlay({
+const pauseOverlay = createShowdownPauseOverlay({
   isLive: () => game.mode !== "solo",
   mute: { get: () => game.audio.muted, set: (muted) => game.setMuted(muted) },
 });

@@ -4,20 +4,20 @@ Example games, built with the same `vg` CLI + skills a user's agent gets. They
 are the platform's dogfood: every one is deployed at `{slug}.vibedgames.com`
 and playable, and each has its own README with routes, options and controls.
 
-| Game                                   | Engine            | Multiplayer    | Dev                         | Live                              |
-| -------------------------------------- | ----------------- | -------------- | --------------------------- | --------------------------------- |
-| [Battle Arena](./battle-arena)         | Three.js          | online PvP     | `pnpm dev:battle-arena`     | `battle-arena.vibedgames.com`     |
-| [Bomberman](./bomberman)               | Phaser 4          | shared room    | `pnpm dev:bomberman`        | `bomberman.vibedgames.com`        |
-| [Crazy Waymo](./crazy-waymo)           | Three.js + Rapier | shared room    | `pnpm dev:crazy-waymo`      | `crazy-waymo.vibedgames.com`      |
-| [Farm](./farm)                         | Phaser 4          | shared farm    | `pnpm dev:farm`             | `farm.vibedgames.com`             |
-| [Flappy Dragons](./flappy-dragons)     | Phaser 4          | shared room    | `pnpm dev:flappy-dragons`   | `flappy-dragons.vibedgames.com`   |
-| [Lunerfall](./lunerfall)               | Phaser 4          | co-op + versus | `pnpm dev:lunerfall`        | `lunerfall.vibedgames.com`        |
-| [Ancients of Eldermoor](./moba)        | Phaser 4          | online match   | `pnpm dev:moba`             | `moba.vibedgames.com`             |
-| [Pacman](./pacman)                     | Three.js          | shared room    | `pnpm dev:pacman`           | `pacman.vibedgames.com`           |
-| [Pong](./pong)                         | Three.js          | 1v1            | `pnpm dev:pong`             | `pong.vibedgames.com`             |
-| [Starfall](./starfall)                 | Phaser 4          | 32p arena      | `pnpm dev:starfall`         | `starfall.vibedgames.com`         |
-| [Sundown Showdown](./sundown-showdown) | Three.js          | 8p royale      | `pnpm dev:sundown-showdown` | `sundown-showdown.vibedgames.com` |
-| [Tetris](./tetris)                     | Three.js          | —              | `pnpm dev:tetris`           | `tetris.vibedgames.com`           |
+| Game                               | Engine            | Multiplayer    | Dev                       | Live                            |
+| ---------------------------------- | ----------------- | -------------- | ------------------------- | ------------------------------- |
+| [Battle Arena](./battle-arena)     | Three.js          | online PvP     | `pnpm dev:battle-arena`   | `battle-arena.vibedgames.com`   |
+| [Bomberman](./bomberman)           | Phaser 4          | shared room    | `pnpm dev:bomberman`      | `bomberman.vibedgames.com`      |
+| [Crazy Waymo](./crazy-waymo)       | Three.js + Rapier | shared room    | `pnpm dev:crazy-waymo`    | `crazy-waymo.vibedgames.com`    |
+| [Farm](./farm)                     | Phaser 4          | shared farm    | `pnpm dev:farm`           | `farm.vibedgames.com`           |
+| [Flappy Dragons](./flappy-dragons) | Phaser 4          | shared room    | `pnpm dev:flappy-dragons` | `flappy-dragons.vibedgames.com` |
+| [Lunerfall](./lunerfall)           | Phaser 4          | co-op + versus | `pnpm dev:lunerfall`      | `lunerfall.vibedgames.com`      |
+| [Ancients of Eldermoor](./moba)    | Phaser 4          | online match   | `pnpm dev:moba`           | `moba.vibedgames.com`           |
+| [Pacman](./pacman)                 | Three.js          | shared room    | `pnpm dev:pacman`         | `pacman.vibedgames.com`         |
+| [Pong](./pong)                     | Three.js          | 1v1            | `pnpm dev:pong`           | `pong.vibedgames.com`           |
+| [Starfall](./starfall)             | Phaser 4          | 32p arena      | `pnpm dev:starfall`       | `starfall.vibedgames.com`       |
+| [Showdown](./showdown)             | Three.js          | 8p royale      | `pnpm dev:showdown`       | `showdown.vibedgames.com`       |
+| [Tetris](./tetris)                 | Three.js          | —              | `pnpm dev:tetris`         | `tetris.vibedgames.com`         |
 
 Each `pnpm dev:<game>` serves on its own fixed port (see the game's README).
 `pnpm dev` deliberately excludes games — run the one you're working on.

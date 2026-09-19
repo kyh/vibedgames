@@ -1,18 +1,18 @@
-# Sundown Showdown
+# Showdown
 
 3D top-down battle royale brawler (Three.js): pick one of four brawlers, drop into a
 procedurally laid-out arena with seven bots, and be the last one standing while the
 sun sets and the poison gas closes in. Single-player. Deployed at
-`sundown-showdown.vibedgames.com`.
+`showdown.vibedgames.com`.
 
 ## Develop
 
 ```bash
-pnpm dev:sundown-showdown   # http://localhost:5195
-pnpm --filter @repo/sundown-showdown typecheck   # tsc --noEmit
-pnpm --filter @repo/sundown-showdown build       # vite build
-pnpm --filter @repo/sundown-showdown preview     # vite preview
-pnpm --filter @repo/sundown-showdown test        # headless config/utils smoke checks (tools/boot-smoke.mts, no three.js)
+pnpm dev:showdown   # http://localhost:5195
+pnpm --filter @repo/showdown typecheck   # tsc --noEmit
+pnpm --filter @repo/showdown build       # vite build
+pnpm --filter @repo/showdown preview     # vite preview
+pnpm --filter @repo/showdown test        # headless config/utils smoke checks (tools/boot-smoke.mts, no three.js)
 ```
 
 ## Routes
@@ -73,7 +73,7 @@ frame rate drops, unless the player chooses a tier under ⚙.
 Host-authoritative via `@vibedgames/multiplayer`: the first player in a room runs
 the brawl, guests send intents (move axis, attack, super) and render 15 Hz
 snapshots with their own body predicted locally. Rooms hold eight seats
-(`sundown-<code>`, public room when no code) and bots fill whatever humans
+(`showdown-<code>`, public room when no code) and bots fill whatever humans
 leave empty; a human arriving mid-brawl spectates and is seated for the next
 one, which the host starts eight seconds after a result. If the host leaves,
 the promoted guest rebuilds the brawl from the last snapshot and the departed
@@ -82,7 +82,7 @@ forces solo.
 
 ```bash
 pnpm dev:party                                    # party server on :8787
-pnpm --filter @repo/sundown-showdown test:online  # two headless clients: join, move, shoot, host handoff, late join
+pnpm --filter @repo/showdown test:online  # two headless clients: join, move, shoot, host handoff, late join
 ```
 
 Presentation (particles, sounds, damage numbers, the kill feed) is replayed on

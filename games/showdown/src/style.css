@@ -610,11 +610,6 @@ body.touch #gear {
   font-size: min(11vw, 92px);
   line-height: 0.95;
 }
-#title span {
-  color: #ff6a4a;
-  font-size: 0.62em;
-  display: block;
-}
 #tagline {
   color: #e8e2ff;
   margin: 14px 0 22px;
@@ -985,11 +980,6 @@ body.touch #gear {
   #title {
     letter-spacing: 0;
     font-size: min(7.5vw, 44px);
-  }
-  #title span {
-    margin-left: 0.25em;
-    font-size: 1em;
-    display: inline;
   }
   #tagline {
     margin: 6px 0 10px;

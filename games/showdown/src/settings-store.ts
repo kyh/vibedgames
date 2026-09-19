@@ -5,7 +5,7 @@
 import { isDifficultyName, isQualityName } from "./config";
 import type { DifficultyName, QualityName } from "./config";
 
-export const SETTINGS_KEY = "sundown-showdown-settings";
+export const SETTINGS_KEY = "showdown-settings";
 
 export interface SavedSettings {
   ao?: boolean;

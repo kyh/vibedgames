@@ -23,7 +23,7 @@ export const MULTIPLAYER_HOST = import.meta.env.DEV
   ? devPartyHost()
   : "https://vibedgames-party.kyh.workers.dev";
 export const PARTY = "vg-server";
-export const ROOM_PREFIX = "sundown-";
+export const ROOM_PREFIX = "showdown-";
 export const INTENT_EVENT = "intent";
 /** Host broadcast rate. */
 export const SNAPSHOT_HZ = 15;

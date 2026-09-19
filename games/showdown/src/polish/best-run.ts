@@ -2,7 +2,7 @@
 // screen reads it back as a delta ("Best: #2") so a loss lands as an approach,
 // not a dead end, and a new record is called out the moment it happens.
 
-const BEST_KEY = "sundown-showdown-best";
+const BEST_KEY = "showdown-best";
 
 export interface RunResult {
   cubes: number;

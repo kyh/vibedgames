@@ -11,13 +11,13 @@ import { BRAWLERS, TUNING } from "./config";
 import type { AttackDef, BrawlerDef } from "./config";
 import { CONTROLS } from "./controls";
 
-export interface SundownPauseOverlayOptions {
+export interface ShowdownPauseOverlayOptions {
   /** True while the arena keeps simulating behind the overlay (online play). */
   isLive: () => boolean;
   mute: MuteAccessor;
 }
 
-const BANNER_ID = "sundown-pause-banner";
+const BANNER_ID = "showdown-pause-banner";
 
 /** Game tokens (src/style.css): display face, gold, ink. */
 const FONT = "'Lilita One', 'Arial Black', 'Segoe UI', system-ui, sans-serif";
@@ -116,7 +116,7 @@ const hideBanner = (): void => {
 };
 
 /** show(): mount the overlay and banner; hide(): remove both. Both idempotent. */
-export const createSundownPauseOverlay = (options: SundownPauseOverlayOptions): PauseOverlay => {
+export const createShowdownPauseOverlay = (options: ShowdownPauseOverlayOptions): PauseOverlay => {
   const overlay = createPauseOverlay({ controls: CONTROLS, help: HELP, mute: options.mute });
   return {
     hide: () => {
