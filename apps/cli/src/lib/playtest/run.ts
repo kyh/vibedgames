@@ -27,6 +27,10 @@ export const THRESHOLDS = {
    * a couple of seconds long where the scripted sweep is twelve.
    */
   framesAdvanced: 100,
+  /** Decisions a rested no-input option stays out of the question. */
+  idleRestTicks: 8,
+  /** Idle decisions in a row (holding nothing, going nowhere) before the no-input option is rested. */
+  idleRun: 3,
   minFps: 10,
   /**
    * A window counts as "didn't move" below this fraction of the displacement
@@ -100,6 +104,8 @@ export const agentConfig = (opts: RunOptions, session: Session): AgentConfig => 
     decisionTimeoutMs: DECISION_TIMEOUT_MS,
     finalHoldMs: FINAL_HOLD_MS,
     goal: opts.controls.goal,
+    idleRestTicks: THRESHOLDS.idleRestTicks,
+    idleRun: THRESHOLDS.idleRun,
     keyTable: keyTable(),
     model: opts.model,
     motionEpsilon: motionEpsilon(opts.controls),
@@ -467,7 +473,20 @@ export const verdict = (report: Report, opts: RunOptions): Verdict => {
   // summed path: path accumulates every sampled wobble, and an idle bob
   // would drift past a total-distance threshold.
   const gate = displacementGate(opts.controls);
-  if (report.maxTickDisplacement <= gate) {
+  const holdsInput = (label: string): boolean => {
+    const option = opts.controls.move[label];
+    return (
+      option !== undefined && (option.keys.length > 0 || option.pointer !== null || option.reflex)
+    );
+  };
+  const triedToMove = report.timeline.some((entry) => holdsInput(entry.move));
+  if (!triedToMove && report.timeline.length > 0) {
+    // Not dead input: input was never tried. Blaming the controls here sends
+    // the author to the wrong file.
+    failures.push(
+      "the model never chose a movement — every decision held nothing. The diagnostics gave it no reason to go anywhere: expose where the goal, threats and pickups are (dx/dy from the player) in __GAME_DIAGNOSTICS__, and say which way progress is in the goal",
+    );
+  } else if (report.maxTickDisplacement <= gate) {
     failures.push(
       `player did not respond to input (maxTickDisplacement ${report.maxTickDisplacement}, needs > ${gate}) — if this game steers with the mouse, give it pointer moves in __GAME_PLAYTEST__ or --controls; if \`player\` is in world units rather than pixels, set \`minDisplacement\` in __GAME_PLAYTEST__ or pass --min-displacement`,
     );

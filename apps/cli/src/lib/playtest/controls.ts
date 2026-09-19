@@ -218,9 +218,12 @@ export const parseControls = (raw: JsonValue, source: string): Controls => {
   ) {
     fail(`${source}: no \`move\` option holds any input, so the playtester could never move.`);
   }
-  // A no-input option is what the reflex falls back to when it withdraws a
-  // move, and what "do nothing" means to the model — supplied when absent.
-  if (!Object.hasOwn(moves, "none")) {
+  // A choice needs two options, so a one-move scheme gets a no-input partner.
+  // Never otherwise: given a state that points nowhere the model takes "hold
+  // nothing" at high confidence, so an unasked-for `none` freezes the run and
+  // hides how little the diagnostics said. A game where waiting is a real
+  // play declares its own.
+  if (Object.keys(moves).length < 2 && !Object.hasOwn(moves, "none")) {
     moves.none = NONE;
   }
   const actions: Record<string, ActionOption> = {};

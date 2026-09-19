@@ -106,7 +106,16 @@ test("presets resolve by name and files by path", () => {
   );
   assert.equal(custom.goal, "Reach the flag.");
   assert.deepEqual(custom.move.aim_right?.pointer, { down: true, x: 0.8, y: 0.5 });
-  assert.deepEqual(custom.move.none?.keys, [], "a `none` option is filled in");
+  assert.equal(custom.move.none, undefined, "two real options need no `none`");
+  const single = parseControls(
+    { move: { right: { description: "run right", keys: ["KeyD"] } } },
+    "test",
+  );
+  assert.deepEqual(
+    single.move.none?.keys,
+    [],
+    "a one-move scheme gets a partner to choose against",
+  );
   assert.deepEqual(custom.actions.fire?.keys, ["KeyJ"]);
 });
 
@@ -347,6 +356,26 @@ test("verdict fails a stalled loop, dead input, a wedged player and page errors"
   assert.match(failures.join("\n"), /did not respond to input/u);
   assert.match(failures.join("\n"), /wedged for 5 consecutive/u);
   assert.match(failures.join("\n"), /1 uncaught page error/u);
+});
+
+test("verdict tells a model that never tried to move apart from dead input", () => {
+  const opts = options();
+  const idle = resultFromAgent({
+    completedAtTick: null,
+    done: true,
+    error: null,
+    records: [
+      record(0, {
+        askedToMove: false,
+        move: "none",
+        window: window({ frame: 400, frameBefore: 0, path: 0, peak: 0 }),
+      }),
+    ],
+    wallMs: 4000,
+  });
+  const { failures } = verdict(report(opts, idle), opts);
+  assert.match(failures.join("\n"), /never chose a movement/u);
+  assert.doesNotMatch(failures.join("\n"), /did not respond to input/u);
 });
 
 test("verdict warns when the model was rarely sure, pointing at the diagnostics", () => {

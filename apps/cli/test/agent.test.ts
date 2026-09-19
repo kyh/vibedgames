@@ -200,6 +200,8 @@ const config = (overrides: Partial<AgentConfig> = {}): AgentConfig => ({
   decisionTimeoutMs: 1000,
   finalHoldMs: 100,
   goal: "Go right.",
+  idleRestTicks: 8,
+  idleRun: 3,
   keyTable: keyTable(),
   model: "jev-latest",
   motionEpsilon: 0.2,
@@ -326,7 +328,8 @@ test("withdraws a move that produced nothing twice, then the next one, until the
     },
   });
   // The player never moves, so `right` is stuck from the first window.
-  const result = await complete(page, config({ ticks: 9 }), 0);
+  // Idle-resting is its own test; here it would pull `none` mid-assertion.
+  const result = await complete(page, config({ idleRun: 99, ticks: 9 }), 0);
   assert.equal(result.error, null);
   assert.deepEqual(offeredPerTick[0], ["left", "none", "right", "track"]);
   assert.deepEqual(
@@ -343,6 +346,24 @@ test("withdraws a move that produced nothing twice, then the next one, until the
   );
   // Still stuck on `left`: both walls are withdrawn together, not swapped.
   assert.deepEqual(offeredPerTick.at(-1), ["none", "track"]);
+});
+
+test("rests the no-input option after the model idles, then offers it again", async () => {
+  const offeredPerTick: string[][] = [];
+  const page = makePage({
+    pick: (offered) => {
+      offeredPerTick.push(offered.toSorted());
+      return offered.includes("none") ? "none" : "right";
+    },
+  });
+  const result = await complete(page, config({ idleRestTicks: 2, ticks: 8 }), 0);
+  assert.equal(result.error, null);
+  const rested = offeredPerTick.findIndex((offered) => !offered.includes("none"));
+  assert.ok(rested >= 3, "three idle decisions come first");
+  assert.ok(
+    offeredPerTick.slice(rested + 2).some((offered) => offered.includes("none")),
+    "the rest is temporary",
+  );
 });
 
 test("a parked pointer that has arrived is not a stuck player", async () => {

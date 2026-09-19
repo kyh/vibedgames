@@ -53,7 +53,6 @@ if (import.meta.env.DEV || isPlaytestRequested()) {
   publishPlaytest({
     goal: "Cross the level to the flag on the right. Pits and spikes kill; jump them (nearestHazard.dx says how far). Coins raise the score.",
     move: {
-      none: { description: "Stand still", keys: [] },
       left: { description: "Run left", keys: ["ArrowLeft"] },
       right: { description: "Run right (towards the flag)", keys: ["ArrowRight"] },
       right_jump: {

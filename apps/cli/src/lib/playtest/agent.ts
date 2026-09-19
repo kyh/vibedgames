@@ -71,6 +71,10 @@ export interface AgentConfig {
   actionThreshold: number;
   motionEpsilon: number;
   stuckRun: number;
+  /** Decisions in a row of holding nothing, going nowhere, before the no-input option is rested. */
+  idleRun: number;
+  /** How many decisions a rested no-input option stays out of the question. */
+  idleRestTicks: number;
   trailLength: number;
   decisionRetries: number;
   decisionTimeoutMs: number;
@@ -514,6 +518,8 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
   let pending: Pending | null = null;
   let blocked: string[] = [];
   let stuckRun = 0;
+  let idleRun = 0;
+  let rested: { label: string; untilTick: number } | null = null;
   const trail: { x: number; y: number; z: number }[] = [];
   let lastWindow: AgentWindow | null = null;
 
@@ -531,12 +537,17 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
   env.publish(result);
 
   /** The move options on offer this tick: everything the reflex hasn't withdrawn. */
-  const offeredMoves = () => {
+  const offeredMoves = (tick: number) => {
+    const resting = rested !== null && tick < rested.untilTick ? rested.label : null;
     const criteria: Record<string, string> = {};
     for (const [label, option] of Object.entries(config.move)) {
-      if (!blocked.includes(label)) {
+      if (!blocked.includes(label) && label !== resting) {
         criteria[label] = option.description;
       }
+    }
+    // A choice needs two options; the rested one comes back before that breaks.
+    if (resting !== null && Object.keys(criteria).length < 2) {
+      criteria[resting] = config.move[resting]?.description ?? resting;
     }
     return criteria;
   };
@@ -626,7 +637,7 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
 
   /** One decision, with a short backoff on a rate limit, an upstream fault or a dropped connection. */
   const decide = async (state: DecisionState): Promise<Decision> => {
-    const offered = offeredMoves();
+    const offered = offeredMoves(state.tick.index);
     const body = JSON.stringify({ model: config.model, questions: questions(offered), state });
     for (let attempt = 0; ; attempt += 1) {
       let response: AgentResponse | null = null;
@@ -743,6 +754,46 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
   };
 
   // ---- the run -----------------------------------------------------------
+  /** At least two options have to survive any withdrawal: a choice needs them. */
+  const canWithdraw = (): boolean => Object.keys(config.move).length - blocked.length - 1 >= 2;
+
+  // The reflex layer for the model: a move that produced nothing for two
+  // ticks running is withdrawn from the question. Withdrawals accumulate
+  // while the player stays stuck — with a single slot the model alternates
+  // between the same two walls — and clear the moment it moves.
+  const withdrawIfStuck = (move: string, stuck: boolean, still: boolean): void => {
+    if (!still) {
+      blocked = [];
+    } else if (
+      stuck &&
+      stuckRun >= config.stuckRun &&
+      move !== "none" &&
+      !blocked.includes(move) &&
+      canWithdraw()
+    ) {
+      blocked = [...blocked, move];
+    }
+  };
+
+  // Given a state that points nowhere, the model's safe answer is the option
+  // that holds nothing — confidently, every tick, and a playtester standing
+  // still learns nothing about the game. A few idle decisions in a row rest
+  // that option for a while, so the model has to commit to a direction; its
+  // confidence then says honestly how little the state told it.
+  const restIfIdle = (done: Pending, still: boolean): void => {
+    const option = config.move[done.decision.move];
+    const idle =
+      done.reflex === null &&
+      option !== undefined &&
+      option.inits.length === 0 &&
+      option.pointer === null;
+    idleRun = idle && still ? idleRun + 1 : 0;
+    if (idleRun >= config.idleRun && canWithdraw()) {
+      rested = { label: done.decision.move, untilTick: done.tick + 1 + config.idleRestTicks };
+      idleRun = 0;
+    }
+  };
+
   const settle = (done: Pending, measured: AgentWindow): void => {
     const option = config.move[done.decision.move];
     // Only a held direction can be "stuck". A parked pointer that has arrived
@@ -760,22 +811,9 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
         !progressed;
       stuckRun = stuck ? stuckRun + 1 : 0;
     }
-    // The reflex layer for the model: a move that produced nothing for two
-    // ticks running is withdrawn from the question. Withdrawals accumulate
-    // while the player stays stuck — with a single slot the model alternates
-    // between the same two walls — and clear the moment it moves. At least
-    // two options always remain.
-    if (measured.peak >= config.motionEpsilon || progressed) {
-      blocked = [];
-    } else if (
-      stuck &&
-      stuckRun >= config.stuckRun &&
-      done.decision.move !== "none" &&
-      !blocked.includes(done.decision.move) &&
-      Object.keys(config.move).length - blocked.length - 1 >= 2
-    ) {
-      blocked = [...blocked, done.decision.move];
-    }
+    const still = measured.peak < config.motionEpsilon && !progressed;
+    withdrawIfStuck(done.decision.move, stuck, still);
+    restIfIdle(done, still);
     trail.push({ x: round(measured.x), y: round(measured.y), z: round(measured.z) });
     if (trail.length > config.trailLength) {
       trail.shift();
