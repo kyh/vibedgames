@@ -47,7 +47,8 @@
     "R2_ACCOUNT_ID",
     "R2_ACCESS_KEY_ID",
     "R2_SECRET_ACCESS_KEY",
-    "FAL_API_KEY"
+    "FAL_API_KEY",
+    "TYPESAFE_API_KEY"
   ],
   "globalPassThroughEnv": ["NODE_ENV", "CI", "MODE", "npm_lifecycle_event"]
 }

@@ -15,6 +15,7 @@ interface CloudflareEnv {
   FAL_PLATFORM_BASE_URL?: string;
   FAL_DOCS_BASE_URL?: string;
   FAL_STORAGE_BASE_URL?: string;
+  TYPESAFE_API_KEY?: string;
 }
 
 declare module "cloudflare:workers" {
