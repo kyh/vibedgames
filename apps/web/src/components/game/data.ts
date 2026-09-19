@@ -26,13 +26,6 @@ export const featuredGames: FeaturedGame[] = [
   },
   {
     colorScheme: "light",
-    name: "Showdown",
-    preview: "/covers/showdown.webp",
-    previewPortrait: "/covers/showdown-portrait.webp",
-    slug: "showdown",
-  },
-  {
-    colorScheme: "light",
     name: "Flappy Dragons",
     preview: "/covers/flappy-dragons.webp",
     previewPortrait: "/covers/flappy-dragons-portrait.webp",
@@ -100,5 +93,12 @@ export const featuredGames: FeaturedGame[] = [
     preview: "/covers/farm.webp",
     previewPortrait: "/covers/farm-portrait.webp",
     slug: "farm",
+  },
+  {
+    colorScheme: "light",
+    name: "Showdown",
+    preview: "/covers/showdown.webp",
+    previewPortrait: "/covers/showdown-portrait.webp",
+    slug: "showdown",
   },
 ];
