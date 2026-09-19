@@ -25,6 +25,8 @@ import { advanceEvasion, createEvasion, EVADE, evadeStyle, evasionInvulnerable }
 import type { EvasionState } from "./evasion";
 import { sampleMeleePose } from "./melee-pose";
 import type { MeleeCue } from "./melee-pose";
+import { rangedPoseDuration, sampleRangedPose } from "./ranged-pose";
+import type { RangedCue } from "./ranged-pose";
 
 /** Hit stop on a hit the player deals or takes: three frames, a kill holds longer. */
 const HIT_STOP_S = 0.05;
@@ -125,6 +127,7 @@ export class Brawler {
   burst: BurstState | null;
   swing: MeleeState | null;
   meleeCue: MeleeCue | null = null;
+  rangedCue: RangedCue | null = null;
   leap: LeapState | null;
   evasion: EvasionState | null = null;
   evadeCooldown = 0;
@@ -149,6 +152,9 @@ export class Brawler {
 
   // Ranged props keep their authored grip while the whole body follows recoil.
   private readonly weaponRestRotation: THREE.Euler;
+  private readonly weaponRestPosition: THREE.Vector3;
+  private readonly rightHandRest: THREE.Vector3;
+  private readonly rangedGrip = new THREE.Vector3();
   private readonly meleeWeaponRotation = new THREE.Euler(0, 0, 0, "YXZ");
   private readonly meleeWeaponQuaternion = new THREE.Quaternion();
   private readonly evasionRotation = new THREE.Euler(0, 0, 0, "YXZ");
@@ -172,6 +178,8 @@ export class Brawler {
     this.root.position.set(options.x, game.world.heightAt(options.x, options.z), options.z);
     game.scene.add(this.root);
     this.weaponRestRotation = this.model.weapon.rotation.clone();
+    this.weaponRestPosition = this.model.weapon.position.clone();
+    this.rightHandRest = new THREE.Vector3(0, -0.28, 0).applyEuler(this.model.arms[1].rotation);
 
     const ringColor = this.isPlayer ? PLAYER_RING_COLOR : BOT_RING_COLOR;
     this.ring = new THREE.Mesh(
@@ -342,6 +350,7 @@ export class Brawler {
     this.burst = null;
     this.swing = null;
     this.meleeCue = null;
+    this.rangedCue = null;
     this.freezeT = 0;
     this.knock.set(0, 0);
     this.recoil = 0;
@@ -416,6 +425,7 @@ export class Brawler {
   }
 
   private fireSpread(a: SpreadAttack, isSuper: boolean): void {
+    this.rangedCue = { elapsed: 0, isSuper };
     this.recoil = 1;
     const muzzle = this.muzzleWorld(new THREE.Vector3());
     for (let i = 0; i < a.pellets; i += 1) {
@@ -450,6 +460,7 @@ export class Brawler {
     targetZ: number,
     isSuper: boolean,
   ): void {
+    this.rangedCue = { elapsed: 0, isSuper };
     this.recoil = 1;
     const reach = Math.min(a.range, Math.hypot(targetX - this.x, targetZ - this.z));
     const muzzle = this.muzzleWorld(new THREE.Vector3());
@@ -498,6 +509,9 @@ export class Brawler {
       return;
     }
     const { a } = burst;
+    if (this.def.attack.kind !== "melee") {
+      this.rangedCue = { elapsed: 0, isSuper: burst.isSuper };
+    }
     this.muzzleIndex += 1;
     this.recoil = 1;
     const muzzle = this.muzzleWorld(new THREE.Vector3());
@@ -607,6 +621,7 @@ export class Brawler {
     this.deadT = 0;
     this.burst = null;
     this.swing = null;
+    this.rangedCue = null;
     this.leap = null;
     this.evasion = null;
     if (killer && killer !== this) {
@@ -709,6 +724,12 @@ export class Brawler {
 
   private tickTimers(dt: number): void {
     this.evadeCooldown = Math.max(0, this.evadeCooldown - dt);
+    if (this.rangedCue) {
+      this.rangedCue.elapsed += dt;
+      if (this.rangedCue.elapsed >= rangedPoseDuration(this.def.id, this.rangedCue.isSuper)) {
+        this.rangedCue = null;
+      }
+    }
     if (this.meleeCue) {
       this.meleeCue.elapsed += dt;
       if (this.meleeCue.elapsed >= this.meleeCue.windup + this.meleeCue.recovery) {
@@ -1044,17 +1065,39 @@ export class Brawler {
       }
       return;
     }
-    if (pose.punch) {
-      const [leftPunch, rightPunch] = this.punch;
-      leftArm.rotation.x =
-        leftBase[0] - leftPunch * 0.75 + (moving ? Math.sin(this.walkPhase) * 0.25 : 0);
-      leftArm.position.z = leftPunch * 0.42;
-      rightArm.rotation.x =
-        rightBase[0] - rightPunch * 0.75 + (moving ? Math.sin(this.walkPhase + Math.PI) * 0.25 : 0);
-      rightArm.position.z = rightPunch * 0.42;
-    } else if (pose.swingLeft) {
-      leftArm.rotation.x = leftBase[0] + (moving ? -stride * 0.7 : 0);
-      [rightArm.rotation.x] = rightBase;
+    const ranged = sampleRangedPose(
+      this.evasion || this.leap || this.netAir ? null : this.rangedCue,
+      this.def.id,
+    );
+    const sway = moving && !this.rangedCue && pose.swingLeft ? -stride * 0.7 : 0;
+    leftArm.rotation.set(
+      leftBase[0] + ranged.leftPitch + sway,
+      ranged.leftYaw,
+      leftBase[1] + ranged.leftRoll,
+    );
+    rightArm.rotation.set(
+      rightBase[0] + ranged.rightPitch,
+      ranged.rightYaw,
+      rightBase[1] + ranged.rightRoll,
+    );
+    const { body, head, loadedProjectile } = this.model;
+    body.position.z += ranged.advance;
+    body.position.y -= ranged.bodyDrop;
+    body.rotation.x += ranged.bodyPitch;
+    body.rotation.y += ranged.bodyYaw;
+    head.rotation.x = -ranged.bodyPitch * 0.4;
+    head.rotation.y = -ranged.bodyYaw * 0.5;
+    // Preserve the authored grip offset as its supporting shoulder moves.
+    this.rangedGrip.set(0, -0.28, 0).applyEuler(rightArm.rotation).sub(this.rightHandRest);
+    weapon.position.copy(this.weaponRestPosition).add(this.rangedGrip);
+    weapon.rotation.set(
+      this.weaponRestRotation.x + ranged.weaponPitch,
+      this.weaponRestRotation.y + ranged.weaponYaw,
+      this.weaponRestRotation.z + ranged.weaponRoll,
+    );
+    weapon.visible = ranged.weaponVisible;
+    if (loadedProjectile) {
+      loadedProjectile.visible = ranged.loaded;
     }
   }
 

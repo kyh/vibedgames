@@ -30,6 +30,7 @@ type NetworkBody = Pick<
   | "meleeCue"
   | "netAir"
   | "netTarget"
+  | "rangedCue"
   | "rank"
   | "recoil"
   | "revealT"
@@ -162,6 +163,8 @@ const applyVitals = (b: NetworkBody, n: NetBrawler): void => {
   b.kills = n.kills;
   b.rank = n.rank;
   b.meleeCue = n.melee ? { ...n.melee } : null;
+  b.rangedCue =
+    n.alive && !b.evasion && b.netTarget.evadePending === null && n.ranged ? { ...n.ranged } : null;
   if (b.alive && !n.alive) {
     b.alive = false;
     b.hp = 0;
@@ -169,6 +172,7 @@ const applyVitals = (b: NetworkBody, n: NetBrawler): void => {
     b.burst = null;
     b.swing = null;
     b.meleeCue = null;
+    b.rangedCue = null;
     b.evasion = null;
     b.netTarget.evadePending = null;
     b.leap = null;

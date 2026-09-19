@@ -55,6 +55,7 @@ export interface BrawlerModel {
   arms: [THREE.Group, THREE.Group];
   weapon: THREE.Group;
   offhand: THREE.Group | null;
+  loadedProjectile: THREE.Group | null;
   muzzles: THREE.Vector3[];
   pose: ArmPose;
   flashMats: THREE.MeshStandardMaterial[];
@@ -90,6 +91,7 @@ interface KitParts {
 }
 
 interface Kit {
+  loadedProjectile?: THREE.Group;
   shield?: THREE.Group;
   offhand?: THREE.Group;
   muzzles: THREE.Vector3[];
@@ -722,11 +724,28 @@ const buildWrenKit = ({ mats, body, head, weapon }: KitParts): Kit => {
   );
   addPart(weapon, cylinder(0.007, 0.007, 0.96, 4), mats.white, 0.13, 0, -0.08);
   addPart(weapon, roundedBox(0.09, 0.16, 0.09), mats.gold, 0.35, 0, 0.12);
-  const arrow = addPart(weapon, cylinder(0.012, 0.012, 0.76, 5), mats.accent, 0.13, 0, 0.18);
+  const loadedProjectile = new THREE.Group();
+  weapon.add(loadedProjectile);
+  const arrow = addPart(
+    loadedProjectile,
+    cylinder(0.012, 0.012, 0.76, 5),
+    mats.accent,
+    0.13,
+    0,
+    0.18,
+  );
   arrow.rotation.x = Math.PI / 2;
-  const arrowhead = addPart(weapon, cylinder(0, 0.04, 0.13, 4), mats.metal, 0.13, 0, 0.62);
+  const arrowhead = addPart(
+    loadedProjectile,
+    cylinder(0, 0.04, 0.13, 4),
+    mats.metal,
+    0.13,
+    0,
+    0.62,
+  );
   arrowhead.rotation.x = Math.PI / 2;
   return {
+    loadedProjectile,
     muzzles: [new THREE.Vector3(0.23, 0.77, 1.04)],
     pose: restPose([-1.45, 0.55], [-1.3, -0.3], false),
   };
@@ -1309,10 +1328,20 @@ const buildFlintKit = ({ mats, body, head, weapon }: KitParts): Kit => {
     ]),
     mats.white,
   );
-  const bolt = addPart(weapon, cylinder(0.016, 0.016, 0.63, 5), mats.accent, 0, 0.123, 0.21);
+  const loadedProjectile = new THREE.Group();
+  weapon.add(loadedProjectile);
+  const bolt = addPart(
+    loadedProjectile,
+    cylinder(0.016, 0.016, 0.63, 5),
+    mats.accent,
+    0,
+    0.123,
+    0.21,
+  );
   bolt.rotation.x = Math.PI / 2;
   addPart(weapon, roundedBox(0.075, 0.19, 0.085), mats.wood, 0, -0.125, -0.035).rotation.x = -0.2;
   return {
+    loadedProjectile,
     muzzles: [new THREE.Vector3(0.06, 0.81, 0.88)],
     pose: restPose([-1.35, 0.4], [-1.1, -0.35], false),
   };
@@ -1532,6 +1561,7 @@ export const buildBrawlerModel = (def: BrawlerDef, hueShift: number): BrawlerMod
     pose,
     shield,
     offhand = null,
+    loadedProjectile = null,
   } = KIT_BUILDERS[def.id]({ body, head, mats, spellGlow, weapon });
   const [leftArm, rightArm] = arms;
   const [[leftRestX, leftRestZ], [rightRestX, rightRestZ]] = pose.armBase;
@@ -1578,6 +1608,7 @@ export const buildBrawlerModel = (def: BrawlerDef, hueShift: number): BrawlerMod
     flashMats,
     head,
     legs,
+    loadedProjectile,
     muzzles,
     offhand,
     overheadHeight,

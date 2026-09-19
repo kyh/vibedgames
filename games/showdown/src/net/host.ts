@@ -70,6 +70,7 @@ export const spawnFromNet = (
     b.leap = { ...n.leap, a: b.def.super };
   }
   b.meleeCue = n.melee ? { ...n.melee } : null;
+  b.rangedCue = n.alive && n.ranged ? { ...n.ranged } : null;
   restoreNetEvasion(b, n);
   b.hp = n.hp;
   b.maxHp = n.maxHp;

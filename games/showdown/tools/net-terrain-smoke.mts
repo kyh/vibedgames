@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Group, Vector2 } from "three";
 import { advanceEvasion, EVADE } from "../src/entities/evasion.ts";
+import { rangedPoseDuration } from "../src/entities/ranged-pose.ts";
 import {
   applyNetState,
   makeNetTarget,
@@ -61,6 +62,7 @@ const body = (drive: "predict" | "puppet"): Parameters<typeof applyNetState>[0] 
   meleeCue: null,
   netAir: false,
   netTarget: makeNetTarget(),
+  rangedCue: null,
   rank: 0,
   recoil: 0,
   revealT: 0,
@@ -164,6 +166,60 @@ test("late melee snapshots sample the accepted pose age and death clears the pos
   assert.equal(isSnapshot(snapshot(row({ melee: { ...melee, elapsed: -1 } }))), false);
   assert.equal(isSnapshot(snapshot(row({ melee: { ...melee, windup: 0 } }))), false);
   assert.equal(isSnapshot(snapshot(row({ melee: { ...melee, elapsed: 1 } }))), false);
+});
+
+test("ranged snapshots sample each accepted release age without sharing mutable state", () => {
+  const drives: readonly ("predict" | "puppet")[] = ["predict", "puppet"];
+  for (const drive of drives) {
+    const b = body(drive);
+    const ranged = { elapsed: 0.1, isSuper: true };
+    const n = row({ kit: "ace", ranged });
+    assert.equal(isSnapshot(snapshot(n)), true);
+    applyNetState(b, n);
+    assert.deepEqual(b.rangedCue, ranged);
+    assert.notEqual(b.rangedCue, ranged);
+    applyNetState(b, { ...n, ranged: { elapsed: 0.02, isSuper: false } });
+    assert.deepEqual(b.rangedCue, { elapsed: 0.02, isSuper: false });
+    applyNetState(b, row({ kit: "ace" }));
+    assert.equal(b.rangedCue, null, "older hosts without a ranged field remain compatible");
+    applyNetState(b, n);
+    applyNetState(b, { ...n, alive: false, hp: 0, ranged: null });
+    assert.equal(b.rangedCue, null);
+  }
+});
+
+test("pending local evades keep older ranged poses canceled", () => {
+  for (const evasion of [{ angle: 0, elapsed: 0.1 }, null]) {
+    const b = body("predict");
+    applyNetState(b, row({ kit: "rowan" }));
+    b.evasion = evasion;
+    b.netTarget.evadePending = 1;
+    applyNetState(b, row({ kit: "rowan", ranged: { elapsed: 0.1, isSuper: false } }));
+    assert.equal(b.rangedCue, null);
+    assert.equal(b.evasion, evasion);
+  }
+});
+
+test("ranged wire poses validate age, special identity, champion and cancellation", () => {
+  for (const isSuper of [false, true]) {
+    const duration = rangedPoseDuration("flint", isSuper);
+    const n = row({ kit: "flint", ranged: { elapsed: duration, isSuper } });
+    assert.equal(isSnapshot(snapshot(n)), true);
+    for (const elapsed of [-0.01, duration + 0.01, Number.NaN, Number.POSITIVE_INFINITY]) {
+      assert.equal(isSnapshot(snapshot({ ...n, ranged: { elapsed, isSuper } })), false);
+    }
+    assert.equal(isSnapshot(snapshot({ ...n, alive: false })), false);
+    assert.equal(isSnapshot(snapshot({ ...n, kit: "titan" })), false);
+    assert.equal(
+      isSnapshot(snapshot({ ...n, evadeCooldown: 1, evasion: { angle: 0, elapsed: 0.1 } })),
+      false,
+    );
+  }
+  const malformed = row({ kit: "pip" });
+  for (const ranged of [{ elapsed: 0.1 }, { elapsed: "0.1", isSuper: false }, false]) {
+    Reflect.set(malformed, "ranged", ranged);
+    assert.equal(isSnapshot(snapshot(malformed)), false);
+  }
 });
 
 test("projectile and lob silhouettes survive the snapshot boundary; unknown styles fail", () => {

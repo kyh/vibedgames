@@ -6,6 +6,7 @@ import type { BrawlerId, LobStyle, ProjectileStyle } from "../config";
 import { BRAWLERS, isBrawlerId } from "../config";
 import type { Brawler } from "../entities/brawler";
 import { EVADE } from "../entities/evasion";
+import { rangedPoseDuration } from "../entities/ranged-pose";
 import type { Game } from "../game";
 import { clamp } from "../utils";
 import type { World } from "../world/world";
@@ -21,6 +22,7 @@ export type NetPhase = "countdown" | "playing" | "ended";
 
 export type NetLeap = { t: number; sx: number; sz: number; tx: number; tz: number };
 export type NetMelee = { angle: number; elapsed: number; windup: number; recovery: number };
+export type NetRanged = { elapsed: number; isSuper: boolean };
 export type NetEvasion = { angle: number; elapsed: number };
 
 export type NetBrawler = {
@@ -39,6 +41,8 @@ export type NetBrawler = {
   leap: NetLeap | null;
   /** Accepted attack pose, sampled at its current age by every client. */
   melee: NetMelee | null;
+  /** Optional while older hosts still publish snapshots without ranged poses. */
+  ranged?: NetRanged | null;
   evasion: NetEvasion | null;
   evadeCooldown: number;
   /** Last processed request, including rejected requests. */
@@ -168,6 +172,9 @@ const encodeBrawler = (b: Brawler): NetBrawler => ({
     : null,
   name: b.name,
   owner: b.owner,
+  ranged: b.rangedCue
+    ? { elapsed: round3(b.rangedCue.elapsed), isSuper: b.rangedCue.isSuper }
+    : null,
   rank: b.rank,
   vx: round2(b.vel.x),
   vz: round2(b.vel.y),
@@ -302,6 +309,31 @@ const isNetMelee = (v: JsonValue | undefined): v is NetMelee | null =>
     v["elapsed"] >= 0 &&
     v["elapsed"] <= v["windup"] + v["recovery"] + 0.001);
 
+const isNetRanged = (v: JsonObject): boolean => {
+  const pose = v["ranged"];
+  if (pose === undefined || pose === null) {
+    return true;
+  }
+  const { kit } = v;
+  if (!isObj(pose) || !isStr(kit) || !isBrawlerId(kit)) {
+    return false;
+  }
+  const { elapsed, isSuper } = pose;
+  if (!isNum(elapsed) || !isBool(isSuper)) {
+    return false;
+  }
+  const attack = isSuper ? BRAWLERS[kit].super : BRAWLERS[kit].attack;
+  return (
+    (attack.kind === "burst" || attack.kind === "spread" || attack.kind === "lob") &&
+    v["alive"] === true &&
+    v["evasion"] === null &&
+    v["leap"] === null &&
+    v["melee"] === null &&
+    elapsed >= 0 &&
+    elapsed <= rangedPoseDuration(kit, isSuper) + 0.001
+  );
+};
+
 const isNetEvasion = (v: JsonObject): boolean => {
   const pose = v["evasion"];
   const cooldown = v["evadeCooldown"];
@@ -338,6 +370,7 @@ const isNetBrawler = (v: JsonValue): v is NetBrawler =>
   isNetPose(v) &&
   isNetVitals(v) &&
   isNetEvasion(v) &&
+  isNetRanged(v) &&
   isNetMelee(v["melee"]) &&
   (v["melee"] === null ||
     (isStr(v["kit"]) && isBrawlerId(v["kit"]) && BRAWLERS[v["kit"]].attack.kind === "melee")) &&
