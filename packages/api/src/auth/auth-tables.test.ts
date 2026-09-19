@@ -11,8 +11,7 @@ import { auth } from "./auth-codegen";
  * mirror of them (the CLI regen is disabled — see @repo/db's generate:auth-schema).
  * Nothing else in the gate can catch a divergence: typecheck, lint and build never
  * touch a database, so a field the library requires and the schema lacks stays
- * green until the first real query fails in production. That is exactly how
- * better-auth 1.7's required `account.issuer` slipped through.
+ * green until the first real query fails in production.
  *
  * The drizzle adapter resolves `schema[modelName]` and then `table[fieldName]`,
  * so both sides are matched on the *export key* and the *property name* — not on
