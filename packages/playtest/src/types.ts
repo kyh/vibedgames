@@ -78,6 +78,14 @@ export interface PlaytestPointer {
 export interface ReflexInputs {
   keys?: string[];
   pointer?: PlaytestPointer | null;
+  /**
+   * Say so when the reflex is trying to move and getting nowhere — wedged
+   * under a ledge, nose-first in a wall. The playtest cannot tell a reflex
+   * that is holding position from one that is stuck, so without this a wedged
+   * reflex is chosen forever; with it, the move is withdrawn after two still
+   * decisions and the model has to try another.
+   */
+  stuck?: boolean;
 }
 
 /**

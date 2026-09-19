@@ -45,10 +45,11 @@ test("a tampered token is rejected", async () => {
     JSON.stringify({ e: Date.now() + 60_000, n: "x", u: "user-2" }),
   ).toString("base64url");
   assert.equal(await verifyPlaytestToken(SECRET, `${prefix}.${forgedPayload}.${signature}`), null);
-  // Damage the signature.
-  const flipped = signature.at(-1) === "A" ? "B" : "A";
+  // Damage the signature — at the FIRST character: the last one of a 32-byte
+  // digest carries two padding bits, so some swaps there decode to the same bytes.
+  const flipped = signature.startsWith("A") ? "B" : "A";
   assert.equal(
-    await verifyPlaytestToken(SECRET, `${prefix}.${payload}.${signature.slice(0, -1)}${flipped}`),
+    await verifyPlaytestToken(SECRET, `${prefix}.${payload}.${flipped}${signature.slice(1)}`),
     null,
   );
   for (const bad of ["", "pt", "pt.a", `${token}.extra`, "nope.payload.sig", `vg_${token}`]) {

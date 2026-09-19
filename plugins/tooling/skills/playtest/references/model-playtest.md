@@ -137,9 +137,11 @@ Every example game in the repo is wired for `vg playtest run` — `games/*/src/p
 
 **`setState('active-play')` lands in SOLO, offline play.** A multiplayer game under `?test=1` must never dial the shared room — a seeded restart there resets everyone's match. It may return a Promise (the CLI awaits it) when assets have to load first; don't publish the hooks before the game can honour them. `seed` is optional: leave it out if the scene can only start once and the playtest reloads with `?seed=<n>` instead. `complete` must turn true on death as well as on a win, or the run idles on a game-over screen — or restarts it with the next `Space`.
 
+**A reflex has to say when it is stuck.** The playtest cannot tell a reflex that is holding position on purpose from one wedged under a ledge, so reflex moves are never counted as stuck on their own — and an all-reflex game would push into the same wall for the whole run (lunerfall did, one prod run in two). Return `stuck: true` alongside the inputs while the reflex is trying to travel and going nowhere (no real displacement for ~50 frames): the move is then withdrawn after two still decisions like any other, the model has to pick another, and a run that stays wedged fails as wedged instead of passing silently. Try to shake loose inside the reflex as well — reverse and hop, back out and re-approach.
+
 **Tune a reflex without the model.** `vg playtest run --pin-move <name>` holds one move for the whole run and never calls the model: deterministic, free, and the same report. Get the reflex surviving on its own, then let the model choose between them.
 
-**How long is a run?** 80 decisions is about 14 seconds — a first kill, four gates, one bed of crops. A whole match or level is 250–400 (`--ticks`); the token lasts 15 minutes.
+**How long is a run?** 80 decisions is about 14 seconds — a first kill, four gates, one bed of crops. A whole match or level is 250–400, and a slow loop (a taxi fare across a city) is 600–900 (`--ticks`); the token lasts 15 minutes.
 
 ## Flags
 

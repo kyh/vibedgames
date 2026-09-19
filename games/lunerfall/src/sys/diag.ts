@@ -243,8 +243,48 @@ const KEYS = {
 
 const BUTTONS: (keyof Intent)[] = ["attack", "dash", "down", "jump", "left", "right", "up"];
 
-const held = (intent: Intent): ReflexInputs => ({
+/** Frames of trying to travel with nothing to show for it before the pilot counts as wedged. */
+const STALL_FRAMES = 50;
+/** How long the shake-loose lasts: back off the way it came and hop. */
+const SHAKE_FRAMES = 18;
+const STALL_PX = 4;
+
+/**
+ * A body can wedge under a ledge or against a lip the route did not expect,
+ * and the pilot would push into it forever. Two answers, in order: shake
+ * loose (reverse and hop), and tell the playtest (`stuck`), which withdraws
+ * the move so the model has to pick another.
+ */
+interface Guarded {
+  intent: Intent;
+  stuck: boolean;
+}
+
+const stallGuard = () => {
+  let anchor = { x: 0, y: 0 };
+  let stalled = 0;
+  return (intent: Intent, at: NavPoint): Guarded => {
+    const travelling = intent.left || intent.right;
+    if (!travelling || Math.hypot(at.x - anchor.x, at.y - anchor.y) > STALL_PX) {
+      anchor = { x: at.x, y: at.y };
+      stalled = 0;
+      return { intent, stuck: false };
+    }
+    stalled += 1;
+    if (stalled < STALL_FRAMES) {
+      return { intent, stuck: false };
+    }
+    const shaking = (stalled - STALL_FRAMES) % (STALL_FRAMES + SHAKE_FRAMES) < SHAKE_FRAMES;
+    return {
+      intent: shaking ? { ...intent, jump: true, left: intent.right, right: intent.left } : intent,
+      stuck: true,
+    };
+  };
+};
+
+const held = (intent: Intent, stuck = false): ReflexInputs => ({
   keys: BUTTONS.filter((name) => intent[name]).map((name) => KEYS[name]),
+  stuck,
 });
 
 const GOAL = [
@@ -258,6 +298,11 @@ const GOAL = [
 
 const publishManifest = (): void => {
   const pilot = new Pilot();
+  const guard = stallGuard();
+  const drive = (diag: Diagnostics, intent: Intent): ReflexInputs => {
+    const guarded = guard(intent, diag.player);
+    return held(guarded.intent, guarded.stuck);
+  };
   publishPlaytest<Diagnostics>({
     actions: {
       special: {
@@ -271,27 +316,27 @@ const publishManifest = (): void => {
       exit_1: {
         description:
           "Travel to exits[0] and walk through it — for phase `exit` (or to leave after looting)",
-        reflex: (diag) => (diag ? held(pilot.exit(diag, 0)) : null),
+        reflex: (diag) => (diag ? drive(diag, pilot.exit(diag, 0)) : null),
       },
       exit_2: {
         description:
           "Travel to exits[1], the other door, and walk through it — when its leadsTo is the better room",
-        reflex: (diag) => (diag ? held(pilot.exit(diag, 1)) : null),
+        reflex: (diag) => (diag ? drive(diag, pilot.exit(diag, 1)) : null),
       },
       fight: {
         description:
           "Hunt the nearest enemy and strike it when in reach — the default whenever phase is `fight`; this is what scores",
-        reflex: (diag) => (diag ? held(pilot.fight(diag)) : null),
+        reflex: (diag) => (diag ? drive(diag, pilot.fight(diag)) : null),
       },
       loot: {
         description:
           "Travel to `pickup` (a heal, a free relic, or an affordable shrine relic) — for phase `loot`",
-        reflex: (diag) => (diag ? held(pilot.loot(diag)) : null),
+        reflex: (diag) => (diag ? drive(diag, pilot.loot(diag)) : null),
       },
       retreat: {
         description:
           "Run away from the nearest enemy for a moment — only at 1 heart with an attack winding up close by",
-        reflex: (diag) => (diag ? held(pilot.retreat(diag)) : null),
+        reflex: (diag) => (diag ? drive(diag, pilot.retreat(diag)) : null),
       },
     },
   });

@@ -155,6 +155,8 @@ export interface Diagnostics {
 export interface ReflexInputs {
   keys?: string[];
   pointer?: { x: number; y: number; down?: boolean } | null;
+  /** The reflex is trying to move and getting nowhere; see `settle`. */
+  stuck?: boolean;
 }
 
 export type Reflex = (game: Diagnostics | null) => ReflexInputs | null | undefined;
@@ -481,6 +483,7 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
     decisionMs: number;
     appliedAt: number;
     reflexFrames: number;
+    reflexStuck: boolean;
     reflex: Reflex | null;
   }
 
@@ -773,6 +776,7 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
     });
     if (inputs) {
       current.reflexFrames += 1;
+      current.reflexStuck ||= inputs.stuck === true;
     }
   };
 
@@ -831,11 +835,13 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
   const settle = (done: Pending, measured: AgentWindow): void => {
     const option = config.move[done.decision.move];
     // Only a held direction can be "stuck". A parked pointer that has arrived
-    // and a reflex that has converged are both still because they worked.
-    const askedToMove =
-      done.reflex === null &&
-      option !== undefined &&
-      (option.inits.length > 0 || option.pointer?.down === true);
+    // and a reflex that has converged are both still because they worked —
+    // the agent cannot tell a reflex holding position from one wedged in
+    // geometry, so a reflex says so itself (`stuck: true`), and then its
+    // still windows count like any other.
+    const askedToMove = done.reflex
+      ? done.reflexStuck
+      : option !== undefined && (option.inits.length > 0 || option.pointer?.down === true);
     const progressed = measured.score > measured.scoreBefore;
     let stuck = false;
     if (askedToMove) {
@@ -926,7 +932,15 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
       if (pending) {
         settle(pending, measured);
       }
-      pending = { appliedAt: env.now(), decision, decisionMs, reflex, reflexFrames: 0, tick };
+      pending = {
+        appliedAt: env.now(),
+        decision,
+        decisionMs,
+        reflex,
+        reflexFrames: 0,
+        reflexStuck: false,
+        tick,
+      };
       game = env.snapshot();
       if (measured.complete) {
         // The game ended under the previous decision's inputs; this one
