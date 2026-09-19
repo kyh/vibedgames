@@ -9,10 +9,13 @@
     "dev": "vite",
     "preview": "vite preview",
     "test": "node --import tsx --test tools/*-smoke.mts",
+    "test:online": "node tools/two-client.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@repo/embed": "workspace:*",
+    "@vibedgames/gamepad": "workspace:^",
+    "@vibedgames/multiplayer": "workspace:^",
     "three": "^0.185.1"
   },
   "devDependencies": {
