@@ -194,7 +194,7 @@ if (import.meta.env.DEV || isPlaytestRequested()) {
         keys: ["Space"],
       },
     },
-    goal: "You control the bottom paddle; it follows the pointer's x. A point is won when the rival (top paddle, game.opponent.x) fails to reach your return. `track_ball` returns the ball straight — safe, but the rival always reaches a straight ball, so it never wins a point. To WIN points choose `aim_away`: it returns every ball at an angle, to the side the rival is NOT on. Use `track_ball` only to play safe when game.opponentScore is one point from winning. Every 4 returns game.charge.ready turns true: confirm then, and the next return is a power shot. game.score is your points; game.opponentScore is theirs; first to the target wins.",
+    goal: "You control the bottom paddle; it follows the pointer's x. A point is won when the rival (top paddle, game.opponent.x) fails to reach your return. `track_ball` returns the ball straight — safe, but the rival always reaches a straight ball, so it never wins a point. To WIN points choose `aim_away`: it returns every ball at an angle, to the side the rival is NOT on. Use `track_ball` only to play safe when game.opponentScore is one point from winning. Every 4 returns game.charge.ready turns true: confirm then, and the next return is a power shot. game.points is your points and game.opponentScore is theirs; game.score is 10 per point plus 1 per ball you return; first to the target wins.",
     // The court is a few world units wide, not a few hundred pixels.
     minDisplacement: 0.05,
     move: {
