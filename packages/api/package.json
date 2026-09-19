@@ -13,13 +13,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@better-auth/api-key": "^1.7.2",
-    "@better-auth/drizzle-adapter": "^1.7.2",
-    "@better-auth/expo": "^1.7.2",
+    "@better-auth/api-key": "1.7.2",
+    "@better-auth/drizzle-adapter": "1.7.2",
+    "@better-auth/expo": "1.7.2",
     "@orpc/server": "catalog:",
     "@repo/db": "workspace:^",
     "aws4fetch": "^1.0.20",
-    "better-auth": "^1.7.2",
+    "better-auth": "1.7.2",
     "zod": "catalog:"
   },
   "devDependencies": {
@@ -29,7 +29,7 @@
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "drizzle-orm": "1.0.0-rc.4",
-    "tsx": "^4.23.12",
+    "tsx": "^4.23.13",
     "typescript": "catalog:"
   }
 }
