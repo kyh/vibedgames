@@ -4,7 +4,15 @@
 // direction, a plain tap fires with auto-aim, and pulling back inside the dead
 // zone cancels. Touch and mouse are told apart by a short grace window after
 // the last touch, so a phone with a mouse attached does not flip modes on
-// every synthetic mouse event.
+// every synthetic mouse event. A physical gamepad folds into the same fields
+// the keyboard and mouse write (poll() once per frame): left stick moves,
+// right stick aims, RT/A fire like the left mouse button, LT/RB hold-and-
+// release the super like Space, START presses the P hotkey.
+
+import { PhysicalGamepad } from "@vibedgames/gamepad";
+import type { StickState } from "@vibedgames/gamepad";
+
+export { isPadConnected } from "@vibedgames/gamepad";
 
 export interface Stick {
   /** Pointer id currently holding this stick, or null when idle. */
@@ -95,6 +103,37 @@ const TOUCH_GRACE_MS = 900;
 
 const SUPER_KEYS = new Set(["Space", "KeyE"]);
 
+/** Pad actions → buttons. Raw names stay readable through the same API. */
+const PAD_BINDINGS = {
+  fire: ["rt", "a"],
+  pause: ["start"],
+  super: ["lt", "rb"],
+} as const;
+
+/** START shares the P hotkey: Game's window keydown handler owns pause, so
+ *  the pad presses that key instead of growing a second pause path. The
+ *  matching keyup keeps the key set clean and lets a pause shell that resumes
+ *  on key release see a whole press. */
+const pressPauseHotkey = (): void => {
+  const init = { bubbles: true, code: "KeyP", key: "p" };
+  window.dispatchEvent(new KeyboardEvent("keydown", init));
+  window.dispatchEvent(new KeyboardEvent("keyup", init));
+};
+
+/** A pad stick as a unit direction (right = +x, down = +z), or null inside the dead zone. */
+const stickDirection = (stick: StickState): Axis | null => {
+  if (!stick.active || stick.inDeadZone || stick.distance === 0) {
+    return null;
+  }
+  return { x: stick.dx / stick.distance, z: stick.dy / stick.distance };
+};
+
+/** Any pad input a player would notice: a fresh button or a deflected stick. */
+const padTouched = (pad: PhysicalGamepad): boolean =>
+  Object.keys(PAD_BINDINGS).some((action) => pad.justPressed(action)) ||
+  !pad.getStick("left").inDeadZone ||
+  !pad.getStick("right").inDeadZone;
+
 const isFormField = (target: EventTarget | null): boolean =>
   target instanceof HTMLElement && (target.tagName === "INPUT" || target.tagName === "SELECT");
 
@@ -111,6 +150,9 @@ export class Input {
   lastTouch = -1e9;
   sticks: Sticks = { aim: makeStick(), move: makeStick(), super: makeStick() };
   shots: Shot[] = [];
+  private readonly pad = new PhysicalGamepad({ bindings: PAD_BINDINGS });
+  /** Set once the host calls poll(); until then axis() polls on demand. */
+  private hostPolls = false;
 
   constructor(canvas: HTMLElement, superButton: HTMLElement | null) {
     this.bindKeyboard();
@@ -302,13 +344,61 @@ export class Input {
     this.onTouchMode?.(on);
   }
 
-  /** Movement direction, unit length or zero: the move stick when held, else WASD/arrows. */
-  axis(): Axis {
-    const { move } = this.sticks;
-    if (move.id !== null && move.mag > STICK_DEAD_ZONE) {
-      const len = Math.hypot(move.x, move.y) || 1;
-      return { x: move.x / len, z: move.y / len };
+  /**
+   * Poll the physical gamepad and fold it into the keyboard/mouse fields.
+   * Game must call this once per frame, before the paused early-return and
+   * before any input read, so a START press still toggles pause while the
+   * sim is frozen. Until Game does, axis() polls on demand.
+   */
+  poll(): void {
+    this.hostPolls = true;
+    this.pollPad();
+  }
+
+  private pollPad(): void {
+    const { pad } = this;
+    pad.update();
+    if (!pad.connected) {
+      return;
     }
+    // A pad in hand means the thumb sticks are not: same switch a mouse click makes.
+    if (this.touchMode && padTouched(pad)) {
+      this.setTouchMode(false);
+    }
+    // RT / A are the left mouse button.
+    if (pad.justPressed("fire")) {
+      this.fire = true;
+    }
+    if (pad.justReleased("fire")) {
+      this.fire = false;
+    }
+    // LT / RB are Space: hold to aim the super, release to fire it.
+    if (pad.justPressed("super")) {
+      this.superHeld = true;
+    }
+    if (pad.justReleased("super") && this.superHeld) {
+      this.superHeld = false;
+      this.superReleased = true;
+    }
+    if (pad.justPressed("pause")) {
+      pressPauseHotkey();
+    }
+  }
+
+  /**
+   * Right stick as a unit world direction, in the axes mouse aim uses (stick
+   * right = +x, stick down = +z), or null inside the dead zone / with no pad.
+   */
+  padAim(): Axis | null {
+    return stickDirection(this.pad.getStick("right"));
+  }
+
+  padAimHeld(): boolean {
+    return this.padAim() !== null;
+  }
+
+  /** WASD / arrows as a unit direction, or null when none is held. */
+  private keyAxis(): Axis | null {
     const { keys } = this;
     let x = 0;
     let z = 0;
@@ -325,7 +415,23 @@ export class Input {
       z += 1;
     }
     const len = Math.hypot(x, z);
-    return len > 0 ? { x: x / len, z: z / len } : { x: 0, z: 0 };
+    return len > 0 ? { x: x / len, z: z / len } : null;
+  }
+
+  /**
+   * Movement direction, unit length or zero: the touch move stick when held,
+   * else WASD/arrows, else the pad's left stick.
+   */
+  axis(): Axis {
+    if (!this.hostPolls) {
+      this.pollPad();
+    }
+    const { move } = this.sticks;
+    if (move.id !== null && move.mag > STICK_DEAD_ZONE) {
+      const len = Math.hypot(move.x, move.y) || 1;
+      return { x: move.x / len, z: move.y / len };
+    }
+    return this.keyAxis() ?? stickDirection(this.pad.getStick("left")) ?? { x: 0, z: 0 };
   }
 
   /** True once per release of the super key / right mouse button. */
