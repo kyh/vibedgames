@@ -16,7 +16,7 @@ const InstallPrompt = () => {
   const { copied, copy } = useCopyToClipboard();
 
   return (
-    <header className="absolute left-[25px] bottom-8 sm:bottom-16 z-10 flex flex-col items-start">
+    <header className="flex shrink-0 flex-col items-start px-7 pt-4 pb-[calc(var(--spacing-nav)+--spacing(4))] sm:absolute sm:left-[25px] sm:bottom-16 sm:z-10 sm:p-0">
       <FadeInBlur className="text-muted-foreground mb-2 flex items-center gap-2 text-xs">
         <span>Prompt to install</span>
         <span className="flex items-center gap-1.5">
@@ -171,13 +171,24 @@ const SPRING = {
 // oxlint-disable-next-line unicorn/prefer-number-coercion -- positions are CSS percentages like "12%"; Number() gives NaN
 const pct = (length: string): number => Number.parseFloat(length);
 
+// Every mobile card length is in cqw — a percentage `top` would resolve against
+// the deck's height while the cards size off its width, so the two scales drift
+// apart and the stack either collides with itself or leaves a hole. One scale
+// means the deck can reserve exactly the height the stack needs, at any size.
+const MOBILE_CARD_CQW = 55;
+const MOBILE_CARD_ASPECT = 0.8;
+const MOBILE_STEP_CQW = 23;
+
 const MOBILE_POSITIONS = [
-  { left: "2%", rotate: -7, top: "0%" },
-  { left: "42%", rotate: 5, top: "14%" },
-  { left: "8%", rotate: 8, top: "28%" },
-  { left: "40%", rotate: -4, top: "42%" },
-  { left: "0%", rotate: -3, top: "56%" },
+  { left: "2%", rotate: -7 },
+  { left: "42%", rotate: 5 },
+  { left: "8%", rotate: 8 },
+  { left: "40%", rotate: -4 },
+  { left: "0%", rotate: -3 },
 ] as const;
+
+const MOBILE_STACK_CQW =
+  MOBILE_STEP_CQW * (MOBILE_POSITIONS.length - 1) + MOBILE_CARD_CQW / MOBILE_CARD_ASPECT;
 
 const OfferingsDeckDesktop = () => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -281,20 +292,19 @@ const OfferingsDeckMobile = () => {
           setActiveIdx(null);
         }
       }}
-      className="relative mx-auto mt-4 h-[85vh] w-full max-w-sm px-4 sm:hidden"
+      className="relative my-auto w-full"
+      style={{ height: `${MOBILE_STACK_CQW}cqw` }}
     >
       {OFFERINGS.map((card, i) => {
-        const p = MOBILE_POSITIONS[i] ?? { left: "0%", rotate: 0, top: "0%" };
+        const p = MOBILE_POSITIONS[i] ?? { left: "0%", rotate: 0 };
         const isActive = activeIdx === i;
         const activeP = activeIdx === null ? null : MOBILE_POSITIONS[activeIdx];
 
         let innerX = "0%";
         let innerY = "0%";
-        if (activeP && !isActive) {
-          const dx = pct(p.left) - pct(activeP.left);
-          const dy = pct(p.top) - pct(activeP.top);
-          innerX = `${Math.sign(dx) * 40}%`;
-          innerY = `${Math.sign(dy) * 40}%`;
+        if (activeP && activeIdx !== null && !isActive) {
+          innerX = `${Math.sign(pct(p.left) - pct(activeP.left)) * 40}%`;
+          innerY = `${Math.sign(i - activeIdx) * 40}%`;
         }
 
         const cardTarget = mobileCardTarget(isInView, isActive, p.rotate);
@@ -313,12 +323,14 @@ const OfferingsDeckMobile = () => {
             animate={cardTarget}
             transition={transition}
             style={{
+              aspectRatio: MOBILE_CARD_ASPECT,
               left: p.left,
-              top: p.top,
+              top: `${i * MOBILE_STEP_CQW}cqw`,
               transformOrigin: "center center",
+              width: `${MOBILE_CARD_CQW}cqw`,
               zIndex: isActive ? 50 : card.zIndex,
             }}
-            className="absolute aspect-[0.8] w-[55%] rounded-xl"
+            className="absolute rounded-xl"
           >
             <motion.div
               animate={{ x: innerX, y: innerY }}
@@ -336,8 +348,8 @@ const OfferingsDeckMobile = () => {
 };
 
 const OfferingsDeck = () => (
-  <section className="relative flex flex-col items-center justify-center overflow-x-clip pb-20 sm:pb-40 sm:h-dvh sm:overflow-hidden sm:pb-0">
-    <FadeInBlur className="self-start px-6 pt-8 sm:absolute sm:left-[25px] sm:top-[25px] sm:z-10 sm:max-w-4xl sm:px-0 sm:pt-0">
+  <section className="relative flex flex-1 flex-col items-center justify-center overflow-x-clip sm:h-dvh sm:flex-none sm:overflow-hidden">
+    <FadeInBlur className="shrink-0 self-start px-6 pt-8 sm:absolute sm:left-[25px] sm:top-[25px] sm:z-10 sm:max-w-4xl sm:px-0 sm:pt-0">
       <h1 className="text-3xl font-medium leading-[0.9] -tracking-[0.03em] sm:text-5xl">
         A game studio
         <br />
@@ -352,12 +364,14 @@ const OfferingsDeck = () => (
     </FadeInBlur>
 
     <OfferingsDeckDesktop />
-    <OfferingsDeckMobile />
+    <div className="mx-auto mt-4 flex w-full max-w-sm flex-1 flex-col px-4 @container sm:hidden">
+      <OfferingsDeckMobile />
+    </div>
   </section>
 );
 
 const BuildPage = () => (
-  <main>
+  <main className="flex min-h-dvh flex-col sm:block">
     <RegisterLink />
     <OfferingsDeck />
     <InstallPrompt />
