@@ -34,10 +34,14 @@ const reachable = async (url) => {
 
 let vite = null;
 const startVite = async () => {
-  vite = spawn(path.join(gameDir, "node_modules/.bin/vite"), ["--port", String(PORT), "--strictPort"], {
-    cwd: gameDir,
-    stdio: "ignore",
-  });
+  vite = spawn(
+    path.join(gameDir, "node_modules/.bin/vite"),
+    ["--port", String(PORT), "--strictPort"],
+    {
+      cwd: gameDir,
+      stdio: "ignore",
+    },
+  );
   for (let i = 0; i < 150; i += 1) {
     if (await reachable(baseUrl)) {
       return;
@@ -55,13 +59,18 @@ const check = (ok, label) => {
   }
 };
 
-if (process.argv.indexOf("--url") === -1) {
+if (!process.argv.includes("--url")) {
   await startVite();
 }
 
 const browser = await chromium.launch({
+  args: [
+    "--use-gl=angle",
+    "--use-angle=swiftshader",
+    "--enable-unsafe-swiftshader",
+    "--ignore-gpu-blocklist",
+  ],
   executablePath: process.env.SMOKE_BROWSER,
-  args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"],
   headless: true,
 });
 const page = await browser.newPage({ viewport: { height: 720, width: 1280 } });
@@ -76,13 +85,17 @@ page.on("console", (msg) => {
 });
 
 await page.goto(`${baseUrl}/?q=low`, { waitUntil: "load" });
-await page.waitForFunction(() => document.querySelector("#loading")?.classList.contains("done"), null, {
-  timeout: 60_000,
-});
+await page.waitForFunction(
+  () => document.querySelector("#loading")?.classList.contains("done"),
+  null,
+  {
+    timeout: 60_000,
+  },
+);
 check(true, "loading veil lifted");
 await wait(500);
 await page.screenshot({ path: path.join(outDir, "menu.png") });
-check(await page.locator("#menu.open").count() === 1, "menu is open");
+check((await page.locator("#menu.open").count()) === 1, "menu is open");
 check((await page.locator("#cards .card").count()) === 4, "four brawler cards");
 
 await page.click("#play");
@@ -106,7 +119,10 @@ await page.screenshot({ path: path.join(outDir, "match.png") });
 
 const left = await page.locator("#left-count b").textContent();
 check(Number(left) >= 1 && Number(left) <= 8, `brawlers left pill reads ${left}`);
-check(errors.length === 0, `no page/console errors${errors.length ? `:\n  ${errors.slice(0, 8).join("\n  ")}` : ""}`);
+check(
+  errors.length === 0,
+  `no page/console errors${errors.length ? `:\n  ${errors.slice(0, 8).join("\n  ")}` : ""}`,
+);
 
 await browser.close();
 vite?.kill();

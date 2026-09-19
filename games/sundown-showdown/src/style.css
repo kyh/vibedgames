@@ -451,6 +451,12 @@ body.touch .for-keys {
   position: fixed;
   box-shadow: 0 4px #00000059;
 }
+/* On a phone the embed's pause cluster owns the top-right corner (44px buttons,
+   10px gap, published as --vg-touch-reserve while mounted); slide the gear
+   left of it. Unmounted, the reserve is unset and the offset cancels out. */
+body.touch #gear {
+  right: calc(14px + var(--sa-r) + var(--vg-touch-reserve, -10px) + 10px);
+}
 #settings {
   top: calc(70px + var(--sa-t));
   right: calc(14px + var(--sa-r));
@@ -540,8 +546,8 @@ body.touch .for-keys {
 .screen {
   z-index: 20;
   text-align: center;
-  padding: calc(16px + var(--sa-t)) calc(16px + var(--sa-r))
-    calc(16px + var(--sa-b)) calc(16px + var(--sa-l));
+  padding: calc(16px + var(--sa-t)) calc(16px + var(--sa-r)) calc(16px + var(--sa-b))
+    calc(16px + var(--sa-l));
   background: radial-gradient(#0e0a2233 0%, #0e0a22c7 100%);
   flex-direction: column;
   justify-content: safe center;
