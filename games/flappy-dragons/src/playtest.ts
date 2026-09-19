@@ -1,5 +1,5 @@
 // The `vg playtest` surface: diagnostics, test hooks and the control manifest.
-// See plugins/tooling/skills/playtest/references/model-playtest.md.
+// See plugins/tooling/skills/playtest/references/autonomous-playtest.md.
 
 import { publishDiagnostics, publishPlaytest, publishTestHooks } from "@vibedgames/playtest";
 import type { ReflexInputs } from "@vibedgames/playtest";

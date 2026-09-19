@@ -57,7 +57,7 @@ declare global {
 // first minute is about the lane, not about surviving the melee scrum.
 const PLAYTEST_HERO = "stormcaller";
 
-/** See plugins/tooling/skills/playtest/references/model-playtest.md. Every hook
+/** See plugins/tooling/skills/playtest/references/autonomous-playtest.md. Every hook
  *  starts a SOLO match against bots — never a staged state in a live room. */
 const publishPlaytestContract = (game: Game, activeGame: () => GameScene | null): void => {
   const requested = new URLSearchParams(window.location.search).get("hero") ?? "";

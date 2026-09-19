@@ -186,7 +186,7 @@ export class GameBrowser {
     this.boot(
       url,
       headed,
-      "the game never published window.__GAME_DIAGNOSTICS__ / window.__GAME_TEST_HOOKS__. Either it crashed on boot, or it doesn't implement the diagnostics contract (see the playtest skill's references/model-playtest.md).",
+      "the game never published window.__GAME_DIAGNOSTICS__ / window.__GAME_TEST_HOOKS__. Either it crashed on boot, or it doesn't implement the diagnostics contract (see the playtest skill's references/autonomous-playtest.md).",
     );
     const seedApplied = this.applySeed(seed, headed);
 

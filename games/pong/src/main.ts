@@ -133,7 +133,7 @@ renderer.setAnimationLoop((time) => {
   dither.render(renderer, game.scene, game.camera);
 });
 
-// See plugins/tooling/skills/playtest/references/bot-playtest.md. State hooks
+// See plugins/tooling/skills/playtest/references/scripted-playtest.md. State hooks
 // opt into a solo match, never write a staged score into a live room.
 type PongDiagnostics = ReturnType<GameScene["diagnostics"]> & {
   renderer: { calls: number; triangles: number };
