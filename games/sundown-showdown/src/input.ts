@@ -397,6 +397,16 @@ export class Input {
     return this.padAim() !== null;
   }
 
+  /** Press edge of a pad button or d-pad direction by its raw name (`"a"`, `"start"`, `"left"`…). */
+  padJustPressed(button: string): boolean {
+    return this.pad.connected && this.pad.justPressed(button);
+  }
+
+  /** Left-stick deflection past the dead zone, for menu navigation edges. */
+  padStick(): Axis | null {
+    return stickDirection(this.pad.getStick("left"));
+  }
+
   /** WASD / arrows as a unit direction, or null when none is held. */
   private keyAxis(): Axis | null {
     const { keys } = this;
