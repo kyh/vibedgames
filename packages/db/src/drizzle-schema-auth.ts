@@ -1,43 +1,51 @@
 import { sql } from "drizzle-orm";
 import { index, sqliteTable, text, integer, uniqueIndex } from "drizzle-orm/sqlite-core";
 
-export const user = sqliteTable("user", {
-  banExpires: integer("ban_expires", { mode: "timestamp_ms" }),
-  banReason: text("ban_reason"),
-  banned: integer("banned", { mode: "boolean" }).default(false),
-  createdAt: integer("created_at", { mode: "timestamp_ms" })
-    .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-    .notNull(),
-  email: text("email").notNull().unique(),
-  emailVerified: integer("email_verified", { mode: "boolean" }).default(false).notNull(),
-  id: text("id").primaryKey(),
-  image: text("image"),
-  invitedByCode: text("invited_by_code"),
-  name: text("name").notNull(),
-  role: text("role"),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
-    .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-    .$onUpdate(() => new Date())
-    .notNull(),
-});
+export const user = sqliteTable(
+  "user",
+  {
+    banExpires: integer("ban_expires", { mode: "timestamp_ms" }),
+    banReason: text("ban_reason"),
+    banned: integer("banned", { mode: "boolean" }).default(false),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .notNull(),
+    email: text("email").notNull(),
+    emailVerified: integer("email_verified", { mode: "boolean" }).default(false).notNull(),
+    id: text("id").primaryKey(),
+    image: text("image"),
+    invitedByCode: text("invited_by_code"),
+    name: text("name").notNull(),
+    role: text("role"),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [uniqueIndex("user_email_unique").on(table.email)],
+);
 
-export const session = sqliteTable("session", {
-  createdAt: integer("created_at", { mode: "timestamp_ms" })
-    .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-    .notNull(),
-  expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
-  id: text("id").primaryKey(),
-  impersonatedBy: text("impersonated_by"),
-  ipAddress: text("ip_address"),
-  token: text("token").notNull().unique(),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
-    .$onUpdate(() => new Date())
-    .notNull(),
-  userAgent: text("user_agent"),
-  userId: text("user_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-});
+export const session = sqliteTable(
+  "session",
+  {
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .notNull(),
+    expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+    id: text("id").primaryKey(),
+    impersonatedBy: text("impersonated_by"),
+    ipAddress: text("ip_address"),
+    token: text("token").notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .$onUpdate(() => new Date())
+      .notNull(),
+    userAgent: text("user_agent"),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+  },
+  (table) => [uniqueIndex("session_token_unique").on(table.token)],
+);
 
 // better-auth 1.7 scopes account identity by `(issuer, accountId)` rather than
 // `(providerId, accountId)`: `issuer` is required and the pair must be unique.
@@ -137,9 +145,13 @@ export const apikey = sqliteTable(
 // indexed lookup. `lastRequest` is the raw epoch-ms number the store writes
 // (not a Date), so it stays a plain integer column. Hand-added — the @better-auth
 // CLI regen emits this table too, so keep it if you regenerate the schema.
-export const rateLimit = sqliteTable("rate_limit", {
-  count: integer("count").notNull(),
-  id: text("id").primaryKey(),
-  key: text("key").notNull().unique(),
-  lastRequest: integer("last_request").notNull(),
-});
+export const rateLimit = sqliteTable(
+  "rate_limit",
+  {
+    count: integer("count").notNull(),
+    id: text("id").primaryKey(),
+    key: text("key").notNull(),
+    lastRequest: integer("last_request").notNull(),
+  },
+  (table) => [uniqueIndex("rate_limit_key_unique").on(table.key)],
+);
