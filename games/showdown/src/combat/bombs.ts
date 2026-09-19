@@ -1,15 +1,18 @@
-import type { Effects } from "../fx/effects";
 import { clamp, lerp } from "../utils";
 import type { Bomb, Combat } from "./combat";
 
 // Bombs fly on a sine arc from the muzzle to the marked landing spot,
 // tumbling as they go, and kick up dust when they touch down.
-const flyBomb = (bomb: Bomb, dt: number, effects: Effects): void => {
+const flyBomb = (combat: Combat, bomb: Bomb, dt: number): void => {
+  const { effects, world } = combat.game;
   const { a, slot } = bomb;
   bomb.t += dt;
   const k = clamp(bomb.t / a.flight, 0, 1);
-  const arc = a.big ? 4.4 : 3.3;
-  const y = lerp(bomb.sy, 0.2, k) + Math.sin(k * Math.PI) * arc;
+  let arc = a.big ? 4.4 : 3.3;
+  if (a.style === "potion") {
+    arc *= 0.65;
+  }
+  const y = lerp(bomb.sy, world.heightAt(bomb.tx, bomb.tz) + 0.2, k) + Math.sin(k * Math.PI) * arc;
   slot.group.position.set(lerp(bomb.sx, bomb.tx, k), y, lerp(bomb.sz, bomb.tz, k));
   slot.group.rotation.x += dt * 9;
   slot.group.rotation.z += dt * 5;
@@ -21,13 +24,13 @@ const flyBomb = (bomb: Bomb, dt: number, effects: Effects): void => {
 
 /** Advance one bomb: flight or fuse, the pulsing marker, its light, and detonation. */
 export const stepBomb = (combat: Combat, bomb: Bomb, dt: number): void => {
-  const { effects, elapsed, lighting } = combat.game;
+  const { effects, elapsed, lighting, world } = combat.game;
   const { a, slot } = bomb;
   if (bomb.landed) {
     bomb.fuse -= dt;
-    slot.group.position.y = 0.2 * slot.group.scale.x;
+    slot.group.position.y = world.heightAt(bomb.tx, bomb.tz) + 0.2 * slot.group.scale.x;
   } else {
-    flyBomb(bomb, dt, effects);
+    flyBomb(combat, bomb, dt);
   }
   // The marker fills and the spark flickers faster as the fuse runs down.
   const urgency = bomb.landed ? 1 - clamp(bomb.fuse / a.fuse, 0, 1) : 0;
@@ -36,9 +39,10 @@ export const stepBomb = (combat: Combat, bomb: Bomb, dt: number): void => {
   slot.ring.material.opacity = 0.55 + pulse * 0.35;
   slot.fillDisc.material.opacity = 0.1 + urgency * 0.22;
   const p = slot.group.position;
-  lighting.addLight(p.x, p.y + 0.3, p.z, combat.orange, 2.2 + pulse * 2.5, 4);
+  effects.trail(p.x, p.y, p.z, bomb.color, a.big ? 0.46 : 0.26);
+  lighting.addLight(p.x, p.y + 0.3, p.z, bomb.color, 2.2 + pulse * 2.5, 4);
   if (Math.random() < dt * 40) {
-    effects.spark(p.x, p.y + 0.25 * slot.group.scale.x, p.z, combat.orange);
+    effects.spark(p.x, p.y + 0.25 * slot.group.scale.x, p.z, bomb.color);
   }
   if (bomb.landed && bomb.fuse <= 0) {
     bomb.done = true;

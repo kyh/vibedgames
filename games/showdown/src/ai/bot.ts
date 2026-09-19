@@ -39,16 +39,8 @@ const WAYPOINT_REACHED = 0.36;
 const STUCK_CHECK_INTERVAL = 0.6;
 const STUCK_DISTANCE = 0.14;
 
-/** How far a super is worth throwing: spreads want point blank, leaps their full range. */
-const superReach = (def: AttackDef): number => {
-  if (def.kind === "spread") {
-    return 5;
-  }
-  if (def.kind === "leap") {
-    return def.range;
-  }
-  return def.range * 0.9;
-};
+/** Leaps use their full reach; weapon casts leave a little room for target movement. */
+const superReach = (def: AttackDef): number => (def.kind === "leap" ? def.range : def.range * 0.9);
 
 /** Projectile speed used to lead a moving target; leaps carry no projectile. */
 const projectileSpeed = (def: AttackDef): number =>
@@ -250,7 +242,12 @@ export class Bot {
   aimAt(x: number, z: number, vx: number, vz: number, def: AttackDef): AimSolution {
     const { b } = this;
     const range = dist(b.x, b.z, x, z);
-    const flight = def.kind === "lob" ? def.flight + def.fuse * 0.7 : range / projectileSpeed(def);
+    let flight = range / projectileSpeed(def);
+    if (def.kind === "lob") {
+      flight = def.flight + def.fuse * 0.7;
+    } else if (def.kind === "melee") {
+      flight = def.windup;
+    }
     const lead = 0.8 * this.skill;
     const px = x + vx * flight * lead;
     const pz = z + vz * flight * lead;
@@ -324,7 +321,8 @@ export class Bot {
       const uz = (target.z - b.z) / range;
       const { preferred } = b.def;
       let approach = 0;
-      if (range > preferred + 0.8) {
+      const spacing = b.def.attack.kind === "melee" ? 0.3 : 0.8;
+      if (range > preferred + spacing) {
         approach = 1;
       } else if (range < preferred - 1.2) {
         approach = -1;

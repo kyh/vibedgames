@@ -1,5 +1,5 @@
 // The translucent ground overlay under the player that previews the current
-// attack: a cone for spread shots, a strip for bullets and punches (cut short
+// attack: a sector for weapon sweeps, a strip for arrows (cut short
 // at the first wall), and a range line ending in a blast circle for lobs and
 // leaps. Gold while a super is being aimed, white otherwise.
 
@@ -39,7 +39,7 @@ export class AimGuide {
     group.position.y = 0.06;
     group.visible = false;
     this.rect = new THREE.Mesh(
-      new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2).translate(0.5, 0, 0),
+      new THREE.PlaneGeometry(1, 1, 24, 1).rotateX(-Math.PI / 2).translate(0.5, 0, 0),
       guideMaterial(),
     );
     this.sector = new THREE.Mesh(new THREE.BufferGeometry(), guideMaterial());
@@ -65,16 +65,12 @@ export class AimGuide {
   setupFor(def: BrawlerDef): void {
     for (const slot of ["attack", "super"] as const) {
       const attack = def[slot];
-      if (attack.kind !== "spread") {
+      if (attack.kind !== "spread" && attack.kind !== "melee") {
         continue;
       }
+      const arc = attack.kind === "melee" ? attack.arc : attack.spread + 0.14;
       this.sectorGeos[slot]?.dispose();
-      this.sectorGeos[slot] = new THREE.CircleGeometry(
-        1,
-        28,
-        -attack.spread / 2 - 0.07,
-        attack.spread + 0.14,
-      ).rotateX(-Math.PI / 2);
+      this.sectorGeos[slot] = new THREE.CircleGeometry(1, 28, -arc / 2, arc).rotateX(-Math.PI / 2);
     }
   }
 
@@ -87,13 +83,13 @@ export class AimGuide {
     if (geometry) {
       this.sector.geometry = geometry;
     }
-    this.sector.scale.setScalar(range);
+    this.sector.scale.set(range, 1, range);
     this.sector.visible = true;
     this.sector.material.color.set(tint);
     this.sector.material.opacity = opacity;
   }
 
-  /** Bullets and punches stop at the first wall unless the attack breaks it. */
+  /** Arrows stop at the first wall unless the attack breaks it. */
   private showStrip(
     player: Brawler,
     world: World,
@@ -113,7 +109,7 @@ export class AimGuide {
     if (hit && !(attack.breaksWalls && world.isBreakable(hit.tx, hit.ty))) {
       length = Math.max(0.6, hit.dist);
     }
-    const radius = attack.kind === "burst" || attack.kind === "melee" ? attack.radius : 0;
+    const radius = attack.kind === "burst" ? attack.radius : 0;
     this.rect.scale.set(length, 1, Math.max(0.42, radius * 2.6));
     this.rect.visible = true;
     this.rect.material.color.set(tint);
@@ -124,7 +120,7 @@ export class AimGuide {
     const blast = attack.kind === "lob" || attack.kind === "leap" ? attack.blast : 0;
     const reach = clamp(aimDist, attack.kind === "leap" ? 2 : 0.5, attack.range);
     this.circle.position.set(reach, 0, 0);
-    this.circle.scale.setScalar(blast);
+    this.circle.scale.set(blast, 1, blast);
     this.circle.visible = true;
     this.circle.material.color.set(tint);
     this.circle.material.opacity = opacity * 0.8;
@@ -147,19 +143,42 @@ export class AimGuide {
   ): void {
     const { group } = this;
     group.visible = true;
-    group.position.set(player.x, 0.06, player.z);
+    group.position.set(player.x, world.heightAt(player.x, player.z) + 0.06, player.z);
     group.rotation.y = Math.atan2(dx, dz) - Math.PI / 2;
     const tint = isSuper ? SUPER_TINT : NORMAL_TINT;
     const opacity = isSuper ? 0.34 : 0.17;
     this.rect.visible = false;
     this.sector.visible = false;
     this.circle.visible = false;
-    if (attack.kind === "spread") {
+    if (attack.kind === "spread" || attack.kind === "melee") {
       this.showSector(slot, attack.range, tint, opacity);
-    } else if (attack.kind === "burst" || attack.kind === "melee") {
+    } else if (attack.kind === "burst") {
       this.showStrip(player, world, attack, dx, dz, tint, opacity);
     } else {
       this.showBlast(attack, aimDist, tint, opacity);
+    }
+    this.conformToGround(world);
+  }
+
+  private conformToGround(world: World): void {
+    this.group.updateMatrixWorld(true);
+    const point = new THREE.Vector3();
+    for (const mesh of [this.rect, this.sector, this.circle, this.ring]) {
+      if (!mesh.visible || (mesh === this.ring && !this.circle.visible)) {
+        continue;
+      }
+      const positions = mesh.geometry.getAttribute("position");
+      if (!positions) {
+        continue;
+      }
+      for (let i = 0; i < positions.count; i += 1) {
+        point.set(positions.getX(i), 0, positions.getZ(i));
+        mesh.localToWorld(point);
+        point.y = world.heightAt(point.x, point.z) + 0.06;
+        mesh.worldToLocal(point);
+        positions.setY(i, point.y);
+      }
+      positions.needsUpdate = true;
     }
   }
 }

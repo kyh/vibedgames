@@ -18,6 +18,7 @@ export type FxMethod =
   | "impact"
   | "burst"
   | "muzzle"
+  | "slash"
   | "dust"
   | "leaves"
   | "healPuff"
@@ -62,6 +63,7 @@ const FX_METHODS: ReadonlySet<string> = new Set<FxMethod>([
   "impact",
   "burst",
   "muzzle",
+  "slash",
   "dust",
   "leaves",
   "healPuff",
@@ -143,6 +145,20 @@ export const replayFx = (effects: Effects, m: FxMethod, a: readonly number[]): v
     }
     case "muzzle": {
       effects.muzzle(arg(a, 0), arg(a, 1), arg(a, 2), arg(a, 3), arg(a, 4), color(a, 5), arg(a, 6));
+      break;
+    }
+    case "slash": {
+      effects.slash(
+        arg(a, 0),
+        arg(a, 1),
+        arg(a, 2),
+        arg(a, 3),
+        arg(a, 4),
+        arg(a, 5),
+        color(a, 6),
+        arg(a, 7) > 0.5,
+        a[8] ?? 0.13,
+      );
       break;
     }
     case "dust": {

@@ -34,6 +34,10 @@ export const SOUND_RECIPES = {
     s.noise("lowpass", 3600, 160, 0.34, 1 * l);
     s.tone("sine", 150, 38, 0.3, 0.6 * l);
   },
+  bolt: (s, l) => {
+    s.noise("highpass", 2500, 1000, 0.1, 0.25 * l);
+    s.tone("triangle", 220, 80, 0.14, 0.23 * l);
+  },
   boom: (s, l) => {
     s.noise("lowpass", 1800, 70, 0.5, 1 * l);
     s.tone("sine", 110, 34, 0.45, 0.7 * l);
@@ -72,8 +76,9 @@ export const SOUND_RECIPES = {
     s.noise("highpass", 800, 3000, 0.3, 0.2 * l);
   },
   lob: (s, l) => {
-    s.tone("sine", 330, 120, 0.16, 0.35 * l);
-    s.noise("bandpass", 900, 500, 0.08, 0.2 * l);
+    s.tone("sine", 420, 820, 0.2, 0.22 * l);
+    s.tone("triangle", 840, 1280, 0.14, 0.1 * l, 0.04);
+    s.noise("highpass", 900, 1800, 0.13, 0.13 * l);
   },
   lose: (s) => {
     for (const [i, hz] of [392, 330, 262, 196].entries()) {
@@ -86,8 +91,9 @@ export const SOUND_RECIPES = {
     }
   },
   punch: (s, l) => {
-    s.noise("lowpass", 900, 120, 0.09, 0.7 * l);
-    s.tone("sine", 140, 60, 0.08, 0.35 * l);
+    s.noise("bandpass", 1900, 420, 0.16, 0.4 * l, 0.7);
+    s.tone("triangle", 680, 260, 0.1, 0.12 * l);
+    s.tone("sine", 130, 65, 0.08, 0.16 * l);
   },
   ready: (s) => {
     for (const [i, hz] of [784, 1046, 1568].entries()) {
@@ -95,16 +101,26 @@ export const SOUND_RECIPES = {
     }
   },
   shot: (s, l) => {
-    s.noise("bandpass", 2600, 700, 0.09, 0.5 * l, 0.8);
-    s.tone("square", 760, 170, 0.08, 0.12 * l);
+    s.noise("highpass", 3000, 1400, 0.1, 0.2 * l);
+    s.tone("triangle", 330, 140, 0.13, 0.19 * l);
   },
   shotBig: (s, l) => {
-    s.noise("bandpass", 2000, 400, 0.13, 0.6 * l, 0.7);
-    s.tone("sawtooth", 520, 110, 0.12, 0.16 * l);
+    s.noise("highpass", 2600, 1100, 0.18, 0.28 * l);
+    s.tone("triangle", 440, 180, 0.18, 0.23 * l);
+    s.tone("sine", 880, 660, 0.22, 0.12 * l);
+  },
+  splash: (s, l) => {
+    s.noise("highpass", 2200, 700, 0.22, 0.28 * l);
+    s.tone("sine", 520, 140, 0.16, 0.21 * l);
+    s.tone("triangle", 1100, 720, 0.1, 0.1 * l, 0.025);
   },
   super: (s, l) => {
     s.noise("bandpass", 300, 3200, 0.3, 0.5 * l, 1.5);
     s.tone("sawtooth", 180, 720, 0.28, 0.13 * l);
+  },
+  thorns: (s, l) => {
+    s.noise("bandpass", 1400, 300, 0.16, 0.24 * l, 1.2);
+    s.tone("triangle", 500, 250, 0.09, 0.11 * l);
   },
   win: (s) => {
     for (const [i, hz] of [523, 659, 784, 1046, 1318].entries()) {

@@ -28,10 +28,17 @@ import {
   tileCenter,
   toTile,
 } from "./grid";
-import { buildGroundGeometry, composeGround, paintAO, paintBase } from "./ground";
+import {
+  buildGroundGeometry,
+  buildWaterGeometry,
+  composeGround,
+  paintAO,
+  paintBase,
+} from "./ground";
 import type { Lantern } from "./lamps";
 import { buildLampGlassGeometry, buildLampPostGeometry, placeLamps } from "./lamps";
 import { generateLayout } from "./layout";
+import { animateBanners, buildLandmarks } from "./landmarks";
 import type { ExtraCost } from "./path";
 import { Pathfinder } from "./path";
 import type { WallGroups } from "./props";
@@ -47,6 +54,7 @@ import {
   scatterOutskirts,
 } from "./props";
 import { makeWaterNormalTexture } from "./textures";
+import { terrainHeight } from "./terrain";
 
 interface Disposable {
   dispose: () => void;
@@ -116,6 +124,7 @@ export class World {
   boxSpots: TileCoord[] = [];
   lampTiles: TileCoord[] = [];
   lanterns: Lantern[];
+  readonly banners: THREE.Mesh[];
   meshes: Record<string, THREE.InstancedMesh> = {};
   disposables: Disposable[] = [];
   aoDirty = false;
@@ -162,6 +171,7 @@ export class World {
     this.lampGlass = lamps.glass;
     this.lanterns = lamps.lanterns;
     this.buildOutskirts(propRng, walls);
+    this.banners = buildLandmarks(this);
   }
 
   // oxlint-disable-next-line class-methods-use-this -- part of the world's public query surface
@@ -173,6 +183,8 @@ export class World {
   center(tile: number): number {
     return tileCenter(tile);
   }
+
+  heightAt = terrainHeight;
 
   /** Tile type under a world position; everything off the grid counts as wall. */
   tileAt(x: number, z: number): number {
@@ -325,18 +337,17 @@ export class World {
     }
     const normal = makeWaterNormalTexture();
     const material = new THREE.MeshStandardMaterial({
-      color: 0x1f_9f_c4,
-      emissive: 0x06_38_4f,
+      color: 0x37_a8_99,
+      emissive: 0x0a_39_36,
       emissiveIntensity: 0.35,
       envMapIntensity: 1.6,
       metalness: 0.05,
       normalMap: normal,
-      normalScale: new THREE.Vector2(0.55, 0.55),
-      roughness: 0.07,
+      normalScale: new THREE.Vector2(0.22, 0.22),
+      roughness: 0.26,
     });
-    const geometry = new THREE.PlaneGeometry(GRID_HALF * 2, GRID_HALF * 2).rotateX(-Math.PI / 2);
+    const geometry = buildWaterGeometry(this.tiles);
     const mesh = new THREE.Mesh(geometry, material);
-    mesh.position.y = -0.17;
     mesh.receiveShadow = true;
     mesh.name = "water";
     this.group.add(mesh);
@@ -519,6 +530,7 @@ export class World {
 
   update(dt: number, elapsed: number): void {
     this.grassUniforms.uTime.value = elapsed;
+    animateBanners(this.banners, elapsed);
     if (this.waterNormal) {
       this.waterNormal.offset.set(elapsed * 0.021, elapsed * 0.013);
     }

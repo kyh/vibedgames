@@ -1,5 +1,7 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { BRAWLER_RADIUS, TILE } from "../config";
+import type { ProjectileStyle } from "../config";
 import type { Game } from "../game";
 import { clamp } from "../utils";
 import { gridIndex } from "../world/grid";
@@ -36,10 +38,10 @@ const hitTile = (combat: Combat, bullet: Bullet, tx: number, tz: number): void =
     bullet.alive = false;
   }
   if (!bullet.alive) {
-    const size = bullet.melee ? 3 : 6;
+    const size = 5;
     effects.impact(
       bullet.x - bullet.dx * 0.12,
-      BULLET_Y,
+      BULLET_Y + world.heightAt(bullet.x, bullet.z),
       bullet.z - bullet.dz * 0.12,
       bullet.color,
       size,
@@ -48,10 +50,16 @@ const hitTile = (combat: Combat, bullet: Bullet, tx: number, tz: number): void =
 };
 
 const hitBrawlers = (combat: Combat, bullet: Bullet): void => {
-  const { brawlers, effects } = combat.game;
+  const { brawlers, effects, world } = combat.game;
   const reach = BRAWLER_RADIUS + 0.06 + bullet.radius;
   for (const target of brawlers) {
-    if (!target.alive || target === bullet.owner || target.airborne) {
+    if (
+      !target.alive ||
+      target === bullet.owner ||
+      target.airborne ||
+      target.evadingInvulnerable ||
+      bullet.hitTargets.has(target.id)
+    ) {
       continue;
     }
     const ox = target.x - bullet.x;
@@ -59,16 +67,33 @@ const hitBrawlers = (combat: Combat, bullet: Bullet): void => {
     if (ox * ox + oz * oz > reach * reach) {
       continue;
     }
+    bullet.hitTargets.add(target.id);
     target.takeDamage(bullet.damage, bullet.owner);
     if (bullet.a.knockback) {
       target.knock.set(bullet.dx * bullet.a.knockback, bullet.dz * bullet.a.knockback);
     } else {
       target.knock.set(target.knock.x + bullet.dx * 1.2, target.knock.y + bullet.dz * 1.2);
     }
-    effects.impact(bullet.x, BULLET_Y, bullet.z, bullet.color, 8);
-    effects.flash(bullet.x, BULLET_Y, bullet.z, bullet.color, 5, 4, 0.12);
-    bullet.alive = false;
-    return;
+    effects.impact(
+      bullet.x,
+      BULLET_Y + world.heightAt(bullet.x, bullet.z),
+      bullet.z,
+      bullet.color,
+      8,
+    );
+    effects.flash(
+      bullet.x,
+      BULLET_Y + world.heightAt(bullet.x, bullet.z),
+      bullet.z,
+      bullet.color,
+      5,
+      4,
+      0.12,
+    );
+    if (!bullet.a.pierce) {
+      bullet.alive = false;
+      return;
+    }
   }
 };
 
@@ -95,53 +120,119 @@ export const advanceBullet = (combat: Combat, bullet: Bullet, dt: number): void 
     hitBrawlers(combat, bullet);
     if (bullet.alive && bullet.travel >= bullet.range) {
       bullet.alive = false;
-      effects.impact(bullet.x, BULLET_Y, bullet.z, bullet.color, 2);
+      effects.impact(
+        bullet.x,
+        BULLET_Y + world.heightAt(bullet.x, bullet.z),
+        bullet.z,
+        bullet.color,
+        2,
+      );
     }
   }
 };
 
-/** Write one bullet's stretched-sphere transform and boosted colour into the instanced mesh. */
-export const drawBullet = (mesh: THREE.InstancedMesh, index: number, bullet: Bullet): void => {
-  // Shots shrink over the last stretch of their range instead of popping.
-  const fade = clamp((bullet.range - bullet.travel) / 0.8, 0.35, 1);
-  const length = bullet.melee ? bullet.radius * 1.2 : bullet.radius * (bullet.isSuper ? 3.6 : 3);
-  const width = bullet.radius * (bullet.melee ? 1 : 0.8) * fade;
+/** Shared instanced arrow: pointed head, narrow shaft and crossed fletching. */
+export const buildArrowGeometry = (): THREE.BufferGeometry => {
+  const parts = [
+    new THREE.CylinderGeometry(0.18, 0.18, 2.1, 5).rotateX(Math.PI / 2).translate(0, 0, -0.1),
+    new THREE.ConeGeometry(0.85, 0.9, 4).rotateX(Math.PI / 2).translate(0, 0, 1.15),
+    new THREE.BoxGeometry(1.2, 0.13, 0.6).translate(0, 0, -0.95),
+    new THREE.BoxGeometry(0.13, 1.2, 0.6).translate(0, 0, -0.95),
+  ];
+  const geometry = mergeGeometries(parts);
+  for (const part of parts) {
+    part.dispose();
+  }
+  if (!geometry) {
+    throw new Error("Arrow geometry could not be merged");
+  }
+  return geometry;
+};
+
+type ProjectileView = Pick<Bullet, "color" | "dx" | "dz" | "isSuper" | "radius" | "x" | "z">;
+
+/** One shared draw path keeps hosts and guests' weapon silhouettes identical. */
+export const drawProjectile = (
+  mesh: THREE.InstancedMesh,
+  index: number,
+  bullet: ProjectileView,
+  style: ProjectileStyle,
+  remaining: number,
+  groundY: number,
+): void => {
+  const fade = clamp(remaining / 0.8, 0.35, 1);
+  const width = bullet.radius * fade;
   scratchEuler.set(0, Math.atan2(bullet.dx, bullet.dz), 0);
   scratchQuat.setFromEuler(scratchEuler);
+  switch (style) {
+    case "spear": {
+      scratchScale.set(width * 0.8, width * 0.8, 0.6);
+      break;
+    }
+    case "bolt": {
+      scratchScale.set(width * 1.3, width * 1.3, 0.24);
+      break;
+    }
+    case "thorn": {
+      scratchScale.set(width * 0.8, width * 0.55, 0.42);
+      break;
+    }
+    case "arrow": {
+      scratchScale.set(width, width, bullet.isSuper ? 0.36 : 0.3);
+      break;
+    }
+    default: {
+      const unreachable: never = style;
+      throw new Error(`Unknown projectile style: ${unreachable}`);
+    }
+  }
   scratchMatrix.compose(
-    scratchPos.set(bullet.x, BULLET_Y, bullet.z),
+    scratchPos.set(bullet.x, BULLET_Y + groundY, bullet.z),
     scratchQuat,
-    scratchScale.set(width, width * (bullet.melee ? 0.7 : 1), length),
+    scratchScale,
   );
   mesh.setMatrixAt(index, scratchMatrix);
-  const boost = bullet.isSuper ? 3.6 : 2.8;
   mesh.setColorAt(
     index,
-    scratchColor.copy(bullet.color).multiplyScalar(boost * (bullet.melee ? 0.6 : 1)),
+    scratchColor.copy(bullet.color).multiplyScalar(bullet.isSuper ? 1.7 : 1.1),
   );
 };
 
-// A shotgun spreads its light budget across its pellets; punches glow softly.
-const lightScale = (bullet: Bullet): number => {
-  if (bullet.a.kind === "spread") {
-    return 1.6 / bullet.a.pellets;
-  }
-  return bullet.melee ? 0.5 : 1;
+export const buildProjectileMesh = (
+  scene: THREE.Scene,
+  geometry: THREE.BufferGeometry,
+): THREE.InstancedMesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> => {
+  const mesh = new THREE.InstancedMesh(
+    geometry,
+    new THREE.MeshBasicMaterial({ color: 0xff_ff_ff }),
+    MAX_BULLETS,
+  );
+  mesh.count = 0;
+  mesh.frustumCulled = false;
+  mesh.userData.noAO = true;
+  mesh.setColorAt(0, new THREE.Color(1, 1, 1));
+  scene.add(mesh);
+  return mesh;
 };
 
-/** Cast the bullet's point light and drop a trail particle every few centimetres. */
+export const finishProjectileMesh = (mesh: THREE.InstancedMesh, count: number): void => {
+  mesh.count = count;
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) {
+    mesh.instanceColor.needsUpdate = true;
+  }
+};
+
+/** Enchanted arrows leave a thin trail; normal shafts remain easy to track. */
 export const lightBullet = (game: Game, bullet: Bullet, dt: number): void => {
-  const intensity = (bullet.isSuper ? 2.6 : 1.9) * lightScale(bullet);
-  game.lighting.addLight(bullet.x, BULLET_Y, bullet.z, bullet.color, intensity, 4.2);
+  const y = BULLET_Y + game.world.heightAt(bullet.x, bullet.z);
+  if (bullet.isSuper) {
+    const intensity = bullet.a.kind === "spread" ? 1.4 / bullet.a.pellets : 1;
+    game.lighting.addLight(bullet.x, y, bullet.z, bullet.color, intensity, 2.5);
+  }
   bullet.trail -= dt;
   if (bullet.trail <= 0) {
-    bullet.trail = 0.03;
-    game.effects.trail(
-      bullet.x,
-      BULLET_Y,
-      bullet.z,
-      bullet.color,
-      bullet.radius * (bullet.melee ? 2.2 : 1.6),
-    );
+    bullet.trail = 0.045;
+    game.effects.trail(bullet.x, y, bullet.z, bullet.color, bullet.isSuper ? 0.15 : 0.065);
   }
 };

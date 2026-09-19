@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { terrainHeight } from "../world/terrain";
 import { TUNING } from "../config";
 import type { Game } from "../game";
 import { clamp, lerp, smoothstep } from "../utils";
@@ -104,7 +105,11 @@ export class Gas {
     this.sheets = [];
     this.tickT = 0;
     this.ticks = 0;
-    const geometry = new THREE.PlaneGeometry(104, 104).rotateX(-Math.PI / 2);
+    const geometry = new THREE.PlaneGeometry(104, 104, 1, 104).rotateX(-Math.PI / 2);
+    const positions = geometry.getAttribute("position");
+    for (let i = 0; i < positions.count; i += 1) {
+      positions.setY(i, terrainHeight(positions.getX(i), positions.getZ(i)));
+    }
     for (const [index, height] of LAYER_HEIGHTS.entries()) {
       const alpha = LAYER_ALPHAS[index] ?? 0;
       const uniforms = {

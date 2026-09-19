@@ -1,10 +1,19 @@
 import * as THREE from "three";
-import type { BlastAttack, LobAttack, ProjectileAttack } from "../config";
+import { conformGroundGeometry } from "../world/terrain";
+import type { BlastAttack, LobAttack, LobStyle, ProjectileAttack } from "../config";
 import { TILE, TUNING } from "../config";
 import type { Brawler } from "../entities/brawler";
 import type { Game } from "../game";
 import { clamp, lerp } from "../utils";
-import { MAX_BULLETS, advanceBullet, drawBullet, lightBullet } from "./bullets";
+import {
+  MAX_BULLETS,
+  advanceBullet,
+  buildArrowGeometry,
+  buildProjectileMesh,
+  drawProjectile,
+  finishProjectileMesh,
+  lightBullet,
+} from "./bullets";
 import { stepBomb } from "./bombs";
 import { buildLootBoxTextures } from "./textures";
 import type { LootBoxTextures } from "./textures";
@@ -17,7 +26,9 @@ export interface Bullet {
   dx: number;
   dz: number;
   isSuper: boolean;
-  melee: boolean;
+  hitTargets: Set<number>;
+  /** Legacy wire field: melee sweeps never create projectiles. */
+  melee: false;
   owner: Brawler;
   radius: number;
   range: number;
@@ -32,6 +43,9 @@ type FlatMesh<G extends THREE.BufferGeometry> = THREE.Mesh<G, THREE.MeshBasicMat
 
 /** One pooled bomb body plus its landing marker, reused across throws. */
 export interface BombSlot {
+  body: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
+  bottleNeck: THREE.Group;
+  orbit: THREE.Mesh<THREE.TorusGeometry, THREE.MeshBasicMaterial>;
   busy: boolean;
   fillDisc: FlatMesh<THREE.CircleGeometry>;
   group: THREE.Group;
@@ -75,7 +89,7 @@ export interface LootBox {
 
 export interface Cube {
   alive: boolean;
-  mesh: THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial>;
+  mesh: THREE.Mesh<THREE.OctahedronGeometry, THREE.MeshStandardMaterial>;
   phase: number;
   sx: number;
   sz: number;
@@ -92,18 +106,39 @@ const RUBBLE_COLORS = [0xb9_a5_8c, 0xb0_7a_3c, 0x9a_5f_2e, 0x4f_9a_4a];
 
 const buildBombSlot = (
   scene: THREE.Scene,
-  bodyGeo: THREE.SphereGeometry,
+  bodyGeo: THREE.BufferGeometry,
   bodyMat: THREE.MeshStandardMaterial,
   sparkGeo: THREE.SphereGeometry,
 ): BombSlot => {
   const group = new THREE.Group();
-  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  const body = new THREE.Mesh(bodyGeo, bodyMat.clone());
   body.castShadow = true;
   const spark = new THREE.Mesh(
     sparkGeo,
     new THREE.MeshBasicMaterial({ color: new THREE.Color(6, 2.4, 0.5) }),
   );
-  spark.position.set(0, 0.24, 0);
+  spark.position.set(0, 0, 0);
+  const orbit = new THREE.Mesh(
+    new THREE.TorusGeometry(0.31, 0.016, 4, 24),
+    new THREE.MeshBasicMaterial({ color: 0xff_c0_73 }),
+  );
+  orbit.rotation.x = 0.8;
+  orbit.userData.noAO = true;
+  group.add(orbit);
+  const bottleNeck = new THREE.Group();
+  const neck = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.09, 0.1, 0.16, 8),
+    new THREE.MeshStandardMaterial({ color: 0xb6_dc_d8, metalness: 0.15, roughness: 0.25 }),
+  );
+  const cork = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.09, 0.09, 0.07, 8),
+    new THREE.MeshStandardMaterial({ color: 0x9a_78_50, roughness: 0.95 }),
+  );
+  neck.position.y = 0.23;
+  cork.position.y = 0.34;
+  bottleNeck.add(neck, cork);
+  bottleNeck.visible = false;
+  group.add(bottleNeck);
   spark.userData.noAO = true;
   group.add(body, spark);
   group.visible = false;
@@ -132,7 +167,42 @@ const buildBombSlot = (
   ring.userData.noAO = true;
   ring.renderOrder = 2;
   scene.add(ring);
-  return { busy: false, fillDisc, group, ring, spark };
+  return { body, bottleNeck, busy: false, fillDisc, group, orbit, ring, spark };
+};
+
+/** Shared by sim and guest: a fire orb, living seed or corked potion flask. */
+export const setBombAppearance = (slot: BombSlot, style: LobStyle, color: THREE.Color): void => {
+  slot.body.material.color.copy(color);
+  slot.body.material.emissive.copy(color);
+  slot.spark.material.color.copy(color).multiplyScalar(3);
+  slot.orbit.material.color.copy(color).multiplyScalar(1.5);
+  slot.bottleNeck.visible = style === "potion";
+  slot.orbit.visible = style !== "potion";
+  slot.spark.visible = style === "fire";
+  switch (style) {
+    case "fire": {
+      slot.body.scale.setScalar(1);
+      slot.body.material.emissiveIntensity = 1.8;
+      slot.body.material.roughness = 0.65;
+      break;
+    }
+    case "seed": {
+      slot.body.scale.set(0.85, 1.35, 0.85);
+      slot.body.material.emissiveIntensity = 0.3;
+      slot.body.material.roughness = 0.95;
+      break;
+    }
+    case "potion": {
+      slot.body.scale.set(1, 0.85, 1);
+      slot.body.material.emissiveIntensity = 0.55;
+      slot.body.material.roughness = 0.2;
+      break;
+    }
+    default: {
+      const unreachable: never = style;
+      throw new Error(`Unknown lob style: ${unreachable}`);
+    }
+  }
 };
 
 // Blast damage and knockback on every brawler inside the radius. Knockback
@@ -147,7 +217,7 @@ const blastBrawlers = (
 ): void => {
   const { blast } = attack;
   for (const target of brawlers) {
-    if (!target.alive || target === owner || target.airborne) {
+    if (!target.alive || target === owner || target.airborne || target.evadingInvulnerable) {
       continue;
     }
     const d = Math.hypot(target.x - x, target.z - z);
@@ -170,11 +240,12 @@ export class Combat {
   bombs: Bomb[];
   boxes: LootBox[];
   cubes: Cube[];
-  bulletMesh: THREE.InstancedMesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
+  bulletMesh: THREE.InstancedMesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+  thornMesh: THREE.InstancedMesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
   bombPool: BombSlot[];
   boxGeo: THREE.BoxGeometry;
   boxTex: LootBoxTextures;
-  cubeGeo: THREE.BoxGeometry;
+  cubeGeo: THREE.OctahedronGeometry;
   cubeMat: THREE.MeshStandardMaterial;
   cubeLight: THREE.Color;
   orange: THREE.Color;
@@ -185,24 +256,16 @@ export class Combat {
     this.bombs = [];
     this.boxes = [];
     this.cubes = [];
-    const bulletGeo = new THREE.SphereGeometry(1, 10, 8);
-    this.bulletMesh = new THREE.InstancedMesh(
-      bulletGeo,
-      new THREE.MeshBasicMaterial({ color: 0xff_ff_ff }),
-      MAX_BULLETS,
-    );
-    this.bulletMesh.count = 0;
-    this.bulletMesh.frustumCulled = false;
-    this.bulletMesh.userData.noAO = true;
-    // Touching instance colour once allocates the attribute up front.
-    this.bulletMesh.setColorAt(0, new THREE.Color(1, 1, 1));
-    game.scene.add(this.bulletMesh);
+    this.bulletMesh = buildProjectileMesh(game.scene, buildArrowGeometry());
+    this.thornMesh = buildProjectileMesh(game.scene, new THREE.OctahedronGeometry(1));
     this.bombPool = [];
-    const bombGeo = new THREE.SphereGeometry(0.2, 16, 12);
+    const bombGeo = new THREE.IcosahedronGeometry(0.22, 1);
     const bombMat = new THREE.MeshStandardMaterial({
-      color: 0x1b_1b_22,
-      metalness: 0.3,
-      roughness: 0.35,
+      color: 0xeb_64_32,
+      emissive: 0xff_8e_47,
+      emissiveIntensity: 2,
+      metalness: 0.1,
+      roughness: 0.65,
     });
     const sparkGeo = new THREE.SphereGeometry(0.07, 8, 6);
     for (let i = 0; i < BOMB_POOL_SIZE; i += 1) {
@@ -210,15 +273,15 @@ export class Combat {
     }
     this.boxGeo = new THREE.BoxGeometry(0.92, 0.92, 0.92);
     this.boxTex = buildLootBoxTextures();
-    this.cubeGeo = new THREE.BoxGeometry(0.34, 0.34, 0.34);
+    this.cubeGeo = new THREE.OctahedronGeometry(0.31);
     this.cubeMat = new THREE.MeshStandardMaterial({
-      color: 0x1c_8a_4a,
-      emissive: 0x30_ff_80,
-      emissiveIntensity: 2.4,
+      color: 0x63_99_6d,
+      emissive: 0x7c_b9_6a,
+      emissiveIntensity: 0.65,
       metalness: 0.2,
       roughness: 0.25,
     });
-    this.cubeLight = new THREE.Color(0x40_ff_8a);
+    this.cubeLight = new THREE.Color(0xa2_ce_82);
     this.orange = new THREE.Color(0xff_8a_3a);
   }
 
@@ -226,13 +289,17 @@ export class Combat {
     const { world } = this.game;
     const mat = new THREE.MeshStandardMaterial({
       emissive: 0xff_ff_ff,
-      emissiveIntensity: 1.4,
+      emissiveIntensity: 0.45,
       emissiveMap: this.boxTex.emissiveMap,
       map: this.boxTex.map,
       roughness: 0.7,
     });
     const mesh = new THREE.Mesh(this.boxGeo, mat);
-    mesh.position.set(world.center(tx), 0.46, world.center(ty));
+    mesh.position.set(
+      world.center(tx),
+      world.heightAt(world.center(tx), world.center(ty)) + 0.46,
+      world.center(ty),
+    );
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     this.game.scene.add(mesh);
@@ -280,9 +347,9 @@ export class Combat {
     this.game.scene.remove(box.mesh);
     box.mat.dispose();
     this.game.world.setBlocker(box.tx, box.ty, false);
-    this.game.effects.debris(box.x, 0.5, box.z, 0x6a_54_96, 9);
-    this.game.effects.burst(box.x, 0.6, box.z, this.cubeLight, 16, 4.5);
-    this.game.effects.flash(box.x, 0.8, box.z, this.cubeLight, 9, 6, 0.3);
+    this.game.effects.debris(box.x, box.mesh.position.y, box.z, 0x8c_6a_49, 9);
+    this.game.effects.burst(box.x, box.mesh.position.y + 0.15, box.z, this.cubeLight, 16, 4.5);
+    this.game.effects.flash(box.x, box.mesh.position.y + 0.35, box.z, this.cubeLight, 9, 6, 0.3);
     this.game.audio.play("crate", box.x, box.z);
     this.spawnCube(box.x, box.z, box.x, box.z);
   }
@@ -308,7 +375,7 @@ export class Combat {
   spawnCube(sx: number, sz: number, x: number, z: number): void {
     const mesh = new THREE.Mesh(this.cubeGeo, this.cubeMat);
     mesh.castShadow = true;
-    mesh.position.set(sx, 0.5, sz);
+    mesh.position.set(sx, this.game.world.heightAt(sx, sz) + 0.5, sz);
     this.game.scene.add(mesh);
     this.cubes.push({
       alive: true,
@@ -355,8 +422,9 @@ export class Combat {
       damage: attack.damage * owner.damageMul,
       dx,
       dz,
+      hitTargets: new Set(),
       isSuper,
-      melee: attack.kind === "melee",
+      melee: false,
       owner,
       radius: attack.radius,
       range: attack.range,
@@ -382,13 +450,16 @@ export class Combat {
     if (!slot) {
       return;
     }
+    setBombAppearance(slot, attack.style, owner.bulletColor(isSuper));
     slot.busy = true;
     slot.group.visible = true;
     slot.group.position.set(sx, sy, sz);
     slot.group.scale.setScalar(attack.big ? 1.75 : 1);
     slot.ring.visible = true;
-    slot.ring.position.set(tx, 0.05, tz);
-    slot.ring.scale.setScalar(attack.blast);
+    slot.ring.position.set(tx, this.game.world.heightAt(tx, tz) + 0.05, tz);
+    slot.ring.scale.set(attack.blast, 1, attack.blast);
+    conformGroundGeometry(slot.ring.geometry, tx, tz, attack.blast);
+    conformGroundGeometry(slot.fillDisc.geometry, tx, tz, attack.blast);
     const markerColor = isSuper ? SUPER_MARKER_COLOR : MARKER_COLOR;
     slot.ring.material.color.set(markerColor);
     slot.fillDisc.material.color.set(markerColor);
@@ -421,7 +492,13 @@ export class Combat {
       game.effects.leaves(broken.x, broken.z, 14);
       return;
     }
-    game.effects.debris(broken.x, 0.6, broken.z, RUBBLE_COLORS[broken.style] ?? 0xb9_a5_8c, 10);
+    game.effects.debris(
+      broken.x,
+      game.world.heightAt(broken.x, broken.z) + 0.6,
+      broken.z,
+      RUBBLE_COLORS[broken.style] ?? 0xb9_a5_8c,
+      10,
+    );
     game.effects.dust(broken.x, broken.z, 8, 2.2);
     game.audio.play("crate", broken.x, broken.z);
   }
@@ -464,13 +541,26 @@ export class Combat {
       this.breakWallsAround(x, z, blast);
     }
     const big = attack.big === true;
+    const color = owner.bulletColor(isSuper);
     if (slam) {
-      game.effects.slam(x, z, blast, owner.superColor);
+      game.effects.slam(x, z, blast, color);
+    } else if (attack.kind === "lob" && attack.style !== "fire") {
+      const y = game.world.heightAt(x, z);
+      game.effects.ring(x, z, blast, color, 0.35, 1.8);
+      game.effects.burst(x, y + 0.4, z, color, big ? 25 : 12, blast * 2.5);
+      game.effects.flash(x, y + 0.8, z, color, big ? 22 : 10, blast * 3, 0.22);
+      if (attack.style === "seed") {
+        game.effects.leaves(x, z, 16);
+      }
     } else {
-      game.effects.explosion(x, z, blast, big ? owner.superColor : this.orange, big);
+      game.effects.explosion(x, z, blast, color, big);
     }
     game.shake(big || slam ? 0.55 : 0.24, x, z);
-    game.audio.play(big || slam ? "boomBig" : "boom", x, z);
+    if (attack.kind === "lob" && attack.style === "potion") {
+      game.audio.play("splash", x, z);
+    } else {
+      game.audio.play(big || slam ? "boomBig" : "boom", x, z);
+    }
   }
 
   update(dt: number): void {
@@ -487,22 +577,32 @@ export class Combat {
   }
 
   private updateBullets(dt: number): void {
-    let count = 0;
+    let arrows = 0;
+    let thorns = 0;
     for (const bullet of this.bullets) {
       advanceBullet(this, bullet, dt);
       if (!bullet.alive) {
         continue;
       }
-      drawBullet(this.bulletMesh, count, bullet);
-      count += 1;
+      const thorn = bullet.a.style === "thorn";
+      drawProjectile(
+        thorn ? this.thornMesh : this.bulletMesh,
+        thorn ? thorns : arrows,
+        bullet,
+        bullet.a.style,
+        bullet.range - bullet.travel,
+        this.game.world.heightAt(bullet.x, bullet.z),
+      );
+      if (thorn) {
+        thorns += 1;
+      } else {
+        arrows += 1;
+      }
       lightBullet(this.game, bullet, dt);
     }
     this.bullets = this.bullets.filter((bullet) => bullet.alive);
-    this.bulletMesh.count = count;
-    this.bulletMesh.instanceMatrix.needsUpdate = true;
-    if (this.bulletMesh.instanceColor) {
-      this.bulletMesh.instanceColor.needsUpdate = true;
-    }
+    finishProjectileMesh(this.bulletMesh, arrows);
+    finishProjectileMesh(this.thornMesh, thorns);
   }
 
   private updateBombs(dt: number): void {
@@ -523,7 +623,7 @@ export class Combat {
       const { shake } = box;
       box.mesh.rotation.z = Math.sin(elapsed * 60) * 0.09 * shake;
       box.mesh.scale.setScalar(1 + shake * 0.08);
-      box.mat.emissiveIntensity = 1.1 + lighting.night * 1.6 + shake * 3;
+      box.mat.emissiveIntensity = 0.45 + lighting.night * 0.65 + shake * 1.8;
     }
   }
 
@@ -537,7 +637,7 @@ export class Combat {
       const x = lerp(cube.sx, cube.x, k);
       const z = lerp(cube.sz, cube.z, k);
       const bob = k >= 1 ? Math.sin(elapsed * 3 + cube.phase) * 0.08 : 0;
-      const y = 0.42 + Math.sin(k * Math.PI) * 1.1 + bob;
+      const y = this.game.world.heightAt(x, z) + 0.42 + Math.sin(k * Math.PI) * 1.1 + bob;
       cube.mesh.position.set(x, y, z);
       cube.mesh.rotation.set(0.6, elapsed * 1.8 + cube.phase, 0.6);
       lighting.addLight(x, y + 0.1, z, this.cubeLight, 1.6 + lighting.night * 1.6, 3.4);
@@ -561,8 +661,23 @@ export class Combat {
       cube.alive = false;
       brawler.addCube();
       game.scene.remove(cube.mesh);
-      game.effects.burst(cube.x, 0.7, cube.z, this.cubeLight, 12, 3.5);
-      game.effects.flash(cube.x, 0.8, cube.z, this.cubeLight, 7, 5, 0.25);
+      game.effects.burst(
+        cube.x,
+        game.world.heightAt(cube.x, cube.z) + 0.7,
+        cube.z,
+        this.cubeLight,
+        12,
+        3.5,
+      );
+      game.effects.flash(
+        cube.x,
+        game.world.heightAt(cube.x, cube.z) + 0.8,
+        cube.z,
+        this.cubeLight,
+        7,
+        5,
+        0.25,
+      );
       if (!brawler.hidden || brawler.isPlayer) {
         game.hud.floatText(brawler.x, 2, brawler.z, "POWER UP!", "power");
       }
@@ -575,6 +690,7 @@ export class Combat {
     const { scene } = this.game;
     this.bullets.length = 0;
     this.bulletMesh.count = 0;
+    this.thornMesh.count = 0;
     for (const bomb of this.bombs) {
       bomb.slot.busy = false;
       bomb.slot.group.visible = false;

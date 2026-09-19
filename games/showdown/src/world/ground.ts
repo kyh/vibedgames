@@ -16,6 +16,7 @@ import {
   inGrid,
 } from "./grid";
 import { context2d } from "./textures";
+import { terrainHeight } from "./terrain";
 
 const BASE_SIZE = GRID * BASE_TEXELS_PER_TILE;
 const AO_SIZE = GRID * AO_TEXELS_PER_TILE;
@@ -24,13 +25,20 @@ const isBorderTile = (x: number, y: number): boolean =>
   x < 2 || y < 2 || x >= GRID - 2 || y >= GRID - 2;
 
 const baseTileColor = (x: number, y: number, jitter: number): string => {
+  const wx = x + 0.5 - GRID_HALF;
+  const wz = y + 0.5 - GRID_HALF;
   if (isBorderTile(x, y)) {
-    return `hsl(33, 38%, ${52 + jitter}%)`;
+    return `hsl(93, 23%, ${34 + jitter}%)`;
   }
-  return (x + y) % 2 ? `hsl(37, 60%, ${66 + jitter}%)` : `hsl(36, 57%, ${62 + jitter}%)`;
+  const path = Math.abs(wx) < 2 || Math.abs(wz) < 2 || Math.abs(Math.abs(wz) - 11) < 1;
+  const courtyard = Math.abs(wx) < 5 && Math.abs(wz) < 5;
+  if (path || courtyard) {
+    return `hsl(43, 27%, ${69 + jitter + ((x + y) % 2) * 2}%)`;
+  }
+  return `hsl(${91 + Math.sin(x * 0.6 + y * 0.24) * 5}, 32%, ${47 + jitter + Math.sin(y * 0.7) * 2}%)`;
 };
 
-/** Paints the sand colour map for the given tile layout. */
+/** Meadow, worn limestone paths and a central tournament courtyard. */
 export const paintBase = (tiles: Uint8Array, seed: number): HTMLCanvasElement => {
   const size = BASE_SIZE;
   const canvas = makeCanvas(size, size);
@@ -52,12 +60,24 @@ export const paintBase = (tiles: Uint8Array, seed: number): HTMLCanvasElement =>
     const x = rng() * size;
     const y = rng() * size;
     const r = 0.6 + rng() * 1.6;
-    ctx.fillStyle = rng() < 0.5 ? "rgba(120,80,30,0.16)" : "rgba(255,240,200,0.16)";
+    ctx.fillStyle = rng() < 0.5 ? "rgba(39,74,40,0.12)" : "rgba(249,241,179,0.18)";
     ctx.beginPath();
     ctx.arc(x, y, r, 0, 7);
     ctx.fill();
   }
-  // Soft tinted halos: damp sand around water, mossy ground under bushes.
+  // Fine stone joints give the courtyard scale without gridding the meadow.
+  ctx.strokeStyle = "rgba(84,91,62,0.16)";
+  ctx.lineWidth = 1.2;
+  for (let y = 2; y < GRID - 2; y += 1) {
+    for (let x = 2; x < GRID - 2; x += 1) {
+      const wx = x + 0.5 - GRID_HALF;
+      const wz = y + 0.5 - GRID_HALF;
+      if (Math.abs(wx) < 2 || Math.abs(wz) < 2 || (Math.abs(wx) < 5 && Math.abs(wz) < 5)) {
+        ctx.strokeRect(x * BASE_TEXELS_PER_TILE + 1, y * BASE_TEXELS_PER_TILE + 1, 30, 30);
+      }
+    }
+  }
+  // Damp banks and mossy ground under concealing hedges.
   const halo = makeCanvas(size, size);
   const haloCtx = context2d(halo);
   haloCtx.fillStyle = "#fff";
@@ -66,9 +86,9 @@ export const paintBase = (tiles: Uint8Array, seed: number): HTMLCanvasElement =>
     for (let x = 0; x < GRID; x += 1) {
       const tile = tiles[gridIndex(x, y)];
       if (tile === TILE.WATER) {
-        haloCtx.fillStyle = "#8f7a5a";
+        haloCtx.fillStyle = "#779580";
       } else if (tile === TILE.BUSH) {
-        haloCtx.fillStyle = "#9fae6e";
+        haloCtx.fillStyle = "#6b9558";
       } else {
         continue;
       }
@@ -170,7 +190,7 @@ class QuadBuilder {
   ): void {
     const base = this.positions.length / 3;
     for (const corner of corners) {
-      this.positions.push(corner[0], corner[1], corner[2]);
+      this.positions.push(corner[0], corner[1] + terrainHeight(corner[0], corner[2]), corner[2]);
     }
     for (let i = 0; i < 4; i += 1) {
       this.normals.push(normal[0], normal[1], normal[2]);
@@ -187,6 +207,7 @@ class QuadBuilder {
     geometry.setAttribute("normal", new THREE.Float32BufferAttribute(this.normals, 3));
     geometry.setAttribute("uv", new THREE.Float32BufferAttribute(this.uvs, 2));
     geometry.setIndex(this.indices);
+    geometry.computeVertexNormals();
     return geometry;
   }
 }
@@ -298,6 +319,36 @@ export const buildGroundGeometry = (tiles: Uint8Array): THREE.BufferGeometry => 
           [x0, 0, z1],
           [x1, 0, z1],
           [x1, 0, z0],
+        ],
+        [0, 1, 0],
+        [
+          [uvX(x), uvY(y)],
+          [uvX(x), uvY(y + 1)],
+          [uvX(x + 1), uvY(y + 1)],
+          [uvX(x + 1), uvY(y)],
+        ],
+      );
+    }
+  }
+  return quads.toGeometry();
+};
+
+/** Separate pond surfaces keep every pond seated in its own terrace. */
+export const buildWaterGeometry = (tiles: Uint8Array): THREE.BufferGeometry => {
+  const quads = new QuadBuilder();
+  for (let y = 0; y < GRID; y += 1) {
+    for (let x = 0; x < GRID; x += 1) {
+      if (tiles[gridIndex(x, y)] !== TILE.WATER) {
+        continue;
+      }
+      const x0 = x - GRID_HALF;
+      const z0 = y - GRID_HALF;
+      quads.push(
+        [
+          [x0, -0.17, z0],
+          [x0, -0.17, z0 + 1],
+          [x0 + 1, -0.17, z0 + 1],
+          [x0 + 1, -0.17, z0],
         ],
         [0, 1, 0],
         [

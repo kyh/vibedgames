@@ -9,13 +9,13 @@ import type { LootBox } from "./combat/combat";
 import type { BrawlerId } from "./config";
 import { mustGet, mustGetInput } from "./dom";
 import type { Brawler } from "./entities/brawler";
+import { EVADE } from "./entities/evasion";
 import type { Game } from "./game";
 import { FLOATER_LIFE, createFloaters, spawnFloater, styleFloater } from "./hud-floaters";
 import type { Floater } from "./hud-floaters";
 import type { Stick } from "./input";
 import { buildLobby } from "./hud-lobby";
 import { buildBrawlerCards, markSelectedCard } from "./hud-menu";
-import { PlayHints } from "./polish/play-hints";
 import type { RunVerdict } from "./polish/best-run";
 import { createBoxBar, createOverhead, syncBoxBar, syncOverhead } from "./hud-overheads";
 import type { BoxBar, Overhead } from "./hud-overheads";
@@ -30,16 +30,6 @@ const padTime = (hour: number): string => {
   const h = Math.floor(hour) % 24;
   const m = Math.floor((hour - Math.floor(hour)) * 60);
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-};
-
-const timeEmoji = (hour: number): string => {
-  if (hour >= 19.4 || hour < 5.6) {
-    return "🌙";
-  }
-  if (hour >= 17.2 || hour < 7.2) {
-    return "🌇";
-  }
-  return "☀️";
 };
 
 const resultTitle = (won: boolean, rank: number): string => {
@@ -77,8 +67,8 @@ const positionStick = (el: HTMLElement, stick: Stick, restX: number, restY: numb
   }
 };
 const TOAST_MS = 3200;
-const FEED_MS = 6000;
-const FEED_MAX = 4;
+const FEED_MS = 3500;
+const FEED_MAX = 2;
 
 export class Hud {
   readonly game: Game;
@@ -93,15 +83,14 @@ export class Hud {
   hurt = 0;
   selected: BrawlerId = "dusty";
   lastLeft = -1;
-  lastClock = "";
+  lastTime = "";
   lastSuper = -1;
+  private lastEvade = "";
   statsT = 0;
   frames = 0;
   fps = 0;
   touch = false;
   readonly stickEls: { aim: HTMLElement; move: HTMLElement };
-  /** The in-play control strip, which retires itself once the player has shot. */
-  readonly playHints: PlayHints;
   /** While hosting online, floating numbers and kills are also written here for guests. */
   floatRecorder: FloatRecorder | null = null;
   feedRecorder: FeedRecorder | null = null;
@@ -114,7 +103,6 @@ export class Hud {
     this.floaterLayer = mustGet("floaters");
     this.floaters = createFloaters(this.floaterLayer, FLOATER_POOL);
     this.stickEls = { aim: mustGet("stick-aim"), move: mustGet("stick-move") };
-    this.playHints = new PlayHints(mustGet("hints"));
     this.buildMenu();
     buildLobby(game, game.params);
     buildSettingsPanel(game);
@@ -123,8 +111,6 @@ export class Hud {
   setTouchMode(on: boolean): void {
     this.touch = on;
     document.body.classList.toggle("touch", on);
-    // The super button's label differs per input mode; force a redraw.
-    this.lastSuper = -1;
   }
 
   /** Sticks rest near the bottom corners and jump to wherever a thumb lands. */
@@ -135,7 +121,7 @@ export class Hud {
     const { sticks } = this.game.input;
     const w = window.innerWidth;
     const h = window.innerHeight;
-    positionStick(this.stickEls.move, sticks.move, Math.max(96, w * 0.14), h - 118);
+    positionStick(this.stickEls.move, sticks.move, Math.max(80, w * 0.14), h - 118);
     positionStick(this.stickEls.aim, sticks.aim, w - Math.max(104, w * 0.13), h - 128);
   }
 
@@ -160,6 +146,8 @@ export class Hud {
 
   showMenu(open: boolean): void {
     mustGet("menu").classList.toggle("open", open);
+    mustGet("gear").hidden = !open;
+    mustGet("settings").classList.remove("open");
     if (open) {
       mustGet("result").classList.remove("open");
     }
@@ -301,7 +289,7 @@ export class Hud {
       }
       const visible = brawler.alive && brawler.root.visible;
       const point = visible
-        ? this.project(brawler.x, brawler.root.position.y + 1.72, brawler.z)
+        ? this.project(brawler.x, brawler.root.position.y + brawler.model.overheadHeight, brawler.z)
         : null;
       const shown = point !== null && point.on;
       if (shown !== entry.shown) {
@@ -311,7 +299,7 @@ export class Hud {
       if (!point || !shown) {
         continue;
       }
-      entry.root.style.transform = `translate3d(${point.x.toFixed(1)}px, ${(point.y - 44).toFixed(1)}px, 0)`;
+      entry.root.style.transform = `translate3d(${point.x.toFixed(1)}px, ${(point.y - 28).toFixed(1)}px, 0)`;
       syncOverhead(entry, brawler);
     }
   }
@@ -331,7 +319,7 @@ export class Hud {
         bar = createBoxBar(this.overheadLayer);
         this.boxBars.set(box, bar);
       }
-      const point = this.project(box.x, 1.35, box.z);
+      const point = this.project(box.x, this.game.world.heightAt(box.x, box.z) + 1.35, box.z);
       bar.root.hidden = !point.on;
       bar.root.style.transform = `translate3d(${point.x.toFixed(1)}px, ${(point.y - 20).toFixed(1)}px, 0)`;
       syncBoxBar(bar, box);
@@ -349,7 +337,11 @@ export class Hud {
         continue;
       }
       const progress = 1 - floater.life / FLOATER_LIFE;
-      const point = this.project(floater.x, floater.y + progress * 0.9, floater.z);
+      const point = this.project(
+        floater.x,
+        this.game.world.heightAt(floater.x, floater.z) + floater.y + progress * 0.9,
+        floater.z,
+      );
       styleFloater(floater, point.x, point.y, progress);
     }
   }
@@ -359,17 +351,23 @@ export class Hud {
     const left = game.brawlers.reduce((count, b) => count + (b.alive ? 1 : 0), 0);
     if (left !== this.lastLeft) {
       this.lastLeft = left;
-      mustGet("left-count").innerHTML = `BRAWLERS LEFT <b>${left}</b>`;
+      const count = mustGet("left-count");
+      count.innerHTML = `<b>${left}</b> LEFT`;
+      count.setAttribute("aria-label", `${left} champions left`);
     }
-    const clock = `${timeEmoji(game.lighting.time)} ${padTime(game.lighting.time)}`;
-    if (clock !== this.lastClock) {
-      this.lastClock = clock;
-      mustGet("clock").textContent = clock;
-      mustGet("time-label").textContent = padTime(game.lighting.time);
-      const slider = mustGetInput("time-slider");
-      if (document.activeElement !== slider) {
-        slider.value = String(game.lighting.time);
-      }
+  }
+
+  private updateSettingsTime(): void {
+    const { time } = this.game.lighting;
+    const label = padTime(time);
+    if (label === this.lastTime) {
+      return;
+    }
+    this.lastTime = label;
+    mustGet("time-label").textContent = label;
+    const slider = mustGetInput("time-slider");
+    if (document.activeElement !== slider) {
+      slider.value = String(time);
     }
   }
 
@@ -383,11 +381,32 @@ export class Hud {
     const el = mustGet("super");
     el.style.setProperty("--p", String(percent));
     el.classList.toggle("ready", percent >= 100);
-    let label = `SUPER ${percent}%`;
-    if (percent >= 100) {
-      label = this.touch ? "SUPER!" : "SPACE!";
+    el.setAttribute(
+      "aria-label",
+      percent >= 100 ? "Super ready" : `Super charging, ${percent} percent`,
+    );
+  }
+
+  private updateEvadeButton(): void {
+    const { player, state } = this.game;
+    const percent = player ? Math.round((1 - player.evadeCooldown / EVADE.cooldown) * 100) : 0;
+    const ready = Boolean(
+      player?.alive &&
+      state === "playing" &&
+      !player.airborne &&
+      !player.evasion &&
+      player.evadeCooldown <= 0 &&
+      player.netTarget.evadePending === null,
+    );
+    const status = `${percent}:${ready}`;
+    if (status === this.lastEvade) {
+      return;
     }
-    mustGet("super-core").textContent = label;
+    this.lastEvade = status;
+    const el = mustGet("evade");
+    el.style.setProperty("--p", String(percent));
+    el.toggleAttribute("disabled", !ready);
+    el.setAttribute("aria-label", ready ? "Dodge ready" : `Dodge recharging, ${percent} percent`);
   }
 
   /** Frame counter, and the diagnostics readout while the panel is open. */
@@ -401,18 +420,19 @@ export class Hud {
     this.frames = 0;
     this.statsT = 0;
     if (mustGet("settings").classList.contains("open")) {
+      this.updateSettingsTime();
       renderStats(this.game, this.fps);
     }
   }
 
   update(dt: number): void {
     const { game } = this;
-    this.playHints.update(dt);
     this.updateOverheads();
     this.updateBoxBars();
     this.updateFloaters(dt);
     this.updateTopBar();
     this.updateSuperButton();
+    this.updateEvadeButton();
     this.updateSticks();
     if (this.bannerT > 0) {
       this.bannerT -= dt;

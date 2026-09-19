@@ -1,9 +1,16 @@
 # Showdown
 
-3D top-down battle royale brawler (Three.js): pick one of four brawlers, drop into a
+3D top-down battle royale brawler (Three.js): pick one of nine medieval champions, drop into a
 procedurally laid-out arena with seven bots, and be the last one standing while the
-sun sets and the poison gas closes in. Single-player. Deployed at
+sun sets and the poison gas closes in. Solo and online multiplayer. Deployed at
 `showdown.vibedgames.com`.
+
+## Champions
+
+Briar (sword and shield), Wren (bow), Ember (fire staff), Rook (hammer),
+Rowan (thrown javelins), Nyx (daggers), Moss (thorns), Flint (crossbow), and Pip (potions).
+Three melee champions and six ranged champions each have a distinct basic attack and super.
+Matches still have eight combatants.
 
 ## Develop
 
@@ -26,19 +33,19 @@ pnpm --filter @repo/showdown test:seed   # headless Chromium: the same seed repl
 
 ## Options
 
-| Param              | Effect                                                                          |
-| ------------------ | ------------------------------------------------------------------------------- |
-| `?q=<quality>`     | `low` / `medium` / `high` / `ultra`; disables the automatic GPU benchmark       |
-| `?bots=<level>`    | bot difficulty: `easy` / `normal` / `hard`                                      |
-| `?time=<hour>`     | pin the time of day (0–24, e.g. `19.4` for dusk) instead of following the match |
-| `?seed=<int>`      | deterministic first match: arena, spawns, bot kits and every bot decision       |
-| `?auto=<brawler>`  | skip the menu and start as `dusty` / `ace` / `fuse` / `titan`                   |
-| `?zoom=<factor>`   | camera distance multiplier (default `1`)                                        |
-| `?speed=<n>`       | simulation steps per rendered frame, 1–16 (fast-forward for tests)              |
-| `?ss=<factor>`     | supersample factor 0–3, overriding the quality tier's pixel ratio               |
-| `?online`          | instant online match; `&room=CODE` picks a lobby, `&name=NAME` your name        |
-| `?offline=1`       | never dial the party server — PLAY ONLINE is hidden, `?online` plays solo       |
-| `?party=PORT\|URL` | dev-only party-server override (ignored in production builds)                   |
+| Param              | Effect                                                                                                     |
+| ------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `?q=<quality>`     | `low` / `medium` / `high` / `ultra`; disables the automatic GPU benchmark                                  |
+| `?bots=<level>`    | bot difficulty: `easy` / `normal` / `hard`                                                                 |
+| `?time=<hour>`     | pin the time of day (0–24, e.g. `19.4` for dusk) instead of following the match                            |
+| `?seed=<int>`      | deterministic first match: arena, spawns, bot kits and every bot decision                                  |
+| `?auto=<brawler>`  | skip the menu and start as `dusty` / `ace` / `fuse` / `titan` / `rowan` / `nyx` / `moss` / `flint` / `pip` |
+| `?zoom=<factor>`   | camera distance multiplier (default `1`)                                                                   |
+| `?speed=<n>`       | simulation steps per rendered frame, 1–16 (fast-forward for tests)                                         |
+| `?ss=<factor>`     | supersample factor 0–3, overriding the quality tier's pixel ratio                                          |
+| `?online`          | instant online match; `&room=CODE` picks a lobby, `&name=NAME` your name                                   |
+| `?offline=1`       | never dial the party server — PLAY ONLINE is hidden, `?online` plays solo                                  |
+| `?party=PORT\|URL` | dev-only party-server override (ignored in production builds)                                              |
 
 ## Controls
 
@@ -49,16 +56,23 @@ pnpm --filter @repo/showdown test:seed   # headless Chromium: the same seed repl
 | Click (release the right thumb, pad RT / A)   | shoot                                   |
 | Tap                                           | auto-aim shot (touch)                   |
 | Space / Right-click (SUPER button, pad LT/RB) | hold to aim the super, release to fire  |
+| Shift (DODGE button, pad B / LB)              | evade in your movement or aim direction |
 | T                                             | cycle time of day (noon → dusk → night) |
-| P / Escape (pad START)                        | pause                                   |
+| Escape (pause button, pad START)              | pause                                   |
 | M                                             | mute (also on the pause overlay)        |
-| ⚙                                             | settings: quality, bots, time, effects  |
+| ⚙ (main menu)                                 | settings: quality, bots, time, effects  |
+
+Evading briefly avoids weapon damage, with a 2.4-second cooldown. Poison gas still hurts.
 
 The manifest in `src/controls.ts` feeds the start-screen legend, the pause overlay
 and the web app's controls panel; a pad also walks the brawler cards (d-pad or
 stick) and presses PLAY with A / START. Touch keeps its own two-thumb sticks
 because the game needs a drag-to-aim, release-to-fire right stick that the
 shared virtual pad's single stick cannot express.
+
+Escape, controller START and the shared mobile pause button open the same pause overlay.
+Solo freezes; online play continues with your controls released. Resuming clears held and queued
+input so dismissing the overlay cannot also attack or dodge.
 
 ## Rendering
 

@@ -23,7 +23,8 @@ export const MULTIPLAYER_HOST = import.meta.env.DEV
   ? devPartyHost()
   : "https://vibedgames-party.kyh.workers.dev";
 export const PARTY = "vg-server";
-export const ROOM_PREFIX = "showdown-";
+/** Evasion acknowledgments make these snapshots incompatible with earlier rooms. */
+export const ROOM_PREFIX = "showdown-v3-";
 export const INTENT_EVENT = "intent";
 /** Host broadcast rate. */
 export const SNAPSHOT_HZ = 15;
@@ -45,7 +46,8 @@ export const seatId = (playerId: string): string => `p:${playerId}`;
 
 export type Intent =
   | { kind: "join"; kit: BrawlerId; name: string }
-  | { kind: "input"; mx: number; mz: number }
+  | { kind: "input"; mx: number; mz: number; look: number | null }
   | { kind: "attack"; dx: number; dz: number; x: number; z: number }
   | { kind: "super"; dx: number; dz: number; x: number; z: number }
+  | { kind: "evade"; dx: number; dz: number; seq: number }
   | { kind: "again" };

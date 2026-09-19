@@ -8,9 +8,9 @@ import { clamp, damp, smoothstep } from "./utils";
 
 export const CAMERA_FOV = 32;
 /** Pitch of the match camera above the ground plane. */
-export const CAMERA_PITCH = (56 * Math.PI) / 180;
+export const CAMERA_PITCH = (50 * Math.PI) / 180;
 /** Base distance from the focus point at zoom 1 on a wide screen. */
-export const CAMERA_DISTANCE = 23;
+export const CAMERA_DISTANCE = 22;
 
 /** Portrait and square screens need the camera further out to keep the same width in view. */
 const aspectFit = (aspect: number): number => clamp(1.55 / aspect, 1, 1.75);
@@ -46,10 +46,11 @@ const followSubject = (game: Game, subject: Brawler, dt: number): void => {
     x += game.leanX;
     z += game.leanZ;
   }
-  x = clamp(x, -14, 14);
-  z = clamp(z, -15, 17);
+  x = clamp(x, -18, 18);
+  z = clamp(z, -18.5, 18.5);
   game.focus.x = damp(game.focus.x, x, 5.5, dt);
   game.focus.z = damp(game.focus.z, z, 5.5, dt);
+  game.focus.y = damp(game.focus.y, game.world.heightAt(subject.x, subject.z), 5.5, dt);
 };
 
 const REDUCED_MOTION =
@@ -76,8 +77,8 @@ export const updateCamera = (game: Game, dt: number): void => {
   const shakeZ = Math.cos(t * 37 + 1.3) * amp * 0.22;
   camera.position.set(
     game.focus.x + shakeX,
-    Math.sin(CAMERA_PITCH) * distance,
+    game.focus.y + Math.sin(CAMERA_PITCH) * distance,
     game.focus.z + Math.cos(CAMERA_PITCH) * distance + shakeZ,
   );
-  camera.lookAt(game.focus.x + shakeX, 0, game.focus.z + shakeZ);
+  camera.lookAt(game.focus.x + shakeX, game.focus.y, game.focus.z + shakeZ);
 };

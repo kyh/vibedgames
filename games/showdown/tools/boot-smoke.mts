@@ -7,9 +7,9 @@ import { test } from "node:test";
 import { BRAWLERS, DIFFICULTIES, QUALITIES, TUNING, isBrawlerId } from "../src/config.ts";
 import { clamp, damp, lerp, randIn, seededRandom, smoothstep } from "../src/utils.ts";
 
-test("four brawlers, each keyed by its own id with a super that outranges nothing absurd", () => {
+test("nine champions, each keyed by its own id with a super that outranges nothing absurd", () => {
   const ids = Object.keys(BRAWLERS);
-  assert.equal(ids.length, 4);
+  assert.equal(ids.length, 9);
   for (const id of ids) {
     assert.ok(isBrawlerId(id));
     const def = BRAWLERS[id];

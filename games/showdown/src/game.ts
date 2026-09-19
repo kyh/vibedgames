@@ -9,7 +9,7 @@
 
 import * as THREE from "three";
 
-import { isOfflineRequested } from "@repo/embed";
+import { isOfflineRequested, pauseGame } from "@repo/embed";
 
 import { Bot } from "./ai/bot";
 import { AimGuide } from "./aim-guide";
@@ -24,7 +24,7 @@ import { Effects } from "./fx/effects";
 import { mustGet } from "./dom";
 import { Hud } from "./hud";
 import { setNetStatus, setResultMode, setResultWait, setSpectateCopy } from "./hud-lobby";
-import { Input, keyCode } from "./input";
+import { Input, isFormField, keyCode } from "./input";
 import { MenuPad } from "./menu-pad";
 import { tick as tickDiagnostics } from "./diagnostics";
 import { Mercy } from "./polish/mercy";
@@ -62,6 +62,7 @@ export interface OnlineOptions {
 }
 
 export interface GameOptions {
+  onLoadProgress?: (progress: number, label: string) => void;
   /** Called whenever a match begins (the embed wrapper uses it to clear its chrome). */
   onMatchStart?: () => void;
   /** Join a room straight away instead of showing the menu. */
@@ -224,8 +225,11 @@ export class Game {
   private seqOut = 0;
   private last: number;
   private warmup = WARMUP_FRAMES;
+  private readonly onLoadProgress: ((progress: number, label: string) => void) | undefined;
 
   constructor(options: GameOptions = {}) {
+    this.onLoadProgress = options.onLoadProgress;
+    this.onLoadProgress?.(0.08, "Opening the gates");
     this.onMatchStart = options.onMatchStart ?? null;
     const saved = loadSettings();
     this.saved = saved;
@@ -237,6 +241,7 @@ export class Game {
     );
     this.pipeline = new Pipeline(mustGetCanvas("game"), this.scene, this.camera);
     this.pipeline.renderer.info.autoReset = false;
+    this.onLoadProgress?.(0.2, "Preparing the light");
     if (saved.ao === false) {
       this.pipeline.toggles.ao = false;
     }
@@ -254,7 +259,7 @@ export class Game {
     this.lighting.applyQuality(this.pipeline.quality);
     this.audio = new GameAudio();
     this.audio.muted = Boolean(saved.muted);
-    this.input = new Input(this.pipeline.renderer.domElement, mustGet("super"));
+    this.input = new Input(this.pipeline.renderer.domElement, mustGet("super"), mustGet("evade"));
     this.input.onTouchMode = (on) => this.hud.setTouchMode(on);
     this.camZoom = numberParam(this.params, "zoom") || 1;
     this.simSteps = clamp(Math.trunc(numberParam(this.params, "speed")) || 1, 1, 16);
@@ -265,6 +270,7 @@ export class Game {
     this.maxAniso = this.pipeline.renderer.capabilities.getMaxAnisotropy();
     this.world = new World(this.scene, this.nextSeed, this.maxAniso);
     this.rng = seededRandom(saltedSeed(this.world.seed, MATCH_SALT));
+    this.onLoadProgress?.(0.5, "Raising the courtyard");
     this.lighting.setLamps(this.world.lanterns, this.world.lampGlass);
     this.effects = new Effects(this);
     this.combat = new Combat(this);
@@ -286,6 +292,7 @@ export class Game {
       this.startOnline(options.online);
     }
     this.last = performance.now();
+    this.onLoadProgress?.(0.7, "Calling the champions");
     requestAnimationFrame(this.frame);
   }
 
@@ -301,7 +308,7 @@ export class Game {
   }
 
   private onHotkey(event: KeyboardEvent): void {
-    if (event.repeat) {
+    if (event.repeat || isFormField(event.target)) {
       return;
     }
     const code = keyCode(event);
@@ -311,31 +318,23 @@ export class Game {
     if (code === "KeyM") {
       this.setMuted(!this.audio.muted);
     }
-    if (code === "KeyP" && this.state !== "menu") {
-      this.setPaused(!this.paused);
-    }
     if (code === "Escape") {
       mustGet("settings").classList.remove("open");
     }
   }
 
-  /**
-   * Freeze the simulation; `announce` shows the P-key hint toast. Online the
-   * world is shared, so nothing freezes and nothing is announced — the
-   * wrapper's overlay is the whole pause UI; only held movement is released.
-   */
-  setPaused(paused: boolean, announce = true): void {
-    if (this.mode !== "solo") {
-      this.paused = false;
-      if (paused) {
-        this.input.keys.clear();
-        this.input.fire = false;
-      }
-      return;
+  /** Online pause releases local controls while the shared arena keeps running. */
+  setPaused(paused: boolean): void {
+    this.paused = paused && this.mode === "solo";
+    this.input.setEnabled(!paused);
+    this.guide.hide();
+    if (this.player) {
+      this.player.moveX = 0;
+      this.player.moveZ = 0;
+      this.player.lookAngle = null;
     }
-    this.paused = paused;
-    if (announce) {
-      this.hud.toast(paused ? "Paused - press P to resume" : "Resumed");
+    if (this.mode === "guest") {
+      this.session?.sendInput(0, 0);
     }
   }
 
@@ -460,7 +459,7 @@ export class Game {
       const [tx, ty] = spawn;
       const seat = seats[i];
       const isPlayer = seat?.isLocal ?? false;
-      const kitId = seat ? seat.kit : kits[(i + Math.floor(rng() * 4)) % 4];
+      const kitId = seat ? seat.kit : kits[(i + Math.floor(rng() * kits.length)) % kits.length];
       const def = BRAWLERS[kitId ?? "dusty"];
       const owner = seat && seat.owner !== "" ? seat.owner : null;
       const brawler = new Brawler(this, def, {
@@ -502,7 +501,6 @@ export class Game {
     this.spawnRoster(id);
     this.hud.showMenu(false);
     this.hud.hideResult();
-    this.hud.playHints.reset();
     this.state = "countdown";
     this.countdownT = COUNTDOWN_S;
     this.lastCount = 4;
@@ -516,7 +514,7 @@ export class Game {
     this.shakeAmp = 0;
     const { player } = this;
     if (player) {
-      this.focus.set(player.x, 0, player.z);
+      this.focus.set(player.x, this.world.heightAt(player.x, player.z), player.z);
       this.guide.setupFor(player.def);
     }
     // Mouse aim unprojects through the camera, so the match view is in place before the
@@ -525,9 +523,6 @@ export class Game {
     this.camera.updateMatrixWorld();
     if (this.autoTime) {
       this.lighting.setTime(TUNING.startHour);
-    }
-    if (this.input.touchMode && window.innerHeight > window.innerWidth) {
-      this.hud.toast("Tip: turn your phone sideways for a wider view");
     }
     if (this.mode === "host") {
       this.generation += 1;
@@ -615,7 +610,7 @@ export class Game {
   adoptLocalSeat(b: Brawler): void {
     this.player = b;
     this.spectate = null;
-    this.focus.set(b.x, 0, b.z);
+    this.focus.set(b.x, this.world.heightAt(b.x, b.z), b.z);
     this.guide.setupFor(b.def);
     setSpectateCopy(null);
   }
@@ -862,12 +857,26 @@ export class Game {
     const { lighting } = this;
     for (const b of this.brawlers) {
       if (b.alive && !b.hidden && b.superReady) {
-        lighting.addLight(b.x, 0.9, b.z, SUPER_GLOW, 1.5 + Math.sin(this.elapsed * 6) * 0.4, 3.6);
+        lighting.addLight(
+          b.x,
+          b.root.position.y + 0.9,
+          b.z,
+          SUPER_GLOW,
+          1.5 + Math.sin(this.elapsed * 6) * 0.4,
+          3.6,
+        );
       }
     }
     const { player } = this;
     if (player?.alive && lighting.night > 0.02) {
-      lighting.addLight(player.x, 1.9, player.z, PLAYER_GLOW, 2.4 * lighting.night, 6.5);
+      lighting.addLight(
+        player.x,
+        player.root.position.y + 1.9,
+        player.z,
+        PLAYER_GLOW,
+        2.4 * lighting.night,
+        6.5,
+      );
     }
   }
 
@@ -1120,6 +1129,12 @@ export class Game {
     this.last = now;
     // Pad edges are published once per rendered frame, before any sim step reads them.
     this.input.poll();
+    if (
+      (this.state === "countdown" || this.state === "playing") &&
+      this.input.padJustPressed("start")
+    ) {
+      pauseGame();
+    }
     this.menuPad.update();
     tickDiagnostics();
     const { info } = this.pipeline.renderer;
@@ -1130,10 +1145,15 @@ export class Game {
     this.pipeline.render(dt);
     if (this.warmup > 0) {
       this.warmup -= 1;
+      this.onLoadProgress?.(
+        0.7 + 0.25 * (1 - this.warmup / WARMUP_FRAMES),
+        "Preparing the tournament",
+      );
       if (this.warmup === 0) {
         benchmarkQuality(this);
         // The benchmark took real time; do not let it register as one giant frame.
         this.last = performance.now();
+        this.onLoadProgress?.(1, "Ready");
         mustGet("loading").classList.add("done");
       }
     }

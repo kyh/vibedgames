@@ -16,32 +16,55 @@ const context2d = (canvas: HTMLCanvasElement): CanvasRenderingContext2D => {
   return ctx;
 };
 
-// The lightning bolt on every face reads as "power up" from any camera angle.
-const drawBolt = (ctx: CanvasRenderingContext2D, emissive: boolean): void => {
-  ctx.fillStyle = emissive ? "#7dffb0" : "#2fe07a";
+// A warm sun medallion marks the arena's old reliquaries.
+const drawCrest = (ctx: CanvasRenderingContext2D, emissive: boolean): void => {
+  if (!emissive) {
+    ctx.fillStyle = "#3c382e";
+    ctx.beginPath();
+    ctx.arc(64, 64, 28, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.strokeStyle = emissive ? "#9b7440" : "#d8b76c";
+  ctx.lineWidth = 4;
   ctx.beginPath();
-  ctx.moveTo(72, 22);
-  ctx.lineTo(40, 70);
-  ctx.lineTo(60, 70);
-  ctx.lineTo(52, 106);
-  ctx.lineTo(90, 54);
-  ctx.lineTo(68, 54);
-  ctx.closePath();
-  ctx.fill();
+  ctx.arc(64, 64, 14, 0, Math.PI * 2);
+  ctx.stroke();
+  for (let ray = 0; ray < 8; ray += 1) {
+    const angle = (ray / 8) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(64 + Math.cos(angle) * 19, 64 + Math.sin(angle) * 19);
+    ctx.lineTo(64 + Math.cos(angle) * 24, 64 + Math.sin(angle) * 24);
+    ctx.stroke();
+  }
 };
 
-// Purple plank stripes with a dark rim so the crate reads as a wooden box
-// rather than a flat purple block.
 const drawPlanks = (ctx: CanvasRenderingContext2D): void => {
-  ctx.fillStyle = "#5d4a86";
+  ctx.fillStyle = "#75563c";
   ctx.fillRect(0, 0, SIZE, SIZE);
   for (let row = 0; row < 4; row += 1) {
-    ctx.fillStyle = row % 2 ? "#584480" : "#65518f";
-    ctx.fillRect(0, row * 32, SIZE, 30);
+    ctx.fillStyle = row % 2 ? "#806246" : "#8c6a49";
+    ctx.fillRect(0, row * 32, SIZE, 29);
+    ctx.strokeStyle = "#6b5039";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(7, row * 32 + 11);
+    ctx.bezierCurveTo(36, row * 32 + 5, 70, row * 32 + 19, 119, row * 32 + 13);
+    ctx.stroke();
   }
-  ctx.strokeStyle = "#33264f";
-  ctx.lineWidth = 16;
+  ctx.strokeStyle = "#4f4c3c";
+  ctx.lineWidth = 14;
   ctx.strokeRect(8, 8, 112, 112);
+  ctx.strokeStyle = "#b39558";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(13, 13, 102, 102);
+  ctx.fillStyle = "#d0b574";
+  for (const x of [10, 118]) {
+    for (const y of [10, 118]) {
+      ctx.beginPath();
+      ctx.arc(x, y, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
 };
 
 const buildFace = (emissive: boolean): THREE.CanvasTexture => {
@@ -53,20 +76,13 @@ const buildFace = (emissive: boolean): THREE.CanvasTexture => {
   } else {
     drawPlanks(ctx);
   }
-  drawBolt(ctx, emissive);
-  if (emissive) {
-    // A thin glowing frame keeps the crate visible at night.
-    ctx.strokeStyle = "#2aff80";
-    ctx.lineWidth = 3;
-    ctx.strokeRect(17, 17, 94, 94);
-  }
+  drawCrest(ctx, emissive);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
 };
 
-// Diffuse + emissive pair for the loot crates: the same bolt on both so the
-// glow sits exactly on the painted shape.
+// Only the sun inlay glows; the timber and bronze stay matte.
 export const buildLootBoxTextures = (): LootBoxTextures => ({
   emissiveMap: buildFace(true),
   map: buildFace(false),

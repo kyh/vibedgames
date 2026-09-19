@@ -2,6 +2,7 @@
 // overlap around a big blast without muddying each other.
 import * as THREE from "three";
 import { clamp } from "../utils";
+import { conformGroundGeometry, terrainHeight } from "../world/terrain";
 
 interface Ring {
   mesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
@@ -17,10 +18,9 @@ export class RingPool {
   private cursor = 0;
 
   constructor(scene: THREE.Scene) {
-    const geometry = new THREE.RingGeometry(0.82, 1, 64).rotateX(-Math.PI / 2);
     for (let i = 0; i < POOL; i += 1) {
       const mesh = new THREE.Mesh(
-        geometry,
+        new THREE.RingGeometry(0.82, 1, 64).rotateX(-Math.PI / 2),
         new THREE.MeshBasicMaterial({
           blending: THREE.AdditiveBlending,
           color: 0xff_ff_ff,
@@ -54,7 +54,7 @@ export class RingPool {
     ring.T = duration;
     ring.r = radius;
     ring.mesh.visible = true;
-    ring.mesh.position.set(x, 0.09, z);
+    ring.mesh.position.set(x, terrainHeight(x, z) + 0.09, z);
     ring.mesh.material.color.copy(color).multiplyScalar(brightness);
   }
 
@@ -67,7 +67,9 @@ export class RingPool {
       const t = clamp(ring.t / ring.T, 0, 1);
       // Ease-out: the ring races outward and then coasts.
       const eased = 1 - (1 - t) * (1 - t);
-      ring.mesh.scale.setScalar(0.2 + eased * ring.r);
+      const scale = 0.2 + eased * ring.r;
+      ring.mesh.scale.set(scale, 1, scale);
+      conformGroundGeometry(ring.mesh.geometry, ring.mesh.position.x, ring.mesh.position.z, scale);
       ring.mesh.material.opacity = (1 - t) * 0.9;
       if (t >= 1) {
         ring.mesh.visible = false;

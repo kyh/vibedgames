@@ -2,6 +2,7 @@
 // blob texture; each stamp lingers for a while and then fades out.
 import * as THREE from "three";
 import { clamp } from "../utils";
+import { conformGroundGeometry, terrainHeight } from "../world/terrain";
 import { buildBlobShadowTexture } from "./textures";
 
 interface Decal {
@@ -21,10 +22,9 @@ export class DecalPool {
 
   constructor(scene: THREE.Scene) {
     const map = buildBlobShadowTexture();
-    const quad = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
     for (let i = 0; i < POOL; i += 1) {
       const mesh = new THREE.Mesh(
-        quad,
+        new THREE.PlaneGeometry(1, 1, 8, 8).rotateX(-Math.PI / 2),
         new THREE.MeshBasicMaterial({
           color: 0,
           depthWrite: false,
@@ -51,9 +51,10 @@ export class DecalPool {
     decal.life = LIFE;
     decal.mesh.visible = true;
     // Each slot sits a hair higher than the last so overlapping stamps never z-fight.
-    decal.mesh.position.set(x, 0.022 + this.cursor * 8e-4, z);
+    decal.mesh.position.set(x, terrainHeight(x, z) + 0.022 + this.cursor * 8e-4, z);
     decal.mesh.rotation.y = Math.random() * 6.28;
-    decal.mesh.scale.setScalar(radius * 1.9);
+    decal.mesh.scale.set(radius * 1.9, 1, radius * 1.9);
+    conformGroundGeometry(decal.mesh.geometry, x, z, radius * 1.9, decal.mesh.rotation.y);
   }
 
   update(dt: number): void {

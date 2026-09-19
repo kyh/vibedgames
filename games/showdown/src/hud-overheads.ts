@@ -19,7 +19,7 @@ export interface Overhead {
   ammo: HTMLElement[];
   cubes: HTMLElement;
   fill: HTMLElement;
-  hp: HTMLElement;
+  hp: HTMLElement | null;
   lastAmmo: number[];
   lastCubes: number;
   lastHp: number;
@@ -34,10 +34,12 @@ const AMMO_ROW = `<div class="oh-ammo"><i><b></b></i><i><b></b></i><i><b></b></i
 export const createOverhead = (brawler: Brawler, layer: HTMLElement): Overhead => {
   const root = document.createElement("div");
   root.className = `oh${brawler.isPlayer ? " me" : ""}`;
-  root.innerHTML = `<div class="oh-name"><span class="n"></span><span class="oh-cubes"></span></div>
-      <div class="oh-bar"><div class="oh-fill"></div><span class="oh-hp"></span></div>
+  root.innerHTML = `<div class="oh-name">${brawler.isPlayer ? "" : '<span class="n"></span>'}<span class="oh-cubes"></span></div>
+      <div class="oh-bar"><div class="oh-fill"></div>${brawler.isPlayer ? '<span class="oh-hp"></span>' : ""}</div>
       ${brawler.isPlayer ? AMMO_ROW : ""}`;
-  mustQuery(root, ".n").textContent = brawler.name;
+  if (!brawler.isPlayer) {
+    mustQuery(root, ".n").textContent = brawler.name;
+  }
   layer.append(root);
   const ammo: HTMLElement[] = [];
   for (const pip of root.querySelectorAll(".oh-ammo b")) {
@@ -49,7 +51,7 @@ export const createOverhead = (brawler: Brawler, layer: HTMLElement): Overhead =
     ammo,
     cubes: mustQuery(root, ".oh-cubes"),
     fill: mustQuery(root, ".oh-fill"),
-    hp: mustQuery(root, ".oh-hp"),
+    hp: brawler.isPlayer ? mustQuery(root, ".oh-hp") : null,
     lastAmmo: [-1, -1, -1],
     lastCubes: -1,
     lastHp: -1,
@@ -82,7 +84,9 @@ export const syncOverhead = (entry: Overhead, brawler: Brawler): void => {
     entry.lastHp = hp;
     entry.lastMax = brawler.maxHp;
     entry.fill.style.transform = `scaleX(${clamp(hp / brawler.maxHp, 0, 1).toFixed(3)})`;
-    entry.hp.textContent = String(hp);
+    if (entry.hp) {
+      entry.hp.textContent = String(hp);
+    }
   }
   if (brawler.cubes !== entry.lastCubes) {
     entry.lastCubes = brawler.cubes;

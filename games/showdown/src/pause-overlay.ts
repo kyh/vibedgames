@@ -20,26 +20,26 @@ export interface ShowdownPauseOverlayOptions {
 const BANNER_ID = "showdown-pause-banner";
 
 /** Game tokens (src/style.css): display face, gold, ink. */
-const FONT = "'Lilita One', 'Arial Black', 'Segoe UI', system-ui, sans-serif";
-const GOLD = "#ffc93a";
-const INK = "#1a1230";
+const FONT = "'Fredoka', 'Arial Rounded MT Bold', 'Segoe UI', system-ui, sans-serif";
+const GOLD = "#e8c778";
+const INK = "#17342d";
 
 const describeAttack = (attack: AttackDef): string => {
   switch (attack.kind) {
     case "spread": {
-      return `a ${attack.pellets}-pellet spread`;
+      return `a ${attack.pellets}-bolt volley`;
     }
     case "burst": {
-      return `a ${attack.count}-shot burst`;
+      return `a ${attack.count}-arrow volley`;
     }
     case "melee": {
-      return `a ${attack.count}-hit flurry`;
+      return `a close-range weapon sweep`;
     }
     case "lob": {
-      return "a lobbed bomb that clears walls";
+      return "a fire spell that arcs over walls";
     }
     case "leap": {
-      return "a leap that lands as a blast";
+      return "a mighty leap with a ground-shaking landing";
     }
     default: {
       return "an attack";
@@ -54,22 +54,29 @@ const describeBrawler = (def: BrawlerDef): string =>
 /** Long-form mechanics behind the overlay's "how to play" button. */
 const HELP: readonly HelpSection[] = [
   {
-    body: `Eight brawlers drop into the arena; be the last one standing. ${TUNING.bots} bots hunt with the same kits you can pick.`,
+    body: `Eight champions enter the woodland tournament; be the last one standing. ${TUNING.bots} bots hunt with the same kits you can pick.`,
     title: "The showdown",
   },
   {
     body: Object.values(BRAWLERS).map(describeBrawler).join(" "),
-    title: "Brawlers",
+    title: "Champions",
+  },
+  {
+    body:
+      "Press Shift, B / LB on a controller, or the dodge button to evade in your movement direction. " +
+      "Stand still to evade toward your aim. The opening of the roll, dash or blink avoids weapon hits. " +
+      "Evading interrupts attacks, recharges in 2.4 seconds, and cannot cross walls or escape gas damage.",
+    title: "Evasion",
   },
   {
     body:
       "Dealing damage charges your super. Hold the super input to see its reach, release to fire it. " +
-      "Every super breaks through walls, and most knock enemies back.",
+      "Each champion's super has its own reach and impact.",
     title: "Supers",
   },
   {
     body:
-      "Crates hold power cubes; so do fallen brawlers. Each cube adds health and damage, " +
+      "Crates hold power cubes; so do fallen champions. Each cube adds health and damage, " +
       "and each kill drops a share of the victim's cubes.",
     title: "Power cubes",
   },
@@ -105,7 +112,7 @@ const showBanner = (live: boolean): void => {
   banner.style.cssText =
     `position:fixed;top:calc(18px + env(safe-area-inset-top, 0px));left:50%;transform:translateX(-50%);` +
     `z-index:${PAUSE_OVERLAY_Z + 1};pointer-events:none;padding:6px 16px;border-radius:999px;` +
-    `background:${live ? GOLD : "#16102cdb"};color:${live ? INK : GOLD};` +
+    `background:${live ? GOLD : "#193f36ed"};color:${live ? INK : GOLD};` +
     `border:2px solid ${GOLD};font:16px/1.3 ${FONT};letter-spacing:0.08em;text-align:center;` +
     "max-width:min(92vw,520px);white-space:normal";
   document.body.append(banner);

@@ -4,6 +4,7 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
 import { LAMP } from "../config";
+import { terrainHeight } from "./terrain";
 import type { TileCoord } from "./grid";
 import {
   SCRATCH_EULER,
@@ -16,6 +17,7 @@ import {
 
 export interface Lantern {
   x: number;
+  y: number;
   z: number;
 }
 
@@ -51,16 +53,16 @@ export const placeLamps = (
     SCRATCH_EULER.set(0, Math.atan2(-dirZ, dirX), 0);
     SCRATCH_QUATERNION.setFromEuler(SCRATCH_EULER);
     SCRATCH_MATRIX.compose(
-      SCRATCH_POSITION.set(x, -0.03, z),
+      SCRATCH_POSITION.set(x, terrainHeight(x, z) - 0.03, z),
       SCRATCH_QUATERNION,
       SCRATCH_SCALE.set(1, 1, 1),
     );
     posts.setMatrixAt(i, SCRATCH_MATRIX);
     const lx = x + dirX * LAMP.arm;
     const lz = z + dirZ * LAMP.arm;
-    SCRATCH_MATRIX.makeTranslation(lx, LAMP.height - 0.17, lz);
+    SCRATCH_MATRIX.makeTranslation(lx, terrainHeight(x, z) + LAMP.height - 0.17, lz);
     glass.setMatrixAt(i, SCRATCH_MATRIX);
-    lanterns.push({ x: lx, z: lz });
+    lanterns.push({ x: lx, y: terrainHeight(x, z), z: lz });
   }
   return lanterns;
 };

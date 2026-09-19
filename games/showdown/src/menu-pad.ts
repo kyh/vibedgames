@@ -29,7 +29,7 @@ export class MenuPad {
   update(): void {
     const { input } = this.host;
     if (isOpen("menu")) {
-      this.stepCards(this.horizontalEdge(input));
+      this.stepCards(this.navigationEdge(input));
       if (input.padJustPressed("a") || input.padJustPressed("start")) {
         mustGet("play").click();
       }
@@ -43,16 +43,22 @@ export class MenuPad {
     }
   }
 
-  /** -1 / +1 on a fresh d-pad press or stick push, 0 otherwise. */
-  private horizontalEdge(input: Input): number {
+  /** The roster is a three-column grid; a stick must recenter between selections. */
+  private navigationEdge(input: Input): number {
     if (input.padJustPressed("left")) {
       return -1;
     }
     if (input.padJustPressed("right")) {
       return 1;
     }
+    if (input.padJustPressed("up")) {
+      return -3;
+    }
+    if (input.padJustPressed("down")) {
+      return 3;
+    }
     const stick = input.padStick();
-    if (stick === null || Math.abs(stick.x) < STICK_RELEASE) {
+    if (stick === null || Math.max(Math.abs(stick.x), Math.abs(stick.z)) < STICK_RELEASE) {
       this.stickArmed = true;
       return 0;
     }
@@ -60,7 +66,7 @@ export class MenuPad {
       return 0;
     }
     this.stickArmed = false;
-    return Math.sign(stick.x);
+    return Math.abs(stick.x) >= Math.abs(stick.z) ? Math.sign(stick.x) : Math.sign(stick.z) * 3;
   }
 
   private stepCards(step: number): void {
@@ -72,6 +78,9 @@ export class MenuPad {
     const next = ids[(index + step + ids.length) % ids.length];
     if (next) {
       this.host.hud.select(next);
+      document
+        .querySelector<HTMLElement>(`#cards [data-id="${next}"]`)
+        ?.scrollIntoView({ block: "nearest" });
     }
   }
 }

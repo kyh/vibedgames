@@ -6,6 +6,7 @@ import * as THREE from "three";
 import type { Game } from "../game";
 import type { FxMethod, FxRecorder } from "../net/presentation";
 import { rand } from "../utils";
+import { terrainHeight } from "../world/terrain";
 import { DebrisField } from "./debris";
 import { DecalPool } from "./decals";
 import { createFireflies } from "./fireflies";
@@ -13,6 +14,7 @@ import type { FireflySwarm, FireflyUniforms } from "./fireflies";
 import { FlashList } from "./flashes";
 import { ParticlePool } from "./particle-pool";
 import { RingPool } from "./rings";
+import { SlashPool } from "./slashes";
 
 // A full turn, deliberately a touch short of 2π: the gap is invisible in a
 // random scatter and the value is what the effects were tuned against.
@@ -33,6 +35,7 @@ export class Effects {
   private readonly debrisField: DebrisField;
   private readonly decals: DecalPool;
   private readonly rings: RingPool;
+  private readonly slashes: SlashPool;
   /** While hosting online, every top-level recipe call is also written here for guests. */
   recorder: FxRecorder | null = null;
   /** Nesting depth of recipe calls: composites (explosion → flash + ring …) record once. */
@@ -47,6 +50,7 @@ export class Effects {
     this.debrisField = new DebrisField(scene, DEBRIS_CAP);
     this.decals = new DecalPool(scene);
     this.rings = new RingPool(scene);
+    this.slashes = new SlashPool(scene);
     const swarm = this.mountFireflies();
     this.fireflies = swarm.points;
     this.fireflyMat = swarm.material;
@@ -111,6 +115,21 @@ export class Effects {
       2,
       7,
     );
+  }
+
+  slash(
+    x: number,
+    y: number,
+    z: number,
+    angle: number,
+    radius: number,
+    arc: number,
+    color: THREE.Color,
+    big: boolean,
+    followTime = 0.13,
+  ): void {
+    this.record("slash", [x, y, z, angle, radius, arc, color.getHex(), big ? 1 : 0, followTime]);
+    this.slashes.spawn(x, y, z, angle, radius, arc, color, big, followTime);
   }
 
   trail(x: number, y: number, z: number, color: THREE.Color, size: number): void {
@@ -278,7 +297,7 @@ export class Effects {
       const v = rand(0.4, 1) * speed;
       this.smoke.emit(
         x + Math.cos(angle) * 0.2,
-        0.12,
+        terrainHeight(x, z) + 0.12,
         z + Math.sin(angle) * 0.2,
         Math.cos(angle) * v,
         rand(0.2, 0.9),
@@ -299,7 +318,7 @@ export class Effects {
   footDust(x: number, z: number): void {
     this.smoke.emit(
       x + rand(-0.1, 0.1),
-      0.06,
+      terrainHeight(x, z) + 0.06,
       z + rand(-0.1, 0.1),
       rand(-0.2, 0.2),
       0.35,
@@ -322,7 +341,7 @@ export class Effects {
       const angle = Math.random() * TURN;
       this.smoke.emit(
         x + rand(-0.3, 0.3),
-        rand(0.3, 0.9),
+        terrainHeight(x, z) + rand(0.3, 0.9),
         z + rand(-0.3, 0.3),
         Math.cos(angle) * rand(0.6, 2.2),
         rand(1.2, 3),
@@ -345,7 +364,7 @@ export class Effects {
     for (let i = 0; i < 5; i += 1) {
       this.glow.emit(
         x + rand(-0.4, 0.4),
-        rand(0.4, 1.2),
+        terrainHeight(x, z) + rand(0.4, 1.2),
         z + rand(-0.4, 0.4),
         0,
         rand(0.8, 1.6),
@@ -389,12 +408,20 @@ export class Effects {
     this.record("explosion", [x, z, radius, color.getHex(), big ? 1 : 0]);
     this.depth += 1;
     const emberCount = big ? 46 : 24;
-    this.flash(x, 1.1, z, color, big ? 95 : 48, big ? 15 : 10, big ? 0.5 : 0.34);
+    this.flash(
+      x,
+      terrainHeight(x, z) + 1.1,
+      z,
+      color,
+      big ? 95 : 48,
+      big ? 15 : 10,
+      big ? 0.5 : 0.34,
+    );
     this.ring(x, z, radius * 1.15, color, big ? 0.5 : 0.36);
     this.decal(x, z, radius * 0.85);
     this.glow.emit(
       x,
-      0.6,
+      terrainHeight(x, z) + 0.6,
       z,
       0,
       0.5,
@@ -415,7 +442,7 @@ export class Effects {
       const heat = Math.random();
       this.glow.emit(
         x,
-        0.4,
+        terrainHeight(x, z) + 0.4,
         z,
         Math.cos(angle) * speed,
         rand(1, 6),
@@ -437,7 +464,7 @@ export class Effects {
       const speed = rand(0.2, 1) * radius * 1.6;
       this.smoke.emit(
         x + Math.cos(angle) * 0.3,
-        rand(0.3, 0.9),
+        terrainHeight(x, z) + rand(0.3, 0.9),
         z + Math.sin(angle) * 0.3,
         Math.cos(angle) * speed,
         rand(0.8, 2.6),
@@ -460,7 +487,7 @@ export class Effects {
   slam(x: number, z: number, radius: number, color: THREE.Color): void {
     this.record("slam", [x, z, radius, color.getHex()]);
     this.depth += 1;
-    this.flash(x, 0.9, z, color, 40, 10, 0.32);
+    this.flash(x, terrainHeight(x, z) + 0.9, z, color, 40, 10, 0.32);
     this.ring(x, z, radius * 1.2, color, 0.42, 2.4);
     this.decal(x, z, radius * 0.6);
     this.dust(x, z, 22, radius * 3.2);
@@ -469,7 +496,7 @@ export class Effects {
       const speed = rand(2, 7);
       this.glow.emit(
         x,
-        0.2,
+        terrainHeight(x, z) + 0.2,
         z,
         Math.cos(angle) * speed,
         rand(1, 4),
@@ -491,13 +518,13 @@ export class Effects {
   defeat(x: number, z: number, color: THREE.Color): void {
     this.record("defeat", [x, z, color.getHex()]);
     this.depth += 1;
-    this.flash(x, 1, z, color, 26, 8, 0.4);
+    this.flash(x, terrainHeight(x, z) + 1, z, color, 26, 8, 0.4);
     this.ring(x, z, 1.6, color, 0.45, 2.2);
-    this.burst(x, 0.8, z, color, 26, 5);
+    this.burst(x, terrainHeight(x, z) + 0.8, z, color, 26, 5);
     for (let i = 0; i < 8; i += 1) {
       this.smoke.emit(
         x + rand(-0.3, 0.3),
-        rand(0.3, 1.2),
+        terrainHeight(x, z) + rand(0.3, 1.2),
         z + rand(-0.3, 0.3),
         rand(-0.6, 0.6),
         rand(0.8, 2),
@@ -529,13 +556,14 @@ export class Effects {
     this.smoke.uniforms.uDim.value = lighting.ambientLevel;
     this.fireflyUniforms.uScale.value = pixelScale;
     this.fireflyUniforms.uTime.value = game.elapsed;
-    this.fireflyUniforms.uNight.value = lighting.night;
-    this.fireflies.visible = lighting.night > 0.01;
+    this.fireflyUniforms.uNight.value = 0.08 + lighting.night * 0.92;
+    this.fireflies.visible = true;
     this.glow.update(dt);
     this.smoke.update(dt);
     this.flashes.update(dt, lighting);
     this.debrisField.update(dt);
     this.decals.update(dt);
     this.rings.update(dt);
+    this.slashes.update(dt);
   }
 }

@@ -1,4 +1,4 @@
-// Instanced arena props: stone blocks, crates, barrels and cacti on wall
+// Instanced arena props: limestone, supply crates, barrels and trees on wall
 // tiles, the rock ring around the border, and the scatter of rocks and cacti
 // on the dead ground outside the arena. All placement is drawn from one
 // seeded stream in a fixed order so a seed always builds the same scene.
@@ -8,6 +8,7 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
 import { PROP, TILE } from "../config";
 import type { TileCoord } from "./grid";
+import { terrainHeight } from "./terrain";
 import {
   GRID,
   gridIndex,
@@ -25,6 +26,7 @@ type Rng = () => number;
 
 /** What the prop builders need from the world that owns the instances. */
 export interface PropHost {
+  disposables: { dispose: () => void }[];
   addInstanced: (
     name: string,
     geometry: THREE.BufferGeometry,
@@ -60,7 +62,11 @@ export const placeInstance = (
   SCRATCH_EULER.set(placement.rotX ?? 0, placement.rotY, placement.rotZ ?? 0);
   SCRATCH_QUATERNION.setFromEuler(SCRATCH_EULER);
   SCRATCH_MATRIX.compose(
-    SCRATCH_POSITION.set(placement.x, placement.y, placement.z),
+    SCRATCH_POSITION.set(
+      placement.x,
+      placement.y + terrainHeight(placement.x, placement.z),
+      placement.z,
+    ),
     SCRATCH_QUATERNION,
     SCRATCH_SCALE.set(placement.sx, placement.sy, placement.sz),
   );
@@ -114,7 +120,7 @@ export const buildStones = (host: PropHost, rng: Rng, spots: TileCoord[]): void 
   for (const [i, spot] of spots.entries()) {
     const [tx, ty] = spot;
     const height = rng() < 0.13 ? 1.75 + rng() * 0.2 : 1.02 + rng() * 0.28;
-    SCRATCH_COLOR.setHSL(0.61 + rng() * 0.03, 0.12 + rng() * 0.06, 0.58 + rng() * 0.1);
+    SCRATCH_COLOR.setHSL(0.12 + rng() * 0.025, 0.13 + rng() * 0.06, 0.65 + rng() * 0.1);
     placeInstance(
       host,
       mesh,
@@ -136,8 +142,10 @@ export const buildStones = (host: PropHost, rng: Rng, spots: TileCoord[]): void 
 
 export const buildCrates = (host: PropHost, rng: Rng, spots: TileCoord[]): void => {
   const geometry = bakeHeightTint(new THREE.BoxGeometry(0.94, 0.94, 0.94), 0.7);
+  const map = makeCrateTexture();
+  host.disposables.push(map);
   const material = new THREE.MeshStandardMaterial({
-    map: makeCrateTexture(),
+    map,
     roughness: 0.82,
     vertexColors: true,
   });
@@ -168,8 +176,10 @@ export const buildCrates = (host: PropHost, rng: Rng, spots: TileCoord[]): void 
 
 export const buildBarrels = (host: PropHost, rng: Rng, spots: TileCoord[]): void => {
   const geometry = bakeHeightTint(new THREE.CylinderGeometry(0.41, 0.37, 1.04, 16), 0.68);
+  const map = makeBarrelTexture();
+  host.disposables.push(map);
   const material = new THREE.MeshStandardMaterial({
-    map: makeBarrelTexture(),
+    map,
     roughness: 0.7,
     vertexColors: true,
   });
@@ -189,24 +199,18 @@ export const buildBarrels = (host: PropHost, rng: Rng, spots: TileCoord[]): void
   }
 };
 
-/** A saguaro: tall trunk with two pairs of elbowed arms. */
+/** Coppiced woodland trees share the old obstacle slot, preserving seeded map IDs. */
 export const buildCactusGeometry = (): THREE.BufferGeometry => {
-  const trunk = new THREE.CapsuleGeometry(0.2, 0.85, 5, 12).translate(0, 0.62, 0);
-  const arm = new THREE.CapsuleGeometry(0.105, 0.26, 4, 10);
   const parts = [
-    trunk,
-    arm
-      .clone()
-      .rotateZ(Math.PI / 2)
-      .translate(0.3, 0.72, 0),
-    arm.clone().translate(0.46, 0.92, 0),
-    arm
-      .clone()
-      .rotateZ(Math.PI / 2)
-      .translate(-0.28, 0.5, 0),
-    arm.clone().translate(-0.43, 0.68, 0),
+    new THREE.CylinderGeometry(0.12, 0.19, 1.1, 7).toNonIndexed().translate(0, 0.55, 0),
+    new THREE.IcosahedronGeometry(0.57, 1).scale(1, 1.15, 1).translate(0, 1.15, 0),
+    new THREE.IcosahedronGeometry(0.42, 1).translate(0.2, 1.65, 0.03),
   ];
-  return bakeHeightTint(mergeGeometries(parts), 0.6);
+  const geometry = mergeGeometries(parts);
+  for (const part of parts) {
+    part.dispose();
+  }
+  return bakeHeightTint(geometry, 0.4);
 };
 
 export interface Outskirts {
@@ -244,7 +248,7 @@ export const buildRocks = (
   borderSpots: TileCoord[],
   outskirtSpots: TileCoord[],
 ): void => {
-  const geometry = new THREE.IcosahedronGeometry(0.78, 0);
+  const geometry = new RoundedBoxGeometry(1, 1, 1, 2, 0.09);
   const material = new THREE.MeshStandardMaterial({
     color: 0xff_ff_ff,
     metalness: 0,
@@ -259,7 +263,7 @@ export const buildRocks = (
   for (const [i, [tx, ty]] of borderSpots.entries()) {
     const height = borderRockHeight(rng, tx, ty);
     const width = 1.05 + rng() * 0.32;
-    SCRATCH_COLOR.setHSL(0.05 + rng() * 0.025, 0.36 + rng() * 0.1, 0.41 + rng() * 0.1);
+    SCRATCH_COLOR.setHSL(0.11 + rng() * 0.025, 0.13 + rng() * 0.1, 0.48 + rng() * 0.1);
     const x = tileCenter(tx) + (rng() - 0.5) * 0.25;
     const z = tileCenter(ty) + (rng() - 0.5) * 0.25;
     const rotY = rng() * 6.28;
@@ -276,7 +280,7 @@ export const buildRocks = (
   }
   for (const [i, [x, z]] of outskirtSpots.entries()) {
     const size = 0.5 + rng() * 1.3;
-    SCRATCH_COLOR.setHSL(0.07 + rng() * 0.025, 0.22 + rng() * 0.1, 0.4 + rng() * 0.12);
+    SCRATCH_COLOR.setHSL(0.13 + rng() * 0.025, 0.1 + rng() * 0.1, 0.46 + rng() * 0.12);
     const rotY = rng() * 6.28;
     const sy = size * (0.7 + rng() * 0.8);
     const rotX = (rng() - 0.5) * 0.5;
@@ -293,7 +297,7 @@ export const buildRocks = (
   mesh.instanceMatrix.needsUpdate = true;
 };
 
-/** Cacti on their wall tiles plus the wild ones in the outskirts. */
+/** Woodland trees on obstacle tiles and in the surrounding forest. */
 export const buildCacti = (
   host: PropHost,
   rng: Rng,
@@ -345,14 +349,21 @@ const FRINGE_PLANES: readonly (readonly [number, number, number, number])[] = [
   [67, 0, 90, 44],
 ];
 
-/** The bare sand planes that fill the horizon beyond the arena. */
+/** Meadow beyond the tournament walls, matching the terraces. */
 export const buildFringe = (group: THREE.Group, disposables: { dispose: () => void }[]): void => {
   const material = new THREE.MeshStandardMaterial({
-    color: new THREE.Color().setHSL(33 / 360, 0.38, 0.5),
+    color: new THREE.Color().setHSL(100 / 360, 0.25, 0.31),
     roughness: 1,
   });
   for (const [x, z, width, depth] of FRINGE_PLANES) {
-    const geometry = new THREE.PlaneGeometry(width, depth).rotateX(-Math.PI / 2);
+    const geometry = new THREE.PlaneGeometry(width, depth, 1, Math.ceil(depth)).rotateX(
+      -Math.PI / 2,
+    );
+    const position = geometry.getAttribute("position");
+    for (let i = 0; i < position.count; i += 1) {
+      position.setY(i, terrainHeight(position.getX(i) + x, position.getZ(i) + z));
+    }
+    geometry.computeVertexNormals();
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.set(x, 0, z);
     mesh.receiveShadow = true;

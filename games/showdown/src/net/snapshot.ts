@@ -2,9 +2,10 @@
 // loot as numbers, colours as hex ints. Guests rebuild puppets from it; a
 // promoted host rebuilds its sim from it. FX ride separately (fx/fxSeq).
 import type { Bomb, Bullet, Combat, LootBox } from "../combat/combat";
-import type { BrawlerId } from "../config";
-import { isBrawlerId } from "../config";
+import type { BrawlerId, LobStyle, ProjectileStyle } from "../config";
+import { BRAWLERS, isBrawlerId } from "../config";
 import type { Brawler } from "../entities/brawler";
+import { EVADE } from "../entities/evasion";
 import type { Game } from "../game";
 import { clamp } from "../utils";
 import type { World } from "../world/world";
@@ -18,6 +19,10 @@ import {
 
 export type NetPhase = "countdown" | "playing" | "ended";
 
+export type NetLeap = { t: number; sx: number; sz: number; tx: number; tz: number };
+export type NetMelee = { angle: number; elapsed: number; windup: number; recovery: number };
+export type NetEvasion = { angle: number; elapsed: number };
+
 export type NetBrawler = {
   /** `p:<playerId>` for a human seat, `bot:<n>` for a bot. */
   id: string;
@@ -28,8 +33,17 @@ export type NetBrawler = {
   hue: number;
   x: number;
   z: number;
-  /** Leap height, 0 on the ground. */
+  /** World height, including terrain elevation. */
   y: number;
+  /** Explicit airborne state; progress and endpoints survive host promotion. */
+  leap: NetLeap | null;
+  /** Accepted attack pose, sampled at its current age by every client. */
+  melee: NetMelee | null;
+  evasion: NetEvasion | null;
+  evadeCooldown: number;
+  /** Last processed request, including rejected requests. */
+  evadeAck: number;
+  evadeAccepted: boolean;
   facing: number;
   hp: number;
   maxHp: number;
@@ -46,6 +60,7 @@ export type NetBrawler = {
 };
 
 export type NetBullet = {
+  style: ProjectileStyle;
   x: number;
   z: number;
   dx: number;
@@ -65,6 +80,7 @@ export type NetBullet = {
 };
 
 export type NetBomb = {
+  style: LobStyle;
   x: number;
   y: number;
   z: number;
@@ -120,13 +136,36 @@ const encodeBrawler = (b: Brawler): NetBrawler => ({
   bush: b.inBush && b.revealT <= 0,
   charge: round3(b.superCharge),
   cubes: b.cubes,
+  evadeAccepted: b.netTarget.evadeAccepted,
+  evadeAck: b.netTarget.evadeAck,
+  evadeCooldown: round3(b.evadeCooldown),
+  evasion: b.evasion
+    ? { angle: round3(b.evasion.angle), elapsed: round3(b.evasion.elapsed) }
+    : null,
   facing: round3(b.facing),
   hp: Math.round(b.hp),
   hue: round3(b.hueShift),
   id: b.netId,
   kills: b.kills,
   kit: b.def.id,
+  leap: b.leap
+    ? {
+        sx: round3(b.leap.sx),
+        sz: round3(b.leap.sz),
+        t: round3(b.leap.t),
+        tx: round3(b.leap.tx),
+        tz: round3(b.leap.tz),
+      }
+    : null,
   maxHp: b.maxHp,
+  melee: b.meleeCue
+    ? {
+        angle: round3(b.meleeCue.angle),
+        elapsed: round3(b.meleeCue.elapsed),
+        recovery: round3(b.meleeCue.recovery),
+        windup: round3(b.meleeCue.windup),
+      }
+    : null,
   name: b.name,
   owner: b.owner,
   rank: b.rank,
@@ -145,6 +184,7 @@ const encodeBullet = (bullet: Bullet): NetBullet => ({
   m: bullet.melee,
   r: bullet.radius,
   s: bullet.isSuper,
+  style: bullet.a.style,
   v: round2(bullet.speed),
   x: round3(bullet.x),
   z: round3(bullet.z),
@@ -157,6 +197,7 @@ const encodeBomb = (bomb: Bomb): NetBomb => {
     c: bomb.color.getHex(),
     r: bomb.a.blast,
     s: bomb.isSuper,
+    style: bomb.a.style,
     tx: round3(bomb.tx),
     tz: round3(bomb.tz),
     u: bomb.landed ? round2(1 - clamp(bomb.fuse / bomb.a.fuse, 0, 1)) : 0,
@@ -236,11 +277,80 @@ const isNetVitals = (v: JsonObject): boolean =>
   isNum(v["kills"]) &&
   isNum(v["rank"]);
 
+const isNetLeap = (v: JsonValue | undefined): v is NetLeap | null =>
+  v === null ||
+  (isObj(v) &&
+    isNum(v["t"]) &&
+    v["t"] >= 0 &&
+    isNum(v["sx"]) &&
+    isNum(v["sz"]) &&
+    isNum(v["tx"]) &&
+    isNum(v["tz"]));
+
+const isNetMelee = (v: JsonValue | undefined): v is NetMelee | null =>
+  v === null ||
+  (isObj(v) &&
+    isNum(v["angle"]) &&
+    Math.abs(v["angle"]) <= Math.PI + 0.001 &&
+    isNum(v["windup"]) &&
+    v["windup"] > 0 &&
+    v["windup"] <= 2 &&
+    isNum(v["recovery"]) &&
+    v["recovery"] >= 0 &&
+    v["recovery"] <= 2 &&
+    isNum(v["elapsed"]) &&
+    v["elapsed"] >= 0 &&
+    v["elapsed"] <= v["windup"] + v["recovery"] + 0.001);
+
+const isNetEvasion = (v: JsonObject): boolean => {
+  const pose = v["evasion"];
+  const cooldown = v["evadeCooldown"];
+  const ack = v["evadeAck"];
+  if (
+    !isNum(cooldown) ||
+    cooldown < 0 ||
+    cooldown > EVADE.cooldown + 0.001 ||
+    !isNum(ack) ||
+    !Number.isSafeInteger(ack) ||
+    ack < 0 ||
+    !isBool(v["evadeAccepted"]) ||
+    (ack === 0 && v["evadeAccepted"])
+  ) {
+    return false;
+  }
+  return (
+    pose === null ||
+    (isObj(pose) &&
+      v["alive"] === true &&
+      v["leap"] === null &&
+      cooldown > 0 &&
+      isNum(pose["angle"]) &&
+      Math.abs(pose["angle"]) <= Math.PI + 0.001 &&
+      isNum(pose["elapsed"]) &&
+      pose["elapsed"] >= 0 &&
+      pose["elapsed"] <= EVADE.duration + 0.001)
+  );
+};
+
 const isNetBrawler = (v: JsonValue): v is NetBrawler =>
-  isObj(v) && isNetIdentity(v) && isNetPose(v) && isNetVitals(v);
+  isObj(v) &&
+  isNetIdentity(v) &&
+  isNetPose(v) &&
+  isNetVitals(v) &&
+  isNetEvasion(v) &&
+  isNetMelee(v["melee"]) &&
+  (v["melee"] === null ||
+    (isStr(v["kit"]) && isBrawlerId(v["kit"]) && BRAWLERS[v["kit"]].attack.kind === "melee")) &&
+  isNetLeap(v["leap"]) &&
+  (v["leap"] === null ||
+    (isStr(v["kit"]) && isBrawlerId(v["kit"]) && BRAWLERS[v["kit"]].super.kind === "leap"));
 
 const isNetBullet = (v: JsonValue): v is NetBullet =>
   isObj(v) &&
+  (v["style"] === "arrow" ||
+    v["style"] === "bolt" ||
+    v["style"] === "spear" ||
+    v["style"] === "thorn") &&
   isNum(v["x"]) &&
   isNum(v["z"]) &&
   isNum(v["dx"]) &&
@@ -254,6 +364,7 @@ const isNetBullet = (v: JsonValue): v is NetBullet =>
 
 const isNetBomb = (v: JsonValue): v is NetBomb =>
   isObj(v) &&
+  (v["style"] === "fire" || v["style"] === "seed" || v["style"] === "potion") &&
   isNum(v["x"]) &&
   isNum(v["y"]) &&
   isNum(v["z"]) &&

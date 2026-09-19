@@ -4,6 +4,7 @@
 // screen-door fade around the local player (`uReveal`) so hiding in a bush
 // never hides you from yourself.
 import * as THREE from "three";
+import { terrainHeight } from "./terrain";
 
 import { TILE } from "../config";
 import type { TileCoord } from "./grid";
@@ -157,12 +158,12 @@ export const populateBushes = (
       SCRATCH_EULER.set((rng() - 0.5) * 0.3, rng() * 6.28, (rng() - 0.5) * 0.3);
       SCRATCH_QUATERNION.setFromEuler(SCRATCH_EULER);
       SCRATCH_MATRIX.compose(
-        SCRATCH_POSITION.set(x, -0.03, z),
+        SCRATCH_POSITION.set(x, terrainHeight(x, z) - 0.03, z),
         SCRATCH_QUATERNION,
         SCRATCH_SCALE.set(size * 1.15, size * (0.95 + rng() * 0.35), size * 1.15),
       );
       mesh.setMatrixAt(cursor, SCRATCH_MATRIX);
-      SCRATCH_COLOR.setHSL(0.27 + rng() * 0.06, 0.55 + rng() * 0.15, 0.36 + rng() * 0.1);
+      SCRATCH_COLOR.setHSL(0.27 + rng() * 0.04, 0.38 + rng() * 0.12, 0.35 + rng() * 0.12);
       mesh.setColorAt(cursor, SCRATCH_COLOR);
       cursor += 1;
     }

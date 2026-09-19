@@ -1,5 +1,3 @@
-import "./style.css";
-
 import {
   createTouchControls,
   isOfflineRequested,
@@ -41,7 +39,19 @@ const params = new URLSearchParams(location.search);
 const auto = params.get("auto");
 const autoKit = auto && isBrawlerId(auto) ? auto : undefined;
 
-const game = new Game({ onMatchStart: notifyGameStarted, selected: autoKit });
+const updateLoading = (progress: number, label: string): void => {
+  const percent = Math.round(Math.max(0, Math.min(1, progress)) * 100);
+  mustGet("loading-fill").style.transform = `scaleX(${percent / 100})`;
+  mustGet("loading-progress").setAttribute("aria-valuenow", String(percent));
+  mustGet("loading-status").textContent = label;
+};
+updateLoading(0.08, "Opening the gates…");
+
+const game = new Game({
+  onLoadProgress: updateLoading,
+  onMatchStart: notifyGameStarted,
+  selected: autoKit,
+});
 installDiagnostics(game, () => sensePlaytest(game));
 if (import.meta.env.DEV || isPlaytestRequested()) {
   installPlaytest(game);
@@ -69,25 +79,21 @@ launch();
 // Wrapper pause (Escape, the play view's own button, or START on a pad): the
 // shared pause overlay carries the controls legend, a how-to-play page and the
 // sound toggle. Online the world is shared, so only solo ever freezes the sim —
-// the overlay alone is the pause there, and it says so.
+// local controls stop while the arena keeps running, and the overlay says so.
 const pauseOverlay = createShowdownPauseOverlay({
   isLive: () => game.mode !== "solo",
   mute: { get: () => game.audio.muted, set: (muted) => game.setMuted(muted) },
 });
 setPauseHandlers({
   // Escape closes the settings panel first; the next press pauses.
-  escapePauses: () => !mustGet("settings").classList.contains("open"),
+  escapePauses: () => game.state !== "menu" && !mustGet("settings").classList.contains("open"),
   onPause: () => {
-    if (game.mode === "solo") {
-      game.setPaused(true, false);
-    }
+    game.setPaused(true);
     pauseOverlay.show();
   },
   onResume: () => {
     pauseOverlay.hide();
-    if (game.mode === "solo") {
-      game.setPaused(false, false);
-    }
+    game.setPaused(false);
   },
 });
 

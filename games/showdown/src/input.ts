@@ -7,7 +7,7 @@
 // every synthetic mouse event. A physical gamepad folds into the same fields
 // the keyboard and mouse write (poll() once per frame): left stick moves,
 // right stick aims, RT/A fire like the left mouse button, LT/RB hold-and-
-// release the super like Space, START presses the P hotkey.
+// release the super like Space, START opens the shared Escape pause overlay.
 
 import { PhysicalGamepad } from "@vibedgames/gamepad";
 import type { StickState } from "@vibedgames/gamepad";
@@ -67,6 +67,7 @@ const FALLBACK_KEY_CODES = new Map<string, string>([
   ["m", "KeyM"],
   ["p", "KeyP"],
   ["s", "KeyS"],
+  ["shift", "ShiftLeft"],
   ["spacebar", "Space"],
   ["t", "KeyT"],
   ["w", "KeyW"],
@@ -95,30 +96,22 @@ const resetStick = (stick: Stick): void => {
 
 /** Pixels of drag for a full deflection. */
 const STICK_RADIUS_PX = 58;
-const STICK_DEAD_ZONE = 0.22;
+export const STICK_DEAD_ZONE = 0.22;
 /** Touches left of this fraction of the screen grab the move stick. */
 const MOVE_ZONE_FRACTION = 0.45;
 /** Mouse events this soon after a touch are the browser's synthetic ones. */
 const TOUCH_GRACE_MS = 900;
 
 const SUPER_KEYS = new Set(["Space", "KeyE"]);
+const EVADE_KEYS = new Set(["ShiftLeft", "ShiftRight"]);
 
 /** Pad actions → buttons. Raw names stay readable through the same API. */
 const PAD_BINDINGS = {
+  evade: ["b", "lb"],
   fire: ["rt", "a"],
   pause: ["start"],
   super: ["lt", "rb"],
 } as const;
-
-/** START shares the P hotkey: Game's window keydown handler owns pause, so
- *  the pad presses that key instead of growing a second pause path. The
- *  matching keyup keeps the key set clean and lets a pause shell that resumes
- *  on key release see a whole press. */
-const pressPauseHotkey = (): void => {
-  const init = { bubbles: true, code: "KeyP", key: "p" };
-  window.dispatchEvent(new KeyboardEvent("keydown", init));
-  window.dispatchEvent(new KeyboardEvent("keyup", init));
-};
 
 /** A pad stick as a unit direction (right = +x, down = +z), or null inside the dead zone. */
 const stickDirection = (stick: StickState): Axis | null => {
@@ -134,8 +127,12 @@ const padTouched = (pad: PhysicalGamepad): boolean =>
   !pad.getStick("left").inDeadZone ||
   !pad.getStick("right").inDeadZone;
 
-const isFormField = (target: EventTarget | null): boolean =>
-  target instanceof HTMLElement && (target.tagName === "INPUT" || target.tagName === "SELECT");
+export const isFormField = (target: EventTarget | null): boolean =>
+  target instanceof HTMLElement &&
+  (target.tagName === "INPUT" ||
+    target.tagName === "SELECT" ||
+    target.tagName === "TEXTAREA" ||
+    target.isContentEditable);
 
 export class Input {
   keys = new Set<string>();
@@ -144,8 +141,10 @@ export class Input {
   fire = false;
   superHeld = false;
   superReleased = false;
+  private evadePressed = false;
   enabled = true;
   touchMode = false;
+  aimMethod: "pointer" | "pad" = "pointer";
   onTouchMode: ((on: boolean) => void) | null = null;
   lastTouch = -1e9;
   sticks: Sticks = { aim: makeStick(), move: makeStick(), super: makeStick() };
@@ -154,10 +153,36 @@ export class Input {
   /** Set once the host calls poll(); until then axis() polls on demand. */
   private hostPolls = false;
 
-  constructor(canvas: HTMLElement, superButton: HTMLElement | null) {
+  constructor(
+    canvas: HTMLElement,
+    superButton: HTMLElement | null,
+    evadeButton: HTMLElement | null = null,
+  ) {
     this.bindKeyboard();
     this.bindMouse(canvas);
     this.bindTouch(canvas, superButton);
+    this.bindEvadeButton(evadeButton);
+  }
+
+  private clear(): void {
+    this.keys.clear();
+    this.fire = false;
+    this.superHeld = false;
+    this.superReleased = false;
+    this.evadePressed = false;
+    this.shots.length = 0;
+    for (const stick of Object.values(this.sticks)) {
+      resetStick(stick);
+    }
+  }
+
+  /** Overlay events may swallow releases; neither side of a pause carries input. */
+  setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
+    this.clear();
+    // Baseline held buttons so the press that resumes cannot also attack.
+    this.pad.update();
+    this.pad.update();
   }
 
   private recentTouch(): boolean {
@@ -165,16 +190,21 @@ export class Input {
   }
 
   private setPointer(e: MouseEvent): void {
+    this.aimMethod = "pointer";
     this.ndcX = (e.clientX / window.innerWidth) * 2 - 1;
     this.ndcY = -(e.clientY / window.innerHeight) * 2 + 1;
   }
 
   private bindKeyboard(): void {
     window.addEventListener("keydown", (e) => {
-      if (e.repeat || isFormField(e.target)) {
+      if (!this.enabled || e.repeat || isFormField(e.target)) {
         return;
       }
       const code = keyCode(e);
+      if (EVADE_KEYS.has(code) && !this.keys.has(code)) {
+        this.evadePressed = true;
+        e.preventDefault();
+      }
       this.keys.add(code);
       if (SUPER_KEYS.has(code)) {
         this.superHeld = true;
@@ -192,24 +222,35 @@ export class Input {
         this.superReleased = true;
       }
     });
-    window.addEventListener("blur", () => {
-      this.keys.clear();
-      this.fire = false;
-      this.superHeld = false;
-      for (const stick of Object.values(this.sticks)) {
-        resetStick(stick);
+    window.addEventListener("blur", () => this.clear());
+  }
+
+  private bindEvadeButton(button: HTMLElement | null): void {
+    button?.addEventListener("pointerdown", (e) => {
+      if (!this.enabled || e.pointerType !== "touch") {
+        return;
+      }
+      this.lastTouch = performance.now();
+      this.setTouchMode(true);
+      this.evadePressed = true;
+      e.preventDefault();
+    });
+    button?.addEventListener("click", () => {
+      if (this.enabled && !this.recentTouch()) {
+        this.evadePressed = true;
       }
     });
   }
 
   private bindMouse(canvas: HTMLElement): void {
     window.addEventListener("mousemove", (e) => {
-      if (!this.recentTouch()) {
+      if (this.enabled && !this.recentTouch()) {
+        this.setTouchMode(false);
         this.setPointer(e);
       }
     });
     canvas.addEventListener("mousedown", (e) => {
-      if (this.recentTouch()) {
+      if (!this.enabled || this.recentTouch()) {
         return;
       }
       if (this.touchMode) {
@@ -240,7 +281,7 @@ export class Input {
     if (superButton) {
       superButton.addEventListener("pointerdown", (e) => this.beginTouch(e, "super"));
       superButton.addEventListener("click", () => {
-        if (!this.recentTouch()) {
+        if (this.enabled && !this.recentTouch()) {
           this.shots.push({ cancelled: false, kind: "super", mag: 0, tap: true, x: 0, y: 0 });
         }
       });
@@ -263,7 +304,7 @@ export class Input {
   }
 
   private beginTouch(e: PointerEvent, zone: "field" | "super"): void {
-    if (e.pointerType !== "touch") {
+    if (!this.enabled || e.pointerType !== "touch") {
       return;
     }
     this.lastTouch = performance.now();
@@ -358,11 +399,15 @@ export class Input {
   private pollPad(): void {
     const { pad } = this;
     pad.update();
-    if (!pad.connected) {
+    if (!pad.connected || !this.enabled) {
+      return;
+    }
+    if (pad.justPressed("pause")) {
       return;
     }
     // A pad in hand means the thumb sticks are not: same switch a mouse click makes.
-    if (this.touchMode && padTouched(pad)) {
+    if (padTouched(pad)) {
+      this.aimMethod = "pad";
       this.setTouchMode(false);
     }
     // RT / A are the left mouse button.
@@ -380,8 +425,8 @@ export class Input {
       this.superHeld = false;
       this.superReleased = true;
     }
-    if (pad.justPressed("pause")) {
-      pressPauseHotkey();
+    if (pad.justPressed("evade")) {
+      this.evadePressed = true;
     }
   }
 
@@ -390,7 +435,7 @@ export class Input {
    * right = +x, stick down = +z), or null inside the dead zone / with no pad.
    */
   padAim(): Axis | null {
-    return stickDirection(this.pad.getStick("right"));
+    return this.enabled ? stickDirection(this.pad.getStick("right")) : null;
   }
 
   padAimHeld(): boolean {
@@ -399,12 +444,12 @@ export class Input {
 
   /** Press edge of a pad button or d-pad direction by its raw name (`"a"`, `"start"`, `"left"`…). */
   padJustPressed(button: string): boolean {
-    return this.pad.connected && this.pad.justPressed(button);
+    return this.enabled && this.pad.connected && this.pad.justPressed(button);
   }
 
   /** Left-stick deflection past the dead zone, for menu navigation edges. */
   padStick(): Axis | null {
-    return stickDirection(this.pad.getStick("left"));
+    return this.enabled ? stickDirection(this.pad.getStick("left")) : null;
   }
 
   /** WASD / arrows as a unit direction, or null when none is held. */
@@ -433,6 +478,9 @@ export class Input {
    * else WASD/arrows, else the pad's left stick.
    */
   axis(): Axis {
+    if (!this.enabled) {
+      return { x: 0, z: 0 };
+    }
     if (!this.hostPolls) {
       this.pollPad();
     }
@@ -449,6 +497,13 @@ export class Input {
     const released = this.superReleased;
     this.superReleased = false;
     return released;
+  }
+
+  /** A press starts one evade; holding a key never repeats it. */
+  consumeEvade(): boolean {
+    const pressed = this.evadePressed;
+    this.evadePressed = false;
+    return pressed;
   }
 
   /** Drains the touch shots queued since the last call. */

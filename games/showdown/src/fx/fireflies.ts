@@ -64,7 +64,7 @@ export const createFireflies = (world: World): FireflySwarm => {
       scratchPos.set(rand(-18, 18), 0, rand(-18, 18));
     }
     positions[i * 3] = scratchPos.x + rand(-1.4, 1.4);
-    positions[i * 3 + 1] = rand(0.5, 1.9);
+    positions[i * 3 + 1] = world.heightAt(scratchPos.x, scratchPos.z) + rand(0.5, 1.9);
     positions[i * 3 + 2] = scratchPos.z + rand(-1.4, 1.4);
     phases[i] = Math.random() * 100;
   }

@@ -7,6 +7,8 @@ import type { PlayerMap } from "@vibedgames/multiplayer";
 import { isBrawlerId } from "../config";
 import type { JsonValue } from "./json";
 import { isJsonNumber, isJsonObject, isJsonString } from "./json";
+import { parseInputState, shouldSendInput } from "./input-intent";
+import type { InputState } from "./input-intent";
 import type { FxRecord } from "./presentation";
 import { parseFxBatch } from "./presentation";
 import { INTENT_EVENT, MAX_NAME_LENGTH, MAX_PLAYERS, MULTIPLAYER_HOST, PARTY } from "./protocol";
@@ -31,8 +33,6 @@ export interface RemoteIntent {
 const OFFLINE_FALLBACK_S = 6;
 /** How often a client re-announces its pick, so a newly promoted host learns it. */
 const JOIN_RESEND_MS = 3000;
-/** Movement is sent on change; a held direction is also refreshed this often. */
-const INPUT_RESEND_MS = 500;
 /** Queued remote intents beyond this are dropped: a flood must not stall a frame. */
 const MAX_QUEUED_INTENTS = 512;
 /** World half-extent plus margin — a target point outside this is nonsense. */
@@ -59,7 +59,20 @@ const parseIntent = (payload: JsonValue): Intent | null => {
       return { kind: "join", kit, name: name.slice(0, MAX_NAME_LENGTH) };
     }
     case "input": {
-      return { kind: "input", mx: clamp1(num(payload["mx"])), mz: clamp1(num(payload["mz"])) };
+      return { ...parseInputState(payload), kind: "input" };
+    }
+    case "evade": {
+      const { dx, dz, seq } = payload;
+      if (
+        !isJsonNumber(dx) ||
+        !isJsonNumber(dz) ||
+        !isJsonNumber(seq) ||
+        !Number.isSafeInteger(seq) ||
+        seq < 1
+      ) {
+        return null;
+      }
+      return { dx: clamp1(dx), dz: clamp1(dz), kind: "evade", seq };
     }
     case "attack":
     case "super": {
@@ -102,7 +115,7 @@ export class Session {
   private uptime = 0;
   private intents: RemoteIntent[] = [];
   private lastJoinAt = Number.NEGATIVE_INFINITY;
-  private lastInput = { mx: 0, mz: 0 };
+  private lastInput: InputState = { look: null, mx: 0, mz: 0 };
   private inputSentAt = Number.NEGATIVE_INFINITY;
   private fxSeqOut = 0;
   private lastFxSeq: number | null = null;
@@ -200,20 +213,19 @@ export class Session {
     this.client.sendEvent(INTENT_EVENT, intent);
   }
 
-  /** Movement axis: sent when it changes, refreshed while held, coalesced per microtask. */
-  sendInput(mx: number, mz: number): void {
+  /** Movement and passive facing share one coalesced input message. */
+  sendInput(mx: number, mz: number, look: number | null = null): void {
     if (this.playerId === null) {
       return;
     }
     const now = performance.now();
-    const changed = mx !== this.lastInput.mx || mz !== this.lastInput.mz;
-    const held = mx !== 0 || mz !== 0;
-    if (!changed && (!held || now - this.inputSentAt < INPUT_RESEND_MS)) {
+    const next = { look, mx, mz };
+    if (!shouldSendInput(this.lastInput, next, now - this.inputSentAt)) {
       return;
     }
     this.inputSentAt = now;
-    this.lastInput = { mx, mz };
-    this.client.sendEvent(INTENT_EVENT, { kind: "input", mx, mz }, { coalesce: true });
+    this.lastInput = next;
+    this.client.sendEvent(INTENT_EVENT, { ...next, kind: "input" }, { coalesce: true });
   }
 
   /** Intents received since the last drain, oldest first. */

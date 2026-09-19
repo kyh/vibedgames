@@ -59,6 +59,7 @@ export interface LightRequest {
 /** Where a lantern stands (what the world's lantern pass produces). */
 export interface LampPosition {
   x: number;
+  y: number;
   z: number;
 }
 
@@ -93,13 +94,13 @@ const DAY_KEY = {
   exp: 0.98,
   fill: 0xdd_e8_ff,
   fillI: 0.42,
-  ground: 0xb0_8e_60,
+  ground: 0x71_91_60,
   hemiI: 0.8,
   sat: 1.12,
   sky: 0xbf_dc_ff,
   sun: 0xff_f0_d8,
-  sunI: 4.6,
-  vig: 0.28,
+  sunI: 3.6,
+  vig: 0.2,
 };
 
 const RAW_KEYS: readonly RawKeyframe[] = [
@@ -535,6 +536,7 @@ export class Lighting {
       d: 0,
       phase: Math.random() * 10,
       x: lantern.x,
+      y: lantern.y,
       z: lantern.z,
     }));
     this.lampGlass = glass;
@@ -549,7 +551,7 @@ export class Lighting {
     geometry.translate(0, height / 2, 0);
     for (const lamp of this.lamps) {
       const cone = new THREE.Mesh(geometry, this.coneMaterial);
-      cone.position.set(lamp.x, 0, lamp.z);
+      cone.position.set(lamp.x, lamp.y, lamp.z);
       cone.userData.noAO = true;
       cone.renderOrder = 5;
       this.scene.add(cone);
@@ -703,8 +705,8 @@ export class Lighting {
         1 +
         Math.sin(elapsed * 7 + lamp.phase) * 0.006 +
         Math.sin(elapsed * 17 + lamp.phase * 3) * 0.004;
-      slot.position.set(lamp.x, LAMP.height - 0.52, lamp.z);
-      slot.target.position.set(lamp.x, 0, lamp.z);
+      slot.position.set(lamp.x, lamp.y + LAMP.height - 0.52, lamp.z);
+      slot.target.position.set(lamp.x, lamp.y, lamp.z);
       slot.target.updateMatrixWorld();
       slot.intensity = LAMP_INTENSITY * night * reach * flicker;
       if (slot.castShadow) {

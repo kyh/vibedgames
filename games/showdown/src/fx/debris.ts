@@ -2,6 +2,7 @@
 // InstancedMesh of unit cubes; each chunk is a slot in a ring buffer with its
 // own position, spin and lifetime, composed into the instance matrix per frame.
 import * as THREE from "three";
+import { terrainHeight } from "../world/terrain";
 import { clamp, rand } from "../utils";
 
 interface DebrisChunk {
@@ -56,7 +57,7 @@ const integrateChunk = (chunk: DebrisChunk, dt: number): void => {
   chunk.x += chunk.vx * dt;
   chunk.y += chunk.vy * dt;
   chunk.z += chunk.vz * dt;
-  const floor = chunk.s * 0.5;
+  const floor = terrainHeight(chunk.x, chunk.z) + chunk.s * 0.5;
   if (chunk.y < floor) {
     chunk.y = floor;
     chunk.vy *= -0.38;

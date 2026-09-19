@@ -62,7 +62,7 @@ export const benchmarkQuality = (game: Game): void => {
     }
     game.setQuality(lower);
     game.hud.toast(
-      `${QUALITIES[lower].label} quality picked for this GPU - change it any time under ⚙`,
+      `${QUALITIES[lower].label} quality picked for this GPU - adjust graphics in menu settings`,
     );
   }
   game.lighting.setTime(hourBefore);

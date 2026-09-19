@@ -4,12 +4,14 @@
 // render-only pools extrapolated between snapshots, and the HUD banners the
 // local client derives from phase and roster edges.
 import * as THREE from "three";
-import { BULLET_Y } from "../combat/bullets";
+import { conformGroundGeometry } from "../world/terrain";
+import { BULLET_Y, drawProjectile, finishProjectileMesh } from "../combat/bullets";
+import type { ProjectileStyle } from "../config";
 import type { Cube, LootBox } from "../combat/combat";
+import { setBombAppearance } from "../combat/combat";
 import type { Brawler } from "../entities/brawler";
 import type { Game } from "../game";
 import { setSpectateCopy } from "../hud-lobby";
-import { clamp } from "../utils";
 import { GRID } from "../world/grid";
 import { spawnFromNet } from "./host";
 import { applyNetState } from "./interpolation";
@@ -25,11 +27,11 @@ const BOMB_LAMBDA = 18;
 
 /** A bullet between snapshots: the host's last pose, flown forward locally. */
 interface GuestBullet {
+  style: ProjectileStyle;
   color: THREE.Color;
   dx: number;
   dz: number;
   left: number;
-  melee: boolean;
   radius: number;
   speed: number;
   isSuper: boolean;
@@ -47,11 +49,6 @@ interface GuestBomb {
   z: number;
 }
 
-const scratchMatrix = new THREE.Matrix4();
-const scratchQuat = new THREE.Quaternion();
-const scratchPos = new THREE.Vector3();
-const scratchScale = new THREE.Vector3();
-const scratchEuler = new THREE.Euler();
 const scratchColor = new THREE.Color();
 
 const cubeKey = (x: number, z: number): string => `${x},${z}`;
@@ -62,30 +59,13 @@ const toGuestBullet = (n: NetBullet): GuestBullet => ({
   dz: n.dz,
   isSuper: n.s,
   left: n.l,
-  melee: n.m,
   radius: n.r,
   speed: n.v,
+  style: n.style,
   trail: 0,
   x: n.x,
   z: n.z,
 });
-
-/** The same stretched-sphere transform the sim draws, for a guest bullet. */
-const drawGuestBullet = (mesh: THREE.InstancedMesh, index: number, b: GuestBullet): void => {
-  const fade = clamp(b.left / 0.8, 0.35, 1);
-  const length = b.melee ? b.radius * 1.2 : b.radius * (b.isSuper ? 3.6 : 3);
-  const width = b.radius * (b.melee ? 1 : 0.8) * fade;
-  scratchEuler.set(0, Math.atan2(b.dx, b.dz), 0);
-  scratchQuat.setFromEuler(scratchEuler);
-  scratchMatrix.compose(
-    scratchPos.set(b.x, BULLET_Y, b.z),
-    scratchQuat,
-    scratchScale.set(width, width * (b.melee ? 0.7 : 1), length),
-  );
-  mesh.setMatrixAt(index, scratchMatrix);
-  const boost = b.isSuper ? 3.6 : 2.8;
-  mesh.setColorAt(index, scratchColor.copy(b.color).multiplyScalar(boost * (b.melee ? 0.6 : 1)));
-};
 
 export class GuestView {
   private readonly game: Game;
@@ -161,6 +141,7 @@ export class GuestView {
     this.cubes.clear();
     this.bullets = [];
     game.combat.bulletMesh.count = 0;
+    game.combat.thornMesh.count = 0;
     this.bombs = [];
     this.hideBombSlots(0);
     this.brokenApplied = 0;
@@ -392,43 +373,43 @@ export class GuestView {
   }
 
   private updateBullets(dt: number): void {
-    const { combat, effects, lighting } = this.game;
-    const mesh = combat.bulletMesh;
-    let count = 0;
+    const { combat, effects, lighting, world } = this.game;
+    let arrows = 0;
+    let thorns = 0;
     for (const b of this.bullets) {
       const step = b.speed * dt;
       b.x += b.dx * step;
       b.z += b.dz * step;
       b.left -= step;
+      const thorn = b.style === "thorn";
+      const mesh = thorn ? combat.thornMesh : combat.bulletMesh;
+      const count = thorn ? thorns : arrows;
       if (b.left <= 0 || count >= mesh.instanceMatrix.count) {
         continue;
       }
-      drawGuestBullet(mesh, count, b);
-      count += 1;
-      lighting.addLight(
-        b.x,
-        BULLET_Y,
-        b.z,
-        b.color,
-        (b.isSuper ? 2.6 : 1.9) * (b.melee ? 0.5 : 1),
-        4.2,
-      );
+      drawProjectile(mesh, count, b, b.style, b.left, world.heightAt(b.x, b.z));
+      if (thorn) {
+        thorns += 1;
+      } else {
+        arrows += 1;
+      }
+      const y = BULLET_Y + world.heightAt(b.x, b.z);
+      if (b.isSuper) {
+        lighting.addLight(b.x, y, b.z, b.color, 0.25, 2.5);
+      }
       b.trail -= dt;
       if (b.trail <= 0) {
-        b.trail = 0.03;
-        effects.trail(b.x, BULLET_Y, b.z, b.color, b.radius * (b.melee ? 2.2 : 1.6));
+        b.trail = 0.045;
+        effects.trail(b.x, y, b.z, b.color, b.isSuper ? 0.15 : 0.065);
       }
     }
     this.bullets = this.bullets.filter((b) => b.left > 0);
-    mesh.count = count;
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) {
-      mesh.instanceColor.needsUpdate = true;
-    }
+    finishProjectileMesh(combat.bulletMesh, arrows);
+    finishProjectileMesh(combat.thornMesh, thorns);
   }
 
   private updateBombs(dt: number): void {
-    const { combat, effects, elapsed, lighting } = this.game;
+    const { combat, effects, elapsed, lighting, world } = this.game;
     const blend = 1 - Math.exp(-BOMB_LAMBDA * dt);
     for (const [i, bomb] of this.bombs.entries()) {
       const slot = combat.bombPool[i];
@@ -443,14 +424,18 @@ export class GuestView {
         bomb.rotX += dt * 9;
         bomb.rotZ += dt * 5;
       }
+      scratchColor.setHex(target.c);
+      setBombAppearance(slot, target.style, scratchColor);
       slot.busy = true;
       slot.group.visible = true;
       slot.group.position.set(bomb.x, bomb.y, bomb.z);
       slot.group.rotation.set(bomb.rotX, 0, bomb.rotZ);
       slot.group.scale.setScalar(target.big ? 1.75 : 1);
       slot.ring.visible = true;
-      slot.ring.position.set(target.tx, 0.05, target.tz);
-      slot.ring.scale.setScalar(target.r);
+      slot.ring.position.set(target.tx, world.heightAt(target.tx, target.tz) + 0.05, target.tz);
+      slot.ring.scale.set(target.r, 1, target.r);
+      conformGroundGeometry(slot.ring.geometry, target.tx, target.tz, target.r);
+      conformGroundGeometry(slot.fillDisc.geometry, target.tx, target.tz, target.r);
       const markerColor = target.s ? SUPER_MARKER_COLOR : MARKER_COLOR;
       slot.ring.material.color.set(markerColor);
       slot.fillDisc.material.color.set(markerColor);
@@ -458,9 +443,10 @@ export class GuestView {
       slot.spark.scale.setScalar(0.8 + pulse * 0.9);
       slot.ring.material.opacity = 0.55 + pulse * 0.35;
       slot.fillDisc.material.opacity = 0.1 + target.u * 0.22;
-      lighting.addLight(bomb.x, bomb.y + 0.3, bomb.z, combat.orange, 2.2 + pulse * 2.5, 4);
+      effects.trail(bomb.x, bomb.y, bomb.z, scratchColor, target.big ? 0.46 : 0.26);
+      lighting.addLight(bomb.x, bomb.y + 0.3, bomb.z, scratchColor, 2.2 + pulse * 2.5, 4);
       if (Math.random() < dt * 40) {
-        effects.spark(bomb.x, bomb.y + 0.25 * slot.group.scale.x, bomb.z, combat.orange);
+        effects.spark(bomb.x, bomb.y + 0.25 * slot.group.scale.x, bomb.z, scratchColor);
       }
     }
   }

@@ -9,7 +9,9 @@ import type { Brawler } from "./entities/brawler";
 import type { Game } from "./game";
 import type { GuideSlot } from "./aim-guide";
 import type { Input } from "./input";
+import { STICK_DEAD_ZONE } from "./input";
 import { dist } from "./utils";
+import { terrainAimDistance } from "./world/terrain";
 
 export interface Aim {
   dist: number;
@@ -28,20 +30,16 @@ interface StickLike {
 
 const RAYCASTER = new THREE.Raycaster();
 const MOUSE_NDC = new THREE.Vector2();
-/** Shots aim at shoulder height, half a unit above the floor. */
-const AIM_PLANE = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.5);
 /** A guest's shot goes to the host as an intent instead of into the sim; the local
  *  gate mirrors the sim's own checks so the wire is not spammed while holding fire. */
 const GUEST_FIRE_COOLDOWN = 0.25;
 
 const guestCanAct = (game: Game, player: Brawler): boolean =>
-  player.alive && !player.airborne && game.state !== "countdown";
+  player.alive && !player.airborne && !player.evasion && game.state === "playing";
 
 const fireAttack = (game: Game, player: Brawler, aim: Aim): void => {
   if (game.mode !== "guest") {
-    if (player.attack(aim.dx, aim.dz, aim.x, aim.z)) {
-      game.hud.playHints.markActed();
-    }
+    player.attack(aim.dx, aim.dz, aim.x, aim.z);
     return;
   }
   if (!guestCanAct(game, player) || player.ammo < 1 || player.fireCooldown > 0) {
@@ -50,15 +48,12 @@ const fireAttack = (game: Game, player: Brawler, aim: Aim): void => {
   player.fireCooldown = GUEST_FIRE_COOLDOWN;
   player.aimAngle = Math.atan2(aim.dx, aim.dz);
   player.aimHold = 0.55;
-  game.hud.playHints.markActed();
   game.session?.sendIntent({ dx: aim.dx, dz: aim.dz, kind: "attack", x: aim.x, z: aim.z });
 };
 
 const fireSuper = (game: Game, player: Brawler, aim: Aim): void => {
   if (game.mode !== "guest") {
-    if (player.useSuper(aim.dx, aim.dz, aim.x, aim.z)) {
-      game.hud.playHints.markActed();
-    }
+    player.useSuper(aim.dx, aim.dz, aim.x, aim.z);
     return;
   }
   if (!guestCanAct(game, player) || !player.superReady) {
@@ -68,6 +63,34 @@ const fireSuper = (game: Game, player: Brawler, aim: Aim): void => {
   player.aimAngle = Math.atan2(aim.dx, aim.dz);
   player.aimHold = 0.55;
   game.session?.sendIntent({ dx: aim.dx, dz: aim.dz, kind: "super", x: aim.x, z: aim.z });
+};
+
+const evade = (game: Game, player: Brawler): void => {
+  const { session } = game;
+  if (game.mode === "guest" && (session?.status !== "connected" || session.hostDropped)) {
+    // An intent lost with the connection must not leave prediction waiting forever.
+    if (player.netTarget.evadePending !== null) {
+      player.netTarget.evadePending = null;
+      player.evasion = null;
+    }
+    game.input.consumeEvade();
+    return;
+  }
+  if (!game.input.consumeEvade() || game.state !== "playing") {
+    return;
+  }
+  if (game.mode === "guest" && player.netTarget.evadePending !== null) {
+    return;
+  }
+  const moving = Math.hypot(player.moveX, player.moveZ) > 0.001;
+  const angle = player.lookAngle ?? player.facing;
+  const dx = moving ? player.moveX : Math.sin(angle);
+  const dz = moving ? player.moveZ : Math.cos(angle);
+  if (player.evade(dx, dz) && game.mode === "guest") {
+    const seq = player.netTarget.evadeAck + 1;
+    player.netTarget.evadePending = seq;
+    session?.sendIntent({ dx, dz, kind: "evade", seq });
+  }
 };
 
 /** A stick direction from a physical gamepad, as the input layer may report it. */
@@ -103,6 +126,9 @@ const stickAim = (player: Brawler, stick: StickLike, attack: AttackDef): Aim => 
 
 /** Seconds until the attack lands at `distance`, for leading a moving target. */
 const travelTime = (attack: AttackDef, distance: number): number => {
+  if (attack.kind === "melee") {
+    return attack.windup;
+  }
   if (attack.kind === "lob") {
     return attack.flight + attack.fuse * 0.6;
   }
@@ -174,15 +200,17 @@ const fireQueuedShots = (game: Game, player: Brawler): void => {
 /** While a stick is held, preview where it points and lean the camera that way. */
 const previewTouchAim = (game: Game, player: Brawler): void => {
   const { sticks } = game.input;
+  player.lookAngle = null;
   let slot: GuideSlot | null = null;
-  if (sticks.super.id !== null && sticks.super.moved && player.superReady) {
+  if (sticks.super.id !== null && sticks.super.mag > STICK_DEAD_ZONE && player.superReady) {
     slot = "super";
-  } else if (sticks.aim.id !== null && sticks.aim.moved) {
+  } else if (sticks.aim.id !== null && sticks.aim.mag > STICK_DEAD_ZONE) {
     slot = "attack";
   }
   if (slot && !player.airborne) {
     const stick = slot === "super" ? sticks.super : sticks.aim;
     const aim = stickAim(player, stick, player.def[slot]);
+    player.lookAngle = Math.atan2(aim.dx, aim.dz);
     game.aimPoint.set(player.x + aim.dx * 5, 0.5, player.z + aim.dz * 5);
     game.guide.show(
       player,
@@ -198,20 +226,30 @@ const previewTouchAim = (game: Game, player: Brawler): void => {
     game.aimPoint.set(player.x, 0.5, player.z);
     game.guide.hide();
   }
+  evade(game, player);
+  if (player.evasion) {
+    game.guide.hide();
+  }
 };
 
 /** Where the mouse (or a pad's right stick) points: the aim point lands on the shoulder plane. */
 const readMouseAim = (game: Game, player: Brawler): Aim => {
   const { input, aimPoint } = game;
   const pad = padAimOf(input);
-  if (pad) {
+  if (pad || input.aimMethod === "pad") {
     const reach = player.def.attack.range;
-    aimPoint.set(player.x + pad.x * reach, 0.5, player.z + pad.z * reach);
+    const angle = player.lookAngle ?? player.facing;
+    const dx = pad?.x ?? Math.sin(angle);
+    const dz = pad?.z ?? Math.cos(angle);
+    aimPoint.set(player.x + dx * reach, player.root.position.y + 0.5, player.z + dz * reach);
   } else {
     MOUSE_NDC.set(input.ndcX, input.ndcY);
     RAYCASTER.setFromCamera(MOUSE_NDC, game.camera);
-    if (!RAYCASTER.ray.intersectPlane(AIM_PLANE, aimPoint)) {
-      aimPoint.set(player.x, 0.5, player.z + 1);
+    const distance = terrainAimDistance(RAYCASTER.ray.origin, RAYCASTER.ray.direction);
+    if (distance === null) {
+      aimPoint.set(player.x, player.root.position.y + 0.5, player.z + 1);
+    } else {
+      RAYCASTER.ray.at(distance, aimPoint);
     }
   }
   const dx = aimPoint.x - player.x;
@@ -224,6 +262,10 @@ const controlWithMouse = (game: Game, player: Brawler): void => {
   const { input } = game;
   const aim = readMouseAim(game, player);
   const { dx, dz, dist: len } = aim;
+  if (Math.hypot(dx, dz) > 0.001 && !player.airborne) {
+    player.lookAngle = Math.atan2(dx, dz);
+  }
+  evade(game, player);
   const released = input.consumeSuperRelease();
   const charging = input.superHeld && player.superReady;
   if (released && player.superReady) {
@@ -232,7 +274,7 @@ const controlWithMouse = (game: Game, player: Brawler): void => {
     fireAttack(game, player, aim);
   }
   const slot: GuideSlot = charging ? "super" : "attack";
-  if (player.airborne) {
+  if (player.airborne || player.evasion) {
     game.guide.hide();
   } else {
     game.guide.show(player, game.world, player.def[slot], slot, dx, dz, len, charging);
@@ -242,28 +284,30 @@ const controlWithMouse = (game: Game, player: Brawler): void => {
 export const controlPlayer = (game: Game): void => {
   const { player } = game;
   const live = game.state === "playing" || game.state === "countdown";
-  if (!player || !player.alive || !live) {
+  if (!game.input.enabled || !player || !player.alive || !live) {
     game.guide.hide();
     if (player) {
       player.moveX = 0;
       player.moveZ = 0;
+      player.lookAngle = null;
     }
     if (game.mode === "guest") {
       game.session?.sendInput(0, 0);
     }
     game.input.takeShots();
+    game.input.consumeEvade();
     return;
   }
   const axis = game.input.axis();
   player.moveX = axis.x;
   player.moveZ = axis.z;
-  if (game.mode === "guest") {
-    game.session?.sendInput(axis.x, axis.z);
-  }
-  fireQueuedShots(game, player);
   if (game.input.touchMode) {
     previewTouchAim(game, player);
-    return;
+  } else {
+    controlWithMouse(game, player);
   }
-  controlWithMouse(game, player);
+  fireQueuedShots(game, player);
+  if (game.mode === "guest") {
+    game.session?.sendInput(axis.x, axis.z, player.lookAngle);
+  }
 };

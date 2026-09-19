@@ -1,5 +1,5 @@
-// Static game data: the tile and prop vocabularies, match tuning, the four
-// brawler kits, bot names, and the difficulty / quality tables the settings
+// Static game data: the tile and prop vocabularies, match tuning, the nine
+// champion kits, bot names, and the difficulty / quality tables the settings
 // panel exposes. Everything here is read-only at runtime.
 
 export const TILE = { BUSH: 2, EMPTY: 0, WALL: 1, WATER: 3 } as const;
@@ -40,7 +40,19 @@ export const LAMP = {
   size: 0.55,
 } as const;
 
-export type BrawlerId = "dusty" | "ace" | "fuse" | "titan";
+export type BrawlerId =
+  | "dusty"
+  | "ace"
+  | "fuse"
+  | "titan"
+  | "rowan"
+  | "nyx"
+  | "moss"
+  | "flint"
+  | "pip";
+export type MeleeStyle = "cleave" | "smash" | "thrust" | "flurry";
+export type ProjectileStyle = "arrow" | "spear" | "thorn" | "bolt";
+export type LobStyle = "fire" | "seed" | "potion";
 
 export interface Palette {
   accent: number;
@@ -65,6 +77,7 @@ interface AttackBase {
 }
 
 export interface SpreadAttack extends AttackBase {
+  style: ProjectileStyle;
   kind: "spread";
   pellets: number;
   radius: number;
@@ -73,6 +86,7 @@ export interface SpreadAttack extends AttackBase {
 }
 
 export interface BurstAttack extends AttackBase {
+  style: ProjectileStyle;
   count: number;
   interval: number;
   jitter: number;
@@ -82,15 +96,16 @@ export interface BurstAttack extends AttackBase {
 }
 
 export interface MeleeAttack extends AttackBase {
-  count: number;
-  interval: number;
-  jitter: number;
+  style: MeleeStyle;
+  /** Full sweep angle in radians; targets behind the weapon are safe. */
+  arc: number;
   kind: "melee";
-  radius: number;
-  speed: number;
+  recovery: number;
+  windup: number;
 }
 
 export interface LobAttack extends AttackBase {
+  style: LobStyle;
   blast: number;
   flight: number;
   fuse: number;
@@ -107,9 +122,9 @@ export interface LeapAttack extends AttackBase {
 
 export type AttackDef = SpreadAttack | BurstAttack | MeleeAttack | LobAttack | LeapAttack;
 // Attacks that spawn bullets.
-export type ProjectileAttack = SpreadAttack | BurstAttack | MeleeAttack;
+export type ProjectileAttack = SpreadAttack | BurstAttack;
 // Attacks fired as a timed sequence of shots.
-export type VolleyAttack = BurstAttack | MeleeAttack;
+export type VolleyAttack = BurstAttack;
 // Attacks that resolve as an area blast on arrival.
 export type BlastAttack = LobAttack | LeapAttack;
 
@@ -127,6 +142,8 @@ export interface BrawlerDef {
   role: string;
   speed: number;
   super: AttackDef;
+  superName: string;
+  superBlurb: string;
   // damage dealt to fully charge the super
   superCharge: number;
 }
@@ -135,159 +152,360 @@ export interface BrawlerDef {
 export const BRAWLERS: Record<BrawlerId, BrawlerDef> = {
   dusty: {
     attack: {
-      color: 0xff_a5_3a,
-      damage: 330,
-      kind: "spread",
-      pellets: 5,
-      radius: 0.15,
-      range: 7,
-      speed: 15,
-      spread: 0.5,
+      arc: 1.92,
+      color: 0xc8_ef_c5,
+      damage: 1420,
+      kind: "melee",
+      knockback: 3,
+      range: 2.2,
+      recovery: 0.42,
+      style: "cleave",
+      windup: 0.2,
     },
-    blurb: "Wide buckshot cone. Deadly up close.",
-    hp: 3900,
+    blurb: "Sword and shield. A sweeping blade for close duels.",
+    hp: 4600,
     id: "dusty",
-    name: "DUSTY",
-    palette: { accent: 0x8a_4f_d8, body: 0xf2_b6_32, dark: 0x3a_2a_4a, skin: 0xf1_c4_9a },
-    preferred: 3.6,
-    reload: 1.35,
-    role: "Shotgunner",
-    speed: 3.15,
+    name: "BRIAR",
+    palette: { accent: 0xd7_b8_64, body: 0x47_73_64, dark: 0x2d_3c_3b, skin: 0xed_be_97 },
+    preferred: 1.35,
+    reload: 1.05,
+    role: "Thorn Knight",
+    speed: 3.65,
     super: {
+      arc: 5.2,
       breaksWalls: true,
-      color: 0xff_e1_4a,
-      damage: 340,
-      kind: "spread",
-      knockback: 9,
-      pellets: 9,
-      radius: 0.2,
-      range: 8,
-      speed: 16,
-      spread: 0.85,
+      color: 0xe7_ef_ad,
+      damage: 2050,
+      kind: "melee",
+      knockback: 8,
+      range: 3.1,
+      recovery: 0.6,
+      style: "cleave",
+      windup: 0.26,
     },
-    superCharge: 3000,
+    superBlurb: "Sweep a wide arc, shoving rivals and breaking nearby cover.",
+    superCharge: 3500,
+    superName: "Crowncleave",
   },
   ace: {
     attack: {
-      color: 0x6f_d2_ff,
-      count: 6,
-      damage: 330,
-      interval: 0.08,
-      jitter: 0.035,
+      color: 0xe8_d4_95,
+      count: 3,
+      damage: 470,
+      interval: 0.14,
+      jitter: 0.025,
       kind: "burst",
-      radius: 0.13,
-      range: 9.5,
-      speed: 19,
+      radius: 0.12,
+      range: 10,
+      speed: 18,
+      style: "arrow",
     },
-    blurb: "Long range six-shot burst.",
-    hp: 3000,
+    blurb: "A hooded ranger. Loose three arrows, keep your distance.",
+    hp: 3200,
     id: "ace",
-    name: "ACE",
-    palette: { accent: 0xc2_3a_2a, body: 0x2f_6f_d6, dark: 0x1f_2a_44, skin: 0xe8_b4_8a },
+    name: "WREN",
+    palette: { accent: 0xe0_b2_5a, body: 0x72_83_52, dark: 0x3b_45_34, skin: 0xe8_b4_8a },
     preferred: 6.8,
-    reload: 1.5,
-    role: "Sharpshooter",
-    speed: 3.25,
+    reload: 1.4,
+    role: "Wildwood Ranger",
+    speed: 3.4,
     super: {
-      breaksWalls: true,
-      color: 0xff_f0_7a,
-      count: 12,
-      damage: 340,
-      interval: 0.06,
-      jitter: 0.05,
-      kind: "burst",
-      pierce: true,
-      radius: 0.2,
-      range: 11.5,
+      color: 0xde_f7_be,
+      damage: 490,
+      kind: "spread",
+      knockback: 2.5,
+      pellets: 7,
+      radius: 0.15,
+      range: 12,
       speed: 21,
+      spread: 0.64,
+      style: "arrow",
     },
-    superCharge: 3600,
+    superBlurb: "Release seven enchanted arrows in a long, sweeping fan.",
+    superCharge: 3300,
+    superName: "Arrowstorm",
   },
   fuse: {
     attack: {
-      blast: 1.55,
-      color: 0xff_7a_2a,
-      damage: 920,
-      flight: 0.72,
-      fuse: 0.38,
+      blast: 1.65,
+      color: 0xff_a2_53,
+      damage: 1100,
+      flight: 0.68,
+      fuse: 0.25,
       kind: "lob",
-      range: 7.5,
+      range: 8,
+      style: "fire",
     },
-    blurb: "Lobs bombs over walls.",
-    hp: 2900,
+    blurb: "A wayward fire mage. Cast arcing embers over cover.",
+    hp: 3000,
     id: "fuse",
-    name: "FUSE",
-    palette: { accent: 0xf6_d2_3a, body: 0xe2_62_2a, dark: 0x3b_30_29, skin: 0xe9_bd_96 },
+    name: "EMBER",
+    palette: { accent: 0xf3_ba_68, body: 0x9c_57_64, dark: 0x42_35_50, skin: 0xec_be_a2 },
     preferred: 5.8,
-    reload: 1.55,
-    role: "Thrower",
-    speed: 3,
+    reload: 1.45,
+    role: "Hearth Witch",
+    speed: 3.15,
     super: {
       big: true,
       blast: 2.8,
       breaksWalls: true,
-      color: 0xff_d2_3a,
-      damage: 2400,
+      color: 0xff_d2_83,
+      damage: 2350,
       flight: 0.95,
-      fuse: 0.7,
+      fuse: 0.55,
       kind: "lob",
-      knockback: 10,
-      range: 8.5,
+      knockback: 9,
+      range: 9,
+      style: "fire",
     },
-    superCharge: 3000,
+    superBlurb: "Lob a blazing meteor that breaks cover in a broad blast.",
+    superCharge: 3200,
+    superName: "Falling Star",
   },
   titan: {
     attack: {
-      color: 0xff_5a_4a,
-      count: 4,
-      damage: 390,
-      interval: 0.09,
-      jitter: 0.12,
+      arc: 1.57,
+      color: 0xbd_db_ed,
+      damage: 1950,
       kind: "melee",
-      radius: 0.48,
-      range: 2.7,
-      speed: 13,
+      knockback: 5,
+      range: 2.65,
+      recovery: 0.62,
+      style: "smash",
+      windup: 0.32,
     },
-    blurb: "Huge health. Punches and leaps.",
-    hp: 6200,
+    blurb: "A stone warden. Heavy hammer sweeps and a leaping slam.",
+    hp: 6100,
     id: "titan",
-    name: "TITAN",
-    palette: { accent: 0xe2_3a_3a, body: 0x2a_4f_b8, dark: 0x1a_20_38, skin: 0xd9_a2_7a },
-    preferred: 1.6,
-    reload: 0.85,
-    role: "Heavyweight",
-    speed: 3.45,
+    name: "ROOK",
+    palette: { accent: 0xcc_a1_62, body: 0x76_86_99, dark: 0x38_3f_52, skin: 0xcf_a8_83 },
+    preferred: 1.7,
+    reload: 1.45,
+    role: "Stone Warden",
+    speed: 3.25,
     super: {
-      blast: 2.3,
+      blast: 2.6,
       breaksWalls: true,
-      color: 0xff_d2_3a,
-      damage: 1000,
+      color: 0xbe_de_e8,
+      damage: 1800,
       flight: 0.75,
       kind: "leap",
       knockback: 11,
       range: 8,
     },
-    superCharge: 3200,
+    superBlurb: "Leap across the field and crush nearby foes on landing.",
+    superCharge: 3800,
+    superName: "Castlefall",
+  },
+  rowan: {
+    attack: {
+      color: 0xff_e0_92,
+      count: 1,
+      damage: 1180,
+      interval: 0.22,
+      jitter: 0,
+      kind: "burst",
+      knockback: 2.5,
+      radius: 0.18,
+      range: 9,
+      speed: 18,
+      style: "spear",
+    },
+    blurb: "A sun-sworn javelin thrower. Hurl a single spear, then pierce the line with Sunlance.",
+    hp: 4100,
+    id: "rowan",
+    name: "ROWAN",
+    palette: { accent: 0xf0_c7_62, body: 0xcf_7d_43, dark: 0x53_40_35, skin: 0xc9_8c_68 },
+    preferred: 5.4,
+    reload: 1.2,
+    role: "Sun Lancer",
+    speed: 3.5,
+    super: {
+      color: 0xff_ee_b8,
+      count: 1,
+      damage: 2350,
+      interval: 0.12,
+      jitter: 0,
+      kind: "burst",
+      knockback: 4,
+      pierce: true,
+      radius: 0.2,
+      range: 11,
+      speed: 20,
+      style: "spear",
+    },
+    superBlurb: "Hurl a radiant spear through every rival in its path.",
+    superCharge: 3400,
+    superName: "Sunlance",
+  },
+  nyx: {
+    attack: {
+      arc: 1.8,
+      color: 0xd9_c1_ff,
+      damage: 890,
+      kind: "melee",
+      knockback: 1.2,
+      range: 1.65,
+      recovery: 0.32,
+      style: "flurry",
+      windup: 0.14,
+    },
+    blurb: "A moonlit rogue. Quick twin daggers and a vault into the fray.",
+    hp: 3300,
+    id: "nyx",
+    name: "NYX",
+    palette: { accent: 0xc4_98_d9, body: 0x64_53_86, dark: 0x2d_2a_42, skin: 0xc9_a2_8c },
+    preferred: 0.95,
+    reload: 0.72,
+    role: "Nightblade",
+    speed: 4.05,
+    super: {
+      blast: 1.7,
+      breaksWalls: false,
+      color: 0xd7_c0_ff,
+      damage: 1650,
+      flight: 0.45,
+      kind: "leap",
+      knockback: 4,
+      range: 6,
+    },
+    superBlurb: "Vault a short distance and strike nearby foes on landing.",
+    superCharge: 2800,
+    superName: "Shadowstep",
+  },
+  moss: {
+    attack: {
+      color: 0xc1_e8_82,
+      damage: 400,
+      kind: "spread",
+      pellets: 3,
+      radius: 0.18,
+      range: 7.2,
+      speed: 13,
+      spread: 0.42,
+      style: "thorn",
+    },
+    blurb: "A wandering grove-keeper. Scatter thorns and awaken a bursting seedpod.",
+    hp: 3850,
+    id: "moss",
+    name: "MOSS",
+    palette: { accent: 0xd1_b7_69, body: 0x6d_8d_53, dark: 0x39_4c_38, skin: 0xb7_89_65 },
+    preferred: 4.4,
+    reload: 1.15,
+    role: "Grove Druid",
+    speed: 3.2,
+    super: {
+      big: true,
+      blast: 3.1,
+      color: 0xc1_e8_82,
+      damage: 2000,
+      flight: 0.82,
+      fuse: 0.45,
+      kind: "lob",
+      knockback: 6,
+      range: 8.5,
+      style: "seed",
+    },
+    superBlurb: "Lob a giant seedpod that bursts into a wide spray of thorns.",
+    superCharge: 3100,
+    superName: "Brambleburst",
+  },
+  flint: {
+    attack: {
+      color: 0xd2_da_e4,
+      count: 1,
+      damage: 1550,
+      interval: 0.64,
+      jitter: 0,
+      kind: "burst",
+      knockback: 2,
+      radius: 0.14,
+      range: 11.5,
+      speed: 24,
+      style: "bolt",
+    },
+    blurb: "A patient iron marksman. One weighty bolt, or three that pierce the line.",
+    hp: 3400,
+    id: "flint",
+    name: "FLINT",
+    palette: { accent: 0xc8_a2_63, body: 0x68_7c_91, dark: 0x34_3a_44, skin: 0xd4_aa_89 },
+    preferred: 7.3,
+    reload: 1.75,
+    role: "Iron Crossbow",
+    speed: 3.05,
+    super: {
+      color: 0xe2_f3_ff,
+      count: 3,
+      damage: 950,
+      interval: 0.18,
+      jitter: 0,
+      kind: "burst",
+      knockback: 2.5,
+      pierce: true,
+      radius: 0.19,
+      range: 12.5,
+      speed: 25,
+      style: "bolt",
+    },
+    superBlurb: "Fire three heavy bolts that pierce through lined-up rivals.",
+    superCharge: 3500,
+    superName: "Iron Volley",
+  },
+  pip: {
+    attack: {
+      blast: 1.35,
+      color: 0x82_d9_c8,
+      damage: 700,
+      flight: 0.45,
+      fuse: 0.14,
+      kind: "lob",
+      range: 5.8,
+      style: "potion",
+    },
+    blurb: "A pocketful of trouble. Toss quick potions and one spectacular concoction.",
+    hp: 3550,
+    id: "pip",
+    name: "PIP",
+    palette: { accent: 0xf0_b6_65, body: 0x52_94_95, dark: 0x39_42_50, skin: 0xe9_b9_96 },
+    preferred: 3.8,
+    reload: 0.86,
+    role: "Patchwork Alchemist",
+    speed: 3.55,
+    super: {
+      big: true,
+      blast: 2.8,
+      color: 0xb8_ae_f5,
+      damage: 1900,
+      flight: 0.68,
+      fuse: 0.35,
+      kind: "lob",
+      knockback: 7,
+      range: 7,
+      style: "potion",
+    },
+    superBlurb: "Throw a volatile brew with a wide blast and a strong shove.",
+    superCharge: 2600,
+    superName: "Grand Brew",
   },
 };
 
 export const isBrawlerId = (id: string): id is BrawlerId => Object.hasOwn(BRAWLERS, id);
 
 export const BOT_NAMES: readonly string[] = [
-  "Rusty",
-  "Nova",
-  "Pixel",
-  "Bolt",
+  "Alder",
+  "Orla",
+  "Bramble",
+  "Fen",
   "Maple",
   "Onyx",
-  "Ziggy",
-  "Comet",
+  "Wick",
+  "Hollis",
   "Pepper",
-  "Havoc",
-  "Mango",
-  "Sprocket",
-  "Biscuit",
-  "Turbo",
+  "Thistle",
+  "Tansy",
+  "Clover",
+  "Puck",
+  "Sable",
 ];
 
 export type DifficultyName = "easy" | "normal" | "hard";

@@ -3,6 +3,7 @@
 // a handful of array writes and the per-frame update touches no objects. The
 // cursor wraps: once the pool is full the oldest particle is overwritten.
 import * as THREE from "three";
+import { terrainHeight } from "../world/terrain";
 
 // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
 const PARTICLE_VERT = /* glsl */ `
@@ -146,16 +147,19 @@ export class ParticlePool {
       const velZ = (vel[i * 3 + 2] ?? 0) * decay;
       let posY = (pos[i * 3 + 1] ?? 0) + velY * dt;
       // Falling particles bounce off the ground, losing most of their energy.
-      if (posY < FLOOR_Y && gravity > 0) {
-        posY = FLOOR_Y;
+      const posX = (pos[i * 3] ?? 0) + velX * dt;
+      const posZ = (pos[i * 3 + 2] ?? 0) + velZ * dt;
+      const floor = terrainHeight(posX, posZ) + FLOOR_Y;
+      if (posY < floor && gravity > 0) {
+        posY = floor;
         velY *= -0.35;
       }
       vel[i * 3] = velX;
       vel[i * 3 + 1] = velY;
       vel[i * 3 + 2] = velZ;
-      pos[i * 3] = (pos[i * 3] ?? 0) + velX * dt;
+      pos[i * 3] = posX;
       pos[i * 3 + 1] = posY;
-      pos[i * 3 + 2] = (pos[i * 3 + 2] ?? 0) + velZ * dt;
+      pos[i * 3 + 2] = posZ;
       const from = size0[i] ?? 0;
       const to = size1[i] ?? 0;
       size[i] = remaining <= 0 ? 0 : from + (to - from) * t;

@@ -8,9 +8,11 @@ import { Brawler } from "../entities/brawler";
 import type { Game } from "../game";
 import { cleanName } from "../hud-lobby";
 import type { BrawlerDrive } from "./interpolation";
+import { restoreNetEvasion } from "./interpolation";
 import { seatId } from "./protocol";
 import type { NetBrawler, Snapshot } from "./snapshot";
 import { GRID } from "../world/grid";
+import { terrainHeight } from "../world/terrain";
 
 export interface Pick {
   kit: BrawlerId;
@@ -62,8 +64,13 @@ export const spawnFromNet = (
     x: n.x,
     z: n.z,
   });
-  b.root.position.y = n.y;
-  b.netAir = n.y > 0.001;
+  b.root.position.y = n.leap ? n.y : terrainHeight(n.x, n.z);
+  b.netAir = drive !== "sim" && n.leap !== null;
+  if (drive === "sim" && n.leap && b.def.super.kind === "leap") {
+    b.leap = { ...n.leap, a: b.def.super };
+  }
+  b.meleeCue = n.melee ? { ...n.melee } : null;
+  restoreNetEvasion(b, n);
   b.hp = n.hp;
   b.maxHp = n.maxHp;
   b.ammo = n.ammo;
@@ -139,6 +146,7 @@ export const reconcileSeats = (game: Game): void => {
     } else if (players[b.owner]?.connected === false) {
       b.moveX = 0;
       b.moveZ = 0;
+      b.lookAngle = null;
     }
   }
   if (removed) {
@@ -165,12 +173,23 @@ export const applyRemoteIntents = (game: Game): void => {
       continue;
     }
     const b = humanBrawler(game, from);
-    if (!b || !b.alive) {
+    if (!b) {
+      continue;
+    }
+    if (intent.kind === "evade") {
+      if (intent.seq > b.netTarget.evadeAck) {
+        b.netTarget.evadeAck = intent.seq;
+        b.netTarget.evadeAccepted = b.evade(intent.dx, intent.dz);
+      }
+      continue;
+    }
+    if (!b.alive) {
       continue;
     }
     if (intent.kind === "input") {
       b.moveX = intent.mx;
       b.moveZ = intent.mz;
+      b.lookAngle = intent.look;
     } else if (intent.kind === "attack") {
       b.attack(intent.dx, intent.dz, intent.x, intent.z);
     } else if (intent.kind === "super") {

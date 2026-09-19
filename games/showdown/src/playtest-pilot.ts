@@ -51,10 +51,15 @@ const keysFor = ([x, z]: Heading): string[] => {
   return keys;
 };
 
-const flightTime = (attack: AttackDef, range: number): number =>
-  attack.kind === "lob" || attack.kind === "leap"
-    ? attack.flight
-    : range / (attack.speed === undefined || attack.speed <= 0 ? 14 : attack.speed);
+const flightTime = (attack: AttackDef, range: number): number => {
+  if (attack.kind === "lob" || attack.kind === "leap") {
+    return attack.flight;
+  }
+  if (attack.kind === "melee") {
+    return attack.windup;
+  }
+  return range / attack.speed;
+};
 
 /** How far along `from → to` a point can go before leaving the pointer box on one axis. */
 const axisReach = (from: number, to: number): number => {
@@ -102,7 +107,7 @@ export class Pilot {
   }
 
   private screenPoint(x: number, z: number): [number, number] {
-    SCRATCH.set(x, 0.5, z).project(this.game.camera);
+    SCRATCH.set(x, this.game.world.heightAt(x, z) + 0.5, z).project(this.game.camera);
     return [(SCRATCH.x + 1) / 2, (1 - SCRATCH.y) / 2];
   }
 

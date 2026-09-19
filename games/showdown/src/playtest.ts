@@ -22,7 +22,7 @@ export const installPlaytest = (game: Game): void => {
   const pilot = new Pilot(game);
   publishTestHooks({
     seed: (seed) => game.startSeeded(seed),
-    setPausedForScreenshot: (paused) => game.setPaused(paused, false),
+    setPausedForScreenshot: (paused) => game.setPaused(paused),
     setState: (name) => {
       if (name !== "active-play") {
         return;

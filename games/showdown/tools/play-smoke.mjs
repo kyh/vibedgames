@@ -96,7 +96,7 @@ check(true, "loading veil lifted");
 await wait(500);
 await page.screenshot({ path: path.join(outDir, "menu.png") });
 check((await page.locator("#menu.open").count()) === 1, "menu is open");
-check((await page.locator("#cards .card").count()) === 4, "four brawler cards");
+check((await page.locator("#cards .card").count()) === 9, "nine champion cards");
 
 await page.click("#play");
 await wait(1200);
