@@ -1,6 +1,4 @@
 import { createDb } from "@repo/db/drizzle-client";
-import { deploymentFile, game } from "@repo/db/drizzle-schema";
-import { and, eq, inArray } from "@repo/db";
 
 import { contentTypeForPath } from "./content-type";
 import { injectFreshness, VERSION_PATH, versionResponse } from "./freshness";
@@ -141,10 +139,7 @@ const serveHtml = async (page: HtmlPage): Promise<Response> => {
   const title = name ?? extractTitle(html) ?? slug;
   const imageRows = await db.query.deploymentFile.findMany({
     columns: { path: true },
-    where: and(
-      eq(deploymentFile.deploymentId, deploymentId),
-      inArray(deploymentFile.path, OG_IMAGE_CANDIDATES),
-    ),
+    where: { deploymentId, path: { in: OG_IMAGE_CANDIDATES } },
   });
   const image = OG_IMAGE_CANDIDATES.map((p) => imageRows.find((row) => row.path === p)).find(
     (row) => row !== undefined,
@@ -191,7 +186,7 @@ export default {
 
     const g = await db.query.game.findFirst({
       columns: { currentDeploymentId: true, id: true, name: true },
-      where: eq(game.slug, slug),
+      where: { slug },
     });
 
     if (!g?.currentDeploymentId) {

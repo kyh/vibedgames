@@ -18,13 +18,13 @@
     "with-env": "dotenv -e ../../.env --"
   },
   "dependencies": {
-    "drizzle-orm": "^0.45.2"
+    "drizzle-orm": "1.0.0-rc.4"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",
     "@kyh/tsconfig": "catalog:",
     "@types/react": "catalog:",
-    "drizzle-kit": "^0.31.10",
+    "drizzle-kit": "1.0.0-rc.4",
     "typescript": "catalog:"
   }
 }
