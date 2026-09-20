@@ -1020,12 +1020,18 @@ importers:
       '@kyh/tsconfig':
         specifier: 'catalog:'
         version: 1.2.0
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.1
       '@types/react':
         specifier: 'catalog:'
         version: 19.3.0
       drizzle-kit:
         specifier: 1.0.0-rc.4
         version: 1.0.0-rc.4
+      tsx:
+        specifier: ^4.23.13
+        version: 4.23.13
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
