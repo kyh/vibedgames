@@ -242,6 +242,14 @@ export interface RockOpts {
   craterSize?: number;
 }
 
+/** A deterministic point on the unit sphere. */
+const sphereDirection = (a: number, b: number) => {
+  const phi = Math.acos(2 * hash11(a) - 1);
+  const theta = hash11(b) * TAU;
+  const sinPhi = Math.sin(phi);
+  return { x: sinPhi * Math.cos(theta), y: Math.cos(phi), z: sinPhi * Math.sin(theta) };
+};
+
 /**
  * A meteor: a fractured, cratered ball of rock. Unit space — an icosphere of
  * radius 1 pushed in and out along its own vertex directions, so `local` reads
@@ -272,17 +280,9 @@ export const createRockGeometry = ({
   const geometry = base.index ? base.toNonIndexed() : base;
   const posAttr = geometry.getAttribute("position");
 
-  /** A deterministic point on the unit sphere. */
-  const direction = (a: number, b: number) => {
-    const phi = Math.acos(2 * hash11(a) - 1);
-    const theta = hash11(b) * TAU;
-    const sinPhi = Math.sin(phi);
-    return { x: sinPhi * Math.cos(theta), y: Math.cos(phi), z: sinPhi * Math.sin(theta) };
-  };
-
   const planes: { x: number; y: number; z: number; offset: number }[] = [];
   for (let i = 0; i < Math.max(0, Math.round(cuts)); i += 1) {
-    const n = direction(seed * 2.3 + i * 9.1, seed * 5.7 + i * 4.3);
+    const n = sphereDirection(seed * 2.3 + i * 9.1, seed * 5.7 + i * 4.3);
     // How far along its own normal the plane sits: 1 is tangent (no bite), less
     // shaves a face off. Kept high enough that a cut never lops the rock in half.
     planes.push({
@@ -293,7 +293,7 @@ export const createRockGeometry = ({
 
   const bowls: { x: number; y: number; z: number; radius: number; depth: number }[] = [];
   for (let i = 0; i < Math.max(0, Math.round(craters)); i += 1) {
-    const c = direction(seed * 3.1 + i * 12.9, seed * 7.7 + i * 5.3);
+    const c = sphereDirection(seed * 3.1 + i * 12.9, seed * 7.7 + i * 5.3);
     bowls.push({
       ...c,
       depth: craterDepth * (0.5 + hash11(seed * 17.9 + i * 2.1)),

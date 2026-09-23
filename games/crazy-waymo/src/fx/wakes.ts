@@ -44,6 +44,8 @@ interface WakeSample {
   jr: number;
 }
 
+const wakeJitter = (): number => 1 + (Math.random() * 2 - 1) * WAKE_JITTER;
+
 /**
  * One ribbon per vessel in a single dynamic buffer: white foam that widens and
  * fades astern. Normal-blended, not additive — wake is opaque froth on the
@@ -114,8 +116,7 @@ export class Wakes {
     }
     head.x = x;
     head.z = z;
-    const jitter = (): number => 1 + (Math.random() * 2 - 1) * WAKE_JITTER;
-    trail.push({ age: 0, half, jl: jitter(), jr: jitter(), px: -dirZ, pz: dirX, x, z });
+    trail.push({ age: 0, half, jl: wakeJitter(), jr: wakeJitter(), px: -dirZ, pz: dirX, x, z });
     if (trail.length > WAKE_SAMPLES) {
       trail.shift();
     }

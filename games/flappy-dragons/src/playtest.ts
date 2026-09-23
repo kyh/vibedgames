@@ -36,6 +36,17 @@ const GLIDE: ReflexInputs = { keys: [] };
 
 type Line = (diag: FlappyDiagnostics) => number;
 
+const wantsFlap = (diag: FlappyDiagnostics, line: Line): boolean => {
+  if (diag.phase === "ready") {
+    return true;
+  }
+  const drop = diag.vy * LEAD_S;
+  if (!diag.nextGap) {
+    return diag.player.y + drop >= RUNWAY_Y;
+  }
+  return drop - diag.nextGap.centreDy >= line(diag);
+};
+
 /**
  * One pilot shared by every move, so switching intent mid-air never double
  * flaps. Flapping is edge-triggered and far tighter than a model's round trip:
@@ -43,16 +54,6 @@ type Line = (diag: FlappyDiagnostics) => number;
  */
 const createPilot = (): ((line: Line) => (diag: FlappyDiagnostics | null) => ReflexInputs) => {
   let lastFlapFrame = -FLAP_COOLDOWN_FRAMES;
-  const wantsFlap = (diag: FlappyDiagnostics, line: Line): boolean => {
-    if (diag.phase === "ready") {
-      return true;
-    }
-    const drop = diag.vy * LEAD_S;
-    if (!diag.nextGap) {
-      return diag.player.y + drop >= RUNWAY_Y;
-    }
-    return drop - diag.nextGap.centreDy >= line(diag);
-  };
   return (line) => (diag) => {
     if (!diag?.canFlap) {
       return GLIDE;

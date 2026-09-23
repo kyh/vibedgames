@@ -11,6 +11,9 @@ import { VirtualGamepad } from "../src/core.js";
 const CLUSTER_LEFT = 480;
 const CLUSTER_TOP = 170;
 
+const outsideCluster = (p: { x: number; y: number }): boolean =>
+  p.x < CLUSTER_LEFT || p.y < CLUSTER_TOP;
+
 const pad = (region?: (p: { x: number; y: number }) => boolean): VirtualGamepad => {
   const gamepad = new VirtualGamepad({
     buttons: [{ id: "jump", position: () => ({ x: 556, y: 236 }), radius: 21 }],
@@ -30,8 +33,6 @@ test("without a region, any free touch anchors the stick", () => {
 });
 
 test("a touch outside the stick region is ignored, not turned into movement", () => {
-  const outsideCluster = (p: { x: number; y: number }): boolean =>
-    p.x < CLUSTER_LEFT || p.y < CLUSTER_TOP;
   const gamepad = pad(outsideCluster);
   gamepad.pointerDown(1, 500, 200);
   gamepad.pointerMove(1, 460, 200);
@@ -40,8 +41,6 @@ test("a touch outside the stick region is ignored, not turned into movement", ()
 });
 
 test("a region still lets the stick anchor everywhere else", () => {
-  const outsideCluster = (p: { x: number; y: number }): boolean =>
-    p.x < CLUSTER_LEFT || p.y < CLUSTER_TOP;
   const gamepad = pad(outsideCluster);
   gamepad.pointerDown(1, 120, 200);
   gamepad.pointerMove(1, 80, 200);

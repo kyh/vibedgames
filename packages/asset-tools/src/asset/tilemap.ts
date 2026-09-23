@@ -387,6 +387,8 @@ export const tilemapPayload = (
   },
 });
 
+const clampMapSize = (value: number) => Math.max(MAP_MIN, Math.min(MAP_MAX, value));
+
 /**
  * Read a saved map, clamped to sane dimensions.
  *
@@ -401,9 +403,8 @@ export const parseTilemap = (payload: JsonValue, fallback: { width: number; heig
   if (!isJsonObject(meta) || !Array.isArray(payload.data)) {
     throw new Error("Map JSON must have a `meta` object and a `data` array.");
   }
-  const clamp = (value: number) => Math.max(MAP_MIN, Math.min(MAP_MAX, value));
-  const width = clamp(asInt(meta.width, fallback.width));
-  const height = clamp(asInt(meta.height, fallback.height));
+  const width = clampMapSize(asInt(meta.width, fallback.width));
+  const height = clampMapSize(asInt(meta.height, fallback.height));
   return {
     data: normalizeMapData(payload.data, width, height),
     height,

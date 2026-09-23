@@ -52,6 +52,8 @@ const attack = (game: Diagnostics | null): ReflexInputs | null => {
   return steer(game, target.aimDx, target.aimDy, closeEnough ? BRAKE_REACH : FULL_THRUST_REACH);
 };
 
+const wallPush = (d: number): number => (d < WALL_RANGE ? 1 / Math.max(20, d) : 0);
+
 const evade = (game: Diagnostics | null): ReflexInputs | null => {
   if (!game) {
     return null;
@@ -65,9 +67,8 @@ const evade = (game: Diagnostics | null): ReflexInputs | null => {
       ey -= (t.dy / Math.max(1, t.dist)) * push;
     }
   }
-  const wall = (d: number): number => (d < WALL_RANGE ? 1 / Math.max(20, d) : 0);
-  ex += wall(game.walls.left) - wall(game.walls.right);
-  ey += wall(game.walls.up) - wall(game.walls.down);
+  ex += wallPush(game.walls.left) - wallPush(game.walls.right);
+  ey += wallPush(game.walls.up) - wallPush(game.walls.down);
   if (ex === 0 && ey === 0) {
     return attack(game);
   }

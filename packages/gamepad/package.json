@@ -52,7 +52,7 @@
   "devDependencies": {
     "@types/node": "catalog:",
     "phaser": "^4.2.1",
-    "tsx": "^4.23.13",
+    "tsx": "^4.23.15",
     "typescript": "catalog:"
   },
   "peerDependencies": {

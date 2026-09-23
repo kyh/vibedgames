@@ -2268,6 +2268,7 @@ var frameGeometry = (sheet, sheetPath, frameWidth, frameHeight) => {
   const columns = Math.max(1, Math.floor(sheet.width / side));
   return { columns, count: columns, frameHeight: side, frameWidth: side, rows: 1 };
 };
+var isRuledEdge = (outer, inner) => outer >= RULE_EDGE_FRAC && inner <= RULE_INNER_FRAC;
 var frameMetrics = (sheet, index, geometry) => {
   const { frameWidth: fw, frameHeight: fh, columns } = geometry;
   const row = Math.floor(index / columns);
@@ -2357,20 +2358,19 @@ var frameMetrics = (sheet, index, geometry) => {
     }
     return n / spanY;
   };
-  const ruled = (outer, inner) => outer >= RULE_EDGE_FRAC && inner <= RULE_INNER_FRAC;
   let ruleEdges = 0;
   if (spanX >= RULE_MIN_SPAN && spanY >= RULE_MIN_SPAN) {
     const inset = RULE_INNER_OFFSET;
-    if (ruled(rowFrac(minY), rowFrac(clamp(minY + inset, minY, maxY)))) {
+    if (isRuledEdge(rowFrac(minY), rowFrac(clamp(minY + inset, minY, maxY)))) {
       ruleEdges += 1;
     }
-    if (ruled(rowFrac(maxY), rowFrac(clamp(maxY - inset, minY, maxY)))) {
+    if (isRuledEdge(rowFrac(maxY), rowFrac(clamp(maxY - inset, minY, maxY)))) {
       ruleEdges += 1;
     }
-    if (ruled(colFrac(minX), colFrac(clamp(minX + inset, minX, maxX)))) {
+    if (isRuledEdge(colFrac(minX), colFrac(clamp(minX + inset, minX, maxX)))) {
       ruleEdges += 1;
     }
-    if (ruled(colFrac(maxX), colFrac(clamp(maxX - inset, minX, maxX)))) {
+    if (isRuledEdge(colFrac(maxX), colFrac(clamp(maxX - inset, minX, maxX)))) {
       ruleEdges += 1;
     }
   }

@@ -268,6 +268,15 @@ export const hasSupportedRoadThrough = (
   );
 };
 
+const sameSolid = (a: Solid, b: Solid): boolean =>
+  close(a.minX, b.minX) &&
+  close(a.maxX, b.maxX) &&
+  close(a.minZ, b.minZ) &&
+  close(a.maxZ, b.maxZ) &&
+  close(a.minY, b.minY) &&
+  close(a.maxY, b.maxY) &&
+  close(a.yaw ?? 0, b.yaw ?? 0);
+
 /** The legacy census measures fixed-scale props and building masses. These
  * objects are neither: a retaining wall's variable foundation intentionally
  * follows both ends of a bluff. Only EXACT regenerated, visibly paired walls
@@ -313,14 +322,6 @@ export const auditWaterBarriers = (
   );
   const near = nearbyEntries(expected);
   const nearVisual = nearbyEntries(visualBoxes);
-  const same = (a: Solid, b: Solid): boolean =>
-    close(a.minX, b.minX) &&
-    close(a.maxX, b.maxX) &&
-    close(a.minZ, b.minZ) &&
-    close(a.maxZ, b.maxZ) &&
-    close(a.minY, b.minY) &&
-    close(a.maxY, b.maxY) &&
-    close(a.yaw ?? 0, b.yaw ?? 0);
   const solids = new Set<Solid>();
   const sourceFound = new Set<Expected>();
   const visualFound = new Set<ShoreVisualBox>();
@@ -330,7 +331,7 @@ export const auditWaterBarriers = (
       continue;
     }
     const match = near((solid.minX + solid.maxX) / 2, (solid.minZ + solid.maxZ) / 2).find(
-      (entry) => !sourceFound.has(entry) && same(solid, entry.solid),
+      (entry) => !sourceFound.has(entry) && sameSolid(solid, entry.solid),
     );
     if (!match) {
       continue;

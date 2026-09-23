@@ -1788,48 +1788,49 @@ const sceneVillager = (game: Phaser.Game): TrailerScene => {
   };
 };
 
+// Only two levers actually repaint this world — the crops and the time/weather
+// grade — because the terrain art is season-invariant. Winter sits third so
+// the shot lands on the fullest frame, not the emptiest.
+const stageSeason = (g: GameScene, idx: number): void => {
+  if (idx === 0) {
+    g.day = 1;
+    g.weather = "sunny";
+    // spring dawn wash
+    g.timeMin = 430;
+    stageField(
+      g,
+      ["parsnip", "carrot", "potato", "parsnip", "carrot", null],
+      partGrown(0.45),
+      true,
+    );
+  } else if (idx === 1) {
+    g.day = 30;
+    g.weather = "sunny";
+    // flat high-summer noon
+    g.timeMin = 760;
+    stageField(g, ["radish", "kale", "sunflower", "cabbage", "radish", null], RIPE, true);
+  } else if (idx === 2) {
+    g.day = 90;
+    g.weather = "snow";
+    // Snow's own wash is only alpha 0.08, so at noon winter reads as summer
+    // with white flecks. A blue dusk is the coldest grade the game owns.
+    g.timeMin = 1220;
+    stageField(g, ["kale", null, "kale", null, null, null], partGrown(0.6), false);
+  } else {
+    g.day = 60;
+    g.weather = "rain";
+    // fall amber over the wet cast
+    g.timeMin = 1150;
+    stageField(g, ["pumpkin", "beetroot", "pumpkin", "wheat", "beetroot", null], RIPE, false);
+  }
+};
+
 /** A YEAR IN THE VALLEY — locked-off frame, four seasons swapping behind a
  *  farmer walking the foreground row, landing on the fall bounty. */
 const sceneSeasons = (game: Phaser.Game): TrailerScene => {
   let gs: GameScene | null = null;
   let script: FarmScript | null = null;
   let seg = -1;
-  // Only two levers actually repaint this world — the crops and the time/weather
-  // grade — because the terrain art is season-invariant. Winter sits third so
-  // the shot lands on the fullest frame, not the emptiest.
-  const stageSeason = (g: GameScene, idx: number): void => {
-    if (idx === 0) {
-      g.day = 1;
-      g.weather = "sunny";
-      // spring dawn wash
-      g.timeMin = 430;
-      stageField(
-        g,
-        ["parsnip", "carrot", "potato", "parsnip", "carrot", null],
-        partGrown(0.45),
-        true,
-      );
-    } else if (idx === 1) {
-      g.day = 30;
-      g.weather = "sunny";
-      // flat high-summer noon
-      g.timeMin = 760;
-      stageField(g, ["radish", "kale", "sunflower", "cabbage", "radish", null], RIPE, true);
-    } else if (idx === 2) {
-      g.day = 90;
-      g.weather = "snow";
-      // Snow's own wash is only alpha 0.08, so at noon winter reads as summer
-      // with white flecks. A blue dusk is the coldest grade the game owns.
-      g.timeMin = 1220;
-      stageField(g, ["kale", null, "kale", null, null, null], partGrown(0.6), false);
-    } else {
-      g.day = 60;
-      g.weather = "rain";
-      // fall amber over the wet cast
-      g.timeMin = 1150;
-      stageField(g, ["pumpkin", "beetroot", "pumpkin", "wheat", "beetroot", null], RIPE, false);
-    }
-  };
   return {
     duration: 4200,
     id: "seasons-timelapse",

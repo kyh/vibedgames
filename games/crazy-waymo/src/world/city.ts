@@ -902,11 +902,15 @@ const IMPOSTER_RATIO_MIN = 0.55;
 const IMPOSTER_RATIO_MAX = 1.7;
 const imposterBoxCache = new Map<string, THREE.BufferGeometry>();
 
-const ratioInto = (out: THREE.Color, part: THREE.Color, all: THREE.Color): THREE.Color => {
-  const clamp = (p: number, a: number): number =>
-    a <= 0.0001 ? 1 : Math.min(IMPOSTER_RATIO_MAX, Math.max(IMPOSTER_RATIO_MIN, p / a));
-  return out.setRGB(clamp(part.r, all.r), clamp(part.g, all.g), clamp(part.b, all.b));
-};
+const imposterRatio = (p: number, a: number): number =>
+  a <= 0.0001 ? 1 : Math.min(IMPOSTER_RATIO_MAX, Math.max(IMPOSTER_RATIO_MIN, p / a));
+
+const ratioInto = (out: THREE.Color, part: THREE.Color, all: THREE.Color): THREE.Color =>
+  out.setRGB(
+    imposterRatio(part.r, all.r),
+    imposterRatio(part.g, all.g),
+    imposterRatio(part.b, all.b),
+  );
 
 const imposterBox = (geo: THREE.BufferGeometry, mat: THREE.Material): THREE.BufferGeometry => {
   const map = mat instanceof THREE.MeshStandardMaterial ? mat.map : null;

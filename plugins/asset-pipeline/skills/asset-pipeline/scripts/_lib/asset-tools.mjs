@@ -1761,6 +1761,7 @@ var tilemapPayload = (meta, width, height, data) => ({
     width
   }
 });
+var clampMapSize = (value) => Math.max(MAP_MIN, Math.min(MAP_MAX, value));
 var parseTilemap = (payload, fallback) => {
   if (!isJsonObject(payload)) {
     throw new Error("Map JSON must be an object.");
@@ -1769,9 +1770,8 @@ var parseTilemap = (payload, fallback) => {
   if (!isJsonObject(meta) || !Array.isArray(payload.data)) {
     throw new Error("Map JSON must have a `meta` object and a `data` array.");
   }
-  const clamp = (value) => Math.max(MAP_MIN, Math.min(MAP_MAX, value));
-  const width = clamp(asInt(meta.width, fallback.width));
-  const height = clamp(asInt(meta.height, fallback.height));
+  const width = clampMapSize(asInt(meta.width, fallback.width));
+  const height = clampMapSize(asInt(meta.height, fallback.height));
   return {
     data: normalizeMapData(payload.data, width, height),
     height,
