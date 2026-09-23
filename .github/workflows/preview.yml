@@ -1,0 +1,191 @@
+# Vercel-style previews on Cloudflare Worker Previews. Every PR from a branch of this repo gets
+# a Preview of each Worker it touches once CI is green: its own URL, its own Durable Objects,
+# and the preview-only D1 + bucket named by the `previews` block in each wrangler.jsonc. The PR
+# shows them the way Vercel's do: one sticky comment with a row per Worker, and a
+# "View deployment" button per Worker from a GitHub deployment in "Preview – <worker>". Closing
+# the PR deletes them.
+#
+# web and party only. games routes by `{slug}.vibedgames.com`, so a preview URL has no slug and
+# would serve nothing.
+#
+# workflow_run, not pull_request: a preview of a red tree is noise. workflow_run runs with
+# secrets against PR code, so it is limited to this repo's own branches; a fork's PR never
+# reaches the build.
+#
+# Needs: CLOUDFLARE_API_TOKEN also granted D1: Edit and Workers R2 Storage: Edit, a
+# CLOUDFLARE_ACCOUNT_ID secret, and once, from a machine, each of web's `secrets.required` as a
+# preview value (R2 keys that can reach vibedgames-games-preview):
+#   pnpm -F @repo/web exec wrangler preview base-config secret put <NAME>
+name: Preview
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  # closed only, and nothing from the PR is checked out: this leg deletes by name
+  pull_request_target:
+    types: [closed]
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.pull_requests[0].number
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+      pull-requests: write
+    concurrency:
+      group: preview-${{ github.event.workflow_run.pull_requests[0].number }}
+    env:
+      PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      GITHUB_TOKEN: ${{ github.token }}
+      TURBO_TELEMETRY_DISABLED: 1
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - uses: pnpm/setup@v2
+        with:
+          runtime: node@24
+          cache: true
+
+      # the same turbo filter Deploy runs, against where the PR branched off
+      - name: Detect changed workers
+        id: changed
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          base="$(git merge-base "origin/$DEFAULT_BRANCH" HEAD)"
+          projects=""
+          for app in web party; do
+            if ! output="$(pnpm turbo ls --filter="@repo/${app}...[${base}]")" || echo "$output" | grep -q "@repo/"; then
+              projects="$projects $app"
+            fi
+          done
+          echo "projects=${projects# }" >> "$GITHUB_OUTPUT"
+
+      - name: Report building
+        if: steps.changed.outputs.projects != ''
+        env:
+          PROJECTS: ${{ steps.changed.outputs.projects }}
+        run: |
+          for app in $PROJECTS; do
+            node .github/scripts/worker-preview.mjs report "vibedgames-$app" building
+          done
+
+      # find-or-create, so the first PR provisions them and every later one reuses them
+      - name: Preview resources
+        id: resources
+        if: steps.changed.outputs.projects != ''
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        working-directory: apps/web
+        run: |
+          d1_id() { pnpm exec wrangler d1 list --json | jq -r '.[] | select(.name == "vibedgames-preview") | .uuid'; }
+          id="$(d1_id)"
+          if [ -z "$id" ]; then
+            pnpm exec wrangler d1 create vibedgames-preview
+            id="$(d1_id)"
+          fi
+          pnpm exec wrangler r2 bucket info vibedgames-games-preview >/dev/null 2>&1 \
+            || pnpm exec wrangler r2 bucket create vibedgames-games-preview
+          sed -i "s/<REPLACE_ME>/$id/" wrangler.jsonc ../party/wrangler.jsonc
+          echo "d1_id=$id" >> "$GITHUB_OUTPUT"
+
+      # --force: this is the preview database, and a PR's schema is the one it ships
+      - name: Preview schema
+        if: steps.changed.outputs.projects != ''
+        working-directory: packages/db
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_DATABASE_ID: ${{ steps.resources.outputs.d1_id }}
+          CLOUDFLARE_D1_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: pnpm exec drizzle-kit push --force
+
+      # one Worker after another, so every report lands on the comment in order; a failed
+      # Worker is reported and the next still deploys
+      - name: Deploy previews
+        id: deploy
+        if: steps.changed.outputs.projects != ''
+        env:
+          PROJECTS: ${{ steps.changed.outputs.projects }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PR_URL: ${{ github.server_url }}/${{ github.repository }}/pull/${{ github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          failed=""
+          for app in $PROJECTS; do
+            out="$RUNNER_TEMP/wrangler-$app.ndjson"
+            if pnpm turbo run build --filter="@repo/$app..." \
+              && (cd "apps/$app" && WRANGLER_OUTPUT_FILE_PATH="$out" pnpm exec wrangler preview --name "pr-$PR_NUMBER" --tag "${HEAD_SHA:0:7}"); then
+              url="$(jq -rs 'map(select(.type == "preview")) | last | (.preview_urls[0] // .deployment_urls[0] // empty)' "$out")"
+              node .github/scripts/worker-preview.mjs report "vibedgames-$app" ready "$url"
+            else
+              node .github/scripts/worker-preview.mjs report "vibedgames-$app" error
+              failed="$failed $app"
+            fi
+          done
+          if [ -n "$failed" ]; then
+            echo "::error::preview failed for:$failed"
+            exit 1
+          fi
+
+      # a failure before the loop (resources, schema) leaves every row on Building otherwise;
+      # the loop reports its own
+      - name: Report failure
+        if: failure() && steps.changed.outputs.projects != '' && steps.deploy.outcome == 'skipped'
+        env:
+          PROJECTS: ${{ steps.changed.outputs.projects }}
+        run: |
+          for app in $PROJECTS; do
+            node .github/scripts/worker-preview.mjs report "vibedgames-$app" error
+          done
+
+  cleanup:
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+      pull-requests: write
+    concurrency:
+      group: preview-${{ github.event.pull_request.number }}
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      # the base branch: pull_request_target must never run the PR's code
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/setup@v2
+        with:
+          runtime: node@24
+          cache: true
+
+      # a Worker this PR never touched has no Preview, so a miss is not a failure
+      - name: Delete previews
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          for app in web party; do
+            (cd "apps/$app" && pnpm exec wrangler preview delete --name "pr-$PR_NUMBER" --skip-confirmation) || true
+          done
+
+      - name: Report deleted
+        run: node .github/scripts/worker-preview.mjs close vibedgames-web vibedgames-party
