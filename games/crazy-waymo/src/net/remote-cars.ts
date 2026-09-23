@@ -126,6 +126,8 @@ export class RemoteCars {
   private lastSweepAt = 0;
   private scratchN = new THREE.Vector3();
   private quat = new THREE.Quaternion();
+  /** Trailer-staged rivals carry no player beacon; cars spawned after a change pick it up. */
+  showBeacons = true;
 
   private readonly cache: ModelCache;
   private readonly surface: Surface;
@@ -302,6 +304,7 @@ export class RemoteCars {
     const beaconMat = new THREE.MeshBasicMaterial({ color: colorForId(id) });
     const beacon = new THREE.Mesh(beaconGeo, beaconMat);
     beacon.position.set(0, 2.1, 0);
+    beacon.visible = this.showBeacons;
     group.add(beacon);
 
     this.group.add(group);

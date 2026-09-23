@@ -592,18 +592,22 @@ export class GameScene {
   // When true (set by DEV debug hooks only) the game stops driving the camera,
   // so an external tool can park it anywhere for inspection.
   freecam = false;
-  // TRAILER: ?trailer=1 boots stage everything locally — never join a room.
+  // Trailer captures stay offline except an explicit local DEV presence take.
   private readonly trailerMode: boolean;
 
   constructor(aspect: number, trailerMode = false) {
     this.trailerMode = trailerMode;
     this.rig = new ChaseCamera(aspect);
+    const localTrailerPeers =
+      import.meta.env.DEV &&
+      trailerMode &&
+      new URLSearchParams(window.location.search).has("trailer-online");
     this.net = new NetSession({
       fallbackMs: OFFLINE_FALLBACK_MS,
       // A playtest stages its own run; that must never reach a live room.
-      forceOffline: this.trailerMode || isPlaytestRequested(),
+      forceOffline: (this.trailerMode && !localTrailerPeers) || isPlaytestRequested(),
       maxPlayers: MP_MAX_PLAYERS,
-      room: MP_ROOM,
+      room: localTrailerPeers ? "crazy-waymo-trailer-local" : MP_ROOM,
     });
 
     // Plugging in / unplugging a pad changes which control hints apply — the
@@ -1919,6 +1923,9 @@ vec3 ocGerstner(vec2 p, float t) {
     speed: number;
     heading: number;
     airborne: boolean;
+    airTime: number;
+    fares: number;
+    network: { status: string; players: number; visible: number };
     waterContact: WaterContact;
     drifting: boolean;
     boosting: boolean;
@@ -1946,12 +1953,19 @@ vec3 ocGerstner(vec2 p, float t) {
       }
     }
     return {
+      airTime: car.airTime,
       airborne: car.airborne,
       boosting: car.isBoosting,
       carrying: this.fares?.carryingInfo() !== null && this.fares !== null,
       drifting: car.isDrifting,
+      fares: this.state.fares,
       heading: car.heading,
       nearestTraffic,
+      network: {
+        players: Object.keys(this.net.players).length,
+        status: this.net.connectionStatus,
+        visible: this.remoteCars?.count() ?? 0,
+      },
       objective: obj ? { u: obj.pos.x / WORLD_W + 0.5, v: obj.pos.z / WORLD_H + 0.5 } : null,
       speed: car.speed,
       waterContact: car.waterContact,
@@ -2981,6 +2995,9 @@ vec3 ocGerstner(vec2 p, float t) {
       setDayPhase: (p) => this.dayNight.setPhase(p),
       setFakePlayers: (players) => {
         this.trailerFakes = players;
+        if (this.remoteCars) {
+          this.remoteCars.showBeacons = players === null;
+        }
       },
       setFrameHook: (fn) => {
         this.trailerFrame = fn;
