@@ -24,6 +24,9 @@ const ease = (t: number): number => {
 };
 const angle = (v: number): number => Math.atan2(Math.sin(v), Math.cos(v));
 const NEUTRAL: CarInput = { boost: false, brake: 0, steer: 0, throttle: 0 };
+/** Staged rival footprint (remote cars draw at 1.12×): along-road, across-road. */
+const PACK_LENGTH = 4.8;
+const PACK_WIDTH = 2.9;
 /** Body centre above the car's road-level origin; every lens aims here. */
 const SUBJECT_LIFT = 0.8;
 
@@ -38,6 +41,8 @@ type Lens =
   | { kind: "custom"; blur?: number }
   | {
       kind: "chase";
+      /** Show the gameplay HUD: a player-eye chase, closer than the game rig. */
+      hud?: boolean;
       back: number;
       up: number;
       side: number;
@@ -93,6 +98,8 @@ interface CityShot {
   minHalf?: number;
   /** Robotaxis from other companies riding alongside (visual remote cars). */
   pack?: readonly PackCar[];
+  /** Player lane change (overtake): lateral offset eased in over `ms` from `at`. */
+  lane?: { at: number; ms: number; to: number };
   /** Parked cars staged across the player's line, `ahead` units from the start. */
   plow?: { ahead: number; count: number; spacing: number };
 }
@@ -191,7 +198,8 @@ class Director {
     st.state.reset();
     st.hud.resetScore(0);
     st.car.boostMeter = 100;
-    const hud = view.kind === "game" && !this.clean;
+    const hud =
+      (view.kind === "game" || (view.kind === "chase" && view.hud === true)) && !this.clean;
     for (const id of ["hud", "minimap", "area", "district", "dest-arrow", "netinfo", "touch"]) {
       const el = document.querySelector<HTMLElement>(`#${id}`);
       if (el) {
@@ -497,6 +505,26 @@ class Director {
           seconds: 3.8,
           view: { back: 4, fov: 42, height: 26, kind: "drone" },
         }),
+      "drift-game": () =>
+        this.driftShot({
+          approach: 40,
+          corner: 1,
+          id: "drift-game",
+          phase: 0.37,
+          quip: null,
+          seconds: 3.8,
+          view: {
+            aimAhead: 7,
+            aimUp: 1.1,
+            back: 6.8,
+            fov: 56,
+            hud: true,
+            kind: "chase",
+            lag: 6,
+            side: 0,
+            up: 2.3,
+          },
+        }),
       "drift-golden": () =>
         this.driftShot({
           approach: 34,
@@ -605,12 +633,52 @@ class Director {
           speedCap: 26,
           view: { back: 4.4, kind: "chase", lag: 5, side: 1, up: 1.05, ...tele(46, 6) },
         }),
+      "night-drift": () =>
+        this.driftShot({
+          approach: 34,
+          corner: 0,
+          id: "night-drift",
+          phase: 0.68,
+          quip: null,
+          seconds: 3.6,
+          view: { from: 1.2, kind: "orbit", radius: 7.5, rate: -0.5, up: 1.4, ...tele(40, 5) },
+        }),
+      "night-game": () =>
+        this.cityShot({
+          id: "night-game",
+          landmark: "the Ferry Building",
+          phase: 0.68,
+          radius: 260,
+          seconds: 4,
+          speedCap: 28,
+          view: {
+            aimAhead: 7,
+            aimUp: 1.1,
+            back: 6.8,
+            fov: 56,
+            hud: true,
+            kind: "chase",
+            lag: 6,
+            side: 0,
+            up: 2.3,
+          },
+        }),
+      "night-skyline": () =>
+        this.cityShot({
+          id: "night-skyline",
+          landmark: "the Ferry Building",
+          phase: 0.68,
+          radius: 260,
+          seconds: 4,
+          speedCap: 22,
+          view: { kind: "parallel", lag: 3, lead: 1.5, side: 7.5, up: 1.3, ...tele(34, 5) },
+        }),
       "night-whip": () =>
         this.cityShot({
           id: "night-whip",
           landmark: "the Ferry Building",
           minHalf: 6,
-          phase: 0.6,
+          phase: 0.68,
           radius: 260,
           seconds: 3,
           speedCap: 32,
@@ -735,6 +803,29 @@ class Director {
           speedCap: 30,
           view: { back: 9, fov: 48, height: 14, kind: "drone" },
         }),
+      "plow-game": () =>
+        this.cityShot({
+          boostMs: 3000,
+          id: "plow-game",
+          landmark: "the Ferry Building",
+          minHalf: 6,
+          phase: 0.3,
+          plow: { ahead: 44, count: 4, spacing: 4.4 },
+          radius: 260,
+          seconds: 3,
+          speedCap: 30,
+          view: {
+            aimAhead: 7,
+            aimUp: 1.1,
+            back: 6.8,
+            fov: 56,
+            hud: true,
+            kind: "chase",
+            lag: 6,
+            side: 0,
+            up: 2.3,
+          },
+        }),
       "plow-tripod": () =>
         this.cityShot({
           boostMs: 3000,
@@ -747,6 +838,52 @@ class Director {
           seconds: 3,
           speedCap: 30,
           view: { ahead: 64, kind: "tripod", side: 4.5, up: 0.9, ...tele(40, 4) },
+        }),
+      "race-game": () =>
+        this.cityShot({
+          id: "race-game",
+          landmark: "the Ferry Building",
+          minHalf: 7,
+          pack: [
+            { gap: 11, lane: 0, skin: "cruise", surge: -1.4 },
+            { gap: 1, lane: -3.8, skin: "zoox", surge: 0.6, sway: 0.3 },
+            { gap: -7, lane: -3.8, skin: "uber", surge: 1.4, sway: 0.3 },
+            { gap: -2, lane: 3.8, skin: "cybercab", surge: 0.9, sway: 0.3 },
+            { gap: 7, lane: 3.8, skin: "lyft", surge: -1, sway: 0.3 },
+          ],
+          phase: 0.3,
+          radius: 320,
+          seconds: 4.5,
+          speedCap: 24,
+          view: {
+            aimAhead: 7,
+            aimUp: 1.1,
+            back: 6.8,
+            fov: 56,
+            hud: true,
+            kind: "chase",
+            lag: 6,
+            side: 0,
+            up: 2.3,
+          },
+        }),
+      "race-lead": () =>
+        this.cityShot({
+          id: "race-lead",
+          landmark: "the Ferry Building",
+          minHalf: 7,
+          pack: [
+            { gap: 16, lane: 0, skin: "cruise", surge: 0 },
+            { gap: 1, lane: -3.8, skin: "zoox", surge: 0.6, sway: 0.3 },
+            { gap: -7, lane: -3.8, skin: "uber", surge: 1.4, sway: 0.3 },
+            { gap: -2, lane: 3.8, skin: "cybercab", surge: 0.9, sway: 0.3 },
+            { gap: 7, lane: 3.8, skin: "lyft", surge: -1, sway: 0.3 },
+          ],
+          phase: 0.3,
+          radius: 320,
+          seconds: 4.5,
+          speedCap: 24,
+          view: { ahead: 7.5, kind: "lead", lag: 3, side: -1.2, up: 1.9, ...tele(44, 3) },
         }),
       "twin-peaks-vista": () => this.vistaShot(),
       "whip-by": () =>
@@ -955,15 +1092,24 @@ class Director {
       }
       const { car } = this.stage;
       const along = path.project(car.position);
+      const here = path.at(along);
+      const playerLane = (car.position.x - here.x) * here.tz - (car.position.z - here.z) * here.tx;
+      // Rivals are visual only, so separation is enforced here: a rival that
+      // would overlap the player or an earlier rival is pushed to the next lane.
+      const placed: { s: number; lane: number }[] = [{ lane: playerLane, s: 0 }];
       const players: PlayerMap = {};
       for (const [i, member] of spec.pack.entries()) {
-        if (!path) {
-          continue;
+        const s = member.gap + ((member.surge ?? 0) * (t - packFrom)) / 1000;
+        let lane = member.lane + (member.sway ?? 0) * Math.sin((t - packFrom) / 520 + i * 1.7);
+        for (const other of placed) {
+          if (Math.abs(s - other.s) < PACK_LENGTH && Math.abs(lane - other.lane) < PACK_WIDTH) {
+            lane = other.lane + Math.sign(member.lane - other.lane || 1) * PACK_WIDTH;
+          }
         }
-        const p = path.at(along + member.gap + ((member.surge ?? 0) * (t - packFrom)) / 1000);
-        const lane = member.lane + (member.sway ?? 0) * Math.sin((t - packFrom) / 290 + i * 1.7);
+        placed.push({ lane, s });
+        const p = path.at(along + s);
         const x = p.x + p.tz * lane;
-        const z = p.z - p.tx * member.lane;
+        const z = p.z - p.tx * lane;
         const id = `trailer-${i}`;
         players[id] = {
           id,
@@ -994,6 +1140,11 @@ class Director {
           }
           const s = path.project(car.position);
           const next = path.at(s + 7 + car.speed * 0.3);
+          if (spec.lane) {
+            const shift = spec.lane.to * ease((t - spec.lane.at) / spec.lane.ms);
+            next.x += next.tz * shift;
+            next.z -= next.tx * shift;
+          }
           const boost = spec.boostMs !== undefined && t < spec.boostMs;
           let targetSpeed = speed;
           for (const other of this.stage.traffic.cars) {
