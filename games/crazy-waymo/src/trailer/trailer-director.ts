@@ -10,7 +10,14 @@ import type { TrafficQuip } from "../fx/speech-bubbles";
 import { setGradeLens } from "../render/grade";
 import type { CarInput } from "../vehicle/car";
 import { landmarkMarkers } from "../world/landmarks";
-import { nearFreeway, scoutCorners, scoutDescent, scoutGoldenGate, scoutRunNear } from "./scout";
+import {
+  isWaterAt,
+  nearFreeway,
+  scoutCorners,
+  scoutDescent,
+  scoutGoldenGate,
+  scoutRunNear,
+} from "./scout";
 import type { CornerSpot, ScoutCtx } from "./scout";
 import type { Point } from "./street-path";
 import { StreetPath } from "./street-path";
@@ -100,8 +107,9 @@ interface CityShot {
   pack?: readonly PackCar[];
   /** Player lane change (overtake): lateral offset eased in over `ms` from `at`. */
   lane?: { at: number; ms: number; to: number };
-  /** Parked cars staged across the player's line, `ahead` units from the start. */
-  plow?: { ahead: number; count: number; spacing: number };
+  /** Parked cars staged across the player's line, `ahead` units from the start;
+   * with `kerb`, a row parked along that side of the street the car swerves into. */
+  plow?: { ahead: number; count: number; spacing: number; kerb?: number };
 }
 interface PackCar {
   skin: string;
@@ -423,6 +431,27 @@ class Director {
    * the default cut lives in `SCENE_ORDER` below. `?scene=a,b` plays a subset. */
   private catalog() {
     return {
+      "beach-cliff": () =>
+        this.shoreShot("beach-cliff", "the Cliff House", 0.47, {
+          back: 5,
+          kind: "chase",
+          lag: 5,
+          side: 2.2,
+          up: 1.2,
+          ...tele(48, 4),
+        }),
+      "beach-dusk": () =>
+        this.shoreShot("beach-dusk", "the Dutch Windmill", 0.46, {
+          aimAhead: 7,
+          aimUp: 1.1,
+          back: 6.8,
+          fov: 56,
+          hud: true,
+          kind: "chase",
+          lag: 6,
+          side: 0,
+          up: 2.3,
+        }),
       "boost-sun": () =>
         this.cityShot({
           boostMs: 2000,
@@ -445,6 +474,39 @@ class Director {
           ...tele(34, 4),
         }),
       "bridge-sprint": () => this.bridgeSprintShot("bridge-sprint", { kind: "custom" }),
+      "civic-dusk": () =>
+        this.cityShot({
+          id: "civic-dusk",
+          landmark: "City Hall",
+          phase: 0.46,
+          radius: 160,
+          seconds: 3.5,
+          speedCap: 20,
+          view: { ahead: 9, kind: "lead", lag: 3, side: 1.2, up: 1.3, ...tele(40, 5) },
+        }),
+      "curb-plow": () =>
+        this.cityShot({
+          id: "curb-plow",
+          landmark: "the Ferry Building",
+          lane: { at: 500, ms: 700, to: 3.4 },
+          minHalf: 6,
+          phase: 0.33,
+          plow: { ahead: 50, count: 4, kerb: 3.6, spacing: 5.4 },
+          radius: 260,
+          seconds: 3.5,
+          speedCap: 28,
+          view: {
+            aimAhead: 7,
+            aimUp: 1.1,
+            back: 6.8,
+            fov: 56,
+            hud: true,
+            kind: "chase",
+            lag: 6,
+            side: 0,
+            up: 2.3,
+          },
+        }),
       "downtown-low": () =>
         this.cityShot({
           id: "downtown-low",
@@ -596,6 +658,28 @@ class Director {
           up: 0.9,
           ...tele(46, 3),
         }),
+      "jump-game": () =>
+        this.jumpShot(
+          "jump-game",
+          {
+            aimAhead: 7,
+            aimUp: 1.1,
+            back: 6.8,
+            fov: 56,
+            hud: true,
+            kind: "chase",
+            lag: 6,
+            side: 0,
+            up: 2.3,
+          },
+          2.4,
+        ),
+      "jump-land": () =>
+        this.jumpShot(
+          "jump-land",
+          { ahead: 30, kind: "tripod", side: 2.6, up: 0.25, ...tele(48, 3) },
+          2.4,
+        ),
       "jump-under": () =>
         this.jumpShot("jump-under", {
           ahead: 30,
@@ -622,6 +706,17 @@ class Director {
             up: 2.05,
             ...tele(38, 9),
           },
+        }),
+      lombard: () =>
+        this.cityShot({
+          id: "lombard",
+          landmark: "Lombard Street",
+          minHalf: 2,
+          phase: 0.36,
+          radius: 60,
+          seconds: 4,
+          speedCap: 9,
+          view: { back: 3, fov: 50, height: 22, kind: "drone" },
         }),
       "night-chase": () =>
         this.cityShot({
@@ -683,6 +778,26 @@ class Director {
           seconds: 3,
           speedCap: 32,
           view: { ahead: 32, kind: "tripod", side: 3.2, up: 0.6, ...tele(40, 6) },
+        }),
+      "oracle-dusk": () =>
+        this.cityShot({
+          id: "oracle-dusk",
+          landmark: "Oracle Park",
+          phase: 0.47,
+          radius: 180,
+          seconds: 3.5,
+          speedCap: 24,
+          view: {
+            aimAhead: 7,
+            aimUp: 1.1,
+            back: 6.8,
+            fov: 56,
+            hud: true,
+            kind: "chase",
+            lag: 6,
+            side: 0,
+            up: 2.3,
+          },
         }),
       "pack-drone": () =>
         this.cityShot({
@@ -756,6 +871,26 @@ class Director {
           seconds: 3.5,
           speedCap: 18,
           view: { kind: "parallel", lag: 3, lead: 3, side: 8, up: 1.6, ...tele(36, 5) },
+        }),
+      "park-dusk": () =>
+        this.cityShot({
+          id: "park-dusk",
+          landmark: "the Conservatory of Flowers",
+          phase: 0.45,
+          radius: 200,
+          seconds: 4,
+          speedCap: 22,
+          view: {
+            aimAhead: 7,
+            aimUp: 1.1,
+            back: 6.8,
+            fov: 56,
+            hud: true,
+            kind: "chase",
+            lag: 6,
+            side: 0,
+            up: 2.3,
+          },
         }),
       "passenger-run": () => this.passengerShot("passenger-run", { kind: "game" }),
       "passenger-tripod": () =>
@@ -847,9 +982,9 @@ class Director {
           pack: [
             { gap: 11, lane: 0, skin: "cruise", surge: -1.4 },
             { gap: 1, lane: -3.8, skin: "zoox", surge: 0.6, sway: 0.3 },
-            { gap: -7, lane: -3.8, skin: "uber", surge: 1.4, sway: 0.3 },
+            { gap: -7, lane: -3.8, skin: "uber", surge: 0.7, sway: 0.3 },
             { gap: -2, lane: 3.8, skin: "cybercab", surge: 0.9, sway: 0.3 },
-            { gap: 7, lane: 3.8, skin: "lyft", surge: -1, sway: 0.3 },
+            { gap: 8, lane: 3.8, skin: "lyft", surge: 0.2, sway: 0.3 },
           ],
           phase: 0.3,
           radius: 320,
@@ -875,9 +1010,9 @@ class Director {
           pack: [
             { gap: 16, lane: 0, skin: "cruise", surge: 0 },
             { gap: 1, lane: -3.8, skin: "zoox", surge: 0.6, sway: 0.3 },
-            { gap: -7, lane: -3.8, skin: "uber", surge: 1.4, sway: 0.3 },
+            { gap: -7, lane: -3.8, skin: "uber", surge: 0.7, sway: 0.3 },
             { gap: -2, lane: 3.8, skin: "cybercab", surge: 0.9, sway: 0.3 },
-            { gap: 7, lane: 3.8, skin: "lyft", surge: -1, sway: 0.3 },
+            { gap: 8, lane: 3.8, skin: "lyft", surge: 0.2, sway: 0.3 },
           ],
           phase: 0.3,
           radius: 320,
@@ -1041,30 +1176,35 @@ class Director {
     );
   }
 
-  private jumpShot(id: string, view: Lens): TrailerScene {
+  private jumpShot(id: string, view: Lens, seconds = 1.45): TrailerScene {
     let longestAir = 0;
-    let landed = false;
+    let landedAt: number | null = null;
     return this.shot(
       {
-        duration: 1450,
+        duration: seconds * 1000,
         id,
         run: (t) => {
           const { car } = this.stage;
-          this.assertRoad(id);
+          if (landedAt === null) {
+            this.assertRoad(id);
+          }
           longestAir = Math.max(longestAir, car.airTime);
-          if (car.justLanded && longestAir > 0.45) {
-            landed = true;
+          if (car.justLanded && longestAir > 0.45 && landedAt === null) {
+            landedAt = t;
           }
           const error = angle(-Math.PI / 2 - car.heading);
           if (!this.preparing) {
+            // After touchdown ease off so the roll-out stays on the street
+            // before the road bends.
+            const rolling = landedAt !== null && t - landedAt > 250;
             this.stage.setScriptedInput({
               boost: t < 450,
-              brake: 0,
+              brake: rolling ? 0.35 : 0,
               steer: clamp(-error * 2.2, -0.3, 0.3),
-              throttle: 1,
+              throttle: rolling ? 0 : 1,
             });
           }
-          if (t > 1400 && (!landed || longestAir < 0.45)) {
+          if (t > 1400 && (landedAt === null || longestAir < 0.45)) {
             throw new Error(`Nob Hill take missing hangtime/landing: ${longestAir.toFixed(2)}s`);
           }
         },
@@ -1074,7 +1214,7 @@ class Director {
           // normal suspension; the broad hill scout averages this crest away.
           this.spawn(448.25, -838.5, -Math.PI / 2, 38);
           longestAir = 0;
-          landed = false;
+          landedAt = null;
         },
       },
       view,
@@ -1196,23 +1336,88 @@ class Director {
             spec.pack || spec.plow ? 12 : 3,
           );
           if (spec.plow) {
-            // A wall across the road: the car cannot line up a gap.
             const row = path.at(startDistance + spec.plow.ahead);
-            const half = ((spec.plow.count - 1) * spec.plow.spacing) / 2;
-            st.stageParkedRow(
-              row.x + row.tz * half,
-              row.z - row.tx * half,
-              -row.tz,
-              row.tx,
-              spec.plow.count,
-              spec.plow.spacing,
-            );
+            const { kerb } = spec.plow;
+            if (kerb === undefined) {
+              // A wall across the road: the car cannot line up a gap.
+              const half = ((spec.plow.count - 1) * spec.plow.spacing) / 2;
+              st.stageParkedRow(
+                row.x + row.tz * half,
+                row.z - row.tx * half,
+                -row.tz,
+                row.tx,
+                spec.plow.count,
+                spec.plow.spacing,
+              );
+            } else {
+              st.stageParkedRow(
+                row.x + row.tz * kerb,
+                row.z - row.tx * kerb,
+                row.tx,
+                row.tz,
+                spec.plow.count,
+                spec.plow.spacing,
+              );
+            }
           }
           startPosition.copy(st.car.position);
           packFrom = 0;
         },
       },
       spec.view,
+    );
+  }
+
+  /** Leave the nearest street for the nearest open water: sand, surf, splash. */
+  private shoreShot(id: string, landmark: string, phase: number, view: Lens): TrailerScene {
+    const target = { x: 0, z: 0 };
+    return this.shot(
+      {
+        duration: 4000,
+        id,
+        run: () => {
+          this.drive(target, 22);
+        },
+        setup: () => {
+          const mark = landmarkMarkers(this.stage.city.network).find((m) => m.name === landmark);
+          if (!mark) {
+            throw new Error(`Landmark missing: ${landmark}`);
+          }
+          let water: Point | null = null;
+          for (let r = 20; r <= 320 && !water; r += 8) {
+            for (let k = 0; k < 48; k += 1) {
+              const a = (k / 48) * Math.PI * 2;
+              const x = mark.x + Math.sin(a) * r;
+              const z = mark.z + Math.cos(a) * r;
+              if (isWaterAt(x, z)) {
+                water = { x, z };
+                break;
+              }
+            }
+          }
+          if (!water) {
+            throw new Error(`No water near ${landmark}`);
+          }
+          const road = this.stage.city.network.nearest(
+            water.x + (mark.x - water.x) * 0.5,
+            water.z + (mark.z - water.z) * 0.5,
+            200,
+          );
+          if (!road) {
+            throw new Error(`No street near ${landmark}`);
+          }
+          const sx = road.x;
+          const sz = road.z;
+          const dist = Math.hypot(water.x - sx, water.z - sz);
+          const dx = (water.x - sx) / dist;
+          const dz = (water.z - sz) / dist;
+          target.x = water.x + dx * 40;
+          target.z = water.z + dz * 40;
+          this.reset(phase, view);
+          this.spawn(sx, sz, Math.atan2(dx, dz), 18, 8);
+        },
+      },
+      view,
     );
   }
 
