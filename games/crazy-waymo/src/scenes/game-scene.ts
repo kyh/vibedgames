@@ -363,6 +363,12 @@ export interface TrailerStage {
   setCommentary: (visible: boolean) => void;
   /** Stage an existing NPC line on a real fleet car, using the normal bubbles. */
   sayTraffic: (car: TrafficCar, quip: TrafficQuip) => void;
+  /** Open the garage showroom over the shot with its pad markers. Every skin
+   *  equips without a purchase and nothing reaches saved progress. */
+  openShowroom: () => Promise<void>;
+  closeShowroom: () => void;
+  /** Put the taxi back in a skin between takes (session only). */
+  wearSkin: (skinId: string) => void;
 }
 
 export class GameScene {
@@ -1419,12 +1425,12 @@ vec3 ocGerstner(vec2 p, float t) {
   }
 
   private updateGarages(dt: number): void {
-    if (this.trailerMode) {
-      return;
-      // no showroom popping over a staged shot
-    }
     if (this.garageOpen) {
       this.garagePreview?.update(dt);
+    }
+    // A staged shot opens the showroom itself; the pads never pop one over it.
+    if (this.trailerMode) {
+      return;
     }
     const { city } = this;
     const { car } = this;
@@ -1519,7 +1525,7 @@ vec3 ocGerstner(vec2 p, float t) {
         if (!sk || !this.car) {
           return;
         }
-        const owned = this.ownedSkins.has(sk.id) || sk.price === 0;
+        const owned = this.trailerMode || this.ownedSkins.has(sk.id) || sk.price === 0;
         if (owned) {
           this.sfx.ui("select");
         } else {
@@ -1535,7 +1541,9 @@ vec3 ocGerstner(vec2 p, float t) {
           this.sfx.unlock();
         }
         this.skinId = sk.id;
-        storageSet("crazy-waymo:skin", sk.id);
+        if (!this.trailerMode) {
+          storageSet("crazy-waymo:skin", sk.id);
+        }
         void this.wearSkin(sk.id);
         this.hud.setOperator(sk.label, sk.accent);
         this.renderGarage();
@@ -2952,9 +2960,25 @@ vec3 ocGerstner(vec2 p, float t) {
       camera: this.rig.camera,
       car,
       city,
+      closeShowroom: () => {
+        this.closeGarage(false);
+        if (this.garageRings) {
+          this.garageRings.visible = false;
+        }
+      },
       cones,
       fares,
       hud: this.hud,
+      openShowroom: async () => {
+        await this.loadShowroom();
+        if (this.garageRings) {
+          this.garageRings.visible = true;
+        }
+        this.openGarage();
+        if (this.garageEl) {
+          await this.mountShowroom(this.garageEl);
+        }
+      },
       placeCar: (x, z, yaw, speed, y) => {
         // Every scout gates its marks on the play area, so a mark outside it is
         // a staging bug — and an expensive one: past the map edge the ground
@@ -3029,6 +3053,10 @@ vec3 ocGerstner(vec2 p, float t) {
         this.sfx.ensure();
         this.sfx.setMuted(false);
         this.sfx.startMusic();
+      },
+      wearSkin: (skinId) => {
+        this.skinId = skinId;
+        this.car?.setSkin(skinId);
       },
     };
     return this.trailerStage;

@@ -31,6 +31,8 @@ const ease = (t: number): number => {
 };
 const angle = (v: number): number => Math.atan2(Math.sin(v), Math.cos(v));
 const NEUTRAL: CarInput = { boost: false, brake: 0, steer: 0, throttle: 0 };
+const showroomCard = (skin: string): HTMLElement | null =>
+  document.querySelector<HTMLElement>(`#garage [data-skin="${skin}"]`);
 /** Staged rival footprint (remote cars draw at 1.12×): along-road, across-road. */
 const PACK_LENGTH = 4.8;
 const PACK_WIDTH = 2.9;
@@ -121,6 +123,8 @@ interface PackCar {
   surge?: number;
   /** Lane-change amplitude, units; the rival swings across over ~1.8s. */
   sway?: number;
+  /** A chat line this rival sends `at` ms into the take (the game's chat bubble). */
+  say?: { at: number; text: string };
 }
 type DriftState =
   | { kind: "approach" }
@@ -194,6 +198,8 @@ class Director {
     st.setScriptedInput(NEUTRAL);
     st.setFreecam(view.kind !== "game");
     st.setFakePlayers(null);
+    st.closeShowroom();
+    st.wearSkin("waymo");
     setGradeLens(null);
     const override = Number(new URLSearchParams(window.location.search).get("phase"));
     st.setDayPhase(override > 0 ? override : phase);
@@ -440,6 +446,24 @@ class Director {
           up: 1.2,
           ...tele(48, 4),
         }),
+      "beach-cliff-sand": () =>
+        this.shoreShot(
+          "beach-cliff-sand",
+          "the Cliff House",
+          0.43,
+          {
+            aimAhead: 7,
+            aimUp: 1.1,
+            back: 6.8,
+            fov: 56,
+            hud: true,
+            kind: "chase",
+            lag: 6,
+            side: 0,
+            up: 2.3,
+          },
+          true,
+        ),
       "beach-dusk": () =>
         this.shoreShot("beach-dusk", "the Dutch Windmill", 0.46, {
           aimAhead: 7,
@@ -452,6 +476,42 @@ class Director {
           side: 0,
           up: 2.3,
         }),
+      "beach-murphy": () =>
+        this.shoreShot(
+          "beach-murphy",
+          "the Murphy Windmill",
+          0.45,
+          {
+            aimAhead: 7,
+            aimUp: 1.1,
+            back: 6.8,
+            fov: 56,
+            hud: true,
+            kind: "chase",
+            lag: 6,
+            side: 0,
+            up: 2.3,
+          },
+          true,
+        ),
+      "beach-sand": () =>
+        this.shoreShot(
+          "beach-sand",
+          "the Dutch Windmill",
+          0.46,
+          {
+            aimAhead: 7,
+            aimUp: 1.1,
+            back: 6.8,
+            fov: 56,
+            hud: true,
+            kind: "chase",
+            lag: 6,
+            side: 0,
+            up: 2.3,
+          },
+          true,
+        ),
       "boost-sun": () =>
         this.cityShot({
           boostMs: 2000,
@@ -718,6 +778,67 @@ class Director {
           speedCap: 9,
           view: { back: 3, fov: 50, height: 22, kind: "drone" },
         }),
+      "morning-downtown": () =>
+        this.cityShot({
+          id: "morning-downtown",
+          landmark: "the Transamerica Pyramid",
+          minHalf: 3,
+          phase: 0.34,
+          radius: 260,
+          seconds: 3.5,
+          speedCap: 22,
+          view: {
+            aimAhead: 7,
+            aimUp: 1.1,
+            back: 6.8,
+            fov: 56,
+            hud: true,
+            kind: "chase",
+            lag: 6,
+            side: 0,
+            up: 2.3,
+          },
+        }),
+      "morning-ferry": () =>
+        this.cityShot({
+          id: "morning-ferry",
+          landmark: "the Ferry Building",
+          phase: 0.31,
+          radius: 220,
+          seconds: 4,
+          speedCap: 26,
+          view: {
+            aimAhead: 7,
+            aimUp: 1.1,
+            back: 6.8,
+            fov: 56,
+            hud: true,
+            kind: "chase",
+            lag: 6,
+            side: 0,
+            up: 2.3,
+          },
+        }),
+      "morning-painted": () =>
+        this.cityShot({
+          id: "morning-painted",
+          landmark: "the Painted Ladies",
+          phase: 0.33,
+          radius: 130,
+          seconds: 3.5,
+          speedCap: 18,
+          view: {
+            aimAhead: 7,
+            aimUp: 1.1,
+            back: 6.8,
+            fov: 56,
+            hud: true,
+            kind: "chase",
+            lag: 6,
+            side: 0,
+            up: 2.3,
+          },
+        }),
       "night-chase": () =>
         this.cityShot({
           id: "night-chase",
@@ -779,6 +900,25 @@ class Director {
           speedCap: 32,
           view: { ahead: 32, kind: "tripod", side: 3.2, up: 0.6, ...tele(40, 6) },
         }),
+      "ocean-beach": () =>
+        this.shoreShot(
+          "ocean-beach",
+          "the Dutch Windmill",
+          0.45,
+          {
+            aimAhead: 7,
+            aimUp: 1.1,
+            back: 6.8,
+            fov: 56,
+            hud: true,
+            kind: "chase",
+            lag: 6,
+            side: 0,
+            up: 2.3,
+          },
+          true,
+          { at: { x: -1464, z: 150 }, from: { x: -1464, z: 150 }, to: { x: -1473, z: -200 } },
+        ),
       "oracle-dusk": () =>
         this.cityShot({
           id: "oracle-dusk",
@@ -981,7 +1121,14 @@ class Director {
           minHalf: 7,
           pack: [
             { gap: 11, lane: 0, skin: "cruise", surge: -1.4 },
-            { gap: 1, lane: -3.8, skin: "zoox", surge: 0.6, sway: 0.3 },
+            {
+              gap: 1,
+              lane: -3.8,
+              say: { at: 900, text: "so how many tokens was this?" },
+              skin: "zoox",
+              surge: 0.6,
+              sway: 0.3,
+            },
             { gap: -7, lane: -3.8, skin: "uber", surge: 0.7, sway: 0.3 },
             { gap: -2, lane: 3.8, skin: "cybercab", surge: 0.9, sway: 0.3 },
             { gap: 8, lane: 3.8, skin: "lyft", surge: 0.2, sway: 0.3 },
@@ -1019,6 +1166,18 @@ class Director {
           seconds: 4.5,
           speedCap: 24,
           view: { ahead: 7.5, kind: "lead", lag: 3, side: -1.2, up: 1.9, ...tele(44, 3) },
+        }),
+      showroom: () =>
+        this.garageShot("showroom", {
+          aimAhead: 0,
+          aimUp: -2.2,
+          back: 7,
+          fov: 50,
+          hud: true,
+          kind: "chase",
+          lag: 4,
+          side: 0.6,
+          up: 3.6,
         }),
       "twin-peaks-vista": () => this.vistaShot(),
       "whip-by": () =>
@@ -1246,8 +1405,14 @@ class Director {
             lane = other.lane + Math.sign(member.lane - other.lane || 1) * PACK_WIDTH;
           }
         }
-        placed.push({ lane, s });
         const p = path.at(along + s);
+        // Keep clear of the kerbside parked cars (parked at half − 1.05).
+        const road = this.stage.city.network.nearest(p.x, p.z, 12);
+        if (road) {
+          const room = Math.max(0, road.edge.half - 3.4);
+          lane = clamp(lane, -room, room);
+        }
+        placed.push({ lane, s });
         const x = p.x + p.tz * lane;
         const z = p.z - p.tx * lane;
         const id = `trailer-${i}`;
@@ -1255,8 +1420,8 @@ class Director {
           id,
           state: {
             h: Math.atan2(p.tx, p.tz),
-            msg: "",
-            msgAt: 0,
+            msg: member.say && t >= member.say.at ? member.say.text : "",
+            msgAt: member.say && t >= member.say.at ? 1 : 0,
             skin: member.skin,
             x,
             y: this.scout.heightAt(x, z),
@@ -1368,53 +1533,178 @@ class Director {
     );
   }
 
-  /** Leave the nearest street for the nearest open water: sand, surf, splash. */
-  private shoreShot(id: string, landmark: string, phase: number, view: Lens): TrailerScene {
+  /** Roll onto a garage pad and pick a new robotaxi in the showroom. */
+  private garageShot(id: string, view: Lens): TrailerScene {
+    const pad = { x: 0, z: 0 };
+    let opened = false;
+    const touched = new Set<number>();
+    const beats: { at: number; skin: string; click: boolean }[] = [
+      { at: 1900, click: false, skin: "zoox" },
+      { at: 2400, click: false, skin: "cruise" },
+      { at: 2900, click: false, skin: "cybercab" },
+      { at: 3500, click: true, skin: "cybercab" },
+    ];
+    return this.shot(
+      {
+        duration: 5000,
+        id,
+        run: (t) => {
+          const { car } = this.stage;
+          const d = Math.hypot(pad.x - car.position.x, pad.z - car.position.z);
+          this.drive(pad, d < 4 ? 0 : Math.min(9, d));
+          if (!this.preparing && !opened && t > 1100) {
+            opened = true;
+            void this.stage.openShowroom();
+          }
+          for (const [i, beat] of beats.entries()) {
+            const el = showroomCard(beat.skin);
+            if (this.preparing || t < beat.at || touched.has(i) || !el) {
+              continue;
+            }
+            touched.add(i);
+            el.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
+            if (beat.click) {
+              el.click();
+            }
+          }
+        },
+        setup: () => {
+          const st = this.stage;
+          const [garage] = st.city.garages;
+          if (!garage) {
+            throw new Error("No garage for the showroom take");
+          }
+          pad.x = garage.padX;
+          pad.z = garage.padZ;
+          const road = st.city.network.nearest(pad.x, pad.z, 60);
+          if (!road) {
+            throw new Error("No street by the garage");
+          }
+          this.reset(0.33, view);
+          const dx = pad.x - road.x;
+          const dz = pad.z - road.z;
+          const back = 20 / Math.max(1, Math.hypot(road.tx, road.tz));
+          const toward = Math.hypot(dx, dz) > 6;
+          const sx = toward ? road.x : pad.x - road.tx * back;
+          const sz = toward ? road.z : pad.z - road.tz * back;
+          this.spawn(sx, sz, Math.atan2(pad.x - sx, pad.z - sz), 8, 6);
+          opened = false;
+          touched.clear();
+        },
+        teardown: () => {
+          this.stage.closeShowroom();
+          this.stage.wearSkin("waymo");
+        },
+      },
+      view,
+    );
+  }
+
+  /** Keep to the sand: the heading nearest the current one whose point 18u
+   * ahead (and 9u beyond it) is still beach. */
+  private followSand(out: Point): void {
+    const { car, city } = this.stage;
+    const p = car.position;
+    for (let k = 0; k <= 12; k += 1) {
+      for (const turn of k === 0 ? [0] : [k, -k]) {
+        const h = car.heading + turn * 0.1;
+        const x = p.x + Math.sin(h) * 18;
+        const z = p.z + Math.cos(h) * 18;
+        const beyond = city.surfaceKindAt(x + Math.sin(h) * 9, z + Math.cos(h) * 9);
+        if (city.surfaceKindAt(x, z) === "sand" && beyond === "sand") {
+          out.x = x;
+          out.z = z;
+          return;
+        }
+      }
+    }
+  }
+
+  /** Leave the street for the shore. `sand` stops short of the water and
+   * runs along the beach; otherwise the car drives on into the surf. */
+  private shoreShot(
+    id: string,
+    landmark: string,
+    phase: number,
+    view: Lens,
+    sand = false,
+    /** Skip the search: enter the sand at `at` from `from` on the street,
+     * then run towards `to` along the beach. */
+    beach?: { from: Point; at: Point; to: Point },
+  ): TrailerScene {
     const target = { x: 0, z: 0 };
+    const along = { x: 0, z: 0 };
+    let onBeach = false;
     return this.shot(
       {
         duration: 4000,
         id,
         run: () => {
-          this.drive(target, 22);
+          const { car } = this.stage;
+          if (
+            sand &&
+            !onBeach &&
+            Math.hypot(target.x - car.position.x, target.z - car.position.z) < 12
+          ) {
+            onBeach = true;
+          }
+          if (onBeach) {
+            this.followSand(along);
+          }
+          this.drive(onBeach ? along : target, 22);
         },
         setup: () => {
           const mark = landmarkMarkers(this.stage.city.network).find((m) => m.name === landmark);
           if (!mark) {
             throw new Error(`Landmark missing: ${landmark}`);
           }
-          let water: Point | null = null;
-          for (let r = 20; r <= 320 && !water; r += 8) {
-            for (let k = 0; k < 48; k += 1) {
-              const a = (k / 48) * Math.PI * 2;
+          // Sand must sit beside a street, or the run in crosses park and cliff.
+          const wanted = (x: number, z: number): boolean =>
+            sand
+              ? this.stage.city.surfaceKindAt(x, z) === "sand" &&
+                this.stage.city.network.nearest(x, z, 25) !== null
+              : isWaterAt(x, z);
+          let goal: Point | null = beach?.at ?? null;
+          for (let r = 20; r <= 900 && !goal; r += 8) {
+            for (let k = 0; k < 64; k += 1) {
+              const a = (k / 64) * Math.PI * 2;
               const x = mark.x + Math.sin(a) * r;
               const z = mark.z + Math.cos(a) * r;
-              if (isWaterAt(x, z)) {
-                water = { x, z };
+              if (wanted(x, z)) {
+                goal = { x, z };
                 break;
               }
             }
           }
-          if (!water) {
-            throw new Error(`No water near ${landmark}`);
+          if (!goal) {
+            throw new Error(`No ${sand ? "sand" : "water"} near ${landmark}`);
           }
-          const road = this.stage.city.network.nearest(
-            water.x + (mark.x - water.x) * 0.5,
-            water.z + (mark.z - water.z) * 0.5,
-            200,
-          );
+          const from = beach?.from ?? goal;
+          const road = this.stage.city.network.nearest(from.x, from.z, 260);
           if (!road) {
             throw new Error(`No street near ${landmark}`);
           }
           const sx = road.x;
           const sz = road.z;
-          const dist = Math.hypot(water.x - sx, water.z - sz);
-          const dx = (water.x - sx) / dist;
-          const dz = (water.z - sz) / dist;
-          target.x = water.x + dx * 40;
-          target.z = water.z + dz * 40;
+          const dist = Math.max(1, Math.hypot(goal.x - sx, goal.z - sz));
+          const dx = (goal.x - sx) / dist;
+          const dz = (goal.z - sz) / dist;
+          // Sand: stop at the first beach cell and follow it; water: carry on in.
+          const reach = sand ? 0 : 40;
+          target.x = goal.x + dx * reach;
+          target.z = goal.z + dz * reach;
+          along.x = beach?.to.x ?? target.x + dx * 30;
+          along.z = beach?.to.z ?? target.z + dz * 30;
+          onBeach = false;
           this.reset(phase, view);
-          this.spawn(sx, sz, Math.atan2(dx, dz), 18, 8);
+          if (beach) {
+            // Already heading down the coast: merge onto the strip at a shallow
+            // angle instead of crossing it into the surf.
+            onBeach = true;
+            this.spawn(sx, sz, Math.atan2(beach.to.x - sx, beach.to.z - sz), 16, 8);
+          } else {
+            this.spawn(sx, sz, Math.atan2(dx, dz), 18, 8);
+          }
         },
       },
       view,
