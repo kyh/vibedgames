@@ -103,7 +103,7 @@ pnpm verify   # typecheck · lint · format · test
 
 **Lint is a clean gate.** `oxlint.config.ts` extends the ultracite presets (`ultracite/oxlint/core`, `react`, `anti-slop`); every rule is an error and `lint` fails on the first one. `no-await-in-loop` is the one deliberate override (sequential awaits are intentional). Prefer fixing code over `oxlint-disable` comments; when a rule is genuinely wrong for a line, disable that line with a `-- reason`.
 
-`pnpm test` covers the `vg` CLI's unit suites plus the deterministic sim scripts in four example games. There is no test for the web app or `packages/api`, and nothing in `verify` drives a browser — so a green `verify` is a floor, not proof. Drive the change: `vg playtest` for games (see the `playtest` skill), the recipe below for the web app.
+`pnpm test` covers the `vg` CLI's unit suites, the deterministic sim scripts in four example games, and `apps/web`'s content-negotiation / structured-data / page-content units. Nothing in `verify` renders a route or drives a browser, and there is still no test for `packages/api` — so a green `verify` is a floor, not proof. Drive the change: `vg playtest` for games (see the `playtest` skill), the recipe below for the web app.
 
 Runtime — the web app and the example games are both browser-reachable. `vg playtest` is the one browser driver (a passthrough to agent-browser; it installs itself and its browser on first use, so there is nothing to set up beyond `pnpm dogfood`). With `pnpm dev:web` running:
 

@@ -11,8 +11,8 @@
     "clean": "rm -rf .cache .turbo .tanstack .wrangler dist node_modules",
     "deploy": "vite build && wrangler deploy",
     "preview": "vite preview",
+    "test": "node --import tsx --test \"src/**/*.test.ts\" \"test/*.test.ts\"",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test \"src/**/*.test.ts\"",
     "cf:typegen": "wrangler types",
     "with-env": "dotenv -e ../../.env --"
   },
