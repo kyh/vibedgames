@@ -40,4 +40,31 @@
       "bucket_name": "vibedgames-games",
     },
   ],
+  // Per-PR Worker Previews (`.github/workflows/preview.yml`). Previews inherit
+  // nothing from above: every binding is restated against preview-only
+  // resources, so a PR can never write prod D1 or the prod bucket. The workflow
+  // creates both if missing and swaps <REPLACE_ME> for the D1 id before
+  // building; wrangler refuses to run while the placeholder is still there.
+  // Secrets: `wrangler preview base-config secret put <NAME>` once per name in
+  // `secrets.required` (preview values, not the prod ones).
+  "previews": {
+    "vars": {
+      // empty so auth takes its base URL from the preview's own host
+      "PRODUCTION_URL": "",
+      "R2_BUCKET_NAME": "vibedgames-games-preview",
+    },
+    "d1_databases": [
+      {
+        "binding": "DB",
+        "database_name": "vibedgames-preview",
+        "database_id": "<REPLACE_ME>",
+      },
+    ],
+    "r2_buckets": [
+      {
+        "binding": "GAMES_BUCKET",
+        "bucket_name": "vibedgames-games-preview",
+      },
+    ],
+  },
 }

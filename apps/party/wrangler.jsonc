@@ -25,4 +25,24 @@
       "database_id": "8aba7674-bee1-4532-b5f0-36243172cf81",
     },
   ],
+  // Per-PR Worker Previews (`.github/workflows/preview.yml`): a fresh VgServer
+  // namespace per preview, over the same preview D1 the web preview uses. The
+  // workflow swaps <REPLACE_ME> for its id before deploying.
+  "previews": {
+    "durable_objects": {
+      "bindings": [
+        {
+          "name": "VgServer",
+          "class_name": "VgServer",
+        },
+      ],
+    },
+    "d1_databases": [
+      {
+        "binding": "DB",
+        "database_name": "vibedgames-preview",
+        "database_id": "<REPLACE_ME>",
+      },
+    ],
+  },
 }
