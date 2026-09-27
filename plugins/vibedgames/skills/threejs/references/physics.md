@@ -69,7 +69,7 @@ function updatePlatformer(dt) {
 Pure-JS rigid bodies. Create a body per mesh, step the world, copy transforms back. (Minimal falling-sphere example is in [`advanced-topics.md`](advanced-topics.md); here's the reusable sync pattern for many bodies.)
 
 ```javascript
-import * as CANNON from "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js";
+import * as CANNON from "cannon-es"; // npm install cannon-es
 
 const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
 const pairs = []; // { mesh, body }
@@ -103,7 +103,7 @@ function stepPhysics(dt) {
 `@dimforge/rapier3d-compat` is WASM, so it must be initialized once before use.
 
 ```javascript
-import RAPIER from "https://esm.sh/@dimforge/rapier3d-compat";
+import RAPIER from "@dimforge/rapier3d-compat"; // npm install @dimforge/rapier3d-compat
 
 await RAPIER.init(); // REQUIRED before any RAPIER.* constructor
 const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
