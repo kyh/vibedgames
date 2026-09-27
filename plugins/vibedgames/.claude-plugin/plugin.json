@@ -10,5 +10,7 @@
   "repository": "https://github.com/kyh/vibedgames",
   "documentationUrl": "https://github.com/kyh/vibedgames/tree/main/plugins",
   "supportUrl": "https://github.com/kyh/vibedgames/issues",
-  "license": "MIT"
+  "license": "MIT",
+  "privacyPolicyUrl": "https://vibedgames.com/privacy",
+  "termsOfServiceUrl": "https://vibedgames.com/terms"
 }

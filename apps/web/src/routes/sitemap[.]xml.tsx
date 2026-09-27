@@ -4,7 +4,7 @@ import { siteConfig } from "@/lib/site-config";
 
 // Public, crawlable apex pages. User games live on `{slug}.vibedgames.com`
 // subdomains served by a separate worker and are not listed here.
-const PATHS = ["/", "/discover", "/build", "/install"];
+const PATHS = ["/", "/discover", "/build", "/install", "/privacy", "/terms"];
 
 const body = [
   '<?xml version="1.0" encoding="UTF-8"?>',
