@@ -53,7 +53,7 @@ packages/
   playtest/      Diagnostics, hooks + control manifest so a playtest can play the game (npm: @vibedgames/playtest)
   embed/         postMessage bridge between an embedded game and its wrapper
   ui/            Shared UI components (Base UI + Tailwind)
-plugins/         Claude Code plugins — the game-building skills the CLI installs
+plugins/         Claude Code plugin — the game-building skills the CLI installs
 ```
 
 Every app and package has its own README. Start with [`games/`](./games) for the

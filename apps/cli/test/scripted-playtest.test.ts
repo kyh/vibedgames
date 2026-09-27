@@ -22,7 +22,7 @@ import type { JsonValue } from "../src/lib/types.js";
  */
 const BOT = fileURLToPath(
   new URL(
-    "../../../plugins/tooling/skills/playtest/scripts/scripted-playtest.mjs",
+    "../../../plugins/vibedgames/skills/playtest/scripts/scripted-playtest.mjs",
     import.meta.url,
   ),
 );

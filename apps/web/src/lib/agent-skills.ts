@@ -3,7 +3,7 @@ import { siteConfig } from "@/lib/site-config";
 /**
  * Agent Skills Discovery index (RFC v0.2.0).
  *
- * vibedgames bundles Claude Code skills under `plugins/<plugin>/skills/<skill>/SKILL.md`.
+ * vibedgames bundles Claude Code skills under `plugins/vibedgames/skills/<skill>/SKILL.md`.
  * We publish them at `/.well-known/agent-skills/index.json` so an agent
  * visiting the site can discover the full game-studio toolkit, and serve each
  * `SKILL.md` verbatim at `/.well-known/agent-skills/{name}/SKILL.md`.
