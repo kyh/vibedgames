@@ -9,11 +9,11 @@ export interface PostalAddress {
 /**
  * Contact details for `Organization.contactPoint` / `.address`.
  *
- * Left unset deliberately: schema.org contact data is a legitimacy signal that
- * agents and AI search surface verbatim, so publishing a mailbox nobody reads
- * (or an address nobody occupies) is worse than publishing none. Fill these in
- * with a monitored address and they flow into the homepage JSON-LD and
- * `/contact` automatically — see `lib/structured-data.ts`.
+ * Only monitored channels: schema.org contact data is a legitimacy signal that
+ * agents and AI search surface verbatim, so a mailbox nobody reads (or an
+ * address nobody occupies) is worse than none. Phone and postal address stay
+ * unset by owner decision. Whatever is set flows into the JSON-LD and
+ * `/contact` — see `lib/structured-data.ts`.
  */
 export interface SiteContact {
   email: string | null;
@@ -23,7 +23,7 @@ export interface SiteContact {
 
 const contact: SiteContact = {
   address: null,
-  email: null,
+  email: "im.kaiyu@gmail.com",
   telephone: null,
 };
 
