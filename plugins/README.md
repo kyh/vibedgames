@@ -7,7 +7,7 @@ The game studio, as skills. Six Claude Code plugins, listed in
 These are the product, not tooling for this repo: `vg init` installs them into a
 user's project (for Claude Code, Cursor and Codex), and `vg update` refreshes
 them. Claude Code users can also install straight from the marketplace:
-`claude plugin marketplace add kyh/vibedgames`, then
+`claude plugin marketplace add kyh/vibedgames-plugins`, then
 `claude plugin install <plugin>@vibedgames`. An agent that has them can do what
 a studio does — design, scaffold, generate art, add multiplayer, tune feel, ship.
 
@@ -24,6 +24,12 @@ a studio does — design, scaffold, generate art, add multiplayer, tune feel, sh
 shipped game; the rest are the deep modules it routes into.
 
 ## Editing them
+
+Edit here, never in [`kyh/vibedgames-plugins`](https://github.com/kyh/vibedgames-plugins).
+That repo is a read-only mirror of `plugins/` and `.claude-plugin/`, pushed by
+`.github/workflows/sync-plugins.yml` on every change to main. It exists because
+the plugin directory and `npx skills add` both download a whole repo, and the
+game assets make this one far too big for either.
 
 ```sh
 pnpm dogfood        # build + npm-link the local vg CLI, sync .claude/skills/
