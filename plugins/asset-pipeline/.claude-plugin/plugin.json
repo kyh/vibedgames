@@ -1,8 +1,0 @@
-{
-  "name": "asset-pipeline",
-  "description": "Refine and process generated game assets: animated spritesheets, Aseprite parsing, sprite-sheet pipelines, pixel-grid snapping, and image-to-procedural-Three.js props.",
-  "version": "1.0.0",
-  "author": {
-    "name": "vibedgames"
-  }
-}

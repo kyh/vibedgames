@@ -8,8 +8,8 @@ export const readArena = (value: Arena | undefined): Arena =>
   value === "crossroads" ? "crossroads" : "classic";
 
 /** Sample the original grid first so variation never changes its RNG trace. */
-export const createArena = (arena: Arena): Cell[][] => {
-  const grid = newGrid();
+export const createArena = (arena: Arena, random: () => number = Math.random): Cell[][] => {
+  const grid = newGrid(random);
   if (arena === "classic") {
     return grid;
   }

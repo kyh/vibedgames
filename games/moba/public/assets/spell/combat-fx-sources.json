@@ -1,50 +1,247 @@
 {
-  "packing": "Numeric order; original pixels centered, no resize/recolor; lossless WebP. Sources relative to supplied moba folder.",
+  "packing": "Craftpix packs: numeric order, original pixels centred, no resize/recolor, lossless WebP, sources relative to the supplied moba folder. Generated boards: gpt-image-2.5 4x3 frame boards (prompt table in the session's gen-fx.py), black lane cut at luma<28 and drawn additively, chroma lanes keyed, cells box-reduced 256->128, WebP q92.",
   "sequences": [
     {
-      "output": "sp-arc.webp",
-      "sourceDirectory": "fx/craftpix-671189-pixel-art-magic-sprite-effects-and-icons-pack/PNG/Lightning1",
-      "filenamePattern": "Lightning1_{frame}.png",
+      "output": "sp-ironvow-q.webp",
+      "sourceDirectory": "generated/gpt-image-2.5 (black matte)",
+      "filenamePattern": "ironvow-Q.png",
+      "model": "openai/gpt-image-2.5/sunburst/text-to-image",
+      "prompt": "Pixel art game VFX sprite sheet, a uniform 4-column by 3-row grid of 12 equal square cells with NO visible grid lines, borders or labels, on a fully TRANSPARENT background. The 12 cells are consecutive animation frames of ONE effect read left-to-right, top-to-bottom: a knight's steel shield bash impact \u2014 frame 1 a tiny white spark, frames 2-4 a sharp four-pointed white-blue flash with a crescent of steel-blue impact arc growing to full size, frames 5-8 the flash shrinks while 6-8 chunky blue-white sparks fly outward and fade, frames 9-12 a faint blue dust wisp dissipates to nothing. Crisp 16-bit pixel art, chunky pixels, limited palette of white, pale blue #bcd6ff, steel blue #6a9cff and a little navy outline, hot bright core, no background, no ground shadow, each frame centred in its cell with the effect filling about 60% of the cell.",
       "frameRange": [1, 12],
       "cellSize": [128, 128],
       "outputSize": [1536, 128],
-      "sha256": "914c0faaeac91480573300e65c647fb16cb0e955d676547d3915225eb47ca19b"
+      "sha256": "ff7d9dcd8ff1dbc210914d12192b4ea5c91bdd5b4d65201f945e5498dff4a651"
     },
     {
-      "output": "sp-flare-ring.webp",
-      "sourceDirectory": "fx/craftpix-net-819691-fire-magic-effects-pixel-art/PNG/Fire_shield",
-      "filenamePattern": "fire_shield_{frame}.png",
-      "frameRange": [1, 8],
+      "output": "sp-ironvow-w.webp",
+      "sourceDirectory": "generated/gpt-image-2.5 (black matte)",
+      "filenamePattern": "ironvow-W.png",
+      "model": "openai/gpt-image-2.5/sunburst/text-to-image",
+      "prompt": "Pixel art game VFX sprite sheet: a uniform 4-column by 3-row grid of 12 equal square cells, NO visible grid lines, borders, labels, numbers or text. The 12 cells are consecutive animation frames of ONE continuous effect sampled at even intervals, read left-to-right then top-to-bottom, each frame centred in its cell and filling about 60% of the cell, same scale and same centre in every cell. Crisp 16-bit pixel art with chunky pixels and a limited palette, no anti-aliasing blur, no ground shadow, no character. The background of the whole image is flat pure black #000000 with no glow, haze, gradient or vignette bleeding into it. The effect: a heraldic aegis: frames 1-4 thin gold lines draw the outline of a tall kite shield growing from a point, frames 5-8 the shield fills with a pale blue #bcd6ff glow and a gold cross emblem and pulses brighter with a white rim, frames 9-12 the shield dissolves upward into rising blue and gold motes that fade to nothing. Palette white, pale blue, steel blue #6a9cff, gold #ffd24d.",
+      "frameRange": [1, 12],
       "cellSize": [128, 128],
-      "outputSize": [1024, 128],
-      "sha256": "65c5ae555e243a5990a6761888625cf3f3e28eda6e70f286f50aac2a7573ae2c"
+      "outputSize": [1536, 128],
+      "sha256": "7b7d15ed5342627a2a491fa2e62cbfba02c58f576ee2e920d49b3e3702795789"
     },
     {
-      "output": "sp-fire-pillar.webp",
-      "sourceDirectory": "fx/craftpix-net-819691-fire-magic-effects-pixel-art/PNG/Fire_pillar",
-      "filenamePattern": "fire_pillar_{frame}.png",
-      "frameRange": [1, 8],
-      "cellSize": [160, 160],
-      "outputSize": [1280, 160],
-      "sha256": "a8e7cad88130f8e99e54dd1aea32328f7384aaee30899ecd4ac6542f2022a65a"
-    },
-    {
-      "output": "sp-geyser.webp",
-      "sourceDirectory": "fx/craftpix-net-217136-water-effects-pixel-art-set/PNG/Geyser",
-      "filenamePattern": "{frame}.png",
-      "frameRange": [1, 7],
+      "output": "sp-ironvow-r.webp",
+      "sourceDirectory": "generated/gpt-image-2.5 (green matte)",
+      "filenamePattern": "ironvow-R.png",
+      "model": "openai/gpt-image-2.5/sunburst/text-to-image",
+      "prompt": "Pixel art game VFX sprite sheet: a uniform 4-column by 3-row grid of 12 equal square cells, NO visible grid lines, borders, labels, numbers or text. The 12 cells are consecutive animation frames of ONE continuous effect sampled at even intervals, read left-to-right then top-to-bottom, each frame centred in its cell and filling about 60% of the cell, same scale and same centre in every cell. Crisp 16-bit pixel art with chunky pixels and a limited palette, no anti-aliasing blur, no ground shadow, no character. The background of the whole image is flat solid chroma green #00FF00 everywhere outside the effect, with no gradient, glow or haze. The effect: a knight's ground slam seen from a three-quarter top-down angle: frames 1-3 a bright white-blue flash at the centre and jagged cracks radiate out across the ground, frames 4-8 a wide ring of grey stone chunks and pale brown dust bursts outward and expands with a steel-blue shockwave rim, frames 9-12 the dust ring thins, drifts and settles to nothing. Palette grey stone, tan dust, white flash, steel blue #6a9cff rim, dark outlines.",
+      "frameRange": [1, 12],
       "cellSize": [128, 128],
-      "outputSize": [896, 128],
-      "sha256": "bd138d507a7e275904f2b091eb2aeae72677d8dc19d823402d19c4f3116a9638"
+      "outputSize": [1536, 128],
+      "sha256": "6f8359a6b04072fdbec7a1ae217fcfb8ac023425abda0c03118e10fed9e8d3cb"
     },
     {
-      "output": "sp-skull.webp",
-      "sourceDirectory": "fx/craftpix-net-526500-smoke-effects-pixel-art/PNG/Smoke_scull",
-      "filenamePattern": "Smoke_scull{frame}.png",
-      "frameRange": [1, 20],
+      "output": "sp-duskblade-q.webp",
+      "sourceDirectory": "generated/gpt-image-2.5 (green matte)",
+      "filenamePattern": "duskblade-Q.png",
+      "model": "openai/gpt-image-2.5/sunburst/text-to-image",
+      "prompt": "Pixel art game VFX sprite sheet: a uniform 4-column by 3-row grid of 12 equal square cells, NO visible grid lines, borders, labels, numbers or text. The 12 cells are consecutive animation frames of ONE continuous effect sampled at even intervals, read left-to-right then top-to-bottom, each frame centred in its cell and filling about 60% of the cell, same scale and same centre in every cell. Crisp 16-bit pixel art with chunky pixels and a limited palette, no anti-aliasing blur, no ground shadow, no character. The background of the whole image is flat solid chroma green #00FF00 everywhere outside the effect, with no gradient, glow or haze. The effect: a shadow-step vanish: frames 1-3 a dark violet silhouette blur collapses into a tight black-violet vortex, frames 4-8 black feathers and violet shadow wisps scatter outward with magenta sparks, frames 9-12 the wisps thin and fade to nothing. Palette black, deep violet #4a2a7a, violet #b06bff, magenta #ff5ad6 accents, dark outlines.",
+      "frameRange": [1, 12],
       "cellSize": [128, 128],
-      "outputSize": [2560, 128],
-      "sha256": "2e71eb05ac753d95d48d14e0685b3aed251693a59b4319833fc031e9175ed872"
+      "outputSize": [1536, 128],
+      "sha256": "94f8493470f907e768333dff28e1e8bb55d2cb36484b17ec05d201e5cb2adf39"
+    },
+    {
+      "output": "sp-duskblade-w.webp",
+      "sourceDirectory": "generated/gpt-image-2.5 (green matte)",
+      "filenamePattern": "duskblade-W.png",
+      "model": "openai/gpt-image-2.5/sunburst/text-to-image",
+      "prompt": "Pixel art game VFX sprite sheet: a uniform 4-column by 3-row grid of 12 equal square cells, NO visible grid lines, borders, labels, numbers or text. The 12 cells are consecutive animation frames of ONE continuous effect sampled at even intervals, read left-to-right then top-to-bottom, each frame centred in its cell and filling about 60% of the cell, same scale and same centre in every cell. Crisp 16-bit pixel art with chunky pixels and a limited palette, no anti-aliasing blur, no ground shadow, no character. The background of the whole image is flat solid chroma green #00FF00 everywhere outside the effect, with no gradient, glow or haze. The effect: a fan of five thin violet daggers thrown to the RIGHT from a single point at the left of each cell: frames 1-4 the daggers appear overlapping and spread into a fan pointing right, frames 5-8 they fly rightward and stretch with violet motion streaks, frames 9-12 the streaks fade to nothing. Every frame points right. Palette steel grey blades, violet #b06bff streaks, black outlines.",
+      "frameRange": [1, 12],
+      "cellSize": [128, 128],
+      "outputSize": [1536, 128],
+      "sha256": "6834951b9895e508c7c9352993d564c23d8929eed62a29c751b54b684dd7810f"
+    },
+    {
+      "output": "sp-duskblade-r.webp",
+      "sourceDirectory": "generated/gpt-image-2.5 (black matte)",
+      "filenamePattern": "duskblade-R.png",
+      "model": "openai/gpt-image-2.5/sunburst/text-to-image",
+      "prompt": "Pixel art game VFX sprite sheet: a uniform 4-column by 3-row grid of 12 equal square cells, NO visible grid lines, borders, labels, numbers or text. The 12 cells are consecutive animation frames of ONE continuous effect sampled at even intervals, read left-to-right then top-to-bottom, each frame centred in its cell and filling about 60% of the cell, same scale and same centre in every cell. Crisp 16-bit pixel art with chunky pixels and a limited palette, no anti-aliasing blur, no ground shadow, no character. The background of the whole image is flat pure black #000000 with no glow, haze, gradient or vignette bleeding into it. The effect: an assassin's death waltz: frames 1-3 a bright violet crescent slash cuts diagonally, frames 4-6 a second crescent slash crosses it the other way and a third slashes horizontally, frames 7-9 a magenta-white skull flash blooms at the centre with violet sparks, frames 10-12 everything fades to nothing. Palette white core, violet #b06bff, magenta #ff5ad6.",
+      "frameRange": [1, 12],
+      "cellSize": [128, 128],
+      "outputSize": [1536, 128],
+      "sha256": "1d563c248af34c013bcddf12ae353ad56a7da0644df80a62a3a501aabb30b0ad"
+    },
+    {
+      "output": "sp-stormcaller-q.webp",
+      "sourceDirectory": "generated/gpt-image-2.5 (black matte)",
+      "filenamePattern": "stormcaller-Q.png",
+      "model": "openai/gpt-image-2.5/sunburst/text-to-image",
+      "prompt": "Pixel art game VFX sprite sheet: a uniform 4-column by 3-row grid of 12 equal square cells, NO visible grid lines, borders, labels, numbers or text. The 12 cells are consecutive animation frames of ONE continuous effect sampled at even intervals, read left-to-right then top-to-bottom, each frame centred in its cell and filling about 60% of the cell, same scale and same centre in every cell. Crisp 16-bit pixel art with chunky pixels and a limited palette, no anti-aliasing blur, no ground shadow, no character. The background of the whole image is flat pure black #000000 with no glow, haze, gradient or vignette bleeding into it. The effect: a lightning arrow streaking to the RIGHT: frames 1-3 an electric blue arrowhead forms at the left with a white core, frames 4-8 the arrow shoots right leaving a long horizontal crackling lightning trail with cyan forks, frames 9-12 the trail breaks into sparks and fades. Every frame points right, the streak spans most of the cell width. Palette white, cyan #9fe6ff, electric blue #6ab8ff.",
+      "frameRange": [1, 12],
+      "cellSize": [128, 128],
+      "outputSize": [1536, 128],
+      "sha256": "99ae81bf116a7446da370aa098c9907364b05b1505a496839f3b0a6ef071a884"
+    },
+    {
+      "output": "sp-stormcaller-w.webp",
+      "sourceDirectory": "generated/gpt-image-2.5 (black matte)",
+      "filenamePattern": "stormcaller-W.png",
+      "model": "openai/gpt-image-2.5/sunburst/text-to-image",
+      "prompt": "Pixel art game VFX sprite sheet: a uniform 4-column by 3-row grid of 12 equal square cells, NO visible grid lines, borders, labels, numbers or text. The 12 cells are consecutive animation frames of ONE continuous effect sampled at even intervals, read left-to-right then top-to-bottom, each frame centred in its cell and filling about 60% of the cell, same scale and same centre in every cell. Crisp 16-bit pixel art with chunky pixels and a limited palette, no anti-aliasing blur, no ground shadow, no character. The background of the whole image is flat pure black #000000 with no glow, haze, gradient or vignette bleeding into it. The effect: a hunter's mark: frames 1-4 four blue crosshair brackets converge inward onto a point, frames 5-8 a circular electric rune locks in and crackles with white arcs, frames 9-12 the rune pulses once and dissolves into blue sparks. Palette white, cyan #9fe6ff, electric blue #6ab8ff.",
+      "frameRange": [1, 12],
+      "cellSize": [128, 128],
+      "outputSize": [1536, 128],
+      "sha256": "438852671fe376218a5e912a5b5ac6f1c1ad98b327b384b2f127f8cf3b4f0a48"
+    },
+    {
+      "output": "sp-stormcaller-e.webp",
+      "sourceDirectory": "generated/gpt-image-2.5 (black matte)",
+      "filenamePattern": "stormcaller-E.png",
+      "model": "openai/gpt-image-2.5/sunburst/text-to-image",
+      "prompt": "Pixel art game VFX sprite sheet: a uniform 4-column by 3-row grid of 12 equal square cells, NO visible grid lines, borders, labels, numbers or text. The 12 cells are consecutive animation frames of ONE continuous effect sampled at even intervals, read left-to-right then top-to-bottom, each frame centred in its cell and filling about 60% of the cell, same scale and same centre in every cell. Crisp 16-bit pixel art with chunky pixels and a limited palette, no anti-aliasing blur, no ground shadow, no character. The background of the whole image is flat pure black #000000 with no glow, haze, gradient or vignette bleeding into it. The effect: windfoot speed burst: frames 1-4 curved cyan-white wind lines spiral around a centre point and speed streaks shoot outward, frames 5-8 the spiral tightens and whips into a small whirlwind with leaf-like white flecks, frames 9-12 the lines unwind and fade to nothing. Palette white, pale cyan #cfeeff, cyan #9fe6ff.",
+      "frameRange": [1, 12],
+      "cellSize": [128, 128],
+      "outputSize": [1536, 128],
+      "sha256": "75ccc329dd354d6de4e46e9705b5bfc1f387cd4aeae79aac47ef1ff1e53c1a81"
+    },
+    {
+      "output": "sp-stormcaller-r.webp",
+      "sourceDirectory": "generated/gpt-image-2.5 (black matte)",
+      "filenamePattern": "stormcaller-R.png",
+      "model": "openai/gpt-image-2.5/sunburst/text-to-image",
+      "prompt": "Pixel art game VFX sprite sheet: a uniform 4-column by 3-row grid of 12 equal square cells, NO visible grid lines, borders, labels, numbers or text. The 12 cells are consecutive animation frames of ONE continuous effect sampled at even intervals, read left-to-right then top-to-bottom, each frame centred in its cell and filling about 60% of the cell, same scale and same centre in every cell. Crisp 16-bit pixel art with chunky pixels and a limited palette, no anti-aliasing blur, no ground shadow, no character. The background of the whole image is flat pure black #000000 with no glow, haze, gradient or vignette bleeding into it. The effect: a storm volley: frames 1-4 a dark blue storm cloud gathers at the top of the cell and flickers with inner lightning, frames 5-9 three white-blue lightning bolts strike down from the cloud to the bottom of the cell one after another with impact sparks, frames 10-12 the cloud and bolts fade. Palette white, cyan #9fe6ff, electric blue #6ab8ff, dark storm blue #2a3f7a.",
+      "frameRange": [1, 12],
+      "cellSize": [128, 128],
+      "outputSize": [1536, 128],
+      "sha256": "36339d2c85d1cf2d294207077267b9be2b719f1eb99865ab5bc63d283845ecfb"
+    },
+    {
+      "output": "sp-emberhex-q.webp",
+      "sourceDirectory": "generated/gpt-image-2.5 (black matte)",
+      "filenamePattern": "emberhex-Q.png",
+      "model": "openai/gpt-image-2.5/sunburst/text-to-image",
+      "prompt": "Pixel art game VFX sprite sheet: a uniform 4-column by 3-row grid of 12 equal square cells, NO visible grid lines, borders, labels, numbers or text. The 12 cells are consecutive animation frames of ONE continuous effect sampled at even intervals, read left-to-right then top-to-bottom, each frame centred in its cell and filling about 60% of the cell, same scale and same centre in every cell. Crisp 16-bit pixel art with chunky pixels and a limited palette, no anti-aliasing blur, no ground shadow, no character. The background of the whole image is flat pure black #000000 with no glow, haze, gradient or vignette bleeding into it. The effect: a fireball being conjured: frames 1-4 orange embers spiral inward and condense into a small flame orb, frames 5-8 the orb swells into a bright yellow-white fire ball with a licking flame tail, frames 9-12 it releases in a burst of flame tongues and embers that fade. Palette white-yellow core, orange #ff7a2a, red #d8301a, dark ember outlines.",
+      "frameRange": [1, 12],
+      "cellSize": [128, 128],
+      "outputSize": [1536, 128],
+      "sha256": "590a5f58ff5b245488edefa53d63430afa7216b8ab1a39f9d9dc009fed1525c7"
+    },
+    {
+      "output": "sp-emberhex-w.webp",
+      "sourceDirectory": "generated/gpt-image-2.5 (black matte)",
+      "filenamePattern": "emberhex-W.png",
+      "model": "openai/gpt-image-2.5/sunburst/text-to-image",
+      "prompt": "Pixel art game VFX sprite sheet: a uniform 4-column by 3-row grid of 12 equal square cells, NO visible grid lines, borders, labels, numbers or text. The 12 cells are consecutive animation frames of ONE continuous effect sampled at even intervals, read left-to-right then top-to-bottom, each frame centred in its cell and filling about 60% of the cell, same scale and same centre in every cell. Crisp 16-bit pixel art with chunky pixels and a limited palette, no anti-aliasing blur, no ground shadow, no character. The background of the whole image is flat pure black #000000 with no glow, haze, gradient or vignette bleeding into it. The effect: a cinder trail igniting on the ground: frames 1-3 a line of glowing orange cracks appears along the bottom of the cell, frames 4-8 rows of flames erupt upward from the cracks and lick high with rising cinders, frames 9-12 the flames shrink to embers and fade. Palette white-yellow, orange #ff7a2a, red #d8301a.",
+      "frameRange": [1, 12],
+      "cellSize": [128, 128],
+      "outputSize": [1536, 128],
+      "sha256": "9c6a992185737c618efdbad5feae584047e0aaa8b6683cc1793f41132d98d8ba"
+    },
+    {
+      "output": "sp-emberhex-e.webp",
+      "sourceDirectory": "generated/gpt-image-2.5 (black matte)",
+      "filenamePattern": "emberhex-E.png",
+      "model": "openai/gpt-image-2.5/sunburst/text-to-image",
+      "prompt": "Pixel art game VFX sprite sheet: a uniform 4-column by 3-row grid of 12 equal square cells, NO visible grid lines, borders, labels, numbers or text. The 12 cells are consecutive animation frames of ONE continuous effect sampled at even intervals, read left-to-right then top-to-bottom, each frame centred in its cell and filling about 60% of the cell, same scale and same centre in every cell. Crisp 16-bit pixel art with chunky pixels and a limited palette, no anti-aliasing blur, no ground shadow, no character. The background of the whole image is flat pure black #000000 with no glow, haze, gradient or vignette bleeding into it. The effect: a flashfire aura igniting around a centre: frames 1-3 a ring of sparks flares at the centre, frames 4-8 a wide ring of fire expands outward with tall flame tongues around its rim, frames 9-12 the ring thins into drifting embers and fades. Palette white-yellow, orange #ff7a2a, red #d8301a.",
+      "frameRange": [1, 12],
+      "cellSize": [128, 128],
+      "outputSize": [1536, 128],
+      "sha256": "8d9bc1442c00d5c1194dee11778d5a4b4871cc85e3392a07a56f50fcd4b41ffe"
+    },
+    {
+      "output": "sp-emberhex-r.webp",
+      "sourceDirectory": "generated/gpt-image-2.5 (black matte)",
+      "filenamePattern": "emberhex-R.png",
+      "model": "openai/gpt-image-2.5/sunburst/text-to-image",
+      "prompt": "Pixel art game VFX sprite sheet: a uniform 4-column by 3-row grid of 12 equal square cells, NO visible grid lines, borders, labels, numbers or text. The 12 cells are consecutive animation frames of ONE continuous effect sampled at even intervals, read left-to-right then top-to-bottom, each frame centred in its cell and filling about 60% of the cell, same scale and same centre in every cell. Crisp 16-bit pixel art with chunky pixels and a limited palette, no anti-aliasing blur, no ground shadow, no character. The background of the whole image is flat pure black #000000 with no glow, haze, gradient or vignette bleeding into it. The effect: a conflagration rune: frames 1-4 a circular fire rune with runic marks draws itself glowing orange on the ground, frames 5-8 the rune ignites and a towering pillar of white-yellow flame erupts from it with a shockwave of embers, frames 9-12 the pillar collapses into smoke-free embers and fades. Palette white-yellow, orange #ff7a2a, red #d8301a.",
+      "frameRange": [1, 12],
+      "cellSize": [128, 128],
+      "outputSize": [1536, 128],
+      "sha256": "191e787ea84f183fa56a1d8d2af4e16f5e8020cd74c6e45f6cb2675abb290572"
+    },
+    {
+      "output": "sp-boomtinker-q.webp",
+      "sourceDirectory": "generated/gpt-image-2.5 (green matte)",
+      "filenamePattern": "boomtinker-Q.png",
+      "model": "openai/gpt-image-2.5/sunburst/text-to-image",
+      "prompt": "Pixel art game VFX sprite sheet: a uniform 4-column by 3-row grid of 12 equal square cells, NO visible grid lines, borders, labels, numbers or text. The 12 cells are consecutive animation frames of ONE continuous effect sampled at even intervals, read left-to-right then top-to-bottom, each frame centred in its cell and filling about 60% of the cell, same scale and same centre in every cell. Crisp 16-bit pixel art with chunky pixels and a limited palette, no anti-aliasing blur, no ground shadow, no character. The background of the whole image is flat solid chroma green #00FF00 everywhere outside the effect, with no gradient, glow or haze. The effect: a dynamite fuse lighting: frames 1-4 a small bright yellow-white fuse spark crackles with orange sparks, frames 5-8 a little puff of grey powder smoke pops upward from the spark, frames 9-12 the smoke thins and drifts away. Palette white-yellow spark, orange, grey smoke, dark outlines.",
+      "frameRange": [1, 12],
+      "cellSize": [128, 128],
+      "outputSize": [1536, 128],
+      "sha256": "82acaff76692645b3890587fc08f7230af4f13bbc1f28a4c7a6c7da3d0730f49"
+    },
+    {
+      "output": "sp-boomtinker-w.webp",
+      "sourceDirectory": "generated/gpt-image-2.5 (green matte)",
+      "filenamePattern": "boomtinker-W.png",
+      "model": "openai/gpt-image-2.5/sunburst/text-to-image",
+      "prompt": "Pixel art game VFX sprite sheet: a uniform 4-column by 3-row grid of 12 equal square cells, NO visible grid lines, borders, labels, numbers or text. The 12 cells are consecutive animation frames of ONE continuous effect sampled at even intervals, read left-to-right then top-to-bottom, each frame centred in its cell and filling about 60% of the cell, same scale and same centre in every cell. Crisp 16-bit pixel art with chunky pixels and a limited palette, no anti-aliasing blur, no ground shadow, no character. The background of the whole image is flat solid chroma green #00FF00 everywhere outside the effect, with no gradient, glow or haze. The effect: a round black proximity mine being planted: frames 1-3 the mine drops onto the ground with a small tan dust ring puffing out around it, frames 4-8 the dust drifts away and a small red light on the mine blinks on, frames 9-12 the mine sinks into the ground and the last dust fades. Palette black mine, brass rim, red light, tan dust.",
+      "frameRange": [1, 12],
+      "cellSize": [128, 128],
+      "outputSize": [1536, 128],
+      "sha256": "c09d7ef0c64da5977a150cb50bf03a538ccbd26236ec970327519df3bf3ac6ee"
+    },
+    {
+      "output": "sp-boomtinker-e.webp",
+      "sourceDirectory": "generated/gpt-image-2.5 (green matte)",
+      "filenamePattern": "boomtinker-E.png",
+      "model": "openai/gpt-image-2.5/sunburst/text-to-image",
+      "prompt": "Pixel art game VFX sprite sheet: a uniform 4-column by 3-row grid of 12 equal square cells, NO visible grid lines, borders, labels, numbers or text. The 12 cells are consecutive animation frames of ONE continuous effect sampled at even intervals, read left-to-right then top-to-bottom, each frame centred in its cell and filling about 60% of the cell, same scale and same centre in every cell. Crisp 16-bit pixel art with chunky pixels and a limited palette, no anti-aliasing blur, no ground shadow, no character. The background of the whole image is flat solid chroma green #00FF00 everywhere outside the effect, with no gradient, glow or haze. The effect: a powder keg bursting: frames 1-3 a wooden keg splits with a yellow-white flash, frames 4-8 a thick yellow gunpowder cloud billows outward with orange sparks and flying wood staves, frames 9-12 the cloud turns grey and drifts apart. Palette yellow #ffd24d powder, orange sparks, grey smoke, brown wood, dark outlines.",
+      "frameRange": [1, 12],
+      "cellSize": [128, 128],
+      "outputSize": [1536, 128],
+      "sha256": "60d12ab00ff7f54dd25da3bbdec686b2270b62aaf6470daac80783c9ec3e2204"
+    },
+    {
+      "output": "sp-boomtinker-r.webp",
+      "sourceDirectory": "generated/gpt-image-2.5 (green matte)",
+      "filenamePattern": "boomtinker-R.png",
+      "model": "openai/gpt-image-2.5/sunburst/text-to-image",
+      "prompt": "Pixel art game VFX sprite sheet: a uniform 4-column by 3-row grid of 12 equal square cells, NO visible grid lines, borders, labels, numbers or text. The 12 cells are consecutive animation frames of ONE continuous effect sampled at even intervals, read left-to-right then top-to-bottom, each frame centred in its cell and filling about 60% of the cell, same scale and same centre in every cell. Crisp 16-bit pixel art with chunky pixels and a limited palette, no anti-aliasing blur, no ground shadow, no character. The background of the whole image is flat solid chroma green #00FF00 everywhere outside the effect, with no gradient, glow or haze. The effect: a huge cartoon demolition explosion: frames 1-2 a white flash, frames 3-6 a fat orange-yellow fireball blast with brass gears, bolts and nuts flying outward, frames 7-9 a grey mushroom smoke column rises, frames 10-12 the smoke thins and the debris falls out of view. Palette white, yellow #ffd24d, orange, grey smoke, brass debris, dark outlines.",
+      "frameRange": [1, 12],
+      "cellSize": [128, 128],
+      "outputSize": [1536, 128],
+      "sha256": "a71ca9843db2518c11b575d219bbb0bd37fc1ec10af6b31fd92820baaed20163"
+    },
+    {
+      "output": "sp-brewkeeper-q.webp",
+      "sourceDirectory": "generated/gpt-image-2.5 (magenta matte)",
+      "filenamePattern": "brewkeeper-Q.png",
+      "model": "openai/gpt-image-2.5/sunburst/text-to-image",
+      "prompt": "Pixel art game VFX sprite sheet: a uniform 4-column by 3-row grid of 12 equal square cells, NO visible grid lines, borders, labels, numbers or text. The 12 cells are consecutive animation frames of ONE continuous effect sampled at even intervals, read left-to-right then top-to-bottom, each frame centred in its cell and filling about 60% of the cell, same scale and same centre in every cell. Crisp 16-bit pixel art with chunky pixels and a limited palette, no anti-aliasing blur, no ground shadow, no character. The background of the whole image is flat solid chroma magenta #FF00FF everywhere outside the effect, with no gradient, glow or haze. The effect: a restoring brew splash: frames 1-3 a mug of amber ale tips and a splash of golden ale arcs up, frames 4-8 the ale splashes outward with white foam bubbles and small green herb sparkles rising, frames 9-12 the droplets fall and the sparkles fade. Palette amber #e0a030, gold, white foam, green #8be07a sparkles, dark outlines.",
+      "frameRange": [1, 12],
+      "cellSize": [128, 128],
+      "outputSize": [1536, 128],
+      "sha256": "4553b99ac1f6930daa9821e6fc72ca0f180b14d20cca99aafd43c343fb566df5"
+    },
+    {
+      "output": "sp-brewkeeper-w.webp",
+      "sourceDirectory": "generated/gpt-image-2.5 (magenta matte)",
+      "filenamePattern": "brewkeeper-W.png",
+      "model": "openai/gpt-image-2.5/sunburst/text-to-image",
+      "prompt": "Pixel art game VFX sprite sheet: a uniform 4-column by 3-row grid of 12 equal square cells, NO visible grid lines, borders, labels, numbers or text. The 12 cells are consecutive animation frames of ONE continuous effect sampled at even intervals, read left-to-right then top-to-bottom, each frame centred in its cell and filling about 60% of the cell, same scale and same centre in every cell. Crisp 16-bit pixel art with chunky pixels and a limited palette, no anti-aliasing blur, no ground shadow, no character. The background of the whole image is flat solid chroma magenta #FF00FF everywhere outside the effect, with no gradient, glow or haze. The effect: a hex bottle shattering: frames 1-3 a green glass bottle drops and cracks, frames 4-8 the bottle shatters into glass shards and a sickly green hex smoke spiral rises and curls, frames 9-12 the spiral thins and fades. Palette dark green glass, sickly green #8be07a smoke, pale green highlights, dark outlines.",
+      "frameRange": [1, 12],
+      "cellSize": [128, 128],
+      "outputSize": [1536, 128],
+      "sha256": "4dab8a9caa77f1a1a5e8beccf50685de75cf950f482bf15bbfe481d4610226e6"
+    },
+    {
+      "output": "sp-brewkeeper-e.webp",
+      "sourceDirectory": "generated/gpt-image-2.5 (magenta matte)",
+      "filenamePattern": "brewkeeper-E.png",
+      "model": "openai/gpt-image-2.5/sunburst/text-to-image",
+      "prompt": "Pixel art game VFX sprite sheet: a uniform 4-column by 3-row grid of 12 equal square cells, NO visible grid lines, borders, labels, numbers or text. The 12 cells are consecutive animation frames of ONE continuous effect sampled at even intervals, read left-to-right then top-to-bottom, each frame centred in its cell and filling about 60% of the cell, same scale and same centre in every cell. Crisp 16-bit pixel art with chunky pixels and a limited palette, no anti-aliasing blur, no ground shadow, no character. The background of the whole image is flat solid chroma magenta #FF00FF everywhere outside the effect, with no gradient, glow or haze. The effect: a warding keg foam shield: frames 1-3 a small wooden keg pops its lid with a burst of white foam, frames 4-8 the foam expands into a wide bubbly ring of amber ale and white foam around the centre, frames 9-12 the bubbles pop and the ring fades. Palette amber #e0a030, white foam, brown keg, green #8be07a glints, dark outlines.",
+      "frameRange": [1, 12],
+      "cellSize": [128, 128],
+      "outputSize": [1536, 128],
+      "sha256": "f09e3ed614060f92474bca18ad320e7fff748f306fec08ec9b179899aa271898"
+    },
+    {
+      "output": "sp-brewkeeper-r.webp",
+      "sourceDirectory": "generated/gpt-image-2.5 (magenta matte)",
+      "filenamePattern": "brewkeeper-R.png",
+      "model": "openai/gpt-image-2.5/sunburst/text-to-image",
+      "prompt": "Pixel art game VFX sprite sheet: a uniform 4-column by 3-row grid of 12 equal square cells, NO visible grid lines, borders, labels, numbers or text. The 12 cells are consecutive animation frames of ONE continuous effect sampled at even intervals, read left-to-right then top-to-bottom, each frame centred in its cell and filling about 60% of the cell, same scale and same centre in every cell. Crisp 16-bit pixel art with chunky pixels and a limited palette, no anti-aliasing blur, no ground shadow, no character. The background of the whole image is flat solid chroma magenta #FF00FF everywhere outside the effect, with no gradient, glow or haze. The effect: a last-call cask fountain: frames 1-3 a big wooden cask bursts its top, frames 4-8 a tall fountain of amber ale sprays upward and rains droplets down in a wide arc with white foam, frames 9-12 the fountain drops and the last droplets splash and fade. Palette amber #e0a030, gold, white foam, brown wood, green #8be07a glints, dark outlines.",
+      "frameRange": [1, 12],
+      "cellSize": [128, 128],
+      "outputSize": [1536, 128],
+      "sha256": "073ac14a4f8368408db1c26b84daa1546e46089295bd1fa83430754598fcf444"
     }
   ]
 }

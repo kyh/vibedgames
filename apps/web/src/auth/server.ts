@@ -1,4 +1,4 @@
-import type { MediaProviderConfig, R2Config } from "@repo/api/orpc";
+import type { DecisionProviderConfig, MediaProviderConfig, R2Config } from "@repo/api/orpc";
 import { createAuth as initAuth } from "@repo/api/auth/auth";
 import { createORPCContext } from "@repo/api/orpc";
 import { createDb } from "@repo/db/drizzle-client";
@@ -69,7 +69,13 @@ export const getServerContext = () => {
     falStorageBaseUrl: env.FAL_STORAGE_BASE_URL,
   };
 
-  return { auth, baseUrl, db, media, productionUrl, r2 };
+  const decision: DecisionProviderConfig = {
+    tokenSecret: env.BETTER_AUTH_SECRET,
+    typesafe: env.TYPESAFE_API_KEY,
+    typesafeBaseUrl: env.TYPESAFE_BASE_URL,
+  };
+
+  return { auth, baseUrl, db, decision, media, productionUrl, r2 };
 };
 
 /**
@@ -80,10 +86,11 @@ export const getServerContext = () => {
  * silently miss the other.
  */
 export const createRpcContext = (headers: Headers) => {
-  const { db, auth: betterAuth, productionUrl, r2, media } = getServerContext();
+  const { db, auth: betterAuth, productionUrl, r2, media, decision } = getServerContext();
   return createORPCContext({
     auth: betterAuth,
     db,
+    decision,
     headers,
     media,
     productionURL: productionUrl,

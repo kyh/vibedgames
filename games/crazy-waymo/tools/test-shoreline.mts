@@ -1,4 +1,4 @@
-import { ColliderDesc, init, World } from "@dimforge/rapier3d-compat";
+import { ColliderDesc, ready, World } from "#rapier";
 import { BatchedMesh, Matrix4, MeshStandardMaterial, Vector3 } from "three";
 import { propShadowsDisabled } from "../src/render/prop-shadow";
 import { staticSolidBox, staticSolidCollider } from "../src/physics/static-solid";
@@ -587,7 +587,7 @@ export const checkShoreline = async (check: Check): Promise<void> => {
 };
 
 export const checkShorelinePhysics = async (check: Check): Promise<void> => {
-  await init();
+  await ready();
   for (const diagonal of [false, true]) {
     const world = new World({ x: 0, y: -30, z: 0 });
     world.timestep = 1 / 60;

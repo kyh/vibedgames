@@ -10,8 +10,9 @@
 // and `aSeed`, which re-rolls the fracture, veining and rime in the shader.
 import * as THREE from "three";
 import { terrainHeight } from "../data/terrain";
+import { uploadPrefix } from "./buffer-upload";
 import { createCrystalGeometry, createShardGeometry } from "./fx-geometry";
-import { BANK_SIZE, Bank } from "./fx-spike-bank";
+import { Bank } from "./fx-spike-bank";
 import { createCrystalMaterial } from "./fx-crystal";
 import { fxClock } from "./fx-shaders";
 
@@ -132,6 +133,9 @@ export class SpikePool {
       return;
       // saturated — drop
     }
+    if (idx >= bank.highWater) {
+      bank.highWater = idx + 1;
+    }
     const j = 1 - jitter / 2 + Math.random() * jitter;
     const yaw = Math.random() * Math.PI * 2;
     const tilt = tiltOut * (0.5 + Math.random());
@@ -160,7 +164,7 @@ export class SpikePool {
     const v = 0.8 + Math.random() * 0.35;
     bank.mesh.setColorAt(idx, this.color.setHex(color).multiplyScalar(v));
     if (bank.mesh.instanceColor) {
-      bank.mesh.instanceColor.needsUpdate = true;
+      uploadPrefix(bank.mesh.instanceColor, bank.highWater * 3);
     }
   }
 
@@ -217,9 +221,18 @@ export class SpikePool {
       s.bank.mesh.setMatrixAt(s.idx, this.dummy.matrix);
     }
     for (const bank of [this.blades, this.shards]) {
-      bank.mesh.count = bank.live > 0 ? BANK_SIZE : 0;
-      bank.mesh.instanceMatrix.needsUpdate = true;
-      bank.birth.needsUpdate = true;
+      // a bank nothing touched uploads nothing; one that just emptied uploads
+      // its parked prefix once (count → 0) and then goes quiet
+      if (bank.live === 0 && bank.mesh.count === 0) {
+        continue;
+      }
+      const n = bank.highWater;
+      bank.mesh.count = bank.live > 0 ? n : 0;
+      uploadPrefix(bank.mesh.instanceMatrix, n * 16);
+      uploadPrefix(bank.birth, n);
+      if (bank.live === 0) {
+        bank.highWater = 0;
+      }
     }
   }
 

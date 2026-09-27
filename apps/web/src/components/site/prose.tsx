@@ -83,6 +83,7 @@ const FOOTER_LINKS = [
   { label: "About", to: "/about" },
   { label: "Contact", to: "/contact" },
   { label: "Privacy", to: "/privacy" },
+  { label: "Terms", to: "/terms" },
 ] as const;
 
 /**

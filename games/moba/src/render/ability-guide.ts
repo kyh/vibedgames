@@ -19,6 +19,10 @@ const CSS = `
   .moba-ability-guide button:focus-visible,.moba-ability-guide .guide-copy:focus-visible{outline:3px solid #164f62;outline-offset:2px}
   .moba-ability-guide button[aria-pressed=true]{background:#325c69;color:#fff2ce;border-color:#203b43}
   .moba-ability-guide .guide-toggle{position:absolute;width:112px;pointer-events:auto;background:#d4bb8c url(assets/ui/carved3.webp) center/100% 100% no-repeat;border:0}
+  .moba-ability-guide .guide-toggle .guide-key{display:none}
+  .moba-ability-guide .guide-toggle[data-flat=true]{display:flex;flex-direction:column;align-items:center;gap:4px;min-height:0;padding:5px 0 0;background:none;color:#4a3320;font-size:12px;line-height:1}
+  .moba-ability-guide .guide-toggle[data-flat=true] .guide-key{display:block;font-size:9px;color:#8a7350}
+  .moba-ability-guide .guide-toggle[data-flat=true]:hover,.moba-ability-guide .guide-toggle[data-flat=true][aria-expanded=true]{color:#9c2f2f}
   .moba-ability-guide section{position:absolute;box-sizing:border-box;pointer-events:auto;display:flex;flex-direction:column;border:3px solid #786044;border-radius:3px;background:#e6d2a9;box-shadow:0 4px 0 #352c2260;overflow:hidden}
   .moba-ability-guide header{display:flex;flex-shrink:0;align-items:center;gap:8px;padding:7px 10px 0}
   .moba-ability-guide .guide-heading{flex:1;min-width:0}
@@ -49,6 +53,11 @@ export interface GuidePlacement {
   x: number;
   y: number;
   toggleWidth: number;
+  toggleHeight: number;
+  /** Flat = bare label + key hint on the HUD's info card; else the carved strip. */
+  flat: boolean;
+  panelX: number;
+  panelY: number;
   panelWidth: number;
   maxHeight: number;
 }
@@ -92,7 +101,7 @@ const button = (className: string, text: string): HTMLButtonElement => {
 export class AbilityGuide {
   private readonly root = el("div", "moba-ability-guide");
   private readonly style = el("style");
-  private readonly toggle = button("guide-toggle", "ABILITIES");
+  private readonly toggle = button("guide-toggle", "");
   private readonly panel = el("section");
   private readonly close = button("guide-close", "×");
   private readonly title = el("h2");
@@ -114,6 +123,9 @@ export class AbilityGuide {
     this.gs = gs;
     this.options = options;
     this.style.textContent = CSS;
+    this.toggle.append(el("span", "", "ABILITIES"), el("span", "guide-key", "G"));
+    this.toggle.setAttribute("aria-label", "Ability guide");
+    this.toggle.setAttribute("aria-keyshortcuts", "g");
     this.toggle.setAttribute("aria-expanded", "false");
     this.toggle.setAttribute("aria-controls", "moba-ability-panel");
     this.panel.id = "moba-ability-panel";
@@ -144,21 +156,7 @@ export class AbilityGuide {
     }
     this.root.addEventListener("keydown", this.fenceKey);
     this.root.addEventListener("keyup", this.fenceKey);
-    this.toggle.addEventListener("click", () => {
-      if (gs.matchResult || gs.controlsPaused || options.blocked()) {
-        return;
-      }
-      if (this.open) {
-        this.closeGuide();
-      } else {
-        this.panel.hidden = false;
-        this.root.dataset.open = "true";
-        this.toggle.setAttribute("aria-expanded", "true");
-        options.onOpen();
-        this.refresh();
-        this.close.focus();
-      }
-    });
+    this.toggle.addEventListener("click", () => this.toggleGuide());
     this.close.addEventListener("click", () => this.closeGuide());
     for (const tab of this.tabs) {
       tab.button.addEventListener("click", () => {
@@ -172,6 +170,23 @@ export class AbilityGuide {
 
   get open(): boolean {
     return !this.panel.hidden;
+  }
+
+  /** The toggle's action, shared with its G key twin in the HUD scene. */
+  toggleGuide(): void {
+    if (this.gs.matchResult || this.gs.controlsPaused || this.options.blocked()) {
+      return;
+    }
+    if (this.open) {
+      this.closeGuide();
+      return;
+    }
+    this.panel.hidden = false;
+    this.root.dataset.open = "true";
+    this.toggle.setAttribute("aria-expanded", "true");
+    this.options.onOpen();
+    this.refresh();
+    this.close.focus();
   }
 
   private closingEscape = false;
@@ -202,6 +217,12 @@ export class AbilityGuide {
         if (event.type === "keydown") {
           event.preventDefault();
           this.closingEscape = true;
+          this.closeGuide();
+        }
+        return;
+      }
+      if (event.key.toUpperCase() === "G") {
+        if (event.type === "keydown") {
           this.closeGuide();
         }
         return;
@@ -284,11 +305,13 @@ export class AbilityGuide {
   }
 
   place(at: GuidePlacement): void {
+    this.toggle.dataset.flat = String(at.flat);
     this.toggle.style.width = `${at.toggleWidth}px`;
+    this.toggle.style.height = `${at.toggleHeight}px`;
     this.toggle.style.left = `${at.x}px`;
     this.toggle.style.top = `${at.y}px`;
-    this.panel.style.left = `${at.x}px`;
-    this.panel.style.top = `${at.y + 52}px`;
+    this.panel.style.left = `${at.panelX}px`;
+    this.panel.style.top = `${at.panelY}px`;
     this.panel.style.width = `${at.panelWidth}px`;
     this.panel.style.maxHeight = `${at.maxHeight}px`;
   }

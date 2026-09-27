@@ -3,36 +3,12 @@
   "owner": {
     "name": "vibedgames"
   },
+  "description": "Seed your coding agent with a game studio: design, scaffold, generate art and audio, add multiplayer, tune feel, and ship browser games with the vg CLI.",
   "plugins": [
     {
-      "name": "game-engines",
-      "source": "./plugins/game-engines",
-      "description": "Build 2D and 3D browser games with Phaser 3, Three.js, and Capacitor for iOS"
-    },
-    {
-      "name": "asset-pipeline",
-      "source": "./plugins/asset-pipeline",
-      "description": "Refine and process generated game assets: animated spritesheets, Aseprite parsing, sprite-sheet pipelines, pixel-grid snapping, and image-to-procedural-Three.js props"
-    },
-    {
-      "name": "game-features",
-      "source": "./plugins/game-features",
-      "description": "Add game features like real-time multiplayer, co-op, and PvP"
-    },
-    {
-      "name": "game-craft",
-      "source": "./plugins/game-craft",
-      "description": "Make browser games have taste — the build order and craft that separate a tech demo from something fun"
-    },
-    {
-      "name": "generate",
-      "source": "./plugins/generate",
-      "description": "Generate game-ready assets — images, video, audio, 3D, characters, cinematics, sprites, voiceover — with the vg generate CLI"
-    },
-    {
-      "name": "tooling",
-      "source": "./plugins/tooling",
-      "description": "Developer tooling for deploying games, frontend testing, and skill authoring"
+      "name": "vibedgames",
+      "source": "./plugins/vibedgames",
+      "description": "Seed your coding agent with a game studio: design, scaffold, generate art and audio, add multiplayer, tune feel, and ship browser games with the vg CLI."
     }
   ]
 }

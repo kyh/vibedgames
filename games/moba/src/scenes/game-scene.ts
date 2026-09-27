@@ -10,7 +10,7 @@ import { SIM_DT, SNAPSHOT_HZ, TEAMS } from "../data/config";
 import type { Team } from "../data/config";
 import { HEROES, HERO_BY_ID } from "../data/heroes";
 import type { AbilityDef, AbilityKey } from "../data/heroes";
-import { ELEV_LIFT, WORLD, elevationFrac } from "../data/map";
+import { ELEV_LIFT, TOWERS, WORLD, elevationFrac } from "../data/map";
 import { activateItem, autoLevel, castAbility, levelAbility } from "../sim/abilities";
 import { dealDamage, isEnemy } from "../sim/combat";
 import { dist2 } from "../sim/math";
@@ -22,6 +22,7 @@ import { readSoundscape } from "../render/score";
 import { structureAnnouncement } from "../render/objective-guidance";
 import { presentationSettings, watchPresentationSettings } from "../render/presentation-settings";
 import { WorldView } from "../render/view";
+import { createPlaytestSense } from "../playtest/sense";
 import {
   INTENT_EVENT,
   MULTIPLAYER_HOST,
@@ -44,6 +45,13 @@ import type { Snapshot } from "../net/snapshot";
 import type { JsonValue } from "../net/json";
 
 const TEAM_SIZE = 3;
+const DEFAULT_SEED = 1234;
+// A playtest's decisions are worth nothing while the lanes are empty: the
+// first wave leaves at 0:15 and meets mid-lane near 0:30.
+const LANE_SKIP_MAX_S = 45;
+const LANE_SKIP_CONTACT = 900;
+// Towers sit beside the lane, not on it.
+const LANE_POST_OFFSET = 110;
 // A slow frame owes the sim its full wall time, else a laggy host's world
 // crawls for every guest. Both caps bound the burst so a machine that cannot
 // keep up degrades to slow motion instead of spiralling into longer frames.
@@ -78,6 +86,10 @@ const TOUCH_CONTROLS_CSS = `
 // keys (right hand), ABILITIES on Q/W/E/R (left hand), F = dash, Space = attack.
 const ABILITY_KEYS: AbilityKey[] = ["Q", "W", "E", "R"];
 const DASH_KEY = "F";
+// How long after its last movement the mouse keeps aiming point casts. Long
+// enough to survive a strafe between mouse moves, short enough that a parked
+// mouse never yanks a keyboard-only player's spells off their facing.
+const MOUSE_AIM_HOLD_MS = 4000;
 export const SLOT_LABEL = { E: "E", Q: "Q", R: "R", W: "W" } satisfies Record<AbilityKey, string>;
 
 // Physical pad: face buttons cast (A is the attack button, so R lands on RB).
@@ -166,6 +178,11 @@ export class GameScene extends Scene {
   private cam!: Phaser.Cameras.Scene2D.Camera;
   private followGo = false;
   private heroChoice = "ironvow";
+  private seed = DEFAULT_SEED;
+  private skipToLane = false;
+  private damageDealt = 0;
+  private scoreBaseline = 0;
+  private sense = createPlaytestSense();
   private ended = false;
   private result: MatchResult | null = null;
   // brief sim freeze on nearby hero kills (game feel)
@@ -182,6 +199,8 @@ export class GameScene extends Scene {
   private lastDir = { dx: 0, dy: 0 };
   // last movement direction — drives keyboard ability aim
   private aimDir = { x: 1, y: 0 };
+  // scene time until which a recently moved mouse owns point-cast aim
+  private mouseAimUntil = 0;
   // set by the HUD while a modal (shop) is open — pauses hero input
   uiBlocking = false;
   // kill feed / announcements drained from world.fx for the HUD (which reads them
@@ -220,10 +239,12 @@ export class GameScene extends Scene {
     super("Game");
   }
 
-  init(data: { heroId?: string; online?: boolean }): void {
+  init(data: { heroId?: string; online?: boolean; seed?: number; skipToLane?: boolean }): void {
     if (data?.heroId) {
       this.heroChoice = data.heroId;
     }
+    this.seed = data?.seed ?? DEFAULT_SEED;
+    this.skipToLane = data?.skipToLane === true;
     // The one choke point for online mode — both the lobby's PLAY ONLINE
     // button and the `?online=1` deep link arrive here, so `?offline=1` is
     // enforced once and no socket can be opened behind it.
@@ -234,6 +255,9 @@ export class GameScene extends Scene {
   private resetMatchState(): void {
     resetSound();
     this.result = null;
+    this.damageDealt = 0;
+    this.scoreBaseline = 0;
+    this.sense = createPlaytestSense();
     this.playerId = "";
     this.acc = 0;
     this.hostClock = null;
@@ -245,6 +269,7 @@ export class GameScene extends Scene {
     this.needsPauseHold = false;
     this.lastDir = { dx: 0, dy: 0 };
     this.aimDir = { x: 1, y: 0 };
+    this.mouseAimUntil = 0;
     this.uiBlocking = false;
     this.net = null;
     this.picks = {};
@@ -329,7 +354,7 @@ export class GameScene extends Scene {
 
   // ---- modes ---------------------------------------------------------------
   private startLocal(): void {
-    this.world = createWorld(1234);
+    this.world = createWorld(this.seed);
     const player = spawnHero(this.world, this.heroChoice, "radiant", "you", false, 0);
     this.playerId = player.id;
     this.view.playerHeroId = player.id;
@@ -340,6 +365,43 @@ export class GameScene extends Scene {
     for (const [i, id] of pickRoster("emberhex", TEAM_SIZE).entries()) {
       spawnHero(this.world, id, "dire", `botD${i}`, true, i);
     }
+    if (this.skipToLane) {
+      this.walkToLane(player);
+    }
+  }
+
+  /** Play out the empty opening — the hero walks to its outer tower as a
+   *  player would — and stop at first contact with the enemy wave. Mid-lane
+   *  itself is no place to wait: the enemy outer tower covers the bridge mouth. */
+  private walkToLane(player: Unit): void {
+    const tower = TOWERS.find((t) => t.team === player.team && t.lane === "top" && t.tier === "t1");
+    if (!tower) {
+      return;
+    }
+    const post = { x: tower.x, y: tower.y + LANE_POST_OFFSET };
+    issueOrder(this.world, player, { to: post, type: "attackMove" });
+    const contact = (): boolean => {
+      for (const u of this.world.units.values()) {
+        if (
+          u.kind === "creep" &&
+          !u.neutral &&
+          u.alive &&
+          isEnemy(player, u) &&
+          dist2(player, u) < LANE_SKIP_CONTACT * LANE_SKIP_CONTACT
+        ) {
+          return true;
+        }
+      }
+      return false;
+    };
+    for (let t = 0; t < LANE_SKIP_MAX_S && !contact(); t += SIM_DT) {
+      step(this.world, SIM_DT);
+    }
+    issueOrder(this.world, player, { type: "hold" });
+    // The skipped seconds' hits and deaths would all play on the first frame.
+    this.world.fx.length = 0;
+    // Whatever the walk-in earned (an assist off a bot's kill) was not played for.
+    this.scoreBaseline = this.playScore();
   }
 
   private startOnline(): void {
@@ -719,12 +781,18 @@ export class GameScene extends Scene {
     // Mouse is a full complement to the keyboard scheme (which stays the primary,
     // keyboard-first control): LEFT or RIGHT click moves to the point, or attacks
     // an enemy clicked on. Keyboard steering/abilities remain fully usable.
+    this.input.on("pointermove", (p: Phaser.Input.Pointer) => {
+      if (!p.wasTouch) {
+        this.mouseAimUntil = this.time.now + MOUSE_AIM_HOLD_MS;
+      }
+    });
     this.input.on("pointerdown", (p: Phaser.Input.Pointer) => {
       resumeAudio();
       // touches steer the virtual stick, never click-to-move
       if (p.wasTouch) {
         return;
       }
+      this.mouseAimUntil = this.time.now + MOUSE_AIM_HOLD_MS;
       // shop/modal open — ignore world clicks
       if (this.uiBlocking) {
         return;
@@ -975,6 +1043,11 @@ export class GameScene extends Scene {
           ...structureAnnouncement(this.world, fx, me?.team ?? null),
           at: now,
         });
+      } else if (fx.t === "hit") {
+        const target = this.world.units.get(fx.targetId);
+        if (me?.hero && fx.attackerHero === me.hero.defId && target && isEnemy(me, target)) {
+          this.damageDealt += fx.amount;
+        }
       } else if (
         fx.t === "death" &&
         fx.kind === "hero" &&
@@ -1100,8 +1173,10 @@ export class GameScene extends Scene {
     if (fromHud) {
       return this.touchAimPoint(me, r);
     }
-    if (this.lastDir.dx !== 0 || this.lastDir.dy !== 0) {
-      // keyboard/stick steering: fire along the direction you're holding
+    // The aim source is whichever the player is actually using, never a mix:
+    // a mouse that moved recently aims every cast (even mid-strafe), a parked
+    // mouse hands aim to the movement facing so keyboard-only play is stable.
+    if (this.time.now > this.mouseAimUntil) {
       return { x: me.x + this.aimDir.x * r, y: me.y + this.aimDir.y * r };
     }
     // aim at the cursor, clamped to cast range
@@ -1109,6 +1184,25 @@ export class GameScene extends Scene {
     const dy = cursor.y - me.y;
     const d = Math.hypot(dx, dy);
     return d > r && d > 0 ? { x: me.x + (dx / d) * r, y: me.y + (dy / d) * r } : cursor;
+  }
+
+  /** The direction a point cast would take right now — the same rule as
+   *  pointCastAim — for the on-hero chevron. A live mouse always shows (touch
+   *  laptops included); otherwise touch/pad casts auto-target from the HUD, so
+   *  there is nothing truthful to show them, and keyboard play shows facing. */
+  private aimDirection(): Vec2 | null {
+    const me = this.player;
+    if (!me?.alive) {
+      return null;
+    }
+    if (this.time.now > this.mouseAimUntil) {
+      return this.touchControls ? null : this.aimDir;
+    }
+    const cursor = this.cam.getWorldPoint(this.input.activePointer.x, this.input.activePointer.y);
+    const dx = cursor.x - me.x;
+    const dy = cursor.y - me.y;
+    const d = Math.hypot(dx, dy);
+    return d < 12 ? this.aimDir : { x: dx / d, y: dy / d };
   }
 
   /** Aim for HUD-tapped point casts: the nearest enemy hero in range, else any
@@ -1326,6 +1420,7 @@ export class GameScene extends Scene {
 
     this.collectFeed();
     this.updateTargetReticle();
+    this.view.setAim(this.aimDirection());
     this.view.sync(this.world, dt);
     updateSoundscape(
       this.result
@@ -1591,16 +1686,52 @@ export class GameScene extends Scene {
     this.scene.launch("Hud", { game: this });
   }
 
+  /** Gold ticks up on its own, so it cannot tell play from standing still;
+   *  every term here is something the hero did, and none ever falls. */
+  private playScore(): number {
+    const h = this.player?.hero;
+    return h
+      ? Math.round(this.damageDealt) +
+          h.lastHits * 50 +
+          h.denies * 25 +
+          h.kills * 500 +
+          h.assists * 200
+      : 0;
+  }
+
   diagnostics() {
     const me = this.player;
+    const h = me?.hero;
     return {
       complete: this.world.phase === "ended",
       entities: this.world.units.size,
       frame: this.game.loop.frame,
       fx: this.view.fxCounts(),
       phase: this.world.phase,
-      player: me ? { alive: me.alive, hp: me.hp, x: me.x, y: me.y } : null,
-      score: me?.hero?.gold ?? 0,
+      player: me
+        ? {
+            alive: me.alive,
+            hp: Math.round(me.hp),
+            hpPct: Math.round((me.hp / me.maxHp) * 100) / 100,
+            level: h?.level ?? 1,
+            mp: Math.round(me.mp),
+            respawnInSec: me.alive || !h ? 0 : Math.ceil((h.respawnAt - this.world.now) / 1000),
+            x: Math.round(me.x),
+            y: Math.round(me.y),
+          }
+        : undefined,
+      score: this.playScore() - this.scoreBaseline,
+      stats: h
+        ? {
+            assists: h.assists,
+            damageDealt: Math.round(this.damageDealt),
+            deaths: h.deaths,
+            gold: Math.floor(h.gold),
+            kills: h.kills,
+            lastHits: h.lastHits,
+          }
+        : undefined,
+      ...(me ? this.sense(this.world, me, this.cam.worldView) : undefined),
     };
   }
 

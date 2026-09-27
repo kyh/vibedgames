@@ -1,0 +1,369 @@
+---
+name: phaser
+description: "Build 2D browser games with Phaser 4: scenes, sprites, Arcade/Matter physics, tilemaps, WebGL filters and GPU layers, and Phaser 3 to 4 migration."
+---
+
+# Phaser 4 Game Development
+
+**This skill covers Phaser 4 only.** If a project lists `phaser@^3`, treat it as a migration target — read `references/migration-hotspots.md` first, then bump to `phaser@^4`. Do not start new work on v3.
+
+Build 2D browser games using Phaser 4's WebGL-first renderer, scene model, and updated rendering APIs.
+
+## Core principles
+
+Phaser 4 is not Phaser 3 with renamed methods — the renderer, filter model, shader assumptions, texture orientation, and batching all changed.
+
+1. **WebGL-first, not Canvas-first**: treat Canvas as legacy compatibility.
+2. **Measure assets before loader config**: most sprite/tile bugs are incorrect frame metadata, not rendering bugs.
+3. **Prefer the simplest rendering path**: standard game objects until scale or effects justify filters, GPU layers, or shaders.
+4. **Migration is selective redesign**: basic scene code ports cleanly; masks, FX, custom pipelines, shaders, and texture workflows usually need real updates.
+
+## STOP: Before Loading Any Spritesheet or Atlas
+
+Read `references/spritesheets-and-textures.md` first. A few pixels off in frame size, spacing, or margin creates silent corruption that surfaces later as animation/rendering bugs. Never guess frame dimensions; don't assume texture orientation is irrelevant when compressed textures or custom shaders are involved.
+
+## STOP: Before Porting Phaser 3 Code
+
+Read `references/migration-hotspots.md` first. Search for the APIs that changed meaning or disappeared — where most migration time goes:
+
+- `setTintFill`
+- `BitmapMask`
+- `preFX` / `postFX`
+- `Phaser.Geom.Point`
+- `Math.TAU` / `Math.PI2`
+- `setPipeline('Light2D')`
+- `DynamicTexture` / `RenderTexture`
+- custom pipelines
+- custom shader code
+- `TileSprite` cropping
+
+## Reference Files
+
+Read these before working on the relevant feature:
+
+| When working on...                                                | Read first                                |
+| ----------------------------------------------------------------- | ----------------------------------------- |
+| Migrating Phaser 3 code                                           | `references/migration-hotspots.md`        |
+| Loading spritesheets, atlases, compressed textures, or TileSprite | `references/spritesheets-and-textures.md` |
+| Performance issues, GPU layers, filters, lighting, or batching    | `references/rendering-and-performance.md` |
+| Arcade physics, bodies, groups, pooling                           | `references/arcade-physics.md`            |
+| Tilemaps, object layers, collision setup                          | `references/tilemaps.md`                  |
+
+## Quick Start: Scaffold a Phaser 4 + Vite Project
+
+For a fresh project (Vite + TypeScript + plain Phaser, no React unless the UI demands it):
+
+```sh
+npm create vite@latest my-game -- --template vanilla-ts
+cd my-game
+npm install phaser@^4
+```
+
+Minimal `src/main.ts`:
+
+```ts
+import Phaser from "phaser";
+
+class GameScene extends Phaser.Scene {
+  constructor() {
+    super("Game");
+  }
+  create() {
+    this.add.text(20, 20, "Hello Phaser 4", { color: "#fff" });
+  }
+}
+
+new Phaser.Game({
+  type: Phaser.WEBGL,
+  parent: "game",
+  width: 800,
+  height: 600,
+  backgroundColor: "#1a1a2e",
+  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  scene: [GameScene],
+});
+```
+
+`index.html` needs `<div id="game"></div>` and `<script type="module" src="/src/main.ts"></script>`.
+
+**Engine version pin.** Always pin `phaser@^4` explicitly — npm's `latest` may flip back to `phaser@3.x` if 4.x sees a regression. Don't rely on `phaser` alone resolving to v4.
+
+**No image assets yet?** Build textures procedurally in `BootScene.preload()` with `this.add.graphics()` + `generateTexture("key", w, h)` so the loop runs before any art exists. Replace later with real sprites (e.g. via `vg generate`).
+
+**ESM import gotcha — "Phaser is not defined".** Phaser 4 ESM sets **no global `Phaser`**. The official `vibedgames`/`phaserjs` template's scene files import only `import { Scene } from "phaser"`, so the moment you add code that uses the `Phaser.*` _namespace as a runtime value_ — `Phaser.Math.Clamp`, `Phaser.BlendModes.ADD`, `Phaser.TintModes.FILL`, `Phaser.Scale.RESIZE`, `Phaser.Scenes.Events`, `Phaser.Math.Angle` — it throws `ReferenceError: Phaser is not defined` (and it fires at _module-eval_ time if used at top level, so the whole scene fails to load). Fix: import the namespace as a value in any file that uses it:
+
+```ts
+import * as Phaser from "phaser";          // namespace available as a runtime value
+export class Game extends Phaser.Scene { … } // (or keep `import { Scene }` AND add the line above)
+```
+
+`Phaser.Types.*` in _type_ positions is erased at compile time and is fine either way — this only bites for runtime values. Also note `setTintFill(c)` is gone in Phaser 4 → use `sprite.setTint(c).setTintMode(Phaser.TintModes.FILL)` for a solid white hit-flash.
+
+## Architecture Decisions (Make Early)
+
+### Rendering Path Choice
+
+| Path                               | Use when                                                           |
+| ---------------------------------- | ------------------------------------------------------------------ |
+| Standard game objects              | Most gameplay, UI, and ordinary animation                          |
+| `SpriteGPULayer`                   | Very large numbers of mostly simple quads or particle-like members |
+| `TilemapGPULayer`                  | Very large orthographic tile layers using one tileset              |
+| `RenderTexture` / `DynamicTexture` | You need capture, compositing, stamping, or texture reuse          |
+| Filters / Shader                   | The effect is genuinely image-space or shader-driven               |
+
+### Physics System Choice
+
+| System | Use when                                                    |
+| ------ | ----------------------------------------------------------- |
+| Arcade | Platformers, shooters, most 2D action games                 |
+| Matter | Physics puzzles, compound bodies, more realistic collisions |
+| None   | Menu scenes, card games, visual novels, strategy UIs        |
+
+### Scene Structure
+
+```text
+scenes/
+├── BootScene.ts      # Asset loading, progress bar, shader/texture setup
+├── MenuScene.ts      # Title screen and options
+├── GameScene.ts      # Main gameplay
+├── UIScene.ts        # HUD overlay (launched in parallel)
+└── GameOverScene.ts  # End screen and restart flow
+```
+
+HUD, vignette and other `setScrollFactor(0)` chrome go in the parallel unzoomed `UIScene` — inside a zoomed camera they get zoom-transformed off-screen.
+
+### Scene Transitions
+
+```ts
+this.scene.start("GameScene", { level: 1 }); // Stop current, start new
+this.scene.launch("UIScene"); // Run in parallel
+this.scene.pause("GameScene"); // Pause
+this.scene.stop("UIScene"); // Stop
+```
+
+## Core Patterns
+
+### Game Configuration
+
+Prefer explicit WebGL unless there is a concrete reason not to.
+
+```ts
+const config: Phaser.Types.Core.GameConfig = {
+  type: Phaser.WEBGL,
+  width: 800,
+  height: 600,
+  roundPixels: false,
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+  },
+  physics: {
+    default: "arcade",
+    arcade: { gravity: { y: 300 }, debug: false },
+  },
+  scene: [BootScene, MenuScene, GameScene],
+};
+```
+
+`Scale.RESIZE` keeps stale bounds after a tab switch (canvas stays tiny). Debounce `this.scale.refresh()` on `resize` AND on `visibilitychange` → visible.
+
+### Scene Lifecycle
+
+```ts
+class GameScene extends Phaser.Scene {
+  init(data: unknown) {} // Receive data from previous scene
+  preload() {} // Load assets before create
+  create() {} // Set up game objects, physics, input
+  update(time: number, delta: number) {} // Use delta for frame-rate independence
+}
+```
+
+#### Scene instances are reused
+
+One instance per scene key; `create()` re-runs on every `start`/`restart`, class-field initializers do not. Per-scene plugins (`this.input`, `this.input.keyboard`) clear their listeners on shutdown; `Key` objects and game-level singletons do not.
+
+```ts
+create() {
+  this.entities = []; this.byId = new Map(); this.netPuppets.clear(); // reset EVERY field here
+  this.keys = this.input.keyboard.addKeys("W,A,S,D,SPACE"); // returns the SAME Key objects each time
+  for (const k of Object.values(this.keys)) k.removeAllListeners(); // else .on("down") stacks → double-fire
+  this.scale.off("resize", this.onResize); // ScaleManager survives scene stop; never scale.off("resize") bare — kills other scenes' handlers
+  this.onResize = () => this.layout();
+  this.scale.on("resize", this.onResize);
+  this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.scale.off("resize", this.onResize));
+}
+```
+
+Same rule for `game.events.on(...)` and `window.addEventListener(...)`: store the handler, `off` it in `create`, `off` it on SHUTDOWN — they keep firing against destroyed objects while the scene is stopped.
+
+### Input
+
+`JustDown` edges are consumed on read — sample input ONCE per frame into a struct and share it; a second `JustDown(k)` in the same frame returns `false`.
+
+### Frame-Rate Independent Movement
+
+```ts
+// Correct: scales with frame rate
+this.player.x += this.speed * (delta / 1000);
+
+// Wrong: varies with frame rate
+this.player.x += this.speed;
+```
+
+`delta` is clamped to one target frame while the window is unfocused (`TimeStep` `!inFocus`), so a sim that trusts it crawls in a background tab — a multiplayer host stalls every guest. Authoritative sims owe wall-clock time (`performance.now()` deltas), not `delta`.
+
+### Animations
+
+Aseprite/authored sheets carry per-frame durations: create the anim with `frames: [{ key, frame, duration }]` and no `frameRate`. Never pass `duration` in `play()` — it overrides `frameRate`, and `getFirstTick` only consults `currentFrame.duration` when `state.frameRate === anim.frameRate`, so the clip freezes on frame 1. Retime with `sprite.anims.timeScale = authoredMs / targetMs`. Verify `anims.currentFrame.index` advances (1-based). Depth in `references/spritesheets-and-textures.md`.
+
+### Audio
+
+With no audio device the sound manager stub drops `sound.mute` writes and reads back `false`. Own the mute flag in your code; treat `this.sound.mute` as write-only.
+
+### Phaser 4 Migration Replacements
+
+```ts
+// Phaser 3
+sprite.setTintFill(0xff0000);
+// Phaser 4
+sprite.setTint(0xff0000).setTintMode(Phaser.TintModes.FILL);
+```
+
+`setTint` multiplies — a yellow sprite cannot be tinted blue. Palette variants need natively coloured sequences or baked sheets; tint only darkens/shifts within the source hue.
+
+```ts
+// Phaser 3
+sprite.setPipeline("Light2D");
+// Phaser 4
+sprite.setLighting(true);
+```
+
+```ts
+// Phaser 3
+const mask = new Phaser.Display.Masks.BitmapMask(scene, maskObject);
+sprite.setMask(mask);
+// Phaser 4
+sprite.filters.internal.addMask(maskObject);
+```
+
+```ts
+// Phaser 3
+colorMatrix.sepia();
+// Phaser 4
+colorMatrix.colorMatrix.sepia();
+```
+
+```ts
+// Phaser 3
+Math.TAU; // was PI/2
+Math.PI2; // was PI*2
+// Phaser 4
+Math.PI_OVER_2; // PI/2
+Math.TAU; // PI*2 (correct tau)
+```
+
+### RenderTexture and DynamicTexture
+
+Phaser 4 buffers drawing commands. Execute them deliberately.
+
+```ts
+const rt = this.add.renderTexture(0, 0, 256, 256);
+rt.draw(sprite, 0, 0);
+rt.render(); // required — without this, nothing lands on the texture
+```
+
+Use `preserve()` or render modes (`renderMode`: `render` | `redraw` | `all`) only when they solve a concrete problem. Extra indirection complicates debugging quickly. If the RT stays transparent you skipped `render()` or are on <4.2; a TileSprite base + per-tile Images ground is the zero-risk alternative (`references/rendering-and-performance.md`).
+
+### TilemapGPULayer
+
+```ts
+// Add 'gpu' flag to get a TilemapGPULayer instead of TilemapLayer
+const layer = map.createLayer("Ground", tileset, 0, 0, { gpu: true });
+
+// After editing tile data, regenerate the GPU texture
+layer.generateLayerDataTexture();
+```
+
+Constraints: orthographic only, one tileset, max 4096×4096 tiles.
+
+### SpriteGPULayer
+
+```ts
+const layer = this.add.spriteGPULayer(texture, frameCount);
+
+// Reuse one config object — don't create millions of new objects
+const memberConfig = {};
+for (let i = 0; i < 100000; i++) {
+  memberConfig.x = Math.random() * 800;
+  memberConfig.y = Math.random() * 600;
+  memberConfig.scaleX = memberConfig.scaleY = 1;
+  memberConfig.alpha = 1;
+  layer.addMember(memberConfig);
+}
+```
+
+Use it for starfields, particle-like swarms, animated backgrounds — not for interactive gameplay entities that mutate frequently.
+
+### Pixel Rounding
+
+Do not assume old `roundPixels` behavior. Phaser 4 defaults it to `false`.
+
+```ts
+sprite.vertexRoundMode = "safe"; // per-object: off | safe | safeAuto | full | fullAuto
+```
+
+Use rounding intentionally for pixel art. Leave it off for rotated, scaled, or camera-heavy scenes.
+
+### Top-Down Depth & Fake Height
+
+In a top-down 2D game, screen draw order is the only depth cue. Sort every sprite by its ground Y each frame so lower-on-screen draws in front — this is what lets the player walk behind a tree, then in front of it:
+
+```ts
+// after movement, before render (e.g. end of update); covers trees, grass, NPCs, the player
+this.entities.forEach((e) => e.setDepth(e.y));
+```
+
+Fake the third dimension with a height value `z`: lift the sprite by `z`, but keep a **separate** shadow sprite (never bake the shadow into the art) on the true ground point, and sort by the ground Y — not the lifted position:
+
+```ts
+e.z = Math.max(0, e.z + e.vz * dt);
+e.vz -= GRAVITY * dt; // simple jump / projectile arc
+e.sprite.setPosition(e.x, e.y - e.z).setDepth(e.y); // lift visual, sort by ground Y
+e.shadow.setPosition(e.x, e.y).setScale(1 - e.z * 0.002); // shadow stays grounded, shrinks with height
+e.body.enable = e.z === 0; // airborne = no hitbox, so jumps dodge attacks
+```
+
+The shadow sells the arc — without it a lifted sprite just looks like it slid up the screen.
+
+The origin must sit on the ART's feet row, not the frame's bottom edge: measure the trim box (`asset-pipeline/scripts/asset-sprite-baseline.mjs`, or `magick frame.png -format "%@" info:`) and set `originY = (trimY + trimH + 0.5) / frameH` — a mis-set origin is why shadows and collision look "detached".
+
+## Anti-Patterns to Avoid
+
+| Anti-pattern                                                    | Why it hurts                                                         | Better                                                        |
+| --------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------- |
+| Treating Phaser 4 as a drop-in Phaser 3 upgrade                 | You miss renderer, filter, shader, and texture changes               | Audit migration hotspots first, then port intentionally       |
+| Starting new work on Canvas-first assumptions                   | Many Phaser 4 features are WebGL-centric or unavailable in Canvas    | Design for WebGL; treat Canvas as fallback only if required   |
+| Guessing spritesheet or atlas metadata                          | Visual corruption appears far from the actual mistake                | Measure frames, spacing, margin, and bounds before loading    |
+| Using filters or shaders for every visual effect                | More complexity, more batch breaks, harder debugging                 | Use plain sprites, textures, and tint where possible          |
+| Applying lighting or filters everywhere                         | Shader changes break batches and can tank performance                | Reserve them for objects that benefit visually                |
+| Forgetting `render()` on `DynamicTexture` or `RenderTexture`    | Queued work never lands on the texture                               | Make render execution explicit in the workflow                |
+| Using `SpriteGPULayer` for frequently mutated gameplay entities | Its strength is scale, not arbitrary object behavior                 | Keep complex interactive entities on normal game objects      |
+| Assuming `TilemapGPULayer` is a universal tilemap replacement   | It is orthographic-only and more constrained                         | Use it when the layer size and rendering profile justify it   |
+| Making raw `gl` calls outside supported integration points      | You can desync Phaser's renderer state                               | Use `Extern` or higher-level Phaser APIs                      |
+| "The port compiles, so the migration is done"                   | Rendering, shader, and texture bugs survive the first compile        | Re-test visuals explicitly after every render-touching change |
+| Registering listeners in `create()` without removing the old    | Scene instances are reused: keys double-fire, resize crashes         | Reset fields, `removeAllListeners` on keys, `off` on SHUTDOWN |
+| `TileSprite` with a 0 width or height                           | Kills the WebGL context / the tab ("Target crashed", no JS error)    | `Math.max(1, w)`, `Math.max(1, h)` before construction        |
+| Relying on a `Container`'s depth for input hit-testing          | Hit-test uses each object's OWN depth; a veil at N eats the click    | `setDepth(N+1)` on the interactive children themselves        |
+| Bare `localStorage` reads/writes                                | Throws in sandboxed iframes (games embed in the web app) → boot-dead | Wrap every access in `try/catch`, fall back to in-memory      |
+
+## Variation Guidance
+
+Don't converge on a single setup — choose per context. What varies is the architecture, not the rigor (always measure assets and check batching costs):
+
+- Rendering path: standard objects vs GPU layers vs textures vs shader/filter pipelines
+- Physics: Arcade vs Matter vs none
+- Content: tilemaps vs pure sprites vs hybrid
+- Pixel art: `roundPixels` off, safe per-object rounding, or deliberate full rounding
+- Assets: spritesheets vs atlases vs single textures
+- Scene layout: separate `UIScene` vs in-scene HUD
+- Tilemap: `TilemapLayer` vs `TilemapGPULayer` (only when constraints fit)

@@ -422,11 +422,22 @@ const castStormcaller: Caster = ({ w, c, def, rank, p, target }) => {
       return true;
     }
     case "stormcaller:R": {
+      const radius = v(def, "radius", rank);
       startChannel(w, c, def, rank, p, {
         dtype: "physical",
         enemyDps: v(def, "damagePerTick", rank) / TICK,
-        radius: v(def, "radius", rank),
+        radius,
         slowPct: v(def, "slowPct", rank) / 100,
+      });
+      w.fx.push({
+        effect: def.effect,
+        radius,
+        t: "ability",
+        team: c.team,
+        x: c.x,
+        x2: p.x,
+        y: c.y,
+        y2: p.y,
       });
       return true;
     }
@@ -553,6 +564,18 @@ const castBoomtinker: Caster = ({ w, c, def, rank, p, amp }) => {
         triggerRadius: v(def, "triggerRadius", rank),
         x: p.x,
         y: p.y,
+      });
+      // a small plant puff only: a hidden mine must not announce itself with
+      // the area glow larger ability radii trigger
+      w.fx.push({
+        effect: def.effect,
+        radius: 40,
+        t: "ability",
+        team: c.team,
+        x: c.x,
+        x2: p.x,
+        y: c.y,
+        y2: p.y,
       });
       // enforce max mines
       const max = v(def, "maxMines", rank);

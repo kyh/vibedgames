@@ -10,7 +10,7 @@ import {
 import { isMissingCommand, run } from "../lib/run.js";
 import { assertKnownFlags } from "../lib/strict-args.js";
 
-const REPO = "kyh/vibedgames";
+const REPO = "kyh/vibedgames-plugins";
 const DEFAULT_AGENTS = "claude-code,cursor,codex";
 const description = "Install/update vibedgames skills and the vg CLI";
 
@@ -77,9 +77,7 @@ export const initCommand = defineCommand({
     // even be looking at, so `vg --version` would not move.
     const manager = detectPackageManager(import.meta.filename);
 
-    consola.start(
-      "Installing/updating vibedgames skills and the vg CLI (this takes a few minutes — `skills` fetches the repo once per skill)...",
-    );
+    consola.start("Installing/updating vibedgames skills and the vg CLI...");
 
     const [add, cli] = await Promise.all([
       run("npx", skillsAddArgs(agents, args.global, args.yes), { stream: true }),

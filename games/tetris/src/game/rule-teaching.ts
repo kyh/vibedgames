@@ -12,6 +12,18 @@ const navButton = (label: string, ariaLabel: string): HTMLButtonElement => {
   return button;
 };
 
+const cellClass = (example: TeachingExample, i: number): string => {
+  const x = i % GRID;
+  const z = Math.floor(i / GRID);
+  const occupied = example.cells.some((c) => c.x === x && c.z === z);
+  const landing = example.landing.some((c) => c.x === x && c.z === z);
+  let fill = "";
+  if (occupied) {
+    fill = example.clear ? " rule-cell-clear" : " rule-cell-locked";
+  }
+  return `rule-cell${fill}${landing ? " rule-cell-landing" : ""}`;
+};
+
 /** Three browsable rule cards on the title banner: an 8×8 floor diagram plus
  *  copy, each derived from a real Board so the numbers can't drift from play. */
 export const mountRuleTeaching = (root: HTMLElement): void => {
@@ -54,18 +66,6 @@ export const mountRuleTeaching = (root: HTMLElement): void => {
   const navigation = document.createElement("div");
   navigation.className = "rule-navigation";
   navigation.append(previous, count, next);
-
-  const cellClass = (example: TeachingExample, i: number): string => {
-    const x = i % GRID;
-    const z = Math.floor(i / GRID);
-    const occupied = example.cells.some((c) => c.x === x && c.z === z);
-    const landing = example.landing.some((c) => c.x === x && c.z === z);
-    let fill = "";
-    if (occupied) {
-      fill = example.clear ? " rule-cell-clear" : " rule-cell-locked";
-    }
-    return `rule-cell${fill}${landing ? " rule-cell-landing" : ""}`;
-  };
 
   const paint = (): void => {
     const example = examples[index];

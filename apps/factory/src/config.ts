@@ -145,6 +145,13 @@ export const deriveSlug = (input: {
   return null;
 };
 
+// Probe legacy blackboard names too: a pre-rename workspace is still taken
+// (it gets migrated to .vgfactory/ the moment it's resumed).
+const taken = (s: string): boolean =>
+  [".vgfactory", ".agent", ".studio"].some((dir) =>
+    existsSync(path.resolve(defaultWorkspace(s), dir, "state.json")),
+  );
+
 /**
  * For idea-derived names only: two different games seeded with similar ideas
  * must not silently share (and resume) one workspace — suffix until free. An
@@ -152,12 +159,6 @@ export const deriveSlug = (input: {
  * there.
  */
 export const availableSlug = (base: string): string => {
-  // Probe legacy blackboard names too: a pre-rename workspace is still taken
-  // (it gets migrated to .vgfactory/ the moment it's resumed).
-  const taken = (s: string): boolean =>
-    [".vgfactory", ".agent", ".studio"].some((dir) =>
-      existsSync(path.resolve(defaultWorkspace(s), dir, "state.json")),
-    );
   if (!taken(base)) {
     return base;
   }

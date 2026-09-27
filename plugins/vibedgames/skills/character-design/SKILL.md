@@ -1,0 +1,91 @@
+---
+name: character-design
+description: "Create consistent characters with `vg generate`: reference and expression sheets, outfit variants, identity-preserving edits, character-to-video."
+---
+
+# Character design with `vg generate`
+
+Use this skill when the user wants to create, refine, or preserve a character.
+Load the reference files when needed:
+
+- `references/anchor-system.md`
+- `references/prompt-patterns.md`
+- `references/examples.md`
+
+Load `model-catalog` alongside this skill for default endpoint choices.
+
+The main objective is consistency. Keep the character anchor stable and change
+only the requested scene, expression, outfit, camera, or action.
+
+## Inputs to collect
+
+Only ask for missing inputs that affect identity or model routing.
+
+- Character type: realistic human, stylized, anime, mascot, fantasy, sci-fi.
+- Identity anchor: age range, face shape, hair, eyes, build, posture, marks.
+- Style: photographic, 3D, illustration, manga, comic, game concept art.
+- Needed outputs: portrait, full body, turnaround, expression sheet, outfit
+  set, action still, video shot, edit of an existing character.
+- References: source image, approved design, costume, pose, style board.
+- Consistency level: exploratory, pitch-ready, production continuity.
+- Model preference: `model-catalog` defaults unless the user names one.
+
+## Genmedia workflow
+
+Follow the standard workflow in the [`generate` skill](../generate/SKILL.md): resolve endpoint → inspect schema/pricing → upload references → run (stills inline, video `--async` + `status`) → download to `./outputs/characters/{request_id}_{index}.{ext}`. Default endpoint IDs are in the Model routing section below; routing details live in `model-catalog`.
+
+## Character anchor
+
+Create a short immutable anchor before generating.
+
+```text
+CHARACTER ANCHOR:
+[name or codename], [age range], [face shape], [eye shape and color],
+[nose and lips], [skin tone and distinguishing marks], [hair color, texture,
+style], [body build and posture], [signature clothing or silhouette],
+[style target]
+```
+
+Then add a variable block for the current shot.
+
+```text
+SHOT VARIABLE:
+[expression], [pose/action], [outfit changes if allowed], [environment],
+[camera/framing], [lighting], [mood]
+```
+
+Never rewrite the anchor casually. If a result changes identity, strengthen the
+anchor or switch to a reference/edit workflow instead of adding more style
+words.
+
+## Model routing
+
+- New character concept with maximum consistency: use `openai/gpt-image-2`.
+- Premium but cheaper image option: use `fal-ai/nano-banana-pro` or
+  `fal-ai/nano-banana-2`.
+- Fast exploratory drafts: use `fal-ai/flux-2/klein/9b`.
+- Consistent sheet from an approved character: use `openai/gpt-image-2` first;
+  if editing an existing image, inspect `openai/gpt-image-2/edit`.
+- Outfit variations and character edits: use `fal-ai/nano-banana-pro/edit`,
+  then `openai/gpt-image-2/edit`, then
+  `fal-ai/bytedance/seedream/v5/lite/edit`.
+- Expression sheet: one approved face reference, multiple controlled
+  expression prompts.
+- Character video: approved still frame first, then
+  `bytedance/seedance-2.0/image-to-video` for final quality.
+- Fast video drafts: use `xai/grok-imagine-video/image-to-video`.
+- Talking avatar or lip-sync: use `veed/fabric-1.0`,
+  `veed/fabric-1.0/text`, or `fal-ai/creatify/aurora`.
+
+## Quality bar
+
+Reject or retry when:
+
+- Face shape, eye spacing, hairstyle, marks, or body build drift.
+- Outfit changes when the prompt says only expression or pose should change.
+- The sheet mixes styles across panels.
+- Hands or props distract from the requested design task.
+- Video motion changes age, face, costume, or silhouette.
+
+Return downloaded paths and include the anchor used so future prompts can reuse
+the same identity.

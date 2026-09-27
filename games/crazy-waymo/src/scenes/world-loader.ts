@@ -18,7 +18,8 @@ import { PhysicsWorld } from "../physics/physics-world";
 import { Rng } from "../shared/rng";
 import { Car, skinById, skinModelUrl } from "../vehicle/car";
 import { RaycastVehicle } from "../vehicle/raycast-vehicle";
-import { CityModel, TILE_HOLD_RADIUS } from "../world/city";
+import { CityModel, tileHoldRadius } from "../world/city";
+import { contextLostBefore } from "../render/safe-mode";
 import type { CityRestPayload } from "../world/city";
 import { editorMode, loadLocalOverrides } from "../world/custom-map";
 import { freewayPhysics } from "../world/freeways";
@@ -41,7 +42,7 @@ import type { ParcelSource } from "../world/parcel-source";
 import type { ParcelWorkerRequest, ParcelWorkerResponse } from "../world/parcel-worker";
 import { fetchBakedWorld, fetchParcelSource, fetchWorldMeta } from "../world/world-fetch";
 import type { CityRestMeta } from "../world/world-bin";
-import { isCoarsePointer } from "../render/quality";
+import { PHONE_REACH, SAFE_REACH, isCoarsePointer } from "../render/quality";
 import { Minimap } from "../ui/minimap";
 
 export type WorldSpawn = PlayerSpawn;
@@ -74,7 +75,13 @@ interface RestSource {
 // The title waits for the tiles this close to the spawn. A phone downloads
 // its neighbourhood and lets the rest stream in behind the title (the fog
 // hides most of it); a desktop pipe takes everything in draw range up front.
-const GATE_RADIUS = isCoarsePointer() ? 480 : TILE_HOLD_RADIUS;
+// A phone gates on a fixed ring around the spawn; a device that lost a
+// context before shrinks it with the rest of the reach so the title frame is
+// smaller too.
+const gateRadius = (): number =>
+  isCoarsePointer()
+    ? Math.round(480 * (contextLostBefore() ? SAFE_REACH / PHONE_REACH : 1))
+    : tileHoldRadius();
 
 interface WorldLoaderDeps {
   readonly scene: THREE.Scene;
@@ -368,7 +375,7 @@ const finishLoad = async (
   });
   if (meta) {
     deps.setStage("DOWNLOADING THE CITY…");
-    await city.streamGate(spawn.x, spawn.z, GATE_RADIUS, (done, total) => {
+    await city.streamGate(spawn.x, spawn.z, gateRadius(), (done, total) => {
       const f = total > 0 ? done / total : 1;
       deps.setLoading(buildTo + f * (0.84 - buildTo), "Downloading San Francisco…");
     });

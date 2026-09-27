@@ -52,6 +52,8 @@ const HURT_POP = 120;
 const HW = 6;
 const BODY_H = 22;
 const EPS = 0.0001;
+// px of cross-axis overlap a move slides round rather than stopping on
+const CORNER = 2;
 
 // Melee hitbox extents (px), relative to the player's feet at (x, y). Exported so
 // the viewer's reach box can draw the ACTUAL hit area instead of an approximation.
@@ -297,6 +299,9 @@ export class PlayerBody {
   get dashing(): boolean {
     return this.dashTime > 0;
   }
+  get dashReady(): boolean {
+    return this.dashCd <= 0 && this.dashTime <= 0 && (this.grounded || this.airDash);
+  }
   get hurting(): boolean {
     return this.hurtStun > 0;
   }
@@ -410,6 +415,7 @@ export class PlayerBody {
     this.prevY = y;
     this.vx = vx;
     this.vy = vy;
+    this.depenetrate();
   }
 
   /** Shift the sim by a small reconciliation delta (prev too, so the render
@@ -419,6 +425,34 @@ export class PlayerBody {
     this.y += dy;
     this.prevX += dx;
     this.prevY += dy;
+    this.depenetrate();
+  }
+
+  // Authority arrives from another timeline, so a blend or snap can land the
+  // box across a tile edge; moveX/moveY assume they start clear of solids.
+  private depenetrate() {
+    if (!this.blocked(this.x, this.y)) {
+      return;
+    }
+    const exits = [
+      { x: Math.floor((this.x + HW) / TILE) * TILE - HW - EPS, y: this.y },
+      { x: (Math.floor((this.x - HW) / TILE) + 1) * TILE + HW + EPS, y: this.y },
+      { x: this.x, y: Math.floor((this.y - EPS) / TILE) * TILE },
+      { x: this.x, y: (Math.floor((this.y - BODY_H) / TILE) + 1) * TILE + BODY_H + EPS },
+    ]
+      .filter((e) => !this.blocked(e.x, e.y))
+      .toSorted(
+        (a, b) =>
+          Math.abs(a.x - this.x) +
+          Math.abs(a.y - this.y) -
+          Math.abs(b.x - this.x) -
+          Math.abs(b.y - this.y),
+      );
+    const [exit] = exits;
+    if (exit) {
+      this.x = exit.x;
+      this.y = exit.y;
+    }
   }
 
   attackBox(): AttackBox | null {
@@ -764,7 +798,7 @@ export class PlayerBody {
     let nx = this.x;
     for (let d = 4; d <= dist; d += 4) {
       const tryx = this.x + dir * d;
-      if (this.grid.solidInRect(tryx - HW, this.y - BODY_H + 2, tryx + HW, this.y - 2)) {
+      if (this.blocked(tryx, this.y)) {
         break;
       }
       nx = tryx;
@@ -819,62 +853,105 @@ export class PlayerBody {
     this.ev.onDash?.();
   }
 
-  private moveX(dx: number) {
-    this.x += dx;
-    const t = this.y - BODY_H + 2;
-    const b = this.y - 2;
-    if (this.grid.solidInRect(this.x - HW, t, this.x + HW, b)) {
-      if (dx > 0) {
-        this.x = Math.floor((this.x + HW) / TILE) * TILE - HW - EPS;
-      } else if (dx < 0) {
-        this.x = (Math.floor((this.x - HW) / TILE) + 1) * TILE + HW + EPS;
-      }
-      this.vx = 0;
+  private blocked(x: number, y: number): boolean {
+    return this.grid.solidInRect(x - HW, y - BODY_H, x + HW, y);
+  }
+
+  // Corner correction: a box stopped by a tile it overlaps by no more than
+  // CORNER px on the cross axis slides round it instead. The whole box is
+  // re-tested at the corrected spot, so a move never ends inside a tile.
+  private cornerX(y: number): number | null {
+    const right = (Math.floor((this.x - HW) / TILE) + 1) * TILE + HW + EPS;
+    if (right - this.x <= CORNER && !this.blocked(right, y)) {
+      return right;
     }
+    const left = Math.floor((this.x + HW) / TILE) * TILE - HW - EPS;
+    if (this.x - left <= CORNER && !this.blocked(left, y)) {
+      return left;
+    }
+    return null;
+  }
+
+  private cornerY(x: number): number | null {
+    const up = Math.floor((this.y - EPS) / TILE) * TILE;
+    if (this.y - up <= CORNER && !this.blocked(x, up)) {
+      return up;
+    }
+    const down = (Math.floor((this.y - BODY_H) / TILE) + 1) * TILE + BODY_H + EPS;
+    if (down - this.y <= CORNER && !this.blocked(x, down)) {
+      return down;
+    }
+    return null;
+  }
+
+  private moveX(dx: number) {
+    const nx = this.x + dx;
+    if (!this.blocked(nx, this.y)) {
+      this.x = nx;
+      return;
+    }
+    const ny = this.cornerY(nx);
+    if (ny !== null) {
+      this.x = nx;
+      this.y = ny;
+      return;
+    }
+    if (dx > 0) {
+      this.x = Math.floor((nx + HW) / TILE) * TILE - HW - EPS;
+    } else if (dx < 0) {
+      this.x = (Math.floor((nx - HW) / TILE) + 1) * TILE + HW + EPS;
+    }
+    this.vx = 0;
   }
 
   private moveY(dy: number) {
     this.landVy = 0;
     const prevFeet = this.y;
-    const l = this.x - HW + 2;
-    const r = this.x + HW - 2;
-    this.y += dy;
-    if (dy > 0) {
-      let hit = this.grid.solidInRect(l, this.y - 3, r, this.y);
-      if (!hit && !this.hDown) {
-        const row = Math.floor((this.y - EPS) / TILE);
-        const top = row * TILE;
-        const onOneWay =
-          this.grid.isOneWayCell(Math.floor(l / TILE), row) ||
-          this.grid.isOneWayCell(Math.floor(r / TILE), row);
-        if (onOneWay && prevFeet <= top + 1 && this.y >= top) {
-          hit = true;
-        }
-      }
-      if (hit) {
-        this.y = Math.floor((this.y - EPS) / TILE) * TILE;
-        this.landVy = this.vy;
+    const ny = this.y + dy;
+    if (this.blocked(this.x, ny)) {
+      const nx = this.cornerX(ny);
+      if (nx === null) {
+        this.y =
+          dy > 0
+            ? Math.floor((ny - EPS) / TILE) * TILE
+            : (Math.floor((ny - BODY_H) / TILE) + 1) * TILE + BODY_H + EPS;
+        this.landVy = Math.max(this.vy, 0);
         this.vy = 0;
+        return;
       }
-    } else if (dy < 0) {
-      const headTop = this.y - BODY_H;
-      if (this.grid.solidInRect(l, headTop, r, headTop + 3)) {
-        this.y = (Math.floor(headTop / TILE) + 1) * TILE + BODY_H + EPS;
+      this.x = nx;
+    }
+    this.y = ny;
+    if (dy > 0 && !this.hDown) {
+      const top = Math.floor((ny - EPS) / TILE) * TILE;
+      if (prevFeet <= top + EPS && this.oneWayUnderFeet(top)) {
+        this.y = top;
+        this.landVy = this.vy;
         this.vy = 0;
       }
     }
   }
 
+  private oneWayUnderFeet(top: number): boolean {
+    const row = Math.floor(top / TILE);
+    return (
+      this.grid.isOneWayCell(Math.floor((this.x - HW + CORNER) / TILE), row) ||
+      this.grid.isOneWayCell(Math.floor((this.x + HW - CORNER) / TILE), row)
+    );
+  }
+
   private groundBelow(): boolean {
-    const l = this.x - HW + 2;
-    const r = this.x + HW - 2;
-    if (this.grid.solidInRect(l, this.y, r, this.y + 2)) {
-      return true;
+    const probe = this.y + 2;
+    if (this.grid.solidInRect(this.x - HW, this.y, this.x + HW, probe)) {
+      // A lip under only the outer CORNER px is one moveY slides off, not ground.
+      return (
+        this.grid.solidInRect(this.x - HW + CORNER, this.y, this.x + HW - CORNER, probe) ||
+        this.cornerX(probe) === null
+      );
     }
-    if (!this.hDown && this.grid.oneWayInRect(l, this.y, r, this.y + 2)) {
-      return true;
-    }
-    return false;
+    // Feet inside a one-way (rising through it) are not standing on it.
+    const top = Math.floor((probe - EPS) / TILE) * TILE;
+    return !this.hDown && this.vy >= 0 && this.y <= top + EPS && this.oneWayUnderFeet(top);
   }
 
   private updateContacts() {

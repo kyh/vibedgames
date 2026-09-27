@@ -316,14 +316,15 @@ const WIRE_SAG = 0.055;
 // fraction of span
 const WIRE_GAUGE = 0.0019;
 const WIRE_SEGS = 4;
+const wireSagAt = (t: number): number => -WIRE_SAG * 4 * t * (1 - t);
+
 const wireKit = lazyKit(() => {
   const pieces: KitPiece[] = [];
-  const yAt = (t: number): number => -WIRE_SAG * 4 * t * (1 - t);
   for (let i = 0; i < WIRE_SEGS; i += 1) {
     const t0 = i / WIRE_SEGS;
     const t1 = (i + 1) / WIRE_SEGS;
-    const y0 = yAt(t0);
-    const y1 = yAt(t1);
+    const y0 = wireSagAt(t0);
+    const y1 = wireSagAt(t1);
     // overlap the joints
     const len = Math.hypot(t1 - t0, y1 - y0) * 1.06;
     pieces.push(
@@ -847,6 +848,9 @@ const LIGHT_FOR = {
 const inPark = (x: number, z: number): boolean =>
   districtAt(Math.floor((x + WORLD_W / 2) / ROAD_TILE), Math.floor((z + WORLD_H / 2) / ROAD_TILE))
     .character === "park";
+
+const isGGPark = (gx: number, gz: number): boolean =>
+  inBounds(gx, gz) && districtAt(gx, gz).name === "Golden Gate Park";
 
 // oxlint-disable-next-line complexity -- one sequential dressing pipeline of ~20 passes over a scope of shared placement helpers; splitting it is a refactor, not a lint fix
 export const buildFurniture = async (ctx: FurnitureCtx): Promise<FurnitureResult> => {
@@ -1486,8 +1490,6 @@ export const buildFurniture = async (ctx: FurnitureCtx): Promise<FurnitureResult
   // 7. GOLDEN GATE PARK — tree allées on the edge bands, planter flower
   // beds, and Stow Lake.
   // ------------------------------------------------------------------
-  const isGGPark = (gx: number, gz: number): boolean =>
-    inBounds(gx, gz) && districtAt(gx, gz).name === "Golden Gate Park";
   const treeUrl = modelUrl("props", TREE_LARGE);
   const planterUrl = modelUrl("props", PROP_PLANTER);
   const planterScale = 1.5 / Math.max(cache.bounds(planterUrl).size.x, 0.001);

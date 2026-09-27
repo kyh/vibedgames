@@ -289,16 +289,19 @@ export class View {
   private prStep = 0;
 
   constructor(container: HTMLElement) {
+    // Phones: no multisample buffer on dense screens and a lower DPR cap —
+    // the shared GPU process, not the frame rate, is what runs out first.
+    const coarse = "matchMedia" in window && window.matchMedia("(pointer:coarse)").matches;
+    const dense = coarse && window.devicePixelRatio >= 2;
     this.renderer = new THREE.WebGLRenderer({
-      antialias: true,
+      antialias: !dense,
       powerPreference: "high-performance",
     });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, coarse ? 1.5 : 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     // STATIC shadows: characters use blob shadows and every real caster is
     // scenery, so the shadow map renders ONCE (refreshShadows() re-arms it).
     // Touch devices skip shadows entirely — biggest single mobile win.
-    const coarse = "matchMedia" in window && window.matchMedia("(pointer:coarse)").matches;
     // Three checks every program's info log as it links, which is a synchronous
     // stall on the driver — measured at ~200ms of a ~300ms first-cast hitch
     // (tools/fx-stall.mjs). Worth paying in dev, where a broken shader would

@@ -1,29 +1,37 @@
 # Plugins
 
-The game studio, as skills. Six Claude Code plugins, listed in
-[`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json), each a
-`.claude-plugin/plugin.json` manifest plus a `skills/` directory.
+The game studio, as skills. One Claude Code plugin, [`vibedgames`](./vibedgames),
+listed in [`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json):
+a `.claude-plugin/plugin.json` manifest plus a flat `skills/` directory. One
+plugin, not one per area, so a single install gets the whole studio and skills
+can point at each other.
 
 These are the product, not tooling for this repo: `vg init` installs them into a
 user's project (for Claude Code, Cursor and Codex), and `vg update` refreshes
 them. Claude Code users can also install straight from the marketplace:
-`claude plugin marketplace add kyh/vibedgames`, then
-`claude plugin install <plugin>@vibedgames`. An agent that has them can do what
+`claude plugin marketplace add kyh/vibedgames-plugins`, then
+`claude plugin install vibedgames@vibedgames`. An agent that has them can do what
 a studio does — design, scaffold, generate art, add multiplayer, tune feel, ship.
 
-| Plugin                               | Skills                                                                                                                                                                   |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [`game-craft`](./game-craft)         | `game-playbook` · `ask-me` · `teach-me` · `game-feel` · `game-balance` · `game-ui` · `level-design` · `onboarding` · `animation` · `vfx` · `design-lenses` · `finish-it` |
-| [`game-engines`](./game-engines)     | `phaser` · `threejs` · `capacitor-ios`                                                                                                                                   |
-| [`game-features`](./game-features)   | `multiplayer` · `gamepad`                                                                                                                                                |
-| [`generate`](./generate)             | `generate` · `model-catalog` · `model-prompting` · `media-workflow` · `pixel-art` · `character-design` · `cinematography` · `storytelling` · `regenerate-3d`             |
-| [`asset-pipeline`](./asset-pipeline) | `animated-spritesheets` · `aseprite` · `asset-pipeline` · `image-to-threejs` · `pixel-snapper`                                                                           |
-| [`tooling`](./tooling)               | `deploy` · `fork` · `playtest` · `skill-creator`                                                                                                                         |
+| Area           | Skills                                                                                                                                                                   |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Craft          | `game-playbook` · `ask-me` · `teach-me` · `game-feel` · `game-balance` · `game-ui` · `level-design` · `onboarding` · `animation` · `vfx` · `design-lenses` · `finish-it` |
+| Engines        | `phaser` · `threejs` · `capacitor-ios`                                                                                                                                   |
+| Features       | `multiplayer` · `gamepad`                                                                                                                                                |
+| Generation     | `generate` · `model-catalog` · `model-prompting` · `media-workflow` · `pixel-art` · `character-design` · `cinematography` · `storytelling` · `regenerate-3d`             |
+| Asset pipeline | `animated-spritesheets` · `aseprite` · `asset-pipeline` · `image-to-threejs` · `pixel-snapper`                                                                           |
+| Tooling        | `deploy` · `fork` · `playtest` · `skill-creator`                                                                                                                         |
 
 `game-playbook` is the entry point — the build order from a one-line idea to a
 shipped game; the rest are the deep modules it routes into.
 
 ## Editing them
+
+Edit here, never in [`kyh/vibedgames-plugins`](https://github.com/kyh/vibedgames-plugins).
+That repo is a read-only mirror of `plugins/` and `.claude-plugin/`, pushed by
+`.github/workflows/sync-plugins.yml` on every change to main. It exists because
+the plugin directory and `npx skills add` both download a whole repo, and the
+game assets make this one far too big for either.
 
 ```sh
 pnpm dogfood        # build + npm-link the local vg CLI, sync .claude/skills/
@@ -46,7 +54,7 @@ Re-run `pnpm dogfood` after adding or removing a skill, then commit the
   contains — it is the only part always in context.
 - A skill that changes a user's output owns the lesson. Durable craft belongs
   in the SKILL.md (or its scripts), never only in a session note.
-- Adding a skill to a new plugin means adding the plugin to
-  `.claude-plugin/marketplace.json` too.
+- New skills go in `vibedgames/skills/`. Don't split out a second plugin; one
+  install should get the whole studio.
 - End-user-facing skills never name the generation provider as a brand — model
   endpoint IDs pass through verbatim, everything else is just "the CLI".

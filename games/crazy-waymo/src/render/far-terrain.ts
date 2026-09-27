@@ -310,6 +310,18 @@ const FRAG = /* glsl */ `
   }
 `;
 
+// Value multiplier for a vertex: the local ridge SLOPE lights one flank and
+// shades the other (a symmetric fill would keep the band flat no matter how
+// varied its outline), plus a slow bearing wave for broad shoulders, both
+// faded out toward the foot where the haze owns the colour anyway.
+const reliefAt = (ridges: readonly Ridge[], bearing: number, top: number): number => {
+  const d = 1.5;
+  const slope = (profileAt(ridges, bearing + d) - profileAt(ridges, bearing - d)) / (2 * d);
+  const lit = Math.max(-1, Math.min(1, slope / 12));
+  const wave = Math.sin(bearing * 0.19 + 1.7) * 0.5 + Math.sin(bearing * 0.061) * 0.5;
+  return 1 + RELIEF * (lit * 0.7 + wave * 0.3) * (0.3 + 0.7 * top);
+};
+
 export class FarTerrain {
   readonly mesh: THREE.Mesh;
   private uFog = { value: new THREE.Color(0xbf_dc_f2) };
@@ -343,18 +355,6 @@ export class FarTerrain {
     let v = 0;
     // index cursor
     let f = 0;
-
-    // Value multiplier for a vertex: the local ridge SLOPE lights one flank and
-    // shades the other (a symmetric fill would keep the band flat no matter how
-    // varied its outline), plus a slow bearing wave for broad shoulders, both
-    // faded out toward the foot where the haze owns the colour anyway.
-    const reliefAt = (ridges: readonly Ridge[], bearing: number, top: number): number => {
-      const d = 1.5;
-      const slope = (profileAt(ridges, bearing + d) - profileAt(ridges, bearing - d)) / (2 * d);
-      const lit = Math.max(-1, Math.min(1, slope / 12));
-      const wave = Math.sin(bearing * 0.19 + 1.7) * 0.5 + Math.sin(bearing * 0.061) * 0.5;
-      return 1 + RELIEF * (lit * 0.7 + wave * 0.3) * (0.3 + 0.7 * top);
-    };
 
     const quad = (
       band: Band,

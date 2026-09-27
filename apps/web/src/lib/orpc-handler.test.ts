@@ -47,6 +47,7 @@ const auth = createAuth({
 const contextFor = (request: Request): ORPCContext => ({
   auth,
   db,
+  decision: undefined,
   headers: request.headers,
   media: undefined,
   productionURL: undefined,

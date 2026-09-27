@@ -1,5 +1,7 @@
 import type Phaser from "phaser";
 import { BlendModes, Math as PhaserMath, Scene, Scenes } from "phaser";
+import { PhysicalGamepad, stickDirection4 } from "@vibedgames/gamepad";
+import type { Dir4 } from "@vibedgames/gamepad";
 import { attachVirtualGamepad, safeAreaInset } from "@vibedgames/gamepad/phaser";
 import type { Inset } from "@vibedgames/gamepad/phaser";
 import { HOTBAR } from "../systems/inventory";
@@ -19,12 +21,16 @@ import { Sound } from "../render/audio";
 import { hotbarGrid, hotbarKey, slotIconScale } from "../render/hotbar-layout";
 import { skillPerk } from "../render/skill-readout";
 import { isPick, isTouchDevice } from "../systems/touch";
+import { modalIntent, nextFocus } from "../ui/modal-focus";
 import { GameScene } from "./game-scene";
 import type { DayRecap } from "./game-scene";
 
 const FONT = "ui-monospace, monospace";
 const MODAL_TITLE_H = 40;
 const BIG_BTN_H = 44;
+const FOCUS_RING = 0xff_e2_7a;
+const FOCUS_RING_GAP = 3;
+const DPAD: readonly Dir4[] = ["up", "down", "left", "right"];
 const SLOT = 42;
 const PAD = 4;
 
@@ -32,6 +38,15 @@ const BAR_FULL = 0x7e_d9_57;
 const BAR_HP_FULL = 0xff_7b_7b;
 const BAR_LOW = 0xff_cf_4d;
 const BAR_EMPTY = 0xff_5d_5d;
+
+export type ModalKind = "shop" | "animals" | "sleep";
+
+/** A modal button as keyboard and pad focus sees it. */
+interface ModalButton {
+  node: Phaser.GameObjects.Container;
+  ring: Phaser.GameObjects.Graphics;
+  press: () => void;
+}
 
 const barColor = (frac: number, full: number): number => {
   if (frac > 0.5) {
@@ -119,6 +134,14 @@ export class HudScene extends Scene {
   private notices: ToastNotice[] = [];
   private dayCard: DayCard | null = null;
   private modal: Phaser.GameObjects.Container | null = null;
+  private modalKind: ModalKind | null = null;
+  private modalButtons: ModalButton[] = [];
+  private modalFocus = -1;
+  /** The press that opens a modal must not also confirm it, whichever scene
+   *  Phaser happens to hand that press to first. */
+  private modalOpenedFrame = 0;
+  private readonly pad = new PhysicalGamepad();
+  private padStickDir: Dir4 | null = null;
   private dialogueBox: Phaser.GameObjects.Container | null = null;
   private hotbar!: Phaser.GameObjects.Container;
   private onResize?: () => void;
@@ -139,6 +162,9 @@ export class HudScene extends Scene {
     // drop stale listeners on the (persistent) game-scene emitter to avoid dupes.
     this.slotNodes = [];
     this.modal = null;
+    this.modalButtons = [];
+    this.modalFocus = -1;
+    this.padStickDir = null;
     this.dialogueBox = null;
     this.notices = [];
     this.dayCard = null;
@@ -261,6 +287,8 @@ export class HudScene extends Scene {
     );
 
     this.input.keyboard?.on("keydown-ESC", () => this.closeModal());
+    this.input.keyboard?.on("keydown", (ev: KeyboardEvent) => this.onModalKey(ev));
+    this.pad.update();
   }
 
   private buildHotbar(): void {
@@ -415,6 +443,7 @@ export class HudScene extends Scene {
   }
 
   override update(): void {
+    this.pollModalPad();
     const W = this.scale.width;
     const H = this.scale.height;
     // Graphics rebuilds are gated on a change signature; the texts below stay
@@ -755,16 +784,120 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
     return this.modal !== null;
   }
 
+  get openModal(): ModalKind | null {
+    return this.modal ? this.modalKind : null;
+  }
+
   private closeModal(): void {
     if (!this.modal) {
       return;
     }
-    this.modal.destroy();
-    this.modal = null;
+    this.dismissModal();
     this.g.closeUi();
   }
 
-  private modalShell(w: number, h: number, title: string): Phaser.GameObjects.Container {
+  private dismissModal(): void {
+    this.modal?.destroy();
+    this.modal = null;
+    this.modalButtons = [];
+    this.modalFocus = -1;
+  }
+
+  private get modalArmed(): boolean {
+    return (
+      this.modal !== null && !this.g.controlsPaused && this.game.loop.frame > this.modalOpenedFrame
+    );
+  }
+
+  private onModalKey(ev: KeyboardEvent): void {
+    if (ev.repeat || !this.modalArmed) {
+      return;
+    }
+    const intent = modalIntent(ev.code);
+    if (intent?.kind === "confirm") {
+      this.pressFocused();
+    } else if (intent) {
+      this.moveModalFocus(intent.dir);
+    }
+  }
+
+  /** Physical pad: A confirms and B backs out, as E and ESC do; the d-pad or a
+   *  flick of the left stick moves the focus. */
+  private pollModalPad(): void {
+    this.pad.update();
+    const stickDir = stickDirection4(this.pad.getStick());
+    const flicked = stickDir === this.padStickDir ? null : stickDir;
+    this.padStickDir = stickDir;
+    if (!this.modalArmed) {
+      return;
+    }
+    if (this.pad.justPressed("b")) {
+      this.closeModal();
+      return;
+    }
+    if (this.pad.justPressed("a")) {
+      this.pressFocused();
+      return;
+    }
+    const dir = DPAD.find((d) => this.pad.justPressed(d)) ?? flicked;
+    if (dir) {
+      this.moveModalFocus(dir);
+    }
+  }
+
+  private pressFocused(): void {
+    this.modalButtons[this.modalFocus]?.press();
+  }
+
+  private moveModalFocus(dir: Dir4): void {
+    const points = this.modalButtons.map((b) => {
+      const m = b.node.getWorldTransformMatrix();
+      return { x: m.tx, y: m.ty };
+    });
+    this.focusModalButton(nextFocus(points, this.modalFocus, dir));
+  }
+
+  private focusModalButton(index: number): void {
+    this.modalFocus = index;
+    for (const [i, b] of this.modalButtons.entries()) {
+      b.ring.setVisible(i === index);
+    }
+  }
+
+  /** The shared body of every modal button: pointer target, focus ring, and a
+   *  place in the modal's focus order (the first one made starts focused). */
+  private wireModalButton(
+    node: Phaser.GameObjects.Container,
+    size: { w: number; h: number; radius: number },
+    onClick: () => void,
+  ): Phaser.GameObjects.Zone {
+    const { w, h, radius } = size;
+    const gap = FOCUS_RING_GAP;
+    const ring = this.add.graphics();
+    ring.lineStyle(3, FOCUS_RING, 1);
+    ring.strokeRoundedRect(-w / 2 - gap, -h / 2 - gap, w + gap * 2, h + gap * 2, radius + gap);
+    const press = (): void => {
+      Sound.click();
+      onClick();
+    };
+    const zone = this.add.zone(0, 0, w, h).setInteractive({ useHandCursor: true });
+    const index = this.modalButtons.push({ node, press, ring }) - 1;
+    zone.on("pointerdown", press);
+    zone.on("pointerover", () => this.focusModalButton(index));
+    ring.setVisible(index === 0);
+    if (index === 0) {
+      this.modalFocus = 0;
+    }
+    node.add([ring, zone]);
+    return zone;
+  }
+
+  private modalShell(
+    kind: ModalKind,
+    w: number,
+    h: number,
+    title: string,
+  ): Phaser.GameObjects.Container {
     const c = this.add.container(this.scale.width / 2, this.scale.height / 2).setDepth(200);
     const dim = this.add
       .rectangle(0, 0, this.scale.width * 3, this.scale.height * 3, 0x00_00_00, 0.45)
@@ -802,6 +935,10 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
     closeTarget.on("pointerdown", () => this.closeModal());
     c.add([dim, panel, titleT, close, closeTarget]);
     this.modal = c;
+    this.modalKind = kind;
+    this.modalButtons = [];
+    this.modalFocus = -1;
+    this.modalOpenedFrame = this.game.loop.frame;
     return c;
   }
 
@@ -816,7 +953,7 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
     const colW = Math.min(400, cols === 1 ? W - 64 : (W - 88) / 2);
     const w = Math.min(W - 24, cols * colW + 40 + (cols - 1) * 8);
     const h = Math.min(H - 24, 54 + perCol * rowH + 78);
-    const c = this.modalShell(w, h, "🏪  General Store");
+    const c = this.modalShell("shop", w, h, "🏪  General Store");
     const season = this.g.season();
     const startY = -h / 2 + 54;
     const columnX = (col: number): number => {
@@ -885,7 +1022,7 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
     const list: AnimalKind[] = building === "coop" ? COOP_ANIMALS : BARN_ANIMALS;
     const w = Math.min(380, this.scale.width - 24);
     const h = Math.min(110 + list.length * 56, this.scale.height - 24);
-    const c = this.modalShell(w, h, building === "coop" ? "🐔  Coop" : "🐄  Barn");
+    const c = this.modalShell("animals", w, h, building === "coop" ? "🐔  Coop" : "🐄  Barn");
     for (const [i, kind] of list.entries()) {
       const def = ANIMALS[kind];
       const ry = -h / 2 + 60 + i * 56;
@@ -938,14 +1075,10 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
     const t = this.add
       .text(0, 0, label, { color: "#fff", fontFamily: FONT, fontSize: "13px", fontStyle: "bold" })
       .setOrigin(0.5);
-    const z = this.add.zone(0, 0, tw, 24).setInteractive({ useHandCursor: true });
-    z.on("pointerdown", () => {
-      Sound.click();
-      onClick();
-    });
+    c.add([g, t]);
+    const z = this.wireModalButton(c, { h: 24, radius: 8, w: tw }, onClick);
     z.on("pointerover", () => c.setScale(1.06));
     z.on("pointerout", () => c.setScale(1));
-    c.add([g, t, z]);
     return c;
   }
 
@@ -973,11 +1106,10 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
     const bodyTop = MODAL_TITLE_H + inset;
     const h = bodyTop + body.height + inset + BIG_BTN_H + inset;
     const btnY = h / 2 - inset - BIG_BTN_H / 2;
-    const c = this.modalShell(width, h, "Rest for the night?");
+    const c = this.modalShell("sleep", width, h, "Rest for the night?");
     body.setY(-h / 2 + bodyTop + body.height / 2);
     const yes = this.bigBtn(-80, btnY, "Sleep", 0x3a_86_c8, () => {
-      this.modal?.destroy();
-      this.modal = null;
+      this.dismissModal();
       this.g.doSleep();
     });
     const no = this.bigBtn(80, btnY, "Not yet", 0xb0_5a_3a, () => this.closeModal());
@@ -1002,12 +1134,8 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
     const t = this.add
       .text(0, 0, label, { color: "#fff", fontFamily: FONT, fontSize: "16px", fontStyle: "bold" })
       .setOrigin(0.5);
-    const z = this.add.zone(0, 0, w, h).setInteractive({ useHandCursor: true });
-    z.on("pointerdown", () => {
-      Sound.click();
-      onClick();
-    });
-    c.add([g, t, z]);
+    c.add([g, t]);
+    this.wireModalButton(c, { h, radius: 10, w }, onClick);
     return c;
   }
 }

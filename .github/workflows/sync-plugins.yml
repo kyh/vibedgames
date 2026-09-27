@@ -1,0 +1,51 @@
+name: Sync plugins
+
+# The plugin directory validates a download of the whole repo archive, which the
+# game assets push far past its 50 MiB cap. kyh/vibedgames-plugins mirrors just the
+# marketplace so it can be listed; this repo stays the source of truth.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "plugins/**"
+      - ".claude-plugin/**"
+      - "LICENSE"
+      - ".github/workflows/sync-plugins.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          path: source
+
+      - uses: actions/checkout@v6
+        with:
+          repository: kyh/vibedgames-plugins
+          ssh-key: ${{ secrets.PLUGINS_MIRROR_DEPLOY_KEY }}
+          path: mirror
+
+      - name: Copy marketplace
+        run: |
+          rsync -a --delete source/plugins/ mirror/plugins/
+          rsync -a --delete source/.claude-plugin/ mirror/.claude-plugin/
+          cp source/LICENSE mirror/LICENSE
+
+      - name: Push
+        working-directory: mirror
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          git add -A
+          git diff --cached --quiet && exit 0
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "sync from kyh/vibedgames@${SHA::7}"
+          git push

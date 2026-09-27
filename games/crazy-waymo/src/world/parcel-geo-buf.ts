@@ -280,6 +280,9 @@ export interface FacadeParams {
   readonly flags: number;
 }
 
+const facadeU16 = (v: number): number =>
+  Math.max(0, Math.min(65_535, Math.round((v / FACADE_SCALE) * 65_535)));
+
 export class FacadeBuf extends GeoBuf {
   fuv = new Uint16Array(2 * 1024);
   fac = new Uint16Array(4 * 1024);
@@ -320,8 +323,6 @@ export class FacadeBuf extends GeoBuf {
     const x1 = x0 + tx * len;
     const z1 = z0 + tz * len;
     this.quad(x0, y0, z0, x1, y0, z1, x1, y1, z1, x0, y1, z0, nx, 0, nz, color);
-    const q = (v: number): number =>
-      Math.max(0, Math.min(65_535, Math.round((v / FACADE_SCALE) * 65_535)));
     const us = [0, len, len, 0];
     const vs = [vBase, vBase, vBase + (y1 - y0), vBase + (y1 - y0)];
     for (let k = 0; k < 4; k += 1) {
@@ -333,10 +334,10 @@ export class FacadeBuf extends GeoBuf {
         0,
         Math.min(65_535, Math.round(((vs[k] ?? 0) + FUV_V_BIAS) * 100)),
       );
-      this.fac[i * 4] = q(fp.storeyH);
-      this.fac[i * 4 + 1] = q(fp.pitch);
-      this.fac[i * 4 + 2] = q(fp.groundH);
-      this.fac[i * 4 + 3] = q(fp.wallLen);
+      this.fac[i * 4] = facadeU16(fp.storeyH);
+      this.fac[i * 4 + 1] = facadeU16(fp.pitch);
+      this.fac[i * 4 + 2] = facadeU16(fp.groundH);
+      this.fac[i * 4 + 3] = facadeU16(fp.wallLen);
       this.fac2[i * 3] = Math.min(255, fp.storeys);
       this.fac2[i * 3 + 1] = fp.seed % 256;
       this.fac2[i * 3 + 2] = fp.flags % 256;

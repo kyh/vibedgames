@@ -29,7 +29,7 @@ import { roundHalfToEven } from "../src/pymath.js";
 
 /**
  * Behavioural parity tests for the commands ported from
- * `plugins/asset-pipeline/skills/asset-pipeline/scripts/*.py`. The expected
+ * `plugins/vibedgames/skills/asset-pipeline/scripts/*.py`. The expected
  * values here were produced by running those Python scripts against the same
  * generated corpus.
  */

@@ -1,6 +1,6 @@
 ---
 name: release
-description: 'Bump, build, publish, tag, and changelog vibedgames npm packages — `vibedgames` (CLI), `@vibedgames/multiplayer`, and/or `@vibedgames/gamepad`. Skips packages with no changes since last release. Use when the user wants to ship a new version. Args optional: package(s) and bump type, e.g. "release multiplayer patch", "release gamepad patch", "release cli minor", "release all patch".'
+description: 'Bump, build, publish, tag, and changelog vibedgames npm packages — `vibedgames` (CLI), `@vibedgames/multiplayer`, `@vibedgames/gamepad` and/or `@vibedgames/playtest`. Skips packages with no changes since last release. Use when the user wants to ship a new version. Args optional: package(s) and bump type, e.g. "release multiplayer patch", "release gamepad patch", "release playtest patch", "release cli minor", "release all patch".'
 allowed-tools: Bash(*), Read, Edit, Write
 ---
 
@@ -15,8 +15,9 @@ Cut a new npm version of one or more publishable packages in this repo.
   - `vibedgames` → `apps/cli` → tag prefix `vibedgames@`
   - `@vibedgames/multiplayer` → `packages/multiplayer` → tag prefix `@vibedgames/multiplayer@`
   - `@vibedgames/gamepad` → `packages/gamepad` → tag prefix `@vibedgames/gamepad@`
-- All ship `dist/` built by `tsc`. All three keep `tsBuildInfoFile` at `.cache/tsbuildinfo.json` — NEVER inside `dist/` (it would ship in the tarball; vibedgames ≤0.3.0 did exactly that). Consequence: `rm -rf dist` alone makes `tsc` silently emit NOTHING (cache says up-to-date). Always remove both `dist` and `.cache`.
-- `vibedgames` and `@vibedgames/multiplayer` have no internal workspace consumers. `@vibedgames/gamepad` IS consumed in-repo by the example games via `workspace:^`, but `pnpm publish` rewrites that to the published version automatically — no manual downstream sync needed.
+  - `@vibedgames/playtest` → `packages/playtest` → tag prefix `@vibedgames/playtest@`
+- All ship `dist/` built by `tsc`. All four keep `tsBuildInfoFile` at `.cache/tsbuildinfo.json` — NEVER inside `dist/` (it would ship in the tarball; vibedgames ≤0.3.0 did exactly that). Consequence: `rm -rf dist` alone makes `tsc` silently emit NOTHING (cache says up-to-date). Always remove both `dist` and `.cache`.
+- `vibedgames` and `@vibedgames/multiplayer` have no internal workspace consumers. `@vibedgames/gamepad` and `@vibedgames/playtest` ARE consumed in-repo by the example games via `workspace:^`, but `pnpm publish` rewrites that to the published version automatically — no manual downstream sync needed.
 - Current branch: !`git -C /Users/kyh/Documents/Projects/vibedgames rev-parse --abbrev-ref HEAD`
 - Working tree: !`git -C /Users/kyh/Documents/Projects/vibedgames status --short`
 
@@ -24,7 +25,7 @@ Cut a new npm version of one or more publishable packages in this repo.
 
 Parse from the user message:
 
-- Which package(s): `cli`, `multiplayer`, `gamepad`, or `all` (`both` is still accepted as an alias for cli + multiplayer). Default `all`.
+- Which package(s): `cli`, `multiplayer`, `gamepad`, `playtest`, or `all` (`both` is still accepted as an alias for cli + multiplayer). Default `all`.
 - Bump type: `patch`, `minor`, `major`. Default `patch`.
 - `--force` to release even if no changes since last tag (otherwise unchanged packages are skipped).
 
@@ -38,7 +39,7 @@ Run in parallel:
 
 - `npm whoami` — must be `kaiyuhsu`. If not, stop and tell the user to `npm login`.
 - `git status --porcelain` — if dirty in unrelated files, surface and ask whether to proceed.
-- `npm view <pkg> version` for each candidate (`vibedgames`, `@vibedgames/multiplayer`, `@vibedgames/gamepad`) — current published.
+- `npm view <pkg> version` for each candidate (`vibedgames`, `@vibedgames/multiplayer`, `@vibedgames/gamepad`, `@vibedgames/playtest`) — current published.
 - For each candidate package, find its last release tag and check for changes:
   ```
   LAST=$(git tag --list '<tag-prefix>*' --sort=-v:refname | head -1)
@@ -121,6 +122,7 @@ Released:
   vibedgames@X.Y.Z          (tag: vibedgames@X.Y.Z)
   @vibedgames/multiplayer@X.Y.Z (tag: @vibedgames/multiplayer@X.Y.Z)
   @vibedgames/gamepad@X.Y.Z (tag: @vibedgames/gamepad@X.Y.Z)
+  @vibedgames/playtest@X.Y.Z (tag: @vibedgames/playtest@X.Y.Z)
 Skipped (no changes): <pkg> (since <last-tag>)
 Commit: <sha> (pushed to origin/<branch>)
 Actions: triggered if pushed to main — verify deploy

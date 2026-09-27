@@ -7,7 +7,11 @@ import * as THREE from "three";
 //
 // Lines live in camera space: the object copies the camera's transform each
 // frame and the streaks slide along local +Z (toward/behind the camera),
-// respawning ahead once they pass behind.
+// respawning ahead once they pass behind. The slide runs in the vertex
+// shader off one distance-travelled uniform, so the vertex buffer is written
+// once: each line carries a seed and a spawn depth, wraps back ahead when it
+// passes the camera, and re-hashes its ring position from the wrap count —
+// the same fresh-random respawn the CPU version rolled, without the upload.
 
 const COUNT = 36;
 const RADIUS_MIN = 5;
@@ -21,46 +25,96 @@ const FADE_START = 0.75;
 // fully visible here
 const FADE_FULL = 0.9;
 
+const f = (n: number): string => (Number.isInteger(n) ? `${n}.0` : String(n));
+
+// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
+const VERT = /* glsl */ `
+  attribute vec4 aLine; // seed, spawn depth z0 (< 0), start phase (u), tail flag
+  uniform float uDist;
+  uniform float uStretch;
+  #include <fog_pars_vertex>
+  float hash(float n) { return fract(sin(n) * 43758.5453123); }
+  void main() {
+    float z0 = aLine.y;
+    // spawn depth → 1u behind the camera, then wrap ahead
+    float span = 1.0 - z0;
+    float travel = uDist + aLine.z;
+    float lap = floor(travel / span);
+    float z = z0 + travel - lap * span;
+    float k = aLine.x * 97.0 + lap * 13.0;
+    float angle = hash(k + 1.0) * 6.2831853;
+    float radius = mix(${f(RADIUS_MIN)}, ${f(RADIUS_MAX)}, hash(k + 2.0));
+    float len = (0.8 + hash(k + 3.0) * 0.8) * uStretch;
+    // tail trails toward the camera
+    vec3 p = vec3(cos(angle) * radius, sin(angle) * radius, z + aLine.w * len);
+    vec4 mvPosition = modelViewMatrix * vec4(p, 1.0);
+    gl_Position = projectionMatrix * mvPosition;
+    #include <fog_vertex>
+  }
+`;
+
+// LineBasicMaterial's output, minus the vertex colour path.
+// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
+const FRAG = /* glsl */ `
+  uniform float uOpacity;
+  #include <fog_pars_fragment>
+  void main() {
+    gl_FragColor = vec4(1.0, 1.0, 1.0, uOpacity);
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
+    #include <fog_fragment>
+  }
+`;
+
 export class SpeedLines {
   readonly object3D: THREE.Object3D;
-  private positions: Float32Array;
-  private posAttr: THREE.BufferAttribute;
-  private mat: THREE.LineBasicMaterial;
-  // Per-line state: head z (local, negative = ahead), ring angle, radius, length jitter.
-  private headZ = new Float32Array(COUNT);
-  private angle = new Float32Array(COUNT);
-  private radius = new Float32Array(COUNT);
-  private lenJitter = new Float32Array(COUNT);
+  private readonly uDist = { value: 0 };
+  private readonly uStretch = { value: 1 };
+  private readonly uOpacity = { value: 0 };
 
   constructor() {
-    this.positions = new Float32Array(COUNT * 2 * 3);
+    const lines = new Float32Array(COUNT * 2 * 4);
     for (let i = 0; i < COUNT; i += 1) {
-      this.respawn(i, -(AHEAD_MIN + Math.random() * (AHEAD_MAX - AHEAD_MIN)));
+      const seed = Math.random();
+      const z0 = -(AHEAD_MAX - Math.random() * 5);
+      // start mid-flight, as the CPU version seeded its heads
+      const phase = Math.random() * (AHEAD_MAX - AHEAD_MIN);
+      for (let e = 0; e < 2; e += 1) {
+        lines.set([seed, z0, phase, e], (i * 2 + e) * 4);
+      }
     }
-
     const geo = new THREE.BufferGeometry();
-    this.posAttr = new THREE.BufferAttribute(this.positions, 3);
-    geo.setAttribute("position", this.posAttr);
+    // the renderer sizes the draw from `position`; the shader ignores it
+    geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(COUNT * 2 * 3), 3));
+    geo.setAttribute("aLine", new THREE.BufferAttribute(lines, 4));
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
 
-    this.mat = new THREE.LineBasicMaterial({
+    const mat = new THREE.ShaderMaterial({
       blending: THREE.AdditiveBlending,
-      color: 0xff_ff_ff,
       depthWrite: false,
-      opacity: 0,
+      fog: true,
+      fragmentShader: FRAG,
       transparent: true,
+      // spread, not merge(): merge clones, and the uniforms must stay ours
+      uniforms: {
+        ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog),
+        uDist: this.uDist,
+        uOpacity: this.uOpacity,
+        uStretch: this.uStretch,
+      },
+      vertexShader: VERT,
     });
-    const lines = new THREE.LineSegments(geo, this.mat);
-    lines.frustumCulled = false;
-    lines.visible = false;
+    const segments = new THREE.LineSegments(geo, mat);
+    segments.frustumCulled = false;
+    segments.visible = false;
     // over world transparents
-    lines.renderOrder = 10;
-    this.object3D = lines;
+    segments.renderOrder = 10;
+    this.object3D = segments;
   }
 
   update(dt: number, camera: THREE.PerspectiveCamera, speedFrac: number): void {
     const fade = THREE.MathUtils.clamp((speedFrac - FADE_START) / (FADE_FULL - FADE_START), 0, 1);
-    this.mat.opacity = BASE_ALPHA * fade;
+    this.uOpacity.value = BASE_ALPHA * fade;
     this.object3D.visible = fade > 0;
     if (fade <= 0) {
       return;
@@ -71,39 +125,8 @@ export class SpeedLines {
     this.object3D.position.copy(camera.position);
     this.object3D.quaternion.copy(camera.quaternion);
 
-    const stretch = 1 + speedFrac * 3;
+    this.uStretch.value = 1 + speedFrac * 3;
     // how fast streaks rush past
-    const zSpeed = 20 + speedFrac * 60;
-    for (let i = 0; i < COUNT; i += 1) {
-      let z = (this.headZ[i] ?? -AHEAD_MIN) + zSpeed * dt;
-      if (z > 1) {
-        // Fully behind the camera: recycle ahead at a fresh ring position.
-        this.respawn(i, -AHEAD_MAX + Math.random() * 5);
-        z = this.headZ[i] ?? -AHEAD_MAX;
-      } else {
-        this.headZ[i] = z;
-      }
-      const a = this.angle[i] ?? 0;
-      const r = this.radius[i] ?? RADIUS_MIN;
-      const x = Math.cos(a) * r;
-      const y = Math.sin(a) * r;
-      const len = (0.8 + (this.lenJitter[i] ?? 0)) * stretch;
-      const p = i * 6;
-      this.positions[p] = x;
-      this.positions[p + 1] = y;
-      this.positions[p + 2] = z;
-      this.positions[p + 3] = x;
-      this.positions[p + 4] = y;
-      // tail trails toward the camera
-      this.positions[p + 5] = z + len;
-    }
-    this.posAttr.needsUpdate = true;
-  }
-
-  private respawn(i: number, z: number): void {
-    this.headZ[i] = z;
-    this.angle[i] = Math.random() * Math.PI * 2;
-    this.radius[i] = RADIUS_MIN + Math.random() * (RADIUS_MAX - RADIUS_MIN);
-    this.lenJitter[i] = Math.random() * 0.8;
+    this.uDist.value += (20 + speedFrac * 60) * dt;
   }
 }

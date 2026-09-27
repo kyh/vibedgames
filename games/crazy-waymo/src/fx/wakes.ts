@@ -44,6 +44,8 @@ interface WakeSample {
   jr: number;
 }
 
+const wakeJitter = (): number => 1 + (Math.random() * 2 - 1) * WAKE_JITTER;
+
 /**
  * One ribbon per vessel in a single dynamic buffer: white foam that widens and
  * fades astern. Normal-blended, not additive — wake is opaque froth on the
@@ -114,8 +116,7 @@ export class Wakes {
     }
     head.x = x;
     head.z = z;
-    const jitter = (): number => 1 + (Math.random() * 2 - 1) * WAKE_JITTER;
-    trail.push({ age: 0, half, jl: jitter(), jr: jitter(), px: -dirZ, pz: dirX, x, z });
+    trail.push({ age: 0, half, jl: wakeJitter(), jr: wakeJitter(), px: -dirZ, pz: dirX, x, z });
     if (trail.length > WAKE_SAMPLES) {
       trail.shift();
     }
@@ -198,9 +199,20 @@ export class Wakes {
         }
       }
     }
+    this.mesh.geometry.setDrawRange(0, idx);
+    // Only the live samples travel; an empty fleet sends nothing at all.
+    this.mesh.visible = v > 0;
+    if (v === 0) {
+      return;
+    }
+    this.posAttr.clearUpdateRanges();
+    this.posAttr.addUpdateRange(0, v);
+    this.colAttr.clearUpdateRanges();
+    this.colAttr.addUpdateRange(0, (v / 3) * 4);
+    this.idxAttr.clearUpdateRanges();
+    this.idxAttr.addUpdateRange(0, idx);
     this.posAttr.needsUpdate = true;
     this.colAttr.needsUpdate = true;
     this.idxAttr.needsUpdate = true;
-    this.mesh.geometry.setDrawRange(0, idx);
   }
 }

@@ -92,6 +92,17 @@ export class Progression {
     this.hooks = deps.hooks;
   }
 
+  /** Level 1, nothing earned: a run rebuilt from nothing (the playtest seed hook). */
+  restart(): void {
+    this.level = 1;
+    this.xp = 0;
+    this.runXp = 0;
+    this.sectorScore = 0;
+    this.streak = 0;
+    this.comboExpiresAt = 0;
+    this.comboTier = 1;
+  }
+
   /** A kill: bump the streak, award table value × multiplier, milestone FX.
    *  SIPHON hooks here, so predicted kills heal — consistent with the
    *  self-award scoring grammar. */

@@ -318,11 +318,9 @@ const parseTypedValue = (r: Reader, typeId: number): PropertyValue => {
       return { h, w, x, y };
     }
     case 0x00_11: {
-      // oxlint-disable-next-line no-use-before-define -- mutually recursive with parseTypedValue
       return parseVector(r);
     }
     case 0x00_12: {
-      // oxlint-disable-next-line no-use-before-define -- mutually recursive with parseTypedValue
       return parsePropertiesMap(r);
     }
     case 0x00_13: {

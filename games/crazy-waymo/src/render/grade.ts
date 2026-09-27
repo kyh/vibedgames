@@ -9,6 +9,7 @@
 //   night:  WRITER DayNight.update(), once a frame. READER PostPipeline.
 //   warmth: WRITER DayNight.update(), once a frame. READER PostPipeline.
 //   motion: WRITER GameScene.update(), once a frame. READER PostPipeline.
+//   lens:   WRITER the trailer director, per shot. READER PostPipeline.
 //
 // Kept as function pairs rather than exported mutable objects so no consumer
 // can hold a reference and quietly become a second writer.
@@ -46,3 +47,24 @@ export const setGradeMotion = (speedFrac: number, boosting: boolean): void => {
 };
 
 export const gradeMotion = () => ({ boost: motionBoost, speed: motionSpeed });
+
+/**
+ * Cinematic lens for authored trailer cameras. `focus` is the view-space
+ * distance kept sharp, `blur` the circle of confusion in pixels at infinity
+ * (1080p-relative), `streaks` scales the speed-comb and radial rush, which
+ * read as a HUD effect on a tripod or tracking lens. null restores the game
+ * lens and costs nothing.
+ */
+export interface GradeLens {
+  focus: number;
+  blur: number;
+  streaks: number;
+}
+
+let lens: GradeLens | null = null;
+
+export const setGradeLens = (value: GradeLens | null): void => {
+  lens = value;
+};
+
+export const gradeLens = (): GradeLens | null => lens;

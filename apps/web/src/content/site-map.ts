@@ -15,4 +15,5 @@ export const SITEMAP_PATHS = [
   "/about",
   "/contact",
   "/privacy",
+  "/terms",
 ] as const;

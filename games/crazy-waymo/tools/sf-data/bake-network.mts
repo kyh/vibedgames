@@ -527,6 +527,29 @@ for (const e of edges) {
   });
 }
 
+const sameRoadway = (B, bLen, A) => {
+  const union = A.half + B.half;
+  const inner = samplesWithS(B, 4).filter((p) => p[2] > union && p[2] < bLen - union);
+  if (inner.length < 6) {
+    return false;
+  }
+  let covered = 0;
+  for (let i = 0; i < inner.length; i += 1) {
+    const q = inner[Math.min(i + 1, inner.length - 1)];
+    const r = inner[Math.max(i - 1, 0)];
+    const dl = Math.hypot(q[0] - r[0], q[1] - r[1]) || 1;
+    const hit = nearestOnEdge(inner[i][0], inner[i][1], A);
+    if (hit.d >= union) {
+      continue;
+    }
+    if (Math.abs((hit.tx * (q[0] - r[0]) + hit.tz * (q[1] - r[1])) / dl) < 0.8) {
+      continue;
+    }
+    covered += 1;
+  }
+  return covered >= inner.length * 0.9;
+};
+
 // --- Merge dual carriageways: OSM maps divided arterials as TWO parallel
 // one-way ways which sweep into overlapping roads; junction clustering
 // (below) then aligns more twins, so both passes run twice. ---
@@ -555,28 +578,6 @@ const mergeParallelPass = () => {
    * taper — not a lower percentage — is what makes the rule hold; scoring the
    * ends dropped the Twin Peaks pair at 10 of 12 samples.
    */
-  const sameRoadway = (B, bLen, A) => {
-    const union = A.half + B.half;
-    const inner = samplesWithS(B, 4).filter((p) => p[2] > union && p[2] < bLen - union);
-    if (inner.length < 6) {
-      return false;
-    }
-    let covered = 0;
-    for (let i = 0; i < inner.length; i += 1) {
-      const q = inner[Math.min(i + 1, inner.length - 1)];
-      const r = inner[Math.max(i - 1, 0)];
-      const dl = Math.hypot(q[0] - r[0], q[1] - r[1]) || 1;
-      const hit = nearestOnEdge(inner[i][0], inner[i][1], A);
-      if (hit.d >= union) {
-        continue;
-      }
-      if (Math.abs((hit.tx * (q[0] - r[0]) + hit.tz * (q[1] - r[1])) / dl) < 0.8) {
-        continue;
-      }
-      covered += 1;
-    }
-    return covered >= inner.length * 0.9;
-  };
   const removed = new Set();
   // shortest first
   const order = edges.map((_, i) => i).toSorted((a, b) => lens[a] - lens[b]);

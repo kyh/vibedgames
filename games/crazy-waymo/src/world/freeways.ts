@@ -954,10 +954,15 @@ const buildRails = (line: Line): Rail[] => {
   return rails;
 };
 
+const dropToSoffit = (p: readonly number[]): number[] => [
+  p[0] ?? 0,
+  (p[1] ?? 0) - DECK_T,
+  p[2] ?? 0,
+];
+
 const emitDeckSegment = (ctx: EmitCtx, line: Line, a: Rail, b: Rail): void => {
   const { bodyNor, bodyPos, bodyUv, deckNor, deckPos, physPos } = ctx.buf;
   const w = line.half;
-  const drop = (p: readonly number[]): number[] => [p[0] ?? 0, (p[1] ?? 0) - DECK_T, p[2] ?? 0];
   // Deck top (asphalt look) — also the physics ride surface.
   pushQuad(deckPos, deckNor, a.l, b.l, b.r, a.r);
   pushQuad(physPos, null, a.l, b.l, b.r, a.r);
@@ -972,9 +977,17 @@ const emitDeckSegment = (ctx: EmitCtx, line: Line, a: Rail, b: Rail): void => {
     uv: bodyUv,
   };
   const fasciaFace: ConFace = { kind: CON_FASCIA, topY: deckTop, uv: bodyUv };
-  pushQuad(bodyPos, bodyNor, drop(a.r), drop(b.r), drop(b.l), drop(a.l), soffitFace);
-  pushQuad(bodyPos, bodyNor, a.r, b.r, drop(b.r), drop(a.r), fasciaFace);
-  pushQuad(bodyPos, bodyNor, drop(a.l), drop(b.l), b.l, a.l, fasciaFace);
+  pushQuad(
+    bodyPos,
+    bodyNor,
+    dropToSoffit(a.r),
+    dropToSoffit(b.r),
+    dropToSoffit(b.l),
+    dropToSoffit(a.l),
+    soffitFace,
+  );
+  pushQuad(bodyPos, bodyNor, a.r, b.r, dropToSoffit(b.r), dropToSoffit(a.r), fasciaFace);
+  pushQuad(bodyPos, bodyNor, dropToSoffit(a.l), dropToSoffit(b.l), b.l, a.l, fasciaFace);
 };
 
 const emitPaint = (

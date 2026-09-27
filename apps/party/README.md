@@ -88,7 +88,7 @@ independent worlds with their own host and `sharedState`, and no cross-room matc
 Game-author-facing ones — positions as events, mutating the local state mirror,
 welding the client into a Phaser scene, calling `updateSharedState` off-host, no
 connection-state UI, hardcoded party host URL — live in the `multiplayer` skill
-(`plugins/game-features/skills/multiplayer/SKILL.md`).
+(`plugins/vibedgames/skills/multiplayer/SKILL.md`).
 
 Server-side, in this app: no async work in connection lifecycle hooks, and never treat
 a working local websocket as proof production works.

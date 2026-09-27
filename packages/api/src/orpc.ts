@@ -74,6 +74,18 @@ export interface MediaProviderConfig {
 }
 
 /**
+ * Server-held config for the decision-model proxy behind `playtest.decide`.
+ * `typesafe` is the TypeSafe API key; the base URL override exists for a
+ * gateway prefix or a local stand-in, never for a different provider.
+ */
+export interface DecisionProviderConfig {
+  typesafe?: string;
+  typesafeBaseUrl?: string;
+  /** Signs the short-lived tokens the in-page playtester carries (see playtest/session-token.ts). */
+  tokenSecret?: string;
+}
+
+/**
  * Per-request context.
  *
  * On Cloudflare Workers both `db` and `auth` are constructed per request from
@@ -87,6 +99,7 @@ export interface CreateORPCContextOptions {
   productionURL?: string;
   r2?: R2Config;
   media?: MediaProviderConfig;
+  decision?: DecisionProviderConfig;
 }
 
 export const createORPCContext = async (opts: CreateORPCContextOptions) => {
@@ -100,6 +113,7 @@ export const createORPCContext = async (opts: CreateORPCContextOptions) => {
   return {
     auth: opts.auth,
     db: opts.db,
+    decision: opts.decision,
     headers: opts.headers,
     media: opts.media,
     productionURL: opts.productionURL,

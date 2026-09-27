@@ -5,10 +5,14 @@ import { afterEach, test } from "node:test";
 
 import {
   buildCodexPrompt,
+  codexExecArgs,
   CodexError,
   parseCodexInput,
   placeCodexOutputs,
   renderLocalTarget,
+  chooseProvider,
+  findCodexBinary,
+  isOpenAiImageEndpoint,
   resolveProvider,
 } from "../src/lib/codex.js";
 import { makeCleanups, makeTmpDir } from "./_helpers.js";
@@ -157,4 +161,106 @@ test("placeCodexOutputs is a no-op copy when target equals source", () => {
   const { downloaded, failed } = placeCodexOutputs([src], undefined, "abcd");
   assert.equal(failed.length, 0);
   assert.deepEqual(downloaded, [src]);
+});
+
+test("chooseProvider: OpenAI image endpoints auto-route to an installed codex", () => {
+  const prev = process.env.VG_GENERATE_PROVIDER;
+  delete process.env.VG_GENERATE_PROVIDER;
+  cleanups.push(() => {
+    if (prev !== undefined) {
+      process.env.VG_GENERATE_PROVIDER = prev;
+    }
+  });
+  const base = { async: false, codexInstalled: true, input: { prompt: "a fox" } };
+
+  assert.deepEqual(
+    chooseProvider(undefined, {
+      ...base,
+      endpointId: "openai/gpt-image-2.5/sunburst/text-to-image",
+    }),
+    { auto: true, provider: "codex" },
+  );
+  assert.deepEqual(chooseProvider(undefined, { ...base, endpointId: "codex" }), {
+    auto: true,
+    provider: "codex",
+  });
+  // Only the OpenAI image family: codex cannot run Flux, video or audio.
+  assert.deepEqual(chooseProvider(undefined, { ...base, endpointId: "fal-ai/flux/dev" }), {
+    auto: false,
+    provider: "vibedgames",
+  });
+  assert.deepEqual(
+    chooseProvider(undefined, { ...base, endpointId: "openai/sora-2/text-to-video" }),
+    {
+      auto: false,
+      provider: "vibedgames",
+    },
+  );
+  // Codex is synchronous and attaches local files only.
+  const openai = { ...base, endpointId: "openai/gpt-image-2.5/sunburst/edit" };
+  assert.equal(chooseProvider(undefined, { ...openai, async: true }).provider, "vibedgames");
+  assert.equal(
+    chooseProvider(undefined, {
+      ...openai,
+      input: { image_url: "https://example.com/ref.png", prompt: "edit" },
+    }).provider,
+    "vibedgames",
+  );
+  assert.equal(
+    chooseProvider(undefined, { ...openai, input: { image_url: "./ref.png", prompt: "edit" } })
+      .provider,
+    "codex",
+  );
+  // No codex on this machine: nothing changes.
+  assert.deepEqual(chooseProvider(undefined, { ...openai, codexInstalled: false }), {
+    auto: false,
+    provider: "vibedgames",
+  });
+  // A named provider always wins, in either direction.
+  assert.deepEqual(chooseProvider("vibedgames", openai), { auto: false, provider: "vibedgames" });
+  assert.deepEqual(chooseProvider("codex", { ...base, endpointId: "fal-ai/flux/dev" }), {
+    auto: false,
+    provider: "codex",
+  });
+  process.env.VG_GENERATE_PROVIDER = "fal";
+  assert.deepEqual(chooseProvider(undefined, openai), { auto: false, provider: "vibedgames" });
+});
+
+test("isOpenAiImageEndpoint matches the gpt-image family only", () => {
+  assert.equal(isOpenAiImageEndpoint("openai/gpt-image-2.5/sunburst/text-to-image"), true);
+  assert.equal(isOpenAiImageEndpoint("openai/gpt-image-2/edit"), true);
+  assert.equal(isOpenAiImageEndpoint("OpenAI/GPT-Image-1"), true);
+  assert.equal(isOpenAiImageEndpoint("codex"), true);
+  assert.equal(isOpenAiImageEndpoint("openai/sora-2"), false);
+  assert.equal(isOpenAiImageEndpoint("fal-ai/gpt-image-lookalike"), false);
+});
+
+test("findCodexBinary: VG_CODEX_BIN, then PATH, else null", () => {
+  const dir = makeTmpDir(cleanups);
+  const bin = path.join(dir, "codex");
+  writeFileSync(bin, "#!/bin/sh\n");
+  assert.equal(
+    findCodexBinary({ PATH: `${path.join(dir, "missing")}${path.delimiter}${dir}` }),
+    bin,
+  );
+  assert.equal(findCodexBinary({ PATH: path.join(dir, "missing") }), null);
+  assert.equal(findCodexBinary({ PATH: dir, VG_CODEX_BIN: bin }), bin);
+  assert.equal(findCodexBinary({ PATH: dir, VG_CODEX_BIN: path.join(dir, "nope") }), null);
+  assert.equal(findCodexBinary({}), null);
+});
+
+test("codexExecArgs: the prompt survives a variadic -i by sitting behind --", () => {
+  const args = codexExecArgs("/tmp/w", ["/a.png", "/b.png"], "make it stormy");
+  assert.deepEqual(args.slice(-6), ["-i", "/a.png", "-i", "/b.png", "--", "make it stormy"]);
+  assert.deepEqual(codexExecArgs("/tmp/w", [], "a fox").slice(-2), ["--", "a fox"]);
+});
+
+test("buildCodexPrompt: a size is a target Codex must not stop to resize for", () => {
+  const prompt = buildCodexPrompt(
+    parseCodexInput({ height: 864, prompt: "a cover", width: 1536 }),
+    ["output-0.png"],
+    false,
+  );
+  assert.match(prompt, /aim for .*1536/u);
+  assert.match(prompt, /never resize, crop or ask/u);
 });

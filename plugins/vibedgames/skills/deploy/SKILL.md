@@ -1,0 +1,164 @@
+---
+name: deploy
+description: "Deploy a static browser game (Vite, Phaser, Three.js, plain HTML) to vibedgames with `vg deploy`."
+---
+
+# Vibedgames Deploy
+
+Deploy static browser games to `{slug}.vibedgames.com` using the vibedgames CLI.
+
+> **`vg` not on PATH?** The global install from `vibedgames init` is
+> best-effort. If any `vg <cmd>` below fails with "command not found",
+> substitute `npx vibedgames <cmd>` — it works identically.
+
+## Starting a new game
+
+If the user has no project yet, scaffold one in a single command. `vg new` pulls the official engine template (or a minimal inline starter) and drops a `vibedgames.json` in place so deploy works without further config:
+
+```sh
+vg new my-game                     # Phaser 4 + Vite + TS (official phaserjs template)
+vg new my-game --engine threejs    # Three.js + Vite + TS starter
+vg new my-game --engine react-r3f  # React + R3F + drei + Vite + TS starter
+vg new my-game --engine none       # minimal Vite + TS + canvas (offline; no engine)
+vg new my-game --template foo/bar  # any github degit spec
+```
+
+Pick the engine that matches the game the user described:
+
+- **2D / pixel-art / arcade / platformer** → `phaser` (the default)
+- **3D / first-person / camera-driven, imperative scene code** → `threejs`
+- **3D with React component model, declarative scenes, lots of UI overlay** → `react-r3f`
+- **Custom engine, plain canvas, or "I'll wire the deps myself"** → `none`
+
+After scaffold:
+
+```sh
+cd my-game
+npm install
+npm run dev        # local preview
+```
+
+The matching skill (`phaser`, `threejs`, etc.) will load automatically in Claude Code based on the deps in `package.json`. Pass `--here` to scaffold into the current directory.
+
+## Prerequisites
+
+The game directory must contain an `index.html` at the root. Typically this is the `dist/` output from a build tool (Vite, webpack, etc.).
+
+## Deploy flow
+
+### 1. Make sure the user is logged in
+
+Always check auth before building or deploying. `whoami` exits non-zero
+when unauthenticated:
+
+```sh
+vg whoami
+```
+
+If it prints `Not logged in` (or similar) or exits with an error, run
+login _before_ anything else:
+
+```sh
+vg login
+```
+
+This auto-opens the user's browser to a device-code confirmation page
+and prints a 6-character code in the terminal. Tell the user:
+"I opened a browser — confirm code `XXXXXX`." Wait for the CLI to
+print `Logged in successfully` before continuing. If the browser
+didn't open (remote shell, headless env), read the URL from the CLI
+output and give it to the user to open manually.
+
+Only skip this step if `whoami` succeeded with a `name (email)` line.
+
+### 2. Build the game (if needed)
+
+If the project has a build step, run it first:
+
+```sh
+npm run build
+# or: pnpm build, vite build, etc.
+```
+
+The build output directory (usually `dist/`) is what gets deployed.
+
+### 3. Deploy
+
+```sh
+vg deploy ./dist --slug my-game
+```
+
+- `./dist` — the directory containing `index.html` and all assets
+- `--slug my-game` — the subdomain name (lowercase, hyphens allowed). The game will be live at `https://my-game.vibedgames.com`
+
+Running `vg deploy` from a project root (a directory with `package.json`)
+automatically deploys its build output when one exists — `dist/`, `build/`,
+or `out/`, whichever has an `index.html` (the root `index.html` of a
+Vite-style project is the source template, not the game). An unbuilt project
+root gets a warning. Plain-HTML games (no `package.json`) deploy as-is.
+
+### 4. Verify
+
+After deploy, the CLI prints the live URL. Boot-check it headless before calling it shipped — canvas present, zero page errors, no 4xx sub-resources:
+
+```sh
+vg playtest --game my-game
+vg playtest wait --fn "document.querySelector('canvas') !== null"
+vg playtest errors                 # must be empty
+vg playtest network requests       # no 4xx
+```
+
+Full recipe in the `playtest` skill. Two expected non-failures: webcam / hand-tracking games throw `NotSupportedError` headless (no camera), and a split-artifact loader's first 404 is its probe (Rules below).
+
+> **Playable on mobile?** Deployed games are shared by link and frequently
+> opened on phones. If the game is mouse/keyboard-only, add on-screen touch
+> controls (a virtual joystick + buttons) so the link works on a phone — see
+> the `gamepad` skill (`@vibedgames/gamepad`). One prompt: "add touch controls".
+
+### 5. Link previews (share card)
+
+Every game gets a share card automatically: when the served HTML has no
+`og:` tags, the platform injects them — title from the game name, description
+from the page's `<meta name="description">` (add one!), and a cover image.
+
+To ship a custom cover, drop **`og.jpg`** (1200×630+ landscape; `og.png` and
+`og.webp` also work) into the deployed directory root (`public/og.jpg` in a
+Vite project). No meta tags needed. To fully own share meta instead, add your
+own `og:` tags — the platform then serves the page untouched.
+
+## Rules
+
+- **Always build before deploying** if the project uses a build tool
+- **Deploy the build output**, not the source directory (e.g. `dist/`, `build/`, `out/`)
+- **Preview the build you deploy** (`vite preview`, or any static server on `dist/`). The dev server is not the build — a wrong `base` or absolute asset URL breaks every asset on the deployed path and never shows locally
+- **Slug must be lowercase** with hyphens, 3-40 characters (e.g. `space-invaders`, `my-cool-game`)
+- **index.html is required** at the root of the deployed directory
+- **Caps: 200 MB per deploy, 10 MB per file, 500 files; 100 MB for the `--source` archive** (`packages/api/src/deploy/deploy-router.ts`). The platform never splits files — a >10 MB artifact ships pre-split (`x.bin.0`, `x.bin.1` + `x.parts`), and a loader that probes the unsplit path first turns that 404 into the probe, by design
+- **Version-bust unversioned immutable assets.** Everything except `index.html` and the `og.*` cover is served `max-age=31536000, immutable`, so a rebaked `world.bin` on the same path never reaches a returning browser. Hash the filename or append `?v=REV`. The edge cache is keyed per deployment id; the browser cache is yours
+- **Guard `localStorage`.** Games run inside the web app's iframe; an unguarded access throws on boot and the game is dead. Wrap reads and writes in `try`/`catch` and treat storage as best-effort
+- If the user doesn't specify a slug, ask them for one or derive it from the project name
+- If `vibedgames.json` exists in the deploy directory, the slug is read from there automatically
+
+## Config file (optional)
+
+Create `vibedgames.json` in the project root to skip the `--slug` flag:
+
+```json
+{
+  "slug": "my-game",
+  "name": "My Cool Game"
+}
+```
+
+Then just: `vg deploy ./dist`
+
+## Troubleshooting
+
+- **"Not logged in"** → Run `vg login` first
+- **"No index.html"** → You're deploying the wrong directory. Use the build output.
+- **"Slug taken"** → Someone else owns that slug. Pick a different one.
+- **Build fails** → Fix build errors before deploying. Check for missing dependencies.
+- **Blank page live, fine on the dev server** → Static base path. Check `base` in the Vite config and any `/asset` absolute refs; reproduce with `vite preview` before redeploying.
+- **Over 500 files** → A project root with models/source got picked up. Deploy the build output explicitly: `vg deploy ./dist`.
+- **File over 10 MB** → Split it at bake time and reassemble in the loader (Rules); the CLI will not do it for you.
+- **Rebake invisible to returning players, fresh browser sees it** → Unversioned immutable path. Bust it (Rules).

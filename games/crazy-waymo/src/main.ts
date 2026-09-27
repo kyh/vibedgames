@@ -1,12 +1,14 @@
 import * as THREE from "three";
-import { setPauseHandlers } from "@repo/embed";
+import { describeGpu, setPauseHandlers } from "@repo/embed";
 
 import { FramePacer } from "./render/frame-pacer";
 import { hasReleasedArrays } from "./render/gpu-only-geometry";
 import { PerfGovernor } from "./render/perf-governor";
 import { PostPipeline } from "./render/post";
 import { setRenderCapabilities } from "./render/capabilities";
+import { recordContextLoss, safeMode } from "./render/safe-mode";
 import { isCoarsePointer } from "./render/quality";
+import { installPlaytest } from "./playtest/install";
 import { GameScene } from "./scenes/game-scene";
 import { MAX_DT } from "./shared/constants";
 import { createPauseOverlay } from "./ui/pause-overlay";
@@ -23,13 +25,21 @@ document.querySelector("#loading")?.addEventListener("click", () => {
   }
 });
 
-const showFatal = (message: string, tapToReload = false): void => {
+const showFatal = (message: string, tapToReload = false, detail = ""): void => {
   const loading = document.querySelector<HTMLElement>("#loading");
   if (loading) {
     // Trailer boots keep the veil hidden from the first paint (see index.html)
     // — a dead context still has to be reported, so force it back on screen.
     loading.style.display = "flex";
     loading.innerHTML = `<div class="lt">CRAZY WAYMO</div><div class="ls" style="opacity:1;color:#ff8a8a">${message}</div>`;
+    if (detail) {
+      // What a phone screenshot has to carry: a lost context cannot be asked.
+      const line = document.createElement("div");
+      line.style.cssText =
+        "margin-top:12px;font-size:11px;color:#8b95a1;word-break:break-word;max-width:28em";
+      line.textContent = detail;
+      loading.append(line);
+    }
     reloadOnVeilTap = tapToReload;
   }
 };
@@ -47,14 +57,65 @@ const hideFatal = (): void => {
 // the aliasing, and skipping the resolve pass buys real GPU time. Desktop
 // keeps MSAA exactly as before.
 const msaa = !(isCoarsePointer() && (window.devicePixelRatio || 1) >= 2);
-let renderer: THREE.WebGLRenderer;
-try {
-  renderer = new THREE.WebGLRenderer({ antialias: msaa, powerPreference: "high-performance" });
-} catch (error) {
-  console.error("[crazy-waymo] WebGL init failed", error);
-  showFatal("WebGL unavailable — try a different browser or enable hardware acceleration.");
-  throw error instanceof Error ? error : new Error("WebGL init failed");
-}
+// Context creation fails transiently on phones: Chrome's GPU process was just
+// restarted (a background tab reclaimed it) or the page hit the per-process
+// context cap. Retrying after a beat recovers those; the last attempt drops
+// the high-performance / MSAA asks, which a blocklisted or low-power GPU may
+// refuse outright. The browser's own reason is captured so the veil can show it.
+const sleep = (ms: number): Promise<void> =>
+  // oxlint-disable-next-line promise/avoid-new -- wraps the setTimeout callback API
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+const probeCanvas = () => {
+  const canvas = document.createElement("canvas");
+  let reason = "";
+  canvas.addEventListener("webglcontextcreationerror", (event: Event) => {
+    if (event instanceof WebGLContextEvent && event.statusMessage) {
+      reason = event.statusMessage;
+    }
+  });
+  return { canvas, reason: () => reason };
+};
+const createRenderer = async (): Promise<THREE.WebGLRenderer> => {
+  const attempts: THREE.WebGLRendererParameters[] = [
+    { antialias: msaa, powerPreference: "high-performance" },
+    { antialias: msaa, powerPreference: "high-performance" },
+    { antialias: false, powerPreference: "default" },
+  ];
+  let reason = "";
+  let lastError: unknown;
+  for (const [i, params] of attempts.entries()) {
+    const probe = probeCanvas();
+    try {
+      return new THREE.WebGLRenderer({ ...params, canvas: probe.canvas });
+    } catch (error) {
+      lastError = error;
+      reason = probe.reason() || reason;
+      console.error(`[crazy-waymo] WebGL init attempt ${i + 1} failed`, reason || error);
+      await sleep(350 * (i + 1));
+    }
+  }
+  // Chrome blocks WebGL for the top-level page's host for two minutes after
+  // a page under it loses its context twice. Retrying inside that window
+  // fails the same way, so the veil says to wait instead.
+  const blocked = /blocked/iu.test(reason);
+  showFatal(
+    blocked
+      ? "Chrome paused graphics for this site after a crash. Wait two minutes, then tap to reload."
+      : `WebGL unavailable${reason ? ` (${reason})` : ""} — tap to retry, or enable hardware acceleration.`,
+    true,
+    [
+      reason,
+      `${Math.round(performance.now() / 1000)} s after load`,
+      `${screen.width}×${screen.height} @${window.devicePixelRatio}`,
+    ]
+      .filter(Boolean)
+      .join(" · "),
+  );
+  throw lastError instanceof Error ? lastError : new Error("WebGL init failed");
+};
+const renderer = await createRenderer();
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
@@ -70,6 +131,13 @@ container.append(renderer.domElement);
 // below — zero cost normally.
 const trailerMode = new URLSearchParams(window.location.search).has("trailer");
 setRenderCapabilities({ multiDraw: renderer.extensions.has("WEBGL_multi_draw") });
+const gpu = describeGpu(renderer.getContext());
+// The floor tier switches the sun off, but the sky bake and the first title
+// frames can render before the governor applies it; in safe mode the shadow
+// map must never exist at all.
+if (safeMode()) {
+  renderer.shadowMap.enabled = false;
+}
 const game = new GameScene(window.innerWidth / window.innerHeight, trailerMode);
 game.applyEnvironment(renderer);
 
@@ -137,7 +205,21 @@ document.addEventListener("visibilitychange", () => {
 // one). three already asks the browser for restoration; if it comes, resume.
 renderer.domElement.addEventListener("webglcontextlost", () => {
   console.error("[crazy-waymo] WebGL context lost");
-  showFatal("The browser stopped the graphics (usually low memory). Tap to reload.", true);
+  recordContextLoss();
+  const { memory, render } = renderer.info;
+  showFatal(
+    "The browser stopped the graphics (usually low memory). Tap to reload — the game will come back in low-graphics mode.",
+    true,
+    [
+      gpu,
+      `${Math.round(performance.now() / 1000)} s after load`,
+      `tier ${governor.currentTier}/${governor.tierCount - 1}`,
+      safeMode() ? "safe mode" : "full quality",
+      game.modeKind,
+      `${memory.geometries} geo · ${memory.textures} tex · ${render.triangles} tris`,
+      `${screen.width}×${screen.height} @${window.devicePixelRatio}`,
+    ].join(" · "),
+  );
 });
 renderer.domElement.addEventListener("webglcontextrestored", () => {
   console.warn("[crazy-waymo] WebGL context restored");
@@ -202,6 +284,16 @@ renderer.setAnimationLoop((t) => {
 });
 
 const loaded = game.load();
+
+// The contract appears only once a run can start: `vg playtest run` waits for
+// it, then calls setState('active-play') straight away. A trailer owns its run.
+if (!trailerMode) {
+  void (async () => {
+    await loaded;
+    await game.ready;
+    installPlaytest(game);
+  })();
+}
 
 // Map editor: open with ?editor=1, place assets, export JSON for
 // world/custom-props.ts. Lazy chunk — costs nothing on normal loads.

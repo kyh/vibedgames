@@ -3,15 +3,12 @@ import { siteConfig } from "@/lib/site-config";
 
 export const privacyDoc: Doc = {
   description:
-    "What Vibedgames stores, why, where it lives, who it is shared with, and how to get it deleted — described in plain language against the actual schema.",
+    "What Vibedgames collects to run vibedgames.com, the vg CLI and the agent skills, who processes it, and how to get it deleted.",
   lead: [
+    { kind: "p", text: "Last updated September 26, 2026." },
     {
       kind: "p",
-      text: "This page describes what the Vibedgames platform stores about you and your games. It is written against the open-source data model rather than around it: every table named below exists in [packages/db](https://github.com/kyh/vibedgames/tree/main/packages/db), and you can read exactly what each column holds.",
-    },
-    {
-      kind: "p",
-      text: "The short version: we store what an account and a deploy need in order to work, we do not run advertising or third-party analytics trackers on the apex site, and we do not sell personal data.",
+      text: "Vibedgames hosts browser games and provides the `vg` command-line tool and the vibedgames agent skills. This policy covers vibedgames.com, the game subdomains under it, the `vg` CLI and the vibedgames plugin. We collect what we need to run the service. We don’t sell your data, show ads or use third-party analytics.",
     },
   ],
   path: "/privacy",
@@ -20,31 +17,41 @@ export const privacyDoc: Doc = {
       blocks: [
         {
           items: [
-            "**Account** — your name, email address, optional avatar URL, account role, and the invite code you signed up with. Password sign-ups store a hash, never the password itself.",
-            "**Sessions** — a session token, its expiry, and the IP address and user agent the session was created from. These exist so a session can be listed and revoked.",
-            "**API keys and CLI tokens** — a hashed key, its prefix, and its usage metadata, so `vg` can authenticate without a browser.",
-            "**Games and deploys** — the game slug and name, and per deployment the file paths, MIME types, byte sizes and SHA-256 hashes of everything you uploaded. The file contents themselves live in object storage.",
-            "**Generation and credits** — for each `vg generate` call: the model endpoint id, the pricing unit, the estimated and settled cost, and the timestamps. The credit ledger is an append-only list of integer amounts. Prompts are passed through to the model provider and are not stored in our database.",
+            "**Account:** your name, email address and a hashed password.",
+            "**Sessions and security:** the IP address and user agent of each signed-in session. We also count requests per IP address to rate-limit sign-in attempts.",
+            "**API keys:** the keys you create for the CLI and CI, and their names.",
+            "**Games:** the files you deploy, plus each game’s name and slug. If you deploy with `--source`, we also store your project source so that other signed-in users can fork it.",
+            "**Generation usage:** for each asset generation request, the model used, its status and what it cost. This is how we keep your credit balance. We do not store your prompts or the generated files.",
+            "**Waitlist:** your email address, if you join the waitlist.",
           ],
           kind: "ul",
         },
       ],
-      heading: "What is collected",
+      heading: "What we collect",
     },
     {
       blocks: [
         {
           kind: "p",
-          text: "There is no advertising network, no cross-site tracking pixel and no third-party analytics script on vibedgames.com. Cloudflare, which serves the site, records standard request logs for operating and protecting the network. Games deployed by other people run on their own `{slug}.vibedgames.com` subdomains and are not audited by us — if a game you play collects something, that is the game author's doing, not the platform's.",
+          text: "The vibedgames skills are text files that run inside your coding agent on your machine. Nothing is sent to us until you, or your agent, run a `vg` command that talks to our servers:",
+        },
+        {
+          items: [
+            "`vg deploy` uploads your built game, and your source if you pass `--source`.",
+            "`vg generate` sends your prompt and any input files to our server. We pass them on to the third-party AI model provider that fulfils the request. That provider processes them under its own terms and policies.",
+            "`vg playtest run` sends snapshots of the game’s state to our server while a model plays the game. We pass them to a third-party AI model provider to choose the next move and do not keep them.",
+            "Multiplayer games relay player messages through our servers to the other players in the same room.",
+          ],
+          kind: "ul",
         },
       ],
-      heading: "What is not collected",
+      heading: "How data leaves your machine",
     },
     {
       blocks: [
         {
           kind: "p",
-          text: "The only cookies the platform sets are the session cookies issued at sign-in. They are scoped to the apex domain, `vibedgames.com`, and deliberately not to game subdomains — deployed games are untrusted code, so a game can never read your session. There are no marketing or profiling cookies.",
+          text: "We set one session cookie, on vibedgames.com only, to keep you signed in. Games run on separate subdomains and cannot read it. We use no tracking or advertising cookies.",
         },
       ],
       heading: "Cookies",
@@ -53,59 +60,50 @@ export const privacyDoc: Doc = {
       blocks: [
         {
           items: [
-            "**Cloudflare** — hosting, D1 (the database), R2 (deployed game bundles and optional source archives), and Durable Objects (multiplayer rooms). Cloudflare is the infrastructure processor for essentially everything.",
-            "**Generative model providers** — when you run `vg generate`, the prompt and any input files you supply are sent to the model provider that serves the endpoint you named, and the generated output comes back the same way. Only the billing metadata is retained on our side.",
-            "**GitHub and npm** — used for the source repository, issue tracking and package distribution. They see whatever you choose to post or install there.",
+            "**Cloudflare** hosts the site, the database, file storage and the multiplayer servers.",
+            "**AI model providers** receive the prompts, inputs and game state described above, and only when you run a command that needs them.",
           ],
           kind: "ul",
         },
-        {
-          kind: "p",
-          text: "Data is not sold, rented, or shared for advertising. It is disclosed only where required by law, or where necessary to investigate abuse of the platform.",
-        },
       ],
-      heading: "Where data lives, and who processes it",
+      heading: "Who processes your data",
     },
     {
       blocks: [
         {
           kind: "p",
-          text: "A deployed game is public: anyone with the URL can load it at `{slug}.vibedgames.com`. Deploying with `--source` additionally publishes a forkable source archive that any signed-in user can download — which is why it is off by default and has to be asked for explicitly. Do not put secrets in a game bundle; treat everything you deploy as published.",
+          text: "Account data stays until you ask us to delete your account. Each game keeps only its current deployment: a new deploy replaces the old files, and deleting a game deletes its files. Credit and generation records stay with your account.",
         },
       ],
-      heading: "Public by design",
+      heading: "Retention",
     },
     {
       blocks: [
         {
           kind: "p",
-          text: "Deployments are single-active: shipping a new build replaces the previous one, and superseded bundles are removed from object storage. Deleting a game removes its database rows and its stored files. Deleting your account cascades to your games, deployments, API keys, credit ledger and generation records. Sessions expire on their own schedule and can be revoked early from [/settings](/settings).",
-        },
-        {
-          kind: "p",
-          text: `To request an export or a deletion you cannot perform yourself, open a request at [${siteConfig.issues}](${siteConfig.issues}) — or use the private security-advisory channel described on [Contact](/contact) if the request itself is sensitive.`,
+          text: `You can delete your games and API keys yourself. To have your account and all its data deleted, or to ask what we hold about you, [open an issue](${siteConfig.issues}) with your vibedgames username and we will follow up. Don’t include your email address or other personal details: issues are public.`,
         },
       ],
-      heading: "Retention and deletion",
+      heading: "Your choices",
     },
     {
       blocks: [
         {
           kind: "p",
-          text: "Vibedgames is a developer tool and is not directed at children. Accounts are intended for people old enough to agree to the terms of the services the platform is built on.",
+          text: "Vibedgames accounts are not for children under 13, and we do not knowingly collect their data.",
         },
       ],
-      heading: "Children and eligibility",
+      heading: "Children",
     },
     {
       blocks: [
         {
           kind: "p",
-          text: `This page is versioned with the rest of the site, so its history is public: every revision is visible at [${siteConfig.repository}](${siteConfig.repository}). Material changes will be reflected here before they take effect.`,
+          text: "When this policy changes, we will update the date at the top of this page. Also see our [Terms of Service](/terms).",
         },
       ],
-      heading: "Changes to this page",
+      heading: "Changes",
     },
   ],
-  title: "Privacy at Vibedgames",
+  title: "Privacy Policy",
 };

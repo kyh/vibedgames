@@ -29,6 +29,7 @@
     "dev:crazy-waymo": "turbo watch dev -F @repo/crazy-waymo...",
     "dev:battle-arena": "turbo watch dev -F @repo/battle-arena...",
     "dev:lunerfall": "turbo watch dev -F @repo/lunerfall...",
+    "dev:showdown": "turbo watch dev -F @repo/showdown...",
     "dev:cli": "turbo watch dev -F vibedgames...",
     "lint": "oxlint --report-unused-disable-directives",
     "r2:lifecycle": "pnpm -C apps/web exec wrangler r2 bucket lifecycle set vibedgames-games --file ./infra/r2/vibedgames-games.lifecycle.json --force",
@@ -40,14 +41,14 @@
     "verify": "pnpm typecheck && pnpm lint && pnpm format && pnpm test"
   },
   "devDependencies": {
-    "@libsql/client": "^0.17.4",
+    "@libsql/client": "^0.18.0",
     "dotenv-cli": "^11.0.0",
-    "oxfmt": "^0.65.0",
-    "oxlint": "^1.80.0",
-    "tsx": "^4.23.12",
-    "turbo": "^2.10.12",
+    "oxfmt": "^0.70.0",
+    "oxlint": "^1.85.0",
+    "tsx": "^4.23.15",
+    "turbo": "^2.11.2",
     "typescript": "catalog:",
-    "ultracite": "^7.11.0"
+    "ultracite": "^7.12.0"
   },
   "engines": {
     "node": "24.x"

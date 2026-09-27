@@ -479,6 +479,18 @@ const crossEdgesOf = (f, ecount) => {
   return { byLength: false, cross: s1 > s2 ? pair1 : pair2 };
 };
 
+const meanY = (fs) => {
+  let s = 0;
+  let n = 0;
+  for (const f of fs) {
+    for (const id of f) {
+      s += vy[id];
+      n += 1;
+    }
+  }
+  return n ? s / n : -1e9;
+};
+
 /**
  * Build one merged centreline graph from a set of OBJ groups.
  * @returns {{pos:number[][], adj:Map<number,Set<number>>, stats:object}} model-space graph and its tallies
@@ -504,17 +516,6 @@ const buildGraph = (recs) => {
       }
     }
   }
-  const meanY = (fs) => {
-    let s = 0;
-    let n = 0;
-    for (const f of fs) {
-      for (const id of f) {
-        s += vy[id];
-        n += 1;
-      }
-    }
-    return n ? s / n : -1e9;
-  };
   const top = meanY(horizA) >= meanY(horizB) ? horizA : horizB;
   const bottom = top === horizA ? horizB : horizA;
 

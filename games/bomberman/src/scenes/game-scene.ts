@@ -8,6 +8,12 @@ import type { TouchControls } from "@repo/embed";
 import { PhysicalGamepad, attachVirtualGamepad, stickDirection4 } from "@vibedgames/gamepad/phaser";
 import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
 import { MultiplayerClient } from "@vibedgames/multiplayer";
+import {
+  isPlaytestRequested,
+  publishDiagnostics,
+  publishPlaytest,
+  publishTestHooks,
+} from "@vibedgames/playtest";
 import type { Player } from "@vibedgames/multiplayer";
 import type Phaser from "phaser";
 import { BlendModes, Input, Math as PhaserMath, Scale, Scene, Scenes } from "phaser";
@@ -18,7 +24,11 @@ import { CharacterAction, VICTORY_ACTION_MS } from "../render/character-action";
 import type { CharacterPose } from "../render/character-action";
 import { blastFrame, fireCells, freshCue } from "../render/blast-frame";
 import { RoundHud } from "../render/round-hud";
-import { bombOn, hostTick as simHostTick, placeBomb } from "../sim/host-sim";
+import { playtestManifest } from "../playtest-manifest";
+import type { BombermanDiagnostics } from "../playtest-manifest";
+import { bombOn } from "../sim/burn-map";
+import { hostTick as simHostTick, placeBomb } from "../sim/host-sim";
+import { PlaytestScore, playtestView } from "../sim/playtest-view";
 import type { Human } from "../sim/host-sim";
 import {
   audioDiagnostics,
@@ -58,6 +68,7 @@ import {
   readClock,
   resumeClock,
 } from "../util/clock";
+import { seededRandom } from "../util/seeded-random";
 
 declare global {
   interface Window {
@@ -138,6 +149,9 @@ const MULTIPLAYER_HOST = import.meta.env.DEV
 
 /** `?room=<code>` isolates a match (test harness, private lobby); everyone else shares one room. */
 const ROOM = new URLSearchParams(location.search).get("room") || "bomberman-default";
+/** A playtest reseeds and restarts the round at will, so without a `?room` of
+ *  its own it plays solo rather than dial the room everyone else shares. */
+const SOLO_PLAYTEST = isPlaytestRequested() && !new URLSearchParams(location.search).has("room");
 const BOMB_BUTTON_INSET = 84;
 const BOMB_BUTTON_RADIUS = 52;
 
@@ -237,13 +251,16 @@ const labelColor = (isMe: boolean, isBot: boolean): string => {
 
 // Every resettable field MUST be present — patches shallow-merge, so an
 // omitted key carries over from the previous round.
-const emptyShared = (arena: Arena = "classic"): SharedState => ({
+const emptyShared = (
+  arena: Arena = "classic",
+  random: () => number = Math.random,
+): SharedState => ({
   arena,
   blasts: {},
   bombs: {},
   bots: {},
   deaths: {},
-  grid: createArena(arena),
+  grid: createArena(arena, random),
   powerups: {},
   startedAt: simNow(),
   stats: {},
@@ -391,6 +408,11 @@ export class GameScene extends Scene {
   private reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   private pickupUntil = 0;
   private frame = 0;
+  /** Crate layouts, powerup drops and bot dice; the playtest seed hook swaps it. */
+  private random: () => number = Math.random;
+  private readonly playtestScore = new PlaytestScore();
+  private diagnosticsAt = -1;
+  private diagnosticsValue: BombermanDiagnostics | null = null;
   /** Living fighters as of the last render sync — drives the score bed. */
   private aliveCount = 0;
   private controlsPaused = false;
@@ -647,7 +669,7 @@ export class GameScene extends Scene {
     // (maybeGoOffline), which would also hold the round behind `live` for the
     // whole grace window. Every `this.client` access is guarded by
     // `this.offline`, so the client simply never exists on this path.
-    if (isOfflineRequested()) {
+    if (isOfflineRequested() || SOLO_PLAYTEST) {
       this.offline = true;
       // no subscribe() offline — kick the first onUpdate
       this.netDirty = true;
@@ -692,32 +714,47 @@ export class GameScene extends Scene {
     }
     // Small, real seams for plugins/tooling/skills/playtest. Scenario setup
     // uses the DEV scene handle; shared online rounds cannot be frozen here.
-    if (import.meta.env.DEV || new URLSearchParams(location.search).get("test") === "1") {
-      Object.assign(window, {
-        __GAME_TEST_HOOKS__: {
-          setPausedForScreenshot: (paused: boolean) => {
-            if (!this.freezable) {
-              throw new Error("Cannot freeze a shared arena");
-            }
-            if (paused) {
-              this.pauseSimulation();
-            } else {
-              this.resumeSimulation();
-            }
-          },
-          setReducedMotion: (enabled: boolean) => {
-            this.reducedMotion = enabled;
-            this.battleFx?.clear();
-          },
-          setState: (name: string) => {
-            if (name !== "active-play") {
-              throw new Error(`Unknown Bomberman state: ${name}`);
-            }
-            this.beginPlay();
-          },
+    publishDiagnostics(() => this.diagnostics());
+    if (import.meta.env.DEV || isPlaytestRequested()) {
+      publishTestHooks({
+        seed: (seed) => this.reseed(seed),
+        setPausedForScreenshot: (paused) => {
+          if (!this.freezable) {
+            throw new Error("Cannot freeze a shared arena");
+          }
+          if (paused) {
+            this.pauseSimulation();
+          } else {
+            this.resumeSimulation();
+          }
+        },
+        setReducedMotion: (enabled) => {
+          this.reducedMotion = enabled;
+          this.battleFx?.clear();
+        },
+        setState: (name) => {
+          if (name !== "active-play") {
+            throw new Error(`Unknown Bomberman state: ${name}`);
+          }
+          this.beginPlay();
+          return { state: name };
         },
       });
+      publishPlaytest(playtestManifest);
     }
+  }
+
+  /** Same seed, same crates and the same bot dice — in a fresh round, so
+   *  nothing measured afterwards was rolled before the seed landed. */
+  private reseed(seed: number): void {
+    if (!this.offline) {
+      throw new Error("Cannot reseed a shared arena");
+    }
+    this.random = seededRandom(seed);
+    this.playtestScore.reset();
+    const next = emptyShared("classic", this.random);
+    next.startedAt = Math.max(next.startedAt, (this.offlineShared?.startedAt ?? 0) + 1);
+    this.writeShared(next);
   }
 
   private applyZoom(): void {
@@ -747,7 +784,6 @@ export class GameScene extends Scene {
       this.onUpdate();
     }
     this.updateBattleFeel(delta);
-    this.publishDiagnostics();
     this.pollPad();
     if (!this.live) {
       return;
@@ -769,19 +805,68 @@ export class GameScene extends Scene {
     }
   }
 
-  private publishDiagnostics(): void {
+  private observeScore(): void {
     const state = this.shared();
-    Object.assign(window, {
-      __GAME_DIAGNOSTICS__: {
-        blasts: Object.keys(state?.blasts ?? {}).length,
-        bombs: Object.keys(state?.bombs ?? {}).length,
-        complete: state?.winner !== null && state?.winner !== undefined,
-        entities: this.bombSprites.size + this.blastSprites.size + this.players.size,
-        frame: this.frame,
-        player: { x: this.myCol * TILE, y: this.myRow * TILE },
-        score: Object.keys(state?.deaths ?? {}).filter((id) => id !== this.myId).length,
-      },
-    });
+    const id = this.myId;
+    if (state && id) {
+      this.playtestScore.observe(state, id);
+    }
+  }
+
+  private playtestPhase(): BombermanDiagnostics["phase"] {
+    if (!this.live) {
+      return "connecting";
+    }
+    if (!this.started) {
+      return "start-screen";
+    }
+    if ((this.shared()?.winner ?? null) !== null) {
+      return "round-over";
+    }
+    return this.isAlive(this.myId) ? "playing" : "dead";
+  }
+
+  /** Built when read, at most once a frame: the planner walks the board, and
+   *  outside a playtest nothing reads it. */
+  private diagnostics(): BombermanDiagnostics {
+    if (this.diagnosticsValue && this.diagnosticsAt === this.frame) {
+      return this.diagnosticsValue;
+    }
+    const state = this.shared();
+    const id = this.myId;
+    const phase = this.playtestPhase();
+    const base: BombermanDiagnostics = {
+      blasts: Object.keys(state?.blasts ?? {}).length,
+      bombs: Object.keys(state?.bombs ?? {}).length,
+      canStep: this.moveCooldown <= 0,
+      complete: phase === "round-over" || phase === "dead",
+      cratesOpened: this.playtestScore.crates,
+      entities: this.bombSprites.size + this.blastSprites.size + this.players.size,
+      frame: this.frame,
+      kills: this.playtestScore.kills,
+      phase,
+      player: { x: this.myCol * TILE, y: this.myRow * TILE },
+      rivalsAlive: Object.values(state?.bots ?? {}).filter((bot) => !state?.deaths[bot.id]).length,
+      score: this.playtestScore.points,
+    };
+    const value =
+      phase === "playing" && state && id
+        ? {
+            ...base,
+            ...playtestView({
+              col: this.myCol,
+              cooldownMs: this.moveCooldown,
+              myId: id,
+              now: simNow(),
+              row: this.myRow,
+              state,
+              stepMs: this.myStats().speed,
+            }),
+          }
+        : base;
+    this.diagnosticsAt = this.frame;
+    this.diagnosticsValue = value;
+    return value;
   }
 
   /** The pad polls outside the `live` gate: "press any pad button to start"
@@ -1173,7 +1258,10 @@ export class GameScene extends Scene {
     if (!state || !isJsonObject(payload) || payload["round"] !== state.startedAt) {
       return;
     }
-    const next = emptyShared(readArena(state.arena) === "classic" ? "crossroads" : "classic");
+    const next = emptyShared(
+      readArena(state.arena) === "classic" ? "crossroads" : "classic",
+      this.random,
+    );
     // startedAt is the existing round identity. Two requests in one clock
     // millisecond must still produce distinct rounds, without new wire state.
     next.startedAt = Math.max(next.startedAt, state.startedAt + 1);
@@ -1207,6 +1295,7 @@ export class GameScene extends Scene {
       }
     }
     this.trackRestartable();
+    this.observeScore();
     this.setStatus(this.statusText());
     this.setStats();
     this.setBanner();
@@ -1260,12 +1349,12 @@ export class GameScene extends Scene {
   private ensureSeeded(): void {
     if (this.offline) {
       if (!this.offlineShared) {
-        this.offlineShared = emptyShared();
+        this.offlineShared = emptyShared("classic", this.random);
       }
       return;
     }
     if (this.amHost && this.client.connectionStatus === "connected" && !this.shared()) {
-      this.writeShared(emptyShared());
+      this.writeShared(emptyShared("classic", this.random));
     }
   }
 
@@ -1733,7 +1822,7 @@ export class GameScene extends Scene {
     if (!s) {
       return;
     }
-    const { patch, pickups } = simHostTick(s, this.humans(), simNow());
+    const { patch, pickups } = simHostTick(s, this.humans(), simNow(), this.random);
     for (const pickup of pickups) {
       this.netSendEvent("pickup", pickup);
     }

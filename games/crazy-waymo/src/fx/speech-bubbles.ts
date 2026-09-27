@@ -27,6 +27,9 @@ const UNITS_PER_PX = 0.02;
  *  is a fraction of a desktop's, so the desktop size spans the whole portrait
  *  screen, clipped on both edges, and blanks the road ahead for six seconds. */
 const MAX_SCREEN_FRAC = 0.5;
+// update() scratch
+const POS = new THREE.Vector3();
+const VIEW_POS = new THREE.Vector3();
 
 /** Wrap width in canvas px. Portrait wraps sooner: once the whole bubble is
  *  capped to half the frame, a tall narrow block keeps its type legible where
@@ -177,8 +180,8 @@ export class SpeechBubbles {
   }
 
   update(dt: number, camera: THREE.PerspectiveCamera): void {
-    const pos = new THREE.Vector3();
-    const viewPos = new THREE.Vector3();
+    const pos = POS;
+    const viewPos = VIEW_POS;
     const halfTan = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
     for (let i = this.bubbles.length - 1; i >= 0; i -= 1) {
       const b = this.bubbles[i];

@@ -1,0 +1,28 @@
+{
+  "name": "vibedgames",
+  "description": "Seed your coding agent with a game studio: design, scaffold, generate art and audio, add multiplayer, tune feel, and ship browser games with the vg CLI.",
+  "version": "2.0.0",
+  "author": {
+    "name": "vibedgames",
+    "url": "https://vibedgames.com"
+  },
+  "homepage": "https://vibedgames.com",
+  "repository": "https://github.com/kyh/vibedgames",
+  "documentationUrl": "https://github.com/kyh/vibedgames/tree/main/plugins",
+  "supportUrl": "https://github.com/kyh/vibedgames/issues",
+  "license": "MIT",
+  "privacyPolicyUrl": "https://vibedgames.com/privacy",
+  "termsOfServiceUrl": "https://vibedgames.com/terms",
+  "keywords": [
+    "game-development",
+    "browser-games",
+    "phaser",
+    "threejs",
+    "multiplayer",
+    "asset-generation",
+    "pixel-art",
+    "sprites",
+    "game-design",
+    "deploy"
+  ]
+}

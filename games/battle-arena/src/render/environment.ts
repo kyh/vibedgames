@@ -129,6 +129,57 @@ const softDot = (): THREE.Texture => {
   return dotTex;
 };
 
+interface DriftGlsl {
+  /** attribute/uniform declarations */
+  head: string;
+  /** moves `transformed` (the seed position) as a function of uTime */
+  body: string;
+}
+
+// Ambient-layer drift lives in the vertex shader: the buffer holds a seed per
+// point, uploaded once. Rewriting and re-uploading ~330 positions a frame for
+// a cosmetic drift is exactly what mobile GL drivers fall over on.
+const DRIFT_HASH = "float baHash(float n) { return fract(sin(n) * 43758.5453123); }";
+// Ember spawn: fixed per-particle life; the spawn offset + velocity are
+// re-rolled every cycle from a hash (the same distributions the CPU used).
+const EMBER_DRIFT: DriftGlsl = {
+  body: [
+    "float life = 0.8 + 1.4 * baHash(aSeed);",
+    "float cyc = floor(uTime / life);",
+    "float age = uTime - cyc * life;",
+    "float h = aSeed * 97.31 + cyc * 13.37;",
+    "transformed += vec3((baHash(h + 1.0) - 0.5) * 0.5, baHash(h + 2.0) * 0.4 - 0.3, (baHash(h + 3.0) - 0.5) * 0.5);",
+    "vec3 vel = vec3((baHash(h + 4.0) - 0.5) * 0.4, 0.7 + baHash(h + 5.0) * 0.8, (baHash(h + 6.0) - 0.5) * 0.4);",
+    "transformed += vel * age + vec3(0.0, 0.15 * age * age, 0.0);",
+  ].join("\n"),
+  head: `attribute float aSeed;\nuniform float uTime;\n${DRIFT_HASH}`,
+};
+// hoard glitter rises 0.5u/s through the 2.2..6.2 band and wraps
+const GOLD_DRIFT: DriftGlsl = {
+  body: "transformed.y = 2.2 + mod(transformed.y - 2.2 + uTime * 0.5, 4.0);",
+  head: "uniform float uTime;",
+};
+// dust drifts on its own velocity, wrapping up→down through 0.5..6
+const MOTE_DRIFT: DriftGlsl = {
+  body: "transformed += aVel * uTime;\ntransformed.y = 0.5 + mod(transformed.y - 0.5, 5.5);",
+  head: "attribute vec3 aVel;\nuniform float uTime;",
+};
+
+const driftPoints = (
+  mat: THREE.PointsMaterial,
+  key: string,
+  glsl: DriftGlsl,
+  time: { value: number },
+): void => {
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = time;
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", `#include <common>\n${glsl.head}`)
+      .replace("#include <begin_vertex>", `#include <begin_vertex>\n${glsl.body}`);
+  };
+  mat.customProgramCacheKey = () => key;
+};
+
 interface Blob {
   x: number;
   y: number;
@@ -250,17 +301,14 @@ export class Environment {
   private materials = new ArenaMaterials();
   private readonly reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
   private flames: THREE.PointLight[] = [];
-  // ambient particle layers (own Points — never the combat pool)
+  // ambient particle layers (own Points — never the combat pool); they drift
+  // in their vertex shaders off this one clock, so no position buffer is ever
+  // rewritten per frame
   private embers: THREE.Points | null = null;
-  private emberPos: Float32Array = new Float32Array(0);
-  private emberVel: Float32Array = new Float32Array(0);
-  private emberLife: Float32Array = new Float32Array(0);
   private motes: THREE.Points | null = null;
-  private motePos: Float32Array = new Float32Array(0);
-  private moteVel: Float32Array = new Float32Array(0);
   // throne gold motes (the hoard glitters — objective read from anywhere)
   private goldMotes: THREE.Points | null = null;
-  private goldPos: Float32Array = new Float32Array(0);
+  private readonly ambientTime = { value: 0 };
   // enemy-fountain warning rims (per-pad brightness via instanceColor)
   private warnRims: THREE.InstancedMesh | null = null;
   private warnLevels: Float32Array = new Float32Array(0);
@@ -737,19 +785,26 @@ export class Environment {
     const tex = softDot();
     // ── torch embers ──
     const EN = 110;
-    this.emberPos = new Float32Array(EN * 3);
-    this.emberVel = new Float32Array(EN * 3);
-    this.emberLife = new Float32Array(EN);
+    const epos = new Float32Array(EN * 3);
+    const eseed = new Float32Array(EN);
     const ecol = new Float32Array(EN * 3);
+    // embers rise off the 6 torch flames only (flames[6] is the high throne light)
+    const n = Math.min(6, this.flames.length);
     for (let i = 0; i < EN; i += 1) {
-      this.seedEmber(i);
+      const f = n > 0 ? this.flames[i % n] : undefined;
+      const p = f ? f.position : { x: 0, y: 2, z: 0 };
+      epos[i * 3] = p.x;
+      epos[i * 3 + 1] = p.y;
+      epos[i * 3 + 2] = p.z;
+      eseed[i] = Math.random() * 100;
       ecol[i * 3] = 1.4;
       ecol[i * 3 + 1] = 0.55;
       // warm HDR (blooms)
       ecol[i * 3 + 2] = 0.12;
     }
     const eg = new THREE.BufferGeometry();
-    eg.setAttribute("position", new THREE.BufferAttribute(this.emberPos, 3));
+    eg.setAttribute("position", new THREE.BufferAttribute(epos, 3));
+    eg.setAttribute("aSeed", new THREE.BufferAttribute(eseed, 1));
     eg.setAttribute("color", new THREE.BufferAttribute(ecol, 3));
     const em = new THREE.PointsMaterial({
       blending: THREE.AdditiveBlending,
@@ -759,6 +814,7 @@ export class Environment {
       transparent: true,
       vertexColors: true,
     });
+    driftPoints(em, "ba-embers", EMBER_DRIFT, this.ambientTime);
     this.embers = new THREE.Points(eg, em);
     this.embers.frustumCulled = false;
     this.ownedGeos.push(eg);
@@ -767,21 +823,21 @@ export class Environment {
 
     // ── throne gold motes (always on — it's the objective's read) ──
     const GN = 40;
-    this.goldPos = new Float32Array(GN * 3);
+    const gpos = new Float32Array(GN * 3);
     const gcol = new Float32Array(GN * 3);
     for (let i = 0; i < GN; i += 1) {
       const a = Math.random() * TAU;
       const r = Math.sqrt(Math.random()) * (PLATEAU_R - 0.5);
-      this.goldPos[i * 3] = Math.cos(a) * r;
-      this.goldPos[i * 3 + 1] = 2.2 + Math.random() * 3.8;
-      this.goldPos[i * 3 + 2] = Math.sin(a) * r;
+      gpos[i * 3] = Math.cos(a) * r;
+      gpos[i * 3 + 1] = 2.2 + Math.random() * 3.8;
+      gpos[i * 3 + 2] = Math.sin(a) * r;
       gcol[i * 3] = 1.5;
       gcol[i * 3 + 1] = 1.05;
       // HDR gold (blooms)
       gcol[i * 3 + 2] = 0.3;
     }
     const gg = new THREE.BufferGeometry();
-    gg.setAttribute("position", new THREE.BufferAttribute(this.goldPos, 3));
+    gg.setAttribute("position", new THREE.BufferAttribute(gpos, 3));
     gg.setAttribute("color", new THREE.BufferAttribute(gcol, 3));
     const gm = new THREE.PointsMaterial({
       blending: THREE.AdditiveBlending,
@@ -791,6 +847,7 @@ export class Environment {
       transparent: true,
       vertexColors: true,
     });
+    driftPoints(gm, "ba-gold-motes", GOLD_DRIFT, this.ambientTime);
     this.goldMotes = new THREE.Points(gg, gm);
     this.goldMotes.frustumCulled = false;
     this.ownedGeos.push(gg);
@@ -803,20 +860,21 @@ export class Environment {
       return;
     }
     const MN = 180;
-    this.motePos = new Float32Array(MN * 3);
-    this.moteVel = new Float32Array(MN * 3);
+    const mpos = new Float32Array(MN * 3);
+    const mvel = new Float32Array(MN * 3);
     for (let i = 0; i < MN; i += 1) {
       const a = Math.random() * TAU;
       const r = Math.sqrt(Math.random()) * APOTHEM;
-      this.motePos[i * 3] = Math.cos(a) * r;
-      this.motePos[i * 3 + 1] = 0.5 + Math.random() * 5.5;
-      this.motePos[i * 3 + 2] = Math.sin(a) * r;
-      this.moteVel[i * 3] = (Math.random() - 0.5) * 0.3;
-      this.moteVel[i * 3 + 1] = 0.1 + Math.random() * 0.2;
-      this.moteVel[i * 3 + 2] = (Math.random() - 0.5) * 0.3;
+      mpos[i * 3] = Math.cos(a) * r;
+      mpos[i * 3 + 1] = 0.5 + Math.random() * 5.5;
+      mpos[i * 3 + 2] = Math.sin(a) * r;
+      mvel[i * 3] = (Math.random() - 0.5) * 0.3;
+      mvel[i * 3 + 1] = 0.1 + Math.random() * 0.2;
+      mvel[i * 3 + 2] = (Math.random() - 0.5) * 0.3;
     }
     const mg = new THREE.BufferGeometry();
-    mg.setAttribute("position", new THREE.BufferAttribute(this.motePos, 3));
+    mg.setAttribute("position", new THREE.BufferAttribute(mpos, 3));
+    mg.setAttribute("aVel", new THREE.BufferAttribute(mvel, 3));
     const mm = new THREE.PointsMaterial({
       blending: THREE.AdditiveBlending,
       color: 0x9f_c6_e0,
@@ -826,25 +884,12 @@ export class Environment {
       size: 0.07,
       transparent: true,
     });
+    driftPoints(mm, "ba-dust-motes", MOTE_DRIFT, this.ambientTime);
     this.motes = new THREE.Points(mg, mm);
     this.motes.frustumCulled = false;
     this.ownedGeos.push(mg);
     this.ownedMats.push(mm);
     this.add(this.motes);
-  }
-
-  private seedEmber(i: number): void {
-    // embers rise off the 6 torch flames only (flames[6] is the high throne light)
-    const n = Math.min(6, this.flames.length);
-    const f = n > 0 ? this.flames[i % n] : undefined;
-    const p = f ? f.position : { x: 0, y: 2, z: 0 };
-    this.emberPos[i * 3] = p.x + (Math.random() - 0.5) * 0.5;
-    this.emberPos[i * 3 + 1] = p.y - 0.3 + Math.random() * 0.4;
-    this.emberPos[i * 3 + 2] = p.z + (Math.random() - 0.5) * 0.5;
-    this.emberVel[i * 3] = (Math.random() - 0.5) * 0.4;
-    this.emberVel[i * 3 + 1] = 0.7 + Math.random() * 0.8;
-    this.emberVel[i * 3 + 2] = (Math.random() - 0.5) * 0.4;
-    this.emberLife[i] = 0.8 + Math.random() * 1.4;
   }
 
   /** Signed distance to the hex boundary (positive = outside the wall line). */
@@ -1241,16 +1286,14 @@ export class Environment {
     }
   }
 
-  /** Flicker torch lights + advance the ambient particle layers + drive the
-   *  fountain warning rims. No per-frame allocations. */
+  /** Flicker torch lights + advance the ambient particle clock + drive the
+   *  fountain warning rims. No per-frame allocations, no buffer uploads. */
   update(t: number): void {
     const reduced = this.reducedMotion?.matches ?? false;
     this.flickerFlames(t, reduced);
     const dt = reduced || this.lastT < 0 ? 0 : Math.min(0.05, Math.max(0, t - this.lastT));
     this.lastT = t;
-    this.driftEmbers(dt);
-    this.driftMotes(dt);
-    this.driftGoldMotes(dt);
+    this.ambientTime.value += dt;
     this.pulseWarnRims(t, reduced);
   }
 
@@ -1266,62 +1309,6 @@ export class Environment {
         base *
         (reduced ? 0.82 : 0.82 + Math.sin(t * 9 + i * 2.1) * 0.12 + Math.sin(t * 23 + i) * 0.06);
     }
-  }
-
-  private driftEmbers(dt: number): void {
-    if (!this.embers) {
-      return;
-    }
-    const ep = this.emberPos;
-    const ev = this.emberVel;
-    const el = this.emberLife;
-    for (let i = 0; i < el.length; i += 1) {
-      if ((el[i] ?? 0) - dt <= 0) {
-        this.seedEmber(i);
-        continue;
-      }
-      el[i] = (el[i] ?? 0) - dt;
-      const o = i * 3;
-      // gentle updraft
-      ev[o + 1] = (ev[o + 1] ?? 0) + dt * 0.3;
-      ep[o] = (ep[o] ?? 0) + (ev[o] ?? 0) * dt;
-      ep[o + 1] = (ep[o + 1] ?? 0) + (ev[o + 1] ?? 0) * dt;
-      ep[o + 2] = (ep[o + 2] ?? 0) + (ev[o + 2] ?? 0) * dt;
-    }
-    this.embers.geometry.getAttribute("position").needsUpdate = true;
-  }
-
-  private driftMotes(dt: number): void {
-    if (!this.motes) {
-      return;
-    }
-    const mp = this.motePos;
-    const mv = this.moteVel;
-    for (let i = 0; i < mv.length / 3; i += 1) {
-      const o = i * 3;
-      mp[o] = (mp[o] ?? 0) + (mv[o] ?? 0) * dt;
-      mp[o + 1] = (mp[o + 1] ?? 0) + (mv[o + 1] ?? 0) * dt;
-      mp[o + 2] = (mp[o + 2] ?? 0) + (mv[o + 2] ?? 0) * dt;
-      if ((mp[o + 1] ?? 0) > 6) {
-        mp[o + 1] = 0.5;
-        // wrap up→down
-      }
-    }
-    this.motes.geometry.getAttribute("position").needsUpdate = true;
-  }
-
-  private driftGoldMotes(dt: number): void {
-    if (!this.goldMotes) {
-      return;
-    }
-    const gp = this.goldPos;
-    for (let i = 0; i < gp.length / 3; i += 1) {
-      const o = i * 3;
-      // hoard glitter drifts upward
-      const y = (gp[o + 1] ?? 0) + 0.5 * dt;
-      gp[o + 1] = y > 6.2 ? 2.2 : y;
-    }
-    this.goldMotes.geometry.getAttribute("position").needsUpdate = true;
   }
 
   /** Threat level of each enemy fountain rim, seen from the local player. */

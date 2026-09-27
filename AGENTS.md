@@ -27,7 +27,7 @@ One file, two consumers. Everything lives in the repo-root `.env`; template is `
 | Consumer                                         | Reaches it via                                                  | Holds                                                                 |
 | ------------------------------------------------ | --------------------------------------------------------------- | --------------------------------------------------------------------- |
 | drizzle-kit, the wrangler CLI                    | `process.env`, loaded by each package's `with-env` (dotenv-cli) | `CLOUDFLARE_ACCOUNT_ID` / `_DATABASE_ID` / `_D1_TOKEN` / `_API_TOKEN` |
-| the dev Worker, via the Cloudflare `env` binding | `secrets.required` in `apps/web/wrangler.jsonc`                 | `BETTER_AUTH_SECRET`, `R2_*`, `FAL_API_KEY`                           |
+| the dev Worker, via the Cloudflare `env` binding | `secrets.required` in `apps/web/wrangler.jsonc`                 | `BETTER_AUTH_SECRET`, `R2_*`, `FAL_API_KEY`, `TYPESAFE_API_KEY`       |
 
 **`secrets.required` is the whole mechanism.** Declaring a name there makes wrangler fold `process.env` into the Worker binding and filter it down to exactly the declared names — so a secret that is in `.env` but not in `secrets.required` silently never reaches the Worker. Adding one means editing three places: `.env.example`, `secrets.required`, and `apps/web/env.d.ts`.
 
@@ -93,7 +93,9 @@ currently does.
 
 ## Verify a change end-to-end
 
-Static gate — run before every commit:
+Everything here is local and disposable — Miniflare D1/R2, seeded logins, headless browsers, no production access. Run it, fix failures your change caused, rerun what it touched, and do not stop to ask between steps. A change is done when this gate is green **and** the surface it touched has been driven once (a game via `vg playtest`, the web app via the recipe below); a first implementation that has not been run is not done.
+
+Static gate — before a commit:
 
 ```sh
 pnpm verify   # typecheck · lint · format · test
@@ -149,7 +151,7 @@ For the surfaces marked No, `pnpm typecheck` and `pnpm build` are the gate; a re
 ## Map
 
 - `apps/web` — the platform app (routes, auth, oRPC handler) · `apps/party` — multiplayer DO · `apps/games` — R2 game server · `apps/cli` — the published `vg` CLI · `apps/factory` — Bun/OpenTUI orchestrator
-- `packages/api` — oRPC routers, auth config, credits ledger · `packages/db` — Drizzle schema (source of truth for the data model) + `seed.sql` · `packages/ui`, `packages/multiplayer`, `packages/gamepad`, `packages/embed`
+- `packages/api` — oRPC routers, auth config, credits ledger · `packages/db` — Drizzle schema (source of truth for the data model) + `seed.sql` · `packages/ui`, `packages/multiplayer`, `packages/gamepad`, `packages/playtest`, `packages/embed`
 - `games/*` — bundled example games, not platform code
 - `plugins/*/skills/*` — the skills shipped to end users; symlinked into `.claude/skills/` by `pnpm dogfood`
 - `CLAUDE.md` — product context, architectural decisions, command list

@@ -9,6 +9,7 @@ import {
 import type { TouchControls } from "@repo/embed";
 import { PhysicalGamepad, attachVirtualGamepad, safeAreaInset } from "@vibedgames/gamepad/phaser";
 import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
+import { isPlaytestRequested } from "@vibedgames/playtest";
 import { Input, Math as PhaserMath, Scale, Scene, Scenes } from "phaser";
 import type Phaser from "phaser";
 import { sfx } from "../audio/sfx";
@@ -65,8 +66,8 @@ import {
   WORLD_W,
 } from "../shared/constants";
 import type { SharedState, Vec } from "../shared/constants";
-import { diag, installTestHooks } from "../shared/diag";
-import { rand } from "../shared/rng";
+import { PLAYTEST_SURFACE, diag, installTestHooks } from "../shared/diag";
+import { rand, reseed } from "../shared/rng";
 import { newDirtyFlags } from "../state/dirty-flags";
 import type { DirtyFlags } from "../state/dirty-flags";
 import { Link } from "../state/link";
@@ -75,6 +76,8 @@ import type { Pilot } from "../state/pilot";
 import { BeaconClient } from "../sys/beacon-client";
 import { EnemyAi } from "../sys/enemy-ai";
 import { Pickups } from "../sys/pickups";
+import { publishStarfallPlaytest } from "../sys/playtest-manifest";
+import { senseSurroundings } from "../sys/playtest-sense";
 import { Progression } from "../sys/progression";
 import { Shield } from "../sys/shield";
 import { ShooterHits } from "../sys/shooter-hits";
@@ -228,11 +231,12 @@ export class GameScene extends Scene {
   }
 
   create(): void {
-    // Bot-playtest diagnostics contract (shared/diag.ts): telemetry + the
-    // active-play hook. Single-start scene, so once per page load by design.
-    // setPaused rides the same offline-only freeze as the wrapper pause.
+    // Playtest contract (shared/diag.ts): telemetry, plus the hooks and the
+    // control manifest in dev or under ?test=1. setPaused rides the same
+    // offline-only freeze as the wrapper pause.
     installTestHooks({
       activePlay: () => this.forceOfflineSolo(),
+      restart: (seed) => this.restartSolo(seed),
       setPaused: (paused) => (paused ? this.freezeSim() : this.unfreezeSim()),
     });
     this.starfield = new Starfield(this);
@@ -270,7 +274,13 @@ export class GameScene extends Scene {
     // (Link.poll). The client simply never exists on this path.
     // Trailer mode (?trailer=1) is always a fully offline session: the
     // director stages "multiplayer" with local fake peers, never the network.
-    if (isOfflineRequested() || new URLSearchParams(location.search).has("trailer")) {
+    // A playtest (?test=1) is offline by intent as well: a model's staged run
+    // must never land in a live room.
+    if (
+      isOfflineRequested() ||
+      isPlaytestRequested() ||
+      new URLSearchParams(location.search).has("trailer")
+    ) {
       this.link.goOffline();
       this.sync.ensureSeeded();
     } else {
@@ -391,6 +401,9 @@ export class GameScene extends Scene {
     });
 
     installDevHooks(this.internals());
+    if (PLAYTEST_SURFACE) {
+      publishStarfallPlaytest();
+    }
   }
 
   /** Constructor injection in dependency order. The cycles (progress ↔
@@ -800,6 +813,27 @@ export class GameScene extends Scene {
     this.beginPlay();
   }
 
+  /** Test hook (shared/diag.ts): reseed the gameplay stream, then rebuild the
+   *  run from nothing as an offline solo arena — fresh rock field, director
+   *  clocks, level-1 pilot — so every roll after it comes from the seed. */
+  private restartSolo(seed: number): void {
+    reseed(seed);
+    if (!this.link.offline) {
+      this.link.goOffline();
+    }
+    this.sync.offlineSeeded = false;
+    this.sync.ensureSeeded();
+    this.host.restart();
+    this.progress.restart();
+    this.shield.restart();
+    this.weapons.beams = [];
+    this.weapons.sentry = null;
+    this.weapons.windupAcc = 0;
+    // in place: every collaborator holds this record by reference
+    Object.assign(this.pilot, newPilot());
+    this.openingRocksSeeded = false;
+  }
+
   /** Per-frame diagnostics for bot playtests (shared/diag.ts). One object
    *  mutated in place; primitives only. */
   private publishDiag(): void {
@@ -810,6 +844,9 @@ export class GameScene extends Scene {
     diag.player.speed = Math.hypot(this.pilot.shipVX, this.pilot.shipVY);
     diag.entities = this.world.enemies.length + this.world.asteroids.length;
     diag.beams = this.weapons.beams.length;
+    if (PLAYTEST_SURFACE) {
+      this.publishSenses();
+    }
     const b = this.world.beacon;
     const bnow = simNow();
     diag.beacon =
@@ -822,6 +859,26 @@ export class GameScene extends Scene {
             y: b.y,
           }
         : null;
+  }
+
+  /** What a player reads off the screen (sys/playtest-sense.ts). */
+  private publishSenses(): void {
+    const now = simNow();
+    const { pilot } = this;
+    const live = pilot.spawned && pilot.alive;
+    diag.alive = live;
+    diag.respawnInMs = pilot.respawnAt === 0 ? 0 : Math.max(0, Math.round(pilot.respawnAt - now));
+    diag.invulnerable = now < pilot.invulnUntil;
+    diag.shield = Math.round(this.shield.shieldHp + this.shield.overHp);
+    diag.shieldMax = SHIELD_MAX;
+    diag.level = this.progress.level;
+    diag.weapon = pilot.weapon.name;
+    diag.firing = this.isFiring();
+    const cam = this.cameras.main;
+    diag.view.w = cam.width;
+    diag.view.h = cam.height;
+    diag.view.zoom = cam.zoom;
+    senseSurroundings(diag, { now, pilot, world: this.world });
   }
 
   /** Offline-only REAL freeze: stop the sim clock (every stored deadline

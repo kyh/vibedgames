@@ -232,10 +232,14 @@ export {
   analyzeSkillBody,
   type CategoryResult,
   checkAntiPatterns,
-  checkEmpowerment,
-  checkOrganization,
-  checkPhilosophy,
-  checkVariation,
+  checkConcreteness,
+  checkDescription,
+  checkRouter,
+  checkVerification,
+  DESCRIPTION_WORD_LIMIT,
+  DESCRIPTION_WORD_TARGET,
+  ROOT_LINE_TARGET,
+  type SupportFiles,
 } from "./skill/analyze.js";
 export { generateSuggestions, type Suggestion } from "./skill/upgrade.js";
 export { initSkill, type InitResult, titleCaseSkillName } from "./skill/init.js";

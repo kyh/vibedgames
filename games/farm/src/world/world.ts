@@ -182,7 +182,9 @@ export class World {
     if (this.objectAt(tx, ty)) {
       return false;
     }
-    return true;
+    // A standing tree's crown draws over the tile north of its trunk, so a crop
+    // there would grow unseen. Felling the tree frees the tile with the trunk's.
+    return this.objectAt(tx, ty + 1)?.type !== "tree";
   }
 
   // ---- serialization (dynamic state only; terrain rebuilds from the world map) ----

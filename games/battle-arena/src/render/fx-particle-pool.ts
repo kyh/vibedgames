@@ -2,6 +2,7 @@
 // per-priority live buckets (swap-remove) so a saturated spawn only scans the
 // lowest-ranked bucket. Module scratch math: zero per-frame allocs in update().
 import * as THREE from "three";
+import { uploadPrefix } from "./buffer-upload";
 
 export type ParticlePriority = "ambient" | "impact" | "major";
 const PRIORITY = { ambient: 0, impact: 1, major: 2 } satisfies Readonly<
@@ -272,7 +273,7 @@ export class Pool {
         if (s.life <= 0) {
           this.mesh.setMatrixAt(idx, ZERO_MAT);
           this.unlink(idx, rank);
-          this.free.push(idx);
+          this.release(idx);
           this.dirty = true;
           continue;
         }
@@ -291,12 +292,37 @@ export class Pool {
       }
     }
     if (this.dirty) {
-      this.mesh.instanceMatrix.needsUpdate = true;
-      this.colorAttr.needsUpdate = true;
+      // only the live prefix goes up and gets drawn: a pool sized for a full
+      // brawl must not re-upload its whole buffer for a handful of embers
+      const n = this.highWater;
+      this.mesh.count = n;
+      uploadPrefix(this.mesh.instanceMatrix, n * 16);
+      uploadPrefix(this.colorAttr, n * 3);
       if (this.alphaAttr) {
-        this.alphaAttr.needsUpdate = true;
+        uploadPrefix(this.alphaAttr, n);
       }
       this.dirty = this.liveCount() > 0;
+    }
+  }
+
+  /** Return a slot, keeping `free` descending so the lowest index is handed
+   *  out next and the high-water mark tracks the live count rather than the
+   *  highest slot ever touched. */
+  private release(idx: number): void {
+    const { free } = this;
+    let lo = 0;
+    let hi = free.length;
+    while (lo < hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      if ((free[mid] ?? -1) > idx) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    free.splice(lo, 0, idx);
+    while (this.highWater > 0 && (this.slots[this.highWater - 1]?.life ?? 0) <= 0) {
+      this.highWater -= 1;
     }
   }
 

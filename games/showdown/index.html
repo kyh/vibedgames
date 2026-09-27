@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/src/style.css" />
+    <title>Showdown</title>
+    <meta
+      name="description"
+      content="A woodland tournament of swords, arrows and spells. Choose a champion. Be the last one standing."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@600;800&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+
+    <div id="hud" class="hidden">
+      <div id="gas-warn"></div>
+      <div id="hurt"></div>
+      <div id="overheads"></div>
+      <div id="floaters"></div>
+      <div id="feed"></div>
+      <div id="topbar">
+        <div class="pill" id="left-count" aria-label="8 champions left"><b>8</b> LEFT</div>
+        <div class="pill net" id="net-status" hidden>Connecting&hellip;</div>
+      </div>
+      <div id="spectate" class="outline" hidden>SPECTATING &middot; next brawl after this one</div>
+      <div id="banner" class="outline"></div>
+      <div id="sticks">
+        <div class="stick" id="stick-move"><i></i></div>
+        <div class="stick" id="stick-aim"><i></i></div>
+      </div>
+      <button id="super" type="button" aria-label="Super charging">
+        <span class="core" aria-hidden="true">SUPER</span>
+      </button>
+      <button id="evade" type="button" aria-label="Dodge ready">
+        <span class="core" aria-hidden="true">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="m5 5 7 7-7 7m8-14 7 7-7 7" />
+          </svg>
+        </span>
+      </button>
+    </div>
+
+    <button id="gear" title="Settings" aria-label="Settings">&#9881;</button>
+    <div id="settings">
+      <h3>Settings</h3>
+      <h4>BOTS</h4>
+      <div class="seg" id="difficulty-seg"></div>
+      <h4>QUALITY</h4>
+      <div class="seg" id="quality-seg"></div>
+      <h4>TIME OF DAY</h4>
+      <div class="row">
+        <label for="auto-time">Follow the match (afternoon &rarr; night)</label
+        ><input type="checkbox" id="auto-time" checked />
+      </div>
+      <div class="row">
+        <span id="time-label">15:24</span
+        ><input type="range" id="time-slider" min="0" max="24" step="0.05" value="15.4" />
+      </div>
+      <div class="tip">
+        Drag to scrub the sun. Press <kbd>T</kbd> in game to jump between noon, golden hour, dusk
+        and night.
+      </div>
+      <h4>EFFECTS</h4>
+      <div class="row">
+        <label for="tog-ao">Ambient occlusion (GTAO)</label
+        ><input type="checkbox" id="tog-ao" checked />
+      </div>
+      <div class="row">
+        <label for="tog-bloom">Bloom</label><input type="checkbox" id="tog-bloom" checked />
+      </div>
+      <div class="row">
+        <label for="tog-mute">Mute sound (<kbd>M</kbd>)</label
+        ><input type="checkbox" id="tog-mute" />
+      </div>
+      <div id="stats"></div>
+    </div>
+
+    <div id="menu" class="screen">
+      <div class="title-crest" aria-hidden="true">✦</div>
+      <h1 id="title">SHOWDOWN</h1>
+      <div id="tagline">Nine champions. One crown.</div>
+      <div id="roster">
+        <div class="roster-list">
+          <div class="roster-heading"><span>Choose your champion</span><span>01 — 09</span></div>
+          <div id="cards" aria-label="Champions"></div>
+        </div>
+        <section id="champion-detail" aria-label="Selected champion" aria-live="polite"></section>
+      </div>
+      <div id="lobby">
+        <input
+          type="text"
+          id="lobby-name"
+          maxlength="12"
+          placeholder="Your name"
+          autocomplete="off"
+          aria-label="Your name"
+        />
+        <span id="lobby-online">
+          <input
+            type="text"
+            id="lobby-room"
+            maxlength="12"
+            placeholder="Room code"
+            autocomplete="off"
+            aria-label="Room code"
+          />
+        </span>
+      </div>
+      <div id="play-row">
+        <button class="big-btn" id="play">Practice battle</button>
+        <button class="big-btn online" id="play-online">Play online</button>
+      </div>
+      <div id="menu-hint">
+        <div id="menu-legend"></div>
+        <div class="menu-note"><kbd>&#9881;</kbd> time of day &middot; graphics</div>
+      </div>
+    </div>
+
+    <div id="result" class="screen">
+      <h1 id="result-title">VICTORY!</h1>
+      <div id="result-rank" class="outline"></div>
+      <div id="result-stats"></div>
+      <div id="result-best" hidden></div>
+      <div id="result-wait" hidden></div>
+      <button class="big-btn" id="again">PLAY AGAIN</button>
+      <button class="ghost-btn" id="to-menu">Choose champion</button>
+    </div>
+
+    <div id="toast"></div>
+    <div id="loading" role="status" aria-live="polite">
+      <div class="loading-crest" aria-hidden="true">✦</div>
+      <div class="loading-title">SHOWDOWN</div>
+      <div class="loading-subtitle">The woodland tournament</div>
+      <div
+        id="loading-progress"
+        role="progressbar"
+        aria-label="Loading Showdown"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-valuenow="0"
+      >
+        <div id="loading-fill"></div>
+      </div>
+      <div id="loading-status">Opening the gates&hellip;</div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

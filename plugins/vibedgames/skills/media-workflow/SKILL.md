@@ -1,0 +1,187 @@
+---
+name: media-workflow
+description: "Chain several `vg generate` steps into one production — ads, product shots, restorations, talking heads, try-ons, scored or subtitled video — when no single endpoint does the job."
+---
+
+# `vg generate` workflow production
+
+> **Runtime:** All endpoint calls use the `vg generate` CLI (`npm install -g vibedgames`, or `pnpm dogfood` in this repo). The API key lives on the vibedgames server, so there is no per-machine setup. See the `generate` skill for the command reference.
+
+Use this skill when a single model call is not enough. There are two ways in:
+
+- **Use-case recipe** — your task matches a known kind of content production
+  (commercial, character, lip-sync, restoration…). Start from the recipe table
+  below; each recipe lists inputs, the `vg generate` call sequence, and a quality
+  bar.
+- **Custom pipeline** — no recipe matches. Design the workflow from scratch using
+  the orchestration patterns in this skill.
+
+A workflow either way is a planned sequence of vg generate calls with clear
+inputs, outputs, dependencies, and quality checks.
+
+## Use-case recipes
+
+Match the user's intent to a recipe, then load that reference. If two apply
+(e.g. "commercial featuring a consistent character"), load both and run the more
+specific one first. If the task is a single endpoint call, skip recipes and go
+straight to the right `model-catalog` reference.
+
+| Reference                                               | Use for                                                                                                                 |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| [cinematography.md](references/cinematography.md)       | Cinematic stills and video, shot language, lighting, lens, color grade                                                  |
+| [character-design.md](references/character-design.md)   | Original characters with consistent identity across shots                                                               |
+| [commercial.md](references/commercial.md)               | Product photography, ads, e-commerce batches, hero shots                                                                |
+| [storytelling.md](references/storytelling.md)           | Multi-shot narratives, short films, ads, brand films, social stories                                                    |
+| [character-lipsync.md](references/character-lipsync.md) | Talking head / lip-sync video (TTS → animated portrait)                                                                 |
+| [image-restoration.md](references/image-restoration.md) | Smart-dispatch restoration, deblur, denoise, dehaze, fix faces, document restore                                        |
+| [virtual-tryon.md](references/virtual-tryon.md)         | Apply a garment onto a person photo (with optional cleanup chain)                                                       |
+| [video-with-audio.md](references/video-with-audio.md)   | Add narration / SFX / music to a silent video                                                                           |
+| [product-shot.md](references/product-shot.md)           | Hero product photography from a packshot reference                                                                      |
+| [realism.md](references/realism.md)                     | Photoreal stills (candid, editorial, documentary, archival, food, nature, architectural) with an anti-AI-look checklist |
+
+Each recipe links to `model-catalog` for endpoint defaults rather than listing
+models inline, so the catalog stays the single source of truth.
+
+3D assets have no recipe here — they are routed by `model-catalog`
+(text-to-3d / image-to-3d): rigged characters → `regenerate-3d`; rigged or
+openable props as procedural code → `image-to-threejs`.
+
+## Custom pipelines
+
+Load these references as needed:
+
+- `references/pipeline-patterns.md`
+- `references/node-rules.md`
+- `references/utility-endpoints.md`
+- `references/recipes.md` — generic workflow recipes (multi-scene video, dataset, social batch…)
+- `model-catalog` for creative model defaults
+
+Use `model-catalog` for default creative model choices. Still inspect schemas,
+check pricing when cost matters, and use exact endpoint fields.
+
+## Inputs to collect
+
+Ask only for missing information that changes the pipeline:
+
+- Final deliverable: image set, video, clips, audio, subtitles, dataset, social
+  batch, product campaign, storyboard, style exploration.
+- Source assets: product images, character references, first frames, video,
+  audio, logo, transcript, brand guide.
+- Runtime limits: quality target, cost sensitivity, number of variants,
+  duration, aspect ratios, deadline.
+- Continuity requirements: product identity, character face, scene layout,
+  voice, color grade.
+- Model preference: ask the user only when quality, speed, cost, or audio
+  tradeoffs are not clear from the brief.
+
+## Core workflow
+
+1. Write a short pipeline graph before running anything.
+
+   ```text
+   input assets -> planner -> generation nodes -> utility nodes -> QA -> final outputs
+   ```
+
+2. Resolve endpoints for each role. Check known endpoint IDs first.
+
+   ```bash
+   vg generate models --endpoint_id openai/gpt-image-2 --json
+   vg generate models --endpoint_id fal-ai/nano-banana-pro/edit --json
+   vg generate models --endpoint_id bytedance/seedance-2.0/image-to-video --json
+   vg generate models --endpoint_id xai/grok-imagine-video/image-to-video --json
+   vg generate models --endpoint_id veed/fabric-1.0 --json
+   ```
+
+   Use text search only as fallback discovery for roles not covered by
+   `model-catalog` or the utility reference:
+
+   ```bash
+   vg generate models "image generation product photography" --json
+   vg generate models "image editing reference preservation" --json
+   vg generate models "image to video" --json
+   vg generate models "subtitle video utility" --json
+   vg generate docs "workflow utility endpoints" --json
+   ```
+
+3. Inspect every endpoint before use.
+
+   ```bash
+   vg generate schema <endpoint_id> --json
+   vg generate pricing <endpoint_id> --json
+   ```
+
+4. Upload local files once and reuse returned URLs.
+
+   ```bash
+   vg generate upload ./input.png --json
+   vg generate upload ./voiceover.wav --json
+   ```
+
+5. Run each node with JSON output. Use async for slow generation.
+
+   ```bash
+   vg generate run <endpoint_id> --<field> "<value>" --json
+   vg generate run <endpoint_id> --<field> "<value>" --async --json
+   vg generate status <endpoint_id> <request_id> --download "./outputs/workflow/{request_id}_{index}.{ext}" --json
+   ```
+
+6. For downstream nodes, pass the media URL from the previous `result` when it
+   is available. If you only have a local file path, upload it first.
+
+7. Download final assets with templates that cannot collide.
+
+   ```bash
+   --download "./outputs/workflow/{request_id}_{index}.{ext}"
+   ```
+
+8. Return a compact manifest.
+
+   ```json
+   {
+     "goal": "short deliverable description",
+     "nodes": [
+       {
+         "id": "shot_01",
+         "role": "image_to_video",
+         "endpoint_id": "...",
+         "request_id": "...",
+         "input_urls": ["..."],
+         "output_urls": ["..."],
+         "downloaded_files": ["..."],
+         "notes": "continuity or defect notes"
+       }
+     ],
+     "final_files": ["..."]
+   }
+   ```
+
+## Pipeline rules
+
+- Keep one node responsible for one clear transformation.
+- Fan out independent generation, crop, upscale, subtitle, or variation nodes.
+- Keep sequential chains only when node B needs node A output.
+- For consistency, prefer reference/edit or image-to-video over independent
+  text-only generations.
+- For default creative model choices, follow `model-catalog` unless the user
+  names a model.
+- Use utility endpoints for deterministic work: crop, resize, grid, composite,
+  audio merge, subtitle, speed change, compression.
+- Record endpoint, schema-relevant parameters, request ID, and output path for
+  every node.
+- If a 422 error occurs, read `validation_errors`, inspect schema again, then
+  fix the exact field.
+
+## Quality gate
+
+Before returning, verify:
+
+- The pipeline graph matches the requested deliverable.
+- No generation model was chosen from memory alone.
+- All local source files were uploaded before use.
+- Final files were saved through `--download`.
+- Utility endpoints used exact schema fields.
+- Continuity anchors were repeated where identity or product fidelity matters.
+- Each node output is either accepted, retried, or marked with a defect.
+
+If the workflow becomes too complex, stop expanding and ask the user to choose
+between faster iteration, higher fidelity, or broader variation.

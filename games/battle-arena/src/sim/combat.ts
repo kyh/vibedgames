@@ -96,7 +96,6 @@ export const handleDeath = (w: World, victim: Unit, killerId: string | null): vo
   victim.queuedCast = null;
 
   if (victim.kind === "prop") {
-    // oxlint-disable-next-line no-use-before-define -- breakProp → dealDamage → handleDeath → breakProp is a cycle; one edge has to point forward
     breakProp(w, victim, killerId);
     return;
   }

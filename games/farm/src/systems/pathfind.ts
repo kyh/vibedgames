@@ -11,14 +11,14 @@ const H = MAP_H;
 
 const inMap = (x: number, y: number): boolean => x >= 0 && y >= 0 && x < W && y < H;
 
-interface Flood {
+export interface Flood {
   dist: Int32Array;
   parent: Int32Array;
 }
 
 // BFS from `start` over walkable cells (8-dir, no corner cutting). The queue
 // is iterated while it grows — array iterators read length lazily.
-const flood = (world: World, start: number): Flood => {
+export const flood = (world: World, start: number): Flood => {
   const dist = new Int32Array(W * H).fill(-1);
   const parent = new Int32Array(W * H).fill(-1);
   const queue: number[] = [start];

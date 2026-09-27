@@ -181,8 +181,9 @@ const run = async (base) => {
   // Both clients must keep simulating; Chrome otherwise throttles whichever
   // window is not focused, which reads as a frozen peer.
   const browser = await chromium.launch({
-    // Metal keeps headless Chrome on the real GPU; under SwiftShader two
-    // clients starve each other and the host's frames stop entirely.
+    // channel:"chrome" alone lands on ANGLE Metal; the flag is belt-and-braces
+    // against a GPU blocklist. Under SwiftShader two clients starve each other
+    // and the host's frames stop entirely.
     args: [
       "--use-angle=metal",
       "--ignore-gpu-blocklist",

@@ -200,7 +200,6 @@ export const parseLua = (text: string): LuaValue => {
   const parseValue = (): LuaValue => {
     const token = cur();
     if (token.type === "{") {
-      // oxlint-disable-next-line no-use-before-define -- mutually recursive with parseTable
       return parseTable();
     }
     if (token.type === "string") {

@@ -272,7 +272,7 @@ export const ROBOTAXI_SKINS: readonly RobotaxiSkin[] = [
       "wireless charging, somewhere",
       "*butterfly doors*",
     ],
-    fit: { length: 2.75, yaw: -Math.PI / 2 },
+    fit: { length: 2.75, yaw: Math.PI / 2 },
     heckles: ["Where are your MIRRORS?!", "CAMERAS?! That's it?!", "Elon, come get your car"],
     id: "cybercab",
     label: "CYBERCAB",

@@ -5,6 +5,10 @@ export class Rng {
   constructor(seed: number) {
     this.s = seed >>> 0;
   }
+  /** Restart the sequence in place, so holders of this instance follow. */
+  reseed(seed: number): void {
+    this.s = seed >>> 0;
+  }
   next(): number {
     this.s = (this.s + 0x6d_2b_79_f5) >>> 0;
     let t = this.s;

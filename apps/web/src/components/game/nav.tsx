@@ -37,7 +37,7 @@ export const Nav = () => {
   return (
     <motion.nav
       {...gameChromeMotion(hidden)}
-      className="pointer-events-none fixed bottom-0 left-0 z-10 flex gap-2 px-4 py-6 font-mono text-xs"
+      className="pointer-events-none fixed bottom-0 left-0 z-10 flex h-nav items-center gap-2 px-4 font-mono text-xs"
     >
       <NavTab to="/discover" label="Discover" active={pathname === "/discover"} search={search} />
       <NavTab to="/" label="Play" active={pathname === "/"} search={search} />

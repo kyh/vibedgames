@@ -306,6 +306,12 @@ export class BootScene extends Scene {
     g.generateTexture("fx-star", 32, 32);
     g.clear();
 
+    // aim chevron: rides the local hero's ground ring, points along cast aim
+    g.lineStyle(3, 0x1c_14_10, 1).strokeTriangle(3, 3, 21, 12, 3, 21);
+    g.fillStyle(0xff_ff_ff, 1).fillTriangle(3, 3, 21, 12, 3, 21);
+    g.generateTexture("fx-chevron", 24, 24);
+    g.clear();
+
     // a crisp thin ring — shockwaves on big impacts (scaled up + faded)
     g.lineStyle(4, 0xff_ff_ff, 1).strokeCircle(32, 32, 28);
     g.lineStyle(2, 0xff_ff_ff, 0.5).strokeCircle(32, 32, 24);

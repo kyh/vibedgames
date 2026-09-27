@@ -2,7 +2,7 @@
 
 ## Agent-driven development
 
-**Read [`AGENTS.md`](./AGENTS.md) first.** It is the tool-agnostic, runnable guide: quickstart, the two env files, seeded logins, headless auth, the `pnpm verify` gate, an agent-browser recipe, and which surfaces are checkable at runtime versus which need a human. This file carries the product context, architectural decisions and conventions that sit on top of it.
+[`AGENTS.md`](./AGENTS.md) is the runnable guide — quickstart, env files, seeded logins, headless auth, the `pnpm verify` gate, an agent-browser recipe, and which surfaces are checkable at runtime versus which need a human. Reach for it when you need to run, sign in, or verify something; a small edit does not need it. This file carries the product context, architectural decisions and conventions that sit on top of it.
 
 - **`pnpm lint` is a clean gate.** `oxlint.config.ts` extends the ultracite presets (core, react, anti-slop); every rule is an error. Fix the code, don't add config overrides; a `// oxlint-disable-next-line rule -- why` needs a stated reason.
 
@@ -23,10 +23,13 @@
 - **CLI auth uses device-code flow.** CLI shows 6-char code → user confirms in browser → CLI polls for token. Not OAuth.
 - **better-auth 1.7 scopes account identity by `(issuer, accountId)`.** `account.issuer` is NOT NULL with a unique `(issuer, accountId)` index (`account_issuer_account_id_uidx` in `packages/db/src/drizzle-schema-auth.ts`). Credential accounts carry `local:credential` with `accountId` = the owning user's id; an OAuth provider with no real issuer carries `local:oauth:<providerId>`. Keep `better-auth`, `@better-auth/api-key` and `@better-auth/expo` on the same minor. Nothing in `pnpm verify` touches D1, so a schema/column mismatch surfaces only as a failed sign-in against the live database — any further change to these tables needs a matching `db:push` plus a backfill of existing rows.
 - **Never regenerate the auth schema with `@better-auth/cli`.** It is stuck at 1.4.21: `generate:auth-schema` emits no `issuer`, and it strips the hand-curated `index(...)` calls and the hand-added `rate_limit` table. Edit `drizzle-schema-auth.ts` by hand.
+- **Declare uniques as named unique indexes, never `.unique()`, and keep the composite PK named `deployment_file_pk`.** Production D1 was pushed by drizzle-kit 0.31, which spelled every `.unique()` as a `CREATE UNIQUE INDEX <table>_<column>_unique` and left the `deployment_file` PK unnamed (introspected as `deployment_file_pk`). drizzle-kit 1.0 spells `.unique()` as an inline `UNIQUE` constraint and names PKs, and treats either difference as a table recreate: `PRAGMA foreign_keys=OFF; CREATE __new; INSERT; DROP; RENAME`. D1 ignores that PRAGMA, so the `DROP` cascades through every `ON DELETE CASCADE` child (`account`, `session`, `game`, ...). With `uniqueIndex("<table>_<column>_unique")` in the table's extra config and that PK name, `drizzle-kit push --explain` against a 0.31-shaped database reports no changes. `drizzle-kit push` applies a recreate without asking, so `db:push-remote` prints the `--explain` plan first and applies only on a typed `y` — refuse a plan that recreates a table.
 - **Multiplayer is host-authoritative, last-write-wins.** No conflict resolution. First player becomes host; if host leaves, reassigns. Good for turn-based and host-controlled games.
+- **Plugins ship from a mirror repo.** `kyh/vibedgames-plugins` holds only `plugins/`, `.claude-plugin/` and `LICENSE`, synced by `.github/workflows/sync-plugins.yml` (deploy key in the `PLUGINS_MIRROR_DEPLOY_KEY` secret). `vg init` and the plugin directory listing point at the mirror because both download a whole repo archive and this one is ~140 MiB compressed. Edit skills here; anything committed straight to the mirror is overwritten on the next sync.
 - **Deploy on push to main.** GitHub Actions detects changed apps and deploys via wrangler. Never run `wrangler deploy` locally. Changed example games (`games/*`, plus anything downstream of a changed package) deploy the same way through `vg deploy`, authenticated by the `VG_TOKEN` repo secret — an API key from Settings.
 - **Per-user generation credits (micro-USD ledger).** Every account gets a $20 signup grant, materialized lazily on first credit access. `credit_entry` is an append-only ledger of integer micro-USD deltas — balance is `SUM(delta_micro)`, there is no cached balance column, and idempotency lives in deterministic entry ids (`signup:{userId}`, `hold:{requestId}`, ...). `generation` tracks the per-request lifecycle: `generate.forward` blocks queue submits at balance ≤ 0, debits an estimated hold at submit (provider historical per-call estimate, clamped $0.01–$5), settles to actual cost from the `x-fal-billable-units` result-fetch header, and refunds holds when a status poll reports FAILED/CANCELLED. Only generation is metered; deploys/hosting are free. Never bypass the gate or write ledger rows outside `packages/api/src/credits/`.
-- **Media goes through fal (internal only).** `vg generate` exposes `run`, `models`, `schema`, `upload`, `pricing`, `status`, `docs`. The server holds `FAL_API_KEY`; the CLI proxies through the API. fal is a gateway to OpenAI, Veo, Sora, Kling, Flux, ElevenLabs, Retro Diffusion, etc. — there's no per-provider routing. **End-user-facing surfaces (the `vg generate` CLI help and the skills under `plugins/generate/skills/`) must not name fal as a brand.** To the user this is just a CLI that generates assets; "fal" stays an implementation detail. The one exception is model endpoint IDs: they're passed through verbatim (e.g. `fal-ai/flux/dev`, `bytedance/seedance-2.0/...`), exactly as the upstream API expects — the CLI does no id rewriting. Keep branding out of prose and help text, but never alter an endpoint ID.
+- **Playtest decisions go through TypeSafe Jev (internal only).** `vg playtest run` lets a model play a game. The loop runs _inside the game's page_ (`apps/cli/src/lib/playtest/agent.ts`, injected as source): several times a second it reads `__GAME_DIAGNOSTICS__`, POSTs to `/api/playtest/decide` and holds the answer as real input, with an optional per-frame `reflex` from the game's `window.__GAME_PLAYTEST__` manifest for fast games. Every decision also asks a `score` question — the model's own 0–1 read of progress towards the goal — which the report carries as `decisions.progress`; it is advisory, never a gate. That endpoint is cross-origin and cookie-blind by design — the page is untrusted user code — and honours only a 15-minute HMAC token minted by `playtest.session` for that run (`packages/api/src/playtest/session-token.ts`, signed with `BETTER_AUTH_SECRET`). The server holds `TYPESAFE_API_KEY` and forwards exactly one System One request shape — state plus typed questions — so neither the token nor the key can be used for anything else. Not metered: a run costs a fraction of a cent, and the per-call caps (64 KB state, 32 questions) bound it. `games/pong` is the reference manifest, reflex included. **The globals are the contract; `@vibedgames/playtest` (`packages/playtest`) only types and publishes them** — a game may set them by hand, and the CLI never depends on the package.
+- **Media goes through fal (internal only).** `vg generate` exposes `run`, `models`, `schema`, `upload`, `pricing`, `status`, `docs`. The server holds `FAL_API_KEY`; the CLI proxies through the API. fal is a gateway to OpenAI, Veo, Sora, Kling, Flux, ElevenLabs, Retro Diffusion, etc. — there's no per-provider routing. **End-user-facing surfaces (the `vg generate` CLI help and the skills under `plugins/vibedgames/skills/`) must not name fal as a brand.** To the user this is just a CLI that generates assets; "fal" stays an implementation detail. The one exception is model endpoint IDs: they're passed through verbatim (e.g. `fal-ai/flux/dev`, `bytedance/seedance-2.0/...`), exactly as the upstream API expects — the CLI does no id rewriting. Keep branding out of prose and help text, but never alter an endpoint ID.
 
 ## Tech Stack
 
@@ -56,9 +59,11 @@ packages/
   api/         # oRPC routers (@repo/api)
   db/          # Drizzle schema + migrations (@repo/db) — source of truth for data model
   multiplayer/ # Shared multiplayer hooks (@vibedgames/multiplayer) — published to npm
+  gamepad/     # Touch + physical controller input (@vibedgames/gamepad) — published to npm
+  playtest/    # The playtest contract as types + publishers (@vibedgames/playtest) — published to npm
   ui/          # Shared UI components (@repo/ui)
-plugins/       # Claude Code plugins (asset-pipeline, game-craft, game-engines, game-features, generate, tooling)
-               # Each plugin has skills/* — symlinked into .claude/skills/ for dogfooding
+plugins/       # The vibedgames Claude Code plugin (plugins/vibedgames/skills/*, one plugin, 35 skills)
+               # skills/* symlinked into .claude/skills/ for dogfooding
 ```
 
 `@repo/*` = internal workspace packages. `@vibedgames/*` = published to npm.
@@ -79,9 +84,8 @@ pnpm lint:fix         # Lint + fix
 pnpm test             # Run all tests (turbo run test)
 pnpm format           # Format check (oxfmt --check)
 pnpm format:fix       # Format + write
-pnpm db:push          # Push schema (drizzle-kit push) to REMOTE prod D1
 pnpm db:push          # Push schema to local D1 (Miniflare file)
-pnpm db:push-remote   # Push schema to prod (.env.production.local)
+pnpm db:push-remote   # Print the plan, then push schema to prod on confirm (.env.production.local)
 pnpm db:seed-local    # Seed local dev identity (wrangler d1 execute seed.sql)
 pnpm db:local         # push-local + seed-local (one-shot local DB setup)
 pnpm dogfood          # Link local vg CLI + sync plugin skills into .claude/skills/
@@ -114,7 +118,7 @@ Re-run `pnpm dogfood` after adding or removing a skill, then commit the symlink 
 Skill docs resolve their scripts through a `SKILL` variable. Under Claude Code it is `${CLAUDE_SKILL_DIR}`, which Claude Code substitutes into the skill body for project, global and plugin (marketplace) installs alike. Other agents leave that literal unset, so the snippet falls back to probing `.agents/skills`, `.claude/skills`, `~/.agents/skills`, `~/.claude/skills` — every location `skills add` (what `vg init` runs) writes. In this repo the project probe hits the committed `.claude/skills/` symlinks; the home fallbacks only resolve for a skill you have deliberately linked there — one per skill, per machine, exactly like the `vg` `npm link`:
 
 ```bash
-ln -s "$PWD/plugins/<plugin>/skills/<name>" ~/.claude/skills/<name>
+ln -s "$PWD/plugins/vibedgames/skills/<name>" ~/.claude/skills/<name>
 ```
 
 Linked so far: `image-to-threejs`, `generate`. Do **not** bulk-link all 35 — `~/.claude/skills/` is the global namespace shared with `~/.agents/skills`, and `skill-creator` already exists there as a different skill that a link would shadow. Scripts still need their own runtime deps in the target project (`image-to-threejs` also wants `three`, `vite` and `playwright` there).
@@ -123,6 +127,6 @@ Linked so far: `image-to-threejs`, `generate`. Do **not** bulk-link all 35 — `
 
 A fresh remote clone resolves `.claude/skills/` automatically (the symlinks are committed), but `node_modules` and the `vg` CLI are not present and `vg` is not on PATH. Most sessions only need `pnpm install`; for end-to-end CLI testing (`vg deploy`/`generate`/`whoami`) run `pnpm install && pnpm dogfood` (see Dogfooding above). To reach the backend you also need:
 
-- **Auth:** `VG_TOKEN` set as an environment secret (device-code `vg login` needs a browser and blocks an agent). `VG_API_URL` defaults to prod; override for local/staging.
+- **Auth:** `VG_TOKEN` set as an environment secret (device-code `vg login` needs a browser and blocks an agent). `VG_API_URL` defaults to prod; override for local/staging. `vg playtest run` needs only these — the decision model's key lives on the server.
 - **Network:** egress allowed to `registry.npmjs.org` and the target API host.
 - **R2 (above):** only a `localhost[:port]` `VG_API_URL` gets the local upload proxy. Against prod — or against `127.0.0.1` — a successful `vg deploy` writes to **production** R2.

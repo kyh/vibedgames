@@ -17,7 +17,6 @@ if (!file) {
 }
 
 export default {
-  casing: "snake_case",
   dbCredentials: { url: `file:${path.join(d1Dir, file)}` },
   dialect: "sqlite",
   schema: ["./src/drizzle-schema-auth.ts", "./src/drizzle-schema.ts"],

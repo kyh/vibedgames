@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "@repo/db";
+import { eq, inArray } from "@repo/db";
 import { deployment, deploymentFile, game } from "@repo/db/drizzle-schema";
 import { ORPCError } from "@orpc/server";
 import { z } from "zod";
@@ -131,7 +131,7 @@ export const deployRouter = {
 
     // ---- Resolve or create game row ----------------------------------------
     const existing = await context.db.query.game.findFirst({
-      where: eq(game.slug, input.slug),
+      where: { slug: input.slug },
     });
 
     if (existing && existing.userId !== userId) {
@@ -228,7 +228,7 @@ export const deployRouter = {
     const userId = context.session.user.id;
 
     const g = await context.db.query.game.findFirst({
-      where: and(eq(game.id, input.gameId), eq(game.userId, userId)),
+      where: { id: input.gameId, userId },
     });
     if (!g) {
       throw new ORPCError("NOT_FOUND");
@@ -249,14 +249,14 @@ export const deployRouter = {
     const userId = context.session.user.id;
 
     const dep = await context.db.query.deployment.findFirst({
-      where: eq(deployment.id, input.deploymentId),
+      where: { id: input.deploymentId },
     });
     if (!dep) {
       throw new ORPCError("NOT_FOUND", { message: "Deployment not found." });
     }
 
     const g = await context.db.query.game.findFirst({
-      where: eq(game.id, dep.gameId),
+      where: { id: dep.gameId },
     });
     if (!g || g.userId !== userId) {
       throw new ORPCError("FORBIDDEN");
@@ -291,7 +291,7 @@ export const deployRouter = {
       const r2 = requireR2(context.r2);
 
       const g = await context.db.query.game.findFirst({
-        where: eq(game.slug, input.slug),
+        where: { slug: input.slug },
       });
       if (!g?.currentDeploymentId) {
         throw new ORPCError("NOT_FOUND", {
@@ -300,7 +300,7 @@ export const deployRouter = {
       }
 
       const dep = await context.db.query.deployment.findFirst({
-        where: eq(deployment.id, g.currentDeploymentId),
+        where: { id: g.currentDeploymentId },
       });
       if (!dep?.sourceKey) {
         throw new ORPCError("NOT_FOUND", {
@@ -321,8 +321,8 @@ export const deployRouter = {
    */
   list: protectedProcedure.handler(async ({ context }) => {
     const games = await context.db.query.game.findMany({
-      orderBy: (g, { desc }) => desc(g.updatedAt),
-      where: eq(game.userId, context.session.user.id),
+      orderBy: { updatedAt: "desc" },
+      where: { userId: context.session.user.id },
     });
 
     // Surface each game's live deployment (status/size/date) for the games

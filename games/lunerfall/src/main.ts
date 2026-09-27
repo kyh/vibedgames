@@ -1,6 +1,6 @@
 import type { Types } from "phaser";
 import { Game, Scale, WEBGL } from "phaser";
-import { setPauseHandlers } from "@repo/embed";
+import { probeWebGL, setPauseHandlers, showWebGLVeil } from "@repo/embed";
 
 import { sfx } from "./audio/sfx";
 import { BASE_H, BASE_W } from "./config";
@@ -25,7 +25,21 @@ const config: Types.Core.GameConfig = {
   type: WEBGL,
 };
 
+const webgl = probeWebGL();
+if (!webgl.ok) {
+  showWebGLVeil(webgl);
+  // Module-level boot has no early return: the uncaught throw logs the reason and stops.
+  throw new Error(`WebGL unavailable: ${webgl.reason}`);
+}
+
 const game = new Game(config);
+game.canvas.addEventListener("webglcontextlost", () => {
+  console.error("WebGL context lost");
+  showWebGLVeil(
+    { blocked: false, ok: false, reason: "context lost" },
+    "The browser stopped the graphics (usually low memory).",
+  );
+});
 // Debug handle for perf/inspection probes (see globalThis.__game).
 Reflect.set(globalThis, "__game", game);
 // __GAME_DIAGNOSTICS__ / __GAME_TEST_HOOKS__ for bot playtests (sys/diag.ts).

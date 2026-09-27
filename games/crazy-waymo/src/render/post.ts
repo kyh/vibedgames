@@ -6,7 +6,7 @@ import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 
 import { CAMERA } from "../shared/constants";
-import { gradeMotion, gradeNight, gradeWarmth } from "./grade";
+import { gradeLens, gradeMotion, gradeNight, gradeWarmth } from "./grade";
 
 // Desktop-only post chain (kart-racer pass): contact AO so nothing floats,
 // threshold bloom so the additive FX (drift trails, boost, lamp glow, lit
@@ -559,6 +559,72 @@ const sceneDepthOf = (pass: N8AOPass): THREE.DepthTexture | null => {
   return depth instanceof THREE.DepthTexture ? depth : null;
 };
 
+// Trailer-only depth of field (gradeLens). Runs on linear HDR straight after
+// the beauty pass so out-of-focus highlights bloom into discs downstream.
+// Single-pass gather over a golden-angle disc: each tap contributes only when
+// its OWN circle of confusion reaches the centre, so a sharp car never smears
+// onto the blurred street behind it, while a blurred foreground still spills
+// over the subject.
+const DOF_TAPS = 48;
+const DofShader = {
+  // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse;
+    uniform sampler2D tDepth;
+    uniform vec2 uTexel;
+    uniform float uNear;
+    uniform float uFar;
+    uniform float uFocus;
+    uniform float uBlur;
+    varying vec2 vUv;
+    float viewZ(vec2 uv) {
+      float d = texture2D(tDepth, uv).x * 2.0 - 1.0;
+      return 2.0 * uNear * uFar / (uFar + uNear - d * (uFar - uNear));
+    }
+    float coc(float z) {
+      return clamp(uBlur * abs(1.0 - uFocus / z), 0.0, uBlur);
+    }
+    void main() {
+      vec3 base = texture2D(tDiffuse, vUv).rgb;
+      float centreZ = viewZ(vUv);
+      float centre = coc(centreZ);
+      vec3 sum = base;
+      float weight = 1.0;
+      for (int i = 1; i < ${DOF_TAPS}; i++) {
+        float f = float(i);
+        float r = sqrt(f / float(${DOF_TAPS})) * uBlur;
+        float a = f * 2.39996323;
+        vec2 uv = vUv + vec2(cos(a), sin(a)) * r * uTexel;
+        float sampleZ = viewZ(uv);
+        // A tap behind the centre may not blur further than the centre does.
+        float sampleCoc = sampleZ > centreZ ? min(coc(sampleZ), centre) : coc(sampleZ);
+        float reach = smoothstep(r - 1.5, r + 0.5, sampleCoc);
+        sum += texture2D(tDiffuse, uv).rgb * reach;
+        weight += reach;
+      }
+      gl_FragColor = vec4(sum / weight, 1.0);
+    }
+  `,
+  name: "WaymoDofShader",
+  uniforms: {
+    tDepth: { value: null },
+    tDiffuse: { value: null },
+    uBlur: { value: 0 },
+    uFar: { value: 1000 },
+    uFocus: { value: 10 },
+    uNear: { value: 0.1 },
+    uTexel: { value: new THREE.Vector2() },
+  },
+  // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
+  vertexShader: /* glsl */ `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+};
+
 export class PostPipeline {
   private composer: EffectComposer;
   // DEV probes reach in to A/B the AO contribution (debug/dev-hooks.ts).
@@ -567,6 +633,7 @@ export class PostPipeline {
   private bloomKnee: THREE.IUniform | undefined;
   private grade: ShaderPass;
   private finalGrade: ShaderPass;
+  private dof: ShaderPass;
   private renderer: THREE.WebGLRenderer;
   private camera: THREE.Camera;
   private lastTime = 0;
@@ -608,6 +675,9 @@ export class PostPipeline {
     ao.configuration.autoDetectTransparency = false;
     this.ao = ao;
     this.composer.addPass(ao);
+    this.dof = new ShaderPass(DofShader);
+    this.dof.enabled = false;
+    this.composer.addPass(this.dof);
     // Threshold sits in PRE-tonemap linear HDR, so every number here is a
     // radiance, not a pixel value: the gate is authored against what the scene
     // draws (BLOOM_DAY_THRESHOLD / BLOOM_NIGHT_THRESHOLD above) and the sun
@@ -629,9 +699,11 @@ export class PostPipeline {
     this.composer.addPass(this.finalGrade);
     const depth = sceneDepthOf(ao);
     if (depth) {
-      const d = this.finalGrade.uniforms.tDepth;
-      if (d) {
-        d.value = depth;
+      for (const pass of [this.finalGrade, this.dof]) {
+        const d = pass.uniforms.tDepth;
+        if (d) {
+          d.value = depth;
+        }
       }
       this.smearDepthOk = true;
     }
@@ -651,6 +723,10 @@ export class PostPipeline {
   }
 
   private syncViewportUniforms(width: number, height: number): void {
+    const dofTexel = this.dof.uniforms.uTexel;
+    if (dofTexel && dofTexel.value instanceof THREE.Vector2) {
+      dofTexel.value.set(1 / Math.max(1, width), 1 / Math.max(1, height));
+    }
     const u = this.finalGrade.uniforms;
     const aspect = u.uAspect;
     if (aspect) {
@@ -727,7 +803,9 @@ export class PostPipeline {
       time.value = now % 600;
     }
 
-    this.updateSpeedUniforms(motion.speed, ignite);
+    const lens = gradeLens();
+    this.updateSpeedUniforms(motion.speed, ignite, lens?.streaks ?? 1);
+    this.updateDof(lens);
 
     // The cut falls on sqrt(night), not on night. `night` IS the lamp factor,
     // so at dusk it is still only ~0.6 when every streetlight in the city is
@@ -754,8 +832,34 @@ export class PostPipeline {
     this.composer.render();
   }
 
+  private updateDof(lens: ReturnType<typeof gradeLens>): void {
+    const { camera } = this;
+    this.dof.enabled =
+      lens !== null &&
+      lens.blur > 0 &&
+      this.smearDepthOk &&
+      camera instanceof THREE.PerspectiveCamera;
+    if (!lens || !(camera instanceof THREE.PerspectiveCamera)) {
+      return;
+    }
+    const u = this.dof.uniforms;
+    const texel = u.uTexel?.value;
+    // Authored in 1080p pixels; the drawing buffer may be supersampled.
+    const scale = texel instanceof THREE.Vector2 && texel.y > 0 ? 1 / texel.y / 1080 : 1;
+    const set = (name: string, value: number): void => {
+      const uniform = u[name];
+      if (uniform) {
+        uniform.value = value;
+      }
+    };
+    set("uNear", camera.near);
+    set("uFar", camera.far);
+    set("uFocus", lens.focus);
+    set("uBlur", lens.blur * scale);
+  }
+
   /** Comb master + boost comb + radial rush + hero hold-out. */
-  private updateSpeedUniforms(motionSpeed: number, ignite: number): void {
+  private updateSpeedUniforms(motionSpeed: number, ignite: number, streaks: number): void {
     const fu = this.finalGrade.uniforms;
     const gate = Math.max(
       THREE.MathUtils.smoothstep(this.fast, 0, STREAK_GATE_FAST),
@@ -764,20 +868,21 @@ export class PostPipeline {
     );
     const streak = fu.uStreak;
     if (streak) {
-      streak.value = STREAK_REST + (STREAK_BOOST - STREAK_REST) * gate;
+      streak.value = (STREAK_REST + (STREAK_BOOST - STREAK_REST) * gate) * streaks;
     }
     const kickU = fu.uKick;
     if (kickU) {
       kickU.value = this.kick;
     }
-    const boostComb = Math.min(BOOST_COMB_MAX, this.kick + BOOST_COMB_IGNITE * ignite);
+    const boostComb = Math.min(BOOST_COMB_MAX, this.kick + BOOST_COMB_IGNITE * ignite) * streaks;
     const speed = THREE.MathUtils.clamp(motionSpeed, 0, 1);
     const rushAmt =
-      Math.max(
+      streaks *
+      (Math.max(
         RUSH_FAST * this.fast ** 1.5,
         RUSH_SPEED_SQ * speed * speed + RUSH_KICK_SPEED * this.kick * speed,
       ) +
-      RUSH_IGNITE * ignite;
+        RUSH_IGNITE * ignite);
     const smearOn = this.smearTier && this.smearDepthOk;
     const rush = fu.uRush;
     if (rush && rush.value instanceof THREE.Vector3) {

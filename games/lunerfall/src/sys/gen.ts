@@ -28,7 +28,7 @@ const MIN_VGAP = 3;
 
 // A standable surface: feet rest at row `r` (the marker row), body occupies rows
 // r and r-1; the platform cell sits at r+1.
-interface Surf {
+export interface Surf {
   x0: number;
   x1: number;
   r: number;
