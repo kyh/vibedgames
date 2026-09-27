@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.3 — 2026-09-26
+
+- `vg init` installs skills from `kyh/vibedgames-plugins`, a plugins-only mirror — seconds instead of minutes, since `skills add` fetches the repo once per skill.
+- Dependency updates.
+
 ## 0.6.2 — 2026-09-19
 
 - **`vg generate` image edits through Codex work.** With a reference image, `codex exec`'s variadic `-i` swallowed the prompt and every edit run failed; the prompt now follows `--`.
