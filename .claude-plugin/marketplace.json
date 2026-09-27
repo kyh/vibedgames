@@ -3,6 +3,7 @@
   "owner": {
     "name": "vibedgames"
   },
+  "description": "Seed your coding agent with a game studio: design, scaffold, generate art and audio, add multiplayer, tune feel, and ship browser games with the vg CLI.",
   "plugins": [
     {
       "name": "game-engines",
