@@ -8,8 +8,8 @@ export const Route = createFileRoute("/llms.txt")({
       GET: () =>
         new Response(llmsTxt, {
           headers: {
-            "Content-Type": "text/markdown; charset=utf-8",
             "Cache-Control": "public, max-age=3600",
+            "Content-Type": "text/markdown; charset=utf-8",
           },
         }),
     },

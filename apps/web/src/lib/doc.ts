@@ -112,20 +112,21 @@ export const docToMarkdown = (doc: Doc, baseUrl: string = siteConfig.url): strin
   return `${parts.join("\n\n")}\n`;
 };
 
+const stripInline = (text: string) =>
+  parseInline(text)
+    .map((node) => node.text)
+    .join("");
+
 /** Plain text of a doc, for length assertions and content-efficiency checks. */
 export const docToText = (doc: Doc): string => {
-  const strip = (text: string) =>
-    parseInline(text)
-      .map((node) => node.text)
-      .join("");
-  const parts: string[] = [doc.title, strip(doc.description)];
+  const parts: string[] = [doc.title, stripInline(doc.description)];
   const push = (blocks: Block[]) => {
     for (const block of blocks) {
       if (block.kind === "p") {
-        parts.push(strip(block.text));
+        parts.push(stripInline(block.text));
       }
       if (block.kind === "ul") {
-        parts.push(...block.items.map(strip));
+        parts.push(...block.items.map(stripInline));
       }
       if (block.kind === "code") {
         parts.push(block.code);

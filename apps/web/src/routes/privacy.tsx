@@ -5,8 +5,8 @@ import { privacyDoc } from "@/content/privacy";
 import { docHandler, docHead, varyHeaders } from "@/lib/doc-route";
 
 export const Route = createFileRoute("/privacy")({
-  server: { handlers: { GET: docHandler(privacyDoc) } },
-  headers: varyHeaders(),
-  head: () => docHead(privacyDoc),
   component: () => <Prose doc={privacyDoc} />,
+  head: () => docHead(privacyDoc),
+  headers: varyHeaders(),
+  server: { handlers: { GET: docHandler(privacyDoc) } },
 });

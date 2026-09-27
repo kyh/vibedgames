@@ -18,6 +18,12 @@ import { varyHeaders } from "@/lib/doc-route";
  * bare "Not Found", and never a 200 with the app shell.
  */
 export const Route = createFileRoute("/$")({
+  component: () => null,
+  headers: varyHeaders(),
+  loader: () => {
+    // Renders the root `notFoundComponent` and, in SSR, sets the 404 status.
+    throw notFound();
+  },
   server: {
     handlers: {
       GET: ({ request, next }) => {
@@ -27,18 +33,12 @@ export const Route = createFileRoute("/$")({
         }
         if (result.kind === "match" && result.type === MARKDOWN) {
           return markdownResponse(notFoundMarkdown(new URL(request.url).pathname), {
-            status: 404,
             headers: { "Cache-Control": "no-store" },
+            status: 404,
           });
         }
         return next();
       },
     },
   },
-  headers: varyHeaders(),
-  loader: () => {
-    // Renders the root `notFoundComponent` and, in SSR, sets the 404 status.
-    throw notFound();
-  },
-  component: () => null,
 });
