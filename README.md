@@ -94,8 +94,6 @@ Platform workers deploy on push to `main`
 
 ## Acknowledgements
 
-My inspirations
-
 - [phaserjs/template-vite-ts](https://github.com/phaserjs/template-vite-ts)
 - [@chongdashu](https://x.com/chongdashu)
 - [@majidmanzarpour](https://x.com/majidmanzarpour)
