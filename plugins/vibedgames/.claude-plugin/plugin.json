@@ -12,5 +12,17 @@
   "supportUrl": "https://github.com/kyh/vibedgames/issues",
   "license": "MIT",
   "privacyPolicyUrl": "https://vibedgames.com/privacy",
-  "termsOfServiceUrl": "https://vibedgames.com/terms"
+  "termsOfServiceUrl": "https://vibedgames.com/terms",
+  "keywords": [
+    "game-development",
+    "browser-games",
+    "phaser",
+    "threejs",
+    "multiplayer",
+    "asset-generation",
+    "pixel-art",
+    "sprites",
+    "game-design",
+    "deploy"
+  ]
 }
