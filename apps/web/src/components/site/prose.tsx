@@ -92,12 +92,12 @@ const FOOTER_LINKS = [
  * never disagree about what the page says.
  */
 export const Prose = ({ doc }: { doc: Doc }) => (
-  <main className="mx-auto flex min-h-dvh w-full max-w-2xl flex-col gap-10 px-6 py-16 text-sm">
+  <main className="mx-auto flex min-h-dvh w-full max-w-2xl flex-col gap-10 px-4 py-16 text-sm sm:py-24">
     <header className="space-y-4">
       <Link to="/" className="text-muted-foreground hover:text-foreground font-mono text-xs">
         ← {siteConfig.name}
       </Link>
-      <h1 className="text-3xl font-medium leading-[0.95] -tracking-[0.03em] sm:text-4xl">
+      <h1 className="mt-6 text-3xl font-medium leading-[0.9] -tracking-[0.03em] sm:text-5xl">
         {doc.title}
       </h1>
       <p className="text-muted-foreground leading-relaxed">
