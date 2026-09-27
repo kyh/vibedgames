@@ -23,7 +23,7 @@ export interface SiteContact {
 
 const contact: SiteContact = {
   address: null,
-  email: "im.kaiyu@gmail.com",
+  email: "kai@kyh.io",
   telephone: null,
 };
 
