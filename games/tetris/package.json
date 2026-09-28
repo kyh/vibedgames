@@ -17,7 +17,7 @@
     "@vibedgames/gamepad": "workspace:^",
     "@vibedgames/playtest": "workspace:^",
     "cannon-es": "^0.20.0",
-    "three": "^0.186.0"
+    "three": "^0.186.1"
   },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
