@@ -1,15 +1,27 @@
 import type { ORPCContext } from "@repo/api/orpc";
 import { appRouter } from "@repo/api";
 import { MAX_RPC_BODY_BYTES } from "@repo/api/generate/limits";
+import { SmartCoercionHandlerPlugin } from "@orpc/json-schema";
+import { OpenAPIHandler } from "@orpc/openapi/fetch";
 import { COMMON_ERROR_STATUS_MAP, onError, ORPCError } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { BatchHandlerPlugin, RequestLimitHandlerPlugin } from "@orpc/server/plugins";
+import { ZodToJsonSchemaConverter } from "@orpc/zod";
 
-// No CORS headers, and none belong here: every client reaches this route
+import { jsonError } from "@/lib/json-error";
+
+// No CORS headers, and none belong here: every client reaches these routes
 // same-origin (the web app is served from it) or from a non-browser runtime
 // that doesn't enforce CORS (the CLI). Credentialed CORS headers would hand a
 // cross-origin page authenticated access. GET, the one method a cookie-bearing
-// navigation can reach, is refused by the handler's default `allowMethods`.
+// navigation can reach, matches no procedure on either transport: the RPC
+// handler's default `allowMethods` leaves it off, and every procedure is POST
+// in the OpenAPI routing.
+
+const RPC_PREFIX = "/api/orpc";
+
+/** The REST view of the same router, described by `/openapi.json`. */
+export const REST_PREFIX = "/api/v1";
 
 // An unknown code has no entry and falls back to 500, so a code this app adds
 // later logs by default rather than disappearing.
@@ -19,33 +31,44 @@ const ERROR_STATUS = new Map<string, number>(Object.entries(COMMON_ERROR_STATUS_
 // a missing FAL_API_KEY is the deploy's fault, not the request's.
 const FAULTS_BELOW_500 = new Set(["PRECONDITION_FAILED"]);
 
-const handler = new RPCHandler(appRouter, {
-  clientInterceptors: [
-    // oxlint-disable-next-line promise/prefer-await-to-callbacks -- oRPC interceptors are registered as callbacks; there is nothing to await here
-    onError((error) => {
-      if (error instanceof ORPCError) {
-        // Observability is billable on this Worker. A procedure answering
-        // deliberately — an expired session, a zod rejection, `auth.cliPoll`
-        // telling a polling CLI "not confirmed yet" — would bury the real
-        // errors, so only a fault gets a line.
-        const status = ERROR_STATUS.get(error.code) ?? 500;
-        if (status < 500 && !FAULTS_BELOW_500.has(error.code)) {
-          return;
-        }
-      }
-      console.error(">>> oRPC Error", error);
-    }),
-  ],
+const reportFaults = (error: Error) => {
+  if (error instanceof ORPCError) {
+    // Observability is billable on this Worker. A procedure answering
+    // deliberately — an expired session, a zod rejection, `auth.cliPoll`
+    // telling a polling CLI "not confirmed yet" — would bury the real
+    // errors, so only a fault gets a line.
+    const status = ERROR_STATUS.get(error.code) ?? 500;
+    if (status < 500 && !FAULTS_BELOW_500.has(error.code)) {
+      return;
+    }
+  }
+  console.error(">>> oRPC Error", error);
+};
+
+// The Worker memory ceiling is 128 MB and JSON.parse holds the raw bytes, the
+// decoded string, and the parsed object in memory at once, so reject
+// pathologically large bodies up front rather than relying on the per-field
+// caps inside the procedures.
+const bodyLimit = () => new RequestLimitHandlerPlugin({ maxBodySize: MAX_RPC_BODY_BYTES });
+
+const rpcHandler = new RPCHandler(appRouter, {
+  clientInterceptors: [onError(reportFaults)],
   plugins: [
     // Paired with the link's `BatchLinkPlugin`. It re-dispatches each item
     // through this same `handle()` call, so a batch costs one context build
     // and one session read for the whole page, not one per query.
     new BatchHandlerPlugin(),
-    // The Worker memory ceiling is 128 MB and JSON.parse holds the raw bytes,
-    // the decoded string, and the parsed object in memory at once, so reject
-    // pathologically large bodies up front rather than relying on the
-    // per-field caps inside the procedures.
-    new RequestLimitHandlerPlugin({ maxBodySize: MAX_RPC_BODY_BYTES }),
+    bodyLimit(),
+  ],
+});
+
+const restHandler = new OpenAPIHandler(appRouter, {
+  clientInterceptors: [onError(reportFaults)],
+  plugins: [
+    bodyLimit(),
+    // Plain JSON has no Date: the spec promises ISO strings for date inputs,
+    // and this turns them back into what the zod schemas validate.
+    new SmartCoercionHandlerPlugin({ converters: [new ZodToJsonSchemaConverter()] }),
   ],
 });
 
@@ -75,12 +98,27 @@ export const handleRpcRequest = async (
   context: ORPCContext,
 ): Promise<Response> => {
   if (isCrossOrigin(request)) {
-    return new Response("Cross-origin request blocked.", { status: 403 });
+    return jsonError(403, "FORBIDDEN", "Cross-origin request blocked.");
   }
 
-  const { response } = await handler.handle(request, {
-    context,
-    prefix: "/api/orpc",
-  });
-  return response ?? new Response("Not found", { status: 404 });
+  const { response } = await rpcHandler.handle(request, { context, prefix: RPC_PREFIX });
+  return (
+    response ?? jsonError(404, "NOT_FOUND", "No procedure at this path. Procedures are POST-only.")
+  );
+};
+
+/** Same guards as {@link handleRpcRequest}; only the wire format differs. */
+export const handleRestRequest = async (
+  request: Request,
+  context: ORPCContext,
+): Promise<Response> => {
+  if (isCrossOrigin(request)) {
+    return jsonError(403, "FORBIDDEN", "Cross-origin request blocked.");
+  }
+
+  const { response } = await restHandler.handle(request, { context, prefix: REST_PREFIX });
+  return (
+    response ??
+    jsonError(404, "NOT_FOUND", "No operation at this path and method. See /openapi.json.")
+  );
 };

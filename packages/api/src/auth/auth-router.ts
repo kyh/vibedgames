@@ -4,6 +4,7 @@ import { user, verification } from "@repo/db/drizzle-schema-auth";
 import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 
+import { documented } from "../openapi";
 import { adminProcedure, protectedProcedure, publicProcedure, sessionOnlyProcedure } from "../orpc";
 import { buildInviteRows, MAX_INVITE_BATCH } from "./invite-create";
 import { inviteCodeAvailabilityClause, normalizeInviteCode } from "./invite-claim";
@@ -13,13 +14,37 @@ import { generateShortCode } from "./utils";
 const CLI_CODE_TTL_MS = 5 * 60 * 1000;
 const CLI_IDENTIFIER_PREFIX = "cli-auth:";
 
+const codeInput = z.object({ code: z.string() });
+const okOutput = z.object({ ok: z.literal(true) });
+
+const inviteCodeRow = z.object({
+  code: z.string(),
+  createdAt: z.date(),
+  createdBy: z.string().nullable(),
+  expiresAt: z.date().nullable(),
+  id: z.string(),
+  maxUses: z.number().int().nullable().describe("null means unlimited uses."),
+  note: z.string().nullable(),
+  revokedAt: z.date().nullable(),
+  usedCount: z.number().int(),
+});
+
 export const authRouter = {
   // sessionOnlyProcedure (not protectedProcedure): this persists
   // `context.session.session.token` as the CLI's login credential, so the caller
   // must hold a real better-auth session. An API-key session's synthetic
   // `apikey:` token would be handed to the CLI and rejected by getSession.
   cliConfirm: sessionOnlyProcedure
-    .input(z.object({ code: z.string() }))
+    .meta(
+      documented({
+        description:
+          "Approves a pending CLI device code from a signed-in browser, handing the CLI this session's token on its next cliPoll.",
+        errors: [404],
+        summary: "Confirm a CLI login code",
+      }),
+    )
+    .input(codeInput)
+    .output(okOutput)
     .handler(async ({ context, input }) => {
       const identifier = `${CLI_IDENTIFIER_PREFIX}${input.code}`;
       const rows = await context.db
@@ -42,31 +67,54 @@ export const authRouter = {
         .set({ updatedAt: new Date(), value: context.session.session.token })
         .where(eq(verification.id, row.id));
 
-      return { ok: true };
+      return { ok: true as const };
     }),
 
   // ---------------------------------------------------------------------------
   // CLI device-code flow
   // ---------------------------------------------------------------------------
-  cliInit: publicProcedure.handler(async ({ context }) => {
-    const code = generateShortCode();
-    const id = crypto.randomUUID();
-    const now = new Date();
+  cliInit: publicProcedure
+    .meta(
+      documented({
+        description:
+          "Starts the CLI device-code login: returns a short code, valid for five minutes, for the person to confirm in a browser. Poll cliPoll with it.",
+        summary: "Start a CLI login",
+      }),
+    )
+    .output(z.object({ code: z.string() }))
+    .handler(async ({ context }) => {
+      const code = generateShortCode();
+      const id = crypto.randomUUID();
+      const now = new Date();
 
-    await context.db.insert(verification).values({
-      createdAt: now,
-      expiresAt: new Date(now.getTime() + CLI_CODE_TTL_MS),
-      id,
-      identifier: `${CLI_IDENTIFIER_PREFIX}${code}`,
-      updatedAt: now,
-      value: "",
-    });
+      await context.db.insert(verification).values({
+        createdAt: now,
+        expiresAt: new Date(now.getTime() + CLI_CODE_TTL_MS),
+        id,
+        identifier: `${CLI_IDENTIFIER_PREFIX}${code}`,
+        updatedAt: now,
+        value: "",
+      });
 
-    return { code };
-  }),
+      return { code };
+    }),
 
   cliPoll: publicProcedure
-    .input(z.object({ code: z.string() }))
+    .meta(
+      documented({
+        description:
+          "Polls a CLI login code. Returns `pending` until confirmed, then `confirmed` with a bearer token exactly once; `expired` after five minutes or once consumed.",
+        summary: "Poll a CLI login",
+      }),
+    )
+    .input(codeInput)
+    .output(
+      z.discriminatedUnion("status", [
+        z.object({ status: z.literal("expired") }),
+        z.object({ status: z.literal("pending") }),
+        z.object({ status: z.literal("confirmed"), token: z.string() }),
+      ]),
+    )
     .handler(async ({ context, input }) => {
       const identifier = `${CLI_IDENTIFIER_PREFIX}${input.code}`;
       const rows = await context.db
@@ -91,6 +139,14 @@ export const authRouter = {
     }),
 
   createInvites: adminProcedure
+    .meta(
+      documented({
+        description:
+          "Creates one custom invite code or a batch of random ones. Admin only; 409 when a custom code already exists.",
+        errors: [409],
+        summary: "Create invite codes",
+      }),
+    )
     .input(
       z.object({
         // Explicit code instead of random generation; overrides `count`.
@@ -101,6 +157,7 @@ export const authRouter = {
         note: z.string().max(200).nullable().default(null),
       }),
     )
+    .output(z.object({ codes: z.array(inviteCodeRow) }))
     .handler(async ({ context, input }) => {
       let rows;
       try {
@@ -135,41 +192,75 @@ export const authRouter = {
       }
     }),
 
-  listInvites: adminProcedure.handler(async ({ context }) => {
-    const rows = await context.db
-      .select({
-        code: inviteCode.code,
-        createdAt: inviteCode.createdAt,
-        createdBy: inviteCode.createdBy,
-        creatorEmail: user.email,
-        expiresAt: inviteCode.expiresAt,
-        id: inviteCode.id,
-        maxUses: inviteCode.maxUses,
-        note: inviteCode.note,
-        revokedAt: inviteCode.revokedAt,
-        usedCount: inviteCode.usedCount,
-      })
-      .from(inviteCode)
-      .leftJoin(user, eq(inviteCode.createdBy, user.id))
-      .orderBy(desc(inviteCode.createdAt));
+  listInvites: adminProcedure
+    .meta(
+      documented({
+        description: "Lists every invite code, newest first, with its creator's email. Admin only.",
+        summary: "List invite codes",
+      }),
+    )
+    .output(
+      z.object({ codes: z.array(inviteCodeRow.extend({ creatorEmail: z.string().nullable() })) }),
+    )
+    .handler(async ({ context }) => {
+      const rows = await context.db
+        .select({
+          code: inviteCode.code,
+          createdAt: inviteCode.createdAt,
+          createdBy: inviteCode.createdBy,
+          creatorEmail: user.email,
+          expiresAt: inviteCode.expiresAt,
+          id: inviteCode.id,
+          maxUses: inviteCode.maxUses,
+          note: inviteCode.note,
+          revokedAt: inviteCode.revokedAt,
+          usedCount: inviteCode.usedCount,
+        })
+        .from(inviteCode)
+        .leftJoin(user, eq(inviteCode.createdBy, user.id))
+        .orderBy(desc(inviteCode.createdAt));
 
-    return { codes: rows };
-  }),
+      return { codes: rows };
+    }),
 
   // Current authenticated identity. Works for both better-auth sessions and
   // API keys (both resolve to `context.session` in the oRPC context), so the CLI
   // can use it for `vg whoami` regardless of how it authenticated.
-  me: protectedProcedure.handler(({ context }) => ({
-    email: context.session.user.email,
-    id: context.session.user.id,
-    name: context.session.user.name,
-    role: context.session.user.role ?? null,
-  })),
+  me: protectedProcedure
+    .meta(
+      documented({
+        description:
+          "Returns the authenticated identity, whether the caller used a session cookie, a session token or an API key. Backs `vg whoami`.",
+        summary: "Get the current user",
+      }),
+    )
+    .output(
+      z.object({
+        email: z.string(),
+        id: z.string(),
+        name: z.string(),
+        role: z.string().nullable(),
+      }),
+    )
+    .handler(({ context }) => ({
+      email: context.session.user.email,
+      id: context.session.user.id,
+      name: context.session.user.name,
+      role: context.session.user.role ?? null,
+    })),
 
   // Revoke, unrevoke, or change the use limit of an existing code. Omitted
   // fields are left untouched. Lowering `maxUses` below `usedCount` is allowed
   // and simply exhausts the code; raising it re-opens an exhausted code.
   updateInvite: adminProcedure
+    .meta(
+      documented({
+        description:
+          "Revokes, un-revokes, or changes the use limit of an invite code. Omitted fields are left untouched. Admin only.",
+        errors: [404],
+        summary: "Update an invite code",
+      }),
+    )
     .input(
       z.object({
         id: z.string(),
@@ -179,6 +270,7 @@ export const authRouter = {
         revoked: z.boolean().optional(),
       }),
     )
+    .output(z.object({ code: inviteCodeRow }))
     .handler(async ({ context, input }) => {
       const patch: Partial<typeof inviteCode.$inferInsert> = {};
       if (input.maxUses !== undefined) {
@@ -216,7 +308,16 @@ export const authRouter = {
   // hook's so we don't leak which codes exist. The atomic single-use claim
   // still happens inside the hook — success here does NOT reserve the code.
   validateInvite: publicProcedure
-    .input(z.object({ code: z.string() }))
+    .meta(
+      documented({
+        description:
+          "Checks an invite code before signup. Returns the normalized code, or 403 when it is invalid, expired, revoked or used up. Does not reserve the code.",
+        errors: [403],
+        summary: "Validate an invite code",
+      }),
+    )
+    .input(codeInput)
+    .output(z.object({ code: z.string() }))
     .handler(async ({ context, input }) => {
       const code = normalizeInviteCode(input.code);
       if (!code) {

@@ -3,6 +3,7 @@ import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 
 import type { JsonValue } from "../json";
+import { jsonValueSchema } from "../json";
 import type { MediaProviderConfig } from "../orpc";
 import {
   formatUsd,
@@ -17,6 +18,7 @@ import {
   isUnbilledTerminalStatus,
   parseBillableUnits,
 } from "../credits/queue-calls";
+import { documented } from "../openapi";
 import { protectedProcedure } from "../orpc";
 import { MAX_PARAMS_BYTES } from "./limits";
 import {
@@ -287,95 +289,106 @@ export const generateRouter = {
    * client and in fal's docs, not in this layer. Per-user policy
    * (auth, quotas, allowlists, billing meters) hooks in here.
    */
-  forward: protectedProcedure.input(forwardInput).handler(async ({ context, input }) => {
-    const { apiKey, config } = pickFalKey(context.media);
-    const userId = context.session.user.id;
+  forward: protectedProcedure
+    .meta(
+      documented({
+        description:
+          "Forwards one request to the fal media-generation API with the server's key: `target` picks the host (queue, platform, storage, docs), `path`/`query`/`body` the rest. Returns the upstream JSON body. Queue submits need a positive credit balance (403 `insufficient_credits` otherwise) and are billed on the result fetch. Backs `vg generate`.",
+        errors: [403, 412, 413, 429, 502],
+        summary: "Proxy a media-generation request",
+      }),
+    )
+    .input(forwardInput)
+    .output(jsonValueSchema.describe("The upstream response body, or null when it had none."))
+    .handler(async ({ context, input }) => {
+      const { apiKey, config } = pickFalKey(context.media);
+      const userId = context.session.user.id;
 
-    // Credit gate + hold estimate happen before any fal spend. Everything
-    // else about the hop is unchanged when the call isn't a queue submit.
-    // Admins are metered but never gated: their usage is still recorded
-    // (holds/settles) so spend stays visible, but a negative balance can't
-    // block them.
-    const queueCall =
-      input.target === "queue"
-        ? classifyQueueCall(input.method, input.path)
-        : { kind: "other" as const };
-    let pricing: Awaited<ReturnType<typeof getEndpointPricing>> | null = null;
-    if (queueCall.kind === "submit") {
-      if (context.session.user.role !== "admin") {
-        await requirePositiveBalance(context.db, userId);
-      }
-      pricing = await getEndpointPricing(queueCall.endpointId, platformFetchJson(apiKey, config));
-    }
-
-    const serialized = serializeBody(input);
-    const base = targetBase(input.target, config);
-    const url = buildUrl(base, input.path, input.query);
-    const headers = buildHeaders(apiKey, input.target, serialized);
-
-    const fetchLabel = `fal ${input.target} ${input.method} ${input.path}`;
-    const res = await fetchProviderResponse({
-      credentialed: true,
-      init: { body: serialized, headers, method: input.method },
-      label: fetchLabel,
-      // Result fetches of failed jobs come back non-2xx but may still carry
-      // the billable-units header — we need the response, not a throw.
-      tolerateHttpError: queueCall.kind === "result",
-      url,
-    });
-
-    if (!res.ok) {
-      // Failed-job result fetch. Settle only on an explicit usage signal;
-      // with no header the hold stays for the status-poll release path
-      // (fal doesn't bill failures, so guessing a charge here would be
-      // wrong more often than not).
-      const units = parseBillableUnits(res.headers.get("x-fal-billable-units"));
-      if (queueCall.kind === "result" && units !== null) {
-        try {
-          await settleGeneration(context.db, queueCall.requestId, units);
-        } catch (error) {
-          console.error(`credit settle failed for ${queueCall.requestId}`, error);
+      // Credit gate + hold estimate happen before any fal spend. Everything
+      // else about the hop is unchanged when the call isn't a queue submit.
+      // Admins are metered but never gated: their usage is still recorded
+      // (holds/settles) so spend stays visible, but a negative balance can't
+      // block them.
+      const queueCall =
+        input.target === "queue"
+          ? classifyQueueCall(input.method, input.path)
+          : { kind: "other" as const };
+      let pricing: Awaited<ReturnType<typeof getEndpointPricing>> | null = null;
+      if (queueCall.kind === "submit") {
+        if (context.session.user.role !== "admin") {
+          await requirePositiveBalance(context.db, userId);
         }
+        pricing = await getEndpointPricing(queueCall.endpointId, platformFetchJson(apiKey, config));
       }
-      await throwProviderError(res, fetchLabel);
-    }
 
-    const body = await readBody(res, input.target);
+      const serialized = serializeBody(input);
+      const base = targetBase(input.target, config);
+      const url = buildUrl(base, input.path, input.query);
+      const headers = buildHeaders(apiKey, input.target, serialized);
 
-    // Ledger updates ride the same hops the client already makes; the fal
-    // call has succeeded by this point, so a charge always has a real
-    // generation behind it. A ledger hiccup must never destroy the response
-    // the user's money already bought — the ops are idempotent and converge
-    // on this request's next hop, so log and move on.
-    try {
-      if (queueCall.kind === "submit" && pricing !== null) {
-        const requestId = readRequestId(body);
-        if (requestId !== null) {
-          await holdGeneration(context.db, {
-            endpointId: queueCall.endpointId,
-            holdMicro: pricing.holdMicro,
-            requestId,
-            unit: pricing.unit,
-            unitPriceMicro: pricing.unitPriceMicro,
-            userId,
-          });
+      const fetchLabel = `fal ${input.target} ${input.method} ${input.path}`;
+      const res = await fetchProviderResponse({
+        credentialed: true,
+        init: { body: serialized, headers, method: input.method },
+        label: fetchLabel,
+        // Result fetches of failed jobs come back non-2xx but may still carry
+        // the billable-units header — we need the response, not a throw.
+        tolerateHttpError: queueCall.kind === "result",
+        url,
+      });
+
+      if (!res.ok) {
+        // Failed-job result fetch. Settle only on an explicit usage signal;
+        // with no header the hold stays for the status-poll release path
+        // (fal doesn't bill failures, so guessing a charge here would be
+        // wrong more often than not).
+        const units = parseBillableUnits(res.headers.get("x-fal-billable-units"));
+        if (queueCall.kind === "result" && units !== null) {
+          try {
+            await settleGeneration(context.db, queueCall.requestId, units);
+          } catch (error) {
+            console.error(`credit settle failed for ${queueCall.requestId}`, error);
+          }
         }
-      } else if (queueCall.kind === "result") {
-        // fal reports actual usage on the result fetch; a missing header
-        // settles at the hold so the books still close.
-        await settleGeneration(
-          context.db,
-          queueCall.requestId,
-          parseBillableUnits(res.headers.get("x-fal-billable-units")),
-        );
-      } else if (queueCall.kind === "status" && isUnbilledTerminalStatus(readQueueStatus(body))) {
-        // fal doesn't bill failed/cancelled jobs — refund the hold.
-        await releaseGeneration(context.db, queueCall.requestId);
+        await throwProviderError(res, fetchLabel);
       }
-    } catch (error) {
-      console.error(`credit accounting failed for ${fetchLabel}`, error);
-    }
 
-    return body;
-  }),
+      const body = await readBody(res, input.target);
+
+      // Ledger updates ride the same hops the client already makes; the fal
+      // call has succeeded by this point, so a charge always has a real
+      // generation behind it. A ledger hiccup must never destroy the response
+      // the user's money already bought — the ops are idempotent and converge
+      // on this request's next hop, so log and move on.
+      try {
+        if (queueCall.kind === "submit" && pricing !== null) {
+          const requestId = readRequestId(body);
+          if (requestId !== null) {
+            await holdGeneration(context.db, {
+              endpointId: queueCall.endpointId,
+              holdMicro: pricing.holdMicro,
+              requestId,
+              unit: pricing.unit,
+              unitPriceMicro: pricing.unitPriceMicro,
+              userId,
+            });
+          }
+        } else if (queueCall.kind === "result") {
+          // fal reports actual usage on the result fetch; a missing header
+          // settles at the hold so the books still close.
+          await settleGeneration(
+            context.db,
+            queueCall.requestId,
+            parseBillableUnits(res.headers.get("x-fal-billable-units")),
+          );
+        } else if (queueCall.kind === "status" && isUnbilledTerminalStatus(readQueueStatus(body))) {
+          // fal doesn't bill failed/cancelled jobs — refund the hold.
+          await releaseGeneration(context.db, queueCall.requestId);
+        }
+      } catch (error) {
+        console.error(`credit accounting failed for ${fetchLabel}`, error);
+      }
+
+      return body;
+    }),
 };

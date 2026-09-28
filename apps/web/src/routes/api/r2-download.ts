@@ -3,8 +3,9 @@ import { createFileRoute } from "@tanstack/react-router";
 
 import { getServerContext } from "@/auth/server";
 import { getCloudflareEnv } from "@/lib/cloudflare";
+import { jsonError } from "@/lib/json-error";
 
-const badRequest = (message: string): Response => new Response(message, { status: 400 });
+const badRequest = (message: string): Response => jsonError(400, "BAD_REQUEST", message);
 
 /**
  * Worker-proxied R2 download endpoint, the GET counterpart to
@@ -28,7 +29,7 @@ const handler = async (request: Request): Promise<Response> => {
 
   const { r2 } = getServerContext();
   if (!r2?.proxyUploadSecret) {
-    return new Response("proxy download disabled", { status: 503 });
+    return jsonError(503, "SERVICE_UNAVAILABLE", "proxy download disabled");
   }
 
   const verifyError = await verifyProxyDownloadUrl({
@@ -44,7 +45,7 @@ const handler = async (request: Request): Promise<Response> => {
   const env = getCloudflareEnv();
   const object = await env.GAMES_BUCKET.get(key);
   if (!object) {
-    return new Response("not found", { status: 404 });
+    return jsonError(404, "NOT_FOUND", "not found");
   }
 
   return new Response(object.body, {
