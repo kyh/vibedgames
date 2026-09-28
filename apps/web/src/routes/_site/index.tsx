@@ -15,13 +15,23 @@ import {
   VARY,
 } from "@/lib/content-negotiation";
 import { docToMarkdown } from "@/lib/doc";
-import { docHead, varyHeaders } from "@/lib/doc-route";
+import { docHead } from "@/lib/doc-route";
 import { installResponse } from "@/lib/install-response";
 
 const AI_BOT_UA = /(?:ClaudeBot|Claude-User|Claude-SearchBot|GPTBot|ChatGPT-User|OAI-SearchBot)/iu;
 
 /** `/` also branches on User-Agent, so its cache key has to include it. */
 const HOME_VARY = `${VARY}, User-Agent`;
+
+/** RFC 8631 discovery links, on every representation of `/`. */
+const HOME_HEADERS = {
+  Link: [
+    '</openapi.json>; rel="service-desc"; type="application/openapi+json"',
+    '</docs>; rel="service-doc"',
+    '</.well-known/api-catalog>; rel="api-catalog"',
+  ].join(", "),
+  Vary: HOME_VARY,
+};
 
 const PlayPage = () => {
   const gameChromeHidden = useGameChromeHidden();
@@ -45,7 +55,7 @@ const PlayPage = () => {
 export const Route = createFileRoute("/_site/")({
   component: PlayPage,
   head: () => docHead(homeDoc),
-  headers: varyHeaders(HOME_VARY),
+  headers: () => HOME_HEADERS,
   server: {
     handlers: {
       GET: ({ request, next }) => {
@@ -59,11 +69,11 @@ export const Route = createFileRoute("/_site/")({
         // command that installs it.
         const ua = request.headers.get("user-agent") ?? "";
         if (AI_BOT_UA.test(ua)) {
-          return installResponse({ headers: { Vary: HOME_VARY } });
+          return installResponse({ headers: HOME_HEADERS });
         }
 
         if (negotiation.kind === "match" && negotiation.type === MARKDOWN) {
-          return markdownResponse(docToMarkdown(homeDoc), { headers: { Vary: HOME_VARY } });
+          return markdownResponse(docToMarkdown(homeDoc), { headers: HOME_HEADERS });
         }
 
         return next();

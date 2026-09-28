@@ -41,7 +41,8 @@ Then work from the skills. Common entry points: \`vg new <slug>\` to scaffold, \
 ## Start here
 
 - [Install guide](${url}/install): the one command that installs the skills and the CLI, and what to do when a global npm install is not permitted.
-- [Developer docs](${url}/docs): the full \`vg\` command surface, the tRPC API, authentication, and the npm packages a game imports.
+- [Developer docs](${url}/docs): the full \`vg\` command surface, the HTTP API, authentication, and the npm packages a game imports.
+- [OpenAPI document](${url}/openapi.json): every API operation at \`${url}/api/v1\`, with input, response and error schemas and the credentials each one needs.
 - [Agent skills index](${url}/.well-known/agent-skills/index.json): every bundled skill, with a description and a SHA-256 digest, per the Agent Skills discovery convention.
 - [Source repository](${siteConfig.repository}): the whole platform — web app, CLI, packages, skills, example games — MIT licensed.
 

@@ -3,13 +3,14 @@ import { createFileRoute } from "@tanstack/react-router";
 
 import { getServerContext } from "@/auth/server";
 import { getCloudflareEnv } from "@/lib/cloudflare";
+import { jsonError } from "@/lib/json-error";
 
 // Bundle files cap at 10 MB each (enforced in the deploy router), but the
 // source archive rides the same proxy and can be larger — allow up to the
 // server-side source cap.
 const MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
 
-const badRequest = (message: string): Response => new Response(message, { status: 400 });
+const badRequest = (message: string): Response => jsonError(400, "BAD_REQUEST", message);
 
 /**
  * Worker-proxied R2 upload endpoint, used only when `presignPut` returns a
@@ -38,7 +39,7 @@ const handler = async (request: Request): Promise<Response> => {
 
   const { r2 } = getServerContext();
   if (!r2?.proxyUploadSecret) {
-    return new Response("proxy upload disabled", { status: 503 });
+    return jsonError(503, "SERVICE_UNAVAILABLE", "proxy upload disabled");
   }
 
   const verifyError = await verifyProxyUploadUrl({
@@ -54,15 +55,15 @@ const handler = async (request: Request): Promise<Response> => {
 
   const declaredLength = Number(request.headers.get("content-length") ?? "");
   if (!Number.isFinite(declaredLength) || declaredLength < 0) {
-    return new Response("content-length required", { status: 411 });
+    return jsonError(411, "LENGTH_REQUIRED", "content-length required");
   }
   if (declaredLength > MAX_UPLOAD_BYTES) {
-    return new Response("payload too large", { status: 413 });
+    return jsonError(413, "PAYLOAD_TOO_LARGE", "payload too large");
   }
 
   const buffer = await request.arrayBuffer();
   if (buffer.byteLength > MAX_UPLOAD_BYTES) {
-    return new Response("payload too large", { status: 413 });
+    return jsonError(413, "PAYLOAD_TOO_LARGE", "payload too large");
   }
 
   const env = getCloudflareEnv();

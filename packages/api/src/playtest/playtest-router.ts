@@ -2,12 +2,14 @@ import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 
 import type { JsonValue } from "../json";
+import { jsonValueSchema } from "../json";
 import type { DecisionProviderConfig } from "../orpc";
 import {
   fetchProviderResponse,
   readJsonBounded,
   throwProviderError,
 } from "../generate/provider-io";
+import { documented } from "../openapi";
 import { protectedProcedure } from "../orpc";
 import { mintPlaytestToken } from "./session-token";
 
@@ -61,7 +63,7 @@ const scoreQuestion = z.object({
 
 const question = z.discriminatedUnion("type", [noulQuestion, choiceQuestion, scoreQuestion]);
 
-const stateSchema = z.json();
+const stateSchema = jsonValueSchema;
 type DecideState = z.infer<typeof stateSchema>;
 
 export const decideInput = z.object({
@@ -190,7 +192,18 @@ export const forwardDecision = async (
 
 export const playtestRouter = {
   decide: protectedProcedure
+    .meta(
+      documented({
+        description:
+          "Asks the decision model typed questions (yes/no, choice, score) about a JSON game state and returns its answers verbatim. Backs `vg playtest run`.",
+        errors: [412, 413, 429, 502],
+        summary: "Ask the playtest decision model",
+      }),
+    )
     .input(decideInput)
+    .output(
+      jsonValueSchema.describe("The decision model's reply; `answers` is keyed by question label."),
+    )
     .handler(async ({ context, input }) => await forwardDecision(context.decision, input)),
 
   /**
@@ -198,13 +211,28 @@ export const playtestRouter = {
    * honoured only by `/api/playtest/decide`. The CLI hands it to the game
    * page it is driving, which is untrusted code — so this is all it gets.
    */
-  session: protectedProcedure.handler(async ({ context }) => {
-    const secret = context.decision?.tokenSecret;
-    if (!secret) {
-      throw new ORPCError("PRECONDITION_FAILED", {
-        message: "Playtest tokens are not configured on the server.",
-      });
-    }
-    return await mintPlaytestToken(secret, context.session.user.id);
-  }),
+  session: protectedProcedure
+    .meta(
+      documented({
+        description:
+          "Mints a short-lived token, bound to the caller, that an in-page playtester presents to /api/playtest/decide. It grants nothing else.",
+        errors: [412],
+        summary: "Mint a playtest token",
+      }),
+    )
+    .output(
+      z.object({
+        expiresAt: z.number().int().describe("Unix epoch milliseconds."),
+        token: z.string(),
+      }),
+    )
+    .handler(async ({ context }) => {
+      const secret = context.decision?.tokenSecret;
+      if (!secret) {
+        throw new ORPCError("PRECONDITION_FAILED", {
+          message: "Playtest tokens are not configured on the server.",
+        });
+      }
+      return await mintPlaytestToken(secret, context.session.user.id);
+    }),
 };

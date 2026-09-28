@@ -58,6 +58,10 @@ curl -s -X POST 'http://localhost:5173/api/orpc/deploy/list' \
   -H 'content-type: application/json' \
   -d '{"json":{}}'
 
+# the same procedure over REST (plain JSON, described by /openapi.json)
+curl -s -X POST 'http://localhost:5173/api/v1/deploy/list' \
+  -H 'Authorization: Bearer dev-local-session-token-0000000000'
+
 # a real session cookie, for handing to a browser context
 curl -s -i -X POST http://localhost:5173/api/auth/sign-in/email \
   -H 'content-type: application/json' -H 'Origin: http://localhost:5173' \

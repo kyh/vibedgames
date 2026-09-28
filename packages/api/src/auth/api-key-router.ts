@@ -2,9 +2,18 @@ import { APIError } from "better-auth/api";
 import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 
+import { documented } from "../openapi";
 import { sessionOnlyProcedure } from "../orpc";
 
 const DAY_SECONDS = 24 * 60 * 60;
+
+const apiKeySummary = z.object({
+  createdAt: z.date(),
+  expiresAt: z.date().nullable(),
+  id: z.string(),
+  keyPrefix: z.string(),
+  name: z.string().nullable(),
+});
 
 // better-auth APIError statuses (HTTP-status name strings) that name an oRPC
 // error code too, so they pass straight through. `as const` keeps the literal
@@ -33,12 +42,20 @@ export const apiKeyRouter = {
   // Mint a new key. The raw `key` is returned exactly once here and is never
   // recoverable afterwards — the plugin stores only its hash.
   create: sessionOnlyProcedure
+    .meta(
+      documented({
+        description:
+          "Mints an API key (`vg_…`) for CI and headless agents. The raw `key` is returned only in this response. Needs a real session; an API key cannot mint keys.",
+        summary: "Create an API key",
+      }),
+    )
     .input(
       z.object({
         expiresInDays: z.number().int().min(1).max(3650).nullable().default(null),
         name: z.string().trim().min(1).max(100),
       }),
     )
+    .output(apiKeySummary.extend({ key: z.string() }))
     .handler(async ({ context, input }) => {
       const created = await context.auth.api.createApiKey({
         body: {
@@ -59,21 +76,38 @@ export const apiKeyRouter = {
       };
     }),
 
-  list: sessionOnlyProcedure.handler(async ({ context }) => {
-    const { apiKeys } = await context.auth.api.listApiKeys({ headers: context.headers });
-    const keys = apiKeys.map((k) => ({
-      createdAt: k.createdAt,
-      expiresAt: k.expiresAt,
-      id: k.id,
-      keyPrefix: k.start ?? k.prefix ?? "",
-      lastUsedAt: k.lastRequest,
-      name: k.name,
-    }));
-    return { keys };
-  }),
+  list: sessionOnlyProcedure
+    .meta(
+      documented({
+        description:
+          "Lists the caller's API keys by prefix, never the raw key. Needs a real session.",
+        summary: "List API keys",
+      }),
+    )
+    .output(z.object({ keys: z.array(apiKeySummary.extend({ lastUsedAt: z.date().nullable() })) }))
+    .handler(async ({ context }) => {
+      const { apiKeys } = await context.auth.api.listApiKeys({ headers: context.headers });
+      const keys = apiKeys.map((k) => ({
+        createdAt: k.createdAt,
+        expiresAt: k.expiresAt,
+        id: k.id,
+        keyPrefix: k.start ?? k.prefix ?? "",
+        lastUsedAt: k.lastRequest,
+        name: k.name,
+      }));
+      return { keys };
+    }),
 
   revoke: sessionOnlyProcedure
+    .meta(
+      documented({
+        description: "Deletes one of the caller's API keys. Needs a real session.",
+        errors: [404],
+        summary: "Revoke an API key",
+      }),
+    )
     .input(z.object({ id: z.string() }))
+    .output(z.object({ id: z.string() }))
     .handler(async ({ context, input }) => {
       try {
         await context.auth.api.deleteApiKey({

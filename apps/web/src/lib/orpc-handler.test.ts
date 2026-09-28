@@ -8,9 +8,11 @@ import { createDb } from "@repo/db/drizzle-client";
 import { MAX_RPC_BODY_BYTES } from "@repo/api/generate/limits";
 import { createORPCClient, ORPCError, safe } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
+import { z } from "zod";
 import { BatchLinkPlugin } from "@orpc/client/plugins";
 
-import { handleRpcRequest } from "./orpc-handler";
+import { apiNotFound } from "./json-error";
+import { handleRestRequest, handleRpcRequest } from "./orpc-handler";
 
 /**
  * This endpoint's cross-site defense is a set of things typecheck cannot see:
@@ -55,6 +57,13 @@ const contextFor = (request: Request): ORPCContext => ({
   session: null,
 });
 
+const assertJsonError = async (response: Response, status: number, code: string) => {
+  assert.strictEqual(response.status, status);
+  assert.match(response.headers.get("content-type") ?? "", /^application\/json/u);
+  const body = z.object({ code: z.string() }).parse(await response.json());
+  assert.strictEqual(body.code, code);
+};
+
 const post = (body = JSON.stringify({ json: {} })) => {
   const request = new Request("http://localhost:3000/api/orpc/auth/me", {
     body,
@@ -76,7 +85,7 @@ describe("rpc endpoint", () => {
     // so the handler never resolves a procedure and the route 404s.
     const request = new Request("http://localhost:3000/api/orpc/auth/me", { method: "GET" });
     const response = await handleRpcRequest(request, contextFor(request));
-    assert.strictEqual(response.status, 404);
+    await assertJsonError(response, 404, "NOT_FOUND");
   });
 
   // `{slug}.vibedgames.com` is a different ORIGIN but the same SITE as the app,
@@ -89,7 +98,7 @@ describe("rpc endpoint", () => {
       method: "POST",
     });
     const response = await handleRpcRequest(request, contextFor(request));
-    assert.strictEqual(response.status, 403);
+    await assertJsonError(response, 403, "FORBIDDEN");
   });
 
   test("allows a POST whose Origin is the app itself", async () => {
@@ -148,5 +157,52 @@ describe("rpc endpoint", () => {
       results.map(([error]) => (error instanceof ORPCError ? error.code : error)),
       ["UNAUTHORIZED", "UNAUTHORIZED"],
     );
+  });
+});
+
+/**
+ * The REST transport behind `/openapi.json` shares the RPC route's guards; a
+ * regression here would open the same holes on a second URL.
+ */
+const rest = (path: string, init: RequestInit = {}) => {
+  const request = new Request(`https://vibedgames.com/api/v1${path}`, init);
+  return handleRestRequest(request, contextFor(request));
+};
+
+const jsonPost = (headers: Record<string, string> = {}): RequestInit => ({
+  body: "{}",
+  headers: { "content-type": "application/json", ...headers },
+  method: "POST",
+});
+
+describe("rest endpoint", () => {
+  test("answers an unauthenticated call with a JSON 401", async () => {
+    await assertJsonError(await rest("/auth/me", jsonPost()), 401, "UNAUTHORIZED");
+  });
+
+  test("refuses a same-site cross-origin POST", async () => {
+    const init = jsonPost({ origin: "https://evil.vibedgames.com" });
+    await assertJsonError(await rest("/auth/me", init), 403, "FORBIDDEN");
+  });
+
+  test("matches no procedure on GET", async () => {
+    await assertJsonError(await rest("/auth/me"), 404, "NOT_FOUND");
+  });
+
+  test("answers an unknown operation with a JSON 404", async () => {
+    await assertJsonError(await rest("/nope", jsonPost()), 404, "NOT_FOUND");
+  });
+
+  test("rejects a body over the cap", async () => {
+    const init = jsonPost();
+    init.body = JSON.stringify({ padding: "x".repeat(MAX_RPC_BODY_BYTES) });
+    const response = await rest("/auth/me", init);
+    assert.strictEqual(response.status, 413);
+  });
+});
+
+describe("unknown api path", () => {
+  test("answers JSON, not the HTML not-found page", async () => {
+    await assertJsonError(apiNotFound(), 404, "NOT_FOUND");
   });
 });

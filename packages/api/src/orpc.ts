@@ -6,6 +6,7 @@ import type { Db } from "@repo/db/drizzle-client";
 import { ORPCError, os } from "@orpc/server";
 
 import { API_KEY_SESSION_PREFIX, resolveApiKeySession } from "./auth/api-key";
+import { protectedProcedureSpec, publicProcedureSpec, sessionOnlyProcedureSpec } from "./openapi";
 
 /**
  * Minimal structural view of the R2 binding methods this package uses.
@@ -124,18 +125,20 @@ export const createORPCContext = async (opts: CreateORPCContextOptions) => {
 
 export type ORPCContext = Awaited<ReturnType<typeof createORPCContext>>;
 
-export const publicProcedure = os.$context<ORPCContext>();
+export const publicProcedure = os.$context<ORPCContext>().meta(publicProcedureSpec);
 
-export const protectedProcedure = publicProcedure.use(({ context, next }) => {
-  if (!context.session?.user) {
-    throw new ORPCError("UNAUTHORIZED");
-  }
-  return next({
-    context: {
-      session: { ...context.session, user: context.session.user },
-    },
-  });
-});
+export const protectedProcedure = publicProcedure
+  .use(({ context, next }) => {
+    if (!context.session?.user) {
+      throw new ORPCError("UNAUTHORIZED");
+    }
+    return next({
+      context: {
+        session: { ...context.session, user: context.session.user },
+      },
+    });
+  })
+  .meta(protectedProcedureSpec);
 
 // Like `protectedProcedure`, but rejects callers authenticated with an API
 // key — for surfaces an automation/CI credential must not reach (managing API
@@ -143,14 +146,16 @@ export const protectedProcedure = publicProcedure.use(({ context, next }) => {
 // (deploy/generate) so a leaked key can't escalate. API-key sessions are
 // synthesized with a namespaced `apikey:` token (see `resolveApiKeySession`);
 // real better-auth tokens never collide with it.
-export const sessionOnlyProcedure = protectedProcedure.use(({ context, next }) => {
-  if (context.session.session.token.startsWith(API_KEY_SESSION_PREFIX)) {
-    throw new ORPCError("FORBIDDEN", {
-      message: "This action requires an interactive login, not an API key. Use the web app.",
-    });
-  }
-  return next();
-});
+export const sessionOnlyProcedure = protectedProcedure
+  .use(({ context, next }) => {
+    if (context.session.session.token.startsWith(API_KEY_SESSION_PREFIX)) {
+      throw new ORPCError("FORBIDDEN", {
+        message: "This action requires an interactive login, not an API key. Use the web app.",
+      });
+    }
+    return next();
+  })
+  .meta(sessionOnlyProcedureSpec);
 
 // Admin actions are interactive/web-only — build on `sessionOnlyProcedure` so
 // an admin's API key (which would otherwise pass the role check) can't reach

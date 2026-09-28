@@ -119,10 +119,19 @@ catalogs:
     '@orpc/client':
       specifier: 2.0.0-beta.31
       version: 2.0.0-beta.31
+    '@orpc/json-schema':
+      specifier: 2.0.0-beta.31
+      version: 2.0.0-beta.31
+    '@orpc/openapi':
+      specifier: 2.0.0-beta.31
+      version: 2.0.0-beta.31
     '@orpc/server':
       specifier: 2.0.0-beta.31
       version: 2.0.0-beta.31
     '@orpc/tanstack-query':
+      specifier: 2.0.0-beta.31
+      version: 2.0.0-beta.31
+    '@orpc/zod':
       specifier: 2.0.0-beta.31
       version: 2.0.0-beta.31
     '@tailwindcss/vite':
@@ -348,12 +357,21 @@ importers:
       '@orpc/client':
         specifier: 'catalog:'
         version: 2.0.0-beta.31
+      '@orpc/json-schema':
+        specifier: 'catalog:'
+        version: 2.0.0-beta.31
+      '@orpc/openapi':
+        specifier: 'catalog:'
+        version: 2.0.0-beta.31
       '@orpc/server':
         specifier: 'catalog:'
         version: 2.0.0-beta.31
       '@orpc/tanstack-query':
         specifier: 'catalog:'
         version: 2.0.0-beta.31(@tanstack/query-core@5.103.2)
+      '@orpc/zod':
+        specifier: 'catalog:'
+        version: 2.0.0-beta.31(zod@4.6.5)
       '@repo/api':
         specifier: workspace:^
         version: link:../../packages/api
@@ -942,13 +960,16 @@ importers:
     dependencies:
       '@better-auth/api-key':
         specifier: 1.7.2
-        version: 1.7.2(@better-auth/core@1.7.2(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(@cloudflare/workers-types@5.20260922.1)(better-call@1.4.0(zod@4.6.5))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.3))(@better-auth/utils@0.4.2)(better-auth@1.7.2(@cloudflare/workers-types@5.20260922.1)(drizzle-kit@1.0.0-rc.4)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260922.1)(@libsql/client@0.18.0)(zod@4.6.5))(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(better-call@1.4.0(zod@4.6.5))
+        version: 1.7.2(@better-auth/core@1.7.2(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(@cloudflare/workers-types@5.20260922.1)(better-call@1.4.0(zod@4.6.5))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.3))(@better-auth/utils@0.4.2)(better-auth@1.7.2(@cloudflare/workers-types@5.20260922.1)(@tanstack/react-start@1.168.57(esbuild@0.28.2)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(rolldown@1.2.9)(supports-color@10.2.2)(vite@8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)))(drizzle-kit@1.0.0-rc.4)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260922.1)(@libsql/client@0.18.0)(zod@4.6.5))(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(better-call@1.4.0(zod@4.6.5))
       '@better-auth/drizzle-adapter':
         specifier: 1.7.2
         version: 1.7.2(@better-auth/core@1.7.2(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(@cloudflare/workers-types@5.20260922.1)(better-call@1.4.0(zod@4.6.5))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.3))(@better-auth/utils@0.4.2)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260922.1)(@libsql/client@0.18.0)(zod@4.6.5))
       '@better-auth/expo':
         specifier: 1.7.2
-        version: 1.7.2(@better-auth/core@1.7.2(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(@cloudflare/workers-types@5.20260922.1)(better-call@1.4.0(zod@4.6.5))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.3))(better-auth@1.7.2(@cloudflare/workers-types@5.20260922.1)(drizzle-kit@1.0.0-rc.4)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260922.1)(@libsql/client@0.18.0)(zod@4.6.5))(react-dom@19.3.0(react@19.3.0))(react@19.3.0))
+        version: 1.7.2(@better-auth/core@1.7.2(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(@cloudflare/workers-types@5.20260922.1)(better-call@1.4.0(zod@4.6.5))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.3))(better-auth@1.7.2(@cloudflare/workers-types@5.20260922.1)(@tanstack/react-start@1.168.57(esbuild@0.28.2)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(rolldown@1.2.9)(supports-color@10.2.2)(vite@8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)))(drizzle-kit@1.0.0-rc.4)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260922.1)(@libsql/client@0.18.0)(zod@4.6.5))(react-dom@19.3.0(react@19.3.0))(react@19.3.0))
+      '@orpc/openapi':
+        specifier: 'catalog:'
+        version: 2.0.0-beta.31
       '@orpc/server':
         specifier: 'catalog:'
         version: 2.0.0-beta.31
@@ -2684,6 +2705,11 @@ packages:
     resolution: {integrity: sha512-zCNC3kmgmqIfrZVpc5RUasESz0QshNa2j9Eta3XAIThF/PfgClKdNMTWbgLHOerxa1XpaWFMJIFH7uUZ+WVGVQ==}
     peerDependencies:
       '@tanstack/query-core': '>=5.80.2'
+
+  '@orpc/zod@2.0.0-beta.31':
+    resolution: {integrity: sha512-qCPPMD80ryeSjFIapa/JIvfRevP1S749v9zhwGXhsLbDhQ4deqVVF6k0PtBTvYLtRVxPQKdLd/KGYdYCQWQ2Ig==}
+    peerDependencies:
+      zod: '>=4.3.5'
 
   '@oxc-project/types@0.150.0':
     resolution: {integrity: sha512-rDS5/31E9HfPl/CIzGrn0DOlvBbXFseQ5URJ9sYMfstbKLD/c6Gm9vmRzRGDdAXyOIL4zmO37lc9RIwYqVruZw==}
@@ -6156,7 +6182,7 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.3.0
 
-  '@better-auth/api-key@1.7.2(@better-auth/core@1.7.2(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(@cloudflare/workers-types@5.20260922.1)(better-call@1.4.0(zod@4.6.5))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.3))(@better-auth/utils@0.4.2)(better-auth@1.7.2(@cloudflare/workers-types@5.20260922.1)(drizzle-kit@1.0.0-rc.4)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260922.1)(@libsql/client@0.18.0)(zod@4.6.5))(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(better-call@1.4.0(zod@4.6.5))':
+  '@better-auth/api-key@1.7.2(@better-auth/core@1.7.2(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(@cloudflare/workers-types@5.20260922.1)(better-call@1.4.0(zod@4.6.5))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.3))(@better-auth/utils@0.4.2)(better-auth@1.7.2(@cloudflare/workers-types@5.20260922.1)(@tanstack/react-start@1.168.57(esbuild@0.28.2)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(rolldown@1.2.9)(supports-color@10.2.2)(vite@8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)))(drizzle-kit@1.0.0-rc.4)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260922.1)(@libsql/client@0.18.0)(zod@4.6.5))(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(better-call@1.4.0(zod@4.6.5))':
     dependencies:
       '@better-auth/core': 1.7.2(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(@cloudflare/workers-types@5.20260922.1)(better-call@1.4.0(zod@4.6.5))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.3)
       '@better-auth/utils': 0.4.2
@@ -6185,7 +6211,7 @@ snapshots:
     optionalDependencies:
       drizzle-orm: 1.0.0-rc.4(@cloudflare/workers-types@5.20260922.1)(@libsql/client@0.18.0)(zod@4.6.5)
 
-  '@better-auth/expo@1.7.2(@better-auth/core@1.7.2(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(@cloudflare/workers-types@5.20260922.1)(better-call@1.4.0(zod@4.6.5))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.3))(better-auth@1.7.2(@cloudflare/workers-types@5.20260922.1)(drizzle-kit@1.0.0-rc.4)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260922.1)(@libsql/client@0.18.0)(zod@4.6.5))(react-dom@19.3.0(react@19.3.0))(react@19.3.0))':
+  '@better-auth/expo@1.7.2(@better-auth/core@1.7.2(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(@cloudflare/workers-types@5.20260922.1)(better-call@1.4.0(zod@4.6.5))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.3))(better-auth@1.7.2(@cloudflare/workers-types@5.20260922.1)(@tanstack/react-start@1.168.57(esbuild@0.28.2)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(rolldown@1.2.9)(supports-color@10.2.2)(vite@8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)))(drizzle-kit@1.0.0-rc.4)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260922.1)(@libsql/client@0.18.0)(zod@4.6.5))(react-dom@19.3.0(react@19.3.0))(react@19.3.0))':
     dependencies:
       '@better-auth/core': 1.7.2(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(@cloudflare/workers-types@5.20260922.1)(better-call@1.4.0(zod@4.6.5))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.3)
       '@better-fetch/fetch': 1.3.1
@@ -7116,6 +7142,16 @@ snapshots:
       - crossws
       - fastify
       - swagger-ui
+
+  '@orpc/zod@2.0.0-beta.31(zod@4.6.5)':
+    dependencies:
+      '@orpc/json-schema': 2.0.0-beta.31
+      json-schema-typed: 8.0.2
+      zod: 4.6.5
+    transitivePeerDependencies:
+      - '@opentelemetry/api'
+      - crossws
+      - fastify
 
   '@oxc-project/types@0.150.0': {}
 

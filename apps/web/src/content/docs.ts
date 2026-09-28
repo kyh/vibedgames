@@ -70,18 +70,16 @@ export const docsDoc: Doc = {
       blocks: [
         {
           kind: "p",
-          text: "The platform API is [oRPC](https://orpc.unnoq.com) over HTTP: `POST https://vibedgames.com/api/orpc/<router>/<procedure>` with a JSON body (GET is not accepted). There is no separate REST surface and no OpenAPI document; the `AppRouter` type exported from `@repo/api` is the contract, and the CLI is the reference client. The routers are `auth`, `apiKeys`, `waitlist`, `deploy`, `generate`, `credits` and `admin`.",
+          text: 'The platform API is one [oRPC](https://orpc.unnoq.com) router served two ways. `POST https://vibedgames.com/api/v1/<router>/<procedure>` takes and returns plain JSON and is described by the OpenAPI 3.1 document at [/openapi.json](/openapi.json) — every operation with its input, response and error schemas and the credentials it needs. `POST /api/orpc/<router>/<procedure>` is oRPC\'s own wire format (body wrapped as `{"json": …}`), used by the CLI and the web app. Both are POST-only. Errors are JSON with a stable `code` (`UNAUTHORIZED`, `BAD_REQUEST`, …) and a `message`. The routers are `auth`, `apiKeys`, `waitlist`, `deploy`, `generate`, `playtest`, `credits` and `admin`.',
         },
         {
           kind: "p",
-          text: "Authentication is [better-auth](https://better-auth.com). The CLI uses a device-code flow: it prints a six-character code, the person confirms it in a browser, and the CLI polls until a token is issued and saved to `~/.config/vg/auth.json`. For CI and headless agents, set `VG_TOKEN` to a token obtained that way, and `VG_API_URL` to point at a non-production API. Raw HTTP calls send it as `Authorization: Bearer <token>`.",
+          text: "Authentication is [better-auth](https://better-auth.com). The CLI uses a device-code flow: it prints a six-character code, the person confirms it in a browser, and the CLI polls until a token is issued and saved to `~/.config/vg/auth.json`. For CI and headless agents, set `VG_TOKEN` to a token obtained that way or to an API key (`vg_…`), and `VG_API_URL` to point at a non-production API. Raw HTTP calls send it as `Authorization: Bearer <token>`.",
         },
         {
           code: [
-            "curl -s -X POST https://vibedgames.com/api/orpc/deploy/list \\",
-            '  -H "Authorization: Bearer $VG_TOKEN" \\',
-            '  -H "Content-Type: application/json" \\',
-            "  -d '{\"json\":{}}'",
+            "curl -s -X POST https://vibedgames.com/api/v1/deploy/list \\",
+            '  -H "Authorization: Bearer $VG_TOKEN"',
           ].join("\n"),
           kind: "code",
           lang: "sh",
@@ -131,6 +129,8 @@ export const docsDoc: Doc = {
         {
           items: [
             "[/llms.txt](/llms.txt) — what Vibedgames is for, when an agent should use it, and the entry command.",
+            "[/openapi.json](/openapi.json) — the OpenAPI 3.1 description of the HTTP API.",
+            "[/.well-known/api-catalog](/.well-known/api-catalog) — the API catalog (RFC 9727) pointing at the OpenAPI document and these docs.",
             "[/install](/install) — the install instructions, served as markdown.",
             "[/docs](/docs) — this page; also available as markdown via `Accept: text/markdown`.",
             "[/sitemap.xml](/sitemap.xml) — every crawlable page on the apex domain.",

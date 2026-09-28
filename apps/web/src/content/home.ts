@@ -22,6 +22,10 @@ export const homeDoc: Doc = {
       kind: "p",
       text: "This page embeds one of the games already shipped on the platform. Use the game switcher to change which one, Discover to browse them all, and Build to copy the prompt that installs everything into your agent.",
     },
+    {
+      kind: "p",
+      text: "Building on it: the [developer docs](/docs) cover the CLI and the HTTP API, which is described by an [OpenAPI document](/openapi.json).",
+    },
   ],
   path: "/",
   sections: [

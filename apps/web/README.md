@@ -23,6 +23,9 @@ Worker for the oRPC API.
 | `/admin`                                   | admin-only: users, invites                                       |
 | `/auth/*`                                  | login, register, password reset, and `cli` (device-code confirm) |
 | `/api/orpc/*`, `/api/auth/*`               | oRPC + better-auth handlers                                      |
+| `/api/v1/*`, `/openapi.json`               | the same router as plain-JSON REST, and its OpenAPI 3.1 document |
+| `/.well-known/api-catalog`                 | RFC 9727 catalog pointing at `/openapi.json` and `/docs`         |
+| `/api/*` (unmatched)                       | JSON `404` (`src/routes/api/$.ts`)                               |
 | `/api/r2-upload`, `/api/r2-download`       | local-dev R2 proxy (HMAC-signed, `localhost` Host only)          |
 | `/.well-known/agent-skills/*`              | the vibedgames skills, served for agents to fetch                |
 | `/llms.txt`, `/robots.txt`, `/sitemap.xml` | machine-readable site descriptions                               |
