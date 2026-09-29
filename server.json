@@ -1,0 +1,18 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "com.vibedgames/vibedgames",
+  "title": "Vibedgames",
+  "description": "Game-studio skills, install steps and shipped games for agents building browser games.",
+  "version": "1.0.0",
+  "websiteUrl": "https://vibedgames.com",
+  "repository": {
+    "url": "https://github.com/kyh/vibedgames",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://vibedgames.com/mcp"
+    }
+  ]
+}

@@ -91,6 +91,7 @@ pnpm db:local         # push-local + seed-local (one-shot local DB setup)
 pnpm dogfood          # Link local vg CLI + sync plugin skills into .claude/skills/
 pnpm dogfood:reset    # Unlink local vg CLI
 pnpm verify           # typecheck + lint + format + test (run before every commit)
+pnpm check:agent-endpoints  # runtime check of /llms.txt, skills index and /mcp (needs dev:web)
 ```
 
 ## Environment

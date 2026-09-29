@@ -35,6 +35,18 @@ npx vibedgames deploy ./dist --slug my-game        # live at my-game.vibedgames.
 
 Full command list: [`apps/cli/README.md`](./apps/cli/README.md).
 
+#### MCP
+
+Clients that can't install skills (Cursor, Codex, ...) can read them, the install
+steps and the shipped games from a read-only remote MCP server:
+
+```sh
+claude mcp add --transport http vibedgames https://vibedgames.com/mcp
+```
+
+Other clients: add `https://vibedgames.com/mcp` as a Streamable HTTP server.
+Building and deploying still go through `vg`.
+
 ## Repo layout
 
 ```
