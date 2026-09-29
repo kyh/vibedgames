@@ -1,8 +1,7 @@
-import { setTimeout as sleep } from "node:timers/promises";
 import { defineCommand } from "citty";
 import { consola } from "consola";
 
-import { createClient, forwardJson } from "../lib/api.js";
+import { createClient } from "../lib/api.js";
 import {
   CodexError,
   generateImagesWithCodex,
@@ -13,7 +12,7 @@ import {
 import { parseDownloadFlag, parseRunInput, readExplicitLocalFile } from "../lib/media-args.js";
 import type { DownloadFlag } from "../lib/media-args.js";
 import { downloadMedia, extractMediaRefs } from "../lib/media-download.js";
-import { endpointPath, queueAppId, waitForCompletion } from "../lib/media-poll.js";
+import { waitForCompletion } from "../lib/media-poll.js";
 import { uploadFile } from "../lib/media-upload.js";
 import { isJsonOutput, outputArgs, writeJson, writeStructured } from "../lib/output.js";
 import { isJsonNumber, isJsonObject, isJsonString } from "../lib/types.js";
@@ -256,19 +255,10 @@ const runCommand = defineCommand({
 
     const client = createClient();
 
-    const submission = await forwardJson(client, {
-      body: finalInput,
-      method: "POST",
-      path: `/${endpointPath(endpoint_id)}`,
-      target: "queue",
+    const { requestId } = await client.generate.submit({
+      endpointId: endpoint_id,
+      input: finalInput,
     });
-    const requestId =
-      isJsonObject(submission) && isJsonString(submission.request_id)
-        ? submission.request_id
-        : null;
-    if (!requestId) {
-      throw new Error("queue submit did not return a request_id.");
-    }
 
     if (args.async) {
       const payload = {
@@ -331,31 +321,6 @@ interface CodexRunPayload {
 }
 
 // ---- status -----------------------------------------------------------------
-
-/** Cancellation is confirmed asynchronously, and the platform refunds a
- *  cancelled job's credit hold when a status poll reports the terminal state —
- *  so confirm with a few polls instead of leaving the refund to whenever the
- *  user next checks. Best-effort: a miss just defers it. */
-const confirmCancelled = async (
-  client: ReturnType<typeof createClient>,
-  ep: string,
-  requestId: string,
-): Promise<void> => {
-  const statusPath = `/${ep}/requests/${requestId}/status`;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    await sleep(1000);
-    try {
-      const poll = await forwardJson(client, { method: "GET", path: statusPath, target: "queue" });
-      const status =
-        isJsonObject(poll) && isJsonString(poll.status) ? poll.status.toUpperCase() : "";
-      if (["CANCELLED", "FAILED", "COMPLETED"].includes(status)) {
-        break;
-      }
-    } catch {
-      break;
-    }
-  }
-};
 
 const reportStatus = (
   action: "status" | "result" | "cancel",
@@ -420,24 +385,14 @@ const statusCommand = defineCommand({
       action = "result";
     }
 
-    const ep = queueAppId(args.endpoint_id);
     const client = createClient();
-    const suffixes = { cancel: "/cancel", result: "", status: "/status" };
-    const path = `/${ep}/requests/${args.request_id}${suffixes[action]}`;
-    const data = await forwardJson(client, {
-      method: action === "cancel" ? "PUT" : "GET",
-      path,
-      query: action === "status" && args.logs ? { logs: "1" } : undefined,
-      target: "queue",
-    });
-
-    // Cancellation is confirmed asynchronously, and the platform refunds a
-    // cancelled job's credit hold when a status poll reports the terminal
-    // state — so confirm with a few polls instead of leaving the refund to
-    // whenever the user next checks. Best-effort: a miss just defers it.
-    if (action === "cancel") {
-      await confirmCancelled(client, ep, args.request_id);
-    }
+    const job = { endpointId: args.endpoint_id, requestId: args.request_id };
+    const calls = {
+      cancel: () => client.generate.cancel(job),
+      result: () => client.generate.result(job),
+      status: () => client.generate.status({ ...job, logs: Boolean(args.logs) }),
+    };
+    const data = await calls[action]();
 
     let downloaded: Awaited<ReturnType<typeof downloadMedia>> | undefined;
     if (action === "result" && downloadFlag.mode === "on") {
@@ -495,6 +450,11 @@ const splitList = (value: string | undefined): string[] => {
     .map((s) => s.trim())
     .filter(Boolean);
 };
+const EXPAND_FIELDS = ["openapi-3.0", "enterprise_status"] as const;
+type ExpandField = (typeof EXPAND_FIELDS)[number];
+const isExpandField = (value: string): value is ExpandField =>
+  EXPAND_FIELDS.some((field) => field === value);
+
 const printModels = (data: JsonValue): void => {
   const models = isJsonObject(data) && Array.isArray(data.models) ? data.models : [];
   for (const m of models) {
@@ -530,40 +490,32 @@ const modelsCommand = defineCommand({
     },
     limit: { description: "Max results (default 20).", type: "string" },
     query: { description: "Search query.", required: false, type: "positional" },
-    status: { description: "active (default) | deprecated | all", type: "string" },
+    status: {
+      description: "Model status filter (default active).",
+      options: ["active", "deprecated", "all"],
+      type: "enum",
+    },
     ...outputArgs,
   },
   meta: { description: "Search/list available models.", name: "models" },
   run: async ({ args }) => {
-    const query: Record<string, string | string[]> = {};
-    if (args.query) {
-      query.q = args.query;
-    }
-    if (args.category) {
-      query.category = args.category;
-    }
-    if (args.status && args.status !== "all") {
-      query.status = args.status;
-    }
-    query.limit = args.limit ?? "20";
-    if (args.cursor) {
-      query.cursor = args.cursor;
-    }
-    const endpointIds = splitList(args.endpoint_id);
-    if (endpointIds.length > 0) {
-      query.endpoint_id = endpointIds;
-    }
     const expand = splitList(args.expand);
-    if (expand.length > 0) {
-      query.expand = expand;
+    const unknown = expand.filter((field) => !isExpandField(field));
+    if (unknown.length > 0) {
+      consola.error(
+        `Unknown --expand field(s): ${unknown.join(", ")}. Use ${EXPAND_FIELDS.join(", ")}.`,
+      );
+      process.exit(1);
     }
-
     const client = createClient();
-    const data = await forwardJson(client, {
-      method: "GET",
-      path: "/v1/models",
-      query,
-      target: "platform",
+    const data = await client.generate.models({
+      category: args.category,
+      cursor: args.cursor,
+      endpointIds: splitList(args.endpoint_id),
+      expand: expand.filter(isExpandField),
+      limit: args.limit === undefined ? undefined : Number(args.limit),
+      query: args.query,
+      status: args.status,
     });
     if (!writeStructured(data, args)) {
       printModels(data);
@@ -576,24 +528,19 @@ const modelsCommand = defineCommand({
 const schemaCommand = defineCommand({
   args: {
     endpoint_id: { required: true, type: "positional" },
-    format: { description: "compact (default) | openapi", type: "string" },
+    format: {
+      description: "Schema detail (default compact).",
+      options: ["compact", "openapi"],
+      type: "enum",
+    },
     ...outputArgs,
   },
   meta: { description: "Fetch a model's input/output schema.", name: "schema" },
   run: async ({ args }) => {
-    const expand = args.format === "openapi" ? ["openapi-3.0"] : [];
     const client = createClient();
-    const query: Record<string, string | string[]> = {};
-    query.endpoint_id = args.endpoint_id;
-    query.limit = "1";
-    if (expand.length > 0) {
-      query.expand = expand;
-    }
-    const data = await forwardJson(client, {
-      method: "GET",
-      path: "/v1/models",
-      query,
-      target: "platform",
+    const data = await client.generate.schema({
+      endpointId: args.endpoint_id,
+      format: args.format,
     });
     if (!writeStructured(data, args)) {
       writeJson(data);
@@ -611,12 +558,7 @@ const pricingCommand = defineCommand({
   meta: { description: "Fetch pricing for a model.", name: "pricing" },
   run: async ({ args }) => {
     const client = createClient();
-    const data = await forwardJson(client, {
-      method: "GET",
-      path: "/v1/models/pricing",
-      query: { endpoint_id: args.endpoint_id },
-      target: "platform",
-    });
+    const data = await client.generate.pricing({ endpointId: args.endpoint_id });
     if (!writeStructured(data, args)) {
       writeJson(data);
     }
@@ -633,17 +575,7 @@ const docsCommand = defineCommand({
   meta: { description: "Search generative-model documentation.", name: "docs" },
   run: async ({ args }) => {
     const client = createClient();
-    const data = await forwardJson(client, {
-      body: {
-        id: 1,
-        jsonrpc: "2.0",
-        method: "tools/call",
-        params: { arguments: { query: args.query }, name: "search_fal" },
-      },
-      method: "POST",
-      path: "/docs/mcp",
-      target: "docs",
-    });
+    const data = await client.generate.docs({ query: args.query });
     if (!writeStructured(data, args)) {
       writeJson(data);
     }
