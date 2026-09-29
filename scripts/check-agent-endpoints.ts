@@ -113,16 +113,44 @@ expect("POST /mcp initialize → 200", init.status === 200, `status ${init.statu
 expect("initialize names the server", init.result.serverInfo.name === "vibedgames");
 expect("initialize carries instructions", init.result.instructions.includes("vg CLI"));
 
+const CATALOG_TOOLS = new Set(["get_skill", "get_started", "list_skills", "search_games"]);
 const { result: listed } = await mcp(toolListSchema, "tools/list", {});
-const toolNames = listed.tools.map((tool) => tool.name).toSorted();
+const catalog = listed.tools.filter((tool) => CATALOG_TOOLS.has(tool.name));
 expect(
-  "tools/list exposes the four read-only tools",
-  toolNames.join(",") === "get_skill,get_started,list_skills,search_games",
-  toolNames.join(","),
+  "tools/list exposes the four catalog tools",
+  catalog.length === CATALOG_TOOLS.size,
+  catalog.map((tool) => tool.name).join(","),
 );
 expect(
-  "every tool is annotated read-only and closed-world",
-  listed.tools.every(({ annotations }) => annotations.readOnlyHint && !annotations.openWorldHint),
+  "catalog tools are annotated read-only and closed-world",
+  catalog.every(({ annotations }) => annotations.readOnlyHint && !annotations.openWorldHint),
+);
+expect(
+  "tools/list exposes the account tools",
+  ["whoami", "generate_submit", "deploy_list"].every((name) =>
+    listed.tools.some((tool) => tool.name === name),
+  ),
+);
+
+const anonymous = await fetch(`${baseUrl}/mcp`, {
+  body: JSON.stringify({
+    id: 1,
+    jsonrpc: "2.0",
+    method: "tools/call",
+    params: { arguments: {}, name: "whoami" },
+  }),
+  headers: {
+    accept: "application/json, text/event-stream",
+    "content-type": "application/json",
+    "mcp-protocol-version": "2025-06-18",
+  },
+  method: "POST",
+});
+expect(
+  "an anonymous account-tool call → 401 with a Bearer challenge",
+  anonymous.status === 401 &&
+    (anonymous.headers.get("www-authenticate") ?? "").startsWith("Bearer"),
+  `status ${anonymous.status}`,
 );
 
 const started = await callTool("get_started");

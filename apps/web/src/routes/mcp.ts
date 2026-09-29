@@ -1,8 +1,14 @@
-import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
+import type { McpServer } from "@modelcontextprotocol/server";
+import type { ORPCContext } from "@repo/api/orpc";
+import { createMcpHandler } from "@modelcontextprotocol/server";
+import { MAX_RPC_BODY_BYTES } from "@repo/api/generate/limits";
+import { requiresCredential } from "@repo/api/mcp/auth-gate";
+import { createMcpServer } from "@repo/api/mcp/server";
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
 
 import type { GameEntry, SkillEntry } from "@/lib/mcp-catalog";
+import { createRpcContext } from "@/auth/server";
 import { featuredGames } from "@/components/game/data";
 import { getAgentSkill, getSkillIndex } from "@/lib/agent-skills";
 import installMd from "@/lib/install.md?raw";
@@ -14,13 +20,8 @@ const text = (value: string) => ({ content: [{ text: value, type: "text" as cons
 
 const json = (value: GameEntry[] | SkillEntry[]) => text(JSON.stringify(value, null, 2));
 
-// Stateless: a fresh server per request, so no Durable Object or session store.
-const handler = createMcpHandler(() => {
-  const server = new McpServer(
-    { name: "vibedgames", version: "1.0.0" },
-    { instructions: serverInstructions },
-  );
-
+/** The public half of the server: install steps, skills and games, no account needed. */
+const registerCatalogTools = (server: McpServer): void => {
   server.registerTool(
     "get_started",
     {
@@ -84,14 +85,66 @@ const handler = createMcpHandler(() => {
     },
     ({ query, limit }) => json(searchGames(featuredGames, { limit, query })),
   );
+};
 
-  return server;
-});
+const unauthorized = (description: string): Response =>
+  Response.json(
+    { error: "invalid_token", error_description: description },
+    {
+      headers: {
+        "WWW-Authenticate": `Bearer realm="vibedgames", error="invalid_token", error_description="${description}"`,
+      },
+      status: 401,
+    },
+  );
+
+/**
+ * Stateless: a fresh server per request, so no Durable Object or session store.
+ *
+ * Credentials come from the Authorization / x-api-key headers only. Cookies are
+ * dropped so a page the user has open can't drive their account through this
+ * endpoint, and an MCP session counts as automation, like an API key.
+ */
+const serveMcp = async (request: Request): Promise<Response> => {
+  const headers = new Headers(request.headers);
+  headers.delete("cookie");
+  const hasCredential = headers.has("authorization") || headers.has("x-api-key");
+
+  if (!hasCredential && (await requiresCredential(request))) {
+    return unauthorized("Sign in, or send a vibedgames API key as a Bearer token.");
+  }
+
+  let context: Promise<ORPCContext> | undefined;
+  const resolveContext = () => {
+    context ??= createRpcContext(headers);
+    return context;
+  };
+  if (hasCredential) {
+    const { session } = await resolveContext();
+    if (!session) {
+      return unauthorized("The credential is invalid or expired.");
+    }
+  }
+
+  const handler = createMcpHandler(
+    () => {
+      const server = createMcpServer({
+        instructions: serverInstructions,
+        resolveContext,
+        version: "1.1.0",
+      });
+      registerCatalogTools(server);
+      return server;
+    },
+    { maxRequestBodySize: MAX_RPC_BODY_BYTES },
+  );
+  return handler.fetch(request);
+};
 
 export const Route = createFileRoute("/mcp")({
   server: {
     handlers: {
-      ANY: ({ request }) => handler.fetch(request),
+      ANY: ({ request }) => serveMcp(request),
     },
   },
 });

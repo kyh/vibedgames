@@ -85,6 +85,7 @@ const errorResult = (message: string) => ({
 
 export interface CreateMcpServerOptions {
   version: string;
+  instructions?: string;
   /** Resolved per tool call, so listing tools needs no session or database. */
   resolveContext: () => Promise<ORPCContext>;
 }
@@ -93,8 +94,15 @@ export interface CreateMcpServerOptions {
  * An MCP server whose tools are the router's procedures, called in-process
  * with the same context, validation and credit gates the HTTP API applies.
  */
-export const createMcpServer = ({ version, resolveContext }: CreateMcpServerOptions): McpServer => {
-  const server = new McpServer({ name: "vibedgames", title: "vibedgames", version });
+export const createMcpServer = ({
+  version,
+  instructions,
+  resolveContext,
+}: CreateMcpServerOptions): McpServer => {
+  const server = new McpServer(
+    { name: "vibedgames", title: "vibedgames", version },
+    { instructions },
+  );
 
   for (const { tool, procedure } of collectTools()) {
     const inputSchema = singleInputSchema(tool, procedure);

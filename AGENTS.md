@@ -159,4 +159,4 @@ For the surfaces marked No, `pnpm typecheck` and `pnpm build` are the gate; a re
 - `games/*` — bundled example games, not platform code
 - `plugins/*/skills/*` — the skills shipped to end users; symlinked into `.claude/skills/` by `pnpm dogfood`
 - `CLAUDE.md` — product context, architectural decisions, command list
-- `/llms.txt`, `/.well-known/agent-skills/index.json`, `/mcp` — machine-readable surfaces served by the web app. `/mcp` is a stateless, read-only MCP server (`apps/web/src/routes/mcp.ts`, logic in `lib/mcp-catalog.ts`) that reads the same skills and install copy; `pnpm check:agent-endpoints` drives all three against a running `dev:web`. The registry entry is `server.json`
+- `/llms.txt`, `/.well-known/agent-skills/index.json`, `/mcp` — machine-readable surfaces served by the web app. `/mcp` is a stateless MCP server (`apps/web/src/routes/mcp.ts`): public catalog tools (`lib/mcp-catalog.ts`) plus one tool per procedure tagged `mcpTool(...)` in `packages/api` (`src/mcp/`), which ask for a Bearer credential only when called; `pnpm check:agent-endpoints` drives all three against a running `dev:web`. The registry entry is `server.json`

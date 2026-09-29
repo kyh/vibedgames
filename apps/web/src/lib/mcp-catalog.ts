@@ -88,5 +88,6 @@ export const serverInstructions = [
   `${siteConfig.name} is an agent-native platform for building, hosting and shipping browser games: the vg CLI plus bundled game-studio skills scaffold a game, generate art and audio, add real-time multiplayer, and deploy it to {slug}.vibedgames.com.`,
   "Call get_started first for the install steps.",
   "Use list_skills to find the craft guide for the job at hand (Phaser, Three.js, pixel art, game feel, multiplayer, deploy, ...) and get_skill to read one in full; search_games lists shipped games to play or learn from.",
-  "This server is read-only: anything that writes — scaffolding, generating assets, deploying — goes through the vg CLI, so install it before acting.",
+  "With a vibedgames account (sign in, or a vg_ API key as a Bearer token) the generate_* tools make images, video, audio and 3D (models → schema → submit → status → result), and the deploy_* tools publish and manage games.",
+  "Scaffolding a project and uploading a local build folder go through the vg CLI.",
 ].join(" ");

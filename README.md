@@ -37,15 +37,17 @@ Full command list: [`apps/cli/README.md`](./apps/cli/README.md).
 
 #### MCP
 
-Clients that can't install skills (Cursor, Codex, ...) can read them, the install
-steps and the shipped games from a read-only remote MCP server:
+Clients that can't install skills or run `vg` (claude.ai, ChatGPT, Cursor, ...)
+can use the remote MCP server. The skills, install steps and shipped games need
+no account; with a vibedgames API key (`vg_...`, sent as a Bearer token) it also
+generates assets and manages deployed games:
 
 ```sh
 claude mcp add --transport http vibedgames https://vibedgames.com/mcp
 ```
 
 Other clients: add `https://vibedgames.com/mcp` as a Streamable HTTP server.
-Building and deploying still go through `vg`.
+Scaffolding and uploading a local build still go through `vg`.
 
 ## Repo layout
 
