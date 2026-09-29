@@ -4,6 +4,7 @@ import { z } from "zod";
 import { documented } from "../openapi";
 import { publicProcedure } from "../orpc";
 import { joinWaitlistInput } from "./waitlist-schema";
+import { notMcpTool } from "../mcp/tool-meta";
 
 const waitlistEntry = z.object({
   email: z.string().nullable(),
@@ -14,6 +15,7 @@ const waitlistEntry = z.object({
 
 export const waitlistRouter = {
   join: publicProcedure
+    .meta(notMcpTool("The public waitlist form."))
     .meta(
       documented({
         description:

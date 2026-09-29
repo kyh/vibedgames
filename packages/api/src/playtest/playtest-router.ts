@@ -12,6 +12,7 @@ import {
 import { documented } from "../openapi";
 import { protectedProcedure } from "../orpc";
 import { mintPlaytestToken } from "./session-token";
+import { notMcpTool } from "../mcp/tool-meta";
 
 // ---- The decision-model proxy -----------------------------------------------
 //
@@ -192,6 +193,7 @@ export const forwardDecision = async (
 
 export const playtestRouter = {
   decide: protectedProcedure
+    .meta(notMcpTool("Called by the in-page playtest agent, not by a model."))
     .meta(
       documented({
         description:
@@ -212,6 +214,7 @@ export const playtestRouter = {
    * page it is driving, which is untrusted code — so this is all it gets.
    */
   session: protectedProcedure
+    .meta(notMcpTool("Mints a token for a local `vg playtest run` browser session."))
     .meta(
       documented({
         description:

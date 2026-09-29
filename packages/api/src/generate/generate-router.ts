@@ -9,6 +9,7 @@ import { documented } from "../openapi";
 import { protectedProcedure } from "../orpc";
 import { callFal, falRequestSchema } from "./fal-call";
 import { endpointPath, requestPath } from "./queue-paths";
+import { mcpTool, notMcpTool } from "../mcp/tool-meta";
 
 // ---- Schemas ------------------------------------------------------------------
 
@@ -72,6 +73,7 @@ const confirmCancelled = async (
 
 export const generateRouter = {
   cancel: protectedProcedure
+    .meta(mcpTool({ access: "destructive", title: "Cancel a generation job" }))
     .meta(
       documented({
         description:
@@ -93,6 +95,7 @@ export const generateRouter = {
     }),
 
   docs: protectedProcedure
+    .meta(mcpTool({ access: "read", title: "Search model docs" }))
     .meta(
       documented({
         description:
@@ -123,6 +126,11 @@ export const generateRouter = {
    */
   forward: protectedProcedure
     .meta(
+      notMcpTool(
+        "Raw provider proxy kept for old CLI releases; the typed generate tools cover it.",
+      ),
+    )
+    .meta(
       documented({
         description:
           "Forwards one request to the media-generation API with the server's key. Superseded by the typed generate procedures; kept for older `vg` releases. Queue submits need a positive credit balance (403 `insufficient_credits` otherwise) and are billed on the result fetch.",
@@ -135,6 +143,7 @@ export const generateRouter = {
     .handler(({ context, input }) => callFal(context, input)),
 
   models: protectedProcedure
+    .meta(mcpTool({ access: "read", title: "Search models" }))
     .meta(
       documented({
         description:
@@ -186,6 +195,7 @@ export const generateRouter = {
     }),
 
   pricing: protectedProcedure
+    .meta(mcpTool({ access: "read", title: "Model pricing" }))
     .meta(
       documented({
         description: "Returns the per-unit price of one model endpoint.",
@@ -205,6 +215,7 @@ export const generateRouter = {
     ),
 
   result: protectedProcedure
+    .meta(mcpTool({ access: "read", title: "Fetch a job result" }))
     .meta(
       documented({
         description:
@@ -224,6 +235,7 @@ export const generateRouter = {
     ),
 
   schema: protectedProcedure
+    .meta(mcpTool({ access: "read", title: "Model schema" }))
     .meta(
       documented({
         description:
@@ -248,6 +260,7 @@ export const generateRouter = {
     }),
 
   status: protectedProcedure
+    .meta(mcpTool({ access: "read", title: "Job status" }))
     .meta(
       documented({
         description:
@@ -268,6 +281,7 @@ export const generateRouter = {
     ),
 
   submit: protectedProcedure
+    .meta(mcpTool({ access: "write", title: "Generate media" }))
     .meta(
       documented({
         description:
@@ -302,6 +316,7 @@ export const generateRouter = {
     }),
 
   uploadSlot: protectedProcedure
+    .meta(mcpTool({ access: "write", title: "Reserve an input upload" }))
     .meta(
       documented({
         description:

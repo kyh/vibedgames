@@ -6,6 +6,7 @@ import type { Db } from "@repo/db/drizzle-client";
 import { ORPCError, os } from "@orpc/server";
 
 import { API_KEY_SESSION_PREFIX, resolveApiKeySession } from "./auth/api-key";
+import { notMcpTool } from "./mcp/tool-meta";
 import { protectedProcedureSpec, publicProcedureSpec, sessionOnlyProcedureSpec } from "./openapi";
 
 /**
@@ -155,7 +156,10 @@ export const sessionOnlyProcedure = protectedProcedure
     }
     return next();
   })
-  .meta(sessionOnlyProcedureSpec);
+  .meta(
+    sessionOnlyProcedureSpec,
+    notMcpTool("Needs an interactive login; MCP sessions count as automation, like API keys."),
+  );
 
 // Admin actions are interactive/web-only — build on `sessionOnlyProcedure` so
 // an admin's API key (which would otherwise pass the role check) can't reach
