@@ -12,7 +12,7 @@ import {
 } from "@tanstack/react-router";
 
 import { NotFoundPage } from "@/components/site/not-found";
-import { varyHeaders } from "@/lib/doc-route";
+import { canonicalUrl, varyHeaders } from "@/lib/doc-route";
 import { siteConfig } from "@/lib/site-config";
 import { serializeJsonLd, siteGraph } from "@/lib/structured-data";
 
@@ -68,19 +68,8 @@ export const Route = createRootRouteWithContext<RouterContext>()({
   notFoundComponent: NotFoundPage,
 });
 
-/**
- * Canonical URL for the page being rendered.
- *
- * Derived from the pathname and never the search string, so the `?game=`
- * variants of `/` — which the router adds on its own via the search default —
- * all consolidate onto the apex URL instead of splitting the entity across a
- * dozen near-duplicate URLs.
- */
-const useCanonical = () => {
-  const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const path = pathname.length > 1 ? pathname.replace(/\/+$/u, "") : "";
-  return `${siteConfig.url}${path}`;
-};
+const useCanonical = () =>
+  canonicalUrl(useRouterState({ select: (state) => state.location.pathname }));
 
 const RootDocument = ({ children }: { children: React.ReactNode }) => {
   const canonical = useCanonical();

@@ -40,14 +40,27 @@ export const varyHeaders =
   (vary: string = VARY) =>
   () => ({ Vary: vary });
 
-/** `<head>` tags for a prose page: title, description, canonical, Open Graph. */
+/**
+ * Absolute canonical URL for a pathname: no trailing slash, and the apex has
+ * no path at all. The search string is never part of it, so the `?game=`
+ * variants of `/` all consolidate onto one URL.
+ */
+export const canonicalUrl = (pathname: string) => {
+  const path = pathname.length > 1 ? pathname.replace(/\/+$/u, "") : "";
+  return `${siteConfig.url}${path}`;
+};
+
+/**
+ * `<head>` tags for a prose page: title, description, Open Graph. The
+ * `<link rel="canonical">` itself comes from the root route, which covers
+ * every page — emitting one here too would give Doc pages two.
+ */
 export const docHead = (doc: Doc) => {
   const title = doc.title.includes(siteConfig.name)
     ? doc.title
     : `${doc.title} — ${siteConfig.name}`;
-  const canonical = `${siteConfig.url}${doc.path}`;
+  const canonical = canonicalUrl(doc.path);
   return {
-    links: [{ href: canonical, rel: "canonical" }],
     meta: [
       { title },
       { content: doc.description, name: "description" },
