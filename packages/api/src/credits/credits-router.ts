@@ -3,6 +3,7 @@ import { z } from "zod";
 import { documented } from "../openapi";
 import { protectedProcedure } from "../orpc";
 import { getBalanceMicro, listEntries } from "./credit-ledger";
+import { mcpTool } from "../mcp/tool-meta";
 
 const creditEntry = z.object({
   createdAt: z.date(),
@@ -26,6 +27,7 @@ const creditEntry = z.object({
  */
 export const creditsRouter = {
   me: protectedProcedure
+    .meta(mcpTool({ access: "read", name: "credits", title: "Credit balance" }))
     .meta(
       documented({
         description:

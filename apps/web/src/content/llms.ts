@@ -43,6 +43,7 @@ Then work from the skills. Common entry points: \`vg new <slug>\` to scaffold, \
 - [Install guide](${url}/install): the one command that installs the skills and the CLI, and what to do when a global npm install is not permitted.
 - [Developer docs](${url}/docs): the full \`vg\` command surface, the HTTP API, authentication, and the npm packages a game imports.
 - [OpenAPI document](${url}/openapi.json): every API operation at \`${url}/api/v1\`, with input, response and error schemas and the credentials each one needs.
+- [MCP server](${url}/mcp): a remote MCP endpoint (Streamable HTTP) for clients that cannot install the skills — install steps, every skill's full text and the shipped games with no account, plus asset generation and deploy management with a vibedgames API key as a Bearer token. Add it with \`claude mcp add --transport http vibedgames ${url}/mcp\`.
 - [Agent skills index](${url}/.well-known/agent-skills/index.json): every bundled skill, with a description and a SHA-256 digest, per the Agent Skills discovery convention.
 - [Source repository](${siteConfig.repository}): the whole platform — web app, CLI, packages, skills, example games — MIT licensed.
 

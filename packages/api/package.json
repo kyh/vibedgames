@@ -16,6 +16,7 @@
     "@better-auth/api-key": "1.7.2",
     "@better-auth/drizzle-adapter": "1.7.2",
     "@better-auth/expo": "1.7.2",
+    "@modelcontextprotocol/server": "^2.1.0",
     "@orpc/openapi": "catalog:",
     "@orpc/server": "catalog:",
     "@repo/db": "workspace:^",

@@ -8,6 +8,7 @@ import { documented } from "../openapi";
 import { protectedProcedure } from "../orpc";
 import { deletePrefix, presignGet, presignPut } from "./r2-presign";
 import { isSlugReserved } from "./reserved-slugs";
+import { mcpTool } from "../mcp/tool-meta";
 
 // ---- Limits ----------------------------------------------------------------
 // (raised 2026-07-06 for baked-world games; see crazy-waymo world artifacts)
@@ -149,6 +150,7 @@ export const deployRouter = {
    * URLs the client uses to upload each file directly to R2.
    */
   create: protectedProcedure
+    .meta(mcpTool({ access: "write", title: "Start a deployment" }))
     .meta(
       documented({
         description:
@@ -267,6 +269,7 @@ export const deployRouter = {
    * deploymentFile) and clear its R2 prefix.
    */
   delete: protectedProcedure
+    .meta(mcpTool({ access: "destructive", title: "Delete a game" }))
     .meta(
       documented({
         description: "Permanently deletes one of the caller's games and all of its deployed files.",
@@ -299,6 +302,7 @@ export const deployRouter = {
    * After this call, `{slug}.vibedgames.com` serves the new files.
    */
   finalize: protectedProcedure
+    .meta(mcpTool({ access: "write", title: "Finalize a deployment" }))
     .meta(
       documented({
         description:
@@ -350,6 +354,7 @@ export const deployRouter = {
    * NOT_FOUND if the slug has no deployment or that deployment shipped none.
    */
   getSource: protectedProcedure
+    .meta(mcpTool({ access: "read", title: "Get a game's source" }))
     .meta(
       documented({
         description:
@@ -400,6 +405,7 @@ export const deployRouter = {
    * List the authenticated user's games.
    */
   list: protectedProcedure
+    .meta(mcpTool({ access: "read", title: "List your games" }))
     .meta(
       documented({
         description:

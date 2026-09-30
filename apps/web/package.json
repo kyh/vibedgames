@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",
+    "@modelcontextprotocol/server": "^2.1.0",
     "@orpc/client": "catalog:",
     "@orpc/json-schema": "catalog:",
     "@orpc/openapi": "catalog:",

@@ -39,6 +39,7 @@ const body = [
   `# Install: ${siteConfig.url}/install`,
   `# Docs: ${siteConfig.url}/docs`,
   `# Agent skills: ${siteConfig.url}/.well-known/agent-skills/index.json`,
+  `# MCP: ${siteConfig.url}/mcp`,
   "",
 ].join("\n");
 

@@ -28,7 +28,8 @@ oRPC API layer. Routers, auth configuration, and procedure helpers shared by the
 Generation is metered; deploys and hosting are free. `src/credits/` owns the
 append-only micro-USD ledger — balance is `SUM(delta_micro)`, there is no cached
 balance column, and idempotency lives in deterministic entry ids
-(`signup:{userId}`, `hold:{requestId}`, …). `generate.forward` blocks submits at
+(`signup:{userId}`, `hold:{requestId}`, …). Every generate proc goes through
+`callFal` (`src/generate/fal-call.ts`), which blocks submits at
 balance ≤ 0, debits an estimated hold, settles to actual provider cost, and
 refunds the hold on a failed/cancelled job. Never write ledger rows from outside
 this directory.

@@ -9,6 +9,7 @@ import { adminProcedure, protectedProcedure, publicProcedure, sessionOnlyProcedu
 import { buildInviteRows, MAX_INVITE_BATCH } from "./invite-create";
 import { inviteCodeAvailabilityClause, normalizeInviteCode } from "./invite-claim";
 import { generateShortCode } from "./utils";
+import { mcpTool, notMcpTool } from "../mcp/tool-meta";
 
 // 5 minutes
 const CLI_CODE_TTL_MS = 5 * 60 * 1000;
@@ -74,6 +75,7 @@ export const authRouter = {
   // CLI device-code flow
   // ---------------------------------------------------------------------------
   cliInit: publicProcedure
+    .meta(notMcpTool("Device-code login for the CLI; MCP clients sign in with OAuth."))
     .meta(
       documented({
         description:
@@ -100,6 +102,7 @@ export const authRouter = {
     }),
 
   cliPoll: publicProcedure
+    .meta(notMcpTool("Device-code login for the CLI; MCP clients sign in with OAuth."))
     .meta(
       documented({
         description:
@@ -227,6 +230,7 @@ export const authRouter = {
   // API keys (both resolve to `context.session` in the oRPC context), so the CLI
   // can use it for `vg whoami` regardless of how it authenticated.
   me: protectedProcedure
+    .meta(mcpTool({ access: "read", name: "whoami", title: "Who am I" }))
     .meta(
       documented({
         description:
@@ -308,6 +312,7 @@ export const authRouter = {
   // hook's so we don't leak which codes exist. The atomic single-use claim
   // still happens inside the hook — success here does NOT reserve the code.
   validateInvite: publicProcedure
+    .meta(notMcpTool("A check for the web sign-up form."))
     .meta(
       documented({
         description:
