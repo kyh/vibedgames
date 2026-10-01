@@ -149,7 +149,7 @@ vg playtest diff snapshot --baseline /tmp/before.txt   # accessibility-tree diff
 
 A baseline taken without freezing the scene first is a flake generator — the freeze checklist and the "when not to take a baseline at all" judgment are in `references/canvas-determinism.md`.
 
-**Against a reference shot** — `scripts/ref-sxs.mjs` puts a locked ref beside a live capture at matched height and writes a blurred twin for the blur test (same genre, same production tier?):
+**Against a reference shot** — `scripts/ref-sxs.mjs` puts a locked ref beside a live capture at matched height and writes a blurred twin for the blur test, which passes only when both halves read as the same genre and production tier:
 
 ```sh
 node $SKILL/scripts/ref-sxs.mjs --ref refs/ref-01.png --game captures/still-01.png --out captures/sxs-01.png

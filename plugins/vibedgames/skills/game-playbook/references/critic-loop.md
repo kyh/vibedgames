@@ -17,13 +17,17 @@ from a text description of a frame.
 Fixes change every frame, so re-capture everything; partial sets are rejected.
 
 1. **Stills** — one per ref, framed to that ref's slot, camera distance and
-   subject. Drive the game to the state with `__GAME_TEST_HOOKS__`, freeze it
-   (`playtest` → `references/canvas-determinism.md`), then
-   `vg playtest screenshot captures/still-NN.png` at ≥ 1920×1080
-   (`vg playtest set viewport 1920 1080`).
+   subject. `vg playtest set viewport 1920 1080` first, then drive the game to
+   the state with `__GAME_TEST_HOOKS__`, freeze it (`playtest` →
+   `references/canvas-determinism.md`), and
+   `vg playtest screenshot captures/still-NN.png`.
 2. **Manifest** — `captures/MANIFEST.md`: file, commit, resolution, scene, matched ref.
-3. **Motion frames** — 8–12 screenshots across a real run: boot/title, core loop,
-   a hit, a win or fail, every HUD state → `captures/motion-NN.png`.
+3. **Motion frames** — record video across a real run (boot/title, core loop,
+   a hit, a win or fail, every HUD state), then slice 8–12 evenly spaced frames
+   to `captures/motion-NN.png` (e.g. `ffmpeg -i run.webm -vf fps=N`). Not live
+   screenshots: a capture stalls the renderer while the clock runs, so it can
+   hide flicker and popping (`playtest` → `references/canvas-determinism.md`;
+   the recording command is in `vg playtest skills get core`).
 4. **Side-by-sides** — per pair, with the `playtest` skill's `ref-sxs.mjs`
    (load `playtest` for how its `$SKILL` resolves):
    `node $SKILL/scripts/ref-sxs.mjs --ref refs/ref-NN-x.png --game captures/still-NN.png --out captures/sxs-NN.png`
@@ -94,10 +98,13 @@ REASON: <what could not be opened>
 ## Running it
 
 - **Validate every verdict** before acting: right format, every `BAR.md`
-  criterion in scope scored, every still cited, no banned phrase, no numbers.
+  criterion in scope scored, every still cited, no banned phrase, no numeric
+  scores, grades or percentages (ids like `R3`, `C2` and punch numbering are fine).
   Invalid → discard and spawn a new critic.
 - **FAIL** → hand the punch list to the builder verbatim. Next round.
 - **RECAPTURE** → fix the captures and re-run. Not a round.
+- **BLOCKED** → stop the loop and tell the user what the critic couldn't open.
+  Re-run with an image-capable critic; never fall back to scoring descriptions.
 - After each round, one status line, then keep going without asking:
   `R<n> FAIL: failing C1, C3; punch items 4; rung none; next: builder R<n+1>`
 - Ten or more rounds is normal when the gap is large. Round count is never a

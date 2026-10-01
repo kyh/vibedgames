@@ -20,7 +20,9 @@ ship before the craft pass.
    game — you will replace its placeholder scene and logo.
    **Looks matter?** (user names a game it should look like, or wants a
    polished/studio pass) — lock 4–8 real reference screenshots and a per-game
-   visual bar _before_ any art: `references/visual-bar.md`.
+   visual bar _before_ any art: `references/visual-bar.md`. A locked bar
+   replaces step 2's order with that file's light-first order (light and grade
+   over placeholders → surfaces → density → HUD → motion).
 2. **Generate the art FIRST.** The route depends on the engine you scaffolded:
 
    **2D (`--engine phaser`)** — see `pixel-art`. Order matters:

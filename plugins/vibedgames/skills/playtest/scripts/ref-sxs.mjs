@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
  * ref-sxs — put a locked reference screenshot beside a live game capture at
- * matched height, plus a blurred variant for the blur test (same genre? same
- * production tier?). Left = ref (red strip on top), right = game (green strip).
+ * matched height, plus a blurred variant for the blur test: both halves must
+ * read as the same genre and production tier. Left = ref (red strip on top),
+ * right = game (green strip).
  *
  * Usage:
  *   node ref-sxs.mjs --ref refs/ref-01.png --game captures/still-01.png --out captures/sxs-01.png
