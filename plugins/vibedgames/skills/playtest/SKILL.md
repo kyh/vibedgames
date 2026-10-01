@@ -149,6 +149,14 @@ vg playtest diff snapshot --baseline /tmp/before.txt   # accessibility-tree diff
 
 A baseline taken without freezing the scene first is a flake generator — the freeze checklist and the "when not to take a baseline at all" judgment are in `references/canvas-determinism.md`.
 
+**Against a reference shot** — `scripts/ref-sxs.mjs` puts a locked ref beside a live capture at matched height and writes a blurred twin for the blur test (same genre, same production tier?):
+
+```sh
+node $SKILL/scripts/ref-sxs.mjs --ref refs/ref-01.png --game captures/still-01.png --out captures/sxs-01.png
+```
+
+The loop that consumes these — locked refs, per-game bar, fresh critic — is `game-playbook` → `references/visual-bar.md` and `references/critic-loop.md`.
+
 A diff catches a change; it can't tell you the frame was wrong to begin with. For 3D, pair the screenshots with the visual-defect rubric in the `threejs` skill (`references/debugging-and-profiling.md` § Visual defects) — z-fighting, shadow acne, wrong color space, and DPR blur all render "successfully" and pass every smoke check.
 
 **Metrics and eyes, both.** Appearance work reports numbers _and_ same-camera before/after pairs; a number that improves while the frame still looks wrong is a failure. A metric is worth most on the first problem and less on every one after — alternate a measured pass with a by-eye pass that carries no number, and ask "would you show this to someone?". A harness check can be true and useless: it covers what it was written for, not the frame.
@@ -190,6 +198,7 @@ A diff catches a change; it can't tell you the frame was wrong to begin with. Fo
 ## Bundled Resources
 
 - `scripts/scripted-playtest.mjs` — the progression-measuring bot; run it, read the JSON report
+- `scripts/ref-sxs.mjs` — reference-vs-capture side-by-side plus blurred twin, for visual-parity review
 - `scripts/lib/harness.mjs` — the bot's `vg playtest` plumbing, held-key and pointer dispatch, motion tracker, boot and seeding
 - `references/scripted-playtest.md` — diagnostics contract, metrics, difficulty/fairness runs
 - `references/autonomous-playtest.md` — `vg playtest run`: making a game playable by the model (`__GAME_PLAYTEST__`), flags, what the model sees, reading a run as a playtest
