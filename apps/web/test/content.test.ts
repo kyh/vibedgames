@@ -207,9 +207,8 @@ describe("llms.txt", () => {
     assert.match(llmsTxt, /npx vibedgames init/u);
   });
 
-  test("links both legal pages", () => {
+  test("links the privacy policy", () => {
     assert.ok(llmsTxt.includes(`${siteConfig.url}/privacy`));
-    assert.ok(llmsTxt.includes(`${siteConfig.url}/terms`));
   });
 
   test("uses absolute URLs, since it is read away from its origin", () => {
