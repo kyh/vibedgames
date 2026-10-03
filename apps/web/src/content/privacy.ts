@@ -217,7 +217,7 @@ const sections: Section[] = [
         "**Declining to provide information.** We need to collect personal information to provide certain services. If you do not provide the information we identify as required or mandatory, we may not be able to provide those services.",
       ),
       p(
-        `**Delete your content or close your account.** You can delete a game, with its files and source, from your games page at [/home](/home), and revoke an API key in [Settings](/settings). To close your account and have its data deleted, email us at ${mail} from the email address on your account.`,
+        `**Delete your content or close your account.** You can delete a game, with its files and source, from your games page at [/home](/home), and revoke an API key in [Settings](/settings). To close your account, email us at ${mail} from the email address on your account: we will delete your games, with their files and source, and then your account and its other data, including your waitlist entry.`,
       ),
     ],
     heading: H.choices,
