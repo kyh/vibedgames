@@ -18,7 +18,7 @@
     "@vibedgames/gamepad": "workspace:^",
     "@vibedgames/multiplayer": "workspace:^",
     "@vibedgames/playtest": "workspace:^",
-    "three": "^0.186.0"
+    "three": "^0.186.1"
   },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
