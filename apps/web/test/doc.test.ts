@@ -98,6 +98,7 @@ const legal: Doc = {
     {
       blocks: [
         table(
+          "What we share",
           ["Data", "Shared with"],
           ["**Contact** data", "[Hosting](/about) | storage"],
           ["Device data", "None"],

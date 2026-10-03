@@ -361,6 +361,7 @@ const sections: Section[] = [
         `**Personal information that we collect, use and disclose.** We have summarized the Personal Information we collect, the purposes for which we collect it and the third parties to whom we may disclose it by reference below to both the categories defined in the ${link(H.collect)} section of this Privacy Policy above and the categories of Personal Information specified in the CCPA (Cal. Civ. Code §1798.140). This chart describes our practices currently and during the 12 months preceding the effective date of this Privacy Policy. Information you voluntarily provide to us, such as in free-form webforms, may contain other categories of personal information not described below.`,
       ),
       table(
+        "Personal information we collect, use and disclose",
         [
           "Personal Information (“PI”) we collect",
           "CCPA statutory category",
@@ -464,6 +465,7 @@ const sections: Section[] = [
         `We have set out below, in a table format, the legal bases we rely on in respect of the relevant Purposes for which we use your personal information — for more information on these Purposes and the data types involved, see ${link(H.use, `‘${H.use}’`)}.`,
       ),
       table(
+        "Our legal bases for processing",
         ["Purpose", "Categories of personal information involved", "Legal basis"],
         [
           "Service delivery and operations",

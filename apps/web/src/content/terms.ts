@@ -76,7 +76,7 @@ export const termsDoc: Doc = {
           "2.8 **Acceptable Use.** You may not use the Site to: (i) host malware, phishing pages or anything that collects credentials or payment details; (ii) publish illegal content, or content that infringes someone else’s rights; (iii) harass, threaten or exploit anyone, especially minors; (iv) attack, overload or probe the Site or other users’ games; or (v) get around generation credits, rate limits or other usage limits. We may remove content or suspend accounts that break these rules, and we may do so without notice.",
         ),
         p(
-          "2.9 **Permitted Uses.** As an exception to Section 2.2, you may crawl and index the pages of vibedgames.com, and use them as input to and for training artificial intelligence models, to the extent our robots.txt file allows.",
+          "2.9 **Permitted Uses.** As an exception to Section 2.2, you may crawl and index the pages of vibedgames.com, and use them as input to, and for training, artificial intelligence models, to the extent our robots.txt file allows.",
         ),
         p(
           `2.10 **Open-Source Software.** The vibedgames source code, including the \`vg\` CLI, the npm packages and the agent skills, is published under the MIT License at [github.com/kyh/vibedgames](${siteConfig.repository}). Source code that we publish under an open-source license, such as the MIT License, is governed by that license, and nothing in these Terms limits your rights under it. These Terms govern the hosted Site.`,

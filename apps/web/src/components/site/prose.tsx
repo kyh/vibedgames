@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { useId } from "react";
 
 import type { Block, Doc, InlineNode } from "@/lib/doc";
 import { headingId, parseInline } from "@/lib/doc";
@@ -60,34 +61,51 @@ const Text = ({ text, tabIndex }: Focus & { text: string }) => (
 
 /**
  * Wide tables scroll inside their own box, so a narrow screen never scrolls
- * the whole page sideways to read one.
+ * the whole page sideways to read one. The box is a named, focusable region,
+ * so a keyboard can scroll it too; a row's first cell names the row.
  */
-const Table = ({ block, tabIndex }: Focus & { block: Extract<Block, { kind: "table" }> }) => (
-  <div className="overflow-x-auto">
-    <table className="text-muted-foreground w-full min-w-[32rem] border-collapse text-left text-xs leading-relaxed">
-      <thead>
-        <tr className="border-b">
-          {block.head.map((cell, j) => (
-            <th key={j} scope="col" className="text-foreground p-2 align-bottom font-medium">
-              <Text text={cell} tabIndex={tabIndex} />
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {block.rows.map((row, i) => (
-          <tr key={i} className="border-b border-dashed last:border-0">
-            {row.map((cell, j) => (
-              <td key={j} className="p-2 align-top">
+const Table = ({ block, tabIndex }: Focus & { block: Extract<Block, { kind: "table" }> }) => {
+  const captionId = useId();
+  return (
+    <section aria-labelledby={captionId} tabIndex={tabIndex ?? 0} className="overflow-x-auto">
+      <table className="text-muted-foreground w-full min-w-[32rem] border-collapse text-left text-xs leading-relaxed">
+        <caption id={captionId} className="sr-only">
+          {block.caption}
+        </caption>
+        <thead>
+          <tr className="border-b">
+            {block.head.map((cell, j) => (
+              <th key={j} scope="col" className="text-foreground p-2 align-bottom font-medium">
                 <Text text={cell} tabIndex={tabIndex} />
-              </td>
+              </th>
             ))}
           </tr>
-        ))}
-      </tbody>
-    </table>
-  </div>
-);
+        </thead>
+        <tbody>
+          {block.rows.map((row, i) => (
+            <tr key={i} className="border-b border-dashed last:border-0">
+              {row.map((cell, j) =>
+                j === 0 ? (
+                  <th
+                    key={j}
+                    scope="row"
+                    className="text-foreground p-2 text-left align-top font-medium"
+                  >
+                    <Text text={cell} tabIndex={tabIndex} />
+                  </th>
+                ) : (
+                  <td key={j} className="p-2 align-top">
+                    <Text text={cell} tabIndex={tabIndex} />
+                  </td>
+                ),
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+};
 
 /** A section's `<h2>`, anchored by {@link headingId} so `#fragment` links land on it. */
 export const SectionHeading = ({ heading }: { heading: string }) => (

@@ -16,12 +16,14 @@ import { siteConfig } from "@/lib/site-config";
 
 /**
  * Table cells are inline text like any other block's, one row per array; a
- * cell holds no line break, because a GFM pipe-table row cannot.
+ * cell holds no line break, because a GFM pipe-table row cannot. A table's
+ * `caption` names it to assistive tech; a GFM table has no caption, so the
+ * markdown leans on the paragraph that introduces it.
  */
 export type Block =
   | { kind: "p"; text: string }
   | { kind: "ul"; items: string[] }
-  | { kind: "table"; head: string[]; rows: string[][] }
+  | { kind: "table"; caption: string; head: string[]; rows: string[][] }
   | { kind: "code"; lang?: string; code: string };
 
 export interface Section {
@@ -49,7 +51,8 @@ export interface Doc {
 /** Block constructors, for docs long enough that object literals bury the text. */
 export const p = (text: string): Block => ({ kind: "p", text });
 export const ul = (...items: string[]): Block => ({ items, kind: "ul" });
-export const table = (head: string[], ...rows: string[][]): Block => ({
+export const table = (caption: string, head: string[], ...rows: string[][]): Block => ({
+  caption,
   head,
   kind: "table",
   rows,

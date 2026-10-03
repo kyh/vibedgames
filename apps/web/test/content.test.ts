@@ -37,6 +37,13 @@ describe("every prose page", () => {
       test("has no site-relative link left in its markdown form", () => {
         assert.doesNotMatch(docToMarkdown(doc), /\]\(\/[^)]*\)/u);
       });
+
+      test("gives each section heading a #fragment of its own", () => {
+        // headingId has no -1 suffix for a repeat, so two sections slugging
+        // alike would share one HTML id.
+        const ids = doc.sections.map((section) => headingId(section.heading));
+        assert.equal(new Set(ids).size, ids.length, `${doc.path} repeats a section heading`);
+      });
     });
   }
 });
