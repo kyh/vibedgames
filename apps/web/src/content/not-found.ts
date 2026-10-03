@@ -33,7 +33,7 @@ export const notFoundDoc = (pathname?: string): Doc => {
               "[/docs](/docs) — the CLI, the API, the packages and the machine-readable endpoints.",
               "[/install](/install) — install the CLI and the agent skills.",
               "[/discover](/discover) — games shipped on the platform.",
-              "[/about](/about) · [/contact](/contact) · [/privacy](/privacy) — who runs this and how to reach them.",
+              "[/about](/about) · [/contact](/contact) · [/privacy](/privacy) · [/terms](/terms) — who runs this, how to reach them, and the rules.",
             ],
             kind: "ul",
           },

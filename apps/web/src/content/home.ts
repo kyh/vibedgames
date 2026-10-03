@@ -62,6 +62,7 @@ export const homeDoc: Doc = {
             "[About](/about) — what Vibedgames is and how it is built.",
             "[Contact](/contact) — support, security and press channels.",
             "[Privacy](/privacy) — what is stored and how to have it deleted.",
+            "[Terms](/terms) — the rules for using the platform and what you deploy to it.",
           ],
           kind: "ul",
         },

@@ -1,10 +1,11 @@
 import { Link } from "@tanstack/react-router";
 
 import type { Block, Doc, InlineNode } from "@/lib/doc";
-import { parseInline } from "@/lib/doc";
+import { headingId, parseInline } from "@/lib/doc";
 import { siteConfig } from "@/lib/site-config";
 
-const isInternal = (href: string) => href.startsWith("/");
+/** A site path or a `#fragment` on this page: no `rel`, same tab. */
+const isInternal = (href: string) => href.startsWith("/") || href.startsWith("#");
 
 const LINK_CLASS = "text-foreground underline underline-offset-4";
 
@@ -57,6 +58,44 @@ const Text = ({ text, tabIndex }: Focus & { text: string }) => (
   <Inline nodes={parseInline(text)} tabIndex={tabIndex} />
 );
 
+/**
+ * Wide tables scroll inside their own box, so a narrow screen never scrolls
+ * the whole page sideways to read one.
+ */
+const Table = ({ block, tabIndex }: Focus & { block: Extract<Block, { kind: "table" }> }) => (
+  <div className="overflow-x-auto">
+    <table className="text-muted-foreground w-full min-w-[32rem] border-collapse text-left text-xs leading-relaxed">
+      <thead>
+        <tr className="border-b">
+          {block.head.map((cell, j) => (
+            <th key={j} scope="col" className="text-foreground p-2 align-bottom font-medium">
+              <Text text={cell} tabIndex={tabIndex} />
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {block.rows.map((row, i) => (
+          <tr key={i} className="border-b border-dashed last:border-0">
+            {row.map((cell, j) => (
+              <td key={j} className="p-2 align-top">
+                <Text text={cell} tabIndex={tabIndex} />
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+);
+
+/** A section's `<h2>`, anchored by {@link headingId} so `#fragment` links land on it. */
+export const SectionHeading = ({ heading }: { heading: string }) => (
+  <h2 id={headingId(heading)} className="scroll-mt-6 text-lg font-medium -tracking-[0.02em]">
+    {heading}
+  </h2>
+);
+
 export const Blocks = ({ blocks, tabIndex }: Focus & { blocks: Block[] }) => (
   <>
     {blocks.map((block, key) => {
@@ -77,6 +116,9 @@ export const Blocks = ({ blocks, tabIndex }: Focus & { blocks: Block[] }) => (
             ))}
           </ul>
         );
+      }
+      if (block.kind === "table") {
+        return <Table key={key} block={block} tabIndex={tabIndex} />;
       }
       return (
         <pre
@@ -158,10 +200,17 @@ export const Prose = ({ doc }: { doc: Doc }) => (
 
     {doc.sections.map((section) => (
       <section key={section.heading} className="space-y-4">
-        <h2 className="text-lg font-medium -tracking-[0.02em]">{section.heading}</h2>
+        <SectionHeading heading={section.heading} />
         <Blocks blocks={section.blocks} />
       </section>
     ))}
+
+    {doc.endnote && (
+      <div className="space-y-4">
+        <hr className="border-dashed" />
+        <Blocks blocks={doc.endnote} />
+      </div>
+    )}
 
     <footer className="text-muted-foreground mt-auto flex flex-wrap gap-x-4 gap-y-2 border-t border-dashed pt-6 font-mono text-xs">
       <SiteLinks current={doc.path} />

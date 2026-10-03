@@ -18,7 +18,7 @@ Worker for the oRPC API.
 | `/`, `/discover`                           | landing + game hub — renders the hardcoded `featuredGames`       |
 | `/build`, `/install`                       | how to build with an agent; CLI install                          |
 | `/docs`                                    | developer docs index — CLI, API, packages, endpoints             |
-| `/about`, `/contact`, `/privacy`           | trust anchors — who runs this, how to reach us, what is stored   |
+| `/about`, `/contact`, `/privacy`, `/terms` | trust anchors — who runs this, how to reach us, what is stored   |
 | `/home`, `/settings`                       | signed-in dashboard: your games, account, credits                |
 | `/admin`                                   | admin-only: users, invites                                       |
 | `/auth/*`                                  | login, register, password reset, and `cli` (device-code confirm) |
@@ -37,7 +37,8 @@ Everything an agent needs to read this site without a browser lives in four
 places, and they share one source of truth so they cannot drift:
 
 - **`src/content/*.ts`** — every prose page is authored once as a `Doc`
-  (`src/lib/doc.ts`). `components/site/prose` renders it as HTML;
+  (`src/lib/doc.ts`). `components/site/prose` renders it as HTML (the Privacy
+  Policy and Terms of Use through the same blocks in `components/legal`);
   `docToMarkdown` serializes the same object to markdown. `/build`'s card deck
   and `/discover`'s gallery read the same `Doc` data the markdown does.
 - **Markdown content negotiation** — `src/lib/content-negotiation.ts` is a

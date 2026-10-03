@@ -30,7 +30,7 @@ export const contactDoc: Doc = {
   lead: [
     {
       kind: "p",
-      text: "Vibedgames is developed in the open, and so is its support. Every channel below is public and monitored by the maintainers — filing in the open means the answer is searchable by the next person, and by the next agent, instead of disappearing into a private inbox.",
+      text: "Vibedgames is developed in the open, and so is its support. Bugs, questions and feature requests are handled in public, where the maintainers monitor them — filing in the open means the answer is searchable by the next person, and by the next agent, instead of disappearing into a private inbox. Anything about your account or your personal information goes to email instead, and suspected vulnerabilities to the private security form.",
     },
   ],
   path: "/contact",
@@ -66,7 +66,7 @@ export const contactDoc: Doc = {
       blocks: [
         {
           kind: "p",
-          text: "Account settings, generation-credit balance and API keys live at [/settings](/settings) once you are signed in. For data export or account deletion, see [Privacy](/privacy), which describes exactly what is stored and how to have it removed.",
+          text: "Account settings, generation-credit balance and API keys live at [/settings](/settings) once you are signed in. For a copy of your data, account deletion or any other privacy request, email the address below from the one on your account; [Privacy](/privacy) describes exactly what is stored and how to have it removed, and the [Terms of Use](/terms) cover your account and what you deploy.",
         },
         ...directBlocks,
       ],

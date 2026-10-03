@@ -21,15 +21,25 @@ export interface SiteContact {
   address: PostalAddress | null;
 }
 
+/**
+ * The person who runs Vibedgames, and where privacy requests and legal notices
+ * go. The Privacy Policy and Terms of Use name both, so unlike the `contact`
+ * fields neither may be unset; `contact.email` is this same mailbox.
+ */
+const operator = {
+  email: "kai@kyh.io",
+  name: "Kaiyu Hsu",
+};
+
 const contact: SiteContact = {
   address: null,
-  email: "kai@kyh.io",
+  email: operator.email,
   telephone: null,
 };
 
 export const siteConfig = {
   author: {
-    name: "Kaiyu Hsu",
+    name: operator.name,
     url: "https://x.com/kaiyuhsu",
   },
   contact,
@@ -38,6 +48,7 @@ export const siteConfig = {
   issues: "https://github.com/kyh/vibedgames/issues",
   name: "Vibedgames",
   npm: "https://www.npmjs.com/package/vibedgames",
+  operator,
   repository: "https://github.com/kyh/vibedgames",
   /**
    * Verifiable public identities for schema.org `sameAs`. Only add a profile

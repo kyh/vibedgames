@@ -14,9 +14,14 @@
 
 import { siteConfig } from "@/lib/site-config";
 
+/**
+ * Table cells are inline text like any other block's, one row per array; a
+ * cell holds no line break, because a GFM pipe-table row cannot.
+ */
 export type Block =
   | { kind: "p"; text: string }
   | { kind: "ul"; items: string[] }
+  | { kind: "table"; head: string[]; rows: string[][] }
   | { kind: "code"; lang?: string; code: string };
 
 export interface Section {
@@ -34,7 +39,33 @@ export interface Doc {
   /** Blocks before the first section heading. */
   lead: Block[];
   sections: Section[];
+  /**
+   * Blocks after the last section, set off by a rule: a credit or footnote
+   * that belongs to no one section.
+   */
+  endnote?: Block[];
 }
+
+/** Block constructors, for docs long enough that object literals bury the text. */
+export const p = (text: string): Block => ({ kind: "p", text });
+export const ul = (...items: string[]): Block => ({ items, kind: "ul" });
+export const table = (head: string[], ...rows: string[][]): Block => ({
+  head,
+  kind: "table",
+  rows,
+});
+
+/**
+ * The anchor id of a section heading, by GitHub's heading-slug rule
+ * (lowercased, punctuation dropped, every space a hyphen), so a `#fragment`
+ * link resolves to the same heading in the HTML page and wherever its
+ * markdown is rendered.
+ */
+export const headingId = (heading: string): string =>
+  heading
+    .toLowerCase()
+    .replaceAll(/[^\p{L}\p{M}\p{N} _-]/gu, "")
+    .replaceAll(" ", "-");
 
 export type InlineNode =
   | { kind: "text"; text: string }
@@ -87,6 +118,10 @@ export const parseInline = (text: string): InlineNode[] => {
 const absolutize = (text: string, baseUrl: string): string =>
   text.replaceAll(/\]\(\/(?!\/)/gu, `](${baseUrl}/`);
 
+/** One GFM pipe-table row. A literal `|` in a cell would end the cell early. */
+const tableRow = (cells: string[], baseUrl: string): string =>
+  `| ${cells.map((cell) => absolutize(cell, baseUrl).replaceAll("|", String.raw`\|`)).join(" | ")} |`;
+
 const blockToMarkdown = (block: Block, baseUrl: string): string => {
   if (block.kind === "p") {
     return absolutize(block.text, baseUrl);
@@ -94,10 +129,21 @@ const blockToMarkdown = (block: Block, baseUrl: string): string => {
   if (block.kind === "ul") {
     return block.items.map((item) => `- ${absolutize(item, baseUrl)}`).join("\n");
   }
+  if (block.kind === "table") {
+    return [
+      tableRow(block.head, baseUrl),
+      `| ${block.head.map(() => "---").join(" | ")} |`,
+      ...block.rows.map((row) => tableRow(row, baseUrl)),
+    ].join("\n");
+  }
   return [`\`\`\`${block.lang ?? ""}`, block.code, "```"].join("\n");
 };
 
-/** Serialize a doc to CommonMark, with site-relative links made absolute. */
+/**
+ * Serialize a doc to CommonMark (plus GFM tables), with site-relative links
+ * made absolute. `#fragment` links stay relative: they point into this same
+ * document, at the heading slugs a GFM renderer generates.
+ */
 export const docToMarkdown = (doc: Doc, baseUrl: string = siteConfig.url): string => {
   const parts: string[] = [`# ${doc.title}`, `> ${absolutize(doc.description, baseUrl)}`];
   for (const block of doc.lead) {
@@ -106,6 +152,12 @@ export const docToMarkdown = (doc: Doc, baseUrl: string = siteConfig.url): strin
   for (const section of doc.sections) {
     parts.push(`## ${section.heading}`);
     for (const block of section.blocks) {
+      parts.push(blockToMarkdown(block, baseUrl));
+    }
+  }
+  if (doc.endnote) {
+    parts.push("---");
+    for (const block of doc.endnote) {
       parts.push(blockToMarkdown(block, baseUrl));
     }
   }
@@ -128,6 +180,9 @@ export const docToText = (doc: Doc): string => {
       if (block.kind === "ul") {
         parts.push(...block.items.map(stripInline));
       }
+      if (block.kind === "table") {
+        parts.push(...[block.head, ...block.rows].map((row) => row.map(stripInline).join("\t")));
+      }
       if (block.kind === "code") {
         parts.push(block.code);
       }
@@ -138,5 +193,6 @@ export const docToText = (doc: Doc): string => {
     parts.push(section.heading);
     push(section.blocks);
   }
+  push(doc.endnote ?? []);
   return parts.join("\n\n");
 };
