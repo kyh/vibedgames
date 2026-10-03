@@ -66,7 +66,7 @@ export const contactDoc: Doc = {
       blocks: [
         {
           kind: "p",
-          text: "Account settings, generation-credit balance and API keys live at [/settings](/settings) once you are signed in. For a copy of your data, account deletion or any other privacy request, email the address below from the one on your account; [Privacy](/privacy) describes exactly what is stored and how to have it removed, and the [Terms of Use](/terms) cover your account and what you deploy.",
+          text: "Account settings, generation-credit balance and API keys live at [/settings](/settings) once you are signed in. For a copy of your data, account deletion or any other privacy request, email the address below from the one on your account; [Privacy](/privacy) describes exactly what is stored and how to have it removed.",
         },
         ...directBlocks,
       ],
