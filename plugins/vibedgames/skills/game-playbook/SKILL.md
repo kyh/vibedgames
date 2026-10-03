@@ -18,6 +18,11 @@ ship before the craft pass.
 1. **Scaffold.** `vg new <slug> --engine phaser` for 2D, `--engine threejs` for
    3D. (See the `phaser` / `threejs` skills.) The template is a skeleton, not a
    game — you will replace its placeholder scene and logo.
+   **Looks matter?** (user names a game it should look like, or wants a
+   polished/studio pass) — lock 4–8 real reference screenshots and a per-game
+   visual bar _before_ any art: `references/visual-bar.md`. A locked bar
+   replaces step 2's order with that file's light-first order (light and grade
+   over placeholders → surfaces → density → HUD → motion).
 2. **Generate the art FIRST.** The route depends on the engine you scaffolded:
 
    **2D (`--engine phaser`)** — see `pixel-art`. Order matters:
@@ -52,6 +57,9 @@ ship before the craft pass.
    move, attack, take a hit, die, restart. A game that only "looks done" in a
    static screenshot usually feels dead in motion. Tune speeds/cooldowns/spawn
    rates until the core loop is satisfying in the first 10 seconds.
+   With a visual bar locked, run the critic loop before shipping: capture,
+   a fresh critic subagent scores against the refs, fix the punch list, repeat
+   until every criterion passes — `references/critic-loop.md`.
 6. **Ship.** `vg deploy ./dist` (see `deploy`); `add multiplayer` / `add touch
 controls` / `make it forkable` are one prompt each (see `multiplayer`,
    `gamepad`, `fork`). Link-shared games get opened on phones — if the game is
@@ -111,6 +119,12 @@ damage). Each is a few lines; together they're the whole difference.
   — normalize to power-of-two cells first (`pixel-art`, `asset-pipeline`).
 - Linear tweens and instant state changes — no anticipation or follow-through.
 - Judging "done" from a static screenshot. **Play it in motion** before shipping.
+- Grading your own art. The builder can't judge its own frames — "close
+  enough" and "fine for a browser game" are tells. Use a fresh critic against
+  real refs (`references/critic-loop.md`).
+- Putting a franchise name or "in the style of <game>" in a generation prompt,
+  or feeding a reference screenshot in as an image input. Describe the look;
+  refs are for review only.
 
 ## Deep modules
 
@@ -134,6 +148,13 @@ This playbook is the index; when a step needs real depth, load the module:
   severity-ranked findings mapped to the modules above.
 - `finish-it` — the project is sprawling or stalled; cut to a shippable core
   and ship it.
+
+References in this skill:
+
+- `references/visual-bar.md` — lock reference shots, decompose the look, write
+  the per-game bar, art order (light first), asset ledger, escalation ladder.
+- `references/critic-loop.md` — capture spec, the fresh-critic prompt and
+  verdict format, punch items, stuck-loop diagnosis, the final eye check.
 
 ## Remember
 
