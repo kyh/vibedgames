@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import type { Doc } from "@/lib/doc";
-import { docToMarkdown, docToText, parseInline } from "@/lib/doc";
+import { docToMarkdown, docToText, headingId, p, parseInline, table, ul } from "@/lib/doc";
 
 const doc: Doc = {
   description: "A [sample](/about) doc.",
@@ -82,5 +82,72 @@ describe("docToText", () => {
     assert.match(text, /A sample doc\./u);
     assert.match(text, /Lead text with code\./u);
     assert.doesNotMatch(text, /\]\(/u);
+  });
+});
+
+/** A doc with every block the legal pages use, to pin their markdown form. */
+const legal: Doc = {
+  description: "A sample legal page.",
+  endnote: [p("A credit that belongs to no section.")],
+  lead: [
+    p("**Index**"),
+    ul("[Who we are](#who-we-are)", "[Tracking & Other Things](#tracking--other-things)"),
+  ],
+  path: "/legal",
+  sections: [
+    {
+      blocks: [
+        table(
+          "What we share",
+          ["Data", "Shared with"],
+          ["**Contact** data", "[Hosting](/about) | storage"],
+          ["Device data", "None"],
+        ),
+      ],
+      heading: "Who we are",
+    },
+    { blocks: [p("Cookies.")], heading: "Tracking & Other Things" },
+  ],
+  title: "Legal",
+};
+
+describe("headingId", () => {
+  test("follows GitHub's heading slugs, so fragments work in rendered markdown too", () => {
+    assert.equal(headingId("Personal information we collect"), "personal-information-we-collect");
+    assert.equal(headingId("Tracking & Other Technologies"), "tracking--other-technologies");
+    assert.equal(headingId("1. Accounts"), "1-accounts");
+    assert.equal(
+      headingId("5. Third-Party Services & Other Users"),
+      "5-third-party-services--other-users",
+    );
+  });
+});
+
+describe("tables and endnotes", () => {
+  const markdown = docToMarkdown(legal, "https://vibedgames.com");
+
+  test("a table is a GFM pipe table: head, rule, one line per row", () => {
+    assert.match(
+      markdown,
+      /\n\| Data \| Shared with \|\n\| --- \| --- \|\n\| \*\*Contact\*\* data \| .+ \|\n\| Device data \| None \|\n/u,
+    );
+  });
+
+  test("a cell's own pipe is escaped, and its links are made absolute", () => {
+    assert.ok(markdown.includes(String.raw`[Hosting](https://vibedgames.com/about) \| storage`));
+  });
+
+  test("#fragment links stay relative to the page", () => {
+    assert.ok(markdown.includes("[Tracking & Other Things](#tracking--other-things)"));
+  });
+
+  test("the endnote follows the last section, after a thematic break", () => {
+    assert.match(markdown, /Cookies\.\n\n---\n\nA credit that belongs to no section\.\n$/u);
+  });
+
+  test("docToText keeps table cells and the endnote", () => {
+    const text = docToText(legal);
+    assert.match(text, /Contact data\tHosting \| storage/u);
+    assert.match(text, /A credit that belongs to no section\./u);
   });
 });

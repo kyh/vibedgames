@@ -1,7 +1,6 @@
-import type { AppRouter } from "@repo/api";
-import type { RouterClient } from "@orpc/server";
+import type { ContractClient } from "@repo/contract";
 import type { RouterUtils } from "@orpc/tanstack-query";
-import { appRouter } from "@repo/api";
+import { appRouter } from "@repo/service";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import { BatchLinkPlugin } from "@orpc/client/plugins";
@@ -13,14 +12,14 @@ import { createContext, use } from "react";
 import { createRpcContext } from "@/auth/server";
 
 export const makeORPCClient = createIsomorphicFn()
-  .server((): RouterClient<AppRouter> =>
+  .server((): ContractClient =>
     createRouterClient(appRouter, {
       // Build server context per oRPC call (not at client creation)
       // because Cloudflare bindings are only available inside a request.
       context: () => createRpcContext(new Headers(getRequestHeaders())),
     }),
   )
-  .client((): RouterClient<AppRouter> => {
+  .client((): ContractClient => {
     const link = new RPCLink({
       plugins: [
         // Pages mount several queries at once (/admin alone opens three) and
@@ -46,7 +45,7 @@ export const makeORPCClient = createIsomorphicFn()
  * server-side client is per-request (Cloudflare bindings), so the utils
  * are built in `getRouter()` and threaded down.
  */
-export type ORPCUtils = RouterUtils<RouterClient<AppRouter>>;
+export type ORPCUtils = RouterUtils<ContractClient>;
 
 const ORPCContext = createContext<ORPCUtils | undefined>(undefined);
 

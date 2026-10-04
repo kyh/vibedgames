@@ -1,0 +1,29 @@
+{
+  "name": "@repo/contract",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./auth/auth-limits": "./src/auth/auth-limits.ts",
+    "./base": "./src/base.ts",
+    "./deploy/deploy-schema": "./src/deploy/deploy-schema.ts",
+    "./generate/generate-schema": "./src/generate/generate-schema.ts",
+    "./json": "./src/json.ts",
+    "./openapi": "./src/openapi.ts",
+    "./playtest/playtest-schema": "./src/playtest/playtest-schema.ts"
+  },
+  "scripts": {
+    "clean": "rm -rf .cache .turbo dist node_modules",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@orpc/contract": "catalog:",
+    "@orpc/openapi": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@kyh/tsconfig": "catalog:",
+    "typescript": "catalog:"
+  }
+}

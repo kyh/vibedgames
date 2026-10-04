@@ -1,6 +1,6 @@
-import type { ORPCContext } from "@repo/api/orpc";
-import { appRouter } from "@repo/api";
-import { MAX_RPC_BODY_BYTES } from "@repo/api/generate/limits";
+import type { ORPCContext } from "@repo/service/orpc";
+import { appRouter } from "@repo/service";
+import { MAX_RPC_BODY_BYTES } from "@repo/service/generate/limits";
 import { SmartCoercionHandlerPlugin } from "@orpc/json-schema";
 import { OpenAPIHandler } from "@orpc/openapi/fetch";
 import { COMMON_ERROR_STATUS_MAP, onError, ORPCError } from "@orpc/server";

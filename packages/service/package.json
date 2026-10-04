@@ -1,0 +1,40 @@
+{
+  "name": "@repo/service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./auth/auth": "./src/auth/auth.ts",
+    "./deploy/r2-presign": "./src/deploy/r2-presign.ts",
+    "./generate/limits": "./src/generate/limits.ts",
+    "./orpc": "./src/orpc.ts",
+    "./playtest/decide-handler": "./src/playtest/decide-handler.ts"
+  },
+  "scripts": {
+    "clean": "rm -rf .cache .turbo dist node_modules",
+    "test": "node --import tsx --test 'src/**/*.test.ts'",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@better-auth/api-key": "1.7.2",
+    "@better-auth/drizzle-adapter": "1.7.2",
+    "@better-auth/expo": "1.7.2",
+    "@orpc/server": "catalog:",
+    "@repo/contract": "workspace:^",
+    "@repo/db": "workspace:^",
+    "aws4fetch": "^1.0.20",
+    "better-auth": "1.7.2",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "catalog:",
+    "@kyh/tsconfig": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "drizzle-orm": "1.0.0-rc.4",
+    "tsx": "^4.23.15",
+    "typescript": "catalog:"
+  }
+}

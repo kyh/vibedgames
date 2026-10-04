@@ -26,10 +26,8 @@
     "tiged": "^2.12.8"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "catalog:",
     "@kyh/tsconfig": "catalog:",
-    "@orpc/server": "catalog:",
-    "@repo/api": "workspace:^",
+    "@repo/contract": "workspace:^",
     "@types/cross-spawn": "^6.0.6",
     "@types/node": "catalog:",
     "typescript": "catalog:"
