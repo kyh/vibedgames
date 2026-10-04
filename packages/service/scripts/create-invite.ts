@@ -28,7 +28,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { MAX_INVITE_BATCH } from "@repo/contract/auth/auth-schema";
+import { MAX_INVITE_BATCH } from "@repo/contract/auth/auth-limits";
 
 import { buildInviteRows } from "../src/auth/invite-create";
 

@@ -1,4 +1,4 @@
-import { INVITE_CODE_LENGTH } from "@repo/contract/auth/auth-schema";
+import { INVITE_CODE_LENGTH } from "@repo/contract/auth/auth-limits";
 
 /**
  * Converts a string to a URL-friendly slug

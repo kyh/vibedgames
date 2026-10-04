@@ -5,7 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./auth/auth-schema": "./src/auth/auth-schema.ts",
+    "./auth/auth-limits": "./src/auth/auth-limits.ts",
     "./base": "./src/base.ts",
     "./deploy/deploy-schema": "./src/deploy/deploy-schema.ts",
     "./generate/generate-schema": "./src/generate/generate-schema.ts",

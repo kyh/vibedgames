@@ -18,7 +18,7 @@ The oRPC API's single source of truth: every procedure's input, output and OpenA
 ## Layout
 
 - `src/base.ts` — `publicBase`, `protectedBase`, `sessionOnlyBase`, `adminBase`: the credentials and error statuses each kind of procedure documents. The service's middleware enforces them.
-- `src/<feature>/<feature>-schema.ts` — zod inputs, and the wire constants clients share (`INVITE_CODE_LENGTH`, the deploy caps).
+- `src/<feature>/<feature>-schema.ts` — zod inputs, and the wire constants clients share (the deploy caps). A constant the browser needs without the schemas sits in a zod-free file beside them: `src/auth/auth-limits.ts` (`INVITE_CODE_LENGTH`), so the signup form pulls no validators into every page.
 - `src/<feature>/<feature>-contract.ts` — each procedure: base, OpenAPI meta, input, output.
 - `src/openapi.ts` — the shared error body, security schemes and `documented()`; `apps/web` feeds `openAPIComponents` into `/openapi.json`.
 

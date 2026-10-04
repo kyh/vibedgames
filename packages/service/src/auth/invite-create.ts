@@ -1,5 +1,5 @@
 import type { inviteCode } from "@repo/db/drizzle-schema";
-import { INVITE_CODE_LENGTH, MAX_INVITE_BATCH } from "@repo/contract/auth/auth-schema";
+import { INVITE_CODE_LENGTH, MAX_INVITE_BATCH } from "@repo/contract/auth/auth-limits";
 
 import { normalizeInviteCode } from "./invite-claim";
 import { generateShortCode } from "./utils";

@@ -1,15 +1,6 @@
 import { z } from "zod";
 
-/**
- * Length of CLI device-codes and invite codes. The single source of truth for
- * this contract: the web signup form enters invite codes through a fixed-length
- * alphanumeric OTP field of this size, so minting (the service's
- * `generateShortCode`) and redemption (the form) can't drift.
- */
-export const INVITE_CODE_LENGTH = 6;
-
-/** Most codes mintable in a single batch — guards against pathological inputs. */
-export const MAX_INVITE_BATCH = 100;
+import { MAX_INVITE_BATCH } from "./auth-limits";
 
 export const codeInput = z.object({ code: z.string() });
 
