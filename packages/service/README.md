@@ -4,7 +4,7 @@ The server half of the oRPC API: implements [`@repo/contract`](../contract) — 
 
 ## Implementing the contract
 
-`src/orpc.ts` builds `os = implement(contract)` and the middlewares that keep each contract base's promise: `requireSession` (`protectedBase`), then `rejectApiKey` (`sessionOnlyBase`), then `requireAdmin` (`adminBase`). Routers apply them on the implementer (`os.<feature>.use(...)`), so they run before input validation, and are plain objects; `src/root-router.ts` mounts them with `os.router`, which fails to compile if a contract procedure is missing or mistyped. `src/root-router.test.ts` drives the real routers to check that each pairing answers before validation.
+`src/orpc.ts` builds `os = implement(contract)` and the middlewares that keep each contract base's promise: `requireSession` (`protectedBase`), then `rejectApiKey` (`sessionOnlyBase`), then `requireAdmin` (`adminBase`). Routers apply them on the implementer (`os.<feature>.use(...)`), so they run before input validation, and are plain objects; `src/root-router.ts` mounts them with `os.router`, which fails to compile if a contract procedure is missing or mistyped. `src/root-router.test.ts` walks every procedure in the real router and checks it answers each kind of caller as its contract base's credential declares, before validation.
 
 ## Stack
 

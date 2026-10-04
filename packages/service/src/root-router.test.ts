@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import type { Credential } from "@repo/contract/base";
+import { getRequiredCredential } from "@repo/contract/base";
 import { createDb } from "@repo/db/drizzle-client";
-import { createRouterClient } from "@orpc/server";
+import type { AnyProcedure } from "@orpc/server";
+import { call, getRouter, ORPCError, Procedure, walkProcedureContractsSync } from "@orpc/server";
 
 import { API_KEY_SESSION_PREFIX } from "./auth/api-key";
 import { createAuth } from "./auth/auth";
@@ -13,9 +16,13 @@ import { appRouter } from "./root-router";
  * the implementer, so they answer before the input schema runs: an anonymous
  * caller sending garbage hears UNAUTHORIZED rather than a BAD_REQUEST that
  * describes the schema, and an API key on a session-only procedure hears
- * FORBIDDEN. Moved onto a procedure, a middleware would run after validation
- * and nothing else in the gate would notice. Each call below is refused
- * before its handler runs, so the database is never reached.
+ * FORBIDDEN. Nothing makes a router apply what its contract base calls for, so
+ * this walks every procedure in `appRouter` and holds it to the credential its
+ * base records: a router that forgets a middleware, or moves one onto a
+ * procedure (where it runs after validation), fails here by name. Every call
+ * sends input no schema accepts. A refusal comes before the handler; a caller
+ * let through to a procedure that takes no input runs its handler, which finds
+ * the database unreachable.
  */
 
 const unavailable = (): never => {
@@ -60,63 +67,101 @@ const sessionFor = (opts: {
   },
 });
 
-const callerAs = (session: ORPCContext["session"]) =>
-  createRouterClient(appRouter, {
-    context: {
-      auth,
-      db,
-      decision: undefined,
-      headers: new Headers(),
-      media: undefined,
-      productionURL: undefined,
-      r2: undefined,
-      session,
-    },
+const contextAs = (session: ORPCContext["session"]): ORPCContext => ({
+  auth,
+  db,
+  decision: undefined,
+  headers: new Headers(),
+  media: undefined,
+  productionURL: undefined,
+  r2: undefined,
+  session,
+});
+
+type Caller = "anonymous" | "apiKey" | "member" | "admin";
+
+const callers: [Caller, ORPCContext][] = [
+  ["anonymous", contextAs(null)],
+  // An admin's key: the role check would let it through, so only the key
+  // check can refuse it.
+  ["apiKey", contextAs(sessionFor({ role: "admin", token: `${API_KEY_SESSION_PREFIX}key-1` }))],
+  ["member", contextAs(sessionFor({ role: "user", token: "session-token" }))],
+  ["admin", contextAs(sessionFor({ role: "admin", token: "session-token" }))],
+];
+
+// What `rejectApiKey` says, which tells its 403 from the role check's.
+const API_KEY_REFUSAL = /interactive login, not an API key/u;
+
+const REFUSALS = new Set(["UNAUTHORIZED", "FORBIDDEN", "FORBIDDEN (API key)"]);
+
+/** Who each credential turns away, and how; everyone else gets through. */
+const refused: Record<Credential, Partial<Record<Caller, string>>> = {
+  admin: { anonymous: "UNAUTHORIZED", apiKey: "FORBIDDEN (API key)", member: "FORBIDDEN" },
+  any: { anonymous: "UNAUTHORIZED" },
+  none: {},
+  session: { anonymous: "UNAUTHORIZED", apiKey: "FORBIDDEN (API key)" },
+};
+
+// Every input schema is an object.
+const GARBAGE = "not an input";
+
+/** How a call ended: the oRPC code it was answered with, or how else it ended. */
+const outcomeOf = async (procedure: AnyProcedure, context: ORPCContext): Promise<string> => {
+  try {
+    await call(procedure, GARBAGE, { context });
+    return "answered";
+  } catch (error) {
+    if (!(error instanceof ORPCError)) {
+      return "failed outside oRPC";
+    }
+    return error.code === "FORBIDDEN" && API_KEY_REFUSAL.test(error.message)
+      ? "FORBIDDEN (API key)"
+      : error.code;
+  }
+};
+
+interface Entry {
+  name: string;
+  credential: Credential | undefined;
+  takesInput: boolean;
+  procedure: AnyProcedure | undefined;
+}
+
+const entries: Entry[] = [];
+const lazyRouters = walkProcedureContractsSync(appRouter, (declared, path) => {
+  const implemented = getRouter(appRouter, path);
+  entries.push({
+    credential: getRequiredCredential(declared),
+    name: path.join("."),
+    procedure: implemented instanceof Procedure ? implemented : undefined,
+    takesInput: (declared["~orpc"].inputSchemas ?? []).length > 0,
   });
-
-const anonymous = callerAs(null);
-const member = callerAs(sessionFor({ role: "user", token: "session-token" }));
-const administrator = callerAs(sessionFor({ role: "admin", token: "session-token" }));
-const adminApiKey = callerAs(
-  sessionFor({ role: "admin", token: `${API_KEY_SESSION_PREFIX}key-1` }),
-);
-
-const emptyDeploy = { files: [], slug: "" };
-const badGrant = { amountUsd: 0, key: "not-a-uuid", userId: "" };
-const grant = { amountUsd: 5, key: crypto.randomUUID(), userId: "user-2" };
-const apiKeyRefusal = { code: "FORBIDDEN", message: /interactive login, not an API key/u };
+});
 
 describe("procedure authorization", () => {
-  test("validates a public procedure's input for anyone", async () => {
-    await assert.rejects(anonymous.waitlist.join({ email: "not-an-email" }), {
-      code: "BAD_REQUEST",
+  test("reaches every procedure", () => {
+    assert.deepEqual(lazyRouters, [], "a lazy router's procedures would go unchecked");
+    assert.ok(entries.some((entry) => entry.name === "admin.credits.grant"));
+    for (const { name, credential, procedure } of entries) {
+      assert.ok(credential, `${name} is not built on a base from @repo/contract/base`);
+      assert.ok(procedure, `${name} has no implementation in appRouter`);
+    }
+  });
+
+  for (const { name, credential, takesInput, procedure } of entries) {
+    test(`${name} answers each caller as its base (${credential}) declares`, async () => {
+      assert.ok(credential && procedure);
+      for (const [caller, context] of callers) {
+        const outcome = await outcomeOf(procedure, context);
+        const refusal: string | undefined = refused[credential][caller];
+        if (refusal) {
+          assert.equal(outcome, refusal, `${name} as ${caller}`);
+        } else if (takesInput) {
+          assert.equal(outcome, "BAD_REQUEST", `${name} as ${caller}`);
+        } else {
+          assert.ok(!REFUSALS.has(outcome), `${name} as ${caller} was refused: ${outcome}`);
+        }
+      }
     });
-  });
-
-  test("rejects unauthenticated callers before validating input", async () => {
-    await assert.rejects(anonymous.deploy.create(emptyDeploy), { code: "UNAUTHORIZED" });
-    await assert.rejects(anonymous.apiKeys.create({ name: "" }), { code: "UNAUTHORIZED" });
-    await assert.rejects(anonymous.admin.credits.grant(badGrant), { code: "UNAUTHORIZED" });
-  });
-
-  test("validates input once the caller is signed in", async () => {
-    await assert.rejects(member.deploy.create(emptyDeploy), { code: "BAD_REQUEST" });
-    await assert.rejects(member.apiKeys.create({ name: "" }), { code: "BAD_REQUEST" });
-  });
-
-  test("lets an API key through protected procedures only", async () => {
-    const me = await adminApiKey.auth.me();
-    assert.equal(me.id, "user-1");
-    await assert.rejects(adminApiKey.deploy.create(emptyDeploy), { code: "BAD_REQUEST" });
-    await assert.rejects(adminApiKey.apiKeys.create({ name: "" }), apiKeyRefusal);
-    await assert.rejects(adminApiKey.auth.cliConfirm({ code: "" }), apiKeyRefusal);
-    // An admin's key passes the role check, so the key check has to come first.
-    await assert.rejects(adminApiKey.admin.credits.grant(grant), apiKeyRefusal);
-  });
-
-  test("rejects a non-admin before validating input", async () => {
-    await assert.rejects(member.admin.credits.grant(badGrant), { code: "FORBIDDEN" });
-    await assert.rejects(member.auth.updateInvite({ id: "" }), { code: "FORBIDDEN" });
-    await assert.rejects(administrator.admin.credits.grant(badGrant), { code: "BAD_REQUEST" });
-  });
+  }
 });
