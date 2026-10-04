@@ -8,7 +8,7 @@ Worker for the oRPC API.
 - [TanStack Start](https://tanstack.com/start) + React 19
 - [Cloudflare Workers](https://workers.cloudflare.com) via `@cloudflare/vite-plugin`
 - [better-auth](https://better-auth.com) for authentication
-- [oRPC](https://orpc.unnoq.com) for API layer ([`@repo/api`](../../packages/api) runs inside this Worker)
+- [oRPC](https://orpc.unnoq.com) for API layer ([`@repo/service`](../../packages/service) implements [`@repo/contract`](../../packages/contract) inside this Worker)
 - [Tailwind CSS 4](https://tailwindcss.com) + [`@repo/ui`](../../packages/ui)
 
 ## Surfaces

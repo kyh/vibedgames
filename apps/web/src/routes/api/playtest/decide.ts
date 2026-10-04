@@ -1,4 +1,4 @@
-import { handlePlaytestDecide } from "@repo/api/playtest/decide-handler";
+import { handlePlaytestDecide } from "@repo/service/playtest/decide-handler";
 import { createFileRoute } from "@tanstack/react-router";
 
 import { getServerContext } from "@/auth/server";

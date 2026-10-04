@@ -107,7 +107,7 @@ pnpm verify   # typecheck · lint · format · test
 
 **Lint is a clean gate.** `oxlint.config.ts` extends the ultracite presets (`ultracite/oxlint/core`, `react`, `anti-slop`); every rule is an error and `lint` fails on the first one. `no-await-in-loop` is the one deliberate override (sequential awaits are intentional). Prefer fixing code over `oxlint-disable` comments; when a rule is genuinely wrong for a line, disable that line with a `-- reason`.
 
-`pnpm test` covers the `vg` CLI's unit suites, the deterministic sim scripts in four example games, and `apps/web`'s content-negotiation / structured-data / page-content units. Nothing in `verify` renders a route or drives a browser, and there is still no test for `packages/api` — so a green `verify` is a floor, not proof. Drive the change: `vg playtest` for games (see the `playtest` skill), the recipe below for the web app.
+`pnpm test` covers the `vg` CLI's unit suites, the deterministic sim scripts in four example games, and `apps/web`'s content-negotiation / structured-data / page-content units. Nothing in `verify` renders a route, drives a browser or runs a procedure against a database (`packages/service`'s suites stop at middleware, auth config and the playtest proxy) — so a green `verify` is a floor, not proof. Drive the change: `vg playtest` for games (see the `playtest` skill), the recipe below for the web app.
 
 Runtime — the web app and the example games are both browser-reachable. `vg playtest` is the one browser driver (a passthrough to agent-browser; it installs itself and its browser on first use, so there is nothing to set up beyond `pnpm dogfood`). With `pnpm dev:web` running:
 
@@ -145,7 +145,7 @@ For the surfaces marked No, `pnpm typecheck` and `pnpm build` are the gate; a re
 ## Rules that matter
 
 - **Never `wrangler deploy` locally.** Deploys happen from GitHub Actions on push to `main`.
-- **`vg deploy` against `localhost` is safe — but only `localhost`.** When the Host header is `localhost[:port]`, `presignPut`/`presignGet` hand back HMAC-signed `/api/r2-upload` and `/api/r2-download` proxy URLs, so bytes land in the Miniflare-simulated `GAMES_BUCKET`, not prod R2 (`packages/api/src/deploy/r2-presign.ts`); `deletePrefix` always goes through the binding. The `R2_*` values in the root `.env` only need to be non-empty for the config to be constructed — dummies work. The check is on the literal host string, so pointing the CLI at `http://127.0.0.1:5173` bypasses the proxy and presigns against **production** R2.
+- **`vg deploy` against `localhost` is safe — but only `localhost`.** When the Host header is `localhost[:port]`, `presignPut`/`presignGet` hand back HMAC-signed `/api/r2-upload` and `/api/r2-download` proxy URLs, so bytes land in the Miniflare-simulated `GAMES_BUCKET`, not prod R2 (`packages/service/src/deploy/r2-presign.ts`); `deletePrefix` always goes through the binding. The `R2_*` values in the root `.env` only need to be non-empty for the config to be constructed — dummies work. The check is on the literal host string, so pointing the CLI at `http://127.0.0.1:5173` bypasses the proxy and presigns against **production** R2.
 - **Never push schema to remote.** `pnpm db:push-remote` is the only command that touches production D1; it is the only one that reads `.env.production.local`. `pnpm db:push`, `db:studio` and `db:local` are local-only.
 - **Every mutation invalidates exactly the query keys it touches**, in its own `onSuccess`. There is no blanket invalidation in the query client; if a write should refresh a list, say so at the call site.
 - **No `any`, no non-null `!`, no `as` casts. Kebab-case filenames.** Make illegal states unrepresentable.
@@ -155,7 +155,7 @@ For the surfaces marked No, `pnpm typecheck` and `pnpm build` are the gate; a re
 ## Map
 
 - `apps/web` — the platform app (routes, auth, oRPC handler) · `apps/party` — multiplayer DO · `apps/games` — R2 game server · `apps/cli` — the published `vg` CLI · `apps/factory` — Bun/OpenTUI orchestrator
-- `packages/api` — oRPC routers, auth config, credits ledger · `packages/db` — Drizzle schema (source of truth for the data model) + `seed.sql` · `packages/ui`, `packages/multiplayer`, `packages/gamepad`, `packages/playtest`, `packages/embed`
+- `packages/contract` — the oRPC contract: inputs, outputs, OpenAPI meta · `packages/service` — its implementation: routers, auth config, credits ledger · `packages/db` — Drizzle schema (source of truth for the data model) + `seed.sql` · `packages/ui`, `packages/multiplayer`, `packages/gamepad`, `packages/playtest`, `packages/embed`
 - `games/*` — bundled example games, not platform code
 - `plugins/*/skills/*` — the skills shipped to end users; symlinked into `.claude/skills/` by `pnpm dogfood`
 - `CLAUDE.md` — product context, architectural decisions, command list

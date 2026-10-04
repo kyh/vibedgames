@@ -1,4 +1,4 @@
-import { verifyProxyDownloadUrl } from "@repo/api/deploy/r2-presign";
+import { verifyProxyDownloadUrl } from "@repo/service/deploy/r2-presign";
 import { createFileRoute } from "@tanstack/react-router";
 
 import { getServerContext } from "@/auth/server";

@@ -12,7 +12,6 @@
     "with-env": "dotenv -e ../../.env --"
   },
   "dependencies": {
-    "@repo/api": "workspace:^",
     "@repo/db": "workspace:^",
     "@vibedgames/multiplayer": "workspace:^"
   },
