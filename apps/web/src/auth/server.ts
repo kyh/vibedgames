@@ -1,6 +1,6 @@
-import type { DecisionProviderConfig, MediaProviderConfig, R2Config } from "@repo/api/orpc";
-import { createAuth as initAuth } from "@repo/api/auth/auth";
-import { createORPCContext } from "@repo/api/orpc";
+import type { DecisionProviderConfig, MediaProviderConfig, R2Config } from "@repo/service/orpc";
+import { createAuth as initAuth } from "@repo/service/auth/auth";
+import { createORPCContext } from "@repo/service/orpc";
 import { createDb } from "@repo/db/drizzle-client";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 

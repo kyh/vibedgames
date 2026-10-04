@@ -1,12 +1,11 @@
-import type { AppRouter, RouterInputs } from "@repo/api";
-import type { RouterClient } from "@orpc/server";
+import type { ContractClient, RouterInputs } from "@repo/contract";
 import { createORPCClient, ORPCError } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 
 import { getBaseUrl, getToken } from "./config.js";
 import type { JsonValue } from "./types.js";
 
-const makeClient = (baseUrl: string, token?: string): RouterClient<AppRouter> =>
+const makeClient = (baseUrl: string, token?: string): ContractClient =>
   createORPCClient(
     new RPCLink({
       headers: () => (token ? { Authorization: `Bearer ${token}` } : {}),
@@ -16,7 +15,7 @@ const makeClient = (baseUrl: string, token?: string): RouterClient<AppRouter> =>
   );
 
 /** Authenticated client — requires a saved session token. */
-export const createClient = (): RouterClient<AppRouter> => {
+export const createClient = (): ContractClient => {
   const token = getToken();
 
   if (!token) {
@@ -39,9 +38,9 @@ type ForwardInput = RouterInputs["generate"]["forward"];
  * asserting a shape at the call site.
  */
 export const forwardJson = async (
-  client: RouterClient<AppRouter>,
+  client: ContractClient,
   input: ForwardInput,
 ): Promise<JsonValue> => await client.generate.forward(input);
 
 /** Unauthenticated client — for login flow. */
-export const createPublicClient = (baseUrl: string): RouterClient<AppRouter> => makeClient(baseUrl);
+export const createPublicClient = (baseUrl: string): ContractClient => makeClient(baseUrl);
