@@ -13,23 +13,25 @@ Worker for the oRPC API.
 
 ## Surfaces
 
-| Route                                      | What                                                             |
-| ------------------------------------------ | ---------------------------------------------------------------- |
-| `/`, `/discover`                           | landing + game hub — renders the hardcoded `featuredGames`       |
-| `/build`, `/install`                       | how to build with an agent; CLI install                          |
-| `/docs`                                    | developer docs index — CLI, API, packages, endpoints             |
-| `/about`, `/contact`, `/privacy`, `/terms` | trust anchors — who runs this, how to reach us, what is stored   |
-| `/home`, `/settings`                       | signed-in dashboard: your games, account, credits                |
-| `/admin`                                   | admin-only: users, invites                                       |
-| `/auth/*`                                  | login, register, password reset, and `cli` (device-code confirm) |
-| `/api/orpc/*`, `/api/auth/*`               | oRPC + better-auth handlers                                      |
-| `/api/v1/*`, `/openapi.json`               | the same router as plain-JSON REST, and its OpenAPI 3.1 document |
-| `/.well-known/api-catalog`                 | RFC 9727 catalog pointing at `/openapi.json` and `/docs`         |
-| `/api/*` (unmatched)                       | JSON `404` (`src/routes/api/$.ts`)                               |
-| `/api/r2-upload`, `/api/r2-download`       | local-dev R2 proxy (HMAC-signed, `localhost` Host only)          |
-| `/.well-known/agent-skills/*`              | the vibedgames skills, served for agents to fetch                |
-| `/llms.txt`, `/robots.txt`, `/sitemap.xml` | machine-readable site descriptions                               |
-| anything else                              | `404` with a markdown recovery note (`src/routes/$.tsx`)         |
+| Route                                      | What                                                                                      |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `/`, `/discover`                           | landing + game hub — renders the hardcoded `featuredGames`                                |
+| `/build`, `/install`                       | how to build with an agent; CLI install                                                   |
+| `/docs`                                    | developer docs index — CLI, API, packages, endpoints                                      |
+| `/about`, `/contact`, `/privacy`, `/terms` | trust anchors — who runs this, how to reach us, what is stored                            |
+| `/home`, `/settings`                       | signed-in dashboard: your games, account, credits                                         |
+| `/admin`                                   | admin-only: users, invites                                                                |
+| `/auth/*`                                  | login, register, password reset, and `cli` (device-code confirm)                          |
+| `/api/orpc/*`, `/api/auth/*`               | oRPC + better-auth handlers                                                               |
+| `/api/v1/*`, `/openapi.json`               | the same router as plain-JSON REST, and its OpenAPI 3.1 document                          |
+| `/.well-known/api-catalog`                 | RFC 9727 catalog pointing at `/openapi.json` and `/docs`                                  |
+| `/api/*` (unmatched)                       | JSON `404` (`src/routes/api/$.ts`)                                                        |
+| `/api/r2-upload`, `/api/r2-download`       | local-dev R2 proxy (HMAC-signed, `localhost` Host only)                                   |
+| `/api/playtest/decide`                     | the in-page playtester's decisions: cross-origin, honours only a `playtest.session` token |
+| `/api/trpc/*`                              | legacy: tells CLI copies up to 0.4.x to upgrade                                           |
+| `/.well-known/agent-skills/*`              | the vibedgames skills, served for agents to fetch                                         |
+| `/llms.txt`, `/robots.txt`, `/sitemap.xml` | machine-readable site descriptions                                                        |
+| anything else                              | `404` with a markdown recovery note (`src/routes/$.tsx`)                                  |
 
 ## The agent-facing contract
 

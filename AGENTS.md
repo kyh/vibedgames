@@ -107,7 +107,7 @@ pnpm verify   # typecheck · lint · format · test
 
 **Lint is a clean gate.** `oxlint.config.ts` extends the ultracite presets (`ultracite/oxlint/core`, `react`, `anti-slop`); every rule is an error and `lint` fails on the first one. `no-await-in-loop` is the one deliberate override (sequential awaits are intentional). Prefer fixing code over `oxlint-disable` comments; when a rule is genuinely wrong for a line, disable that line with a `-- reason`.
 
-`pnpm test` covers the `vg` CLI's unit suites, the deterministic sim scripts in four example games, and `apps/web`'s content-negotiation / structured-data / page-content units. Nothing in `verify` renders a route, drives a browser or runs a procedure against a database (`packages/service`'s suites stop at middleware, auth config and the playtest proxy) — so a green `verify` is a floor, not proof. Drive the change: `vg playtest` for games (see the `playtest` skill), the recipe below for the web app.
+`pnpm test` runs each workspace's own suite: the `vg` CLI's units, the sims and smoke checks in ten of the example games, `apps/web`'s content-negotiation / structured-data / page-content / OpenAPI / oRPC-handler units, the games and party workers under workerd, and the packages' units. Nothing in `verify` renders a web route, drives a browser or runs a procedure against a database (`packages/service`'s suites stop at middleware, auth config, and the generate and playtest proxies against a stubbed upstream) — so a green `verify` is a floor, not proof. Drive the change: `vg playtest` for games (see the `playtest` skill), the recipe below for the web app.
 
 Runtime — the web app and the example games are both browser-reachable. `vg playtest` is the one browser driver (a passthrough to agent-browser; it installs itself and its browser on first use, so there is nothing to set up beyond `pnpm dogfood`). With `pnpm dev:web` running:
 
@@ -155,7 +155,7 @@ For the surfaces marked No, `pnpm typecheck` and `pnpm build` are the gate; a re
 ## Map
 
 - `apps/web` — the platform app (routes, auth, oRPC handler) · `apps/party` — multiplayer DO · `apps/games` — R2 game server · `apps/cli` — the published `vg` CLI · `apps/factory` — Bun/OpenTUI orchestrator
-- `packages/contract` — the oRPC contract: inputs, outputs, OpenAPI meta · `packages/service` — its implementation: routers, auth config, credits ledger · `packages/db` — Drizzle schema (source of truth for the data model) + `seed.sql` · `packages/ui`, `packages/multiplayer`, `packages/gamepad`, `packages/playtest`, `packages/embed`
+- `packages/contract` — the oRPC contract: inputs, outputs, OpenAPI meta · `packages/service` — its implementation: routers, auth config, credits ledger · `packages/db` — Drizzle schema (source of truth for the data model) + `seed.sql` · `packages/ui`, `packages/multiplayer`, `packages/gamepad`, `packages/playtest`, `packages/embed`, `packages/asset-tools` (the image logic bundled into the skills' scripts)
 - `games/*` — bundled example games, not platform code
 - `plugins/*/skills/*` — the skills shipped to end users; symlinked into `.claude/skills/` by `pnpm dogfood`
 - `CLAUDE.md` — product context, architectural decisions, command list

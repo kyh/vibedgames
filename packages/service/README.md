@@ -18,8 +18,8 @@ The server half of the oRPC API: implements [`@repo/contract`](../contract) — 
 Generation is metered; deploys and hosting are free. `src/credits/` owns the
 append-only micro-USD ledger — balance is `SUM(delta_micro)`, there is no cached
 balance column, and idempotency lives in deterministic entry ids
-(`signup:{userId}`, `hold:{requestId}`, …). `generate.forward` blocks submits at
-balance ≤ 0, debits an estimated hold, settles to actual provider cost, and
+(`signup:{userId}`, `hold:{requestId}`, …). `generate.forward` blocks a non-admin's
+submits at balance ≤ 0, debits an estimated hold, settles to actual provider cost, and
 refunds the hold on a failed/cancelled job. Never write ledger rows from outside
 this directory.
 

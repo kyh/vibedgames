@@ -28,7 +28,7 @@
 - **Multiplayer is host-authoritative, last-write-wins.** No conflict resolution. First player becomes host; if host leaves, reassigns. Good for turn-based and host-controlled games.
 - **Plugins ship from a mirror repo.** `kyh/vibedgames-plugins` holds only `plugins/`, `.claude-plugin/` and `LICENSE`, synced by `.github/workflows/sync-plugins.yml` (deploy key in the `PLUGINS_MIRROR_DEPLOY_KEY` secret). `vg init` and the plugin directory listing point at the mirror because both download a whole repo archive and this one is ~140 MiB compressed. Edit skills here; anything committed straight to the mirror is overwritten on the next sync.
 - **Deploy on push to main.** GitHub Actions detects changed apps and deploys via wrangler. Never run `wrangler deploy` locally. Changed example games (`games/*`, plus anything downstream of a changed package) deploy the same way through `vg deploy`, authenticated by the `VG_TOKEN` repo secret — an API key from Settings.
-- **Per-user generation credits (micro-USD ledger).** Every account gets a $20 signup grant, materialized lazily on first credit access. `credit_entry` is an append-only ledger of integer micro-USD deltas — balance is `SUM(delta_micro)`, there is no cached balance column, and idempotency lives in deterministic entry ids (`signup:{userId}`, `hold:{requestId}`, ...). `generation` tracks the per-request lifecycle: `generate.forward` blocks queue submits at balance ≤ 0, debits an estimated hold at submit (provider historical per-call estimate, clamped $0.01–$5), settles to actual cost from the `x-fal-billable-units` result-fetch header, and refunds holds when a status poll reports FAILED/CANCELLED. Only generation is metered; deploys/hosting are free. Never bypass the gate or write ledger rows outside `packages/service/src/credits/`.
+- **Per-user generation credits (micro-USD ledger).** Every account gets a $20 signup grant, materialized lazily on first credit access. `credit_entry` is an append-only ledger of integer micro-USD deltas — balance is `SUM(delta_micro)`, there is no cached balance column, and idempotency lives in deterministic entry ids (`signup:{userId}`, `hold:{requestId}`, ...). `generation` tracks the per-request lifecycle: `generate.forward` blocks a non-admin's queue submits at balance ≤ 0 (an admin's are metered but never blocked), debits an estimated hold at submit (provider historical per-call estimate, clamped $0.01–$5), settles to actual cost from the `x-fal-billable-units` result-fetch header, and refunds holds when a status poll reports FAILED/CANCELLED. Only generation is metered; deploys/hosting are free. Never bypass the gate or write ledger rows outside `packages/service/src/credits/`.
 - **Playtest decisions go through TypeSafe Jev (internal only).** `vg playtest run` lets a model play a game. The loop runs _inside the game's page_ (`apps/cli/src/lib/playtest/agent.ts`, injected as source): several times a second it reads `__GAME_DIAGNOSTICS__`, POSTs to `/api/playtest/decide` and holds the answer as real input, with an optional per-frame `reflex` from the game's `window.__GAME_PLAYTEST__` manifest for fast games. Every decision also asks a `score` question — the model's own 0–1 read of progress towards the goal — which the report carries as `decisions.progress`; it is advisory, never a gate. That endpoint is cross-origin and cookie-blind by design — the page is untrusted user code — and honours only a 15-minute HMAC token minted by `playtest.session` for that run (`packages/service/src/playtest/session-token.ts`, signed with `BETTER_AUTH_SECRET`). The server holds `TYPESAFE_API_KEY` and forwards exactly one System One request shape — state plus typed questions — so neither the token nor the key can be used for anything else. Not metered: a run costs a fraction of a cent, and the per-call caps (64 KB state, 32 questions) bound it. `games/pong` is the reference manifest, reflex included. **The globals are the contract; `@vibedgames/playtest` (`packages/playtest`) only types and publishes them** — a game may set them by hand, and the CLI never depends on the package.
 - **Media goes through fal (internal only).** `vg generate` exposes `run`, `models`, `schema`, `upload`, `pricing`, `status`, `docs`. The server holds `FAL_API_KEY`; the CLI proxies through the API. fal is a gateway to OpenAI, Veo, Sora, Kling, Flux, ElevenLabs, Retro Diffusion, etc. — there's no per-provider routing. **End-user-facing surfaces (the `vg generate` CLI help and the skills under `plugins/vibedgames/skills/`) must not name fal as a brand.** To the user this is just a CLI that generates assets; "fal" stays an implementation detail. The one exception is model endpoint IDs: they're passed through verbatim (e.g. `fal-ai/flux/dev`, `bytedance/seedance-2.0/...`), exactly as the upstream API expects — the CLI does no id rewriting. Keep branding out of prose and help text, but never alter an endpoint ID.
 
@@ -36,7 +36,7 @@
 
 - **Monorepo**: pnpm workspaces + Turborepo
 - **Web app**: TanStack Start (React 19, Vite SSR) on Cloudflare Workers
-- **Styling**: Tailwind CSS 4 + Radix UI primitives
+- **Styling**: Tailwind CSS 4 + Base UI primitives
 - **Backend**: oRPC, Drizzle ORM, Cloudflare D1 (SQLite)
 - **Auth**: better-auth (manages user/session/account tables — don't modify directly)
 - **Multiplayer**: PartyServer (Cloudflare Durable Objects)
@@ -50,19 +50,19 @@ apps/
   party/       # PartyServer for multiplayer (@repo/party)
   games/       # Cloudflare Worker serving user-uploaded games (@repo/games)
   cli/         # CLI tool (vibedgames — published to npm)
-games/         # Bundled example games (not platform code)
-  flappy-dragons/ # (@repo/flappy-dragons)
-  pacman/      # (@repo/pacman)
-  tetris/      # (@repo/tetris)
-  pong/        # (@repo/pong)
-  starfall/    # (@repo/starfall)
+  factory/     # Autonomous agent that builds and runs a game (@repo/factory)
+games/         # Bundled example games, one @repo/<name> package each (not platform code):
+               # battle-arena, bomberman, crazy-waymo, farm, flappy-dragons, lunerfall,
+               # moba, pacman, pong, showdown, starfall, tetris
 packages/
   contract/    # oRPC contract: zod inputs, outputs, OpenAPI meta (@repo/contract)
   service/     # oRPC implementation of the contract, better-auth, credits ledger (@repo/service)
-  db/          # Drizzle schema + migrations (@repo/db) — source of truth for data model
+  db/          # Drizzle schema + client (@repo/db) — source of truth for data model
   multiplayer/ # Shared multiplayer hooks (@vibedgames/multiplayer) — published to npm
   gamepad/     # Touch + physical controller input (@vibedgames/gamepad) — published to npm
   playtest/    # The playtest contract as types + publishers (@vibedgames/playtest) — published to npm
+  embed/       # postMessage bridge between an embedded game and its wrapper (@repo/embed)
+  asset-tools/ # Image + sprite-sheet logic bundled into the skills' scripts (@repo/asset-tools)
   ui/          # Shared UI components (@repo/ui)
 plugins/       # The vibedgames Claude Code plugin (plugins/vibedgames/skills/*, one plugin, 35 skills)
                # skills/* symlinked into .claude/skills/ for dogfooding
@@ -82,7 +82,7 @@ pnpm dev:web          # Run web only
 pnpm dev:party        # Run party server only
 pnpm dev:games        # Run games worker only
 pnpm dev:cli          # Watch-rebuild the vg CLI
-pnpm dev:<game>       # Run specific game (flappy-dragons, pacman, tetris, pong, starfall)
+pnpm dev:<game>       # Run one example game (any folder in games/)
 pnpm build            # Build all packages
 pnpm typecheck        # Type check all
 pnpm lint             # Lint all (oxlint)

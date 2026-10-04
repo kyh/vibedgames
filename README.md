@@ -53,11 +53,12 @@ packages/
   gamepad/       Touch + physical controller input (npm: @vibedgames/gamepad)
   playtest/      Diagnostics, hooks + control manifest so a playtest can play the game (npm: @vibedgames/playtest)
   embed/         postMessage bridge between an embedded game and its wrapper
+  asset-tools/   Image + sprite-sheet logic bundled into the skills' scripts
   ui/            Shared UI components (Base UI + Tailwind)
 plugins/         Claude Code plugin — the game-building skills the CLI installs
 ```
 
-Every app and package has its own README. Start with [`games/`](./games) for the
+Every app and package but `asset-tools` has its own README. Start with [`games/`](./games) for the
 example games, [`plugins/`](./plugins) for the skills, and
 [`apps/factory/`](./apps/factory) is an autonomous game factory build loop.
 
