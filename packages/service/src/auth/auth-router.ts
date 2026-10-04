@@ -83,10 +83,18 @@ export const authRouter = {
       return { status: "pending" as const };
     }
 
-    // Clean up after successful read
-    await context.db.delete(verification).where(eq(verification.id, row.id));
+    // Consume the code and hand out its token in one statement: only the poll
+    // whose delete removed the row gets it, so two polls racing past the read
+    // above can't both leave with the same login. The loser finds it consumed.
+    const [consumed] = await context.db
+      .delete(verification)
+      .where(eq(verification.id, row.id))
+      .returning({ token: verification.value });
+    if (!consumed) {
+      return { status: "expired" as const };
+    }
 
-    return { status: "confirmed" as const, token: row.value };
+    return { status: "confirmed" as const, token: consumed.token };
   }),
 
   createInvites: admin.createInvites.handler(async ({ context, input }) => {
