@@ -8,8 +8,8 @@ export const generateContract = {
     .meta(
       documented({
         description:
-          "Forwards one request to the fal media-generation API with the server's key: `target` picks the host (queue, platform, storage, docs), `path`/`query`/`body` the rest. Returns the upstream JSON body. Queue submits need a positive credit balance (403 `insufficient_credits` otherwise) and are billed on the result fetch. Backs `vg generate`.",
-        errors: [403, 412, 413, 429, 502],
+          "Forwards one request to the fal media-generation API with the server's key: `target` picks the host (queue, platform, storage, docs), `path`/`query`/`body` the rest. Returns the upstream JSON body. Queue submits are billed on the result fetch, and need a positive credit balance (403 `insufficient_credits` otherwise) unless the caller is an admin, whose submits are billed but never refused. Backs `vg generate`.",
+        errors: [403, 412, 413, 502],
         summary: "Proxy a media-generation request",
       }),
     )

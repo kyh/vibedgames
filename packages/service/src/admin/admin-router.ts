@@ -1,3 +1,4 @@
+import { isAPIError } from "better-auth/api";
 import { ORPCError } from "@orpc/server";
 
 import {
@@ -54,9 +55,13 @@ export const adminRouter = {
         });
         return result;
       } catch (error) {
-        throw new ORPCError("BAD_REQUEST", {
-          message: error instanceof Error ? error.message : "Failed to create user",
-        });
+        // better-auth refuses what the caller can fix (a taken email, a role
+        // they may not grant) with a 4xx APIError. Anything else, its own 500
+        // or the database failing, is a fault and surfaces as one.
+        if (isAPIError(error) && error.statusCode < 500) {
+          throw new ORPCError("BAD_REQUEST", { message: error.message });
+        }
+        throw error;
       }
     }),
 
