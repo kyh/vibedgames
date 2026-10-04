@@ -14,8 +14,6 @@ export const SIGNUP_GRANT_MICRO = 20 * MICRO_PER_USD;
 
 export const usdToMicro = (usd: number): number => Math.round(usd * MICRO_PER_USD);
 
-export const microToUsd = (micro: number): number => micro / MICRO_PER_USD;
-
 export const formatUsd = (micro: number): string => {
   const abs = Math.abs(micro);
   // 2 decimals normally; 4 when sub-cent so small non-zero amounts (a single
@@ -30,14 +28,14 @@ export const formatUsd = (micro: number): string => {
  * it protects the ledger from a corrupt/hostile upstream header like "1e300"
  * becoming a balance-destroying debit.
  */
-export const MAX_SETTLE_MICRO = 100 * MICRO_PER_USD;
+const MAX_SETTLE_MICRO = 100 * MICRO_PER_USD;
 
 /**
  * Grant the signup credit exactly once per user. Deterministic entry id +
  * ON CONFLICT DO NOTHING makes this safe to call on every balance read, which
  * doubles as the backfill for accounts that predate the credit system.
  */
-export const ensureSignupGrant = async (db: Db, userId: string): Promise<void> => {
+const ensureSignupGrant = async (db: Db, userId: string): Promise<void> => {
   await db
     .insert(creditEntry)
     .values({

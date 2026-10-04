@@ -16,7 +16,7 @@ import type { Db } from "@repo/db/drizzle-client";
 import { eq } from "@repo/db";
 import { user as userTable } from "@repo/db/drizzle-schema-auth";
 
-export const API_KEY_PREFIX = "vg_";
+const API_KEY_PREFIX = "vg_";
 
 // Namespaces the synthetic session token minted for API-key auth so it can
 // never collide with a real better-auth session token, and lets

@@ -24,7 +24,7 @@ export interface EndpointPricing {
 }
 
 // $0.10
-export const DEFAULT_HOLD_MICRO = 100_000;
+const DEFAULT_HOLD_MICRO = 100_000;
 // $0.01
 const MIN_HOLD_MICRO = 10_000;
 // $5.00

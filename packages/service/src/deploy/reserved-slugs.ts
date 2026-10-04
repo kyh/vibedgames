@@ -2,7 +2,7 @@
  * Slugs that cannot be used for user games because they collide with platform
  * subdomains or reserved namespaces.
  */
-export const RESERVED_SLUGS = new Set<string>([
+const RESERVED_SLUGS = new Set<string>([
   "admin",
   "api",
   "app",
