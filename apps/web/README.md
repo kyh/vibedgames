@@ -8,28 +8,31 @@ Worker for the oRPC API.
 - [TanStack Start](https://tanstack.com/start) + React 19
 - [Cloudflare Workers](https://workers.cloudflare.com) via `@cloudflare/vite-plugin`
 - [better-auth](https://better-auth.com) for authentication
-- [oRPC](https://orpc.unnoq.com) for API layer ([`@repo/api`](../../packages/api) runs inside this Worker)
+- [oRPC](https://orpc.unnoq.com) for API layer ([`@repo/service`](../../packages/service) implements [`@repo/contract`](../../packages/contract) inside this Worker)
 - [Tailwind CSS 4](https://tailwindcss.com) + [`@repo/ui`](../../packages/ui)
 
 ## Surfaces
 
-| Route                                      | What                                                             |
-| ------------------------------------------ | ---------------------------------------------------------------- |
-| `/`, `/discover`                           | landing + game hub — renders the hardcoded `featuredGames`       |
-| `/build`, `/install`                       | how to build with an agent; CLI install                          |
-| `/docs`                                    | developer docs index — CLI, API, packages, endpoints             |
-| `/about`, `/contact`, `/privacy`           | trust anchors — who runs this, how to reach us, what is stored   |
-| `/home`, `/settings`                       | signed-in dashboard: your games, account, credits                |
-| `/admin`                                   | admin-only: users, invites                                       |
-| `/auth/*`                                  | login, register, password reset, and `cli` (device-code confirm) |
-| `/api/orpc/*`, `/api/auth/*`               | oRPC + better-auth handlers                                      |
-| `/api/v1/*`, `/openapi.json`               | the same router as plain-JSON REST, and its OpenAPI 3.1 document |
-| `/.well-known/api-catalog`                 | RFC 9727 catalog pointing at `/openapi.json` and `/docs`         |
-| `/api/*` (unmatched)                       | JSON `404` (`src/routes/api/$.ts`)                               |
-| `/api/r2-upload`, `/api/r2-download`       | local-dev R2 proxy (HMAC-signed, `localhost` Host only)          |
-| `/.well-known/agent-skills/*`              | the vibedgames skills, served for agents to fetch                |
-| `/llms.txt`, `/robots.txt`, `/sitemap.xml` | machine-readable site descriptions                               |
-| anything else                              | `404` with a markdown recovery note (`src/routes/$.tsx`)         |
+| Route                                      | What                                                                                      |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `/`, `/discover`                           | landing + game hub — renders the hardcoded `featuredGames`                                |
+| `/build`, `/install`                       | how to build with an agent; CLI install                                                   |
+| `/docs`                                    | developer docs index — CLI, API, packages, endpoints                                      |
+| `/about`, `/contact`, `/privacy`, `/terms` | trust anchors — who runs this, how to reach us, what is stored                            |
+| `/home`, `/settings`                       | signed-in dashboard: your games, account, credits                                         |
+| `/admin`                                   | admin-only: users, invites                                                                |
+| `/auth/*`                                  | login, register, password reset, and `cli` (device-code confirm)                          |
+| `/api/orpc/*`, `/api/auth/*`               | oRPC + better-auth handlers                                                               |
+| `/api/v1/*`, `/openapi.json`               | the same router as plain-JSON REST, and its OpenAPI 3.1 document                          |
+| `/.well-known/api-catalog`                 | RFC 9727 catalog pointing at `/openapi.json` and `/docs`                                  |
+| `/api/*` (unmatched)                       | JSON `404` (`src/routes/api/$.ts`)                                                        |
+| `/api/r2-upload`, `/api/r2-download`       | local-dev R2 proxy (HMAC-signed, `localhost` Host only)                                   |
+| `/api/playtest/decide`                     | the in-page playtester's decisions: cross-origin, honours only a `playtest.session` token |
+| `/api/trpc/*`                              | legacy: tells CLI copies up to 0.4.x to upgrade                                           |
+| `/.well-known/agent-skills/*`              | the vibedgames skills, served for agents to fetch                                         |
+| `/mcp`                                     | MCP server: skills, install steps, games; account tools from the router with a Bearer key |
+| `/llms.txt`, `/robots.txt`, `/sitemap.xml` | machine-readable site descriptions                                                        |
+| anything else                              | `404` with a markdown recovery note (`src/routes/$.tsx`)                                  |
 
 ## The agent-facing contract
 
@@ -37,7 +40,8 @@ Everything an agent needs to read this site without a browser lives in four
 places, and they share one source of truth so they cannot drift:
 
 - **`src/content/*.ts`** — every prose page is authored once as a `Doc`
-  (`src/lib/doc.ts`). `components/site/prose` renders it as HTML;
+  (`src/lib/doc.ts`). `components/site/prose` renders it as HTML (the Privacy
+  Policy and Terms of Use through the same blocks in `components/legal`);
   `docToMarkdown` serializes the same object to markdown. `/build`'s card deck
   and `/discover`'s gallery read the same `Doc` data the markdown does.
 - **Markdown content negotiation** — `src/lib/content-negotiation.ts` is a

@@ -1,11 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import type { AppRouter } from "@repo/api";
-import type { ORPCContext } from "@repo/api/orpc";
-import type { RouterClient } from "@orpc/server";
-import { createAuth } from "@repo/api/auth/auth";
+import type { ContractClient } from "@repo/contract";
+import type { ORPCContext } from "@repo/service/orpc";
+import { createAuth } from "@repo/service/auth/auth";
 import { createDb } from "@repo/db/drizzle-client";
-import { MAX_RPC_BODY_BYTES } from "@repo/api/generate/limits";
+import { MAX_RPC_BODY_BYTES } from "@repo/service/generate/limits";
 import { createORPCClient, ORPCError, safe } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import { z } from "zod";
@@ -25,7 +24,7 @@ import { handleRestRequest, handleRpcRequest } from "./orpc-handler";
  * The context is assembled by hand rather than through `createORPCContext`
  * (which would hit the database for a session): the transport rejects before
  * any procedure runs, and the one request that gets through stops at
- * `protectedProcedure`'s session check.
+ * `requireSession`.
  */
 
 const unavailable = (): never => {
@@ -137,7 +136,7 @@ describe("rpc endpoint", () => {
   // upgrades without ever catching a wiring mistake.
   test("answers a batch in one round trip, one result per item", async () => {
     let roundTrips = 0;
-    const client: RouterClient<AppRouter> = createORPCClient(
+    const client: ContractClient = createORPCClient(
       new RPCLink({
         fetch: (url, init) => {
           roundTrips += 1;

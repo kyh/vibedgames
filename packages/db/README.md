@@ -5,7 +5,7 @@ Drizzle ORM schema + client for Cloudflare D1 (SQLite). **Source of truth for th
 ## Schema
 
 - `src/drizzle-schema.ts` — platform tables: `inviteCode`, `waitlist`, `game`, `deployment`, `deploymentFile`, `creditEntry` (append-only micro-USD ledger), `generation` (per-request generation lifecycle)
-- `src/drizzle-schema-auth.ts` — better-auth tables (user/session/account) — **generated, don't edit by hand**; regenerate with `pnpm --filter @repo/db generate:auth-schema`
+- `src/drizzle-schema-auth.ts` — better-auth tables (user/session/account, plus verification, apikey and rate_limit) — **maintained by hand**: `@better-auth/cli` is stuck at 1.4.21 and would drop `account.issuer`, the hand-added indexes and `rate_limit`, so `generate:auth-schema` refuses to run
 - `src/drizzle-client.ts` — `Db` client factory bound to a D1 instance
 
 ## Workflow
@@ -37,5 +37,5 @@ hardcoded `featuredGames` array in the web app.
 ## Studio
 
 ```sh
-pnpm --filter @repo/db studio  # drizzle-kit studio against remote D1
+pnpm --filter @repo/db studio  # drizzle-kit studio against the local D1
 ```
