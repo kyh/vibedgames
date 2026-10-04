@@ -165,7 +165,7 @@ const main = () => {
         r.expiresAt === null || r.expiresAt === undefined ? "NULL" : String(r.expiresAt.getTime());
       return `(${lit(r.id ?? null)}, ${lit(r.code)}, ${lit(r.createdBy ?? null)}, ${maxUses}, ${exp}, ${lit(r.note ?? null)})`;
     })
-    .path.join(",\n  ");
+    .join(",\n  ");
 
   const sql = `INSERT INTO invite_code (id, code, created_by, max_uses, expires_at, note)\nVALUES\n  ${values};`;
 
