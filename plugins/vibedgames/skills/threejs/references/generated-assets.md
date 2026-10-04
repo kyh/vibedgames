@@ -166,8 +166,8 @@ Rules that keep it from sounding cheap:
 ### 1. Generate
 
 ```bash
-vg generate run fal-ai/elevenlabs/sound-effects \
-  --prompt "short metallic coin pickup chime, retro game" \
+vg generate run fal-ai/elevenlabs/sound-effects/v2 \
+  --text "short metallic coin pickup chime, retro game" \
   --download "./public/sfx/pickup.mp3" --json
 ```
 
