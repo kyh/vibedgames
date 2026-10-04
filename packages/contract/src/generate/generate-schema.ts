@@ -4,13 +4,16 @@ import { z } from "zod";
 // collapses.
 const DOT_SEGMENT = /(?:^|\/)(?:\.|%2e){1,2}(?:\/|$)/iu;
 
-// What fal's queue folds away. It percent-decodes a path and finds an
-// application whatever its case, while the ledger classifies and prices the
-// path as sent: `/fal-ai/fl%75x/dev` runs `fal-ai/flux` priced as an endpoint
-// no price list names, and `/fal-ai/flux/%72equests/<id>` fetches a result
-// the ledger never settles. No endpoint id or request id needs either: no id
-// in fal's public catalog holds an uppercase letter or a `%`.
-const UNCANONICAL_QUEUE_PATH = /[%A-Z]/u;
+// The one spelling of a queue path fal routes as written. It percent-decodes
+// a path and finds an application whatever its case, while the ledger
+// classifies and prices the path as sent: `/fal-ai/fl%75x/dev` runs
+// `fal-ai/flux` priced as an endpoint no price list names, and
+// `/fal-ai/flux/%72equests/<id>` fetches a result the ledger never settles.
+// The other delimiters a path may hold (`;`, `,`, `:`, `@`, ...) are refused
+// with them rather than trusted to reach fal unread. Nothing real needs any of
+// it: every segment of every id in fal's public catalog matches
+// `[a-z0-9._~-]`, and request ids are lowercase UUIDs.
+const CANONICAL_QUEUE_PATH = /^\/[a-z0-9._~/-]*$/u;
 
 export const forwardInput = z
   .object({
@@ -41,8 +44,8 @@ export const forwardInput = z
   })
   // A queue path is the one the ledger reads, so it must be the one fal
   // routes, byte for byte. Other targets keep percent-encoding and case.
-  .refine((input) => input.target !== "queue" || !UNCANONICAL_QUEUE_PATH.test(input.path), {
+  .refine((input) => input.target !== "queue" || CANONICAL_QUEUE_PATH.test(input.path), {
     message:
-      "a queue path must be lowercase and hold no `%`: spell the endpoint id as `vg generate models` lists it and the request id as the submit returned it",
+      "a queue path may hold only lowercase letters, digits and `-._~/`: spell the endpoint id as `vg generate models` lists it and the request id as the submit returned it",
     path: ["path"],
   });

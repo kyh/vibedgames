@@ -19,7 +19,10 @@ import { generateRouter } from "./generate-router";
  * a `%` or a capital has the ledger price an endpoint fal never runs; and
  * `%72equests` fetches a result the ledger never settles. So the input schema
  * refuses every such spelling, and for what it accepts the endpoint priced is
- * the endpoint fal is asked to run. A submit is then only as good as its
+ * the endpoint fal is asked to run. fal reads `requests` as its keyword only
+ * right after the application id, so a POST with that segment anywhere else
+ * still runs a job: every queue POST is billed as a submit. A submit is then
+ * only as good as its
  * price: one the price list doesn't name is refused, and only pricing that
  * cannot answer falls back to the flat hold.
  *
@@ -233,7 +236,7 @@ describe("generate.forward path", () => {
     }
   });
 
-  test("refuses a queue path fal would decode or case-fold, and only a queue path", async () => {
+  test("refuses a queue path fal would decode, case-fold or read past, and only a queue path", async () => {
     const folded: { method: "GET" | "POST"; path: string }[] = [
       { method: "POST", path: "/fal-ai/fl%75x/dev" },
       { method: "POST", path: "/FAL-AI/FLUX/DEV" },
@@ -242,6 +245,12 @@ describe("generate.forward path", () => {
       { method: "GET", path: "/fal-ai/flux/requests/request-1/%73tatus" },
       { method: "GET", path: "/fal-ai/flux/REQUESTS/request-1" },
       { method: "GET", path: "/fal-ai/flux/requests/REQUEST-1/status" },
+      { method: "GET", path: "/fal-ai/flux/requests/request-1;x" },
+      { method: "GET", path: "/fal-ai/flux/requests/request-1;x/status" },
+      { method: "POST", path: "/fal-ai/flux/dev,fal-ai/flux/schnell" },
+      { method: "POST", path: "/fal-ai/flux:dev" },
+      { method: "POST", path: "/fal-ai/flux@1/dev" },
+      { method: "POST", path: "/fal-ai/flux/dev+" },
     ];
     for (const { method, path } of folded) {
       const fetched = stubFal();
@@ -259,6 +268,7 @@ describe("generate.forward path", () => {
 
     const elsewhere: { path: string; target: "platform" | "storage" | "docs" }[] = [
       { path: "/v1/models/Fal%2Dai", target: "platform" },
+      { path: "/v1/models/a,b;c", target: "platform" },
       { path: "/storage/upload/Initiate%20Now", target: "storage" },
       { path: "/docs/MCP", target: "docs" },
     ];
@@ -321,6 +331,30 @@ describe("generate.forward submit", () => {
       assert.ok(!ranOnQueue(fetched), `ran on ${answer}`);
       assert.deepEqual(writes, [], answer);
     }
+  });
+
+  test("bills every queue POST as a submit, whatever `requests` segment it holds", async () => {
+    const posts = [
+      "/owner/model/sub/requests",
+      "/fal-ai/flux/requests",
+      "/fal-ai/flux/requests/request-1/status",
+    ];
+    for (const path of posts) {
+      const fetched = stubFal();
+      await submit(path, "user");
+      const priced = fetched.find((url) => url.pathname === "/v1/models/pricing");
+      assert.equal(priced?.searchParams.get("endpoint_id"), path.slice(1), path);
+      assert.ok(heldGeneration(), `${path} was not held`);
+    }
+
+    const fetched = stubFal({
+      price: json(404, { error: { message: "Endpoint(s) not found", type: "not_found" } }),
+    });
+    await assert.rejects(submit("/owner/unpriced/sub/requests", "user"), {
+      code: "BAD_REQUEST",
+      message: /^unknown_endpoint:/u,
+    });
+    assert.ok(!ranOnQueue(fetched));
   });
 
   test("submits on the default hold when pricing cannot answer", async () => {

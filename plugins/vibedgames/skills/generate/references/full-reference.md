@@ -259,7 +259,7 @@ vg generate pricing <endpoint_id> --json
 | `401 Unauthorized`         | The vibedgames server is missing its generation API key | The platform operator must configure the server credentials and redeploy / restart |
 | `Endpoint not found`       | Wrong endpoint ID, deprecated, or typo                  | `vg generate models "<task>" --json` to discover                                   |
 | `unknown_endpoint: …`      | The endpoint ID has no published price, so it can't run | `vg generate models --endpoint_id <id> --json`, or search for another endpoint     |
-| `Input validation failed`  | An endpoint or request ID with a capital letter or `%`  | Spell endpoint IDs as `vg generate models` lists them, request IDs as returned     |
+| `Input validation failed`  | An endpoint or request ID with a capital or a symbol    | Spell endpoint IDs as `vg generate models` lists them, request IDs as returned     |
 | Slow / timeout             | Long-running generation                                 | Use `--async`, then `vg generate status … --result`                                |
 
 ## Environment
