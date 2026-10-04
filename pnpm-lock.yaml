@@ -317,9 +317,6 @@ importers:
 
   apps/party:
     dependencies:
-      '@repo/db':
-        specifier: workspace:^
-        version: link:../../packages/db
       '@vibedgames/multiplayer':
         specifier: workspace:^
         version: link:../../packages/multiplayer
