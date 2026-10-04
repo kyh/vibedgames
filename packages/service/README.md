@@ -19,9 +19,10 @@ Generation is metered; deploys and hosting are free. `src/credits/` owns the
 append-only micro-USD ledger — balance is `SUM(delta_micro)`, there is no cached
 balance column, and idempotency lives in deterministic entry ids
 (`signup:{userId}`, `hold:{requestId}`, …). `generate.forward` blocks a non-admin's
-submits at balance ≤ 0, debits an estimated hold, settles to actual provider cost, and
-refunds the hold on a failed/cancelled job. Never write ledger rows from outside
-this directory.
+submits at balance ≤ 0 or to an endpoint with no published price, debits an estimated
+hold, settles to actual provider cost, and refunds the hold on a failed/cancelled job.
+Pricing that cannot answer never blocks a submit: it goes ahead and settles at its hold
+(`src/credits/endpoint-pricing.ts`). Never write ledger rows from outside this directory.
 
 ## Notes
 

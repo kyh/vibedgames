@@ -210,7 +210,10 @@ export const generation = sqliteTable(
     status: text("status", { enum: ["held", "settled", "released"] }).notNull(),
     /** Provider pricing unit (e.g. "megapixels", "seconds"); null if unknown. */
     unit: text("unit"),
-    /** Micro-USD per unit at submit time; null if pricing lookup failed. */
+    /**
+     * Micro-USD per unit at submit time; null when pricing could not answer,
+     * or for an admin's submit to an unpriced endpoint (settle charges the hold).
+     */
     unitPriceMicro: integer("unit_price_micro"),
     userId: text("user_id")
       .notNull()

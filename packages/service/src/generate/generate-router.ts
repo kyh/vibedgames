@@ -4,6 +4,7 @@ import type { JsonValue } from "@repo/contract/json";
 import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 
+import type { EndpointPricing, PlatformAnswer } from "../credits/endpoint-pricing";
 import type { MediaProviderConfig } from "../orpc";
 import {
   formatUsd,
@@ -195,7 +196,8 @@ const readBody = async (res: Response, target: Target): Promise<JsonValue | null
 /**
  * Credentialed platform-API transport for pricing lookups. Same
  * fetch/parse path as user-driven platform hops so size bounds and
- * redirect policy apply.
+ * redirect policy apply. A non-2xx comes back as its status rather than a
+ * throw, so a 404 for an unknown endpoint reads differently from a 5xx.
  */
 const platformFetchJson =
   (apiKey: string, config: MediaProviderConfig) =>
@@ -204,7 +206,7 @@ const platformFetchJson =
     path: string;
     query?: Record<string, string>;
     body?: JsonValue;
-  }): Promise<JsonValue> => {
+  }): Promise<PlatformAnswer> => {
     const url = buildUrl(targetBase("platform", config), req.path, req.query);
     const headers = new Headers({
       Accept: "application/json",
@@ -219,9 +221,14 @@ const platformFetchJson =
       credentialed: true,
       init: { body, headers, method: req.method },
       label: `fal platform ${req.method} ${req.path}`,
+      tolerateHttpError: true,
       url,
     });
-    return readJsonBounded(res, "fal platform response");
+    if (!res.ok) {
+      await res.body?.cancel();
+      return { ok: false, status: res.status };
+    }
+    return { body: await readJsonBounded(res, "fal platform response"), ok: true };
   };
 
 /**
@@ -240,6 +247,24 @@ const requirePositiveBalance = async (db: Db, userId: string): Promise<void> => 
       `insufficient_credits: your balance is ${formatUsd(balanceMicro)}. ` +
       "Generation is paused until an admin grants more credits " +
       "(check with `vg credits`).",
+  });
+};
+
+/**
+ * Gate a queue submit on a published price. Settle prices reported usage at
+ * the endpoint's unit price, so an endpoint fal's price list doesn't name (a
+ * misspelt id, or one fal runs but doesn't price) would cost the flat default
+ * hold whatever it really costs. The message carries the `unknown_endpoint`
+ * token so agents can branch on it.
+ */
+const requirePublishedPrice = (pricing: EndpointPricing, endpointId: string): void => {
+  if (pricing.kind !== "unknown") {
+    return;
+  }
+  throw new ORPCError("BAD_REQUEST", {
+    message:
+      `unknown_endpoint: no price is published for "${endpointId}", so it cannot be billed. ` +
+      "Check the id with `vg generate models`.",
   });
 };
 
@@ -274,21 +299,25 @@ export const generateRouter = {
     const { apiKey, config } = pickFalKey(context.media);
     const userId = context.session.user.id;
 
-    // Credit gate + hold estimate happen before any fal spend. Everything
+    // Credit gates + hold estimate happen before any fal spend. Everything
     // else about the hop is unchanged when the call isn't a queue submit.
     // Admins are metered but never gated: their usage is still recorded
-    // (holds/settles) so spend stays visible, but a negative balance can't
-    // block them.
+    // (holds/settles) so spend stays visible, but neither a negative balance
+    // nor an unpriced endpoint can block them.
     const queueCall =
       input.target === "queue"
         ? classifyQueueCall(input.method, input.path)
         : { kind: "other" as const };
-    let pricing: Awaited<ReturnType<typeof getEndpointPricing>> | null = null;
+    let pricing: EndpointPricing | null = null;
     if (queueCall.kind === "submit") {
-      if (context.session.user.role !== "admin") {
+      const gated = context.session.user.role !== "admin";
+      if (gated) {
         await requirePositiveBalance(context.db, userId);
       }
       pricing = await getEndpointPricing(queueCall.endpointId, platformFetchJson(apiKey, config));
+      if (gated) {
+        requirePublishedPrice(pricing, queueCall.endpointId);
+      }
     }
 
     const serialized = serializeBody(input);
