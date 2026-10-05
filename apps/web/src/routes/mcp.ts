@@ -1,9 +1,9 @@
 import type { McpServer } from "@modelcontextprotocol/server";
-import type { ORPCContext } from "@repo/api/orpc";
+import type { ORPCContext } from "@repo/service/orpc";
 import { createMcpHandler } from "@modelcontextprotocol/server";
-import { MAX_RPC_BODY_BYTES } from "@repo/api/generate/limits";
-import { requiresCredential } from "@repo/api/mcp/auth-gate";
-import { createMcpServer } from "@repo/api/mcp/server";
+import { MAX_RPC_BODY_BYTES } from "@repo/service/generate/limits";
+import { requiresCredential } from "@repo/service/mcp/auth-gate";
+import { createMcpServer } from "@repo/service/mcp/server";
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
 

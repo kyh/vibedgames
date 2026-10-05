@@ -133,7 +133,7 @@ own `og:` tags — the platform then serves the page untouched.
 - **Preview the build you deploy** (`vite preview`, or any static server on `dist/`). The dev server is not the build — a wrong `base` or absolute asset URL breaks every asset on the deployed path and never shows locally
 - **Slug must be lowercase** with hyphens, 3-40 characters (e.g. `space-invaders`, `my-cool-game`)
 - **index.html is required** at the root of the deployed directory
-- **Caps: 200 MB per deploy, 10 MB per file, 500 files; 100 MB for the `--source` archive** (`packages/api/src/deploy/deploy-router.ts`). The platform never splits files — a >10 MB artifact ships pre-split (`x.bin.0`, `x.bin.1` + `x.parts`), and a loader that probes the unsplit path first turns that 404 into the probe, by design
+- **Caps: 200 MB per deploy, 10 MB per file, 500 files; 100 MB for the `--source` archive** (`packages/contract/src/deploy/deploy-schema.ts`). The platform never splits files — a >10 MB artifact ships pre-split (`x.bin.0`, `x.bin.1` + `x.parts`), and a loader that probes the unsplit path first turns that 404 into the probe, by design
 - **Version-bust unversioned immutable assets.** Everything except `index.html` and the `og.*` cover is served `max-age=31536000, immutable`, so a rebaked `world.bin` on the same path never reaches a returning browser. Hash the filename or append `?v=REV`. The edge cache is keyed per deployment id; the browser cache is yours
 - **Guard `localStorage`.** Games run inside the web app's iframe; an unguarded access throws on boot and the game is dead. Wrap reads and writes in `try`/`catch` and treat storage as best-effort
 - If the user doesn't specify a slug, ask them for one or derive it from the project name

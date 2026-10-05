@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearch } from "@tanstack/react-router";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { INVITE_CODE_LENGTH } from "@repo/api/auth/utils";
+import { INVITE_CODE_LENGTH } from "@repo/contract/auth/auth-limits";
 import { Button } from "@repo/ui/components/button";
 import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from "@repo/ui/components/field";
 import { Input } from "@repo/ui/components/input";

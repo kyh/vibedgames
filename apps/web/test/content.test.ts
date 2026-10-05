@@ -10,10 +10,11 @@ import { llmsTxt } from "@/content/llms";
 import { notFoundMarkdown } from "@/content/not-found";
 import { privacyDoc } from "@/content/privacy";
 import { SITEMAP_PATHS } from "@/content/site-map";
-import { docToMarkdown, docToText } from "@/lib/doc";
+import { termsDoc } from "@/content/terms";
+import { docToMarkdown, docToText, headingId } from "@/lib/doc";
 import { siteConfig } from "@/lib/site-config";
 
-const docs: Doc[] = [homeDoc, aboutDoc, contactDoc, privacyDoc, docsDoc];
+const docs: Doc[] = [homeDoc, aboutDoc, contactDoc, privacyDoc, termsDoc, docsDoc];
 
 describe("every prose page", () => {
   for (const doc of docs) {
@@ -36,14 +37,21 @@ describe("every prose page", () => {
       test("has no site-relative link left in its markdown form", () => {
         assert.doesNotMatch(docToMarkdown(doc), /\]\(\/[^)]*\)/u);
       });
+
+      test("gives each section heading a #fragment of its own", () => {
+        // headingId has no -1 suffix for a repeat, so two sections slugging
+        // alike would share one HTML id.
+        const ids = doc.sections.map((section) => headingId(section.heading));
+        assert.equal(new Set(ids).size, ids.length, `${doc.path} repeats a section heading`);
+      });
     });
   }
 });
 
 describe("trust anchor pages", () => {
-  // AI agents check /about, /contact and /privacy to decide whether a business
-  // is real. Thin pages read as placeholders, so hold them to a floor.
-  for (const doc of [aboutDoc, contactDoc, privacyDoc]) {
+  // AI agents check /about, /contact, /privacy and /terms to decide whether a
+  // business is real. Thin pages read as placeholders, so hold them to a floor.
+  for (const doc of [aboutDoc, contactDoc, privacyDoc, termsDoc]) {
     test(`${doc.path} carries at least 500 characters of prose`, () => {
       assert.ok(
         docToText(doc).length >= 500,
@@ -62,6 +70,107 @@ describe("trust anchor pages", () => {
     for (const topic of ["cookie", "delet", "retention", "cloudflare"]) {
       assert.match(markdown, new RegExp(topic, "u"));
     }
+  });
+});
+
+/** The `#fragment` each of a doc's section headings answers to. */
+const anchorsOf = (doc: Doc) => new Set(doc.sections.map((section) => headingId(section.heading)));
+
+describe("legal pages", () => {
+  const legal = [privacyDoc, termsDoc];
+  const docByPath = new Map(legal.map((doc) => [doc.path, doc]));
+  const CREDIT = /^This template was prepared and made publicly available by General Legal, PC/u;
+
+  for (const doc of legal) {
+    describe(doc.path, () => {
+      const markdown = docToMarkdown(doc);
+
+      test("names the operator and the email that takes legal notices", () => {
+        assert.match(markdown, new RegExp(siteConfig.operator.name, "u"));
+        assert.ok(markdown.includes(`mailto:${siteConfig.operator.email}`));
+      });
+
+      test("carries no template placeholder or drafting note", () => {
+        for (const leftover of [
+          "<mark>",
+          "[INSERT",
+          "{{",
+          "[Company",
+          "[DATE",
+          "[EMAIL",
+          "DecisionLayer",
+          "information/know",
+        ]) {
+          assert.ok(!markdown.includes(leftover), `${doc.path} still contains ${leftover}`);
+        }
+      });
+
+      test("ends with the General Legal credit, after a rule", () => {
+        const [credit] = doc.endnote ?? [];
+        assert.ok(credit?.kind === "p" && CREDIT.test(credit.text));
+        assert.match(markdown, /\n---\n\nThis template was prepared/u);
+      });
+
+      test("every #fragment link lands on a heading of the page it names", () => {
+        const links = [...markdown.matchAll(/\]\((?<href>[^)\s]+)\)/gu)].map(
+          (match) => match.groups?.href ?? "",
+        );
+        const fragments = links.filter((href) => href.includes("#"));
+        assert.ok(fragments.length > 0);
+        for (const href of fragments) {
+          const [base = "", fragment = ""] = href.split("#");
+          const target = base === "" ? doc : docByPath.get(new URL(base).pathname);
+          assert.ok(target, `${href} points at a page with no Doc here`);
+          assert.ok(anchorsOf(target).has(fragment), `${href} matches no heading`);
+        }
+      });
+    });
+  }
+
+  test("/privacy indexes every top-level section, in order", () => {
+    const index = privacyDoc.lead.find(
+      (block) => block.kind === "ul" && block.items.every((item) => item.includes("](#")),
+    );
+    assert.ok(index?.kind === "ul");
+    assert.deepEqual(
+      index.items,
+      privacyDoc.sections.map((section) => `[${section.heading}](#${headingId(section.heading)})`),
+    );
+  });
+
+  test("/privacy keeps the promises the page has always made", () => {
+    const text = docToText(privacyDoc);
+    for (const promise of [
+      "We do not sell your personal information",
+      "we do not show ads",
+      "We do not use analytics",
+      "We do not store your prompts",
+      "deleting a game deletes its files",
+      "not intended for use by anyone under 13",
+    ]) {
+      assert.ok(text.includes(promise), `/privacy no longer says: ${promise}`);
+    }
+  });
+
+  test("/terms is the JAMS variant, under California law, with a 30-day opt-out", () => {
+    const text = docToText(termsDoc);
+    for (const clause of [
+      "Version 2.0",
+      "JAMS",
+      "San Francisco County, California",
+      "within 30 days",
+      "at least 13 years old",
+      "MIT License",
+    ]) {
+      assert.ok(text.includes(clause), `/terms is missing: ${clause}`);
+    }
+  });
+
+  test("/terms keeps the template's numbering, 1 through 11", () => {
+    assert.deepEqual(
+      termsDoc.sections.map((section) => section.heading.split(". ")[0]),
+      Array.from({ length: 11 }, (_, i) => String(i + 1)),
+    );
   });
 });
 
@@ -96,6 +205,11 @@ describe("llms.txt", () => {
   test("tells an agent the first command to run", () => {
     assert.ok(llmsTxt.includes("## How to call it"));
     assert.match(llmsTxt, /npx vibedgames init/u);
+  });
+
+  test("links both legal pages", () => {
+    assert.ok(llmsTxt.includes(`${siteConfig.url}/privacy`));
+    assert.ok(llmsTxt.includes(`${siteConfig.url}/terms`));
   });
 
   test("uses absolute URLs, since it is read away from its origin", () => {

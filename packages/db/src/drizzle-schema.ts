@@ -180,8 +180,9 @@ export const creditEntry = sqliteTable(
 );
 
 /**
- * One row per generation submitted through `generate.forward`, keyed by the
- * provider's request id. Tracks the credit lifecycle:
+ * One row per generation submitted through `callFal` (the hop every
+ * `generate.*` proc makes), keyed by the provider's request id. Tracks the
+ * credit lifecycle:
  *
  *   held    — an estimated hold was debited at submit
  *   settled — the result fetch reported actual billable units and the hold
@@ -210,7 +211,10 @@ export const generation = sqliteTable(
     status: text("status", { enum: ["held", "settled", "released"] }).notNull(),
     /** Provider pricing unit (e.g. "megapixels", "seconds"); null if unknown. */
     unit: text("unit"),
-    /** Micro-USD per unit at submit time; null if pricing lookup failed. */
+    /**
+     * Micro-USD per unit at submit time; null when pricing could not answer,
+     * or for an admin's submit to an unpriced endpoint (settle charges the hold).
+     */
     unitPriceMicro: integer("unit_price_micro"),
     userId: text("user_id")
       .notNull()

@@ -1,5 +1,5 @@
-import { appRouter } from "@repo/api";
-import { openAPIComponents } from "@repo/api/openapi";
+import { openAPIComponents } from "@repo/contract/openapi";
+import { appRouter } from "@repo/service";
 import { OpenAPIGenerator } from "@orpc/openapi";
 import { ZodToJsonSchemaConverter } from "@orpc/zod";
 

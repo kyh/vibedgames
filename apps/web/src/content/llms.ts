@@ -57,6 +57,7 @@ Then work from the skills. Common entry points: \`vg new <slug>\` to scaffold, \
 - [About ${siteConfig.name}](${url}/about): what the platform is, what it provides, and how it is built.
 - [Contact](${url}/contact): bugs, questions, security reports and press.
 - [Privacy](${url}/privacy): what is stored, who processes it, and how to have it deleted.
+- [Terms of Use](${url}/terms): the rules for what you deploy, generation credits, and how disputes are resolved.
 
 ## Optional
 
