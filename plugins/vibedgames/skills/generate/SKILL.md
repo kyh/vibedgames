@@ -41,6 +41,7 @@ Every `vg generate run` debits the account's credit balance: an estimated hold a
 
 - **Check balance:** `vg credits` (or `vg credits --json` for agents). `vg generate pricing <id> --json` estimates cost before running.
 - **If a submit fails with a FORBIDDEN error whose message starts with `insufficient_credits:`, STOP.** Retries cannot succeed — the balance is exhausted, and switching endpoints or re-queueing will fail the same way. Surface the error message to the human; only a platform admin can grant more credits.
+- **If a submit fails with a BAD_REQUEST error whose message starts with `unknown_endpoint:`, the endpoint id has no published price, so it cannot be billed or run.** Retrying the same id fails the same way. Check it with `vg generate models --endpoint_id <id> --json` (usually a typo or a retired id), or find another with `vg generate models "<task>" --json`.
 
 ## Standard workflow
 
