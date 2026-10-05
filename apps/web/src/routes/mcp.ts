@@ -87,16 +87,22 @@ const registerCatalogTools = (server: McpServer): void => {
   );
 };
 
-const unauthorized = (description: string): Response =>
-  Response.json(
+/**
+ * The challenge that starts sign-in: `resource_metadata` points MCP clients at
+ * the RFC 9728 document, which names /api/auth as the authorization server.
+ */
+const unauthorized = (request: Request, description: string): Response => {
+  const metadata = `${new URL(request.url).origin}/.well-known/oauth-protected-resource/mcp`;
+  return Response.json(
     { error: "invalid_token", error_description: description },
     {
       headers: {
-        "WWW-Authenticate": `Bearer realm="vibedgames", error="invalid_token", error_description="${description}"`,
+        "WWW-Authenticate": `Bearer resource_metadata="${metadata}", error="invalid_token", error_description="${description}"`,
       },
       status: 401,
     },
   );
+};
 
 /**
  * Stateless: a fresh server per request, so no Durable Object or session store.
@@ -111,18 +117,18 @@ const serveMcp = async (request: Request): Promise<Response> => {
   const hasCredential = headers.has("authorization") || headers.has("x-api-key");
 
   if (!hasCredential && (await requiresCredential(request))) {
-    return unauthorized("Sign in, or send a vibedgames API key as a Bearer token.");
+    return unauthorized(request, "Sign in, or send a vibedgames API key as a Bearer token.");
   }
 
   let context: Promise<ORPCContext> | undefined;
   const resolveContext = () => {
-    context ??= createRpcContext(headers);
+    context ??= createRpcContext(headers, { mcp: true });
     return context;
   };
   if (hasCredential) {
     const { session } = await resolveContext();
     if (!session) {
-      return unauthorized("The credential is invalid or expired.");
+      return unauthorized(request, "The credential is invalid or expired.");
     }
   }
 

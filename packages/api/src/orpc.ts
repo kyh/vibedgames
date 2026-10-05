@@ -6,6 +6,7 @@ import type { Db } from "@repo/db/drizzle-client";
 import { ORPCError, os } from "@orpc/server";
 
 import { API_KEY_SESSION_PREFIX, resolveApiKeySession } from "./auth/api-key";
+import { MCP_TOKEN_SESSION_PREFIX, resolveMcpTokenSession } from "./auth/mcp-oauth";
 import { notMcpTool } from "./mcp/tool-meta";
 import { protectedProcedureSpec, publicProcedureSpec, sessionOnlyProcedureSpec } from "./openapi";
 
@@ -102,6 +103,12 @@ export interface CreateORPCContextOptions {
   r2?: R2Config;
   media?: MediaProviderConfig;
   decision?: DecisionProviderConfig;
+  /**
+   * Set only by the `/mcp` route: the base URL its OAuth access tokens are
+   * issued for. Those tokens are audience-bound to `/mcp` and are refused
+   * everywhere else.
+   */
+  mcpBaseURL?: string;
 }
 
 export const createORPCContext = async (opts: CreateORPCContextOptions) => {
@@ -110,7 +117,10 @@ export const createORPCContext = async (opts: CreateORPCContextOptions) => {
   // authenticate in CI; both resolve to the same `Session` shape.
   const session =
     (await opts.auth.api.getSession({ headers: opts.headers })) ??
-    (await resolveApiKeySession(opts.auth, opts.db, opts.headers));
+    (await resolveApiKeySession(opts.auth, opts.db, opts.headers)) ??
+    (opts.mcpBaseURL === undefined
+      ? null
+      : await resolveMcpTokenSession(opts.auth, opts.db, opts.headers, opts.mcpBaseURL));
 
   return {
     auth: opts.auth,
@@ -142,14 +152,15 @@ export const protectedProcedure = publicProcedure
   .meta(protectedProcedureSpec);
 
 // Like `protectedProcedure`, but rejects callers authenticated with an API
-// key — for surfaces an automation/CI credential must not reach (managing API
-// keys, admin actions). Keeps API keys scoped to their intended use
-// (deploy/generate) so a leaked key can't escalate. API-key sessions are
-// synthesized with a namespaced `apikey:` token (see `resolveApiKeySession`);
-// real better-auth tokens never collide with it.
+// key or an MCP OAuth token — for surfaces an automation credential must not
+// reach (managing API keys, admin actions). Keeps those credentials scoped to
+// their intended use (deploy/generate) so a leaked one can't escalate. Both
+// sessions are synthesized with a namespaced token (`apikey:` / `mcp:`); real
+// better-auth tokens never collide with them.
 export const sessionOnlyProcedure = protectedProcedure
   .use(({ context, next }) => {
-    if (context.session.session.token.startsWith(API_KEY_SESSION_PREFIX)) {
+    const { token } = context.session.session;
+    if (token.startsWith(API_KEY_SESSION_PREFIX) || token.startsWith(MCP_TOKEN_SESSION_PREFIX)) {
       throw new ORPCError("FORBIDDEN", {
         message: "This action requires an interactive login, not an API key. Use the web app.",
       });

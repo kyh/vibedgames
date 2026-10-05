@@ -119,7 +119,7 @@ const RegisterPage = () => {
                 className="text-muted-foreground px-8 text-center text-xs"
               >
                 Already have an account?{" "}
-                <Link to="/auth/login" className="underline">
+                <Link to="/auth/login" search={(prev) => prev} className="underline">
                   Login
                 </Link>
               </motion.p>
