@@ -58,7 +58,7 @@ export const generateContract = {
     .meta(
       documented({
         description:
-          "Forwards one request to the media-generation API with the server's key: `target` picks the host (queue, platform, storage, docs), `path`/`query`/`body` the rest. Returns the upstream JSON body. Superseded by the typed generate procedures; kept for older `vg` releases. Queue submits are billed on the result fetch, and need a positive credit balance (403 `insufficient_credits` otherwise) unless the caller is an admin, whose submits are billed but never refused.",
+          "Forwards one request to the media-generation API with the server's key: `target` picks the host (queue, platform, storage, docs), `path`/`query`/`body` the rest; a queue path holds only lowercase letters, digits and `-._~/`, so the endpoint billed is the one the provider runs. Returns the upstream JSON body. Superseded by the typed generate procedures; kept for older `vg` releases. Queue submits are billed on the result fetch, and need a positive credit balance (403 `insufficient_credits` otherwise) and an endpoint with a published price (400 `unknown_endpoint` otherwise) unless the caller is an admin, whose submits are billed but never refused.",
         errors: [403, 412, 413, 502],
         summary: "Proxy a media-generation request",
       }),
@@ -135,7 +135,7 @@ export const generateContract = {
     .meta(
       documented({
         description:
-          "Queues one generation job and returns its request id. Needs a positive credit balance (403 `insufficient_credits` otherwise) unless the caller is an admin, whose submits are billed but never refused. An estimated hold is taken now and settled when the result is fetched.",
+          "Queues one generation job and returns its request id. Needs a positive credit balance (403 `insufficient_credits` otherwise) and an endpoint with a published price (400 `unknown_endpoint` otherwise) unless the caller is an admin, whose submits are billed but never refused. An estimated hold is taken now and settled when the result is fetched.",
         errors: [403, 412, 413, 502],
         summary: "Submit a generation job",
       }),
