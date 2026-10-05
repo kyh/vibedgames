@@ -22,7 +22,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@dimforge/rapier3d": "0.20.0",
+    "@dimforge/rapier3d": "0.21.0",
     "@repo/embed": "workspace:*",
     "@vibedgames/gamepad": "workspace:^",
     "@vibedgames/multiplayer": "workspace:^",
@@ -32,9 +32,9 @@
     "three": "^0.186.1"
   },
   "devDependencies": {
-    "@dimforge/rapier3d-compat": "^0.20.0",
-    "@gltf-transform/core": "^4.5.0",
-    "@gltf-transform/extensions": "^4.5.0",
+    "@dimforge/rapier3d-compat": "^0.21.0",
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/extensions": "^4.5.1",
     "@kyh/tsconfig": "catalog:",
     "@types/node": "catalog:",
     "@types/three": "^0.186.0",
