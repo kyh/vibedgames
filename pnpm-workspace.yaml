@@ -63,6 +63,9 @@ overrides:
   # The 1.7.2 plugins accept any 1.7.x core as a peer; left alone they resolve a
   # second, issuer-less 1.7.5 instance beside better-auth's own.
   "@better-auth/core": 1.7.2
+  # @better-auth/mcp 1.7.2 depends on oauth-provider ^1.7.2, which would resolve
+  # 1.7.6 — built against better-auth 1.7.6, not the pinned 1.7.2.
+  "@better-auth/oauth-provider": 1.7.2
 
 # apps/games/tests/worker.mjs drives Miniflare through the top-level single-worker
 # options that 5.x replaces with a per-worker `config` object. npm's `latest` tag

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { endpointPath, queueAppId } from "../src/lib/media-poll.js";
+import { endpointPath, queueAppId } from "./queue-paths";
 
 test("queueAppId drops the model subpath so status/result/cancel hit the app id", () => {
   // fal queues submission under the full id but keys status/result/cancel

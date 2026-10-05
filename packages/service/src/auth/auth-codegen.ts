@@ -18,12 +18,22 @@ import { betterAuth } from "better-auth";
 import { memoryAdapter } from "better-auth/adapters/memory";
 import { admin, bearer, oAuthProxy } from "better-auth/plugins";
 
+import { mcpOAuthPlugins } from "./mcp-oauth";
+
 export const auth = betterAuth({
   // Codegen/test only: an in-memory adapter satisfies better-auth's init
   // without opening a connection. The real Worker uses drizzleAdapter(d1).
-  database: memoryAdapter({}),
+  baseURL: "http://localhost:5173",
+  database: memoryAdapter({ oauthResource: [] }),
   emailAndPassword: { enabled: true },
-  plugins: [oAuthProxy(), bearer(), expo(), admin(), apiKey()],
+  plugins: [
+    oAuthProxy(),
+    bearer(),
+    expo(),
+    admin(),
+    apiKey(),
+    ...mcpOAuthPlugins("http://localhost:5173"),
+  ],
   rateLimit: { enabled: true, storage: "database" },
   user: {
     additionalFields: {

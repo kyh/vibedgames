@@ -102,10 +102,13 @@ interface Credentials {
  * `bounced` is the one that earns its place: the caller has already moved the
  * user somewhere else (register kicks a raced invite back to step 1), so the
  * form must toast WITHOUT shaking — shaking a panel that is sliding away
- * fights the step transition.
+ * fights the step transition. `resuming` means the sign-in finished an MCP
+ * connector's OAuth authorize request: better-auth's client is already
+ * navigating to the connector, so the form must not navigate over it.
  */
 type SubmitResult =
   | { status: "ok" }
+  | { status: "resuming" }
   | { status: "failed"; message: string }
   | { status: "bounced"; message: string };
 
@@ -119,6 +122,8 @@ const UNREPORTED: SubmitResult = {
   message: "Something went wrong. Please try again.",
   status: "failed",
 };
+
+const oauthRedirect = z.object({ redirect: z.literal(true), url: z.string() });
 
 /**
  * Email + password, shared by login and register. Identical fields, identical
@@ -156,6 +161,9 @@ const CredentialsForm = ({
 
   const handleAuthWithPassword = form.handleSubmit(async (credentials) => {
     const result = await submit(credentials);
+    if (result.status === "resuming") {
+      return;
+    }
     if (result.status === "ok") {
       router.navigate({ replace: true, to: safeNextPath(callbackUrl ?? nextPath) });
       return;
@@ -272,8 +280,10 @@ const RegisterCredentialsStep = ({
             }
             result = { message: ctx.error.message, status: raced ? "bounced" : "failed" };
           },
-          onSuccess: () => {
-            result = { status: "ok" };
+          onSuccess: (ctx) => {
+            result = oauthRedirect.safeParse(ctx.data).success
+              ? { status: "resuming" }
+              : { status: "ok" };
           },
         },
         inviteCode,
@@ -374,8 +384,10 @@ export const LoginForm = ({ className, callbackUrl, ...props }: StepFormProps) =
             onError: (ctx) => {
               result = { message: ctx.error.message, status: "failed" };
             },
-            onSuccess: () => {
-              result = { status: "ok" };
+            onSuccess: (ctx) => {
+              result = oauthRedirect.safeParse(ctx.data).success
+                ? { status: "resuming" }
+                : { status: "ok" };
             },
           },
           password: credentials.password,

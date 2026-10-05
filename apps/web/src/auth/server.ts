@@ -85,13 +85,14 @@ export const getServerContext = () => {
  * SSR client in `lib/orpc.tsx` — so a binding added here can't reach one and
  * silently miss the other.
  */
-export const createRpcContext = (headers: Headers) => {
-  const { db, auth: betterAuth, productionUrl, r2, media, decision } = getServerContext();
+export const createRpcContext = (headers: Headers, options: { mcp?: boolean } = {}) => {
+  const { db, auth: betterAuth, baseUrl, productionUrl, r2, media, decision } = getServerContext();
   return createORPCContext({
     auth: betterAuth,
     db,
     decision,
     headers,
+    mcpBaseURL: options.mcp ? baseUrl : undefined,
     media,
     productionURL: productionUrl,
     r2,

@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { createFileRoute, Outlet } from "@tanstack/react-router";
 
-const authSearchSchema = z.object({
+// Loose: an MCP connector's sign-in arrives with a signed OAuth query
+// (client_id, scope, sig, ...) that has to survive login ⇄ register intact.
+const authSearchSchema = z.looseObject({
   callbackUrl: z.string().optional(),
   invite: z.string().optional(),
   nextPath: z.string().optional(),

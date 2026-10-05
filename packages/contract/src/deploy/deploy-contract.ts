@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { protectedBase } from "../base";
+import { mcpTool } from "../mcp";
 import { documented } from "../openapi";
 import { createInput, deleteInput, finalizeInput, getSourceInput } from "./deploy-schema";
 
@@ -37,6 +38,7 @@ const gameSummary = z.object({
 
 export const deployContract = {
   create: protectedBase
+    .meta(mcpTool({ access: "write", title: "Start a deployment" }))
     .meta(
       documented({
         description:
@@ -49,6 +51,7 @@ export const deployContract = {
     .output(createOutput),
 
   delete: protectedBase
+    .meta(mcpTool({ access: "destructive", title: "Delete a game" }))
     .meta(
       documented({
         description: "Permanently deletes one of the caller's games and all of its deployed files.",
@@ -60,6 +63,7 @@ export const deployContract = {
     .output(z.object({ success: z.literal(true) })),
 
   finalize: protectedBase
+    .meta(mcpTool({ access: "write", title: "Finalize a deployment" }))
     .meta(
       documented({
         description:
@@ -72,6 +76,7 @@ export const deployContract = {
     .output(z.object({ slug: z.string(), url: z.string() })),
 
   getSource: protectedBase
+    .meta(mcpTool({ access: "read", title: "Get a game's source" }))
     .meta(
       documented({
         description:
@@ -91,6 +96,7 @@ export const deployContract = {
     ),
 
   list: protectedBase
+    .meta(mcpTool({ access: "read", title: "List your games" }))
     .meta(
       documented({
         description:

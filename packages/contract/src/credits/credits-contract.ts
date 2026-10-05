@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { protectedBase } from "../base";
+import { mcpTool } from "../mcp";
 import { documented } from "../openapi";
 
 const creditEntry = z.object({
@@ -21,6 +22,7 @@ const creditEntry = z.object({
 
 export const creditsContract = {
   me: protectedBase
+    .meta(mcpTool({ access: "read", name: "credits", title: "Credit balance" }))
     .meta(
       documented({
         description:

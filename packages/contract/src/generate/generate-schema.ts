@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { jsonValueSchema } from "../json";
+
 // A `.` or `..` segment, spelled literally or as `%2e`, which the URL parser
 // collapses.
 const DOT_SEGMENT = /(?:^|\/)(?:\.|%2e){1,2}(?:\/|$)/iu;
@@ -49,3 +51,80 @@ export const forwardInput = z
       "a queue path may hold only lowercase letters, digits and `-._~/`: spell the endpoint id as `vg generate models` lists it and the request id as the submit returned it",
     path: ["path"],
   });
+
+// ---- The typed procedures ----------------------------------------------------
+//
+// The server builds each provider request from the ids below, and a queue path
+// from an endpoint id and a request id, so an id is held to what
+// `forwardInput` accepts of a queue path: lowercase letters, digits and
+// `-._~`, and no dot segment for the URL parser to collapse. Every valid typed
+// call then builds a canonical queue path, and the path a submit is priced and
+// held under is, byte for byte, the path fal runs.
+
+const endpointIdSchema = z
+  .string()
+  .min(3)
+  .max(256)
+  .regex(
+    /^\/*[a-z0-9._~-]+(?:\/[a-z0-9._~-]+)+\/*$/u,
+    "endpointId must be owner/model[/subpath] in lowercase letters, digits and `-._~`, spelled as the model search lists it",
+  )
+  .refine((id) => !DOT_SEGMENT.test(id), "endpointId may not contain `.` or `..` segments")
+  .describe("Model endpoint id, e.g. fal-ai/flux/dev.");
+
+const requestIdSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(
+    /^[a-z0-9_-]+$/u,
+    "requestId must be the request id generate.submit returned: lowercase letters, digits, `-` and `_`",
+  )
+  .describe("The request_id returned by generate.submit.");
+
+/** One queued job: `generate.result` and `generate.cancel`. */
+export const jobInput = z.object({ endpointId: endpointIdSchema, requestId: requestIdSchema });
+
+export const statusInput = jobInput.extend({
+  logs: z.boolean().default(false).describe("Include model logs."),
+});
+
+export const submitInput = z.object({
+  endpointId: endpointIdSchema,
+  input: z
+    .record(z.string(), jsonValueSchema)
+    .describe("The model's input, as described by generate.schema."),
+});
+
+export const modelsInput = z.object({
+  category: z.string().max(64).optional().describe("Filter by category, e.g. text-to-image."),
+  cursor: z.string().max(512).optional().describe("Pagination cursor from a prior response."),
+  endpointIds: z
+    .array(endpointIdSchema)
+    .max(50)
+    .optional()
+    .describe("Look up specific endpoint ids."),
+  expand: z
+    .array(z.enum(["openapi-3.0", "enterprise_status"]))
+    .optional()
+    .describe("Extra fields to include."),
+  limit: z.number().int().min(1).max(100).default(20),
+  query: z.string().max(200).optional().describe("Free-text search."),
+  status: z.enum(["active", "deprecated", "all"]).default("active"),
+});
+
+export const pricingInput = z.object({ endpointId: endpointIdSchema });
+
+export const schemaInput = z.object({
+  endpointId: endpointIdSchema,
+  format: z.enum(["compact", "openapi"]).default("compact"),
+});
+
+export const docsInput = z.object({
+  query: z.string().min(1).max(500).describe("What to look up."),
+});
+
+export const uploadSlotInput = z.object({
+  contentType: z.string().min(1).max(127),
+  fileName: z.string().min(1).max(255),
+});

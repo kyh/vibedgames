@@ -11,6 +11,7 @@ import { APIError } from "better-auth/api";
 import { admin, bearer, oAuthProxy } from "better-auth/plugins";
 
 import { normalizeInviteCode, tryClaimInviteCode, validateInviteCode } from "./invite-claim";
+import { mcpOAuthPlugins } from "./mcp-oauth";
 
 export interface AuthOptions {
   db: Db;
@@ -116,6 +117,7 @@ export const createAuth = (opts: AuthOptions) => {
         rateLimit: { enabled: false },
         requireName: true,
       }),
+      ...mcpOAuthPlugins(baseURL),
     ],
     // Persist rate-limit counters in D1. The default in-memory store keeps
     // per-isolate counters, so on Cloudflare Workers the effective limit

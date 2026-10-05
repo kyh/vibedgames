@@ -2,11 +2,13 @@ import { z } from "zod";
 
 import { protectedBase } from "../base";
 import { jsonValueSchema } from "../json";
+import { notMcpTool } from "../mcp";
 import { documented } from "../openapi";
 import { decideInput } from "./playtest-schema";
 
 export const playtestContract = {
   decide: protectedBase
+    .meta(notMcpTool("Called by the in-page playtest agent, not by a model."))
     .meta(
       documented({
         description:
@@ -21,6 +23,7 @@ export const playtestContract = {
     ),
 
   session: protectedBase
+    .meta(notMcpTool("Mints a token for a local `vg playtest run` browser session."))
     .meta(
       documented({
         description:

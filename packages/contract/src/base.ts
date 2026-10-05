@@ -1,5 +1,6 @@
 import { defineMeta, oc } from "@orpc/contract";
 
+import { notMcpTool } from "./mcp";
 import { protectedProcedureSpec, publicProcedureSpec, sessionOnlyProcedureSpec } from "./openapi";
 
 /**
@@ -33,8 +34,16 @@ export const publicBase = oc.meta(publicProcedureSpec, requires("none"));
 /** Any of the three credentials. Implementers apply `os.<feature>.use(requireSession)`. */
 export const protectedBase = publicBase.meta(protectedProcedureSpec, requires("any"));
 
-/** A real session; an API key is refused. Implementers add `.use(rejectApiKey)` after `requireSession`. */
-export const sessionOnlyBase = protectedBase.meta(sessionOnlyProcedureSpec, requires("session"));
+/**
+ * A real session; an API key is refused. Implementers add `.use(rejectApiKey)`
+ * after `requireSession`. Never an MCP tool: an MCP client is automation, like
+ * an API key, whatever credential it carries.
+ */
+export const sessionOnlyBase = protectedBase.meta(
+  sessionOnlyProcedureSpec,
+  requires("session"),
+  notMcpTool("Needs an interactive login; MCP sessions count as automation, like API keys."),
+);
 
 /**
  * The admin role on a real session. It adds no OpenAPI metadata: the role

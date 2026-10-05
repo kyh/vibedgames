@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { publicBase } from "../base";
+import { notMcpTool } from "../mcp";
 import { documented } from "../openapi";
 import { joinWaitlistInput } from "./waitlist-schema";
 
@@ -13,6 +14,7 @@ const waitlistEntry = z.object({
 
 export const waitlistContract = {
   join: publicBase
+    .meta(notMcpTool("The public waitlist form."))
     .meta(
       documented({
         description:

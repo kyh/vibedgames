@@ -8,6 +8,8 @@
     "./auth/auth": "./src/auth/auth.ts",
     "./deploy/r2-presign": "./src/deploy/r2-presign.ts",
     "./generate/limits": "./src/generate/limits.ts",
+    "./mcp/auth-gate": "./src/mcp/auth-gate.ts",
+    "./mcp/server": "./src/mcp/server.ts",
     "./orpc": "./src/orpc.ts",
     "./playtest/decide-handler": "./src/playtest/decide-handler.ts"
   },
@@ -18,13 +20,18 @@
   },
   "dependencies": {
     "@better-auth/api-key": "1.7.2",
+    "@better-auth/cimd": "1.7.2",
     "@better-auth/drizzle-adapter": "1.7.2",
     "@better-auth/expo": "1.7.2",
+    "@better-auth/mcp": "1.7.2",
+    "@modelcontextprotocol/server": "^2.1.0",
+    "@orpc/openapi": "catalog:",
     "@orpc/server": "catalog:",
     "@repo/contract": "workspace:^",
     "@repo/db": "workspace:^",
     "aws4fetch": "^1.0.20",
     "better-auth": "1.7.2",
+    "jose": "^6.2.12",
     "zod": "catalog:"
   },
   "devDependencies": {

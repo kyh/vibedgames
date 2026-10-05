@@ -15,7 +15,7 @@ const LoginPage = () => {
       </div>
       <p className="text-muted-foreground mt-6 px-8 text-center text-xs">
         Don&apos;t have an account?{" "}
-        <Link to="/auth/register" className="underline">
+        <Link to="/auth/register" search={(prev) => prev} className="underline">
           Register
         </Link>
       </p>

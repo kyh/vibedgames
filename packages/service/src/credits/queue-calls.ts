@@ -1,6 +1,7 @@
 /**
- * Classify a `generate.forward` queue hop for credit accounting. Mirrors the
- * fal queue URL shape the CLI builds (see `apps/cli/src/lib/media-poll.ts`):
+ * Classify a `callFal` queue hop (`generate/fal-call.ts`, the one hop every
+ * `generate.*` proc makes) for credit accounting. Mirrors the fal queue URL
+ * shape `generate/queue-paths.ts` builds:
  *
  *   POST /{endpoint...}                      submit (bills the caller)
  *   GET  /{app...}/requests/{rid}/status     status poll

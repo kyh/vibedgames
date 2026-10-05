@@ -1,9 +1,8 @@
-import type { ContractClient, RouterInputs } from "@repo/contract";
+import type { ContractClient } from "@repo/contract";
 import { createORPCClient, ORPCError } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 
 import { getBaseUrl, getToken } from "./config.js";
-import type { JsonValue } from "./types.js";
 
 const makeClient = (baseUrl: string, token?: string): ContractClient =>
   createORPCClient(
@@ -28,19 +27,6 @@ export const createClient = (): ContractClient => {
 /** The oRPC error code on a failed call, or null for non-oRPC failures. */
 export const authErrorCode = (cause: unknown): string | null =>
   cause instanceof ORPCError ? cause.code : null;
-
-type ForwardInput = RouterInputs["generate"]["forward"];
-
-/**
- * The single boundary where fal payloads enter the CLI. `generate.forward` is
- * deliberately untyped per endpoint — it resolves to bare `JsonValue` — so
- * everything downstream narrows with the guards in `types.ts` rather than
- * asserting a shape at the call site.
- */
-export const forwardJson = async (
-  client: ContractClient,
-  input: ForwardInput,
-): Promise<JsonValue> => await client.generate.forward(input);
 
 /** Unauthenticated client — for login flow. */
 export const createPublicClient = (baseUrl: string): ContractClient => makeClient(baseUrl);

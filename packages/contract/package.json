@@ -10,6 +10,7 @@
     "./deploy/deploy-schema": "./src/deploy/deploy-schema.ts",
     "./generate/generate-schema": "./src/generate/generate-schema.ts",
     "./json": "./src/json.ts",
+    "./mcp": "./src/mcp.ts",
     "./openapi": "./src/openapi.ts",
     "./playtest/playtest-schema": "./src/playtest/playtest-schema.ts"
   },

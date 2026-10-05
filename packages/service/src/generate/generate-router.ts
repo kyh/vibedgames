@@ -1,393 +1,179 @@
-import type { Db } from "@repo/db/drizzle-client";
-import type { forwardInput } from "@repo/contract/generate/generate-schema";
+import { setTimeout as sleep } from "node:timers/promises";
+import type { jobInput } from "@repo/contract/generate/generate-schema";
 import type { JsonValue } from "@repo/contract/json";
 import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 
-import type { EndpointPricing, PlatformAnswer } from "../credits/endpoint-pricing";
-import type { MediaProviderConfig } from "../orpc";
-import {
-  formatUsd,
-  getBalanceMicro,
-  holdGeneration,
-  releaseGeneration,
-  settleGeneration,
-} from "../credits/credit-ledger";
-import { getEndpointPricing } from "../credits/endpoint-pricing";
-import {
-  classifyQueueCall,
-  isUnbilledTerminalStatus,
-  parseBillableUnits,
-} from "../credits/queue-calls";
+import type { FalCallContext, FalQuery } from "./fal-call";
 import { os, requireSession } from "../orpc";
-import { MAX_PARAMS_BYTES } from "./limits";
-import {
-  fetchProviderResponse,
-  readJsonBounded,
-  readSseJson,
-  throwProviderError,
-} from "./provider-io";
+import { callFal } from "./fal-call";
+import { endpointPath, requestPath } from "./queue-paths";
 
-// ---- fal target routing -----------------------------------------------------
-//
-// `generate.forward` is the single proc the CLI talks to. Each call names a
-// target (queue / platform / storage / docs) which picks the upstream host;
-// the rest of the URL is the user-supplied `path` plus optional `query`.
-// Per-target overrides come from MediaProviderConfig so deployments can
-// route any target through a Cloudflare AI Gateway prefix.
+// ---- Helpers ------------------------------------------------------------------
 
-const TARGET_DEFAULTS = {
-  // fal's docs MCP lives at fal.ai/docs/mcp (docs.fal.ai 308-redirects
-  // here, which we refuse to follow with credentials). It speaks MCP
-  // streamable-HTTP and answers with text/event-stream, not JSON — see
-  // the docs branch in `forward`.
-  docs: "https://fal.ai",
-  platform: "https://api.fal.ai",
-  queue: "https://queue.fal.run",
-  storage: "https://rest.alpha.fal.ai",
-} as const;
+const httpsUrl = z.url({ protocol: /^https$/u });
 
-type Target = keyof typeof TARGET_DEFAULTS;
+const uploadSlotResponse = z.looseObject({ file_url: httpsUrl, upload_url: httpsUrl });
 
-const TARGET_OVERRIDE_KEY = {
-  docs: "falDocsBaseUrl",
-  platform: "falPlatformBaseUrl",
-  queue: "falQueueBaseUrl",
-  storage: "falStorageBaseUrl",
-} as const satisfies Record<Target, keyof MediaProviderConfig>;
-
-const trimSlash = (url: string): string => (url.endsWith("/") ? url.slice(0, -1) : url);
-
-const nonBlank = (value: string | undefined): string | undefined =>
-  value !== undefined && value.trim().length > 0 ? value : undefined;
-
-const targetBase = (target: Target, media: MediaProviderConfig): string => {
-  const override = nonBlank(media[TARGET_OVERRIDE_KEY[target]]);
-  return trimSlash(override ?? TARGET_DEFAULTS[target]);
+const readStatus = (body: JsonValue): string => {
+  const parsed = z.looseObject({ status: z.string() }).safeParse(body);
+  return parsed.success ? parsed.data.status.toUpperCase() : "";
 };
 
-const badPath: (reason: string) => never = (reason) => {
-  throw new ORPCError("BAD_REQUEST", { message: `path ${reason}.` });
-};
-
-const rejectTraversal = (path: string): void => {
-  // Reject literal `..` and any percent-encoded form. The `URL` parser
-  // doesn't decode `%2e%2e` itself — so `new URL(...)` would happily
-  // produce a URL whose pathname looks fine here but whose downstream
-  // server (or a reverse proxy) might decode and resolve as a traversal,
-  // letting a request escape the target host's intended namespace
-  // while we attach FAL_API_KEY to it. Percent-encoded slashes get the
-  // same treatment because they'd fold into segment separators after
-  // decoding and could push the request past a pathname-aware allowlist.
-  if (path.includes("..")) {
-    badPath("may not contain `..`");
-  }
-  if (!path.includes("%")) {
-    return;
-  }
-  let decoded: string;
-  try {
-    decoded = decodeURIComponent(path);
-  } catch {
-    badPath("has invalid percent-encoding");
-  }
-  if (decoded.includes("..")) {
-    badPath("may not contain `..` (including percent-encoded forms)");
-  }
-  if (/%2f|%5c/iu.test(path)) {
-    badPath("may not contain percent-encoded path separators");
-  }
-};
-
-const buildUrl = (
-  base: string,
-  path: string,
-  query: Record<string, string | string[]> | undefined,
-): URL => {
-  rejectTraversal(path);
-  // `path` is already Zod-constrained to start with `/`, and
-  // rejectTraversal blocks every `..` form (literal, percent-decoded,
-  // and percent-encoded separators). With those guards `new URL(base
-  // + path)` can't escape the target origin.
-  const url = new URL(base + path);
-  for (const [key, value] of Object.entries(query ?? {})) {
-    const values = Array.isArray(value) ? value : [value];
-    for (const v of values) {
-      url.searchParams.append(key, v);
+// fal confirms cancellation asynchronously and the credit hold is released
+// only when a status poll sees the terminal state, so poll a few times here
+// rather than leaving the refund to whenever the caller next asks.
+// Best-effort: a miss just defers the refund to the next status call.
+const confirmCancelled = async (
+  context: FalCallContext,
+  input: z.infer<typeof jobInput>,
+): Promise<void> => {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await sleep(1000);
+    try {
+      const poll = await callFal(context, {
+        method: "GET",
+        path: requestPath(input.endpointId, input.requestId, "/status"),
+        target: "queue",
+      });
+      if (["CANCELLED", "FAILED", "COMPLETED"].includes(readStatus(poll))) {
+        return;
+      }
+    } catch {
+      return;
     }
   }
-  return url;
 };
 
-// ---- Helpers ---------------------------------------------------------------
-
-type ForwardInput = z.infer<typeof forwardInput>;
-
-const pickFalKey = (media: MediaProviderConfig | undefined) => {
-  if (!media?.fal) {
-    throw new ORPCError("PRECONDITION_FAILED", {
-      message: "fal is not configured on the server (FAL_API_KEY missing).",
-    });
-  }
-  return { apiKey: media.fal, config: media };
-};
-
-// X-Fal-Store-IO: keep outputs on fal CDN, not inlined as base64.
-// x-app-fal-disable-fallback: surface failures instead of routing to a
-// different model silently. Both apply to queue submits but are
-// harmless on other targets, so we send them unconditionally.
-const FAL_STATIC_HEADERS = {
-  Accept: "application/json",
-  "X-Fal-Store-IO": "1",
-  "x-app-fal-disable-fallback": "true",
-} as const;
-
-const serializeBody = (input: ForwardInput): string | undefined => {
-  const { body } = input;
-  if (body === undefined) {
-    return undefined;
-  }
-  let serialized: string;
-  try {
-    serialized = JSON.stringify(body);
-  } catch {
-    throw new ORPCError("BAD_REQUEST", {
-      message: "body must be JSON-serializable.",
-    });
-  }
-  const bytes = new TextEncoder().encode(serialized).byteLength;
-  if (bytes > MAX_PARAMS_BYTES) {
-    throw new ORPCError("PAYLOAD_TOO_LARGE", {
-      message: `body exceeds ${MAX_PARAMS_BYTES} bytes.`,
-    });
-  }
-  return serialized;
-};
-
-const buildHeaders = (apiKey: string, target: Target, serialized: string | undefined): Headers => {
-  const headers = new Headers({
-    ...FAL_STATIC_HEADERS,
-    Authorization: `Key ${apiKey}`,
-  });
-  if (serialized !== undefined) {
-    headers.set("Content-Type", "application/json");
-  }
-  // The docs MCP server answers with an SSE stream and 406s unless the
-  // client advertises it accepts text/event-stream.
-  if (target === "docs") {
-    headers.set("Accept", "application/json, text/event-stream");
-  }
-  return headers;
-};
-
-const readBody = async (res: Response, target: Target): Promise<JsonValue | null> => {
-  if (res.status === 204 || res.headers.get("content-length") === "0") {
-    return null;
-  }
-  const label = `fal ${target} response`;
-  if (target === "docs") {
-    return await readSseJson(res, label);
-  }
-  return await readJsonBounded(res, label);
-};
-
-// ---- credit accounting ------------------------------------------------------
-
-/**
- * Credentialed platform-API transport for pricing lookups. Same
- * fetch/parse path as user-driven platform hops so size bounds and
- * redirect policy apply. A non-2xx comes back as its status rather than a
- * throw, so a 404 for an unknown endpoint reads differently from a 5xx.
- */
-const platformFetchJson =
-  (apiKey: string, config: MediaProviderConfig) =>
-  async (req: {
-    method: "GET" | "POST";
-    path: string;
-    query?: Record<string, string>;
-    body?: JsonValue;
-  }): Promise<PlatformAnswer> => {
-    const url = buildUrl(targetBase("platform", config), req.path, req.query);
-    const headers = new Headers({
-      Accept: "application/json",
-      Authorization: `Key ${apiKey}`,
-    });
-    let body: string | undefined;
-    if (req.body !== undefined) {
-      body = JSON.stringify(req.body);
-      headers.set("Content-Type", "application/json");
-    }
-    const res = await fetchProviderResponse({
-      credentialed: true,
-      init: { body, headers, method: req.method },
-      label: `fal platform ${req.method} ${req.path}`,
-      tolerateHttpError: true,
-      url,
-    });
-    if (!res.ok) {
-      await res.body?.cancel();
-      return { ok: false, status: res.status };
-    }
-    return { body: await readJsonBounded(res, "fal platform response"), ok: true };
-  };
-
-/**
- * Gate a queue submit on remaining credits. Balance must be positive to
- * start a generation; the estimated hold may push it negative, which
- * simply blocks the next submit. The message carries the
- * `insufficient_credits` token so agents can branch on it.
- */
-const requirePositiveBalance = async (db: Db, userId: string): Promise<void> => {
-  const balanceMicro = await getBalanceMicro(db, userId);
-  if (balanceMicro > 0) {
-    return;
-  }
-  throw new ORPCError("FORBIDDEN", {
-    message:
-      `insufficient_credits: your balance is ${formatUsd(balanceMicro)}. ` +
-      "Generation is paused until an admin grants more credits " +
-      "(check with `vg credits`).",
-  });
-};
-
-/**
- * Gate a queue submit on a published price. Settle prices reported usage at
- * the endpoint's unit price, so an endpoint fal's price list doesn't name (a
- * misspelt id, or one fal runs but doesn't price) would cost the flat default
- * hold whatever it really costs. The message carries the `unknown_endpoint`
- * token so agents can branch on it.
- */
-const requirePublishedPrice = (pricing: EndpointPricing, endpointId: string): void => {
-  if (pricing.kind !== "unknown") {
-    return;
-  }
-  throw new ORPCError("BAD_REQUEST", {
-    message:
-      `unknown_endpoint: no price is published for "${endpointId}", so it cannot be billed. ` +
-      "Check the id with `vg generate models`.",
-  });
-};
-
-const submitResponse = z.looseObject({ request_id: z.string().min(1) });
-
-const readRequestId = (body: JsonValue): string | null => {
-  const parsed = submitResponse.safeParse(body);
-  return parsed.success ? parsed.data.request_id : null;
-};
-
-const statusResponse = z.looseObject({ status: z.string() });
-
-const readQueueStatus = (body: JsonValue): string | null => {
-  const parsed = statusResponse.safeParse(body);
-  return parsed.success ? parsed.data.status : null;
-};
-
-// ---- Router ----------------------------------------------------------------
+// ---- Router -------------------------------------------------------------------
 
 const authed = os.generate.use(requireSession);
 
+/**
+ * Every procedure is one or more `callFal` hops: the server owns each
+ * provider path, so the CLI and the MCP tools share one implementation and
+ * one credit gate.
+ */
 export const generateRouter = {
-  /**
-   * Single proxy hop to fal. The CLI builds the URL it wants, the
-   * server attaches the FAL_KEY and the X-Fal-Store-IO directives,
-   * forwards, and returns the parsed JSON body. This is deliberately
-   * dumb — typed shapes for individual fal endpoints live on the
-   * client and in fal's docs, not in this layer. Per-user policy
-   * (auth, quotas, allowlists, billing meters) hooks in here.
-   */
-  forward: authed.forward.handler(async ({ context, input }) => {
-    const { apiKey, config } = pickFalKey(context.media);
-    const userId = context.session.user.id;
-
-    // Credit gates + hold estimate happen before any fal spend. Everything
-    // else about the hop is unchanged when the call isn't a queue submit.
-    // Admins are metered but never gated: their usage is still recorded
-    // (holds/settles) so spend stays visible, but neither a negative balance
-    // nor an unpriced endpoint can block them.
-    const queueCall =
-      input.target === "queue"
-        ? classifyQueueCall(input.method, input.path)
-        : { kind: "other" as const };
-    let pricing: EndpointPricing | null = null;
-    if (queueCall.kind === "submit") {
-      const gated = context.session.user.role !== "admin";
-      if (gated) {
-        await requirePositiveBalance(context.db, userId);
-      }
-      pricing = await getEndpointPricing(queueCall.endpointId, platformFetchJson(apiKey, config));
-      if (gated) {
-        requirePublishedPrice(pricing, queueCall.endpointId);
-      }
-    }
-
-    const serialized = serializeBody(input);
-    const base = targetBase(input.target, config);
-    const url = buildUrl(base, input.path, input.query);
-    const headers = buildHeaders(apiKey, input.target, serialized);
-
-    const fetchLabel = `fal ${input.target} ${input.method} ${input.path}`;
-    const res = await fetchProviderResponse({
-      credentialed: true,
-      init: { body: serialized, headers, method: input.method },
-      label: fetchLabel,
-      // Result fetches of failed jobs come back non-2xx but may still carry
-      // the billable-units header — we need the response, not a throw.
-      tolerateHttpError: queueCall.kind === "result",
-      url,
+  cancel: authed.cancel.handler(async ({ context, input }) => {
+    const body = await callFal(context, {
+      method: "PUT",
+      path: requestPath(input.endpointId, input.requestId, "/cancel"),
+      target: "queue",
     });
-
-    if (!res.ok) {
-      // Failed-job result fetch. Settle only on an explicit usage signal;
-      // with no header the hold stays for the status-poll release path
-      // (fal doesn't bill failures, so guessing a charge here would be
-      // wrong more often than not).
-      const units = parseBillableUnits(res.headers.get("x-fal-billable-units"));
-      if (queueCall.kind === "result" && units !== null) {
-        try {
-          await settleGeneration(context.db, queueCall.requestId, units);
-        } catch (error) {
-          console.error(`credit settle failed for ${queueCall.requestId}`, error);
-        }
-      }
-      await throwProviderError(res, fetchLabel);
-    }
-
-    const body = await readBody(res, input.target);
-
-    // Ledger updates ride the same hops the client already makes; the fal
-    // call has succeeded by this point, so a charge always has a real
-    // generation behind it. A ledger hiccup must never destroy the response
-    // the user's money already bought — the ops are idempotent and converge
-    // on this request's next hop, so log and move on.
-    try {
-      if (queueCall.kind === "submit" && pricing !== null) {
-        const requestId = readRequestId(body);
-        if (requestId !== null) {
-          await holdGeneration(context.db, {
-            endpointId: queueCall.endpointId,
-            holdMicro: pricing.holdMicro,
-            requestId,
-            unit: pricing.unit,
-            unitPriceMicro: pricing.unitPriceMicro,
-            userId,
-          });
-        }
-      } else if (queueCall.kind === "result") {
-        // fal reports actual usage on the result fetch; a missing header
-        // settles at the hold so the books still close.
-        await settleGeneration(
-          context.db,
-          queueCall.requestId,
-          parseBillableUnits(res.headers.get("x-fal-billable-units")),
-        );
-      } else if (queueCall.kind === "status" && isUnbilledTerminalStatus(readQueueStatus(body))) {
-        // fal doesn't bill failed/cancelled jobs — refund the hold.
-        await releaseGeneration(context.db, queueCall.requestId);
-      }
-    } catch (error) {
-      console.error(`credit accounting failed for ${fetchLabel}`, error);
-    }
-
+    await confirmCancelled(context, input);
     return body;
+  }),
+
+  docs: authed.docs.handler(({ context, input }) =>
+    callFal(context, {
+      body: {
+        id: 1,
+        jsonrpc: "2.0",
+        method: "tools/call",
+        params: { arguments: { query: input.query }, name: "search_fal" },
+      },
+      method: "POST",
+      path: "/docs/mcp",
+      target: "docs",
+    }),
+  ),
+
+  /**
+   * The raw proxy hop, kept for CLI releases that predate the typed
+   * procedures here: the caller builds the path, the server attaches the
+   * key and the credit gate.
+   */
+  forward: authed.forward.handler(({ context, input }) => callFal(context, input)),
+
+  models: authed.models.handler(({ context, input }) => {
+    const query: FalQuery = { limit: String(input.limit) };
+    if (input.query) {
+      query.q = input.query;
+    }
+    if (input.category) {
+      query.category = input.category;
+    }
+    if (input.status !== "all") {
+      query.status = input.status;
+    }
+    if (input.cursor) {
+      query.cursor = input.cursor;
+    }
+    if (input.endpointIds?.length) {
+      query.endpoint_id = input.endpointIds;
+    }
+    if (input.expand?.length) {
+      query.expand = input.expand;
+    }
+    return callFal(context, { method: "GET", path: "/v1/models", query, target: "platform" });
+  }),
+
+  pricing: authed.pricing.handler(({ context, input }) =>
+    callFal(context, {
+      method: "GET",
+      path: "/v1/models/pricing",
+      query: { endpoint_id: input.endpointId },
+      target: "platform",
+    }),
+  ),
+
+  result: authed.result.handler(({ context, input }) =>
+    callFal(context, {
+      method: "GET",
+      path: requestPath(input.endpointId, input.requestId, ""),
+      target: "queue",
+    }),
+  ),
+
+  schema: authed.schema.handler(({ context, input }) => {
+    const query: FalQuery = { endpoint_id: input.endpointId, limit: "1" };
+    if (input.format === "openapi") {
+      query.expand = ["openapi-3.0"];
+    }
+    return callFal(context, { method: "GET", path: "/v1/models", query, target: "platform" });
+  }),
+
+  status: authed.status.handler(({ context, input }) =>
+    callFal(context, {
+      method: "GET",
+      path: requestPath(input.endpointId, input.requestId, "/status"),
+      query: input.logs ? { logs: "1" } : undefined,
+      target: "queue",
+    }),
+  ),
+
+  submit: authed.submit.handler(async ({ context, input }) => {
+    const body = await callFal(context, {
+      body: input.input,
+      method: "POST",
+      path: `/${endpointPath(input.endpointId)}`,
+      target: "queue",
+    });
+    const parsed = z.looseObject({ request_id: z.string().min(1) }).safeParse(body);
+    if (!parsed.success) {
+      throw new ORPCError("BAD_GATEWAY", {
+        message: "queue submit did not return a request_id.",
+      });
+    }
+    return { requestId: parsed.data.request_id };
+  }),
+
+  uploadSlot: authed.uploadSlot.handler(async ({ context, input }) => {
+    const body = await callFal(context, {
+      body: { content_type: input.contentType, file_name: input.fileName },
+      method: "POST",
+      path: "/storage/upload/initiate",
+      target: "storage",
+    });
+    // Refuse a non-HTTPS slot even from the provider: the caller sends user
+    // bytes to it, and the file URL is reused as input to later jobs.
+    const parsed = uploadSlotResponse.safeParse(body);
+    if (!parsed.success) {
+      throw new ORPCError("BAD_GATEWAY", {
+        message: "upload initiate response is missing an HTTPS upload_url or file_url.",
+      });
+    }
+    return { fileUrl: parsed.data.file_url, uploadUrl: parsed.data.upload_url };
   }),
 };

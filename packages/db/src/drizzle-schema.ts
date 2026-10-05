@@ -180,8 +180,9 @@ export const creditEntry = sqliteTable(
 );
 
 /**
- * One row per generation submitted through `generate.forward`, keyed by the
- * provider's request id. Tracks the credit lifecycle:
+ * One row per generation submitted through `callFal` (the hop every
+ * `generate.*` proc makes), keyed by the provider's request id. Tracks the
+ * credit lifecycle:
  *
  *   held    — an estimated hold was debited at submit
  *   settled — the result fetch reported actual billable units and the hold

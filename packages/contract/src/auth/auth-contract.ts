@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { adminBase, protectedBase, publicBase, sessionOnlyBase } from "../base";
+import { mcpTool, notMcpTool } from "../mcp";
 import { documented } from "../openapi";
 import { codeInput, createInvitesInput, updateInviteInput } from "./auth-schema";
 
@@ -32,6 +33,7 @@ export const authContract = {
     .output(okOutput),
 
   cliInit: publicBase
+    .meta(notMcpTool("Device-code login for the CLI; MCP clients sign in with OAuth."))
     .meta(
       documented({
         description:
@@ -42,6 +44,7 @@ export const authContract = {
     .output(z.object({ code: z.string() })),
 
   cliPoll: publicBase
+    .meta(notMcpTool("Device-code login for the CLI; MCP clients sign in with OAuth."))
     .meta(
       documented({
         description:
@@ -82,6 +85,7 @@ export const authContract = {
     ),
 
   me: protectedBase
+    .meta(mcpTool({ access: "read", name: "whoami", title: "Who am I" }))
     .meta(
       documented({
         description:
@@ -111,6 +115,7 @@ export const authContract = {
     .output(z.object({ code: inviteCodeRow })),
 
   validateInvite: publicBase
+    .meta(notMcpTool("A check for the web sign-up form."))
     .meta(
       documented({
         description:

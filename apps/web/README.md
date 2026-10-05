@@ -30,6 +30,7 @@ Worker for the oRPC API.
 | `/api/playtest/decide`                     | the in-page playtester's decisions: cross-origin, honours only a `playtest.session` token |
 | `/api/trpc/*`                              | legacy: tells CLI copies up to 0.4.x to upgrade                                           |
 | `/.well-known/agent-skills/*`              | the vibedgames skills, served for agents to fetch                                         |
+| `/mcp`                                     | MCP server: skills, install steps, games; account tools from the router with a Bearer key |
 | `/llms.txt`, `/robots.txt`, `/sitemap.xml` | machine-readable site descriptions                                                        |
 | anything else                              | `404` with a markdown recovery note (`src/routes/$.tsx`)                                  |
 

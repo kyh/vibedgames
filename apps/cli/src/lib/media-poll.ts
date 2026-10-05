@@ -1,30 +1,11 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import { consola } from "consola";
 
-import { forwardJson } from "./api.js";
 import type { createClient } from "./api.js";
 import { isJsonNumber, isJsonObject, isJsonString } from "./types.js";
 import type { JsonValue } from "./types.js";
 
 type Client = ReturnType<typeof createClient>;
-
-// Strip leading/trailing slashes from a fal endpoint id so it can be
-// spliced into a URL path without doubling separators.
-export const endpointPath = (endpointId: string): string =>
-  endpointId.replaceAll(/^\/+|\/+$/gu, "");
-
-// fal's queue accepts the full endpoint id (including any model subpath,
-// e.g. `fal-ai/flux/schnell`) on submit, but the status/result/cancel
-// routes are keyed by the owning *application* id only (`fal-ai/flux`).
-// Passing the subpath to those routes returns 405. `workflows`/`comfy`
-// ids carry the namespace as a leading segment, so their app id is three
-// segments deep.
-const QUEUE_APP_NAMESPACES = new Set(["workflows", "comfy"]);
-export const queueAppId = (endpointId: string): string => {
-  const parts = endpointPath(endpointId).split("/").filter(Boolean);
-  const take = QUEUE_APP_NAMESPACES.has(parts[0] ?? "") ? 3 : 2;
-  return parts.slice(0, take).join("/");
-};
 
 const POLL_INTERVAL_MS = 2000;
 // 30-minute ceiling on a sync run. Generous (this is the user's local
@@ -56,9 +37,9 @@ const pickErrorReason = (value: JsonValue): string | null => {
   return null;
 };
 /**
- * Poll fal's queue from the client side until the job reaches a
- * terminal status, then fetch the result. The Worker isn't in the
- * loop — it's only along for each individual `generate.forward` hop.
+ * Poll the job from the client side until it reaches a terminal status,
+ * then fetch the result. The Worker isn't in the loop — each poll is one
+ * `generate.status` call.
  */
 export const waitForCompletion = async (
   client: Client,
@@ -66,7 +47,6 @@ export const waitForCompletion = async (
   request_id: string,
   opts: { quiet: boolean },
 ): Promise<CompletedResult> => {
-  const ep = queueAppId(endpoint_id);
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   let lastStatus: string | undefined;
 
@@ -78,11 +58,7 @@ export const waitForCompletion = async (
           `Use \`vg generate status ${endpoint_id} ${request_id} --result\` to check later.`,
       );
     }
-    const raw = await forwardJson(client, {
-      method: "GET",
-      path: `/${ep}/requests/${request_id}/status`,
-      target: "queue",
-    });
+    const raw = await client.generate.status({ endpointId: endpoint_id, requestId: request_id });
     const status = isJsonObject(raw) && isJsonString(raw.status) ? raw.status : "UNKNOWN";
     const upper = status.toUpperCase();
     if (!opts.quiet && upper !== lastStatus) {
@@ -105,10 +81,6 @@ export const waitForCompletion = async (
     await sleep(POLL_INTERVAL_MS);
   }
 
-  const result = await forwardJson(client, {
-    method: "GET",
-    path: `/${ep}/requests/${request_id}`,
-    target: "queue",
-  });
+  const result = await client.generate.result({ endpointId: endpoint_id, requestId: request_id });
   return { request_id, result };
 };

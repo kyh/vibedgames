@@ -12,6 +12,7 @@
     "db:seed-local": "pnpm -C apps/web exec wrangler d1 execute vibedgames --local --file=../../packages/db/seed.sql",
     "db:local": "pnpm db:push && pnpm db:seed-local",
     "admin:create": "tsx scripts/create-admin.ts",
+    "check:agent-endpoints": "tsx scripts/check-agent-endpoints.ts",
     "dogfood": "tsx scripts/dogfood.ts",
     "dogfood:reset": "tsx scripts/dogfood-reset.ts",
     "dev": "turbo watch db studio dev --continue --filter=!./games/*",
@@ -48,7 +49,8 @@
     "tsx": "^4.23.15",
     "turbo": "^2.11.4",
     "typescript": "catalog:",
-    "ultracite": "^7.12.0"
+    "ultracite": "^7.12.0",
+    "zod": "catalog:"
   },
   "engines": {
     "node": "24.x"
