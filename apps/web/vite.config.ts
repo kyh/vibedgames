@@ -6,7 +6,10 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [
-    cloudflare({ viteEnvironment: { name: "ssr" } }),
+    cloudflare({
+      experimental: { newConfig: { cfBuildOutput: true } },
+      viteEnvironment: { name: "ssr" },
+    }),
     tanstackStart(),
     viteReact(),
     tailwindcss(),

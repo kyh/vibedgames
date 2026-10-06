@@ -4,7 +4,7 @@
  *
  * Builds the rows with the shared `buildInviteRows` helper (the same one the
  * admin `createInvites` mutation uses, so they can't drift) and inserts
- * them into the `invite_code` table via `wrangler d1 execute` — runnable from
+ * them into the `invite_code` table via `packages/db/d1-execute.ts` — runnable from
  * the shell without an admin session, handy for seeding codes locally or in
  * production. Run it with `tsx`:
  *
@@ -173,25 +173,24 @@ const main = () => {
   const sqlFile = path.join(tmpDir, "create-invite.sql");
   writeFileSync(sqlFile, sql);
 
-  // packages/service/scripts → repo root → apps/web (where wrangler is configured).
-  const repoRoot = path.join(import.meta.dirname, "..", "..", "..");
-  const cwd = path.join(repoRoot, "apps", "web");
-  const wranglerArgs = [
-    "wrangler",
-    "d1",
-    "execute",
-    "vibedgames",
-    `--file=${sqlFile}`,
-    args.remote ? "--remote" : "--local",
+  const executeArgs = [
+    "-F",
+    "db",
+    "exec",
+    "tsx",
+    "d1-execute.ts",
+    "--file",
+    sqlFile,
+    ...(args.remote ? ["--remote"] : []),
   ];
 
   const target = args.remote ? "remote" : "local";
   console.log(`Creating ${rows.length} invite code(s) (${target} D1)…`);
-  const result = spawnSync("pnpm", ["exec", ...wranglerArgs], { cwd, stdio: "inherit" });
+  const result = spawnSync("pnpm", executeArgs, { stdio: "inherit" });
   rmSync(tmpDir, { force: true, recursive: true });
 
   if (result.status !== 0) {
-    console.error("\nwrangler exited with code", result.status);
+    console.error("\nd1-execute exited with code", result.status);
     process.exit(result.status ?? 1);
   }
 

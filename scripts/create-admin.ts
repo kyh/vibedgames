@@ -3,7 +3,7 @@
  * Bootstrap an admin user.
  *
  * Hashes the password with better-auth's scrypt and inserts directly into the
- * `user` + `account` tables via `wrangler d1 execute`. Used to mint the first
+ * `user` + `account` tables via `packages/db/d1-execute.ts`. Used to mint the first
  * admin account before the invite-gated signup flow is usable.
  *
  *   ADMIN_PASSWORD='...' pnpm admin:create -- --email me@x.com --name 'Me'
@@ -122,23 +122,23 @@ const main = async () => {
   const sqlFile = path.join(tmpDir, "create-admin.sql");
   writeFileSync(sqlFile, sql);
 
-  const repoRoot = path.join(import.meta.filename, "..", "..");
-  const cwd = path.join(repoRoot, "apps", "web");
-  const wranglerArgs = [
-    "wrangler",
-    "d1",
-    "execute",
-    "vibedgames",
-    `--file=${sqlFile}`,
-    args.remote ? "--remote" : "--local",
+  const executeArgs = [
+    "-F",
+    "db",
+    "exec",
+    "tsx",
+    "d1-execute.ts",
+    "--file",
+    sqlFile,
+    ...(args.remote ? ["--remote"] : []),
   ];
 
   console.log(`Creating admin ${args.email} (${args.remote ? "remote" : "local"} D1)…`);
-  const result = spawnSync("pnpm", ["exec", ...wranglerArgs], { cwd, stdio: "inherit" });
+  const result = spawnSync("pnpm", executeArgs, { stdio: "inherit" });
   rmSync(tmpDir, { force: true, recursive: true });
 
   if (result.status !== 0) {
-    console.error("\nwrangler exited with code", result.status);
+    console.error("\nd1-execute exited with code", result.status);
     process.exit(result.status ?? 1);
   }
 

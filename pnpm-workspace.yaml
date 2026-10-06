@@ -24,6 +24,8 @@ catalog:
   "@types/react-dom": ^19.3.0
   "@vitejs/plugin-react": ^6.1.1
   "@vitejs/plugin-react-swc": ^4.3.1
+  # exact: a beta, whose config API moves between releases
+  cf: 1.0.0-beta.12
   cn: ^0.4.0
   globals: ^17.6.0
   react: ^19.3.0

@@ -132,7 +132,7 @@ If anything failed, lead with the failure and what state the registry / git remo
 
 ## Rules
 
-- Never run `wrangler deploy` here. This skill is npm-only. Worker deploys go through GitHub Actions on push to main (which this skill _will_ trigger by pushing — that's fine for a release).
+- Never run `cf deploy` (or `wrangler deploy`) here. This skill is npm-only. Worker deploys go through GitHub Actions on push to main (which this skill _will_ trigger by pushing — that's fine for a release).
 - Never `--force` push or amend prior release commits. If a publish half-succeeds (e.g. one of several packages), commit + tag + push what shipped, then handle the others separately.
 - If `npm publish` fails with `EPUBLISHCONFLICT` (version already on registry), bump again rather than try to overwrite.
 - Tags must be created **after** successful publish + verify, never before. A tag without a matching registry version is worse than no tag.

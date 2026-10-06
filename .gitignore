@@ -5,6 +5,7 @@ node_modules
 .pnp
 .pnp.js
 .wrangler
+.cloudflare
 
 # testing
 coverage
@@ -40,7 +41,7 @@ yarn-error.log*
 # local env files
 .env
 .env*.local
-# wrangler prefers this over .env and would silently shadow it
+# the dev server prefers this over .env and would silently shadow it
 .dev.vars
 
 # typescript

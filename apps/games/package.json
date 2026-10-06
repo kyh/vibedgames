@@ -4,19 +4,19 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev --port 3002",
-    "build": "wrangler deploy --dry-run --outdir=dist",
-    "deploy": "wrangler deploy",
-    "typecheck": "tsc --noEmit",
+    "dev": "cf dev --port 3002",
+    "build": "cf build",
+    "deploy": "cf deploy",
+    "typecheck": "cf workers types && tsc --noEmit",
     "test": "pnpm build && node tests/worker.mjs",
-    "clean": "rm -rf .turbo .wrangler dist node_modules"
+    "clean": "rm -rf .cloudflare .turbo .wrangler dist node_modules"
   },
   "dependencies": {
     "@repo/db": "workspace:^"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "catalog:",
     "@kyh/tsconfig": "catalog:",
+    "cf": "catalog:",
     "miniflare": "4.20260730.0",
     "typescript": "catalog:",
     "wrangler": "catalog:"

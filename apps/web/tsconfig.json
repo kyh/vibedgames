@@ -8,6 +8,6 @@
     },
     "types": ["vite/client"]
   },
-  "include": ["**/*.ts", "**/*.tsx", "env.d.ts"],
-  "exclude": ["node_modules", "dist", ".wrangler", ".tanstack"]
+  "include": ["**/*.ts", "**/*.tsx", "env.d.ts", ".cloudflare/types/index.d.ts"],
+  "exclude": ["node_modules", ".wrangler", ".tanstack", ".cloudflare/output"]
 }

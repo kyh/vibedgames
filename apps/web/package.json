@@ -5,15 +5,14 @@
   "type": "module",
   "sideEffects": false,
   "scripts": {
-    "dev": "pnpm with-env vite dev",
-    "build": "vite build",
+    "dev": "pnpm with-env cf dev",
+    "build": "cf build",
     "start": "vite preview",
-    "clean": "rm -rf .cache .turbo .tanstack .wrangler dist node_modules",
-    "deploy": "vite build && wrangler deploy",
+    "clean": "rm -rf .cache .cloudflare .turbo .tanstack .wrangler dist node_modules",
+    "deploy": "cf deploy",
     "preview": "vite preview",
     "test": "node --import tsx --test \"src/**/*.test.ts\" \"test/*.test.ts\"",
-    "typecheck": "tsc --noEmit",
-    "cf:typegen": "wrangler types",
+    "typecheck": "cf workers types --include-runtime=false && tsc --noEmit",
     "with-env": "dotenv -e ../../.env --"
   },
   "dependencies": {
@@ -54,6 +53,7 @@
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
+    "cf": "catalog:",
     "tailwindcss": "catalog:",
     "tsx": "^4.23.15",
     "typescript": "catalog:",

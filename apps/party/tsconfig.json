@@ -4,8 +4,11 @@
     "paths": {
       "@/*": ["./src/*"]
     },
-    "types": ["@cloudflare/workers-types"]
+    // cloudflare.config.ts imports the entry by its .ts path, as Node loads it by stripping types
+    "allowImportingTsExtensions": true,
+    // the runtime types come with the generated Env
+    "types": []
   },
-  "include": ["."],
+  "include": [".", ".cloudflare/types/index.d.ts"],
   "exclude": ["node_modules", "dist", "test"]
 }

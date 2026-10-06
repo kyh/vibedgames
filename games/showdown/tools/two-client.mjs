@@ -1,6 +1,6 @@
 // Two-client online smoke: host + guest through join, seating, wire traffic,
 // host handoff and a late join. Needs the party server on :8787
-// (`cd apps/party && pnpm exec wrangler dev --port 8787 --local`) and Chrome.
+// (`pnpm dev:party`, on :8787) and Chrome.
 // `node tools/two-client.mjs [--url http://localhost:PORT]` — without --url it
 // launches its own vite. SMOKE_BROWSER=/path/to/chrome picks the browser.
 // macOS uses hardware ANGLE; other hosts fall back to software WebGL, so waits

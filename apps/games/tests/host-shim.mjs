@@ -2,7 +2,7 @@
 // worker routes entirely on the `{slug}.vibedgames.com` subdomain. Dropping the
 // header makes it fall back to the request URL's host, which dispatchFetch does
 // honour — without this every request under test is "Invalid host".
-import worker from "../dist/index.js";
+import worker from "../.cloudflare/output/v0/workers/default/bundle/index.js";
 
 export default {
   fetch(request, env, ctx) {

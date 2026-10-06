@@ -15,11 +15,6 @@ import {
 } from "@vibedgames/multiplayer";
 import { getColorById } from "./color";
 
-interface Env {
-  VgServer: DurableObjectNamespace<VgServer>;
-  DB: D1Database;
-}
-
 /**
  * Boundary types for untrusted client JSON. `JSON.parse` gives back `any`;
  * everything read off the wire funnels through these so game state stays a

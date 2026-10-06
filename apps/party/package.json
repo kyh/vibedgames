@@ -2,24 +2,27 @@
   "name": "@repo/party",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "build": "wrangler deploy --dry-run --outdir=dist",
-    "clean": "rm -rf .cache .turbo .wrangler dist node_modules",
-    "deploy": "wrangler deploy --name vibedgames-party",
-    "dev": "pnpm with-env wrangler dev",
-    "test": "node --import tsx --test test/integration.test.ts",
-    "typecheck": "tsc --noEmit && tsc -p test --noEmit",
+    "build": "cf build",
+    "clean": "rm -rf .cache .cloudflare .turbo .wrangler dist node_modules",
+    "deploy": "cf deploy",
+    "dev": "pnpm with-env cf dev",
+    "test": "cf build && node --import tsx --test test/integration.test.ts",
+    "typecheck": "cf workers types && tsc --noEmit && tsc -p test --noEmit",
     "with-env": "dotenv -e ../../.env --"
   },
   "dependencies": {
     "@vibedgames/multiplayer": "workspace:^"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "catalog:",
     "@kyh/tsconfig": "catalog:",
     "@types/node": "catalog:",
+    "cf": "catalog:",
+    "miniflare": "4.20260730.0",
     "partyserver": "^0.5.10",
     "typescript": "catalog:",
-    "wrangler": "catalog:"
+    "wrangler": "catalog:",
+    "zod": "catalog:"
   }
 }

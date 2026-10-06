@@ -55,4 +55,4 @@ up by the repo-wide `pnpm test`.
 pnpm deploy:games   # builds every game + vg deploy each one
 ```
 
-Platform workers deploy on push to `main` — never `wrangler deploy` locally.
+Platform workers deploy on push to `main` — never `cf deploy` locally.

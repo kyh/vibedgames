@@ -1,34 +1,60 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { after, before, test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 
-import type { Unstable_DevWorker } from "wrangler";
-import { unstable_dev } from "wrangler";
+import { Miniflare } from "miniflare";
+import { z } from "zod";
 
 import type { MultiplayerClientOptions } from "@vibedgames/multiplayer";
 import { MultiplayerClient } from "@vibedgames/multiplayer";
 
 /**
  * Integration tests that drive the real VgServer — Durable Object, partyserver
- * routing, wire protocol and all — through wrangler's local runtime
- * (`unstable_dev` → workerd), with `MultiplayerClient` instances as the
+ * routing, wire protocol and all — through workerd via Miniflare, booting the
+ * bundle `cf build` emits (the `test` script builds first), with `MultiplayerClient` instances as the
  * clients. Node 22+ provides the global WebSocket that PartySocket picks up,
  * and the client's heartbeat falls back to setInterval off-browser, so the SDK
  * runs here unmodified.
  */
 
-let worker: Unstable_DevWorker;
+const OUTPUT = path.join(
+  import.meta.dirname,
+  "..",
+  ".cloudflare",
+  "output",
+  "v0",
+  "workers",
+  "default",
+);
+
+const BuiltWorkerSchema = z.object({
+  compatibilityDate: z.string(),
+  compatibilityFlags: z.array(z.string()),
+  manifest: z.object({ mainModule: z.string() }),
+});
+
+let miniflare: Miniflare;
+let worker: URL;
 
 before(async () => {
-  worker = await unstable_dev("src/server.ts", {
-    config: "wrangler.jsonc",
-    experimental: { disableExperimentalWarning: true },
-    logLevel: "error",
+  const built = BuiltWorkerSchema.parse(
+    JSON.parse(await readFile(path.join(OUTPUT, "worker.config.json"), "utf-8")),
+  );
+  miniflare = new Miniflare({
+    compatibilityDate: built.compatibilityDate,
+    compatibilityFlags: built.compatibilityFlags,
+    d1Databases: { DB: "vibedgames" },
+    durableObjects: { VgServer: "VgServer" },
+    modules: true,
+    scriptPath: path.join(OUTPUT, "bundle", built.manifest.mainModule),
   });
+  worker = await miniflare.ready;
 });
 
 after(async () => {
-  await worker.stop();
+  await miniflare.dispose();
 });
 
 /** Each test gets its own room, i.e. its own Durable Object instance. */
@@ -58,7 +84,7 @@ const connect = (
   options?: Pick<MultiplayerClientOptions, "onEvent">,
 ): MultiplayerClient =>
   new MultiplayerClient({
-    host: `http://${worker.address}:${worker.port}`,
+    host: worker.origin,
     party: "vg-server",
     room,
     ...options,
@@ -221,9 +247,7 @@ class RawClient {
     }
     this.id = id;
     const query = new URLSearchParams(params).toString();
-    this.ws = new WebSocket(
-      `ws://${worker.address}:${worker.port}/parties/vg-server/${room}?${query}`,
-    );
+    this.ws = new WebSocket(`ws://${worker.host}/parties/vg-server/${room}?${query}`);
     this.ws.addEventListener("close", () => {
       this.closed = true;
     });

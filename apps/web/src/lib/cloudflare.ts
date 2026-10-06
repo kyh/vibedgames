@@ -7,9 +7,4 @@ import { env } from "cloudflare:workers";
  * `cloudflare:workers` module in both dev and production — no more
  * Nitro globalThis.__env__ hacks or request-sniffing.
  */
-export const getCloudflareEnv = (): CloudflareEnv =>
-  // SAFETY: `cloudflare:workers` ships its own (empty) `Env` interface, which
-  // wins over the `declare module` augmentation in env.d.ts, but the runtime
-  // object carries the real bindings. Removing the cast needs `wrangler types`
-  // to generate the real bindings type.
-  env as CloudflareEnv;
+export const getCloudflareEnv = (): Cloudflare.Env => env;

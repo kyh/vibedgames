@@ -8,7 +8,7 @@
     },
     "build": {
       "dependsOn": ["^build"],
-      "outputs": [".cache/tsbuildinfo.json", "dist/**", ".output/**"]
+      "outputs": [".cache/tsbuildinfo.json", "dist/**", ".output/**", ".cloudflare/output/**"]
     },
     "dev": {
       "cache": false,

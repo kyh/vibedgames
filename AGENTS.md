@@ -26,12 +26,12 @@ One file, two consumers. Everything lives in the repo-root `.env`; template is `
 
 | Consumer                                         | Reaches it via                                                  | Holds                                                                 |
 | ------------------------------------------------ | --------------------------------------------------------------- | --------------------------------------------------------------------- |
-| drizzle-kit, the wrangler CLI                    | `process.env`, loaded by each package's `with-env` (dotenv-cli) | `CLOUDFLARE_ACCOUNT_ID` / `_DATABASE_ID` / `_D1_TOKEN` / `_API_TOKEN` |
-| the dev Worker, via the Cloudflare `env` binding | `secrets.required` in `apps/web/wrangler.jsonc`                 | `BETTER_AUTH_SECRET`, `R2_*`, `FAL_API_KEY`, `TYPESAFE_API_KEY`       |
+| drizzle-kit, the cf CLI                          | `process.env`, loaded by each package's `with-env` (dotenv-cli) | `CLOUDFLARE_ACCOUNT_ID` / `_DATABASE_ID` / `_D1_TOKEN` / `_API_TOKEN` |
+| the dev Worker, via the Cloudflare `env` binding | `bindings.secret()` in `apps/web/cloudflare.config.ts`          | `BETTER_AUTH_SECRET`, `R2_*`, `FAL_API_KEY`, `TYPESAFE_API_KEY`       |
 
-**`secrets.required` is the whole mechanism.** Declaring a name there makes wrangler fold `process.env` into the Worker binding and filter it down to exactly the declared names — so a secret that is in `.env` but not in `secrets.required` silently never reaches the Worker. Adding one means editing three places: `.env.example`, `secrets.required`, and `apps/web/env.d.ts`.
+**The declared secrets are the whole mechanism.** Declaring a name with `bindings.secret()` makes the dev server fold `process.env` into the Worker binding and filter it down to exactly the declared names — so a secret that is in `.env` but not declared silently never reaches the Worker. Adding one means editing two places: `.env.example` and `cloudflare.config.ts` (the `Env` type is generated from it).
 
-Do not reintroduce `apps/web/.dev.vars`. Wrangler prefers it and stops reading `.env`/`process.env` the moment it exists, so the root file goes quietly dead. In production the same names are `wrangler secret put`.
+Do not reintroduce `apps/web/.dev.vars`. The dev server prefers it and stops reading `.env`/`process.env` the moment it exists, so the root file goes quietly dead. In production the same names are set with `cf workers secrets update`.
 
 ## Seeded logins
 
@@ -133,7 +133,7 @@ Six flows cover all nine `useMutation` sites in the app: `/settings` (create + r
 | ------------- | ----------------------------- | -------------------------- | ---------------------------------------------------- |
 | Web app       | `pnpm dev:web`                | `:5173`                    | **Yes** — `vg playtest`, or curl for the API routes  |
 | `vg` CLI      | `pnpm dogfood`                | `vg` on PATH               | **Yes** — `VG_API_URL` + `VG_TOKEN`, `--json` output |
-| Party (DO)    | `pnpm dev:party`              | `:8787` (wrangler default) | Partly — WebSocket protocol, no UI                   |
+| Party (DO)    | `pnpm dev:party`              | `:8787` (`cf dev` default) | Partly — WebSocket protocol, no UI                   |
 | Games worker  | `pnpm dev:games`              | `:3002`                    | Partly — curl; serves R2 bundles, no local fixtures  |
 | Example games | `pnpm dev:<game>`             | per-game vite port         | **Yes** — `vg playtest`; see the `playtest` skill    |
 | Factory       | `pnpm -F @repo/factory start` | terminal                   | No — interactive Bun/OpenTUI app                     |
@@ -144,7 +144,7 @@ For the surfaces marked No, `pnpm typecheck` and `pnpm build` are the gate; a re
 
 ## Rules that matter
 
-- **Never `wrangler deploy` locally.** Deploys happen from GitHub Actions on push to `main`.
+- **Never `cf deploy` (or `wrangler deploy`) locally.** Deploys happen from GitHub Actions on push to `main`.
 - **`vg deploy` against `localhost` is safe — but only `localhost`.** When the Host header is `localhost[:port]`, `presignPut`/`presignGet` hand back HMAC-signed `/api/r2-upload` and `/api/r2-download` proxy URLs, so bytes land in the Miniflare-simulated `GAMES_BUCKET`, not prod R2 (`packages/service/src/deploy/r2-presign.ts`); `deletePrefix` always goes through the binding. The `R2_*` values in the root `.env` only need to be non-empty for the config to be constructed — dummies work. The check is on the literal host string, so pointing the CLI at `http://127.0.0.1:5173` bypasses the proxy and presigns against **production** R2.
 - **Never push schema to remote.** `pnpm db:push-remote` is the only command that touches production D1; it is the only one that reads `.env.production.local`. `pnpm db:push`, `db:studio` and `db:local` are local-only.
 - **Every mutation invalidates exactly the query keys it touches**, in its own `onSuccess`. There is no blanket invalidation in the query client; if a write should refresh a list, say so at the call site.

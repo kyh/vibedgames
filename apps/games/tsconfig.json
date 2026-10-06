@@ -1,11 +1,12 @@
 {
   "extends": "@kyh/tsconfig/base.json",
   "compilerOptions": {
-    "types": ["@cloudflare/workers-types"],
+    // the runtime types come with the generated Env
+    "types": [],
     "noEmit": true
   },
-  "include": ["."],
-  // tests/ is plain JS and imports the bundled worker out of dist/, which drags
-  // the excluded build output back into the program.
+  "include": [".", ".cloudflare/types/index.d.ts"],
+  // tests/ is plain JS and imports the bundled worker out of the build output, which drags it
+  // back into the program.
   "exclude": ["node_modules", "dist", "tests"]
 }

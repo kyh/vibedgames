@@ -89,7 +89,7 @@ featured game). Seeded logins and headless auth recipes:
 Worker secrets (`BETTER_AUTH_SECRET`, `R2_*`, `FAL_API_KEY`,
 `TYPESAFE_API_KEY`) go in the repo-root `.env`, alongside the CLI
 credentials. They reach the Worker because
-`wrangler.jsonc` lists them under `secrets.required`, which makes wrangler fold
-`process.env` into the binding and filter it to those names — so a secret that
-is not listed there never arrives. Other bindings are declared in
-`wrangler.jsonc` as usual.
+`cloudflare.config.ts` declares them with `bindings.secret()`, which makes the
+dev server fold `process.env` into the binding and filter it to those names — so
+a secret that is not declared there never arrives. Other bindings are declared
+in `cloudflare.config.ts` as usual.

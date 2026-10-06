@@ -1,5 +1,5 @@
 -- Local dev seed. Idempotent. Applied to the local Miniflare D1 via:
---   wrangler d1 execute vibedgames --local --file=packages/db/seed.sql
+--   pnpm db:seed-local
 --
 -- Gives Claude / devs a deterministic identity to drive the app headlessly:
 --  - dev user (admin)

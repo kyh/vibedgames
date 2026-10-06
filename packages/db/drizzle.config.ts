@@ -3,8 +3,8 @@ import type { Config } from "drizzle-kit";
 /**
  * Drizzle Kit configuration for Cloudflare D1.
  *
- * For local development, use `wrangler d1 migrations` or point Drizzle Studio
- * at the local SQLite file under `.wrangler/state/v3/d1`.
+ * For local development, use `drizzle.config.local.ts` (`pnpm db:push`, `studio`),
+ * which points at the local SQLite file under `apps/web/.wrangler/state/v3/d1`.
  *
  * For remote pushes / migrations, set:
  *   CLOUDFLARE_ACCOUNT_ID
