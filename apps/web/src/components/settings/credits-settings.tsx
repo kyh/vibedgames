@@ -2,6 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { INVITE_CODE_LENGTH } from "@repo/contract/auth/auth-limits";
 import { PURCHASE_PRESETS_USD } from "@repo/contract/credits/credits-limits";
 import { Button } from "@repo/ui/components/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@repo/ui/components/dialog";
 import { Field, FieldLabel } from "@repo/ui/components/field";
 import { OTPInput } from "@repo/ui/components/otp-input";
 import { Skeleton } from "@repo/ui/components/skeleton";
@@ -13,8 +21,8 @@ import { formatUsd, kindLabel } from "@/lib/credits-format";
 import { formatDate } from "@/lib/format";
 import { useORPC } from "@/lib/orpc";
 
-/** The success cascade's length, so the field resets only once it has finished. */
-const REDEEMED_RESET_MS = 1200;
+/** The success cascade's length, so the dialog closes only once it has played. */
+const REDEEMED_CLOSE_MS = 1200;
 
 /** How long to watch for a paid checkout's credit after Stripe sends the person back. */
 const PURCHASE_WATCH_MS = 60_000;
@@ -27,10 +35,12 @@ const landedSince = (entries: { kind: string; createdAt: Date }[] | undefined, s
   ) ?? false;
 
 /**
- * A full code redeems itself (covers typing, pasting and the `?code=` prefill);
- * a refused one shakes and clears inside `OTPInput`, and its message comes from
- * the query client's default mutation `onError` (lib/query-client.ts). After a
- * success the field remounts empty, ready for another code.
+ * A small button under the buy presets that opens the code field in a dialog.
+ * A `?code=` link opens it straight away with the code filled in. A full code
+ * redeems itself; a refused one shakes and clears inside `OTPInput`, and its
+ * message comes from the query client's default mutation `onError`
+ * (lib/query-client.ts). After a success the dialog closes once the cells'
+ * confirm cascade has played.
  */
 const RedeemCode = ({
   defaultValue,
@@ -41,45 +51,66 @@ const RedeemCode = ({
 }) => {
   const orpc = useORPC();
   const qc = useQueryClient();
-  const [round, setRound] = useState(0);
+  const [open, setOpen] = useState(defaultValue !== "");
   const redeem = useMutation(
     orpc.credits.redeem.mutationOptions({
       onSuccess: (data) => {
         qc.invalidateQueries({ queryKey: orpc.credits.me.queryKey() });
         toast.success(`Added ${formatUsd(data.creditedMicro)} of credit`);
         onRedeemed();
-        setTimeout(() => setRound((r) => r + 1), REDEEMED_RESET_MS);
+        setTimeout(() => setOpen(false), REDEEMED_CLOSE_MS);
       },
     }),
   );
 
   return (
-    <Field className="gap-2">
-      <FieldLabel htmlFor="credit-code">Redeem a code</FieldLabel>
-      <OTPInput
-        key={round}
-        id="credit-code"
-        data-test="credit-code-input"
-        length={INVITE_CODE_LENGTH}
-        validationType="alphanumeric"
-        normalizeValue={(value) => value.toUpperCase()}
-        defaultValue={round === 0 ? defaultValue : ""}
-        group
-        verify={async (code) => {
-          try {
-            await redeem.mutateAsync({ code });
-            return true;
-          } catch {
-            return false;
-          }
-        }}
-      />
-    </Field>
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger
+        render={
+          <Button
+            type="button"
+            variant="link"
+            size="sm"
+            className="text-muted-foreground hover:text-foreground h-auto px-0 text-xs"
+          />
+        }
+      >
+        Have a code? Redeem it
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Redeem a code</DialogTitle>
+          <DialogDescription>Each code adds credit once per account.</DialogDescription>
+        </DialogHeader>
+        <Field className="items-center">
+          <FieldLabel className="sr-only" htmlFor="credit-code">
+            Code
+          </FieldLabel>
+          <OTPInput
+            id="credit-code"
+            data-test="credit-code-input"
+            length={INVITE_CODE_LENGTH}
+            validationType="alphanumeric"
+            normalizeValue={(value) => value.toUpperCase()}
+            defaultValue={defaultValue}
+            group
+            verify={async (code) => {
+              try {
+                await redeem.mutateAsync({ code });
+                return true;
+              } catch {
+                return false;
+              }
+            }}
+          />
+        </Field>
+      </DialogContent>
+    </Dialog>
   );
 };
 
 /** One click per preset: the server makes a Stripe Checkout and the page goes there. */
-const BuyCredits = () => {
+const BuyCredits = ({ children }: { children: React.ReactNode }) => {
   const orpc = useORPC();
   const checkout = useMutation(
     orpc.credits.checkout.mutationOptions({
@@ -110,6 +141,7 @@ const BuyCredits = () => {
       <p className="text-muted-foreground text-xs">
         Paid by card through Stripe. One dollar buys one dollar of generation.
       </p>
+      {children}
     </div>
   );
 };
@@ -227,10 +259,9 @@ export const CreditsSettings = ({
                   )}
                 </div>
 
-                <div className="grid gap-8 sm:grid-cols-2">
-                  <BuyCredits />
+                <BuyCredits>
                   <RedeemCode defaultValue={code ?? ""} onRedeemed={onCodeRedeemed} />
-                </div>
+                </BuyCredits>
 
                 <div>
                   {credits.data.entries.length === 0 && (
