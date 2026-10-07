@@ -10,6 +10,7 @@ import type { CityModel, RoadCell } from "../world/city";
 import type { NetEdge, RoadNetwork } from "../world/network";
 import { districtAt } from "../world/sf-map";
 import type { DistrictChar } from "../world/sf-map";
+import { createHullBatch, placeHulls } from "../vehicle/ink-hull";
 import { BODY_LIFT, TrafficCar } from "./traffic-car";
 import type { FleetPart, VehicleKind } from "./traffic-car";
 
@@ -308,8 +309,16 @@ export class Traffic {
       this.fleetBatches.push(batch);
     }
 
+    // Ink hulls for the whole fleet in one extra batch (vehicle/ink-hull.ts).
+    const hulls = createHullBatch(fleet.flatMap((f) => partsOf(f.model)));
+    if (hulls) {
+      this.group.add(hulls.batch);
+      this.fleetBatches.push(hulls.batch);
+    }
+
     for (const f of fleet) {
       const parts: FleetPart[] = [];
+      parts.push(...placeHulls(hulls, partsOf(f.model)));
       for (const p of partsOf(f.model)) {
         const b = buckets.get(bucketKey(p));
         if (!b || !b.batch || !b.geoIds) {

@@ -1,45 +1,71 @@
 import * as THREE from "three";
 
-// TOON PASS (2026-10): the cel-shaded "toy city" look. Two global edits to
+// TOON PASS (2026-10): the cel-shaded "toy city" look. Global edits to
 // three's physical lighting chunks, so every MeshStandardMaterial in the game
 // — kit GLBs, baked parcels, roads, landmarks, cars, the shader-patched
 // terrain and facades that still include these chunks — picks it up with no
 // per-material work and NO world rebake (albedo stays as baked; the pop
 // happens at shade time).
 //
-// 1. Banded sun: the direct term's N·L goes through a soft two-band ramp —
-//    a crisp terminator into a flat lit plateau, with a sliver of Lambert left
-//    in so a round thing (tree blob, car roof) still reads round. Shadows are
-//    multiplied into directLight.color before this runs, so cast shadows stay
-//    exactly where they were; only the shading on the form changes.
-// 2. Candy albedo: a vibrance push on the material's own colour before any
+// 1. Banded sun, DIFFUSE ONLY. The sun's diffuse N·L goes through a soft
+//    two-band ramp: a crisp terminator, a flat lit plateau, and a lifted
+//    shade band (TOON_FLOOR of the key, the way a toon gradient map's dark
+//    texel works) so the form-shade side keeps its chroma instead of falling
+//    to the cold fill alone. Specular keeps the true N·L — banding it boosted
+//    the GGX lobe by ~1/N·L at the terminator into fireflies.
+// 2. Sun only. lights_fragment_begin raises a flag around the directional
+//    loop; point and spot lamps keep their physical falloff (a banded lamp
+//    pool is a flat cream slab).
+// 3. Low-sun fade. At dawn/dusk the key grazes the ground (N·L ≈ 0.07 on
+//    flat road), right inside the ramp's steep middle, where it amplifies
+//    every terrain and peel normal into blotches. The ramp fades out between
+//    TOON_FADE_LO and TOON_FADE_HI of sun elevation (sine), so golden hour
+//    and sunset keep stock Lambert.
+// 4. Candy albedo: a vibrance push on the material's own colour before any
 //    light touches it — strongest on the drab, near-grey albedos (concrete,
-//    stucco, asphalt) and gentlest on already-loud paint, so the city reads
-//    like painted toys without the saturated stuff going neon. Doing it here
-//    instead of in post means the sky, fog and emissives keep their own
-//    chroma.
+//    stucco) and gentlest on already-loud paint. Doing it here instead of in
+//    post means the sky, fog and emissives keep their own chroma, and phones
+//    (no post chain) get it too.
 //
-// Idempotent; like installAerialFog it must run before the first program
-// compiles (chunks are resolved at compile time), so GameScene installs it
-// as one of its first construction steps.
+// Cast shadows are multiplied into directLight.color before RE_Direct runs,
+// so they stay exactly where they were (and read a step darker than form
+// shade, which is the cel convention).
+//
+// Idempotent — guarded on a marker IN the chunk, so a hot reload that resets
+// this module cannot stack a second patch on the already-patched chunks. Like
+// installAerialFog it must run before the first program compiles, so
+// GameScene installs it as one of its first construction steps.
 
-// Ramp: terminator centre and half-width in N·L, and how much of the hard
-// band replaces Lambert (1 = pure two-tone).
-const TOON_EDGE = 0.1;
-const TOON_SOFT = 0.07;
-const TOON_MIX = 0.82;
+// Ramp: terminator centre and half-width in N·L, the shade band as a fraction
+// of the key, and how much of the hard band replaces Lambert.
+const TOON_EDGE = 0.08;
+const TOON_SOFT = 0.06;
+const TOON_FLOOR = 0.3;
+const TOON_MIX = 0.85;
+// Sun elevation (sine) over which the ramp fades in: ~6° to ~17°.
+const TOON_FADE_LO = 0.1;
+const TOON_FADE_HI = 0.3;
 // Albedo vibrance: saturation gain at zero chroma, falling to none at full.
 const TOON_VIBRANCE = 0.42;
 // Pastel lift: a small brighten so pushed colours land candy, not muddy.
 const TOON_LIFT = 1.06;
 
+const MARKER = "/* toon-pass */";
+
 const f = (n: number): string => n.toFixed(4);
 
 // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const TOON_PARS = /* glsl */ `
-float toonRamp( const in float nl ) {
-	float band = smoothstep( ${f(TOON_EDGE - TOON_SOFT)}, ${f(TOON_EDGE + TOON_SOFT)}, nl );
-	return mix( nl, band, ${f(TOON_MIX)} );
+const TOON_PARS = /* glsl */ `${MARKER}
+float toonSun = 0.0;
+float toonDiffuseNL( const in vec3 n, const in vec3 l ) {
+	float nl = dot( n, l );
+	float lambert = saturate( nl );
+	if ( toonSun < 0.5 ) return lambert;
+	float band = mix( ${f(TOON_FLOOR)}, 1.0,
+		smoothstep( ${f(TOON_EDGE - TOON_SOFT)}, ${f(TOON_EDGE + TOON_SOFT)}, nl ) );
+	vec3 upView = normalize( ( viewMatrix * vec4( 0.0, 1.0, 0.0, 0.0 ) ).xyz );
+	float fade = smoothstep( ${f(TOON_FADE_LO)}, ${f(TOON_FADE_HI)}, dot( l, upView ) );
+	return mix( lambert, band, ${f(TOON_MIX)} * fade );
 }
 vec3 toonAlbedo( const in vec3 c ) {
 	float hi = max( c.r, max( c.g, c.b ) );
@@ -52,32 +78,68 @@ vec3 toonAlbedo( const in vec3 c ) {
 `;
 
 const DIRECT_SIG = "void RE_Direct_Physical(";
-const DIRECT_NL = "float dotNL = saturate( dot( geometryNormal, directLight.direction ) );";
+const DIFFUSE_LINE =
+  "reflectedLight.directDiffuse += irradiance * BRDF_Lambert( material.diffuseContribution ) * ( 1.0 - F );";
+const TOON_DIFFUSE_LINE =
+  "reflectedLight.directDiffuse += toonDiffuseNL( geometryNormal, directLight.direction ) * directLight.color * BRDF_Lambert( material.diffuseContribution ) * ( 1.0 - F );";
+const DIR_LOOP = "#if ( NUM_DIR_LIGHTS > 0 ) && defined( RE_Direct )";
+const LOOP_END = "#pragma unroll_loop_end";
 
-let installed = false;
+// PHONE GRADE. Phones skip the post chain (render/post.ts), so they never got
+// the grade's saturation or its violet-shadow / warm-highlight split. Three's
+// CustomToneMapping hook runs at the end of every material's fragment, so
+// main.ts selects it on the no-composer path and the phone frame gets ACES
+// (bit-for-bit three's) plus a mild version of the same look — no extra pass,
+// no extra bandwidth. The desktop composer renders to float targets, where
+// three never applies material tone mapping, so this stub stays inert there.
+const CUSTOM_TONE_STUB = "vec3 CustomToneMapping( vec3 color ) { return color; }";
+// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
+const TOON_TONE_MAPPING = /* glsl */ `vec3 CustomToneMapping( vec3 color ) {
+	vec3 c = ACESFilmicToneMapping( color );
+	float l = dot( c, vec3( 0.2126, 0.7152, 0.0722 ) );
+	c = mix( vec3( l ), c, 1.12 );
+	c *= mix( vec3( 1.0 ), vec3( 0.95, 0.94, 1.07 ), ( 1.0 - smoothstep( 0.0, 0.5, l ) ) * 0.6 );
+	c *= mix( vec3( 1.0 ), vec3( 1.05, 1.01, 0.93 ), smoothstep( 0.45, 1.0, l ) * 0.5 );
+	return clamp( c, 0.0, 1.0 );
+}`;
 
-const patchDirect = (src: string): string => {
+// Each patch fails soft to stock shading (loudly) if three moved the chunk.
+const patchPars = (src: string): string | null => {
   const at = src.indexOf(DIRECT_SIG);
-  const nl = at === -1 ? -1 : src.indexOf(DIRECT_NL, at);
-  if (nl === -1) {
-    // three moved the chunk: fail soft to stock shading, loudly in dev.
-    console.warn("[toon] RE_Direct_Physical shape changed — toon ramp not installed");
-    return src;
+  const diffuse = at === -1 ? -1 : src.indexOf(DIFFUSE_LINE, at);
+  if (diffuse === -1) {
+    return null;
   }
-  const head = src.slice(0, at);
-  const body = src.slice(at, nl);
-  const tail = src.slice(nl + DIRECT_NL.length);
-  return `${head}${TOON_PARS}${body}float dotNL = toonRamp( saturate( dot( geometryNormal, directLight.direction ) ) );${tail}`;
+  return `${src.slice(0, at)}${TOON_PARS}${src.slice(at, diffuse)}${TOON_DIFFUSE_LINE}${src.slice(diffuse + DIFFUSE_LINE.length)}`;
+};
+
+const patchBegin = (src: string): string | null => {
+  const loop = src.indexOf(DIR_LOOP);
+  const end = loop === -1 ? -1 : src.indexOf(LOOP_END, loop);
+  if (end === -1) {
+    return null;
+  }
+  const open = loop + DIR_LOOP.length;
+  const close = end + LOOP_END.length;
+  return `${src.slice(0, open)}\n\ttoonSun = 1.0;${src.slice(open, close)}\n\ttoonSun = 0.0;${src.slice(close)}`;
 };
 
 export const installToonShading = (): void => {
-  if (installed) {
+  const chunks = THREE.ShaderChunk;
+  if (chunks.lights_physical_pars_fragment.includes(MARKER)) {
     return;
   }
-  installed = true;
-  const chunks = THREE.ShaderChunk;
-  chunks.lights_physical_pars_fragment = patchDirect(chunks.lights_physical_pars_fragment);
-  if (chunks.lights_physical_pars_fragment.includes("toonAlbedo")) {
-    chunks.lights_physical_fragment = `diffuseColor.rgb = toonAlbedo( diffuseColor.rgb );\n${chunks.lights_physical_fragment}`;
+  const pars = patchPars(chunks.lights_physical_pars_fragment);
+  const begin = patchBegin(chunks.lights_fragment_begin);
+  if (pars === null || begin === null) {
+    console.warn("[toon] three's lighting chunks changed shape — toon pass not installed");
+    return;
   }
+  chunks.tonemapping_pars_fragment = chunks.tonemapping_pars_fragment.replace(
+    CUSTOM_TONE_STUB,
+    TOON_TONE_MAPPING,
+  );
+  chunks.lights_physical_pars_fragment = pars;
+  chunks.lights_fragment_begin = begin;
+  chunks.lights_physical_fragment = `diffuseColor.rgb = toonAlbedo( diffuseColor.rgb );\n${chunks.lights_physical_fragment}`;
 };

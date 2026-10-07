@@ -77,7 +77,7 @@ const LADDER_HI = 0.8;
 // ops ramp with distance so the near band keeps most of its own color.
 const AERIAL_NEAR = 900;
 const AERIAL_FAR = 3600;
-const AERIAL_DESAT = 0.42;
+const AERIAL_DESAT = 0.26;
 const AERIAL_TINT = 0.34;
 const COOL_AWAY = 0xa9_b0_c8;
 // smoothstep bounds on cos(view azimuth, sun azimuth): warm ONLY into the sun.
@@ -114,9 +114,12 @@ interface Band {
 // the entire horizon arc resolved to one flat sand fill at the same hue as the
 // mid-distance building tan, and the city and its backdrop merged. The bands
 // keep enough of their own blue now to sit BEHIND the city rather than in it.
+// Toon pass (2026-10): the three band colours went storybook — periwinkle far
+// range, teal mid, green near headlands — and the aerial desaturation came
+// down (0.42 -> 0.26), so the backdrop reads as painted hills, not grey haze.
 const BANDS: readonly Band[] = [
   {
-    color: 0x8f_a5_c2,
+    color: 0x7f_a0_d8,
     haze: 0.5,
     radius: 3600,
     // Broad Gaussians alone give a band ONE smooth dome per ridge, which from
@@ -138,7 +141,7 @@ const BANDS: readonly Band[] = [
     ],
   },
   {
-    color: 0x7e_8e_9a,
+    color: 0x6c_9a_a4,
     haze: 0.42,
     radius: 2600,
     ridges: [
@@ -162,7 +165,7 @@ const BANDS: readonly Band[] = [
     ],
   },
   {
-    color: 0x66_7e_76,
+    color: 0x5a_96_6c,
     haze: 0.24,
     radius: 1850,
     ridges: [

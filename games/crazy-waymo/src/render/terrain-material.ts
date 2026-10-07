@@ -116,8 +116,8 @@ diffuseColor.rgb *= 1.0 + tmVariation + (tmBroad - 0.5) * 0.13;
 // luminance keeps the clump/soil value variation and drops the dry tint.
 // Linear-light green, unit luma.
 float tmTurfLum = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
-diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 1.2, 0.3) * tmTurfLum * 1.08,
-  tmWeight.r * (1.0 - tmBareSand) * 0.62);
+diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 1.2, 0.3) * tmTurfLum,
+  tmWeight.r * (1.0 - tmBareSand) * 0.5);
 // Soil only changes turf's character. Golden grass stays golden, without sand bands.
 diffuseColor.rgb *= mix(vec3(1.0), vec3(1.08, 0.88, 0.7), tmSoil * tmWeight.r * 0.6);
 diffuseColor.rgb *= 1.0 - smoothstep(0.03, 0.5,

@@ -81,12 +81,14 @@ const GradeShader = {
         // sodium pool and a TV-blue window are the only saturated things left
         // in the frame, and desaturating them alongside the city is what used
         // to leave a uniform blue-grey wash with no lights in it.
-        c.rgb = mix(c.rgb, vec3(nl), 0.62 * uNight * (1.0 - src));
+        // Toon pass: 0.62 -> 0.42 — a storybook night keeps some colour.
+        c.rgb = mix(c.rgb, vec3(nl), 0.42 * uNight * (1.0 - src));
         // Split tone: shadows cool hard, sources sodium-warm. The cool end is
         // pushed further than before because the fills came down — a dimmer
         // shadow can take more blue before it reads as tinted rather than dark.
         float t = smoothstep(0.02, 0.55, nl);
-        vec3 shade = mix(vec3(0.68, 0.82, 1.30), vec3(1.24, 1.05, 0.72), t);
+        // Toon pass: the cool end leans indigo (R over G), not steel blue.
+        vec3 shade = mix(vec3(0.76, 0.70, 1.34), vec3(1.24, 1.05, 0.72), t);
         c.rgb *= mix(vec3(1.0), shade, uNight);
         // MID-TONE DIP, not a crush and not a gamma. The one large surface that
         // stays too bright after dark is pale diffuse — kerb concrete, crosswalk
@@ -522,8 +524,10 @@ const SUBJECT_LIFT = 0.9;
 // ride height, intensity is an exponent on visibility (5.0 is where the
 // under-chassis core reads), and a wide denoise blurs the contact band away,
 // which is what a soft 6-radius blur was doing to the wheel patches.
+// Toon pass: intensity eased 4.2 -> 3. The ink line now carries contact, and
+// at 4.2 the plum AO pooled into every shade band and greyed the candy out.
 const AO_RADIUS = 1.2;
-const AO_INTENSITY = 4.2;
+const AO_INTENSITY = 3;
 const AO_COLOR = 0x2a_18_40;
 // 2 left the paint drape's z-offset seams as black speckle dashes along every
 // painted line at speed (review pass); 4 + two iterations blurs the seam away
@@ -701,10 +705,11 @@ const InkShader = {
 // plum line around every lit window frame reads as noise.
 const INK_DAY = 0.9;
 const INK_NIGHT = 0.45;
-// Line width: one sample step per this many drawing-buffer rows (never under
-// INK_MIN_STEP texels), so a 4K canvas draws the same chunky line 1080p does.
-const INK_ROWS_PER_TEXEL = 720;
-const INK_MIN_STEP = 1.5;
+// Line width: one WHOLE-texel sample step per this many drawing-buffer rows,
+// so a 4K canvas draws the same chunky line 1080p does. Whole texels because
+// the depth target is nearest-filtered: a fractional step lands between
+// texels and breaks the stroke into 1-2 px jaggies.
+const INK_ROWS_PER_TEXEL = 540;
 
 export class PostPipeline {
   private composer: EffectComposer;
@@ -757,6 +762,11 @@ export class PostPipeline {
     ao.configuration.autoDetectTransparency = false;
     this.ao = ao;
     this.composer.addPass(ao);
+    // Ink straight after the scene: before DOF (a defocused background must
+    // blur its strokes with it) and before bloom (glows wash over the lines
+    // instead of being cut by them).
+    this.ink = new ShaderPass(InkShader);
+    this.composer.addPass(this.ink);
     this.dof = new ShaderPass(DofShader);
     this.dof.enabled = false;
     this.composer.addPass(this.dof);
@@ -773,10 +783,6 @@ export class PostPipeline {
       this.bloomKnee.value = BLOOM_DAY_KNEE;
     }
     this.composer.addPass(this.bloom);
-    // Ink after bloom so the strokes stay crisp (bloom would halo them),
-    // before the grade so they tone-map with the frame.
-    this.ink = new ShaderPass(InkShader);
-    this.composer.addPass(this.ink);
     this.grade = new ShaderPass(GradeShader);
     this.composer.addPass(this.grade);
     // SMAA runs on linear values by three's own contract (before tone map).
@@ -821,7 +827,7 @@ export class PostPipeline {
     }
     const inkStep = iu.uStep;
     if (inkStep) {
-      inkStep.value = Math.max(INK_MIN_STEP, height / INK_ROWS_PER_TEXEL);
+      inkStep.value = Math.max(1, Math.round(height / INK_ROWS_PER_TEXEL));
     }
     const u = this.finalGrade.uniforms;
     const aspect = u.uAspect;

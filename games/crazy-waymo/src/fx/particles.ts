@@ -11,12 +11,16 @@ import type { LooseProfile, MatterRecipe, PavedSurface } from "./surface-fx";
 import { WaterFx } from "./water-fx";
 import type { WaterSprayKind } from "./water-fx";
 
-// Color cools toward death (hot core early, dark residue late); alpha is
-// fast-in-slow-out (vAlpha^2 spends most of the life dim, popping at birth).
-// Smoke is LIT: the top of each puff catches uSunTint, the underside sits in
-// uAmbient shade — the vertical gradient across the point sprite is what makes
-// a flat point read as a volume, and it's what lets golden-hour smoke go
-// orange instead of staying flat grey.
+// Color cools toward death (hot core early, dark residue late). Smoke is LIT:
+// the top of each puff catches uSunTint, the underside sits in uAmbient shade.
+//
+// Toon pass (2026-10): CEL PUFFS, not soft blur. A soft gaussian sprite
+// stacked a few deep read as a white smear around the car (the reviewer's
+// "halo"); a cartoon puff is a crisp disc that SHRINKS as it dies instead of
+// fading, with the light split into two flat bands (lit cap / shaded belly,
+// the terminator tilted so the puff reads round) and a darker rim standing in
+// for the ink line. Alpha stays high through the life, so a puff pops rather
+// than ghosts. Debris chips (vGrain) keep their angular shape.
 const FRAG_SMOKE = `
   uniform vec3 uSunTint;
   uniform vec3 uAmbient;
@@ -26,16 +30,22 @@ const FRAG_SMOKE = `
   void main() {
     vec2 d = gl_PointCoord - vec2(0.5);
     float r = dot(d, d);
-    if (r > 0.25) discard;
-    float soft = smoothstep(0.25, 0.0, r);
+    // Shrink with life: the disc radius (squared) follows sqrt(alpha).
+    float radius = 0.25 * clamp(sqrt(vAlpha) * 1.15, 0.0, 1.0);
+    if (r > radius) discard;
+    float aa = fwidth(r) * 1.5;
+    float disc = 1.0 - smoothstep(radius - aa, radius, r);
     float chip = 1.0 - smoothstep(0.29, 0.35, abs(d.x) + abs(d.y) * 0.7);
-    soft = mix(soft, chip, vGrain);
+    float shape = mix(disc, chip, vGrain);
     vec3 color = mix(vColor * 0.35, vColor, pow(vAlpha, 0.6));
-    float topLit = smoothstep(0.78, 0.18, gl_PointCoord.y);
+    // Two flat bands: lit cap above a tilted terminator, shaded belly below.
+    float cap = smoothstep(-0.03, 0.03, -d.y - d.x * 0.35 + 0.04);
     // Ceiling keeps a stack of overlapping lit puffs from blowing out to a
     // single white-yellow mass under the post S-curve.
-    color *= min(uAmbient + uSunTint * topLit, vec3(1.0));
-    gl_FragColor = vec4(color, vAlpha * vAlpha * soft);
+    color *= min(uAmbient + uSunTint * cap, vec3(1.0));
+    // Rim: the outer ring a step darker — the puff's own ink line.
+    color *= mix(1.0, 0.72, smoothstep(radius * 0.62, radius * 0.8, r) * (1.0 - vGrain));
+    gl_FragColor = vec4(color, shape * smoothstep(0.0, 0.18, vAlpha) * 0.9);
   }
 `;
 // Sparks: intensities are authored pre-shoulder (hot FX 2.2-3.4) and the

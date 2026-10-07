@@ -5,6 +5,7 @@ import * as THREE from "three";
 import { geoLayoutKey } from "../assets/loader";
 import type { ModelCache } from "../assets/loader";
 import { modelUrl } from "../assets/manifest";
+import { createHullBatch, placeHulls } from "../vehicle/ink-hull";
 import type { PhysicsWorld } from "../physics/physics-world";
 import type { ParkedSpec } from "../world/furniture";
 
@@ -138,9 +139,16 @@ export class ParkedCars {
       this.group.add(batch);
     }
 
+    // Ink hulls for every parked car in one extra batch (vehicle/ink-hull.ts).
+    const hulls = createHullBatch(specs.flatMap((spec) => partsOf(spec.model)));
+    if (hulls) {
+      this.group.add(hulls.batch);
+    }
+
     for (const s of specs) {
       const y = this.seatInto(s.x, s.z, s.yaw);
       const parts: PartRef[] = [];
+      parts.push(...placeHulls(hulls, partsOf(s.model), this.carMat4));
       for (const p of partsOf(s.model)) {
         const b = buckets.get(bucketKey(p));
         if (!b || !b.batch || !b.geoIds) {
@@ -172,6 +180,7 @@ export class ParkedCars {
     for (const b of buckets.values()) {
       b.batch?.computeBoundingSphere();
     }
+    hulls?.batch.computeBoundingSphere();
     this.visible = new Uint8Array(this.cars.length).fill(1);
   }
 
