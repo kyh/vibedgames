@@ -21,8 +21,8 @@ import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
 // distance and is gone by HULL_FADE_END — a fixed-pixel line on a car 150u
 // away is an ink blob, and the taper lands well before the fog plane, so the
 // hull never needs the aerial-fog chunks. Hero bodies (player, remote
-// drivers, the garage) take the fat sticker line; the batched traffic and
-// parked fleets a lighter one so the hero still owns the frame.
+// drivers, the garage) take the fat sticker line; the batched traffic fleet
+// a lighter one so the hero still owns the frame.
 
 // Line widths in drawing-buffer pixels at 1080 rows; scale with resolution.
 export const HULL_PX_HERO = 3.2;
@@ -108,7 +108,7 @@ const hullOf = (geo: THREE.BufferGeometry): THREE.BufferGeometry => {
   return welded;
 };
 
-// Batched fleets (traffic, parked) draw their hulls through a BatchedMesh, so
+// The batched traffic fleet draws its hulls through a BatchedMesh, so
 // the shader takes three's batching chunks: under USE_BATCHING the per-instance
 // matrix comes from the batch's matrix texture, otherwise they compile away.
 // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
@@ -232,7 +232,9 @@ export const addInkHulls = (root: THREE.Object3D, widthPx = HULL_PX_HERO): void 
   }
 };
 
-/** One mesh part of a batched fleet model (traffic.ts / parked-cars.ts). */
+/** One mesh part of a batched fleet model (traffic.ts). Parked cars carry no
+ *  hull: ~12.7k part instances would double their culling, and the desktop
+ *  post ink already rings them (phones see them small and static). */
 interface FleetTemplatePart {
   readonly geo: THREE.BufferGeometry;
   readonly mat: THREE.Material;
