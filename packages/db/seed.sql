@@ -3,7 +3,7 @@
 --
 -- Gives Claude / devs a deterministic identity to drive the app headlessly:
 --  - dev user (admin)
---  - invite code DEV123 (unlimited, for exercising signup)
+--  - credit code DEV123 ($20 per redemption, unlimited uses, once per account)
 --  - a long-lived session whose token is the CLI bearer (VG_TOKEN)
 --  - browser-login accounts (password `password123` for both):
 --      user@vibedgames.com   (regular user)
@@ -26,9 +26,9 @@ VALUES (
   cast(unixepoch('subsecond') * 1000 as integer)
 );
 
-INSERT OR REPLACE INTO invite_code (id, code, max_uses, used_count, created_at)
+INSERT OR REPLACE INTO invite_code (id, code, credit_micro, max_uses, used_count, created_at)
 VALUES (
-  'dev-local-invite', 'DEV123', NULL, 0,
+  'dev-local-invite', 'DEV123', 20000000, NULL, 0,
   cast(unixepoch('subsecond') * 1000 as integer)
 );
 

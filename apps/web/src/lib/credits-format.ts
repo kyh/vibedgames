@@ -17,6 +17,8 @@ export const kindLabel = (kind: string, deltaMicro: number): string => {
   }
   const labels = new Map([
     ["signup_grant", "Welcome credits"],
+    ["code_redeem", "Code redeemed"],
+    ["purchase", "Credit purchase"],
     ["generation_hold", "Generation"],
     ["generation_settle", "Usage adjustment"],
     ["generation_release", "Refund — failed generation"],

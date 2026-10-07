@@ -1,6 +1,7 @@
 import type { Db } from "@repo/db/drizzle-client";
-import { and, desc, eq, ne, sql } from "@repo/db";
-import { creditEntry, generation } from "@repo/db/drizzle-schema";
+import { and, desc, eq, gt, isNull, lt, ne, or, sql } from "@repo/db";
+import { creditEntry, generation, inviteCode } from "@repo/db/drizzle-schema";
+import { user } from "@repo/db/drizzle-schema-auth";
 
 /**
  * All amounts are integer micro-USD (1_000_000 = $1.00). Money never touches
@@ -9,7 +10,10 @@ import { creditEntry, generation } from "@repo/db/drizzle-schema";
  */
 export const MICRO_PER_USD = 1_000_000;
 
-/** Every user's opening balance, granted lazily on first credit access. */
+/**
+ * The opening balance pre-launch accounts were promised. New accounts start
+ * at zero; see `ensureLegacySignupGrant`.
+ */
 export const SIGNUP_GRANT_MICRO = 20 * MICRO_PER_USD;
 
 export const usdToMicro = (usd: number): number => Math.round(usd * MICRO_PER_USD);
@@ -31,24 +35,38 @@ export const formatUsd = (micro: number): string => {
 const MAX_SETTLE_MICRO = 100 * MICRO_PER_USD;
 
 /**
- * Grant the signup credit exactly once per user. Deterministic entry id +
- * ON CONFLICT DO NOTHING makes this safe to call on every balance read, which
- * doubles as the backfill for accounts that predate the credit system.
+ * Accounts start with no credit. The exception is an account that signed up
+ * with an invite code before launch: it was promised a $20 grant, materialized
+ * lazily on first credit access, and may never have touched credits. The
+ * INSERT…SELECT writes the grant only for such a user, and the deterministic
+ * id + ON CONFLICT DO NOTHING keeps it at once — so this stays safe to run on
+ * every balance read.
  */
-const ensureSignupGrant = async (db: Db, userId: string): Promise<void> => {
+const ensureLegacySignupGrant = async (db: Db, userId: string): Promise<void> => {
   await db
     .insert(creditEntry)
-    .values({
-      deltaMicro: SIGNUP_GRANT_MICRO,
-      id: `signup:${userId}`,
-      kind: "signup_grant",
-      userId,
-    })
+    .select(
+      db
+        // insert().select() requires every table column, in definition order.
+        .select({
+          createdAt: sql<number>`(cast(unixepoch('subsecond') * 1000 as integer))`.as("created_at"),
+          createdBy: sql<string | null>`NULL`.as("created_by"),
+          deltaMicro: sql<number>`${SIGNUP_GRANT_MICRO}`.as("delta_micro"),
+          endpointId: sql<string | null>`NULL`.as("endpoint_id"),
+          id: sql<string>`'signup:' || ${user.id}`.as("id"),
+          kind: sql<"signup_grant">`'signup_grant'`.as("kind"),
+          note: sql<string | null>`NULL`.as("note"),
+          requestId: sql<string | null>`NULL`.as("request_id"),
+          userId: user.id,
+        })
+        .from(user)
+        .where(and(eq(user.id, userId), sql`${user.invitedByCode} IS NOT NULL`)),
+    )
     .onConflictDoNothing();
 };
 
 export const getBalanceMicro = async (db: Db, userId: string): Promise<number> => {
-  await ensureSignupGrant(db, userId);
+  await ensureLegacySignupGrant(db, userId);
   const rows = await db
     .select({ balance: sql<number>`coalesce(sum(${creditEntry.deltaMicro}), 0)` })
     .from(creditEntry)
@@ -247,7 +265,6 @@ export interface GrantInput {
 
 /** Admin top-up. Returns the user's balance after the grant. */
 export const grantCredits = async (db: Db, input: GrantInput): Promise<number> => {
-  await ensureSignupGrant(db, input.userId);
   await db
     .insert(creditEntry)
     .values({
@@ -260,6 +277,136 @@ export const grantCredits = async (db: Db, input: GrantInput): Promise<number> =
     })
     .onConflictDoNothing();
   return getBalanceMicro(db, input.userId);
+};
+
+export const creditCodeAvailable = (now: Date) =>
+  and(
+    isNull(inviteCode.revokedAt),
+    or(isNull(inviteCode.expiresAt), gt(inviteCode.expiresAt, now)),
+    or(isNull(inviteCode.maxUses), lt(inviteCode.usedCount, inviteCode.maxUses)),
+  );
+
+export type RedeemResult =
+  | { status: "redeemed"; creditedMicro: number; balanceMicro: number }
+  | { status: "already_redeemed" }
+  | { status: "invalid" };
+
+/**
+ * Redeem a credit code for `userId`: one `code_redeem` entry worth the code's
+ * `creditMicro`, at most once per user per code, within the code's use limit.
+ *
+ * One D1 batch, so one transaction. The entry is an INSERT…SELECT guarded by
+ * the code's availability, its id `code:{codeId}:{userId}` makes a repeat a
+ * conflict, and the use counter then moves only when that INSERT wrote a row:
+ * SQLite's `changes()` reports the previous statement's row count. So a
+ * double-submit, a lost race for a code's last use, or a dead code writes
+ * nothing at all. A pre-launch account can't redeem the code it signed up
+ * with — that signup already used the code and carried its grant.
+ */
+export const redeemCreditCode = async (
+  db: Db,
+  userId: string,
+  code: string,
+): Promise<RedeemResult> => {
+  const now = new Date();
+  const [inserted] = await db.batch([
+    db
+      .insert(creditEntry)
+      .select(
+        db
+          .select({
+            createdAt: sql<number>`(cast(unixepoch('subsecond') * 1000 as integer))`.as(
+              "created_at",
+            ),
+            createdBy: sql<string | null>`NULL`.as("created_by"),
+            deltaMicro: inviteCode.creditMicro,
+            endpointId: sql<string | null>`NULL`.as("endpoint_id"),
+            id: sql<string>`'code:' || ${inviteCode.id} || ':' || ${userId}`.as("id"),
+            kind: sql<"code_redeem">`'code_redeem'`.as("kind"),
+            note: inviteCode.code,
+            requestId: sql<string | null>`NULL`.as("request_id"),
+            userId: sql<string>`${userId}`.as("user_id"),
+          })
+          .from(inviteCode)
+          .where(
+            and(
+              eq(inviteCode.code, code),
+              gt(inviteCode.creditMicro, 0),
+              creditCodeAvailable(now),
+              sql`NOT EXISTS (SELECT 1 FROM ${user} WHERE ${user.id} = ${userId} AND ${user.invitedByCode} = ${inviteCode.code})`,
+            ),
+          ),
+      )
+      .onConflictDoNothing()
+      .returning({ deltaMicro: creditEntry.deltaMicro }),
+    db
+      .update(inviteCode)
+      .set({ usedCount: sql`${inviteCode.usedCount} + 1` })
+      .where(and(eq(inviteCode.code, code), sql`changes() = 1`)),
+  ]);
+
+  const [entry] = inserted;
+  if (entry) {
+    return {
+      balanceMicro: await getBalanceMicro(db, userId),
+      creditedMicro: entry.deltaMicro,
+      status: "redeemed",
+    };
+  }
+
+  const [known] = await db
+    .select({ id: inviteCode.id })
+    .from(inviteCode)
+    .where(eq(inviteCode.code, code))
+    .limit(1);
+  if (!known) {
+    return { status: "invalid" };
+  }
+  const prior = await db
+    .select({ id: creditEntry.id })
+    .from(creditEntry)
+    .where(eq(creditEntry.id, `code:${known.id}:${userId}`))
+    .limit(1);
+  return prior.length > 0 ? { status: "already_redeemed" } : { status: "invalid" };
+};
+
+export interface PurchaseInput {
+  /** The Stripe Checkout Session id — one purchase entry per paid session. */
+  checkoutSessionId: string;
+  userId: string;
+  creditMicro: number;
+}
+
+/**
+ * Credit a paid checkout. Stripe redelivers webhooks, and both
+ * `checkout.session.completed` and `…async_payment_succeeded` can report the
+ * same session, so the entry id is the session id. The INSERT…SELECT from
+ * `user` makes a purchase by a since-deleted account a no-op instead of a
+ * foreign-key failure Stripe would retry for days. Returns whether this call
+ * wrote the entry.
+ */
+export const creditPurchase = async (db: Db, input: PurchaseInput): Promise<boolean> => {
+  const rows = await db
+    .insert(creditEntry)
+    .select(
+      db
+        .select({
+          createdAt: sql<number>`(cast(unixepoch('subsecond') * 1000 as integer))`.as("created_at"),
+          createdBy: sql<string | null>`NULL`.as("created_by"),
+          deltaMicro: sql<number>`${input.creditMicro}`.as("delta_micro"),
+          endpointId: sql<string | null>`NULL`.as("endpoint_id"),
+          id: sql<string>`${`purchase:${input.checkoutSessionId}`}`.as("id"),
+          kind: sql<"purchase">`'purchase'`.as("kind"),
+          note: sql<string | null>`NULL`.as("note"),
+          requestId: sql<string | null>`NULL`.as("request_id"),
+          userId: user.id,
+        })
+        .from(user)
+        .where(eq(user.id, input.userId)),
+    )
+    .onConflictDoNothing()
+    .returning({ id: creditEntry.id });
+  return rows.length > 0;
 };
 
 export const listEntries = (db: Db, userId: string, limit: number) =>

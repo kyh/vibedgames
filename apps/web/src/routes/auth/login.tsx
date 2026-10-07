@@ -1,9 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 
-import { LoginForm } from "@/components/auth/auth-form";
+import { creditCodeCallback, LoginForm } from "@/components/auth/auth-form";
 
 const LoginPage = () => {
-  const { callbackUrl } = Route.useSearch();
+  const { callbackUrl, invite } = Route.useSearch();
 
   return (
     <div className="mx-auto flex w-full flex-col sm:w-[350px]">
@@ -11,11 +11,11 @@ const LoginPage = () => {
         <div className="flex flex-col text-center">
           <h1 className="text-lg font-light">Welcome back</h1>
         </div>
-        <LoginForm callbackUrl={callbackUrl} />
+        <LoginForm callbackUrl={creditCodeCallback(invite) ?? callbackUrl} />
       </div>
       <p className="text-muted-foreground mt-6 px-8 text-center text-xs">
         Don&apos;t have an account?{" "}
-        <Link to="/auth/register" className="underline">
+        <Link to="/auth/register" search={{ callbackUrl, invite }} className="underline">
           Register
         </Link>
       </p>

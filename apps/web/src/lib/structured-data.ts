@@ -200,7 +200,7 @@ const softwareApplicationSchema = (): SoftwareApplicationNode => ({
   offers: {
     "@type": "Offer",
     description:
-      "Deploys, hosting and multiplayer are free. Asset generation is metered against a per-account credit balance, starting with a $20 signup grant.",
+      "Deploys, hosting and multiplayer are free. Asset generation is metered against a per-account credit balance, bought by card or granted by code.",
     price: "0",
     priceCurrency: "USD",
   },

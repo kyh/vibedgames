@@ -9,7 +9,7 @@ import { UserAdmin } from "@/components/admin/user-admin";
 /**
  * Single admin page under the shared account shell. The parent `_account`
  * layout already guarantees a session; this route only enforces the admin
- * role. Users and invites stack as sections, same convention as /settings.
+ * role. Users and credit codes stack as sections, same convention as /settings.
  */
 const requireAdmin = createServerFn({ method: "GET" }).handler(async () => {
   const { auth } = getServerContext();

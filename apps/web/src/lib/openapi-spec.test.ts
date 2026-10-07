@@ -74,7 +74,7 @@ describe("OpenAPI spec", async () => {
   test("declares credentials only on procedures that check them", () => {
     assert.deepEqual(
       pathsWith((security) => security === undefined),
-      ["/auth/cliInit", "/auth/cliPoll", "/auth/validateInvite", "/waitlist/join"],
+      ["/auth/cliInit", "/auth/cliPoll", "/waitlist/join"],
     );
     for (const { path, operation } of operations) {
       if (operation.security !== undefined) {

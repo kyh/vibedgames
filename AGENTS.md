@@ -24,10 +24,10 @@ There is no bootstrap script; the five commands above _are_ the provisioning ste
 
 One file, two consumers. Everything lives in the repo-root `.env`; template is `.env.example`.
 
-| Consumer                                         | Reaches it via                                                  | Holds                                                                 |
-| ------------------------------------------------ | --------------------------------------------------------------- | --------------------------------------------------------------------- |
-| drizzle-kit, the cf CLI                          | `process.env`, loaded by each package's `with-env` (dotenv-cli) | `CLOUDFLARE_ACCOUNT_ID` / `_DATABASE_ID` / `_D1_TOKEN` / `_API_TOKEN` |
-| the dev Worker, via the Cloudflare `env` binding | `bindings.secret()` in `apps/web/cloudflare.config.ts`          | `BETTER_AUTH_SECRET`, `R2_*`, `FAL_API_KEY`, `TYPESAFE_API_KEY`       |
+| Consumer                                         | Reaches it via                                                  | Holds                                                                       |
+| ------------------------------------------------ | --------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| drizzle-kit, the cf CLI                          | `process.env`, loaded by each package's `with-env` (dotenv-cli) | `CLOUDFLARE_ACCOUNT_ID` / `_DATABASE_ID` / `_D1_TOKEN` / `_API_TOKEN`       |
+| the dev Worker, via the Cloudflare `env` binding | `bindings.secret()` in `apps/web/cloudflare.config.ts`          | `BETTER_AUTH_SECRET`, `R2_*`, `FAL_API_KEY`, `TYPESAFE_API_KEY`, `STRIPE_*` |
 
 **The declared secrets are the whole mechanism.** Declaring a name with `bindings.secret()` makes the dev server fold `process.env` into the Worker binding and filter it down to exactly the declared names — so a secret that is in `.env` but not declared silently never reaches the Worker. Adding one means editing two places: `.env.example` and `cloudflare.config.ts` (the `Env` type is generated from it).
 
@@ -37,12 +37,12 @@ Do not reintroduce `apps/web/.dev.vars`. The dev server prefers it and stops rea
 
 `pnpm db:seed-local` applies `packages/db/seed.sql` to the local D1. It creates:
 
-| Identity                               | Use                                                           |
-| -------------------------------------- | ------------------------------------------------------------- |
-| `user@vibedgames.com` / `password123`  | browser login, regular user                                   |
-| `admin@vibedgames.com` / `password123` | browser login, admin (`/admin/users`, `/admin/invites`)       |
-| `dev-local-session-token-0000000000`   | long-lived bearer token for the CLI and raw HTTP              |
-| `DEV123`                               | invite code, unlimited uses — for exercising `/auth/register` |
+| Identity                               | Use                                                                       |
+| -------------------------------------- | ------------------------------------------------------------------------- |
+| `user@vibedgames.com` / `password123`  | browser login, regular user                                               |
+| `admin@vibedgames.com` / `password123` | browser login, admin (`/admin/users`, `/admin/invites`)                   |
+| `dev-local-session-token-0000000000`   | long-lived bearer token for the CLI and raw HTTP                          |
+| `DEV123`                               | credit code, $20, unlimited uses — redeem once per account in `/settings` |
 
 Five sample games are seeded onto the admin account, so `/home` is non-empty when signed in as `admin@vibedgames.com`, and they show up in `/admin/users`. (The games themselves are served from the live prod subdomains; only the D1 rows are local.) `/` and `/discover` never read D1 — they render the hardcoded `featuredGames` array in `apps/web/src/components/game/data.ts`, so re-seeding cannot change them.
 
@@ -125,7 +125,7 @@ vg playtest screenshot /tmp/after.png
 
 The auth form uses react-hook-form, so prefer the `data-test` attributes over positional refs for the two credential fields; everything else is reliable off `snapshot`.
 
-Six flows cover all nine `useMutation` sites in the app: `/settings` (create + revoke an API key), `/admin/invites` (create + revoke a code), `/admin/users` (create a user, grant credits, then re-check `/settings`), `/home` (delete a game), `/auth/register` (type `DEV123` into the invite OTP field — that is the `auth.validateInvite` mutation), `/auth/cli?code=<code>` (confirm a CLI device code — fires on mount, and deliberately invalidates nothing).
+Six flows cover all ten `useMutation` sites in the app: `/settings` (create + revoke an API key), `/admin/invites` (create + revoke a code), `/admin/users` (create a user, grant credits, then re-check `/settings`), `/home` (delete a game), `/settings` again (click "Have a code? Redeem it" and type `DEV123` into the dialog — that is the `credits.redeem` mutation; a second redeem by the same account answers 409; the buy buttons fire `credits.checkout`, which answers 412 without `STRIPE_SECRET_KEY`), `/auth/cli?code=<code>` (confirm a CLI device code — fires on mount, and deliberately invalidates nothing).
 
 ## Platform matrix
 
