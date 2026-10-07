@@ -25,7 +25,7 @@ export const termsDoc: Doc = {
     ),
   ],
   lead: [
-    p("**Version 2.0 Last revised:** October 3, 2026"),
+    p("**Version 2.0 Last revised:** October 7, 2026"),
     p(
       `The website located at vibedgames.com, together with the game hosting at \`{slug}.vibedgames.com\`, the multiplayer servers, the API, the \`vg\` command-line tool and the vibedgames agent skills and plugin (collectively, the “**Site**”) is owned and operated by ${operator} (“**Vibedgames**,” “**us**,” “**our**,” or “**we**”). Certain features of the Site may be subject to additional guidelines or rules posted on the Site, which are incorporated by reference into these Terms.`,
     ),
@@ -41,7 +41,7 @@ export const termsDoc: Doc = {
     {
       blocks: [
         p(
-          `1.1 **Creating an Account.** Some features of the Site may require you to register for an account. While the Site is in early preview, registering requires an invite code. When you register, you agree to provide accurate and complete information and to keep that information current. You can delete your account at any time by emailing us at ${mail} from the email address on your account. We may suspend or terminate your account as described in Section 8.`,
+          `1.1 **Creating an Account.** Some features of the Site may require you to register for an account. When you register, you agree to provide accurate and complete information and to keep that information current. You can delete your account at any time by emailing us at ${mail} from the email address on your account. We may suspend or terminate your account as described in Section 8.`,
         ),
         p(
           "1.2 **Account Security.** You are responsible for keeping your login credentials confidential and for all activity that occurs under your account. Your login credentials include your password, the login the `vg` CLI saves on your computer and any API keys you create; revoke a key as soon as you think it has leaked. If you believe your account has been accessed without your authorization, please notify us immediately. We are not liable for any losses resulting from your failure to keep your credentials secure.",
@@ -82,7 +82,7 @@ export const termsDoc: Doc = {
           `2.10 **Open-Source Software.** The vibedgames source code, including the \`vg\` CLI, the npm packages and the agent skills, is published under the MIT License at [github.com/kyh/vibedgames](${siteConfig.repository}). Source code that we publish under an open-source license, such as the MIT License, is governed by that license, and nothing in these Terms limits your rights under it. These Terms govern the hosted Site.`,
         ),
         p(
-          "2.11 **Generation Credits.** New accounts get free generation credits. Credits have no cash value, cannot be transferred, and may change, and generation stops when your balance runs out. Generated assets come from third-party AI models. You are responsible for how you use them, and each model’s own terms may also apply.",
+          "2.11 **Generation Credits.** New accounts start with no generation credits. You can buy credits, which our payment processor, Stripe, charges to your card, and we may also grant credits through codes or promotions. Credits are priced in US dollars, are used up at the cost of each generation, have no cash value, cannot be transferred, and do not expire unless we tell you otherwise. Purchases are final and non-refundable except where the law requires otherwise, or where we choose to refund a purchase you have not used. Generation stops when your balance runs out. Generated assets come from third-party AI models. You are responsible for how you use them, and each model’s own terms may also apply.",
         ),
       ],
       heading: "2. Access to the Site",

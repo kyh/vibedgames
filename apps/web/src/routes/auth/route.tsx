@@ -3,6 +3,7 @@ import { createFileRoute, Outlet } from "@tanstack/react-router";
 
 const authSearchSchema = z.object({
   callbackUrl: z.string().optional(),
+  // A credit code to redeem after sign-in (the name pre-launch invite links carry).
   invite: z.string().optional(),
   nextPath: z.string().optional(),
 });

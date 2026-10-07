@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./auth/auth": "./src/auth/auth.ts",
+    "./credits/stripe": "./src/credits/stripe.ts",
     "./deploy/r2-presign": "./src/deploy/r2-presign.ts",
     "./generate/limits": "./src/generate/limits.ts",
     "./orpc": "./src/orpc.ts",

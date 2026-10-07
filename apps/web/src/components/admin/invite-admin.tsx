@@ -8,8 +8,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckIcon, CopyIcon, PencilIcon } from "lucide-react";
 
 import { SkeletonReveal } from "@/components/ui/skeleton-reveal";
+import { formatUsd } from "@/lib/credits-format";
 import { useORPC } from "@/lib/orpc";
 
+// The register page carries the code through to /settings, which redeems it;
+// an existing account signs in from there and lands in the same place.
 const buildInviteLink = (code: string) => {
   if (typeof window === "undefined") {
     return `/auth/register?invite=${code}`;
@@ -74,11 +77,12 @@ export const InviteAdmin = () => {
     orpc.auth.createInvites.mutationOptions({
       onSuccess: () => {
         qc.invalidateQueries({ queryKey: orpc.auth.listInvites.queryKey() });
-        toast.success("Invite codes created");
+        toast.success("Credit codes created");
       },
     }),
   );
   const [count, setCount] = useState(1);
+  const [creditUsd, setCreditUsd] = useState(20);
   const [maxUses, setMaxUses] = useState<number | "">(1);
   const [note, setNote] = useState("");
   const [customCode, setCustomCode] = useState("");
@@ -115,9 +119,10 @@ export const InviteAdmin = () => {
       className="grid scroll-mt-28 grid-cols-1 gap-x-8 gap-y-6 py-12 first:pt-0 last:pb-0 md:grid-cols-3"
     >
       <header>
-        <h2 className="text-base font-semibold">Invite codes</h2>
+        <h2 className="text-base font-semibold">Credit codes</h2>
         <p className="text-muted-foreground mt-1 text-sm">
-          Generate codes for early-preview signups. Single-use by default.
+          Codes people redeem in Settings for generation credit, once per account. Single-use by
+          default.
         </p>
       </header>
 
@@ -128,6 +133,7 @@ export const InviteAdmin = () => {
             create.mutate({
               code: trimmedCustomCode === "" ? null : trimmedCustomCode,
               count,
+              creditUsd,
               expiresAt: null,
               maxUses: maxUses === "" ? null : maxUses,
               note: note.trim() || null,
@@ -147,6 +153,20 @@ export const InviteAdmin = () => {
                   disabled={trimmedCustomCode !== ""}
                   value={count}
                   onChange={(e) => setCount(Number(e.target.value) || 1)}
+                />
+              </FieldContent>
+            </Field>
+            <Field className="gap-1">
+              <FieldLabel htmlFor="creditUsd">Credit per redemption ($)</FieldLabel>
+              <FieldContent>
+                <Input
+                  id="creditUsd"
+                  type="number"
+                  min={0.01}
+                  max={1000}
+                  step={0.01}
+                  value={creditUsd}
+                  onChange={(e) => setCreditUsd(Number(e.target.value) || 0)}
                 />
               </FieldContent>
             </Field>
@@ -218,6 +238,9 @@ export const InviteAdmin = () => {
                   <li key={row.id} className="flex items-center gap-3 py-3 text-sm">
                     <code className="font-mono text-base">{row.code}</code>
                     <span className={STATUS_BADGE[status]}>{status}</span>
+                    <span className="text-muted-foreground shrink-0 font-mono text-xs tabular-nums">
+                      {formatUsd(row.creditMicro)}
+                    </span>
                     {editing?.id === row.id ? (
                       <form
                         className="flex shrink-0 items-center gap-1"

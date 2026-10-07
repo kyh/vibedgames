@@ -1,4 +1,9 @@
-import type { DecisionProviderConfig, MediaProviderConfig, R2Config } from "@repo/service/orpc";
+import type {
+  BillingConfig,
+  DecisionProviderConfig,
+  MediaProviderConfig,
+  R2Config,
+} from "@repo/service/orpc";
 import { createAuth as initAuth } from "@repo/service/auth/auth";
 import { createORPCContext } from "@repo/service/orpc";
 import { createDb } from "@repo/db/drizzle-client";
@@ -75,7 +80,13 @@ export const getServerContext = () => {
     typesafeBaseUrl: env.TYPESAFE_BASE_URL,
   };
 
-  return { auth, baseUrl, db, decision, media, productionUrl, r2 };
+  const billing: BillingConfig = {
+    stripeApiBaseUrl: env.STRIPE_API_BASE_URL,
+    stripeSecretKey: env.STRIPE_SECRET_KEY,
+    stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET,
+  };
+
+  return { auth, baseUrl, billing, db, decision, media, productionUrl, r2 };
 };
 
 /**
@@ -86,9 +97,10 @@ export const getServerContext = () => {
  * silently miss the other.
  */
 export const createRpcContext = (headers: Headers) => {
-  const { db, auth: betterAuth, productionUrl, r2, media, decision } = getServerContext();
+  const { db, auth: betterAuth, billing, productionUrl, r2, media, decision } = getServerContext();
   return createORPCContext({
     auth: betterAuth,
+    billing,
     db,
     decision,
     headers,

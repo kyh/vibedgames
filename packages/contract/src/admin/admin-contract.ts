@@ -24,14 +24,13 @@ export const adminContract = {
       .meta(
         documented({
           description:
-            "Returns every user's credit balance in micro-USD, plus the signup grant a user without ledger rows implicitly holds. Admin only.",
+            "Returns every user's credit balance in micro-USD. A user with no ledger rows is absent and holds nothing. Admin only.",
           summary: "List credit balances",
         }),
       )
       .output(
         z.object({
           balances: z.array(z.object({ balanceMicro: z.number(), userId: z.string() })),
-          signupGrantMicro: z.number().int(),
         }),
       ),
 

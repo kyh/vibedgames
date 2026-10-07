@@ -15,13 +15,15 @@ import {
 import { user } from "./drizzle-schema-auth";
 
 /**
- * Invite codes gating signup during early preview.
+ * Credit codes: a signed-in user redeems one for `creditMicro` of generation
+ * credit, at most once per user (`packages/service/src/credits/credit-ledger.ts`).
+ * The table keeps its `invite_code` name from when these gated signup —
+ * renaming it would be a table recreate.
  *
  * A code is "available" when `revokedAt IS NULL`, `expiresAt` is in the future
  * (or NULL), and `usedCount < maxUses` (or `maxUses IS NULL` for unlimited).
- * Claiming a use is a single conditional UPDATE so concurrent signups can't
- * over-redeem the same code. The `user.invitedByCode` column records which
- * code each user redeemed.
+ * `user.invitedByCode` records the code a pre-launch account signed up with;
+ * that signup counted as the code's use and carried the old $20 grant.
  */
 export const inviteCode = sqliteTable(
   "invite_code",
@@ -31,6 +33,8 @@ export const inviteCode = sqliteTable(
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
       .notNull(),
     createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
+    /** Credit one redemption grants, in micro-USD. Pre-launch codes default to the old $20 grant. */
+    creditMicro: integer("credit_micro").notNull().default(20_000_000),
     expiresAt: integer("expires_at", { mode: "timestamp_ms" }),
     id: text("id").primaryKey().notNull(),
     maxUses: integer("max_uses").default(1),
@@ -144,9 +148,10 @@ export const deploymentFile = sqliteTable(
  * cached balance column, so the ledger can never disagree with itself.
  *
  * Idempotency lives in the `id`: entries that must exist at most once use a
- * deterministic id (`signup:{userId}`, `hold:{requestId}`,
- * `settle:{requestId}`, `release:{requestId}`) inserted with
- * ON CONFLICT DO NOTHING; admin grants use a random UUID.
+ * deterministic id (`signup:{userId}`, `code:{codeId}:{userId}`,
+ * `purchase:{checkoutSessionId}`, `hold:{requestId}`, `settle:{requestId}`,
+ * `release:{requestId}`) inserted with ON CONFLICT DO NOTHING; admin grants
+ * key on a client-minted idempotency key.
  */
 export const creditEntry = sqliteTable(
   "credit_entry",
@@ -164,6 +169,8 @@ export const creditEntry = sqliteTable(
       enum: [
         "signup_grant",
         "admin_grant",
+        "code_redeem",
+        "purchase",
         "generation_hold",
         "generation_settle",
         "generation_release",

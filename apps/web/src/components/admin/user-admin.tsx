@@ -93,8 +93,7 @@ export const UserAdmin = () => {
     if (!balances.data) {
       return "—";
     }
-    // Users without ledger rows get the signup grant on first use.
-    return formatUsd(balanceByUser.get(userId) ?? balances.data.signupGrantMicro);
+    return formatUsd(balanceByUser.get(userId) ?? 0);
   };
 
   const openGrant = (target: { id: string; email: string }) => {
@@ -112,7 +111,7 @@ export const UserAdmin = () => {
       <header>
         <h2 className="text-base font-semibold">Users</h2>
         <p className="text-muted-foreground mt-1 text-sm">
-          Create accounts directly — no invite code needed.
+          Create accounts directly and grant them credit.
         </p>
       </header>
 

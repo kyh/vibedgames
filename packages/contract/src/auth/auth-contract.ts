@@ -10,6 +10,7 @@ const inviteCodeRow = z.object({
   code: z.string(),
   createdAt: z.date(),
   createdBy: z.string().nullable(),
+  creditMicro: z.number().int().describe("Credit one redemption grants, in micro-USD."),
   expiresAt: z.date().nullable(),
   id: z.string(),
   maxUses: z.number().int().nullable().describe("null means unlimited uses."),
@@ -62,9 +63,9 @@ export const authContract = {
     .meta(
       documented({
         description:
-          "Creates one custom invite code or a batch of random ones. Admin only; 409 when a custom code already exists.",
+          "Creates one custom credit code or a batch of random ones, each worth `creditUsd` per redemption. Admin only; 409 when a custom code already exists.",
         errors: [409],
-        summary: "Create invite codes",
+        summary: "Create credit codes",
       }),
     )
     .input(createInvitesInput)
@@ -73,8 +74,8 @@ export const authContract = {
   listInvites: adminBase
     .meta(
       documented({
-        description: "Lists every invite code, newest first, with its creator's email. Admin only.",
-        summary: "List invite codes",
+        description: "Lists every credit code, newest first, with its creator's email. Admin only.",
+        summary: "List credit codes",
       }),
     )
     .output(
@@ -102,23 +103,11 @@ export const authContract = {
     .meta(
       documented({
         description:
-          "Revokes, un-revokes, or changes the use limit of an invite code. Omitted fields are left untouched. Admin only.",
+          "Revokes, un-revokes, or changes the use limit or value of a credit code. Omitted fields are left untouched. Admin only.",
         errors: [404],
-        summary: "Update an invite code",
+        summary: "Update a credit code",
       }),
     )
     .input(updateInviteInput)
     .output(z.object({ code: inviteCodeRow })),
-
-  validateInvite: publicBase
-    .meta(
-      documented({
-        description:
-          "Checks an invite code before signup. Returns the normalized code, or 403 when it is invalid, expired, revoked or used up. Does not reserve the code.",
-        errors: [403],
-        summary: "Validate an invite code",
-      }),
-    )
-    .input(codeInput)
-    .output(z.object({ code: z.string() })),
 };

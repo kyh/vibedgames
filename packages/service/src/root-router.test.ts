@@ -69,6 +69,7 @@ const sessionFor = (opts: {
 
 const contextAs = (session: ORPCContext["session"]): ORPCContext => ({
   auth,
+  billing: undefined,
   db,
   decision: undefined,
   headers: new Headers(),

@@ -49,9 +49,10 @@ const sections: Section[] = [
       ),
       ul(
         "**Contact data**, such as your name and email address.",
-        "**Profile data**, such as the password that you set to establish an online account on the Service (we store only a hash of it), the invite code you signed up with, and the API keys you create for the CLI and CI and their names (we store only a hash of each key and its first few characters, so you can tell your keys apart).",
+        "**Profile data**, such as the password that you set to establish an online account on the Service (we store only a hash of it), the invite code you signed up with if you joined before public launch, and the API keys you create for the CLI and CI and their names (we store only a hash of each key and its first few characters, so you can tell your keys apart).",
         "**Communications data** based on our exchanges with you, including when you email us, contact us through GitHub or social media, or otherwise.",
-        "**Transactional data**, such as the history of your generation credit balance: the credits granted to your account and, for each asset-generation request, the model used, the provider’s request identifier, its status and what it cost. This is how we keep your credit balance.",
+        "**Transactional data**, such as the history of your generation credit balance: the credits you buy, the codes you redeem, the credits granted to your account and, for each asset-generation request, the model used, the provider’s request identifier, its status and what it cost. This is how we keep your credit balance.",
+        "**Payment data**, when you buy credits: Stripe, our payment processor, collects your card details on its own checkout page and we never receive them. We receive the purchase's identifier, amount and status, and Stripe may tell us your email address and billing country.",
         "**Marketing data**, such as the email address you give us to join the waitlist (and a link to your account, if you are signed in when you join).",
         "**User-generated content and input data**, such as the games you deploy (their files, name and slug) and, if you deploy with `--source`, your project source (without the files your `.gitignore` or `.vibedgamesignore` excludes, or secret files such as `.env`); the prompts, settings and input files you send to generate assets with `vg generate`; the snapshots of a game’s state, and the questions about it, that `vg playtest run` sends while a model plays the game; and the messages multiplayer games send between players, as well as associated metadata. Metadata includes information on how, when and by whom a piece of content was collected and how that content has been formatted, such as when a game was deployed and each deployed file’s path, type, size and checksum.",
         "**Other data** not specifically listed here, which we will use as described in this Privacy Policy or as otherwise disclosed at the time of collection.",
@@ -60,7 +61,7 @@ const sections: Section[] = [
         "**Third-party sources.** We may combine personal information we receive from you with personal information falling within one of the categories identified above that we obtain from other sources, such as:",
       ),
       ul(
-        "**Service providers** that provide services on our behalf or help us operate the Service or our business, such as the AI model provider that reports how much each of your generation requests used, which we record as its cost.",
+        "**Service providers** that provide services on our behalf or help us operate the Service or our business, such as the AI model provider that reports how much each of your generation requests used, which we record as its cost, and our payment processor, which tells us when a purchase is paid.",
       ),
       p(
         "**Automatic data collection.** We and our service providers may automatically log information about you, your computer or mobile device, and your interaction over time with the Service, such as:",
@@ -392,6 +393,13 @@ const sections: Section[] = [
         ],
         ["Transactional data", "Commercial information", OPERATIONS, DISCLOSED_TO, "None"],
         [
+          "Payment data",
+          "Commercial information; California Customer Records",
+          OPERATIONS,
+          DISCLOSED_TO,
+          "None",
+        ],
+        [
           "Marketing data",
           "Identifiers",
           "Direct marketing; Compliance and protection",
@@ -574,7 +582,7 @@ export const privacyDoc: Doc = {
     ),
   ],
   lead: [
-    p("Effective as of October 3, 2026."),
+    p("Effective as of October 7, 2026."),
     p(
       `To view previous versions of this Privacy Policy, see its [history on GitHub](${siteConfig.repository}/commits/main/apps/web/src/content/privacy.ts).`,
     ),

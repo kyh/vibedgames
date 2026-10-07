@@ -37,10 +37,11 @@ For the full command surface (every flag, every option, every example), see [ref
 
 ## Credits
 
-Every `vg generate run` debits the account's credit balance: an estimated hold at submit, corrected to the actual cost when the result is fetched. Failed or cancelled jobs are refunded automatically. New accounts start with $20.00.
+Every `vg generate run` debits the account's credit balance: an estimated hold at submit, corrected to the actual cost when the result is fetched. Failed or cancelled jobs are refunded automatically. New accounts start at $0.00 — credit is bought by card or added with a code.
 
 - **Check balance:** `vg credits` (or `vg credits --json` for agents). `vg generate pricing <id> --json` estimates cost before running.
-- **If a submit fails with a FORBIDDEN error whose message starts with `insufficient_credits:`, STOP.** Retries cannot succeed — the balance is exhausted, and switching endpoints or re-queueing will fail the same way. Surface the error message to the human; only a platform admin can grant more credits.
+- **Add credit:** `vg credits redeem <CODE>` if the human gave you a code. Otherwise `vg credits buy <usd> --json` (whole dollars, 5–500) returns a checkout `url`: hand it to the human — paying takes a person at a browser — then re-check `vg credits --json` until `balance_micro` rises. Never open or pay it yourself.
+- **If a submit fails with a FORBIDDEN error whose message starts with `insufficient_credits:`, STOP.** Retries cannot succeed — the balance is exhausted, and switching endpoints or re-queueing will fail the same way. Tell the human the balance and offer the two ways to add credit above (a code, or a `vg credits buy` link for them to pay); resume once `vg credits` shows a positive balance.
 - **If a submit fails with a BAD_REQUEST error whose message starts with `unknown_endpoint:`, the endpoint id has no published price, so it cannot be billed or run.** Retrying the same id fails the same way. Check it with `vg generate models --endpoint_id <id> --json` (usually a typo or a retired id), or find another with `vg generate models "<task>" --json`.
 
 ## Standard workflow

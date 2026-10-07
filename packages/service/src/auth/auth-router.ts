@@ -1,11 +1,11 @@
-import { and, desc, eq } from "@repo/db";
+import { desc, eq } from "@repo/db";
 import { inviteCode } from "@repo/db/drizzle-schema";
 import { user, verification } from "@repo/db/drizzle-schema-auth";
 import { ORPCError } from "@orpc/server";
 
+import { usdToMicro } from "../credits/credit-ledger";
 import { os, rejectApiKey, requireAdmin, requireSession } from "../orpc";
 import { buildInviteRows } from "./invite-create";
-import { inviteCodeAvailabilityClause, normalizeInviteCode } from "./invite-claim";
 import { generateShortCode } from "./utils";
 
 // 5 minutes
@@ -104,6 +104,7 @@ export const authRouter = {
         code: input.code,
         count: input.count,
         createdBy: context.session.user.id,
+        creditMicro: usdToMicro(input.creditUsd),
         expiresAt: input.expiresAt,
         maxUses: input.maxUses,
         note: input.note,
@@ -124,7 +125,7 @@ export const authRouter = {
       // somewhere down the `cause` chain, not on the top-level message.
       for (let e: unknown = error; e instanceof Error; e = e.cause) {
         if (input.code !== null && e.message.includes("UNIQUE")) {
-          throw new ORPCError("CONFLICT", { message: "That invite code already exists." });
+          throw new ORPCError("CONFLICT", { message: "That credit code already exists." });
         }
       }
       throw error;
@@ -138,6 +139,7 @@ export const authRouter = {
         createdAt: inviteCode.createdAt,
         createdBy: inviteCode.createdBy,
         creatorEmail: user.email,
+        creditMicro: inviteCode.creditMicro,
         expiresAt: inviteCode.expiresAt,
         id: inviteCode.id,
         maxUses: inviteCode.maxUses,
@@ -162,11 +164,14 @@ export const authRouter = {
     role: context.session.user.role ?? null,
   })),
 
-  // Revoke, unrevoke, or change the use limit of an existing code. Omitted
+  // Revoke, unrevoke, or change the use limit or value of an existing code. Omitted
   // fields are left untouched. Lowering `maxUses` below `usedCount` is allowed
   // and simply exhausts the code; raising it re-opens an exhausted code.
   updateInvite: admin.updateInvite.handler(async ({ context, input }) => {
     const patch: Partial<typeof inviteCode.$inferInsert> = {};
+    if (input.creditUsd !== undefined) {
+      patch.creditMicro = usdToMicro(input.creditUsd);
+    }
     if (input.maxUses !== undefined) {
       patch.maxUses = input.maxUses;
     }
@@ -189,34 +194,5 @@ export const authRouter = {
     }
 
     return { code: updated };
-  }),
-
-  // ---------------------------------------------------------------------------
-  // Invite codes
-  // ---------------------------------------------------------------------------
-  // Pre-flight check used by the register page so users get immediate feedback
-  // on a bad code before they fill in email/password. Shares
-  // `inviteCodeAvailabilityClause` with the signup hook so the two stay in
-  // lockstep — a code that validates here will be accepted by the hook
-  // (modulo races on single-use codes). Generic error message matches the
-  // hook's so we don't leak which codes exist. The atomic single-use claim
-  // still happens inside the hook — success here does NOT reserve the code.
-  validateInvite: os.auth.validateInvite.handler(async ({ context, input }) => {
-    const code = normalizeInviteCode(input.code);
-    if (!code) {
-      throw new ORPCError("BAD_REQUEST", { message: "Invite code is required." });
-    }
-
-    const rows = await context.db
-      .select({ id: inviteCode.id })
-      .from(inviteCode)
-      .where(and(eq(inviteCode.code, code), inviteCodeAvailabilityClause(new Date())))
-      .limit(1);
-
-    if (rows.length === 0) {
-      throw new ORPCError("FORBIDDEN", { message: "Invalid or expired invite code." });
-    }
-
-    return { code };
   }),
 };

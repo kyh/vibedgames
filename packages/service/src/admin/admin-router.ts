@@ -1,12 +1,7 @@
 import { isAPIError } from "better-auth/api";
 import { ORPCError } from "@orpc/server";
 
-import {
-  grantCredits,
-  listBalances,
-  SIGNUP_GRANT_MICRO,
-  usdToMicro,
-} from "../credits/credit-ledger";
+import { grantCredits, listBalances, usdToMicro } from "../credits/credit-ledger";
 import { os, rejectApiKey, requireAdmin, requireSession } from "../orpc";
 
 const admin = os.admin.use(requireSession).use(rejectApiKey).use(requireAdmin);
@@ -19,14 +14,9 @@ const admin = os.admin.use(requireSession).use(rejectApiKey).use(requireAdmin);
  */
 export const adminRouter = {
   credits: {
-    /**
-     * Balances keyed by userId for the admin roster. Users who have never
-     * touched credits have no ledger rows yet; the UI shows those at
-     * `signupGrantMicro` (the grant materializes on their first use).
-     */
+    /** Balances keyed by userId for the admin roster; a user with no ledger rows holds nothing. */
     balances: admin.credits.balances.handler(async ({ context }) => ({
       balances: await listBalances(context.db),
-      signupGrantMicro: SIGNUP_GRANT_MICRO,
     })),
 
     grant: admin.credits.grant.handler(async ({ context, input }) => {

@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * Mint invite codes directly in the D1 database.
+ * Mint credit codes directly in the D1 database.
  *
  * Builds the rows with the shared `buildInviteRows` helper (the same one the
  * admin `createInvites` mutation uses, so they can't drift) and inserts
@@ -12,6 +12,7 @@
  *   pnpm exec tsx packages/service/scripts/create-invite.ts -- --code FRIEND     # a specific custom code
  *   pnpm exec tsx packages/service/scripts/create-invite.ts -- --count 10        # ten random codes
  *   pnpm exec tsx packages/service/scripts/create-invite.ts -- --max-uses 5 --note 'launch'
+ *   pnpm exec tsx packages/service/scripts/create-invite.ts -- --credit-usd 5 --count 20
  *   pnpm exec tsx packages/service/scripts/create-invite.ts -- --expires-days 30
  *   pnpm exec tsx packages/service/scripts/create-invite.ts -- --code GOLDEN --max-uses 100 --remote
  *
@@ -19,9 +20,10 @@
  *
  * Notes:
  *   --code mints exactly one code with the value you give (normalized to
- *     upper-case, like the signup flow does), so it can't be combined with
+ *     upper-case, like redemption does), so it can't be combined with
  *     --count > 1.
  *   --max-uses defaults to 1; pass `unlimited` (or 0) for an uncapped code.
+ *   --credit-usd defaults to 20: what one redemption grants.
  *   created_by is left NULL since there's no acting admin session.
  */
 import { spawnSync } from "node:child_process";
@@ -31,10 +33,12 @@ import path from "node:path";
 import { MAX_INVITE_BATCH } from "@repo/contract/auth/auth-limits";
 
 import { buildInviteRows } from "../src/auth/invite-create";
+import { usdToMicro } from "../src/credits/credit-ledger";
 
 interface Args {
   code: string | null;
   count: number;
+  creditUsd: number;
   maxUses: number | null;
   expiresDays: number | null;
   note: string | null;
@@ -43,10 +47,11 @@ interface Args {
 
 const usage =
   "Usage: pnpm exec tsx packages/service/scripts/create-invite.ts -- [--code <CODE>]\n" +
-  "         [--count <n>] [--max-uses <n|unlimited>] [--expires-days <n>] [--note <text>] [--remote]\n" +
+  "         [--count <n>] [--credit-usd <n>] [--max-uses <n|unlimited>] [--expires-days <n>] [--note <text>] [--remote]\n" +
   "\n" +
   "  --code <CODE>          Mint one code with this exact value (default: random).\n" +
   "  --count <n>            How many random codes to mint (default: 1).\n" +
+  "  --credit-usd <n>       Dollars of credit one redemption grants (default: 20).\n" +
   "  --max-uses <n>         Uses per code before exhaustion (default: 1).\n" +
   "                         Pass `unlimited` or `0` for an uncapped code.\n" +
   "  --expires-days <n>     Expire codes n days from now (default: never).\n" +
@@ -56,6 +61,10 @@ const usage =
 const validateArgs = (out: Args): void => {
   if (!Number.isInteger(out.count) || out.count < 1 || out.count > MAX_INVITE_BATCH) {
     console.error(`--count must be an integer between 1 and ${MAX_INVITE_BATCH}.`);
+    process.exit(1);
+  }
+  if (!Number.isFinite(out.creditUsd) || out.creditUsd <= 0 || out.creditUsd > 1000) {
+    console.error("--credit-usd must be a positive number of dollars, at most 1000.");
     process.exit(1);
   }
   if (out.maxUses !== null && (!Number.isInteger(out.maxUses) || out.maxUses < 1)) {
@@ -83,6 +92,7 @@ const parseArgs = (argv: string[]): Args => {
   const out: Args = {
     code: null,
     count: 1,
+    creditUsd: 20,
     expiresDays: null,
     maxUses: 1,
     note: null,
@@ -110,6 +120,8 @@ const parseArgs = (argv: string[]): Args => {
       out.code = nextValue((i += 1), arg);
     } else if (arg === "--count") {
       out.count = Number(nextValue((i += 1), arg));
+    } else if (arg === "--credit-usd") {
+      out.creditUsd = Number(nextValue((i += 1), arg));
     } else if (arg === "--max-uses") {
       const v = nextValue((i += 1), arg);
       out.maxUses = v === "unlimited" || v === "0" ? null : Number(v);
@@ -147,6 +159,7 @@ const main = () => {
       code: args.code,
       count: args.count,
       createdBy: null,
+      creditMicro: usdToMicro(args.creditUsd),
       expiresAt:
         args.expiresDays === null ? null : new Date(Date.now() + args.expiresDays * 86_400_000),
       maxUses: args.maxUses,
@@ -163,11 +176,11 @@ const main = () => {
       const maxUses = r.maxUses === null || r.maxUses === undefined ? "NULL" : String(r.maxUses);
       const exp =
         r.expiresAt === null || r.expiresAt === undefined ? "NULL" : String(r.expiresAt.getTime());
-      return `(${lit(r.id ?? null)}, ${lit(r.code)}, ${lit(r.createdBy ?? null)}, ${maxUses}, ${exp}, ${lit(r.note ?? null)})`;
+      return `(${lit(r.id ?? null)}, ${lit(r.code)}, ${lit(r.createdBy ?? null)}, ${r.creditMicro}, ${maxUses}, ${exp}, ${lit(r.note ?? null)})`;
     })
     .join(",\n  ");
 
-  const sql = `INSERT INTO invite_code (id, code, created_by, max_uses, expires_at, note)\nVALUES\n  ${values};`;
+  const sql = `INSERT INTO invite_code (id, code, created_by, credit_micro, max_uses, expires_at, note)\nVALUES\n  ${values};`;
 
   const tmpDir = mkdtempSync(path.join(tmpdir(), "vg-invite-"));
   const sqlFile = path.join(tmpDir, "create-invite.sql");
@@ -185,7 +198,7 @@ const main = () => {
   ];
 
   const target = args.remote ? "remote" : "local";
-  console.log(`Creating ${rows.length} invite code(s) (${target} D1)…`);
+  console.log(`Creating ${rows.length} credit code(s) (${target} D1)…`);
   const result = spawnSync("pnpm", executeArgs, { stdio: "inherit" });
   rmSync(tmpDir, { force: true, recursive: true });
 
@@ -195,7 +208,7 @@ const main = () => {
   }
 
   const cap = args.maxUses === null ? "unlimited uses" : `${args.maxUses} use(s) each`;
-  console.log(`\nCreated ${rows.length} invite code(s) — ${cap}:`);
+  console.log(`\nCreated ${rows.length} credit code(s) worth $${args.creditUsd} — ${cap}:`);
   for (const r of rows) {
     console.log(`  ${r.code}`);
   }

@@ -245,8 +245,9 @@ const requirePositiveBalance = async (db: Db, userId: string): Promise<void> => 
   throw new ORPCError("FORBIDDEN", {
     message:
       `insufficient_credits: your balance is ${formatUsd(balanceMicro)}. ` +
-      "Generation is paused until an admin grants more credits " +
-      "(check with `vg credits`).",
+      "Generation is paused until the account has credit: `vg credits buy <usd>` prints a " +
+      "checkout link for a person to pay, `vg credits redeem <code>` applies a credit code, " +
+      "or buy at https://vibedgames.com/settings#credits.",
   });
 };
 

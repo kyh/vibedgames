@@ -6,7 +6,7 @@ import { createDb } from "@repo/db/drizzle-client";
 import { call } from "@orpc/server";
 
 import { createAuth } from "../auth/auth";
-import { SIGNUP_GRANT_MICRO } from "../credits/credit-ledger";
+import { MICRO_PER_USD } from "../credits/credit-ledger";
 import type { ORPCContext } from "../orpc";
 import { generateRouter } from "./generate-router";
 
@@ -27,7 +27,7 @@ import { generateRouter } from "./generate-router";
  * cannot answer falls back to the flat hold.
  *
  * fal is a stubbed `fetch`. The database answers its one read, the balance,
- * with the signup grant, and keeps every write batch so a test can read back
+ * with $20, and keeps every write batch so a test can read back
  * the hold. Priced endpoints are cached for the life of the process, so every
  * test names endpoints of its own.
  */
@@ -50,12 +50,11 @@ const d1Result = <T>(): D1Result<T> => ({
   success: true,
 });
 
-// The balance read, the handler's only one: every caller here holds the
-// signup grant.
+// The balance read, the handler's only one: every caller here holds $20.
 function raw<T = unknown[]>(options: { columnNames: true }): Promise<[string[], ...T[]]>;
 function raw<T = unknown[]>(options?: { columnNames?: false }): Promise<T[]>;
 function raw(): Promise<unknown[]> {
-  return Promise.resolve([[SIGNUP_GRANT_MICRO]]);
+  return Promise.resolve([[20 * MICRO_PER_USD]]);
 }
 
 interface Write {
@@ -124,6 +123,7 @@ const now = new Date();
 
 const contextAs = (role: string): ORPCContext => ({
   auth,
+  billing: undefined,
   db,
   decision: undefined,
   headers: new Headers(),

@@ -88,6 +88,18 @@ export interface DecisionProviderConfig {
 }
 
 /**
+ * Server-held Stripe config behind `credits.checkout` and the
+ * `/api/stripe/webhook` route (see credits/stripe.ts). Either key missing
+ * turns its half off: checkout answers 412, the webhook 412.
+ */
+export interface BillingConfig {
+  stripeSecretKey?: string;
+  stripeWebhookSecret?: string;
+  /** Points checkout at a Stripe stand-in; production never sets it. */
+  stripeApiBaseUrl?: string;
+}
+
+/**
  * Per-request context.
  *
  * On Cloudflare Workers both `db` and `auth` are constructed per request from
@@ -102,6 +114,7 @@ export interface CreateORPCContextOptions {
   r2?: R2Config;
   media?: MediaProviderConfig;
   decision?: DecisionProviderConfig;
+  billing?: BillingConfig;
 }
 
 export const createORPCContext = async (opts: CreateORPCContextOptions) => {
@@ -114,6 +127,7 @@ export const createORPCContext = async (opts: CreateORPCContextOptions) => {
 
   return {
     auth: opts.auth,
+    billing: opts.billing,
     db: opts.db,
     decision: opts.decision,
     headers: opts.headers,

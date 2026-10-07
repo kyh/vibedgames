@@ -8,6 +8,9 @@ const secrets = {
   R2_ACCESS_KEY_ID: bindings.secret(),
   R2_ACCOUNT_ID: bindings.secret(),
   R2_SECRET_ACCESS_KEY: bindings.secret(),
+  // Credit purchases (packages/service/src/credits/stripe.ts). A Preview takes Stripe's test-mode keys.
+  STRIPE_SECRET_KEY: bindings.secret(),
+  STRIPE_WEBHOOK_SECRET: bindings.secret(),
   TYPESAFE_API_KEY: bindings.secret(),
 };
 

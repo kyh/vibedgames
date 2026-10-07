@@ -1,22 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter, useSearch } from "@tanstack/react-router";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { INVITE_CODE_LENGTH } from "@repo/contract/auth/auth-limits";
 import { Button } from "@repo/ui/components/button";
 import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from "@repo/ui/components/field";
 import { Input } from "@repo/ui/components/input";
-import { OTPInput } from "@repo/ui/components/otp-input";
 import { toast } from "@repo/ui/components/sonner";
 import { cn } from "cn";
-import { BLUR_FADE } from "@repo/ui/lib/motion";
 import { useShake } from "@repo/ui/hooks/use-shake";
-import { useMutation } from "@tanstack/react-query";
-import { AnimatePresence, motion, MotionConfig } from "motion/react";
 import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 
 import { authClient } from "@/auth/client";
-import { useORPC } from "@/lib/orpc";
 
 const DEFAULT_NEXT_PATH = "/home";
 
@@ -35,79 +29,13 @@ const safeNextPath = (path?: string): string =>
 
 type StepFormProps = { callbackUrl?: string } & React.HTMLAttributes<HTMLDivElement>;
 
-/** The height change outlives the crossfade, so it gets a spring of its own. */
-const STAGE_RESIZE = { bounce: 0, type: "spring" as const, visualDuration: 0.28 };
-
-/**
- * A full code auto-verifies (covers both typing and the `?invite=` prefill);
- * wrong codes shake + clear inside `OTPInput`, and the message comes from the
- * query client's default mutation `onError` (lib/query-client.ts) — toasting
- * here too would double it. Resolving `verify` to the server's canonical code makes
- * `onSuccess` receive it directly.
- *
- * `verifying` brackets the round trip only — it clears the moment a verdict
- * lands, so nothing is still "loading" while the cells confirm.
- */
-const InviteCodeStep = ({
-  defaultValue,
-  onValidated,
-  onVerifyingChange,
-}: {
-  defaultValue: string;
-  onValidated: (code: string) => void;
-  onVerifyingChange: (verifying: boolean) => void;
-}) => {
-  const orpc = useORPC();
-  const validate = useMutation(orpc.auth.validateInvite.mutationOptions());
-
-  return (
-    <Field className="items-center gap-3">
-      <FieldLabel className="sr-only" htmlFor="invite-code">
-        Invite code
-      </FieldLabel>
-      <OTPInput
-        id="invite-code"
-        data-test="invite-code-input"
-        length={INVITE_CODE_LENGTH}
-        validationType="alphanumeric"
-        normalizeValue={(value) => value.toUpperCase()}
-        defaultValue={defaultValue}
-        group
-        verify={(code) => {
-          onVerifyingChange(true);
-          return validate.mutateAsync({ code }).then(
-            (data) => {
-              onVerifyingChange(false);
-              return data.code;
-            },
-            () => {
-              onVerifyingChange(false);
-              return false;
-            },
-          );
-        }}
-        onSuccess={onValidated}
-      />
-    </Field>
-  );
-};
-
 interface Credentials {
   email: string;
   password: string;
 }
 
-/**
- * What a submit reports back, in the form's terms rather than the caller's.
- * `bounced` is the one that earns its place: the caller has already moved the
- * user somewhere else (register kicks a raced invite back to step 1), so the
- * form must toast WITHOUT shaking — shaking a panel that is sliding away
- * fights the step transition.
- */
-type SubmitResult =
-  | { status: "ok" }
-  | { status: "failed"; message: string }
-  | { status: "bounced"; message: string };
+/** What a submit reports back, in the form's terms rather than the caller's. */
+type SubmitResult = { status: "ok" } | { status: "failed"; message: string };
 
 /**
  * better-auth reports through `fetchOptions` callbacks rather than its return
@@ -157,13 +85,12 @@ const CredentialsForm = ({
   const handleAuthWithPassword = form.handleSubmit(async (credentials) => {
     const result = await submit(credentials);
     if (result.status === "ok") {
-      router.navigate({ replace: true, to: safeNextPath(callbackUrl ?? nextPath) });
+      // `href`, not `to`: a callback carries its own query and hash
+      // (`/auth/cli?code=…`, `/settings?code=…#credits`), which `to` reads as path.
+      router.navigate({ href: safeNextPath(callbackUrl ?? nextPath), replace: true });
       return;
     }
     toast.error(result.message);
-    if (result.status === "bounced") {
-      return;
-    }
     setAuthError(true);
     shake();
   });
@@ -241,124 +168,42 @@ const CredentialsForm = ({
   );
 };
 
-const RegisterCredentialsStep = ({
-  inviteCode,
-  callbackUrl,
-  onChangeCode,
-}: {
-  inviteCode: string;
-  callbackUrl?: string;
-  onChangeCode: () => void;
-}) => (
-  <CredentialsForm
-    submitLabel="Register"
-    passwordAutoComplete="new-password"
-    callbackUrl={callbackUrl}
-    submit={async (credentials) => {
-      const [emailPrefix] = credentials.email.split("@");
-      let result: SubmitResult = UNREPORTED;
-      // SAFETY: `inviteCode` is an extra body field consumed by the server-side
-      // `user.create.before` hook to validate + atomically redeem the invite.
-      // It isn't part of better-auth's typed signup payload, so we cast.
-      await authClient.signUp.email({
-        email: credentials.email,
-        fetchOptions: {
-          onError: (ctx) => {
-            // The atomic claim happens at signup; if the code raced and lost
-            // (or was revoked between steps), kick the user back to step 1.
-            const raced = ctx.error.status === 403 || ctx.error.status === 409;
-            if (raced) {
-              onChangeCode();
-            }
-            result = { message: ctx.error.message, status: raced ? "bounced" : "failed" };
-          },
-          onSuccess: () => {
-            result = { status: "ok" };
-          },
-        },
-        inviteCode,
-        name: emailPrefix ?? "User",
-        password: credentials.password,
-      } as Parameters<typeof authClient.signUp.email>[0]);
-      return result;
-    }}
-  />
-);
-
 /**
- * Controlled two-step register flow. The parent owns `verifiedCode` so it can
- * drive surrounding UI (e.g. the header subtitle): `null` = invite step, a
- * code = credentials step.
- *
- * The stage animates its REAL height between the one-row invite step and the
- * taller credentials step. Motion's `layout` prop is the obvious tool and the
- * wrong one here: it fakes the resize with a transform, so the element's
- * layout box still jumps in a single frame and everything around it — heading
- * above, footer below — snaps to the new position while the stage merely looks
- * smooth. Measuring the content and animating `height` moves the page as one.
+ * Where a person lands after signing in or up with a credit code in the link
+ * (`?invite=`, the name links minted before launch carry): the settings page,
+ * whose redeem field picks the code up. A sign-in with no code keeps its own
+ * destination.
  */
-export const RegisterForm = ({
-  className,
-  callbackUrl,
-  verifiedCode,
-  onVerifiedCodeChange,
-  onVerifyingChange,
-  ...props
-}: StepFormProps & {
-  verifiedCode: string | null;
-  onVerifiedCodeChange: (code: string | null) => void;
-  /** Reports the invite round-trip so the page can swap its footer for a spinner. */
-  onVerifyingChange: (verifying: boolean) => void;
-}) => {
-  const search = useSearch({ from: "/auth" });
-  const contentRef = useRef<HTMLDivElement>(null);
-  const [stageHeight, setStageHeight] = useState<number | "auto">("auto");
+export const creditCodeCallback = (code?: string): string | undefined =>
+  code ? `/settings?code=${encodeURIComponent(code)}#credits` : undefined;
 
-  useEffect(() => {
-    const content = contentRef.current;
-    if (!content) {
-      return;
-    }
-    const observer = new ResizeObserver((entries) => {
-      const [entry] = entries;
-      if (entry) {
-        setStageHeight(entry.contentRect.height);
-      }
-    });
-    observer.observe(content);
-    return () => observer.disconnect();
-  }, []);
-
-  return (
-    <div className={cn("grid gap-6", className)} {...props}>
-      <MotionConfig reducedMotion="user">
-        <motion.div initial={false} animate={{ height: stageHeight }} transition={STAGE_RESIZE}>
-          <div ref={contentRef} className="grid">
-            <AnimatePresence mode="popLayout" initial={false}>
-              {verifiedCode ? (
-                <motion.div key="credentials" {...BLUR_FADE}>
-                  <RegisterCredentialsStep
-                    inviteCode={verifiedCode}
-                    callbackUrl={callbackUrl}
-                    onChangeCode={() => onVerifiedCodeChange(null)}
-                  />
-                </motion.div>
-              ) : (
-                <motion.div key="invite" {...BLUR_FADE}>
-                  <InviteCodeStep
-                    defaultValue={search.invite ?? ""}
-                    onValidated={(code) => onVerifiedCodeChange(code)}
-                    onVerifyingChange={onVerifyingChange}
-                  />
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        </motion.div>
-      </MotionConfig>
-    </div>
-  );
-};
+export const RegisterForm = ({ className, callbackUrl, ...props }: StepFormProps) => (
+  <div className={cn("grid gap-6", className)} {...props}>
+    <CredentialsForm
+      submitLabel="Register"
+      passwordAutoComplete="new-password"
+      callbackUrl={callbackUrl}
+      submit={async (credentials) => {
+        const [emailPrefix] = credentials.email.split("@");
+        let result: SubmitResult = UNREPORTED;
+        await authClient.signUp.email({
+          email: credentials.email,
+          fetchOptions: {
+            onError: (ctx) => {
+              result = { message: ctx.error.message, status: "failed" };
+            },
+            onSuccess: () => {
+              result = { status: "ok" };
+            },
+          },
+          name: emailPrefix ?? "User",
+          password: credentials.password,
+        });
+        return result;
+      }}
+    />
+  </div>
+);
 
 export const LoginForm = ({ className, callbackUrl, ...props }: StepFormProps) => (
   <div className={cn("grid gap-6", className)} {...props}>
