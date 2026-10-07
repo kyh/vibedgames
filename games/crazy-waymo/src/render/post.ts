@@ -682,7 +682,7 @@ const InkShader = {
     tDiffuse: { value: null },
     // x full-strength distance, y gone (world units)
     uDistSoft: { value: 0.012 },
-    uFade: { value: new THREE.Vector2(150, 380) },
+    uFade: { value: new THREE.Vector2(200, 450) },
     uFar: { value: 1000 },
     // #1b1428-ish plum ink in linear light: dark enough to read on white
     // stucco, warm enough not to look like a CAD wireframe.

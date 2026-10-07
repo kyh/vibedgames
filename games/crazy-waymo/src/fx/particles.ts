@@ -30,22 +30,29 @@ const FRAG_SMOKE = `
   void main() {
     vec2 d = gl_PointCoord - vec2(0.5);
     float r = dot(d, d);
-    // Shrink with life: the disc radius (squared) follows sqrt(alpha).
-    float radius = 0.25 * clamp(sqrt(vAlpha) * 1.15, 0.0, 1.0);
+    // Shrink with life: the disc radius (squared) follows sqrt(alpha), and a
+    // crisp disc tops out at ~70% of the sprite — a hard-edged full-size
+    // sprite reads twice as big as the soft one it replaced.
+    float radius = 0.13 * clamp(sqrt(vAlpha) * 1.15, 0.0, 1.0);
     if (r > radius) discard;
     float aa = fwidth(r) * 1.5;
     float disc = 1.0 - smoothstep(radius - aa, radius, r);
     float chip = 1.0 - smoothstep(0.29, 0.35, abs(d.x) + abs(d.y) * 0.7);
     float shape = mix(disc, chip, vGrain);
-    vec3 color = mix(vColor * 0.35, vColor, pow(vAlpha, 0.6));
-    // Two flat bands: lit cap above a tilted terminator, shaded belly below.
+    // Cartoon smoke is cream, not grey: the surface tint is lifted toward
+    // paper white (debris chips keep their own colour).
+    vec3 base = mix(vColor, vec3(1.0), 0.35 * (1.0 - vGrain));
+    vec3 color = mix(base * 0.35, base, pow(vAlpha, 0.6));
+    // Two flat bands: the whole puff takes the scene light once (so night
+    // smoke still darkens), then a lit cap above a tilted terminator and a
+    // lavender-shaded belly below — a cel shadow, not a grey falloff. The
+    // ceiling keeps stacked puffs from blowing out under the post S-curve.
     float cap = smoothstep(-0.03, 0.03, -d.y - d.x * 0.35 + 0.04);
-    // Ceiling keeps a stack of overlapping lit puffs from blowing out to a
-    // single white-yellow mass under the post S-curve.
-    color *= min(uAmbient + uSunTint * cap, vec3(1.0));
+    color *= min(uAmbient + uSunTint, vec3(1.0));
+    color *= mix(vec3(0.78, 0.76, 0.9), vec3(1.0), cap);
     // Rim: the outer ring a step darker — the puff's own ink line.
-    color *= mix(1.0, 0.72, smoothstep(radius * 0.62, radius * 0.8, r) * (1.0 - vGrain));
-    gl_FragColor = vec4(color, shape * smoothstep(0.0, 0.18, vAlpha) * 0.9);
+    color *= mix(1.0, 0.8, smoothstep(radius * 0.66, radius * 0.82, r) * (1.0 - vGrain));
+    gl_FragColor = vec4(color, shape * smoothstep(0.0, 0.18, vAlpha) * 0.78);
   }
 `;
 // Sparks: intensities are authored pre-shoulder (hot FX 2.2-3.4) and the
