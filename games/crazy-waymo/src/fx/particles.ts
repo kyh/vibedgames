@@ -33,7 +33,7 @@ const FRAG_SMOKE = `
     // Shrink with life: the disc radius (squared) follows sqrt(alpha), and a
     // crisp disc tops out at ~70% of the sprite — a hard-edged full-size
     // sprite reads twice as big as the soft one it replaced.
-    float radius = 0.13 * clamp(sqrt(vAlpha) * 1.15, 0.0, 1.0);
+    float radius = 0.1 * clamp(sqrt(vAlpha) * 1.15, 0.0, 1.0);
     if (r > radius) discard;
     float aa = fwidth(r) * 1.5;
     float disc = 1.0 - smoothstep(radius - aa, radius, r);
@@ -52,7 +52,10 @@ const FRAG_SMOKE = `
     color *= mix(vec3(0.78, 0.76, 0.9), vec3(1.0), cap);
     // Rim: the outer ring a step darker — the puff's own ink line.
     color *= mix(1.0, 0.8, smoothstep(radius * 0.66, radius * 0.82, r) * (1.0 - vGrain));
-    gl_FragColor = vec4(color, shape * smoothstep(0.0, 0.18, vAlpha) * 0.78);
+    // Puffs inside a few units of the lens dissolve: a hard-edged disc that
+    // close is a slab across the frame, not a puff.
+    float lensFade = smoothstep(3.0, 9.0, 1.0 / gl_FragCoord.w);
+    gl_FragColor = vec4(color, shape * smoothstep(0.0, 0.3, vAlpha) * 0.62 * lensFade);
   }
 `;
 // Sparks: intensities are authored pre-shoulder (hot FX 2.2-3.4) and the
