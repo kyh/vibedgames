@@ -189,10 +189,7 @@ const wantsHull = (mat: THREE.Material): boolean =>
   mat instanceof THREE.MeshStandardMaterial && !mat.transparent && mat.side !== THREE.BackSide;
 
 /** The part's hull, or null when it should go unlined (see MAX_OPEN_EDGES). */
-const linedHull = (
-  geo: THREE.BufferGeometry,
-  mat: THREE.Material,
-): THREE.BufferGeometry | null => {
+const linedHull = (geo: THREE.BufferGeometry, mat: THREE.Material): THREE.BufferGeometry | null => {
   if (!wantsHull(mat)) {
     return null;
   }
