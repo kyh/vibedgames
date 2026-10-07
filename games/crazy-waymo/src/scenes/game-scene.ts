@@ -373,8 +373,10 @@ export interface TrailerStage {
 }
 
 // Landing dust ring gate (updateLandingFx): seconds of air, or Car.justLanded.
-const LANDING_RING_AIR = 0.3;
-const LANDING_RING_IMPACT = 6;
+// A spawn/teleport drops the car from heightAt + 1.4: ~0.18-0.26 s of air,
+// landing at 5.5-7.7 m/s (justLanded ~6.7-7.9), so both gates sit above it.
+const LANDING_RING_AIR = 0.35;
+const LANDING_RING_IMPACT = 9;
 
 export class GameScene {
   readonly scene = new THREE.Scene();
@@ -2449,7 +2451,7 @@ vec3 ocGerstner(vec2 p, float t) {
     if (car.justLanded > 0) {
       // Toon pass: the ring is now opaque cel puffs, so it is kept for real
       // landings — a jump, or a drop hard enough to matter — not the settle
-      // after a spawn or teleport (~0.15 s of air, the 4-unit floor impact).
+      // after a spawn or teleport (see LANDING_RING_*).
       if (car.airTime > LANDING_RING_AIR || car.justLanded > LANDING_RING_IMPACT) {
         this.fx.dustRing(car.position.x, car.position.y + 0.15, car.position.z, 10);
       }

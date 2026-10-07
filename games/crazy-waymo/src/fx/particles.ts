@@ -159,6 +159,14 @@ export class Fx {
   };
 
   addTo(scene: THREE.Scene): void {
+    // Cel puffs are opaque discs (FRAG_SMOKE discards outside the disc), so
+    // they write depth: overlapping puffs resolve front-to-back instead of
+    // in ring-buffer order, and the post ink rings each one like a cartoon
+    // cloud rather than drawing the car's silhouette through it.
+    const smokeMat = this.smoke.points.material;
+    if (!Array.isArray(smokeMat)) {
+      smokeMat.depthWrite = true;
+    }
     scene.add(this.smoke.points);
     scene.add(this.sparks.points);
     scene.add(this.plume.mesh);
