@@ -52,6 +52,7 @@ import { releaseDeferredArrays } from "../render/gpu-only-geometry";
 import { FULL_QUALITY, isCoarsePointer } from "../render/quality";
 import type { QualityFeatures } from "../render/quality";
 import { Sky } from "../render/sky";
+import { installToonShading } from "../render/toon";
 import {
   CAMERA,
   CAR,
@@ -628,6 +629,8 @@ export class GameScene {
     // land before the first program compiles — and every material below, plus
     // everything the world loader builds, picks it up for free.
     installAerialFog();
+    // Cel-shaded sun ramp + candy albedo (render/toon.ts) — same rule.
+    installToonShading();
 
     // Atmospheric sky + sun.
     const sky = new Sky();

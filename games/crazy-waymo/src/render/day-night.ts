@@ -228,9 +228,12 @@ const STOPS: readonly Stop[] = [
   // Day stops (Mario-Kart pass 2026-07-10): brighter exposure, big blue-sky
   // hemisphere fill + warm ground bounce so shadow sides glow instead of
   // going grey. Sun eased down to keep the white sidewalks from clipping.
+  // Toon pass (2026-10): the ground bounce went lavender — with the banded
+  // sun ramp the whole shade side IS this fill, and a violet shade under a
+  // warm key is the storybook read (olive bounce read as dirty).
   //    p     sunEl sunAz  lightDir       color     int   hemiSky   hemiGnd   hInt  amb   ambColor  fog      near far  env   lamp  exp   warm
-  stop(0,  35,   115,   dir(35, 115),  0xff_f6_e0, 1.75, 0xa9_dc_ff, 0x6b_68_52, 0.52, 0.13, 0xff_ff_ff, 0x86_b4_e2, 460, 960, 0.32, 0,    0.72, 0.15, SKY_DAY),
-  stop(0.25,  50,   150,   dir(50, 150),  0xff_f2_d8, 1.85, 0xa9_dc_ff, 0x6b_68_52, 0.52, 0.13, 0xff_ff_ff, 0x7f_b2_e4, 480, 980, 0.32, 0,    0.72, 0.05, SKY_DAY),
+  stop(0,  35,   115,   dir(35, 115),  0xff_f6_e0, 1.75, 0xa9_dc_ff, 0x7a_6c_8c, 0.56, 0.13, 0xff_ff_ff, 0x86_b4_e2, 460, 960, 0.32, 0,    0.72, 0.15, SKY_DAY),
+  stop(0.25,  50,   150,   dir(50, 150),  0xff_f2_d8, 1.85, 0xa9_dc_ff, 0x7a_6c_8c, 0.56, 0.13, 0xff_ff_ff, 0x7f_b2_e4, 480, 980, 0.32, 0,    0.72, 0.05, SKY_DAY),
   // Golden hour is DAYLIGHT: sun still 12° up, blue sky, full-strength key.
   // The lamp factor used to open at 0.25 here, which lit the player's night
   // rig (a 70-candela spot plus two head sprites) under a noon-blue sky — the
