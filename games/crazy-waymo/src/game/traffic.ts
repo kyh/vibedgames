@@ -4,6 +4,7 @@ import { geoLayoutKey } from "../assets/loader";
 import type { ModelCache } from "../assets/loader";
 import { modelUrl, POLICE_CAR, SERVICE_CARS, TRAFFIC_CARS } from "../assets/manifest";
 import type { PhysicsWorld } from "../physics/physics-world";
+import { renderCapabilities } from "../render/capabilities";
 import { CAMERA, ROAD_TILE, TRAFFIC } from "../shared/constants";
 import { Rng } from "../shared/rng";
 import type { CityModel, RoadCell } from "../world/city";
@@ -310,7 +311,11 @@ export class Traffic {
     }
 
     // Ink hulls for the whole fleet in one extra batch (vehicle/ink-hull.ts).
-    const hulls = createHullBatch(fleet.flatMap((f) => partsOf(f.model)));
+    // Multi-draw only: without it every batch instance is its own draw call,
+    // and the hulls would double the fleet's.
+    const hulls = renderCapabilities().multiDraw
+      ? createHullBatch(fleet.flatMap((f) => partsOf(f.model)))
+      : null;
     if (hulls) {
       this.group.add(hulls.batch);
       this.fleetBatches.push(hulls.batch);

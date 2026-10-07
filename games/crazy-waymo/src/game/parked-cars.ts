@@ -1,4 +1,5 @@
-import { reachScale } from "../render/quality";
+import { renderCapabilities } from "../render/capabilities";
+import { isCoarsePointer, reachScale } from "../render/quality";
 import type { RigidBody } from "#rapier";
 import * as THREE from "three";
 
@@ -6,6 +7,7 @@ import { geoLayoutKey } from "../assets/loader";
 import type { ModelCache } from "../assets/loader";
 import { modelUrl } from "../assets/manifest";
 import { createHullBatch, placeHulls } from "../vehicle/ink-hull";
+import type { HullBatch } from "../vehicle/ink-hull";
 import type { PhysicsWorld } from "../physics/physics-world";
 import type { ParkedSpec } from "../world/furniture";
 
@@ -57,6 +59,12 @@ const bucketKey = (p: TemplatePart): string => `${p.mat.uuid}|${geoLayoutKey(p.g
 const CULL_DIST = 340;
 // Phones see less street; the shorter world keeps its cars with it.
 const cullDistSq = (): number => (CULL_DIST * reachScale()) ** 2;
+
+// Desktop with multi-draw only: hundreds of parked cars would double the
+// per-instance culling on phones, and without multi-draw every batch instance
+// is its own draw call.
+const parkedHulls = (parts: Parameters<typeof createHullBatch>[0]): HullBatch | null =>
+  isCoarsePointer() || !renderCapabilities().multiDraw ? null : createHullBatch(parts);
 
 export class ParkedCars {
   readonly group = new THREE.Group();
@@ -140,7 +148,7 @@ export class ParkedCars {
     }
 
     // Ink hulls for every parked car in one extra batch (vehicle/ink-hull.ts).
-    const hulls = createHullBatch(specs.flatMap((spec) => partsOf(spec.model)));
+    const hulls = parkedHulls(specs.flatMap((spec) => partsOf(spec.model)));
     if (hulls) {
       this.group.add(hulls.batch);
     }

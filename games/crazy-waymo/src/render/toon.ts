@@ -11,7 +11,8 @@ import * as THREE from "three";
 //    two-band ramp: a crisp terminator, a flat lit plateau, and a lifted
 //    shade band (TOON_FLOOR of the key, the way a toon gradient map's dark
 //    texel works) so the form-shade side keeps its chroma instead of falling
-//    to the cold fill alone. Specular keeps the true N·L — banding it boosted
+//    to the cold fill alone. The floor reads the UNSHADOWED key, so cast
+//    shadows sit on the same band as form shade. Specular keeps the true N·L — banding it boosted
 //    the GGX lobe by ~1/N·L at the terminator into fireflies.
 // 2. Sun only. lights_fragment_begin raises a flag around the directional
 //    loop; point and spot lamps keep their physical falloff (a banded lamp
@@ -27,9 +28,9 @@ import * as THREE from "three";
 //    post means the sky, fog and emissives keep their own chroma, and phones
 //    (no post chain) get it too.
 //
-// Cast shadows are multiplied into directLight.color before RE_Direct runs,
-// so they stay exactly where they were (and read a step darker than form
-// shade, which is the cel convention).
+// Cast shadows stay exactly where they were: the lit step uses the shadowed
+// light, the floor the unshadowed one (captured right after
+// getDirectionalLightInfo, before the shadow multiply).
 //
 // Idempotent — guarded on a marker IN the chunk, so a hot reload that resets
 // this module cannot stack a second patch on the already-patched chunks. Like
@@ -57,12 +58,17 @@ const f = (n: number): string => n.toFixed(4);
 // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
 const TOON_PARS = /* glsl */ `${MARKER}
 float toonSun = 0.0;
-float toonDiffuseNL( const in vec3 n, const in vec3 l ) {
+vec3 toonUnshadowed = vec3( 0.0 );
+// Diffuse irradiance for one direct light. The shade floor is taken from the
+// light BEFORE its shadow multiply and only the lit step above it from the
+// shadowed light, so a cast shadow and an away-facing side land on the SAME
+// band (two tones, not three), inside the shadow frustum and outside it.
+vec3 toonDiffuseIrradiance( const in vec3 n, const in vec3 l, const in vec3 shadowed ) {
 	float nl = dot( n, l );
-	float lambert = saturate( nl );
+	vec3 lambert = saturate( nl ) * shadowed;
 	if ( toonSun < 0.5 ) return lambert;
-	float band = mix( ${f(TOON_FLOOR)}, 1.0,
-		smoothstep( ${f(TOON_EDGE - TOON_SOFT)}, ${f(TOON_EDGE + TOON_SOFT)}, nl ) );
+	float lit = smoothstep( ${f(TOON_EDGE - TOON_SOFT)}, ${f(TOON_EDGE + TOON_SOFT)}, nl );
+	vec3 band = ${f(TOON_FLOOR)} * toonUnshadowed + ( 1.0 - ${f(TOON_FLOOR)} ) * lit * shadowed;
 	vec3 upView = normalize( ( viewMatrix * vec4( 0.0, 1.0, 0.0, 0.0 ) ).xyz );
 	float fade = smoothstep( ${f(TOON_FADE_LO)}, ${f(TOON_FADE_HI)}, dot( l, upView ) );
 	return mix( lambert, band, ${f(TOON_MIX)} * fade );
@@ -81,9 +87,14 @@ const DIRECT_SIG = "void RE_Direct_Physical(";
 const DIFFUSE_LINE =
   "reflectedLight.directDiffuse += irradiance * BRDF_Lambert( material.diffuseContribution ) * ( 1.0 - F );";
 const TOON_DIFFUSE_LINE =
-  "reflectedLight.directDiffuse += toonDiffuseNL( geometryNormal, directLight.direction ) * directLight.color * BRDF_Lambert( material.diffuseContribution ) * ( 1.0 - F );";
+  "reflectedLight.directDiffuse += toonDiffuseIrradiance( geometryNormal, directLight.direction, directLight.color ) * BRDF_Lambert( material.diffuseContribution ) * ( 1.0 - F );";
 const DIR_LOOP = "#if ( NUM_DIR_LIGHTS > 0 ) && defined( RE_Direct )";
+const DIR_INFO = "getDirectionalLightInfo( directionalLight, directLight );";
 const LOOP_END = "#pragma unroll_loop_end";
+// lights_fragment_begin is shared with the Lambert/Phong/Toon programs, which
+// never include the physical pars that declare the toon globals — every write
+// is fenced to the standard/physical programs.
+const STD = (glsl: string): string => `\n\t#ifdef STANDARD\n\t${glsl}\n\t#endif`;
 
 // PHONE GRADE. Phones skip the post chain (render/post.ts), so they never got
 // the grade's saturation or its violet-shadow / warm-highlight split. Three's
@@ -115,13 +126,23 @@ const patchPars = (src: string): string | null => {
 
 const patchBegin = (src: string): string | null => {
   const loop = src.indexOf(DIR_LOOP);
-  const end = loop === -1 ? -1 : src.indexOf(LOOP_END, loop);
+  const info = loop === -1 ? -1 : src.indexOf(DIR_INFO, loop);
+  const end = info === -1 ? -1 : src.indexOf(LOOP_END, info);
   if (end === -1) {
     return null;
   }
   const open = loop + DIR_LOOP.length;
+  const afterInfo = info + DIR_INFO.length;
   const close = end + LOOP_END.length;
-  return `${src.slice(0, open)}\n\ttoonSun = 1.0;${src.slice(open, close)}\n\ttoonSun = 0.0;${src.slice(close)}`;
+  return [
+    src.slice(0, open),
+    STD("toonSun = 1.0;"),
+    src.slice(open, afterInfo),
+    STD("toonUnshadowed = directLight.color;"),
+    src.slice(afterInfo, close),
+    STD("toonSun = 0.0;"),
+    src.slice(close),
+  ].join("");
 };
 
 export const installToonShading = (): void => {

@@ -372,6 +372,10 @@ export interface TrailerStage {
   wearSkin: (skinId: string) => void;
 }
 
+// Landing dust ring gate (updateLandingFx): seconds of air, or Car.justLanded.
+const LANDING_RING_AIR = 0.3;
+const LANDING_RING_IMPACT = 6;
+
 export class GameScene {
   readonly scene = new THREE.Scene();
   // Coarse primary pointer = phone/tablet: mobile-only budgets apply.
@@ -2443,7 +2447,12 @@ vec3 ocGerstner(vec2 p, float t) {
   private updateLandingFx(car: Car): void {
     // Landing package: squash (in the car), dust ring, thud, shake, air pay.
     if (car.justLanded > 0) {
-      this.fx.dustRing(car.position.x, car.position.y + 0.15, car.position.z, 10);
+      // Toon pass: the ring is now opaque cel puffs, so it is kept for real
+      // landings — a jump, or a drop hard enough to matter — not the settle
+      // after a spawn or teleport (~0.15 s of air, the 4-unit floor impact).
+      if (car.airTime > LANDING_RING_AIR || car.justLanded > LANDING_RING_IMPACT) {
+        this.fx.dustRing(car.position.x, car.position.y + 0.15, car.position.z, 10);
+      }
       this.sfx.landThud(Math.min(1, car.justLanded / 12));
       this.rig.addTrauma(Math.min(0.45, 0.15 + car.justLanded * 0.015));
       if (car.airTime > 0.45) {

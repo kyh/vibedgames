@@ -15,12 +15,13 @@ import type { WaterSprayKind } from "./water-fx";
 // the top of each puff catches uSunTint, the underside sits in uAmbient shade.
 //
 // Toon pass (2026-10): CEL PUFFS, not soft blur. A soft gaussian sprite
-// stacked a few deep read as a white smear around the car (the reviewer's
-// "halo"); a cartoon puff is a crisp disc that SHRINKS as it dies instead of
-// fading, with the light split into two flat bands (lit cap / shaded belly,
-// the terminator tilted so the puff reads round) and a darker rim standing in
-// for the ink line. Alpha stays high through the life, so a puff pops rather
-// than ghosts. Debris chips (vGrain) keep their angular shape.
+// stacked a few deep read as a white smear around the car; a cartoon puff is
+// an OPAQUE crisp disc that dissolves by SHRINKING, never by fading (a
+// translucent hard disc shows every overlapping circle edge), lit in two flat
+// bands (lit cap / lavender belly, the terminator tilted so it reads round)
+// with a darker rim standing in for the ink line. Puffs near the lens shrink
+// away too, so a close camera never looks through a slab. Debris chips
+// (vGrain) keep their angular shape.
 const FRAG_SMOKE = `
   uniform vec3 uSunTint;
   uniform vec3 uAmbient;
@@ -33,7 +34,8 @@ const FRAG_SMOKE = `
     // Shrink with life: the disc radius (squared) follows sqrt(alpha), and a
     // crisp disc tops out at ~70% of the sprite — a hard-edged full-size
     // sprite reads twice as big as the soft one it replaced.
-    float radius = 0.1 * clamp(sqrt(vAlpha) * 1.15, 0.0, 1.0);
+    float lensFade = smoothstep(3.0, 9.0, 1.0 / gl_FragCoord.w);
+    float radius = 0.1 * clamp(sqrt(vAlpha) * 1.15, 0.0, 1.0) * lensFade;
     if (r > radius) discard;
     float aa = fwidth(r) * 1.5;
     float disc = 1.0 - smoothstep(radius - aa, radius, r);
@@ -52,10 +54,7 @@ const FRAG_SMOKE = `
     color *= mix(vec3(0.78, 0.76, 0.9), vec3(1.0), cap);
     // Rim: the outer ring a step darker — the puff's own ink line.
     color *= mix(1.0, 0.8, smoothstep(radius * 0.66, radius * 0.82, r) * (1.0 - vGrain));
-    // Puffs inside a few units of the lens dissolve: a hard-edged disc that
-    // close is a slab across the frame, not a puff.
-    float lensFade = smoothstep(3.0, 9.0, 1.0 / gl_FragCoord.w);
-    gl_FragColor = vec4(color, shape * smoothstep(0.0, 0.3, vAlpha) * 0.62 * lensFade);
+    gl_FragColor = vec4(color, shape);
   }
 `;
 // Sparks: intensities are authored pre-shoulder (hot FX 2.2-3.4) and the

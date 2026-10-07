@@ -47,6 +47,36 @@ const parametricKey = (geo: THREE.BufferGeometry): string | null => {
   return params && geo.type !== "BufferGeometry" ? `${geo.type}:${JSON.stringify(params)}` : null;
 };
 
+// Share of edges used by only one triangle. A closed shell is ~0; an open
+// sheet (a single-plane decal, a thin generated panel) is large.
+const boundaryRatio = (geo: THREE.BufferGeometry): number => {
+  const { index } = geo;
+  if (!index || index.count < 3) {
+    return 1;
+  }
+  const uses = new Map<number, number>();
+  const verts = geo.getAttribute("position").count;
+  const edge = (a: number, b: number): void => {
+    const key = a < b ? a * verts + b : b * verts + a;
+    uses.set(key, (uses.get(key) ?? 0) + 1);
+  };
+  for (let i = 0; i + 2 < index.count; i += 3) {
+    const a = index.getX(i);
+    const b = index.getX(i + 1);
+    const c = index.getX(i + 2);
+    edge(a, b);
+    edge(b, c);
+    edge(c, a);
+  }
+  let open = 0;
+  for (const n of uses.values()) {
+    if (n === 1) {
+      open += 1;
+    }
+  }
+  return uses.size === 0 ? 1 : open / uses.size;
+};
+
 const hullOf = (geo: THREE.BufferGeometry): THREE.BufferGeometry => {
   const key = parametricKey(geo);
   const cached = hullGeometry.get(geo) ?? (key ? parametricHulls.get(key) : undefined);
@@ -69,6 +99,7 @@ const hullOf = (geo: THREE.BufferGeometry): THREE.BufferGeometry => {
   }
   const welded = mergeVertices(bare, 1e-4);
   welded.computeVertexNormals();
+  welded.userData.boundaryRatio = boundaryRatio(welded);
   welded.computeBoundingSphere();
   hullGeometry.set(geo, welded);
   if (key) {
@@ -148,11 +179,32 @@ const syncRes = (renderer: THREE.WebGLRenderer): void => {
 
 const HULL_NAME = "ink-hull";
 
-/** Opaque, front-sided standard paint only: glass, decals and open
- *  double-sided sheets (whose back faces would draw as solid ink plates)
- *  stay unlined. */
+// A DoubleSide part is lined only when its welded shell is (near) closed:
+// the car GLBs export doubleSided on closed bodies, but an OPEN double-sided
+// sheet would show its hull's back faces as a solid ink plate from behind.
+const MAX_OPEN_EDGES = 0.04;
+
+/** Opaque standard paint only; glass and decals stay unlined. */
 const wantsHull = (mat: THREE.Material): boolean =>
-  mat instanceof THREE.MeshStandardMaterial && !mat.transparent && mat.side === THREE.FrontSide;
+  mat instanceof THREE.MeshStandardMaterial && !mat.transparent && mat.side !== THREE.BackSide;
+
+/** The part's hull, or null when it should go unlined (see MAX_OPEN_EDGES). */
+const linedHull = (
+  geo: THREE.BufferGeometry,
+  mat: THREE.Material,
+): THREE.BufferGeometry | null => {
+  if (!wantsHull(mat)) {
+    return null;
+  }
+  try {
+    const hull = hullOf(geo);
+    const open = Number(hull.userData.boundaryRatio ?? 1);
+    return mat.side === THREE.DoubleSide && open > MAX_OPEN_EDGES ? null : hull;
+  } catch (error) {
+    console.warn("[ink-hull] skipped", error);
+    return null;
+  }
+};
 
 /** Add an ink hull under every lined mesh in `root`. Idempotent per mesh. */
 export const addInkHulls = (root: THREE.Object3D, widthPx = HULL_PX_HERO): void => {
@@ -163,18 +215,15 @@ export const addInkHulls = (root: THREE.Object3D, widthPx = HULL_PX_HERO): void 
       c.name !== HULL_NAME &&
       !(c instanceof THREE.SkinnedMesh) &&
       !Array.isArray(c.material) &&
-      wantsHull(c.material) &&
       !c.children.some((k) => k.name === HULL_NAME)
     ) {
       targets.push(c);
     }
   });
   for (const mesh of targets) {
-    let geo: THREE.BufferGeometry;
-    try {
-      geo = hullOf(mesh.geometry);
-    } catch (error) {
-      console.warn("[ink-hull] skipped", mesh.name, error);
+    const { material } = mesh;
+    const geo = Array.isArray(material) ? null : linedHull(mesh.geometry, material);
+    if (!geo) {
       continue;
     }
     const hull = new THREE.Mesh(geo, hullMaterial(widthPx));
@@ -208,20 +257,15 @@ export const createHullBatch = (parts: Iterable<FleetTemplatePart>): HullBatch |
   let verts = 0;
   let indices = 0;
   for (const p of parts) {
-    if (!wantsHull(p.mat)) {
+    const hull = linedHull(p.geo, p.mat);
+    if (!hull) {
       continue;
     }
     instances += 1;
-    if (welded.has(p.geo)) {
-      continue;
-    }
-    try {
-      const hull = hullOf(p.geo);
+    if (!welded.has(p.geo)) {
       welded.set(p.geo, hull);
       verts += hull.getAttribute("position").count;
       indices += hull.index?.count ?? 0;
-    } catch (error) {
-      console.warn("[ink-hull] fleet part skipped", error);
     }
   }
   if (welded.size === 0) {
@@ -259,7 +303,7 @@ export const placeHulls = (
     return out;
   }
   for (const p of parts) {
-    const geometryId = wantsHull(p.mat) ? hulls.ids.get(p.geo) : undefined;
+    const geometryId = linedHull(p.geo, p.mat) ? hulls.ids.get(p.geo) : undefined;
     if (geometryId === undefined) {
       continue;
     }
