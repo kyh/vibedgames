@@ -27,6 +27,8 @@ import { RoundHud } from "../render/round-hud";
 import { DirInput, stickDirs } from "../input/dir-input";
 import { BombPrediction, fuseStart } from "../net/bomb-prediction";
 import { applyOpened, encodeOpened } from "../net/grid-wire";
+import { localClaims, PICKUP_CLAIMS, PickupClaims, pickupKey } from "../net/pickup-claims";
+import type { ClaimRoom } from "../net/pickup-claims";
 import { remoteDelayMs, StepTrack, WALK_GRACE_MS } from "../net/step-track";
 import type { StepPose } from "../net/step-track";
 import { playtestManifest } from "../playtest-manifest";
@@ -73,6 +75,7 @@ import type {
   Dir,
   PlayerState,
   PlayerStats,
+  Powerup,
   PowerupKind,
   SharedState,
 } from "../shared/constants";
@@ -297,7 +300,8 @@ const emptyShared = (
   grid: createArena(arena, random),
   opened: "",
   powerups: {},
-  startedAt: simNow(),
+  // A whole millisecond: the round names its power-up claims.
+  startedAt: Math.round(simNow()),
   stats: {},
   winner: null,
 });
@@ -345,27 +349,6 @@ interface GuestPress {
   pressedAt: number;
 }
 
-const isPowerupKind = (v: WireField): v is PowerupKind =>
-  v === "bomb" || v === "fire" || v === "speed";
-
-const isGridCol = (v: WireField): v is number =>
-  isJsonNumber(v) && Number.isInteger(v) && v >= 0 && v < GRID_COLS;
-
-const isGridRow = (v: WireField): v is number =>
-  isJsonNumber(v) && Number.isInteger(v) && v >= 0 && v < GRID_ROWS;
-
-const readPickup = (
-  payload: JsonObject,
-): { col: number; row: number; kind: PowerupKind } | null => {
-  const { col } = payload;
-  const { row } = payload;
-  const { kind } = payload;
-  if (!isGridCol(col) || !isGridRow(row) || !isPowerupKind(kind)) {
-    return null;
-  }
-  return { col, kind, row };
-};
-
 export class GameScene extends Scene {
   private client!: MultiplayerClient;
 
@@ -374,7 +357,10 @@ export class GameScene extends Scene {
   private bombSprites = new Map<string, BombObjs>();
   private blastSprites = new Map<string, BlastObjs>();
   private blastSeen = new Set<string>();
-  private powerupObjs = new Map<string, Phaser.GameObjects.Container>();
+  private powerupObjs = new Map<
+    string,
+    { container: Phaser.GameObjects.Container; pickup: Powerup }
+  >();
   private players = new Map<string, PlayerObjs>();
   private deathSeen = new Set<string>();
   private winnerAction: { id: string; at: number } | null = null;
@@ -399,6 +385,10 @@ export class GameScene extends Scene {
   private localBombSeq = 1;
   /** Own bombs shown before the host has confirmed them (guests only). */
   private readonly prediction = new BombPrediction();
+  /** Power-ups this client claimed: for its own body, or as host for its bots. */
+  private readonly pickupClaims = new PickupClaims();
+  /** The room's claims offline, where this client is the only claimant. */
+  private readonly offlineClaims = localClaims("solo");
   private readonly hostStep = new FixedStep(HOST_STEP_MS, MAX_FRAME_MS);
 
   /** Remote humans, whose steps are stamped on the room's server clock. */
@@ -509,6 +499,11 @@ export class GameScene extends Scene {
     return this.offline || this.roomReady;
   }
 
+  /** Who holds each claim: the room online, this machine offline. */
+  private get claimRoom(): ClaimRoom {
+    return this.offline ? this.offlineClaims : this.client;
+  }
+
   /** The clock steps are stamped on: the room's server clock, or this machine's offline. */
   private get roomClock(): SenderClock {
     return this.offline ? localClock : this.client.serverClock;
@@ -617,18 +612,6 @@ export class GameScene extends Scene {
     const host = this.offline ? null : this.client.hostId;
     if (host) {
       this.client.sendEvent(event, payload, { to: host });
-    }
-  }
-
-  /** A host announcement: played here at once, and sent to everyone else. */
-  private netBroadcast(event: string, payload: JsonObject): void {
-    const id = this.myId;
-    if (!id) {
-      return;
-    }
-    this.handleEvent(event, payload, id);
-    if (!this.offline) {
-      this.client.sendEvent(event, payload, { except: id });
     }
   }
 
@@ -801,9 +784,10 @@ export class GameScene extends Scene {
       // already has the shared state and won't reset it.
       this.client = new MultiplayerClient({
         host: MULTIPLAYER_HOST,
+        onClaim: (key, owner) => this.onClaimHeard(key, owner),
         onEvent: (event, payload, from) => {
           // SAFETY: wire payloads are JSON.parse output (or loop back from
-          // netToHost/netBroadcast's JsonObject), so they are JSON values by construction.
+          // netToHost's JsonObject), so they are JSON values by construction.
           this.handleEvent(event, payload as JsonValue, from);
         },
         party: "vg-server",
@@ -923,6 +907,7 @@ export class GameScene extends Scene {
       this.gamepad.update();
       this.applyPadActions();
       this.handleInput(now);
+      this.claimUnderfoot();
       // Hold the world (bots, bombs, round end) while the start screen is up, or
       // the round can be decided against a player who is still reading. Only safe
       // when no other human is present: freezing a shared arena would stall them.
@@ -995,7 +980,7 @@ export class GameScene extends Scene {
               myId: id,
               now: simNow(),
               row: this.myRow,
-              state,
+              state: this.playerView(state, id),
               stepMs: this.myStats().speed,
             }),
           }
@@ -1267,8 +1252,9 @@ export class GameScene extends Scene {
     const { col, row } = pose;
     const localId = this.localBombSeq;
     // The host's own rule, against everything this client can see — its
-    // unconfirmed bombs included — so a press the host would refuse shows nothing.
-    const view = { ...state, bombs: this.visibleBombs() };
+    // unconfirmed bombs and claimed power-ups included — so a press the host
+    // would refuse shows nothing.
+    const view = { ...this.playerView(state, id), bombs: this.visibleBombs() };
     const at = Math.round(simNow());
     const bomb = placeBomb(view, id, col, row, at, localId)?.[bombId(id, localId)];
     if (!bomb) {
@@ -1348,10 +1334,6 @@ export class GameScene extends Scene {
   // ---- connection callbacks ------------------------------------------------
 
   private handleEvent(event: string, payload: JsonValue, from: string): void {
-    if (event === "pickup") {
-      this.onPickupEvent(payload, from);
-      return;
-    }
     if (!this.amHost) {
       return;
     }
@@ -1377,23 +1359,23 @@ export class GameScene extends Scene {
     }
   }
 
-  /** Only the host's grant for the current round counts; anything else is stale or spoofed. */
-  private onPickupEvent(payload: JsonValue, from: string): void {
-    const host = this.offline ? "solo" : this.client.hostId;
-    if (from !== host || !this.started || !isJsonObject(payload)) {
+  /** Take the power-up underfoot: claimed from the room, and cued at once (see net/pickup-claims). */
+  private claimUnderfoot(): void {
+    const id = this.myId;
+    const state = this.shared();
+    if (!id || !state || !this.started || !this.ownSpawned || !this.isAlive(id)) {
       return;
     }
-    const pickup = readPickup(payload);
-    if (!pickup || payload["round"] !== this.shared()?.startedAt) {
+    const tile = { col: this.myCol, row: this.myRow };
+    const pickup = this.pickupClaims.reach(this.claimRoom, state, id, tile);
+    if (!pickup) {
       return;
     }
-    const { col, row, kind } = pickup;
-    this.burst(colX(col), rowY(row), POWERUP_GLOW[kind], 14);
-    if (payload["collector"] !== this.myId) {
-      return;
-    }
+    this.netDirty = true;
+    const { kind } = pickup;
+    this.burst(colX(pickup.col), rowY(pickup.row), POWERUP_GLOW[kind], 14);
     sfx.pickup();
-    this.pulsePlayer(this.myId, "pickup");
+    this.pulsePlayer(id, "pickup");
     if (this.statsEl) {
       this.statsEl.dataset["pickup"] = kind;
     }
@@ -1401,6 +1383,33 @@ export class GameScene extends Scene {
       this.pickupNoteEl.textContent = `${kind.toUpperCase()} PICKUP`;
       this.pickupNoteEl.classList.add("on");
       this.pickupUntil = simNow() + 800;
+    }
+  }
+
+  /**
+   * The room named an owner for a claim. A power-up this client took that
+   * went to someone else comes back off its stats; the host hands every
+   * grant to its claimant at once, before a guest's next press can need it.
+   */
+  private onClaimHeard(key: string, owner: string | null): void {
+    const id = this.myId;
+    const lost = id ? this.pickupClaims.heard(key, owner, id) : null;
+    if (lost?.fighter === id && this.statsEl?.dataset["pickup"] === lost.pickup.kind) {
+      this.clearPickupNote();
+    }
+    if (owner !== null && this.amHost) {
+      this.settlePickups();
+    }
+    this.netDirty = true;
+  }
+
+  /** Host: every power-up the room says was claimed goes to its claimant. */
+  private settlePickups(): void {
+    const id = this.myId;
+    const state = this.shared();
+    const granted = id && state ? this.pickupClaims.settle(this.claimRoom, state, id) : null;
+    if (granted) {
+      this.netPatchShared(granted);
     }
   }
 
@@ -1437,6 +1446,7 @@ export class GameScene extends Scene {
       this.battleFx?.clear();
       this.blastSeen.clear();
       this.prediction.clear();
+      this.pickupClaims.clear();
       this.roundHud.reset();
       this.sparkEmitter?.killAll();
       this.clearPickupNote();
@@ -1446,6 +1456,7 @@ export class GameScene extends Scene {
         this.respawnSelf();
       }
     }
+    this.pickupClaims.prune(this.shared());
     this.trackRestartable();
     this.observeScore();
     this.setStatus(this.statusText());
@@ -1824,7 +1835,7 @@ export class GameScene extends Scene {
       return;
     }
     const seen = new Set<string>();
-    for (const [key, pu] of Object.entries(s.powerups)) {
+    for (const [key, pu] of Object.entries(this.pickupClaims.visible(this.claimRoom, s))) {
       seen.add(key);
       if (this.powerupObjs.has(key)) {
         continue;
@@ -1863,14 +1874,25 @@ export class GameScene extends Scene {
           yoyo: true,
         });
       }
-      this.powerupObjs.set(key, container);
+      this.powerupObjs.set(key, { container, pickup: pu });
     }
-    for (const [key, container] of this.powerupObjs) {
+    for (const [key, { container, pickup }] of this.powerupObjs) {
       if (!seen.has(key)) {
+        this.cueTaken(s, pickup);
         this.tweens.killTweensOf(container.list);
         container.destroy();
         this.powerupObjs.delete(key);
       }
+    }
+  }
+
+  /** A power-up gone from the board bursts if a bot or another player took it; this
+   *  client's own pickups cued on the step, and burnt ones just go. */
+  private cueTaken(s: SharedState, pickup: Powerup): void {
+    const key = pickupKey(s.startedAt, pickup);
+    const taker = this.pickupClaims.fighterOf(key) ?? this.claimRoom.ownerOf(key);
+    if (this.feedbackEnabled && taker !== null && taker !== this.myId) {
+      this.burst(colX(pickup.col), rowY(pickup.row), POWERUP_GLOW[pickup.kind], 14);
     }
   }
 
@@ -2089,17 +2111,15 @@ export class GameScene extends Scene {
   private hostSteps(): void {
     const steps = this.hostStep.due(simNow());
     const shared = this.shared();
-    if (steps.length === 0 || !shared) {
+    const id = this.myId;
+    if (steps.length === 0 || !shared || !id) {
       return;
     }
     const world = { ...shared };
     const humans = this.humans();
     let merged: Partial<SharedState> = {};
     for (const at of steps) {
-      const { patch, pickups } = simHostTick(world, humans, at, this.random);
-      for (const pickup of pickups) {
-        this.netBroadcast("pickup", pickup);
-      }
+      const { patch } = simHostTick(world, humans, at, this.random);
       if (patch?.bots && merged.bots) {
         this.netPatchShared(merged);
         merged = {};
@@ -2107,6 +2127,19 @@ export class GameScene extends Scene {
       if (patch) {
         Object.assign(world, patch);
         Object.assign(merged, patch);
+      }
+    }
+    // Claims settled since the last step, a new host's inherited ones included.
+    const granted = this.pickupClaims.settle(this.claimRoom, world, id);
+    if (granted) {
+      Object.assign(world, granted);
+      Object.assign(merged, granted);
+    }
+    // Bots take power-ups the way players do, through the room. The sprite goes
+    // on the next sync, while the claim still names the bot that took it.
+    for (const bot of Object.values(world.bots)) {
+      if (!world.deaths[bot.id] && this.pickupClaims.reach(this.claimRoom, world, bot.id, bot)) {
+        this.netDirty = true;
       }
     }
     if (Object.keys(merged).length > 0) {
@@ -2292,10 +2325,20 @@ export class GameScene extends Scene {
 
   // ---- helpers -------------------------------------------------------------
 
+  /** This client's stats, counting the power-ups it claimed before the host settles them. */
   private myStats(): PlayerStats {
     const id = this.myId;
     const s = this.shared();
-    return (id && s?.stats[id]) || baseStats();
+    return id && s ? this.pickupClaims.stats(s, id) : baseStats();
+  }
+
+  /** The board as this player reads it: power-ups still up for grabs, its own stats as claimed. */
+  private playerView(state: SharedState, id: string): SharedState {
+    return {
+      ...state,
+      powerups: this.pickupClaims.visible(this.claimRoom, state),
+      stats: { ...state.stats, [id]: this.pickupClaims.stats(state, id) },
+    };
   }
 
   /** The first placement after the start screen. Once placed, the body is
@@ -2347,16 +2390,19 @@ export class GameScene extends Scene {
     return !s.deaths[id];
   }
 
-  /** A whole round: the layout goes out in full, with nothing opened yet. */
+  /** A whole round: the layout goes out in full, with nothing opened yet. Last
+   *  round's power-up claims go: their keys name the round, but a room holds only so many. */
   private writeShared(next: SharedState): void {
     this.netDirty = true;
     if (this.offline) {
       this.offlineShared = { ...next, clock: clockStamp() };
+      this.offlineClaims.clearClaims(PICKUP_CLAIMS);
       this.ingestNet();
       return;
     }
     if (this.amHost) {
       this.client.updateSharedState({ ...next, clock: clockStamp() });
+      this.client.clearClaims(PICKUP_CLAIMS);
     }
   }
 

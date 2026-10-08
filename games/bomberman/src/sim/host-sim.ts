@@ -1,7 +1,8 @@
 // Host-authoritative simulation: one pure step over the shared world. State
-// and the humans' positions come in, a shallow patch (only the fields that
-// changed — bot moves fire every tick, and the 285-cell grid must not ride
-// along) and the pickup beats to announce come out. No Phaser, no clock, no
+// and the humans' positions come in, and a shallow patch comes out: only the
+// fields that changed, since bot moves fire every tick and the 285-cell grid
+// must not ride along. Power-ups are not collected here: whoever steps on one
+// claims it from the room (net/pickup-claims). No Phaser, no clock, no
 // network: the scene owns those, which keeps this runnable under Node.
 
 import {
@@ -41,18 +42,8 @@ export interface Human {
   pos: { col: number; row: number } | null;
 }
 
-/** The authoritative grant of a powerup — the only source of pickup feedback. */
-export type Pickup = {
-  col: number;
-  row: number;
-  kind: PowerupKind;
-  collector: string;
-  round: number;
-};
-
 export interface HostTickResult {
   patch: Partial<SharedState> | null;
-  pickups: Pickup[];
 }
 
 type Position = [id: string, col: number, row: number];
@@ -122,7 +113,8 @@ const makeBomb = (
   row,
 });
 
-const grantPowerup = (stats: PlayerStats, kind: PowerupKind): PlayerStats => {
+/** A fighter's stats with one more power-up of `kind`, capped. */
+export const grantPowerup = (stats: PlayerStats, kind: PowerupKind): PlayerStats => {
   switch (kind) {
     case "bomb": {
       return { ...stats, bombs: Math.min(MAX_BOMBS, stats.bombs + 1) };
@@ -599,26 +591,6 @@ const expireBlasts = (next: SharedState, now: number, d: Dirty): void => {
   }
 };
 
-/** Grant the powerup under each living fighter. Only the authoritative grant
- *  emits a pickup beat — a blast deleting a pickup produces no collection
- *  feedback, even at capped stats. */
-const collectPowerups = (next: SharedState, livePos: Position[], d: Dirty): Pickup[] => {
-  const pickups: Pickup[] = [];
-  for (const [fid, col, row] of livePos) {
-    const key = tileKey(col, row);
-    const pu = next.powerups[key];
-    if (!pu) {
-      continue;
-    }
-    next.stats[fid] = grantPowerup(next.stats[fid] ?? baseStats(), pu.kind);
-    next.powerups = keepKeys(next.powerups, (k) => k !== key);
-    pickups.push({ col, collector: fid, kind: pu.kind, round: next.startedAt, row });
-    d.powerups = true;
-    d.stats = true;
-  }
-  return pickups;
-};
-
 /** Deaths from live blasts. */
 const applyBlastDeaths = (next: SharedState, livePos: Position[], now: number, d: Dirty): void => {
   const liveBlasts = Object.values(next.blasts);
@@ -723,13 +695,12 @@ export const hostTick = (
   d.bombs ||= turns.bomb;
 
   // Positions of every living fighter (humans from connections, bots from
-  // the freshly-moved bot records), for pickups + death.
+  // the freshly-moved bot records), for deaths.
   const livePos = fighterPositions(next, humans);
-  const pickups = collectPowerups(next, livePos, d);
   applyBlastDeaths(next, livePos, now, d);
   resolveWinner(next, [...humanIds, ...Object.keys(next.bots)], d);
 
-  return { patch: buildPatch(next, d), pickups };
+  return { patch: buildPatch(next, d) };
 };
 
 /**

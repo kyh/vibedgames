@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { localClaims, PickupClaims } from "../src/net/pickup-claims";
+import type { ClaimRoom } from "../src/net/pickup-claims";
 import { hostTick } from "../src/sim/host-sim";
 import { createArena } from "../src/shared/arena";
 import { FUSE_MS, HOST_STEP_MS, newGrid } from "../src/shared/constants";
@@ -54,6 +56,16 @@ const bystanders = [
 
 const merged = (s: SharedState, patch: Partial<SharedState> | null): SharedState =>
   patch ? { ...s, ...patch } : s;
+
+/** The scene's host step after the tick: bots claim the power-ups they reach, and claims are granted. */
+const collect = (s: SharedState, claims: PickupClaims, room: ClaimRoom): SharedState => {
+  for (const fighter of Object.values(s.bots)) {
+    if (!s.deaths[fighter.id]) {
+      claims.reach(room, s, fighter.id, fighter);
+    }
+  }
+  return merged(s, claims.settle(room, s, "host"));
+};
 
 /** Run host ticks at the scene's cadence; every bot die rolls "bomb now". */
 const run = (start: SharedState, from: number, ms: number): SharedState => {
@@ -120,13 +132,15 @@ const soak = (seed: number, ms: number): Round => {
   let s = world(createArena("classic", random));
   const crates = crateCount(s.grid);
   const round: Round = { botDeaths: [], cratesOpened: 0, humanDiedAt: null, winner: null };
+  const claims = new PickupClaims();
+  const room = localClaims("host");
   for (let now = 1000; now <= 1000 + ms && !s.winner; now += TICK_MS) {
     const { patch } = hostTick(s, [human], now, random);
     if (!patch) {
       continue;
     }
     const before = s;
-    s = merged(s, patch);
+    s = collect(merged(s, patch), claims, room);
     for (const id of Object.keys(s.deaths)) {
       if (before.deaths[id]) {
         continue;
