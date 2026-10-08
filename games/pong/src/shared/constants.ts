@@ -30,7 +30,7 @@ export const HIT_HALF_X = 0.7;
 export const BALL_R = 0.2;
 // Rally ramp: every paddle hit adds RALLY_SPEED_STEP, resetting each point.
 // Cap stays under 2·HIT_HALF_Y / MAX_DT (= 20) so the ball can't step over a
-// paddle's hit band in a single clamped frame.
+// paddle's hit band in a single sim step.
 // serve speed (constant magnitude during flight)
 export const RALLY_SPEED_BASE = 7;
 export const RALLY_SPEED_STEP = 0.45;
@@ -100,14 +100,46 @@ export type Phase = "serving" | "rally" | "won";
 // overflows into a sibling room, so every room is a clean 1v1. Alone in a room,
 // the host plays the AI exactly like single-player — the opponent seamlessly
 // swaps to the human the moment they join, and back to the AI if they leave.
-export const MP_ROOM = "pong-default";
+// Versioned with the wire format: a tab still on an older bundle during a
+// deploy lands in a different room instead of a match it can't read.
+export const MP_ROOM = "pong-v2";
 export const MP_MAX_PLAYERS = 2;
 // Give up on the party server after this long with no connection and fall back
 // to a local solo match vs the AI (same value the other bundled games use).
 export const OFFLINE_FALLBACK_MS = 4000;
-// Host broadcasts the ball/score state at this rate; the guest dead-reckons the
-// ball between updates so it stays smooth at the full frame rate.
+// The host sends its snapshot (ball, score and its own paddle on one timeline,
+// stamped with its clock) and a guest its paddle at this rate, on a FixedRate
+// clock. Serves, slot A's returns and points ride as events the guest applies
+// as state; between them the guest runs the ball as a local sim, folding each
+// snapshot in as a correction.
 export const NET_TICK_HZ = 30;
+// A guest judges contacts on its own paddle — the only copy of that paddle
+// that isn't a round trip old — and sends the verdict. The host parks the
+// ball at the near edge of the guest's hit band until it lands; silence past
+// this is a miss. A verdict takes a round trip plus the guest's timeline lag
+// plus a frame at each end — well over 350 ms on a slow device and a 150 ms
+// link — and a miss is reported as soon as the ball clears the band, so the
+// bound only costs anything when the guest says nothing at all.
+export const VERDICT_HOLD_MAX_S = 0.6;
+// How far a claimed contact may sit off the host's own copy of the flight
+// (world units): sim drift and wire rounding, never a second hitbox.
+export const VERDICT_SLACK = 0.5;
+// Inside the host's hit band, where the host's paddle decides, a guest runs
+// the ball no further than this past the host's newest stamp (a stalled or
+// hidden host) instead of carrying it through the paddle. Open court needs no
+// leash: nothing the host does can bend the flight there, and a low frame
+// rate stretches the gap between snapshots well past this.
+export const GUEST_LEAD_MAX_S = 0.15;
+// A jump of the simulated ball up to this far (world units) — a correction, a
+// fast-forward — is eased out of the drawn ball over BALL_EASE_S; a larger one
+// is a different rally and snaps.
+export const BALL_SNAP = 3;
+export const BALL_EASE_S = 0.08;
+// The rival's paddle renders this far behind its sender's clock. The host
+// draws a guest's at the usual interpolation delay; a guest draws the host's
+// about one snapshot behind, to stay on the ball's timeline.
+export const RIVAL_DELAY_MS = 100;
+export const HOST_PADDLE_DELAY_MS = 50;
 
 // ---- HUD (rally combo) -------------------------------------------------------
 // DOM "×N" counter (above the canvas — un-dithered, crisp ink). Shows from MIN
@@ -195,8 +227,13 @@ export const VIGNETTE_STRENGTH = 0.1;
 export const VIGNETTE_INNER = 0.6;
 
 // ---- feel (craft pass) ---------------------------------------------------------
-// clamp delta after tab-switch so the ball can't tunnel
+// Longest single step of the ball sim (s): a longer frame is split into steps
+// no longer than this, so the ball can't tunnel through a hit band.
 export const MAX_DT = 0.05;
+// Longest frame the sim catches up on at once (s). Up to this it keeps real
+// time at any frame rate, so the host's and a guest's copies of the ball stay
+// on one clock; past it (a tab switch) play resumes rather than replays.
+export const MAX_FRAME_DT = 0.25;
 // paddle ring pop amplitude on hit
 export const PULSE_SCALE = 0.35;
 // exp decay rate (1/s) for the pop

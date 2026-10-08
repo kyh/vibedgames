@@ -8,7 +8,7 @@
 pnpm dev:pong   # http://localhost:5188
 pnpm --filter @repo/pong typecheck   # tsc --noEmit
 pnpm --filter @repo/pong build       # vite build
-pnpm --filter @repo/pong test        # contact-shot + spin rules (node --test)
+pnpm --filter @repo/pong test        # contact-shot, spin and netcode timing (node --test)
 pnpm --filter @repo/pong preview     # vite preview
 ```
 
@@ -46,4 +46,6 @@ shorter trails, and still score/callout feedback.
 
 Hand tracking costs ~17 MB of third-party wasm + model and a camera prompt, so it never loads during boot: a desktop starts it after first paint, a touch device opts in by tapping the "ENABLE HAND CONTROL" pill. The pause menu only advertises ✋/✊ while tracking is live.
 
-Multiplayer: auto-joins the shared `pong-default` room (2 players max) for a live 1v1; solo fallback (vs AI paddle) when the party server is unreachable or nobody else is around, and a tap during the handshake starts that solo game immediately.
+Multiplayer: auto-joins the shared `pong-v2` room (2 players max) for a live 1v1; solo fallback (vs AI paddle) when the party server is unreachable or nobody else is around, and a tap during the handshake starts that solo game immediately.
+
+Netcode: the host owns the ball and the score, and each player's own paddle is local and instant. A guest runs the ball as a local sim on the same flight rules (`src/shared/ball.ts`) and calls contacts on its own paddle the frame they happen; the host parks the ball at the guest's hit band until that verdict lands (at most 600 ms), checks it against its own flight and replays it, caught up to now (`src/shared/referee.ts`). Serves, the host's returns and points reach the guest as events it applies as state; the host's 30 Hz snapshots, stamped with its clock, correct the guest's copy and are eased out of the picture. Each side draws the other's paddle through `Interpolator`, and sends run on a `FixedRate` clock that hit-stop never pauses.

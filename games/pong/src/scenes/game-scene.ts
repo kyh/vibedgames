@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { notifyGameStarted } from "@repo/embed";
 import { PhysicalGamepad } from "@vibedgames/gamepad";
+import { FixedRate, Interpolator, RemoteClock, lerp } from "@vibedgames/multiplayer";
 
 import { ParticlePool } from "../fx/particles";
 import { sfx } from "../fx/sfx";
@@ -9,7 +10,20 @@ import { NetSession, isJsonNumber, isJsonObject } from "../net/session";
 import type { JsonObject, JsonValue } from "../net/session";
 import { Hud } from "../render/hud";
 import type { Link } from "../render/hud";
-import { SPIN_LIFE, curveVelocity } from "../shared/spin";
+import { advanceFlight, hitsPaddle, reflectOffPaddle, stepFlight } from "../shared/ball";
+import type { Flight, Vec2 } from "../shared/ball";
+import {
+  HOLD_Y,
+  MAX_CATCH_UP_S,
+  holdAhead,
+  inOpenCourt,
+  judgeClaim,
+  parkAtBand,
+  projectFlight,
+  resumeFromContact,
+} from "../shared/referee";
+import type { HitClaim, Hold } from "../shared/referee";
+import { SPIN_LIFE } from "../shared/spin";
 import type { Spin } from "../shared/spin";
 import {
   acceptReturn,
@@ -25,6 +39,12 @@ import {
   MP_MAX_PLAYERS,
   OFFLINE_FALLBACK_MS,
   NET_TICK_HZ,
+  BALL_EASE_S,
+  BALL_SNAP,
+  GUEST_LEAD_MAX_S,
+  HOST_PADDLE_DELAY_MS,
+  RIVAL_DELAY_MS,
+  VERDICT_HOLD_MAX_S,
   AI_SPEED_FRAC,
   ARC_LAND_MAX,
   ARC_LAND_MIN,
@@ -73,7 +93,7 @@ import {
   INK,
   INVERT_FLASH_S,
   LEGACY_FPS,
-  MIN_VY_FRAC,
+  MAX_DT,
   NET_DASH,
   NUDGE_DECAY,
   NUDGE_SCALE,
@@ -196,30 +216,26 @@ const flashMaterial = (): THREE.MeshBasicMaterial =>
     transparent: true,
   });
 
-const hitsPaddle = (ball: THREE.Vector2, paddleX: number, paddleY: number): boolean =>
-  // Hitbox deliberately larger than the visible ring — keep it generous.
-  Math.abs(ball.y - paddleY) < HIT_HALF_Y && Math.abs(ball.x - paddleX) < HIT_HALF_X;
+/** Wire rounding: a thousandth of a world unit is far below anything drawn,
+ *  and a shorter number is a shorter packet. */
+const round3 = (v: number): number => Math.round(v * 1000) / 1000;
 
-/**
- * Paddle return: the lateral component scales linearly with the hit's x
- * offset from paddle center — dead-center returns straight, a full-edge
- * graze leaves MIN_VY_FRAC of the speed pointing at the opponent. Derived
- * from x alone: the y penetration depth at the detection frame varies with
- * frame rate and must not steer the ball (the legacy atan2-of-penetration
- * formula made the same hit return steep at 144Hz and shallow at 30Hz).
- * Speed stays exactly the given rally speed.
- */
-const reflectOffPaddle = (
-  ballX: number,
-  paddleX: number,
-  towardY: 1 | -1,
-  speed: number,
-): THREE.Vector2 => {
-  const offset = clamp((ballX - paddleX) / HIT_HALF_X, -1, 1);
-  const maxVxFrac = Math.sqrt(1 - MIN_VY_FRAC * MIN_VY_FRAC);
-  const vx = offset * maxVxFrac * speed;
-  const vy = towardY * Math.sqrt(speed * speed - vx * vx);
-  return new THREE.Vector2(vx, vy);
+/** This client's clock for wire stamps (`t`), in whole ms. */
+const stamp = (): number => Math.round(performance.now());
+
+/** The slice still bending a snapshot's ball, or null. */
+const readSpin = (s: JsonObject): Spin => {
+  const strength = clamp(numField(s, "spin") ?? 0, -1, 1);
+  const left = clamp(numField(s, "spinLeft") ?? 0, 0, SPIN_LIFE);
+  return strength !== 0 && left > 0 ? { left, strength } : null;
+};
+
+/** A guest's claimed return off the wire, or null when a field is missing. */
+const readClaim = (p: JsonObject): HitClaim | null => {
+  const x = numField(p, "x");
+  const y = numField(p, "y");
+  const paddle = numField(p, "p");
+  return x === null || y === null || paddle === null ? null : { paddle, x, y };
 };
 
 /** Smooth ±1 pseudo-noise: two incommensurate sines, decorrelated per seed. */
@@ -297,12 +313,23 @@ export class GameScene {
   // ---- simulation state (x/y plane only — arc z is purely visual) -----------
   // All sim state is in the HOST's canonical frame: `playerX` is slot A (the
   // near paddle at -PADDLE_Y), `aiX` is slot B (the far paddle at +PADDLE_Y).
-  // The host owns slot A + the ball; the guest owns slot B. A guest renders the
-  // whole canonical world flipped 180° (`this.flip`) so its own paddle sits at
-  // the bottom of the screen — see updateVisuals.
+  // The host owns slot A + the ball; the guest owns slot B and calls that
+  // paddle's contacts (see ../shared/referee). A guest renders the whole
+  // canonical world flipped 180° (`this.flip`) so its own paddle sits at the
+  // bottom of the screen — see updateVisuals.
   private phase: Phase = "serving";
-  private ballPos = new THREE.Vector2(0, 0);
-  private ballVel = new THREE.Vector2(0, 0);
+  private readonly ballPos = new THREE.Vector2(0, 0);
+  private readonly ballVel = new THREE.Vector2(0, 0);
+  // The flight the shared rules in ../shared/ball step: the two vectors above
+  // plus the slice still bending it.
+  private readonly flight: Flight<THREE.Vector2> = {
+    pos: this.ballPos,
+    spin: null,
+    vel: this.ballVel,
+  };
+  // Drawn ball minus simulated ball. A correction or fast-forward moves the
+  // sim at once; this eases the difference out of the picture instead.
+  private readonly ballEase = new THREE.Vector2();
   private arc: Arc | null = null;
   private playerX = 0;
   private aiX = 0;
@@ -317,10 +344,9 @@ export class GameScene {
   private longestRally = 0;
   // Elapsed time of the next auto-serve.
   private serveAt: number | null = null;
-  private spin: Spin = null;
-  // Power charge per slot. A guest arms/cancels its own (slot B) through the
-  // host, which owns both; `shotRally` tags those requests so one from a
-  // finished rally cannot arm the next.
+  // Power charge per slot. A guest arms/cancels its own (slot B) at once and
+  // asks the host, which owns both; `shotRally` tags those requests so one
+  // from a finished rally cannot arm the next.
   private chargeA: ShotCharge = { hits: 0, kind: "charging" };
   private chargeB: ShotCharge = { hits: 0, kind: "charging" };
   private shotRally = 0;
@@ -335,14 +361,33 @@ export class GameScene {
 
   // ---- multiplayer -----------------------------------------------------------
   private net: NetSession;
-  // Host: seconds since the last shared-state broadcast.
-  private netAcc = 0;
-  // Seconds since the last paddle broadcast.
-  private paddleAcc = 0;
+  // The send clock: the host's snapshots or a guest's paddle (a client sends
+  // one or the other).
+  private readonly netRate = new FixedRate(NET_TICK_HZ);
   // Host: monotonically increases each shared broadcast.
   private hostSeq = 0;
   // Guest: last applied host sequence number.
   private lastSeq = -1;
+  // Rally epoch: bumps on every serve, contact and point, and tags snapshots
+  // and cues. A guest ignores a snapshot older than an edge it already applied
+  // — a cue that overtook it, or its own return the host has not seen yet.
+  private ep = 0;
+  // Host: the ball parked at slot B's band, awaiting a human guest's verdict.
+  private holdB: Hold | null = null;
+  // Host: the epoch whose approach to slot B the guest called a miss.
+  private missedEp = -1;
+  // Guest: the epoch it last sent a miss for — one verdict per approach.
+  private verdictEp: number | null = null;
+  // Guest: the host's clock, timed from snapshot and cue stamps.
+  private readonly hostClock = new RemoteClock();
+  // Guest: the newest host stamp seen (host ms), or null before the first.
+  private lastHostT: number | null = null;
+  // The rival's paddle, from its sender's timestamped samples.
+  private rivalTrack = new Interpolator<number>({ delayMs: RIVAL_DELAY_MS, lerp });
+  // A guest's power arm/cancel requests are numbered and the host echoes the
+  // last one it handled (`pq`); until it has, the guest's own choice stands.
+  private powerReq = 0;
+  private powerSeen = 0;
   private connectedBefore = false;
   // Tracks the connecting→live transition for the HUD.
   private connWas = false;
@@ -568,11 +613,37 @@ export class GameScene {
     const next = this.admittedRole();
     const previous = this.role;
     this.role = next;
+    if (next === previous) {
+      return;
+    }
+    // A new seat: whose clock and paddle we track, and how, has changed.
+    this.resetNetTracking();
     if (previous === "guest" && next === "host") {
       this.becomeHost();
     } else if (previous === "host" && next === "guest") {
       this.becomeGuest();
     }
+    if (next === "guest") {
+      // Whatever epoch we were on, the host's next snapshot is adopted whole.
+      this.ep = -1;
+    }
+  }
+
+  /** Forget the other seat's clock, paddle history and requests — on a role
+   *  change, a new rival, or a new session. The epoch carries on: a host's
+   *  must keep rising for the guest that may return. */
+  private resetNetTracking(): void {
+    this.hostClock.reset();
+    this.lastHostT = null;
+    this.rivalTrack = this.isGuest()
+      ? new Interpolator<number>({ clock: this.hostClock, delayMs: HOST_PADDLE_DELAY_MS, lerp })
+      : new Interpolator<number>({ delayMs: RIVAL_DELAY_MS, lerp });
+    this.holdB = null;
+    this.missedEp = -1;
+    this.verdictEp = null;
+    this.powerReq = 0;
+    this.powerSeen = 0;
+    this.netRate.reset();
   }
 
   /** True when the local player owns slot A (host or solo). Guest owns slot B. */
@@ -638,7 +709,10 @@ export class GameScene {
     this.chargeA = cancelCharge(this.chargeB);
     this.chargeB = { hits: 0, kind: "charging" };
     this.shotRally += 1;
-    this.spin = null;
+    // The restart is an edge of its own: anything the old host sent is older.
+    this.ep += 1;
+    this.flight.spin = null;
+    this.ballEase.set(0, 0);
     this.swapSlots();
     if (this.phase === "won") {
       // Rematch waits for confirm, as usual.
@@ -814,7 +888,7 @@ export class GameScene {
     // A guest can't touch the authoritative ball/score — forward the intent so
     // the host serves / rematches for both of us.
     if (this.isGuest()) {
-      this.net.sendEvent("confirm", {});
+      this.net.sendToHost("confirm", {});
       return;
     }
     this.confirmMatch();
@@ -859,8 +933,8 @@ export class GameScene {
     this.net.destroy();
     this.role = "pending";
     this.net = this.createSession(forceOffline);
-    this.netAcc = 0;
-    this.paddleAcc = 0;
+    this.resetNetTracking();
+    this.ep = 0;
     this.hostSeq = 0;
     this.lastSeq = -1;
     this.connectedBefore = false;
@@ -878,7 +952,7 @@ export class GameScene {
     notifyGameStarted();
     // Always toward slot A (the host), ±SERVE_SPREAD rad of straight down.
     const angle = -Math.PI / 2 + (this.random() * 2 - 1) * SERVE_SPREAD;
-    this.spin = null;
+    this.flight.spin = null;
     this.clearQueuedPower();
     this.rallySpeed = RALLY_SPEED_BASE;
     this.rallyHits = 0;
@@ -889,8 +963,15 @@ export class GameScene {
     this.hud.hideCombo();
     this.ballVel.set(Math.cos(angle) * this.rallySpeed, Math.sin(angle) * this.rallySpeed);
     this.phase = "rally";
+    this.ep += 1;
     sfx.serve();
-    this.emitBeat("serve", {});
+    this.emitBeat("serve", {
+      r: this.shotRally,
+      sa: this.scoreYou,
+      sb: this.scoreAi,
+      vx: this.ballVel.x,
+      vy: this.ballVel.y,
+    });
     this.syncHud();
   }
 
@@ -923,32 +1004,55 @@ export class GameScene {
       return;
     }
 
-    // Hit-stop: the sim and visual decays hold for a beat while rendering
+    // Paddles and the network never wait on hit-stop: a paddle that ignores
+    // input for a beat reads as lag, and a host that stops sending on every
+    // contact stutters the guest. Both paddles run in every role.
+    this.applyPaddleInput(dt);
+    this.updateRivalPaddle();
+
+    // Hit-stop: the ball and the visual decays hold for a beat while rendering
     // continues. Deliberate exceptions that keep ticking: the invert flash
     // (above — so the goal flash ends inside the goal freeze), the
     // auto-serve clock (elapsed), the shake oscillator (a frozen offset
     // reads as a glitch, not a shake), and the drag-pan camera (user input).
-    if (this.freeze > 0) {
-      this.freeze -= dt;
-      this.shakeTime += dt;
-      this.composeCamera();
-      return;
-    }
-
-    // Paddle input + a smoothed read of the opponent's paddle run in every role.
-    this.applyPaddleInput(dt);
-    this.smoothOppPaddle(dt);
-
+    const frozen = this.freeze > 0;
+    this.stepSim(dt);
     if (this.isGuest()) {
-      // Guests never simulate: they render the host's authoritative ball,
-      // dead-reckoned between the ~30 Hz snapshots so it stays smooth.
-      this.applyGuestShared(dt);
-    } else {
-      this.updateAuthoritative(dt);
+      this.readSnapshot();
     }
+    this.sendNet(dt);
 
-    this.broadcastPaddle(dt);
-    this.updateVisuals(dt);
+    if (frozen) {
+      this.shakeTime += dt;
+      this.placePaddles();
+      this.composeCamera();
+    } else {
+      this.updateVisuals(dt);
+    }
+  }
+
+  /**
+   * The ball sim for this frame, in steps no longer than MAX_DT: a slow or
+   * uneven frame rate never slows its clock, so it keeps the real time that
+   * stamps every send — a host that fell behind would read to its guest as a
+   * ball jumping back, a guest that fell behind as one jumping ahead. Each
+   * step sees `elapsed` at its own end. At 60 fps this is one step.
+   */
+  private stepSim(dt: number): void {
+    const frameEnd = this.elapsed;
+    const steps = Math.max(1, Math.ceil(dt / MAX_DT - 1e-9));
+    const step = dt / steps;
+    for (let left = steps - 1; left >= 0; left -= 1) {
+      this.elapsed = frameEnd - left * step;
+      if (this.freeze > 0) {
+        this.freeze -= step;
+      } else if (this.isGuest()) {
+        this.updateGuestBall(step);
+      } else {
+        this.updateAuthoritative(step);
+      }
+    }
+    this.elapsed = frameEnd;
   }
 
   /** Shot / point callouts clear themselves on the sim clock. */
@@ -982,6 +1086,11 @@ export class GameScene {
     const opponentId = this.net.otherPlayer()?.id ?? null;
     if (this.net.live && opponentId !== this.chargeOpponentId) {
       this.chargeOpponentId = opponentId;
+      // A different rival has a different clock, paddle history and requests.
+      this.resetNetTracking();
+      if (this.isGuest()) {
+        this.ep = -1;
+      }
       this.clearQueuedPower();
       if (this.mySlotA) {
         this.chargeB = { hits: 0, kind: "charging" };
@@ -1004,7 +1113,6 @@ export class GameScene {
       }
       this.updateBall(dt);
     }
-    this.broadcastShared(dt);
   }
 
   /** Webcam-hand / controller paddle control, routed to the owned slot. The
@@ -1055,21 +1163,30 @@ export class GameScene {
     return Math.sign(dx) * Math.min(1, norm);
   }
 
-  /** Ease the opponent's paddle toward its last networked position (no-op when
-   *  alone — the AI or nobody owns that slot then). */
-  private smoothOppPaddle(dt: number): void {
-    const other = this.net.otherPlayer();
-    const raw = other?.state?.["paddle"];
+  /** The rival's paddle, rendered from its sender's stamped samples rather
+   *  than chasing the newest one. A guest's track is fed by the host's
+   *  snapshots (readSnapshot), so the host's paddle shares the ball's
+   *  timeline; the host's by the guest's player state. No-op when alone —
+   *  the AI or nobody owns that slot then. */
+  private updateRivalPaddle(): void {
+    if (this.isGuest()) {
+      const x = this.rivalTrack.sample();
+      if (x !== undefined) {
+        this.playerX = clamp(x, -PADDLE_X_MAX, PADDLE_X_MAX);
+      }
+      return;
+    }
+    const state = this.net.otherPlayer()?.state;
+    const raw = state?.["paddle"];
     if (!isJsonNumber(raw)) {
       return;
     }
     const target = clamp(raw, -PADDLE_X_MAX, PADDLE_X_MAX);
-    const next = this.oppPaddle + (target - this.oppPaddle) * frameLerp(0.5, dt);
-    if (this.mySlotA) {
-      this.aiX = next;
-    } else {
-      this.playerX = next;
+    const sentAt = state?.["t"];
+    if (isJsonNumber(sentAt)) {
+      this.rivalTrack.push(sentAt, target);
     }
+    this.aiX = clamp(this.rivalTrack.sample() ?? target, -PADDLE_X_MAX, PADDLE_X_MAX);
   }
 
   private updateAi(dt: number): void {
@@ -1081,56 +1198,107 @@ export class GameScene {
     this.aiX = clamp(this.aiX + step, -PADDLE_X_MAX, PADDLE_X_MAX);
   }
 
+  /** Host / solo: one step of the authoritative ball. */
   private updateBall(dt: number): void {
+    // With a human in slot B, B's contacts are the guest's call (see
+    // ../shared/referee): the ball waits at B's band for the verdict.
+    const guestB = this.hasOpponent();
+    if (this.holdB !== null) {
+      if (!guestB) {
+        // The guest left mid-verdict: the AI's paddle decides from here.
+        this.holdB = null;
+      } else if (this.elapsed - this.holdB.at < VERDICT_HOLD_MAX_S) {
+        return;
+      } else {
+        // No verdict in time is a miss; the release caught the ball up to now.
+        this.releaseHold();
+        this.scorePastGoal();
+        return;
+      }
+    }
     const pos = this.ballPos;
     const vel = this.ballVel;
-    this.spin = curveVelocity(vel, this.spin, dt, MIN_VY_FRAC);
-    pos.addScaledVector(vel, dt);
-
-    // Side walls.
-    if (Math.abs(pos.x) >= WALL_X && Math.sign(vel.x) === Math.sign(pos.x)) {
-      vel.x = -vel.x;
-      // A bank ends the curve; no hidden second bend off the rail.
-      this.spin = null;
-      pos.x = clamp(pos.x, -WALL_X, WALL_X);
-      this.wallFx(pos.x, pos.y);
-      this.emitBeat("wall", { x: pos.x, y: pos.y });
+    if (stepFlight(this.flight, dt)) {
+      this.wallFx(Math.sign(pos.x) * WALL_X, pos.y);
     }
 
     // Paddle hits — only when the ball is moving toward that paddle.
     if (vel.y < 0 && hitsPaddle(pos, this.playerX, -PADDLE_Y)) {
-      this.onPaddleHit("player");
-    } else if (vel.y > 0 && hitsPaddle(pos, this.aiX, PADDLE_Y)) {
-      this.onPaddleHit("ai");
+      this.hostReturn(true, this.playerX);
+    } else if (vel.y > 0 && !guestB && hitsPaddle(pos, this.aiX, PADDLE_Y)) {
+      this.hostReturn(false, this.aiX);
+    } else if (vel.y > 0 && guestB && this.missedEp !== this.ep && pos.y >= HOLD_Y) {
+      this.holdB = parkAtBand(this.flight, this.elapsed);
+      return;
     }
 
-    // Arc landing (visual only).
-    if (this.arc && arcProgress(this.arc, pos.y) >= 1) {
+    this.landArc();
+    this.scorePastGoal();
+  }
+
+  /** The cosmetic hop touches down (visual only). */
+  private landArc(): void {
+    if (this.arc && arcProgress(this.arc, this.ballPos.y) >= 1) {
       this.arc = null;
       this.squashBall("z");
     }
+  }
 
-    // Scoring.
-    if (pos.y > GOAL_Y) {
+  private scorePastGoal(): void {
+    if (this.ballPos.y > GOAL_Y) {
       this.onPoint("you");
-    } else if (pos.y < -GOAL_Y) {
+    } else if (this.ballPos.y < -GOAL_Y) {
       this.onPoint("ai");
     }
   }
 
-  private onPaddleHit(side: "player" | "ai"): void {
-    const paddleX = side === "player" ? this.playerX : this.aiX;
-    const towardY = side === "player" ? 1 : -1;
+  /** Where a return's cosmetic hop lands, on the receiver's side. */
+  private arcLanding(towardY: 1 | -1): number {
+    return towardY * (ARC_LAND_MIN + this.random() * (ARC_LAND_MAX - ARC_LAND_MIN));
+  }
+
+  /** Host / solo: a contact this side judges — slot A always, slot B only
+   *  while the AI holds it. A guest replays slot A's from the "phit" cue. */
+  private hostReturn(slotA: boolean, paddleX: number): void {
+    const arcTo = this.arcLanding(slotA ? 1 : -1);
+    const shot = this.applyContact(slotA, paddleX, arcTo);
+    if (!slotA) {
+      return;
+    }
+    this.emitBeat("phit", {
+      arc: arcTo,
+      kind: shot.kind,
+      lift: this.shotLift,
+      n: this.rallyHits,
+      p: paddleX,
+      powered: shot.powered,
+      rs: this.rallySpeed,
+      spin: this.flight.spin?.strength ?? 0,
+      vx: this.ballVel.x,
+      vy: this.ballVel.y,
+      x: this.ballPos.x,
+      y: this.ballPos.y,
+    });
+  }
+
+  /**
+   * A return at the ball's current position: the pace ramp, the charge, the
+   * shot and its juice. The same code runs for the host's own contacts, a
+   * guest's contacts on its own paddle, and the host's replay of those.
+   */
+  private applyContact(slotA: boolean, paddleX: number, arcTo: number) {
+    const towardY = slotA ? 1 : -1;
+    this.ep += 1;
 
     // Every return raises the rally speed — the pace ramp.
     this.rallyHits += 1;
     this.longestRally = Math.max(this.longestRally, this.rallyHits);
     this.rallySpeed = Math.min(RALLY_SPEED_MAX, this.rallySpeed + RALLY_SPEED_STEP);
-    if ((side === "player") === this.mySlotA) {
+    if (slotA === this.mySlotA) {
       this.returns += 1;
     }
-    const accepted = acceptReturn(side === "player" ? this.chargeA : this.chargeB);
-    if (side === "player") {
+    const accepted = acceptReturn(slotA ? this.chargeA : this.chargeB);
+    if (slotA) {
       this.chargeA = accepted.charge;
     } else {
       this.chargeB = accepted.charge;
@@ -1141,44 +1309,31 @@ export class GameScene {
       this.rallySpeed,
       accepted.powered,
     );
-    this.ballVel.copy(reflectOffPaddle(this.ballPos.x, paddleX, towardY, shot.speed));
-    this.spin = shot.spin === 0 ? null : { left: SPIN_LIFE, strength: shot.spin };
+    const out = reflectOffPaddle(this.ballPos.x, paddleX, towardY, shot.speed);
+    this.ballVel.set(out.x, out.y);
+    this.flight.spin = shot.spin === 0 ? null : { left: SPIN_LIFE, strength: shot.spin };
     this.shotLift = shot.lift;
-    if (this.spin) {
+    if (this.flight.spin) {
       this.spinShots += 1;
     }
     if (accepted.powered) {
       this.powerShots += 1;
     }
     this.syncCharge();
-    this.arc = {
-      fromY: this.ballPos.y,
-      toY: towardY * (ARC_LAND_MIN + this.random() * (ARC_LAND_MAX - ARC_LAND_MIN)),
-    };
+    this.arc = { fromY: this.ballPos.y, toY: arcTo };
 
-    // Juice — replayed on the guest via the "phit" beat with the same inputs.
     this.paddleHitFx(
       this.ballPos.x,
       this.ballPos.y,
       this.ballVel.x,
       this.ballVel.y,
-      side === "player",
+      slotA,
       this.rallyHits,
-      this.spin?.strength ?? 0,
+      this.flight.spin?.strength ?? 0,
       shot.kind,
       accepted.powered,
     );
-    this.emitBeat("phit", {
-      a: side === "player",
-      kind: shot.kind,
-      n: this.rallyHits,
-      powered: accepted.powered,
-      spin: this.spin?.strength ?? 0,
-      vx: this.ballVel.x,
-      vy: this.ballVel.y,
-      x: this.ballPos.x,
-      y: this.ballPos.y,
-    });
+    return { kind: shot.kind, powered: accepted.powered };
   }
 
   /**
@@ -1265,18 +1420,28 @@ export class GameScene {
 
     this.ballPos.set(0, 0);
     this.ballVel.set(0, 0);
-    this.spin = null;
+    this.flight.spin = null;
+    this.ballEase.set(0, 0);
+    this.holdB = null;
     this.clearQueuedPower();
     this.arc = null;
     const won = this.scoreYou >= WIN_SCORE || this.scoreAi >= WIN_SCORE;
     this.phase = won ? "won" : "serving";
+    this.ep += 1;
     this.freeze = won ? HIT_STOP_WIN : HIT_STOP_GOAL;
     if (!won) {
       this.serveAt = this.elapsed + AUTO_SERVE_S;
     }
 
     this.pointFx(scorer === "you", crossX, goalY, won);
-    this.emitBeat("point", { a: scorer === "you", won, x: crossX, y: goalY });
+    this.emitBeat("point", {
+      a: scorer === "you",
+      sa: this.scoreYou,
+      sb: this.scoreAi,
+      won,
+      x: crossX,
+      y: goalY,
+    });
     this.syncHud();
   }
 
@@ -1337,68 +1502,63 @@ export class GameScene {
 
   // ---- networking ----------------------------------------------------------
 
-  /** Emit a host→guest fx beat, but only when a remote guest is listening
-   *  (solo/offline replays fx locally, so there is no beat to loop back). */
+  /**
+   * Host → guest: a rally edge (serve, slot A's return, point) as state the
+   * guest applies, tagged with the epoch it starts and stamped with our clock.
+   * Sent only to a remote guest — solo plays its fx locally, and the host has
+   * already run them.
+   */
   private emitBeat(event: string, payload: JsonObject): void {
-    if (this.net.offline || !this.net.isHost || !this.hasOpponent()) {
+    const rival = this.net.otherPlayer();
+    if (this.net.offline || !this.net.isHost || rival === null) {
       return;
     }
-    this.net.sendEvent(event, payload);
+    this.net.sendEvent(event, { ...payload, ep: this.ep, t: stamp() }, { to: rival.id });
   }
 
   private handleEvent(event: string, payload: JsonValue, from: string): void {
     const p = isJsonObject(payload) ? payload : {};
-    const num = (k: string): number => {
-      const v = p[k];
-      return isJsonNumber(v) ? v : 0;
-    };
-    const bool = (k: string): boolean => p[k] === true;
-
-    // Guest → host intents (arm/cancel a power shot, serve, rematch). Only the
-    // host acts on them, and only from the guest actually seated in the room.
-    if (event === "power" || event === "confirm") {
-      if (this.isGuest() || from !== this.net.otherPlayer()?.id) {
-        return;
+    if (event === "confirm" || event === "power" || event === "hitB" || event === "missB") {
+      // Guest → host intents. Only the host acts on them, and only from the
+      // guest actually seated in the room.
+      if (!this.isGuest() && from === this.net.otherPlayer()?.id) {
+        this.handleIntent(event, p);
       }
-      if (event === "confirm") {
+      return;
+    }
+    // Host → guest rally edges — the host already ran these locally.
+    if (this.isGuest() && from === this.net.hostId) {
+      this.handleCue(event, p);
+    }
+  }
+
+  /** Host: a seated guest's intent — serve/rematch, power, its paddle's verdict. */
+  private handleIntent(event: string, p: JsonObject): void {
+    switch (event) {
+      case "confirm": {
         if (this.phase !== "rally") {
           this.confirmMatch();
         }
-      } else if (this.phase === "rally" && num("rally") === this.shotRally) {
-        this.chargeB = bool("armed") ? armCharge(this.chargeB) : cancelCharge(this.chargeB);
-      }
-      return;
-    }
-    // Host → guest fx beats — the host already ran these locally.
-    if (!this.isGuest() || from !== this.net.hostId) {
-      return;
-    }
-    switch (event) {
-      case "phit": {
-        this.paddleHitFx(
-          num("x"),
-          num("y"),
-          num("vx"),
-          num("vy"),
-          bool("a"),
-          num("n"),
-          clamp(num("spin"), -1, 1),
-          p["kind"] === "slice" || p["kind"] === "topspin" ? p["kind"] : "flat",
-          bool("powered"),
-        );
         break;
       }
-      case "wall": {
-        this.wallFx(num("x"), num("y"));
+      case "power": {
+        const req = numField(p, "q");
+        if (req !== null && Number.isSafeInteger(req)) {
+          this.powerSeen = Math.max(this.powerSeen, req);
+        }
+        if (this.phase === "rally" && numField(p, "rally") === this.shotRally) {
+          this.chargeB = p["armed"] === true ? armCharge(this.chargeB) : cancelCharge(this.chargeB);
+        }
         break;
       }
-      case "point": {
-        this.pointFx(bool("a"), num("x"), num("y"), bool("won"));
+      case "hitB": {
+        this.refereeHit(p);
         break;
       }
-      case "serve": {
-        this.hud.hideCombo();
-        sfx.serve();
+      case "missB": {
+        if (this.verdictFits(p)) {
+          this.releaseHold();
+        }
         break;
       }
       default: {
@@ -1407,133 +1567,442 @@ export class GameScene {
     }
   }
 
-  /** Host: broadcast the authoritative ball/score snapshot at ~NET_TICK_HZ. */
-  private broadcastShared(dt: number): void {
-    // Solo/alone: nobody reads shared state — don't stream ~30 msg/s at the
-    // Durable Object for an empty room. (The first snapshot after a guest
-    // joins goes out within one net tick.)
-    if (this.net.offline || !this.hasOpponent()) {
+  /** Host: a verdict about the approach to slot B that is still in play. */
+  private verdictFits(p: JsonObject): boolean {
+    return (
+      this.phase === "rally" &&
+      this.ballVel.y > 0 &&
+      numField(p, "ep") === this.ep &&
+      numField(p, "r") === this.shotRally
+    );
+  }
+
+  /**
+   * Host: the guest says its paddle returned the ball. A claim that fits our
+   * own copy of the flight is replayed from the contact and caught up to now,
+   * so our ball runs on the guest's timeline; one that doesn't is a miss.
+   */
+  private refereeHit(p: JsonObject): void {
+    if (!this.verdictFits(p)) {
       return;
     }
-    this.netAcc += dt;
-    if (this.netAcc < 1 / NET_TICK_HZ) {
+    const claim = readClaim(p);
+    const hold = this.holdB ?? holdAhead(this.flight, this.elapsed);
+    const at = claim === null || hold === null ? null : judgeClaim(hold, claim);
+    if (claim === null || at === null) {
+      this.releaseHold();
       return;
     }
-    this.netAcc = 0;
+    const drawn = this.drawnBall();
+    this.holdB = null;
+    this.ballPos.set(claim.x, claim.y);
+    const arcTo = clamp(numField(p, "arc") ?? -ARC_LAND_MIN, -ARC_LAND_MAX, -ARC_LAND_MIN);
+    this.applyContact(false, claim.paddle, arcTo);
+    this.freeze = resumeFromContact(this.flight, this.elapsed - at);
+    this.easeBallFrom(drawn);
+    // Pin the rival's paddle to the ball it met, instead of drawing the
+    // return off a paddle still an interpolation delay behind it.
+    const sentAt = numField(p, "t");
+    if (sentAt !== null) {
+      this.rivalTrack.clear();
+      this.rivalTrack.push(sentAt, claim.paddle);
+    }
+  }
+
+  /**
+   * Host: slot B's guest missed, or let the hold run out. The ball carries on
+   * from where it parked as if it had never stopped, and this approach is
+   * settled so it does not park again.
+   */
+  private releaseHold(): void {
+    const hold = this.holdB;
+    this.holdB = null;
+    this.missedEp = this.ep;
+    if (hold === null) {
+      return;
+    }
+    const drawn = this.drawnBall();
+    advanceFlight(this.flight, this.elapsed - hold.at);
+    this.easeBallFrom(drawn);
+  }
+
+  /** Each net tick: the host's snapshot, or a guest's paddle stamped for the
+   *  host's interpolation. Nothing while alone — nobody reads it, and an empty
+   *  room shouldn't stream ~30 msg/s at the Durable Object. */
+  private sendNet(dt: number): void {
+    if (this.net.offline || !this.hasOpponent() || !this.netRate.due(dt * 1000)) {
+      return;
+    }
+    if (this.isGuest()) {
+      this.net.updateMyState({ paddle: round3(this.aiX), t: stamp() });
+    } else {
+      this.broadcastShared();
+    }
+  }
+
+  /** Host: the snapshot — ball, score and our paddle on one timeline, stamped
+   *  with our clock. Unchanged primitives never ride the wire (the SDK diffs
+   *  them), so a still paddle or a settled score costs nothing. */
+  private broadcastShared(): void {
     this.hostSeq += 1;
+    const { spin } = this.flight;
     this.net.patchShared({
-      arcFrom: this.arc ? this.arc.fromY : null,
-      arcTo: this.arc ? this.arc.toY : null,
+      arcFrom: this.arc ? round3(this.arc.fromY) : null,
+      arcTo: this.arc ? round3(this.arc.toY) : null,
       armedA: this.chargeA.kind === "armed",
       armedB: this.chargeB.kind === "armed",
-      bvx: this.ballVel.x,
-      bvy: this.ballVel.y,
-      bx: this.ballPos.x,
-      by: this.ballPos.y,
+      bvx: round3(this.ballVel.x),
+      bvy: round3(this.ballVel.y),
+      bx: round3(this.ballPos.x),
+      by: round3(this.ballPos.y),
       chargeA: chargeHits(this.chargeA),
       chargeB: chargeHits(this.chargeB),
+      ep: this.ep,
+      // Hit-stop still owed (ms): the ball holds at its contact until then.
+      fz: Math.round(Math.max(0, this.freeze) * 1000),
       longestRally: this.longestRally,
+      pa: round3(this.playerX),
       phase: this.phase,
+      pq: this.powerSeen,
       rally: this.rallyHits,
+      rs: round3(this.rallySpeed),
       scoreA: this.scoreYou,
       scoreB: this.scoreAi,
       seq: this.hostSeq,
       // Remaining time, not the absolute deadline: `serveAt` lives in OUR
       // `elapsed` timeline, which the guest's clock has no relation to.
-      serveLeft: this.serveAt === null ? null : Math.max(0, this.serveAt - this.elapsed),
+      serveLeft: this.serveAt === null ? null : round3(Math.max(0, this.serveAt - this.elapsed)),
       shotLift: this.shotLift,
       shotRally: this.shotRally,
-      spin: this.spin?.strength ?? 0,
-      spinLeft: this.spin?.left ?? 0,
+      spin: round3(spin?.strength ?? 0),
+      spinLeft: round3(spin?.left ?? 0),
+      t: stamp(),
     });
   }
 
-  /** Broadcast the local paddle position at ~NET_TICK_HZ (canonical frame). */
-  private broadcastPaddle(dt: number): void {
-    if (this.net.offline || !this.hasOpponent()) {
+  /**
+   * Guest: the ball as a local sim on the host's flight rules — it moves every
+   * frame, and contacts on our paddle are judged here against the paddle as
+   * it is now, never a round trip old. The host's own edges arrive as cues;
+   * its snapshots correct the rest.
+   */
+  private updateGuestBall(dt: number): void {
+    const pos = this.ballPos;
+    const vel = this.ballVel;
+    // A goal line is as far as it goes: the host's point cue ends the rally.
+    if (this.phase !== "rally" || Math.abs(pos.y) >= GOAL_Y) {
       return;
     }
-    this.paddleAcc += dt;
-    if (this.paddleAcc < 1 / NET_TICK_HZ) {
+    // Into the host's hit band its paddle decides what happens next: carry the
+    // ball no further past the host's newest stamp than a late packet explains.
+    if (vel.y < 0 && pos.y <= -HOLD_Y && this.hostLead() > GUEST_LEAD_MAX_S) {
       return;
     }
-    this.paddleAcc = 0;
-    this.net.updateMyState({ paddle: this.myPaddle });
-  }
-
-  /** Guest: adopt the host's authoritative snapshot, dead-reckoning the ball
-   *  between snapshots so it moves smoothly at the full frame rate. */
-  private applyGuestShared(dt: number): void {
-    const s = this.net.sharedState;
-    if (!s) {
-      return;
+    if (stepFlight(this.flight, dt)) {
+      this.wallFx(Math.sign(pos.x) * WALL_X, pos.y);
     }
-    const seq = numField(s, "seq");
-    const fresh = seq !== null && Number.isSafeInteger(seq) && seq > this.lastSeq;
-
-    // Snapshot-derived state only changes when a new snapshot lands — adopt it
-    // once per snapshot (not every frame; this also skips re-allocating the arc).
-    if (fresh && seq !== null) {
-      this.lastSeq = seq;
-      this.adoptShot(s);
-      this.adoptBall(s);
-      // Re-anchor the host's remaining serve time in OUR timeline (only on a
-      // fresh snapshot — re-anchoring stale data would freeze the meter).
-      const sl = numField(s, "serveLeft");
-      this.serveAt = sl === null ? null : this.elapsed + sl;
-      this.adoptScores(s);
-    } else if (this.phase === "rally") {
-      this.spin = curveVelocity(this.ballVel, this.spin, dt, MIN_VY_FRAC);
-      this.ballPos.addScaledVector(this.ballVel, dt);
-    }
-
-    const ph = s["phase"];
-    const nextPhase: Phase = ph === "serving" || ph === "rally" || ph === "won" ? ph : this.phase;
-    if (fresh) {
-      this.phase = nextPhase;
-      if (nextPhase === "rally" || nextPhase === "won" || this.serveAt !== null) {
-        notifyGameStarted();
+    if (vel.y > 0 && this.verdictEp !== this.ep) {
+      if (hitsPaddle(pos, this.aiX, PADDLE_Y)) {
+        this.returnAsGuest();
+      } else if (pos.y >= PADDLE_Y + HIT_HALF_Y) {
+        this.verdictEp = this.ep;
+        this.net.sendToHost("missB", { ep: this.ep, r: this.shotRally });
       }
-      this.syncHud();
+    }
+    this.landArc();
+    pos.y = clamp(pos.y, -GOAL_Y, GOAL_Y);
+  }
+
+  /** Guest: our paddle met the ball. Return it now — fx, hit-stop and all —
+   *  and tell the host where, so it can replay the contact. */
+  private returnAsGuest(): void {
+    const { x, y } = this.ballPos;
+    const paddle = this.aiX;
+    const { ep } = this;
+    const arcTo = this.arcLanding(-1);
+    this.applyContact(false, paddle, arcTo);
+    this.net.sendToHost("hitB", {
+      arc: round3(arcTo),
+      ep,
+      p: round3(paddle),
+      r: this.shotRally,
+      t: stamp(),
+      x: round3(x),
+      y: round3(y),
+    });
+  }
+
+  /** Guest: a host rally edge, applied as state — unless it is older than an
+   *  edge already applied here. */
+  private handleCue(event: string, p: JsonObject): void {
+    const ep = numField(p, "ep");
+    const sentAt = numField(p, "t");
+    if (ep === null || sentAt === null || ep < this.ep) {
+      return;
+    }
+    this.heardHost(sentAt);
+    // How long ago, on the host's clock, the edge happened.
+    const since = clamp((this.hostClock.now() - sentAt) / 1000, 0, MAX_CATCH_UP_S);
+    switch (event) {
+      case "serve": {
+        this.ep = ep;
+        this.applyServe(p, since);
+        break;
+      }
+      case "phit": {
+        this.ep = ep;
+        this.applyHostReturn(p, sentAt, since);
+        break;
+      }
+      case "point": {
+        this.ep = ep;
+        this.applyPoint(p, since);
+        break;
+      }
+      default: {
+        break;
+      }
     }
   }
 
-  private adoptShot(s: JsonObject): void {
-    this.chargeA = readCharge(s["chargeA"], s["armedA"]) ?? this.chargeA;
-    this.chargeB = readCharge(s["chargeB"], s["armedB"]) ?? this.chargeB;
+  /** Guest: the host served; the ball leaves the centre spot here too. The
+   *  serve carries the score, so a rematch shows 0–0 with its first frame. */
+  private applyServe(p: JsonObject, since: number): void {
+    const rally = numField(p, "r");
+    if (rally !== null && Number.isSafeInteger(rally) && rally >= 0) {
+      this.shotRally = rally;
+    }
+    if (this.phase === "won") {
+      // Only a rematch serves out of a finished match: reset as the host did.
+      this.resetCharge();
+      this.longestRally = 0;
+    }
+    this.adoptScores(numField(p, "sa"), numField(p, "sb"));
+    this.phase = "rally";
+    this.serveAt = null;
+    this.rallyHits = 0;
+    this.rallySpeed = RALLY_SPEED_BASE;
+    this.shotLift = 1;
+    this.arc = null;
+    this.ballPos.set(0, 0);
+    this.ballVel.set(numField(p, "vx") ?? 0, numField(p, "vy") ?? 0);
+    this.flight.spin = null;
+    advanceFlight(this.flight, since);
+    this.ballEase.set(0, 0);
+    this.clearQueuedPower();
+    this.hud.setPoint("");
+    this.pointUntil = 0;
+    // The rally counter resets with the new rally.
+    this.hud.hideCombo();
+    sfx.serve();
+    notifyGameStarted();
+    this.syncHud();
+  }
+
+  /** Guest: slot A's return, from the contact the host saw, caught up to now
+   *  through the hit-stop every copy of the ball holds for. */
+  private applyHostReturn(p: JsonObject, sentAt: number, since: number): void {
+    const x = numField(p, "x") ?? this.ballPos.x;
+    const y = numField(p, "y") ?? this.ballPos.y;
+    const vx = numField(p, "vx") ?? 0;
+    const vy = numField(p, "vy") ?? 0;
+    const hits = Math.max(0, Math.floor(numField(p, "n") ?? this.rallyHits + 1));
+    const spin = clamp(numField(p, "spin") ?? 0, -1, 1);
+    const arcTo = numField(p, "arc");
+    const paddle = numField(p, "p");
+    this.ballPos.set(x, y);
+    this.ballVel.set(vx, vy);
+    this.flight.spin = spin === 0 ? null : { left: SPIN_LIFE, strength: spin };
+    this.ballEase.set(0, 0);
+    this.rallyHits = hits;
+    this.longestRally = Math.max(this.longestRally, hits);
+    this.rallySpeed = clamp(
+      numField(p, "rs") ?? this.rallySpeed,
+      RALLY_SPEED_BASE,
+      RALLY_SPEED_MAX,
+    );
+    this.shotLift = clamp(numField(p, "lift") ?? 1, 0.55, 1);
+    this.arc = arcTo === null ? null : { fromY: y, toY: arcTo };
+    if (paddle !== null) {
+      // Draw the host's paddle at the ball it met, not a beat behind it.
+      this.rivalTrack.clear();
+      this.rivalTrack.push(sentAt, clamp(paddle, -PADDLE_X_MAX, PADDLE_X_MAX));
+    }
+    const kind = p["kind"] === "slice" || p["kind"] === "topspin" ? p["kind"] : "flat";
+    this.paddleHitFx(x, y, vx, vy, true, hits, spin, kind, p["powered"] === true);
+    this.freeze = resumeFromContact(this.flight, since);
+  }
+
+  /** Guest: a point, as the host scored it. */
+  private applyPoint(p: JsonObject, since: number): void {
+    const won = p["won"] === true;
+    this.adoptScores(numField(p, "sa"), numField(p, "sb"));
+    this.ballPos.set(0, 0);
+    this.ballVel.set(0, 0);
+    this.flight.spin = null;
+    this.ballEase.set(0, 0);
+    this.arc = null;
+    this.clearQueuedPower();
+    this.phase = won ? "won" : "serving";
+    this.serveAt = won ? null : this.elapsed + Math.max(0, AUTO_SERVE_S - since);
+    this.freeze = Math.max(0, (won ? HIT_STOP_WIN : HIT_STOP_GOAL) - since);
+    this.pointFx(p["a"] === true, numField(p, "x") ?? 0, numField(p, "y") ?? 0, won);
+    this.syncHud();
+  }
+
+  /**
+   * Guest: fold the newest host snapshot in. Its stamp and paddle sample
+   * always count; the rest only when it is no older than the newest edge
+   * applied here.
+   */
+  private readSnapshot(): void {
+    const s = this.net.sharedState;
+    const seq = sharedSeq(s);
+    if (s === null || seq <= this.lastSeq) {
+      return;
+    }
+    this.lastSeq = seq;
+    const sentAt = numField(s, "t");
+    const hostPaddle = numField(s, "pa");
+    if (sentAt !== null) {
+      this.heardHost(sentAt);
+      if (hostPaddle !== null) {
+        this.rivalTrack.push(sentAt, clamp(hostPaddle, -PADDLE_X_MAX, PADDLE_X_MAX));
+      }
+    }
+    const ep = numField(s, "ep");
+    if (ep === null || ep < this.ep) {
+      return;
+    }
+    const newer = ep > this.ep;
+    this.ep = ep;
+    this.adoptMatch(s);
+    this.adoptRally(s, newer);
+    this.adoptFlight(s, sentAt, newer);
+    if (this.phase !== "serving" || this.serveAt !== null) {
+      notifyGameStarted();
+    }
+    this.syncHud();
+  }
+
+  /** Guest: phase, score, serve clock and both charges. */
+  private adoptMatch(s: JsonObject): void {
+    const next = s["phase"];
+    if (next === "serving" || next === "rally" || next === "won") {
+      this.phase = next;
+    }
+    this.adoptScores(numField(s, "scoreA"), numField(s, "scoreB"));
+    // Re-anchor the host's remaining serve time in OUR timeline.
+    const serveLeft = numField(s, "serveLeft");
+    this.serveAt = serveLeft === null ? null : this.elapsed + serveLeft;
     const rally = numField(s, "shotRally");
     if (rally !== null && Number.isSafeInteger(rally) && rally >= 0) {
       this.shotRally = rally;
     }
-    this.shotLift = clamp(numField(s, "shotLift") ?? 1, 0.55, 1);
+    // Our own arm or cancel stands until the host has handled it.
+    const handled = (numField(s, "pq") ?? 0) >= this.powerReq;
+    const armedB = handled ? s["armedB"] : this.chargeB.kind === "armed";
+    this.chargeA = readCharge(s["chargeA"], s["armedA"]) ?? this.chargeA;
+    this.chargeB = readCharge(s["chargeB"], armedB) ?? this.chargeB;
   }
 
-  private adoptBall(s: JsonObject): void {
-    this.ballVel.set(numField(s, "bvx") ?? 0, numField(s, "bvy") ?? 0);
-    const strength = clamp(numField(s, "spin") ?? 0, -1, 1);
-    const left = clamp(numField(s, "spinLeft") ?? 0, 0, SPIN_LIFE);
-    this.spin = strength !== 0 && left > 0 ? { left, strength } : null;
-    this.rallySpeed = this.ballVel.length() || RALLY_SPEED_BASE;
-    this.rallyHits = numField(s, "rally") ?? 0;
+  /** Guest: the rally's pace and counters; on a newer epoch, the shot's look. */
+  private adoptRally(s: JsonObject, newer: boolean): void {
+    this.rallySpeed = clamp(
+      numField(s, "rs") ?? RALLY_SPEED_BASE,
+      RALLY_SPEED_BASE,
+      RALLY_SPEED_MAX,
+    );
+    this.rallyHits = Math.max(0, Math.floor(numField(s, "rally") ?? 0));
     // Authoritative match statistic: repeated FX packets never add contacts.
     this.longestRally = Math.max(0, Math.floor(numField(s, "longestRally") ?? 0));
-    const af = numField(s, "arcFrom");
-    const at = numField(s, "arcTo");
-    this.arc = af !== null && at !== null ? { fromY: af, toY: at } : null;
-    this.ballPos.set(numField(s, "bx") ?? 0, numField(s, "by") ?? 0);
+    if (!newer) {
+      return;
+    }
+    this.shotLift = clamp(numField(s, "shotLift") ?? 1, 0.55, 1);
+    const from = numField(s, "arcFrom");
+    const to = numField(s, "arcTo");
+    this.arc = from !== null && to !== null ? { fromY: from, toY: to } : null;
+  }
+
+  /**
+   * Guest: the host's ball, carried forward on its clock to the moment ours
+   * is at. A newer epoch, or a ball at rest, is adopted outright. Otherwise it
+   * corrects our running copy — eased out of the picture, and only in open
+   * court: in a hit band a paddle is deciding, and the host's copy of our own
+   * band is parked waiting on our verdict.
+   */
+  private adoptFlight(s: JsonObject, sentAt: number | null, newer: boolean): void {
+    const snap: Flight = {
+      pos: { x: numField(s, "bx") ?? 0, y: numField(s, "by") ?? 0 },
+      spin: readSpin(s),
+      vel: { x: numField(s, "bvx") ?? 0, y: numField(s, "bvy") ?? 0 },
+    };
+    const age = sentAt === null ? 0 : (this.hostClock.now() - sentAt) / 1000;
+    const held = (numField(s, "fz") ?? 0) / 1000;
+    const host = this.phase === "rally" ? projectFlight(snap, age, held) : snap;
+    if (newer && this.phase === "rally") {
+      this.freeze = Math.max(this.freeze, held - age);
+    }
+    if (newer || this.phase !== "rally") {
+      this.setFlight(host);
+      this.ballEase.set(0, 0);
+      return;
+    }
+    if (!inOpenCourt(this.ballPos.y) || !inOpenCourt(host.pos.y)) {
+      return;
+    }
+    const drawn = this.drawnBall();
+    this.setFlight(host);
+    this.easeBallFrom(drawn);
   }
 
   /** Slots A/B map to opponent/me for a guest. */
-  private adoptScores(s: JsonObject): void {
+  private adoptScores(slotA: number | null, slotB: number | null): void {
     const prevYou = this.scoreYou;
     const prevAi = this.scoreAi;
-    this.scoreYou = numField(s, "scoreB") ?? 0;
-    this.scoreAi = numField(s, "scoreA") ?? 0;
+    this.scoreYou = slotB ?? this.scoreYou;
+    this.scoreAi = slotA ?? this.scoreAi;
     if (this.scoreYou !== prevYou) {
       this.hud.popScore("you");
     }
     if (this.scoreAi !== prevAi) {
       this.hud.popScore("ai");
+    }
+  }
+
+  /** Guest: a host stamp arrived. It times the host's clock, and bounds how
+   *  far our ball may run ahead of what the host has said. */
+  private heardHost(sentAt: number): void {
+    this.hostClock.observe(sentAt);
+    this.lastHostT = Math.max(this.lastHostT ?? sentAt, sentAt);
+  }
+
+  /** Guest: how far (s) our reading of the host's clock runs past its newest stamp. */
+  private hostLead(): number {
+    return this.lastHostT === null ? 0 : (this.hostClock.now() - this.lastHostT) / 1000;
+  }
+
+  private setFlight(next: Flight): void {
+    this.ballPos.set(next.pos.x, next.pos.y);
+    this.ballVel.set(next.vel.x, next.vel.y);
+    this.flight.spin = next.spin === null ? null : { ...next.spin };
+  }
+
+  /** Where the ball is drawn: the sim plus the easing still to play out. */
+  private drawnBall(): Vec2 {
+    return { x: this.ballPos.x + this.ballEase.x, y: this.ballPos.y + this.ballEase.y };
+  }
+
+  /** Keep the drawn ball where it was across a jump of the simulated one and
+   *  ease the difference out — unless the jump is a different rally. */
+  private easeBallFrom(drawn: Vec2): void {
+    const dx = drawn.x - this.ballPos.x;
+    const dy = drawn.y - this.ballPos.y;
+    if (Math.hypot(dx, dy) < BALL_SNAP) {
+      this.ballEase.set(dx, dy);
+    } else {
+      this.ballEase.set(0, 0);
     }
   }
 
@@ -1545,22 +2014,37 @@ export class GameScene {
     s[axis] = 1 - SQUASH;
   }
 
-  private updateVisuals(dt: number): void {
-    // A guest renders the canonical world flipped 180°, so its own paddle is at
-    // the near (bottom) edge. `playerRing` is always the LOCAL paddle (bottom),
-    // `aiRing` the opponent (top); both derive from the flipped canonical x.
+  /** A guest renders the canonical world flipped 180°, so its own paddle is at
+   *  the near (bottom) edge. `playerRing` is always the LOCAL paddle (bottom),
+   *  `aiRing` the opponent (top); both derive from the flipped canonical x.
+   *  Runs through hit-stop too: paddles answer input every frame. */
+  private placePaddles(): void {
     const { flip } = this;
+    this.playerRing.position.x = flip * this.myPaddle;
+    this.aiRing.position.x = flip * this.oppPaddle;
+  }
+
+  /** Stopped mid-rally: parked for a guest's verdict, or held at a goal line
+   *  for the host's point. Leaves no trail. */
+  private ballParked(): boolean {
+    return this.holdB !== null || Math.abs(this.ballPos.y) >= GOAL_Y;
+  }
+
+  private updateVisuals(dt: number): void {
+    const { flip } = this;
+    this.placePaddles();
     this.playerPulse *= Math.exp(-PULSE_DECAY * dt);
     this.aiPulse *= Math.exp(-PULSE_DECAY * dt);
-    this.playerRing.position.x = flip * this.myPaddle;
     this.playerRing.scale.setScalar(
       1 + PULSE_SCALE * this.playerPulse * (this.reducedMotion ? 0.3 : 1),
     );
-    this.aiRing.position.x = flip * this.oppPaddle;
     this.aiRing.scale.setScalar(1 + PULSE_SCALE * this.aiPulse * (this.reducedMotion ? 0.3 : 1));
 
-    const arcZ = this.arc ? arcHeight(this.arc, this.ballPos.y) * this.shotLift : 0;
-    this.ball.position.set(flip * this.ballPos.x, flip * this.ballPos.y, BALL_R + arcZ);
+    // The drawn ball eases out any jump the simulated one just made.
+    this.ballEase.multiplyScalar(Math.exp(-dt / BALL_EASE_S));
+    const { x: ballX, y: ballY } = this.drawnBall();
+    const arcZ = this.arc ? arcHeight(this.arc, ballY) * this.shotLift : 0;
+    this.ball.position.set(flip * ballX, flip * ballY, BALL_R + arcZ);
     this.ball.scale.lerp(UNIT_SCALE, 1 - Math.exp(-SQUASH_RECOVER * dt));
     // Waiting to serve: the ball breathes — anticipation instead of a dead prop.
     if (this.phase === "serving" && !this.reducedMotion) {
@@ -1571,7 +2055,7 @@ export class GameScene {
     // stretches them into a longer streak. Each dissolves ink → paper.
     // Ghosts spawned in the same frame are back-projected along velocity to
     // their ideal emission times, keeping trail spacing frame-rate-invariant.
-    if (this.phase === "rally") {
+    if (this.phase === "rally" && !this.ballParked()) {
       // Speed streak: the trail thickens & lengthens with rally pace, so the
       // dither speckle density reads as velocity (0 at serve → 1 at the cap).
       const spd = clamp(
@@ -1587,17 +2071,18 @@ export class GameScene {
       for (let i = 0; i < ghosts; i += 1) {
         const back = (i + this.trailAcc) / TRAIL_RATE;
         this.particles.ghost(
-          flip * (this.ballPos.x - this.ballVel.x * back),
-          flip * (this.ballPos.y - this.ballVel.y * back),
+          flip * (ballX - this.ballVel.x * back),
+          flip * (ballY - this.ballVel.y * back),
           BALL_R + arcZ,
           ghostSize,
           ghostLife,
         );
-        if (this.spin && !this.reducedMotion && i % 2 === 0) {
+        const { spin } = this.flight;
+        if (spin && !this.reducedMotion && i % 2 === 0) {
           // A fine parallel ink stroke sits on the curving side of the trail.
           this.particles.ghost(
-            flip * (this.ballPos.x - this.ballVel.x * back + Math.sign(this.spin.strength) * 0.22),
-            flip * (this.ballPos.y - this.ballVel.y * back),
+            flip * (ballX - this.ballVel.x * back + Math.sign(spin.strength) * 0.22),
+            flip * (ballY - this.ballVel.y * back),
             BALL_R + arcZ,
             ghostSize * 0.32,
             ghostLife * 0.8,
@@ -1608,7 +2093,7 @@ export class GameScene {
     this.particles.update(dt);
     this.rings.update(dt);
 
-    this.shadow.position.set(flip * this.ballPos.x, flip * this.ballPos.y, 0.01);
+    this.shadow.position.set(flip * ballX, flip * ballY, 0.01);
     this.shadow.scale.setScalar(1 + (arcZ / ARC_PEAK) * SHADOW_ARC_GROW);
     this.shadowMat.opacity = SHADOW_MAX_OPACITY * Math.max(0, 1 - arcZ / ARC_PEAK);
 
@@ -1625,7 +2110,7 @@ export class GameScene {
     this.camKick.multiplyScalar(Math.exp(-NUDGE_DECAY * dt));
     // Ball-proximity dip: duck lower as the ball nears the player's side (0 on
     // the AI half → CAM_DIP_MAX at the player's goal), eased so it never jitters.
-    const dipTarget = CAM_DIP_MAX * clamp(-(flip * this.ballPos.y) / GOAL_Y, 0, 1);
+    const dipTarget = CAM_DIP_MAX * clamp(-(flip * ballY) / GOAL_Y, 0, 1);
     this.camDip += (dipTarget - this.camDip) * (1 - Math.exp(-CAM_DIP_RATE * dt));
     this.trauma = Math.max(0, this.trauma - TRAUMA_DECAY * dt);
     this.shakeTime += dt;
@@ -1712,24 +2197,28 @@ export class GameScene {
     return this.mySlotA ? this.chargeA : this.chargeB;
   }
 
-  /** A guest's charge lives on the host: it asks, and the next snapshot shows the result. */
+  /** Arm a charged return. A guest's charge lives on the host, but the arm
+   *  shows at once; the host's snapshots confirm (or overrule) it once it has
+   *  handled the request. */
   private armMyPower(): void {
     if (this.myCharge.kind !== "ready") {
       return;
     }
     if (this.isGuest()) {
+      this.chargeB = armCharge(this.chargeB);
       this.sendPower(true);
     } else {
       this.chargeA = armCharge(this.chargeA);
-      this.syncCharge();
     }
+    this.syncCharge();
   }
 
   private sendPower(armed: boolean): void {
     if (!this.net.live || this.net.offline) {
       return;
     }
-    this.net.sendEvent("power", { armed, rally: this.shotRally });
+    this.powerReq += 1;
+    this.net.sendToHost("power", { armed, q: this.powerReq, rally: this.shotRally });
   }
 
   private cancelMyPower(): void {
@@ -1765,8 +2254,8 @@ export class GameScene {
   diagnostics() {
     return {
       ball: {
-        spin: this.spin?.strength ?? 0,
-        spinLeft: this.spin?.left ?? 0,
+        spin: this.flight.spin?.strength ?? 0,
+        spinLeft: this.flight.spin?.left ?? 0,
         vx: this.ballVel.x,
         vy: this.ballVel.y,
         x: this.ballPos.x,
@@ -1825,6 +2314,7 @@ export class GameScene {
     this.playerX = 0;
     this.aiX = 0;
     this.ballPos.set(0, 0);
+    this.ballEase.set(0, 0);
     this.arc = null;
     this.handX = null;
     this.lastHandX = null;
@@ -1840,7 +2330,7 @@ export class GameScene {
     if (name === "fail") {
       this.phase = "won";
       this.ballVel.set(0, 0);
-      this.spin = null;
+      this.flight.spin = null;
       this.serveAt = null;
       this.clearQueuedPower();
       this.syncHud();
