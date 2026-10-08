@@ -7,7 +7,7 @@ import {
 import type { TouchControls } from "@repo/embed";
 import { PhysicalGamepad, attachVirtualGamepad, stickDirection4 } from "@vibedgames/gamepad/phaser";
 import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
-import { MultiplayerClient } from "@vibedgames/multiplayer";
+import { MultiplayerClient, RemoteClock } from "@vibedgames/multiplayer";
 import {
   isPlaytestRequested,
   publishDiagnostics,
@@ -29,7 +29,7 @@ import { BombPrediction, fuseStart } from "../net/bomb-prediction";
 import { applyOpened, encodeOpened } from "../net/grid-wire";
 import { localClaims, PICKUP_CLAIMS, PickupClaims, pickupKey } from "../net/pickup-claims";
 import type { ClaimRoom } from "../net/pickup-claims";
-import { remoteDelayMs, StepTrack, WALK_GRACE_MS } from "../net/step-track";
+import { StepTrack, WALK_GRACE_MS } from "../net/step-track";
 import type { StepPose } from "../net/step-track";
 import { playtestManifest } from "../playtest-manifest";
 import type { BombermanDiagnostics } from "../playtest-manifest";
@@ -185,6 +185,8 @@ const SOLO_PLAYTEST = isPlaytestRequested() && !new URLSearchParams(location.sea
 const BOMB_BUTTON_INSET = 84;
 const BOMB_BUTTON_RADIUS = 52;
 
+/** Remote movers are drawn this far behind their sender's clock; it covers arrival jitter. */
+const REMOTE_DELAY_MS = 100;
 /** A step that follows straight on from the last starts where that one ended, back at most this far. */
 const MAX_CARRY_MS = 50;
 /** Longest frame the camera and the host's catch-up take into account. */
@@ -391,13 +393,17 @@ export class GameScene extends Scene {
   private readonly offlineClaims = localClaims("solo");
   private readonly hostStep = new FixedStep(HOST_STEP_MS, MAX_FRAME_MS);
 
-  /** Remote humans, whose steps are stamped on the room's server clock. */
+  /** Remote humans, each drawn on its own sender's clock. */
   private readonly humanTracks = new Map<string, StepTrack>();
-  /** Bots, whose steps are stamped on the sim clock. */
+  /** Bots, stepping on the sim clock: drawn on time by the host, on its stream by everyone else. */
   private readonly botTracks = new Map<string, StepTrack>();
+  /** The host's stream as a guest receives it, learned from the bots' steps. */
+  private readonly hostStream = new RemoteClock();
   /** Last state taken in per mover, so a repeated notify is a no-op. */
   private readonly ingested = new Map<string, string>();
   private ingestRound: number | null = null;
+  /** Who sends the bots' steps: this client ("self") or the host it follows. */
+  private botSender: string | null = null;
 
   /** `shared()` decodes the wire state once per change. */
   private sharedFrom: MultiplayerClient["sharedState"] | null = null;
@@ -507,11 +513,6 @@ export class GameScene extends Scene {
   /** The clock steps are stamped on: the room's server clock, or this machine's offline. */
   private get roomClock(): SenderClock {
     return this.offline ? localClock : this.client.serverClock;
-  }
-
-  /** How far behind the room clock other clients' movers are drawn. */
-  private remoteDelay(): number {
-    return remoteDelayMs(this.offline ? 0 : this.client.rtt);
   }
 
   /**
@@ -1532,6 +1533,13 @@ export class GameScene extends Scene {
    */
   private ingestNet(): void {
     const state = this.shared();
+    const botSender = this.amHost ? "self" : this.client.hostId;
+    if (botSender !== this.botSender) {
+      // A new sender: learn its relay afresh, and draw its bots on its terms.
+      this.botSender = botSender;
+      this.hostStream.reset();
+      this.dropTracks(this.botTracks);
+    }
     const round = state?.startedAt ?? null;
     if (round !== this.ingestRound) {
       // A new round respawns everyone: place them, never walk them there.
@@ -1564,7 +1572,7 @@ export class GameScene extends Scene {
     this.ingested.set(id, key);
     let track = this.humanTracks.get(id);
     if (!track) {
-      track = new StepTrack({ clock: this.roomClock, delayMs: () => this.remoteDelay() });
+      track = new StepTrack({ clock: new RemoteClock(), delayMs: REMOTE_DELAY_MS });
       this.humanTracks.set(id, track);
     }
     track.step({ col, row }, t, s);
@@ -1578,10 +1586,11 @@ export class GameScene extends Scene {
     this.ingested.set(bot.id, key);
     let track = this.botTracks.get(bot.id);
     if (!track) {
-      // The host draws its bots on time; everyone else, behind the sim clock. A
-      // new host keeps the track: the clock it reads is the room's, not the host's.
-      const delayMs = (): number => (this.amHost ? 0 : this.remoteDelay());
-      track = new StepTrack({ clock: simClock, delayMs });
+      // The host draws its own bots on time; everyone else, behind the host's stream.
+      track =
+        this.botSender === "self"
+          ? new StepTrack({ clock: simClock, delayMs: 0 })
+          : new StepTrack({ clock: this.hostStream, delayMs: REMOTE_DELAY_MS });
       this.botTracks.set(bot.id, track);
     }
     // A bot that moved set off on the step its next turn is a stride after.

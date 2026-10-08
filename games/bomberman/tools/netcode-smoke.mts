@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { StickState } from "@vibedgames/gamepad";
+import { RemoteClock } from "@vibedgames/multiplayer";
 import type { SenderClock } from "@vibedgames/multiplayer";
 import { DirInput, stickDirs } from "../src/input/dir-input";
 import {
@@ -10,7 +11,7 @@ import {
   PREDICTION_TIMEOUT_MS,
 } from "../src/net/bomb-prediction";
 import { applyOpened, encodeOpened } from "../src/net/grid-wire";
-import { REMOTE_JITTER_MS, remoteDelayMs, StepTrack, WALK_GRACE_MS } from "../src/net/step-track";
+import { StepTrack, WALK_GRACE_MS } from "../src/net/step-track";
 import type { GridTile, StepPose } from "../src/net/step-track";
 import { createArena } from "../src/shared/arena";
 import {
@@ -27,14 +28,15 @@ import { seededRandom } from "../src/util/seeded-random";
 
 const FRAME_MS = 1000 / 60;
 const STRIDE_MS = BASE_MOVE_MS;
-/** The quickest trip from sender to receiver, which the receiver's round trip stands in for. */
+/** The quickest trip from sender to receiver. */
 const ROUTE_MS = 40;
-const DELAY_MS = remoteDelayMs(ROUTE_MS);
+/** The scene's REMOTE_DELAY_MS: how far behind its sender's clock a remote mover is drawn. */
+const DELAY_MS = 100;
 /** Receiver's local clock minus the room's: performance.now() and server time share no epoch. */
 const SKEW_MS = 7000;
 const EPSILON = 1e-9;
 
-/** The room's clock as the receiver measures it. Every sender stamps steps on it. */
+/** The room's server clock as the receiver measures it. Every sender stamps steps on it. */
 const roomClock = (skew = SKEW_MS): SenderClock => ({
   now: (localNow = 0) => localNow - skew,
   synced: true,
@@ -179,14 +181,16 @@ interface Run {
   frames: { at: number; pose: StepPose; progress: number; delivered: number }[];
 }
 
-/** Deliver `packets` to a track in arrival order and draw it at 60 fps. */
+/**
+ * Deliver `packets` to a track in arrival order and draw it at 60 fps, by
+ * default on the sender's own clock, learned from the arrivals.
+ */
 const play = (
   packets: readonly Packet[],
   until: number,
-  delayMs = DELAY_MS,
-  clock = roomClock(),
+  clock: SenderClock = new RemoteClock(),
 ): Run => {
-  const track = new StepTrack({ clock, delayMs: () => delayMs });
+  const track = new StepTrack({ clock, delayMs: DELAY_MS });
   track.snap(pathTile(0));
   const queue = packets.toSorted((a, b) => a.at - b.at);
   const frames: Run["frames"] = [];
@@ -196,7 +200,7 @@ const play = (
     while ((queue[0]?.at ?? Number.POSITIVE_INFINITY) <= now) {
       const packet = queue.shift();
       if (packet) {
-        track.step(packet.to, packet.t, packet.stride);
+        track.step(packet.to, packet.t, packet.stride, packet.at);
         delivered += 1;
       }
     }
@@ -225,9 +229,10 @@ const assertWalk = (frames: Run["frames"]): void => {
 test("step track: no stalls while jitter stays inside the delay, bunched steps included", () => {
   const steps = 24;
   for (const stride of [STRIDE_MS, MIN_MOVE_MS]) {
-    // 40–100 ms here at a walk. At the fastest stride every fifth step also
-    // waits for the next and both land in one frame, still inside the delay;
-    // the old once-a-frame read turned such a pair into one diagonal slide.
+    // 40–100 ms here at a walk: 60 ms of jitter over the fastest trip. At the
+    // fastest stride every fifth step also waits for the next and both land in
+    // one frame, still inside the delay; the old once-a-frame read turned such
+    // a pair into one diagonal slide.
     const latency = stride === MIN_MOVE_MS ? bunched(tightLatency, stride) : walkLatency;
     const end = 1000 + steps * stride;
     const { frames } = play(walk(steps, latency, stride), SKEW_MS + end + 600);
@@ -246,9 +251,9 @@ test("step track: no stalls while jitter stays inside the delay, bunched steps i
     assert.ok(walking > ((steps * stride) / FRAME_MS) * 0.9, `walked ${walking} frames`);
     const finished = frames.find((frame) => frame.progress >= steps - EPSILON);
     assert.ok(finished);
-    // Drawn exactly the delay behind the sender's own screen, on the clock both share.
+    // Drawn the delay plus the fastest trip behind the sender's own screen.
     const behind = finished.at - SKEW_MS - end;
-    assert.ok(behind >= DELAY_MS && behind < DELAY_MS + FRAME_MS, `trails by ${behind} ms`);
+    assert.ok(behind >= DELAY_MS && behind <= DELAY_MS + 60, `trails by ${behind} ms`);
     assert.equal(frames.at(-1)?.pose.moving, false, "the walk cycle stops with the steps");
   }
 });
@@ -306,15 +311,14 @@ const probed = (seed: number): { rtt: number; error: number } => {
   return best;
 };
 
-test("on the shared clock, a round trip plus jitter keeps a relayed walk on cadence", () => {
+test("each sender's own clock learns its relay, so the delay covers only two hops' jitter", () => {
   const steps = 60;
-  const nominal = FRAME_MS / STRIDE_MS;
   for (const [sender, receiver] of [
     [probed(1000), probed(2000)],
     [probed(7000), probed(8000)],
   ] as const) {
-    // Each step goes up to the server and down to the receiver, and each side
-    // reads the room clock with its own error.
+    // Each step goes up to the server and down to the receiver: 50–150 ms. The
+    // stamps are server time as the sender reads it, with its own error.
     let previous = Number.NEGATIVE_INFINITY;
     const packets = Array.from({ length: steps }, (_, i): Packet => {
       const start = 1000 + i * STRIDE_MS;
@@ -322,25 +326,34 @@ test("on the shared clock, a round trip plus jitter keeps a relayed walk on cade
       const t = Math.round(start + sender.error);
       return { at: previous, stride: STRIDE_MS, t, to: pathTile(i + 1) };
     });
-    const clock = roomClock(SKEW_MS - receiver.error);
-    const offCadence = (delayMs: number): number => {
-      const until = SKEW_MS + 1000 + steps * STRIDE_MS + 600;
-      const { frames } = play(packets, until, delayMs, clock);
+    const until = SKEW_MS + 1000 + steps * STRIDE_MS + 600;
+    // More than 10% off the sender's stride: past what a clock estimate's slew
+    // bends, so a step came in late and the walk waited or caught up.
+    const offCadence = (clock: SenderClock): number => {
+      const { frames } = play(packets, until, clock);
       assertWalk(frames);
+      const nominal = FRAME_MS / STRIDE_MS;
       return frames.filter((frame, i) => {
-        // From the second frame of the walk: the first starts partway through a frame.
         const before = frames[i - 1]?.progress ?? 0;
         const gained = frame.progress - before;
         return before > 0 && frame.progress < steps && Math.abs(gained - nominal) > nominal * 0.1;
       }).length;
     };
-    assert.equal(offCadence(remoteDelayMs(receiver.rtt)), 0, `rtt ${receiver.rtt}`);
-    assert.ok(offCadence(REMOTE_JITTER_MS) > 0, "jitter alone does not cover two hops");
+    assert.equal(
+      offCadence(new RemoteClock()),
+      0,
+      "the sender's own clock keeps the walk on cadence",
+    );
+    // The room's clock read as is: 100 ms would have to cover the whole relay.
+    assert.ok(
+      offCadence(roomClock(SKEW_MS - receiver.error)) > 0,
+      "the bare server clock runs dry",
+    );
   }
 });
 
 test("a teleport snaps, a respawn snaps, and a resting body stops walking", () => {
-  const track = new StepTrack({ clock: roomClock(0), delayMs: () => 0 });
+  const track = new StepTrack({ clock: roomClock(0), delayMs: 0 });
   track.snap({ col: 1, row: 1 });
   track.step({ col: 2, row: 1 }, 0, STRIDE_MS);
   assert.equal(track.sample(STRIDE_MS / 2)?.x, 1.5);
@@ -375,7 +388,7 @@ test("bots on the fixed host step stride exactly BOT_MOVE_MS, drawn on time by t
   };
   const step = new FixedStep(HOST_STEP_MS, 250);
   // The host's sim clock reads `now` itself here, and the host draws on time.
-  const track = new StepTrack({ clock: roomClock(0), delayMs: () => 0 });
+  const track = new StepTrack({ clock: roomClock(0), delayMs: 0 });
   const moves: number[] = [];
   let at: GridTile | null = null;
   // A 144 Hz display: steps still land every 50 ms of sim time.
