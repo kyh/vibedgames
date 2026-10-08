@@ -9,7 +9,10 @@
 // shallow-merge (last-write-wins per field), and events are fire-and-forget.
 // Offline, everything loops back locally so the same code paths keep working.
 //
-// Lunerfall also observes admission revisions for exact checkpoint handoff.
+// Lunerfall also observes admission revisions for exact checkpoint handoff,
+// and hands every shared-state change to `onShared` as it lands: a guest
+// polling once per frame would miss a snapshot that arrived bunched with the
+// next one, and the interpolation would lose its timestamp.
 //
 
 import { isOfflineRequested } from "@repo/embed";
@@ -33,12 +36,16 @@ export interface NetSessionOptions {
    *  trailer mode, which must never show live players in a staged shot. */
   forceOffline?: boolean;
   onEvent?: (event: string, payload: JsonValue, from: string) => void;
+  /** Every new shared state, in arrival order (online only). */
+  onShared?: (state: Record<string, JsonValue>) => void;
 }
 
 export class NetSession {
   private client: MultiplayerClient | null;
   private readonly fallbackMs: number;
   private readonly onEvent?: (event: string, payload: JsonValue, from: string) => void;
+  private readonly onShared?: (state: Record<string, JsonValue>) => void;
+  private seenShared: Record<string, JsonValue> | null = null;
 
   private admissionRevision = 0;
   private droppedRevision = 0;
@@ -54,6 +61,7 @@ export class NetSession {
   constructor(opts: NetSessionOptions) {
     this.fallbackMs = opts.fallbackMs;
     this.onEvent = opts.onEvent;
+    this.onShared = opts.onShared;
     // Offline BY INTENT (`?offline=1`, trailer staging) is a different state
     // from the fallback below, and must skip constructing the client rather
     // than lean on a failed connection: a refused handshake logs a console
@@ -87,6 +95,13 @@ export class NetSession {
         }
         if (client.connectionStatus === "connected") {
           this.everConnected = true;
+        }
+        // SAFETY: shared state is merged exclusively from JSON websocket
+        // frames (or local echoes of JSON-safe patches), so every value is JSON.
+        const shared = client.sharedState as Record<string, JsonValue>;
+        if (shared !== this.seenShared) {
+          this.seenShared = shared;
+          this.onShared?.(shared);
         }
         if (
           status === client.connectionStatus &&

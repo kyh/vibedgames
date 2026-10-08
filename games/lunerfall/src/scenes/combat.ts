@@ -10,11 +10,11 @@ import type { Boss } from "../entities/boss";
 import type { Blast } from "../entities/boss-body";
 import { Enemy } from "../entities/enemy";
 import type { Player } from "../entities/player";
-import { rectsOverlap } from "../entities/player-body";
+import { onBossHead, onEnemyHead, rectsOverlap } from "../entities/player-body";
 import type { AttackBox, PlayerBody, Rect } from "../entities/player-body";
 import type { RoomState, Shot } from "../state/room-state";
 import type { RunState } from "../state/run-state";
-import { combatState, livePlayers } from "../state/seat-state";
+import { combatState, inputDriven, livePlayers } from "../state/seat-state";
 import type { SeatState } from "../state/seat-state";
 import { explosion, hitSpark, impactRing, popText } from "../sys/fx";
 import { rand } from "../sys/rng";
@@ -28,7 +28,12 @@ import type { SceneChrome, SceneHooks } from "./scene-hooks";
 // seconds a kill-streak survives without a new kill
 const COMBO_WINDOW = 3;
 const DEATH_LINGER = 0.55;
-const ARROW_GRAV = 150;
+// px/s² — guests dead-reckon arrows along the same arc
+export const ARROW_GRAV = 150;
+// px of slack around a head when the host lands a guest's stomp: the guest
+// judged it on enemies drawn a round trip in the past
+const CLAIM_REACH = 28;
+
 const comboColor = (combo: number): string => {
   if (combo >= 8) {
     return "#ff5a5a";
@@ -237,7 +242,13 @@ export class Combat {
       .setTint(bossKind(this.expedition.biome).tint);
     spr.play("fx:flame-wave");
     spr.setFlipX(vx < 0);
-    this.room.hazards.push({ dmg, hitPlayer: false, life: 2.6, spr, vx, x, y });
+    this.room.hazards.push({ dmg, hitPlayer: false, id: this.projId(), life: 2.6, spr, vx, x, y });
+  }
+
+  private projId(): number {
+    const id = this.room.nextProjId;
+    this.room.nextProjId += 1;
+    return id;
   }
 
   stepHazards(dt: number) {
@@ -349,7 +360,9 @@ export class Combat {
       popText(this.scene, pb.x, pb.y - 26, "+HP", "#34e5c8");
       pb.pendingHeal = 0;
     }
-    if (pb.vy > 20) {
+    // A guest's own stomps are judged on its screen and arrive with its input
+    // (claimedStomp); judging its copy here too would bounce it a second time.
+    if (pb.vy > 20 && !inputDriven(this.seat, pl)) {
       this.playerStomp(pb);
     }
   }
@@ -422,31 +435,67 @@ export class Combat {
   // Falling onto a head: bounce off, small damage.
   private playerStomp(pb: PlayerBody) {
     for (const e of this.room.enemies) {
-      if (e.body.dead) {
-        continue;
-      }
-      const top = e.body.y - e.body.kind.h;
-      if (pb.y <= top + 8 && pb.y >= top - 12 && Math.abs(pb.x - e.body.x) < e.body.kind.hw + 6) {
-        e.body.takeHit(this.dmgOut(2), 60, Math.sign(pb.vx) || 1);
-        this.critFeedback(e.body.x, top);
+      if (!e.body.dead && onEnemyHead(pb.x, pb.y, e.body.x, e.body.y, e.body.kind)) {
+        this.stompEnemy(pb, e);
         pb.bounce();
-        sfx.hit();
-        hitSpark(this.scene, e.body.x, top, COLORS.white, 8);
-        this.run.freeze = Math.max(this.run.freeze, 0.08);
-        this.hooks.shake(80, 0.006);
-        if (e.body.dead) {
-          this.onKill(e);
-        }
       }
     }
-    if (this.room.boss && !this.room.boss.body.dead) {
-      const { top } = this.room.boss.body.hurtBox();
-      if (pb.y <= top + 10 && pb.y >= top - 16 && Math.abs(pb.x - this.room.boss.body.x) < 22) {
-        this.hitBoss(1, Math.sign(pb.vx) || 1, COLORS.white);
-        pb.bounce();
-        this.run.freeze = Math.max(this.run.freeze, 0.06);
+    const { boss } = this.room;
+    if (boss && !boss.body.dead && onBossHead(pb.x, pb.y, boss.body.x, boss.body.hurtBox().top)) {
+      this.stompBoss(pb);
+      pb.bounce();
+    }
+  }
+
+  /** A guest's stomp, judged on its own screen — where enemies stand about a
+   * round trip in the past — and already bounced in its body's step. It lands
+   * on the nearest head close enough here; with none, the bounce stands alone
+   * rather than yank the guest back down. */
+  claimedStomp(pl: Player) {
+    const pb = pl.body;
+    let target: Enemy | null = null;
+    let best = CLAIM_REACH;
+    for (const e of this.room.enemies) {
+      const miss = Math.max(
+        Math.abs(pb.x - e.body.x) - e.body.kind.hw,
+        Math.abs(pb.y - (e.body.y - e.body.kind.h)),
+      );
+      if (!e.body.dead && miss < best) {
+        best = miss;
+        target = e;
       }
     }
+    if (target) {
+      this.stompEnemy(pb, target);
+      return;
+    }
+    const { boss } = this.room;
+    if (
+      boss &&
+      !boss.body.dead &&
+      Math.max(Math.abs(pb.x - boss.body.x) - 22, Math.abs(pb.y - boss.body.hurtBox().top)) <
+        CLAIM_REACH
+    ) {
+      this.stompBoss(pb);
+    }
+  }
+
+  private stompEnemy(pb: PlayerBody, e: Enemy) {
+    const top = e.body.y - e.body.kind.h;
+    e.body.takeHit(this.dmgOut(2), 60, Math.sign(pb.vx) || 1);
+    this.critFeedback(e.body.x, top);
+    sfx.hit();
+    hitSpark(this.scene, e.body.x, top, COLORS.white, 8);
+    this.run.freeze = Math.max(this.run.freeze, 0.08);
+    this.hooks.shake(80, 0.006);
+    if (e.body.dead) {
+      this.onKill(e);
+    }
+  }
+
+  private stompBoss(pb: PlayerBody) {
+    this.hitBoss(1, Math.sign(pb.vx) || 1, COLORS.white);
+    this.run.freeze = Math.max(this.run.freeze, 0.06);
   }
 
   // Enemy attacks / contact / blasts against every live player. Enemy intents
@@ -566,7 +615,7 @@ export class Combat {
   spawnArrow(x: number, y: number, vx: number, vy: number, dmg: number) {
     const spr = this.scene.add.sprite(x, y, "fx:arrow").setScale(0.3).setDepth(40);
     spr.setFlipX(vx < 0);
-    this.room.arrows.push({ dmg, life: 3, spr, vx, vy, x, y });
+    this.room.arrows.push({ dmg, id: this.projId(), life: 3, spr, vx, vy, x, y });
   }
 
   stepArrows(dt: number) {
@@ -609,6 +658,7 @@ export class Combat {
       hit: new Set(),
       hitBoss: false,
       hitP: new Set(),
+      id: this.projId(),
       life: 1.4,
       owner,
       spr,

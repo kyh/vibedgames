@@ -16,12 +16,6 @@ export type CheckpointSeats = {
   host: string | null;
   guest: string | null;
 };
-export type InputSequence = {
-  j: number;
-  d: number;
-  a: number;
-  s: number;
-};
 export type CheckpointCombat = {
   hitSwing: number[];
   lastSwing: number;
@@ -500,9 +494,18 @@ const wellFormed = (v: JsonValue | undefined): v is ExpeditionCheckpoint =>
 const checkpoint = (v: JsonValue | undefined): v is ExpeditionCheckpoint =>
   wellFormed(v) && references(v);
 
+/** A validated room layout, detached from the wire, or null. */
+export const readRoom = (v: JsonValue | undefined): NetRoom | null =>
+  room(v) ? structuredClone(v) : null;
+
 /** Strict whole-boundary admission. Neither invalid data nor a mismatched room
- * can fall through to initial seeding. Returned mutable state is detached. */
-export const readCheckpoint = (shared: Record<string, JsonValue> | null): CheckpointRead => {
+ * can fall through to initial seeding. Returned mutable state is detached.
+ * Pass the room already read when only the checkpoint changed: the layout is
+ * the bulk of the work and changes once per room. */
+export const readCheckpoint = (
+  shared: Record<string, JsonValue> | null,
+  layout: NetRoom | null = readRoom(shared?.room),
+): CheckpointRead => {
   if (
     !shared ||
     (shared.checkpoint === undefined && shared.room === undefined && shared.snap === undefined)
@@ -510,14 +513,13 @@ export const readCheckpoint = (shared: Record<string, JsonValue> | null): Checkp
     return { kind: "absent" };
   }
   const c = shared.checkpoint;
-  const r = shared.room;
   if (
     !checkpoint(c) ||
-    !room(r) ||
-    c.room !== r.seq ||
-    (c.mode === "versus") !== (r.mode === "vs")
+    !layout ||
+    c.room !== layout.seq ||
+    (c.mode === "versus") !== (layout.mode === "vs")
   ) {
     return { kind: "invalid" };
   }
-  return { kind: "ready", room: structuredClone(r), value: structuredClone(c) };
+  return { kind: "ready", room: layout, value: structuredClone(c) };
 };

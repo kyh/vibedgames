@@ -8,7 +8,7 @@
     "clean": "rm -rf .turbo dist node_modules",
     "dev": "vite",
     "preview": "vite preview",
-    "test": "tsx tools/sim.mts",
+    "test": "tsx tools/sim.mts && tsx tools/netcode.mts",
     "test:online": "node --import tsx tools/two-client.mjs",
     "typecheck": "tsc --noEmit"
   },

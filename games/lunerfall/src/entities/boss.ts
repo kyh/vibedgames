@@ -3,12 +3,14 @@ import { TintModes } from "phaser";
 
 import { HERO_ORIGIN_Y, interp } from "../config";
 import { showActorPose } from "../data/actor-animation";
-import { BossActing, isBossAction, remoteBlend } from "../data/actor-presentation";
+import { BossActing } from "../data/actor-presentation";
 import type { BossAction } from "../data/actor-presentation";
 import { bossKind } from "../data/bosses";
+import type { BossPose } from "../net/snapshot";
 import { afterImage } from "../sys/fx";
 import type { Grid } from "../sys/grid";
 import { BossBody } from "./boss-body";
+import type { BossState } from "./boss-body";
 
 const SCALE = 2.1;
 // Wind-up flare: the boss's own colour pushed toward hot amber, so a telegraph
@@ -25,6 +27,35 @@ const mixChannel = (a: number, b: number, t: number, base: number): number =>
   Math.round(channel(a, base) + (channel(b, base) - channel(a, base)) * t) * base;
 const mixColor = (a: number, b: number, t: number): number =>
   mixChannel(a, b, t, 0x1_00_00) + mixChannel(a, b, t, 0x1_00) + mixChannel(a, b, t, 1);
+
+// The clip for an FSM state — from the sim on the host, from the wire pose on
+// a guest.
+const bossClip = (state: BossState, moving: boolean): string => {
+  switch (state) {
+    case "dead": {
+      return "death";
+    }
+    case "wave": {
+      return "flame-wave";
+    }
+    case "jump":
+    case "slam": {
+      return "flame-slam";
+    }
+    case "charge": {
+      return "run";
+    }
+    case "punch": {
+      return "fire-punch";
+    }
+    case "hurt": {
+      return "hit";
+    }
+    default: {
+      return moving ? "run" : "idle";
+    }
+  }
+};
 
 // Phaser view over BossBody: bigger salamander sprite recoloured per biome,
 // state-driven clips, a bright flare on wind-ups, and a white hit-flash.
@@ -53,34 +84,6 @@ export class Boss {
       .setDepth(12)
       .setTint(this.baseTint);
     this.sprite.play("salamander:idle");
-  }
-
-  private clip(): string {
-    const b = this.body;
-    switch (b.state) {
-      case "dead": {
-        return "death";
-      }
-      case "wave": {
-        return "flame-wave";
-      }
-      case "jump":
-      case "slam": {
-        return "flame-slam";
-      }
-      case "charge": {
-        return "run";
-      }
-      case "punch": {
-        return "fire-punch";
-      }
-      case "hurt": {
-        return "hit";
-      }
-      default: {
-        return Math.abs(b.vx) > 12 ? "run" : "idle";
-      }
-    }
   }
 
   // White fill on hit, a brightened flare of the boss's OWN colour on wind-up,
@@ -124,7 +127,7 @@ export class Boss {
   render(alpha = 1) {
     const b = this.body;
     if (!this.applyAction(this.action())) {
-      this.playLoop(`salamander:${this.clip()}`);
+      this.playLoop(`salamander:${bossClip(b.state, Math.abs(b.vx) > 12)}`);
     }
     this.sprite.setFlipX(b.facing < 0);
     this.sprite.setPosition(
@@ -153,34 +156,18 @@ export class Boss {
     }
   }
 
-  // Guest: replay the host's clip on this puppet (no local sim/state). Position
-  // lerps toward the authoritative point so 30Hz snapshots render smoothly.
-  applyNet(
-    clip: string,
-    x: number,
-    y: number,
-    flip: boolean,
-    flash: boolean,
-    telegraph: boolean,
-    action?: BossAction,
-    dt = 1 / 60,
-  ) {
-    if (isBossAction(action)) {
-      if (!this.applyAction(action)) {
-        this.playLoop(clip);
-      }
-    } else {
-      this.acting.reset();
-      this.playLoop(clip);
+  // Guest: draw this puppet at a pose interpolated from the host's snapshots
+  // (no local sim), playing the pose the host's FSM state implies.
+  applyPose(p: BossPose) {
+    // the body mirrors the pose, for a guest judging stomps on its hurt box
+    this.body.x = p.x;
+    this.body.y = p.y;
+    if (!this.applyAction({ elapsed: p.elapsed, state: p.state })) {
+      this.playLoop(`salamander:${bossClip(p.state, p.moving)}`);
     }
-    this.sprite.setFlipX(flip);
-    const far = Math.hypot(x - this.sprite.x, y - this.sprite.y) > 48;
-    const blend = remoteBlend(dt);
-    this.sprite.setPosition(
-      far ? x : this.sprite.x + (x - this.sprite.x) * blend,
-      far ? y : this.sprite.y + (y - this.sprite.y) * blend,
-    );
-    this.applyTint(flash, telegraph);
+    this.sprite.setFlipX(p.flip);
+    this.sprite.setPosition(Math.round(p.x), Math.round(p.y));
+    this.applyTint(p.flash, p.telegraph);
   }
 
   destroy() {

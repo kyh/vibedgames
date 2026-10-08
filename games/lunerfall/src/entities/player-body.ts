@@ -108,6 +108,17 @@ export type PlayerShot = {
   vy: number;
   dmg: number;
 };
+// A discontinuity something outside step() applied to the body — a hit, a
+// stomp bounce, a last-stand down/revive, a duel death or respawn. The host
+// journals these on a guest's body so the guest's prediction can replay them
+// at the tick they happened (net/predict.ts).
+export type BodyEdge =
+  | { kind: "hurt"; dir: number }
+  | { kind: "bounce" }
+  | { kind: "down" }
+  | { kind: "revive" }
+  | { kind: "dead" }
+  | { kind: "spawn"; x: number; y: number };
 
 // Pure platformer physics + combat state (kit-driven). No Phaser, no rendering.
 // Deterministic given the same grid + input stream.
@@ -133,6 +144,8 @@ export class PlayerBody {
   specialActive = false;
   pendingShot: PlayerShot | null = null;
   pendingHeal = 0;
+  // host: a guest's body records its edges here; null records nothing
+  journal: BodyEdge[] | null = null;
 
   private attackTime = 0;
   private attackBuf = 0;
@@ -346,6 +359,7 @@ export class PlayerBody {
     this.vy = -STOMP_BOUNCE;
     this.grounded = false;
     this.airDash = true;
+    this.journal?.push({ kind: "bounce" });
   }
 
   enterRoom(grid: Grid, x: number, y: number) {
@@ -370,21 +384,45 @@ export class PlayerBody {
     if (this.iframes > 0 || this.dead || this.downed) {
       return false;
     }
+    const dir = Math.sign(dirX || this.facing);
+    this.knockBack(dir);
+    this.journal?.push({ dir, kind: "hurt" });
+    this.ev.onHurt?.();
+    return true;
+  }
+
+  private knockBack(dir: number) {
     this.iframes = HURT_IFRAMES;
     this.hurtStun = HURT_STUN;
-    this.vx = Math.sign(dirX || this.facing) * HURT_KB;
+    this.vx = dir * HURT_KB;
     this.vy = -HURT_POP;
     this.grounded = false;
     this.attackStep = 0;
     this.dashTime = 0;
     this.specialActive = false;
-    this.ev.onHurt?.();
-    return true;
+  }
+
+  /** A duelist's fatal hit: the body stops where it fell until the round respawns it. */
+  die() {
+    this.dead = true;
+    this.journal?.push({ kind: "dead" });
+  }
+
+  /** Back on its feet at a spawn point (versus round reset). */
+  respawn(grid: Grid, x: number, y: number) {
+    this.dead = false;
+    this.enterRoom(grid, x, y);
+    this.journal?.push({ kind: "spawn", x, y });
   }
 
   // Enter co-op last stand: frozen (no move/attack/dash) and invulnerable via
   // the applyHurt guard; gravity still applies so an airborne down hits the floor.
   down() {
+    this.crumple();
+    this.journal?.push({ kind: "down" });
+  }
+
+  private crumple() {
     this.downed = true;
     this.vx = 0;
     // invulnerability comes from the downed guard, not i-frames
@@ -404,23 +442,60 @@ export class PlayerBody {
   revive() {
     this.downed = false;
     this.iframes = HURT_IFRAMES;
+    this.journal?.push({ kind: "revive" });
   }
 
-  // ── guest-prediction corrections (see net/predict.ts) ──────────────────────
-  /** Snap the sim to an authoritative point (hit knockback, respawn, teleport). */
-  snapTo(x: number, y: number, vx: number, vy: number) {
-    this.x = x;
-    this.y = y;
-    this.prevX = x;
-    this.prevY = y;
-    this.vx = vx;
-    this.vy = vy;
-    this.depenetrate();
+  // ── guest prediction (see net/predict.ts) ───────────────────────────────────
+  /** Re-apply an edge the host journaled. The host already decided it landed,
+   * so the hurt skips the i-frame guard; nothing is journaled or emitted. */
+  applyEdge(edge: BodyEdge) {
+    switch (edge.kind) {
+      case "hurt": {
+        this.knockBack(Math.sign(edge.dir) || this.facing);
+        break;
+      }
+      case "bounce": {
+        this.vy = -STOMP_BOUNCE;
+        this.grounded = false;
+        this.airDash = true;
+        break;
+      }
+      case "down": {
+        this.crumple();
+        break;
+      }
+      case "revive": {
+        this.downed = false;
+        this.iframes = HURT_IFRAMES;
+        break;
+      }
+      case "dead": {
+        this.dead = true;
+        break;
+      }
+      case "spawn": {
+        this.dead = false;
+        this.enterRoom(this.grid, edge.x, edge.y);
+        break;
+      }
+      default: {
+        break;
+      }
+    }
   }
 
-  /** Shift the sim by a small reconciliation delta (prev too, so the render
-   * interpolation doesn't smear the correction across a frame). */
-  nudge(dx: number, dy: number) {
+  /** Re-simulate without presentation callbacks: a prediction replay re-runs
+   * steps the player already saw and heard. */
+  silently(run: () => void) {
+    const { ev } = this;
+    this.ev = {};
+    run();
+    this.ev = ev;
+  }
+
+  /** Move the sim by a reconciliation slice — prev too, so the render
+   * interpolation doesn't smear the correction across a frame. */
+  shift(dx: number, dy: number) {
     this.x += dx;
     this.y += dy;
     this.prevX += dx;
@@ -428,7 +503,7 @@ export class PlayerBody {
     this.depenetrate();
   }
 
-  // Authority arrives from another timeline, so a blend or snap can land the
+  // Authority arrives from another timeline, so a correction can land the
   // box across a tile edge; moveX/moveY assume they start clear of solids.
   private depenetrate() {
     if (!this.blocked(this.x, this.y)) {
@@ -973,5 +1048,20 @@ export class PlayerBody {
 
 export const rectsOverlap = (a: Rect, b: Rect): boolean =>
   a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+
+// The stomp test — falling feet at (x, y) in the band over a head — shared by
+// the host and a guest predicting its own stomps on the enemies it draws.
+export const onEnemyHead = (
+  x: number,
+  y: number,
+  ex: number,
+  ey: number,
+  size: { h: number; hw: number },
+): boolean => {
+  const top = ey - size.h;
+  return y <= top + 8 && y >= top - 12 && Math.abs(x - ex) < size.hw + 6;
+};
+export const onBossHead = (x: number, y: number, bx: number, top: number): boolean =>
+  y <= top + 10 && y >= top - 16 && Math.abs(x - bx) < 22;
 
 export type PlayerBodyCheckpoint = ReturnType<PlayerBody["checkpoint"]>;

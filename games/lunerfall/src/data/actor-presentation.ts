@@ -16,49 +16,6 @@ export interface ActorPose {
   frame: number;
 }
 
-const enemyStates: ReadonlySet<string> = new Set([
-  "spawn",
-  "chase",
-  "windup",
-  "attack",
-  "charge",
-  "recover",
-  "hurt",
-  "dead",
-]);
-const bossStates: ReadonlySet<string> = new Set([
-  "intro",
-  "idle",
-  "wave",
-  "jump",
-  "slam",
-  "charge",
-  "punch",
-  "hurt",
-  "phase",
-  "dead",
-]);
-
-/* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof -- Optional visual snapshot fields enter from the untyped JSON boundary; validate before playback. */
-const isAction = (value: unknown, states: ReadonlySet<string>): boolean =>
-  typeof value === "object" &&
-  value !== null &&
-  "state" in value &&
-  typeof value.state === "string" &&
-  states.has(value.state) &&
-  "elapsed" in value &&
-  typeof value.elapsed === "number" &&
-  Number.isFinite(value.elapsed) &&
-  value.elapsed >= 0;
-
-export const isEnemyAction = (value: unknown): value is EnemyAction => isAction(value, enemyStates);
-
-export const isBossAction = (value: unknown): value is BossAction => isAction(value, bossStates);
-
-export const isActorTint = (value: unknown): value is number =>
-  typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 0xff_ff_ff;
-/* oxlint-enable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof */
-
 const frames = (
   clip: string,
   first: number,
@@ -263,7 +220,3 @@ export class BossActing {
     return bossPose(state, t, this.landed);
   }
 }
-
-/** Puppet lerp fraction: 0.35 per frame at 60 Hz, made refresh-rate independent. */
-export const remoteBlend = (dt: number): number =>
-  Number.isFinite(dt) ? 1 - 0.65 ** (Math.max(0, dt) * 60) : 0;

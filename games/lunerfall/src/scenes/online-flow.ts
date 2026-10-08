@@ -6,14 +6,15 @@ import { parseRoomType } from "../data/rooms";
 import type { ExpeditionCheckpoint } from "../net/checkpoint";
 import { parseHero } from "../net/parse";
 import { NetSession } from "../net/session";
-import type { NetInput, NetRoom } from "../net/snapshot";
+import { WIRE_VERSION } from "../net/snapshot";
+import type { NetRoom } from "../net/snapshot";
 import type { RoomState } from "../state/room-state";
 import { newRunState } from "../state/run-state";
 import type { RunState } from "../state/run-state";
 import { livePlayers } from "../state/seat-state";
 import type { SeatState } from "../state/seat-state";
 import { NEUTRAL_INPUT } from "../sys/input";
-import type { Input, InputState } from "../sys/input";
+import type { Input } from "../sys/input";
 import { checkpointRng } from "../sys/rng";
 import { VersusMatch } from "../sys/versus";
 import type { RunManager } from "../sys/run";
@@ -63,8 +64,8 @@ export class OnlineFlow {
   private readonly chrome: SceneChrome;
   private readonly controls: Input;
   private readonly hooks: SceneHooks;
-  // my press counters (sent to host)
-  private readonly outSeq = { a: 0, d: 0, j: 0, s: 0 };
+  // the hero last published in my player state
+  private publishedHero: string | null = null;
   private wasConnected = false;
   private seenDisconnect = 0;
   private restartRequested: boolean;
@@ -101,7 +102,10 @@ export class OnlineFlow {
     this.seat.session = new NetSession({
       fallbackMs: 6000,
       maxPlayers: 2,
-      room: `lunerfall-${this.seat.mode === "versus" ? "vs" : "coop"}-${party}`,
+      onEvent: (event, payload, from) => this.hostNet.receive(event, payload, from),
+      onShared: (state) => this.guest.receive(state),
+      // The wire version keeps tabs on an older build out of a newer one's run.
+      room: `lunerfall-v${WIRE_VERSION}-${this.seat.mode === "versus" ? "vs" : "coop"}-${party}`,
     });
   }
 
@@ -116,19 +120,18 @@ export class OnlineFlow {
       this.scene.scene.start("select", { roomFull: true });
       return false;
     }
-    // Drain input even while disconnected. A single sample serves authority,
-    // prediction and uplink; old presses never queue behind reconnection.
+    // Drain input even while disconnected. A single sample serves authority
+    // and prediction (a guest's prediction ships it to the host per sim tick);
+    // old presses never queue behind reconnection.
     const sample = this.hooks.sampleInput();
     const priorRun = this.seat.authority.kind === "ready" ? this.seat.authority.runId : null;
     const ready = this.prepareSession();
     const sameRun = this.seat.authority.kind === "ready" && this.seat.authority.runId === priorRun;
     this.seat.guestIn = ready && sameRun && !this.seat.controlsPaused ? sample : NEUTRAL_INPUT;
-    if (ready) {
-      this.sendInput(this.seat.guestIn);
-    }
     if (!ready) {
       return false;
     }
+    this.publishHero(this.seat.session);
     this.handleRestart();
     this.publishProbe(this.seat.session);
     return true;
@@ -167,40 +170,14 @@ export class OnlineFlow {
     });
   }
 
-  // Stream my held input + monotonic press counters up to the host. The caller
-  // passes the frame's single input sample (also fed to local prediction).
-  sendInput(s: InputState) {
-    if (!this.seat.session?.live) {
+  // My hub pick, for the host to spawn my body with. Player state is kept and
+  // re-announced on reconnect by the client, so it goes up only on a change.
+  private publishHero(session: NetSession) {
+    if (this.publishedHero === this.seat.requestedHero) {
       return;
     }
-    if (s.jumpPressed) {
-      this.outSeq.j += 1;
-    }
-    if (s.dashPressed) {
-      this.outSeq.d += 1;
-    }
-    if (s.attackPressed) {
-      this.outSeq.a += 1;
-    }
-    if (s.specialPressed) {
-      this.outSeq.s += 1;
-    }
-    const input: NetInput = {
-      a: this.outSeq.a,
-      d: this.outSeq.d,
-      down: s.down,
-      j: this.outSeq.j,
-      jumpHeld: s.jumpHeld,
-      left: s.left,
-      right: s.right,
-      s: this.outSeq.s,
-      up: s.up,
-    };
-    this.seat.session.updateMyState({
-      hero: this.seat.requestedHero,
-      input,
-      paused: this.seat.controlsPaused,
-    });
+    this.publishedHero = this.seat.requestedHero;
+    session.updateMyState({ hero: this.seat.requestedHero });
   }
 
   private finishConnecting() {
@@ -221,8 +198,11 @@ export class OnlineFlow {
     if (!sess.live) {
       if (this.wasConnected) {
         this.controls.reset();
-        this.seat.player.body.clearInput();
-        this.seat.remote?.body.clearInput();
+        if (this.seat.role === "guest") {
+          this.guest.dropQueued();
+        } else {
+          this.seat.player.body.clearInput();
+        }
         this.seat.neutralOnAdmission = true;
       }
       this.wasConnected = false;
@@ -255,6 +235,8 @@ export class OnlineFlow {
   }
 
   // Already following the current authority revision in the role it implies.
+  // A guest keeps following the run it adopted until a valid checkpoint names
+  // another: one the validator rejects must not stall a guest mid-run.
   private authorityCurrent(sess: NetSession): boolean {
     const a = this.seat.authority;
     if (a.kind !== "ready" || a.revision !== sess.authorityRevision) {
@@ -265,15 +247,19 @@ export class OnlineFlow {
     }
     const read = this.checkpoint.accepted();
     return (
-      read.kind === "ready" &&
-      a.runId === read.value.runId &&
-      a.term === read.value.term &&
-      this.seat.role === "guest"
+      this.seat.role === "guest" &&
+      (read.kind !== "ready" || (a.runId === read.value.runId && a.term === read.value.term))
     );
   }
 
   // Newly elected host: adopt the checkpoint under a fresh term and broadcast.
   private takeOverAsHost(sess: NetSession, c: ExpeditionCheckpoint, room: NetRoom) {
+    // A promoted guest's own body was predicted exactly and is newer than any
+    // checkpoint (they go up once a second): keep it, rewind only the world.
+    const own =
+      this.seat.role === "guest" && this.room.seq === c.room
+        ? this.seat.player.body.checkpoint()
+        : null;
     this.seat.role = "host";
     this.seat.authority = {
       kind: "ready",
@@ -281,7 +267,7 @@ export class OnlineFlow {
       runId: c.runId,
       term: c.term + 1,
     };
-    this.checkpoint.adopt(c, room);
+    this.checkpoint.adopt(c, room, own);
     this.hostNet.syncRemotePresence();
     this.room.dirty = true;
     this.hostNet.broadcast(0, true);
@@ -321,7 +307,7 @@ export class OnlineFlow {
       this.seat.player.body.clearInput();
     }
     this.seat.neutralOnAdmission = false;
-    this.room.guest.selfHurting = this.seat.player.body.hurting;
+    this.guest.admit();
     const other = c.players.find((p) => p.id !== sess.playerId);
     if (other) {
       this.guest.ensureRemote(other.hero);
@@ -330,7 +316,8 @@ export class OnlineFlow {
     }
     this.banners.clear();
     this.room.bossAnnounced = true;
-    this.room.guest.snapT = -1;
+    // Snapshots older than the adopted checkpoint describe a world it replaced.
+    this.room.guest.snapT = c.tick - 1;
     this.room.guest.payoff = {
       bossAlive: c.boss !== null && !c.boss.dead,
       cleared: c.cleared,
@@ -345,6 +332,7 @@ export class OnlineFlow {
       match.restore(c.versus);
       this.run.matchNet = match.encode();
     }
+    this.run.score = c.score;
     this.guest.syncProgress(c);
     this.checkpoint.syncRoomFeatures(c, true);
     this.finishConnecting();
@@ -446,7 +434,6 @@ export class OnlineFlow {
     this.room.enemyIds = new WeakMap();
     this.room.nextEnemyId = 1;
     this.seat.duelHits = new WeakMap();
-    this.seat.remoteInputOwner = null;
     this.banners.clear();
   }
 

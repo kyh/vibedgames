@@ -8,7 +8,7 @@ import type { NetSession } from "../net/session";
 import type { NetVersus } from "../net/snapshot";
 import type { RoomState } from "../state/room-state";
 import type { RunState } from "../state/run-state";
-import { duelHits, livePlayers, ownerId, seatPlayer } from "../state/seat-state";
+import { duelHits, inputDriven, livePlayers, ownerId, seatPlayer } from "../state/seat-state";
 import type { SeatState } from "../state/seat-state";
 import { hitSpark, impactRing, popText } from "../sys/fx";
 import { VS_HEARTS, VS_WIN_SCORE, vsPhaseFrozen } from "../sys/versus";
@@ -142,7 +142,9 @@ export class VersusFlow implements DuelTarget {
       );
     }
     for (const pl of livePlayers(this.seat)) {
-      pl.step(dt);
+      if (!inputDriven(this.seat, pl)) {
+        pl.step(dt);
+      }
     }
     this.combat.stepShots(dt, vs.phase === "fighting" ? this : null);
     if (vs.phase === "fighting" && this.seat.remote) {
@@ -164,8 +166,7 @@ export class VersusFlow implements DuelTarget {
         continue;
       }
       const s = this.room.vsSpawns[this.side(pl) === "host" ? 0 : 1] ?? this.room.roomSpawn;
-      pl.body.dead = false;
-      pl.enterRoom(this.room.grid, s.x, s.y);
+      pl.respawn(this.room.grid, s.x, s.y);
     }
     this.hooks.updateHud();
   }
@@ -260,7 +261,7 @@ export class VersusFlow implements DuelTarget {
     if (!vs) {
       return;
     }
-    loser.body.dead = true;
+    loser.body.die();
     this.run.freeze = Math.max(this.run.freeze, 0.12);
     this.hooks.shake(260, 0.014);
     impactRing(this.scene, loser.x, loser.y - 11, COLORS.magenta, 36);

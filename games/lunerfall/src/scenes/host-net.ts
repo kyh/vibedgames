@@ -1,42 +1,65 @@
+import { FixedRate } from "@vibedgames/multiplayer";
+
 import { sfx } from "../audio/sfx";
 import type { HeroName } from "../data/animations";
 import { HEROES } from "../data/heroes";
 import { ROOM_LABEL } from "../data/rooms";
-import type { CheckpointPhase, InputSequence } from "../net/checkpoint";
-import { parseHero, readNetInput } from "../net/parse";
+import type { CheckpointPhase } from "../net/checkpoint";
+import { GuestCopy } from "../net/guest-copy";
+import type { JsonValue } from "../net/json";
+import { parseHero, readNetInputs } from "../net/parse";
+import { encodeBoss, encodeEnemy, encodePlayer, PROJ_KINDS, runTag } from "../net/snapshot";
 import type {
-  NetBoss,
+  NetAck,
+  NetCast,
   NetDoor,
-  NetEnemy,
-  NetPlayer,
-  NetProj,
+  NetProjRow,
   NetRoom,
+  NetStatus,
   NetVersus,
+  ProjKind,
   Snapshot,
 } from "../net/snapshot";
+import { enemyId } from "../state/room-state";
 import type { RoomState } from "../state/room-state";
 import type { RunState } from "../state/run-state";
 import type { SeatState } from "../state/seat-state";
-import { NEUTRAL_INPUT } from "../sys/input";
-import type { InputState } from "../sys/input";
 import { VS_BIOME } from "../sys/versus";
 import type { RunManager } from "../sys/run";
 import type { BannerHud } from "./banner-hud";
 import type { CheckpointSync } from "./checkpoint-sync";
+import type { Combat } from "./combat";
 import { REVIVE_HOLD } from "./last-stand";
 import type { LastStand } from "./last-stand";
 import { ROOM_PROPS } from "./room-builder";
 import type { SceneHooks } from "./scene-hooks";
 import type { VersusFlow } from "./versus-flow";
 
-// host snapshot broadcast rate
+// snapshot rate: 30 Hz on a steady clock, under the guests' 100 ms render delay
 const NET_HZ = 30;
-// full private state; takeover rewinds at most one 100 ms interval
-const CHECKPOINT_HZ = 10;
+// full private state for a takeover — about once a second, plus at every
+// phase, progress or room edge so a promoted guest never adopts a stale one
+const CHECKPOINT_MS = 1000;
 interface CheckpointMark {
   phase: CheckpointPhase["kind"] | "transition-built";
   versus: NetVersus["phase"] | null;
+  // relics, merchant stock, the room feature and the last stand: what a
+  // guest's HUD and room dressing read from the checkpoint
+  progress: string;
 }
+
+const projRow = (
+  id: number,
+  kind: ProjKind,
+  p: { x: number; y: number; vx: number; vy: number },
+): NetProjRow => [
+  id,
+  PROJ_KINDS.indexOf(kind),
+  Math.round(p.x),
+  Math.round(p.y),
+  Math.round(p.vx),
+  Math.round(p.vy),
+];
 
 export interface HostNetDeps {
   run: RunState;
@@ -47,12 +70,14 @@ export interface HostNetDeps {
   lastStand: LastStand;
   versus: VersusFlow;
   checkpoint: CheckpointSync;
+  combat: Combat;
   hooks: SceneHooks;
 }
 
-// Host side of the wire: broadcasts snapshots (and the checkpoint + room at
-// the slower rates), turns the guest's wire input into an edge-triggered
-// InputState, and spawns/despawns the remote player as the peer comes and goes.
+// Host side of the wire: drives the guest's body from its input ticks,
+// broadcasts snapshots (and the cast, status, checkpoint and room when they
+// change),
+// and spawns/despawns the remote player as the peer comes and goes.
 export class HostNet {
   private readonly run: RunState;
   private readonly expedition: RunManager;
@@ -62,13 +87,17 @@ export class HostNet {
   private readonly lastStand: LastStand;
   private readonly versus: VersusFlow;
   private readonly checkpoint: CheckpointSync;
+  private readonly combat: Combat;
   private readonly hooks: SceneHooks;
-  // broadcast throttle
-  private acc = 0;
-  private checkpointAcc = 0;
+  private readonly rate = new FixedRate(NET_HZ);
+  private sinceCheckpoint = 0;
   private checkpointMark: CheckpointMark | null = null;
-  // last-seen remote press counters
-  private inSeq = { a: 0, d: 0, j: 0, s: 0 };
+  private castKey = "";
+  private statusKey = "";
+  private lastStamp = -1;
+  // the guest body's input stream, for the remote player it was opened for
+  private copy: GuestCopy | null = null;
+  private copyOf: string | null = null;
 
   constructor(deps: HostNetDeps) {
     this.run = deps.run;
@@ -79,46 +108,62 @@ export class HostNet {
     this.lastStand = deps.lastStand;
     this.versus = deps.versus;
     this.checkpoint = deps.checkpoint;
+    this.combat = deps.combat;
     this.hooks = deps.hooks;
   }
 
-  // Host: turn the guest's latest wire input into an edge-triggered InputState.
-  readRemoteInput(): InputState {
-    const other = this.seat.session?.otherPlayer() ?? null;
-    const ni = readNetInput(other?.state?.input);
-    const active =
-      other !== null && other.connected !== false && other.state?.paused !== true && ni !== null;
-    if (!other || !ni || !active) {
-      this.dropRemoteInput(other);
-      return NEUTRAL_INPUT;
+  // The remote player's input stream; a different player gets a fresh one.
+  private guestCopy(): GuestCopy | null {
+    const id = this.seat.remoteId;
+    if (this.seat.role !== "host" || !this.seat.remote || id === null) {
+      return null;
     }
-    const first = !this.seat.remoteInputOwner?.active || this.seat.remoteInputOwner.id !== other.id;
-    const previous: InputSequence = first ? ni : this.inSeq;
-    this.inSeq = { a: ni.a, d: ni.d, j: ni.j, s: ni.s };
-    this.seat.remoteInputOwner = { active: true, id: other.id };
-    return {
-      attackPressed: ni.a > previous.a,
-      dashPressed: ni.d > previous.d,
-      down: ni.down,
-      jumpHeld: ni.jumpHeld,
-      jumpPressed: ni.j > previous.j,
-      left: ni.left,
-      right: ni.right,
-      specialPressed: ni.s > previous.s,
-      up: ni.up,
-    };
+    if (this.copyOf !== id || !this.copy) {
+      this.copy = new GuestCopy();
+      this.copyOf = id;
+    }
+    return this.copy;
   }
 
-  // The guest is absent, paused or silent: release its held keys once, on the
-  // edge, so a paused peer stops running rather than sliding on stale input.
-  private dropRemoteInput(other: { id: string } | null) {
-    if (
-      this.seat.remoteInputOwner?.active !== false ||
-      this.seat.remoteInputOwner?.id !== other?.id
-    ) {
-      this.seat.remote?.body.clearInput();
+  /** A peer's event. Only the remote player's `in` (input ticks) concerns the host. */
+  receive(event: string, payload: JsonValue, from: string): void {
+    if (event !== "in" || from !== this.seat.remoteId) {
+      return;
     }
-    this.seat.remoteInputOwner = other ? { active: false, id: other.id } : null;
+    const msg = readNetInputs(payload);
+    if (msg) {
+      this.guestCopy()?.receive(msg, this.room.seq);
+    }
+  }
+
+  /** One host sim step of the guest's body, hit-stop or not — the guest never
+   * freezes its own prediction. Runs before the step's combat. */
+  stepGuest(): boolean {
+    const copy = this.guestCopy();
+    const { remote } = this.seat;
+    if (!copy || !remote) {
+      return false;
+    }
+    copy.enter(this.room.seq);
+    const moved = copy.step(remote.body, this.run.match?.frozen ?? false, this.run.clock);
+    while (copy.takeStomp()) {
+      this.combat.claimedStomp(remote);
+    }
+    return moved;
+  }
+
+  /** After the host's sim step: log what combat did to the guest's body. */
+  drainGuest(): void {
+    const { remote } = this.seat;
+    if (remote) {
+      this.guestCopy()?.drain(remote.body, this.run.clock);
+    }
+  }
+
+  /** The guest pressed attack since the last frame (versus rematch). Ask every
+   * frame so a press from mid-fight never lingers into the match end. */
+  takeRematch(): boolean {
+    return this.guestCopy()?.takeRematch() ?? false;
   }
 
   // Seats are the ORIGINAL left/right slots and survive authority changes; a
@@ -181,7 +226,6 @@ export class HostNet {
     this.seat.remote?.destroy();
     this.seat.remote = undefined;
     this.seat.remoteId = null;
-    this.seat.remoteInputOwner = null;
     if (this.run.match) {
       this.versus.respawn();
     }
@@ -194,7 +238,6 @@ export class HostNet {
     const spawn = (this.run.match ? this.room.vsSpawns[index] : undefined) ?? this.room.roomSpawn;
     this.seat.remote = this.hooks.spawnPlayer(HEROES[hero], this.room.grid, spawn.x, spawn.y);
     this.seat.remoteId = id;
-    this.seat.remoteInputOwner = null;
     if (this.run.match) {
       this.run.match.beginMatch();
       this.versus.respawn();
@@ -205,7 +248,9 @@ export class HostNet {
     }
   }
 
-  // Host: broadcast a snapshot at the network rate.
+  // Host: a snapshot each 1/30 s of the frame clock (FixedRate keeps the
+  // remainder, so the cadence holds at any refresh rate); the cast, room and
+  // checkpoint ride along when they changed or fell due.
   broadcast(dts: number, force = false) {
     const sess = this.seat.session;
     if (
@@ -216,118 +261,152 @@ export class HostNet {
     ) {
       return;
     }
-    this.acc += dts;
-    this.checkpointAcc += dts;
-    if (!force && this.acc < 1 / NET_HZ) {
+    const due = this.rate.due(dts * 1000);
+    this.sinceCheckpoint += dts * 1000;
+    if (!force && !due) {
       return;
     }
-    this.acc = 0;
     const mark = this.currentCheckpointMark();
+    const last = this.checkpointMark;
     const changed =
-      mark.phase !== this.checkpointMark?.phase || mark.versus !== this.checkpointMark?.versus;
-    const complete =
-      force || this.room.dirty || changed || this.checkpointAcc + 1e-9 >= 1 / CHECKPOINT_HZ;
-    const snap = this.encodeSnapshot();
+      !last ||
+      mark.phase !== last.phase ||
+      mark.versus !== last.versus ||
+      mark.progress !== last.progress;
+    const complete = force || this.room.dirty || changed || this.sinceCheckpoint >= CHECKPOINT_MS;
+    // One message, so a guest always reads a snapshot with the cast, status,
+    // room and checkpoint it was sent beside.
+    const patch: Record<string, JsonValue> = {};
+    patch.snap = this.encodeSnapshot();
+    const cast = this.encodeCast();
+    const castKey = JSON.stringify(cast);
+    if (castKey !== this.castKey) {
+      this.castKey = castKey;
+      patch.cast = cast;
+    }
+    const status = this.encodeStatus();
+    const statusKey = JSON.stringify(status);
+    if (statusKey !== this.statusKey) {
+      this.statusKey = statusKey;
+      patch.status = status;
+    }
     if (complete) {
       const checkpoint = this.checkpoint.encode();
       if (!checkpoint) {
         return;
       }
+      patch.checkpoint = checkpoint;
       if (this.room.dirty) {
-        sess.patchShared({ checkpoint, room: this.encodeRoom(), snap });
-      } else {
-        sess.patchShared({ checkpoint, snap });
+        patch.room = this.encodeRoom();
       }
-      this.checkpointAcc = 0;
+      this.sinceCheckpoint = 0;
       this.checkpointMark = mark;
-    } else {
-      sess.patchShared({ snap });
     }
+    sess.patchShared(patch);
     this.room.dirty = false;
   }
 
   // Phase edges force a full checkpoint so a takeover never lands mid-transition.
   private currentCheckpointMark(): CheckpointMark {
     const phase = this.checkpoint.phase();
+    const bought = this.room.merchantItems.filter((m) => m.bought).length;
     return {
       phase: phase.kind === "transition" && phase.built ? "transition-built" : phase.kind,
+      progress: `${this.run.ownedRelics.size}:${bought}:${this.room.feature?.used ?? "-"}:${this.run.downed !== null}`,
       versus: this.run.match?.phase ?? null,
     };
   }
 
   private encodeSnapshot(): Snapshot {
-    this.run.tick += 1;
-    const players: NetPlayer[] = [this.seat.player.encode(this.seat.session?.playerId ?? "host")];
-    if (this.seat.remote && this.seat.remoteId) {
-      players.push(this.seat.remote.encode(this.seat.remoteId));
-    }
-    const enemies: NetEnemy[] = this.room.enemies.map((e) => {
-      let id = this.room.enemyIds.get(e);
-      if (!id) {
-        id = this.room.nextEnemyId;
-        this.room.nextEnemyId += 1;
-        this.room.enemyIds.set(e, id);
+    const auth = this.seat.authority;
+    // Strictly increasing even for two forced sends in one frame.
+    const t = Math.max(this.lastStamp + 1, Math.round(this.run.clock));
+    this.lastStamp = t;
+    const players = [encodePlayer(this.seat.player.body)];
+    const acks: NetAck[] = [];
+    const { remote } = this.seat;
+    const copy = this.guestCopy();
+    if (remote && this.seat.remoteId) {
+      players.push(encodePlayer(remote.body));
+      if (copy) {
+        copy.enter(this.room.seq);
+        acks.push(copy.report(1, this.run.clock));
       }
-      const { name } = e.body.kind;
-      return {
-        action: e.action(),
-        clip: e.sprite.anims.currentAnim?.key ?? `${name}:idle`,
-        dead: e.body.dead,
+    }
+    const enemies = this.room.enemies.map((e) =>
+      encodeEnemy(enemyId(this.room, e), {
+        elapsed: e.body.stateT,
         flash: e.body.hitFlash > 0,
-        flip: e.sprite.flipX,
-        id,
-        name,
-        tint: e.baseTint,
-        x: Math.round(e.body.x),
-        y: Math.round(e.body.y),
-      };
-    });
-    const boss: NetBoss | null = this.room.boss
-      ? {
-          action: this.room.boss.action(),
-          clip: this.room.boss.sprite.anims.currentAnim?.key ?? "salamander:idle",
-          dead: this.room.boss.body.dead,
-          flash: this.room.boss.body.hitFlash > 0,
-          flip: this.room.boss.sprite.flipX,
-          hpFrac: this.room.boss.body.hpFrac,
-          telegraph: this.room.boss.body.telegraphing,
-          x: Math.round(this.room.boss.body.x),
-          y: Math.round(this.room.boss.body.y),
-        }
-      : null;
-    const proj: NetProj[] = [];
-    for (const a of this.room.arrows) {
-      proj.push({ k: "arrow", vx: a.vx, x: Math.round(a.x), y: Math.round(a.y) });
-    }
-    for (const s of this.room.shots) {
-      proj.push({ k: "shot", vx: s.vx, x: Math.round(s.x), y: Math.round(s.y) });
-    }
-    for (const h of this.room.hazards) {
-      proj.push({ k: "hazard", vx: h.vx, x: Math.round(h.x), y: Math.round(h.y) });
-    }
+        flip: e.body.facing < 0,
+        moving: Math.abs(e.body.vx) > 10,
+        state: e.body.state,
+        x: e.body.x,
+        y: e.body.y,
+      }),
+    );
+    const b = this.room.boss?.body;
+    const proj: NetProjRow[] = [
+      ...this.room.arrows.map((a) => projRow(a.id, "arrow", a)),
+      ...this.room.shots.map((s) => projRow(s.id, "shot", s)),
+      ...this.room.hazards.map((h) => projRow(h.id, "hazard", { ...h, vy: 0 })),
+    ];
     return {
-      banner: "",
-      biome: this.run.match ? VS_BIOME : this.expedition.biome,
-      boss,
-      cleared: this.run.cleared,
-      depth: this.expedition.depth,
+      acks,
+      boss: b
+        ? encodeBoss({
+            elapsed: b.stateT,
+            flash: b.hitFlash > 0,
+            flip: b.facing < 0,
+            hpFrac: b.hpFrac,
+            moving: Math.abs(b.vx) > 12,
+            state: b.state,
+            telegraph: b.telegraphing,
+            x: b.x,
+            y: b.y,
+          })
+        : null,
       enemies,
-      gold: this.run.gold,
-      hearts: this.run.hearts,
       lastStand: this.run.downed
         ? {
             bleed: Math.round(this.run.downed.bleedT * 10) / 10,
             rev: Math.round((this.run.downed.reviveT / REVIVE_HOLD) * 100) / 100,
           }
         : null,
-      maxHearts: this.run.maxHearts,
       players,
       proj,
       room: this.room.seq,
-      runId: this.seat.authority.kind === "ready" ? this.seat.authority.runId : "",
-      t: this.run.tick,
-      term: this.seat.authority.kind === "ready" ? this.seat.authority.term : 0,
+      run: auth.kind === "ready" ? runTag(auth.runId) : 0,
+      t,
+      term: auth.kind === "ready" ? auth.term : 0,
       vs: this.run.match ? this.run.match.encode() : null,
+    };
+  }
+
+  // The HUD numbers: they move on kills, pickups and room changes, not ticks.
+  private encodeStatus(): NetStatus {
+    return {
+      biome: this.run.match ? VS_BIOME : this.expedition.biome,
+      cleared: this.run.cleared,
+      depth: this.expedition.depth,
+      gold: this.run.gold,
+      hearts: this.run.hearts,
+      maxHearts: this.run.maxHearts,
+      over: this.run.state === "dead",
+      score: this.run.score,
+    };
+  }
+
+  // Who the snapshot rows are: changes only on a join, a hero pick or a spawn.
+  private encodeCast(): NetCast {
+    const players: NetCast["players"] = [
+      [this.seat.session?.playerId ?? "host", this.seat.player.name],
+    ];
+    if (this.seat.remote && this.seat.remoteId) {
+      players.push([this.seat.remoteId, this.seat.remote.name]);
+    }
+    return {
+      enemies: this.room.enemies.map((e) => [enemyId(this.room, e), e.body.kind.name, e.baseTint]),
+      players,
     };
   }
 

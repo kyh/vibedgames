@@ -6,7 +6,7 @@ Combat effects reuse scene-owned pools (192 particles, 32 afterimages, 16 labels
 
 The start screen showcases your warrior above a compact roster, with NES-inspired pixel controls and a locally bundled Silkscreen font (license in `public/fonts/OFL.txt`). Choose Solo, Co-op or Versus, then Play. Forge and controls live in their own dialogs; the last descent expands for details.
 
-For online play, use **Copy link** to invite a friend. The link selects the room and mode; each player picks a warrior and presses Play. Or choose the same mode, enter the four-character code, and select Join before Play. Codes ignore letter case. Co-op and Versus rooms stay separate, and a third player sees “Room full.” If clipboard access is unavailable, the full link appears for manual copying.
+For online play, use **Copy link** to invite a friend. The link selects the room and mode; each player picks a warrior and presses Play. Or choose the same mode, enter the four-character code, and select Join before Play. Codes ignore letter case. Co-op and Versus rooms stay separate, and a third player sees “Room full.” Room ids also carry the wire-format version (`WIRE_VERSION` in `src/net/snapshot.ts`), so a tab still running an older build never shares a run with a newer one. If clipboard access is unavailable, the full link appears for manual copying.
 
 ## Develop
 
