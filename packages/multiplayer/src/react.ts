@@ -134,16 +134,11 @@ const useRoom = <TShared extends JsonRecord = JsonRecord>(
     return roomOrConfig;
   }
 
+  // The config passes through whole, so its callbacks reach the room with its rules.
   // oxlint-disable-next-line react/hooks, react-hooks/rules-of-hooks -- the argument's shape is fixed per call site (a room or a config, never both over time), so this branch is stable across renders
   return useMultiplayerRoom<TShared>({
-    host: roomOrConfig.host,
+    ...roomOrConfig,
     initialState: initialState ?? roomOrConfig.initialState,
-    interest: roomOrConfig.interest,
-    limits: roomOrConfig.limits,
-    maxPlayers: roomOrConfig.maxPlayers,
-    party: roomOrConfig.party,
-    room: roomOrConfig.room,
-    tickRate: roomOrConfig.tickRate,
   });
 };
 
