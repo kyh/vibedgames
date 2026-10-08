@@ -138,6 +138,8 @@ const applyInputChanges = (
 
 /** Probes sent right after admission, before the slow cadence (ms after sync). */
 const TIME_PROBE_BURST_MS = [0, 100, 250, 500];
+/** Probe cadence until the clock has a full window: a boot stall can spoil the burst. */
+const TIME_PROBE_SETTLE_MS = 500;
 
 /** The room rules this client advertises (query JSON), or null for none. */
 const roomRules = (options: MultiplayerOptions): RoomRules | null => {
@@ -332,7 +334,8 @@ export class MultiplayerClient {
           this.send({ type: "heartbeat" });
         }
       }
-      if (t - this.lastProbeAt >= TIME_PROBE_INTERVAL_MS) {
+      const probeEvery = this.clock.settled ? TIME_PROBE_INTERVAL_MS : TIME_PROBE_SETTLE_MS;
+      if (t - this.lastProbeAt >= probeEvery) {
         this.lastProbeAt = t;
         this.probeTime();
       }

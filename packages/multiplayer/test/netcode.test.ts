@@ -88,6 +88,23 @@ test("ServerClock reads the offset off the fastest probe and keeps it", () => {
   assert.equal(clock.now(2500), 2500 + 48_950);
 });
 
+test("ServerClock settles once a full window of probes is in, after a stalled start", () => {
+  const clock = new ServerClock();
+  // Server time runs 100 000 ahead. A page stalled while booting handles the
+  // first answer (stamped 40 ms after the probe left) 3 s late: off by 1460.
+  clock.sample(0, 100_040, 3000);
+  assert.equal(clock.settled, false);
+  assert.equal(clock.rtt, 3000);
+  assert.equal(clock.now(3000) - 3000, 98_540);
+  // Clean probes once it recovers: the fast trip takes over the offset.
+  for (let i = 1; i < 8; i += 1) {
+    clock.sample(3000 + i * 500, 103_040 + i * 500, 3080 + i * 500);
+  }
+  assert.equal(clock.settled, true);
+  assert.equal(clock.rtt, 80);
+  assert.equal(clock.now(10_000) - 10_000, 100_000);
+});
+
 test("ServerClock slews a small revision and adopts a large one at once", () => {
   const clock = new ServerClock();
   clock.sample(0, 10_100, 200);

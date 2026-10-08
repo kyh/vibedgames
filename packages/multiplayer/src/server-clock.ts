@@ -42,6 +42,15 @@ export class ServerClock {
     return this.target !== null;
   }
 
+  /**
+   * True once a full window of probes has come back. Until then one slow
+   * probe (a page stalled while booting) can define the offset, so keep
+   * probing fast.
+   */
+  get settled(): boolean {
+    return this.samples.length >= SAMPLES;
+  }
+
   /** The fastest recent round trip to the server (ms); NaN before the first probe returns. */
   get rtt(): number {
     return this.bestRtt;
