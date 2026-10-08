@@ -1356,6 +1356,9 @@ export class VgServer extends Server {
       ticker.logChars -= entry.chars;
       [entry] = ticker.log;
     }
+    // Quiet ticks log nothing, yet the history still ends here: a client
+    // further back resyncs rather than replaying every tick since.
+    ticker.base = Math.max(ticker.base, oldest);
   }
 
   /** Schedule an input change: at tick `n` if that is still ahead, else the next tick. */

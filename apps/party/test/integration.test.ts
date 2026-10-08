@@ -9,7 +9,7 @@ import type { MiniflareOptions } from "miniflare";
 import { z } from "zod";
 
 import type { MultiplayerClientOptions } from "@vibedgames/multiplayer";
-import { MultiplayerClient } from "@vibedgames/multiplayer";
+import { MAX_TICK_HISTORY, MAX_TICK_RATE, MultiplayerClient } from "@vibedgames/multiplayer";
 
 /**
  * Integration tests that drive the real VgServer — Durable Object, partyserver
@@ -690,6 +690,37 @@ test("a client back from a transport blip replays the ticks it missed, and its i
       assert.equal(seen[i], (seen[i - 1] ?? 0) + 1, `tick ${seen[i]} follows ${seen[i - 1]}`);
     }
     await waitFor(() => client.tickInputs()?.[me] === "left", "the held input was re-sent");
+  } finally {
+    client.destroy();
+  }
+});
+
+test("a quiet tick room's history still ends MAX_TICK_HISTORY ticks back", async () => {
+  const room = uniqueRoom("tick-quiet");
+  const client = connect(room, { tickRate: MAX_TICK_RATE });
+  const past = MAX_TICK_HISTORY + 30;
+  try {
+    await waitFor(() => admitted(client), "client admitted");
+    // No input ever changes, so the tick log stays empty the whole time.
+    await waitFor(
+      () => (client.tickClock?.n ?? 0) > past,
+      "the room ticks past its history",
+      (past / MAX_TICK_RATE) * 1000 + 5000,
+    );
+    assert.equal(client.tickInputs(1), null, "the client's history moved on");
+    const raw = new RawClient(room, { _pk: `quiet-${process.pid}` });
+    try {
+      await waitFor(() => raw.synced(), "raw client admitted");
+      const [sync] = raw.received("sync");
+      const tick = toRecord(sync?.tick);
+      assert.equal(
+        Number(tick.base),
+        Number(tick.n) - MAX_TICK_HISTORY,
+        "and so did the room's: a client further back resyncs instead of replaying it all",
+      );
+    } finally {
+      raw.close(1000);
+    }
   } finally {
     client.destroy();
   }

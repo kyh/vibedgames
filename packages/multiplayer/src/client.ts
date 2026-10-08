@@ -1020,6 +1020,8 @@ export class MultiplayerClient {
       [ticks.base] = oldest;
       [oldest] = ticks.log;
     }
+    // Quiet ticks log nothing; the history ends here all the same.
+    ticks.base = Math.max(ticks.base, n - MAX_TICK_HISTORY);
     this._onTick?.({ changed, inputs: Object.fromEntries(ticks.held), n });
   }
 
