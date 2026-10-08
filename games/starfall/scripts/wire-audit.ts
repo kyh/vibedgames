@@ -15,10 +15,10 @@
  * V7 (after): the real encoders. The world goes as stamped row buckets
  * written only when an entity in them spawns, turns or is taken, plus every
  * enemy's motion each share (net/world-wire.ts); a client sends flat
- * primitives at PLAYER_NET_HZ, so a moving ship's update is its stamp and
- * pose; each trigger pull is one `fire` event (net/fire-wire.ts). The world
- * is run for a simulated minute at the caps to get the steady patch, not just
- * one tick.
+ * primitives at PLAYER_NET_HZ, so a moving ship's update is its stamp (server
+ * time, epoch ms) and pose; each trigger pull is one `fire` event
+ * (net/fire-wire.ts). The world is run for a simulated minute at the caps to
+ * get the steady patch, not just one tick.
  *
  * Caps (shared/constants.ts), arena at the 32-player bounds so coordinates
  * use max digits: 110 asteroids, 80 enemies (a boss with lances, snipers
@@ -400,7 +400,8 @@ let shared7: WireRecord = {};
 /** Bytes each key family put on the wire over the simulated minute. */
 const perFamily = new Map<string, number>();
 const v7Patch = (now: number, tally: boolean): number => {
-  const patch = encoder.encode(world7, now);
+  // The audit's sim clock doubles as server time: both are epoch ms.
+  const patch = encoder.encode(world7, now, Math.round(now));
   const delta = diffKeys(shared7, patch);
   shared7 = { ...shared7, ...patch };
   if (tally) {
@@ -439,7 +440,7 @@ const player = (i: number): PlayerNetState => ({
   shieldHp: 87,
   shieldMod: { active: true, kind: "overshield", phased: false },
   streak: 41,
-  t: 1_234_567.891 + (i * 1000) / PLAYER_NET_HZ,
+  t: EPOCH + 1234.567 + (i * 1000) / PLAYER_NET_HZ,
   tesla: false,
   twin: false,
   vx: 287.123 - i,
@@ -478,7 +479,7 @@ const fireSpec = (weaponIdx: number | null, lock: boolean): FireSpec => {
     level: 3,
     lock: lock ? { id: "k3j9x0ab", kind: "enemy" } : null,
     seed: 31_415,
-    t: 1_234_567.891,
+    t: EPOCH + 1234.567,
     twin: 1.2345678,
     twinLock: null,
     weapon,

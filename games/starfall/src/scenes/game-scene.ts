@@ -90,16 +90,16 @@ const MULTIPLAYER_HOST = import.meta.env.DEV
   ? "http://localhost:8787"
   : "https://vibedgames-party.kyh.workers.dev";
 
-// Fresh room name per wire-format change (v7: the world as stamped row
-// buckets sent on change, player state as flat primitives, shots as `fire`
-// events): old deployed clients can't pollute this build's world.
-const ROOM_DEFAULT = "starfall-arena-v7";
+// Fresh room name per wire-format change (v8: every stamp — player state,
+// `fire` events, world shares — is server time): old deployed clients can't
+// pollute this build's world.
+const ROOM_DEFAULT = "starfall-arena-v8";
 /** DEV-only room override (?room=): the multiplayer e2e harness isolates each
  *  run in a fresh arena so a stale room's world can't leak into assertions. */
 const ROOM =
   (import.meta.env.DEV && new URLSearchParams(location.search).get("room")) || ROOM_DEFAULT;
 /** Per-arena cap. The party server clamps to its own hard ceiling and overflows
- *  player #33+ into a sibling arena (starfall-arena-v7~2, …) automatically. */
+ *  player #33+ into a sibling arena (starfall-arena-v8~2, …) automatically. */
 const STARFALL_MAX_PLAYERS = 32;
 
 /** Black mask thickness past the world edge (covers any screen half-width). */
@@ -294,10 +294,7 @@ export class GameScene extends Scene {
       this.link.connect({
         host: MULTIPLAYER_HOST,
         maxPlayers: STARFALL_MAX_PLAYERS,
-        onUpdate: () => {
-          this.roster.ingest(performance.now());
-          this.sync.onUpdate();
-        },
+        onUpdate: () => this.roster.ingest(),
         room: ROOM,
       });
     }
@@ -742,9 +739,10 @@ export class GameScene extends Scene {
       // Readmitted as the continuing host: patches sent into the drop were
       // discarded, so the next share carries the whole world.
       this.host.markWorldDirty();
-    } else if (step === "fallback") {
-      this.sync.ensureSeeded();
     }
+    // A first host seeds once the room clock is measured (no message marks
+    // that); the solo fallback seeds its own world the frame it starts.
+    this.sync.ensureSeeded();
   }
 
   /** Resize/rotation: re-read the safe-area insets and re-derive camera zoom. */

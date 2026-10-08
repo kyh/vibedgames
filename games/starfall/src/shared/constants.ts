@@ -1691,8 +1691,8 @@ export const ENEMY_DESPAWN_INTERVAL_MS = 1500;
 export const PLAYER_NET_HZ = 20;
 /** Host world snapshots. Every enemy rides each one, so this stays at 20 Hz. */
 export const WORLD_NET_HZ = 20;
-/** How far behind a remote player's clock its ship and shots are drawn (ms):
- *  two 20 Hz send intervals, enough to ride out arrival jitter. */
+/** How far behind the room's server clock remote ships and shots are drawn
+ *  (ms): two 20 Hz send intervals, enough to ride out arrival jitter. */
 export const REMOTE_RENDER_DELAY_MS = 100;
 
 // ---- minimap ------------------------------------------------------------------
@@ -1759,7 +1759,8 @@ export type EnemyState = {
   /** Facing; for a winding-up/charging LANCER this is the locked charge vector. */
   angle: number;
   hp: number;
-  // host-clock timestamps; clients render telegraphs/blinks from these
+  // sim-clock deadlines (each client's own; the wire carries them relative to
+  // a share's stamp); clients render telegraphs/blinks from these
   /** 0 = none. While now < this: wind-up visuals. */
   telegraphUntil: number;
   /** LANCER only: locked-vector charge window. */
@@ -1864,8 +1865,8 @@ export type BoostNetState = {
  * that each client re-simulates (sys/volley.ts, sys/remote-fire.ts).
  */
 export type PlayerNetState = {
-  /** The sender's performance.now() when this state left: the stamp remote
-   *  ships are interpolated against (net/peer-roster.ts). */
+  /** Server time (`client.serverNow()`) when this state left: the stamp
+   *  remote ships are interpolated against (net/peer-roster.ts). */
   t: number;
   /** Pose. For a remote player these hold the pose INTERPOLATED for this
    *  frame, so every reader draws and hit-tests the ship where it is drawn. */

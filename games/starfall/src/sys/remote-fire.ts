@@ -15,9 +15,6 @@ import type { FireSpec } from "./volley";
 const MAX_CATCH_UP_MS = 1000;
 /** Fast-forward substep for a shot that arrived late (ms). */
 const CATCH_UP_STEP_MS = 1000 / 30;
-/** A stamp this far past the shooter's drawn moment means its clock is not
- *  learnt yet (ms): play the shot now rather than holding it. */
-const MAX_AHEAD_MS = 2000;
 /** Queued shots per shooter: far above any fire rate across the render delay,
  *  a bound for a tab that sleeps while events keep arriving. */
 const QUEUE_CAP = 64;
@@ -27,7 +24,7 @@ const NO_BEAMS: readonly Beam[] = [];
 interface Turret {
   x: number;
   y: number;
-  /** Shooter clock. */
+  /** Server clock. */
   until: number;
 }
 
@@ -37,7 +34,7 @@ interface Shooter {
   queue: FireSpec[];
   beams: Beam[];
   turret: Turret | null;
-  /** Shooter-clock moment of the last update; null while not drawn. */
+  /** Server-clock moment of the last update; null while not drawn. */
   at: number | null;
 }
 
@@ -50,10 +47,11 @@ export interface RemoteFireDeps {
 
 /**
  * Every other player's shots, rebuilt from their `fire` events and flown
- * here with the same beam code as mine (sys/beam-sim.ts). A shooter's shots
- * play on the timeline its ship is drawn on — REMOTE_RENDER_DELAY_MS behind
- * its clock — so they leave the hull where you see it. Victims hit-test
- * these copies (sys/shield.ts): what drains you is what you saw.
+ * here with the same beam code as mine (sys/beam-sim.ts). A shot is stamped
+ * with server time, like its shooter's pose, so it plays on the timeline the
+ * ship is drawn on — REMOTE_RENDER_DELAY_MS behind the room clock — and
+ * leaves the hull where you see it. Victims hit-test these copies
+ * (sys/shield.ts): what drains you is what you saw.
  */
 export class RemoteFire {
   private readonly shooters = new Map<string, Shooter>();
@@ -77,13 +75,12 @@ export class RemoteFire {
   }
 
   /** A `fire` event (socket listener): decode and queue — the work happens
-   *  in the frame loop. Its stamp also teaches the roster the sender's clock. */
-  receive(from: string, payload: WireValue, perfNow: number): void {
+   *  in the frame loop. */
+  receive(from: string, payload: WireValue): void {
     const spec = decodeFire(payload);
     if (!spec || from === this.link.myId) {
       return;
     }
-    this.roster.observe(from, spec.t, perfNow);
     const { queue } = this.shooterFor(from);
     queue.push(spec);
     if (queue.length > QUEUE_CAP) {
@@ -94,6 +91,7 @@ export class RemoteFire {
   /** Once per frame, after the roster refresh. */
   update(perfNow: number): void {
     const { peers, peerStates } = this.link;
+    const at = this.roster.renderTime(perfNow);
     for (const [id, sh] of this.shooters) {
       if (!(id in peers)) {
         this.shooters.delete(id);
@@ -109,10 +107,6 @@ export class RemoteFire {
         sh.at = null;
         continue;
       }
-      const at = this.roster.renderTime(id, perfNow);
-      if (at === null) {
-        continue;
-      }
       const dt = sh.at === null ? 0 : Math.min(0.1, Math.max(0, (at - sh.at) / 1000));
       sh.at = at;
       if (sh.beams.length > 0) {
@@ -125,7 +119,7 @@ export class RemoteFire {
       }
       while (sh.queue.length > 0) {
         const [spec] = sh.queue;
-        if (!spec || (spec.t > at && spec.t - at < MAX_AHEAD_MS)) {
+        if (!spec || spec.t > at) {
           break;
         }
         sh.queue.shift();
@@ -139,7 +133,7 @@ export class RemoteFire {
     return this.staged.get(id) ?? this.shooters.get(id)?.beams ?? NO_BEAMS;
   }
 
-  /** Every remote shooter's beams and the shooter-clock moment they are at. */
+  /** Every remote shooter's beams and the server-clock moment they are at. */
   forEachVolley(draw: (beams: readonly Beam[], at: number) => void, perfNow: number): void {
     for (const sh of this.shooters.values()) {
       if (sh.at !== null && sh.beams.length > 0) {
@@ -194,9 +188,7 @@ export class RemoteFire {
   }
 
   /** Put one received volley in the air, flown forward to `at` if it is late. */
-  private spawn(sh: Shooter, received: FireSpec, at: number): void {
-    // A stamp from a clock not learnt yet plays as fired now.
-    const spec = received.t > at ? { ...received, t: at } : received;
+  private spawn(sh: Shooter, spec: FireSpec, at: number): void {
     const { weapon } = spec;
     if (spec.kind === "volley" && weapon.sentry) {
       sh.turret = { until: spec.t + SENTRY_LIFETIME_MS, x: spec.x, y: spec.y };

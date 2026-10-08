@@ -11,7 +11,6 @@ import {
   usesLockedAim,
 } from "../src/render/charge-progress";
 import { FIRE_BASE, decodeFire, encodeFire } from "../src/net/fire-wire";
-import { HostClock } from "../src/net/host-clock";
 import { HostIntents, readIntents } from "../src/net/intents";
 import type { IntentBatch } from "../src/net/intents";
 import type { WireRecord } from "../src/net/wire-read";
@@ -20,6 +19,7 @@ import {
   ENEMY_DETAILS,
   HOT_KEY,
   SHOTS,
+  STAMP_KEY,
   WorldEncoder,
   bucketKey,
   bucketOf,
@@ -27,6 +27,7 @@ import {
   readBucket,
   readEnemyDetail,
   readShotRow,
+  toSim,
 } from "../src/net/world-wire";
 import { burstLifetime, burstStage, contactPoint, weaponLook } from "../src/render/combat-visuals";
 import { scaleWeaponForLevel, spawnEnemyState, WEAPONS_SPECIAL } from "../src/shared/constants";
@@ -341,7 +342,7 @@ for (const end of [
 }
 console.log("PASS weapon mastery windows, generations, stacking and expiry");
 
-// ---- netcode: world rows, fire events, host clock, intents ----------------------------
+// ---- netcode: world rows, server-time stamps, fire events, intents --------------------
 
 const worldAt = (t: number): SharedState => ({
   arenaEpoch: t - 60_000,
@@ -366,15 +367,19 @@ const keysOf = (patch: WireRecord): string[] =>
   );
 
 {
+  // The host's sim clock reads T0 at server time S0.
   const T0 = 5_000_000;
+  const S0 = 1_760_000_000_000;
   const host = worldAt(T0);
   const enc = new WorldEncoder();
-  const first = enc.encode(host, T0);
+  const first = enc.encode(host, T0, S0);
   assert.ok(keysOf(first).includes(HOT_KEY), "enemies' motion goes every share");
   const rockBucket = readBucket(
     first[bucketKey(ASTEROIDS, bucketOf("rock0001", ASTEROIDS.buckets))],
   );
   assert.ok(rockBucket, "the first share carries every rock bucket");
+  assert.equal(first[STAMP_KEY], S0, "a share is stamped with server time");
+  assert.equal(rockBucket?.t, S0, "so is every bucket in it");
   const rock = rockBucket?.rows.map(readAsteroidRow).find((r) => r?.id === "rock0001");
   assert.ok(rock && Math.abs(rock.x - 1200.4) <= 0.5 && rock.vx === 12.3 && rock.radius === 41.3);
   const shotKey = bucketKey(SHOTS, bucketOf("shot0001", SHOTS.buckets));
@@ -395,13 +400,13 @@ const keysOf = (patch: WireRecord): string[] =>
     drifting.x += drifting.vx * 0.05;
     drifting.y += drifting.vy * 0.05;
   }
-  assert.deepEqual(keysOf(enc.encode(host, T0 + 50)), [bucketKey(ASTEROIDS, 0), HOT_KEY]);
+  assert.deepEqual(keysOf(enc.encode(host, T0 + 50, S0 + 50)), [bucketKey(ASTEROIDS, 0), HOT_KEY]);
   // A rock that turns resends its bucket alone.
   const [hitRock] = host.asteroids;
   if (hitRock) {
     hitRock.vx = -20;
   }
-  const turned = keysOf(enc.encode(host, T0 + 100)).filter((k) => k !== HOT_KEY);
+  const turned = keysOf(enc.encode(host, T0 + 100, S0 + 100)).filter((k) => k !== HOT_KEY);
   assert.ok(turned.includes(bucketKey(ASTEROIDS, bucketOf("rock0001", ASTEROIDS.buckets))));
   assert.ok(
     turned.every((k) => k.startsWith(ASTEROIDS.key)),
@@ -409,12 +414,12 @@ const keysOf = (patch: WireRecord): string[] =>
   );
   // An expired shot leaves on every client by itself; a consumed one is resent.
   host.enemyShots = [];
-  const expired = keysOf(enc.encode(host, T0 + 3100));
+  const expired = keysOf(enc.encode(host, T0 + 3100, S0 + 3100));
   assert.ok(!expired.includes(shotKey), "expiry needs no resend");
   host.enemyShots = [{ diesAt: T0 + 9000, id: "shot0002", vx: 0, vy: 0, x: 50, y: 50 }];
-  enc.encode(host, T0 + 3150);
+  enc.encode(host, T0 + 3150, S0 + 3150);
   host.enemyShots = [];
-  const eaten = keysOf(enc.encode(host, T0 + 3200));
+  const eaten = keysOf(enc.encode(host, T0 + 3200, S0 + 3200));
   assert.ok(
     eaten.includes(bucketKey(SHOTS, bucketOf("shot0002", SHOTS.buckets))),
     "a taken shot is resent",
@@ -462,21 +467,28 @@ const keysOf = (patch: WireRecord): string[] =>
   assert.equal(chain?.chain?.length, 2);
   console.log("PASS fire events rebuild the shooter's exact volley");
 
-  const clock = new HostClock();
-  clock.observe(10_000, 10_090);
-  const due = clock.toLocal(10_500);
-  clock.observe(10_050, 10_141);
-  clock.observe(10_100, 10_198);
-  assert.equal(clock.toLocal(10_500), due, "a host deadline converts the same way every snapshot");
-  // A faster path (50 ms) slews the estimate in gradually; the held offset
-  // follows once it has moved far enough to matter.
-  clock.observe(10_150, 10_200);
-  assert.equal(clock.toLocal(10_500), due, "held while the estimate slews");
-  clock.observe(10_600, 10_660);
-  assert.equal(clock.toLocal(10_500), 10_550, "adopted once the slew has moved it");
-  clock.reset();
-  assert.equal(clock.toLocal(10_500), 10_500, "a new host starts unconverted");
-  console.log("PASS host clock holds its offset for deadlines");
+  // The epoch rides as server time, converted once per value: a share whose
+  // stamp jitters by a millisecond against the sim clock leaves it alone.
+  const epochHost = worldAt(T0);
+  const epochEnc = new WorldEncoder();
+  const epochWire = epochEnc.encode(epochHost, T0, S0)["arenaEpoch"];
+  assert.equal(epochWire, S0 - 60_000, "the arena epoch goes out as server time");
+  assert.equal(epochEnc.encode(epochHost, T0 + 50, S0 + 51)["arenaEpoch"], epochWire);
+  epochHost.arenaEpoch -= 5000;
+  assert.equal(epochEnc.encode(epochHost, T0 + 100, S0 + 100)["arenaEpoch"], S0 - 65_000);
+  // A guest's sim clock shares no epoch with the host's: it reads G0 at server
+  // time S0. Decoding 30 ms after the share, a row is 30 ms old and a
+  // deadline lands at the same moment on the guest's own clock.
+  const G0 = 90_000;
+  const guestClock = { now: G0 + 30, serverNow: S0 + 30 };
+  const shotRows = readBucket(first[shotKey]);
+  assert.ok(shotRows);
+  const [guestShot] = shotRows.rows.map((r) =>
+    readShotRow(r, (rel) => toSim(shotRows.t + rel, guestClock)),
+  );
+  assert.equal(guestShot?.diesAt, G0 + 3000, "a deadline maps onto the guest's sim clock");
+  assert.equal(guestClock.serverNow - shotRows.t, 30, "rows age by server time");
+  console.log("PASS world stamps are server time; deadlines map onto each client's clock");
 
   let delivered: IntentBatch | null = null;
   const inboxLink = new Link({

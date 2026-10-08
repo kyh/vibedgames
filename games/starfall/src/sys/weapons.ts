@@ -270,13 +270,13 @@ export class Weapons {
   }
 
   /** Put a trigger pull's beams in the air here, and send the same spec to
-   *  everyone else (stamped on the clock remotes draw my ship against). */
+   *  everyone else, stamped with server time like my pose. */
   private fire(spec: FireSpec): void {
     for (const b of buildVolley(spec)) {
       b.mastery = this.link.trailer ? null : this.pilot.mastery.shot(b.weapon.name, spec.t);
       this.beams.push(b);
     }
-    this.link.broadcast("fire", encodeFire({ ...spec, t: performance.now() }));
+    this.link.broadcast("fire", encodeFire({ ...spec, t: this.link.serverNow() }));
   }
 
   /** A volley of `w` from the ship as it stands. */

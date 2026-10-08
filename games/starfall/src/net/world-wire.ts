@@ -30,8 +30,9 @@ import type { WireRecord, WireValue } from "./wire-read";
  * whenever it is written, so the world is cut into small keys, each written
  * only when something in it changed:
  *
- * - `t`: the host's sim clock at the send. Every patch carries it; a guest's
- *   HostClock learns the host's time from it.
+ * - `t`: server time (`client.serverNow()`) at the send — the room's one
+ *   clock, so a guest reads a row's age straight off its own server clock,
+ *   and nothing changes when the host does. Every patch carries it.
  * - Row buckets `[stamp, rows]` (asteroids `as0..3`, enemy shots `es0..15`,
  *   shards `sh0..3`, items `it0`, pulls `pl0`, the UFO `uf0`, the beacon
  *   `bc0`, enemy details `ec0..15`). An entity lives in the bucket its id
@@ -39,11 +40,12 @@ import type { WireRecord, WireValue } from "./wire-read";
  *   is taken — never for motion a guest can extrapolate, and never for an
  *   expiry or edge cull every client applies by itself. Positions are as of
  *   the stamp and times are relative to it, so a guest ages each row by the
- *   host clock before comparing it with its own copy.
+ *   server clock before comparing it with its own copy, and turns each
+ *   deadline into its own sim clock (shared/clock.ts).
  * - `en`: every enemy's position, velocity and heading — steering changes
  *   them each tick, so this one row set goes every tick.
- * - `arenaEpoch`, `playW`, `playH`, `sectorBossIdx`: primitives, which the
- *   SDK only sends when they change.
+ * - `arenaEpoch` (server time), `playW`, `playH`, `sectorBossIdx`:
+ *   primitives, which the SDK only sends when they change.
  *
  * The server keeps the last value of every key, so a late joiner (and a guest
  * promoted to host) still receives the whole world.
@@ -163,6 +165,9 @@ export class WorldEncoder {
   private refreshCursor = 0;
   /** Enemies in the last hot row set (an empty set is sent once). */
   private hotCount = 0;
+  /** The arena epoch (sim clock) and the server time it went out as:
+   *  converted once per value, so clock jitter never re-sends it. */
+  private epoch = { sim: Number.NaN, wire: 0 };
 
   /** Forget what guests hold: the next patch carries every bucket. */
   reset(): void {
@@ -175,11 +180,17 @@ export class WorldEncoder {
     }
   }
 
-  encode(w: SharedState, now: number): WireRecord {
+  /** This share's patch. `now` is the sim clock the world is kept in;
+   *  `stamp` is server time at that same instant (whole ms). */
+  encode(w: SharedState, now: number, stamp: number): WireRecord {
     const t = Math.round(now);
+    const share = { now: t, stamp };
     const patch: WireRecord = {};
-    patch[STAMP_KEY] = t;
-    patch["arenaEpoch"] = Math.round(w.arenaEpoch);
+    patch[STAMP_KEY] = stamp;
+    if (w.arenaEpoch !== this.epoch.sim) {
+      this.epoch = { sim: w.arenaEpoch, wire: stamp + Math.round(w.arenaEpoch - t) };
+    }
+    patch["arenaEpoch"] = this.epoch.wire;
     patch["playW"] = w.playW;
     patch["playH"] = w.playH;
     patch["sectorBossIdx"] = w.sectorBossIdx;
@@ -187,14 +198,14 @@ export class WorldEncoder {
     if (this.shares % REFRESH_EVERY === 0) {
       this.queueRefresh();
     }
-    this.track(patch, w, t, {
+    this.track(patch, w, share, {
       cullMargin: ASTEROID_CULL_MARGIN,
       family: ASTEROIDS,
       list: w.asteroids,
       row: (a) => [a.id, Math.round(a.x), Math.round(a.y), q1(a.vx), q1(a.vy), q1(a.radius)],
       sig: (a) => `${q1(a.vx)},${q1(a.vy)},${q1(a.radius)}`,
     });
-    this.track(patch, w, t, {
+    this.track(patch, w, share, {
       cullMargin: 60,
       family: SHOTS,
       list: w.enemyShots,
@@ -208,7 +219,7 @@ export class WorldEncoder {
       ],
       sig: (s) => `${Math.round(s.vx)},${Math.round(s.vy)},${Math.round(s.diesAt)}`,
     });
-    this.track(patch, w, t, {
+    this.track(patch, w, share, {
       cullMargin: Infinity,
       family: SHARDS,
       list: w.shards,
@@ -222,7 +233,7 @@ export class WorldEncoder {
       ],
       sig: (s) => `${q1(s.vx)},${q1(s.vy)},${Math.round(s.diesAt)}`,
     });
-    this.track(patch, w, t, {
+    this.track(patch, w, share, {
       cullMargin: Infinity,
       family: ITEMS,
       list: w.items,
@@ -238,14 +249,14 @@ export class WorldEncoder {
       ],
       sig: (it) => `${q1(it.vx)},${q1(it.vy)},${Math.round(it.diesAt)},${it.kind}`,
     });
-    this.track(patch, w, t, {
+    this.track(patch, w, share, {
       cullMargin: Infinity,
       family: PULLS,
       list: w.pulls.map((p) => ({ ...p, diesAt: p.until })),
       row: (p, at) => [p.id, Math.round(p.x), Math.round(p.y), Math.round(p.until - at)],
       sig: (p) => `${Math.round(p.until)}`,
     });
-    this.track(patch, w, t, {
+    this.track(patch, w, share, {
       cullMargin: Infinity,
       family: UFO,
       list: w.ufo ? [w.ufo] : [],
@@ -261,7 +272,7 @@ export class WorldEncoder {
       sig: (u) => `${Math.round(u.destX)},${Math.round(u.destY)},${q1(u.hp)},${u.blinkUntil}`,
     });
     const b = w.beacon;
-    this.track(patch, w, t, {
+    this.track(patch, w, share, {
       cullMargin: Infinity,
       family: BEACON,
       list: b ? [{ ...b, id: "beacon" }] : [],
@@ -277,7 +288,7 @@ export class WorldEncoder {
         `${Math.round(bc.x)},${Math.round(bc.y)},${bc.activeAt},${bc.diesAt},${bc.controllerId},${bc.contested}`,
     });
     // Details first, so a guest meets a new enemy's kind with its first pose.
-    this.track(patch, w, t, {
+    this.track(patch, w, share, {
       cullMargin: -1,
       family: ENEMY_DETAILS,
       list: w.enemies,
@@ -285,7 +296,7 @@ export class WorldEncoder {
       sig: enemyDetailSig,
     });
     if (w.enemies.length > 0 || this.hotCount !== 0) {
-      patch[HOT_KEY] = [t, w.enemies.map(enemyHotRow)];
+      patch[HOT_KEY] = [stamp, w.enemies.map(enemyHotRow)];
       this.hotCount = w.enemies.length;
     }
     return patch;
@@ -304,14 +315,17 @@ export class WorldEncoder {
     this.refreshCursor = 0;
   }
 
-  /** Diff one family against what was sent, then write its dirty buckets. */
+  /** Diff one family against what was sent, then write its dirty buckets:
+   *  rows on the sim clock (`at.now`, deadlines relative to it), each bucket
+   *  stamped with the server time of that instant. */
   private track<T extends Trackable>(
     patch: WireRecord,
     w: SharedState,
-    t: number,
+    at: { now: number; stamp: number },
     spec: Tracking<T>,
   ): void {
     const { family } = spec;
+    const t = at.now;
     let sent = this.sent.get(family.key);
     if (!sent) {
       sent = new Map();
@@ -359,7 +373,7 @@ export class WorldEncoder {
           rows.push(spec.row(e, t));
         }
       }
-      patch[key] = [t, rows];
+      patch[key] = [at.stamp, rows];
     }
   }
 }
@@ -419,7 +433,7 @@ const enemyDetailRow = (e: EnemyState, t: number): WireValue[] => [
 
 // ---- guest side: decode ------------------------------------------------------------
 
-/** One decoded bucket: its stamp (host clock) and raw rows. */
+/** One decoded bucket: its stamp (server clock) and raw rows. */
 export interface Bucket {
   t: number;
   rows: WireValue[][];
@@ -447,9 +461,20 @@ export const readBucket = (v: WireValue | undefined): Bucket | null => {
 export const isWorld = (s: WireRecord): boolean =>
   wireNum(s[STAMP_KEY]) !== null && wireNum(s["arenaEpoch"]) !== null;
 
-/** Host time → this client's clock, for one bucket: `at(rel)` is the absolute
- *  local time of a stamp-relative offset. */
+/** One bucket's times on this client's sim clock: `at(rel)` is the local
+ *  deadline of a stamp-relative offset. */
 export type BucketTime = (rel: number) => number;
+
+/** One decode's instant on both clocks: the sim clock the world is kept in
+ *  (shared/clock.ts) and server time, which every stamp on the wire is in. */
+export interface WireClock {
+  now: number;
+  serverNow: number;
+}
+
+/** A server-time moment on this client's sim clock. */
+export const toSim = (serverT: number, clock: WireClock): number =>
+  clock.now + (serverT - clock.serverNow);
 
 /** A relative deadline that may be absent (0 = none). */
 const optTime = (rel: number | null, at: BucketTime): number =>

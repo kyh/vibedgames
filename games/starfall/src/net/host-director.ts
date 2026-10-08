@@ -231,14 +231,21 @@ export class HostDirector {
       (s) => s.diesAt > now && inWorld(s.x, s.y, 60, w.playW, w.playH),
     );
     if (!this.link.offline && this.shareRate.due(delta)) {
-      this.link.patchShared(this.encoder.encode(w, now));
+      this.share(now);
     }
   }
 
   /** Share the whole world right now (a freshly seeded room). */
   shareNow(now: number): void {
     this.encoder.reset();
-    this.link.patchShared(this.encoder.encode(this.world, now));
+    this.share(now);
+  }
+
+  /** One share, stamped with the server time of the instant `now` (sim
+   *  clock) — the clock every guest ages its rows by. */
+  private share(now: number): void {
+    const stamp = Math.round(this.link.serverAt(now));
+    this.link.patchShared(this.encoder.encode(this.world, now, stamp));
   }
 
   /** First tick after promotion (or first-ever host): zeroed spawn stamps

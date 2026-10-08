@@ -28,7 +28,7 @@ export interface PlayerNetDeps {
   remoteFire: RemoteFire;
 }
 
-/** My ship on the wire — a fixed-rate push of flat primitives, stamped for the receivers' interpolation — and the inbound event router: other players' shots, kill credit, and host intents when I am host. */
+/** My ship on the wire — a fixed-rate push of flat primitives, stamped with server time for the receivers' interpolation — and the inbound event router: other players' shots, kill credit, and host intents when I am host. */
 export class PlayerNet {
   /** Steady send cadence: keeps the remainder, so updates leave evenly. */
   private readonly sendRate = new FixedRate(PLAYER_NET_HZ);
@@ -98,8 +98,8 @@ export class PlayerNet {
       shieldHp: Math.max(0, Math.round(this.shield.shieldHp)),
       shieldMod: this.shield.shieldModNetState(now),
       streak: this.progress.streak,
-      // The interpolation stamp: the same clock my fire events carry.
-      t: performance.now(),
+      // The interpolation stamp: server time, the clock my fire events carry.
+      t: this.link.serverNow(),
       tesla: this.weapons.teslaActive(now),
       twin: boosts.has("twin"),
       vx: this.pilot.shipVX,
@@ -115,7 +115,7 @@ export class PlayerNet {
 
   handleEvent(event: string, payload: WireValue, from: string): void {
     if (event === "fire") {
-      this.remoteFire.receive(from, payload, performance.now());
+      this.remoteFire.receive(from, payload);
       return;
     }
     if (event === "player_killed") {

@@ -1,6 +1,7 @@
 import { MultiplayerClient } from "@vibedgames/multiplayer";
-import type { PlayerMap } from "@vibedgames/multiplayer";
+import type { PlayerMap, ServerClock } from "@vibedgames/multiplayer";
 import type { WireRecord, WireValue } from "../net/wire-read";
+import { now as simNow } from "../shared/clock";
 import { OFFLINE_FALLBACK_MS } from "../shared/constants";
 import type { PlayerNetState } from "../shared/constants";
 import type { TrailerStaging } from "../trailer/trailer-staging";
@@ -106,8 +107,29 @@ export class Link {
     }
   }
 
+  /** In the room with its clock measured. Everything on the wire is stamped
+   *  with server time, so nothing goes out — and no snapshot is read — before
+   *  the first clock probe answers, about one round trip after admission. */
   get connected(): boolean {
-    return this.client?.connectionStatus === "connected";
+    return this.client?.connectionStatus === "connected" && this.client.serverClock.synced;
+  }
+
+  /** The room's shared clock (null offline): every stamp on the wire is in
+   *  it, so a stamp means the same instant to every client, whoever hosts. */
+  get serverClock(): ServerClock | null {
+    return this.offline ? null : (this.client?.serverClock ?? null);
+  }
+
+  /** Server time at local `performance.now()` time `localNow`. Offline,
+   *  where nothing is stamped, the local clock. */
+  serverNow(localNow: number = performance.now()): number {
+    return this.serverClock?.now(localNow) ?? localNow;
+  }
+
+  /** Server time at the sim-clock instant `simT` (shared/clock.ts): online
+   *  the sim clock never pauses, so the two tick together. */
+  serverAt(simT: number): number {
+    return this.serverNow() + (simT - simNow());
   }
 
   /** In the arena — connected, or reconnecting after a drop — or running the

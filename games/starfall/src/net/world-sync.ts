@@ -20,7 +20,6 @@ import type { EnemyAi } from "../sys/enemy-ai";
 import { inWorld, wrapAngle } from "../sys/geometry";
 import type { Pickups } from "../sys/pickups";
 import type { Shield } from "../sys/shield";
-import { HostClock } from "./host-clock";
 import type { HostDirector } from "./host-director";
 import { adoptShared, emptyShared, indexById } from "./shared-world";
 import { wireNum } from "./wire-read";
@@ -34,7 +33,6 @@ import {
   PULLS,
   SHARDS,
   SHOTS,
-  STAMP_KEY,
   UFO,
   bucketKey,
   bucketOf,
@@ -49,8 +47,9 @@ import {
   readShardRow,
   readShotRow,
   readUfoRow,
+  toSim,
 } from "./world-wire";
-import type { Bucket, BucketFamily, BucketTime, EnemyDetail } from "./world-wire";
+import type { Bucket, BucketFamily, BucketTime, EnemyDetail, WireClock } from "./world-wire";
 
 export interface WorldSyncDeps {
   world: SharedState;
@@ -71,6 +70,11 @@ const CORRECTION_RATE = 10;
 /** Snapshot ages are clamped to this (ms): a bucket is re-sent every few
  *  seconds, so anything older is a stale clock, not a real age. */
 const MAX_AGE_MS = 10_000;
+/** A wire time this close to the one last adopted is the same moment sent
+ *  again (ms): it rides as an offset from each share's stamp, so it can
+ *  wobble by a millisecond, or a few when the host changes. Arena epochs and
+ *  beacon starts are minutes apart. */
+const RESEND_SLACK_MS = 1000;
 /** Edge cull for enemy shots (the host prunes past it too). */
 const SHOT_CULL_MARGIN = 60;
 
@@ -92,15 +96,7 @@ interface Fold<T extends { id: string; x: number; y: number }> {
 export class WorldSync {
   offlineSeeded = false;
 
-  /** The host's clock (snapshot ages, deadline conversion). */
-  private readonly hostTime = new HostClock();
-
-  /** Host whose stamps the clock tracks. */
-  private clockHost: string | null = null;
-
-  /** Shared-state object last seen by the socket listener / decoded. */
-  private seenRef: WireRecord | null = null;
-
+  /** Shared-state object last decoded. */
   private decodedRef: WireRecord | null = null;
 
   /** Bucket key → stamp last folded in. */
@@ -117,9 +113,9 @@ export class WorldSync {
   /** The working copy has taken in at least one room snapshot. */
   private worldLive = false;
 
-  /** Host-clock arena epoch and beacon start last converted: their local
-   *  copies change only when the host's value does, never because the clock
-   *  offset was revised — the boss tracker and the beacon's instance check
+  /** Wire (server-time) arena epoch and beacon start last adopted: their
+   *  local copies change only when the moment itself does, never for
+   *  re-send jitter — the boss tracker and the beacon's instance check
    *  compare them exactly. */
   private rawEpoch = Number.NaN;
 
@@ -147,31 +143,6 @@ export class WorldSync {
     this.pickups = deps.pickups;
     this.host = deps.host;
     this.ai = deps.ai;
-  }
-
-  /** Socket listener: seed an empty room, and time each new snapshot's
-   *  arrival for the host clock. The fold itself waits for the frame loop. */
-  onUpdate(): void {
-    this.ensureSeeded();
-    const s = this.link.sharedState;
-    if (!s || s === this.seenRef) {
-      return;
-    }
-    this.seenRef = s;
-    const host = this.link.hostId;
-    // A promotion keeps the old host's clock: its last snapshot is still to
-    // be folded in on the way to adopting the world.
-    if (host !== this.clockHost && host !== this.link.myId) {
-      this.hostTime.reset();
-      this.clockHost = host;
-    }
-    // Every stamp until this client holds the world itself — a guest, or a
-    // host still to adopt a room it inherited. An adopted host's own patches
-    // never come back.
-    const t = wireNum(s[STAMP_KEY]);
-    if (!this.link.hostSnapshotReady && t !== null) {
-      this.hostTime.observe(t, simNow());
-    }
   }
 
   /** The room holds a world (solo: the local one is it). */
@@ -210,8 +181,8 @@ export class WorldSync {
     // host tick rearms spawn/beacon cadence instead of bursting overdue spawns.
     this.ai.enemySim.clear();
     this.host.wasHost = false;
-    // Guests hold the old host's stamps and copies; the first share re-bases
-    // every bucket on this clock.
+    // Guests hold the old host's copies, which this encoder never sent: the
+    // first share carries every bucket.
     this.host.markWorldDirty();
     // Admission is a baseline, not evidence that a missed encounter just
     // happened. Fresh events on the admitted world still announce normally.
@@ -225,7 +196,8 @@ export class WorldSync {
    * The first host to connect seeds the world (arenaEpoch = now + the opening
    * asteroid field). Guests adopt the host's existing state; a guest promoted
    * to host after a migration keeps the live world — and the epoch — instead
-   * of resetting it.
+   * of resetting it. Polled every frame: an online seed waits for the room
+   * clock (Link.connected), and no socket message announces that.
    */
   ensureSeeded(): void {
     // Seed the opening asteroid field within the play bounds for the current
@@ -370,18 +342,18 @@ export class WorldSync {
   }
 
   /** Fold the room snapshot into the working copy: every bucket whose stamp
-   *  moved, each row aged by the host clock to now. */
+   *  moved, each row aged by the server clock to now. */
   private decode(now: number): void {
     const s = this.link.sharedState;
     if (!s || s === this.decodedRef || !isWorld(s)) {
       return;
     }
     this.decodedRef = s;
-    const hostNow = this.hostTime.now(now);
-    this.decodeArena(s);
+    const clock: WireClock = { now, serverNow: this.link.serverAt(now) };
+    this.decodeArena(s, clock);
     const w = this.world;
     for (let i = 0; i < ASTEROIDS.buckets; i += 1) {
-      w.asteroids = this.fold(s, i, hostNow, {
+      w.asteroids = this.fold(s, i, clock, {
         claimed: null,
         family: ASTEROIDS,
         keep: (a) => inWorld(a.x, a.y, ASTEROID_CULL_MARGIN, w.playW, w.playH),
@@ -395,7 +367,7 @@ export class WorldSync {
       });
     }
     for (let i = 0; i < SHOTS.buckets; i += 1) {
-      w.enemyShots = this.fold(s, i, hostNow, {
+      w.enemyShots = this.fold(s, i, clock, {
         claimed: this.shield.recentConsumedShots,
         family: SHOTS,
         keep: (shot) =>
@@ -410,7 +382,7 @@ export class WorldSync {
       });
     }
     for (let i = 0; i < SHARDS.buckets; i += 1) {
-      w.shards = this.fold(s, i, hostNow, {
+      w.shards = this.fold(s, i, clock, {
         claimed: this.pickups.recentShardPickups,
         family: SHARDS,
         keep: (shard) => shard.diesAt > now,
@@ -423,7 +395,7 @@ export class WorldSync {
         },
       });
     }
-    w.items = this.fold(s, 0, hostNow, {
+    w.items = this.fold(s, 0, clock, {
       claimed: this.pickups.recentPickups,
       family: ITEMS,
       keep: (it) => it.diesAt > now,
@@ -435,27 +407,27 @@ export class WorldSync {
         cur.diesAt = row.diesAt;
       },
     });
-    this.decodeUfo(s, hostNow);
-    this.decodeStatics(s, hostNow);
-    this.decodeEnemies(s, hostNow);
+    this.decodeUfo(s, clock);
+    this.decodeStatics(s, clock);
+    this.decodeEnemies(s, clock);
     this.worldLive = true;
     this.hud.observeBossEncounters(w);
   }
 
-  /** A bucket that changed since it was last folded in, with the clock that
-   *  turns its stamp-relative times into this client's. */
+  /** A bucket that changed since it was last folded in, with its age and
+   *  the mapping of its stamp-relative times onto this client's sim clock. */
   private freshBucket(
     s: WireRecord,
     key: string,
-    hostNow: number,
+    clock: WireClock,
   ): { bucket: Bucket; ageS: number; at: BucketTime } | null {
     const bucket = readBucket(s[key]);
     if (!bucket || this.folded.get(key) === bucket.t) {
       return null;
     }
     this.folded.set(key, bucket.t);
-    const ageS = PhaserMath.Clamp(hostNow - bucket.t, 0, MAX_AGE_MS) / 1000;
-    const at: BucketTime = (rel) => this.hostTime.toLocal(bucket.t + rel);
+    const ageS = PhaserMath.Clamp(clock.serverNow - bucket.t, 0, MAX_AGE_MS) / 1000;
+    const at: BucketTime = (rel) => toSim(bucket.t + rel, clock);
     return { ageS, at, bucket };
   }
 
@@ -464,11 +436,11 @@ export class WorldSync {
   private fold<T extends { id: string; x: number; y: number; vx: number; vy: number }>(
     s: WireRecord,
     bucket: number,
-    hostNow: number,
+    clock: WireClock,
     spec: Fold<T>,
   ): T[] {
     const { family, local, claimed } = spec;
-    const fresh = this.freshBucket(s, bucketKey(family, bucket), hostNow);
+    const fresh = this.freshBucket(s, bucketKey(family, bucket), clock);
     if (!fresh) {
       return local;
     }
@@ -500,12 +472,12 @@ export class WorldSync {
     );
   }
 
-  private decodeArena(s: WireRecord): void {
+  private decodeArena(s: WireRecord, clock: WireClock): void {
     const w = this.world;
     const epoch = wireNum(s["arenaEpoch"]);
-    if (epoch !== null && epoch !== this.rawEpoch) {
+    if (epoch !== null && !(Math.abs(epoch - this.rawEpoch) <= RESEND_SLACK_MS)) {
       this.rawEpoch = epoch;
-      w.arenaEpoch = this.hostTime.toLocal(epoch);
+      w.arenaEpoch = toSim(epoch, clock);
     }
     // Boss-guarantee marker (dir-006): adopt like the epoch so a promoted
     // host never double-guarantees.
@@ -525,8 +497,8 @@ export class WorldSync {
   }
 
   /** The UFO cruises to its host-picked destination; age it along that leg. */
-  private decodeUfo(s: WireRecord, hostNow: number): void {
-    const fresh = this.freshBucket(s, bucketKey(UFO, 0), hostNow);
+  private decodeUfo(s: WireRecord, clock: WireClock): void {
+    const fresh = this.freshBucket(s, bucketKey(UFO, 0), clock);
     if (!fresh) {
       return;
     }
@@ -552,9 +524,9 @@ export class WorldSync {
 
   /** Pulls and the beacon hold still: adopt them as sent. Phases and
    *  countdowns derive from their (converted) deadlines locally. */
-  private decodeStatics(s: WireRecord, hostNow: number): void {
+  private decodeStatics(s: WireRecord, clock: WireClock): void {
     const w = this.world;
-    const pulls = this.freshBucket(s, bucketKey(PULLS, 0), hostNow);
+    const pulls = this.freshBucket(s, bucketKey(PULLS, 0), clock);
     if (pulls) {
       w.pulls = [];
       for (const raw of pulls.bucket.rows) {
@@ -564,13 +536,13 @@ export class WorldSync {
         }
       }
     }
-    const beacon = this.freshBucket(s, bucketKey(BEACON, 0), hostNow);
+    const beacon = this.freshBucket(s, bucketKey(BEACON, 0), clock);
     if (beacon) {
       const [raw] = beacon.bucket.rows;
       const next = raw ? readBeaconRow(raw, beacon.at) : null;
       // The same beacon re-sent (control changed): keep its converted times.
       const start = raw ? beacon.bucket.t + (wireNum(raw[2]) ?? 0) : Number.NaN;
-      if (next && w.beacon && start === this.rawBeaconStart) {
+      if (next && w.beacon && Math.abs(start - this.rawBeaconStart) <= RESEND_SLACK_MS) {
         next.activeAt = w.beacon.activeAt;
         next.diesAt = w.beacon.diesAt;
       }
@@ -581,11 +553,11 @@ export class WorldSync {
 
   /** Enemy details (kind, hp, telegraphs) arrive on change; every enemy's
    *  motion arrives each share and names who is alive. */
-  private decodeEnemies(s: WireRecord, hostNow: number): void {
+  private decodeEnemies(s: WireRecord, clock: WireClock): void {
     const w = this.world;
     const byId = indexById(w.enemies);
     for (let i = 0; i < ENEMY_DETAILS.buckets; i += 1) {
-      const detailBucket = this.freshBucket(s, bucketKey(ENEMY_DETAILS, i), hostNow);
+      const detailBucket = this.freshBucket(s, bucketKey(ENEMY_DETAILS, i), clock);
       if (!detailBucket) {
         continue;
       }
@@ -601,7 +573,7 @@ export class WorldSync {
         }
       }
     }
-    const fresh = this.freshBucket(s, HOT_KEY, hostNow);
+    const fresh = this.freshBucket(s, HOT_KEY, clock);
     if (!fresh) {
       return;
     }

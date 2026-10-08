@@ -29,8 +29,9 @@ export type FireKind = "volley" | "turret" | "reflect" | "chain";
 
 export interface FireSpec {
   kind: FireKind;
-  /** The shooter's performance.now() at the shot — the same clock its pose is
-   *  stamped with, so receivers play the shot on the timeline the hull is drawn. */
+  /** When the trigger was pulled: the shooter's sim clock for its own beams;
+   *  on the wire, server time — the clock its pose is stamped with, so
+   *  receivers play the shot on the timeline the hull is drawn on. */
   t: number;
   /** WEAPONS_SPECIAL index, or one of the FIRE_* codes (net/fire-wire.ts). */
   code: number;

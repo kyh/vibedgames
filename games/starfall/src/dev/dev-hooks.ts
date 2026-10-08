@@ -211,13 +211,13 @@ export const installDevHooks = (scene: SceneInternals): void => {
         return scene.world;
       },
     },
-    /** Host only: rewind/forward the intensity director. */
+    /** Host only: rewind/forward the intensity director (sim clock; the
+     *  next share puts it on the wire as server time). */
     setArenaEpoch: (epochMs: number): void => {
       if (!scene.link.amHost) {
         return;
       }
       scene.world.arenaEpoch = epochMs;
-      scene.link.patchShared({ arenaEpoch: epochMs });
     },
     /** Set the base shield directly; stamps the damage clock so regen
      *  behaves as after a real drain. 0 = death (via the real pipeline). */
