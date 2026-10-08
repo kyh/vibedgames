@@ -3,6 +3,9 @@ import path from "node:path";
 
 import { EXAMPLE_ASSET, EXAMPLE_REFERENCE, EXAMPLE_SCRIPT, SKILL_TEMPLATE } from "./templates.js";
 
+// Ported from `init_skill.py` in Anthropic's skill-creator (Apache-2.0; see
+// plugins/vibedgames/skills/skill-creator/references/credits.md).
+
 /** Hyphenated skill name to Title Case, for display in the scaffold. */
 export const titleCaseSkillName = (skillName: string): string =>
   skillName

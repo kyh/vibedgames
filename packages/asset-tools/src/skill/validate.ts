@@ -8,6 +8,9 @@ import type { YamlValue } from "./frontmatter.js";
 /**
  * Structural validation of a skill directory — the checks that decide whether
  * a skill will load at all, kept separate from the quality analysis.
+ *
+ * Ported from `quick_validate.py` in Anthropic's skill-creator (Apache-2.0;
+ * see plugins/vibedgames/skills/skill-creator/references/credits.md).
  */
 
 /** The keys the SKILL.md spec allows; anything else fails packaging upstream. */

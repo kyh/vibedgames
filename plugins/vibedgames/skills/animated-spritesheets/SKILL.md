@@ -100,7 +100,8 @@ Ship it as PNG or **lossless** WebP (`--columns` so no side exceeds 4096 px — 
    ends up the same scale, so the character doesn't "breathe" size between frames.
    `--no-pixel-snap` keeps the smooth high-res look (for painterly/non-pixel
    sprites); `--snap-k-colors` sets palette size. Needs ≥~512px cells to work well
-   — hence the 2K board (see `pixel-snapper`).
+   — hence the 2K board (see `pixel-snapper`). The snapper is a port of an
+   MIT-licensed upstream; attribution in `references/credits.md`.
 4. `normalize-canvas.mjs` — place each frame on a shared 256×256 anchor with
    **headroom** (`--char-fill`, default ~0.5 of the cell) so attack arcs and big
    poses never clip the edge.

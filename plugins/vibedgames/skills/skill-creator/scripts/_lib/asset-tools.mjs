@@ -491,65 +491,41 @@ without a human.
 
 Delete any of references/, scripts/, assets/ this skill does not need.
 `;
-var EXAMPLE_REFERENCE = (skillTitle) => `# Reference Documentation for ${skillTitle}
+var EXAMPLE_REFERENCE = (skillTitle) => `# ${skillTitle} reference
 
-This is a placeholder for detailed reference documentation.
-Replace with actual reference content or delete if not needed.
+Placeholder. Replace it with depth SKILL.md should not carry inline, or delete it.
 
-Example real reference docs from other skills:
-- product-management/references/communication.md - Comprehensive guide for status updates
-- product-management/references/context_building.md - Deep-dive on gathering context
-- bigquery/references/ - API references and query examples
+A reference earns its place when only part of the work needs it: the full
+contract of a tool, a long recipe, a catalogue of values. SKILL.md says when to
+open it ("open when ...") and the agent skips it the rest of the time.
 
-## When Reference Docs Are Useful
+References in other skills of this plugin:
+- threejs/references/gltf-loading-guide.md - loading, caching and normalising GLB models
+- phaser/references/tilemaps.md - Tiled maps, layers and collision in Phaser
+- playtest/references/scripted-playtest.md - driving a game through a scripted harness
 
-Reference docs are ideal for:
-- Comprehensive API documentation
-- Detailed workflow guides
-- Complex multi-step processes
-- Information too lengthy for main SKILL.md
-- Content that's only needed for specific use cases
+## Shape
 
-## Structure Suggestions
-
-### API Reference Example
-- Overview
-- Authentication
-- Endpoints with examples
-- Error codes
-- Rate limits
-
-### Workflow Guide Example
-- Prerequisites
-- Step-by-step instructions
-- Common patterns
-- Troubleshooting
-- Best practices
+- Lead with the decision or the command, not the background.
+- One topic per file; split a section out when only some tasks need it.
+- Keep the numbers, flags and failure modes. Cut what any model already knows.
 `;
-var EXAMPLE_ASSET = `# Example Asset File
+var EXAMPLE_ASSET = `# Example asset
 
-This placeholder represents where asset files would be stored.
-Replace with actual asset files (templates, images, fonts, etc.) or delete if not needed.
+Placeholder. Replace it with files the skill uses while it works, or delete it.
 
-Asset files are NOT intended to be loaded into context, but rather used within
-the output Claude produces.
+Assets are not read into context. A script consumes them, or the agent copies
+them into the game: a starter scene, a palette, a font, a level template, sample
+data for a script to chew on.
 
-Example asset files from other skills:
-- Brand guidelines: logo.png, slides_template.pptx
-- Frontend builder: hello-world/ directory with HTML/React boilerplate
-- Typography: custom-font.ttf, font-family.woff2
-- Data: sample_data.csv, test_dataset.json
+## Common asset types
 
-## Common Asset Types
+- Starter code: a scene file, a config, a small project directory
+- Art: .png, .svg, .ase palettes and reference sprites
+- Fonts: .ttf, .woff2
+- Data: .json, .csv level or tuning tables
 
-- Templates: .pptx, .docx, boilerplate directories
-- Images: .png, .jpg, .svg, .gif
-- Fonts: .ttf, .otf, .woff, .woff2
-- Boilerplate code: Project directories, starter files
-- Icons: .ico, .svg
-- Data files: .csv, .json, .xml, .yaml
-
-Note: This is a text placeholder. Actual assets can be any file type.
+Any file type works; this text file only marks the folder.
 `;
 var EXAMPLE_SCRIPT = (skillName) => `#!/usr/bin/env node
 /**
