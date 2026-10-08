@@ -43,6 +43,6 @@ World tooling (see [CLAUDE.md](./CLAUDE.md) for when each is required): `pnpm ba
 | Esc (touch ⏸)                 | pause — the overlay also holds RESTART RUN |
 | R                             | restart                                    |
 
-Multiplayer: everyone auto-joins a shared room via `@vibedgames/multiplayer` — other drivers appear as remote cars with chat bubbles.
+Multiplayer: everyone auto-joins a shared room via `@vibedgames/multiplayer` — other drivers nearby appear as remote cars with chat bubbles.
 
 Architecture, world-bake rules (`WORLD_REV`), and headless verification hooks: [CLAUDE.md](./CLAUDE.md).

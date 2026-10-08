@@ -10,8 +10,9 @@ import { FixedRate } from "@vibedgames/multiplayer";
 import type { PlayerMap } from "@vibedgames/multiplayer";
 
 import { ModelCache } from "../src/assets/loader.ts";
-import { blendPose, readRemoteState, RemoteCars } from "../src/net/remote-cars.ts";
+import { blendPose, DROP_RADIUS, readRemoteState, RemoteCars } from "../src/net/remote-cars.ts";
 import type { RemotePose } from "../src/net/remote-cars.ts";
+import { CAR, MP_INTEREST } from "../src/shared/constants.ts";
 import type { JsonObject } from "../src/shared/json.ts";
 import { skinById, skinModelUrl } from "../src/vehicle/car.ts";
 import type { Surface } from "../src/vehicle/car.ts";
@@ -148,6 +149,14 @@ class Receiver {
     const existing = this.players[id];
     if (existing) {
       this.players = { ...this.players, [id]: { ...existing, connected } };
+    }
+  }
+
+  /** The server's interest verdict on a player (`player_visibility`). */
+  setVisible(id: string, visible: boolean): void {
+    const existing = this.players[id];
+    if (existing) {
+      this.players = { ...this.players, [id]: { ...existing, visible } };
     }
   }
 
@@ -497,6 +506,64 @@ const checkCullAndBodies = async (check: Check): Promise<void> => {
   );
 };
 
+const checkInterest = (check: Check): void => {
+  // A reveal waits for the next patch (50 ms), crosses the server (up to
+  // ~250 ms) and is drawn 200 ms late, while two taxis close at up to a third
+  // over boost speed each: the radius must clear the drop radius by twice that.
+  const closing = 2 * CAR.boostSpeed * 1.35;
+  const revealGap = (closing * (50 + 250 + 200)) / 1000;
+  check(
+    "the interest radius clears where remote taxis leave the scene, on the planar keys",
+    MP_INTEREST.radius - DROP_RADIUS >= 2 * revealGap &&
+      MP_INTEREST.x === "x" &&
+      MP_INTEREST.y === "z",
+    `${MP_INTEREST.radius} u vs ${DROP_RADIUS} u + 2 × ${revealGap.toFixed(0)} u, keys ${MP_INTEREST.x}/${MP_INTEREST.y}`,
+  );
+
+  // A peer leaves the radius, then comes back 15 u from where it left: inside
+  // the respawn snap, so only a fresh start shows it there at once.
+  const rx = new Receiver();
+  rx.send(drive("i", 0, 2000, () => parkedAt(40, { msg: "hi", msgAt: 1 })));
+  rx.run(SKEW_MS + 1500);
+  const shown = rx.remote.count();
+  rx.setVisible("i", false);
+  rx.run(SKEW_MS + 5000);
+  const away = rx.remote.count() + rx.present();
+  // The reveal: the whole state first, the flag in the next message.
+  const stamp = Math.round(rx.now - SKEW_MS) - 60;
+  rx.patch("i", { ...parkedAt(55), msg: "while away", msgAt: 2, t: stamp });
+  rx.run(rx.now + 1);
+  const beforeFlag = rx.remote.count();
+  rx.setVisible("i", true);
+  let first: number | undefined;
+  rx.run(rx.now + 1, () => {
+    first ??= rx.car()?.position.x;
+  });
+  check(
+    "a player out of interest range leaves the scene and the minimap",
+    shown === 1 && away === 0 && beforeFlag === 0,
+  );
+  check(
+    "back in range, a taxi shows at once where it is, never gliding from where it left",
+    first === 55,
+    `${first}`,
+  );
+  check(
+    "a chat line said out of range is not replayed on the way back",
+    rx.chats.length === 0,
+    rx.chats.join(","),
+  );
+
+  const joiner = new Receiver();
+  joiner.patch("far", { ...parkedAt(30), t: -50 });
+  joiner.setVisible("far", false);
+  joiner.run(SKEW_MS + 100);
+  check(
+    "a player already out of range when first seen is never drawn",
+    joiner.remote.count() + joiner.present() === 0,
+  );
+};
+
 /** One trailer rival as the director publishes it: no stamp, a fresh map per frame. */
 const stagedRival = (x: number, say: boolean): PlayerMap => ({
   "trailer-0": {
@@ -527,6 +594,7 @@ export const checkRemoteCars = async (check: Check): Promise<void> => {
   checkSmoothMotion(check);
   checkPresence(check);
   checkRespawn(check);
+  checkInterest(check);
   await checkCullAndBodies(check);
   checkStaged(check);
 };

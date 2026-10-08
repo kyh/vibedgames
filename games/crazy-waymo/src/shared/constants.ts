@@ -3,6 +3,8 @@
 // is a 1×1 unit tile. We scale the city UP so one road cell = ROAD_TILE units,
 // giving arcade-wide two-lane roads the taxi can drift across.
 
+import type { InterestRule } from "@vibedgames/multiplayer";
+
 // clamp delta on tab-away
 export const MAX_DT = 1 / 30;
 
@@ -273,3 +275,17 @@ export const OFFLINE_FALLBACK_MS = 8000;
  *  server clock (net/remote-cars.ts): the trip through the server, plus one
  *  interval and jitter at 20. */
 export const NET_TICK_HZ = 20;
+/**
+ * Interest management: the server relays a taxi's pose only to players within
+ * `radius` of it, so a full room spread over the city costs each client its
+ * neighbourhood, not the whole roster. Measured on the planar keys — `x` and
+ * `z`; `y` is height. Remote taxis are drawn inside 520 u and dropped past
+ * 580 (net/remote-cars.ts); the 220 u beyond that is several times what two
+ * taxis closing at drift-boost speed cover while a reveal crosses the server
+ * and the render delay, so nobody pops in view. Out of range a player reads
+ * `visible: false` (never to the room's host, which sees everyone) and is off
+ * the scene and the minimap. Nothing in this game is simulated by the host for
+ * everyone (traffic, fares and score are each client's own), so nothing else
+ * depends on who sees whom.
+ */
+export const MP_INTEREST = { radius: 800, x: "x", y: "z" } satisfies InterestRule;

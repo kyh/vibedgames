@@ -10,12 +10,19 @@
 // Offline, everything loops back locally so the same code paths keep working.
 //
 // Keep this file byte-identical across games/*/src/net/session.ts — per-game
-// tuning (room, maxPlayers, fallbackMs) goes in the NetSession constructor.
+// tuning (room, maxPlayers, interest, fallbackMs) goes in the NetSession
+// constructor.
 //
 
 import { isOfflineRequested } from "@repo/embed";
 import { MultiplayerClient, ServerClock } from "@vibedgames/multiplayer";
-import type { Player, PlayerMap, SendEventOptions, SenderClock } from "@vibedgames/multiplayer";
+import type {
+  InterestRule,
+  Player,
+  PlayerMap,
+  SendEventOptions,
+  SenderClock,
+} from "@vibedgames/multiplayer";
 import type { JsonObject as JsonRecord, JsonValue } from "../shared/json";
 
 const MULTIPLAYER_HOST = import.meta.env.DEV
@@ -27,6 +34,9 @@ const SOLO_ID = "solo";
 export interface NetSessionOptions {
   room: string;
   maxPlayers?: number;
+  /** The room's interest rule: players farther apart stop receiving each
+   *  other's state and read `visible: false`. Every client must pass the same. */
+  interest?: InterestRule;
   /** Give up on the party server after this long and fall back to solo. */
   fallbackMs: number;
   /** Start (and stay) in local solo mode — no socket is ever opened. Used by
@@ -61,6 +71,7 @@ export class NetSession {
       ? null
       : new MultiplayerClient({
           host: MULTIPLAYER_HOST,
+          interest: opts.interest,
           maxPlayers: opts.maxPlayers,
           onEvent: (event, payload, from) => this.onEvent?.(event, payload, from),
           party: "vg-server",

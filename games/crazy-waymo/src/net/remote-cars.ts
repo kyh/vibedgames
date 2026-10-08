@@ -5,9 +5,11 @@
 // which every client shares: a car is drawn INTERP_DELAY_MS behind that clock,
 // blended between the two updates around that moment, so it moves as smoothly
 // as it was driven however unevenly the updates arrive — and the stamp dates
-// the pose, so a taxi whose newest one is old reads as away, then gone. Cars
-// are distance-culled so a full 64-player room stays cheap (only nearby taxis
-// are in the scene).
+// the pose, so a taxi whose newest one is old reads as away, then gone. The
+// server relays only players within the room's interest radius (MP_INTEREST);
+// past it a player reads `visible: false` and is not tracked at all. Inside
+// it, cars are distance-culled so a crowded neighbourhood stays cheap (only
+// nearby taxis are in the scene).
 
 import * as THREE from "three";
 
@@ -26,8 +28,10 @@ import { slopeQuaternion } from "../world/terrain";
  *  so cars don't pop against still-visible props)… */
 const RENDER_RADIUS_SQ = 520 * 520;
 /** …and only take them out beyond this, so a taxi pacing the boundary doesn't
- *  flicker in and out of the scene. */
-const DROP_RADIUS_SQ = 580 * 580;
+ *  flicker in and out of the scene. The room's interest radius must clear it
+ *  with room to spare, or taxis would pop in view. */
+export const DROP_RADIUS = 580;
+const DROP_RADIUS_SQ = DROP_RADIUS * DROP_RADIUS;
 /** Consecutive updates farther apart than this are a respawn/reset — snap,
  *  don't streak the taxi across the map through buildings. */
 const SNAP_DIST_SQ = 40 * 40;
@@ -259,7 +263,11 @@ export class RemoteCars {
     this.generation += 1;
     for (const id of Object.keys(players)) {
       const player = players[id];
-      if (player && id !== myId) {
+      // Out of interest range the server stops relaying a player, so its state
+      // is frozen where it left: no car, and the sweep below drops it with its
+      // interpolator. Back in range it arrives whole and is tracked afresh —
+      // shown at once where it is, never gliding in from where it left.
+      if (player && id !== myId && player.visible !== false) {
         this.adopt(id, player);
       }
     }
@@ -288,7 +296,8 @@ export class RemoteCars {
     this.visible = visible;
   }
 
-  /** Every present player's newest position, near or far (the minimap). */
+  /** Every present player's newest position in interest range, on screen or
+   *  not (the minimap). */
   forEachPresent(visit: (x: number, z: number) => void, now: number = performance.now()): void {
     const serverNow = this.clock.now(now);
     for (const peer of this.peers.values()) {

@@ -57,6 +57,7 @@ import {
   CAMERA,
   CAR,
   FARE,
+  MP_INTEREST,
   MP_MAX_PLAYERS,
   MP_ROOM,
   MPH_FACTOR,
@@ -624,6 +625,7 @@ export class GameScene {
       fallbackMs: OFFLINE_FALLBACK_MS,
       // A playtest stages its own run; that must never reach a live room.
       forceOffline: (this.trailerMode && !localTrailerPeers) || isPlaytestRequested(),
+      interest: MP_INTEREST,
       maxPlayers: MP_MAX_PLAYERS,
       room: localTrailerPeers ? "crazy-waymo-trailer-local" : MP_ROOM,
     });
@@ -2872,8 +2874,8 @@ vec3 ocGerstner(vec2 p, float t) {
     }
     // Other online drivers under the objectives, outlined so they read on
     // road-grey (plain white dots were invisible). Read off the remote cars,
-    // which keep every player parsed; staged trailer rivals are scenery, never
-    // players.
+    // which keep every player in interest range parsed (MP_INTEREST); staged
+    // trailer rivals are scenery, never players.
     if (!this.trailerFakes) {
       this.remoteCars?.forEachPresent((x, z) => {
         markers.push({ color: "#ffffff", glyph: "player", x, z });
