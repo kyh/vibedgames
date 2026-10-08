@@ -10,6 +10,11 @@
 // comparing at the matching time leaves an agreeing prediction untouched.
 // Only durations cross the wire, so no clock sync is needed.
 //
+// A row that left the host before an intent this guest had already sent
+// arrived is not compared at all: the body's history at its moment holds that
+// intent, the row does not, and the difference is no error. An intent left
+// unanswered past IN_FLIGHT_MS was lost, and rows count again.
+//
 // Events the host applies that the guest cannot foresee are delivered as
 // edges in the row and replayed locally. A knockback (`knockSeq`) landed on
 // the host about a round trip before the guest hears of it, so the guest takes
@@ -30,6 +35,8 @@ export const DEAD_ZONE = 0.12;
 export const SNAP_DISTANCE = 1.5;
 /** An evade with no verdict after this long was lost on the way (ms). */
 export const EVADE_TIMEOUT_MS = 1000;
+/** An intent the host has not applied this long after it left is lost, not late (ms): well past relay jitter. */
+const IN_FLIGHT_MS = 250;
 /** Sent intents remembered for matching acknowledgments (ms of sim time). */
 const SENT_MEMORY_MS = 4000;
 /** Smoothing for the lag estimate: weight of each new sample. */
@@ -167,6 +174,25 @@ export class OwnPrediction {
     return sent === undefined ? null : sent + row.ackAge;
   }
 
+  /**
+   * The row's moment comes after this guest sent an intent the host had not
+   * applied when the row left — it was still on its way. The body's history
+   * there already holds that intent and the row does not, so comparing them
+   * would report the intent's own effect as an error. One unanswered for
+   * IN_FLIGHT_MS was lost (a host change), and the row is the truth again.
+   */
+  private awaits(ack: number, at: number): boolean {
+    let newest: number | null = null;
+    let seq = ack + 1;
+    let sent = this.sentAt.get(seq);
+    while (sent !== undefined && sent <= at) {
+      newest = sent;
+      seq += 1;
+      sent = this.sentAt.get(seq);
+    }
+    return newest !== null && at - newest < IN_FLIGHT_MS;
+  }
+
   /** Fold in the host's row for this body. Call as rows arrive, before the step's input. */
   receive(body: OwnBody, row: OwnRow): OwnVerdict {
     const at = this.momentOf(row);
@@ -185,6 +211,7 @@ export class OwnPrediction {
     if (
       at !== null &&
       at >= this.ignoreBefore &&
+      !this.awaits(row.ack, at) &&
       row.alive &&
       body.alive &&
       row.leap === null &&

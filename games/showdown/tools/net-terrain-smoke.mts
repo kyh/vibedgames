@@ -2,7 +2,8 @@
 // trip at their stated precision, impossible poses never reach the sim,
 // remote bodies keep their feet on the terrain, cues are copied and aged to
 // render time, a promoted host resumes what was in flight, and the guest's own
-// prediction settles leaps and spent ammo against the host's verdicts.
+// prediction settles leaps and spent ammo against the host's verdicts — and
+// never against a row from before an intent it sent had landed.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { RemoteClock } from "@vibedgames/multiplayer";
@@ -332,4 +333,34 @@ test("ammo and charge from the host wait until it has seen every shot and super 
   assert.equal(half.ammoSettled, true);
   assert.equal(half.chargeSettled, false);
   assert.equal(prediction.receive(own, ownRow({ ack: special, ackAge: 5 })).chargeSettled, true);
+});
+
+test("a row from before an intent landed is not held against the body that ran it; a lost intent is", () => {
+  const prediction = new OwnPrediction();
+  const own = ownBody();
+  // Standing on an input the host has long had, then a roll leaves at 976 ms.
+  prediction.beginStep(16);
+  const input = prediction.stamp("input");
+  prediction.settle(0, 0, 16);
+  for (let i = 0; i < 60; i += 1) {
+    prediction.beginStep(16);
+    prediction.settle(0, 0, 16);
+  }
+  prediction.beginStep(16);
+  const evadeLeft = prediction.clock - 16;
+  prediction.stamp("evade");
+  for (let x = 0.5; prediction.clock < evadeLeft + 600; x = Math.min(3, x + 0.5)) {
+    prediction.settle(x, 0, 16);
+    prediction.beginStep(16);
+  }
+  // The host's frame left 20 ms after the roll did, before it arrived: it still
+  // acks the input and stands still. The roll is not an error it reports.
+  prediction.receive(own, ownRow({ ack: input, ackAge: evadeLeft + 20 }));
+  assert.deepEqual(prediction.reconciler.pending, { x: 0, y: 0 });
+  // 300 ms on with the roll still unanswered, it was lost: the host is the truth.
+  prediction.receive(own, ownRow({ ack: input, ackAge: evadeLeft + 300 }));
+  assert.ok(
+    Math.abs(prediction.reconciler.pending.x + 3) < 1e-9,
+    "the roll that never was is undone",
+  );
 });
