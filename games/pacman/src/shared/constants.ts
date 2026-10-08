@@ -301,7 +301,10 @@ export const cellKey = (col: number, row: number): string => `${col},${row}`;
 // OWN ghosts locally (a personal hazard), so only pellets and pac positions are
 // synced. Alone — or with everyone else idling on the title or game-over screen
 // — it's the classic single-player game.
-export const MP_ROOM = "pacman-default";
+// Versioned with the wire format: a tab still running an older bundle speaks
+// a different board and pac-state shape, so it must land in its own room
+// rather than share a race it would misread.
+export const MP_ROOM = "pacman-v2";
 export const MP_MAX_PLAYERS = 4;
 export const OFFLINE_FALLBACK_MS = 8000;
 /**
