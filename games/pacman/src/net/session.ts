@@ -15,7 +15,13 @@
 
 import { isOfflineRequested } from "@repo/embed";
 import { MultiplayerClient, ServerClock } from "@vibedgames/multiplayer";
-import type { Player, PlayerMap, SendEventOptions, SenderClock } from "@vibedgames/multiplayer";
+import type {
+  ClaimMap,
+  Player,
+  PlayerMap,
+  SendEventOptions,
+  SenderClock,
+} from "@vibedgames/multiplayer";
 
 const MULTIPLAYER_HOST = import.meta.env.DEV
   ? "http://localhost:8787"
@@ -69,6 +75,8 @@ export class NetSession {
   private offlineShared: JsonObject | null = null;
   /** Offline stand-in for the server clock: never probed, so it reads the local clock. */
   private readonly localClock = new ServerClock();
+  /** Offline claims: the only player wins every one at once. Replaced on change, like the client's. */
+  private offlineClaims: ClaimMap = {};
 
   constructor(opts: NetSessionOptions) {
     this.fallbackMs = opts.fallbackMs;
@@ -206,6 +214,43 @@ export class NetSession {
     // so every field is a JSON value by construction.
     const s = this.client.sharedState as JsonObject;
     return s && Object.keys(s).length > 0 ? s : null;
+  }
+
+  /**
+   * Who holds each claimed key — the server's first-come verdicts. A new
+   * object whenever a claim changes, so a changed reference means news.
+   */
+  get claims(): ClaimMap {
+    const { client } = this;
+    return this.solo || !client ? this.offlineClaims : client.claims;
+  }
+
+  /**
+   * Ask for `key`, first come first served. The answer lands in `claims`:
+   * this player's id if it won, whoever got there first if not. Offline the
+   * only player wins at once.
+   */
+  claim(key: string): void {
+    const { client } = this;
+    if (this.solo || !client) {
+      if (this.offlineClaims[key] === undefined) {
+        this.offlineClaims = { ...this.offlineClaims, [key]: { owner: SOLO_ID } };
+      }
+      return;
+    }
+    client.claim(key);
+  }
+
+  /** Host only: release every claim whose key starts with `prefix` — a new round. */
+  clearClaims(prefix: string): void {
+    const { client } = this;
+    if (this.solo || !client) {
+      this.offlineClaims = Object.fromEntries(
+        Object.entries(this.offlineClaims).filter(([key]) => !key.startsWith(prefix)),
+      );
+      return;
+    }
+    client.clearClaims(prefix);
   }
 
   /** Per-player state shallow-merges, mirroring the package semantics. */

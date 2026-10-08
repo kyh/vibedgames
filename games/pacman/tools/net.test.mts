@@ -2,11 +2,18 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { ServerClock } from "@vibedgames/multiplayer";
+import type { ClaimMap } from "@vibedgames/multiplayer";
 
-import { PELLET_KEYS, decodeEaten, encodeEaten } from "../src/net/board-codec";
 import { PacTrack, lerpPose, readPacSample } from "../src/net/pac-track";
 import type { PacSample } from "../src/net/pac-track";
-import { RIVAL_DELAY_MS } from "../src/shared/constants";
+import {
+  PELLET_CELLS,
+  PELLET_CLAIM_PREFIX,
+  PelletClaims,
+  claimedCell,
+  pelletClaimKey,
+} from "../src/net/pellet-claims";
+import { CLAIM_RETRY_MS, MAP, RIVAL_DELAY_MS } from "../src/shared/constants";
 
 /** Deterministic jitter in [0, 1), so the tests never flake. */
 const noise = (i: number): number => {
@@ -39,24 +46,163 @@ const walk = (count: number, from: { x: number; z: number; t: number }): PacSamp
     z: from.z,
   }));
 
-test("the board codec round-trips any eaten set in one short string", () => {
-  const empty = encodeEaten(new Set());
-  assert.equal(empty.length, Math.ceil(PELLET_KEYS.length / 6));
-  assert.ok(empty.length <= 64, `${empty.length} characters`);
-  assert.deepEqual(decodeEaten(empty), []);
-  assert.deepEqual(decodeEaten(encodeEaten(new Set(PELLET_KEYS))), PELLET_KEYS);
-  for (let seed = 1; seed <= 40; seed += 1) {
-    const eaten = new Set(PELLET_KEYS.filter((_, i) => noise(seed * 1000 + i) < seed / 41));
-    assert.deepEqual(new Set(decodeEaten(encodeEaten(eaten))), eaten, `seed ${seed}`);
+/**
+ * The party server's claims, first come first served, delivered the way the
+ * SDK does: a grant to everyone, a refusal to the claimer alone (naming the
+ * holder), and each client's map replaced on every change.
+ */
+class ClaimRoom {
+  private held: ClaimMap = {};
+  readonly views = new Map<string, ClaimMap>();
+
+  join(id: string): ClaimMap {
+    this.views.set(id, { ...this.held });
+    return this.view(id);
   }
+
+  view(id: string): ClaimMap {
+    return this.views.get(id) ?? {};
+  }
+
+  claim(from: string, key: string): void {
+    const holder = this.held[key];
+    if (holder !== undefined && holder.owner !== from) {
+      this.views.set(from, { ...this.view(from), [key]: holder });
+      return;
+    }
+    this.held = { ...this.held, [key]: { owner: from } };
+    for (const id of this.views.keys()) {
+      this.views.set(id, { ...this.view(id), [key]: { owner: from } });
+    }
+  }
+
+  /** Host only, on a new round. */
+  clear(prefix: string): void {
+    const keep = (map: ClaimMap): ClaimMap =>
+      Object.fromEntries(Object.entries(map).filter(([key]) => !key.startsWith(prefix)));
+    this.held = keep(this.held);
+    for (const [id, map] of this.views) {
+      this.views.set(id, keep(map));
+    }
+  }
+}
+
+interface Undo {
+  points: number;
+}
+
+test("pellet claims are round-scoped and name only pellet cells", () => {
+  const pellets = MAP.flat().filter((type) => type === 2 || type === 3).length;
+  assert.equal(PELLET_CELLS.length, pellets);
+  // Row-major: (1,1) is the first pellet; (0,0) is a wall.
+  assert.equal(pelletClaimKey(3, "1,1"), "pellet:3:0");
+  assert.equal(pelletClaimKey(3, "0,0"), null);
+  assert.ok(pelletClaimKey(3, "1,1")?.startsWith(PELLET_CLAIM_PREFIX));
+  for (const cell of PELLET_CELLS) {
+    assert.equal(claimedCell(pelletClaimKey(7, cell) ?? "", 7), cell);
+  }
+  // Another round's claim is a different key, never this round's cell.
+  assert.equal(claimedCell("pellet:3:0", 4), null);
+  assert.equal(claimedCell("pellet:31:0", 3), null);
+  for (const junk of ["pellet:3:07", "pellet:3:1e2", "pellet:3: 3", "pellet:3:-0", "pellet:3:"]) {
+    assert.equal(claimedCell(junk, 3), null, junk);
+  }
+  assert.equal(claimedCell(`pellet:3:${PELLET_CELLS.length}`, 3), null, "past the pellet list");
+  assert.equal(claimedCell("door", 3), null);
 });
 
-test("the board codec ignores keys and characters that are not pellet cells", () => {
-  // (0,0) is a wall, (1,1) a pellet.
-  assert.deepEqual(decodeEaten(encodeEaten(new Set(["0,0", "nope", "1,1"]))), ["1,1"]);
-  assert.deepEqual(decodeEaten("!*~ "), []);
-  // Characters past the pellet list carry no cells.
-  assert.deepEqual(decodeEaten(`${encodeEaten(new Set())}____`), []);
+test("two pacs racing for a pellet: the first claim wins on every screen, the host has no edge", () => {
+  const room = new ClaimRoom();
+  room.join("host");
+  room.join("guest");
+  const host = new PelletClaims<Undo>();
+  const guest = new PelletClaims<Undo>();
+  // Both eat (14,1) at once and score it at once.
+  const hostKey = host.eat(1, "14,1", { points: 10 }, 0);
+  const guestKey = guest.eat(1, "14,1", { points: 10 }, 0);
+  assert.ok(hostKey !== null && hostKey === guestKey);
+  // The pellet is gone from both mazes before any answer.
+  assert.deepEqual([...host.eaten(room.view("host"), 1)], ["14,1"]);
+  assert.deepEqual([...guest.eaten(room.view("guest"), 1)], ["14,1"]);
+  // The guest's claim reaches the server first.
+  room.claim("guest", guestKey);
+  room.claim("host", hostKey);
+  assert.deepEqual(guest.settle(room.view("guest"), "guest"), []);
+  assert.deepEqual(host.settle(room.view("host"), "host"), [
+    { cell: "14,1", undo: { points: 10 } },
+  ]);
+  assert.equal(host.inFlight + guest.inFlight, 0);
+  // Settled once: a later look takes nothing back again.
+  assert.deepEqual(host.settle(room.view("host"), "host"), []);
+  // The pellet stays gone everywhere — it is the guest's.
+  assert.deepEqual([...host.eaten(room.view("host"), 1)], ["14,1"]);
+  assert.deepEqual([...guest.eaten(room.view("guest"), 1)], ["14,1"]);
+});
+
+test("a late joiner reads the same board from the claims alone", () => {
+  const room = new ClaimRoom();
+  room.join("a");
+  room.join("b");
+  const a = new PelletClaims<Undo>();
+  const b = new PelletClaims<Undo>();
+  for (const [player, claims, cell] of [
+    ["a", a, "1,1"],
+    ["a", a, "2,1"],
+    ["b", b, "1,2"],
+    ["b", b, "2,1"],
+  ] as const) {
+    room.claim(player, claims.eat(1, cell, { points: 10 }, 0) ?? "");
+  }
+  a.settle(room.view("a"), "a");
+  b.settle(room.view("b"), "b");
+  // Joining now: nothing of its own in flight, just the sync's claims.
+  const late = new PelletClaims<Undo>().eaten(room.join("late"), 1);
+  assert.deepEqual([...late].toSorted(), ["1,1", "1,2", "2,1"]);
+  assert.deepEqual([...a.eaten(room.view("a"), 1)].toSorted(), [...late].toSorted());
+  assert.deepEqual([...b.eaten(room.view("b"), 1)].toSorted(), [...late].toSorted());
+});
+
+test("a claim that reaches the server after the host moved on cannot touch the new maze", () => {
+  const room = new ClaimRoom();
+  room.join("host");
+  room.join("guest");
+  const guest = new PelletClaims<Undo>();
+  room.claim("guest", guest.eat(1, "1,1", { points: 10 }, 0) ?? "");
+  // The host clears every pellet claim, then announces round 2 …
+  room.clear(PELLET_CLAIM_PREFIX);
+  // … while a guest still on round 1 claims another pellet of it.
+  const late = guest.eat(1, "2,1", { points: 10 }, 0) ?? "";
+  room.claim("guest", late);
+  assert.equal(room.view("host")[late]?.owner, "guest", "the server grants it");
+  assert.deepEqual(
+    [...new PelletClaims<Undo>().eaten(room.view("host"), 2)],
+    [],
+    "round 2 is whole",
+  );
+  // The guest sees round 2 and drops what was in flight for round 1.
+  guest.clear();
+  assert.deepEqual([...guest.eaten(room.view("guest"), 2)], []);
+});
+
+test("an unanswered claim is asked again; a reset score takes nothing back", () => {
+  const room = new ClaimRoom();
+  room.join("me");
+  room.join("rival");
+  const mine = new PelletClaims<Undo>();
+  const key = mine.eat(1, "1,1", { points: 10 }, 1000) ?? "";
+  assert.equal(mine.eat(1, "1,1", { points: 10 }, 1000), key, "one claim per cell");
+  assert.deepEqual(mine.overdue(1000 + CLAIM_RETRY_MS - 1, CLAIM_RETRY_MS), []);
+  assert.deepEqual(mine.overdue(1000 + CLAIM_RETRY_MS, CLAIM_RETRY_MS), [key]);
+  assert.deepEqual(mine.overdue(1000 + CLAIM_RETRY_MS + 1, CLAIM_RETRY_MS), [], "re-armed");
+  // Our score was reset (a new run in the same maze) before the answer came.
+  mine.forgive();
+  room.claim("rival", key);
+  room.claim("me", key);
+  assert.deepEqual(mine.settle(room.view("me"), "me"), []);
+  assert.equal(mine.inFlight, 0);
+  // A cell with no pellet is never claimed.
+  assert.equal(mine.eat(1, "0,0", { points: 10 }, 0), null);
+  assert.equal(mine.inFlight, 0);
 });
 
 test("only a player in the round with a position is a rival", () => {

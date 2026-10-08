@@ -323,3 +323,8 @@ export const RIVAL_DELAY_MS = 200;
  * it cannot overshoot into a wall.
  */
 export const RIVAL_EXTRAPOLATE_MS = 200;
+/**
+ * A pellet claim still unanswered after this long (ms) is sent again: it was
+ * written into a socket that was already dying. An answer takes one round trip.
+ */
+export const CLAIM_RETRY_MS = 2000;

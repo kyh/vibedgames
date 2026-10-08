@@ -1,10 +1,11 @@
 // Two-client online smoke: host + guest race for pellets in a fresh party room
-// (an idle player is no rival, claims cross the wire, rivals render, a
-// contested cell resolves to one eater, a pause on one side leaves the other's
-// maze live, R after a win resets the shared maze), then the host leaves and a
-// late joiner adopts the promoted host's board. Needs the party server on
-// localhost:8787 and a Chrome install (playwright-core, channel "chrome", or
-// any Chromium binary in SMOKE_BROWSER). Not part of `pnpm test` for that reason.
+// (an idle player is no rival, pellet claims cross the wire, rivals render, a
+// contested cell goes to one eater on the server's word, a paused host holds
+// up nobody's claims, R after a win resets the shared maze), then the host
+// leaves and a late joiner reads the board from the claims. Needs the party
+// server on localhost:8787 and a Chrome install (playwright-core, channel
+// "chrome", or any Chromium binary in SMOKE_BROWSER). Not part of `pnpm test`
+// for that reason.
 //
 // Usage: node tools/two-client.mjs [--url http://localhost:5309]
 // Without --url it starts its own vite. SMOKE_NO_RENDER=1 skips drawing the
@@ -40,11 +41,12 @@ const snapshot = (page) =>
     return {
       applied: game.appliedEaten.size,
       boardRound: game.net.sharedState?.round ?? -1,
+      // What the room's claims alone say is gone this round.
+      claimed: game.pellets.eaten(game.net.claims, game.boardRound).size,
       host: game.net.isHost,
-      hostEaten: game.hostEaten.size,
+      inFlight: game.pellets.inFlight,
       left: game.pelletsLeft(),
       paused: game.paused,
-      pending: game.pendingClaims.size,
       phase: game.phase,
       pill: game.statsEl.textContent,
       rivals: game.rivalIds.length,
@@ -77,6 +79,16 @@ const eaten = (page, key) =>
     arg: key,
     timeoutMs: 4000,
   });
+
+/** Who the room's claim on a cell of this round names, as `page` sees it (null: unclaimed). */
+const ownerOf = (page, cell) =>
+  page.evaluate(async (c) => {
+    const { pelletClaimKey } = await import("/src/net/pellet-claims.ts");
+    const { game } = window.__pacman;
+    return game.net.claims[pelletClaimKey(game.boardRound, c)]?.owner ?? null;
+  }, cell);
+
+const idOf = (page) => page.evaluate(() => window.__pacman.game.net.playerId);
 
 /** The one rival pac this page draws has come to rest on a cell. */
 const drawsRivalAt = (page, col, row) =>
@@ -161,6 +173,86 @@ const startVite = async () => {
   }
   child.kill();
   throw new Error("vite did not start");
+};
+
+/** Who holds the two cells the contest runs through, as `page` sees it. */
+const contestOwners = async (page) => [await ownerOf(page, "13,1"), await ownerOf(page, "14,1")];
+
+/**
+ * Host and guest step through the same two cells at once. The server's claim
+ * decides each: both screens name the same eater, the loser hands its points
+ * back, and the mazes agree.
+ */
+const contest = async ({ guest, host, step }) => {
+  const [hostId, guestId] = [await idOf(host), await idOf(guest)];
+  let h = await snapshot(host);
+  let g = await snapshot(guest);
+  const [hs, gs, before] = [h.score, g.score, h.left];
+  await Promise.all([chompFrom(host, 13, 1), chompFrom(guest, 13, 1)]);
+  await eaten(host, "14,1");
+  await eaten(guest, "14,1");
+  await wait(600);
+  h = await snapshot(host);
+  g = await snapshot(guest);
+  step(
+    "contested cells resolve to one eater each",
+    h.score - hs + (g.score - gs) === 2 * SCORE_PELLET,
+    `host +${h.score - hs} guest +${g.score - gs}`,
+  );
+  const onHost = await contestOwners(host);
+  const hostWon = onHost.filter((id) => id === hostId).length;
+  step(
+    "both screens name the same eaters, and only they kept the points",
+    onHost.every((id) => id === hostId || id === guestId) &&
+      JSON.stringify(onHost) === JSON.stringify(await contestOwners(guest)) &&
+      h.score - hs === SCORE_PELLET * hostWon,
+    JSON.stringify(onHost),
+  );
+  step(
+    "maze agrees after the contest",
+    h.left === g.left && h.left === before - 2 && h.claimed === g.claimed,
+    `${h.left} left`,
+  );
+};
+
+/**
+ * The host leaves: the guest is promoted and its maze is still the claims, and
+ * a late joiner reads the same board from them.
+ */
+const handOver = async ({ browser, errors, fullMaze, guest, host, step, url }) => {
+  await chompFrom(host, 1, 1);
+  await eaten(guest, "2,1");
+  await host.close();
+  await waitFor(guest, () => window.__pacman.game.net.isHost, "guest promoted", {
+    timeoutMs: 10_000,
+  });
+  await waitFor(guest, () => window.__pacman.game.rivalIds.length === 0, "held seat ignored");
+  let g = await snapshot(guest);
+  step(
+    "guest promoted to host on host leave, its maze still the claims",
+    g.host && g.phase === "playing" && g.claimed === g.applied && g.applied === fullMaze - g.left,
+    JSON.stringify(g),
+  );
+  await chompFrom(guest, 3, 1);
+  await eaten(guest, "4,1");
+  step("promoted host keeps playing", true);
+
+  const late = await openClient(browser, url, errors.late);
+  await waitFor(late, () => window.__pacman.game.rivalIds.length === 1, "late sees host");
+  await startPlaying(late);
+  await eaten(late, "4,1");
+  g = await snapshot(guest);
+  const l = await snapshot(late);
+  step(
+    "late joiner reads the running board from the claims",
+    !l.host && l.round === g.round && l.left === g.left && l.claimed === g.claimed,
+    `${l.left} left, round ${l.round}`,
+  );
+  await chompFrom(late, 5, 1);
+  await eaten(guest, "6,1");
+  step("late joiner's pellet reaches the promoted host", true);
+  await guest.close();
+  await late.close();
 };
 
 /**
@@ -276,48 +368,34 @@ const main = async () => {
       `${h.left}`,
     );
     step("pellets-left pill matches on both", h.pill === g.pill, h.pill);
+    const guestId = await idOf(guest);
     step(
-      "guest claims accepted",
-      g.score === 2 * SCORE_PELLET && h.hostEaten === 2,
-      `score ${g.score}`,
+      "guest claims granted",
+      g.score === 2 * SCORE_PELLET &&
+        g.inFlight === 0 &&
+        (await ownerOf(host, "2,1")) === guestId &&
+        h.claimed === 2,
+      `score ${g.score}, host sees ${h.claimed} claimed`,
     );
 
     // Same cells, same instant: each resolves to exactly one eater on both screens.
-    const hs = h.score;
-    const gs = g.score;
-    const before = h.left;
-    await Promise.all([chompFrom(host, 13, 1), chompFrom(guest, 13, 1)]);
-    await eaten(host, "14,1");
-    await eaten(guest, "14,1");
-    await wait(600);
-    h = await snapshot(host);
-    g = await snapshot(guest);
-    step(
-      "contested cell resolves to one eater",
-      h.score - hs + (g.score - gs) === 2 * SCORE_PELLET,
-      `host +${h.score - hs} guest +${g.score - gs}`,
-    );
-    step(
-      "maze agrees after the contest",
-      h.left === g.left && h.left === before - 2,
-      `${h.left} left`,
-    );
+    await contest({ guest, host, step });
 
-    // Escape on the host freezes only the host's pac: the guest keeps eating
-    // and the (paused) host still arbitrates its claims.
+    // Escape on the host freezes only the host's pac: the guest keeps eating,
+    // and its claims need no host to be granted.
     await host.keyboard.press("Escape");
     await waitFor(host, () => window.__pacman.game.paused, "host paused");
     const { t: gt } = await snapshot(guest);
     await chompFrom(guest, 3, 1);
     await eaten(guest, "4,1");
-    // The board the paused host writes reaches the guest.
     await waitFor(
       guest,
       async () => {
-        const { decodeEaten } = await import("/src/net/board-codec.ts");
-        return decodeEaten(window.__pacman.game.net.sharedState?.eaten ?? "").includes("4,1");
+        const { pelletClaimKey } = await import("/src/net/pellet-claims.ts");
+        const { game } = window.__pacman;
+        return game.net.claims[pelletClaimKey(game.boardRound, "4,1")]?.owner === game.net.playerId;
       },
-      "paused host arbitrated",
+      "claim granted while the host is paused",
     );
     g = await snapshot(guest);
     step(
@@ -341,17 +419,16 @@ const main = async () => {
 
     // Host clears the maze; both land on the win banner. R on the guest waits
     // for the host; R on the host starts a fresh shared round for both.
-    await host.evaluate(() => {
+    await host.evaluate(async () => {
+      const { PELLET_CELLS } = await import("/src/net/pellet-claims.ts");
       const { game } = window.__pacman;
-      const eatable = (key) => game.constructor.parseEatKey(key);
-      for (let row = 0; row < 31; row += 1) {
-        for (let col = 0; col < 31; col += 1) {
-          if (game.appliedEaten.has(`${col},${row}`) || !eatable(`${col},${row}`)) {
-            continue;
-          }
-          Object.assign(game.pac, { isMoving: false, target: { x: col, z: row }, x: col, z: row });
-          game.collectPellet();
+      for (const cell of PELLET_CELLS) {
+        if (game.appliedEaten.has(cell)) {
+          continue;
         }
+        const [x, z] = cell.split(",").map(Number);
+        Object.assign(game.pac, { isMoving: false, target: { x, z }, x, z });
+        game.collectPellet();
       }
     });
     await waitFor(host, () => window.__pacman.game.phase === "win", "host win");
@@ -372,40 +449,9 @@ const main = async () => {
       `round ${g.round}`,
     );
 
-    // Host leaves: the guest is promoted, adopts the eaten set, keeps playing.
-    await chompFrom(host, 1, 1);
-    await eaten(guest, "2,1");
-    await host.close();
-    await waitFor(guest, () => window.__pacman.game.net.isHost, "guest promoted", {
-      timeoutMs: 10_000,
-    });
-    await waitFor(guest, () => window.__pacman.game.rivalIds.length === 0, "held seat ignored");
-    g = await snapshot(guest);
-    step(
-      "guest promoted to host on host leave",
-      g.host && g.phase === "playing" && g.hostEaten === g.applied,
-      JSON.stringify(g),
-    );
-    await chompFrom(guest, 3, 1);
-    await eaten(guest, "4,1");
-    step("promoted host keeps playing", true);
-
-    const late = await openClient(browser, url, errors.late);
-    await waitFor(late, () => window.__pacman.game.rivalIds.length === 1, "late sees host");
-    await startPlaying(late);
-    await eaten(late, "4,1");
-    g = await snapshot(guest);
-    const l = await snapshot(late);
-    step(
-      "late joiner adopts the running board",
-      !l.host && l.round === g.round && l.left === g.left,
-      `${l.left} left, round ${l.round}`,
-    );
-    await chompFrom(late, 5, 1);
-    await eaten(guest, "6,1");
-    step("late joiner's pellet reaches the promoted host", true);
-    await guest.close();
-    await late.close();
+    // Host leaves: the guest is promoted and keeps playing; a late joiner
+    // reads the same board from the claims.
+    await handOver({ browser, errors, fullMaze, guest, host, step, url });
 
     await soloGuestRestart({
       browser,
