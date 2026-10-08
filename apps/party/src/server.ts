@@ -1365,6 +1365,25 @@ export class VgServer extends Server {
     inputs.set(id, input);
   }
 
+  /**
+   * A player who dropped or left sends nothing more: cancel every input it
+   * scheduled ahead (or one would land later and hold again), then clear its
+   * input on the next tick.
+   */
+  private clearInput(id: string): void {
+    const { ticker } = this;
+    if (!ticker) {
+      return;
+    }
+    for (const [n, inputs] of ticker.pending) {
+      inputs.delete(id);
+      if (inputs.size === 0) {
+        ticker.pending.delete(n);
+      }
+    }
+    this.schedule(id, null, null);
+  }
+
   private handleInput(sender: Connection<Presence>, input: JsonValue, n: number | null): void {
     // Inputs are re-sent in every sync, so they stay small and plain.
     if (
@@ -1471,7 +1490,7 @@ export class VgServer extends Server {
     this.grace.set(token, entry);
     this.snapshots.delete(connection.id);
     // A dropped player sends nothing; don't keep replaying its last input.
-    this.schedule(connection.id, null, null);
+    this.clearInput(connection.id);
     // Detach presence before the first await: the paired onError/onClose for
     // the same failed transport would otherwise interleave at the storage
     // suspension point, see presence still set, and park the seat twice
@@ -1645,7 +1664,7 @@ export class VgServer extends Server {
     this.snapshots.delete(id);
     this.forgetPlayer(id);
     // Tick rooms: the departed player's input clears on the next tick.
-    this.schedule(id, null, null);
+    this.clearInput(id);
 
     const leftMessage: ServerMessage = {
       data: { id },

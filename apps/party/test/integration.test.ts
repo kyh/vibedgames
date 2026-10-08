@@ -738,6 +738,33 @@ test("a room's world and claims survive a server restart, and its host re-sends 
   }
 });
 
+test("a dropped player's inputs scheduled ahead are cancelled, not replayed later", async () => {
+  const room = uniqueRoom("tick-cancel");
+  const observer = connect(room, { tickRate: 30 });
+  await waitFor(() => admitted(observer), "observer admitted first (sets the rules)");
+  const raw = new RawClient(room, { _pk: `ahead-${process.pid}` });
+  const heard: (JsonValue | undefined)[] = [];
+  let last = 0;
+  observer.onTick = (tick) => {
+    last = tick.n;
+    if (raw.id in tick.changed) {
+      heard.push(tick.changed[raw.id]);
+    }
+  };
+  try {
+    await waitFor(() => raw.synced() && last > 0, "raw client admitted and ticks flowing");
+    // Twenty ticks ahead (~0.7 s), then the transport drops before it lands.
+    raw.send({ data: { n: last + 20, v: "ahead" }, type: "input" });
+    raw.close(4000);
+    await waitFor(() => heard.includes(null), "the drop clears its input");
+    const clearedAt = last;
+    await waitFor(() => last > clearedAt + 30, "well past the tick it was scheduled for");
+    assert.deepEqual(heard, [null], "the input scheduled ahead never landed");
+  } finally {
+    observer.destroy();
+  }
+});
+
 test("declared limits drop out-of-range player state", async () => {
   const room = uniqueRoom("limits");
   const limits = { hp: { max: 100, min: 0 } };
