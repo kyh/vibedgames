@@ -187,7 +187,7 @@ test("one seed and one input stream give one match, however it is cloned and rep
 test("a long scripted match exercises every rule", () => {
   const { events, final } = playScript(2024, 60_000);
   const kinds = new Set(events.map((e) => e.kind));
-  for (const kind of ["serve", "hit", "wall", "land", "point"]) {
+  for (const kind of ["serve", "hit", "wall", "land", "point"] as const) {
     assert.ok(kinds.has(kind), `no ${kind} event`);
   }
   const hits = events.filter((e): e is HitEvent => e.kind === "hit");
@@ -293,21 +293,23 @@ test("a press is a change of the counter: held, first seen or returning, it is n
 
 test("a power shot arms on a press, cancels on a cancel, and fires on the next return", () => {
   const s = newMatch({ autoServe: false, scoreA: 0, scoreB: 0, seed: 1, tick: 0 });
+  // Read through functions: stepSim mutates the state behind TypeScript's narrowing.
+  const charge = (): string => s.a.charge.kind;
   let input: SlotInput = { c: 0, k: 0, x: 0 };
   stepSim(s, input, null);
   input = { ...input, c: bump(input.c) };
   stepSim(s, input, null);
   assert.equal(s.phase, "rally");
-  s.a.charge = { kind: "ready" };
+  Object.assign(s.a, { charge: { kind: "ready" } });
   input = { ...input, c: bump(input.c) };
   stepSim(s, input, null);
-  assert.equal(s.a.charge.kind, "armed");
+  assert.equal(charge(), "armed");
   input = { ...input, k: bump(input.k) };
   stepSim(s, input, null);
-  assert.equal(s.a.charge.kind, "ready");
+  assert.equal(charge(), "ready");
   input = { ...input, c: bump(input.c) };
   stepSim(s, input, null);
-  assert.equal(s.a.charge.kind, "armed");
+  assert.equal(charge(), "armed");
   // Steer under the ball until slot A returns it.
   let hit: SimEvent | undefined;
   for (let i = 0; i < 400 && hit === undefined; i += 1) {
@@ -337,6 +339,7 @@ test("nobody at a paddle: the AI holds it", () => {
 
 test("a point parks the ball on its line through the goal beat, then the countdown serves the conceder", () => {
   const s = newMatch({ autoServe: true, scoreA: 0, scoreB: 0, seed: 3, tick: 0 });
+  const phase = (): string => s.phase;
   while (s.phase !== "rally") {
     stepSim(s, null, null);
   }
@@ -354,7 +357,7 @@ test("a point parks the ball on its line through the goal beat, then the countdo
     stepSim(s, null, far);
   }
   assert.deepEqual([s.ball.x, s.ball.y, s.phase], [0, 0, "serving"]);
-  while (s.phase === "serving") {
+  while (phase() === "serving") {
     stepSim(s, null, far);
   }
   assert.equal(s.tick, pointTick + SERVE_DELAY_TICKS);
