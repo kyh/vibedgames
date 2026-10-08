@@ -1200,6 +1200,7 @@ vec3 ocGerstner(vec2 p, float t) {
       },
       hideLoading: () => this.hud.hideLoading(),
       lampGlowBudget: this.mobileUi ? LAMP_GLOW_BUDGET : null,
+      netClock: this.net.serverClock,
       onAmbient: (ambient, city) => {
         this.ambient = ambient;
         this.attachNightAndLife(city);
@@ -2153,7 +2154,7 @@ vec3 ocGerstner(vec2 p, float t) {
     }
     this.net.tick();
     // Wall time, not the clamped sim dt: below 30 fps that dt runs slow, and
-    // both the send cadence and the stamps peers render against must not.
+    // the send cadence must not.
     const now = performance.now();
     const elapsed = this.netAt === 0 ? 0 : now - this.netAt;
     this.netAt = now;
@@ -2163,15 +2164,19 @@ vec3 ocGerstner(vec2 p, float t) {
     // taxis onto everyone's spawn plaza. A driver sends every tick, parked or
     // paused alike: an unchanged pose costs only the stamp (the client sends
     // changed keys), and the stamp is how peers know the taxi is still here.
+    // It is the room's server clock, which every peer shares, so it says when
+    // the pose was true to all of them alike. Nothing goes out until that clock
+    // is measured, a round trip after joining (offline, never): a stamp off the
+    // local clock would read as decades stale.
     const driving = this.mode.kind === "countdown" || this.mode.kind === "playing";
-    if (this.netRate.due(elapsed) && driving && !this.net.offline) {
+    if (this.netRate.due(elapsed) && driving && this.net.clockSynced) {
       this.net.updateMyState({
         h: roundNet(car.heading),
         msg: this.chatText,
         msgAt: this.chatAt,
         p: this.paused ? 1 : 0,
         skin: this.skinId,
-        t: Math.round(now),
+        t: Math.round(this.net.serverNow()),
         vx: this.paused ? 0 : roundVel(car.velX),
         vz: this.paused ? 0 : roundVel(car.velZ),
         x: roundNet(car.position.x),
@@ -2183,7 +2188,7 @@ vec3 ocGerstner(vec2 p, float t) {
     // TRAILER: the director can substitute a fake player map (staged remote
     // robotaxis); null in every normal boot.
     const staged = this.trailerFakes !== null;
-    remote.sync(this.trailerFakes ?? this.net.players, this.net.playerId, { now, staged });
+    remote.sync(this.trailerFakes ?? this.net.players, this.net.playerId, { staged });
     // Nothing draws under the pause overlay; placing taxis can wait for resume.
     if (!this.paused) {
       remote.update(car.position, now);

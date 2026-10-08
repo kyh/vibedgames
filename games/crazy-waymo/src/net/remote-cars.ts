@@ -1,16 +1,18 @@
 // Renders the other players' taxis in the shared free-roam city. The world is
 // generated from a fixed CITY_SEED, so every client already builds an identical
 // map — remote cars just need their networked transforms placed on it. Every
-// owner stamps its pose with its own clock (GameScene.updateNet); a car is drawn
-// INTERP_DELAY_MS in that clock's past, blended between the two updates around
-// that moment, so it moves as smoothly as it was driven however unevenly the
-// updates arrive. Cars are distance-culled so a full 64-player room stays
-// cheap (only nearby taxis are in the scene).
+// owner stamps its pose with the room's server clock (GameScene.updateNet),
+// which every client shares: a car is drawn INTERP_DELAY_MS behind that clock,
+// blended between the two updates around that moment, so it moves as smoothly
+// as it was driven however unevenly the updates arrive — and the stamp dates
+// the pose, so a taxi whose newest one is old reads as away, then gone. Cars
+// are distance-culled so a full 64-player room stays cheap (only nearby taxis
+// are in the scene).
 
 import * as THREE from "three";
 
 import { Interpolator, lerp, lerpAngle } from "@vibedgames/multiplayer";
-import type { Player, PlayerMap } from "@vibedgames/multiplayer";
+import type { Player, PlayerMap, SenderClock } from "@vibedgames/multiplayer";
 
 import type { ModelCache } from "../assets/loader";
 
@@ -29,9 +31,12 @@ const DROP_RADIUS_SQ = 580 * 580;
 /** Consecutive updates farther apart than this are a respawn/reset — snap,
  *  don't streak the taxi across the map through buildings. */
 const SNAP_DIST_SQ = 40 * 40;
-/** How far in its owner's past a car is drawn: one 20 Hz send interval plus
- *  arrival jitter. */
-const INTERP_DELAY_MS = 100;
+/** How far behind the server clock a car is drawn. A stamp is already one
+ *  sender → server → receiver trip old when it lands (~50–150 ms), and the
+ *  update after it a 20 Hz interval later still: 200 ms keeps both updates
+ *  around the drawn moment in hand on such a link. (A clock estimated per
+ *  sender absorbs the trip and gets by on 100; the shared one cannot.) */
+const INTERP_DELAY_MS = 200;
 /** A late update is covered by coasting this long; after that the car holds. */
 const MAX_EXTRAPOLATE_MS = 200;
 /** Updates kept per car — several times the delay at 20 Hz. */
@@ -39,18 +44,17 @@ const INTERP_CAPACITY = 16;
 /** Two updates further apart than this bracket a silence, not motion: never
  *  coast on the pace measured across one. */
 const MAX_COAST_SPAN_MS = 250;
-/** An owner silent this long reads as away (grey beacon)… */
+/** A newest pose stamped this long ago reads as away (grey beacon)… */
 const AWAY_MS = 1500;
-/** …and this long, gone. Owners keep sending while parked or paused, so only a
- *  hidden tab (socket open, rAF stopped) or a dead link goes quiet; the car
- *  comes back the moment it speaks again. */
+/** …and this long ago, gone. Owners keep sending while parked or paused, so
+ *  only a hidden tab (socket open, rAF stopped) or a dead link goes quiet; the
+ *  car comes back the moment it speaks again. */
 const STALE_MS = 15_000;
 const AWAY_BEACON = new THREE.Color(0x8a_8f_98);
 
-/** A remote taxi's pose at one instant of its owner's clock. */
+/** A remote taxi's pose at one instant of the room's server clock. */
 export interface RemotePose {
-  /** The owner's `performance.now()` when sent (ms); the arrival time for a
-   *  peer that sends no stamp. */
+  /** Server time when sent (ms since the epoch — `serverNow()` on every client). */
   t: number;
   x: number;
   y: number;
@@ -63,8 +67,6 @@ export interface RemotePose {
 
 /** One player-state update, parsed. */
 export interface RemoteState extends RemotePose {
-  /** False for a client that predates stamps, or a staged trailer pose. */
-  stamped: boolean;
   skin: string;
   msg: string;
   msgAt: number;
@@ -74,12 +76,14 @@ export interface RemoteState extends RemotePose {
 const finiteOr = (v: JsonValue | undefined, fallback: number): number =>
   isFiniteJsonNumber(v) ? v : fallback;
 
-/** A peer's player state, or null when it holds no usable transform. Peers are
- *  trusted for their own car, but a bad one must not feed NaN/Infinity into
+/** A peer's player state, or null when it holds no usable transform — or, for
+ *  a live peer, no server-clock stamp to place and date it by. A `staged`
+ *  trailer pose is drawn exactly as given and carries none. Peers are trusted
+ *  for their own car, but a bad one must not feed NaN/Infinity into
  *  slopeQuaternion and the Three.js transforms (which would freeze rendering). */
 export const readRemoteState = (
   state: JsonValue | undefined,
-  arrivedAt: number,
+  staged = false,
 ): RemoteState | null => {
   if (!isJsonObject(state)) {
     return null;
@@ -88,15 +92,16 @@ export const readRemoteState = (
   if (!isFiniteJsonNumber(x) || !isFiniteJsonNumber(z) || !isFiniteJsonNumber(h)) {
     return null;
   }
-  const stamped = isFiniteJsonNumber(t);
+  if (!staged && !isFiniteJsonNumber(t)) {
+    return null;
+  }
   return {
     h,
     msg: isJsonString(msg) ? msg.slice(0, 90) : "",
     msgAt: finiteOr(state.msgAt, 0),
     paused: state.p === 1,
     skin: skinById(isJsonString(skin) ? skin : null).id,
-    stamped,
-    t: stamped ? t : arrivedAt,
+    t: finiteOr(t, 0),
     vx: finiteOr(state.vx, 0),
     vz: finiteOr(state.vz, 0),
     x,
@@ -187,8 +192,6 @@ interface Peer {
   source: Player["state"];
   latest: RemoteState;
   readonly interp: Interpolator<RemotePose>;
-  /** Local time of the newest fresh update. */
-  heardAt: number;
   connected: boolean;
   lastMsgAt: number;
   /** A chat line to show if the car is on screen this frame. */
@@ -200,7 +203,6 @@ interface Peer {
 export interface SyncOptions {
   /** The trailer director's fake players: poses written every frame, shown as given. */
   staged?: boolean;
-  now?: number;
 }
 
 export class RemoteCars {
@@ -223,6 +225,8 @@ export class RemoteCars {
 
   private readonly cache: ModelCache;
   private readonly surface: Surface;
+  /** The room's server clock: what every pose is stamped, drawn and dated by. */
+  private readonly clock: SenderClock;
   /** Called when a remote player sends a chat line (bubble goes here). */
   private readonly onChat?: (anchor: THREE.Object3D, text: string) => void;
   /** Builds a skin's body; headless tests pass a stand-in (the real one bakes
@@ -232,11 +236,13 @@ export class RemoteCars {
   constructor(
     cache: ModelCache,
     surface: Surface,
+    clock: SenderClock,
     onChat?: (anchor: THREE.Object3D, text: string) => void,
     build: (skin: RobotaxiSkin) => THREE.Object3D = (skin) => buildSkinBody(cache, skin),
   ) {
     this.cache = cache;
     this.surface = surface;
+    this.clock = clock;
     this.onChat = onChat;
     this.build = build;
   }
@@ -250,12 +256,11 @@ export class RemoteCars {
     }
     this.lastPlayers = players;
     this.staged = options.staged === true;
-    const now = options.now ?? performance.now();
     this.generation += 1;
     for (const id of Object.keys(players)) {
       const player = players[id];
       if (player && id !== myId) {
-        this.adopt(id, player, now);
+        this.adopt(id, player);
       }
     }
     for (const peer of this.peers.values()) {
@@ -267,13 +272,14 @@ export class RemoteCars {
 
   /** Place this frame's taxis; `origin` is the local car, for culling. */
   update(origin: THREE.Vector3, now: number = performance.now()): void {
+    const serverNow = this.clock.now(now);
     let visible = 0;
     for (const peer of this.peers.values()) {
       const dx = peer.latest.x - origin.x;
       const dz = peer.latest.z - origin.z;
       const radiusSq = peer.view?.attached ? DROP_RADIUS_SQ : RENDER_RADIUS_SQ;
-      if (this.present(peer, now) && dx * dx + dz * dz <= radiusSq) {
-        this.place(peer, now);
+      if (this.present(peer, serverNow) && dx * dx + dz * dz <= radiusSq) {
+        this.place(peer, now, serverNow);
         visible += 1;
       } else {
         this.hide(peer);
@@ -284,8 +290,9 @@ export class RemoteCars {
 
   /** Every present player's newest position, near or far (the minimap). */
   forEachPresent(visit: (x: number, z: number) => void, now: number = performance.now()): void {
+    const serverNow = this.clock.now(now);
     for (const peer of this.peers.values()) {
-      if (this.present(peer, now)) {
+      if (this.present(peer, serverNow)) {
         visit(peer.latest.x, peer.latest.z);
       }
     }
@@ -304,12 +311,16 @@ export class RemoteCars {
     this.lastPlayers = null;
   }
 
-  /** Connected and heard from lately — or staged, which holds until replaced. */
-  private present(peer: Peer, now: number): boolean {
-    return this.staged || (peer.connected && now - peer.heardAt <= STALE_MS);
+  /** Connected with a pose stamped within STALE_MS — or staged, which holds
+   *  until replaced. Until this client has measured the server clock it reads
+   *  the local one, which dates no stamp, so nothing live is present yet. */
+  private present(peer: Peer, serverNow: number): boolean {
+    return (
+      this.staged || (peer.connected && this.clock.synced && serverNow - peer.latest.t <= STALE_MS)
+    );
   }
 
-  private place(peer: Peer, now: number): void {
+  private place(peer: Peer, now: number, serverNow: number): void {
     const { latest } = peer;
     let { view } = peer;
     if (!view) {
@@ -322,7 +333,7 @@ export class RemoteCars {
       this.group.add(view.group);
       view.attached = true;
     }
-    const away = latest.paused || (!this.staged && now - peer.heardAt > AWAY_MS);
+    const away = latest.paused || (!this.staged && serverNow - latest.t > AWAY_MS);
     if (away !== view.away) {
       view.away = away;
       view.beaconMat.color.copy(away ? AWAY_BEACON : view.color);
@@ -347,7 +358,7 @@ export class RemoteCars {
     peer.chat = null;
   }
 
-  private adopt(id: string, player: Player, now: number): void {
+  private adopt(id: string, player: Player): void {
     const known = this.peers.get(id);
     const connected = player.connected !== false;
     if (known !== undefined && known.source === player.state) {
@@ -355,40 +366,44 @@ export class RemoteCars {
       known.generation = this.generation;
       return;
     }
-    const next = readRemoteState(player.state, now);
+    const next = readRemoteState(player.state, this.staged);
     if (!next) {
       if (known) {
         this.drop(known);
       }
       return;
     }
-    const peer = known ?? this.track(id, next, now);
+    const peer = known ?? this.track(id, next);
     if (known) {
-      this.advance(known, next, now);
+      this.advance(known, next);
     }
     peer.source = player.state;
     peer.connected = connected;
     peer.generation = this.generation;
   }
 
-  /** First sight of a player. The room's copy of their state can be a hidden
-   *  tab's pose from minutes ago, so it shows only once a fresh update follows
-   *  (an active owner sends one within a tick). */
-  private track(id: string, first: RemoteState, now: number): Peer {
+  /** First sight of a player: its pose goes straight in. The room's copy of a
+   *  hidden tab's pose can be minutes old, but its stamp says so — such a car
+   *  is never present, and shows once its owner speaks again. */
+  private track(id: string, first: RemoteState): Peer {
     // The blend writes here every frame instead of allocating a pose.
     const out: RemotePose = { h: 0, t: 0, vx: 0, vz: 0, x: 0, y: 0, z: 0 };
+    const interp = new Interpolator<RemotePose>({
+      capacity: INTERP_CAPACITY,
+      clock: this.clock,
+      delayMs: INTERP_DELAY_MS,
+      lerp: (a, b, alpha) => blendPose(out, a, b, alpha),
+      maxExtrapolateMs: MAX_EXTRAPOLATE_MS,
+    });
+    if (!this.staged) {
+      interp.push(first.t, first);
+    }
     const peer: Peer = {
       chat: null,
       connected: true,
       generation: this.generation,
-      heardAt: this.staged ? now : Number.NEGATIVE_INFINITY,
       id,
-      interp: new Interpolator<RemotePose>({
-        capacity: INTERP_CAPACITY,
-        delayMs: INTERP_DELAY_MS,
-        lerp: (a, b, alpha) => blendPose(out, a, b, alpha),
-        maxExtrapolateMs: MAX_EXTRAPOLATE_MS,
-      }),
+      interp,
       // Don't replay a bubble that predates our arrival.
       lastMsgAt: first.msgAt,
       latest: first,
@@ -399,20 +414,17 @@ export class RemoteCars {
     return peer;
   }
 
-  private advance(peer: Peer, next: RemoteState, now: number): void {
+  private advance(peer: Peer, next: RemoteState): void {
     const prev = peer.latest;
-    if (this.staged || !next.stamped || next.t !== prev.t) {
-      if (!this.staged) {
-        const dx = next.x - prev.x;
-        const dz = next.z - prev.z;
-        // A respawn, or an owner back from a long silence: show the new pose
-        // at once instead of gliding there from the old one.
-        if (dx * dx + dz * dz > SNAP_DIST_SQ || now - peer.heardAt > STALE_MS) {
-          peer.interp.clear();
-        }
-        peer.interp.push(next.t, next, now);
+    if (!this.staged && next.t !== prev.t) {
+      const dx = next.x - prev.x;
+      const dz = next.z - prev.z;
+      // A respawn, or an owner back from a long silence: show the new pose at
+      // once instead of gliding there from the old one.
+      if (dx * dx + dz * dz > SNAP_DIST_SQ || next.t - prev.t > STALE_MS) {
+        peer.interp.clear();
       }
-      peer.heardAt = now;
+      peer.interp.push(next.t, next);
     }
     if (next.msg && next.msgAt > peer.lastMsgAt) {
       peer.lastMsgAt = next.msgAt;

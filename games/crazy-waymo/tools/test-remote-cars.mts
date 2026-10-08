@@ -1,7 +1,8 @@
 // Remote-car netcode, headless: real RemoteCars and Interpolator, fed by
 // simulated drivers (a 60 fps loop sending on a 20 Hz FixedRate, each update
-// stamped with the driver's own clock and delivered in order after a jittered
-// latency) and read back at 60 fps — the way a peer's browser sees them.
+// stamped with the room's server clock and delivered in order after a jittered
+// trip through the server) and read back at 60 fps — the way a peer's browser
+// sees them.
 import { setTimeout as settle } from "node:timers/promises";
 
 import * as THREE from "three";
@@ -18,8 +19,10 @@ import type { Surface } from "../src/vehicle/car.ts";
 type Check = (name: string, condition: boolean, detail?: string) => void;
 
 const FRAME_MS = 1000 / 60;
-/** Receiver clock minus every sender's: two machines share no epoch. */
+/** The receiver's local clock minus the server's: performance.now() has no epoch. */
 const SKEW_MS = 7000;
+/** How far ahead of the true server time the receiver's measurement reads. */
+const CLOCK_ERROR_MS = 6;
 
 /** Deterministic jitter in [0, 1) so the checks never flake. */
 const noise = (i: number): number => {
@@ -48,9 +51,10 @@ interface Packet {
 }
 
 /**
- * One remote driver from sender time `fromMs` to `toMs`: `pose` is its car
+ * One remote driver from server time `fromMs` to `toMs`: `pose` is its car
  * (null while its tab is hidden and nothing goes out), stamped with the
- * sender's clock and delivered in order after `latency(i)` ms.
+ * server clock and delivered in order after `latency(i)` ms — the whole trip,
+ * sender to server to receiver.
  */
 const drive = (
   id: string,
@@ -102,12 +106,20 @@ const parkedAt = (x: number, extra: JsonObject = {}): JsonObject => ({
 class Receiver {
   players: PlayerMap = {};
   now = SKEW_MS;
+  /** This receiver's measurement of the server clock: until a probe has come
+   *  back (`synced` false) it reads the local clock, as ServerClock does. */
+  readonly clock = {
+    now: (localNow = 0): number =>
+      this.clock.synced ? localNow - SKEW_MS + CLOCK_ERROR_MS : localNow,
+    synced: true,
+  };
   readonly builds: string[] = [];
   readonly chats: string[] = [];
   readonly origin = new THREE.Vector3();
   readonly remote = new RemoteCars(
     stubCache(),
     flat,
+    this.clock,
     (_anchor, text) => {
       this.chats.push(text);
     },
@@ -148,7 +160,7 @@ class Receiver {
           this.patch(packet.id, packet.state);
         }
       }
-      this.remote.sync(this.players, "me", { now: this.now });
+      this.remote.sync(this.players, "me");
       this.remote.update(this.origin, this.now);
       probe?.(this.now);
     }
@@ -179,29 +191,39 @@ const beaconHex = (car: THREE.Object3D | undefined): number | null => {
 };
 
 const checkWireFormat = (check: Check): void => {
-  const parsed = readRemoteState(
-    { h: 1, p: 1, skin: "zoox", t: 1234, vx: 3, vz: -4, x: 10, y: 2, z: -5 },
-    99,
-  );
+  const parsed = readRemoteState({
+    h: 1,
+    p: 1,
+    skin: "zoox",
+    t: 1234,
+    vx: 3,
+    vz: -4,
+    x: 10,
+    y: 2,
+    z: -5,
+  });
   check(
     "remote state reads the stamp, velocity, pause flag and skin",
     parsed?.t === 1234 &&
-      parsed.stamped &&
       parsed.vx === 3 &&
       parsed.vz === -4 &&
       parsed.paused &&
       parsed.skin === "zoox",
   );
-  const legacy = readRemoteState({ h: 0, skin: "nonsense", x: 1, z: 2 }, 99);
   check(
-    "an unstamped state is timed by its arrival and an unknown skin is the default",
-    legacy?.t === 99 && !legacy.stamped && legacy.skin === "waymo" && legacy.vx === 0,
+    "a live state without a server-clock stamp is no car",
+    readRemoteState({ h: 0, skin: "waymo", x: 1, z: 2 }) === null,
+  );
+  const staged = readRemoteState({ h: 0, skin: "nonsense", x: 1, z: 2 }, true);
+  check(
+    "a staged pose needs no stamp, and an unknown skin is the default",
+    staged?.skin === "waymo" && staged.vx === 0,
   );
   check(
     "a state without a finite transform is no car",
-    readRemoteState({ h: 0, x: 1 }, 0) === null &&
-      readRemoteState({ h: 0, x: "1", z: 2 }, 0) === null &&
-      readRemoteState(null, 0) === null,
+    readRemoteState({ h: 0, t: 1, x: 1 }) === null &&
+      readRemoteState({ h: 0, t: 1, x: "1", z: 2 }) === null &&
+      readRemoteState(null) === null,
   );
 };
 
@@ -243,12 +265,12 @@ const checkBlend = (check: Check): void => {
   check("never coast on a pace measured across a silence", bridged === 3, `${bridged}`);
 };
 
-const checkSmoothMotion = (check: Check): void => {
-  // 30 u/s with 40–140 ms of latency jitter: wider than the 50 ms interval,
-  // so the buffer runs dry now and then and late updates are coasted over.
+/** A taxi cruising at 30 u/s over a link whose trip through the server takes
+ *  `fromMs` plus up to `spreadMs` of jitter, read back at 60 fps. */
+const cruiseOver = (fromMs: number, spreadMs: number) => {
   const rx = new Receiver();
   const speed = 30;
-  rx.send(drive("a", 0, 9000, cruise(speed), (i) => 40 + 100 * noise(i)));
+  rx.send(drive("a", 0, 9000, cruise(speed), (i) => fromMs + spreadMs * noise(i)));
   let prev: number | null = null;
   let minStep = Infinity;
   let maxStep = 0;
@@ -268,16 +290,32 @@ const checkSmoothMotion = (check: Check): void => {
     }
     prev = x;
   });
+  return { backwards, lagMs, maxStep, minStep };
+};
+
+const checkSmoothMotion = (check: Check): void => {
+  // 40–140 ms through the server: jitter twice the 50 ms send interval.
+  const typical = cruiseOver(40, 100);
   check(
     "a remote taxi on a jittery link moves at its true speed every frame",
-    minStep > 0.8 && maxStep < 1.2,
-    `per-frame speed ${(minStep * 100).toFixed(0)}–${(maxStep * 100).toFixed(0)}% of true`,
+    typical.minStep > 0.8 && typical.maxStep < 1.2,
+    `per-frame speed ${(typical.minStep * 100).toFixed(0)}–${(typical.maxStep * 100).toFixed(0)}% of true`,
   );
-  check("a remote taxi cruising straight never rubber-bands backwards", backwards === 0);
+  check("a remote taxi cruising straight never rubber-bands backwards", typical.backwards === 0);
+  // Every client reads the one server clock, so the trip itself never shifts
+  // where a car is drawn: only the render delay (less the receiver's clock
+  // error) separates it from its owner.
   check(
-    "a remote taxi trails its owner by the render delay plus the fastest path",
-    lagMs > 110 && lagMs < 200,
-    `${lagMs.toFixed(0)} ms behind`,
+    "a remote taxi trails its owner by the render delay, whatever the trip",
+    typical.lagMs > 185 && typical.lagMs < 205,
+    `${typical.lagMs.toFixed(0)} ms behind`,
+  );
+  // 150–250 ms: updates land after the drawn moment and are coasted over.
+  const slow = cruiseOver(150, 100);
+  check(
+    "a remote taxi on a slow link coasts the late updates at its true speed",
+    slow.minStep > 0.8 && slow.maxStep < 1.2 && slow.backwards === 0,
+    `per-frame speed ${(slow.minStep * 100).toFixed(0)}–${(slow.maxStep * 100).toFixed(0)}% of true, ${slow.lagMs.toFixed(0)} ms behind`,
   );
 };
 
@@ -337,16 +375,39 @@ const checkPresence = (check: Check): void => {
     dropped === 0 && rx.remote.count() === 1,
   );
 
-  // Joining a room that still holds a hidden tab's last pose.
+  // Joining a room that still holds a hidden tab's last pose, a minute old.
   const late = new Receiver();
-  late.patch("old", { ...parkedAt(5), t: 123 });
+  late.patch("old", { ...parkedAt(5), t: -60_000 });
   late.run(SKEW_MS + 3000);
   const ghost = late.remote.count() + late.present();
-  late.send([{ arrive: late.now, id: "old", state: { ...parkedAt(5), t: 130_000 } }]);
+  const spoke = Math.round(late.now - SKEW_MS);
+  late.send([{ arrive: late.now, id: "old", state: { ...parkedAt(5), t: spoke } }]);
   late.run(late.now + 1);
   check(
     "a stale pose found on joining shows only once its owner speaks",
     ghost === 0 && late.remote.count() === 1,
+  );
+
+  // Joining a room mid-drive: the sync holds a pose stamped a moment ago.
+  const joiner = new Receiver();
+  joiner.patch("live", { ...parkedAt(5), t: -80 });
+  joiner.run(SKEW_MS);
+  check(
+    "a current pose found on joining shows at once, without waiting for the next",
+    joiner.remote.count() === 1,
+  );
+
+  // The receiver's first clock probe is still out: stamps cannot be dated yet.
+  const unsynced = new Receiver();
+  unsynced.clock.synced = false;
+  unsynced.send(drive("u", 0, 2000, () => parkedAt(5)));
+  unsynced.run(SKEW_MS + 1000);
+  const early = unsynced.remote.count() + unsynced.present();
+  unsynced.clock.synced = true;
+  unsynced.run(SKEW_MS + 1100);
+  check(
+    "nothing live shows before this client has measured the server clock",
+    early === 0 && unsynced.remote.count() === 1,
   );
 
   const pausedRx = new Receiver();
@@ -448,7 +509,7 @@ const checkStaged = (check: Check): void => {
   const rx = new Receiver();
   const xs: number[] = [];
   for (const [i, x] of [10, 11, 12.5].entries()) {
-    rx.remote.sync(stagedRival(x, i === 2), "me", { now: rx.now, staged: true });
+    rx.remote.sync(stagedRival(x, i === 2), "me", { staged: true });
     rx.remote.update(rx.origin, rx.now);
     xs.push(rx.car()?.position.x ?? Number.NaN);
     rx.now += FRAME_MS;

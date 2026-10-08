@@ -263,10 +263,13 @@ export const TRAFFIC = {
 // The city is generated from a fixed CITY_SEED, so every client builds an
 // identical map and remote taxis line up on the same roads. We only broadcast
 // each player's car transform and render the others; fares/score stay private
-// and local. 64 is the party server's hard per-room ceiling.
-export const MP_ROOM = "crazy-waymo-default";
+// and local. 64 is the party server's hard per-room ceiling. The room's version
+// moves with every wire change, so clients that disagree never share a room
+// (v2: poses stamped with the server clock).
+export const MP_ROOM = "crazy-waymo-v2";
 export const MP_MAX_PLAYERS = 64;
 export const OFFLINE_FALLBACK_MS = 8000;
-/** Car-transform broadcast rate. Remote cars are drawn 100 ms behind their
- *  owner (net/remote-cars.ts), which covers one interval plus jitter at 20. */
+/** Car-transform broadcast rate. Remote cars are drawn 200 ms behind the
+ *  server clock (net/remote-cars.ts): the trip through the server, plus one
+ *  interval and jitter at 20. */
 export const NET_TICK_HZ = 20;

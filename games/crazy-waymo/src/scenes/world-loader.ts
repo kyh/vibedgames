@@ -1,4 +1,5 @@
 import type * as THREE from "three";
+import type { SenderClock } from "@vibedgames/multiplayer";
 
 import type { ModelCache } from "../assets/loader";
 import { earlyModelUrls, lateModelUrls } from "../assets/manifest";
@@ -98,6 +99,8 @@ interface WorldLoaderDeps {
   readonly snapToCar: (car: Car) => void;
   readonly setupGarages: (city: CityModel) => void;
   readonly remoteSay: (anchor: THREE.Object3D, text: string) => void;
+  /** The room's server clock, which remote taxis are stamped and drawn by. */
+  readonly netClock: SenderClock;
   readonly getRenderer: () => THREE.WebGLRenderer | null;
   readonly getCamera: () => THREE.Camera;
   /** Mobile sun: warm its shadowless floor tier too. Null keeps one pass. */
@@ -418,7 +421,7 @@ const finishLoad = async (
       t = now;
     };
   })();
-  const remoteCars = new RemoteCars(deps.cache, city, (anchor, text) => {
+  const remoteCars = new RemoteCars(deps.cache, city, deps.netClock, (anchor, text) => {
     deps.remoteSay(anchor, text);
   });
   deps.scene.add(remoteCars.group);
