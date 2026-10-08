@@ -90,12 +90,6 @@ export const OFFLINE_FALLBACK_MS = 6000;
 /** Player position/facing broadcast rate, stamped with server time; peers
  *  render it a round trip plus PLAYBACK_DELAY_MS behind (net/farmer-wire). */
 export const NET_TICK_HZ = 20;
-/** Host clock broadcast rate. Guests run the clock themselves in between, and
- *  a pause, a new day or new weather is published at once. */
-export const CLOCK_TICK_HZ = 1;
-/** A guest's clock snaps to the host's only when this many game-minutes off;
- *  smaller drift is absorbed by running slightly fast or slow. */
-export const CLOCK_SNAP_MIN = 3;
 /** How long a guest's own farming outranks older host values for that tile. */
 export const PENDING_EDIT_MS = 1500;
 /** A remote farmer moving further than this between updates went through a

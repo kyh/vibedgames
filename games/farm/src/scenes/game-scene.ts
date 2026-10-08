@@ -2,7 +2,6 @@ import type Phaser from "phaser";
 import { Animations, Cameras, Math as PhaserMath, Scene, Scenes } from "phaser";
 import { PhysicalGamepad } from "@vibedgames/gamepad";
 import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
-import { FixedRate } from "@vibedgames/multiplayer";
 import { notifyGameStarted } from "@repo/embed";
 import {
   TILE,
@@ -21,12 +20,11 @@ import {
   MP_ROOM,
   MP_MAX_PLAYERS,
   OFFLINE_FALLBACK_MS,
-  CLOCK_TICK_HZ,
   FARM_SEED,
 } from "../config";
 import type { JsonObject, JsonValue } from "../json";
-import { ClockFollower, clockPatch, readClock } from "../net/clock-sync";
-import type { ClockReading } from "../net/clock-sync";
+import { anchorClock, clockPatch, clockTime, readClock, turnDay } from "../net/clock-sync";
+import type { ClockAnchor } from "../net/clock-sync";
 import { FarmSync, parseClear, publishCleared } from "../net/farm-sync";
 import { FarmerSender } from "../net/farmer-wire";
 import { NetSession } from "../net/session";
@@ -216,15 +214,15 @@ export class GameScene extends Scene {
     },
     coopObjects,
   );
-  /** Host: whether the clock ran this frame — published, so guests stop with it. */
-  private clockRunning = false;
-  private readonly clockRate = new FixedRate(CLOCK_TICK_HZ);
-  private publishedClock: ClockReading | null = null;
+  /** Online: the room's day clock, anchored on server time — the host's own,
+   *  re-anchored whenever its clock starts, stops or turns a day, or the one a
+   *  guest adopted from it. Kept through mine trips; a new farm drops it. */
+  private clockAnchor: ClockAnchor | null = null;
+  /** Host: the anchor last published (null: publish it again). */
+  private publishedAnchor: ClockAnchor | null = null;
   /** Host: the player id the farm was last published under. A new host — or a
    *  new scene start, which may be a different farm — publishes it whole. */
   private publishedAs: string | null = null;
-  /** Guest: the host clock, run locally between its readings. */
-  private readonly clockFollower = new ClockFollower();
   /** Guest: the shared state last folded in (a new object per patch). */
   private lastShared: JsonObject | null = null;
   /** actionHint memo: what it last looked at (idx -1 = stale). */
@@ -391,9 +389,8 @@ export class GameScene extends Scene {
     // room's), a guest re-adopts the host's farm and clock.
     this.farmSync.reset();
     this.publishedAs = null;
-    this.publishedClock = null;
+    this.publishedAnchor = null;
     this.lastShared = null;
-    this.clockFollower.reset();
     this.farmerSender.arrive();
 
     if (import.meta.env.DEV) {
@@ -416,6 +413,8 @@ export class GameScene extends Scene {
   }
 
   private openFarm(data: { mode: "new" | "continue"; solo?: { seed: number } }): void {
+    // A new farm keeps its own day; in the room a guest re-adopts the host's.
+    this.clockAnchor = null;
     const s = data.mode === "continue" ? loadSave() : null;
     if (s) {
       this.loadFrom(s);
@@ -780,23 +779,13 @@ export class GameScene extends Scene {
     this.net?.tick();
     this.followHost();
     const busy = this.uiOpen || this.transitioning || this.fishing.active;
-    this.clockRunning = !busy;
+    this.runClock(dt, !busy);
     if (!busy) {
-      // The host drives the shared clock; guests follow it (followHost).
-      // While still handshaking (not live yet) run it locally — a frozen
-      // clock during the connect window reads as a hang.
-      if (this.amHost || !this.net?.live) {
-        this.advanceTime(dt);
-      }
       if (!this.controlsPaused) {
         this.handleMovement(dt);
       }
     } else if (!this.acting && !this.fishing.active) {
       this.setAnim("idle");
-    }
-    // A guest's own menu never stops the room's clock.
-    if (!this.amHost && this.net?.live) {
-      this.clockFollower.advance(this, dt);
     }
     if (!this.controlsPaused) {
       this.fishing.update(dt);
@@ -810,7 +799,7 @@ export class GameScene extends Scene {
     // shadow rides the feet, always one depth step under its owner
     this.shadow.setPosition(this.player.x, this.player.y + 1);
     this.shadow.setDepth(this.player.depth - 1);
-    this.updateNet(dms);
+    this.updateNet();
     this.trailerFrame?.(dt);
     // flush debounced saves (transitions and tab-hide/unload still save at once)
     this.retryPendingSave(dt);
@@ -951,20 +940,28 @@ export class GameScene extends Scene {
     const now = performance.now();
     if (shared && shared !== this.lastShared) {
       this.farmSync.adopt(shared, now);
-      this.adoptClock(shared);
+      this.adoptClock(net, shared);
     }
     this.lastShared = shared;
     this.farmSync.expire(shared, now);
   }
 
-  /** Guest: a host clock reading. A later day means this farmer slept too —
-   *  the same personal night the host gets in endDay. */
-  private adoptClock(shared: JsonObject): void {
-    const reading = readClock(shared);
-    const turn = reading ? this.clockFollower.observe(this, reading) : null;
+  /** Guest: the host's clock anchor (runClock reads the minute off it). A later
+   *  day means this farmer slept too — the same personal night the host gets
+   *  in endDay. */
+  private adoptClock(net: NetSession, shared: JsonObject): void {
+    const anchor = readClock(shared);
+    if (!anchor) {
+      return;
+    }
+    const turn = turnDay(this, anchor);
+    this.clockAnchor = anchor;
+    this.weather = anchor.weather;
     if (!turn) {
       return;
     }
+    this.day = anchor.day;
+    this.timeMin = clockTime(anchor, net.serverNow());
     const recap = this.shipping.shipments > 0 ? this.shipping : undefined;
     this.shipping = { day: this.day, shipments: 0, shippedGold: 0 };
     if (turn.rested) {
@@ -973,7 +970,7 @@ export class GameScene extends Scene {
     this.events.emit("daybanner", this.day, seasonOfDay(this.day), this.weather, recap);
   }
 
-  private updateNet(elapsedMs: number): void {
+  private updateNet(): void {
     const { net } = this;
     if (!net) {
       return;
@@ -988,7 +985,7 @@ export class GameScene extends Scene {
         net.updateMyState(update);
       }
       if (this.amHost) {
-        this.publishHost(net, elapsedMs);
+        this.publishHost(net);
       } else {
         this.publishedAs = null;
       }
@@ -997,31 +994,53 @@ export class GameScene extends Scene {
     this.remoteFarmers?.update();
   }
 
-  /** Host: the whole farm once (per new host or scene start), then the clock —
-   *  steadily while it runs, at once when it stops, starts or turns a day. */
-  private publishHost(net: NetSession, elapsedMs: number): void {
+  /** Host: the whole farm once (per new host or scene start), then the clock's
+   *  anchor whenever it changes — when the clock starts, stops or turns a day,
+   *  never in between: every client reads the minute off it alone. */
+  private publishHost(net: NetSession): void {
     if (this.publishedAs !== net.playerId) {
       this.publishedAs = net.playerId;
-      this.publishedClock = null;
+      this.publishedAnchor = null;
       this.farmSync.publishWorld(net, net.sharedState, Date.now());
     }
-    const reading: ClockReading = {
-      day: this.day,
-      running: this.clockRunning,
-      time: this.timeMin,
-      weather: this.weather,
-    };
-    const last = this.publishedClock;
-    const due = this.clockRate.due(elapsedMs);
+    const anchor = this.clockAnchor;
+    if (anchor && anchor !== this.publishedAnchor) {
+      net.patchShared(clockPatch(anchor));
+      this.publishedAnchor = anchor;
+    }
+  }
+
+  /**
+   * The day clock. In the room every client reads it off the anchor on the
+   * server clock; the host re-anchors it when its clock starts, stops (a menu,
+   * a fade, fishing) or turns a day, and a guest's own menu never stops it.
+   * Offline — and until the room's clock is measured, since a clock frozen in
+   * the connect window reads as a hang — it runs on this frame's time.
+   */
+  private runClock(dt: number, running: boolean): void {
+    const { net } = this;
+    if (!net || !this.isOnline() || !net.timeSynced) {
+      if (running) {
+        this.advanceTime(dt);
+      }
+      return;
+    }
+    const now = net.serverNow();
+    const held = this.clockAnchor;
     if (
-      due ||
-      !last ||
-      last.day !== reading.day ||
-      last.running !== reading.running ||
-      last.weather !== reading.weather
+      this.amHost &&
+      (!held || held.day !== this.day || held.weather !== this.weather || held.running !== running)
     ) {
-      net.patchShared(clockPatch(reading));
-      this.publishedClock = reading;
+      this.clockAnchor = anchorClock(this.day, this.timeMin, this.weather, running, now);
+    }
+    const anchor = this.clockAnchor;
+    // A guest before the host's first anchor waits for it.
+    if (!anchor) {
+      return;
+    }
+    this.timeMin = clockTime(anchor, now);
+    if (this.amHost && this.timeMin >= DAY_END_MIN) {
+      this.passOut();
     }
   }
 

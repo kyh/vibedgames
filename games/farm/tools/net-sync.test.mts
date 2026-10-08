@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { ServerClock } from "@vibedgames/multiplayer";
 import { DAY_END_MIN, FARM_SEED, MAP_W, PENDING_EDIT_MS } from "../src/config";
 import { CROP_ORDER, CROPS } from "../src/data/crops";
 import type { JsonObject } from "../src/json";
-import { ClockFollower, clockPatch, readClock } from "../src/net/clock-sync";
-import type { ClockState } from "../src/net/clock-sync";
+import { anchorClock, clockPatch, clockTime, readClock, turnDay } from "../src/net/clock-sync";
 import { FarmSync, objectKey, publishCleared } from "../src/net/farm-sync";
 import {
   CROP_SLOTS,
@@ -322,57 +322,60 @@ test("the host applies a guest's intent only where its own world allows it", () 
   );
 });
 
-test("a guest runs the host clock locally and only snaps when far off", () => {
-  const state: ClockState = { day: 3, timeMin: 600, weather: "sunny" };
-  const clock = new ClockFollower();
-  const reading = { day: 3, running: true, time: 601, weather: "sunny" } as const;
-  assert.deepEqual(readClock(clockPatch(reading)), reading);
-  assert.equal(readClock({ cd: 3, cr: true, ct: 601, cw: "hail" }), null);
+test("every client reads the same minute off the host's clock anchor", () => {
+  const anchor = anchorClock(3, 600.04, "sunny", true, 10_000.4);
+  assert.deepEqual(
+    anchor,
+    { at: 10_000, day: 3, running: true, time: 600, weather: "sunny" },
+    "rounded as it rides the wire, so the host reads what its guests read",
+  );
+  assert.deepEqual(readClock(clockPatch(anchor)), anchor);
+  assert.equal(readClock({ ...clockPatch(anchor), cw: "hail" }), null);
+  assert.equal(readClock({ cd: 3, cr: true, ct: 600, cw: "sunny" }), null, "no anchor time");
 
-  assert.equal(clock.observe(state, reading), null);
-  assert.equal(state.timeMin, 600, "a minute off: no jump");
-  let last = state.timeMin;
-  for (let i = 0; i < 120; i += 1) {
-    clock.advance(state, 1 / 60);
-    assert.ok(state.timeMin > last, "never runs backwards");
-    last = state.timeMin;
+  // Two real seconds on, 5.45 game-minutes on — for whoever reads it.
+  assert.ok(Math.abs(clockTime(anchor, 12_000) - (600 + (2 * 60) / 22)) < 1e-9);
+  let last = clockTime(anchor, 10_000);
+  for (let now = 10_000; now < 20_000; now += 1000 / 60) {
+    const time = clockTime(anchor, now);
+    assert.ok(time >= last, "never runs backwards");
+    last = time;
   }
-  // Two real seconds is 5.45 game-minutes; the minute owed was made up.
-  assert.ok(Math.abs(state.timeMin - (601 + (2 * 60) / 22)) < 1e-6, String(state.timeMin));
-  assert.equal(clock.observe(state, reading), null, "a reading already seen is ignored");
+  assert.equal(clockTime(anchor, 9990), 600, "a reader a hair behind waits at the anchor");
+  assert.equal(clockTime({ ...anchor, running: false }, 60_000), 600, "stops with the host's");
+  assert.equal(clockTime(anchor, 10_000 + 3_600_000), DAY_END_MIN, "only the host ends the day");
 
-  clock.observe(state, { ...reading, time: 700 });
-  assert.equal(state.timeMin, 700, "far off: snaps");
-  clock.observe(state, { ...reading, running: false, time: 700 });
-  clock.advance(state, 5);
-  assert.equal(state.timeMin, 700, "stops with the host's clock");
-  clock.observe(state, { ...reading, time: DAY_END_MIN - 0.5 });
-  clock.advance(state, 5);
-  assert.equal(state.timeMin, DAY_END_MIN, "only the host ends the day");
+  // Host and guest share no local clock, only the room's: the same instant
+  // reads the same minute on both, with nothing relayed in between.
+  const host = new ServerClock();
+  host.sample(0, 3000, 0);
+  const guest = new ServerClock();
+  guest.sample(0, -7000, 0);
+  const instant = 14_321;
+  assert.equal(
+    clockTime(anchor, host.now(instant - 3000)),
+    clockTime(anchor, guest.now(instant + 7000)),
+  );
 });
 
 test("a guest recovers at each new day the host starts", () => {
-  const state: ClockState = { day: 1, timeMin: 900, weather: "sunny" };
-  const clock = new ClockFollower();
-  clock.observe(state, { day: 1, running: false, time: 1320, weather: "sunny" });
   store.energy = 0;
   store.hp = 40;
-  const night = clock.observe(state, { day: 2, running: false, time: 360, weather: "rain" });
+  const night = turnDay({ day: 1, timeMin: 1320 }, anchorClock(2, 360, "rain", false, 0));
   assert.deepEqual(night, { exhausted: false, rested: true });
-  assert.deepEqual(state, { day: 2, timeMin: 360, weather: "rain" });
   store.rest(night?.exhausted ?? false, false);
   assert.equal(store.energy, 100, "an empty guest can run and swing again");
   assert.equal(store.hp, 70);
+  assert.equal(turnDay({ day: 2, timeMin: 400 }, anchorClock(2, 410, "rain", true, 0)), null);
 
   // The host passed out at 2am: everyone stayed up.
-  clock.observe(state, { day: 2, running: false, time: DAY_END_MIN, weather: "rain" });
-  const late = clock.observe(state, { day: 3, running: false, time: 360, weather: "sunny" });
+  const late = turnDay({ day: 2, timeMin: DAY_END_MIN }, anchorClock(3, 360, "sunny", false, 0));
   assert.deepEqual(late, { exhausted: true, rested: true });
   store.rest(late?.exhausted ?? false, true);
   assert.equal(store.energy, 55);
   assert.equal(store.hp, Math.floor(store.maxHp() * 0.5), "a faint halves HP");
 
   // Joining a room behind this farmer's own save: adopt its day, no free night.
-  const behind = clock.observe(state, { day: 2, running: true, time: 400, weather: "rain" });
+  const behind = turnDay({ day: 3, timeMin: 900 }, anchorClock(2, 400, "rain", true, 0));
   assert.deepEqual(behind, { exhausted: false, rested: false });
 });
