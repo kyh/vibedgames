@@ -143,6 +143,11 @@ game.applyEnvironment(renderer);
 
 // Post chain (bloom + grade) is desktop-only; phones keep the single pass.
 const post = isCoarsePointer() ? null : new PostPipeline(renderer, game.scene, game.camera);
+// No composer: the toon grade rides three's custom tone-mapping hook instead
+// (render/toon.ts) — ACES plus the saturation and violet/warm split.
+if (!post) {
+  renderer.toneMapping = THREE.CustomToneMapping;
+}
 post?.setSize(window.innerWidth, window.innerHeight, renderer.getPixelRatio());
 const framePacer = new FramePacer(isCoarsePointer() ? "60hz" : "display");
 framePacer.setHidden(document.hidden);

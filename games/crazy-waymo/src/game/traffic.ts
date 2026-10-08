@@ -4,12 +4,14 @@ import { geoLayoutKey } from "../assets/loader";
 import type { ModelCache } from "../assets/loader";
 import { modelUrl, POLICE_CAR, SERVICE_CARS, TRAFFIC_CARS } from "../assets/manifest";
 import type { PhysicsWorld } from "../physics/physics-world";
+import { renderCapabilities } from "../render/capabilities";
 import { CAMERA, ROAD_TILE, TRAFFIC } from "../shared/constants";
 import { Rng } from "../shared/rng";
 import type { CityModel, RoadCell } from "../world/city";
 import type { NetEdge, RoadNetwork } from "../world/network";
 import { districtAt } from "../world/sf-map";
 import type { DistrictChar } from "../world/sf-map";
+import { createHullBatch, placeHulls } from "../vehicle/ink-hull";
 import { BODY_LIFT, TrafficCar } from "./traffic-car";
 import type { FleetPart, VehicleKind } from "./traffic-car";
 
@@ -308,8 +310,20 @@ export class Traffic {
       this.fleetBatches.push(batch);
     }
 
+    // Ink hulls for the whole fleet in one extra batch (vehicle/ink-hull.ts).
+    // Multi-draw only: without it every batch instance is its own draw call,
+    // and the hulls would double the fleet's.
+    const hulls = renderCapabilities().multiDraw
+      ? createHullBatch(fleet.flatMap((f) => partsOf(f.model)))
+      : null;
+    if (hulls) {
+      this.group.add(hulls.batch);
+      this.fleetBatches.push(hulls.batch);
+    }
+
     for (const f of fleet) {
       const parts: FleetPart[] = [];
+      parts.push(...placeHulls(hulls, partsOf(f.model)));
       for (const p of partsOf(f.model)) {
         const b = buckets.get(bucketKey(p));
         if (!b || !b.batch || !b.geoIds) {

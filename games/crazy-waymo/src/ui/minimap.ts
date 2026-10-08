@@ -23,12 +23,13 @@ export interface MinimapMarker {
   readonly edgeClamp?: boolean;
 }
 
-// Dark-chart palette: navy ground, cream streets — the kart-cluster read
+// Dark-chart palette: plum ground, cream streets — the kart-cluster read
 // (light-grey paper made the map the brightest plate on screen at night).
-const WATER = "#1d3a57";
-const LAND = "#2a3140";
-const PARK = "#3d5a44";
-const ROAD = "#e8e0cc";
+// Toon pass: plum land under the HUD's ink, candy water and park.
+const WATER = "#3a9fe0";
+const LAND = "#2c2144";
+const PARK = "#5fbf4f";
+const ROAD = "#fff4e2";
 const DECK = "#c0483c";
 
 // World units across the minimap window. The small box zooms in: it is ~2/3
@@ -163,7 +164,7 @@ export class Minimap {
       if (m.glyph === "square") {
         const s = clamped ? 2.8 : 3.6;
         ctx.fillStyle = m.color;
-        ctx.strokeStyle = "#14111a";
+        ctx.strokeStyle = "#1b1428";
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.rect(mx - s, mz - s, s * 2, s * 2);
@@ -176,7 +177,7 @@ export class Minimap {
       ctx.arc(mx, mz, blipRadius(clamped, m.glyph), 0, Math.PI * 2);
       ctx.fill();
       if (m.glyph === "player") {
-        ctx.strokeStyle = "#14111a";
+        ctx.strokeStyle = "#1b1428";
         ctx.lineWidth = 1.2;
         ctx.stroke();
       }
@@ -187,7 +188,7 @@ export class Minimap {
     ctx.translate(this.size / 2, this.size / 2);
     ctx.rotate(Math.PI - heading);
     ctx.fillStyle = "#ffd147";
-    ctx.strokeStyle = "#14111a";
+    ctx.strokeStyle = "#1b1428";
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(0, -6);

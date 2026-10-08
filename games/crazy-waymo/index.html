@@ -19,17 +19,20 @@
         user-select: none;
         -webkit-tap-highlight-color: transparent;
       }
-      /* Warm-ink HUD tokens. Every dark stays hue 20-28° (never #000), every
-         light is cream (never #fff), gold is reserved for rank/payoff. */
+      /* Sticker HUD tokens (toon pass, 2026-10). Every dark is the world's
+         plum ink (#1b1428 — the same ink the post pass and the car hulls draw
+         in, so HUD and world read as one drawing); every light is cream
+         (never #fff); gold is reserved for rank/payoff. Plates are die-cut
+         stickers: a fat cream edge and a hard, unblurred offset shadow. */
       :root {
         --f:
           "Avenir Next", "SF Pro Display", "Segoe UI", system-ui, -apple-system, "Helvetica Neue",
           Arial, sans-serif;
         --fd:
-          "Avenir Next Condensed", "Roboto Condensed", "PT Sans Narrow", "Arial Narrow",
-          "Helvetica Neue Condensed", ui-rounded, "SF Pro Rounded", var(--f);
-        --ink-2: #170e0a;
-        --ink-c: rgba(28, 15, 7, 0.93);
+          ui-rounded, "SF Pro Rounded", "Arial Rounded MT Bold", "Nunito", "Varela Round",
+          "Avenir Next Condensed", "Roboto Condensed", "Arial Narrow", var(--f);
+        --ink-2: #1b1428;
+        --ink-c: rgba(27, 20, 40, 0.95);
         --paper: #fff4e2;
         --dim: rgba(240, 220, 190, 0.66);
         --gold: #ffcf6b;
@@ -40,7 +43,7 @@
         --gain-green: #7ef0a4;
         --r: clamp(8px, 1.5vmin, 18px);
         --ch: clamp(10px, 1.7vmin, 24px);
-        --rim: 1.5px;
+        --rim: 3px;
         /* Chamfer clips — each corner plate cuts the corner pointing INTO frame. */
         --clip-br: polygon(
           0 0,
@@ -60,26 +63,24 @@
           var(--ch) 100%,
           0 calc(100% - var(--ch))
         );
-        --plate-bg: linear-gradient(179deg, #54402f 0%, #3d2b1e 30%, #281a12 66%, #170e0a 100%);
-        /* Gradient border: accent-tinted rim-light along the top edge, dark
-           die-cut contour along the bottom — a flat `border` reads as a form
-           control. */
+        --plate-bg: linear-gradient(179deg, #3b2d57 0%, #2c2144 46%, #1b1428 100%);
+        /* Sticker edge: a fat cream die-cut with the operator accent bleeding
+           in along the top — still not a flat form-control border. */
         --plate-rim: linear-gradient(
           177deg,
-          color-mix(in srgb, var(--accent, var(--sky-warm)) 72%, #fff6e6) 0%,
-          color-mix(in srgb, var(--accent, var(--sky-warm)) 34%, rgba(255, 226, 186, 0.34)) 16%,
-          rgba(150, 112, 74, 0.4) 46%,
-          rgba(24, 12, 5, 0.88) 100%
+          color-mix(in srgb, var(--accent, var(--sky-warm)) 55%, #fff4e2) 0%,
+          #fff4e2 38%,
+          #f3e2c6 100%
         );
-        /* drop-shadow, not box-shadow — box-shadow would square off the chamfer. */
-        --plate-shadow: drop-shadow(0 0.16vmin 0.28vmin rgba(20, 10, 4, 0.58))
-          drop-shadow(0 1vmin 2vmin rgba(24, 12, 5, 0.48));
+        /* drop-shadow, not box-shadow — box-shadow would square off the
+           chamfer. Hard and unblurred: a sticker's shadow, not a glow. */
+        --plate-shadow: drop-shadow(0.35vmin 0.45vmin 0 #1b1428);
         /* 8-offset zero-blur contour ring; 0.039 ≈ 0.055/√2 keeps it round. */
         --ring:
           0.055em 0 0 var(--ink-c), -0.055em 0 0 var(--ink-c), 0 0.055em 0 var(--ink-c),
           0 -0.055em 0 var(--ink-c), 0.039em 0.039em 0 var(--ink-c),
           -0.039em 0.039em 0 var(--ink-c), 0.039em -0.039em 0 var(--ink-c),
-          -0.039em -0.039em 0 var(--ink-c), 0 0.07em 0.14em rgba(22, 11, 4, 0.62);
+          -0.039em -0.039em 0 var(--ink-c), 0 0.07em 0.14em rgba(27, 20, 40, 0.62);
         --ring-s:
           0.07em 0 0 var(--ink-c), -0.07em 0 0 var(--ink-c), 0 0.07em 0 var(--ink-c),
           0 -0.07em 0 var(--ink-c), 0.05em 0.05em 0 var(--ink-c), -0.05em 0.05em 0 var(--ink-c),
@@ -140,8 +141,8 @@
         border-radius: inherit;
         background: var(--plate-bg);
         clip-path: var(--clip, none);
-        /* sand bounce from below */
-        box-shadow: inset 0 -0.55vmin 1.3vmin rgba(255, 172, 98, 0.16);
+        /* lavender bounce from below */
+        box-shadow: inset 0 -0.55vmin 1.3vmin rgba(190, 160, 255, 0.18);
         /* the filter makes .pill a stacking context, so this cannot escape */
         z-index: -1;
       }
@@ -241,7 +242,7 @@
       #combo-track {
         height: 5px;
         border-radius: 3px;
-        background: rgba(18, 10, 4, 0.64);
+        background: rgba(27, 20, 40, 0.64);
         box-shadow: inset 0 -1px 0 rgba(255, 226, 186, 0.14);
         overflow: hidden;
         margin-top: 3px;
@@ -291,9 +292,9 @@
         width: 100px;
         height: 8px;
         border-radius: 5px;
-        background: rgba(18, 10, 4, 0.64);
+        background: rgba(27, 20, 40, 0.64);
         box-shadow:
-          inset 0 1px 2px rgba(14, 7, 3, 0.68),
+          inset 0 1px 2px rgba(27, 20, 40, 0.68),
           inset 0 -1px 0 rgba(255, 226, 186, 0.14);
         overflow: hidden;
         margin-top: 4px;
@@ -372,7 +373,7 @@
       #patience-track {
         height: 5px;
         border-radius: 3px;
-        background: rgba(18, 10, 4, 0.64);
+        background: rgba(27, 20, 40, 0.64);
         box-shadow: inset 0 -1px 0 rgba(255, 226, 186, 0.14);
         overflow: hidden;
         margin-top: 6px;
@@ -505,9 +506,9 @@
           ),
           linear-gradient(
             to bottom,
-            rgba(24, 13, 5, 0.8) 0%,
-            rgba(24, 13, 5, 0.64) 40%,
-            rgba(24, 13, 5, 0.5) 100%
+            rgba(27, 20, 40, 0.8) 0%,
+            rgba(27, 20, 40, 0.64) 40%,
+            rgba(27, 20, 40, 0.5) 100%
           );
       }
       /* Rungs at exactly ⅓ and ⅔, fixed to the frame, over the bar — height
@@ -556,8 +557,8 @@
         -webkit-background-clip: text;
         background-clip: text;
         color: transparent;
-        filter: drop-shadow(0 0.014em 0.012em rgba(26, 18, 8, 0.95))
-          drop-shadow(0 0.006em 0 rgba(26, 18, 8, 0.9));
+        filter: drop-shadow(0 0.014em 0.012em rgba(27, 20, 40, 0.95))
+          drop-shadow(0 0.006em 0 rgba(27, 20, 40, 0.9));
         opacity: 0;
         pointer-events: none;
       }
@@ -658,7 +659,7 @@
         transition: opacity 0.3s ease;
         background: radial-gradient(
           ellipse 90% 80% at 50% 42%,
-          rgba(26, 15, 9, 0.35),
+          rgba(27, 20, 40, 0.35),
           rgba(16, 9, 5, 0.78) 82%
         );
       }
@@ -670,7 +671,7 @@
         font-style: italic;
         color: var(--gold);
         letter-spacing: -2px;
-        text-shadow: 0 6px 0 rgba(23, 11, 4, 0.45);
+        text-shadow: 0 6px 0 rgba(27, 20, 40, 0.45);
         transform: rotate(-3deg);
       }
       #banner-sub {
@@ -679,7 +680,7 @@
         color: var(--paper);
         max-width: 80vw;
         line-height: 1.5;
-        text-shadow: 0 2px 0 rgba(23, 11, 4, 0.5);
+        text-shadow: 0 2px 0 rgba(27, 20, 40, 0.5);
       }
       #banner-stats {
         margin-top: 10px;
@@ -702,7 +703,7 @@
         padding: 12px 22px;
         pointer-events: none;
         cursor: pointer;
-        box-shadow: 0 5px 0 rgba(23, 11, 4, 0.4);
+        box-shadow: 0 5px 0 rgba(27, 20, 40, 0.4);
       }
       #banner.show #banner-cta {
         pointer-events: auto;

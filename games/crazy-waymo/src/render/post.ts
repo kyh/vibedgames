@@ -81,12 +81,14 @@ const GradeShader = {
         // sodium pool and a TV-blue window are the only saturated things left
         // in the frame, and desaturating them alongside the city is what used
         // to leave a uniform blue-grey wash with no lights in it.
-        c.rgb = mix(c.rgb, vec3(nl), 0.62 * uNight * (1.0 - src));
+        // Toon pass: 0.62 -> 0.42 — a storybook night keeps some colour.
+        c.rgb = mix(c.rgb, vec3(nl), 0.42 * uNight * (1.0 - src));
         // Split tone: shadows cool hard, sources sodium-warm. The cool end is
         // pushed further than before because the fills came down — a dimmer
         // shadow can take more blue before it reads as tinted rather than dark.
         float t = smoothstep(0.02, 0.55, nl);
-        vec3 shade = mix(vec3(0.68, 0.82, 1.30), vec3(1.24, 1.05, 0.72), t);
+        // Toon pass: the cool end leans indigo (R over G), not steel blue.
+        vec3 shade = mix(vec3(0.76, 0.70, 1.34), vec3(1.24, 1.05, 0.72), t);
         c.rgb *= mix(vec3(1.0), shade, uNight);
         // MID-TONE DIP, not a crush and not a gamma. The one large surface that
         // stays too bright after dark is pale diffuse — kerb concrete, crosswalk
@@ -138,8 +140,9 @@ const GradeShader = {
 //   6. midtone S-curve — smoothstep-toward-self keeps 0 and 1 pinned so it
 //      adds snap without crushing the shadow detail the AO pass paid for.
 //      Day-only: the night mid-tone dip already owns that range.
-//   7. teal-shadow / warm-highlight split tone. The cool axis is TEAL (G with
-//      B above unity), not blue — pure blue against a warm key reads violet.
+//   7. violet-shadow / warm-highlight split tone. Toon pass (2026-10): the
+//      cool axis moved from teal to VIOLET (R and B over G) — against a warm
+//      key that is the storybook shade the cel ramp wants; teal read filmic.
 //      Day-weighted, and the warm side leans harder with uWarmth so golden
 //      hour reads gilded rather than merely bright.
 //   8. saturation lift with a highlight rolloff so bloomed glints go white,
@@ -292,7 +295,7 @@ const FinalGradeShader = {
       // lives in the midtones, and warming only the highs left golden hour
       // reading dusky-blue.
       c *= mix(vec3(1.0), vec3(1.12, 1.0, 0.82), uWarmth * dayW);
-      // Split tone. Teal shadows via a tiny additive lift (multiplies cannot
+      // Split tone. Violet shadows via a tiny additive lift (multiplies cannot
       // tint blacks) + a cool multiply — the cool side stands down as warmth
       // rises so the amber hour isn't fighting its own shadows; warm
       // highlights lean further and reach deeper into the midtones with
@@ -300,8 +303,8 @@ const FinalGradeShader = {
       float lum = dot(c, LUMA);
       float shadowW = (1.0 - smoothstep(0.0, 0.55, lum)) * dayW;
       float highW = smoothstep(mix(0.40, 0.24, uWarmth), 1.0, lum) * dayW;
-      c += vec3(-0.0009, 0.0025, 0.0030) * shadowW;
-      c *= mix(vec3(1.0), vec3(0.900, 1.010, 1.045), shadowW * (0.70 - 0.38 * uWarmth));
+      c += vec3(0.0016, 0.0004, 0.0036) * shadowW;
+      c *= mix(vec3(1.0), vec3(0.935, 0.930, 1.080), shadowW * (0.70 - 0.38 * uWarmth));
       vec3 warmTint = mix(vec3(1.115, 1.005, 0.878), vec3(1.16, 1.00, 0.80), uWarmth);
       c *= mix(vec3(1.0), warmTint, highW * (0.65 + 0.35 * uWarmth));
       c = max(c, 0.0);
@@ -355,9 +358,9 @@ const FinalGradeShader = {
     tDiffuse: { value: null },
     uAspect: { value: 16 / 9 },
     uCA: { value: 0 },
-    uContrast: { value: 0.16 },
+    uContrast: { value: 0.12 },
     uExposure: { value: 0.62 },
-    uGrain: { value: 0.0025 },
+    uGrain: { value: 0 },
     uInvViewProj: { value: new THREE.Matrix4() },
     uKick: { value: 0 },
     uNight: { value: 0 },
@@ -365,7 +368,7 @@ const FinalGradeShader = {
     // cap, z boost-comb strength. uStreak is the comb master gain, uKick the
     // eased boost signal, uSubject the hero hold-out centre (world space).
     uRush: { value: new THREE.Vector3() },
-    uSaturation: { value: 1.08 },
+    uSaturation: { value: 1.16 },
     uStreak: { value: 0 },
     uSubject: { value: new THREE.Vector3() },
     uTexel: { value: new THREE.Vector2(1 / 1920, 1 / 1080) },
@@ -468,7 +471,7 @@ const BLOOM_IGNITE_LIFT = 0.09;
 const CA_REST = 0;
 const CA_BOOST = 0.0019;
 // Vignette speed language: amount rises, inner edge walks in.
-const VIGNETTE_BASE = 0.18;
+const VIGNETTE_BASE = 0.12;
 const VIGNETTE_SPEED = 0.12;
 const VIGNETTE_INNER_REST = 0.3;
 const VIGNETTE_INNER_FAST = 0.18;
@@ -512,17 +515,20 @@ const SUBJECT_EST_ARM = CAMERA.distance + 1.5;
 const SUBJECT_EST_DROP = CAMERA.height - 1.1;
 const SUBJECT_LIFT = 0.9;
 
-// N8AO: tight contact AO, cool-tinted, half-res. The radius stays SHORT —
-// large radii produce the flat grey haze that gives cheap AO away; the point
-// is the last metre where a wheel meets asphalt and a plinth meets pavement.
+// N8AO: tight contact AO, plum-tinted (toon pass: matches the ink),
+// half-res. The radius stays SHORT — large radii produce the flat grey haze
+// that gives cheap AO away; the point is the last metre where a wheel meets
+// asphalt and a plinth meets pavement.
 // The reference kart recipe: shorter radius + harder intensity + a NARROW
 // denoise — at radius*falloff the depth-rejection band sits under the car's
 // ride height, intensity is an exponent on visibility (5.0 is where the
 // under-chassis core reads), and a wide denoise blurs the contact band away,
 // which is what a soft 6-radius blur was doing to the wheel patches.
+// Toon pass: intensity eased 4.2 -> 3. The ink line now carries contact, and
+// at 4.2 the plum AO pooled into every shade band and greyed the candy out.
 const AO_RADIUS = 1.2;
-const AO_INTENSITY = 4.2;
-const AO_COLOR = 0x10_1c_2a;
+const AO_INTENSITY = 3;
+const AO_COLOR = 0x2a_18_40;
 // 2 left the paint drape's z-offset seams as black speckle dashes along every
 // painted line at speed (review pass); 4 + two iterations blurs the seam away
 // while the wheel-contact core survives.
@@ -625,6 +631,86 @@ const DofShader = {
   `,
 };
 
+// INK (toon pass, 2026-10): comic outlines from the depth buffer the AO pass
+// already owns — no second scene render, no per-object hulls. The edge test is
+// the Laplacian of 1/viewZ: reciprocal depth is AFFINE across any plane in
+// screen space, so flat walls, roofs and road read zero no matter how grazing
+// the view, and only creases and silhouettes ring. The sign splits the cases:
+// positive = a ridge or the NEAR side of a silhouette (inked full), negative =
+// an inside corner (inked lighter), and the far side of a silhouette — huge
+// relative jump, negative — is skipped so every line stays one stroke wide.
+// Lines thin out with distance and are gone before the fog takes over, so the
+// skyline stays a soft painted backdrop behind an inked foreground.
+const InkShader = {
+  // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse;
+    uniform sampler2D tDepth;
+    uniform vec2 uTexel;
+    uniform float uStep;
+    uniform float uNear;
+    uniform float uFar;
+    uniform float uStrength;
+    uniform vec3 uInk;
+    uniform vec2 uFade;
+    uniform float uDistSoft;
+    varying vec2 vUv;
+    float invZ(vec2 uv) {
+      float d = texture2D(tDepth, uv).x * 2.0 - 1.0;
+      return (uFar + uNear - d * (uFar - uNear)) / (2.0 * uNear * uFar);
+    }
+    void main() {
+      vec4 col = texture2D(tDiffuse, vUv);
+      float c = invZ(vUv);
+      vec2 s = uTexel * uStep;
+      float sum = invZ(vUv + vec2(s.x, 0.0)) + invZ(vUv - vec2(s.x, 0.0))
+                + invZ(vUv + vec2(0.0, s.y)) + invZ(vUv - vec2(0.0, s.y));
+      // Relative Laplacian, with the threshold widening with distance: far
+      // terrain packs many small heightfield kinks into each pixel, and
+      // without the falloff a hillside turns to hatching.
+      float lap = (4.0 * c - sum) / max(c, 1e-6) / (1.0 + uDistSoft / c);
+      float ridge = smoothstep(0.03, 0.08, lap);
+      float valley = smoothstep(0.06, 0.16, -lap) * (1.0 - step(0.9, -lap)) * 0.55;
+      float edge = max(ridge, valley) * smoothstep(uFade.y, uFade.x, 1.0 / c);
+      col.rgb = mix(col.rgb, uInk, edge * uStrength);
+      gl_FragColor = col;
+    }
+  `,
+  name: "WaymoInkShader",
+  uniforms: {
+    tDepth: { value: null },
+    tDiffuse: { value: null },
+    // x full-strength distance, y gone (world units)
+    uDistSoft: { value: 0.012 },
+    uFade: { value: new THREE.Vector2(200, 450) },
+    uFar: { value: 1000 },
+    // #1b1428-ish plum ink in linear light: dark enough to read on white
+    // stucco, warm enough not to look like a CAD wireframe.
+    uInk: { value: new THREE.Color(0x1b_14_28).convertSRGBToLinear() },
+    uNear: { value: 0.1 },
+    uStep: { value: 1 },
+    uStrength: { value: 0.9 },
+    uTexel: { value: new THREE.Vector2(1 / 1920, 1 / 1080) },
+  },
+  // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
+  vertexShader: /* glsl */ `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+};
+// Ink weight at night: the night painting is mostly dark already, and a full
+// plum line around every lit window frame reads as noise.
+const INK_DAY = 0.9;
+const INK_NIGHT = 0.45;
+// Line width: one WHOLE-texel sample step per this many drawing-buffer rows,
+// so a 4K canvas draws the same chunky line 1080p does. Whole texels because
+// the depth target is nearest-filtered: a fractional step lands between
+// texels and breaks the stroke into 1-2 px jaggies.
+const INK_ROWS_PER_TEXEL = 540;
+
 export class PostPipeline {
   private composer: EffectComposer;
   // DEV probes reach in to A/B the AO contribution (debug/dev-hooks.ts).
@@ -632,6 +718,7 @@ export class PostPipeline {
   private bloom: UnrealBloomPass;
   private bloomKnee: THREE.IUniform | undefined;
   private grade: ShaderPass;
+  private ink: ShaderPass;
   private finalGrade: ShaderPass;
   private dof: ShaderPass;
   private renderer: THREE.WebGLRenderer;
@@ -675,6 +762,11 @@ export class PostPipeline {
     ao.configuration.autoDetectTransparency = false;
     this.ao = ao;
     this.composer.addPass(ao);
+    // Ink straight after the scene: before DOF (a defocused background must
+    // blur its strokes with it) and before bloom (glows wash over the lines
+    // instead of being cut by them).
+    this.ink = new ShaderPass(InkShader);
+    this.composer.addPass(this.ink);
     this.dof = new ShaderPass(DofShader);
     this.dof.enabled = false;
     this.composer.addPass(this.dof);
@@ -699,7 +791,7 @@ export class PostPipeline {
     this.composer.addPass(this.finalGrade);
     const depth = sceneDepthOf(ao);
     if (depth) {
-      for (const pass of [this.finalGrade, this.dof]) {
+      for (const pass of [this.finalGrade, this.dof, this.ink]) {
         const d = pass.uniforms.tDepth;
         if (d) {
           d.value = depth;
@@ -707,6 +799,7 @@ export class PostPipeline {
       }
       this.smearDepthOk = true;
     }
+    this.ink.enabled = depth !== null;
     this.syncViewportUniforms(size.x, size.y);
   }
 
@@ -726,6 +819,15 @@ export class PostPipeline {
     const dofTexel = this.dof.uniforms.uTexel;
     if (dofTexel && dofTexel.value instanceof THREE.Vector2) {
       dofTexel.value.set(1 / Math.max(1, width), 1 / Math.max(1, height));
+    }
+    const iu = this.ink.uniforms;
+    const inkTexel = iu.uTexel;
+    if (inkTexel && inkTexel.value instanceof THREE.Vector2) {
+      inkTexel.value.set(1 / Math.max(1, width), 1 / Math.max(1, height));
+    }
+    const inkStep = iu.uStep;
+    if (inkStep) {
+      inkStep.value = Math.max(1, Math.round(height / INK_ROWS_PER_TEXEL));
     }
     const u = this.finalGrade.uniforms;
     const aspect = u.uAspect;
@@ -803,6 +905,8 @@ export class PostPipeline {
       time.value = now % 600;
     }
 
+    this.updateInk(night);
+
     const lens = gradeLens();
     this.updateSpeedUniforms(motion.speed, ignite, lens?.streaks ?? 1);
     this.updateDof(lens);
@@ -830,6 +934,22 @@ export class PostPipeline {
     // pools) into cotton after dark — night keeps the pre-port tight kernel.
     this.bloom.radius = BLOOM_RADIUS + (BLOOM_NIGHT_RADIUS - BLOOM_RADIUS) * night;
     this.composer.render();
+  }
+
+  private updateInk(night: number): void {
+    const { camera } = this;
+    if (!(camera instanceof THREE.PerspectiveCamera)) {
+      return;
+    }
+    const u = this.ink.uniforms;
+    const near = u.uNear;
+    const far = u.uFar;
+    const strength = u.uStrength;
+    if (near && far && strength) {
+      near.value = camera.near;
+      far.value = camera.far;
+      strength.value = INK_DAY + (INK_NIGHT - INK_DAY) * night;
+    }
   }
 
   private updateDof(lens: ReturnType<typeof gradeLens>): void {

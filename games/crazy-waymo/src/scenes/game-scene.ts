@@ -52,6 +52,7 @@ import { releaseDeferredArrays } from "../render/gpu-only-geometry";
 import { FULL_QUALITY, isCoarsePointer } from "../render/quality";
 import type { QualityFeatures } from "../render/quality";
 import { Sky } from "../render/sky";
+import { installToonShading } from "../render/toon";
 import {
   CAMERA,
   CAR,
@@ -373,6 +374,12 @@ export interface TrailerStage {
   wearSkin: (skinId: string) => void;
 }
 
+// Landing dust ring gate (updateLandingFx): seconds of air, or Car.justLanded.
+// A spawn/teleport drops the car from heightAt + 1.4: ~0.18-0.26 s of air,
+// landing at 5.5-7.7 m/s (justLanded ~6.7-7.9), so both gates sit above it.
+const LANDING_RING_AIR = 0.35;
+const LANDING_RING_IMPACT = 9;
+
 export class GameScene {
   readonly scene = new THREE.Scene();
   // Coarse primary pointer = phone/tablet: mobile-only budgets apply.
@@ -633,6 +640,8 @@ export class GameScene {
     // land before the first program compiles — and every material below, plus
     // everything the world loader builds, picks it up for free.
     installAerialFog();
+    // Cel-shaded sun ramp + candy albedo (render/toon.ts) — same rule.
+    installToonShading();
 
     // Atmospheric sky + sun.
     const sky = new Sky();
@@ -2466,7 +2475,12 @@ vec3 ocGerstner(vec2 p, float t) {
   private updateLandingFx(car: Car): void {
     // Landing package: squash (in the car), dust ring, thud, shake, air pay.
     if (car.justLanded > 0) {
-      this.fx.dustRing(car.position.x, car.position.y + 0.15, car.position.z, 10);
+      // Toon pass: the ring is now opaque cel puffs, so it is kept for real
+      // landings — a jump, or a drop hard enough to matter — not the settle
+      // after a spawn or teleport (see LANDING_RING_*).
+      if (car.airTime > LANDING_RING_AIR || car.justLanded > LANDING_RING_IMPACT) {
+        this.fx.dustRing(car.position.x, car.position.y + 0.15, car.position.z, 10);
+      }
       this.sfx.landThud(Math.min(1, car.justLanded / 12));
       this.rig.addTrauma(Math.min(0.45, 0.15 + car.justLanded * 0.015));
       if (car.airTime > 0.45) {

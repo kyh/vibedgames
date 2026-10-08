@@ -50,7 +50,9 @@ export const HAZE_AMOUNT = 0.82;
 // ladder survives. The caps are the residuals: FOG_MAX leaves 8% of the
 // surface in the mix so backdrop planes never fuse into one sheet, and
 // FOG_CHROMA_MAX leaves a whisper of the surface's own hue at full drain.
-const FOG_CHROMA_RATE = 1.85;
+// Toon pass (2026-10): 1.85 -> 1.4. The storybook look keeps more hue in the
+// middle distance; the value ladder still separates the planes.
+const FOG_CHROMA_RATE = 1.4;
 const FOG_CHROMA_MAX = 0.96;
 const FOG_MAX = 0.92;
 
