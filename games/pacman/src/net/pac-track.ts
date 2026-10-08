@@ -1,13 +1,15 @@
 // One rival pac's motion on this screen. Every player simulates their own pac
-// and reports it on a steady 20 Hz clock, stamped with their own
-// `performance.now()`. A rival is drawn about 100 ms in the past, blending the
-// two reports either side of that moment (Interpolator), so reports that
-// arrive bunched or late still play back as the sender's steady motion. A
-// respawn, or any jump further than the neighbouring cell, snaps instead of
-// gliding through walls.
+// and reports it on a steady 20 Hz clock, stamped with the room's server time
+// (`client.serverNow()`), which every player shares. A rival is drawn
+// RIVAL_DELAY_MS behind that clock, blending the two reports either side of
+// that moment (Interpolator), so reports that arrive bunched or late still
+// play back as the sender's steady motion. A respawn, or any jump further than
+// the neighbouring cell, snaps instead of gliding through walls.
 
 import { Interpolator, lerp } from "@vibedgames/multiplayer";
-import type { Player } from "@vibedgames/multiplayer";
+import type { Player, SenderClock } from "@vibedgames/multiplayer";
+
+import { RIVAL_DELAY_MS, RIVAL_EXTRAPOLATE_MS } from "../shared/constants";
 
 export interface PacPose {
   x: number;
@@ -16,7 +18,7 @@ export interface PacPose {
 
 /** One report from a rival in the round. */
 export interface PacSample extends PacPose {
-  /** The sender's `performance.now()` when it sent this report. */
+  /** Server time (ms since the epoch) when the sender sent this report. */
   t: number;
   /** Bumped on every respawn or teleport: a new value never blends with the old. */
   spawn: number;
@@ -65,16 +67,24 @@ const cellsApart = (a: PacPose, b: PacPose): number =>
   Math.abs(Math.round(a.x) - Math.round(b.x)) + Math.abs(Math.round(a.z) - Math.round(b.z));
 
 export class PacTrack {
-  private readonly interp = new Interpolator<PacPose>({ lerp: lerpPose });
-  private lastT = Number.NaN;
+  private readonly interp: Interpolator<PacPose>;
   private spawn = Number.NaN;
 
-  /** Feed the sender's latest report. Call it every frame: a repeat is ignored. */
+  /** `clock` is the room's server clock (`client.serverClock`), shared by every track. */
+  constructor(clock: SenderClock) {
+    this.interp = new Interpolator<PacPose>({
+      clock,
+      delayMs: RIVAL_DELAY_MS,
+      lerp: lerpPose,
+      maxExtrapolateMs: RIVAL_EXTRAPOLATE_MS,
+    });
+  }
+
+  /**
+   * Feed the sender's latest report. Call it every frame: a repeat is ignored
+   * (its stamp, spawn and cell match the newest, so nothing here fires either).
+   */
   push(sample: PacSample, receivedAt?: number): void {
-    if (sample.t === this.lastT) {
-      return;
-    }
-    this.lastT = sample.t;
     const { latest } = this.interp;
     if (latest !== undefined && (sample.spawn !== this.spawn || cellsApart(latest, sample) > 1)) {
       this.interp.clear();

@@ -14,8 +14,8 @@
 //
 
 import { isOfflineRequested } from "@repo/embed";
-import { MultiplayerClient } from "@vibedgames/multiplayer";
-import type { Player, PlayerMap, SendEventOptions } from "@vibedgames/multiplayer";
+import { MultiplayerClient, ServerClock } from "@vibedgames/multiplayer";
+import type { Player, PlayerMap, SendEventOptions, SenderClock } from "@vibedgames/multiplayer";
 
 const MULTIPLAYER_HOST = import.meta.env.DEV
   ? "http://localhost:8787"
@@ -67,6 +67,8 @@ export class NetSession {
   private bootedAt = 0;
   private offlineMyState: JsonObject = {};
   private offlineShared: JsonObject | null = null;
+  /** Offline stand-in for the server clock: never probed, so it reads the local clock. */
+  private readonly localClock = new ServerClock();
 
   constructor(opts: NetSessionOptions) {
     this.fallbackMs = opts.fallbackMs;
@@ -157,6 +159,25 @@ export class NetSession {
   get playerId(): string | null {
     const { client } = this;
     return this.solo || !client ? SOLO_ID : client.playerId;
+  }
+
+  /**
+   * The room's shared clock — the server's, measured from here — for an
+   * `Interpolator`. Offline it is the local clock: nobody shares it.
+   */
+  get serverClock(): SenderClock {
+    const { client } = this;
+    return this.solo || !client ? this.localClock : client.serverClock;
+  }
+
+  /** Server time now (ms since the epoch): what every networked update is stamped with. */
+  serverNow(): number {
+    return this.serverClock.now();
+  }
+
+  /** The server clock has been measured, so a stamp means the same instant to every player. */
+  get clockSynced(): boolean {
+    return this.serverClock.synced;
   }
 
   get players(): PlayerMap {

@@ -760,7 +760,7 @@ export class GameScene {
 
     this.fx = new FxPool(this.scene);
     this.powerHalo = new PowerHalo(this.scene);
-    this.remotePacs = new RemotePacs(this.scene);
+    this.remotePacs = new RemotePacs(this.scene, this.net.serverClock);
     this.best = loadBest();
     this.bindInput();
     this.setPhase("title");
@@ -1115,20 +1115,25 @@ export class GameScene {
 
   /**
    * Own pac, on the fixed cadence. Every report carries the send-time stamp
-   * rivals interpolate on — even standing still, when the unchanged primitives
-   * stay off the wire and it costs only `t`. Out of the round there is no pac
-   * to show: one `active: false` goes out, then nothing.
+   * rivals interpolate on, in the room's server time — even standing still,
+   * when the unchanged primitives stay off the wire and it costs only `t`. Out
+   * of the round there is no pac to show: one `active: false` goes out, then
+   * nothing. Until the first clock probe answers (a round trip after joining)
+   * a stamp would be in this tab's own timebase, so the pac waits for it.
    */
   private sendMyState(): void {
     if (!this.inRound) {
       this.net.updateMyState({ active: false });
       return;
     }
+    if (!this.net.clockSynced) {
+      return;
+    }
     this.net.updateMyState({
       active: true,
       score: this.score,
       spawn: this.spawnCount,
-      t: Math.round(performance.now()),
+      t: Math.round(this.net.serverNow()),
       x: Math.round(this.pac.x * 100) / 100,
       z: Math.round(this.pac.z * 100) / 100,
     });

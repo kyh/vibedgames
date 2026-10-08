@@ -1,11 +1,11 @@
 // Renders the other players' pac-blobs in the shared maze. They're simple
 // colored plush spheres (not the full mouth-animated hero rig) — enough to see
-// rivals racing for pellets. Each one plays back its sender's stamped 20 Hz
-// reports through a PacTrack (./pac-track), about 100 ms in the past.
+// rivals racing for pellets. Each one plays back its sender's 20 Hz reports,
+// stamped with the room's server time, through a PacTrack (./pac-track).
 
 import * as THREE from "three";
 
-import type { PlayerMap } from "@vibedgames/multiplayer";
+import type { PlayerMap, SenderClock } from "@vibedgames/multiplayer";
 
 import { PacTrack, readPacSample } from "./pac-track";
 
@@ -37,8 +37,11 @@ export class RemotePacs {
   private pacs = new Map<string, RemotePac>();
   private geo = new THREE.SphereGeometry(0.42, 20, 16);
   private pass = 0;
+  /** The room's server clock, which every rival's reports are stamped on. */
+  private readonly clock: SenderClock;
 
-  constructor(scene: THREE.Scene) {
+  constructor(scene: THREE.Scene, clock: SenderClock) {
+    this.clock = clock;
     scene.add(this.group);
   }
 
@@ -82,7 +85,7 @@ export class RemotePacs {
     const group = new THREE.Group();
     group.add(body);
     this.group.add(group);
-    const pac: RemotePac = { group, mat, seen: this.pass, track: new PacTrack() };
+    const pac: RemotePac = { group, mat, seen: this.pass, track: new PacTrack(this.clock) };
     this.pacs.set(id, pac);
     return pac;
   }

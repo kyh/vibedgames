@@ -304,12 +304,22 @@ export const cellKey = (col: number, row: number): string => `${col},${row}`;
 // Versioned with the wire format: a tab still running an older bundle speaks
 // a different board and pac-state shape, so it must land in its own room
 // rather than share a race it would misread.
-export const MP_ROOM = "pacman-v2";
+export const MP_ROOM = "pacman-v3";
 export const MP_MAX_PLAYERS = 4;
 export const OFFLINE_FALLBACK_MS = 8000;
-/**
- * Own pac position/score send rate. Rivals are drawn about 100 ms in the past
- * (the Interpolator's default delay), which covers one 50 ms interval plus
- * arrival jitter.
- */
+/** Own pac position/score send rate. */
 export const NET_TICK_HZ = 20;
+/**
+ * How far behind the room's server clock rivals are drawn (ms). Reports are
+ * stamped with server time when sent, so by the time one lands here it has
+ * aged by the whole relay — sender to server to us, two one-way trips — and
+ * the delay must cover that plus one 50 ms send interval: 200 holds a relay of
+ * up to 150 ms without running past the newest report.
+ */
+export const RIVAL_DELAY_MS = 200;
+/**
+ * How far past its newest report a rival is carried on when the next one is
+ * late (ms) — one whole step. Never past the next cell centre (pac-track), so
+ * it cannot overshoot into a wall.
+ */
+export const RIVAL_EXTRAPOLATE_MS = 200;
