@@ -9,6 +9,7 @@ import {
   readFileSync,
   readlinkSync,
   statSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
@@ -87,6 +88,28 @@ test("a re-sync removes skills dropped upstream, links included", () => {
   assert.equal(existsSync(path.join(target.cwd, ".agents", "skills", "image-to-threejs")), false);
   assert.throws(() => lstatSync(path.join(target.cwd, ".claude", "skills", "image-to-threejs")));
   assert.ok(existsSync(path.join(target.cwd, ".agents", "skills", "deploy", "SKILL.md")));
+});
+
+test("a re-sync removes a dropped skill's fallback copies, and only copies of it", () => {
+  const target = projectTarget();
+  installSkills(makeSource(["deploy", "image-to-threejs", "pixel-art"]), target, ["claude-code"]);
+  const canonical = path.join(target.cwd, ".agents", "skills");
+  const claude = path.join(target.cwd, ".claude", "skills");
+  // Where symlinks aren't available, the agent gets a copy instead of a link.
+  unlinkSync(path.join(claude, "image-to-threejs"));
+  cpSync(path.join(canonical, "image-to-threejs"), path.join(claude, "image-to-threejs"), {
+    recursive: true,
+  });
+  // A directory that isn't a copy of ours stays.
+  unlinkSync(path.join(claude, "pixel-art"));
+  mkdirSync(path.join(claude, "pixel-art"));
+  writeFileSync(path.join(claude, "pixel-art", "SKILL.md"), "---\nname: pixel-art\n---\nMine.\n");
+
+  const report = installSkills(makeSource(["deploy"]), target, ["claude-code"]);
+
+  assert.deepEqual(report.removed, ["image-to-threejs", "pixel-art"]);
+  assert.equal(existsSync(path.join(claude, "image-to-threejs")), false);
+  assert.match(readFileSync(path.join(claude, "pixel-art", "SKILL.md"), "utf-8"), /Mine/u);
 });
 
 test("--global installs under the home directory and honours CLAUDE_CONFIG_DIR", () => {

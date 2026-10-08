@@ -294,6 +294,19 @@ const isDanglingLink = (link: string): boolean => {
   }
 };
 
+/** True when `copy` is a real directory with the same SKILL.md as `dir`: the copy `linkSkill` falls back to. */
+const isCopyOf = (copy: string, dir: string): boolean => {
+  try {
+    return (
+      lstatSync(copy).isDirectory() &&
+      readFileSync(path.join(copy, "SKILL.md"), "utf-8") ===
+        readFileSync(path.join(dir, "SKILL.md"), "utf-8")
+    );
+  } catch {
+    return false;
+  }
+};
+
 const isMissing = (file: string): boolean => {
   try {
     lstatSync(file);
@@ -399,6 +412,8 @@ export const installSkills = (
       const link = path.join(agent, name);
       if (linksTo(link, dir) || isDanglingLink(link)) {
         unlinkSync(link);
+      } else if (isCopyOf(link, dir)) {
+        rmSync(link, { force: true, recursive: true });
       }
     }
     if (existsSync(dir) && statSync(dir).isDirectory()) {

@@ -48,8 +48,8 @@ export const reportSkills = (report: InstallReport): void => {
     consola.info(`Removed skills dropped upstream: ${report.removed.join(", ")}`);
   }
   for (const agent of report.copiedFor) {
-    consola.warn(
-      `Symlinks aren't available here, so ${agent} got copies of the skills: re-run \`vg init\` after an update to refresh them.`,
+    consola.info(
+      `Symlinks aren't available here, so ${agent} got copies of the skills; vg init and vg update refresh them.`,
     );
   }
 };
