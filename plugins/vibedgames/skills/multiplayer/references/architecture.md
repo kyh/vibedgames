@@ -257,8 +257,11 @@ const pose = interp.sample(); // undefined until the first update
 - **Host snapshots.** Units in a host snapshot share one `RemoteClock`
   (`new Interpolator({ clock: hostClock, lerp })`), stamped with host sim time.
   `reset()` it when `hostId` changes, because a new host has a different clock.
-- **Grid or step movers.** Stamp each step with the time the mover _arrives_ at
-  the new tile, and set `maxExtrapolateMs: 0` so they never overshoot a tile.
+- **Grid or step movers.** Stamp each step when it starts, like any other
+  update. Never stamp a future arrival time: the clock reads every stamp as send
+  time, so a shifted stamp skews every entity from that sender. Set `delayMs` to
+  at least one stride plus jitter and `maxExtrapolateMs: 0`. The mover then walks
+  each step evenly and never overshoots a tile.
 
 **Own body (predict): `Reconciler`.** The guest runs the real movement code on
 local input the frame a key goes down. The host's authoritative copy lags local

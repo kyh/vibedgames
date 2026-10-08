@@ -78,6 +78,11 @@ const CLOCK_RESTART_MS = 1000;
 const DEFAULT_GAP_MS = 50;
 /** Gaps tracked to learn the sender's interval. */
 const GAP_HISTORY = 8;
+/**
+ * A gap shorter than this is a send cadence, however slow (a grid mover
+ * stepping every 180 ms), never an idle silence to bridge.
+ */
+const MIN_SILENCE_MS = 300;
 
 /**
  * A short timestamped history of one remote entity, sampled at a fixed delay
@@ -115,6 +120,13 @@ export class Interpolator<T> {
   /**
    * Add an update stamped `sentAt` on the sender's clock. Returns false for a
    * duplicate or stale stamp, which is dropped.
+   *
+   * `sentAt` is when the update was sent — never a future or past event time
+   * (a step's arrival, a shot's impact): the clock estimate reads it as send
+   * time, and a shifted stamp shifts every entity from that sender. A grid
+   * mover stamps each step as it starts and needs `delayMs` of at least one
+   * stride plus jitter; with `maxExtrapolateMs: 0` it then walks each step
+   * over the interval between step starts and never overshoots its tile.
    */
   push(sentAt: number, value: T, receivedAt: number = now()): boolean {
     const newest = this.samples.at(-1);
@@ -191,13 +203,15 @@ export class Interpolator<T> {
     if (!Number.isFinite(typical)) {
       typical = DEFAULT_GAP_MS;
     }
-    if (gap > Math.max(typical * 3, 150) && sentAt - typical > newest.t) {
-      this.samples.push({ t: sentAt - typical, value: newest.value });
-      return;
-    }
+    // Learned whether bridged or not: the minimum ignores the odd silence,
+    // and a slow steady sender must teach its cadence rather than read as
+    // idle on every update.
     this.gaps.push(gap);
     if (this.gaps.length > GAP_HISTORY) {
       this.gaps.shift();
+    }
+    if (gap > Math.max(typical * 3, MIN_SILENCE_MS) && sentAt - typical > newest.t) {
+      this.samples.push({ t: sentAt - typical, value: newest.value });
     }
   }
 }

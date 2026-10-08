@@ -137,6 +137,40 @@ test("Interpolator holds an idle entity instead of gliding across a send gap", (
   assert.ok(mid > 0 && mid < 10, `moving within the last interval (${mid})`);
 });
 
+test("Interpolator walks a slow steady sender evenly, not hold-then-dash", () => {
+  // A grid mover: one tile every 183 ms, each step stamped as it starts,
+  // never extrapolated past its tile, rendered a stride plus jitter behind.
+  const interp = new Interpolator<Pose>({ delayMs: 250, lerp: lerpPose, maxExtrapolateMs: 0 });
+  const stride = 183;
+  const arrivals: { t: number; at: number }[] = [];
+  for (let i = 0; i < 40; i += 1) {
+    arrivals.push({ at: i * stride + 3000 + 60 + noise(i) * 40, t: i * stride });
+  }
+  let next = 0;
+  let prev: number | null = null;
+  const steps: number[] = [];
+  for (let at = 3000 + 1000; at < 3000 + 6500; at += 1000 / 60) {
+    while (next < arrivals.length && (arrivals[next]?.at ?? Infinity) <= at) {
+      const arrival = arrivals[next];
+      if (arrival) {
+        interp.push(arrival.t, { x: arrival.t / stride }, arrival.at);
+      }
+      next += 1;
+    }
+    const x = interp.sample(at)?.x ?? Number.NaN;
+    if (prev !== null) {
+      steps.push(x - prev);
+    }
+    prev = x;
+  }
+  const expected = 1000 / 60 / stride;
+  for (const step of steps) {
+    // Every frame moves about one frame's worth of a tile: no 125 ms holds,
+    // no 50 ms dashes across a whole tile.
+    assert.ok(Math.abs(step - expected) < expected * 0.35, `frame step ${step} vs ${expected}`);
+  }
+});
+
 test("lerpAngle takes the short way round", () => {
   const a = Math.PI - 0.1;
   const b = -Math.PI + 0.1;
