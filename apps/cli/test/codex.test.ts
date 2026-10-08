@@ -19,13 +19,11 @@ import { makeCleanups, makeTmpDir, stubEnv } from "./_helpers.js";
 const { cleanups, drain } = makeCleanups();
 afterEach(drain);
 
-test("parseProvider: names, aliases, and unknown", () => {
+test("parseProvider: the two names, any case, and nothing else", () => {
   assert.equal(parseProvider("codex"), "codex");
   assert.equal(parseProvider(" Codex "), "codex");
   assert.equal(parseProvider("vibedgames"), "vibedgames");
-  assert.equal(parseProvider("fal"), "vibedgames");
-  assert.equal(parseProvider(""), "vibedgames");
-  assert.throws(() => parseProvider("coddex"), /Unknown provider "coddex" \(--provider\)/u);
+  assert.throws(() => parseProvider("fal"), /Unknown provider "fal" \(--provider\)/u);
   assert.throws(() => parseProvider("x", "VG_GENERATE_PROVIDER"), /\(VG_GENERATE_PROVIDER\)/u);
 });
 

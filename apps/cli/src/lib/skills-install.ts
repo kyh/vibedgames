@@ -19,7 +19,7 @@ import path from "node:path";
 import { extract as tarExtract } from "tar";
 
 import { isJsonObject, isJsonString } from "./types.js";
-import type { JsonObject, JsonValue } from "./types.js";
+import type { JsonValue } from "./types.js";
 
 /**
  * `vg init` / `vg update`: install the vibedgames skills.
@@ -33,7 +33,7 @@ import type { JsonObject, JsonValue } from "./types.js";
  * the download itself.
  */
 
-export const SKILLS_REPO = "kyh/vibedgames-plugins";
+const SKILLS_REPO = "kyh/vibedgames-plugins";
 const SKILLS_TARBALL = `https://codeload.github.com/${SKILLS_REPO}/tar.gz/refs/heads/main`;
 
 /** What `vg init` installs for when no `--agent` is given. */
@@ -247,21 +247,6 @@ const agentSkillsDir = (target: InstallTarget, agent: AgentDirs): string =>
     ? agent.global(target.home, target.env)
     : path.join(target.cwd, agent.project);
 
-/**
- * The lock file the `skills` installer keeps for this scope. Skills it lists
- * from our repo are pruned like vg's own, and their entries dropped, since vg
- * manages them.
- */
-const installerLockPath = (target: InstallTarget): string => {
-  if (target.scope === "project") {
-    return path.join(target.cwd, "skills-lock.json");
-  }
-  const state = target.env.XDG_STATE_HOME;
-  return state
-    ? path.join(state, "skills", ".skill-lock.json")
-    : path.join(target.home, ".agents", ".skill-lock.json");
-};
-
 const readJson = (file: string): JsonValue | null => {
   if (!existsSync(file)) {
     return null;
@@ -289,43 +274,6 @@ export const readManifest = (target: InstallTarget): Manifest | null => {
     agents: data.agents.filter((agent) => isJsonString(agent)),
     skills: data.skills.filter((skill) => isJsonString(skill)),
   };
-};
-
-/** Skill names the `skills` installer's lock holds for our repo. */
-const installerLockSkills = (target: InstallTarget): string[] => {
-  const lock = readJson(installerLockPath(target));
-  if (!isJsonObject(lock) || !isJsonObject(lock.skills)) {
-    return [];
-  }
-  return Object.entries(lock.skills)
-    .filter(([, entry]) => isJsonObject(entry) && entry.source === SKILLS_REPO)
-    .map(([name]) => name);
-};
-
-/** Drop our repo's entries from that lock; delete a project lock left empty. */
-const releaseInstallerLock = (target: InstallTarget): void => {
-  const file = installerLockPath(target);
-  const lock = readJson(file);
-  if (!isJsonObject(lock) || !isJsonObject(lock.skills)) {
-    return;
-  }
-  const skills: JsonObject = {};
-  let dropped = false;
-  for (const [name, entry] of Object.entries(lock.skills)) {
-    if (isJsonObject(entry) && entry.source === SKILLS_REPO) {
-      dropped = true;
-    } else {
-      skills[name] = entry;
-    }
-  }
-  if (!dropped) {
-    return;
-  }
-  if (target.scope === "project" && Object.keys(skills).length === 0) {
-    rmSync(file, { force: true });
-    return;
-  }
-  writeFileSync(file, `${JSON.stringify({ ...lock, skills }, null, 2)}\n`);
 };
 
 /** True when `link` is a symlink that resolves to `dir`. */
@@ -412,9 +360,8 @@ export interface InstallReport {
 }
 
 /**
- * Install every skill in `source` for `agents`, and remove the ones a
- * previous install (by vg or by the `skills` installer) put here that `source` no
- * longer has.
+ * Install every skill in `source` for `agents`, and remove the ones vg
+ * installed here before that `source` no longer has.
  */
 export const installSkills = (
   source: SkillsSource,
@@ -426,10 +373,7 @@ export const installSkills = (
     throw new Error(`No skills found in ${source.origin}.`);
   }
   const canonical = canonicalDir(target);
-  const previous = new Set([
-    ...(readManifest(target)?.skills ?? []),
-    ...installerLockSkills(target),
-  ]);
+  const previous = readManifest(target)?.skills ?? [];
   const names = new Set(skills.map((skill) => skill.name));
   const linked = agents.flatMap((id) => {
     const dirs = LINKED_AGENTS.get(id);
@@ -449,7 +393,7 @@ export const installSkills = (
   }
 
   const removed: string[] = [];
-  for (const name of [...previous].filter((n) => SKILL_NAME.test(n) && !names.has(n)).toSorted()) {
+  for (const name of previous.filter((n) => SKILL_NAME.test(n) && !names.has(n)).toSorted()) {
     const dir = path.join(canonical, name);
     for (const agent of [...LINKED_AGENTS.values()].map((dirs) => agentSkillsDir(target, dirs))) {
       const link = path.join(agent, name);
@@ -477,7 +421,6 @@ export const installSkills = (
       2,
     )}\n`,
   );
-  releaseInstallerLock(target);
 
   return {
     agents,
@@ -522,9 +465,9 @@ export const targetFor = (scope: Scope): InstallTarget => ({
 });
 
 /**
- * Where `vg update` should sync: among `scopes`, the first that holds a vg (or
- * `skills` installer) install of our skills — with the agents it was
- * installed for — or null when none does.
+ * Where `vg update` should sync: among `scopes`, the first that holds a vg
+ * install of our skills, with the agents it was installed for; null when none
+ * does.
  */
 export const findInstall = (
   scopes: Scope[],
@@ -533,8 +476,8 @@ export const findInstall = (
   for (const scope of scopes) {
     const target: InstallTarget = { ...base, scope };
     const manifest = readManifest(target);
-    if (manifest || installerLockSkills(target).length > 0) {
-      const known = (manifest?.agents ?? []).filter(
+    if (manifest) {
+      const known = manifest.agents.filter(
         (id) => SHARED_DIR_AGENTS.has(id) || LINKED_AGENTS.has(id),
       );
       return { agents: known.length > 0 ? known : DEFAULT_AGENTS, target };

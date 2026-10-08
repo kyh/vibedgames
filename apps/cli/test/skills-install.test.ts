@@ -9,7 +9,6 @@ import {
   readFileSync,
   readlinkSync,
   statSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
@@ -24,11 +23,9 @@ import {
   installSkills,
   parseAgents,
   readManifest,
-  SKILLS_REPO,
   SUPPORTED_AGENTS,
 } from "../src/lib/skills-install.js";
 import type { InstallTarget, SkillsSource } from "../src/lib/skills-install.js";
-import { isJsonObject } from "../src/lib/types.js";
 import { makeCleanups, makeTestServer, makeTmpDir } from "./_helpers.js";
 
 const { cleanups, drain } = makeCleanups();
@@ -52,12 +49,6 @@ const projectTarget = (): InstallTarget => ({
   home: makeTmpDir(cleanups, "vg-home-"),
   scope: "project",
 });
-
-const readJsonObject = (file: string) => {
-  const data: unknown = JSON.parse(readFileSync(file, "utf-8"));
-  assert.ok(isJsonObject(data));
-  return data;
-};
 
 test("installs one copy per skill and links it for Claude Code", () => {
   const target = projectTarget();
@@ -98,54 +89,6 @@ test("a re-sync removes skills dropped upstream, links included", () => {
   assert.ok(existsSync(path.join(target.cwd, ".agents", "skills", "deploy", "SKILL.md")));
 });
 
-test("prunes skills a `skills` installer lock lists from our repo, then drops those entries", () => {
-  const target = projectTarget();
-  const lockFile = path.join(target.cwd, "skills-lock.json");
-  writeFileSync(
-    lockFile,
-    JSON.stringify({
-      skills: {
-        deploy: { source: SKILLS_REPO, sourceType: "github" },
-        "old-skill": { source: SKILLS_REPO, sourceType: "github" },
-        theirs: { source: "someone/else", sourceType: "github" },
-      },
-      version: 1,
-    }),
-  );
-  const old = path.join(target.cwd, ".agents", "skills", "old-skill");
-  mkdirSync(old, { recursive: true });
-  writeFileSync(path.join(old, "SKILL.md"), "---\nname: old-skill\n---\n");
-  mkdirSync(path.join(target.cwd, ".claude", "skills"), { recursive: true });
-  symlinkSync(
-    "../../.agents/skills/old-skill",
-    path.join(target.cwd, ".claude", "skills", "old-skill"),
-  );
-  // A real copy from a pre-symlink install sits where the link goes.
-  const stale = path.join(target.cwd, ".claude", "skills", "deploy");
-  mkdirSync(stale, { recursive: true });
-  writeFileSync(path.join(stale, "SKILL.md"), "stale");
-
-  const report = installSkills(makeSource(["deploy"]), target, ["claude-code"]);
-
-  assert.deepEqual(report.removed, ["old-skill"]);
-  assert.equal(existsSync(old), false);
-  assert.throws(() => lstatSync(path.join(target.cwd, ".claude", "skills", "old-skill")));
-  assert.ok(lstatSync(stale).isSymbolicLink());
-  assert.match(readFileSync(path.join(stale, "SKILL.md"), "utf-8"), /name: deploy/u);
-  const lock = readJsonObject(lockFile);
-  assert.deepEqual(lock.skills, { theirs: { source: "someone/else", sourceType: "github" } });
-
-  // With only our entries, the project lock goes away entirely.
-  const solo = projectTarget();
-  const soloLock = path.join(solo.cwd, "skills-lock.json");
-  writeFileSync(
-    soloLock,
-    JSON.stringify({ skills: { deploy: { source: SKILLS_REPO } }, version: 1 }),
-  );
-  installSkills(makeSource(["deploy"]), solo, ["claude-code"]);
-  assert.equal(existsSync(soloLock), false);
-});
-
 test("--global installs under the home directory and honours CLAUDE_CONFIG_DIR", () => {
   const home = makeTmpDir(cleanups, "vg-home-");
   const claudeConfig = path.join(home, "claude-config");
@@ -169,15 +112,10 @@ test("findInstall prefers the project, then home, else null", () => {
   const base = { cwd: target.cwd, env: {}, home: target.home };
   assert.equal(findInstall(["project", "global"], base), null);
 
-  // A legacy global lock counts, with the default agents.
-  mkdirSync(path.join(target.home, ".agents"), { recursive: true });
-  writeFileSync(
-    path.join(target.home, ".agents", ".skill-lock.json"),
-    JSON.stringify({ skills: { deploy: { source: SKILLS_REPO } }, version: 3 }),
-  );
+  installSkills(makeSource(["deploy"]), { ...base, scope: "global" }, ["codex"]);
   const global = findInstall(["project", "global"], base);
   assert.equal(global?.target.scope, "global");
-  assert.deepEqual(global?.agents, ["claude-code", "cursor", "codex"]);
+  assert.deepEqual(global?.agents, ["codex"]);
 
   installSkills(makeSource(["deploy"]), target, ["windsurf"]);
   const project = findInstall(["project", "global"], base);

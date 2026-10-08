@@ -46,10 +46,10 @@ export const parseProvider = (raw: string, from = "--provider"): Provider => {
   if (name === "codex") {
     return "codex";
   }
-  if (name === "" || name === "vibedgames" || name === "fal" || name === "default") {
+  if (name === "vibedgames") {
     return "vibedgames";
   }
-  throw new Error(`Unknown provider "${name}" (${from}). Supported: vibedgames (default), codex.`);
+  throw new Error(`Unknown provider "${name}" (${from}). Supported: vibedgames, codex.`);
 };
 
 /** The pseudo-endpoint that names the Codex path outright: `vg generate run codex`. */

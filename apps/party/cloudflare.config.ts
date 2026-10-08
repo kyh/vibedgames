@@ -33,7 +33,5 @@ export default defineConfig(({ isPreview }) => ({
     triggers: isPreview
       ? []
       : [triggers.fetch({ pattern: "party.vibedgames.com/*", zone: "vibedgames.com" })],
-    // Deployed games also connect through vibedgames-party.kyh.workers.dev.
-    workersDev: true,
   },
 }));

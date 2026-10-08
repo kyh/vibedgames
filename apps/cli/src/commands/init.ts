@@ -36,12 +36,6 @@ const initArgs = {
     description: "Install to your home directory instead of the project",
     type: "boolean",
   },
-  yes: {
-    alias: "y",
-    default: true,
-    description: "No effect: init never prompts",
-    type: "boolean",
-  },
 } as const;
 
 /** One summary for `vg init` and `vg update`. */
