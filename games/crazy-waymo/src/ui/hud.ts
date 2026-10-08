@@ -401,9 +401,9 @@ export class Hud {
     const r = DIAL_R;
     if (!this.dialValueGrad) {
       const face = ctx.createLinearGradient(0, cy - DIAL_FACE_R, 0, cy + DIAL_FACE_R);
-      face.addColorStop(0, "#3a2a1d");
-      face.addColorStop(0.55, "#20140d");
-      face.addColorStop(1, "#170e0a");
+      face.addColorStop(0, "#3b2d57");
+      face.addColorStop(0.55, "#251b3a");
+      face.addColorStop(1, "#1b1428");
       this.dialFaceGrad = face;
       const val = ctx.createLinearGradient(cx - r, cy + r * 0.35, cx + r, cy - r * 0.55);
       val.addColorStop(0, DIAL_FILL_LO);
@@ -413,8 +413,8 @@ export class Hud {
       // Chrome hub: metalness 1.0 reads as a vertical light-to-dark ramp.
       const hub = ctx.createLinearGradient(0, cy - HUB_R, 0, cy + HUB_R);
       hub.addColorStop(0, "#fff7ec");
-      hub.addColorStop(0.55, "#b29a80");
-      hub.addColorStop(1, "#443426");
+      hub.addColorStop(0.55, "#b4a6d0");
+      hub.addColorStop(1, "#3b2d57");
       this.dialHubGrad = hub;
     }
     const frac = Math.max(0, Math.min(1, mph / DIAL_MAX_MPH));
@@ -422,10 +422,10 @@ export class Hud {
     // Face: top-lit warm-ink gradient, warm bevel, cream hairline rim.
     ctx.beginPath();
     ctx.arc(cx, cy, DIAL_FACE_R, 0, Math.PI * 2);
-    ctx.fillStyle = this.dialFaceGrad ?? "#170e0a";
+    ctx.fillStyle = this.dialFaceGrad ?? "#1b1428";
     ctx.fill();
     ctx.lineWidth = 4;
-    ctx.strokeStyle = "#54402f";
+    ctx.strokeStyle = "#5a4a7a";
     ctx.beginPath();
     ctx.arc(cx, cy, 35.5, 0, Math.PI * 2);
     ctx.stroke();
@@ -518,7 +518,7 @@ export class Hud {
     // Chrome hub over the needle root.
     ctx.beginPath();
     ctx.arc(cx, cy, HUB_R, 0, Math.PI * 2);
-    ctx.fillStyle = this.dialHubGrad ?? "#b29a80";
+    ctx.fillStyle = this.dialHubGrad ?? "#b4a6d0";
     ctx.fill();
     ctx.lineWidth = 1.2;
     ctx.strokeStyle = DIAL_INK;

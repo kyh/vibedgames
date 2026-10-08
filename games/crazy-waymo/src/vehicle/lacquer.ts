@@ -263,7 +263,25 @@ const COAT_PEEL = `
 
 // Overrides the include's uniform clearcoatRoughness; geometryRoughness (the
 // derivative anti-alias term) is re-added because the assignment drops it.
+// Hero sticker contrast (toon pass, 2026-10): the hero bodies' palette darks
+// (glass, tyres, trim) drop toward ink and the light paint is pushed toward
+// paper white and de-tinted (near-neutral paint only), so the car reads as a clean toy decal — white
+// shell, near-black glass — against the candy city, the way the reference's
+// robotaxis do. Linear-light albedo, before toonAlbedo sees it.
+const HERO_CONTRAST = `
+{
+	float heroL = dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
+	diffuseColor.rgb *= mix( 0.45, 1.0, smoothstep( 0.03, 0.2, heroL ) );
+	float heroMax = max( diffuseColor.r, max( diffuseColor.g, diffuseColor.b ) );
+	float heroChroma = heroMax > 1e-4 ? ( heroMax - min( diffuseColor.r, min( diffuseColor.g, diffuseColor.b ) ) ) / heroMax : 0.0;
+	// Only near-neutral lights are whitened: a yellow or pink skin keeps its hue.
+	float heroHi = smoothstep( 0.4, 0.8, heroL ) * ( 1.0 - smoothstep( 0.1, 0.35, heroChroma ) );
+	diffuseColor.rgb = mix( diffuseColor.rgb, vec3( heroMax ), heroHi * 0.4 ) * ( 1.0 + 0.08 * heroHi );
+}
+`;
+
 const COAT_ROUGH = `
+${HERO_CONTRAST}
 #include <lights_physical_fragment>
 #ifdef USE_CLEARCOAT
 material.clearcoatRoughness = min( mix( ${COAT_ROUGH_MIN.toFixed(4)}, ${COAT_ROUGH_MAX.toFixed(4)}, texture2D( uCoatRough, lacquerUv( ${COAT_TILE.toFixed(4)} ) ).g ) + geometryRoughness, 1.0 );
@@ -312,6 +330,6 @@ export const applyLacquer = (m: THREE.MeshPhysicalMaterial, rimStrength: number)
       .replace("#include <lights_fragment_end>", ENV_RESPONSE)
       .replace("#include <opaque_fragment>", rimGlsl(rimStrength));
   };
-  const key = `waymo-lacquer|rim:${rimStrength.toFixed(2)}`;
+  const key = `waymo-lacquer|rim:${rimStrength.toFixed(2)}|hero-contrast`;
   m.customProgramCacheKey = () => key;
 };

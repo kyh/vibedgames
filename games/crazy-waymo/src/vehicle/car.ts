@@ -3,6 +3,7 @@ import * as THREE from "three";
 import type { ModelCache } from "../assets/loader";
 import { modelUrl, PLAYER_CAR } from "../assets/manifest";
 import { ContactShadow, SHADOW_LIFT } from "./contact-shadow";
+import { addInkHulls } from "./ink-hull";
 import { applyLacquer } from "./lacquer";
 import type { RaycastVehicle } from "./raycast-vehicle";
 import { applySunRim, applyTrafficSunRim, RIM_HERO } from "./sun-rim";
@@ -430,6 +431,7 @@ export const buildSkinBody = (cache: ModelCache, skin: RobotaxiSkin): THREE.Obje
   if (skin.mustache) {
     body.add(buildCarstache());
   }
+  addInkHulls(body);
   return body;
 };
 

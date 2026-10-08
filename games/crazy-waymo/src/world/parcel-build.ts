@@ -129,7 +129,7 @@ applyMaterialBreakup(FACADE, CITY_BREAKUP);
   // Lazy: the breakup's key reads the device class, which only exists in a
   // window, and this module also loads in the harness and the workers.
   const prevKey = FACADE.customProgramCacheKey.bind(FACADE);
-  FACADE.customProgramCacheKey = () => `${prevKey()}|facade-sashes-v2`;
+  FACADE.customProgramCacheKey = () => `${prevKey()}|facade-sashes-v3`;
   FACADE.onBeforeCompile = (shader, renderer) => {
     prev.call(FACADE, shader, renderer);
     shader.uniforms.uFacadeNight = FACADE_NIGHT;
@@ -141,8 +141,13 @@ attribute vec2 fuv;
 attribute vec4 facade;
 attribute vec3 facade2;
 varying vec2 vFuv;
-varying vec4 vFacade;
-varying vec3 vFacade2;`,
+// FLAT: facade/facade2 are per-face constants (cell metrics, seed, packed
+// flag bits). A face whose vertices disagree — welded neighbours, quantized
+// merges — used to INTERPOLATE them, so the mod/floor bit decode flipped per
+// pixel and painted window-sized patches of salt-and-pepper static beside
+// the near kit windows. Flat takes the provoking vertex: one facade per face.
+flat varying vec4 vFacade;
+flat varying vec3 vFacade2;`,
       )
       .replace(
         "#include <begin_vertex>",
@@ -157,8 +162,8 @@ vFacade2 = facade2;`,
         `#include <common>
 uniform float uFacadeNight;
 varying vec2 vFuv;
-varying vec4 vFacade;
-varying vec3 vFacade2;
+flat varying vec4 vFacade;
+flat varying vec3 vFacade2;
 float facadeHash(vec3 p) {
   return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
 }`,
@@ -188,8 +193,11 @@ if (fBrick) {
   vec2 brick = fract(brickUv);
   vec2 aa = max(fwidth(brickUv), vec2(0.001));
   vec2 joint = 1.0 - smoothstep(vec2(0.025) - aa, vec2(0.055) + aa, brick);
-  float variation = 0.94 + 0.10 * facadeHash(vec3(floor(brickUv), fSeed));
-  diffuseColor.rgb *= variation * (1.0 - 0.23 * max(joint.x, joint.y));
+  // Toon pass: per-brick tone and joints fade out once a brick is only a few
+  // pixels tall — past that the hash aliases into salt-and-pepper static.
+  float brickFade = 1.0 - smoothstep(0.08, 0.25, max(aa.x, aa.y));
+  float variation = 1.0 + (0.10 * facadeHash(vec3(floor(brickUv), fSeed)) - 0.06) * brickFade;
+  diffuseColor.rgb *= variation * (1.0 - 0.2 * brickFade * max(joint.x, joint.y));
 } else if (fSiding) {
   float board = fract(fv / 0.14);
   float seam = 1.0 - smoothstep(0.035, 0.10 + fwidth(fv / 0.14), board);
@@ -235,8 +243,12 @@ if (!fBlank && fv > fF.z && fF.x > 0.2) {
       * (1.0 - smoothstep(frameHi - aa, frameHi + aa, opening));
     vec2 inGlass = smoothstep(glassLo - aa, glassLo + aa, opening)
       * (1.0 - smoothstep(glassHi - aa, glassHi + aa, opening));
-    float frameMask = inFrame.x * inFrame.y;
-    float glassMask = inGlass.x * inGlass.y;
+    // Toon pass: a window cell only a few pixels across draws as speckle
+    // (frame, pane, glint and sash collapse into one or two noisy texels), so
+    // the whole opening fades to plain wall as the cell shrinks on screen.
+    float cellDetail = 1.0 - smoothstep(0.12, 0.3, aa);
+    float frameMask = inFrame.x * inFrame.y * cellDetail;
+    float glassMask = inGlass.x * inGlass.y * cellDetail;
     // Cool sky at the top, a dark room below. The diagonal glint and sash
     // keep a block of windows from reading as black stickers.
     float reflection = smoothstep(0.28, 0.82, sy);
@@ -253,7 +265,7 @@ if (!fBlank && fv > fF.z && fF.x > 0.2) {
     diffuseColor.rgb = mix(diffuseColor.rgb, pane, glassMask);
     float sillShadow = step(frameLo.x, sx) * step(sx, frameHi.x)
       * step(frameLo.y - 0.045, sy) * step(sy, frameLo.y);
-    diffuseColor.rgb = mix(diffuseColor.rgb, fWall * 0.65, sillShadow * (1.0 - frameMask));
+    diffuseColor.rgb = mix(diffuseColor.rgb, fWall * 0.65, sillShadow * cellDetail * (1.0 - frameMask));
     fOpen = glassMask * (1.0 - sash);
     float onBuilding = step(0.34, fSeed / 255.0);
     fLit = onBuilding * step(0.62, facadeHash(vec3(ci, k, fSeed)));

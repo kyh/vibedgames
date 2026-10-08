@@ -11,12 +11,17 @@ import type { LooseProfile, MatterRecipe, PavedSurface } from "./surface-fx";
 import { WaterFx } from "./water-fx";
 import type { WaterSprayKind } from "./water-fx";
 
-// Color cools toward death (hot core early, dark residue late); alpha is
-// fast-in-slow-out (vAlpha^2 spends most of the life dim, popping at birth).
-// Smoke is LIT: the top of each puff catches uSunTint, the underside sits in
-// uAmbient shade — the vertical gradient across the point sprite is what makes
-// a flat point read as a volume, and it's what lets golden-hour smoke go
-// orange instead of staying flat grey.
+// Color cools toward death (hot core early, dark residue late). Smoke is LIT:
+// the top of each puff catches uSunTint, the underside sits in uAmbient shade.
+//
+// Toon pass (2026-10): CEL PUFFS, not soft blur. A soft gaussian sprite
+// stacked a few deep read as a white smear around the car; a cartoon puff is
+// an OPAQUE crisp disc that dissolves by SHRINKING, never by fading (a
+// translucent hard disc shows every overlapping circle edge), lit in two flat
+// bands (lit cap / lavender belly, the terminator tilted so it reads round)
+// with a darker rim standing in for the ink line. Puffs near the lens shrink
+// away too, so a close camera never looks through a slab. Debris chips
+// (vGrain) keep their angular shape.
 const FRAG_SMOKE = `
   uniform vec3 uSunTint;
   uniform vec3 uAmbient;
@@ -26,16 +31,30 @@ const FRAG_SMOKE = `
   void main() {
     vec2 d = gl_PointCoord - vec2(0.5);
     float r = dot(d, d);
-    if (r > 0.25) discard;
-    float soft = smoothstep(0.25, 0.0, r);
+    // Shrink with life: the disc radius (squared) follows sqrt(alpha), and a
+    // crisp disc tops out at ~70% of the sprite — a hard-edged full-size
+    // sprite reads twice as big as the soft one it replaced.
+    float lensFade = smoothstep(3.0, 9.0, 1.0 / gl_FragCoord.w);
+    float radius = 0.1 * clamp(sqrt(vAlpha) * 1.15, 0.0, 1.0) * lensFade;
+    if (r > radius) discard;
+    float aa = fwidth(r) * 1.5;
+    float disc = 1.0 - smoothstep(radius - aa, radius, r);
     float chip = 1.0 - smoothstep(0.29, 0.35, abs(d.x) + abs(d.y) * 0.7);
-    soft = mix(soft, chip, vGrain);
-    vec3 color = mix(vColor * 0.35, vColor, pow(vAlpha, 0.6));
-    float topLit = smoothstep(0.78, 0.18, gl_PointCoord.y);
-    // Ceiling keeps a stack of overlapping lit puffs from blowing out to a
-    // single white-yellow mass under the post S-curve.
-    color *= min(uAmbient + uSunTint * topLit, vec3(1.0));
-    gl_FragColor = vec4(color, vAlpha * vAlpha * soft);
+    float shape = mix(disc, chip, vGrain);
+    // Cartoon smoke is cream, not grey: the surface tint is lifted toward
+    // paper white (debris chips keep their own colour).
+    vec3 base = mix(vColor, vec3(1.0), 0.35 * (1.0 - vGrain));
+    vec3 color = mix(base * 0.35, base, pow(vAlpha, 0.6));
+    // Two flat bands: the whole puff takes the scene light once (so night
+    // smoke still darkens), then a lit cap above a tilted terminator and a
+    // lavender-shaded belly below — a cel shadow, not a grey falloff. The
+    // ceiling keeps stacked puffs from blowing out under the post S-curve.
+    float cap = smoothstep(-0.03, 0.03, -d.y - d.x * 0.35 + 0.04);
+    color *= min(uAmbient + uSunTint, vec3(1.0));
+    color *= mix(vec3(0.78, 0.76, 0.9), vec3(1.0), cap);
+    // Rim: the outer ring a step darker — the puff's own ink line.
+    color *= mix(1.0, 0.8, smoothstep(radius * 0.66, radius * 0.82, r) * (1.0 - vGrain));
+    gl_FragColor = vec4(color, shape);
   }
 `;
 // Sparks: intensities are authored pre-shoulder (hot FX 2.2-3.4) and the
@@ -140,6 +159,14 @@ export class Fx {
   };
 
   addTo(scene: THREE.Scene): void {
+    // Cel puffs are opaque discs (FRAG_SMOKE discards outside the disc), so
+    // they write depth: overlapping puffs resolve front-to-back instead of
+    // in ring-buffer order, and the post ink rings each one like a cartoon
+    // cloud rather than drawing the car's silhouette through it.
+    const smokeMat = this.smoke.points.material;
+    if (!Array.isArray(smokeMat)) {
+      smokeMat.depthWrite = true;
+    }
     scene.add(this.smoke.points);
     scene.add(this.sparks.points);
     scene.add(this.plume.mesh);
