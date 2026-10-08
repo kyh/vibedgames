@@ -39,7 +39,7 @@ const initArgs = {
   yes: {
     alias: "y",
     default: true,
-    description: "Accepted for compatibility; init never prompts",
+    description: "No effect: init never prompts",
     type: "boolean",
   },
 } as const;

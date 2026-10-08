@@ -98,7 +98,7 @@ test("a re-sync removes skills dropped upstream, links included", () => {
   assert.ok(existsSync(path.join(target.cwd, ".agents", "skills", "deploy", "SKILL.md")));
 });
 
-test("takes over an `npx skills` install: prunes from its lock, then drops our entries", () => {
+test("prunes skills a `skills` installer lock lists from our repo, then drops those entries", () => {
   const target = projectTarget();
   const lockFile = path.join(target.cwd, "skills-lock.json");
   writeFileSync(

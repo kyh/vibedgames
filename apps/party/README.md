@@ -46,9 +46,8 @@ server, so client and server can never drift on a constant.
 
 ## Hosts
 
-Games connect to `https://party.vibedgames.com` (a route on the `vibedgames.com` zone; `party`
-is a reserved game slug). The `vibedgames-party.kyh.workers.dev` host stays up because games
-deployed before the custom host still point at it.
+Games connect to `https://party.vibedgames.com`, a route on the `vibedgames.com` zone (`party`
+is a reserved game slug).
 
 ## HTTP endpoints
 

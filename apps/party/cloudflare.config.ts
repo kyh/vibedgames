@@ -33,8 +33,7 @@ export default defineConfig(({ isPreview }) => ({
     triggers: isPreview
       ? []
       : [triggers.fetch({ pattern: "party.vibedgames.com/*", zone: "vibedgames.com" })],
-    // Stays on: games deployed before the custom host still connect to
-    // vibedgames-party.kyh.workers.dev, and nothing can update them.
+    // Deployed games also connect through vibedgames-party.kyh.workers.dev.
     workersDev: true,
   },
 }));

@@ -26,9 +26,8 @@ type EnginePreset =
       skill: string;
     };
 
-// Every engine preset is bundled with the CLI: `vg new` works offline, and a
-// change in somebody else's starter repo can't break (or add telemetry to) a
-// new game.
+// Every engine preset ships with the CLI, so `vg new` works offline and scaffolds
+// the same files every time.
 const ENGINES = new Map<string, EnginePreset>([
   [
     "phaser",

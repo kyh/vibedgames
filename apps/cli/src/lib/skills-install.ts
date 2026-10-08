@@ -22,19 +22,15 @@ import { isJsonObject, isJsonString } from "./types.js";
 import type { JsonObject, JsonValue } from "./types.js";
 
 /**
- * `vg init` / `vg update`: install the vibedgames skills without a
- * third-party installer.
+ * `vg init` / `vg update`: install the vibedgames skills.
  *
- * The layout matches what `npx skills add` wrote before, so an existing
- * install is updated in place: one real copy per skill in
- * `<base>/.agents/skills/<name>` (Codex, Cursor and the other agents that read
- * `.agents/skills` natively need nothing more), plus a per-skill symlink for
- * agents with a skills dir of their own (`.claude/skills/<name>` for Claude
- * Code). `<base>` is the project directory, or the home directory with
- * `--global`.
- *
- * Unlike `skills update`, a sync also removes skills that were dropped
- * upstream, and nothing is sent anywhere but the download itself.
+ * One real copy per skill in `<base>/.agents/skills/<name>` (Codex, Cursor and
+ * the other agents that read `.agents/skills` natively need nothing more),
+ * plus a per-skill symlink for agents with a skills dir of their own
+ * (`.claude/skills/<name>` for Claude Code). `<base>` is the project
+ * directory, or the home directory with `--global`. A sync also removes the
+ * skills it installed that are gone upstream. Nothing is sent anywhere but
+ * the download itself.
  */
 
 export const SKILLS_REPO = "kyh/vibedgames-plugins";
@@ -252,10 +248,11 @@ const agentSkillsDir = (target: InstallTarget, agent: AgentDirs): string =>
     : path.join(target.cwd, agent.project);
 
 /**
- * The lock `npx skills` kept for this scope. Entries for our repo are read so
- * skills it installed can be pruned, then dropped: vg manages them now.
+ * The lock file the `skills` installer keeps for this scope. Skills it lists
+ * from our repo are pruned like vg's own, and their entries dropped, since vg
+ * manages them.
  */
-const legacyLockPath = (target: InstallTarget): string => {
+const installerLockPath = (target: InstallTarget): string => {
   if (target.scope === "project") {
     return path.join(target.cwd, "skills-lock.json");
   }
@@ -282,7 +279,7 @@ export interface Manifest {
   agents: string[];
 }
 
-/** What vg installed here before, if anything. */
+/** What vg has installed here, if anything. */
 export const readManifest = (target: InstallTarget): Manifest | null => {
   const data = readJson(manifestPath(target));
   if (!isJsonObject(data) || !Array.isArray(data.skills) || !Array.isArray(data.agents)) {
@@ -294,9 +291,9 @@ export const readManifest = (target: InstallTarget): Manifest | null => {
   };
 };
 
-/** Skill names a legacy `npx skills` lock holds for our repo. */
-const legacyLockSkills = (target: InstallTarget): string[] => {
-  const lock = readJson(legacyLockPath(target));
+/** Skill names the `skills` installer's lock holds for our repo. */
+const installerLockSkills = (target: InstallTarget): string[] => {
+  const lock = readJson(installerLockPath(target));
   if (!isJsonObject(lock) || !isJsonObject(lock.skills)) {
     return [];
   }
@@ -305,9 +302,9 @@ const legacyLockSkills = (target: InstallTarget): string[] => {
     .map(([name]) => name);
 };
 
-/** Drop our repo's entries from the legacy lock; delete a project lock left empty. */
-const releaseLegacyLock = (target: InstallTarget): void => {
-  const file = legacyLockPath(target);
+/** Drop our repo's entries from that lock; delete a project lock left empty. */
+const releaseInstallerLock = (target: InstallTarget): void => {
+  const file = installerLockPath(target);
   const lock = readJson(file);
   if (!isJsonObject(lock) || !isJsonObject(lock.skills)) {
     return;
@@ -416,7 +413,7 @@ export interface InstallReport {
 
 /**
  * Install every skill in `source` for `agents`, and remove the ones a
- * previous install (by vg or by `npx skills`) put here that `source` no
+ * previous install (by vg or by the `skills` installer) put here that `source` no
  * longer has.
  */
 export const installSkills = (
@@ -429,7 +426,10 @@ export const installSkills = (
     throw new Error(`No skills found in ${source.origin}.`);
   }
   const canonical = canonicalDir(target);
-  const previous = new Set([...(readManifest(target)?.skills ?? []), ...legacyLockSkills(target)]);
+  const previous = new Set([
+    ...(readManifest(target)?.skills ?? []),
+    ...installerLockSkills(target),
+  ]);
   const names = new Set(skills.map((skill) => skill.name));
   const linked = agents.flatMap((id) => {
     const dirs = LINKED_AGENTS.get(id);
@@ -477,7 +477,7 @@ export const installSkills = (
       2,
     )}\n`,
   );
-  releaseLegacyLock(target);
+  releaseInstallerLock(target);
 
   return {
     agents,
@@ -523,7 +523,7 @@ export const targetFor = (scope: Scope): InstallTarget => ({
 
 /**
  * Where `vg update` should sync: among `scopes`, the first that holds a vg (or
- * legacy `npx skills`) install of our skills — with the agents it was
+ * `skills` installer) install of our skills — with the agents it was
  * installed for — or null when none does.
  */
 export const findInstall = (
@@ -533,7 +533,7 @@ export const findInstall = (
   for (const scope of scopes) {
     const target: InstallTarget = { ...base, scope };
     const manifest = readManifest(target);
-    if (manifest || legacyLockSkills(target).length > 0) {
+    if (manifest || installerLockSkills(target).length > 0) {
       const known = (manifest?.agents ?? []).filter(
         (id) => SHARED_DIR_AGENTS.has(id) || LINKED_AGENTS.has(id),
       );

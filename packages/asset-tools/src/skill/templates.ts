@@ -4,9 +4,8 @@
  * The scaffold's shape (SKILL.md plus placeholder references/, scripts/ and
  * assets/) follows `init_skill.py` from Anthropic's skill-creator (Apache-2.0;
  * see plugins/vibedgames/skills/skill-creator/references/credits.md). The text
- * is our own, written for game skills, and the example script is `example.mjs`
- * rather than `example.py`: a tool whose whole purpose is seeding new skills
- * should not seed a new Python dependency into every one of them.
+ * is our own, written for game skills. The example script is `example.mjs`, so
+ * a new skill starts with no Python dependency.
  */
 
 export const SKILL_TEMPLATE = (skillName: string, skillTitle: string): string =>
@@ -81,12 +80,7 @@ data for a script to chew on.
 Any file type works; this text file only marks the folder.
 `;
 
-/**
- * The placeholder script a new skill is scaffolded with.
- *
- * The Python original seeded `example.py`; this seeds `example.mjs` so a
- * newly created skill starts with no Python dependency of its own.
- */
+/** The placeholder script a new skill is scaffolded with. */
 export const EXAMPLE_SCRIPT = (skillName: string): string =>
   `#!/usr/bin/env node
 /**

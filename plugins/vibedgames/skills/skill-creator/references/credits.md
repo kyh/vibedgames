@@ -1,6 +1,6 @@
 # Credits and License
 
-This skill's tooling began as a Node port of the Python scripts in Anthropic's
+This skill's tooling is a Node port of the Python scripts in Anthropic's
 `skill-creator` skill (<https://github.com/anthropics/skills>, Copyright 2026
 Anthropic, PBC., Apache License 2.0):
 

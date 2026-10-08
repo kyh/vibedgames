@@ -11,8 +11,7 @@ import { fileURLToPath } from "node:url";
 
 /**
  * The engine templates `vg new` scaffolds from. They ship inside the CLI
- * package (`apps/cli/templates/<id>`), so scaffolding needs no network and
- * nothing a third party changes upstream can reach a new game.
+ * package (`apps/cli/templates/<id>`), so scaffolding needs no network.
  *
  * Two levels up from this module is the package root both from source
  * (`src/lib`) and from the build (`dist/lib`).

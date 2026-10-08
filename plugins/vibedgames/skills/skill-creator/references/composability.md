@@ -493,7 +493,7 @@ Skill C (metadata loaded) ──┘
 A skill is loaded four ways: project `.claude/skills/<name>`, global
 `~/.claude/skills/<name>`, a Claude Code plugin (`--plugin-dir` or the
 marketplace cache at `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/skills/<name>`,
-several versions retained), or a copy made by `vg init` (or `npx skills add`) into
+several versions retained), or a copy made by `vg init` into
 `.agents/skills/<name>` for Codex/Cursor, where `CLAUDE_SKILL_DIR` is never
 set. One snippet, placed in the SKILL.md body, covers all four:
 
