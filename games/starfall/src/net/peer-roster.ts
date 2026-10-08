@@ -1,5 +1,4 @@
 import { Interpolator, lerp, lerpAngle } from "@vibedgames/multiplayer";
-import type { ServerClock } from "@vibedgames/multiplayer";
 import { REMOTE_RENDER_DELAY_MS } from "../shared/constants";
 import type { PlayerNetState, Vec } from "../shared/constants";
 import type { Link } from "../state/link";
@@ -40,13 +39,15 @@ interface PeerEntry {
 
 /**
  * Every peer's state, parsed once per patch instead of once per frame, and
- * every remote ship's pose interpolated ~100 ms behind the room's server
- * clock (the Interpolator buffers the stamped updates and blends the pair
- * around that moment). Every sender stamps with the same clock, so one
- * render time serves every ship — and the shots, which play on it too
- * (sys/remote-fire.ts). Fills `link.peerStates` each frame with the pose
- * folded in, so hit tests, homing, the minimap and the hull all agree on
- * where a ship is.
+ * every remote ship's pose interpolated ~100 ms behind the moment its
+ * updates arrive (the Interpolator buffers the stamped updates and blends the
+ * pair around that moment). Each sender's stream reads its server-time stamps
+ * through its own clock — the Interpolator's RemoteClock — which learns from
+ * arrivals how long that sender's updates take to get here (sender → server →
+ * here), so the delay only has to cover jitter; the sender's shots play on
+ * the same clock (sys/remote-fire.ts). Fills `link.peerStates` each frame
+ * with the pose folded in, so hit tests, homing, the minimap and the hull all
+ * agree on where a ship is.
  */
 export class PeerRoster {
   private readonly entries = new Map<string, PeerEntry>();
@@ -58,22 +59,24 @@ export class PeerRoster {
   }
 
   /** Take in any new peer states. Called from the socket listener as each
-   *  message lands, so two patches arriving within one frame both reach the
-   *  buffer. Cheap: a state object only changes when a patch lands. A peer
-   *  out of interest range is skipped: what it holds is stale. */
-  ingest(): void {
-    const { peers, myId, serverClock } = this.link;
-    if (!serverClock) {
+   *  message lands, so each update's arrival time is exact — the sender's
+   *  clock learns its relay from it — and two patches arriving within one
+   *  frame both reach the buffer. Cheap: a state object only changes when a
+   *  patch lands. A peer out of interest range is skipped: what it holds is
+   *  stale. */
+  ingest(perfNow: number): void {
+    const { peers, myId, offline } = this.link;
+    if (offline) {
       return;
     }
     for (const [id, player] of Object.entries(peers)) {
       if (id === myId || player.visible === false) {
         continue;
       }
-      const entry = this.entryFor(id, serverClock);
+      const entry = this.entryFor(id);
       if (player.state !== entry.raw) {
         entry.raw = player.state;
-        parseInto(entry, readNetState(player));
+        parseInto(entry, readNetState(player), perfNow);
       }
     }
   }
@@ -82,7 +85,7 @@ export class PeerRoster {
   refresh(perfNow: number): void {
     const { link } = this;
     const { peers, myId } = link;
-    this.ingest();
+    this.ingest(perfNow);
     link.peerStates.clear();
     for (const [id, player] of Object.entries(peers)) {
       // A peer mid-drop (seat held in the reconnect grace) is absent, not a
@@ -128,10 +131,19 @@ export class PeerRoster {
     }
   }
 
-  /** The server-clock moment every remote ship is drawn at this frame — and
-   *  every remote shot, so a shot leaves the hull where you see it. */
-  renderTime(perfNow: number): number {
-    return this.link.serverNow(perfNow) - REMOTE_RENDER_DELAY_MS;
+  /** The moment (server time) this peer is drawn at — its shots play on the
+   *  same timeline as its hull (sys/remote-fire.ts). Null before any stamp. */
+  renderTime(id: string, perfNow: number): number | null {
+    const entry = this.entries.get(id);
+    if (!entry || !entry.interp.clock.synced) {
+      return null;
+    }
+    return entry.interp.clock.now(perfNow) - entry.interp.delayMs;
+  }
+
+  /** Feed a peer's clock from a stamped event (a shot can beat the first state). */
+  observe(id: string, t: number, perfNow: number): void {
+    this.entryFor(id).interp.clock.observe?.(t, perfNow);
   }
 
   /** Host targeting: a guest's newest pose led toward the present along its
@@ -152,11 +164,11 @@ export class PeerRoster {
     return { x: latest.x + latest.vx * ageS, y: latest.y + latest.vy * ageS };
   }
 
-  private entryFor(id: string, clock: ServerClock): PeerEntry {
+  private entryFor(id: string): PeerEntry {
     let entry = this.entries.get(id);
     if (!entry) {
       entry = {
-        interp: new Interpolator<Pose>({ clock, delayMs: REMOTE_RENDER_DELAY_MS, lerp: blendPose }),
+        interp: new Interpolator<Pose>({ delayMs: REMOTE_RENDER_DELAY_MS, lerp: blendPose }),
         latest: null,
         live: false,
         net: null,
@@ -171,7 +183,7 @@ export class PeerRoster {
 /** Take in a peer's newly parsed state: buffer its pose for interpolation,
  *  restarting the buffer when the ship (re)appears — a respawn or re-entry
  *  is a teleport, not a glide. */
-const parseInto = (entry: PeerEntry, net: PlayerNetState | null): void => {
+const parseInto = (entry: PeerEntry, net: PlayerNetState | null, perfNow: number): void => {
   entry.net = net;
   if (!net) {
     return;
@@ -182,7 +194,7 @@ const parseInto = (entry: PeerEntry, net: PlayerNetState | null): void => {
   }
   entry.live = live;
   const pose: Pose = { angle: net.angle, vx: net.vx, vy: net.vy, x: net.x, y: net.y };
-  if (entry.interp.push(net.t, pose)) {
+  if (entry.interp.push(net.t, pose, perfNow)) {
     entry.latest = { ...pose, t: net.t };
   }
 };

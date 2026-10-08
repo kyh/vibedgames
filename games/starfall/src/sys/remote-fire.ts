@@ -34,7 +34,8 @@ interface Shooter {
   queue: FireSpec[];
   beams: Beam[];
   turret: Turret | null;
-  /** Server-clock moment of the last update; null while not drawn. */
+  /** Moment (server time) of the last update on the shooter's timeline;
+   *  null while not drawn. */
   at: number | null;
 }
 
@@ -48,10 +49,11 @@ export interface RemoteFireDeps {
 /**
  * Every other player's shots, rebuilt from their `fire` events and flown
  * here with the same beam code as mine (sys/beam-sim.ts). A shot is stamped
- * with server time, like its shooter's pose, so it plays on the timeline the
- * ship is drawn on — REMOTE_RENDER_DELAY_MS behind the room clock — and
- * leaves the hull where you see it. Victims hit-test these copies
- * (sys/shield.ts): what drains you is what you saw.
+ * with server time, like its shooter's pose, and plays on the clock that
+ * shooter's ship is drawn on (net/peer-roster.ts) — REMOTE_RENDER_DELAY_MS
+ * behind the moment its updates arrive — so it leaves the hull where you see
+ * it. Victims hit-test these copies (sys/shield.ts): what drains you is what
+ * you saw.
  */
 export class RemoteFire {
   private readonly shooters = new Map<string, Shooter>();
@@ -75,10 +77,10 @@ export class RemoteFire {
   }
 
   /** A `fire` event (socket listener): decode and queue — the work happens
-   *  in the frame loop. Events are not interest-filtered: a shooter out of
-   *  range fires from past the edge of the screen, so its shots are dropped
-   *  here, like the hull. */
-  receive(from: string, payload: WireValue): void {
+   *  in the frame loop. Its arrival also teaches the shooter's clock. Events
+   *  are not interest-filtered: a shooter out of range fires from past the
+   *  edge of the screen, so its shots are dropped here, like the hull. */
+  receive(from: string, payload: WireValue, perfNow: number): void {
     if (from === this.link.myId || this.link.peers[from]?.visible === false) {
       return;
     }
@@ -86,6 +88,7 @@ export class RemoteFire {
     if (!spec) {
       return;
     }
+    this.roster.observe(from, spec.t, perfNow);
     const { queue } = this.shooterFor(from);
     queue.push(spec);
     if (queue.length > QUEUE_CAP) {
@@ -96,7 +99,6 @@ export class RemoteFire {
   /** Once per frame, after the roster refresh. */
   update(perfNow: number): void {
     const { peers, peerStates } = this.link;
-    const at = this.roster.renderTime(perfNow);
     for (const [id, sh] of this.shooters) {
       if (!(id in peers)) {
         this.shooters.delete(id);
@@ -110,6 +112,10 @@ export class RemoteFire {
         sh.turret = null;
         sh.queue.length = 0;
         sh.at = null;
+        continue;
+      }
+      const at = this.roster.renderTime(id, perfNow);
+      if (at === null) {
         continue;
       }
       const dt = sh.at === null ? 0 : Math.min(0.1, Math.max(0, (at - sh.at) / 1000));
@@ -138,7 +144,7 @@ export class RemoteFire {
     return this.staged.get(id) ?? this.shooters.get(id)?.beams ?? NO_BEAMS;
   }
 
-  /** Every remote shooter's beams and the server-clock moment they are at. */
+  /** Every remote shooter's beams and the moment (server time) they are at. */
   forEachVolley(draw: (beams: readonly Beam[], at: number) => void, perfNow: number): void {
     for (const sh of this.shooters.values()) {
       if (sh.at !== null && sh.beams.length > 0) {

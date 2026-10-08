@@ -115,7 +115,7 @@ export class PlayerNet {
 
   handleEvent(event: string, payload: WireValue, from: string): void {
     if (event === "fire") {
-      this.remoteFire.receive(from, payload);
+      this.remoteFire.receive(from, payload, performance.now());
       return;
     }
     if (event === "player_killed") {

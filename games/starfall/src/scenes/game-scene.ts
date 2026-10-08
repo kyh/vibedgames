@@ -294,7 +294,7 @@ export class GameScene extends Scene {
       this.link.connect({
         host: MULTIPLAYER_HOST,
         maxPlayers: STARFALL_MAX_PLAYERS,
-        onUpdate: () => this.roster.ingest(),
+        onUpdate: () => this.roster.ingest(performance.now()),
         room: ROOM,
       });
     }

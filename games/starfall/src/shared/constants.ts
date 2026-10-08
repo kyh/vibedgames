@@ -1703,8 +1703,9 @@ export const ENEMY_DESPAWN_INTERVAL_MS = 1500;
 export const PLAYER_NET_HZ = 20;
 /** Host world snapshots. Every enemy rides each one, so this stays at 20 Hz. */
 export const WORLD_NET_HZ = 20;
-/** How far behind the room's server clock remote ships and shots are drawn
- *  (ms): two 20 Hz send intervals, enough to ride out arrival jitter. */
+/** How far behind the moment its updates arrive a remote ship (and its
+ *  shots) is drawn (ms): two 20 Hz send intervals, enough to ride out arrival
+ *  jitter. The relay itself is learnt per sender (net/peer-roster.ts). */
 export const REMOTE_RENDER_DELAY_MS = 100;
 /** Interest radius (px, on the player-state `x`/`y`): two players farther
  *  apart stop receiving each other's state — the host still sees everyone.
