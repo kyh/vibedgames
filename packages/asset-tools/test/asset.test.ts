@@ -15,8 +15,6 @@ import { parseFrame, prettyPath, walkFiles } from "../src/asset/paths.js";
 import { analyzeBaseline, probeSheet } from "../src/asset/sheet.js";
 import { collectSizes, sizesToCsv } from "../src/asset/sizes.js";
 import { Bitmap } from "../src/image/raster.js";
-import { validateSkill } from "../src/skill/validate.js";
-import { createZip } from "../src/skill/zip.js";
 import { frameGeometry, runQc } from "../src/sprite/qc.js";
 import {
   cellSizeOf,
@@ -584,27 +582,6 @@ test("every flag a script advertises is declared or takes a value", () => {
   assert.deepEqual(offenders, []);
 });
 
-// ---- zip ------------------------------------------------------------------
-
-test("filenames are flagged UTF-8 in both headers", () => {
-  const zip = createZip([{ data: new Uint8Array([1, 2, 3]), name: "assets/é.png" }]);
-
-  // Local header: signature at 0, general-purpose flags at offset 6.
-  assert.equal(zip.readUInt32LE(0), 0x04_03_4b_50);
-  // oxlint-disable-next-line no-bitwise -- tests the UTF-8 flag bit in the zip header
-  assert.equal(zip.readUInt16LE(6) & 0x08_00, 0x08_00, "local header missing the UTF-8 bit");
-
-  // Central directory: find its signature, flags at offset 8 from there.
-  const central = zip.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
-  assert.ok(central > 0, "no central directory");
-  // oxlint-disable-next-line no-bitwise -- tests the UTF-8 flag bit in the zip header
-  assert.equal(zip.readUInt16LE(central + 8) & 0x08_00, 0x08_00, "central header missing the bit");
-
-  // And the name really is UTF-8, which is what the bit is promising.
-  const nameLength = zip.readUInt16LE(26);
-  assert.equal(zip.subarray(30, 30 + nameLength).toString("utf-8"), "assets/é.png");
-});
-
 // ---- size contract --------------------------------------------------------
 
 test("a malformed runtimeCell is rejected where the message can name the file", () => {
@@ -820,40 +797,4 @@ test("every skill script imports the library names it calls", () => {
     }
   }
   assert.deepEqual(offenders, []);
-});
-
-/**
- * The installer parses this frontmatter with a strict YAML parser; ours splits
- * on the first colon and is happy either way. That gap was not theoretical —
- * `release`'s description said "Args optional: package(s) and bump type", passed
- * our validation, and was then skipped outright by `skills add` with a YAML
- * error, so the skill silently never installed.
- */
-test("an unquoted description containing a colon is rejected", () => {
-  const dir = workspace();
-  const write = (frontmatter: string): string => {
-    const skill = path.join(dir, "s");
-    mkdirSync(skill, { recursive: true });
-    writeFileSync(
-      path.join(skill, "SKILL.md"),
-      `---\n${frontmatter}\n---\n\n# S\n\nBody text here.\n`,
-    );
-    return skill;
-  };
-
-  const bad = validateSkill(write("name: s\ndescription: Does things. Args optional: a and b."));
-  assert.equal(bad.valid, false);
-  assert.match(bad.message, /not quoted|nested mapping/u);
-
-  // Quoting it is the fix, in either quote style.
-  assert.equal(
-    validateSkill(write(`name: s\ndescription: 'Does things. Args: a and b.'`)).valid,
-    true,
-  );
-  assert.equal(
-    validateSkill(write(`name: s\ndescription: "Does things. Args: a and b."`)).valid,
-    true,
-  );
-  // A description with no colon is unaffected.
-  assert.equal(validateSkill(write("name: s\ndescription: Does things simply.")).valid, true);
 });

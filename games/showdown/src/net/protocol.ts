@@ -21,7 +21,7 @@ const devPartyHost = (): string => {
 
 export const MULTIPLAYER_HOST = import.meta.env.DEV
   ? devPartyHost()
-  : "https://vibedgames-party.kyh.workers.dev";
+  : "https://party.vibedgames.com";
 export const PARTY = "vg-server";
 /** Evasion acknowledgments make these snapshots incompatible with earlier rooms. */
 export const ROOM_PREFIX = "showdown-v3-";

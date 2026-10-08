@@ -12,7 +12,7 @@ vg generate run openai/gpt-image-2 --prompt "$FX_BOARD_PROMPT" --image_size "squ
 vg generate status openai/gpt-image-2 <request_id> --result --download ./game-assets/<slug>/fx/<effect>-board.png --json
 ```
 
-- ~$1/board at `--quality high` on the platform runner (`--provider vibedgames`), 60–90 s each. Without the flag, `openai/gpt-image-*` routes to a local Codex CLI when one is installed; Codex-routed boards honour the matte less reliably (one probe came back white) — eyeball every board before packing.
+- ~$1/board at `--quality high` on the platform runner, 60–90 s each. Boards run through `--provider codex` honour the matte less reliably (one probe came back white) — eyeball every board before packing.
 - **Pack**: slice uniform 256-px cells → BOX-reduce to 128 → 12×1 horizontal strip (`pack-spritesheet.mjs` from Recipe 5, or PIL `Image.BOX`); frames stay centred in a fixed cell.
 - **Directional art points RIGHT** (bolt, dagger fan, arrow) and is rotated at runtime toward the aim; move the origin onto the caster with an x-offset.
 - **Ground-anchored art needs a vertical offset** from the anchor point (a cloud above the target, a pillar or flames rising from it).

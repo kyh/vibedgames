@@ -58,9 +58,12 @@ Recipes for all three are in `references/physics.md`; don't simulate things that
 
 ## Quick Start: Essential Setup
 
-### Minimal HTML Template
+### Minimal Setup (Vite + npm)
+
+Scaffold with `vg new <slug> --engine threejs` (Vite + TypeScript, `three` from npm), or `npm install three` in any Vite project. Import Three.js and its addons (`three/addons/...`) from the package — never from a CDN URL or an import map: a deployed game would then depend on a third-party origin at runtime, and the URL pins a version that silently drifts from the one your types and tools assume.
 
 ```html
+<!-- index.html -->
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -83,42 +86,40 @@ Recipes for all three are in `references/physics.md`; don't simulate things that
     </style>
   </head>
   <body>
-    <script type="module">
-      import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
-
-      // Scene setup
-      const scene = new THREE.Scene();
-      const camera = new THREE.PerspectiveCamera(
-        75,
-        window.innerWidth / window.innerHeight,
-        0.1,
-        1000,
-      );
-      const renderer = new THREE.WebGLRenderer({ antialias: true });
-
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-      document.body.appendChild(renderer.domElement);
-
-      // Your 3D content here
-      // ...
-
-      camera.position.z = 5;
-
-      // Animation loop
-      renderer.setAnimationLoop((time) => {
-        renderer.render(scene, camera);
-      });
-
-      // Handle resize
-      window.addEventListener("resize", () => {
-        camera.aspect = window.innerWidth / window.innerHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth, window.innerHeight);
-      });
-    </script>
+    <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
+```
+
+```ts
+// src/main.ts
+import * as THREE from "three";
+
+// Scene setup
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+document.body.appendChild(renderer.domElement);
+
+// Your 3D content here
+// ...
+
+camera.position.z = 5;
+
+// Animation loop
+renderer.setAnimationLoop((time) => {
+  renderer.render(scene, camera);
+});
+
+// Handle resize
+window.addEventListener("resize", () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
 ```
 
 ---
@@ -271,22 +272,20 @@ renderer.setAnimationLoop(() => {
 
 Import OrbitControls from examples for interactive camera movement:
 
-```html
-<script type="module">
-  import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
-  import { OrbitControls } from "https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js";
+```ts
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
-  // ... scene setup ...
+// ... scene setup ...
 
-  const controls = new OrbitControls(camera, renderer.domElement);
-  controls.enableDamping = true;
-  controls.dampingFactor = 0.05;
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
 
-  renderer.setAnimationLoop(() => {
-    controls.update();
-    renderer.render(scene, camera);
-  });
-</script>
+renderer.setAnimationLoop(() => {
+  controls.update();
+  renderer.render(scene, camera);
+});
 ```
 
 ---
@@ -361,7 +360,8 @@ Common hex colors:
 
 ## Anti-Patterns to Avoid
 
-- **Wrong OrbitControls path** → `THREE.OrbitControls` is undefined in modern Three.js. Import from `three/addons/controls/OrbitControls.js` (or the unpkg `examples/jsm/` path).
+- **Wrong OrbitControls path** → `THREE.OrbitControls` is undefined in modern Three.js. Import from `three/addons/controls/OrbitControls.js`.
+- **Loading three from a CDN (unpkg, jsDelivr, an import map)** → the game breaks when that origin does, and the pinned URL drifts from the `three` your types assume. Install from npm and let Vite bundle it.
 - **Forgetting `scene.add(object)`** → object won't render, silent failure.
 - **Old `requestAnimationFrame` instead of `setAnimationLoop`** → more verbose, doesn't handle WebXR. Use `renderer.setAnimationLoop((time) => { ... })`.
 - **Creating geometries in the animation loop** → memory allocation, frame-rate collapse. Create once, reuse; transform only position/rotation/scale.

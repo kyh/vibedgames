@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
 import { getConfigDir } from "./config.js";
+import { resolveSetting } from "./settings.js";
 import { isJsonNumber, isJsonObject, isJsonString } from "./types.js";
 import type { JsonValue } from "./types.js";
 import path from "node:path";
@@ -87,12 +88,12 @@ export const fetchLatestVersion = async (): Promise<string | null> => {
 
 /**
  * Fire-and-forget background update: at most once per day (and never in CI
- * or with VG_NO_AUTO_UPDATE set), re-invoke this CLI as a detached
+ * or with update.auto off), re-invoke this CLI as a detached
  * `vg update --auto`, which only applies anything when npm has a newer
  * version. The foreground command pays no latency and prints nothing.
  */
 export const maybeScheduleAutoUpdate = (): void => {
-  if (process.env.VG_NO_AUTO_UPDATE || process.env.CI) {
+  if (process.env.CI || resolveSetting("update.auto").value === "false") {
     return;
   }
   const [, script] = process.argv;

@@ -19,7 +19,7 @@ import type { Player, PlayerMap } from "@vibedgames/multiplayer";
 
 const MULTIPLAYER_HOST = import.meta.env.DEV
   ? "http://localhost:8787"
-  : "https://vibedgames-party.kyh.workers.dev";
+  : "https://party.vibedgames.com";
 
 const SOLO_ID = "solo";
 

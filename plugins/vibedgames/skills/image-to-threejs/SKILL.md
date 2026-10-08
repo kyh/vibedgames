@@ -60,7 +60,7 @@ run() { uv run --python 3.12 --no-project python "$I2T/$@"; }
 
 # This skill's own directory, used by the commands further down. Claude Code
 # substitutes CLAUDE_SKILL_DIR (project, global or plugin install); other agents
-# fall back to wherever `skills add` put it.
+# fall back to wherever `vg init` put it.
 SKILL="${CLAUDE_SKILL_DIR}"
 [ -d "$SKILL" ] || for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
   [ -d "$d/image-to-threejs" ] && SKILL=$d/image-to-threejs && break

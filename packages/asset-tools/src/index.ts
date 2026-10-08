@@ -221,35 +221,10 @@ export {
 export { packSpritesheet, type PackResult, type SpritesheetManifest } from "./sprite/pack.js";
 
 export {
-  FrontmatterError,
-  parseFrontmatter,
-  splitSkill,
-  type SplitSkill,
-  type YamlValue,
-} from "./skill/frontmatter.js";
-export {
-  type Analysis,
-  analyzeSkillBody,
-  type CategoryResult,
-  checkAntiPatterns,
-  checkConcreteness,
-  checkDescription,
-  checkRouter,
-  checkVerification,
-  DESCRIPTION_WORD_LIMIT,
-  DESCRIPTION_WORD_TARGET,
-  ROOT_LINE_TARGET,
-  type SupportFiles,
-} from "./skill/analyze.js";
-export { generateSuggestions, type Suggestion } from "./skill/upgrade.js";
-export { initSkill, type InitResult, titleCaseSkillName } from "./skill/init.js";
-export {
   dropUserDataAssignment,
   HEADER,
   MARKER,
   normalizeFactory,
 } from "./skill/normalize-factory.js";
-export { validateSkill } from "./skill/validate.js";
-export { createZip, type ZipEntry } from "./skill/zip.js";
 
 export { roundHalfToEven } from "./pymath.js";

@@ -6,7 +6,8 @@
     "vg": "./dist/index.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "templates"
   ],
   "type": "module",
   "scripts": {

@@ -21,7 +21,7 @@ const devPartyHost = (): string => {
 
 export const MULTIPLAYER_HOST = import.meta.env.DEV
   ? devPartyHost()
-  : "https://vibedgames-party.kyh.workers.dev";
+  : "https://party.vibedgames.com";
 export const PARTY = "vg-server";
 export const ROOM_PREFIX = "battle-arena-";
 export const INTENT_EVENT = "intent";
