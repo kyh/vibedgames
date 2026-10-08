@@ -1,8 +1,9 @@
 // Remote-car netcode, headless: real RemoteCars and Interpolator, fed by
 // simulated drivers (a 60 fps loop sending on a 20 Hz FixedRate, each update
 // stamped with the room's server clock and delivered in order after a jittered
-// trip through the server) and read back at 60 fps — the way a peer's browser
-// sees them.
+// relay through the server) and read back at 60 fps — the way a peer's browser
+// sees them. Cars are drawn on each owner's relay clock, learnt from arrival
+// times; the receiver's measurement of the server clock only dates poses.
 import { setTimeout as settle } from "node:timers/promises";
 
 import * as THREE from "three";
@@ -169,7 +170,7 @@ class Receiver {
           this.patch(packet.id, packet.state);
         }
       }
-      this.remote.sync(this.players, "me");
+      this.remote.sync(this.players, "me", { now: this.now });
       this.remote.update(this.origin, this.now);
       probe?.(this.now);
     }
@@ -311,19 +312,20 @@ const checkSmoothMotion = (check: Check): void => {
     `per-frame speed ${(typical.minStep * 100).toFixed(0)}–${(typical.maxStep * 100).toFixed(0)}% of true`,
   );
   check("a remote taxi cruising straight never rubber-bands backwards", typical.backwards === 0);
-  // Every client reads the one server clock, so the trip itself never shifts
-  // where a car is drawn: only the render delay (less the receiver's clock
-  // error) separates it from its owner.
   check(
-    "a remote taxi trails its owner by the render delay, whatever the trip",
-    typical.lagMs > 185 && typical.lagMs < 205,
+    "a remote taxi trails its owner by the render delay plus its fastest relay",
+    typical.lagMs > 120 && typical.lagMs < 200,
     `${typical.lagMs.toFixed(0)} ms behind`,
   );
-  // 150–250 ms: updates land after the drawn moment and are coasted over.
+  // 150–250 ms: the owner's relay clock learns the slower route, so the car
+  // trails by the extra 110 ms instead of running dry and stalling.
   const slow = cruiseOver(150, 100);
   check(
-    "a remote taxi on a slow link coasts the late updates at its true speed",
-    slow.minStep > 0.8 && slow.maxStep < 1.2 && slow.backwards === 0,
+    "a slow route is learnt per owner: the car trails further but moves just as smoothly",
+    slow.minStep > 0.8 &&
+      slow.maxStep < 1.2 &&
+      slow.backwards === 0 &&
+      Math.abs(slow.lagMs - typical.lagMs - 110) < 20,
     `per-frame speed ${(slow.minStep * 100).toFixed(0)}–${(slow.maxStep * 100).toFixed(0)}% of true, ${slow.lagMs.toFixed(0)} ms behind`,
   );
 };
@@ -508,10 +510,10 @@ const checkCullAndBodies = async (check: Check): Promise<void> => {
 
 const checkInterest = (check: Check): void => {
   // A reveal waits for the next patch (50 ms), crosses the server (up to
-  // ~250 ms) and is drawn 200 ms late, while two taxis close at up to a third
+  // ~250 ms) and is drawn 100 ms late, while two taxis close at up to a third
   // over boost speed each: the radius must clear the drop radius by twice that.
   const closing = 2 * CAR.boostSpeed * 1.35;
-  const revealGap = (closing * (50 + 250 + 200)) / 1000;
+  const revealGap = (closing * (50 + 250 + 100)) / 1000;
   check(
     "the interest radius clears where remote taxis leave the scene, on the planar keys",
     MP_INTEREST.radius - DROP_RADIUS >= 2 * revealGap &&

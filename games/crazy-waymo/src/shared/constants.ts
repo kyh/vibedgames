@@ -271,9 +271,9 @@ export const TRAFFIC = {
 export const MP_ROOM = "crazy-waymo-v2";
 export const MP_MAX_PLAYERS = 64;
 export const OFFLINE_FALLBACK_MS = 8000;
-/** Car-transform broadcast rate. Remote cars are drawn 200 ms behind the
- *  server clock (net/remote-cars.ts): the trip through the server, plus one
- *  interval and jitter at 20. */
+/** Car-transform broadcast rate. Remote cars are drawn 100 ms behind their
+ *  owner's fastest relay through the server (net/remote-cars.ts), which covers
+ *  one interval plus jitter at 20. */
 export const NET_TICK_HZ = 20;
 /**
  * Interest management: the server relays a taxi's pose only to players within

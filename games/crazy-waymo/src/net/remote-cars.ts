@@ -1,10 +1,12 @@
 // Renders the other players' taxis in the shared free-roam city. The world is
 // generated from a fixed CITY_SEED, so every client already builds an identical
 // map — remote cars just need their networked transforms placed on it. Every
-// owner stamps its pose with the room's server clock (GameScene.updateNet),
-// which every client shares: a car is drawn INTERP_DELAY_MS behind that clock,
-// blended between the two updates around that moment, so it moves as smoothly
-// as it was driven however unevenly the updates arrive — and the stamp dates
+// owner stamps its pose with the room's server clock (GameScene.updateNet).
+// Each car is drawn on its own owner's relay clock — the RemoteClock its
+// Interpolator keeps, which learns how long that owner's updates take to reach
+// us — INTERP_DELAY_MS behind it, blended between the two updates around that
+// moment, so it moves as smoothly as it was driven however unevenly the
+// updates arrive. Read against this client's server clock the same stamp dates
 // the pose, so a taxi whose newest one is old reads as away, then gone. The
 // server relays only players within the room's interest radius (MP_INTEREST);
 // past it a player reads `visible: false` and is not tracked at all. Inside
@@ -35,12 +37,11 @@ const DROP_RADIUS_SQ = DROP_RADIUS * DROP_RADIUS;
 /** Consecutive updates farther apart than this are a respawn/reset — snap,
  *  don't streak the taxi across the map through buildings. */
 const SNAP_DIST_SQ = 40 * 40;
-/** How far behind the server clock a car is drawn. A stamp is already one
- *  sender → server → receiver trip old when it lands (~50–150 ms), and the
- *  update after it a 20 Hz interval later still: 200 ms keeps both updates
- *  around the drawn moment in hand on such a link. (A clock estimated per
- *  sender absorbs the trip and gets by on 100; the shared one cannot.) */
-const INTERP_DELAY_MS = 200;
+/** How far behind its owner's relay clock a car is drawn: one 20 Hz send
+ *  interval plus arrival jitter. The relay itself (owner → server → here) is
+ *  learnt per owner by the clock, so a slow route costs no stalls and a fast
+ *  one no extra lag. */
+const INTERP_DELAY_MS = 100;
 /** A late update is covered by coasting this long; after that the car holds. */
 const MAX_EXTRAPOLATE_MS = 200;
 /** Updates kept per car — several times the delay at 20 Hz. */
@@ -207,6 +208,8 @@ interface Peer {
 export interface SyncOptions {
   /** The trailer director's fake players: poses written every frame, shown as given. */
   staged?: boolean;
+  /** Local time of this frame: when what it brings arrived, for the relay clocks. */
+  now?: number;
 }
 
 export class RemoteCars {
@@ -229,7 +232,8 @@ export class RemoteCars {
 
   private readonly cache: ModelCache;
   private readonly surface: Surface;
-  /** The room's server clock: what every pose is stamped, drawn and dated by. */
+  /** The room's server clock, which every pose is stamped with: it dates a
+   *  pose (presence). Drawing runs on each owner's own relay clock instead. */
   private readonly clock: SenderClock;
   /** Called when a remote player sends a chat line (bubble goes here). */
   private readonly onChat?: (anchor: THREE.Object3D, text: string) => void;
@@ -260,6 +264,7 @@ export class RemoteCars {
     }
     this.lastPlayers = players;
     this.staged = options.staged === true;
+    const now = options.now ?? performance.now();
     this.generation += 1;
     for (const id of Object.keys(players)) {
       const player = players[id];
@@ -268,7 +273,7 @@ export class RemoteCars {
       // interpolator. Back in range it arrives whole and is tracked afresh —
       // shown at once where it is, never gliding in from where it left.
       if (player && id !== myId && player.visible !== false) {
-        this.adopt(id, player);
+        this.adopt(id, player, now);
       }
     }
     for (const peer of this.peers.values()) {
@@ -367,7 +372,7 @@ export class RemoteCars {
     peer.chat = null;
   }
 
-  private adopt(id: string, player: Player): void {
+  private adopt(id: string, player: Player, now: number): void {
     const known = this.peers.get(id);
     const connected = player.connected !== false;
     if (known !== undefined && known.source === player.state) {
@@ -382,9 +387,9 @@ export class RemoteCars {
       }
       return;
     }
-    const peer = known ?? this.track(id, next);
+    const peer = known ?? this.track(id, next, now);
     if (known) {
-      this.advance(known, next);
+      this.advance(known, next, now);
     }
     peer.source = player.state;
     peer.connected = connected;
@@ -393,19 +398,20 @@ export class RemoteCars {
 
   /** First sight of a player: its pose goes straight in. The room's copy of a
    *  hidden tab's pose can be minutes old, but its stamp says so — such a car
-   *  is never present, and shows once its owner speaks again. */
-  private track(id: string, first: RemoteState): Peer {
+   *  is never present, and shows once its owner speaks again (the relay
+   *  clock's minimum then forgets the stale arrival). */
+  private track(id: string, first: RemoteState, now: number): Peer {
     // The blend writes here every frame instead of allocating a pose.
     const out: RemotePose = { h: 0, t: 0, vx: 0, vz: 0, x: 0, y: 0, z: 0 };
+    // No `clock`: the Interpolator keeps a private RemoteClock, this owner's.
     const interp = new Interpolator<RemotePose>({
       capacity: INTERP_CAPACITY,
-      clock: this.clock,
       delayMs: INTERP_DELAY_MS,
       lerp: (a, b, alpha) => blendPose(out, a, b, alpha),
       maxExtrapolateMs: MAX_EXTRAPOLATE_MS,
     });
     if (!this.staged) {
-      interp.push(first.t, first);
+      interp.push(first.t, first, now);
     }
     const peer: Peer = {
       chat: null,
@@ -423,7 +429,7 @@ export class RemoteCars {
     return peer;
   }
 
-  private advance(peer: Peer, next: RemoteState): void {
+  private advance(peer: Peer, next: RemoteState, now: number): void {
     const prev = peer.latest;
     if (!this.staged && next.t !== prev.t) {
       const dx = next.x - prev.x;
@@ -433,7 +439,7 @@ export class RemoteCars {
       if (dx * dx + dz * dz > SNAP_DIST_SQ || next.t - prev.t > STALE_MS) {
         peer.interp.clear();
       }
-      peer.interp.push(next.t, next);
+      peer.interp.push(next.t, next, now);
     }
     if (next.msg && next.msgAt > peer.lastMsgAt) {
       peer.lastMsgAt = next.msgAt;

@@ -2156,7 +2156,7 @@ vec3 ocGerstner(vec2 p, float t) {
     }
     this.net.tick();
     // Wall time, not the clamped sim dt: below 30 fps that dt runs slow, and
-    // the send cadence must not.
+    // neither the send cadence nor the arrival times peers are drawn by may.
     const now = performance.now();
     const elapsed = this.netAt === 0 ? 0 : now - this.netAt;
     this.netAt = now;
@@ -2190,7 +2190,7 @@ vec3 ocGerstner(vec2 p, float t) {
     // TRAILER: the director can substitute a fake player map (staged remote
     // robotaxis); null in every normal boot.
     const staged = this.trailerFakes !== null;
-    remote.sync(this.trailerFakes ?? this.net.players, this.net.playerId, { staged });
+    remote.sync(this.trailerFakes ?? this.net.players, this.net.playerId, { now, staged });
     // Nothing draws under the pause overlay; placing taxis can wait for resume.
     if (!this.paused) {
       remote.update(car.position, now);
