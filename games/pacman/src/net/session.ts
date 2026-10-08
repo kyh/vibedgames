@@ -18,6 +18,7 @@ import { MultiplayerClient, ServerClock } from "@vibedgames/multiplayer";
 import type {
   ClaimMap,
   Player,
+  PlayerLimit,
   PlayerMap,
   SendEventOptions,
   SenderClock,
@@ -60,6 +61,9 @@ export interface NetSessionOptions {
   /** Start (and stay) in local solo mode — no socket is ever opened. Used by
    *  trailer mode, which must never show live players in a staged shot. */
   forceOffline?: boolean;
+  /** Room rule: bounds the server holds numeric player-state keys to (a patch
+   *  outside them is dropped). Every client must pass the same ones. */
+  limits?: Record<string, PlayerLimit>;
   onEvent?: (event: string, payload: JsonValue, from: string) => void;
 }
 
@@ -91,6 +95,7 @@ export class NetSession {
       ? null
       : new MultiplayerClient({
           host: MULTIPLAYER_HOST,
+          limits: opts.limits,
           maxPlayers: opts.maxPlayers,
           onEvent: (event, payload, from) => {
             // SAFETY: wire payloads are JSON.parse output (or loop back from

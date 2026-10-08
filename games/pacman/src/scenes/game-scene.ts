@@ -46,6 +46,7 @@ import {
   MP_ROOM,
   MP_MAX_PLAYERS,
   OFFLINE_FALLBACK_MS,
+  PAC_LIMITS,
   NET_TICK_HZ,
   BASE_FOV,
   BEST_KEY,
@@ -589,6 +590,7 @@ export class GameScene {
     fallbackMs: OFFLINE_FALLBACK_MS,
     // A playtest stages state and restarts at will; that must never land in a live room.
     forceOffline: isPlaytestRequested(),
+    limits: PAC_LIMITS,
     maxPlayers: MP_MAX_PLAYERS,
     onEvent: (event, payload, from) => this.handleNetEvent(event, payload, from),
     room: ROOM,

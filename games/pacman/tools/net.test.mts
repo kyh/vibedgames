@@ -13,7 +13,15 @@ import {
   claimedCell,
   pelletClaimKey,
 } from "../src/net/pellet-claims";
-import { CLAIM_RETRY_MS, MAP, RIVAL_DELAY_MS } from "../src/shared/constants";
+import {
+  CLAIM_RETRY_MS,
+  GRID_COLS,
+  GRID_ROWS,
+  MAP,
+  PAC_LIMITS,
+  RIVAL_DELAY_MS,
+  isOpen,
+} from "../src/shared/constants";
 
 /** Deterministic jitter in [0, 1), so the tests never flake. */
 const noise = (i: number): number => {
@@ -203,6 +211,22 @@ test("an unanswered claim is asked again; a reset score takes nothing back", () 
   // A cell with no pellet is never claimed.
   assert.equal(mine.eat(1, "0,0", { points: 10 }, 0), null);
   assert.equal(mine.inFlight, 0);
+});
+
+test("the room's position limits hold every cell a pac can stand on", () => {
+  let open = 0;
+  for (let row = 0; row < GRID_ROWS; row += 1) {
+    for (let col = 0; col < GRID_COLS; col += 1) {
+      if (isOpen(col, row)) {
+        open += 1;
+        assert.ok(col >= PAC_LIMITS.x.min && col <= PAC_LIMITS.x.max, `col ${col}`);
+        assert.ok(row >= PAC_LIMITS.z.min && row <= PAC_LIMITS.z.max, `row ${row}`);
+      }
+    }
+  }
+  assert.ok(open > 0);
+  // Past the grid on any side is out.
+  assert.ok(GRID_COLS > PAC_LIMITS.x.max && GRID_ROWS > PAC_LIMITS.z.max);
 });
 
 test("only a player in the round with a position is a rival", () => {

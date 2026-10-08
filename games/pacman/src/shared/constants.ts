@@ -306,6 +306,15 @@ export const cellKey = (col: number, row: number): string => `${col},${row}`;
 // rather than share a race it would misread.
 export const MP_ROOM = "pacman-v3";
 export const MP_MAX_PLAYERS = 4;
+/**
+ * Room rule: a pac stands in the maze, so the party server drops any report
+ * that places one outside the grid before a rival draws it. Score and the
+ * spawn count have no hard bound, so they stay unlimited.
+ */
+export const PAC_LIMITS = {
+  x: { max: GRID_COLS - 1, min: 0 },
+  z: { max: GRID_ROWS - 1, min: 0 },
+};
 export const OFFLINE_FALLBACK_MS = 8000;
 /** Own pac position/score send rate. */
 export const NET_TICK_HZ = 20;
