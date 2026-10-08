@@ -1,134 +1,268 @@
-// Guest-side mirror of the host's sim: puppets per snapshot row, the world
-// rebuilt when the seed changes, loot boxes and cubes as real combat objects
-// so Combat.present animates them exactly as on the host, bullets and bombs
-// as render-only pools extrapolated between snapshots, and the HUD banners
-// the local client derives from phase and roster edges.
-import * as THREE from "three";
-import { conformGroundGeometry } from "../world/terrain";
-import { BULLET_Y, drawProjectile, finishProjectileMesh } from "../combat/bullets";
-import type { ProjectileStyle } from "../config";
-import type { Cube, LootBox } from "../combat/combat";
+// Guest-side mirror of the host's sim. The guest's own body is predicted from
+// local input and reconciled against the host at matching moments
+// (prediction.ts); every other brawler renders INTERP_DELAY_MS behind the
+// host's clock from timestamped frames (interpolation.ts). FX, projectile
+// spawns and loot changes play when that render clock reaches the frame that
+// carried them, so a muzzle flash leaves the muzzle it belongs to. Bullets and
+// bombs fly locally from their spawn rows, and the guest's own shots fly from
+// the button press; the host's copies decide every hit. The HUD banners are
+// derived here from phase and roster edges.
+import type * as THREE from "three";
+import { RemoteClock } from "@vibedgames/multiplayer";
+
+import { placeLob } from "../combat/bombs";
+import {
+  BULLET_Y,
+  drawProjectile,
+  finishProjectileMesh,
+  SPENT_IMPACT,
+  WALL_IMPACT,
+} from "../combat/bullets";
+import type { BombSlot, Cube, GhostSink, LootBox } from "../combat/combat";
 import { setBombAppearance } from "../combat/combat";
+import { BRAWLER_RADIUS } from "../config";
+import type { LobAttack, ProjectileAttack } from "../config";
 import type { Brawler } from "../entities/brawler";
+import { leapFlight, leapPoint } from "../entities/movement";
 import type { Game } from "../game";
 import { setSpectateCopy } from "../hud-lobby";
+import { pushOwnApart } from "../roster-sim";
+import { clamp } from "../utils";
 import { GRID } from "../world/grid";
+import { conformGroundGeometry } from "../world/terrain";
 import { spawnFromNet } from "./host";
-import { applyNetState } from "./interpolation";
-import { seatId } from "./protocol";
-import type { NetBomb, NetBullet, NetPhase, Snapshot } from "./snapshot";
+import type { OwnPose } from "./host";
+import { IntentLink } from "./intent-link";
+import { maxHpFor, PuppetTrack } from "./interpolation";
+import type { OwnPrediction } from "./prediction";
+import type { FxRecord, LobRow, ShotRow } from "./presentation";
+import { replayBatch } from "./presentation";
+import { INTERP_DELAY_MS } from "./protocol";
+import type { Arrival } from "./session";
+import { decodeFrame } from "./snapshot";
+import type {
+  BoxState,
+  BrawlerState,
+  CubeSpot,
+  FrameState,
+  MatchState,
+  NetPhase,
+} from "./snapshot";
 
 const SPECTATE_LIVE = "SPECTATING · next brawl after this one";
 const SPECTATE_ENDED = "SPECTATING · next brawl starting soon";
 const MARKER_COLOR = 0xff_40_30;
 const SUPER_MARKER_COLOR = 0xff_c2_3a;
-/** How eagerly a bomb body chases the host's position (per second). */
-const BOMB_LAMBDA = 18;
+/** Longest a bullet moves per sub-step, as on the host, so it cannot skip through cover. */
+const BULLET_STEP = 0.2;
+/** Events queued beyond this play at once: the render clock has fallen too far behind. */
+const MAX_EVENTS = 240;
 
-/** A bullet between snapshots: the host's last pose, flown forward locally. */
-interface GuestBullet {
-  style: ProjectileStyle;
+/** A bullet flown locally: from a host spawn row, or straight from this guest's own trigger. */
+interface GhostBullet {
+  alive: boolean;
+  attack: ProjectileAttack;
+  /** The owner's colour object, shared: a shot allocates nothing. */
   color: THREE.Color;
   dx: number;
   dz: number;
-  left: number;
+  /** The host's id for it, or 0 for this guest's own predicted shot. */
+  id: number;
+  isSuper: boolean;
+  own: boolean;
   radius: number;
   speed: number;
-  isSuper: boolean;
   trail: number;
+  travel: number;
   x: number;
   z: number;
 }
 
-interface GuestBomb {
-  target: NetBomb;
-  rotX: number;
-  rotZ: number;
-  x: number;
-  y: number;
-  z: number;
+interface GhostBomb {
+  a: LobAttack;
+  color: THREE.Color;
+  done: boolean;
+  fuse: number;
+  isSuper: boolean;
+  landed: boolean;
+  own: boolean;
+  owner: Brawler;
+  slot: BombSlot;
+  sx: number;
+  sy: number;
+  sz: number;
+  t: number;
+  tx: number;
+  tz: number;
 }
 
-const scratchColor = new THREE.Color();
+/** A host fx batch, with the roster its owner indices refer to. */
+interface FxEvent {
+  kind: "fx";
+  roster: readonly Brawler[];
+  rows: FxRecord[];
+  t: number;
+}
+
+interface LootEvent {
+  boxes: BoxState[] | null;
+  broken: number[] | null;
+  cubes: CubeSpot[] | null;
+  kind: "loot";
+  t: number;
+}
+
+type TimedEvent = FxEvent | LootEvent;
 
 const cubeKey = (x: number, z: number): string => `${x},${z}`;
 
-const toGuestBullet = (n: NetBullet): GuestBullet => ({
-  color: new THREE.Color(n.c),
-  dx: n.dx,
-  dz: n.dz,
-  isSuper: n.s,
-  left: n.l,
-  radius: n.r,
-  speed: n.v,
-  style: n.style,
-  trail: 0,
-  x: n.x,
-  z: n.z,
-});
+/** Rows this guest presented itself when it predicted them: its own actions and its own projectiles. */
+const isOwnRow = (row: FxRecord, own: number): boolean =>
+  own >= 0 &&
+  (row.k === "fx" || row.k === "sfx" || row.k === "shot" || row.k === "lob") &&
+  row.o === own;
 
-export class GuestView {
+export class GuestView implements GhostSink {
+  /** This guest's own controls, on their way to the host. */
+  readonly link: IntentLink;
+  /** Sequence of the last frame folded in. */
+  seq = -1;
   private readonly game: Game;
-  private readonly puppets = new Map<string, Brawler>();
+  /** The host's clock, shared by every remote body and the event timeline. */
+  private readonly clock = new RemoteClock();
+  private readonly tracks = new Map<Brawler, PuppetTrack>();
+  /** Bodies in the host's roster order: the order of every frame's rows. */
+  private roster: Brawler[] = [];
+  private rosterVersion = -1;
+  private match: MatchState | null = null;
+  private own: Brawler | null = null;
   private readonly boxes = new Map<number, LootBox>();
   private readonly cubes = new Map<string, Cube[]>();
-  private bullets: GuestBullet[] = [];
-  private bombs: GuestBomb[] = [];
+  private bullets: GhostBullet[] = [];
+  private bombs: GhostBomb[] = [];
+  private events: TimedEvent[] = [];
+  private lastFrameT = 0;
   private brokenApplied = 0;
   private gen = -1;
   private lastPhase: NetPhase | null = null;
-  private lastGasActive = false;
   private lastAliveCount = -1;
   private ownAlive = true;
   private ownHp = 0;
   private ownReady = false;
-  /** Sequence of the last snapshot folded in. */
-  seq = -1;
 
   constructor(game: Game) {
     this.game = game;
+    this.link = new IntentLink(() => game.session);
+  }
+
+  get prediction(): OwnPrediction {
+    return this.link.prediction;
   }
 
   get hasWorld(): boolean {
     return this.gen >= 0;
   }
 
-  /** Fold a snapshot in; a new generation or seed rebuilds everything first. */
-  apply(snap: Snapshot): void {
-    const { game } = this;
-    if (snap.gen !== this.gen || snap.seed !== game.world.seed) {
-      this.beginGeneration(snap);
-    }
-    this.seq = snap.seq;
-    game.winner = snap.winner;
-    game.matchTime = snap.matchTime;
-    this.syncPhase(snap);
-    this.syncBrawlers(snap);
-    this.syncBroken(snap.broken);
-    this.syncBoxes(snap);
-    this.syncCubes(snap);
-    this.bullets = snap.bullets.map(toGuestBullet);
-    this.syncBombs(snap.bombs);
-    if (game.autoTime) {
-      game.lighting.setTime(snap.hour);
-    }
-    this.syncAliveCount();
+  /** How far behind the host's clock remote bodies render, once that clock is known. */
+  get interpDelayMs(): number | null {
+    return this.clock.synced ? INTERP_DELAY_MS : null;
   }
 
-  /** Per frame: fly bullets, chase bombs, animate loot. */
-  update(dt: number): void {
+  /** Where this guest last drew its own body — newer than any frame, for a promotion. */
+  get ownPose(): OwnPose | null {
+    return this.own?.alive ? { x: this.own.x, z: this.own.z } : null;
+  }
+
+  /** Fold in one message from the host. A new generation or seed rebuilds everything first. */
+  ingest(arrival: Arrival): void {
+    if (arrival.match) {
+      this.match = arrival.match;
+    }
+    const { match } = this;
+    let stamp = this.lastFrameT;
+    const frame = arrival.frame && match ? decodeFrame(arrival.frame, match) : null;
+    if (frame && match) {
+      if (match.gen !== this.gen || match.seed !== this.game.world.seed) {
+        this.beginGeneration(match);
+      }
+      if (match.rosterVersion !== this.rosterVersion) {
+        this.syncRoster(match, frame);
+      }
+      this.applyFrame(frame, arrival.receivedAt);
+      stamp = frame.t;
+    }
+    if (!this.hasWorld) {
+      return;
+    }
+    if (arrival.match) {
+      this.game.winner = arrival.match.winner;
+    }
+    this.enqueue(stamp, arrival);
+  }
+
+  /** Per step, before the bodies move: the local phase clock, remote poses, due events. */
+  update(dt: number, now: number): void {
+    this.tickPhase(dt);
+    if (!this.clock.synced) {
+      return;
+    }
+    const renderAt = this.clock.now(now) - INTERP_DELAY_MS;
+    for (const [b, track] of this.tracks) {
+      track.pose(b, now, renderAt, this.game.world);
+    }
+    this.playDue(renderAt);
+  }
+
+  /** After the bodies moved: the push other bodies give ours, then the host's correction. */
+  settle(dt: number): void {
+    const b = this.own;
+    if (!b?.alive) {
+      return;
+    }
+    const pos = b.root.position;
+    if (!b.airborne) {
+      pushOwnApart(b, this.roster);
+    }
+    const fix = this.prediction.settle(pos.x, pos.z, dt * 1000);
+    if (fix.x === 0 && fix.y === 0) {
+      return;
+    }
+    pos.x += fix.x;
+    pos.z += fix.y;
+    if (!b.airborne) {
+      this.game.world.resolveCircle(pos, BRAWLER_RADIUS);
+      pos.y = this.game.world.heightAt(pos.x, pos.z);
+    }
+  }
+
+  /** Per step: fly bullets and bombs, animate loot. */
+  updateProjectiles(dt: number): void {
     this.updateBullets(dt);
     this.updateBombs(dt);
     this.game.combat.present(dt);
   }
 
-  /** Drop everything guest-owned (leaving, promotion, demotion). */
+  /** The host changed: a new clock, new acknowledgments, and our input must reach it at once. */
+  hostChanged(): void {
+    this.clock.reset();
+    for (const [b, track] of this.tracks) {
+      track.flush(b);
+    }
+    this.playDue(Number.POSITIVE_INFINITY);
+    this.prediction.reset(this.own);
+    this.link.resend();
+  }
+
+  /** Drop everything guest-owned (leaving, promotion, demotion, a new brawl). */
   reset(): void {
     const { game } = this;
-    for (const b of this.puppets.values()) {
+    for (const b of this.roster) {
       game.removeBrawler(b, false);
     }
-    this.puppets.clear();
+    this.roster = [];
+    this.rosterVersion = -1;
+    this.tracks.clear();
+    this.own = null;
     for (const box of this.boxes.values()) {
       game.combat.removeBox(box);
     }
@@ -143,130 +277,355 @@ export class GuestView {
     game.combat.bulletMesh.count = 0;
     game.combat.thornMesh.count = 0;
     this.bombs = [];
-    this.hideBombSlots(0);
+    this.hideBombSlots();
+    this.events = [];
     this.brokenApplied = 0;
     this.gen = -1;
     this.lastPhase = null;
     this.lastAliveCount = -1;
+    this.prediction.reset(null);
     setSpectateCopy(null);
   }
 
-  private beginGeneration(snap: Snapshot): void {
+  // ── GhostSink: this guest's own projectiles, from its predicted body ──
+
+  readonly bullet = (
+    owner: Brawler,
+    x: number,
+    z: number,
+    dx: number,
+    dz: number,
+    attack: ProjectileAttack,
+    isSuper: boolean,
+    speed: number,
+  ): void => {
+    this.addBullet(owner, { dx, dz, x, z }, attack, isSuper, speed, 0);
+  };
+
+  readonly bomb = (
+    owner: Brawler,
+    sx: number,
+    sy: number,
+    sz: number,
+    tx: number,
+    tz: number,
+    attack: LobAttack,
+    isSuper: boolean,
+  ): void => {
+    this.addBomb(owner, attack, isSuper, true, [sx, sy, sz, tx, tz]);
+  };
+
+  // ── frames ──
+
+  private beginGeneration(match: MatchState): void {
     const { game } = this;
     this.reset();
-    if (game.world.seed !== snap.seed) {
-      game.rebuildWorld(snap.seed);
+    if (game.world.seed !== match.seed) {
+      game.rebuildWorld(match.seed);
     }
     game.clearEntities();
     game.world.broken = [];
     game.hud.hideResult();
     game.pendingResult = null;
     game.spectate = null;
-    game.generation = snap.gen;
+    game.generation = match.gen;
     game.shakeAmp = 0;
-    this.gen = snap.gen;
-    this.lastGasActive = snap.gas.active;
+    game.lastCount = 4;
+    this.gen = match.gen;
     this.ownAlive = true;
-    game.lastCount = snap.phase === "countdown" ? 4 : 0;
     game.world.aoDirty = true;
     game.world.aoTimer = 0;
   }
 
-  private syncPhase(snap: Snapshot): void {
+  /** Bring the bodies in line with a new roster; a body that stays keeps its history. */
+  private syncRoster(match: MatchState, frame: FrameState): void {
     const { game } = this;
-    const previous = this.lastPhase;
-    this.lastPhase = snap.phase;
-    game.state = snap.phase;
-    game.countdownT = snap.countdownT;
-    if (snap.phase === "countdown") {
-      game.announceCount();
-    } else if (previous === "countdown") {
-      game.announceGo();
-    }
-    if (snap.gas.active && !this.lastGasActive) {
-      game.announceGas();
-    }
-    this.lastGasActive = snap.gas.active;
-    if (snap.phase === "ended" && previous !== null && previous !== "ended" && this.ownAlive) {
-      const own = game.player;
-      if (own?.alive) {
-        game.localWin();
+    const mine = game.session?.playerId ?? null;
+    const byId = new Map(this.roster.map((b) => [b.netId, b]));
+    const next: Brawler[] = [];
+    for (const [i, identity] of match.roster.entries()) {
+      const state = frame.brawlers[i];
+      if (!state) {
+        continue;
       }
+      let b = byId.get(identity.id);
+      byId.delete(identity.id);
+      if (!b) {
+        const own = identity.owner !== null && identity.owner === mine;
+        b = spawnFromNet(game, identity, state, own ? "predict" : "puppet", own);
+        game.addBrawler(b, false);
+        if (own) {
+          this.adoptOwn(b, state);
+        } else {
+          this.tracks.set(b, new PuppetTrack(this.clock));
+        }
+      }
+      next.push(b);
+    }
+    for (const b of byId.values()) {
+      game.removeBrawler(b, false);
+      this.tracks.delete(b);
+      if (b === this.own) {
+        this.own = null;
+      }
+    }
+    this.roster = next;
+    this.rosterVersion = match.rosterVersion;
+    this.syncSpectateCopy();
+  }
+
+  private adoptOwn(b: Brawler, n: BrawlerState): void {
+    this.own = b;
+    this.game.adoptLocalSeat(b);
+    this.ownHp = n.hp;
+    this.ownAlive = n.alive;
+    this.ownReady = n.charge >= 1;
+    this.prediction.reset(b);
+    // The host learns this body's input — and starts acknowledging it — straight away.
+    this.link.resend();
+  }
+
+  private applyFrame(frame: FrameState, receivedAt: number): void {
+    this.seq = frame.seq;
+    if (this.game.session) {
+      this.game.session.seq = frame.seq;
+    }
+    this.lastFrameT = frame.t;
+    this.clock.observe(frame.t, receivedAt);
+    this.syncPhase(frame);
+    for (const [i, state] of frame.brawlers.entries()) {
+      const b = this.roster[i];
+      if (b && b === this.own) {
+        this.applyOwn(b, state);
+      } else if (b) {
+        this.tracks.get(b)?.receive(frame.t, state, receivedAt);
+      }
+    }
+    this.syncAliveCount(frame);
+  }
+
+  /** The host's row for our own body: authority over vitals, a correction signal for the pose. */
+  private applyOwn(b: Brawler, n: BrawlerState): void {
+    const verdict = this.prediction.receive(b, n);
+    const lead = verdict.at === null ? 0 : (this.prediction.clock - verdict.at) / 1000;
+    if (n.hp < b.hp) {
+      b.flash = 1;
+      b.squash = 1;
+    }
+    b.hp = n.hp;
+    b.maxHp = maxHpFor(b.def, n.cubes);
+    b.cubes = n.cubes;
+    b.kills = n.kills;
+    b.rank = n.rank;
+    // Shots and supers still on their way are already spent locally; adopt the host's count once it has them.
+    if (verdict.ammoSettled) {
+      b.ammo = n.ammo;
+      b.reloadT = n.reload;
+      b.catchUpReload(lead);
+    }
+    if (verdict.chargeSettled) {
+      b.superCharge = n.charge;
+    }
+    if (verdict.leapCancelled) {
+      b.cancelLeap();
+    }
+    this.followHostLeap(b, n, lead);
+    if (b.alive && !n.alive) {
+      b.alive = false;
+      b.hp = 0;
+      b.deadT = 0;
+      b.burst = null;
+      b.swing = null;
+      b.meleeCue = null;
+      b.rangedCue = null;
+      b.evasion = null;
+      b.evadePending = false;
+      b.leap = null;
+      b.netLeap = null;
+      b.netAir = false;
+    }
+    this.syncOwn(b, n);
+  }
+
+  /** A leap this guest did not start (a host forced it): the host flies the body until it lands. */
+  private followHostLeap(b: Brawler, n: BrawlerState, lead: number): void {
+    const flight = leapFlight(b.def);
+    const leap = b.leap === null && n.alive ? n.leap : null;
+    if (leap && leap.t + lead < flight) {
+      b.netAir = true;
+      b.netLeap = { ...leap };
+      const pos = b.root.position;
+      leapPoint(leap, flight, this.game.world.heightAt, pos);
+      pos.x = n.x;
+      pos.z = n.z;
+      return;
+    }
+    if (b.netAir) {
+      // Down again: as far as prediction is concerned, a teleport.
+      b.netAir = false;
+      b.netLeap = null;
+      b.root.position.set(n.x, this.game.world.heightAt(n.x, n.z), n.z);
+      this.prediction.forgetHistory();
     }
   }
 
-  private syncOwn(b: Brawler, hp: number, charge: number, alive: boolean, rank: number): void {
+  private syncOwn(b: Brawler, n: BrawlerState): void {
     const { game } = this;
-    if (hp < this.ownHp && alive) {
-      const lost = this.ownHp - hp;
-      game.onPlayerHurt(lost);
+    if (n.hp < this.ownHp && n.alive) {
+      game.onPlayerHurt(this.ownHp - n.hp);
       if (game.gas.active && game.gas.depthAt(b.x, b.z) > 0.35) {
         game.audio.play("gas");
       }
     }
-    this.ownHp = hp;
-    const ready = charge >= 1;
+    this.ownHp = n.hp;
+    const ready = n.charge >= 1;
     if (ready && !this.ownReady) {
       game.audio.play("ready");
     }
     this.ownReady = ready;
-    if (this.ownAlive && !alive) {
-      game.localDown(rank, null);
+    if (this.ownAlive && !n.alive) {
+      game.localDown(n.rank, null);
     }
-    this.ownAlive = alive;
+    this.ownAlive = n.alive;
   }
 
-  private syncBrawlers(snap: Snapshot): void {
+  // ── phase ──
+
+  private syncPhase(frame: FrameState): void {
     const { game } = this;
-    const mine = game.session?.playerId;
-    const ownId = mine ? seatId(mine) : null;
-    const seen = new Set<string>();
-    for (const n of snap.brawlers) {
-      seen.add(n.id);
-      const own = n.id === ownId;
-      let b = this.puppets.get(n.id);
-      if (b) {
-        applyNetState(b, n);
-      } else {
-        b = spawnFromNet(game, n, own ? "predict" : "puppet", own);
-        applyNetState(b, n);
-        this.puppets.set(n.id, b);
-        game.addBrawler(b, false);
-        if (own) {
-          game.adoptLocalSeat(b);
-          this.ownHp = n.hp;
-          this.ownAlive = n.alive;
-          this.ownReady = n.charge >= 1;
-        }
+    const first = this.lastPhase === null;
+    let { phase } = frame;
+    if (phase === "countdown") {
+      // Our own body runs about a round trip ahead of the host's copy of it:
+      // let it go when that copy will, not a round trip later.
+      game.countdownT = frame.clock - (this.prediction.lagMs ?? 0) / 1000;
+      game.matchTime = 0;
+      if (this.lastPhase === "playing" || game.countdownLeft <= 0) {
+        phase = "playing";
       }
-      if (own) {
-        this.syncOwn(b, n.hp, n.charge, n.alive, n.rank);
-      }
+    } else {
+      game.matchTime = frame.clock;
     }
-    for (const [id, b] of this.puppets) {
-      if (!seen.has(id)) {
-        game.removeBrawler(b, false);
-        this.puppets.delete(id);
-      }
+    if (first) {
+      // Joining a brawl already under way: its gas is not news.
+      game.gas.update(0, game.matchTime, false);
     }
-    this.syncSpectateCopy(ownId !== null && seen.has(ownId));
+    this.enterPhase(phase);
   }
 
-  private syncSpectateCopy(seated: boolean): void {
-    if (seated) {
+  private enterPhase(phase: NetPhase): void {
+    const { game } = this;
+    const previous = this.lastPhase;
+    this.lastPhase = phase;
+    game.state = phase;
+    if (phase === "countdown") {
+      game.announceCount();
+    } else if (previous === "countdown") {
+      game.announceGo();
+    }
+    const decided = phase === "ended" && previous !== null && previous !== "ended";
+    if (decided && this.ownAlive && game.player?.alive) {
+      game.localWin();
+    }
+    if (phase === "ended" || previous === "ended") {
+      this.syncSpectateCopy();
+    }
+  }
+
+  /** Between frames the phase clocks run on locally. */
+  private tickPhase(dt: number): void {
+    const { game } = this;
+    if (game.state !== "countdown") {
+      game.matchTime += dt;
+      return;
+    }
+    game.countdownT -= dt;
+    if (game.countdownLeft <= 0) {
+      this.enterPhase("playing");
+    } else {
+      game.announceCount();
+    }
+  }
+
+  private syncSpectateCopy(): void {
+    if (this.own) {
       setSpectateCopy(null);
       return;
     }
     setSpectateCopy(this.lastPhase === "ended" ? SPECTATE_ENDED : SPECTATE_LIVE);
   }
 
-  private syncAliveCount(): void {
+  private syncAliveCount(frame: FrameState): void {
     const { game } = this;
-    const alive = game.brawlers.filter((b) => b.alive).length;
+    const alive = frame.brawlers.filter((n) => n.alive).length;
     const previous = this.lastAliveCount;
     this.lastAliveCount = alive;
     if (previous > 2 && alive === 2 && game.player?.alive && game.state === "playing") {
       game.hud.banner("SHOWDOWN!", 1.5, true);
+    }
+  }
+
+  // ── the render-time timeline ──
+
+  private enqueue(t: number, arrival: Arrival): void {
+    const own = this.own ? this.roster.indexOf(this.own) : -1;
+    const rows = arrival.fx.filter((row) => !isOwnRow(row, own));
+    if (rows.length > 0) {
+      this.events.push({ kind: "fx", roster: this.roster, rows, t });
+    }
+    const { boxes, broken, cubes } = arrival;
+    if (boxes || broken || cubes) {
+      this.events.push({ boxes, broken, cubes, kind: "loot", t });
+    }
+    if (this.events.length > MAX_EVENTS) {
+      this.playDue(Number.POSITIVE_INFINITY);
+    }
+  }
+
+  private playDue(renderAt: number): void {
+    let played = 0;
+    for (const event of this.events) {
+      if (event.t > renderAt) {
+        break;
+      }
+      this.play(event, renderAt);
+      played += 1;
+    }
+    if (played > 0) {
+      this.events.splice(0, played);
+    }
+  }
+
+  private play(event: TimedEvent, renderAt: number): void {
+    if (event.kind === "loot") {
+      this.applyLoot(event);
+      return;
+    }
+    const late = Number.isFinite(renderAt) ? Math.max(0, renderAt - event.t) / 1000 : 0;
+    const replay: FxRecord[] = [];
+    for (const row of event.rows) {
+      if (row.k === "shot") {
+        this.spawnShot(row, event.roster, late);
+      } else if (row.k === "lob") {
+        this.spawnLob(row, event.roster, late);
+      } else if (row.k === "gone") {
+        this.dropBullet(row.i);
+      } else {
+        replay.push(row);
+      }
+    }
+    replayBatch(this.game.effects, this.game.hud, replay, this.game.localSeatId);
+  }
+
+  private applyLoot(event: LootEvent): void {
+    if (event.broken) {
+      this.syncBroken(event.broken);
+    }
+    if (event.boxes) {
+      this.syncBoxes(event.boxes);
+    }
+    if (event.cubes) {
+      this.syncCubes(event.cubes);
     }
   }
 
@@ -284,10 +643,10 @@ export class GuestView {
     this.brokenApplied = broken.length;
   }
 
-  private syncBoxes(snap: Snapshot): void {
+  private syncBoxes(rows: readonly BoxState[]): void {
     const { combat, world } = this.game;
     const seen = new Set<number>();
-    for (const row of snap.boxes) {
+    for (const row of rows) {
       seen.add(row.i);
       let box = this.boxes.get(row.i);
       if (!box) {
@@ -311,10 +670,10 @@ export class GuestView {
     }
   }
 
-  private syncCubes(snap: Snapshot): void {
+  private syncCubes(spots: readonly CubeSpot[]): void {
     const { combat } = this.game;
     const wanted = new Map<string, number>();
-    for (const cube of snap.cubes) {
+    for (const cube of spots) {
       const key = cubeKey(cube.x, cube.z);
       wanted.set(key, (wanted.get(key) ?? 0) + 1);
     }
@@ -330,11 +689,10 @@ export class GuestView {
         this.cubes.delete(key);
       }
     }
-    for (const cube of snap.cubes) {
+    for (const cube of spots) {
       const key = cubeKey(cube.x, cube.z);
       const list = this.cubes.get(key) ?? [];
-      const keep = wanted.get(key) ?? 0;
-      if (list.length < keep) {
+      if (list.length < (wanted.get(key) ?? 0)) {
         combat.spawnCube(cube.x, cube.z, cube.x, cube.z);
         const spawned = combat.cubes.at(-1);
         if (spawned) {
@@ -345,31 +703,115 @@ export class GuestView {
     }
   }
 
-  private syncBombs(rows: readonly NetBomb[]): void {
-    const next: GuestBomb[] = [];
-    for (const [i, target] of rows.entries()) {
-      const existing = this.bombs[i];
-      if (existing) {
-        existing.target = target;
-        next.push(existing);
-      } else {
-        next.push({ rotX: 0, rotZ: 0, target, x: target.x, y: target.y, z: target.z });
-      }
+  // ── projectiles ──
+
+  private spawnShot(row: ShotRow, roster: readonly Brawler[], late: number): void {
+    const owner = roster[row.o];
+    const isSuper = row.s === 1;
+    const attack = isSuper ? owner?.def.super : owner?.def.attack;
+    if (!owner || (attack?.kind !== "burst" && attack?.kind !== "spread")) {
+      return;
     }
-    this.hideBombSlots(next.length);
-    this.bombs = next;
+    const angle = row.d / 1000;
+    const at = { dx: Math.sin(angle), dz: Math.cos(angle), x: row.x / 100, z: row.z / 100 };
+    const bullet = this.addBullet(owner, at, attack, isSuper, row.v / 100, row.i);
+    // The render clock may already be past the spawn: start the bullet where it has got to.
+    this.flyBullet(bullet, late);
   }
 
-  private hideBombSlots(from: number): void {
-    const { bombPool } = this.game.combat;
-    for (let i = from; i < bombPool.length; i += 1) {
-      const slot = bombPool[i];
-      if (slot) {
-        slot.busy = false;
-        slot.group.visible = false;
-        slot.ring.visible = false;
+  private spawnLob(row: LobRow, roster: readonly Brawler[], late: number): void {
+    const owner = roster[row.o];
+    const isSuper = row.s === 1;
+    const attack = isSuper ? owner?.def.super : owner?.def.attack;
+    if (!owner || attack?.kind !== "lob") {
+      return;
+    }
+    const path = [row.x, row.y, row.z, row.tx, row.tz].map((n) => n / 100);
+    const bomb = this.addBomb(owner, attack, isSuper, false, path);
+    if (bomb) {
+      this.stepBomb(bomb, late);
+    }
+  }
+
+  private addBullet(
+    owner: Brawler,
+    at: { dx: number; dz: number; x: number; z: number },
+    attack: ProjectileAttack,
+    isSuper: boolean,
+    speed: number,
+    id: number,
+  ): GhostBullet {
+    const bullet: GhostBullet = {
+      alive: true,
+      attack,
+      color: owner.bulletColor(isSuper),
+      dx: at.dx,
+      dz: at.dz,
+      id,
+      isSuper,
+      own: id === 0,
+      radius: attack.radius,
+      speed,
+      trail: 0,
+      travel: 0,
+      x: at.x,
+      z: at.z,
+    };
+    this.bullets.push(bullet);
+    return bullet;
+  }
+
+  private dropBullet(id: number): void {
+    for (const bullet of this.bullets) {
+      if (bullet.id === id) {
+        bullet.alive = false;
       }
     }
+  }
+
+  /** Fly a bullet in short steps. Cover and range stop every bullet; our own also stop on a body. */
+  private flyBullet(g: GhostBullet, dt: number): void {
+    const { world } = this.game;
+    let remaining = g.speed * dt;
+    while (remaining > 0 && g.alive) {
+      const step = Math.min(remaining, BULLET_STEP);
+      remaining -= step;
+      g.x += g.dx * step;
+      g.z += g.dz * step;
+      g.travel += step;
+      if (world.blocksShots(world.toTile(g.x), world.toTile(g.z))) {
+        this.endBullet(g, g.x - g.dx * 0.12, g.z - g.dz * 0.12, WALL_IMPACT);
+      } else if (g.own && !g.attack.pierce && this.strikesBody(g)) {
+        // Whether it hurt is the host's call; its impact arrives with the verdict.
+        g.alive = false;
+      } else if (g.travel >= g.attack.range) {
+        this.endBullet(g, g.x, g.z, SPENT_IMPACT);
+      }
+    }
+  }
+
+  /** The puff where a bullet stops: ours locally, a remote one's comes from the host. */
+  private endBullet(g: GhostBullet, x: number, z: number, size: number): void {
+    g.alive = false;
+    if (g.own) {
+      const y = BULLET_Y + this.game.world.heightAt(x, z);
+      this.game.effects.impact(x, y, z, g.color, size);
+    }
+  }
+
+  private strikesBody(g: GhostBullet): boolean {
+    const reach = BRAWLER_RADIUS + 0.06 + g.radius;
+    for (const b of this.roster) {
+      if (b === this.own || !b.alive || b.airborne || b.evadingInvulnerable) {
+        continue;
+      }
+      const ox = b.x - g.x;
+      const oz = b.z - g.z;
+      if (ox * ox + oz * oz <= reach * reach) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private updateBullets(dt: number): void {
@@ -377,23 +819,21 @@ export class GuestView {
     let arrows = 0;
     let thorns = 0;
     for (const b of this.bullets) {
-      const step = b.speed * dt;
-      b.x += b.dx * step;
-      b.z += b.dz * step;
-      b.left -= step;
-      const thorn = b.style === "thorn";
+      this.flyBullet(b, dt);
+      const thorn = b.attack.style === "thorn";
       const mesh = thorn ? combat.thornMesh : combat.bulletMesh;
       const count = thorn ? thorns : arrows;
-      if (b.left <= 0 || count >= mesh.instanceMatrix.count) {
+      if (!b.alive || count >= mesh.instanceMatrix.count) {
         continue;
       }
-      drawProjectile(mesh, count, b, b.style, b.left, world.heightAt(b.x, b.z));
+      const ground = world.heightAt(b.x, b.z);
+      drawProjectile(mesh, count, b, b.attack.style, b.attack.range - b.travel, ground);
       if (thorn) {
         thorns += 1;
       } else {
         arrows += 1;
       }
-      const y = BULLET_Y + world.heightAt(b.x, b.z);
+      const y = BULLET_Y + ground;
       if (b.isSuper) {
         lighting.addLight(b.x, y, b.z, b.color, 0.25, 2.5);
       }
@@ -403,51 +843,117 @@ export class GuestView {
         effects.trail(b.x, y, b.z, b.color, b.isSuper ? 0.15 : 0.065);
       }
     }
-    this.bullets = this.bullets.filter((b) => b.left > 0);
+    this.bullets = this.bullets.filter((b) => b.alive);
     finishProjectileMesh(combat.bulletMesh, arrows);
     finishProjectileMesh(combat.thornMesh, thorns);
   }
 
+  private addBomb(
+    owner: Brawler,
+    a: LobAttack,
+    isSuper: boolean,
+    own: boolean,
+    path: readonly number[],
+  ): GhostBomb | null {
+    const { combat, world } = this.game;
+    const slot = combat.bombPool.find((candidate) => !candidate.busy);
+    const [sx = 0, sy = 0, sz = 0, tx = 0, tz = 0] = path;
+    if (!slot) {
+      return null;
+    }
+    const color = owner.bulletColor(isSuper);
+    setBombAppearance(slot, a.style, color);
+    slot.busy = true;
+    slot.group.visible = true;
+    slot.group.scale.setScalar(a.big ? 1.75 : 1);
+    slot.ring.visible = true;
+    slot.ring.position.set(tx, world.heightAt(tx, tz) + 0.05, tz);
+    slot.ring.scale.set(a.blast, 1, a.blast);
+    conformGroundGeometry(slot.ring.geometry, tx, tz, a.blast);
+    conformGroundGeometry(slot.fillDisc.geometry, tx, tz, a.blast);
+    const markerColor = isSuper ? SUPER_MARKER_COLOR : MARKER_COLOR;
+    slot.ring.material.color.set(markerColor);
+    slot.fillDisc.material.color.set(markerColor);
+    const bomb: GhostBomb = {
+      a,
+      color,
+      done: false,
+      fuse: a.fuse,
+      isSuper,
+      landed: false,
+      own,
+      owner,
+      slot,
+      sx,
+      sy,
+      sz,
+      t: 0,
+      tx,
+      tz,
+    };
+    placeLob(bomb, world.heightAt, slot.group.position);
+    this.bombs.push(bomb);
+    return bomb;
+  }
+
+  /** The host's flight and fuse, drawn locally. Our own bomb also shows its landing and blast. */
+  private stepBomb(bomb: GhostBomb, dt: number): void {
+    const { combat, effects, world } = this.game;
+    const { a, slot } = bomb;
+    if (bomb.landed) {
+      bomb.fuse -= dt;
+      slot.group.position.y = world.heightAt(bomb.tx, bomb.tz) + 0.2 * slot.group.scale.x;
+    } else {
+      bomb.t += dt;
+      slot.group.rotation.x += dt * 9;
+      slot.group.rotation.z += dt * 5;
+      if (placeLob(bomb, world.heightAt, slot.group.position) >= 1) {
+        bomb.landed = true;
+        if (bomb.own) {
+          effects.dust(bomb.tx, bomb.tz, 4, 1.4);
+        }
+      }
+    }
+    if (bomb.landed && bomb.fuse <= 0) {
+      bomb.done = true;
+      slot.busy = false;
+      slot.group.visible = false;
+      slot.ring.visible = false;
+      if (bomb.own) {
+        combat.showBlast(bomb.tx, bomb.tz, a, bomb.owner, bomb.isSuper);
+      }
+    }
+  }
+
   private updateBombs(dt: number): void {
-    const { combat, effects, elapsed, lighting, world } = this.game;
-    const blend = 1 - Math.exp(-BOMB_LAMBDA * dt);
-    for (const [i, bomb] of this.bombs.entries()) {
-      const slot = combat.bombPool[i];
-      if (!slot) {
-        break;
+    const { effects, elapsed, lighting } = this.game;
+    for (const bomb of this.bombs) {
+      this.stepBomb(bomb, dt);
+      if (bomb.done) {
+        continue;
       }
-      const { target } = bomb;
-      bomb.x += (target.x - bomb.x) * blend;
-      bomb.y += (target.y - bomb.y) * blend;
-      bomb.z += (target.z - bomb.z) * blend;
-      if (target.u <= 0) {
-        bomb.rotX += dt * 9;
-        bomb.rotZ += dt * 5;
-      }
-      scratchColor.setHex(target.c);
-      setBombAppearance(slot, target.style, scratchColor);
-      slot.busy = true;
-      slot.group.visible = true;
-      slot.group.position.set(bomb.x, bomb.y, bomb.z);
-      slot.group.rotation.set(bomb.rotX, 0, bomb.rotZ);
-      slot.group.scale.setScalar(target.big ? 1.75 : 1);
-      slot.ring.visible = true;
-      slot.ring.position.set(target.tx, world.heightAt(target.tx, target.tz) + 0.05, target.tz);
-      slot.ring.scale.set(target.r, 1, target.r);
-      conformGroundGeometry(slot.ring.geometry, target.tx, target.tz, target.r);
-      conformGroundGeometry(slot.fillDisc.geometry, target.tx, target.tz, target.r);
-      const markerColor = target.s ? SUPER_MARKER_COLOR : MARKER_COLOR;
-      slot.ring.material.color.set(markerColor);
-      slot.fillDisc.material.color.set(markerColor);
-      const pulse = 0.5 + 0.5 * Math.sin(elapsed * (14 + target.u * 30));
+      const { a, slot } = bomb;
+      // The marker fills and the spark flickers faster as the fuse runs down.
+      const urgency = bomb.landed ? 1 - clamp(bomb.fuse / a.fuse, 0, 1) : 0;
+      const pulse = 0.5 + 0.5 * Math.sin(elapsed * (14 + urgency * 30));
       slot.spark.scale.setScalar(0.8 + pulse * 0.9);
       slot.ring.material.opacity = 0.55 + pulse * 0.35;
-      slot.fillDisc.material.opacity = 0.1 + target.u * 0.22;
-      effects.trail(bomb.x, bomb.y, bomb.z, scratchColor, target.big ? 0.46 : 0.26);
-      lighting.addLight(bomb.x, bomb.y + 0.3, bomb.z, scratchColor, 2.2 + pulse * 2.5, 4);
+      slot.fillDisc.material.opacity = 0.1 + urgency * 0.22;
+      const p = slot.group.position;
+      effects.trail(p.x, p.y, p.z, bomb.color, a.big ? 0.46 : 0.26);
+      lighting.addLight(p.x, p.y + 0.3, p.z, bomb.color, 2.2 + pulse * 2.5, 4);
       if (Math.random() < dt * 40) {
-        effects.spark(bomb.x, bomb.y + 0.25 * slot.group.scale.x, bomb.z, scratchColor);
+        effects.spark(p.x, p.y + 0.25 * slot.group.scale.x, p.z, bomb.color);
       }
+    }
+    this.bombs = this.bombs.filter((bomb) => !bomb.done);
+  }
+
+  private hideBombSlots(): void {
+    for (const slot of this.game.combat.bombPool) {
+      slot.busy = false;
+      slot.group.visible = false;
+      slot.ring.visible = false;
     }
   }
 }

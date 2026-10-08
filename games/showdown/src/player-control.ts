@@ -29,66 +29,40 @@ interface StickLike {
 
 const RAYCASTER = new THREE.Raycaster();
 const MOUSE_NDC = new THREE.Vector2();
-/** A guest's shot goes to the host as an intent instead of into the sim; the local
- *  gate mirrors the sim's own checks so the wire is not spammed while holding fire. */
-const GUEST_FIRE_COOLDOWN = 0.25;
 
-const guestCanAct = (game: Game, player: Brawler): boolean =>
-  player.alive && !player.airborne && !player.evasion && game.state === "playing";
+/**
+ * A guest acts on its own body exactly as the host will — the same checks,
+ * the same pose, its shots drawn at once — and then tells the host; with no
+ * host to tell, it does not act at all, so nothing it shows goes unreplayed.
+ */
+const offline = (game: Game): boolean => game.netGuest?.link.reachable === false;
 
 const fireAttack = (game: Game, player: Brawler, aim: Aim): void => {
-  if (game.mode !== "guest") {
-    player.attack(aim.dx, aim.dz, aim.x, aim.z);
-    return;
+  if (!offline(game) && player.attack(aim.dx, aim.dz, aim.x, aim.z)) {
+    game.netGuest?.link.sendAction(player, "attack", aim);
   }
-  if (!guestCanAct(game, player) || player.ammo < 1 || player.fireCooldown > 0) {
-    return;
-  }
-  player.fireCooldown = GUEST_FIRE_COOLDOWN;
-  player.aimAngle = Math.atan2(aim.dx, aim.dz);
-  player.aimHold = 0.55;
-  game.session?.sendIntent({ dx: aim.dx, dz: aim.dz, kind: "attack", x: aim.x, z: aim.z });
 };
 
 const fireSuper = (game: Game, player: Brawler, aim: Aim): void => {
-  if (game.mode !== "guest") {
-    player.useSuper(aim.dx, aim.dz, aim.x, aim.z);
-    return;
+  if (!offline(game) && player.useSuper(aim.dx, aim.dz, aim.x, aim.z)) {
+    game.netGuest?.link.sendAction(player, "super", aim);
   }
-  if (!guestCanAct(game, player) || !player.superReady) {
-    return;
-  }
-  player.superCharge = 0;
-  player.aimAngle = Math.atan2(aim.dx, aim.dz);
-  player.aimHold = 0.55;
-  game.session?.sendIntent({ dx: aim.dx, dz: aim.dz, kind: "super", x: aim.x, z: aim.z });
 };
 
 const evade = (game: Game, player: Brawler): void => {
-  const { session } = game;
-  if (game.mode === "guest" && (session?.status !== "connected" || session.hostDropped)) {
-    // An intent lost with the connection must not leave prediction waiting forever.
-    if (player.netTarget.evadePending !== null) {
-      player.netTarget.evadePending = null;
-      player.evasion = null;
-    }
-    game.input.consumeEvade();
+  if (!game.input.consumeEvade() || game.state !== "playing" || offline(game)) {
     return;
   }
-  if (!game.input.consumeEvade() || game.state !== "playing") {
-    return;
-  }
-  if (game.mode === "guest" && player.netTarget.evadePending !== null) {
+  // One roll at a time waits on the host's verdict; it gives up after a second.
+  if (player.evadePending) {
     return;
   }
   const moving = Math.hypot(player.moveX, player.moveZ) > 0.001;
   const angle = player.lookAngle ?? player.facing;
   const dx = moving ? player.moveX : Math.sin(angle);
   const dz = moving ? player.moveZ : Math.cos(angle);
-  if (player.evade(dx, dz) && game.mode === "guest") {
-    const seq = player.netTarget.evadeAck + 1;
-    player.netTarget.evadePending = seq;
-    session?.sendIntent({ dx, dz, kind: "evade", seq });
+  if (player.evade(dx, dz)) {
+    game.netGuest?.link.sendEvade(player, dx, dz);
   }
 };
 
@@ -271,9 +245,7 @@ export const controlPlayer = (game: Game): void => {
       player.moveZ = 0;
       player.lookAngle = null;
     }
-    if (game.mode === "guest") {
-      game.session?.sendInput(0, 0);
-    }
+    game.netGuest?.link.steer(player, 0, 0, null);
     game.input.takeShots();
     game.input.consumeEvade();
     return;
@@ -287,7 +259,6 @@ export const controlPlayer = (game: Game): void => {
     controlWithMouse(game, player);
   }
   fireQueuedShots(game, player);
-  if (game.mode === "guest") {
-    game.session?.sendInput(axis.x, axis.z, player.lookAngle);
-  }
+  // A guest moves by the quantized direction it sent, which is what the host runs.
+  game.netGuest?.link.steer(player, axis.x, axis.z, player.lookAngle);
 };

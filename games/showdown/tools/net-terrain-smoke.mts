@@ -1,446 +1,335 @@
+// The wire format and the guest's two drives, piece by piece: rows survive the
+// trip at their stated precision, impossible poses never reach the sim,
+// remote bodies keep their feet on the terrain, cues are copied and aged to
+// render time, a promoted host resumes what was in flight, and the guest's own
+// prediction settles leaps and spent ammo against the host's verdicts.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Group, Vector2 } from "three";
-import { advanceEvasion, EVADE } from "../src/entities/evasion.ts";
-import { rangedPoseDuration } from "../src/entities/ranged-pose.ts";
+import { RemoteClock } from "@vibedgames/multiplayer";
+import { Vector2 } from "three";
+import { BRAWLERS } from "../src/config.ts";
+import { EVADE } from "../src/entities/evasion.ts";
+import type { JsonValue } from "../src/json.ts";
+import { spawnFromNet } from "../src/net/host.ts";
+import { applyPuppetRow, PuppetTrack } from "../src/net/interpolation.ts";
+import { OwnPrediction } from "../src/net/prediction.ts";
+import type { OwnBody, OwnRow } from "../src/net/prediction.ts";
 import {
-  applyNetState,
-  makeNetTarget,
-  restoreNetEvasion,
-  steerPuppet,
-} from "../src/net/interpolation.ts";
-import { isSnapshot } from "../src/net/snapshot.ts";
-import type { NetBrawler, Snapshot } from "../src/net/snapshot.ts";
+  decodeFrame,
+  encodeFrame,
+  encodeMatch,
+  parseFrame,
+  parseMatch,
+} from "../src/net/snapshot.ts";
+import type { BrawlerState, NetFrame } from "../src/net/snapshot.ts";
 import { terrainHeight } from "../src/world/terrain.ts";
+import { asGame, body, openWorld, overTheWire, stubGame } from "./headless.mts";
 
-const row = (overrides: Partial<NetBrawler> = {}): NetBrawler => ({
+/** A host with one titan, one ace and one dusty, and the roster guests decode against. */
+const lineup = () => {
+  const host = stubGame("host");
+  const titan = body(host, { name: "Rook", netId: "p:a", owner: "a", x: 0, z: 0 }, "titan");
+  const ace = body(host, { name: "Wren", netId: "bot:1", x: 3, z: 1 }, "ace");
+  const dusty = body(host, { name: "Briar", netId: "bot:2", x: -3, z: 1 }, "dusty");
+  const roster = parseMatch(overTheWire(encodeMatch(host.brawlers, 1, 7, null, 1)));
+  assert.ok(roster);
+  return { ace, dusty, host, roster, titan };
+};
+
+const sendFrame = (host: ReturnType<typeof stubGame>, t = 1000): NetFrame => {
+  const frame = parseFrame(overTheWire(encodeFrame(host, 1, 1, t, host.elapsed * 1000)));
+  assert.ok(frame);
+  return frame;
+};
+
+test("a row comes back at its wire precision, cues and all", () => {
+  const { ace, dusty, host, roster, titan } = lineup();
+  titan.root.position.set(1.2346, 0, -2.3457);
+  titan.facing = 7;
+  titan.hp = 4321;
+  titan.ammo = 2;
+  titan.reloadT = 0.456;
+  titan.superCharge = 0.789;
+  titan.cubes = 3;
+  titan.kills = 2;
+  titan.rank = 0;
+  titan.evadeCooldown = 1.234;
+  titan.applyKnock(-3.3, 4.4);
+  titan.ack.take(17, 500);
+  host.elapsed = 0.75;
+  const { super: slam } = BRAWLERS.titan;
+  assert.ok(slam.kind === "leap");
+  titan.leap = { a: slam, sx: 1, sz: 2, t: 0.25, tx: 5, tz: -4 };
+  ace.rangedCue = { elapsed: 0.1, isSuper: true };
+  dusty.meleeCue = { angle: -1.5, elapsed: 0.3, recovery: 0.42, windup: 0.2 };
+  const decoded = decodeFrame(sendFrame(host), roster);
+  assert.ok(decoded);
+  const [rook, wren, briar] = decoded.brawlers;
+  assert.ok(rook && wren && briar);
+  assert.ok(Math.abs(rook.x - 1.23) < 0.006 && Math.abs(rook.z + 2.35) < 0.006);
+  assert.ok(Math.abs(rook.facing - Math.atan2(Math.sin(7), Math.cos(7))) < 0.006);
+  assert.equal(rook.hp, 4321);
+  assert.equal(rook.ammo, 2);
+  assert.ok(Math.abs(rook.reload - 0.46) < 1e-9);
+  assert.ok(Math.abs(rook.charge - 0.79) < 1e-9);
+  assert.ok(Math.abs(rook.evadeCooldown - 1.23) < 1e-9);
+  assert.equal(rook.ack, 17);
+  assert.equal(rook.ackAge, 250);
+  assert.equal(rook.knockSeq, 1);
+  assert.ok(Math.abs(rook.knockX + 3.3) < 1e-9 && Math.abs(rook.knockZ - 4.4) < 1e-9);
+  assert.deepEqual(rook.leap, { sx: 1, sz: 2, t: 0.25, tx: 5, tz: -4 });
+  assert.deepEqual(wren.ranged, { elapsed: 0.1, isSuper: true });
+  assert.deepEqual(briar.melee, { angle: -1.5, elapsed: 0.3, recovery: 0.42, windup: 0.2 });
+  assert.equal(wren.ack, 0, "bots carry no acknowledgment");
+});
+
+/** Re-send `frame` with one row or cue list swapped, as a hostile or broken host might. */
+const tampered = (frame: NetFrame, change: (copy: NetFrame) => void): NetFrame | null => {
+  const copy = parseFrame(overTheWire(frame));
+  assert.ok(copy);
+  change(copy);
+  return parseFrame(overTheWire(copy));
+};
+
+test("poses the host could never hold, and malformed rows, are refused whole", () => {
+  const { host, roster } = lineup();
+  const frame = sendFrame(host);
+  assert.ok(decodeFrame(frame, roster));
+  const cues: number[][] = [
+    [1, 1, 300, 0, 0, 100, 100],
+    [0, 1, -10, 0, 0, 100, 100],
+    [1, 3, 0, 100, 200, 400],
+    [2, 3, 0, 900, 200, 400],
+    [2, 4, 100, 0],
+    [1, 4, 5000, 0],
+    [0, 9, 0, 0],
+    [7, 2, 0, 100],
+    [0, 2, 400, 100],
+  ];
+  for (const cue of cues) {
+    const bad = tampered(frame, (copy) => {
+      copy.q = [cue];
+    });
+    assert.equal(bad && decodeFrame(bad, roster), null, JSON.stringify(cue));
+  }
+  // A roll in mid-leap, a shot while rolling, a shot while dead.
+  const clashes: number[][][] = [
+    [
+      [0, 1, 100, 0, 0, 100, 100],
+      [0, 2, 0, 100],
+    ],
+    [
+      [1, 4, 100, 0],
+      [1, 2, 0, 100],
+    ],
+  ];
+  for (const q of clashes) {
+    const bad = tampered(frame, (copy) => {
+      copy.q = q;
+    });
+    assert.equal(bad && decodeFrame(bad, roster), null, JSON.stringify(q));
+  }
+  const dead = tampered(frame, (copy) => {
+    copy.b[1] = [300, 100, 0, 0, 0];
+    copy.q = [[1, 4, 100, 0]];
+  });
+  assert.equal(dead && decodeFrame(dead, roster), null);
+  const rows: JsonValue[][] = [[9000, 0], [0, 0, 0, -5], [0, 0, 0, 100, 1, 400], [1.5]];
+  for (const row of rows) {
+    const copy = parseFrame(overTheWire(frame));
+    assert.ok(copy);
+    const wire = overTheWire({ ...copy, b: [row, ...copy.b.slice(1)] });
+    const parsed = parseFrame(wire);
+    assert.equal(parsed && decodeFrame(parsed, roster), null, JSON.stringify(row));
+  }
+  assert.equal(decodeFrame({ ...frame, v: 2 }, roster), null, "a frame for another roster");
+  assert.equal(decodeFrame({ ...frame, b: frame.b.slice(1) }, roster), null);
+  assert.equal(
+    parseMatch(
+      overTheWire({ b: [["bot:1", null, "wizard", "Merlin", 0]], g: 1, seed: 7, v: 1, w: null }),
+    ),
+    null,
+  );
+});
+
+/** A puppet for the ace in `lineup`, fed frames by hand. */
+const puppetOf = () => {
+  const guest = stubGame("guest");
+  const puppet = body(
+    guest,
+    { drive: "puppet", name: "Wren", netId: "bot:1", x: 0, z: 4.8 },
+    "ace",
+  );
+  const clock = new RemoteClock();
+  const track = new PuppetTrack(clock);
+  return { clock, puppet, track };
+};
+
+const state = (overrides: Partial<BrawlerState>): BrawlerState => ({
+  ack: 0,
+  ackAge: 0,
   alive: true,
   ammo: 3,
-  bush: false,
   charge: 0,
+  concealed: false,
   cubes: 0,
-  evadeAccepted: false,
-  evadeAck: 0,
+  evade: 0,
   evadeCooldown: 0,
   evasion: null,
   facing: 0,
-  hp: 6000,
-  hue: 0,
-  id: "p:test",
+  hp: 3200,
   kills: 0,
-  kit: "titan",
+  knockSeq: 0,
+  knockX: 0,
+  knockZ: 0,
   leap: null,
-  maxHp: 6000,
   melee: null,
-  name: "Warden",
-  owner: "test",
+  ranged: null,
   rank: 0,
-  vx: 0,
-  vz: 0,
+  reload: 0,
   x: 0,
-  y: 2.4,
-  z: 18,
+  z: 4.8,
   ...overrides,
 });
 
-const body = (drive: "predict" | "puppet"): Parameters<typeof applyNetState>[0] => ({
-  alive: true,
-  ammo: 3,
-  burst: null,
-  cubes: 0,
-  deadT: 0,
-  drive,
-  evadeCooldown: 0,
-  evasion: null,
-  facing: 0,
-  flash: 0,
-  hp: 6000,
-  inBush: false,
-  kills: 0,
-  leap: null,
-  maxHp: 6000,
-  meleeCue: null,
-  netAir: false,
-  netTarget: makeNetTarget(),
-  rangedCue: null,
-  rank: 0,
-  recoil: 0,
-  revealT: 0,
-  root: new Group(),
-  squash: 0,
-  superCharge: 0,
-  swing: null,
-  vel: new Vector2(),
-});
-
-test("highland snapshots leave grounded guests mobile", () => {
-  const drives: readonly ("predict" | "puppet")[] = ["predict", "puppet"];
-  for (const drive of drives) {
-    const b = body(drive);
-    applyNetState(b, row());
-    assert.equal(b.netAir, false);
-    assert.equal(b.root.position.y, terrainHeight(0, 18));
+test("puppets keep their feet on the ramp, interpolating and extrapolating uphill", () => {
+  const { clock, puppet, track } = puppetOf();
+  for (let i = 0; i <= 10; i += 1) {
+    track.receive(i * 33, state({ z: 4.8 + i * 0.12 }), 1000 + i * 33);
   }
-});
-
-test("prediction correction samples the corrected ramp position, including rounded wire heights", () => {
-  const b = body("predict");
-  b.root.position.set(0, terrainHeight(0, 6), 6);
-  applyNetState(b, row({ y: 0.93, z: 7 }));
-  assert.ok(b.root.position.z > 6 && b.root.position.z < 7);
-  assert.equal(b.root.position.y, terrainHeight(0, b.root.position.z));
-  assert.equal(b.netAir, false);
-
-  applyNetState(b, row({ y: 2.4, z: -20 }));
-  assert.equal(b.root.position.z, -20);
-  assert.equal(b.root.position.y, terrainHeight(0, -20));
-});
-
-test("puppets stay on the ramp while interpolating and extrapolating uphill", () => {
-  const b = body("puppet");
-  applyNetState(b, row({ y: 0, z: 4.8 }));
-  applyNetState(b, row({ vz: 5, y: 0.93, z: 7 }));
   let moved = false;
-  for (let frame = 0; frame < 30; frame += 1) {
-    moved = steerPuppet(b, 1 / 60) || moved;
-    assert.equal(b.root.position.y, terrainHeight(b.root.position.x, b.root.position.z));
+  for (let now = 1100; now < 1600; now += 16) {
+    const before = puppet.z;
+    track.pose(puppet, now, clock.now(now) - 100, openWorld);
+    moved ||= puppet.z > before;
+    assert.equal(puppet.root.position.y, terrainHeight(puppet.x, puppet.z));
   }
   assert.equal(moved, true);
-  assert.ok(b.root.position.z > 7);
-  assert.equal(b.netAir, false);
+  // Past the newest frame the body carries on for a beat, then holds — still on the ground.
+  assert.ok(puppet.z > 6 && puppet.z < 6.4, `held at ${puppet.z}`);
+  assert.equal(puppet.netAir, false);
 });
 
-test("leap state, rather than height, governs airborne prediction and landing", () => {
-  const b = body("predict");
-  const leap = { sx: 0, sz: 0, t: 0, tx: 0, tz: 18 };
-  applyNetState(b, row({ leap, y: 0, z: 0 }));
-  assert.equal(b.netAir, true);
-  applyNetState(b, row({ leap: { ...leap, t: 0.4 }, y: 4.2, z: 9 }));
-  assert.equal(b.root.position.y, 4.2);
-  applyNetState(b, row());
-  assert.equal(b.netAir, false);
-  assert.equal(b.root.position.y, terrainHeight(0, 18));
+test("a puppet's leap rises from its cue and comes down with the frame that ends it", () => {
+  const { clock, puppet, track } = puppetOf();
+  const leap = { sx: 0, sz: 0, t: 0.3, tx: 0, tz: 4 };
+  track.receive(0, state({ leap, z: 1.6 }), 1000);
+  track.receive(33, state({ leap: { ...leap, t: 0.333 }, z: 1.78 }), 1033);
+  track.pose(puppet, 1140, clock.now(1140) - 100, openWorld);
+  assert.equal(puppet.netAir, true);
+  assert.ok(puppet.root.position.y > terrainHeight(0, puppet.z) + 1, "mid-arc");
+  track.receive(66, state({ z: 4 }), 1066);
+  track.pose(puppet, 1200, clock.now(1200) - 100, openWorld);
+  assert.equal(puppet.netAir, false);
+  assert.equal(puppet.root.position.y, terrainHeight(puppet.x, puppet.z));
 });
 
-const snapshot = (brawler: NetBrawler): Snapshot => ({
-  bombs: [],
-  boxes: [],
-  brawlers: [brawler],
-  broken: [],
-  bullets: [],
-  countdownT: 0,
-  cubes: [],
-  gas: { active: false, half: 25, round: 0 },
-  gen: 1,
-  hour: 15,
-  matchTime: 10,
-  phase: "playing",
-  seed: 7,
-  seq: 1,
-  winner: null,
+test("puppet cues are copied, aged to render time, and cleared by death", () => {
+  const { puppet } = puppetOf();
+  const ranged = { elapsed: 0.1, isSuper: false };
+  const evasion = { angle: 0.4, elapsed: 0.05 };
+  const row = state({ evadeCooldown: 2.3, evasion, ranged: null });
+  applyPuppetRow(puppet, row, 0.04);
+  assert.notEqual(puppet.evasion, evasion, "local animation must not write into the frame");
+  assert.ok(Math.abs((puppet.evasion?.elapsed ?? 0) - 0.09) < 1e-9);
+  applyPuppetRow(puppet, state({ ranged }), 0.02);
+  assert.ok(Math.abs((puppet.rangedCue?.elapsed ?? 0) - 0.12) < 1e-9);
+  assert.equal(puppet.evasion, null);
+  applyPuppetRow(puppet, state({ hp: 1000 }), 0);
+  assert.equal(puppet.flash, 1, "a hit flashes the body");
+  applyPuppetRow(puppet, state({ alive: false, hp: 0, ranged }), 0);
+  assert.equal(puppet.alive, false);
+  assert.equal(puppet.rangedCue, null);
 });
 
-test("snapshot validation preserves leap progress and rejects impossible or malformed airborne rows", () => {
-  const leap = { sx: 2, sz: 6, t: 0.3, tx: 4, tz: 16 };
-  assert.equal(isSnapshot(snapshot(row())), true);
-  assert.equal(isSnapshot(snapshot(row({ leap }))), true);
-  assert.equal(isSnapshot(snapshot(row({ kit: "ace", leap }))), false);
-  assert.equal(isSnapshot(snapshot(row({ leap: { ...leap, t: -1 } }))), false);
-  assert.equal(isSnapshot(snapshot(row({ leap: { ...leap, tx: Number.NaN } }))), false);
-  const missingLeap = row();
-  Reflect.deleteProperty(missingLeap, "leap");
-  assert.equal(isSnapshot(snapshot(missingLeap)), false);
-});
-
-test("late melee snapshots sample the accepted pose age and death clears the pose", () => {
-  const b = body("puppet");
-  const melee = { angle: Math.PI / 2, elapsed: 0.25, recovery: 0.56, windup: 0.18 };
-  const n = row({ melee });
-  assert.equal(isSnapshot(snapshot(n)), true);
-  applyNetState(b, n);
-  assert.deepEqual(b.meleeCue, melee);
-  assert.notEqual(b.meleeCue, melee, "local animation cannot mutate the wire snapshot");
-  applyNetState(b, row({ alive: false, melee }));
-  assert.equal(b.meleeCue, null);
-  assert.equal(isSnapshot(snapshot(row({ kit: "ace", melee }))), false);
-  assert.equal(isSnapshot(snapshot(row({ melee: { ...melee, elapsed: -1 } }))), false);
-  assert.equal(isSnapshot(snapshot(row({ melee: { ...melee, windup: 0 } }))), false);
-  assert.equal(isSnapshot(snapshot(row({ melee: { ...melee, elapsed: 1 } }))), false);
-});
-
-test("ranged snapshots sample each accepted release age without sharing mutable state", () => {
-  const drives: readonly ("predict" | "puppet")[] = ["predict", "puppet"];
-  for (const drive of drives) {
-    const b = body(drive);
-    const ranged = { elapsed: 0.1, isSuper: true };
-    const n = row({ kit: "ace", ranged });
-    assert.equal(isSnapshot(snapshot(n)), true);
-    applyNetState(b, n);
-    assert.deepEqual(b.rangedCue, ranged);
-    assert.notEqual(b.rangedCue, ranged);
-    applyNetState(b, { ...n, ranged: { elapsed: 0.02, isSuper: false } });
-    assert.deepEqual(b.rangedCue, { elapsed: 0.02, isSuper: false });
-    applyNetState(b, row({ kit: "ace" }));
-    assert.equal(b.rangedCue, null, "older hosts without a ranged field remain compatible");
-    applyNetState(b, n);
-    applyNetState(b, { ...n, alive: false, hp: 0, ranged: null });
-    assert.equal(b.rangedCue, null);
+test("a promoted host finishes an inherited leap and roll from where they stood", () => {
+  const host = stubGame("host");
+  const { roster: match } = lineup();
+  const [rook, wren] = match.roster;
+  assert.ok(rook && wren);
+  const leap = { sx: 0, sz: 0, t: 0.375, tx: 0, tz: 6 };
+  const leaper = spawnFromNet(asGame(host), rook, state({ leap, x: 0, z: 3 }), "sim", false);
+  assert.equal(leaper.leap?.t, 0.375);
+  assert.ok(leaper.root.position.y > 2, "resumes mid-arc");
+  for (let i = 0; i < 40; i += 1) {
+    leaper.update(1 / 60);
   }
-});
-
-test("pending local evades keep older ranged poses canceled", () => {
-  for (const evasion of [{ angle: 0, elapsed: 0.1 }, null]) {
-    const b = body("predict");
-    applyNetState(b, row({ kit: "rowan" }));
-    b.evasion = evasion;
-    b.netTarget.evadePending = 1;
-    applyNetState(b, row({ kit: "rowan", ranged: { elapsed: 0.1, isSuper: false } }));
-    assert.equal(b.rangedCue, null);
-    assert.equal(b.evasion, evasion);
-  }
-});
-
-test("ranged wire poses validate age, special identity, champion and cancellation", () => {
-  for (const isSuper of [false, true]) {
-    const duration = rangedPoseDuration("flint", isSuper);
-    const n = row({ kit: "flint", ranged: { elapsed: duration, isSuper } });
-    assert.equal(isSnapshot(snapshot(n)), true);
-    for (const elapsed of [-0.01, duration + 0.01, Number.NaN, Number.POSITIVE_INFINITY]) {
-      assert.equal(isSnapshot(snapshot({ ...n, ranged: { elapsed, isSuper } })), false);
-    }
-    assert.equal(isSnapshot(snapshot({ ...n, alive: false })), false);
-    assert.equal(isSnapshot(snapshot({ ...n, kit: "titan" })), false);
-    assert.equal(
-      isSnapshot(snapshot({ ...n, evadeCooldown: 1, evasion: { angle: 0, elapsed: 0.1 } })),
-      false,
-    );
-  }
-  const malformed = row({ kit: "pip" });
-  for (const ranged of [{ elapsed: 0.1 }, { elapsed: "0.1", isSuper: false }, false]) {
-    Reflect.set(malformed, "ranged", ranged);
-    assert.equal(isSnapshot(snapshot(malformed)), false);
-  }
-});
-
-test("projectile and lob silhouettes survive the snapshot boundary; unknown styles fail", () => {
-  const base = snapshot(row());
-  const bullet = {
-    c: 0xba_dd_84,
-    dx: 0,
-    dz: 1,
-    l: 7,
-    m: false,
-    r: 0.15,
-    s: false,
-    v: 14,
-    x: 2,
-    z: 3,
-  };
-  for (const style of ["arrow", "spear", "thorn", "bolt"]) {
-    assert.equal(isSnapshot({ ...base, bullets: [{ ...bullet, style }] }), true);
-  }
-  assert.equal(isSnapshot({ ...base, bullets: [{ ...bullet, style: "unknown" }] }), false);
-  const bomb = {
-    big: false,
-    c: 0x82_d9_c8,
-    r: 1.5,
-    s: false,
-    tx: 3,
-    tz: 4,
-    u: 0.2,
-    x: 2,
-    y: 1,
-    z: 3,
-  };
-  for (const style of ["fire", "seed", "potion"]) {
-    assert.equal(isSnapshot({ ...base, bombs: [{ ...bomb, style }] }), true);
-  }
-  assert.equal(isSnapshot({ ...base, bombs: [{ ...bomb, style: "unknown" }] }), false);
-});
-
-test("pre-ack snapshots preserve active and completed predicted rolls while applying damage", () => {
-  for (const evasion of [{ angle: 0, elapsed: 0.2 }, null]) {
-    const b = body("predict");
-    applyNetState(b, row());
-    b.root.position.z = 20;
-    b.evasion = evasion;
-    b.evadeCooldown = 2.2;
-    b.netTarget.evadePending = 1;
-    applyNetState(b, row({ hp: 5000 }));
-    assert.equal(b.root.position.z, 20);
-    assert.equal(b.evasion, evasion);
-    assert.equal(b.evadeCooldown, 2.2);
-    assert.equal(b.netTarget.evadePending, 1);
-    assert.equal(b.netTarget.evadeAck, 0);
-    assert.equal(b.hp, 5000);
-  }
-});
-
-test("accepted evades retain the predicted clock and wait for both rolls to finish before correction", () => {
-  const b = body("predict");
-  applyNetState(b, row());
-  b.root.position.z = 20;
-  b.evasion = { angle: 0, elapsed: 0.25 };
-  b.netTarget.evadePending = 1;
-  const accepted = row({
-    evadeAccepted: true,
-    evadeAck: 1,
-    evadeCooldown: 2.3,
-    evasion: { angle: 0, elapsed: 0.1 },
-    z: 18.8,
-  });
-  applyNetState(b, accepted);
-  assert.equal(b.evasion?.elapsed, 0.25);
-  assert.equal(b.root.position.z, 20);
-  assert.equal(b.netTarget.evadePending, null);
-  assert.equal(b.netTarget.evadeAck, 1);
-  assert.equal(b.netTarget.evadeAccepted, true);
-  assert.equal(b.evadeCooldown, 2.3);
-
-  applyNetState(b, { ...accepted, evasion: null, z: 19 });
-  assert.equal(b.root.position.z, 20, "an active local roll must not reconcile mid-step");
-  b.evasion = null;
-  applyNetState(b, { ...accepted, evasion: null, z: 19 });
-  assert.equal(b.root.position.z, 19.8);
-  assert.equal(b.root.position.y, terrainHeight(0, 19.8));
-});
-
-test("a late accepted acknowledgment never replays a roll that prediction already completed", () => {
-  const b = body("predict");
-  applyNetState(b, row());
-  b.root.position.z = 21;
-  b.netTarget.evadePending = 1;
-  const accepted = row({
-    evadeAccepted: true,
-    evadeAck: 1,
-    evadeCooldown: 2.1,
-    evasion: { angle: 0, elapsed: 0.3 },
-    z: 20.5,
-  });
-  applyNetState(b, accepted);
-  assert.equal(b.evasion, null);
-  assert.equal(b.netTarget.evadePending, null);
-  assert.equal(b.root.position.z, 21);
-  applyNetState(b, accepted);
-  assert.equal(b.evasion, null);
-  assert.equal(b.root.position.z, 21);
-  applyNetState(b, { ...accepted, evasion: null, z: 20.8 });
-  assert.ok(Math.abs(b.root.position.z - 20.96) < 1e-10);
-});
-
-test("a rejection cancels prediction and snaps even a small error to authoritative terrain", () => {
-  const b = body("predict");
-  applyNetState(b, row({ z: 6 }));
-  b.root.position.z = 6.3;
-  b.evasion = { angle: 0, elapsed: 0.1 };
-  b.evadeCooldown = 2.3;
-  b.netTarget.evadePending = 1;
-  applyNetState(b, row({ evadeAck: 1, evadeCooldown: 0.6, z: 6 }));
-  assert.equal(b.evasion, null);
-  assert.equal(b.netTarget.evadePending, null);
-  assert.equal(b.netTarget.evadeAck, 1);
-  assert.equal(b.netTarget.evadeAccepted, false);
-  assert.equal(b.evadeCooldown, 0.6);
-  assert.equal(b.root.position.z, 6);
-  assert.equal(b.root.position.y, terrainHeight(0, 6));
-});
-
-test("older acknowledgments cannot rewind accepted roll state or resurrect a pending roll after death", () => {
-  const b = body("predict");
-  applyNetState(b, row({ evadeAccepted: true, evadeAck: 2, evadeCooldown: 1 }));
-  const position = b.root.position.clone();
-  applyNetState(b, row({ evadeAck: 1, evadeCooldown: 2, z: 10 }));
-  assert.equal(b.netTarget.evadeAck, 2);
-  assert.equal(b.netTarget.evadeAccepted, true);
-  assert.equal(b.evadeCooldown, 1);
-  assert.deepEqual(b.root.position, position);
-
-  b.evasion = { angle: 0, elapsed: 0.2 };
-  b.netTarget.evadePending = 3;
-  applyNetState(b, row({ alive: false, evadeAck: 2, hp: 0 }));
-  assert.equal(b.alive, false);
-  assert.equal(b.evasion, null);
-  assert.equal(b.netTarget.evadePending, null);
-});
-
-test("puppets sample roll progress without sharing mutable snapshot state", () => {
-  const b = body("puppet");
-  const n = row({
-    evadeAccepted: true,
-    evadeAck: 1,
-    evadeCooldown: 2.2,
-    evasion: { angle: 0.4, elapsed: 0.2 },
-  });
-  applyNetState(b, n);
-  assert.deepEqual(b.evasion, n.evasion);
-  assert.notEqual(b.evasion, n.evasion);
-  assert.equal(b.evadeCooldown, 2.2);
-  assert.equal(b.netAir, false);
-  applyNetState(b, { ...n, evasion: null });
-  assert.equal(b.evasion, null);
-});
-
-test("host promotion restores acknowledged roll progress and only simulates its remaining distance", () => {
-  const b = body("predict");
-  b.netTarget.evadePending = 5;
-  b.root.position.set(0, terrainHeight(0, 6), 6);
-  const n = row({
-    evadeAccepted: true,
-    evadeAck: 4,
-    evadeCooldown: 2.2,
-    evasion: { angle: 0, elapsed: EVADE.duration / 2 },
-  });
-  restoreNetEvasion(b, n);
-  assert.equal(b.netTarget.evadePending, null);
-  assert.equal(b.netTarget.evadeAck, 4);
-  assert.equal(b.netTarget.evadeAccepted, true);
-  assert.equal(b.evadeCooldown, 2.2);
-  assert.deepEqual(b.evasion, n.evasion);
-  assert.notEqual(b.evasion, n.evasion);
-  assert.ok(b.evasion);
-  const complete = advanceEvasion(
-    b.evasion,
-    b.root.position,
-    { heightAt: terrainHeight, resolveCircle: () => null },
-    1,
+  assert.equal(leaper.leap, null);
+  assert.ok(Math.abs(leaper.z - 6) < 1e-9, "lands on the old host's landing spot");
+  const evasion = { angle: 0, elapsed: EVADE.duration / 2 };
+  const roller = spawnFromNet(
+    asGame(host),
+    wren,
+    state({ evadeCooldown: 2.2, evasion, z: 0 }),
+    "sim",
+    false,
   );
-  assert.equal(complete, true);
-  assert.ok(Math.abs(b.root.position.z - (6 + EVADE.distance / 2)) < 1e-10);
-  assert.equal(b.root.position.y, terrainHeight(0, b.root.position.z));
-  assert.equal(n.evasion?.elapsed, EVADE.duration / 2);
+  assert.notEqual(roller.evasion, evasion);
+  for (let i = 0; i < 30; i += 1) {
+    roller.update(1 / 60);
+  }
+  assert.equal(roller.evasion, null);
+  assert.ok(Math.abs(roller.z - EVADE.distance / 2) < 1e-9, "only the remaining half is rolled");
 });
 
-test("snapshot validation rejects malformed or impossible evasion state", () => {
-  const rolling = row({
-    evadeAccepted: true,
-    evadeAck: 1,
-    evadeCooldown: 2.2,
-    evasion: { angle: Math.PI, elapsed: 0.2 },
-  });
-  assert.equal(isSnapshot(snapshot(rolling)), true);
-  assert.equal(isSnapshot(snapshot({ ...rolling, evadeAccepted: false, evadeAck: 0 })), true);
-  const invalid: Partial<NetBrawler>[] = [
-    { evadeAck: 0 },
-    { evadeAck: -1 },
-    { evadeAck: 0.5 },
-    { evadeAck: Number.MAX_SAFE_INTEGER + 1 },
-    { evadeCooldown: Number.NaN },
-    { evadeCooldown: -0.1 },
-    { evadeCooldown: EVADE.cooldown + 0.1 },
-    { evadeCooldown: 0 },
-    { evasion: { angle: Number.NaN, elapsed: 0.1 } },
-    { evasion: { angle: Math.PI + 0.1, elapsed: 0.1 } },
-    { evasion: { angle: 0, elapsed: -0.1 } },
-    { evasion: { angle: 0, elapsed: EVADE.duration + 0.1 } },
-    { alive: false },
-    { leap: { sx: 0, sz: 0, t: 0.2, tx: 0, tz: 3 } },
-  ];
-  for (const fields of invalid) {
-    assert.equal(isSnapshot(snapshot({ ...rolling, ...fields })), false, JSON.stringify(fields));
-  }
-  for (const key of ["evasion", "evadeCooldown", "evadeAck", "evadeAccepted"]) {
-    const missing = { ...rolling };
-    Reflect.deleteProperty(missing, key);
-    assert.equal(isSnapshot(snapshot(missing)), false, key);
-  }
+const ownBody = (): OwnBody => ({
+  alive: true,
+  evadeCooldown: 0,
+  evadePending: false,
+  evasion: null,
+  knock: new Vector2(),
+  leap: null,
+});
+
+const ownRow = (overrides: Partial<OwnRow>): OwnRow => ({
+  ack: 0,
+  ackAge: 0,
+  alive: true,
+  evade: 0,
+  evadeCooldown: 0,
+  knockSeq: 0,
+  knockX: 0,
+  knockZ: 0,
+  leap: null,
+  x: 0,
+  z: 0,
+  ...overrides,
+});
+
+test("a predicted leap lands where the host says, and one the host never started is called off", () => {
+  const prediction = new OwnPrediction();
+  const own = ownBody();
+  prediction.beginStep(16);
+  prediction.receive(own, ownRow({}));
+  prediction.beginStep(16);
+  const seq = prediction.stamp("super");
+  own.leap = { sx: 0, sz: 0, t: 0, tx: 0, tz: 5 };
+  prediction.leapSent(seq, 0.75);
+  prediction.beginStep(100);
+  prediction.receive(
+    own,
+    ownRow({ ack: seq, ackAge: 50, leap: { sx: 0.1, sz: 0, t: 0.05, tx: 0.2, tz: 5.3 } }),
+  );
+  assert.deepEqual(own.leap, { sx: 0.1, sz: 0, t: 0, tx: 0.2, tz: 5.3 });
+  prediction.beginStep(100);
+  const refused = prediction.receive(own, ownRow({ ack: seq, ackAge: 100 }));
+  assert.equal(refused.leapCancelled, true);
+  assert.equal(own.leap, null);
+});
+
+test("ammo and charge from the host wait until it has seen every shot and super sent", () => {
+  const prediction = new OwnPrediction();
+  const own = ownBody();
+  prediction.beginStep(16);
+  assert.equal(prediction.receive(own, ownRow({})).ammoSettled, true);
+  const attack = prediction.stamp("attack");
+  const special = prediction.stamp("super");
+  prediction.beginStep(16);
+  const early = prediction.receive(own, ownRow({ ack: attack - 1, ackAge: 30 }));
+  assert.equal(early.ammoSettled, false);
+  assert.equal(early.chargeSettled, false);
+  const half = prediction.receive(own, ownRow({ ack: attack, ackAge: 10 }));
+  assert.equal(half.ammoSettled, true);
+  assert.equal(half.chargeSettled, false);
+  assert.equal(prediction.receive(own, ownRow({ ack: special, ackAge: 5 })).chargeSettled, true);
 });

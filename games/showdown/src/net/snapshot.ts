@@ -1,441 +1,679 @@
-// The host's sim ↔ wire snapshot. Plain JSON only: brawlers, projectiles and
-// loot as numbers, colours as hex ints. Guests rebuild puppets from it; a
-// promoted host rebuilds its sim from it. FX ride separately (fx/fxSeq).
-import type { Bomb, Bullet, Combat, LootBox } from "../combat/combat";
-import type { BrawlerId, LobStyle, ProjectileStyle } from "../config";
+// The host's sim on the wire, split by how often each part changes:
+//   f         every tick: the host's clock stamp, the phase clock, one integer
+//             row per brawler and the few short-lived pose cues in flight
+//   m         on change: generation, seed, winner and the roster's identities
+//   bx/cu/br  on change: loot boxes, power cubes, destroyed tiles
+// Rows are integers at fixed scales with trailing zeros dropped, so a frame for
+// eight brawlers stays well under a kilobyte; identities never repeat per
+// tick. Bullets and bombs are not state at all: their spawns ride the fx batch
+// and every client flies them locally. A promoted host rebuilds the brawl from
+// these same keys (`assembleWorld`). FX ride beside them (fx/fs).
+import type { BrawlerId } from "../config";
 import { BRAWLERS, isBrawlerId } from "../config";
-import type { Brawler } from "../entities/brawler";
 import { EVADE } from "../entities/evasion";
+import type { EvasionState } from "../entities/evasion";
+import type { MeleeCue } from "../entities/melee-pose";
+import type { LeapArc } from "../entities/movement";
 import { rangedPoseDuration } from "../entities/ranged-pose";
-import type { Game } from "../game";
-import { clamp } from "../utils";
-import type { World } from "../world/world";
+import type { RangedCue } from "../entities/ranged-pose";
 import type { JsonObject, JsonValue } from "../json";
-import {
-  isJsonBoolean as isBool,
-  isJsonNumber as isNum,
-  isJsonObject as isObj,
-  isJsonString as isStr,
-} from "../json";
+import { isJsonNumber as isNum, isJsonObject as isObj, isJsonString as isStr } from "../json";
+import type { IntentAck } from "./intent-ack";
 
 export type NetPhase = "countdown" | "playing" | "ended";
 
-export type NetLeap = { t: number; sx: number; sz: number; tx: number; tz: number };
-export type NetMelee = { angle: number; elapsed: number; windup: number; recovery: number };
-export type NetRanged = { elapsed: number; isSuper: boolean };
-export type NetEvasion = { angle: number; elapsed: number };
+/** `[id, owner, kit, name, hue × 1000]` — `id` is `p:<playerId>` for a human seat, `bot:<n>` for a bot. */
+export type NetIdentity = [string, string | null, BrawlerId, string, number];
 
-export type NetBrawler = {
-  /** `p:<playerId>` for a human seat, `bot:<n>` for a bot. */
+export type NetMatch = {
+  g: number;
+  seed: number;
+  /** Winner's name once the brawl is decided. */
+  w: string | null;
+  /** Roster version; frames name the one their rows follow. */
+  v: number;
+  b: NetIdentity[];
+};
+
+export type NetFrame = {
+  /** Host clock (performance.now, ms) when the frame left. */
+  t: number;
+  s: number;
+  g: number;
+  v: number;
+  /** Phase index into PHASES. */
+  p: number;
+  /** Countdown seconds left, or match seconds, × 100. */
+  c: number;
+  /** One row per roster entry, in roster order (see ROW). */
+  b: number[][];
+  /** `[rosterIndex, cueKind, ...]` for every leap, roll, swing and shot pose in flight. */
+  q: number[][];
+};
+
+const PHASES: readonly NetPhase[] = ["countdown", "playing", "ended"];
+
+/** Row slots; trailing zeros are dropped on the wire and read back as zero. */
+const X = 0;
+const Z = 1;
+const FACING = 2;
+const HP = 3;
+const FLAGS = 4;
+const AMMO = 5;
+const CHARGE = 6;
+const CUBES = 7;
+const KILLS = 8;
+const RANK = 9;
+const EVADE_CD = 10;
+const ACK = 11;
+const ACK_AGE = 12;
+const EVADE_RESULT = 13;
+const KNOCK_SEQ = 14;
+const KNOCK_X = 15;
+const KNOCK_Z = 16;
+const ROW_LENGTH = 17;
+
+const ALIVE = 1;
+const CONCEALED = 2;
+
+const CUE_LEAP = 1;
+const CUE_ROLL = 2;
+const CUE_SWING = 3;
+const CUE_SHOT = 4;
+
+/** Positions in centimetres, angles in hundredths of a radian, durations in ms. */
+const POS = 100;
+const ANGLE = 100;
+const MS = 1000;
+/** Ammo, charge and cooldowns in hundredths; knockback in tenths of a unit per second. */
+const UNIT = 100;
+const KNOCK = 10;
+const HUE = 1000;
+
+/** World half-extent plus margin — a coordinate outside this is nonsense. */
+const MAX_COORD = 40;
+const MAX_ROSTER = 16;
+const MAX_NAME = 24;
+const MAX_KNOCK = 60;
+
+export interface Identity {
   id: string;
-  /** The owning player's id, or null for a bot. */
   owner: string | null;
   kit: BrawlerId;
   name: string;
   hue: number;
+}
+
+export interface MatchState {
+  gen: number;
+  seed: number;
+  winner: string | null;
+  rosterVersion: number;
+  roster: Identity[];
+}
+
+/** One brawler as a frame describes it, at the frame's stamp. */
+export interface BrawlerState {
   x: number;
   z: number;
-  /** World height, including terrain elevation. */
-  y: number;
-  /** Explicit airborne state; progress and endpoints survive host promotion. */
-  leap: NetLeap | null;
-  /** Accepted attack pose, sampled at its current age by every client. */
-  melee: NetMelee | null;
-  /** Optional while older hosts still publish snapshots without ranged poses. */
-  ranged?: NetRanged | null;
-  evasion: NetEvasion | null;
-  evadeCooldown: number;
-  /** Last processed request, including rejected requests. */
-  evadeAck: number;
-  evadeAccepted: boolean;
   facing: number;
   hp: number;
-  maxHp: number;
-  ammo: number;
-  charge: number;
   alive: boolean;
-  /** Concealed in a bush (in a bush and not recently revealed). */
-  bush: boolean;
+  /** In a bush and not recently revealed. */
+  concealed: boolean;
+  /** Whole shots in hand, and progress towards the next. */
+  ammo: number;
+  reload: number;
+  charge: number;
   cubes: number;
   kills: number;
   rank: number;
-  vx: number;
-  vz: number;
-};
+  evadeCooldown: number;
+  /** Newest intent the host applied to this body, and for how long (ms). Zero for bots. */
+  ack: number;
+  ackAge: number;
+  /** Signed sequence of the last evade processed: negative when refused. */
+  evade: number;
+  /** Bumps with every hit that shoved this body; `knockX/Z` is the shove it set. */
+  knockSeq: number;
+  knockX: number;
+  knockZ: number;
+  leap: LeapArc | null;
+  evasion: EvasionState | null;
+  melee: MeleeCue | null;
+  ranged: RangedCue | null;
+}
 
-export type NetBullet = {
-  style: ProjectileStyle;
-  x: number;
-  z: number;
-  dx: number;
-  dz: number;
-  /** Radius. */
-  r: number;
-  /** Colour as a hex int. */
-  c: number;
-  /** Fired by a super. */
-  s: boolean;
-  /** A melee swing (short fat shape). */
-  m: boolean;
-  /** Speed, so guests extrapolate between snapshots. */
-  v: number;
-  /** Range left before the shot dies (drives the fade). */
-  l: number;
-};
+export interface FrameState {
+  t: number;
+  seq: number;
+  gen: number;
+  rosterVersion: number;
+  phase: NetPhase;
+  /** Countdown seconds left while counting down, else match seconds. */
+  clock: number;
+  brawlers: BrawlerState[];
+}
 
-export type NetBomb = {
-  style: LobStyle;
-  x: number;
-  y: number;
-  z: number;
-  c: number;
-  s: boolean;
-  big: boolean;
-  /** Landing marker. */
-  tx: number;
-  tz: number;
-  /** Blast radius (marker scale). */
-  r: number;
-  /** 0 in flight → 1 as the fuse runs out. */
-  u: number;
-};
-
-export type NetBox = {
+export interface BoxState {
   /** Index into `world.boxSpots`. */
   i: number;
   hp: number;
-};
+}
 
-export type NetCube = { x: number; z: number };
+export interface CubeSpot {
+  x: number;
+  z: number;
+}
 
-export type NetGas = { half: number; round: number; active: boolean };
+/** Everything a promoted host needs to adopt the brawl. */
+export interface WorldState {
+  match: MatchState;
+  frame: FrameState;
+  boxes: BoxState[];
+  cubes: CubeSpot[];
+  broken: number[];
+}
 
-export type Snapshot = {
-  seq: number;
-  /** Match generation: bumps on every restart so guests rebuild. */
-  gen: number;
-  phase: NetPhase;
+// ── encoding (host) ──
+
+/** What the host reads off a brawler to write its row. */
+export interface RowSource {
+  readonly x: number;
+  readonly z: number;
+  facing: number;
+  hp: number;
+  alive: boolean;
+  inBush: boolean;
+  revealT: number;
+  ammo: number;
+  reloadT: number;
+  superCharge: number;
+  cubes: number;
+  kills: number;
+  rank: number;
+  evadeCooldown: number;
+  readonly ack: Pick<IntentAck, "age" | "seq">;
+  evadeResult: number;
+  knockSeq: number;
+  knockX: number;
+  knockZ: number;
+  leap: LeapArc | null;
+  evasion: EvasionState | null;
+  meleeCue: MeleeCue | null;
+  rangedCue: RangedCue | null;
+}
+
+export interface FrameSource {
+  readonly brawlers: readonly RowSource[];
+  generation: number;
+  state: string;
   countdownT: number;
   matchTime: number;
-  /** Hour of day on the host's clock. */
-  hour: number;
-  seed: number;
-  gas: NetGas;
-  brawlers: NetBrawler[];
-  bullets: NetBullet[];
-  bombs: NetBomb[];
-  boxes: NetBox[];
-  cubes: NetCube[];
-  /** Cumulative destroyed tile indices this match. */
-  broken: number[];
-  winner: string | null;
+}
+
+export interface IdentitySource {
+  readonly netId: string;
+  readonly owner: string | null;
+  readonly def: { readonly id: BrawlerId };
+  readonly name: string;
+  readonly hueShift: number;
+}
+
+const wrapAngle = (angle: number): number => Math.atan2(Math.sin(angle), Math.cos(angle));
+const scaled = (value: number, scale: number): number => Math.round(value * scale);
+
+const encodeRow = (b: RowSource, simMs: number): number[] => {
+  const row = [
+    scaled(b.x, POS),
+    scaled(b.z, POS),
+    scaled(wrapAngle(b.facing), ANGLE),
+    Math.max(0, Math.round(b.hp)),
+    (b.alive ? ALIVE : 0) + (b.inBush && b.revealT <= 0 ? CONCEALED : 0),
+    scaled(b.ammo + b.reloadT, UNIT),
+    scaled(b.superCharge, UNIT),
+    b.cubes,
+    b.kills,
+    b.rank,
+    scaled(b.evadeCooldown, UNIT),
+    b.ack.seq,
+    b.ack.age(simMs),
+    b.evadeResult,
+    b.knockSeq,
+    scaled(b.knockX, KNOCK),
+    scaled(b.knockZ, KNOCK),
+  ];
+  while (row.length > 0 && row.at(-1) === 0) {
+    row.pop();
+  }
+  return row;
 };
 
-const round2 = (n: number): number => Math.round(n * 100) / 100;
-const round3 = (n: number): number => Math.round(n * 1000) / 1000;
+const encodeCues = (brawlers: readonly RowSource[]): number[][] => {
+  const cues: number[][] = [];
+  for (const [i, b] of brawlers.entries()) {
+    const { evasion, leap, meleeCue, rangedCue } = b;
+    if (leap) {
+      cues.push([
+        i,
+        CUE_LEAP,
+        scaled(leap.t, MS),
+        scaled(leap.sx, POS),
+        scaled(leap.sz, POS),
+        scaled(leap.tx, POS),
+        scaled(leap.tz, POS),
+      ]);
+    }
+    if (evasion) {
+      cues.push([i, CUE_ROLL, scaled(evasion.angle, ANGLE), scaled(evasion.elapsed, MS)]);
+    }
+    if (meleeCue) {
+      cues.push([
+        i,
+        CUE_SWING,
+        scaled(meleeCue.angle, ANGLE),
+        scaled(meleeCue.elapsed, MS),
+        scaled(meleeCue.windup, MS),
+        scaled(meleeCue.recovery, MS),
+      ]);
+    }
+    if (rangedCue) {
+      cues.push([i, CUE_SHOT, scaled(rangedCue.elapsed, MS), rangedCue.isSuper ? 1 : 0]);
+    }
+  }
+  return cues;
+};
 
-const encodeBrawler = (b: Brawler): NetBrawler => ({
-  alive: b.alive,
-  ammo: round2(b.ammo),
-  bush: b.inBush && b.revealT <= 0,
-  charge: round3(b.superCharge),
-  cubes: b.cubes,
-  evadeAccepted: b.netTarget.evadeAccepted,
-  evadeAck: b.netTarget.evadeAck,
-  evadeCooldown: round3(b.evadeCooldown),
-  evasion: b.evasion
-    ? { angle: round3(b.evasion.angle), elapsed: round3(b.evasion.elapsed) }
-    : null,
-  facing: round3(b.facing),
-  hp: Math.round(b.hp),
-  hue: round3(b.hueShift),
-  id: b.netId,
-  kills: b.kills,
-  kit: b.def.id,
-  leap: b.leap
-    ? {
-        sx: round3(b.leap.sx),
-        sz: round3(b.leap.sz),
-        t: round3(b.leap.t),
-        tx: round3(b.leap.tx),
-        tz: round3(b.leap.tz),
-      }
-    : null,
-  maxHp: b.maxHp,
-  melee: b.meleeCue
-    ? {
-        angle: round3(b.meleeCue.angle),
-        elapsed: round3(b.meleeCue.elapsed),
-        recovery: round3(b.meleeCue.recovery),
-        windup: round3(b.meleeCue.windup),
-      }
-    : null,
-  name: b.name,
-  owner: b.owner,
-  ranged: b.rangedCue
-    ? { elapsed: round3(b.rangedCue.elapsed), isSuper: b.rangedCue.isSuper }
-    : null,
-  rank: b.rank,
-  vx: round2(b.vel.x),
-  vz: round2(b.vel.y),
-  x: round3(b.x),
-  y: round2(b.root.position.y),
-  z: round3(b.z),
-});
+const phaseIndex = (state: string): number => {
+  if (state === "countdown") {
+    return 0;
+  }
+  return state === "ended" ? 2 : 1;
+};
 
-const encodeBullet = (bullet: Bullet): NetBullet => ({
-  c: bullet.color.getHex(),
-  dx: round3(bullet.dx),
-  dz: round3(bullet.dz),
-  l: round2(bullet.range - bullet.travel),
-  m: bullet.melee,
-  r: bullet.radius,
-  s: bullet.isSuper,
-  style: bullet.a.style,
-  v: round2(bullet.speed),
-  x: round3(bullet.x),
-  z: round3(bullet.z),
-});
-
-const encodeBomb = (bomb: Bomb): NetBomb => {
-  const p = bomb.slot.group.position;
+/** One tick of the brawl. `t` is the host's wall clock, `simMs` its sim clock (for intent ages). */
+export const encodeFrame = (
+  source: FrameSource,
+  seq: number,
+  rosterVersion: number,
+  t: number,
+  simMs: number,
+): NetFrame => {
+  const p = phaseIndex(source.state);
   return {
-    big: bomb.a.big === true,
-    c: bomb.color.getHex(),
-    r: bomb.a.blast,
-    s: bomb.isSuper,
-    style: bomb.a.style,
-    tx: round3(bomb.tx),
-    tz: round3(bomb.tz),
-    u: bomb.landed ? round2(1 - clamp(bomb.fuse / bomb.a.fuse, 0, 1)) : 0,
-    x: round3(p.x),
-    y: round3(p.y),
-    z: round3(p.z),
+    b: source.brawlers.map((b) => encodeRow(b, simMs)),
+    c: scaled(p === 0 ? source.countdownT : source.matchTime, UNIT),
+    g: source.generation,
+    p,
+    q: encodeCues(source.brawlers),
+    s: seq,
+    t: Math.round(t),
+    v: rosterVersion,
   };
 };
 
-const encodeBoxes = (world: World, boxes: readonly LootBox[]): NetBox[] => {
-  const out: NetBox[] = [];
+export const encodeMatch = (
+  brawlers: readonly IdentitySource[],
+  gen: number,
+  seed: number,
+  winner: string | null,
+  rosterVersion: number,
+): NetMatch => ({
+  b: brawlers.map((b) => [b.netId, b.owner, b.def.id, b.name, scaled(b.hueShift, HUE)]),
+  g: gen,
+  seed,
+  v: rosterVersion,
+  w: winner,
+});
+
+/** Live boxes as flat `[spotIndex, hp, …]` pairs. */
+export const encodeBoxes = (
+  spots: readonly (readonly [number, number])[],
+  boxes: readonly { alive: boolean; hp: number; tx: number; ty: number }[],
+): number[] => {
+  const out: number[] = [];
   for (const box of boxes) {
     if (!box.alive) {
       continue;
     }
-    const i = world.boxSpots.findIndex(([tx, ty]) => tx === box.tx && ty === box.ty);
+    const i = spots.findIndex(([tx, ty]) => tx === box.tx && ty === box.ty);
     if (i !== -1) {
-      out.push({ hp: Math.round(box.hp), i });
+      out.push(i, Math.max(0, Math.round(box.hp)));
     }
   }
   return out;
 };
 
-const encodeCombat = (combat: Combat, world: World) => ({
-  bombs: combat.bombs.filter((bomb) => !bomb.done).map(encodeBomb),
-  boxes: encodeBoxes(world, combat.boxes),
-  bullets: combat.bullets.filter((bullet) => bullet.alive).map(encodeBullet),
-  cubes: combat.cubes.filter((cube) => cube.alive).map((cube) => ({ x: cube.x, z: cube.z })),
-});
-
-const netPhase = (game: Game): NetPhase => {
-  if (game.state === "countdown") {
-    return "countdown";
+/** Resting cubes as flat `[x, z, …]` pairs in centimetres. */
+export const encodeCubes = (
+  cubes: readonly { alive: boolean; x: number; z: number }[],
+): number[] => {
+  const out: number[] = [];
+  for (const cube of cubes) {
+    if (cube.alive) {
+      out.push(scaled(cube.x, POS), scaled(cube.z, POS));
+    }
   }
-  return game.state === "ended" ? "ended" : "playing";
+  return out;
 };
 
-export const encodeSnapshot = (game: Game, seq: number): Snapshot => ({
-  ...encodeCombat(game.combat, game.world),
-  brawlers: game.brawlers.map(encodeBrawler),
-  broken: [...game.world.broken],
-  countdownT: round3(game.countdownT),
-  gas: { active: game.gas.active, half: round3(game.gas.half), round: round3(game.gas.round) },
-  gen: game.generation,
-  hour: round3(game.lighting.time),
-  matchTime: round3(game.matchTime),
-  phase: netPhase(game),
-  seed: game.world.seed,
-  seq,
-  winner: game.winner,
-});
+// ── validation and decoding (guests, a promoted host) ──
+// Field by field: a malformed room state must never reach the sim.
 
-const isNetIdentity = (v: JsonObject): boolean =>
-  isStr(v["id"]) &&
-  (v["owner"] === null || isStr(v["owner"])) &&
-  isStr(v["kit"]) &&
-  isBrawlerId(v["kit"]) &&
-  isStr(v["name"]) &&
-  isNum(v["hue"]);
+const isCount = (v: JsonValue | undefined): v is number =>
+  isNum(v) && Number.isSafeInteger(v) && v >= 0;
 
-const isNetPose = (v: JsonObject): boolean =>
-  isNum(v["x"]) &&
-  isNum(v["z"]) &&
-  isNum(v["y"]) &&
-  isNum(v["facing"]) &&
-  isNum(v["vx"]) &&
-  isNum(v["vz"]) &&
-  isBool(v["bush"]);
+const isInteger = (v: JsonValue | undefined): v is number => isNum(v) && Number.isSafeInteger(v);
 
-const isNetVitals = (v: JsonObject): boolean =>
-  isNum(v["hp"]) &&
-  isNum(v["maxHp"]) &&
-  isNum(v["ammo"]) &&
-  isNum(v["charge"]) &&
-  isBool(v["alive"]) &&
-  isNum(v["cubes"]) &&
-  isNum(v["kills"]) &&
-  isNum(v["rank"]);
+const isNumbers = (v: JsonValue): v is number[] =>
+  Array.isArray(v) && v.every((n) => isNum(n) && Number.isSafeInteger(n));
 
-const isNetLeap = (v: JsonValue | undefined): v is NetLeap | null =>
-  v === null ||
-  (isObj(v) &&
-    isNum(v["t"]) &&
-    v["t"] >= 0 &&
-    isNum(v["sx"]) &&
-    isNum(v["sz"]) &&
-    isNum(v["tx"]) &&
-    isNum(v["tz"]));
+const isRow = (v: JsonValue): v is number[] => isNumbers(v) && v.length <= ROW_LENGTH;
 
-const isNetMelee = (v: JsonValue | undefined): v is NetMelee | null =>
-  v === null ||
-  (isObj(v) &&
-    isNum(v["angle"]) &&
-    Math.abs(v["angle"]) <= Math.PI + 0.001 &&
-    isNum(v["windup"]) &&
-    v["windup"] > 0 &&
-    v["windup"] <= 2 &&
-    isNum(v["recovery"]) &&
-    v["recovery"] >= 0 &&
-    v["recovery"] <= 2 &&
-    isNum(v["elapsed"]) &&
-    v["elapsed"] >= 0 &&
-    v["elapsed"] <= v["windup"] + v["recovery"] + 0.001);
+const isCueRow = (v: JsonValue): v is number[] => isNumbers(v) && v.length >= 3 && v.length <= 7;
 
-const isNetRanged = (v: JsonObject): boolean => {
-  const pose = v["ranged"];
-  if (pose === undefined || pose === null) {
-    return true;
+/** The wire frame's shape; rows are decoded against the roster by `decodeFrame`. */
+export const parseFrame = (v: JsonValue | undefined): NetFrame | null => {
+  if (!isObj(v)) {
+    return null;
   }
-  const { kit } = v;
-  if (!isObj(pose) || !isStr(kit) || !isBrawlerId(kit)) {
-    return false;
-  }
-  const { elapsed, isSuper } = pose;
-  if (!isNum(elapsed) || !isBool(isSuper)) {
-    return false;
-  }
-  const attack = isSuper ? BRAWLERS[kit].super : BRAWLERS[kit].attack;
-  return (
-    (attack.kind === "burst" || attack.kind === "spread" || attack.kind === "lob") &&
-    v["alive"] === true &&
-    v["evasion"] === null &&
-    v["leap"] === null &&
-    v["melee"] === null &&
-    elapsed >= 0 &&
-    elapsed <= rangedPoseDuration(kit, isSuper) + 0.001
-  );
-};
-
-const isNetEvasion = (v: JsonObject): boolean => {
-  const pose = v["evasion"];
-  const cooldown = v["evadeCooldown"];
-  const ack = v["evadeAck"];
+  const { b, c, g, p, q, s, t } = v;
+  const rosterVersion = v["v"];
   if (
-    !isNum(cooldown) ||
-    cooldown < 0 ||
-    cooldown > EVADE.cooldown + 0.001 ||
-    !isNum(ack) ||
-    !Number.isSafeInteger(ack) ||
-    ack < 0 ||
-    !isBool(v["evadeAccepted"]) ||
-    (ack === 0 && v["evadeAccepted"])
+    !isNum(t) ||
+    !isCount(s) ||
+    !isCount(g) ||
+    !isCount(rosterVersion) ||
+    !isCount(p) ||
+    p >= PHASES.length ||
+    !isInteger(c) ||
+    !Array.isArray(b) ||
+    b.length > MAX_ROSTER ||
+    !b.every((row) => isRow(row)) ||
+    !Array.isArray(q) ||
+    q.length > MAX_ROSTER * 4 ||
+    !q.every((cue) => isCueRow(cue))
   ) {
-    return false;
+    return null;
   }
-  return (
-    pose === null ||
-    (isObj(pose) &&
-      v["alive"] === true &&
-      v["leap"] === null &&
-      cooldown > 0 &&
-      isNum(pose["angle"]) &&
-      Math.abs(pose["angle"]) <= Math.PI + 0.001 &&
-      isNum(pose["elapsed"]) &&
-      pose["elapsed"] >= 0 &&
-      pose["elapsed"] <= EVADE.duration + 0.001)
-  );
+  return { b, c, g, p, q, s, t, v: rosterVersion };
 };
 
-const isNetBrawler = (v: JsonValue): v is NetBrawler =>
-  isObj(v) &&
-  isNetIdentity(v) &&
-  isNetPose(v) &&
-  isNetVitals(v) &&
-  isNetEvasion(v) &&
-  isNetRanged(v) &&
-  isNetMelee(v["melee"]) &&
-  (v["melee"] === null ||
-    (isStr(v["kit"]) && isBrawlerId(v["kit"]) && BRAWLERS[v["kit"]].attack.kind === "melee")) &&
-  isNetLeap(v["leap"]) &&
-  (v["leap"] === null ||
-    (isStr(v["kit"]) && isBrawlerId(v["kit"]) && BRAWLERS[v["kit"]].super.kind === "leap"));
+const parseIdentity = (v: JsonValue): Identity | null => {
+  if (!Array.isArray(v) || v.length !== 5) {
+    return null;
+  }
+  const [id, owner, kit, name, hue] = v;
+  if (
+    !isStr(id) ||
+    id.length > 64 ||
+    !(owner === null || isStr(owner)) ||
+    !isStr(kit) ||
+    !isBrawlerId(kit) ||
+    !isStr(name) ||
+    !isNum(hue)
+  ) {
+    return null;
+  }
+  return { hue: hue / HUE, id, kit, name: name.slice(0, MAX_NAME), owner };
+};
 
-const isNetBullet = (v: JsonValue): v is NetBullet =>
-  isObj(v) &&
-  (v["style"] === "arrow" ||
-    v["style"] === "bolt" ||
-    v["style"] === "spear" ||
-    v["style"] === "thorn") &&
-  isNum(v["x"]) &&
-  isNum(v["z"]) &&
-  isNum(v["dx"]) &&
-  isNum(v["dz"]) &&
-  isNum(v["r"]) &&
-  isNum(v["c"]) &&
-  isBool(v["s"]) &&
-  isBool(v["m"]) &&
-  isNum(v["v"]) &&
-  isNum(v["l"]);
+export const parseMatch = (v: JsonValue | undefined): MatchState | null => {
+  if (!isObj(v)) {
+    return null;
+  }
+  const { b, g, seed, w } = v;
+  const rosterVersion = v["v"];
+  if (
+    !isCount(g) ||
+    !isInteger(seed) ||
+    !(w === null || isStr(w)) ||
+    !isCount(rosterVersion) ||
+    !Array.isArray(b) ||
+    b.length > MAX_ROSTER
+  ) {
+    return null;
+  }
+  const roster: Identity[] = [];
+  for (const item of b) {
+    const identity = parseIdentity(item);
+    if (!identity) {
+      return null;
+    }
+    roster.push(identity);
+  }
+  return { gen: g, roster, rosterVersion, seed, winner: w };
+};
 
-const isNetBomb = (v: JsonValue): v is NetBomb =>
-  isObj(v) &&
-  (v["style"] === "fire" || v["style"] === "seed" || v["style"] === "potion") &&
-  isNum(v["x"]) &&
-  isNum(v["y"]) &&
-  isNum(v["z"]) &&
-  isNum(v["c"]) &&
-  isBool(v["s"]) &&
-  isBool(v["big"]) &&
-  isNum(v["tx"]) &&
-  isNum(v["tz"]) &&
-  isNum(v["r"]) &&
-  isNum(v["u"]);
+const slot = (row: readonly number[], i: number): number => row[i] ?? 0;
 
-const isNetBox = (v: JsonValue): v is NetBox => isObj(v) && isNum(v["i"]) && isNum(v["hp"]);
-const isNetCube = (v: JsonValue): v is NetCube => isObj(v) && isNum(v["x"]) && isNum(v["z"]);
-const isNetGas = (v: JsonValue | undefined): v is NetGas =>
-  isObj(v) && isNum(v["half"]) && isNum(v["round"]) && isBool(v["active"]);
-const isPhase = (v: JsonValue | undefined): v is NetPhase =>
-  v === "countdown" || v === "playing" || v === "ended";
+/** Flags are powers of two; read one without bitwise operators. */
+const hasFlag = (flags: number, flag: number): boolean => Math.floor(flags / flag) % 2 === 1;
 
-const allOf = <T extends JsonValue>(
-  v: JsonValue | undefined,
-  guard: (item: JsonValue) => item is T,
-): v is T[] => Array.isArray(v) && v.every((item) => guard(item));
+const decodeRow = (row: readonly number[]): BrawlerState | null => {
+  const x = slot(row, X) / POS;
+  const z = slot(row, Z) / POS;
+  const ammo = slot(row, AMMO) / UNIT;
+  const charge = slot(row, CHARGE) / UNIT;
+  const evadeCooldown = slot(row, EVADE_CD) / UNIT;
+  const knockX = slot(row, KNOCK_X) / KNOCK;
+  const knockZ = slot(row, KNOCK_Z) / KNOCK;
+  if (
+    Math.abs(x) > MAX_COORD ||
+    Math.abs(z) > MAX_COORD ||
+    slot(row, HP) < 0 ||
+    ammo < 0 ||
+    ammo > 3 ||
+    charge < 0 ||
+    charge > 1 ||
+    evadeCooldown < 0 ||
+    evadeCooldown > EVADE.cooldown + 0.01 ||
+    slot(row, ACK) < 0 ||
+    slot(row, ACK_AGE) < 0 ||
+    slot(row, KNOCK_SEQ) < 0 ||
+    Math.hypot(knockX, knockZ) > MAX_KNOCK
+  ) {
+    return null;
+  }
+  const flags = slot(row, FLAGS);
+  return {
+    ack: slot(row, ACK),
+    ackAge: slot(row, ACK_AGE),
+    alive: hasFlag(flags, ALIVE),
+    ammo: Math.floor(ammo),
+    charge,
+    concealed: hasFlag(flags, CONCEALED),
+    cubes: Math.max(0, slot(row, CUBES)),
+    evade: slot(row, EVADE_RESULT),
+    evadeCooldown,
+    evasion: null,
+    facing: slot(row, FACING) / ANGLE,
+    hp: slot(row, HP),
+    kills: Math.max(0, slot(row, KILLS)),
+    knockSeq: slot(row, KNOCK_SEQ),
+    knockX,
+    knockZ,
+    leap: null,
+    melee: null,
+    ranged: null,
+    rank: Math.max(0, slot(row, RANK)),
+    reload: ammo - Math.floor(ammo),
+    x,
+    z,
+  };
+};
 
-/** Field-by-field validation: a malformed room state must never reach the sim. */
-export const isSnapshot = (v: Snapshot | JsonValue | undefined): v is Snapshot =>
-  isObj(v) &&
-  isNum(v["seq"]) &&
-  isNum(v["gen"]) &&
-  isPhase(v["phase"]) &&
-  isNum(v["countdownT"]) &&
-  isNum(v["matchTime"]) &&
-  isNum(v["hour"]) &&
-  isNum(v["seed"]) &&
-  isNetGas(v["gas"]) &&
-  allOf(v["brawlers"], isNetBrawler) &&
-  allOf(v["bullets"], isNetBullet) &&
-  allOf(v["bombs"], isNetBomb) &&
-  allOf(v["boxes"], isNetBox) &&
-  allOf(v["cubes"], isNetCube) &&
-  allOf(v["broken"], isNum) &&
-  (v["winner"] === null || isStr(v["winner"]));
+const inArena = (...coords: number[]): boolean => coords.every((n) => Math.abs(n) <= MAX_COORD);
+const isAngle = (angle: number): boolean => Math.abs(angle) <= Math.PI + 0.01;
+
+const readLeap = (kit: BrawlerId, cue: readonly number[]): LeapArc | null => {
+  const leap = {
+    sx: slot(cue, 3) / POS,
+    sz: slot(cue, 4) / POS,
+    t: slot(cue, 2) / MS,
+    tx: slot(cue, 5) / POS,
+    tz: slot(cue, 6) / POS,
+  };
+  const { super: special } = BRAWLERS[kit];
+  const valid =
+    special.kind === "leap" &&
+    leap.t >= 0 &&
+    leap.t <= special.flight + 1 &&
+    inArena(leap.sx, leap.sz, leap.tx, leap.tz);
+  return valid ? leap : null;
+};
+
+const readRoll = (cue: readonly number[]): EvasionState | null => {
+  const evasion = { angle: slot(cue, 2) / ANGLE, elapsed: slot(cue, 3) / MS };
+  const valid =
+    isAngle(evasion.angle) && evasion.elapsed >= 0 && evasion.elapsed <= EVADE.duration + 0.002;
+  return valid ? evasion : null;
+};
+
+const readSwing = (kit: BrawlerId, cue: readonly number[]): MeleeCue | null => {
+  const melee = {
+    angle: slot(cue, 2) / ANGLE,
+    elapsed: slot(cue, 3) / MS,
+    recovery: slot(cue, 5) / MS,
+    windup: slot(cue, 4) / MS,
+  };
+  const valid =
+    BRAWLERS[kit].attack.kind === "melee" &&
+    isAngle(melee.angle) &&
+    melee.windup > 0 &&
+    melee.windup <= 2 &&
+    melee.recovery >= 0 &&
+    melee.recovery <= 2 &&
+    melee.elapsed >= 0 &&
+    melee.elapsed <= melee.windup + melee.recovery + 0.002;
+  return valid ? melee : null;
+};
+
+const readShot = (kit: BrawlerId, cue: readonly number[]): RangedCue | null => {
+  const ranged = { elapsed: slot(cue, 2) / MS, isSuper: slot(cue, 3) === 1 };
+  const def = BRAWLERS[kit];
+  const { kind } = ranged.isSuper ? def.super : def.attack;
+  const valid =
+    (kind === "burst" || kind === "spread" || kind === "lob") &&
+    ranged.elapsed >= 0 &&
+    ranged.elapsed <= rangedPoseDuration(kit, ranged.isSuper) + 0.002;
+  return valid ? ranged : null;
+};
+
+/** Fold one cue into its brawler, or false when it cannot belong there. */
+const applyCue = (state: BrawlerState, kit: BrawlerId, cue: readonly number[]): boolean => {
+  switch (slot(cue, 1)) {
+    case CUE_LEAP: {
+      state.leap = readLeap(kit, cue);
+      return state.leap !== null;
+    }
+    case CUE_ROLL: {
+      state.evasion = readRoll(cue);
+      return state.evasion !== null;
+    }
+    case CUE_SWING: {
+      state.melee = readSwing(kit, cue);
+      return state.melee !== null;
+    }
+    case CUE_SHOT: {
+      state.ranged = readShot(kit, cue);
+      return state.ranged !== null;
+    }
+    default: {
+      return false;
+    }
+  }
+};
+
+/** A pose the host can never hold together (a roll in mid-leap, a shot while dead). */
+const isCoherent = (state: BrawlerState): boolean =>
+  (state.evasion === null || (state.alive && state.leap === null)) &&
+  (state.ranged === null ||
+    (state.alive && state.evasion === null && state.leap === null && state.melee === null));
+
+/** Decode a frame against the roster it was written for; null when they do not belong together. */
+export const decodeFrame = (frame: NetFrame, match: MatchState): FrameState | null => {
+  if (
+    frame.g !== match.gen ||
+    frame.v !== match.rosterVersion ||
+    frame.b.length !== match.roster.length
+  ) {
+    return null;
+  }
+  const brawlers: BrawlerState[] = [];
+  for (const row of frame.b) {
+    const state = decodeRow(row);
+    if (!state) {
+      return null;
+    }
+    brawlers.push(state);
+  }
+  for (const cue of frame.q) {
+    const state = brawlers[slot(cue, 0)];
+    const identity = match.roster[slot(cue, 0)];
+    if (!state || !identity || !applyCue(state, identity.kit, cue)) {
+      return null;
+    }
+  }
+  if (!brawlers.every((state) => isCoherent(state))) {
+    return null;
+  }
+  return {
+    brawlers,
+    clock: frame.c / UNIT,
+    gen: frame.g,
+    phase: PHASES[frame.p] ?? "playing",
+    rosterVersion: frame.v,
+    seq: frame.s,
+    t: frame.t,
+  };
+};
+
+export const parseBoxes = (v: JsonValue | undefined): BoxState[] | null => {
+  if (!Array.isArray(v) || !isNumbers(v) || v.length % 2 !== 0) {
+    return null;
+  }
+  const boxes: BoxState[] = [];
+  for (let k = 0; k < v.length; k += 2) {
+    const i = slot(v, k);
+    const hp = slot(v, k + 1);
+    if (i < 0 || hp < 0) {
+      return null;
+    }
+    boxes.push({ hp, i });
+  }
+  return boxes;
+};
+
+export const parseCubes = (v: JsonValue | undefined): CubeSpot[] | null => {
+  if (!Array.isArray(v) || !isNumbers(v) || v.length % 2 !== 0) {
+    return null;
+  }
+  const cubes: CubeSpot[] = [];
+  for (let k = 0; k < v.length; k += 2) {
+    const x = slot(v, k) / POS;
+    const z = slot(v, k + 1) / POS;
+    if (!inArena(x, z)) {
+      return null;
+    }
+    cubes.push({ x, z });
+  }
+  return cubes;
+};
+
+export const parseBroken = (v: JsonValue | undefined): number[] | null =>
+  Array.isArray(v) && isNumbers(v) && v.every((i) => i >= 0) ? v : null;
+
+/** The room's shared state as one adoptable world, or null when any part is missing or malformed. */
+export const assembleWorld = (state: JsonObject): WorldState | null => {
+  const match = parseMatch(state["m"]);
+  const wire = parseFrame(state["f"]);
+  const frame = match && wire ? decodeFrame(wire, match) : null;
+  const boxes = parseBoxes(state["bx"] ?? []);
+  const cubes = parseCubes(state["cu"] ?? []);
+  const broken = parseBroken(state["br"] ?? []);
+  if (!match || !frame || !boxes || !cubes || !broken) {
+    return null;
+  }
+  return { boxes, broken, cubes, frame, match };
+};

@@ -443,7 +443,7 @@ export class Hud {
       !player.airborne &&
       !player.evasion &&
       player.evadeCooldown <= 0 &&
-      player.netTarget.evadePending === null,
+      !player.evadePending,
     );
     const status = `${percent}:${ready}`;
     if (status === this.lastEvade) {

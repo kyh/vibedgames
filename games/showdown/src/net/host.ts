@@ -1,18 +1,31 @@
 // Host-side roster: which humans hold seats, seating late arrivals during the
 // countdown, dropping leavers, feeding guests' intents through the same
-// brawler API the local player uses, and rebuilding the sim from the last
-// snapshot when this client is promoted to host.
+// brawler API the local player uses — recording which one each body last ran,
+// for the guest's time alignment — and rebuilding the sim from the room's
+// state when this client is promoted to host.
 import { BRAWLERS, TUNING } from "../config";
 import type { BrawlerId } from "../config";
 import { Brawler } from "../entities/brawler";
+import type { BrawlerDrive } from "../entities/brawler";
+import { leapPoint } from "../entities/movement";
 import type { Game } from "../game";
 import { cleanName } from "../hud-lobby";
-import type { BrawlerDrive } from "./interpolation";
-import { restoreNetEvasion } from "./interpolation";
+import { directionVector, lookAngle } from "./input-intent";
+import { maxHpFor } from "./interpolation";
 import { seatId } from "./protocol";
-import type { NetBrawler, Snapshot } from "./snapshot";
+import type { SequencedIntent } from "./protocol";
+import type { BrawlerState, Identity, WorldState } from "./snapshot";
 import { GRID } from "../world/grid";
 import { terrainHeight } from "../world/terrain";
+
+/** A remote evade may land this early on the host's cooldown: the guest's ran on its own clock (s). */
+const EVADE_GRACE = 0.1;
+
+/** Where a guest last saw its own body, kept across a promotion so the player does not jump. */
+export interface OwnPose {
+  x: number;
+  z: number;
+}
 
 export interface Pick {
   kit: BrawlerId;
@@ -46,35 +59,45 @@ export const onlineSeats = (game: Game): Seat[] => {
   return seats.slice(0, TUNING.bots + 1);
 };
 
-/** Build a brawler from a snapshot row, carrying every field the row holds. */
+/** Build a brawler from a roster identity and its frame row, carrying every field the row holds. */
 export const spawnFromNet = (
   game: Game,
-  n: NetBrawler,
+  identity: Identity,
+  n: BrawlerState,
   drive: BrawlerDrive,
   isLocal: boolean,
-  owner: string | null = n.owner,
+  owner: string | null = identity.owner,
 ): Brawler => {
-  const b = new Brawler(game, BRAWLERS[n.kit], {
+  const b = new Brawler(game, BRAWLERS[identity.kit], {
     drive,
-    hueShift: n.hue,
+    hueShift: identity.hue,
     isPlayer: isLocal,
-    name: n.name,
-    netId: n.id,
+    name: identity.name,
+    netId: identity.id,
     owner,
     x: n.x,
     z: n.z,
   });
-  b.root.position.y = n.leap ? n.y : terrainHeight(n.x, n.z);
-  b.netAir = drive !== "sim" && n.leap !== null;
-  if (drive === "sim" && n.leap && b.def.super.kind === "leap") {
-    b.leap = { ...n.leap, a: b.def.super };
+  b.root.position.y = terrainHeight(n.x, n.z);
+  const { super: special } = b.def;
+  if (n.leap && drive === "sim" && special.kind === "leap") {
+    // A promoted host finishes the leap from where the old host left it.
+    b.leap = { ...n.leap, a: special };
+    leapPoint(b.leap, special.flight, terrainHeight, b.root.position);
+  } else if (n.leap && drive === "puppet") {
+    b.netAir = true;
+    b.netLeap = { ...n.leap };
   }
   b.meleeCue = n.melee ? { ...n.melee } : null;
   b.rangedCue = n.alive && n.ranged ? { ...n.ranged } : null;
-  restoreNetEvasion(b, n);
+  b.evasion = n.alive && n.evasion ? { ...n.evasion } : null;
+  b.evadeCooldown = n.evadeCooldown;
+  b.evadeResult = n.evade;
+  b.knockSeq = n.knockSeq;
   b.hp = n.hp;
-  b.maxHp = n.maxHp;
+  b.maxHp = maxHpFor(b.def, n.cubes);
   b.ammo = n.ammo;
+  b.reloadT = n.reload;
   b.superCharge = n.charge;
   b.cubes = n.cubes;
   b.kills = n.kills;
@@ -158,8 +181,33 @@ export const reconcileSeats = (game: Game): void => {
   }
 };
 
-/** Drain the intent queue into picks and brawler actions. Guests only learn picks from it. */
-export const applyRemoteIntents = (game: Game): void => {
+/** Play one guest intent on its body; an evade's verdict is kept for the guest's row. */
+const applyIntent = (b: Brawler, intent: SequencedIntent): void => {
+  if (intent.kind === "evade") {
+    b.evadeResult = b.evade(intent.dx, intent.dz, EVADE_GRACE) ? intent.seq : -intent.seq;
+    return;
+  }
+  if (!b.alive) {
+    return;
+  }
+  if (intent.kind === "input") {
+    const move = directionVector(intent.dir);
+    b.moveX = move.x;
+    b.moveZ = move.z;
+    b.lookAngle = lookAngle(intent.look);
+  } else if (intent.kind === "attack") {
+    b.attack(intent.dx, intent.dz, intent.x, intent.z);
+  } else {
+    b.useSuper(intent.dx, intent.dz, intent.x, intent.z);
+  }
+};
+
+/**
+ * Drain the intent queue into picks and brawler actions. Guests only learn
+ * picks from it. `stepStartMs` is the sim time this step began: each body
+ * remembers the newest intent it ran and since when, which its row reports.
+ */
+export const applyRemoteIntents = (game: Game, stepStartMs: number): void => {
   const { session } = game;
   if (!session) {
     return;
@@ -174,32 +222,13 @@ export const applyRemoteIntents = (game: Game): void => {
       continue;
     }
     const b = humanBrawler(game, from);
-    if (!b) {
-      continue;
-    }
-    if (intent.kind === "evade") {
-      if (intent.seq > b.netTarget.evadeAck) {
-        b.netTarget.evadeAck = intent.seq;
-        b.netTarget.evadeAccepted = b.evade(intent.dx, intent.dz);
-      }
-      continue;
-    }
-    if (!b.alive) {
-      continue;
-    }
-    if (intent.kind === "input") {
-      b.moveX = intent.mx;
-      b.moveZ = intent.mz;
-      b.lookAngle = intent.look;
-    } else if (intent.kind === "attack") {
-      b.attack(intent.dx, intent.dz, intent.x, intent.z);
-    } else if (intent.kind === "super") {
-      b.useSuper(intent.dx, intent.dz, intent.x, intent.z);
+    if (b?.ack.take(intent.seq, stepStartMs)) {
+      applyIntent(b, intent);
     }
   }
 };
 
-const restoreLoot = (game: Game, snap: Snapshot): void => {
+const restoreLoot = (game: Game, snap: WorldState): void => {
   const { combat, world } = game;
   for (const i of snap.broken) {
     world.destroyTile(i % GRID, Math.floor(i / GRID));
@@ -220,63 +249,77 @@ const restoreLoot = (game: Game, snap: Snapshot): void => {
   }
 };
 
-const restorePhase = (game: Game, snap: Snapshot): void => {
-  game.generation = snap.gen;
-  game.winner = snap.winner;
-  game.matchTime = snap.matchTime;
-  game.countdownT = snap.countdownT;
+const restorePhase = (game: Game, world: WorldState): void => {
+  const { frame, match } = world;
+  game.generation = match.gen;
+  game.winner = match.winner;
   game.pendingResult = null;
   game.endT = 0;
-  if (snap.phase === "countdown") {
+  if (frame.phase === "countdown") {
     game.state = "countdown";
+    game.countdownT = frame.clock;
     game.lastCount = 4;
   } else {
-    game.state = snap.phase;
+    game.state = frame.phase;
+    game.matchTime = frame.clock;
     game.lastCount = 0;
   }
-  game.gas.update(0, snap.matchTime, false);
-  if (game.autoTime) {
-    game.lighting.setTime(snap.hour);
+  game.gas.update(0, game.matchTime, false);
+};
+
+/** Seat every roster entry as a sim body; a seat whose owner is gone gets a bot brain. */
+const restoreRoster = (
+  game: Game,
+  world: WorldState,
+  departed: string | null,
+  own: OwnPose | null,
+): void => {
+  const players = game.session?.players ?? {};
+  const me = game.session?.playerId ?? null;
+  for (const [i, identity] of world.match.roster.entries()) {
+    const n = world.frame.brawlers[i];
+    const { owner } = identity;
+    if (n) {
+      const present = owner !== null && owner !== departed && players[owner] !== undefined;
+      const isLocal = owner !== null && owner === me;
+      const state = isLocal && own && !n.leap ? { ...n, x: own.x, z: own.z } : n;
+      const b = spawnFromNet(game, identity, state, "sim", isLocal, present ? owner : null);
+      game.addBrawler(b, !present);
+      if (isLocal) {
+        game.adoptLocalSeat(b);
+      }
+    }
   }
 };
 
 /**
- * Promotion: rebuild the sim from the last snapshot in place. Seats whose owner
+ * Promotion: rebuild the sim from the room's state in place. Seats whose owner
  * is gone become bots so the brawl keeps its numbers; bullets and bombs in
  * flight are dropped. `departed` is the host we were following: the server's
  * election can land before its `player_left`, so it counts as gone regardless.
+ * `own` is where this client's predicted body stood — newer than the frame.
  */
-export const restoreFromSnapshot = (
+export const restoreFromWorld = (
   game: Game,
-  snap: Snapshot,
+  world: WorldState,
   departed: string | null = null,
+  own: OwnPose | null = null,
 ): void => {
-  const { session } = game;
-  const players = session?.players ?? {};
-  const me = session?.playerId ?? null;
   if (departed !== null) {
     game.picks.delete(departed);
   }
-  if (game.world.seed !== snap.seed) {
-    game.rebuildWorld(snap.seed);
+  if (game.world.seed !== world.match.seed) {
+    game.rebuildWorld(world.match.seed);
   }
   game.clearEntities();
   game.world.broken = [];
-  restoreLoot(game, snap);
-  for (const n of snap.brawlers) {
-    const ownerPresent = n.owner !== null && n.owner !== departed && players[n.owner] !== undefined;
-    const isLocal = n.owner !== null && n.owner === me;
-    const b = spawnFromNet(game, n, "sim", isLocal, ownerPresent ? n.owner : null);
-    game.addBrawler(b, !ownerPresent);
-    if (isLocal) {
-      game.adoptLocalSeat(b);
-    }
-  }
-  restorePhase(game, snap);
-  const own = game.player;
-  if (own && !own.alive) {
+  restoreLoot(game, world);
+  restoreRoster(game, world, departed, own);
+  restorePhase(game, world);
+  const { player } = game;
+  if (player && !player.alive) {
     // A guest promoted after falling still gets its result — and the restart button.
-    game.pendingResult = { rank: own.rank, t: 0.5, won: false };
+    game.pendingResult = { rank: player.rank, t: 0.5, won: false };
   }
   game.world.aoDirty = true;
   game.world.aoTimer = 0;

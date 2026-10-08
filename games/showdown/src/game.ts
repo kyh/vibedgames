@@ -4,12 +4,14 @@
 // through this object, so its public fields are the game's internal API.
 //
 // Online, the same object runs in one of three modes: the host steps the sim
-// exactly as solo does and broadcasts snapshots; a guest mirrors those
-// snapshots onto puppets and sends intents; "connecting" bridges the two.
+// exactly as solo does and broadcasts snapshots; a guest predicts its own body,
+// draws everyone else from those snapshots and sends intents; "connecting"
+// bridges the two.
 
 import * as THREE from "three";
 
 import { isOfflineRequested, pauseGame } from "@repo/embed";
+import { FixedRate } from "@vibedgames/multiplayer";
 
 import { Bot } from "./ai/bot";
 import { AimGuide } from "./aim-guide";
@@ -30,13 +32,13 @@ import { tick as tickDiagnostics } from "./diagnostics";
 import { Mercy } from "./polish/mercy";
 import { recordRun } from "./polish/best-run";
 import { GuestView } from "./net/guest";
-import { applyRemoteIntents, onlineSeats, reconcileSeats, restoreFromSnapshot } from "./net/host";
+import { applyRemoteIntents, onlineSeats, reconcileSeats, restoreFromWorld } from "./net/host";
 import type { Pick, Seat } from "./net/host";
-import { replayBatch, setRecorders } from "./net/presentation";
+import { setRecorders } from "./net/presentation";
 import type { FxRecord } from "./net/presentation";
 import { SNAPSHOT_HZ, seatId } from "./net/protocol";
 import { Session } from "./net/session";
-import { encodeSnapshot } from "./net/snapshot";
+import { encodeBoxes, encodeCubes, encodeFrame, encodeMatch } from "./net/snapshot";
 import { controlPlayer } from "./player-control";
 import { adaptQuality, benchmarkQuality } from "./quality-auto";
 import { Lighting } from "./render/lighting";
@@ -103,6 +105,8 @@ const MAX_STEP_S = 0.05;
 const MAX_CATCH_UP_S = 0.25;
 const OFFLINE_TOAST = "Couldn't reach the party server — playing vs bots";
 const GUEST_WAIT = "Waiting for the next brawl…";
+/** fx rows kept while a host cannot publish; past this the oldest are not worth sending. */
+const MAX_PENDING_FX = 400;
 
 /** Gives the brawl its own random stream off the map seed, apart from the world builder's. */
 const MATCH_SALT = 0x6d_61_74_63;
@@ -213,14 +217,24 @@ export class Game {
   winner: string | null = null;
   /** Every human's kit and name, keyed by player id, as announced by `join`. */
   readonly picks = new Map<string, Pick>();
+  /**
+   * The brawler presenting its own action right now (a shot, an evade, a
+   * swing). Hosting, fx recorded meanwhile name it, so the guest who controls
+   * it — and already showed the action when it predicted it — skips the copy.
+   */
+  fxActor: Brawler | null = null;
   /** The host id last seen on the wire; the one we were following when promoted. */
   private knownHostId: string | null = null;
   private onlineKit: BrawlerId = "dusty";
   private onlineName = "Player";
   private guest: GuestView | null = null;
   private netFx: FxRecord[] = [];
-  private snapAcc = 0;
+  /** Snapshot clock: a steady cadence however the frame rate wanders. */
+  private readonly netRate = new FixedRate(SNAPSHOT_HZ);
   private seqOut = 0;
+  /** Roster identity last published, and its version; frames name the version their rows follow. */
+  private rosterKey = "";
+  private rosterVersion = 0;
   private last: number;
   private warmup = WARMUP_FRAMES;
   private readonly onLoadProgress: ((progress: number, label: string) => void) | undefined;
@@ -331,9 +345,25 @@ export class Game {
       this.player.moveZ = 0;
       this.player.lookAngle = null;
     }
-    if (this.mode === "guest") {
-      this.session?.sendInput(0, 0);
-    }
+    this.netGuest?.link.steer(this.player, 0, 0, null);
+  }
+
+  /** The guest view while this client is a guest: how its own controls reach the host. */
+  get netGuest(): GuestView | null {
+    return this.mode === "guest" ? this.guest : null;
+  }
+
+  /** Run `present` as `actor`'s own doing (see `fxActor`). */
+  asActor(actor: Brawler, present: () => void): void {
+    const outer = this.fxActor;
+    this.fxActor = actor;
+    present();
+    this.fxActor = outer;
+  }
+
+  /** Seconds of countdown left before the brawl is on. */
+  get countdownLeft(): number {
+    return this.countdownT - COUNTDOWN_GO_S;
   }
 
   save(): void {
@@ -583,9 +613,10 @@ export class Game {
     if (!this.session) {
       return;
     }
-    setRecorders(this.effects, this.hud, null);
+    setRecorders(this.effects, this.hud, this.combat, null);
     this.guest?.reset();
     this.guest = null;
+    this.combat.ghosts = null;
     this.session.destroy();
     this.session = null;
     this.mode = "solo";
@@ -657,27 +688,34 @@ export class Game {
     if (!session) {
       return;
     }
+    // The predicted body is newer than any frame: the promoted host keeps it where the player sees it.
+    const own = this.guest?.ownPose ?? null;
     this.guest?.reset();
     this.guest = null;
+    this.combat.ghosts = null;
     this.mode = "host";
-    setRecorders(this.effects, this.hud, (row) => this.netFx.push(row));
+    setRecorders(this.effects, this.hud, this.combat, (row) => this.netFx.push(row), {
+      actor: () => (this.fxActor ? this.brawlers.indexOf(this.fxActor) : -1),
+      indexOf: (b) => this.brawlers.indexOf(b),
+    });
     this.netFx = [];
-    this.snapAcc = 0;
-    session.resetFxBaseline();
     // Intents queued while we were a guest belong to the old host's brawl.
     session.drainIntents();
-    const snap = session.readSnapshot();
-    if (snap) {
+    const world = session.readWorld();
+    if (world) {
       this.hud.showMenu(false);
       this.hud.hideResult();
-      this.seqOut = snap.seq;
-      restoreFromSnapshot(this, snap, departed);
+      this.seqOut = world.frame.seq;
+      this.rosterVersion = world.match.rosterVersion;
+      this.rosterKey = "";
+      restoreFromWorld(this, world, departed, own);
       setResultMode("host");
       setSpectateCopy(this.player ? null : "SPECTATING · you are in the next brawl");
     } else {
       this.startMatch(this.onlineKit);
     }
-    this.broadcast(1 / SNAPSHOT_HZ);
+    this.netRate.reset();
+    this.broadcast(true);
   }
 
   private becomeGuest(): void {
@@ -685,11 +723,12 @@ export class Game {
     if (!session) {
       return;
     }
-    setRecorders(this.effects, this.hud, null);
+    setRecorders(this.effects, this.hud, this.combat, null);
     this.clearEntities();
     this.mode = "guest";
     this.guest = new GuestView(this);
-    session.resetFxBaseline();
+    this.combat.ghosts = this.guest;
+    this.guest.ingest(session.baseline());
     this.hud.hideResult();
     setResultMode("guest");
     setResultWait(GUEST_WAIT);
@@ -890,9 +929,8 @@ export class Game {
   private present(dt: number): void {
     this.effects.update(dt);
     updateVisibility(this);
-    if (this.mode !== "guest") {
-      this.updateTime(dt);
-    }
+    // The hour follows match time, which guests keep in step with the host's frames.
+    this.updateTime(dt);
     updateCamera(this, dt);
     this.world.update(dt, this.elapsed);
     this.addDynamicLights();
@@ -908,6 +946,7 @@ export class Game {
 
   /** One authoritative sim step, shared by solo play and the host. */
   private stepSim(dt: number): void {
+    const stepStart = this.elapsed;
     this.elapsed += dt;
     if (this.state === "countdown") {
       this.updateCountdown(dt);
@@ -916,7 +955,7 @@ export class Game {
     }
     if (this.mode === "host") {
       reconcileSeats(this);
-      applyRemoteIntents(this);
+      applyRemoteIntents(this, stepStart * 1000);
     }
     controlPlayer(this);
     for (const brain of this.brains) {
@@ -954,6 +993,8 @@ export class Game {
       this.becomeGuest();
     } else if (this.mode === "guest" && session.isHost && !session.hasMalformedSnapshot) {
       this.becomeHost(previousHost === id ? null : previousHost);
+    } else if (this.mode === "guest" && previousHost !== null && session.hostId !== previousHost) {
+      this.guest?.hostChanged();
     }
     return true;
   }
@@ -985,18 +1026,31 @@ export class Game {
     this.present(dt);
   }
 
-  private broadcast(dt: number): void {
+  /** Publish one tick: the frame always, the slower keys when they changed (or `everything`). */
+  private broadcast(everything = false): void {
     const { session } = this;
     if (!session) {
       return;
     }
-    this.snapAcc += dt;
-    if (this.snapAcc < 1 / SNAPSHOT_HZ) {
-      return;
+    const key = `${this.generation}|${this.brawlers.map((b) => b.netId).join(",")}`;
+    if (key !== this.rosterKey) {
+      this.rosterKey = key;
+      this.rosterVersion += 1;
     }
-    this.snapAcc = 0;
     this.seqOut += 1;
-    session.broadcast(encodeSnapshot(this, this.seqOut), this.netFx);
+    const now = performance.now();
+    const frame = encodeFrame(this, this.seqOut, this.rosterVersion, now, this.elapsed * 1000);
+    const { world } = this;
+    const match = encodeMatch(
+      this.brawlers,
+      this.generation,
+      world.seed,
+      this.winner,
+      this.rosterVersion,
+    );
+    const boxes = encodeBoxes(world.boxSpots, this.combat.boxes);
+    const cubes = encodeCubes(this.combat.cubes);
+    session.publish({ boxes, broken: world.broken, cubes, frame, match }, this.netFx, everything);
     this.netFx = [];
   }
 
@@ -1014,9 +1068,13 @@ export class Game {
         this.startMatch(this.onlineKit);
       }
     }
-    this.broadcast(dt);
+    if (this.netFx.length > MAX_PENDING_FX) {
+      this.netFx.splice(0, this.netFx.length - MAX_PENDING_FX);
+    }
   }
 
+  // A guest's step: fold in what arrived, pose the remote bodies, then run the
+  // same sim step the host runs on our own body before the host's correction.
   private updateGuest(dt: number): void {
     const { session, guest } = this;
     session?.update(dt);
@@ -1024,27 +1082,28 @@ export class Game {
       return;
     }
     this.elapsed += dt;
-    applyRemoteIntents(this);
-    const snap = session.readSnapshot();
-    if (snap && snap.seq !== guest.seq) {
-      guest.apply(snap);
-      session.seq = snap.seq;
+    applyRemoteIntents(this, 0);
+    guest.prediction.beginStep(dt * 1000);
+    for (const arrival of session.takeArrivals()) {
+      guest.ingest(arrival);
     }
     if (!guest.hasWorld) {
       setNetStatus("Waiting for the host…");
       this.present(dt);
       return;
     }
-    if (this.state !== "countdown") {
-      this.matchTime += dt;
-    }
+    guest.update(dt, performance.now());
     controlPlayer(this);
     for (const b of this.brawlers) {
       b.update(dt);
     }
-    guest.update(dt);
+    guest.settle(dt);
+    guest.updateProjectiles(dt);
+    const gasWas = this.gas.active;
     this.gas.update(dt, this.matchTime, false);
-    replayBatch(this.effects, this.hud, session.takeFx(), this.localSeatId);
+    if (this.gas.active && !gasWas && this.state === "playing") {
+      this.announceGas();
+    }
     this.present(dt);
   }
 
@@ -1074,9 +1133,13 @@ export class Game {
     }
   }
 
-  /** The host owes the room wall-clock time: a long frame becomes several fixed sub-steps. */
+  /**
+   * Online play owes the room wall-clock time — the host for everyone's sim, a
+   * guest for the body it predicts against the host's — so a long frame
+   * becomes several sub-steps there; solo just clamps.
+   */
   private stepFrame(raw: number): void {
-    if (this.mode !== "host") {
+    if (this.mode !== "host" && this.mode !== "guest") {
       const dt = Math.min(MAX_STEP_S, Math.max(1e-4, raw));
       for (let i = 0; i < this.simSteps; i += 1) {
         this.update(dt);
@@ -1110,6 +1173,9 @@ export class Game {
     this.frameStats.triangles = info.render.triangles;
     info.reset();
     this.stepFrame(raw);
+    if (this.mode === "host" && this.netRate.due(raw * 1000)) {
+      this.broadcast();
+    }
     this.pipeline.render(dt);
     if (this.warmup > 0) {
       this.warmup -= 1;

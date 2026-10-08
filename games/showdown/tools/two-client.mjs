@@ -228,10 +228,16 @@ const run = async (base) => {
       const later = await status(guest.page);
       assert.ok(later.seq > first.seq, `guest snapshots advance (${first.seq} → ${later.seq})`);
       const bytes = await guest.page.evaluate(() => {
-        const { fx, snap } = window.__game.session.client.sharedState;
-        return { fx: JSON.stringify(fx ?? []).length, snap: JSON.stringify(snap).length };
+        const { f, fx, m } = window.__game.session.client.sharedState;
+        return {
+          frame: JSON.stringify(f).length,
+          fx: JSON.stringify(fx ?? []).length,
+          roster: JSON.stringify(m).length,
+        };
       });
-      console.log(`two-client: wire snapshot ${bytes.snap} B + fx ${bytes.fx} B per tick`);
+      console.log(
+        `two-client: wire frame ${bytes.frame} B + fx ${bytes.fx} B per tick; roster ${bytes.roster} B on change`,
+      );
       await until(
         host.page,
         () => window.__game.session.playerCount === 2,

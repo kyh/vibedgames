@@ -21,6 +21,8 @@ import type { LootBoxTextures } from "./textures";
 export interface Bullet {
   a: ProjectileAttack;
   alive: boolean;
+  /** Host-assigned id, so a guest can drop its copy when this one stops short. */
+  netId: number;
   color: THREE.Color;
   damage: number;
   dx: number;
@@ -95,6 +97,33 @@ export interface Cube {
   t: number;
   x: number;
   z: number;
+}
+
+/**
+ * Where a guest's own predicted shots go: drawn and flown locally the frame
+ * the button is pressed, never simulated — the host's copies decide hits.
+ */
+export interface GhostSink {
+  bullet: (
+    owner: Brawler,
+    x: number,
+    z: number,
+    dx: number,
+    dz: number,
+    attack: ProjectileAttack,
+    isSuper: boolean,
+    speed: number,
+  ) => void;
+  bomb: (
+    owner: Brawler,
+    sx: number,
+    sy: number,
+    sz: number,
+    tx: number,
+    tz: number,
+    attack: LobAttack,
+    isSuper: boolean,
+  ) => void;
 }
 
 const BOMB_POOL_SIZE = 14;
@@ -246,7 +275,7 @@ const blastBrawlers = (
       const force = attack.knockback * (1 - (d / (blast + 0.5)) * 0.5);
       const nx = d > 0.01 ? (target.x - x) / d : 1;
       const nz = d > 0.01 ? (target.z - z) / d : 0;
-      target.knock.set(nx * force, nz * force);
+      target.applyKnock(nx * force, nz * force);
     }
   }
 };
@@ -265,6 +294,13 @@ export class Combat {
   cubeGeo: THREE.OctahedronGeometry;
   cubeMat: THREE.MeshStandardMaterial;
   cubeLight: THREE.Color;
+  /** Set on a guest: projectiles spawned by its predicted body are drawn there instead. */
+  ghosts: GhostSink | null = null;
+  /** While hosting, every projectile spawn — and every bullet that stops short — is written for guests. */
+  shotRecorder: ((bullet: Bullet) => void) | null = null;
+  lobRecorder: ((bomb: Bomb) => void) | null = null;
+  goneRecorder: ((bullet: Bullet) => void) | null = null;
+  private nextBulletId = 1;
 
   constructor(game: Game) {
     this.game = game;
@@ -424,11 +460,15 @@ export class Combat {
     isSuper: boolean,
     speed: number,
   ): void {
+    if (this.ghosts) {
+      this.ghosts.bullet(owner, x, z, dx, dz, attack, isSuper, speed);
+      return;
+    }
     if (this.bullets.length >= MAX_BULLETS) {
       return;
     }
     const color = owner.bulletColor(isSuper).clone();
-    this.bullets.push({
+    const bullet: Bullet = {
       a: attack,
       alive: true,
       color,
@@ -438,6 +478,7 @@ export class Combat {
       hitTargets: new Set(),
       isSuper,
       melee: false,
+      netId: this.nextBulletId,
       owner,
       radius: attack.radius,
       range: attack.range,
@@ -446,7 +487,10 @@ export class Combat {
       travel: 0,
       x,
       z,
-    });
+    };
+    this.nextBulletId += 1;
+    this.bullets.push(bullet);
+    this.shotRecorder?.(bullet);
   }
 
   spawnBomb(
@@ -459,6 +503,10 @@ export class Combat {
     attack: LobAttack,
     isSuper: boolean,
   ): void {
+    if (this.ghosts) {
+      this.ghosts.bomb(owner, sx, sy, sz, tx, tz, attack, isSuper);
+      return;
+    }
     const slot = this.bombPool.find((candidate) => !candidate.busy);
     if (!slot) {
       return;
@@ -476,7 +524,7 @@ export class Combat {
     const markerColor = isSuper ? SUPER_MARKER_COLOR : MARKER_COLOR;
     slot.ring.material.color.set(markerColor);
     slot.fillDisc.material.color.set(markerColor);
-    this.bombs.push({
+    const bomb: Bomb = {
       a: attack,
       color: owner.bulletColor(isSuper).clone(),
       damage: attack.damage * owner.damageMul,
@@ -492,7 +540,9 @@ export class Combat {
       t: 0,
       tx,
       tz,
-    });
+    };
+    this.bombs.push(bomb);
+    this.lobRecorder?.(bomb);
   }
 
   breakTile(tx: number, ty: number): void {
@@ -556,6 +606,21 @@ export class Combat {
     if (attack.breaksWalls) {
       this.breakWallsAround(x, z, blast);
     }
+    // The owner's guest already showed its own landing or bomb going off.
+    game.asActor(owner, () => this.showBlast(x, z, attack, owner, isSuper, slam));
+  }
+
+  /** A blast's look, shake and sound without its damage — what a guest shows for its own. */
+  showBlast(
+    x: number,
+    z: number,
+    attack: BlastAttack,
+    owner: Brawler,
+    isSuper: boolean,
+    slam = false,
+  ): void {
+    const { game } = this;
+    const { blast } = attack;
     const big = attack.big === true;
     const color = owner.bulletColor(isSuper);
     if (slam) {
@@ -598,6 +663,10 @@ export class Combat {
     for (const bullet of this.bullets) {
       advanceBullet(this, bullet, dt);
       if (!bullet.alive) {
+        // Guests fly every bullet to its full range themselves; only a short stop is news.
+        if (bullet.travel < bullet.range) {
+          this.goneRecorder?.(bullet);
+        }
         continue;
       }
       const thorn = bullet.a.style === "thorn";

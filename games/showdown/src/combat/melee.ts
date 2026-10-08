@@ -2,6 +2,7 @@ import { BRAWLER_RADIUS } from "../config";
 import type { MeleeAttack } from "../config";
 import type { Brawler } from "../entities/brawler";
 import { meleeFollowTime } from "../entities/melee-pose";
+import type { Game } from "../game";
 import type { World } from "../world/world";
 import type { Combat } from "./combat";
 
@@ -53,6 +54,28 @@ export const meleeReaches = (
   );
 };
 
+/** A sweep's arc of light — all a guest shows for its own swing before the host resolves it. */
+export const showSlash = (
+  game: Pick<Game, "effects" | "world">,
+  owner: Pick<Brawler, "x" | "z" | "bulletColor">,
+  attack: MeleeAttack,
+  dx: number,
+  dz: number,
+  isSuper: boolean,
+): void => {
+  game.effects.slash(
+    owner.x,
+    game.world.heightAt(owner.x, owner.z) + 0.72,
+    owner.z,
+    Math.atan2(dx, dz),
+    attack.range,
+    attack.arc,
+    owner.bulletColor(isSuper),
+    isSuper,
+    meleeFollowTime(attack.style, attack.recovery),
+  );
+};
+
 /** Resolve one weapon sweep once. Capture cover before destroying anything. */
 export const swingMelee = (
   combat: Combat,
@@ -99,17 +122,8 @@ export const swingMelee = (
     }
   }
   const color = owner.bulletColor(isSuper);
-  effects.slash(
-    owner.x,
-    world.heightAt(owner.x, owner.z) + 0.72,
-    owner.z,
-    Math.atan2(dx, dz),
-    attack.range,
-    attack.arc,
-    color,
-    isSuper,
-    meleeFollowTime(attack.style, attack.recovery),
-  );
+  // The swinger's guest drew this arc itself when its own swing landed.
+  game.asActor(owner, () => showSlash(game, owner, attack, dx, dz, isSuper));
   for (const target of targets) {
     const dealt = target.takeDamage(attack.damage * owner.damageMul, owner);
     if (dealt <= 0) {
@@ -117,7 +131,7 @@ export const swingMelee = (
     }
     const distance = Math.hypot(target.x - owner.x, target.z - owner.z) || 1;
     const force = attack.knockback ?? 2;
-    target.knock.set(
+    target.applyKnock(
       ((target.x - owner.x) / distance) * force,
       ((target.z - owner.z) / distance) * force,
     );
