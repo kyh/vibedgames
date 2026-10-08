@@ -10,23 +10,22 @@ export { Reconciler } from "./prediction.js";
 export type { Correction, ReconcilerOptions } from "./prediction.js";
 
 export type {
-  MultiplayerOptions,
+  ClientMessage,
   MultiplayerConnectionStatus,
+  MultiplayerOptions,
   Player,
   PlayerMap,
-  ClientMessage,
   SendEventOptions,
   ServerMessage,
 } from "./types.js";
 export {
-  ROOM_CAP_QUERY_PARAM,
-  RECONNECT_TOKEN_QUERY_PARAM,
-  RECONNECT_GRACE_MS,
-  DELTA_PATCH_QUERY_PARAM,
+  EVICTION_TIMEOUT_MS,
   HEARTBEAT_INTERVAL_MS,
   HOST_LIVENESS_TIMEOUT_MS,
   PING_INTERVAL_MS,
-  EVICTION_TIMEOUT_MS,
+  RECONNECT_GRACE_MS,
+  RECONNECT_TOKEN_QUERY_PARAM,
+  ROOM_CAP_QUERY_PARAM,
 } from "./types.js";
 
 export type {

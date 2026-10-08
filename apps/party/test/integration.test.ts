@@ -191,10 +191,11 @@ test("per-player state propagates to other clients", async () => {
 
 // -- Wire-level helpers -------------------------------------------------------
 //
-// Some behaviors are only observable at the wire (per-recipient delta vs full
-// snapshots) or require a client the SDK deliberately doesn't expose (legacy
-// pre-delta clients, abrupt non-1000 closes, a chosen reconnect token). A
-// minimal raw-WebSocket client covers those; everything else uses the real SDK.
+// Some behaviors are only observable at the wire (per-recipient deltas, what
+// the server never sends) or require a client the SDK deliberately doesn't
+// expose (no reconnect token, abrupt non-1000 closes, a chosen reconnect
+// token). A minimal raw-WebSocket client covers those; everything else uses
+// the real SDK.
 
 /** JSON off the wire, typed as data rather than left `unknown`. */
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
@@ -231,13 +232,15 @@ const parseWireMessage = (raw: string): WireMessage => {
 /**
  * Raw wire client speaking the party protocol directly. `_pk` is partyserver's
  * connection-id query param (PartySocket sends one too), so tests can pick
- * stable player ids for it. Auto-answers server pings so a long test never
- * gets a raw client evicted.
+ * stable player ids for it. A reconnect token is derived from it unless one is
+ * given (`_reconnectToken: ""` sends none). Auto-answers server pings so a
+ * long test never gets a raw client evicted.
  */
 class RawClient {
   readonly messages: WireMessage[] = [];
   readonly id: string;
   closed = false;
+  closeCode: number | null = null;
   private ws: WebSocket;
 
   constructor(room: string, params: Record<string, string>) {
@@ -246,10 +249,14 @@ class RawClient {
       throw new Error("RawClient requires an explicit _pk connection id");
     }
     this.id = id;
-    const query = new URLSearchParams(params).toString();
+    const withToken = { _reconnectToken: `tok-${id}`, ...params };
+    const query = new URLSearchParams(
+      Object.entries(withToken).filter(([, value]) => value !== ""),
+    ).toString();
     this.ws = new WebSocket(`ws://${worker.host}/parties/vg-server/${room}?${query}`);
-    this.ws.addEventListener("close", () => {
+    this.ws.addEventListener("close", (event) => {
       this.closed = true;
+      this.closeCode = event.code;
     });
     this.ws.addEventListener("message", (event) => {
       const text = event.data;
@@ -286,7 +293,7 @@ class RawClient {
 
 test("the host's own state_patch is relayed to guests but never echoed back to it", async () => {
   const room = uniqueRoom("no-echo");
-  const rawHost = new RawClient(room, { _delta: "1", _pk: `echo-host-${process.pid}` });
+  const rawHost = new RawClient(room, { _pk: `echo-host-${process.pid}` });
   const guest = connect(room);
   try {
     await waitFor(() => rawHost.synced(), "raw host synced");
@@ -451,50 +458,31 @@ test("a dropped player is held in grace, reclaimed by token, and a 1000-close le
   }
 });
 
-test("delta-capable clients get keyed deltas; legacy clients get full snapshots and can still write", async () => {
+test("player state fans out as keyed deltas; a client with no reconnect token is refused", async () => {
   const room = uniqueRoom("deltas");
-  const legacy = new RawClient(room, { _pk: `leg-${process.pid}` });
-  const modern = new RawClient(room, {
-    _delta: "1",
-    _pk: `mod-${process.pid}`,
-    _reconnectToken: `tok-mod-${process.pid}`,
-  });
+  const observer = new RawClient(room, { _pk: `obs-${process.pid}` });
   const sdk = connect(room);
   try {
-    await waitFor(
-      () => legacy.synced() && modern.synced() && admitted(sdk),
-      "all three clients in the room",
-    );
+    await waitFor(() => observer.synced() && admitted(sdk), "both clients in the room");
     const sdkId = sdk.playerId;
     assert.ok(sdkId !== null);
 
     sdk.updateMyState({ x: 1, y: 2 });
     sdk.updateMyState({ y: 3 });
-
-    const statesFor = (client: RawClient): JsonRecord[] =>
-      client
+    const states = (): JsonRecord[] =>
+      observer
         .received("player_state")
         .filter((data) => data.id === sdkId)
         .map((data) => toRecord(data.state));
-    await waitFor(
-      () => statesFor(legacy).length === 2 && statesFor(modern).length === 2,
-      "both observers saw two player_state messages",
-    );
+    await waitFor(() => states().length === 2, "observer saw two player_state messages");
+    assert.deepEqual(states()[1], { y: 3 }, "the second message carried only the changed key");
 
-    // Second update changed only `y`. A legacy observer must still get the
-    // full merged snapshot; a delta-capable one gets just the changed key.
-    assert.deepEqual(statesFor(legacy)[1], { x: 1, y: 3 }, "legacy got the full merged snapshot");
-    assert.deepEqual(statesFor(modern)[1], { y: 3 }, "delta client got only the changed key");
-
-    // A legacy client's full-state write still round-trips.
-    legacy.send({ data: { a: 1, b: 2 }, type: "player_state_patch" });
-    await waitFor(() => {
-      const seen = sdk.players[legacy.id]?.state;
-      return seen !== undefined && seen.a === 1 && seen.b === 2;
-    }, "SDK client sees the legacy client's state");
+    const tokenless = new RawClient(room, { _pk: `anon-${process.pid}`, _reconnectToken: "" });
+    await waitFor(() => tokenless.closed, "tokenless client closed");
+    assert.equal(tokenless.closeCode, 4002, "closed as reconnect_token_required");
+    assert.equal(tokenless.synced(), false, "never admitted");
   } finally {
-    legacy.close(1000);
-    modern.close(1000);
+    observer.close(1000);
     sdk.destroy();
   }
 });

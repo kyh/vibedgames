@@ -13,7 +13,6 @@ import type {
 } from "./types.js";
 import {
   HEARTBEAT_INTERVAL_MS,
-  DELTA_PATCH_QUERY_PARAM,
   RECONNECT_TOKEN_QUERY_PARAM,
   ROOM_CAP_QUERY_PARAM,
 } from "./types.js";
@@ -278,14 +277,14 @@ export class MultiplayerClient {
     }
   }
 
-  /** Query params sent on every (re)connect: reconnect token, capability
-   *  flags, and the effective cap. */
+  /** Query params sent on every (re)connect: reconnect token and the
+   *  effective cap. */
   private connectionQuery() {
-    const base = {
+    // PartySocket leaves nil params out of the URL.
+    return {
       [RECONNECT_TOKEN_QUERY_PARAM]: this.reconnectToken,
-      [DELTA_PATCH_QUERY_PARAM]: "1",
+      [ROOM_CAP_QUERY_PARAM]: this.cap === null ? undefined : String(this.cap),
     };
-    return this.cap === null ? base : { ...base, [ROOM_CAP_QUERY_PARAM]: String(this.cap) };
   }
 
   /**
@@ -728,12 +727,10 @@ export class MultiplayerClient {
   }
 
   /**
-   * Merge a player-state message: a keyed delta from a delta-capable server,
-   * the full merged snapshot from an older one — shallow-merging handles both,
-   * because keys are only ever merged, never deleted, so a full snapshot is a
-   * superset of the local mirror. The schema check runs on the MERGED result,
-   * mirroring the sharedState path: a delta is partial by design and would
-   * fail any schema with required fields.
+   * Merge a player-state message: a keyed delta, shallow-merged because keys
+   * are only ever merged, never deleted. The schema check runs on the MERGED
+   * result, mirroring the sharedState path: a delta is partial by design and
+   * would fail any schema with required fields.
    */
   private mergePlayerState(id: string, state: JsonRecord): void {
     const existing = this._players[id] ?? { id };

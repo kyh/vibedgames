@@ -8,7 +8,6 @@ import {
   HOST_LIVENESS_TIMEOUT_MS,
   MAX_MESSAGE_BYTES,
   PING_INTERVAL_MS,
-  DELTA_PATCH_QUERY_PARAM,
   RECONNECT_GRACE_MS,
   RECONNECT_TOKEN_QUERY_PARAM,
   ROOM_CAP_QUERY_PARAM,
@@ -38,7 +37,7 @@ const asStateMap = (value: JsonValue | undefined): StateMap | undefined =>
  * A client message decoded at the wire boundary. Patch payloads stay raw
  * (`JsonValue`) here — the structural guard that accepts or drops them runs in
  * the handler so its logging stays with the decision. Unrecognized frames
- * still count as liveness, mirroring the historical behavior.
+ * still count as liveness.
  */
 type IncomingMessage =
   | { type: "state_patch"; data: JsonValue | undefined }
@@ -109,11 +108,7 @@ const decodeIncoming = (raw: JsonValue): IncomingMessage => {
  *   pongs, so a backgrounded host loses the host role but keeps its seat.
  * - `token`: the client's secret reconnection token (query param), kept so a
  *   transport drop can park the seat in the grace map keyed by something only
- *   the owner knows. Absent for pre-grace clients, which get the old
- *   remove-on-close behaviour. Never sent to peers.
- * - `delta`: whether the client advertised delta-patch capability on connect.
- *   Optional because attachments written by an older deploy (hibernating
- *   sockets survive deploys) predate the field; absent means full snapshots.
+ *   the owner knows. Never sent to peers.
  */
 interface Presence {
   id: string;
@@ -121,8 +116,7 @@ interface Presence {
   hue: string;
   seenAt: number;
   aliveAt: number;
-  token?: string;
-  delta?: boolean;
+  token: string;
 }
 
 /**
@@ -205,15 +199,11 @@ const readRoomCap = (ctx: ConnectionContext): number | null => {
   return Math.min(parsed, HARD_ROOM_CAP);
 };
 
-/** Read the client's reconnection token, if it sent one (post-grace SDKs do). */
+/** Read the client's reconnection token. Every SDK client sends one. */
 const readReconnectToken = (ctx: ConnectionContext): string | null => {
   const raw = searchParam(ctx, RECONNECT_TOKEN_QUERY_PARAM);
   return raw && raw.length > 0 ? raw : null;
 };
-
-/** Whether the client advertised delta-patch capability (absent = full snapshots). */
-const readDeltaCapable = (ctx: ConnectionContext): boolean =>
-  searchParam(ctx, DELTA_PATCH_QUERY_PARAM) === "1";
 
 export class VgServer extends Server {
   /**
@@ -480,11 +470,17 @@ export class VgServer extends Server {
   }
 
   async onConnect(connection: Connection<Presence>, ctx: ConnectionContext) {
+    // Every SDK client presents a reconnection token; without one there is no
+    // seat to hold across a drop, and nothing else in the room can work.
+    const token = readReconnectToken(ctx);
+    if (!token) {
+      connection.close(4002, "reconnect_token_required");
+      return;
+    }
     // A returning token reclaims its held seat: that seat already counts
     // against the cap, so a reclaim is never bounced to overflow — it is the
     // same player sitting back down, not a new admission.
-    const token = readReconnectToken(ctx);
-    const reclaimed = token ? this.grace.get(token) : undefined;
+    const reclaimed = this.grace.get(token);
     if (reclaimed) {
       await this.consumeGrace(reclaimed);
     }
@@ -525,11 +521,10 @@ export class VgServer extends Server {
     const presence: Presence = {
       aliveAt: now,
       color,
-      delta: readDeltaCapable(ctx),
       hue,
       id: connection.id,
       seenAt: now,
-      token: token ?? undefined,
+      token,
     };
     connection.setState(presence);
     // Seat state: a reclaim resumes the held snapshot; a plain reconnect under
@@ -610,26 +605,7 @@ export class VgServer extends Server {
           }
           const next = { ...this.snapshots.get(sender.id), ...patch };
           this.snapshots.set(sender.id, next);
-          // Fan out per recipient capability: delta-capable clients
-          // shallow-merge `player_state`, so they only need the keys this
-          // patch changed; older clients replace it wholesale and must get the
-          // full merged snapshot. Each variant is serialized at most once.
-          let deltaMessage: string | null = null;
-          let fullMessage: string | null = null;
-          this.sendToEach((connection) => {
-            if (connection.id === sender.id) {
-              return null;
-            }
-            return connection.state?.delta
-              ? (deltaMessage ??= JSON.stringify({
-                  data: { id: sender.id, state: patch },
-                  type: "player_state",
-                } satisfies ServerMessage))
-              : (fullMessage ??= JSON.stringify({
-                  data: { id: sender.id, state: next },
-                  type: "player_state",
-                } satisfies ServerMessage));
-          });
+          this.relayPlayerState(sender, patch);
           break;
         }
         case "state_patch": {
@@ -723,6 +699,15 @@ export class VgServer extends Server {
     );
   }
 
+  /** Fan a player-state patch out: the keyed delta to everyone but the sender. */
+  private relayPlayerState(sender: Connection<Presence>, patch: StateMap): void {
+    const delta = JSON.stringify({
+      data: { id: sender.id, state: patch },
+      type: "player_state",
+    } satisfies ServerMessage);
+    this.sendToEach((connection) => (connection.id === sender.id ? null : delta));
+  }
+
   onClose(connection: Connection<Presence>, code: number) {
     // 1000 is the SDK's deliberate `destroy()` — an on-purpose leave, so the
     // seat is vacated immediately. Anything else (1006 dropped transport, 1005
@@ -746,11 +731,10 @@ export class VgServer extends Server {
   }
 
   /**
-   * A connection died. If the client presented a reconnection token, park the
-   * seat in the grace map for RECONNECT_GRACE_MS instead of removing the player
-   * — a network blip becomes "reconnecting…" rather than a leave that wipes
-   * per-player state and (accidentally) reshuffles the host. Pre-grace clients
-   * keep the old immediate removal.
+   * A connection died: park the seat in the grace map for RECONNECT_GRACE_MS
+   * instead of removing the player — a network blip becomes "reconnecting…"
+   * rather than a leave that wipes per-player state and (accidentally)
+   * reshuffles the host.
    */
   private async departPlayer(connection: Connection<Presence>): Promise<void> {
     const presence = connection.state;
@@ -768,13 +752,8 @@ export class VgServer extends Server {
       }
     }
 
-    const { token } = presence;
-    if (!token) {
-      await this.removePlayer(connection);
-      return;
-    }
-
     const now = Date.now();
+    const { token } = presence;
     const entry: GraceEntry = {
       color: presence.color,
       disconnectedAt: now,
@@ -933,7 +912,7 @@ export class VgServer extends Server {
     // Matching by player id would let anyone destroy a held seat: ids are
     // public (broadcast to every peer), so a rogue client could join under the
     // ghost's id and cleanly leave, reaping a seat it never held.
-    const held = presence.token ? this.grace.get(presence.token) : undefined;
+    const held = this.grace.get(presence.token);
     if (held) {
       await this.consumeGrace(held);
     }

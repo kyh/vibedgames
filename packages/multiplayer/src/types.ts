@@ -53,18 +53,6 @@ export const RECONNECT_TOKEN_QUERY_PARAM = "_reconnectToken";
  */
 export const RECONNECT_GRACE_MS = 30_000;
 
-/**
- * Query-string key (sent as `_delta=1`) advertising that this client sends
- * keyed deltas in its `*_patch` messages and shallow-merges incoming
- * `player_state` payloads, so the server can fan out only the changed keys to
- * it. A connection without the param is an older published SDK: it replaces
- * `player_state` wholesale, so the server must keep sending it the full
- * merged snapshot. Both kinds coexist in one room. A per-capability flag, not
- * a protocol version — every wire extension here is feature-detected
- * (`to`/`except`, `connected`, this), so growth stays additive.
- */
-export const DELTA_PATCH_QUERY_PARAM = "_delta";
-
 export type MultiplayerConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
 
 export type PlayerState<T = JsonRecord> = T;
@@ -77,8 +65,7 @@ export interface Player {
   /**
    * False while the player's transport is down but their seat is being held
    * for a reconnect (see RECONNECT_GRACE_MS) — render a "reconnecting…"
-   * treatment instead of removing them. Absent on servers that predate
-   * reconnection grace; treat missing as connected.
+   * treatment instead of removing them.
    */
   connected?: boolean;
 }
@@ -100,9 +87,7 @@ export type PlayerMap = Record<string, Player>;
  *   Use for high-frequency annotations (damage numbers, cursor pings) where
  *   only the latest value matters.
  *
- * Targeting is enforced by the party server; a server predating it ignores
- * those fields and falls back to broadcasting to everyone. Coalescing is
- * client-side only and works against any server.
+ * Targeting is enforced by the party server; coalescing is client-side.
  */
 export interface SendEventOptions {
   to?: string | string[];
@@ -113,8 +98,6 @@ export interface SendEventOptions {
 export type ClientMessage =
   | { type: "state_patch"; data: JsonRecord }
   | { type: "player_state_patch"; data: JsonRecord }
-  // `to`/`except` are additive so servers and clients on either side of the
-  // targeting feature interoperate: absent fields mean broadcast-to-all.
   | { type: "emit"; data: { event: string; payload: JsonValue; to?: string[]; except?: string[] } }
   // Liveness ping sent on an interval so the server can detect a host that has
   // gone away ungracefully (laptop sleep, crashed tab, dropped network) without
@@ -155,8 +138,7 @@ export type ServerMessage =
   | { type: "state_patch"; data: JsonRecord }
   | { type: "player_state"; data: { id: string; state: JsonRecord } }
   // A player's transport dropped (connected: false — seat held for the grace
-  // window) or came back (connected: true). Pre-grace clients ignore this and
-  // simply see the player leave when the window lapses.
+  // window) or came back (connected: true).
   | { type: "player_connection"; data: { id: string; connected: boolean } }
   | { type: "event"; data: { event: string; payload: JsonValue; from: string } }
   // Sent (then the socket is closed) when a player connects to a room that is
