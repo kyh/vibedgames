@@ -31,6 +31,11 @@ export default defineConfig(({ isPreview }) => ({
         : bindings.d1({ id: "8aba7674-bee1-4532-b5f0-36243172cf81", name: "vibedgames" }),
       VgServer: bindings.durableObject({ exportName: "VgServer", worker }),
     },
+    // A Preview provisions a fresh VgServer namespace, and Cloudflare creates new namespaces only
+    // SQLite-backed. VgServer uses just the key-value and alarm APIs, which both backends serve.
+    exports: isPreview
+      ? { VgServer: exports.durableObject({ storage: "sqlite" }) }
+      : worker.exports,
     // party.vibedgames.com is the host games connect to. It is more specific than the games
     // Worker's *.vibedgames.com/* route, so it wins; "party" is a reserved slug, so no game can
     // claim it. A Preview must not claim the production hostname.
