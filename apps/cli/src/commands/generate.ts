@@ -220,7 +220,7 @@ const runCommand = defineCommand({
     },
     provider: {
       description:
-        "Execution backend: vibedgames (default) or codex (opt-in: delegate image generation to the local Codex CLI / your own Codex plan). The literal endpoint `codex` implies codex. Also settable via VG_GENERATE_PROVIDER.",
+        "Backend for this run: vibedgames, or codex (image generation through the local Codex CLI and your own Codex plan). Without it, the saved preference applies: `vg config set generate.provider codex` sends OpenAI image runs to Codex. The literal endpoint `codex` implies codex.",
       type: "string",
     },
     ...outputArgs,
@@ -234,7 +234,16 @@ const runCommand = defineCommand({
     const finalInput = parseRunInput(rawArgs);
     const { endpoint_id } = args;
 
-    if (chooseProvider(args.provider, endpoint_id) === "codex") {
+    const choice = chooseProvider(args.provider, {
+      async: Boolean(args.async),
+      endpointId: endpoint_id,
+      input: finalInput,
+    });
+    if (choice.note) {
+      // stderr: stdout belongs to a --json consumer.
+      process.stderr.write(`${choice.note}\n`);
+    }
+    if (choice.provider === "codex") {
       await runViaCodex({ args, downloadFlag, endpoint_id, finalInput });
       return;
     }

@@ -11,34 +11,22 @@ import {
   placeCodexOutputs,
   renderLocalTarget,
   chooseProvider,
-  resolveProvider,
+  parseProvider,
 } from "../src/lib/codex.js";
-import { makeCleanups, makeTmpDir } from "./_helpers.js";
+import { saveSetting } from "../src/lib/settings.js";
+import { makeCleanups, makeTmpDir, stubEnv } from "./_helpers.js";
 
 const { cleanups, drain } = makeCleanups();
 afterEach(drain);
 
-test("resolveProvider: flag, env fallback, aliases, and unknown", () => {
-  assert.equal(resolveProvider("codex"), "codex");
-  assert.equal(resolveProvider("Codex"), "codex");
-  assert.equal(resolveProvider("vibedgames"), "vibedgames");
-  assert.equal(resolveProvider("fal"), "vibedgames");
-  assert.equal(resolveProvider(), "vibedgames");
-
-  const prev = process.env.VG_GENERATE_PROVIDER;
-  process.env.VG_GENERATE_PROVIDER = "codex";
-  cleanups.push(() => {
-    if (prev === undefined) {
-      delete process.env.VG_GENERATE_PROVIDER;
-    } else {
-      process.env.VG_GENERATE_PROVIDER = prev;
-    }
-  });
-  // Explicit flag wins over env; env is the fallback.
-  assert.equal(resolveProvider(), "codex");
-  assert.equal(resolveProvider("vibedgames"), "vibedgames");
-
-  assert.throws(() => resolveProvider("coddex"), /Unknown --provider/u);
+test("parseProvider: names, aliases, and unknown", () => {
+  assert.equal(parseProvider("codex"), "codex");
+  assert.equal(parseProvider(" Codex "), "codex");
+  assert.equal(parseProvider("vibedgames"), "vibedgames");
+  assert.equal(parseProvider("fal"), "vibedgames");
+  assert.equal(parseProvider(""), "vibedgames");
+  assert.throws(() => parseProvider("coddex"), /Unknown provider "coddex" \(--provider\)/u);
+  assert.throws(() => parseProvider("x", "VG_GENERATE_PROVIDER"), /\(VG_GENERATE_PROVIDER\)/u);
 });
 
 test("CodexError carries notInstalled and output for clean surfacing", () => {
@@ -161,35 +149,65 @@ test("placeCodexOutputs is a no-op copy when target equals source", () => {
   assert.deepEqual(downloaded, [src]);
 });
 
-test("chooseProvider: codex is opt-in, whatever is installed", () => {
-  const prev = process.env.VG_GENERATE_PROVIDER;
-  delete process.env.VG_GENERATE_PROVIDER;
-  cleanups.push(() => {
-    if (prev === undefined) {
-      delete process.env.VG_GENERATE_PROVIDER;
-    } else {
-      process.env.VG_GENERATE_PROVIDER = prev;
-    }
-  });
+const run = (endpointId: string, input = {}, isAsync = false) => ({
+  async: isAsync,
+  endpointId,
+  input: { prompt: "a fox", ...input },
+});
 
-  // Unset, every endpoint stays on vibedgames — OpenAI image models included.
+const OPENAI_IMAGE = "openai/gpt-image-2.5/sunburst/text-to-image";
+
+test("chooseProvider: with no preference, only the codex endpoint runs on codex", () => {
+  stubEnv(cleanups, { VG_GENERATE_PROVIDER: undefined, XDG_CONFIG_HOME: makeTmpDir(cleanups) });
+
+  assert.deepEqual(chooseProvider(undefined, run(OPENAI_IMAGE)), { provider: "vibedgames" });
+  assert.deepEqual(chooseProvider(undefined, run("fal-ai/flux/dev")), { provider: "vibedgames" });
+  assert.deepEqual(chooseProvider(undefined, run("codex")), { provider: "codex" });
+  // --provider decides outright, for any endpoint, in either direction.
+  assert.equal(chooseProvider("codex", run("fal-ai/flux/dev")).provider, "codex");
+  assert.equal(chooseProvider("vibedgames", run("codex")).provider, "vibedgames");
+  assert.throws(() => chooseProvider("coddex", run("codex")), /Unknown provider/u);
+});
+
+test("chooseProvider: a saved codex preference serves only the OpenAI image runs codex can", () => {
+  stubEnv(cleanups, { VG_GENERATE_PROVIDER: undefined, XDG_CONFIG_HOME: makeTmpDir(cleanups) });
+  saveSetting("generate.provider", "codex");
+
+  assert.deepEqual(chooseProvider(undefined, run(OPENAI_IMAGE)), { provider: "codex" });
   assert.equal(
-    chooseProvider(undefined, "openai/gpt-image-2.5/sunburst/text-to-image"),
-    "vibedgames",
+    chooseProvider(undefined, run("openai/gpt-image-2/edit", { image_url: "./ref.png" })).provider,
+    "codex",
   );
-  assert.equal(chooseProvider(undefined, "fal-ai/flux/dev"), "vibedgames");
-  // The literal `codex` endpoint names the codex path outright.
-  assert.equal(chooseProvider(undefined, "codex"), "codex");
-  // A named provider always wins, in either direction.
-  assert.equal(chooseProvider("codex", "openai/gpt-image-2/edit"), "codex");
-  assert.equal(chooseProvider("codex", "fal-ai/flux/dev"), "codex");
-  assert.equal(chooseProvider("vibedgames", "codex"), "vibedgames");
-  process.env.VG_GENERATE_PROVIDER = "codex";
-  assert.equal(chooseProvider(undefined, "openai/gpt-image-2/edit"), "codex");
-  assert.equal(chooseProvider("vibedgames", "openai/gpt-image-2/edit"), "vibedgames");
-  process.env.VG_GENERATE_PROVIDER = "fal";
-  assert.equal(chooseProvider(undefined, "codex"), "vibedgames");
-  assert.throws(() => chooseProvider("coddex", "codex"), /Unknown --provider/u);
+  // Codex can't run Flux, video or audio: those stay on vibedgames, silently.
+  assert.deepEqual(chooseProvider(undefined, run("fal-ai/flux/dev")), { provider: "vibedgames" });
+  assert.deepEqual(chooseProvider(undefined, run("fal-ai/kling-video/v2/text-to-video")), {
+    provider: "vibedgames",
+  });
+  // An OpenAI image run codex can't honour stays on vibedgames, and says why.
+  const asyncRun = chooseProvider(undefined, run(OPENAI_IMAGE, {}, true));
+  assert.equal(asyncRun.provider, "vibedgames");
+  assert.match(asyncRun.note ?? "", /generate\.provider is codex, but codex can't run --async/u);
+  const urlRef = chooseProvider(
+    undefined,
+    run(OPENAI_IMAGE, { image_url: "https://x.test/a.png" }),
+  );
+  assert.equal(urlRef.provider, "vibedgames");
+  assert.match(urlRef.note ?? "", /local reference files/u);
+  // --provider still decides one run.
+  assert.equal(chooseProvider("vibedgames", run(OPENAI_IMAGE)).provider, "vibedgames");
+});
+
+test("chooseProvider: VG_GENERATE_PROVIDER wins over the saved preference", () => {
+  stubEnv(cleanups, { VG_GENERATE_PROVIDER: "vibedgames", XDG_CONFIG_HOME: makeTmpDir(cleanups) });
+  saveSetting("generate.provider", "codex");
+  assert.equal(chooseProvider(undefined, run(OPENAI_IMAGE)).provider, "vibedgames");
+
+  stubEnv(cleanups, { VG_GENERATE_PROVIDER: "codex" });
+  const note = chooseProvider(undefined, run(OPENAI_IMAGE, {}, true)).note ?? "";
+  assert.match(note, /^VG_GENERATE_PROVIDER is codex/u);
+
+  stubEnv(cleanups, { VG_GENERATE_PROVIDER: "coddex" });
+  assert.throws(() => chooseProvider(undefined, run(OPENAI_IMAGE)), /\(VG_GENERATE_PROVIDER\)/u);
 });
 
 test("codexExecArgs: the prompt survives a variadic -i by sitting behind --", () => {

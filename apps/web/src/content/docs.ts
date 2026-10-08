@@ -42,6 +42,7 @@ export const docsDoc: Doc = {
             "vg new <slug> --engine threejs | react-r3f | none",
             "vg init                  # install the skills + CLI into a project",
             "vg update                # update the CLI and installed skills",
+            "vg config                # saved settings (generate.provider, update.auto, …)",
             "vg login | logout | whoami",
             "vg deploy [dir]          # ship a built game to {slug}.vibedgames.com",
             "vg fork <slug> [target]  # fork another project's shipped source",

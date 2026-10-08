@@ -29,9 +29,10 @@ hosted on Cloudflare):
 Some skills also document third-party tools you install yourself (npm packages,
 Playwright, uv). The skills never read credentials; `vg` uses only its own vibedgames token.
 `vg` itself also checks npm for a newer version once a day and, when there is one,
-installs it and updates the vibedgames skills (`VG_NO_AUTO_UPDATE=1` turns both off);
-`vg update` does the same on demand, and `vg new`, `vg init` and `vg playtest` fetch
-templates, skills and tools from GitHub and npm.
+installs it and updates the vibedgames skills (`vg config set update.auto false` turns
+both off); `vg update` does the same on demand. `vg init` fetches the skills from GitHub,
+`vg playtest` its browser tool from npm, and `vg new --template` a third-party template
+from GitHub.
 
 [Privacy Policy](https://vibedgames.com/privacy) ·
 [Terms of Use](https://vibedgames.com/terms)

@@ -8,6 +8,7 @@ import spawn from "cross-spawn";
 
 import { readExplicitLocalFile } from "./media-args.js";
 import { disambiguateTargets } from "./media-download.js";
+import { resolveSetting } from "./settings.js";
 import { isJsonNumber, isJsonString } from "./types.js";
 import type { JsonObject } from "./types.js";
 
@@ -36,38 +37,76 @@ export class CodexError extends Error {
 }
 
 /**
- * Resolve an explicitly named provider from the `--provider` flag, falling
- * back to the `VG_GENERATE_PROVIDER` env var and finally the vibedgames
- * default. Unknown values throw so a typo (`--provider coddex`) fails
- * loudly instead of silently hitting the paid backend.
+ * Parse a provider name. Unknown values throw, so a typo (`--provider coddex`)
+ * fails loudly instead of quietly running on the paid backend. `from` names
+ * where the value came from, for that message.
  */
-export const resolveProvider = (flag?: string): Provider => {
-  const raw = (flag ?? process.env.VG_GENERATE_PROVIDER ?? "").trim().toLowerCase();
-  if (raw === "codex") {
+export const parseProvider = (raw: string, from = "--provider"): Provider => {
+  const name = raw.trim().toLowerCase();
+  if (name === "codex") {
     return "codex";
   }
-  if (raw === "" || raw === "vibedgames" || raw === "fal" || raw === "default") {
+  if (name === "" || name === "vibedgames" || name === "fal" || name === "default") {
     return "vibedgames";
   }
-  throw new Error(`Unknown --provider "${raw}". Supported: vibedgames (default), codex.`);
+  throw new Error(`Unknown provider "${name}" (${from}). Supported: vibedgames (default), codex.`);
 };
 
 /** The pseudo-endpoint that names the Codex path outright: `vg generate run codex`. */
 export const CODEX_ENDPOINT = "codex";
 
+/** The OpenAI image family: what a signed-in Codex plan generates itself. */
+export const isOpenAiImageEndpoint = (endpointId: string): boolean =>
+  /^openai\/gpt-image/iu.test(endpointId);
+
+const isLocalReference = (ref: string): boolean => !/^(?:https?:|data:)/iu.test(ref);
+
+export interface RunRequest {
+  endpointId: string;
+  async: boolean;
+  input: JsonObject;
+}
+
+export interface ProviderChoice {
+  provider: Provider;
+  /** Why a codex preference didn't apply to this run, for stderr. */
+  note?: string;
+}
+
 /**
- * Pick the backend for one `run`. Codex is opt-in: an explicit `--provider`
- * or `VG_GENERATE_PROVIDER` always wins, and with neither set the literal
- * endpoint `codex` names it outright. Nothing else leaves the vibedgames
- * runner — whether a `codex` binary happens to be installed changes nothing,
- * so the same command does the same thing on every machine.
+ * Pick the backend for one `run`:
+ * - `--provider` decides outright, for any endpoint;
+ * - the literal endpoint `codex` runs on Codex;
+ * - otherwise the `generate.provider` setting (`vg config`, or
+ *   `VG_GENERATE_PROVIDER`) applies. Set to codex, it sends the OpenAI image
+ *   runs Codex can serve (synchronous, local references only) to the local
+ *   Codex CLI, and leaves every other endpoint on vibedgames.
  */
-export const chooseProvider = (flag: string | undefined, endpointId: string): Provider => {
-  const named = (flag ?? process.env.VG_GENERATE_PROVIDER ?? "").trim();
-  if (named === "" && endpointId === CODEX_ENDPOINT) {
-    return "codex";
+export const chooseProvider = (flag: string | undefined, run: RunRequest): ProviderChoice => {
+  if (flag !== undefined && flag.trim() !== "") {
+    return { provider: parseProvider(flag) };
   }
-  return resolveProvider(flag);
+  if (run.endpointId === CODEX_ENDPOINT) {
+    return { provider: "codex" };
+  }
+  const preference = resolveSetting("generate.provider");
+  const from = preference.source === "env" ? "VG_GENERATE_PROVIDER" : "generate.provider";
+  if (parseProvider(preference.value, from) !== "codex" || !isOpenAiImageEndpoint(run.endpointId)) {
+    return { provider: "vibedgames" };
+  }
+  if (run.async) {
+    return {
+      note: `${from} is codex, but codex can't run --async, so this run uses vibedgames.`,
+      provider: "vibedgames",
+    };
+  }
+  if (!parseCodexInput(run.input).referenceCandidates.every((ref) => isLocalReference(ref))) {
+    return {
+      note: `${from} is codex, but codex only attaches local reference files, so this run uses vibedgames.`,
+      provider: "vibedgames",
+    };
+  }
+  return { provider: "codex" };
 };
 
 // Input keys we map onto Codex's natural-language image request. Codex
@@ -372,7 +411,7 @@ export const generateImagesWithCodex = async (opts: { input: JsonObject }): Prom
   const filenames = Array.from({ length: parsed.count }, (_, i) => `output-${i}.png`);
   const prompt = buildCodexPrompt(parsed, filenames, references.length > 0);
 
-  const bin = process.env.VG_CODEX_BIN ?? "codex";
+  const bin = resolveSetting("generate.codex-bin").value;
   const args = codexExecArgs(workDir, references, prompt);
 
   // Snapshot Codex's default image store so we can tell which files this
@@ -383,9 +422,9 @@ export const generateImagesWithCodex = async (opts: { input: JsonObject }): Prom
   const outcome = await spawnCodex(bin, args, workDir);
   if (outcome.notFound) {
     throw new CodexError(
-      `The \`codex\` CLI was not found on PATH. Install it (npm install -g @openai/codex) ` +
-        `and sign in with \`codex login\`, or drop --provider codex to use vibedgames. ` +
-        `Set VG_CODEX_BIN to point at a specific binary.`,
+      `The \`codex\` CLI was not found. Install it (npm install -g @openai/codex) and sign in ` +
+        `with \`codex login\`, point vg at it with \`vg config set generate.codex-bin <path>\`, ` +
+        `or run on vibedgames with --provider vibedgames.`,
       { notInstalled: true },
     );
   }

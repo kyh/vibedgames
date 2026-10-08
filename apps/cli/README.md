@@ -22,8 +22,9 @@ vg new <slug> --engine react-r3f # scaffold a React + R3F + drei + Vite + TS sta
 vg new <slug> --engine none      # minimal Vite + TS + canvas
 vg new <slug> --template owner/repo  # a third-party GitHub template instead (degit spec)
 vg new <slug> --here             # scaffold into the current directory
-vg init [--global] [--agents …]  # install/update the vibedgames skills + CLI
+vg init [--global] [--agent …]   # install/update the vibedgames skills + CLI
 vg update                        # update the CLI and installed skills to latest
+vg config [list|get|set|unset]   # saved settings, e.g. vg config set generate.provider codex
 vg login              # authenticate via browser
 vg logout             # clear credentials
 vg whoami             # show current user
@@ -56,7 +57,7 @@ per skill. `--agent` narrows or widens the set (`'*'` for every supported agent)
 `vg update`, refreshes the skills and removes any dropped upstream. Nothing but
 the download leaves your machine. `VG_SKILLS_SOURCE` points it at a local checkout
 (any directory with the same `plugins/` layout) instead. `vg update` runs
-automatically once a day — disable with `VG_NO_AUTO_UPDATE=1`.
+automatically once a day — turn that off with `vg config set update.auto false`.
 
 Both self-update with whichever package manager installed the CLI, detected
 from its install path (npm, pnpm, yarn or bun) — installing with a different

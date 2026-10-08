@@ -50,7 +50,7 @@ export const updateCommand = defineCommand({
   args: updateArgs,
   meta: {
     description:
-      "Update the vg CLI and vibedgames skills to latest (runs automatically once a day; disable with VG_NO_AUTO_UPDATE=1)",
+      "Update the vg CLI and vibedgames skills to latest (runs automatically once a day; turn that off with `vg config set update.auto false`)",
     name: "update",
   },
   run: async ({ args, rawArgs }) => {
