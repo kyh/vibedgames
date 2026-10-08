@@ -267,5 +267,6 @@ export const TRAFFIC = {
 export const MP_ROOM = "crazy-waymo-default";
 export const MP_MAX_PLAYERS = 64;
 export const OFFLINE_FALLBACK_MS = 8000;
-/** Car-transform broadcast rate; remote cars interpolate between updates. */
-export const NET_TICK_HZ = 15;
+/** Car-transform broadcast rate. Remote cars are drawn 100 ms behind their
+ *  owner (net/remote-cars.ts), which covers one interval plus jitter at 20. */
+export const NET_TICK_HZ = 20;

@@ -1,4 +1,5 @@
 import { checkFrameTiming } from "./test-frame-timing.mts";
+import { checkRemoteCars } from "./test-remote-cars.mts";
 import { checkStaticWorldGroup } from "./test-static-world-group.mts";
 import { checkInstancedProps } from "./test-instanced-props.mts";
 import { checkWorldBufferOwnership } from "./test-world-buffer-ownership.mts";
@@ -973,6 +974,7 @@ await checkVehicleParking(check);
 }
 
 checkFrameTiming(check);
+await checkRemoteCars(check);
 checkStaticWorldGroup(check);
 checkSurfaceFx(check);
 checkWaterFx(check);

@@ -319,7 +319,10 @@ export class PhysicsWorld {
       this.acc -= FIXED_DT;
       steps += 1;
     }
-    if (steps === MAX_STEPS) {
+    // Out of steps with a whole step still owed: drop that backlog. A smaller
+    // remainder is the next frame's time, not backlog — zeroing it whenever
+    // the cap was merely reached ran phones 10–20% slow at 31–39 fps.
+    if (this.acc >= FIXED_DT) {
       this.acc = 0;
     }
   }
