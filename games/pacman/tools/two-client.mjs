@@ -1,12 +1,14 @@
 // Two-client online smoke: host + guest race for pellets in a fresh party room
-// (claims cross the wire, a contested cell resolves to one eater, a pause on
-// one side leaves the other's maze live, R after a win resets the shared
-// maze), then the host leaves and a late joiner adopts the promoted host's
-// board. Needs the party server on localhost:8787 and a Chrome install
-// (playwright-core, channel "chrome"). Not part of `pnpm test` for that reason.
+// (an idle player is no rival, claims cross the wire, rivals render, a
+// contested cell resolves to one eater, a pause on one side leaves the other's
+// maze live, R after a win resets the shared maze), then the host leaves and a
+// late joiner adopts the promoted host's board. Needs the party server on
+// localhost:8787 and a Chrome install (playwright-core, channel "chrome", or
+// any Chromium binary in SMOKE_BROWSER). Not part of `pnpm test` for that reason.
 //
 // Usage: node tools/two-client.mjs [--url http://localhost:5309]
-// Without --url it starts its own vite.
+// Without --url it starts its own vite. SMOKE_NO_RENDER=1 skips drawing the
+// scene, for machines with only software WebGL.
 
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
@@ -35,10 +37,9 @@ const waitFor = async (page, fn, label, { timeoutMs = 8000, arg } = {}) => {
 const snapshot = (page) =>
   page.evaluate(() => {
     const { game } = window.__pacman;
-    const board = game.net.sharedState?.board;
     return {
       applied: game.appliedEaten.size,
-      boardEaten: board ? Object.keys(board.eaten).length : -1,
+      boardRound: game.net.sharedState?.round ?? -1,
       host: game.net.isHost,
       hostEaten: game.hostEaten.size,
       left: game.pelletsLeft(),
@@ -77,13 +78,45 @@ const eaten = (page, key) =>
     timeoutMs: 4000,
   });
 
+/** The one rival pac this page draws has come to rest on a cell. */
+const drawsRivalAt = (page, col, row) =>
+  waitFor(
+    page,
+    ([x, z]) => {
+      const pacs = [...window.__pacman.game.remotePacs.pacs.values()];
+      const at = pacs[0]?.group.position;
+      return pacs.length === 1 && Math.abs(at.x - x) < 0.01 && Math.abs(at.z - z) < 0.01;
+    },
+    `rival drawn at ${col},${row}`,
+    { arg: [col, row], timeoutMs: 4000 },
+  );
+
 const startPlaying = async (page) => {
   await page.keyboard.press("Enter");
   await waitFor(page, () => window.__pacman.game.phase === "playing", "playing");
 };
 
+/** Runs in the page before main.ts: hides the scene the moment the DEV hooks land. */
+const hideScene = () => {
+  let hooks;
+  Object.defineProperty(window, "__pacman", {
+    configurable: true,
+    get: () => hooks,
+    set: (value) => {
+      hooks = value;
+      value.game.scene.visible = false;
+    },
+  });
+};
+
 const openClient = async (browser, url, errors) => {
   const page = await browser.newPage({ viewport: { height: 600, width: 900 } });
+  if (process.env.SMOKE_NO_RENDER) {
+    // Software WebGL draws this scene at about one frame a second, which
+    // starves the sim and the socket alike. Nothing here checks pixels, so
+    // drawing nothing from the first frame keeps both at full speed.
+    await page.addInitScript(hideScene);
+  }
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => {
     // The dev server has no favicon; production is served by the games worker.
@@ -130,6 +163,44 @@ const startVite = async () => {
   throw new Error("vite did not start");
 };
 
+/**
+ * A guest alone in the round (its host idles on the title screen) plays
+ * solo rules, and a restart asks the idle host for a fresh shared maze.
+ */
+const soloGuestRestart = async ({ browser, errors, fullMaze, step, url }) => {
+  const idle = await openClient(browser, url, errors.idle);
+  const solo = await openClient(browser, url, errors.solo);
+  await startPlaying(solo);
+  await chompFrom(solo, 1, 1);
+  await eaten(solo, "2,1");
+  await eaten(idle, "2,1");
+  let s = await snapshot(solo);
+  const roundBefore = s.round;
+  step(
+    "a lone guest plays solo next to an idle host",
+    !s.host && s.rivals === 0 && s.score === 2 * SCORE_PELLET && s.left === fullMaze - 2,
+    JSON.stringify(s),
+  );
+  await solo.keyboard.press("r");
+  await waitFor(solo, (round) => window.__pacman.game.boardRound > round, "fresh maze granted", {
+    arg: roundBefore,
+  });
+  await waitFor(solo, () => window.__pacman.game.phase === "playing", "solo restarted");
+  s = await snapshot(solo);
+  const i = await snapshot(idle);
+  step(
+    "its restart resets the shared maze and leaves the idle host on its title",
+    s.left === fullMaze &&
+      i.left === fullMaze &&
+      s.round === i.round &&
+      s.score === 0 &&
+      i.phase === "title",
+    `${JSON.stringify(s)} / ${JSON.stringify(i)}`,
+  );
+  await solo.close();
+  await idle.close();
+};
+
 const main = async () => {
   const urlArg = process.argv.indexOf("--url");
   const dev = urlArg === -1 ? await startVite() : { base: process.argv[urlArg + 1], child: null };
@@ -143,7 +214,7 @@ const main = async () => {
   }
   const room = `t${process.pid}-${Date.now().toString(36)}`;
   const url = `${dev.base}/?room=${room}`;
-  const errors = { guest: [], host: [], late: [] };
+  const errors = { guest: [], host: [], idle: [], late: [], solo: [] };
   // Both clients must keep simulating; Chrome otherwise throttles whichever
   // window is not focused, which reads as a frozen peer.
   const browser = await chromium.launch({
@@ -152,7 +223,9 @@ const main = async () => {
       "--disable-backgrounding-occluded-windows",
       "--disable-renderer-backgrounding",
     ],
-    channel: "chrome",
+    ...(process.env.SMOKE_BROWSER
+      ? { executablePath: process.env.SMOKE_BROWSER }
+      : { channel: "chrome" }),
     headless: true,
   });
   const results = [];
@@ -171,19 +244,29 @@ const main = async () => {
 
     const guest = await openClient(browser, url, errors.guest);
     await waitFor(guest, () => window.__pacman.game.rivalIds.length === 1, "guest sees host");
-    await waitFor(host, () => window.__pacman.game.rivalIds.length === 1, "host sees guest");
+    // Still on the title screen, the guest is in the room but not the round:
+    // no pac parked in the host's maze, no race rules for the host.
+    await wait(400);
+    h = await snapshot(host);
+    step("an idle guest is no rival", h.rivals === 0, JSON.stringify(h));
     await startPlaying(guest);
+    await waitFor(host, () => window.__pacman.game.rivalIds.length === 1, "host sees guest");
     let g = await snapshot(guest);
     step(
       "both see each other",
       !g.host && g.rivals === 1 && g.left === fullMaze,
       JSON.stringify(g),
     );
+    await drawsRivalAt(host, 1, 1);
+    await drawsRivalAt(guest, 1, 1);
+    step("each draws the other's pac at spawn", true);
 
     // A guest pellet crosses the wire: the host's maze and "N left" pill follow.
     await chompFrom(guest, 1, 1);
     await eaten(guest, "2,1");
     await eaten(host, "2,1");
+    await drawsRivalAt(host, 2, 1);
+    step("the host draws the guest's pac where its step ended", true);
     await wait(300);
     h = await snapshot(host);
     g = await snapshot(guest);
@@ -227,9 +310,13 @@ const main = async () => {
     const { t: gt } = await snapshot(guest);
     await chompFrom(guest, 3, 1);
     await eaten(guest, "4,1");
+    // The board the paused host writes reaches the guest.
     await waitFor(
-      host,
-      () => window.__pacman.game.net.sharedState.board.eaten["4,1"] === 1,
+      guest,
+      async () => {
+        const { decodeEaten } = await import("/src/net/board-codec.ts");
+        return decodeEaten(window.__pacman.game.net.sharedState?.eaten ?? "").includes("4,1");
+      },
       "paused host arbitrated",
     );
     g = await snapshot(guest);
@@ -319,6 +406,15 @@ const main = async () => {
     step("late joiner's pellet reaches the promoted host", true);
     await guest.close();
     await late.close();
+
+    await soloGuestRestart({
+      browser,
+      errors,
+      fullMaze,
+      step,
+      url: `${dev.base}/?room=${room}-solo`,
+    });
+
     for (const [who, list] of Object.entries(errors)) {
       step(`no console errors: ${who}`, list.length === 0, list.join(" | "));
     }

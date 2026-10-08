@@ -245,6 +245,9 @@ renderer.setAnimationLoop((time) => {
     game.update(dt);
     diag.frame += 1;
   }
+  // Outside the pause gate: the room keeps running while this player sits in
+  // the pause menu.
+  game.updateNet(dt);
   renderer.render(game.scene, game.camera);
   diag.paused = paused;
   game.writeDiagnostics(diag);
@@ -285,7 +288,8 @@ if (import.meta.env.DEV || isPlaytestRequested()) {
       }
       return press([TURN_LEFT[d.facing] === dir ? "ArrowLeft" : "ArrowRight"]);
     }
-    // A chomp into a wall or mid-step is dropped by the game; don't spend it.
+    // A chomp into a wall only bumps, and one mid-step queues a second step;
+    // spend it only when a step from here is wanted.
     return press(d.moving || d.nav?.open[dir] !== true ? [] : ["Space"]);
   };
   const follow =
