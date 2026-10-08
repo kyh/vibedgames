@@ -19,7 +19,7 @@ pnpm dev:showdown   # http://localhost:5195
 pnpm --filter @repo/showdown typecheck   # tsc --noEmit
 pnpm --filter @repo/showdown build       # vite build
 pnpm --filter @repo/showdown preview     # vite preview
-pnpm --filter @repo/showdown test        # headless config/utils smoke checks (tools/boot-smoke.mts, no three.js)
+pnpm --filter @repo/showdown test        # headless smoke checks (tools/*-smoke.mts), incl. a host + predicting guest over a jittery link
 pnpm --filter @repo/showdown test:seed   # headless Chromium: the same seed replays the same brawl (tools/seed-smoke.mjs; --soak N for balance runs)
 ```
 
@@ -86,14 +86,47 @@ frame rate drops, unless the player chooses a tier under ⚙.
 ## Multiplayer
 
 Host-authoritative via `@vibedgames/multiplayer`: the first player in a room runs
-the brawl, guests send intents (move axis, attack, super) and render 15 Hz
-snapshots with their own body predicted locally. Rooms hold eight seats
-(`showdown-<code>`, public room when no code) and bots fill whatever humans
-leave empty; a human arriving mid-brawl spectates and is seated for the next
-one, which the host starts eight seconds after a result. If the host leaves,
-the promoted guest rebuilds the brawl from the last snapshot and the departed
-host's seat becomes a bot. Solo play never opens a socket, and `?offline=1`
-forces solo.
+the brawl. Rooms hold eight seats (`showdown-v5-<code>`, public room when no code;
+the version changes whenever the wire format does, so tabs on an old bundle never
+share a match with new ones) and bots fill whatever humans leave empty; a human
+arriving mid-brawl spectates and is seated for the next one, which the host starts
+eight seconds after a result. If the host leaves, the promoted guest rebuilds the
+brawl from the room's state and the departed host's seat becomes a bot. Solo play
+never opens a socket, and `?offline=1` forces solo.
+
+Netcode (`src/net/`):
+
+- **Intents go to the host only**, each with a sequence number: movement as one
+  of 32 headings, at most 30 a second, plus attack, super and evade. A guest moves
+  its own body by exactly what it sent, so both copies run the same input.
+- **The host publishes 30 snapshots a second** (`FixedRate`): one integer row per
+  brawler with trailing zeros dropped, about 0.5 KB for eight. The roster, loot
+  boxes, cubes and broken walls go out only when they change; bullets and bombs
+  travel as spawn rows in the fx batch and every client flies them itself.
+- **A guest predicts its own body** with the host's movement code, from the frame
+  a key goes down, and draws its own shots, swings, rolls and leaps at once. Each
+  row carries the newest intent the host applied to that body and for how long, so
+  the guest compares the host's copy with where it was at that moment
+  (`Reconciler`): running straight never draws a correction, a real disagreement
+  eases out over 100 ms, a large one snaps. Knockback arrives as a sequenced edge
+  and is replayed locally; an evade waiting on the host's verdict gives up after a
+  second, so a lost request cannot lock dodging.
+- **Everyone else renders on server time.** The host stamps each frame with the
+  room's server clock (`client.serverNow()`), and a guest draws remote bodies,
+  fx, projectile spawns and loot changes 100 ms behind the newest frame that
+  could have arrived by now (`Interpolator` on a `RemoteClock` read off the
+  frames' arrivals, so the relay's latency is learned): motion is even however
+  frames arrive, a muzzle flash leaves the muzzle it belongs to, and a change of
+  host keeps the timeline — only the new host's route is timed afresh.
+- **Loot stays the host's.** Power cubes go to whichever body the host's sim
+  walks over them first, bots and guests' copies alike, and boxes break on the
+  host's damage. The room's first-come claims would only settle the rare race a
+  guest's copy runs one relay late, at the price of wire ids for cubes, a server
+  round trip or an undo for every bot's pickup, and a guest's word for where its
+  body stands.
+- `window.__GAME_DIAGNOSTICS__.online.net` reports snapshot rate and size, the
+  guest's lag behind the host, its last correction and the render delay behind
+  server time.
 
 ```bash
 pnpm dev:party                                    # party server on :8787

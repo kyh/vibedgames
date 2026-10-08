@@ -6,8 +6,9 @@ import { ENEMIES } from "../data/enemies";
 import { HEROES } from "../data/heroes";
 import { RARITY_COLOR, RELICS } from "../data/relics";
 import type { BossBodyCheckpoint } from "../entities/boss-body";
+import type { PlayerBodyCheckpoint } from "../entities/player-body";
 import { Enemy } from "../entities/enemy";
-import { readCheckpoint } from "../net/checkpoint";
+import { readCheckpoint, readRoom } from "../net/checkpoint";
 import type {
   CheckpointPhase,
   CheckpointPlayer,
@@ -15,10 +16,10 @@ import type {
   ExpeditionCheckpoint,
 } from "../net/checkpoint";
 import type { JsonValue } from "../net/json";
-import { parseHero } from "../net/parse";
 import type { NetRoom } from "../net/snapshot";
 import type { RoomState } from "../state/room-state";
 import type { RunState } from "../state/run-state";
+import { enemyId } from "../state/room-state";
 import { combatState, duelHits, livePlayers, ownerId, seatPlayer } from "../state/seat-state";
 import type { SeatState } from "../state/seat-state";
 import { impactRing, popText } from "../sys/fx";
@@ -47,8 +48,9 @@ export interface CheckpointSyncDeps {
 
 // The expedition checkpoint: the host encodes its full private state for a
 // takeover; a promoted host adopts it, and a guest replays its room features.
-// Reads of the shared checkpoint are cached by reference so a frame never
-// re-validates unchanged wire JSON.
+// Reads of the shared checkpoint and room are cached by reference, each on its
+// own, so a frame never re-validates unchanged wire JSON — and a new checkpoint
+// never re-validates the room layout it shares with the last one.
 export class CheckpointSync {
   private readonly scene: Scene;
   private readonly run: RunState;
@@ -63,6 +65,9 @@ export class CheckpointSync {
   private readonly hooks: SceneHooks;
   private ref: JsonValue | undefined;
   private roomRef: JsonValue | undefined;
+  private layout: NetRoom | null = null;
+  // the layout `cache` was read against
+  private cacheLayout: NetRoom | null = null;
   private cache: CheckpointRead = { kind: "absent" };
   adoptedTerminal: ExpeditionCheckpoint | null = null;
 
@@ -82,12 +87,22 @@ export class CheckpointSync {
 
   accepted(): CheckpointRead {
     const shared = this.seat.session?.sharedState ?? null;
-    if (shared?.checkpoint !== this.ref || shared?.room !== this.roomRef) {
+    const layout = this.layoutOf(shared?.room);
+    if (shared?.checkpoint !== this.ref || layout !== this.cacheLayout) {
       this.ref = shared?.checkpoint;
-      this.roomRef = shared?.room;
-      this.cache = readCheckpoint(shared);
+      this.cacheLayout = layout;
+      this.cache = readCheckpoint(shared, layout);
     }
     return this.cache;
+  }
+
+  /** A shared `room` value as a validated layout, cached by reference. */
+  layoutOf(v: JsonValue | undefined): NetRoom | null {
+    if (v !== this.roomRef) {
+      this.roomRef = v;
+      this.layout = readRoom(v);
+    }
+    return this.layout;
   }
 
   phase(): CheckpointPhase {
@@ -105,7 +120,8 @@ export class CheckpointSync {
     return { kind: "active" };
   }
 
-  encode(): ExpeditionCheckpoint | null {
+  /** Everything a takeover needs, stamped `t`: the snapshot it rides with. */
+  encode(t: number): ExpeditionCheckpoint | null {
     const auth = this.seat.authority;
     const writer = this.seat.session?.playerId;
     if (auth.kind !== "ready" || !writer) {
@@ -117,26 +133,18 @@ export class CheckpointSync {
       return {
         ...structuredClone(this.adoptedTerminal),
         phase: { elapsed: this.run.deadT, kind: "dead" },
+        t,
         term: auth.term,
-        tick: this.run.tick,
         writer,
       };
     }
-    const enemies = this.room.enemies.map((e) => {
-      let id = this.room.enemyIds.get(e);
-      if (id === undefined) {
-        id = this.room.nextEnemyId;
-        this.room.nextEnemyId += 1;
-        this.room.enemyIds.set(e, id);
-      }
-      return {
-        body: e.body.checkpoint(),
-        deathAge: this.room.deadTimers.get(e) ?? null,
-        id,
-        name: e.body.kind.name,
-        tint: e.baseTint,
-      };
-    });
+    const enemies = this.room.enemies.map((e) => ({
+      body: e.body.checkpoint(),
+      deathAge: this.room.deadTimers.get(e) ?? null,
+      id: enemyId(this.room, e),
+      name: e.body.kind.name,
+      tint: e.baseTint,
+    }));
     const liveEnemies = new Set(this.room.enemies);
     const enemyIds = (set: Set<Enemy>): number[] =>
       [...set].flatMap((e) => {
@@ -147,10 +155,6 @@ export class CheckpointSync {
     for (const pl of livePlayers(this.seat)) {
       const id = ownerId(this.seat, pl);
       if (!id) {
-        continue;
-      }
-      const hero = parseHero(pl.encode(id).hero);
-      if (!hero) {
         continue;
       }
       const c = combatState(this.seat, pl);
@@ -164,7 +168,7 @@ export class CheckpointSync {
           lastSpecial: c.lastSpecial,
           lastSwing: c.lastSwing,
         },
-        hero,
+        hero: pl.name,
         id,
         versusHits: { ...duelHits(this.seat, pl) },
       });
@@ -241,8 +245,8 @@ export class CheckpointSync {
           y: s.y,
         };
       }),
+      t,
       term: auth.term,
-      tick: this.run.tick,
       version: 1,
       writer,
     } satisfies Omit<ExpeditionCheckpoint, "mode" | "versus" | "lastStand">;
@@ -270,8 +274,9 @@ export class CheckpointSync {
     };
   }
 
-  /** Restore accepted simulation data without rerolling or replaying rewards. */
-  adopt(c: ExpeditionCheckpoint, room: NetRoom): void {
+  /** Restore accepted simulation data without rerolling or replaying rewards.
+   * `own`: a promoted guest's predicted body, newer than any checkpoint. */
+  adopt(c: ExpeditionCheckpoint, room: NetRoom, own: PlayerBodyCheckpoint | null = null): void {
     this.adoptedTerminal = c.phase.kind === "dead" ? structuredClone(c) : null;
     this.seat.mode = c.mode;
     this.expedition.biome = c.run.biome;
@@ -281,7 +286,7 @@ export class CheckpointSync {
     this.banners.clear();
     this.room.bossAnnounced = true;
     this.adoptProgress(c);
-    this.adoptPlayers(c);
+    this.adoptPlayers(c, own);
     const byEnemyId = this.adoptEnemies(c);
     this.adoptCombat(c, byEnemyId);
     if (c.boss) {
@@ -300,10 +305,8 @@ export class CheckpointSync {
     this.adoptLastStand(c);
     this.run.downedNet = null;
     this.run.matchNet = null;
-    this.seat.remoteInputOwner = null;
     this.room.guest.payoff = null;
     this.room.guest.snapT = -1;
-    this.room.guest.reconciler.reset();
     this.adoptPhase(c);
     this.chrome.fadeRect.setAlpha(0);
     this.seat.player.sprite.setVisible(true);
@@ -316,7 +319,6 @@ export class CheckpointSync {
 
   private adoptProgress(c: ExpeditionCheckpoint) {
     this.room.seq = c.room;
-    this.run.tick = c.tick;
     this.room.enemyIds = new WeakMap();
     this.room.nextEnemyId = c.nextEnemyId;
     this.seat.seats = { ...c.seats };
@@ -340,7 +342,7 @@ export class CheckpointSync {
 
   // My body restores in place (respawned only on a hero mismatch); the peer's
   // body is rebuilt from whichever checkpoint player is not me.
-  private adoptPlayers(c: ExpeditionCheckpoint) {
+  private adoptPlayers(c: ExpeditionCheckpoint, own: PlayerBodyCheckpoint | null) {
     const me = c.players.find((p) => p.id === this.seat.session?.playerId);
     if (me && me.hero !== this.seat.heroName) {
       this.seat.player.destroy();
@@ -353,7 +355,7 @@ export class CheckpointSync {
       );
     }
     if (me) {
-      this.seat.player.body.restore(me.body);
+      this.seat.player.body.restore(own ?? me.body);
     }
     if (this.seat.controlsPaused || this.seat.neutralOnAdmission) {
       this.seat.player.body.clearInput();

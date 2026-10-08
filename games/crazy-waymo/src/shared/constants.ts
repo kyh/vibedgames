@@ -3,6 +3,8 @@
 // is a 1×1 unit tile. We scale the city UP so one road cell = ROAD_TILE units,
 // giving arcade-wide two-lane roads the taxi can drift across.
 
+import type { InterestRule } from "@vibedgames/multiplayer";
+
 // clamp delta on tab-away
 export const MAX_DT = 1 / 30;
 
@@ -263,9 +265,27 @@ export const TRAFFIC = {
 // The city is generated from a fixed CITY_SEED, so every client builds an
 // identical map and remote taxis line up on the same roads. We only broadcast
 // each player's car transform and render the others; fares/score stay private
-// and local. 64 is the party server's hard per-room ceiling.
-export const MP_ROOM = "crazy-waymo-default";
+// and local. 64 is the party server's hard per-room ceiling. The room's version
+// moves with every wire change, so clients that disagree never share a room
+// (v2: poses stamped with the server clock).
+export const MP_ROOM = "crazy-waymo-v2";
 export const MP_MAX_PLAYERS = 64;
 export const OFFLINE_FALLBACK_MS = 8000;
-/** Car-transform broadcast rate; remote cars interpolate between updates. */
-export const NET_TICK_HZ = 15;
+/** Car-transform broadcast rate. Remote cars are drawn 100 ms behind their
+ *  owner's fastest relay through the server (net/remote-cars.ts), which covers
+ *  one interval plus jitter at 20. */
+export const NET_TICK_HZ = 20;
+/**
+ * Interest management: the server relays a taxi's pose only to players within
+ * `radius` of it, so a full room spread over the city costs each client its
+ * neighbourhood, not the whole roster. Measured on the planar keys — `x` and
+ * `z`; `y` is height. Remote taxis are drawn inside 520 u and dropped past
+ * 580 (net/remote-cars.ts); the 220 u beyond that is several times what two
+ * taxis closing at drift-boost speed cover while a reveal crosses the server
+ * and the render delay, so nobody pops in view. Out of range a player reads
+ * `visible: false` (never to the room's host, which sees everyone) and is off
+ * the scene and the minimap. Nothing in this game is simulated by the host for
+ * everyone (traffic, fares and score are each client's own), so nothing else
+ * depends on who sees whom.
+ */
+export const MP_INTEREST = { radius: 800, x: "x", y: "z" } satisfies InterestRule;

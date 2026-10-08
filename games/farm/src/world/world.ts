@@ -1,4 +1,6 @@
 import { MAP_W, MAP_H } from "../config";
+import type { Season } from "../data/calendar";
+import { CROPS } from "../data/crops";
 import type { CropId } from "../data/crops";
 import { CELL, buildSemantics } from "./worldmap";
 import type { Cell, WorldMap } from "./worldmap";
@@ -48,6 +50,10 @@ export interface WorldObject {
 export const inBounds = (tx: number, ty: number): boolean =>
   tx >= 0 && ty >= 0 && tx < MAP_W && ty < MAP_H;
 
+/** Trees, rocks and forage: the objects a farmer can take off the map. */
+export const isClearable = (o: WorldObject): boolean =>
+  o.type === "tree" || o.type === "rock" || o.type === "forage";
+
 export const tileIdx = (tx: number, ty: number): number => ty * MAP_W + tx;
 
 // Wide footprints straddle their anchor column, leaning left on even widths.
@@ -79,6 +85,9 @@ export class World {
   tilled: Uint8Array = new Uint8Array(MAP_W * MAP_H);
   watered: Uint8Array = new Uint8Array(MAP_W * MAP_H);
   crops = new Map<number, CropState>();
+  // co-op: crops planted on each tile in this farm's run, naming each crop in
+  // claim keys (net/claims). Never saved: a loaded farm starts a new run.
+  gens: Uint16Array = new Uint16Array(MAP_W * MAP_H);
   objects: WorldObject[] = [];
   nextId = 1;
   // tile idx -> first object (in array order) covering it. Objects never move,
@@ -119,6 +128,14 @@ export class World {
     this.objects.push(obj);
     this.indexObject(obj);
     return obj;
+  }
+
+  /** Put back an object removed earlier, under its original id — co-op object
+   *  keys name generated ids, which addObject would not keep. */
+  restoreObject(o: WorldObject): void {
+    this.objects.push(o);
+    this.indexObject(o);
+    this.nextId = Math.max(this.nextId, o.id + 1);
   }
 
   removeObject(o: WorldObject): void {
@@ -185,6 +202,33 @@ export class World {
     // A standing tree's crown draws over the tile north of its trunk, so a crop
     // there would grow unseen. Felling the tree frees the tile with the trunk's.
     return this.objectAt(tx, ty + 1)?.type !== "tree";
+  }
+
+  /**
+   * The soil's night before a day in `season`: crops out of season wither,
+   * watered (or rained-on) ones grow a day, and the soil dries — or stays wet
+   * under rain. Returns the tiles that changed, so co-op sends only those.
+   */
+  growOvernight(season: Season, rainy: boolean): Set<number> {
+    const changed = new Set<number>();
+    for (const [i, cs] of this.crops) {
+      const def = CROPS[cs.crop];
+      if (!def.seasons.includes(season)) {
+        this.crops.delete(i);
+        changed.add(i);
+      } else if ((this.watered[i] === 1 || rainy) && cs.daysGrown < def.growthDays) {
+        cs.daysGrown += 1;
+        changed.add(i);
+      }
+    }
+    for (let i = 0; i < this.watered.length; i += 1) {
+      const wet = rainy && this.tilled[i] === 1 ? 1 : 0;
+      if (this.watered[i] !== wet) {
+        this.watered[i] = wet;
+        changed.add(i);
+      }
+    }
+    return changed;
   }
 
   // ---- serialization (dynamic state only; terrain rebuilds from the world map) ----

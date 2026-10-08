@@ -20,9 +20,11 @@ import type { Link } from "../state/link";
 import type { Pilot } from "../state/pilot";
 import { DEG } from "../sys/geometry";
 import type { Progression } from "../sys/progression";
+import type { RemoteFire } from "../sys/remote-fire";
 import { TESLA_TINT } from "../sys/shield";
 import type { Shield } from "../sys/shield";
-import { SENTRY_WEAPON, twinAngle } from "../sys/weapons";
+import { SENTRY_WEAPON } from "../sys/volley";
+import { twinAngle } from "../sys/weapons";
 import type { Weapons } from "../sys/weapons";
 import { PARTICLE_SOFT_BUDGET } from "./fx-pool";
 import type { FxPool } from "./fx-pool";
@@ -44,7 +46,8 @@ export interface ShipObjs {
   /** Level the hull was last built for; rebuild on change (ships grow per level). */
   level: number;
   alive: boolean;
-  /** False until the first state snapshot lands (remote ships snap, not glide). */
+  /** False until the first state lands: a ship that was already dead when
+   *  first seen gets no death burst. */
   seenState: boolean;
   /** Thruster trail emitter (null when over the remote-trail cap). */
   trail: Phaser.GameObjects.Particles.ParticleEmitter | null;
@@ -113,6 +116,7 @@ export interface ShipViewDeps {
   shield: Shield;
   weapons: Weapons;
   progress: Progression;
+  remoteFire: RemoteFire;
 }
 
 /** Ship rendering for me and every remote: hull graphics per level, thruster trails, shield ring/halo, impact arcs, and the twin/windup/tesla/sentry decor. */
@@ -142,6 +146,8 @@ export class ShipView {
 
   private readonly progress: Progression;
 
+  private readonly remoteFire: RemoteFire;
+
   constructor(deps: ShipViewDeps) {
     this.scene = deps.scene;
     this.pilot = deps.pilot;
@@ -153,6 +159,7 @@ export class ShipView {
     this.shield = deps.shield;
     this.weapons = deps.weapons;
     this.progress = deps.progress;
+    this.remoteFire = deps.remoteFire;
   }
 
   private makeTrailEmitter(tint: number): Phaser.GameObjects.Particles.ParticleEmitter {
@@ -170,10 +177,7 @@ export class ShipView {
     return e;
   }
 
-  syncShips(now: number, dt: number): void {
-    // Time-based smoothing (~0.35/frame at 60fps) so remote-ship glide speed
-    // is refresh-rate independent.
-    const blend = 1 - Math.exp(-25 * dt);
+  syncShips(now: number): void {
     // Over the soft particle budget: trails throttle ×2 (vfx skill rule).
     const throttled = this.fx.aliveParticles() > PARTICLE_SOFT_BUDGET;
     const seen = new Set<string>();
@@ -185,7 +189,7 @@ export class ShipView {
       if (id === myId) {
         this.syncMyShip(rec, throttled, now);
       } else {
-        this.syncRemoteShip(id, rec, blend, throttled, now);
+        this.syncRemoteShip(id, rec, throttled, now);
       }
     }
     for (const [id, rec] of this.ships) {
@@ -307,40 +311,32 @@ export class ShipView {
     }
   }
 
-  private syncRemoteShip(
-    id: string,
-    rec: ShipObjs,
-    blend: number,
-    throttled: boolean,
-    now: number,
-  ): void {
+  /** A remote ship sits exactly where the PeerRoster's interpolation puts it
+   *  this frame — the same pose hit tests and its shots use. */
+  private syncRemoteShip(id: string, rec: ShipObjs, throttled: boolean, now: number): void {
     const st = this.link.peerStates.get(id) ?? null;
-    if (!st) {
+    if (!st || !st.present) {
+      // Unknown, mid-drop, out of interest range, or cleanly docked out
+      // (paused-as-spectator): hide with NO death FX. Docked clears
+      // rec.alive so re-entry pops in fresh rather than firing a spurious
+      // death burst; a ship with no state here is met again as a first
+      // sight, since whatever happened to it meanwhile went unseen.
       rec.gfx.setVisible(false);
       if (rec.trail) {
         rec.trail.emitting = false;
       }
-      return;
-    }
-    if (!st.present) {
-      // Cleanly docked out (paused-as-spectator): hide with NO death FX, and
-      // clear rec.alive so re-entry snaps in fresh rather than gliding from a
-      // stale spot or firing a spurious death burst.
-      rec.gfx.setVisible(false);
-      if (rec.trail) {
-        rec.trail.emitting = false;
+      if (st) {
+        rec.alive = false;
+      } else {
+        rec.seenState = false;
       }
-      rec.alive = false;
       return;
     }
     // remotes grow with their level too
     this.ensureShipLevel(rec, st.level);
     if (!rec.seenState) {
-      // First snapshot: snap into place (no glide from the origin) and adopt
-      // alive as-is (no death FX for players who were already dead).
       rec.seenState = true;
       rec.alive = st.alive;
-      rec.gfx.setPosition(st.x, st.y);
       rec.lastShieldHp = st.shieldHp;
     }
     if (rec.alive && !st.alive) {
@@ -352,24 +348,19 @@ export class ShipView {
         this.trauma.add(0.2);
       }
     }
-    // respawn: snap, don't glide
     if (!rec.alive && st.alive) {
-      rec.gfx.setPosition(st.x, st.y);
+      // (Re)appearing: no shield-drain flash for the respawn refill.
+      rec.lastShieldHp = st.shieldHp;
     }
     rec.alive = st.alive;
     rec.gfx.setVisible(st.alive);
     if (st.alive) {
-      rec.gfx.setPosition(
-        PhaserMath.Linear(rec.gfx.x, st.x, blend),
-        PhaserMath.Linear(rec.gfx.y, st.y, blend),
-      );
-      rec.gfx.setRotation(st.angle);
+      rec.gfx.setPosition(st.x, st.y).setRotation(st.angle);
       // networked invuln/phase
       rec.gfx.setAlpha(shipAlpha(st.shieldMod?.phased === true, st.invuln, now));
-      this.drawRemoteShipDecor(rec, st, now);
+      this.drawRemoteShipDecor(id, rec, st, now);
     }
-    const nitro = st.alive && st.boosts.some((b) => b.kind === "nitro" && b.until > now);
-    configureTrail(rec, nitro, throttled);
+    configureTrail(rec, st.alive && st.nitro, throttled);
     if (rec.trail) {
       // Remote thrust isn't on the wire — speed from vx,vy is the proxy.
       rec.trail.emitting = st.alive && Math.hypot(st.vx, st.vy) > 100;
@@ -382,7 +373,7 @@ export class ShipView {
 
   /** Shield stack (with drain flash / regen inferred between snapshots),
    *  TWIN drone, windup glow, TESLA aura and sentry for a living remote. */
-  private drawRemoteShipDecor(rec: ShipObjs, st: PlayerNetState, now: number): void {
+  private drawRemoteShipDecor(id: string, rec: ShipObjs, st: PlayerNetState, now: number): void {
     // Drains are visible as shieldHp drops between snapshots: flash + sparks.
     if (st.shieldHp < rec.lastShieldHp) {
       rec.flashUntil = now + 80;
@@ -400,15 +391,16 @@ export class ShipView {
       regen: now < rec.regenUntil,
       siphonPulse: false,
     });
-    if (st.boosts.some((b) => b.kind === "twin" && b.until > now)) {
+    if (st.twin) {
       this.drawTwinDrone(rec.gfx.x, rec.gfx.y, (now / 1000) * TWIN_ORBIT_DEG_PER_S * DEG);
     }
     this.drawWindupGlow(rec.gfx.x, rec.gfx.y, st.angle, st.windup, weaponTint(st.weaponName));
     if (st.tesla) {
       this.drawTeslaAura(rec.gfx.x, rec.gfx.y, now);
     }
-    if (st.sentry && now < st.sentry.until) {
-      this.drawSentry(st.sentry.x, st.sentry.y, st.sentry.until, now);
+    const turret = this.remoteFire.turretOf(id);
+    if (turret) {
+      this.drawSentry(turret.x, turret.y, now + turret.leftMs, now);
     }
   }
 

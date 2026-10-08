@@ -1,5 +1,7 @@
-// Multiplayer intent protocol. Guests send INTENT events; only the host mutates
-// the world. The host broadcasts the world snapshot under sharedState.snap.
+// Multiplayer protocol. Guests send INTENT events to the host; only the host
+// mutates the world. The host streams a TICK event per sim step (what changed,
+// see net/stream.ts) and keeps a full keyframe under sharedState.snap for late
+// joiners and host handover.
 
 import { isJsonNumber, isJsonObject, isJsonString } from "./json";
 
@@ -7,29 +9,43 @@ import type { AbilityKey } from "../data/heroes";
 import type { Order } from "../sim/types";
 import type { JsonObject, JsonValue } from "./json";
 
-export const MULTIPLAYER_HOST = import.meta.env.DEV
-  ? "http://localhost:8787"
-  : "https://party.vibedgames.com";
+/** Read when a client connects, not at import, so the pure protocol below
+ *  also loads under node for the netcode tests. */
+export const multiplayerHost = (): string =>
+  import.meta.env.DEV ? "http://localhost:8787" : "https://party.vibedgames.com";
 export const PARTY = "vg-server";
-const DEFAULT_ROOM = "moba-default";
+/** Rooms are namespaced by wire format: bump it with any change to ticks,
+ *  keyframes or intents, so tabs still on an older bundle during a deploy
+ *  never share a match with this one. */
+const ROOM_PREFIX = "moba-v3";
 
 /** `?room=<code>` joins a private room (play with friends, isolated test runs);
  *  anything else lands in the shared default room. */
 export const roomFromLocation = (): string => {
   const code = new URLSearchParams(window.location.search).get("room") ?? "";
-  return /^[\w-]{1,32}$/u.test(code) ? `moba-${code}` : DEFAULT_ROOM;
+  return /^[\w-]{1,32}$/u.test(code) ? `${ROOM_PREFIX}-${code}` : `${ROOM_PREFIX}-default`;
 };
 
+/** Every intent but `join` may carry `seq`: the guest's input counter, which
+ *  the host echoes back as the newest input it has applied to that hero, so the
+ *  guest can line its prediction up with the host's copy (net/predict.ts). */
 export type Intent =
   | { kind: "join"; defId: string }
-  | { kind: "order"; order: Order }
-  | { kind: "cast"; key: AbilityKey; point?: { x: number; y: number }; targetId?: string }
-  | { kind: "level"; key: AbilityKey }
-  | { kind: "buy"; itemId: string }
-  | { kind: "useItem"; slot: number; point?: { x: number; y: number } }
-  | { kind: "dash"; dx: number; dy: number };
+  | { kind: "order"; order: Order; seq?: number }
+  | {
+      kind: "cast";
+      key: AbilityKey;
+      point?: { x: number; y: number };
+      targetId?: string;
+      seq?: number;
+    }
+  | { kind: "level"; key: AbilityKey; seq?: number }
+  | { kind: "buy"; itemId: string; seq?: number }
+  | { kind: "useItem"; slot: number; point?: { x: number; y: number }; seq?: number }
+  | { kind: "dash"; dx: number; dy: number; seq?: number };
 
 export const INTENT_EVENT = "intent";
+export const TICK_EVENT = "tick";
 
 // ---- boundary parsing ------------------------------------------------------
 // Peer payloads arrive as wire JSON; validate into a typed Intent (or null) at
@@ -104,11 +120,10 @@ const parseUseItem = (v: JsonObject): Intent | null => {
   return out;
 };
 
-/** Validate a wire payload into a typed Intent, or null if malformed. */
-export const parseIntent = (v: JsonValue): Intent | null => {
-  if (!isJsonObject(v)) {
-    return null;
-  }
+const isSeq = (v: JsonValue | undefined): v is number =>
+  isJsonNumber(v) && Number.isSafeInteger(v) && v >= 0;
+
+const parseIntentBody = (v: JsonObject): Intent | null => {
   switch (v.kind) {
     case "join": {
       return isJsonString(v.defId) ? { defId: v.defId, kind: "join" } : null;
@@ -136,4 +151,16 @@ export const parseIntent = (v: JsonValue): Intent | null => {
       return null;
     }
   }
+};
+
+/** Validate a wire payload into a typed Intent, or null if malformed. */
+export const parseIntent = (v: JsonValue): Intent | null => {
+  if (!isJsonObject(v)) {
+    return null;
+  }
+  const intent = parseIntentBody(v);
+  if (intent && intent.kind !== "join" && isSeq(v.seq)) {
+    intent.seq = v.seq;
+  }
+  return intent;
 };

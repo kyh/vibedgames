@@ -1,8 +1,11 @@
-// Two-client co-op smoke: host + guest farm the same room, tile edits cross the
-// wire both ways, pausing (farm and mine) never freezes the other side, the
-// host leaves and the promoted guest keeps the farm for a late joiner. Needs
-// the party server on localhost:8787 and a Chrome install (playwright-core,
-// channel "chrome"). Not part of `pnpm test` for that reason.
+// Two-client co-op smoke: host + guest farm the same room, tile edits and
+// cleared trees/forage cross the wire both ways, a far farmer drops out of
+// view and back (interest), pausing (farm and mine) never
+// freezes the other side, a new day restores the guest's energy, the host
+// leaves and the promoted guest keeps the farm for a late joiner. (Remote
+// motion smoothness is covered headlessly, in farmer-wire.test.mts.) Needs the
+// party server on localhost:8787 and a Chrome (playwright-core: channel
+// "chrome", or CHROME_PATH). Not part of `pnpm test` for that reason.
 //
 // Usage: node tools/two-client.mjs [--url http://localhost:5305]
 // Without --url it starts its own vite on DEV_PORT.
@@ -121,9 +124,9 @@ const sampleRemoteClip = (page) =>
         const { setCurrentFrame } = anims;
         let seeks = 0;
         // Phaser steps frames through setCurrentFrame too; only count the
-        // network path (RemoteFarmers.sync, unminified under vite dev).
+        // network path (RemoteFarmers.seekClip, unminified under vite dev).
         anims.setCurrentFrame = (frame) => {
-          if (String(new Error("stack probe").stack).includes("sync")) {
+          if (String(new Error("stack probe").stack).includes("seekClip")) {
             seeks += 1;
           }
           return setCurrentFrame.call(anims, frame);
@@ -139,6 +142,12 @@ const sampleRemoteClip = (page) =>
         }, 33);
       }),
   );
+
+/** Swing the selected tool at a tile until the swing lands and the farmer is idle again. */
+const swingAt = async (page, tx, ty) => {
+  await page.evaluate(({ x, y }) => window.__gs.tryAction({ tx: x, ty: y }), { x: tx, y: ty });
+  await waitFor(page, () => !window.__gs.acting, "swing done", { timeoutMs: 3000 });
+};
 
 /** Frames may hold or step forward (or wrap to 1); a step back is a stale network frame. */
 const backwardSteps = (samples) => {
@@ -191,7 +200,9 @@ const main = async () => {
       "--disable-backgrounding-occluded-windows",
       "--disable-renderer-backgrounding",
     ],
-    channel: "chrome",
+    ...(process.env.CHROME_PATH
+      ? { executablePath: process.env.CHROME_PATH }
+      : { channel: "chrome" }),
     headless: true,
   });
   const results = [];
@@ -219,12 +230,10 @@ const main = async () => {
       arg: guestTile,
       timeoutMs: 5000,
     });
-    await waitFor(
-      guest,
-      (i) => (window.__gs.net.sharedState?.tiles?.[i] ?? null) !== null,
-      "room ledger",
-      { arg: guestTile, timeoutMs: 5000 },
-    );
+    await waitFor(guest, (i) => window.__gs.net.sharedState?.[`t${i}`] === 1, "room ledger", {
+      arg: guestTile,
+      timeoutMs: 5000,
+    });
     step("guest's till reaches the host world", true, `tile ${guestTile}`);
     const hostTile = await till(host);
     await waitFor(guest, (i) => window.__gs.world.tilled[i] === 1, "guest adopts host till", {
@@ -233,10 +242,53 @@ const main = async () => {
     });
     step("host's till reaches the guest world", true, `tile ${hostTile}`);
 
-    // The other farmer's walk clip runs locally between 12 Hz packets: no
-    // re-seeks while the clip is unchanged, frames only hold or advance.
+    // Cleared objects cross both ways: the guest fells a tree (a claim whose
+    // grant the host applies), the host picks a mushroom (its own claim, a key
+    // the guest adopts).
+    const felled = await guest.evaluate(() => {
+      const gs = window.__gs;
+      const f = gs.feetTile();
+      const trees = gs.world.objects.filter((o) => o.type === "tree");
+      trees.sort(
+        (a, b) =>
+          Math.abs(a.tx - f.tx) +
+          Math.abs(a.ty - f.ty) -
+          Math.abs(b.tx - f.tx) -
+          Math.abs(b.ty - f.ty),
+      );
+      gs.inv.select(
+        gs.inv.slots.findIndex((s) => s?.item.kind === "tool" && s.item.tool === "axe"),
+      );
+      return trees[0];
+    });
+    for (let hit = 0; hit < felled.hp; hit += 1) {
+      await swingAt(guest, felled.tx, felled.ty);
+    }
+    await waitFor(
+      host,
+      (id) => !window.__gs.world.objects.some((o) => o.id === id),
+      "host loses the felled tree",
+      { arg: felled.id, timeoutMs: 5000 },
+    );
+    step("guest's felled tree is gone on the host", true, `object ${felled.id}`);
+    const picked = await host.evaluate(() => {
+      const gs = window.__gs;
+      const mushroom = gs.world.objects.find((o) => o.type === "forage");
+      gs.tryAction({ tx: mushroom.tx, ty: mushroom.ty });
+      return mushroom.id;
+    });
+    await waitFor(
+      guest,
+      (id) => !window.__gs.world.objects.some((o) => o.id === id),
+      "guest loses the picked mushroom",
+      { arg: picked, timeoutMs: 5000 },
+    );
+    step("host's picked mushroom is gone on the guest", true, `object ${picked}`);
+
+    // The other farmer's walk clip runs locally between packets: no re-seeks
+    // while the clip is unchanged, frames only hold or advance.
     await host.keyboard.down("d");
-    await wait(300);
+    await wait(600);
     const { samples, seeks } = await sampleRemoteClip(guest);
     await host.keyboard.up("d");
     const walking = samples.filter(([k]) => k === "p-walk").length;
@@ -246,6 +298,25 @@ const main = async () => {
       walking >= 40 && seeks === 0 && back === 0,
       `walk ${walking}/45, seeks ${seeks}, back-steps ${back}`,
     );
+
+    // Interest: a farmer across the map leaves the guest's view (the host
+    // still receives everyone) and comes back whole when it returns.
+    const home = await host.evaluate(() => {
+      const { player } = window.__gs;
+      const was = { x: player.x, y: player.y };
+      player.setPosition(80 * 16 + 8, 20 * 16 + 12);
+      return was;
+    });
+    await waitFor(guest, () => window.__gs.remoteFarmers.count() === 0, "far host hidden", {
+      timeoutMs: 5000,
+    });
+    h = await snapshot(host);
+    step("a far farmer leaves the guest's view; the host still sees everyone", h.remote === 1);
+    await host.evaluate((p) => window.__gs.player.setPosition(p.x, p.y), home);
+    await waitFor(guest, () => window.__gs.remoteFarmers.count() === 1, "host back in view", {
+      timeoutMs: 5000,
+    });
+    step("back in range, the farmer is drawn again", true);
 
     // Escape on either side fences that farmer only; the shared clock keeps running.
     await guest.keyboard.press("Escape");
@@ -307,14 +378,22 @@ const main = async () => {
       timeoutMs: 5000,
     });
 
-    // Day end is host-only: the guest's sleep is refused, the host's reaches the guest.
+    // Day end is host-only: the guest's sleep is refused, the host's reaches
+    // the guest — and with it the guest's own night: its energy comes back.
     await guest.evaluate(() => window.__gs.doSleep());
     await wait(300);
     const afterGuestSleep = await snapshot(guest);
     step("guest cannot end the day", afterGuestSleep.day === 1);
+    const tired = await guest.evaluate(() => window.__GAME_DIAGNOSTICS__.energy);
     await host.evaluate(() => window.__gs.endDay());
     await waitFor(guest, () => window.__gs.day === 2, "guest sees day 2", { timeoutMs: 6000 });
     step("host's day end reaches the guest", true);
+    const rested = await guest.evaluate(() => window.__GAME_DIAGNOSTICS__.energy);
+    step(
+      "the new day restores the guest's energy",
+      tired < 100 && rested === 100,
+      `${tired} → ${rested}`,
+    );
 
     // Host leaves: the guest is promoted with the whole ledger and keeps farming.
     // (The old seat lingers in the player map for the reconnect grace window.)

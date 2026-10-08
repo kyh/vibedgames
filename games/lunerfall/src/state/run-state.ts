@@ -52,8 +52,6 @@ export interface RunState {
   // versus: host-authoritative match, and the guest's mirror of the broadcast
   match: VersusMatch | null;
   matchNet: NetVersus | null;
-  // host snapshot counter
-  tick: number;
 }
 
 // Base mods plus the permanent meta upgrades bought in the hub (host/solo; a
@@ -91,7 +89,6 @@ export const newRunState = (mods = metaMods()): RunState => ({
   runRecap: null,
   score: 0,
   state: "active",
-  tick: 0,
   transBuilt: false,
   transT: 0,
 });

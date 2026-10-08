@@ -7,14 +7,14 @@ import {
 import type { TouchControls } from "@repo/embed";
 import { PhysicalGamepad, attachVirtualGamepad, stickDirection4 } from "@vibedgames/gamepad/phaser";
 import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
-import { MultiplayerClient } from "@vibedgames/multiplayer";
+import { MultiplayerClient, RemoteClock } from "@vibedgames/multiplayer";
 import {
   isPlaytestRequested,
   publishDiagnostics,
   publishPlaytest,
   publishTestHooks,
 } from "@vibedgames/playtest";
-import type { Player } from "@vibedgames/multiplayer";
+import type { Player, SenderClock } from "@vibedgames/multiplayer";
 import type Phaser from "phaser";
 import { BlendModes, Input, Math as PhaserMath, Scale, Scene, Scenes } from "phaser";
 import { createArena, readArena } from "../shared/arena";
@@ -24,10 +24,18 @@ import { CharacterAction, VICTORY_ACTION_MS } from "../render/character-action";
 import type { CharacterPose } from "../render/character-action";
 import { blastFrame, fireCells, freshCue } from "../render/blast-frame";
 import { RoundHud } from "../render/round-hud";
+import { DirInput, stickDirs } from "../input/dir-input";
+import { BombPrediction, fuseStart } from "../net/bomb-prediction";
+import { applyOpened, encodeOpened } from "../net/grid-wire";
+import { localClaims, PICKUP_CLAIMS, PickupClaims, pickupKey } from "../net/pickup-claims";
+import type { ClaimRoom } from "../net/pickup-claims";
+import { StepTrack, WALK_GRACE_MS } from "../net/step-track";
+import type { StepPose } from "../net/step-track";
 import { playtestManifest } from "../playtest-manifest";
 import type { BombermanDiagnostics } from "../playtest-manifest";
 import { bombOn } from "../sim/burn-map";
-import { hostTick as simHostTick, placeBomb } from "../sim/host-sim";
+import { FixedStep } from "../sim/fixed-step";
+import { bombId, hostTick as simHostTick, placeBomb } from "../sim/host-sim";
 import { PlaytestScore, playtestView } from "../sim/playtest-view";
 import type { Human } from "../sim/host-sim";
 import {
@@ -50,6 +58,8 @@ import {
   FUSE_MS,
   GRID_COLS,
   GRID_ROWS,
+  HOST_STEP_MS,
+  PLAYER_LIMITS,
   SPAWN_POINTS,
   SPEED_STEP_MS,
   OFFLINE_FALLBACK_MS,
@@ -58,15 +68,30 @@ import {
   WORLD_H,
   WORLD_W,
 } from "../shared/constants";
-import type { Blast, Cell, Dir, PlayerStats, PowerupKind, SharedState } from "../shared/constants";
+import type {
+  Blast,
+  Bomb,
+  Bot,
+  Cell,
+  Dir,
+  PlayerState,
+  PlayerStats,
+  Powerup,
+  PowerupKind,
+  SharedState,
+} from "../shared/constants";
 import { buildControls, ensureStyle as ensureControlsStyle } from "../pause-overlay";
 import {
   adoptClock,
   clockStamp,
+  localClock,
   now as simNow,
   pauseClock,
   readClock,
   resumeClock,
+  sameStamp,
+  setClockBase,
+  simClock,
 } from "../util/clock";
 import { seededRandom } from "../util/seeded-random";
 
@@ -95,6 +120,8 @@ interface PlayerObjs {
   moving: boolean;
   action: CharacterAction;
   actionFrame: string | null;
+  /** The walk/idle state last applied to the sprite — movers re-apply every frame. */
+  anim: string | null;
 }
 
 interface BombObjs {
@@ -120,15 +147,18 @@ interface Fighter {
   col: number;
   row: number;
   colorIdx: number;
-  dir: Dir;
-  moving: boolean;
   isBot: boolean;
   isLocal: boolean;
   order: number;
 }
 
-/** Actions snapshot the pose they were started from; identity fields stay out. */
-const poseOf = ({ col, row, dir, moving }: Fighter): CharacterPose => ({ col, dir, moving, row });
+/** Actions snapshot the pose drawn when they start; identity fields stay out. */
+const poseOf = ({ col, row, dir, moving }: PlayerObjs): CharacterPose => ({
+  col,
+  dir,
+  moving,
+  row,
+});
 
 const PAD_START_BUTTONS = ["a", "b", "x", "y", "start"];
 
@@ -147,13 +177,23 @@ const MULTIPLAYER_HOST = import.meta.env.DEV
   ? "http://localhost:8787"
   : "https://party.vibedgames.com";
 
-/** `?room=<code>` isolates a match (test harness, private lobby); everyone else shares one room. */
-const ROOM = new URLSearchParams(location.search).get("room") || "bomberman-default";
+/** `?room=<code>` isolates a match (test harness, private lobby); everyone else shares one
+ *  room, versioned with the wire format so a tab on an older bundle never shares a match. */
+const ROOM = new URLSearchParams(location.search).get("room") || "bomberman-v3";
 /** A playtest reseeds and restarts the round at will, so without a `?room` of
  *  its own it plays solo rather than dial the room everyone else shares. */
 const SOLO_PLAYTEST = isPlaytestRequested() && !new URLSearchParams(location.search).has("room");
 const BOMB_BUTTON_INSET = 84;
 const BOMB_BUTTON_RADIUS = 52;
+
+/** Remote movers are drawn this far behind their sender's clock; it covers arrival jitter. */
+const REMOTE_DELAY_MS = 100;
+/** A step that follows straight on from the last starts where that one ended, back at most this far. */
+const MAX_CARRY_MS = 50;
+/** Longest frame the camera and the host's catch-up take into account. */
+const MAX_FRAME_MS = 250;
+/** Camera follow time constant — the old 0.16-per-frame ease at 60 Hz, at any refresh rate. */
+const CAMERA_FOLLOW_MS = 96;
 
 /** Detected at boot (not on first touch) so the first HUD paint already shows
  *  touch-worded hints on phones. */
@@ -261,8 +301,10 @@ const emptyShared = (
   bots: {},
   deaths: {},
   grid: createArena(arena, random),
+  opened: "",
   powerups: {},
-  startedAt: simNow(),
+  // A whole millisecond: the round names its power-up claims.
+  startedAt: Math.round(simNow()),
   stats: {},
   winner: null,
 });
@@ -285,13 +327,7 @@ const isJsonNumber = (v: WireField): v is number => Number.isFinite(v);
 const isShared = (v: MultiplayerClient["sharedState"]): v is SharedState =>
   isJsonObject(v) && Array.isArray(v["grid"]);
 
-interface PartialPS {
-  col?: number;
-  row?: number;
-  colorIdx?: number;
-  dir?: Dir;
-  moving?: boolean;
-}
+type PartialPS = Partial<PlayerState>;
 
 const readPlayerState = (player: Player | undefined): PartialPS => {
   const s = player?.state;
@@ -302,39 +338,19 @@ const readPlayerState = (player: Player | undefined): PartialPS => {
     const v = s[k];
     return isJsonNumber(v) ? v : undefined;
   };
-  const dv = s["dir"];
-  const dir: Dir | undefined =
-    dv === "up" || dv === "down" || dv === "left" || dv === "right" ? dv : undefined;
-  const mv = s["moving"];
-  return {
-    col: num("col"),
-    colorIdx: num("colorIdx"),
-    dir,
-    moving: mv === true || mv === false ? mv : undefined,
-    row: num("row"),
-  };
+  return { col: num("col"), colorIdx: num("colorIdx"), row: num("row"), s: num("s"), t: num("t") };
 };
 
-const isPowerupKind = (v: WireField): v is PowerupKind =>
-  v === "bomb" || v === "fire" || v === "speed";
+/** The owner's press counter, as an untrusted guest sends it. */
+const isLocalId = (v: WireField): v is number => Number.isSafeInteger(v) && Number(v) > 0;
 
-const isGridCol = (v: WireField): v is number =>
-  isJsonNumber(v) && Number.isInteger(v) && v >= 0 && v < GRID_COLS;
-
-const isGridRow = (v: WireField): v is number =>
-  isJsonNumber(v) && Number.isInteger(v) && v >= 0 && v < GRID_ROWS;
-
-const readPickup = (
-  payload: JsonObject,
-): { col: number; row: number; kind: PowerupKind } | null => {
-  const { col } = payload;
-  const { row } = payload;
-  const { kind } = payload;
-  if (!isGridCol(col) || !isGridRow(row) || !isPowerupKind(kind)) {
-    return null;
-  }
-  return { col, kind, row };
-};
+/** A guest's bomb press as the host reads it off `place_bomb`; `pressedAt` is sim time. */
+interface GuestPress {
+  col: number;
+  row: number;
+  localId: number;
+  pressedAt: number;
+}
 
 export class GameScene extends Scene {
   private client!: MultiplayerClient;
@@ -344,22 +360,56 @@ export class GameScene extends Scene {
   private bombSprites = new Map<string, BombObjs>();
   private blastSprites = new Map<string, BlastObjs>();
   private blastSeen = new Set<string>();
-  private powerupObjs = new Map<string, Phaser.GameObjects.Container>();
+  private powerupObjs = new Map<
+    string,
+    { container: Phaser.GameObjects.Container; pickup: Powerup }
+  >();
   private players = new Map<string, PlayerObjs>();
   private deathSeen = new Set<string>();
   private winnerAction: { id: string; at: number } | null = null;
   private characterTime = 0;
   private followStarted = false;
 
+  // The local body is never driven by the network: it walks its own step
+  // timeline (local `performance.now()`), and `myCol/myRow` is the tile the
+  // current step enters — the position published to the room.
   private myCol = 0;
   private myRow = 0;
   private myDir: Dir = "down";
-  private moving = false;
-  private moveCooldown = 0;
-  private lastMoveAt = 0;
-  private hostTickAcc = 0;
+  private stepFrom = { col: 0, row: 0 };
+  private stepStartedAt = 0;
+  private stepEndsAt = 0;
+  /** Placed on the board this session (spawned or restored); before that nothing drives the body. */
+  private ownSpawned = false;
+  /** `performance.now()` of the previous frame. */
+  private frameAt = 0;
+  private readonly dirInput = new DirInput();
+  /** Counts this client's bomb presses; the host names each bomb after it (see bombId). */
   private localBombSeq = 1;
-  private queuedDir: Dir | null = null;
+  /** Own bombs shown before the host has confirmed them (guests only). */
+  private readonly prediction = new BombPrediction();
+  /** Power-ups this client claimed: for its own body, or as host for its bots. */
+  private readonly pickupClaims = new PickupClaims();
+  /** The room's claims offline, where this client is the only claimant. */
+  private readonly offlineClaims = localClaims("solo");
+  private readonly hostStep = new FixedStep(HOST_STEP_MS, MAX_FRAME_MS);
+
+  /** Remote humans, each drawn on its own sender's clock. */
+  private readonly humanTracks = new Map<string, StepTrack>();
+  /** Bots, stepping on the sim clock: drawn on time by the host, on its stream by everyone else. */
+  private readonly botTracks = new Map<string, StepTrack>();
+  /** The host's stream as a guest receives it, learned from the bots' steps. */
+  private readonly hostStream = new RemoteClock();
+  /** Last state taken in per mover, so a repeated notify is a no-op. */
+  private readonly ingested = new Map<string, string>();
+  private ingestRound: number | null = null;
+  /** Who sends the bots' steps: this client ("self") or the host it follows. */
+  private botSender: string | null = null;
+
+  /** `shared()` decodes the wire state once per change. */
+  private sharedFrom: MultiplayerClient["sharedState"] | null = null;
+  private sharedView: SharedState | null = null;
+  private gridCache: { base: Cell[][]; opened: string | undefined; grid: Cell[][] } | null = null;
   /** Arrow + WASD key pairs per direction — either key held keeps you moving. */
   private heldKeys!: Record<Dir, [Phaser.Input.Keyboard.Key, Phaser.Input.Keyboard.Key]>;
   /** Touch controls: a floating move-joystick (snapped to 4 directions) plus a
@@ -428,7 +478,7 @@ export class GameScene extends Scene {
     if (paused) {
       this.roundHud.update(simNow(), false);
     }
-    this.queuedDir = null;
+    this.dirInput.reset();
     this.input.keyboard?.resetKeys();
     this.gamepad.pad.reset();
     this.padArmed = false;
@@ -439,14 +489,31 @@ export class GameScene extends Scene {
   // lives locally, and the bots make it a real match (you vs 3 bots).
   private offline = false;
   private everConnected = false;
+  /** `roomReady` as of the last frame — see watchRoomClock. */
+  private roomWasReady = false;
   /** Stamped on the first update() tick (not create()) — see maybeGoOffline. */
   private bootedAt = 0;
   private offlineShared: SharedState | null = null;
   private offlineMyState: JsonObject = {};
 
-  /** Connected to the room, or running the solo offline fallback. */
+  /** In the room with its clock measured: until the first probe returns, server time reads the local clock. */
+  private get roomReady(): boolean {
+    return this.client.connectionStatus === "connected" && this.client.serverClock.synced;
+  }
+
+  /** In the room, or running the solo offline fallback. */
   private get live(): boolean {
-    return this.offline || this.client.connectionStatus === "connected";
+    return this.offline || this.roomReady;
+  }
+
+  /** Who holds each claim: the room online, this machine offline. */
+  private get claimRoom(): ClaimRoom {
+    return this.offline ? this.offlineClaims : this.client;
+  }
+
+  /** The clock steps are stamped on: the room's server clock, or this machine's offline. */
+  private get roomClock(): SenderClock {
+    return this.offline ? localClock : this.client.serverClock;
   }
 
   /**
@@ -460,7 +527,7 @@ export class GameScene extends Scene {
   }
 
   private get amHost(): boolean {
-    return this.offline || (this.client.connectionStatus === "connected" && this.client.isHost);
+    return this.offline || (this.roomReady && this.client.isHost);
   }
 
   /** Freeze a solo simulation. The paused stamp goes out before the loop
@@ -485,14 +552,14 @@ export class GameScene extends Scene {
     this.game.loop.wake();
   }
 
-  /** Runs on every room change — the socket stays live while Phaser sleeps.
-   *  Guests follow the host's stamp; a promoted host inherits it once, then
-   *  every patch it sends carries its own. */
+  /** Runs on every room change — the socket stays live while Phaser sleeps —
+   *  and once the room's clock comes in. Guests follow the host's stamp; a
+   *  promoted host inherits it once, then sends its own whenever it changes. */
   private syncSharedClock(): void {
     if (this.offline) {
       return;
     }
-    if (this.client.connectionStatus !== "connected") {
+    if (!this.roomReady) {
       this.clockAuthority = false;
       return;
     }
@@ -511,6 +578,7 @@ export class GameScene extends Scene {
       // Another human arrived mid-pause: our overlay stays up, but their round must run.
       this.simulationFrozen = false;
       resumeClock();
+      this.netPatchShared({});
       this.game.loop.wake();
     }
   }
@@ -535,12 +603,17 @@ export class GameScene extends Scene {
     return present;
   }
 
-  /** Events loop straight back into the local host when offline. */
-  private netSendEvent(event: string, payload: JsonObject): void {
-    if (this.offline) {
-      this.handleEvent(event, payload, "solo");
-    } else {
-      this.client.sendEvent(event, payload);
+  /** An intent for the host, sent to the host alone. The host — and the
+   *  offline stand-in — acts on its own intents at once, with no server hop. */
+  private netToHost(event: string, payload: JsonObject): void {
+    const id = this.myId;
+    if (this.amHost && id) {
+      this.handleEvent(event, payload, id);
+      return;
+    }
+    const host = this.offline ? null : this.client.hostId;
+    if (host) {
+      this.client.sendEvent(event, payload, { to: host });
     }
   }
 
@@ -560,10 +633,29 @@ export class GameScene extends Scene {
     if (this.offline) {
       if (this.offlineShared) {
         this.offlineShared = { ...this.offlineShared, ...patch, clock: clockStamp() };
+        this.ingestNet();
       }
     } else if (this.amHost) {
-      this.client.updateSharedState({ ...patch, clock: clockStamp() });
+      this.client.updateSharedState({ ...this.gridToWire(patch), ...this.clockToWire() });
     }
+  }
+
+  /** The sim clock rides the wire only when it changes: a pause or a resume. */
+  private clockToWire(): Partial<SharedState> {
+    const stamp = clockStamp();
+    const wire = this.client.sharedState;
+    return isShared(wire) && sameStamp(wire.clock, stamp) ? {} : { clock: stamp };
+  }
+
+  /** A changed board goes out as the crates opened since the round's layout,
+   *  not as the 4.8 KB grid (see net/grid-wire). */
+  private gridToWire(patch: Partial<SharedState>): Partial<SharedState> {
+    const { grid, ...rest } = patch;
+    const wire = this.client.sharedState;
+    if (!grid || !isShared(wire)) {
+      return patch;
+    }
+    return { ...rest, opened: encodeOpened(wire.grid, grid) };
   }
 
   /** Poll once per frame: drives the solo-fallback grace window. */
@@ -589,10 +681,22 @@ export class GameScene extends Scene {
       return;
     }
     this.offline = true;
+    setClockBase(localClock);
     // no subscribe() offline — kick the first onUpdate
     this.netDirty = true;
     // stop reconnect attempts; refresh to go online
     this.client.destroy();
+  }
+
+  /** The room goes live once its clock is measured, and no room message says when. */
+  private watchRoomClock(): void {
+    const ready = this.roomReady;
+    if (ready === this.roomWasReady) {
+      return;
+    }
+    this.roomWasReady = ready;
+    this.syncSharedClock();
+    this.netDirty = true;
   }
 
   constructor() {
@@ -671,6 +775,7 @@ export class GameScene extends Scene {
     // `this.offline`, so the client simply never exists on this path.
     if (isOfflineRequested() || SOLO_PLAYTEST) {
       this.offline = true;
+      setClockBase(localClock);
       // no subscribe() offline — kick the first onUpdate
       this.netDirty = true;
       this.ensureSeeded();
@@ -681,16 +786,23 @@ export class GameScene extends Scene {
       // already has the shared state and won't reset it.
       this.client = new MultiplayerClient({
         host: MULTIPLAYER_HOST,
+        limits: PLAYER_LIMITS,
+        onClaim: (key, owner) => this.onClaimHeard(key, owner),
         onEvent: (event, payload, from) => {
           // SAFETY: wire payloads are JSON.parse output (or loop back from
-          // netSendEvent's JsonObject), so they are JSON values by construction.
+          // netToHost's JsonObject), so they are JSON values by construction.
           this.handleEvent(event, payload as JsonValue, from);
         },
         party: "vg-server",
         room: ROOM,
       });
+      // Sim time is server time: every client reads fuses and bot steps alike.
+      setClockBase(this.client.serverClock);
+      // The SDK notifies once per room message, so every step a mover
+      // reports reaches its track even when several land in one frame.
       this.client.subscribe(() => {
         this.syncSharedClock();
+        this.ingestNet();
         this.netDirty = true;
       });
     }
@@ -771,9 +883,17 @@ export class GameScene extends Scene {
   }
 
   override update(_time: number, delta: number): void {
+    // Movement, the camera and the host step all run on real elapsed time,
+    // never Phaser's smoothed delta.
+    const now = performance.now();
+    const elapsed = this.frameAt === 0 ? 0 : Math.min(MAX_FRAME_MS, now - this.frameAt);
     this.frame += 1;
     if (!this.offline) {
+      this.watchRoomClock();
       this.maybeGoOffline();
+    }
+    if (this.prediction.settle(this.shared()?.bombs ?? {}, now)) {
+      this.netDirty = true;
     }
     // subscribe() (online) and the net* writers (offline) mark the scene
     // dirty; run the render sync at most once per frame, and only when
@@ -785,24 +905,27 @@ export class GameScene extends Scene {
     }
     this.updateBattleFeel(delta);
     this.pollPad();
-    if (!this.live) {
-      return;
+    if (this.live) {
+      // reconcile dropped touches + redraw the overlay
+      this.gamepad.update();
+      this.applyPadActions();
+      this.handleInput(now);
+      this.claimUnderfoot();
+      // Hold the world (bots, bombs, round end) while the start screen is up, or
+      // the round can be decided against a player who is still reading. Only safe
+      // when no other human is present: freezing a shared arena would stall them.
+      // `offline` means "no server", not "solo" — a connected solo host still
+      // needs the hold, so gate on the human count instead.
+      const soloArena = Object.keys(this.peers).length <= 1;
+      if (this.amHost && (this.started || !soloArena)) {
+        this.hostSteps();
+      } else {
+        this.hostStep.reset();
+      }
+      this.updateMovers(now);
+      this.updateCamera(elapsed);
     }
-    // reconcile dropped touches + redraw the overlay
-    this.gamepad.update();
-    this.applyPadActions();
-    this.handleInput(delta);
-    this.settleMoving();
-    this.updateCamera();
-    // Hold the world (bots, bombs, round end) while the start screen is up, or
-    // the round can be decided against a player who is still reading. Only safe
-    // when no other human is present: freezing a shared arena would stall them.
-    // `offline` means "no server", not "solo" — a connected solo host still
-    // needs the hold, so gate on the human count instead.
-    const soloArena = Object.keys(this.peers).length <= 1;
-    if (this.amHost && (this.started || !soloArena)) {
-      this.hostTick(delta);
-    }
+    this.frameAt = now;
   }
 
   private observeScore(): void {
@@ -835,10 +958,11 @@ export class GameScene extends Scene {
     const state = this.shared();
     const id = this.myId;
     const phase = this.playtestPhase();
+    const cooldownMs = Math.max(0, this.stepEndsAt - performance.now());
     const base: BombermanDiagnostics = {
       blasts: Object.keys(state?.blasts ?? {}).length,
       bombs: Object.keys(state?.bombs ?? {}).length,
-      canStep: this.moveCooldown <= 0,
+      canStep: cooldownMs === 0,
       complete: phase === "round-over" || phase === "dead",
       cratesOpened: this.playtestScore.crates,
       entities: this.bombSprites.size + this.blastSprites.size + this.players.size,
@@ -855,11 +979,11 @@ export class GameScene extends Scene {
             ...base,
             ...playtestView({
               col: this.myCol,
-              cooldownMs: this.moveCooldown,
+              cooldownMs,
               myId: id,
               now: simNow(),
               row: this.myRow,
-              state,
+              state: this.playerView(state, id),
               stepMs: this.myStats().speed,
             }),
           }
@@ -895,6 +1019,11 @@ export class GameScene extends Scene {
     if (!this.started || !this.padArmed || this.controlsPaused) {
       return;
     }
+    for (const dir of DIRS) {
+      if (this.pad.justPressed(dir)) {
+        this.dirInput.press(dir);
+      }
+    }
     if (this.pad.justPressed("a")) {
       this.requestBomb();
     }
@@ -907,7 +1036,7 @@ export class GameScene extends Scene {
    * Clamp the zoomed view ourselves: Phaser's built-in bounds use the unzoomed
    * canvas. At low zoom, leave enough screen space for the fixed touch button.
    * Large viewports center the board on axes where it fits completely. */
-  private updateCamera(): void {
+  private updateCamera(elapsed: number): void {
     const id = this.myId;
     if (!id) {
       return;
@@ -943,10 +1072,8 @@ export class GameScene extends Scene {
     const tx = cx - cam.width / 2;
     const ty = cy - cam.height / 2;
     if (this.followStarted) {
-      cam.setScroll(
-        PhaserMath.Linear(cam.scrollX, tx, 0.16),
-        PhaserMath.Linear(cam.scrollY, ty, 0.16),
-      );
+      const k = 1 - Math.exp(-elapsed / CAMERA_FOLLOW_MS);
+      cam.setScroll(PhaserMath.Linear(cam.scrollX, tx, k), PhaserMath.Linear(cam.scrollY, ty, k));
     } else {
       cam.setScroll(tx, ty);
       this.followStarted = true;
@@ -1026,11 +1153,12 @@ export class GameScene extends Scene {
       ["S", "down"],
     ];
     for (const [code, dir] of KEY_TO_DIR) {
-      k.on(`keydown-${code}`, () => {
-        if (this.controlsPaused) {
+      k.on(`keydown-${code}`, (event: KeyboardEvent) => {
+        // Before the start screen is dismissed a press is only "any key".
+        if (this.controlsPaused || !this.started || event.repeat) {
           return;
         }
-        this.queuedDir = dir;
+        this.dirInput.press(dir);
       });
     }
     this.heldKeys = {
@@ -1041,115 +1169,112 @@ export class GameScene extends Scene {
     };
   }
 
-  private handleInput(delta: number): void {
-    if (this.controlsPaused) {
+  /** One grid step at a time, off the local clock — the network never waits on this. */
+  private handleInput(now: number): void {
+    if (this.controlsPaused || !this.started || !this.ownSpawned || !this.isAlive(this.myId)) {
       return;
     }
-    const id = this.myId;
-    if (!this.started) {
+    this.dirInput.sync((dir) => this.dirHeld(dir));
+    if (now < this.stepEndsAt) {
       return;
     }
-    if (!this.isAlive(id)) {
-      return;
-    }
-    this.moveCooldown = Math.max(0, this.moveCooldown - delta);
-    if (this.moveCooldown > 0) {
-      return;
-    }
-    const dir = this.readDir();
+    const dir = this.dirInput.choose((d) => {
+      const [dc, dr] = DIR_VECT[d];
+      return this.passable(this.myCol + dc, this.myRow + dr);
+    }, this.stickDirs());
     if (!dir) {
       return;
     }
+    // A step that follows straight on from the last starts where that one
+    // ended, not on this frame, so the cadence and the drawn motion hold at
+    // any frame rate. From a standstill, it starts now.
+    const start =
+      this.stepEndsAt > this.frameAt ? Math.max(this.stepEndsAt, now - MAX_CARRY_MS) : now;
+    const stride = this.myStats().speed;
     const [dc, dr] = DIR_VECT[dir];
-    const nc = this.myCol + dc;
-    const nr = this.myRow + dr;
-    if (!this.passable(nc, nr)) {
-      return;
-    }
-    this.myCol = nc;
-    this.myRow = nr;
+    this.stepFrom = { col: this.myCol, row: this.myRow };
+    this.myCol += dc;
+    this.myRow += dr;
     this.myDir = dir;
-    this.moving = true;
-    this.moveCooldown = this.myStats().speed;
-    this.lastMoveAt = this.time.now;
-    this.netUpdateMyState({ col: nc, colorIdx: this.myColorIdx(), dir, moving: true, row: nr });
-    this.tweenPlayer(id, nc, nr, this.moveCooldown);
+    this.stepStartedAt = start;
+    this.stepEndsAt = start + stride;
+    // Published on the room's clock, the one every receiver draws against.
+    const t = Math.round(this.roomClock.now(now) - (now - start));
+    this.netUpdateMyState({ col: this.myCol, row: this.myRow, s: stride, t });
   }
 
-  /** Drop back to the idle pose shortly after the last successful step. */
-  private settleMoving(): void {
-    if (!this.moving) {
-      return;
+  /** Held by a key of either set, or the pad's d-pad. */
+  private dirHeld(dir: Dir): boolean {
+    if (this.heldKeys?.[dir].some((key) => key.isDown)) {
+      return true;
     }
-    if (this.time.now - this.lastMoveAt < this.myStats().speed + 70) {
-      return;
-    }
-    this.moving = false;
-    if (this.myId) {
-      this.netUpdateMyState({ moving: false });
-    }
+    return this.pad.connected && this.padArmed && this.pad.isButtonDown(dir);
   }
 
-  private readDir(): Dir | null {
-    if (this.queuedDir) {
-      const d = this.queuedDir;
-      this.queuedDir = null;
-      return d;
-    }
-    if (this.heldKeys) {
-      if (this.heldKeys.left.some((key) => key.isDown)) {
-        return "left";
-      }
-      if (this.heldKeys.right.some((key) => key.isDown)) {
-        return "right";
-      }
-      if (this.heldKeys.up.some((key) => key.isDown)) {
-        return "up";
-      }
-      if (this.heldKeys.down.some((key) => key.isDown)) {
-        return "down";
-      }
-    }
-    // Physical pad: d-pad first (exact), then the analog stick.
-    if (this.pad.connected && this.padArmed) {
-      if (this.pad.isButtonDown("left")) {
-        return "left";
-      }
-      if (this.pad.isButtonDown("right")) {
-        return "right";
-      }
-      if (this.pad.isButtonDown("up")) {
-        return "up";
-      }
-      if (this.pad.isButtonDown("down")) {
-        return "down";
-      }
-      const padDir = stickDirection4(this.pad.getStick());
-      if (padDir) {
-        return padDir;
-      }
-    }
-    // Held touch stick, snapped to the grid's 4 directions.
-    return stickDirection4(this.gamepad.getStick());
+  /** Analog sticks, physical then touch, each snapped to the grid. */
+  private stickDirs(): Dir[] {
+    const pad = this.pad.connected && this.padArmed ? stickDirs(this.pad.getStick()) : [];
+    return [...pad, ...stickDirs(this.gamepad.getStick())];
   }
 
+  /** The local body, read straight off its step timeline. */
+  private ownPose(now: number): StepPose | undefined {
+    if (!this.ownSpawned) {
+      return undefined;
+    }
+    const from = this.stepFrom;
+    const span = this.stepEndsAt - this.stepStartedAt;
+    const k = span > 0 ? PhaserMath.Clamp((now - this.stepStartedAt) / span, 0, 1) : 1;
+    const covered = k < 0.5 ? from : { col: this.myCol, row: this.myRow };
+    return {
+      col: covered.col,
+      dir: this.myDir,
+      moving: now < this.stepEndsAt + WALK_GRACE_MS,
+      row: covered.row,
+      x: from.col + (this.myCol - from.col) * k,
+      y: from.row + (this.myRow - from.row) * k,
+    };
+  }
+
+  /**
+   * A bomb under the body as drawn — not on the tile a step is still
+   * entering — shown, heard and solid on the press. The host places it at
+   * once; a guest shows a prediction the host's copy takes over (see
+   * net/bomb-prediction).
+   */
   private requestBomb(): void {
-    if (this.controlsPaused || !this.live) {
-      return;
-    }
     const id = this.myId;
-    if (!this.started) {
+    const state = this.shared();
+    const pose = this.ownPose(performance.now());
+    if (this.controlsPaused || !this.live || !this.started || !id || !state || !pose) {
       return;
     }
     if (!this.isAlive(id)) {
       return;
     }
-    if (this.bombAt(this.myCol, this.myRow)) {
+    const { col, row } = pose;
+    const localId = this.localBombSeq;
+    // The host's own rule, against everything this client can see — its
+    // unconfirmed bombs and claimed power-ups included — so a press the host
+    // would refuse shows nothing.
+    const view = { ...this.playerView(state, id), bombs: this.visibleBombs() };
+    const at = Math.round(simNow());
+    const bomb = placeBomb(view, id, col, row, at, localId)?.[bombId(id, localId)];
+    if (!bomb) {
       return;
     }
-    const localId = this.localBombSeq;
     this.localBombSeq += 1;
-    this.netSendEvent("place_bomb", { col: this.myCol, localId, row: this.myRow });
+    if (this.amHost) {
+      this.netPatchShared({ bombs: { ...state.bombs, [bomb.id]: bomb } });
+    } else {
+      this.prediction.add(bomb, performance.now());
+      this.netDirty = true;
+      this.netToHost("place_bomb", { at, col, localId, round: state.startedAt, row });
+    }
+    sfx.place(true);
+    this.pulsePlayer(id, "place");
+    this.roundHud.acceptedPlacement(simNow());
+    this.players.get(id)?.action.place(bomb, simNow(), this.characterTime, pose);
   }
 
   private requestRestart(): void {
@@ -1165,7 +1290,7 @@ export class GameScene extends Scene {
     }
     // The accepted replacement snapshot owns respawn, including reconnects
     // that missed the request. Old requests cannot restart a newer round.
-    this.netSendEvent("request_restart", { round: state.startedAt });
+    this.netToHost("request_restart", { round: state.startedAt });
   }
 
   private respawnSelf(): void {
@@ -1178,39 +1303,40 @@ export class GameScene extends Scene {
       return;
     }
     const spawn = SPAWN_POINTS[idx] ?? SPAWN_POINTS[0];
-    this.myCol = spawn.col;
-    this.myRow = spawn.row;
-    this.myDir = "down";
-    this.moving = false;
-    // Snap our own container — the local player is never tweened by syncPlayers,
-    // so without this the sprite would linger at its death spot after a restart.
+    this.placeSelf(spawn.col, spawn.row);
     const objs = this.players.get(id);
     if (objs) {
       this.resetPlayerFeedback(objs);
-      objs.dir = "down";
-      objs.moving = false;
-      this.applyAnim(objs, "down", false);
-      this.tweens.killTweensOf(objs.container);
       objs.container.setPosition(colX(spawn.col), rowY(spawn.row));
-      objs.col = spawn.col;
-      objs.row = spawn.row;
     }
+    this.publishSpawn(spawn.col, spawn.row, idx);
+  }
+
+  /** Stand the local body on a tile, mid-nothing: spawn, respawn, a restored seat. */
+  private placeSelf(col: number, row: number): void {
+    this.myCol = col;
+    this.myRow = row;
+    this.myDir = "down";
+    this.stepFrom = { col, row };
+    this.stepStartedAt = 0;
+    this.stepEndsAt = 0;
+    this.ownSpawned = true;
+  }
+
+  /** A zero-length step: everyone else places the body there instead of walking it over. */
+  private publishSpawn(col: number, row: number, idx: number): void {
     this.netUpdateMyState({
-      col: spawn.col,
+      col,
       colorIdx: idx % COLORS.length,
-      dir: "down",
-      moving: false,
-      row: spawn.row,
+      row,
+      s: 0,
+      t: Math.round(this.roomClock.now()),
     });
   }
 
   // ---- connection callbacks ------------------------------------------------
 
   private handleEvent(event: string, payload: JsonValue, from: string): void {
-    if (event === "pickup") {
-      this.onPickupEvent(payload, from);
-      return;
-    }
     if (!this.amHost) {
       return;
     }
@@ -1218,31 +1344,41 @@ export class GameScene extends Scene {
       const p = isJsonObject(payload) ? payload : null;
       const col = p?.["col"];
       const row = p?.["row"];
-      if (isJsonNumber(col) && isJsonNumber(row)) {
-        this.hostPlaceBomb(from, col, row);
+      const localId = p?.["localId"];
+      const at = p?.["at"];
+      // A press made before a restart reached the guest must not land in the new round.
+      const current = p?.["round"] === this.shared()?.startedAt;
+      if (
+        isJsonNumber(col) &&
+        isJsonNumber(row) &&
+        isLocalId(localId) &&
+        isJsonNumber(at) &&
+        current
+      ) {
+        this.hostPlaceBomb(from, { col, localId, pressedAt: at, row });
       }
     } else if (event === "request_restart") {
       this.hostRestart(payload);
     }
   }
 
-  /** Only the host's grant for the current round counts; anything else is stale or spoofed. */
-  private onPickupEvent(payload: JsonValue, from: string): void {
-    const host = this.offline ? "solo" : this.client.hostId;
-    if (from !== host || !this.started || !isJsonObject(payload)) {
+  /** Take the power-up underfoot: claimed from the room, and cued at once (see net/pickup-claims). */
+  private claimUnderfoot(): void {
+    const id = this.myId;
+    const state = this.shared();
+    if (!id || !state || !this.started || !this.ownSpawned || !this.isAlive(id)) {
       return;
     }
-    const pickup = readPickup(payload);
-    if (!pickup || payload["round"] !== this.shared()?.startedAt) {
+    const tile = { col: this.myCol, row: this.myRow };
+    const pickup = this.pickupClaims.reach(this.claimRoom, state, id, tile);
+    if (!pickup) {
       return;
     }
-    const { col, row, kind } = pickup;
-    this.burst(colX(col), rowY(row), POWERUP_GLOW[kind], 14);
-    if (payload["collector"] !== this.myId) {
-      return;
-    }
+    this.netDirty = true;
+    const { kind } = pickup;
+    this.burst(colX(pickup.col), rowY(pickup.row), POWERUP_GLOW[kind], 14);
     sfx.pickup();
-    this.pulsePlayer(this.myId, "pickup");
+    this.pulsePlayer(id, "pickup");
     if (this.statsEl) {
       this.statsEl.dataset["pickup"] = kind;
     }
@@ -1250,6 +1386,33 @@ export class GameScene extends Scene {
       this.pickupNoteEl.textContent = `${kind.toUpperCase()} PICKUP`;
       this.pickupNoteEl.classList.add("on");
       this.pickupUntil = simNow() + 800;
+    }
+  }
+
+  /**
+   * The room named an owner for a claim. A power-up this client took that
+   * went to someone else comes back off its stats; the host hands every
+   * grant to its claimant at once, before a guest's next press can need it.
+   */
+  private onClaimHeard(key: string, owner: string | null): void {
+    const id = this.myId;
+    const lost = id ? this.pickupClaims.heard(key, owner, id) : null;
+    if (lost?.fighter === id && this.statsEl?.dataset["pickup"] === lost.pickup.kind) {
+      this.clearPickupNote();
+    }
+    if (owner !== null && this.amHost) {
+      this.settlePickups();
+    }
+    this.netDirty = true;
+  }
+
+  /** Host: every power-up the room says was claimed goes to its claimant. */
+  private settlePickups(): void {
+    const id = this.myId;
+    const state = this.shared();
+    const granted = id && state ? this.pickupClaims.settle(this.claimRoom, state, id) : null;
+    if (granted) {
+      this.netPatchShared(granted);
     }
   }
 
@@ -1285,6 +1448,8 @@ export class GameScene extends Scene {
       }
       this.battleFx?.clear();
       this.blastSeen.clear();
+      this.prediction.clear();
+      this.pickupClaims.clear();
       this.roundHud.reset();
       this.sparkEmitter?.killAll();
       this.clearPickupNote();
@@ -1294,21 +1459,23 @@ export class GameScene extends Scene {
         this.respawnSelf();
       }
     }
+    this.pickupClaims.prune(this.shared());
     this.trackRestartable();
     this.observeScore();
     this.setStatus(this.statusText());
     this.setStats();
     this.setBanner();
     // No body until the start screen is dismissed — bots and the host seed run
-    // on behind the overlay, but the player isn't dropped in mid-read.
-    if (this.started) {
+    // on behind the overlay, but the player isn't dropped in mid-read — nor
+    // before the room's clock is in, which its spawn is stamped on.
+    if (this.started && this.live) {
       this.ensureMySpawn();
     }
     const fighters = this.fighters();
     this.aliveCount = fighters.filter((fighter) => this.isAlive(fighter.id)).length;
     this.syncRoster(fighters);
     this.syncGrid();
-    this.syncBombs(fighters);
+    this.syncBombs();
     this.syncBlasts();
     this.syncPowerups();
     this.syncPlayers(fighters);
@@ -1338,7 +1505,105 @@ export class GameScene extends Scene {
     if (this.offline) {
       return this.offlineShared;
     }
-    return isShared(this.client.sharedState) ? this.client.sharedState : null;
+    // Online the wire carries the round's layout plus the crates opened
+    // since; decode once per change, not per read.
+    const wire = this.client.sharedState;
+    if (wire !== this.sharedFrom) {
+      this.sharedFrom = wire;
+      this.sharedView = isShared(wire)
+        ? { ...wire, grid: this.boardOf(wire.grid, wire.opened) }
+        : null;
+    }
+    return this.sharedView;
+  }
+
+  private boardOf(base: Cell[][], opened: string | undefined): Cell[][] {
+    const cached = this.gridCache;
+    if (cached?.base === base && cached.opened === opened) {
+      return cached.grid;
+    }
+    const grid = applyOpened(base, opened);
+    this.gridCache = { base, grid, opened };
+    return grid;
+  }
+
+  /**
+   * Take every remote mover's newest step into its track. Runs per room
+   * message, so two steps that land in one frame are both walked — the
+   * once-a-frame render sync would see only the second and slide straight
+   * through the pillar between them.
+   */
+  private ingestNet(): void {
+    const state = this.shared();
+    const botSender = this.amHost ? "self" : this.client.hostId;
+    if (botSender !== this.botSender) {
+      // A new sender: learn its relay afresh, and draw its bots on its terms.
+      this.botSender = botSender;
+      this.hostStream.reset();
+      this.dropTracks(this.botTracks);
+    }
+    const round = state?.startedAt ?? null;
+    if (round !== this.ingestRound) {
+      // A new round respawns everyone: place them, never walk them there.
+      this.ingestRound = round;
+      this.dropTracks(this.humanTracks);
+      this.dropTracks(this.botTracks);
+    }
+    for (const [id, player] of Object.entries(this.peers)) {
+      if (id !== this.myId) {
+        this.ingestHuman(id, readPlayerState(player));
+      }
+    }
+    for (const bot of Object.values(state?.bots ?? {})) {
+      this.ingestBot(bot);
+    }
+  }
+
+  private ingestHuman(id: string, ps: PartialPS): void {
+    const { col, row, t, s } = ps;
+    const key = `${col},${row},${t},${s}`;
+    if (
+      col === undefined ||
+      row === undefined ||
+      t === undefined ||
+      s === undefined ||
+      this.ingested.get(id) === key
+    ) {
+      return;
+    }
+    this.ingested.set(id, key);
+    let track = this.humanTracks.get(id);
+    if (!track) {
+      track = new StepTrack({ clock: new RemoteClock(), delayMs: REMOTE_DELAY_MS });
+      this.humanTracks.set(id, track);
+    }
+    track.step({ col, row }, t, s);
+  }
+
+  private ingestBot(bot: Bot): void {
+    const key = `${bot.col},${bot.row}`;
+    if (this.ingested.get(bot.id) === key) {
+      return;
+    }
+    this.ingested.set(bot.id, key);
+    let track = this.botTracks.get(bot.id);
+    if (!track) {
+      // The host draws its own bots on time; everyone else, behind the host's stream.
+      track =
+        this.botSender === "self"
+          ? new StepTrack({ clock: simClock, delayMs: 0 })
+          : new StepTrack({ clock: this.hostStream, delayMs: REMOTE_DELAY_MS });
+      this.botTracks.set(bot.id, track);
+    }
+    // A bot that moved set off on the step its next turn is a stride after.
+    track.step({ col: bot.col, row: bot.row }, bot.nextMoveAt - BOT_MOVE_MS, BOT_MOVE_MS);
+  }
+
+  private dropTracks(tracks: Map<string, StepTrack>): void {
+    for (const id of tracks.keys()) {
+      this.ingested.delete(id);
+    }
+    tracks.clear();
   }
 
   /**
@@ -1353,7 +1618,7 @@ export class GameScene extends Scene {
       }
       return;
     }
-    if (this.amHost && this.client.connectionStatus === "connected" && !this.shared()) {
+    if (this.amHost && !this.shared()) {
       this.writeShared(emptyShared("classic", this.random));
     }
   }
@@ -1369,11 +1634,9 @@ export class GameScene extends Scene {
       out.push({
         col: ps.col ?? fb.col,
         colorIdx: (ps.colorIdx ?? order) % COLORS.length,
-        dir: ps.dir ?? "down",
         id,
         isBot: false,
         isLocal: id === myId,
-        moving: ps.moving ?? false,
         order,
         row: ps.row ?? fb.row,
       });
@@ -1385,11 +1648,9 @@ export class GameScene extends Scene {
         out.push({
           col: bot.col,
           colorIdx: bot.colorIdx % COLORS.length,
-          dir: bot.dir,
           id: bot.id,
           isBot: true,
           isLocal: false,
-          moving: bot.moving,
           order: -1,
           row: bot.row,
         });
@@ -1433,13 +1694,12 @@ export class GameScene extends Scene {
     }
   }
 
-  private syncBombs(fighters: readonly Fighter[]): void {
-    const s = this.shared();
-    if (!s) {
+  private syncBombs(): void {
+    if (!this.shared()) {
       return;
     }
     const seen = new Set<string>();
-    for (const bomb of Object.values(s.bombs)) {
+    for (const bomb of Object.values(this.visibleBombs())) {
       seen.add(bomb.id);
       if (!this.bombSprites.has(bomb.id)) {
         const shadow = this.add
@@ -1451,21 +1711,10 @@ export class GameScene extends Scene {
           .setDisplaySize(TILE * 0.92, TILE * 0.92)
           .setDepth(6);
         const fuse = this.add.graphics().setPosition(colX(bomb.col), rowY(bomb.row)).setDepth(5);
-        const fresh = this.feedbackEnabled && freshCue(bomb.placedAt, simNow());
-        if (fresh) {
-          sfx.place(bomb.ownerId === this.myId);
-        }
-        if (fresh && bomb.ownerId === this.myId) {
-          this.pulsePlayer(bomb.ownerId, "place");
-          this.roundHud.acceptedPlacement(simNow());
-        }
-        if (this.feedbackEnabled && this.isAlive(bomb.ownerId)) {
-          const owner = fighters.find((fighter) => fighter.id === bomb.ownerId);
-          if (owner) {
-            this.players
-              .get(bomb.ownerId)
-              ?.action.place(bomb, simNow(), this.characterTime, poseOf(owner));
-          }
+        // This client's own bombs were cued on the press (requestBomb); the
+        // host's copy taking over a prediction must not cue them twice.
+        if (bomb.ownerId !== this.myId) {
+          this.cueRemoteBomb(bomb);
         }
         this.bombSprites.set(bomb.id, { fuse, shadow, sprite });
       }
@@ -1478,6 +1727,19 @@ export class GameScene extends Scene {
         fuse.destroy();
         this.bombSprites.delete(id);
       }
+    }
+  }
+
+  private cueRemoteBomb(bomb: Bomb): void {
+    if (!this.feedbackEnabled) {
+      return;
+    }
+    if (freshCue(bomb.placedAt, simNow())) {
+      sfx.place(false);
+    }
+    const owner = this.players.get(bomb.ownerId);
+    if (owner && this.isAlive(bomb.ownerId)) {
+      owner.action.place(bomb, simNow(), this.characterTime, poseOf(owner));
     }
   }
 
@@ -1584,7 +1846,7 @@ export class GameScene extends Scene {
       return;
     }
     const seen = new Set<string>();
-    for (const [key, pu] of Object.entries(s.powerups)) {
+    for (const [key, pu] of Object.entries(this.pickupClaims.visible(this.claimRoom, s))) {
       seen.add(key);
       if (this.powerupObjs.has(key)) {
         continue;
@@ -1623,10 +1885,11 @@ export class GameScene extends Scene {
           yoyo: true,
         });
       }
-      this.powerupObjs.set(key, container);
+      this.powerupObjs.set(key, { container, pickup: pu });
     }
-    for (const [key, container] of this.powerupObjs) {
+    for (const [key, { container, pickup }] of this.powerupObjs) {
       if (!seen.has(key)) {
+        this.cueTaken(s, pickup);
         this.tweens.killTweensOf(container.list);
         container.destroy();
         this.powerupObjs.delete(key);
@@ -1634,6 +1897,18 @@ export class GameScene extends Scene {
     }
   }
 
+  /** A power-up gone from the board bursts if a bot or another player took it; this
+   *  client's own pickups cued on the step, and burnt ones just go. */
+  private cueTaken(s: SharedState, pickup: Powerup): void {
+    const key = pickupKey(s.startedAt, pickup);
+    const taker = this.pickupClaims.fighterOf(key) ?? this.claimRoom.ownerOf(key);
+    if (this.feedbackEnabled && taker !== null && taker !== this.myId) {
+      this.burst(colX(pickup.col), rowY(pickup.row), POWERUP_GLOW[pickup.kind], 14);
+    }
+  }
+
+  /** Who is on the board, and who died or revived. Where each body is drawn
+   *  is updateMovers' job, every frame. */
   private syncPlayers(fighters: readonly Fighter[]): void {
     const seen = new Set<string>();
     for (const f of fighters) {
@@ -1641,11 +1916,6 @@ export class GameScene extends Scene {
       const objs =
         this.players.get(f.id) ??
         this.createPlayer(f.id, f.col, f.row, f.colorIdx, f.isLocal, f.isBot);
-      objs.dir = f.dir;
-      objs.moving = f.moving;
-      if (objs.col !== f.col || objs.row !== f.row) {
-        objs.action.interrupt();
-      }
       const dead = !this.isAlive(f.id);
       this.syncDeath(objs, f, dead);
       if (dead) {
@@ -1655,13 +1925,32 @@ export class GameScene extends Scene {
         continue;
       }
       this.syncCelebration(objs, f);
-      this.applyAnim(objs, f.dir, f.moving, f.col, f.row);
-      // The local player is moved by input tweens; everyone else follows state.
-      if (!f.isLocal && (objs.col !== f.col || objs.row !== f.row)) {
-        this.tweenContainer(objs, f.col, f.row, f.isBot ? BOT_MOVE_MS : 150);
-      }
     }
     this.dropDepartedPlayers(seen);
+  }
+
+  /**
+   * Place every living body for this frame: the local one off its own step
+   * timeline, the rest off their step tracks — never a tween per packet.
+   */
+  private updateMovers(now: number): void {
+    const { myId } = this;
+    for (const [id, objs] of this.players) {
+      if (!this.isAlive(id)) {
+        continue;
+      }
+      const track = this.humanTracks.get(id) ?? this.botTracks.get(id);
+      const pose = id === myId ? this.ownPose(now) : track?.sample(now);
+      if (!pose) {
+        continue;
+      }
+      objs.container.setPosition(colX(pose.x), rowY(pose.y));
+      objs.col = pose.col;
+      objs.row = pose.row;
+      objs.dir = pose.dir;
+      objs.moving = pose.moving;
+      this.applyAnim(objs, pose.dir, pose.moving);
+    }
   }
 
   private syncDeath(objs: PlayerObjs, f: Fighter, dead: boolean): void {
@@ -1684,7 +1973,7 @@ export class GameScene extends Scene {
     }
     this.winnerAction = null;
     if (this.characterTime - celebration.at < VICTORY_ACTION_MS) {
-      objs.action.victory(celebration.at, poseOf(f));
+      objs.action.victory(celebration.at, poseOf(objs));
     }
   }
 
@@ -1698,6 +1987,9 @@ export class GameScene extends Scene {
         objs.container.destroy();
         this.players.delete(id);
         this.deathSeen.delete(id);
+        this.humanTracks.delete(id);
+        this.botTracks.delete(id);
+        this.ingested.delete(id);
       }
     }
   }
@@ -1758,6 +2050,7 @@ export class GameScene extends Scene {
     const objs: PlayerObjs = {
       action: new CharacterAction(),
       actionFrame: null,
+      anim: null,
       body,
       col,
       container,
@@ -1790,14 +2083,22 @@ export class GameScene extends Scene {
         sprite.setPosition(0, TILE * 0.34).setFlipX(action.flip);
         objs.actionFrame = frame;
       }
+      objs.anim = null;
       return;
     }
     if (objs.actionFrame !== null) {
       // setTexture below restores the original 256px walk frame before sizing.
       objs.actionFrame = null;
+      objs.anim = null;
       sprite.setTexture("player-down", 0).setOrigin(0.5);
       sprite.setPosition(0, -TILE * 0.06).setDisplaySize(TILE * 0.95, TILE * 0.95);
     }
+    // Movers call this every frame: touch the sprite only when the walk changes.
+    const anim = `${dir}:${moving}`;
+    if (objs.anim === anim) {
+      return;
+    }
+    objs.anim = anim;
     sprite.setFlipX(dir === "left");
     if (moving) {
       const key = walkAnim(dir);
@@ -1812,22 +2113,48 @@ export class GameScene extends Scene {
 
   // ---- host-only logic -----------------------------------------------------
 
-  private hostTick(delta: number): void {
-    this.hostTickAcc += delta;
-    if (this.hostTickAcc < 70) {
+  /**
+   * The sim on a fixed step of sim time — exact strides and fuses at any
+   * frame rate — with the frame's steps merged into one patch. Only a frame
+   * slow enough to hold two bot turns sends twice: merged, a bot's two steps
+   * would arrive as one two-tile jump.
+   */
+  private hostSteps(): void {
+    const steps = this.hostStep.due(simNow());
+    const shared = this.shared();
+    const id = this.myId;
+    if (steps.length === 0 || !shared || !id) {
       return;
     }
-    this.hostTickAcc = 0;
-    const s = this.shared();
-    if (!s) {
-      return;
+    const world = { ...shared };
+    const humans = this.humans();
+    let merged: Partial<SharedState> = {};
+    for (const at of steps) {
+      const { patch } = simHostTick(world, humans, at, this.random);
+      if (patch?.bots && merged.bots) {
+        this.netPatchShared(merged);
+        merged = {};
+      }
+      if (patch) {
+        Object.assign(world, patch);
+        Object.assign(merged, patch);
+      }
     }
-    const { patch, pickups } = simHostTick(s, this.humans(), simNow(), this.random);
-    for (const pickup of pickups) {
-      this.netSendEvent("pickup", pickup);
+    // Claims settled since the last step, a new host's inherited ones included.
+    const granted = this.pickupClaims.settle(this.claimRoom, world, id);
+    if (granted) {
+      Object.assign(world, granted);
+      Object.assign(merged, granted);
     }
-    if (patch) {
-      this.netPatchShared(patch);
+    // Bots take power-ups the way players do, through the room. The sprite goes
+    // on the next sync, while the claim still names the bot that took it.
+    for (const bot of Object.values(world.bots)) {
+      if (!world.deaths[bot.id] && this.pickupClaims.reach(this.claimRoom, world, bot.id, bot)) {
+        this.netDirty = true;
+      }
+    }
+    if (Object.keys(merged).length > 0) {
+      this.netPatchShared(merged);
     }
   }
 
@@ -1841,44 +2168,21 @@ export class GameScene extends Scene {
     });
   }
 
-  private hostPlaceBomb(ownerId: string, col: number, row: number): void {
+  /** A guest's press. Written at once, outside the step, so the guest's
+   *  prediction is confirmed a bare round trip after the key went down. */
+  private hostPlaceBomb(ownerId: string, press: GuestPress): void {
     const s = this.shared();
     if (!s) {
       return;
     }
-    const bombs = placeBomb(s, ownerId, col, row, simNow());
+    const { col, row, localId } = press;
+    const bombs = placeBomb(s, ownerId, col, row, fuseStart(press.pressedAt, simNow()), localId);
     if (bombs) {
       this.netPatchShared({ bombs });
     }
   }
 
   // ---- visual effects ------------------------------------------------------
-
-  private tweenPlayer(id: string | null, col: number, row: number, duration: number): void {
-    if (!id) {
-      return;
-    }
-    const objs = this.players.get(id);
-    if (objs) {
-      objs.action.interrupt();
-      objs.dir = this.myDir;
-      objs.moving = this.moving;
-      this.applyAnim(objs, objs.dir, objs.moving);
-      this.tweenContainer(objs, col, row, duration);
-    }
-  }
-
-  private tweenContainer(objs: PlayerObjs, col: number, row: number, duration = 150): void {
-    objs.col = col;
-    objs.row = row;
-    this.tweens.add({
-      duration,
-      ease: "Linear",
-      targets: objs.container,
-      x: colX(col),
-      y: rowY(row),
-    });
-  }
 
   private playDeath(objs: PlayerObjs): void {
     this.resetPlayerFeedback(objs);
@@ -1903,14 +2207,13 @@ export class GameScene extends Scene {
     objs.ring.setVisible(true);
     objs.marker?.setVisible(true);
     // Snap to the (likely new) spawn corner so we don't glide across the map.
-    this.tweens.killTweensOf(objs.container);
     objs.container.setPosition(colX(col), rowY(row));
     objs.col = col;
     objs.row = row;
   }
 
   /** One cosmetic child tween; authored sprite frames and movement stay owned
-   * by applyAnim/tweenContainer. Cancel before death, removal and round reset. */
+   * by applyAnim/updateMovers. Cancel before death, removal and round reset. */
   private pulsePlayer(id: string | null, kind: "place" | "pickup"): void {
     const objs = id ? this.players.get(id) : undefined;
     if (!objs || !this.isAlive(id)) {
@@ -1952,11 +2255,6 @@ export class GameScene extends Scene {
     if (this.winnerAction && this.characterTime - this.winnerAction.at >= VICTORY_ACTION_MS) {
       this.winnerAction = null;
     }
-    for (const [id, objs] of this.players) {
-      if (objs.actionFrame !== null && this.isAlive(id)) {
-        this.applyAnim(objs, objs.dir, objs.moving);
-      }
-    }
   }
 
   /** Fuse tells tick with the pause-aware simulation clock, independent of
@@ -1967,7 +2265,7 @@ export class GameScene extends Scene {
     const now = simNow();
     this.updateBlastFrames(now);
     const state = this.shared();
-    const bombs = state?.bombs ?? {};
+    const bombs = this.visibleBombs();
     this.roundHud.updateBombs(bombs, this.myId, this.myStats().bombs, now);
     const fighting =
       this.started &&
@@ -2038,36 +2336,32 @@ export class GameScene extends Scene {
 
   // ---- helpers -------------------------------------------------------------
 
+  /** This client's stats, counting the power-ups it claimed before the host settles them. */
   private myStats(): PlayerStats {
     const id = this.myId;
     const s = this.shared();
-    return (id && s?.stats[id]) || baseStats();
+    return id && s ? this.pickupClaims.stats(s, id) : baseStats();
   }
 
-  private myColorIdx(): number {
-    const id = this.myId;
-    if (!id) {
-      return 0;
-    }
-    const ps = readPlayerState(this.peers[id]);
-    if (ps.colorIdx !== undefined) {
-      return ps.colorIdx % COLORS.length;
-    }
-    const idx = Object.keys(this.peers).indexOf(id);
-    return Math.max(0, idx) % COLORS.length;
+  /** The board as this player reads it: power-ups still up for grabs, its own stats as claimed. */
+  private playerView(state: SharedState, id: string): SharedState {
+    return {
+      ...state,
+      powerups: this.pickupClaims.visible(this.claimRoom, state),
+      stats: { ...state.stats, [id]: this.pickupClaims.stats(state, id) },
+    };
   }
 
+  /** The first placement after the start screen. Once placed, the body is
+   *  this client's own: nothing read back from the room moves it. */
   private ensureMySpawn(): void {
     const id = this.myId;
-    if (!id) {
+    if (!id || this.ownSpawned) {
       return;
     }
     const ps = readPlayerState(this.peers[id]);
     if (ps.col !== undefined && ps.row !== undefined) {
-      if (!this.moving) {
-        this.myCol = ps.col;
-        this.myRow = ps.row;
-      }
+      this.placeSelf(ps.col, ps.row);
       return;
     }
     const idx = Object.keys(this.peers).indexOf(id);
@@ -2075,25 +2369,16 @@ export class GameScene extends Scene {
       return;
     }
     const spawn = SPAWN_POINTS[idx] ?? SPAWN_POINTS[0];
-    this.myCol = spawn.col;
-    this.myRow = spawn.row;
-    this.netUpdateMyState({
-      col: spawn.col,
-      colorIdx: idx % COLORS.length,
-      dir: "down",
-      moving: false,
-      row: spawn.row,
-    });
+    this.placeSelf(spawn.col, spawn.row);
+    this.publishSpawn(spawn.col, spawn.row, idx);
   }
 
-  private bombAt(col: number, row: number): boolean {
-    const s = this.shared();
-    if (!s) {
-      return false;
-    }
-    return bombOn(s.bombs, col, row);
+  /** The host's bombs plus this guest's presses it has not confirmed yet. */
+  private visibleBombs(): Record<string, Bomb> {
+    return this.prediction.visible(this.shared()?.bombs ?? {});
   }
 
+  /** Open floor with no bomb on it — this client's unconfirmed bombs block too. */
   private passable(col: number, row: number): boolean {
     const s = this.shared();
     if (!s) {
@@ -2102,7 +2387,7 @@ export class GameScene extends Scene {
     if (s.grid[row]?.[col]?.kind !== "empty") {
       return false;
     }
-    return !this.bombAt(col, row);
+    return !bombOn(this.visibleBombs(), col, row);
   }
 
   private isAlive(id: string | null): boolean {
@@ -2116,14 +2401,19 @@ export class GameScene extends Scene {
     return !s.deaths[id];
   }
 
+  /** A whole round: the layout goes out in full, with nothing opened yet. Last
+   *  round's power-up claims go: their keys name the round, but a room holds only so many. */
   private writeShared(next: SharedState): void {
     this.netDirty = true;
     if (this.offline) {
       this.offlineShared = { ...next, clock: clockStamp() };
+      this.offlineClaims.clearClaims(PICKUP_CLAIMS);
+      this.ingestNet();
       return;
     }
     if (this.amHost) {
       this.client.updateSharedState({ ...next, clock: clockStamp() });
+      this.client.clearClaims(PICKUP_CLAIMS);
     }
   }
 

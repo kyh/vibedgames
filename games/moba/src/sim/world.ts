@@ -757,7 +757,14 @@ const followOrder = (w: World, u: Unit, dt: number): void => {
   u.vy = 0;
 };
 
-const unitTick = (w: World, u: Unit, dt: number): void => {
+/**
+ * One tick of a unit's own movement — dash, orders, chase, terrain — returning
+ * the enemy it stands in range of, for the caller to swing at. It writes to `u`
+ * alone, so a guest can run it on a copy of its own hero to predict the host:
+ * the two then disagree only about inputs and other units, never about how a
+ * body moves.
+ */
+export const stepBody = (w: World, u: Unit, dt: number): Unit | null => {
   // dash overlay: zoom in the dash direction, ignoring orders/targets/collision
   if (u.hero && w.now < u.hero.dashUntil) {
     const { dashX, dashY } = u.hero;
@@ -768,21 +775,13 @@ const unitTick = (w: World, u: Unit, dt: number): void => {
     if (Math.abs(dashX) > 0.2) {
       u.facing = dashX >= 0 ? 1 : -1;
     }
-    return;
+    return null;
   }
-  if (disabled(u)) {
+  // disabled, or channeling (the ability tick handles the effect): stand still
+  if (disabled(u) || u.hero?.channel) {
     u.vx = 0;
     u.vy = 0;
-    if (u.hero?.channel) {
-      breakChannel(w, u);
-    }
-    return;
-  }
-  if (u.hero?.channel) {
-    // channeling: stand still, ability tick handles effect
-    u.vx = 0;
-    u.vy = 0;
-    return;
+    return null;
   }
 
   const target = pickCombatTarget(w, u);
@@ -792,18 +791,29 @@ const unitTick = (w: World, u: Unit, dt: number): void => {
       u.vx = 0;
       u.vy = 0;
       u.facing = target.x >= u.x ? 1 : -1;
-      tryAttack(w, u, target);
-      return;
+      return target;
     }
     // chase directly
     if (!rooted(u)) {
       steerTo(w, u, { x: target.x, y: target.y }, dt, true);
     }
-    return;
+    return null;
   }
 
   // no combat target: follow order
   followOrder(w, u, dt);
+  return null;
+};
+
+const unitTick = (w: World, u: Unit, dt: number): void => {
+  // A disable breaks a channel — except mid-dash, which is unstoppable.
+  if (u.hero?.channel && disabled(u) && w.now >= u.hero.dashUntil) {
+    breakChannel(w, u);
+  }
+  const target = stepBody(w, u, dt);
+  if (target) {
+    tryAttack(w, u, target);
+  }
 };
 
 const structureTick = (w: World, u: Unit): void => {
@@ -822,11 +832,36 @@ const structureTick = (w: World, u: Unit): void => {
   }
 };
 
+/** Add how far `b` pushes `a` out of its footprint to `push`. Units keep off each
+ *  other; structures only push out of their actual footprint so lane creeps
+ *  flow past towers instead of jamming on them. */
+const addSeparation = (a: Unit, b: Unit, push: Vec2): void => {
+  const minD = b.kind === "structure" ? b.radius + a.radius * 0.6 : (a.radius + b.radius) * 1.05;
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  const d2 = dx * dx + dy * dy;
+  if (d2 < minD * minD && d2 > 0.01) {
+    const d = Math.sqrt(d2);
+    const overlap = minD - d;
+    push.x += (dx / d) * overlap;
+    push.y += (dy / d) * overlap;
+  }
+};
+
+/** Apply an accumulated separation push, resolved against terrain so crowding
+ *  never shoves a unit off a cliff. */
+const applySeparation = (a: Unit, push: Vec2): void => {
+  const pushed = collide(a, a.x + push.x * SEPARATION_PUSH, a.y + push.y * SEPARATION_PUSH);
+  a.x = pushed.x;
+  a.y = pushed.y;
+};
+
 /** Boid separation so units don't stack. Structures push but don't move. */
 const separation = (w: World): void => {
   // iterate the units Map directly — the outer loop only mutates positions (never
   // the Map structure), so the old `[...values()].filter(...)` snapshot was a wasted
   // full-array allocation every tick.
+  const push = { x: 0, y: 0 };
   for (const a of w.units.values()) {
     if (!a.alive || a.kind === "structure") {
       continue;
@@ -834,30 +869,14 @@ const separation = (w: World): void => {
     if (a.statuses.some((s) => s.kind === "unstoppable")) {
       continue;
     }
-    let sx = 0;
-    let sy = 0;
+    push.x = 0;
+    push.y = 0;
     for (const b of w.units.values()) {
-      if (b === a || !b.alive) {
-        continue;
-      }
-      // keep units off each other; structures only push out of their actual
-      // footprint so lane creeps flow past towers instead of jamming on them.
-      const minD =
-        b.kind === "structure" ? b.radius + a.radius * 0.6 : (a.radius + b.radius) * 1.05;
-      const dx = a.x - b.x;
-      const dy = a.y - b.y;
-      const d2 = dx * dx + dy * dy;
-      if (d2 < minD * minD && d2 > 0.01) {
-        const d = Math.sqrt(d2);
-        const push = minD - d;
-        sx += (dx / d) * push;
-        sy += (dy / d) * push;
+      if (b !== a && b.alive) {
+        addSeparation(a, b, push);
       }
     }
-    // resolve the push against terrain so crowding never shoves a unit off a cliff
-    const pushed = collide(a, a.x + sx * SEPARATION_PUSH, a.y + sy * SEPARATION_PUSH);
-    a.x = pushed.x;
-    a.y = pushed.y;
+    applySeparation(a, push);
   }
 };
 
@@ -961,19 +980,41 @@ const nudgeToLand = (u: Unit): void => {
   }
 };
 
-const clampToWorld = (w: World): void => {
+const clampUnit = (u: Unit): void => {
   const pad = 40;
+  u.x = Math.max(pad, Math.min(WORLD.width - pad, u.x));
+  u.y = Math.max(pad, Math.min(WORLD.height - pad, u.y));
+  // shove out of impassable water (units can be pushed in by separation)
+  if (u.alive && isWater(u.x, u.y)) {
+    nudgeToLand(u);
+  }
+};
+
+const clampToWorld = (w: World): void => {
   for (const u of w.units.values()) {
-    if (u.kind === "structure") {
-      continue;
-    }
-    u.x = Math.max(pad, Math.min(WORLD.width - pad, u.x));
-    u.y = Math.max(pad, Math.min(WORLD.height - pad, u.y));
-    // shove out of impassable water (units can be pushed in by separation)
-    if (u.alive && isWater(u.x, u.y)) {
-      nudgeToLand(u);
+    if (u.kind !== "structure") {
+      clampUnit(u);
     }
   }
+};
+
+/**
+ * The end-of-tick pushes on one body that a guest predicting its own hero can
+ * know exactly: out of structure footprints (they never move) and back inside
+ * the map. Crowding by other units stays the host's call — their positions on a
+ * guest are a round trip old — and arrives as a correction.
+ */
+export const settleBody = (w: World, u: Unit): void => {
+  if (!u.statuses.some((s) => s.kind === "unstoppable")) {
+    const push = { x: 0, y: 0 };
+    for (const b of w.units.values()) {
+      if (b.kind === "structure" && b.alive) {
+        addSeparation(u, b, push);
+      }
+    }
+    applySeparation(u, push);
+  }
+  clampUnit(u);
 };
 export const step = (w: World, dt: number = SIM_DT): void => {
   if (w.phase === "ended") {

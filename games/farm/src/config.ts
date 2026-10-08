@@ -78,15 +78,35 @@ export const DEPTH = {
 // ---- multiplayer (co-op shared farm) ----------------------------------------
 // New farms use a FIXED seed so every client generates the identical map (like
 // crazy-waymo's fixed city) — no seed exchange needed. The host owns the world
-// (tilled/watered/crops) and the clock; players see each other and tend the
-// same land. Inventory/energy/money stay per-player. Solo/offline is unchanged
-// except the (now deterministic) starting farm.
-export const MP_ROOM = "farm-default";
+// (tilled/watered/crops, felled trees, broken rocks, picked forage) and the
+// clock; players see each other and tend the same land. Inventory/energy/money
+// stay per-player. Solo/offline is unchanged except the (now deterministic)
+// starting farm.
+// Versioned with the wire format: a tab still running an older bundle during a
+// deploy joins its own room instead of half-reading this one's keys.
+export const MP_ROOM = "farm-default-v3";
 export const MP_MAX_PLAYERS = 4;
+/** Farmers farther apart than this (world px, feet to feet) stop receiving
+ *  each other's player state — the bulk of the room's traffic — and hide each
+ *  other. Past the corner of a 1920×1080 view (591×332 world px at zoom 3.25)
+ *  even when the camera rests against the world's edge, so nobody pops in
+ *  on screen. The world is 1376×768. */
+export const MP_INTEREST_RADIUS = 720;
+/** A farmer's feet never leave the world (movement clamps inside it), so the
+ *  server drops any player-state patch that puts them outside — a hacked
+ *  client cannot write itself off the map, out of everyone's interest. */
+export const MP_LIMITS = {
+  x: { max: MAP_W * TILE, min: 0 },
+  y: { max: MAP_H * TILE, min: 0 },
+} as const;
 export const OFFLINE_FALLBACK_MS = 6000;
-/** Player position/facing broadcast rate. */
-export const NET_TICK_HZ = 12;
-/** Host clock (day/time/weather) broadcast rate. */
-export const CLOCK_TICK_HZ = 2;
+/** Player position/facing broadcast rate, stamped with server time; peers
+ *  render it ~100 ms behind its arrival (net/farmer-wire). */
+export const NET_TICK_HZ = 20;
+/** How long a guest's own farming outranks older host values for that tile. */
+export const PENDING_EDIT_MS = 1500;
+/** A remote farmer moving further than this between updates went through a
+ *  door (the mine, a reload): place them there instead of gliding. */
+export const REMOTE_SNAP_PX = 32;
 /** Fixed seed for a co-op / new farm so all clients build the same map. */
 export const FARM_SEED = 20_240_719;

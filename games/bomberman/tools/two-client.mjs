@@ -1,8 +1,9 @@
 // Two-client online smoke: host + guest through join, a bomb across the wire,
 // pause without freezing the other side, restarts from both sides (arena
-// rotation), host migration and a late join. Needs the party server on
-// localhost:8787 and Chrome. `--url http://localhost:5304` reuses a dev server;
-// otherwise a vite instance is spawned on --port (default 5384).
+// rotation), a power-up both claim at once, host migration and a late join. Needs the party server on
+// localhost:8787 and a Chrome (playwright-core: channel "chrome", or
+// CHROME_PATH). `--url http://localhost:5304` reuses a dev server; otherwise a
+// vite instance is spawned on --port (default 5384).
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
@@ -69,10 +70,20 @@ const snapshot = () => {
     id: client.playerId,
     isHost: client.isHost,
     me: `${scene.myCol},${scene.myRow}`,
+    myRange: scene.myStats().range,
+    pickupOwners: Object.fromEntries(
+      Object.entries(client.claims)
+        .filter(([key]) => key.startsWith("pickup:"))
+        .map(([key, claim]) => [key, claim.owner]),
+    ),
+    pickups: Object.keys(shared.powerups ?? {}).length,
     // A departed peer's seat is held for the reconnect grace window; count live transports.
     players: Object.values(client.players)
       .filter((player) => player.connected !== false)
       .map((player) => player.id),
+    ranges: Object.fromEntries(
+      Object.entries(shared.stats ?? {}).map(([id, stats]) => [id, stats.range]),
+    ),
     round: shared.startedAt ?? null,
     seats: Object.keys(client.players).length,
     seeded: Array.isArray(shared.grid),
@@ -163,7 +174,9 @@ const browser = await chromium.launch({
     "--disable-backgrounding-occluded-windows",
     "--disable-renderer-backgrounding",
   ],
-  channel: "chrome",
+  ...(process.env.CHROME_PATH
+    ? { executablePath: process.env.CHROME_PATH }
+    : { channel: "chrome" }),
   headless: true,
 });
 let host;
@@ -238,6 +251,34 @@ try {
     assert.equal(g.arena, "classic");
     const h = await host.snap();
     assert.equal(h.arena, "classic");
+  });
+  await step("power-up race: the room picks one claimant and the host grants only it", async () => {
+    // On a pillar, which no bot walks onto and no blast reaches: only the two claims race.
+    const pickup = { col: 8, kind: "fire", row: 6 };
+    const before = await host.snap();
+    await host.page.evaluate((pu) => {
+      const { scene } = window.__bb;
+      const { powerups } = scene.shared();
+      scene.netPatchShared({ powerups: { ...powerups, [`${pu.col},${pu.row}`]: pu } });
+    }, pickup);
+    await guest.until("guest sees the power-up", (s) => s.pickups > before.pickups);
+    const reach = (client) =>
+      client.page.evaluate((pu) => {
+        const { scene } = window.__bb;
+        const state = scene.shared();
+        return scene.pickupClaims.reach(scene.claimRoom, state, scene.myId, pu) !== null;
+      }, pickup);
+    assert.deepEqual(await Promise.all([reach(host), reach(guest)]), [true, true]);
+    const key = `pickup:${pickup.col},${pickup.row}:${before.round}`;
+    const owned = await host.until("one owner", (s) => s.pickupOwners[key] !== undefined);
+    const winner = owned.pickupOwners[key];
+    const was = (id) => before.ranges[id] ?? 2;
+    for (const client of [host, guest]) {
+      const s = await client.until("granted", (snap) => snap.ranges[winner] === was(winner) + 1);
+      const loser = s.players.find((id) => id !== winner);
+      assert.equal(s.ranges[loser] ?? 2, was(loser), "the other claimant got nothing");
+      assert.equal(s.myRange, s.ranges[s.id] ?? 2, "a lost claim comes back off its stats");
+    }
   });
   await step("host leaves: guest promoted, round kept, sim keeps running", async () => {
     const before = await guest.snap();

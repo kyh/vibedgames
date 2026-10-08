@@ -3,11 +3,13 @@ import { TintModes } from "phaser";
 
 import { ENEMY_ORIGIN_Y, ENEMY_SCALE, interp } from "../config";
 import { showActorPose } from "../data/actor-animation";
-import { enemyPose, isActorTint, isEnemyAction, remoteBlend } from "../data/actor-presentation";
+import { enemyPose } from "../data/actor-presentation";
 import type { EnemyAction } from "../data/actor-presentation";
 import type { EnemyKind } from "../data/enemies";
+import type { EnemyPose } from "../net/snapshot";
 import type { Grid } from "../sys/grid";
 import { EnemyBody } from "./enemy-body";
+import type { EnemyState } from "./enemy-body";
 
 // Phaser view over EnemyBody: picks the animation clip from the sim state and
 // renders a white hit-flash.
@@ -26,37 +28,38 @@ export class Enemy {
     this.sprite.play(`${kind.name}:spawn`);
   }
 
-  private clip(): string {
-    const b = this.body;
+  // The clip for an FSM state — from the sim on the host, from the wire pose on
+  // a guest, so both play the same one.
+  private clip(state: EnemyState, moving: boolean): string {
     const n = this.body.kind.name;
-    if (b.state === "dead") {
+    if (state === "dead") {
       if (n === "bomber") {
         return "explode";
       }
       return n === "warrior" ? "dead" : "death";
     }
-    if (b.state === "hurt") {
+    if (state === "hurt") {
       return "hit";
     }
-    if (b.state === "spawn") {
+    if (state === "spawn") {
       return "spawn";
     }
-    const moving = Math.abs(b.vx) > 10 ? "run" : "idle";
+    const loco = moving ? "run" : "idle";
     switch (this.body.kind.behavior) {
       case "melee": {
-        return b.state === "windup" || b.state === "attack" ? "strike" : moving;
+        return state === "windup" || state === "attack" ? "strike" : loco;
       }
       case "charger": {
-        return b.state === "charge" ? "charge" : moving;
+        return state === "charge" ? "charge" : loco;
       }
       case "archer": {
-        return b.state === "windup" ? "shoot" : moving;
+        return state === "windup" ? "shoot" : loco;
       }
       case "bomber": {
-        return b.state === "windup" ? "electrocute" : moving;
+        return state === "windup" ? "electrocute" : loco;
       }
       default: {
-        return moving;
+        return loco;
       }
     }
   }
@@ -125,7 +128,7 @@ export class Enemy {
   render(alpha = 1) {
     const b = this.body;
     if (!this.applyAction(this.action())) {
-      const suffix = this.clip();
+      const suffix = this.clip(b.state, Math.abs(b.vx) > 10);
       this.playSuffix(`${b.kind.name}:${suffix}`, suffix);
     }
     this.sprite.setFlipX(b.facing < 0);
@@ -143,38 +146,30 @@ export class Enemy {
     }
   }
 
-  // Guest: replay the host's clip on this puppet (no local sim/state). Position
-  // lerps toward the authoritative point so 30Hz snapshots render smoothly.
-  applyNet(
-    clip: string,
-    x: number,
-    y: number,
-    flip: boolean,
-    flash: boolean,
-    action?: EnemyAction,
-    tint?: number,
-    dt = 1 / 60,
-  ) {
-    if (!isEnemyAction(action) || !this.applyAction(action)) {
-      this.playSuffix(clip, clip.slice(clip.indexOf(":") + 1));
+  /** Elite affix recolour (a guest learns it from the cast). */
+  setBaseTint(tint: number) {
+    if (tint === this.baseTint) {
+      return;
     }
-    if (isActorTint(tint) && tint !== this.baseTint) {
-      this.baseTint = tint;
-      if (!this.flashing) {
-        this.sprite.setTint(tint).setTintMode(TintModes.MULTIPLY);
-      }
+    this.baseTint = tint;
+    if (!this.flashing) {
+      this.sprite.setTint(tint).setTintMode(TintModes.MULTIPLY);
     }
-    this.sprite.setFlipX(flip);
-    const far = Math.hypot(x - this.sprite.x, y - this.sprite.y) > 48;
-    const blend = remoteBlend(dt);
-    this.sprite.setPosition(
-      far ? x : this.sprite.x + (x - this.sprite.x) * blend,
-      far ? y : this.sprite.y + (y - this.sprite.y) * blend,
-    );
-    if (flash && !this.flashing) {
+  }
+
+  // Guest: draw this puppet at a pose interpolated from the host's snapshots
+  // (no local sim), playing the pose the host's FSM state implies.
+  applyPose(p: EnemyPose) {
+    if (!this.applyAction({ elapsed: p.elapsed, state: p.state })) {
+      const suffix = this.clip(p.state, p.moving);
+      this.playSuffix(`${this.body.kind.name}:${suffix}`, suffix);
+    }
+    this.sprite.setFlipX(p.flip);
+    this.sprite.setPosition(Math.round(p.x), Math.round(p.y));
+    if (p.flash && !this.flashing) {
       this.sprite.setTint(0xff_ff_ff).setTintMode(TintModes.FILL);
       this.flashing = true;
-    } else if (!flash && this.flashing) {
+    } else if (!p.flash && this.flashing) {
       this.sprite.setTint(this.baseTint).setTintMode(TintModes.MULTIPLY);
       this.flashing = false;
     }

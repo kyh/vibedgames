@@ -28,16 +28,10 @@ import type { Player, PlayerMap } from "@vibedgames/multiplayer";
 import { sfx } from "../audio/sfx";
 import { GameScene } from "../scenes/game-scene";
 import { ENEMY_SPECS, xpToNext } from "../shared/constants";
-import type {
-  EnemyKind,
-  EnemyState,
-  SerializedBeam,
-  ShieldModKind,
-  Vec,
-} from "../shared/constants";
+import type { EnemyKind, EnemyState, ShieldModKind, Vec } from "../shared/constants";
 import { runTrailer } from "./trailer-shell";
 import type { TrailerScene } from "./trailer-shell";
-import type { TrailerStageApi } from "./trailer-staging";
+import type { TrailerBolt, TrailerStageApi } from "./trailer-staging";
 
 const TAU = Math.PI * 2;
 
@@ -78,11 +72,11 @@ const ease = (t: number): number => {
 
 // ---- fake peers --------------------------------------------------------------------
 // Offline "remote players": Player entries whose state records feed the real
-// peer pipeline (readNetState → ship gfx, shield rings, remote beams, enemy
-// targeting, boss lance locks, beacon occupancy, sector standings). Bolts they
-// fire are visual SerializedBeams; against enemies they are paired with real
-// damageEnemy() calls, and against the PLAYER they need no pairing at all — the
-// victim adjudicates PvP drain straight off st.beams in the real damage path.
+// peer pipeline (readNetState → ship gfx, shield rings, enemy targeting, boss
+// lance locks, beacon occupancy, sector standings). Their bolts are staged as
+// that peer's live shots (stagePeerBolts); against enemies they are paired
+// with real damageEnemy() calls, and against the PLAYER they need no pairing
+// at all — the victim adjudicates PvP drain off them in the real damage path.
 
 interface Bolt {
   x: number;
@@ -94,7 +88,7 @@ interface Bolt {
 
 type CrewMode = "idle" | "combat" | "duel";
 
-/** The peer-state keys a real client serializes — what readNetState consumes. */
+/** The peer-state keys a real client sends — what readNetState consumes. */
 type PeerNetState = {
   x: number;
   y: number;
@@ -107,8 +101,10 @@ type PeerNetState = {
   shieldHp: number;
   sectorScore: number;
   weaponName: string;
-  beams: SerializedBeam[];
-  shieldMod?: { kind: ShieldModKind; until: number; active: boolean; phased: boolean };
+  /** Shield mod kind, armed, phased — flat, as a real client sends them. */
+  mod?: ShieldModKind;
+  modOn?: boolean;
+  phased?: boolean;
 };
 
 interface FakePeer {
@@ -594,7 +590,6 @@ const direct = (scene: GameScene): void => {
     const state: PeerNetState = {
       alive: true,
       angle: opts.baseAim,
-      beams: [],
       level: opts.level,
       present: true,
       sectorScore: opts.score,
@@ -606,14 +601,11 @@ const direct = (scene: GameScene): void => {
       y: post.y,
     };
     if (opts.mod) {
-      // Serialized exactly as a real client would: the victim reads kind+active
-      // and runs its own RAM / TESLA adjudication off it.
-      state.shieldMod = {
-        active: true,
-        kind: opts.mod,
-        phased: false,
-        until: Date.now() + 20_000,
-      };
+      // Sent exactly as a real client would: the victim reads kind+armed and
+      // runs its own RAM / TESLA adjudication off it.
+      state.mod = opts.mod;
+      state.modOn = true;
+      state.phased = false;
     }
     const player: Player = {
       color: PEER_COLORS[colorIdx % PEER_COLORS.length] ?? "#7ae0ff",
@@ -652,13 +644,16 @@ const direct = (scene: GameScene): void => {
     staging.peers = peerMap;
   };
   const clearPeers = (): void => {
+    for (const peer of crew) {
+      api.stagePeerBolts(peer.player.id, null);
+    }
     crew = [];
     peerMap = null;
     staging.peers = null;
   };
   /** Per-frame crew choreography: glide the post, orbit it, face (and in
    *  combat/duel, shoot) the target. Against enemies the bolts land REAL
-   *  damage on contact; against the player they are published beams only —
+   *  damage on contact; against the player they are staged shots only —
    *  detectIncomingDamage does the drain, the impact arcs and the i-frames. */
   const updateCrew = (t: number, dt: number, mode: CrewMode): void => {
     const dts = dt / 1000;
@@ -731,28 +726,25 @@ const direct = (scene: GameScene): void => {
         }
       }
       b.bolts = kept;
-      // Publish this frame's pose + bolts through the real wire schema.
+      // Publish this frame's bolts as the peer's live shots, and its pose
+      // through the real wire keys.
       const power = mode === "duel" ? DUEL_BOLT_POWER : 0.25;
-      const beams: SerializedBeam[] = b.bolts.map((bolt) => {
-        const inv = 1 / BOLT_SPEED;
-        return {
-          exploding: false,
-          explosionRadius: 0,
-          hx: bolt.x,
-          hy: bolt.y,
+      api.stagePeerBolts(
+        b.player.id,
+        b.bolts.map((bolt): TrailerBolt => ({
           power,
           tint: b.tint,
-          tx: bolt.x - bolt.vx * inv * 14,
-          ty: bolt.y - bolt.vy * inv * 14,
-          width: 1,
-        };
-      });
+          vx: bolt.vx,
+          vy: bolt.vy,
+          x: bolt.x,
+          y: bolt.y,
+        })),
+      );
       b.state["x"] = b.x;
       b.state["y"] = b.y;
       b.state["angle"] = b.angle;
       b.state["vx"] = vx;
       b.state["vy"] = vy;
-      b.state["beams"] = beams;
     }
   };
 
@@ -2204,7 +2196,7 @@ const direct = (scene: GameScene): void => {
           s14.dead = true;
           // real shatter + splinters + ring
           rival.state["alive"] = false;
-          rival.state["beams"] = [];
+          api.stagePeerBolts(rival.player.id, null);
         }
       } else {
         staging.camPos = rammer ? { x: (p.x + rammer.x) / 2, y: (p.y + rammer.y) / 2 } : null;

@@ -21,23 +21,17 @@ import {
   SINGULARITY_PULL_RANGE,
   asteroidUnitVerts,
 } from "../shared/constants";
-import type {
-  EnemyKind,
-  EnemyState,
-  ItemState,
-  SerializedBeam,
-  SharedState,
-} from "../shared/constants";
+import type { EnemyKind, EnemyState, ItemState, SharedState } from "../shared/constants";
 import type { Link } from "../state/link";
 import type { Pilot } from "../state/pilot";
-import { serializeBeam } from "../sys/beam";
+import type { Beam } from "../sys/beam";
 import { DEG, dist2, inWorld } from "../sys/geometry";
+import type { RemoteFire } from "../sys/remote-fire";
 import { SINGULARITY_TINT } from "../sys/weapons";
 import type { Weapons } from "../sys/weapons";
 import { REDUCED_MOTION } from "./battle-fx";
 import { enemyChargeDuration, enemyChargeProgress } from "./charge-progress";
 import { weaponLook } from "./combat-visuals";
-import type { WeaponLook } from "./combat-visuals";
 import type { PipTarget } from "./edge-pips";
 import { fleetPose, hostileShotLook } from "./fleet-acting";
 import type { FxImportance, FxPool } from "./fx-pool";
@@ -66,6 +60,8 @@ import {
 export interface WorldViewHooks {
   /** Built after the view; resolved at call time. */
   weapons: () => Weapons;
+  /** Built after the view; resolved at call time. */
+  remoteFire: () => RemoteFire;
 }
 
 export interface AsteroidObjs {
@@ -386,7 +382,9 @@ export class WorldView {
 
   /** Telegraph audio: LANCER windup + WASP burst, on-screen only (§6.1). */
   private voiceTelegraph(e: EnemyState, rec: EnemyObjs, now: number): void {
-    if (e.telegraphUntil <= now || rec.lastTelegraphUntil === e.telegraphUntil) {
+    // A guest's copy of the deadline can shift a few ms when its clock
+    // estimate is revised; that is the same warning, not a new one.
+    if (e.telegraphUntil <= now || Math.abs(rec.lastTelegraphUntil - e.telegraphUntil) < 100) {
       return;
     }
     rec.lastTelegraphUntil = e.telegraphUntil;
@@ -691,103 +689,19 @@ export class WorldView {
     }
   }
 
-  /** All beams — mine simulated, everyone else's raw from their snapshots. */
+  /** Every beam in flight — mine, and my copies of everyone else's shots —
+   *  through one draw path. */
   drawBeams(now: number): void {
     const g = this.layers.beamGfx;
     g.clear();
-    const { myId } = this.link;
-    const draw = (
-      sb: SerializedBeam,
-      look: WeaponLook = "bolt",
-      importance: FxImportance = "common",
-    ): void => {
-      if (sb.mine && !sb.exploding) {
-        this.fx.battle.orbit(sb.hx, sb.hy, 9, sb.tint, 0, true, importance);
-        // Remote mine: open diamond at the armed 1Hz blink (arm state isn't
-        // on the wire; owners render the 4Hz arming blink locally).
-        if (Math.floor(now / 500) % 2 === 0) {
-          g.lineStyle(1, sb.tint, 1);
-          strokeDiamond(g, sb.hx, sb.hy, 6);
-        }
-        return;
-      }
-      if (sb.chain && sb.chain.length >= 2) {
-        for (let i = 1; i < sb.chain.length; i += 1) {
-          const a = sb.chain[i - 1];
-          const b = sb.chain[i];
-          if (a && b) {
-            this.fx.battle.beam(a.x, a.y, b.x, b.y, 2, sb.tint, "arc", now, importance);
-          }
-        }
-        drawJitteredChain(g, sb.chain, sb.tint, REDUCED_MOTION.matches ? 0 : now);
-        return;
-      }
-      if (sb.glaive) {
-        this.fx.battle.orbit(sb.hx, sb.hy, 13, sb.tint, now * 0.012, false, importance);
-        // Remote glaive: same spinning triangle the owner sees (clock-driven
-        // spin at the local 12 rad/s rate; phase doesn't need to match).
-        g.lineStyle(2, sb.tint, 1);
-        strokeTransformed(g, GLAIVE_TRI, sb.hx, sb.hy, (now / 1000) * 12);
-        return;
-      }
-      if (sb.orb) {
-        // SINGULARITY orb: pulsing filled core + ring (flight and collapse;
-        // the collapse vortex itself renders from the shared pulls entry).
-        const r = 4 + Math.sin(now / 60) * 1.2;
-        this.fx.battle.orbit(sb.hx, sb.hy, r + 7, sb.tint, now * 0.006, false, importance);
-        g.fillStyle(sb.tint, 0.55).fillCircle(sb.hx, sb.hy, r * 0.6);
-        g.lineStyle(1, sb.tint, 0.95).strokeCircle(sb.hx, sb.hy, r + 2);
-        return;
-      }
-      if (sb.exploding) {
-        this.fx.battle.orbit(sb.hx, sb.hy, sb.explosionRadius, sb.tint, 0, true, importance);
-        g.lineStyle(1, sb.tint, 1).strokeCircle(sb.hx, sb.hy, sb.explosionRadius);
-      } else {
-        this.fx.battle.beam(sb.tx, sb.ty, sb.hx, sb.hy, sb.width, sb.tint, look, now, importance);
-        g.lineStyle(sb.width, sb.tint, 1).lineBetween(sb.tx, sb.ty, sb.hx, sb.hy);
-        g.lineStyle(Math.max(0.65, sb.width * 0.45), 0xff_f9_eb, 0.92).lineBetween(
-          sb.tx,
-          sb.ty,
-          sb.hx,
-          sb.hy,
-        );
-      }
-    };
     for (const b of this.hooks.weapons().beams) {
-      if (b.vanished) {
-        continue;
-      }
-      if (b.mine && !b.exploding) {
-        this.fx.battle.orbit(b.head.x, b.head.y, 9, b.weapon.tint, 0, true, "important");
-        // Blink 4Hz while arming, 1Hz once armed (zero particles, §C).
-        const armed = now >= b.mine.armAt;
-        const on = armed ? Math.floor(now / 500) % 2 === 0 : Math.floor(now / 125) % 2 === 0;
-        if (on) {
-          g.lineStyle(1, b.weapon.tint, 1);
-          strokeDiamond(g, b.head.x, b.head.y, 6);
-        }
-        continue;
-      }
-      if (b.glaive) {
-        this.fx.battle.orbit(b.head.x, b.head.y, 13, b.weapon.tint, b.spin, false, "important");
-        // Spinning open triangle (remotes draw it via the serialized flag).
-        g.lineStyle(2, b.weapon.tint, 1);
-        strokeTransformed(g, GLAIVE_TRI, b.head.x, b.head.y, b.spin);
-        continue;
-      }
-      draw(serializeBeam(b), weaponLook(b.weapon), "important");
+      this.drawBeam(g, b, now, now, "important");
     }
-    for (const [id, st] of this.link.peerStates) {
-      if (id === myId) {
-        continue;
+    this.hooks.remoteFire().forEachVolley((beams, at) => {
+      for (const b of beams) {
+        this.drawBeam(g, b, at, now, "common");
       }
-      if (!st || !st.alive) {
-        continue;
-      }
-      for (const sb of st.beams) {
-        draw(sb);
-      }
-    }
+    }, performance.now());
     // Transient muzzle strokes (1–2 frames, additive layer).
     const mg = this.layers.muzzleGfx;
     mg.clear();
@@ -810,6 +724,83 @@ export class WorldView {
         mg.lineBetween(f.x + sin * h, f.y - cos * h, f.x - sin * h, f.y + cos * h);
       }
     }
+  }
+
+  /** One beam. `at` is the beam's own clock (its shooter's: a mine's arm
+   *  time is on it); blinks and spins animate on mine, `now`. */
+  private drawBeam(
+    g: Phaser.GameObjects.Graphics,
+    b: Beam,
+    at: number,
+    now: number,
+    importance: FxImportance,
+  ): void {
+    if (b.vanished) {
+      return;
+    }
+    const { tint, width } = b.weapon;
+    const { head, tail } = b;
+    if (b.mine && !b.exploding) {
+      this.fx.battle.orbit(head.x, head.y, 9, tint, 0, true, importance);
+      // Blink 4Hz while arming, 1Hz once armed (zero particles, §C).
+      const armed = at >= b.mine.armAt;
+      const on = armed ? Math.floor(now / 500) % 2 === 0 : Math.floor(now / 125) % 2 === 0;
+      if (on) {
+        g.lineStyle(1, tint, 1);
+        strokeDiamond(g, head.x, head.y, 6);
+      }
+      return;
+    }
+    if (b.glaive) {
+      this.fx.battle.orbit(head.x, head.y, 13, tint, b.spin, false, importance);
+      // Spinning open triangle.
+      g.lineStyle(2, tint, 1);
+      strokeTransformed(g, GLAIVE_TRI, head.x, head.y, b.spin);
+      return;
+    }
+    if (b.chain && b.chain.length >= 2) {
+      for (let i = 1; i < b.chain.length; i += 1) {
+        const p0 = b.chain[i - 1];
+        const p1 = b.chain[i];
+        if (p0 && p1) {
+          this.fx.battle.beam(p0.x, p0.y, p1.x, p1.y, 2, tint, "arc", now, importance);
+        }
+      }
+      drawJitteredChain(g, b.chain, tint, REDUCED_MOTION.matches ? 0 : now);
+      return;
+    }
+    if (b.weapon.singularity && !b.exploding) {
+      // SINGULARITY orb: pulsing filled core + ring (flight and collapse;
+      // the collapse vortex itself renders from the shared pulls entry).
+      const r = 4 + Math.sin(now / 60) * 1.2;
+      this.fx.battle.orbit(head.x, head.y, r + 7, tint, now * 0.006, false, importance);
+      g.fillStyle(tint, 0.55).fillCircle(head.x, head.y, r * 0.6);
+      g.lineStyle(1, tint, 0.95).strokeCircle(head.x, head.y, r + 2);
+      return;
+    }
+    if (b.exploding) {
+      this.fx.battle.orbit(head.x, head.y, b.explosionRadius, tint, 0, true, importance);
+      g.lineStyle(1, tint, 1).strokeCircle(head.x, head.y, b.explosionRadius);
+      return;
+    }
+    this.fx.battle.beam(
+      tail.x,
+      tail.y,
+      head.x,
+      head.y,
+      width,
+      tint,
+      weaponLook(b.weapon),
+      now,
+      importance,
+    );
+    g.lineStyle(width, tint, 1).lineBetween(tail.x, tail.y, head.x, head.y);
+    g.lineStyle(Math.max(0.65, width * 0.45), 0xff_f9_eb, 0.92).lineBetween(
+      tail.x,
+      tail.y,
+      head.x,
+      head.y,
+    );
   }
 
   /** Classic vector death debris: white pixel squares radiating outward. */

@@ -56,8 +56,6 @@ export interface SeatState {
   guestIn: InputState;
   controlsPaused: boolean;
   neutralOnAdmission: boolean;
-  // host: which peer's wire input is being edge-detected, and whether it is live
-  remoteInputOwner: { id: string; active: boolean } | null;
 }
 
 export const newSeatState = (
@@ -76,7 +74,6 @@ export const newSeatState = (
   player,
   remote: undefined,
   remoteId: null,
-  remoteInputOwner: null,
   requestedHero: heroName,
   role: "solo",
   seats: { guest: null, host: null },
@@ -85,6 +82,11 @@ export const newSeatState = (
 
 export const livePlayers = (seat: SeatState): Player[] =>
   seat.remote ? [seat.player, seat.remote] : [seat.player];
+
+/** The host advances a guest's body once per input tick the guest sent
+ * (scenes/host-net.ts), not once per host step — every other body steps here. */
+export const inputDriven = (seat: SeatState, pl: Player): boolean =>
+  seat.role === "host" && pl === seat.remote;
 
 export const ownerId = (seat: SeatState, pl: Player): string | null =>
   pl === seat.player ? (seat.session?.playerId ?? null) : seat.remoteId;

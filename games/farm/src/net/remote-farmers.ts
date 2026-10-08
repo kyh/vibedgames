@@ -1,110 +1,36 @@
 import type Phaser from "phaser";
-import { Math as PhaserMath } from "phaser";
 
-import type { PlayerMap } from "@vibedgames/multiplayer";
+import type { Interpolator, PlayerMap } from "@vibedgames/multiplayer";
 
-import { CHAR_ORIGIN_Y, DEPTH } from "../config";
-import { CHAR_FRAMES } from "../scenes/boot-scene";
-import type { CharAction } from "../scenes/boot-scene";
-import { isJsonNumber, isJsonObject, isJsonString } from "../json";
-import type { JsonObject, JsonValue } from "../json";
+import { CHAR_ORIGIN_Y, DEPTH, REMOTE_SNAP_PX } from "../config";
+import type { CharAction } from "../data/character";
+import type { JsonValue } from "../json";
+import { farmerTrack, readFarmer } from "./farmer-wire";
+import type { FarmerSample } from "./farmer-wire";
 
 // Renders the other players' farmers in the shared co-op world. They're the
 // same character sprite as the local player, name-tagged and depth-sorted with
-// everything else, smoothed toward the ~12 Hz position updates.
+// everything else. Each sender stamps its 20 Hz updates with the room's server
+// clock, and each farmer here plays them back ~100 ms behind the moment they
+// could have arrived — every farmer on its own sender's clock (farmerTrack),
+// which learns that sender's route — blending the two updates around that
+// moment: position, facing and clip all from the same pair, so a farmer never
+// walks before the walk clip starts or slides in an idle pose.
 
-export interface FarmerPose extends JsonObject {
-  clip: CharAction;
-  frame: number;
-  elapsed: number;
-  playing: boolean;
-  revision: number;
-}
-export interface FarmerState {
-  x: number;
-  y: number;
-  f: boolean;
-  m: boolean;
-  pose: FarmerPose | null;
-}
-
-const action = (value: JsonValue | undefined): value is CharAction =>
-  isJsonString(value) && Object.hasOwn(CHAR_FRAMES, value);
-
-/** Optional presentation metadata. Older peers retain their idle/walk fallback. */
-export const readFarmerPose = (value: JsonValue | undefined): FarmerPose | null => {
-  if (!isJsonObject(value)) {
-    return null;
-  }
-  const { clip, frame, elapsed, playing, revision } = value;
-  if (
-    !action(clip) ||
-    !isJsonNumber(frame) ||
-    !Number.isInteger(frame) ||
-    frame < 0 ||
-    frame >= CHAR_FRAMES[clip] ||
-    !isJsonNumber(elapsed) ||
-    elapsed < 0 ||
-    elapsed > 1000 ||
-    (playing !== true && playing !== false) ||
-    !isJsonNumber(revision) ||
-    !Number.isSafeInteger(revision) ||
-    revision < 0
-  ) {
-    return null;
-  }
-  return { clip, elapsed, frame, playing, revision };
-};
-
-/** The local farmer's current clip with its sub-frame age, so peers show the tool mid-swing. */
-export const farmerPose = (
-  sprite: Phaser.GameObjects.Sprite,
-  revision: number,
-): FarmerPose | null => {
-  const anim = sprite.anims;
-  const clip = anim.currentAnim?.key.replace(/^p-/u, "");
-  if (!action(clip)) {
-    return null;
-  }
-  return {
-    clip,
-    elapsed: anim.accumulator,
-    frame: (anim.currentFrame?.index ?? 1) - 1,
-    playing: anim.isPlaying,
-    revision,
-  };
-};
-
-export const readFarmer = (state: JsonValue | undefined): FarmerState | null => {
-  if (!isJsonObject(state)) {
-    return null;
-  }
-  const { x } = state;
-  const { y } = state;
-  if (!isJsonNumber(x) || !isJsonNumber(y)) {
-    return null;
-  }
-  return {
-    f: state["f"] === true,
-    m: state["m"] === true,
-    pose: readFarmerPose(state["pose"]),
-    x,
-    y,
-  };
-};
+/** A farmer's name tag: the first characters of its player id. */
+export const farmerTag = (id: string): string => id.slice(0, 4);
 
 interface Farmer {
   sprite: Phaser.GameObjects.Sprite;
   shadow: Phaser.GameObjects.Sprite;
   label: Phaser.GameObjects.Text;
-  tx: number;
-  ty: number;
-  seeded: boolean;
-  moving: boolean;
-  poseRevision: number | null;
+  track: Interpolator<FarmerSample>;
+  /** The player state last read: an unchanged one is not parsed again. */
+  state: JsonValue | undefined;
+  /** The clip revision and playing flag last applied (null: none yet). */
+  revision: number | null;
+  playing: boolean;
 }
-
-const LERP = 12;
 
 export class RemoteFarmers {
   private farmers = new Map<string, Farmer>();
@@ -115,48 +41,38 @@ export class RemoteFarmers {
     this.scene = scene;
   }
 
+  /** Take in the room's player states; call every frame (unchanged ones cost nothing).
+   *  A farmer out of interest range (`visible: false`) is dropped, playback and
+   *  all: its state stops updating, and comes back whole when it is in range. */
   sync(players: PlayerMap, myId: string | null): void {
     const seen = new Set<string>();
     for (const [id, player] of Object.entries(players)) {
-      if (id === myId) {
+      if (id === myId || player.visible === false) {
         continue;
       }
-      const st = readFarmer(player.state);
-      if (!st) {
+      const known = this.farmers.get(id);
+      if (known && known.state === player.state) {
+        seen.add(id);
+        continue;
+      }
+      const read = readFarmer(player.state);
+      if (!read) {
         continue;
       }
       seen.add(id);
-      let f = this.farmers.get(id);
-      if (!f) {
-        f = this.spawn(id, st);
+      const f = known ?? this.spawn(id, read.sample);
+      f.state = player.state;
+      const { sample } = read;
+      const last = f.track.latest;
+      // A jump (out of the mine, a reload) is a new place, not a walk there.
+      if (
+        last &&
+        (last.away !== sample.away ||
+          Math.hypot(sample.x - last.x, sample.y - last.y) > REMOTE_SNAP_PX)
+      ) {
+        f.track.clear();
       }
-      f.tx = st.x;
-      f.ty = st.y;
-      f.moving = st.m;
-      f.sprite.setFlipX(st.f);
-      const { pose } = st;
-      if (pose) {
-        // Seek only when the sender (re)started a clip or paused/finished one;
-        // between packets the clip runs locally, so packet jitter never shows.
-        const restarted = pose.revision !== f.poseRevision;
-        if (restarted || pose.playing !== f.sprite.anims.isPlaying) {
-          const key = `p-${pose.clip}`;
-          const frame = this.scene.anims.get(key)?.frames[pose.frame];
-          if (frame) {
-            if (f.sprite.anims.currentAnim?.key !== key || !f.sprite.anims.isPlaying) {
-              f.sprite.play(key, true);
-            }
-            f.sprite.anims.setCurrentFrame(frame);
-            f.sprite.anims.accumulator = pose.elapsed;
-            if (!pose.playing) {
-              f.sprite.anims.pause();
-            }
-            f.poseRevision = pose.revision;
-          }
-        }
-      } else {
-        f.poseRevision = null;
-      }
+      f.track.push(read.t, sample);
     }
     for (const [id, f] of this.farmers) {
       if (!seen.has(id)) {
@@ -168,26 +84,26 @@ export class RemoteFarmers {
     }
   }
 
-  update(dt: number): void {
-    const k = 1 - Math.exp(-LERP * dt);
+  /** Draw every farmer ~100 ms behind its updates' arrival, on its sender's clock. */
+  update(now = performance.now()): void {
     for (const f of this.farmers.values()) {
-      if (f.seeded) {
-        f.sprite.x = f.tx;
-        f.sprite.y = f.ty;
-        f.seeded = false;
-      } else {
-        f.sprite.x = PhaserMath.Linear(f.sprite.x, f.tx, k);
-        f.sprite.y = PhaserMath.Linear(f.sprite.y, f.ty, k);
+      const s = f.track.sample(now);
+      if (!s) {
+        continue;
       }
-      f.sprite.setDepth(DEPTH.entityBase + f.sprite.y);
-      f.shadow.setPosition(f.sprite.x, f.sprite.y + 1).setDepth(f.sprite.depth - 1);
-      f.label.setPosition(f.sprite.x, f.sprite.y - 26).setDepth(f.sprite.depth + 1);
-      if (f.poseRevision === null) {
-        const anim = f.moving ? "p-walk" : "p-idle";
-        if (f.sprite.anims.currentAnim?.key !== anim || !f.sprite.anims.isPlaying) {
-          f.sprite.play(anim, true);
-        }
+      f.sprite.setVisible(!s.away);
+      f.shadow.setVisible(!s.away);
+      f.label.setVisible(!s.away);
+      if (s.away) {
+        continue;
       }
+      f.sprite
+        .setPosition(s.x, s.y)
+        .setFlipX(s.flip)
+        .setDepth(DEPTH.entityBase + s.y);
+      f.shadow.setPosition(s.x, s.y + 1).setDepth(f.sprite.depth - 1);
+      f.label.setPosition(s.x, s.y - 26).setDepth(f.sprite.depth + 1);
+      this.animate(f, s);
     }
   }
 
@@ -195,35 +111,76 @@ export class RemoteFarmers {
     return this.farmers.size;
   }
 
-  private spawn(id: string, st: FarmerState): Farmer {
+  private animate(f: Farmer, s: FarmerSample): void {
+    if (s.clip === null) {
+      f.revision = null;
+      const key = s.moving ? "p-walk" : "p-idle";
+      if (f.sprite.anims.currentAnim?.key !== key || !f.sprite.anims.isPlaying) {
+        f.sprite.play(key, true);
+      }
+      return;
+    }
+    if (
+      f.revision === null ||
+      s.revision > f.revision ||
+      (s.revision === f.revision && s.playing !== f.playing)
+    ) {
+      this.seekClip(f, s, s.clip);
+    }
+  }
+
+  /** Start (or pause) the sender's clip where it stood; between seeks the clip
+   *  runs locally, so update jitter never shows in the animation. */
+  private seekClip(f: Farmer, s: FarmerSample, clip: CharAction): void {
+    const key = `p-${clip}`;
+    const frame = this.scene.anims.get(key)?.frames[s.frame];
+    if (!frame) {
+      return;
+    }
+    const { anims } = f.sprite;
+    if (anims.currentAnim?.key !== key || !anims.isPlaying) {
+      f.sprite.play(key, true);
+    }
+    anims.setCurrentFrame(frame);
+    anims.accumulator = s.elapsed;
+    if (!s.playing) {
+      anims.pause();
+    }
+    f.revision = s.revision;
+    f.playing = s.playing;
+  }
+
+  private spawn(id: string, s: FarmerSample): Farmer {
     const shadow = this.scene.add
-      .sprite(st.x, st.y + 1, "char-shadow-tex")
+      .sprite(s.x, s.y + 1, "char-shadow-tex")
       .setOrigin(0.5, 0.5)
       .setScale(1.1, 1)
-      .setAlpha(0.3);
+      .setAlpha(0.3)
+      .setVisible(!s.away);
     const sprite = this.scene.add
-      .sprite(st.x, st.y, "p-idle")
+      .sprite(s.x, s.y, "p-idle")
       .setOrigin(0.5, CHAR_ORIGIN_Y)
-      .setAlpha(0.92);
+      .setAlpha(0.92)
+      .setVisible(!s.away);
     sprite.play("p-idle");
     const label = this.scene.add
-      .text(st.x, st.y - 26, id.slice(0, 4), {
+      .text(s.x, s.y - 26, farmerTag(id), {
         backgroundColor: "rgba(20,24,40,0.55)",
         color: "#ffffff",
         fontFamily: "monospace",
         fontSize: "8px",
         padding: { bottom: 1, left: 2, right: 2, top: 1 },
       })
-      .setOrigin(0.5, 1);
+      .setOrigin(0.5, 1)
+      .setVisible(!s.away);
     const f: Farmer = {
       label,
-      moving: false,
-      poseRevision: null,
-      seeded: true,
+      playing: true,
+      revision: null,
       shadow,
       sprite,
-      tx: st.x,
-      ty: st.y,
+      state: undefined,
+      track: farmerTrack(),
     };
     this.farmers.set(id, f);
     return f;

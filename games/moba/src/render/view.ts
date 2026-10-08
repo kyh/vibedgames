@@ -271,6 +271,11 @@ export class WorldView {
   private clouds: Phaser.GameObjects.Image[] = [];
   playerHeroId = "";
   playerTeam: "radiant" | "dire" = "radiant";
+  /** Where to draw a unit or projectile, by id. Set, bodies sit exactly there
+   *  (falling back to the world's own x/y) — the game scene hands over sim
+   *  positions blended between steps, or a guest's interpolated ones. Unset
+   *  (showcase, trailer), bodies chase the sim position to hide its 30 Hz step. */
+  poseOf: ((id: string) => Vec2 | undefined) | null = null;
 
   // Trauma-based screen shake (Eiserloh): fx add trauma, offset = maxOffset·trauma²,
   // decaying to 0. One accumulator so many hits don't fight; GameScene reads the
@@ -1397,13 +1402,19 @@ export class WorldView {
     v.recoilY = 0;
   }
 
-  /** Smooth display position toward sim position — snappy enough to track the
-   *  30Hz sim without floating, smooth enough to hide the step — then place the
-   *  body, plate and depth from it. */
+  /** Take the display position from `poseOf`, or without one smooth toward the
+   *  sim position — snappy enough to track the 30Hz sim without floating,
+   *  smooth enough to hide the step — then place the body, plate and depth. */
   private smoothUnitBody(u: Unit, v: UnitView, dt: number): void {
-    const k = Math.min(1, dt * 18);
-    v.dx = PhaserMath.Linear(v.dx, u.x, k);
-    v.dy = PhaserMath.Linear(v.dy, u.y, k);
+    if (this.poseOf) {
+      const at = this.poseOf(u.id);
+      v.dx = at?.x ?? u.x;
+      v.dy = at?.y ?? u.y;
+    } else {
+      const k = Math.min(1, dt * 18);
+      v.dx = PhaserMath.Linear(v.dx, u.x, k);
+      v.dy = PhaserMath.Linear(v.dy, u.y, k);
+    }
     // hit recoil: a quick knockback offset on the sprite that springs back —
     // purely visual (the sim position is untouched, so nav/MP stay authoritative).
     v.recoilX *= 0.0008 ** dt;
@@ -2113,9 +2124,10 @@ export class WorldView {
         // position + depth set every frame just below
         this.projs.set(p.id, img);
       }
-      img.setPosition(p.x, p.y);
-      img.setDepth(p.y + 200);
-      const ang = Math.atan2(p.ty - p.y, p.tx - p.x);
+      const at = this.poseOf?.(p.id) ?? p;
+      img.setPosition(at.x, at.y);
+      img.setDepth(at.y + 200);
+      const ang = Math.atan2(p.ty - at.y, p.tx - at.x);
       // arrow/bolt/tower art and the fireball both point EAST (+x) natively → face travel
       if (p.kind === "arrow" || p.kind === "bolt" || p.kind === "fireball" || p.kind === "tower") {
         img.setRotation(ang);
@@ -2123,7 +2135,7 @@ export class WorldView {
       } else {
         img.setRotation(0);
       }
-      this.tickProjTrail(p);
+      this.tickProjTrail(p, at);
     }
     for (const [id, img] of this.projs) {
       if (!world.projectiles.has(id)) {
@@ -2137,7 +2149,7 @@ export class WorldView {
   /** A fading additive puff dropped behind a projectile as it flies — each starts
    *  brightest and dims as the projectile pulls away, reading as speed. Throttled
    *  per projectile so the trail is a ribbon of a few puffs, not a solid smear. */
-  private tickProjTrail(p: Projectile): void {
+  private tickProjTrail(p: Projectile, at: Vec2): void {
     if (this.reducedMotion) {
       return;
     }
@@ -2148,7 +2160,12 @@ export class WorldView {
     // no point trailing a projectile the camera can't see — a fight on the far side
     // of the map would otherwise spawn puffs nobody renders (kill invisible work).
     const view = this.scene.cameras.main.worldView;
-    if (p.x < view.x - 80 || p.x > view.right + 80 || p.y < view.y - 80 || p.y > view.bottom + 80) {
+    if (
+      at.x < view.x - 80 ||
+      at.x > view.right + 80 ||
+      at.y < view.y - 80 ||
+      at.y > view.bottom + 80
+    ) {
       return;
     }
     this.projTrailAt.set(p.id, now);
@@ -2156,17 +2173,17 @@ export class WorldView {
     const col = projTrailColor(p);
     this.commonFx.image({
       alpha: hot ? 0.75 : 0.5,
-      depth: p.y + 199,
+      depth: at.y + 199,
       endScale: 0,
       endScaleY: 0.1,
       life: hot ? 0.24 : 0.14,
-      rotation: Math.atan2(p.ty - p.y, p.tx - p.x),
+      rotation: Math.atan2(p.ty - at.y, p.tx - at.x),
       scale: hot ? 0.65 : 1.05,
       scaleY: hot ? 0.35 : 0.55,
       texture: hot || p.kind === "dynamite" ? "spark" : "streak",
       tint: col,
-      x: p.x,
-      y: p.y,
+      x: at.x,
+      y: at.y,
     });
   }
 
@@ -2212,10 +2229,10 @@ export class WorldView {
         gv = { arc, nextStrikeAt: 0, sprites };
         this.grounds.set(g.id, gv);
       }
-      gv.arc.setPosition(g.x, g.y);
-      // followOwner zones (flashfire) move with the caster — keep sprites attached
+      const at = this.groundAt(g);
+      gv.arc.setPosition(at.x, at.y);
       for (const { sp, ox, oy } of gv.sprites) {
-        sp.setPosition(g.x + ox, g.y + oy);
+        sp.setPosition(at.x + ox, at.y + oy);
       }
       // storm zones rain lightning bolts on random points inside the radius
       if (kind === "storm" && s.anims.exists("sp-lightning")) {
@@ -2224,8 +2241,8 @@ export class WorldView {
           gv.nextStrikeAt = 200 + Math.random() * 160;
           const a = Math.random() * Math.PI * 2;
           const rr = Math.sqrt(Math.random()) * g.radius;
-          const bx = g.x + Math.cos(a) * rr;
-          const by = g.y + Math.sin(a) * rr;
+          const bx = at.x + Math.cos(a) * rr;
+          const by = at.y + Math.sin(a) * rr;
           const bolt = s.add
             .sprite(bx, by, "sp-lightning", 0)
             .setDepth(by + 500)
@@ -2246,6 +2263,13 @@ export class WorldView {
         this.grounds.delete(id);
       }
     }
+  }
+
+  /** Where to draw a ground zone. followOwner zones (flashfire) move with the
+   *  caster as drawn — the ring and its sprites stay on the body, not a sim
+   *  step behind it. */
+  private groundAt(g: GroundEffect): Vec2 {
+    return (g.followOwner ? this.poseOf?.(g.ownerId) : undefined) ?? g;
   }
 
   private syncMines(world: World): void {

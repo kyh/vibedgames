@@ -1,10 +1,12 @@
-// World <-> wire snapshot. The World is plain data except its three Maps and the
-// rng closure, so encoding is just Map->record (+ drop rng); decoding rebuilds
-// the Maps into a guest's persistent World so the renderer can read it unchanged.
+// World <-> wire. Two shapes travel: the full keyframe (`Snapshot`, the World
+// with its Maps as records) that late joiners and a promoted host start from,
+// and the per-step `Tick` — only what changed — that guests replay (see
+// net/stream.ts). Both are JSON-shaped type aliases so they ride the SDK as-is.
 
 import type { MultiplayerClient } from "@vibedgames/multiplayer";
 
 import type { FxEvent, GroundEffect, Mine, Projectile, Unit, World } from "../sim/types";
+import type { JsonObject, JsonValue } from "./json";
 
 export type Snapshot = {
   now: number;
@@ -24,9 +26,8 @@ export type Snapshot = {
 
 /** A view, not a copy: units/projectiles/mines/grounds are the World's own
  *  objects. The SDK serialises the patch synchronously on send, and every
- *  consumer that keeps a snapshot copies it (restoreHostState), so the host's
- *  local mirror aliasing its live world costs nothing and a deep clone at
- *  15 Hz would only protect against a reader that doesn't exist. */
+ *  consumer that keeps a snapshot copies it (restoreHostState, the guest
+ *  mirror), so the host's local mirror aliasing its live world costs nothing. */
 export const encodeWorld = (w: World): Snapshot => ({
   campRespawnAt: w.campRespawnAt,
   gameTime: w.gameTime,
@@ -42,6 +43,36 @@ export const encodeWorld = (w: World): Snapshot => ({
   waveCount: w.waveCount,
   winner: w.winner,
 });
+
+/**
+ * One host sim step, streamed to every guest as an event: what changed since
+ * the step before. Events arrive reliably and in order, so a guest that holds a
+ * keyframe and every tick since holds the host's world.
+ */
+export type Tick = {
+  /** Server time of the step (ms, `client.serverNow()`): the stamp guests
+   *  interpolate and replay against, the same timebase whoever hosts. */
+  t: number;
+  /** World.now (sim ms) after the step. */
+  n: number;
+  /** World.gameTime after the step. */
+  g: number;
+  /** World-level fields that changed: wave/RNG/id bookkeeping, camps, mines, grounds. */
+  w?: JsonObject;
+  /** Units new this step, every field. */
+  un?: JsonObject[];
+  /** Units that changed: [id, changed fields] (hero/creep/structure nest one level). */
+  u?: [string, JsonObject][];
+  /** Units removed this step. */
+  ux?: string[];
+  pn?: JsonObject[];
+  p?: [string, JsonObject][];
+  px?: string[];
+  /** One-shot effects since the previous step, in order. */
+  f?: FxEvent[];
+  /** Per guest hero: [heroId, newest input seq applied, sim ms it has been applied]. */
+  k?: [string, number, number][];
+};
 
 /** A fresh World a guest renders from (never simulated locally). */
 export const emptyGuestWorld = (): World => ({
@@ -61,7 +92,8 @@ export const emptyGuestWorld = (): World => ({
   winner: null,
 });
 
-const rebuildMap = <T>(map: Map<string, T>, rec: Record<string, T>): void => {
+/** Make `map` hold exactly `rec`'s entries, keeping the Map's identity. */
+export const rebuildMap = <T>(map: Map<string, T>, rec: Record<string, T>): void => {
   const seen = new Set<string>();
   for (const [k, val] of Object.entries(rec)) {
     seen.add(k);
@@ -109,9 +141,10 @@ export const sharedSnapshot = (state: SharedState): Snapshot | null => {
 
 const isFiniteNumber = (x: SharedState[string] | undefined): x is number => Number.isFinite(x);
 
-/** The fx-batch sequence number the host wrote alongside `fx`, or null. */
-export const sharedFxSeq = (state: SharedState): number | null => {
-  const v = state["fxSeq"];
+/** The server-clock stamp of the keyframe in `snap` (the step it was taken
+ *  after), or null when shared state holds none. */
+export const sharedSnapAt = (state: SharedState): number | null => {
+  const v = state["snapAt"];
   return isFiniteNumber(v) ? v : null;
 };
 
@@ -132,9 +165,7 @@ const FX_TAGS = [
 ];
 /** Older peers omit `actor`; anything malformed is stripped rather than trusted
  *  to pick a body or claim local audio priority. */
-const castActor = (
-  value: MultiplayerClient["sharedState"][string] | undefined,
-): { unitId: string; at: number } | null => {
+const castActor = (value: JsonValue | undefined): { unitId: string; at: number } | null => {
   if (!(value instanceof Object) || !("unitId" in value) || !("at" in value)) {
     return null;
   }
@@ -150,10 +181,8 @@ const castActor = (
   return { at, unitId };
 };
 
-/** Validate the broadcast fx array in shared state into typed FxEvents,
- *  dropping bad shapes. */
-export const sharedFxBatch = (state: SharedState): FxEvent[] => {
-  const v = state["fx"];
+/** Validate a tick's fx array into typed FxEvents, dropping bad shapes. */
+export const parseFxBatch = (v: JsonValue | undefined): FxEvent[] => {
   if (!Array.isArray(v)) {
     return [];
   }

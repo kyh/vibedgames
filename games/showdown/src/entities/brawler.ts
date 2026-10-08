@@ -9,11 +9,10 @@ import type {
   VolleyAttack,
 } from "../config";
 import { BRAWLER_RADIUS, TUNING } from "../config";
-import { swingMelee } from "../combat/melee";
+import { showSlash, swingMelee } from "../combat/melee";
 import type { Game } from "../game";
-import type { BrawlerDrive, NetTarget } from "../net/interpolation";
-import { makeNetTarget, snapToTarget, steerPuppet } from "../net/interpolation";
-import { clamp, damp, dampAngle, lerp } from "../utils";
+import { IntentAck } from "../net/intent-ack";
+import { clamp, damp, dampAngle } from "../utils";
 import {
   buildBrawlerModel,
   PLAYER_DISC_GEOMETRY,
@@ -25,8 +24,17 @@ import { advanceEvasion, createEvasion, EVADE, evadeStyle, evasionInvulnerable }
 import type { EvasionState } from "./evasion";
 import { sampleMeleePose } from "./melee-pose";
 import type { MeleeCue, MeleePose } from "./melee-pose";
+import { BURST_SLOW, leapFlight, leapPoint, stepMover } from "./movement";
+import type { LeapArc } from "./movement";
 import { rangedPoseDuration, sampleRangedPose } from "./ranged-pose";
 import type { RangedCue } from "./ranged-pose";
+
+/**
+ * Who advances a body each frame: the sim (solo, the host), local prediction
+ * (a guest's own body: the same sim, its shots and blows drawn but never
+ * resolved), or the host's frames (everyone else a guest sees).
+ */
+export type BrawlerDrive = "sim" | "predict" | "puppet";
 
 /** Hit stop on a hit the player deals or takes: three frames, a kill holds longer. */
 const HIT_STOP_S = 0.05;
@@ -94,10 +102,20 @@ export class Brawler {
   readonly owner: string | null;
   readonly hueShift: number;
   drive: BrawlerDrive;
-  /** The host's last pose, for a guest-driven body. */
-  readonly netTarget: NetTarget;
-  /** Mid-leap according to the host (guest bodies never hold a `leap`). */
+  /** Host side, a remote human's body: the newest intent applied and since when. */
+  readonly ack = new IntentAck();
+  /** Host side: signed sequence of the last evade request processed — negative when refused. */
+  evadeResult = 0;
+  /** Bumps with every hit that shoves this body; `knockX/Z` is the shove that hit set. */
+  knockSeq = 0;
+  knockX = 0;
+  knockZ = 0;
+  /** Guest side, own body: an evade is waiting for the host's verdict. */
+  evadePending = false;
+  /** Mid-leap according to the host: a puppet, or an own body following a leap it did not start. */
   netAir: boolean;
+  /** That leap's arc, for the body's height. */
+  netLeap: LeapArc | null = null;
   readonly model: BrawlerModel;
   readonly root: THREE.Group;
   readonly ring: GroundMarker;
@@ -169,7 +187,6 @@ export class Brawler {
     this.owner = options.owner ?? null;
     this.hueShift = options.hueShift ?? 0;
     this.drive = options.drive ?? "sim";
-    this.netTarget = makeNetTarget();
     this.netAir = false;
     this.model = buildBrawlerModel(def, this.hueShift);
     this.root = this.model.root;
@@ -270,6 +287,10 @@ export class Brawler {
     return this.root.position.x;
   }
 
+  get position(): THREE.Vector3 {
+    return this.root.position;
+  }
+
   get z(): number {
     return this.root.position.z;
   }
@@ -295,12 +316,15 @@ export class Brawler {
     return this.isPlayer && this.game.mode === "solo" ? this.game.mercy.damageScale : 1;
   }
 
-  /** Freeze both parties briefly; only bodies the sim drives can hold. */
+  /**
+   * Freeze both parties briefly. Only a body whose input is local can hold: a
+   * guest's body frozen on the host would fall behind its own prediction.
+   */
   private hitStop(source: Brawler | null, seconds: number): void {
-    if (this.drive === "sim") {
+    if (this.drive === "sim" && !this.remoteControlled) {
       this.freezeT = Math.max(this.freezeT, seconds);
     }
-    if (source && source !== this && source.drive === "sim") {
+    if (source && source !== this && source.drive === "sim" && !source.remoteControlled) {
       source.freezeT = Math.max(source.freezeT, seconds);
     }
   }
@@ -308,6 +332,19 @@ export class Brawler {
   /** A person plays this brawler (locally or from another client), not a bot brain. */
   get isHuman(): boolean {
     return this.isPlayer || this.owner !== null;
+  }
+
+  /** A guest plays this body from another client; the host only replays its intents. */
+  get remoteControlled(): boolean {
+    return this.owner !== null && !this.isPlayer;
+  }
+
+  /** A hit shoves this body. Sequenced so the guest predicting it can replay the same shove. */
+  applyKnock(x: number, z: number): void {
+    this.knock.set(x, z);
+    this.knockSeq += 1;
+    this.knockX = x;
+    this.knockZ = z;
   }
 
   // The current muzzle offset rotated by the aim angle into world space.
@@ -328,13 +365,14 @@ export class Brawler {
     return this.alive && !this.airborne && !this.evasion && this.game.state !== "countdown";
   }
 
-  evade(dx: number, dz: number): boolean {
+  /** `grace` lets a remote request through a hair early: the guest's cooldown ran on its own clock. */
+  evade(dx: number, dz: number, grace = 0): boolean {
     if (
       !this.alive ||
       this.drive === "puppet" ||
       this.airborne ||
       this.evasion ||
-      this.evadeCooldown > 0 ||
+      this.evadeCooldown > grace ||
       !Number.isFinite(dx) ||
       !Number.isFinite(dz) ||
       this.game.state !== "playing"
@@ -351,13 +389,22 @@ export class Brawler {
     this.knock.set(0, 0);
     this.recoil = 0;
     this.revealT = Math.max(this.revealT, EVADE.duration);
-    if (evadeStyle(this.def.id) === "blink") {
-      this.game.effects.burst(this.x, this.root.position.y + 0.65, this.z, this.lightColor, 9, 2.6);
-      this.game.effects.ring(this.x, this.z, 0.8, this.lightColor, 0.2, 0.8);
-    } else {
-      this.game.effects.dust(this.x, this.z, 6, 1.7);
-    }
-    this.game.audio.play("leap", this.x, this.z);
+    this.game.asActor(this, () => {
+      if (evadeStyle(this.def.id) === "blink") {
+        this.game.effects.burst(
+          this.x,
+          this.root.position.y + 0.65,
+          this.z,
+          this.lightColor,
+          9,
+          2.6,
+        );
+        this.game.effects.ring(this.x, this.z, 0.8, this.lightColor, 0.2, 0.8);
+      } else {
+        this.game.effects.dust(this.x, this.z, 6, 1.7);
+      }
+      this.game.audio.play("leap", this.x, this.z);
+    });
     return true;
   }
 
@@ -366,7 +413,7 @@ export class Brawler {
       return false;
     }
     this.ammo -= 1;
-    this.startVolley(this.def.attack, dx, dz, x, z, false);
+    this.game.asActor(this, () => this.startVolley(this.def.attack, dx, dz, x, z, false));
     return true;
   }
 
@@ -375,8 +422,10 @@ export class Brawler {
       return false;
     }
     this.superCharge = 0;
-    this.startVolley(this.def.super, dx, dz, x, z, true);
-    this.game.audio.play("super");
+    this.game.asActor(this, () => {
+      this.startVolley(this.def.super, dx, dz, x, z, true);
+      this.game.audio.play("super");
+    });
     return true;
   }
 
@@ -504,6 +553,10 @@ export class Brawler {
     if (!burst) {
       return;
     }
+    this.game.asActor(this, () => this.fireShot(burst));
+  }
+
+  private fireShot(burst: BurstState): void {
     const { a } = burst;
     if (this.def.attack.kind !== "melee") {
       this.rangedCue = { elapsed: 0, isSuper: burst.isSuper };
@@ -626,13 +679,11 @@ export class Brawler {
     this.game.onBrawlerDown(this, killer);
   }
 
+  // The sim and a guest's prediction of its own body run the same step; only
+  // the sim resolves blows and regenerates — the host's rows carry those.
   update(dt: number): void {
     if (this.drive === "puppet") {
       this.updatePuppet(dt);
-      return;
-    }
-    if (this.drive === "predict") {
-      this.updatePredict(dt);
       return;
     }
     if (!this.alive) {
@@ -654,24 +705,30 @@ export class Brawler {
       this.tickEvasion(dt, this.evasion);
     } else if (this.leap) {
       this.tickLeap(dt, this.leap);
+    } else if (this.netLeap) {
+      // A leap the host started on a guest's own body: fly it on between the host's frames.
+      this.netLeap.t += dt;
+      leapPoint(this.netLeap, leapFlight(this.def), this.game.world.heightAt, this.root.position);
     } else {
       this.tickMovement(dt);
     }
-    const moving = this.vel.lengthSq() > 0.2 && !this.leap;
+    const moving = this.vel.lengthSq() > 0.2 && !this.airborne;
     this.updateFacing(dt, moving);
     this.updateBush();
-    this.tickRegen(dt);
+    if (this.drive === "sim") {
+      this.tickRegen(dt);
+    }
     this.animate(dt, moving);
   }
 
-  // A remote body on a guest: chase the host's pose and animate what it implies.
+  // A remote body on a guest: the guest view poses it from the host's frames
+  // (position, facing, velocity, cues); this only animates what the pose implies.
   private updatePuppet(dt: number): void {
     if (!this.alive) {
       this.updateDeath(dt);
       return;
     }
     this.tickTimers(dt);
-    const moving = steerPuppet(this, dt);
     if (this.evasion) {
       const before = this.evasion.elapsed;
       this.evasion.elapsed += dt;
@@ -680,31 +737,11 @@ export class Brawler {
         this.evasion = null;
       }
     }
+    if (this.netLeap) {
+      this.netLeap.t += dt;
+    }
     this.root.rotation.y = this.facing;
-    this.animate(dt, moving);
-  }
-
-  // The guest's own body: local input moves it now; the host corrects it later.
-  private updatePredict(dt: number): void {
-    if (!this.alive) {
-      this.updateDeath(dt);
-      return;
-    }
-    this.tickTimers(dt);
-    let moving = false;
-    if (this.netAir) {
-      snapToTarget(this);
-    } else if (this.evasion) {
-      this.tickEvasion(dt, this.evasion);
-      moving = this.vel.lengthSq() > 0.2;
-    } else {
-      this.tickMovement(dt);
-      moving = this.vel.lengthSq() > 0.2;
-    }
-    this.updateFacing(dt, moving);
-    const pos = this.root.position;
-    this.inBush = !this.netAir && this.game.world.isBushAt(pos.x, pos.z);
-    this.animate(dt, moving);
+    this.animate(dt, this.vel.lengthSq() > 0.2 && !this.netAir);
   }
 
   // Shrink and spin away over a third of a second, then drop out of the scene.
@@ -738,6 +775,13 @@ export class Brawler {
     this.flash = Math.max(0, this.flash - dt * 7);
     this.recoil = damp(this.recoil, 0, this.def.attack.kind === "melee" ? 8 : 14, dt);
     this.squash = damp(this.squash, 0, 12, dt);
+  }
+
+  /** Run the reload on by `seconds` — a guest adopting the host's count from a round trip ago. */
+  catchUpReload(seconds: number): void {
+    if (seconds > 0) {
+      this.tickReload(seconds);
+    }
   }
 
   private tickReload(dt: number): void {
@@ -776,61 +820,61 @@ export class Brawler {
     }
     swing.remaining -= dt;
     this.aimHold = Math.max(this.aimHold, 0.35);
-    if (swing.remaining <= 0) {
-      this.swing = null;
-      this.recoil = 1;
-      swingMelee(this.game.combat, this, swing.a, swing.dx, swing.dz, swing.isSuper);
-      this.game.audio.play("punch", this.x, this.z);
+    if (swing.remaining > 0) {
+      return;
     }
+    this.swing = null;
+    this.recoil = 1;
+    if (this.drive === "sim") {
+      swingMelee(this.game.combat, this, swing.a, swing.dx, swing.dz, swing.isSuper);
+    } else {
+      showSlash(this.game, this, swing.a, swing.dx, swing.dz, swing.isSuper);
+    }
+    this.game.asActor(this, () => this.game.audio.play("punch", this.x, this.z));
   }
 
   // Arc between launch and landing tiles with a full forward flip, then slam.
   private tickLeap(dt: number, leap: LeapState): void {
     const pos = this.root.position;
     const { body } = this.model;
+    const { world } = this.game;
     leap.t += dt;
-    const progress = clamp(leap.t / leap.a.flight, 0, 1);
-    pos.x = lerp(leap.sx, leap.tx, progress);
-    pos.z = lerp(leap.sz, leap.tz, progress);
-    pos.y =
-      lerp(
-        this.game.world.heightAt(leap.sx, leap.sz),
-        this.game.world.heightAt(leap.tx, leap.tz),
-        progress,
-      ) +
-      Math.sin(progress * Math.PI) * 3.4;
+    const progress = leapPoint(leap, leap.a.flight, world.heightAt, pos);
     body.rotation.x = progress * Math.PI * 2;
     this.aimAngle = Math.atan2(leap.tx - leap.sx, leap.tz - leap.sz);
     this.aimHold = 0.3;
-    if (progress >= 1) {
-      pos.y = this.game.world.heightAt(pos.x, pos.z);
-      body.rotation.x = 0;
-      this.leap = null;
-      this.squash = 1.4;
-      this.game.world.resolveCircle(pos, BRAWLER_RADIUS);
-      pos.y = this.game.world.heightAt(pos.x, pos.z);
+    if (progress < 1) {
+      return;
+    }
+    pos.y = world.heightAt(pos.x, pos.z);
+    body.rotation.x = 0;
+    this.leap = null;
+    this.squash = 1.4;
+    world.resolveCircle(pos, BRAWLER_RADIUS);
+    pos.y = world.heightAt(pos.x, pos.z);
+    if (this.drive === "sim") {
       this.game.combat.explode(pos.x, pos.z, leap.a, this, true, true);
+    } else {
+      this.game.combat.showBlast(pos.x, pos.z, leap.a, this, true, true);
     }
   }
 
+  /** Abandon a leap the host never started: back on the ground, upright. */
+  cancelLeap(): void {
+    this.leap = null;
+    this.model.body.rotation.x = 0;
+    this.root.position.y = this.game.world.heightAt(this.x, this.z);
+  }
+
   private tickMovement(dt: number): void {
-    const pos = this.root.position;
     let { speed } = this.def;
-    // Firing a ranged burst slows the shooter; melee swings keep full pace.
     if (this.burst) {
-      speed *= 0.82;
+      speed *= BURST_SLOW;
     }
     if (this.game.state === "countdown") {
       speed = 0;
     }
-    this.vel.set(this.moveX * speed, this.moveZ * speed);
-    const knockX = this.knock.x;
-    const knockZ = this.knock.y;
-    pos.x += (this.vel.x + knockX) * dt;
-    pos.z += (this.vel.y + knockZ) * dt;
-    this.knock.multiplyScalar(Math.exp(-7 * dt));
-    this.game.world.resolveCircle(pos, BRAWLER_RADIUS);
-    pos.y = this.game.world.heightAt(pos.x, pos.z);
+    stepMover(this, this.moveX, this.moveZ, speed, this.game.world, dt);
   }
 
   private tickEvasion(dt: number, state: EvasionState): void {
@@ -845,7 +889,16 @@ export class Brawler {
     if (finished) {
       this.evasion = null;
       if (evadeStyle(this.def.id) === "blink") {
-        this.game.effects.burst(this.x, this.root.position.y + 0.65, this.z, this.lightColor, 7, 2);
+        this.game.asActor(this, () =>
+          this.game.effects.burst(
+            this.x,
+            this.root.position.y + 0.65,
+            this.z,
+            this.lightColor,
+            7,
+            2,
+          ),
+        );
       }
     }
   }
@@ -879,9 +932,9 @@ export class Brawler {
   private updateBush(): void {
     const pos = this.root.position;
     const wasInBush = this.inBush;
-    this.inBush = !this.leap && this.game.world.isBushAt(pos.x, pos.z);
+    this.inBush = !this.airborne && this.game.world.isBushAt(pos.x, pos.z);
     if (this.inBush !== wasInBush && (!this.hidden || this.isPlayer)) {
-      this.game.effects.leaves(pos.x, pos.z, 5);
+      this.game.asActor(this, () => this.game.effects.leaves(pos.x, pos.z, 5));
     }
   }
 

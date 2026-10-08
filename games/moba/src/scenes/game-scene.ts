@@ -6,7 +6,7 @@ import { MultiplayerClient } from "@vibedgames/multiplayer";
 import type Phaser from "phaser";
 import { BlendModes, Input, Math as PhaserMath, Scale, Scene, Scenes } from "phaser";
 
-import { SIM_DT, SNAPSHOT_HZ, TEAMS } from "../data/config";
+import { KEYFRAME_MS, SIM_DT, TEAMS } from "../data/config";
 import type { Team } from "../data/config";
 import { HEROES, HERO_BY_ID } from "../data/heroes";
 import type { AbilityDef, AbilityKey } from "../data/heroes";
@@ -16,7 +16,7 @@ import { dealDamage, isEnemy } from "../sim/combat";
 import { dist2 } from "../sim/math";
 import type { Vec2 } from "../sim/math";
 import { buyItem, createWorld, dashHero, issueOrder, spawnHero, step } from "../sim/world";
-import type { Order, Unit, World } from "../sim/types";
+import type { FxEvent, Order, Unit, World } from "../sim/types";
 import { resetSound, resumeAudio, sfx, toggleMute, updateSoundscape } from "../render/audio";
 import { readSoundscape } from "../render/score";
 import { structureAnnouncement } from "../render/objective-guidance";
@@ -25,23 +25,20 @@ import { WorldView } from "../render/view";
 import { createPlaytestSense } from "../playtest/sense";
 import {
   INTENT_EVENT,
-  MULTIPLAYER_HOST,
   PARTY,
+  TICK_EVENT,
+  multiplayerHost,
   parseIntent,
   roomFromLocation,
 } from "../net/protocol";
 import type { Intent } from "../net/protocol";
-import { restoreHostState } from "../net/host-state";
+import { restoreHostState, seatsOf } from "../net/host-state";
 import type { OnlineSeat } from "../net/host-state";
-import {
-  applySnapshot,
-  emptyGuestWorld,
-  encodeWorld,
-  sharedFxBatch,
-  sharedFxSeq,
-  sharedSnapshot,
-} from "../net/snapshot";
+import { GuestMirror, placeFollowers } from "../net/mirror";
+import { HeroPredictor } from "../net/predict";
+import { emptyGuestWorld, encodeWorld, sharedSnapAt, sharedSnapshot } from "../net/snapshot";
 import type { Snapshot } from "../net/snapshot";
+import { TickEncoder, parseTick } from "../net/stream";
 import type { JsonValue } from "../net/json";
 
 const TEAM_SIZE = 3;
@@ -57,10 +54,13 @@ const LANE_POST_OFFSET = 110;
 // keep up degrades to slow motion instead of spiralling into longer frames.
 const SIM_CATCHUP_S = 0.2;
 const SIM_STEPS_MAX = 6;
-// Guests: snapshots that stop advancing for this long get a banner. The server
-// migrates host after 6s without the host's heartbeat, so this is the warning
-// before the switch, not a takeover (only the elected host may write state).
+// Guests: a host whose ticks stop arriving for this long gets a banner. The
+// server migrates host after 6s without the host's heartbeat, so this is the
+// warning before the switch, not a takeover (only the elected host may write state).
 const HOST_STALL_MS = 4000;
+// No body moves this far in one sim step (a dash covers ~38 px): a bigger jump
+// is a teleport — respawn, blink — drawn where it lands, not swept across.
+const TELEPORT_PX = 120;
 
 // The shared pause/mute cluster's stock corner is top-right, which the compact
 // HUD already spends on the team-score capsule — so a portrait phone drops it
@@ -215,14 +215,30 @@ export class GameScene extends Scene {
   // stable team/slot per conn (host)
   private assign: Record<string, OnlineSeat> = {};
   private joinedSelf = false;
-  private snapAcc = 0;
-  private netFx: World["fx"] = [];
-  // host: increments per fx broadcast
-  private fxSeqOut = 0;
-  // accepted old-host FX for this renderer only
-  private inheritedFxCount = 0;
-  // guest: last fx batch ingested
-  private lastFxSeq = -1;
+  // host: effects raised since the last tick went out. The renderer drains
+  // world.fx every frame, and a frame need not step the sim.
+  private netFx: FxEvent[] = [];
+  // host: how much of this frame's world.fx a tick has already carried
+  private fxShipped = 0;
+  private encoder = new TickEncoder();
+  // host: per guest hero, the newest input applied and the world.now it landed
+  private readonly acks = new Map<string, { seq: number; at: number }>();
+  // host: server-clock stamp of the latest sim step, and keyframe bookkeeping
+  private lastStamp = 0;
+  private keyframeAt = 0;
+  private keyframeStamp: number | null = null;
+  private keyframePhase: World["phase"] | null = null;
+  private rosterSig = "";
+  // whether `world` is a simulation this client ran, not a guest's copy
+  private worldIsSim = false;
+  // guest: the host's world as streamed, and our hero as predicted
+  private mirror: GuestMirror | null = null;
+  private predictor: HeroPredictor | null = null;
+  private seenSnap: Snapshot | null = null;
+  private wasConnected = false;
+  private hostSeen: string | null = null;
+  private restateOrder = false;
+  private stallShown = false;
   // The server owns election. A disconnected/demoted client must adopt the
   // shared snapshot again before it may simulate, even with the same id.
   private adoptedHost = false;
@@ -232,8 +248,8 @@ export class GameScene extends Scene {
   // that survives the round trip is therefore our pre-drop copy, not the
   // room's — never re-adopt it as authority.
   private staleSnap: Snapshot | null = null;
-  private lastSnapSeq = -1;
-  private snapStalledAt = Infinity;
+  // render interpolation: every body's position before the latest sim step
+  private readonly prevPos = new Map<string, Vec2>();
 
   constructor() {
     super("Game");
@@ -275,16 +291,27 @@ export class GameScene extends Scene {
     this.picks = {};
     this.assign = {};
     this.joinedSelf = false;
-    this.snapAcc = 0;
     this.netFx = [];
-    this.fxSeqOut = 0;
-    this.lastFxSeq = -1;
-    this.inheritedFxCount = 0;
+    this.fxShipped = 0;
+    this.encoder = new TickEncoder();
+    this.acks.clear();
+    this.lastStamp = 0;
+    this.keyframeAt = 0;
+    this.keyframeStamp = null;
+    this.keyframePhase = null;
+    this.rosterSig = "";
+    this.worldIsSim = false;
+    this.mirror = null;
+    this.predictor = null;
+    this.seenSnap = null;
+    this.wasConnected = false;
+    this.hostSeen = null;
+    this.restateOrder = false;
+    this.stallShown = false;
     this.adoptedHost = false;
     this.joinResendAt = 0;
     this.staleSnap = null;
-    this.lastSnapSeq = -1;
-    this.snapStalledAt = Infinity;
+    this.prevPos.clear();
     this.feed.length = 0;
     this.moveKeys = null;
   }
@@ -296,6 +323,7 @@ export class GameScene extends Scene {
     this.resetMatchState();
 
     this.view = new WorldView(this);
+    this.view.poseOf = this.poseOf;
     this.view.buildTerrain();
     this.view.buildStructures();
 
@@ -407,8 +435,8 @@ export class GameScene extends Scene {
   private startOnline(): void {
     // guests render this; the host overwrites its own with a real sim world
     this.world = emptyGuestWorld();
-    this.net = new MultiplayerClient({
-      host: MULTIPLAYER_HOST,
+    const net = new MultiplayerClient({
+      host: multiplayerHost(),
       onEvent: (event, payload, from) =>
         // SAFETY: event payloads arrive as JSON websocket frames (or a local
         // echo of a JSON-safe send), so JsonValue covers every possible value.
@@ -416,17 +444,59 @@ export class GameScene extends Scene {
       party: PARTY,
       room: roomFromLocation(),
     });
-    const { net } = this;
-    net.subscribe(() => {
-      if (net.connectionStatus !== "connected" || !net.isHost) {
-        this.adoptedHost = false;
-      }
-      if (net.connectionStatus === "connected") {
-        return;
-      }
+    this.net = net;
+    // Every host stamps with the room's server clock, so the mirror renders
+    // on it and keeps it through a host migration.
+    this.mirror = new GuestMirror(this.world, net.serverClock);
+    this.predictor = new HeroPredictor();
+    net.subscribe(() => this.onNetChange(net));
+  }
+
+  /** Every SDK notification — after each server message, so a keyframe is
+   *  taken in order with the ticks around it. */
+  private onNetChange(net: MultiplayerClient): void {
+    const connected = net.connectionStatus === "connected";
+    if (!connected || !net.isHost) {
+      this.adoptedHost = false;
+    }
+    if (!connected) {
       this.joinedSelf = false;
       this.staleSnap = sharedSnapshot(net.sharedState);
-    });
+      this.wasConnected = false;
+      // Ticks in flight are gone; the stream restarts from a keyframe.
+      this.mirror?.reset();
+      return;
+    }
+    const joined = !this.wasConnected;
+    this.wasConnected = true;
+    if (net.hostId !== this.hostSeen) {
+      this.hostSeen = net.hostId;
+      // A new host stamps on the same server clock and opens with a keyframe,
+      // so the mirror plays on into its stream (a promoted self resumes from
+      // the mirror instead). An input in flight to the old host is lost:
+      // restate the order in force.
+      if (!net.isHost) {
+        this.mirror?.hostChanged();
+        this.restateOrder = true;
+      }
+    }
+    if (!net.isHost) {
+      this.takeKeyframe(net, !joined);
+    }
+  }
+
+  /** Guest: hand a new keyframe to the mirror. The one found on (re)joining is
+   *  already behind the ticks sent before we arrived, so it is not `live`. */
+  private takeKeyframe(net: MultiplayerClient, live: boolean): void {
+    const snap = this.roomSnapshot(net);
+    const at = sharedSnapAt(net.sharedState);
+    if (!snap || at === null || snap === this.seenSnap) {
+      return;
+    }
+    this.seenSnap = snap;
+    if (this.mirror?.keyframe(snap, at, live)) {
+      this.predictor?.reset();
+    }
   }
 
   /** The one host/guest decision: offline always simulates; online, only the
@@ -463,6 +533,10 @@ export class GameScene extends Scene {
 
   // ---- networking ----------------------------------------------------------
   private onNetEvent(event: string, payload: JsonValue, from: string): void {
+    if (event === TICK_EVENT) {
+      this.onHostTick(payload, from);
+      return;
+    }
     if (event !== INTENT_EVENT) {
       return;
     }
@@ -492,10 +566,35 @@ export class GameScene extends Scene {
       return;
     }
     const u = this.world.units.get(`h-${from}`);
-    if (!u || !u.alive) {
+    if (!u) {
       return;
     }
-    this.applyIntent(u, intent);
+    // Every numbered input is acked, taken or refused: the guest lines its
+    // prediction up by when we got it, and adopts our order once we have.
+    if (intent.seq !== undefined) {
+      this.acks.set(u.id, { at: this.world.now, seq: intent.seq });
+    }
+    if (u.alive) {
+      this.applyIntent(u, intent);
+    }
+  }
+
+  /** Guest: one sim step of the elected host's world. */
+  private onHostTick(payload: JsonValue, from: string): void {
+    const { net, mirror, predictor } = this;
+    if (!net || !mirror || net.isHost || from !== net.hostId) {
+      return;
+    }
+    const tick = parseTick(payload);
+    if (!tick) {
+      return;
+    }
+    mirror.tick(tick, performance.now());
+    const me = mirror.latest?.units.get(this.playerId);
+    if (me && predictor) {
+      const ack = tick.k?.find(([id]) => id === this.playerId);
+      predictor.reconcile(me, ack ? [ack[1], ack[2]] : null);
+    }
   }
 
   private applyIntent(u: Unit, intent: Intent): void {
@@ -643,30 +742,45 @@ export class GameScene extends Scene {
     }
   }
 
+  /** Take over the simulation, from the freshest world on hand: our own if
+   *  the room's last keyframe is ours and we ran on past it; else a guest's
+   *  replica, which saw the old host's every step; else the room's keyframe. */
   private prepareOnlineHost(net: MultiplayerClient): void {
     if (this.adoptedHost || !this.amHost) {
       return;
     }
-    const restored = restoreHostState(this.world, this.roomSnapshot(net));
+    const room = this.roomSnapshot(net);
+    const ours =
+      this.worldIsSim &&
+      room !== null &&
+      this.keyframeStamp !== null &&
+      sharedSnapAt(net.sharedState) === this.keyframeStamp;
+    const replica = this.mirror?.resumable ?? null;
+    // The input we hold may never have reached the old host.
+    const held = this.predictor?.order ?? null;
+    const restored = ours
+      ? seatsOf(this.world)
+      : restoreHostState(this.world, replica ? encodeWorld(replica) : room);
+    const me = this.player;
+    if (held && me) {
+      issueOrder(this.world, me, held);
+    }
     this.assign = restored.seats;
     this.picks = { ...this.picks, ...restored.picks };
     this.adoptedHost = true;
-    this.fxSeqOut = sharedFxSeq(net.sharedState) ?? 0;
+    this.worldIsSim = true;
+    this.mirror?.reset();
+    this.predictor?.reset();
     this.netFx = [];
+    // Effects the renderer has yet to play were the old host's to broadcast.
+    this.fxShipped = this.world.fx.length;
+    this.acks.clear();
+    this.prevPos.clear();
     this.acc = 0;
     this.hostClock = null;
-    this.inheritedFxCount = this.ingestSharedFx(net);
-  }
-
-  private ingestSharedFx(net: MultiplayerClient): number {
-    const seq = sharedFxSeq(net.sharedState);
-    if (seq === null || seq === this.lastFxSeq) {
-      return 0;
-    }
-    this.lastFxSeq = seq;
-    const batch = sharedFxBatch(net.sharedState);
-    this.world.fx.push(...batch);
-    return batch.length;
+    this.lastStamp = Math.round(net.serverNow());
+    // Guests re-base on our world before our first tick reaches them.
+    this.publishKeyframe(net);
   }
 
   // ---- player commands (apply as authority, else send intent) --------------
@@ -691,9 +805,18 @@ export class GameScene extends Scene {
       if (me) {
         this.applyIntent(me, intent);
       }
-    } else {
-      this.net?.sendEvent(INTENT_EVENT, intent);
+      return;
     }
+    const hostId = this.net?.hostId;
+    if (!hostId) {
+      return;
+    }
+    // Played on our hero this frame, then sent to the host alone; the number
+    // comes back with the host's copy to line the two up.
+    const seq = this.predictor?.input(intent, performance.now());
+    this.net?.sendEvent(INTENT_EVENT, seq === undefined ? intent : { ...intent, seq }, {
+      to: hostId,
+    });
   }
 
   get controlsPaused(): boolean {
@@ -1412,7 +1535,7 @@ export class GameScene extends Scene {
     }
     this.pollMovement();
     if (this.online) {
-      this.tickOnline(dt, deltaMs);
+      this.tickOnline(deltaMs);
     } else {
       this.tickHost(deltaMs);
     }
@@ -1452,11 +1575,18 @@ export class GameScene extends Scene {
     const elapsed = this.hostClock === null ? deltaMs : now - this.hostClock;
     this.hostClock = now;
     this.acc += Math.min(SIM_CATCHUP_S, elapsed / 1000);
+    // Online, steps are stamped with the room's server clock, which every
+    // client reads alike and outlives this host.
+    const stampNow = this.net?.serverNow(now) ?? now;
     let steps = 0;
     while (this.acc >= SIM_DT && steps < SIM_STEPS_MAX) {
+      this.rememberPositions();
       step(this.world, SIM_DT);
       this.acc -= SIM_DT;
       steps += 1;
+      // The moment this step stands for: evenly spaced however the frames
+      // fell, which is what guests interpolate against.
+      this.shipStep(stampNow - this.acc * 1000);
     }
     const me = this.player;
     if (this.world.phase === "playing" && me?.hero && me.hero.abilityPoints > 0) {
@@ -1464,7 +1594,94 @@ export class GameScene extends Scene {
     }
   }
 
-  private tickOnline(dt: number, deltaMs: number): void {
+  private rememberPositions(): void {
+    this.prevPos.clear();
+    for (const u of this.world.units.values()) {
+      if (u.kind !== "structure") {
+        this.prevPos.set(u.id, { x: u.x, y: u.y });
+      }
+    }
+    for (const p of this.world.projectiles.values()) {
+      this.prevPos.set(p.id, { x: p.x, y: p.y });
+    }
+  }
+
+  /** The view's pose source. The simulating client draws each body between
+   *  its last two sim positions, as far along as the next step is due —
+   *  motion as smooth as the display at one step of delay. A guest's world
+   *  already holds drawn positions (interpolated, or predicted for its hero). */
+  private readonly poseOf = (id: string): Vec2 | undefined => {
+    if (!this.amHost) {
+      return undefined;
+    }
+    const cur = this.world.units.get(id) ?? this.world.projectiles.get(id);
+    const prev = this.prevPos.get(id);
+    if (!cur || !prev) {
+      return undefined;
+    }
+    const dx = cur.x - prev.x;
+    const dy = cur.y - prev.y;
+    if (dx * dx + dy * dy > TELEPORT_PX * TELEPORT_PX) {
+      return undefined;
+    }
+    const k = PhaserMath.Clamp(this.acc / SIM_DT, 0, 1);
+    return { x: prev.x + dx * k, y: prev.y + dy * k };
+  };
+
+  /** Host: send guests what this sim step changed. */
+  private shipStep(stamp: number): void {
+    this.lastStamp = Math.round(stamp);
+    const { net } = this;
+    if (!this.online || !net?.playerId || !this.amHost) {
+      return;
+    }
+    const fx = [...this.netFx, ...this.world.fx.slice(this.fxShipped)];
+    this.netFx = [];
+    this.fxShipped = this.world.fx.length;
+    // Alone in the room there is nobody to stream to, and whoever joins
+    // starts from the keyframe their arrival triggers.
+    if (Object.keys(net.players).length < 2) {
+      return;
+    }
+    const tick = this.encoder.encode(this.world, this.lastStamp, fx, this.ackRows());
+    net.sendEvent(TICK_EVENT, tick, { except: net.playerId });
+  }
+
+  /** Per guest hero: the newest input applied and how long it has run (sim ms). */
+  private ackRows(): [string, number, number][] {
+    const rows: [string, number, number][] = [];
+    for (const [heroId, ack] of this.acks) {
+      if (this.world.units.has(heroId)) {
+        rows.push([heroId, ack.seq, Math.round(this.world.now - ack.at)]);
+      } else {
+        this.acks.delete(heroId);
+      }
+    }
+    return rows;
+  }
+
+  /** Host: rewrite the full world in shared state — what a late joiner starts
+   *  from and a promoted guest falls back to — and count it as streamed. */
+  private publishKeyframe(net: MultiplayerClient): void {
+    net.updateSharedState({ snap: encodeWorld(this.world), snapAt: this.lastStamp });
+    this.keyframeStamp = this.lastStamp;
+    this.keyframeAt = performance.now();
+    this.keyframePhase = this.world.phase;
+    this.encoder.reset(this.world);
+  }
+
+  /** Whether anyone joined, left or reconnected since the last look — a
+   *  newcomer missed the stream so far and needs a keyframe. */
+  private rosterChanged(net: MultiplayerClient): boolean {
+    const sig = Object.entries(net.players)
+      .map(([id, p]) => `${id}:${p.connected === false ? 0 : 1}`)
+      .join(",");
+    const changed = sig !== this.rosterSig;
+    this.rosterSig = sig;
+    return changed;
+  }
+
+  private tickOnline(deltaMs: number): void {
     const { net } = this;
     if (!net || net.connectionStatus !== "connected") {
       return;
@@ -1497,74 +1714,80 @@ export class GameScene extends Scene {
       if (this.world.phase !== "ended") {
         this.reconcileOnlineHeroes();
       }
+      // A joiner starts from a keyframe taken before this frame's steps, so
+      // the ticks after it are small deltas, not everything since the last.
+      if (this.rosterChanged(net)) {
+        this.publishKeyframe(net);
+      }
       this.tickHost(deltaMs);
-      // capture the fx this step produced BEFORE our own renderer drains them in
-      // view.sync() — the sim's hits/deaths/casts only exist in world.fx now, so
-      // capturing before tickHost (as before) always saw an empty array and guests
-      // got no damage numbers, sparks, explosions, or kill feed.
-      // A promoted guest may also have an unseen old host batch for its own
-      // renderer. Broadcasting that again would replay it on every other peer.
-      this.netFx.push(...this.world.fx.slice(this.inheritedFxCount));
-      this.inheritedFxCount = 0;
+      // Effects raised outside this frame's steps — intents applied between
+      // frames, a frame that did not step — ride the next tick: the renderer
+      // drains world.fx this frame.
+      this.netFx.push(...this.world.fx.slice(this.fxShipped));
+      this.fxShipped = 0;
+      if (
+        this.world.phase !== this.keyframePhase ||
+        performance.now() - this.keyframeAt >= KEYFRAME_MS
+      ) {
+        this.publishKeyframe(net);
+      }
       // set my team for HUD coloring
       const me = this.player;
       if (me) {
         this.view.playerTeam = me.team;
       }
-      this.broadcast(dt);
     } else {
-      // guest: render the latest snapshot
-      const snap = this.roomSnapshot(net);
-      if (snap) {
-        this.watchHostStall(snap);
-        applySnapshot(this.world, snap);
-        // the host started a rematch: leave the result screen with it
-        if (this.ended && this.world.phase !== "ended") {
-          this.resumeMatch();
-        }
-      }
-      // The renderer runs faster than snapshots; consume each batch once.
-      this.ingestSharedFx(net);
-      const me = this.player;
-      if (me) {
-        this.view.playerTeam = me.team;
-      }
+      this.followHost(net);
     }
   }
 
-  private watchHostStall(snap: Snapshot): void {
-    const { now } = this.time;
-    if (snap.seq !== this.lastSnapSeq || snap.phase === "ended") {
-      this.lastSnapSeq = snap.seq;
-      this.snapStalledAt = now + HOST_STALL_MS;
-    } else if (now >= this.snapStalledAt) {
-      this.snapStalledAt = Infinity;
-      this.feed.push({
-        at: now,
-        kind: "notify",
-        priority: "major",
-        text: "HOST CONNECTION LOST — WAITING FOR A NEW HOST",
-        tone: "bad",
-      });
-    }
-  }
-
-  private broadcast(dt: number): void {
-    this.snapAcc += dt;
-    if (this.snapAcc < 1 / SNAPSHOT_HZ) {
+  /** Guest: draw the host's world as of a moment ago, and our hero as of now. */
+  private followHost(net: MultiplayerClient): void {
+    const { mirror, predictor } = this;
+    if (!mirror || !predictor) {
       return;
     }
-    this.snapAcc = 0;
-    this.fxSeqOut += 1;
-    this.net?.updateSharedState({
-      fx: this.netFx,
-      fxSeq: this.fxSeqOut,
-      snap: encodeWorld(this.world),
+    this.worldIsSim = false;
+    const now = performance.now();
+    mirror.frame(now, this.playerId);
+    const host = mirror.latest;
+    predictor.frame(host?.units.get(this.playerId), host, now);
+    predictor.draw(this.world);
+    placeFollowers(this.world);
+    if (this.restateOrder && net.hostId && this.seated) {
+      this.restateOrder = false;
+      const { order } = predictor;
+      if (order) {
+        this.cmd({ kind: "order", order });
+      }
+    }
+    this.watchHostStall(mirror.lastTickAt, now);
+    // the host started a rematch: leave the result screen with it
+    if (this.ended && this.world.phase !== "ended") {
+      this.resumeMatch();
+    }
+    const me = this.player;
+    if (me) {
+      this.view.playerTeam = me.team;
+    }
+  }
+
+  private watchHostStall(lastTickAt: number, now: number): void {
+    if (lastTickAt === 0 || now - lastTickAt < HOST_STALL_MS || this.world.phase === "ended") {
+      this.stallShown = false;
+      return;
+    }
+    if (this.stallShown) {
+      return;
+    }
+    this.stallShown = true;
+    this.feed.push({
+      at: this.time.now,
+      kind: "notify",
+      priority: "major",
+      text: "HOST CONNECTION LOST — WAITING FOR A NEW HOST",
+      tone: "bad",
     });
-    // Our renderer consumes these same events in this update. Reconnecting or
-    // becoming a guest must not play our own last broadcast a second time.
-    this.lastFxSeq = this.fxSeqOut;
-    this.netFx = [];
   }
 
   private updateCamera(dt: number): void {
@@ -1572,7 +1795,8 @@ export class GameScene extends Scene {
     const fallback =
       this.world.units.get(`${me?.team === "dire" ? "d" : "r"}-ancient`) ??
       this.world.units.get("r-ancient");
-    const target = me && me.alive ? me : fallback;
+    // Follow the hero where it is drawn, or it shakes against the screen.
+    const target = me && me.alive ? (this.poseOf(me.id) ?? me) : fallback;
     if (!target) {
       return;
     }
@@ -1667,9 +1891,14 @@ export class GameScene extends Scene {
     restoreHostState(this.world, null);
     this.assign = {};
     this.netFx = [];
-    this.inheritedFxCount = 0;
+    this.fxShipped = 0;
+    this.acks.clear();
+    this.prevPos.clear();
     this.acc = 0;
     this.hostClock = null;
+    if (this.net) {
+      this.publishKeyframe(this.net);
+    }
     this.resumeMatch();
   }
 
@@ -1757,6 +1986,15 @@ export class GameScene extends Scene {
           }
           dealDamage(this.world, this.player ?? null, u, 1e9, "pure", {});
         },
+        // guest netcode state: the correction being eased in, the predicted
+        // body and whether the room's server clock is measured yet
+        netcode: () => ({
+          correction: this.predictor?.correction ?? null,
+          predicted: this.predictor?.hero
+            ? { x: this.predictor.hero.x, y: this.predictor.hero.y }
+            : null,
+          synced: this.net?.serverClock.synced ?? false,
+        }),
         online: () => {
           const { net } = this;
           return net

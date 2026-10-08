@@ -57,6 +57,8 @@ const requireEl = (selector: string): HTMLElement => {
 };
 
 const container = requireEl("#game");
+// the longest real frame the match loop hands the scene (s)
+const MAX_FRAME_S = 0.25;
 const loadingEl = document.querySelector<HTMLElement>("#loading");
 const barFill = document.querySelector<HTMLElement>("#bar-fill");
 
@@ -340,8 +342,11 @@ const main = async (): Promise<void> => {
   const matchLoop = (t: number): void => {
     frame += 1;
     timer.update(t);
-    const dt = Math.min(timer.getDelta(), 1 / 30);
-    activeScene?.update(dt);
+    // Real elapsed time: the sim must keep wall-clock pace even when frames
+    // are slow — an online host below 30 fps would otherwise run the whole
+    // room in slow motion. The scene caps how much catch-up one frame does
+    // and steps visuals by at most 1/30 s.
+    activeScene?.update(Math.min(timer.getDelta(), MAX_FRAME_S));
   };
   const startMatch = (opts: SceneOpts): void => {
     notifyGameStarted();
@@ -404,7 +409,7 @@ const main = async (): Promise<void> => {
   // Date.now/performance.now), so simply not scheduling the loop holds
   // everything — cooldowns included — dead in place with nothing to unwind.
   // timer.reset() on resume avoids a huge first delta from the real-time gap
-  // (belt-and-suspenders: matchLoop already clamps dt to 1/30 regardless).
+  // (belt-and-suspenders: matchLoop already caps a frame at MAX_FRAME_S).
   const pauseOverlay = createPauseOverlay({
     isLive: () => onlineMatch,
     mute: {

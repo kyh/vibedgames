@@ -53,7 +53,7 @@ export interface PlaytestViewInput {
 const ESCAPE_STEPS = 4;
 const FLEE_STEPS = 8;
 const TRAVEL_STEPS = 48;
-/** Slack around a burn window: the host resolves deaths on a 70 ms tick and
+/** Slack around a burn window: the host resolves deaths on its 50 ms step and
  *  the step that leaves a tile lands a frame or two after it is decided. */
 const BURN_MARGIN_MS = 160;
 

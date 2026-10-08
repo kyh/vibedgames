@@ -1,33 +1,25 @@
-// Netcode protocol. Guests send INTENT events; only the host runs the sim and
-// broadcasts the snapshot under sharedState.snap.
+// Netcode protocol. Guests send intents to the host alone; only the host runs
+// the sim and publishes it under a few shared-state keys (see snapshot.ts).
+// Every guest intent after `join` carries a sequence number, and the host
+// reports per guest body which one it last applied and for how long, so a
+// guest compares its prediction with the host at the matching moment rather
+// than at "now".
 import type { BrawlerId } from "../config";
 
-/**
- * Dev-only override for the party host: `?party=8788` (port) or
- * `?party=http://host:port`, so QA can point at a party server on a
- * non-default port without rebuilding. Ignored in production builds.
- */
-const devPartyHost = (): string => {
-  const fallback = "http://localhost:8787";
-  if (!("location" in globalThis)) {
-    return fallback;
-  }
-  const p = new URLSearchParams(location.search).get("party");
-  if (!p) {
-    return fallback;
-  }
-  return /^https?:\/\//u.test(p) ? p : `http://localhost:${p}`;
-};
-
-export const MULTIPLAYER_HOST = import.meta.env.DEV
-  ? devPartyHost()
-  : "https://party.vibedgames.com";
 export const PARTY = "vg-server";
-/** Evasion acknowledgments make these snapshots incompatible with earlier rooms. */
-export const ROOM_PREFIX = "showdown-v3-";
+/** Frames stamped with server time make these rooms incompatible with earlier clients. */
+export const ROOM_PREFIX = "showdown-v5-";
 export const INTENT_EVENT = "intent";
-/** Host broadcast rate. */
-export const SNAPSHOT_HZ = 15;
+/** Host snapshot rate. */
+export const SNAPSHOT_HZ = 30;
+/** Most input messages a guest sends per second. */
+export const INPUT_HZ = 30;
+/**
+ * Remote bodies render this far behind the newest frame that could have
+ * arrived by now: one snapshot interval plus arrival jitter. The relay's own
+ * latency is learned from arrivals (`FrameClock`), not budgeted here.
+ */
+export const INTERP_DELAY_MS = 100;
 /** Seats per room: the host's roster (bots + 1); overflow rooms are automatic. */
 export const MAX_PLAYERS = 8;
 /** Longest a name travels on the wire. */
@@ -44,10 +36,12 @@ export const roomId = (code: string): string =>
 /** Net id of a human's seat (`p:<playerId>`) — the same on every client. */
 export const seatId = (playerId: string): string => `p:${playerId}`;
 
+/** An action the host must play on the sender's body; `dir`/`look` are quantized (see input-intent.ts). */
 export type Intent =
   | { kind: "join"; kit: BrawlerId; name: string }
-  | { kind: "input"; mx: number; mz: number; look: number | null }
-  | { kind: "attack"; dx: number; dz: number; x: number; z: number }
-  | { kind: "super"; dx: number; dz: number; x: number; z: number }
-  | { kind: "evade"; dx: number; dz: number; seq: number }
-  | { kind: "again" };
+  | { kind: "input"; seq: number; dir: number; look: number | null }
+  | { kind: "attack"; seq: number; dx: number; dz: number; x: number; z: number }
+  | { kind: "super"; seq: number; dx: number; dz: number; x: number; z: number }
+  | { kind: "evade"; seq: number; dx: number; dz: number };
+
+export type SequencedIntent = Exclude<Intent, { kind: "join" }>;

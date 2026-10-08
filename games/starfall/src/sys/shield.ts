@@ -1,6 +1,6 @@
 import type Phaser from "phaser";
 import { sfx } from "../audio/sfx";
-import type { HostCombat } from "../net/host-combat";
+import type { HostIntents } from "../net/intents";
 import { REDUCED_MOTION } from "../render/battle-fx";
 import type { FxPool } from "../render/fx-pool";
 import { DEATH_HINTS } from "../render/hud-dom";
@@ -50,11 +50,11 @@ import {
   SIPHON_OVERHEAL_DECAY_PER_S,
   UFO_RADIUS,
   WEAPONS_SPECIAL,
-  WEAPON_DEFAULT,
   XP,
   asteroidContactDamage,
   baseRegenMult,
   baseWeaponForLevel,
+  enemyKillXp,
   enemyShotHit,
 } from "../shared/constants";
 import type {
@@ -65,14 +65,14 @@ import type {
   ShieldModNetState,
   SharedState,
   Vec,
-  Weapon,
 } from "../shared/constants";
-import type { DirtyFlags } from "../state/dirty-flags";
 import type { Link } from "../state/link";
 import type { Pilot } from "../state/pilot";
-import { serializedBeamHitSeg } from "./beam";
+import { beamHitSeg } from "./beam";
+import type { Beam } from "./beam";
 import { DEG, dist2, segHitsCircle } from "./geometry";
 import type { Progression } from "./progression";
+import type { RemoteFire } from "./remote-fire";
 import type { ShooterHits } from "./shooter-hits";
 import type { Weapons } from "./weapons";
 
@@ -82,12 +82,6 @@ export interface ShieldHooks {
   /** Immediate net push on death (PlayerNet is built after the shield). */
   pushMyState: (now: number) => void;
 }
-
-/** ARC per-hop falloff for victim-side chain drains. SerializedBeam carries
- *  no weapon ref, so read it from the ARC spec (TESLA also carries an arc
- *  spec, hence the !aura filter). */
-export const ARC_FALLOFF =
-  WEAPONS_SPECIAL.find((w) => w.arc !== null && !w.aura)?.arc?.falloff ?? 0.7;
 
 /** TESLA AURA spec for victim-side adjudication (the RAM pattern: power and
  *  range come from the shared table, not the wire). */
@@ -128,14 +122,14 @@ export interface ShieldDeps {
   fx: FxPool;
   layers: Layers;
   trauma: TraumaCamera;
-  dirty: DirtyFlags;
   tweens: Phaser.Tweens.TweenManager;
   scale: Phaser.Scale.ScaleManager;
   hits: ShooterHits;
   weapons: Weapons;
   progress: Progression;
   view: WorldView;
-  hostCombat: HostCombat;
+  remoteFire: RemoteFire;
+  intents: HostIntents;
   hooks: ShieldHooks;
 }
 
@@ -167,7 +161,7 @@ export class Shield {
   /** Post-contact-drain immunity vs ALL contact sources (rock = one hit). */
   contactIframeUntil = 0;
 
-  /** PvP beams persist across render frames between 20Hz snapshots: brief
+  /** A shooter's beam can overlap my hull for several frames: brief
    *  per-SHOOTER i-frames after each volley drain (§A.2). */
   pvpIframeUntil = new Map<string, number>();
 
@@ -203,8 +197,6 @@ export class Shield {
 
   private readonly trauma: TraumaCamera;
 
-  private readonly dirty: DirtyFlags;
-
   private readonly tweens: Phaser.Tweens.TweenManager;
 
   private readonly scale: Phaser.Scale.ScaleManager;
@@ -217,7 +209,9 @@ export class Shield {
 
   private readonly view: WorldView;
 
-  private readonly hostCombat: HostCombat;
+  private readonly remoteFire: RemoteFire;
+
+  private readonly intents: HostIntents;
 
   private readonly hooks: ShieldHooks;
 
@@ -228,14 +222,14 @@ export class Shield {
     this.fx = deps.fx;
     this.layers = deps.layers;
     this.trauma = deps.trauma;
-    this.dirty = deps.dirty;
     this.tweens = deps.tweens;
     this.scale = deps.scale;
     this.hits = deps.hits;
     this.weapons = deps.weapons;
     this.progress = deps.progress;
     this.view = deps.view;
-    this.hostCombat = deps.hostCombat;
+    this.remoteFire = deps.remoteFire;
+    this.intents = deps.intents;
     this.hooks = deps.hooks;
   }
 
@@ -445,18 +439,12 @@ export class Shield {
       this.world.enemyShots.splice(idx, 1);
     }
     this.recentConsumedShots.set(shot.id, simNow());
-    if (this.link.amHost) {
-      this.dirty.enemyShots = true;
-    }
-    this.link.send("proj_consumed", { shotId: shot.id });
+    this.intents.shotConsumed(shot.id);
   }
 
   /** REFLECT return shot: NORMAL-stat beam along the reversed incoming vector. */
   private fireReflectBeam(angle: number, now: number): void {
-    const weapon: Weapon = { ...WEAPON_DEFAULT, tint: SHIELD_MOD_SPECS.reflect.tint };
-    this.weapons.beams.push(
-      this.weapons.makeBeam({ x: this.pilot.shipX, y: this.pilot.shipY }, angle, weapon, now),
-    );
+    this.weapons.fireBolt("reflect", { x: this.pilot.shipX, y: this.pilot.shipY }, angle, now);
   }
 
   /**
@@ -525,7 +513,7 @@ export class Shield {
         this.ramImmunity.set(a.id, now + RAM_IMMUNITY_MS);
         if (a.radius <= RAM_ASTEROID_DESTROY_R) {
           this.hits.predictKill(a.id, XP.ASTEROID_DESTROY, "asteroid", a.x, a.y, now);
-          this.link.send("asteroid_hit", { asteroidId: a.id, damage: 1 });
+          this.intents.asteroidHit(a.id, 1);
           this.fx.sparks(a.x, a.y, 8, SHIELD_MOD_SPECS.ram.tint, {
             lifeMax: 250,
             lifeMin: 150,
@@ -535,7 +523,7 @@ export class Shield {
           continue;
         }
         this.progress.gainXp(XP.ASTEROID_CHIP, now);
-        this.link.send("asteroid_hit", { asteroidId: a.id, damage: RAM_ASTEROID_CHIP });
+        this.intents.asteroidHit(a.id, RAM_ASTEROID_CHIP);
         this.bounceOff(a.x, a.y, 0.6);
         if (this.applyDamage(RAM_SELF_DRAIN, a.x, a.y, "ASTEROID", null, now) !== "drained") {
           return false;
@@ -589,14 +577,9 @@ export class Shield {
         }
         this.ramImmunity.set(e.id, now + RAM_IMMUNITY_MS);
         if (e.hp - RAM_DAMAGE <= 0) {
-          this.hits.predictKill(e.id, this.hostCombat.enemyKillXp(e.kind), "enemy", e.x, e.y, now);
+          this.hits.predictKill(e.id, enemyKillXp(e), "enemy", e.x, e.y, now);
         }
-        this.link.send("enemy_hit", {
-          damage: RAM_DAMAGE,
-          enemyId: e.id,
-          kx: nx * RAM_KNOCKBACK,
-          ky: ny * RAM_KNOCKBACK,
-        });
+        this.intents.enemyHit(e.id, RAM_DAMAGE, nx * RAM_KNOCKBACK, ny * RAM_KNOCKBACK);
         e.blinkUntil = now + 150;
         if (charging) {
           this.bounceOff(e.x, e.y, 0.6);
@@ -618,12 +601,7 @@ export class Shield {
       }
       this.bounceOff(e.x, e.y, 0.5);
       // knock both back (kept from v1)
-      this.link.send("enemy_hit", {
-        damage: 0,
-        enemyId: e.id,
-        kx: nx * RAM_KNOCKBACK * 0.5,
-        ky: ny * RAM_KNOCKBACK * 0.5,
-      });
+      this.intents.enemyHit(e.id, 0, nx * RAM_KNOCKBACK * 0.5, ny * RAM_KNOCKBACK * 0.5);
       this.contactIframeUntil = now + CONTACT_IFRAME_MS;
       break;
     }
@@ -686,7 +664,7 @@ export class Shield {
         if (u.hp - RAM_DAMAGE <= 0) {
           this.hits.predictKill(u.id, XP.UFO_DESTROY, "ufo", u.x, u.y, now);
         }
-        this.link.send("ufo_hit", { damage: RAM_DAMAGE / 100 });
+        this.intents.ufoHit(RAM_DAMAGE / 100);
         if (this.applyDamage(RAM_SELF_DRAIN, u.x, u.y, "UFO", null, now) !== "drained") {
           return false;
         }
@@ -755,26 +733,28 @@ export class Shield {
   /**
    * Volley rule: test ALL of one shooter's beams this frame, sum the
    * drains, clamp, apply once, then i-frame that shooter — this is what
-   * makes SCATTER one 48-drain volley instead of an instakill, and stops
-   * a persistent beam snapshot draining 60×/s between 20Hz updates.
+   * makes SCATTER one 48-drain volley instead of an instakill, and stops a
+   * beam lying across my hull from draining every frame. The beams are this
+   * client's copies of the shooter's shots (sys/remote-fire.ts), drawn and
+   * tested where I see them.
    */
   private playerVolleyDamage(id: string, st: PlayerNetState, now: number): boolean {
     const iframeUntil = this.pvpIframeUntil.get(id) ?? 0;
     if (now < iframeUntil) {
       return true;
     }
-    const volley = this.collectVolley(st);
+    const volley = this.collectVolley(st, this.remoteFire.beamsOf(id));
     if (!volley.impact) {
       return true;
     }
     // Heavy beams (RAILGUN, power ≥ 0.9) get the 300ms tier: a 320px lance
-    // covers the victim across ≥2 serialized snapshots (~150ms at 20Hz), so
-    // the 120ms i-frame would let one shot drain twice — 180 from full,
-    // breaking PVP_MAX_SINGLE_HIT's no-volley-kills-from-full invariant.
-    // No intended-TTK change: BLASTER (450ms) and RAILGUN (1100ms) both
-    // refire slower than 300ms. GLAIVE shares the tier: the blade stalls at
-    // its apex (GLAIVE_DECEL_PX), so a parked snapshot would otherwise
-    // re-drain 35 every 120ms — apex camping beats the intended ~per-pass hit.
+    // covers the victim for many frames, so the 120ms i-frame would let one
+    // shot drain twice — 180 from full, breaking PVP_MAX_SINGLE_HIT's
+    // no-volley-kills-from-full invariant. No intended-TTK change: BLASTER
+    // (450ms) and RAILGUN (1100ms) both refire slower than 300ms. GLAIVE
+    // shares the tier: the blade stalls at its apex (GLAIVE_DECEL_PX), so a
+    // parked blade would otherwise re-drain 35 every 120ms — apex camping
+    // beats the intended ~per-pass hit.
     const heavy = volley.anyExploding || volley.anyGlaive || volley.maxPower >= 0.9;
     this.pvpIframeUntil.set(id, now + (heavy ? PVP_EXPLOSION_IFRAME_MS : PVP_HIT_IFRAME_MS));
     let { beamDrain } = volley;
@@ -790,7 +770,7 @@ export class Shield {
   }
 
   /** Sum one shooter's beams (and TESLA aura) that touch my hull this frame. */
-  private collectVolley(st: PlayerNetState): Volley {
+  private collectVolley(st: PlayerNetState, beams: readonly Beam[]): Volley {
     const v: Volley = {
       anyExploding: false,
       anyGlaive: false,
@@ -800,9 +780,9 @@ export class Shield {
       maxPower: 0,
       reflectAngle: 0,
     };
-    // TESLA AURA (RAM pattern): the shooter's serialized flag + MY
-    // proximity adjudicate the zap. It joins the same volley sum, so the
-    // aura and any stray beam clamp + i-frame together.
+    // TESLA AURA (RAM pattern): the shooter's networked flag + MY proximity
+    // adjudicate the zap. It joins the same volley sum, so the aura and any
+    // stray beam clamp + i-frame together.
     if (
       st.tesla &&
       dist2(st.x, st.y, this.pilot.shipX, this.pilot.shipY) <= TESLA_RANGE * TESLA_RANGE
@@ -812,41 +792,41 @@ export class Shield {
       v.impact = { x: st.x, y: st.y };
       v.reflectAngle = Math.atan2(st.y - this.pilot.shipY, st.x - this.pilot.shipX);
     }
-    for (const sb of st.beams) {
-      // inert mines never hit-test
-      if (sb.mine && !sb.exploding) {
+    for (const b of beams) {
+      // fizzles never leave their owner; inert mines never hit-test
+      if (b.vanished || b.fizzle || (b.mine && !b.exploding)) {
         continue;
       }
       // SINGULARITY orb: only the pop damages
-      if (sb.orb) {
+      if (b.weapon.singularity && !b.exploding) {
         continue;
       }
       // TESLA chains are render-only for PvP — the flag above is the drain.
-      if (st.tesla && sb.chain) {
+      if (b.weapon.aura) {
         continue;
       }
-      const chainSeg = serializedBeamHitSeg(sb, this.pilot.shipX, this.pilot.shipY);
+      const chainSeg = beamHitSeg(b, this.pilot.shipX, this.pilot.shipY);
       if (chainSeg === null) {
         continue;
       }
-      const power = sb.power ?? WEAPON_DEFAULT.power;
+      const { power } = b.weapon;
       v.maxPower = Math.max(v.maxPower, power);
       // ARC hops decay like the owner-side cast: segment i ends at hop i+1,
       // so segment 0 (muzzle→first target) is full power and each later
       // segment falls off once per hop — matching the PvE falloff exactly.
-      const hopMult = sb.chain ? ARC_FALLOFF ** chainSeg : 1;
+      const hopMult = b.chain ? (b.weapon.arc?.falloff ?? 1) ** chainSeg : 1;
       const drain = power * 100 * PVP_DAMAGE_MULT * hopMult;
-      if (sb.exploding) {
+      if (b.exploding) {
         v.aoeDrain += drain;
         v.anyExploding = true;
       } else {
-        if (sb.glaive === true) {
+        if (b.glaive) {
           v.anyGlaive = true;
         }
         v.beamDrain += drain;
-        v.reflectAngle = Math.atan2(sb.ty - sb.hy, sb.tx - sb.hx);
+        v.reflectAngle = Math.atan2(b.tail.y - b.head.y, b.tail.x - b.head.x);
       }
-      v.impact ??= { x: sb.hx, y: sb.hy };
+      v.impact ??= { x: b.head.x, y: b.head.y };
     }
     return v;
   }
@@ -907,7 +887,8 @@ export class Shield {
     this.deathHint = count >= 3 ? (DEATH_HINTS.get(cause) ?? "") : "";
     const { myId } = this.link;
     if (killerId && myId) {
-      this.link.send("player_killed", { cause, killerId, victimId: myId });
+      // The killer credits itself; nobody else needs to hear it.
+      this.link.sendTo(killerId, "player_killed", { cause, killerId, victimId: myId });
     }
     // immediate, so remote ships hide without 50ms lag
     this.hooks.pushMyState(now);
@@ -936,7 +917,6 @@ export class Shield {
       active: this.shieldModArmed(mod, now),
       kind: mod,
       phased: now < this.phasedUntil,
-      until: this.shieldModUntil,
     };
   }
 

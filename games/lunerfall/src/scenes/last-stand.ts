@@ -6,7 +6,7 @@ import { sfx } from "../audio/sfx";
 import { COLORS } from "../config";
 import type { Player } from "../entities/player";
 import { rectsOverlap } from "../entities/player-body";
-import type { NetLastStand, Snapshot } from "../net/snapshot";
+import type { NetLastStand } from "../net/snapshot";
 import type { RunState } from "../state/run-state";
 import { livePlayers } from "../state/seat-state";
 import type { SeatState } from "../state/seat-state";
@@ -56,13 +56,13 @@ export class LastStand {
 
   // Guest: mirror the host's last-stand state; edge-detect enter/exit for the
   // banner + sting (the marker itself renders from the snapshot every frame).
-  applyNet(s: Snapshot) {
-    const ls = s.lastStand ?? null;
+  // `downedId` is the player the snapshot shows down.
+  applyNet(ls: NetLastStand | null, downedId: string | null, hearts: number) {
     if (ls && !this.run.downedNet) {
-      const mine = s.players.find((p) => p.downed)?.id === this.seat.session?.playerId;
+      const mine = downedId === this.seat.session?.playerId;
       sfx.downed();
       this.banners.show(mine ? "YOU'RE DOWN — HOLD ON" : "ALLY DOWN — REVIVE!", 1800, "critical");
-    } else if (!ls && this.run.downedNet && s.hearts > 0) {
+    } else if (!ls && this.run.downedNet && hearts > 0) {
       sfx.revive();
       this.banners.show("REVIVED", 1200, "critical");
     }

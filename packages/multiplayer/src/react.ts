@@ -36,17 +36,23 @@ export const useMultiplayerRoom = <TShared extends JsonRecord = JsonRecord>(
   // Stable client instance — only recreate if connection params change. The
   // swap happens as a render-phase state reset so the rest of this render
   // already sees the new client; the old one is torn down by effect cleanup.
-  const key = `${config.host}/${config.party}/${config.room}/${config.maxPlayers ?? ""}`;
+  const rules = JSON.stringify([config.tickRate, config.interest, config.limits]);
+  const key = `${config.host}/${config.party}/${config.room}/${config.maxPlayers ?? ""}/${rules}`;
   const [entry, setEntry] = useState<{ client: MultiplayerClient; key: string } | null>(null);
   let client = entry !== null && entry.key === key ? entry.client : null;
   if (client === null) {
     client = new MultiplayerClient({
       host: config.host,
       initialState: config.initialState,
+      interest: config.interest,
+      limits: config.limits,
       maxPlayers: config.maxPlayers,
+      onClaim: config.onClaim,
       onEvent: config.onEvent,
+      onTick: config.onTick,
       party: config.party,
       room: config.room,
+      tickRate: config.tickRate,
     });
     setEntry({ client, key });
   }
@@ -58,12 +64,15 @@ export const useMultiplayerRoom = <TShared extends JsonRecord = JsonRecord>(
     [client],
   );
 
-  // The client outlives any one onEvent prop; keep its callback slot current.
-  const { onEvent } = config;
+  // The client outlives any one callback prop; keep its callback slots current.
+  const { onClaim, onEvent, onTick } = config;
   useEffect(() => {
-    // oxlint-disable-next-line react/immutability -- the client is a socket wrapper held in state only for its identity; reassigning its callback slot is the intended API
+    /* oxlint-disable react/immutability -- the client is a socket wrapper held in state only for its identity; reassigning its callback slots is the intended API */
     client.onEvent = onEvent;
-  }, [client, onEvent]);
+    client.onClaim = onClaim;
+    client.onTick = onTick;
+    /* oxlint-enable react/immutability */
+  }, [client, onClaim, onEvent, onTick]);
 
   // Subscribe to client state via useSyncExternalStore
   const subscribe = useCallback((listener: () => void) => client.subscribe(listener), [client]);
@@ -125,13 +134,11 @@ const useRoom = <TShared extends JsonRecord = JsonRecord>(
     return roomOrConfig;
   }
 
+  // The config passes through whole, so its callbacks reach the room with its rules.
   // oxlint-disable-next-line react/hooks, react-hooks/rules-of-hooks -- the argument's shape is fixed per call site (a room or a config, never both over time), so this branch is stable across renders
   return useMultiplayerRoom<TShared>({
-    host: roomOrConfig.host,
+    ...roomOrConfig,
     initialState: initialState ?? roomOrConfig.initialState,
-    maxPlayers: roomOrConfig.maxPlayers,
-    party: roomOrConfig.party,
-    room: roomOrConfig.room,
   });
 };
 

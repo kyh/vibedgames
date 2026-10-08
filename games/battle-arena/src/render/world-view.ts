@@ -273,6 +273,11 @@ export class WorldView {
   // set by the scene, for projectile trails
   fx: Fx | null = null;
   localId = "";
+  /** Ease bodies toward their sim positions (a world stepped at the sim rate).
+   *  An online guest turns it off: its positions are already continuous —
+   *  remote bodies interpolated, its own predicted — and easing them again only
+   *  adds lag (and judder against the camera). */
+  smoothUnits = true;
 
   private scene: THREE.Scene;
   private lib: ModelLibrary;
@@ -375,7 +380,10 @@ export class WorldView {
         continue;
       }
       seen.add(u.id);
-      this.unitView(u).update(u, now, dt, this.fx, this.spinners.has(u.id));
+      this.unitView(u).update(u, now, dt, this.fx, {
+        smooth: this.smoothUnits,
+        spinning: this.spinners.has(u.id),
+      });
     }
     for (const [id, view] of this.units) {
       if (!seen.has(id)) {

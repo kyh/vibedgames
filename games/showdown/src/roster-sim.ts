@@ -44,6 +44,32 @@ export const separateBrawlers = (brawlers: readonly Brawler[]): void => {
   }
 };
 
+/**
+ * The host's body separation, for the one body a guest moves itself: the host
+ * splits each overlap between both bodies, so ours takes its half from the
+ * others as drawn. Without it, every brush past another brawler would come
+ * back from the host as a correction.
+ */
+export const pushOwnApart = (own: Brawler, others: readonly Brawler[]): void => {
+  const minGap = BRAWLER_RADIUS * 1.9;
+  const pos = own.root.position;
+  for (const other of others) {
+    if (other === own || !other.alive || other.airborne) {
+      continue;
+    }
+    const dx = pos.x - other.x;
+    const dz = pos.z - other.z;
+    const dSq = dx * dx + dz * dz;
+    if (dSq >= minGap * minGap || dSq < 1e-8) {
+      continue;
+    }
+    const d = Math.sqrt(dSq);
+    const push = (minGap - d) * 0.5;
+    pos.x += (dx / d) * push;
+    pos.z += (dz / d) * push;
+  }
+};
+
 export const updateVisibility = (game: Game): void => {
   const player = game.player?.alive ? game.player : null;
   const pushers = game.world.grassUniforms.uPushers.value;

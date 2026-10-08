@@ -13,6 +13,9 @@ export const BULLET_Y = 0.64;
 // Longest distance a bullet moves per sub-step, so fast shots cannot tunnel
 // through a wall or skip past a brawler between frames.
 const STEP = 0.2;
+/** Particle counts for a bullet stopped by cover, and one spent at the end of its range. */
+export const WALL_IMPACT = 5;
+export const SPENT_IMPACT = 2;
 
 const scratchMatrix = new THREE.Matrix4();
 const scratchQuat = new THREE.Quaternion();
@@ -38,13 +41,15 @@ const hitTile = (combat: Combat, bullet: Bullet, tx: number, tz: number): void =
     bullet.alive = false;
   }
   if (!bullet.alive) {
-    const size = 5;
-    effects.impact(
-      bullet.x - bullet.dx * 0.12,
-      BULLET_Y + world.heightAt(bullet.x, bullet.z),
-      bullet.z - bullet.dz * 0.12,
-      bullet.color,
-      size,
+    // The shooter's guest flew its own copy into the same wall and showed this puff.
+    combat.game.asActor(bullet.owner, () =>
+      effects.impact(
+        bullet.x - bullet.dx * 0.12,
+        BULLET_Y + world.heightAt(bullet.x, bullet.z),
+        bullet.z - bullet.dz * 0.12,
+        bullet.color,
+        WALL_IMPACT,
+      ),
     );
   }
 };
@@ -70,9 +75,9 @@ const hitBrawlers = (combat: Combat, bullet: Bullet): void => {
     bullet.hitTargets.add(target.id);
     target.takeDamage(bullet.damage, bullet.owner);
     if (bullet.a.knockback) {
-      target.knock.set(bullet.dx * bullet.a.knockback, bullet.dz * bullet.a.knockback);
+      target.applyKnock(bullet.dx * bullet.a.knockback, bullet.dz * bullet.a.knockback);
     } else {
-      target.knock.set(target.knock.x + bullet.dx * 1.2, target.knock.y + bullet.dz * 1.2);
+      target.applyKnock(target.knock.x + bullet.dx * 1.2, target.knock.y + bullet.dz * 1.2);
     }
     effects.impact(
       bullet.x,
@@ -120,12 +125,14 @@ export const advanceBullet = (combat: Combat, bullet: Bullet, dt: number): void 
     hitBrawlers(combat, bullet);
     if (bullet.alive && bullet.travel >= bullet.range) {
       bullet.alive = false;
-      effects.impact(
-        bullet.x,
-        BULLET_Y + world.heightAt(bullet.x, bullet.z),
-        bullet.z,
-        bullet.color,
-        2,
+      combat.game.asActor(bullet.owner, () =>
+        effects.impact(
+          bullet.x,
+          BULLET_Y + world.heightAt(bullet.x, bullet.z),
+          bullet.z,
+          bullet.color,
+          SPENT_IMPACT,
+        ),
       );
     }
   }

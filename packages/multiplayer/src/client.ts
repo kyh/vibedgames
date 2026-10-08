@@ -1,20 +1,29 @@
 import { PartySocket } from "partysocket";
 
+import { ServerClock } from "./server-clock.js";
 import type {
+  ClaimMap,
   ClientMessage,
   JsonRecord,
   JsonValue,
   MultiplayerConnectionStatus,
   MultiplayerOptions,
+  Player,
   PlayerMap,
+  RoomRules,
   SendEventOptions,
   ServerMessage,
+  TickSync,
 } from "./types.js";
 import {
   HEARTBEAT_INTERVAL_MS,
-  DELTA_PATCH_QUERY_PARAM,
+  MAX_INPUT_BYTES,
+  MAX_TICK_HISTORY,
   RECONNECT_TOKEN_QUERY_PARAM,
+  RESERVED_CLAIM_KEYS,
   ROOM_CAP_QUERY_PARAM,
+  ROOM_RULES_QUERY_PARAM,
+  TIME_PROBE_INTERVAL_MS,
 } from "./types.js";
 import type { MultiplayerSchemas, SchemaViolation } from "./validation.js";
 
@@ -91,7 +100,62 @@ export interface MultiplayerSnapshot {
    * (`{room}~2`, …) the server redirected this client into.
    */
   room: string;
+  /** Who holds each claimed key. See `MultiplayerClient.claim`. */
+  claims: ClaimMap;
 }
+
+/** A tick room's clock: tick `n` starts at server time `epoch + n * ms`. */
+export interface TickClock {
+  epoch: number;
+  ms: number;
+  /** The last tick received. */
+  n: number;
+}
+
+/** A tick room as this client follows it: the clock, held inputs, and the recent history. */
+interface TickState extends TickClock {
+  /** Every player's held input as of tick `n`. */
+  held: Map<string, JsonValue>;
+  /** The tick the history starts at, and every held input as of it. */
+  base: number;
+  baseHeld: Map<string, JsonValue>;
+  /** Each tick after `base` whose inputs changed, oldest first. */
+  log: [number, Record<string, JsonValue>][];
+}
+
+/** Fold one tick's changes into held inputs (null clears a player's). */
+const applyInputChanges = (
+  held: Map<string, JsonValue>,
+  changes: Record<string, JsonValue>,
+): void => {
+  for (const [id, input] of Object.entries(changes)) {
+    if (input === null) {
+      held.delete(id);
+    } else {
+      held.set(id, input);
+    }
+  }
+};
+
+/** Probes sent right after admission, before the slow cadence (ms after sync). */
+const TIME_PROBE_BURST_MS = [0, 100, 250, 500];
+/** Probe cadence until the clock has a full window: a boot stall can spoil the burst. */
+const TIME_PROBE_SETTLE_MS = 500;
+
+/** The room rules this client advertises (query JSON), or null for none. */
+const roomRules = (options: MultiplayerOptions): RoomRules | null => {
+  const rules: RoomRules = {};
+  if (options.tickRate !== undefined) {
+    rules.tickRate = options.tickRate;
+  }
+  if (options.interest !== undefined) {
+    rules.interest = options.interest;
+  }
+  if (options.limits !== undefined) {
+    rules.limits = options.limits;
+  }
+  return Object.keys(rules).length > 0 ? rules : null;
+};
 
 type Listener = () => void;
 
@@ -203,6 +267,15 @@ export class MultiplayerClient {
   private coalesceFlushScheduled = false;
   /** One warning per client for async schemas — validation must stay sync. */
   private warnedAsyncSchema = false;
+  /** The room's shared server time, measured by `time` probes. */
+  private readonly clock = new ServerClock();
+  private lastProbeAt = Number.NEGATIVE_INFINITY;
+  private probeTimers: ReturnType<typeof setTimeout>[] = [];
+  private _claims: ClaimMap = {};
+  /** Tick rooms: the tick clock and every player's held input as of tick `n`. */
+  private ticks: TickState | null = null;
+  /** This player's held input, re-sent after a reconnect (the server clears a dropped player's). */
+  private heldInput: { value: JsonValue } | null = null;
 
   private _connectionStatus: MultiplayerConnectionStatus = "connecting";
   private _playerId: string | null = null;
@@ -211,6 +284,8 @@ export class MultiplayerClient {
   private _players: PlayerMap = {};
   private _room: string;
   private _onEvent: MultiplayerOptions["onEvent"];
+  private _onClaim: MultiplayerOptions["onClaim"];
+  private _onTick: MultiplayerOptions["onTick"];
   /** Our own player state, held outside `_players` so it survives a reconnect
    *  (which replaces `_players` wholesale and hands us a new player id) and can
    *  be re-announced to the fresh server-side connection. */
@@ -220,6 +295,8 @@ export class MultiplayerClient {
     this.options = options;
     this._sharedState = options.initialState ?? {};
     this._onEvent = options.onEvent;
+    this._onClaim = options.onClaim;
+    this._onTick = options.onTick;
     this._room = options.room;
     this.cap = options.maxPlayers && options.maxPlayers > 0 ? Math.floor(options.maxPlayers) : null;
 
@@ -258,6 +335,11 @@ export class MultiplayerClient {
           this.send({ type: "heartbeat" });
         }
       }
+      const probeEvery = this.clock.settled ? TIME_PROBE_INTERVAL_MS : TIME_PROBE_SETTLE_MS;
+      if (t - this.lastProbeAt >= probeEvery) {
+        this.lastProbeAt = t;
+        this.probeTime();
+      }
     };
     // bind to the host so browsers don't throw "Illegal invocation" on a detached rAF
     const raf = rafHost.requestAnimationFrame ? rafHost.requestAnimationFrame.bind(rafHost) : null;
@@ -277,14 +359,16 @@ export class MultiplayerClient {
     }
   }
 
-  /** Query params sent on every (re)connect: reconnect token, capability
-   *  flags, and the effective cap. */
+  /** Query params sent on every (re)connect: reconnect token, the effective
+   *  cap, and the room rules. */
   private connectionQuery() {
-    const base = {
+    const rules = roomRules(this.options);
+    // PartySocket leaves nil params out of the URL.
+    return {
       [RECONNECT_TOKEN_QUERY_PARAM]: this.reconnectToken,
-      [DELTA_PATCH_QUERY_PARAM]: "1",
+      [ROOM_CAP_QUERY_PARAM]: this.cap === null ? undefined : String(this.cap),
+      [ROOM_RULES_QUERY_PARAM]: rules ? JSON.stringify(rules) : undefined,
     };
-    return this.cap === null ? base : { ...base, [ROOM_CAP_QUERY_PARAM]: String(this.cap) };
   }
 
   /**
@@ -309,6 +393,9 @@ export class MultiplayerClient {
     this._hostId = null;
     this._playerId = null;
     this._sharedState = this.options.initialState ?? {};
+    this._claims = {};
+    this.ticks = null;
+    this.heldInput = null;
     // Queued for a room that never admitted us — don't leak them into the new one.
     this.pendingCoalesced.clear();
 
@@ -353,6 +440,7 @@ export class MultiplayerClient {
   /** Get a readonly snapshot of the current state. */
   getSnapshot(): MultiplayerSnapshot {
     return {
+      claims: this._claims,
       connectionStatus: this._connectionStatus,
       hostId: this._hostId,
       playerId: this._playerId,
@@ -360,6 +448,134 @@ export class MultiplayerClient {
       room: this._room,
       sharedState: this._sharedState,
     };
+  }
+
+  // -- Server time ---------------------------------------------------------
+
+  /**
+   * The room's shared clock — the server's, measured from here. Stamp updates,
+   * deadlines and tick schedules with `serverNow()`: every client reads a stamp
+   * as the same instant, and it survives host migration. Render remotes on a
+   * per-sender `RemoteClock` instead (an Interpolator's default): a stamp
+   * reaches you a whole relay after it was taken.
+   */
+  get serverClock(): ServerClock {
+    return this.clock;
+  }
+
+  /** Server time now (ms since the epoch); the local clock until the first probe returns. */
+  serverNow(localNow?: number): number {
+    return this.clock.now(localNow);
+  }
+
+  /** Fastest recent round trip to the server (ms); NaN until measured. */
+  get rtt(): number {
+    return this.clock.rtt;
+  }
+
+  // -- Claims --------------------------------------------------------------
+
+  /** Who holds each claimed key (server-arbitrated). */
+  get claims(): ClaimMap {
+    return this._claims;
+  }
+
+  /** The player holding `key` now, or null (never claimed, released, or its TTL ran out). */
+  ownerOf(key: string): string | null {
+    const claim = this._claims[key];
+    if (!claim || (claim.until !== undefined && claim.until <= this.serverNow())) {
+      return null;
+    }
+    return claim.owner;
+  }
+
+  /**
+   * Ask the server for `key` — first come, first served, with no host round
+   * trip and no host advantage. Every client hears the grant through
+   * `onClaim(key, owner)` and `claims`; a refused claimer alone hears the
+   * current owner. Act on the claim optimistically and undo it if `onClaim`
+   * names someone else. `ttlMs` (positive) releases it automatically.
+   */
+  claim(key: string, options?: { ttlMs?: number }): void {
+    if (RESERVED_CLAIM_KEYS.includes(key)) {
+      console.warn(`"${key}" is reserved; the server refuses it as a claim key.`);
+      return;
+    }
+    const ttl = options?.ttlMs;
+    if (ttl !== undefined && (!Number.isFinite(ttl) || ttl <= 0)) {
+      console.warn(
+        `claim("${key}"): ttlMs ${ttl} is not a positive number; the server refuses it.`,
+      );
+      return;
+    }
+    this.flushCoalescedEvents();
+    this.send({ data: ttl === undefined ? { key } : { key, ttl }, type: "claim" });
+  }
+
+  /** Give `key` back. Its owner may; the host may release any key. */
+  release(key: string): void {
+    this.flushCoalescedEvents();
+    this.send({ data: { key }, type: "release" });
+  }
+
+  /** Host only: release every key starting with `prefix` ("" clears them all) — a new round. */
+  clearClaims(prefix = ""): void {
+    this.flushCoalescedEvents();
+    this.send({ data: { prefix }, type: "clear_claims" });
+  }
+
+  // -- Ticks ---------------------------------------------------------------
+
+  /** A tick room's clock, or null (no `tickRate`, or not yet synced). */
+  get tickClock(): TickClock | null {
+    const { ticks } = this;
+    return ticks ? { epoch: ticks.epoch, ms: ticks.ms, n: ticks.n } : null;
+  }
+
+  /**
+   * Tick rooms: every player's held input as of tick `at` (default: the last
+   * tick received) — what a late joiner starts from, or replays a world
+   * snapshot stamped with an earlier tick from. Null outside the history the
+   * room keeps (MAX_TICK_HISTORY ticks) or outside a tick room.
+   */
+  tickInputs(at?: number): Record<string, JsonValue> | null {
+    const { ticks } = this;
+    const tick = at ?? ticks?.n ?? 0;
+    if (!ticks || tick < ticks.base || tick > ticks.n) {
+      return null;
+    }
+    if (tick === ticks.n) {
+      return Object.fromEntries(ticks.held);
+    }
+    const held = new Map(ticks.baseHeld);
+    for (const [n, changes] of ticks.log) {
+      if (n > tick) {
+        break;
+      }
+      applyInputChanges(held, changes);
+    }
+    return Object.fromEntries(held);
+  }
+
+  /** The tick the server is on at `localNow`, by the server clock; NaN outside tick rooms. */
+  serverTick(localNow?: number): number {
+    const { ticks } = this;
+    return ticks ? Math.floor((this.serverNow(localNow) - ticks.epoch) / ticks.ms) : Number.NaN;
+  }
+
+  /**
+   * Tick rooms: this player's input from tick `n` on (default: the server's
+   * next tick; a past tick is moved to the next). It stays held until the next
+   * `sendInput`, so send on change.
+   */
+  sendInput(input: JsonValue, n?: number): void {
+    if (JSON.stringify(input).length > MAX_INPUT_BYTES) {
+      console.warn(`Input over ${MAX_INPUT_BYTES} characters; the server would drop it.`);
+      return;
+    }
+    this.heldInput = { value: input };
+    this.flushCoalescedEvents();
+    this.send({ data: n === undefined ? { v: input } : { n, v: input }, type: "input" });
   }
 
   /** Subscribe to state changes. Returns an unsubscribe function. */
@@ -462,9 +678,31 @@ export class MultiplayerClient {
     this._onEvent = fn;
   }
 
+  get onClaim(): MultiplayerOptions["onClaim"] {
+    return this._onClaim;
+  }
+
+  /** Set the onClaim callback. */
+  set onClaim(fn: MultiplayerOptions["onClaim"]) {
+    this._onClaim = fn;
+  }
+
+  get onTick(): MultiplayerOptions["onTick"] {
+    return this._onTick;
+  }
+
+  /** Set the onTick callback. */
+  set onTick(fn: MultiplayerOptions["onTick"]) {
+    this._onTick = fn;
+  }
+
   /** Disconnect and clean up. */
   destroy(): void {
     this.flushCoalescedEvents();
+    for (const timer of this.probeTimers) {
+      clearTimeout(timer);
+    }
+    this.probeTimers = [];
     if (this.heartbeatRaf !== null) {
       rafHost.cancelAnimationFrame?.(this.heartbeatRaf);
       this.heartbeatRaf = null;
@@ -485,6 +723,13 @@ export class MultiplayerClient {
 
   private send(message: ClientMessage): void {
     this.socket.send(JSON.stringify(message));
+  }
+
+  /** One server-clock probe; the answer comes back as a `time` message. */
+  private probeTime(): void {
+    if (this._connectionStatus === "connected") {
+      this.send({ data: { c: performance.now() }, type: "time" });
+    }
   }
 
   /** Send pending coalesced events now, latest payload per key, in first-queued order. */
@@ -609,24 +854,43 @@ export class MultiplayerClient {
    * "connected" and adopt our playerId.
    */
   private applySync(data: Extract<ServerMessage, { type: "sync" }>["data"]): void {
+    const wasHost = this._hostId !== null && this._hostId === this._playerId;
     this._connectionStatus = "connected";
     this._playerId = this.socket.id ?? null;
     this._hostId = data.hostId;
     this._players = data.players;
+    const claimsBefore = this._claims;
+    this._claims = data.claims;
+    this.syncTicks(data.tick);
+    // Measure the server clock straight away — games stamp with it from the
+    // first frame — then settle into the heartbeat's slow cadence.
+    for (const timer of this.probeTimers) {
+      clearTimeout(timer);
+    }
+    this.probeTimers = TIME_PROBE_BURST_MS.map((delay) =>
+      setTimeout(() => {
+        this.probeTime();
+      }, delay),
+    );
+    this.lastProbeAt = performance.now();
     // remoteStateSeen tracks the SERVER's view, so it is set even when
     // the local schema rejects the payload — the room has live state
     // either way, and a promoted host must never re-seed over it.
     if (Object.keys(data.state).length > 0) {
       this.remoteStateSeen = true;
     }
-    const merged =
-      Object.keys(this._sharedState).length === 0
-        ? data.state
-        : { ...this._sharedState, ...data.state };
-    // On violation keep the previous local state — refusing admission
-    // over bad room data would strand the player on "connecting".
-    if (this.passesSchema("sharedState", "incoming", merged)) {
-      this._sharedState = merged;
+    if (wasHost && data.hostId === this._playerId) {
+      this.reassertWorld(data.state);
+    } else {
+      const merged =
+        Object.keys(this._sharedState).length === 0
+          ? data.state
+          : { ...this._sharedState, ...data.state };
+      // On violation keep the previous local state — refusing admission
+      // over bad room data would strand the player on "connecting".
+      if (this.passesSchema("sharedState", "incoming", merged)) {
+        this._sharedState = merged;
+      }
     }
 
     this.maybeSeedInitialState(data.hostId);
@@ -646,6 +910,119 @@ export class MultiplayerClient {
       };
       this.send({ data: this._myState, type: "player_state_patch" });
     }
+
+    this.reportClaimChanges(claimsBefore);
+  }
+
+  /**
+   * Tell `onClaim` about every key whose owner a sync changed: on joining,
+   * every live claim; back from a drop, whatever moved while this client was
+   * away. A game then applies claims from one callback.
+   */
+  private reportClaimChanges(before: ClaimMap): void {
+    const after = this._claims;
+    for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+      const owner = after[key]?.owner ?? null;
+      if ((before[key]?.owner ?? null) !== owner) {
+        this._onClaim?.(key, owner);
+      }
+    }
+  }
+
+  /**
+   * A host back from a dropped transport kept running its world, while the
+   * server's copy may be older — a restart restores it up to a second back,
+   * and an oversized world not at all. The room still names us host, so our
+   * world wins: re-send every key the server holds differently.
+   */
+  private reassertWorld(server: JsonRecord): void {
+    const differs: JsonRecord = {};
+    for (const [key, value] of Object.entries(this._sharedState)) {
+      if (JSON.stringify(server[key]) !== JSON.stringify(value)) {
+        differs[key] = value;
+      }
+    }
+    this._sharedState = { ...server, ...this._sharedState };
+    if (Object.keys(differs).length > 0) {
+      this.send({ data: differs, type: "state_patch" });
+    }
+  }
+
+  private applyClaim(key: string, owner: string | null, until?: number): void {
+    if (owner === null) {
+      const { [key]: _released, ...remaining } = this._claims;
+      this._claims = remaining;
+    } else {
+      this._claims = { ...this._claims, [key]: until === undefined ? { owner } : { owner, until } };
+    }
+    this._onClaim?.(key, owner);
+  }
+
+  /**
+   * Adopt a sync's tick clock. Back from a blip on the same tick timeline, the
+   * ticks missed meanwhile replay through `onTick` in order — a lockstep sim
+   * never skips one. Otherwise (first join, the room restarted, a gap past the
+   * history) the timeline starts at the sync's tick: read `tickClock` and
+   * `tickInputs()` to (re)start the sim.
+   */
+  private syncTicks(sync: TickSync | null): void {
+    const previous = this.ticks;
+    if (!sync) {
+      this.ticks = null;
+      return;
+    }
+    if (
+      previous &&
+      previous.epoch === sync.epoch &&
+      previous.n >= sync.base &&
+      previous.n <= sync.n
+    ) {
+      const missed = new Map(sync.log);
+      for (let n = previous.n + 1; n <= sync.n; n += 1) {
+        this.applyTick(n, missed.get(n) ?? {});
+      }
+    } else {
+      const baseHeld = new Map(Object.entries(sync.held));
+      const held = new Map(baseHeld);
+      for (const [, changes] of sync.log) {
+        applyInputChanges(held, changes);
+      }
+      this.ticks = {
+        base: sync.base,
+        baseHeld,
+        epoch: sync.epoch,
+        held,
+        log: [...sync.log],
+        ms: sync.ms,
+        n: sync.n,
+      };
+    }
+    // The server cleared this player's input when the transport dropped.
+    if (this.heldInput) {
+      this.sendInput(this.heldInput.value);
+    }
+  }
+
+  private applyTick(n: number, changed: Record<string, JsonValue>): void {
+    const { ticks } = this;
+    if (!ticks || n <= ticks.n) {
+      return;
+    }
+    applyInputChanges(ticks.held, changed);
+    ticks.n = n;
+    if (Object.keys(changed).length > 0) {
+      ticks.log.push([n, changed]);
+    }
+    let [oldest] = ticks.log;
+    while (oldest && oldest[0] <= n - MAX_TICK_HISTORY) {
+      ticks.log.shift();
+      applyInputChanges(ticks.baseHeld, oldest[1]);
+      [ticks.base] = oldest;
+      [oldest] = ticks.log;
+    }
+    // Quiet ticks log nothing; the history ends here all the same.
+    ticks.base = Math.max(ticks.base, n - MAX_TICK_HISTORY);
+    this._onTick?.({ changed, inputs: Object.fromEntries(ticks.held), n });
   }
 
   private handleMessage = (event: MessageEvent): void => {
@@ -654,93 +1031,138 @@ export class MultiplayerClient {
       // exactly this protocol; unknown `type` values fall through the switch
       // untouched, and a malformed `data` throws inside this try and is logged.
       const message = JSON.parse(event.data) as ServerMessage;
-
-      switch (message.type) {
-        case "ping": {
-          // Answered from the message handler rather than a timer, so it keeps
-          // working while the tab is hidden — that's what makes it a safe basis
-          // for eviction. See EVICTION_TIMEOUT_MS.
-          this.send({ type: "pong" });
-          break;
-        }
-        case "sync": {
-          this.applySync(message.data);
-          break;
-        }
-        case "player_joined": {
-          this._players = { ...this._players, [message.data.id]: message.data };
-          break;
-        }
-        case "player_left": {
-          const { [message.data.id]: _left, ...remaining } = this._players;
-          this._players = remaining;
-          break;
-        }
-        case "host": {
-          this._hostId = message.data.id;
-          this.maybeSeedInitialState(message.data.id);
-          break;
-        }
-        case "state_patch": {
-          this.remoteStateSeen = true;
-          const merged = { ...this._sharedState, ...message.data };
-          if (!this.passesSchema("sharedState", "incoming", merged)) {
-            break;
-          }
-          this._sharedState = merged;
-          break;
-        }
-        case "player_state": {
-          // The payload is a keyed delta for a delta-capable server, the full
-          // merged snapshot for an older one — shallow-merging handles both,
-          // because keys are only ever merged, never deleted, so a full
-          // snapshot is a superset of the local mirror. The schema check runs
-          // on the MERGED result, mirroring the sharedState path: a delta is
-          // partial by design and would fail any schema with required fields.
-          const existing = this._players[message.data.id] ?? { id: message.data.id };
-          const mergedState = { ...existing.state, ...message.data.state };
-          if (!this.passesSchema("playerState", "incoming", mergedState, message.data.id)) {
-            break;
-          }
-          this._players = {
-            ...this._players,
-            [message.data.id]: { ...existing, state: mergedState },
-          };
-          break;
-        }
-        case "player_connection": {
-          // Transport-drop / reconnect notice for a peer whose seat is held in
-          // the grace window. The player is still in the room, so only flip the
-          // flag — `player_left` is what actually removes them.
-          const holder = this._players[message.data.id];
-          if (!holder) {
-            break;
-          }
-          this._players = {
-            ...this._players,
-            [message.data.id]: { ...holder, connected: message.data.connected },
-          };
-          break;
-        }
-        case "event": {
-          this._onEvent?.(message.data.event, message.data.payload, message.data.from);
-          break;
-        }
-        case "room_full": {
-          // The room hit its cap before we joined. Reconnect to the overflow
-          // sibling the server picked, carrying its authoritative capacity so
-          // the shard keeps the same cap; redirectTo notifies on its own.
-          this.redirectTo(message.data.room, message.data.capacity);
-          return;
-        }
-        default: {
-          break;
-        }
+      if (this.applyMessage(message)) {
+        this.notify();
       }
-
-      this.notify();
     } catch (error) {
       console.error("Failed to process multiplayer message", error);
     }
   };
+
+  /** Apply one server message; true when subscribers should hear about it. */
+  private applyMessage(message: ServerMessage): boolean {
+    switch (message.type) {
+      case "ping": {
+        // Answered from the message handler rather than a timer, so it keeps
+        // working while the tab is hidden — that's what makes it a safe basis
+        // for eviction. See EVICTION_TIMEOUT_MS.
+        this.send({ type: "pong" });
+        return true;
+      }
+      case "sync": {
+        this.applySync(message.data);
+        return true;
+      }
+      case "player_joined": {
+        this._players = { ...this._players, [message.data.id]: message.data };
+        return true;
+      }
+      case "player_left": {
+        const { [message.data.id]: _left, ...remaining } = this._players;
+        this._players = remaining;
+        return true;
+      }
+      case "host": {
+        this._hostId = message.data.id;
+        this.maybeSeedInitialState(message.data.id);
+        return true;
+      }
+      case "state_patch": {
+        this.remoteStateSeen = true;
+        const merged = { ...this._sharedState, ...message.data };
+        if (this.passesSchema("sharedState", "incoming", merged)) {
+          this._sharedState = merged;
+        }
+        return true;
+      }
+      case "player_state": {
+        this.mergePlayerState(message.data.id, message.data.state);
+        return true;
+      }
+      case "player_connection": {
+        // Transport-drop / reconnect notice for a peer whose seat is held in
+        // the grace window. The player is still in the room, so only flip the
+        // flag — `player_left` is what actually removes them.
+        this.patchPlayer(message.data.id, { connected: message.data.connected });
+        return true;
+      }
+      case "player_visibility": {
+        this.patchPlayer(message.data.id, { visible: message.data.visible });
+        return true;
+      }
+      case "event": {
+        this._onEvent?.(message.data.event, message.data.payload, message.data.from);
+        return true;
+      }
+      case "time": {
+        this.clock.sample(message.data.c, message.data.s);
+        // Clock samples change nothing a subscriber renders.
+        return false;
+      }
+      case "claim": {
+        this.applyClaim(message.data.key, message.data.owner, message.data.until);
+        return true;
+      }
+      case "claims_cleared": {
+        this.applyClaimsCleared(message.data.prefix);
+        return true;
+      }
+      case "tick": {
+        this.applyTick(message.data.n, message.data.i);
+        // Ticks arrive tens of times a second and carry inputs, not
+        // anything a subscriber renders: onTick is their channel.
+        return false;
+      }
+      case "room_full": {
+        // The room hit its cap before we joined. Reconnect to the overflow
+        // sibling the server picked, carrying its authoritative capacity so
+        // the shard keeps the same cap; redirectTo notifies on its own.
+        this.redirectTo(message.data.room, message.data.capacity);
+        return false;
+      }
+      default: {
+        return true;
+      }
+    }
+  }
+
+  /**
+   * Merge a player-state message: a keyed delta — or the whole state for a
+   * player who just came back into interest range; shallow-merging handles
+   * both, because keys are only ever merged, never deleted. The schema check
+   * runs on the MERGED result, mirroring the sharedState path: a delta is
+   * partial by design and would fail any schema with required fields.
+   */
+  private mergePlayerState(id: string, state: JsonRecord): void {
+    const existing = this._players[id] ?? { id };
+    const mergedState = { ...existing.state, ...state };
+    if (!this.passesSchema("playerState", "incoming", mergedState, id)) {
+      return;
+    }
+    this._players = { ...this._players, [id]: { ...existing, state: mergedState } };
+  }
+
+  /** Set presence flags on a player this client already knows. */
+  private patchPlayer(id: string, flags: Pick<Player, "connected" | "visible">): void {
+    const known = this._players[id];
+    if (known) {
+      this._players = { ...this._players, [id]: { ...known, ...flags } };
+    }
+  }
+
+  private applyClaimsCleared(prefix: string): void {
+    const remaining: ClaimMap = {};
+    const released: string[] = [];
+    for (const [key, claim] of Object.entries(this._claims)) {
+      if (key.startsWith(prefix)) {
+        released.push(key);
+      } else {
+        remaining[key] = claim;
+      }
+    }
+    this._claims = remaining;
+    for (const key of released) {
+      this._onClaim?.(key, null);
+    }
+  }
 }

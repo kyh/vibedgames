@@ -6,7 +6,7 @@ import { Inventory } from "./inventory";
 import { Skills } from "./skills";
 import { Collections } from "./collections";
 import type { AnimalSave } from "./save";
-import { MAX_HP, MAX_ENERGY, START_GOLD } from "../config";
+import { HP_REGEN_PER_DAY, MAX_HP, MAX_ENERGY, START_GOLD } from "../config";
 
 /**
  * Finished farm work this session. The purse is spent as well as earned, so
@@ -81,6 +81,15 @@ class Store {
   loadAnimals(a: AnimalSave[], seq: number): void {
     this.animals = a;
     this.animalSeq = seq;
+  }
+
+  /** A night's sleep: full energy — 55% after passing out or fainting — and
+   *  some HP back, or half of it after a faint. */
+  rest(exhausted: boolean, fainted: boolean): void {
+    this.energy = exhausted || fainted ? Math.floor(MAX_ENERGY * 0.55) : MAX_ENERGY;
+    this.hp = fainted
+      ? Math.floor(this.maxHp() * 0.5)
+      : Math.min(this.maxHp(), this.hp + HP_REGEN_PER_DAY);
   }
 
   spendEnergy(n: number): void {

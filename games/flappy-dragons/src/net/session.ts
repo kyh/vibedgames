@@ -9,13 +9,15 @@
 // shallow-merge (last-write-wins per field), and events are fire-and-forget.
 // Offline, everything loops back locally so the same code paths keep working.
 //
-// Keep this file byte-identical across games/*/src/net/session.ts — per-game
-// tuning (room, maxPlayers, fallbackMs) goes in the NetSession constructor.
+// Started as the copy shared across games/*/src/net/session.ts; this one also
+// reads the room's server clock (`serverNow`), which every flappy-dragons
+// stamp and race is on. Per-game tuning (room, maxPlayers, fallbackMs) goes in
+// the NetSession constructor.
 //
 
 import { isOfflineRequested } from "@repo/embed";
 import { MultiplayerClient } from "@vibedgames/multiplayer";
-import type { Player, PlayerMap } from "@vibedgames/multiplayer";
+import type { Player, PlayerMap, SendEventOptions } from "@vibedgames/multiplayer";
 
 const MULTIPLAYER_HOST = import.meta.env.DEV
   ? "http://localhost:8787"
@@ -148,6 +150,22 @@ export class NetSession {
     return this.solo || this.client?.isHost === true;
   }
 
+  /**
+   * The room's clock (ms): the party server's, measured from here, so a stamp
+   * means the same moment to every player and outlives the host. Null until
+   * the first time probe returns — the SDK reads the local clock until then,
+   * and a stamp from it would be garbage to everyone else. Offline, the local
+   * clock stands in. Pass the frame's timestamp, so that everything stamped
+   * or drawn in one frame shares one instant.
+   */
+  serverNow(localNow?: number): number | null {
+    const { client } = this;
+    if (this.solo || !client) {
+      return localNow ?? performance.now();
+    }
+    return client.serverClock.synced ? client.serverNow(localNow) : null;
+  }
+
   /** The current room host's id (for authenticating host-only events). */
   get hostId(): string | null {
     const { client } = this;
@@ -205,12 +223,44 @@ export class NetSession {
     }
   }
 
-  /** Events loop straight back to the local handler when offline. */
-  sendEvent(event: string, payload: JsonObject): void {
-    if (this.solo || !this.client) {
+  /**
+   * Events loop straight back to the local handler when offline. `to` /
+   * `except` target player ids (server-enforced); offline, the local player
+   * is the only id, so the loopback honours them against it.
+   */
+  sendEvent(event: string, payload: JsonObject, options?: SendEventOptions): void {
+    const { client } = this;
+    if (this.solo || !client) {
+      const to = options?.to;
+      const except = options?.except;
+      const listed = (ids: string | string[] | undefined): boolean =>
+        ids !== undefined && (Array.isArray(ids) ? ids.includes(SOLO_ID) : ids === SOLO_ID);
+      if ((to === undefined || listed(to)) && !listed(except)) {
+        this.onEvent?.(event, payload, SOLO_ID);
+      }
+      return;
+    }
+    client.sendEvent(event, payload, options);
+  }
+
+  /**
+   * An intent only the host acts on. The host — and an offline game — handles
+   * it locally and synchronously, like the offline loopback, instead of
+   * bouncing it off the server; a guest sends it to the host alone.
+   */
+  sendToHost(event: string, payload: JsonObject): void {
+    const { client } = this;
+    if (this.solo || !client) {
       this.onEvent?.(event, payload, SOLO_ID);
-    } else {
-      this.client.sendEvent(event, payload);
+      return;
+    }
+    if (client.isHost) {
+      this.onEvent?.(event, payload, client.playerId ?? SOLO_ID);
+      return;
+    }
+    const host = client.hostId;
+    if (host !== null) {
+      client.sendEvent(event, payload, { to: host });
     }
   }
 

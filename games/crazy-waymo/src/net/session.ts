@@ -10,12 +10,19 @@
 // Offline, everything loops back locally so the same code paths keep working.
 //
 // Keep this file byte-identical across games/*/src/net/session.ts — per-game
-// tuning (room, maxPlayers, fallbackMs) goes in the NetSession constructor.
+// tuning (room, maxPlayers, interest, fallbackMs) goes in the NetSession
+// constructor.
 //
 
 import { isOfflineRequested } from "@repo/embed";
-import { MultiplayerClient } from "@vibedgames/multiplayer";
-import type { Player, PlayerMap } from "@vibedgames/multiplayer";
+import { MultiplayerClient, ServerClock } from "@vibedgames/multiplayer";
+import type {
+  InterestRule,
+  Player,
+  PlayerMap,
+  SendEventOptions,
+  SenderClock,
+} from "@vibedgames/multiplayer";
 import type { JsonObject as JsonRecord, JsonValue } from "../shared/json";
 
 const MULTIPLAYER_HOST = import.meta.env.DEV
@@ -27,6 +34,9 @@ const SOLO_ID = "solo";
 export interface NetSessionOptions {
   room: string;
   maxPlayers?: number;
+  /** The room's interest rule: players farther apart stop receiving each
+   *  other's state and read `visible: false`. Every client must pass the same. */
+  interest?: InterestRule;
   /** Give up on the party server after this long and fall back to solo. */
   fallbackMs: number;
   /** Start (and stay) in local solo mode — no socket is ever opened. Used by
@@ -45,6 +55,8 @@ export class NetSession {
   private bootedAt = 0;
   private offlineMyState: JsonRecord = {};
   private offlineShared: JsonRecord | null = null;
+  /** Offline stand-in for the server clock: never probed, so it reads the local clock. */
+  private readonly localClock = new ServerClock();
 
   constructor(opts: NetSessionOptions) {
     this.fallbackMs = opts.fallbackMs;
@@ -59,6 +71,7 @@ export class NetSession {
       ? null
       : new MultiplayerClient({
           host: MULTIPLAYER_HOST,
+          interest: opts.interest,
           maxPlayers: opts.maxPlayers,
           onEvent: (event, payload, from) => this.onEvent?.(event, payload, from),
           party: "vg-server",
@@ -133,6 +146,25 @@ export class NetSession {
     return this.solo || !client ? SOLO_ID : client.playerId;
   }
 
+  /**
+   * The room's shared clock — the server's, measured from here — for an
+   * `Interpolator`. Offline it is the local clock: nobody shares it.
+   */
+  get serverClock(): SenderClock {
+    const { client } = this;
+    return this.solo || !client ? this.localClock : client.serverClock;
+  }
+
+  /** Server time now (ms since the epoch): what every networked update is stamped with. */
+  serverNow(): number {
+    return this.serverClock.now();
+  }
+
+  /** The server clock has been measured, so a stamp means the same instant to every player. */
+  get clockSynced(): boolean {
+    return this.serverClock.synced;
+  }
+
   get players(): PlayerMap {
     const { client } = this;
     return this.solo || !client
@@ -180,12 +212,44 @@ export class NetSession {
     }
   }
 
-  /** Events loop straight back to the local handler when offline. */
-  sendEvent(event: string, payload: JsonRecord): void {
-    if (this.solo || !this.client) {
+  /**
+   * Events loop straight back to the local handler when offline. `to` /
+   * `except` target player ids (server-enforced); offline, the local player
+   * is the only id, so the loopback honours them against it.
+   */
+  sendEvent(event: string, payload: JsonRecord, options?: SendEventOptions): void {
+    const { client } = this;
+    if (this.solo || !client) {
+      const to = options?.to;
+      const except = options?.except;
+      const listed = (ids: string | string[] | undefined): boolean =>
+        ids !== undefined && (Array.isArray(ids) ? ids.includes(SOLO_ID) : ids === SOLO_ID);
+      if ((to === undefined || listed(to)) && !listed(except)) {
+        this.onEvent?.(event, payload, SOLO_ID);
+      }
+      return;
+    }
+    client.sendEvent(event, payload, options);
+  }
+
+  /**
+   * An intent only the host acts on. The host — and an offline game — handles
+   * it locally and synchronously, like the offline loopback, instead of
+   * bouncing it off the server; a guest sends it to the host alone.
+   */
+  sendToHost(event: string, payload: JsonRecord): void {
+    const { client } = this;
+    if (this.solo || !client) {
       this.onEvent?.(event, payload, SOLO_ID);
-    } else {
-      this.client.sendEvent(event, payload);
+      return;
+    }
+    if (client.isHost) {
+      this.onEvent?.(event, payload, client.playerId ?? SOLO_ID);
+      return;
+    }
+    const host = client.hostId;
+    if (host !== null) {
+      client.sendEvent(event, payload, { to: host });
     }
   }
 

@@ -1,3 +1,4 @@
+import { FixedRate } from "@vibedgames/multiplayer";
 import { Math as PhaserMath } from "phaser";
 import { now as simNow } from "../shared/clock";
 import {
@@ -32,13 +33,14 @@ import {
   ENEMY_SPAWN_CLEARANCE,
   ITEM_SPEED,
   MAGNET_PULL_SPEED,
-  NET_INTERVAL_MS,
   SECTOR_BOSS_AT_S,
   SHARD_DRIFT_SPEED,
   SHARD_MAGNET_PULL_SPEED,
   SINGULARITY_PULL_RANGE,
   SINGULARITY_PULL_SPEED,
+  STANDINGS_RELAY_HZ,
   UFO_SPAWN_RATE,
+  WORLD_NET_HZ,
   arenaIntensity,
   asteroidCap,
   asteroidSpawnIntervalMs,
@@ -62,25 +64,16 @@ import {
 } from "../shared/constants";
 import type { EnemyKind, SharedState, Vec } from "../shared/constants";
 import { rand } from "../shared/rng";
-import {
-  asteroidToWire,
-  beaconToWire,
-  enemyShotToWire,
-  enemyToWire,
-  itemToWire,
-  pullToWire,
-  shardToWire,
-  ufoToWire,
-} from "../shared/wire";
-import { setAllDirty } from "../state/dirty-flags";
-import type { DirtyFlags } from "../state/dirty-flags";
 import type { Link } from "../state/link";
 import type { Pilot } from "../state/pilot";
 import type { EnemyAi } from "../sys/enemy-ai";
 import { inWorld, magnetPull } from "../sys/geometry";
+import { itemClaimKey, shardClaimKey } from "../sys/pickups";
 import type { Progression } from "../sys/progression";
 import type { HostCombat } from "./host-combat";
-import type { sharedToPatch } from "./shared-world";
+import type { PeerRoster } from "./peer-roster";
+import type { WireValue } from "./wire-read";
+import { STANDINGS_KEY, WorldEncoder } from "./world-wire";
 
 /** Late-built collaborators the director consults. */
 export interface HostDirectorHooks {
@@ -118,24 +111,31 @@ export interface HostDirectorDeps {
   world: SharedState;
   pilot: Pilot;
   link: Link;
-  dirty: DirtyFlags;
+  roster: PeerRoster;
   ai: EnemyAi;
   hostCombat: HostCombat;
   progress: Progression;
   hooks: HostDirectorHooks;
 }
 
-/** Host-only world director: the authoritative tick (asteroid/UFO/enemy spawn cadence, pulls, magnets, breathers, boss guarantee, BEACON control) and the dirty-flag share of the world to guests. */
+/** Host-only world director: the authoritative tick (asteroid/UFO/enemy spawn cadence, pulls, magnets, breathers, boss guarantee, BEACON control) and the fixed-rate delta share of the world to guests. */
 export class HostDirector {
   // boss (host-private; recomputed from the world each tick so migration adopts it)
   bossAlive = false;
 
   lastBossKilledAt = 0;
 
-  /** Set when host grows the play bounds — flushed into the next shared patch. */
-  private playBoundsDirty = false;
+  /** Steady world-share cadence (keeps the remainder between ticks). */
+  private readonly shareRate = new FixedRate(WORLD_NET_HZ);
 
-  private shareAcc = 0;
+  /** What guests already hold, so a share carries only what changed. */
+  private readonly encoder = new WorldEncoder();
+
+  /** Standings relay cadence, and the board last relayed (an unchanged
+   *  board stays off the wire). */
+  private readonly standingsRate = new FixedRate(STANDINGS_RELAY_HZ);
+
+  private standingsSent = "";
 
   lastAsteroidSpawnAt = 0;
 
@@ -161,7 +161,7 @@ export class HostDirector {
 
   private readonly link: Link;
 
-  private readonly dirty: DirtyFlags;
+  private readonly roster: PeerRoster;
 
   private readonly ai: EnemyAi;
 
@@ -175,7 +175,7 @@ export class HostDirector {
     this.world = deps.world;
     this.pilot = deps.pilot;
     this.link = deps.link;
-    this.dirty = deps.dirty;
+    this.roster = deps.roster;
     this.ai = deps.ai;
     this.hostCombat = deps.hostCombat;
     this.progress = deps.progress;
@@ -187,8 +187,10 @@ export class HostDirector {
   restart(): void {
     this.bossAlive = false;
     this.lastBossKilledAt = 0;
-    this.playBoundsDirty = false;
-    this.shareAcc = 0;
+    this.shareRate.reset();
+    this.encoder.reset();
+    this.standingsRate.reset();
+    this.standingsSent = "";
     this.wasHost = false;
     this.lastBreatherDespawnAt = 0;
     this.debuted = new Set();
@@ -204,20 +206,18 @@ export class HostDirector {
       this.hostAdoptClocks(now);
     }
     const w = this.world;
-    const d = this.dirty;
     const tSec = Math.max(0, (now - w.arenaEpoch) / 1000);
     const intensity = arenaIntensity(tSec);
     const pc = Math.max(1, Object.keys(this.link.peers).length);
     const pressure = playerPressure(pc);
     const wave = wavePulse(tSec);
     // Grow the play area with player count (grow-only within an arena, so it
-    // never yanks ships inward; resets to BASE on a fresh arena). Broadcast on
-    // change so every client clamps/spawns/culls to the same bounds.
+    // never yanks ships inward; resets to BASE on a fresh arena). Every share
+    // carries the bounds; the SDK only sends them when they change.
     const wantW = playWidthForPlayers(pc);
     if (wantW > w.playW) {
       w.playW = wantW;
       w.playH = playHeightForPlayers(pc);
-      this.playBoundsDirty = true;
     }
     this.hostTickAsteroids(now, intensity, pressure, wave);
     this.hostTickUfo(now, dt);
@@ -231,32 +231,35 @@ export class HostDirector {
     this.ai.hostSimEnemies(now, dt, players);
     // After the sim: the pull overrides steering for dragged enemies.
     this.hostApplyPulls(now);
-    const livePulls = w.pulls.filter((p) => p.until > now);
-    if (livePulls.length !== w.pulls.length) {
-      w.pulls = livePulls;
-      d.pulls = true;
-    }
+    w.pulls = w.pulls.filter((p) => p.until > now);
     // Trailer: staged crowds are deliberately far over the cap and the wide
     // zooms put the despawn line on camera — never cull them mid-shot.
     if (!this.link.trailer) {
       this.hostDespawnBreather(now, intensity, pressure, wave, players);
     }
 
-    const liveShots = w.enemyShots.filter(
+    w.enemyShots = w.enemyShots.filter(
       (s) => s.diesAt > now && inWorld(s.x, s.y, 60, w.playW, w.playH),
     );
-    if (liveShots.length !== w.enemyShots.length) {
-      w.enemyShots = liveShots;
-      d.enemyShots = true;
+    if (!this.link.offline && this.shareRate.due(delta)) {
+      this.share(now);
     }
-    this.hostMarkMotionDirty();
+    if (!this.link.offline && this.standingsRate.due(delta)) {
+      this.relayStandings();
+    }
+  }
 
-    this.shareAcc += delta;
-    if (this.shareAcc < NET_INTERVAL_MS) {
-      return;
-    }
-    this.shareAcc = 0;
-    this.hostShareWorld();
+  /** Share the whole world right now (a freshly seeded room). */
+  shareNow(now: number): void {
+    this.encoder.reset();
+    this.share(now);
+  }
+
+  /** One share, stamped with the server time of the instant `now` (sim
+   *  clock) — the clock every guest ages its rows by. */
+  private share(now: number): void {
+    const stamp = Math.round(this.link.serverAt(now));
+    this.link.patchShared(this.encoder.encode(this.world, now, stamp));
   }
 
   /** First tick after promotion (or first-ever host): zeroed spawn stamps
@@ -285,15 +288,10 @@ export class HostDirector {
     ) {
       w.asteroids.push(spawnAsteroidState(w.playW, w.playH));
       this.lastAsteroidSpawnAt = now;
-      this.dirty.asteroids = true;
     }
-    const kept = w.asteroids.filter((a) =>
+    w.asteroids = w.asteroids.filter((a) =>
       inWorld(a.x, a.y, ASTEROID_CULL_MARGIN, w.playW, w.playH),
     );
-    if (kept.length !== w.asteroids.length) {
-      w.asteroids = kept;
-      this.dirty.asteroids = true;
-    }
   }
 
   /** UFO is the weapon piñata; the v2 gate relaxes to < 2 weapon items live.
@@ -304,106 +302,48 @@ export class HostDirector {
     const weaponItemsInFlight = w.items.filter((it) => it.kind === "weapon").length;
     if (!w.ufo && !this.link.trailer && weaponItemsInFlight < 2 && rand() < UFO_SPAWN_RATE * dt) {
       w.ufo = spawnUfoState(w.playW, w.playH);
-      this.dirty.ufo = true;
     }
     if (w.ufo && w.ufo.x === w.ufo.destX && w.ufo.y === w.ufo.destY) {
       w.ufo.destX = rand() * w.playW;
       w.ufo.destY = rand() * w.playH;
-      this.dirty.ufo = true;
     }
   }
 
-  /** Expire items + shards, then run the magnet pass. */
+  /** Expire items + shards, drop the claimed ones, then run the magnet
+   *  pass. A grant already took its pickup out (Pickups.onClaim); this also
+   *  catches claims that arrived in a sync, after a blip. */
   private hostTickPickups(now: number): void {
     const w = this.world;
-    const liveItems = w.items.filter((it) => it.diesAt > now);
-    if (liveItems.length !== w.items.length) {
-      w.items = liveItems;
-      this.dirty.items = true;
-    }
-    const liveShards = w.shards.filter((s) => s.diesAt > now);
-    if (liveShards.length !== w.shards.length) {
-      w.shards = liveShards;
-      this.dirty.shards = true;
-    }
+    w.items = w.items.filter((it) => it.diesAt > now && !this.link.claimed(itemClaimKey(it.id)));
+    w.shards = w.shards.filter((s) => s.diesAt > now && !this.link.claimed(shardClaimKey(s.id)));
     this.hostMagnetItems(now);
   }
 
-  /** Continuous motion dirties whatever is actually moving. */
-  private hostMarkMotionDirty(): void {
-    const w = this.world;
-    const d = this.dirty;
-    if (w.asteroids.length > 0) {
-      d.asteroids = true;
-    }
-    if (w.ufo) {
-      d.ufo = true;
-    }
-    if (w.items.length > 0) {
-      d.items = true;
-    }
-    if (w.shards.length > 0) {
-      d.shards = true;
-    }
-    if (w.enemies.length > 0) {
-      d.enemies = true;
-    }
-    if (w.enemyShots.length > 0) {
-      d.enemyShots = true;
-    }
-  }
-
-  /** Send the dirty fields as one shallow-merge patch, then clear the flags. */
-  private hostShareWorld(): void {
-    const w = this.world;
-    const d = this.dirty;
-    // Quantize at the serialization boundary (shared/wire.ts) — the working
-    // arrays keep full precision, only the outgoing snapshot is rounded.
-    const patch: Partial<ReturnType<typeof sharedToPatch>> = {};
-    if (d.asteroids) {
-      patch["asteroids"] = w.asteroids.map(asteroidToWire);
-    }
-    if (d.ufo) {
-      patch["ufo"] = w.ufo ? ufoToWire(w.ufo) : null;
-    }
-    if (d.items) {
-      patch["items"] = w.items.map(itemToWire);
-    }
-    if (d.shards) {
-      patch["shards"] = w.shards.map(shardToWire);
-    }
-    if (d.enemies) {
-      patch["enemies"] = w.enemies.map(enemyToWire);
-    }
-    if (d.enemyShots) {
-      patch["enemyShots"] = w.enemyShots.map(enemyShotToWire);
-    }
-    if (d.pulls) {
-      patch["pulls"] = w.pulls.map(pullToWire);
-    }
-    if (d.beacon) {
-      patch["beacon"] = w.beacon ? beaconToWire(w.beacon) : null;
-    }
-    // Piggyback play bounds on ANY outgoing patch (cheap — 2 ints) so guests and
-    // a freshly-promoted host stay in sync; force a send if ONLY bounds changed.
-    if (this.playBoundsDirty || Object.keys(patch).length > 0) {
-      patch["playW"] = w.playW;
-      patch["playH"] = w.playH;
-      // Boss-guarantee marker rides along too (1 int): any spawn dirties
-      // enemies, so the marker always reaches guests within the same patch.
-      patch["sectorBossIdx"] = w.sectorBossIdx;
-    }
-    this.playBoundsDirty = false;
-    if (Object.keys(patch).length > 0) {
-      this.link.patchShared(patch);
-    }
-    setAllDirty(this.dirty, false);
-  }
-
-  /** Next share sends the whole world (bounds and boss marker included). */
+  /** Next share sends the whole world (bounds and boss marker included),
+   *  and the next relay the whole board. */
   markWorldDirty(): void {
-    setAllDirty(this.dirty, true);
-    this.playBoundsDirty = true;
+    this.encoder.reset();
+    this.standingsSent = "";
+  }
+
+  /** Every present player's sector score, for guests to rank the players
+   *  out of their interest range by: only the host sees everyone. */
+  private relayStandings(): void {
+    const board: WireValue[] = [];
+    const { myId } = this.link;
+    if (myId && this.pilot.spawned) {
+      board.push(myId, Math.round(this.progress.sectorScore));
+    }
+    for (const [id, st] of this.link.peerStates) {
+      if (id !== myId && st?.present) {
+        board.push(id, Math.round(st.sectorScore));
+      }
+    }
+    const sig = board.join(",");
+    if (sig !== this.standingsSent) {
+      this.standingsSent = sig;
+      this.link.patchShared({ [STANDINGS_KEY]: board });
+    }
   }
 
   /** Boss down: free the arena-wide slot and arm the spawn cooldown. */
@@ -425,11 +365,13 @@ export class HostDirector {
     ) {
       out.push(myId);
     }
+    const t = performance.now();
     for (const [id, st] of this.link.peerStates) {
       if (id === myId || !st || !st.alive || !st.present) {
         continue;
       }
-      if (Math.hypot(st.x - cx, st.y - cy) <= BEACON_RADIUS) {
+      const p = this.roster.lead(id, t);
+      if (p && Math.hypot(p.x - cx, p.y - cy) <= BEACON_RADIUS) {
         out.push(id);
       }
     }
@@ -453,7 +395,6 @@ export class HostDirector {
           this.hostCombat.hostRollLoot(b.x, b.y, 1, true, true);
         }
         w.beacon = null;
-        this.dirty.beacon = true;
         return;
       }
       if (now >= b.activeAt) {
@@ -464,7 +405,6 @@ export class HostDirector {
         if (controllerId !== b.controllerId || contested !== b.contested) {
           b.controllerId = controllerId;
           b.contested = contested;
-          this.dirty.beacon = true;
         }
       }
       return;
@@ -539,11 +479,10 @@ export class HostDirector {
       y,
     };
     this.lastBeaconStartedAt = now;
-    this.dirty.beacon = true;
   }
 
-  /** Position of a player by id (me from the live ship, remotes from their
-   *  net state). Null when unknown/absent. */
+  /** Position of a player by id: me from the live ship, a remote where it
+   *  is drawn. Null when unknown/absent. */
   playerPos(id: string): Vec | null {
     if (id === this.link.myId) {
       return this.pilot.spawned && this.pilot.alive
@@ -605,11 +544,9 @@ export class HostDirector {
     for (const it of w.items) {
       magnetPull(it, holders, MAGNET_PULL_SPEED, ITEM_SPEED);
     }
-    this.dirty.items = true;
     for (const sd of w.shards) {
       magnetPull(sd, holders, SHARD_MAGNET_PULL_SPEED, SHARD_DRIFT_SPEED);
     }
-    this.dirty.shards = true;
   }
 
   /** Positions of every living ship with a live MAGNET booster. */
@@ -620,23 +557,23 @@ export class HostDirector {
       holders.push({ x: this.pilot.shipX, y: this.pilot.shipY });
     }
     const { myId } = this.link;
+    const t = performance.now();
     for (const [id, st] of this.link.peerStates) {
-      if (id === myId) {
+      if (id === myId || !st || !st.alive || !st.magnet) {
         continue;
       }
-      if (!st || !st.alive) {
-        continue;
-      }
-      if (st.boosts.some((b) => b.kind === "magnet" && b.until > now)) {
-        holders.push({ x: st.x, y: st.y });
+      const p = this.roster.lead(id, t);
+      if (p) {
+        holders.push(p);
       }
     }
     return holders;
   }
 
-  /** Highest level among present players in the local view (default 1 when
-   *  unknowable). Drives elite HP stamping at spawn (host) and elite kill XP
-   *  (shooter) — qa-018: the same multiplier moves cost and reward together. */
+  /** Highest level among present players (default 1 when unknowable) — the
+   *  host sees every player. Drives elite HP stamping at spawn; kill XP reads
+   *  the multiplier back off the elite (enemyKillXp), so qa-018's cost and
+   *  reward move together. */
   maxPresentLevel(): number {
     let max = this.pilot.spawned ? this.progress.level : 1;
     const { myId } = this.link;
@@ -651,19 +588,23 @@ export class HostDirector {
     return Math.max(1, max);
   }
 
-  /** Living player positions (mine locally + remotes from net state). */
+  /** Living player positions: mine locally, each guest's newest pose led
+   *  toward the present — enemies chase where a guest IS, not where it is
+   *  drawn 100 ms back. */
   private livingPlayers(): Vec[] {
     const out: Vec[] = [];
     if (this.pilot.alive && this.pilot.spawned && simNow() >= this.hooks.phasedUntil()) {
       out.push({ x: this.pilot.shipX, y: this.pilot.shipY });
     }
     const { myId } = this.link;
+    const t = performance.now();
     for (const [id, st] of this.link.peerStates) {
-      if (id === myId) {
+      if (id === myId || !st || !st.alive || st.shieldMod?.phased) {
         continue;
       }
-      if (st && st.alive && !st.shieldMod?.phased) {
-        out.push({ x: st.x, y: st.y });
+      const p = this.roster.lead(id, t);
+      if (p) {
+        out.push(p);
       }
     }
     return out;
@@ -720,7 +661,6 @@ export class HostDirector {
     }
     w.enemies.push(e);
     this.lastEnemySpawnAt = now;
-    this.dirty.enemies = true;
     if (isDebut) {
       this.debuted.add(kind);
       this.debutSuppressUntil = now + ENEMY_DEBUT_SUPPRESS_MS;
@@ -744,7 +684,6 @@ export class HostDirector {
     this.debuted.add("drone");
     this.debutSuppressUntil = now + ENEMY_DEBUT_SUPPRESS_MS;
     this.lastEnemySpawnAt = now;
-    this.dirty.enemies = true;
   }
 
   /** Debut rule: a type's first appearance is solo + suppresses other spawns;
@@ -875,7 +814,6 @@ export class HostDirector {
     w.enemies.splice(farIdx, 1);
     this.ai.enemySim.delete(e.id);
     this.lastBreatherDespawnAt = now;
-    this.dirty.enemies = true;
   }
 
   /** Boss spawn trigger: near a wave peak, in a busy room (or after the cooldown
@@ -935,7 +873,6 @@ export class HostDirector {
     e.maxHp = e.hp;
     w.enemies.push(e);
     this.bossAlive = true;
-    this.dirty.enemies = true;
     // dir-006: ANY dreadnought spawn (organic or forced) satisfies the
     // sector's guarantee — an organic rel-214 boss means rel-405 no-ops.
     w.sectorBossIdx = sIdx;
@@ -963,7 +900,6 @@ export class HostDirector {
     e.maxHp = e.hp;
     w.enemies.push(e);
     this.bossAlive = true;
-    this.dirty.enemies = true;
     return true;
   }
 }

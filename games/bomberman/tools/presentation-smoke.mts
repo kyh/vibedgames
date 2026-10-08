@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { blastFrame, fireCells, freshCue } from "../src/render/blast-frame";
+import { blastFrame, CUE_WINDOW_MS, fireCells, freshCue } from "../src/render/blast-frame";
 import {
   ACTION_SHEETS,
   CharacterAction,
@@ -15,11 +15,14 @@ import { EXPLOSION_MS, FUSE_MS } from "../src/shared/constants";
 import type { Bomb } from "../src/shared/constants";
 import {
   adoptClock,
-  CLOCK_SLACK_MS,
+  clockStamp,
+  localClock,
   now,
   pauseClock,
   readClock,
   resumeClock,
+  sameStamp,
+  setClockBase,
 } from "../src/util/clock";
 
 const pose: CharacterPose = { col: 1, dir: "down", moving: false, row: 1 };
@@ -106,7 +109,8 @@ test("action sheet cuts tile each PNG exactly and pivots lie inside their cell",
 
 test("blast frames seek by age; overlapping blasts share the newest cell", () => {
   for (const [age, frame] of [
-    [-1, null],
+    // Another client's reading of the room clock can run a moment ahead.
+    [-1, 0],
     [0, 0],
     [31, 0],
     [32, 1],
@@ -115,9 +119,9 @@ test("blast frames seek by age; overlapping blasts share the newest cell", () =>
   ] as const) {
     assert.equal(blastFrame(1000, 1000 + age), frame);
   }
-  assert.equal(freshCue(1000, 999), false);
-  assert.equal(freshCue(1000, 1140), true);
-  assert.equal(freshCue(1000, 1141), false);
+  assert.equal(freshCue(1000, 990), true, "a stamp a moment ahead is new");
+  assert.equal(freshCue(1000, 1000 + CUE_WINDOW_MS), true, "a slow route's delivery still cues");
+  assert.equal(freshCue(1000, 1001 + CUE_WINDOW_MS), false, "a replayed snapshot does not");
   const row = Array.from({ length: 5 }, (_, col) => ({ col: col + 2, row: 4 }));
   const column = Array.from({ length: 5 }, (_, r) => ({ col: 4, row: r + 2 }));
   const cells = fireCells(
@@ -166,31 +170,38 @@ test("round score emits one beat per step and rebases on gaps, mode changes and 
   assert.deepEqual(scoreNotes({ mode: "duel", step: 2 }), [220]);
 });
 
-test("sim clock freezes while paused, calibrates to host sim time, ignores jitter", () => {
-  adoptClock({ at: Date.now(), kind: "running" });
-  assert.equal(readClock(), null, "legacy rooms keep the local clock");
-  assert.deepEqual(readClock({ kind: "paused", now: 42 }), { kind: "paused", now: 42 });
-  assert.equal(readClock({ at: Number.NaN, kind: "running" }), null);
-  // A host whose wall clock runs 5s ahead: sim time follows the host, not Date.now().
-  const received = Date.now();
-  adoptClock({ at: received + 5000, kind: "running" }, received);
-  const skew = now() - Date.now();
-  assert.ok(skew > 4900 && skew <= 5000, `skew ${skew}`);
-  // Snapshot latency jitter within CLOCK_SLACK_MS never re-calibrates.
-  adoptClock({ at: received + 5000 + CLOCK_SLACK_MS, kind: "running" }, received + 10);
-  assert.ok(now() - Date.now() <= 5000);
-  // Re-reading the same stamp seconds later (promotion) must not jump backwards.
-  adoptClock({ at: received + 5000 + CLOCK_SLACK_MS, kind: "running" }, received + 6000);
-  assert.ok(now() - Date.now() > 4900);
+test("sim clock: the room's clock minus time paused, adopted as is", () => {
+  let server = 1_000_000;
+  setClockBase({ now: () => server, synced: true });
+  adoptClock({ kind: "running", offset: 0 });
+  assert.equal(now(), server, "never paused: server time");
+  server += 250;
+  assert.equal(now(), 1_000_250);
   pauseClock();
   const frozen = now();
-  for (let i = 0; i < 1000; i += 1) {
-    assert.equal(now(), frozen);
-  }
+  server += 5000;
+  assert.equal(now(), frozen, "frozen while paused");
+  assert.deepEqual(clockStamp(), { kind: "paused", now: frozen });
+  pauseClock();
   resumeClock();
-  assert.ok(now() >= frozen);
-  adoptClock({ kind: "paused", now: 42 });
+  assert.equal(now(), frozen, "resumes where it stopped");
+  assert.deepEqual(clockStamp(), { kind: "running", offset: 5000 });
+  server += 100;
+  assert.equal(now(), frozen + 100);
+  // Every client reads the same base, so a guest's sim time is the host's
+  // the moment it adopts the stamp, however late the stamp arrived.
+  adoptClock(readClock({ kind: "running", offset: 7000 }));
+  assert.equal(now(), server - 7000);
+  adoptClock(readClock({ kind: "paused", now: 42 }));
   assert.equal(now(), 42);
-  adoptClock({ at: 1000, kind: "running" }, 1000);
-  assert.ok(now() - Date.now() >= -1 && now() - Date.now() <= 0, "back on wall time");
+  adoptClock(readClock({ kind: "running", offset: Number.NaN }));
+  adoptClock(readClock());
+  assert.equal(now(), 42, "a stamp that is not one changes nothing");
+  assert.ok(sameStamp({ kind: "paused", now: 42 }, clockStamp()), "unchanged: not resent");
+  assert.ok(!sameStamp({ kind: "running", offset: 42 }, clockStamp()));
+  assert.ok(!sameStamp(undefined, clockStamp()));
+  // Offline the base is this machine's own clock, on the server's epoch.
+  setClockBase(localClock);
+  adoptClock({ kind: "running", offset: 0 });
+  assert.ok(Math.abs(now() - Date.now()) < 50, "offline: wall time");
 });

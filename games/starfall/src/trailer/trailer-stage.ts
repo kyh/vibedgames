@@ -16,6 +16,7 @@ import {
   SIPHON_OVERHEAL_MAX,
   SPECIAL_WEAPON_DURATION_MS,
   WEAPONS_SPECIAL,
+  WEAPON_DEFAULT,
   bossHp,
   eliteHp,
   scaleWeaponForLevel,
@@ -24,11 +25,15 @@ import {
   spawnOpeningAsteroid,
 } from "../shared/constants";
 import type { EnemyState, ItemDrop } from "../shared/constants";
+import { newBeam } from "../sys/beam";
 import { dist2 } from "../sys/geometry";
 import type { SceneInternals } from "../scenes/game-scene";
 import type { TrailerStageApi, TrailerStaging } from "./trailer-staging";
 
 /** Trailer staging levers (?trailer=1 only): every lever routes through the same gameplay paths the live game uses, so staged shots are real gameplay. */
+
+/** A staged peer bolt's drawn length (px). */
+const STAGED_BOLT_LEN = 14;
 
 /** Install the trailer staging overrides and return the scripted-staging
  *  surface. Only ever called by the trailer director under ?trailer=1 (the
@@ -56,7 +61,6 @@ export const installTrailerStage = (scene: SceneInternals): TrailerStageApi => {
         rec.gfx.destroy();
       }
       scene.view.asteroidObjs.clear();
-      scene.dirty.asteroids = true;
     },
     clearWorld: (): void => {
       sfx.stopAll();
@@ -84,8 +88,7 @@ export const installTrailerStage = (scene: SceneInternals): TrailerStageApi => {
       scene.view.splinters = [];
       scene.weapons.muzzleFlashes = [];
       scene.hits.predictedKills.clear();
-      scene.pickups.recentPickups.clear();
-      scene.pickups.recentShardPickups.clear();
+      scene.pickups.clear();
       scene.shield.recentConsumedShots.clear();
       // Silent display cleanup — bypass the death-FX removal sweeps so a
       // cleared crowd doesn't explode into 40 shatters on the next cut.
@@ -228,7 +231,6 @@ export const installTrailerStage = (scene: SceneInternals): TrailerStageApi => {
           rec.gfx.destroy();
           scene.view.asteroidObjs.delete(a.id);
         }
-        scene.dirty.asteroids = true;
       }
       scene.cameras.main.centerOn(pose.x, pose.y);
     },
@@ -247,7 +249,6 @@ export const installTrailerStage = (scene: SceneInternals): TrailerStageApi => {
       a.vx = 0;
       a.vy = 0;
       scene.world.asteroids.push(a);
-      scene.dirty.asteroids = true;
     },
     spawnBeacon: (x, y, chargeS, activeS): void =>
       scene.host.hostSpawnBeacon(x, y, simNow(), chargeS, activeS),
@@ -264,7 +265,6 @@ export const installTrailerStage = (scene: SceneInternals): TrailerStageApi => {
         e.maxHp = e.hp;
       }
       scene.world.enemies.push(e);
-      scene.dirty.enemies = true;
       return e.id;
     },
     spawnItem: (cls, name, x, y): void => {
@@ -295,9 +295,28 @@ export const installTrailerStage = (scene: SceneInternals): TrailerStageApi => {
       item.vx = 0;
       item.vy = 0;
       scene.world.items.push(item);
-      scene.dirty.items = true;
     },
     spawnShards: (count, x, y): void => scene.hostCombat.hostSpawnShards(x, y, count),
+    stagePeerBolts: (id, bolts): void => {
+      if (!bolts) {
+        scene.remoteFire.stage(id, null);
+        return;
+      }
+      const now = simNow();
+      scene.remoteFire.stage(
+        id,
+        bolts.map((bolt) => {
+          const speed = Math.hypot(bolt.vx, bolt.vy) || 1;
+          const angle = Math.atan2(bolt.vy, bolt.vx);
+          const weapon = { ...WEAPON_DEFAULT, power: bolt.power, tint: bolt.tint, width: 1 };
+          const b = newBeam({ x: bolt.x, y: bolt.y }, angle, weapon, now);
+          b.released = true;
+          b.tail.x = bolt.x - (bolt.vx / speed) * STAGED_BOLT_LEN;
+          b.tail.y = bolt.y - (bolt.vy / speed) * STAGED_BOLT_LEN;
+          return b;
+        }),
+      );
+    },
     staging,
     worldSize: () => ({ h: scene.world.playH, w: scene.world.playW }),
   };

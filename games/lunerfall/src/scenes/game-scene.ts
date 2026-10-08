@@ -4,7 +4,7 @@ import { attachVirtualGamepad } from "@vibedgames/gamepad/phaser";
 import type { ButtonOptions, PhaserGamepad, Viewport } from "@vibedgames/gamepad/phaser";
 
 import { sfx } from "../audio/sfx";
-import { BASE_H, BASE_W, MAX_STEPS, STEP } from "../config";
+import { BASE_H, BASE_W, MAX_LAG, MAX_STEPS, STEP } from "../config";
 import { HERO_NAMES } from "../data/animations";
 import type { EnemyName, HeroName } from "../data/animations";
 import { biomePalette } from "../data/biomes";
@@ -26,7 +26,7 @@ import { newRoomState } from "../state/room-state";
 import type { MerchantItem, RoomState } from "../state/room-state";
 import { newRunState } from "../state/run-state";
 import type { RunState } from "../state/run-state";
-import { livePlayers, newSeatState } from "../state/seat-state";
+import { inputDriven, livePlayers, newSeatState } from "../state/seat-state";
 import type { SeatState } from "../state/seat-state";
 import { dust, wallSmoke } from "../sys/fx";
 import { attachDiag, tickDiag } from "../sys/diag";
@@ -113,6 +113,7 @@ export class GameScene extends Scene implements SceneHooks {
 
   private demo = false;
   private demoT = 0;
+  private lastFrameAt = 0;
   private prevJump = false;
   private prevDash = false;
   private prevAtk = false;
@@ -149,6 +150,7 @@ export class GameScene extends Scene implements SceneHooks {
   create() {
     const params = new URLSearchParams(location.search);
     this.demo = params.get("demo") === "1";
+    this.lastFrameAt = 0;
     const heroName = this.heroParam(params);
     this.run = newRunState();
     this.room = newRoomState();
@@ -287,6 +289,7 @@ export class GameScene extends Scene implements SceneHooks {
     this.hostNet = new HostNet({
       banners: this.banners,
       checkpoint: this.checkpoint,
+      combat: this.combat,
       expedition,
       hooks: this,
       lastStand: this.lastStand,
@@ -586,11 +589,22 @@ export class GameScene extends Scene implements SceneHooks {
   }
 
   // ── frame loop ─────────────────────────────────────────────────────────────
+  // Frame time in seconds. Online it is wall time: Phaser smooths its delta and
+  // pins it to one 60 Hz frame while the window is unfocused, so a throttled
+  // host would run the shared world in slow motion under its guest.
+  private frameSeconds(delta: number): number {
+    const now = performance.now();
+    const wall = this.lastFrameAt === 0 ? delta : now - this.lastFrameAt;
+    this.lastFrameAt = now;
+    const online = this.seat.session !== undefined && !this.seat.session.offline;
+    return online ? Math.min(Math.max(wall, 0) / 1000, MAX_LAG) : Math.min(delta, 100) / 1000;
+  }
+
   update(_t: number, delta: number) {
     this.expeditionHud?.setVisible(
       !this.seat.controlsPaused && this.run.state === "active" && !this.trailer.active,
     );
-    const dts = Math.min(delta, 100) / 1000;
+    const dts = this.frameSeconds(delta);
     this.banners.update(dts * 1000);
     this.demoT += dts;
     tickDiag();
@@ -629,14 +643,10 @@ export class GameScene extends Scene implements SceneHooks {
       this.hostNet.syncRemotePresence();
     }
     this.bufferAuthorityInputs();
-    this.run.acc += dts;
+    this.run.acc = Math.min(this.run.acc + dts, MAX_LAG);
     let steps = 0;
     while (this.run.acc >= STEP && steps < MAX_STEPS) {
-      if (this.run.freeze > 0) {
-        this.run.freeze -= STEP;
-      } else {
-        this.simStep(STEP);
-      }
+      this.fixedStep();
       this.run.acc -= STEP;
       steps += 1;
     }
@@ -656,6 +666,25 @@ export class GameScene extends Scene implements SceneHooks {
     if (this.seat.role === "host") {
       this.hostNet.broadcast(dts);
     }
+  }
+
+  // One authority step. Hit-stop is feel for the bodies on this screen: the
+  // guest never freezes its own prediction, so its copy here keeps taking its
+  // input — and its blade keeps cutting — or the two would drift apart.
+  private fixedStep() {
+    // Anything done to the guest's body between steps (a rematch respawn)
+    // happened before this step's input tick.
+    this.hostNet.drainGuest();
+    const guestMoved = this.hostNet.stepGuest();
+    if (this.run.freeze > 0) {
+      this.run.freeze -= STEP;
+      if (guestMoved && this.seat.remote && !this.run.match) {
+        this.combat.playerOffense(this.seat.remote);
+      }
+    } else {
+      this.simStep(STEP);
+    }
+    this.hostNet.drainGuest();
   }
 
   private updateDead(dts: number) {
@@ -701,17 +730,14 @@ export class GameScene extends Scene implements SceneHooks {
     }
   }
 
-  // Host / solo: feed this frame's inputs (scripted by the trailer, else local +
-  // the guest's wire input) into the bodies, honouring the versus freeze/rematch.
+  // Host / solo: feed this frame's inputs into the bodies, honouring the versus
+  // freeze/rematch. A guest's body takes its own input tick by tick in
+  // fixedStep (host-net.ts); only the trailer scripts a second local body.
   private bufferAuthorityInputs() {
     const scripted = this.trailer.input ? this.trailer.input() : null;
     const snap = scripted ? scripted.p1 : this.localInput();
-    let remoteIn: InputState | null = null;
-    if (scripted) {
-      remoteIn = scripted.p2;
-    } else if (this.seat.remote) {
-      remoteIn = this.hostNet.readRemoteInput();
-    }
+    const remoteIn = scripted?.p2 ?? null;
+    const guestRematch = this.hostNet.takeRematch();
     if (!this.run.match) {
       this.seat.player.buffer(snap);
       if (this.seat.remote && remoteIn) {
@@ -720,7 +746,10 @@ export class GameScene extends Scene implements SceneHooks {
       return;
     }
     // Match over + hold lapsed: either duelist's attack press restarts it.
-    if (this.run.match.canRematch && (snap.attackPressed || (remoteIn?.attackPressed ?? false))) {
+    if (
+      this.run.match.canRematch &&
+      (snap.attackPressed || guestRematch || (remoteIn?.attackPressed ?? false))
+    ) {
       this.run.match.beginMatch();
       this.versus.respawn();
       this.banners.show("REMATCH — ROUND 1", 1100, "critical");
@@ -742,11 +771,12 @@ export class GameScene extends Scene implements SceneHooks {
     this.seat.controlsPaused = paused;
     this.expeditionHud?.setVisible(!paused && this.run.state === "active" && !this.trailer.active);
     this.controls?.reset();
-    this.seat?.player.body.clearInput();
-    this.seat.guestIn = NEUTRAL_INPUT;
-    if (this.seat.session?.live) {
-      this.online.sendInput(NEUTRAL_INPUT);
+    if (this.seat.role === "guest") {
+      this.guest.dropQueued();
+    } else {
+      this.seat.player.body.clearInput();
     }
+    this.seat.guestIn = NEUTRAL_INPUT;
   }
 
   // ── sim tick (host / solo) ─────────────────────────────────────────────────
@@ -762,7 +792,9 @@ export class GameScene extends Scene implements SceneHooks {
       }
     }
     for (const pl of livePlayers(this.seat)) {
-      pl.step(dt);
+      if (!inputDriven(this.seat, pl)) {
+        pl.step(dt);
+      }
     }
     for (const e of this.room.enemies) {
       const t = this.combat.nearestPlayer(e.body.x, e.body.y);
@@ -834,8 +866,8 @@ export class GameScene extends Scene implements SceneHooks {
   }
 
   updateHud() {
-    const special =
-      this.seat.role === "guest" ? this.room.guest.special : this.seat.player.body.specialReadiness;
+    // A guest's own body is predicted exactly, specials included.
+    const special = this.seat.player.body.specialReadiness;
     const visible =
       !this.seat.controlsPaused && this.run.state === "active" && !this.trailer.active;
     if (this.seat.mode === "versus") {
@@ -847,8 +879,10 @@ export class GameScene extends Scene implements SceneHooks {
     const biome = guest ? this.expedition.biome : this.expedition.biome;
     const depth = guest ? this.expedition.depth : this.expedition.depth;
     const type = guest ? this.expedition.type : this.expedition.type;
-    const boss = guest ? this.room.guest.bossPuppet?.net : this.room.boss?.body;
-    const bossName = boss && !boss.dead ? bossKind(biome).name : null;
+    const bossAlive = guest
+      ? (this.room.guest.bossPuppet?.interp.latest?.state ?? "dead") !== "dead"
+      : this.room.boss !== null && !this.room.boss.body.dead;
+    const bossName = bossAlive ? bossKind(biome).name : null;
     if (!this.trailer.active) {
       this.layoutHudText(type, bossName !== null);
     }

@@ -8,7 +8,7 @@
 pnpm dev:battle-arena                       # http://localhost:5194
 pnpm --filter @repo/battle-arena typecheck
 pnpm --filter @repo/battle-arena build
-pnpm --filter @repo/battle-arena test       # sim harness (tools/verify-timing.mts) + pure-logic tests (tools/verify-logic.mts)
+pnpm --filter @repo/battle-arena test       # sim harness (tools/verify-timing.mts) + pure-logic tests (tools/verify-logic.mts) + headless host/guest netcode under latency and jitter (tools/verify-netcode.mts)
 ```
 
 ## Routes
@@ -31,4 +31,10 @@ pnpm --filter @repo/battle-arena test       # sim harness (tools/verify-timing.m
 | `?name=NAME`       | player name (max 14 chars; falls back to localStorage, then "Player")     |
 | `?party=PORT\|URL` | dev-only party-server override (ignored in production builds)             |
 
-Multiplayer is host-authoritative via `@vibedgames/multiplayer`: guests send intent events, only the host mutates the world and broadcasts snapshots (`src/net/protocol.ts`).
+Multiplayer is host-authoritative via `@vibedgames/multiplayer` (`src/net/`):
+
+- **Host** (`host-net.ts`) runs the 30 Hz sim on real elapsed time, sends one delta **frame** per tick to the guests (`frames.ts`: only what changed — a few hundred bytes), and the whole world ~1 Hz in `sharedState.snap` for late joiners. Frames carry every field the sim reads (RNG state and id counter included), so a guest's copy is the host's world. Every frame and snapshot is stamped with the room's server time (`client.serverNow()`), so the stream keeps one clock whoever hosts.
+- **Guest** predicts its own hero with the sim's movement code the frame input changes (`own-hero.ts`), sends that tick's input to the host only when it changes, and reconciles against the host's copy using the host's input ack. Everyone else is drawn ~100 ms behind the newest frame's arrival, interpolated between frames on the server clock less the measured host → server → guest trip (`mirror.ts`).
+- The host replays each guest's inputs on that guest's own tick spacing behind a small jitter buffer (`input.ts`), so jitter neither drops a tap nor stretches a hold.
+- **Host handover** (`host-state.ts` `takeOver`): when the host leaves, the guest the server elects carries the match on from its own copy as of the newest frame — units, camps, coins, strikes, timers, scores, the RNG — with its own hero where prediction drew it. Only a copy that missed frames (no snapshot has arrived live since it joined) falls back to the room's snapshot, up to a second old. The other guests keep their interpolation samples and prediction, re-learn the trip (the new host's frames come by another route) and re-send their held input to the new host.
+- Room ids carry `NETCODE_VERSION` (`protocol.ts`): bump it with any wire-format change, so tabs on an old bundle never share a match with new ones.

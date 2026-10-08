@@ -59,6 +59,8 @@ export interface StarfallSummary {
   items: ItemState["kind"][];
   shards: number;
   beams: number;
+  /** Other players' shots this client is flying (rebuilt from fire events). */
+  remoteBeams: number;
   isHost: boolean;
   intensity: number;
   now: number;
@@ -76,7 +78,10 @@ export interface StarfallSceneProbe {
   readonly paused: boolean;
   readonly wasHost: boolean;
   readonly hostSnapshotReady: boolean;
+  /** Send a raw event to the host (to the local inbox when I am host). */
   netSendEvent: (event: string, payload: WireRecord) => void;
+  /** Where a remote ship is drawn this frame (its interpolated pose). */
+  peerPose: (id: string) => { x: number; y: number; angle: number } | null;
 }
 
 export interface StarfallDevHooks {
@@ -185,9 +190,13 @@ export const installDevHooks = (scene: SceneInternals): void => {
       get hostSnapshotReady() {
         return scene.link.hostSnapshotReady;
       },
-      netSendEvent: (event, payload) => scene.link.send(event, payload),
+      netSendEvent: (event, payload) => scene.link.toHost(event, payload),
       get paused() {
         return scene.link.paused;
+      },
+      peerPose: (id) => {
+        const st = scene.link.peerStates.get(id);
+        return st ? { angle: st.angle, x: st.x, y: st.y } : null;
       },
       get shipX() {
         return scene.pilot.shipX;
@@ -202,13 +211,13 @@ export const installDevHooks = (scene: SceneInternals): void => {
         return scene.world;
       },
     },
-    /** Host only: rewind/forward the intensity director. */
+    /** Host only: rewind/forward the intensity director (sim clock; the
+     *  next share puts it on the wire as server time). */
     setArenaEpoch: (epochMs: number): void => {
       if (!scene.link.amHost) {
         return;
       }
       scene.world.arenaEpoch = epochMs;
-      scene.link.patchShared({ arenaEpoch: epochMs });
     },
     /** Set the base shield directly; stamps the damage clock so regen
      *  behaves as after a real drain. 0 = death (via the real pipeline). */
@@ -250,7 +259,6 @@ export const installDevHooks = (scene: SceneInternals): void => {
         e.maxHp = e.hp;
       }
       scene.world.enemies.push(e);
-      scene.dirty.enemies = true;
       return e.id;
     },
     /** Host only: drop a live item at (x,y) (defaults to the ship, so it gets
@@ -280,7 +288,6 @@ export const installDevHooks = (scene: SceneInternals): void => {
         return;
       }
       scene.world.items.push(spawnItemState(x ?? scene.pilot.shipX, y ?? scene.pilot.shipY, drop));
-      scene.dirty.items = true;
     },
     summary: (): StarfallSummary => ({
       alive: scene.pilot.alive,
@@ -309,6 +316,10 @@ export const installDevHooks = (scene: SceneInternals): void => {
             : 0,
       },
       regen: scene.shield.regenActive,
+      remoteBeams: [...scene.link.peerStates.keys()].reduce(
+        (n, id) => n + scene.remoteFire.beamsOf(id).filter((b) => !b.vanished).length,
+        0,
+      ),
       runXp: scene.progress.runXp,
       sector: {
         best: scene.hud.sectorBest,

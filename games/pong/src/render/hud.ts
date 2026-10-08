@@ -1,7 +1,7 @@
 // The DOM HUD above the canvas: score, banner card, net status, match point,
 // power-charge meter, rally/shot callouts and the serve countdown. Un-dithered
-// crisp ink. A guest resyncs it from every 30 Hz snapshot, so each write is
-// change-checked to keep the DOM idle between real changes.
+// crisp ink. The scene resyncs it every frame, so each write is change-checked
+// to keep the DOM idle between real changes.
 
 import { AUTO_SERVE_S, COMBO_MIN, COMBO_PEAK_HITS, WIN_SCORE } from "../shared/constants";
 import type { Phase } from "../shared/constants";

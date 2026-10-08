@@ -113,9 +113,7 @@ export class RoomBuilder {
     this.room.bossAnnounced = false;
     clearFx(this.scene);
     this.room.guest.payoff = null;
-    this.room.guest.cueBaseline = true;
-    this.room.guest.progressTick = -1;
-    this.room.guest.special = { kind: "unknown" };
+    this.room.guest.progressT = -1;
     this.room.guest.players = [];
     this.layer?.destroy();
     for (const o of this.parallax) {
@@ -167,10 +165,10 @@ export class RoomBuilder {
     this.room.guest.enemyPuppets.clear();
     this.room.guest.bossPuppet?.view.destroy();
     this.room.guest.bossPuppet = undefined;
-    for (const s of this.room.guest.proj) {
-      s.destroy();
+    for (const p of this.room.guest.proj.values()) {
+      p.spr.destroy();
     }
-    this.room.guest.proj = [];
+    this.room.guest.proj.clear();
   }
 
   // Bind the camera to the current room's pixel extent and follow the local
@@ -450,8 +448,12 @@ export class RoomBuilder {
     }
     this.embers = ambientEmbers(this.scene, pal.oneway, g.cols * TILE, g.rows * TILE);
     this.room.roomSpawn = { x: room.spawnX, y: room.spawnY };
-    // Versus: the guest duels from the mirrored right-hand spawn.
-    const ownRight = vs && this.seat.seats.guest === this.seat.session?.playerId;
+    // Versus: the right-hand duelist spawns mirrored. A player the host has
+    // not seated yet takes the first free seat — the left one only if empty —
+    // exactly where the host is about to spawn its copy.
+    const me = this.seat.session?.playerId;
+    const { seats } = this.seat;
+    const ownRight = vs && (seats.guest === me || (seats.host !== me && seats.host !== null));
     this.seat.player.enterRoom(
       g,
       ownRight ? g.cols * TILE - room.spawnX : room.spawnX,
@@ -471,9 +473,6 @@ export class RoomBuilder {
     this.run.mustClear = room.mustClear;
     this.run.cleared = !room.mustClear;
     this.room.seq = room.seq;
-    // fresh room, fresh trajectory
-    this.room.guest.reconciler.reset();
-    this.room.guest.selfHurting = false;
     this.banners.show(vs ? "VERSUS" : ROOM_LABEL[type], 1000, vs ? "critical" : "status");
   }
 

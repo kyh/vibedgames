@@ -111,20 +111,33 @@ on `offline` gives a connected solo host no bots and an offline player a
 
 ## Throttling
 
-Don't send state every frame. ~20Hz is plenty:
+Don't send state every frame. 20–30 Hz is plenty, on a clock that ignores the
+frame rate. `frame % 3` sends 48 times a second on a 144 Hz monitor. The other
+usual throttle, `acc += dt; if (acc >= 1 / 20) { acc = 0; send(); }`, throws away
+the remainder: at 60 fps it fires every 4th frame (~15 Hz) with uneven gaps, and
+receivers see the unevenness as stutter. `FixedRate` keeps the remainder:
 
 ```ts
-let frame = 0;
-function update() {
-  frame++;
-  if (frame % 3 === 0) {
-    session.setPosition(x, y);
+import { FixedRate } from "@vibedgames/multiplayer";
+
+const net = new FixedRate(20);
+function update(deltaMs: number) {
+  if (net.due(deltaMs)) {
+    // stamp every send with server time — receivers interpolate on it (see Latency)
+    client.updateMyState({ t: Math.round(client.serverNow()), x, y });
   }
 }
 ```
 
-For input intents (`sendEvent`), prefer **send-on-change**: only emit when
-the held-button state flips, not every frame.
+Keep ticking while the player stands still. Unchanged primitives never ride
+the wire, so an idle tick costs only the `t` key, and the receiver gets a final
+resting sample. Never put a big array or object in a per-tick patch: the SDK
+diffs only primitive keys and re-sends every object or array value whole.
+
+For input intents (`sendEvent`), prefer **send-on-change**: only emit when the
+held-button state flips, never every frame. Address them to the host:
+`{ to: client.hostId }`. The host handles its own intents locally, without the
+server round trip.
 
 ## Reconnection UX
 
@@ -206,21 +219,138 @@ room for everyone because one player opened a menu.
 
 ## Latency
 
-Localhost hides it; a 200 ms room shows it. The rule is **interpolate remotes,
-predict yourself**. Remote players render from snapshots, blended toward the
-newest one — never re-blended toward a stale one, which drags them backwards.
-The guest's _own_ body runs the real fixed-step sim on local input the frame a
-key goes down, and the host's authoritative copy — which lags local time by
-~RTT — is reconciled against a short history of recent predicted positions, not
-the current one: comparing against "now" reports a phantom error of velocity ×
-latency and drags a running player backwards forever. If the authority sits on
-the recent trajectory, nothing is corrected; a small deviation blends out a
-fraction per snapshot; a large one (respawn, teleport, a hit's knockback) snaps
-— the jerk _is_ the feedback, so hits and respawns are applied on their state
-edges rather than smoothed. Make the driver explicit per body:
-`bodyDrive = "sim" | "predict" | "puppet"` — `sim` on the host/solo,
-`predict` for the guest's own body, `puppet` for everyone else the guest sees —
-so exactly one thing advances each body per frame.
+Localhost hides latency; a 200 ms room shows it. The rule is **interpolate
+remotes, predict yourself**. Make the driver explicit per body, so exactly one
+thing advances each body per frame:
+`bodyDrive = "sim" | "predict" | "puppet"`.
+
+- `sim` is the host's or solo player's body.
+- `predict` is a guest's own body.
+- `puppet` is everyone else the guest sees.
+
+**Remotes (puppets): `Interpolator`.** Never chase the newest value. An
+exponential lerp toward it surges on every packet and stalls on every gap, and
+snapping or tweening per packet is worse. Every sender stamps its updates with
+the room's server clock, `t: Math.round(client.serverNow())`. Receivers push
+each update and render about 100 ms behind the moment updates arrive, blending
+the two updates that bracket it:
+
+```ts
+import { Interpolator, lerp, lerpAngle } from "@vibedgames/multiplayer";
+
+const lerpPose = (a: Pose, b: Pose, k: number): Pose => ({
+  x: lerp(a.x, b.x, k),
+  y: lerp(a.y, b.y, k),
+  angle: lerpAngle(a.angle, b.angle, k),
+});
+const remotes = new Map<string, Interpolator<Pose>>();
+// each frame, per remote player (duplicate stamps are dropped):
+let interp = remotes.get(id);
+if (!interp) {
+  interp = new Interpolator({ lerp: lerpPose });
+  remotes.set(id, interp);
+}
+interp.push(s.t, { x: s.x, y: s.y, angle: s.angle });
+const pose = interp.sample(); // undefined until the first update
+```
+
+- **Delay.** 100 ms suits 20–30 Hz senders; use ~150 ms for 10–15 Hz.
+- **Discontinuities.** Call `clear()` on a respawn or teleport, so the entity
+  snaps instead of gliding through walls.
+- **Which clock.** Each `Interpolator` reads stamps through a `RemoteClock`
+  (a private one by default), which learns from arrivals how long a sender's
+  updates take to reach you, so the delay only covers jitter. Never render on
+  `client.serverClock` with a fixed delay: a server-time stamp arrives a whole
+  relay (sender → server → you, often 100–200 ms) after it was taken.
+- **Host snapshots.** The host stamps each snapshot with `client.serverNow()`
+  too; the units in it share one `RemoteClock`
+  (`new Interpolator({ clock: hostClock, lerp })`). `reset()` it when `hostId`
+  changes: the new host's route differs, while its stamps carry straight on.
+- **Grid or step movers.** Stamp each step when it starts, like any other
+  update. Never stamp a future arrival time: the clock reads every stamp as send
+  time, so a shifted stamp skews every entity from that sender. Set `delayMs` to
+  at least one stride plus jitter and `maxExtrapolateMs: 0`. The mover then walks
+  each step evenly and never overshoots a tile.
+
+**Own body (predict): `Reconciler`.** The guest runs the real movement code on
+local input the frame a key goes down. The host's authoritative copy lags local
+time by about one round trip. Comparing it with the body's position _now_
+reports a phantom error of speed × latency, which drags a running player
+backwards forever. Compare it with where the body was at the matching time
+instead:
+
+1. The guest tags each input with a `seq` and remembers when it was sent.
+2. The host reports, per guest body, the newest seq it applied and how long it
+   has applied it (`ack`, `ackAge`).
+3. The guest calls `reconciler.reconcile(x, y, sentAt[ack] + ackAge)`.
+
+Without timing, the host's copy is matched to the nearest point of the recent
+path instead. That needs no extra wire data, but it can't see along-track
+error until the body stops. Every frame, apply `reconciler.step(...)`'s
+correction to the body.
+
+What happens to the remaining error depends on its size:
+
+- **Inside the dead zone:** nothing.
+- **Small:** eased out over about 100 ms.
+- **Large** (a hit's knockback, a missed collision): applied at once. The jerk
+  _is_ the feedback.
+
+Respawns and teleports are not errors: place the body and call `clear()`.
+
+**The two sims must agree.** Anything the host does to the guest's copy that
+the guest doesn't predict becomes a correction the player feels as
+rubber-banding. Examples are hit-stop freezing every body, a separation push,
+a speed debuff, or a stomp bounce. Either run it on the guest too, or deliver
+it as a state edge (a `hitSeq` in the row) that the guest applies locally.
+
+## Races: claims
+
+Two players reach the same pellet, pickup or harvest in the same frame. Asking
+the host to decide costs the guest a round trip and hands the host every tie.
+Claim it instead: the server decides first come, first served, in one hop.
+
+```ts
+client.claim(`pellet:${i}`); // eat it now, optimistically
+// onClaim option: (key, owner) => { if (owner !== client.playerId) undoEat(key) }
+client.clearClaims("pellet:"); // host, on a new level
+```
+
+A refused claimer alone hears who holds the key; everyone hears a grant. Claims
+outlive their owner (an eaten pellet stays eaten) and arrive in the join sync;
+`ttlMs` releases a short hold automatically. The host still applies the effect
+(score, respawn timer) when it hears the grant: the claim settles who, not what.
+
+## Lockstep and rollback: tick rooms
+
+A deterministic game (fighting, pong, RTS) can skip the host entirely: pass
+`tickRate`, send inputs on change with `sendInput`, and step the sim from
+`onTick({ n, inputs })` — every client gets the same inputs on the same ticks.
+The server only keeps time and orders inputs. For rollback, simulate ahead on
+predicted inputs (each player's held one) and re-simulate from tick `n` when
+`onTick` reports a change you didn't predict. `sendInput(input,
+client.serverTick() + delay)` schedules a few ticks ahead to hide latency. A
+blip replays the missed ticks through `onTick`; a joiner starts from
+`tickClock` and `tickInputs()`, or from a world the host published with its
+tick, replayed forward with `tickInputs(t)`. The sim must be deterministic:
+fixed steps, no `Math.random()` without a shared seed, no frame-time
+integration.
+
+## Big worlds: interest
+
+`interest: { radius }` stops the server sending a player the state of anyone
+farther away; such players read `visible: false` (hide them, and drop their
+`Interpolator`), and come back with their whole state. The host always sees
+everyone. Pick the radius past the edge of the screen, so nobody pops in view.
+
+## Bounds: limits
+
+`limits: { hp: { min: 0, max: 100 } }` makes the server drop player-state
+patches outside the range. It is a cheap guard against a hacked client writing
+nonsense into its own slot, not a substitute for the host validating intents.
+
+Room rules (`tickRate`, `interest`, `limits`, like `maxPlayers`) come from the
+first client into an empty room, so every client must pass the same ones.
 
 ## Automated two-client check
 

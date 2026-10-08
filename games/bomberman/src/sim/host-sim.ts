@@ -1,7 +1,8 @@
 // Host-authoritative simulation: one pure step over the shared world. State
-// and the humans' positions come in, a shallow patch (only the fields that
-// changed — bot moves fire every tick, and the 285-cell grid must not ride
-// along) and the pickup beats to announce come out. No Phaser, no clock, no
+// and the humans' positions come in, and a shallow patch comes out: only the
+// fields that changed, since bot moves fire every tick and the 285-cell grid
+// must not ride along. Power-ups are not collected here: whoever steps on one
+// claims it from the room (net/pickup-claims). No Phaser, no clock, no
 // network: the scene owns those, which keeps this runnable under Node.
 
 import {
@@ -41,18 +42,8 @@ export interface Human {
   pos: { col: number; row: number } | null;
 }
 
-/** The authoritative grant of a powerup — the only source of pickup feedback. */
-export type Pickup = {
-  col: number;
-  row: number;
-  kind: PowerupKind;
-  collector: string;
-  round: number;
-};
-
 export interface HostTickResult {
   patch: Partial<SharedState> | null;
-  pickups: Pickup[];
 }
 
 type Position = [id: string, col: number, row: number];
@@ -102,16 +93,28 @@ const cloneBots = (bots: Record<string, Bot>) => {
 const randomKind = (random: () => number): PowerupKind =>
   POWERUP_KINDS[Math.floor(random() * POWERUP_KINDS.length)] ?? "bomb";
 
-const makeBomb = (ownerId: string, col: number, row: number, range: number, now: number): Bomb => ({
+/** A human's bomb is named by its owner's own press counter, so the guest that
+ *  pressed can show it before the host answers and recognise the host's copy. */
+export const bombId = (ownerId: string, localId: number): string => `b-${ownerId}-${localId}`;
+
+const makeBomb = (
+  ownerId: string,
+  col: number,
+  row: number,
+  range: number,
+  now: number,
+  localId?: number,
+): Bomb => ({
   col,
-  id: `b-${ownerId}-${now}-${col}-${row}`,
+  id: localId === undefined ? `b-${ownerId}-${now}-${col}-${row}` : bombId(ownerId, localId),
   ownerId,
   placedAt: now,
   range,
   row,
 });
 
-const grantPowerup = (stats: PlayerStats, kind: PowerupKind): PlayerStats => {
+/** A fighter's stats with one more power-up of `kind`, capped. */
+export const grantPowerup = (stats: PlayerStats, kind: PowerupKind): PlayerStats => {
   switch (kind) {
     case "bomb": {
       return { ...stats, bombs: Math.min(MAX_BOMBS, stats.bombs + 1) };
@@ -162,8 +165,9 @@ const occupiedTiles = (
 
 // ---- bot AI helpers ---------------------------------------------------------
 
-/** A bot steps on the first host tick past BOT_MOVE_MS, so a step can run this
- *  much long; deaths resolve on that same tick grid, hence the margin. */
+/** Slack per stride when judging when a bot is off a tile. Strides are exact on
+ *  the fixed host step, but deaths resolve on that step's grid, and erring late
+ *  keeps bots out of fire they would only just clear. */
 const BOT_STEP_SLACK_MS = 100;
 const BURN_MARGIN_MS = 100;
 const BOT_FLEE_STEPS = 9;
@@ -386,18 +390,28 @@ const botWander = (ctx: BotContext, bot: Bot, windows: Map<string, Burn>): void 
   moveBot(bot, pick, now);
 };
 
-/** One bot's turn. Returns true if the bot record changed. */
-const tickBot = (ctx: BotContext, bot: Bot): boolean => {
+/** What a bot's turn changed. Each flag puts a whole record on the wire, so
+ *  a turn that only rescheduled the bot must not resend the bombs. */
+interface Turn {
+  bot: boolean;
+  bomb: boolean;
+}
+
+const NO_TURN: Turn = { bomb: false, bot: false };
+const MOVED: Turn = { bomb: false, bot: true };
+
+/** One bot's turn. */
+const tickBot = (ctx: BotContext, bot: Bot): Turn => {
   const { next, now } = ctx;
   if (next.deaths[bot.id]) {
     if (bot.moving) {
       bot.moving = false;
-      return true;
+      return MOVED;
     }
-    return false;
+    return NO_TURN;
   }
   if (now < bot.nextMoveAt) {
-    return false;
+    return NO_TURN;
   }
   const windows = burnWindows(next, Object.values(next.bombs));
   if (windows.has(tileKey(bot.col, bot.row))) {
@@ -405,25 +419,24 @@ const tickBot = (ctx: BotContext, bot: Bot): boolean => {
     // a blast that burns out can open one.
     const dir = escapeDir(next, windows, bot, now);
     moveBot(bot, dir ? neighborOf(bot.col, bot.row, dir) : null, now);
-    return true;
+    return MOVED;
   }
   if (botAttack(ctx, bot, next.stats[bot.id] ?? baseStats())) {
-    return true;
+    return { bomb: true, bot: true };
   }
   botWander(ctx, bot, windows);
-  return true;
+  return MOVED;
 };
 
-/** Returns true if any bot moved or placed a bomb. */
 const tickBots = (
   next: SharedState,
   humans: readonly Human[],
   now: number,
   random: () => number,
-): boolean => {
+): Turn => {
   const bots = Object.values(next.bots);
   if (bots.length === 0) {
-    return false;
+    return NO_TURN;
   }
   const ctx: BotContext = {
     enemies: fighterPositions(next, humans),
@@ -432,11 +445,11 @@ const tickBots = (
     now,
     random,
   };
-  let changed = false;
+  const changed = { ...NO_TURN };
   for (const bot of bots) {
-    if (tickBot(ctx, bot)) {
-      changed = true;
-    }
+    const turn = tickBot(ctx, bot);
+    changed.bot ||= turn.bot;
+    changed.bomb ||= turn.bomb;
   }
   return changed;
 };
@@ -578,26 +591,6 @@ const expireBlasts = (next: SharedState, now: number, d: Dirty): void => {
   }
 };
 
-/** Grant the powerup under each living fighter. Only the authoritative grant
- *  emits a pickup beat — a blast deleting a pickup produces no collection
- *  feedback, even at capped stats. */
-const collectPowerups = (next: SharedState, livePos: Position[], d: Dirty): Pickup[] => {
-  const pickups: Pickup[] = [];
-  for (const [fid, col, row] of livePos) {
-    const key = tileKey(col, row);
-    const pu = next.powerups[key];
-    if (!pu) {
-      continue;
-    }
-    next.stats[fid] = grantPowerup(next.stats[fid] ?? baseStats(), pu.kind);
-    next.powerups = keepKeys(next.powerups, (k) => k !== key);
-    pickups.push({ col, collector: fid, kind: pu.kind, round: next.startedAt, row });
-    d.powerups = true;
-    d.stats = true;
-  }
-  return pickups;
-};
-
 /** Deaths from live blasts. */
 const applyBlastDeaths = (next: SharedState, livePos: Position[], now: number, d: Dirty): void => {
   const liveBlasts = Object.values(next.blasts);
@@ -697,28 +690,31 @@ export const hostTick = (
   expireBlasts(next, now, d);
 
   // Bot AI moves bots and may place bot bombs (into next.bombs).
-  if (tickBots(next, humans, now, random)) {
-    d.bots = true;
-    d.bombs = true;
-  }
+  const turns = tickBots(next, humans, now, random);
+  d.bots ||= turns.bot;
+  d.bombs ||= turns.bomb;
 
   // Positions of every living fighter (humans from connections, bots from
-  // the freshly-moved bot records), for pickups + death.
+  // the freshly-moved bot records), for deaths.
   const livePos = fighterPositions(next, humans);
-  const pickups = collectPowerups(next, livePos, d);
   applyBlastDeaths(next, livePos, now, d);
   resolveWinner(next, [...humanIds, ...Object.keys(next.bots)], d);
 
-  return { patch: buildPatch(next, d), pickups };
+  return { patch: buildPatch(next, d) };
 };
 
-/** A human's bomb request: the new bombs record, or null when the rules refuse it. */
+/**
+ * A human's bomb request: the new bombs record, or null when the rules refuse
+ * it. `localId` is the owner's press counter (see `bombId`); a guest runs the
+ * same rule on its own view to predict the answer.
+ */
 export const placeBomb = (
   s: SharedState,
   ownerId: string,
   col: number,
   row: number,
   now: number,
+  localId?: number,
 ): Record<string, Bomb> | null => {
   if (s.deaths[ownerId]) {
     return null;
@@ -731,6 +727,10 @@ export const placeBomb = (
   if (active >= stats.bombs) {
     return null;
   }
-  const bomb = makeBomb(ownerId, col, row, stats.range, now);
+  const bomb = makeBomb(ownerId, col, row, stats.range, now, localId);
+  // A replayed press must not overwrite the bomb it already placed.
+  if (s.bombs[bomb.id]) {
+    return null;
+  }
   return { ...s.bombs, [bomb.id]: bomb };
 };

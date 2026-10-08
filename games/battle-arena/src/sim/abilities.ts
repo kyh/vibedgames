@@ -676,6 +676,46 @@ const dispatchEffect = (
   }
 };
 
+// ── Self-motion (the movement half of DASH and JUMP) ─────────────────────────
+/** Move the caster for a DASH or JUMP and return the JUMP's airtime (ms; 0 for
+ *  a DASH). Every DASH is the same move (mage's is a blink — `range` instead of
+ *  `speed`); a JUMP is a leap toward the aim, or for an AERIAL kit (`air`) a
+ *  spring straight up into a hover (a zero-speed dash) to fire from the apex.
+ *  dispatch() runs it on the host; predictMotion() runs it on a guest's own
+ *  hero so the move starts the frame it is pressed, with this same code. */
+const castMotion = (
+  w: World,
+  c: Unit,
+  def: AbilityDef,
+  key: "DASH" | "JUMP",
+  dir: { x: number; y: number },
+): number => {
+  const v = (f: string) => valAt(def.values[f], c.abilities[key].rank);
+  if (key === "DASH") {
+    if (def.values["speed"]) {
+      startDash(c, dir, v("speed"), def.castRange, w);
+    } else {
+      const range = v("range");
+      const dest = clampToArena(c.x + dir.x * range, c.y + dir.y * range, c.radius);
+      const safe = resolveObstacles(dest.x, dest.y, c.radius);
+      w.fx.push({ t: "blink", tx: safe.x, ty: safe.y, x: c.x, y: c.y });
+      c.x = safe.x;
+      c.y = safe.y;
+    }
+    return 0;
+  }
+  if (def.values["air"]) {
+    const airMs = v("air") * 1000;
+    startHover(c, w, airMs);
+    c.jumpUntil = w.now + airMs;
+    return airMs;
+  }
+  startDash(c, dir, JUMP_LEAP_SPEED, def.castRange, w);
+  const leapMs = Math.max(JUMP_DIVE_MS, (def.castRange / JUMP_LEAP_SPEED) * 1000);
+  c.jumpUntil = w.now + leapMs;
+  return leapMs;
+};
+
 // ── Dispatch (cast-time half) ────────────────────────────────────────────────
 const dispatch = (
   w: World,
@@ -688,40 +728,23 @@ const dispatch = (
   const r = c.abilities[key].rank;
   const v = (f: string) => valAt(def.values[f], r);
 
-  // Every DASH is the same move (mage's is a blink — `range` instead of
-  // `speed`); every JUMP is a leap whose slam resolves on landing.
   if (key === "DASH") {
-    if (def.values["speed"]) {
-      startDash(c, dir, v("speed"), def.castRange, w);
-    } else {
-      const range = v("range");
-      const dest = clampToArena(c.x + dir.x * range, c.y + dir.y * range, c.radius);
-      const safe = resolveObstacles(dest.x, dest.y, c.radius);
-      w.fx.push({ t: "blink", tx: safe.x, ty: safe.y, x: c.x, y: c.y });
-      c.x = safe.x;
-      c.y = safe.y;
-    }
+    castMotion(w, c, def, key, dir);
     addStatus(c, { id: "dash", kind: "untargetable", until: w.now + v("iframe") * 1000 });
     return true;
   }
   if (key === "JUMP") {
-    // An AERIAL jump (`air`) doesn't travel: you spring straight up, hang, and
-    // fire from the apex. You're pinned (a zero-speed dash = a hover) and
-    // untargetable for the whole window — the trade is commitment for immunity.
     if (def.values["air"]) {
-      const airMs = v("air") * 1000;
-      startHover(c, w, airMs);
-      c.jumpUntil = w.now + airMs;
+      // pinned and untargetable for the whole hover — commitment for immunity
+      const airMs = castMotion(w, c, def, key, dir);
       addStatus(c, { id: "jump", kind: "untargetable", until: w.now + v("iframe") * 1000 });
       // fires at the apex
       scheduleStrike(w, c, key, airMs * 0.45, dir, { x: c.x, y: c.y });
       return true;
     }
-    // otherwise: leap toward the aim; the slam damage is a PendingStrike at touchdown
-    startDash(c, dir, JUMP_LEAP_SPEED, def.castRange, w);
-    const leapMs = Math.max(JUMP_DIVE_MS, (def.castRange / JUMP_LEAP_SPEED) * 1000);
-    c.jumpUntil = w.now + leapMs;
+    // the slam damage is a PendingStrike at touchdown
     const land = { x: c.x + dir.x * def.castRange, y: c.y + dir.y * def.castRange };
+    const leapMs = castMotion(w, c, def, key, dir);
     scheduleStrike(w, c, key, leapMs, dir, land);
     return true;
   }
@@ -729,31 +752,56 @@ const dispatch = (
   return dispatchEffect(w, c, def, key, dir, point);
 };
 
-/** Try to cast caster's ability `key`. Returns true on success (host-side). */
-export const castAbility = (w: World, caster: Unit, key: AbilityKey, ctx: CastCtx): boolean => {
+/** The ability `key` resolves to when the caster may cast it right now, else
+ *  null. These are castAbility's gates; a guest checks the same ones before
+ *  predicting its own DASH/JUMP, so it never shows a move the host refuses. */
+export const castableDef = (w: World, caster: Unit, key: AbilityKey): AbilityDef | null => {
   if (!caster.alive || caster.kind !== "hero") {
-    return false;
+    return null;
   }
   const def = CHAMP_BY_ID[caster.champId]?.abilities[key];
+  const slot = caster.abilities[key];
+  // cooldown is the only resource gate (no mana)
+  if (!def || slot.rank < 1 || isSilenced(caster) || w.now < slot.readyAt) {
+    return null;
+  }
+  return def;
+};
+
+/** Unit aim for a cast: the requested direction, else the facing. */
+const castDir = (caster: Unit, dir: { x: number; y: number }): Vec2 => {
+  const dn = norm(dir.x, dir.y);
+  return dn.x === 0 && dn.y === 0 ? { x: Math.cos(caster.facing), y: Math.sin(caster.facing) } : dn;
+};
+
+/** A guest's prediction of its own DASH/JUMP once castableDef allowed it:
+ *  only the move, through the same castMotion the host runs — no damage,
+ *  status or cooldown (the host's frames bring those). Pass a scratch world: a
+ *  blink's FX must not reach the screen twice. Returns the cooldown it costs
+ *  (ms), so the guest does not predict a second one the host would refuse. */
+export const predictMotion = (
+  w: World,
+  caster: Unit,
+  def: AbilityDef,
+  key: "DASH" | "JUMP",
+  aim: { x: number; y: number },
+): number => {
+  const dir = castDir(caster, aim);
+  castMotion(w, caster, def, key, dir);
+  caster.facing = angleOf(dir.x, dir.y);
+  return valAt(def.cooldown, caster.abilities[key].rank) * 1000;
+};
+
+/** Try to cast caster's ability `key`. Returns true on success (host-side). */
+export const castAbility = (w: World, caster: Unit, key: AbilityKey, ctx: CastCtx): boolean => {
+  const def = castableDef(w, caster, key);
   if (!def) {
     return false;
   }
   const slot = caster.abilities[key];
-  if (slot.rank < 1) {
-    return false;
-  }
-  if (isSilenced(caster)) {
-    return false;
-  }
-  if (w.now < slot.readyAt) {
-    return false;
-    // cooldown is the only gate (no mana)
-  }
 
   // resolve aim
-  let dir = ctx.dir ?? { x: caster.aimX, y: caster.aimY };
-  const dn = norm(dir.x, dir.y);
-  dir = dn.x === 0 && dn.y === 0 ? { x: Math.cos(caster.facing), y: Math.sin(caster.facing) } : dn;
+  const dir = castDir(caster, ctx.dir ?? { x: caster.aimX, y: caster.aimY });
   let point = ctx.point ?? {
     x: caster.x + dir.x * def.castRange,
     y: caster.y + dir.y * def.castRange,

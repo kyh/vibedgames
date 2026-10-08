@@ -9,12 +9,15 @@
 // shallow-merge (last-write-wins per field), and events are fire-and-forget.
 // Offline, everything loops back locally so the same code paths keep working.
 //
-// Lunerfall also observes admission revisions for exact checkpoint handoff.
+// Lunerfall also observes admission revisions for exact checkpoint handoff,
+// and hands every shared-state change to `onShared` as it lands: a guest
+// polling once per frame would miss a snapshot that arrived bunched with the
+// next one, and the interpolation would lose its timestamp.
 //
 
 import { isOfflineRequested } from "@repo/embed";
 import { MultiplayerClient } from "@vibedgames/multiplayer";
-import type { Player, PlayerMap } from "@vibedgames/multiplayer";
+import type { Player, PlayerMap, SenderClock, SendEventOptions } from "@vibedgames/multiplayer";
 
 import type { JsonValue } from "./json";
 
@@ -23,6 +26,12 @@ const MULTIPLAYER_HOST = import.meta.env.DEV
   : "https://party.vibedgames.com";
 
 const SOLO_ID = "solo";
+
+// Offline nothing crosses a wire, so nothing needs the server's time.
+const LOCAL_CLOCK: SenderClock = {
+  now: (localNow = performance.now()) => localNow,
+  synced: true,
+};
 
 export interface NetSessionOptions {
   room: string;
@@ -33,12 +42,16 @@ export interface NetSessionOptions {
    *  trailer mode, which must never show live players in a staged shot. */
   forceOffline?: boolean;
   onEvent?: (event: string, payload: JsonValue, from: string) => void;
+  /** Every new shared state, in arrival order (online only). */
+  onShared?: (state: Record<string, JsonValue>) => void;
 }
 
 export class NetSession {
   private client: MultiplayerClient | null;
   private readonly fallbackMs: number;
   private readonly onEvent?: (event: string, payload: JsonValue, from: string) => void;
+  private readonly onShared?: (state: Record<string, JsonValue>) => void;
+  private seenShared: Record<string, JsonValue> | null = null;
 
   private admissionRevision = 0;
   private droppedRevision = 0;
@@ -54,6 +67,7 @@ export class NetSession {
   constructor(opts: NetSessionOptions) {
     this.fallbackMs = opts.fallbackMs;
     this.onEvent = opts.onEvent;
+    this.onShared = opts.onShared;
     // Offline BY INTENT (`?offline=1`, trailer staging) is a different state
     // from the fallback below, and must skip constructing the client rather
     // than lean on a failed connection: a refused handshake logs a console
@@ -87,6 +101,13 @@ export class NetSession {
         }
         if (client.connectionStatus === "connected") {
           this.everConnected = true;
+        }
+        // SAFETY: shared state is merged exclusively from JSON websocket
+        // frames (or local echoes of JSON-safe patches), so every value is JSON.
+        const shared = client.sharedState as Record<string, JsonValue>;
+        if (shared !== this.seenShared) {
+          this.seenShared = shared;
+          this.onShared?.(shared);
         }
         if (
           status === client.connectionStatus &&
@@ -174,6 +195,15 @@ export class NetSession {
     return this.live && (this.solo || this.client?.isHost === true);
   }
 
+  /**
+   * The room's server clock (ms since the epoch), measured by the SDK: one
+   * timebase for every client in the room, so a stamp means the same moment
+   * to the guest that the host meant, whichever client is host.
+   */
+  get serverClock(): SenderClock {
+    return this.client?.serverClock ?? LOCAL_CLOCK;
+  }
+
   /** The current room host's id (for authenticating host-only events). */
   get hostId(): string | null {
     const { client } = this;
@@ -237,15 +267,50 @@ export class NetSession {
     }
   }
 
-  /** Events loop straight back to the local handler when offline. */
-  sendEvent(event: string, payload: Record<string, JsonValue>): void {
+  /**
+   * Events loop straight back to the local handler when offline. `to` /
+   * `except` target player ids (server-enforced); offline, the local player
+   * is the only id, so the loopback honours them against it.
+   */
+  sendEvent(event: string, payload: Record<string, JsonValue>, options?: SendEventOptions): void {
     if (!this.live) {
       return;
     }
-    if (this.solo || !this.client) {
+    const { client } = this;
+    if (this.solo || !client) {
+      const to = options?.to;
+      const except = options?.except;
+      const listed = (ids: string | string[] | undefined): boolean =>
+        ids !== undefined && (Array.isArray(ids) ? ids.includes(SOLO_ID) : ids === SOLO_ID);
+      if ((to === undefined || listed(to)) && !listed(except)) {
+        this.onEvent?.(event, payload, SOLO_ID);
+      }
+      return;
+    }
+    client.sendEvent(event, payload, options);
+  }
+
+  /**
+   * An intent only the host acts on. The host — and an offline game — handles
+   * it locally and synchronously, like the offline loopback, instead of
+   * bouncing it off the server; a guest sends it to the host alone.
+   */
+  sendToHost(event: string, payload: Record<string, JsonValue>): void {
+    if (!this.live) {
+      return;
+    }
+    const { client } = this;
+    if (this.solo || !client) {
       this.onEvent?.(event, payload, SOLO_ID);
-    } else {
-      this.client.sendEvent(event, payload);
+      return;
+    }
+    if (client.isHost) {
+      this.onEvent?.(event, payload, client.playerId ?? SOLO_ID);
+      return;
+    }
+    const host = client.hostId;
+    if (host !== null) {
+      client.sendEvent(event, payload, { to: host });
     }
   }
 

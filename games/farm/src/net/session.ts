@@ -14,8 +14,15 @@
 //
 
 import { isOfflineRequested } from "@repo/embed";
-import { MultiplayerClient } from "@vibedgames/multiplayer";
-import type { Player, PlayerMap } from "@vibedgames/multiplayer";
+import { MultiplayerClient, ServerClock } from "@vibedgames/multiplayer";
+import type {
+  ClaimMap,
+  InterestRule,
+  Player,
+  PlayerLimit,
+  PlayerMap,
+  SendEventOptions,
+} from "@vibedgames/multiplayer";
 
 import type { JsonObject, JsonValue } from "../json";
 
@@ -33,23 +40,37 @@ export interface NetSessionOptions {
   /** Start (and stay) in local solo mode — no socket is ever opened. Used by
    *  trailer mode, which must never show live players in a staged shot. */
   forceOffline?: boolean;
+  /** The room's interest rule: players farther apart stop receiving each
+   *  other's player state, and read `visible: false`. A room keeps the first
+   *  client's rules, so every client passes the same. */
+  interest?: InterestRule;
+  /** Bounds the server holds numeric player-state keys to: a patch setting
+   *  one outside its range is dropped before anyone sees it. A room rule. */
+  limits?: Record<string, PlayerLimit>;
   onEvent?: (event: string, payload: JsonValue, from: string) => void;
+  /** A claim's owner was set: granted, released (null), or — to a refused
+   *  claimer alone — whoever already holds it. Online only. */
+  onClaim?: (key: string, owner: string | null) => void;
 }
 
 export class NetSession {
   private client: MultiplayerClient | null;
   private readonly fallbackMs: number;
   private readonly onEvent?: (event: string, payload: JsonValue, from: string) => void;
+  private readonly onClaim?: (key: string, owner: string | null) => void;
 
   private solo = false;
   private everConnected = false;
   private bootedAt = 0;
   private offlineMyState: JsonObject = {};
   private offlineShared: JsonObject | null = null;
+  /** Offline there is no server to measure: a ServerClock never sampled reads the local clock. */
+  private readonly localClock = new ServerClock();
 
   constructor(opts: NetSessionOptions) {
     this.fallbackMs = opts.fallbackMs;
     this.onEvent = opts.onEvent;
+    this.onClaim = opts.onClaim;
     // Offline BY INTENT (`?offline=1`, trailer staging) is a different state
     // from the fallback below, and must skip constructing the client rather
     // than lean on a failed connection: a refused handshake logs a console
@@ -60,7 +81,10 @@ export class NetSession {
       ? null
       : new MultiplayerClient({
           host: MULTIPLAYER_HOST,
+          interest: opts.interest,
+          limits: opts.limits,
           maxPlayers: opts.maxPlayers,
+          onClaim: (key, owner) => this.onClaim?.(key, owner),
           // SAFETY: event payloads are decoded JSON off the wire; the package
           // types them `unknown` only because it cannot know game schemas.
           onEvent: (event, payload, from) => this.onEvent?.(event, payload as JsonValue, from),
@@ -136,6 +160,24 @@ export class NetSession {
     return this.solo || !client ? SOLO_ID : client.playerId;
   }
 
+  /** The room's shared clock (the local one offline) — what Interpolators render against. */
+  get serverClock(): ServerClock {
+    const { client } = this;
+    return this.solo || !client ? this.localClock : client.serverClock;
+  }
+
+  /** Server time now (ms since the epoch): one instant for every player in the room. */
+  serverNow(): number {
+    return this.serverClock.now();
+  }
+
+  /** True once the server clock has been measured. Before that `serverNow()`
+   *  reads the local clock, which means nothing to a peer — don't stamp with it. */
+  get timeSynced(): boolean {
+    const { client } = this;
+    return !this.solo && client !== null && client.serverClock.synced;
+  }
+
   get players(): PlayerMap {
     const { client } = this;
     return this.solo || !client
@@ -185,13 +227,79 @@ export class NetSession {
     }
   }
 
-  /** Events loop straight back to the local handler when offline. */
-  sendEvent(event: string, payload: JsonObject): void {
-    if (this.solo || !this.client) {
-      this.onEvent?.(event, payload, SOLO_ID);
-    } else {
-      this.client.sendEvent(event, payload);
+  /**
+   * Events loop straight back to the local handler when offline. `to` /
+   * `except` target player ids (server-enforced); offline, the local player
+   * is the only id, so the loopback honours them against it.
+   */
+  sendEvent(event: string, payload: JsonObject, options?: SendEventOptions): void {
+    const { client } = this;
+    if (this.solo || !client) {
+      const to = options?.to;
+      const except = options?.except;
+      const listed = (ids: string | string[] | undefined): boolean =>
+        ids !== undefined && (Array.isArray(ids) ? ids.includes(SOLO_ID) : ids === SOLO_ID);
+      if ((to === undefined || listed(to)) && !listed(except)) {
+        this.onEvent?.(event, payload, SOLO_ID);
+      }
+      return;
     }
+    client.sendEvent(event, payload, options);
+  }
+
+  /**
+   * An intent only the host acts on. The host — and an offline game — handles
+   * it locally and synchronously, like the offline loopback, instead of
+   * bouncing it off the server; a guest sends it to the host alone.
+   */
+  sendToHost(event: string, payload: JsonObject): void {
+    const { client } = this;
+    if (this.solo || !client) {
+      this.onEvent?.(event, payload, SOLO_ID);
+      return;
+    }
+    if (client.isHost) {
+      this.onEvent?.(event, payload, client.playerId ?? SOLO_ID);
+      return;
+    }
+    const host = client.hostId;
+    if (host !== null) {
+      client.sendEvent(event, payload, { to: host });
+    }
+  }
+
+  /** Ask the server for `key`: first come, first served, decided in one hop.
+   *  Offline nothing arbitrates, and nothing is sent. */
+  claim(key: string, options?: { ttlMs?: number }): void {
+    if (!this.solo) {
+      this.client?.claim(key, options);
+    }
+  }
+
+  /** Give `key` back: its owner may, and the host may release any key. */
+  release(key: string): void {
+    if (!this.solo) {
+      this.client?.release(key);
+    }
+  }
+
+  /** Host only: release every key starting with `prefix`. */
+  clearClaims(prefix: string): void {
+    if (!this.solo) {
+      this.client?.clearClaims(prefix);
+    }
+  }
+
+  /** Who holds `key` now, or null (never claimed, released, lapsed — or offline). */
+  ownerOf(key: string): string | null {
+    const { client } = this;
+    return this.solo || !client ? null : client.ownerOf(key);
+  }
+
+  /** Every claimed key the room holds (none offline). */
+  get claims(): ClaimMap {
+    const { client } = this;
+    return this.solo || !client ? {} : client.claims;
   }
 
   destroy(): void {

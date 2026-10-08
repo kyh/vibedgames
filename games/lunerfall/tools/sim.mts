@@ -19,7 +19,6 @@ import { genAttempt, genCombatRoom, verifyRoom } from "../src/sys/gen.ts";
 import { BossBody } from "../src/entities/boss-body.ts";
 import { EnemyBody } from "../src/entities/enemy-body.ts";
 import type { Projectile } from "../src/entities/enemy-body.ts";
-import { BLEND_RATE, DEADZONE, Reconciler, SNAP_DIST } from "../src/net/predict.ts";
 import {
   PlayerBody,
   PLAYER_BODY_H,
@@ -31,13 +30,17 @@ import { Grid, ROWS } from "../src/sys/grid.ts";
 import { Navigator } from "../src/sys/nav.ts";
 import { Pilot } from "../src/sys/pilot.ts";
 import { RunManager } from "../src/sys/run.ts";
-import { BossActing, enemyPose, remoteBlend } from "../src/data/actor-presentation.ts";
+import { BossActing, enemyPose } from "../src/data/actor-presentation.ts";
 import { readRunRecap } from "../src/data/run-recap.ts";
 import { specialReadiness } from "../src/data/special-readiness.ts";
 import { parseRoomCode, partyLink } from "../src/hub/party-link.ts";
 import { readCheckpoint } from "../src/net/checkpoint.ts";
 import type { ExpeditionCheckpoint } from "../src/net/checkpoint.ts";
+import { lerpPlayer } from "../src/net/interp.ts";
+import { readNetInputs, readSnapshot } from "../src/net/parse.ts";
+import { decodeEdge, decodePlayer, encodeEdge, encodePlayer, runTag } from "../src/net/snapshot.ts";
 import type { NetRoom } from "../src/net/snapshot.ts";
+import { heldBits, mergePresses, pressBits, unpackInput } from "../src/net/uplink.ts";
 import { checkpointRng, rand, reseed, restoreRng } from "../src/sys/rng.ts";
 
 const STEP = 1 / 60;
@@ -751,50 +754,107 @@ const script = (f: number): Partial<BodyInput> => ({
   );
 }
 
-// 25. Reconciler: authority on the recent trajectory (it lags by ~RTT) needs no
-// correction; small deviations blend; big ones snap; blends converge.
+// 25. Wire codecs: a tick of input, a player row and a host edge survive the
+// trip; the boundary parsers turn away what no host or guest would send.
 {
-  const r = new Reconciler();
-  // running right @240px/s
-  for (let f = 0; f < 30; f += 1) {
-    r.record(100 + f * 4, 200);
-  }
-  // authority ≈ 10 steps behind
-  const lag = r.reconcile(100 + 20 * 4, 200);
-  check("authority on recent trajectory → aligned", lag.kind === "aligned");
-  // 12px off the whole trajectory
-  const off = r.reconcile(100 + 20 * 4, 212);
+  const hands: Partial<BodyInput>[] = [
+    {},
+    { jumpHeld: true, jumpPressed: true, right: true },
+    { attackPressed: true, down: true, left: true },
+    { dashPressed: true, specialPressed: true, up: true },
+  ];
+  const keys = [
+    "left",
+    "right",
+    "up",
+    "down",
+    "jumpHeld",
+    "jumpPressed",
+    "dashPressed",
+    "attackPressed",
+    "specialPressed",
+  ] as const;
   check(
-    "small deviation blends a fraction",
-    off.kind === "blend" && Math.abs(off.dy - 12 * BLEND_RATE) < 0.01,
-    off.kind === "blend" ? `dy=${off.dy.toFixed(2)}` : off.kind,
+    "a packed input tick unpacks to the same input",
+    hands.every((h) => {
+      const i = inp(h);
+      const back = unpackInput(heldBits(i) + pressBits(i));
+      return keys.every((k) => back[k] === (i[k] ?? false));
+    }),
   );
-  const far = r.reconcile(100 + 20 * 4, 200 + SNAP_DIST + 20);
-  check("large deviation snaps", far.kind === "snap");
-
-  const r2 = new Reconciler();
-  for (let f = 0; f < 30; f += 1) {
-    r2.record(0, 0);
-  }
-  let corrected = 0;
-  let aligned = false;
-  for (let i = 0; i < 30 && !aligned; i += 1) {
-    // authority holds a 10px real divergence
-    const c = r2.reconcile(10, 0);
-    if (c.kind === "blend") {
-      corrected += c.dx;
-    } else {
-      aligned = c.kind === "aligned";
-    }
-  }
-  check(
-    "repeated blends converge to authority",
-    aligned && Math.abs(10 - corrected) <= DEADZONE,
-    `corrected=${corrected.toFixed(2)}px`,
+  const both = unpackInput(
+    mergePresses(
+      pressBits(inp({ jumpPressed: true })),
+      pressBits(inp({ dashPressed: true, jumpPressed: true })),
+    ),
   );
   check(
-    "empty history stays aligned (fresh spawn)",
-    new Reconciler().reconcile(50, 50).kind === "aligned",
+    "presses from two frames before one step merge",
+    both.jumpPressed && both.dashPressed && !both.attackPressed,
+  );
+  const b = spawn(120, FLOOR_Y, "reaper");
+  run(b, 20, { right: true }, { 3: { jumpPressed: true }, 9: { attackPressed: true } });
+  const row = decodePlayer(wire(encodePlayer(b)));
+  check(
+    "a player row keeps position to 0.1 px and every clip flag",
+    Math.abs(row.x - b.x) <= 0.05 &&
+      Math.abs(row.y - b.y) <= 0.05 &&
+      row.grounded === b.grounded &&
+      row.facing === b.facing &&
+      row.swingId === b.swingId &&
+      row.attackStep === b.attackStep,
+  );
+  const hurt = decodeEdge(wire(encodeEdge(4, 120, { dir: -1, kind: "hurt" })));
+  const spawned = decodeEdge(wire(encodeEdge(5, 130, { kind: "spawn", x: 40, y: 200 })));
+  const freeze = decodeEdge(wire(encodeEdge(6, 131, null)));
+  check(
+    "host edges round-trip with their tick",
+    hurt?.edge?.kind === "hurt" &&
+      hurt.edge.dir === -1 &&
+      hurt.tick === 120 &&
+      spawned?.edge?.kind === "spawn" &&
+      spawned.edge.x === 40 &&
+      freeze !== null &&
+      freeze.edge === null,
+  );
+  check(
+    "the input parser rejects junk bits and empty sends",
+    readNetInputs({ room: 1, seq: 9, ticks: [3, 4] }) !== null &&
+      readNetInputs({ room: 1, seq: 9, ticks: [] }) === null &&
+      readNetInputs({ room: 1, seq: 9, ticks: [99_999] }) === null &&
+      readNetInputs({ room: 1, seq: 9.5, ticks: [1] }) === null,
+  );
+  check(
+    "the snapshot parser rejects a short player row",
+    readSnapshot({
+      acks: [],
+      boss: null,
+      enemies: [],
+      lastStand: null,
+      players: [[1, 2, 3]],
+      proj: [],
+      room: 1,
+      run: runTag("host:1"),
+      t: 10,
+      term: 0,
+      vs: null,
+    }) === null,
+  );
+  const tag = runTag("host:1:x");
+  check(
+    "run tags are stable and distinct",
+    tag === runTag(["host", "1", "x"].join(":")) && tag !== runTag("host:2:x"),
+  );
+  const pose = decodePlayer(encodePlayer(b));
+  const far = { ...pose, x: pose.x + 120 };
+  check(
+    "a puppet holds, then steps across a teleport instead of gliding",
+    lerpPlayer(pose, far, 0.6).x === pose.x && lerpPlayer(pose, far, 1.2).x === far.x,
+  );
+  const near = { ...pose, x: pose.x + 4 };
+  check(
+    "…and blends ordinary motion",
+    Math.abs(lerpPlayer(pose, near, 0.5).x - (pose.x + 2)) < 1e-9,
   );
 }
 
@@ -1042,8 +1102,8 @@ const script = (f: number): Partial<BodyInput> => ({
         y: 2,
       },
     ],
+    t: 400,
     term: 0,
-    tick: 400,
     version: 1,
     versus: null,
     writer: "host",
@@ -1109,14 +1169,6 @@ const script = (f: number): Partial<BodyInput> => ({
       "coop-guest",
   );
 
-  check(
-    "remote blend matches the 0.35/frame fraction at 60Hz",
-    Math.abs(remoteBlend(1 / 60) - 0.35) < 1e-9,
-  );
-  check(
-    "remote blend is monotone in dt",
-    remoteBlend(1 / 30) > remoteBlend(1 / 60) && remoteBlend(0) === 0,
-  );
   const strike = enemyPose(ENEMIES.warrior, { elapsed: 0, state: "attack" });
   check("melee attack holds the contact frame", strike?.clip === "strike" && strike.frame === 3);
   check(
@@ -1239,10 +1291,10 @@ const script = (f: number): Partial<BodyInput> => ({
   }
 
   {
-    // Guest reconciliation can blend the body across a tile edge.
+    // Guest reconciliation can shift the body across a tile edge.
     const b = spawn(lipX + 8);
-    b.nudge(-10, -(FLOOR_Y - 11 * TILE) + 4);
-    check("a reconcile nudge into a tile is pushed back out", !embedded(arena, b));
+    b.shift(-10, -(FLOOR_Y - 11 * TILE) + 4);
+    check("a reconcile shift into a tile is pushed back out", !embedded(arena, b));
     run(b, 30, { left: true });
     check("…and the body walks on from there without embedding", !embedded(arena, b));
   }

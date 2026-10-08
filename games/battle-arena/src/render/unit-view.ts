@@ -364,7 +364,14 @@ export class UnitView {
     );
   }
 
-  update(u: Unit, now: number, dt: number, fx: Fx | null, spinning: boolean): void {
+  update(
+    u: Unit,
+    now: number,
+    dt: number,
+    fx: Fx | null,
+    opts: { spinning: boolean; smooth: boolean },
+  ): void {
+    const { spinning } = opts;
     const respawned = u.alive && !this.wasAlive;
     const jumped = (u.x - this.group.position.x) ** 2 + (u.y - this.group.position.z) ** 2 > 36;
     // vertical hop arc while airborne (sin 0→π over the jump window) + the
@@ -374,7 +381,7 @@ export class UnitView {
         ? Math.sin((1 - (u.jumpUntil - now) / JUMP_MS) * Math.PI) * HOP_HEIGHT
         : 0;
     const groundY = terrainHeight(u.x, u.y);
-    this.place(u, dt, respawned || jumped, hopY, groundY);
+    this.place(u, dt, respawned || jumped, !opts.smooth, hopY, groundY);
     this.wasAlive = u.alive;
 
     if (!u.alive) {
@@ -447,8 +454,17 @@ export class UnitView {
   }
 
   /** Smooth toward the sim position; snap on first appearance, respawn, or a
-   *  big jump (blink/teleport) so the character doesn't slide across the map. */
-  private place(u: Unit, dt: number, snap: boolean, hopY: number, groundY: number): void {
+   *  big jump (blink/teleport) so the character doesn't slide across the map.
+   *  `exact` places a body whose position is already continuous (an online
+   *  guest's view) without easing; its ground and yaw still settle. */
+  private place(
+    u: Unit,
+    dt: number,
+    snap: boolean,
+    exact: boolean,
+    hopY: number,
+    groundY: number,
+  ): void {
     if (!this.placed || snap) {
       this.recoilZ = 0;
       this.recoilX = 0;
@@ -458,7 +474,7 @@ export class UnitView {
       this.yaw = Math.atan2(u.aimX, u.aimY) + MODEL_YAW;
       this.placed = true;
     } else {
-      const a = Math.min(1, 26 * dt);
+      const a = exact ? 1 : Math.min(1, 26 * dt);
       this.group.position.x += (u.x - this.group.position.x) * a;
       this.group.position.z += (u.y - this.group.position.z) * a;
       // feet settle onto the ground rather than teleporting to it: the stair ramp

@@ -1,30 +1,13 @@
 import type Phaser from "phaser";
 import { Math as PhaserMath, Scene } from "phaser";
+import { CHAR_FRAMES } from "../data/character";
+import type { CharAction } from "../data/character";
 import { CROP_ORDER } from "../data/crops";
 import { parseWorldMap } from "../world/worldmap";
 import { setWorldMap, getWorldMap } from "../world/map-store";
 import { FARMER_HURT_MS, SKELETON_CONTACT_MS, SKELETON_HURT_MS } from "../config";
 
 const CHAR = { frameHeight: 64, frameWidth: 96 };
-
-// action -> frame count (encoded in the source strip name)
-export const CHAR_FRAMES = {
-  attack: 10,
-  axe: 10,
-  casting: 15,
-  caught: 10,
-  death: 13,
-  dig: 13,
-  doing: 8,
-  hurt: 8,
-  idle: 9,
-  mine: 10,
-  reeling: 13,
-  run: 8,
-  walk: 8,
-  water: 5,
-} as const;
-export type CharAction = keyof typeof CHAR_FRAMES;
 
 const SKEL = {
   attack: 7,

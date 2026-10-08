@@ -5,10 +5,11 @@ import { after, before, test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { Miniflare } from "miniflare";
+import type { MiniflareOptions } from "miniflare";
 import { z } from "zod";
 
 import type { MultiplayerClientOptions } from "@vibedgames/multiplayer";
-import { MultiplayerClient } from "@vibedgames/multiplayer";
+import { MAX_TICK_HISTORY, MAX_TICK_RATE, MultiplayerClient } from "@vibedgames/multiplayer";
 
 /**
  * Integration tests that drive the real VgServer — Durable Object, partyserver
@@ -36,21 +37,25 @@ const BuiltWorkerSchema = z.object({
 });
 
 let miniflare: Miniflare;
+let miniflareOptions: MiniflareOptions;
 let worker: URL;
 
 before(async () => {
   const built = BuiltWorkerSchema.parse(
     JSON.parse(await readFile(path.join(OUTPUT, "worker.config.json"), "utf-8")),
   );
-  miniflare = new Miniflare({
+  miniflareOptions = {
     compatibilityDate: built.compatibilityDate,
     compatibilityFlags: built.compatibilityFlags,
     d1Databases: { DB: "vibedgames" },
     durableObjects: { VgServer: "VgServer" },
     modules: true,
     scriptPath: path.join(OUTPUT, "bundle", built.manifest.mainModule),
-  });
+  };
+  miniflare = new Miniflare(miniflareOptions);
   worker = await miniflare.ready;
+  // Pin the port, so a restart (setOptions) comes back where clients reconnect.
+  miniflareOptions = { ...miniflareOptions, port: Number(worker.port) };
 });
 
 after(async () => {
@@ -81,7 +86,10 @@ const waitFor = async (
 
 const connect = (
   room: string,
-  options?: Pick<MultiplayerClientOptions, "onEvent">,
+  options?: Pick<
+    MultiplayerClientOptions,
+    "interest" | "limits" | "onClaim" | "onEvent" | "onTick" | "tickRate"
+  >,
 ): MultiplayerClient =>
   new MultiplayerClient({
     host: worker.origin,
@@ -89,6 +97,12 @@ const connect = (
     room,
     ...options,
   });
+
+/** The room's public HTTP stats. */
+const roomInfo = async (room: string): Promise<{ playerCount: number }> => {
+  const response = await fetch(`${worker.origin}/parties/vg-server/${room}`);
+  return z.object({ playerCount: z.number() }).parse(await response.json());
+};
 
 /** Connected + admitted: the server's `sync` sets both status and player id. */
 const admitted = (client: MultiplayerClient): boolean =>
@@ -191,10 +205,11 @@ test("per-player state propagates to other clients", async () => {
 
 // -- Wire-level helpers -------------------------------------------------------
 //
-// Some behaviors are only observable at the wire (per-recipient delta vs full
-// snapshots) or require a client the SDK deliberately doesn't expose (legacy
-// pre-delta clients, abrupt non-1000 closes, a chosen reconnect token). A
-// minimal raw-WebSocket client covers those; everything else uses the real SDK.
+// Some behaviors are only observable at the wire (per-recipient deltas, what
+// the server never sends) or require a client the SDK deliberately doesn't
+// expose (no reconnect token, abrupt non-1000 closes, a chosen reconnect
+// token). A minimal raw-WebSocket client covers those; everything else uses
+// the real SDK.
 
 /** JSON off the wire, typed as data rather than left `unknown`. */
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
@@ -231,13 +246,15 @@ const parseWireMessage = (raw: string): WireMessage => {
 /**
  * Raw wire client speaking the party protocol directly. `_pk` is partyserver's
  * connection-id query param (PartySocket sends one too), so tests can pick
- * stable player ids for it. Auto-answers server pings so a long test never
- * gets a raw client evicted.
+ * stable player ids for it. A reconnect token is derived from it unless one is
+ * given (`_reconnectToken: ""` sends none). Auto-answers server pings so a
+ * long test never gets a raw client evicted.
  */
 class RawClient {
   readonly messages: WireMessage[] = [];
   readonly id: string;
   closed = false;
+  closeCode: number | null = null;
   private ws: WebSocket;
 
   constructor(room: string, params: Record<string, string>) {
@@ -246,10 +263,14 @@ class RawClient {
       throw new Error("RawClient requires an explicit _pk connection id");
     }
     this.id = id;
-    const query = new URLSearchParams(params).toString();
+    const withToken = { _reconnectToken: `tok-${id}`, ...params };
+    const query = new URLSearchParams(
+      Object.entries(withToken).filter(([, value]) => value !== ""),
+    ).toString();
     this.ws = new WebSocket(`ws://${worker.host}/parties/vg-server/${room}?${query}`);
-    this.ws.addEventListener("close", () => {
+    this.ws.addEventListener("close", (event) => {
       this.closed = true;
+      this.closeCode = event.code;
     });
     this.ws.addEventListener("message", (event) => {
       const text = event.data;
@@ -283,6 +304,33 @@ class RawClient {
       .map((message) => toRecord(message.data));
   }
 }
+
+test("the host's own state_patch is relayed to guests but never echoed back to it", async () => {
+  const room = uniqueRoom("no-echo");
+  const rawHost = new RawClient(room, { _pk: `echo-host-${process.pid}` });
+  const guest = connect(room);
+  try {
+    await waitFor(() => rawHost.synced(), "raw host synced");
+    await waitFor(() => admitted(guest), "guest admitted");
+    assert.equal(guest.hostId, rawHost.id, "the raw client is host");
+
+    rawHost.send({ data: { tick: 1 }, type: "state_patch" });
+    rawHost.send({ data: { tick: 2 }, type: "state_patch" });
+    await waitFor(() => guest.sharedState.tick === 2, "guest got both host patches");
+
+    // Anything the server sent the host after its patches would have landed
+    // before the guest's copy did; a guest event is a later fence.
+    guest.sendEvent("fence", null, { to: rawHost.id });
+    await waitFor(
+      () => rawHost.received("event").some((data) => data.event === "fence"),
+      "host received the fence",
+    );
+    assert.deepEqual(rawHost.received("state_patch"), [], "no state_patch echoed to the host");
+  } finally {
+    rawHost.close(1000);
+    guest.destroy();
+  }
+});
 
 test("targeted events reach exactly their audience", async () => {
   const room = uniqueRoom("targeting");
@@ -424,51 +472,448 @@ test("a dropped player is held in grace, reclaimed by token, and a 1000-close le
   }
 });
 
-test("delta-capable clients get keyed deltas; legacy clients get full snapshots and can still write", async () => {
+test("player state fans out as keyed deltas; a client with no reconnect token is refused", async () => {
   const room = uniqueRoom("deltas");
-  const legacy = new RawClient(room, { _pk: `leg-${process.pid}` });
-  const modern = new RawClient(room, {
-    _delta: "1",
-    _pk: `mod-${process.pid}`,
-    _reconnectToken: `tok-mod-${process.pid}`,
-  });
+  const observer = new RawClient(room, { _pk: `obs-${process.pid}` });
   const sdk = connect(room);
   try {
-    await waitFor(
-      () => legacy.synced() && modern.synced() && admitted(sdk),
-      "all three clients in the room",
-    );
+    await waitFor(() => observer.synced() && admitted(sdk), "both clients in the room");
     const sdkId = sdk.playerId;
     assert.ok(sdkId !== null);
 
     sdk.updateMyState({ x: 1, y: 2 });
     sdk.updateMyState({ y: 3 });
-
-    const statesFor = (client: RawClient): JsonRecord[] =>
-      client
+    const states = (): JsonRecord[] =>
+      observer
         .received("player_state")
         .filter((data) => data.id === sdkId)
         .map((data) => toRecord(data.state));
-    await waitFor(
-      () => statesFor(legacy).length === 2 && statesFor(modern).length === 2,
-      "both observers saw two player_state messages",
-    );
+    await waitFor(() => states().length === 2, "observer saw two player_state messages");
+    assert.deepEqual(states()[1], { y: 3 }, "the second message carried only the changed key");
 
-    // Second update changed only `y`. A legacy observer must still get the
-    // full merged snapshot; a delta-capable one gets just the changed key.
-    assert.deepEqual(statesFor(legacy)[1], { x: 1, y: 3 }, "legacy got the full merged snapshot");
-    assert.deepEqual(statesFor(modern)[1], { y: 3 }, "delta client got only the changed key");
-
-    // A legacy client's full-state write still round-trips.
-    legacy.send({ data: { a: 1, b: 2 }, type: "player_state_patch" });
-    await waitFor(() => {
-      const seen = sdk.players[legacy.id]?.state;
-      return seen !== undefined && seen.a === 1 && seen.b === 2;
-    }, "SDK client sees the legacy client's state");
+    const tokenless = new RawClient(room, { _pk: `anon-${process.pid}`, _reconnectToken: "" });
+    await waitFor(() => tokenless.closed, "tokenless client closed");
+    assert.equal(tokenless.closeCode, 4002, "closed as reconnect_token_required");
+    assert.equal(tokenless.synced(), false, "never admitted");
   } finally {
-    legacy.close(1000);
-    modern.close(1000);
+    observer.close(1000);
     sdk.destroy();
+  }
+});
+
+test("time probes give every client the server's clock", async () => {
+  const room = uniqueRoom("time");
+  const client = connect(room);
+  try {
+    await waitFor(() => admitted(client), "client admitted");
+    await waitFor(() => client.serverClock.synced, "first probe answered");
+    assert.ok(Number.isFinite(client.rtt) && client.rtt >= 0, "round trip measured");
+    // workerd and this process read the same wall clock, so the estimate
+    // should land within a round trip of it.
+    const error = Math.abs(client.serverNow() - Date.now());
+    assert.ok(error < 50 + client.rtt, `server clock off by ${error.toFixed(1)} ms`);
+  } finally {
+    client.destroy();
+  }
+});
+
+test("claims go to the first claimer; the loser hears the owner; release, clear and TTL free them", async () => {
+  const room = uniqueRoom("claims");
+  const heardByA: [string, string | null][] = [];
+  const clientA = connect(room, { onClaim: (key, owner) => heardByA.push([key, owner]) });
+  await waitFor(() => admitted(clientA), "A admitted first (host)");
+  const clientB = connect(room);
+  try {
+    await waitFor(() => admitted(clientB), "B admitted");
+    assert.ok(clientA.isHost, "A hosts");
+    const aId = clientA.playerId;
+    const bId = clientB.playerId;
+    assert.ok(aId !== null && bId !== null);
+
+    clientB.claim("pellet:1");
+    await waitFor(() => clientA.ownerOf("pellet:1") === bId, "A sees B's grant");
+    clientA.claim("pellet:1");
+    await waitFor(
+      () => heardByA.filter(([key, owner]) => key === "pellet:1" && owner === bId).length === 2,
+      "A's refused claim is answered with the owner (after the grant it heard)",
+    );
+    assert.equal(clientB.ownerOf("pellet:1"), bId, "B still owns it");
+
+    clientB.release("pellet:1");
+    await waitFor(() => clientA.ownerOf("pellet:1") === null, "release reaches A");
+
+    clientA.claim("round:a");
+    clientA.claim("round:b");
+    clientA.claim("keep");
+    await waitFor(() => clientB.ownerOf("keep") === aId, "B sees A's three claims");
+    clientB.clearClaims("round:");
+    clientA.clearClaims("round:");
+    await waitFor(() => clientB.ownerOf("round:a") === null, "host clear reaches B");
+    assert.equal(clientB.ownerOf("round:b"), null, "every key under the prefix cleared");
+    assert.equal(clientB.ownerOf("keep"), aId, "other keys untouched");
+
+    clientB.claim("brief", { ttlMs: 200 });
+    await waitFor(() => clientA.ownerOf("brief") === bId, "A sees the TTL grant");
+    await waitFor(() => !("brief" in clientA.claims), "the server announces the lapse");
+
+    const heardByLate: [string, string | null][] = [];
+    const late = connect(room, { onClaim: (key, owner) => heardByLate.push([key, owner]) });
+    try {
+      await waitFor(() => admitted(late), "late joiner admitted");
+      assert.equal(late.ownerOf("keep"), aId, "sync carries live claims");
+      assert.equal(late.ownerOf("brief"), null, "and not lapsed ones");
+      assert.deepEqual(heardByLate, [["keep", aId]], "and reports them through onClaim");
+    } finally {
+      late.destroy();
+    }
+  } finally {
+    clientA.destroy();
+    clientB.destroy();
+  }
+});
+
+test("interest: far players stop updating, return with their whole state, and the host sees everyone", async () => {
+  const room = uniqueRoom("interest");
+  const interest = { radius: 10 };
+  const host = connect(room, { interest });
+  await waitFor(() => admitted(host), "host admitted first");
+  const clientA = connect(room, { interest });
+  const clientB = connect(room, { interest });
+  try {
+    await waitFor(() => admitted(clientA) && admitted(clientB), "A and B admitted");
+    const aId = clientA.playerId;
+    const bId = clientB.playerId;
+    assert.ok(aId !== null && bId !== null);
+    host.updateMyState({ x: 0, y: 0 });
+    clientA.updateMyState({ x: 0, y: 0 });
+    clientB.updateMyState({ x: 100, y: 0 });
+    await waitFor(() => clientA.players[bId]?.visible === false, "A loses sight of far-off B");
+    await waitFor(() => clientB.players[aId]?.visible === false, "B loses sight of A");
+
+    clientB.updateMyState({ hp: 7, x: 101 });
+    await waitFor(() => host.players[bId]?.state?.x === 101, "the host still hears B");
+    assert.notEqual(clientA.players[bId]?.state?.hp, 7, "A heard nothing while B was away");
+
+    clientB.updateMyState({ x: 5 });
+    await waitFor(() => clientA.players[bId]?.visible === true, "B comes back into A's view");
+    assert.equal(clientA.players[bId]?.state?.hp, 7, "with the state that changed while hidden");
+    assert.equal(clientA.players[bId]?.state?.x, 5);
+    await waitFor(() => clientB.players[aId]?.visible === true, "and B sees A again");
+  } finally {
+    host.destroy();
+    clientA.destroy();
+    clientB.destroy();
+  }
+});
+
+test("tick rooms: inputs land on numbered ticks, in order, held across a late join", async () => {
+  const room = uniqueRoom("ticks");
+  const seen: number[] = [];
+  let landed: number | null = null;
+  let cleared = false;
+  const clientA = connect(room, { tickRate: 20 });
+  await waitFor(() => admitted(clientA), "A admitted first (sets the rules)");
+  const aId = clientA.playerId;
+  assert.ok(aId !== null);
+  const clientB = connect(room, {
+    onTick: (tick) => {
+      seen.push(tick.n);
+      if (landed === null && aId in tick.changed) {
+        landed = tick.n;
+        assert.deepEqual(tick.inputs[aId], { dx: 1 }, "held inputs include the new one");
+      }
+      if (tick.changed[aId] === null) {
+        cleared = true;
+      }
+    },
+    tickRate: 30,
+  });
+  try {
+    await waitFor(() => admitted(clientB), "B admitted");
+    assert.equal(clientB.tickClock?.ms, 50, "the room keeps the first client's 20 Hz");
+
+    clientA.sendInput({ dx: 1 });
+    await waitFor(() => landed !== null, "B hears A's input on a tick");
+    await waitFor(() => seen.length > 3, "ticks keep coming");
+    for (let i = 1; i < seen.length; i += 1) {
+      assert.equal(seen[i], (seen[i - 1] ?? 0) + 1, "ticks arrive in order with no gaps");
+    }
+    const lag = clientB.serverTick() - (clientB.tickClock?.n ?? 0);
+    assert.ok(Math.abs(lag) <= 2, `serverTick tracks the broadcast (off by ${lag})`);
+
+    const late = connect(room);
+    try {
+      await waitFor(() => admitted(late), "late joiner admitted");
+      assert.deepEqual(late.tickInputs()?.[aId], { dx: 1 }, "sync carries every held input");
+      assert.ok(landed !== null);
+      assert.equal(late.tickInputs(landed - 1)?.[aId], undefined, "and the history before it");
+    } finally {
+      late.destroy();
+    }
+
+    clientA.destroy();
+    await waitFor(() => cleared, "a departed player's input clears on a tick");
+  } finally {
+    clientA.destroy();
+    clientB.destroy();
+  }
+});
+
+test("a client back from a transport blip replays the ticks it missed, and its input resumes", async () => {
+  const room = uniqueRoom("tick-replay");
+  const seen: number[] = [];
+  const client = connect(room, { onTick: (tick) => seen.push(tick.n), tickRate: 30 });
+  try {
+    await waitFor(() => admitted(client), "client admitted");
+    const me = client.playerId;
+    assert.ok(me !== null);
+    client.sendInput("left");
+    await waitFor(() => client.tickInputs()?.[me] === "left", "input held");
+
+    // Drop the transport (not a deliberate leave), stay away a dozen ticks, come back.
+    // The SDK exposes no way to drop its transport, and only a dropped
+    // transport (not a leave) exercises the replay, so reach its socket.
+    // oxlint-disable-next-line anti-slop/no-reflect-get -- a test simulating a network blip on the SDK's private socket
+    const socket: { close: (code: number) => void; reconnect: () => void } = Reflect.get(
+      client,
+      "socket",
+    );
+    socket.close(4000);
+    await waitFor(() => client.connectionStatus === "disconnected", "transport down");
+    const away = seen.length;
+    await delay(400);
+    assert.equal(seen.length, away, "no ticks while away");
+    socket.reconnect();
+    await waitFor(() => admitted(client) && seen.length > away + 12, "back, and caught up");
+
+    for (let i = 1; i < seen.length; i += 1) {
+      assert.equal(seen[i], (seen[i - 1] ?? 0) + 1, `tick ${seen[i]} follows ${seen[i - 1]}`);
+    }
+    await waitFor(() => client.tickInputs()?.[me] === "left", "the held input was re-sent");
+  } finally {
+    client.destroy();
+  }
+});
+
+test("a quiet tick room's history still ends MAX_TICK_HISTORY ticks back", async () => {
+  const room = uniqueRoom("tick-quiet");
+  const client = connect(room, { tickRate: MAX_TICK_RATE });
+  const past = MAX_TICK_HISTORY + 30;
+  try {
+    await waitFor(() => admitted(client), "client admitted");
+    // No input ever changes, so the tick log stays empty the whole time.
+    await waitFor(
+      () => (client.tickClock?.n ?? 0) > past,
+      "the room ticks past its history",
+      (past / MAX_TICK_RATE) * 1000 + 5000,
+    );
+    assert.equal(client.tickInputs(1), null, "the client's history moved on");
+    const raw = new RawClient(room, { _pk: `quiet-${process.pid}` });
+    try {
+      await waitFor(() => raw.synced(), "raw client admitted");
+      const [sync] = raw.received("sync");
+      const tick = toRecord(sync?.tick);
+      assert.equal(
+        Number(tick.base),
+        Number(tick.n) - MAX_TICK_HISTORY,
+        "and so did the room's: a client further back resyncs instead of replaying it all",
+      );
+    } finally {
+      raw.close(1000);
+    }
+  } finally {
+    client.destroy();
+  }
+});
+
+test("a room's world and claims survive a server restart, and its host re-sends what was lost", async () => {
+  const room = uniqueRoom("restart");
+  const host = connect(room);
+  await waitFor(() => admitted(host), "host admitted first");
+  const guest = connect(room);
+  let drops = 0;
+  const unsubscribe = guest.subscribe(() => {
+    if (guest.connectionStatus === "disconnected") {
+      drops += 1;
+    }
+  });
+  try {
+    await waitFor(() => admitted(guest), "guest admitted");
+    host.updateSharedState({ level: 3 });
+    host.claim("door");
+    await waitFor(
+      () => guest.sharedState.level === 3 && guest.ownerOf("door") === host.playerId,
+      "guest sees the world and the claim",
+    );
+    // Past the persist debounce, then a change too new to have been persisted.
+    await delay(1500);
+    host.updateSharedState({ level: 4 });
+    await waitFor(() => guest.sharedState.level === 4, "guest sees the newest world");
+
+    await miniflare.setOptions(miniflareOptions);
+    await waitFor(() => drops > 0, "the restart dropped the guest");
+    await waitFor(() => admitted(host) && admitted(guest), "both reconnected");
+
+    const late = connect(room);
+    try {
+      await waitFor(() => admitted(late), "late joiner admitted after the restart");
+      assert.equal(late.ownerOf("door"), host.playerId, "the claim was persisted");
+      await waitFor(() => late.sharedState.level === 4, "the host re-sent the newer world");
+    } finally {
+      late.destroy();
+    }
+  } finally {
+    unsubscribe();
+    host.destroy();
+    guest.destroy();
+  }
+});
+
+test("a dropped player's inputs scheduled ahead are cancelled, not replayed later", async () => {
+  const room = uniqueRoom("tick-cancel");
+  const observer = connect(room, { tickRate: 30 });
+  await waitFor(() => admitted(observer), "observer admitted first (sets the rules)");
+  const raw = new RawClient(room, { _pk: `ahead-${process.pid}` });
+  const heard: (JsonValue | undefined)[] = [];
+  let last = 0;
+  observer.onTick = (tick) => {
+    last = tick.n;
+    if (raw.id in tick.changed) {
+      heard.push(tick.changed[raw.id]);
+    }
+  };
+  try {
+    await waitFor(() => raw.synced() && last > 0, "raw client admitted and ticks flowing");
+    // Twenty ticks ahead (~0.7 s), then the transport drops before it lands.
+    raw.send({ data: { n: last + 20, v: "ahead" }, type: "input" });
+    raw.close(4000);
+    await waitFor(() => heard.includes(null), "the drop clears its input");
+    const clearedAt = last;
+    await waitFor(() => last > clearedAt + 30, "well past the tick it was scheduled for");
+    assert.deepEqual(heard, [null], "the input scheduled ahead never landed");
+  } finally {
+    observer.destroy();
+  }
+});
+
+test("a room's rules come from its first client, even when that client sets none", async () => {
+  const room = uniqueRoom("rules-frozen");
+  const first = connect(room);
+  await waitFor(() => admitted(first), "first client admitted, with no rules");
+  const late = connect(room, { tickRate: 30 });
+  try {
+    await waitFor(() => admitted(late), "late client admitted");
+    assert.equal(late.tickClock, null, "the late client's tick rate was not adopted");
+  } finally {
+    first.destroy();
+    late.destroy();
+  }
+});
+
+test("reserved claim keys are refused, so every client's claim map agrees", async () => {
+  const room = uniqueRoom("claim-reserved");
+  const heard: [string, string | null][] = [];
+  const observer = connect(room, { onClaim: (key, owner) => heard.push([key, owner]) });
+  await waitFor(() => admitted(observer), "observer admitted");
+  const raw = new RawClient(room, { _pk: `proto-${process.pid}` });
+  try {
+    await waitFor(() => raw.synced(), "raw client admitted");
+    raw.send({ data: { key: "__proto__" }, type: "claim" });
+    raw.send({ data: { key: "ok" }, type: "claim" });
+    await waitFor(() => heard.length > 0, "the valid claim is granted");
+    assert.deepEqual(heard, [["ok", raw.id]], "the reserved key was never granted");
+    const late = connect(room);
+    try {
+      await waitFor(() => admitted(late), "late joiner admitted");
+      assert.deepEqual(Object.keys(late.claims), ["ok"], "and the sync agrees");
+    } finally {
+      late.destroy();
+    }
+  } finally {
+    raw.close(1000);
+    observer.destroy();
+  }
+});
+
+test("a claim whose ttl isn't positive is refused, not held for good", async () => {
+  const room = uniqueRoom("claim-ttl");
+  const heard: [string, string | null][] = [];
+  const observer = connect(room, { onClaim: (key, owner) => heard.push([key, owner]) });
+  await waitFor(() => admitted(observer), "observer admitted");
+  const raw = new RawClient(room, { _pk: `ttl-${process.pid}` });
+  try {
+    await waitFor(() => raw.synced(), "raw client admitted");
+    for (const ttl of [0, -500, null]) {
+      raw.send({ data: { key: "door", ttl }, type: "claim" });
+    }
+    raw.send({ data: { key: "ok" }, type: "claim" });
+    await waitFor(() => heard.length > 0, "the valid claim is granted");
+    assert.deepEqual(heard, [["ok", raw.id]], "no claim with a bad ttl was granted");
+    observer.claim("door");
+    await waitFor(() => heard.length > 1, "the door is claimed");
+    assert.deepEqual(heard[1], ["door", observer.playerId], "and it was still free");
+  } finally {
+    raw.close(1000);
+    observer.destroy();
+  }
+});
+
+test("declared limits drop out-of-range player state", async () => {
+  const room = uniqueRoom("limits");
+  const limits = { hp: { max: 100, min: 0 } };
+  const raw = new RawClient(room, { _pk: `lim-${process.pid}`, _room: JSON.stringify({ limits }) });
+  try {
+    await waitFor(() => raw.synced(), "raw client admitted (sets the rules)");
+    const observer = connect(room);
+    try {
+      await waitFor(() => admitted(observer), "observer admitted");
+      raw.send({ data: { hp: 500 }, type: "player_state_patch" });
+      raw.send({ data: { hp: "full" }, type: "player_state_patch" });
+      raw.send({ data: { hp: 50 }, type: "player_state_patch" });
+      await waitFor(() => observer.players[raw.id]?.state?.hp === 50, "the in-range patch lands");
+      assert.equal(
+        observer.players[raw.id]?.state?.hp,
+        50,
+        "neither the out-of-range nor the non-numeric patch got through",
+      );
+    } finally {
+      observer.destroy();
+    }
+  } finally {
+    raw.close(1000);
+  }
+});
+
+test("an emptied room forgets its rules, claims and world", async () => {
+  const room = uniqueRoom("reset");
+  const first = connect(room, { tickRate: 10 });
+  try {
+    await waitFor(() => admitted(first), "first session admitted");
+    assert.equal(first.tickClock?.ms, 100, "the room ticks at 10 Hz");
+    first.updateSharedState({ level: 3 });
+    // Same socket, so the server merged the world before it granted this.
+    first.claim("k");
+    await waitFor(() => first.ownerOf("k") !== null, "claim granted");
+  } finally {
+    first.destroy();
+  }
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    const info = await roomInfo(room);
+    if (info.playerCount === 0) {
+      break;
+    }
+    assert.ok(Date.now() < deadline, "the room never emptied");
+    await delay(25);
+  }
+  const second = connect(room);
+  try {
+    await waitFor(() => admitted(second), "second session admitted");
+    assert.equal(second.tickClock, null, "no tick: the new session set no rules");
+    assert.equal(second.ownerOf("k"), null, "claims cleared");
+    assert.equal(second.sharedState.level, undefined, "world cleared");
+  } finally {
+    second.destroy();
   }
 });
 

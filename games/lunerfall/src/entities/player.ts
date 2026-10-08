@@ -4,7 +4,7 @@ import { HERO_ORIGIN_Y, HERO_SCALE, interp } from "../config";
 import { kitClipKey } from "../data/clip-timing";
 import type { HeroName } from "../data/animations";
 import type { HeroDef } from "../data/heroes";
-import type { NetPlayer } from "../net/snapshot";
+import type { PlayerPose } from "../net/snapshot";
 import { afterImage, landPuff, smoke } from "../sys/fx";
 import type { Grid } from "../sys/grid";
 import type { InputState } from "../sys/input";
@@ -49,8 +49,8 @@ const iframeAlpha = (iframes: number, dead: boolean): number => {
   return Math.floor(iframes * 20) % 2 === 0 ? 0.45 : 1;
 };
 
-// The subset of body/net fields selectClip reads — both PlayerBody and NetPlayer
-// expose these names, so one method drives local render and remote puppets.
+// The subset of body/pose fields selectClip reads — both PlayerBody and a wire
+// PlayerPose expose these names, so one method drives local render and puppets.
 interface ClipState {
   dead: boolean;
   downed: boolean;
@@ -89,6 +89,7 @@ export class Player {
   private swingClip: string | null = null;
   private scene: Phaser.Scene;
   private hero: HeroDef;
+  private readonly hooks: PlayerHooks;
 
   constructor(
     scene: Phaser.Scene,
@@ -100,6 +101,7 @@ export class Player {
   ) {
     this.scene = scene;
     this.hero = hero;
+    this.hooks = hooks;
     this.name = hero.name;
     this.sprite = scene.add.sprite(x, y, this.name);
     this.sprite.setOrigin(0.5, HERO_ORIGIN_Y).setScale(this.baseScale);
@@ -137,6 +139,19 @@ export class Player {
     this.lastEcho = -Infinity;
     this.body.enterRoom(grid, x, y);
     this.sprite.setPosition(Math.round(x), Math.round(y));
+  }
+
+  /** A duel round reset: alive again at the spawn point. */
+  respawn(grid: Grid, x: number, y: number) {
+    this.lastEcho = -Infinity;
+    this.body.respawn(grid, x, y);
+    this.sprite.setPosition(Math.round(x), Math.round(y));
+  }
+
+  /** The hit juice, for a hit that landed outside this body's own step (a
+   * guest learning of the host's hit, whose replay runs silently). */
+  cueHurt() {
+    this.hooks.onHurt?.();
   }
 
   buffer(input: InputState) {
@@ -255,13 +270,15 @@ export class Player {
     return s.vy < -10 ? "jump" : "fall";
   }
 
-  render(alpha = 1) {
+  // `dx`/`dy` offset the sprite from the sim: a predicted body easing out the
+  // jump of an edge the host applied a round trip ago (scenes/guest-sync.ts).
+  render(alpha = 1, dx = 0, dy = 0) {
     const b = this.body;
     this.selectClip(b);
     this.sprite.setFlipX(b.facing < 0);
     this.sprite.setPosition(
-      Math.round(interp(b.prevX, b.x, alpha)),
-      Math.round(interp(b.prevY, b.y, alpha)),
+      Math.round(interp(b.prevX, b.x, alpha) + dx),
+      Math.round(interp(b.prevY, b.y, alpha) + dy),
     );
     this.dashTrail(b.dashing);
     if (b.downed) {
@@ -312,58 +329,29 @@ export class Player {
     this.sprite.destroy();
   }
 
-  // Host: read the body into a wire player.
-  encode(id: string): NetPlayer {
+  // Guest: draw a remote player at a pose interpolated from the host's
+  // snapshots (no local sim). The body mirrors the pose for whoever reads it
+  // (the last-stand marker, the probe).
+  applyPose(p: PlayerPose) {
     const b = this.body;
-    return {
-      attackStep: b.attackStep,
-      dashing: b.dashing,
-      dead: b.dead,
-      downed: b.downed,
-      facing: b.facing,
-      grounded: b.grounded,
-      hero: this.name,
-      hurting: b.hurting,
-      id,
-      iframes: b.iframes,
-      specialActive: b.specialActive,
-      specialId: b.specialId,
-      swingId: b.swingId,
-      vx: b.vx,
-      vy: b.vy,
-      x: b.x,
-      y: b.y,
-    };
-  }
-
-  // Guest: drive the view straight from a wire player (no local sim). Sprite
-  // position lerps toward the authoritative point to smooth the ~20Hz feed.
-  applyNet(net: NetPlayer) {
-    const b = this.body;
-    b.x = net.x;
-    b.y = net.y;
-    b.vx = net.vx;
-    b.vy = net.vy;
-    b.facing = net.facing < 0 ? -1 : 1;
-    b.grounded = net.grounded;
-    b.dead = net.dead;
-    b.downed = net.downed;
-    b.iframes = net.iframes;
-    this.selectClip(net);
-    this.sprite.setFlipX(net.facing < 0);
-    const tx = Math.round(net.x);
-    const ty = Math.round(net.y);
-    const far = Math.hypot(tx - this.sprite.x, ty - this.sprite.y) > 40;
-    this.sprite.setPosition(
-      far ? tx : this.sprite.x + (tx - this.sprite.x) * 0.4,
-      far ? ty : this.sprite.y + (ty - this.sprite.y) * 0.4,
-    );
-    this.dashTrail(net.dashing);
-    if (net.downed) {
+    b.x = p.x;
+    b.y = p.y;
+    b.vx = p.vx;
+    b.vy = p.vy;
+    b.facing = p.facing;
+    b.grounded = p.grounded;
+    b.dead = p.dead;
+    b.downed = p.downed;
+    b.iframes = p.iframes;
+    this.selectClip(p);
+    this.sprite.setFlipX(p.facing < 0);
+    this.sprite.setPosition(Math.round(p.x), Math.round(p.y));
+    this.dashTrail(p.dashing);
+    if (p.downed) {
       this.sprite.setTint(DOWNED_TINT);
     } else {
       this.sprite.clearTint();
     }
-    this.sprite.setAlpha(iframeAlpha(net.iframes, net.dead));
+    this.sprite.setAlpha(iframeAlpha(p.iframes, p.dead));
   }
 }

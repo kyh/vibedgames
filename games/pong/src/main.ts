@@ -14,7 +14,7 @@ import type { HandCamera } from "./input/camera";
 import { createPongPauseOverlay } from "./pause-overlay";
 import { DitherPass } from "./render/dither-pass";
 import { GameScene } from "./scenes/game-scene";
-import { DITHER_PIXEL, HIT_HALF_X, MAX_DT } from "./shared/constants";
+import { DITHER_PIXEL, HIT_HALF_X, MAX_FRAME_DT } from "./shared/constants";
 import { COARSE_INPUT } from "./shared/input-mode";
 
 const container = document.querySelector("#game");
@@ -126,7 +126,7 @@ window.addEventListener("resize", () => {
 const timer = new THREE.Timer();
 renderer.setAnimationLoop((time) => {
   timer.update(time);
-  const dt = Math.min(timer.getDelta(), MAX_DT);
+  const dt = Math.min(timer.getDelta(), MAX_FRAME_DT);
   game.update(dt);
   renderer.info.reset();
   dither.setInverted(game.isScreenInverted());

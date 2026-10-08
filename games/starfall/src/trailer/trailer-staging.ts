@@ -53,8 +53,20 @@ export interface TrailerStaging {
   frame: (() => void) | null;
   /** Fake offline peer map (must include the synthesized `solo` self entry).
    *  Entries flow through the real remote-player pipeline: ship gfx, shield
-   *  rings, beams, AI targeting, beacon occupancy. Null = solo only. */
+   *  rings, AI targeting, beacon occupancy. Null = solo only. Their bolts are
+   *  staged separately (TrailerStageApi.stagePeerBolts). */
   peers: PlayerMap | null;
+}
+
+/** One fake peer's bolt in flight this frame. */
+export interface TrailerBolt {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  /** Damage fraction the victim drains from (PvP: power × 100). */
+  power: number;
+  tint: number;
 }
 
 export interface TrailerPlayerView {
@@ -134,6 +146,10 @@ export interface TrailerStageApi {
   spawnAsteroid: (x: number, y: number, radius: number) => void;
   spawnBeacon: (x: number, y: number, chargeS: number, activeS: number) => void;
   spawnShards: (count: number, x: number, y: number) => void;
+  /** Publish a fake peer's bolts as its live shots for this frame: drawn as
+   *  that peer's beams and, against the pilot, drained through the real PvP
+   *  volley path. Null withdraws them. */
+  stagePeerBolts: (id: string, bolts: readonly TrailerBolt[] | null) => void;
   enemies: () => readonly Readonly<EnemyState>[];
   player: () => TrailerPlayerView;
   worldSize: () => { w: number; h: number };

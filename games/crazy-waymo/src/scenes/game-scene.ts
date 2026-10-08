@@ -3,6 +3,7 @@ import type { PlayerSpawn } from "../world/player-spawn";
 import * as THREE from "three";
 import { createTouchControls, notifyGameStarted, watchControlContext } from "@repo/embed";
 import { isPlaytestRequested } from "@vibedgames/playtest";
+import { FixedRate } from "@vibedgames/multiplayer";
 import type { PlayerMap } from "@vibedgames/multiplayer";
 
 import { ModelCache } from "../assets/loader";
@@ -38,7 +39,6 @@ import { Traffic } from "../game/traffic";
 import type { TrafficCar } from "../game/traffic-car";
 import { InputState } from "../input/keyboard";
 import { NetSession } from "../net/session";
-import { readTransform } from "../net/remote-cars";
 import type { RemoteCars } from "../net/remote-cars";
 import type { PhysicsWorld } from "../physics/physics-world";
 import type { PlaytestView } from "../playtest/navigator";
@@ -57,6 +57,7 @@ import {
   CAMERA,
   CAR,
   FARE,
+  MP_INTEREST,
   MP_MAX_PLAYERS,
   MP_ROOM,
   MPH_FACTOR,
@@ -304,9 +305,11 @@ const readBest = (): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
-/** Centimeter precision is plenty for remote taxis and trims the 15 Hz
+/** Centimeter precision is plenty for remote taxis and trims the 20 Hz
  *  payload (~64 players of full-precision float64 JSON adds up). */
 const roundNet = (v: number): number => Math.round(v * 100) / 100;
+/** Velocity only steers a late-update coast (see net/remote-cars blendPose). */
+const roundVel = (v: number): number => Math.round(v * 10) / 10;
 
 // TRAILER (src/trailer/trailer-director.ts): the staging facade beginTrailer()
 // hands the director — controlled access to the private systems it stages
@@ -412,7 +415,9 @@ export class GameScene {
    *  not at boot — see manifest GEN_ROBOTAXIS. Null until the first garage. */
   private showroomLoad: Promise<void> | null = null;
   private ownedSkins = new Set<string>(["waymo"]);
-  private netAcc = 0;
+  private readonly netRate = new FixedRate(NET_TICK_HZ);
+  // performance.now() of the previous updateNet; 0 before the first.
+  private netAt = 0;
   private netInfoEl = document.querySelector("#netinfo");
 
   private city: CityModel | null = null;
@@ -488,14 +493,15 @@ export class GameScene {
   }
 
   // ---- wrapper pause -----------------------------------------------------
-  // Solo game, no wall-clock gameplay timers (fares/score/patience are all
-  // dt-driven — see GameState.update/FareManager) — a full freeze is safe.
+  // Gameplay is solo, with no wall-clock timers (fares/score/patience are all
+  // dt-driven — see GameState.update/FareManager), so freezing it is safe.
+  // Presence is not solo: the net keeps running (updatePaused).
   private paused = false;
   private frame = 0;
 
-  /** Wrapper asked us to pause: skip update() entirely (sim + physics both
-   *  gate on it) and kill the continuous engine/screech/scrape/boost loops
-   *  so nothing drones on under the overlay. */
+  /** Wrapper asked us to pause: freeze the sim (update() runs only the net
+   *  from here) and kill the continuous engine/screech/scrape/boost loops so
+   *  nothing drones on under the overlay. */
   requestPause(): void {
     if (this.paused) {
       return;
@@ -619,6 +625,7 @@ export class GameScene {
       fallbackMs: OFFLINE_FALLBACK_MS,
       // A playtest stages its own run; that must never reach a live room.
       forceOffline: (this.trailerMode && !localTrailerPeers) || isPlaytestRequested(),
+      interest: MP_INTEREST,
       maxPlayers: MP_MAX_PLAYERS,
       room: localTrailerPeers ? "crazy-waymo-trailer-local" : MP_ROOM,
     });
@@ -1195,6 +1202,7 @@ vec3 ocGerstner(vec2 p, float t) {
       },
       hideLoading: () => this.hud.hideLoading(),
       lampGlowBudget: this.mobileUi ? LAMP_GLOW_BUDGET : null,
+      netClock: this.net.serverClock,
       onAmbient: (ambient, city) => {
         this.ambient = ambient;
         this.attachNightAndLife(city);
@@ -1993,8 +2001,18 @@ vec3 ocGerstner(vec2 p, float t) {
     };
   }
 
+  /** While paused the frame pacer stops advancing the game (main.ts), but the
+   *  room still sees this taxi: the session keeps ticking and the pose keeps
+   *  going out flagged as paused, so peers neither freeze it nor drop it. */
+  updatePaused(): void {
+    if (this.paused && this.mode.kind !== "loading") {
+      this.updateNet();
+    }
+  }
+
   update(dt: number): void {
     if (this.paused) {
+      this.updatePaused();
       return;
     }
     this.frame += 1;
@@ -2060,7 +2078,7 @@ vec3 ocGerstner(vec2 p, float t) {
     // the scene has loaded — asset + physics load can otherwise outlast the
     // grace window and drop us to solo before the socket ever connects.
     if (this.mode.kind !== "loading") {
-      this.updateNet(dt);
+      this.updateNet();
     }
   }
 
@@ -2126,7 +2144,7 @@ vec3 ocGerstner(vec2 p, float t) {
 
   /** Broadcast the local taxi and render the other players' taxis. Runs in
    *  every mode so you see the city populated even on the title screen. */
-  private updateNet(dt: number): void {
+  private updateNet(): void {
     const { car } = this;
     const remote = this.remoteCars;
     // Don't tick the net before assets are in: the offline-fallback grace
@@ -2137,31 +2155,46 @@ vec3 ocGerstner(vec2 p, float t) {
       return;
     }
     this.net.tick();
+    // Wall time, not the clamped sim dt: below 30 fps that dt runs slow, and
+    // neither the send cadence nor the arrival times peers are drawn by may.
+    const now = performance.now();
+    const elapsed = this.netAt === 0 ? 0 : now - this.netAt;
+    this.netAt = now;
 
     // Only an active driver broadcasts: title idlers all park at the same
-    // deterministic spawn, and streaming that pose 15×/s just piles identical
-    // frozen taxis onto everyone's spawn plaza.
+    // deterministic spawn, and streaming that pose just piles identical frozen
+    // taxis onto everyone's spawn plaza. A driver sends every tick, parked or
+    // paused alike: an unchanged pose costs only the stamp (the client sends
+    // changed keys), and the stamp is how peers know the taxi is still here.
+    // It is the room's server clock, which every peer shares, so it says when
+    // the pose was true to all of them alike. Nothing goes out until that clock
+    // is measured, a round trip after joining (offline, never): a stamp off the
+    // local clock would read as decades stale.
     const driving = this.mode.kind === "countdown" || this.mode.kind === "playing";
-    if (!this.net.offline && driving) {
-      this.netAcc += dt;
-      if (this.netAcc >= 1 / NET_TICK_HZ) {
-        this.netAcc = 0;
-        this.net.updateMyState({
-          h: roundNet(car.heading),
-          msg: this.chatText,
-          msgAt: this.chatAt,
-          skin: this.skinId,
-          x: roundNet(car.position.x),
-          y: roundNet(car.position.y),
-          z: roundNet(car.position.z),
-        });
-      }
+    if (this.netRate.due(elapsed) && driving && this.net.clockSynced) {
+      this.net.updateMyState({
+        h: roundNet(car.heading),
+        msg: this.chatText,
+        msgAt: this.chatAt,
+        p: this.paused ? 1 : 0,
+        skin: this.skinId,
+        t: Math.round(this.net.serverNow()),
+        vx: this.paused ? 0 : roundVel(car.velX),
+        vz: this.paused ? 0 : roundVel(car.velZ),
+        x: roundNet(car.position.x),
+        y: roundNet(car.position.y),
+        z: roundNet(car.position.z),
+      });
     }
 
     // TRAILER: the director can substitute a fake player map (staged remote
     // robotaxis); null in every normal boot.
-    remote.sync(this.trailerFakes ?? this.net.players, this.net.playerId, car.position);
-    remote.update(dt);
+    const staged = this.trailerFakes !== null;
+    remote.sync(this.trailerFakes ?? this.net.players, this.net.playerId, { now, staged });
+    // Nothing draws under the pause overlay; placing taxis can wait for resume.
+    if (!this.paused) {
+      remote.update(car.position, now);
+    }
 
     if (this.netInfoEl) {
       const others = Math.max(0, Object.keys(this.net.players).length - 1);
@@ -2840,15 +2873,13 @@ vec3 ocGerstner(vec2 p, float t) {
       }
     }
     // Other online drivers under the objectives, outlined so they read on
-    // road-grey (plain white dots were invisible).
-    for (const [id, p] of Object.entries(this.net.players)) {
-      if (id === this.net.playerId) {
-        continue;
-      }
-      const t = readTransform(p.state);
-      if (t) {
-        markers.push({ color: "#ffffff", glyph: "player", x: t.x, z: t.z });
-      }
+    // road-grey (plain white dots were invisible). Read off the remote cars,
+    // which keep every player in interest range parsed (MP_INTEREST); staged
+    // trailer rivals are scenery, never players.
+    if (!this.trailerFakes) {
+      this.remoteCars?.forEachPresent((x, z) => {
+        markers.push({ color: "#ffffff", glyph: "player", x, z });
+      });
     }
     const carrying = fares.carryingInfo();
     if (carrying) {

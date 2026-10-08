@@ -1317,6 +1317,18 @@ export const eliteHp = (kind: EnemyKind, maxLevel: number): number => {
   return Math.round(base * eliteHpMult(maxLevel));
 };
 
+/** Kill XP for an enemy. Elites pay round(base × the multiplier their HP was
+ *  stamped with at spawn — maxHp over the Lv1 base), so pts-per-second
+ *  survives the durability retune and cost and reward move together;
+ *  everything else (fodder, sniper, boss) pays the flat spec value. Read off
+ *  the enemy itself: the shooter predicting the kill needs no view of who
+ *  else is in the room. A Lv1 room pays exactly the pre-retune numbers. */
+export const enemyKillXp = (e: Pick<EnemyState, "kind" | "maxHp">): number => {
+  const { xp } = ENEMY_SPECS[e.kind];
+  const base = ELITE_HP_BASE.get(e.kind);
+  return base === undefined ? xp : Math.round((xp * e.maxHp) / base);
+};
+
 /** Enemies never fire unless their target is within this range (≈ on screen). */
 export const ENEMY_FIRE_RANGE = 600;
 /** Never spawn within this distance of a living player. */
@@ -1684,8 +1696,26 @@ export const ENEMY_DESPAWN_INTERVAL_MS = 1500;
 
 // ---- networking ---------------------------------------------------------------
 
-// 20Hz for both my-state and host broadcasts
-export const NET_INTERVAL_MS = 50;
+/** My pose, every client. The per-tick state is a handful of primitives (shots
+ *  travel as `fire` events), but every pose fans out to up to 31 peers: at
+ *  20 Hz a full room relays a third fewer messages than at 30, and the remote
+ *  render delay still holds two updates. */
+export const PLAYER_NET_HZ = 20;
+/** Host world snapshots. Every enemy rides each one, so this stays at 20 Hz. */
+export const WORLD_NET_HZ = 20;
+/** How far behind the moment its updates arrive a remote ship (and its
+ *  shots) is drawn (ms): two 20 Hz send intervals, enough to ride out arrival
+ *  jitter. The relay itself is learnt per sender (net/peer-roster.ts). */
+export const REMOTE_RENDER_DELAY_MS = 100;
+/** Interest radius (px, on the player-state `x`/`y`): two players farther
+ *  apart stop receiving each other's state — the host still sees everyone.
+ *  The widest view served, 3840×2160 at zoom 1, reaches 2203 px to its
+ *  corner; the rest covers two NITRO ships closing (840 px/s) for the
+ *  ~200 ms a reveal takes, so nobody pops in on screen. */
+export const INTEREST_RADIUS = 2400;
+/** The host's relay of every player's sector score (guests rank the players
+ *  out of their interest range from it). */
+export const STANDINGS_RELAY_HZ = 2;
 
 // ---- minimap ------------------------------------------------------------------
 
@@ -1707,10 +1737,10 @@ export type AsteroidState = {
   vx: number;
   vy: number;
   radius: number;
-  /** The jagged outline never rides the wire: every client derives the same
-   *  unit shape from the id (asteroidUnitVerts) and scales it by the live
-   *  radius — which also keeps the scale-on-damage "no shape pop" behavior.
-   *  (dir-002 audit: shipped verts were 42% of the worst-case snapshot.) */
+  /** Draw-only spin, local to each client. The jagged outline never rides the
+   *  wire either: every client derives the same unit shape from the id
+   *  (asteroidUnitVerts) and scales it by the live radius — which also keeps
+   *  the scale-on-damage "no shape pop" behavior. */
   rot: number;
 };
 
@@ -1751,7 +1781,8 @@ export type EnemyState = {
   /** Facing; for a winding-up/charging LANCER this is the locked charge vector. */
   angle: number;
   hp: number;
-  // host-clock timestamps; clients render telegraphs/blinks from these
+  // sim-clock deadlines (each client's own; the wire carries them relative to
+  // a share's stamp); clients render telegraphs/blinks from these
   /** 0 = none. While now < this: wind-up visuals. */
   telegraphUntil: number;
   /** LANCER only: locked-vector charge window. */
@@ -1802,9 +1833,10 @@ export type ShardState = {
 };
 
 /**
- * Host-owned world. Patches shallow-merge (`{...prev, ...patch}`), so every
- * resettable key MUST be present in `emptyShared()` and the host rewrites each
- * top-level field wholesale.
+ * Host-owned world: the host's working copy, and each guest's dead-reckoned
+ * copy of it. On the wire it travels as stamped row buckets that change only
+ * when an entity spawns, dies or turns (net/world-wire.ts); host deadlines in
+ * a guest's copy are already converted to the guest's own clock.
  */
 export type SharedState = {
   asteroids: AsteroidState[];
@@ -1834,48 +1866,32 @@ export type SharedState = {
   playH: number;
 };
 
-/** Beam snapshot in another player's state — drawn raw, never simulated. */
-export type SerializedBeam = {
-  hx: number;
-  hy: number;
-  tx: number;
-  ty: number;
-  tint: number;
-  width: number;
-  exploding: boolean;
-  explosionRadius: number;
-  /** ARC only: bolt anchor points (render + victim-side PvP hit test). */
-  chain?: Vec[];
-  /** GLAIVE only: remotes render the spinning triangle instead of a segment. */
-  glaive?: boolean;
-  /** MINES: inert diamond until `exploding` — victims must not hit-test it. */
-  mine?: boolean;
-  /** SINGULARITY orb in flight/collapse: rendered as a small circle and,
-   *  like an inert mine, never hit-tested (only the pop's exploding circle
-   *  damages). */
-  orb?: boolean;
-  /** Damage fraction — victims compute their own drain from it (defaults to
-   *  NORMAL's 0.25 when absent). */
-  power?: number;
-};
-
 export type ShieldModNetState = {
   kind: ShieldModKind;
-  /** Epoch-ms expiry of the 20s mod window. */
-  until: number;
   /** ram-armed / reflect->40 / phase-ready; other kinds always true. */
   active: boolean;
   /** PHASE intangibility window is live. */
   phased: boolean;
 };
 
+/** A live booster and its local expiry — the DEV summary's view of my boosts. */
 export type BoostNetState = {
   kind: BoosterKind;
   until: number;
 };
 
-/** Per-player networked state (each client writes its own at 20Hz). */
+/**
+ * A player's networked state, decoded (net/wire-read.ts). Each client writes
+ * its own as flat primitives at PLAYER_NET_HZ, so a key that did not change
+ * never rides the wire. Shots are not here: every volley is a `fire` event
+ * that each client re-simulates (sys/volley.ts, sys/remote-fire.ts).
+ */
 export type PlayerNetState = {
+  /** Server time (`client.serverNow()`) when this state left: the stamp
+   *  remote ships are interpolated against (net/peer-roster.ts). */
+  t: number;
+  /** Pose. For a remote player these hold the pose INTERPOLATED for this
+   *  frame, so every reader draws and hit-tests the ship where it is drawn. */
   x: number;
   y: number;
   angle: number;
@@ -1884,17 +1900,17 @@ export type PlayerNetState = {
   alive: boolean;
   /** In the arena. False = cleanly docked out (paused-as-spectator): remotes
    *  drop the ship with NO death FX, distinct from a real death (alive:false,
-   *  present:true). Absent on legacy snapshots → treated as present. */
+   *  present:true). */
   present: boolean;
   invuln: boolean;
-  /** Current level (1..LEVEL_CAP); the new nameplate-worthy field. */
+  /** Current level (1..LEVEL_CAP). */
   level: number;
-  /** XP into the current level; remotes can render a progress bar. */
+  /** XP into the current level. */
   xp: number;
   streak: number;
   /** dir-006 sector chase: pts this sector (accrues with runXp pre-cap-
    *  discard, owner-reset at each boundary). Pure scoreboard — confers zero
-   *  power. Absent on legacy snapshots → 0. */
+   *  power. */
   sectorScore: number;
   weaponName: string;
   /** Base shield 0–100; remotes render the ring straight from this. */
@@ -1902,15 +1918,16 @@ export type PlayerNetState = {
   /** OVERSHIELD bonus layer 0–75. */
   overHp: number;
   shieldMod: ShieldModNetState | null;
-  boosts: BoostNetState[];
+  /** The live boosters other clients act on: the NITRO flame and TWIN drone
+   *  are drawn, a MAGNET holder pulls the host's pickups. */
+  nitro: boolean;
+  twin: boolean;
+  magnet: boolean;
   /** 0–1 windup charge; remotes draw the charging nose glow. */
   windup: number;
   /** TESLA AURA is live (weapon held + firing): victims inside its range
    *  adjudicate their own drain from this, RAM-style. */
   tesla: boolean;
-  /** SENTRY turret (pos + epoch-ms expiry); remotes render it from here. */
-  sentry: { x: number; y: number; until: number } | null;
-  beams: SerializedBeam[];
 };
 
 // ---- pure world-gen helpers -----------------------------------------------------

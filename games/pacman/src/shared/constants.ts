@@ -57,6 +57,12 @@ export const FLOOR_Y = -0.5;
 
 /** Step animation speed — legacy `animationSpeed` ref. */
 export const PACMAN_STEP_SPEED = 5;
+/**
+ * A chomp that lands while a step is still animating is held this long (s)
+ * and fires as the step lands. The legacy build dropped it, which left a dead
+ * window in every 200 ms step: held keys and quick double taps went missing.
+ */
+export const CHOMP_BUFFER_S = 0.15;
 export const GHOST_SPEED = 1.5;
 export const GHOST_SCARED_SPEED = 0.75;
 /** Legacy clamped frame delta to 0.1s to prevent jumps on frame drops. */
@@ -102,8 +108,13 @@ export const EAT_DIST = 0.8;
 
 // ---- chase camera (legacy PacmanCamera) -----------------------------------------
 
-// lerp factor per frame
-export const CAMERA_SMOOTHING = 0.1;
+/**
+ * Chase-cam follow rate (1/s): each frame closes 1 − e^(−rate·dt) of the gap.
+ * 6.32 is the legacy 0.1-per-frame lerp at 60 fps, now the same at any frame
+ * rate — per frame, it followed twice as tight on a 120 Hz screen and half as
+ * tight at 30 fps.
+ */
+export const CAMERA_FOLLOW_RATE = 6.32;
 // camera sits at pos - facing*2.5 (selfie: +2.5)
 export const CAM_BACK = 2.5;
 // absolute camera y
@@ -288,9 +299,41 @@ export const cellKey = (col: number, row: number): string => `${col},${row}`;
 // client already shares an identical board. The host owns the authoritative set
 // of eaten cells; players compete to grab pellets first. Each player runs their
 // OWN ghosts locally (a personal hazard), so only pellets and pac positions are
-// synced. Alone (or offline) it's the classic single-player game.
-export const MP_ROOM = "pacman-default";
+// synced. Alone — or with everyone else idling on the title or game-over screen
+// — it's the classic single-player game.
+// Versioned with the wire format: a tab still running an older bundle speaks
+// a different board and pac-state shape, so it must land in its own room
+// rather than share a race it would misread.
+export const MP_ROOM = "pacman-v3";
 export const MP_MAX_PLAYERS = 4;
+/**
+ * Room rule: a pac stands in the maze, so the party server drops any report
+ * that places one outside the grid before a rival draws it. Score and the
+ * spawn count have no hard bound, so they stay unlimited.
+ */
+export const PAC_LIMITS = {
+  x: { max: GRID_COLS - 1, min: 0 },
+  z: { max: GRID_ROWS - 1, min: 0 },
+};
 export const OFFLINE_FALLBACK_MS = 8000;
-/** Player position/score broadcast rate. */
-export const NET_TICK_HZ = 15;
+/** Own pac position/score send rate. */
+export const NET_TICK_HZ = 20;
+/**
+ * How far behind its fastest recent report a rival is drawn (ms). Each rival's
+ * clock learns its route's quickest transit, so the delay only has to cover
+ * how much slower a report may be than that, plus one 50 ms send interval:
+ * 150 holds a relay that wanders over 100 ms (50 to 150 ms) without running
+ * past the newest report, on a fast route or a slow one.
+ */
+export const RIVAL_DELAY_MS = 150;
+/**
+ * How far past its newest report a rival is carried on when the next one is
+ * late (ms) — one whole step. Never past the next cell centre (pac-track), so
+ * it cannot overshoot into a wall.
+ */
+export const RIVAL_EXTRAPOLATE_MS = 200;
+/**
+ * A pellet claim still unanswered after this long (ms) is sent again: it was
+ * written into a socket that was already dying. An answer takes one round trip.
+ */
+export const CLAIM_RETRY_MS = 2000;

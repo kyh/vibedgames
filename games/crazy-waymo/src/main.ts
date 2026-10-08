@@ -152,7 +152,8 @@ post?.setSize(window.innerWidth, window.innerHeight, renderer.getPixelRatio());
 const framePacer = new FramePacer(isCoarsePointer() ? "60hz" : "display");
 framePacer.setHidden(document.hidden);
 
-// Wrapper pause: solo game, safe to fully freeze (see GameScene.requestPause).
+// Wrapper pause: gameplay is solo and safe to freeze; multiplayer presence
+// keeps running (see GameScene.requestPause / updatePaused).
 const pauseOverlay = createPauseOverlay({
   mute: {
     get: () => game.muted,
@@ -259,6 +260,11 @@ const drawScene = (): void => {
 
 renderer.setAnimationLoop((t) => {
   const frame = framePacer.next(t);
+  if (frame.kind !== "advance") {
+    // A wrapper pause holds these frames still; the taxi's presence in the
+    // room must not (no-op unless paused).
+    game.updatePaused();
+  }
   if (frame.kind === "skip") {
     return;
   }

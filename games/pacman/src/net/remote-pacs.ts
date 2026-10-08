@@ -1,43 +1,22 @@
 // Renders the other players' pac-blobs in the shared maze. They're simple
 // colored plush spheres (not the full mouth-animated hero rig) — enough to see
-// rivals racing for pellets. Positions are smoothed toward the ~15 Hz updates.
+// rivals racing for pellets. Each one plays back its sender's 20 Hz reports
+// through its own PacTrack (./pac-track), whose clock learns that rival's route.
 
 import * as THREE from "three";
 
-import type { Player, PlayerMap } from "@vibedgames/multiplayer";
+import type { PlayerMap } from "@vibedgames/multiplayer";
 
-export interface RemotePacState {
-  x: number;
-  z: number;
-}
-
-/** One field of the wire player-state dictionary (parsed JSON). */
-type PlayerStateField = NonNullable<Player["state"]>[string] | undefined;
-
-// JSON numbers are always finite, so Number.isFinite is the exact check.
-const isFiniteNumber = (v: PlayerStateField): v is number => Number.isFinite(v);
-
-const readPacState = (state: Player["state"]): RemotePacState | null => {
-  if (!state) {
-    return null;
-  }
-  const { x } = state;
-  const { z } = state;
-  if (!isFiniteNumber(x) || !isFiniteNumber(z)) {
-    return null;
-  }
-  return { x, z };
-};
+import { PacTrack, readPacSample } from "./pac-track";
 
 interface RemotePac {
   group: THREE.Group;
   mat: THREE.MeshStandardMaterial;
-  cur: THREE.Vector3;
-  target: THREE.Vector3;
-  seeded: boolean;
+  track: PacTrack;
+  /** The update() pass that last listed it as a rival; an older one has left the round. */
+  seen: number;
 }
 
-const LERP_RATE = 12;
 const BODY_Y = 0.4;
 
 /* oxlint-disable no-bitwise, unicorn/prefer-code-point -- FNV-1a is defined over
@@ -57,28 +36,33 @@ export class RemotePacs {
   readonly group = new THREE.Group();
   private pacs = new Map<string, RemotePac>();
   private geo = new THREE.SphereGeometry(0.42, 20, 16);
+  private pass = 0;
 
   constructor(scene: THREE.Scene) {
     scene.add(this.group);
   }
 
-  /** Adopt the latest snapshot of the given rivals (the scene decides who counts). */
-  sync(players: PlayerMap, rivalIds: readonly string[]): void {
-    const seen = new Set<string>();
+  /**
+   * Every frame: feed each rival's latest report (a repeat costs nothing) and
+   * draw it where its track says. The scene decides who counts as a rival.
+   */
+  update(players: PlayerMap, rivalIds: readonly string[], t: number): void {
+    this.pass += 1;
     for (const id of rivalIds) {
-      const st = readPacState(players[id]?.state);
-      if (!st) {
+      const sample = readPacSample(players[id]?.state);
+      if (!sample) {
         continue;
       }
-      seen.add(id);
-      let pac = this.pacs.get(id);
-      if (!pac) {
-        pac = this.spawn(id, st);
+      const pac = this.pacs.get(id) ?? this.spawn(id);
+      pac.seen = this.pass;
+      pac.track.push(sample);
+      const pose = pac.track.sample();
+      if (pose) {
+        pac.group.position.set(pose.x, BODY_Y + Math.sin(t * 3 + pose.x) * 0.03, pose.z);
       }
-      pac.target.set(st.x, BODY_Y, st.z);
     }
     for (const [id, pac] of this.pacs) {
-      if (!seen.has(id)) {
+      if (pac.seen !== this.pass) {
         this.group.remove(pac.group);
         pac.mat.dispose();
         this.pacs.delete(id);
@@ -86,20 +70,7 @@ export class RemotePacs {
     }
   }
 
-  update(dt: number, t: number): void {
-    const k = 1 - Math.exp(-LERP_RATE * dt);
-    for (const pac of this.pacs.values()) {
-      if (pac.seeded) {
-        pac.cur.copy(pac.target);
-        pac.seeded = false;
-      } else {
-        pac.cur.lerp(pac.target, k);
-      }
-      pac.group.position.set(pac.cur.x, pac.cur.y + Math.sin(t * 3 + pac.cur.x) * 0.03, pac.cur.z);
-    }
-  }
-
-  private spawn(id: string, st: RemotePacState): RemotePac {
+  private spawn(id: string): RemotePac {
     const mat = new THREE.MeshStandardMaterial({
       color: colorForId(id),
       emissive: colorForId(id),
@@ -111,8 +82,7 @@ export class RemotePacs {
     const group = new THREE.Group();
     group.add(body);
     this.group.add(group);
-    const cur = new THREE.Vector3(st.x, BODY_Y, st.z);
-    const pac: RemotePac = { cur, group, mat, seeded: true, target: cur.clone() };
+    const pac: RemotePac = { group, mat, seen: this.pass, track: new PacTrack() };
     this.pacs.set(id, pac);
     return pac;
   }

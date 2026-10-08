@@ -1,7 +1,8 @@
 import { MultiplayerClient } from "@vibedgames/multiplayer";
-import type { PlayerMap } from "@vibedgames/multiplayer";
+import type { PlayerMap, ServerClock } from "@vibedgames/multiplayer";
 import type { WireRecord, WireValue } from "../net/wire-read";
-import { OFFLINE_FALLBACK_MS } from "../shared/constants";
+import { now as simNow } from "../shared/clock";
+import { INTEREST_RADIUS, OFFLINE_FALLBACK_MS } from "../shared/constants";
 import type { PlayerNetState } from "../shared/constants";
 import type { TrailerStaging } from "../trailer/trailer-staging";
 
@@ -15,6 +16,10 @@ const SOLO_PEERS: PlayerMap = { solo: { id: "solo" } };
 interface LinkOptions {
   /** Inbound event sink — also where offline sends loop straight back to. */
   inbox: (event: string, payload: WireValue, from: string) => void;
+  /** A claim's owner, as the server settled it: granted (everyone hears it),
+   *  the holder (a refused claimer alone hears it) or released (null).
+   *  Offline every claim is granted at once. */
+  onClaim?: (key: string, owner: string | null) => void;
 }
 
 interface ConnectOptions {
@@ -46,8 +51,9 @@ export class Link {
   offline = false;
   /** True only after this connected host has adopted the accepted room world. */
   hostSnapshotReady = false;
-  /** Each peer's net state, parsed ONCE per frame — identity only changes on
-   *  a ~20Hz patch, and the hot paths read it many times. */
+  /** Each peer's net state for this frame, filled by the PeerRoster: parsed
+   *  once per patch, a remote's pose interpolated. Null for me, for peers
+   *  mid-drop and for peers out of interest range. */
   readonly peerStates = new Map<string, PlayerNetState | null>();
   /** False until the player dismisses the start screen. Gates spawning so the
    *  ship isn't dropped into a live arena while the controls are still up. */
@@ -66,6 +72,7 @@ export class Link {
 
   private client: MultiplayerClient | null = null;
   private readonly inbox: LinkOptions["inbox"];
+  private readonly claimSink: LinkOptions["onClaim"];
   /** Stamped on the FIRST poll (not create()): heavy boots must not eat into
    *  the grace window before the socket gets a chance to connect. */
   private bootedAt = 0;
@@ -76,15 +83,20 @@ export class Link {
 
   constructor(options: LinkOptions) {
     this.inbox = options.inbox;
+    this.claimSink = options.onClaim;
   }
 
   /** Dial the party server. No `initialState`: the package re-applies it
    *  whenever a client becomes host, which would wipe the live world on host
-   *  migration — the first host seeds explicitly (WorldSync.ensureSeeded). */
+   *  migration — the first host seeds explicitly (WorldSync.ensureSeeded).
+   *  Interest: a player out of range reads `visible: false` and its state
+   *  stops updating (PeerRoster hides it); the host still sees everyone. */
   connect(options: ConnectOptions): void {
     this.client = new MultiplayerClient({
       host: options.host,
+      interest: { radius: INTEREST_RADIUS },
       maxPlayers: options.maxPlayers,
+      onClaim: (key, owner) => this.claimSink?.(key, owner),
       onEvent: (event, payload, from) => this.inbox(event, payload, from),
       party: "vg-server",
       room: options.room,
@@ -105,8 +117,29 @@ export class Link {
     }
   }
 
+  /** In the room with its clock measured. Everything on the wire is stamped
+   *  with server time, so nothing goes out — and no snapshot is read — before
+   *  the first clock probe answers, about one round trip after admission. */
   get connected(): boolean {
-    return this.client?.connectionStatus === "connected";
+    return this.client?.connectionStatus === "connected" && this.client.serverClock.synced;
+  }
+
+  /** The room's shared clock (null offline): every stamp on the wire is in
+   *  it, so a stamp means the same instant to every client, whoever hosts. */
+  get serverClock(): ServerClock | null {
+    return this.offline ? null : (this.client?.serverClock ?? null);
+  }
+
+  /** Server time at local `performance.now()` time `localNow`. Offline,
+   *  where nothing is stamped, the local clock. */
+  serverNow(localNow: number = performance.now()): number {
+    return this.serverClock?.now(localNow) ?? localNow;
+  }
+
+  /** Server time at the sim-clock instant `simT` (shared/clock.ts): online
+   *  the sim clock never pauses, so the two tick together. */
+  serverAt(simT: number): number {
+    return this.serverNow() + (simT - simNow());
   }
 
   /** In the arena — connected, or reconnecting after a drop — or running the
@@ -127,6 +160,10 @@ export class Link {
 
   get myId(): string | null {
     return this.offline ? "solo" : (this.client?.playerId ?? null);
+  }
+
+  get hostId(): string | null {
+    return this.offline ? "solo" : (this.client?.hostId ?? null);
   }
 
   get peers(): PlayerMap {
@@ -151,26 +188,69 @@ export class Link {
     return this.client;
   }
 
-  /** Events loop straight back into the local host when offline. Nothing is
-   *  sent while dropped: the socket would queue every message unbounded and
-   *  replay the backlog on reconnect. */
-  send(event: string, payload: WireRecord): void {
-    if (this.offline) {
-      this.inbox(event, payload, "solo");
-    } else if (this.client && this.connected) {
-      this.client.sendEvent(event, payload);
+  /** An intent for the host alone. When I am the host (or solo) it runs
+   *  through the inbox right here, with no round trip through the server.
+   *  Nothing is sent while dropped: the socket would queue every message
+   *  unbounded and replay the backlog on reconnect. */
+  toHost(event: string, payload: WireRecord): void {
+    if (this.amHost) {
+      this.inbox(event, payload, this.myId ?? "solo");
+      return;
+    }
+    const host = this.client?.hostId;
+    if (this.client && this.connected && host) {
+      this.client.sendEvent(event, payload, { to: host });
+    }
+  }
+
+  /** Something that happened to me, for everyone else (shots, deaths). */
+  broadcast(event: string, payload: WireRecord): void {
+    const me = this.client?.playerId;
+    if (!this.offline && this.client && this.connected && me) {
+      this.client.sendEvent(event, payload, { except: me });
+    }
+  }
+
+  /** An event for one player. */
+  sendTo(id: string, event: string, payload: WireRecord): void {
+    if (!this.offline && this.client && this.connected) {
+      this.client.sendEvent(event, payload, { to: id });
     }
   }
 
   /** Host → room: shallow-merge patch of the shared world. Dropped while
-   *  disconnected for the same reason as `send`. */
+   *  disconnected for the same reason as `toHost`. */
   patchShared(patch: SharedPatch): void {
     if (!this.offline && this.client && this.connected) {
       this.client.updateSharedState(patch);
     }
   }
 
-  /** My 20Hz player-state push. */
+  /** Claims can be made: online and connected, or solo. */
+  get canClaim(): boolean {
+    return this.offline || this.connected;
+  }
+
+  /** Ask for `key` — first come, first served, settled by the server in one
+   *  hop for every client alike, the host included; `onClaim` hears the
+   *  answer. It lapses after `ttlMs`. Offline nobody contends: granted at
+   *  once. Nothing is sent while dropped (see `toHost`). */
+  claim(key: string, ttlMs: number): void {
+    if (this.offline) {
+      this.claimSink?.(key, this.myId);
+      return;
+    }
+    if (this.client && this.connected) {
+      this.client.claim(key, { ttlMs: Math.max(1, Math.round(ttlMs)) });
+    }
+  }
+
+  /** Someone holds `key` (never offline: the solo world is the only copy). */
+  claimed(key: string): boolean {
+    return !this.offline && (this.client?.ownerOf(key) ?? null) !== null;
+  }
+
+  /** My state push (flat primitives; unchanged keys stay off the wire). */
   pushMyState(state: SharedPatch): void {
     if (!this.offline && this.client && this.connected) {
       this.client.updateMyState(state);
@@ -195,8 +275,10 @@ export class Link {
     }
     this.linkUp = false;
     // Once we've been in the arena, a drop is transient — let the socket
-    // reconnect instead of stranding a real player in a solo world.
-    if (this.everConnected) {
+    // reconnect instead of stranding a real player in a solo world. Admitted
+    // and waiting on the first clock probe counts too: the room answered,
+    // and a probe lost under load is retried within seconds.
+    if (this.everConnected || this.client?.connectionStatus === "connected") {
       return "steady";
     }
     // Pre-connect errors/closes are NOT instant failures: the socket retries

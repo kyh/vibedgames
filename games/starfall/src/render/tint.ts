@@ -23,10 +23,9 @@ export const itemTint = (it: ItemState): number => {
 export const weaponTint = (name: string): number =>
   WEAPONS_SPECIAL.find((w) => w.name === name)?.tint ?? 0xff_ff_ff;
 
-/** Random lerp between two 0xRRGGBB tints (PLASMA's per-shot gradient). */
+/** Lerp between two 0xRRGGBB tints at `t` (PLASMA's per-shot gradient). */
 /* oxlint-disable no-bitwise -- unpacks and repacks 8-bit channels */
-export const lerpTint = (a: number, b: number): number => {
-  const t = Math.random();
+export const lerpTint = (a: number, b: number, t: number): number => {
   const ch = (shift: number): number => {
     const ca = (a >> shift) & 0xff;
     const cb = (b >> shift) & 0xff;

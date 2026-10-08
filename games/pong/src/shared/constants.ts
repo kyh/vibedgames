@@ -29,8 +29,8 @@ export const HIT_HALF_X = 0.7;
 // ---- ball physics ------------------------------------------------------------
 export const BALL_R = 0.2;
 // Rally ramp: every paddle hit adds RALLY_SPEED_STEP, resetting each point.
-// Cap stays under 2·HIT_HALF_Y / MAX_DT (= 20) so the ball can't step over a
-// paddle's hit band in a single clamped frame.
+// Even a power shot (17) stays under 2·HIT_HALF_Y / TICK_S (= 60) by far, so
+// the ball can't step over a paddle's hit band in a single tick.
 // serve speed (constant magnitude during flight)
 export const RALLY_SPEED_BASE = 7;
 export const RALLY_SPEED_STEP = 0.45;
@@ -94,20 +94,38 @@ export const LEGACY_FPS = 60;
 export const WIN_SCORE = 7;
 export type Phase = "serving" | "rally" | "won";
 
+// ---- lockstep sim ------------------------------------------------------------
+// The match steps in fixed ticks, never a frame's dt, so every client lands on
+// the same state. 60 Hz is the tick room's ceiling and the old frame-locked
+// feel: the fastest ball (17 u/s) moves 0.28 units a tick, well inside a
+// paddle's 1-unit hit band, and a 3-tick hit-stop is the old 45 ms beat.
+export const TICK_RATE = 60;
+export const TICK_S = 1 / TICK_RATE;
+export const TICK_MS = 1000 / TICK_RATE;
+
 // ---- multiplayer -------------------------------------------------------------
-// Head-to-head: the first player in a room hosts (owns the ball + slot A, the
-// near paddle); the second controls slot B (the far paddle). A third player
-// overflows into a sibling room, so every room is a clean 1v1. Alone in a room,
-// the host plays the AI exactly like single-player — the opponent seamlessly
-// swaps to the human the moment they join, and back to the AI if they leave.
-export const MP_ROOM = "pong-default";
+// Head-to-head lockstep with rollback. The room runs a TICK_RATE tick: each
+// player sends its input (../shared/input) on change, scheduled a few ticks
+// ahead; the server stamps it into a tick and streams every tick to both, and
+// each client steps the same deterministic sim (../shared/sim) — its own
+// paddle answers at once, the rival's is predicted and corrected by rollback,
+// and nobody's copy of the ball is the host's. The host only publishes the
+// match record (seats, first tick, seed) when a pairing forms. A third player
+// overflows into a sibling room, so every room is a clean 1v1. Alone in a
+// room — or once the rival leaves — the match is solo against the AI on the
+// client's own clock, and a new rival starts a fresh match.
+// Versioned with the wire format: a tab still on an older bundle during a
+// deploy lands in a different room instead of a match it can't read.
+export const MP_ROOM = "pong-v3";
 export const MP_MAX_PLAYERS = 2;
 // Give up on the party server after this long with no connection and fall back
 // to a local solo match vs the AI (same value the other bundled games use).
 export const OFFLINE_FALLBACK_MS = 4000;
-// Host broadcasts the ball/score state at this rate; the guest dead-reckons the
-// ball between updates so it stays smooth at the full frame rate.
-export const NET_TICK_HZ = 30;
+// A rollback that moves the drawn ball up to this far (world units) is eased
+// out of the picture over BALL_EASE_S; a larger jump is a different rally and
+// snaps. The rival's paddle eases the same way.
+export const BALL_SNAP = 3;
+export const BALL_EASE_S = 0.08;
 
 // ---- HUD (rally combo) -------------------------------------------------------
 // DOM "×N" counter (above the canvas — un-dithered, crisp ink). Shows from MIN
@@ -195,8 +213,10 @@ export const VIGNETTE_STRENGTH = 0.1;
 export const VIGNETTE_INNER = 0.6;
 
 // ---- feel (craft pass) ---------------------------------------------------------
-// clamp delta after tab-switch so the ball can't tunnel
-export const MAX_DT = 0.05;
+// Longest frame the solo clock catches up on at once (s); past it (a tab
+// switch) play resumes rather than replays. A tick-room match keeps the
+// server's clock whatever the frame rate.
+export const MAX_FRAME_DT = 0.25;
 // paddle ring pop amplitude on hit
 export const PULSE_SCALE = 0.35;
 // exp decay rate (1/s) for the pop
