@@ -1,91 +1,88 @@
-// Pausable wall clock for the sim.
+// Sim time: the room's shared clock, minus every millisecond spent paused.
 //
-// Bomb fuses, blast lifetimes, the round timer and AI cadence are all driven by
-// wall-clock timestamps (compare a stored `placedAt`/`nextMoveAt` against the
-// current time). Reading `Date.now()` directly makes those deadlines impossible
-// to pause: sleeping the render loop stops `update()`, but every stored fuse
-// keeps counting against real time, so on resume they all detonate at once.
+// Bomb fuses, blast lifetimes, the round id and bot cadence are timestamps on
+// this clock (compare a stored `placedAt`/`nextMoveAt` against `now()`).
+// Online its base is the party server's clock (`client.serverClock`), which
+// every client measures for itself, so a stamp means the same instant to every
+// player and a new host changes nothing. Offline the base is this machine's own
+// clock.
 //
-// `now()` is real time minus every millisecond spent paused. While paused it
-// holds still; on resume it continues from exactly where it stopped, so a bomb
-// with 2s of fuse left before a pause still has ~2s left after. Only SIM timing
-// reads `now()` — net heartbeats, connection deadlines and logging stay on real
-// `Date.now()`, because pausing them would break reconnection.
-//
-// The host publishes its stamp in shared state: every `placedAt` on the wire is
-// host sim time, so guests (and a promoted host) must run the same clock. The
-// stamp carries the host's sim time at the moment it was written, never its
-// wall-clock offset — two machines disagree about `Date.now()` by seconds, and a
-// guest calibrating against the host's offset would render every fuse shifted
-// by that skew. Calibrating to the stamp on arrival leaves only one-way latency.
+// Pausing a solo arena freezes it: `now()` holds still, and on resume the
+// paused span joins the offset, so a bomb with 2 s of fuse left before a pause
+// still has ~2 s after. The host publishes its stamp (the offset, or the frozen
+// time) whenever it changes, and every other client adopts it as is: nothing
+// is estimated from when it arrived. Only sim timing reads `now()`; net
+// heartbeats, connection deadlines and logging stay on real `Date.now()`,
+// because pausing those would break reconnection.
 
-export type ClockStamp = { kind: "running"; at: number } | { kind: "paused"; now: number };
+import type { SenderClock } from "@vibedgames/multiplayer";
 
-type Clock = { kind: "running"; offset: number } | { kind: "paused"; now: number };
+export type ClockStamp = { kind: "running"; offset: number } | { kind: "paused"; now: number };
 
-/** Re-calibrations within this band are latency jitter, not drift: keep the
- * current offset so fuses do not wobble with every snapshot. */
-export const CLOCK_SLACK_MS = 120;
+/** This machine's clock, on the server's epoch: the base offline. */
+export const localClock: SenderClock = {
+  now: (localNow = performance.now()) => performance.timeOrigin + localNow,
+  synced: true,
+};
 
-let clock: Clock = { kind: "running", offset: 0 };
-/** The `at` of the last running stamp adopted, so re-reading the same stamp
- * later (every room change re-runs adoption) cannot re-calibrate against a
- * stale write time and jump the sim backwards. */
-let adoptedAt: number | null = null;
+let base: SenderClock = localClock;
+let clock: ClockStamp = { kind: "running", offset: 0 };
 
-/** Legacy rooms carry no usable stamp: keep this client's own running clock.
- * A frozen `now` survives host loss where an offset alone could not represent
- * an unfinished pause. */
-export const readClock = (value: ClockStamp | undefined): ClockStamp | null => {
+/** Run sim time on `source`: the room's server clock online, `localClock` offline. */
+export const setClockBase = (source: SenderClock): void => {
+  base = source;
+};
+
+/** A stamp off the wire, or null when it is not one. */
+export const readClock = (value?: ClockStamp): ClockStamp | null => {
   if (value?.kind === "paused" && Number.isFinite(value.now)) {
     return { kind: "paused", now: value.now };
   }
-  if (value?.kind === "running" && Number.isFinite(value.at)) {
-    return { at: value.at, kind: "running" };
+  if (value?.kind === "running" && Number.isFinite(value.offset)) {
+    return { kind: "running", offset: value.offset };
   }
   return null;
 };
 
-/** Sim clock: `Date.now()` minus all time spent paused. Frozen while paused. */
-export const now = (): number => (clock.kind === "paused" ? clock.now : Date.now() - clock.offset);
+/** Sim time at local time `localNow` (default: now). Frozen while paused. */
+export const now = (localNow?: number): number =>
+  clock.kind === "paused" ? clock.now : base.now(localNow) - clock.offset;
 
-export const clockStamp = (): ClockStamp =>
-  clock.kind === "paused" ? clock : { at: now(), kind: "running" };
+/** The sim clock as a `StepTrack` reads one: bots step on it. */
+export const simClock: SenderClock = {
+  now,
+  get synced() {
+    return base.synced;
+  },
+};
 
-/** Follow the host's stamp. A running stamp calibrates local sim time to the
- * host's as of `receivedAt`; a paused one freezes at the host's frozen time. */
-export const adoptClock = (stamp: ClockStamp | null, receivedAt = Date.now()): void => {
-  if (!stamp) {
-    return;
+export const clockStamp = (): ClockStamp => clock;
+
+/** True when two stamps say the same thing: the host sends its stamp only when it changes. */
+export const sameStamp = (a: ClockStamp | undefined, b: ClockStamp): boolean => {
+  if (a?.kind === "paused" && b.kind === "paused") {
+    return a.now === b.now;
   }
-  if (stamp.kind === "paused") {
+  return a?.kind === "running" && b.kind === "running" && a.offset === b.offset;
+};
+
+/** Follow the room's stamp. Every client shares the base, so it applies as is. */
+export const adoptClock = (stamp: ClockStamp | null): void => {
+  if (stamp) {
     clock = stamp;
-    adoptedAt = null;
-    return;
   }
-  if (stamp.at === adoptedAt) {
-    return;
-  }
-  adoptedAt = stamp.at;
-  const offset = receivedAt - stamp.at;
-  if (clock.kind === "running" && Math.abs(clock.offset - offset) <= CLOCK_SLACK_MS) {
-    return;
-  }
-  clock = { kind: "running", offset };
 };
 
-/** Freeze the sim clock. Idempotent — a second call while paused is a no-op. */
+/** Freeze the sim clock. Idempotent: a second call while paused is a no-op. */
 export const pauseClock = (): void => {
-  if (clock.kind === "paused") {
-    return;
+  if (clock.kind === "running") {
+    clock = { kind: "paused", now: now() };
   }
-  clock = { kind: "paused", now: now() };
 };
 
-/** Resume the sim clock, folding the pause span into the running offset. */
+/** Resume the sim clock, folding the paused span into the offset. */
 export const resumeClock = (): void => {
-  if (clock.kind === "running") {
-    return;
+  if (clock.kind === "paused") {
+    clock = { kind: "running", offset: base.now() - clock.now };
   }
-  clock = { kind: "running", offset: Date.now() - clock.now };
 };

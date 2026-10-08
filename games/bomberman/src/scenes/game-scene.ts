@@ -7,14 +7,14 @@ import {
 import type { TouchControls } from "@repo/embed";
 import { PhysicalGamepad, attachVirtualGamepad, stickDirection4 } from "@vibedgames/gamepad/phaser";
 import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
-import { MultiplayerClient, RemoteClock } from "@vibedgames/multiplayer";
+import { MultiplayerClient } from "@vibedgames/multiplayer";
 import {
   isPlaytestRequested,
   publishDiagnostics,
   publishPlaytest,
   publishTestHooks,
 } from "@vibedgames/playtest";
-import type { Player } from "@vibedgames/multiplayer";
+import type { Player, SenderClock } from "@vibedgames/multiplayer";
 import type Phaser from "phaser";
 import { BlendModes, Input, Math as PhaserMath, Scale, Scene, Scenes } from "phaser";
 import { createArena, readArena } from "../shared/arena";
@@ -25,9 +25,9 @@ import type { CharacterPose } from "../render/character-action";
 import { blastFrame, fireCells, freshCue } from "../render/blast-frame";
 import { RoundHud } from "../render/round-hud";
 import { DirInput, stickDirs } from "../input/dir-input";
-import { BombPrediction } from "../net/bomb-prediction";
+import { BombPrediction, fuseStart } from "../net/bomb-prediction";
 import { applyOpened, encodeOpened } from "../net/grid-wire";
-import { StepTrack, WALK_GRACE_MS } from "../net/step-track";
+import { remoteDelayMs, StepTrack, WALK_GRACE_MS } from "../net/step-track";
 import type { StepPose } from "../net/step-track";
 import { playtestManifest } from "../playtest-manifest";
 import type { BombermanDiagnostics } from "../playtest-manifest";
@@ -80,10 +80,14 @@ import { buildControls, ensureStyle as ensureControlsStyle } from "../pause-over
 import {
   adoptClock,
   clockStamp,
+  localClock,
   now as simNow,
   pauseClock,
   readClock,
   resumeClock,
+  sameStamp,
+  setClockBase,
+  simClock,
 } from "../util/clock";
 import { seededRandom } from "../util/seeded-random";
 
@@ -171,15 +175,13 @@ const MULTIPLAYER_HOST = import.meta.env.DEV
 
 /** `?room=<code>` isolates a match (test harness, private lobby); everyone else shares one
  *  room, versioned with the wire format so a tab on an older bundle never shares a match. */
-const ROOM = new URLSearchParams(location.search).get("room") || "bomberman-v2";
+const ROOM = new URLSearchParams(location.search).get("room") || "bomberman-v3";
 /** A playtest reseeds and restarts the round at will, so without a `?room` of
  *  its own it plays solo rather than dial the room everyone else shares. */
 const SOLO_PLAYTEST = isPlaytestRequested() && !new URLSearchParams(location.search).has("room");
 const BOMB_BUTTON_INSET = 84;
 const BOMB_BUTTON_RADIUS = 52;
 
-/** Remote movers are drawn this far behind their sender's clock; it covers arrival jitter. */
-const REMOTE_DELAY_MS = 100;
 /** A step that follows straight on from the last starts where that one ended, back at most this far. */
 const MAX_CARRY_MS = 50;
 /** Longest frame the camera and the host's catch-up take into account. */
@@ -335,6 +337,14 @@ const readPlayerState = (player: Player | undefined): PartialPS => {
 /** The owner's press counter, as an untrusted guest sends it. */
 const isLocalId = (v: WireField): v is number => Number.isSafeInteger(v) && Number(v) > 0;
 
+/** A guest's bomb press as the host reads it off `place_bomb`; `pressedAt` is sim time. */
+interface GuestPress {
+  col: number;
+  row: number;
+  localId: number;
+  pressedAt: number;
+}
+
 const isPowerupKind = (v: WireField): v is PowerupKind =>
   v === "bomb" || v === "fire" || v === "speed";
 
@@ -391,17 +401,13 @@ export class GameScene extends Scene {
   private readonly prediction = new BombPrediction();
   private readonly hostStep = new FixedStep(HOST_STEP_MS, MAX_FRAME_MS);
 
-  /** Remote humans, each on its own sender clock. */
+  /** Remote humans, whose steps are stamped on the room's server clock. */
   private readonly humanTracks = new Map<string, StepTrack>();
-  /** Bots, all on the host's clock. */
+  /** Bots, whose steps are stamped on the sim clock. */
   private readonly botTracks = new Map<string, StepTrack>();
-  /** The host's sim clock as seen here: every host write carries a stamp of it. */
-  private readonly hostClock = new RemoteClock();
   /** Last state taken in per mover, so a repeated notify is a no-op. */
   private readonly ingested = new Map<string, string>();
   private ingestRound: number | null = null;
-  private ingestHost: string | null = null;
-  private clockSeenAt: number | null = null;
 
   /** `shared()` decodes the wire state once per change. */
   private sharedFrom: MultiplayerClient["sharedState"] | null = null;
@@ -486,14 +492,31 @@ export class GameScene extends Scene {
   // lives locally, and the bots make it a real match (you vs 3 bots).
   private offline = false;
   private everConnected = false;
+  /** `roomReady` as of the last frame — see watchRoomClock. */
+  private roomWasReady = false;
   /** Stamped on the first update() tick (not create()) — see maybeGoOffline. */
   private bootedAt = 0;
   private offlineShared: SharedState | null = null;
   private offlineMyState: JsonObject = {};
 
-  /** Connected to the room, or running the solo offline fallback. */
+  /** In the room with its clock measured: until the first probe returns, server time reads the local clock. */
+  private get roomReady(): boolean {
+    return this.client.connectionStatus === "connected" && this.client.serverClock.synced;
+  }
+
+  /** In the room, or running the solo offline fallback. */
   private get live(): boolean {
-    return this.offline || this.client.connectionStatus === "connected";
+    return this.offline || this.roomReady;
+  }
+
+  /** The clock steps are stamped on: the room's server clock, or this machine's offline. */
+  private get roomClock(): SenderClock {
+    return this.offline ? localClock : this.client.serverClock;
+  }
+
+  /** How far behind the room clock other clients' movers are drawn. */
+  private remoteDelay(): number {
+    return remoteDelayMs(this.offline ? 0 : this.client.rtt);
   }
 
   /**
@@ -507,7 +530,7 @@ export class GameScene extends Scene {
   }
 
   private get amHost(): boolean {
-    return this.offline || (this.client.connectionStatus === "connected" && this.client.isHost);
+    return this.offline || (this.roomReady && this.client.isHost);
   }
 
   /** Freeze a solo simulation. The paused stamp goes out before the loop
@@ -532,14 +555,14 @@ export class GameScene extends Scene {
     this.game.loop.wake();
   }
 
-  /** Runs on every room change — the socket stays live while Phaser sleeps.
-   *  Guests follow the host's stamp; a promoted host inherits it once, then
-   *  every patch it sends carries its own. */
+  /** Runs on every room change — the socket stays live while Phaser sleeps —
+   *  and once the room's clock comes in. Guests follow the host's stamp; a
+   *  promoted host inherits it once, then sends its own whenever it changes. */
   private syncSharedClock(): void {
     if (this.offline) {
       return;
     }
-    if (this.client.connectionStatus !== "connected") {
+    if (!this.roomReady) {
       this.clockAuthority = false;
       return;
     }
@@ -558,6 +581,7 @@ export class GameScene extends Scene {
       // Another human arrived mid-pause: our overlay stays up, but their round must run.
       this.simulationFrozen = false;
       resumeClock();
+      this.netPatchShared({});
       this.game.loop.wake();
     }
   }
@@ -627,8 +651,15 @@ export class GameScene extends Scene {
         this.ingestNet();
       }
     } else if (this.amHost) {
-      this.client.updateSharedState({ ...this.gridToWire(patch), clock: clockStamp() });
+      this.client.updateSharedState({ ...this.gridToWire(patch), ...this.clockToWire() });
     }
+  }
+
+  /** The sim clock rides the wire only when it changes: a pause or a resume. */
+  private clockToWire(): Partial<SharedState> {
+    const stamp = clockStamp();
+    const wire = this.client.sharedState;
+    return isShared(wire) && sameStamp(wire.clock, stamp) ? {} : { clock: stamp };
   }
 
   /** A changed board goes out as the crates opened since the round's layout,
@@ -665,10 +696,22 @@ export class GameScene extends Scene {
       return;
     }
     this.offline = true;
+    setClockBase(localClock);
     // no subscribe() offline — kick the first onUpdate
     this.netDirty = true;
     // stop reconnect attempts; refresh to go online
     this.client.destroy();
+  }
+
+  /** The room goes live once its clock is measured, and no room message says when. */
+  private watchRoomClock(): void {
+    const ready = this.roomReady;
+    if (ready === this.roomWasReady) {
+      return;
+    }
+    this.roomWasReady = ready;
+    this.syncSharedClock();
+    this.netDirty = true;
   }
 
   constructor() {
@@ -747,6 +790,7 @@ export class GameScene extends Scene {
     // `this.offline`, so the client simply never exists on this path.
     if (isOfflineRequested() || SOLO_PLAYTEST) {
       this.offline = true;
+      setClockBase(localClock);
       // no subscribe() offline — kick the first onUpdate
       this.netDirty = true;
       this.ensureSeeded();
@@ -765,6 +809,8 @@ export class GameScene extends Scene {
         party: "vg-server",
         room: ROOM,
       });
+      // Sim time is server time: every client reads fuses and bot steps alike.
+      setClockBase(this.client.serverClock);
       // The SDK notifies once per room message, so every step a mover
       // reports reaches its track even when several land in one frame.
       this.client.subscribe(() => {
@@ -856,6 +902,7 @@ export class GameScene extends Scene {
     const elapsed = this.frameAt === 0 ? 0 : Math.min(MAX_FRAME_MS, now - this.frameAt);
     this.frame += 1;
     if (!this.offline) {
+      this.watchRoomClock();
       this.maybeGoOffline();
     }
     if (this.prediction.settle(this.shared()?.bombs ?? {}, now)) {
@@ -1163,7 +1210,9 @@ export class GameScene extends Scene {
     this.myDir = dir;
     this.stepStartedAt = start;
     this.stepEndsAt = start + stride;
-    this.netUpdateMyState({ col: this.myCol, row: this.myRow, s: stride, t: Math.round(start) });
+    // Published on the room's clock, the one every receiver draws against.
+    const t = Math.round(this.roomClock.now(now) - (now - start));
+    this.netUpdateMyState({ col: this.myCol, row: this.myRow, s: stride, t });
   }
 
   /** Held by a key of either set, or the pad's d-pad. */
@@ -1220,7 +1269,8 @@ export class GameScene extends Scene {
     // The host's own rule, against everything this client can see — its
     // unconfirmed bombs included — so a press the host would refuse shows nothing.
     const view = { ...state, bombs: this.visibleBombs() };
-    const bomb = placeBomb(view, id, col, row, simNow(), localId)?.[bombId(id, localId)];
+    const at = Math.round(simNow());
+    const bomb = placeBomb(view, id, col, row, at, localId)?.[bombId(id, localId)];
     if (!bomb) {
       return;
     }
@@ -1230,7 +1280,7 @@ export class GameScene extends Scene {
     } else {
       this.prediction.add(bomb, performance.now());
       this.netDirty = true;
-      this.netToHost("place_bomb", { col, localId, round: state.startedAt, row });
+      this.netToHost("place_bomb", { at, col, localId, round: state.startedAt, row });
     }
     sfx.place(true);
     this.pulsePlayer(id, "place");
@@ -1291,7 +1341,7 @@ export class GameScene extends Scene {
       colorIdx: idx % COLORS.length,
       row,
       s: 0,
-      t: Math.round(performance.now()),
+      t: Math.round(this.roomClock.now()),
     });
   }
 
@@ -1310,10 +1360,17 @@ export class GameScene extends Scene {
       const col = p?.["col"];
       const row = p?.["row"];
       const localId = p?.["localId"];
+      const at = p?.["at"];
       // A press made before a restart reached the guest must not land in the new round.
       const current = p?.["round"] === this.shared()?.startedAt;
-      if (isJsonNumber(col) && isJsonNumber(row) && isLocalId(localId) && current) {
-        this.hostPlaceBomb(from, col, row, localId);
+      if (
+        isJsonNumber(col) &&
+        isJsonNumber(row) &&
+        isLocalId(localId) &&
+        isJsonNumber(at) &&
+        current
+      ) {
+        this.hostPlaceBomb(from, { col, localId, pressedAt: at, row });
       }
     } else if (event === "request_restart") {
       this.hostRestart(payload);
@@ -1395,8 +1452,9 @@ export class GameScene extends Scene {
     this.setStats();
     this.setBanner();
     // No body until the start screen is dismissed — bots and the host seed run
-    // on behind the overlay, but the player isn't dropped in mid-read.
-    if (this.started) {
+    // on behind the overlay, but the player isn't dropped in mid-read — nor
+    // before the room's clock is in, which its spawn is stamped on.
+    if (this.started && this.live) {
       this.ensureMySpawn();
     }
     const fighters = this.fighters();
@@ -1463,15 +1521,6 @@ export class GameScene extends Scene {
    */
   private ingestNet(): void {
     const state = this.shared();
-    const receivedAt = performance.now();
-    const host = this.offline ? "solo" : this.client.hostId;
-    if (host !== this.ingestHost) {
-      // A new host runs its own clock — and bots now step here, or no longer do.
-      this.ingestHost = host;
-      this.hostClock.reset();
-      this.clockSeenAt = null;
-      this.dropTracks(this.botTracks);
-    }
     const round = state?.startedAt ?? null;
     if (round !== this.ingestRound) {
       // A new round respawns everyone: place them, never walk them there.
@@ -1479,14 +1528,9 @@ export class GameScene extends Scene {
       this.dropTracks(this.humanTracks);
       this.dropTracks(this.botTracks);
     }
-    const clock = state?.clock;
-    if (clock?.kind === "running" && clock.at !== this.clockSeenAt) {
-      this.clockSeenAt = clock.at;
-      this.hostClock.observe(clock.at, receivedAt);
-    }
     for (const [id, player] of Object.entries(this.peers)) {
       if (id !== this.myId) {
-        this.ingestHuman(id, readPlayerState(player), receivedAt);
+        this.ingestHuman(id, readPlayerState(player));
       }
     }
     for (const bot of Object.values(state?.bots ?? {})) {
@@ -1494,23 +1538,24 @@ export class GameScene extends Scene {
     }
   }
 
-  private ingestHuman(id: string, ps: PartialPS, receivedAt: number): void {
+  private ingestHuman(id: string, ps: PartialPS): void {
     const { col, row, t, s } = ps;
     const key = `${col},${row},${t},${s}`;
-    if (col === undefined || row === undefined || this.ingested.get(id) === key) {
+    if (
+      col === undefined ||
+      row === undefined ||
+      t === undefined ||
+      s === undefined ||
+      this.ingested.get(id) === key
+    ) {
       return;
     }
     this.ingested.set(id, key);
     let track = this.humanTracks.get(id);
     if (!track) {
-      track = new StepTrack({ delayMs: REMOTE_DELAY_MS });
+      track = new StepTrack({ clock: this.roomClock, delayMs: () => this.remoteDelay() });
       this.humanTracks.set(id, track);
     }
-    if (t === undefined || s === undefined) {
-      track.snap({ col, row });
-      return;
-    }
-    track.clock.observe(t, receivedAt);
     track.step({ col, row }, t, s);
   }
 
@@ -1522,8 +1567,10 @@ export class GameScene extends Scene {
     this.ingested.set(bot.id, key);
     let track = this.botTracks.get(bot.id);
     if (!track) {
-      // The host draws its own bots on time; everyone else, behind its clock.
-      track = new StepTrack({ clock: this.hostClock, delayMs: this.amHost ? 0 : REMOTE_DELAY_MS });
+      // The host draws its bots on time; everyone else, behind the sim clock. A
+      // new host keeps the track: the clock it reads is the room's, not the host's.
+      const delayMs = (): number => (this.amHost ? 0 : this.remoteDelay());
+      track = new StepTrack({ clock: simClock, delayMs });
       this.botTracks.set(bot.id, track);
     }
     // A bot that moved set off on the step its next turn is a stride after.
@@ -1549,7 +1596,7 @@ export class GameScene extends Scene {
       }
       return;
     }
-    if (this.amHost && this.client.connectionStatus === "connected" && !this.shared()) {
+    if (this.amHost && !this.shared()) {
       this.writeShared(emptyShared("classic", this.random));
     }
   }
@@ -2079,12 +2126,13 @@ export class GameScene extends Scene {
 
   /** A guest's press. Written at once, outside the step, so the guest's
    *  prediction is confirmed a bare round trip after the key went down. */
-  private hostPlaceBomb(ownerId: string, col: number, row: number, localId: number): void {
+  private hostPlaceBomb(ownerId: string, press: GuestPress): void {
     const s = this.shared();
     if (!s) {
       return;
     }
-    const bombs = placeBomb(s, ownerId, col, row, simNow(), localId);
+    const { col, row, localId } = press;
+    const bombs = placeBomb(s, ownerId, col, row, fuseStart(press.pressedAt, simNow()), localId);
     if (bombs) {
       this.netPatchShared({ bombs });
     }

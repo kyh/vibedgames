@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { StickState } from "@vibedgames/gamepad";
+import type { SenderClock } from "@vibedgames/multiplayer";
 import { DirInput, stickDirs } from "../src/input/dir-input";
-import { BombPrediction, PREDICTION_TIMEOUT_MS } from "../src/net/bomb-prediction";
+import {
+  BombPrediction,
+  fuseStart,
+  MAX_PRESS_AGE_MS,
+  PREDICTION_TIMEOUT_MS,
+} from "../src/net/bomb-prediction";
 import { applyOpened, encodeOpened } from "../src/net/grid-wire";
-import { StepTrack, WALK_GRACE_MS } from "../src/net/step-track";
+import { REMOTE_JITTER_MS, remoteDelayMs, StepTrack, WALK_GRACE_MS } from "../src/net/step-track";
 import type { GridTile, StepPose } from "../src/net/step-track";
 import { createArena } from "../src/shared/arena";
 import {
@@ -21,10 +27,18 @@ import { seededRandom } from "../src/util/seeded-random";
 
 const FRAME_MS = 1000 / 60;
 const STRIDE_MS = BASE_MOVE_MS;
-const DELAY_MS = 100;
-/** Receiver clock minus sender clock: two machines' performance.now() share no epoch. */
+/** The quickest trip from sender to receiver, which the receiver's round trip stands in for. */
+const ROUTE_MS = 40;
+const DELAY_MS = remoteDelayMs(ROUTE_MS);
+/** Receiver's local clock minus the room's: performance.now() and server time share no epoch. */
 const SKEW_MS = 7000;
 const EPSILON = 1e-9;
+
+/** The room's clock as the receiver measures it. Every sender stamps steps on it. */
+const roomClock = (skew = SKEW_MS): SenderClock => ({
+  now: (localNow = 0) => localNow - skew,
+  synced: true,
+});
 
 /** Deterministic jitter in [0, 1) so the tests never flake. */
 const noise = (i: number): number => {
@@ -32,10 +46,10 @@ const noise = (i: number): number => {
   return s - Math.floor(s);
 };
 
-/** One-way trips: a walk's ordinary spread, a steadier one, and a tight one for bunching. */
-const walkLatency = (i: number): number => 40 + noise(i) * 60;
-const steadyLatency = (i: number): number => 40 + noise(i) * 20;
-const tightLatency = (i: number): number => 40 + noise(i) * 10;
+/** Trips from sender to receiver: a walk's ordinary spread, a steadier one, and a tight one for bunching. */
+const walkLatency = (i: number): number => ROUTE_MS + noise(i) * 60;
+const steadyLatency = (i: number): number => ROUTE_MS + noise(i) * 20;
+const tightLatency = (i: number): number => ROUTE_MS + noise(i) * 10;
 
 const open =
   (...dirs: Dir[]) =>
@@ -126,8 +140,9 @@ const LOOP: GridTile[] = [
 const pathTile = (i: number): GridTile => LOOP[i % LOOP.length] ?? { col: 1, row: 1 };
 
 /**
- * A sender walking the loop flat out; `latency(i)` is step i's one-way trip.
- * One socket delivers in order, so a late step holds back the ones behind it.
+ * A sender walking the loop flat out, stamping each step on the room clock;
+ * `latency(i)` is step i's trip here. One socket delivers in order, so a late
+ * step holds back the ones behind it.
  */
 const walk = (steps: number, latency: (i: number) => number, stride = STRIDE_MS): Packet[] => {
   let previous = Number.NEGATIVE_INFINITY;
@@ -165,8 +180,13 @@ interface Run {
 }
 
 /** Deliver `packets` to a track in arrival order and draw it at 60 fps. */
-const play = (packets: readonly Packet[], until: number): Run => {
-  const track = new StepTrack({ delayMs: DELAY_MS });
+const play = (
+  packets: readonly Packet[],
+  until: number,
+  delayMs = DELAY_MS,
+  clock = roomClock(),
+): Run => {
+  const track = new StepTrack({ clock, delayMs: () => delayMs });
   track.snap(pathTile(0));
   const queue = packets.toSorted((a, b) => a.at - b.at);
   const frames: Run["frames"] = [];
@@ -176,7 +196,6 @@ const play = (packets: readonly Packet[], until: number): Run => {
     while ((queue[0]?.at ?? Number.POSITIVE_INFINITY) <= now) {
       const packet = queue.shift();
       if (packet) {
-        track.clock.observe(packet.t, packet.at);
         track.step(packet.to, packet.t, packet.stride);
         delivered += 1;
       }
@@ -206,10 +225,9 @@ const assertWalk = (frames: Run["frames"]): void => {
 test("step track: no stalls while jitter stays inside the delay, bunched steps included", () => {
   const steps = 24;
   for (const stride of [STRIDE_MS, MIN_MOVE_MS]) {
-    // 40–100 ms one-way at a walk. At the fastest stride every fifth step
-    // also waits for the next and both land in one frame, still inside the
-    // delay; the old once-a-frame read turned such a pair into one diagonal
-    // slide.
+    // 40–100 ms here at a walk. At the fastest stride every fifth step also
+    // waits for the next and both land in one frame, still inside the delay;
+    // the old once-a-frame read turned such a pair into one diagonal slide.
     const latency = stride === MIN_MOVE_MS ? bunched(tightLatency, stride) : walkLatency;
     const end = 1000 + steps * stride;
     const { frames } = play(walk(steps, latency, stride), SKEW_MS + end + 600);
@@ -228,9 +246,9 @@ test("step track: no stalls while jitter stays inside the delay, bunched steps i
     assert.ok(walking > ((steps * stride) / FRAME_MS) * 0.9, `walked ${walking} frames`);
     const finished = frames.find((frame) => frame.progress >= steps - EPSILON);
     assert.ok(finished);
-    // Drawn the delay plus the fastest trip behind the sender's own screen.
+    // Drawn exactly the delay behind the sender's own screen, on the clock both share.
     const behind = finished.at - SKEW_MS - end;
-    assert.ok(behind >= DELAY_MS && behind <= DELAY_MS + 60, `trails by ${behind} ms`);
+    assert.ok(behind >= DELAY_MS && behind < DELAY_MS + FRAME_MS, `trails by ${behind} ms`);
     assert.equal(frames.at(-1)?.pose.moving, false, "the walk cycle stops with the steps");
   }
 });
@@ -250,7 +268,7 @@ test("steps bunched a whole stride late still walk the corner in order, without 
 test("a step that arrives late is walked from where the body waited, then caught up", () => {
   const steps = 12;
   // Step 5 is held up 400 ms: far past the delay, so the body runs dry and waits.
-  const late = (i: number): number => (i === 5 ? 440 : steadyLatency(i));
+  const late = (i: number): number => (i === 5 ? ROUTE_MS + 400 : steadyLatency(i));
   const until = SKEW_MS + 1000 + steps * STRIDE_MS + 800;
   const smooth = play(walk(steps, steadyLatency), until).frames;
   const stalled = play(walk(steps, late), until).frames;
@@ -272,10 +290,58 @@ test("a step that arrives late is walked from where the body waited, then caught
   assert.ok(stalled.at(-1)?.progress === steps, "and finishes where it should");
 });
 
+/** One hop to or from the server, as on the dev server that simulates latency: 50 ± 25 ms. */
+const hop = (k: number): number => 25 + noise(k) * 50;
+
+/** How a client reads the room clock: its fastest of eight probes sets the round trip, and that trip's asymmetry is its error. */
+const probed = (seed: number): { rtt: number; error: number } => {
+  let best = { error: 0, rtt: Number.POSITIVE_INFINITY };
+  for (let probe = 0; probe < 8; probe += 1) {
+    const up = hop(seed + probe * 2);
+    const down = hop(seed + probe * 2 + 1);
+    if (up + down < best.rtt) {
+      best = { error: (down - up) / 2, rtt: up + down };
+    }
+  }
+  return best;
+};
+
+test("on the shared clock, a round trip plus jitter keeps a relayed walk on cadence", () => {
+  const steps = 60;
+  const nominal = FRAME_MS / STRIDE_MS;
+  for (const [sender, receiver] of [
+    [probed(1000), probed(2000)],
+    [probed(7000), probed(8000)],
+  ] as const) {
+    // Each step goes up to the server and down to the receiver, and each side
+    // reads the room clock with its own error.
+    let previous = Number.NEGATIVE_INFINITY;
+    const packets = Array.from({ length: steps }, (_, i): Packet => {
+      const start = 1000 + i * STRIDE_MS;
+      previous = Math.max(previous, start + SKEW_MS + hop(10_000 + i * 2) + hop(10_001 + i * 2));
+      const t = Math.round(start + sender.error);
+      return { at: previous, stride: STRIDE_MS, t, to: pathTile(i + 1) };
+    });
+    const clock = roomClock(SKEW_MS - receiver.error);
+    const offCadence = (delayMs: number): number => {
+      const until = SKEW_MS + 1000 + steps * STRIDE_MS + 600;
+      const { frames } = play(packets, until, delayMs, clock);
+      assertWalk(frames);
+      return frames.filter((frame, i) => {
+        // From the second frame of the walk: the first starts partway through a frame.
+        const before = frames[i - 1]?.progress ?? 0;
+        const gained = frame.progress - before;
+        return before > 0 && frame.progress < steps && Math.abs(gained - nominal) > nominal * 0.1;
+      }).length;
+    };
+    assert.equal(offCadence(remoteDelayMs(receiver.rtt)), 0, `rtt ${receiver.rtt}`);
+    assert.ok(offCadence(REMOTE_JITTER_MS) > 0, "jitter alone does not cover two hops");
+  }
+});
+
 test("a teleport snaps, a respawn snaps, and a resting body stops walking", () => {
-  const track = new StepTrack({ delayMs: 0 });
+  const track = new StepTrack({ clock: roomClock(0), delayMs: () => 0 });
   track.snap({ col: 1, row: 1 });
-  track.clock.observe(0, 0);
   track.step({ col: 2, row: 1 }, 0, STRIDE_MS);
   assert.equal(track.sample(STRIDE_MS / 2)?.x, 1.5);
   track.step({ col: 9, row: 9 }, STRIDE_MS, STRIDE_MS);
@@ -308,7 +374,8 @@ test("bots on the fixed host step stride exactly BOT_MOVE_MS, drawn on time by t
     winner: null,
   };
   const step = new FixedStep(HOST_STEP_MS, 250);
-  const track = new StepTrack({ delayMs: 0 });
+  // The host's sim clock reads `now` itself here, and the host draws on time.
+  const track = new StepTrack({ clock: roomClock(0), delayMs: () => 0 });
   const moves: number[] = [];
   let at: GridTile | null = null;
   // A 144 Hz display: steps still land every 50 ms of sim time.
@@ -322,7 +389,6 @@ test("bots on the fixed host step stride exactly BOT_MOVE_MS, drawn on time by t
         if (at) {
           moves.push(tick);
         }
-        track.clock.observe(tick, tick);
         track.step(bot, bot.nextMoveAt - BOT_MOVE_MS, BOT_MOVE_MS);
         at = { col: bot.col, row: bot.row };
       }
@@ -394,11 +460,13 @@ test("a guest's bomb shows on the press under the id the host gives it, and is a
     "its stock counts the unconfirmed bomb",
   );
   assert.equal(placeBomb(view(), "h", 1, 1, 1010), null, "and the tile is solid");
-  // A round trip later the host places the same press under the same id.
-  const hosted = placeBomb(state, "g", 1, 1, 1120, 7);
+  // A trip later the host places the same press under the same id, its fuse
+  // started at the press: the two copies burn down together.
+  const hosted = placeBomb(state, "g", 1, 1, fuseStart(1000, 1060), 7);
   assert.ok(hosted);
   assert.deepEqual(Object.keys(hosted), [ghost.id], "one bomb, one id: the sprite carries over");
-  assert.equal(prediction.visible(hosted)[ghost.id]?.placedAt, 1120, "the host's copy wins");
+  assert.equal(prediction.visible(hosted)[ghost.id]?.placedAt, 1000, "the fuse carries over");
+  assert.notEqual(prediction.visible(hosted)[ghost.id], ghost, "the host's copy wins");
   assert.equal(prediction.settle(hosted, 140), false, "adopted, not refused");
   assert.deepEqual(prediction.visible({}), {}, "and retired");
   // A replayed press never overwrites the bomb it placed.
@@ -406,6 +474,13 @@ test("a guest's bomb shows on the press under the id the host gives it, and is a
   assert.equal(placeBomb(stocked, "g", 3, 1, 1300, 7), null);
   // Scoring and the bot soak read a blast's owner off the id prefix.
   assert.ok(`x-${bombId("g", 7)}`.startsWith("x-b-g-"));
+});
+
+test("the host starts a guest's fuse at the press, never further back than a slow trip", () => {
+  assert.equal(fuseStart(9900, 10_000), 9900, "the press, on the clock both share");
+  const stale = 10_000 - MAX_PRESS_AGE_MS - 500;
+  assert.equal(fuseStart(stale, 10_000), 10_000 - MAX_PRESS_AGE_MS, "a forged or stale stamp");
+  assert.equal(fuseStart(10_050, 10_000), 10_000, "never in the future");
 });
 
 test("a prediction the host refuses comes off the board after the timeout", () => {

@@ -5,9 +5,21 @@
 // id the host will give it (`bombId`: owner plus the guest's own counter), and
 // treats it as solid. When the host's copy arrives under that id it takes
 // over the same sprite with no second placement cue; when nothing arrives in
-// time the host refused it, and the prediction goes.
+// time the host refused it, and the prediction goes. The host starts the fuse
+// at the press (`fuseStart`), so the two copies burn down together.
 
 import type { Bomb } from "../shared/constants";
+
+/** Furthest back the host starts a guest's fuse (ms): a slow route's trip up. */
+export const MAX_PRESS_AGE_MS = 250;
+
+/**
+ * When the host starts a guest's fuse: at the press, as the guest read the
+ * clock every client shares. Never earlier than a slow trip ago, so a forged
+ * stamp shaves at most that off a fuse, and never in the future.
+ */
+export const fuseStart = (pressedAt: number, now: number): number =>
+  Math.min(now, Math.max(pressedAt, now - MAX_PRESS_AGE_MS));
 
 /** How long a predicted bomb waits for the host's copy before it counts as refused (ms)... */
 export const PREDICTION_TIMEOUT_MS = 600;

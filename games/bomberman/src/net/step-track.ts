@@ -1,19 +1,19 @@
 // Remote grid movers, drawn from the sender's own step timing.
 //
 // A grid mover's state is a run of committed steps: at `startedAt` on the
-// sender's clock it leaves one tile and `strideMs` later it stands on the
-// next. Each step is kept as two waypoints and the body is drawn a fixed delay
-// behind the sender's clock (`RemoteClock`), so it moves on the sender's exact
-// cadence however the packets bunch. Consecutive waypoints are at most one
-// tile apart, so a body never cuts a corner, and nothing is extrapolated past
-// the newest tile.
+// room's shared clock it leaves one tile and `strideMs` later it stands on the
+// next. Each step is kept as two waypoints and the body is drawn a delay
+// behind that clock, so it moves on the sender's exact cadence however the
+// packets bunch. Every sender stamps the same clock, so nothing is estimated
+// per sender. Consecutive waypoints are at most one tile apart, so a body
+// never cuts a corner, and nothing is extrapolated past the newest tile.
 //
 // The package's `Interpolator` can draw grid steps too, but only a whole stride
 // plus jitter behind: a plain pose stream says where a step ends only when the
 // next one starts. A step here carries its own stride, so it is drawn from the
 // moment it starts, just the render delay behind.
 
-import { RemoteClock } from "@vibedgames/multiplayer";
+import type { SenderClock } from "@vibedgames/multiplayer";
 import type { Dir } from "../shared/constants";
 
 export interface GridTile {
@@ -41,11 +41,23 @@ interface Waypoint extends GridTile {
 }
 
 export interface StepTrackOptions {
-  /** How far behind the sender's clock to draw (ms) — it has to cover arrival jitter. */
-  delayMs: number;
-  /** One clock per sender: share it across every mover that sender reports. Default: a private one. */
-  clock?: RemoteClock;
+  /** The clock steps are stamped on: the room's server clock, or the sim clock for bots. */
+  clock: SenderClock;
+  /** How far behind that clock to draw (ms), read every frame: it has to cover a step's trip here. */
+  delayMs: () => number;
 }
+
+/** Jitter allowance on top of a round trip — see `remoteDelayMs`. */
+export const REMOTE_JITTER_MS = 100;
+
+/**
+ * How far behind the room clock to draw another client's movers, given this
+ * client's round trip to the server (NaN until measured). A relayed step takes
+ * the sender's hop up and this client's hop down — about one round trip when
+ * routes are alike — and `REMOTE_JITTER_MS` covers the jitter on top.
+ */
+export const remoteDelayMs = (rtt: number): number =>
+  REMOTE_JITTER_MS + (Number.isFinite(rtt) ? rtt : 0);
 
 /** A rest between steps shorter than this keeps the walk cycle going. */
 export const WALK_GRACE_MS = 80;
@@ -74,15 +86,15 @@ export const stepDir = (from: GridTile, to: GridTile): Dir | null => {
 };
 
 export class StepTrack {
-  readonly clock: RemoteClock;
-  private readonly delayMs: number;
+  private readonly clock: SenderClock;
+  private readonly delayMs: () => number;
   private readonly points: Waypoint[] = [];
-  /** The sender-clock moment being drawn. Trails the render clock only while a late step catches up. */
+  /** The moment being drawn, on the stamps' clock. Trails the render clock only while a late step catches up. */
   private playAt: number | null = null;
   private sampledAt: number | null = null;
 
   constructor(options: StepTrackOptions) {
-    this.clock = options.clock ?? new RemoteClock();
+    this.clock = options.clock;
     this.delayMs = options.delayMs;
   }
 
@@ -106,9 +118,9 @@ export class StepTrack {
   }
 
   /**
-   * A step onto `to` that left the newest tile at `startedAt` (sender clock)
-   * and lasts `strideMs`. Anything that does not start from the newest tile —
-   * a respawn, a teleport, a restarted sender — snaps instead.
+   * A step onto `to` that left the newest tile at `startedAt` (the stamps'
+   * clock) and lasts `strideMs`. Anything that does not start from the newest
+   * tile — a respawn, a teleport, a stamp that went backwards — snaps instead.
    */
   step(to: GridTile, startedAt: number, strideMs: number): void {
     const last = this.points.at(-1);
@@ -141,7 +153,7 @@ export class StepTrack {
 
   /** The pose to draw at local time `localNow`; advances the playhead. */
   sample(localNow: number): StepPose | undefined {
-    const target = this.clock.now(localNow) - this.delayMs;
+    const target = this.clock.now(localNow) - this.delayMs();
     const { playAt, sampledAt } = this;
     if (
       playAt === null ||
@@ -154,7 +166,7 @@ export class StepTrack {
       const lag = target - playAt;
       const rate = 1 + Math.min(MAX_CATCH_UP, Math.max(0, lag) / CATCH_UP_MS);
       const advanced = Math.min(target, playAt + Math.max(0, localNow - sampledAt) * rate);
-      // Never backwards: a clock estimate that slews back holds the body instead.
+      // Never backwards: a clock that slews back, or a delay that grows, holds the body instead.
       this.playAt = Math.max(playAt, advanced, target - MAX_LAG_MS);
     }
     this.sampledAt = localNow;

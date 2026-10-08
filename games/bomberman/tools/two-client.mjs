@@ -1,8 +1,9 @@
 // Two-client online smoke: host + guest through join, a bomb across the wire,
 // pause without freezing the other side, restarts from both sides (arena
 // rotation), host migration and a late join. Needs the party server on
-// localhost:8787 and Chrome. `--url http://localhost:5304` reuses a dev server;
-// otherwise a vite instance is spawned on --port (default 5384).
+// localhost:8787 and a Chrome (playwright-core: channel "chrome", or
+// CHROME_PATH). `--url http://localhost:5304` reuses a dev server; otherwise a
+// vite instance is spawned on --port (default 5384).
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
@@ -163,7 +164,9 @@ const browser = await chromium.launch({
     "--disable-backgrounding-occluded-windows",
     "--disable-renderer-backgrounding",
   ],
-  channel: "chrome",
+  ...(process.env.CHROME_PATH
+    ? { executablePath: process.env.CHROME_PATH }
+    : { channel: "chrome" }),
   headless: true,
 });
 let host;

@@ -89,8 +89,8 @@ export type Blast = {
 /**
  * Per-player networked state, written once per grid step. `col`/`row` are the
  * authoritative grid position. `t` is when the step onto it began on the
- * sender's `performance.now()` clock and `s` how long it takes (0 for a spawn,
- * which receivers place without walking); receivers derive the walk cycle and
+ * room's server clock and `s` how long it takes (0 for a spawn, which
+ * receivers place without walking); receivers derive the walk cycle and
  * facing from the steps themselves.
  */
 export interface PlayerState {
@@ -104,7 +104,7 @@ export interface PlayerState {
 /**
  * A host-controlled CPU fighter. Lives in shared state (not a real
  * connection), so every client renders it identically and a promoted host
- * keeps driving it. `nextMoveAt` is a host-clock timestamp gating its cadence.
+ * keeps driving it. `nextMoveAt` is a sim-clock timestamp gating its cadence.
  */
 export type Bot = {
   id: string;
@@ -124,7 +124,7 @@ export type Bot = {
 export type SharedState = {
   /** Missing only in legacy rooms; read through readArena at the boundary. */
   arena?: Arena;
-  /** Missing only in legacy rooms; every current host write carries its clock. */
+  /** Wire only: the sim clock (see util/clock), written with each round and whenever it changes. */
   clock?: ClockStamp;
   /** On the wire, the layout the round began with; in memory, the current board. */
   grid: Cell[][];
