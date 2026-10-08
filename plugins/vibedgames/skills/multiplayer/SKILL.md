@@ -38,7 +38,7 @@ The SDK also ships the netcode pieces every real-time game needs. Use them rathe
 
 - `FixedRate` — a steady send clock.
 - `client.serverNow()` / `client.serverClock` — one clock every client shares; stamp sends with it.
-- `Interpolator` — render remote players smoothly from those stamps.
+- `Interpolator` — render remote players smoothly from those stamps; its `RemoteClock` learns each sender's relay delay.
 - `Reconciler` — correct a guest's own predicted body against the host's copy.
 
 And the party server runs the services no single client can do fairly:
@@ -151,7 +151,7 @@ setSpawn(SPAWNS[idx]);
 
 - ❌ **Mutating the local mirror directly.** `client.sharedState.score = 100` is silently overwritten on the next patch.
 - ❌ **Sending positions as events.** Position belongs in `updateMyState`. Events are for things that _happened_.
-- ❌ **Drawing remotes at their newest value.** Snapping, per-packet tweens and exponential "chase the latest" lerps all show network jitter as stutter. Stamp sends with `t: client.serverNow()` and render through `Interpolator` on `client.serverClock`.
+- ❌ **Drawing remotes at their newest value.** Snapping, per-packet tweens and exponential "chase the latest" lerps all show network jitter as stutter. Stamp sends with `t: client.serverNow()` and render through `Interpolator` (never on `client.serverClock` with a fixed delay — a stamp arrives a whole relay late).
 - ❌ **Letting the host settle races.** A guest's pickup waits a round trip and the host wins every tie. Use `client.claim(key)`.
 - ❌ **Making a guest wait for the host to move its own character.** That is a full round trip of input lag. Predict locally and correct with `Reconciler` — against where the body _was_, never where it is now.
 - ❌ **`acc = 0` or `frame % n` send throttles.** They drift, alternate gap lengths, or scale with refresh rate. Use `FixedRate`.

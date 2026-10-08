@@ -232,8 +232,8 @@ thing advances each body per frame:
 exponential lerp toward it surges on every packet and stalls on every gap, and
 snapping or tweening per packet is worse. Every sender stamps its updates with
 the room's server clock, `t: Math.round(client.serverNow())`. Receivers push
-each update and render about 100 ms behind that clock, blending the two updates
-that bracket that moment:
+each update and render about 100 ms behind the moment updates arrive, blending
+the two updates that bracket it:
 
 ```ts
 import { Interpolator, lerp, lerpAngle } from "@vibedgames/multiplayer";
@@ -247,7 +247,7 @@ const remotes = new Map<string, Interpolator<Pose>>();
 // each frame, per remote player (duplicate stamps are dropped):
 let interp = remotes.get(id);
 if (!interp) {
-  interp = new Interpolator({ clock: client.serverClock, lerp: lerpPose });
+  interp = new Interpolator({ lerp: lerpPose });
   remotes.set(id, interp);
 }
 interp.push(s.t, { x: s.x, y: s.y, angle: s.angle });
@@ -257,10 +257,15 @@ const pose = interp.sample(); // undefined until the first update
 - **Delay.** 100 ms suits 20–30 Hz senders; use ~150 ms for 10–15 Hz.
 - **Discontinuities.** Call `clear()` on a respawn or teleport, so the entity
   snaps instead of gliding through walls.
+- **Which clock.** Each `Interpolator` reads stamps through a `RemoteClock`
+  (a private one by default), which learns from arrivals how long a sender's
+  updates take to reach you, so the delay only covers jitter. Never render on
+  `client.serverClock` with a fixed delay: a server-time stamp arrives a whole
+  relay (sender → server → you, often 100–200 ms) after it was taken.
 - **Host snapshots.** The host stamps each snapshot with `client.serverNow()`
-  too, so the units in it interpolate on the same `client.serverClock` and
-  nothing changes when the host does. Stamps in some other timebase (host sim
-  time) need a `RemoteClock` per sender instead, `reset()` when `hostId` changes.
+  too; the units in it share one `RemoteClock`
+  (`new Interpolator({ clock: hostClock, lerp })`). `reset()` it when `hostId`
+  changes: the new host's route differs, while its stamps carry straight on.
 - **Grid or step movers.** Stamp each step when it starts, like any other
   update. Never stamp a future arrival time: the clock reads every stamp as send
   time, so a shifted stamp skews every entity from that sender. Set `delayMs` to

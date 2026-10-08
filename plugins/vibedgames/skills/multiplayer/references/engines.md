@@ -73,16 +73,13 @@ class GameScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number) {
-    // Read other players; render each ~100 ms behind the server's clock.
+    // Read other players; render each ~100 ms behind when its updates arrive.
     for (const [id, player] of Object.entries(this.client.players)) {
       if (id === this.client.playerId) continue;
       const s = player.state as { t?: number; x?: number; y?: number } | undefined;
       if (s?.t === undefined) continue;
       let interp = this.remotes.get(id);
-      if (!interp) {
-        interp = new Interpolator({ clock: this.client.serverClock, lerp: lerpPose });
-        this.remotes.set(id, interp);
-      }
+      if (!interp) this.remotes.set(id, (interp = new Interpolator({ lerp: lerpPose })));
       interp.push(s.t, { x: s.x ?? 0, y: s.y ?? 0 });
       const pose = interp.sample();
       // Render player at pose.x, pose.y
@@ -133,7 +130,7 @@ renderer.setAnimationLoop((time) => {
     let remote = remotes.get(id);
     if (!remote) {
       remote = {
-        interp: new Interpolator({ clock: client.serverClock, lerp: lerpPose }),
+        interp: new Interpolator({ lerp: lerpPose }),
         mesh: new THREE.Mesh(avatarGeometry, avatarMaterial),
       };
       scene.add(remote.mesh);

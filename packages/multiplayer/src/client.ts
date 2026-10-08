@@ -449,9 +449,11 @@ export class MultiplayerClient {
   // -- Server time ---------------------------------------------------------
 
   /**
-   * The room's shared clock — the server's, measured from here. Stamp updates
-   * with `serverNow()` and pass this as an `Interpolator`'s `clock`: every
-   * sender then shares one timebase, and it survives host migration.
+   * The room's shared clock — the server's, measured from here. Stamp updates,
+   * deadlines and tick schedules with `serverNow()`: every client reads a stamp
+   * as the same instant, and it survives host migration. Render remotes on a
+   * per-sender `RemoteClock` instead (an Interpolator's default): a stamp
+   * reaches you a whole relay after it was taken.
    */
   get serverClock(): ServerClock {
     return this.clock;

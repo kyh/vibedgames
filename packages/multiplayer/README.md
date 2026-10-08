@@ -86,16 +86,16 @@ if (net.due(deltaMs)) client.updateMyState({ t: Math.round(performance.now()), x
 
 **`Interpolator`** — snapshot interpolation for remote entities. Senders stamp
 every update with the room's server clock (`client.serverNow()`, see [Server
-time](#server-time)); receivers render each entity ~100 ms behind it, blending
-the two updates around that moment. Motion is as smooth as the sender's, however
-unevenly the packets arrive. Keep sending while idle — an unchanged position
-costs only the `t` key, since unchanged primitives never ride the wire.
+time](#server-time)); receivers render each entity ~100 ms behind the moment its
+updates arrive, blending the two updates around it. Motion is as smooth as the
+sender's, however unevenly the packets arrive. Keep sending while idle — an
+unchanged position costs only the `t` key, since unchanged primitives never ride
+the wire.
 
 ```ts
 import { Interpolator, lerp, lerpAngle } from "@vibedgames/multiplayer";
 
 const remote = new Interpolator<{ x: number; y: number; a: number }>({
-  clock: client.serverClock,
   lerp: (p, q, k) => ({ x: lerp(p.x, q.x, k), y: lerp(p.y, q.y, k), a: lerpAngle(p.a, q.a, k) }),
 });
 // sender, at its send rate:
@@ -107,11 +107,17 @@ const pose = remote.sample();
 // on a teleport or respawn: remote.clear()
 ```
 
-Every client shares the server's clock, so a stamp means the same instant to
-everyone and nothing changes when the host does. For stamps in some other
-timebase (a host's simulation clock), give each sender a `RemoteClock`, which
-estimates that sender's clock from arrivals, and `reset()` it when the sender
-changes.
+An `Interpolator` reads stamps through a `RemoteClock`, which learns from
+arrivals how long one sender's updates take to reach you — sender to server to
+you — so the delay only has to cover jitter. Entities from one sender (a host's
+world snapshot) share one: `new Interpolator({ clock: hostClock, lerp })`, and
+`hostClock.reset()` when the host changes, because the new host's route differs.
+Stamps in server time stay continuous across reloads and host changes and mean
+the same instant to every client.
+
+Don't render on `client.serverClock` directly: a stamp reaches you a whole relay
+(sender → server → you, often 100–200 ms) after it was taken, so ~100 ms behind
+server time is usually past the newest update, and remotes stall.
 
 **`Reconciler`** — for a guest's own body in a host-simulated game. The guest
 moves its body the frame input happens, and corrects it against the host's copy.
@@ -235,13 +241,14 @@ window and leaves immediately.
 ```ts
 client.serverNow(); // ms since the epoch, by the server's clock
 client.rtt; // fastest recent round trip (ms)
-client.serverClock; // the clock itself, for an Interpolator
+client.serverClock; // the clock itself
 ```
 
 The SDK probes the server when it joins and every 5 s (`TIME_PROBE_INTERVAL_MS`):
 the fastest recent probe defines the offset, and later revisions are slewed in
 rather than jumped. Stamp anything time-based with it — snapshots, spawns, a
-round's deadline — and every client agrees on what the stamp means.
+round's deadline — and every client agrees on what the stamp means. Render
+remotes on a per-sender `RemoteClock`, not on this clock (see `Interpolator`).
 
 ## Claims
 

@@ -65,10 +65,11 @@ export interface InterpolatorOptions<T> {
   /** Updates kept. Must span `delayMs` at the sender's rate. Default 32. */
   capacity?: number;
   /**
-   * The clock stamps are read against. Pass the client's `serverClock` when
-   * senders stamp with `serverNow()` — one timebase for every sender, nothing
-   * to estimate. Otherwise share one `RemoteClock` across every entity from
-   * the same sender. Default: a private `RemoteClock`.
+   * The clock stamps are read against. Default: a private `RemoteClock`, which
+   * learns from arrivals how long this sender's updates take to reach you, so
+   * `delayMs` only has to cover jitter. Share one across every entity from the
+   * same sender. A clock with no arrival model, like the client's
+   * `serverClock`, needs `delayMs` to cover the whole relay as well.
    */
   clock?: SenderClock;
 }

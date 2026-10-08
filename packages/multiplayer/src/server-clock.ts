@@ -25,9 +25,10 @@ interface Sample {
  * the offset, accurate to half the asymmetry of the trip — and the fastest
  * recent trip is the least asymmetric one, so that sample wins.
  *
- * Satisfies the clock an `Interpolator` takes: entities stamped with
- * `serverNow()` share it, with nothing to estimate per sender, and it does
- * not change with the host.
+ * Satisfies the clock an `Interpolator` takes, but a stamp reaches a receiver
+ * a whole relay after it was taken (sender → server → receiver), so rendering
+ * on it needs a delay that covers that too. A `RemoteClock` per sender learns
+ * the relay from arrivals instead.
  */
 export class ServerClock {
   private readonly samples: Sample[] = [];

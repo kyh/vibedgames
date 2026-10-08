@@ -11,8 +11,9 @@ Room features — game-agnostic services the party server now runs for every roo
 
 - Server time: `serverNow()`, `rtt` and `serverClock`. NTP-style probes on join
   and every 5 s; the fastest probe defines the offset and revisions are slewed.
-  One timebase for every client that survives host migration — pass
-  `client.serverClock` as an `Interpolator`'s clock and stamp with `serverNow()`.
+  One timebase for every client that survives host migration: stamp with
+  `serverNow()`, and render remotes on a per-sender `RemoteClock`, which learns
+  the relay delay (a server-time stamp arrives a whole relay after it was taken).
 - Claims: `claim(key, { ttlMs })`, `release`, `clearClaims(prefix)` (host),
   `ownerOf`, `claims` and the `onClaim` option. First come, first served, decided
   by the server in one hop with no host advantage; claims persist past their
