@@ -384,7 +384,8 @@ export class GameScene extends Scene {
       this.events.emit("daybanner", this.day, seasonOfDay(this.day), this.weather);
     }
 
-    this.remoteFarmers = new RemoteFarmers(this);
+    // Remote farmers exist only in the co-op room, played back on its clock.
+    this.remoteFarmers = this.net ? new RemoteFarmers(this, this.net.serverClock) : undefined;
     // Every start redraws from the world, so both roles take the room afresh:
     // a host republishes its farm whole (a new or loaded farm must replace the
     // room's), a guest re-adopts the host's farm and clock.
@@ -978,7 +979,11 @@ export class GameScene extends Scene {
       return;
     }
     if (this.isOnline()) {
-      const update = this.farmerSender.tick(this.player, this.moving, this.poseRevision);
+      // Stamps are server time, so peers read them as the same instant; until
+      // the clock is measured (a round trip after joining) there is none.
+      const update = net.timeSynced
+        ? this.farmerSender.tick(this.player, this.moving, this.poseRevision, net.serverNow())
+        : null;
       if (update) {
         net.updateMyState(update);
       }
@@ -1805,8 +1810,10 @@ export class GameScene extends Scene {
     this.save();
     this.cameras.main.fadeOut(450, 0, 0, 0);
     this.cameras.main.once(Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
-      if (this.isOnline()) {
-        this.net?.updateMyState(this.farmerSender.away());
+      // Unsynced, no update was ever sent: no peer has this farmer to hide.
+      const { net } = this;
+      if (net && this.isOnline() && net.timeSynced) {
+        net.updateMyState(this.farmerSender.away(net.serverNow()));
       }
       this.scene.stop("Hud");
       this.scene.start("Mine", { depth: 1 });

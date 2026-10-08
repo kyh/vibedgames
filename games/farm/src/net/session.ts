@@ -14,7 +14,7 @@
 //
 
 import { isOfflineRequested } from "@repo/embed";
-import { MultiplayerClient } from "@vibedgames/multiplayer";
+import { MultiplayerClient, ServerClock } from "@vibedgames/multiplayer";
 import type { Player, PlayerMap, SendEventOptions } from "@vibedgames/multiplayer";
 
 import type { JsonObject, JsonValue } from "../json";
@@ -46,6 +46,8 @@ export class NetSession {
   private bootedAt = 0;
   private offlineMyState: JsonObject = {};
   private offlineShared: JsonObject | null = null;
+  /** Offline there is no server to measure: a ServerClock never sampled reads the local clock. */
+  private readonly localClock = new ServerClock();
 
   constructor(opts: NetSessionOptions) {
     this.fallbackMs = opts.fallbackMs;
@@ -134,6 +136,24 @@ export class NetSession {
   get playerId(): string | null {
     const { client } = this;
     return this.solo || !client ? SOLO_ID : client.playerId;
+  }
+
+  /** The room's shared clock (the local one offline) — what Interpolators render against. */
+  get serverClock(): ServerClock {
+    const { client } = this;
+    return this.solo || !client ? this.localClock : client.serverClock;
+  }
+
+  /** Server time now (ms since the epoch): one instant for every player in the room. */
+  serverNow(): number {
+    return this.serverClock.now();
+  }
+
+  /** True once the server clock has been measured. Before that `serverNow()`
+   *  reads the local clock, which means nothing to a peer — don't stamp with it. */
+  get timeSynced(): boolean {
+    const { client } = this;
+    return !this.solo && client !== null && client.serverClock.synced;
   }
 
   get players(): PlayerMap {

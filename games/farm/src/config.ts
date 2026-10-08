@@ -84,10 +84,11 @@ export const DEPTH = {
 // starting farm.
 // Versioned with the wire format: a tab still running an older bundle during a
 // deploy joins its own room instead of half-reading this one's keys.
-export const MP_ROOM = "farm-default-v2";
+export const MP_ROOM = "farm-default-v3";
 export const MP_MAX_PLAYERS = 4;
 export const OFFLINE_FALLBACK_MS = 6000;
-/** Player position/facing broadcast rate; peers render it ~100 ms behind. */
+/** Player position/facing broadcast rate, stamped with server time; peers
+ *  render it a round trip plus PLAYBACK_DELAY_MS behind (net/farmer-wire). */
 export const NET_TICK_HZ = 20;
 /** Host clock broadcast rate. Guests run the clock themselves in between, and
  *  a pause, a new day or new weather is published at once. */

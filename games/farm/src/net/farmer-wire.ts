@@ -1,4 +1,5 @@
-import { FixedRate, lerp } from "@vibedgames/multiplayer";
+import { FixedRate, Interpolator, lerp } from "@vibedgames/multiplayer";
+import type { SenderClock, ServerClock } from "@vibedgames/multiplayer";
 
 import { NET_TICK_HZ } from "../config";
 import { CHAR_FRAMES } from "../data/character";
@@ -8,7 +9,7 @@ import type { JsonObject, JsonValue } from "../json";
 
 // A farmer's player state on the wire. Primitive keys only — the SDK diffs
 // primitives against the last send and re-sends any object or array whole:
-//   t  sender clock (ms)        x, y  feet, to 0.1 px      f  facing left
+//   t  server time (ms)         x, y  feet, to 0.1 px      f  facing left
 //   m  walking                  h     away (down the mine)
 //   a  clip   r  clip revision  p     clip playing
 //   k  clip frame, e  ms into it — sent only when `r` or `p` changes
@@ -66,6 +67,27 @@ export const blendFarmer = (a: FarmerSample, b: FarmerSample, k: number): Farmer
   return { ...pose, x: lerp(a.x, b.x, k), y: lerp(a.y, b.y, k) };
 };
 
+/** One 20 Hz send interval plus arrival jitter, on top of the trip itself. */
+export const PLAYBACK_DELAY_MS = 150;
+
+/**
+ * The room's clock as remote farmers play back against it: held back by this
+ * client's round trip. A relayed update rides its sender's hop up to the
+ * server and this client's hop down — about one round trip when routes are
+ * alike — so its stamp is at least that old when it lands. The playback delay
+ * then only has to cover the send interval and the jitter.
+ */
+export const playbackClock = (server: ServerClock): SenderClock => ({
+  now: (localNow?: number) => server.now(localNow) - (Number.isFinite(server.rtt) ? server.rtt : 0),
+  get synced() {
+    return server.synced;
+  },
+});
+
+/** One remote farmer's playback: its stamped updates, PLAYBACK_DELAY_MS behind `clock`. */
+export const farmerTrack = (clock: SenderClock): Interpolator<FarmerSample> =>
+  new Interpolator({ clock, delayMs: PLAYBACK_DELAY_MS, lerp: blendFarmer });
+
 const round1 = (v: number): number => Math.round(v * 10) / 10;
 
 /**
@@ -82,17 +104,14 @@ export class FarmerSender {
   private gone = false;
 
   /**
-   * This frame's update, or null between ticks. The send clock runs on real
-   * time, like the stamps peers play back against: Phaser's frame delta is
-   * smoothed and clamps to 16.7 ms on an unfocused or stalling page, which
-   * would stretch the gaps between updates past the peers' playback delay.
+   * This frame's update, or null between ticks. `now` is the room's server
+   * time (`serverNow()`): it stamps the update, so every peer reads the stamp
+   * as the same instant, and it drives the send clock — real time, like the
+   * stamps peers play back against. Phaser's frame delta is smoothed and
+   * clamps to 16.7 ms on an unfocused or stalling page, which would stretch
+   * the gaps between updates past the peers' playback delay.
    */
-  tick(
-    body: FarmerBody,
-    moving: boolean,
-    revision: number,
-    now = performance.now(),
-  ): JsonObject | null {
+  tick(body: FarmerBody, moving: boolean, revision: number, now: number): JsonObject | null {
     const elapsed = this.lastTick === null ? 0 : now - this.lastTick;
     this.lastTick = now;
     return this.rate.due(elapsed) && !this.gone ? this.snapshot(body, moving, revision, now) : null;
@@ -104,7 +123,7 @@ export class FarmerSender {
    * scene that sent it can still update once before it stops, and a regular
    * update would show the farmer again.
    */
-  away(now = performance.now()): JsonObject {
+  away(now: number): JsonObject {
     this.gone = true;
     return { h: true, t: this.nextStamp(now) };
   }
@@ -149,15 +168,16 @@ export class FarmerSender {
   }
 }
 
-/** A sender's player state as one sample plus its stamp; null without a position. */
+/** A sender's player state as one sample plus its server-time stamp; null
+ *  without a position or a stamp. */
 export const readFarmer = (
   state: JsonValue | undefined,
-): { t: number | null; sample: FarmerSample } | null => {
+): { t: number; sample: FarmerSample } | null => {
   if (!isJsonObject(state)) {
     return null;
   }
   const { a: clip, e: elapsed, k: frame, r: revision, t, x, y } = state;
-  if (!isJsonNumber(x) || !isJsonNumber(y)) {
+  if (!isJsonNumber(t) || !isJsonNumber(x) || !isJsonNumber(y)) {
     return null;
   }
   const sample: FarmerSample = {
@@ -190,5 +210,5 @@ export const readFarmer = (
     sample.frame = frame;
     sample.elapsed = elapsed;
   }
-  return { sample, t: isJsonNumber(t) ? t : null };
+  return { sample, t };
 };

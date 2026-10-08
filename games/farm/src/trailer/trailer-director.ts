@@ -30,7 +30,7 @@ import { randomAnimalName } from "../data/animals";
 import type { AnimalKind, BuildingKind } from "../data/animals";
 import type { Item, OreId } from "../data/items";
 import { RemoteFarmers } from "../net/remote-farmers";
-import { FixedRate } from "@vibedgames/multiplayer";
+import { FixedRate, ServerClock } from "@vibedgames/multiplayer";
 import type { PlayerMap } from "@vibedgames/multiplayer";
 
 const WORLD_W = MAP_W * TILE;
@@ -1200,7 +1200,9 @@ const sceneCoop = (game: Phaser.Game): TrailerScene => {
       stageField(g, ["parsnip", "carrot", null, null, null, null], partGrown(0.5), true, 6, 7);
       placeFeet(g, 15, 10);
       g.faceTowards(15, 11);
-      remote = new RemoteFarmers(g);
+      // The staged crew stamps with this page's clock — what a ServerClock
+      // that was never sampled reads.
+      remote = new RemoteFarmers(g, new ServerClock());
       workers = [
         { dir: 1, id: "mira", job: "till", lastTx: -1, ty: 8, x: 11 * TILE, y: 8 * TILE + 12 },
         { dir: -1, id: "otto", job: "plant", lastTx: -1, ty: 9, x: 20 * TILE, y: 9 * TILE + 12 },

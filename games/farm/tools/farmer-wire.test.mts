@@ -1,9 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Interpolator } from "@vibedgames/multiplayer";
+import { ServerClock } from "@vibedgames/multiplayer";
 import { WALK_SPEED } from "../src/config";
 import type { JsonObject, JsonValue } from "../src/json";
-import { FarmerSender, blendFarmer, readFarmer } from "../src/net/farmer-wire";
+import {
+  FarmerSender,
+  PLAYBACK_DELAY_MS,
+  farmerTrack,
+  playbackClock,
+  readFarmer,
+} from "../src/net/farmer-wire";
 import type { FarmerBody, FarmerSample } from "../src/net/farmer-wire";
 
 /** Deterministic jitter in [0, 1), so the tests never flake. */
@@ -74,21 +80,30 @@ const walkRoute = (frames: number, walking: (frame: number) => boolean) => {
   return { sent, x };
 };
 
-/** Deliver `sent` 60–105 ms late, in order (one TCP stream), to a receiver
- *  whose clock runs `skew` ms ahead; returns what it draws each 60 fps frame. */
+/** The receiver's fastest round trip to the server (ms). */
+const RTT = 60;
+
+/** Deliver `sent` (stamped with server time) 60–105 ms late — the sender's
+ *  hop up plus the receiver's hop down — in order (one TCP stream), to a
+ *  receiver whose local clock runs `skew` ms ahead of the server's and whose
+ *  server clock has measured that; returns what it draws each 60 fps frame. */
 const playBack = (sent: Sent[], skew: number, ms: number) => {
   let lastArrival = 0;
   const arrivals = sent.map(({ at, state }, i) => {
-    lastArrival = Math.max(lastArrival, at + skew + 60 + noise(i) * 45);
+    lastArrival = Math.max(lastArrival, at + skew + RTT + noise(i) * 45);
     return { arrival: lastArrival, state };
   });
-  const track = new Interpolator<FarmerSample>({ lerp: blendFarmer });
+  // One probe: sent at local `skew`, read by the server half a trip later
+  // (server time RTT / 2), back after RTT.
+  const server = new ServerClock();
+  server.sample(skew, RTT / 2, skew + RTT);
+  const track = farmerTrack(playbackClock(server));
   const shown: FarmerSample[] = [];
   let next = 0;
   for (let local = skew; local < skew + ms; local += FRAME_MS) {
     for (let a = arrivals[next]; a && a.arrival <= local; a = arrivals[next]) {
       const read = readFarmer(a.state);
-      assert.ok(read && read.t !== null);
+      assert.ok(read);
       track.push(read.t, read.sample, a.arrival);
       next += 1;
     }
@@ -188,7 +203,22 @@ test("a remote farmer walks at a steady pace, and its pose belongs to its body",
   assert.ok(outOfPose <= 1, `${outOfPose} frames out of pose`);
   assert.ok(shown.some((s) => s.clip === "idle"));
   const last = shown.at(-1);
-  assert.ok(last && last.x > x - 8, "keeps up: ~100 ms behind, not drifting");
+  assert.ok(
+    last && last.x > x - 8,
+    "keeps up: a round trip and the playback delay behind, not drifting",
+  );
+});
+
+test("remote farmers play back a round trip behind the room's server clock", () => {
+  const server = new ServerClock();
+  const clock = playbackClock(server);
+  assert.equal(clock.synced, false);
+  assert.equal(clock.now(500), 500, "unmeasured: the local clock, nothing held back");
+  // Sent at local 1000, read by the server at 5030, back at local 1060.
+  server.sample(1000, 5030, 1060);
+  assert.equal(clock.synced, true);
+  assert.equal(clock.now(2000), 2000 + 4000 - 60, "server time, one round trip back");
+  assert.equal(farmerTrack(clock).delayMs, PLAYBACK_DELAY_MS);
 });
 
 test("malformed farmer state degrades to a plain walk/stand, never to a bad frame", () => {
@@ -201,5 +231,9 @@ test("malformed farmer state degrades to a plain walk/stand, never to a bad fram
     assert.equal(read?.sample.clip, null, JSON.stringify(bad));
     assert.equal(read?.sample.x, 1);
   }
-  assert.equal(readFarmer({ x: 1, y: 2 })?.t, null, "an unstamped sender is still drawn");
+  assert.equal(
+    readFarmer({ x: 1, y: 2 }),
+    null,
+    "an update without a server-time stamp is no farmer",
+  );
 });
