@@ -86,6 +86,12 @@ export const DEPTH = {
 // deploy joins its own room instead of half-reading this one's keys.
 export const MP_ROOM = "farm-default-v3";
 export const MP_MAX_PLAYERS = 4;
+/** Farmers farther apart than this (world px, feet to feet) stop receiving
+ *  each other's player state — the bulk of the room's traffic — and hide each
+ *  other. Past the corner of a 1920×1080 view (591×332 world px at zoom 3.25)
+ *  even when the camera rests against the world's edge, so nobody pops in
+ *  on screen. The world is 1376×768. */
+export const MP_INTEREST_RADIUS = 720;
 export const OFFLINE_FALLBACK_MS = 6000;
 /** Player position/facing broadcast rate, stamped with server time; peers
  *  render it ~100 ms behind its arrival (net/farmer-wire). */

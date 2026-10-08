@@ -15,7 +15,13 @@
 
 import { isOfflineRequested } from "@repo/embed";
 import { MultiplayerClient, ServerClock } from "@vibedgames/multiplayer";
-import type { ClaimMap, Player, PlayerMap, SendEventOptions } from "@vibedgames/multiplayer";
+import type {
+  ClaimMap,
+  InterestRule,
+  Player,
+  PlayerMap,
+  SendEventOptions,
+} from "@vibedgames/multiplayer";
 
 import type { JsonObject, JsonValue } from "../json";
 
@@ -33,6 +39,10 @@ export interface NetSessionOptions {
   /** Start (and stay) in local solo mode — no socket is ever opened. Used by
    *  trailer mode, which must never show live players in a staged shot. */
   forceOffline?: boolean;
+  /** The room's interest rule: players farther apart stop receiving each
+   *  other's player state, and read `visible: false`. A room keeps the first
+   *  client's rules, so every client passes the same. */
+  interest?: InterestRule;
   onEvent?: (event: string, payload: JsonValue, from: string) => void;
   /** A claim's owner was set: granted, released (null), or — to a refused
    *  claimer alone — whoever already holds it. Online only. */
@@ -67,6 +77,7 @@ export class NetSession {
       ? null
       : new MultiplayerClient({
           host: MULTIPLAYER_HOST,
+          interest: opts.interest,
           maxPlayers: opts.maxPlayers,
           onClaim: (key, owner) => this.onClaim?.(key, owner),
           // SAFETY: event payloads are decoded JSON off the wire; the package

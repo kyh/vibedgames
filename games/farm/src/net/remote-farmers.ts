@@ -41,11 +41,13 @@ export class RemoteFarmers {
     this.scene = scene;
   }
 
-  /** Take in the room's player states; call every frame (unchanged ones cost nothing). */
+  /** Take in the room's player states; call every frame (unchanged ones cost nothing).
+   *  A farmer out of interest range (`visible: false`) is dropped, playback and
+   *  all: its state stops updating, and comes back whole when it is in range. */
   sync(players: PlayerMap, myId: string | null): void {
     const seen = new Set<string>();
     for (const [id, player] of Object.entries(players)) {
-      if (id === myId) {
+      if (id === myId || player.visible === false) {
         continue;
       }
       const known = this.farmers.get(id);

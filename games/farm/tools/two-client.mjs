@@ -1,5 +1,6 @@
 // Two-client co-op smoke: host + guest farm the same room, tile edits and
-// cleared trees/forage cross the wire both ways, pausing (farm and mine) never
+// cleared trees/forage cross the wire both ways, a far farmer drops out of
+// view and back (interest), pausing (farm and mine) never
 // freezes the other side, a new day restores the guest's energy, the host
 // leaves and the promoted guest keeps the farm for a late joiner. (Remote
 // motion smoothness is covered headlessly, in farmer-wire.test.mts.) Needs the
@@ -297,6 +298,25 @@ const main = async () => {
       walking >= 40 && seeks === 0 && back === 0,
       `walk ${walking}/45, seeks ${seeks}, back-steps ${back}`,
     );
+
+    // Interest: a farmer across the map leaves the guest's view (the host
+    // still receives everyone) and comes back whole when it returns.
+    const home = await host.evaluate(() => {
+      const { player } = window.__gs;
+      const was = { x: player.x, y: player.y };
+      player.setPosition(80 * 16 + 8, 20 * 16 + 12);
+      return was;
+    });
+    await waitFor(guest, () => window.__gs.remoteFarmers.count() === 0, "far host hidden", {
+      timeoutMs: 5000,
+    });
+    h = await snapshot(host);
+    step("a far farmer leaves the guest's view; the host still sees everyone", h.remote === 1);
+    await host.evaluate((p) => window.__gs.player.setPosition(p.x, p.y), home);
+    await waitFor(guest, () => window.__gs.remoteFarmers.count() === 1, "host back in view", {
+      timeoutMs: 5000,
+    });
+    step("back in range, the farmer is drawn again", true);
 
     // Escape on either side fences that farmer only; the shared clock keeps running.
     await guest.keyboard.press("Escape");

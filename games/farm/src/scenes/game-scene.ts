@@ -18,6 +18,7 @@ import {
   GAME_MIN_PER_REAL_SEC,
   DEPTH,
   MP_ROOM,
+  MP_INTEREST_RADIUS,
   MP_MAX_PLAYERS,
   OFFLINE_FALLBACK_MS,
   FARM_SEED,
@@ -297,6 +298,7 @@ export class GameScene extends Scene {
     if (!trailerStaging && !this.solo && !this.net && this.seed === FARM_SEED) {
       this.net = new NetSession({
         fallbackMs: OFFLINE_FALLBACK_MS,
+        interest: { radius: MP_INTEREST_RADIUS },
         maxPlayers: MP_MAX_PLAYERS,
         onClaim: (key, owner) => this.handleClaim(key, owner),
         onEvent: (event, payload, from) => this.handleNetEvent(event, payload, from),
