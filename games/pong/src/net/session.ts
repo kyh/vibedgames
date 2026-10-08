@@ -9,13 +9,22 @@
 // shallow-merge (last-write-wins per field), and events are fire-and-forget.
 // Offline, everything loops back locally so the same code paths keep working.
 //
-// Keep this file byte-identical across games/*/src/net/session.ts — per-game
-// tuning (room, maxPlayers, fallbackMs) goes in the NetSession constructor.
+// Shared in shape with games/*/src/net/session.ts — per-game tuning (room,
+// maxPlayers, fallbackMs, tickRate) goes in the NetSession constructor. Pong
+// adds the tick-room passthroughs its lockstep match runs on (tickClock,
+// sendInput, tickInputs, the server clock); offline they read as "no tick
+// room", and the game runs its own clock instead.
 //
 
 import { isOfflineRequested } from "@repo/embed";
 import { MultiplayerClient } from "@vibedgames/multiplayer";
-import type { Player, PlayerMap, SendEventOptions } from "@vibedgames/multiplayer";
+import type {
+  Player,
+  PlayerMap,
+  SendEventOptions,
+  TickClock,
+  TickInfo,
+} from "@vibedgames/multiplayer";
 
 const MULTIPLAYER_HOST = import.meta.env.DEV
   ? "http://localhost:8787"
@@ -54,7 +63,11 @@ export interface NetSessionOptions {
   /** Start (and stay) in local solo mode — no socket is ever opened. Used by
    *  trailer mode, which must never show live players in a staged shot. */
   forceOffline?: boolean;
+  /** Run the room on a server tick (Hz) — a room rule, so every client passes the same. */
+  tickRate?: number;
   onEvent?: (event: string, payload: JsonValue, from: string) => void;
+  /** Each server tick, in order (tick rooms only). */
+  onTick?: (tick: TickInfo) => void;
 }
 
 export class NetSession {
@@ -89,8 +102,10 @@ export class NetSession {
             // sendEvent's JsonObject), so they are JSON values by construction.
             this.onEvent?.(event, payload as JsonValue, from);
           },
+          onTick: opts.onTick,
           party: "vg-server",
           room: opts.room,
+          tickRate: opts.tickRate,
         });
   }
 
@@ -257,6 +272,40 @@ export class NetSession {
     const host = client.hostId;
     if (host !== null) {
       client.sendEvent(event, payload, { to: host });
+    }
+  }
+
+  // -- Tick room -----------------------------------------------------------
+
+  /** The room's tick clock, or null (offline, or not yet admitted). */
+  get tickClock(): TickClock | null {
+    return this.solo ? null : (this.client?.tickClock ?? null);
+  }
+
+  /** True once the server clock has been measured — serverNow() means something. */
+  get clockSynced(): boolean {
+    return !this.solo && this.client?.serverClock.synced === true;
+  }
+
+  /** Server time now (ms since the epoch). */
+  serverNow(): number {
+    return this.solo || !this.client ? Date.now() : this.client.serverNow();
+  }
+
+  /** Fastest recent round trip to the server (ms); NaN until measured. */
+  get rtt(): number {
+    return this.solo || !this.client ? Number.NaN : this.client.rtt;
+  }
+
+  /** Every player's held input as of tick `n` (default: the last tick), or null outside the history. */
+  tickInputs(n?: number): Record<string, JsonValue> | null {
+    return this.solo || !this.client ? null : this.client.tickInputs(n);
+  }
+
+  /** This player's input from tick `n` on (held until the next send). */
+  sendInput(input: JsonValue, n?: number): void {
+    if (!this.solo) {
+      this.client?.sendInput(input, n);
     }
   }
 
