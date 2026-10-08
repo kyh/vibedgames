@@ -2,7 +2,7 @@ import { MultiplayerClient } from "@vibedgames/multiplayer";
 import type { PlayerMap, ServerClock } from "@vibedgames/multiplayer";
 import type { WireRecord, WireValue } from "../net/wire-read";
 import { now as simNow } from "../shared/clock";
-import { OFFLINE_FALLBACK_MS } from "../shared/constants";
+import { INTEREST_RADIUS, OFFLINE_FALLBACK_MS } from "../shared/constants";
 import type { PlayerNetState } from "../shared/constants";
 import type { TrailerStaging } from "../trailer/trailer-staging";
 
@@ -48,8 +48,8 @@ export class Link {
   /** True only after this connected host has adopted the accepted room world. */
   hostSnapshotReady = false;
   /** Each peer's net state for this frame, filled by the PeerRoster: parsed
-   *  once per patch, a remote's pose interpolated. Null for me and for peers
-   *  mid-drop. */
+   *  once per patch, a remote's pose interpolated. Null for me, for peers
+   *  mid-drop and for peers out of interest range. */
   readonly peerStates = new Map<string, PlayerNetState | null>();
   /** False until the player dismisses the start screen. Gates spawning so the
    *  ship isn't dropped into a live arena while the controls are still up. */
@@ -82,10 +82,13 @@ export class Link {
 
   /** Dial the party server. No `initialState`: the package re-applies it
    *  whenever a client becomes host, which would wipe the live world on host
-   *  migration — the first host seeds explicitly (WorldSync.ensureSeeded). */
+   *  migration — the first host seeds explicitly (WorldSync.ensureSeeded).
+   *  Interest: a player out of range reads `visible: false` and its state
+   *  stops updating (PeerRoster hides it); the host still sees everyone. */
   connect(options: ConnectOptions): void {
     this.client = new MultiplayerClient({
       host: options.host,
+      interest: { radius: INTEREST_RADIUS },
       maxPlayers: options.maxPlayers,
       onEvent: (event, payload, from) => this.inbox(event, payload, from),
       party: "vg-server",

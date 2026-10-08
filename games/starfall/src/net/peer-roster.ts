@@ -59,14 +59,15 @@ export class PeerRoster {
 
   /** Take in any new peer states. Called from the socket listener as each
    *  message lands, so two patches arriving within one frame both reach the
-   *  buffer. Cheap: a state object only changes when a patch lands. */
+   *  buffer. Cheap: a state object only changes when a patch lands. A peer
+   *  out of interest range is skipped: what it holds is stale. */
   ingest(): void {
     const { peers, myId, serverClock } = this.link;
     if (!serverClock) {
       return;
     }
     for (const [id, player] of Object.entries(peers)) {
-      if (id === myId) {
+      if (id === myId || player.visible === false) {
         continue;
       }
       const entry = this.entryFor(id, serverClock);
@@ -88,6 +89,15 @@ export class PeerRoster {
       // frozen ghost for enemies and beams to target. My own entry is the
       // pilot, read from local state everywhere.
       if (id === myId || player.connected === false) {
+        link.peerStates.set(id, null);
+        continue;
+      }
+      // Out of interest range (past the edge of any screen): its state
+      // stopped updating, so it is absent here too. Its pose buffer goes:
+      // coming back, the ship appears where it is instead of gliding in
+      // from where it left.
+      if (player.visible === false) {
+        this.entries.delete(id);
         link.peerStates.set(id, null);
         continue;
       }

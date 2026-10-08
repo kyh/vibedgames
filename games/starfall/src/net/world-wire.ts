@@ -46,6 +46,10 @@ import type { WireRecord, WireValue } from "./wire-read";
  *   them each tick, so this one row set goes every tick.
  * - `arenaEpoch` (server time), `playW`, `playH`, `sectorBossIdx`:
  *   primitives, which the SDK only sends when they change.
+ * - `sb`: every present player's sector score, `[id, pts, id, pts, …]`,
+ *   relayed a couple of times a second (HostDirector) — only the host sees
+ *   every player, and guests rank the ones out of their interest range by
+ *   it (render/hud.ts).
  *
  * The server keeps the last value of every key, so a late joiner (and a guest
  * promoted to host) still receives the whole world.
@@ -53,6 +57,7 @@ import type { WireRecord, WireValue } from "./wire-read";
 
 export const STAMP_KEY = "t";
 export const HOT_KEY = "en";
+export const STANDINGS_KEY = "sb";
 
 /** A row bucket family: key prefix and how many buckets its entities hash into. */
 export interface BucketFamily {
@@ -455,6 +460,21 @@ export const readBucket = (v: WireValue | undefined): Bucket | null => {
     }
   }
   return { rows, t };
+};
+
+/** The relayed standings (`sb`): player id → sector score. */
+export const readStandings = (v: WireValue | undefined): Map<string, number> => {
+  const out = new Map<string, number>();
+  if (Array.isArray(v)) {
+    for (let i = 0; i + 1 < v.length; i += 2) {
+      const id = wireStr(v[i]);
+      const pts = wireNum(v[i + 1]);
+      if (id !== null && pts !== null) {
+        out.set(id, pts);
+      }
+    }
+  }
+  return out;
 };
 
 /** A room that holds a Starfall world (a stamp and an arena epoch). */

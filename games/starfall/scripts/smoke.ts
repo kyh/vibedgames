@@ -27,6 +27,7 @@ import {
   readBucket,
   readEnemyDetail,
   readShotRow,
+  readStandings,
   toSim,
 } from "../src/net/world-wire";
 import { burstLifetime, burstStage, contactPoint, weaponLook } from "../src/render/combat-visuals";
@@ -521,6 +522,17 @@ const keysOf = (patch: WireRecord): string[] =>
   assert.equal(guestShot?.diesAt, G0 + 3000, "a deadline maps onto the guest's sim clock");
   assert.equal(guestClock.serverNow - shotRows.t, 30, "rows age by server time");
   console.log("PASS world stamps are server time; deadlines map onto each client's clock");
+
+  // The host's standings relay: id/score pairs, malformed pairs skipped.
+  assert.deepEqual(
+    [...readStandings(["a", 10, "b", 3, 7, "x", "c"])],
+    [
+      ["a", 10],
+      ["b", 3],
+    ],
+  );
+  assert.equal(readStandings(null).size, 0);
+  console.log("PASS the relayed standings decode");
 
   let delivered: IntentBatch | null = null;
   const inboxLink = new Link({

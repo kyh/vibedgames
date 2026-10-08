@@ -75,10 +75,15 @@ export class RemoteFire {
   }
 
   /** A `fire` event (socket listener): decode and queue — the work happens
-   *  in the frame loop. */
+   *  in the frame loop. Events are not interest-filtered: a shooter out of
+   *  range fires from past the edge of the screen, so its shots are dropped
+   *  here, like the hull. */
   receive(from: string, payload: WireValue): void {
+    if (from === this.link.myId || this.link.peers[from]?.visible === false) {
+      return;
+    }
     const spec = decodeFire(payload);
-    if (!spec || from === this.link.myId) {
+    if (!spec) {
       return;
     }
     const { queue } = this.shooterFor(from);

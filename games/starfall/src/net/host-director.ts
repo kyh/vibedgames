@@ -38,6 +38,7 @@ import {
   SHARD_MAGNET_PULL_SPEED,
   SINGULARITY_PULL_RANGE,
   SINGULARITY_PULL_SPEED,
+  STANDINGS_RELAY_HZ,
   UFO_SPAWN_RATE,
   WORLD_NET_HZ,
   arenaIntensity,
@@ -70,7 +71,8 @@ import { inWorld, magnetPull } from "../sys/geometry";
 import type { Progression } from "../sys/progression";
 import type { HostCombat } from "./host-combat";
 import type { PeerRoster } from "./peer-roster";
-import { WorldEncoder } from "./world-wire";
+import type { WireValue } from "./wire-read";
+import { STANDINGS_KEY, WorldEncoder } from "./world-wire";
 
 /** Late-built collaborators the director consults. */
 export interface HostDirectorHooks {
@@ -128,6 +130,12 @@ export class HostDirector {
   /** What guests already hold, so a share carries only what changed. */
   private readonly encoder = new WorldEncoder();
 
+  /** Standings relay cadence, and the board last relayed (an unchanged
+   *  board stays off the wire). */
+  private readonly standingsRate = new FixedRate(STANDINGS_RELAY_HZ);
+
+  private standingsSent = "";
+
   lastAsteroidSpawnAt = 0;
 
   lastEnemySpawnAt = 0;
@@ -180,6 +188,8 @@ export class HostDirector {
     this.lastBossKilledAt = 0;
     this.shareRate.reset();
     this.encoder.reset();
+    this.standingsRate.reset();
+    this.standingsSent = "";
     this.wasHost = false;
     this.lastBreatherDespawnAt = 0;
     this.debuted = new Set();
@@ -232,6 +242,9 @@ export class HostDirector {
     );
     if (!this.link.offline && this.shareRate.due(delta)) {
       this.share(now);
+    }
+    if (!this.link.offline && this.standingsRate.due(delta)) {
+      this.relayStandings();
     }
   }
 
@@ -303,9 +316,31 @@ export class HostDirector {
     this.hostMagnetItems(now);
   }
 
-  /** Next share sends the whole world (bounds and boss marker included). */
+  /** Next share sends the whole world (bounds and boss marker included),
+   *  and the next relay the whole board. */
   markWorldDirty(): void {
     this.encoder.reset();
+    this.standingsSent = "";
+  }
+
+  /** Every present player's sector score, for guests to rank the players
+   *  out of their interest range by: only the host sees everyone. */
+  private relayStandings(): void {
+    const board: WireValue[] = [];
+    const { myId } = this.link;
+    if (myId && this.pilot.spawned) {
+      board.push(myId, Math.round(this.progress.sectorScore));
+    }
+    for (const [id, st] of this.link.peerStates) {
+      if (id !== myId && st?.present) {
+        board.push(id, Math.round(st.sectorScore));
+      }
+    }
+    const sig = board.join(",");
+    if (sig !== this.standingsSent) {
+      this.standingsSent = sig;
+      this.link.patchShared({ [STANDINGS_KEY]: board });
+    }
   }
 
   /** Boss down: free the arena-wide slot and arm the spawn cooldown. */

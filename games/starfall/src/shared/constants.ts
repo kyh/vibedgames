@@ -1706,6 +1706,15 @@ export const WORLD_NET_HZ = 20;
 /** How far behind the room's server clock remote ships and shots are drawn
  *  (ms): two 20 Hz send intervals, enough to ride out arrival jitter. */
 export const REMOTE_RENDER_DELAY_MS = 100;
+/** Interest radius (px, on the player-state `x`/`y`): two players farther
+ *  apart stop receiving each other's state — the host still sees everyone.
+ *  The widest view served, 3840×2160 at zoom 1, reaches 2203 px to its
+ *  corner; the rest covers two NITRO ships closing (840 px/s) for the
+ *  ~200 ms a reveal takes, so nobody pops in on screen. */
+export const INTEREST_RADIUS = 2400;
+/** The host's relay of every player's sector score (guests rank the players
+ *  out of their interest range from it). */
+export const STANDINGS_RELAY_HZ = 2;
 
 // ---- minimap ------------------------------------------------------------------
 

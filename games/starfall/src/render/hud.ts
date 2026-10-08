@@ -1,6 +1,8 @@
 import { Math as PhaserMath } from "phaser";
 import type Phaser from "phaser";
 import { sfx } from "../audio/sfx";
+import type { WireValue } from "../net/wire-read";
+import { STANDINGS_KEY, readStandings } from "../net/world-wire";
 import { now as simNow } from "../shared/clock";
 import {
   BEACON_TINT,
@@ -132,6 +134,12 @@ export class Hud {
 
   private lastPulseText = "";
 
+  /** The host's relayed standings (net/world-wire.ts `sb`), parsed once
+   *  per write: the scores of players out of interest range. */
+  private relayedRaw: WireValue | undefined = undefined;
+
+  private relayed: ReadonlyMap<string, number> = new Map();
+
   private readonly world: SharedState;
 
   private readonly pilot: Pilot;
@@ -239,23 +247,43 @@ export class Hud {
     }
   }
 
-  /** Sector standings this instant: self live-local, every present remote from
-   *  its last wire value. Best-first; id tiebreak so the order converges
-   *  identically on every client. */
+  /** Sector standings this instant: self live-local, every present remote in
+   *  range from its last wire value, and every one out of interest range from
+   *  the host's relay (the host sees everyone). Best-first; id tiebreak so the
+   *  order converges identically on every client. */
   private sectorStandings(): { id: string; pts: number }[] {
     const me = this.link.myId;
+    const { peers } = this.link;
     const rows: { id: string; pts: number }[] = [];
     if (me !== null) {
       rows.push({ id: me, pts: Math.round(this.progress.sectorScore) });
     }
     for (const [id, ns] of this.link.peerStates) {
-      if (id === me || !ns || !ns.present) {
+      if (id === me) {
         continue;
       }
-      rows.push({ id, pts: Math.round(ns.sectorScore) });
+      if (ns) {
+        if (ns.present) {
+          rows.push({ id, pts: Math.round(ns.sectorScore) });
+        }
+        continue;
+      }
+      const pts = peers[id]?.visible === false ? this.relayedStandings().get(id) : undefined;
+      if (pts !== undefined) {
+        rows.push({ id, pts });
+      }
     }
     rows.sort((a, b) => b.pts - a.pts || (a.id < b.id ? -1 : 1));
     return rows;
+  }
+
+  private relayedStandings(): ReadonlyMap<string, number> {
+    const raw = this.link.sharedState?.[STANDINGS_KEY];
+    if (raw !== this.relayedRaw) {
+      this.relayedRaw = raw;
+      this.relayed = readStandings(raw);
+    }
+    return this.relayed;
   }
 
   /** Per-frame sector clock: boundary detection (recap + owner score reset),

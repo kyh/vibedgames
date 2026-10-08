@@ -316,14 +316,20 @@ export class ShipView {
   private syncRemoteShip(id: string, rec: ShipObjs, throttled: boolean, now: number): void {
     const st = this.link.peerStates.get(id) ?? null;
     if (!st || !st.present) {
-      // Unknown, mid-drop, or cleanly docked out (paused-as-spectator): hide
-      // with NO death FX, and clear rec.alive so re-entry pops in fresh
-      // rather than firing a spurious death burst.
+      // Unknown, mid-drop, out of interest range, or cleanly docked out
+      // (paused-as-spectator): hide with NO death FX. Docked clears
+      // rec.alive so re-entry pops in fresh rather than firing a spurious
+      // death burst; a ship with no state here is met again as a first
+      // sight, since whatever happened to it meanwhile went unseen.
       rec.gfx.setVisible(false);
       if (rec.trail) {
         rec.trail.emitting = false;
       }
-      rec.alive = st ? false : rec.alive;
+      if (st) {
+        rec.alive = false;
+      } else {
+        rec.seenState = false;
+      }
       return;
     }
     // remotes grow with their level too
