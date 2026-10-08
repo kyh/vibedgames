@@ -276,7 +276,8 @@ client.clearClaims("pellet:"); // host only: a new round
 Everyone hears a grant; a refused claimer alone hears who already holds the key.
 Claims outlive their owner leaving (an eaten pellet stays eaten) and arrive in
 the join `sync` (`client.claims`), reported through `onClaim` like any other
-change — as is whatever moved while a client was disconnected. A room holds up to `MAX_CLAIMS` keys.
+change — as is whatever moved while a client was disconnected. A room holds up to `MAX_CLAIMS` keys;
+`RESERVED_CLAIM_KEYS` (`__proto__`, `constructor`, `prototype`) can't be claimed.
 
 ## Tick rooms
 
