@@ -120,7 +120,8 @@ export class CheckpointSync {
     return { kind: "active" };
   }
 
-  encode(): ExpeditionCheckpoint | null {
+  /** Everything a takeover needs, stamped `t`: the snapshot it rides with. */
+  encode(t: number): ExpeditionCheckpoint | null {
     const auth = this.seat.authority;
     const writer = this.seat.session?.playerId;
     if (auth.kind !== "ready" || !writer) {
@@ -132,8 +133,8 @@ export class CheckpointSync {
       return {
         ...structuredClone(this.adoptedTerminal),
         phase: { elapsed: this.run.deadT, kind: "dead" },
+        t,
         term: auth.term,
-        tick: Math.round(this.run.clock),
         writer,
       };
     }
@@ -244,8 +245,8 @@ export class CheckpointSync {
           y: s.y,
         };
       }),
+      t,
       term: auth.term,
-      tick: Math.round(this.run.clock),
       version: 1,
       writer,
     } satisfies Omit<ExpeditionCheckpoint, "mode" | "versus" | "lastStand">;
@@ -318,7 +319,6 @@ export class CheckpointSync {
 
   private adoptProgress(c: ExpeditionCheckpoint) {
     this.room.seq = c.room;
-    this.run.clock = c.tick;
     this.room.enemyIds = new WeakMap();
     this.room.nextEnemyId = c.nextEnemyId;
     this.seat.seats = { ...c.seats };

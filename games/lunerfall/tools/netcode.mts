@@ -4,8 +4,18 @@
 // the guest — hit-stop on the host, a stomp bounce, a hit while running, a
 // versus countdown, bunched packets at 144 Hz. Asserts the guest's body ends
 // exactly where the host's copy is and that nothing drags it backwards.
+//
+// Both ends keep their own local clock and learn the room's server time the
+// way the SDK does, from probes to the party server and back. The host stamps
+// each snapshot with it; the guest draws the host's own hero from those stamps
+// on the game's RelayClock, and is held to where the host had it.
 // Run: `pnpm test` (after tools/sim.mts).
-import { FixedRate } from "@vibedgames/multiplayer";
+import {
+  FixedRate,
+  Interpolator,
+  ServerClock,
+  TIME_PROBE_INTERVAL_MS,
+} from "@vibedgames/multiplayer";
 
 import { MAX_LAG, MAX_STEPS, TILE } from "../src/config.ts";
 import { HEROES } from "../src/data/heroes.ts";
@@ -13,15 +23,32 @@ import { ENEMIES } from "../src/data/enemies.ts";
 import { onEnemyHead, PlayerBody } from "../src/entities/player-body.ts";
 import type { BodyInput } from "../src/entities/player-body.ts";
 import { GuestCopy } from "../src/net/guest-copy.ts";
+import { INTERP_MS, lerpPlayer, RelayClock } from "../src/net/interp.ts";
 import { Prediction, STEP_MS } from "../src/net/predict.ts";
-import { decodeEdge } from "../src/net/snapshot.ts";
-import type { GuestEdge, NetAck, NetInputs } from "../src/net/snapshot.ts";
+import { decodeEdge, decodePlayer, encodePlayer } from "../src/net/snapshot.ts";
+import type {
+  GuestEdge,
+  NetAck,
+  NetInputs,
+  NetPlayerRow,
+  PlayerPose,
+} from "../src/net/snapshot.ts";
 import { Grid, ROWS } from "../src/sys/grid.ts";
 
 const FLOOR_Y = (ROWS - 2) * TILE;
 const { warrior } = ENEMIES;
 // The scene loop's caps (config.ts): fixed steps per frame, frame time owed.
 const LAG_MS = MAX_LAG * 1000;
+// The party server's clock reads EPOCH + true time; each tab's own clock
+// (performance.now) started on its own, somewhere else.
+const EPOCH = 1_790_000_000_000;
+const HOST_ORIGIN = 4321.5;
+const GUEST_ORIGIN = 987.25;
+// The SDK's probes: a burst on joining, then the slow cadence.
+const PROBE_BURST = [0, 100, 250, 500];
+// Ms of each run before the host's world is held to account: both clocks and
+// the relay have to have been measured.
+const SETTLE_MS = 1000;
 
 let pass = 0;
 let fail = 0;
@@ -57,22 +84,26 @@ const rng = (seed: number) => {
 };
 
 // An ordered link (TCP under a WebSocket): each message is late by the one-way
-// latency ± jitter, but never overtakes the one before it.
+// latency ± jitter, but never overtakes the one before it. `arrivals` hands
+// each one over with the moment it landed — a socket's message handler runs
+// then, between frames.
 const link = <T,>(oneWay: number, jitter: number, seed: number) => {
   const roll = rng(seed);
   const queue: { at: number; msg: T }[] = [];
   let last = 0;
-  return {
-    receive: (now: number): T[] => {
-      const out: T[] = [];
-      while (queue.length > 0 && (queue[0]?.at ?? Infinity) <= now) {
-        const head = queue.shift();
-        if (head) {
-          out.push(head.msg);
-        }
+  const arrivals = (now: number): { at: number; msg: T }[] => {
+    const out: { at: number; msg: T }[] = [];
+    while (queue.length > 0 && (queue[0]?.at ?? Infinity) <= now) {
+      const head = queue.shift();
+      if (head) {
+        out.push(head);
       }
-      return out;
-    },
+    }
+    return out;
+  };
+  return {
+    arrivals,
+    receive: (now: number): T[] => arrivals(now).map((a) => a.msg),
     send: (now: number, msg: T) => {
       last = Math.max(last, now + oneWay + (roll() * 2 - 1) * jitter);
       queue.push({ at: last, msg });
@@ -80,11 +111,46 @@ const link = <T,>(oneWay: number, jitter: number, seed: number) => {
   };
 };
 
+// One tab's view of the room's server time: the SDK's ServerClock, fed by
+// probes that cross to the party server and back, each hop half the one-way
+// latency (± half the jitter). The server reads its clock as a probe lands.
+const serverClock = (origin: number, oneWay: number, jitter: number, seed: number) => {
+  const clock = new ServerClock();
+  const up = link<number>(oneWay / 2, jitter / 2, seed);
+  const down = link<{ c: number; s: number }>(oneWay / 2, jitter / 2, seed + 1);
+  const due = [...PROBE_BURST];
+  const local = (now: number): number => now + origin;
+  return {
+    clock,
+    local,
+    // Everything due by true time `now`: probes out, answers back.
+    poll: (now: number) => {
+      while ((due[0] ?? Infinity) <= now) {
+        const at = due.shift() ?? now;
+        up.send(at, local(at));
+        if (due.length === 0) {
+          due.push(Math.max(at, PROBE_BURST.at(-1) ?? 0) + TIME_PROBE_INTERVAL_MS);
+        }
+      }
+      for (const probe of up.arrivals(now)) {
+        down.send(probe.at, { c: probe.msg, s: EPOCH + probe.at });
+      }
+      for (const answer of down.arrivals(now)) {
+        clock.sample(answer.msg.c, answer.msg.s, local(answer.at));
+      }
+    },
+  };
+};
+
 interface Snap {
+  // server time the host sent it
+  t: number;
   x: number;
   y: number;
   ack: NetAck;
   frozen: boolean;
+  // the host's own hero, as its row
+  own: NetPlayerRow;
 }
 
 interface Scenario {
@@ -120,10 +186,22 @@ interface Outcome {
   replays: number;
   maxJump: number;
   endError: number;
+  // the host's own hero as the guest draws it, once settled: frames drawn,
+  // frames whose render time had passed the newest snapshot, the furthest the
+  // drawing strayed from where the host had the hero at render time (px), and
+  // the relay the render clock measured (ms)
+  drawn: number;
+  dry: number;
+  drawError: number;
+  relay: number;
 }
 
 // Snapshot positions cross the wire at 0.1 px (net/snapshot.ts).
 const tenth = (v: number): number => Math.round(v * 10) / 10;
+
+// The host's own hero paces the floor, turning every 0.6 s.
+const pace = (t: number): Partial<BodyInput> =>
+  Math.floor(t / 0.6) % 2 === 0 ? { right: true } : { left: true };
 
 const run = (sc: Scenario): Outcome => {
   const grid = Grid.test();
@@ -139,39 +217,60 @@ const run = (sc: Scenario): Outcome => {
     claims: 0,
     correctionPx: 0,
     corrections: 0,
+    drawError: 0,
+    drawn: 0,
+    dry: 0,
     endError: 0,
     maxFix: 0,
     maxJump: 0,
     pullBack: 0,
+    relay: 0,
     replays: 0,
   };
-  const host = { acc: 0, clock: 0, freeze: 0, step: 0 };
+  const host = { acc: 0, freeze: 0, stamp: -1, step: 0 };
   const guest = { acc: 0, frozen: false };
+  const hostTime = serverClock(HOST_ORIGIN, sc.oneWay, sc.jitter, 21);
+  const guestTime = serverClock(GUEST_ORIGIN, sc.oneWay, sc.jitter, 31);
+  // The host's own hero, and where it stood after each host frame (true time).
+  const own = new PlayerBody(grid, 12 * TILE, FLOOR_Y, kit);
+  const ownPath: { at: number; x: number }[] = [];
+  // The guest draws it as the scene draws a puppet (scenes/guest-sync.ts).
+  const relay = new RelayClock(() => guestTime.clock);
+  const puppet = new Interpolator<PlayerPose>({
+    clock: relay,
+    delayMs: INTERP_MS,
+    lerp: lerpPlayer,
+  });
+  let newest = -Infinity;
   const holding = (t: number): boolean =>
     sc.freeze !== undefined && t >= sc.freeze[0] && t < sc.freeze[1];
 
   // The scene's fixed step: the guest's copy advances on its own input
-  // whether or not the host is in hit-stop; combat only runs outside it.
+  // whether or not the host is in hit-stop; combat — and every other body on
+  // the host's screen — only runs outside it.
   const hostStep = () => {
     host.step += 1;
-    host.clock += STEP_MS;
     const t = host.step / 60;
-    copy.step(hostBody, holding(t), host.clock);
+    copy.step(hostBody, holding(t));
     while (copy.takeStomp()) {
       out.claims += 1;
     }
     if (host.freeze > 0) {
       host.freeze -= STEP_MS;
     } else {
+      // a versus hold leaves it neutral, like the scene's bodies
+      own.buffer(holding(t) ? NEUTRAL : { ...NEUTRAL, ...pace(t) });
+      own.step(STEP_MS / 1000);
       sc.host?.(t, hostBody);
       if (sc.hitstop?.(t)) {
         host.freeze = 70;
       }
     }
-    copy.drain(hostBody, host.clock);
+    copy.drain(hostBody);
   };
 
   const hostFrame = (now: number) => {
+    hostTime.poll(now);
     for (const msg of up.receive(now)) {
       copy.receive(msg, 1);
     }
@@ -180,14 +279,59 @@ const run = (sc: Scenario): Outcome => {
       host.acc -= STEP_MS;
       hostStep();
     }
+    ownPath.push({ at: now, x: own.x });
     if (snapRate.due(hostFrameMs)) {
+      // stamped as scenes/host-net.ts stamps it
+      host.stamp = Math.max(host.stamp + 1, Math.round(hostTime.clock.now(hostTime.local(now))));
       down.send(now, {
-        ack: copy.report(1, host.clock),
+        ack: copy.report(1),
         frozen: holding(host.step / 60),
+        own: encodePlayer(own),
+        t: host.stamp,
         x: hostBody.x,
         y: hostBody.y,
       });
     }
+  };
+
+  // Where the host had its hero at true time `at`, between its frames.
+  const ownAt = (at: number): number | null => {
+    for (let i = ownPath.length - 1; i > 0; i -= 1) {
+      const b = ownPath[i];
+      const a = ownPath[i - 1];
+      if (a && b && a.at <= at && at <= b.at) {
+        return a.x + ((b.x - a.x) * (at - a.at)) / (b.at - a.at);
+      }
+    }
+    return null;
+  };
+
+  // A snapshot's stamp and its arrival, both server time, measure the relay;
+  // the host's hero joins the puppet's history.
+  const receiveSnap = (snap: Snap, at: number) => {
+    if (guestTime.clock.synced) {
+      relay.learn(snap.t, guestTime.clock.now(guestTime.local(at)));
+    }
+    puppet.push(snap.t, decodePlayer(snap.own));
+    newest = Math.max(newest, snap.t);
+  };
+
+  // The guest's frame draws the host's hero; once settled, hold it to the host.
+  const drawOwn = (now: number) => {
+    const local = guestTime.local(now);
+    const pose = puppet.sample(local);
+    if (!relay.synced || !pose || now < SETTLE_MS) {
+      return;
+    }
+    const renderAt = relay.now(local) - INTERP_MS;
+    const truth = ownAt(renderAt - EPOCH);
+    if (truth === null) {
+      return;
+    }
+    out.drawn += 1;
+    out.dry += renderAt >= newest ? 1 : 0;
+    out.drawError = Math.max(out.drawError, Math.abs(pose.x - truth));
+    out.relay = guestTime.clock.now(local) - relay.now(local);
   };
 
   const applySnap = (snap: Snap) => {
@@ -228,8 +372,10 @@ const run = (sc: Scenario): Outcome => {
   };
 
   const guestFrame = (now: number, frameMs: number) => {
-    for (const snap of down.receive(now)) {
-      applySnap(snap);
+    guestTime.poll(now);
+    for (const { at, msg } of down.arrivals(now)) {
+      receiveSnap(msg, at);
+      applySnap(msg);
     }
     prediction.sample({ ...NEUTRAL, ...sc.input(now / 1000) }, guest.frozen);
     guest.acc = Math.min(guest.acc + frameMs, LAG_MS);
@@ -241,6 +387,7 @@ const run = (sc: Scenario): Outcome => {
     if (msg) {
       up.send(now, msg);
     }
+    drawOwn(now);
   };
 
   // Both loops run on their own frame clocks; whichever frame is due next goes.
@@ -270,7 +417,8 @@ const run = (sc: Scenario): Outcome => {
 
 const fmt = (o: Outcome): string =>
   `${o.corrections} corrections, ${o.correctionPx.toFixed(1)} px (pull-back ${o.pullBack.toFixed(1)} px, max ${o.maxFix.toFixed(2)}), ` +
-  `${o.replays} replays (max jump ${o.maxJump.toFixed(1)} px), end error ${o.endError.toFixed(3)} px`;
+  `${o.replays} replays (max jump ${o.maxJump.toFixed(1)} px), end error ${o.endError.toFixed(3)} px; ` +
+  `host's hero drawn ${o.drawn} frames, ${o.dry} dry, max off ${o.drawError.toFixed(2)} px (relay ${o.relay.toFixed(0)} ms)`;
 
 console.log("lunerfall netcode harness\n");
 
@@ -309,6 +457,13 @@ const hopBackAndForth = (t: number): Partial<BodyInput> => {
   console.log(`  hit-stop every 300 ms while running: ${fmt(o)}`);
   check("hit-stop on the host never pulls the guest back", o.pullBack < 0.5 && o.corrections === 0);
   check("…and the guest ends where the host's copy is", o.endError < 0.05);
+  // Server-time stamps run on while the host stands still, so the guest draws
+  // the host's world standing still too, a relay and INTERP_MS later.
+  check(
+    "the guest draws the host's hero on server time, never running dry",
+    o.drawn > 0 && o.dry === 0,
+  );
+  check("…and where the host had it, hit-stops included", o.drawError < 2.5);
 }
 
 for (const oneWay of [60, 120]) {
@@ -334,6 +489,11 @@ for (const oneWay of [60, 120]) {
     o.replays === 1 && o.pullBack < 0.5,
   );
   check(`…and the guest ends where the host's copy is (${oneWay} ms)`, o.endError < 0.05);
+  if (oneWay > INTERP_MS) {
+    // A relay longer than INTERP_MS: render time must sit behind the relay,
+    // not INTERP_MS behind server time, or every frame would extrapolate.
+    check(`a ${oneWay} ms relay never runs the guest's view dry`, o.drawn > 0 && o.dry === 0);
+  }
 }
 
 {

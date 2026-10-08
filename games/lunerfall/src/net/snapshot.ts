@@ -1,21 +1,24 @@
 // Host ↔ guest wire format. Everything here is plain JSON.
 //
 // Host → guest, in shared state (patches shallow-merge per key):
-//   snap        30 Hz on a steady clock, stamped with host sim time: the moving
-//               parts as compact rows, plus the guest body's input ack and the
-//               edges the host applied to it (hits, bounces, downs, respawns)
+//   snap        30 Hz on a steady clock, stamped with the room's server time as
+//               it goes out: the moving parts as compact rows, plus the guest
+//               body's input ack and the edges the host applied to it (hits,
+//               bounces, downs, respawns)
 //   cast        on change: who the rows are — player ids + heroes, enemy kinds
 //   status      on change: hearts, gold, score, depth — numbers that move on
 //               events, not every tick
 //   room        on change: the layout, once per room
-//   checkpoint  1 Hz and on phase/progress edges: everything a takeover needs
+//   checkpoint  1 Hz and on phase/progress edges: everything a takeover needs,
+//               stamped like the snapshot it rides with
 // Guest → host, an event to the host alone:
 //   in          the guest's input, one entry per 60 Hz sim tick, two per send
 //
-// A guest renders everyone else ~100 ms behind the stamps (Interpolator) and
-// predicts its own body, replaying the host's edges into its history and
-// reconciling against its row at the acked tick (net/predict.ts). Rows are
-// tuples: a snapshot is a couple of dozen of them, thirty times a second.
+// A guest draws everyone else from the stamps, 100 ms of buffer behind the
+// relay's own latency (net/interp.ts), and predicts its own body, replaying
+// the host's edges into its history and reconciling against its row at the
+// acked tick (net/predict.ts). Rows are tuples: a snapshot is a couple of
+// dozen of them, thirty times a second.
 
 import type { BossState } from "../entities/boss-body";
 import type { EnemyState } from "../entities/enemy-body";
@@ -23,7 +26,7 @@ import type { BodyEdge } from "../entities/player-body";
 
 /** Bump on any incompatible change to this file's formats: it is part of the
  * party room id, so a tab on an older build never shares a run with a newer one. */
-export const WIRE_VERSION = 2;
+export const WIRE_VERSION = 3;
 
 /** Wire order of the enemy FSM states; rows carry the index. */
 export const ENEMY_STATES = [
@@ -217,8 +220,8 @@ export const decodeBoss = (row: NetBossRow): BossPose => {
   };
 };
 
-// Projectiles fly ballistically, so the guest dead-reckons them from their
-// newest row; ids are stable for the projectile's life.
+// Projectiles blend between rows like any puppet; ids are stable for the
+// projectile's life.
 export type NetProjRow = [id: number, kind: number, x: number, y: number, vx: number, vy: number];
 
 // One host-applied edge on a guest body: `n` orders them, `tick` is the
@@ -302,7 +305,8 @@ export type NetVersus = {
 };
 
 export type Snapshot = {
-  // host sim time (ms) of the state below; monotonic and real-time paced
+  // server time (ms) the host sent it: every client's timebase, so stamps run
+  // on through hit-stop and across a host change
   t: number;
   // runTag of the run id + authority term: a snapshot from an older run or
   // host is never applied

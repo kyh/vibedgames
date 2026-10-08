@@ -28,8 +28,8 @@ import type { SceneChrome, SceneHooks } from "./scene-hooks";
 // seconds a kill-streak survives without a new kill
 const COMBO_WINDOW = 3;
 const DEATH_LINGER = 0.55;
-// px/s² — guests dead-reckon arrows along the same arc
-export const ARROW_GRAV = 150;
+// px/s² of drop on an arrow's flight
+const ARROW_GRAV = 150;
 // px of slack around a head when the host lands a guest's stomp: the guest
 // judged it on enemies drawn a round trip in the past
 const CLAIM_REACH = 28;

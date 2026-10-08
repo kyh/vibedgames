@@ -7,6 +7,7 @@ import type { Boss } from "../entities/boss";
 import type { Door } from "../entities/door";
 import type { Enemy } from "../entities/enemy";
 import type { Player } from "../entities/player";
+import type { ProjPose } from "../net/interp";
 import type { BossPose, EnemyPose, PlayerPose, ProjKind } from "../net/snapshot";
 import type { PixelSky } from "../render/pixel-sky";
 import { Grid } from "../sys/grid";
@@ -69,7 +70,7 @@ export interface Point {
 }
 
 // One remote actor on a guest: its view, the host-stamped poses it renders
-// ~100 ms behind (sharing the host's RemoteClock), the pose drawn last frame
+// INTERP_MS behind the relay clock (net/interp.ts), the pose drawn last frame
 // (cue edges), and when the host stopped reporting it.
 export interface Puppet<V, P> {
   view: V;
@@ -86,17 +87,14 @@ export interface Puppet<V, P> {
   hushUntil: number;
 }
 
-// A projectile on a guest, dead-reckoned from its newest row to render time.
+// A projectile on a guest: its rows, blended at render time like any puppet,
+// with the same born / seen / gone stamps.
 export interface ProjPuppet {
   spr: Phaser.GameObjects.Sprite;
   kind: ProjKind;
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  // stamp of the row above, of its first row, and of its last (once gone)
-  t: number;
+  interp: Interpolator<ProjPose>;
   born: number;
+  seen: number;
   gone: number | null;
 }
 
@@ -115,9 +113,10 @@ export interface GuestRoomView {
   enemyPuppets: Map<number, Puppet<Enemy, EnemyPose>>;
   bossPuppet: Puppet<Boss, BossPose> | undefined;
   proj: Map<number, ProjPuppet>;
-  payoff: { room: number; t: number; cleared: boolean; bossAlive: boolean } | null;
-  progressTick: number;
-  // stamp of the newest snapshot applied
+  payoff: { room: number; cleared: boolean; bossAlive: boolean } | null;
+  // stamp of the newest checkpoint applied
+  progressT: number;
+  // stamp of the newest snapshot applied (server time, ms)
   snapT: number;
 }
 
@@ -160,7 +159,7 @@ export const newGuestRoomView = (): GuestRoomView => ({
   enemyPuppets: new Map(),
   payoff: null,
   players: [],
-  progressTick: -1,
+  progressT: -1,
   proj: new Map(),
   snapT: -1,
 });

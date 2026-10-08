@@ -17,7 +17,7 @@
 
 import { isOfflineRequested } from "@repo/embed";
 import { MultiplayerClient } from "@vibedgames/multiplayer";
-import type { Player, PlayerMap, SendEventOptions } from "@vibedgames/multiplayer";
+import type { Player, PlayerMap, SenderClock, SendEventOptions } from "@vibedgames/multiplayer";
 
 import type { JsonValue } from "./json";
 
@@ -26,6 +26,12 @@ const MULTIPLAYER_HOST = import.meta.env.DEV
   : "https://vibedgames-party.kyh.workers.dev";
 
 const SOLO_ID = "solo";
+
+// Offline nothing crosses a wire, so nothing needs the server's time.
+const LOCAL_CLOCK: SenderClock = {
+  now: (localNow = performance.now()) => localNow,
+  synced: true,
+};
 
 export interface NetSessionOptions {
   room: string;
@@ -187,6 +193,15 @@ export class NetSession {
 
   get isHost(): boolean {
     return this.live && (this.solo || this.client?.isHost === true);
+  }
+
+  /**
+   * The room's server clock (ms since the epoch), measured by the SDK: one
+   * timebase for every client in the room, so a stamp means the same moment
+   * to the guest that the host meant, whichever client is host.
+   */
+  get serverClock(): SenderClock {
+    return this.client?.serverClock ?? LOCAL_CLOCK;
   }
 
   /** The current room host's id (for authenticating host-only events). */

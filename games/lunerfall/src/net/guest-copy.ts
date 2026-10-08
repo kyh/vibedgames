@@ -35,9 +35,9 @@ const BACKLOG = TARGET + 2;
 // host steps without input before the copy coasts (500 ms): long enough that
 // a guest's frame hitch never reads as a hidden tab
 const COAST_AFTER = 30;
-// host ms an edge stays in the log; every snapshot repeats it, so one sent
-// in a snapshot the guest never read still lands
-const EDGE_KEEP_MS = 2000;
+// host steps (2 s) an edge stays in the log; every snapshot repeats it, so one
+// sent in a snapshot the guest never read still lands
+const EDGE_KEEP = 120;
 
 interface Waiting {
   seq: number;
@@ -58,6 +58,8 @@ export class GuestCopy {
   private rematch = false;
   private stomps = 0;
   private n = 0;
+  // host steps taken: the edge log's clock
+  private steps = 0;
   private readonly log: { at: number; row: NetEdge }[] = [];
 
   /** The copy was placed in room `room`: ticks the guest sent for any other no longer apply. */
@@ -93,10 +95,11 @@ export class GuestCopy {
    * One host sim step: advance the copy by the ticks due now. `frozen`: the
    * host is holding input (versus countdown / match end); a tick the guest
    * sent before it saw that is neutralised, and the guest told to do the same.
-   * `now` is the host clock (ms). Returns whether the copy moved.
+   * Returns whether the copy moved.
    */
-  step(body: PlayerBody, frozen: boolean, now: number): boolean {
+  step(body: PlayerBody, frozen: boolean): boolean {
     body.journal ??= [];
+    this.steps += 1;
     if (this.waiting.length >= TARGET) {
       this.primed = true;
     }
@@ -117,7 +120,7 @@ export class GuestCopy {
       let { bits } = tick;
       if (frozen && !isFrozen(bits)) {
         if (!this.neutralising) {
-          this.record(null, now);
+          this.record(null);
         }
         this.neutralising = true;
         bits = frozenBits(bits);
@@ -135,9 +138,9 @@ export class GuestCopy {
   }
 
   /** After the host's sim step: log what combat did to the copy. */
-  drain(body: PlayerBody, now: number): void {
+  drain(body: PlayerBody): void {
     for (const edge of body.journal?.splice(0) ?? []) {
-      this.record(edge, now);
+      this.record(edge);
     }
   }
 
@@ -159,15 +162,15 @@ export class GuestCopy {
   }
 
   /** The copy's line in a snapshot: its player row index, ack and live edges. */
-  report(row: number, now: number): NetAck {
-    while (this.log.length > 0 && now - (this.log[0]?.at ?? now) > EDGE_KEEP_MS) {
+  report(row: number): NetAck {
+    while (this.log.length > 0 && this.steps - (this.log[0]?.at ?? this.steps) > EDGE_KEEP) {
       this.log.shift();
     }
     return { ack: this.ack, age: this.age, edges: this.log.map((e) => e.row), row };
   }
 
-  private record(edge: BodyEdge | null, now: number) {
+  private record(edge: BodyEdge | null) {
     this.n += 1;
-    this.log.push({ at: now, row: encodeEdge(this.n, this.ack, edge) });
+    this.log.push({ at: this.steps, row: encodeEdge(this.n, this.ack, edge) });
   }
 }

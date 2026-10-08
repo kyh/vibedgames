@@ -52,10 +52,6 @@ export interface RunState {
   // versus: host-authoritative match, and the guest's mirror of the broadcast
   match: VersusMatch | null;
   matchNet: NetVersus | null;
-  // host sim clock (ms): advances a step per fixed step — hit-stop included —
-  // and in real time between rooms, so snapshot stamps stay monotonic and
-  // real-time paced; checkpoints carry it across a host handoff
-  clock: number;
 }
 
 // Base mods plus the permanent meta upgrades bought in the hub (host/solo; a
@@ -73,7 +69,6 @@ export const newRunState = (mods = metaMods()): RunState => ({
   acc: 0,
   bossDeadT: 0,
   cleared: false,
-  clock: 0,
   combo: 0,
   comboT: 0,
   deadT: 0,

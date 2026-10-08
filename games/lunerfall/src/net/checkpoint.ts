@@ -83,7 +83,8 @@ type CheckpointBase = {
   runId: string;
   writer: string;
   term: number;
-  tick: number;
+  // server time (ms) of the snapshot it rode with
+  t: number;
   room: number;
   rng: number;
   seats: CheckpointSeats;
@@ -357,7 +358,7 @@ const header = (v: JsonObject): boolean =>
   id(v.runId) &&
   id(v.writer) &&
   integer(v.term) &&
-  integer(v.tick) &&
+  integer(v.t) &&
   integer(v.room) &&
   integer(v.rng) &&
   v.rng <= 0xff_ff_ff_ff;

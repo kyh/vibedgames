@@ -145,7 +145,7 @@ export class HostNet {
       return false;
     }
     copy.enter(this.room.seq);
-    const moved = copy.step(remote.body, this.run.match?.frozen ?? false, this.run.clock);
+    const moved = copy.step(remote.body, this.run.match?.frozen ?? false);
     while (copy.takeStomp()) {
       this.combat.claimedStomp(remote);
     }
@@ -156,7 +156,7 @@ export class HostNet {
   drainGuest(): void {
     const { remote } = this.seat;
     if (remote) {
-      this.guestCopy()?.drain(remote.body, this.run.clock);
+      this.guestCopy()?.drain(remote.body);
     }
   }
 
@@ -250,7 +250,10 @@ export class HostNet {
 
   // Host: a snapshot each 1/30 s of the frame clock (FixedRate keeps the
   // remainder, so the cadence holds at any refresh rate); the cast, room and
-  // checkpoint ride along when they changed or fell due.
+  // checkpoint ride along when they changed or fell due. Each is stamped with
+  // the room's server time as it goes out — not sim time, which hit-stop and a
+  // throttled tab bend — so a frozen host stamps a world standing still, and a
+  // new host's stamps carry straight on from the old one's.
   broadcast(dts: number, force = false) {
     const sess = this.seat.session;
     if (
@@ -274,10 +277,13 @@ export class HostNet {
       mark.versus !== last.versus ||
       mark.progress !== last.progress;
     const complete = force || this.room.dirty || changed || this.sinceCheckpoint >= CHECKPOINT_MS;
+    // Strictly increasing, even for two forced sends in one frame.
+    const t = Math.max(this.lastStamp + 1, Math.round(sess.serverClock.now()));
+    this.lastStamp = t;
     // One message, so a guest always reads a snapshot with the cast, status,
     // room and checkpoint it was sent beside.
     const patch: Record<string, JsonValue> = {};
-    patch.snap = this.encodeSnapshot();
+    patch.snap = this.encodeSnapshot(t);
     const cast = this.encodeCast();
     const castKey = JSON.stringify(cast);
     if (castKey !== this.castKey) {
@@ -291,7 +297,7 @@ export class HostNet {
       patch.status = status;
     }
     if (complete) {
-      const checkpoint = this.checkpoint.encode();
+      const checkpoint = this.checkpoint.encode(t);
       if (!checkpoint) {
         return;
       }
@@ -317,11 +323,8 @@ export class HostNet {
     };
   }
 
-  private encodeSnapshot(): Snapshot {
+  private encodeSnapshot(t: number): Snapshot {
     const auth = this.seat.authority;
-    // Strictly increasing even for two forced sends in one frame.
-    const t = Math.max(this.lastStamp + 1, Math.round(this.run.clock));
-    this.lastStamp = t;
     const players = [encodePlayer(this.seat.player.body)];
     const acks: NetAck[] = [];
     const { remote } = this.seat;
@@ -330,7 +333,7 @@ export class HostNet {
       players.push(encodePlayer(remote.body));
       if (copy) {
         copy.enter(this.room.seq);
-        acks.push(copy.report(1, this.run.clock));
+        acks.push(copy.report(1));
       }
     }
     const enemies = this.room.enemies.map((e) =>

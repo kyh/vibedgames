@@ -672,7 +672,6 @@ export class GameScene extends Scene implements SceneHooks {
   // guest never freezes its own prediction, so its copy here keeps taking its
   // input — and its blade keeps cutting — or the two would drift apart.
   private fixedStep() {
-    this.run.clock += STEP * 1000;
     // Anything done to the guest's body between steps (a rematch respawn)
     // happened before this step's input tick.
     this.hostNet.drainGuest();
@@ -690,7 +689,6 @@ export class GameScene extends Scene implements SceneHooks {
 
   private updateDead(dts: number) {
     this.run.deadT += dts;
-    this.run.clock += dts * 1000;
     if (this.seat.role === "host") {
       this.hostNet.broadcast(dts);
     }
@@ -705,7 +703,6 @@ export class GameScene extends Scene implements SceneHooks {
 
   private updateTransition(dts: number) {
     this.run.transT += dts;
-    this.run.clock += dts * 1000;
     const half = 0.22;
     this.chrome.fadeRect.setAlpha(
       this.run.transT < half

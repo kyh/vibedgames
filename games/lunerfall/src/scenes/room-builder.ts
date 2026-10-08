@@ -113,7 +113,7 @@ export class RoomBuilder {
     this.room.bossAnnounced = false;
     clearFx(this.scene);
     this.room.guest.payoff = null;
-    this.room.guest.progressTick = -1;
+    this.room.guest.progressT = -1;
     this.room.guest.players = [];
     this.layer?.destroy();
     for (const o of this.parallax) {

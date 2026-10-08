@@ -316,13 +316,13 @@ export class OnlineFlow {
     }
     this.banners.clear();
     this.room.bossAnnounced = true;
-    // Snapshots older than the adopted checkpoint describe a world it replaced.
-    this.room.guest.snapT = c.tick - 1;
+    // Snapshots older than the adopted checkpoint describe a world it replaced;
+    // the one it rode with is the first to apply.
+    this.room.guest.snapT = c.t - 1;
     this.room.guest.payoff = {
       bossAlive: c.boss !== null && !c.boss.dead,
       cleared: c.cleared,
       room: c.room,
-      t: c.tick,
     };
     this.run.downedNet = c.lastStand
       ? { bleed: c.lastStand.bleed, rev: c.lastStand.revive / REVIVE_HOLD }
