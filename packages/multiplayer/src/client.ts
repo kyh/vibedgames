@@ -10,6 +10,7 @@ import type {
   MultiplayerOptions,
   Player,
   PlayerMap,
+  RoomRules,
   SendEventOptions,
   ServerMessage,
 } from "./types.js";
@@ -17,6 +18,7 @@ import {
   HEARTBEAT_INTERVAL_MS,
   RECONNECT_TOKEN_QUERY_PARAM,
   ROOM_CAP_QUERY_PARAM,
+  ROOM_RULES_QUERY_PARAM,
   TIME_PROBE_INTERVAL_MS,
 } from "./types.js";
 import type { MultiplayerSchemas, SchemaViolation } from "./validation.js";
@@ -100,6 +102,15 @@ export interface MultiplayerSnapshot {
 
 /** Probes sent right after admission, before the slow cadence (ms after sync). */
 const TIME_PROBE_BURST_MS = [0, 100, 250, 500];
+
+/** The room rules this client advertises (query JSON), or null for none. */
+const roomRules = (options: MultiplayerOptions): RoomRules | null => {
+  const rules: RoomRules = {};
+  if (options.limits !== undefined) {
+    rules.limits = options.limits;
+  }
+  return Object.keys(rules).length > 0 ? rules : null;
+};
 
 type Listener = () => void;
 
@@ -296,13 +307,15 @@ export class MultiplayerClient {
     }
   }
 
-  /** Query params sent on every (re)connect: reconnect token and the
-   *  effective cap. */
+  /** Query params sent on every (re)connect: reconnect token, the effective
+   *  cap, and the room rules. */
   private connectionQuery() {
+    const rules = roomRules(this.options);
     // PartySocket leaves nil params out of the URL.
     return {
       [RECONNECT_TOKEN_QUERY_PARAM]: this.reconnectToken,
       [ROOM_CAP_QUERY_PARAM]: this.cap === null ? undefined : String(this.cap),
+      [ROOM_RULES_QUERY_PARAM]: rules ? JSON.stringify(rules) : undefined,
     };
   }
 

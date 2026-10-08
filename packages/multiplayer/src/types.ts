@@ -25,6 +25,11 @@ export interface MultiplayerOptions {
    * ceiling regardless of what the client requests.
    */
   maxPlayers?: number;
+  /**
+   * Bounds the server enforces on numeric player-state keys: a patch setting a
+   * listed key outside its range is dropped before anyone sees it.
+   */
+  limits?: Record<string, PlayerLimit>;
   onEvent?: (event: string, payload: JsonValue, from: string) => void;
   /**
    * A claim's owner was set — granted (`owner` is the claimer), released
@@ -32,6 +37,21 @@ export interface MultiplayerOptions {
    * is whoever already holds it). See `MultiplayerClient.claim`.
    */
   onClaim?: (key: string, owner: string | null) => void;
+}
+
+/** Inclusive bounds for one numeric player-state key. */
+export interface PlayerLimit {
+  min?: number;
+  max?: number;
+}
+
+/**
+ * The rules a room runs by. A room adopts them from its first admitted client
+ * and keeps them until it empties, so every client should pass the same ones
+ * (ship them in shared config, like `maxPlayers`).
+ */
+export interface RoomRules {
+  limits?: Record<string, PlayerLimit>;
 }
 
 /** Who holds each claimed key, and until when (server time, ms) for a claim with a TTL. */
@@ -50,6 +70,12 @@ export const MAX_CLAIM_KEY_LENGTH = 128;
 export const MAX_CLAIM_TTL_MS = 3_600_000;
 /** How often the SDK re-measures the server clock (ms). */
 export const TIME_PROBE_INTERVAL_MS = 5000;
+
+/**
+ * Query-string key carrying the room rules (`RoomRules` as JSON). A room
+ * adopts the first admitted client's rules and keeps them until it empties.
+ */
+export const ROOM_RULES_QUERY_PARAM = "_room";
 
 /**
  * Query-string key the SDK uses to advertise a room's player cap to the

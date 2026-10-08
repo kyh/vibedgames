@@ -17,7 +17,9 @@ export type {
   MultiplayerConnectionStatus,
   MultiplayerOptions,
   Player,
+  PlayerLimit,
   PlayerMap,
+  RoomRules,
   SendEventOptions,
   ServerMessage,
 } from "./types.js";
@@ -32,6 +34,7 @@ export {
   RECONNECT_GRACE_MS,
   RECONNECT_TOKEN_QUERY_PARAM,
   ROOM_CAP_QUERY_PARAM,
+  ROOM_RULES_QUERY_PARAM,
   TIME_PROBE_INTERVAL_MS,
 } from "./types.js";
 

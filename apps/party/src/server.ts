@@ -1,7 +1,14 @@
 import type { Connection, ConnectionContext } from "partyserver";
 import { routePartykitRequest, Server } from "partyserver";
 
-import type { ClaimMap, Player, PlayerMap, ServerMessage } from "@vibedgames/multiplayer";
+import type {
+  ClaimMap,
+  Player,
+  PlayerLimit,
+  PlayerMap,
+  RoomRules,
+  ServerMessage,
+} from "@vibedgames/multiplayer";
 import {
   EVICTION_TIMEOUT_MS,
   findStructuralIssue,
@@ -14,6 +21,7 @@ import {
   RECONNECT_GRACE_MS,
   RECONNECT_TOKEN_QUERY_PARAM,
   ROOM_CAP_QUERY_PARAM,
+  ROOM_RULES_QUERY_PARAM,
 } from "@vibedgames/multiplayer";
 import { getColorById } from "./color";
 
@@ -199,6 +207,7 @@ interface RoomSnapshot {
 /** Durable, low-frequency room fields, persisted so they survive hibernation. */
 const HOST_ID_KEY = "hostId";
 const CAP_KEY = "cap";
+const RULES_KEY = "rules";
 const ROOM_KEY = "room";
 const GRACE_PREFIX = "grace:";
 
@@ -215,6 +224,9 @@ const HARD_ROOM_CAP = 64;
 const PERSIST_DEBOUNCE_MS = 1000;
 /** A snapshot larger than this is not persisted (one storage value's limit, with margin). */
 const MAX_PERSISTED_BYTES = 120_000;
+/** Bounded room rules: at most this many limited keys, keys this long. */
+const MAX_LIMITS = 32;
+const MAX_RULE_KEY_LENGTH = 64;
 
 /** Separator for overflow sibling rooms: `home` → `home~2` → `home~3`. */
 const OVERFLOW_SEP = "~";
@@ -272,6 +284,83 @@ const readReconnectToken = (ctx: ConnectionContext): string | null => {
   return raw && raw.length > 0 ? raw : null;
 };
 
+const isRuleKey = (value: JsonValue | undefined): value is string =>
+  isJsonString(value) && value.length > 0 && value.length <= MAX_RULE_KEY_LENGTH;
+
+const readLimits = (raw: JsonValue | undefined): Record<string, PlayerLimit> | null => {
+  const source = asStateMap(raw);
+  if (!source) {
+    return null;
+  }
+  const limits: Record<string, PlayerLimit> = {};
+  for (const [key, value] of Object.entries(source).slice(0, MAX_LIMITS)) {
+    const limit = asStateMap(value);
+    if (!isRuleKey(key) || !limit) {
+      continue;
+    }
+    const bounds: PlayerLimit = {};
+    if (isJsonNumber(limit.min)) {
+      bounds.min = limit.min;
+    }
+    if (isJsonNumber(limit.max)) {
+      bounds.max = limit.max;
+    }
+    limits[key] = bounds;
+  }
+  return Object.keys(limits).length > 0 ? limits : null;
+};
+
+/** Read the room rules a client advertises (untrusted JSON), sanitized and bounded. */
+const readRoomRules = (ctx: ConnectionContext): RoomRules | null => {
+  const raw = searchParam(ctx, ROOM_RULES_QUERY_PARAM);
+  if (!raw || raw.length > 4096) {
+    return null;
+  }
+  let parsed: JsonValue;
+  try {
+    // SAFETY: JSON.parse output is a JSON value by construction.
+    parsed = JSON.parse(raw) as JsonValue;
+  } catch {
+    return null;
+  }
+  const source = asStateMap(parsed);
+  if (!source) {
+    return null;
+  }
+  const rules: RoomRules = {};
+  const limits = readLimits(source.limits);
+  if (limits) {
+    rules.limits = limits;
+  }
+  return Object.keys(rules).length > 0 ? rules : null;
+};
+
+/** Whether a patch keeps every limited key in bounds (unlimited keys always pass). */
+const withinLimits = (
+  patch: StateMap,
+  limits: Record<string, PlayerLimit> | undefined,
+): boolean => {
+  if (!limits) {
+    return true;
+  }
+  for (const [key, limit] of Object.entries(limits)) {
+    if (!(key in patch)) {
+      continue;
+    }
+    const value = patch[key];
+    if (!isJsonNumber(value)) {
+      return false;
+    }
+    if (
+      (limit.min !== undefined && value < limit.min) ||
+      (limit.max !== undefined && value > limit.max)
+    ) {
+      return false;
+    }
+  }
+  return true;
+};
+
 export class VgServer extends Server {
   /**
    * Room state is split by how it must behave under Cloudflare's WebSocket
@@ -292,10 +381,10 @@ export class VgServer extends Server {
    *   persisted debounced (PERSIST_DEBOUNCE_MS) and unconfirmed — never holding
    *   back a message — so a room survives a restart mid-session (a deploy)
    *   with its world intact.
-   * - SESSION (`hostId`, `cap`) changes rarely but MUST persist: a wiped host
-   *   makes the real host's `state_patch` get rejected as non-host after a wake;
-   *   a wiped cap lets a post-wake join exceed it. Mirrored in memory, written
-   *   through to storage, rehydrated in `onStart()`.
+   * - SESSION (`hostId`, `cap`, `rules`) changes rarely but MUST persist: a
+   *   wiped host makes the real host's `state_patch` get rejected as non-host
+   *   after a wake; a wiped cap lets a post-wake join exceed it. Mirrored in
+   *   memory, written through to storage, rehydrated in `onStart()`.
    * - GRACE (held seats for dropped players) also persists: entries are written
    *   only on disconnect/reclaim/expiry (never on the hot path), are bounded by
    *   the room cap, and must survive hibernation or a mid-window wake would
@@ -306,6 +395,7 @@ export class VgServer extends Server {
   private snapshots = new Map<string, StateMap>();
   private hostId: string | null = null;
   private cap: number | null = null;
+  private rules: RoomRules | null = null;
   private grace = new Map<string, GraceEntry>();
   private claims = new Map<string, Claim>();
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
@@ -314,6 +404,7 @@ export class VgServer extends Server {
   async onStart() {
     this.hostId = (await this.ctx.storage.get<string | null>(HOST_ID_KEY)) ?? null;
     this.cap = (await this.ctx.storage.get<number | null>(CAP_KEY)) ?? null;
+    this.rules = (await this.ctx.storage.get<RoomRules | null>(RULES_KEY)) ?? null;
     const room = await this.ctx.storage.get<RoomSnapshot>(ROOM_KEY);
     if (room) {
       this.shared = room.shared;
@@ -334,6 +425,11 @@ export class VgServer extends Server {
   private async setCap(cap: number | null): Promise<void> {
     this.cap = cap;
     await this.ctx.storage.put(CAP_KEY, cap);
+  }
+
+  private async setRules(rules: RoomRules | null): Promise<void> {
+    this.rules = rules;
+    await this.ctx.storage.put(RULES_KEY, rules);
   }
 
   private toPlayer(presence: Presence): Player {
@@ -587,11 +683,17 @@ export class VgServer extends Server {
       return;
     }
 
-    // Admitted: establish the room's cap stickily from the first admitted
-    // client that advertises one, so a later join that omits `_maxPlayers` (a
-    // rogue or stale client) can't bypass the cap legit clients set.
+    // Admitted: establish the room's cap and rules stickily from the first
+    // admitted client that advertises them, so a later join that omits or
+    // differs (a rogue or stale client) can't change how the room runs.
     if (this.cap === null && requestedCap !== null) {
       await this.setCap(requestedCap);
+    }
+    if (this.rules === null) {
+      const rules = readRoomRules(ctx);
+      if (rules) {
+        await this.setRules(rules);
+      }
     }
 
     const now = Date.now();
@@ -685,6 +787,10 @@ export class VgServer extends Server {
           // pong keepalive channel, so a per-tick stream costs no attachment write.
           const patch = VgServer.parsePatch(sender, message.data, "player_state_patch");
           if (patch === null) {
+            break;
+          }
+          if (!withinLimits(patch, this.rules?.limits)) {
+            console.warn(`Dropping out-of-bounds player_state_patch from ${sender.id}`);
             break;
           }
           const next = { ...this.snapshots.get(sender.id), ...patch };
@@ -1125,6 +1231,7 @@ export class VgServer extends Server {
       hasHost: this.hostId !== null,
       playerCount: this.playerCount(),
       room: this.name,
+      rules: this.rules,
     });
   }
 
@@ -1204,13 +1311,14 @@ export class VgServer extends Server {
 
     // Reset the room once it empties so the next session starts fresh:
     // otherwise state set by an earlier session outlives it on the (still-warm)
-    // Durable Object — a wrong cap for a session that wants another one, ghost
-    // world state and claims (eaten pellets, scores, farm tiles) that the next
-    // session's clients adopt before their new host's first broadcast. A room
-    // with seats still held in grace is NOT empty — its dropped players may be
-    // seconds from returning.
+    // Durable Object — a wrong cap or rules for a session that wants other
+    // ones, ghost world state and claims (eaten pellets, scores, farm tiles)
+    // that the next session's clients adopt before their new host's first
+    // broadcast. A room with seats still held in grace is NOT empty — its
+    // dropped players may be seconds from returning.
     if (remainingCount === 0 && this.grace.size === 0) {
       await this.setCap(null);
+      await this.setRules(null);
       this.shared = {};
       this.claims.clear();
       if (this.persistTimer !== null) {

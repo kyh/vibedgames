@@ -556,6 +556,32 @@ test("claims go to the first claimer; the loser hears the owner; release, clear 
   }
 });
 
+test("declared limits drop out-of-range player state", async () => {
+  const room = uniqueRoom("limits");
+  const limits = { hp: { max: 100, min: 0 } };
+  const raw = new RawClient(room, { _pk: `lim-${process.pid}`, _room: JSON.stringify({ limits }) });
+  try {
+    await waitFor(() => raw.synced(), "raw client admitted (sets the rules)");
+    const observer = connect(room);
+    try {
+      await waitFor(() => admitted(observer), "observer admitted");
+      raw.send({ data: { hp: 500 }, type: "player_state_patch" });
+      raw.send({ data: { hp: "full" }, type: "player_state_patch" });
+      raw.send({ data: { hp: 50 }, type: "player_state_patch" });
+      await waitFor(() => observer.players[raw.id]?.state?.hp === 50, "the in-range patch lands");
+      assert.equal(
+        observer.players[raw.id]?.state?.hp,
+        50,
+        "neither the out-of-range nor the non-numeric patch got through",
+      );
+    } finally {
+      observer.destroy();
+    }
+  } finally {
+    raw.close(1000);
+  }
+});
+
 test("malformed and oversized state patches are dropped without harming the room", async () => {
   const room = uniqueRoom("validation");
   // Raw host joins first: only the host may write shared state, and only a raw
