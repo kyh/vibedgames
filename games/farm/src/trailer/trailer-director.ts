@@ -20,7 +20,7 @@ import type { SkillId, SkillsJSON } from "../systems/skills";
 import { weatherForDay } from "../systems/weather";
 import { Sound } from "../render/audio";
 import { burst, floatText } from "../render/fx";
-import { TILE, MAP_W, MAP_H, FARM_SEED } from "../config";
+import { TILE, MAP_W, MAP_H, FARM_SEED, NET_TICK_HZ } from "../config";
 import { CELL, FIELD_RECT } from "../world/worldmap";
 import { inBounds, tileIdx } from "../world/world";
 import { CROPS, isMature } from "../data/crops";
@@ -30,6 +30,7 @@ import { randomAnimalName } from "../data/animals";
 import type { AnimalKind, BuildingKind } from "../data/animals";
 import type { Item, OreId } from "../data/items";
 import { RemoteFarmers } from "../net/remote-farmers";
+import { FixedRate } from "@vibedgames/multiplayer";
 import type { PlayerMap } from "@vibedgames/multiplayer";
 
 const WORLD_W = MAP_W * TILE;
@@ -1139,14 +1140,15 @@ const applyWorkerEdit = (g: GameScene, w: Worker, tx: number): void => {
 
 /** THE SHARED PLOT — co-op: three name-tagged farmers working the same field in
  *  real time while the local farmer sows the near row. The renderer, the name
- *  tags, the 12Hz lerp and every tile edit are the shipping co-op code paths;
- *  only the wire payload is scripted, since one page cannot host four clients. */
+ *  tags, the 20 Hz stamped updates and their interpolation, and every tile edit
+ *  are the shipping co-op code paths; only the wire payload is scripted, since
+ *  one page cannot host four clients. */
 const sceneCoop = (game: Phaser.Game): TrailerScene => {
   let gs: GameScene | null = null;
   let script: FarmScript | null = null;
   let remote: RemoteFarmers | null = null;
   let workers: Worker[] = [];
-  let netAcc = 0;
+  const net = new FixedRate(NET_TICK_HZ);
   return {
     duration: 3800,
     id: "coop-farm",
@@ -1173,16 +1175,18 @@ const sceneCoop = (game: Phaser.Game): TrailerScene => {
           w.dir = -1;
         }
       }
-      netAcc += dt;
-      if (netAcc >= 1000 / 12) {
-        netAcc = 0;
+      if (net.due(dt)) {
+        const stamp = Math.round(performance.now());
         const players: PlayerMap = {};
         for (const w of workers) {
-          players[w.id] = { id: w.id, state: { f: w.dir < 0, m: true, x: w.x, y: w.y } };
+          players[w.id] = {
+            id: w.id,
+            state: { f: w.dir < 0, m: true, t: stamp, x: w.x, y: w.y },
+          };
         }
         r.sync(players, "you");
       }
-      r.update(s);
+      r.update();
       // slow push-in so the crew tightens up as the beat lands
       camPlace(g, zoomFor(g, lerp(250, 232, smooth(t / 3800))), 248, 146);
     },
@@ -1202,7 +1206,7 @@ const sceneCoop = (game: Phaser.Game): TrailerScene => {
         { dir: -1, id: "otto", job: "plant", lastTx: -1, ty: 9, x: 20 * TILE, y: 9 * TILE + 12 },
         { dir: 1, id: "juno", job: "water", lastTx: -1, ty: 7, x: 14 * TILE, y: 7 * TILE + 12 },
       ];
-      netAcc = 0;
+      net.reset();
       script = new FarmScript(g, [
         { kind: "select", match: (it) => it.kind === "tool" && it.tool === "hoe" },
         { at: { tx: 15, ty: 11 }, kind: "act" },

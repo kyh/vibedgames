@@ -2,6 +2,7 @@ import type Phaser from "phaser";
 import { Animations, Cameras, Math as PhaserMath, Scene, Scenes } from "phaser";
 import { PhysicalGamepad } from "@vibedgames/gamepad";
 import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
+import { FixedRate } from "@vibedgames/multiplayer";
 import { notifyGameStarted } from "@repo/embed";
 import {
   TILE,
@@ -11,27 +12,27 @@ import {
   WALK_SPEED,
   RUN_SPEED,
   CHAR_ORIGIN_Y,
-  MAX_ENERGY,
   ENERGY_PER_SWING,
   CAN_MAX,
   DAY_START_MIN,
   DAY_END_MIN,
   GAME_MIN_PER_REAL_SEC,
-  HP_REGEN_PER_DAY,
   DEPTH,
   MP_ROOM,
   MP_MAX_PLAYERS,
   OFFLINE_FALLBACK_MS,
-  NET_TICK_HZ,
   CLOCK_TICK_HZ,
   FARM_SEED,
 } from "../config";
-import { isJsonNumber, isJsonObject } from "../json";
-import type { JsonValue } from "../json";
+import type { JsonObject, JsonValue } from "../json";
+import { ClockFollower, clockPatch, readClock } from "../net/clock-sync";
+import type { ClockReading } from "../net/clock-sync";
+import { FarmSync, parseClear, publishCleared } from "../net/farm-sync";
+import { FarmerSender } from "../net/farmer-wire";
 import { NetSession } from "../net/session";
-import { RemoteFarmers, farmerPose } from "../net/remote-farmers";
-import { packTiles, parseTileIntent, readPackedTile, tileSig } from "../net/tile-codec";
-import type { TileEdit, TileIntent } from "../net/tile-codec";
+import { RemoteFarmers } from "../net/remote-farmers";
+import { parseTileIntent } from "../net/tile-codec";
+import type { TileIntent } from "../net/tile-codec";
 import { World, GROUND, inBounds, tileIdx } from "../world/world";
 import type { WorldObject } from "../world/world";
 import { hintFor } from "../ui/action-hints";
@@ -91,6 +92,10 @@ declare global {
 
 /** Routine saves are debounced: flushed at most this often (seconds). */
 const SAVE_FLUSH_SEC = 3;
+
+/** The co-op farm's objects as generated — the ones `o<id>` shared keys name. */
+const coopObjects = (): readonly WorldObject[] =>
+  generateFarm(FARM_SEED, getWorldMap()).world.objects;
 
 // ---- trailer mode (src/trailer/) --------------------------------------------
 // Set once by the trailer director before the scene boots. Keeps a staged demo
@@ -188,29 +193,40 @@ export class GameScene extends Scene {
   private farmPosition = { x: 0, y: 0 };
 
   // ---- multiplayer (co-op shared farm) ---------------------------------------
-  // The host owns the world (tilled/watered/crops) and the clock; guests adopt
-  // both and send farming actions as intents. Inventory/energy stay per-player.
+  // The host owns the world (soil, crops, cleared trees/rocks/forage) and the
+  // clock; guests adopt both, act at once locally and send each action to the
+  // host as an intent. Inventory/energy stay per-player. Each farmer moves
+  // locally and streams its position; peers interpolate it.
   // Created in create(), NOT at page load: Phaser constructs every scene at
   // boot, and a socket opened from the title screen would join (and possibly
   // HOST) the room with no world and no update loop — a dead room for everyone.
   private net?: NetSession;
   private remoteFarmers?: RemoteFarmers;
-  private netAcc = 0;
+  private readonly farmerSender = new FarmerSender();
   /** Bumped whenever the local clip (re)starts: peers seek only on a change and
    *  run the clip themselves in between. The instance survives mine trips, so
    *  the counter stays monotonic for the room. */
   private poseRevision = 0;
-  private clockAcc = 0;
-  /** Whether this client has pushed its full farm to the room yet. */
-  private worldPublished = false;
-  /** Host actions received while the scene was stopped (host in the mine). */
-  private pendingTileIntents: TileIntent[] = [];
-  /** Identity of the last-processed shared tiles blob (skip re-scans). */
-  private lastTilesRef: JsonValue | null = null;
-  /** Host: authoritative per-tile edits (idx → packed state). */
-  private tileEdits = new Map<number, TileEdit>();
-  /** Signatures already applied locally, to skip redundant re-renders. */
-  private appliedTiles = new Map<number, string>();
+  private readonly farmSync = new FarmSync(
+    {
+      objectBack: (o) => this.objectBack(o),
+      objectGone: (o) => this.objectGone(o),
+      redrawTile: (idx) => this.redrawTile(idx),
+      world: () => this.world,
+    },
+    coopObjects,
+  );
+  /** Host: whether the clock ran this frame — published, so guests stop with it. */
+  private clockRunning = false;
+  private readonly clockRate = new FixedRate(CLOCK_TICK_HZ);
+  private publishedClock: ClockReading | null = null;
+  /** Host: the player id the farm was last published under. A new host — or a
+   *  new scene start, which may be a different farm — publishes it whole. */
+  private publishedAs: string | null = null;
+  /** Guest: the host clock, run locally between its readings. */
+  private readonly clockFollower = new ClockFollower();
+  /** Guest: the shared state last folded in (a new object per patch). */
+  private lastShared: JsonObject | null = null;
   /** actionHint memo: what it last looked at (idx -1 = stale). */
   private hintKey: HintKey = { idx: -1, item: null };
   private hint: string | null = null;
@@ -369,18 +385,15 @@ export class GameScene extends Scene {
     }
 
     this.remoteFarmers = new RemoteFarmers(this);
-    // Rebuild the edit ledger from the world we just built: clearing it alone
-    // would make a host's next broadcast replace the room's whole tiles blob
-    // with just its newest edit (the shared state merges per top-level key).
-    this.appliedTiles.clear();
-    this.tileEdits.clear();
-    this.lastTilesRef = null;
-    this.seedTileEditsFromWorld();
-    // Guest actions relayed while we hosted from inside the mine.
-    for (const intent of this.pendingTileIntents) {
-      this.applyTileIntent(intent);
-    }
-    this.pendingTileIntents = [];
+    // Every start redraws from the world, so both roles take the room afresh:
+    // a host republishes its farm whole (a new or loaded farm must replace the
+    // room's), a guest re-adopts the host's farm and clock.
+    this.farmSync.reset();
+    this.publishedAs = null;
+    this.publishedClock = null;
+    this.lastShared = null;
+    this.clockFollower.reset();
+    this.farmerSender.arrive();
 
     if (import.meta.env.DEV) {
       window.__gs = this;
@@ -764,11 +777,11 @@ export class GameScene extends Scene {
     this.gamepad?.update();
     this.pollPad();
     this.net?.tick();
-    this.reconcileClock();
-    this.reconcileTiles();
+    this.followHost();
     const busy = this.uiOpen || this.transitioning || this.fishing.active;
+    this.clockRunning = !busy;
     if (!busy) {
-      // The host drives the shared clock; guests adopt it (reconcileClock).
+      // The host drives the shared clock; guests follow it (followHost).
       // While still handshaking (not live yet) run it locally — a frozen
       // clock during the connect window reads as a hang.
       if (this.amHost || !this.net?.live) {
@@ -779,6 +792,10 @@ export class GameScene extends Scene {
       }
     } else if (!this.acting && !this.fishing.active) {
       this.setAnim("idle");
+    }
+    // A guest's own menu never stops the room's clock.
+    if (!this.amHost && this.net?.live) {
+      this.clockFollower.advance(this, dt);
     }
     if (!this.controlsPaused) {
       this.fishing.update(dt);
@@ -792,7 +809,7 @@ export class GameScene extends Scene {
     // shadow rides the feet, always one depth step under its owner
     this.shadow.setPosition(this.player.x, this.player.y + 1);
     this.shadow.setDepth(this.player.depth - 1);
-    this.updateNet(dt);
+    this.updateNet(dms);
     this.trailerFrame?.(dt);
     // flush debounced saves (transitions and tab-hide/unload still save at once)
     this.retryPendingSave(dt);
@@ -827,164 +844,74 @@ export class GameScene extends Scene {
   }
 
   private handleNetEvent(event: string, payload: JsonValue, _from: string): void {
-    // Host applies a guest's farming action to the authoritative world.
-    if (event !== "tile" || !this.amHost) {
-      return;
-    }
-    const intent = parseTileIntent(payload);
-    if (!intent) {
-      return;
-    }
-    // While the host is in the mine this scene is stopped: its world is a
-    // stale copy (rebuilt from the save on return) and rendering would touch
-    // dead objects — hold the intent and apply it in create().
-    if (!this.scene.isActive()) {
-      this.pendingTileIntents.push(intent);
-      return;
-    }
-    this.applyTileIntent(intent);
-  }
-
-  private applyTileIntent(intent: TileIntent): void {
-    const { idx } = intent;
-    switch (intent.action) {
-      case "till": {
-        this.world.tilled[idx] = 1;
-        break;
-      }
-      case "water": {
-        this.world.watered[idx] = 1;
-        break;
-      }
-      case "plant": {
-        if (intent.crop) {
-          this.world.crops.set(idx, { crop: intent.crop, daysGrown: 0 });
-        }
-        break;
-      }
-      case "harvest": {
-        this.world.crops.delete(idx);
-        this.world.watered[idx] = 0;
-        break;
-      }
-      // no default
-    }
-    this.recordTileEdit(idx);
-    const e = this.tileEdits.get(idx);
-    // render the guest's action on the host too
-    if (e) {
-      this.applyTileState(idx, e);
-    }
-    this.broadcastTiles();
-  }
-
-  /** Capture every farmed tile as an edit, so a host's first broadcast carries
-   *  the WHOLE farm (a save-loaded farm included) — not just edits made since
-   *  this scene instance started. */
-  private seedTileEditsFromWorld(): void {
-    if (!this.net) {
-      return;
-    }
-    for (let idx = 0; idx < MAP_W * MAP_H; idx += 1) {
-      if ((this.world.tilled[idx] ?? 0) !== 0 || (this.world.watered[idx] ?? 0) !== 0) {
-        this.recordTileEdit(idx);
-      }
-    }
-    for (const idx of this.world.crops.keys()) {
-      if (!this.tileEdits.has(idx)) {
-        this.recordTileEdit(idx);
-      }
-    }
-  }
-
-  /** Called by the farming actions after a local mutation, to propagate it. */
-  private netTileAction(idx: number, action: string, crop?: CropId): void {
     const { net } = this;
-    // solo: nothing to sync
-    if (!net || net.offline) {
+    // Only the host acts on intents. Its world stays live while it is down the
+    // mine (this scene stopped), so they apply at once; create() redraws.
+    if (!net || !this.amHost) {
       return;
     }
-    if (this.amHost) {
-      this.recordTileEdit(idx);
-      this.broadcastTiles();
-    } else {
-      net.sendEvent("tile", crop ? { action, crop, idx } : { action, idx });
+    if (event === "tile") {
+      const intent = parseTileIntent(payload);
+      if (intent && this.farmSync.applyIntent(intent)) {
+        this.redrawTile(intent.idx);
+        this.farmSync.publishTiles(net, [intent.idx]);
+      }
+    } else if (event === "clear") {
+      const id = parseClear(payload);
+      const cleared = id === null ? null : this.farmSync.clearObject(id);
+      if (cleared) {
+        this.objectGone(cleared);
+        publishCleared(net, cleared.id);
+      }
     }
   }
 
-  private recordTileEdit(idx: number): void {
-    const cs = this.world.crops.get(idx);
-    const e: TileEdit = {
-      c: cs ? cs.crop : null,
-      d: cs ? cs.daysGrown : 0,
-      t: this.world.tilled[idx] ?? 0,
-      w: this.world.watered[idx] ?? 0,
-    };
-    this.tileEdits.set(idx, e);
-    this.appliedTiles.set(idx, tileSig(e));
-  }
-
-  private broadcastTiles(): void {
+  /** After a local farming action: the host publishes the tile; a guest keeps
+   *  its change protected and asks the host to make the same one. */
+  private netTileAction(intent: TileIntent): void {
     const { net } = this;
     if (!net || net.offline) {
       return;
     }
-    net.patchShared({ tiles: packTiles(this.tileEdits) });
-  }
-
-  /** Adopt the host's authoritative tile edits (a rival's farming, overnight
-   *  growth, etc.), re-rendering only the tiles whose state actually changed. */
-  private reconcileTiles(): void {
-    // host owns the truth
     if (this.amHost) {
+      this.farmSync.publishTiles(net, [intent.idx]);
       return;
     }
-    const s = this.net?.sharedState;
-    const raw = s?.["tiles"];
-    if (!isJsonObject(raw)) {
-      return;
-    }
-    // The blob's identity only changes when a tiles patch arrives — skip the
-    // full 60 Hz rescan (hundreds of tiles) in between.
-    if (raw === this.lastTilesRef) {
-      return;
-    }
-    this.lastTilesRef = raw;
-    for (const [key, packed] of Object.entries(raw)) {
-      const entry = readPackedTile(key, packed);
-      if (!entry) {
-        continue;
-      }
-      const [idx, e] = entry;
-      const sig = tileSig(e);
-      if (this.appliedTiles.get(idx) === sig) {
-        continue;
-      }
-      this.appliedTiles.set(idx, sig);
-      // Mirror adoptions into the edit ledger: if the host leaves and WE get
-      // promoted, our first broadcast must carry the accumulated farm, not
-      // wipe the room's blob down to our own edits.
-      this.tileEdits.set(idx, e);
-      this.applyTileState(idx, e);
-    }
+    this.farmSync.protectTile(intent.idx, performance.now());
+    net.sendToHost("tile", intent);
   }
 
-  /** Set a tile's world state and re-render it (no fx / inventory / sound). */
-  private applyTileState(idx: number, e: TileEdit): void {
+  /** After felling a tree, breaking a rock or picking forage: the same split. */
+  private netCleared(o: WorldObject): void {
+    const { net } = this;
+    if (!net || net.offline) {
+      return;
+    }
+    if (this.amHost) {
+      publishCleared(net, o.id);
+      return;
+    }
+    this.farmSync.protectClear(o.id, performance.now());
+    net.sendToHost("clear", { id: o.id });
+  }
+
+  /** Redraw a tile from the world after the sync rewrote it. A stopped scene
+   *  (down the mine) skips it: create() redraws everything on return. */
+  private redrawTile(idx: number): void {
+    if (!this.sys.isActive()) {
+      return;
+    }
     if (idx === this.hintKey.idx) {
       this.hintKey.idx = -1;
     }
-    this.world.tilled[idx] = e.t;
-    this.world.watered[idx] = e.w;
-    if (e.c !== null) {
-      this.world.crops.set(idx, { crop: e.c, daysGrown: e.d });
-      this.ensureCrop(idx, e.c, cropStage(CROPS[e.c], e.d));
-    } else if (this.world.crops.has(idx)) {
-      this.world.crops.delete(idx);
+    const cs = this.world.crops.get(idx);
+    if (cs) {
+      this.ensureCrop(idx, cs.crop, cropStage(CROPS[cs.crop], cs.daysGrown));
+    } else {
       this.cropImgs.get(idx)?.destroy();
       this.cropImgs.delete(idx);
     }
-    if (e.t) {
+    if (this.world.tilled[idx]) {
       this.ensureSoil(idx);
     } else {
       this.soilImgs.get(idx)?.destroy();
@@ -993,84 +920,104 @@ export class GameScene extends Scene {
     this.refreshSoilTint(idx);
   }
 
-  /** Host: after overnight growth/withering/re-watering, re-capture every
-   *  tracked (and crop) tile so guests see the new day's farm. */
-  private refreshTileEditsAfterOvernight(): void {
-    if (!this.net || this.net.offline || !this.amHost) {
-      return;
-    }
-    for (const idx of this.tileEdits.keys()) {
-      this.recordTileEdit(idx);
-    }
-    for (const idx of this.world.crops.keys()) {
-      if (!this.tileEdits.has(idx)) {
-        this.recordTileEdit(idx);
-      }
-    }
-    this.broadcastTiles();
-  }
-
-  private reconcileClock(): void {
-    if (this.amHost) {
-      return;
-    }
-    const s = this.net?.sharedState;
-    const c = s?.["clock"];
-    if (!isJsonObject(c)) {
-      return;
-    }
-    const { time } = c;
-    const { weather } = c;
-    const { day } = c;
-    if (isJsonNumber(time)) {
-      this.timeMin = time;
-    }
-    if (weather === "sunny" || weather === "rain" || weather === "storm" || weather === "snow") {
-      this.weather = weather;
-    }
-    if (isJsonNumber(day) && day !== this.day) {
-      const recap = this.shipping.shipments > 0 ? this.shipping : undefined;
-      this.day = day;
-      this.shipping = { day, shipments: 0, shippedGold: 0 };
-      this.events.emit("daybanner", this.day, seasonOfDay(this.day), this.weather, recap);
+  /** Another farmer cleared this object, or the host's world has no such one. */
+  private objectGone(o: WorldObject): void {
+    this.hintKey.idx = -1;
+    const spr = this.objSprites.get(o.id);
+    this.objSprites.delete(o.id);
+    if (spr && this.sys.isActive()) {
+      this.tweens.add({ alpha: 0, duration: 200, onComplete: () => spr.destroy(), targets: spr });
     }
   }
 
-  private updateNet(dt: number): void {
+  /** The host's world still has this object: it stands here again. */
+  private objectBack(o: WorldObject): void {
+    this.hintKey.idx = -1;
+    if (this.sys.isActive()) {
+      this.spawnObjectSprite(o);
+    }
+  }
+
+  /** Guest: fold the host's farm and clock in as they change, and let this
+   *  farmer's unconfirmed changes lapse back to the host's when it never
+   *  echoes them. */
+  private followHost(): void {
+    const { net } = this;
+    if (!net || this.amHost) {
+      return;
+    }
+    const shared = net.sharedState;
+    const now = performance.now();
+    if (shared && shared !== this.lastShared) {
+      this.farmSync.adopt(shared, now);
+      this.adoptClock(shared);
+    }
+    this.lastShared = shared;
+    this.farmSync.expire(shared, now);
+  }
+
+  /** Guest: a host clock reading. A later day means this farmer slept too —
+   *  the same personal night the host gets in endDay. */
+  private adoptClock(shared: JsonObject): void {
+    const reading = readClock(shared);
+    const turn = reading ? this.clockFollower.observe(this, reading) : null;
+    if (!turn) {
+      return;
+    }
+    const recap = this.shipping.shipments > 0 ? this.shipping : undefined;
+    this.shipping = { day: this.day, shipments: 0, shippedGold: 0 };
+    if (turn.rested) {
+      this.wakeUp(turn.exhausted);
+    }
+    this.events.emit("daybanner", this.day, seasonOfDay(this.day), this.weather, recap);
+  }
+
+  private updateNet(elapsedMs: number): void {
     const { net } = this;
     if (!net) {
       return;
     }
-    if (!net.offline) {
-      this.netAcc += dt;
-      if (this.netAcc >= 1 / NET_TICK_HZ) {
-        this.netAcc = 0;
-        net.updateMyState({
-          f: this.player.flipX,
-          m: this.moving,
-          pose: farmerPose(this.player, this.poseRevision),
-          x: this.player.x,
-          y: this.player.y,
-        });
+    if (this.isOnline()) {
+      const update = this.farmerSender.tick(this.player, this.moving, this.poseRevision);
+      if (update) {
+        net.updateMyState(update);
       }
       if (this.amHost) {
-        // First tick as a live host: push the whole farm (a save-loaded world
-        // included) so guests inherit the real state, not a bare map.
-        if (!this.worldPublished && net.live) {
-          this.worldPublished = true;
-          this.broadcastTiles();
-        }
-        this.clockAcc += dt;
-        if (this.clockAcc >= 1 / CLOCK_TICK_HZ) {
-          this.clockAcc = 0;
-          net.patchShared({
-            clock: { day: this.day, time: this.timeMin, weather: this.weather },
-          });
-        }
+        this.publishHost(net, elapsedMs);
+      } else {
+        this.publishedAs = null;
       }
     }
     this.remoteFarmers?.sync(net.players, net.playerId);
-    this.remoteFarmers?.update(dt);
+    this.remoteFarmers?.update();
+  }
+
+  /** Host: the whole farm once (per new host or scene start), then the clock —
+   *  steadily while it runs, at once when it stops, starts or turns a day. */
+  private publishHost(net: NetSession, elapsedMs: number): void {
+    if (this.publishedAs !== net.playerId) {
+      this.publishedAs = net.playerId;
+      this.publishedClock = null;
+      this.farmSync.publishWorld(net, net.sharedState, Date.now());
+    }
+    const reading: ClockReading = {
+      day: this.day,
+      running: this.clockRunning,
+      time: this.timeMin,
+      weather: this.weather,
+    };
+    const last = this.publishedClock;
+    const due = this.clockRate.due(elapsedMs);
+    if (
+      due ||
+      !last ||
+      last.day !== reading.day ||
+      last.running !== reading.running ||
+      last.weather !== reading.weather
+    ) {
+      net.patchShared(clockPatch(reading));
+      this.publishedClock = reading;
+    }
   }
 
   private advanceTime(dt: number): void {
@@ -1528,7 +1475,7 @@ export class GameScene extends Scene {
     Sound.dig();
     this.awardXP("farming", 2);
     this.requestSave();
-    this.netTileAction(idx, "till");
+    this.netTileAction({ action: "till", idx });
   }
 
   private waterTile(idx: number): void {
@@ -1551,7 +1498,7 @@ export class GameScene extends Scene {
     });
     Sound.water();
     this.awardXP("farming", 1);
-    this.netTileAction(idx, "water");
+    this.netTileAction({ action: "water", idx });
   }
 
   private refillCan(): void {
@@ -1589,7 +1536,7 @@ export class GameScene extends Scene {
     Sound.plant();
     this.awardXP("farming", 2);
     this.requestSave();
-    this.netTileAction(idx, "plant", crop);
+    this.netTileAction({ action: "plant", crop, idx });
   }
 
   private harvest(idx: number): void {
@@ -1642,7 +1589,7 @@ export class GameScene extends Scene {
     Sound.harvest();
     this.awardXP("farming", 12);
     this.requestSave();
-    this.netTileAction(idx, "harvest");
+    this.netTileAction({ action: "harvest", idx });
   }
 
   private chop(o: WorldObject): void {
@@ -1677,6 +1624,7 @@ export class GameScene extends Scene {
       }
       this.objSprites.delete(o.id);
       this.world.removeObject(o);
+      this.netCleared(o);
       store.work.felled += 1;
       floatText(this, o.tx * TILE + 8, o.ty * TILE - 8, `+${got} Wood`, "#e8c79a");
       this.awardXP("foraging", 6);
@@ -1718,6 +1666,7 @@ export class GameScene extends Scene {
       }
       this.objSprites.delete(o.id);
       this.world.removeObject(o);
+      this.netCleared(o);
       store.work.quarried += 1;
       floatText(this, o.tx * TILE + 8, o.ty * TILE - 8, `+${got} Stone`, "#cdd6e0");
       this.awardXP("mining", 5);
@@ -1751,6 +1700,7 @@ export class GameScene extends Scene {
     }
     this.objSprites.delete(o.id);
     this.world.removeObject(o);
+    this.netCleared(o);
     floatText(
       this,
       o.tx * TILE + 8,
@@ -1855,6 +1805,9 @@ export class GameScene extends Scene {
     this.save();
     this.cameras.main.fadeOut(450, 0, 0, 0);
     this.cameras.main.once(Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+      if (this.isOnline()) {
+        this.net?.updateMyState(this.farmerSender.away());
+      }
       this.scene.stop("Hud");
       this.scene.start("Mine", { depth: 1 });
     });
@@ -1890,22 +1843,20 @@ export class GameScene extends Scene {
     cam.fadeOut(600, 6, 10, 24);
     cam.once(Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
       // Only the host advances the shared world/clock. A guest reaching here
-      // (passOut) still gets the personal recovery — but running overnight
-      // growth locally would diverge from the world the host broadcasts.
+      // (passing out before it reached the room) still gets the personal
+      // night — but running overnight growth locally would diverge from the
+      // world the host publishes. Connected guests get theirs in adoptClock.
       if (this.amHost) {
-        this.runOvernight();
-        this.refreshTileEditsAfterOvernight();
+        const changed = this.runOvernight();
+        if (this.net && !this.net.offline) {
+          this.farmSync.publishTiles(this.net, changed);
+        }
         this.day += 1;
         this.shipping = { day: this.day, shipments: 0, shippedGold: 0 };
         this.timeMin = DAY_START_MIN;
         this.weather = weatherForDay(this.seed, this.day);
       }
-      store.energy = exhausted || this.fainted ? Math.floor(MAX_ENERGY * 0.55) : MAX_ENERGY;
-      store.hp = this.fainted
-        ? Math.floor(store.maxHp() * 0.5)
-        : Math.min(store.maxHp(), store.hp + HP_REGEN_PER_DAY);
-      this.fainted = false;
-      this.save();
+      this.wakeUp(exhausted);
       if (this.amHost) {
         this.events.emit("daybanner", this.day, seasonOfDay(this.day), this.weather, recap);
       }
@@ -1917,37 +1868,29 @@ export class GameScene extends Scene {
     });
   }
 
-  private runOvernight(): void {
+  /** The shared farm's night (host only). Returns the tiles that changed. */
+  private runOvernight(): Set<number> {
     const nextDay = this.day + 1;
-    const nextSeason = seasonOfDay(nextDay);
-    const nextWeather = weatherForDay(this.seed, nextDay);
-    const rainy = isWet(nextWeather);
+    const changed = this.world.growOvernight(
+      seasonOfDay(nextDay),
+      isWet(weatherForDay(this.seed, nextDay)),
+    );
+    for (const idx of changed) {
+      this.redrawTile(idx);
+    }
+    return changed;
+  }
 
-    // grow watered crops; wither out-of-season; then reset/refresh watering
-    for (const [i, cs] of this.world.crops) {
-      const def = CROPS[cs.crop];
-      if (!def.seasons.includes(nextSeason)) {
-        this.cropImgs.get(i)?.destroy();
-        this.cropImgs.delete(i);
-        this.world.crops.delete(i);
-        continue;
-      }
-      const watered = this.world.watered[i] === 1 || rainy;
-      if (watered && cs.daysGrown < def.growthDays) {
-        cs.daysGrown += 1;
-        this.ensureCrop(i, cs.crop, cropStage(def, cs.daysGrown));
-      }
-    }
-    for (let i = 0; i < this.world.watered.length; i += 1) {
-      const wet = rainy && this.world.tilled[i] === 1 ? 1 : 0;
-      if (this.world.watered[i] !== wet) {
-        this.world.watered[i] = wet;
-        this.refreshSoilTint(i);
-      }
-    }
+  /** This farmer's own night, on every client — the host's at its day end, a
+   *  guest's when the host's next day reaches it: vitals, a full can, their
+   *  animals' produce and the villagers' daily chats. */
+  private wakeUp(exhausted: boolean): void {
     this.canCharge = CAN_MAX;
     this.animals.runOvernight();
     this.npcs.runOvernight();
+    store.rest(exhausted, this.fainted);
+    this.fainted = false;
+    this.save();
   }
 
   // ---------------------------------------------------------------- misc

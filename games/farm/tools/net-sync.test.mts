@@ -1,0 +1,378 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { test } from "node:test";
+import { DAY_END_MIN, FARM_SEED, MAP_W, PENDING_EDIT_MS } from "../src/config";
+import { CROP_ORDER, CROPS } from "../src/data/crops";
+import type { JsonObject } from "../src/json";
+import { ClockFollower, clockPatch, readClock } from "../src/net/clock-sync";
+import type { ClockState } from "../src/net/clock-sync";
+import { FarmSync, objectKey, publishCleared } from "../src/net/farm-sync";
+import {
+  CROP_SLOTS,
+  applyTileIntent,
+  packTile,
+  tileIdxOfKey,
+  tileKey,
+  tileValue,
+  unpackTile,
+} from "../src/net/tile-codec";
+import type { TileState } from "../src/net/tile-codec";
+import { store } from "../src/systems/store";
+import { generateFarm } from "../src/world/mapgen";
+import { isClearable, tileIdx } from "../src/world/world";
+import type { World, WorldObject } from "../src/world/world";
+import { parseWorldMap } from "../src/world/worldmap";
+
+const map = parseWorldMap(
+  JSON.parse(readFileSync(new URL("../public/assets/map.json", import.meta.url), "utf-8")),
+);
+const freshFarm = (): World => generateFarm(FARM_SEED, map).world;
+const generated = freshFarm().objects;
+
+/** A FarmSync over `world`, recording what it asked the scene to redraw. */
+const syncOver = (world: World) => {
+  const redrawn: number[] = [];
+  const gone: number[] = [];
+  const back: number[] = [];
+  const sync = new FarmSync(
+    {
+      objectBack: (o) => back.push(o.id),
+      objectGone: (o) => gone.push(o.id),
+      redrawTile: (idx) => redrawn.push(idx),
+      world: () => world,
+    },
+    () => generated,
+  );
+  return { back, gone, redrawn, sync };
+};
+
+/** The room: patches shallow-merge into one shared object, a new one per patch
+ *  (the SDK's semantics), and each patch is kept for inspection. */
+const room = () => {
+  let shared: JsonObject = {};
+  const patches: JsonObject[] = [];
+  return {
+    patches,
+    shared: () => shared,
+    writer: {
+      patchShared: (patch: JsonObject) => {
+        patches.push(patch);
+        shared = { ...shared, ...patch };
+      },
+    },
+  };
+};
+
+const tillable = (world: World, n: number): number[] => {
+  const out: number[] = [];
+  for (let i = 0; out.length < n && i < world.tilled.length; i += 1) {
+    if (world.canTill(i % MAP_W, Math.trunc(i / MAP_W))) {
+      out.push(i);
+    }
+  }
+  return out;
+};
+
+const tree = (world: World): WorldObject => {
+  const found = world.objects.find((o) => o.type === "tree");
+  assert.ok(found, "the co-op farm has trees");
+  return found;
+};
+
+test("a tile packs into one primitive and back, for every crop", () => {
+  assert.ok(CROP_ORDER.length < CROP_SLOTS, "crop codes fit their slot range");
+  const states: TileState[] = [
+    { crop: null, daysGrown: 0, tilled: false, watered: false },
+    { crop: null, daysGrown: 0, tilled: true, watered: false },
+    { crop: null, daysGrown: 0, tilled: true, watered: true },
+  ];
+  for (const crop of CROP_ORDER) {
+    states.push(
+      { crop, daysGrown: CROPS[crop].growthDays, tilled: true, watered: true },
+      { crop, daysGrown: 0, tilled: true, watered: false },
+    );
+  }
+  const seen = new Set<number>();
+  for (const s of states) {
+    const packed = packTile(s);
+    assert.ok(Number.isSafeInteger(packed) && packed >= 0);
+    assert.deepEqual(unpackTile(packed), s);
+    seen.add(packed);
+  }
+  assert.equal(seen.size, states.length, "distinct states pack distinctly");
+  assert.equal(packTile({ crop: null, daysGrown: 0, tilled: false, watered: false }), 0);
+  for (const bad of [-1, 0.5, Number.NaN, "3", null, [1], { t: 1 }, (CROP_SLOTS - 1) * 4]) {
+    assert.equal(unpackTile(bad), null, `rejects ${JSON.stringify(bad)}`);
+  }
+  assert.equal(tileIdxOfKey(tileKey(4127)), 4127);
+  for (const key of ["t4128", "tiles", "ct", "o12", "t", "t-1", "x7"]) {
+    assert.equal(tileIdxOfKey(key), null, key);
+  }
+});
+
+test("the host publishes its farm once, then only the tiles that change", () => {
+  const world = freshFarm();
+  const [a, b, c] = tillable(world, 3);
+  assert.ok(a !== undefined && b !== undefined && c !== undefined);
+  world.tilled[a] = 1;
+  world.tilled[b] = 1;
+  world.watered[b] = 1;
+  world.crops.set(b, { crop: "parsnip", daysGrown: 0 });
+  world.tilled[c] = 1;
+  const felled = tree(world);
+  world.removeObject(felled);
+
+  const { sync } = syncOver(world);
+  const net = room();
+  sync.publishWorld(net.writer, null, 7);
+  const [first] = net.patches;
+  assert.ok(first);
+  assert.deepEqual(
+    Object.keys(first).toSorted(),
+    ["w", objectKey(felled.id), tileKey(a), tileKey(b), tileKey(c)].toSorted(),
+    "a fresh room gets the farmed tiles and cleared objects, nothing else",
+  );
+
+  // A sunny night: the watered parsnip grows and its soil dries; the dry,
+  // empty plots don't change, so they don't ride the wire.
+  const changed = world.growOvernight("spring", false);
+  assert.deepEqual([...changed], [b]);
+  sync.publishTiles(net.writer, changed);
+  assert.deepEqual(net.patches.at(-1), {
+    [tileKey(b)]: packTile({ crop: "parsnip", daysGrown: 1, tilled: true, watered: false }),
+  });
+
+  // A later host over a room that still holds an older farm corrects it.
+  const stale = { ...net.shared(), [tileKey(9)]: 1, [objectKey(tree(world).id)]: 1 };
+  sync.publishWorld(net.writer, stale, 8);
+  const fix = net.patches.at(-1);
+  assert.equal(fix?.[tileKey(9)], 0);
+  assert.equal(fix?.[objectKey(tree(world).id)], 0);
+});
+
+test("a guest adopts the host's world whole, its own save's farm included", () => {
+  const host = freshFarm();
+  const [a, own] = tillable(host, 2);
+  assert.ok(a !== undefined && own !== undefined);
+  host.tilled[a] = 1;
+  const hostFelled = tree(host);
+  host.removeObject(hostFelled);
+  const net = room();
+  syncOver(host).sync.publishWorld(net.writer, null, 1);
+
+  // The guest continues its own save: a plot the host never dug, and a tree
+  // it felled that still stands on the host's farm.
+  const guest = freshFarm();
+  guest.tilled[own] = 1;
+  const guestFelled = guest.objects.find((o) => o.type === "tree" && o.id !== hostFelled.id);
+  assert.ok(guestFelled);
+  guest.removeObject(guestFelled);
+  const { back, gone, redrawn, sync } = syncOver(guest);
+  sync.adopt(net.shared(), 0);
+  assert.deepEqual(redrawn.toSorted(), [a, own].toSorted(), "only tiles that differ redraw");
+
+  assert.equal(guest.tilled[a], 1, "the host's plot");
+  assert.equal(guest.tilled[own], 0, "its own plot gives way");
+  assert.equal(
+    guest.objects.some((o) => o.id === hostFelled.id),
+    false,
+  );
+  assert.ok(
+    guest.objects.some((o) => o.id === guestFelled.id),
+    "the tree stands again",
+  );
+  assert.ok(guest.isSolidTile(guestFelled.tx, guestFelled.ty), "and blocks the way again");
+  assert.deepEqual(gone, [hostFelled.id]);
+  assert.deepEqual(back, [guestFelled.id]);
+  for (let i = 0; i < host.tilled.length; i += 1) {
+    assert.equal(tileValue(guest, i), tileValue(host, i), `tile ${i}`);
+  }
+  assert.deepEqual(
+    guest.objects
+      .filter(isClearable)
+      .map((o) => o.id)
+      .toSorted(),
+    host.objects
+      .filter(isClearable)
+      .map((o) => o.id)
+      .toSorted(),
+  );
+
+  // From then on only the keys that changed are folded in.
+  redrawn.length = 0;
+  const next = tree(host);
+  host.removeObject(next);
+  publishCleared(net.writer, next.id);
+  sync.adopt(net.shared(), 0);
+  assert.deepEqual(gone, [hostFelled.id, next.id]);
+  assert.deepEqual(redrawn, [], "no tile is touched");
+  assert.equal(
+    guest.objects.some((o) => o.id === next.id),
+    false,
+  );
+});
+
+test("a guest's own change outranks older host values until echoed or expired", () => {
+  const world = freshFarm();
+  const [idx] = tillable(world, 1);
+  assert.ok(idx !== undefined);
+  // The host's farm: a ripe parsnip on watered soil.
+  const ripe = packTile({ crop: "parsnip", daysGrown: 4, tilled: true, watered: true });
+  const net = room();
+  net.writer.patchShared({ w: 1, [tileKey(idx)]: ripe });
+  const { redrawn, sync } = syncOver(world);
+  sync.adopt(net.shared(), 0);
+  assert.equal(tileValue(world, idx), ripe);
+
+  // The guest harvests it locally and tells the host...
+  world.crops.delete(idx);
+  world.watered[idx] = 0;
+  const harvested = tileValue(world, idx);
+  sync.protectTile(idx, 1000);
+  // ...whose overnight update, sent before the harvest reached it, arrives:
+  // the crop must not come back to be harvested twice.
+  net.writer.patchShared({ [tileKey(idx)]: ripe + 128 });
+  sync.adopt(net.shared(), 1100);
+  sync.expire(net.shared(), 1100);
+  assert.equal(tileValue(world, idx), harvested, "the older value is ignored");
+  // The host applies the harvest: its echo matches and releases the tile.
+  net.writer.patchShared({ [tileKey(idx)]: harvested });
+  sync.adopt(net.shared(), 1200);
+  assert.equal(tileValue(world, idx), harvested);
+  // From here on host values apply at once.
+  net.writer.patchShared({ [tileKey(idx)]: harvested + 2 });
+  sync.adopt(net.shared(), 1300);
+  assert.equal(world.watered[idx], 1);
+
+  // A change the host never echoes (refused, or lost with a leaving host)
+  // settles back to the host's value once the protection lapses.
+  redrawn.length = 0;
+  world.watered[idx] = 0;
+  world.crops.set(idx, { crop: "carrot", daysGrown: 0 });
+  sync.protectTile(idx, 2000);
+  sync.expire(net.shared(), 2000 + PENDING_EDIT_MS - 1);
+  assert.equal(world.crops.get(idx)?.crop, "carrot");
+  sync.expire(net.shared(), 2000 + PENDING_EDIT_MS);
+  assert.equal(tileValue(world, idx), harvested + 2);
+  assert.deepEqual(redrawn, [idx]);
+});
+
+test("a guest's clear stands until the host confirms it, or lapses back", () => {
+  const net = room();
+  net.writer.patchShared({ w: 1 });
+  const world = freshFarm();
+  const { sync } = syncOver(world);
+  sync.adopt(net.shared(), 0);
+  const felled = tree(world);
+  world.removeObject(felled);
+  sync.protectClear(felled.id, 100);
+  // A new host epoch arrives before the clear reaches anyone: no resurrection.
+  net.writer.patchShared({ w: 2 });
+  sync.adopt(net.shared(), 200);
+  assert.equal(
+    world.objects.some((o) => o.id === felled.id),
+    false,
+  );
+  publishCleared(net.writer, felled.id);
+  sync.adopt(net.shared(), 300);
+  sync.expire(net.shared(), 100 + PENDING_EDIT_MS);
+  assert.equal(
+    world.objects.some((o) => o.id === felled.id),
+    false,
+    "confirmed",
+  );
+
+  const other = world.objects.find((o) => o.type === "rock");
+  assert.ok(other);
+  world.removeObject(other);
+  sync.protectClear(other.id, 5000);
+  sync.expire(net.shared(), 5000 + PENDING_EDIT_MS);
+  assert.ok(
+    world.objects.some((o) => o.id === other.id),
+    "never confirmed: it stands again",
+  );
+});
+
+test("the host applies a guest's intent only where its own world allows it", () => {
+  const world = freshFarm();
+  const [idx] = tillable(world, 1);
+  assert.ok(idx !== undefined);
+  const water = world.kind.findIndex((_, i) => world.isSolidTile(i % MAP_W, Math.trunc(i / MAP_W)));
+  assert.equal(applyTileIntent(world, { action: "till", idx: water }), false);
+  assert.equal(applyTileIntent(world, { action: "water", idx }), false, "untilled");
+  assert.equal(applyTileIntent(world, { action: "plant", crop: "kale", idx }), false, "untilled");
+  assert.equal(applyTileIntent(world, { action: "till", idx }), true);
+  assert.equal(applyTileIntent(world, { action: "till", idx }), false, "already tilled");
+  assert.equal(applyTileIntent(world, { action: "plant", crop: "kale", idx }), true);
+  assert.equal(applyTileIntent(world, { action: "plant", crop: "carrot", idx }), false);
+  assert.equal(applyTileIntent(world, { action: "water", idx }), true);
+  assert.equal(applyTileIntent(world, { action: "harvest", idx }), false, "not ripe");
+  world.crops.set(idx, { crop: "kale", daysGrown: CROPS.kale.growthDays });
+  assert.equal(applyTileIntent(world, { action: "harvest", idx }), true);
+  assert.deepEqual(unpackTile(tileValue(world, idx)), {
+    crop: null,
+    daysGrown: 0,
+    tilled: true,
+    watered: false,
+  });
+  const standing = tree(world);
+  assert.equal(
+    applyTileIntent(world, { action: "till", idx: tileIdx(standing.tx, standing.ty) }),
+    false,
+  );
+});
+
+test("a guest runs the host clock locally and only snaps when far off", () => {
+  const state: ClockState = { day: 3, timeMin: 600, weather: "sunny" };
+  const clock = new ClockFollower();
+  const reading = { day: 3, running: true, time: 601, weather: "sunny" } as const;
+  assert.deepEqual(readClock(clockPatch(reading)), reading);
+  assert.equal(readClock({ cd: 3, cr: true, ct: 601, cw: "hail" }), null);
+
+  assert.equal(clock.observe(state, reading), null);
+  assert.equal(state.timeMin, 600, "a minute off: no jump");
+  let last = state.timeMin;
+  for (let i = 0; i < 120; i += 1) {
+    clock.advance(state, 1 / 60);
+    assert.ok(state.timeMin > last, "never runs backwards");
+    last = state.timeMin;
+  }
+  // Two real seconds is 5.45 game-minutes; the minute owed was made up.
+  assert.ok(Math.abs(state.timeMin - (601 + (2 * 60) / 22)) < 1e-6, String(state.timeMin));
+  assert.equal(clock.observe(state, reading), null, "a reading already seen is ignored");
+
+  clock.observe(state, { ...reading, time: 700 });
+  assert.equal(state.timeMin, 700, "far off: snaps");
+  clock.observe(state, { ...reading, running: false, time: 700 });
+  clock.advance(state, 5);
+  assert.equal(state.timeMin, 700, "stops with the host's clock");
+  clock.observe(state, { ...reading, time: DAY_END_MIN - 0.5 });
+  clock.advance(state, 5);
+  assert.equal(state.timeMin, DAY_END_MIN, "only the host ends the day");
+});
+
+test("a guest recovers at each new day the host starts", () => {
+  const state: ClockState = { day: 1, timeMin: 900, weather: "sunny" };
+  const clock = new ClockFollower();
+  clock.observe(state, { day: 1, running: false, time: 1320, weather: "sunny" });
+  store.energy = 0;
+  store.hp = 40;
+  const night = clock.observe(state, { day: 2, running: false, time: 360, weather: "rain" });
+  assert.deepEqual(night, { exhausted: false, rested: true });
+  assert.deepEqual(state, { day: 2, timeMin: 360, weather: "rain" });
+  store.rest(night?.exhausted ?? false, false);
+  assert.equal(store.energy, 100, "an empty guest can run and swing again");
+  assert.equal(store.hp, 70);
+
+  // The host passed out at 2am: everyone stayed up.
+  clock.observe(state, { day: 2, running: false, time: DAY_END_MIN, weather: "rain" });
+  const late = clock.observe(state, { day: 3, running: false, time: 360, weather: "sunny" });
+  assert.deepEqual(late, { exhausted: true, rested: true });
+  store.rest(late?.exhausted ?? false, true);
+  assert.equal(store.energy, 55);
+  assert.equal(store.hp, Math.floor(store.maxHp() * 0.5), "a faint halves HP");
+
+  // Joining a room behind this farmer's own save: adopt its day, no free night.
+  const behind = clock.observe(state, { day: 2, running: true, time: 400, weather: "rain" });
+  assert.deepEqual(behind, { exhausted: false, rested: false });
+});

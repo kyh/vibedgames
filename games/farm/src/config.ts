@@ -78,15 +78,27 @@ export const DEPTH = {
 // ---- multiplayer (co-op shared farm) ----------------------------------------
 // New farms use a FIXED seed so every client generates the identical map (like
 // crazy-waymo's fixed city) — no seed exchange needed. The host owns the world
-// (tilled/watered/crops) and the clock; players see each other and tend the
-// same land. Inventory/energy/money stay per-player. Solo/offline is unchanged
-// except the (now deterministic) starting farm.
-export const MP_ROOM = "farm-default";
+// (tilled/watered/crops, felled trees, broken rocks, picked forage) and the
+// clock; players see each other and tend the same land. Inventory/energy/money
+// stay per-player. Solo/offline is unchanged except the (now deterministic)
+// starting farm.
+// Versioned with the wire format: a tab still running an older bundle during a
+// deploy joins its own room instead of half-reading this one's keys.
+export const MP_ROOM = "farm-default-v2";
 export const MP_MAX_PLAYERS = 4;
 export const OFFLINE_FALLBACK_MS = 6000;
-/** Player position/facing broadcast rate. */
-export const NET_TICK_HZ = 12;
-/** Host clock (day/time/weather) broadcast rate. */
-export const CLOCK_TICK_HZ = 2;
+/** Player position/facing broadcast rate; peers render it ~100 ms behind. */
+export const NET_TICK_HZ = 20;
+/** Host clock broadcast rate. Guests run the clock themselves in between, and
+ *  a pause, a new day or new weather is published at once. */
+export const CLOCK_TICK_HZ = 1;
+/** A guest's clock snaps to the host's only when this many game-minutes off;
+ *  smaller drift is absorbed by running slightly fast or slow. */
+export const CLOCK_SNAP_MIN = 3;
+/** How long a guest's own farming outranks older host values for that tile. */
+export const PENDING_EDIT_MS = 1500;
+/** A remote farmer moving further than this between updates went through a
+ *  door (the mine, a reload): place them there instead of gliding. */
+export const REMOTE_SNAP_PX = 32;
 /** Fixed seed for a co-op / new farm so all clients build the same map. */
 export const FARM_SEED = 20_240_719;
