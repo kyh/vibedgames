@@ -286,6 +286,8 @@ const graceKey = (token: string): string => `${GRACE_PREFIX}${token}`;
  */
 const HARD_ROOM_CAP = 64;
 
+const utf8 = new TextEncoder();
+
 /** Room snapshots are written at most this often, and never on the hot path. */
 const PERSIST_DEBOUNCE_MS = 1000;
 /** A snapshot larger than this is not persisted (one storage value's limit, with margin). */
@@ -1416,23 +1418,37 @@ export class VgServer extends Server {
 
   private async persistRoom(): Promise<void> {
     const snapshot: RoomSnapshot = { claims: [...this.claims], shared: this.shared };
+    // Storage limits a value in bytes; a JSON string's length counts UTF-16
+    // units, which undercounts non-ASCII text.
+    if (utf8.encode(JSON.stringify(snapshot)).byteLength > MAX_PERSISTED_BYTES) {
+      // Too big for one value. A stale copy would be worse than none: a
+      // restart would hand everyone an old world. With none, the host
+      // re-sends its own on reconnect.
+      await this.dropRoomSnapshot();
+      return;
+    }
     try {
-      if (JSON.stringify(snapshot).length > MAX_PERSISTED_BYTES) {
-        // Too big for one value. A stale copy would be worse than none: a
-        // restart would hand everyone an old world. With none, the host
-        // re-sends its own on reconnect.
-        if (this.roomPersisted) {
-          this.roomPersisted = false;
-          await this.ctx.storage.delete(ROOM_KEY);
-        }
-        return;
-      }
       // Unconfirmed: a write never holds back the messages that follow it. A
       // crash in the gap loses at most a second of world — the host re-sends.
       this.roomPersisted = true;
       await this.ctx.storage.put(ROOM_KEY, snapshot, { allowUnconfirmed: true });
     } catch (error) {
       console.warn("Room snapshot not persisted", error);
+      // Whatever storage still holds is older than this world.
+      await this.dropRoomSnapshot();
+    }
+  }
+
+  /** Delete a persisted snapshot that no longer matches the room's world. */
+  private async dropRoomSnapshot(): Promise<void> {
+    if (!this.roomPersisted) {
+      return;
+    }
+    this.roomPersisted = false;
+    try {
+      await this.ctx.storage.delete(ROOM_KEY);
+    } catch (error) {
+      console.warn("Stale room snapshot not deleted", error);
     }
   }
 
