@@ -230,8 +230,6 @@ export class GameScene extends Scene {
   private lastShared: JsonObject | null = null;
   /** This farmer's claims still waiting on the server's word. */
   private readonly claims = new ClaimBook();
-  /** Whether the room was reachable last frame (a readmission republishes). */
-  private wasOnline = false;
   /** actionHint memo: what it last looked at (idx -1 = stale). */
   private hintKey: HintKey = { idx: -1, item: null };
   private hint: string | null = null;
@@ -932,8 +930,8 @@ export class GameScene extends Scene {
   }
 
   /** Host: every grant the room holds, applied — the claims are the room's
-   *  record of who took what, and a host that left (or this one, through a
-   *  dropped connection) may have missed the last of them. */
+   *  record of who took what, and a host that left may not have applied the
+   *  last of them. (Grants a dropped connection missed come with the sync.) */
   private applyHeldGrants(net: NetSession): void {
     for (const [key, { owner }] of Object.entries(net.claims)) {
       this.applyGrant(net, key, owner);
@@ -1105,14 +1103,7 @@ export class GameScene extends Scene {
     if (!net) {
       return;
     }
-    const online = this.isOnline();
-    // (Re)admitted: grants broadcast while the connection was down never
-    // reached this client, so a host republishes its farm whole.
-    if (online && !this.wasOnline) {
-      this.publishedAs = null;
-    }
-    this.wasOnline = online;
-    if (online) {
+    if (this.isOnline()) {
       // Stamps are server time, so peers read them as the same instant; until
       // the clock is measured (a round trip after joining) there is none.
       const update = net.timeSynced

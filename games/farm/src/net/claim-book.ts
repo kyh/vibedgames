@@ -48,8 +48,9 @@ export class ClaimBook {
     }
   }
 
-  /** Settle whatever the room's claims now answer — the word a reconnect's
-   *  sync carried rather than announced. Call each frame while connected. */
+  /** Settle whatever the room's claims now answer: a reconnect announces the
+   *  hand-over of this farmer's claims before the sync that names its new id,
+   *  so they settle here once connected. Call each frame while connected. */
   poll(net: ClaimNet): void {
     for (const key of this.waiting.keys()) {
       this.hear(net, key, net.ownerOf(key));
