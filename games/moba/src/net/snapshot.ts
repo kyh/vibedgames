@@ -50,7 +50,8 @@ export const encodeWorld = (w: World): Snapshot => ({
  * keyframe and every tick since holds the host's world.
  */
 export type Tick = {
-  /** Host wall clock of the step (ms): the stamp guests interpolate and replay against. */
+  /** Server time of the step (ms, `client.serverNow()`): the stamp guests
+   *  interpolate and replay against, the same timebase whoever hosts. */
   t: number;
   /** World.now (sim ms) after the step. */
   n: number;
@@ -140,8 +141,8 @@ export const sharedSnapshot = (state: SharedState): Snapshot | null => {
 
 const isFiniteNumber = (x: SharedState[string] | undefined): x is number => Number.isFinite(x);
 
-/** The host clock stamp of the keyframe in `snap` (the step it was taken
- *  after), or null from a host that predates the tick stream. */
+/** The server-clock stamp of the keyframe in `snap` (the step it was taken
+ *  after), or null when shared state holds none. */
 export const sharedSnapAt = (state: SharedState): number | null => {
   const v = state["snapAt"];
   return isFiniteNumber(v) ? v : null;

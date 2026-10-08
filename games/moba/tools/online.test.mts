@@ -1,14 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { ServerClock } from "@vibedgames/multiplayer";
+
 import { SIM_DT } from "../src/data/config.ts";
 import { restoreHostState } from "../src/net/host-state.ts";
+import { isJsonObject } from "../src/net/json.ts";
 import type { JsonValue } from "../src/net/json.ts";
 import { GuestMirror } from "../src/net/mirror.ts";
 import { HeroPredictor } from "../src/net/predict.ts";
 import { parseIntent } from "../src/net/protocol.ts";
 import type { Intent } from "../src/net/protocol.ts";
-import { emptyGuestWorld, encodeWorld } from "../src/net/snapshot.ts";
+import { emptyGuestWorld, encodeWorld, sharedSnapAt, sharedSnapshot } from "../src/net/snapshot.ts";
 import { TickEncoder, applyTick, parseTick } from "../src/net/stream.ts";
 import { dealDamage } from "../src/sim/combat.ts";
 import type { Vec2 } from "../src/sim/math.ts";
@@ -128,13 +131,16 @@ test("host adoption owns its mutable state without rewriting the accepted snapsh
 });
 
 // ---- netcode: the tick stream, interpolation and own-hero prediction --------
-// A host sim and a guest joined by a simulated link — one-way latency plus
-// jitter, in order like TCP, the host's clock skewed from the guest's — run on
-// one virtual clock so every assertion is deterministic.
+// Hosts and guests joined by simulated links — one-way latency plus jitter, in
+// order like TCP — run on one virtual clock so every assertion is
+// deterministic. Hosts stamp and guests render on the room's server clock,
+// which each client reads off its own lopsided time probe: a few ms out, as a
+// real reading is.
 
 const STEP_MS = SIM_DT * 1000;
 const FRAME_MS = 1000 / 60;
-const HOST_SKEW_MS = 7000;
+/** Server time is an epoch clock, where a page's own clock starts near zero. */
+const SERVER_EPOCH_MS = 1_790_000_000_000;
 const DEAD_ZONE_PX = 16;
 
 /** Deterministic jitter in [0, 1). */
@@ -147,6 +153,16 @@ const noise = (i: number): number => {
 const wire = (v: JsonValue): JsonValue =>
   // oxlint-disable-next-line unicorn/prefer-structured-clone -- emulates the JSON wire, which drops what structuredClone keeps (undefined-valued keys)
   JSON.parse(JSON.stringify(v));
+
+/** A client's reading of the server clock, off one time probe whose way out
+ *  took `lopsidedMs` longer than the way back: off by half that. */
+const readServerClock = (lopsidedMs: number): ServerClock => {
+  const clock = new ServerClock();
+  const back = 40;
+  const out = back + lopsidedMs;
+  clock.sample(0, SERVER_EPOCH_MS + out, out + back);
+  return clock;
+};
 
 /** One direction of a link: each message lands `latencyMs` plus up to
  *  `jitterMs` after it was sent, and never ahead of the one before it. */
@@ -178,29 +194,152 @@ const link = (latencyMs: number, jitterMs: number): Link => {
   };
 };
 
-/** A host simulating `host` at 30 Hz and streaming ticks, and a guest that
- *  plays `heroId` — the same glue as GameScene, on a virtual clock. */
+/** The host half of GameScene: a 30 Hz sim, each step stamped with the host's
+ *  reading of server time and sent down every guest's link, after the keyframe
+ *  the stream is based on. */
+interface StreamHost {
+  readonly world: World;
+  readonly guests: Link[];
+  /** Per guest hero: the newest input applied and the world.now it landed. */
+  readonly acks: Map<string, { seq: number; at: number }>;
+  /** The stamp of every tick sent. */
+  readonly stamps: number[];
+  /** The whole world as shared state carries it, stamped now, and the stream
+   *  re-based on it — what GameScene publishes on taking over. */
+  keyframe: (now: number) => void;
+  /** One 60 fps frame: the sim steps on its own 30 Hz clock, each step
+   *  stamped with the moment it stands for. */
+  frame: (now: number) => void;
+}
+
+const streamHost = (world: World, clock: ServerClock): StreamHost => {
+  const encoder = new TickEncoder();
+  const guests: Link[] = [];
+  const acks = new Map<string, { seq: number; at: number }>();
+  const stamps: number[] = [];
+  let acc = 0;
+  return {
+    acks,
+    frame: (now) => {
+      acc += FRAME_MS;
+      const stampNow = clock.now(now);
+      while (acc >= STEP_MS) {
+        acc -= STEP_MS;
+        step(world, SIM_DT);
+        const rows = [...acks].map(([id, a]): [string, number, number] => [
+          id,
+          a.seq,
+          Math.round(world.now - a.at),
+        ]);
+        const t = Math.round(stampNow - acc);
+        stamps.push(t);
+        const tick = encoder.encode(world, t, world.fx.splice(0), rows);
+        for (const guest of guests) {
+          guest.send(now, { tick });
+        }
+      }
+    },
+    guests,
+    keyframe: (now) => {
+      const snapAt = Math.round(clock.now(now));
+      encoder.reset(world);
+      for (const guest of guests) {
+        guest.send(now, { snap: encodeWorld(world), snapAt });
+      }
+    },
+    stamps,
+    world,
+  };
+};
+
+/** The guest half of GameScene: a mirror rendering on the guest's own reading
+ *  of server time, and its hero predicted. */
+interface StreamGuest {
+  readonly heroId: string;
+  readonly view: World;
+  readonly mirror: GuestMirror;
+  readonly predictor: HeroPredictor;
+  /** Everything any host sends it, in order: its one connection. */
+  readonly down: Link;
+  /** Take what arrived, then draw: GameScene's onNetChange and onHostTick,
+   *  then followHost. */
+  frame: (now: number) => void;
+  /** Where this guest draws a unit this frame. */
+  drawn: (id?: string) => Vec2;
+}
+
+const streamGuest = (heroId: string, clock: ServerClock, down: Link): StreamGuest => {
+  const view = emptyGuestWorld();
+  const mirror = new GuestMirror(view, clock);
+  const predictor = new HeroPredictor();
+  const take = (payload: JsonValue, now: number): void => {
+    assert.ok(isJsonObject(payload), "a message");
+    if (payload.tick === undefined) {
+      const snap = sharedSnapshot(payload);
+      const at = sharedSnapAt(payload);
+      assert.ok(snap && at !== null, "a keyframe");
+      if (mirror.keyframe(snap, at, true)) {
+        predictor.reset();
+      }
+      return;
+    }
+    const tick = parseTick(payload.tick);
+    assert.ok(tick, "tick parses");
+    mirror.tick(tick, now);
+    const me = mirror.latest?.units.get(heroId);
+    const ack = tick.k?.find(([id]) => id === heroId);
+    if (me) {
+      predictor.reconcile(me, ack ? [ack[1], ack[2]] : null);
+    }
+  };
+  return {
+    down,
+    drawn: (id = heroId) => {
+      const u = view.units.get(id);
+      assert.ok(u, `${id} drawn`);
+      return { x: u.x, y: u.y };
+    },
+    frame: (now) => {
+      for (const payload of down.receive(now)) {
+        take(payload, now);
+      }
+      mirror.frame(now, heroId);
+      const { latest } = mirror;
+      predictor.frame(latest?.units.get(heroId), latest, now);
+      predictor.draw(view);
+    },
+    heroId,
+    mirror,
+    predictor,
+    view,
+  };
+};
+
+/** A host simulating `host` and one guest playing `heroId`, a link each way. */
 class Session {
   readonly host: World;
   readonly heroId: string;
-  readonly view = emptyGuestWorld();
-  readonly mirror = new GuestMirror(this.view);
-  readonly predictor = new HeroPredictor();
-  readonly tickBytes: number[] = [];
+  readonly guest: StreamGuest;
   now = 0;
-  private readonly encoder = new TickEncoder();
+  private readonly streamer: StreamHost;
   private readonly up: Link;
-  private readonly down: Link;
-  private readonly acks = new Map<string, { seq: number; at: number }>();
-  private hostAcc = 0;
 
   constructor(host: World, heroId: string, latencyMs: number, jitterMs: number) {
     this.host = host;
     this.heroId = heroId;
     this.up = link(latencyMs, jitterMs);
-    this.down = link(latencyMs, jitterMs);
-    this.mirror.keyframe(structuredClone(encodeWorld(host)), HOST_SKEW_MS, true);
-    this.encoder.reset(host);
+    this.guest = streamGuest(heroId, readServerClock(24), link(latencyMs, jitterMs));
+    this.streamer = streamHost(host, readServerClock(-10));
+    this.streamer.guests.push(this.guest.down);
+    this.streamer.keyframe(this.now);
+  }
+
+  get mirror(): GuestMirror {
+    return this.guest.mirror;
+  }
+
+  get predictor(): HeroPredictor {
+    return this.guest.predictor;
   }
 
   /** The guest acts: played on its hero at once, sent to the host numbered. */
@@ -209,25 +348,15 @@ class Session {
     this.up.send(this.now, { ...intent, seq });
   }
 
-  /** One 60 fps guest frame: the host steps and streams on its own 30 Hz
-   *  clock, the guest takes whatever arrived, then draws. */
+  /** One 60 fps frame: the host applies whatever input arrived and steps, then
+   *  the guest takes whatever arrived and draws. */
   frame(): void {
     this.now += FRAME_MS;
-    this.hostFrame();
-    for (const payload of this.down.receive(this.now)) {
-      const tick = parseTick(payload);
-      assert.ok(tick, "tick parses");
-      this.mirror.tick(tick, this.now);
-      const me = this.mirror.latest?.units.get(this.heroId);
-      const ack = tick.k?.find(([id]) => id === this.heroId);
-      if (me) {
-        this.predictor.reconcile(me, ack ? [ack[1], ack[2]] : null);
-      }
+    for (const payload of this.up.receive(this.now)) {
+      this.apply(payload);
     }
-    this.mirror.frame(this.now, this.heroId);
-    const { latest } = this.mirror;
-    this.predictor.frame(latest?.units.get(this.heroId), latest, this.now);
-    this.predictor.draw(this.view);
+    this.streamer.frame(this.now);
+    this.guest.frame(this.now);
   }
 
   frames(n: number): void {
@@ -238,9 +367,7 @@ class Session {
 
   /** Where the guest draws a unit this frame. */
   drawn(id = this.heroId): Vec2 {
-    const u = this.view.units.get(id);
-    assert.ok(u, `${id} drawn`);
-    return { x: u.x, y: u.y };
+    return this.guest.drawn(id);
   }
 
   hostUnit(id = this.heroId): Unit {
@@ -249,35 +376,19 @@ class Session {
     return u;
   }
 
-  private hostFrame(): void {
-    for (const payload of this.up.receive(this.now)) {
-      const intent = parseIntent(payload);
-      const u = this.host.units.get(this.heroId);
-      if (!intent || intent.kind === "join" || !u) {
-        continue;
-      }
-      if (intent.seq !== undefined) {
-        this.acks.set(u.id, { at: this.host.now, seq: intent.seq });
-      }
-      if (intent.kind === "order") {
-        issueOrder(this.host, u, intent.order);
-      } else if (intent.kind === "dash") {
-        dashHero(this.host, u, intent.dx, intent.dy);
-      }
+  private apply(payload: JsonValue): void {
+    const intent = parseIntent(payload);
+    const u = this.host.units.get(this.heroId);
+    if (!intent || intent.kind === "join" || !u) {
+      return;
     }
-    this.hostAcc += FRAME_MS;
-    while (this.hostAcc >= STEP_MS) {
-      this.hostAcc -= STEP_MS;
-      step(this.host, SIM_DT);
-      const acks = [...this.acks].map(([id, a]): [string, number, number] => [
-        id,
-        a.seq,
-        Math.round(this.host.now - a.at),
-      ]);
-      const stamp = this.now + HOST_SKEW_MS - this.hostAcc;
-      const tick = this.encoder.encode(this.host, stamp, this.host.fx.splice(0), acks);
-      this.tickBytes.push(JSON.stringify(tick).length);
-      this.down.send(this.now, tick);
+    if (intent.seq !== undefined) {
+      this.streamer.acks.set(u.id, { at: this.host.now, seq: intent.seq });
+    }
+    if (intent.kind === "order") {
+      issueOrder(this.host, u, intent.order);
+    } else if (intent.kind === "dash") {
+      dashHero(this.host, u, intent.dx, intent.dy);
     }
   }
 }
@@ -398,17 +509,18 @@ test("effects are never lost, however many ticks land in one frame", () => {
   const host = createWorld(4244);
   spawnHero(host, "ironvow", "radiant", "guest", false, 2);
   const view = emptyGuestWorld();
-  const mirror = new GuestMirror(view);
+  const mirror = new GuestMirror(view, readServerClock(0));
   const encoder = new TickEncoder();
-  mirror.keyframe(structuredClone(encodeWorld(host)), 0, true);
+  mirror.keyframe(structuredClone(encodeWorld(host)), SERVER_EPOCH_MS, true);
   encoder.reset(host);
   const notes = ["first", "second", "third"];
   for (const [i, text] of notes.entries()) {
     step(host, SIM_DT);
     const fx: FxEvent[] = [{ t: "notify", text, tone: "neutral" }];
-    const tick = parseTick(wire(encoder.encode(host, (i + 1) * STEP_MS, fx, [])));
+    const stamp = SERVER_EPOCH_MS + (i + 1) * STEP_MS;
+    const tick = parseTick(wire(encoder.encode(host, stamp, fx, [])));
     assert.ok(tick);
-    mirror.tick(tick, 50);
+    mirror.tick(tick, 150);
   }
   mirror.frame(10_000, "");
   assert.deepEqual(
@@ -490,5 +602,97 @@ test("a promoted guest carries on the host's match from its replica, not a stale
       Math.hypot(copy.x - u.x, copy.y - u.y) < 40,
       `${u.id} plays on as it would have (${Math.hypot(copy.x - u.x, copy.y - u.y)} px)`,
     );
+  }
+});
+
+test("through a host migration the others play straight on: one clock, no reset, no jump", () => {
+  // A hosts B and C. B's hero runs east the whole time, a remote body to C,
+  // whose own hero runs alongside it, predicted.
+  const world = createWorld(4247);
+  const runner = spawnHero(world, "ironvow", "radiant", "b", false, 2);
+  const watcher = spawnHero(world, "duskblade", "radiant", "c", false, 4);
+  issueOrder(world, runner, { dx: 1, dy: 0, type: "moveDir" });
+  issueOrder(world, watcher, { dx: 1, dy: 0, type: "moveDir" });
+  const bClock = readServerClock(18);
+  const a = streamHost(world, readServerClock(-12));
+  const b = streamGuest(runner.id, bClock, link(55, 30));
+  const c = streamGuest(watcher.id, readServerClock(30), link(70, 30));
+  a.guests.push(b.down, c.down);
+  a.keyframe(0);
+  const travel = runner.moveSpeedBase * (FRAME_MS / 1000);
+  const LEAVES = 90;
+  const ELECTED = LEAVES + 9;
+  let host: StreamHost | null = a;
+  let promoted: World | null = null;
+  let guests = [b, c];
+  let now = 0;
+  let prev: Vec2 | null = null;
+  let start: Vec2 | null = null;
+  let viewTime = 0;
+  let worstCorrection = 0;
+  for (let f = 1; f <= ELECTED + 120; f += 1) {
+    now += FRAME_MS;
+    if (f === LEAVES) {
+      // A's tab closes: no more steps, but what it already sent still lands.
+      host = null;
+    }
+    if (f === ELECTED) {
+      // The server names B host and tells everyone. B takes over from its
+      // replica as GameScene's prepareOnlineHost does, keeping its own order;
+      // C only stops building on the replica A's stream was based on.
+      const replica = b.mirror.resumable;
+      assert.ok(replica, "B saw every one of A's steps");
+      assert.equal(replica.gameTime, world.gameTime, "B's replica is A's last moment");
+      promoted = emptyGuestWorld();
+      restoreHostState(promoted, encodeWorld(replica));
+      const held = b.predictor.order;
+      const own = promoted.units.get(runner.id);
+      assert.ok(held && own);
+      issueOrder(promoted, own, held);
+      host = streamHost(promoted, bClock);
+      host.guests.push(c.down);
+      host.keyframe(now);
+      c.mirror.hostChanged();
+      guests = [c];
+    }
+    host?.frame(now);
+    for (const guest of guests) {
+      guest.frame(now);
+    }
+    if (f < 30) {
+      continue;
+    }
+    // From C's seat: the runner never jumps, either way, and the view's clock
+    // never goes back more than the step it may have run ahead.
+    const at = c.drawn(runner.id);
+    start ??= at;
+    if (prev) {
+      const dx: number = at.x - prev.x;
+      assert.ok(dx > -1.5 * travel && dx < 1.5 * travel, `f${f}: C drew the runner move ${dx} px`);
+    }
+    prev = at;
+    assert.ok(c.view.gameTime > viewTime - STEP_MS / 1000 - 1e-9, `f${f}: C's clock went back`);
+    viewTime = Math.max(viewTime, c.view.gameTime);
+    const { x, y } = c.predictor.correction;
+    worstCorrection = Math.max(worstCorrection, Math.hypot(x, y));
+  }
+  assert.ok(promoted && host && start && prev);
+  const [resumedAt] = host.stamps;
+  const leftAt = a.stamps.at(-1);
+  assert.ok(resumedAt && leftAt && resumedAt > leftAt, "B stamps on where A stopped");
+  assert.ok(prev.x - start.x > travel * 160, `C saw the runner run on (${prev.x - start.x} px)`);
+  assert.ok(worstCorrection < DEAD_ZONE_PX, `C's own hero ran through it (${worstCorrection} px)`);
+  // Drained, C holds B's world exactly, and whole: it could take over next.
+  for (let i = 0; i < 20; i += 1) {
+    now += FRAME_MS;
+    c.frame(now);
+  }
+  const replica = c.mirror.resumable;
+  assert.ok(replica, "C's replica is whole again");
+  assert.equal(replica.gameTime, promoted.gameTime);
+  for (const u of promoted.units.values()) {
+    const copy = replica.units.get(u.id);
+    assert.ok(copy, `${u.id} replicated`);
+    assert.ok(Math.hypot(copy.x - u.x, copy.y - u.y) < 0.1, `${u.id} where B has it`);
   }
 });

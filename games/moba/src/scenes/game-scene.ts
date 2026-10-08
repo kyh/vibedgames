@@ -223,7 +223,7 @@ export class GameScene extends Scene {
   private encoder = new TickEncoder();
   // host: per guest hero, the newest input applied and the world.now it landed
   private readonly acks = new Map<string, { seq: number; at: number }>();
-  // host: wall-clock stamp of the latest sim step, and keyframe bookkeeping
+  // host: server-clock stamp of the latest sim step, and keyframe bookkeeping
   private lastStamp = 0;
   private keyframeAt = 0;
   private keyframeStamp: number | null = null;
@@ -435,9 +435,7 @@ export class GameScene extends Scene {
   private startOnline(): void {
     // guests render this; the host overwrites its own with a real sim world
     this.world = emptyGuestWorld();
-    this.mirror = new GuestMirror(this.world);
-    this.predictor = new HeroPredictor();
-    this.net = new MultiplayerClient({
+    const net = new MultiplayerClient({
       host: multiplayerHost(),
       onEvent: (event, payload, from) =>
         // SAFETY: event payloads arrive as JSON websocket frames (or a local
@@ -446,7 +444,11 @@ export class GameScene extends Scene {
       party: PARTY,
       room: roomFromLocation(),
     });
-    const { net } = this;
+    this.net = net;
+    // Every host stamps with the room's server clock, so the mirror renders
+    // on it and keeps it through a host migration.
+    this.mirror = new GuestMirror(this.world, net.serverClock);
+    this.predictor = new HeroPredictor();
     net.subscribe(() => this.onNetChange(net));
   }
 
@@ -469,11 +471,12 @@ export class GameScene extends Scene {
     this.wasConnected = true;
     if (net.hostId !== this.hostSeen) {
       this.hostSeen = net.hostId;
-      // A new host streams on its own clock from its own baseline (a promoted
-      // self resumes from the mirror instead), and an input in flight to the
-      // old host is lost: restate the order in force.
+      // A new host stamps on the same server clock and opens with a keyframe,
+      // so the mirror plays on into its stream (a promoted self resumes from
+      // the mirror instead). An input in flight to the old host is lost:
+      // restate the order in force.
       if (!net.isHost) {
-        this.mirror?.reset();
+        this.mirror?.hostChanged();
         this.restateOrder = true;
       }
     }
@@ -486,11 +489,12 @@ export class GameScene extends Scene {
    *  already behind the ticks sent before we arrived, so it is not `live`. */
   private takeKeyframe(net: MultiplayerClient, live: boolean): void {
     const snap = this.roomSnapshot(net);
-    if (!snap || snap === this.seenSnap) {
+    const at = sharedSnapAt(net.sharedState);
+    if (!snap || at === null || snap === this.seenSnap) {
       return;
     }
     this.seenSnap = snap;
-    if (this.mirror?.keyframe(snap, sharedSnapAt(net.sharedState), live)) {
+    if (this.mirror?.keyframe(snap, at, live)) {
       this.predictor?.reset();
     }
   }
@@ -774,7 +778,7 @@ export class GameScene extends Scene {
     this.prevPos.clear();
     this.acc = 0;
     this.hostClock = null;
-    this.lastStamp = performance.now();
+    this.lastStamp = Math.round(net.serverNow());
     // Guests re-base on our world before our first tick reaches them.
     this.publishKeyframe(net);
   }
@@ -1571,15 +1575,18 @@ export class GameScene extends Scene {
     const elapsed = this.hostClock === null ? deltaMs : now - this.hostClock;
     this.hostClock = now;
     this.acc += Math.min(SIM_CATCHUP_S, elapsed / 1000);
+    // Online, steps are stamped with the room's server clock, which every
+    // client reads alike and outlives this host.
+    const stampNow = this.net?.serverNow(now) ?? now;
     let steps = 0;
     while (this.acc >= SIM_DT && steps < SIM_STEPS_MAX) {
       this.rememberPositions();
       step(this.world, SIM_DT);
       this.acc -= SIM_DT;
       steps += 1;
-      // The wall-clock moment this step stands for: evenly spaced however the
-      // frames fell, which is what guests interpolate against.
-      this.shipStep(now - this.acc * 1000);
+      // The moment this step stands for: evenly spaced however the frames
+      // fell, which is what guests interpolate against.
+      this.shipStep(stampNow - this.acc * 1000);
     }
     const me = this.player;
     if (this.world.phase === "playing" && me?.hero && me.hero.abilityPoints > 0) {
@@ -1623,7 +1630,7 @@ export class GameScene extends Scene {
 
   /** Host: send guests what this sim step changed. */
   private shipStep(stamp: number): void {
-    this.lastStamp = Math.round(stamp * 10) / 10;
+    this.lastStamp = Math.round(stamp);
     const { net } = this;
     if (!this.online || !net?.playerId || !this.amHost) {
       return;
@@ -1980,13 +1987,13 @@ export class GameScene extends Scene {
           dealDamage(this.world, this.player ?? null, u, 1e9, "pure", {});
         },
         // guest netcode state: the correction being eased in, the predicted
-        // body and whether the host's clock is synced
+        // body and whether the room's server clock is measured yet
         netcode: () => ({
           correction: this.predictor?.correction ?? null,
           predicted: this.predictor?.hero
             ? { x: this.predictor.hero.x, y: this.predictor.hero.y }
             : null,
-          synced: this.mirror?.clock.synced ?? false,
+          synced: this.net?.serverClock.synced ?? false,
         }),
         online: () => {
           const { net } = this;

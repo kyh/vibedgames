@@ -17,7 +17,7 @@ export const PARTY = "vg-server";
 /** Rooms are namespaced by wire format: bump it with any change to ticks,
  *  keyframes or intents, so tabs still on an older bundle during a deploy
  *  never share a match with this one. */
-const ROOM_PREFIX = "moba-v2";
+const ROOM_PREFIX = "moba-v3";
 
 /** `?room=<code>` joins a private room (play with friends, isolated test runs);
  *  anything else lands in the shared default room. */
