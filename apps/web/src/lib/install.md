@@ -12,12 +12,11 @@ npx vibedgames init
 
 One command does two things:
 
-1. Installs skills for Claude Code, Cursor, and Codex — wraps `npx
-skills add kyh/vibedgames-plugins` from
-   [vercel-labs/skills](https://github.com/vercel-labs/skills). Skills
-   live once in `./.agents/skills/` and are symlinked into
-   `.claude/skills/`, `.cursor/skills/`, and `.codex/skills/`. Windows
-   without symlink support falls back to copies.
+1. Installs the skills for Claude Code, Cursor, and Codex from
+   [kyh/vibedgames-plugins](https://github.com/kyh/vibedgames-plugins).
+   Skills live once in `./.agents/skills/`, which Cursor and Codex read
+   directly, and are symlinked into `.claude/skills/` for Claude Code.
+   Windows without symlink support falls back to copies.
 2. Tries to globally install the `vibedgames` npm package so `vg` is on
    PATH for subsequent commands (`vg deploy`, `vg login`, `vg whoami`).
    This step can fail on systems where global `npm install` needs sudo
@@ -25,8 +24,9 @@ skills add kyh/vibedgames-plugins` from
    fall back to `npx vibedgames <cmd>` or tell the user to run
    `npm install -g vibedgames` (or `sudo npm install -g vibedgames`).
 
-If you're a different agent, pass `--agent <name>` (supports 45+ agents
-— see vercel-labs/skills).
+If you're a different agent, pass `--agent <name>` (`vg init --help`
+lists the supported ones). Any agent that reads `.agents/skills/` works
+with the default install.
 
 ## You're done
 

@@ -24,7 +24,7 @@ const devPartyHost = (): string => {
 
 export const MULTIPLAYER_HOST = import.meta.env.DEV
   ? devPartyHost()
-  : "https://vibedgames-party.kyh.workers.dev";
+  : "https://party.vibedgames.com";
 export const PARTY = "vg-server";
 /** Wire-format generation, part of every room id: a tab still running an
  *  older bundle during a deploy lands in a different room, never a shared

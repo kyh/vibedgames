@@ -6,117 +6,68 @@ Modern patterns for loading, managing, and displaying 3D models in Three.js appl
 
 ## Quick Start: The Minimal Pattern
 
-```html
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>GLTF Loader</title>
-    <style>
-      * {
-        margin: 0;
-        padding: 0;
-      }
-      body {
-        overflow: hidden;
-        background: #000;
-      }
-      canvas {
-        display: block;
-      }
-    </style>
-  </head>
-  <body>
-    <script type="importmap">
-      {
-        "imports": {
-          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-        }
-      }
-    </script>
+In a Vite project (`vg new <slug> --engine threejs`, or `npm install three`), with `index.html` loading `<script type="module" src="/src/main.ts"></script>`:
 
-    <script type="module">
-      import * as THREE from "three";
-      import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+```ts
+// src/main.ts
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
-      // Scene setup
-      const scene = new THREE.Scene();
-      const camera = new THREE.PerspectiveCamera(
-        75,
-        window.innerWidth / window.innerHeight,
-        0.1,
-        1000,
-      );
-      const renderer = new THREE.WebGLRenderer({ antialias: true });
+// Scene setup
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
 
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      document.body.appendChild(renderer.domElement);
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
 
-      // Lighting
-      const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-      scene.add(ambientLight);
+// Lighting
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+scene.add(ambientLight);
 
-      const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
-      directionalLight.position.set(5, 10, 7);
-      scene.add(directionalLight);
+const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+directionalLight.position.set(5, 10, 7);
+scene.add(directionalLight);
 
-      // Load model
-      const loader = new GLTFLoader();
-      loader.load(
-        "path/to/model.gltf",
-        (gltf) => {
-          console.log("Model loaded:", gltf);
-          scene.add(gltf.scene);
-          camera.position.z = 5;
-        },
-        (progress) => {
-          console.log(((progress.loaded / progress.total) * 100).toFixed(0) + "%");
-        },
-        (error) => {
-          console.error("Failed to load model:", error);
-        },
-      );
+// Load model (served from public/, so the path is relative to the page)
+const loader = new GLTFLoader();
+loader.load(
+  "./models/model.glb",
+  (gltf) => {
+    console.log("Model loaded:", gltf);
+    scene.add(gltf.scene);
+    camera.position.z = 5;
+  },
+  (progress) => {
+    console.log(((progress.loaded / progress.total) * 100).toFixed(0) + "%");
+  },
+  (error) => {
+    console.error("Failed to load model:", error);
+  },
+);
 
-      // Animation loop
-      renderer.setAnimationLoop(() => {
-        renderer.render(scene, camera);
-      });
+// Animation loop
+renderer.setAnimationLoop(() => {
+  renderer.render(scene, camera);
+});
 
-      // Handle resize
-      window.addEventListener("resize", () => {
-        camera.aspect = window.innerWidth / window.innerHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth, window.innerHeight);
-      });
-    </script>
-  </body>
-</html>
+// Handle resize
+window.addEventListener("resize", () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
 ```
 
 ---
 
 ## Core Concepts
 
-### Import Maps (Essential for ES Modules)
+### Imports
 
-Always use import maps to resolve Three.js module paths correctly:
+Install `three` from npm and import addons through the package's `three/addons/` export (it maps to `examples/jsm/`). Vite bundles one pinned version with the game — no import map, no CDN URL, nothing fetched from a third-party origin at runtime.
 
-```html
-<script type="importmap">
-  {
-    "imports": {
-      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-    }
-  }
-</script>
-```
-
-This allows clean imports:
-
-```javascript
+```ts
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -615,36 +566,30 @@ loader.load(
 
 ---
 
-## Advanced: Draco Compression
+## Advanced: Compressed GLBs (meshopt or Draco)
 
-Load compressed GLTF files for smaller file sizes:
+Prefer **meshopt** (`EXT_meshopt_compression`, what `gltf-transform optimize` writes by default) for new assets: its decoder ships inside `three` as a plain module, so Vite bundles it and there is nothing extra to host.
 
-```html
-<script type="importmap">
-  {
-    "imports": {
-      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-    }
-  }
-</script>
+```ts
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 
-<script type="module">
-  import * as THREE from "three";
-  import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-  import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
+const loader = new GLTFLoader();
+loader.setMeshoptDecoder(MeshoptDecoder);
+```
 
-  const loader = new GLTFLoader();
-  const dracoLoader = new DRACOLoader();
+**Draco** needs its WASM decoder served alongside the game. Copy it out of `three` into `public/` once and commit it — never point `setDecoderPath` at a CDN (gstatic, unpkg), which makes every model load depend on a third-party origin. Re-copy after upgrading `three` so the decoder matches the loader.
 
-  // Point to Draco decoder
-  dracoLoader.setDecoderPath("https://www.gstatic.com/draco/v1/decoders/");
-  loader.setDRACOLoader(dracoLoader);
+```bash
+mkdir -p public/draco && cp node_modules/three/examples/jsm/libs/draco/gltf/* public/draco/
+```
 
-  loader.load("model.glb", (gltf) => {
-    scene.add(gltf.scene);
-  });
-</script>
+```ts
+import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
+
+const dracoLoader = new DRACOLoader();
+dracoLoader.setDecoderPath("./draco/"); // relative, so it resolves under vg deploy's base "./"
+loader.setDRACOLoader(dracoLoader);
 ```
 
 **Meshopt / quantized GLBs** (`gltf-transform optimize` output: `KHR_mesh_quantization` + `EXT_meshopt_compression`) arrive with `Int16` attributes and the dequantisation scale on the **node** matrix. Any geometry-level bake — `geometry.applyMatrix4`, `geometry.scale`, `mergeGeometries` — must first promote the attributes to `Float32` (or run `gltf-transform dequantize` offline), otherwise the bake lands in quantized units and the mesh explodes or collapses.
@@ -655,7 +600,7 @@ Load compressed GLTF files for smaller file sizes:
 
 | Practice                  | Benefit                                                               |
 | ------------------------- | --------------------------------------------------------------------- |
-| **Use import maps**       | Cleaner imports, works with CDN modules                               |
+| **Import from npm**       | Vite bundles one pinned version; no runtime CDN dependency            |
 | **Wrap in promises**      | Better error handling, easier async/await                             |
 | **Add fallbacks**         | Graceful degradation if models fail                                   |
 | **Cache & clone**         | Better performance when spawning many instances                       |

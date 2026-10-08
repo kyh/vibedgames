@@ -156,4 +156,4 @@ reference docs are. Once a glossary exists, every lesson adheres to it.
 
 ---
 
-_Adapted from [mattpocock/skills](https://github.com/mattpocock/skills)' `teach` skill._
+_Adapted from [mattpocock/skills](https://github.com/mattpocock/skills)' `teach` skill (MIT) — license and attribution in `references/credits.md`._

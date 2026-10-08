@@ -47,9 +47,7 @@ const devPartyHost = (): string => {
   return /^https?:\/\//u.test(p) ? p : `http://localhost:${p}`;
 };
 
-const MULTIPLAYER_HOST = import.meta.env.DEV
-  ? devPartyHost()
-  : "https://vibedgames-party.kyh.workers.dev";
+const MULTIPLAYER_HOST = import.meta.env.DEV ? devPartyHost() : "https://party.vibedgames.com";
 
 export type SessionStatus = "connecting" | "connected" | "reconnecting";
 

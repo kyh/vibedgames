@@ -277,7 +277,7 @@ download the frames into one directory, and pack them locally:
 ```bash
 # These scripts ship with the pixel-snapper and animated-spritesheets skills.
 # Load each skill to get its resolved directory (SNAP / SHEETS), or find them
-# where `skills add` put them:
+# where `vg init` put them:
 for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
   [ -d "$d/pixel-snapper" ] && SNAP=$d/pixel-snapper && SHEETS=$d/animated-spritesheets && break
 done

@@ -1,4 +1,4 @@
-import { bindings, defineConfig, defineWorker, exports } from "cf/config";
+import { bindings, defineConfig, defineWorker, exports, triggers } from "cf/config";
 
 // imported, not named by path, so the generated Env types VgServer's stub with its class
 import * as entrypoint from "./src/server.ts" with { type: "cf-worker" };
@@ -12,10 +12,14 @@ const worker = defineWorker({
     VgServer: exports.durableObject({ storage: "legacy-kv" }),
   },
   name: "vibedgames-party",
-  // cf sends no code_update_strategy, so the API restarts every live room on deploy; this is
-  // wrangler's default, which lets a room finish on the old code for up to 5 minutes
-  unsafe: { metadata: { code_update_strategy: { max_delay: 300, mode: "deferred" } } },
 });
+
+// cf sends no code_update_strategy, so the API restarts every live room on deploy; this is
+// wrangler's default, which lets a room finish on the old code for up to 5 minutes. Production
+// only: Preview uploads refuse unsafe metadata, and a Preview has no live rooms to drain.
+const drainLiveRooms = {
+  metadata: { code_update_strategy: { max_delay: 300, mode: "deferred" } },
+};
 
 export default defineConfig(({ isPreview }) => ({
   worker: {
@@ -27,5 +31,17 @@ export default defineConfig(({ isPreview }) => ({
         : bindings.d1({ id: "8aba7674-bee1-4532-b5f0-36243172cf81", name: "vibedgames" }),
       VgServer: bindings.durableObject({ exportName: "VgServer", worker }),
     },
+    // A Preview provisions a fresh VgServer namespace, and Cloudflare creates new namespaces only
+    // SQLite-backed. VgServer uses just the key-value and alarm APIs, which both backends serve.
+    exports: isPreview
+      ? { VgServer: exports.durableObject({ storage: "sqlite" }) }
+      : worker.exports,
+    // party.vibedgames.com is the host games connect to. It is more specific than the games
+    // Worker's *.vibedgames.com/* route, so it wins; "party" is a reserved slug, so no game can
+    // claim it. A Preview must not claim the production hostname.
+    triggers: isPreview
+      ? []
+      : [triggers.fetch({ pattern: "party.vibedgames.com/*", zone: "vibedgames.com" })],
+    unsafe: isPreview ? undefined : drainLiveRooms,
   },
 }));

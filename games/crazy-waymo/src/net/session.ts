@@ -27,7 +27,7 @@ import type { JsonObject as JsonRecord, JsonValue } from "../shared/json";
 
 const MULTIPLAYER_HOST = import.meta.env.DEV
   ? "http://localhost:8787"
-  : "https://vibedgames-party.kyh.workers.dev";
+  : "https://party.vibedgames.com";
 
 const SOLO_ID = "solo";
 

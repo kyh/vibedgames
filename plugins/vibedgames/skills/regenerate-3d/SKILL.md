@@ -66,26 +66,18 @@ image headed into `enable_rigging=true`:
 - Hard-surface armored designs (plate knights, mechs) auto-rig worse than
   organic silhouettes — budget a retry or prefer visible-anatomy designs.
 
-## CREATE-YOUR-OWN flow
+## Generate at build time, never from the deployed page
 
-Visitors with generation credentials can generate their own character + companion live, in-browser:
+Every generation step runs on your machine through `vg generate`, and the page ships the results as static files. A deployed game is untrusted code on its own subdomain: it gets no vibedgames session, and a `VG_TOKEN` (or any provider key) embedded in the page is a key every visitor can copy and spend.
 
-```
-flux-2 klein 9b (text-to-image)
- └─ character full-body image
- ├─ Meshy v6 (rigged + animated) → character GLB
- └─ flux-2 klein 9b/edit → companion image
- └─ Meshy v6 (no rig) → companion GLB
-```
-
-Cost: ~$2–3 per generation (4 generation calls). Runs in background, modal closes on Generate so the user can keep using the experience while the gen runs. The `CREATE YOUR OWN` tile transforms into a loading state, then becomes the new character card with a `↻ re-create` button.
+For a create-your-own mode, pre-generate a pool of extra characters with the same pipeline (the fast path is `fal-ai/flux-2/klein/9b` → Meshy v6; costs per the table below) and let visitors pick or shuffle through it.
 
 ## Key endpoints used
 
 | Step                      | Endpoint                                                   |
 | ------------------------- | ---------------------------------------------------------- |
 | Character image (curated) | `openai/gpt-image-2`                                       |
-| Character image (live)    | `fal-ai/flux-2/klein/9b`                                   |
+| Character image (fast)    | `fal-ai/flux-2/klein/9b`                                   |
 | Companion image           | `fal-ai/gpt-image-2/edit` or `fal-ai/flux-2/klein/9b/edit` |
 | 3D character/companion    | `fal-ai/meshy/v6/image-to-3d`                              |
 | Per-character floor PBR   | `fal-ai/patina/material/extract`                           |

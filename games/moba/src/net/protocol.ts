@@ -12,7 +12,7 @@ import type { JsonObject, JsonValue } from "./json";
 /** Read when a client connects, not at import, so the pure protocol below
  *  also loads under node for the netcode tests. */
 export const multiplayerHost = (): string =>
-  import.meta.env.DEV ? "http://localhost:8787" : "https://vibedgames-party.kyh.workers.dev";
+  import.meta.env.DEV ? "http://localhost:8787" : "https://party.vibedgames.com";
 export const PARTY = "vg-server";
 /** Rooms are namespaced by wire format: bump it with any change to ticks,
  *  keyframes or intents, so tabs still on an older bundle during a deploy

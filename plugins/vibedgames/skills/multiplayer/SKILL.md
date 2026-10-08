@@ -23,7 +23,7 @@ npm install @vibedgames/multiplayer
 Every example assumes this constant. Define it **once** — in a real game it lives in `net/client.ts` (see [references/architecture.md](references/architecture.md)) — and import it; never repeat the literal per call site:
 
 ```ts
-export const PARTY_HOST = "https://vibedgames-party.kyh.workers.dev";
+export const PARTY_HOST = "https://party.vibedgames.com";
 ```
 
 ## Core concepts

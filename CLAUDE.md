@@ -65,7 +65,7 @@ packages/
   embed/       # postMessage bridge between an embedded game and its wrapper (@repo/embed)
   asset-tools/ # Image + sprite-sheet logic bundled into the skills' scripts (@repo/asset-tools)
   ui/          # Shared UI components (@repo/ui)
-plugins/       # The vibedgames Claude Code plugin (plugins/vibedgames/skills/*, one plugin, 35 skills)
+plugins/       # The vibedgames Claude Code plugin (plugins/vibedgames/skills/*, one plugin, 34 skills)
                # skills/* symlinked into .claude/skills/ for dogfooding
 ```
 
@@ -122,13 +122,13 @@ Re-run `pnpm dogfood` after adding or removing a skill, then commit the symlink 
 
 ### Using a skill outside this repo
 
-Skill docs resolve their scripts through a `SKILL` variable. Under Claude Code it is `${CLAUDE_SKILL_DIR}`, which Claude Code substitutes into the skill body for project, global and plugin (marketplace) installs alike. Other agents leave that literal unset, so the snippet falls back to probing `.agents/skills`, `.claude/skills`, `~/.agents/skills`, `~/.claude/skills` — every location `skills add` (what `vg init` runs) writes. In this repo the project probe hits the committed `.claude/skills/` symlinks; the home fallbacks only resolve for a skill you have deliberately linked there — one per skill, per machine, exactly like the `vg` `npm link`:
+Skill docs resolve their scripts through a `SKILL` variable. Under Claude Code it is `${CLAUDE_SKILL_DIR}`, which Claude Code substitutes into the skill body for project, global and plugin (marketplace) installs alike. Other agents leave that literal unset, so the snippet falls back to probing `.agents/skills`, `.claude/skills`, `~/.agents/skills`, `~/.claude/skills` — every location `vg init` writes. In this repo the project probe hits the committed `.claude/skills/` symlinks; the home fallbacks only resolve for a skill you have deliberately linked there — one per skill, per machine, exactly like the `vg` `npm link`:
 
 ```bash
 ln -s "$PWD/plugins/vibedgames/skills/<name>" ~/.claude/skills/<name>
 ```
 
-Linked so far: `image-to-threejs`, `generate`. Do **not** bulk-link all 35 — `~/.claude/skills/` is the global namespace shared with `~/.agents/skills`, and `skill-creator` already exists there as a different skill that a link would shadow. Scripts still need their own runtime deps in the target project (`image-to-threejs` also wants `three`, `vite` and `playwright` there).
+Linked so far: `image-to-threejs`, `generate`. Do **not** bulk-link all 34 — `~/.claude/skills/` is the global namespace shared with `~/.agents/skills`, and a link shadows any same-named skill already there. Scripts still need their own runtime deps in the target project (`image-to-threejs` also wants `three`, `vite` and `playwright` there).
 
 ## Claude Code on the web (remote sessions)
 

@@ -20,6 +20,31 @@ export const makeCleanups = () => {
   };
 };
 
+/**
+ * Set (or, with `undefined`, delete) environment variables for one test; the
+ * cleanup harness puts every touched variable back as it was.
+ */
+export const stubEnv = (
+  cleanups: (() => void)[],
+  vars: Record<string, string | undefined>,
+): void => {
+  for (const [name, value] of Object.entries(vars)) {
+    const previous = process.env[name];
+    cleanups.push(() => {
+      if (previous === undefined) {
+        Reflect.deleteProperty(process.env, name);
+      } else {
+        process.env[name] = previous;
+      }
+    });
+    if (value === undefined) {
+      Reflect.deleteProperty(process.env, name);
+    } else {
+      process.env[name] = value;
+    }
+  }
+};
+
 export const makeTmpDir = (cleanups: (() => void)[], prefix = "vg-test-"): string => {
   // realpath because macOS's tmpdir is a symlink (/var -> /private/var):
   // any test that chdirs into the dir gets the resolved path back from

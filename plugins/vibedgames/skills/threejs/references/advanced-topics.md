@@ -18,7 +18,7 @@ Modern Three.js (r152+) is color-managed by default, but a few settings decide w
 ```javascript
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 
-// r152+: output is sRGB by default, but be explicit when mixing CDN versions
+// r152+: output is sRGB by default, but be explicit in code that may meet an older three
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
 // Tone mapping maps HDR lighting into displayable range. ACESFilmic is the
@@ -270,58 +270,56 @@ scene.add(mesh);
 
 For physics-based interactions:
 
-```html
-<script type="module">
-  import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
-  import * as CANNON from "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js";
+```ts
+import * as THREE from "three";
+import * as CANNON from "cannon-es"; // npm install cannon-es
 
-  // Three.js setup
-  const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-  const renderer = new THREE.WebGLRenderer();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  document.body.appendChild(renderer.domElement);
+// Three.js setup
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer();
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
 
-  // Cannon.js world
-  const world = new CANNON.World();
-  world.gravity.set(0, -9.82, 0);
+// Cannon.js world
+const world = new CANNON.World();
+world.gravity.set(0, -9.82, 0);
 
-  // Sync mesh with physics body
-  const geometry = new THREE.SphereGeometry(0.5);
-  const material = new THREE.MeshStandardMaterial({ color: 0xff6600 });
-  const mesh = new THREE.Mesh(geometry, material);
-  scene.add(mesh);
+// Sync mesh with physics body
+const geometry = new THREE.SphereGeometry(0.5);
+const material = new THREE.MeshStandardMaterial({ color: 0xff6600 });
+const mesh = new THREE.Mesh(geometry, material);
+scene.add(mesh);
 
-  const body = new CANNON.Body({
-    mass: 1,
-    shape: new CANNON.Sphere(0.5),
-    position: new CANNON.Vec3(0, 5, 0),
-  });
-  world.addBody(body);
+const body = new CANNON.Body({
+  mass: 1,
+  shape: new CANNON.Sphere(0.5),
+  position: new CANNON.Vec3(0, 5, 0),
+});
+world.addBody(body);
 
-  // Ground
-  const groundBody = new CANNON.Body({
-    type: CANNON.Body.STATIC,
-    shape: new CANNON.Plane(),
-  });
-  groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
-  world.addBody(groundBody);
+// Ground
+const groundBody = new CANNON.Body({
+  type: CANNON.Body.STATIC,
+  shape: new CANNON.Plane(),
+});
+groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+world.addBody(groundBody);
 
-  const timeStep = 1 / 60;
-  renderer.setAnimationLoop(() => {
-    world.step(timeStep);
-    mesh.position.copy(body.position);
-    mesh.quaternion.copy(body.quaternion);
-    renderer.render(scene, camera);
-  });
-</script>
+const timeStep = 1 / 60;
+renderer.setAnimationLoop(() => {
+  world.step(timeStep);
+  mesh.position.copy(body.position);
+  mesh.quaternion.copy(body.quaternion);
+  renderer.render(scene, camera);
+});
 ```
 
 ---
 
 ## Installation with npm
 
-For production apps, install Three.js via npm:
+Always install Three.js from npm and let Vite bundle it — a game should never load `three` from a CDN at runtime:
 
 ```bash
 npm install three
@@ -330,8 +328,6 @@ npm install three
 ```javascript
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-
-// Same API as CDN version
 ```
 
 ---
@@ -403,7 +399,7 @@ const axesHelper = new THREE.AxesHelper(5);
 scene.add(axesHelper);
 
 // Stats.js for performance monitoring
-import Stats from "https://unpkg.com/three@0.160.0/examples/jsm/libs/stats.module.js";
+import Stats from "three/addons/libs/stats.module.js";
 const stats = new Stats();
 document.body.appendChild(stats.dom);
 

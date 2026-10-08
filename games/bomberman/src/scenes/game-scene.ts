@@ -175,7 +175,7 @@ const POWERUP_GLOW = {
 
 const MULTIPLAYER_HOST = import.meta.env.DEV
   ? "http://localhost:8787"
-  : "https://vibedgames-party.kyh.workers.dev";
+  : "https://party.vibedgames.com";
 
 /** `?room=<code>` isolates a match (test harness, private lobby); everyone else shares one
  *  room, versioned with the wire format so a tab on an older bundle never shares a match. */

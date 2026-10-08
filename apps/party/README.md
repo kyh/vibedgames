@@ -65,6 +65,11 @@ The message types themselves live in
 [`@vibedgames/multiplayer`](../../packages/multiplayer) and are imported by the
 server, so client and server can never drift on a constant.
 
+## Hosts
+
+Games connect to `https://party.vibedgames.com`, a route on the `vibedgames.com` zone (`party`
+is a reserved game slug).
+
 ## HTTP endpoints
 
 - `GET /health` — liveness probe, answered at the Worker layer (never wakes a
