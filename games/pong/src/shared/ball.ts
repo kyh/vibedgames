@@ -2,9 +2,9 @@
 // guest's local copy of the same flight, the host's replay of a guest's return
 // and the unit tests. Canonical frame: slot A defends −y, slot B +y.
 
-import { HIT_HALF_X, HIT_HALF_Y, MIN_VY_FRAC, WALL_X } from "./constants";
-import { curveVelocity } from "./spin";
-import type { Spin } from "./spin";
+import { HIT_HALF_X, HIT_HALF_Y, MIN_VY_FRAC, TICK_S, WALL_X } from "./constants";
+import { curveTick, curveVelocity } from "./spin";
+import type { Sliced, Spin } from "./spin";
 
 export interface Vec2 {
   x: number;
@@ -77,6 +77,34 @@ export const advanceFlight = (ball: Flight, seconds: number): void => {
     stepFlight(ball, dt);
     left -= dt;
   }
+};
+
+/** A ball as the lockstep sim holds it: plain numbers, stepped a tick at a time. */
+export interface Ball extends Sliced {
+  x: number;
+  y: number;
+}
+
+/**
+ * One tick (TICK_S) of free flight for the lockstep sim: the slice's curve,
+ * travel, and a side-wall bank whose overshoot is reflected rather than
+ * clamped. Exact arithmetic only, so every client's ball takes the same path.
+ * True when the ball banked this tick.
+ */
+export const flyTick = (ball: Ball): boolean => {
+  curveTick(ball);
+  ball.x += ball.vx * TICK_S;
+  ball.y += ball.vy * TICK_S;
+  const side = Math.sign(ball.x);
+  if (Math.abs(ball.x) < WALL_X || Math.sign(ball.vx) !== side) {
+    return false;
+  }
+  ball.x = side * Math.max(0, 2 * WALL_X - Math.abs(ball.x));
+  ball.vx = -ball.vx;
+  // A bank ends the curve; no hidden second bend off the rail.
+  ball.spin = 0;
+  ball.spinAge = 0;
+  return true;
 };
 
 /** A detached copy — spin included, which curveVelocity mutates in place. */

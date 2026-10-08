@@ -94,6 +94,15 @@ export const LEGACY_FPS = 60;
 export const WIN_SCORE = 7;
 export type Phase = "serving" | "rally" | "won";
 
+// ---- lockstep sim ------------------------------------------------------------
+// The match steps in fixed ticks, never a frame's dt, so every client lands on
+// the same state. 60 Hz is the tick room's ceiling and the old frame-locked
+// feel: the fastest ball (17 u/s) moves 0.28 units a tick, well inside a
+// paddle's 1-unit hit band, and a 3-tick hit-stop is the old 45 ms beat.
+export const TICK_RATE = 60;
+export const TICK_S = 1 / TICK_RATE;
+export const TICK_MS = 1000 / TICK_RATE;
+
 // ---- multiplayer -------------------------------------------------------------
 // Head-to-head: the first player in a room hosts (owns the ball + slot A, the
 // near paddle); the second controls slot B (the far paddle). A third player
