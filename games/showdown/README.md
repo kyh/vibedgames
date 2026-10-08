@@ -118,6 +118,12 @@ Netcode (`src/net/`):
   frames' arrivals, so the relay's latency is learned): motion is even however
   frames arrive, a muzzle flash leaves the muzzle it belongs to, and a change of
   host keeps the timeline — only the new host's route is timed afresh.
+- **Loot stays the host's.** Power cubes go to whichever body the host's sim
+  walks over them first, bots and guests' copies alike, and boxes break on the
+  host's damage. The room's first-come claims would only settle the rare race a
+  guest's copy runs one relay late, at the price of wire ids for cubes, a server
+  round trip or an undo for every bot's pickup, and a guest's word for where its
+  body stands.
 - `window.__GAME_DIAGNOSTICS__.online.net` reports snapshot rate and size, the
   guest's lag behind the host, its last correction and the render delay behind
   server time.
