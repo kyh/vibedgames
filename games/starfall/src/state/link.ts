@@ -46,8 +46,9 @@ export class Link {
   offline = false;
   /** True only after this connected host has adopted the accepted room world. */
   hostSnapshotReady = false;
-  /** Each peer's net state, parsed ONCE per frame — identity only changes on
-   *  a ~20Hz patch, and the hot paths read it many times. */
+  /** Each peer's net state for this frame, filled by the PeerRoster: parsed
+   *  once per patch, a remote's pose interpolated. Null for me and for peers
+   *  mid-drop. */
   readonly peerStates = new Map<string, PlayerNetState | null>();
   /** False until the player dismisses the start screen. Gates spawning so the
    *  ship isn't dropped into a live arena while the controls are still up. */
@@ -129,6 +130,10 @@ export class Link {
     return this.offline ? "solo" : (this.client?.playerId ?? null);
   }
 
+  get hostId(): string | null {
+    return this.offline ? "solo" : (this.client?.hostId ?? null);
+  }
+
   get peers(): PlayerMap {
     // Offline: synthesize the self entry so every `id === myId` render path
     // (ship gfx, shield ring, impact arcs, twin drone, windup glow, nitro
@@ -151,26 +156,45 @@ export class Link {
     return this.client;
   }
 
-  /** Events loop straight back into the local host when offline. Nothing is
-   *  sent while dropped: the socket would queue every message unbounded and
-   *  replay the backlog on reconnect. */
-  send(event: string, payload: WireRecord): void {
-    if (this.offline) {
-      this.inbox(event, payload, "solo");
-    } else if (this.client && this.connected) {
-      this.client.sendEvent(event, payload);
+  /** An intent for the host alone. When I am the host (or solo) it runs
+   *  through the inbox right here, with no round trip through the server.
+   *  Nothing is sent while dropped: the socket would queue every message
+   *  unbounded and replay the backlog on reconnect. */
+  toHost(event: string, payload: WireRecord): void {
+    if (this.amHost) {
+      this.inbox(event, payload, this.myId ?? "solo");
+      return;
+    }
+    const host = this.client?.hostId;
+    if (this.client && this.connected && host) {
+      this.client.sendEvent(event, payload, { to: host });
+    }
+  }
+
+  /** Something that happened to me, for everyone else (shots, deaths). */
+  broadcast(event: string, payload: WireRecord): void {
+    const me = this.client?.playerId;
+    if (!this.offline && this.client && this.connected && me) {
+      this.client.sendEvent(event, payload, { except: me });
+    }
+  }
+
+  /** An event for one player. */
+  sendTo(id: string, event: string, payload: WireRecord): void {
+    if (!this.offline && this.client && this.connected) {
+      this.client.sendEvent(event, payload, { to: id });
     }
   }
 
   /** Host → room: shallow-merge patch of the shared world. Dropped while
-   *  disconnected for the same reason as `send`. */
+   *  disconnected for the same reason as `toHost`. */
   patchShared(patch: SharedPatch): void {
     if (!this.offline && this.client && this.connected) {
       this.client.updateSharedState(patch);
     }
   }
 
-  /** My 20Hz player-state push. */
+  /** My state push (flat primitives; unchanged keys stay off the wire). */
   pushMyState(state: SharedPatch): void {
     if (!this.offline && this.client && this.connected) {
       this.client.updateMyState(state);

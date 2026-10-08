@@ -1,8 +1,9 @@
-import { Math as PhaserMath } from "phaser";
 import { MAGNET_RANGE, WORLD_H, WORLD_W } from "../shared/constants";
 import type { Vec } from "../shared/constants";
 
-/** Pure 2D geometry shared by the sim, hit tests and steering. */
+/** Pure 2D geometry shared by the sim, hit tests and steering (no Phaser, so the wire codecs that use it run under Node too). */
+
+const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
 
 export const DEG = Math.PI / 180;
 
@@ -28,7 +29,7 @@ export const segHitsCircle = (
   const dx = x2 - x1;
   const dy = y2 - y1;
   const len2 = dx * dx + dy * dy;
-  const t = len2 > 0 ? PhaserMath.Clamp(((cx - x1) * dx + (cy - y1) * dy) / len2, 0, 1) : 0;
+  const t = len2 > 0 ? clamp(((cx - x1) * dx + (cy - y1) * dy) / len2, 0, 1) : 0;
   return dist2(x1 + dx * t, y1 + dy * t, cx, cy) <= r * r;
 };
 
@@ -38,7 +39,7 @@ export const wrapAngle = (a: number): number => Math.atan2(Math.sin(a), Math.cos
 /** Rotate `from` toward `to` by at most `maxStep` radians. */
 export const rotateToward = (from: number, to: number, maxStep: number): number => {
   const diff = wrapAngle(to - from);
-  return from + PhaserMath.Clamp(diff, -maxStep, maxStep);
+  return from + clamp(diff, -maxStep, maxStep);
 };
 
 export const nearestOf = (points: readonly Vec[], x: number, y: number): Vec | null => {

@@ -175,7 +175,7 @@ try {
     droneId,
   );
   await guest.evaluate(
-    (id) => __starfall.scene.netSendEvent("enemy_hit", { damage: 1e6, enemyId: id, kx: 0, ky: 0 }),
+    (id) => __starfall.scene.netSendEvent("intents", { h: [["e", id, 1e6]] }),
     droneId,
   );
   await until(

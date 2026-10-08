@@ -67,7 +67,6 @@ import {
 } from "../shared/constants";
 import type { EnemyState, SharedState, Vec } from "../shared/constants";
 import { rand } from "../shared/rng";
-import type { DirtyFlags } from "../state/dirty-flags";
 import { DEG, nearestOf, nearestPlayers, rotateToward, wrapAngle } from "./geometry";
 
 /** Host-private per-enemy AI bookkeeping (lost on migration — acceptable). */
@@ -109,7 +108,6 @@ export interface EnemyAim {
 
 export interface EnemyAiDeps {
   world: SharedState;
-  dirty: DirtyFlags;
 }
 
 /** Host-side enemy steering and attack patterns per kind (drone, wasp, lancer, warden, sniper, spawner) and the three dreadnought phases. Per-enemy bookkeeping is host-private and rebuilt on migration. */
@@ -119,11 +117,8 @@ export class EnemyAi {
 
   private readonly world: SharedState;
 
-  private readonly dirty: DirtyFlags;
-
   constructor(deps: EnemyAiDeps) {
     this.world = deps.world;
-    this.dirty = deps.dirty;
   }
 
   simFor(id: string): EnemySim {
@@ -152,7 +147,6 @@ export class EnemyAi {
 
   private hostSpawnShot(enemy: EnemyState, angle: number, speed: number, now: number): void {
     enemy.attackAt = now;
-    this.dirty.enemies = true;
     this.world.enemyShots.push({
       diesAt: now + ENEMY_SHOT_TTL_MS,
       id: entityId(),
@@ -161,7 +155,6 @@ export class EnemyAi {
       x: enemy.x,
       y: enemy.y,
     });
-    this.dirty.enemyShots = true;
   }
 
   /** Host AI: steering, telegraphs and firing for every enemy (§6.1). */
@@ -626,6 +619,5 @@ export class EnemyAi {
       w.enemies.push(m);
       psim.broodCount += 1;
     }
-    this.dirty.enemies = true;
   }
 }

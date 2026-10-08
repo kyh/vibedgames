@@ -17,9 +17,10 @@ import { installDevHooks } from "../dev/dev-hooks";
 import { AttractBattle } from "../fx/attract-battle";
 import { HostCombat } from "../net/host-combat";
 import { HostDirector } from "../net/host-director";
+import { HostIntents } from "../net/intents";
+import { PeerRoster } from "../net/peer-roster";
 import { PlayerNet } from "../net/player-net";
 import { emptyShared } from "../net/shared-world";
-import { readNetState } from "../net/wire-read";
 import { WorldSync } from "../net/world-sync";
 import {
   buildControls,
@@ -68,17 +69,17 @@ import {
 import type { SharedState, Vec } from "../shared/constants";
 import { PLAYTEST_SURFACE, diag, installTestHooks } from "../shared/diag";
 import { rand, reseed } from "../shared/rng";
-import { newDirtyFlags } from "../state/dirty-flags";
-import type { DirtyFlags } from "../state/dirty-flags";
 import { Link } from "../state/link";
 import { newPilot } from "../state/pilot";
 import type { Pilot } from "../state/pilot";
 import { BeaconClient } from "../sys/beacon-client";
+import { BeamSim } from "../sys/beam-sim";
 import { EnemyAi } from "../sys/enemy-ai";
 import { Pickups } from "../sys/pickups";
 import { publishStarfallPlaytest } from "../sys/playtest-manifest";
 import { senseSurroundings } from "../sys/playtest-sense";
 import { Progression } from "../sys/progression";
+import { RemoteFire } from "../sys/remote-fire";
 import { Shield } from "../sys/shield";
 import { ShooterHits } from "../sys/shooter-hits";
 import { Weapons } from "../sys/weapons";
@@ -89,17 +90,16 @@ const MULTIPLAYER_HOST = import.meta.env.DEV
   ? "http://localhost:8787"
   : "https://vibedgames-party.kyh.workers.dev";
 
-// Fresh room name per shared-state shape change (v6: asteroid verts left off
-// the wire — derived per-client from the id — plus quantized coordinates and
-// short entity ids, per the dir-002 bandwidth audit): old deployed clients
-// can't pollute this build's world.
-const ROOM_DEFAULT = "starfall-arena-v6";
+// Fresh room name per wire-format change (v7: the world as stamped row
+// buckets sent on change, player state as flat primitives, shots as `fire`
+// events): old deployed clients can't pollute this build's world.
+const ROOM_DEFAULT = "starfall-arena-v7";
 /** DEV-only room override (?room=): the multiplayer e2e harness isolates each
  *  run in a fresh arena so a stale room's world can't leak into assertions. */
 const ROOM =
   (import.meta.env.DEV && new URLSearchParams(location.search).get("room")) || ROOM_DEFAULT;
 /** Per-arena cap. The party server clamps to its own hard ceiling and overflows
- *  player #33+ into a sibling arena (starfall-arena-v4~2, …) automatically. */
+ *  player #33+ into a sibling arena (starfall-arena-v7~2, …) automatically. */
 const STARFALL_MAX_PLAYERS = 32;
 
 /** Black mask thickness past the world edge (covers any screen half-width). */
@@ -134,7 +134,7 @@ export interface SceneInternals {
   world: SharedState;
   pilot: Pilot;
   link: Link;
-  dirty: DirtyFlags;
+  intents: HostIntents;
   fx: FxPool;
   hud: Hud;
   view: WorldView;
@@ -146,6 +146,7 @@ export interface SceneInternals {
   hits: ShooterHits;
   progress: Progression;
   weapons: Weapons;
+  remoteFire: RemoteFire;
   hostCombat: HostCombat;
   ai: EnemyAi;
   host: HostDirector;
@@ -157,11 +158,12 @@ export interface SceneInternals {
 
 export class GameScene extends Scene {
   /**
-   * Local working copy of the shared world. The host owns it (events mutate
-   * it, hostTick broadcasts it); guests dead-reckon it every frame and
-   * reconcile toward the host's 20Hz snapshots — that's what keeps asteroid
-   * motion smooth at 60fps despite the 20Hz wire rate. One record for the
-   * whole session: adoption replaces its fields in place (adoptShared).
+   * Local working copy of the shared world. The host owns it (intents mutate
+   * it, hostTick shares what changed); guests dead-reckon it every frame and
+   * fold in each changed snapshot bucket, aged to now, with the residual
+   * error bled in over ~0.1 s — that's what keeps motion smooth at 60fps
+   * despite the 20Hz wire rate. One record for the whole session: adoption
+   * replaces its fields in place (adoptShared).
    */
   private readonly world = emptyShared();
   /** My ship: pose, life cycle and loadout (state/pilot.ts). */
@@ -171,8 +173,10 @@ export class GameScene extends Scene {
   private readonly link = new Link({
     inbox: (event, payload, from) => this.net.handleEvent(event, payload, from),
   });
-  /** Host-only share flags (state/dirty-flags.ts). */
-  private readonly dirty = newDirtyFlags();
+  /** Every peer's state, parsed once per patch; remote ships interpolated. */
+  private readonly roster = new PeerRoster(this.link);
+  /** This frame's asks of the host, sent as one event (or applied here). */
+  private readonly intents = new HostIntents();
   private readonly trauma = new TraumaCamera();
   // Collaborators are built in create(): the render ones need the Phaser
   // display list, and the rest are wired in dependency order there.
@@ -185,7 +189,9 @@ export class GameScene extends Scene {
   private shield!: Shield;
   private hits!: ShooterHits;
   private progress!: Progression;
+  private sim!: BeamSim;
   private weapons!: Weapons;
+  private remoteFire!: RemoteFire;
   private hostCombat!: HostCombat;
   private ai!: EnemyAi;
   private host!: HostDirector;
@@ -219,8 +225,9 @@ export class GameScene extends Scene {
   /** Current trauma roll in degrees (what setAngle was last given) — Phaser 4
    *  types expose no camera `rotation` getter, so syncScreenUi reads this. */
   private camRollDeg = 0;
-  /** Scratch vector for screen→world cursor mapping (zero-alloc steering). */
-  private readonly pointerWorld = new PhaserMath.Vector2();
+  /** Where the camera looks before trauma shake and roll: the cursor's
+   *  world point is read off this, so a shake never yanks the aim. */
+  private readonly camBase = { x: 0, y: 0 };
 
   private startEl: HTMLElement | null = null;
   /** Cosmetic start-screen dogfight backdrop. Non-null only until play begins. */
@@ -287,7 +294,10 @@ export class GameScene extends Scene {
       this.link.connect({
         host: MULTIPLAYER_HOST,
         maxPlayers: STARFALL_MAX_PLAYERS,
-        onUpdate: () => this.sync.onUpdate(),
+        onUpdate: () => {
+          this.roster.ingest(performance.now());
+          this.sync.onUpdate();
+        },
         room: ROOM,
       });
     }
@@ -388,7 +398,7 @@ export class GameScene extends Scene {
     // the border into the void. Park on the world centre instead — the map
     // dwarfs every viewport, so no edge can show at any zoom. ensureSpawned
     // re-centres on the ship the moment the run starts.
-    this.cameras.main.centerOn(this.world.playW / 2, this.world.playH / 2);
+    this.centerCamera(this.world.playW / 2, this.world.playH / 2);
 
     // Single-start assumption: this scene is started once per page load and
     // never restarted, so create()-initialized fields are never stale. `once`
@@ -407,10 +417,10 @@ export class GameScene extends Scene {
   }
 
   /** Constructor injection in dependency order. The cycles (progress ↔
-   *  shield, view ↔ weapons, weapons ↔ hits, shield → net, director ↔ sync)
+   *  shield, view ↔ weapons, sim ↔ shield, shield → net, director ↔ sync)
    *  are closed by hooks that resolve the later collaborator at call time. */
   private wireCollaborators(): void {
-    const { world, pilot, link, dirty, fx, layers, trauma } = this;
+    const { world, pilot, link, roster, intents, fx, layers, trauma } = this;
     this.progress = new Progression({
       clock: this.time,
       fx,
@@ -422,10 +432,9 @@ export class GameScene extends Scene {
       pilot,
       trauma,
     });
-    this.ai = new EnemyAi({ dirty, world });
+    this.ai = new EnemyAi({ world });
     this.hostCombat = new HostCombat({
       ai: this.ai,
-      dirty,
       hooks: {
         maxPresentLevel: () => this.host.maxPresentLevel(),
         onBossKilled: (now) => this.host.noteBossKilled(now),
@@ -434,7 +443,6 @@ export class GameScene extends Scene {
     });
     this.host = new HostDirector({
       ai: this.ai,
-      dirty,
       hooks: {
         phasedUntil: () => this.shield.phasedUntil,
         prepareHost: () => this.sync.prepareHost(),
@@ -443,17 +451,28 @@ export class GameScene extends Scene {
       link,
       pilot,
       progress: this.progress,
+      roster,
       world,
     });
     this.view = new WorldView({
       fx,
-      hooks: { weapons: () => this.weapons },
+      hooks: { remoteFire: () => this.remoteFire, weapons: () => this.weapons },
       host: this.host,
       layers,
       link,
       pilot,
       scene: this,
       trauma,
+      world,
+    });
+    this.sim = new BeamSim({
+      fx,
+      hooks: { phasedUntil: () => this.shield.phasedUntil },
+      intents,
+      link,
+      pilot,
+      trauma,
+      view: this.view,
       world,
     });
     this.weapons = new Weapons({
@@ -465,9 +484,11 @@ export class GameScene extends Scene {
         shield: () => this.shield,
       },
       hostCombat: this.hostCombat,
+      intents,
       link,
       pilot,
       progress: this.progress,
+      sim: this.sim,
       trauma,
       view: this.view,
       world,
@@ -475,14 +496,15 @@ export class GameScene extends Scene {
     this.hits = new ShooterHits({
       fx,
       hostCombat: this.hostCombat,
-      link,
+      intents,
       pilot,
       progress: this.progress,
+      sim: this.sim,
       weapons: this.weapons,
       world,
     });
+    this.remoteFire = new RemoteFire({ hits: this.hits, link, roster, sim: this.sim });
     this.shield = new Shield({
-      dirty,
       fx,
       hits: this.hits,
       hooks: {
@@ -490,10 +512,12 @@ export class GameScene extends Scene {
         pushMyState: (now) => this.net.pushMyState(now),
       },
       hostCombat: this.hostCombat,
+      intents,
       layers,
       link,
       pilot,
       progress: this.progress,
+      remoteFire: this.remoteFire,
       scale: this.scale,
       trauma,
       tweens: this.tweens,
@@ -507,6 +531,7 @@ export class GameScene extends Scene {
       link,
       pilot,
       progress: this.progress,
+      remoteFire: this.remoteFire,
       scene: this,
       shield: this.shield,
       trauma,
@@ -514,8 +539,8 @@ export class GameScene extends Scene {
       weapons: this.weapons,
     });
     this.pickups = new Pickups({
-      dirty,
       fx,
+      intents,
       link,
       pilot,
       progress: this.progress,
@@ -551,11 +576,11 @@ export class GameScene extends Scene {
       world,
     });
     this.net = new PlayerNet({
-      dirty,
       hostCombat: this.hostCombat,
       link,
       pilot,
       progress: this.progress,
+      remoteFire: this.remoteFire,
       shield: this.shield,
       sync: this.sync,
       weapons: this.weapons,
@@ -568,18 +593,19 @@ export class GameScene extends Scene {
       ai: this.ai,
       beacon: this.beacon,
       cameras: this.cameras,
-      dirty: this.dirty,
       forceOfflineSolo: () => this.forceOfflineSolo(),
       fx: this.fx,
       hits: this.hits,
       host: this.host,
       hostCombat: this.hostCombat,
       hud: this.hud,
+      intents: this.intents,
       link: this.link,
       net: this.net,
       pickups: this.pickups,
       pilot: this.pilot,
       progress: this.progress,
+      remoteFire: this.remoteFire,
       shield: this.shield,
       shipView: this.shipView,
       sync: this.sync,
@@ -626,14 +652,10 @@ export class GameScene extends Scene {
       return;
     }
     const now = simNow();
-    // Parse every peer's net state once for this frame; readers below (aim,
-    // mines, PvP, host sim, render, minimap) all pull from the map.
-    this.link.peerStates.clear();
-    // A peer mid-drop (seat held in the reconnect grace) is absent, not a
-    // frozen ghost for enemies and beams to target.
-    for (const [id, player] of Object.entries(this.link.peers)) {
-      this.link.peerStates.set(id, player.connected === false ? null : readNetState(player));
-    }
+    const perfNow = performance.now();
+    // Every peer's state for this frame, remote poses interpolated; readers
+    // below (aim, mines, PvP, host sim, render, minimap) all pull from it.
+    this.roster.refresh(perfNow);
 
     this.ensureSpawned();
     this.seedOpeningRocks();
@@ -647,12 +669,17 @@ export class GameScene extends Scene {
     this.weapons.updateBeams(dt, now);
     this.weapons.tickMines(now);
     this.weapons.tickSentry(now);
-    this.sync.advanceWorld(dt);
+    this.sync.advanceWorld(dt, now);
+    // Guests: fold in what the host sent since last frame (after the world
+    // advanced, so a snapshot aged to now meets a copy that is also at now).
+    this.sync.reconcile(now);
+    // Everyone else's shots, flown on their senders' drawn timelines.
+    this.remoteFire.update(perfNow);
     if (this.link.amHost) {
       this.host.hostTick(now, dt, delta);
       // Never baseline the constructor's empty pre-connection world. Guests
       // instead observe accepted shared snapshots, not predicted removals.
-      if (this.sync.shared() && (!this.link.offline || this.sync.offlineSeeded)) {
+      if (this.sync.roomHasWorld()) {
         this.hud.observeBossEncounters(this.world);
       }
     }
@@ -675,9 +702,12 @@ export class GameScene extends Scene {
     }
     // Before netSend, so a boundary's score reset reaches the wire same tick.
     this.hud.tickSector(now);
+    // This frame's hits, claims and pulls: one event to the host, or applied
+    // right here when I am the host.
+    this.intents.flush(this.link);
     this.net.netSend(delta, now);
 
-    this.shipView.syncShips(now, dt);
+    this.shipView.syncShips(now);
     this.view.syncAsteroids(now);
     this.view.syncUfo(now);
     this.view.syncItems();
@@ -969,7 +999,7 @@ export class GameScene extends Scene {
     this.pilot.shipX = pos.x;
     this.pilot.shipY = pos.y;
     this.pilot.spawned = true;
-    this.cameras.main.centerOn(pos.x, pos.y);
+    this.centerCamera(pos.x, pos.y);
     this.spawnInFx(pos.x, pos.y);
     this.net.pushMyState(simNow());
   }
@@ -1011,7 +1041,6 @@ export class GameScene extends Scene {
       this.world.asteroids.push(spawnOpeningAsteroid(x, y));
     }
     this.openingRocksSeeded = true;
-    this.dirty.asteroids = true;
   }
 
   private tickRespawn(now: number): void {
@@ -1036,7 +1065,7 @@ export class GameScene extends Scene {
     this.progress.applyBaseLoadout(now);
     this.pilot.kickX = 0;
     this.pilot.kickY = 0;
-    this.cameras.main.centerOn(pos.x, pos.y);
+    this.centerCamera(pos.x, pos.y);
     this.spawnInFx(pos.x, pos.y);
     sfx.play("respawn");
     this.net.pushMyState(now);
@@ -1195,10 +1224,12 @@ export class GameScene extends Scene {
       return null;
     }
     const p = this.input.activePointer;
-    // Screen→world through the camera: scrollX alone mis-aims under zoom < 1.
-    const cursor = this.cameras.main.getWorldPoint(p.x, p.y, this.pointerWorld);
-    const dx = cursor.x - this.pilot.shipX;
-    const dy = cursor.y - this.pilot.shipY;
+    // Screen→world through the camera as framed BEFORE trauma (zoom
+    // included, shake offset and roll not): a hit or a nearby death shaking
+    // the view must not move the point the ship steers at.
+    const cam = this.cameras.main;
+    const dx = this.camBase.x + (p.x - cam.x - cam.width / 2) / cam.zoom - this.pilot.shipX;
+    const dy = this.camBase.y + (p.y - cam.y - cam.height / 2) / cam.zoom - this.pilot.shipY;
     const dist = Math.hypot(dx, dy);
     const thrust = Math.min(1, Math.max(0, (dist - SHIP_DEAD_ZONE) / SHIP_THRUST_RAMP));
     return { aim: dist > 0.001, angle: Math.atan2(dy, dx), deadZone: SHIP_DEAD_ZONE, dist, thrust };
@@ -1260,10 +1291,7 @@ export class GameScene extends Scene {
       this.trauma.reset();
       this.tweens.killTweensOf(this.layers.flashRect);
       this.layers.flashRect.setAlpha(0);
-      this.cameras.main.centerOn(
-        lock ? lock.x : this.pilot.shipX,
-        lock ? lock.y : this.pilot.shipY,
-      );
+      this.centerCamera(lock ? lock.x : this.pilot.shipX, lock ? lock.y : this.pilot.shipY);
       this.cameras.main.setAngle(0);
       this.camRollDeg = 0;
       return;
@@ -1274,10 +1302,19 @@ export class GameScene extends Scene {
     const s = this.trauma.update(dt, timeMs / 1000);
     const cx = lock ? lock.x : this.pilot.shipX + this.pilot.kickX;
     const cy = lock ? lock.y : this.pilot.shipY + this.pilot.kickY;
+    this.camBase.x = cx;
+    this.camBase.y = cy;
     this.cameras.main.centerOn(cx + s.ox, cy + s.oy);
     this.cameras.main.setAngle(s.rot);
     // syncScreenUi counters this roll on the HUD layer
     this.camRollDeg = s.rot;
+  }
+
+  /** Frame the camera on (x,y) — the unshaken centre the cursor aims from. */
+  private centerCamera(x: number, y: number): void {
+    this.camBase.x = x;
+    this.camBase.y = y;
+    this.cameras.main.centerOn(x, y);
   }
 
   /**

@@ -38,11 +38,9 @@ import {
 } from "../shared/constants";
 import type { EnemyKind, ItemDrop, LootClass, SharedState } from "../shared/constants";
 import { rand } from "../shared/rng";
-import type { DirtyFlags } from "../state/dirty-flags";
 import type { EnemyAi } from "../sys/enemy-ai";
 import { DEG } from "../sys/geometry";
-import { wireNum, wireStr } from "./wire-read";
-import type { WireRecord } from "./wire-read";
+import type { HostHit } from "./intents";
 
 /** Director state HostCombat reports into; the director is built after it. */
 export interface HostCombatHooks {
@@ -71,7 +69,6 @@ export const bossHpFloor = (phase: 1 | 2 | 3, held: boolean, maxHp: number): num
 
 export interface HostCombatDeps {
   world: SharedState;
-  dirty: DirtyFlags;
   ai: EnemyAi;
   hooks: HostCombatHooks;
 }
@@ -83,57 +80,34 @@ export class HostCombat {
 
   private readonly world: SharedState;
 
-  private readonly dirty: DirtyFlags;
-
   private readonly ai: EnemyAi;
 
   private readonly hooks: HostCombatHooks;
 
   constructor(deps: HostCombatDeps) {
     this.world = deps.world;
-    this.dirty = deps.dirty;
     this.ai = deps.ai;
     this.hooks = deps.hooks;
   }
 
   /** Host: apply a client's reported hit to the shared entity. */
-  hostHandleHit(event: "asteroid_hit" | "ufo_hit" | "enemy_hit", p: WireRecord): void {
-    const damage = wireNum(p["damage"]);
-    if (damage === null) {
-      return;
-    }
-    if (event === "ufo_hit") {
-      this.hostDamageUfo(damage);
-      return;
-    }
-    if (event === "asteroid_hit") {
-      const id = wireStr(p["asteroidId"]);
-      if (id !== null) {
-        this.hostDamageAsteroid(id, damage);
+  hostHandleHit(hit: HostHit): void {
+    switch (hit.kind) {
+      case "ufo": {
+        this.hostDamageUfo(hit.damage);
+        break;
       }
-      return;
-    }
-    const id = wireStr(p["enemyId"]);
-    if (id !== null) {
-      const kx = wireNum(p["kx"]) ?? 0;
-      const ky = wireNum(p["ky"]) ?? 0;
-      this.hostDamageEnemy(id, damage, kx, ky);
-    }
-  }
-
-  /** Host: a client claimed (consumed / picked up) a shared entity — drop it. */
-  hostRemoveById<T extends { id: string }>(
-    list: T[],
-    id: string | null,
-    field: keyof DirtyFlags,
-  ): void {
-    if (id === null) {
-      return;
-    }
-    const idx = list.findIndex((e) => e.id === id);
-    if (idx !== -1) {
-      list.splice(idx, 1);
-      this.dirty[field] = true;
+      case "asteroid": {
+        this.hostDamageAsteroid(hit.id, hit.damage);
+        break;
+      }
+      case "enemy": {
+        this.hostDamageEnemy(hit.id, hit.damage, hit.kx, hit.ky);
+        break;
+      }
+      default: {
+        hit satisfies never;
+      }
     }
   }
 
@@ -176,7 +150,6 @@ export class HostCombat {
       a.vx = Math.cos(ang) * speed;
       a.vy = Math.sin(ang) * speed;
     }
-    this.dirty.asteroids = true;
   }
 
   private hostDamageUfo(damage: number): void {
@@ -189,9 +162,7 @@ export class HostCombat {
     if (u.hp <= 0) {
       this.world.items.push(spawnWeaponItemState(u.x, u.y));
       this.world.ufo = null;
-      this.dirty.items = true;
     }
-    this.dirty.ufo = true;
   }
 
   /** Apply reported damage + knockback; kill (split, loot) at ≤0 HP. */
@@ -258,7 +229,6 @@ export class HostCombat {
     if (e.hp <= 0) {
       this.hostKillEnemy(idx);
     }
-    this.dirty.enemies = true;
   }
 
   hostKillEnemy(idx: number): void {
@@ -287,7 +257,6 @@ export class HostCombat {
       this.hostRollLoot(e.x, e.y, 1, true);
       this.hostRollLoot(e.x, e.y, 1, true);
       this.hooks.onBossKilled(now);
-      this.dirty.enemies = true;
       return;
     }
     if (e.kind === "splitter") {
@@ -318,7 +287,6 @@ export class HostCombat {
     } else {
       this.hostRollLoot(e.x, e.y, 1, true);
     }
-    this.dirty.enemies = true;
   }
 
   /** Spawn `count` score shards at (x,y); oldest culled past the hard cap so
@@ -332,7 +300,6 @@ export class HostCombat {
     if (w.shards.length > SHARDS_MAX_LIVE) {
       w.shards.splice(0, w.shards.length - SHARDS_MAX_LIVE);
     }
-    this.dirty.shards = true;
   }
 
   /**
@@ -400,6 +367,5 @@ export class HostCombat {
       drop = { kind: "weapon", weaponIdx: Math.floor(rand() * WEAPONS_SPECIAL.length) };
     }
     w.items.push(spawnItemState(x, y, drop));
-    this.dirty.items = true;
   }
 }

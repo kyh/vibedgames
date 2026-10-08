@@ -1,4 +1,5 @@
 import { sfx } from "../audio/sfx";
+import type { HostIntents } from "../net/intents";
 import type { FxPool } from "../render/fx-pool";
 import {
   BOOSTER_KINDS,
@@ -20,7 +21,6 @@ import {
   scaleWeaponForLevel,
 } from "../shared/constants";
 import type { SharedState } from "../shared/constants";
-import type { DirtyFlags } from "../state/dirty-flags";
 import type { Link } from "../state/link";
 import type { Pilot } from "../state/pilot";
 import { dist2 } from "./geometry";
@@ -33,7 +33,7 @@ export interface PickupsDeps {
   pilot: Pilot;
   link: Link;
   fx: FxPool;
-  dirty: DirtyFlags;
+  intents: HostIntents;
   shield: Shield;
   weapons: Weapons;
   progress: Progression;
@@ -56,7 +56,7 @@ export class Pickups {
 
   private readonly fx: FxPool;
 
-  private readonly dirty: DirtyFlags;
+  private readonly intents: HostIntents;
 
   private readonly shield: Shield;
 
@@ -69,7 +69,7 @@ export class Pickups {
     this.pilot = deps.pilot;
     this.link = deps.link;
     this.fx = deps.fx;
-    this.dirty = deps.dirty;
+    this.intents = deps.intents;
     this.shield = deps.shield;
     this.weapons = deps.weapons;
     this.progress = deps.progress;
@@ -99,13 +99,10 @@ export class Pickups {
         this.pickupBooster(it.boosterIdx, now);
       }
       this.recentPickups.set(it.id, now);
-      this.link.send("item_pickup", { itemId: it.id });
-      // Remove locally right away; the host event (or the next reconcile,
-      // guarded by recentPickups) makes it stick.
+      this.intents.itemClaimed(it.id);
+      // Remove locally right away; the host's removal (or the next
+      // reconcile, guarded by recentPickups) makes it stick.
       items.splice(i, 1);
-      if (this.link.amHost) {
-        this.dirty.items = true;
-      }
     }
     this.expireClaims(now);
   }
@@ -238,11 +235,8 @@ export class Pickups {
       }
       this.progress.gainXp(orbXp, now);
       this.recentShardPickups.set(s.id, now);
-      this.link.send("shard_pickup", { shardId: s.id });
+      this.intents.shardClaimed(s.id);
       shards.splice(i, 1);
-      if (this.link.amHost) {
-        this.dirty.shards = true;
-      }
       // Pooled sparkle + soft collect blip (pickup chirp, low gain, pitched up).
       this.fx.sparks(s.x, s.y, 3, SHARD_TINT, {
         lifeMax: 220,
