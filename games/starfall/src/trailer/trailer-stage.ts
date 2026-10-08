@@ -88,8 +88,7 @@ export const installTrailerStage = (scene: SceneInternals): TrailerStageApi => {
       scene.view.splinters = [];
       scene.weapons.muzzleFlashes = [];
       scene.hits.predictedKills.clear();
-      scene.pickups.recentPickups.clear();
-      scene.pickups.recentShardPickups.clear();
+      scene.pickups.clear();
       scene.shield.recentConsumedShots.clear();
       // Silent display cleanup — bypass the death-FX removal sweeps so a
       // cleared crowd doesn't explode into 40 shatters on the next cut.

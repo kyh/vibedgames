@@ -552,10 +552,22 @@ const keysOf = (patch: WireRecord): string[] =>
       { damage: 25, id: "enemy001", kind: "enemy", kx: 3, ky: -4 },
       { damage: 0.333, id: "rock0001", kind: "asteroid" },
     ],
-    items: [],
     pulls: [{ ms: 800, x: 10, y: 20 }],
-    shards: [],
     shots: ["shot0001"],
   });
   console.log("PASS a frame's intents reach the host as one batch");
+
+  // Solo, a claim has no rival: granted to me at once, and nothing is held.
+  const grants: [string, string | null][] = [];
+  const soloLink = new Link({
+    inbox: () => {
+      // Claims only.
+    },
+    onClaim: (key, owner) => grants.push([key, owner]),
+  });
+  soloLink.offline = true;
+  soloLink.claim("i:item0001", 5000);
+  assert.deepEqual(grants, [["i:item0001", "solo"]]);
+  assert.equal(soloLink.claimed("i:item0001"), false);
+  console.log("PASS a solo claim is granted at once");
 }

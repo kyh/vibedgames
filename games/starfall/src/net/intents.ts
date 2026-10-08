@@ -4,9 +4,10 @@ import type { WireRecord, WireValue } from "./wire-read";
 
 /**
  * Everything this client asks of the host in a frame — damage it dealt,
- * shots its shield ate, pickups it claimed, SINGULARITY pulls — batched into
- * ONE `intents` event sent to the host alone. The host itself skips the
- * network entirely: its own intents run through the same handler locally.
+ * shots its shield ate, SINGULARITY pulls — batched into ONE `intents` event
+ * sent to the host alone. The host itself skips the network entirely: its
+ * own intents run through the same handler locally. Pickups are not asked
+ * for: they are claimed (sys/pickups.ts), first come first served.
  */
 
 /** One reported hit. `kx`/`ky` is knockback (enemies only). */
@@ -19,8 +20,6 @@ export type HostHit =
 export interface IntentBatch {
   hits: HostHit[];
   shots: string[];
-  items: string[];
-  shards: string[];
   pulls: { x: number; y: number; ms: number }[];
 }
 
@@ -92,15 +91,13 @@ export const readIntents = (payload: WireValue): IntentBatch | null => {
       }
     }
   }
-  return { hits, items: strings(p["i"]), pulls, shards: strings(p["s"]), shots: strings(p["c"]) };
+  return { hits, pulls, shots: strings(p["c"]) };
 };
 
 /** The per-frame outbox. Producers queue; the scene flushes once per frame. */
 export class HostIntents {
   private hits: WireValue[] = [];
   private shots: string[] = [];
-  private items: string[] = [];
-  private shards: string[] = [];
   private pulls: WireValue[] = [];
 
   asteroidHit(id: string, damage: number): void {
@@ -122,14 +119,6 @@ export class HostIntents {
     this.shots.push(id);
   }
 
-  itemClaimed(id: string): void {
-    this.items.push(id);
-  }
-
-  shardClaimed(id: string): void {
-    this.shards.push(id);
-  }
-
   /** A SINGULARITY collapse: the host drags bodies toward (x,y) for `ms`. A
    *  duration, not a deadline — the two clocks share no epoch. */
   pull(x: number, y: number, ms: number): void {
@@ -138,13 +127,7 @@ export class HostIntents {
 
   /** Send this frame's batch (if any) and start a new one. */
   flush(link: Link): void {
-    if (
-      this.hits.length === 0 &&
-      this.shots.length === 0 &&
-      this.items.length === 0 &&
-      this.shards.length === 0 &&
-      this.pulls.length === 0
-    ) {
+    if (this.hits.length === 0 && this.shots.length === 0 && this.pulls.length === 0) {
       return;
     }
     const batch: WireRecord = {};
@@ -154,19 +137,11 @@ export class HostIntents {
     if (this.shots.length > 0) {
       batch["c"] = this.shots;
     }
-    if (this.items.length > 0) {
-      batch["i"] = this.items;
-    }
-    if (this.shards.length > 0) {
-      batch["s"] = this.shards;
-    }
     if (this.pulls.length > 0) {
       batch["g"] = this.pulls;
     }
     this.hits = [];
     this.shots = [];
-    this.items = [];
-    this.shards = [];
     this.pulls = [];
     link.toHost("intents", batch);
   }

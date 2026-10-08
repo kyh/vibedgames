@@ -138,12 +138,6 @@ export class PlayerNet {
     for (const id of batch.shots) {
       removeById(this.world.enemyShots, id);
     }
-    for (const id of batch.items) {
-      removeById(this.world.items, id);
-    }
-    for (const id of batch.shards) {
-      removeById(this.world.shards, id);
-    }
     // SINGULARITY collapse: one shared pull entry; hostApplyPulls drags
     // enemies/asteroids until it expires (pruned in hostTick).
     const now = simNow();

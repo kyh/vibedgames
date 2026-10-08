@@ -1,6 +1,7 @@
 import { sfx } from "../audio/sfx";
-import type { HostIntents } from "../net/intents";
+import { removeById } from "../net/shared-world";
 import type { FxPool } from "../render/fx-pool";
+import { now as simNow } from "../shared/clock";
 import {
   BOOSTER_KINDS,
   BOOSTER_SPECS,
@@ -20,7 +21,7 @@ import {
   XP,
   scaleWeaponForLevel,
 } from "../shared/constants";
-import type { SharedState } from "../shared/constants";
+import type { ItemState, SharedState } from "../shared/constants";
 import type { Link } from "../state/link";
 import type { Pilot } from "../state/pilot";
 import { dist2 } from "./geometry";
@@ -28,25 +29,45 @@ import type { Progression } from "./progression";
 import type { Shield } from "./shield";
 import type { Weapons } from "./weapons";
 
+const ITEM_KEY = "i:";
+const SHARD_KEY = "s:";
+
+/** Claim keys, one per pickup: the server settles who got it — first come,
+ *  first served, in one hop, the host no faster than anyone. */
+export const itemClaimKey = (id: string): string => `${ITEM_KEY}${id}`;
+export const shardClaimKey = (id: string): string => `${SHARD_KEY}${id}`;
+
+/** A claim outlives its pickup in every client's copy by this much (ms), then
+ *  lapses on its own, so keys never pile up in the room. */
+const CLAIM_SLACK_MS = 2000;
+/** A claim with no answer after this long (ms) was lost to a dropped link:
+ *  forget it, so the pickup can be touched again. */
+const PENDING_MS = 5000;
+
 export interface PickupsDeps {
   world: SharedState;
   pilot: Pilot;
   link: Link;
   fx: FxPool;
-  intents: HostIntents;
   shield: Shield;
   weapons: Weapons;
   progress: Progression;
 }
 
-/** Owner-side pickups: claim items and shards on contact, apply the weapon/shield-mod/booster, and guard the claim until the host's removal echoes back. */
+/**
+ * Owner-side pickups. Two ships can reach one drop within a round trip, so
+ * each is claimed (Link.claim): on contact it vanishes here with its sparkle
+ * and sound, and the weapon/shield-mod/booster or XP lands when the server
+ * names this client the owner — a refused claim never pays. Everyone hears a
+ * grant, so a taken pickup leaves every copy at once; the host drops claimed
+ * ones from the world it shares (HostDirector).
+ */
 export class Pickups {
-  /** Items we picked up locally, awaiting host confirmation (id → time). */
-  recentPickups = new Map<string, number>();
+  /** Items I touched, waiting on their claim: id → the item and when. */
+  private readonly pendingItems = new Map<string, { at: number; item: ItemState }>();
 
-  /** Shards we collected locally, awaiting host removal (id -> time), the
-   *  same claimer-guard pattern as items. */
-  recentShardPickups = new Map<string, number>();
+  /** Shards likewise: id → the XP they pay and when. */
+  private readonly pendingShards = new Map<string, { at: number; xp: number }>();
 
   private readonly world: SharedState;
 
@@ -55,8 +76,6 @@ export class Pickups {
   private readonly link: Link;
 
   private readonly fx: FxPool;
-
-  private readonly intents: HostIntents;
 
   private readonly shield: Shield;
 
@@ -69,20 +88,67 @@ export class Pickups {
     this.pilot = deps.pilot;
     this.link = deps.link;
     this.fx = deps.fx;
-    this.intents = deps.intents;
     this.shield = deps.shield;
     this.weapons = deps.weapons;
     this.progress = deps.progress;
+  }
+
+  /** Trailer re-stage: forget every pending claim. */
+  clear(): void {
+    this.pendingItems.clear();
+    this.pendingShards.clear();
+  }
+
+  /** Mine pending, or claimed by anyone: a snapshot must not bring it back. */
+  itemTaken(id: string): boolean {
+    return this.pendingItems.has(id) || this.link.claimed(itemClaimKey(id));
+  }
+
+  shardTaken(id: string): boolean {
+    return this.pendingShards.has(id) || this.link.claimed(shardClaimKey(id));
+  }
+
+  /** A claim's answer (Link onClaim — the socket listener, or at once
+   *  offline). A grant takes the pickup out of this copy whoever won; the
+   *  winner applies what it gives. */
+  onClaim(key: string, owner: string | null): void {
+    // Released: its TTL ran out, long after the pickup itself expired.
+    if (owner === null) {
+      return;
+    }
+    const mine = owner === this.link.myId;
+    const now = simNow();
+    if (key.startsWith(ITEM_KEY)) {
+      const id = key.slice(ITEM_KEY.length);
+      removeById(this.world.items, id);
+      const pending = this.pendingItems.get(id);
+      this.pendingItems.delete(id);
+      if (pending && mine && this.pilot.alive && this.pilot.spawned) {
+        this.applyItem(pending.item, now);
+      }
+    } else if (key.startsWith(SHARD_KEY)) {
+      const id = key.slice(SHARD_KEY.length);
+      removeById(this.world.shards, id);
+      const pending = this.pendingShards.get(id);
+      this.pendingShards.delete(id);
+      if (pending && mine) {
+        this.progress.gainXp(pending.xp, now);
+      }
+    }
   }
 
   pickupItems(now: number): void {
     if (!this.pilot.alive || !this.pilot.spawned || now < this.shield.phasedUntil) {
       return;
     }
+    // While the link is down nothing can be claimed: leave the drops be.
+    if (!this.link.canClaim) {
+      return;
+    }
     const { items } = this.world;
     for (let i = items.length - 1; i >= 0; i -= 1) {
       const it = items[i];
-      if (!it || this.recentPickups.has(it.id)) {
+      if (!it || this.itemTaken(it.id)) {
         continue;
       }
       if (
@@ -91,20 +157,37 @@ export class Pickups {
       ) {
         continue;
       }
-      if (it.kind === "weapon") {
-        this.pickupWeapon(it.weaponIdx, now);
-      } else if (it.kind === "shield") {
-        this.pickupShieldMod(it.shieldIdx, now);
-      } else {
-        this.pickupBooster(it.boosterIdx, now);
-      }
-      this.recentPickups.set(it.id, now);
-      this.intents.itemClaimed(it.id);
-      // Remove locally right away; the host's removal (or the next
-      // reconcile, guarded by recentPickups) makes it stick.
       items.splice(i, 1);
+      this.pendingItems.set(it.id, { at: now, item: it });
+      this.itemTouchFx(it);
+      this.link.claim(itemClaimKey(it.id), it.diesAt - now + CLAIM_SLACK_MS);
     }
     this.expireClaims(now);
+  }
+
+  /** What a claimed item gives. */
+  private applyItem(it: ItemState, now: number): void {
+    if (it.kind === "weapon") {
+      this.pickupWeapon(it.weaponIdx, now);
+    } else if (it.kind === "shield") {
+      this.pickupShieldMod(it.shieldIdx, now);
+    } else {
+      this.pickupBooster(it.boosterIdx, now);
+    }
+  }
+
+  /** Contact feedback, at once; the effect waits for the claim. */
+  private itemTouchFx(it: ItemState): void {
+    if (it.kind === "weapon") {
+      this.pickupSparks((WEAPONS_SPECIAL[it.weaponIdx] ?? WEAPON_DEFAULT).tint);
+      sfx.play("pickup", { priority: "local" });
+    } else if (it.kind === "shield") {
+      this.pickupSparks(SHIELD_MOD_SPECS[SHIELD_MOD_KINDS[it.shieldIdx] ?? "overshield"].tint);
+      sfx.play("pickup_shield", { priority: "local" });
+    } else {
+      this.pickupSparks(BOOSTER_SPECS[BOOSTER_KINDS[it.boosterIdx] ?? "repair"].tint);
+      sfx.play("pickup_booster", { priority: "local" });
+    }
   }
 
   private pickupSparks(tint: number): void {
@@ -136,8 +219,6 @@ export class Pickups {
     if (!this.link.trailer) {
       this.pilot.mastery.pickup(this.pilot.weapon.name, now, this.pilot.weaponUntil);
     }
-    this.pickupSparks(weapon.tint);
-    sfx.play("pickup", { priority: "local" });
   }
 
   /** Timed shield MODIFIER on the base shield (one held; same kind extends
@@ -165,8 +246,6 @@ export class Pickups {
       this.shield.phaseReadyAt = 0;
     }
     this.shield.haloFlashUntil = now + 200;
-    this.pickupSparks(SHIELD_MOD_SPECS[kind].tint);
-    sfx.play("pickup_shield", { priority: "local" });
   }
 
   private pickupBooster(boosterIdx: number, now: number): void {
@@ -187,15 +266,13 @@ export class Pickups {
         cur !== undefined && cur > now ? Math.min(cur + dur, now + ITEM_STACK_CAP_MS) : now + dur,
       );
     }
-    this.pickupSparks(BOOSTER_SPECS[kind].tint);
-    sfx.play("pickup_booster", { priority: "local" });
   }
 
-  /** Age out the local claim guards (pickups, consumed shots, RAM and PvP i-frames). */
+  /** Age out the local guards (unanswered claims, consumed shots, RAM and PvP i-frames). */
   private expireClaims(now: number): void {
-    for (const [id, t] of this.recentPickups) {
-      if (now - t > 5000) {
-        this.recentPickups.delete(id);
+    for (const [id, pending] of this.pendingItems) {
+      if (now - pending.at > PENDING_MS) {
+        this.pendingItems.delete(id);
       }
     }
     for (const [id, t] of this.shield.recentConsumedShots) {
@@ -216,10 +293,13 @@ export class Pickups {
   }
 
   /** XP orbs (former score shards): generous-radius hoover, +XP.ORB each (flat,
-   *  never combo-multiplied; SALVAGE doubles it). Same claimer pattern as items:
-   *  collect locally, tell the host, guard reconciles. */
+   *  never combo-multiplied; SALVAGE doubles it). Claimed like items: the
+   *  sparkle on contact, the XP once the claim comes back mine. */
   collectShards(now: number): void {
     if (!this.pilot.alive || !this.pilot.spawned || now < this.shield.phasedUntil) {
+      return;
+    }
+    if (!this.link.canClaim) {
       return;
     }
     const r2 = SHARD_PICKUP_RADIUS * SHARD_PICKUP_RADIUS;
@@ -227,16 +307,15 @@ export class Pickups {
     const orbXp = (this.pilot.boosts.get("salvage") ?? 0) > now ? XP.ORB * SALVAGE_MULT : XP.ORB;
     for (let i = shards.length - 1; i >= 0; i -= 1) {
       const s = shards[i];
-      if (!s || this.recentShardPickups.has(s.id)) {
+      if (!s || this.shardTaken(s.id)) {
         continue;
       }
       if (dist2(s.x, s.y, this.pilot.shipX, this.pilot.shipY) > r2) {
         continue;
       }
-      this.progress.gainXp(orbXp, now);
-      this.recentShardPickups.set(s.id, now);
-      this.intents.shardClaimed(s.id);
       shards.splice(i, 1);
+      this.pendingShards.set(s.id, { at: now, xp: orbXp });
+      this.link.claim(shardClaimKey(s.id), s.diesAt - now + CLAIM_SLACK_MS);
       // Pooled sparkle + soft collect blip (pickup chirp, low gain, pitched up).
       this.fx.sparks(s.x, s.y, 3, SHARD_TINT, {
         lifeMax: 220,
@@ -247,9 +326,9 @@ export class Pickups {
       });
       sfx.play("pickup", { gain: 0.25, rate: 1.6 });
     }
-    for (const [id, t] of this.recentShardPickups) {
-      if (now - t > 5000) {
-        this.recentShardPickups.delete(id);
+    for (const [id, pending] of this.pendingShards) {
+      if (now - pending.at > PENDING_MS) {
+        this.pendingShards.delete(id);
       }
     }
   }

@@ -16,6 +16,10 @@ const SOLO_PEERS: PlayerMap = { solo: { id: "solo" } };
 interface LinkOptions {
   /** Inbound event sink — also where offline sends loop straight back to. */
   inbox: (event: string, payload: WireValue, from: string) => void;
+  /** A claim's owner, as the server settled it: granted (everyone hears it),
+   *  the holder (a refused claimer alone hears it) or released (null).
+   *  Offline every claim is granted at once. */
+  onClaim?: (key: string, owner: string | null) => void;
 }
 
 interface ConnectOptions {
@@ -68,6 +72,7 @@ export class Link {
 
   private client: MultiplayerClient | null = null;
   private readonly inbox: LinkOptions["inbox"];
+  private readonly claimSink: LinkOptions["onClaim"];
   /** Stamped on the FIRST poll (not create()): heavy boots must not eat into
    *  the grace window before the socket gets a chance to connect. */
   private bootedAt = 0;
@@ -78,6 +83,7 @@ export class Link {
 
   constructor(options: LinkOptions) {
     this.inbox = options.inbox;
+    this.claimSink = options.onClaim;
   }
 
   /** Dial the party server. No `initialState`: the package re-applies it
@@ -90,6 +96,7 @@ export class Link {
       host: options.host,
       interest: { radius: INTEREST_RADIUS },
       maxPlayers: options.maxPlayers,
+      onClaim: (key, owner) => this.claimSink?.(key, owner),
       onEvent: (event, payload, from) => this.inbox(event, payload, from),
       party: "vg-server",
       room: options.room,
@@ -217,6 +224,30 @@ export class Link {
     if (!this.offline && this.client && this.connected) {
       this.client.updateSharedState(patch);
     }
+  }
+
+  /** Claims can be made: online and connected, or solo. */
+  get canClaim(): boolean {
+    return this.offline || this.connected;
+  }
+
+  /** Ask for `key` — first come, first served, settled by the server in one
+   *  hop for every client alike, the host included; `onClaim` hears the
+   *  answer. It lapses after `ttlMs`. Offline nobody contends: granted at
+   *  once. Nothing is sent while dropped (see `toHost`). */
+  claim(key: string, ttlMs: number): void {
+    if (this.offline) {
+      this.claimSink?.(key, this.myId);
+      return;
+    }
+    if (this.client && this.connected) {
+      this.client.claim(key, { ttlMs: Math.max(1, Math.round(ttlMs)) });
+    }
+  }
+
+  /** Someone holds `key` (never offline: the solo world is the only copy). */
+  claimed(key: string): boolean {
+    return !this.offline && (this.client?.ownerOf(key) ?? null) !== null;
   }
 
   /** My state push (flat primitives; unchanged keys stay off the wire). */

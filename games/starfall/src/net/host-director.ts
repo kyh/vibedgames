@@ -68,6 +68,7 @@ import type { Link } from "../state/link";
 import type { Pilot } from "../state/pilot";
 import type { EnemyAi } from "../sys/enemy-ai";
 import { inWorld, magnetPull } from "../sys/geometry";
+import { itemClaimKey, shardClaimKey } from "../sys/pickups";
 import type { Progression } from "../sys/progression";
 import type { HostCombat } from "./host-combat";
 import type { PeerRoster } from "./peer-roster";
@@ -308,11 +309,13 @@ export class HostDirector {
     }
   }
 
-  /** Expire items + shards, then run the magnet pass. */
+  /** Expire items + shards, drop the claimed ones, then run the magnet
+   *  pass. A grant already took its pickup out (Pickups.onClaim); this also
+   *  catches claims that arrived in a sync, after a blip. */
   private hostTickPickups(now: number): void {
     const w = this.world;
-    w.items = w.items.filter((it) => it.diesAt > now);
-    w.shards = w.shards.filter((s) => s.diesAt > now);
+    w.items = w.items.filter((it) => it.diesAt > now && !this.link.claimed(itemClaimKey(it.id)));
+    w.shards = w.shards.filter((s) => s.diesAt > now && !this.link.claimed(shardClaimKey(s.id)));
     this.hostMagnetItems(now);
   }
 

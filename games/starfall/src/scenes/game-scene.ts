@@ -172,6 +172,7 @@ export class GameScene extends Scene {
    *  loopback) route to PlayerNet. */
   private readonly link = new Link({
     inbox: (event, payload, from) => this.net.handleEvent(event, payload, from),
+    onClaim: (key, owner) => this.pickups.onClaim(key, owner),
   });
   /** Every peer's state, parsed once per patch; remote ships interpolated. */
   private readonly roster = new PeerRoster(this.link);
@@ -533,7 +534,6 @@ export class GameScene extends Scene {
     });
     this.pickups = new Pickups({
       fx,
-      intents,
       link,
       pilot,
       progress: this.progress,

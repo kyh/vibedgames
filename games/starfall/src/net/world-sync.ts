@@ -88,8 +88,8 @@ interface Fold<T extends { id: string; x: number; y: number }> {
   /** Still alive by this client's own rules (expiry, edge cull) at its
    *  predicted position. */
   keep: (e: T) => boolean;
-  /** Ids this client already took (pickups, consumed shots): never re-added. */
-  claimed: ReadonlyMap<string, number> | null;
+  /** Ids already taken (claimed pickups, shots my shield ate): never re-added. */
+  taken: ((id: string) => boolean) | null;
 }
 
 /** Host↔guest world sync: seeding the room world, adopting it on host promotion, and on guests the per-frame fold of each changed snapshot bucket into the dead-reckoned working copy. */
@@ -354,11 +354,11 @@ export class WorldSync {
     const w = this.world;
     for (let i = 0; i < ASTEROIDS.buckets; i += 1) {
       w.asteroids = this.fold(s, i, clock, {
-        claimed: null,
         family: ASTEROIDS,
         keep: (a) => inWorld(a.x, a.y, ASTEROID_CULL_MARGIN, w.playW, w.playH),
         local: w.asteroids,
         read: readAsteroidRow,
+        taken: null,
         update: (cur, row) => {
           cur.vx = row.vx;
           cur.vy = row.vy;
@@ -368,12 +368,12 @@ export class WorldSync {
     }
     for (let i = 0; i < SHOTS.buckets; i += 1) {
       w.enemyShots = this.fold(s, i, clock, {
-        claimed: this.shield.recentConsumedShots,
         family: SHOTS,
         keep: (shot) =>
           shot.diesAt > now && inWorld(shot.x, shot.y, SHOT_CULL_MARGIN, w.playW, w.playH),
         local: w.enemyShots,
         read: readShotRow,
+        taken: (id) => this.shield.recentConsumedShots.has(id),
         update: (cur, row) => {
           cur.vx = row.vx;
           cur.vy = row.vy;
@@ -383,11 +383,11 @@ export class WorldSync {
     }
     for (let i = 0; i < SHARDS.buckets; i += 1) {
       w.shards = this.fold(s, i, clock, {
-        claimed: this.pickups.recentShardPickups,
         family: SHARDS,
         keep: (shard) => shard.diesAt > now,
         local: w.shards,
         read: readShardRow,
+        taken: (id) => this.pickups.shardTaken(id),
         update: (cur, row) => {
           cur.vx = row.vx;
           cur.vy = row.vy;
@@ -396,11 +396,11 @@ export class WorldSync {
       });
     }
     w.items = this.fold(s, 0, clock, {
-      claimed: this.pickups.recentPickups,
       family: ITEMS,
       keep: (it) => it.diesAt > now,
       local: w.items,
       read: readItemRow,
+      taken: (id) => this.pickups.itemTaken(id),
       update: (cur, row) => {
         cur.vx = row.vx;
         cur.vy = row.vy;
@@ -439,7 +439,8 @@ export class WorldSync {
     clock: WireClock,
     spec: Fold<T>,
   ): T[] {
-    const { family, local, claimed } = spec;
+    const { family, local } = spec;
+    const taken = spec.taken ?? (() => false);
     const fresh = this.freshBucket(s, bucketKey(family, bucket), clock);
     if (!fresh) {
       return local;
@@ -448,7 +449,7 @@ export class WorldSync {
     const ids = new Set<string>();
     for (const raw of fresh.bucket.rows) {
       const row = spec.read(raw, fresh.at);
-      if (!row || claimed?.has(row.id)) {
+      if (!row || taken(row.id)) {
         continue;
       }
       row.x += row.vx * fresh.ageS;
@@ -468,7 +469,7 @@ export class WorldSync {
     return local.filter(
       (e) =>
         (family.buckets > 1 && bucketOf(e.id, family.buckets) !== bucket) ||
-        (ids.has(e.id) && !claimed?.has(e.id)),
+        (ids.has(e.id) && !taken(e.id)),
     );
   }
 
