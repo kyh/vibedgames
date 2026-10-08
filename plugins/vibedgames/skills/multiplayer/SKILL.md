@@ -37,10 +37,18 @@ The **host** (first player) runs authoritative game logic. If the host leaves, t
 The SDK also ships the netcode pieces every real-time game needs. Use them rather than hand-rolling a throttle or a lerp:
 
 - `FixedRate` — a steady send clock.
-- `Interpolator` and `RemoteClock` — render remote players smoothly from timestamped updates.
+- `client.serverNow()` / `client.serverClock` — one clock every client shares; stamp sends with it.
+- `Interpolator` — render remote players smoothly from those stamps.
 - `Reconciler` — correct a guest's own predicted body against the host's copy.
 
-See [references/architecture.md](references/architecture.md) → Throttling and Latency.
+And the party server runs the services no single client can do fairly:
+
+- **Claims** — `client.claim(key)`: first come, first served, one hop (pellets, pickups, harvests).
+- **Tick rooms** — `tickRate` + `sendInput` + `onTick`: ordered inputs for lockstep/rollback games.
+- **Interest** — `interest: { radius }`: far players stop receiving each other's state.
+- **Limits** — `limits: { hp: { min, max } }`: the server drops out-of-range player state.
+
+See [references/architecture.md](references/architecture.md) → Throttling, Latency, Races, Lockstep and rollback.
 
 ## Room caps (overflow to new rooms)
 
@@ -129,7 +137,7 @@ setSpawn(SPAWNS[idx]);
 
 - [references/react.md](references/react.md) — React hooks: `useMultiplayerRoom`/`useMultiplayerState`/`usePlayerState`, targeted + coalesced events, room metadata. Open for a React game.
 - [references/engines.md](references/engines.md) — `MultiplayerClient` in a game loop, read-vs-subscribe rule, Phaser and Three.js examples. Open for any non-React game.
-- [references/architecture.md](references/architecture.md) — `net/` adapter layer, host-side seeding, offline ≠ solo, throttling (`FixedRate`), reconnection UX (offline fallback, stale host), pause in an online game, latency (`Interpolator` for remotes, `Reconciler` for your own predicted body, `bodyDrive`), the automated two-client check, schema discipline + validation. Open before writing `net/`, and whenever a room freezes, rubber-bands, lags, or resets.
+- [references/architecture.md](references/architecture.md) — `net/` adapter layer, host-side seeding, offline ≠ solo, throttling (`FixedRate`), reconnection UX (offline fallback, stale host), pause in an online game, latency (`Interpolator` for remotes, `Reconciler` for your own predicted body, `bodyDrive`), claims, tick rooms (lockstep/rollback), interest, limits, the automated two-client check, schema discipline + validation. Open before writing `net/`, and whenever a room freezes, rubber-bands, lags, or resets.
 
 ## Local dev loop (two tabs, one room)
 
@@ -143,7 +151,8 @@ setSpawn(SPAWNS[idx]);
 
 - ❌ **Mutating the local mirror directly.** `client.sharedState.score = 100` is silently overwritten on the next patch.
 - ❌ **Sending positions as events.** Position belongs in `updateMyState`. Events are for things that _happened_.
-- ❌ **Drawing remotes at their newest value.** Snapping, per-packet tweens and exponential "chase the latest" lerps all show network jitter as stutter. Stamp sends with `t` and render through `Interpolator`.
+- ❌ **Drawing remotes at their newest value.** Snapping, per-packet tweens and exponential "chase the latest" lerps all show network jitter as stutter. Stamp sends with `t: client.serverNow()` and render through `Interpolator` on `client.serverClock`.
+- ❌ **Letting the host settle races.** A guest's pickup waits a round trip and the host wins every tie. Use `client.claim(key)`.
 - ❌ **Making a guest wait for the host to move its own character.** That is a full round trip of input lag. Predict locally and correct with `Reconciler` — against where the body _was_, never where it is now.
 - ❌ **`acc = 0` or `frame % n` send throttles.** They drift, alternate gap lengths, or scale with refresh rate. Use `FixedRate`.
 - ❌ **Whole-world snapshots every tick.** The SDK re-sends any object or array key in full on every call. Send small primitive rows per tick, slow-changing state on change, and the full world rarely (for host handover).

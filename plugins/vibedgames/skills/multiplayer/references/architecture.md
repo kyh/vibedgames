@@ -123,8 +123,8 @@ import { FixedRate } from "@vibedgames/multiplayer";
 const net = new FixedRate(20);
 function update(deltaMs: number) {
   if (net.due(deltaMs)) {
-    // stamp every send — receivers interpolate on it (see Latency)
-    client.updateMyState({ t: Math.round(performance.now()), x, y });
+    // stamp every send with server time — receivers interpolate on it (see Latency)
+    client.updateMyState({ t: Math.round(client.serverNow()), x, y });
   }
 }
 ```
@@ -231,9 +231,9 @@ thing advances each body per frame:
 **Remotes (puppets): `Interpolator`.** Never chase the newest value. An
 exponential lerp toward it surges on every packet and stalls on every gap, and
 snapping or tweening per packet is worse. Every sender stamps its updates with
-`t: Math.round(performance.now())`. Receivers push each update and render about
-100 ms behind the sender's clock, blending the two updates that bracket that
-moment:
+the room's server clock, `t: Math.round(client.serverNow())`. Receivers push
+each update and render about 100 ms behind that clock, blending the two updates
+that bracket that moment:
 
 ```ts
 import { Interpolator, lerp, lerpAngle } from "@vibedgames/multiplayer";
@@ -246,7 +246,10 @@ const lerpPose = (a: Pose, b: Pose, k: number): Pose => ({
 const remotes = new Map<string, Interpolator<Pose>>();
 // each frame, per remote player (duplicate stamps are dropped):
 let interp = remotes.get(id);
-if (!interp) remotes.set(id, (interp = new Interpolator({ lerp: lerpPose })));
+if (!interp) {
+  interp = new Interpolator({ clock: client.serverClock, lerp: lerpPose });
+  remotes.set(id, interp);
+}
 interp.push(s.t, { x: s.x, y: s.y, angle: s.angle });
 const pose = interp.sample(); // undefined until the first update
 ```
@@ -254,9 +257,10 @@ const pose = interp.sample(); // undefined until the first update
 - **Delay.** 100 ms suits 20–30 Hz senders; use ~150 ms for 10–15 Hz.
 - **Discontinuities.** Call `clear()` on a respawn or teleport, so the entity
   snaps instead of gliding through walls.
-- **Host snapshots.** Units in a host snapshot share one `RemoteClock`
-  (`new Interpolator({ clock: hostClock, lerp })`), stamped with host sim time.
-  `reset()` it when `hostId` changes, because a new host has a different clock.
+- **Host snapshots.** The host stamps each snapshot with `client.serverNow()`
+  too, so the units in it interpolate on the same `client.serverClock` and
+  nothing changes when the host does. Stamps in some other timebase (host sim
+  time) need a `RemoteClock` per sender instead, `reset()` when `hostId` changes.
 - **Grid or step movers.** Stamp each step when it starts, like any other
   update. Never stamp a future arrival time: the clock reads every stamp as send
   time, so a shifted stamp skews every entity from that sender. Set `delayMs` to
@@ -294,6 +298,54 @@ the guest doesn't predict becomes a correction the player feels as
 rubber-banding. Examples are hit-stop freezing every body, a separation push,
 a speed debuff, or a stomp bounce. Either run it on the guest too, or deliver
 it as a state edge (a `hitSeq` in the row) that the guest applies locally.
+
+## Races: claims
+
+Two players reach the same pellet, pickup or harvest in the same frame. Asking
+the host to decide costs the guest a round trip and hands the host every tie.
+Claim it instead: the server decides first come, first served, in one hop.
+
+```ts
+client.claim(`pellet:${i}`); // eat it now, optimistically
+// onClaim option: (key, owner) => { if (owner !== client.playerId) undoEat(key) }
+client.clearClaims("pellet:"); // host, on a new level
+```
+
+A refused claimer alone hears who holds the key; everyone hears a grant. Claims
+outlive their owner (an eaten pellet stays eaten) and arrive in the join sync;
+`ttlMs` releases a short hold automatically. The host still applies the effect
+(score, respawn timer) when it hears the grant: the claim settles who, not what.
+
+## Lockstep and rollback: tick rooms
+
+A deterministic game (fighting, pong, RTS) can skip the host entirely: pass
+`tickRate`, send inputs on change with `sendInput`, and step the sim from
+`onTick({ n, inputs })` — every client gets the same inputs on the same ticks.
+The server only keeps time and orders inputs. For rollback, simulate ahead on
+predicted inputs (each player's held one) and re-simulate from tick `n` when
+`onTick` reports a change you didn't predict. `sendInput(input,
+client.serverTick() + delay)` schedules a few ticks ahead to hide latency. A
+blip replays the missed ticks through `onTick`; a joiner starts from
+`tickClock` and `tickInputs()`, or from a world the host published with its
+tick, replayed forward with `tickInputs(t)`. The sim must be deterministic:
+fixed steps, no `Math.random()` without a shared seed, no frame-time
+integration.
+
+## Big worlds: interest
+
+`interest: { radius }` stops the server sending a player the state of anyone
+farther away; such players read `visible: false` (hide them, and drop their
+`Interpolator`), and come back with their whole state. The host always sees
+everyone. Pick the radius past the edge of the screen, so nobody pops in view.
+
+## Bounds: limits
+
+`limits: { hp: { min: 0, max: 100 } }` makes the server drop player-state
+patches outside the range. It is a cheap guard against a hacked client writing
+nonsense into its own slot, not a substitute for the host validating intents.
+
+Room rules (`tickRate`, `interest`, `limits`, like `maxPlayers`) come from the
+first client into an empty room, so every client must pass the same ones.
 
 ## Automated two-client check
 

@@ -2,22 +2,52 @@
 
 ## Unreleased
 
-Netcode helpers, all additive — no wire or API change to the client.
+**Breaking: requires the matching party server.** The protocol drops the
+pre-0.2 fallbacks (`_delta` full-snapshot fan-out, connections without a
+reconnect token), and the room-feature messages below need a server that speaks
+them. Rooms are the only state, so deploy the server and clients together.
+
+Room features — game-agnostic services the party server now runs for every room:
+
+- Server time: `serverNow()`, `rtt` and `serverClock`. NTP-style probes on join
+  and every 5 s; the fastest probe defines the offset and revisions are slewed.
+  One timebase for every client that survives host migration — pass
+  `client.serverClock` as an `Interpolator`'s clock and stamp with `serverNow()`.
+- Claims: `claim(key, { ttlMs })`, `release`, `clearClaims(prefix)` (host),
+  `ownerOf`, `claims` and the `onClaim` option. First come, first served, decided
+  by the server in one hop with no host advantage; claims persist past their
+  owner leaving and arrive in `sync`.
+- Tick rooms: the `tickRate` option, `sendInput(input, n?)`, `onTick`,
+  `tickClock`, `serverTick()` and `tickInputs(n?)`. The server orders inputs into
+  numbered ticks and broadcasts each tick's changes, in order, for lockstep and
+  rollback games. The room keeps `MAX_TICK_HISTORY` ticks: a client back from a
+  blip replays the ticks it missed through `onTick` and re-sends its held input.
+- Interest management: the `interest` option. Players farther apart than the
+  radius stop receiving each other's player state and read `visible: false`;
+  re-entering range delivers the whole state. The host sees everyone.
+- Player-state limits: the `limits` option; the server drops out-of-range patches.
+- Room rules (`tickRate`, `interest`, `limits`) are sticky per room session, like
+  `maxPlayers`, and advertised in the `_room` query param.
+- The server persists the room's shared state and claims (debounced, never
+  blocking a message), so a room survives a restart mid-session.
+
+Netcode helpers:
 
 - `FixedRate`: a send clock for variable frame loops that keeps its remainder
   (a reset-to-0 throttle drifts low and alternates gap lengths) and drops backlog
   after a stall instead of bursting.
-- `Interpolator` + `RemoteClock`: snapshot interpolation for remote entities from
-  sender-stamped updates. Renders a fixed delay behind the sender's clock, with
-  bounded extrapolation and idle-gap bridging. The clock offset comes from a
-  sliding-window minimum and is slewed, so it adapts without visible jumps.
+- `Interpolator` (+ `RemoteClock`, `SenderClock`): snapshot interpolation for
+  remote entities from stamped updates. Renders a fixed delay behind the clock,
+  with bounded extrapolation and idle-gap bridging. `RemoteClock` estimates one
+  sender's clock (sliding-window minimum, slewed) for stamps not in server time.
 - `Reconciler`: client-side prediction correction for a guest's own body. It
   compares the host's copy with the predicted trajectory at the matching time
   (from an acked input `seq` plus how long the host has applied it), or with the
   nearest point when no timing is given. Errors are eased out or snapped.
 - `lerp`, `lerpAngle`.
-- Requires nothing from the server. The party server, separately, no longer
-  echoes a host's own `state_patch` back to it; clients already applied it.
+
+Server: no longer echoes a host's own `state_patch` back to it; clients already
+applied it.
 
 ## 0.2.0 — 2026-07-24
 

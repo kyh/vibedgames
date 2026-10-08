@@ -73,22 +73,25 @@ class GameScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number) {
-    // Read other players; render each ~100 ms behind its sender's clock.
+    // Read other players; render each ~100 ms behind the server's clock.
     for (const [id, player] of Object.entries(this.client.players)) {
       if (id === this.client.playerId) continue;
       const s = player.state as { t?: number; x?: number; y?: number } | undefined;
       if (s?.t === undefined) continue;
       let interp = this.remotes.get(id);
-      if (!interp) this.remotes.set(id, (interp = new Interpolator({ lerp: lerpPose })));
+      if (!interp) {
+        interp = new Interpolator({ clock: this.client.serverClock, lerp: lerpPose });
+        this.remotes.set(id, interp);
+      }
       interp.push(s.t, { x: s.x ?? 0, y: s.y ?? 0 });
       const pose = interp.sample();
       // Render player at pose.x, pose.y
     }
 
-    // Send my position on a steady 20 Hz clock, stamped.
+    // Send my position on a steady 20 Hz clock, stamped with server time.
     if (this.net.due(delta)) {
       this.client.updateMyState({
-        t: Math.round(performance.now()),
+        t: Math.round(this.client.serverNow()),
         x: this.ship.x,
         y: this.ship.y,
       });
@@ -130,7 +133,7 @@ renderer.setAnimationLoop((time) => {
     let remote = remotes.get(id);
     if (!remote) {
       remote = {
-        interp: new Interpolator({ lerp: lerpPose }),
+        interp: new Interpolator({ clock: client.serverClock, lerp: lerpPose }),
         mesh: new THREE.Mesh(avatarGeometry, avatarMaterial),
       };
       scene.add(remote.mesh);
@@ -149,10 +152,10 @@ renderer.setAnimationLoop((time) => {
     }
   }
 
-  // Steady 20 Hz position send, stamped for the receivers' interpolation.
+  // Steady 20 Hz position send, stamped with server time for the receivers' interpolation.
   if (net.due(timer.getDelta() * 1000)) {
     client.updateMyState({
-      t: Math.round(performance.now()),
+      t: Math.round(client.serverNow()),
       x: avatar.position.x,
       z: avatar.position.z,
     });

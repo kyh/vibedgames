@@ -34,11 +34,32 @@ Clients connect via WebSocket. The server handles:
   patches are checked for shape (plain objects, bounded depth, no cycles or
   functions). Game-specific schemas are the client's job — the server never
   knows a game's shape.
+- **Server time** — `time` probes are answered with the server's clock at once;
+  the SDK turns them into `serverNow()`, one timebase for every client.
+- **Claims** — `claim`/`release`/`clear_claims`: first come, first served per
+  key, optional TTL (expiry wakes the alarm), owner-or-host release, host-only
+  prefix clear, at most `MAX_CLAIMS` per room. Sent in `sync`.
+- **Ticks** — a room with a `tickRate` rule runs a server clock that stamps
+  each `input` into a numbered tick (`max(n, next)`, at most
+  `MAX_INPUT_LEAD_TICKS` ahead) and broadcasts every tick's changes in order.
+  The last `MAX_TICK_HISTORY` ticks of changes ride in `sync`, so a client back
+  from a blip replays what it missed. A dropped or departed player's input
+  clears to `null`. The running interval keeps the room awake while it ticks.
+- **Interest** — with an `interest` rule, player-state deltas go only to
+  players within the radius (the host gets everything); leaving range sends
+  `player_visibility: false`, re-entering sends the whole state then `true`.
+  Which pairs see each other is in memory: after hibernation every pair is
+  re-decided with the whole state.
+- **Limits** — a `limits` rule drops player-state patches whose listed numeric
+  keys fall outside their bounds.
+- **Persistence** — shared state and claims are written (debounced to 1 s,
+  unconfirmed, ≤ 120 KB) so a room survives a restart mid-session.
 
-Every wire extension above is feature-detected via a query-param capability flag
-(`_maxPlayers`, `_reconnectToken`, `_delta`), never a protocol version — an old
-published SDK and a current one coexist in the same room. Keep it that way:
-growth here must stay additive.
+Room rules (`tickRate`, `interest`, `limits`) arrive as JSON in the `_room`
+query param and, like `_maxPlayers`, stick from the first admitted client until
+the room empties. A connection without `_reconnectToken` is closed (4002). The
+SDK and this server move together — there are no fallbacks for older clients;
+a game that changes its own wire format versions its room ids.
 
 The message types themselves live in
 [`@vibedgames/multiplayer`](../../packages/multiplayer) and are imported by the
@@ -49,8 +70,8 @@ server, so client and server can never drift on a constant.
 - `GET /health` — liveness probe, answered at the Worker layer (never wakes a
   Durable Object). Returns `{ ok: true, service: "vibedgames-party" }`.
 - `GET /parties/vg-server/:room` — per-room inspection. Returns aggregate stats
-  only (`{ room, playerCount, capacity, hasHost }`) — never player ids or game
-  state, since room slugs are guessable and games are untrusted code. Wakes the
+  only (`{ room, playerCount, capacity, hasHost, rules }`) — never player ids or
+  game state, since room slugs are guessable and games are untrusted code. Wakes the
   room's Durable Object; with no open connections it sleeps again right after.
 
 There is no global room-listing endpoint: Durable Objects have no "list all
@@ -62,7 +83,8 @@ warranted yet. Inspect rooms by id.
 Multiplayer is **host-authoritative, last-write-wins**. The elected host (a browser)
 runs game logic and is the only writer of `sharedState`; the server is a relay that
 enforces that rule, not a simulation. Intents go up (`emit`), state comes down
-(`state_patch`). There is no conflict resolution.
+(`state_patch`). What the server adds is only what no client can do fairly: one
+clock, first-come claims, an ordered input stream, interest filtering and bounds.
 
 ### Why not Colyseus
 
@@ -74,8 +96,8 @@ one shared, generic relay. Adopting it would mean per-game server code.
 So we deliberately skip the Colyseus features that only make sense inside that model:
 
 - Declarative `@type` schemas with a binary protocol
-- Server simulation tick loop (`setSimulationInterval`)
-- Per-client filtered sync (`@filter`)
+- Server simulation (`setSimulationInterval`) — the tick loop here orders inputs; it simulates nothing
+- Per-field filtered sync (`@filter`) — interest here is one radius rule over player state
 - Server-driven matchmaker — rooms are client-chosen ids
 - Lobby room
 - Redis-backed presence / multi-process scaling — a Durable Object per room gives this for free
