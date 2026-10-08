@@ -26,6 +26,13 @@ export interface MultiplayerOptions {
    */
   maxPlayers?: number;
   /**
+   * Interest management: players farther apart than `radius` (in the units of
+   * the player-state keys `x`/`y`, default "x"/"y") stop receiving each
+   * other's player state; such a player reads `visible: false`. The host always
+   * receives everyone. Omit for no filtering.
+   */
+  interest?: InterestRule;
+  /**
    * Bounds the server enforces on numeric player-state keys: a patch setting a
    * listed key outside its range is dropped before anyone sees it.
    */
@@ -37,6 +44,13 @@ export interface MultiplayerOptions {
    * is whoever already holds it). See `MultiplayerClient.claim`.
    */
   onClaim?: (key: string, owner: string | null) => void;
+}
+
+/** The interest rule a room filters player state by. */
+export interface InterestRule {
+  radius: number;
+  x?: string;
+  y?: string;
 }
 
 /** Inclusive bounds for one numeric player-state key. */
@@ -51,6 +65,7 @@ export interface PlayerLimit {
  * (ship them in shared config, like `maxPlayers`).
  */
 export interface RoomRules {
+  interest?: InterestRule;
   limits?: Record<string, PlayerLimit>;
 }
 
@@ -117,6 +132,12 @@ export interface Player {
    * treatment instead of removing them.
    */
   connected?: boolean;
+  /**
+   * False while the player is outside this client's interest radius (see
+   * `MultiplayerOptions.interest`): their `state` is the last seen and no
+   * longer updates — hide them. Absent means visible.
+   */
+  visible?: boolean;
 }
 
 export type PlayerMap = Record<string, Player>;
@@ -203,10 +224,14 @@ export type ServerMessage =
   | { type: "player_left"; data: { id: string } }
   | { type: "host"; data: { id: string } }
   | { type: "state_patch"; data: JsonRecord }
+  // A keyed delta of the player's state — or the whole state when the player
+  // has just come back into this client's interest radius.
   | { type: "player_state"; data: { id: string; state: JsonRecord } }
   // A player's transport dropped (connected: false — seat held for the grace
   // window) or came back (connected: true).
   | { type: "player_connection"; data: { id: string; connected: boolean } }
+  // A player left (visible: false) or entered (true) this client's interest radius.
+  | { type: "player_visibility"; data: { id: string; visible: boolean } }
   | { type: "event"; data: { event: string; payload: JsonValue; from: string } }
   // Sent (then the socket is closed) when a player connects to a room that is
   // already at capacity. `room` is the sibling room the client should retry.

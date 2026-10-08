@@ -81,7 +81,7 @@ const waitFor = async (
 
 const connect = (
   room: string,
-  options?: Pick<MultiplayerClientOptions, "onClaim" | "onEvent">,
+  options?: Pick<MultiplayerClientOptions, "interest" | "onClaim" | "onEvent">,
 ): MultiplayerClient =>
   new MultiplayerClient({
     host: worker.origin,
@@ -551,6 +551,40 @@ test("claims go to the first claimer; the loser hears the owner; release, clear 
       late.destroy();
     }
   } finally {
+    clientA.destroy();
+    clientB.destroy();
+  }
+});
+
+test("interest: far players stop updating, return with their whole state, and the host sees everyone", async () => {
+  const room = uniqueRoom("interest");
+  const interest = { radius: 10 };
+  const host = connect(room, { interest });
+  await waitFor(() => admitted(host), "host admitted first");
+  const clientA = connect(room, { interest });
+  const clientB = connect(room, { interest });
+  try {
+    await waitFor(() => admitted(clientA) && admitted(clientB), "A and B admitted");
+    const aId = clientA.playerId;
+    const bId = clientB.playerId;
+    assert.ok(aId !== null && bId !== null);
+    host.updateMyState({ x: 0, y: 0 });
+    clientA.updateMyState({ x: 0, y: 0 });
+    clientB.updateMyState({ x: 100, y: 0 });
+    await waitFor(() => clientA.players[bId]?.visible === false, "A loses sight of far-off B");
+    await waitFor(() => clientB.players[aId]?.visible === false, "B loses sight of A");
+
+    clientB.updateMyState({ hp: 7, x: 101 });
+    await waitFor(() => host.players[bId]?.state?.x === 101, "the host still hears B");
+    assert.notEqual(clientA.players[bId]?.state?.hp, 7, "A heard nothing while B was away");
+
+    clientB.updateMyState({ x: 5 });
+    await waitFor(() => clientA.players[bId]?.visible === true, "B comes back into A's view");
+    assert.equal(clientA.players[bId]?.state?.hp, 7, "with the state that changed while hidden");
+    assert.equal(clientA.players[bId]?.state?.x, 5);
+    await waitFor(() => clientB.players[aId]?.visible === true, "and B sees A again");
+  } finally {
+    host.destroy();
     clientA.destroy();
     clientB.destroy();
   }

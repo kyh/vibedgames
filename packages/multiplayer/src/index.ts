@@ -14,6 +14,7 @@ export type {
   ClaimInfo,
   ClaimMap,
   ClientMessage,
+  InterestRule,
   MultiplayerConnectionStatus,
   MultiplayerOptions,
   Player,

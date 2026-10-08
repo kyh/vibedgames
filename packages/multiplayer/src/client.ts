@@ -106,6 +106,9 @@ const TIME_PROBE_BURST_MS = [0, 100, 250, 500];
 /** The room rules this client advertises (query JSON), or null for none. */
 const roomRules = (options: MultiplayerOptions): RoomRules | null => {
   const rules: RoomRules = {};
+  if (options.interest !== undefined) {
+    rules.interest = options.interest;
+  }
   if (options.limits !== undefined) {
     rules.limits = options.limits;
   }
@@ -847,6 +850,10 @@ export class MultiplayerClient {
         this.patchPlayer(message.data.id, { connected: message.data.connected });
         return true;
       }
+      case "player_visibility": {
+        this.patchPlayer(message.data.id, { visible: message.data.visible });
+        return true;
+      }
       case "event": {
         this._onEvent?.(message.data.event, message.data.payload, message.data.from);
         return true;
@@ -878,10 +885,11 @@ export class MultiplayerClient {
   }
 
   /**
-   * Merge a player-state message: a keyed delta, shallow-merged because keys
-   * are only ever merged, never deleted. The schema check runs on the MERGED
-   * result, mirroring the sharedState path: a delta is partial by design and
-   * would fail any schema with required fields.
+   * Merge a player-state message: a keyed delta — or the whole state for a
+   * player who just came back into interest range; shallow-merging handles
+   * both, because keys are only ever merged, never deleted. The schema check
+   * runs on the MERGED result, mirroring the sharedState path: a delta is
+   * partial by design and would fail any schema with required fields.
    */
   private mergePlayerState(id: string, state: JsonRecord): void {
     const existing = this._players[id] ?? { id };
@@ -893,7 +901,7 @@ export class MultiplayerClient {
   }
 
   /** Set presence flags on a player this client already knows. */
-  private patchPlayer(id: string, flags: Pick<Player, "connected">): void {
+  private patchPlayer(id: string, flags: Pick<Player, "connected" | "visible">): void {
     const known = this._players[id];
     if (known) {
       this._players = { ...this._players, [id]: { ...known, ...flags } };

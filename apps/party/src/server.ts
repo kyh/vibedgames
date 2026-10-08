@@ -3,6 +3,7 @@ import { routePartykitRequest, Server } from "partyserver";
 
 import type {
   ClaimMap,
+  InterestRule,
   Player,
   PlayerLimit,
   PlayerMap,
@@ -287,6 +288,19 @@ const readReconnectToken = (ctx: ConnectionContext): string | null => {
 const isRuleKey = (value: JsonValue | undefined): value is string =>
   isJsonString(value) && value.length > 0 && value.length <= MAX_RULE_KEY_LENGTH;
 
+const readInterest = (raw: JsonValue | undefined): InterestRule | null => {
+  const rule = asStateMap(raw);
+  const radius = rule?.radius;
+  if (!rule || !isJsonNumber(radius) || radius <= 0) {
+    return null;
+  }
+  return {
+    radius,
+    x: isRuleKey(rule.x) ? rule.x : "x",
+    y: isRuleKey(rule.y) ? rule.y : "y",
+  };
+};
+
 const readLimits = (raw: JsonValue | undefined): Record<string, PlayerLimit> | null => {
   const source = asStateMap(raw);
   if (!source) {
@@ -328,6 +342,10 @@ const readRoomRules = (ctx: ConnectionContext): RoomRules | null => {
     return null;
   }
   const rules: RoomRules = {};
+  const interest = readInterest(source.interest);
+  if (interest) {
+    rules.interest = interest;
+  }
   const limits = readLimits(source.limits);
   if (limits) {
     rules.limits = limits;
@@ -398,6 +416,14 @@ export class VgServer extends Server {
   private rules: RoomRules | null = null;
   private grace = new Map<string, GraceEntry>();
   private claims = new Map<string, Claim>();
+  /**
+   * Interest: each player's last position, and what each recipient has been
+   * told about each other player — true visible, false hidden, absent unknown.
+   * In memory only: after hibernation every pair is unknown, and the next
+   * patch re-decides it with the whole state rather than a delta.
+   */
+  private positions = new Map<string, { x: number; y: number }>();
+  private views = new Map<string, Map<string, boolean>>();
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Rehydrate durable room fields before any handler runs (partyserver awaits this). */
@@ -418,8 +444,14 @@ export class VgServer extends Server {
   }
 
   private async setHostId(id: string | null): Promise<void> {
+    const previous = this.hostId;
     this.hostId = id;
     await this.ctx.storage.put(HOST_ID_KEY, id);
+    // The host sees everyone, whatever the interest rule: it may be simulating
+    // players far from its own avatar.
+    if (id !== null && id !== previous) {
+      this.revealAllTo(id);
+    }
   }
 
   private async setCap(cap: number | null): Promise<void> {
@@ -451,13 +483,14 @@ export class VgServer extends Server {
    * superseded socket has had its presence detached.
    */
   private presenceOf(id: string): Presence | undefined {
+    return this.connectionOf(id)?.state ?? undefined;
+  }
+
+  /** The live, admitted connection for a player id (see presenceOf). */
+  private connectionOf(id: string): Connection<Presence> | undefined {
     for (const connection of this.getConnections<Presence>()) {
-      if (connection.id !== id) {
-        continue;
-      }
-      const presence = connection.state;
-      if (presence) {
-        return presence;
+      if (connection.id === id && connection.state) {
+        return connection;
       }
     }
     return undefined;
@@ -724,6 +757,7 @@ export class VgServer extends Server {
     // held host — hand the role to the new id rather than to a bystander.
     if (reclaimed && reclaimed.id !== connection.id) {
       this.snapshots.delete(reclaimed.id);
+      this.forgetPlayer(reclaimed.id);
       this.transferClaims(reclaimed.id, connection.id);
       const leftMessage: ServerMessage = { data: { id: reclaimed.id }, type: "player_left" };
       this.broadcast(JSON.stringify(leftMessage), [connection.id]);
@@ -759,6 +793,9 @@ export class VgServer extends Server {
       type: "player_joined",
     };
     this.broadcast(JSON.stringify(joinedMessage), [connection.id]);
+    // The sync and the join carried whole states both ways, so in an interest
+    // room every pair with the newcomer starts out visible.
+    this.markVisibleBothWays(connection.id);
   }
 
   async onMessage(sender: Connection<Presence>, rawMessage: string): Promise<void> {
@@ -795,7 +832,7 @@ export class VgServer extends Server {
           }
           const next = { ...this.snapshots.get(sender.id), ...patch };
           this.snapshots.set(sender.id, next);
-          this.relayPlayerState(sender, patch);
+          this.relayPlayerState(sender, patch, next);
           break;
         }
         case "state_patch": {
@@ -909,13 +946,147 @@ export class VgServer extends Server {
     );
   }
 
-  /** Fan a player-state patch out: the keyed delta to everyone but the sender. */
-  private relayPlayerState(sender: Connection<Presence>, patch: StateMap): void {
+  // -- Interest ------------------------------------------------------------
+
+  /** Record a player's position from its merged state (interest rooms only). */
+  private updatePosition(id: string, state: StateMap): void {
+    const rule = this.rules?.interest;
+    if (!rule) {
+      return;
+    }
+    const x = state[rule.x ?? "x"];
+    const y = state[rule.y ?? "y"];
+    if (isJsonNumber(x) && isJsonNumber(y)) {
+      this.positions.set(id, { x, y });
+    }
+  }
+
+  /** Whether `recipient` should receive `subject`'s player state. */
+  private inRange(recipient: string, subject: string): boolean {
+    const rule = this.rules?.interest;
+    if (!rule || recipient === this.hostId) {
+      return true;
+    }
+    const a = this.positions.get(recipient);
+    const b = this.positions.get(subject);
+    if (!a || !b) {
+      return true;
+    }
+    return (a.x - b.x) ** 2 + (a.y - b.y) ** 2 <= rule.radius ** 2;
+  }
+
+  private viewOf(recipient: string): Map<string, boolean> {
+    let view = this.views.get(recipient);
+    if (!view) {
+      view = new Map();
+      this.views.set(recipient, view);
+    }
+    return view;
+  }
+
+  /** In interest rooms, record that `id` and every admitted player see each other. */
+  private markVisibleBothWays(id: string): void {
+    if (!this.rules?.interest) {
+      return;
+    }
+    const own = this.viewOf(id);
+    for (const connection of this.getConnections<Presence>()) {
+      if (connection.state && connection.id !== id) {
+        own.set(connection.id, true);
+        this.viewOf(connection.id).set(id, true);
+      }
+    }
+  }
+
+  /** Bring `subject` into `recipient`'s view: its whole state, then the flag. */
+  private reveal(recipient: Connection<Presence>, subject: string): void {
+    this.viewOf(recipient.id).set(subject, true);
+    const state: ServerMessage = {
+      data: { id: subject, state: this.snapshots.get(subject) ?? {} },
+      type: "player_state",
+    };
+    const visible: ServerMessage = {
+      data: { id: subject, visible: true },
+      type: "player_visibility",
+    };
+    VgServer.sendTo(recipient, JSON.stringify(state));
+    VgServer.sendTo(recipient, JSON.stringify(visible));
+  }
+
+  private conceal(recipient: Connection<Presence>, subject: string): void {
+    this.viewOf(recipient.id).set(subject, false);
+    const message: ServerMessage = {
+      data: { id: subject, visible: false },
+      type: "player_visibility",
+    };
+    VgServer.sendTo(recipient, JSON.stringify(message));
+  }
+
+  /** A new host sees everyone again. */
+  private revealAllTo(id: string): void {
+    const view = this.views.get(id);
+    const connection = this.connectionOf(id);
+    if (!view || !connection) {
+      return;
+    }
+    for (const [subject, visible] of view) {
+      if (!visible) {
+        this.reveal(connection, subject);
+      }
+    }
+  }
+
+  /**
+   * Fan a player-state patch out: the keyed delta to everyone in range, and —
+   * in interest rooms — visibility changes both ways: who can now see the
+   * sender, and (the sender having moved) whom the sender can now see. A pair
+   * whose visibility is unknown (after hibernation) is re-decided with the
+   * whole state, never a delta the recipient could not merge.
+   */
+  private relayPlayerState(sender: Connection<Presence>, patch: StateMap, next: StateMap): void {
     const delta = JSON.stringify({
       data: { id: sender.id, state: patch },
       type: "player_state",
     } satisfies ServerMessage);
-    this.sendToEach((connection) => (connection.id === sender.id ? null : delta));
+    if (!this.rules?.interest) {
+      this.sendToEach((connection) => (connection.id === sender.id ? null : delta));
+      return;
+    }
+    this.updatePosition(sender.id, next);
+    const senderView = this.viewOf(sender.id);
+    for (const connection of this.getConnections<Presence>()) {
+      if (!connection.state || connection.id === sender.id) {
+        continue;
+      }
+      const shown = this.viewOf(connection.id).get(sender.id);
+      if (!this.inRange(connection.id, sender.id)) {
+        if (shown !== false) {
+          this.conceal(connection, sender.id);
+        }
+      } else if (shown === true) {
+        VgServer.sendTo(connection, delta);
+      } else {
+        this.reveal(connection, sender.id);
+      }
+      // What the sender sees changes with its own position, even of players
+      // who are standing still and sending nothing.
+      const sees = this.inRange(sender.id, connection.id);
+      const seen = senderView.get(connection.id);
+      if (sees && seen !== true) {
+        this.reveal(sender, connection.id);
+      } else if (!sees && seen !== false) {
+        this.conceal(sender, connection.id);
+      }
+    }
+  }
+
+  /** Drop a departed player from every interest index. */
+  private forgetPlayer(id: string): void {
+    this.positions.delete(id);
+    this.views.delete(id);
+    for (const view of this.views.values()) {
+      view.delete(id);
+    }
   }
 
   // -- Claims --------------------------------------------------------------
@@ -1276,6 +1447,7 @@ export class VgServer extends Server {
    */
   private async announceDeparture(id: string): Promise<void> {
     this.snapshots.delete(id);
+    this.forgetPlayer(id);
 
     const leftMessage: ServerMessage = {
       data: { id },
@@ -1321,6 +1493,8 @@ export class VgServer extends Server {
       await this.setRules(null);
       this.shared = {};
       this.claims.clear();
+      this.positions.clear();
+      this.views.clear();
       if (this.persistTimer !== null) {
         clearTimeout(this.persistTimer);
         this.persistTimer = null;
