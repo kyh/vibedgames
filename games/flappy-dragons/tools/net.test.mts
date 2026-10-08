@@ -3,9 +3,9 @@ import { test } from "node:test";
 
 import type { SenderClock } from "@vibedgames/multiplayer";
 
+import { COURSE_SNAP_PX, courseStart, courseX, followCourse } from "../src/net/course.ts";
 import { RIVAL_DELAY_MS, RIVAL_TELEPORT_PX, RivalMotion } from "../src/net/rival-motion.ts";
 import type { DragonPose } from "../src/net/rival-motion.ts";
-import { WORLD_SNAP_PX, WorldFollower } from "../src/net/world-follower.ts";
 import { FLAP_VELOCITY, GRAVITY, MAX_TILT, PIPE_SPEED, tiltFor } from "../src/shared/constants.ts";
 
 const FRAME = 1000 / 60;
@@ -18,181 +18,48 @@ const noise = (i: number): number => {
 
 // ---- shared scroll -----------------------------------------------------------------
 
-interface Host {
-  /** Host clock = local clock + skew. */
-  skew: number;
-  /** Host scroll at host time `t`. */
-  x: (t: number) => number;
-}
+test("a race carries the host's course on from where it stands, at PIPE_SPEED on the room's clock", () => {
+  const now = 1_760_000_000_000;
+  const start = courseStart(1234.5, now);
+  assert.ok(Math.abs(courseX(start, now) - 1234.5) < 0.1, "no jump as the race begins");
+  // Every screen reads the one start on the one clock: a second on, each is
+  // PIPE_SPEED further — however its frames fell, whoever hosts by then.
+  assert.ok(Math.abs(courseX(start, now + 1000) - (1234.5 + PIPE_SPEED)) < 0.1);
+});
 
-interface Run {
-  /** Guest scroll after each frame. */
-  xs: number[];
-  /** The host's scroll at each frame's local time. */
-  truth: number[];
-  snaps: number;
-}
-
-/**
- * Drive a guest for `seconds` of 60 Hz frames against `host`, which reports at
- * 4 Hz over a 40–90 ms one-way route; reports are seen on the frame after
- * they land, as the scene polls them.
- */
-const follow = (options: {
-  follower: WorldFollower;
-  host: Host;
-  from: number;
-  seconds: number;
-  start: number;
-  flying: boolean;
-}): Run => {
-  const { follower, host, from } = options;
-  const reports: { at: number; t: number; x: number }[] = [];
-  for (let k = 0; k * 250 <= options.seconds * 1000 + 250; k += 1) {
-    const local = from - 250 + k * 250;
-    const t = local + host.skew;
-    reports.push({ at: local + 40 + noise(k) * 50, t, x: Math.round(host.x(t)) });
+/** A flying guest's scroll, frame by frame, following the room's `start` from `x` at room time `from`. */
+const ride = (start: number, x: number, from: number, frames: number): number[] => {
+  const xs: number[] = [];
+  let at = x;
+  for (let f = 1; f <= frames; f += 1) {
+    at = followCourse(at, courseX(start, from + f * FRAME), true);
+    xs.push(at);
   }
-  let next = 0;
-  let x = options.start;
-  const run: Run = { snaps: 0, truth: [], xs: [] };
-  for (let now = from + FRAME; now <= from + options.seconds * 1000; now += FRAME) {
-    while (next < reports.length && (reports[next]?.at ?? Infinity) <= now) {
-      const report = reports[next];
-      if (report) {
-        follower.observe(report.t, report.x, now);
-      }
-      next += 1;
-    }
-    x = follower.advance(x, FRAME, now, options.flying);
-    run.snaps += follower.snapped ? 1 : 0;
-    run.xs.push(x);
-    run.truth.push(host.x(now + host.skew));
-  }
-  return run;
+  return xs;
 };
 
-const steadyHost = (skew: number, x0: number): Host => ({
-  skew,
-  x: (t) => x0 + (PIPE_SPEED * (t - (10_000 + skew))) / 1000,
-});
-
-test("a guest's scroll never runs backwards while it folds in a host that lost time", () => {
-  const follower = new WorldFollower();
-  const synced = follow({
-    flying: true,
-    follower,
-    from: 10_000,
-    host: steadyHost(-7000, 2000),
-    seconds: 2,
-    start: 0,
-  });
-  assert.equal(synced.snaps, 1, "only the first report snaps");
-  // Then the host's scroll falls 300 px behind its pace (a stalled host on an
-  // older build), while the guest is still scrolling where the old pace was.
-  const lagging = steadyHost(-7000, 2000 - 300);
-  const run = follow({
-    flying: true,
-    follower,
-    from: 12_000,
-    host: lagging,
-    seconds: 14,
-    start: synced.xs.at(-1) ?? 0,
-  });
-  assert.equal(run.snaps, 0, "300 px is drift, not a snap");
-  let prev = synced.xs.at(-1) ?? 0;
-  for (const x of run.xs) {
-    const step = x - prev;
-    // Pipes may slow by the fold cap (40 px/s) but never stop or reverse.
-    assert.ok(step >= ((PIPE_SPEED - 40) * FRAME) / 1000 - 1e-9, `frame step ${step}`);
-    assert.ok(step <= ((PIPE_SPEED + 40) * FRAME) / 1000 + 1e-9, `frame step ${step}`);
-    prev = x;
+test("back into a race the host held, a flying guest's pipes halt, never reverse, then ride the room's clock", () => {
+  const before = courseStart(0, 10_000);
+  const x = courseX(before, 20_000);
+  // The host's course stood still for 2 s while we were away: the race it
+  // starts again on seeing us is 300 px behind where we flew on to.
+  const after = before + 2000;
+  const xs = ride(after, x, 20_000, 180);
+  let prev = x;
+  let held = 0;
+  for (const next of xs) {
+    assert.ok(next >= prev, `ran backwards by ${prev - next}`);
+    held += next === prev ? 1 : 0;
+    prev = next;
   }
-  // Settled on the host's line, behind it by about the route's fastest trip.
-  const error = (run.xs.at(-1) ?? 0) - (run.truth.at(-1) ?? 0);
-  assert.ok(error < 0 && error > -20, `settled error ${error}`);
+  assert.ok(Math.abs(held * FRAME - 2000) <= 2 * FRAME, `held ${held * FRAME} ms`);
+  assert.equal(xs.at(-1), courseX(after, 20_000 + 180 * FRAME), "then exactly on the room's line");
 });
 
-test("a guest adopts the first report and gross errors at once, and a reseed outright", () => {
-  const follower = new WorldFollower();
-  assert.equal(follower.advance(100, FRAME, 1000, true), 100 + (PIPE_SPEED * FRAME) / 1000);
-  assert.equal(follower.snapped, false, "dead-reckons until the host reports");
-  follower.observe(50_000, 5000, 1000);
-  assert.equal(follower.advance(100, FRAME, 1000, true), 5000);
-  assert.equal(follower.snapped, true, "the first report lands at once");
-  // A report a trunk spacing and more behind is a different course position.
-  follower.observe(50_250, 5000, 1250);
-  const x = follower.advance(5000 + 0.15 * 250 + WORLD_SNAP_PX + 50, FRAME, 1250, true);
-  assert.equal(follower.snapped, true);
-  assert.ok(Math.abs(x - 5000) < 1, `adopted ${x}`);
-  // A reseed: even a small error is taken at once — the course is new.
-  follower.resync();
-  follower.observe(50_500, 0, 1500);
-  assert.equal(follower.advance(30, FRAME, 1500, true), 0);
-  assert.equal(follower.snapped, true);
-});
-
-test("a new host dead-reckons through the handover, then folds in without a snap", () => {
-  const follower = new WorldFollower();
-  const before = follow({
-    flying: true,
-    follower,
-    from: 10_000,
-    host: steadyHost(-7000, 3000),
-    seconds: 2,
-    start: 0,
-  });
-  follower.reset();
-  let x = before.xs.at(-1) ?? 0;
-  for (let i = 0; i < 20; i += 1) {
-    const next = follower.advance(x, FRAME, 12_000 + i * FRAME, true);
-    assert.ok(Math.abs(next - x - (PIPE_SPEED * FRAME) / 1000) < 1e-9, "pure dead reckoning");
-    x = next;
-  }
-  // The new host's clock is ~50 s away from the old one's; its scroll is the
-  // one it tracked as a guest, a few px off.
-  const run = follow({
-    flying: true,
-    follower,
-    from: 12_000 + 20 * FRAME,
-    host: steadyHost(43_000, 3000 + 12),
-    seconds: 6,
-    start: x,
-  });
-  assert.equal(run.snaps, 0, "a handover is not a snap");
-  const error = (run.xs.at(-1) ?? 0) - (run.truth.at(-1) ?? 0);
-  assert.ok(Math.abs(error) < 20, `settled error ${error}`);
-});
-
-test("not flying, a lagging course hurries and a leading one halts — never reverses", () => {
-  for (const offset of [300, -300]) {
-    const follower = new WorldFollower();
-    const synced = follow({
-      flying: false,
-      follower,
-      from: 10_000,
-      host: steadyHost(-7000, 2000),
-      seconds: 1,
-      start: 0,
-    });
-    const run = follow({
-      flying: false,
-      follower,
-      from: 11_000,
-      host: steadyHost(-7000, 2000 + offset),
-      seconds: 3,
-      start: synced.xs.at(-1) ?? 0,
-    });
-    assert.equal(run.snaps, 0);
-    let prev = synced.xs.at(-1) ?? 0;
-    for (const x of run.xs) {
-      assert.ok(x - prev >= -1e-9, `ran backwards by ${prev - x}`);
-      prev = x;
-    }
-    // Three seconds is far less than 300 px at the flying cap would take.
-    const error = (run.xs.at(-1) ?? 0) - (run.truth.at(-1) ?? 0);
-    assert.ok(Math.abs(error) < 20, `offset ${offset}: settled error ${error}`);
-  }
+test("a course a trunk spacing behind, any course ahead, and any while not flying are adopted at once", () => {
+  assert.equal(followCourse(2000, 2000 - COURSE_SNAP_PX, true), 2000 - COURSE_SNAP_PX);
+  assert.equal(followCourse(2000, 2300, true), 2300);
+  assert.equal(followCourse(2000, 1700, false), 1700);
 });
 
 // ---- rival dragons ---------------------------------------------------------------

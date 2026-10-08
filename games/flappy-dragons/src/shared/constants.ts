@@ -79,7 +79,8 @@ export const SOUND_KEY = "flappy-dragons:sound";
 
 // ---- multiplayer -------------------------------------------------------------
 // Survival race: everyone flies through the SAME endless course (one shared
-// seed → identical pipe layout) on a single global scroll clock the host owns.
+// seed → identical pipe layout) on one scroll — PIPE_SPEED from a race start
+// on the room's server clock, which the host publishes once as a race begins.
 // Each player runs their own dragon and dies independently; you see the others
 // as live ghosts weaving the same pipes. Crash → brief respawn, keep racing.
 // Alone (or with the party server unreachable) it degrades to the classic solo
@@ -90,11 +91,6 @@ export const MP_MAX_PLAYERS = 8;
 export const OFFLINE_FALLBACK_MS = 4000;
 /** Per-player state (bird height / score / liveness) broadcast rate. */
 export const NET_TICK_HZ = 20;
-/**
- * Host's seed + world-scroll report rate. Guests dead-reckon between reports
- * and fold any error in gradually, so a few a second is plenty.
- */
-export const WORLD_TICK_HZ = 4;
 /** Empty runway (course units) before the first pipe of the course. */
 export const RUNWAY = 700;
 /** How long a crashed dragon waits before respawning in a multiplayer race. */

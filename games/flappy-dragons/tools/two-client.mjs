@@ -33,7 +33,11 @@ const waitFor = async (page, fn, label, timeoutMs = 8000) => {
 const snapshot = (page) =>
   page.evaluate(() => {
     const { scene, net } = window.__fb;
+    const server = net.serverNow(performance.now());
     return {
+      // This client's server time against the machine's wall clock, which the
+      // local party server shares: how far its course is from the room's.
+      clock: server === null ? null : server - Date.now(),
       counting: scene.countingDown,
       ghosts: scene.ghosts.size,
       host: net.isHost,
@@ -47,6 +51,16 @@ const snapshot = (page) =>
       worldX: scene.worldX,
     };
   });
+
+/**
+ * Two snapshots read the room's clock alike, so their courses agree: PIPE_SPEED
+ * is 0.15 px per ms of disagreement. 60 ms (9 px) leaves room for a loaded
+ * machine, where a busy main thread stamps probe replies late.
+ */
+const oneClock = (a, b) => [
+  a.clock !== null && b.clock !== null && Math.abs(a.clock - b.clock) < 60,
+  `server − wall: ${a.clock?.toFixed(1)} vs ${b.clock?.toFixed(1)} ms`,
+];
 
 /** Start screen → 3-2-1 → first flap; resolves once the dragon is flying. */
 const startFlying = async (page) => {
@@ -209,6 +223,7 @@ const main = async () => {
       Math.abs(h.worldX - g.worldX) < 120,
       `${(h.worldX - g.worldX).toFixed(0)}px`,
     );
+    step("host and guest scroll on one clock", ...oneClock(h, g));
     const worst = await worstScrollStep(guest, 1500);
     step("guest scroll never runs backwards", worst >= 0, `worst frame step ${worst}`);
     const hostTop = await host.evaluate((i) => window.__fb.scene.pipes.get(i).topHeight, shared[0]);
@@ -312,6 +327,7 @@ const main = async () => {
       Math.abs(g.worldX - l.worldX) < 120,
       `${(g.worldX - l.worldX).toFixed(0)}px`,
     );
+    step("promoted host and late joiner scroll on one clock", ...oneClock(g, l));
     step("late joiner and host draw each other", g.ghosts === 1 && l.ghosts === 1);
     await waitFor(late, () => window.__fb.scene.phase === "gameover", "late crash");
     await respawnAndFly(late, "late respawn");
