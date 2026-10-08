@@ -106,11 +106,14 @@ const decodeRoomMessage = (
       if (!isClaimKey(key)) {
         return { type: "unrecognized" };
       }
-      return {
-        key,
-        ttl: isJsonNumber(ttl) && ttl > 0 ? Math.min(ttl, MAX_CLAIM_TTL_MS) : null,
-        type: "claim",
-      };
+      // No ttl means no expiry. A ttl that isn't a positive number is refused:
+      // read as "none", a zero or negative one would hold the key for good.
+      if (ttl === undefined) {
+        return { key, ttl: null, type: "claim" };
+      }
+      return isJsonNumber(ttl) && ttl > 0
+        ? { key, ttl: Math.min(ttl, MAX_CLAIM_TTL_MS), type: "claim" }
+        : { type: "unrecognized" };
     }
     case "release": {
       return isClaimKey(data.key) ? { key: data.key, type: "release" } : { type: "unrecognized" };

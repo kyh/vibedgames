@@ -230,7 +230,7 @@ export type ClientMessage =
   | { type: "pong" }
   // Server-clock probe: `c` is the client's clock at send, echoed back.
   | { type: "time"; data: { c: number } }
-  // Ask for a key; `ttl` (ms) releases it automatically.
+  // Ask for a key; `ttl` (ms, positive) releases it automatically.
   | { type: "claim"; data: { key: string; ttl?: number } }
   // Give a key back (its owner, or the host for any key).
   | { type: "release"; data: { key: string } }

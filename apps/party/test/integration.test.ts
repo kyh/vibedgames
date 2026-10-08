@@ -804,6 +804,29 @@ test("reserved claim keys are refused, so every client's claim map agrees", asyn
   }
 });
 
+test("a claim whose ttl isn't positive is refused, not held for good", async () => {
+  const room = uniqueRoom("claim-ttl");
+  const heard: [string, string | null][] = [];
+  const observer = connect(room, { onClaim: (key, owner) => heard.push([key, owner]) });
+  await waitFor(() => admitted(observer), "observer admitted");
+  const raw = new RawClient(room, { _pk: `ttl-${process.pid}` });
+  try {
+    await waitFor(() => raw.synced(), "raw client admitted");
+    for (const ttl of [0, -500, null]) {
+      raw.send({ data: { key: "door", ttl }, type: "claim" });
+    }
+    raw.send({ data: { key: "ok" }, type: "claim" });
+    await waitFor(() => heard.length > 0, "the valid claim is granted");
+    assert.deepEqual(heard, [["ok", raw.id]], "no claim with a bad ttl was granted");
+    observer.claim("door");
+    await waitFor(() => heard.length > 1, "the door is claimed");
+    assert.deepEqual(heard[1], ["door", observer.playerId], "and it was still free");
+  } finally {
+    raw.close(1000);
+    observer.destroy();
+  }
+});
+
 test("declared limits drop out-of-range player state", async () => {
   const room = uniqueRoom("limits");
   const limits = { hp: { max: 100, min: 0 } };

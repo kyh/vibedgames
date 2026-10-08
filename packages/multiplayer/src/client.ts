@@ -494,7 +494,7 @@ export class MultiplayerClient {
    * trip and no host advantage. Every client hears the grant through
    * `onClaim(key, owner)` and `claims`; a refused claimer alone hears the
    * current owner. Act on the claim optimistically and undo it if `onClaim`
-   * names someone else. `ttlMs` releases it automatically.
+   * names someone else. `ttlMs` (positive) releases it automatically.
    */
   claim(key: string, options?: { ttlMs?: number }): void {
     if (RESERVED_CLAIM_KEYS.includes(key)) {
@@ -502,6 +502,12 @@ export class MultiplayerClient {
       return;
     }
     const ttl = options?.ttlMs;
+    if (ttl !== undefined && (!Number.isFinite(ttl) || ttl <= 0)) {
+      console.warn(
+        `claim("${key}"): ttlMs ${ttl} is not a positive number; the server refuses it.`,
+      );
+      return;
+    }
     this.flushCoalescedEvents();
     this.send({ data: ttl === undefined ? { key } : { key, ttl }, type: "claim" });
   }
