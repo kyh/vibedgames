@@ -190,9 +190,16 @@ interface Claim {
   until: number | null;
 }
 
+/** What survives a Durable Object restart mid-session (a deploy): the world and its claims. */
+interface RoomSnapshot {
+  shared: StateMap;
+  claims: [string, Claim][];
+}
+
 /** Durable, low-frequency room fields, persisted so they survive hibernation. */
 const HOST_ID_KEY = "hostId";
 const CAP_KEY = "cap";
+const ROOM_KEY = "room";
 const GRACE_PREFIX = "grace:";
 
 const graceKey = (token: string): string => `${GRACE_PREFIX}${token}`;
@@ -203,6 +210,11 @@ const graceKey = (token: string): string => `${GRACE_PREFIX}${token}`;
  * client size a room past this ceiling.
  */
 const HARD_ROOM_CAP = 64;
+
+/** Room snapshots are written at most this often, and never on the hot path. */
+const PERSIST_DEBOUNCE_MS = 1000;
+/** A snapshot larger than this is not persisted (one storage value's limit, with margin). */
+const MAX_PERSISTED_BYTES = 120_000;
 
 /** Separator for overflow sibling rooms: `home` → `home~2` → `home~3`. */
 const OVERFLOW_SEP = "~";
@@ -273,11 +285,13 @@ export class VgServer extends Server {
    *   hibernation, after which `onMessage` dropped every surviving connection's
    *   messages (they were no longer "admitted"), freezing those players into
    *   ghosts. Deriving presence from the live sockets makes that unrepresentable.
-   * - SNAPSHOT (per-player game state + shared state) is the hot channel: kept in
-   *   memory, broadcast every tick, never persisted. It self-heals — clients
-   *   re-send on reconnect, the host re-streams shared state within a tick, and
-   *   the room only hibernates when idle (nobody streaming). Persisting it would
-   *   be pure write amplification and risk the 2KB attachment cap.
+   * - SNAPSHOT (per-player game state) is the hot channel: kept in memory,
+   *   broadcast every tick, never persisted. It self-heals — clients re-send on
+   *   reconnect. Persisting it would be pure write amplification.
+   * - ROOM (shared state + claims) changes at most a few times a second, and is
+   *   persisted debounced (PERSIST_DEBOUNCE_MS) and unconfirmed — never holding
+   *   back a message — so a room survives a restart mid-session (a deploy)
+   *   with its world intact.
    * - SESSION (`hostId`, `cap`) changes rarely but MUST persist: a wiped host
    *   makes the real host's `state_patch` get rejected as non-host after a wake;
    *   a wiped cap lets a post-wake join exceed it. Mirrored in memory, written
@@ -294,11 +308,17 @@ export class VgServer extends Server {
   private cap: number | null = null;
   private grace = new Map<string, GraceEntry>();
   private claims = new Map<string, Claim>();
+  private persistTimer: ReturnType<typeof setTimeout> | null = null;
 
-  /** Rehydrate durable session fields before any handler runs (partyserver awaits this). */
+  /** Rehydrate durable room fields before any handler runs (partyserver awaits this). */
   async onStart() {
     this.hostId = (await this.ctx.storage.get<string | null>(HOST_ID_KEY)) ?? null;
     this.cap = (await this.ctx.storage.get<number | null>(CAP_KEY)) ?? null;
+    const room = await this.ctx.storage.get<RoomSnapshot>(ROOM_KEY);
+    if (room) {
+      this.shared = room.shared;
+      this.claims = new Map(room.claims);
+    }
     this.grace = new Map<string, GraceEntry>();
     const held = await this.ctx.storage.list<GraceEntry>({ prefix: GRACE_PREFIX });
     for (const entry of held.values()) {
@@ -706,6 +726,7 @@ export class VgServer extends Server {
           // lands after a newer local write rolls the host's mirror back,
           // which then also hides the next real change from the SDK's diff.
           this.broadcast(JSON.stringify(broadcastMessage), [sender.id]);
+          this.markRoomDirty();
           break;
         }
         case "heartbeat": {
@@ -824,6 +845,7 @@ export class VgServer extends Server {
         const moved: Claim = { owner: to, until: claim.until };
         this.claims.set(key, moved);
         this.broadcast(VgServer.claimMessage(key, moved), []);
+        this.markRoomDirty();
       }
     }
   }
@@ -848,6 +870,7 @@ export class VgServer extends Server {
     const claim: Claim = { owner: sender.id, until: ttl === null ? null : now + ttl };
     this.claims.set(key, claim);
     this.broadcast(VgServer.claimMessage(key, claim), []);
+    this.markRoomDirty();
     if (claim.until !== null) {
       // Wake for the expiry, so everyone hears the release on time.
       void this.scheduleSweep();
@@ -861,6 +884,7 @@ export class VgServer extends Server {
     }
     this.claims.delete(key);
     this.broadcast(VgServer.claimMessage(key, null), []);
+    this.markRoomDirty();
   }
 
   private handleClearClaims(sender: Connection<Presence>, prefix: string): void {
@@ -874,6 +898,7 @@ export class VgServer extends Server {
     }
     const message: ServerMessage = { data: { prefix }, type: "claims_cleared" };
     this.broadcast(JSON.stringify(message), []);
+    this.markRoomDirty();
   }
 
   /** Release lapsed claims and tell everyone (the alarm wakes for the earliest expiry). */
@@ -882,7 +907,38 @@ export class VgServer extends Server {
       if (claim.until !== null && claim.until <= now) {
         this.claims.delete(key);
         this.broadcast(VgServer.claimMessage(key, null), []);
+        this.markRoomDirty();
       }
+    }
+  }
+
+  // -- Persistence ---------------------------------------------------------
+
+  /** Persist the room's world and claims soon — at most once per PERSIST_DEBOUNCE_MS. */
+  private markRoomDirty(): void {
+    if (this.persistTimer !== null) {
+      return;
+    }
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = null;
+      void this.persistRoom();
+    }, PERSIST_DEBOUNCE_MS);
+  }
+
+  private async persistRoom(): Promise<void> {
+    const snapshot: RoomSnapshot = { claims: [...this.claims], shared: this.shared };
+    if (JSON.stringify(snapshot).length > MAX_PERSISTED_BYTES) {
+      // Too big for one value; a restart mid-session would lose the world.
+      // Rare (a room this size is streaming it anyway) and never worth a
+      // multi-value write on every change.
+      return;
+    }
+    // Unconfirmed: a write never holds back the messages that follow it. A
+    // crash in the gap loses at most a second of world — the host re-sends.
+    try {
+      await this.ctx.storage.put(ROOM_KEY, snapshot, { allowUnconfirmed: true });
+    } catch (error) {
+      console.warn("Room snapshot not persisted", error);
     }
   }
 
@@ -1157,6 +1213,11 @@ export class VgServer extends Server {
       await this.setCap(null);
       this.shared = {};
       this.claims.clear();
+      if (this.persistTimer !== null) {
+        clearTimeout(this.persistTimer);
+        this.persistTimer = null;
+      }
+      await this.ctx.storage.delete(ROOM_KEY);
     }
   }
 }
