@@ -150,7 +150,8 @@ state](#player-state-limits).
 If the host leaves (or its tab is backgrounded long enough to stop
 heartbeating), the server elects a new one. Design for that: state must live in
 `sharedState`, not in the current host's local variables. The room's world and
-claims also survive the server restarting mid-session (a deploy).
+claims also survive the server restarting mid-session (a deploy): the server
+restores them, and a host that kept the role re-sends anything newer.
 
 ## Shared state
 

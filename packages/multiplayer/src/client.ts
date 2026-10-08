@@ -838,6 +838,7 @@ export class MultiplayerClient {
    * "connected" and adopt our playerId.
    */
   private applySync(data: Extract<ServerMessage, { type: "sync" }>["data"]): void {
+    const wasHost = this._hostId !== null && this._hostId === this._playerId;
     this._connectionStatus = "connected";
     this._playerId = this.socket.id ?? null;
     this._hostId = data.hostId;
@@ -861,14 +862,18 @@ export class MultiplayerClient {
     if (Object.keys(data.state).length > 0) {
       this.remoteStateSeen = true;
     }
-    const merged =
-      Object.keys(this._sharedState).length === 0
-        ? data.state
-        : { ...this._sharedState, ...data.state };
-    // On violation keep the previous local state — refusing admission
-    // over bad room data would strand the player on "connecting".
-    if (this.passesSchema("sharedState", "incoming", merged)) {
-      this._sharedState = merged;
+    if (wasHost && data.hostId === this._playerId) {
+      this.reassertWorld(data.state);
+    } else {
+      const merged =
+        Object.keys(this._sharedState).length === 0
+          ? data.state
+          : { ...this._sharedState, ...data.state };
+      // On violation keep the previous local state — refusing admission
+      // over bad room data would strand the player on "connecting".
+      if (this.passesSchema("sharedState", "incoming", merged)) {
+        this._sharedState = merged;
+      }
     }
 
     this.maybeSeedInitialState(data.hostId);
@@ -887,6 +892,25 @@ export class MultiplayerClient {
         },
       };
       this.send({ data: this._myState, type: "player_state_patch" });
+    }
+  }
+
+  /**
+   * A host back from a dropped transport kept running its world, while the
+   * server's copy may be older — a restart restores it up to a second back,
+   * and an oversized world not at all. The room still names us host, so our
+   * world wins: re-send every key the server holds differently.
+   */
+  private reassertWorld(server: JsonRecord): void {
+    const differs: JsonRecord = {};
+    for (const [key, value] of Object.entries(this._sharedState)) {
+      if (JSON.stringify(server[key]) !== JSON.stringify(value)) {
+        differs[key] = value;
+      }
+    }
+    this._sharedState = { ...server, ...this._sharedState };
+    if (Object.keys(differs).length > 0) {
+      this.send({ data: differs, type: "state_patch" });
     }
   }
 

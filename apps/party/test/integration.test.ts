@@ -5,6 +5,7 @@ import { after, before, test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { Miniflare } from "miniflare";
+import type { MiniflareOptions } from "miniflare";
 import { z } from "zod";
 
 import type { MultiplayerClientOptions } from "@vibedgames/multiplayer";
@@ -36,21 +37,25 @@ const BuiltWorkerSchema = z.object({
 });
 
 let miniflare: Miniflare;
+let miniflareOptions: MiniflareOptions;
 let worker: URL;
 
 before(async () => {
   const built = BuiltWorkerSchema.parse(
     JSON.parse(await readFile(path.join(OUTPUT, "worker.config.json"), "utf-8")),
   );
-  miniflare = new Miniflare({
+  miniflareOptions = {
     compatibilityDate: built.compatibilityDate,
     compatibilityFlags: built.compatibilityFlags,
     d1Databases: { DB: "vibedgames" },
     durableObjects: { VgServer: "VgServer" },
     modules: true,
     scriptPath: path.join(OUTPUT, "bundle", built.manifest.mainModule),
-  });
+  };
+  miniflare = new Miniflare(miniflareOptions);
   worker = await miniflare.ready;
+  // Pin the port, so a restart (setOptions) comes back where clients reconnect.
+  miniflareOptions = { ...miniflareOptions, port: Number(worker.port) };
 });
 
 after(async () => {
@@ -685,6 +690,49 @@ test("a client back from a transport blip replays the ticks it missed, and its i
     await waitFor(() => client.tickInputs()?.[me] === "left", "the held input was re-sent");
   } finally {
     client.destroy();
+  }
+});
+
+test("a room's world and claims survive a server restart, and its host re-sends what was lost", async () => {
+  const room = uniqueRoom("restart");
+  const host = connect(room);
+  await waitFor(() => admitted(host), "host admitted first");
+  const guest = connect(room);
+  let drops = 0;
+  const unsubscribe = guest.subscribe(() => {
+    if (guest.connectionStatus === "disconnected") {
+      drops += 1;
+    }
+  });
+  try {
+    await waitFor(() => admitted(guest), "guest admitted");
+    host.updateSharedState({ level: 3 });
+    host.claim("door");
+    await waitFor(
+      () => guest.sharedState.level === 3 && guest.ownerOf("door") === host.playerId,
+      "guest sees the world and the claim",
+    );
+    // Past the persist debounce, then a change too new to have been persisted.
+    await delay(1500);
+    host.updateSharedState({ level: 4 });
+    await waitFor(() => guest.sharedState.level === 4, "guest sees the newest world");
+
+    await miniflare.setOptions(miniflareOptions);
+    await waitFor(() => drops > 0, "the restart dropped the guest");
+    await waitFor(() => admitted(host) && admitted(guest), "both reconnected");
+
+    const late = connect(room);
+    try {
+      await waitFor(() => admitted(late), "late joiner admitted after the restart");
+      assert.equal(late.ownerOf("door"), host.playerId, "the claim was persisted");
+      await waitFor(() => late.sharedState.level === 4, "the host re-sent the newer world");
+    } finally {
+      late.destroy();
+    }
+  } finally {
+    unsubscribe();
+    host.destroy();
+    guest.destroy();
   }
 });
 

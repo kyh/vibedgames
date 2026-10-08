@@ -491,6 +491,8 @@ export class VgServer extends Server {
   private views = new Map<string, Map<string, boolean>>();
   private ticker: Ticker | null = null;
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Whether storage holds a room snapshot, so an oversized world can drop a stale one. */
+  private roomPersisted = false;
 
   /** Rehydrate durable room fields before any handler runs (partyserver awaits this). */
   async onStart() {
@@ -501,6 +503,7 @@ export class VgServer extends Server {
     if (room) {
       this.shared = room.shared;
       this.claims = new Map(room.claims);
+      this.roomPersisted = true;
     }
     this.grace = new Map<string, GraceEntry>();
     const held = await this.ctx.storage.list<GraceEntry>({ prefix: GRACE_PREFIX });
@@ -1390,15 +1393,20 @@ export class VgServer extends Server {
 
   private async persistRoom(): Promise<void> {
     const snapshot: RoomSnapshot = { claims: [...this.claims], shared: this.shared };
-    if (JSON.stringify(snapshot).length > MAX_PERSISTED_BYTES) {
-      // Too big for one value; a restart mid-session would lose the world.
-      // Rare (a room this size is streaming it anyway) and never worth a
-      // multi-value write on every change.
-      return;
-    }
-    // Unconfirmed: a write never holds back the messages that follow it. A
-    // crash in the gap loses at most a second of world — the host re-sends.
     try {
+      if (JSON.stringify(snapshot).length > MAX_PERSISTED_BYTES) {
+        // Too big for one value. A stale copy would be worse than none: a
+        // restart would hand everyone an old world. With none, the host
+        // re-sends its own on reconnect.
+        if (this.roomPersisted) {
+          this.roomPersisted = false;
+          await this.ctx.storage.delete(ROOM_KEY);
+        }
+        return;
+      }
+      // Unconfirmed: a write never holds back the messages that follow it. A
+      // crash in the gap loses at most a second of world — the host re-sends.
+      this.roomPersisted = true;
       await this.ctx.storage.put(ROOM_KEY, snapshot, { allowUnconfirmed: true });
     } catch (error) {
       console.warn("Room snapshot not persisted", error);
@@ -1691,6 +1699,7 @@ export class VgServer extends Server {
         this.persistTimer = null;
       }
       await this.ctx.storage.delete(ROOM_KEY);
+      this.roomPersisted = false;
     }
   }
 }

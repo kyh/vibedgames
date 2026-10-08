@@ -29,7 +29,9 @@ Room features — game-agnostic services the party server now runs for every roo
 - Room rules (`tickRate`, `interest`, `limits`) are sticky per room session, like
   `maxPlayers`, and advertised in the `_room` query param.
 - The server persists the room's shared state and claims (debounced, never
-  blocking a message), so a room survives a restart mid-session.
+  blocking a message), so a room survives a restart mid-session. A host back
+  from a dropped transport re-sends every shared-state key the server holds
+  differently, so nothing written in the last second before a restart is lost.
 
 Netcode helpers:
 
