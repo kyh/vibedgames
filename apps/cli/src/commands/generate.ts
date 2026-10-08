@@ -8,7 +8,6 @@ import {
   generateImagesWithCodex,
   placeCodexOutputs,
   chooseProvider,
-  findCodexBinary,
 } from "../lib/codex.js";
 import { parseDownloadFlag, parseRunInput, readExplicitLocalFile } from "../lib/media-args.js";
 import type { DownloadFlag } from "../lib/media-args.js";
@@ -221,7 +220,7 @@ const runCommand = defineCommand({
     },
     provider: {
       description:
-        "Execution backend: vibedgames or codex (delegate image generation to the local Codex CLI / your Codex plan). Unset, OpenAI image models (openai/gpt-image-*) use codex when it is installed; everything else uses vibedgames. Also settable via VG_GENERATE_PROVIDER.",
+        "Execution backend: vibedgames (default) or codex (opt-in: delegate image generation to the local Codex CLI / your own Codex plan). The literal endpoint `codex` implies codex. Also settable via VG_GENERATE_PROVIDER.",
       type: "string",
     },
     ...outputArgs,
@@ -235,21 +234,7 @@ const runCommand = defineCommand({
     const finalInput = parseRunInput(rawArgs);
     const { endpoint_id } = args;
 
-    const choice = chooseProvider(args.provider, {
-      async: Boolean(args.async),
-      codexInstalled: findCodexBinary() !== null,
-      endpointId: endpoint_id,
-      input: finalInput,
-    });
-    if (choice.provider === "codex") {
-      if (choice.auto) {
-        // stderr directly: consola.info targets stdout, which a --json
-        // consumer owns
-        process.stderr.write(
-          `Running ${endpoint_id} through your local codex CLI (OpenAI image model, your own plan). ` +
-            `Pass --provider vibedgames to run it on vibedgames instead.\n`,
-        );
-      }
+    if (chooseProvider(args.provider, endpoint_id) === "codex") {
       await runViaCodex({ args, downloadFlag, endpoint_id, finalInput });
       return;
     }

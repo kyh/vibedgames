@@ -11,8 +11,6 @@ import {
   placeCodexOutputs,
   renderLocalTarget,
   chooseProvider,
-  findCodexBinary,
-  isOpenAiImageEndpoint,
   resolveProvider,
 } from "../src/lib/codex.js";
 import { makeCleanups, makeTmpDir } from "./_helpers.js";
@@ -163,90 +161,35 @@ test("placeCodexOutputs is a no-op copy when target equals source", () => {
   assert.deepEqual(downloaded, [src]);
 });
 
-test("chooseProvider: OpenAI image endpoints auto-route to an installed codex", () => {
+test("chooseProvider: codex is opt-in, whatever is installed", () => {
   const prev = process.env.VG_GENERATE_PROVIDER;
   delete process.env.VG_GENERATE_PROVIDER;
   cleanups.push(() => {
-    if (prev !== undefined) {
+    if (prev === undefined) {
+      delete process.env.VG_GENERATE_PROVIDER;
+    } else {
       process.env.VG_GENERATE_PROVIDER = prev;
     }
   });
-  const base = { async: false, codexInstalled: true, input: { prompt: "a fox" } };
 
-  assert.deepEqual(
-    chooseProvider(undefined, {
-      ...base,
-      endpointId: "openai/gpt-image-2.5/sunburst/text-to-image",
-    }),
-    { auto: true, provider: "codex" },
-  );
-  assert.deepEqual(chooseProvider(undefined, { ...base, endpointId: "codex" }), {
-    auto: true,
-    provider: "codex",
-  });
-  // Only the OpenAI image family: codex cannot run Flux, video or audio.
-  assert.deepEqual(chooseProvider(undefined, { ...base, endpointId: "fal-ai/flux/dev" }), {
-    auto: false,
-    provider: "vibedgames",
-  });
-  assert.deepEqual(
-    chooseProvider(undefined, { ...base, endpointId: "openai/sora-2/text-to-video" }),
-    {
-      auto: false,
-      provider: "vibedgames",
-    },
-  );
-  // Codex is synchronous and attaches local files only.
-  const openai = { ...base, endpointId: "openai/gpt-image-2.5/sunburst/edit" };
-  assert.equal(chooseProvider(undefined, { ...openai, async: true }).provider, "vibedgames");
+  // Unset, every endpoint stays on vibedgames — OpenAI image models included.
   assert.equal(
-    chooseProvider(undefined, {
-      ...openai,
-      input: { image_url: "https://example.com/ref.png", prompt: "edit" },
-    }).provider,
+    chooseProvider(undefined, "openai/gpt-image-2.5/sunburst/text-to-image"),
     "vibedgames",
   );
-  assert.equal(
-    chooseProvider(undefined, { ...openai, input: { image_url: "./ref.png", prompt: "edit" } })
-      .provider,
-    "codex",
-  );
-  // No codex on this machine: nothing changes.
-  assert.deepEqual(chooseProvider(undefined, { ...openai, codexInstalled: false }), {
-    auto: false,
-    provider: "vibedgames",
-  });
+  assert.equal(chooseProvider(undefined, "fal-ai/flux/dev"), "vibedgames");
+  // The literal `codex` endpoint names the codex path outright.
+  assert.equal(chooseProvider(undefined, "codex"), "codex");
   // A named provider always wins, in either direction.
-  assert.deepEqual(chooseProvider("vibedgames", openai), { auto: false, provider: "vibedgames" });
-  assert.deepEqual(chooseProvider("codex", { ...base, endpointId: "fal-ai/flux/dev" }), {
-    auto: false,
-    provider: "codex",
-  });
+  assert.equal(chooseProvider("codex", "openai/gpt-image-2/edit"), "codex");
+  assert.equal(chooseProvider("codex", "fal-ai/flux/dev"), "codex");
+  assert.equal(chooseProvider("vibedgames", "codex"), "vibedgames");
+  process.env.VG_GENERATE_PROVIDER = "codex";
+  assert.equal(chooseProvider(undefined, "openai/gpt-image-2/edit"), "codex");
+  assert.equal(chooseProvider("vibedgames", "openai/gpt-image-2/edit"), "vibedgames");
   process.env.VG_GENERATE_PROVIDER = "fal";
-  assert.deepEqual(chooseProvider(undefined, openai), { auto: false, provider: "vibedgames" });
-});
-
-test("isOpenAiImageEndpoint matches the gpt-image family only", () => {
-  assert.equal(isOpenAiImageEndpoint("openai/gpt-image-2.5/sunburst/text-to-image"), true);
-  assert.equal(isOpenAiImageEndpoint("openai/gpt-image-2/edit"), true);
-  assert.equal(isOpenAiImageEndpoint("OpenAI/GPT-Image-1"), true);
-  assert.equal(isOpenAiImageEndpoint("codex"), true);
-  assert.equal(isOpenAiImageEndpoint("openai/sora-2"), false);
-  assert.equal(isOpenAiImageEndpoint("fal-ai/gpt-image-lookalike"), false);
-});
-
-test("findCodexBinary: VG_CODEX_BIN, then PATH, else null", () => {
-  const dir = makeTmpDir(cleanups);
-  const bin = path.join(dir, "codex");
-  writeFileSync(bin, "#!/bin/sh\n");
-  assert.equal(
-    findCodexBinary({ PATH: `${path.join(dir, "missing")}${path.delimiter}${dir}` }),
-    bin,
-  );
-  assert.equal(findCodexBinary({ PATH: path.join(dir, "missing") }), null);
-  assert.equal(findCodexBinary({ PATH: dir, VG_CODEX_BIN: bin }), bin);
-  assert.equal(findCodexBinary({ PATH: dir, VG_CODEX_BIN: path.join(dir, "nope") }), null);
-  assert.equal(findCodexBinary({}), null);
+  assert.equal(chooseProvider(undefined, "codex"), "vibedgames");
+  assert.throws(() => chooseProvider("coddex", "codex"), /Unknown --provider/u);
 });
 
 test("codexExecArgs: the prompt survives a variadic -i by sitting behind --", () => {

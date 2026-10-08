@@ -59,17 +59,17 @@ vg generate run fal-ai/flux/dev --help # introspect parameters as CLI flags
 
 Any model input parameter can be passed as `--<param> <value>`. Run `vg generate run <endpoint_id> --help` to see a model's accepted parameters as CLI flags, or `vg generate schema <endpoint_id>` for the same as JSON.
 
-| Option                  | Description                                                                                                                                                                                                                                                                                                                                        |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--<param>`             | Any model input parameter                                                                                                                                                                                                                                                                                                                          |
-| `--logs`                | Stream logs while the model runs (pretty mode only)                                                                                                                                                                                                                                                                                                |
-| `--async`               | Submit to queue without waiting, returns a `request_id`                                                                                                                                                                                                                                                                                            |
-| `--provider <name>`     | Execution backend. `vibedgames` runs the model catalog; `codex` delegates **image generation** to a locally-installed Codex CLI (see below). Unset, `openai/gpt-image-*` endpoints use `codex` when it is installed and the run is synchronous with local references; everything else uses `vibedgames`. Also settable via `VG_GENERATE_PROVIDER`. |
-| `--download [template]` | Save every media URL in the result. Optional template uses `{index}`, `{name}`, `{ext}`, `{request_id}` placeholders. Omitted → cwd with source file names. Trailing `/` or existing dir → dir + source names. Plain filename + multiple outputs → `_1`, `_2` collision suffixes. Downloaded paths appear under `downloaded_files` in JSON.        |
+| Option                  | Description                                                                                                                                                                                                                                                                                                                                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--<param>`             | Any model input parameter                                                                                                                                                                                                                                                                                                                   |
+| `--logs`                | Stream logs while the model runs (pretty mode only)                                                                                                                                                                                                                                                                                         |
+| `--async`               | Submit to queue without waiting, returns a `request_id`                                                                                                                                                                                                                                                                                     |
+| `--provider <name>`     | Execution backend. `vibedgames` (default) runs the model catalog; `codex` (opt-in) delegates **image generation** to a locally-installed Codex CLI (see below). Unset, every endpoint uses `vibedgames` except the literal endpoint `codex`. Also settable via `VG_GENERATE_PROVIDER`.                                                      |
+| `--download [template]` | Save every media URL in the result. Optional template uses `{index}`, `{name}`, `{ext}`, `{request_id}` placeholders. Omitted → cwd with source file names. Trailing `/` or existing dir → dir + source names. Plain filename + multiple outputs → `_1`, `_2` collision suffixes. Downloaded paths appear under `downloaded_files` in JSON. |
 
 ### Provider: codex (use your own Codex plan for images)
 
-If you have a Codex plan that includes image generation, the `codex` provider generates images locally through the `codex` CLI instead of the vibedgames catalog — nothing hits the vibedgames backend. It is picked automatically for OpenAI image endpoints (`openai/gpt-image-*`, or the literal endpoint `codex`) whenever `codex` is on `PATH` (or `VG_CODEX_BIN` is set), the run is synchronous, and every reference is a local file; the command prints one stderr line saying so. Other endpoints never auto-route (Codex cannot run Flux, video or audio). `--provider codex` forces it for any run; `--provider vibedgames` (or `VG_GENERATE_PROVIDER=vibedgames`) keeps an OpenAI image run on the vibedgames catalog, e.g. to pick `--quality`. It needs **no vibedgames auth** (`vg login` / `VG_TOKEN` are not required); the only credential is your own signed-in Codex plan.
+If you have a Codex plan that includes image generation, the `codex` provider generates images locally through the `codex` CLI instead of the vibedgames catalog — nothing hits the vibedgames backend. It is **opt-in**: `--provider codex`, `VG_GENERATE_PROVIDER=codex`, or the literal endpoint `codex` selects it; nothing else does, so an installed `codex` binary never changes where a run goes. Codex runs its own built-in image model whatever endpoint id you pass, so use it for OpenAI-style image work only (it cannot run Flux, video or audio). It needs **no vibedgames auth** (`vg login` / `VG_TOKEN` are not required); the only credential is your own signed-in Codex plan.
 
 ```bash
 # Text-to-image via your Codex plan. The endpoint_id is required by the
@@ -84,7 +84,8 @@ vg generate run codex --provider codex --prompt "a fox" --num_images 2 \
 vg generate run codex --provider codex --image_url ./cat.png \
   --prompt "make the sky stormy" --download ./out/ --json
 
-# Set it globally so skills that call `vg generate run` route to Codex.
+# Pin it for a session of image work. It routes *every* `vg generate run`
+# to Codex, so unset it before video, audio or 3D.
 export VG_GENERATE_PROVIDER=codex
 ```
 
@@ -266,7 +267,7 @@ vg generate pricing <endpoint_id> --json
 
 The CLI itself takes no required env vars — it talks to the vibedgames proxy, which holds the generation credentials server-side. Override the proxy URL with `VIBEDGAMES_API_URL` if pointing at a non-default deployment.
 
-| Env var                | Effect                                                                                                                                                                                           |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `VG_GENERATE_PROVIDER` | Execution backend for `vg generate run` (`vibedgames` or `codex`). Unset, OpenAI image endpoints auto-route to an installed `codex`; set it to pin one side. The `--provider` flag wins over it. |
-| `VG_CODEX_BIN`         | Path to the `codex` binary when it isn't on `PATH`; also what auto-routing checks for (default `codex`).                                                                                         |
+| Env var                | Effect                                                                                                                                                                         |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `VG_GENERATE_PROVIDER` | Execution backend for `vg generate run` (`vibedgames` or `codex`). Unset means `vibedgames` for every endpoint except the literal `codex`. The `--provider` flag wins over it. |
+| `VG_CODEX_BIN`         | Path to the `codex` binary when it isn't on `PATH` (default `codex`).                                                                                                          |
