@@ -495,8 +495,9 @@ export class VgServer extends Server {
   /**
    * Interest: each player's last position, and what each recipient has been
    * told about each other player — true visible, false hidden, absent unknown.
-   * In memory only: after hibernation every pair is unknown, and the next
-   * patch re-decides it with the whole state rather than a delta.
+   * In memory, like the player snapshots: the server runs without hibernation,
+   * so the instance holding every player's socket keeps them while anyone is
+   * connected.
    */
   private positions = new Map<string, { x: number; y: number }>();
   private views = new Map<string, Map<string, boolean>>();
@@ -1124,8 +1125,8 @@ export class VgServer extends Server {
    * Fan a player-state patch out: the keyed delta to everyone in range, and —
    * in interest rooms — visibility changes both ways: who can now see the
    * sender, and (the sender having moved) whom the sender can now see. A pair
-   * whose visibility is unknown (after hibernation) is re-decided with the
-   * whole state, never a delta the recipient could not merge.
+   * with no recorded visibility gets the whole state, never a delta the
+   * recipient could not merge.
    */
   private relayPlayerState(sender: Connection<Presence>, patch: StateMap, next: StateMap): void {
     const delta = JSON.stringify({
