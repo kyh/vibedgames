@@ -9,7 +9,7 @@
     "dev": "vite",
     "fx:shots": "node tools/fx-shots.mjs",
     "preview": "vite preview",
-    "test": "tsx tools/verify-timing.mts && tsx --test tools/verify-logic.mts tools/verify-netcode.mts",
+    "test": "tsx tools/verify-timing.mts && tsx --test tools/verify-logic.mts tools/verify-netcode.mts tools/verify-handover.mts",
     "test:online": "node tools/two-client.mjs",
     "typecheck": "tsc --noEmit"
   },

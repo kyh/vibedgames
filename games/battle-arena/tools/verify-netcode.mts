@@ -5,7 +5,6 @@
 // HostNet over the real sim.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { JsonValue } from "../src/data/json.ts";
 import { isJsonNumber, isJsonObject } from "../src/data/json.ts";
 import { SPAWNS, CAMPS } from "../src/data/map.ts";
 import { ArrivalClock } from "../src/net/arrival-clock.ts";
@@ -20,57 +19,10 @@ import type { Frame } from "../src/net/snapshot.ts";
 import { applyKnockback, handleDeath } from "../src/sim/combat.ts";
 import { createWorld, ensureBots, setHeroInput, spawnHero } from "../src/sim/world.ts";
 import type { Unit, World } from "../src/sim/types.ts";
+import { Pipe, noise } from "./net-sim.mts";
 
 const GUEST = "guest";
 const HOST = "host";
-
-/** Deterministic noise in [0, 1). */
-const noise = (i: number): number => {
-  const s = Math.sin(i * 12.9898 + 78.233) * 43_758.5453;
-  return s - Math.floor(s);
-};
-
-/** One direction of a WebSocket: every message is delayed `oneWayMs` plus up
- *  to `jitterMs`, never overtakes the one before it (TCP bunches instead), and
- *  crosses as JSON. */
-class Pipe {
-  private readonly queue: { at: number; text: string }[] = [];
-  private last = 0;
-  private count = 0;
-  private readonly oneWayMs: number;
-  private readonly jitterMs: number;
-  private readonly salt: number;
-  bytes = 0;
-
-  constructor(oneWayMs: number, jitterMs: number, salt: number) {
-    this.oneWayMs = oneWayMs;
-    this.jitterMs = jitterMs;
-    this.salt = salt;
-  }
-
-  send(now: number, message: JsonValue): void {
-    this.count += 1;
-    const at = Math.max(
-      this.last,
-      now + this.oneWayMs + noise(this.count * 7 + this.salt) * this.jitterMs,
-    );
-    this.last = at;
-    const text = JSON.stringify(message);
-    this.bytes += text.length;
-    this.queue.push({ at, text });
-  }
-
-  receive(now: number): JsonValue[] {
-    const out: JsonValue[] = [];
-    while (this.queue[0] && this.queue[0].at <= now) {
-      const next = this.queue.shift();
-      if (next) {
-        out.push(JSON.parse(next.text));
-      }
-    }
-    return out;
-  }
-}
 
 interface MatchOptions {
   oneWayMs?: number;
@@ -159,7 +111,8 @@ const match = (opts: MatchOptions = {}) => {
       if (message["kind"] === "snap") {
         const { snap, t } = message;
         if (isSnapshot(snap)) {
-          mirror.applySnapshot(guestWorld, snap, isJsonNumber(t) ? t : null, now);
+          // the guest hears the stream from its first frame: every snapshot is live
+          mirror.applySnapshot(guestWorld, snap, isJsonNumber(t) ? t : null, now, true);
         }
       } else {
         const frame = parseFrame(message["frame"] ?? null);

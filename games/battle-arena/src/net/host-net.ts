@@ -2,7 +2,7 @@
 // online: each tick applies the guest inputs due on it (InputBuffer), steps
 // the world, and sends that tick's frame; every FULL_SNAPSHOT_TICKS — and at
 // once on a phase change or a resync — the whole world goes to shared state
-// for late joiners and host handover. Every stamp is the room's server time:
+// for late joiners. Every stamp is the room's server time:
 // each tick is stamped with the moment it stands for (ticks a slow frame runs
 // together are spread back over the time they cover), so guests interpolate on
 // one clock that keeps real time through a stalled host and a new host alike.
@@ -50,6 +50,14 @@ export class HostNet {
     }
     // the earliest tick it can still make is the next one
     buffer.push(packet, this.tick + 1);
+  }
+
+  /** fx already in the world when this host took over came from the old
+   *  host's frames: they are drawn here, never broadcast again. */
+  alreadySent(fx: readonly FxEvent[]): void {
+    for (const e of fx) {
+      this.fxSent.add(e);
+    }
   }
 
   /** Drop the input state of guests that left. */

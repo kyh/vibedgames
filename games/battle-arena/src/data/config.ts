@@ -33,7 +33,7 @@ export const MAX_CATCH_UP_TICKS = 5;
 
 // ── Netcode (net/) ───────────────────────────────────────────────────────────
 // The host sends a frame every tick and the whole world this often (~1 Hz) —
-// for late joiners and host handover.
+// for late joiners, and a promoted guest whose own copy missed frames.
 export const FULL_SNAPSHOT_TICKS = 30;
 // How far behind the newest frame's arrival remote bodies are drawn (ms):
 // three frames, so one late or bunched frame never empties the buffer. The

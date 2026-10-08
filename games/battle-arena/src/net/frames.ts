@@ -2,41 +2,19 @@
 // holding only what changed since the frame before: a running unit is its new
 // x/y, an idle one is nothing at all. Frames ride a WebSocket — reliable and
 // ordered — so no delta is ever repeated; a receiver that joins mid-stream
-// starts from the ~1 Hz snapshot, which also heals anything it missed.
+// starts from the ~1 Hz snapshot, which also heals anything it missed. Frames
+// carry every field the sim reads, down to the RNG state and the id counter,
+// so a guest's copy is the host's world as of the newest frame: the world a
+// promoted guest carries the match on from.
 import { isJsonNumber, isJsonObject } from "../data/json";
 import type { JsonObject, JsonValue } from "../data/json";
 import type { FxEvent, World } from "../sim/types";
 import { blankUnit } from "./snapshot";
 import type { Frame } from "./snapshot";
 
-/** Unit fields frames leave out: host bookkeeping (assist credit, solo mercy),
- *  raw input and steering/knockback internals, creep leash anchors, `facing`
- *  (models turn by aim) and stats only the sim reads. The snapshot still
- *  carries them all for a promoted guest. */
-const UNIT_HOST_ONLY = new Set([
-  "abilityPower",
-  "ambush",
-  "attackHeld",
-  "attr",
-  "baseDamage",
-  "facing",
-  "hpRegen",
-  "kbUntil",
-  "kbx",
-  "kby",
-  "lifesteal",
-  "magicResist",
-  "mercy",
-  "moveX",
-  "moveY",
-  "projectileSpeed",
-  "recentDamageFrom",
-  "steerVx",
-  "steerVy",
-]);
-
-const UNIT_KEYS = Object.keys(blankUnit()).filter((key) => !UNIT_HOST_ONLY.has(key));
-// `hitIds` (pierce bookkeeping) is the one projectile field only the sim reads.
+/** Every unit field, and the leash anchors only creeps carry — fixed at
+ *  spawn, so they ride a creep's first row and never again. */
+const UNIT_KEYS = [...Object.keys(blankUnit()), "campId", "homeX", "homeY"];
 const PROJECTILE_KEYS = [
   "id",
   "ownerId",
@@ -59,8 +37,8 @@ const PROJECTILE_KEYS = [
   "kind",
   "onHit",
   "launchH",
+  "hitIds",
 ];
-// `nextTick` is the host's damage scheduler; nothing a guest draws reads it.
 const GROUND_KEYS = [
   "id",
   "ownerId",
@@ -83,6 +61,7 @@ const GROUND_KEYS = [
   "detonateDmg",
   "detonateDtype",
   "telegraph",
+  "nextTick",
 ];
 const COIN_KEYS = ["id", "x", "y", "fromX", "fromY", "gold", "landAt", "expireAt", "loot"];
 const DELIVERY_KEYS = ["id", "x", "y", "expireAt"];
@@ -96,6 +75,10 @@ const WORLD_KEYS = [
   "leaderId",
   "nextCoinAt",
   "nextDeliveryAt",
+  "campRespawnAt",
+  "strikes",
+  "seq",
+  "rngState",
 ];
 
 /** A number as it rides a frame: hp rounded up (a living unit never reads 0),
@@ -122,11 +105,7 @@ const wireNumber = (key: string, v: number): number => {
   }
 };
 
-/** Nested values (statuses, cooldowns…) drop the DoT/zone `nextTick`
- *  scheduler; an undefined entry is absent, as JSON would make it. */
-const NESTED_SKIP = "nextTick";
-
-/** The wire form of a field. */
+/** The wire form of a field; an undefined entry is absent, as JSON would make it. */
 const wireValue = (key: string, v: JsonValue): JsonValue => {
   if (isJsonNumber(v)) {
     return wireNumber(key, v);
@@ -137,7 +116,7 @@ const wireValue = (key: string, v: JsonValue): JsonValue => {
   if (isJsonObject(v)) {
     const out: JsonObject = {};
     for (const [k, item] of Object.entries(v)) {
-      if (k !== NESTED_SKIP && item !== undefined) {
+      if (item !== undefined) {
         out[k] = wireValue("", item);
       }
     }
@@ -170,7 +149,7 @@ const matchesWire = (key: string, live: JsonValue, sent: JsonValue | undefined):
     }
     let count = 0;
     for (const k in live) {
-      if (Object.hasOwn(live, k) && k !== NESTED_SKIP) {
+      if (Object.hasOwn(live, k)) {
         const item = live[k];
         if (item !== undefined && !matchesWire("", item, sent[k])) {
           return false;
@@ -355,12 +334,16 @@ export class FrameEncoder {
     const scalars = diffRow(
       WORLD_KEYS,
       {
+        campRespawnAt: w.campRespawnAt,
         killGoal: w.killGoal,
         leaderId: w.leaderId,
         matchTime: w.matchTime,
         nextCoinAt: w.nextCoinAt,
         nextDeliveryAt: w.nextDeliveryAt,
         phase: w.phase,
+        rngState: w.rngState,
+        seq: w.seq,
+        strikes: w.strikes,
         suddenDeath: w.suddenDeath,
         winner: w.winner,
       },

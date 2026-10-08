@@ -247,6 +247,25 @@ export class OwnHeroPredictor {
     }
   }
 
+  /** This client now hosts: hand its sim the hero as prediction drew it this
+   *  frame — inputs the old host never applied included — with the predicted
+   *  hop, dash and the DASH/JUMP cooldowns they spent moved from the predicted
+   *  clock onto `hostNow`, the world's clock from here on. */
+  handover(me: Unit, props: ReadonlyMap<string, Unit>, held: HeldInput, hostNow: number): void {
+    if (!this.body || this.heroId !== me.id) {
+      return;
+    }
+    const drawnAt = this.simAt + this.acc;
+    this.render(me, props, held);
+    const shift = hostNow - drawnAt;
+    me.jumpUntil += shift;
+    me.dashUntil += shift;
+    for (const [key, until] of this.cooling) {
+      const slot = me.abilities[key];
+      slot.readyAt = Math.max(slot.readyAt, until + shift);
+    }
+  }
+
   private start(me: Unit, localNow: number, simNow: number): void {
     this.reset();
     this.heroId = me.id;

@@ -1,7 +1,8 @@
 // Netcode protocol. Host-authoritative: guests send INPUT to the host only; the
 // host simulates, broadcasts one small FRAME per sim tick (what changed) and a
-// full snapshot ~1 Hz under sharedState.snap for late joiners and host handover.
-// A guest predicts its own hero and draws everyone else slightly in the past.
+// full snapshot ~1 Hz under sharedState.snap for late joiners. A guest predicts
+// its own hero and draws everyone else slightly in the past; when the host
+// leaves, the guest the server elects carries the match on from its own copy.
 import type { AbilityKey } from "../sim/types";
 
 /**

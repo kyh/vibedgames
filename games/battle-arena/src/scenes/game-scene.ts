@@ -33,8 +33,8 @@ import {
 import { FRAME_EVENT, INTENT_EVENT, MULTIPLAYER_HOST, PARTY } from "../net/protocol";
 import type { Intent } from "../net/protocol";
 import { emptyGuestWorld, isSnapshot } from "../net/snapshot";
-import { humanRoster, reconcileHostHeroes, restoreHostState } from "../net/host-state";
-import type { HeroPick, OnlineSeat } from "../net/host-state";
+import { humanRoster, reconcileHostHeroes, restoreHostState, takeOver } from "../net/host-state";
+import type { HeroPick, OnlineSeat, TakeoverSource } from "../net/host-state";
 import { HostNet } from "../net/host-net";
 import type { HostLink } from "../net/host-net";
 import { inputWire, parseInput } from "../net/input";
@@ -199,8 +199,14 @@ export class GameScene {
   // guest: the last shared snapshot adopted, and the host it came from
   private lastSnap: JsonValue | undefined = undefined;
   private mirrorHost: string | null = null;
-  // guest: a new host's first snapshot restarts the prediction from its world
-  private ownResync = false;
+  // guest: the next snapshot is the one the room held when we (re)joined —
+  // published before frames we never got, so it does not make the copy whole
+  private joining = false;
+  // whether `world` is a sim this client ran rather than a copy of a host's,
+  // the stamp of the last snapshot it published, and how it last took over
+  private worldIsSim = false;
+  private publishedT: number | null = null;
+  private takeover: TakeoverSource | null = null;
   private controlsPaused = false;
   private neutralPending = false;
   // enemies (creeps + champions) the local player has slain this match
@@ -677,11 +683,21 @@ export class GameScene {
       this.neutralPending = true;
       // Keep fresh movement pressed during the gap; queued actions never replay.
       this.drainActionInput();
-      // a new connection missed frames: interpolate and predict afresh
+      // a new connection missed frames: interpolate and predict afresh, from
+      // a snapshot that was published before we arrived
+      this.mirror.reset();
+      this.predictor.reset();
+      this.joining = true;
       this.mirrorHost = null;
     } else if (seat.kind === "host" && !net.isHost) {
       seat = { id, kind: "guest" };
       this.acc = 0;
+      // demoted: our world stands until the new host's first snapshot
+      // replaces it; the room's copy of our own last one is no news
+      this.lastSnap = net.sharedState["snap"];
+      this.joining = false;
+      this.mirror.reset();
+      this.predictor.reset();
       this.mirrorHost = null;
     }
     this.online = seat;
@@ -702,17 +718,28 @@ export class GameScene {
       return null;
     }
     if (seat.kind === "guest" && net.isHost) {
-      const { snap } = net.sharedState;
+      const { snap, snapT } = net.sharedState;
       // Malformed room state is not permission to overwrite a live match.
       if (snap !== undefined && snap !== null && !isSnapshot(snap)) {
         return null;
       }
-      const roster = restoreHostState(this.world, isSnapshot(snap) ? snap : null);
+      // Carry the match on from the freshest world on hand (net/host-state.ts).
+      const roster = takeOver(this.world, {
+        held: this.held,
+        mirror: this.mirror,
+        ours: this.worldIsSim && isJsonNumber(snapT) && snapT === this.publishedT,
+        ownId: this.localId,
+        predictor: this.predictor,
+        snapshot: isSnapshot(snap) ? snap : null,
+      });
+      this.takeover = roster.source;
+      this.worldIsSim = true;
       this.picks = { ...this.picks, ...roster.picks };
       this.assign = roster.seats;
       this.acc = 0;
-      // stamps stay on server time; the restored world goes out whole
+      // stamps stay on server time; the world goes out whole on the first tick
       this.hostNet = new HostNet();
+      this.hostNet.alreadySent(this.world.fx);
       this.mirror.reset();
       this.predictor.reset();
       seat = { id: seat.id, kind: "host" };
@@ -747,18 +774,21 @@ export class GameScene {
     this.trackHost(net);
     const generation = sharedCounter(net.sharedState["matchGeneration"]);
     const newMatch = this.matchGeneration !== null && generation !== this.matchGeneration;
-    if (newMatch || this.ownResync) {
+    if (newMatch) {
       // positions restart: nothing may blend from the old world into this one
       this.mirror.reset();
       this.predictor.reset();
-      this.ownResync = false;
     }
     const { snapT } = net.sharedState;
+    const live = !this.joining;
+    this.joining = false;
+    this.worldIsSim = false;
     this.mirror.applySnapshot(
       this.world,
       snap,
       isJsonNumber(snapT) ? snapT : null,
       performance.now(),
+      live,
     );
     if (newMatch) {
       this.resetMatchPresentation();
@@ -766,18 +796,17 @@ export class GameScene {
     this.matchGeneration = generation;
   }
 
-  /** Guest: a new host restores its own world, so interpolation and
-   *  prediction restart there; the clock is the server's and carries on. The
-   *  new host learns the held input at once. */
+  /** Guest: a new host carries the match on from the world we hold, on the
+   *  same server clock, so interpolation and prediction carry on too (a new
+   *  host that had to fall back to an older snapshot is caught by the mirror).
+   *  The input it never got is lost with the old host: send the held input at
+   *  once. */
   private trackHost(net: MultiplayerClient): void {
     if (net.hostId === this.mirrorHost) {
       return;
     }
     this.mirrorHost = net.hostId;
-    this.mirror.reset();
-    this.predictor.reset();
     this.predictor.resend();
-    this.ownResync = true;
   }
 
   /** Guest: one host frame, applied on arrival. */
@@ -791,6 +820,7 @@ export class GameScene {
       return;
     }
     this.trackHost(net);
+    this.worldIsSim = false;
     const own = this.mirror.applyFrame(this.world, frame, performance.now());
     if (own) {
       this.predictor.hostUpdate(own);
@@ -870,8 +900,10 @@ export class GameScene {
     return {
       inputHero: (ownerId) => (ownerId === id ? null : this.intentUnit(net, ownerId)),
       now: () => net.serverNow(),
-      publish: (snap, t) =>
-        net.updateSharedState({ matchGeneration: this.matchGeneration ?? 0, snap, snapT: t }),
+      publish: (snap, t) => {
+        this.publishedT = t;
+        net.updateSharedState({ matchGeneration: this.matchGeneration ?? 0, snap, snapT: t });
+      },
       sendFrame: (frame) => net.sendEvent(FRAME_EVENT, frame, { except: id }),
     };
   }
@@ -1324,6 +1356,10 @@ export class GameScene {
             hostId: this.net.hostId,
             matchGeneration: this.matchGeneration,
             playerId: this.net.playerId,
+            // where this client's world came from when it last took over
+            takeover: this.takeover,
+            // host → server → guest trip the mirror renders behind (ms)
+            trip: this.online.kind === "guest" ? Math.round(this.mirror.clock.trip) : 0,
           }
         : null,
       phase: this.world.phase,

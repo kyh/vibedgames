@@ -1,11 +1,14 @@
 // World ↔ wire. Two shapes travel from the host:
 //  - Snapshot: the whole World, ~1 Hz in sharedState.snap (and at once on a
-//    phase or match edge) — what a late joiner starts from and a promoted guest
-//    restores to continue the exact sim. rngState travels so the new host keeps
-//    the deterministic stream. Each unit rides as only the fields that differ
-//    from a blank combatant: a barrel is a dozen keys, not seventy.
+//    phase or match edge) — what a late joiner starts from, and what a promoted
+//    guest falls back to when its own copy missed frames. rngState travels so
+//    the new host keeps the deterministic stream. Each unit rides as only the
+//    fields that differ from a blank combatant: a barrel is a dozen keys, not
+//    seventy.
 //  - Frame: what changed in one sim tick, broadcast as an event every tick
-//    (net/frames.ts builds it). fx ride the frames, so none are lost.
+//    (net/frames.ts builds it). fx ride the frames, so none are lost, and so
+//    does every field the sim reads: a guest's copy is the host's world, which
+//    a promoted guest carries on from.
 // Both are JSON payload aliases — the lint config lists this module for that.
 import { isJsonObject } from "../data/json";
 import type { JsonObject, JsonValue } from "../data/json";

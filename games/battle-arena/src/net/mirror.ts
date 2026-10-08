@@ -13,7 +13,17 @@ import type { SenderClock } from "@vibedgames/multiplayer";
 import { INTERP_DELAY_MS } from "../data/config";
 import { isJsonNumber, isJsonObject, isJsonString } from "../data/json";
 import type { JsonObject, JsonValue } from "../data/json";
-import type { Coin, Delivery, FxEvent, GroundEffect, Projectile, Unit, World } from "../sim/types";
+import { ALL_ABILITY_KEYS } from "../sim/types";
+import type {
+  Coin,
+  Delivery,
+  FxEvent,
+  GroundEffect,
+  PendingStrike,
+  Projectile,
+  Unit,
+  World,
+} from "../sim/types";
 import { ArrivalClock } from "./arrival-clock";
 import { applySnapshot, blankUnit } from "./snapshot";
 import type { Frame, Snapshot } from "./snapshot";
@@ -71,22 +81,31 @@ interface ShotBase {
 
 /** Remote bodies take position and aim from interpolation, not the row. */
 const REMOTE_SKIP = new Set(["x", "y", "aimX", "aimY"]);
-/** The guest's own hero takes these from prediction. */
+/** The guest's own hero takes these from prediction (net/own-hero.ts) —
+ *  knockback included, which prediction leaves to reconciliation. */
 const OWN_SKIP = new Set([
   "x",
   "y",
   "vx",
   "vy",
+  "steerVx",
+  "steerVy",
+  "facing",
   "aimX",
   "aimY",
+  "moveX",
+  "moveY",
+  "attackHeld",
   "jumpUntil",
   "dashUntil",
   "dashVx",
   "dashVy",
+  "kbUntil",
 ]);
 const NO_SKIP = new Set<string>();
 
-const UNIT_TEMPLATE: JsonObject = blankUnit();
+// Creep leash anchors carry sample values only so `fits` knows their kinds.
+const UNIT_TEMPLATE: JsonObject = { ...blankUnit(), campId: "", homeX: 0, homeY: 0 };
 const PHASES: World["phase"][] = ["lobby", "playing", "ended"];
 
 /** A wire value of the right JSON kind for a field whose template is `proto`;
@@ -272,6 +291,59 @@ const applyListRows = <T extends JsonObject & { id: string }>(
   return out;
 };
 
+/** One pending strike as the host's encoder wrote it, or null. Strikes feed
+ *  a promoted guest's sim, so each field is checked rather than trusted. */
+const parseStrike = (v: JsonValue): PendingStrike | null => {
+  if (!isJsonObject(v)) {
+    return null;
+  }
+  const { at, casterId, key, dx, dy, px, py, ox, oy, targetId } = v;
+  const known = ALL_ABILITY_KEYS.find((k) => k === key);
+  if (
+    !known ||
+    !isJsonString(casterId) ||
+    !isJsonNumber(at) ||
+    !isJsonNumber(dx) ||
+    !isJsonNumber(dy) ||
+    !isJsonNumber(px) ||
+    !isJsonNumber(py) ||
+    !isJsonNumber(ox) ||
+    !isJsonNumber(oy)
+  ) {
+    return null;
+  }
+  const strike: PendingStrike = { at, casterId, dx, dy, key: known, ox, oy, px, py };
+  if (isJsonString(targetId)) {
+    strike.targetId = targetId;
+  }
+  return strike;
+};
+
+/** The sim's bookkeeping a frame changed: the id counter, the RNG, camp
+ *  timers and strikes still to land — nothing a guest draws, everything a
+ *  promoted guest's sim needs to carry on exactly where the host stopped. */
+const applyBookkeeping = (world: World, row: JsonObject): void => {
+  const { seq, rngState, campRespawnAt, strikes } = row;
+  if (isJsonNumber(seq)) {
+    world.seq = seq;
+  }
+  if (isJsonNumber(rngState)) {
+    world.rngState = rngState;
+  }
+  if (isJsonObject(campRespawnAt)) {
+    const camps: Record<string, number> = {};
+    for (const [id, at] of Object.entries(campRespawnAt)) {
+      if (isJsonNumber(at)) {
+        camps[id] = at;
+      }
+    }
+    world.campRespawnAt = camps;
+  }
+  if (Array.isArray(strikes)) {
+    world.strikes = strikes.flatMap((v) => parseStrike(v) ?? []);
+  }
+};
+
 /** World scalars and the boss, as a frame changed them. */
 const applyScalars = (world: World, frame: Frame): void => {
   const { w: row, b: boss } = frame;
@@ -302,6 +374,7 @@ const applyScalars = (world: World, frame: Frame): void => {
     if (isJsonNumber(row["nextDeliveryAt"])) {
       world.nextDeliveryAt = row["nextDeliveryAt"];
     }
+    applyBookkeeping(world, row);
   }
   if (boss) {
     const target: JsonObject = world.boss;
@@ -337,6 +410,8 @@ export class NetMirror {
   private latest: { t: number; n: number; gt: number } | null = null;
   private floorNow = Number.NEGATIVE_INFINITY;
   private own: OwnReport | null = null;
+  /** A snapshot arrived live and every frame since: the copy is the host's world. */
+  private whole = false;
 
   /** `server` is the room's server clock (`client.serverClock`). */
   constructor(server: SenderClock) {
@@ -351,6 +426,41 @@ export class NetMirror {
     this.latest = null;
     this.floorNow = Number.NEGATIVE_INFINITY;
     this.own = null;
+    this.whole = false;
+  }
+
+  /**
+   * Make this copy the host's world as of the newest frame, ready to step:
+   * the clock on that frame's tick, and remote bodies and projectiles back
+   * where the host last put them (they are drawn behind and ahead of it). The
+   * own hero stays as prediction drew it. False, with nothing touched, unless
+   * the copy is whole — a snapshot that arrived live and every frame since;
+   * the one found on joining misses whatever changed before we arrived.
+   */
+  takeOver(world: World): boolean {
+    const { latest } = this;
+    if (!this.whole || !latest) {
+      return false;
+    }
+    world.now = latest.n;
+    world.gameTime = latest.gt;
+    for (const [id, body] of this.bodies) {
+      const u = world.units.get(id);
+      if (u && id !== this.ownId) {
+        u.x = body.pose.x;
+        u.y = body.pose.y;
+        u.aimX = body.aimX;
+        u.aimY = body.aimY;
+      }
+    }
+    for (const [id, base] of this.shots) {
+      const p = world.projectiles.get(id);
+      if (p) {
+        p.x = base.x;
+        p.y = base.y;
+      }
+    }
+    return true;
   }
 
   /** Apply one frame. Returns the host's view of the own hero, if present.
@@ -385,8 +495,26 @@ export class NetMirror {
     return this.ownReport(world, frame.n);
   }
 
-  /** Adopt a full snapshot (the ~1 Hz resync, a late join, a new match). */
-  applySnapshot(world: World, snap: Snapshot, t: number | null, receivedAt: number): void {
+  /** Adopt a full snapshot (the ~1 Hz resync, a late join, a new match).
+   *  `live` is false for the one found on joining, which frames sent before
+   *  we arrived have already moved past. */
+  applySnapshot(
+    world: World,
+    snap: Snapshot,
+    t: number | null,
+    receivedAt: number,
+    live: boolean,
+  ): void {
+    if (this.latest && snap.now < this.latest.n) {
+      // A world from further back (a new host that only had the room's
+      // snapshot, the one found on rejoining): what is buffered never
+      // happened on its timeline.
+      this.bodies.clear();
+      this.shots.clear();
+      this.latest = null;
+      this.floorNow = Number.NEGATIVE_INFINITY;
+    }
+    this.whole = live;
     applySnapshot(world, snap);
     for (const id of this.bodies.keys()) {
       const u = world.units.get(id);
@@ -408,10 +536,14 @@ export class NetMirror {
     for (const p of world.projectiles.values()) {
       this.shots.set(p.id, { n: snap.now, x: p.x, y: p.y });
     }
-    // Before any frame (a join), the snapshot is all there is to draw.
-    if (!this.latest && t !== null) {
+    if (t !== null && (!this.latest || live)) {
+      // Before any frame (a join), the snapshot is all there is to draw; a
+      // live one is the newest word from the host until its tick's frame.
+      const first = !this.latest;
       this.latest = { gt: snap.gameTime, n: snap.now, t };
-      this.pushPoses(world, t, receivedAt);
+      if (first) {
+        this.pushPoses(world, t, receivedAt);
+      }
     }
   }
 
