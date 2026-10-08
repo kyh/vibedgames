@@ -244,8 +244,10 @@ export class Link {
     }
     this.linkUp = false;
     // Once we've been in the arena, a drop is transient — let the socket
-    // reconnect instead of stranding a real player in a solo world.
-    if (this.everConnected) {
+    // reconnect instead of stranding a real player in a solo world. Admitted
+    // and waiting on the first clock probe counts too: the room answered,
+    // and a probe lost under load is retried within seconds.
+    if (this.everConnected || this.client?.connectionStatus === "connected") {
       return "steady";
     }
     // Pre-connect errors/closes are NOT instant failures: the socket retries
