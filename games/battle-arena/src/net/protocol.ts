@@ -28,7 +28,7 @@ export const PARTY = "vg-server";
 /** Wire-format generation, part of every room id: a tab still running an
  *  older bundle during a deploy lands in a different room, never a shared
  *  match it cannot read. Bump it with any change to frames, snapshots or input. */
-export const NETCODE_VERSION = "v2";
+export const NETCODE_VERSION = "v3";
 export const ROOM_PREFIX = `battle-arena-${NETCODE_VERSION}-`;
 export const INTENT_EVENT = "intent";
 export const FRAME_EVENT = "frame";

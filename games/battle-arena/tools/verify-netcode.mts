@@ -8,6 +8,7 @@ import { test } from "node:test";
 import type { JsonValue } from "../src/data/json.ts";
 import { isJsonNumber, isJsonObject } from "../src/data/json.ts";
 import { SPAWNS, CAMPS } from "../src/data/map.ts";
+import { ArrivalClock } from "../src/net/arrival-clock.ts";
 import { HostNet } from "../src/net/host-net.ts";
 import type { HostLink } from "../src/net/host-net.ts";
 import { inputWire, parseInput } from "../src/net/input.ts";
@@ -113,7 +114,10 @@ const match = (opts: MatchOptions = {}) => {
   const toHost = new Pipe(opts.oneWayMs ?? 60, opts.jitterMs ?? 40, 2);
   const hostNet = new HostNet();
   const guestWorld = emptyGuestWorld();
-  const mirror = new NetMirror();
+  let now = 5000;
+  // one process plays both ends: the room's server clock is the harness clock
+  const serverClock = { now: (localNow?: number) => localNow ?? now, synced: true };
+  const mirror = new NetMirror(serverClock);
   mirror.ownId = guestHero.id;
   const predictor = new OwnHeroPredictor();
   const held: HeldInput = { attack: false, ax: 1, ay: 0, mx: 0, my: 0 };
@@ -122,12 +126,12 @@ const match = (opts: MatchOptions = {}) => {
   let snapshotBytes = 0;
   let fxSent = 0;
   let fxReceived = 0;
-  let now = 5000;
   const link: HostLink = {
     inputHero: (owner) => {
       const u = world.units.get(`h-${owner}`);
       return owner !== HOST && u?.alive && world.phase === "playing" ? u : null;
     },
+    now: () => now,
     publish: (snap, t) => {
       snapshots += 1;
       snapshotBytes = JSON.stringify(snap).length;
@@ -414,6 +418,10 @@ test("a host below 30 fps keeps real time; payload stays small", () => {
   m.run(30_000);
   const simMs = m.world.now - start;
   assert.ok(Math.abs(simMs - 30_000) < 100, `host sim kept wall-clock pace (${simMs} ms in 30 s)`);
+  // two ticks run in one 50 ms frame are stamped with the server time each
+  // stands for, so guests see an even 30 Hz however the host's frames fall
+  const gaps = new Set(m.frames.slice(1).map((f, i) => f.t - (m.frames[i]?.t ?? 0)));
+  assert.deepEqual([...gaps].toSorted(), [33, 34], `ticks stamped a tick apart (${[...gaps]})`);
   // what the old netcode sent every broadcast: the whole World, plain JSON
   const oldBytes = JSON.stringify({
     ...m.world,
@@ -463,4 +471,42 @@ test("frames keep a guest's world in step with the host's through a busy match",
     m.run(400, false);
     sameView(m.world, m.guestWorld);
   }
+});
+
+test("the mirror clock is server time less the fastest recent trip, whoever sends", () => {
+  let synced = false;
+  const server = {
+    now: (localNow?: number) => (localNow ?? 0) + 1_000_000,
+    get synced() {
+      return synced;
+    },
+  };
+  const clock = new ArrivalClock(server);
+  // before the server clock is measured there is no trip to learn
+  clock.arrived(1_000_000, 50);
+  assert.equal(clock.synced, false, "an unsynced server clock teaches nothing");
+  synced = true;
+  // host A: trips of 60-140 ms; the fastest defines the clock
+  for (let i = 0; i < 90; i += 1) {
+    const sent = 1_000_000 + i * 33;
+    clock.arrived(sent, sent - 1_000_000 + 60 + noise(i) * 80);
+  }
+  const atA = 90 * 33 + 200;
+  assert.ok(Math.abs(server.now(atA) - clock.now(atA) - clock.trip) < 1e-9);
+  assert.ok(clock.trip >= 60 && clock.trip < 65, `fastest trip (${clock.trip.toFixed(1)} ms)`);
+  // host B takes over 400 ms later on the same server clock, 40 ms further
+  // away: no reset — the window learns the slower route within seconds
+  for (let i = 0; i < 200; i += 1) {
+    const sent = 1_000_000 + 90 * 33 + 400 + i * 33;
+    const at = sent - 1_000_000 + 100 + noise(i + 500) * 80;
+    clock.arrived(sent, at);
+    clock.now(at);
+  }
+  assert.ok(
+    clock.trip >= 100 && clock.trip < 105,
+    `new route learned (${clock.trip.toFixed(1)} ms)`,
+  );
+  // a stamp from a host whose own clock is not yet synced is not a trip
+  clock.arrived(5, 90 * 33 + 400 + 200 * 33 + 120);
+  assert.ok(clock.trip >= 100, "a wild stamp is ignored");
 });

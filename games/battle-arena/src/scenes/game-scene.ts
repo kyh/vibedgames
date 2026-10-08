@@ -7,7 +7,7 @@ import { AbilityGuide } from "../render/ability-guide";
 // on the same movement code, draws everyone else interpolated slightly in the
 // past (net/mirror.ts), and sends its input to the host once per tick when it
 // changes. Only the server elects a host.
-import { MultiplayerClient } from "@vibedgames/multiplayer";
+import { MultiplayerClient, ServerClock } from "@vibedgames/multiplayer";
 import {
   ARENA_BOT_FILL,
   KILL_GOAL_FFA,
@@ -192,7 +192,7 @@ export class GameScene {
   // host: the fixed-step loop, frame stream and guest input buffers
   private hostNet = new HostNet();
   // guest: the host's world as received, and the own hero's prediction
-  private readonly mirror = new NetMirror();
+  private readonly mirror: NetMirror;
   private readonly predictor = new OwnHeroPredictor();
   // guest: controls held this frame (the predictor samples them per tick)
   private held: HeldInput = { attack: false, ax: 0, ay: 1, mx: 0, my: 0 };
@@ -247,6 +247,8 @@ export class GameScene {
         this.introTime = INTRO_S;
       }
     }
+    // frames are stamped with the room's server time, whoever hosts
+    this.mirror = new NetMirror(this.net?.serverClock ?? new ServerClock());
 
     this.worldView = new WorldView(view.scene, lib);
     this.worldView.localId = this.localId;
@@ -709,8 +711,8 @@ export class GameScene {
       this.picks = { ...this.picks, ...roster.picks };
       this.assign = roster.seats;
       this.acc = 0;
-      // carry the old host's frame clock on, and send the restored world whole
-      this.hostNet = new HostNet(this.mirror.latestT);
+      // stamps stay on server time; the restored world goes out whole
+      this.hostNet = new HostNet();
       this.mirror.reset();
       this.predictor.reset();
       seat = { id: seat.id, kind: "host" };
@@ -764,14 +766,15 @@ export class GameScene {
     this.matchGeneration = generation;
   }
 
-  /** Guest: a new host is a new clock and a new world. Interpolation and
-   *  prediction restart, and the new host learns the held input at once. */
+  /** Guest: a new host restores its own world, so interpolation and
+   *  prediction restart there; the clock is the server's and carries on. The
+   *  new host learns the held input at once. */
   private trackHost(net: MultiplayerClient): void {
     if (net.hostId === this.mirrorHost) {
       return;
     }
     this.mirrorHost = net.hostId;
-    this.mirror.resetClock();
+    this.mirror.reset();
     this.predictor.reset();
     this.predictor.resend();
     this.ownResync = true;
@@ -866,6 +869,7 @@ export class GameScene {
   private hostLink(net: MultiplayerClient, id: string): HostLink {
     return {
       inputHero: (ownerId) => (ownerId === id ? null : this.intentUnit(net, ownerId)),
+      now: () => net.serverNow(),
       publish: (snap, t) =>
         net.updateSharedState({ matchGeneration: this.matchGeneration ?? 0, snap, snapT: t }),
       sendFrame: (frame) => net.sendEvent(FRAME_EVENT, frame, { except: id }),

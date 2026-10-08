@@ -1,16 +1,20 @@
 // A guest's copy of the host's world. Frames and ~1 Hz snapshots are applied
 // the moment they arrive, in arrival order — except the motion of remote
-// bodies, which renders INTERP_DELAY_MS behind the host's clock, blended
+// bodies, which renders INTERP_DELAY_MS behind the newest arrival, blended
 // between the two frames that bracket that moment, so everyone else moves as
 // smoothly as the host simulated them whatever the arrival jitter. Projectiles
 // are the exception the other way: their hits land as fx on arrival, so they
 // fly in the present, extrapolated along their velocity. The guest's own hero
 // is predicted (net/own-hero.ts); the mirror only reports what the host said.
-import { Interpolator, RemoteClock, lerp, lerpAngle } from "@vibedgames/multiplayer";
+// Every host stamps its frames with the room's server time, so the clock all
+// of this runs on outlives the host that happens to be sending.
+import { Interpolator, lerp, lerpAngle } from "@vibedgames/multiplayer";
+import type { SenderClock } from "@vibedgames/multiplayer";
 import { INTERP_DELAY_MS } from "../data/config";
 import { isJsonNumber, isJsonObject, isJsonString } from "../data/json";
 import type { JsonObject, JsonValue } from "../data/json";
 import type { Coin, Delivery, FxEvent, GroundEffect, Projectile, Unit, World } from "../sim/types";
+import { ArrivalClock } from "./arrival-clock";
 import { applySnapshot, blankUnit } from "./snapshot";
 import type { Frame, Snapshot } from "./snapshot";
 
@@ -324,8 +328,8 @@ const updatePose = (body: RemoteBody, row: JsonObject): void => {
 };
 
 export class NetMirror {
-  /** The host's clock mapped onto ours — shared by every remote body. */
-  readonly clock = new RemoteClock();
+  /** The host's time as of the newest arrival — shared by every remote body. */
+  readonly clock: ArrivalClock;
   /** Id of the guest's own hero (predicted, never interpolated). */
   ownId = "";
   private readonly bodies = new Map<string, RemoteBody>();
@@ -334,12 +338,13 @@ export class NetMirror {
   private floorNow = Number.NEGATIVE_INFINITY;
   private own: OwnReport | null = null;
 
-  /** Host net clock of the newest frame applied (where a promoted guest's clock picks up). */
-  get latestT(): number {
-    return this.latest?.t ?? 0;
+  /** `server` is the room's server clock (`client.serverClock`). */
+  constructor(server: SenderClock) {
+    this.clock = new ArrivalClock(server);
   }
 
-  /** Forget interpolation and timing: a new match (positions restart). */
+  /** Forget interpolation and timing: a new match or a new world (positions
+   *  restart). The clock stays: it is the server's, whoever hosts. */
   reset(): void {
     this.bodies.clear();
     this.shots.clear();
@@ -348,19 +353,10 @@ export class NetMirror {
     this.own = null;
   }
 
-  /** A new host: a different clock as well as a different world. */
-  resetClock(): void {
-    this.clock.reset();
-    this.reset();
-  }
-
-  /** Apply one frame. Returns the host's view of the own hero, if present. */
+  /** Apply one frame. Returns the host's view of the own hero, if present.
+   *  Frames are deltas, so every one is applied, whatever its stamp. */
   applyFrame(world: World, frame: Frame, receivedAt: number): OwnReport | null {
-    // The snapshot of a tick goes out just before that tick's frame, so a
-    // frame stamped like the newest one seen is still news (its fx).
-    if (this.latest && frame.t < this.latest.t) {
-      return null;
-    }
+    this.clock.arrived(frame.t, receivedAt);
     applyScalars(world, frame);
     this.applyUnits(world, frame);
     this.applyProjectiles(world, frame);

@@ -53,7 +53,7 @@ export type Snapshot = {
  *  carries every field (the unit rows then always include `kind`). `*g` lists
  *  ids that are gone. Numbers are rounded for the wire (net/frames.ts). */
 export type Frame = {
-  /** Host net clock (ms): ticks × SIM_DT, real-time paced — what receivers interpolate on. */
+  /** Server time (ms) the tick stands for — what receivers interpolate on. */
   t: number;
   /** World.now after this tick (ms). */
   n: number;

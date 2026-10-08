@@ -308,13 +308,14 @@ export class FrameEncoder {
     this.boss = {};
   }
 
-  /** The frame for the tick just stepped. `t` is the host net clock; `acks`
-   *  maps hero id → its owner's input ack ({ ack, ackAt }). */
+  /** The frame for the tick just stepped. `t` is the tick's server-time
+   *  stamp (whole ms); `acks` maps hero id → its owner's input ack
+   *  ({ ack, ackAt }). */
   frame(w: World, t: number, fx: FxEvent[], acks: ReadonlyMap<string, JsonObject>): Frame {
     const out: Frame = {
       gt: Math.round(w.gameTime * 1000) / 1000,
       n: Math.round(w.now * 100) / 100,
-      t: Math.round(t * 100) / 100,
+      t,
     };
     const units = diffKeyed(this.units, w.units.values(), acks);
     if (units.rows) {

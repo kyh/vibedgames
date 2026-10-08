@@ -35,8 +35,9 @@ export const MAX_CATCH_UP_TICKS = 5;
 // The host sends a frame every tick and the whole world this often (~1 Hz) —
 // for late joiners and host handover.
 export const FULL_SNAPSHOT_TICKS = 30;
-// How far behind the host's clock remote bodies are drawn (ms): three frames,
-// so one late or bunched frame never empties the buffer.
+// How far behind the newest frame's arrival remote bodies are drawn (ms):
+// three frames, so one late or bunched frame never empties the buffer. The
+// trip itself is measured on the server clock (net/mirror.ts), not budgeted here.
 export const INTERP_DELAY_MS = 100;
 // An unchanged guest input is re-sent this often (ms), so a new host — or one
 // back from a dropout — learns it without waiting for a key change.
