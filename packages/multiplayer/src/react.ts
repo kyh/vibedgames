@@ -44,6 +44,7 @@ export const useMultiplayerRoom = <TShared extends JsonRecord = JsonRecord>(
       host: config.host,
       initialState: config.initialState,
       maxPlayers: config.maxPlayers,
+      onClaim: config.onClaim,
       onEvent: config.onEvent,
       party: config.party,
       room: config.room,
@@ -58,12 +59,14 @@ export const useMultiplayerRoom = <TShared extends JsonRecord = JsonRecord>(
     [client],
   );
 
-  // The client outlives any one onEvent prop; keep its callback slot current.
-  const { onEvent } = config;
+  // The client outlives any one callback prop; keep its callback slots current.
+  const { onClaim, onEvent } = config;
   useEffect(() => {
-    // oxlint-disable-next-line react/immutability -- the client is a socket wrapper held in state only for its identity; reassigning its callback slot is the intended API
+    /* oxlint-disable react/immutability -- the client is a socket wrapper held in state only for its identity; reassigning its callback slots is the intended API */
     client.onEvent = onEvent;
-  }, [client, onEvent]);
+    client.onClaim = onClaim;
+    /* oxlint-enable react/immutability */
+  }, [client, onClaim, onEvent]);
 
   // Subscribe to client state via useSyncExternalStore
   const subscribe = useCallback((listener: () => void) => client.subscribe(listener), [client]);

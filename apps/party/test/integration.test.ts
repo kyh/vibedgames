@@ -81,7 +81,7 @@ const waitFor = async (
 
 const connect = (
   room: string,
-  options?: Pick<MultiplayerClientOptions, "onEvent">,
+  options?: Pick<MultiplayerClientOptions, "onClaim" | "onEvent">,
 ): MultiplayerClient =>
   new MultiplayerClient({
     host: worker.origin,
@@ -500,6 +500,59 @@ test("time probes give every client the server's clock", async () => {
     assert.ok(error < 50 + client.rtt, `server clock off by ${error.toFixed(1)} ms`);
   } finally {
     client.destroy();
+  }
+});
+
+test("claims go to the first claimer; the loser hears the owner; release, clear and TTL free them", async () => {
+  const room = uniqueRoom("claims");
+  const heardByA: [string, string | null][] = [];
+  const clientA = connect(room, { onClaim: (key, owner) => heardByA.push([key, owner]) });
+  await waitFor(() => admitted(clientA), "A admitted first (host)");
+  const clientB = connect(room);
+  try {
+    await waitFor(() => admitted(clientB), "B admitted");
+    assert.ok(clientA.isHost, "A hosts");
+    const aId = clientA.playerId;
+    const bId = clientB.playerId;
+    assert.ok(aId !== null && bId !== null);
+
+    clientB.claim("pellet:1");
+    await waitFor(() => clientA.ownerOf("pellet:1") === bId, "A sees B's grant");
+    clientA.claim("pellet:1");
+    await waitFor(
+      () => heardByA.filter(([key, owner]) => key === "pellet:1" && owner === bId).length === 2,
+      "A's refused claim is answered with the owner (after the grant it heard)",
+    );
+    assert.equal(clientB.ownerOf("pellet:1"), bId, "B still owns it");
+
+    clientB.release("pellet:1");
+    await waitFor(() => clientA.ownerOf("pellet:1") === null, "release reaches A");
+
+    clientA.claim("round:a");
+    clientA.claim("round:b");
+    clientA.claim("keep");
+    await waitFor(() => clientB.ownerOf("keep") === aId, "B sees A's three claims");
+    clientB.clearClaims("round:");
+    clientA.clearClaims("round:");
+    await waitFor(() => clientB.ownerOf("round:a") === null, "host clear reaches B");
+    assert.equal(clientB.ownerOf("round:b"), null, "every key under the prefix cleared");
+    assert.equal(clientB.ownerOf("keep"), aId, "other keys untouched");
+
+    clientB.claim("brief", { ttlMs: 200 });
+    await waitFor(() => clientA.ownerOf("brief") === bId, "A sees the TTL grant");
+    await waitFor(() => !("brief" in clientA.claims), "the server announces the lapse");
+
+    const late = connect(room);
+    try {
+      await waitFor(() => admitted(late), "late joiner admitted");
+      assert.equal(late.ownerOf("keep"), aId, "sync carries live claims");
+      assert.equal(late.ownerOf("brief"), null, "and not lapsed ones");
+    } finally {
+      late.destroy();
+    }
+  } finally {
+    clientA.destroy();
+    clientB.destroy();
   }
 });
 

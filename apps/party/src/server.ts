@@ -1,11 +1,14 @@
 import type { Connection, ConnectionContext } from "partyserver";
 import { routePartykitRequest, Server } from "partyserver";
 
-import type { Player, PlayerMap, ServerMessage } from "@vibedgames/multiplayer";
+import type { ClaimMap, Player, PlayerMap, ServerMessage } from "@vibedgames/multiplayer";
 import {
   EVICTION_TIMEOUT_MS,
   findStructuralIssue,
   HOST_LIVENESS_TIMEOUT_MS,
+  MAX_CLAIM_KEY_LENGTH,
+  MAX_CLAIM_TTL_MS,
+  MAX_CLAIMS,
   MAX_MESSAGE_BYTES,
   PING_INTERVAL_MS,
   RECONNECT_GRACE_MS,
@@ -57,9 +60,15 @@ type IncomingMessage =
   | { type: "heartbeat" }
   | { type: "pong" }
   | { type: "time"; c: number }
+  | { type: "claim"; key: string; ttl: number | null }
+  | { type: "release"; key: string }
+  | { type: "clear_claims"; prefix: string }
   | { type: "unrecognized" };
 
-/** Decode the room-feature messages: server time. */
+const isClaimKey = (value: JsonValue | undefined): value is string =>
+  isJsonString(value) && value.length > 0 && value.length <= MAX_CLAIM_KEY_LENGTH;
+
+/** Decode the room-feature messages: server time and claims. */
 const decodeRoomMessage = (
   type: JsonValue | undefined,
   data: StateMap | undefined,
@@ -70,6 +79,25 @@ const decodeRoomMessage = (
   switch (type) {
     case "time": {
       return isJsonNumber(data.c) ? { c: data.c, type: "time" } : { type: "unrecognized" };
+    }
+    case "claim": {
+      const { key, ttl } = data;
+      if (!isClaimKey(key)) {
+        return { type: "unrecognized" };
+      }
+      return {
+        key,
+        ttl: isJsonNumber(ttl) && ttl > 0 ? Math.min(ttl, MAX_CLAIM_TTL_MS) : null,
+        type: "claim",
+      };
+    }
+    case "release": {
+      return isClaimKey(data.key) ? { key: data.key, type: "release" } : { type: "unrecognized" };
+    }
+    case "clear_claims": {
+      return isJsonString(data.prefix)
+        ? { prefix: data.prefix, type: "clear_claims" }
+        : { type: "unrecognized" };
     }
     default: {
       return { type: "unrecognized" };
@@ -154,6 +182,12 @@ interface GraceEntry {
   state: StateMap;
   disconnectedAt: number;
   expiresAt: number;
+}
+
+/** A claimed key: who holds it, and until when (server ms) for a claim with a TTL. */
+interface Claim {
+  owner: string;
+  until: number | null;
 }
 
 /** Durable, low-frequency room fields, persisted so they survive hibernation. */
@@ -259,6 +293,7 @@ export class VgServer extends Server {
   private hostId: string | null = null;
   private cap: number | null = null;
   private grace = new Map<string, GraceEntry>();
+  private claims = new Map<string, Claim>();
 
   /** Rehydrate durable session fields before any handler runs (partyserver awaits this). */
   async onStart() {
@@ -398,11 +433,16 @@ export class VgServer extends Server {
       if (raw === null) {
         continue;
       }
-      try {
-        connection.send(raw);
-      } catch {
-        /* peer already gone */
-      }
+      VgServer.sendTo(connection, raw);
+    }
+  }
+
+  /** Send to one connection, tolerating a socket whose peer is already gone. */
+  private static sendTo(connection: Connection<Presence>, raw: string): void {
+    try {
+      connection.send(raw);
+    } catch {
+      /* peer already gone */
     }
   }
 
@@ -562,6 +602,7 @@ export class VgServer extends Server {
     // held host — hand the role to the new id rather than to a bystander.
     if (reclaimed && reclaimed.id !== connection.id) {
       this.snapshots.delete(reclaimed.id);
+      this.transferClaims(reclaimed.id, connection.id);
       const leftMessage: ServerMessage = { data: { id: reclaimed.id }, type: "player_left" };
       this.broadcast(JSON.stringify(leftMessage), [connection.id]);
       if (this.hostId === reclaimed.id) {
@@ -581,6 +622,7 @@ export class VgServer extends Server {
 
     const syncMessage: ServerMessage = {
       data: {
+        claims: this.claimMap(now),
         hostId: this.hostId ?? connection.id,
         players: this.players(),
         state: this.shared,
@@ -686,6 +728,18 @@ export class VgServer extends Server {
           sender.send(JSON.stringify(reply));
           break;
         }
+        case "claim": {
+          this.handleClaim(sender, message.key, message.ttl);
+          break;
+        }
+        case "release": {
+          this.handleRelease(sender, message.key);
+          break;
+        }
+        case "clear_claims": {
+          this.handleClearClaims(sender, message.prefix);
+          break;
+        }
         case "emit": {
           VgServer.touch(sender, true);
           this.relayEvent(sender, message.data);
@@ -735,6 +789,101 @@ export class VgServer extends Server {
       type: "player_state",
     } satisfies ServerMessage);
     this.sendToEach((connection) => (connection.id === sender.id ? null : delta));
+  }
+
+  // -- Claims --------------------------------------------------------------
+
+  /** Live claims as the wire map, dropping (not announcing) any that lapsed. */
+  private claimMap(now: number): ClaimMap {
+    const map: ClaimMap = {};
+    for (const [key, claim] of this.claims) {
+      if (claim.until !== null && claim.until <= now) {
+        continue;
+      }
+      map[key] =
+        claim.until === null ? { owner: claim.owner } : { owner: claim.owner, until: claim.until };
+    }
+    return map;
+  }
+
+  private static claimMessage(key: string, claim: Claim | null): string {
+    const message: ServerMessage = {
+      data:
+        claim?.until === null || claim?.until === undefined
+          ? { key, owner: claim?.owner ?? null }
+          : { key, owner: claim.owner, until: claim.until },
+      type: "claim",
+    };
+    return JSON.stringify(message);
+  }
+
+  /** A player reclaimed its seat under a fresh id: its claims follow it. */
+  private transferClaims(from: string, to: string): void {
+    for (const [key, claim] of this.claims) {
+      if (claim.owner === from) {
+        const moved: Claim = { owner: to, until: claim.until };
+        this.claims.set(key, moved);
+        this.broadcast(VgServer.claimMessage(key, moved), []);
+      }
+    }
+  }
+
+  /**
+   * First come, first served: a free (or lapsed) key goes to the claimer and
+   * everyone hears it; a held key stays put and only the claimer hears who
+   * holds it. One hop, and the host has no edge over anyone.
+   */
+  private handleClaim(sender: Connection<Presence>, key: string, ttl: number | null): void {
+    const now = Date.now();
+    const current = this.claims.get(key);
+    const live = current && (current.until === null || current.until > now) ? current : null;
+    if (live && live.owner !== sender.id) {
+      VgServer.sendTo(sender, VgServer.claimMessage(key, live));
+      return;
+    }
+    if (!current && this.claims.size >= MAX_CLAIMS) {
+      VgServer.sendTo(sender, VgServer.claimMessage(key, null));
+      return;
+    }
+    const claim: Claim = { owner: sender.id, until: ttl === null ? null : now + ttl };
+    this.claims.set(key, claim);
+    this.broadcast(VgServer.claimMessage(key, claim), []);
+    if (claim.until !== null) {
+      // Wake for the expiry, so everyone hears the release on time.
+      void this.scheduleSweep();
+    }
+  }
+
+  private handleRelease(sender: Connection<Presence>, key: string): void {
+    const current = this.claims.get(key);
+    if (!current || (current.owner !== sender.id && sender.id !== this.hostId)) {
+      return;
+    }
+    this.claims.delete(key);
+    this.broadcast(VgServer.claimMessage(key, null), []);
+  }
+
+  private handleClearClaims(sender: Connection<Presence>, prefix: string): void {
+    if (sender.id !== this.hostId) {
+      return;
+    }
+    for (const key of this.claims.keys()) {
+      if (key.startsWith(prefix)) {
+        this.claims.delete(key);
+      }
+    }
+    const message: ServerMessage = { data: { prefix }, type: "claims_cleared" };
+    this.broadcast(JSON.stringify(message), []);
+  }
+
+  /** Release lapsed claims and tell everyone (the alarm wakes for the earliest expiry). */
+  private expireClaims(now: number): void {
+    for (const [key, claim] of this.claims) {
+      if (claim.until !== null && claim.until <= now) {
+        this.claims.delete(key);
+        this.broadcast(VgServer.claimMessage(key, null), []);
+      }
+    }
   }
 
   onClose(connection: Connection<Presence>, code: number) {
@@ -814,12 +963,12 @@ export class VgServer extends Server {
 
   /**
    * Pings live connections and evicts the ones that have gone silent past the
-   * eviction window, then lapses any grace seats whose window ran out. Players
-   * are the connections themselves now, so there is no separate map to
-   * reconcile — a ghost with no socket cannot exist outside the explicit grace
-   * map. Reschedules itself until the room has neither connections nor held
-   * seats, at which point the alarm stops and the Durable Object is free to
-   * shut down.
+   * eviction window, then lapses any grace seats whose window ran out, and any
+   * claims whose TTL did. Players are the connections themselves, so there is
+   * no separate map to reconcile — a ghost with no socket cannot exist outside
+   * the explicit grace map. Reschedules itself until the room has neither
+   * connections nor held seats, at which point the alarm stops and the Durable
+   * Object is free to shut down.
    */
   async onAlarm() {
     const now = Date.now();
@@ -867,6 +1016,7 @@ export class VgServer extends Server {
       await this.announceDeparture(entry.id);
     }
 
+    this.expireClaims(now);
     await this.scheduleSweep();
   }
 
@@ -881,6 +1031,14 @@ export class VgServer extends Server {
     let target: number | null = hasConnections ? Date.now() + PING_INTERVAL_MS : null;
     for (const entry of this.grace.values()) {
       target = target === null ? entry.expiresAt : Math.min(target, entry.expiresAt);
+    }
+    // Claim expiries only matter to a room someone is in.
+    if (target !== null) {
+      for (const claim of this.claims.values()) {
+        if (claim.until !== null) {
+          target = Math.min(target, claim.until);
+        }
+      }
     }
     if (target === null) {
       return;
@@ -988,16 +1146,17 @@ export class VgServer extends Server {
       }
     }
 
-    // Reset the sticky cap AND the shared state once the room empties so the
-    // next session starts fresh. Otherwise state set by an earlier session
-    // outlives it on the (still-warm) Durable Object: a wrong cap for a session
-    // that wants the unlimited default, and ghost world state (eaten pellets,
-    // scores, farm tiles) that the next session's clients adopt before their new
-    // host's first broadcast. A room with seats still held in grace is NOT
-    // empty — its dropped players may be seconds from returning.
+    // Reset the room once it empties so the next session starts fresh:
+    // otherwise state set by an earlier session outlives it on the (still-warm)
+    // Durable Object — a wrong cap for a session that wants another one, ghost
+    // world state and claims (eaten pellets, scores, farm tiles) that the next
+    // session's clients adopt before their new host's first broadcast. A room
+    // with seats still held in grace is NOT empty — its dropped players may be
+    // seconds from returning.
     if (remainingCount === 0 && this.grace.size === 0) {
       await this.setCap(null);
       this.shared = {};
+      this.claims.clear();
     }
   }
 }

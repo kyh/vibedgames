@@ -26,8 +26,28 @@ export interface MultiplayerOptions {
    */
   maxPlayers?: number;
   onEvent?: (event: string, payload: JsonValue, from: string) => void;
+  /**
+   * A claim's owner was set — granted (`owner` is the claimer), released
+   * (`owner` null), or the server's answer to your own refused claim (`owner`
+   * is whoever already holds it). See `MultiplayerClient.claim`.
+   */
+  onClaim?: (key: string, owner: string | null) => void;
 }
 
+/** Who holds each claimed key, and until when (server time, ms) for a claim with a TTL. */
+export interface ClaimInfo {
+  owner: string;
+  until?: number;
+}
+
+export type ClaimMap = Record<string, ClaimInfo>;
+
+/** Claims a room holds at most; past it new keys are refused. */
+export const MAX_CLAIMS = 10_000;
+/** Longest claim key (characters). */
+export const MAX_CLAIM_KEY_LENGTH = 128;
+/** Longest claim time-to-live (ms). */
+export const MAX_CLAIM_TTL_MS = 3_600_000;
 /** How often the SDK re-measures the server clock (ms). */
 export const TIME_PROBE_INTERVAL_MS = 5000;
 
@@ -110,7 +130,13 @@ export type ClientMessage =
   // the note on EVICTION_TIMEOUT_MS below.
   | { type: "pong" }
   // Server-clock probe: `c` is the client's clock at send, echoed back.
-  | { type: "time"; data: { c: number } };
+  | { type: "time"; data: { c: number } }
+  // Ask for a key; `ttl` (ms) releases it automatically.
+  | { type: "claim"; data: { key: string; ttl?: number } }
+  // Give a key back (its owner, or the host for any key).
+  | { type: "release"; data: { key: string } }
+  // Host only: release every key starting with `prefix` ("" = all).
+  | { type: "clear_claims"; data: { prefix: string } };
 
 /** How often the SDK sends a heartbeat (ms). */
 export const HEARTBEAT_INTERVAL_MS = 2000;
@@ -142,6 +168,7 @@ export type ServerMessage =
         players: PlayerMap;
         state: JsonRecord;
         hostId: string;
+        claims: ClaimMap;
         /** Server time (ms) when the sync was sent. */
         time: number;
       };
@@ -161,7 +188,11 @@ export type ServerMessage =
   // Liveness probe; the client answers with `pong`. See EVICTION_TIMEOUT_MS.
   | { type: "ping" }
   // Server-clock probe answer: the client's `c` echoed, and the server's time `s`.
-  | { type: "time"; data: { c: number; s: number } };
+  | { type: "time"; data: { c: number; s: number } }
+  // A key's owner: granted, released (null), or — to a refused claimer alone —
+  // whoever already holds it.
+  | { type: "claim"; data: { key: string; owner: string | null; until?: number } }
+  | { type: "claims_cleared"; data: { prefix: string } };
 
 export interface MultiplayerRoomState {
   connectionStatus: MultiplayerConnectionStatus;

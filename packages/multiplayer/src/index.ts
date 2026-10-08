@@ -11,6 +11,8 @@ export { Reconciler } from "./prediction.js";
 export type { Correction, ReconcilerOptions } from "./prediction.js";
 
 export type {
+  ClaimInfo,
+  ClaimMap,
   ClientMessage,
   MultiplayerConnectionStatus,
   MultiplayerOptions,
@@ -23,6 +25,9 @@ export {
   EVICTION_TIMEOUT_MS,
   HEARTBEAT_INTERVAL_MS,
   HOST_LIVENESS_TIMEOUT_MS,
+  MAX_CLAIM_KEY_LENGTH,
+  MAX_CLAIM_TTL_MS,
+  MAX_CLAIMS,
   PING_INTERVAL_MS,
   RECONNECT_GRACE_MS,
   RECONNECT_TOKEN_QUERY_PARAM,

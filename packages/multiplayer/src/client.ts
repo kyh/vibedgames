@@ -2,6 +2,7 @@ import { PartySocket } from "partysocket";
 
 import { ServerClock } from "./server-clock.js";
 import type {
+  ClaimMap,
   ClientMessage,
   JsonRecord,
   JsonValue,
@@ -93,6 +94,8 @@ export interface MultiplayerSnapshot {
    * (`{room}~2`, …) the server redirected this client into.
    */
   room: string;
+  /** Who holds each claimed key. See `MultiplayerClient.claim`. */
+  claims: ClaimMap;
 }
 
 /** Probes sent right after admission, before the slow cadence (ms after sync). */
@@ -212,6 +215,7 @@ export class MultiplayerClient {
   private readonly clock = new ServerClock();
   private lastProbeAt = Number.NEGATIVE_INFINITY;
   private probeTimers: ReturnType<typeof setTimeout>[] = [];
+  private _claims: ClaimMap = {};
 
   private _connectionStatus: MultiplayerConnectionStatus = "connecting";
   private _playerId: string | null = null;
@@ -220,6 +224,7 @@ export class MultiplayerClient {
   private _players: PlayerMap = {};
   private _room: string;
   private _onEvent: MultiplayerOptions["onEvent"];
+  private _onClaim: MultiplayerOptions["onClaim"];
   /** Our own player state, held outside `_players` so it survives a reconnect
    *  (which replaces `_players` wholesale and hands us a new player id) and can
    *  be re-announced to the fresh server-side connection. */
@@ -229,6 +234,7 @@ export class MultiplayerClient {
     this.options = options;
     this._sharedState = options.initialState ?? {};
     this._onEvent = options.onEvent;
+    this._onClaim = options.onClaim;
     this._room = options.room;
     this.cap = options.maxPlayers && options.maxPlayers > 0 ? Math.floor(options.maxPlayers) : null;
 
@@ -322,6 +328,7 @@ export class MultiplayerClient {
     this._hostId = null;
     this._playerId = null;
     this._sharedState = this.options.initialState ?? {};
+    this._claims = {};
     // Queued for a room that never admitted us — don't leak them into the new one.
     this.pendingCoalesced.clear();
 
@@ -366,6 +373,7 @@ export class MultiplayerClient {
   /** Get a readonly snapshot of the current state. */
   getSnapshot(): MultiplayerSnapshot {
     return {
+      claims: this._claims,
       connectionStatus: this._connectionStatus,
       hostId: this._hostId,
       playerId: this._playerId,
@@ -394,6 +402,47 @@ export class MultiplayerClient {
   /** Fastest recent round trip to the server (ms); NaN until measured. */
   get rtt(): number {
     return this.clock.rtt;
+  }
+
+  // -- Claims --------------------------------------------------------------
+
+  /** Who holds each claimed key (server-arbitrated). */
+  get claims(): ClaimMap {
+    return this._claims;
+  }
+
+  /** The player holding `key` now, or null (never claimed, released, or its TTL ran out). */
+  ownerOf(key: string): string | null {
+    const claim = this._claims[key];
+    if (!claim || (claim.until !== undefined && claim.until <= this.serverNow())) {
+      return null;
+    }
+    return claim.owner;
+  }
+
+  /**
+   * Ask the server for `key` — first come, first served, with no host round
+   * trip and no host advantage. Every client hears the grant through
+   * `onClaim(key, owner)` and `claims`; a refused claimer alone hears the
+   * current owner. Act on the claim optimistically and undo it if `onClaim`
+   * names someone else. `ttlMs` releases it automatically.
+   */
+  claim(key: string, options?: { ttlMs?: number }): void {
+    const ttl = options?.ttlMs;
+    this.flushCoalescedEvents();
+    this.send({ data: ttl === undefined ? { key } : { key, ttl }, type: "claim" });
+  }
+
+  /** Give `key` back. Its owner may; the host may release any key. */
+  release(key: string): void {
+    this.flushCoalescedEvents();
+    this.send({ data: { key }, type: "release" });
+  }
+
+  /** Host only: release every key starting with `prefix` ("" clears them all) — a new round. */
+  clearClaims(prefix = ""): void {
+    this.flushCoalescedEvents();
+    this.send({ data: { prefix }, type: "clear_claims" });
   }
 
   /** Subscribe to state changes. Returns an unsubscribe function. */
@@ -494,6 +543,15 @@ export class MultiplayerClient {
   /** Set the onEvent callback. */
   set onEvent(fn: MultiplayerOptions["onEvent"]) {
     this._onEvent = fn;
+  }
+
+  get onClaim(): MultiplayerOptions["onClaim"] {
+    return this._onClaim;
+  }
+
+  /** Set the onClaim callback. */
+  set onClaim(fn: MultiplayerOptions["onClaim"]) {
+    this._onClaim = fn;
   }
 
   /** Disconnect and clean up. */
@@ -658,6 +716,7 @@ export class MultiplayerClient {
     this._playerId = this.socket.id ?? null;
     this._hostId = data.hostId;
     this._players = data.players;
+    this._claims = data.claims;
     // Measure the server clock straight away — games stamp with it from the
     // first frame — then settle into the heartbeat's slow cadence.
     for (const timer of this.probeTimers) {
@@ -702,6 +761,16 @@ export class MultiplayerClient {
       };
       this.send({ data: this._myState, type: "player_state_patch" });
     }
+  }
+
+  private applyClaim(key: string, owner: string | null, until?: number): void {
+    if (owner === null) {
+      const { [key]: _released, ...remaining } = this._claims;
+      this._claims = remaining;
+    } else {
+      this._claims = { ...this._claims, [key]: until === undefined ? { owner } : { owner, until } };
+    }
+    this._onClaim?.(key, owner);
   }
 
   private handleMessage = (event: MessageEvent): void => {
@@ -774,6 +843,14 @@ export class MultiplayerClient {
         // Clock samples change nothing a subscriber renders.
         return false;
       }
+      case "claim": {
+        this.applyClaim(message.data.key, message.data.owner, message.data.until);
+        return true;
+      }
+      case "claims_cleared": {
+        this.applyClaimsCleared(message.data.prefix);
+        return true;
+      }
       case "room_full": {
         // The room hit its cap before we joined. Reconnect to the overflow
         // sibling the server picked, carrying its authoritative capacity so
@@ -807,6 +884,22 @@ export class MultiplayerClient {
     const known = this._players[id];
     if (known) {
       this._players = { ...this._players, [id]: { ...known, ...flags } };
+    }
+  }
+
+  private applyClaimsCleared(prefix: string): void {
+    const remaining: ClaimMap = {};
+    const released: string[] = [];
+    for (const [key, claim] of Object.entries(this._claims)) {
+      if (key.startsWith(prefix)) {
+        released.push(key);
+      } else {
+        remaining[key] = claim;
+      }
+    }
+    this._claims = remaining;
+    for (const key of released) {
+      this._onClaim?.(key, null);
     }
   }
 }
