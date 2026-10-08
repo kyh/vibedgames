@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { ServerClock } from "@vibedgames/multiplayer";
 import type { ClaimMap } from "@vibedgames/multiplayer";
 
 import { PacTrack, lerpPose, readPacSample } from "../src/net/pac-track";
@@ -32,16 +31,12 @@ const noise = (i: number): number => {
 const FRAME_MS = 1000 / 60;
 /** Server time minus this tab's local clock: an epoch timestamp against `performance.now()`. */
 const OFFSET_MS = 1_700_000_000_000;
-/** The room's server clock as this tab measured it (one ideal probe). */
-const serverClock = (offset = OFFSET_MS): ServerClock => {
-  const clock = new ServerClock();
-  clock.sample(0, offset, 0);
-  return clock;
-};
 /** Server time `t` on this tab's local clock. */
 const local = (t: number): number => t - OFFSET_MS;
-/** Local arrival of a report stamped `t`: the relay is two one-way trips of 25–75 ms. */
-const arrival = (t: number, i = 0): number => local(t) + 50 + noise(i) * 100;
+/** The relay under test: two one-way trips of 25–75 ms, so 50–150 ms (`noise(0)` is 0). */
+const relay = (i: number): number => 50 + noise(i) * 100;
+/** Local arrival of a report stamped `t`. */
+const arrival = (t: number, i = 0): number => local(t) + relay(i);
 
 const T0 = OFFSET_MS + 10_000;
 
@@ -249,17 +244,29 @@ test("only a player in the round with a position is a rival", () => {
   });
 });
 
-test("a rival walking the maze renders as steady motion from jittery 20 Hz reports", () => {
-  const track = new PacTrack(serverClock());
+/** Every frame once the buffer has filled: how far behind the sender the pac was drawn, and how far it moved. */
+interface Playback {
+  /** Server time now, less the server time the sender stood where the pac is drawn (ms). */
+  lags: number[];
+  /** Cells moved since the frame before. */
+  steps: number[];
+}
+
+/**
+ * A rival walks 20 cells along a row, each report landing `transit(i)` ms
+ * after it was sent (in order, as over one socket).
+ */
+const playWalk = (transit: (i: number) => number): Playback => {
+  const track = new PacTrack();
   const reports = walk(80, { t: T0, x: 1, z: 1 });
+  const landed = (i: number): number => local(reports[i]?.t ?? Infinity) + transit(i);
+  const playback: Playback = { lags: [], steps: [] };
   let next = 0;
   let prev: number | null = null;
-  const expected = 5 * (FRAME_MS / 1000);
-  // Past the first few reports, which only fill the buffer.
-  const settled = arrival(T0) + 300;
-  const end = arrival(T0 + 79 * 50) - 300;
-  for (let at = arrival(T0); at < end; at += FRAME_MS) {
-    while (next < reports.length && arrival(reports[next]?.t ?? Infinity, next) <= at) {
+  const settled = landed(0) + 300;
+  const end = landed(79) - 300;
+  for (let at = landed(0); at < end; at += FRAME_MS) {
+    while (next < reports.length && landed(next) <= at) {
       next += 1;
     }
     // As the game does: each frame feeds the newest report that has arrived
@@ -272,33 +279,48 @@ test("a rival walking the maze renders as steady motion from jittery 20 Hz repor
     assert.ok(pose);
     assert.equal(pose.z, 1);
     if (prev !== null && at >= settled) {
-      const step = pose.x - prev;
-      // Within 15% of the true per-frame motion: no surges, stalls or reversals.
-      assert.ok(Math.abs(step - expected) < expected * 0.15, `frame step ${step} vs ${expected}`);
+      playback.steps.push(pose.x - prev);
+      playback.lags.push(at + OFFSET_MS - (T0 + ((pose.x - 1) / 0.25) * 50));
     }
     prev = pose.x;
   }
+  return playback;
+};
+
+/** Within 15% of the true per-frame motion: no surges, stalls or reversals. */
+const assertSteady = (steps: readonly number[]): void => {
+  const expected = 5 * (FRAME_MS / 1000);
+  assert.ok(steps.length > 100);
+  for (const step of steps) {
+    assert.ok(Math.abs(step - expected) < expected * 0.15, `frame step ${step} vs ${expected}`);
+  }
+};
+
+test("a rival walking the maze renders as steady motion from jittery 20 Hz reports", () => {
+  assertSteady(playWalk(relay).steps);
 });
 
-test("every tab draws a rival where it was RIVAL_DELAY_MS ago by the server clock", () => {
-  // Two tabs whose own clocks share nothing: each measured the server once.
-  const here = new PacTrack(serverClock());
-  const there = new PacTrack(serverClock(OFFSET_MS + 37_000));
-  for (const [i, report] of walk(10, { t: T0, x: 1, z: 1 }).entries()) {
-    here.push(report, arrival(report.t, i));
-    there.push(report, arrival(report.t, i + 50) - 37_000);
+test("each rival's clock learns its own route: a slow one walks as steadily, only later", () => {
+  const fast = playWalk(relay);
+  // Two 125–175 ms trips: past any fixed delay a shared server clock could use for both.
+  const slow = playWalk((i) => 250 + noise(i) * 100);
+  assertSteady(slow.steps);
+  // Each is drawn its own fastest transit plus RIVAL_DELAY_MS behind the sender.
+  for (const [route, floor] of [
+    [fast, 50],
+    [slow, 250],
+  ] as const) {
+    for (const lag of route.lags) {
+      assert.ok(
+        Math.abs(lag - (floor + RIVAL_DELAY_MS)) < 1,
+        `lag ${lag} on the ${floor} ms route`,
+      );
+    }
   }
-  // Server time T0 + 400 lies between the reports stamped T0 + 350 and T0 + 400.
-  const at = T0 + 400 + RIVAL_DELAY_MS;
-  assert.deepEqual(here.sample(local(at)), { x: 3, z: 1 });
-  assert.deepEqual(there.sample(local(at) - 37_000), { x: 3, z: 1 });
-  // Halfway between two reports, both blend the same way.
-  assert.deepEqual(here.sample(local(at) - 25), { x: 2.875, z: 1 });
-  assert.deepEqual(there.sample(local(at) - 25 - 37_000), { x: 2.875, z: 1 });
 });
 
 test("a respawn snaps the pac home instead of gliding it back through the walls", () => {
-  const track = new PacTrack(serverClock());
+  const track = new PacTrack();
   // Caught a step from home: too close for the jump rule, so the spawn bump must do it.
   const reports = walk(3, { t: T0, x: 1.5, z: 1 });
   for (const report of reports) {
@@ -310,12 +332,13 @@ test("a respawn snaps the pac home instead of gliding it back through the walls"
   // Later reports from home blend from home, never from the old corridor.
   const after = { ...home, t: home.t + 50, x: 1.25 };
   track.push(after, arrival(after.t));
-  const pose = track.sample(local(after.t) + RIVAL_DELAY_MS - 25);
+  // Drawn 25 ms of sender time before `after`, on a route that is 50 ms at best.
+  const pose = track.sample(arrival(after.t) + RIVAL_DELAY_MS - 25);
   assert.ok(pose && pose.x >= 1 && pose.x <= 1.25 && pose.z === 1, JSON.stringify(pose));
 });
 
 test("a jump past the neighbouring cell snaps; a step into it blends", () => {
-  const jumped = new PacTrack(serverClock());
+  const jumped = new PacTrack();
   for (const report of walk(6, { t: T0, x: 7, z: 1 })) {
     jumped.push(report, arrival(report.t));
   }
@@ -324,7 +347,7 @@ test("a jump past the neighbouring cell snaps; a step into it blends", () => {
   jumped.push(far, arrival(far.t));
   assert.deepEqual(jumped.sample(arrival(far.t)), { x: 3, z: 5 });
 
-  const stepped = new PacTrack(serverClock());
+  const stepped = new PacTrack();
   for (let i = 0; i < 5; i += 1) {
     const still = { spawn: 1, t: T0 + i * 50, x: 3, z: 1 };
     stepped.push(still, arrival(still.t));
@@ -332,8 +355,8 @@ test("a jump past the neighbouring cell snaps; a step into it blends", () => {
   // Bunched behind a stall, the next report already reaches the next cell.
   const late = { spawn: 1, t: T0 + 300, x: 3.75, z: 1 };
   stepped.push(late, arrival(late.t));
-  // Drawn at server time T0 + 250: halfway between T0 + 200 (x 3) and T0 + 300.
-  const mid = stepped.sample(local(T0 + 250) + RIVAL_DELAY_MS)?.x ?? Number.NaN;
+  // Drawn at sender time T0 + 250: halfway between T0 + 200 (x 3) and T0 + 300.
+  const mid = stepped.sample(arrival(T0 + 250) + RIVAL_DELAY_MS)?.x ?? Number.NaN;
   assert.ok(mid > 3 && mid < 3.75, `blends across the step (${mid})`);
 });
 
@@ -345,7 +368,7 @@ test("a late report carries the pac on to the next cell centre and no further", 
   // Already on a centre: nothing to carry on to.
   assert.deepEqual(lerpPose({ x: 2.75, z: 1 }, { x: 3, z: 1 }, 2), { x: 3, z: 1 });
 
-  const track = new PacTrack(serverClock());
+  const track = new PacTrack();
   for (const report of walk(4, { t: T0, x: 2, z: 1 })) {
     track.push(report, arrival(report.t));
   }

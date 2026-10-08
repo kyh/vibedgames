@@ -319,13 +319,13 @@ export const OFFLINE_FALLBACK_MS = 8000;
 /** Own pac position/score send rate. */
 export const NET_TICK_HZ = 20;
 /**
- * How far behind the room's server clock rivals are drawn (ms). Reports are
- * stamped with server time when sent, so by the time one lands here it has
- * aged by the whole relay — sender to server to us, two one-way trips — and
- * the delay must cover that plus one 50 ms send interval: 200 holds a relay of
- * up to 150 ms without running past the newest report.
+ * How far behind its fastest recent report a rival is drawn (ms). Each rival's
+ * clock learns its route's quickest transit, so the delay only has to cover
+ * how much slower a report may be than that, plus one 50 ms send interval:
+ * 150 holds a relay that wanders over 100 ms (50 to 150 ms) without running
+ * past the newest report, on a fast route or a slow one.
  */
-export const RIVAL_DELAY_MS = 200;
+export const RIVAL_DELAY_MS = 150;
 /**
  * How far past its newest report a rival is carried on when the next one is
  * late (ms) — one whole step. Never past the next cell centre (pac-track), so

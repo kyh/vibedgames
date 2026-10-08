@@ -1,13 +1,16 @@
 // One rival pac's motion on this screen. Every player simulates their own pac
 // and reports it on a steady 20 Hz clock, stamped with the room's server time
-// (`client.serverNow()`), which every player shares. A rival is drawn
-// RIVAL_DELAY_MS behind that clock, blending the two reports either side of
-// that moment (Interpolator), so reports that arrive bunched or late still
-// play back as the sender's steady motion. A respawn, or any jump further than
-// the neighbouring cell, snaps instead of gliding through walls.
+// (`client.serverNow()`). A stamp reaches us after the whole relay — sender to
+// server to us — which differs per rival, so each track keeps its own clock
+// (the Interpolator's private RemoteClock): it learns that rival's fastest
+// recent transit from arrivals, and the rival is drawn RIVAL_DELAY_MS behind
+// it, blending the two reports either side of that moment. Reports that arrive
+// bunched or late still play back as the sender's steady motion, on a slow
+// route as on a fast one. A respawn, or any jump further than the neighbouring
+// cell, snaps instead of gliding through walls.
 
 import { Interpolator, lerp } from "@vibedgames/multiplayer";
-import type { Player, SenderClock } from "@vibedgames/multiplayer";
+import type { Player } from "@vibedgames/multiplayer";
 
 import { RIVAL_DELAY_MS, RIVAL_EXTRAPOLATE_MS } from "../shared/constants";
 
@@ -67,18 +70,13 @@ const cellsApart = (a: PacPose, b: PacPose): number =>
   Math.abs(Math.round(a.x) - Math.round(b.x)) + Math.abs(Math.round(a.z) - Math.round(b.z));
 
 export class PacTrack {
-  private readonly interp: Interpolator<PacPose>;
+  /** No `clock` option: each track's own RemoteClock learns its rival's route. */
+  private readonly interp = new Interpolator<PacPose>({
+    delayMs: RIVAL_DELAY_MS,
+    lerp: lerpPose,
+    maxExtrapolateMs: RIVAL_EXTRAPOLATE_MS,
+  });
   private spawn = Number.NaN;
-
-  /** `clock` is the room's server clock (`client.serverClock`), shared by every track. */
-  constructor(clock: SenderClock) {
-    this.interp = new Interpolator<PacPose>({
-      clock,
-      delayMs: RIVAL_DELAY_MS,
-      lerp: lerpPose,
-      maxExtrapolateMs: RIVAL_EXTRAPOLATE_MS,
-    });
-  }
 
   /**
    * Feed the sender's latest report. Call it every frame: a repeat is ignored

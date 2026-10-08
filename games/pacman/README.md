@@ -32,6 +32,6 @@ pnpm --filter @repo/pacman preview     # vite preview
 
 On touch the porthole boots as a pill and the face camera starts on the tap that opens it — phones only grant `getUserMedia` inside a gesture, and nothing of the ~6 MB face stack is fetched until then.
 
-Multiplayer: auto-joins the shared `pacman-v3` room (up to 4 players), solo fallback when the party server is unreachable. Every pellet and power heart is a first-come claim the party server decides, so the host has no edge and a late joiner reads the maze straight from the claims; rivals are drawn on the room's server clock.
+Multiplayer: auto-joins the shared `pacman-v3` room (up to 4 players), solo fallback when the party server is unreachable. Every pellet and power heart is a first-come claim the party server decides, so the host has no edge and a late joiner reads the maze straight from the claims. Rival pacs report in server time and each plays back on a clock that learns its own route.
 
 Power hearts draw a draining blush ring under Pacman (another heart refills the clock); quick pellet streaks show the pearl-chain counter; the music swells when a ghost closes in. First round shows a STEP/TURN coach card. A finished round (win or game over) shows a result card: score, best, ghosts chomped, maze left.

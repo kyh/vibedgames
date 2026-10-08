@@ -175,8 +175,8 @@ export class NetSession {
   }
 
   /**
-   * The room's shared clock — the server's, measured from here — for an
-   * `Interpolator`. Offline it is the local clock: nobody shares it.
+   * The room's shared clock — the server's, measured from here — that every
+   * report is stamped on. Offline it is the local clock: nobody shares it.
    */
   get serverClock(): SenderClock {
     const { client } = this;

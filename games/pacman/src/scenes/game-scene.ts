@@ -768,7 +768,7 @@ export class GameScene {
 
     this.fx = new FxPool(this.scene);
     this.powerHalo = new PowerHalo(this.scene);
-    this.remotePacs = new RemotePacs(this.scene, this.net.serverClock);
+    this.remotePacs = new RemotePacs(this.scene);
     this.best = loadBest();
     this.bindInput();
     this.setPhase("title");
