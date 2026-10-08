@@ -1,5 +1,6 @@
 import { PartySocket } from "partysocket";
 
+import { ServerClock } from "./server-clock.js";
 import type {
   ClientMessage,
   JsonRecord,
@@ -15,6 +16,7 @@ import {
   HEARTBEAT_INTERVAL_MS,
   RECONNECT_TOKEN_QUERY_PARAM,
   ROOM_CAP_QUERY_PARAM,
+  TIME_PROBE_INTERVAL_MS,
 } from "./types.js";
 import type { MultiplayerSchemas, SchemaViolation } from "./validation.js";
 
@@ -92,6 +94,9 @@ export interface MultiplayerSnapshot {
    */
   room: string;
 }
+
+/** Probes sent right after admission, before the slow cadence (ms after sync). */
+const TIME_PROBE_BURST_MS = [0, 100, 250, 500];
 
 type Listener = () => void;
 
@@ -203,6 +208,10 @@ export class MultiplayerClient {
   private coalesceFlushScheduled = false;
   /** One warning per client for async schemas — validation must stay sync. */
   private warnedAsyncSchema = false;
+  /** The room's shared server time, measured by `time` probes. */
+  private readonly clock = new ServerClock();
+  private lastProbeAt = Number.NEGATIVE_INFINITY;
+  private probeTimers: ReturnType<typeof setTimeout>[] = [];
 
   private _connectionStatus: MultiplayerConnectionStatus = "connecting";
   private _playerId: string | null = null;
@@ -257,6 +266,10 @@ export class MultiplayerClient {
         if (this._connectionStatus === "connected") {
           this.send({ type: "heartbeat" });
         }
+      }
+      if (t - this.lastProbeAt >= TIME_PROBE_INTERVAL_MS) {
+        this.lastProbeAt = t;
+        this.probeTime();
       }
     };
     // bind to the host so browsers don't throw "Illegal invocation" on a detached rAF
@@ -362,6 +375,27 @@ export class MultiplayerClient {
     };
   }
 
+  // -- Server time ---------------------------------------------------------
+
+  /**
+   * The room's shared clock — the server's, measured from here. Stamp updates
+   * with `serverNow()` and pass this as an `Interpolator`'s `clock`: every
+   * sender then shares one timebase, and it survives host migration.
+   */
+  get serverClock(): ServerClock {
+    return this.clock;
+  }
+
+  /** Server time now (ms since the epoch); the local clock until the first probe returns. */
+  serverNow(localNow?: number): number {
+    return this.clock.now(localNow);
+  }
+
+  /** Fastest recent round trip to the server (ms); NaN until measured. */
+  get rtt(): number {
+    return this.clock.rtt;
+  }
+
   /** Subscribe to state changes. Returns an unsubscribe function. */
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
@@ -465,6 +499,10 @@ export class MultiplayerClient {
   /** Disconnect and clean up. */
   destroy(): void {
     this.flushCoalescedEvents();
+    for (const timer of this.probeTimers) {
+      clearTimeout(timer);
+    }
+    this.probeTimers = [];
     if (this.heartbeatRaf !== null) {
       rafHost.cancelAnimationFrame?.(this.heartbeatRaf);
       this.heartbeatRaf = null;
@@ -485,6 +523,13 @@ export class MultiplayerClient {
 
   private send(message: ClientMessage): void {
     this.socket.send(JSON.stringify(message));
+  }
+
+  /** One server-clock probe; the answer comes back as a `time` message. */
+  private probeTime(): void {
+    if (this._connectionStatus === "connected") {
+      this.send({ data: { c: performance.now() }, type: "time" });
+    }
   }
 
   /** Send pending coalesced events now, latest payload per key, in first-queued order. */
@@ -613,6 +658,17 @@ export class MultiplayerClient {
     this._playerId = this.socket.id ?? null;
     this._hostId = data.hostId;
     this._players = data.players;
+    // Measure the server clock straight away — games stamp with it from the
+    // first frame — then settle into the heartbeat's slow cadence.
+    for (const timer of this.probeTimers) {
+      clearTimeout(timer);
+    }
+    this.probeTimers = TIME_PROBE_BURST_MS.map((delay) =>
+      setTimeout(() => {
+        this.probeTime();
+      }, delay),
+    );
+    this.lastProbeAt = performance.now();
     // remoteStateSeen tracks the SERVER's view, so it is set even when
     // the local schema rejects the payload — the room has live state
     // either way, and a promoted host must never re-seed over it.
@@ -712,6 +768,11 @@ export class MultiplayerClient {
       case "event": {
         this._onEvent?.(message.data.event, message.data.payload, message.data.from);
         return true;
+      }
+      case "time": {
+        this.clock.sample(message.data.c, message.data.s);
+        // Clock samples change nothing a subscriber renders.
+        return false;
       }
       case "room_full": {
         // The room hit its cap before we joined. Reconnect to the overflow

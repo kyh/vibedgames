@@ -487,6 +487,22 @@ test("player state fans out as keyed deltas; a client with no reconnect token is
   }
 });
 
+test("time probes give every client the server's clock", async () => {
+  const room = uniqueRoom("time");
+  const client = connect(room);
+  try {
+    await waitFor(() => admitted(client), "client admitted");
+    await waitFor(() => client.serverClock.synced, "first probe answered");
+    assert.ok(Number.isFinite(client.rtt) && client.rtt >= 0, "round trip measured");
+    // workerd and this process read the same wall clock, so the estimate
+    // should land within a round trip of it.
+    const error = Math.abs(client.serverNow() - Date.now());
+    assert.ok(error < 50 + client.rtt, `server clock off by ${error.toFixed(1)} ms`);
+  } finally {
+    client.destroy();
+  }
+});
+
 test("malformed and oversized state patches are dropped without harming the room", async () => {
   const room = uniqueRoom("validation");
   // Raw host joins first: only the host may write shared state, and only a raw

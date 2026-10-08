@@ -1,11 +1,12 @@
 export { MultiplayerClient } from "./client.js";
 export type { MultiplayerClientOptions, MultiplayerSnapshot } from "./client.js";
+export { ServerClock } from "./server-clock.js";
 
 export { FixedRate } from "./fixed-rate.js";
 export { Interpolator, lerp, lerpAngle } from "./interpolation.js";
 export type { InterpolatorOptions } from "./interpolation.js";
 export { RemoteClock } from "./remote-clock.js";
-export type { RemoteClockOptions } from "./remote-clock.js";
+export type { RemoteClockOptions, SenderClock } from "./remote-clock.js";
 export { Reconciler } from "./prediction.js";
 export type { Correction, ReconcilerOptions } from "./prediction.js";
 
@@ -26,6 +27,7 @@ export {
   RECONNECT_GRACE_MS,
   RECONNECT_TOKEN_QUERY_PARAM,
   ROOM_CAP_QUERY_PARAM,
+  TIME_PROBE_INTERVAL_MS,
 } from "./types.js";
 
 export type {

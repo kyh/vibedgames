@@ -30,6 +30,9 @@ interface StateMap {
 // never coerces), so this predicate is sound without a runtime `typeof`.
 const isJsonString = (value: JsonValue | undefined): value is string => String(value) === value;
 
+// JSON can only carry finite numbers, so this is the exact number test.
+const isJsonNumber = (value: JsonValue | undefined): value is number => Number.isFinite(value);
+
 const asStateMap = (value: JsonValue | undefined): StateMap | undefined =>
   value instanceof Object && !Array.isArray(value) ? value : undefined;
 
@@ -53,27 +56,45 @@ type IncomingMessage =
     }
   | { type: "heartbeat" }
   | { type: "pong" }
+  | { type: "time"; c: number }
   | { type: "unrecognized" };
+
+/** Decode the room-feature messages: server time. */
+const decodeRoomMessage = (
+  type: JsonValue | undefined,
+  data: StateMap | undefined,
+): IncomingMessage => {
+  if (!data) {
+    return { type: "unrecognized" };
+  }
+  switch (type) {
+    case "time": {
+      return isJsonNumber(data.c) ? { c: data.c, type: "time" } : { type: "unrecognized" };
+    }
+    default: {
+      return { type: "unrecognized" };
+    }
+  }
+};
 
 const decodeIncoming = (raw: JsonValue): IncomingMessage => {
   const message = asStateMap(raw);
   if (!message) {
     return { type: "unrecognized" };
   }
+  const data = asStateMap(message.data);
   switch (message.type) {
     case "state_patch":
     case "player_state_patch": {
       return { data: message.data, type: message.type };
     }
     case "emit": {
-      const data = asStateMap(message.data);
       if (!data || !isJsonString(data.event)) {
         return { type: "unrecognized" };
       }
       return {
-        // The SDK always sends a payload; only a hand-rolled client can omit
-        // it, and the wire contract types payload as required JSON, so a
-        // missing one relays as null.
+        // The wire contract types payload as required JSON; only a
+        // hand-rolled client can omit it, and that relays as null.
         data: {
           event: data.event,
           except: data.except,
@@ -88,7 +109,7 @@ const decodeIncoming = (raw: JsonValue): IncomingMessage => {
       return { type: message.type };
     }
     default: {
-      return { type: "unrecognized" };
+      return decodeRoomMessage(message.type, data);
     }
   }
 };
@@ -563,6 +584,7 @@ export class VgServer extends Server {
         hostId: this.hostId ?? connection.id,
         players: this.players(),
         state: this.shared,
+        time: now,
       },
       type: "sync",
     };
@@ -655,6 +677,13 @@ export class VgServer extends Server {
           // Answers a server ping even from a hidden tab: proves reachable
           // (aliveAt) but not running (seenAt untouched).
           VgServer.touch(sender, false);
+          break;
+        }
+        case "time": {
+          // Server-clock probe: answered at once with this instant's clock, so
+          // the client can read the offset off the round trip.
+          const reply: ServerMessage = { data: { c: message.c, s: Date.now() }, type: "time" };
+          sender.send(JSON.stringify(reply));
           break;
         }
         case "emit": {

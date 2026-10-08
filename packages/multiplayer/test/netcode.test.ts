@@ -5,6 +5,7 @@ import { FixedRate } from "../src/fixed-rate.js";
 import { Interpolator, lerp, lerpAngle } from "../src/interpolation.js";
 import { Reconciler } from "../src/prediction.js";
 import { RemoteClock } from "../src/remote-clock.js";
+import { ServerClock } from "../src/server-clock.js";
 
 interface Pose {
   x: number;
@@ -69,6 +70,50 @@ test("RemoteClock estimates the offset from the fastest arrival and slews revisi
   clock.reset();
   clock.observe(5000, 10_400);
   assert.equal(clock.now(10_400), 5000);
+});
+
+test("ServerClock reads the offset off the fastest probe and keeps it", () => {
+  const clock = new ServerClock();
+  assert.equal(clock.synced, false);
+  assert.equal(clock.now(500), 500, "the local clock until a probe returns");
+  // Sent at 1000, answered with 50 000, back at 1100: the server read its
+  // clock mid-trip, so server = local + 48 950.
+  clock.sample(1000, 50_000, 1100);
+  assert.equal(clock.synced, true);
+  assert.equal(clock.rtt, 100);
+  assert.equal(clock.now(1200), 1200 + 48_950);
+  // A slower, lopsided trip says less; the fast one keeps defining the offset.
+  clock.sample(2000, 51_400, 2400);
+  assert.equal(clock.rtt, 100);
+  assert.equal(clock.now(2500), 2500 + 48_950);
+});
+
+test("ServerClock slews a small revision and adopts a large one at once", () => {
+  const clock = new ServerClock();
+  clock.sample(0, 10_100, 200);
+  assert.equal(clock.now(1000) - 1000, 10_000);
+  // A faster probe moves the estimate 40 ms: bent in at <= 10% of elapsed time.
+  clock.sample(1000, 11_060, 1040);
+  assert.equal(clock.now(1100) - 1100, 10_010, "10 ms after 100 ms");
+  assert.equal(clock.now(1500) - 1500, 10_040, "then settled");
+  // Off by more than 250 ms: a different clock, taken whole.
+  clock.sample(2000, 13_000, 2000);
+  assert.equal(clock.now(2100) - 2100, 11_000);
+});
+
+test("Interpolator on a shared clock renders without estimating per sender", () => {
+  const clock = new ServerClock();
+  clock.sample(0, 1_000_000, 0);
+  const interp = new Interpolator<Pose>({ clock, delayMs: 100, lerp: lerpPose });
+  // Stamped in server time; arrival times are irrelevant to a shared clock.
+  for (const [stamp, x, arrival] of [
+    [1_000_000, 0, 5],
+    [1_000_050, 5, 400],
+    [1_000_100, 10, 401],
+  ] as const) {
+    interp.push(stamp, { x }, arrival);
+  }
+  assert.equal(interp.sample(175)?.x, 7.5, "server time 1 000 075, drawn 100 ms behind");
 });
 
 test("Interpolator renders jittery 20 Hz updates as steady motion", () => {

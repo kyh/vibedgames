@@ -28,6 +28,9 @@ export interface MultiplayerOptions {
   onEvent?: (event: string, payload: JsonValue, from: string) => void;
 }
 
+/** How often the SDK re-measures the server clock (ms). */
+export const TIME_PROBE_INTERVAL_MS = 5000;
+
 /**
  * Query-string key the SDK uses to advertise a room's player cap to the
  * PartyServer on connect. Shared so the server reads the same key the client
@@ -105,7 +108,9 @@ export type ClientMessage =
   | { type: "heartbeat" }
   // Reply to the server's `ping`. Distinct from `heartbeat` on purpose — see
   // the note on EVICTION_TIMEOUT_MS below.
-  | { type: "pong" };
+  | { type: "pong" }
+  // Server-clock probe: `c` is the client's clock at send, echoed back.
+  | { type: "time"; data: { c: number } };
 
 /** How often the SDK sends a heartbeat (ms). */
 export const HEARTBEAT_INTERVAL_MS = 2000;
@@ -131,7 +136,16 @@ export const PING_INTERVAL_MS = 30_000;
 export const EVICTION_TIMEOUT_MS = 75_000;
 
 export type ServerMessage =
-  | { type: "sync"; data: { players: PlayerMap; state: JsonRecord; hostId: string } }
+  | {
+      type: "sync";
+      data: {
+        players: PlayerMap;
+        state: JsonRecord;
+        hostId: string;
+        /** Server time (ms) when the sync was sent. */
+        time: number;
+      };
+    }
   | { type: "player_joined"; data: Player }
   | { type: "player_left"; data: { id: string } }
   | { type: "host"; data: { id: string } }
@@ -145,7 +159,9 @@ export type ServerMessage =
   // already at capacity. `room` is the sibling room the client should retry.
   | { type: "room_full"; data: { room: string; capacity: number } }
   // Liveness probe; the client answers with `pong`. See EVICTION_TIMEOUT_MS.
-  | { type: "ping" };
+  | { type: "ping" }
+  // Server-clock probe answer: the client's `c` echoed, and the server's time `s`.
+  | { type: "time"; data: { c: number; s: number } };
 
 export interface MultiplayerRoomState {
   connectionStatus: MultiplayerConnectionStatus;

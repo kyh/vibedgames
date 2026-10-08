@@ -24,6 +24,7 @@
  */
 
 import { RemoteClock } from "./remote-clock.js";
+import type { SenderClock } from "./remote-clock.js";
 
 const now = (): number => performance.now();
 
@@ -63,8 +64,13 @@ export interface InterpolatorOptions<T> {
   maxExtrapolateMs?: number;
   /** Updates kept. Must span `delayMs` at the sender's rate. Default 32. */
   capacity?: number;
-  /** Share one clock across every entity from the same sender. Default: a private clock. */
-  clock?: RemoteClock;
+  /**
+   * The clock stamps are read against. Pass the client's `serverClock` when
+   * senders stamp with `serverNow()` — one timebase for every sender, nothing
+   * to estimate. Otherwise share one `RemoteClock` across every entity from
+   * the same sender. Default: a private `RemoteClock`.
+   */
+  clock?: SenderClock;
 }
 
 interface Sample<T> {
@@ -94,7 +100,7 @@ const MIN_SILENCE_MS = 300;
  * than gliding across the whole gap.
  */
 export class Interpolator<T> {
-  readonly clock: RemoteClock;
+  readonly clock: SenderClock;
   readonly delayMs: number;
   private readonly maxExtrapolateMs: number;
   private readonly capacity: number;
@@ -138,13 +144,13 @@ export class Interpolator<T> {
         // The sender restarted its clock (a reload under the same identity).
         this.clear();
         if (this.ownsClock) {
-          this.clock.reset();
+          this.clock.reset?.();
         }
       } else {
         this.bridgeGap(newest, sentAt);
       }
     }
-    this.clock.observe(sentAt, receivedAt);
+    this.clock.observe?.(sentAt, receivedAt);
     this.samples.push({ t: sentAt, value });
     while (this.samples.length > this.capacity) {
       this.samples.shift();

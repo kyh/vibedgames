@@ -12,6 +12,22 @@ const SLEW = 0.1;
 /** Width of one min-filter bucket, in receive time. */
 const BUCKET_MS = 1000;
 
+/**
+ * The clock an `Interpolator` renders against: something that learns from
+ * stamped arrivals (`observe`) and maps local time to the senders' time
+ * (`now`). `RemoteClock` estimates one sender's clock; a client's
+ * `serverClock` is the room's shared server time, with nothing to estimate.
+ */
+export interface SenderClock {
+  /** True once `now` reads the senders' time rather than falling back to the local clock. */
+  readonly synced: boolean;
+  /** Learn from one stamped arrival; a shared clock with nothing to estimate omits it. */
+  observe?: (sentAt: number, receivedAt: number) => void;
+  now: (localNow?: number) => number;
+  /** Forget the estimate (the sender restarted its clock). */
+  reset?: () => void;
+}
+
 export interface RemoteClockOptions {
   /**
    * How long one fast arrival keeps defining the offset (ms). Longer rides out
@@ -36,7 +52,7 @@ export interface RemoteClockOptions {
  * host's world snapshot), and `reset()` it when the sender changes (a new
  * host has a different clock).
  */
-export class RemoteClock {
+export class RemoteClock implements SenderClock {
   private readonly windowMs: number;
   private readonly buckets: { start: number; min: number }[] = [];
   private target: number | null = null;
