@@ -74,6 +74,26 @@ const startFlying = async (page) => {
   await waitFor(page, () => window.__fb.scene.phase === "playing", "playing");
 };
 
+/**
+ * Wait for the dragon to crash. With no input it falls into the ground on its
+ * own — unless an earlier race crash already respawned it into the ready
+ * hover, which waits for a flap: launch it.
+ */
+const crashOf = async (page, label) => {
+  const deadline = Date.now() + 8000;
+  while (Date.now() < deadline) {
+    const phase = await page.evaluate(() => window.__fb.scene.phase);
+    if (phase === "gameover") {
+      return;
+    }
+    if (phase === "ready") {
+      await page.keyboard.press("Space");
+    }
+    await wait(100);
+  }
+  throw new Error(`timeout: ${label}`);
+};
+
 /** A race crash respawns into the ready hover; the first flap relaunches it. */
 const respawnAndFly = async (page, label) => {
   await waitFor(page, () => window.__fb.scene.phase === "ready", `${label} hover`, 3000);
@@ -187,7 +207,7 @@ const main = async () => {
     step("host joins as host and flies", h.host && h.seed > 0, JSON.stringify(h));
 
     // A solo crash + restart rerolls the seed; a later guest must adopt the reroll.
-    await waitFor(host, () => window.__fb.scene.phase === "gameover", "host crash");
+    await crashOf(host, "host crash");
     await wait(400);
     await host.keyboard.press("Space");
     await waitFor(
@@ -226,16 +246,15 @@ const main = async () => {
     step("host and guest scroll on one clock", ...oneClock(h, g));
     const worst = await worstScrollStep(guest, 1500);
     step("guest scroll never runs backwards", worst >= 0, `worst frame step ${worst}`);
-    const hostTop = await host.evaluate((i) => window.__fb.scene.pipes.get(i).topHeight, shared[0]);
-    const guestTop = await guest.evaluate(
-      (i) => window.__fb.scene.pipes.get(i).topHeight,
-      shared[0],
-    );
-    step("same pipe geometry on both", hostTop === guestTop, `pipe ${shared[0]} top ${hostTop}`);
+    // The newest shared pipe: the oldest may have scrolled out during the check above.
+    const newest = shared.at(-1);
+    const hostTop = await host.evaluate((i) => window.__fb.scene.pipes.get(i).topHeight, newest);
+    const guestTop = await guest.evaluate((i) => window.__fb.scene.pipes.get(i).topHeight, newest);
+    step("same pipe geometry on both", hostTop === guestTop, `pipe ${newest} top ${hostTop}`);
     step("rival ghosts drawn on both", h.ghosts === 1 && g.ghosts === 1);
 
     // Crashes cross the wire: the host's dragon falls, the guest's board greys it.
-    await waitFor(host, () => window.__fb.scene.phase === "gameover", "host crash");
+    await crashOf(host, "host crash");
     await waitFor(
       guest,
       () => window.__fb.net.otherPlayer()?.state?.live === false,
@@ -249,7 +268,7 @@ const main = async () => {
       "guest sees respawn",
     );
     step("host respawns into the race", true);
-    await waitFor(guest, () => window.__fb.scene.phase === "gameover", "guest crash");
+    await crashOf(guest, "guest crash");
     await respawnAndFly(guest, "guest respawn");
     step("guest respawns into the race", true);
 
@@ -329,7 +348,7 @@ const main = async () => {
     );
     step("promoted host and late joiner scroll on one clock", ...oneClock(g, l));
     step("late joiner and host draw each other", g.ghosts === 1 && l.ghosts === 1);
-    await waitFor(late, () => window.__fb.scene.phase === "gameover", "late crash");
+    await crashOf(late, "late crash");
     await respawnAndFly(late, "late respawn");
     step("late joiner respawns into the race", true);
     await guest.close();
