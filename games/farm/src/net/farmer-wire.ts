@@ -1,5 +1,4 @@
 import { FixedRate, Interpolator, lerp } from "@vibedgames/multiplayer";
-import type { SenderClock, ServerClock } from "@vibedgames/multiplayer";
 
 import { NET_TICK_HZ } from "../config";
 import { CHAR_FRAMES } from "../data/character";
@@ -67,26 +66,16 @@ export const blendFarmer = (a: FarmerSample, b: FarmerSample, k: number): Farmer
   return { ...pose, x: lerp(a.x, b.x, k), y: lerp(a.y, b.y, k) };
 };
 
-/** One 20 Hz send interval plus arrival jitter, on top of the trip itself. */
-export const PLAYBACK_DELAY_MS = 150;
-
 /**
- * The room's clock as remote farmers play back against it: held back by this
- * client's round trip. A relayed update rides its sender's hop up to the
- * server and this client's hop down — about one round trip when routes are
- * alike — so its stamp is at least that old when it lands. The playback delay
- * then only has to cover the send interval and the jitter.
+ * One remote farmer's playback. Its interpolator keeps that sender's own
+ * clock (a RemoteClock, the default), which learns from the arrivals how long
+ * this sender's updates take to get here — its hop up to the server and this
+ * client's hop down — so a farmer on a slow route plays as smoothly as one on
+ * a fast route, and the default ~100 ms delay only has to cover the send
+ * interval and the jitter.
  */
-export const playbackClock = (server: ServerClock): SenderClock => ({
-  now: (localNow?: number) => server.now(localNow) - (Number.isFinite(server.rtt) ? server.rtt : 0),
-  get synced() {
-    return server.synced;
-  },
-});
-
-/** One remote farmer's playback: its stamped updates, PLAYBACK_DELAY_MS behind `clock`. */
-export const farmerTrack = (clock: SenderClock): Interpolator<FarmerSample> =>
-  new Interpolator({ clock, delayMs: PLAYBACK_DELAY_MS, lerp: blendFarmer });
+export const farmerTrack = (): Interpolator<FarmerSample> =>
+  new Interpolator({ lerp: blendFarmer });
 
 const round1 = (v: number): number => Math.round(v * 10) / 10;
 

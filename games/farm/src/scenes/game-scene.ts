@@ -390,8 +390,7 @@ export class GameScene extends Scene {
       this.events.emit("daybanner", this.day, seasonOfDay(this.day), this.weather);
     }
 
-    // Remote farmers exist only in the co-op room, played back on its clock.
-    this.remoteFarmers = this.net ? new RemoteFarmers(this, this.net.serverClock) : undefined;
+    this.remoteFarmers = new RemoteFarmers(this);
     // Every start redraws from the world, so both roles take the room afresh:
     // a host republishes its farm whole (a new or loaded farm must replace the
     // room's, under a new epoch), a guest re-adopts the host's farm and clock.

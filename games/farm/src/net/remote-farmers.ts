@@ -1,21 +1,21 @@
 import type Phaser from "phaser";
 
-import type { Interpolator, PlayerMap, SenderClock, ServerClock } from "@vibedgames/multiplayer";
+import type { Interpolator, PlayerMap } from "@vibedgames/multiplayer";
 
 import { CHAR_ORIGIN_Y, DEPTH, REMOTE_SNAP_PX } from "../config";
 import type { CharAction } from "../data/character";
 import type { JsonValue } from "../json";
-import { farmerTrack, playbackClock, readFarmer } from "./farmer-wire";
+import { farmerTrack, readFarmer } from "./farmer-wire";
 import type { FarmerSample } from "./farmer-wire";
 
 // Renders the other players' farmers in the shared co-op world. They're the
 // same character sprite as the local player, name-tagged and depth-sorted with
 // everything else. Each sender stamps its 20 Hz updates with the room's server
-// clock, and each farmer here plays them back a little behind that clock,
-// blending the two updates around that moment — position, facing and clip all
-// from the same pair, so a farmer never walks before the walk clip starts or
-// slides in an idle pose. One clock for every sender: nothing to estimate per
-// farmer, and nothing changes when the host does.
+// clock, and each farmer here plays them back ~100 ms behind the moment they
+// could have arrived — every farmer on its own sender's clock (farmerTrack),
+// which learns that sender's route — blending the two updates around that
+// moment: position, facing and clip all from the same pair, so a farmer never
+// walks before the walk clip starts or slides in an idle pose.
 
 /** A farmer's name tag: the first characters of its player id. */
 export const farmerTag = (id: string): string => id.slice(0, 4);
@@ -36,12 +36,9 @@ export class RemoteFarmers {
   private farmers = new Map<string, Farmer>();
 
   private readonly scene: Phaser.Scene;
-  private readonly clock: SenderClock;
 
-  /** `server`: the room's server clock, which every sender stamps with. */
-  constructor(scene: Phaser.Scene, server: ServerClock) {
+  constructor(scene: Phaser.Scene) {
     this.scene = scene;
-    this.clock = playbackClock(server);
   }
 
   /** Take in the room's player states; call every frame (unchanged ones cost nothing). */
@@ -85,7 +82,7 @@ export class RemoteFarmers {
     }
   }
 
-  /** Draw every farmer where it was a moment ago on the room's clock (see playbackClock). */
+  /** Draw every farmer ~100 ms behind its updates' arrival, on its sender's clock. */
   update(now = performance.now()): void {
     for (const f of this.farmers.values()) {
       const s = f.track.sample(now);
@@ -181,7 +178,7 @@ export class RemoteFarmers {
       shadow,
       sprite,
       state: undefined,
-      track: farmerTrack(this.clock),
+      track: farmerTrack(),
     };
     this.farmers.set(id, f);
     return f;

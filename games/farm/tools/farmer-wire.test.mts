@@ -1,15 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ServerClock } from "@vibedgames/multiplayer";
 import { WALK_SPEED } from "../src/config";
 import type { JsonObject, JsonValue } from "../src/json";
-import {
-  FarmerSender,
-  PLAYBACK_DELAY_MS,
-  farmerTrack,
-  playbackClock,
-  readFarmer,
-} from "../src/net/farmer-wire";
+import { FarmerSender, farmerTrack, readFarmer } from "../src/net/farmer-wire";
 import type { FarmerBody, FarmerSample } from "../src/net/farmer-wire";
 
 /** Deterministic jitter in [0, 1), so the tests never flake. */
@@ -80,24 +73,17 @@ const walkRoute = (frames: number, walking: (frame: number) => boolean) => {
   return { sent, x };
 };
 
-/** The receiver's fastest round trip to the server (ms). */
-const RTT = 60;
-
-/** Deliver `sent` (stamped with server time) 60–105 ms late — the sender's
- *  hop up plus the receiver's hop down — in order (one TCP stream), to a
- *  receiver whose local clock runs `skew` ms ahead of the server's and whose
- *  server clock has measured that; returns what it draws each 60 fps frame. */
-const playBack = (sent: Sent[], skew: number, ms: number) => {
+/** Deliver `sent` (stamped with server time) `route` to `route` + 45 ms late
+ *  — the sender's hop up plus the receiver's hop down — in order (one TCP
+ *  stream), to a receiver whose local clock runs `skew` ms ahead of the
+ *  server's; returns what it draws each 60 fps frame. */
+const playBack = (sent: Sent[], skew: number, ms: number, route: number) => {
   let lastArrival = 0;
   const arrivals = sent.map(({ at, state }, i) => {
-    lastArrival = Math.max(lastArrival, at + skew + RTT + noise(i) * 45);
+    lastArrival = Math.max(lastArrival, at + skew + route + noise(i) * 45);
     return { arrival: lastArrival, state };
   });
-  // One probe: sent at local `skew`, read by the server half a trip later
-  // (server time RTT / 2), back after RTT.
-  const server = new ServerClock();
-  server.sample(skew, RTT / 2, skew + RTT);
-  const track = farmerTrack(playbackClock(server));
+  const track = farmerTrack();
   const shown: FarmerSample[] = [];
   let next = 0;
   for (let local = skew; local < skew + ms; local += FRAME_MS) {
@@ -179,46 +165,35 @@ test("a new clip, or a pause, carries where the clip stands", () => {
   assert.equal(sender.tick(walk, true, 3, 1100)?.["h"], false, "back on the farm, drawn again");
 });
 
-test("a remote farmer walks at a steady pace, and its pose belongs to its body", () => {
+test("a remote farmer walks at a steady pace on any route, its pose belonging to its body", () => {
   // The sender stands 0.5 s, walks 1.5 s, stands 0.6 s and walks 0.6 s more.
   const { sent, x } = walkRoute(192, (f) => (f >= 30 && f < 120) || f >= 156);
-  const shown = playBack(sent, 7000, 3400);
-  let offPace = 0;
-  let outOfPose = 0;
-  for (const [i, cur] of shown.entries()) {
-    const moved = cur.x - (shown[i - 1] ?? cur).x;
-    assert.ok(moved > -1e-9, "never steps backwards");
-    // A frame walks at the sender's pace or stands, except inside the one
-    // update interval where the sender started or stopped.
-    if (moved > 1e-6 && Math.abs(moved - STEP) > STEP * 0.15) {
-      offPace += 1;
+  // A server-time stamp lands a whole relay late. Each farmer's own clock
+  // learns its route, so a far sender plays as smoothly as a near one.
+  for (const route of [60, 300]) {
+    const shown = playBack(sent, 7000, 3340 + route, route);
+    let offPace = 0;
+    let outOfPose = 0;
+    for (const [i, cur] of shown.entries()) {
+      const moved = cur.x - (shown[i - 1] ?? cur).x;
+      assert.ok(moved > -1e-9, `never steps backwards (${route} ms route)`);
+      // A frame walks at the sender's pace or stands, except inside the one
+      // update interval where the sender started or stopped.
+      if (moved > 1e-6 && Math.abs(moved - STEP) > STEP * 0.15) {
+        offPace += 1;
+      }
+      // Walking in place, or sliding in the idle pose: the moonwalk. Only the
+      // frame that arrives at the stop (moved to it, standing in it) may differ.
+      if (i > 0 && moved > 1e-6 !== (cur.clip === "walk")) {
+        outOfPose += 1;
+      }
     }
-    // Walking in place, or sliding in the idle pose: the moonwalk. Only the
-    // frame that arrives at the stop (moved to it, standing in it) may differ.
-    if (i > 0 && moved > 1e-6 !== (cur.clip === "walk")) {
-      outOfPose += 1;
-    }
+    assert.ok(offPace <= 12, `${offPace} frames off pace (${route} ms route)`);
+    assert.ok(outOfPose <= 1, `${outOfPose} frames out of pose (${route} ms route)`);
+    assert.ok(shown.some((s) => s.clip === "idle"));
+    const last = shown.at(-1);
+    assert.ok(last && last.x > x - 8, "keeps up: ~100 ms behind its arrival, not drifting");
   }
-  assert.ok(offPace <= 12, `${offPace} frames off pace`);
-  assert.ok(outOfPose <= 1, `${outOfPose} frames out of pose`);
-  assert.ok(shown.some((s) => s.clip === "idle"));
-  const last = shown.at(-1);
-  assert.ok(
-    last && last.x > x - 8,
-    "keeps up: a round trip and the playback delay behind, not drifting",
-  );
-});
-
-test("remote farmers play back a round trip behind the room's server clock", () => {
-  const server = new ServerClock();
-  const clock = playbackClock(server);
-  assert.equal(clock.synced, false);
-  assert.equal(clock.now(500), 500, "unmeasured: the local clock, nothing held back");
-  // Sent at local 1000, read by the server at 5030, back at local 1060.
-  server.sample(1000, 5030, 1060);
-  assert.equal(clock.synced, true);
-  assert.equal(clock.now(2000), 2000 + 4000 - 60, "server time, one round trip back");
-  assert.equal(farmerTrack(clock).delayMs, PLAYBACK_DELAY_MS);
 });
 
 test("malformed farmer state degrades to a plain walk/stand, never to a bad frame", () => {
