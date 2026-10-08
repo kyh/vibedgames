@@ -14,6 +14,8 @@ export const WORLD_H = GRID_ROWS * TILE;
 
 export const FUSE_MS = 2200;
 export const EXPLOSION_MS = 480;
+/** The host simulation's fixed step, on the sim clock. */
+export const HOST_STEP_MS = 50;
 
 // ---- player stats (host-authoritative; powerups raise these) ----------------
 
@@ -85,15 +87,18 @@ export type Blast = {
 };
 
 /**
- * Per-player networked state. `dir`/`moving` let remote clients pick the
- * right walk animation; `col`/`row` are the authoritative grid position.
+ * Per-player networked state, written once per grid step. `col`/`row` are the
+ * authoritative grid position. `t` is when the step onto it began on the
+ * sender's `performance.now()` clock and `s` how long it takes (0 for a spawn,
+ * which receivers place without walking); receivers derive the walk cycle and
+ * facing from the steps themselves.
  */
 export interface PlayerState {
   col: number;
   row: number;
   colorIdx: number;
-  dir: Dir;
-  moving: boolean;
+  t: number;
+  s: number;
 }
 
 /**
@@ -121,7 +126,10 @@ export type SharedState = {
   arena?: Arena;
   /** Missing only in legacy rooms; every current host write carries its clock. */
   clock?: ClockStamp;
+  /** On the wire, the layout the round began with; in memory, the current board. */
   grid: Cell[][];
+  /** Wire only: the crates opened since `grid` was written (see net/grid-wire). */
+  opened?: string;
   bombs: Record<string, Bomb>;
   blasts: Record<string, Blast>;
   powerups: Record<string, Powerup>;

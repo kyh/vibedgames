@@ -113,7 +113,7 @@ test("bots flee live danger and only wander onto safe tiles", () => {
   const wandered = hostTick(wandering, [{ id: "h", pos: null }], 500, () => 0);
   const moved = wandered.patch?.bots?.["bot-1"];
   assert.equal(`${moved?.col},${moved?.row}`, "1,1", "the only safe neighbour");
-  assert.deepEqual(Object.keys(wandered.patch?.bombs ?? {}), ["a"], "no bomb without a target");
+  assert.equal(wandered.patch?.bombs, undefined, "no bomb without a target, nor a resent record");
   const waiting = world(openGrid([]), {
     bots: { "bot-1": { ...bot("bot-1", 2, 1), nextMoveAt: 900 } },
   });

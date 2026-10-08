@@ -2,11 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { hostTick } from "../src/sim/host-sim";
 import { createArena } from "../src/shared/arena";
-import { FUSE_MS, newGrid } from "../src/shared/constants";
+import { FUSE_MS, HOST_STEP_MS, newGrid } from "../src/shared/constants";
 import type { Bot, Cell, SharedState } from "../src/shared/constants";
 import { seededRandom } from "../src/util/seeded-random";
 
-const TICK_MS = 70;
+/** The scene's fixed host step. */
+const TICK_MS = HOST_STEP_MS;
 
 const world = (grid: Cell[][], patch: Partial<SharedState> = {}): SharedState => ({
   blasts: {},
