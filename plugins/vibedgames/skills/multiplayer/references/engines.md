@@ -48,8 +48,21 @@ client.destroy();
 ## Phaser example
 
 ```ts
+import { FixedRate, Interpolator, MultiplayerClient, lerp } from "@vibedgames/multiplayer";
+
+interface Pose {
+  x: number;
+  y: number;
+}
+const lerpPose = (a: Pose, b: Pose, k: number): Pose => ({
+  x: lerp(a.x, b.x, k),
+  y: lerp(a.y, b.y, k),
+});
+
 class GameScene extends Phaser.Scene {
   private client!: MultiplayerClient;
+  private net = new FixedRate(20);
+  private remotes = new Map<string, Interpolator<Pose>>();
 
   create() {
     this.client = new MultiplayerClient({
@@ -59,15 +72,27 @@ class GameScene extends Phaser.Scene {
     });
   }
 
-  update() {
-    // Read other players
+  update(_time: number, delta: number) {
+    // Read other players; render each ~100 ms behind its sender's clock.
     for (const [id, player] of Object.entries(this.client.players)) {
       if (id === this.client.playerId) continue;
-      // Render player at player.state.x, player.state.y
+      const s = player.state as { t?: number; x?: number; y?: number } | undefined;
+      if (s?.t === undefined) continue;
+      let interp = this.remotes.get(id);
+      if (!interp) this.remotes.set(id, (interp = new Interpolator({ lerp: lerpPose })));
+      interp.push(s.t, { x: s.x ?? 0, y: s.y ?? 0 });
+      const pose = interp.sample();
+      // Render player at pose.x, pose.y
     }
 
-    // Send my position
-    this.client.updateMyState({ x: this.ship.x, y: this.ship.y });
+    // Send my position on a steady 20 Hz clock, stamped.
+    if (this.net.due(delta)) {
+      this.client.updateMyState({
+        t: Math.round(performance.now()),
+        x: this.ship.x,
+        y: this.ship.y,
+      });
+    }
   }
 
   destroy() {
@@ -79,36 +104,58 @@ class GameScene extends Phaser.Scene {
 ## Three.js example
 
 ```ts
+import { FixedRate, Interpolator, MultiplayerClient, lerp } from "@vibedgames/multiplayer";
+
 const client = new MultiplayerClient({ host: PARTY_HOST, party: "vg-server", room: "three-room" });
 
-const remoteMeshes = new Map<string, THREE.Mesh>();
-let tick = 0;
+interface Pose {
+  x: number;
+  z: number;
+}
+const lerpPose = (a: Pose, b: Pose, k: number): Pose => ({
+  x: lerp(a.x, b.x, k),
+  z: lerp(a.z, b.z, k),
+});
+const remotes = new Map<string, { mesh: THREE.Mesh; interp: Interpolator<Pose> }>();
+const net = new FixedRate(20);
+const timer = new THREE.Timer();
 
-renderer.setAnimationLoop(() => {
+renderer.setAnimationLoop((time) => {
+  timer.update(time);
   // Read directly each frame — never subscribe inside the render loop.
   for (const [id, player] of Object.entries(client.players)) {
     if (id === client.playerId) continue;
-    let mesh = remoteMeshes.get(id);
-    if (!mesh) {
-      mesh = new THREE.Mesh(avatarGeometry, avatarMaterial);
-      scene.add(mesh);
-      remoteMeshes.set(id, mesh);
+    const s = player.state as { t?: number; x?: number; z?: number } | undefined;
+    if (s?.t === undefined) continue;
+    let remote = remotes.get(id);
+    if (!remote) {
+      remote = {
+        interp: new Interpolator({ lerp: lerpPose }),
+        mesh: new THREE.Mesh(avatarGeometry, avatarMaterial),
+      };
+      scene.add(remote.mesh);
+      remotes.set(id, remote);
     }
-    const s = player.state as { x?: number; z?: number };
-    mesh.position.set(s.x ?? 0, 0, s.z ?? 0);
+    remote.interp.push(s.t, { x: s.x ?? 0, z: s.z ?? 0 });
+    const pose = remote.interp.sample();
+    if (pose) remote.mesh.position.set(pose.x, 0, pose.z);
   }
 
   // Reap meshes for players who left.
-  for (const [id, mesh] of remoteMeshes) {
+  for (const [id, remote] of remotes) {
     if (!(id in client.players)) {
-      scene.remove(mesh);
-      remoteMeshes.delete(id);
+      scene.remove(remote.mesh);
+      remotes.delete(id);
     }
   }
 
-  // Throttled position send (~20Hz at 60fps).
-  if (++tick % 3 === 0) {
-    client.updateMyState({ x: avatar.position.x, z: avatar.position.z });
+  // Steady 20 Hz position send, stamped for the receivers' interpolation.
+  if (net.due(timer.getDelta() * 1000)) {
+    client.updateMyState({
+      t: Math.round(performance.now()),
+      x: avatar.position.x,
+      z: avatar.position.z,
+    });
   }
 
   renderer.render(scene, camera);

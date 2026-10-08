@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+Netcode helpers, all additive — no wire or API change to the client.
+
+- `FixedRate`: a send clock for variable frame loops that keeps its remainder
+  (a reset-to-0 throttle drifts low and alternates gap lengths) and drops backlog
+  after a stall instead of bursting.
+- `Interpolator` + `RemoteClock`: snapshot interpolation for remote entities from
+  sender-stamped updates. Renders a fixed delay behind the sender's clock, with
+  bounded extrapolation and idle-gap bridging. The clock offset comes from a
+  sliding-window minimum and is slewed, so it adapts without visible jumps.
+- `Reconciler`: client-side prediction correction for a guest's own body. It
+  compares the host's copy with the predicted trajectory at the matching time
+  (from an acked input `seq` plus how long the host has applied it), or with the
+  nearest point when no timing is given. Errors are eased out or snapped.
+- `lerp`, `lerpAngle`.
+- Requires nothing from the server. The party server, separately, no longer
+  echoes a host's own `state_patch` back to it; clients already applied it.
+
 ## 0.2.0 — 2026-07-24
 
 All wire changes are additive and feature-detected — old clients and old servers

@@ -69,6 +69,68 @@ client.destroy(); // on teardown
 `subscribe(listener)` + `getSnapshot()` are there if you'd rather push than
 poll. Only `/react` imports React, so a vanilla game pulls in no framework.
 
+## Netcode helpers
+
+Three small, framework-agnostic pieces for the parts every real-time game gets
+wrong. All exported from `@vibedgames/multiplayer`.
+
+**`FixedRate`** — a steady send clock driven by a variable frame loop. It keeps
+the remainder instead of resetting to 0, so a 20 Hz clock fires 20 times a
+second at any refresh rate instead of drifting to ~15 Hz with uneven gaps.
+
+```ts
+const net = new FixedRate(20);
+// each frame:
+if (net.due(deltaMs)) client.updateMyState({ t: Math.round(performance.now()), x, y });
+```
+
+**`Interpolator`** (+ `RemoteClock`) — snapshot interpolation for remote
+entities. Senders stamp every update with their own `performance.now()`;
+receivers render each entity ~100 ms behind the sender's clock, blending the two
+updates around that moment. Motion is as smooth as the sender's, however
+unevenly the packets arrive. Keep sending while idle — an unchanged position
+costs only the `t` key, since unchanged primitives never ride the wire.
+
+```ts
+import { Interpolator, lerp, lerpAngle } from "@vibedgames/multiplayer";
+
+const remote = new Interpolator<{ x: number; y: number; a: number }>({
+  lerp: (p, q, k) => ({ x: lerp(p.x, q.x, k), y: lerp(p.y, q.y, k), a: lerpAngle(p.a, q.a, k) }),
+});
+// each frame (duplicate stamps are ignored):
+const s = player.state;
+remote.push(s.t, { x: s.x, y: s.y, a: s.a });
+const pose = remote.sample();
+// on a teleport or respawn: remote.clear()
+```
+
+Entities from one sender (a host's world snapshot) share one `RemoteClock`:
+`new Interpolator({ clock: hostClock, lerp })`. Call `hostClock.reset()` when the
+host changes.
+
+**`Reconciler`** — for a guest's own body in a host-simulated game. The guest
+moves its body the frame input happens, and corrects it against the host's copy.
+That copy is about one round trip old, so it is compared with where the body
+_was_ at the matching time, never with where it is now.
+
+```ts
+const reconciler = new Reconciler({ deadZone: 2, snapDistance: 96 });
+// guest: tag inputs, remember when they left
+sentAt.set(++seq, performance.now());
+client.sendEvent("input", { seq, mx, my }, { to: client.hostId ?? [] });
+// host: each guest body's row carries the newest seq applied and for how long
+// guest, on a snapshot:
+reconciler.reconcile(row.x, row.y, (sentAt.get(row.ack) ?? 0) + row.ackAge);
+// guest, every frame after moving the body:
+const fix = reconciler.step(me.x, me.y, deltaMs);
+me.x += fix.x;
+me.y += fix.y;
+```
+
+Errors inside `deadZone` are ignored, mid-size ones ease out over ~100 ms, and
+ones past `snapDistance` (knockback, a missed collision) apply at once.
+Teleports are not errors: place the body, then call `clear()`.
+
 ## Model: host-authoritative, last-write-wins
 
 The first player is the host and is the only writer of shared state. Intents go

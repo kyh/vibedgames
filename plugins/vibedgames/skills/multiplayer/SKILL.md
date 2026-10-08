@@ -34,6 +34,14 @@ export const PARTY_HOST = "https://vibedgames-party.kyh.workers.dev";
 
 The **host** (first player) runs authoritative game logic. If the host leaves, the next-joined player is reassigned as host.
 
+The SDK also ships the netcode pieces every real-time game needs. Use them rather than hand-rolling a throttle or a lerp:
+
+- `FixedRate` — a steady send clock.
+- `Interpolator` and `RemoteClock` — render remote players smoothly from timestamped updates.
+- `Reconciler` — correct a guest's own predicted body against the host's copy.
+
+See [references/architecture.md](references/architecture.md) → Throttling and Latency.
+
 ## Room caps (overflow to new rooms)
 
 By default a room is unlimited. Pass `maxPlayers` to cap it; when full, the next player overflows into a sibling room (`{room}~2`, `{room}~3`, …) and the SDK reconnects them there transparently — extra players get a parallel match instead of being turned away.
@@ -121,7 +129,7 @@ setSpawn(SPAWNS[idx]);
 
 - [references/react.md](references/react.md) — React hooks: `useMultiplayerRoom`/`useMultiplayerState`/`usePlayerState`, targeted + coalesced events, room metadata. Open for a React game.
 - [references/engines.md](references/engines.md) — `MultiplayerClient` in a game loop, read-vs-subscribe rule, Phaser and Three.js examples. Open for any non-React game.
-- [references/architecture.md](references/architecture.md) — `net/` adapter layer, host-side seeding, offline ≠ solo, throttling, reconnection UX (offline fallback, stale host), pause in an online game, latency (predict yourself, interpolate remotes, `bodyDrive`), the automated two-client check, schema discipline + validation. Open before writing `net/`, and whenever a room freezes, rubber-bands, or resets.
+- [references/architecture.md](references/architecture.md) — `net/` adapter layer, host-side seeding, offline ≠ solo, throttling (`FixedRate`), reconnection UX (offline fallback, stale host), pause in an online game, latency (`Interpolator` for remotes, `Reconciler` for your own predicted body, `bodyDrive`), the automated two-client check, schema discipline + validation. Open before writing `net/`, and whenever a room freezes, rubber-bands, lags, or resets.
 
 ## Local dev loop (two tabs, one room)
 
@@ -135,6 +143,10 @@ setSpawn(SPAWNS[idx]);
 
 - ❌ **Mutating the local mirror directly.** `client.sharedState.score = 100` is silently overwritten on the next patch.
 - ❌ **Sending positions as events.** Position belongs in `updateMyState`. Events are for things that _happened_.
+- ❌ **Drawing remotes at their newest value.** Snapping, per-packet tweens and exponential "chase the latest" lerps all show network jitter as stutter. Stamp sends with `t` and render through `Interpolator`.
+- ❌ **Making a guest wait for the host to move its own character.** That is a full round trip of input lag. Predict locally and correct with `Reconciler` — against where the body _was_, never where it is now.
+- ❌ **`acc = 0` or `frame % n` send throttles.** They drift, alternate gap lengths, or scale with refresh rate. Use `FixedRate`.
+- ❌ **Whole-world snapshots every tick.** The SDK re-sends any object or array key in full on every call. Send small primitive rows per tick, slow-changing state on change, and the full world rarely (for host handover).
 - ❌ **Welding multiplayer into Phaser scene `update()`.** Use the adapter pattern. Single-player should still work after `rm -rf net/`.
 - ❌ **No connection-state UI.** A disconnected game looks identical to a frozen one. Render the status.
 - ❌ **Freezing a sim whose timers are raw `Date.now()`.** Resume mass-expires every fuse. Pause via an offset sim clock; online, pause = spectator.
