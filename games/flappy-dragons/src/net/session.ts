@@ -10,26 +10,20 @@
 // Offline, everything loops back locally so the same code paths keep working.
 //
 // Started as the copy shared across games/*/src/net/session.ts; this one also
-// reads the room's server clock (`serverNow`, `serverClock`, `rtt`), which
-// every flappy-dragons stamp is on. Per-game tuning (room, maxPlayers,
-// fallbackMs) goes in the NetSession constructor.
+// reads the room's server clock (`serverNow`), which every flappy-dragons
+// stamp and race is on. Per-game tuning (room, maxPlayers, fallbackMs) goes in
+// the NetSession constructor.
 //
 
 import { isOfflineRequested } from "@repo/embed";
 import { MultiplayerClient } from "@vibedgames/multiplayer";
-import type { Player, PlayerMap, SendEventOptions, SenderClock } from "@vibedgames/multiplayer";
+import type { Player, PlayerMap, SendEventOptions } from "@vibedgames/multiplayer";
 
 const MULTIPLAYER_HOST = import.meta.env.DEV
   ? "http://localhost:8787"
   : "https://vibedgames-party.kyh.workers.dev";
 
 const SOLO_ID = "solo";
-
-/** Offline there is no server: this machine's clock is the room's. */
-const LOCAL_CLOCK: SenderClock = {
-  now: (localNow = performance.now()) => localNow,
-  synced: true,
-};
 
 /** JSON value as it comes off the wire — multiplayer payloads are JSON.parse output. */
 export type JsonValue =
@@ -167,21 +161,9 @@ export class NetSession {
   serverNow(localNow?: number): number | null {
     const { client } = this;
     if (this.solo || !client) {
-      return LOCAL_CLOCK.now(localNow);
+      return localNow ?? performance.now();
     }
     return client.serverClock.synced ? client.serverNow(localNow) : null;
-  }
-
-  /** The clock `serverNow` reads, for an Interpolator drawing what others stamped. */
-  get serverClock(): SenderClock {
-    const { client } = this;
-    return this.solo || !client ? LOCAL_CLOCK : client.serverClock;
-  }
-
-  /** Fastest recent round trip to the server (ms); NaN until measured, 0 offline. */
-  get rtt(): number {
-    const { client } = this;
-    return this.solo || !client ? 0 : client.rtt;
   }
 
   /** The current room host's id (for authenticating host-only events). */

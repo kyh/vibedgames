@@ -1450,15 +1450,15 @@ export class GameScene extends Scene {
     // gaps accumulate so rivals never overlap however uneven the spacing.
     let laneX = BIRD_X + DRAGON_SPRITE_OFFSET_X;
     for (const id of this.rivalIds) {
-      const ghost = this.feedGhost(id);
+      const ghost = this.feedGhost(id, time);
       if (!ghost) {
         continue;
       }
       ghost.seen = frame;
       laneX += ghost.gap;
-      // Drawn from the rival's samples a relay plus ~100 ms behind the room's
-      // clock, blending the two around that moment: as smooth as its flight
-      // on its own screen, however unevenly the packets arrive.
+      // Drawn ~100 ms behind the moment the rival's samples land, blending
+      // the two around it: as smooth as its flight on its own screen, however
+      // unevenly the packets arrive.
       const pose = ghost.motion.sample(time);
       if (!pose) {
         continue;
@@ -1485,7 +1485,7 @@ export class GameScene extends Scene {
   }
 
   /** A rival's ghost with its newest sample pushed, or null until it has sent one. */
-  private feedGhost(id: string): Ghost | null {
+  private feedGhost(id: string, time: number): Ghost | null {
     const state = this.net.players[id]?.state;
     const known = this.ghosts.get(id);
     // The state is polled every frame; only a new stamp is a new sample.
@@ -1508,7 +1508,7 @@ export class GameScene extends Scene {
       ghost = {
         gap: GHOST_GAP_MIN + hashId(id, 1) * (GHOST_GAP_MAX - GHOST_GAP_MIN),
         live: null,
-        motion: new RivalMotion(this.net.serverClock, () => this.net.rtt),
+        motion: new RivalMotion(),
         seen: 0,
         skin: peer.skin,
         sprite,
@@ -1518,7 +1518,7 @@ export class GameScene extends Scene {
       ghost.skin = peer.skin;
       ghost.sprite.play(`fly-${peer.skin}`);
     }
-    ghost.motion.push(peer.t, peer.life, { live: peer.live, vy: peer.vy, y: peer.y });
+    ghost.motion.push(peer.t, peer.life, { live: peer.live, vy: peer.vy, y: peer.y }, time);
     return ghost;
   }
 
@@ -1545,9 +1545,10 @@ export class GameScene extends Scene {
       this.stateRate.reset();
     }
     this.streamingState = true;
-    // Stamped with the room's server time at this frame: every rival reads it
-    // on the same clock and draws it a relay plus ~100 ms behind. Unchanged
-    // keys stay off the wire, so a hovering or crashed dragon costs only `t`.
+    // Stamped with the room's server time at this frame: continuous across a
+    // reload and comparable between senders. Every rival draws it ~100 ms
+    // behind the moment it lands. Unchanged keys stay off the wire, so a
+    // hovering or crashed dragon costs only `t`.
     this.net.updateMyState({
       life: this.life,
       live: this.alive,
