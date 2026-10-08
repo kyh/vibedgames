@@ -6,6 +6,7 @@ import type {
   JsonValue,
   MultiplayerConnectionStatus,
   MultiplayerOptions,
+  Player,
   PlayerMap,
   SendEventOptions,
   ServerMessage,
@@ -654,93 +655,100 @@ export class MultiplayerClient {
       // exactly this protocol; unknown `type` values fall through the switch
       // untouched, and a malformed `data` throws inside this try and is logged.
       const message = JSON.parse(event.data) as ServerMessage;
-
-      switch (message.type) {
-        case "ping": {
-          // Answered from the message handler rather than a timer, so it keeps
-          // working while the tab is hidden — that's what makes it a safe basis
-          // for eviction. See EVICTION_TIMEOUT_MS.
-          this.send({ type: "pong" });
-          break;
-        }
-        case "sync": {
-          this.applySync(message.data);
-          break;
-        }
-        case "player_joined": {
-          this._players = { ...this._players, [message.data.id]: message.data };
-          break;
-        }
-        case "player_left": {
-          const { [message.data.id]: _left, ...remaining } = this._players;
-          this._players = remaining;
-          break;
-        }
-        case "host": {
-          this._hostId = message.data.id;
-          this.maybeSeedInitialState(message.data.id);
-          break;
-        }
-        case "state_patch": {
-          this.remoteStateSeen = true;
-          const merged = { ...this._sharedState, ...message.data };
-          if (!this.passesSchema("sharedState", "incoming", merged)) {
-            break;
-          }
-          this._sharedState = merged;
-          break;
-        }
-        case "player_state": {
-          // The payload is a keyed delta for a delta-capable server, the full
-          // merged snapshot for an older one — shallow-merging handles both,
-          // because keys are only ever merged, never deleted, so a full
-          // snapshot is a superset of the local mirror. The schema check runs
-          // on the MERGED result, mirroring the sharedState path: a delta is
-          // partial by design and would fail any schema with required fields.
-          const existing = this._players[message.data.id] ?? { id: message.data.id };
-          const mergedState = { ...existing.state, ...message.data.state };
-          if (!this.passesSchema("playerState", "incoming", mergedState, message.data.id)) {
-            break;
-          }
-          this._players = {
-            ...this._players,
-            [message.data.id]: { ...existing, state: mergedState },
-          };
-          break;
-        }
-        case "player_connection": {
-          // Transport-drop / reconnect notice for a peer whose seat is held in
-          // the grace window. The player is still in the room, so only flip the
-          // flag — `player_left` is what actually removes them.
-          const holder = this._players[message.data.id];
-          if (!holder) {
-            break;
-          }
-          this._players = {
-            ...this._players,
-            [message.data.id]: { ...holder, connected: message.data.connected },
-          };
-          break;
-        }
-        case "event": {
-          this._onEvent?.(message.data.event, message.data.payload, message.data.from);
-          break;
-        }
-        case "room_full": {
-          // The room hit its cap before we joined. Reconnect to the overflow
-          // sibling the server picked, carrying its authoritative capacity so
-          // the shard keeps the same cap; redirectTo notifies on its own.
-          this.redirectTo(message.data.room, message.data.capacity);
-          return;
-        }
-        default: {
-          break;
-        }
+      if (this.applyMessage(message)) {
+        this.notify();
       }
-
-      this.notify();
     } catch (error) {
       console.error("Failed to process multiplayer message", error);
     }
   };
+
+  /** Apply one server message; true when subscribers should hear about it. */
+  private applyMessage(message: ServerMessage): boolean {
+    switch (message.type) {
+      case "ping": {
+        // Answered from the message handler rather than a timer, so it keeps
+        // working while the tab is hidden — that's what makes it a safe basis
+        // for eviction. See EVICTION_TIMEOUT_MS.
+        this.send({ type: "pong" });
+        return true;
+      }
+      case "sync": {
+        this.applySync(message.data);
+        return true;
+      }
+      case "player_joined": {
+        this._players = { ...this._players, [message.data.id]: message.data };
+        return true;
+      }
+      case "player_left": {
+        const { [message.data.id]: _left, ...remaining } = this._players;
+        this._players = remaining;
+        return true;
+      }
+      case "host": {
+        this._hostId = message.data.id;
+        this.maybeSeedInitialState(message.data.id);
+        return true;
+      }
+      case "state_patch": {
+        this.remoteStateSeen = true;
+        const merged = { ...this._sharedState, ...message.data };
+        if (this.passesSchema("sharedState", "incoming", merged)) {
+          this._sharedState = merged;
+        }
+        return true;
+      }
+      case "player_state": {
+        this.mergePlayerState(message.data.id, message.data.state);
+        return true;
+      }
+      case "player_connection": {
+        // Transport-drop / reconnect notice for a peer whose seat is held in
+        // the grace window. The player is still in the room, so only flip the
+        // flag — `player_left` is what actually removes them.
+        this.patchPlayer(message.data.id, { connected: message.data.connected });
+        return true;
+      }
+      case "event": {
+        this._onEvent?.(message.data.event, message.data.payload, message.data.from);
+        return true;
+      }
+      case "room_full": {
+        // The room hit its cap before we joined. Reconnect to the overflow
+        // sibling the server picked, carrying its authoritative capacity so
+        // the shard keeps the same cap; redirectTo notifies on its own.
+        this.redirectTo(message.data.room, message.data.capacity);
+        return false;
+      }
+      default: {
+        return true;
+      }
+    }
+  }
+
+  /**
+   * Merge a player-state message: a keyed delta from a delta-capable server,
+   * the full merged snapshot from an older one — shallow-merging handles both,
+   * because keys are only ever merged, never deleted, so a full snapshot is a
+   * superset of the local mirror. The schema check runs on the MERGED result,
+   * mirroring the sharedState path: a delta is partial by design and would
+   * fail any schema with required fields.
+   */
+  private mergePlayerState(id: string, state: JsonRecord): void {
+    const existing = this._players[id] ?? { id };
+    const mergedState = { ...existing.state, ...state };
+    if (!this.passesSchema("playerState", "incoming", mergedState, id)) {
+      return;
+    }
+    this._players = { ...this._players, [id]: { ...existing, state: mergedState } };
+  }
+
+  /** Set presence flags on a player this client already knows. */
+  private patchPlayer(id: string, flags: Pick<Player, "connected">): void {
+    const known = this._players[id];
+    if (known) {
+      this._players = { ...this._players, [id]: { ...known, ...flags } };
+    }
+  }
 }

@@ -683,32 +683,7 @@ export class VgServer extends Server {
         }
         case "emit": {
           VgServer.touch(sender, true);
-          const eventMessage: ServerMessage = {
-            data: {
-              event: message.data.event,
-              from: sender.id,
-              payload: message.data.payload,
-            },
-            type: "event",
-          };
-          const raw = JSON.stringify(eventMessage);
-          // Targeting is additive to the wire protocol: absent fields mean the
-          // historical broadcast-to-all (sender included). Ids come from an
-          // untrusted client, so re-validate the shape instead of trusting the
-          // parsed type.
-          const to = readIdList(message.data.to);
-          const except = readIdList(message.data.except);
-          if (to === null) {
-            this.broadcast(raw, except ?? []);
-            break;
-          }
-          // `to` wins, minus `except`; deliver only to admitted players so a
-          // capacity-refused connection can never be reached by id.
-          const targets = new Set(to);
-          const excluded = new Set(except);
-          this.sendToEach((connection) =>
-            targets.has(connection.id) && !excluded.has(connection.id) ? raw : null,
-          );
+          this.relayEvent(sender, message.data);
           break;
         }
         default: {
@@ -719,6 +694,33 @@ export class VgServer extends Server {
     } catch (error) {
       console.error("Error handling message", error);
     }
+  }
+
+  /** Relay a game event: to everyone (sender included) or to the `to` list, minus `except`. */
+  private relayEvent(
+    sender: Connection<Presence>,
+    data: Extract<IncomingMessage, { type: "emit" }>["data"],
+  ): void {
+    const eventMessage: ServerMessage = {
+      data: { event: data.event, from: sender.id, payload: data.payload },
+      type: "event",
+    };
+    const raw = JSON.stringify(eventMessage);
+    // Ids come from an untrusted client, so re-validate the shape instead of
+    // trusting the parsed type.
+    const to = readIdList(data.to);
+    const except = readIdList(data.except);
+    if (to === null) {
+      this.broadcast(raw, except ?? []);
+      return;
+    }
+    // `to` wins, minus `except`; deliver only to admitted players so a
+    // capacity-refused connection can never be reached by id.
+    const targets = new Set(to);
+    const excluded = new Set(except);
+    this.sendToEach((connection) =>
+      targets.has(connection.id) && !excluded.has(connection.id) ? raw : null,
+    );
   }
 
   onClose(connection: Connection<Presence>, code: number) {
