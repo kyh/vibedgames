@@ -493,13 +493,13 @@ Skill C (metadata loaded) ──┘
 A skill is loaded four ways: project `.claude/skills/<name>`, global
 `~/.claude/skills/<name>`, a Claude Code plugin (`--plugin-dir` or the
 marketplace cache at `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/skills/<name>`,
-several versions retained), or a copy made by `npx skills add` into
+several versions retained), or a copy made by `vg init` (or `npx skills add`) into
 `.agents/skills/<name>` for Codex/Cursor, where `CLAUDE_SKILL_DIR` is never
 set. One snippet, placed in the SKILL.md body, covers all four:
 
 ```bash
 # This skill's directory. Claude Code substitutes CLAUDE_SKILL_DIR (project, global
-# or plugin install); other agents fall back to wherever `skills add` put it.
+# or plugin install); other agents fall back to wherever `vg init` put it.
 SKILL="${CLAUDE_SKILL_DIR}"
 [ -d "$SKILL" ] || for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
   [ -d "$d/<name>" ] && SKILL=$d/<name> && break
@@ -524,9 +524,10 @@ Test both routes without a global install:
   `claude -p 'Invoke vibedgames:<skill>. Reply with ONLY the bash block starting "# This skill'"'"'s directory", verbatim' --plugin-dir plugins/vibedgames --max-turns 3`
   and execute the printed block — `$SKILL` must resolve.
 - **Codex/Cursor route**: in a scratch git repo run
-  `npx -y skills add <repo> --skill <name> -a codex -y`; it writes
-  `.agents/skills/<name>` and no `.claude/skills`. Run the block with
-  `CLAUDE_SKILL_DIR` unset — the probe must find it.
+  `VG_SKILLS_SOURCE=<path to this repo> vg init -a codex`; it copies every
+  skill under the checkout's `plugins/` into `.agents/skills/<name>` and
+  writes no `.claude/skills`. Run the block with `CLAUDE_SKILL_DIR` unset —
+  the probe must find it.
 
 ---
 

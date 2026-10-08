@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { defineCommand } from "citty";
 import { consola } from "consola";
 
@@ -8,58 +10,55 @@ import {
   PKG_NAME,
 } from "../lib/package-manager.js";
 import { isMissingCommand, run } from "../lib/run.js";
+import {
+  DEFAULT_AGENTS,
+  parseAgents,
+  settleSync,
+  syncSkills,
+  targetFor,
+} from "../lib/skills-install.js";
+import type { InstallReport } from "../lib/skills-install.js";
 import { assertKnownFlags } from "../lib/strict-args.js";
 
-const REPO = "kyh/vibedgames-plugins";
-const DEFAULT_AGENTS = "claude-code,cursor,codex";
 const description = "Install/update vibedgames skills and the vg CLI";
-
-const skillsAddArgs = (agents: string[], global: boolean, yes: boolean) => {
-  const args = ["-y", "skills", "add", REPO];
-  for (const agent of agents) {
-    args.push("-a", agent);
-  }
-  if (global) {
-    args.push("-g");
-  }
-  if (yes) {
-    args.push("-y");
-  }
-  return args;
-};
-
-const skillsUpdateArgs = (global: boolean, yes: boolean) => {
-  const args = ["-y", "skills", "update"];
-  if (global) {
-    args.push("-g");
-  }
-  if (yes) {
-    args.push("-y");
-  }
-  return args;
-};
 
 const initArgs = {
   agent: {
     alias: "a",
-    default: DEFAULT_AGENTS,
+    default: DEFAULT_AGENTS.join(","),
     description:
-      "Comma-separated target agents. Default installs for Claude Code, Cursor, and Codex (symlinked from a shared .agents/skills/ dir). Pass '*' for every supported agent.",
+      "Comma-separated target agents (default: Claude Code, Cursor and Codex). Skills live once in .agents/skills/, which Codex, Cursor and most agents read directly; Claude Code and agents with a skills dir of their own get a symlink per skill. Pass '*' for every supported agent.",
     type: "string",
   },
   global: {
     alias: "g",
     default: false,
-    description: "Install to user directory instead of project",
+    description: "Install to your home directory instead of the project",
     type: "boolean",
   },
   yes: {
     alias: "y",
     default: true,
-    description: "Skip confirmation prompts",
+    description: "Accepted for compatibility; init never prompts",
     type: "boolean",
   },
 } as const;
+
+/** One summary for `vg init` and `vg update`. */
+export const reportSkills = (report: InstallReport): void => {
+  const where = path.relative(process.cwd(), report.dir) || report.dir;
+  consola.success(
+    `Installed ${report.installed.length} vibedgames skills into ${where} for ${report.agents.join(", ")}`,
+  );
+  if (report.removed.length > 0) {
+    consola.info(`Removed skills dropped upstream: ${report.removed.join(", ")}`);
+  }
+  for (const agent of report.copiedFor) {
+    consola.warn(
+      `Symlinks aren't available here, so ${agent} got copies of the skills: re-run \`vg init\` after an update to refresh them.`,
+    );
+  }
+};
 
 export const initCommand = defineCommand({
   args: initArgs,
@@ -67,10 +66,7 @@ export const initCommand = defineCommand({
   run: async ({ args, rawArgs }) => {
     assertKnownFlags(rawArgs, initArgs);
 
-    const agents = args.agent
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const agents = parseAgents(args.agent);
 
     // Whatever installed this CLI is what should upgrade it. Installing with a
     // different manager writes a second copy into a prefix the shell may not
@@ -79,41 +75,18 @@ export const initCommand = defineCommand({
 
     consola.start("Installing/updating vibedgames skills and the vg CLI...");
 
-    const [add, cli] = await Promise.all([
-      run("npx", skillsAddArgs(agents, args.global, args.yes), { stream: true }),
+    const [skills, cli] = await Promise.all([
+      settleSync(syncSkills(targetFor(args.global ? "global" : "project"), agents)),
       run(manager, globalInstallArgs(manager)),
     ]);
 
-    if (add.code !== 0) {
-      if (isMissingCommand(add)) {
-        throw new Error(
-          "`npx` was not found on PATH. It ships with Node, so this usually means " +
-            "the vg CLI is running from a standalone build — install Node, or add " +
-            `the skills yourself with: npx skills add ${REPO}`,
-        );
-      }
-      if (add.output.trim()) {
-        consola.error(add.output.trim());
-      }
-      throw new Error(`skills add exited with code ${add.code}`);
+    if (skills.ok) {
+      reportSkills(skills.value);
     }
-    consola.success(`Installed vibedgames skills for ${agents.join(", ")}`);
 
-    const update = await run("npx", skillsUpdateArgs(args.global, args.yes), {
-      stream: true,
-    });
-    if (update.code === 0) {
-      consola.success("Refreshed installed skills to latest");
+    if (cli.code === 0) {
+      consola.success(`Installed/updated ${PKG_NAME} globally with ${manager}`);
     } else {
-      if (update.output.trim()) {
-        consola.warn(update.output.trim());
-      }
-      consola.warn(
-        `'skills update' exited with code ${update.code}. Skills were just installed via 'add', so they should already be current.`,
-      );
-    }
-
-    if (cli.code !== 0) {
       if (cli.output.trim() && !isMissingCommand(cli)) {
         consola.warn(cli.output.trim());
       }
@@ -122,8 +95,10 @@ export const initCommand = defineCommand({
           ? `Couldn't find ${manager} to update the vg CLI. Update manually: ${globalInstallCommand(manager)}`
           : `Couldn't install the vg CLI globally (${manager} exit ${cli.code}). Install manually: ${globalInstallCommand(manager)}`,
       );
-      return;
     }
-    consola.success(`Installed/updated ${PKG_NAME} globally with ${manager}`);
+
+    if (!skills.ok) {
+      throw new Error(`Couldn't install the skills: ${skills.message}`);
+    }
   },
 });

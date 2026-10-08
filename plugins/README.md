@@ -30,7 +30,7 @@ shipped game; the rest are the deep modules it routes into.
 Edit here, never in [`kyh/vibedgames-plugins`](https://github.com/kyh/vibedgames-plugins).
 That repo is a read-only mirror of `plugins/` and `.claude-plugin/`, pushed by
 `.github/workflows/sync-plugins.yml` on every change to main. It exists because
-the plugin directory and `npx skills add` both download a whole repo, and the
+the plugin directory and `vg init` both download a whole repo, and the
 game assets make this one far too big for either.
 
 ```sh

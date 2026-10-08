@@ -9,8 +9,11 @@ import {
   globalInstallCommand,
 } from "../lib/package-manager.js";
 import { isMissingCommand, run } from "../lib/run.js";
+import { findInstall, settleSync, syncSkills } from "../lib/skills-install.js";
+import type { InstallReport } from "../lib/skills-install.js";
 import { assertKnownFlags } from "../lib/strict-args.js";
 import { fetchLatestVersion, isNewerVersion } from "../lib/update.js";
+import { reportSkills } from "./init.js";
 
 // SAFETY: this is the CLI's own package.json, shipped alongside dist — npm
 // refuses to publish a package without a string `version`.
@@ -18,12 +21,14 @@ const pkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.ur
   version: string;
 };
 
-const skillsUpdateArgs = (global: boolean) => {
-  const args = ["-y", "skills", "update", "-y"];
-  if (global) {
-    args.push("-g");
-  }
-  return args;
+/**
+ * Re-sync the skills where they are installed: the home directory with
+ * `--global`, else this project, else the home directory. Null when neither
+ * holds an install — `vg init` puts one there.
+ */
+const updateInstalledSkills = async (global: boolean): Promise<InstallReport | null> => {
+  const found = findInstall(global ? ["global"] : ["project", "global"]);
+  return found ? await syncSkills(found.target, found.agents) : null;
 };
 
 const updateArgs = {
@@ -62,7 +67,8 @@ export const updateCommand = defineCommand({
       }
       await Promise.all([
         run(manager, globalInstallArgs(manager)),
-        run("npx", skillsUpdateArgs(args.global)),
+        // Silent background mode: a failed skills sync waits for the next run.
+        settleSync(updateInstalledSkills(args.global)),
       ]);
       return;
     }
@@ -71,7 +77,7 @@ export const updateCommand = defineCommand({
 
     const [cli, skills] = await Promise.all([
       run(manager, globalInstallArgs(manager)),
-      run("npx", skillsUpdateArgs(args.global)),
+      settleSync(updateInstalledSkills(args.global)),
     ]);
 
     if (cli.code === 0) {
@@ -87,18 +93,15 @@ export const updateCommand = defineCommand({
       );
     }
 
-    if (skills.code === 0) {
-      consola.success("Skills updated to latest");
+    if (!skills.ok) {
+      consola.warn(`Couldn't update the skills: ${skills.message}`);
+    } else if (skills.value) {
+      reportSkills(skills.value);
     } else {
-      if (skills.output.trim()) {
-        consola.warn(skills.output.trim());
-      }
-      consola.warn(
-        `'skills update' exited with code ${skills.code}. If skills aren't installed here yet, run: vg init`,
-      );
+      consola.info("No vibedgames skills installed here or in your home directory: run vg init");
     }
 
-    if (cli.code !== 0 && skills.code !== 0) {
+    if (cli.code !== 0 && !skills.ok) {
       throw new Error("update failed for both the CLI and skills");
     }
   },

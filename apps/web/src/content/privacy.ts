@@ -232,7 +232,7 @@ const sections: Section[] = [
         "Games on `{slug}.vibedgames.com` are made by the people who deploy them. A game may run its own code, store data in your browser, load content from other services or collect information of its own. Apart from the example games we publish, those practices are their developers’, not ours, and this Privacy Policy does not cover them.",
       ),
       p(
-        "The `vg` CLI and the tools it runs also contact third-party services directly from your computer: it checks the npm registry for a new version once a day and installs updates from it (set `VG_NO_AUTO_UPDATE=1` to turn this off); `vg new`, `vg init` and `vg update` download templates and skills from GitHub, the skills through the open-source `skills` installer; the first `vg playtest` installs its browser-automation tool from npm and downloads a browser; and `vg generate` uploads your input files to, and downloads results from, the AI model provider’s storage. Those services handle these requests under their own privacy policies.",
+        "The `vg` CLI and the tools it runs also contact third-party services directly from your computer: it checks the npm registry for a new version once a day and installs updates from it (set `VG_NO_AUTO_UPDATE=1` to turn this off); `vg init` and `vg update` download the skills from GitHub, as does `vg new --template` for a third-party template; the first `vg playtest` installs its browser-automation tool from npm and downloads a browser; and `vg generate` uploads your input files to, and downloads results from, the AI model provider’s storage. Those services handle these requests under their own privacy policies.",
       ),
     ],
     heading: H.other,

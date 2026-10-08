@@ -48,11 +48,15 @@ bare URL, ready for `$(...)` capture, so no JSON processor is needed. The path i
 dotted, takes `images[0]` or `images.0`, and counts negative indices from the
 end; a path that doesn't resolve is an error rather than an empty line.
 
-`vg init` shells out to `npx skills add kyh/vibedgames-plugins` and installs for Claude
-Code, Cursor and Codex by default (symlinked from a shared `.agents/skills/`);
-`--agents` narrows or widens that, `--global` targets the user directory instead
-of the project. `vg update` runs automatically once a day — disable with
-`VG_NO_AUTO_UPDATE=1`.
+`vg init` downloads the skills from `kyh/vibedgames-plugins` and installs one copy
+of each in `.agents/skills/`, which Codex, Cursor and most other agents read
+directly; Claude Code (and agents with a skills dir of their own) gets a symlink
+per skill. `--agent` narrows or widens the set (`'*'` for every supported agent),
+`--global` targets your home directory instead of the project. Re-running it, or
+`vg update`, refreshes the skills and removes any dropped upstream. Nothing but
+the download leaves your machine. `VG_SKILLS_SOURCE` points it at a local checkout
+(any directory with the same `plugins/` layout) instead. `vg update` runs
+automatically once a day — disable with `VG_NO_AUTO_UPDATE=1`.
 
 Both self-update with whichever package manager installed the CLI, detected
 from its install path (npm, pnpm, yarn or bun) — installing with a different
