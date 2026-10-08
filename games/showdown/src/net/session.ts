@@ -4,11 +4,12 @@
 // this hands them into sim state.
 //
 // Intents go to the host alone (`join` excepted: every client keeps the picks a
-// future host will need). The host publishes a frame every tick and the slower
-// keys only when they change. A guest collects each frame the moment its
-// message lands, stamped with that arrival time: interpolation needs to know
-// when every frame arrived, and reading the merged state once per render frame
-// would lose frames that land together.
+// future host will need). The host publishes a frame every tick, stamped with
+// the room's server time, and the slower keys only when they change. A guest
+// collects each frame the moment its message lands, with that arrival time and
+// the host it came from: interpolation needs to know when every frame arrived,
+// and reading the merged state once per render frame would lose frames that
+// land together.
 import { MultiplayerClient } from "@vibedgames/multiplayer";
 import type { PlayerMap } from "@vibedgames/multiplayer";
 import type { JsonObject, JsonValue } from "../json";
@@ -66,6 +67,8 @@ export interface RemoteIntent {
 /** What one message from the host changed, parsed, with the moment it landed. */
 export interface Arrival {
   receivedAt: number;
+  /** The room's host when it landed: whose route it came by. */
+  host: string | null;
   frame: NetFrame | null;
   match: MatchState | null;
   boxes: BoxState[] | null;
@@ -220,6 +223,11 @@ export class Session {
     return this.playerId !== null && this.client.hostId !== null && !this.hostDropped;
   }
 
+  /** Server time now (whole ms), or null until measured — within a round trip of joining. */
+  serverTime(): number | null {
+    return this.client.serverClock.synced ? Math.round(this.client.serverNow()) : null;
+  }
+
   get stats(): NetStats {
     this.frames.roll();
     this.sentIntents.roll();
@@ -309,6 +317,7 @@ export class Session {
       cubes: parseCubes(state["cu"]),
       frame: parseFrame(state["f"]),
       fx: [],
+      host: this.client.hostId,
       match: parseMatch(state["m"]),
       receivedAt: performance.now(),
     };
@@ -386,6 +395,7 @@ export class Session {
       frame,
       // The first batch ever seen is the room's history, not news.
       fx: fxFresh && seen.fs !== null ? parseFxBatch(state["fx"]) : [],
+      host: this.client.hostId,
       match: fresh("m") ? parseMatch(next.m) : null,
       receivedAt: performance.now(),
     });
@@ -409,6 +419,7 @@ export class Session {
       frame: next.frame ?? oldest.frame,
       // Effects that old are not worth replaying in a burst.
       fx: [],
+      host: next.host,
       match: next.match ?? oldest.match,
       receivedAt: next.receivedAt,
     });

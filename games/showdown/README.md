@@ -86,7 +86,7 @@ frame rate drops, unless the player chooses a tier under ⚙.
 ## Multiplayer
 
 Host-authoritative via `@vibedgames/multiplayer`: the first player in a room runs
-the brawl. Rooms hold eight seats (`showdown-v4-<code>`, public room when no code;
+the brawl. Rooms hold eight seats (`showdown-v5-<code>`, public room when no code;
 the version changes whenever the wire format does, so tabs on an old bundle never
 share a match with new ones) and bots fill whatever humans leave empty; a human
 arriving mid-brawl spectates and is seated for the next one, which the host starts
@@ -111,11 +111,16 @@ Netcode (`src/net/`):
   eases out over 100 ms, a large one snaps. Knockback arrives as a sequenced edge
   and is replayed locally; an evade waiting on the host's verdict gives up after a
   second, so a lost request cannot lock dodging.
-- **Everyone else renders 100 ms behind the host's clock** (`Interpolator` on one
-  `RemoteClock`), as are the fx, projectile spawns and loot changes, so motion is
-  even however frames arrive and a muzzle flash leaves the muzzle it belongs to.
+- **Everyone else renders on server time.** The host stamps each frame with the
+  room's server clock (`client.serverNow()`), and a guest draws remote bodies,
+  fx, projectile spawns and loot changes 100 ms behind the newest frame that
+  could have arrived by now (`Interpolator` on a `RemoteClock` read off the
+  frames' arrivals, so the relay's latency is learned): motion is even however
+  frames arrive, a muzzle flash leaves the muzzle it belongs to, and a change of
+  host keeps the timeline — only the new host's route is timed afresh.
 - `window.__GAME_DIAGNOSTICS__.online.net` reports snapshot rate and size, the
-  guest's lag behind the host, its last correction and the render delay.
+  guest's lag behind the host, its last correction and the render delay behind
+  server time.
 
 ```bash
 pnpm dev:party                                    # party server on :8787

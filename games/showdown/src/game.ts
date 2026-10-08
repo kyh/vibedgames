@@ -1026,10 +1026,16 @@ export class Game {
     this.present(dt);
   }
 
-  /** Publish one tick: the frame always, the slower keys when they changed (or `everything`). */
+  /**
+   * Publish one tick: the frame always, the slower keys when they changed (or
+   * `everything`). Frames are stamped with the room's server time, measured
+   * within a round trip of joining; a first host publishes nothing until then,
+   * and its first publish carries every key anyway.
+   */
   private broadcast(everything = false): void {
     const { session } = this;
-    if (!session) {
+    const now = session?.serverTime() ?? null;
+    if (!session || now === null) {
       return;
     }
     const key = `${this.generation}|${this.brawlers.map((b) => b.netId).join(",")}`;
@@ -1038,7 +1044,6 @@ export class Game {
       this.rosterVersion += 1;
     }
     this.seqOut += 1;
-    const now = performance.now();
     const frame = encodeFrame(this, this.seqOut, this.rosterVersion, now, this.elapsed * 1000);
     const { world } = this;
     const match = encodeMatch(

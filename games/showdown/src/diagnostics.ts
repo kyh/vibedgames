@@ -24,7 +24,7 @@ export interface DiagnosticsSession {
   status: string;
 }
 
-/** A guest's view of its own netcode: prediction against the host, and how far behind remotes render. */
+/** A guest's view of its own netcode: prediction against the host, and how far behind server time remotes render. */
 export interface DiagnosticsGuest {
   interpDelayMs: number | null;
   prediction: { lagMs: number | null; lastError: number };
@@ -53,7 +53,7 @@ export interface NetDiagnostics {
   lagMs: number | null;
   /** Guest: the last position error the host reported, world units (under 0.12 is ignored). */
   correction: number | null;
-  /** Guest: how far behind the host's clock remote bodies render, ms. */
+  /** Guest: how far behind server time remote bodies render (the relay's fastest recent trip plus INTERP_DELAY_MS), ms. */
   interpDelayMs: number | null;
 }
 

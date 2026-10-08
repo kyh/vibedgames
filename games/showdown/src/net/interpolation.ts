@@ -1,7 +1,7 @@
 // How a guest draws every brawler it does not control. Each one renders a fixed
-// delay behind the host's clock, blending the two host frames that bracket
-// that moment (`Interpolator`, all of them on the one `RemoteClock` of the
-// host's snapshot), so motion is as even as the host's sim however unevenly
+// delay behind the host's frames as they arrive (frame-clock.ts, one clock for
+// every body), blending the two frames that bracket that moment
+// (`Interpolator`), so motion is as even as the host's sim however unevenly
 // frames arrive — never a chase toward the newest pose, which surges on every
 // packet and stalls on every gap. Positions come from the host's actual
 // motion, so a body pushing into a wall is drawn against it, not inside it.
@@ -10,7 +10,7 @@
 // when render time reaches the frame that carried it, so a swing starts when
 // the body swinging it gets there.
 import { Interpolator, lerp, lerpAngle } from "@vibedgames/multiplayer";
-import type { RemoteClock } from "@vibedgames/multiplayer";
+import type { SenderClock } from "@vibedgames/multiplayer";
 
 import { BRAWLER_RADIUS, TUNING } from "../config";
 import type { BrawlerDef } from "../config";
@@ -120,10 +120,10 @@ export const applyPuppetRow = (b: PuppetBody, n: BrawlerState, age: number): voi
 /** One remote brawler's timeline on a guest. */
 export class PuppetTrack {
   private readonly interp: Interpolator<PuppetPose>;
-  private pending: PendingRow[] = [];
+  private readonly pending: PendingRow[] = [];
   private posedAt: number | null = null;
 
-  constructor(clock: RemoteClock) {
+  constructor(clock: SenderClock) {
     this.interp = new Interpolator({
       clock,
       delayMs: INTERP_DELAY_MS,
@@ -132,7 +132,7 @@ export class PuppetTrack {
     });
   }
 
-  /** A frame stamped `t` on the host's clock arrived at local `receivedAt`. */
+  /** A frame stamped `t` on the room's server clock arrived at local `receivedAt`. */
   receive(t: number, state: BrawlerState, receivedAt: number): void {
     this.interp.push(t, { facing: state.facing, x: state.x, z: state.z }, receivedAt);
     this.pending.push({ state, t });
@@ -141,20 +141,7 @@ export class PuppetTrack {
     }
   }
 
-  /**
-   * The host changed (a new clock) or the body teleported: apply what is
-   * queued now and forget the motion history, so the next frame places the
-   * body outright instead of gliding from where the old timeline left it.
-   */
-  flush(b: PuppetBody): void {
-    for (const row of this.pending) {
-      applyPuppetRow(b, row.state, 0);
-    }
-    this.pending = [];
-    this.interp.clear();
-  }
-
-  /** Pose the body for local time `now` (render time `renderAt` on the host's clock). */
+  /** Pose the body for local time `now` (render time `renderAt` on the room's server clock). */
   pose(b: PuppetBody, now: number, renderAt: number, world: MoverWorld): void {
     while (this.pending.length > 0) {
       const [row] = this.pending;

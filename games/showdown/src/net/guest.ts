@@ -1,14 +1,14 @@
 // Guest-side mirror of the host's sim. The guest's own body is predicted from
 // local input and reconciled against the host at matching moments
-// (prediction.ts); every other brawler renders INTERP_DELAY_MS behind the
-// host's clock from timestamped frames (interpolation.ts). FX, projectile
-// spawns and loot changes play when that render clock reaches the frame that
-// carried them, so a muzzle flash leaves the muzzle it belongs to. Bullets and
-// bombs fly locally from their spawn rows, and the guest's own shots fly from
-// the button press; the host's copies decide every hit. The HUD banners are
+// (prediction.ts); every other brawler renders from frames stamped with the
+// room's server time, INTERP_DELAY_MS behind the newest frame that could have
+// arrived by now (frame-clock.ts, interpolation.ts). FX, projectile spawns and
+// loot changes play when that render clock reaches the frame that carried
+// them, so a muzzle flash leaves the muzzle it belongs to. Bullets and bombs
+// fly locally from their spawn rows, and the guest's own shots fly from the
+// button press; the host's copies decide every hit. The HUD banners are
 // derived here from phase and roster edges.
 import type * as THREE from "three";
-import { RemoteClock } from "@vibedgames/multiplayer";
 
 import { placeLob } from "../combat/bombs";
 import {
@@ -30,6 +30,7 @@ import { pushOwnApart } from "../roster-sim";
 import { clamp } from "../utils";
 import { GRID } from "../world/grid";
 import { conformGroundGeometry } from "../world/terrain";
+import { FrameClock } from "./frame-clock";
 import { spawnFromNet } from "./host";
 import type { OwnPose } from "./host";
 import { IntentLink } from "./intent-link";
@@ -128,8 +129,8 @@ export class GuestView implements GhostSink {
   /** Sequence of the last frame folded in. */
   seq = -1;
   private readonly game: Game;
-  /** The host's clock, shared by every remote body and the event timeline. */
-  private readonly clock = new RemoteClock();
+  /** The host's frames' clock, shared by every remote body and the event timeline. */
+  private readonly clock = new FrameClock();
   private readonly tracks = new Map<Brawler, PuppetTrack>();
   /** Bodies in the host's roster order: the order of every frame's rows. */
   private roster: Brawler[] = [];
@@ -163,9 +164,10 @@ export class GuestView implements GhostSink {
     return this.gen >= 0;
   }
 
-  /** How far behind the host's clock remote bodies render, once that clock is known. */
+  /** How far behind server time remote bodies render: the relay's fastest trip plus INTERP_DELAY_MS. */
   get interpDelayMs(): number | null {
-    return this.clock.synced ? INTERP_DELAY_MS : null;
+    const now = this.clock.synced ? (this.game.session?.serverTime() ?? null) : null;
+    return now === null ? null : Math.round(now - this.clock.now() + INTERP_DELAY_MS);
   }
 
   /** Where this guest last drew its own body — newer than any frame, for a promotion. */
@@ -188,7 +190,7 @@ export class GuestView implements GhostSink {
       if (match.rosterVersion !== this.rosterVersion) {
         this.syncRoster(match, frame);
       }
-      this.applyFrame(frame, arrival.receivedAt);
+      this.applyFrame(frame, arrival);
       stamp = frame.t;
     }
     if (!this.hasWorld) {
@@ -242,13 +244,13 @@ export class GuestView implements GhostSink {
     this.game.combat.present(dt);
   }
 
-  /** The host changed: a new clock, new acknowledgments, and our input must reach it at once. */
+  /**
+   * The host changed: new acknowledgments, and our input must reach it at
+   * once. Its frames are stamped on the same server clock as the last host's,
+   * so the timeline — remote bodies, queued rows and events — runs straight
+   * on; the frame clock times the new host's route from its first frame.
+   */
   hostChanged(): void {
-    this.clock.reset();
-    for (const [b, track] of this.tracks) {
-      track.flush(b);
-    }
-    this.playDue(Number.POSITIVE_INFINITY);
     this.prediction.reset(this.own);
     this.link.resend();
   }
@@ -385,13 +387,13 @@ export class GuestView implements GhostSink {
     this.link.resend();
   }
 
-  private applyFrame(frame: FrameState, receivedAt: number): void {
+  private applyFrame(frame: FrameState, { host, receivedAt }: Arrival): void {
     this.seq = frame.seq;
     if (this.game.session) {
       this.game.session.seq = frame.seq;
     }
     this.lastFrameT = frame.t;
-    this.clock.observe(frame.t, receivedAt);
+    this.clock.arrived(frame.t, receivedAt, host);
     this.syncPhase(frame);
     for (const [i, state] of frame.brawlers.entries()) {
       const b = this.roster[i];

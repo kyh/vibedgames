@@ -1,6 +1,9 @@
 // Scene-free stand-ins for the smoke tests: a Game that real brawlers and the
-// host's intent path can run against, an open courtyard, and the JSON hop
-// every snapshot and intent takes over the socket.
+// host's intent path can run against, an open courtyard, the JSON hop every
+// snapshot and intent takes over the socket, the relay it takes (each client's
+// own link to the server, so host and guest are two hops apart), and each
+// client's own reading of the room's server clock.
+import { ServerClock } from "@vibedgames/multiplayer";
 import { BRAWLERS, DIFFICULTIES } from "../src/config.ts";
 import type { BrawlerId } from "../src/config.ts";
 import { Brawler } from "../src/entities/brawler.ts";
@@ -80,23 +83,40 @@ export const body = (
 /** A value as the far side of the socket sees it: serialized, then parsed. */
 export const overTheWire = (value: JsonValue): JsonValue => parseJson(JSON.stringify(value));
 
+/** One direction of one client's socket to the server: when a message sent at `now` lands. */
+export type Hop = (now: number) => number;
+
+/** A hop of `latency ± jitter` that never reorders what crosses it. */
+export const hop = (seed: number, latency: number, jitter: number): Hop => {
+  const rng = seededRandom(seed);
+  let last = 0;
+  return (now) => {
+    last = Math.max(last, now + latency + (rng() * 2 - 1) * jitter);
+    return last;
+  };
+};
+
 export interface Wire {
   send: (now: number, data: string) => void;
   take: (now: number) => string[];
+  /** How long each message took, end to end. */
   readonly delays: number[];
 }
 
-/** One direction of a WebSocket: latency plus jitter, and never out of order. */
-export const wire = (seed: number, latency: number, jitter: number): Wire => {
-  const rng = seededRandom(seed);
+/**
+ * Messages across `hops` in turn. Clients never talk directly: a host's frame
+ * crosses the host's link up to the server, then the guest's link down.
+ */
+export const wire = (...hops: Hop[]): Wire => {
   const queue: { at: number; data: string }[] = [];
   const delays: number[] = [];
-  let last = 0;
   return {
     delays,
     send: (now, data) => {
-      const at = Math.max(last, now + latency + (rng() * 2 - 1) * jitter);
-      last = at;
+      let at = now;
+      for (const leg of hops) {
+        at = leg(at);
+      }
       delays.push(at - now);
       queue.push({ at, data });
     },
@@ -109,3 +129,56 @@ export const wire = (seed: number, latency: number, jitter: number): Wire => {
     },
   };
 };
+
+/** Server time is the tests' shared wall clock plus this: an epoch, like no client's local clock. */
+export const SERVER_EPOCH = 1_790_000_000_000;
+
+/** One client's clocks, as functions of the tests' shared wall time. */
+export interface PeerClock {
+  /** This client's performance.now(). */
+  local: (wall: number) => number;
+  /** The room's server clock as this client measured it (`client.serverClock`). */
+  server: ServerClock;
+  /** Server time by that measurement, in whole ms as frames are stamped. */
+  serverAt: (wall: number) => number;
+}
+
+/**
+ * A client whose page loaded at wall time `loadedAt`, measuring server time as
+ * the SDK does: probes over a link of `latency ± jitter` each way, the fastest
+ * round trip defining the offset. Its reading is off by half that trip's
+ * asymmetry, and differs from every other client's by a few ms.
+ */
+export const peerClock = (
+  seed: number,
+  loadedAt: number,
+  latency: number,
+  jitter: number,
+): PeerClock => {
+  const rng = seededRandom(seed);
+  const server = new ServerClock();
+  const local = (wall: number): number => wall - loadedAt;
+  for (let probe = 0; probe < 8; probe += 1) {
+    const sent = probe * 250;
+    const up = latency + (rng() * 2 - 1) * jitter;
+    const down = latency + (rng() * 2 - 1) * jitter;
+    server.sample(local(sent), SERVER_EPOCH + sent + up, local(sent + up + down));
+  }
+  return { local, server, serverAt: (wall) => Math.round(server.now(local(wall))) };
+};
+
+/** One client as the network sees it: its link to the server, both ways, and its reading of the server clock. */
+export interface Peer {
+  clock: PeerClock;
+  /** Server to this client. */
+  down: Hop;
+  /** This client to the server. */
+  up: Hop;
+}
+
+/** A client whose page loaded at wall time `loadedAt`, on a link of `latency ± jitter` each way. */
+export const peer = (seed: number, loadedAt: number, latency: number, jitter: number): Peer => ({
+  clock: peerClock(seed, loadedAt, latency, jitter),
+  down: hop(seed + 1, latency, jitter),
+  up: hop(seed + 2, latency, jitter),
+});

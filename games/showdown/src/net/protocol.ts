@@ -7,14 +7,18 @@
 import type { BrawlerId } from "../config";
 
 export const PARTY = "vg-server";
-/** Sequenced intents and compact frames make these rooms incompatible with earlier clients. */
-export const ROOM_PREFIX = "showdown-v4-";
+/** Frames stamped with server time make these rooms incompatible with earlier clients. */
+export const ROOM_PREFIX = "showdown-v5-";
 export const INTENT_EVENT = "intent";
 /** Host snapshot rate. */
 export const SNAPSHOT_HZ = 30;
 /** Most input messages a guest sends per second. */
 export const INPUT_HZ = 30;
-/** Remote bodies render this far behind the host's clock: one snapshot interval plus arrival jitter. */
+/**
+ * Remote bodies render this far behind the newest frame that could have
+ * arrived by now: one snapshot interval plus arrival jitter. The relay's own
+ * latency is learned from arrivals (`FrameClock`), not budgeted here.
+ */
 export const INTERP_DELAY_MS = 100;
 /** Seats per room: the host's roster (bots + 1); overflow rooms are automatic. */
 export const MAX_PLAYERS = 8;

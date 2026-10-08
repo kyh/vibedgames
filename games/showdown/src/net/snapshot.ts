@@ -1,5 +1,5 @@
 // The host's sim on the wire, split by how often each part changes:
-//   f         every tick: the host's clock stamp, the phase clock, one integer
+//   f         every tick: a server-time stamp, the phase clock, one integer
 //             row per brawler and the few short-lived pose cues in flight
 //   m         on change: generation, seed, winner and the roster's identities
 //   bx/cu/br  on change: loot boxes, power cubes, destroyed tiles
@@ -36,7 +36,7 @@ export type NetMatch = {
 };
 
 export type NetFrame = {
-  /** Host clock (performance.now, ms) when the frame left. */
+  /** Server time (ms since the epoch) when the frame left: one clock for every client and every host. */
   t: number;
   s: number;
   g: number;
@@ -291,7 +291,7 @@ const phaseIndex = (state: string): number => {
   return state === "ended" ? 2 : 1;
 };
 
-/** One tick of the brawl. `t` is the host's wall clock, `simMs` its sim clock (for intent ages). */
+/** One tick of the brawl. `t` is the room's server time, `simMs` the host's sim clock (for intent ages). */
 export const encodeFrame = (
   source: FrameSource,
   seq: number,
