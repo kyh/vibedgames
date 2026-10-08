@@ -81,7 +81,10 @@ const waitFor = async (
 
 const connect = (
   room: string,
-  options?: Pick<MultiplayerClientOptions, "interest" | "onClaim" | "onEvent">,
+  options?: Pick<
+    MultiplayerClientOptions,
+    "interest" | "limits" | "onClaim" | "onEvent" | "onTick" | "tickRate"
+  >,
 ): MultiplayerClient =>
   new MultiplayerClient({
     host: worker.origin,
@@ -89,6 +92,12 @@ const connect = (
     room,
     ...options,
   });
+
+/** The room's public HTTP stats. */
+const roomInfo = async (room: string): Promise<{ playerCount: number }> => {
+  const response = await fetch(`${worker.origin}/parties/vg-server/${room}`);
+  return z.object({ playerCount: z.number() }).parse(await response.json());
+};
 
 /** Connected + admitted: the server's `sync` sets both status and player id. */
 const admitted = (client: MultiplayerClient): boolean =>
@@ -590,6 +599,95 @@ test("interest: far players stop updating, return with their whole state, and th
   }
 });
 
+test("tick rooms: inputs land on numbered ticks, in order, held across a late join", async () => {
+  const room = uniqueRoom("ticks");
+  const seen: number[] = [];
+  let landed: number | null = null;
+  let cleared = false;
+  const clientA = connect(room, { tickRate: 20 });
+  await waitFor(() => admitted(clientA), "A admitted first (sets the rules)");
+  const aId = clientA.playerId;
+  assert.ok(aId !== null);
+  const clientB = connect(room, {
+    onTick: (tick) => {
+      seen.push(tick.n);
+      if (landed === null && aId in tick.changed) {
+        landed = tick.n;
+        assert.deepEqual(tick.inputs[aId], { dx: 1 }, "held inputs include the new one");
+      }
+      if (tick.changed[aId] === null) {
+        cleared = true;
+      }
+    },
+    tickRate: 30,
+  });
+  try {
+    await waitFor(() => admitted(clientB), "B admitted");
+    assert.equal(clientB.tickClock?.ms, 50, "the room keeps the first client's 20 Hz");
+
+    clientA.sendInput({ dx: 1 });
+    await waitFor(() => landed !== null, "B hears A's input on a tick");
+    await waitFor(() => seen.length > 3, "ticks keep coming");
+    for (let i = 1; i < seen.length; i += 1) {
+      assert.equal(seen[i], (seen[i - 1] ?? 0) + 1, "ticks arrive in order with no gaps");
+    }
+    const lag = clientB.serverTick() - (clientB.tickClock?.n ?? 0);
+    assert.ok(Math.abs(lag) <= 2, `serverTick tracks the broadcast (off by ${lag})`);
+
+    const late = connect(room);
+    try {
+      await waitFor(() => admitted(late), "late joiner admitted");
+      assert.deepEqual(late.tickInputs()?.[aId], { dx: 1 }, "sync carries every held input");
+      assert.ok(landed !== null);
+      assert.equal(late.tickInputs(landed - 1)?.[aId], undefined, "and the history before it");
+    } finally {
+      late.destroy();
+    }
+
+    clientA.destroy();
+    await waitFor(() => cleared, "a departed player's input clears on a tick");
+  } finally {
+    clientA.destroy();
+    clientB.destroy();
+  }
+});
+
+test("a client back from a transport blip replays the ticks it missed, and its input resumes", async () => {
+  const room = uniqueRoom("tick-replay");
+  const seen: number[] = [];
+  const client = connect(room, { onTick: (tick) => seen.push(tick.n), tickRate: 30 });
+  try {
+    await waitFor(() => admitted(client), "client admitted");
+    const me = client.playerId;
+    assert.ok(me !== null);
+    client.sendInput("left");
+    await waitFor(() => client.tickInputs()?.[me] === "left", "input held");
+
+    // Drop the transport (not a deliberate leave), stay away a dozen ticks, come back.
+    // The SDK exposes no way to drop its transport, and only a dropped
+    // transport (not a leave) exercises the replay, so reach its socket.
+    // oxlint-disable-next-line anti-slop/no-reflect-get -- a test simulating a network blip on the SDK's private socket
+    const socket: { close: (code: number) => void; reconnect: () => void } = Reflect.get(
+      client,
+      "socket",
+    );
+    socket.close(4000);
+    await waitFor(() => client.connectionStatus === "disconnected", "transport down");
+    const away = seen.length;
+    await delay(400);
+    assert.equal(seen.length, away, "no ticks while away");
+    socket.reconnect();
+    await waitFor(() => admitted(client) && seen.length > away + 12, "back, and caught up");
+
+    for (let i = 1; i < seen.length; i += 1) {
+      assert.equal(seen[i], (seen[i - 1] ?? 0) + 1, `tick ${seen[i]} follows ${seen[i - 1]}`);
+    }
+    await waitFor(() => client.tickInputs()?.[me] === "left", "the held input was re-sent");
+  } finally {
+    client.destroy();
+  }
+});
+
 test("declared limits drop out-of-range player state", async () => {
   const room = uniqueRoom("limits");
   const limits = { hp: { max: 100, min: 0 } };
@@ -613,6 +711,39 @@ test("declared limits drop out-of-range player state", async () => {
     }
   } finally {
     raw.close(1000);
+  }
+});
+
+test("an emptied room forgets its rules, claims and world", async () => {
+  const room = uniqueRoom("reset");
+  const first = connect(room, { tickRate: 10 });
+  try {
+    await waitFor(() => admitted(first), "first session admitted");
+    assert.equal(first.tickClock?.ms, 100, "the room ticks at 10 Hz");
+    first.updateSharedState({ level: 3 });
+    // Same socket, so the server merged the world before it granted this.
+    first.claim("k");
+    await waitFor(() => first.ownerOf("k") !== null, "claim granted");
+  } finally {
+    first.destroy();
+  }
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    const info = await roomInfo(room);
+    if (info.playerCount === 0) {
+      break;
+    }
+    assert.ok(Date.now() < deadline, "the room never emptied");
+    await delay(25);
+  }
+  const second = connect(room);
+  try {
+    await waitFor(() => admitted(second), "second session admitted");
+    assert.equal(second.tickClock, null, "no tick: the new session set no rules");
+    assert.equal(second.ownerOf("k"), null, "claims cleared");
+    assert.equal(second.sharedState.level, undefined, "world cleared");
+  } finally {
+    second.destroy();
   }
 });
 

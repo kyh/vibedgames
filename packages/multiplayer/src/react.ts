@@ -36,7 +36,7 @@ export const useMultiplayerRoom = <TShared extends JsonRecord = JsonRecord>(
   // Stable client instance — only recreate if connection params change. The
   // swap happens as a render-phase state reset so the rest of this render
   // already sees the new client; the old one is torn down by effect cleanup.
-  const rules = JSON.stringify([config.interest, config.limits]);
+  const rules = JSON.stringify([config.tickRate, config.interest, config.limits]);
   const key = `${config.host}/${config.party}/${config.room}/${config.maxPlayers ?? ""}/${rules}`;
   const [entry, setEntry] = useState<{ client: MultiplayerClient; key: string } | null>(null);
   let client = entry !== null && entry.key === key ? entry.client : null;
@@ -49,8 +49,10 @@ export const useMultiplayerRoom = <TShared extends JsonRecord = JsonRecord>(
       maxPlayers: config.maxPlayers,
       onClaim: config.onClaim,
       onEvent: config.onEvent,
+      onTick: config.onTick,
       party: config.party,
       room: config.room,
+      tickRate: config.tickRate,
     });
     setEntry({ client, key });
   }
@@ -63,13 +65,14 @@ export const useMultiplayerRoom = <TShared extends JsonRecord = JsonRecord>(
   );
 
   // The client outlives any one callback prop; keep its callback slots current.
-  const { onClaim, onEvent } = config;
+  const { onClaim, onEvent, onTick } = config;
   useEffect(() => {
     /* oxlint-disable react/immutability -- the client is a socket wrapper held in state only for its identity; reassigning its callback slots is the intended API */
     client.onEvent = onEvent;
     client.onClaim = onClaim;
+    client.onTick = onTick;
     /* oxlint-enable react/immutability */
-  }, [client, onClaim, onEvent]);
+  }, [client, onClaim, onEvent, onTick]);
 
   // Subscribe to client state via useSyncExternalStore
   const subscribe = useCallback((listener: () => void) => client.subscribe(listener), [client]);
@@ -140,6 +143,7 @@ const useRoom = <TShared extends JsonRecord = JsonRecord>(
     maxPlayers: roomOrConfig.maxPlayers,
     party: roomOrConfig.party,
     room: roomOrConfig.room,
+    tickRate: roomOrConfig.tickRate,
   });
 };
 

@@ -9,6 +9,7 @@ import type {
   PlayerMap,
   RoomRules,
   ServerMessage,
+  TickSync,
 } from "@vibedgames/multiplayer";
 import {
   EVICTION_TIMEOUT_MS,
@@ -17,7 +18,11 @@ import {
   MAX_CLAIM_KEY_LENGTH,
   MAX_CLAIM_TTL_MS,
   MAX_CLAIMS,
+  MAX_INPUT_BYTES,
+  MAX_INPUT_LEAD_TICKS,
   MAX_MESSAGE_BYTES,
+  MAX_TICK_HISTORY,
+  MAX_TICK_RATE,
   PING_INTERVAL_MS,
   RECONNECT_GRACE_MS,
   RECONNECT_TOKEN_QUERY_PARAM,
@@ -72,12 +77,13 @@ type IncomingMessage =
   | { type: "claim"; key: string; ttl: number | null }
   | { type: "release"; key: string }
   | { type: "clear_claims"; prefix: string }
+  | { type: "input"; v: JsonValue; n: number | null }
   | { type: "unrecognized" };
 
 const isClaimKey = (value: JsonValue | undefined): value is string =>
   isJsonString(value) && value.length > 0 && value.length <= MAX_CLAIM_KEY_LENGTH;
 
-/** Decode the room-feature messages: server time and claims. */
+/** Decode the room-feature messages: server time, claims, tick inputs. */
 const decodeRoomMessage = (
   type: JsonValue | undefined,
   data: StateMap | undefined,
@@ -107,6 +113,14 @@ const decodeRoomMessage = (
       return isJsonString(data.prefix)
         ? { prefix: data.prefix, type: "clear_claims" }
         : { type: "unrecognized" };
+    }
+    case "input": {
+      const { n } = data;
+      return {
+        n: isJsonNumber(n) && Number.isSafeInteger(n) ? n : null,
+        type: "input",
+        v: data.v ?? null,
+      };
     }
     default: {
       return { type: "unrecognized" };
@@ -205,6 +219,51 @@ interface RoomSnapshot {
   claims: [string, Claim][];
 }
 
+/** One tick's input changes, as logged for replay. */
+interface TickEntry {
+  n: number;
+  changes: Record<string, JsonValue>;
+  /** Serialized size, for the log's budget. */
+  chars: number;
+}
+
+/**
+ * A tick room's clock and inputs. Not persisted: a restarted room starts a new
+ * tick epoch. The log keeps the recent changes so a client back from a
+ * transport blip replays the ticks it missed instead of losing sync.
+ */
+interface Ticker {
+  epoch: number;
+  ms: number;
+  /** The last tick broadcast. */
+  n: number;
+  /** Every player's held input as of tick `n`. */
+  held: Map<string, JsonValue>;
+  /** The tick the log starts after, and every held input as of it. */
+  base: number;
+  baseHeld: Map<string, JsonValue>;
+  /** Every tick after `base` whose inputs changed, oldest first. */
+  log: TickEntry[];
+  logChars: number;
+  /** Input changes scheduled for future ticks (null = clear the player's input). */
+  pending: Map<number, Map<string, JsonValue>>;
+  timer: ReturnType<typeof setInterval>;
+}
+
+/** Fold one tick's changes into held inputs (null clears a player's). */
+const applyInputChanges = (
+  held: Map<string, JsonValue>,
+  changes: Record<string, JsonValue>,
+): void => {
+  for (const [id, input] of Object.entries(changes)) {
+    if (input === null) {
+      held.delete(id);
+    } else {
+      held.set(id, input);
+    }
+  }
+};
+
 /** Durable, low-frequency room fields, persisted so they survive hibernation. */
 const HOST_ID_KEY = "hostId";
 const CAP_KEY = "cap";
@@ -225,6 +284,8 @@ const HARD_ROOM_CAP = 64;
 const PERSIST_DEBOUNCE_MS = 1000;
 /** A snapshot larger than this is not persisted (one storage value's limit, with margin). */
 const MAX_PERSISTED_BYTES = 120_000;
+/** The tick log's budget: past it the oldest entries fold into the base, history or not. */
+const MAX_TICK_LOG_CHARS = 64_000;
 /** Bounded room rules: at most this many limited keys, keys this long. */
 const MAX_LIMITS = 32;
 const MAX_RULE_KEY_LENGTH = 64;
@@ -342,6 +403,10 @@ const readRoomRules = (ctx: ConnectionContext): RoomRules | null => {
     return null;
   }
   const rules: RoomRules = {};
+  const { tickRate } = source;
+  if (isJsonNumber(tickRate) && tickRate > 0) {
+    rules.tickRate = Math.min(MAX_TICK_RATE, Math.max(1, tickRate));
+  }
   const interest = readInterest(source.interest);
   if (interest) {
     rules.interest = interest;
@@ -424,6 +489,7 @@ export class VgServer extends Server {
    */
   private positions = new Map<string, { x: number; y: number }>();
   private views = new Map<string, Map<string, boolean>>();
+  private ticker: Ticker | null = null;
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Rehydrate durable room fields before any handler runs (partyserver awaits this). */
@@ -728,6 +794,7 @@ export class VgServer extends Server {
         await this.setRules(rules);
       }
     }
+    this.ensureTicker();
 
     const now = Date.now();
     // A reclaim keeps its old color for continuity (same value when the
@@ -782,6 +849,7 @@ export class VgServer extends Server {
         hostId: this.hostId ?? connection.id,
         players: this.players(),
         state: this.shared,
+        tick: this.tickSync(),
         time: now,
       },
       type: "sync",
@@ -902,6 +970,10 @@ export class VgServer extends Server {
         }
         case "clear_claims": {
           this.handleClearClaims(sender, message.prefix);
+          break;
+        }
+        case "input": {
+          this.handleInput(sender, message.v, message.n);
           break;
         }
         case "emit": {
@@ -1189,6 +1261,120 @@ export class VgServer extends Server {
     }
   }
 
+  // -- Ticks ---------------------------------------------------------------
+
+  /** Start the tick loop if the room runs on ticks and it isn't running yet. */
+  private ensureTicker(): void {
+    const rate = this.rules?.tickRate;
+    if (!rate || this.ticker) {
+      return;
+    }
+    const ms = 1000 / rate;
+    const ticker: Ticker = {
+      base: 0,
+      baseHeld: new Map(),
+      epoch: Date.now(),
+      held: new Map(),
+      log: [],
+      logChars: 0,
+      ms,
+      n: 0,
+      pending: new Map(),
+      // Checked twice per tick, so a late timer is never a whole tick late.
+      timer: setInterval(() => {
+        this.runTicks();
+      }, ms / 2),
+    };
+    this.ticker = ticker;
+  }
+
+  private stopTicker(): void {
+    if (this.ticker) {
+      clearInterval(this.ticker.timer);
+      this.ticker = null;
+    }
+  }
+
+  private tickSync(): TickSync | null {
+    const { ticker } = this;
+    if (!ticker) {
+      return null;
+    }
+    return {
+      base: ticker.base,
+      epoch: ticker.epoch,
+      held: Object.fromEntries(ticker.baseHeld),
+      log: ticker.log.map((entry) => [entry.n, entry.changes]),
+      ms: ticker.ms,
+      n: ticker.n,
+    };
+  }
+
+  /** Broadcast every tick that is due, in order and without gaps. */
+  private runTicks(): void {
+    const { ticker } = this;
+    if (!ticker) {
+      return;
+    }
+    const due = Math.floor((Date.now() - ticker.epoch) / ticker.ms);
+    while (ticker.n < due) {
+      ticker.n += 1;
+      const changes = Object.fromEntries(ticker.pending.get(ticker.n) ?? []);
+      ticker.pending.delete(ticker.n);
+      applyInputChanges(ticker.held, changes);
+      const message: ServerMessage = { data: { i: changes, n: ticker.n }, type: "tick" };
+      const raw = JSON.stringify(message);
+      if (Object.keys(changes).length > 0) {
+        ticker.log.push({ changes, chars: raw.length, n: ticker.n });
+        ticker.logChars += raw.length;
+      }
+      VgServer.trimTickLog(ticker);
+      this.broadcast(raw, []);
+    }
+  }
+
+  /** Fold log entries older than the history (or over budget) into the base. */
+  private static trimTickLog(ticker: Ticker): void {
+    const oldest = ticker.n - MAX_TICK_HISTORY;
+    let [entry] = ticker.log;
+    while (entry && (entry.n <= oldest || ticker.logChars > MAX_TICK_LOG_CHARS)) {
+      ticker.log.shift();
+      applyInputChanges(ticker.baseHeld, entry.changes);
+      ticker.base = entry.n;
+      ticker.logChars -= entry.chars;
+      [entry] = ticker.log;
+    }
+  }
+
+  /** Schedule an input change: at tick `n` if that is still ahead, else the next tick. */
+  private schedule(id: string, input: JsonValue, n: number | null): void {
+    const { ticker } = this;
+    if (!ticker) {
+      return;
+    }
+    const next = ticker.n + 1;
+    const target = n === null ? next : Math.min(Math.max(n, next), ticker.n + MAX_INPUT_LEAD_TICKS);
+    let inputs = ticker.pending.get(target);
+    if (!inputs) {
+      inputs = new Map();
+      ticker.pending.set(target, inputs);
+    }
+    inputs.set(id, input);
+  }
+
+  private handleInput(sender: Connection<Presence>, input: JsonValue, n: number | null): void {
+    // Inputs are re-sent in every sync, so they stay small and plain.
+    if (
+      findStructuralIssue({ v: input }) !== null ||
+      JSON.stringify(input).length > MAX_INPUT_BYTES
+    ) {
+      console.warn(`Dropping malformed or oversized input from ${sender.id}`);
+      return;
+    }
+    // null on the wire means "this player is gone"; a live player's empty input is false.
+    this.schedule(sender.id, input === null ? false : input, n);
+  }
+
   // -- Persistence ---------------------------------------------------------
 
   /** Persist the room's world and claims soon — at most once per PERSIST_DEBOUNCE_MS. */
@@ -1276,6 +1462,8 @@ export class VgServer extends Server {
     };
     this.grace.set(token, entry);
     this.snapshots.delete(connection.id);
+    // A dropped player sends nothing; don't keep replaying its last input.
+    this.schedule(connection.id, null, null);
     // Detach presence before the first await: the paired onError/onClose for
     // the same failed transport would otherwise interleave at the storage
     // suspension point, see presence still set, and park the seat twice
@@ -1448,6 +1636,8 @@ export class VgServer extends Server {
   private async announceDeparture(id: string): Promise<void> {
     this.snapshots.delete(id);
     this.forgetPlayer(id);
+    // Tick rooms: the departed player's input clears on the next tick.
+    this.schedule(id, null, null);
 
     const leftMessage: ServerMessage = {
       data: { id },
@@ -1495,6 +1685,7 @@ export class VgServer extends Server {
       this.claims.clear();
       this.positions.clear();
       this.views.clear();
+      this.stopTicker();
       if (this.persistTimer !== null) {
         clearTimeout(this.persistTimer);
         this.persistTimer = null;

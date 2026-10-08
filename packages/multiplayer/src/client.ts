@@ -13,9 +13,12 @@ import type {
   RoomRules,
   SendEventOptions,
   ServerMessage,
+  TickSync,
 } from "./types.js";
 import {
   HEARTBEAT_INTERVAL_MS,
+  MAX_INPUT_BYTES,
+  MAX_TICK_HISTORY,
   RECONNECT_TOKEN_QUERY_PARAM,
   ROOM_CAP_QUERY_PARAM,
   ROOM_RULES_QUERY_PARAM,
@@ -100,12 +103,48 @@ export interface MultiplayerSnapshot {
   claims: ClaimMap;
 }
 
+/** A tick room's clock: tick `n` starts at server time `epoch + n * ms`. */
+export interface TickClock {
+  epoch: number;
+  ms: number;
+  /** The last tick received. */
+  n: number;
+}
+
+/** A tick room as this client follows it: the clock, held inputs, and the recent history. */
+interface TickState extends TickClock {
+  /** Every player's held input as of tick `n`. */
+  held: Map<string, JsonValue>;
+  /** The tick the history starts at, and every held input as of it. */
+  base: number;
+  baseHeld: Map<string, JsonValue>;
+  /** Each tick after `base` whose inputs changed, oldest first. */
+  log: [number, Record<string, JsonValue>][];
+}
+
+/** Fold one tick's changes into held inputs (null clears a player's). */
+const applyInputChanges = (
+  held: Map<string, JsonValue>,
+  changes: Record<string, JsonValue>,
+): void => {
+  for (const [id, input] of Object.entries(changes)) {
+    if (input === null) {
+      held.delete(id);
+    } else {
+      held.set(id, input);
+    }
+  }
+};
+
 /** Probes sent right after admission, before the slow cadence (ms after sync). */
 const TIME_PROBE_BURST_MS = [0, 100, 250, 500];
 
 /** The room rules this client advertises (query JSON), or null for none. */
 const roomRules = (options: MultiplayerOptions): RoomRules | null => {
   const rules: RoomRules = {};
+  if (options.tickRate !== undefined) {
+    rules.tickRate = options.tickRate;
+  }
   if (options.interest !== undefined) {
     rules.interest = options.interest;
   }
@@ -230,6 +269,10 @@ export class MultiplayerClient {
   private lastProbeAt = Number.NEGATIVE_INFINITY;
   private probeTimers: ReturnType<typeof setTimeout>[] = [];
   private _claims: ClaimMap = {};
+  /** Tick rooms: the tick clock and every player's held input as of tick `n`. */
+  private ticks: TickState | null = null;
+  /** This player's held input, re-sent after a reconnect (the server clears a dropped player's). */
+  private heldInput: { value: JsonValue } | null = null;
 
   private _connectionStatus: MultiplayerConnectionStatus = "connecting";
   private _playerId: string | null = null;
@@ -239,6 +282,7 @@ export class MultiplayerClient {
   private _room: string;
   private _onEvent: MultiplayerOptions["onEvent"];
   private _onClaim: MultiplayerOptions["onClaim"];
+  private _onTick: MultiplayerOptions["onTick"];
   /** Our own player state, held outside `_players` so it survives a reconnect
    *  (which replaces `_players` wholesale and hands us a new player id) and can
    *  be re-announced to the fresh server-side connection. */
@@ -249,6 +293,7 @@ export class MultiplayerClient {
     this._sharedState = options.initialState ?? {};
     this._onEvent = options.onEvent;
     this._onClaim = options.onClaim;
+    this._onTick = options.onTick;
     this._room = options.room;
     this.cap = options.maxPlayers && options.maxPlayers > 0 ? Math.floor(options.maxPlayers) : null;
 
@@ -345,6 +390,8 @@ export class MultiplayerClient {
     this._playerId = null;
     this._sharedState = this.options.initialState ?? {};
     this._claims = {};
+    this.ticks = null;
+    this.heldInput = null;
     // Queued for a room that never admitted us — don't leak them into the new one.
     this.pendingCoalesced.clear();
 
@@ -461,6 +508,60 @@ export class MultiplayerClient {
     this.send({ data: { prefix }, type: "clear_claims" });
   }
 
+  // -- Ticks ---------------------------------------------------------------
+
+  /** A tick room's clock, or null (no `tickRate`, or not yet synced). */
+  get tickClock(): TickClock | null {
+    const { ticks } = this;
+    return ticks ? { epoch: ticks.epoch, ms: ticks.ms, n: ticks.n } : null;
+  }
+
+  /**
+   * Tick rooms: every player's held input as of tick `at` (default: the last
+   * tick received) — what a late joiner starts from, or replays a world
+   * snapshot stamped with an earlier tick from. Null outside the history the
+   * room keeps (MAX_TICK_HISTORY ticks) or outside a tick room.
+   */
+  tickInputs(at?: number): Record<string, JsonValue> | null {
+    const { ticks } = this;
+    const tick = at ?? ticks?.n ?? 0;
+    if (!ticks || tick < ticks.base || tick > ticks.n) {
+      return null;
+    }
+    if (tick === ticks.n) {
+      return Object.fromEntries(ticks.held);
+    }
+    const held = new Map(ticks.baseHeld);
+    for (const [n, changes] of ticks.log) {
+      if (n > tick) {
+        break;
+      }
+      applyInputChanges(held, changes);
+    }
+    return Object.fromEntries(held);
+  }
+
+  /** The tick the server is on at `localNow`, by the server clock; NaN outside tick rooms. */
+  serverTick(localNow?: number): number {
+    const { ticks } = this;
+    return ticks ? Math.floor((this.serverNow(localNow) - ticks.epoch) / ticks.ms) : Number.NaN;
+  }
+
+  /**
+   * Tick rooms: this player's input from tick `n` on (default: the server's
+   * next tick; a past tick is moved to the next). It stays held until the next
+   * `sendInput`, so send on change.
+   */
+  sendInput(input: JsonValue, n?: number): void {
+    if (JSON.stringify(input).length > MAX_INPUT_BYTES) {
+      console.warn(`Input over ${MAX_INPUT_BYTES} characters; the server would drop it.`);
+      return;
+    }
+    this.heldInput = { value: input };
+    this.flushCoalescedEvents();
+    this.send({ data: n === undefined ? { v: input } : { n, v: input }, type: "input" });
+  }
+
   /** Subscribe to state changes. Returns an unsubscribe function. */
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
@@ -568,6 +669,15 @@ export class MultiplayerClient {
   /** Set the onClaim callback. */
   set onClaim(fn: MultiplayerOptions["onClaim"]) {
     this._onClaim = fn;
+  }
+
+  get onTick(): MultiplayerOptions["onTick"] {
+    return this._onTick;
+  }
+
+  /** Set the onTick callback. */
+  set onTick(fn: MultiplayerOptions["onTick"]) {
+    this._onTick = fn;
   }
 
   /** Disconnect and clean up. */
@@ -733,6 +843,7 @@ export class MultiplayerClient {
     this._hostId = data.hostId;
     this._players = data.players;
     this._claims = data.claims;
+    this.syncTicks(data.tick);
     // Measure the server clock straight away — games stamp with it from the
     // first frame — then settle into the heartbeat's slow cadence.
     for (const timer of this.probeTimers) {
@@ -787,6 +898,71 @@ export class MultiplayerClient {
       this._claims = { ...this._claims, [key]: until === undefined ? { owner } : { owner, until } };
     }
     this._onClaim?.(key, owner);
+  }
+
+  /**
+   * Adopt a sync's tick clock. Back from a blip on the same tick timeline, the
+   * ticks missed meanwhile replay through `onTick` in order — a lockstep sim
+   * never skips one. Otherwise (first join, the room restarted, a gap past the
+   * history) the timeline starts at the sync's tick: read `tickClock` and
+   * `tickInputs()` to (re)start the sim.
+   */
+  private syncTicks(sync: TickSync | null): void {
+    const previous = this.ticks;
+    if (!sync) {
+      this.ticks = null;
+      return;
+    }
+    if (
+      previous &&
+      previous.epoch === sync.epoch &&
+      previous.n >= sync.base &&
+      previous.n <= sync.n
+    ) {
+      const missed = new Map(sync.log);
+      for (let n = previous.n + 1; n <= sync.n; n += 1) {
+        this.applyTick(n, missed.get(n) ?? {});
+      }
+    } else {
+      const baseHeld = new Map(Object.entries(sync.held));
+      const held = new Map(baseHeld);
+      for (const [, changes] of sync.log) {
+        applyInputChanges(held, changes);
+      }
+      this.ticks = {
+        base: sync.base,
+        baseHeld,
+        epoch: sync.epoch,
+        held,
+        log: [...sync.log],
+        ms: sync.ms,
+        n: sync.n,
+      };
+    }
+    // The server cleared this player's input when the transport dropped.
+    if (this.heldInput) {
+      this.sendInput(this.heldInput.value);
+    }
+  }
+
+  private applyTick(n: number, changed: Record<string, JsonValue>): void {
+    const { ticks } = this;
+    if (!ticks || n <= ticks.n) {
+      return;
+    }
+    applyInputChanges(ticks.held, changed);
+    ticks.n = n;
+    if (Object.keys(changed).length > 0) {
+      ticks.log.push([n, changed]);
+    }
+    let [oldest] = ticks.log;
+    while (oldest && oldest[0] <= n - MAX_TICK_HISTORY) {
+      ticks.log.shift();
+      applyInputChanges(ticks.baseHeld, oldest[1]);
+      [ticks.base] = oldest;
+      [oldest] = ticks.log;
+    }
+    this._onTick?.({ changed, inputs: Object.fromEntries(ticks.held), n });
   }
 
   private handleMessage = (event: MessageEvent): void => {
@@ -870,6 +1046,12 @@ export class MultiplayerClient {
       case "claims_cleared": {
         this.applyClaimsCleared(message.data.prefix);
         return true;
+      }
+      case "tick": {
+        this.applyTick(message.data.n, message.data.i);
+        // Ticks arrive tens of times a second and carry inputs, not
+        // anything a subscriber renders: onTick is their channel.
+        return false;
       }
       case "room_full": {
         // The room hit its cap before we joined. Reconnect to the overflow

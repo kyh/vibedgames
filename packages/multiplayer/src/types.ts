@@ -26,6 +26,13 @@ export interface MultiplayerOptions {
    */
   maxPlayers?: number;
   /**
+   * Run the room on a server tick (Hz, clamped to 1–MAX_TICK_RATE): the server
+   * stamps every `sendInput` into a numbered tick and broadcasts each tick's
+   * input changes to everyone, in order — all a deterministic lockstep or
+   * rollback game needs from a server. Omit for no tick.
+   */
+  tickRate?: number;
+  /**
    * Interest management: players farther apart than `radius` (in the units of
    * the player-state keys `x`/`y`, default "x"/"y") stop receiving each
    * other's player state; such a player reads `visible: false`. The host always
@@ -44,6 +51,8 @@ export interface MultiplayerOptions {
    * is whoever already holds it). See `MultiplayerClient.claim`.
    */
   onClaim?: (key: string, owner: string | null) => void;
+  /** A server tick (tick rooms only). See `TickInfo`. */
+  onTick?: (tick: TickInfo) => void;
 }
 
 /** The interest rule a room filters player state by. */
@@ -65,6 +74,7 @@ export interface PlayerLimit {
  * (ship them in shared config, like `maxPlayers`).
  */
 export interface RoomRules {
+  tickRate?: number;
   interest?: InterestRule;
   limits?: Record<string, PlayerLimit>;
 }
@@ -77,6 +87,44 @@ export interface ClaimInfo {
 
 export type ClaimMap = Record<string, ClaimInfo>;
 
+/** One server tick, as `onTick` receives it. */
+export interface TickInfo {
+  /** Tick number; ticks arrive in order with no gaps. */
+  n: number;
+  /** Every player's held input as of this tick (the last one each sent). */
+  inputs: Record<string, JsonValue>;
+  /** Just the players whose input changed on this tick (null = cleared: the player left). */
+  changed: Record<string, JsonValue>;
+}
+
+/**
+ * Wire form of a room's tick clock, sent in `sync`: the clock, plus the
+ * recent input history — every held input as of tick `base` and each change
+ * since — so a client can replay ticks it missed or start from any of them.
+ */
+export interface TickSync {
+  /** Server time (ms) of tick 0. */
+  epoch: number;
+  /** Tick length (ms). */
+  ms: number;
+  /** The last tick broadcast. */
+  n: number;
+  /** The tick the history starts at. */
+  base: number;
+  /** Every player's held input as of tick `base`. */
+  held: Record<string, JsonValue>;
+  /** Each tick after `base` whose inputs changed, oldest first, with its changes. */
+  log: [number, Record<string, JsonValue>][];
+}
+
+/** Highest tick rate a room may run at. */
+export const MAX_TICK_RATE = 60;
+/** Ticks of input history a room keeps (and sends in `sync`) for replay. */
+export const MAX_TICK_HISTORY = 600;
+/** How far ahead of the server's next tick an input may be scheduled. */
+export const MAX_INPUT_LEAD_TICKS = 32;
+/** Largest input (JSON characters): inputs are held and re-sent in every sync, so keep them to a few fields. */
+export const MAX_INPUT_BYTES = 1024;
 /** Claims a room holds at most; past it new keys are refused. */
 export const MAX_CLAIMS = 10_000;
 /** Longest claim key (characters). */
@@ -183,7 +231,9 @@ export type ClientMessage =
   // Give a key back (its owner, or the host for any key).
   | { type: "release"; data: { key: string } }
   // Host only: release every key starting with `prefix` ("" = all).
-  | { type: "clear_claims"; data: { prefix: string } };
+  | { type: "clear_claims"; data: { prefix: string } }
+  // Tick rooms: this player's input from tick `n` on (default: the next tick).
+  | { type: "input"; data: { v: JsonValue; n?: number } };
 
 /** How often the SDK sends a heartbeat (ms). */
 export const HEARTBEAT_INTERVAL_MS = 2000;
@@ -216,6 +266,7 @@ export type ServerMessage =
         state: JsonRecord;
         hostId: string;
         claims: ClaimMap;
+        tick: TickSync | null;
         /** Server time (ms) when the sync was sent. */
         time: number;
       };
@@ -243,7 +294,9 @@ export type ServerMessage =
   // A key's owner: granted, released (null), or — to a refused claimer alone —
   // whoever already holds it.
   | { type: "claim"; data: { key: string; owner: string | null; until?: number } }
-  | { type: "claims_cleared"; data: { prefix: string } };
+  | { type: "claims_cleared"; data: { prefix: string } }
+  // Tick rooms: tick `n`, with the inputs that changed on it (null = cleared).
+  | { type: "tick"; data: { n: number; i: Record<string, JsonValue> } };
 
 export interface MultiplayerRoomState {
   connectionStatus: MultiplayerConnectionStatus;
