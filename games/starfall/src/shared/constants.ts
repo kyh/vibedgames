@@ -1317,6 +1317,18 @@ export const eliteHp = (kind: EnemyKind, maxLevel: number): number => {
   return Math.round(base * eliteHpMult(maxLevel));
 };
 
+/** Kill XP for an enemy. Elites pay round(base × the multiplier their HP was
+ *  stamped with at spawn — maxHp over the Lv1 base), so pts-per-second
+ *  survives the durability retune and cost and reward move together;
+ *  everything else (fodder, sniper, boss) pays the flat spec value. Read off
+ *  the enemy itself: the shooter predicting the kill needs no view of who
+ *  else is in the room. A Lv1 room pays exactly the pre-retune numbers. */
+export const enemyKillXp = (e: Pick<EnemyState, "kind" | "maxHp">): number => {
+  const { xp } = ENEMY_SPECS[e.kind];
+  const base = ELITE_HP_BASE.get(e.kind);
+  return base === undefined ? xp : Math.round((xp * e.maxHp) / base);
+};
+
 /** Enemies never fire unless their target is within this range (≈ on screen). */
 export const ENEMY_FIRE_RANGE = 600;
 /** Never spawn within this distance of a living player. */

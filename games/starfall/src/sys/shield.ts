@@ -1,6 +1,5 @@
 import type Phaser from "phaser";
 import { sfx } from "../audio/sfx";
-import type { HostCombat } from "../net/host-combat";
 import type { HostIntents } from "../net/intents";
 import { REDUCED_MOTION } from "../render/battle-fx";
 import type { FxPool } from "../render/fx-pool";
@@ -55,6 +54,7 @@ import {
   asteroidContactDamage,
   baseRegenMult,
   baseWeaponForLevel,
+  enemyKillXp,
   enemyShotHit,
 } from "../shared/constants";
 import type {
@@ -128,7 +128,6 @@ export interface ShieldDeps {
   weapons: Weapons;
   progress: Progression;
   view: WorldView;
-  hostCombat: HostCombat;
   remoteFire: RemoteFire;
   intents: HostIntents;
   hooks: ShieldHooks;
@@ -210,8 +209,6 @@ export class Shield {
 
   private readonly view: WorldView;
 
-  private readonly hostCombat: HostCombat;
-
   private readonly remoteFire: RemoteFire;
 
   private readonly intents: HostIntents;
@@ -231,7 +228,6 @@ export class Shield {
     this.weapons = deps.weapons;
     this.progress = deps.progress;
     this.view = deps.view;
-    this.hostCombat = deps.hostCombat;
     this.remoteFire = deps.remoteFire;
     this.intents = deps.intents;
     this.hooks = deps.hooks;
@@ -581,7 +577,7 @@ export class Shield {
         }
         this.ramImmunity.set(e.id, now + RAM_IMMUNITY_MS);
         if (e.hp - RAM_DAMAGE <= 0) {
-          this.hits.predictKill(e.id, this.hostCombat.enemyKillXp(e.kind), "enemy", e.x, e.y, now);
+          this.hits.predictKill(e.id, enemyKillXp(e), "enemy", e.x, e.y, now);
         }
         this.intents.enemyHit(e.id, RAM_DAMAGE, nx * RAM_KNOCKBACK, ny * RAM_KNOCKBACK);
         e.blinkUntil = now + 150;

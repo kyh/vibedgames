@@ -5,8 +5,6 @@ import {
   BOOSTER_KINDS,
   BOSS_PHASE_MIN_MS,
   BOSS_REWARD_SHARDS,
-  ELITE_HP_BASE,
-  ENEMY_SPECS,
   FODDER_DROP_CHANCE,
   FODDER_SHARD_MAX,
   FODDER_SHARD_MIN,
@@ -28,7 +26,6 @@ import {
   asteroidShardCount,
   asteroidSpeed,
   bossPhase,
-  eliteHpMult,
   rollLootClass,
   rollWeightedKey,
   spawnEnemyState,
@@ -36,7 +33,7 @@ import {
   spawnShardState,
   spawnWeaponItemState,
 } from "../shared/constants";
-import type { EnemyKind, ItemDrop, LootClass, SharedState } from "../shared/constants";
+import type { ItemDrop, LootClass, SharedState } from "../shared/constants";
 import { rand } from "../shared/rng";
 import type { EnemyAi } from "../sys/enemy-ai";
 import { DEG } from "../sys/geometry";
@@ -44,8 +41,6 @@ import type { HostHit } from "./intents";
 
 /** Director state HostCombat reports into; the director is built after it. */
 export interface HostCombatHooks {
-  /** Highest level among present players (elite HP scaling). */
-  maxPresentLevel: () => number;
   /** Frees the arena-wide boss slot and arms the spawn cooldown. */
   onBossKilled: (now: number) => void;
 }
@@ -109,18 +104,6 @@ export class HostCombat {
         hit satisfies never;
       }
     }
-  }
-
-  /** Kill XP for an enemy kind, computed at kill time. Elites pay
-   *  round(base × eliteHpMult) so pts-per-second survives the durability
-   *  retune; everything else (fodder, sniper, boss) pays the flat spec value.
-   *  A Lv1 room pays exactly the pre-retune numbers by construction. */
-  enemyKillXp(kind: EnemyKind): number {
-    const base = ENEMY_SPECS[kind].xp;
-    if (!ELITE_HP_BASE.has(kind)) {
-      return base;
-    }
-    return Math.round(base * eliteHpMult(this.hooks.maxPresentLevel()));
   }
 
   private hostDamageAsteroid(id: string, damage: number): void {

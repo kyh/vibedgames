@@ -1,5 +1,4 @@
 import { sfx } from "../audio/sfx";
-import type { HostCombat } from "../net/host-combat";
 import type { HostIntents } from "../net/intents";
 import { contactPoint } from "../render/combat-visuals";
 import { HITSPARK_SKIP_BUDGET } from "../render/fx-pool";
@@ -11,6 +10,7 @@ import {
   UFO_RADIUS,
   XP,
   asteroidDestroyedBy,
+  enemyKillXp,
 } from "../shared/constants";
 import type { AsteroidState, SharedState, Vec } from "../shared/constants";
 import type { Pilot } from "../state/pilot";
@@ -31,7 +31,6 @@ export interface ShooterHitsDeps {
   weapons: Weapons;
   sim: BeamSim;
   progress: Progression;
-  hostCombat: HostCombat;
   intents: HostIntents;
 }
 
@@ -69,8 +68,6 @@ export class ShooterHits {
 
   private readonly progress: Progression;
 
-  private readonly hostCombat: HostCombat;
-
   private readonly intents: HostIntents;
 
   constructor(deps: ShooterHitsDeps) {
@@ -80,7 +77,6 @@ export class ShooterHits {
     this.weapons = deps.weapons;
     this.sim = deps.sim;
     this.progress = deps.progress;
-    this.hostCombat = deps.hostCombat;
     this.intents = deps.intents;
   }
 
@@ -252,7 +248,7 @@ export class ShooterHits {
         const dmg = b.weapon.power * 100;
         const killed = e.hp - dmg <= 0;
         if (killed) {
-          this.predictKill(e.id, this.hostCombat.enemyKillXp(e.kind), "enemy", e.x, e.y, now);
+          this.predictKill(e.id, enemyKillXp(e), "enemy", e.x, e.y, now);
         }
         // immediate local feedback; host echoes
         e.blinkUntil = now + 150;

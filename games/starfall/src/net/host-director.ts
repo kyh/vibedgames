@@ -532,9 +532,10 @@ export class HostDirector {
     return holders;
   }
 
-  /** Highest level among present players in the local view (default 1 when
-   *  unknowable). Drives elite HP stamping at spawn (host) and elite kill XP
-   *  (shooter) — qa-018: the same multiplier moves cost and reward together. */
+  /** Highest level among present players (default 1 when unknowable) — the
+   *  host sees every player. Drives elite HP stamping at spawn; kill XP reads
+   *  the multiplier back off the elite (enemyKillXp), so qa-018's cost and
+   *  reward move together. */
   maxPresentLevel(): number {
     let max = this.pilot.spawned ? this.progress.level : 1;
     const { myId } = this.link;

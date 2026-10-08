@@ -30,7 +30,17 @@ import {
   toSim,
 } from "../src/net/world-wire";
 import { burstLifetime, burstStage, contactPoint, weaponLook } from "../src/render/combat-visuals";
-import { scaleWeaponForLevel, spawnEnemyState, WEAPONS_SPECIAL } from "../src/shared/constants";
+import {
+  ELITE_HP_BASE,
+  ENEMY_SPECS,
+  LEVEL_CAP,
+  eliteHp,
+  eliteHpMult,
+  enemyKillXp,
+  scaleWeaponForLevel,
+  spawnEnemyState,
+  WEAPONS_SPECIAL,
+} from "../src/shared/constants";
 import type { EnemyKind, SharedState } from "../src/shared/constants";
 import { WeaponMastery } from "../src/shared/weapon-mastery";
 import { Link } from "../src/state/link";
@@ -69,6 +79,28 @@ boss.hp = 1000;
 assert.equal(enemyChargeDuration(boss), 700);
 assert.equal(usesLockedAim(boss), false);
 console.log("PASS charge windups per enemy kind and boss phase");
+
+// ---- kill XP --------------------------------------------------------------------------
+
+// An elite pays the multiplier its HP was stamped with at spawn, read off the
+// enemy: the shooter needs no view of the room's levels.
+for (const kind of ELITE_HP_BASE.keys()) {
+  const elite = spawnEnemyState(kind, 0, 0);
+  assert.equal(
+    enemyKillXp(elite),
+    ENEMY_SPECS[kind].xp,
+    `${kind}: an unstamped elite pays its spec`,
+  );
+  for (let level = 1; level <= LEVEL_CAP; level += 1) {
+    elite.maxHp = eliteHp(kind, level);
+    const want = Math.round(ENEMY_SPECS[kind].xp * eliteHpMult(level));
+    assert.equal(enemyKillXp(elite), want, `${kind} stamped at L${level}`);
+  }
+}
+const drone = spawnEnemyState("drone", 0, 0);
+drone.maxHp = 999;
+assert.equal(enemyKillXp(drone), ENEMY_SPECS.drone.xp, "fodder pays its flat spec");
+console.log("PASS kill XP rides the elite's own HP stamp");
 
 // ---- combat visuals -------------------------------------------------------------------
 

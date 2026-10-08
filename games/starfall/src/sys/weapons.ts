@@ -3,7 +3,6 @@ import { sfx } from "../audio/sfx";
 import type { PlayOpts } from "../audio/sfx";
 import { weaponSound } from "../audio/weapon-sound";
 import { FIRE_BASE, FIRE_REFLECT, FIRE_TURRET, encodeFire } from "../net/fire-wire";
-import type { HostCombat } from "../net/host-combat";
 import type { HostIntents } from "../net/intents";
 import { weaponLook } from "../render/combat-visuals";
 import type { WeaponLook } from "../render/combat-visuals";
@@ -25,6 +24,7 @@ import {
   WEAPONS_SPECIAL,
   XP,
   asteroidDestroyedBy,
+  enemyKillXp,
 } from "../shared/constants";
 import type { SharedState, Vec, Weapon } from "../shared/constants";
 import { rand } from "../shared/rng";
@@ -97,7 +97,6 @@ export interface WeaponsDeps {
   clock: Phaser.Time.Clock;
   view: WorldView;
   progress: Progression;
-  hostCombat: HostCombat;
   sim: BeamSim;
   intents: HostIntents;
   hooks: WeaponsHooks;
@@ -136,8 +135,6 @@ export class Weapons {
 
   private readonly progress: Progression;
 
-  private readonly hostCombat: HostCombat;
-
   private readonly sim: BeamSim;
 
   private readonly intents: HostIntents;
@@ -153,7 +150,6 @@ export class Weapons {
     this.clock = deps.clock;
     this.view = deps.view;
     this.progress = deps.progress;
-    this.hostCombat = deps.hostCombat;
     this.sim = deps.sim;
     this.intents = deps.intents;
     this.hooks = deps.hooks;
@@ -827,9 +823,7 @@ export class Weapons {
         }
         e.blinkUntil = now + 150;
         if (e.hp - dmgHp <= 0) {
-          this.hooks
-            .hits()
-            .predictKill(e.id, this.hostCombat.enemyKillXp(e.kind), "enemy", e.x, e.y, now);
+          this.hooks.hits().predictKill(e.id, enemyKillXp(e), "enemy", e.x, e.y, now);
         }
         this.intents.enemyHit(e.id, dmgHp);
         return;

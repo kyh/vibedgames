@@ -433,7 +433,6 @@ export class GameScene extends Scene {
     this.hostCombat = new HostCombat({
       ai: this.ai,
       hooks: {
-        maxPresentLevel: () => this.host.maxPresentLevel(),
         onBossKilled: (now) => this.host.noteBossKilled(now),
       },
       world,
@@ -480,7 +479,6 @@ export class GameScene extends Scene {
         isFiring: () => this.isFiring(),
         shield: () => this.shield,
       },
-      hostCombat: this.hostCombat,
       intents,
       link,
       pilot,
@@ -492,7 +490,6 @@ export class GameScene extends Scene {
     });
     this.hits = new ShooterHits({
       fx,
-      hostCombat: this.hostCombat,
       intents,
       pilot,
       progress: this.progress,
@@ -508,7 +505,6 @@ export class GameScene extends Scene {
         myTint: () => this.myTint(),
         pushMyState: (now) => this.net.pushMyState(now),
       },
-      hostCombat: this.hostCombat,
       intents,
       layers,
       link,
