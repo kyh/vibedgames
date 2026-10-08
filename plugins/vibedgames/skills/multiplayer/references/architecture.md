@@ -23,7 +23,7 @@ src/
 import { MultiplayerClient } from "@vibedgames/multiplayer";
 
 // The one place the host literal lives — everything else imports PARTY_HOST.
-export const PARTY_HOST = "https://vibedgames-party.kyh.workers.dev";
+export const PARTY_HOST = "https://party.vibedgames.com";
 
 export const client = new MultiplayerClient({
   host: PARTY_HOST,

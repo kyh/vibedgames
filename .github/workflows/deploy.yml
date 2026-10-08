@@ -128,8 +128,10 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
   deploy-example-games:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.example_games != ''
+    # After the party Worker when it changed too: a game may rely on what that deploy adds (its
+    # host, a wire feature). Skipped is fine; failed is not.
+    needs: [detect-changes, deploy-party]
+    if: ${{ !cancelled() && needs.detect-changes.outputs.example_games != '' && needs.deploy-party.result != 'failure' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

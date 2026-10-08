@@ -87,7 +87,7 @@ import type { TrailerStageApi } from "../trailer/trailer-staging";
 
 const MULTIPLAYER_HOST = import.meta.env.DEV
   ? "http://localhost:8787"
-  : "https://vibedgames-party.kyh.workers.dev";
+  : "https://party.vibedgames.com";
 
 // Fresh room name per shared-state shape change (v6: asteroid verts left off
 // the wire — derived per-client from the id — plus quantized coordinates and

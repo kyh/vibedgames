@@ -1,4 +1,4 @@
-import { bindings, defineConfig, defineWorker, exports } from "cf/config";
+import { bindings, defineConfig, defineWorker, exports, triggers } from "cf/config";
 
 // imported, not named by path, so the generated Env types VgServer's stub with its class
 import * as entrypoint from "./src/server.ts" with { type: "cf-worker" };
@@ -27,5 +27,14 @@ export default defineConfig(({ isPreview }) => ({
         : bindings.d1({ id: "8aba7674-bee1-4532-b5f0-36243172cf81", name: "vibedgames" }),
       VgServer: bindings.durableObject({ exportName: "VgServer", worker }),
     },
+    // party.vibedgames.com is the host games connect to. It is more specific than the games
+    // Worker's *.vibedgames.com/* route, so it wins; "party" is a reserved slug, so no game can
+    // claim it. A Preview must not claim the production hostname.
+    triggers: isPreview
+      ? []
+      : [triggers.fetch({ pattern: "party.vibedgames.com/*", zone: "vibedgames.com" })],
+    // Stays on: games deployed before the custom host still connect to
+    // vibedgames-party.kyh.workers.dev, and nothing can update them.
+    workersDev: true,
   },
 }));
