@@ -92,6 +92,13 @@ export const MP_MAX_PLAYERS = 4;
  *  even when the camera rests against the world's edge, so nobody pops in
  *  on screen. The world is 1376×768. */
 export const MP_INTEREST_RADIUS = 720;
+/** A farmer's feet never leave the world (movement clamps inside it), so the
+ *  server drops any player-state patch that puts them outside — a hacked
+ *  client cannot write itself off the map, out of everyone's interest. */
+export const MP_LIMITS = {
+  x: { max: MAP_W * TILE, min: 0 },
+  y: { max: MAP_H * TILE, min: 0 },
+} as const;
 export const OFFLINE_FALLBACK_MS = 6000;
 /** Player position/facing broadcast rate, stamped with server time; peers
  *  render it ~100 ms behind its arrival (net/farmer-wire). */

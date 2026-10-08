@@ -19,6 +19,7 @@ import type {
   ClaimMap,
   InterestRule,
   Player,
+  PlayerLimit,
   PlayerMap,
   SendEventOptions,
 } from "@vibedgames/multiplayer";
@@ -43,6 +44,9 @@ export interface NetSessionOptions {
    *  other's player state, and read `visible: false`. A room keeps the first
    *  client's rules, so every client passes the same. */
   interest?: InterestRule;
+  /** Bounds the server holds numeric player-state keys to: a patch setting
+   *  one outside its range is dropped before anyone sees it. A room rule. */
+  limits?: Record<string, PlayerLimit>;
   onEvent?: (event: string, payload: JsonValue, from: string) => void;
   /** A claim's owner was set: granted, released (null), or — to a refused
    *  claimer alone — whoever already holds it. Online only. */
@@ -78,6 +82,7 @@ export class NetSession {
       : new MultiplayerClient({
           host: MULTIPLAYER_HOST,
           interest: opts.interest,
+          limits: opts.limits,
           maxPlayers: opts.maxPlayers,
           onClaim: (key, owner) => this.onClaim?.(key, owner),
           // SAFETY: event payloads are decoded JSON off the wire; the package
