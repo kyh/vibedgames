@@ -1,6 +1,7 @@
 // The authoritative host loop. step(world, dt) advances one fixed tick. Pure
 // data in/out — no engine, no Math.random. Guests never call this; they render
-// snapshots. createWorld is deterministic given (seed).
+// host frames and predict only their own body with stepBody, the same movement
+// code. createWorld is deterministic given (seed).
 import { CHAMP_BY_ID, DEFAULT_CHAMP } from "../data/champions";
 import {
   ARENA_BOT_FILL,
@@ -54,8 +55,8 @@ export interface SpawnArgs {
 }
 
 /** A fully-zeroed Unit skeleton — the ONE place the 60-field literal lives.
- *  Spawners spread real stats over it. */
-const blankCombatant = (
+ *  Spawners spread real stats over it; the net codec diffs units against it. */
+export const blankCombatant = (
   id: string,
   kind: Unit["kind"],
   team: string,
@@ -461,6 +462,19 @@ export const buyItem = (w: World, u: Unit, itemId: string): boolean => {
 
 /** Fill the arena up to ARENA_BOT_FILL combatants with bots (host-side). */
 export const ensureBots = (w: World): void => {
+  // The online host runs this every frame; almost always the roster is already
+  // full, so count first and only build the slot bookkeeping on a change.
+  let heroes = 0;
+  let humanCount = 0;
+  for (const u of w.units.values()) {
+    if (u.kind === "hero") {
+      heroes += 1;
+      humanCount += u.isBot ? 0 : 1;
+    }
+  }
+  if (heroes === Math.max(ARENA_BOT_FILL, humanCount)) {
+    return;
+  }
   const humans = [...w.units.values()].filter((u) => u.kind === "hero" && !u.isBot).length;
   const bots = [...w.units.values()].filter((u) => u.kind === "hero" && u.isBot);
   const want = Math.max(0, ARENA_BOT_FILL - humans);
@@ -579,10 +593,26 @@ const regen = (u: Unit, dt: number): void => {
   }
 };
 
+const ASSIST_MEMORY_MS = 6500;
+
 const pruneAssist = (u: Unit, now: number): void => {
-  u.recentDamageFrom = Object.fromEntries(
-    Object.entries(u.recentDamageFrom).filter(([, at]) => now - at <= 6500),
-  );
+  // Every unit, every tick: rebuild only when an entry actually expired, so the
+  // common case (nothing stale, usually nothing at all) allocates nothing.
+  let stale = false;
+  for (const id in u.recentDamageFrom) {
+    if (
+      Object.hasOwn(u.recentDamageFrom, id) &&
+      now - (u.recentDamageFrom[id] ?? now) > ASSIST_MEMORY_MS
+    ) {
+      stale = true;
+      break;
+    }
+  }
+  if (stale) {
+    u.recentDamageFrom = Object.fromEntries(
+      Object.entries(u.recentDamageFrom).filter(([, at]) => now - at <= ASSIST_MEMORY_MS),
+    );
+  }
 };
 
 // Steering accel/decel (units/s of blend rate): starts ramp over ~3 ticks,
@@ -598,7 +628,7 @@ const MOVE_DECEL = 26;
 const isDashing = (w: World, u: Unit): boolean =>
   w.now < u.dashUntil && Math.hypot(u.dashVx, u.dashVy) > 0.01;
 
-const moveUnit = (w: World, u: Unit, dt: number): void => {
+export const moveUnit = (w: World, u: Unit, dt: number): void => {
   if (w.now < u.dashUntil) {
     // dash overrides steering (writes it directly — dashes stay instant)
     u.steerVx = u.dashVx;
@@ -752,6 +782,41 @@ const clampAll = (w: World): void => {
     u.x = c.x;
     u.y = c.y;
   }
+};
+
+/** One tick of one body's movement as step() resolves it: steering, the shove
+ *  out of any immovable prop it walked into, the plateau edge and the arena
+ *  clamp. A guest runs this on its own hero to predict it with the host's code.
+ *  Shoves between moving bodies are left out — only the host knows where the
+ *  others are now; reconciliation absorbs those. */
+export const stepBody = (
+  w: World,
+  u: Unit,
+  dt: number,
+  bodies: ReadonlyMap<string, Unit>,
+): void => {
+  moveUnit(w, u, dt);
+  const fromX = u.x;
+  const fromY = u.y;
+  for (const p of bodies.values()) {
+    if (p.kind !== "prop" || !p.alive) {
+      continue;
+    }
+    const dx = u.x - p.x;
+    const dy = u.y - p.y;
+    const min = u.radius + p.radius;
+    const d2 = dx * dx + dy * dy;
+    if (d2 < min * min && d2 > 1e-6) {
+      const d = Math.sqrt(d2);
+      u.x += (dx / d) * (min - d);
+      u.y += (dy / d) * (min - d);
+    }
+  }
+  const e = resolveElevation(fromX, fromY, u.x, u.y, u.radius);
+  const r = resolveObstacles(e.x, e.y, u.radius);
+  const c = clampToArena(r.x, r.y, u.radius);
+  u.x = c.x;
+  u.y = c.y;
 };
 
 const endMatch = (w: World, winner: string, name: string): void => {

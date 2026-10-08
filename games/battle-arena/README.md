@@ -8,7 +8,7 @@
 pnpm dev:battle-arena                       # http://localhost:5194
 pnpm --filter @repo/battle-arena typecheck
 pnpm --filter @repo/battle-arena build
-pnpm --filter @repo/battle-arena test       # sim harness (tools/verify-timing.mts) + pure-logic tests (tools/verify-logic.mts)
+pnpm --filter @repo/battle-arena test       # sim harness (tools/verify-timing.mts) + pure-logic tests (tools/verify-logic.mts) + headless host/guest netcode under latency and jitter (tools/verify-netcode.mts)
 ```
 
 ## Routes
@@ -31,4 +31,9 @@ pnpm --filter @repo/battle-arena test       # sim harness (tools/verify-timing.m
 | `?name=NAME`       | player name (max 14 chars; falls back to localStorage, then "Player")     |
 | `?party=PORT\|URL` | dev-only party-server override (ignored in production builds)             |
 
-Multiplayer is host-authoritative via `@vibedgames/multiplayer`: guests send intent events, only the host mutates the world and broadcasts snapshots (`src/net/protocol.ts`).
+Multiplayer is host-authoritative via `@vibedgames/multiplayer` (`src/net/`):
+
+- **Host** (`host-net.ts`) runs the 30 Hz sim on real elapsed time, sends one delta **frame** per tick to the guests (`frames.ts`: only what changed — a few hundred bytes), and the whole world ~1 Hz in `sharedState.snap` for late joiners and host handover.
+- **Guest** predicts its own hero with the sim's movement code the frame input changes (`own-hero.ts`), sends that tick's input to the host only when it changes, and reconciles against the host's copy using the host's input ack. Everyone else is drawn ~100 ms in the past, interpolated between frames (`mirror.ts`).
+- The host replays each guest's inputs on that guest's own tick spacing behind a small jitter buffer (`input.ts`), so jitter neither drops a tap nor stretches a hold.
+- Room ids carry `NETCODE_VERSION` (`protocol.ts`): bump it with any wire-format change, so tabs on an old bundle never share a match with new ones.

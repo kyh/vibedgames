@@ -28,7 +28,23 @@ export const ARENA_BOT_FILL = 4;
 // ── Sim timing ───────────────────────────────────────────────────────────────
 export const SIM_HZ = 30;
 export const SIM_DT = 1 / SIM_HZ;
-export const SNAPSHOT_HZ = 15;
+// ticks one frame may catch up before the rest of a stall is skipped
+export const MAX_CATCH_UP_TICKS = 5;
+
+// ── Netcode (net/) ───────────────────────────────────────────────────────────
+// The host sends a frame every tick and the whole world this often (~1 Hz) —
+// for late joiners and host handover.
+export const FULL_SNAPSHOT_TICKS = 30;
+// How far behind the host's clock remote bodies are drawn (ms): three frames,
+// so one late or bunched frame never empties the buffer.
+export const INTERP_DELAY_MS = 100;
+// An unchanged guest input is re-sent this often (ms), so a new host — or one
+// back from a dropout — learns it without waiting for a key change.
+export const INPUT_KEEPALIVE_MS = 200;
+// Headroom (ticks) the host gives each guest input past its fastest recent
+// arrival, so arrival jitter never changes how many ticks an input is applied
+// for. It grows to cover the slowest recent arrival, by two ticks at most.
+export const INPUT_JITTER_TICKS = 2;
 
 // ── Throne (the magnet at center) ────────────────────────────────────────────
 // world units

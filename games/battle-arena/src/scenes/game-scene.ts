@@ -2,13 +2,21 @@ import { abilityReadiness } from "../render/hud-readability";
 import { readPreference } from "../data/preferences";
 import { AbilityGuide } from "../render/ability-guide";
 // Game scene — runs local (vs bots) or online (host-authoritative). The sim is
-// identical in both; only authority + transport differ. Mirrors games/moba:
-// guests send INTENT events and render snapshots; the host simulates and
-// broadcasts under sharedState.snap. Only the server elects a host.
+// identical in both; only authority + transport differ. The host simulates and
+// broadcasts a frame per tick (net/host-net.ts); a guest predicts its own hero
+// on the same movement code, draws everyone else interpolated slightly in the
+// past (net/mirror.ts), and sends its input to the host once per tick when it
+// changes. Only the server elects a host.
 import { MultiplayerClient } from "@vibedgames/multiplayer";
-import { ARENA_BOT_FILL, KILL_GOAL_FFA, SHOP_RADIUS, SIM_DT, SNAPSHOT_HZ } from "../data/config";
+import {
+  ARENA_BOT_FILL,
+  KILL_GOAL_FFA,
+  MAX_CATCH_UP_TICKS,
+  SHOP_RADIUS,
+  SIM_DT,
+} from "../data/config";
 import { CHAMP_BY_ID, DEFAULT_CHAMP, valAt } from "../data/champions";
-import { HALF, isInThrone, SPAWNS } from "../data/map";
+import { isInThrone, SPAWNS } from "../data/map";
 import { terrainHeight } from "../data/terrain";
 import { ALL_ABILITY_KEYS } from "../sim/types";
 import type { AbilityKey, Unit, World } from "../sim/types";
@@ -22,14 +30,20 @@ import {
   step,
   tryJump,
 } from "../sim/world";
-import { INTENT_EVENT, MULTIPLAYER_HOST, PARTY } from "../net/protocol";
+import { FRAME_EVENT, INTENT_EVENT, MULTIPLAYER_HOST, PARTY } from "../net/protocol";
 import type { Intent } from "../net/protocol";
-import { applySnapshot, emptyGuestWorld, encodeWorld, isSnapshot } from "../net/snapshot";
+import { emptyGuestWorld, isSnapshot } from "../net/snapshot";
 import { humanRoster, reconcileHostHeroes, restoreHostState } from "../net/host-state";
 import type { HeroPick, OnlineSeat } from "../net/host-state";
+import { HostNet } from "../net/host-net";
+import type { HostLink } from "../net/host-net";
+import { inputWire, parseInput } from "../net/input";
+import { NetMirror, parseFrame } from "../net/mirror";
+import { OwnHeroPredictor } from "../net/own-hero";
+import type { HeldInput } from "../net/own-hero";
 import type { Vec2 } from "../sim/math";
 import { isJsonNumber, isJsonObject, isJsonString } from "../data/json";
-import type { JsonObject, JsonValue } from "../data/json";
+import type { JsonValue } from "../data/json";
 import type { Controls } from "../input/controls";
 import type { TouchControls } from "../input/touch";
 import type { ModelLibrary } from "../render/models";
@@ -44,6 +58,9 @@ import { sensePlaytest } from "../playtest/sense";
 
 // camera fly-in length; solo holds the sim this long (NEVER online)
 const INTRO_S = 2.4;
+// visual layers never step more than this per frame (the sim catches up on
+// the real elapsed time instead, so a slow frame never slows the match)
+const MAX_VISUAL_DT = 1 / 30;
 // mirror of the sim's cast-buffer window — deny-feedback only
 const CAST_BUFFER_MS = 350;
 // intensity driver runs at 4Hz
@@ -66,22 +83,16 @@ export interface SceneOpts {
 
 const SOLO_SEED = 0x1_23_4a_bc;
 
-/** Connection-derived authority. `lastFxSeq: null` means the next prepare takes
- * a fresh FX baseline, so nothing broadcast before it can replay. */
+/** Connection-derived authority. */
 type Online =
   | { kind: "offline" }
   | { kind: "connecting" }
-  | { kind: "guest"; id: string; lastFxSeq: number | null }
-  | { kind: "host"; id: string; lastFxSeq: number | null; fxSeqOut: number };
+  | { kind: "guest"; id: string }
+  | { kind: "host"; id: string };
 type Seated = Extract<Online, { kind: "guest" | "host" }>;
 
 const sharedCounter = (value: JsonValue | undefined): number =>
   isJsonNumber(value) && Number.isSafeInteger(value) && value >= 0 ? value : 0;
-
-const clamp1 = (n: number): number => (n < -1 ? -1 : Math.min(1, n));
-const clampArena = (n: number): number => Math.min(HALF, Math.max(-HALF, n));
-const num = (n: JsonValue | undefined): number => (isJsonNumber(n) ? n : 0);
-const numArena = (n: JsonValue | undefined): number => clampArena(num(n));
 
 const countdownAt = (t: number): number => {
   if (t < 0.8) {
@@ -177,9 +188,19 @@ export class GameScene {
   private picks: Record<string, HeroPick> = {};
   private assign: Record<string, OnlineSeat> = {};
   private joinResendAt = -Infinity;
-  private snapAcc = 0;
-  private netFx: World["fx"] = [];
   private matchGeneration: number | null = null;
+  // host: the fixed-step loop, frame stream and guest input buffers
+  private hostNet = new HostNet();
+  // guest: the host's world as received, and the own hero's prediction
+  private readonly mirror = new NetMirror();
+  private readonly predictor = new OwnHeroPredictor();
+  // guest: controls held this frame (the predictor samples them per tick)
+  private held: HeldInput = { attack: false, ax: 0, ay: 1, mx: 0, my: 0 };
+  // guest: the last shared snapshot adopted, and the host it came from
+  private lastSnap: JsonValue | undefined = undefined;
+  private mirrorHost: string | null = null;
+  // guest: a new host's first snapshot restarts the prediction from its world
+  private ownResync = false;
   private controlsPaused = false;
   private neutralPending = false;
   // enemies (creeps + champions) the local player has slain this match
@@ -278,8 +299,12 @@ export class GameScene {
 
     // cinematic fly-in (both modes; only solo holds the sim)
     view.startIntro();
-    // Observe short transport gaps even when no render frame falls inside them.
-    this.net?.subscribe(() => this.syncConnection());
+    // Observe short transport gaps even when no render frame falls inside them,
+    // and adopt each shared snapshot in arrival order with the frames.
+    this.net?.subscribe(() => {
+      this.syncConnection();
+      this.ingestShared();
+    });
   }
 
   private createSoloWorld(seed: number): World {
@@ -334,7 +359,10 @@ export class GameScene {
   }
 
   // ── per-frame ──
-  update(frameDt: number): void {
+  /** `elapsed` is the real time since the last frame (s, main.ts caps it at a
+   *  quarter second): the sim advances by it, visuals by at most a 30 fps step. */
+  update(elapsed: number): void {
+    const frameDt = Math.min(elapsed, MAX_VISUAL_DT);
     this.guide.update(this.localUnit());
     // poll before any reads
     this.controls.update(this.controlsPaused || this.guide.open ? 0 : frameDt);
@@ -345,9 +373,9 @@ export class GameScene {
     // real-time clock for the fly-in/countdown
     this.introTime += frameDt;
     if (this.net) {
-      this.tickOnline(frameDt);
+      this.tickOnline(elapsed, frameDt);
     } else {
-      this.tickLocal(frameDt);
+      this.tickLocal(elapsed, frameDt);
     }
     if (this.world.phase === "ended") {
       this.guide.close();
@@ -368,6 +396,7 @@ export class GameScene {
     // on the slowed render-dt while the SIM already stepped on the real frameDt.
     this.fx.update(this.world, frameDt);
     const rdt = frameDt * this.fx.scaleNow();
+    this.worldView.smoothUnits = this.online.kind !== "guest";
     this.worldView.sync(this.world, rdt);
     if (me) {
       this.statusEl.textContent = this.hostDropped ? "Host reconnecting…" : "";
@@ -417,7 +446,7 @@ export class GameScene {
   }
 
   // ── local mode ──
-  private tickLocal(frameDt: number): void {
+  private tickLocal(elapsed: number, frameDt: number): void {
     if (this.controlsPaused || this.world.phase === "ended") {
       this.controls.setMouseMode(true);
       this.drainActionInput();
@@ -448,13 +477,15 @@ export class GameScene {
     if (me) {
       this.readInput(me, true, frameDt);
     }
-    this.acc += frameDt;
+    this.acc += elapsed;
     let n = 0;
-    while (this.acc >= SIM_DT && n < 5 && this.world.phase === "playing") {
+    while (this.acc >= SIM_DT && n < MAX_CATCH_UP_TICKS && this.world.phase === "playing") {
       step(this.world);
       this.acc -= SIM_DT;
       n += 1;
     }
+    // a stall past the step cap is skipped, not replayed over the next frames
+    this.acc = Math.min(this.acc, SIM_DT);
   }
 
   /** Drive the HUD countdown + count/fight one-shots off the intro clock.
@@ -633,28 +664,30 @@ export class GameScene {
         this.neutralPending = true;
       }
       this.online = { kind: "connecting" };
-      this.netFx = [];
       this.acc = 0;
       return null;
     }
     const current = this.online;
     let seat: Seated | null = current.kind === "guest" || current.kind === "host" ? current : null;
     if (seat?.id !== id) {
-      seat = { id, kind: "guest", lastFxSeq: null };
+      seat = { id, kind: "guest" };
       this.joinResendAt = -Infinity;
       this.neutralPending = true;
       // Keep fresh movement pressed during the gap; queued actions never replay.
       this.drainActionInput();
+      // a new connection missed frames: interpolate and predict afresh
+      this.mirrorHost = null;
     } else if (seat.kind === "host" && !net.isHost) {
-      seat = { id, kind: "guest", lastFxSeq: null };
-      this.netFx = [];
+      seat = { id, kind: "guest" };
       this.acc = 0;
+      this.mirrorHost = null;
     }
     this.online = seat;
     this.localId = `h-${id}`;
     this.worldView.localId = this.localId;
     this.fx.localId = this.localId;
     this.fx.localOwnerId = id;
+    this.mirror.ownId = this.localId;
     return seat;
   }
 
@@ -666,8 +699,8 @@ export class GameScene {
     if (!net || !seat) {
       return null;
     }
-    const { snap } = net.sharedState;
     if (seat.kind === "guest" && net.isHost) {
+      const { snap } = net.sharedState;
       // Malformed room state is not permission to overwrite a live match.
       if (snap !== undefined && snap !== null && !isSnapshot(snap)) {
         return null;
@@ -675,37 +708,96 @@ export class GameScene {
       const roster = restoreHostState(this.world, isSnapshot(snap) ? snap : null);
       this.picks = { ...this.picks, ...roster.picks };
       this.assign = roster.seats;
-      this.netFx = [];
       this.acc = 0;
-      this.snapAcc = 0;
-      seat = {
-        fxSeqOut: sharedCounter(net.sharedState["fxSeq"]),
-        id: seat.id,
-        kind: "host",
-        lastFxSeq: null,
-      };
+      // carry the old host's frame clock on, and send the restored world whole
+      this.hostNet = new HostNet(this.mirror.latestT);
+      this.mirror.reset();
+      this.predictor.reset();
+      seat = { id: seat.id, kind: "host" };
       this.online = seat;
-    } else if (seat.kind === "guest") {
-      if (!isSnapshot(snap)) {
-        return null;
+    }
+    if (seat.kind === "host") {
+      // Guests learn of a new match from its snapshot (ingestShared).
+      const generation = sharedCounter(net.sharedState["matchGeneration"]);
+      if (this.matchGeneration !== null && generation !== this.matchGeneration) {
+        this.resetMatchPresentation();
       }
-      applySnapshot(this.world, snap);
-    }
-    const generation = sharedCounter(net.sharedState["matchGeneration"]);
-    if (this.matchGeneration !== null && generation !== this.matchGeneration) {
-      this.resetMatchPresentation();
-    }
-    this.matchGeneration = generation;
-    if (seat.lastFxSeq === null) {
-      seat.lastFxSeq = sharedCounter(net.sharedState["fxSeq"]);
-      this.world.fx.length = 0;
+      this.matchGeneration = generation;
     }
     return seat;
   }
 
+  /** Guest: adopt a new shared snapshot the moment it lands, in order with the
+   *  frames around it (the ~1 Hz resync, a new match, a new host's world). */
+  private ingestShared(): void {
+    const { net } = this;
+    if (!net || net.isHost || this.online.kind !== "guest") {
+      return;
+    }
+    const { snap } = net.sharedState;
+    if (snap === this.lastSnap) {
+      return;
+    }
+    this.lastSnap = snap;
+    if (!isSnapshot(snap)) {
+      return;
+    }
+    this.trackHost(net);
+    const generation = sharedCounter(net.sharedState["matchGeneration"]);
+    const newMatch = this.matchGeneration !== null && generation !== this.matchGeneration;
+    if (newMatch || this.ownResync) {
+      // positions restart: nothing may blend from the old world into this one
+      this.mirror.reset();
+      this.predictor.reset();
+      this.ownResync = false;
+    }
+    const { snapT } = net.sharedState;
+    this.mirror.applySnapshot(
+      this.world,
+      snap,
+      isJsonNumber(snapT) ? snapT : null,
+      performance.now(),
+    );
+    if (newMatch) {
+      this.resetMatchPresentation();
+    }
+    this.matchGeneration = generation;
+  }
+
+  /** Guest: a new host is a new clock and a new world. Interpolation and
+   *  prediction restart, and the new host learns the held input at once. */
+  private trackHost(net: MultiplayerClient): void {
+    if (net.hostId === this.mirrorHost) {
+      return;
+    }
+    this.mirrorHost = net.hostId;
+    this.mirror.resetClock();
+    this.predictor.reset();
+    this.predictor.resend();
+    this.ownResync = true;
+  }
+
+  /** Guest: one host frame, applied on arrival. */
+  private onFrame(net: MultiplayerClient, payload: JsonValue, from: string): void {
+    const seat = this.prepareOnline();
+    if (seat?.kind !== "guest" || from !== net.hostId) {
+      return;
+    }
+    const frame = parseFrame(payload);
+    if (!frame) {
+      return;
+    }
+    this.trackHost(net);
+    const own = this.mirror.applyFrame(this.world, frame, performance.now());
+    if (own) {
+      this.predictor.hostUpdate(own);
+    }
+  }
+
   private announcePick(net: MultiplayerClient): void {
     const id = net.playerId;
-    if (!id) {
+    const host = net.hostId;
+    if (!id || !host) {
       return;
     }
     const now = performance.now();
@@ -714,11 +806,11 @@ export class GameScene {
     }
     const pick = { champId: this.champId, name: this.name };
     this.picks[id] ??= pick;
-    net.sendEvent(INTENT_EVENT, { kind: "join", ...pick } satisfies Intent);
+    net.sendEvent(INTENT_EVENT, { kind: "join", ...pick } satisfies Intent, { to: host });
     this.joinResendAt = now;
   }
 
-  private tickOnline(frameDt: number): void {
+  private tickOnline(elapsed: number, frameDt: number): void {
     const { net } = this;
     const seat = this.prepareOnline();
     if (!net || !seat) {
@@ -726,46 +818,58 @@ export class GameScene {
       return;
     }
     this.announcePick(net);
-    if (seat.kind === "host") {
+    const host = seat.kind === "host";
+    if (host) {
       this.reconcileHeroes(net);
+    } else {
+      // the sim clock and every remote body for this frame, before input reads them
+      this.trackHost(net);
+      this.mirror.render(this.world, performance.now());
     }
     this.flushNeutralInput();
+    const me = this.localUnit();
     if (this.controlsPaused || this.world.phase === "ended") {
       this.controls.setMouseMode(true);
       this.drainActionInput();
+      this.holdNeutral(me);
+    } else if (me) {
+      this.readInput(me, host, frameDt);
     } else {
-      const me = this.localUnit();
-      if (me) {
-        this.readInput(me, seat.kind === "host", frameDt);
-      } else {
-        this.drainActionInput();
-      }
+      this.drainActionInput();
     }
-    if (seat.kind === "host") {
-      this.acc = this.world.phase === "playing" ? this.acc + frameDt : 0;
-      let n = 0;
-      while (this.acc >= SIM_DT && n < 5 && this.world.phase === "playing") {
-        step(this.world);
-        this.acc -= SIM_DT;
-        n += 1;
+    if (host) {
+      this.hostNet.advance(this.world, elapsed * 1000, this.hostLink(net, seat.id));
+    } else if (me && this.world.phase === "playing") {
+      const target = net.hostId;
+      // a host in its reconnect grace hears nothing: stand still until it is back
+      if (this.hostDropped) {
+        this.holdNeutral(me);
       }
-      if (this.world.fx.length) {
-        this.netFx.push(...this.world.fx);
-      }
-      this.broadcast(frameDt);
-    } else {
-      const { fxSeq } = net.sharedState;
-      if (isJsonNumber(fxSeq) && fxSeq !== seat.lastFxSeq) {
-        seat.lastFxSeq = fxSeq;
-        const { fx } = net.sharedState;
-        if (Array.isArray(fx)) {
-          // SAFETY: sharedState.fx is written only by the host's broadcast
-          // (this same build serializing this.netFx), so its entries are FX
-          // events; they are render-only and never feed back into the sim.
-          this.world.fx.push(...(fx as World["fx"]));
-        }
-      }
+      this.predictor.advance(
+        me,
+        this.world.units,
+        elapsed * 1000,
+        performance.now(),
+        this.world.now,
+        this.held,
+        (p) => {
+          if (target) {
+            net.sendEvent(INTENT_EVENT, inputWire(p), { to: target });
+          }
+        },
+      );
+      this.predictor.render(me, this.world.units, this.held);
     }
+  }
+
+  /** Host: how the frame loop reaches the room. */
+  private hostLink(net: MultiplayerClient, id: string): HostLink {
+    return {
+      inputHero: (ownerId) => (ownerId === id ? null : this.intentUnit(net, ownerId)),
+      publish: (snap, t) =>
+        net.updateSharedState({ matchGeneration: this.matchGeneration ?? 0, snap, snapT: t }),
+      sendFrame: (frame) => net.sendEvent(FRAME_EVENT, frame, { except: id }),
+    };
   }
 
   /** Compose forward/strafe into a world-space vector relative to the aim
@@ -777,7 +881,8 @@ export class GameScene {
     };
   }
 
-  /** Read controls → apply locally (host) or send as an intent (guest). */
+  /** Read controls → apply locally (host) or hand to the next predicted tick
+   *  (guest — the predictor moves the body at once and sends the tick's input). */
   private readInput(me: Unit, host: boolean, dt: number): void {
     // MOUSE mode while a menu owns the cursor (shop, end screen); ACTION mode
     // (locked pointer) the rest of the match. Controls no-ops when unchanged.
@@ -787,6 +892,7 @@ export class GameScene {
     if (this.controlsPaused || this.world.phase === "ended") {
       // Results own input. Drain edges so a new round cannot inherit a cast.
       this.drainActionInput();
+      this.holdNeutral(me);
       return;
     }
     if (this.guide.open) {
@@ -794,12 +900,14 @@ export class GameScene {
       if (host) {
         setHeroInput(me, 0, 0, this.aimX, this.aimY, false);
       }
+      this.holdNeutral(me);
       return;
     }
     if (!me.alive) {
       if (host) {
         setHeroInput(me, 0, 0, this.aimX, this.aimY, false);
       }
+      this.holdNeutral(me);
       return;
     }
     this.readAim(me, dt);
@@ -813,7 +921,8 @@ export class GameScene {
     // grounded, so the ability works uniformly for touch/bots/guests. The LMB
     // edge is drained every frame so a grounded click never lingers into a hop.
     const airborne = this.world.now < me.jumpUntil;
-    const lmbJump = this.controls.consumeAttackEdge() && airborne;
+    const attackEdge = this.controls.consumeAttackEdge();
+    const lmbJump = attackEdge && airborne;
     const touchJump = this.touch?.consumeJumpAttack() ?? false;
     if (lmbJump || touchJump) {
       if (lmbJump) {
@@ -826,14 +935,11 @@ export class GameScene {
     if (host) {
       setHeroInput(me, mv.x, mv.y, this.aimX, this.aimY, attack);
     } else {
-      this.net?.sendEvent(INTENT_EVENT, {
-        attack,
-        ax: this.aimX,
-        ay: this.aimY,
-        kind: "input",
-        mx: mv.x,
-        my: mv.y,
-      } satisfies Intent);
+      this.held = { attack, ax: this.aimX, ay: this.aimY, mx: mv.x, my: mv.y };
+      // a click shorter than a tick still swings once on the host
+      if (attackEdge && !lmbJump) {
+        this.predictor.pending.attackEdge = true;
+      }
     }
 
     this.readAbilities(me, host, castPoint);
@@ -841,6 +947,21 @@ export class GameScene {
     this.readDash(me, host, mv, castPoint);
     this.readItems(me, host, castPoint);
     this.readBuy();
+  }
+
+  /** Guest: hold still (aim kept) until input is live again. */
+  private holdNeutral(me: Unit | null): void {
+    if (this.online.kind !== "guest") {
+      return;
+    }
+    const aimed = this.aimX !== 0 || this.aimY !== 0;
+    this.held = {
+      attack: false,
+      ax: aimed ? this.aimX : (me?.aimX ?? 0),
+      ay: aimed ? this.aimY : (me?.aimY ?? 1),
+      mx: 0,
+      my: 0,
+    };
   }
 
   /** FPS-centered aim for EVERY input source: heading comes from mouse turn,
@@ -881,19 +1002,15 @@ export class GameScene {
     return { attack: this.controls.attackDown(), mv };
   }
 
-  /** Host casts through the sim's input buffer; a guest sends the intent. */
+  /** Host casts through the sim's input buffer; a guest's cast rides its next
+   *  tick's input (a DASH/JUMP is also predicted there). */
   private dispatchCast(host: boolean, me: Unit, key: AbilityKey, dir: Vec2, point: Vec2): void {
     if (host) {
       requestCast(this.world, me, key, { dir, point });
+    } else if (key === "DASH") {
+      this.predictor.pending.dash = dir;
     } else {
-      this.net?.sendEvent(INTENT_EVENT, {
-        ax: dir.x,
-        ay: dir.y,
-        key,
-        kind: "cast",
-        px: point.x,
-        py: point.y,
-      } satisfies Intent);
+      this.predictor.pending.casts.push({ dir, key, point });
     }
   }
 
@@ -918,7 +1035,7 @@ export class GameScene {
       if (host) {
         tryJump(this.world, me);
       } else {
-        this.net?.sendEvent(INTENT_EVENT, { kind: "jump" } satisfies Intent);
+        this.predictor.pending.jump = true;
       }
     }
   }
@@ -940,12 +1057,7 @@ export class GameScene {
       if (host) {
         activateItem(this.world, me, slot, castPoint);
       } else {
-        this.net?.sendEvent(INTENT_EVENT, {
-          kind: "useItem",
-          px: castPoint.x,
-          py: castPoint.y,
-          slot,
-        } satisfies Intent);
+        this.predictor.pending.items.push({ point: castPoint, slot });
       }
     }
   }
@@ -979,43 +1091,65 @@ export class GameScene {
     if (!me) {
       return;
     }
+    const host = this.net?.hostId;
     if (this.amHost) {
       buyItem(this.world, me, itemId);
-    } else {
-      this.net?.sendEvent(INTENT_EVENT, { itemId, kind: "buy" } satisfies Intent);
+    } else if (host) {
+      this.net?.sendEvent(INTENT_EVENT, { itemId, kind: "buy" } satisfies Intent, { to: host });
     }
   }
 
-  // ── host: receive intents ──
+  // ── network events ──
   private onNetEvent(event: string, payload: JsonValue, from: string): void {
-    if (event !== INTENT_EVENT) {
-      return;
-    }
-    // Parse the wire intent field-by-field — a malformed/malicious client must
-    // not inject NaN/Inf or spoofed shapes into the authoritative sim.
-    if (!isJsonObject(payload)) {
-      return;
-    }
     const { net } = this;
-    if (!net || !this.prepareOnline()) {
+    if (!net) {
+      return;
+    }
+    if (event === FRAME_EVENT) {
+      this.onFrame(net, payload, from);
+      return;
+    }
+    // Intents are for the host alone: a guest has nothing to prepare for them.
+    if (event !== INTENT_EVENT || !net.isHost || !isJsonObject(payload)) {
+      return;
+    }
+    const seat = this.prepareOnline();
+    if (seat?.kind !== "host") {
       return;
     }
     const sender = net.players[from];
     if (!sender || sender.connected === false) {
       return;
     }
-    const intent = payload;
-    if (intent["kind"] === "join") {
-      const { champId } = intent;
-      const { name } = intent;
-      if (isJsonString(champId) && CHAMP_BY_ID[champId] && isJsonString(name)) {
-        this.picks[from] = { champId, name: name.slice(0, 14) };
+    // Parse the wire intent field-by-field — a malformed/malicious client must
+    // not inject NaN/Inf or spoofed shapes into the authoritative sim.
+    switch (payload["kind"]) {
+      case "join": {
+        const { champId, name } = payload;
+        if (isJsonString(champId) && CHAMP_BY_ID[champId] && isJsonString(name)) {
+          this.picks[from] = { champId, name: name.slice(0, 14) };
+        }
+        break;
       }
-      return;
-    }
-    const u = this.intentUnit(net, from);
-    if (u) {
-      this.applyIntent(u, intent);
+      case "input": {
+        const packet = parseInput(payload);
+        // the host's own hero never rides packets — it reads its controls
+        if (packet && from !== seat.id) {
+          this.hostNet.receive(from, packet);
+        }
+        break;
+      }
+      case "buy": {
+        const { itemId } = payload;
+        const u = this.intentUnit(net, from);
+        if (u && isJsonString(itemId)) {
+          buyItem(this.world, u, itemId);
+        }
+        break;
+      }
+      default: {
+        break;
+      }
     }
   }
 
@@ -1033,82 +1167,10 @@ export class GameScene {
     return u && u.alive ? u : null;
   }
 
-  private applyIntent(u: Unit, intent: JsonObject): void {
-    switch (intent["kind"]) {
-      case "input": {
-        setHeroInput(
-          u,
-          clamp1(num(intent["mx"])),
-          clamp1(num(intent["my"])),
-          clamp1(num(intent["ax"])),
-          clamp1(num(intent["ay"])),
-          intent["attack"] === true,
-        );
-        break;
-      }
-      case "cast": {
-        // reject a bad/spoofed key before it reaches the sim; requestCast so
-        // guests get the same host-side input buffer as locals
-        const key = ALL_ABILITY_KEYS.find((k) => k === intent["key"]);
-        if (!key) {
-          break;
-        }
-        requestCast(this.world, u, key, {
-          dir: { x: clamp1(num(intent["ax"])), y: clamp1(num(intent["ay"])) },
-          point: { x: numArena(intent["px"]), y: numArena(intent["py"]) },
-        });
-        break;
-      }
-      case "buy": {
-        const { itemId } = intent;
-        if (isJsonString(itemId)) {
-          buyItem(this.world, u, itemId);
-        }
-        break;
-      }
-      case "useItem": {
-        activateItem(this.world, u, num(intent["slot"]), {
-          x: numArena(intent["px"]),
-          y: numArena(intent["py"]),
-        });
-        break;
-      }
-      case "jump": {
-        tryJump(this.world, u);
-        break;
-      }
-      default: {
-        break;
-      }
-    }
-  }
-
   // ── host: spawn/maintain hero set ──
   private reconcileHeroes(net: MultiplayerClient): void {
     reconcileHostHeroes(this.world, net.players, this.picks, this.assign);
-  }
-
-  private broadcast(dt: number): void {
-    const { net } = this;
-    const seat = this.online;
-    if (!net || seat.kind !== "host") {
-      return;
-    }
-    this.snapAcc += dt;
-    if (this.snapAcc < 1 / SNAPSHOT_HZ) {
-      return;
-    }
-    this.snapAcc = 0;
-    seat.fxSeqOut += 1;
-    // our own rendered batch must never echo on reconnect
-    seat.lastFxSeq = seat.fxSeqOut;
-    net.updateSharedState({
-      fx: this.netFx,
-      fxSeq: seat.fxSeqOut,
-      matchGeneration: this.matchGeneration ?? 0,
-      snap: structuredClone(encodeWorld(this.world)),
-    });
-    this.netFx = [];
+    this.hostNet.forget((ownerId) => net.players[ownerId] !== undefined);
   }
 
   private canRematch(): boolean {
@@ -1116,7 +1178,8 @@ export class GameScene {
   }
 
   private rematch(): void {
-    if (!this.prepareOnline() || !this.canRematch()) {
+    const seat = this.prepareOnline();
+    if (!seat || !this.canRematch()) {
       return;
     }
     const { net } = this;
@@ -1130,11 +1193,12 @@ export class GameScene {
     restoreHostState(this.world, null);
     this.reconcileHeroes(net);
     this.matchGeneration = (this.matchGeneration ?? 0) + 1;
-    this.netFx = [];
     this.world.fx.length = 0;
     this.acc = 0;
     this.resetMatchPresentation();
-    this.broadcast(1 / SNAPSHOT_HZ);
+    // the new generation and its world go out together, now; frames follow whole
+    this.hostNet.resync();
+    this.hostNet.publishNow(this.world, this.hostLink(net, seat.id));
   }
 
   private resetMatchPresentation(): void {
@@ -1150,9 +1214,6 @@ export class GameScene {
     }
     this.resetHeldInput();
     this.neutralPending = true;
-    if (this.online.kind === "guest" || this.online.kind === "host") {
-      this.online.lastFxSeq = null;
-    }
   }
 
   private resetMusicDriver(): void {
@@ -1205,14 +1266,8 @@ export class GameScene {
     if (this.amHost) {
       setHeroInput(me, 0, 0, me.aimX, me.aimY, false);
     } else {
-      this.net?.sendEvent(INTENT_EVENT, {
-        attack: false,
-        ax: me.aimX,
-        ay: me.aimY,
-        kind: "input",
-        mx: 0,
-        my: 0,
-      } satisfies Intent);
+      // the next predicted tick sends it
+      this.holdNeutral(me);
     }
     this.neutralPending = false;
   }
@@ -1260,6 +1315,8 @@ export class GameScene {
         ? {
             authority: this.amHost,
             connection: this.net.connectionStatus,
+            // own-hero prediction error still being eased out (world units)
+            correction: this.online.kind === "guest" ? this.predictor.correction : 0,
             hostId: this.net.hostId,
             matchGeneration: this.matchGeneration,
             playerId: this.net.playerId,
