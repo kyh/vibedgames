@@ -28,4 +28,4 @@ pnpm --filter @repo/moba test        # headless sim smoke + pure net/presentatio
 | `?auto=1`    | skip the menu, start a match immediately       |
 | `?online=1`  | with `?auto=1`, start the match in online mode |
 
-Multiplayer: online matches auto-match into a shared room via `@vibedgames/multiplayer` (host-authoritative).
+Multiplayer: online matches auto-match into a shared room via `@vibedgames/multiplayer` (host-authoritative). Guests send numbered inputs to the host alone and move their own hero the frame they press, running the sim's own movement code and easing in the host's corrections (`src/net/predict.ts`); the host streams what each 30 Hz sim step changed (`src/net/stream.ts`, ~1 KB a tick) and every other body is drawn 100 ms behind it, interpolated (`src/net/mirror.ts`). A full keyframe in shared state serves late joiners; a promoted guest resumes from its own replica of the stream. Rooms are namespaced by wire version (`moba-v2-…` in `src/net/protocol.ts`), so tabs on an older bundle never share a match with newer ones.

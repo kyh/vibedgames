@@ -238,5 +238,7 @@ export const ECON = {
 // fixed-step host simulation
 export const SIM_HZ = 30;
 export const SIM_DT = 1 / SIM_HZ;
-// host -> client broadcast cadence
-export const SNAPSHOT_HZ = 15;
+// Online the host streams what each sim step changed (net/stream.ts) and
+// rewrites the full world keyframe this often (ms) — what a late joiner starts
+// from, and a promoted guest falls back to when its own copy is incomplete.
+export const KEYFRAME_MS = 5000;

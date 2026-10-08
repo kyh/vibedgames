@@ -11,7 +11,7 @@ import { HEROES, valAt } from "../src/data/heroes.ts";
 import type { AbilityKey } from "../src/data/heroes.ts";
 import { ITEMS, MAX_ITEMS } from "../src/data/items.ts";
 import { BASES } from "../src/data/map.ts";
-import { sharedFxBatch } from "../src/net/snapshot.ts";
+import { parseFxBatch } from "../src/net/snapshot.ts";
 import { actionAvailability } from "../src/render/action-availability.ts";
 import type { UnavailableReason } from "../src/render/action-availability.ts";
 import { attackClipFrame, attackPose } from "../src/render/attack-pose.ts";
@@ -676,16 +676,14 @@ test("spell pose starts at the accepted cast, holds a brace only during a live c
 
 test("malformed cast actors from older or hostile peers are stripped, valid ones kept", () => {
   const cast = { effect: "ironvow:Q", t: "cast", team: "radiant", x: 1, y: 2 };
-  const batch = sharedFxBatch({
-    fx: [
-      { ...cast, actor: { at: 1234, unitId: "h-a" } },
-      { ...cast, actor: { at: 1, unitId: "" } },
-      { ...cast, actor: { at: -1, unitId: "h-b" } },
-      { ...cast, actor: "h-c" },
-      cast,
-      { t: "bogus" },
-    ],
-  });
+  const batch = parseFxBatch([
+    { ...cast, actor: { at: 1234, unitId: "h-a" } },
+    { ...cast, actor: { at: 1, unitId: "" } },
+    { ...cast, actor: { at: -1, unitId: "h-b" } },
+    { ...cast, actor: "h-c" },
+    cast,
+    { t: "bogus" },
+  ]);
   assert.equal(batch.length, 5);
   assert.deepEqual(
     batch.map((event) => (event.t === "cast" ? (event.actor ?? null) : event.t)),
