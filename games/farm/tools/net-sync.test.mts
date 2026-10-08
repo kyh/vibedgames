@@ -6,11 +6,14 @@ import { DAY_END_MIN, FARM_SEED, MAP_W, PENDING_EDIT_MS } from "../src/config";
 import { CROP_ORDER, CROPS } from "../src/data/crops";
 import type { JsonObject } from "../src/json";
 import { anchorClock, clockPatch, clockTime, readClock, turnDay } from "../src/net/clock-sync";
-import { FarmSync, objectKey, publishCleared } from "../src/net/farm-sync";
+import { FarmSync, objectKey, roomEpoch } from "../src/net/farm-sync";
 import {
   CROP_SLOTS,
+  MAX_GEN,
   applyTileIntent,
+  harvestTile,
   packTile,
+  parseTileIntent,
   tileIdxOfKey,
   tileKey,
   tileValue,
@@ -63,6 +66,8 @@ const room = () => {
   };
 };
 
+const BARE: TileState = { crop: null, daysGrown: 0, gen: 0, tilled: false, watered: false };
+
 const tillable = (world: World, n: number): number[] => {
   const out: number[] = [];
   for (let i = 0; out.length < n && i < world.tilled.length; i += 1) {
@@ -79,17 +84,25 @@ const tree = (world: World): WorldObject => {
   return found;
 };
 
-test("a tile packs into one primitive and back, for every crop", () => {
+test("a tile packs into one primitive and back, for every crop and generation", () => {
   assert.ok(CROP_ORDER.length < CROP_SLOTS, "crop codes fit their slot range");
+  const largest: TileState = {
+    crop: "wheat",
+    daysGrown: 255,
+    gen: MAX_GEN,
+    tilled: true,
+    watered: true,
+  };
   const states: TileState[] = [
-    { crop: null, daysGrown: 0, tilled: false, watered: false },
-    { crop: null, daysGrown: 0, tilled: true, watered: false },
-    { crop: null, daysGrown: 0, tilled: true, watered: true },
+    { crop: null, daysGrown: 0, gen: 0, tilled: false, watered: false },
+    { crop: null, daysGrown: 0, gen: 0, tilled: true, watered: false },
+    { crop: null, daysGrown: 0, gen: 3, tilled: true, watered: true },
+    largest,
   ];
   for (const crop of CROP_ORDER) {
     states.push(
-      { crop, daysGrown: CROPS[crop].growthDays, tilled: true, watered: true },
-      { crop, daysGrown: 0, tilled: true, watered: false },
+      { crop, daysGrown: CROPS[crop].growthDays, gen: 1, tilled: true, watered: true },
+      { crop, daysGrown: 0, gen: 2, tilled: true, watered: false },
     );
   }
   const seen = new Set<number>();
@@ -100,8 +113,20 @@ test("a tile packs into one primitive and back, for every crop", () => {
     seen.add(packed);
   }
   assert.equal(seen.size, states.length, "distinct states pack distinctly");
-  assert.equal(packTile({ crop: null, daysGrown: 0, tilled: false, watered: false }), 0);
-  for (const bad of [-1, 0.5, Number.NaN, "3", null, [1], { t: 1 }, (CROP_SLOTS - 1) * 4]) {
+  assert.ok(Number.isSafeInteger(packTile(largest)), "the largest tile packs safely");
+  assert.equal(packTile({ crop: null, daysGrown: 0, gen: 0, tilled: false, watered: false }), 0);
+  const pastLastGen = packTile({ ...BARE, gen: MAX_GEN }) + packTile({ ...BARE, gen: 1 });
+  for (const bad of [
+    -1,
+    0.5,
+    Number.NaN,
+    "3",
+    null,
+    [1],
+    { t: 1 },
+    (CROP_SLOTS - 1) * 4,
+    pastLastGen,
+  ]) {
     assert.equal(unpackTile(bad), null, `rejects ${JSON.stringify(bad)}`);
   }
   assert.equal(tileIdxOfKey(tileKey(4127)), 4127);
@@ -139,15 +164,23 @@ test("the host publishes its farm once, then only the tiles that change", () => 
   assert.deepEqual([...changed], [b]);
   sync.publishTiles(net.writer, changed);
   assert.deepEqual(net.patches.at(-1), {
-    [tileKey(b)]: packTile({ crop: "parsnip", daysGrown: 1, tilled: true, watered: false }),
+    [tileKey(b)]: packTile({ crop: "parsnip", daysGrown: 1, gen: 0, tilled: true, watered: false }),
   });
 
-  // A later host over a room that still holds an older farm corrects it.
+  // Republished over a room that still holds an older farm's keys, it
+  // corrects them — under the farm's own epoch, which a farm keeps for life.
   const stale = { ...net.shared(), [tileKey(9)]: 1, [objectKey(tree(world).id)]: 1 };
   sync.publishWorld(net.writer, stale, 8);
   const fix = net.patches.at(-1);
   assert.equal(fix?.[tileKey(9)], 0);
   assert.equal(fix?.[objectKey(tree(world).id)], 0);
+  assert.equal(fix?.["w"], 7, "the same farm keeps its epoch");
+  sync.reset();
+  sync.publishWorld(net.writer, net.shared(), 9);
+  assert.equal(net.patches.at(-1)?.["w"], 7, "and keeps it through a scene start");
+  sync.forget();
+  sync.publishWorld(net.writer, net.shared(), 10);
+  assert.equal(roomEpoch(net.shared()), 10, "a farm the room hasn't seen gets a new one");
 });
 
 test("a guest adopts the host's world whole, its own save's farm included", () => {
@@ -201,8 +234,7 @@ test("a guest adopts the host's world whole, its own save's farm included", () =
   // From then on only the keys that changed are folded in.
   redrawn.length = 0;
   const next = tree(host);
-  host.removeObject(next);
-  publishCleared(net.writer, next.id);
+  assert.equal(syncOver(host).sync.clear(net.writer, next.id)?.id, next.id);
   sync.adopt(net.shared(), 0);
   assert.deepEqual(gone, [hostFelled.id, next.id]);
   assert.deepEqual(redrawn, [], "no tile is touched");
@@ -217,7 +249,7 @@ test("a guest's own change outranks older host values until echoed or expired", 
   const [idx] = tillable(world, 1);
   assert.ok(idx !== undefined);
   // The host's farm: a ripe parsnip on watered soil.
-  const ripe = packTile({ crop: "parsnip", daysGrown: 4, tilled: true, watered: true });
+  const ripe = packTile({ crop: "parsnip", daysGrown: 4, gen: 1, tilled: true, watered: true });
   const net = room();
   net.writer.patchShared({ w: 1, [tileKey(idx)]: ripe });
   const { redrawn, sync } = syncOver(world);
@@ -273,7 +305,7 @@ test("a guest's clear stands until the host confirms it, or lapses back", () => 
     world.objects.some((o) => o.id === felled.id),
     false,
   );
-  publishCleared(net.writer, felled.id);
+  net.writer.patchShared({ [objectKey(felled.id)]: 1 });
   sync.adopt(net.shared(), 300);
   sync.expire(net.shared(), 100 + PENDING_EDIT_MS);
   assert.equal(
@@ -298,23 +330,37 @@ test("the host applies a guest's intent only where its own world allows it", () 
   const [idx] = tillable(world, 1);
   assert.ok(idx !== undefined);
   const water = world.kind.findIndex((_, i) => world.isSolidTile(i % MAP_W, Math.trunc(i / MAP_W)));
+  const kale = { action: "plant", crop: "kale", gen: 1, idx } as const;
   assert.equal(applyTileIntent(world, { action: "till", idx: water }), false);
   assert.equal(applyTileIntent(world, { action: "water", idx }), false, "untilled");
-  assert.equal(applyTileIntent(world, { action: "plant", crop: "kale", idx }), false, "untilled");
+  assert.equal(applyTileIntent(world, kale), false, "untilled");
   assert.equal(applyTileIntent(world, { action: "till", idx }), true);
   assert.equal(applyTileIntent(world, { action: "till", idx }), false, "already tilled");
-  assert.equal(applyTileIntent(world, { action: "plant", crop: "kale", idx }), true);
-  assert.equal(applyTileIntent(world, { action: "plant", crop: "carrot", idx }), false);
+  assert.equal(applyTileIntent(world, { ...kale, gen: 2 }), false, "not the tile's next crop");
+  assert.equal(applyTileIntent(world, kale), true);
+  assert.equal(world.gens[idx], 1, "the first crop on the tile");
+  assert.equal(applyTileIntent(world, { ...kale, crop: "carrot", gen: 2 }), false, "planted");
   assert.equal(applyTileIntent(world, { action: "water", idx }), true);
-  assert.equal(applyTileIntent(world, { action: "harvest", idx }), false, "not ripe");
+
+  // A harvest is a claim's grant, for the crop it names.
+  assert.equal(harvestTile(world, idx, 1), false, "not ripe");
   world.crops.set(idx, { crop: "kale", daysGrown: CROPS.kale.growthDays });
-  assert.equal(applyTileIntent(world, { action: "harvest", idx }), true);
+  assert.equal(harvestTile(world, idx, 2), false, "another crop's claim");
+  assert.equal(harvestTile(world, idx, 1), true);
+  assert.equal(harvestTile(world, idx, 1), false, "already harvested");
   assert.deepEqual(unpackTile(tileValue(world, idx)), {
     crop: null,
     daysGrown: 0,
+    gen: 1,
     tilled: true,
     watered: false,
   });
+  assert.equal(applyTileIntent(world, { ...kale, gen: 2 }), true, "the next crop is gen 2");
+
+  // Harvests and clears never ride as intents.
+  assert.equal(parseTileIntent({ action: "harvest", idx }), null);
+  assert.equal(parseTileIntent({ action: "plant", crop: "kale", idx }), null, "names its crop");
+  assert.deepEqual(parseTileIntent(kale), kale);
   const standing = tree(world);
   assert.equal(
     applyTileIntent(world, { action: "till", idx: tileIdx(standing.tx, standing.ty) }),

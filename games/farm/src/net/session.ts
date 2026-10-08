@@ -15,7 +15,7 @@
 
 import { isOfflineRequested } from "@repo/embed";
 import { MultiplayerClient, ServerClock } from "@vibedgames/multiplayer";
-import type { Player, PlayerMap, SendEventOptions } from "@vibedgames/multiplayer";
+import type { ClaimMap, Player, PlayerMap, SendEventOptions } from "@vibedgames/multiplayer";
 
 import type { JsonObject, JsonValue } from "../json";
 
@@ -34,12 +34,16 @@ export interface NetSessionOptions {
    *  trailer mode, which must never show live players in a staged shot. */
   forceOffline?: boolean;
   onEvent?: (event: string, payload: JsonValue, from: string) => void;
+  /** A claim's owner was set: granted, released (null), or — to a refused
+   *  claimer alone — whoever already holds it. Online only. */
+  onClaim?: (key: string, owner: string | null) => void;
 }
 
 export class NetSession {
   private client: MultiplayerClient | null;
   private readonly fallbackMs: number;
   private readonly onEvent?: (event: string, payload: JsonValue, from: string) => void;
+  private readonly onClaim?: (key: string, owner: string | null) => void;
 
   private solo = false;
   private everConnected = false;
@@ -52,6 +56,7 @@ export class NetSession {
   constructor(opts: NetSessionOptions) {
     this.fallbackMs = opts.fallbackMs;
     this.onEvent = opts.onEvent;
+    this.onClaim = opts.onClaim;
     // Offline BY INTENT (`?offline=1`, trailer staging) is a different state
     // from the fallback below, and must skip constructing the client rather
     // than lean on a failed connection: a refused handshake logs a console
@@ -63,6 +68,7 @@ export class NetSession {
       : new MultiplayerClient({
           host: MULTIPLAYER_HOST,
           maxPlayers: opts.maxPlayers,
+          onClaim: (key, owner) => this.onClaim?.(key, owner),
           // SAFETY: event payloads are decoded JSON off the wire; the package
           // types them `unknown` only because it cannot know game schemas.
           onEvent: (event, payload, from) => this.onEvent?.(event, payload as JsonValue, from),
@@ -244,6 +250,40 @@ export class NetSession {
     if (host !== null) {
       client.sendEvent(event, payload, { to: host });
     }
+  }
+
+  /** Ask the server for `key`: first come, first served, decided in one hop.
+   *  Offline nothing arbitrates, and nothing is sent. */
+  claim(key: string, options?: { ttlMs?: number }): void {
+    if (!this.solo) {
+      this.client?.claim(key, options);
+    }
+  }
+
+  /** Give `key` back: its owner may, and the host may release any key. */
+  release(key: string): void {
+    if (!this.solo) {
+      this.client?.release(key);
+    }
+  }
+
+  /** Host only: release every key starting with `prefix`. */
+  clearClaims(prefix: string): void {
+    if (!this.solo) {
+      this.client?.clearClaims(prefix);
+    }
+  }
+
+  /** Who holds `key` now, or null (never claimed, released, lapsed — or offline). */
+  ownerOf(key: string): string | null {
+    const { client } = this;
+    return this.solo || !client ? null : client.ownerOf(key);
+  }
+
+  /** Every claimed key the room holds (none offline). */
+  get claims(): ClaimMap {
+    const { client } = this;
+    return this.solo || !client ? {} : client.claims;
   }
 
   destroy(): void {

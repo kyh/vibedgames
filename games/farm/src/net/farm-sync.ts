@@ -1,11 +1,12 @@
 import { MAP_H, MAP_W, PENDING_EDIT_MS } from "../config";
-import { isJsonNumber, isJsonObject } from "../json";
+import { isJsonNumber } from "../json";
 import type { JsonObject, JsonValue } from "../json";
 import { isClearable } from "../world/world";
 import type { World, WorldObject } from "../world/world";
 import {
   BARE_TILE,
   applyTileIntent,
+  harvestTile,
   packTile,
   tileIdxOfKey,
   tileKey,
@@ -17,11 +18,14 @@ import type { TileIntent, TileState } from "./tile-codec";
 
 // The shared farm. The host owns it and writes it as flat primitive shared
 // keys — `t<idx>` per farmed tile, `o<id>` per cleared tree, rock or mushroom
-// (1 = gone) — so each change sends one small key. `w` is the host's world
-// epoch: a new one means "this is my whole world", and guests adopt it whole
-// (their own save's farm and felled trees give way to the host's). Guests act
-// at once locally and send intents to the host; each such change is protected
-// from older host values until the host echoes it or PENDING_EDIT_MS passes.
+// (1 = gone) — so each change sends one small key. `w` is the farm's epoch:
+// one farm keeps it through host changes and mine trips, and a farm the room
+// hasn't seen (a new or loaded one) is published under a new one, which
+// guests adopt whole (their own save's farm and felled trees give way) and
+// which retires the old farm's claims. Guests act at once locally — tilling
+// and watering through intents to the host, contested actions through claims
+// (net/claims) — and each such change is protected from older host values
+// until the host echoes it or PENDING_EDIT_MS passes.
 
 const TILE_COUNT = MAP_W * MAP_H;
 const EPOCH_KEY = "w";
@@ -34,13 +38,10 @@ const objectIdOfKey = (key: string): number | null => {
   return digits === undefined ? null : Number(digits);
 };
 
-/** A guest's clear request (`{ id }`), parsed at the wire boundary. */
-export const parseClear = (payload: JsonValue): number | null => {
-  if (!isJsonObject(payload)) {
-    return null;
-  }
-  const { id } = payload;
-  return isJsonNumber(id) && Number.isSafeInteger(id) && id >= 0 ? id : null;
+/** The farm epoch a room's shared state names, or null before any farm. */
+export const roomEpoch = (shared: JsonObject | null): number | null => {
+  const epoch = shared?.[EPOCH_KEY];
+  return isJsonNumber(epoch) ? epoch : null;
 };
 
 /** Where the shared keys go: NetSession, or a test double. */
@@ -60,7 +61,7 @@ export interface FarmView {
 }
 
 /** Host: object `id` is gone from the farm. */
-export const publishCleared = (net: SharedWriter, id: number): void => {
+const publishCleared = (net: SharedWriter, id: number): void => {
   net.patchShared({ [objectKey(id)]: 1 });
 };
 
@@ -83,7 +84,11 @@ export class FarmSync {
   private readonly seen = new Map<string, JsonValue>();
   private readonly pendingTiles = new Map<number, PendingTile>();
   private readonly pendingClears = new Map<number, number>();
-  private epoch: number | null = null;
+  /** The epoch this farm was published under (host) or adopted from (guest);
+   *  null for a farm the room hasn't seen. */
+  private farmEpoch: number | null = null;
+  /** Guest: the next adopt takes the host's farm whole, whatever its epoch. */
+  private adoptWholeNext = true;
 
   /** `generated`: the co-op farm's objects as generated, before anyone cleared one
    *  (its trees, rocks and forage are what the `o<id>` keys can name). */
@@ -92,12 +97,26 @@ export class FarmSync {
     this.generated = generated;
   }
 
-  /** Forget the room — a new farm, a new scene start, a new role. */
+  /** The farm's epoch in the room — what its claim keys carry — or null
+   *  before the room has seen this farm. */
+  get epoch(): number | null {
+    return this.farmEpoch;
+  }
+
+  /** A new scene start on the same farm: a guest takes the host's farm whole
+   *  again on its next adopt; the farm keeps its epoch, so a host back from
+   *  the mine republishes under it and its claims stay good. */
   reset(): void {
     this.seen.clear();
     this.pendingTiles.clear();
     this.pendingClears.clear();
-    this.epoch = null;
+    this.adoptWholeNext = true;
+  }
+
+  /** A different farm (a new or loaded one): the room hasn't seen it yet. */
+  forget(): void {
+    this.reset();
+    this.farmEpoch = null;
   }
 
   // ---- host ------------------------------------------------------------------
@@ -119,11 +138,13 @@ export class FarmSync {
   /**
    * A new host's first word: every farmed tile and every cleared object, plus
    * a correction for any key the room still holds that this world disagrees
-   * with (an earlier host's farm), under a fresh epoch.
+   * with (an earlier host's farm) — under the farm's epoch, or `fresh` for a
+   * farm the room hasn't seen.
    */
-  publishWorld(net: SharedWriter, shared: JsonObject | null, epoch: number): void {
+  publishWorld(net: SharedWriter, shared: JsonObject | null, fresh: number): void {
     const world = this.view.world();
-    const patch: JsonObject = { [EPOCH_KEY]: epoch };
+    this.farmEpoch ??= fresh;
+    const patch: JsonObject = { [EPOCH_KEY]: this.farmEpoch };
     for (let idx = 0; idx < TILE_COUNT; idx += 1) {
       const key = tileKey(idx);
       const value = tileValue(world, idx);
@@ -147,15 +168,27 @@ export class FarmSync {
     return applyTileIntent(this.view.world(), intent);
   }
 
-  /** Host: a guest cleared object `id`. Returns it when it was still standing here. */
-  clearObject(id: number): WorldObject | null {
-    const world = this.view.world();
-    const o = world.objects.find((c) => c.id === id);
-    if (!o || !isClearable(o)) {
+  /** Host: a granted harvest of crop `gen` on tile `idx` — off the farm if it
+   *  still grows here, and the tile published. True when the world changed. */
+  harvest(net: SharedWriter, idx: number, gen: number): boolean {
+    const changed = harvestTile(this.view.world(), idx, gen);
+    this.publishTiles(net, [idx]);
+    return changed;
+  }
+
+  /** Host: a granted clear of object `id` — gone from the farm, published.
+   *  Returns the object when it was still standing here. */
+  clear(net: SharedWriter, id: number): WorldObject | null {
+    if (!this.clearable().some((o) => o.id === id)) {
       return null;
     }
-    world.removeObject(o);
-    return o;
+    const world = this.view.world();
+    const o = world.objects.find((c) => c.id === id);
+    if (o) {
+      world.removeObject(o);
+    }
+    publishCleared(net, id);
+    return o ?? null;
   }
 
   // ---- guest -----------------------------------------------------------------
@@ -168,16 +201,26 @@ export class FarmSync {
     });
   }
 
-  /** This farmer just cleared object `id` and told the host. */
+  /** This farmer just cleared object `id` and claimed it. */
   protectClear(id: number, now: number): void {
     this.pendingClears.set(id, now + PENDING_EDIT_MS);
   }
 
+  /** This farmer's change to tile `idx` was refused: take the host's state
+   *  for it now, rather than shielding the change until it lapses. */
+  settleTile(idx: number, shared: JsonObject | null, now: number): void {
+    this.pendingTiles.delete(idx);
+    if (this.farmEpoch !== null) {
+      this.applyTile(idx, hostTile(shared, idx), now);
+    }
+  }
+
   /** Fold the host's shared state into the local world. Call when it changes. */
   adopt(shared: JsonObject, now: number): void {
-    const epoch = shared[EPOCH_KEY];
-    if (isJsonNumber(epoch) && epoch !== this.epoch) {
-      this.epoch = epoch;
+    const epoch = roomEpoch(shared);
+    if (epoch !== null && (epoch !== this.farmEpoch || this.adoptWholeNext)) {
+      this.farmEpoch = epoch;
+      this.adoptWholeNext = false;
       this.adoptWhole(shared, now);
       return;
     }
@@ -207,7 +250,7 @@ export class FarmSync {
       }
       this.pendingTiles.delete(idx);
       // Before the host's world arrives there is nothing to settle to.
-      if (this.epoch !== null) {
+      if (this.farmEpoch !== null) {
         this.applyTile(idx, hostTile(shared, idx), now);
       }
     }
@@ -216,7 +259,7 @@ export class FarmSync {
         continue;
       }
       this.pendingClears.delete(id);
-      if (this.epoch !== null) {
+      if (this.farmEpoch !== null) {
         this.applyObject(id, shared?.[objectKey(id)] === 1, now, this.standing(id));
       }
     }

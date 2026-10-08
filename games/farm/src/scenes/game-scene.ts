@@ -25,10 +25,13 @@ import {
 import type { JsonObject, JsonValue } from "../json";
 import { anchorClock, clockPatch, clockTime, readClock, turnDay } from "../net/clock-sync";
 import type { ClockAnchor } from "../net/clock-sync";
-import { FarmSync, parseClear, publishCleared } from "../net/farm-sync";
+import { ClaimBook } from "../net/claim-book";
+import { ClaimTicket, WORK_HOLD_MS, claimKey, claimPrefix, parseClaimKey } from "../net/claims";
+import type { ClaimTarget } from "../net/claims";
+import { FarmSync, roomEpoch } from "../net/farm-sync";
 import { FarmerSender } from "../net/farmer-wire";
 import { NetSession } from "../net/session";
-import { RemoteFarmers } from "../net/remote-farmers";
+import { RemoteFarmers, farmerTag } from "../net/remote-farmers";
 import { parseTileIntent } from "../net/tile-codec";
 import type { TileIntent } from "../net/tile-codec";
 import { World, GROUND, inBounds, tileIdx } from "../world/world";
@@ -225,6 +228,10 @@ export class GameScene extends Scene {
   private publishedAs: string | null = null;
   /** Guest: the shared state last folded in (a new object per patch). */
   private lastShared: JsonObject | null = null;
+  /** This farmer's claims still waiting on the server's word. */
+  private readonly claims = new ClaimBook();
+  /** Whether the room was reachable last frame (a readmission republishes). */
+  private wasOnline = false;
   /** actionHint memo: what it last looked at (idx -1 = stale). */
   private hintKey: HintKey = { idx: -1, item: null };
   private hint: string | null = null;
@@ -293,6 +300,7 @@ export class GameScene extends Scene {
       this.net = new NetSession({
         fallbackMs: OFFLINE_FALLBACK_MS,
         maxPlayers: MP_MAX_PLAYERS,
+        onClaim: (key, owner) => this.handleClaim(key, owner),
         onEvent: (event, payload, from) => this.handleNetEvent(event, payload, from),
         room: ROOM,
       });
@@ -386,8 +394,13 @@ export class GameScene extends Scene {
     this.remoteFarmers = this.net ? new RemoteFarmers(this, this.net.serverClock) : undefined;
     // Every start redraws from the world, so both roles take the room afresh:
     // a host republishes its farm whole (a new or loaded farm must replace the
-    // room's), a guest re-adopts the host's farm and clock.
-    this.farmSync.reset();
+    // room's, under a new epoch), a guest re-adopts the host's farm and clock.
+    if (data?.fromMine) {
+      this.farmSync.reset();
+    } else {
+      this.farmSync.forget();
+      this.claims.clear();
+    }
     this.publishedAs = null;
     this.publishedAnchor = null;
     this.lastShared = null;
@@ -777,6 +790,9 @@ export class GameScene extends Scene {
     this.gamepad?.update();
     this.pollPad();
     this.net?.tick();
+    if (this.net && this.isOnline()) {
+      this.claims.poll(this.net);
+    }
     this.followHost();
     const busy = this.uiOpen || this.transitioning || this.fishing.active;
     this.runClock(dt, !busy);
@@ -833,56 +849,171 @@ export class GameScene extends Scene {
     }
   }
 
-  private handleNetEvent(event: string, payload: JsonValue, _from: string): void {
+  private handleNetEvent(event: string, payload: JsonValue, from: string): void {
     const { net } = this;
     // Only the host acts on intents. Its world stays live while it is down the
     // mine (this scene stopped), so they apply at once; create() redraws.
-    if (!net || !this.amHost) {
+    if (!net || !this.amHost || event !== "tile") {
       return;
     }
-    if (event === "tile") {
-      const intent = parseTileIntent(payload);
-      if (intent && this.farmSync.applyIntent(intent)) {
-        this.redrawTile(intent.idx);
-        this.farmSync.publishTiles(net, [intent.idx]);
+    const intent = parseTileIntent(payload);
+    if (!intent) {
+      return;
+    }
+    // A planting is its claim's winner's alone. The intent left after the claim
+    // on the same socket, so the grant is in by now.
+    if (intent.action === "plant") {
+      const target: ClaimTarget = { gen: intent.gen, idx: intent.idx, kind: "plant" };
+      const key = this.claimKeyFor(target);
+      if (key === null || net.ownerOf(key) !== from) {
+        return;
       }
-    } else if (event === "clear") {
-      const id = parseClear(payload);
-      const cleared = id === null ? null : this.farmSync.clearObject(id);
-      if (cleared) {
-        this.objectGone(cleared);
-        publishCleared(net, cleared.id);
+    }
+    if (this.farmSync.applyIntent(intent)) {
+      this.redrawTile(intent.idx);
+      this.farmSync.publishTiles(net, [intent.idx]);
+      if (intent.action === "plant") {
+        this.releaseSpent(net, intent.idx, intent.gen);
       }
     }
   }
 
-  /** After a local farming action: the host publishes the tile; a guest keeps
-   *  its change protected and asks the host to make the same one. */
+  /** The server named an owner for a claim: this farmer's own claims settle,
+   *  and the host applies the world's side of every grant. */
+  private handleClaim(key: string, owner: string | null): void {
+    const { net } = this;
+    if (!net) {
+      return;
+    }
+    // A reconnect hands this farmer's claims to its new id before the sync
+    // that names it: until connected, the poll in update() settles them.
+    if (this.isOnline()) {
+      this.claims.hear(net, key, owner);
+    }
+    if (owner !== null && this.amHost) {
+      this.applyGrant(net, key, owner);
+    }
+  }
+
+  /** Host: the world's side of a granted claim, published, whoever won it —
+   *  the host's own claims' effects have already landed here. */
+  private applyGrant(net: NetSession, key: string, owner: string): void {
+    const claim = parseClaimKey(key);
+    if (!claim || claim.epoch !== this.farmSync.epoch) {
+      return;
+    }
+    const { target } = claim;
+    switch (target.kind) {
+      case "harvest": {
+        if (this.farmSync.harvest(net, target.idx, target.gen)) {
+          this.redrawTile(target.idx);
+        }
+        break;
+      }
+      case "clear": {
+        const gone = this.farmSync.clear(net, target.id);
+        if (gone) {
+          this.objectGone(gone);
+        }
+        break;
+      }
+      case "plant": {
+        // A guest's crop arrives with its intent; the host's own is planted here.
+        if (owner === net.playerId) {
+          this.farmSync.publishTiles(net, [target.idx]);
+          this.releaseSpent(net, target.idx, target.gen);
+        }
+        break;
+      }
+      case "hold": {
+        break;
+      }
+      // no default
+    }
+  }
+
+  /** Host: every grant the room holds, applied — the claims are the room's
+   *  record of who took what, and a host that left (or this one, through a
+   *  dropped connection) may have missed the last of them. */
+  private applyHeldGrants(net: NetSession): void {
+    for (const [key, { owner }] of Object.entries(net.claims)) {
+      this.applyGrant(net, key, owner);
+    }
+  }
+
+  /** Host: crop `gen` of tile `idx` is in, so the claims on the crop before it
+   *  — its planting and its harvest — can never be contested again. Give them
+   *  back, so a long session never runs the room out of claims. */
+  private releaseSpent(net: NetSession, idx: number, gen: number): void {
+    if (gen <= 1) {
+      return;
+    }
+    const spent: ClaimTarget[] = [
+      { gen: gen - 1, idx, kind: "plant" },
+      { gen: gen - 1, idx, kind: "harvest" },
+    ];
+    for (const target of spent) {
+      const key = this.claimKeyFor(target);
+      if (key !== null && net.ownerOf(key) !== null) {
+        net.release(key);
+      }
+    }
+  }
+
+  /** The key `target` is claimed under in this room, or null where nothing
+   *  arbitrates: offline, connecting, or before the room's farm arrived. */
+  private claimKeyFor(target: ClaimTarget): string | null {
+    const { epoch } = this.farmSync;
+    return this.isOnline() && epoch !== null ? claimKey(epoch, target) : null;
+  }
+
+  /** Who else already holds `target` (this farmer must leave it), or null. */
+  private otherHolder(target: ClaimTarget): string | null {
+    const { net } = this;
+    const key = this.claimKeyFor(target);
+    const owner = net && key !== null ? net.ownerOf(key) : null;
+    return owner === null || owner === net?.playerId ? null : owner;
+  }
+
+  /** Claim `target` as its effect lands: the ticket settles it once the server
+   *  has spoken. Granted at once where nothing arbitrates. */
+  private claim(target: ClaimTarget, ttlMs?: number): ClaimTicket {
+    const { net } = this;
+    const key = this.claimKeyFor(target);
+    return net && key !== null ? this.claims.ask(net, key, ttlMs) : ClaimTicket.won();
+  }
+
+  /** After tilling, watering or planting: a guest keeps its change protected
+   *  and asks the host to make the same one. The host publishes its tilling
+   *  and watering at once, its planting when the claim is granted. */
   private netTileAction(intent: TileIntent): void {
     const { net } = this;
     if (!net || net.offline) {
       return;
     }
     if (this.amHost) {
-      this.farmSync.publishTiles(net, [intent.idx]);
+      if (intent.action !== "plant") {
+        this.farmSync.publishTiles(net, [intent.idx]);
+      }
       return;
     }
     this.farmSync.protectTile(intent.idx, performance.now());
     net.sendToHost("tile", intent);
   }
 
-  /** After felling a tree, breaking a rock or picking forage: the same split. */
-  private netCleared(o: WorldObject): void {
-    const { net } = this;
-    if (!net || net.offline) {
-      return;
+  /** After a claimed harvest: a guest shields its tile from older host values
+   *  until the host, hearing the grant, publishes the same. */
+  private shieldTile(idx: number): void {
+    if (this.net && !this.net.offline && !this.amHost) {
+      this.farmSync.protectTile(idx, performance.now());
     }
-    if (this.amHost) {
-      publishCleared(net, o.id);
-      return;
+  }
+
+  /** After a claimed fell, break or pick: the same, for the object. */
+  private shieldClear(id: number): void {
+    if (this.net && !this.net.offline && !this.amHost) {
+      this.farmSync.protectClear(id, performance.now());
     }
-    this.farmSync.protectClear(o.id, performance.now());
-    net.sendToHost("clear", { id: o.id });
   }
 
   /** Redraw a tile from the world after the sync rewrote it. A stopped scene
@@ -975,7 +1106,14 @@ export class GameScene extends Scene {
     if (!net) {
       return;
     }
-    if (this.isOnline()) {
+    const online = this.isOnline();
+    // (Re)admitted: grants broadcast while the connection was down never
+    // reached this client, so a host republishes its farm whole.
+    if (online && !this.wasOnline) {
+      this.publishedAs = null;
+    }
+    this.wasOnline = online;
+    if (online) {
       // Stamps are server time, so peers read them as the same instant; until
       // the clock is measured (a round trip after joining) there is none.
       const update = net.timeSynced
@@ -1001,7 +1139,14 @@ export class GameScene extends Scene {
     if (this.publishedAs !== net.playerId) {
       this.publishedAs = net.playerId;
       this.publishedAnchor = null;
+      const before = roomEpoch(net.sharedState);
+      this.applyHeldGrants(net);
       this.farmSync.publishWorld(net, net.sharedState, Date.now());
+      // A farm the room hadn't seen replaced the old one, and with it the old
+      // farm's claims.
+      if (before !== null && before !== this.farmSync.epoch) {
+        net.clearClaims(claimPrefix(before));
+      }
     }
     const anchor = this.clockAnchor;
     if (anchor && anchor !== this.publishedAnchor) {
@@ -1300,9 +1445,7 @@ export class GameScene extends Scene {
 
     // harvest a ripe crop in front takes priority over petting/gifting nearby
     const idx = inBounds(tx, ty) ? tileIdx(tx, ty) : -1;
-    const cs = idx >= 0 ? this.world.crops.get(idx) : undefined;
-    if (cs && isMature(CROPS[cs.crop], cs.daysGrown)) {
-      this.beginAction("doing", () => this.harvest(idx));
+    if (this.tryHarvest(idx)) {
       return;
     }
 
@@ -1321,6 +1464,22 @@ export class GameScene extends Scene {
     } else if (item.kind === "seed") {
       this.plantSeed(item.crop, idx);
     }
+  }
+
+  /** Swing at a ripe crop on tile `idx`, if there is one. True when the
+   *  action went to it — even when someone else's harvest holds it. */
+  private tryHarvest(idx: number): boolean {
+    const cs = idx >= 0 ? this.world.crops.get(idx) : undefined;
+    if (!cs || !isMature(CROPS[cs.crop], cs.daysGrown)) {
+      return false;
+    }
+    const holder = this.otherHolder({ gen: this.world.gens[idx] ?? 0, idx, kind: "harvest" });
+    if (holder === null) {
+      this.beginAction("doing", () => this.harvest(idx));
+    } else {
+      this.toast(`${farmerTag(holder)} is harvesting that.`, "#ffd27a");
+    }
+    return true;
   }
 
   private actOnObject(obj: WorldObject, tx: number, ty: number, item: Item | null): void {
@@ -1358,7 +1517,7 @@ export class GameScene extends Scene {
       }
       case "tree": {
         if (item?.kind === "tool" && item.tool === "axe") {
-          this.beginAction("axe", () => this.chop(obj));
+          this.workObject(obj, "axe");
         } else {
           this.toast("You need an axe.", "#ffd27a");
         }
@@ -1366,7 +1525,7 @@ export class GameScene extends Scene {
       }
       case "rock": {
         if (item?.kind === "tool" && item.tool === "pickaxe") {
-          this.beginAction("mine", () => this.mineRock(obj));
+          this.workObject(obj, "mine");
         } else {
           this.toast("You need a pickaxe.", "#ffd27a");
         }
@@ -1422,6 +1581,11 @@ export class GameScene extends Scene {
         this.toast(`${CROPS[crop].name} won't grow in ${seasonOfDay(this.day)}.`, "#ffd27a");
         return;
       }
+      const holder = this.otherHolder({ gen: (this.world.gens[idx] ?? 0) + 1, idx, kind: "plant" });
+      if (holder !== null) {
+        this.toast(`${farmerTag(holder)} is planting there.`, "#ffd27a");
+        return;
+      }
       this.beginAction("doing", () => this.plant(idx, crop));
     } else {
       this.toast(this.world.tilled[idx] ? "Already planted." : "Till the soil first.", "#ffd27a");
@@ -1438,10 +1602,12 @@ export class GameScene extends Scene {
     this.facing = { x: Math.sign(tx - f.tx), y: tx === f.tx ? Math.sign(ty - f.ty) : 0 };
   }
 
-  beginAction(action: CharAction, onImpact: () => void): void {
+  /** Swing `action`, landing `onImpact` on its impact frame. False when too
+   *  tired to swing. */
+  beginAction(action: CharAction, onImpact: () => void): boolean {
     if (store.energy <= 0 && action !== "doing") {
       this.toast("Too tired… time to sleep.", "#c8b6ff");
-      return;
+      return false;
     }
     this.clickPath = [];
     this.acting = true;
@@ -1461,6 +1627,26 @@ export class GameScene extends Scene {
       this.acting = false;
       this.player.play("p-idle", true);
     });
+    return true;
+  }
+
+  /** Swing at a tree or rock. Each swing holds it for this farmer a while
+   *  (WORK_HOLD_MS), so two farmers never work one; while someone else holds
+   *  it, it is left alone. */
+  private workObject(obj: WorldObject, action: "axe" | "mine"): void {
+    const holder =
+      this.otherHolder({ id: obj.id, kind: "hold" }) ??
+      this.otherHolder({ id: obj.id, kind: "clear" });
+    if (holder !== null) {
+      this.toast(`${farmerTag(holder)} is working on that.`, "#ffd27a");
+      return;
+    }
+    // Claimed only once the swing really starts; the impact reads it then.
+    let hold = ClaimTicket.won();
+    const hit = (): void => (action === "axe" ? this.chop(obj, hold) : this.mineRock(obj, hold));
+    if (this.beginAction(action, hit)) {
+      hold = this.claim({ id: obj.id, kind: "hold" }, WORK_HOLD_MS);
+    }
   }
 
   awardXP(skill: SkillId, amount: number): void {
@@ -1538,10 +1724,21 @@ export class GameScene extends Scene {
   }
 
   private plant(idx: number, crop: CropId): void {
-    if (!store.inv.consumeSlot(store.inv.selected, 1)) {
+    const gen = (this.world.gens[idx] ?? 0) + 1;
+    const slot = store.inv.slots[store.inv.selected];
+    // Planted during the swing: the host's word, or someone's claim came first.
+    if (
+      this.world.crops.has(idx) ||
+      !slot ||
+      slot.qty < 1 ||
+      this.otherHolder({ gen, idx, kind: "plant" }) !== null
+    ) {
       return;
     }
+    const ticket = this.claim({ gen, idx, kind: "plant" });
+    store.inv.consumeSlot(store.inv.selected, 1);
     this.world.crops.set(idx, { crop, daysGrown: 0 });
+    this.world.gens[idx] = gen;
     store.work.planted += 1;
     this.ensureCrop(idx, crop, 0);
     const img = this.cropImgs.get(idx);
@@ -1558,16 +1755,51 @@ export class GameScene extends Scene {
       up: true,
     });
     Sound.plant();
-    this.awardXP("farming", 2);
     this.requestSave();
-    this.netTileAction({ action: "plant", crop, idx });
+    // After the claim, on the same socket: the host hears the grant first.
+    this.netTileAction({ action: "plant", crop, gen, idx });
+    ticket.land({
+      lost: (owner) => this.unplant(idx, crop, gen, owner),
+      won: () => this.awardXP("farming", 2),
+    });
+  }
+
+  /** This farmer's planting lost its claim: its crop comes off, the seed goes
+   *  back in the bag, and the tile takes the winner's crop from the host. */
+  private unplant(idx: number, crop: CropId, gen: number, owner: string): void {
+    if (this.world.crops.get(idx)?.crop === crop && this.world.gens[idx] === gen) {
+      this.world.crops.delete(idx);
+      this.world.gens[idx] = gen - 1;
+      this.redrawTile(idx);
+    }
+    const { net } = this;
+    if (net && !this.amHost) {
+      this.farmSync.settleTile(idx, net.sharedState, performance.now());
+    }
+    store.inv.add({ crop, kind: "seed" }, 1);
+    store.work.planted -= 1;
+    this.toast(`${farmerTag(owner)} planted there first.`, "#ffd27a");
+    this.requestSave();
+  }
+
+  /** A claim this farmer lost after its effect landed: what only the winner
+   *  gets comes back out of the bag. */
+  private giveBack(owner: string, deed: string, haul: readonly [Item, number][]): void {
+    for (const [item, qty] of haul) {
+      store.inv.remove(item, qty);
+    }
+    this.toast(`${farmerTag(owner)} ${deed} that first.`, "#ffd27a");
+    this.requestSave();
   }
 
   private harvest(idx: number): void {
     const cs = this.world.crops.get(idx);
-    if (!cs) {
+    const gen = this.world.gens[idx] ?? 0;
+    // Gone during the swing: the host's word, or someone's claim came first.
+    if (!cs || this.otherHolder({ gen, idx, kind: "harvest" }) !== null) {
       return;
     }
+    const ticket = this.claim({ gen, idx, kind: "harvest" });
     const def = CROPS[cs.crop];
     const [lo, hi] = def.yield;
     let n = lo + Math.trunc(Math.random() * (hi - lo + 1));
@@ -1577,7 +1809,7 @@ export class GameScene extends Scene {
     const item: Item = { crop: cs.crop, kind: "produce" };
     const leftover = store.inv.add(item, n);
     const accepted = n - leftover;
-    this.showDiscovery(store.collections.recordHarvest(cs.crop, this.season(), accepted));
+    const season = this.season();
     store.work.harvested += 1;
     this.world.crops.delete(idx);
     const img = this.cropImgs.get(idx);
@@ -1611,12 +1843,47 @@ export class GameScene extends Scene {
       this.toast(`${leftover} ${def.name} left behind — bag full.`, "#ffd27a");
     }
     Sound.harvest();
-    this.awardXP("farming", 12);
     this.requestSave();
-    this.netTileAction({ action: "harvest", idx });
+    this.shieldTile(idx);
+    ticket.land({
+      lost: (owner) => {
+        store.work.harvested -= 1;
+        this.giveBack(owner, "harvested", [[item, accepted]]);
+      },
+      // The journal and the skill count a harvest once it is this farmer's.
+      won: () => {
+        this.showDiscovery(store.collections.recordHarvest(cs.crop, season, accepted));
+        this.awardXP("farming", 12);
+      },
+    });
   }
 
-  private chop(o: WorldObject): void {
+  /** Whether a swing at a tree or rock lands: not once someone else holds it
+   *  (the swing whiffs), nor once it has left the farm. */
+  private swingLands(o: WorldObject, hold: ClaimTicket): boolean {
+    const holder = hold.lostTo;
+    if (holder !== null) {
+      this.toast(`${farmerTag(holder)} is working on that.`, "#ffd27a");
+      return false;
+    }
+    return this.world.objects.includes(o);
+  }
+
+  /** A landed swing's skill XP once the hold is this farmer's; the hit itself
+   *  is taken back if the server gave the hold to someone else. */
+  private holdHit(o: WorldObject, hold: ClaimTicket, skill: SkillId, xp: number): void {
+    hold.land({
+      lost: () => {
+        o.hp = Math.min(o.maxHp, o.hp + 1);
+      },
+      won: () => this.awardXP(skill, xp),
+    });
+  }
+
+  private chop(o: WorldObject, hold: ClaimTicket): void {
+    if (!this.swingLands(o, hold)) {
+      return;
+    }
     o.hp -= 1;
     const spr = this.objSprites.get(o.id);
     if (spr) {
@@ -1630,11 +1897,15 @@ export class GameScene extends Scene {
     }
     shake(this, 0.004, 110);
     Sound.chop();
-    this.awardXP("foraging", 2);
-    if (o.hp <= 0) {
+    this.holdHit(o, hold, "foraging", 2);
+    // Felled — unless someone else's felling claim came first: then the tree
+    // goes with the host's word, its wood theirs.
+    if (o.hp <= 0 && this.otherHolder({ id: o.id, kind: "clear" }) === null) {
+      const felled = this.claim({ id: o.id, kind: "clear" });
       Sound.thud();
+      const wood: Item = { kind: "resource", res: "wood" };
       const got = 2 + Math.trunc(Math.random() * 2);
-      store.inv.add({ kind: "resource", res: "wood" }, got);
+      const kept = got - store.inv.add(wood, got);
       if (spr) {
         this.tweens.add({
           alpha: 0,
@@ -1648,15 +1919,24 @@ export class GameScene extends Scene {
       }
       this.objSprites.delete(o.id);
       this.world.removeObject(o);
-      this.netCleared(o);
+      this.shieldClear(o.id);
       store.work.felled += 1;
       floatText(this, o.tx * TILE + 8, o.ty * TILE - 8, `+${got} Wood`, "#e8c79a");
-      this.awardXP("foraging", 6);
+      felled.land({
+        lost: (owner) => {
+          store.work.felled -= 1;
+          this.giveBack(owner, "felled", [[wood, kept]]);
+        },
+        won: () => this.awardXP("foraging", 6),
+      });
     }
     this.requestSave();
   }
 
-  private mineRock(o: WorldObject): void {
+  private mineRock(o: WorldObject, hold: ClaimTicket): void {
+    if (!this.swingLands(o, hold)) {
+      return;
+    }
     o.hp -= 1;
     const spr = this.objSprites.get(o.id);
     if (spr) {
@@ -1670,13 +1950,17 @@ export class GameScene extends Scene {
     }
     shake(this, 0.005, 110);
     Sound.mine();
-    this.awardXP("mining", 3);
-    if (o.hp <= 0) {
+    this.holdHit(o, hold, "mining", 3);
+    // Broken — unless someone else's claim on it came first, as with a tree.
+    if (o.hp <= 0 && this.otherHolder({ id: o.id, kind: "clear" }) === null) {
+      const broken = this.claim({ id: o.id, kind: "clear" });
       Sound.thud();
+      const stone: Item = { kind: "resource", res: "stone" };
       const got = 1 + Math.trunc(Math.random() * 2);
-      store.inv.add({ kind: "resource", res: "stone" }, got);
+      const haul: [Item, number][] = [[stone, got - store.inv.add(stone, got)]];
       if (Math.random() < 0.25) {
-        store.inv.add({ kind: "resource", res: "coal" }, 1);
+        const coal: Item = { kind: "resource", res: "coal" };
+        haul.push([coal, 1 - store.inv.add(coal, 1)]);
       }
       if (spr) {
         this.tweens.add({
@@ -1690,21 +1974,33 @@ export class GameScene extends Scene {
       }
       this.objSprites.delete(o.id);
       this.world.removeObject(o);
-      this.netCleared(o);
+      this.shieldClear(o.id);
       store.work.quarried += 1;
       floatText(this, o.tx * TILE + 8, o.ty * TILE - 8, `+${got} Stone`, "#cdd6e0");
-      this.awardXP("mining", 5);
+      broken.land({
+        lost: (owner) => {
+          store.work.quarried -= 1;
+          this.giveBack(owner, "broke", haul);
+        },
+        won: () => this.awardXP("mining", 5),
+      });
     }
     this.requestSave();
   }
 
   private pickForage(o: WorldObject): void {
+    // Someone else's pick came first: the mushroom goes with the host's word.
+    if (this.otherHolder({ id: o.id, kind: "clear" }) !== null) {
+      return;
+    }
+    const picked = this.claim({ id: o.id, kind: "clear" });
     const kind: ForageId = o.variant === "mushroom_blue" ? "mushroom_blue" : "mushroom_red";
     let n = 1;
     if (Math.random() < store.skills.forageBonusChance()) {
       n += 1;
     }
-    store.inv.add({ forage: kind, kind: "forage" }, n);
+    const item: Item = { forage: kind, kind: "forage" };
+    const kept = n - store.inv.add(item, n);
     store.work.foraged += 1;
     const spr = this.objSprites.get(o.id);
     if (spr) {
@@ -1724,7 +2020,7 @@ export class GameScene extends Scene {
     }
     this.objSprites.delete(o.id);
     this.world.removeObject(o);
-    this.netCleared(o);
+    this.shieldClear(o.id);
     floatText(
       this,
       o.tx * TILE + 8,
@@ -1733,8 +2029,14 @@ export class GameScene extends Scene {
       "#ffd0e0",
     );
     Sound.plant();
-    this.awardXP("foraging", 8);
     this.requestSave();
+    picked.land({
+      lost: (owner) => {
+        store.work.foraged -= 1;
+        this.giveBack(owner, "picked", [[item, kept]]);
+      },
+      won: () => this.awardXP("foraging", 8),
+    });
   }
 
   // ---------------------------------------------------------------- economy / ui

@@ -17,6 +17,9 @@ import type { FarmerSample } from "./farmer-wire";
 // slides in an idle pose. One clock for every sender: nothing to estimate per
 // farmer, and nothing changes when the host does.
 
+/** A farmer's name tag: the first characters of its player id. */
+export const farmerTag = (id: string): string => id.slice(0, 4);
+
 interface Farmer {
   sprite: Phaser.GameObjects.Sprite;
   shadow: Phaser.GameObjects.Sprite;
@@ -162,7 +165,7 @@ export class RemoteFarmers {
       .setVisible(!s.away);
     sprite.play("p-idle");
     const label = this.scene.add
-      .text(s.x, s.y - 26, id.slice(0, 4), {
+      .text(s.x, s.y - 26, farmerTag(id), {
         backgroundColor: "rgba(20,24,40,0.55)",
         color: "#ffffff",
         fontFamily: "monospace",

@@ -241,8 +241,9 @@ const main = async () => {
     });
     step("host's till reaches the guest world", true, `tile ${hostTile}`);
 
-    // Cleared objects cross both ways: the guest fells a tree (an intent the
-    // host applies), the host picks a mushroom (a key the guest adopts).
+    // Cleared objects cross both ways: the guest fells a tree (a claim whose
+    // grant the host applies), the host picks a mushroom (its own claim, a key
+    // the guest adopts).
     const felled = await guest.evaluate(() => {
       const gs = window.__gs;
       const f = gs.feetTile();

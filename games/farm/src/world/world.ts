@@ -85,6 +85,9 @@ export class World {
   tilled: Uint8Array = new Uint8Array(MAP_W * MAP_H);
   watered: Uint8Array = new Uint8Array(MAP_W * MAP_H);
   crops = new Map<number, CropState>();
+  // co-op: crops planted on each tile in this farm's run, naming each crop in
+  // claim keys (net/claims). Never saved: a loaded farm starts a new run.
+  gens: Uint16Array = new Uint16Array(MAP_W * MAP_H);
   objects: WorldObject[] = [];
   nextId = 1;
   // tile idx -> first object (in array order) covering it. Objects never move,
