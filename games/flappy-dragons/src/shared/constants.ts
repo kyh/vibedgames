@@ -84,13 +84,17 @@ export const SOUND_KEY = "flappy-dragons:sound";
 // as live ghosts weaving the same pipes. Crash → brief respawn, keep racing.
 // Alone (or with the party server unreachable) it degrades to the classic solo
 // game: the world freezes on a crash and you tap to restart.
-export const MP_ROOM = "flappy-dragons-default";
+/** Versioned with the wire format, so a tab still running an older build never shares a room with this one. */
+export const MP_ROOM = "flappy-dragons-v2";
 export const MP_MAX_PLAYERS = 8;
 export const OFFLINE_FALLBACK_MS = 4000;
 /** Per-player state (bird height / score / liveness) broadcast rate. */
 export const NET_TICK_HZ = 20;
-/** Host's global world-scroll broadcast rate (guests dead-reckon between). */
-export const WORLD_TICK_HZ = 15;
+/**
+ * Host's seed + world-scroll report rate. Guests dead-reckon between reports
+ * and fold any error in gradually, so a few a second is plenty.
+ */
+export const WORLD_TICK_HZ = 4;
 /** Empty runway (course units) before the first pipe of the course. */
 export const RUNWAY = 700;
 /** How long a crashed dragon waits before respawning in a multiplayer race. */
@@ -164,6 +168,10 @@ export const flapVelocityFor = (strength: number): number => {
   const s = Math.min(Math.max(strength, 0), 1);
   return FLAP_VELOCITY_MIN + (FLAP_VELOCITY - FLAP_VELOCITY_MIN) * s;
 };
+
+/** Dragon pitch for vertical speed `vy` (px/s) — your own dragon's and every rival's. */
+export const tiltFor = (vy: number): number =>
+  Math.min(MAX_TILT, Math.max(-MAX_TILT, vy * TILT_FACTOR));
 
 /** Random skin index 1..DRAGON_SKINS. */
 export const rollSkin = (): number => 1 + Math.floor(Math.random() * DRAGON_SKINS);

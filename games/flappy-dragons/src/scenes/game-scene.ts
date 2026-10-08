@@ -1,17 +1,20 @@
-import { Animations, Math as PhaserMath, Scale, Scene, Scenes, Sound, TintModes } from "phaser";
+import { Animations, Scale, Scene, Scenes, Sound, TintModes } from "phaser";
 import type { GameObjects, Time, Types } from "phaser";
 import { createTouchControls, notifyGameStarted, watchControlContext } from "@repo/embed";
 import type { TouchControls } from "@repo/embed";
 import { PhysicalGamepad, safeAreaInset } from "@vibedgames/gamepad";
+import { FixedRate, HOST_LIVENESS_TIMEOUT_MS } from "@vibedgames/multiplayer";
 import { isPlaytestRequested } from "@vibedgames/playtest";
 
 import { CONTROLS } from "../controls";
 import { buildControls, ensureStyle as ensureControlsStyle } from "../pause-overlay";
 import { isCoarsePointer, recalibratePose, setPoseLocked } from "../input/camera";
-import { NetSession, isJsonNumber } from "../net/session";
+import { RivalMotion } from "../net/rival-motion";
+import { NetSession, isJsonNumber, isJsonObject, isJsonString } from "../net/session";
+import { WorldFollower } from "../net/world-follower";
 import { publishPlaytestSurface } from "../playtest";
-import type { JsonObject } from "../net/session";
-import type { Player } from "@vibedgames/multiplayer";
+import type { JsonValue } from "../net/session";
+import type { Player, PlayerMap } from "@vibedgames/multiplayer";
 import { FlightFx, prefersReducedMotion } from "./flight-fx";
 import {
   ART_SCALE,
@@ -27,11 +30,11 @@ import {
   COURSE_H,
   DIGIT_H,
   DIGIT_W,
+  DRAGON_SKINS,
   DRAGON_SPRITE_OFFSET_X,
   DRAGON_SPRITE_OFFSET_Y,
   flapVelocityFor,
   GRAVITY,
-  MAX_TILT,
   MIN_VIEW_W,
   MP_MAX_PLAYERS,
   MP_ROOM,
@@ -48,7 +51,7 @@ import {
   RUNWAY,
   SCORE_Y,
   SOUND_KEY,
-  TILT_FACTOR,
+  tiltFor,
   topHeightFor,
   TUBE_CAP_H,
   WORLD_TICK_HZ,
@@ -76,9 +79,13 @@ interface BgLayer {
 interface Ghost {
   sprite: GameObjects.Sprite;
   skin: number;
-  /** Per-id flock variation (seeded from the id), computed once at creation. */
-  scale: number;
+  /** Lane spacing; with the sprite's scale, per-id flock variation seeded from the id. */
   gap: number;
+  motion: RivalMotion;
+  /** Liveness last drawn, so the tint is only rewritten when it flips. */
+  live: boolean | null;
+  /** Frame it was last listed as a rival; anything older has left. */
+  seen: number;
 }
 
 const COIN_PICKUP_X = 54;
@@ -87,11 +94,15 @@ const RESTART_LOCKOUT_MS = 280;
 const RESULT_LAYOUT_MS = 250;
 const GATE_MILESTONE = 10;
 const PHRASE_NOTE_MS = 110;
-/** Guest scroll-clock: adopt host drift beyond this gap in one snap… */
-const WORLD_SNAP_PX = 60;
-/** …and fold smaller drift in gradually per snapshot. */
-const WORLD_DRIFT_BLEND = 0.2;
+/** Longest step a solo sim takes: a stalled or hidden tab pauses a solo run rather than skipping it. */
 const MAX_DT_MS = 50;
+/**
+ * Longest step a shared course takes. Its scroll runs on real time so every
+ * client agrees on it; a host away longer than this has lost the host role.
+ */
+const MAX_RACE_STEP_MS = HOST_LIVENESS_TIMEOUT_MS;
+/** Rate (1/s) the ready hover glides onto the next gap when that changes. */
+const READY_EASE = 5;
 /**
  * Everyone shares the same course position (one global scroll), so all dragons
  * would stack at BIRD_X. Your own dragon stays at BIRD_X — the back of the view
@@ -123,12 +134,24 @@ const HINT_RESTART = TOUCH ? "TAP ANYWHERE TO RESTART" : "CLICK OR PRESS SPACE T
 const HINT_RACE = "FLAP TO JOIN THE RACE";
 const SOLO_ROW_ID = "you";
 
+/** One rival's per-tick wire sample (see GameScene.broadcast). */
 interface PeerState {
-  yf: number;
+  t: number;
+  y: number;
+  vy: number;
   live: boolean;
+  /** Bumped on every respawn or restart — a teleport, not flight. */
+  life: number;
   score: number;
   skin: number;
-  rot: number;
+}
+
+/** The host's course report: seed, plus its scroll `x` at time `t` on the clock of `host`. */
+interface WorldReport {
+  host: string;
+  seed: number;
+  t: number;
+  x: number;
 }
 
 /* oxlint-disable no-bitwise, unicorn/prefer-code-point -- FNV-1a is defined over
@@ -166,29 +189,40 @@ const setText = (id: string, text: string): void => {
   }
 };
 
-const numField = (s: JsonObject, key: string): number | null => {
-  const v = s[key];
-  return isJsonNumber(v) ? v : null;
-};
+const isSeed = (v: number): boolean => Number.isSafeInteger(v) && v > 0 && v <= 0x80_00_00_00;
+
+/** A skin outside the shipped set would draw a missing texture; show the first one instead. */
+const validSkin = (v: number): number =>
+  Number.isInteger(v) && v >= 1 && v <= DRAGON_SKINS ? v : 1;
 
 const readPeer = (state: Player["state"]): PeerState | null => {
   if (!state) {
     return null;
   }
-  const { yf } = state;
-  const { skin } = state;
-  if (!isJsonNumber(yf) || !isJsonNumber(skin)) {
+  const { life, score, skin, t, vy, y } = state;
+  if (!isJsonNumber(t) || !isJsonNumber(y)) {
     return null;
   }
-  const { score } = state;
-  const { rot } = state;
   return {
+    life: isJsonNumber(life) ? life : 0,
     live: state["live"] === true,
-    rot: isJsonNumber(rot) ? rot : 0,
     score: isJsonNumber(score) ? score : 0,
-    skin,
-    yf,
+    skin: validSkin(isJsonNumber(skin) ? skin : 1),
+    t,
+    vy: isJsonNumber(vy) ? vy : 0,
+    y,
   };
+};
+
+const readWorld = (world: JsonValue | undefined): WorldReport | null => {
+  if (!isJsonObject(world)) {
+    return null;
+  }
+  const { host, seed, t, x } = world;
+  if (!isJsonString(host) || !isJsonNumber(seed) || !isSeed(seed)) {
+    return null;
+  }
+  return isJsonNumber(t) && isJsonNumber(x) ? { host, seed, t, x } : null;
 };
 
 // localStorage throws in some embeds (sandboxed iframes, blocked cookies,
@@ -264,7 +298,7 @@ export class GameScene extends Scene {
   /** Pipes passed this life (score also counts coins). */
   private gates = 0;
 
-  /** Global course scroll. The host owns it; guests mirror the host's value. */
+  /** Global course scroll. The host owns it; guests follow the host's reports. */
   private worldX = 0;
   /** Cosmetic parallax drift used only on the solo ready screen. */
   private readyDrift = 0;
@@ -281,6 +315,8 @@ export class GameScene extends Scene {
    *  order. A seat the server holds for a reconnect is not a rival: its last
    *  state would hang a frozen ghost in your lane for the whole grace window. */
   private rivalIds: string[] = [];
+  /** The player map `rivalIds` was derived from; the SDK swaps it on every change. */
+  private rivalSource: PlayerMap | null = null;
   private bgLayers: BgLayer[] = [];
   private bird!: GameObjects.Sprite;
   private readyImg!: GameObjects.Image;
@@ -291,11 +327,23 @@ export class GameScene extends Scene {
   private flightFx!: FlightFx;
 
   // Net bookkeeping.
-  private stateAcc = 0;
-  private worldAcc = 0;
+  /** Frame timestamp of the previous update: elapsed time comes from it, not Phaser's delta. */
+  private lastFrameAt = -1;
+  private readonly stateRate = new FixedRate(NET_TICK_HZ);
+  private readonly worldRate = new FixedRate(WORLD_TICK_HZ);
+  /** Whether each stream ran last frame: the first tick of a stream goes out at once. */
+  private streamingState = false;
+  private streamingWorld = false;
+  /** Bumped on every respawn and restart, so rivals drop their history instead of gliding the teleport. */
+  private life = 0;
+  /** Guest side of the shared scroll. */
+  private readonly follower = new WorldFollower();
+  /** The host the follower's clock belongs to; a change is a migration. */
+  private followedHost: string | null = null;
+  /** The shared `world` object last parsed, and what it said. */
+  private worldRef: JsonValue | undefined;
+  private world: WorldReport | null = null;
   private boardAcc = 0;
-  private hostSeq = 0;
-  private lastSeq = -1;
   private boardSig = "";
   private lastNetInfo = "";
 
@@ -744,43 +792,40 @@ export class GameScene extends Scene {
   private get raceActive(): boolean {
     return this.racing || this.worldX > 0;
   }
+  /**
+   * The course is not ours to restart: a race, or a guest whose only rival is
+   * the host's seat held for a reconnect (so not `racing`). Its scroll keeps
+   * real time, a crash respawns, and only the host writes it.
+   */
+  private get sharedCourse(): boolean {
+    return this.racing || !this.net.isHost;
+  }
 
-  update(time: number, delta: number): void {
-    const dt = Math.min(delta, MAX_DT_MS) / 1000;
+  update(time: number): void {
+    // Elapsed time from the frame timestamps themselves. Phaser's `delta` is
+    // averaged over 10 frames and capped at 16.7 ms whenever the window or
+    // iframe loses focus: a host stepping on it lost time, and every guest's
+    // pipes slid backwards to match.
+    const elapsedMs = this.lastFrameAt < 0 ? 0 : Math.max(0, time - this.lastFrameAt);
+    this.lastFrameAt = time;
+    const dt = Math.min(elapsedMs, MAX_DT_MS) / 1000;
     this.pad.update();
     if (this.padFlapPressed()) {
       this.handleInput();
     }
     this.net.tick();
     this.rivalIds = this.presentRivals();
-    this.ensureSeed();
-    this.advanceWorld(dt);
+    // A shared course steps on real time, so every client agrees on it; a solo
+    // run pauses through a stall rather than skipping ahead.
+    const stepMs = Math.min(elapsedMs, this.sharedCourse ? MAX_RACE_STEP_MS : MAX_DT_MS);
+    this.ensureSeed(time);
+    this.advanceWorld(stepMs, time);
 
     if (this.phase === "ready") {
-      // Idle hover; in a live race the bird is a translucent, invulnerable
-      // spectator until the first flap.
-      this.bird.y = BIRD_SPAWN_Y + DRAGON_SPRITE_OFFSET_Y + Math.sin(time / 300) * 4;
-      if (!this.racing) {
-        this.readyDrift += READY_DRIFT * dt;
-      }
+      this.hover(time, dt);
     } else if (this.phase === "playing") {
-      // Legacy integration order: position first, then gravity into velocity.
-      this.birdY += this.vy * dt;
-      this.vy += GRAVITY * dt;
-      // Solid ceiling. Without it, steady tapping — the natural panic input on
-      // a phone — parks the dragon above the view, where it is invisible and
-      // (before the trunks were extended up there) passed through every pipe.
-      const ceiling = this.viewTop();
-      if (this.birdY < ceiling) {
-        this.birdY = ceiling;
-        this.vy = 0;
-      }
-      this.bird.y = this.birdY + DRAGON_SPRITE_OFFSET_Y;
-      this.bird.rotation = PhaserMath.Clamp(this.vy * TILT_FACTOR, -MAX_TILT, MAX_TILT);
-      this.checkScore();
-      this.checkCoins();
-      this.checkDeath();
-    } else if (this.phase === "gameover" && this.racing && time - this.diedAt >= RESPAWN_MS) {
+      this.fly(stepMs / 1000);
+    } else if (this.phase === "gameover" && this.sharedCourse && time - this.diedAt >= RESPAWN_MS) {
       // Multiplayer: crash is a brief setback, then rejoin the live course.
       this.respawn();
     }
@@ -790,7 +835,7 @@ export class GameScene extends Scene {
     }
     this.applyParallax();
     this.syncPipes();
-    this.syncGhosts();
+    this.syncGhosts(time);
     this.flightFx.update(
       dt,
       this.viewW(),
@@ -800,13 +845,53 @@ export class GameScene extends Scene {
       this.bird.y,
       this.phase === "playing" && this.vy < -120,
     );
-    this.broadcast(dt);
+    this.broadcast(elapsedMs, time);
     this.updateBoard(dt);
   }
 
+  /**
+   * Ready hover, invulnerable until the first flap launches the life. While
+   * the course runs (a race joiner, a respawn) it holds over the next gap,
+   * gliding across when that changes, so the first flap starts from a gap.
+   */
+  private hover(time: number, dt: number): void {
+    this.birdY += (this.readyY() - this.birdY) * (1 - Math.exp(-READY_EASE * dt));
+    this.bird.y = this.birdY + DRAGON_SPRITE_OFFSET_Y + Math.sin(time / 300) * 4;
+    if (!this.racing) {
+      this.readyDrift += READY_DRIFT * dt;
+    }
+  }
+
+  private fly(h: number): void {
+    // Exact constant-gravity kinematics: the arc, and the 144 px a full flap
+    // rises, are the same at every frame rate. The per-frame Euler step this
+    // replaced rose 150 px at 60 Hz but 146 px at 144 Hz.
+    this.birdY += this.vy * h + 0.5 * GRAVITY * h * h;
+    this.vy += GRAVITY * h;
+    // Solid ceiling. Without it, steady tapping — the natural panic input on
+    // a phone — parks the dragon above the view, where it is invisible and
+    // (before the trunks were extended up there) passed through every pipe.
+    const ceiling = this.viewTop();
+    if (this.birdY < ceiling) {
+      this.birdY = ceiling;
+      this.vy = 0;
+    }
+    this.bird.y = this.birdY + DRAGON_SPRITE_OFFSET_Y;
+    this.bird.rotation = tiltFor(this.vy);
+    this.checkScore();
+    this.checkCoins();
+    this.checkDeath();
+  }
+
+  /** Other present players, re-derived only when the SDK hands over a new player map. */
   private presentRivals(): string[] {
+    const { players } = this.net;
+    if (players === this.rivalSource) {
+      return this.rivalIds;
+    }
+    this.rivalSource = players;
     const me = this.net.playerId;
-    return Object.entries(this.net.players)
+    return Object.entries(players)
       .filter(([id, p]) => id !== me && p.connected !== false)
       .map(([id]) => id)
       .toSorted();
@@ -814,11 +899,38 @@ export class GameScene extends Scene {
 
   // ---- seed + world scroll -------------------------------------------------
 
-  private ensureSeed(): void {
-    const s = this.net.sharedState;
-    const shared = s ? numField(s, "seed") : null;
-    if (shared !== null && Number.isSafeInteger(shared) && shared > 0 && shared <= 0x80_00_00_00) {
-      this.adoptSeed(shared);
+  /** The host's course report from shared state, parsed once per new object. */
+  private sharedWorld(): WorldReport | null {
+    const ref = this.net.sharedState?.["world"];
+    if (ref !== this.worldRef) {
+      this.worldRef = ref;
+      this.world = readWorld(ref);
+    }
+    return this.world;
+  }
+
+  /**
+   * Host only: the seed and scroll, stamped with this frame's clock and whose
+   * clock it is. `world` is an object, which the SDK always sends whole (it
+   * diffs primitives only), so every report re-asserts the seed — a room
+   * whose server state was wiped hands its next joiner the course again
+   * within one report.
+   */
+  private publishWorld(time: number): void {
+    this.net.patchShared({
+      world: {
+        host: this.net.playerId ?? "",
+        seed: this.seed,
+        t: Math.round(time),
+        x: Math.round(this.worldX),
+      },
+    });
+  }
+
+  private ensureSeed(time: number): void {
+    const world = this.sharedWorld();
+    if (world) {
+      this.adoptSeed(world.seed);
       return;
     }
     // First host seeds the course. Guests wait for it (bird just hovers).
@@ -826,7 +938,7 @@ export class GameScene extends Scene {
       if (this.seed === 0) {
         this.seed = randomSeed();
       }
-      this.net.patchShared({ seed: this.seed });
+      this.publishWorld(time);
     }
   }
 
@@ -837,36 +949,40 @@ export class GameScene extends Scene {
     }
     this.seed = seed;
     this.clearPipes();
+    this.follower.resync();
   }
 
-  private advanceWorld(dt: number): void {
+  private advanceWorld(stepMs: number, time: number): void {
     if (this.net.isHost) {
+      this.followedHost = this.net.playerId;
       // Host owns the global scroll: run it while we're flying, or whenever a
       // guest is in the room so the shared course keeps moving for everyone.
       if (this.alive || this.racing) {
-        this.worldX += PIPE_SPEED * dt;
+        this.worldX += (PIPE_SPEED * stepMs) / 1000;
       }
       return;
     }
-    // Guest: mirror the host's scroll, dead-reckoned between snapshots.
-    const s = this.net.sharedState;
-    if (!s) {
+    const host = this.net.hostId;
+    if (host !== this.followedHost) {
+      // A new host (or we lost the role) stamps with another machine's clock.
+      this.follower.reset();
+      this.followedHost = host;
+    }
+    const { world } = this;
+    // No course yet: still connecting, or the host has not seeded one.
+    if (!world) {
       return;
     }
-    const seq = numField(s, "wseq");
-    const wx = numField(s, "wx");
-    this.worldX += PIPE_SPEED * dt;
-    if (seq !== null && seq !== this.lastSeq && wx !== null) {
-      this.lastSeq = seq;
-      const drift = wx - this.worldX;
-      // Snapshots arrive ~half-RTT stale, so hard-adopting each one snaps the
-      // whole pipe field backward every tick. Fold small drift in smoothly;
-      // snap only on real discontinuities (join, host migration).
-      if (Math.abs(drift) > WORLD_SNAP_PX) {
-        this.worldX = wx;
-      } else {
-        this.worldX += drift * WORLD_DRIFT_BLEND;
-      }
+    // Only the current host's reports set the pace. The server keeps the last
+    // report whoever wrote it, so a joiner after a migration is handed the
+    // old host's, on a clock nobody here shares; its seed still counts.
+    if (world.host === host) {
+      this.follower.observe(world.t, world.x, time);
+    }
+    this.worldX = this.follower.advance(this.worldX, stepMs, time, this.alive);
+    if (this.follower.snapped && this.alive) {
+      // Gates the snap carried us past were never flown.
+      this.lastScoredIndex = Math.max(this.lastScoredIndex, this.frontIndex());
     }
   }
 
@@ -907,10 +1023,11 @@ export class GameScene extends Scene {
       this.flap(strength, refire);
       return;
     }
-    // In a race the respawn timer owns the comeback — a tap on the gameover
-    // screen must not restart() (which rewinds the SHARED course to zero for
-    // everyone when the host does it).
-    if (this.racing) {
+    // On a shared course the respawn timer owns the comeback — a tap on the
+    // gameover screen must not restart(), which reseeds and rewinds the course
+    // to zero. A guest never may: alone beside a held host seat it would
+    // rewind its own scroll, which becomes the room's if it is promoted.
+    if (this.sharedCourse) {
       return;
     }
     if (this.time.now - this.diedAt < RESTART_LOCKOUT_MS) {
@@ -961,12 +1078,10 @@ export class GameScene extends Scene {
   }
 
   /**
-   * Per-life reset, shared by the first flap and every racing respawn. The
-   * shared course may be mid-way, so the bird drops into the next gap rather
-   * than the fixed spawn height.
+   * Per-life reset at the first flap. The bird launches from where the ready
+   * hover holds it — over the next gap when the course is already running.
    */
   private startLife(): void {
-    this.birdY = this.raceActive ? this.spawnY() : BIRD_SPAWN_Y;
     this.vy = 0;
     this.lastScoredIndex = this.frontIndex();
     this.gates = 0;
@@ -989,11 +1104,15 @@ export class GameScene extends Scene {
     this.seed = seed;
     // Publish the reroll, or ensureSeed() re-adopts the stale shared seed
     // next frame and every solo run replays the identical course. (Offline
-    // this writes the local loopback state; a non-host can't be alone.)
-    this.net.patchShared({ seed: this.seed });
+    // this writes the local loopback state.) Only the course's owner may:
+    // every caller is the host by now, but a guest's write would be refused.
+    if (this.net.isHost) {
+      this.publishWorld(this.time.now);
+    }
     this.clearPipes();
 
     this.skin = rollSkin();
+    this.life += 1;
     this.bird.setPosition(BIRD_X + DRAGON_SPRITE_OFFSET_X, BIRD_SPAWN_Y + DRAGON_SPRITE_OFFSET_Y);
     this.reviveBird();
     this.birdY = BIRD_SPAWN_Y;
@@ -1001,11 +1120,19 @@ export class GameScene extends Scene {
     this.setPhase("ready");
   }
 
-  /** Multiplayer: respawn into the still-scrolling shared course. */
+  /**
+   * Multiplayer: back into the ready hover over the next gap of the
+   * still-scrolling course — invulnerable, and the first flap launches the
+   * life, exactly like a solo start. Respawning straight into a falling
+   * dragon left about half a second to find the flap before it fell out.
+   */
   private respawn(): void {
     this.score = 0;
-    this.startLife();
-    this.enterPlaying();
+    this.vy = 0;
+    this.birdY = this.readyY();
+    this.life += 1;
+    this.reviveBird();
+    this.setPhase("ready");
   }
 
   /** Reset the bird's look + game-over HUD after a death. */
@@ -1024,12 +1151,6 @@ export class GameScene extends Scene {
     this.overImg.setVisible(false);
     this.setHint("");
     this.refreshScore();
-  }
-
-  /** Shared tail of racing respawns: reset the bird's look + HUD, go live. */
-  private enterPlaying(): void {
-    this.reviveBird();
-    this.setPhase("playing");
   }
 
   private die(): void {
@@ -1081,7 +1202,12 @@ export class GameScene extends Scene {
     return Math.floor((this.worldX + BIRD_X - PIPE_WIDTH - RUNWAY) / PIPE_SPAWN_DISTANCE);
   }
 
-  /** Where a comeback drops the bird. The shared course kept scrolling while
+  /** Where the ready hover holds the bird: the next gap while the course runs, else the fixed spawn. */
+  private readyY(): number {
+    return this.raceActive ? this.spawnY() : BIRD_SPAWN_Y;
+  }
+
+  /** Where a comeback hovers the bird. The shared course kept scrolling while
    *  we were dead, so a fixed height regularly lands inside a pipe trunk —
    *  aim for the gap of the pipe the bird will meet first instead. */
   private spawnY(): number {
@@ -1288,7 +1414,7 @@ export class GameScene extends Scene {
 
   // ---- ghosts (other players) ----------------------------------------------
 
-  private syncGhosts(): void {
+  private syncGhosts(time: number): void {
     if (!this.racing) {
       for (const g of this.ghosts.values()) {
         g.sprite.destroy();
@@ -1296,84 +1422,129 @@ export class GameScene extends Scene {
       this.ghosts.clear();
       return;
     }
-    const seen = new Set<string>();
+    const { frame } = this.game.loop;
 
     // Fan rivals out to the right of your own dragon (which stays at BIRD_X).
     // Each keeps a per-id gap + depth so the flock is loose, not a fixed grid;
     // gaps accumulate so rivals never overlap however uneven the spacing.
     let laneX = BIRD_X + DRAGON_SPRITE_OFFSET_X;
     for (const id of this.rivalIds) {
-      const ps = readPeer(this.net.players[id]?.state);
-      if (!ps) {
+      const ghost = this.feedGhost(id, time);
+      if (!ghost) {
         continue;
       }
-      seen.add(id);
-      let ghost = this.ghosts.get(id);
-      if (!ghost || ghost.skin !== ps.skin) {
-        ghost?.sprite.destroy();
-        const sprite = this.add.sprite(0, 0, `dragon-${ps.skin}-1`).setDepth(8).setAlpha(0.55);
-        sprite.play(`fly-${ps.skin}`);
-        ghost = {
-          gap: GHOST_GAP_MIN + hashId(id, 1) * (GHOST_GAP_MAX - GHOST_GAP_MIN),
-          scale:
-            ART_SCALE * (GHOST_SCALE_MIN + hashId(id, 3) * (GHOST_SCALE_MAX - GHOST_SCALE_MIN)),
-          skin: ps.skin,
-          sprite,
-        };
-        this.ghosts.set(id, ghost);
-      }
+      ghost.seen = frame;
       laneX += ghost.gap;
-      ghost.sprite.setScale(ghost.scale);
-      ghost.sprite.setPosition(laneX, ps.yf * COURSE_H + DRAGON_SPRITE_OFFSET_Y);
-      ghost.sprite.setRotation(PhaserMath.Clamp(ps.rot, -MAX_TILT, MAX_TILT));
-      if (ps.live) {
-        ghost.sprite.setAlpha(0.55).clearTint();
-      } else {
-        // Crashed players fade to a grey silhouette until they respawn.
-        ghost.sprite.setAlpha(0.28).setTint(0x90_99_b0);
+      // Drawn from the rival's own stamped samples ~100 ms back, blending the
+      // two around that moment: as smooth as its flight on its own screen,
+      // however unevenly the packets arrive.
+      const pose = ghost.motion.sample(time);
+      if (!pose) {
+        continue;
+      }
+      ghost.sprite.setPosition(laneX, pose.y + DRAGON_SPRITE_OFFSET_Y);
+      ghost.sprite.setRotation(tiltFor(pose.vy));
+      if (pose.live !== ghost.live) {
+        ghost.live = pose.live;
+        if (pose.live) {
+          ghost.sprite.setAlpha(0.55).clearTint();
+        } else {
+          // Crashed (or still hovering) players fade to a grey silhouette.
+          ghost.sprite.setAlpha(0.28).setTint(0x90_99_b0);
+        }
       }
     }
 
     for (const [id, ghost] of this.ghosts) {
-      if (!seen.has(id)) {
+      if (ghost.seen !== frame) {
         ghost.sprite.destroy();
         this.ghosts.delete(id);
       }
     }
   }
 
+  /** A rival's ghost with its newest sample pushed, or null until it has sent one. */
+  private feedGhost(id: string, time: number): Ghost | null {
+    const state = this.net.players[id]?.state;
+    const known = this.ghosts.get(id);
+    // The state is polled every frame; only a new stamp is a new sample.
+    if (known && state?.["t"] === known.motion.stamp) {
+      return known;
+    }
+    const peer = readPeer(state);
+    if (!peer) {
+      return known ?? null;
+    }
+    let ghost = known;
+    if (!ghost) {
+      const sprite = this.add
+        .sprite(0, 0, `dragon-${peer.skin}-1`)
+        .setDepth(8)
+        .setScale(
+          ART_SCALE * (GHOST_SCALE_MIN + hashId(id, 3) * (GHOST_SCALE_MAX - GHOST_SCALE_MIN)),
+        );
+      sprite.play(`fly-${peer.skin}`);
+      ghost = {
+        gap: GHOST_GAP_MIN + hashId(id, 1) * (GHOST_GAP_MAX - GHOST_GAP_MIN),
+        live: null,
+        motion: new RivalMotion(),
+        seen: 0,
+        skin: peer.skin,
+        sprite,
+      };
+      this.ghosts.set(id, ghost);
+    } else if (ghost.skin !== peer.skin) {
+      ghost.skin = peer.skin;
+      ghost.sprite.play(`fly-${peer.skin}`);
+    }
+    ghost.motion.push(peer.t, peer.life, { live: peer.live, vy: peer.vy, y: peer.y }, time);
+    return ghost;
+  }
+
   // ---- networking ----------------------------------------------------------
 
-  private broadcast(dt: number): void {
-    if (this.net.offline) {
+  /**
+   * Streams on steady clocks (FixedRate keeps the remainder, where a
+   * reset-to-zero throttle drifted to 17–18 Hz with uneven gaps). Only while
+   * racing: alone, nobody is listening — and the first tick of a stream goes
+   * out at once, so a joiner sees this dragon and the course immediately.
+   */
+  private broadcast(elapsedMs: number, time: number): void {
+    if (this.net.offline || !this.racing) {
+      this.streamingState = false;
+      this.streamingWorld = false;
       return;
     }
-    // A lone player parked on the title screen has nothing to say — don't
-    // stream state at the Durable Object for nobody.
-    if (!this.racing && !this.alive) {
-      return;
-    }
-    this.stateAcc += dt;
-    if (this.stateAcc >= 1 / NET_TICK_HZ) {
-      this.stateAcc = 0;
+    const stateDue = this.stateRate.due(elapsedMs);
+    if (stateDue || !this.streamingState) {
+      if (!this.streamingState) {
+        this.stateRate.reset();
+      }
+      this.streamingState = true;
+      // Stamped with this frame's clock: rivals render it ~100 ms behind,
+      // between samples. Unchanged keys stay off the wire, so a hovering or
+      // crashed dragon costs only `t`.
       this.net.updateMyState({
+        life: this.life,
         live: this.alive,
-        rot: this.bird.rotation,
         score: this.score,
         skin: this.skin,
-        yf: this.birdY / COURSE_H,
+        t: Math.round(time),
+        vy: Math.round(this.vy),
+        y: Math.round(this.birdY),
       });
     }
-    if (this.net.isHost) {
-      this.worldAcc += dt;
-      if (this.worldAcc >= 1 / WORLD_TICK_HZ) {
-        this.worldAcc = 0;
-        this.hostSeq += 1;
-        // Re-assert the seed with the clock: if the room's Durable Object was
-        // evicted mid-session (in-memory state wiped, sockets reconnect), the
-        // course would otherwise stay unseeded for every future joiner.
-        this.net.patchShared({ seed: this.seed, wseq: this.hostSeq, wx: this.worldX });
+    if (!this.net.isHost) {
+      this.streamingWorld = false;
+      return;
+    }
+    const worldDue = this.worldRate.due(elapsedMs);
+    if (worldDue || !this.streamingWorld) {
+      if (!this.streamingWorld) {
+        this.worldRate.reset();
       }
+      this.streamingWorld = true;
+      this.publishWorld(time);
     }
   }
 
@@ -1450,7 +1621,7 @@ export class GameScene extends Scene {
     }
     this.resultsEl?.style.setProperty(
       "--return-progress",
-      String(Math.min(1, elapsed / (this.racing ? RESPAWN_MS : RESTART_LOCKOUT_MS))),
+      String(Math.min(1, elapsed / (this.sharedCourse ? RESPAWN_MS : RESTART_LOCKOUT_MS))),
     );
   }
 
@@ -1555,7 +1726,7 @@ export class GameScene extends Scene {
   }
 
   private retryLine(remaining: number, elapsed: number): string {
-    if (this.racing) {
+    if (this.sharedCourse) {
       return `BACK IN ${(remaining / 1000).toFixed(1)}s · RACE CONTINUES`;
     }
     return elapsed < RESTART_LOCKOUT_MS ? "TAKE A BREATH…" : HINT_RESTART;

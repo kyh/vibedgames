@@ -1,7 +1,8 @@
 // Two-client online smoke: host + guest race in a fresh party room, then the
 // host leaves and a late joiner adopts the promoted host's course. Needs the
 // party server on localhost:8787 and a Chrome install (playwright-core, channel
-// "chrome"). Not part of `pnpm test` for that reason.
+// "chrome", or CHROME_PATH=/path/to/chrome). Not part of `pnpm test` for that
+// reason.
 //
 // Usage: node tools/two-client.mjs [--url http://localhost:5308]
 // Without --url it starts its own vite on a free port.
@@ -58,6 +59,37 @@ const startFlying = async (page) => {
   await page.keyboard.press("Space");
   await waitFor(page, () => window.__fb.scene.phase === "playing", "playing");
 };
+
+/** A race crash respawns into the ready hover; the first flap relaunches it. */
+const respawnAndFly = async (page, label) => {
+  await waitFor(page, () => window.__fb.scene.phase === "ready", `${label} hover`, 3000);
+  await page.keyboard.press("Space");
+  await waitFor(page, () => window.__fb.scene.phase === "playing", `${label} flying`);
+};
+
+/** The smallest frame-to-frame change of the course scroll over `ms`. */
+const worstScrollStep = (page, ms) =>
+  page.evaluate(
+    (span) =>
+      // oxlint-disable-next-line promise/avoid-new -- requestAnimationFrame has no promise form
+      new Promise((resolve) => {
+        const { scene } = window.__fb;
+        const until = performance.now() + span;
+        let prev = scene.worldX;
+        let worst = Number.POSITIVE_INFINITY;
+        const tick = () => {
+          worst = Math.min(worst, scene.worldX - prev);
+          prev = scene.worldX;
+          if (performance.now() < until) {
+            requestAnimationFrame(tick);
+          } else {
+            resolve(worst);
+          }
+        };
+        requestAnimationFrame(tick);
+      }),
+    ms,
+  );
 
 const openClient = async (browser, url, errors) => {
   const page = await browser.newPage({ viewport: { height: 600, width: 900 } });
@@ -122,8 +154,10 @@ const main = async () => {
       "--disable-backgrounding-occluded-windows",
       "--disable-renderer-backgrounding",
     ],
-    channel: "chrome",
     headless: true,
+    ...(process.env.CHROME_PATH
+      ? { executablePath: process.env.CHROME_PATH }
+      : { channel: "chrome" }),
   });
   const results = [];
   const step = (name, ok, note = "") => {
@@ -175,6 +209,8 @@ const main = async () => {
       Math.abs(h.worldX - g.worldX) < 120,
       `${(h.worldX - g.worldX).toFixed(0)}px`,
     );
+    const worst = await worstScrollStep(guest, 1500);
+    step("guest scroll never runs backwards", worst >= 0, `worst frame step ${worst}`);
     const hostTop = await host.evaluate((i) => window.__fb.scene.pipes.get(i).topHeight, shared[0]);
     const guestTop = await guest.evaluate(
       (i) => window.__fb.scene.pipes.get(i).topHeight,
@@ -191,7 +227,7 @@ const main = async () => {
       "guest sees crash",
     );
     step("crash reaches the other client", true);
-    await waitFor(host, () => window.__fb.scene.phase === "playing", "host respawn", 3000);
+    await respawnAndFly(host, "host respawn");
     await waitFor(
       guest,
       () => window.__fb.net.otherPlayer()?.state?.live === true,
@@ -199,7 +235,7 @@ const main = async () => {
     );
     step("host respawns into the race", true);
     await waitFor(guest, () => window.__fb.scene.phase === "gameover", "guest crash");
-    await waitFor(guest, () => window.__fb.scene.phase === "playing", "guest respawn", 3000);
+    await respawnAndFly(guest, "guest respawn");
     step("guest respawns into the race", true);
 
     // Escape on the guest pauses presentation only; the shared course keeps scrolling.
@@ -237,7 +273,8 @@ const main = async () => {
     step("guest promoted to host on host leave", g.host && g.ghosts === 0, JSON.stringify(g));
     step("promoted host keeps the seed", g.seed === seedBefore, `${g.seed}`);
     // Alone now, the promoted host is on solo rules: a crash offers a restart
-    // (fresh seed, course from zero) instead of the race respawn.
+    // (fresh seed, course from zero) instead of the race respawn. A respawn
+    // hover from before the handover waits for its first flap.
     if (g.phase === "gameover") {
       await wait(400);
       await guest.keyboard.press("Space");
@@ -246,6 +283,8 @@ const main = async () => {
         () => window.__fb.scene.phase === "ready" && !window.__fb.scene.countingDown,
         "solo restart",
       );
+      await guest.keyboard.press("Space");
+    } else if (g.phase === "ready") {
       await guest.keyboard.press("Space");
     }
     await waitFor(
@@ -275,7 +314,7 @@ const main = async () => {
     );
     step("late joiner and host draw each other", g.ghosts === 1 && l.ghosts === 1);
     await waitFor(late, () => window.__fb.scene.phase === "gameover", "late crash");
-    await waitFor(late, () => window.__fb.scene.phase === "playing", "late respawn", 3000);
+    await respawnAndFly(late, "late respawn");
     step("late joiner respawns into the race", true);
     await guest.close();
     await late.close();
