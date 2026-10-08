@@ -15,7 +15,7 @@
 
 import { isOfflineRequested } from "@repo/embed";
 import { MultiplayerClient } from "@vibedgames/multiplayer";
-import type { Player, PlayerMap } from "@vibedgames/multiplayer";
+import type { Player, PlayerMap, SendEventOptions } from "@vibedgames/multiplayer";
 
 const MULTIPLAYER_HOST = import.meta.env.DEV
   ? "http://localhost:8787"
@@ -205,12 +205,44 @@ export class NetSession {
     }
   }
 
-  /** Events loop straight back to the local handler when offline. */
-  sendEvent(event: string, payload: JsonObject): void {
-    if (this.solo || !this.client) {
+  /**
+   * Events loop straight back to the local handler when offline. `to` /
+   * `except` target player ids (server-enforced); offline, the local player
+   * is the only id, so the loopback honours them against it.
+   */
+  sendEvent(event: string, payload: JsonObject, options?: SendEventOptions): void {
+    const { client } = this;
+    if (this.solo || !client) {
+      const to = options?.to;
+      const except = options?.except;
+      const listed = (ids: string | string[] | undefined): boolean =>
+        ids !== undefined && (Array.isArray(ids) ? ids.includes(SOLO_ID) : ids === SOLO_ID);
+      if ((to === undefined || listed(to)) && !listed(except)) {
+        this.onEvent?.(event, payload, SOLO_ID);
+      }
+      return;
+    }
+    client.sendEvent(event, payload, options);
+  }
+
+  /**
+   * An intent only the host acts on. The host — and an offline game — handles
+   * it locally and synchronously, like the offline loopback, instead of
+   * bouncing it off the server; a guest sends it to the host alone.
+   */
+  sendToHost(event: string, payload: JsonObject): void {
+    const { client } = this;
+    if (this.solo || !client) {
       this.onEvent?.(event, payload, SOLO_ID);
-    } else {
-      this.client.sendEvent(event, payload);
+      return;
+    }
+    if (client.isHost) {
+      this.onEvent?.(event, payload, client.playerId ?? SOLO_ID);
+      return;
+    }
+    const host = client.hostId;
+    if (host !== null) {
+      client.sendEvent(event, payload, { to: host });
     }
   }
 

@@ -284,6 +284,33 @@ class RawClient {
   }
 }
 
+test("the host's own state_patch is relayed to guests but never echoed back to it", async () => {
+  const room = uniqueRoom("no-echo");
+  const rawHost = new RawClient(room, { _delta: "1", _pk: `echo-host-${process.pid}` });
+  const guest = connect(room);
+  try {
+    await waitFor(() => rawHost.synced(), "raw host synced");
+    await waitFor(() => admitted(guest), "guest admitted");
+    assert.equal(guest.hostId, rawHost.id, "the raw client is host");
+
+    rawHost.send({ data: { tick: 1 }, type: "state_patch" });
+    rawHost.send({ data: { tick: 2 }, type: "state_patch" });
+    await waitFor(() => guest.sharedState.tick === 2, "guest got both host patches");
+
+    // Anything the server sent the host after its patches would have landed
+    // before the guest's copy did; a guest event is a later fence.
+    guest.sendEvent("fence", null, { to: rawHost.id });
+    await waitFor(
+      () => rawHost.received("event").some((data) => data.event === "fence"),
+      "host received the fence",
+    );
+    assert.deepEqual(rawHost.received("state_patch"), [], "no state_patch echoed to the host");
+  } finally {
+    rawHost.close(1000);
+    guest.destroy();
+  }
+});
+
 test("targeted events reach exactly their audience", async () => {
   const room = uniqueRoom("targeting");
   const eventsA: string[] = [];

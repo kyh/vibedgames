@@ -660,7 +660,12 @@ export class VgServer extends Server {
             data: patch,
             type: "state_patch",
           };
-          this.broadcast(JSON.stringify(broadcastMessage), []);
+          // Not echoed to the host: it applied this patch locally before
+          // sending, so the echo is pure downlink — a whole-world snapshot
+          // streamed at 30 Hz comes straight back at it — and an echo that
+          // lands after a newer local write rolls the host's mirror back,
+          // which then also hides the next real change from the SDK's diff.
+          this.broadcast(JSON.stringify(broadcastMessage), [sender.id]);
           break;
         }
         case "heartbeat": {

@@ -1,6 +1,14 @@
 export { MultiplayerClient } from "./client.js";
 export type { MultiplayerClientOptions, MultiplayerSnapshot } from "./client.js";
 
+export { FixedRate } from "./fixed-rate.js";
+export { Interpolator, lerp, lerpAngle } from "./interpolation.js";
+export type { InterpolatorOptions } from "./interpolation.js";
+export { RemoteClock } from "./remote-clock.js";
+export type { RemoteClockOptions } from "./remote-clock.js";
+export { Reconciler } from "./prediction.js";
+export type { Correction, ReconcilerOptions } from "./prediction.js";
+
 export type {
   MultiplayerOptions,
   MultiplayerConnectionStatus,
