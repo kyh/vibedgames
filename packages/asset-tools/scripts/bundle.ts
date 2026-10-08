@@ -11,7 +11,6 @@
  *
  * The copies are not identical: each skill's entry point is derived from the
  * names its own scripts import, so esbuild tree-shakes away everything else.
- * `skill-creator` never touches a pixel and does not carry the PNG codec;
  * `image-to-threejs` does string surgery and carries almost nothing. A skill
  * that grows an import gets it on the next build.
  *

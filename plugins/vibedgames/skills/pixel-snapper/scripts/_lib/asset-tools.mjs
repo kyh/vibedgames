@@ -1530,19 +1530,6 @@ var HEADER = `${MARKER}
 // Do not edit: re-run the generator, then normalize-factory.mjs. Consume it only
 // through its exported factory functions, which are typed at the call site.
 `;
-
-// src/skill/zip.ts
-var crcTable2 = (() => {
-  const table = new Int32Array(256);
-  for (let n = 0; n < 256; n += 1) {
-    let c = n;
-    for (let k = 0; k < 8; k += 1) {
-      c = c & 1 ? 3988292384 ^ c >>> 1 : c >>> 1;
-    }
-    table[n] = c;
-  }
-  return table;
-})();
 export {
   Bitmap,
   DEFAULT_SNAP_CONFIG,

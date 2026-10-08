@@ -9,7 +9,7 @@ claude plugin install vibedgames@vibedgames
 ```
 
 Start with the `game-playbook` skill, which takes a one-line idea to a shipped
-game and routes into the other 34. Skill list:
+game and routes into the other 33. Skill list:
 [`plugins/README.md`](../README.md).
 
 ## Data and network use

@@ -20,7 +20,7 @@ a studio does — design, scaffold, generate art, add multiplayer, tune feel, sh
 | Features       | `multiplayer` · `gamepad`                                                                                                                                                |
 | Generation     | `generate` · `model-catalog` · `model-prompting` · `media-workflow` · `pixel-art` · `character-design` · `cinematography` · `storytelling` · `regenerate-3d`             |
 | Asset pipeline | `animated-spritesheets` · `aseprite` · `asset-pipeline` · `image-to-threejs` · `pixel-snapper`                                                                           |
-| Tooling        | `deploy` · `fork` · `playtest` · `skill-creator`                                                                                                                         |
+| Tooling        | `deploy` · `fork` · `playtest`                                                                                                                                           |
 
 `game-playbook` is the entry point — the build order from a one-line idea to a
 shipped game; the rest are the deep modules it routes into.

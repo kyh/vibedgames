@@ -201,19 +201,6 @@ var normalizeFactory = (source, keepActionProfile = false) => {
   }
   return out.startsWith(MARKER) ? out : HEADER + out;
 };
-
-// src/skill/zip.ts
-var crcTable2 = (() => {
-  const table = new Int32Array(256);
-  for (let n = 0; n < 256; n += 1) {
-    let c = n;
-    for (let k = 0; k < 8; k += 1) {
-      c = c & 1 ? 3988292384 ^ c >>> 1 : c >>> 1;
-    }
-    table[n] = c;
-  }
-  return table;
-})();
 export {
   MARKER,
   getFlag,
