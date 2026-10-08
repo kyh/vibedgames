@@ -799,13 +799,15 @@ export class GameScene {
   /** Guest: a new host carries the match on from the world we hold, on the
    *  same server clock, so interpolation and prediction carry on too (a new
    *  host that had to fall back to an older snapshot is caught by the mirror).
-   *  The input it never got is lost with the old host: send the held input at
+   *  Its frames come by another route, so the trip is learned afresh; the
+   *  input it never got is lost with the old host: send the held input at
    *  once. */
   private trackHost(net: MultiplayerClient): void {
     if (net.hostId === this.mirrorHost) {
       return;
     }
     this.mirrorHost = net.hostId;
+    this.mirror.clock.relearn();
     this.predictor.resend();
   }
 

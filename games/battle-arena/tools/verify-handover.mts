@@ -199,8 +199,10 @@ const room = () => {
       g.predictor.reset();
       host = { id: g.id, net, world: g.world };
       for (const other of guests()) {
-        // input in flight to the old host is lost; the new one hears the held input at once
+        // input in flight to the old host is lost; the new one hears the held
+        // input at once, and its frames come by another route
         other.up = new Pipe(90, 40, 99);
+        other.mirror.clock.relearn();
         other.predictor.resend();
       }
       return taken.source;

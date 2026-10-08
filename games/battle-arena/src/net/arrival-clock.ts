@@ -22,7 +22,7 @@ const TRIP_SLEW = 0.1;
  * render behind it covers that jitter alone — not the whole trip, which is
  * what a fixed delay behind raw server time would have to cover for the
  * slowest player. Stamps are server time whoever sends them, so a new host
- * changes nothing here but the route, which the window learns as it goes.
+ * changes nothing here but the route: `relearn` measures it afresh.
  */
 export class ArrivalClock implements SenderClock {
   private readonly server: SenderClock;
@@ -42,6 +42,13 @@ export class ArrivalClock implements SenderClock {
   /** The host → server → guest trip now applied (ms); 0 before any frame. */
   get trip(): number {
     return this.applied ?? 0;
+  }
+
+  /** Frames now come by a different route (a new host, a new connection):
+   *  forget the old route's trips and learn from the next frames. The trip
+   *  applied so far stays, and eases onto the new one, so nothing drawn jumps. */
+  relearn(): void {
+    this.buckets.length = 0;
   }
 
   /** A frame stamped `t` (server time) arrived at local time `receivedAt`. */

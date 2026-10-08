@@ -426,7 +426,13 @@ test("frames keep a guest's world in step with the host's through a busy match",
   }
 });
 
-test("the mirror clock is server time less the fastest recent trip, whoever sends", () => {
+/** Host B's frames: 40 ms further away than host A's, sent from 400 ms after A's last. */
+const routeB = (i: number) => {
+  const sent = 1_000_000 + 90 * 33 + 400 + i * 33;
+  return { at: sent - 1_000_000 + 100 + noise(i + 500) * 80, sent };
+};
+
+test("the mirror clock is server time less the fastest recent trip, re-learned per host", () => {
   let synced = false;
   const server = {
     now: (localNow?: number) => (localNow ?? 0) + 1_000_000,
@@ -448,17 +454,34 @@ test("the mirror clock is server time less the fastest recent trip, whoever send
   assert.ok(Math.abs(server.now(atA) - clock.now(atA) - clock.trip) < 1e-9);
   assert.ok(clock.trip >= 60 && clock.trip < 65, `fastest trip (${clock.trip.toFixed(1)} ms)`);
   // host B takes over 400 ms later on the same server clock, 40 ms further
-  // away: no reset — the window learns the slower route within seconds
-  for (let i = 0; i < 200; i += 1) {
-    const sent = 1_000_000 + 90 * 33 + 400 + i * 33;
-    const at = sent - 1_000_000 + 100 + noise(i + 500) * 80;
+  // away: the clock carries on, and only the route is learned afresh — the
+  // window alone would hold on to A's faster trips for seconds
+  const stale = new ArrivalClock(server);
+  for (let i = 0; i < 90; i += 1) {
+    const sent = 1_000_000 + i * 33;
+    stale.arrived(sent, sent - 1_000_000 + 60 + noise(i) * 80);
+  }
+  const before = clock.now(atA + 1);
+  clock.relearn();
+  assert.equal(clock.now(atA + 1), before, "re-learning moves nothing drawn");
+  for (let i = 0; i < 20; i += 1) {
+    const { at, sent } = routeB(i);
+    for (const c of [clock, stale]) {
+      c.arrived(sent, at);
+      c.now(at);
+    }
+  }
+  assert.ok(clock.trip >= 100, `new route learned within a second (${clock.trip.toFixed(1)} ms)`);
+  assert.ok(
+    stale.trip < 70,
+    `the window alone still trusts the old one (${stale.trip.toFixed(1)})`,
+  );
+  for (let i = 20; i < 200; i += 1) {
+    const { at, sent } = routeB(i);
     clock.arrived(sent, at);
     clock.now(at);
   }
-  assert.ok(
-    clock.trip >= 100 && clock.trip < 105,
-    `new route learned (${clock.trip.toFixed(1)} ms)`,
-  );
+  assert.ok(clock.trip >= 100 && clock.trip < 105, `and kept (${clock.trip.toFixed(1)} ms)`);
   // a stamp from a host whose own clock is not yet synced is not a trip
   clock.arrived(5, 90 * 33 + 400 + 200 * 33 + 120);
   assert.ok(clock.trip >= 100, "a wild stamp is ignored");
