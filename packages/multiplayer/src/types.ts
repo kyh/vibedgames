@@ -48,7 +48,9 @@ export interface MultiplayerOptions {
   /**
    * A claim's owner was set — granted (`owner` is the claimer), released
    * (`owner` null), or the server's answer to your own refused claim (`owner`
-   * is whoever already holds it). See `MultiplayerClient.claim`.
+   * is whoever already holds it). A sync reports every key whose owner it
+   * changed: all live claims on joining, whatever moved during a drop on
+   * reconnecting. See `MultiplayerClient.claim`.
    */
   onClaim?: (key: string, owner: string | null) => void;
   /** A server tick (tick rooms only). See `TickInfo`. */

@@ -556,11 +556,13 @@ test("claims go to the first claimer; the loser hears the owner; release, clear 
     await waitFor(() => clientA.ownerOf("brief") === bId, "A sees the TTL grant");
     await waitFor(() => !("brief" in clientA.claims), "the server announces the lapse");
 
-    const late = connect(room);
+    const heardByLate: [string, string | null][] = [];
+    const late = connect(room, { onClaim: (key, owner) => heardByLate.push([key, owner]) });
     try {
       await waitFor(() => admitted(late), "late joiner admitted");
       assert.equal(late.ownerOf("keep"), aId, "sync carries live claims");
       assert.equal(late.ownerOf("brief"), null, "and not lapsed ones");
+      assert.deepEqual(heardByLate, [["keep", aId]], "and reports them through onClaim");
     } finally {
       late.destroy();
     }

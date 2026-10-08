@@ -845,6 +845,7 @@ export class MultiplayerClient {
     this._playerId = this.socket.id ?? null;
     this._hostId = data.hostId;
     this._players = data.players;
+    const claimsBefore = this._claims;
     this._claims = data.claims;
     this.syncTicks(data.tick);
     // Measure the server clock straight away — games stamp with it from the
@@ -894,6 +895,23 @@ export class MultiplayerClient {
         },
       };
       this.send({ data: this._myState, type: "player_state_patch" });
+    }
+
+    this.reportClaimChanges(claimsBefore);
+  }
+
+  /**
+   * Tell `onClaim` about every key whose owner a sync changed: on joining,
+   * every live claim; back from a drop, whatever moved while this client was
+   * away. A game then applies claims from one callback.
+   */
+  private reportClaimChanges(before: ClaimMap): void {
+    const after = this._claims;
+    for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+      const owner = after[key]?.owner ?? null;
+      if ((before[key]?.owner ?? null) !== owner) {
+        this._onClaim?.(key, owner);
+      }
     }
   }
 
