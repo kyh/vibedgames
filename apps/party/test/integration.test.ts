@@ -765,6 +765,20 @@ test("a dropped player's inputs scheduled ahead are cancelled, not replayed late
   }
 });
 
+test("a room's rules come from its first client, even when that client sets none", async () => {
+  const room = uniqueRoom("rules-frozen");
+  const first = connect(room);
+  await waitFor(() => admitted(first), "first client admitted, with no rules");
+  const late = connect(room, { tickRate: 30 });
+  try {
+    await waitFor(() => admitted(late), "late client admitted");
+    assert.equal(late.tickClock, null, "the late client's tick rate was not adopted");
+  } finally {
+    first.destroy();
+    late.destroy();
+  }
+});
+
 test("declared limits drop out-of-range player state", async () => {
   const room = uniqueRoom("limits");
   const limits = { hp: { max: 100, min: 0 } };

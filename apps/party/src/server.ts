@@ -785,17 +785,15 @@ export class VgServer extends Server {
       return;
     }
 
-    // Admitted: establish the room's cap and rules stickily from the first
-    // admitted client that advertises them, so a later join that omits or
-    // differs (a rogue or stale client) can't change how the room runs.
+    // Admitted: establish the room's cap stickily from the first admitted
+    // client that advertises one, and its rules from the first admitted client
+    // at all — no rules are rules too — so a later join that omits or differs
+    // (a rogue or stale client) can't change how the room runs.
     if (this.cap === null && requestedCap !== null) {
       await this.setCap(requestedCap);
     }
     if (this.rules === null) {
-      const rules = readRoomRules(ctx);
-      if (rules) {
-        await this.setRules(rules);
-      }
+      await this.setRules(readRoomRules(ctx) ?? {});
     }
     this.ensureTicker();
 
