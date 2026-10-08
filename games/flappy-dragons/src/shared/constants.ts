@@ -85,7 +85,7 @@ export const SOUND_KEY = "flappy-dragons:sound";
 // Alone (or with the party server unreachable) it degrades to the classic solo
 // game: the world freezes on a crash and you tap to restart.
 /** Versioned with the wire format, so a tab still running an older build never shares a room with this one. */
-export const MP_ROOM = "flappy-dragons-v2";
+export const MP_ROOM = "flappy-dragons-v3";
 export const MP_MAX_PLAYERS = 8;
 export const OFFLINE_FALLBACK_MS = 4000;
 /** Per-player state (bird height / score / liveness) broadcast rate. */

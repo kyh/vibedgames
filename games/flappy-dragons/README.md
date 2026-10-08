@@ -27,6 +27,6 @@ pnpm --filter @repo/flappy-dragons preview     # vite preview
 | 📷 webcam                     | jump or flap your arms |
 | M                             | mute                   |
 
-Multiplayer: auto-joins the shared `flappy-dragons-v2` room (up to 8 players; the suffix versions the wire format), solo fallback when the party server is unreachable. Webcam is optional — keyboard/tap always works.
+Multiplayer: auto-joins the shared `flappy-dragons-v3` room (up to 8 players; the suffix versions the wire format), solo fallback when the party server is unreachable. Webcam is optional — keyboard/tap always works.
 
-Netcode: every player flies their own dragon locally and streams stamped height samples at 20 Hz; rivals are drawn ~100 ms behind, interpolated between samples (`src/net/rival-motion.ts`). The host owns the course seed and scroll and reports both at 4 Hz on real time; guests dead-reckon between reports and fold any error in at a capped rate, so the pipes never run backwards (`src/net/world-follower.ts`). A crash in a race respawns into the ready hover over the next gap, and the first flap relaunches — the same start as solo.
+Netcode: every player flies their own dragon locally and streams height samples at 20 Hz, stamped with the room's server time; rivals are drawn a round trip plus ~100 ms behind that clock, interpolated between samples (`src/net/rival-motion.ts`). The host owns the course seed and scroll and reports both at 4 Hz on real time; guests dead-reckon between reports and fold any error in at a capped rate, so the pipes never run backwards (`src/net/world-follower.ts`). A crash in a race respawns into the ready hover over the next gap, and the first flap relaunches — the same start as solo.
