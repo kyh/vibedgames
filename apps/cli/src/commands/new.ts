@@ -6,139 +6,62 @@ import { consola } from "consola";
 import tiged from "tiged";
 import { SLUG_RE } from "../lib/config-file.js";
 import { assertKnownFlags } from "../lib/strict-args.js";
+import { copyTemplate } from "../lib/templates.js";
 import { isJsonObject, isJsonString } from "../lib/types.js";
 import type { JsonObject, JsonValue } from "../lib/types.js";
 
 type EnginePreset =
   | {
-      repo: string;
+      // A template shipped inside this package (apps/cli/templates/<template>).
+      kind: "bundled";
+      template: string;
       label: string;
       skill: string;
-      postNotes?: string[];
     }
   | {
-      inline: true;
+      // `--template owner/repo`: fetched from GitHub, maintained by whoever owns it.
+      kind: "remote";
+      repo: string;
       label: string;
       skill: string;
     };
 
+// Every engine preset is bundled with the CLI: `vg new` works offline, and a
+// change in somebody else's starter repo can't break (or add telemetry to) a
+// new game.
 const ENGINES = new Map<string, EnginePreset>([
-  // phaserjs/template-vite-ts is the official Phaser 4 + Vite + TypeScript
-  // starter (despite the description still saying "Phaser 3" — package.json
-  // pins phaser@^4). Pulled fresh on each `vg new`.
   [
     "phaser",
-    {
-      label: "Phaser 4 + Vite + TypeScript (official)",
-      postNotes: [
-        "The phaser template ships a `log.js` telemetry shim and uses `vite/config.*.mjs` for build configs — both are upstream, not vibedgames.",
-      ],
-      repo: "phaserjs/template-vite-ts",
-      skill: "phaser",
-    },
+    { kind: "bundled", label: "Phaser 4 + Vite + TypeScript", skill: "phaser", template: "phaser" },
   ],
-  // No officially-blessed Three.js starter exists. Using the most-starred
-  // community Vite+TS starter that's been kept current.
   [
     "threejs",
     {
-      label: "Three.js + Vite + TypeScript (community)",
-      postNotes: [
-        "The demo scene (src/scene.ts) wires lil-gui, stats.js and Drag/OrbitControls as a showcase — replace it with your game and drop the debug deps for production.",
-      ],
-      repo: "pachoclo/vite-threejs-ts-template",
+      kind: "bundled",
+      label: "Three.js + Vite + TypeScript",
       skill: "threejs",
+      template: "threejs",
     },
   ],
-  // React Three Fiber. Same author as the threejs preset — Vite + TS +
-  // React 18 + R3F 8 + drei, with leva and r3f-perf wired up for debug.
-  // The pmndrs org doesn't ship an official R3F starter (its templates
-  // are all Next.js-based), and the highest-starred R3F template on
-  // GitHub is still on CRA + React 17, so this is the cleanest current
-  // option for an agent.
   [
     "react-r3f",
     {
-      label: "React + React Three Fiber + Vite + TypeScript (community)",
-      repo: "pachoclo/vite-r3f-ts-template",
+      kind: "bundled",
+      label: "React Three Fiber + drei + Vite + TypeScript",
       skill: "threejs",
+      template: "react-r3f",
     },
   ],
-  // Engine-agnostic fallback for "I'll wire it up myself" / non-canvas
-  // games. Stays inline so we don't get blocked on a network fetch when
-  // the user explicitly asked for a minimal start.
   [
     "none",
     {
-      inline: true,
+      kind: "bundled",
       label: "minimal Vite + TypeScript canvas",
       skill: "deploy",
+      template: "none",
     },
   ],
 ]);
-
-const NONE_FILES: readonly { path: string; content: (slug: string) => string }[] = [
-  {
-    content: (slug) =>
-      `${JSON.stringify(
-        {
-          devDependencies: { typescript: "^5.6.0", vite: "^7.0.0" },
-          name: slug,
-          private: true,
-          scripts: {
-            build: "vite build",
-            dev: "vite",
-            preview: "vite preview",
-          },
-          type: "module",
-          version: "0.0.0",
-        },
-        null,
-        2,
-      )}\n`,
-    path: "package.json",
-  },
-  {
-    content: () =>
-      `${JSON.stringify(
-        {
-          compilerOptions: {
-            esModuleInterop: true,
-            isolatedModules: true,
-            lib: ["ES2022", "DOM", "DOM.Iterable"],
-            module: "Preserve",
-            moduleResolution: "Bundler",
-            noEmit: true,
-            noUncheckedIndexedAccess: true,
-            skipLibCheck: true,
-            strict: true,
-            target: "ES2022",
-            types: ["vite/client"],
-          },
-          include: ["src", "vite.config.ts"],
-        },
-        null,
-        2,
-      )}\n`,
-    path: "tsconfig.json",
-  },
-  {
-    content: () =>
-      `import { defineConfig } from "vite";\n\nexport default defineConfig({\n  base: "./",\n  server: { port: 5173 },\n});\n`,
-    path: "vite.config.ts",
-  },
-  {
-    content: (slug) =>
-      `<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="UTF-8" />\n    <title>${slug}</title>\n    <style>html,body{margin:0;background:#0f1020;color:#fff;font-family:system-ui,sans-serif;}#game{display:flex;align-items:center;justify-content:center;height:100vh;}</style>\n  </head>\n  <body>\n    <div id="game"></div>\n    <script type="module" src="/src/main.ts"></script>\n  </body>\n</html>\n`,
-    path: "index.html",
-  },
-  {
-    content: (slug) =>
-      `const canvas = document.createElement("canvas");\ncanvas.width = 800;\ncanvas.height = 600;\ndocument.getElementById("game")!.appendChild(canvas);\nconst ctx = canvas.getContext("2d")!;\n\nctx.fillStyle = "#fff";\nctx.textAlign = "center";\nctx.font = "28px system-ui";\nctx.fillText("${slug}", canvas.width / 2, canvas.height / 2 - 8);\nctx.font = "14px system-ui";\nctx.fillStyle = "#aaa";\nctx.fillText("Edit src/main.ts to start building.", canvas.width / 2, canvas.height / 2 + 22);\n`,
-    path: "src/main.ts",
-  },
-  { content: () => `node_modules\ndist\n.DS_Store\n`, path: ".gitignore" },
-];
 
 // Derived so `--help` and the error message can't drift from the presets again.
 const ENGINE_IDS = [...ENGINES.keys()];
@@ -166,7 +89,7 @@ const newArgs = {
   },
   template: {
     description:
-      "Override the engine preset and fetch from an arbitrary degit spec (e.g. owner/repo, owner/repo#branch). Skips the engine preset entirely.",
+      "Fetch a third-party template from GitHub instead of a bundled preset: any degit spec (e.g. owner/repo, owner/repo#branch). Needs network; not maintained by vibedgames.",
     type: "string",
   },
 } as const;
@@ -231,16 +154,6 @@ const ensureTypecheckScript = (target: string): void => {
     // malformed package.json — rewritePackageName will warn about it
   }
 };
-const writeInlineTemplate = (target: string, slug: string, force: boolean): void => {
-  for (const file of NONE_FILES) {
-    const dest = path.resolve(target, file.path);
-    if (existsSync(dest) && !force) {
-      continue;
-    }
-    mkdirSync(dest.slice(0, dest.lastIndexOf("/")), { recursive: true });
-    writeFileSync(dest, file.content(slug));
-  }
-};
 const rewritePackageName = (target: string, slug: string): void => {
   const pkgPath = path.resolve(target, "package.json");
   if (!existsSync(pkgPath)) {
@@ -292,7 +205,7 @@ export const newCommand = defineCommand({
   args: newArgs,
   meta: {
     description:
-      "Scaffold a new browser game. Pulls an engine template (phaser, threejs, react-r3f) or generates a minimal canvas starter.",
+      "Scaffold a new browser game from a template bundled with the CLI (phaser, threejs, react-r3f, none). Works offline.",
     name: "new",
   },
   run: async ({ args, rawArgs }) => {
@@ -308,6 +221,7 @@ export const newCommand = defineCommand({
 
     const preset: EnginePreset | undefined = args.template
       ? {
+          kind: "remote",
           label: `custom: ${args.template}`,
           repo: args.template,
           skill: "deploy",
@@ -331,37 +245,32 @@ export const newCommand = defineCommand({
 
     consola.start(`Scaffolding ${slug} with ${preset.label}`);
 
-    if ("inline" in preset) {
-      writeInlineTemplate(target, slug, args.force);
+    if (preset.kind === "bundled") {
+      for (const file of copyTemplate(preset.template, target, slug, args.force)) {
+        consola.warn(`Kept the existing ${file} (pass --force to overwrite it).`);
+      }
     } else {
       try {
         await fetchTemplate(preset.repo, target, args.force);
       } catch (error) {
         consola.error(
           `Failed to fetch template ${preset.repo}: ${error instanceof Error ? error.message : String(error)}\n  ` +
-            `Check your network connection, or pass --engine none to scaffold a minimal starter offline.`,
+            `Check your network connection, or drop --template to use a bundled engine preset.`,
         );
         process.exit(1);
       }
-    }
-
-    // Post-process: strip template-repo artifacts, then name + vibedgames.json
-    // + README link to skills.
-    if (!("inline" in preset)) {
+      // A third-party repo arrives as its author left it: strip what never
+      // applies to a scaffolded game and fill in what deploy relies on.
       cleanTemplateArtifacts(target);
       ensureViteConfig(target);
       ensureTypecheckScript(target);
     }
+
     rewritePackageName(target, slug);
     writeVibedgamesJson(target, slug);
     writeReadme(target, slug, preset);
 
     consola.success(`Scaffolded ${slug} in ${target}`);
-    if ("postNotes" in preset && preset.postNotes) {
-      for (const n of preset.postNotes) {
-        consola.info(n);
-      }
-    }
     consola.log("");
     consola.info("Next steps:");
     consola.log(`  cd ${args.here ? "." : slug}`);

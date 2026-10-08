@@ -13,14 +13,14 @@ Deploy static browser games to `{slug}.vibedgames.com` using the vibedgames CLI.
 
 ## Starting a new game
 
-If the user has no project yet, scaffold one in a single command. `vg new` pulls the official engine template (or a minimal inline starter) and drops a `vibedgames.json` in place so deploy works without further config:
+If the user has no project yet, scaffold one in a single command. `vg new` copies an engine starter that ships with the CLI (no network needed) and drops a `vibedgames.json` in place so deploy works without further config:
 
 ```sh
-vg new my-game                     # Phaser 4 + Vite + TS (official phaserjs template)
+vg new my-game                     # Phaser 4 + Vite + TS
 vg new my-game --engine threejs    # Three.js + Vite + TS starter
 vg new my-game --engine react-r3f  # React + R3F + drei + Vite + TS starter
-vg new my-game --engine none       # minimal Vite + TS + canvas (offline; no engine)
-vg new my-game --template foo/bar  # any github degit spec
+vg new my-game --engine none       # minimal Vite + TS + canvas (no engine)
+vg new my-game --template foo/bar  # a third-party GitHub template instead
 ```
 
 Pick the engine that matches the game the user described:

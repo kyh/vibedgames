@@ -16,11 +16,11 @@ npm i -g vibedgames
 ## Commands
 
 ```sh
-vg new <slug>                    # scaffold a Phaser 4 + Vite + TS game (official template)
+vg new <slug>                    # scaffold a Phaser 4 + Vite + TS game
 vg new <slug> --engine threejs   # scaffold a Three.js + Vite + TS starter
 vg new <slug> --engine react-r3f # scaffold a React + R3F + drei + Vite + TS starter
-vg new <slug> --engine none      # minimal Vite + TS + canvas (offline; inline)
-vg new <slug> --template owner/repo  # any github degit spec
+vg new <slug> --engine none      # minimal Vite + TS + canvas
+vg new <slug> --template owner/repo  # a third-party GitHub template instead (degit spec)
 vg new <slug> --here             # scaffold into the current directory
 vg init [--global] [--agents …]  # install/update the vibedgames skills + CLI
 vg update                        # update the CLI and installed skills to latest
