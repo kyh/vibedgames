@@ -59,6 +59,7 @@ import {
   GRID_COLS,
   GRID_ROWS,
   HOST_STEP_MS,
+  PLAYER_LIMITS,
   SPAWN_POINTS,
   SPEED_STEP_MS,
   OFFLINE_FALLBACK_MS,
@@ -785,6 +786,7 @@ export class GameScene extends Scene {
       // already has the shared state and won't reset it.
       this.client = new MultiplayerClient({
         host: MULTIPLAYER_HOST,
+        limits: PLAYER_LIMITS,
         onClaim: (key, owner) => this.onClaimHeard(key, owner),
         onEvent: (event, payload, from) => {
           // SAFETY: wire payloads are JSON.parse output (or loop back from

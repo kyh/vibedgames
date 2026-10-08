@@ -16,14 +16,19 @@ import type { GridTile, StepPose } from "../src/net/step-track";
 import { createArena } from "../src/shared/arena";
 import {
   BASE_MOVE_MS,
+  baseStats,
   BOT_MOVE_MS,
+  COLORS,
+  GRID_COLS,
   HOST_STEP_MS,
   MIN_MOVE_MS,
   newGrid,
+  PLAYER_LIMITS,
+  SPAWN_POINTS,
 } from "../src/shared/constants";
 import type { Cell, Dir, SharedState } from "../src/shared/constants";
 import { FixedStep } from "../src/sim/fixed-step";
-import { bombId, hostTick, placeBomb } from "../src/sim/host-sim";
+import { bombId, grantPowerup, hostTick, placeBomb } from "../src/sim/host-sim";
 import { seededRandom } from "../src/util/seeded-random";
 
 const FRAME_MS = 1000 / 60;
@@ -537,4 +542,26 @@ test("grid wire: each opened crate rides as two characters and decodes to the sa
   assert.equal(applyOpened(base, ""), base, "nothing opened: the round's own layout");
   assert.ok(JSON.stringify(base).length > 4000, "what every crate break used to resend");
   assert.deepEqual(applyOpened(base, `${wire}zz!`), current, "junk codes open nothing");
+});
+
+/** Whether the party server would pass a player-state patch under the game's limits. */
+const insideLimits = (patch: Record<string, number>): boolean =>
+  Object.entries(PLAYER_LIMITS).every(([key, { min, max }]) => {
+    const value = patch[key];
+    return value === undefined || (value >= min && value <= max);
+  });
+
+test("player-state limits admit every spawn and stride a client publishes, and nothing off the board", () => {
+  for (const [idx, spawn] of SPAWN_POINTS.entries()) {
+    assert.ok(insideLimits({ ...spawn, colorIdx: idx % COLORS.length, s: 0 }), `spawn ${idx}`);
+  }
+  // Every stride from the base down to the fastest that speed power-ups reach.
+  let stats = baseStats();
+  for (let pickups = 0; pickups < 8; pickups += 1) {
+    assert.ok(insideLimits({ s: stats.speed }), `stride ${stats.speed}`);
+    stats = grantPowerup(stats, "speed");
+  }
+  assert.equal(stats.speed, MIN_MOVE_MS);
+  assert.ok(!insideLimits({ col: GRID_COLS }), "off the board");
+  assert.ok(!insideLimits({ colorIdx: COLORS.length }), "off the palette");
 });

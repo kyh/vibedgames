@@ -1,3 +1,4 @@
+import type { PlayerLimit } from "@vibedgames/multiplayer";
 import type { Arena } from "./arena";
 import type { ClockStamp } from "../util/clock";
 
@@ -142,6 +143,19 @@ export type SharedState = {
 
 // Player identity colors (ring + label tint), distinct and readable on dark.
 export const COLORS = [0xff_5d_5d, 0x5d_9b_ff, 0x5d_ff_8b, 0xff_d9_5d, 0xc1_5d_ff, 0x5d_ff_e0];
+
+/**
+ * Bounds the party server holds every player-state patch to: a tile on the
+ * board, a colour in the palette, a stride no slower than the base (0 is a
+ * spawn). A patch outside them is dropped before anyone sees it. Room rules
+ * come from the first client in, so every client ships these same ones.
+ */
+export const PLAYER_LIMITS = {
+  col: { max: GRID_COLS - 1, min: 0 },
+  colorIdx: { max: COLORS.length - 1, min: 0 },
+  row: { max: GRID_ROWS - 1, min: 0 },
+  s: { max: BASE_MOVE_MS, min: 0 },
+} satisfies Partial<Record<keyof PlayerState, PlayerLimit>>;
 
 export const baseStats = (): PlayerStats => ({
   bombs: BASE_BOMBS,
