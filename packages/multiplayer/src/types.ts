@@ -133,6 +133,8 @@ export const MAX_CLAIMS = 10_000;
 export const MAX_CLAIM_KEY_LENGTH = 128;
 /** Longest claim time-to-live (ms). */
 export const MAX_CLAIM_TTL_MS = 3_600_000;
+/** Keys no claim may use: a plain-object claim map can't hold them as its own entries. */
+export const RESERVED_CLAIM_KEYS: readonly string[] = ["__proto__", "constructor", "prototype"];
 /** How often the SDK re-measures the server clock (ms). */
 export const TIME_PROBE_INTERVAL_MS = 5000;
 

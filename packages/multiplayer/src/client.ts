@@ -20,6 +20,7 @@ import {
   MAX_INPUT_BYTES,
   MAX_TICK_HISTORY,
   RECONNECT_TOKEN_QUERY_PARAM,
+  RESERVED_CLAIM_KEYS,
   ROOM_CAP_QUERY_PARAM,
   ROOM_RULES_QUERY_PARAM,
   TIME_PROBE_INTERVAL_MS,
@@ -496,6 +497,10 @@ export class MultiplayerClient {
    * names someone else. `ttlMs` releases it automatically.
    */
   claim(key: string, options?: { ttlMs?: number }): void {
+    if (RESERVED_CLAIM_KEYS.includes(key)) {
+      console.warn(`"${key}" is reserved; the server refuses it as a claim key.`);
+      return;
+    }
     const ttl = options?.ttlMs;
     this.flushCoalescedEvents();
     this.send({ data: ttl === undefined ? { key } : { key, ttl }, type: "claim" });

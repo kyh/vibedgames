@@ -779,6 +779,31 @@ test("a room's rules come from its first client, even when that client sets none
   }
 });
 
+test("reserved claim keys are refused, so every client's claim map agrees", async () => {
+  const room = uniqueRoom("claim-reserved");
+  const heard: [string, string | null][] = [];
+  const observer = connect(room, { onClaim: (key, owner) => heard.push([key, owner]) });
+  await waitFor(() => admitted(observer), "observer admitted");
+  const raw = new RawClient(room, { _pk: `proto-${process.pid}` });
+  try {
+    await waitFor(() => raw.synced(), "raw client admitted");
+    raw.send({ data: { key: "__proto__" }, type: "claim" });
+    raw.send({ data: { key: "ok" }, type: "claim" });
+    await waitFor(() => heard.length > 0, "the valid claim is granted");
+    assert.deepEqual(heard, [["ok", raw.id]], "the reserved key was never granted");
+    const late = connect(room);
+    try {
+      await waitFor(() => admitted(late), "late joiner admitted");
+      assert.deepEqual(Object.keys(late.claims), ["ok"], "and the sync agrees");
+    } finally {
+      late.destroy();
+    }
+  } finally {
+    raw.close(1000);
+    observer.destroy();
+  }
+});
+
 test("declared limits drop out-of-range player state", async () => {
   const room = uniqueRoom("limits");
   const limits = { hp: { max: 100, min: 0 } };

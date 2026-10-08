@@ -26,6 +26,7 @@ import {
   PING_INTERVAL_MS,
   RECONNECT_GRACE_MS,
   RECONNECT_TOKEN_QUERY_PARAM,
+  RESERVED_CLAIM_KEYS,
   ROOM_CAP_QUERY_PARAM,
   ROOM_RULES_QUERY_PARAM,
 } from "@vibedgames/multiplayer";
@@ -80,8 +81,13 @@ type IncomingMessage =
   | { type: "input"; v: JsonValue; n: number | null }
   | { type: "unrecognized" };
 
+// A reserved key would vanish from the plain-object claim map a sync carries,
+// leaving late joiners disagreeing about who holds it.
 const isClaimKey = (value: JsonValue | undefined): value is string =>
-  isJsonString(value) && value.length > 0 && value.length <= MAX_CLAIM_KEY_LENGTH;
+  isJsonString(value) &&
+  value.length > 0 &&
+  value.length <= MAX_CLAIM_KEY_LENGTH &&
+  !RESERVED_CLAIM_KEYS.includes(value);
 
 /** Decode the room-feature messages: server time, claims, tick inputs. */
 const decodeRoomMessage = (
