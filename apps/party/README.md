@@ -16,12 +16,13 @@ Clients connect via WebSocket. The server handles:
 - **Player state** — `player_state_patch` per-player, broadcast to others
 - **Events** — `emit` pass-through for custom game events, optionally addressed
   to (`to`) or excluding (`except`) specific player ids
-- **Reconnection grace** — a dropped (non-1000-close) player's seat is held for
+- **Reconnection grace** — a dropped player's seat is held for
   30s keyed by a client-secret reconnect token; peers see `connected: false`
   until reclaim or expiry. Events fired during the window are NOT buffered or
   replayed — only the seat and its state survive; shared state re-syncs on
-  reclaim. Deliberate leaves (`destroy()`, close code 1000) skip the grace
-  window entirely.
+  reclaim. Deliberate leaves (`destroy()`, close code 1000) and pages that
+  unload (a closed tab, a reload: the browser's 1001) skip the grace window
+  entirely; the token lived in that page, so nothing could reclaim the seat.
 - **Host liveness** — clients heartbeat on a rAF interval (so a backgrounded tab
   stops); a host silent past `HOST_LIVENESS_TIMEOUT_MS` loses the role and the
   server elects a new one, rather than waiting out the TCP timeout. A separate

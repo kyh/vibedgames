@@ -158,7 +158,9 @@ avatar, badge the name), don't remove them; `player_left` firing (the id
 vanishing from `client.players`) is the real removal. Treat a missing
 `connected` field as connected. Events fired during the window are **not**
 buffered or replayed to the dropped player — only their seat and state
-survive. A deliberate `client.destroy()` leaves immediately, no grace window.
+survive. A deliberate `client.destroy()` leaves immediately, no grace window,
+and so does a tab that closes or reloads (the browser closes its socket with
+1001): the token died with the page, so the seat is freed at once.
 
 ### Offline fallback that doesn't strand players
 
@@ -380,8 +382,8 @@ by Playwright. The traps, in the order they bite:
   Wait for those, or call `client.destroy()` before closing to leave cleanly.
 - **A "blip" is `socket.close(4000)` then `socket.reconnect()`** on the
   underlying PartySocket (expose a dev hook from your `net/` layer — the
-  client keeps its socket private). Close code `1000` is a deliberate leave and
-  elects a new host immediately.
+  client keeps its socket private). Close codes `1000` (`destroy()`) and `1001`
+  (a page unloading) are leaves and elect a new host immediately.
 - **Playwright does not throttle background tabs.** To test host migration,
   silence the host explicitly (kill its heartbeat via the blip hook, or close
   the context and wait out the grace window).

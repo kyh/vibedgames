@@ -1460,11 +1460,12 @@ export class VgServer extends Server {
   }
 
   onClose(connection: Connection<Presence>, code: number) {
-    // 1000 is the SDK's deliberate `destroy()` — an on-purpose leave, so the
-    // seat is vacated immediately. Anything else (1006 dropped transport, 1005
-    // no-status, 1001 going-away, …) might be a blip, so it gets the grace
-    // window.
-    if (code === 1000) {
+    // 1000 is the SDK's deliberate `destroy()`, and 1001 is the browser
+    // closing a page that unloads (a closed tab, a reload, a navigation). The
+    // reconnect token lives in that page's memory, so nothing can come back
+    // for the seat: both leave at once. Anything else (1006 dropped transport,
+    // 1005 no-status, …) might be a blip, so it gets the grace window.
+    if (code === 1000 || code === 1001) {
       return this.removePlayer(connection);
     }
     return this.departPlayer(connection);

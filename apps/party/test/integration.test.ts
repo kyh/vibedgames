@@ -472,6 +472,31 @@ test("a dropped player is held in grace, reclaimed by token, and a 1000-close le
   }
 });
 
+test("a page that unloads (1001) leaves at once: nothing can reclaim its seat", async () => {
+  const room = uniqueRoom("going-away");
+  const observer = connect(room);
+  const rawId = `raw-away-${process.pid}`;
+  try {
+    await waitFor(() => admitted(observer), "observer admitted");
+    // A browser closes an unloading page's sockets with 1001, which a WHATWG
+    // WebSocket can't send; Miniflare's can.
+    const query = new URLSearchParams({ _pk: rawId, _reconnectToken: `tok-away-${process.pid}` });
+    const response = await miniflare.dispatchFetch(
+      `http://localhost/parties/vg-server/${room}?${query}`,
+      { headers: { Upgrade: "websocket" } },
+    );
+    const socket = response.webSocket;
+    assert.ok(socket, "upgraded");
+    socket.accept();
+    await waitFor(() => rawId in observer.players, "observer sees the page's player");
+    socket.close(1001, "going away");
+    // waitFor's 10 s timeout, inside the 30 s grace window, is the proof.
+    await waitFor(() => !(rawId in observer.players), "the seat frees at once, no grace");
+  } finally {
+    observer.destroy();
+  }
+});
+
 test("player state fans out as keyed deltas; a client with no reconnect token is refused", async () => {
   const room = uniqueRoom("deltas");
   const observer = new RawClient(room, { _pk: `obs-${process.pid}` });

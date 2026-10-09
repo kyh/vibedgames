@@ -245,7 +245,8 @@ state. Read `room.room` to show players which instance they landed in. Omit
 A dropped connection holds the player's seat, identity and state for 30s
 (`RECONNECT_GRACE_MS`) against a client-secret token, so a network blip is a
 pause rather than a leave + rejoin. A deliberate `destroy()` skips the grace
-window and leaves immediately.
+window and leaves immediately, and so does closing or reloading the page: the
+token lives in the page's memory, so the server frees the seat at once.
 
 ## Server time
 
