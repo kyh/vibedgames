@@ -1,11 +1,11 @@
-// Pong's room over @vibedgames/multiplayer, polled from the frame loop instead
-// of subscribe(). The client is the room: online, a party-server room;
-// offline — by intent (`?offline=1`), by choice (a solo game leaves the room),
-// or because no room admitted it within `fallbackMs` — a local room of one
-// with the same API, where this client is the host and its own only player.
-// So nothing here special-cases solo play. Offline there is no tick room:
-// `tickClock` reads null, and the match runs on this client's own clock
-// (LocalDriver).
+// Pong's room over @vibedgames/multiplayer, polled from the frame loop; only
+// this client's own reconnect is heard through subscribe() (MatchControl).
+// The client is the room: online, a party-server room; offline — by intent
+// (`?offline=1`), by choice (a solo game leaves the room), or because no room
+// admitted it within `fallbackMs` — a local room of one with the same API,
+// where this client is the host and its own only player. So nothing here
+// special-cases solo play. Offline there is no tick room: `tickClock` reads
+// null, and the match runs on this client's own clock (LocalDriver).
 //
 // What this adds to the client: the reads the match logic makes each frame,
 // the other player cached per roster, the tick-room surface a TickDriver runs

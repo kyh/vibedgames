@@ -52,7 +52,7 @@ export class MatchControl {
   private resyncAsked = -1;
   /** Host: a seated player asked for a re-base of this record id. */
   private rebaseWanted = -1;
-  /** The connection's status last frame, to notice this client back from a drop. */
+  /** The connection's status as last heard, to notice this client back from a drop. */
   private lastStatus: MultiplayerConnectionStatus;
 
   constructor(room: string, held: SlotInput) {
@@ -67,6 +67,9 @@ export class MatchControl {
     this.scopeName = this.nextSoloScope();
     this.current = new LocalDriver(soloOpening(0, held), 0);
     this.lastStatus = this.net.connectionStatus;
+    // Heard as it happens, not read each frame: a drop and its reconnect can
+    // both pass while the tab is hidden and no frame runs.
+    this.net.client.subscribe(() => this.noteStatus());
   }
 
   get driver(): Driver {
@@ -105,11 +108,6 @@ export class MatchControl {
     this.hostDuties();
     this.syncMatch();
     const { current } = this;
-    const status = this.net.connectionStatus;
-    if (current.kind === "tick" && status === "connected" && this.lastStatus === "reconnecting") {
-      current.relearn();
-    }
-    this.lastStatus = status;
     return current.kind === "tick" ? current.frame(input) : current.frame(input, dtMs, running);
   }
 
@@ -129,6 +127,18 @@ export class MatchControl {
 
   destroy(): void {
     this.net.client.destroy();
+  }
+
+  /** Back from this client's own drop, the tick stream reaches it by a new
+   *  route, and the ticks it missed have just replayed in one burst: the
+   *  match's tick clock measures afresh. */
+  private noteStatus(): void {
+    const status = this.net.connectionStatus;
+    const { current } = this;
+    if (current.kind === "tick" && status === "connected" && this.lastStatus === "reconnecting") {
+      current.relearn();
+    }
+    this.lastStatus = status;
   }
 
   private nextSoloScope(): string {
