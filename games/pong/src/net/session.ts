@@ -156,6 +156,12 @@ export class NetSession {
     return this.solo || this.client?.connectionStatus === "connected";
   }
 
+  /** Still waiting for a first room: not live, and never was. A drop after
+   *  that is a reconnect, not a handshake. */
+  get handshaking(): boolean {
+    return !this.live && !this.everConnected;
+  }
+
   get connectionStatus(): string {
     const { client } = this;
     return this.solo || !client ? "offline" : client.connectionStatus;

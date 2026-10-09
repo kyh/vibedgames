@@ -676,8 +676,9 @@ export class GameScene {
     }
     // Still handshaking. A tap here is intent, not noise: rather than swallow
     // it and leave the player staring at "connecting" for the rest of the
-    // fallback window, take it as "play now" and serve solo.
-    if (!this.control.session.live) {
+    // fallback window, take it as "play now" and serve solo. Not once a room
+    // has been joined: a tap during a reconnect would abandon the match.
+    if (this.control.session.handshaking) {
       this.playSolo();
     }
     this.presses = bump(this.presses);
