@@ -1,7 +1,7 @@
 // How each rival's dragon moves on this screen. Free of Phaser so
 // tools/net.test.mts can drive it headless.
 
-import { Interpolator, lerp } from "@vibedgames/multiplayer";
+import { Interpolator, RemoteClock, lerp } from "@vibedgames/multiplayer";
 
 /** What a rival's dragon streams per tick, as rendered between ticks. */
 export interface DragonPose {
@@ -26,19 +26,21 @@ const blendPose = (a: DragonPose, b: DragonPose, k: number): DragonPose => ({
 
 /**
  * One rival's dragon, drawn 100 ms or more behind the moment its samples
- * land. The samples are stamped with the room's server time; the
- * Interpolator's own RemoteClock learns from arrivals how long this rival's
- * take to get here (its hop up to the server and ours down), so the delay
- * only covers the send interval and jitter, on a slow route as on a fast
- * one. The clock measures those too: on a jittery route, or a page too busy
- * to read its messages on time, the delay grows as far as the stream needs
- * instead of running dry. Drawing the newest sample instead jumped the
- * dragon 20–50 px at every packet, right in your forward view.
+ * land. The samples are stamped with the room's server time; the rival's own
+ * RemoteClock learns from arrivals how long they take to get here (its hop
+ * up to the server and ours down), so the delay only covers the send
+ * interval and jitter, on a slow route as on a fast one. The clock measures
+ * those too: on a jittery route, or a page too busy to read its messages on
+ * time, the delay grows as far as the stream needs instead of running dry.
+ * Drawing the newest sample instead jumped the dragon 20–50 px at every
+ * packet, right in your forward view.
  */
 export class RivalMotion {
   /** Stamp of the newest sample pushed: state is polled every frame, but only a new stamp is news. */
   stamp = Number.NaN;
-  private readonly interp = new Interpolator<DragonPose>({ lerp: blendPose });
+  /** This rival's clock, taught by its samples and nothing else. */
+  private readonly clock = new RemoteClock();
+  private readonly interp = new Interpolator<DragonPose>({ clock: this.clock, lerp: blendPose });
   private life = Number.NaN;
 
   /**
@@ -63,5 +65,17 @@ export class RivalMotion {
   /** The pose to draw at local time `now`; undefined before the first sample. */
   sample(now?: number): DragonPose | undefined {
     return this.interp.sample(now);
+  }
+
+  /**
+   * The samples come by another route from here on: back from a dropped
+   * connection, the socket may have redialled another way (a phone off
+   * wifi). The clock forgets the old route's trips and measures the new one,
+   * easing its offset across, so a slower route takes over at once instead
+   * of the dragon being drawn early until the old route's faster trips age
+   * out.
+   */
+  relearn(): void {
+    this.clock.relearn();
   }
 }

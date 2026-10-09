@@ -13,7 +13,12 @@ import { courseStart, courseX, followCourse } from "../net/course";
 import { RivalMotion } from "../net/rival-motion";
 import { NetSession, isJsonNumber, isJsonObject } from "../net/session";
 import { publishPlaytestSurface } from "../playtest";
-import type { JsonValue, Player, PlayerMap } from "@vibedgames/multiplayer";
+import type {
+  JsonValue,
+  MultiplayerConnectionStatus,
+  Player,
+  PlayerMap,
+} from "@vibedgames/multiplayer";
 import { FlightFx, prefersReducedMotion } from "./flight-fx";
 import {
   ART_SCALE,
@@ -344,6 +349,8 @@ export class GameScene extends Scene {
   private boardAcc = 0;
   private boardSig = "";
   private lastNetInfo = "";
+  /** Connection status last frame, to see us back in the room after a drop. */
+  private netStatus: MultiplayerConnectionStatus = "connecting";
 
   private hintEl: HTMLElement | null = null;
   private gatesEl: HTMLElement | null = null;
@@ -809,6 +816,7 @@ export class GameScene extends Scene {
       this.handleInput();
     }
     this.rivalIds = this.presentRivals();
+    this.noteReconnect();
     // In a race the dragon steps on real time, keeping pace with a course on
     // the room's clock; a solo run pauses through a stall rather than
     // skipping ahead.
@@ -1420,6 +1428,21 @@ export class GameScene extends Scene {
   }
 
   // ---- ghosts (other players) ----------------------------------------------
+
+  /**
+   * Back in the room after our own connection dropped: the socket may have
+   * redialled by another route, so every rival's clock measures it afresh,
+   * before the first sample to come by it is pushed.
+   */
+  private noteReconnect(): void {
+    const status = this.net.connectionStatus;
+    if (status === "connected" && this.netStatus === "reconnecting") {
+      for (const ghost of this.ghosts.values()) {
+        ghost.motion.relearn();
+      }
+    }
+    this.netStatus = status;
+  }
 
   private syncGhosts(time: number): void {
     if (!this.racing) {

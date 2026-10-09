@@ -70,6 +70,9 @@ const pose = (y: number, vy = 0, live = true): DragonPose => ({ live, vy, y });
 /** Height (y down) `t` ms after a full flap from y = 300. */
 const arc = (t: number): number => 300 + (FLAP_VELOCITY * t) / 1000 + (GRAVITY * t * t) / 2e6;
 
+/** A steady climb, 1 px per this many ms: the height drawn reads back the moment drawn at. */
+const CLIMB_MS_PER_PX = 10;
+
 test("a rival's flap-and-dive renders as a smooth arc over a long, jittery relay", () => {
   const motion = new RivalMotion();
   // A flap at server time T0. Each sample lands 150–195 ms after its stamp
@@ -155,6 +158,69 @@ test("a respawn or a jump no flight covers appears at once instead of gliding", 
   assert.ok(mid > 200 && mid < 240, `blended ${mid}`);
   flight.push(T0 + 100, 0, pose(dive), 1100);
   assert.equal(flight.sample(1100)?.y, dive);
+});
+
+test("back from a drop by a slower route, a rival is drawn as far behind as before", () => {
+  // A rival on a steady climb. Our connection drops for half a second and
+  // comes back by a route 80 ms slower (a phone off wifi). Timed by the old
+  // route's faster trips, the dragon ran dry for a second, trailed half as
+  // far for the next two and a half, then 50 ms too far from there on.
+  const motion = new RivalMotion();
+  const DROP = 6000;
+  const BACK = 6500;
+  const END = 13_000;
+  const arrivals: { at: number; t: number }[] = [];
+  let last = 0;
+  for (let t = 0; t < END; t += 50) {
+    const at = Math.max(last, t + (t < DROP ? 30 : 110) + noise(t) * 20);
+    // What was in flight when the socket closed is lost with it.
+    if (at < DROP || (t >= DROP && at >= BACK)) {
+      arrivals.push({ at, t });
+      last = at;
+    }
+  }
+  let next = 0;
+  let newest = Number.NaN;
+  let relearned = false;
+  /** Per frame: how far behind the newest sample in hand the dragon is drawn (ms). */
+  const trail: { at: number; ms: number }[] = [];
+  for (let now = 0; now < END; now += FRAME) {
+    if (now >= BACK && !relearned) {
+      // GameScene, as the room readmits us.
+      motion.relearn();
+      relearned = true;
+    }
+    // Polled once a frame: of what landed since the last, the newest.
+    let landed: { at: number; t: number } | undefined;
+    while (next < arrivals.length && (arrivals[next]?.at ?? Infinity) <= now) {
+      landed = arrivals[next];
+      next += 1;
+    }
+    if (landed) {
+      motion.push(T0 + landed.t, 0, pose(landed.t / CLIMB_MS_PER_PX), now);
+      newest = landed.t;
+    }
+    const drawn = motion.sample(now);
+    if (drawn) {
+      trail.push({ at: now, ms: newest - drawn.y * CLIMB_MS_PER_PX });
+    }
+  }
+  const mean = (from: number, to: number): number => {
+    const span = trail.filter((f) => f.at >= from && f.at < to);
+    return span.reduce((sum, f) => sum + f.ms, 0) / span.length;
+  };
+  const before = mean(DROP - 1500, DROP);
+  assert.ok(before > 50, `trails the fast route by ${before} ms`);
+  // From half a second after the return, every half second keeps the delay.
+  for (let from = BACK + 500; from < END; from += 500) {
+    const after = mean(from, from + 500);
+    assert.ok(
+      Math.abs(after - before) < 15,
+      `${(from - BACK) / 1000} s back: trails by ${after} ms, ${before} before the drop`,
+    );
+    const dry = trail.filter((f) => f.at >= from && f.at < from + 500 && f.ms < 0).length;
+    assert.equal(dry, 0, `${(from - BACK) / 1000} s back: ${dry} frames drawn past the newest`);
+  }
 });
 
 test("rivals pitch from their interpolated speed, bounded like your own dragon", () => {
