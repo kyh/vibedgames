@@ -3,6 +3,7 @@ import type { PadButton, StickState } from "@vibedgames/gamepad/phaser";
 import { createTouchControls, isOfflineRequested } from "@repo/embed";
 import type { TouchControls } from "@repo/embed";
 import { MultiplayerClient } from "@vibedgames/multiplayer";
+import type { MultiplayerConnectionStatus } from "@vibedgames/multiplayer";
 import type Phaser from "phaser";
 import { BlendModes, Input, Math as PhaserMath, Scale, Scene, Scenes } from "phaser";
 
@@ -58,6 +59,10 @@ const SIM_STEPS_MAX = 6;
 // server migrates host after 6s without the host's heartbeat, so this is the
 // warning before the switch, not a takeover (only the elected host may write state).
 const HOST_STALL_MS = 4000;
+// PLAY ONLINE with no room to join: once this long has passed (ms of rendered
+// frames, so loading doesn't count) the match is played against bots instead,
+// as PLAY vs BOTS plays it. A drop after joining is a reconnect, never this.
+const ONLINE_FALLBACK_MS = 8000;
 // No body moves this far in one sim step (a dash covers ~38 px): a bigger jump
 // is a teleport — respawn, blink — drawn where it lands, not swept across.
 const TELEPORT_PX = 120;
@@ -129,6 +134,15 @@ export interface ObjectiveNotice {
 export type FeedEntry =
   | { kind: "kill"; killer: string; victim: string; team: Team; at: number }
   | ObjectiveNotice;
+/** A notice the HUD holds up for as long as it applies, not for a few seconds. */
+export type StatusNotice = Pick<ObjectiveNotice, "text" | "tone">;
+
+// This client out of its room: not admitted yet, or back from a dropped
+// transport and waiting to be readmitted (its input is held meanwhile).
+const CONNECTION_NOTICE: Partial<Record<MultiplayerConnectionStatus, StatusNotice>> = {
+  connecting: { text: "CONNECTING…", tone: "neutral" },
+  reconnecting: { text: "RECONNECTING…", tone: "bad" },
+};
 
 /** Final primitives only: unassigned clients cannot imply a personal defeat or
  * borrow a teammate's stats. World winner and host authority remain unchanged. */
@@ -209,6 +223,8 @@ export class GameScene extends Scene {
 
   // multiplayer
   private online = false;
+  // this bot match stands in for a PLAY ONLINE that found no server
+  private unreachable = false;
   private net: MultiplayerClient | null = null;
   // connId -> defId (host)
   private picks: Record<string, string> = {};
@@ -257,7 +273,13 @@ export class GameScene extends Scene {
     super("Game");
   }
 
-  init(data: { heroId?: string; online?: boolean; seed?: number; skipToLane?: boolean }): void {
+  init(data: {
+    heroId?: string;
+    online?: boolean;
+    seed?: number;
+    skipToLane?: boolean;
+    unreachable?: boolean;
+  }): void {
     if (data?.heroId) {
       this.heroChoice = data.heroId;
     }
@@ -267,6 +289,7 @@ export class GameScene extends Scene {
     // button and the `?online=1` deep link arrive here, so `?offline=1` is
     // enforced once and no socket can be opened behind it.
     this.online = !!data?.online && !isOfflineRequested();
+    this.unreachable = data?.unreachable === true;
   }
 
   /** Reset every mutable per-match field (the scene instance is reused on restart). */
@@ -340,6 +363,15 @@ export class GameScene extends Scene {
       this.startOnline();
     } else {
       this.startLocal();
+    }
+    if (this.unreachable) {
+      this.feed.push({
+        at: this.time.now,
+        kind: "notify",
+        priority: "major",
+        text: "SERVER UNREACHABLE — PLAYING VS BOTS",
+        tone: "neutral",
+      });
     }
 
     this.bindInput();
@@ -438,11 +470,9 @@ export class GameScene extends Scene {
     // guests render this; the host overwrites its own with a real sim world
     this.world = emptyGuestWorld();
     const net = new MultiplayerClient({
+      fallbackMs: ONLINE_FALLBACK_MS,
       host: multiplayerHost(),
-      onEvent: (event, payload, from) =>
-        // SAFETY: event payloads arrive as JSON websocket frames (or a local
-        // echo of a JSON-safe send), so JsonValue covers every possible value.
-        this.onNetEvent(event, payload as JsonValue, from),
+      onEvent: (event, payload, from) => this.onNetEvent(event, payload, from),
       party: PARTY,
       room: roomFromLocation(),
     });
@@ -452,9 +482,22 @@ export class GameScene extends Scene {
     net.subscribe(() => this.onNetChange(net));
   }
 
+  /** No room admitted us within ONLINE_FALLBACK_MS, so the server is out of
+   *  reach: play the match PLAY vs BOTS would have started. */
+  private playVsBots(net: MultiplayerClient): void {
+    net.destroy();
+    this.net = null;
+    this.scene.stop("Hud");
+    this.scene.start("Game", { heroId: this.heroChoice, online: false, unreachable: true });
+  }
+
   /** Every SDK notification — after each server message, so a keyframe is
    *  taken in order with the ticks around it. */
   private onNetChange(net: MultiplayerClient): void {
+    if (net.connectionStatus === "offline") {
+      this.playVsBots(net);
+      return;
+    }
     const connected = net.connectionStatus === "connected";
     if (!connected || !net.isHost) {
       this.adoptedHost = false;
@@ -529,6 +572,12 @@ export class GameScene extends Scene {
    */
   isOnline(): boolean {
     return this.online;
+  }
+
+  /** What the HUD holds up while this client is out of its room, or null. */
+  get connectionNotice(): StatusNotice | null {
+    const status = this.net?.connectionStatus;
+    return (status && CONNECTION_NOTICE[status]) ?? null;
   }
 
   // ---- networking ----------------------------------------------------------
@@ -808,16 +857,11 @@ export class GameScene extends Scene {
       }
       return;
     }
-    const hostId = this.net?.hostId;
-    if (!hostId) {
-      return;
-    }
-    // Played on our hero this frame, then sent to the host alone; the number
-    // comes back with the host's copy to line the two up.
+    // Played on our hero this frame, then sent to the host alone (a seated
+    // guest always knows it); the number comes back with the host's copy to
+    // line the two up.
     const seq = this.predictor?.input(intent, performance.now());
-    this.net?.sendEvent(INTENT_EVENT, seq === undefined ? intent : { ...intent, seq }, {
-      to: hostId,
-    });
+    this.net?.sendToHost(INTENT_EVENT, seq === undefined ? intent : { ...intent, seq });
   }
 
   get controlsPaused(): boolean {
