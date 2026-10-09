@@ -123,6 +123,12 @@ export class HostNet {
     return this.copy;
   }
 
+  /** This tab took the authority, or got it back after its own connection
+   * dropped: the guest's input reaches it by a new route. */
+  admit(): void {
+    this.copy?.relearn();
+  }
+
   /** A peer's event, as it lands. Only the remote player's `in` (input
    * ticks) concerns the host. */
   receive(event: string, payload: JsonValue, from: string): void {
@@ -243,6 +249,8 @@ export class HostNet {
     const spawn = (this.run.match ? this.room.vsSpawns[index] : undefined) ?? this.room.roomSpawn;
     this.seat.remote = this.hooks.spawnPlayer(HEROES[hero], this.room.grid, spawn.x, spawn.y);
     this.seat.remoteId = id;
+    // A guest back from a drop keeps its input stream, by a new route.
+    this.guestCopy()?.relearn();
     if (this.run.match) {
       this.run.match.beginMatch();
       this.versus.respawn();

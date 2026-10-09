@@ -79,6 +79,13 @@ export class GuestCopy {
   private steps = 0;
   private readonly log: { at: number; row: NetEdge }[] = [];
 
+  /** The guest's sends reach this tab by a new route (the guest back from a
+   * drop, or this tab back from its own): measure it afresh. The playback
+   * eases onto the new route rather than jumping. */
+  relearn(): void {
+    this.clock.relearn();
+  }
+
   /** The copy was placed in room `room`: ticks the guest sent for any other no longer apply. */
   enter(room: number): void {
     if (room === this.room) {

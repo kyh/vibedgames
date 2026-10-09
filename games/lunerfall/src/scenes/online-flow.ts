@@ -259,7 +259,8 @@ export class OnlineFlow {
     );
   }
 
-  // Newly elected host: adopt the checkpoint under a fresh term and broadcast.
+  // Newly elected host, or the host back from its own drop: adopt the
+  // checkpoint under a fresh term and broadcast.
   private takeOverAsHost(sess: NetSession, c: ExpeditionCheckpoint, room: NetRoom) {
     // A promoted guest's own body was predicted exactly and is newer than any
     // checkpoint (they go up once a second): keep it, rewind only the world.
@@ -275,6 +276,7 @@ export class OnlineFlow {
       term: c.term + 1,
     };
     this.checkpoint.adopt(c, room, own);
+    this.hostNet.admit();
     this.hostNet.syncRemotePresence();
     this.room.dirty = true;
     this.hostNet.broadcast(0, true);
