@@ -206,6 +206,9 @@ interface Peer {
   readonly clock: RemoteClock;
   readonly interp: Interpolator<RemotePose>;
   connected: boolean;
+  /** Back from its own drop and not heard from since: all there is to draw
+   *  is where it dropped, so it stays out of the city until it speaks. */
+  rejoining: boolean;
   lastMsgAt: number;
   /** A chat line to show if the car is on screen this frame. */
   chat: string | null;
@@ -341,12 +344,17 @@ export class RemoteCars {
     this.lastPlayers = null;
   }
 
-  /** Connected with a pose stamped within STALE_MS — or staged, which holds
-   *  until replaced. Until this client has measured the server clock it reads
-   *  the local one, which dates no stamp, so nothing live is present yet. */
+  /** Connected (and heard from since, if back from a drop) with a pose
+   *  stamped within STALE_MS — or staged, which holds until replaced. Until
+   *  this client has measured the server clock it reads the local one, which
+   *  dates no stamp, so nothing live is present yet. */
   private present(peer: Peer, serverNow: number): boolean {
     return (
-      this.staged || (peer.connected && this.clock.synced && serverNow - peer.latest.t <= STALE_MS)
+      this.staged ||
+      (peer.connected &&
+        !peer.rejoining &&
+        this.clock.synced &&
+        serverNow - peer.latest.t <= STALE_MS)
     );
   }
 
@@ -394,8 +402,10 @@ export class RemoteCars {
     if (known !== undefined && connected && !known.connected) {
       // Back from its own drop: its updates may come by another route. Timed
       // by the old route's quicker trips, a slower one runs the car past its
-      // newest update until those trips age out of the clock's window.
+      // newest update until those trips age out of the clock's window. Until
+      // the first of them lands, the car would stand frozen where it dropped.
       known.clock.relearn();
+      known.rejoining = true;
     }
     if (known !== undefined && known.source === player.state) {
       known.connected = connected;
@@ -446,6 +456,7 @@ export class RemoteCars {
       // Don't replay a bubble that predates our arrival.
       lastMsgAt: first.msgAt,
       latest: first,
+      rejoining: false,
       source: undefined,
       view: null,
     };
@@ -458,11 +469,12 @@ export class RemoteCars {
     if (!this.staged && next.t !== prev.t) {
       const dx = next.x - prev.x;
       const dz = next.z - prev.z;
-      // A respawn, or an owner back from a long silence: show the new pose at
-      // once instead of gliding there from the old one.
-      if (dx * dx + dz * dz > SNAP_DIST_SQ || next.t - prev.t > STALE_MS) {
+      // A respawn, or an owner back from a long silence or a drop: show the
+      // new pose at once instead of gliding there from the old one.
+      if (peer.rejoining || dx * dx + dz * dz > SNAP_DIST_SQ || next.t - prev.t > STALE_MS) {
         peer.interp.clear();
       }
+      peer.rejoining = false;
       peer.interp.push(next.t, next, now);
     }
     if (next.msg && next.msgAt > peer.lastMsgAt) {

@@ -377,18 +377,6 @@ const checkPresence = (check: Check): void => {
     `${back}`,
   );
 
-  rx.send(drive("h", 26_000, 30_000, () => parkedAt(60)));
-  rx.run(SKEW_MS + 27_000);
-  rx.setConnected("h", false);
-  rx.run(rx.now + 1);
-  const dropped = rx.remote.count();
-  rx.setConnected("h", true);
-  rx.run(rx.now + 1);
-  check(
-    "a dropped connection hides the taxi at once; reconnecting restores it",
-    dropped === 0 && rx.remote.count() === 1,
-  );
-
   // Joining a room that still holds a hidden tab's last pose, a minute old.
   const late = new Receiver();
   late.patch("old", { ...parkedAt(5), t: -60_000 });
@@ -452,6 +440,31 @@ const checkRespawn = (check: Check): void => {
   check(
     "a respawn snaps the taxi to its new spot instead of streaking it across the map",
     streak === 0 && snapped !== null && snapped < SKEW_MS + 3000 + 150,
+  );
+};
+
+const checkOwnerDrop = (check: Check): void => {
+  // Its owner's connection drops: nothing it sends while away reaches us, and
+  // the notice that it is back lands before its first pose since, 15 u on.
+  const rx = new Receiver();
+  rx.send(drive("o", 0, 2000, () => parkedAt(60)));
+  rx.send(drive("o", 3000, 5000, () => parkedAt(75)));
+  rx.run(SKEW_MS + 2100);
+  rx.setConnected("o", false);
+  rx.run(rx.now + 1);
+  const dropped = rx.remote.count();
+  rx.run(SKEW_MS + 3000);
+  rx.setConnected("o", true);
+  rx.run(rx.now + 1);
+  const unheard = rx.remote.count();
+  let first: number | undefined;
+  rx.run(SKEW_MS + 3300, () => {
+    first ??= rx.car()?.position.x;
+  });
+  check(
+    "a dropped connection hides the taxi at once; back, it shows with its first pose since, where it is",
+    dropped === 0 && unheard === 0 && first === 75,
+    `${first}`,
   );
 };
 
@@ -663,6 +676,7 @@ export const checkRemoteCars = async (check: Check): Promise<void> => {
   checkSmoothMotion(check);
   checkPresence(check);
   checkRespawn(check);
+  checkOwnerDrop(check);
   checkRouteChange(check);
   checkInterest(check);
   await checkCullAndBodies(check);
