@@ -244,13 +244,16 @@ test("RemoteClock measures the delay a stream needs: its interval plus how late 
   for (const { at, t } of stream(20, 5, 0)) {
     steady.observe(t, at);
   }
-  assert.ok(Math.abs(steady.hold(12_100) - 50) < 1, "an even stream needs one interval");
+  // The first read starts easing the estimate in; two seconds on it is there.
+  assert.equal(steady.hold(12_100), 0, "the first estimate eases in from nothing");
+  assert.ok(Math.abs(steady.hold(14_100) - 50) < 1, "an even stream needs one interval");
 
   const jittery = new RemoteClock();
   for (const { at, t } of stream(20, 5, 80)) {
     jittery.observe(t, at);
   }
-  const hold = jittery.hold(12_100);
+  jittery.hold(12_100);
+  const hold = jittery.hold(14_100);
   // 95% of updates land within the interval plus 95% of the jitter.
   assert.ok(hold > 110 && hold < 132, `hold ${hold}`);
 });
@@ -267,6 +270,7 @@ test("RemoteClock's hold ignores idle silences and other entities' copies of a s
   for (const { at, t } of stream(20, 1, 0)) {
     clock.observe(t + 5000, at + 5000);
   }
+  clock.hold(12_000);
   assert.ok(Math.abs(clock.hold(13_000) - 50) < 1, `hold ${clock.hold(13_000)}`);
 
   clock.reset();
@@ -278,7 +282,9 @@ test("RemoteClock slews a changed hold instead of jumping render time", () => {
   for (const { at, t } of stream(20, 5, 0)) {
     clock.observe(t, at);
   }
+  clock.hold(11_100);
   const before = clock.hold(12_100);
+  assert.ok(Math.abs(before - 50) < 1, `settled at ${before}`);
   // The route turns jittery.
   for (const { at, t } of stream(20, 5, 160)) {
     clock.observe(t + 5000, at + 5000);
@@ -327,6 +333,34 @@ test("Interpolator renders a jittery stream at the hold it needs, where a fixed 
   );
   assert.ok(adaptive < 0.08, `adaptive starved ${adaptive}`);
   assert.ok(fixed > 0.3, `fixed starved ${fixed}`);
+});
+
+test("Interpolator eases a new stream into a hold above its delay instead of stepping back", () => {
+  const interp = new Interpolator<Pose>({ lerp: lerpPose });
+  const arrivals = stream(20, 6, 120);
+  let next = 0;
+  let previous = Number.NEGATIVE_INFINITY;
+  let backward = 0;
+  for (let at = 7000; at < 7000 + 6000; at += 1000 / 60) {
+    while (next < arrivals.length && (arrivals[next]?.at ?? Infinity) <= at) {
+      const arrival = arrivals[next];
+      if (arrival) {
+        interp.push(arrival.t, { x: arrival.t }, arrival.at);
+      }
+      next += 1;
+    }
+    if (next === 0) {
+      continue;
+    }
+    const renderAt = interp.renderTime(at);
+    if (renderAt < previous) {
+      backward = Math.max(backward, previous - renderAt);
+    }
+    previous = renderAt;
+  }
+  const hold = interp.clock.hold?.(7000 + 6000) ?? 0;
+  assert.ok(hold > 100, `the stream needs more than delayMs: ${hold}`);
+  assert.equal(backward, 0, `render time stepped back ${backward} ms`);
 });
 
 test("Interpolator extrapolates a late update briefly, then holds", () => {

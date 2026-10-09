@@ -104,7 +104,8 @@ Netcode helpers:
 - Adaptive interpolation delay. `RemoteClock.hold()` measures how far behind a
   sender's clock to render for its stream never to run dry: each send interval
   plus how late the next update lands, covering 95% of the last five seconds,
-  ignoring idle silences, slewed. An `Interpolator` renders at the larger of
+  ignoring idle silences, slewed. The first estimate eases in from 0 too, so a
+  new stream slows into a longer delay instead of stepping back. An `Interpolator` renders at the larger of
   that and `delayMs`, so a jittery route or a device too busy to read its
   messages on time no longer starves the buffer. `Interpolator.renderTime()`
   is the moment it draws, for anything else on the same sender's timeline.

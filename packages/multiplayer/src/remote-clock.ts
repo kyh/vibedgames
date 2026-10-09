@@ -133,8 +133,8 @@ export class RemoteClock implements SenderClock {
    * seconds' updates (a rarer late one extrapolates), ignores idle silences,
    * and moves at most 10% of elapsed time per read, so a change slows or
    * speeds playback a little instead of jumping it. 0 until enough updates
-   * have arrived. An `Interpolator` renders at the larger of this and its
-   * `delayMs`.
+   * have arrived; the first estimate then eases in from 0 the same way. An
+   * `Interpolator` renders at the larger of this and its `delayMs`.
    */
   hold(localNow: number = now()): number {
     const target = this.holdTarget;
@@ -142,7 +142,11 @@ export class RemoteClock implements SenderClock {
       return 0;
     }
     if (this.holdApplied === null) {
-      this.holdApplied = target;
+      // The first estimate eases in from nothing, like any later change: until
+      // now the stream was drawn at its consumer's own floor (an
+      // Interpolator's delayMs), and a larger hold adopted at once would step
+      // render time back.
+      this.holdApplied = 0;
     } else {
       const step = Math.max(0, localNow - this.holdRead) * SLEW;
       this.holdApplied += Math.max(-step, Math.min(step, target - this.holdApplied));

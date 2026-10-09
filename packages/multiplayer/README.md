@@ -114,8 +114,9 @@ jitter: each update must stay the newest until the next one lands, so it tracks
 each send interval plus how late the next update arrives (`hold()`, covering 95%
 of the last five seconds). The `Interpolator` renders at the larger of that and
 `delayMs`, and the buffer grows on a jittery route, or on a device busy enough
-to read its messages a frame late, instead of running dry. Changes slew, so
-playback slows or speeds a little rather than jumping. Draw anything else from
+to read its messages a frame late, instead of running dry. Changes slew, the
+first measurement included, so playback slows or speeds a little rather than
+jumping. Draw anything else from
 that sender (its shots, its effects) at `interp.renderTime()`, so it stays on
 the same timeline, and keep their stamps out of the clock: it sizes the buffer
 from the gaps between the stamps it sees, so a shot stamped between two poses
