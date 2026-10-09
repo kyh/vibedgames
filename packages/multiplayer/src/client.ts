@@ -41,13 +41,14 @@ const normalizeIds = (ids: string | string[] | undefined): string[] | undefined 
   return Array.isArray(ids) ? ids : [ids];
 };
 
-/** A coalesced event waiting for the next microtask flush. */
-interface PendingEvent {
-  event: string;
-  payload: JsonValue;
-  to?: string[];
-  except?: string[];
-}
+/**
+ * A message waiting in the outbox for the end of the current task: the shared
+ * state's diff, this player's patch, or a coalesced event's latest payload.
+ */
+type OutboxItem =
+  | { kind: "shared" }
+  | { kind: "player"; patch: JsonRecord }
+  | { data: EmitData; kind: "event" };
 
 interface EmitData {
   event: string;
@@ -280,12 +281,16 @@ export class MultiplayerClient {
   private fallbackTimer: ReturnType<typeof setTimeout> | null = null;
   /** Offline claims with a TTL, each lapsing on its own timer. */
   private readonly claimTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  /** Coalesced events awaiting the microtask flush — latest payload per
-   *  event + target signature. Flushed before any other outgoing game message
-   *  so coalescing can delay an event but never reorder it relative to state
-   *  patches. */
-  private pendingCoalesced = new Map<string, PendingEvent>();
-  private coalesceFlushScheduled = false;
+  /**
+   * Writes waiting for the end of the current task: either state (the shared
+   * state's diff, this player's patch) or coalesced events (keyed by event
+   * and audience, latest payload kept), never both. Every write in one frame
+   * leaves as one message per item. A write of the other sort, or anything
+   * sent at once, flushes the outbox first, so batching delays a write but
+   * never lets one overtake another.
+   */
+  private readonly outbox = new Map<string, OutboxItem>();
+  private flushScheduled = false;
   /**
    * Top-level shared keys written and not yet sent, or every key. Kept while
    * out of the room: `sync` sends them once there is a copy to diff against.
@@ -531,7 +536,7 @@ export class MultiplayerClient {
     this.ticks = null;
     this.heldInput = null;
     // Queued for a room that never admitted us — don't leak them into the new one.
-    this.pendingCoalesced.clear();
+    this.outbox.clear();
     this.sharedDirty = null;
     this.shadow = {};
 
@@ -681,7 +686,7 @@ export class MultiplayerClient {
       this.notify();
       return;
     }
-    this.flushCoalescedEvents();
+    this.flushOutbox();
     this.send({ data: ttl === undefined ? { key } : { key, ttl }, type: "claim" });
   }
 
@@ -695,7 +700,7 @@ export class MultiplayerClient {
       }
       return;
     }
-    this.flushCoalescedEvents();
+    this.flushOutbox();
     this.send({ data: { key }, type: "release" });
   }
 
@@ -711,7 +716,7 @@ export class MultiplayerClient {
       this.notify();
       return;
     }
-    this.flushCoalescedEvents();
+    this.flushOutbox();
     this.send({ data: { prefix }, type: "clear_claims" });
   }
 
@@ -775,7 +780,7 @@ export class MultiplayerClient {
       return;
     }
     this.heldInput = { value: input };
-    this.flushCoalescedEvents();
+    this.flushOutbox();
     if (!this.dropped) {
       this.send({ data: n === undefined ? { v: input } : { n, v: input }, type: "input" });
     }
@@ -794,8 +799,9 @@ export class MultiplayerClient {
    * stay); the function form returns the whole next state, and a key it
    * leaves out is deleted. Either way only what changed rides the wire, down
    * to the leaf: the client diffs the result against the room's copy and
-   * sends path ops (see patch.ts). Nothing is sent while the connection is
-   * down: a host's reconnect re-sends whatever the server holds differently.
+   * sends path ops (see patch.ts), once per task however many writes it
+   * made. Nothing is sent while the connection is down: a host's reconnect
+   * re-sends whatever the server holds differently.
    */
   updateSharedState(updater: JsonRecord | StateUpdater): void {
     const prev = this._sharedState;
@@ -804,12 +810,8 @@ export class MultiplayerClient {
       return;
     }
     this._sharedState = next;
-    // Flush unconditionally — coalesced events must precede whatever state
-    // message goes out next, even when this particular delta turns out empty.
-    this.flushCoalescedEvents();
     if (this._connectionStatus !== "offline") {
       this.markShared(isUpdaterFn(updater) ? "all" : Object.keys(updater));
-      this.sendSharedDiff();
     }
     this.notify();
   }
@@ -836,10 +838,13 @@ export class MultiplayerClient {
     };
     this._myState = next;
 
-    this.flushCoalescedEvents();
     const delta = changedKeys(current, isUpdaterFn(updater) ? next : updater);
-    if (delta && !this.dropped) {
-      this.send({ data: delta, type: "player_state_patch" });
+    if (delta && !this.dropped && this._connectionStatus !== "offline") {
+      const pending = this.outbox.get("player");
+      this.enqueue("player", {
+        kind: "player",
+        patch: pending?.kind === "player" ? { ...pending.patch, ...delta } : delta,
+      });
     }
     this.notify();
   }
@@ -874,19 +879,13 @@ export class MultiplayerClient {
     if (options?.coalesce) {
       // Keyed by event + target signature: two "damage" events aimed at
       // different victims must not collapse into one (the survivor's payload
-      // would reach the wrong audience).
-      const key = `${event}\u0000${to?.join(",") ?? ""}\u0000${except?.join(",") ?? ""}`;
-      this.pendingCoalesced.set(key, { event, except, payload, to });
-      if (!this.coalesceFlushScheduled) {
-        this.coalesceFlushScheduled = true;
-        queueMicrotask(() => {
-          this.coalesceFlushScheduled = false;
-          this.flushCoalescedEvents();
-        });
-      }
+      // would reach the wrong audience). The prefix keeps an event named
+      // "shared" or "player" off the state's slots.
+      const key = `event\u0000${event}\u0000${to?.join(",") ?? ""}\u0000${except?.join(",") ?? ""}`;
+      this.enqueue(key, { data: emitData(event, payload, to, except), kind: "event" });
       return;
     }
-    this.flushCoalescedEvents();
+    this.flushOutbox();
     this.send({ data: emitData(event, payload, to, except), type: "emit" });
   }
 
@@ -952,7 +951,7 @@ export class MultiplayerClient {
     this.hangUp();
     this.stopTimers();
     // Queued for the room just left.
-    this.pendingCoalesced.clear();
+    this.outbox.clear();
     this.sharedDirty = null;
     const claimsBefore = this._claims;
     this._claims = {};
@@ -964,7 +963,7 @@ export class MultiplayerClient {
   /** Disconnect and clean up. */
   destroy(): void {
     this.untrack();
-    this.flushCoalescedEvents();
+    this.flushOutbox();
     this.stopTimers();
     for (const timer of this.claimTimers.values()) {
       clearTimeout(timer);
@@ -1001,15 +1000,23 @@ export class MultiplayerClient {
     }
   }
 
-  /** Send pending coalesced events now, latest payload per key, in first-queued order. */
-  private flushCoalescedEvents(): void {
-    if (this.pendingCoalesced.size === 0) {
-      return;
+  /** Put `item` in the outbox under `key` — keeping its place if already
+   *  pending — and flush at the end of this task. */
+  private enqueue(key: string, item: OutboxItem): void {
+    const [pending] = this.outbox.values();
+    if (pending !== undefined && (pending.kind === "event") !== (item.kind === "event")) {
+      // State after a coalesced event, or the other way round: what is
+      // pending goes first, so neither overtakes the other.
+      this.flushOutbox();
     }
-    for (const { event, payload, to, except } of this.pendingCoalesced.values()) {
-      this.send({ data: emitData(event, payload, to, except), type: "emit" });
+    this.outbox.set(key, item);
+    if (!this.flushScheduled) {
+      this.flushScheduled = true;
+      queueMicrotask(() => {
+        this.flushScheduled = false;
+        this.flushOutbox();
+      });
     }
-    this.pendingCoalesced.clear();
   }
 
   /** Shared keys were written (or, with "all", any may have been). */
@@ -1020,6 +1027,27 @@ export class MultiplayerClient {
       this.sharedDirty ??= new Set();
       for (const key of keys) {
         this.sharedDirty.add(key);
+      }
+    }
+    this.enqueue("shared", { kind: "shared" });
+  }
+
+  /** Send everything in the outbox now, in the order it went pending. */
+  private flushOutbox(): void {
+    if (this.outbox.size === 0) {
+      return;
+    }
+    const items = [...this.outbox.values()];
+    this.outbox.clear();
+    for (const item of items) {
+      if (item.kind === "shared") {
+        this.sendSharedDiff();
+      } else if (item.kind === "player") {
+        if (!this.dropped) {
+          this.send({ data: item.patch, type: "player_state_patch" });
+        }
+      } else {
+        this.send({ data: item.data, type: "emit" });
       }
     }
   }
@@ -1156,7 +1184,7 @@ export class MultiplayerClient {
       !this.remoteStateSeen
     ) {
       this.initialStateApplied = true;
-      this.flushCoalescedEvents();
+      this.flushOutbox();
       this.sendOps(diffState(this.shadow, this._sharedState));
     }
   }

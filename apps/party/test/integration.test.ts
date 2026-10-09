@@ -345,7 +345,7 @@ test("the host's own state_patch is relayed to guests but never echoed back to i
 /** A unit in the delta tests' made-up world. */
 const grunt = (x: number): JsonRecord => ({ hp: 9, name: "grunt", x });
 
-test("a write sends only the leaves that changed", async () => {
+test("a write sends only the leaves that changed, and one task's writes leave as one message", async () => {
   const room = uniqueRoom("shared-deltas");
   const host = connect(room);
   let observer: RawClient | null = null;
@@ -364,15 +364,14 @@ test("a write sends only the leaves that changed", async () => {
     });
     await waitFor(() => watching.dataOf("state_patch").length === 1, "the first write");
 
+    // One task: a unit moves, a cell changes, a unit dies.
     host.updateSharedState({ units: { a: grunt(5), b: grunt(2), c: grunt(3), d: grunt(4) } });
-    await waitFor(() => watching.dataOf("state_patch").length === 2, "a unit moved");
     host.updateSharedState({ grid: [0, 0, 1, 0] });
-    await waitFor(() => watching.dataOf("state_patch").length === 3, "a cell changed");
     host.updateSharedState(({ units, ...rest }) => {
       const { b: _dead, ...alive } = toRecord(units);
       return { ...rest, units: alive };
     });
-    await waitFor(() => watching.dataOf("state_patch").length === 4, "a unit died");
+    await waitFor(() => watching.dataOf("state_patch").length === 2, "the batched write");
     await waitFor(
       () => isDeepStrictEqual(reader.sharedState, host.sharedState),
       "the guest agrees",
@@ -384,9 +383,7 @@ test("a write sends only the leaves that changed", async () => {
         [["grid"], [0, 0, 0, 0]],
         [["units"], { a: grunt(1), b: grunt(2), c: grunt(3), d: grunt(4) }],
       ],
-      [[["units", "a", "x"], 5]],
-      [[["grid", 2], 1]],
-      [[["units", "b"]]],
+      [[["grid", 2], 1], [["units", "a", "x"], 5], [["units", "b"]]],
     ]);
     assert.deepEqual(reader.sharedState, {
       grid: [0, 0, 1, 0],
@@ -395,6 +392,57 @@ test("a write sends only the leaves that changed", async () => {
   } finally {
     observer?.close(1000);
     guest?.destroy();
+    host.destroy();
+  }
+});
+
+/** One message as a line: its type and what a test compares of it. */
+const summary = (message: WireMessage): string => {
+  if (message.type === "event") {
+    const { event, payload } = toRecord(message.data);
+    return `event ${String(event)} ${JSON.stringify(payload)}`;
+  }
+  if (message.type === "player_state") {
+    return `player_state ${JSON.stringify(toRecord(message.data).state)}`;
+  }
+  return `${message.type} ${JSON.stringify(message.data)}`;
+};
+
+test("batched writes never overtake an event, nor a coalesced event a state write", async () => {
+  const room = uniqueRoom("batch-order");
+  const host = connect(room);
+  let observer: RawClient | null = null;
+  try {
+    await waitFor(() => admitted(host), "host admitted");
+    const watching = new RawClient(room, { _pk: `order-obs-${process.pid}` });
+    observer = watching;
+    await waitFor(() => watching.synced(), "observer synced");
+    const from = watching.messages.length;
+
+    host.updateMyState({ x: 1 });
+    host.updateSharedState({ phase: "aim" });
+    host.updateMyState({ y: 2 });
+    host.sendEvent("cursor", 1, { coalesce: true });
+    host.sendEvent("cursor", 2, { coalesce: true });
+    host.updateSharedState({ phase: "fire" });
+    host.sendEvent("shot", null);
+
+    const order = (): string[] =>
+      watching.messages
+        .slice(from)
+        .filter((message) => ["event", "player_state", "state_patch"].includes(message.type))
+        .map(summary);
+    await waitFor(() => order().includes("event shot null"), "the last message");
+    await delay(200);
+    assert.deepEqual(order(), [
+      'player_state {"x":1,"y":2}',
+      'state_patch [[["phase"],"aim"]]',
+      "event cursor 2",
+      'state_patch [[["phase"],"fire"]]',
+      "event shot null",
+    ]);
+  } finally {
+    observer?.close(1000);
     host.destroy();
   }
 });
@@ -695,13 +743,15 @@ test("player state fans out as keyed deltas; a client with no reconnect token is
     const sdkId = sdk.playerId;
     assert.ok(sdkId !== null);
 
-    sdk.updateMyState({ x: 1, y: 2 });
-    sdk.updateMyState({ y: 3 });
     const states = (): JsonRecord[] =>
       observer
         .received("player_state")
         .filter((data) => data.id === sdkId)
         .map((data) => toRecord(data.state));
+    // Two frames: writes in one task would leave as one message.
+    sdk.updateMyState({ x: 1, y: 2 });
+    await waitFor(() => states().length === 1, "observer saw the first player_state");
+    sdk.updateMyState({ y: 3 });
     await waitFor(() => states().length === 2, "observer saw two player_state messages");
     assert.deepEqual(states()[1], { y: 3 }, "the second message carried only the changed key");
 

@@ -219,6 +219,12 @@ useEffect(() => {
 }, [setPlayer]);
 ```
 
+Writes batch per task. However many `updateSharedState` and `updateMyState`
+calls one frame makes, the shared state leaves as one diff and this player's
+state as one merged patch, on a microtask. Batching never reorders: an event, a
+claim or an input sent at once flushes pending writes first, and a coalesced
+event never overtakes a state write, nor a state write a coalesced event.
+
 ## Events
 
 Fire-and-forget messages. Handled by the `onEvent` callback in the room config.

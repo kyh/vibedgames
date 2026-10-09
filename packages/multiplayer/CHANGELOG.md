@@ -57,6 +57,10 @@ Shared state:
   of an empty room seeds them along with `initialState`.
 - `applyPatch`, `diffState`, `readPatch`, `PatchOp` and `PatchSegment` are
   exported.
+- Writes batch per task: every `updateSharedState` call in one task leaves as
+  one `state_patch`, every `updateMyState` call as one `player_state_patch`, on
+  a microtask. An event, claim or input sent at once flushes pending writes
+  first, and state writes and coalesced events never overtake each other.
 
 Connection lifecycle:
 
