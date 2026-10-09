@@ -387,7 +387,7 @@ export class GameScene {
   private readonly camDrag = new THREE.Vector3(0, CAM_START_OFFSET_Y, 0);
 
   // ---- HUD ----------------------------------------------------------------------
-  private readonly hud = new Hud(() => this.confirm());
+  private readonly hud = new Hud(() => this.bannerAction());
 
   constructor() {
     this.control = new MatchControl(ROOM, this.localInput());
@@ -683,6 +683,19 @@ export class GameScene {
       this.playSolo();
     }
     this.presses = bump(this.presses);
+  }
+
+  /**
+   * The banner's button. While the link is down it reads PLAY AI, and the
+   * player asked for exactly that: a reconnecting room is left for a solo
+   * game too, which a tap on the table never does. Otherwise it is a
+   * confirm, like a tap — serve, or rematch.
+   */
+  private bannerAction(): void {
+    if (this.pause === "none" && this.control.session.connectionStatus === "reconnecting") {
+      this.playSolo();
+    }
+    this.confirm();
   }
 
   /** Release an armed power shot (pause, blur, a lost hand). */
