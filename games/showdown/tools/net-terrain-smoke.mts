@@ -161,9 +161,8 @@ const puppetOf = () => {
     { drive: "puppet", name: "Wren", netId: "bot:1", x: 0, z: 4.8 },
     "ace",
   );
-  const clock = new RemoteClock();
-  const track = new PuppetTrack(clock);
-  return { clock, puppet, track };
+  const track = new PuppetTrack(new RemoteClock());
+  return { puppet, track };
 };
 
 const state = (overrides: Partial<BrawlerState>): BrawlerState => ({
@@ -194,14 +193,14 @@ const state = (overrides: Partial<BrawlerState>): BrawlerState => ({
 });
 
 test("puppets keep their feet on the ramp, interpolating and extrapolating uphill", () => {
-  const { clock, puppet, track } = puppetOf();
+  const { puppet, track } = puppetOf();
   for (let i = 0; i <= 10; i += 1) {
     track.receive(i * 33, state({ z: 4.8 + i * 0.12 }), 1000 + i * 33);
   }
   let moved = false;
   for (let now = 1100; now < 1600; now += 16) {
     const before = puppet.z;
-    track.pose(puppet, now, clock.now(now) - 100, openWorld);
+    track.pose(puppet, now, openWorld);
     moved ||= puppet.z > before;
     assert.equal(puppet.root.position.y, terrainHeight(puppet.x, puppet.z));
   }
@@ -212,15 +211,15 @@ test("puppets keep their feet on the ramp, interpolating and extrapolating uphil
 });
 
 test("a puppet's leap rises from its cue and comes down with the frame that ends it", () => {
-  const { clock, puppet, track } = puppetOf();
+  const { puppet, track } = puppetOf();
   const leap = { sx: 0, sz: 0, t: 0.3, tx: 0, tz: 4 };
   track.receive(0, state({ leap, z: 1.6 }), 1000);
   track.receive(33, state({ leap: { ...leap, t: 0.333 }, z: 1.78 }), 1033);
-  track.pose(puppet, 1140, clock.now(1140) - 100, openWorld);
+  track.pose(puppet, 1140, openWorld);
   assert.equal(puppet.netAir, true);
   assert.ok(puppet.root.position.y > terrainHeight(0, puppet.z) + 1, "mid-arc");
   track.receive(66, state({ z: 4 }), 1066);
-  track.pose(puppet, 1200, clock.now(1200) - 100, openWorld);
+  track.pose(puppet, 1200, openWorld);
   assert.equal(puppet.netAir, false);
   assert.equal(puppet.root.position.y, terrainHeight(puppet.x, puppet.z));
 });

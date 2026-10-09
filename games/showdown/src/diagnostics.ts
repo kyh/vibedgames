@@ -53,7 +53,7 @@ export interface NetDiagnostics {
   lagMs: number | null;
   /** Guest: the last position error the host reported, world units (under 0.12 is ignored). */
   correction: number | null;
-  /** Guest: how far behind server time remote bodies render (the relay's fastest recent trip plus INTERP_DELAY_MS), ms. */
+  /** Guest: how far behind server time remote bodies render (the relay's fastest recent trip plus the render delay: INTERP_DELAY_MS, or more when the stream needs it), ms. */
   interpDelayMs: number | null;
 }
 

@@ -2,12 +2,13 @@
 // local input and reconciled against the host at matching moments
 // (prediction.ts); every other brawler renders from frames stamped with the
 // room's server time, INTERP_DELAY_MS behind the newest frame that could have
-// arrived by now (frame-clock.ts, interpolation.ts). FX, projectile spawns and
-// loot changes play when that render clock reaches the frame that carried
-// them, so a muzzle flash leaves the muzzle it belongs to. Bullets and bombs
-// fly locally from their spawn rows, and the guest's own shots fly from the
-// button press; the host's copies decide every hit. The HUD banners are
-// derived here from phase and roster edges.
+// arrived by now or as far as the stream needs (frame-clock.ts,
+// interpolation.ts). FX, projectile spawns and loot changes play when that
+// same render time reaches the frame that carried them, so a muzzle flash
+// leaves the muzzle it belongs to. Bullets and bombs fly locally from their
+// spawn rows, and the guest's own shots fly from the button press; the host's
+// copies decide every hit. The HUD banners are derived here from phase and
+// roster edges.
 import type * as THREE from "three";
 
 import { placeLob } from "../combat/bombs";
@@ -38,7 +39,6 @@ import { maxHpFor, PuppetTrack } from "./interpolation";
 import type { OwnPrediction } from "./prediction";
 import type { FxRecord, LobRow, ShotRow } from "./presentation";
 import { replayBatch } from "./presentation";
-import { INTERP_DELAY_MS } from "./protocol";
 import type { Arrival } from "./session";
 import { decodeFrame } from "./snapshot";
 import type {
@@ -164,10 +164,10 @@ export class GuestView implements GhostSink {
     return this.gen >= 0;
   }
 
-  /** How far behind server time remote bodies render: the relay's fastest trip plus INTERP_DELAY_MS. */
+  /** How far behind server time remote bodies render: the relay's fastest trip plus the render delay. */
   get interpDelayMs(): number | null {
     const now = this.clock.synced ? (this.game.session?.serverTime() ?? null) : null;
-    return now === null ? null : Math.round(now - this.clock.now() + INTERP_DELAY_MS);
+    return now === null ? null : Math.round(now - this.clock.renderTime(performance.now()));
   }
 
   /** Where this guest last drew its own body — newer than any frame, for a promotion. */
@@ -208,11 +208,10 @@ export class GuestView implements GhostSink {
     if (!this.clock.synced) {
       return;
     }
-    const renderAt = this.clock.now(now) - INTERP_DELAY_MS;
     for (const [b, track] of this.tracks) {
-      track.pose(b, now, renderAt, this.game.world);
+      track.pose(b, now, this.game.world);
     }
-    this.playDue(renderAt);
+    this.playDue(this.clock.renderTime(now));
   }
 
   /** After the bodies moved: the push other bodies give ours, then the host's correction. */

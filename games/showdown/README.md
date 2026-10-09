@@ -113,12 +113,13 @@ Netcode (`src/net/`):
   second, so a lost request cannot lock dodging.
 - **Everyone else renders on server time.** The host stamps each frame with the
   room's server clock (`client.serverNow()`), and a guest draws remote bodies,
-  fx, projectile spawns and loot changes 100 ms behind the newest frame that
-  could have arrived by now (`Interpolator` on a `RemoteClock` read off the
-  frames' arrivals, so the relay's latency is learned): motion is even however
-  frames arrive, a muzzle flash leaves the muzzle it belongs to, and a change of
-  host keeps the timeline — the clock relearns the new host's route and eases
-  onto it.
+  fx, projectile spawns and loot changes at one render time: 100 ms behind the
+  newest frame that could have arrived by now, or as far as a jittery stream
+  needs (`Interpolator` on a `RemoteClock` read off the frames' arrivals, so the
+  relay's latency and jitter are learned): motion is even however frames
+  arrive, a muzzle flash leaves the muzzle it belongs to, and a change of host
+  keeps the timeline — the clock relearns the new host's route and eases onto
+  it.
 - **Loot stays the host's.** Power cubes go to whichever body the host's sim
   walks over them first, bots and guests' copies alike, and boxes break on the
   host's damage. The room's first-come claims would only settle the rare race a

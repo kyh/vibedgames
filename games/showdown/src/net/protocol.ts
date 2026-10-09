@@ -15,9 +15,10 @@ export const SNAPSHOT_HZ = 30;
 /** Most input messages a guest sends per second. */
 export const INPUT_HZ = 30;
 /**
- * Remote bodies render this far behind the newest frame that could have
- * arrived by now: one snapshot interval plus arrival jitter. The relay's own
- * latency is learned from arrivals (`FrameClock`), not budgeted here.
+ * Remote bodies render at least this far behind the newest frame that could
+ * have arrived by now: one snapshot interval plus arrival jitter. The relay's
+ * own latency is learned from arrivals (`FrameClock`), not budgeted here, and
+ * a jitterier stream is rendered as far back as its arrivals show it needs.
  */
 export const INTERP_DELAY_MS = 100;
 /** Seats per room: the host's roster (bots + 1); overflow rooms are automatic. */

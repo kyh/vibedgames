@@ -319,11 +319,13 @@ const zigzag = (at: number): number => (Math.floor(at / 400) % 2 === 0 ? 1 : -1)
  * the runner stands still, as a promoted host resumes from the last frame.
  * `steer` is the runner's input at each host step; at `hurtAt` the runner
  * takes a hit. Returns each drawn step, how far the puppet trailed the runner,
- * when each sender's first frame landed, and for every frame drawn once a
- * frame was in hand: when, the render time it was drawn at and how far that
- * was past the newest frame (above zero the puppet is being extrapolated, not
- * interpolated), how far the puppet was drawn past anywhere the runner had
- * been, and the health it showed.
+ * when each sender's first frame landed, the stamp of the first frame carrying
+ * the hit and where the runner stood in it, and for every frame drawn once a
+ * frame was in hand: when, the render time it was drawn at (the one the
+ * guest's fx and loot changes play at) and how far that was past the newest
+ * frame (above zero the puppet is being extrapolated, not interpolated), the
+ * frame clock's measured hold, where the puppet was drawn and how far past
+ * anywhere the runner had been, and the health it showed.
  */
 const watchRunner = (
   senders: readonly Sender[],
@@ -356,9 +358,19 @@ const watchRunner = (
   let seq = 0;
   const steps: { dt: number; dx: number }[] = [];
   const trails: number[] = [];
-  const drawn: { ahead: number; at: number; hp: number; past: number; render: number }[] = [];
+  const drawn: {
+    ahead: number;
+    at: number;
+    hold: number;
+    hp: number;
+    past: number;
+    render: number;
+    x: number;
+  }[] = [];
   const went = { max: runner.x, min: runner.x };
   let newest = Number.NEGATIVE_INFINITY;
+  /** Every frame sent: its stamp, and the runner's health and position in it. */
+  const sent: { hp: number; t: number; x: number }[] = [];
   while (guestAt < until) {
     if (hostAt <= guestAt) {
       const sender = senderAt(senders, hostAt);
@@ -374,6 +386,7 @@ const watchRunner = (
         seq += 1;
         const t = sender.link.clock.serverAt(hostAt);
         sentBy.set(seq, sender);
+        sent.push({ hp: runner.hp, t, x: runner.x });
         route.send(hostAt, JSON.stringify(encodeFrame(host, seq, 1, t, host.elapsed * 1000)));
       }
       hostAt += HOST_FRAME_MS;
@@ -395,11 +408,18 @@ const watchRunner = (
     }
     const before = puppet.x;
     const local = viewer.clock.local(guestAt);
-    const renderAt = clock.now(local) - INTERP_DELAY_MS;
-    track.pose(puppet, local, renderAt, openWorld);
+    track.pose(puppet, local, openWorld);
+    const renderAt = clock.renderTime(local);
     if (Number.isFinite(newest)) {
-      const past = Math.max(puppet.x - went.max, went.min - puppet.x);
-      drawn.push({ ahead: renderAt - newest, at: guestAt, hp: puppet.hp, past, render: renderAt });
+      drawn.push({
+        ahead: renderAt - newest,
+        at: guestAt,
+        hold: clock.hold(local),
+        hp: puppet.hp,
+        past: Math.max(puppet.x - went.max, went.min - puppet.x),
+        render: renderAt,
+        x: puppet.x,
+      });
     }
     const frameMs = 12 + frameRng() * 10;
     if (guestAt > 600) {
@@ -412,7 +432,8 @@ const watchRunner = (
   // of the server clock: the relay's fastest trip.
   const local = viewer.clock.local(guestAt);
   const behindMs = viewer.clock.server.now(local) - clock.now(local);
-  return { behindMs, drawn, firstLanded, route, runner, steps, trails };
+  const hit = sent.find((frame) => frame.hp < runner.maxHp);
+  return { behindMs, drawn, firstLanded, hit, route, runner, steps, trails };
 };
 
 /** Each drawn step matches the time it covered: no surges on bunched frames, no stalls in gaps. */
@@ -566,6 +587,30 @@ test("the stamps run on through a quick host change: what the old host queued st
   // The new host's hit shows within the relay, the render delay and a frame or two.
   const shown = drawn.find((frame) => frame.at >= hurtAt && frame.hp === runner.hp)?.at;
   assert.ok(shown !== undefined && shown - hurtAt < 400, `the hit showed after ${shown} ms`);
+});
+
+test("over a jittery relay a hit shows, with its fx, when the body drawn gets to where it was hit", () => {
+  // Each client 120–200 ms from the server: to never run dry the stream needs
+  // more than INTERP_DELAY_MS, and the frame clock's hold takes bodies that far
+  // back. Rows, fx and loot changes must play there too: read INTERP_DELAY_MS
+  // back instead, the hit would flash before the body got to where it was hit.
+  const host = { from: 0, id: "host", link: peer(21, -4321.5, 160, 40), until: Infinity };
+  const { drawn, hit, runner } = watchRunner([host], peer(31, -98_765.25, 160, 40), () => 1, 1500);
+  assert.ok(hit);
+  const shown = drawn.findIndex((frame) => frame.hp < runner.maxHp);
+  const at = drawn[shown];
+  const before = drawn[shown - 1];
+  assert.ok(at && before, "the hit was drawn");
+  assert.ok(at.hold > INTERP_DELAY_MS + 20, `the stream held ${at.hold.toFixed(0)} ms`);
+  // The frame the row lands on is the one the render time — the fx and loot
+  // timeline — reaches the hit's frame…
+  assert.ok(before.render < hit.t && at.render >= hit.t, "the row and its fx play together");
+  // …and the body is drawn where it stood when it was hit, a frame's run at most past it.
+  const step = (BRAWLERS.nyx.speed * 25) / 1000;
+  assert.ok(
+    at.x >= hit.x - 0.01 && at.x - hit.x <= step,
+    `drawn at ${at.x.toFixed(3)} for a hit at ${hit.x.toFixed(3)}`,
+  );
 });
 
 test("a frame for eight brawlers in the thick of it stays well under 1.5 KB", () => {
