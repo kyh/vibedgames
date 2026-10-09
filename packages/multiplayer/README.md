@@ -217,8 +217,9 @@ you shape state:
 
 The server refuses a write that would nest deeper than `MAX_STATE_DEPTH`, holds
 a prototype key, or exceeds `MAX_MESSAGE_BYTES`. The client checks first: such
-a write stays unsent, warns once, and goes again whole the next time that key
-is written.
+a write stays unsent and warns once, and the keys it wrote go back to what the
+room holds, as the server rewinds a guest's refused write, so the writer never
+sees a state nobody else has.
 
 `initialState` is applied once, by the first host of a still-empty room, and is
 never re-applied on host migration — so a host leaving mid-game cannot reset the

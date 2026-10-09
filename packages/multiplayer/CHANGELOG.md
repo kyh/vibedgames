@@ -54,8 +54,8 @@ Shared state:
 - A guest's refused shared write rewinds completely: the server answers with
   the whole state as one op, so a key the room never had disappears as well.
 - A write the server would refuse (too big, too deep, a prototype key) is
-  caught client-side: it stays unsent, warns once, and goes again whole the
-  next time its key is written.
+  caught client-side: it stays unsent, warns once, and is undone on the writer
+  too, the keys it wrote going back to what the room holds.
 - Shared writes made before admission wait for `sync`, then go out; the host
   of an empty room seeds them along with `initialState`.
 - `applyPatch`, `diffState`, `readPatch`, `PatchOp` and `PatchSegment` are

@@ -1110,8 +1110,9 @@ export class MultiplayerClient {
   /**
    * Send ops and apply them to the room's copy — unless the server would
    * refuse them (past the message cap, too deep, a prototype key). Those stay
-   * unsent and out of the copy, so the copy still matches the server's and
-   * the key goes again, whole, the next time it is written.
+   * unsent, and what they wrote is undone here as well, as the server rewinds
+   * a guest's refused write: this client keeps seeing what the room holds,
+   * and a key goes again the next time it is written.
    */
   private sendOps(ops: PatchOp[]): void {
     if (ops.length === 0) {
@@ -1130,10 +1131,37 @@ export class MultiplayerClient {
           `[multiplayer] shared state write not sent — the server would refuse it: ${read}`,
         );
       }
+      this.rewindRefused(ops);
       return;
     }
     this.socket?.send(raw);
     this.shadow = applyPatch(this.shadow, clonePatch(ops));
+  }
+
+  /** Put every top-level key a refused batch wrote back to the room's copy. */
+  private rewindRefused(ops: PatchOp[]): void {
+    const keys = new Set<string>();
+    for (const [path] of ops) {
+      const [key] = path;
+      if (key === undefined) {
+        // A whole-state write: the whole state goes back.
+        this._sharedState = toRecord(cloneJson(this.shadow));
+        this.notify();
+        return;
+      }
+      keys.add(String(key));
+    }
+    const next: JsonRecord = { ...this._sharedState };
+    for (const key of keys) {
+      const held = this.shadow[key];
+      if (held === undefined) {
+        Reflect.deleteProperty(next, key);
+      } else {
+        next[key] = cloneJson(held);
+      }
+    }
+    this._sharedState = next;
+    this.notify();
   }
 
   /**

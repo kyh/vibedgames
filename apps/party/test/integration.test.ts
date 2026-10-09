@@ -1271,6 +1271,39 @@ test("an emptied room forgets its rules, claims and world", async () => {
   }
 });
 
+test("a shared write the server would refuse is undone on the writer too", async (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const room = uniqueRoom("refused-local");
+  const host = connect(room);
+  try {
+    await waitFor(() => admitted(host), "host admitted");
+    const guest = connect(room);
+    try {
+      await waitFor(() => admitted(guest), "guest admitted");
+      host.updateSharedState({ keep: 1 });
+      await waitFor(() => guest.sharedState.keep === 1, "a valid write lands");
+
+      // Past the message cap: the client refuses it before it leaves.
+      host.updateSharedState({ big: "x".repeat(1_100_000), keep: 2 });
+      await waitFor(() => host.sharedState.keep === 1, "the host's copy went back to the room's");
+      assert.equal(host.sharedState.big, undefined, "a key the room never had is gone again");
+      assert.equal(warn.mock.callCount(), 1, "the refusal warned once");
+
+      host.updateSharedState({ after: true });
+      await waitFor(
+        () => guest.sharedState.after === true,
+        "a write after the refusal still lands",
+      );
+      assert.equal(guest.sharedState.keep, 1, "the guest never saw the refused write");
+      assert.equal(guest.sharedState.big, undefined);
+    } finally {
+      guest.destroy();
+    }
+  } finally {
+    host.destroy();
+  }
+});
+
 test("malformed and oversized state patches are dropped without harming the room", async () => {
   const room = uniqueRoom("validation");
   // Raw host joins first: only the host may write shared state, and only a raw
