@@ -1,7 +1,10 @@
-// The transport adapter: one MultiplayerClient, intent routing, the snapshot
-// and fx channels, connection status and the offline-fallback deadline. No
-// three.js and no game rules live here — the host and guest modules turn what
-// this hands them into sim state.
+// The transport adapter: one MultiplayerClient, intent routing, and the
+// snapshot and fx channels. No three.js and no game rules live here — the host
+// and guest modules turn what this hands them into sim state. The client owns
+// the connection: its status, reconnecting after a drop, and going offline when
+// no room admits it in time, which the game answers with a solo brawl. A page
+// that closes frees its seat with no hook here: the browser closes the socket
+// with 1001, which the server takes as a leave.
 //
 // Intents go to the host alone (`join` excepted: every client keeps the picks a
 // future host will need). The host publishes a frame every tick, stamped with
@@ -11,7 +14,7 @@
 // and reading the merged state once per render frame would lose frames that
 // land together.
 import { MultiplayerClient } from "@vibedgames/multiplayer";
-import type { PlayerMap } from "@vibedgames/multiplayer";
+import type { MultiplayerConnectionStatus, PlayerMap } from "@vibedgames/multiplayer";
 import type { JsonObject, JsonValue } from "../json";
 import { isJsonNumber } from "../json";
 import { parseIntent } from "./intents";
@@ -48,8 +51,6 @@ const devPartyHost = (): string => {
 };
 
 const MULTIPLAYER_HOST = import.meta.env.DEV ? devPartyHost() : "https://party.vibedgames.com";
-
-export type SessionStatus = "connecting" | "connected" | "reconnecting";
 
 export interface SessionOptions {
   name: string;
@@ -94,8 +95,11 @@ export interface NetStats {
   intentsHz: number;
 }
 
-/** Seconds from the first update tick before an unreachable server means "play vs bots". */
-const OFFLINE_FALLBACK_S = 6;
+/**
+ * No room within this much rendered time means "play vs bots": the client goes
+ * offline (`fallbackMs`) and the game starts a solo brawl.
+ */
+const OFFLINE_FALLBACK_MS = 6000;
 /** How often a client re-announces its pick, so a newly promoted host learns it. */
 const JOIN_RESEND_MS = 3000;
 /** Queued remote intents beyond this are dropped: a flood must not stall a frame. */
@@ -139,9 +143,6 @@ export class Session {
   readonly name: string;
   /** Sequence of the last frame sent (host) or received (guest). */
   seq = 0;
-  /** Once true, a later drop is transient: reconnect, never fall back to bots. */
-  private everConnected = false;
-  private uptime = 0;
   private intents: RemoteIntent[] = [];
   private arrivals: Arrival[] = [];
   private seen: Seen = {
@@ -158,17 +159,12 @@ export class Session {
   private readonly frames = new Meter();
   private readonly sentIntents = new Meter();
   private readonly unsubscribe: () => void;
-  /** A closed tab must vacate its seat now, or the room waits out the grace window on it. */
-  private readonly onPageHide = (event: PageTransitionEvent): void => {
-    if (!event.persisted) {
-      this.destroy();
-    }
-  };
 
   constructor(options: SessionOptions) {
     this.room = options.room;
     this.name = options.name;
     this.client = new MultiplayerClient({
+      fallbackMs: OFFLINE_FALLBACK_MS,
       host: MULTIPLAYER_HOST,
       maxPlayers: MAX_PLAYERS,
       onEvent: (event, payload, from) => this.onEvent(event, payload, from),
@@ -176,7 +172,6 @@ export class Session {
       room: options.room,
     });
     this.unsubscribe = this.client.subscribe(() => this.collect());
-    window.addEventListener("pagehide", this.onPageHide);
     if (import.meta.env.DEV) {
       window.__net = { blip: () => this.blip(), client: this.client };
     }
@@ -203,11 +198,13 @@ export class Session {
     return Object.keys(this.client.players).length;
   }
 
-  get status(): SessionStatus {
-    if (this.client.connectionStatus === "connected") {
-      return "connected";
-    }
-    return this.everConnected ? "reconnecting" : "connecting";
+  /**
+   * Connecting until a room first admits this client, reconnecting whenever it
+   * is out of the room after that (the socket redials on its own), and offline
+   * once no room admitted it within OFFLINE_FALLBACK_MS — the game then plays solo.
+   */
+  get status(): MultiplayerConnectionStatus {
+    return this.client.connectionStatus;
   }
 
   /** The host's transport is down and the server is holding its seat. */
@@ -236,19 +233,6 @@ export class Session {
     };
   }
 
-  /** Advance the connect deadline; returns true the moment the offline fallback should fire. */
-  update(dt: number): boolean {
-    if (this.client.connectionStatus === "connected") {
-      this.everConnected = true;
-      return false;
-    }
-    if (this.everConnected) {
-      return false;
-    }
-    this.uptime += dt;
-    return this.uptime >= OFFLINE_FALLBACK_S;
-  }
-
   /** Re-announce the local pick every few seconds so any host — current or future — has it. */
   announce(kit: Intent & { kind: "join" }): void {
     if (!this.playerId) {
@@ -264,7 +248,8 @@ export class Session {
 
   /** `join` goes to every client; everything else to the host alone. */
   sendIntent(intent: Intent): void {
-    // A closed transport queues sends without bound; the join re-announce covers the gap.
+    // Events sent out of the room still queue and go out on reconnect, stale by then;
+    // nothing is sent until `sync`, and the join re-announce covers the gap.
     if (this.playerId === null) {
       return;
     }
@@ -272,11 +257,11 @@ export class Session {
       this.client.sendEvent(INTENT_EVENT, intent);
       return;
     }
-    const host = this.client.hostId;
-    if (host === null || host === this.playerId) {
+    // The host steps its own body directly, as solo does: only a guest's controls travel as intents.
+    if (this.client.isHost) {
       return;
     }
-    this.client.sendEvent(INTENT_EVENT, intent, { to: host });
+    this.client.sendToHost(INTENT_EVENT, intent);
     this.sentIntents.add();
   }
 
@@ -333,6 +318,8 @@ export class Session {
 
   /** Host side: publish this tick's frame, the slow keys that changed, and the fx since the last tick. */
   publish(world: Publication, fx: FxRecord[], everything = false): void {
+    // Out of the room the client keeps writes local and on `sync` re-sends whatever the server
+    // holds differently, which would replay the drop's last fx batch on every guest. Publish in the room.
     if (this.playerId === null) {
       return;
     }
@@ -361,7 +348,6 @@ export class Session {
   }
 
   destroy(): void {
-    window.removeEventListener("pagehide", this.onPageHide);
     this.unsubscribe();
     this.client.destroy();
     if (import.meta.env.DEV && window.__net?.client === this.client) {

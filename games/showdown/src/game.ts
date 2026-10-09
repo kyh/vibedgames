@@ -1005,7 +1005,8 @@ export class Game {
       this.mode = "solo";
       return;
     }
-    if (session.update(dt)) {
+    if (session.status === "offline") {
+      // No room admitted the client within its fallbackMs. Once one has, it never falls back.
       this.fallBackOffline();
       return;
     }
@@ -1060,8 +1061,6 @@ export class Game {
   }
 
   private updateHost(dt: number): void {
-    const { session } = this;
-    session?.update(dt);
     if (!this.pollSession() || this.mode !== "host") {
       return;
     }
@@ -1082,7 +1081,6 @@ export class Game {
   // same sim step the host runs on our own body before the host's correction.
   private updateGuest(dt: number): void {
     const { session, guest } = this;
-    session?.update(dt);
     if (!this.pollSession() || this.mode !== "guest" || !session || !guest) {
       return;
     }
