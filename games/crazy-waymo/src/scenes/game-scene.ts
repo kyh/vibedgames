@@ -66,6 +66,7 @@ import {
   WORLD_W,
 } from "../shared/constants";
 import { isFiniteJsonNumber, isJsonObject, isJsonString, parseJsonText } from "../shared/json";
+import { Rng } from "../shared/rng";
 import type { GameMode } from "../shared/types";
 import { STAGE_MARGIN } from "../trailer/scout";
 import { GaragePreview } from "../ui/garage-preview";
@@ -272,6 +273,17 @@ const startBannerStats = (best: number): string =>
     : `Chain drop-offs to run the combo up to ${FARE.comboMax}×.`;
 
 const SPAWN_KEY = "crazy-waymo:spawn";
+
+// DEV: `?room=<id>` plays in that room instead of everyone's, and `?online`
+// skips the title into a run there, from a start every such client shares and
+// none remembers: how the multiplayer lag check's two clients meet, with no
+// title in the way and no whole city between two random starts.
+const devParams = import.meta.env.DEV ? new URLSearchParams(window.location.search) : null;
+const DEV_ROOM = devParams?.get("room") ?? "";
+const DEV_ONLINE = devParams?.has("online") === true;
+/** The `?online` start: the spawn picker's first safe pick from this seed. */
+const DEV_ONLINE_START_SEED = 1;
+
 /** A stored spawn is data from an older build: every field is re-checked, and
  *  the caller still runs it through the safety test against today's world. */
 const parseSpawn = (raw: string | null): PlayerSpawn | null => {
@@ -1178,6 +1190,10 @@ vec3 ocGerstner(vec2 p, float t) {
   }
 
   async load(): Promise<void> {
+    if (DEV_ONLINE && !this.trailerMode) {
+      // START pressed before the city is in: the run begins the moment it is.
+      this.start();
+    }
     const loaded = await loadWorld({
       cache: this.cache,
       computeSpawn: (city) => this.computeSpawn(city),
@@ -1341,7 +1357,7 @@ vec3 ocGerstner(vec2 p, float t) {
       new URLSearchParams(window.location.search).has("trailer-online");
     const net = connectRoom({
       offline: (this.trailerMode && !localTrailerPeers) || isPlaytestRequested(),
-      room: localTrailerPeers ? "crazy-waymo-trailer-local" : MP_ROOM,
+      room: localTrailerPeers ? "crazy-waymo-trailer-local" : DEV_ROOM || MP_ROOM,
     });
     const remoteCars = new RemoteCars(this.cache, city, net.serverClock, (anchor, text) => {
       this.bubbles.say(anchor, text, { lift: 3 });
@@ -1821,7 +1837,8 @@ vec3 ocGerstner(vec2 p, float t) {
   // uses available solids; actual play uses the complete static collision index.
   // The spawn sticks between visits: the title gates on the tiles around it,
   // so a returning player reloads a neighbourhood the browser already holds
-  // instead of downloading a fresh one. Trailers keep their own start.
+  // instead of downloading a fresh one. Trailers keep their own start, and
+  // DEV `?online` clients all take the same one (DEV_ONLINE).
   private computeSpawn(city: CityModel): WorldSpawn {
     const world = {
       decks: city.getDecks(),
@@ -1829,15 +1846,17 @@ vec3 ocGerstner(vec2 p, float t) {
       network: city.network,
       solids: this.solidIndex ?? new SolidIndex(city.solids),
     };
-    const remembered = this.trailerMode ? null : parseSpawn(storageGet(SPAWN_KEY));
+    const remember = !this.trailerMode && !DEV_ONLINE;
+    const remembered = remember ? parseSpawn(storageGet(SPAWN_KEY)) : null;
     if (remembered && isPlayerSpawnSafe(world, remembered)) {
       return remembered;
     }
-    const spawn = choosePlayerSpawn(world);
+    const shared = DEV_ONLINE ? new Rng(DEV_ONLINE_START_SEED) : null;
+    const spawn = choosePlayerSpawn(world, shared ? () => shared.next() : Math.random);
     if (!spawn) {
       throw new Error("No safe player start exists in the street network");
     }
-    if (!this.trailerMode) {
+    if (remember) {
       storageSet(SPAWN_KEY, JSON.stringify(spawn));
     }
     return spawn;
