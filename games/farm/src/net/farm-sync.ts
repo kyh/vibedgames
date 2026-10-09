@@ -44,9 +44,9 @@ export const roomEpoch = (shared: JsonObject | null): number | null => {
   return isJsonNumber(epoch) ? epoch : null;
 };
 
-/** Where the shared keys go: NetSession, or a test double. */
+/** Where the shared keys go: the room's client, or a test double. */
 export interface SharedWriter {
-  patchShared: (patch: JsonObject) => void;
+  updateSharedState: (patch: JsonObject) => void;
 }
 
 /** The scene side of the sync: the live world and how to redraw it. */
@@ -62,7 +62,7 @@ export interface FarmView {
 
 /** Host: object `id` is gone from the farm. */
 const publishCleared = (net: SharedWriter, id: number): void => {
-  net.patchShared({ [objectKey(id)]: 1 });
+  net.updateSharedState({ [objectKey(id)]: 1 });
 };
 
 /** The host's state for a tile: a missing key is bare soil in its world. */
@@ -131,7 +131,7 @@ export class FarmSync {
       any = true;
     }
     if (any) {
-      net.patchShared(patch);
+      net.updateSharedState(patch);
     }
   }
 
@@ -160,7 +160,7 @@ export class FarmSync {
         patch[key] = gone ? 1 : 0;
       }
     }
-    net.patchShared(patch);
+    net.updateSharedState(patch);
   }
 
   /** Host: a guest's farming intent, where the world allows it. True when the tile changed. */
