@@ -27,7 +27,7 @@ export const generateOpenAPISpec = () =>
         title: `${siteConfig.name} API`,
         version: "1.0.0",
       },
-      openapi: "3.1.1",
       servers: [{ url: `${siteConfig.url}${REST_PREFIX}` }],
     },
+    version: "3.1.1",
   });

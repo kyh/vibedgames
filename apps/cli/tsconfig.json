@@ -2,12 +2,7 @@
   "extends": "@kyh/tsconfig/base.json",
   "compilerOptions": {
     "lib": ["ES2023"],
-    "types": ["node"],
-    "noEmit": false,
-    "declaration": true,
-    "outDir": "dist",
-    "rootDir": "src",
-    "tsBuildInfoFile": "./.cache/tsbuildinfo.json"
+    "types": ["node"]
   },
   "include": ["src"]
 }

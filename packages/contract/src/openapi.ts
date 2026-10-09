@@ -1,4 +1,4 @@
-import type { OpenAPIDocument, OpenAPIOperationObject } from "@orpc/openapi";
+import type { OpenAPIV3_2 } from "@orpc/openapi";
 import { openapi } from "@orpc/openapi";
 
 /**
@@ -26,7 +26,9 @@ const ERROR_DESCRIPTIONS = {
 
 type ErrorStatus = keyof typeof ERROR_DESCRIPTIONS;
 
-type Components = NonNullable<OpenAPIDocument["components"]>;
+// The generator builds 3.2 and downgrades to the version apps/web asks for.
+type Components = OpenAPIV3_2.ComponentsObject;
+type OperationObject = OpenAPIV3_2.OperationObject;
 
 const securitySchemes = {
   apiKeyHeader: {
@@ -60,7 +62,6 @@ export const openAPIComponents: Components = {
         code: { type: "string" },
         data: { description: "Code-specific detail, e.g. validation issues for BAD_REQUEST." },
         defined: { type: "boolean" },
-        inferable: { type: "boolean" },
         message: { type: "string" },
       },
       required: ["code", "message"],
@@ -72,7 +73,7 @@ export const openAPIComponents: Components = {
 
 const withErrors =
   (statuses: readonly ErrorStatus[]) =>
-  (operation: OpenAPIOperationObject): OpenAPIOperationObject => ({
+  (operation: OperationObject): OperationObject => ({
     ...operation,
     responses: {
       ...operation.responses,
@@ -90,7 +91,7 @@ const withErrors =
 
 const withSecurity =
   (schemes: readonly SecurityScheme[]) =>
-  (operation: OpenAPIOperationObject): OpenAPIOperationObject => ({
+  (operation: OperationObject): OperationObject => ({
     ...operation,
     security: schemes.map((scheme) => ({ [scheme]: [] })),
   });

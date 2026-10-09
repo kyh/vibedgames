@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { ContractClient } from "@repo/contract";
 import type { ORPCContext } from "@repo/service/orpc";
+import { CLI_VERSION_HEADER } from "@repo/contract/cli";
 import { createAuth } from "@repo/service/auth/auth";
 import { createDb } from "@repo/db/drizzle-client";
 import { MAX_RPC_BODY_BYTES } from "@repo/service/generate/limits";
@@ -64,14 +65,20 @@ const assertJsonError = async (response: Response, status: number, code: string)
   assert.strictEqual(body.code, code);
 };
 
-const post = (body = JSON.stringify({ json: {} })) => {
+const post = (body = JSON.stringify({ json: {} }), headers: Record<string, string> = {}) => {
   const request = new Request("http://localhost:3000/api/orpc/auth/me", {
     body,
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...headers },
     method: "POST",
   });
   return handleRpcRequest(request, contextFor(request));
 };
+
+const rpcError = z.object({ json: z.looseObject({ code: z.string() }) });
+
+// The keys oRPC 2.0.0-beta.31's client accepts in an error body, all of them
+// required but `data`: every vg up to 0.6 runs that client.
+const BETA_31_ERROR_KEYS = new Set(["code", "data", "defined", "inferable", "message"]);
 
 describe("rpc endpoint", () => {
   test("runs a POST through to the procedure's session check", async () => {
@@ -116,6 +123,25 @@ describe("rpc endpoint", () => {
   test("allows a POST with no Origin at all, so the CLI still reaches it", async () => {
     const response = await post();
     assert.strictEqual(response.status, 401);
+  });
+
+  test("keeps `inferable` in the errors of a vg that sends no version header", async () => {
+    const response = await post(undefined, { "user-agent": "node" });
+    assert.strictEqual(response.status, 401);
+    const { json } = rpcError.parse(await response.json());
+    assert.strictEqual(json.code, "UNAUTHORIZED");
+    assert.strictEqual(json.inferable, false);
+    assert.ok(Object.keys(json).every((key) => BETA_31_ERROR_KEYS.has(key)));
+  });
+
+  test("answers a vg that sends its version in the current error shape", async () => {
+    const response = await post(undefined, {
+      [CLI_VERSION_HEADER]: "0.7.0",
+      "user-agent": "node",
+    });
+    const { json } = rpcError.parse(await response.json());
+    assert.strictEqual(json.code, "UNAUTHORIZED");
+    assert.ok(!("inferable" in json));
   });
 
   test("rejects a body over the cap before parsing it", async () => {

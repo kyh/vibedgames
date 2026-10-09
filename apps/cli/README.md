@@ -20,7 +20,7 @@ vg new <slug>                    # scaffold a Phaser 4 + Vite + TS game
 vg new <slug> --engine threejs   # scaffold a Three.js + Vite + TS starter
 vg new <slug> --engine react-r3f # scaffold a React + R3F + drei + Vite + TS starter
 vg new <slug> --engine none      # minimal Vite + TS + canvas
-vg new <slug> --template owner/repo  # a third-party GitHub template instead (degit spec)
+vg new <slug> --template owner/repo  # a third-party GitHub template instead (owner/repo[/sub/dir][#ref])
 vg new <slug> --here             # scaffold into the current directory
 vg init [--global] [--agent …]   # install/update the vibedgames skills + CLI
 vg update                        # update the CLI and installed skills to latest

@@ -1,4 +1,5 @@
 import type { ORPCContext } from "@repo/service/orpc";
+import { CLI_VERSION_HEADER } from "@repo/contract/cli";
 import { appRouter } from "@repo/service";
 import { MAX_RPC_BODY_BYTES } from "@repo/service/generate/limits";
 import { SmartCoercionHandlerPlugin } from "@orpc/json-schema";
@@ -7,6 +8,7 @@ import { COMMON_ERROR_STATUS_MAP, onError, ORPCError } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { BatchHandlerPlugin, RequestLimitHandlerPlugin } from "@orpc/server/plugins";
 import { ZodToJsonSchemaConverter } from "@orpc/zod";
+import { z } from "zod";
 
 import { jsonError } from "@/lib/json-error";
 
@@ -31,7 +33,9 @@ const ERROR_STATUS = new Map<string, number>(Object.entries(COMMON_ERROR_STATUS_
 // a missing FAL_API_KEY is the deploy's fault, not the request's.
 const FAULTS_BELOW_500 = new Set(["PRECONDITION_FAILED"]);
 
-const reportFaults = (error: Error) => {
+// `undefined` because oRPC types an interceptor's error over a generic error
+// map, whose optional keys add it to the union.
+const reportFaults = (error: Error | undefined) => {
   if (error instanceof ORPCError) {
     // Observability is billable on this Worker. A procedure answering
     // deliberately — an expired session, a zod rejection, `auth.cliPoll`
@@ -93,6 +97,39 @@ const isCrossOrigin = (request: Request): boolean => {
   return origin !== null && origin !== new URL(request.url).origin;
 };
 
+/**
+ * A `vg` from before oRPC 2.0.0-beta.34, which dropped `inferable` from the
+ * error body. Its client checks the body's keys exactly, so without the field
+ * every refusal reaches it as MALFORMED_ORPC_RESPONSE and its code is lost. It
+ * fetches as Node and sends no {@link CLI_VERSION_HEADER}; browsers never say
+ * `node`. Remove once those installs have updated.
+ */
+const isPreHeaderCli = (request: Request): boolean =>
+  request.headers.get("user-agent") === "node" && !request.headers.has(CLI_VERSION_HEADER);
+
+const rpcErrorBody = z.looseObject({ json: z.looseObject({ code: z.string() }) });
+
+const withInferable = async (response: Response): Promise<Response> => {
+  if (response.ok) {
+    return response;
+  }
+  const body = rpcErrorBody.safeParse(
+    await response
+      .clone()
+      .json()
+      .catch(() => null),
+  );
+  if (!body.success || "inferable" in body.data.json) {
+    return response;
+  }
+  const headers = new Headers(response.headers);
+  headers.delete("content-length");
+  return Response.json(
+    { ...body.data, json: { ...body.data.json, inferable: false } },
+    { headers, status: response.status },
+  );
+};
+
 export const handleRpcRequest = async (
   request: Request,
   context: ORPCContext,
@@ -102,9 +139,10 @@ export const handleRpcRequest = async (
   }
 
   const { response } = await rpcHandler.handle(request, { context, prefix: RPC_PREFIX });
-  return (
-    response ?? jsonError(404, "NOT_FOUND", "No procedure at this path. Procedures are POST-only.")
-  );
+  if (!response) {
+    return jsonError(404, "NOT_FOUND", "No procedure at this path. Procedures are POST-only.");
+  }
+  return isPreHeaderCli(request) ? await withInferable(response) : response;
 };
 
 /** Same guards as {@link handleRpcRequest}; only the wire format differs. */
