@@ -211,13 +211,6 @@ export class GameScene {
   private neutralPending = false;
   // enemies (creeps + champions) the local player has slain this match
   private takedowns = 0;
-  /** A closed tab must vacate its seat now: an un-destroyed socket parks the
-   * host in the server's reconnect grace and guests stare at a frozen world. */
-  private readonly onPageHide = (event: PageTransitionEvent): void => {
-    if (!event.persisted) {
-      this.net?.destroy();
-    }
-  };
 
   private view: View;
   private controls: Controls;
@@ -239,7 +232,8 @@ export class GameScene {
     this.online = { kind: opts.online ? "connecting" : "offline" };
     if (opts.online) {
       this.world = emptyGuestWorld();
-      window.addEventListener("pagehide", this.onPageHide);
+      // No unload hook: a page that closes or reloads leaves the room at once
+      // (the browser closes the socket with 1001, which the server takes as a leave).
       this.net = new MultiplayerClient({
         host: MULTIPLAYER_HOST,
         maxPlayers: ARENA_BOT_FILL,
@@ -356,6 +350,23 @@ export class GameScene {
     return !!net && net.hostId !== null && net.players[net.hostId]?.connected === false;
   }
 
+  /** The centre line: our own connection while it is down — not yet admitted,
+   *  or dropped and redialling — else what the match waits on: a host in its
+   *  reconnect grace, or our hero's spawn. */
+  private statusLine(me: Unit | null): string {
+    const status = this.net?.connectionStatus;
+    if (status === "connecting") {
+      return "Connecting…";
+    }
+    if (status === "reconnecting") {
+      return "Reconnecting…";
+    }
+    if (me) {
+      return this.hostDropped ? "Host reconnecting…" : "";
+    }
+    return this.world.phase === "ended" ? "" : "Joining the arena…";
+  }
+
   private localUnit(): Unit | null {
     return this.world.units.get(this.localId) ?? null;
   }
@@ -404,8 +415,8 @@ export class GameScene {
     const rdt = frameDt * this.fx.scaleNow();
     this.worldView.smoothUnits = this.online.kind !== "guest";
     this.worldView.sync(this.world, rdt);
+    this.statusEl.textContent = this.statusLine(me);
     if (me) {
-      this.statusEl.textContent = this.hostDropped ? "Host reconnecting…" : "";
       this.hud.update(this.world, me, this.controls.scoreHeld(), frameDt);
       // listener facing must match the CAMERA frame so stereo pan tracks the
       // screen — the camera chases the aim on every input source
@@ -417,11 +428,7 @@ export class GameScene {
       }
       this.feedTouchCooldowns(me);
     } else if (this.world.phase === "ended") {
-      this.statusEl.textContent = "";
       this.hud.updateUnassigned(this.world, frameDt);
-    } else {
-      this.statusEl.textContent =
-        this.online.kind === "connecting" ? "Connecting…" : "Joining the arena…";
     }
     this.hints.update(this.world, me);
     this.driveIntro();
@@ -665,6 +672,9 @@ export class GameScene {
     }
     const id = net.connectionStatus === "connected" ? net.playerId : null;
     if (!id) {
+      // Out of the room — not yet admitted, or dropped and redialling — there
+      // is no seat, so nothing predicts or sends: the SDK queues events while
+      // reconnecting, and every input and frame is one.
       if (this.online.kind !== "connecting") {
         this.resetHeldInput();
         this.neutralPending = true;
@@ -827,10 +837,12 @@ export class GameScene {
     }
   }
 
+  /** Tell the host our pick every 3 s, so a host that missed it (a new one,
+   *  one in its reconnect grace) still spawns our champion. A host hands its
+   *  own pick to onNetEvent at once. */
   private announcePick(net: MultiplayerClient): void {
     const id = net.playerId;
-    const host = net.hostId;
-    if (!id || !host) {
+    if (!id || !net.hostId) {
       return;
     }
     const now = performance.now();
@@ -839,7 +851,7 @@ export class GameScene {
     }
     const pick = { champId: this.champId, name: this.name };
     this.picks[id] ??= pick;
-    net.sendEvent(INTENT_EVENT, { kind: "join", ...pick } satisfies Intent, { to: host });
+    net.sendToHost(INTENT_EVENT, { kind: "join", ...pick } satisfies Intent);
     this.joinResendAt = now;
   }
 
@@ -873,7 +885,6 @@ export class GameScene {
     if (host) {
       this.hostNet.advance(this.world, elapsed * 1000, this.hostLink(net, seat.id));
     } else if (me && this.world.phase === "playing") {
-      const target = net.hostId;
       // a host in its reconnect grace hears nothing: stand still until it is back
       if (this.hostDropped) {
         this.holdNeutral(me);
@@ -885,11 +896,7 @@ export class GameScene {
         performance.now(),
         this.world.now,
         this.held,
-        (p) => {
-          if (target) {
-            net.sendEvent(INTENT_EVENT, inputWire(p), { to: target });
-          }
-        },
+        (p) => net.sendToHost(INTENT_EVENT, inputWire(p)),
       );
       this.predictor.render(me, this.world.units, this.held);
     }
@@ -1127,11 +1134,10 @@ export class GameScene {
     if (!me) {
       return;
     }
-    const host = this.net?.hostId;
     if (this.amHost) {
       buyItem(this.world, me, itemId);
-    } else if (host) {
-      this.net?.sendEvent(INTENT_EVENT, { itemId, kind: "buy" } satisfies Intent, { to: host });
+    } else {
+      this.net?.sendToHost(INTENT_EVENT, { itemId, kind: "buy" } satisfies Intent);
     }
   }
 
@@ -1283,7 +1289,7 @@ export class GameScene {
   }
 
   /** Pause/transport loss releases a persistent attack/move without stopping
-   * an online host. If disconnected, defer the release until identity is valid. */
+   * an online host. Out of the room, defer the release until a seat is back. */
   private flushNeutralInput(): void {
     if (!this.neutralPending) {
       return;

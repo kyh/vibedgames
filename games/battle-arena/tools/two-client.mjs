@@ -1,7 +1,8 @@
-// Two-client online smoke: host + guest through join, wire traffic, pause,
-// rematch, host handoff and a late join. Needs the party server on :8787 and
-// Chrome. `node tools/two-client.mjs [--url http://localhost:PORT]` — without
-// --url it launches its own vite on :5313.
+// Two-client online smoke: host + guest through join, wire traffic, pause, a
+// dropped connection on either side, rematch, host handoff and a late join.
+// Needs the party server on :8787 and Chrome.
+// `node tools/two-client.mjs [--url http://localhost:PORT]` — without --url it
+// launches its own vite on :5313.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
@@ -116,6 +117,14 @@ const movesOnKey = async (page, id, sim = page) => {
   assert.ok(Math.hypot(after.x - before.x, after.y - before.y) > 0.5, "moved on KeyW");
 };
 
+// A network blip, as the SDK's tests make one: the transport drops without a
+// leave, so the server holds the seat, until the socket redials.
+const dropTransport = (page) => page.evaluate(() => window.__ba.net.socket.close(4000));
+const restoreTransport = (page) => page.evaluate(() => window.__ba.net.socket.reconnect());
+
+const showsStatus = (page, text, label) =>
+  until(page, (expected) => window.__ba.statusEl.textContent === expected, label, 20_000, text);
+
 const run = async (base) => {
   // Both clients must keep simulating; Chrome otherwise throttles whichever
   // window is not focused, which reads as a frozen peer.
@@ -197,6 +206,44 @@ const run = async (base) => {
       await key(host.page, "keydown", "Escape", "Escape");
       await until(host.page, () => !window.__ba.controlsPaused, "host resumed");
       assert.equal(await isPaused(host.page), false);
+    });
+    await step("a guest's own drop reads Reconnecting…, then it plays on", async () => {
+      await dropTransport(guest.page);
+      await showsStatus(guest.page, "Reconnecting…", "guest shows its own drop");
+      await until(
+        host.page,
+        (id) => window.__ba.net.players[id]?.connected === false,
+        "host holds the guest's seat",
+        20_000,
+        guestId,
+      );
+      await restoreTransport(guest.page);
+      await until(
+        guest.page,
+        () => window.__GAME_DIAGNOSTICS__.online.connection === "connected",
+        "guest back in the room",
+      );
+      await showsStatus(guest.page, "", "guest back in the match");
+      await movesOnKey(guest.page, guestId, host.page);
+    });
+    await step("a host's own drop: the guest waits, the host keeps the role", async () => {
+      await dropTransport(host.page);
+      await showsStatus(host.page, "Reconnecting…", "host shows its own drop");
+      await showsStatus(guest.page, "Host reconnecting…", "guest waits for the host");
+      // back inside the server's host-liveness window (6 s), so the role stays
+      await restoreTransport(host.page);
+      await until(
+        host.page,
+        (id) => {
+          const d = window.__GAME_DIAGNOSTICS__.online;
+          return d.authority && d.hostId === id && d.takeover === "own";
+        },
+        "host carries the match on from its own world",
+        20_000,
+        hostId,
+      );
+      await showsStatus(guest.page, "", "guest plays on");
+      await movesOnKey(guest.page, guestId, host.page);
     });
     await step("rematch from the host", async () => {
       await endMatch(host.page);
