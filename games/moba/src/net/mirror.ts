@@ -20,8 +20,9 @@
 import { Interpolator, RemoteClock, lerp } from "@vibedgames/multiplayer";
 
 import { SIM_DT } from "../data/config";
+import { dist2 } from "../sim/math";
 import type { Vec2 } from "../sim/math";
-import type { World } from "../sim/types";
+import type { Projectile, World } from "../sim/types";
 import { applySnapshot, emptyGuestWorld } from "./snapshot";
 import type { Snapshot, Tick } from "./snapshot";
 import { applyTick } from "./stream";
@@ -46,6 +47,32 @@ const lerpPose = (a: Vec2, b: Vec2, k: number): Vec2 => ({
 });
 
 const holds = (w: World, id: string): boolean => w.units.has(id) || w.projectiles.has(id);
+
+/** A removed projectile this close to the point it chases, beyond one step's
+ *  flight (px), landed on it: the host lands a shot within 6 px of its next
+ *  step, and a homing shot's target moves on a step meanwhile. Any further
+ *  out, its target was gone and the host dropped it where it flew. Over ten
+ *  minutes of a bot 3v3 this told the two apart for every shot that landed. */
+const LANDING_REACH_PX = 20;
+
+/** Where the host ended a projectile it removed this step. The guest's copy
+ *  is the step before: on the point it chased if that was in reach, else
+ *  where it was. */
+const flightEnd = (p: Projectile): Vec2 => {
+  const reach = p.speed * SIM_DT + LANDING_REACH_PX;
+  const landed = dist2(p, { x: p.tx, y: p.ty }) <= reach * reach;
+  return landed ? { x: p.tx, y: p.ty } : { x: p.x, y: p.y };
+};
+
+/** Where a unit this tick removed fell, when it died in that step. */
+const fallOf = (tick: Tick, id: string): Vec2 | null => {
+  for (const fx of tick.f ?? []) {
+    if (fx.t === "death" && fx.unitId === id) {
+      return { x: fx.x, y: fx.y };
+    }
+  }
+  return null;
+};
 
 /** Zones that ride their owner sit on the owner as drawn, not where the host
  *  last had it — call after the local hero's predicted pose is written. */
@@ -134,6 +161,8 @@ export class GuestMirror {
     }
     // The view replays its own copy later; the two worlds share nothing.
     this.pending.push({ keyframe: null, t: tick.t, tick: structuredClone(tick) });
+    const goneUnits = (tick.ux ?? []).flatMap((id) => replica.units.get(id) ?? []);
+    const goneShots = (tick.px ?? []).flatMap((id) => replica.projectiles.get(id) ?? []);
     applyTick(replica, tick, false);
     // Every body is sampled every step, idle ones too: an entity that stops
     // must say so, or interpolation would carry it on past where it stood.
@@ -144,6 +173,15 @@ export class GuestMirror {
     }
     for (const p of replica.projectiles.values()) {
       this.body(p.id).push(tick.t, { x: p.x, y: p.y }, receivedAt);
+    }
+    // One this step removed is sampled once more, where the host ended it: the
+    // view draws it to that end (an arrow onto its target, a creep where it
+    // fell) until the removal replays, not on past the stream.
+    for (const u of goneUnits) {
+      this.bodies.get(u.id)?.push(tick.t, fallOf(tick, u.id) ?? { x: u.x, y: u.y }, receivedAt);
+    }
+    for (const p of goneShots) {
+      this.bodies.get(p.id)?.push(tick.t, flightEnd(p), receivedAt);
     }
   }
 

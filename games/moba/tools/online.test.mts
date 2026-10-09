@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { ServerClock } from "@vibedgames/multiplayer";
+import { ServerClock, netStats } from "@vibedgames/multiplayer";
 
 import { SIM_DT } from "../src/data/config.ts";
 import { restoreHostState } from "../src/net/host-state.ts";
@@ -16,7 +16,14 @@ import { TickEncoder, applyTick, parseTick } from "../src/net/stream.ts";
 import { dealDamage } from "../src/sim/combat.ts";
 import type { Vec2 } from "../src/sim/math.ts";
 import type { FxEvent, Unit, World } from "../src/sim/types.ts";
-import { createWorld, dashHero, issueOrder, spawnHero, step } from "../src/sim/world.ts";
+import {
+  createWorld,
+  dashHero,
+  issueOrder,
+  spawnCreepAt,
+  spawnHero,
+  step,
+} from "../src/sim/world.ts";
 
 test("only an empty room seeds a match, retaining the renderer's world and maps", () => {
   const world = emptyGuestWorld();
@@ -539,6 +546,31 @@ test("a jittery route draws further back, and the ticks replay where the bodies 
   );
   assert.ok(calm.apart < 5, `calm: the replay is ${calm.apart} ms off the bodies`);
   assert.ok(rough.apart < 5, `rough: the replay is ${rough.apart} ms off the bodies`);
+});
+
+test("a body the stream removes is drawn to its end, never past the stream", () => {
+  // A skirmish beside the guest: a bot archer's arrows land and are removed,
+  // and the creeps it fights fall and are reaped.
+  const host = createWorld(4251);
+  const guest = spawnHero(host, "ironvow", "radiant", "guest", false, 2);
+  const archer = spawnHero(host, "stormcaller", "radiant", "archer", true, 4);
+  for (const dy of [-40, 0, 40]) {
+    spawnCreepAt(host, "dire", "top", "melee", archer.x + 260, archer.y + dy);
+  }
+  // A steady route: a body is drawn past its newest update only if the stream
+  // itself left it there.
+  const s = new Session(host, guest.id, 60, 0);
+  const before = netStats();
+  let removed = 0;
+  for (let i = 0; i < 60 * 8; i += 1) {
+    const live = [...host.units.keys(), ...host.projectiles.keys()];
+    s.frame();
+    removed += live.filter((id) => !host.units.has(id) && !host.projectiles.has(id)).length;
+  }
+  const drawn = netStats();
+  assert.ok(removed > 10, `arrows landed and creeps fell (${removed} removed)`);
+  assert.ok(drawn.frames - before.frames > 1000, "the skirmish was drawn");
+  assert.equal(drawn.starved - before.starved, 0, "no frame drawn past the newest update");
 });
 
 test("effects are never lost, however many ticks land in one frame", () => {
