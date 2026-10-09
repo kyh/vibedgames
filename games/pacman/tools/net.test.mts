@@ -334,6 +334,60 @@ test("a calm route draws a rival RIVAL_DELAY_MS behind; a jittery one only as fa
   }
 });
 
+/** A report and the local time it reached us. */
+interface Delivery {
+  at: number;
+  report: PacSample;
+}
+
+/**
+ * A walking rival's reports across our own drop, in order as over one socket:
+ * over 50–70 ms until it, none of the second's worth it sent while we were
+ * away, then over 450–470 ms. The 61st is the first over the new route.
+ */
+const acrossDrop = (): Delivery[] => {
+  const deliveries: Delivery[] = [];
+  let last = Number.NEGATIVE_INFINITY;
+  for (const [i, report] of walk(200, { t: T0, x: 1, z: 1 }).entries()) {
+    if (i < 60 || i >= 80) {
+      last = Math.max(last, local(report.t) + (i < 60 ? 50 : 450) + noise(i) * 20);
+      deliveries.push({ at: last, report });
+    }
+  }
+  return deliveries;
+};
+
+test("back from our own drop onto a much slower route, a rival plays on at once", () => {
+  const deliveries = acrossDrop();
+  const back = deliveries[60]?.at ?? Number.NaN;
+  const end = (deliveries.at(-1)?.at ?? 0) - 300;
+  const track = new PacTrack();
+  const steps: number[] = [];
+  let relearned = false;
+  let prev = Number.NaN;
+  for (let at = deliveries[0]?.at ?? 0; at < end; at += FRAME_MS) {
+    if (!relearned && at >= back) {
+      // The room admits us again: the scene relearns every track then.
+      relearned = true;
+      track.relearn();
+    }
+    const newest = deliveries.findLast((delivery) => delivery.at <= at)?.report;
+    assert.ok(newest);
+    track.push(newest, at);
+    const x = track.sample(at)?.x ?? Number.NaN;
+    if (at >= back) {
+      // Timed by the old route's quicker trips, it would run past its newest
+      // report and freeze there for two seconds.
+      assert.ok(x <= newest.x + 1e-9, `${(at - back).toFixed(0)} ms back: ${x}`);
+    }
+    if (at >= back + 200) {
+      steps.push(x - prev);
+    }
+    prev = x;
+  }
+  assertSteady(steps);
+});
+
 test("a respawn snaps the pac home instead of gliding it back through the walls", () => {
   const track = new PacTrack();
   // Caught a step from home: too close for the jump rule, so the spawn bump must do it.

@@ -597,6 +597,8 @@ export class GameScene {
     room: ROOM,
   });
   private remotePacs: RemotePacs;
+  /** Our own connection dropped and the room has not admitted us again yet. */
+  private ownDrop = false;
   /** Rivals present this frame (see presentRivals). */
   private rivalIds: string[] = [];
   /** Own-pac send clock: keeps its remainder, so reports land every 50 ms rather than 67/83. */
@@ -770,6 +772,9 @@ export class GameScene {
     this.fx = new FxPool(this.scene);
     this.powerHalo = new PowerHalo(this.scene);
     this.remotePacs = new RemotePacs(this.scene);
+    // Every notification, not every frame: a drop and the reconnect after it
+    // can both land while the tab is hidden and no frame runs.
+    this.net.subscribe(() => this.watchOwnConnection());
     this.best = loadBest();
     this.bindInput();
     this.setPhase("title");
@@ -805,6 +810,20 @@ export class GameScene {
     return Object.entries(this.net.players)
       .filter(([id, p]) => id !== me && p.connected !== false && readPacSample(p.state) !== null)
       .map(([id]) => id);
+  }
+
+  /**
+   * Back in the room after our own connection dropped: rivals' reports now
+   * reach us by another route, so every track measures it afresh.
+   */
+  private watchOwnConnection(): void {
+    const status = this.net.connectionStatus;
+    if (status === "reconnecting") {
+      this.ownDrop = true;
+    } else if (status === "connected" && this.ownDrop) {
+      this.ownDrop = false;
+      this.remotePacs.relearn();
+    }
   }
 
   private handleNetEvent(event: string, payload: JsonValue, from: string): void {
