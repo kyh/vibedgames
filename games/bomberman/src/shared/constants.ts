@@ -93,8 +93,9 @@ export type Blast = {
  * room's server clock and `s` how long it takes (0 for a spawn, which
  * receivers place without walking); receivers derive the walk cycle and
  * facing from the steps themselves. `h` is the server time, stamped
- * PLAYER_BEAT_HZ times a second while the body is on the board: receivers
- * learn this player's route from it, and that a body at rest still stands.
+ * PLAYER_BEAT_HZ times a second while the body is on the board and another
+ * player is in the room: receivers learn this player's route from it, and
+ * that a body at rest still stands.
  */
 export interface PlayerState {
   col: number;

@@ -1099,14 +1099,20 @@ export class GameScene extends Scene {
   }
 
   /**
-   * While the body is on the board, the room's clock on a steady beat — the
-   * only key that changes, so a beat is a few bytes. Each player draws this
-   * body on its own clock of this sender, which learns from the beats how
-   * long they take and how late they run, and the newest beat tells it a body
-   * at rest is still there. A step in the same frame leaves with it.
+   * While the body is on the board and another player is in the room to draw
+   * it, the room's clock on a steady beat: a message carrying one key. Each
+   * other player draws this body on its own clock of this sender, which
+   * learns from the beats how long they take and how late they run, and the
+   * newest beat tells it a body at rest is still there. A step in the same
+   * frame leaves with it. Alone against bots there is nobody to tell.
    */
   private sendBeat(elapsed: number, now: number): void {
-    if (this.beat.due(elapsed) && this.ownSpawned && this.roomReady) {
+    if (
+      this.beat.due(elapsed) &&
+      this.ownSpawned &&
+      this.roomReady &&
+      Object.keys(this.peers).length > 1
+    ) {
       this.client.updateMyState({ h: Math.round(this.client.serverNow(now)) });
     }
   }

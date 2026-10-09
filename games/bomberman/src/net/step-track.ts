@@ -3,12 +3,13 @@
 // A player's state is its newest grid step — at `t` on the room's server
 // clock its body left a tile, and `s` ms later it stands on (col, row) — plus
 // `h`, the server time, stamped PLAYER_BEAT_HZ times a second while the body
-// is on the board. A step becomes two samples: the tile it leaves, at its
-// start, and the tile it reaches, at its end. A step says where it ends the
-// moment it starts, so it is drawn from its start, only as far behind as its
-// arrivals scatter; and every sample sits on a tile centre, so the blends
-// between them walk the grid and turn corners where the sender did. Nothing is
-// extrapolated: a late step holds the body on the tile it is leaving.
+// is on the board and someone is there to draw it. A step becomes two
+// samples: the tile it leaves, at its start, and the tile it reaches, at its
+// end. A step says where it ends the moment it starts, so it is drawn from
+// its start, only as far behind as its arrivals scatter; and every sample
+// sits on a tile centre, so the blends between them walk the grid and turn
+// corners where the sender did. Nothing is extrapolated: a late step holds
+// the body on the tile it is leaving.
 //
 // The Interpolator renders on the sender's RemoteClock, which learns from the
 // stamps that are send times — step starts and heartbeats, never a step's end
