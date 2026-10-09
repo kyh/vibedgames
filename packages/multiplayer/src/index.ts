@@ -11,6 +11,8 @@ export { netStats } from "./net-stats.js";
 export type { NetClientInfo, NetProbe, NetStats } from "./net-stats.js";
 export { Reconciler } from "./prediction.js";
 export type { Correction, ReconcilerOptions } from "./prediction.js";
+export { applyPatch, diffState, readPatch } from "./patch.js";
+export type { PatchOp, PatchSegment } from "./patch.js";
 
 export type {
   ClaimInfo,

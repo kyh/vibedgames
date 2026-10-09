@@ -1,6 +1,8 @@
 import { PartySocket } from "partysocket";
 
 import { trackClient } from "./net-stats.js";
+import { applyPatch, cloneJson, clonePatch, diffState, readPatch } from "./patch.js";
+import type { PatchOp } from "./patch.js";
 import { ServerClock } from "./server-clock.js";
 import type {
   ClaimMap,
@@ -28,6 +30,7 @@ import {
   TIME_PROBE_INTERVAL_MS,
 } from "./types.js";
 import type { MultiplayerSchemas, SchemaViolation } from "./validation.js";
+import { MAX_MESSAGE_BYTES } from "./validation.js";
 
 /** Accept a single id or a list; undefined stays undefined so the field can be
  *  omitted from the wire message entirely. */
@@ -225,6 +228,10 @@ const changedKeys = (prev: JsonRecord, candidate: JsonRecord): JsonRecord | null
   return delta;
 };
 
+/** A JSON object as a record; anything else as an empty one. */
+const toRecord = (value: JsonValue): JsonRecord =>
+  value instanceof Object && !Array.isArray(value) ? value : {};
+
 /** Functional-updater form accepted by the state setters. */
 type StateUpdater = (prev: JsonRecord) => JsonRecord;
 
@@ -279,8 +286,22 @@ export class MultiplayerClient {
    *  patches. */
   private pendingCoalesced = new Map<string, PendingEvent>();
   private coalesceFlushScheduled = false;
+  /**
+   * Top-level shared keys written and not yet sent, or every key. Kept while
+   * out of the room: `sync` sends them once there is a copy to diff against.
+   */
+  private sharedDirty: Set<string> | "all" | null = null;
+  /**
+   * The room's shared state as the server holds it, as far as this client
+   * knows: what a write is diffed against. A private deep copy — never the
+   * objects the game holds — so a game mutating its state in place still
+   * diffs right.
+   */
+  private shadow: JsonRecord = {};
   /** One warning per client for async schemas — validation must stay sync. */
   private warnedAsyncSchema = false;
+  /** One warning per client for a shared write the server would refuse. */
+  private warnedRefusedPatch = false;
   /** The room's shared server time, measured by `time` probes. */
   private readonly clock = new ServerClock();
   private lastProbeAt = Number.NEGATIVE_INFINITY;
@@ -511,6 +532,8 @@ export class MultiplayerClient {
     this.heldInput = null;
     // Queued for a room that never admitted us — don't leak them into the new one.
     this.pendingCoalesced.clear();
+    this.sharedDirty = null;
+    this.shadow = {};
 
     // The close reconnect() dispatches for the old connection reads the same.
     this.socket?.updateProperties({ query: this.connectionQuery(), room });
@@ -767,9 +790,12 @@ export class MultiplayerClient {
   }
 
   /**
-   * Update shared state (merged with current). Only changed keys ride the
-   * wire, and nothing while the connection is down: a host's reconnect
-   * re-sends whatever the server holds differently.
+   * Update shared state. The object form replaces each key it names (the rest
+   * stay); the function form returns the whole next state, and a key it
+   * leaves out is deleted. Either way only what changed rides the wire, down
+   * to the leaf: the client diffs the result against the room's copy and
+   * sends path ops (see patch.ts). Nothing is sent while the connection is
+   * down: a host's reconnect re-sends whatever the server holds differently.
    */
   updateSharedState(updater: JsonRecord | StateUpdater): void {
     const prev = this._sharedState;
@@ -781,12 +807,9 @@ export class MultiplayerClient {
     // Flush unconditionally — coalesced events must precede whatever state
     // message goes out next, even when this particular delta turns out empty.
     this.flushCoalescedEvents();
-    // Every hop shallow-merges patches, so unchanged keys can stay local. For
-    // the object form the game already named the keys it means to write; for
-    // the function form, diff the returned state against the previous one.
-    const delta = changedKeys(prev, isUpdaterFn(updater) ? next : updater);
-    if (delta && !this.dropped) {
-      this.send({ data: delta, type: "state_patch" });
+    if (this._connectionStatus !== "offline") {
+      this.markShared(isUpdaterFn(updater) ? "all" : Object.keys(updater));
+      this.sendSharedDiff();
     }
     this.notify();
   }
@@ -930,6 +953,7 @@ export class MultiplayerClient {
     this.stopTimers();
     // Queued for the room just left.
     this.pendingCoalesced.clear();
+    this.sharedDirty = null;
     const claimsBefore = this._claims;
     this._claims = {};
     this.enterOffline();
@@ -986,6 +1010,61 @@ export class MultiplayerClient {
       this.send({ data: emitData(event, payload, to, except), type: "emit" });
     }
     this.pendingCoalesced.clear();
+  }
+
+  /** Shared keys were written (or, with "all", any may have been). */
+  private markShared(keys: string[] | "all"): void {
+    if (keys === "all" || this.sharedDirty === "all") {
+      this.sharedDirty = "all";
+    } else {
+      this.sharedDirty ??= new Set();
+      for (const key of keys) {
+        this.sharedDirty.add(key);
+      }
+    }
+  }
+
+  /**
+   * The shared keys written since the last send, diffed against the room's
+   * copy and sent as ops. Only from inside the room: until `sync` there is no
+   * copy to diff against, so the keys wait for it.
+   */
+  private sendSharedDiff(): void {
+    const dirty = this.sharedDirty;
+    if (dirty === null || this._connectionStatus !== "connected") {
+      return;
+    }
+    this.sharedDirty = null;
+    this.sendOps(diffState(this.shadow, this._sharedState, dirty === "all" ? undefined : dirty));
+  }
+
+  /**
+   * Send ops and apply them to the room's copy — unless the server would
+   * refuse them (past the message cap, too deep, a prototype key). Those stay
+   * unsent and out of the copy, so the copy still matches the server's and
+   * the key goes again, whole, the next time it is written.
+   */
+  private sendOps(ops: PatchOp[]): void {
+    if (ops.length === 0) {
+      return;
+    }
+    const message: ClientMessage = { data: ops, type: "state_patch" };
+    const raw = JSON.stringify(message);
+    const read =
+      raw.length > MAX_MESSAGE_BYTES
+        ? `${raw.length} characters, past the ${MAX_MESSAGE_BYTES} cap`
+        : readPatch(ops);
+    if (!Array.isArray(read)) {
+      if (!this.warnedRefusedPatch) {
+        this.warnedRefusedPatch = true;
+        console.warn(
+          `[multiplayer] shared state write not sent — the server would refuse it: ${read}`,
+        );
+      }
+      return;
+    }
+    this.socket?.send(raw);
+    this.shadow = applyPatch(this.shadow, clonePatch(ops));
   }
 
   /**
@@ -1061,11 +1140,13 @@ export class MultiplayerClient {
   };
 
   /**
-   * Seed `options.initialState` iff we are the host of a genuinely empty room.
-   * Emptiness is judged by `remoteStateSeen` (the server's view), not the
-   * locally pre-seeded `_sharedState`: a guest promoted mid-round has never
-   * tripped `initialStateApplied`, and seeding then would wipe the live board
-   * for everyone (issue #240). Called from both `sync` and `host` handlers.
+   * Seed the room with our world — `options.initialState` and whatever the
+   * game wrote over it before admission — iff we are the host of a genuinely
+   * empty room. Emptiness is judged by `remoteStateSeen` (the server's view),
+   * not the locally pre-seeded `_sharedState`: a guest promoted mid-round has
+   * never tripped `initialStateApplied`, and seeding then would wipe the live
+   * board for everyone (issue #240). Called from both `sync` and `host`
+   * handlers.
    */
   private maybeSeedInitialState(hostId: string): void {
     if (
@@ -1075,7 +1156,8 @@ export class MultiplayerClient {
       !this.remoteStateSeen
     ) {
       this.initialStateApplied = true;
-      this.send({ data: this.options.initialState, type: "state_patch" });
+      this.flushCoalescedEvents();
+      this.sendOps(diffState(this.shadow, this._sharedState));
     }
   }
 
@@ -1110,6 +1192,8 @@ export class MultiplayerClient {
     if (Object.keys(data.state).length > 0) {
       this.remoteStateSeen = true;
     }
+    // The room's state as the server holds it: what writes diff against now.
+    this.shadow = toRecord(cloneJson(data.state));
     if (wasHost && data.hostId === this._playerId) {
       this.reassertWorld(data.state);
     } else {
@@ -1125,6 +1209,9 @@ export class MultiplayerClient {
     }
 
     this.maybeSeedInitialState(data.hostId);
+    // Shared writes made while out of the room, now that there is a copy of
+    // its state to diff them against.
+    this.sendSharedDiff();
 
     // Every reconnect is a brand-new connection server-side, with an empty
     // player state — and `sync` is the one signal that fires on each of
@@ -1164,19 +1251,13 @@ export class MultiplayerClient {
    * A host back from a dropped transport kept running its world, while the
    * server's copy may be older — a restart restores it up to a second back,
    * and an oversized world not at all. The room still names us host, so our
-   * world wins: re-send every key the server holds differently.
+   * world wins: send whatever of every key we hold the server holds
+   * differently, down to the leaf. A key only the server holds stays.
    */
   private reassertWorld(server: JsonRecord): void {
-    const differs: JsonRecord = {};
-    for (const [key, value] of Object.entries(this._sharedState)) {
-      if (JSON.stringify(server[key]) !== JSON.stringify(value)) {
-        differs[key] = value;
-      }
-    }
+    const ops = diffState(server, this._sharedState, Object.keys(this._sharedState));
     this._sharedState = { ...server, ...this._sharedState };
-    if (Object.keys(differs).length > 0) {
-      this.send({ data: differs, type: "state_patch" });
-    }
+    this.sendOps(ops);
   }
 
   private applyClaim(key: string, owner: string | null, until?: number): void {
@@ -1299,11 +1380,18 @@ export class MultiplayerClient {
         return true;
       }
       case "state_patch": {
+        // Ops from the host, relayed — or, after a write of ours the server
+        // refused, the whole state as one op. The room's copy follows them
+        // even when the schema refuses the result for the game's.
+        if (!Array.isArray(message.data)) {
+          return false;
+        }
         this.remoteStateSeen = true;
-        const merged = { ...this._sharedState, ...message.data };
+        const merged = applyPatch(this._sharedState, message.data);
         if (this.passesSchema("sharedState", "incoming", merged)) {
           this._sharedState = merged;
         }
+        this.shadow = applyPatch(this.shadow, clonePatch(message.data));
         return true;
       }
       case "player_state": {

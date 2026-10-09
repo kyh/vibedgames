@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { after, before, test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
+import { isDeepStrictEqual } from "node:util";
 
 import { Miniflare } from "miniflare";
 import type { MiniflareOptions } from "miniflare";
@@ -177,6 +178,8 @@ test("host state_patch propagates to guests; non-host writes are dropped", async
     guest.sendEvent("fence", null);
     await waitFor(() => hostEvents.includes("fence"), "fence event reached host");
     assert.equal(host.sharedState.cheat, undefined, "host never saw the non-host patch");
+    await waitFor(() => guest.sharedState.cheat === undefined, "the guest's refused write rewound");
+    assert.deepEqual(guest.sharedState, host.sharedState, "the guest holds the room's state again");
   } finally {
     clientA.destroy();
     clientB.destroy();
@@ -303,6 +306,13 @@ class RawClient {
       .filter((message) => message.type === type)
       .map((message) => toRecord(message.data));
   }
+
+  /** The data of every received message of one type, as it came. */
+  dataOf(type: string): JsonValue[] {
+    return this.messages
+      .filter((message) => message.type === type)
+      .map((message) => message.data ?? null);
+  }
 }
 
 test("the host's own state_patch is relayed to guests but never echoed back to it", async () => {
@@ -314,8 +324,8 @@ test("the host's own state_patch is relayed to guests but never echoed back to i
     await waitFor(() => admitted(guest), "guest admitted");
     assert.equal(guest.hostId, rawHost.id, "the raw client is host");
 
-    rawHost.send({ data: { tick: 1 }, type: "state_patch" });
-    rawHost.send({ data: { tick: 2 }, type: "state_patch" });
+    rawHost.send({ data: [[["tick"], 1]], type: "state_patch" });
+    rawHost.send({ data: [[["tick"], 2]], type: "state_patch" });
     await waitFor(() => guest.sharedState.tick === 2, "guest got both host patches");
 
     // Anything the server sent the host after its patches would have landed
@@ -329,6 +339,154 @@ test("the host's own state_patch is relayed to guests but never echoed back to i
   } finally {
     rawHost.close(1000);
     guest.destroy();
+  }
+});
+
+/** A unit in the delta tests' made-up world. */
+const grunt = (x: number): JsonRecord => ({ hp: 9, name: "grunt", x });
+
+test("a write sends only the leaves that changed", async () => {
+  const room = uniqueRoom("shared-deltas");
+  const host = connect(room);
+  let observer: RawClient | null = null;
+  let guest: MultiplayerClient | null = null;
+  try {
+    await waitFor(() => admitted(host), "host admitted");
+    const watching = new RawClient(room, { _pk: `delta-obs-${process.pid}` });
+    observer = watching;
+    const reader = connect(room);
+    guest = reader;
+    await waitFor(() => watching.synced() && admitted(reader), "observer and guest admitted");
+
+    host.updateSharedState({
+      grid: [0, 0, 0, 0],
+      units: { a: grunt(1), b: grunt(2), c: grunt(3), d: grunt(4) },
+    });
+    await waitFor(() => watching.dataOf("state_patch").length === 1, "the first write");
+
+    host.updateSharedState({ units: { a: grunt(5), b: grunt(2), c: grunt(3), d: grunt(4) } });
+    await waitFor(() => watching.dataOf("state_patch").length === 2, "a unit moved");
+    host.updateSharedState({ grid: [0, 0, 1, 0] });
+    await waitFor(() => watching.dataOf("state_patch").length === 3, "a cell changed");
+    host.updateSharedState(({ units, ...rest }) => {
+      const { b: _dead, ...alive } = toRecord(units);
+      return { ...rest, units: alive };
+    });
+    await waitFor(() => watching.dataOf("state_patch").length === 4, "a unit died");
+    await waitFor(
+      () => isDeepStrictEqual(reader.sharedState, host.sharedState),
+      "the guest agrees",
+    );
+    // Let anything still queued land before counting.
+    await delay(200);
+    assert.deepEqual(watching.dataOf("state_patch"), [
+      [
+        [["grid"], [0, 0, 0, 0]],
+        [["units"], { a: grunt(1), b: grunt(2), c: grunt(3), d: grunt(4) }],
+      ],
+      [[["units", "a", "x"], 5]],
+      [[["grid", 2], 1]],
+      [[["units", "b"]]],
+    ]);
+    assert.deepEqual(reader.sharedState, {
+      grid: [0, 0, 1, 0],
+      units: { a: grunt(5), c: grunt(3), d: grunt(4) },
+    });
+  } finally {
+    observer?.close(1000);
+    guest?.destroy();
+    host.destroy();
+  }
+});
+
+/**
+ * One round of a made-up game's world: units move, spawn and die, a log grows
+ * and is trimmed, a banner comes and goes.
+ */
+const worldStep = (prev: JsonRecord, roll: () => number, round: number): JsonRecord => {
+  const units: JsonRecord = {};
+  const previous = prev.units === undefined ? {} : toRecord(prev.units);
+  for (const [id, unit] of Object.entries(previous)) {
+    if (roll() < 0.15) {
+      continue;
+    }
+    const body = toRecord(unit);
+    units[id] = roll() < 0.6 ? { ...body, x: Math.round(roll() * 100) } : body;
+  }
+  if (roll() < 0.5) {
+    units[`u${round}`] = { hp: 10, tags: roll() < 0.5 ? ["fresh"] : [], x: 0 };
+  }
+  const log = Array.isArray(prev.log) ? prev.log : [];
+  const { banner: _banner, ...rest } = prev;
+  const next: JsonRecord = {
+    ...rest,
+    log: roll() < 0.3 ? [...log, round].slice(-5) : log,
+    round,
+    units,
+  };
+  if (roll() < 0.5) {
+    next.banner = { text: `round ${round}` };
+  }
+  return next;
+};
+
+test("over a run of writes, a guest and a late joiner hold exactly the host's state", async () => {
+  const room = uniqueRoom("delta-run");
+  const clientA = connect(room);
+  const clientB = connect(room);
+  let late: MultiplayerClient | null = null;
+  try {
+    await waitFor(() => admitted(clientA) && admitted(clientB), "both admitted");
+    await waitFor(() => clientA.isHost || clientB.isHost, "a host is elected");
+    const [writer, reader] = clientA.isHost ? [clientA, clientB] : [clientB, clientA];
+    let seed = 11;
+    const roll = (): number => {
+      seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648;
+      return seed / 2_147_483_648;
+    };
+    for (let round = 1; round <= 60; round += 1) {
+      writer.updateSharedState((prev) => worldStep(prev, roll, round));
+      if (roll() < 0.4) {
+        // A key that changes shape: an object, then an array, then back.
+        writer.updateSharedState({ [`k${round % 3}`]: roll() < 0.5 ? { at: round } : [round] });
+      }
+      if (round % 4 === 0) {
+        await delay(5);
+      }
+    }
+    await waitFor(
+      () => isDeepStrictEqual(reader.sharedState, writer.sharedState),
+      "the guest caught up",
+    );
+    const joiner = connect(room);
+    late = joiner;
+    await waitFor(() => admitted(joiner), "late joiner admitted");
+    assert.deepEqual(joiner.sharedState, writer.sharedState, "the server's copy is the host's");
+  } finally {
+    late?.destroy();
+    clientA.destroy();
+    clientB.destroy();
+  }
+});
+
+test("a shared write made before admission reaches the room once it is in", async () => {
+  const room = uniqueRoom("early-write");
+  const host = connect(room);
+  let guest: MultiplayerClient | null = null;
+  try {
+    host.updateSharedState({ early: { ready: true } });
+    await waitFor(() => admitted(host), "host admitted");
+    const reader = connect(room);
+    guest = reader;
+    await waitFor(() => admitted(reader), "guest admitted");
+    await waitFor(
+      () => isDeepStrictEqual(reader.sharedState, host.sharedState),
+      "the guest agrees",
+    );
+    assert.deepEqual(reader.sharedState, { early: { ready: true } });
+  } finally {
+    guest?.destroy();
+    host.destroy();
   }
 });
 
@@ -796,7 +954,7 @@ test("a client back from a drop sends the latest of each stream once, not every 
     await waitFor(
       () =>
         since("player_state").length > 0 &&
-        since("state_patch").length > 0 &&
+        watching.dataOf("state_patch").length > 0 &&
         hostInputs().length > 0,
       "the observer hears the host's state, world and input again",
     );
@@ -807,7 +965,11 @@ test("a client back from a drop sends the latest of each stream once, not every 
       [{ frame: 60 }],
       "the player's state arrives once, as it stands",
     );
-    assert.deepEqual(since("state_patch"), [{ frame: 60 }], "the world arrives once, as it stands");
+    assert.deepEqual(
+      watching.dataOf("state_patch"),
+      [[[["frame"], 60]]],
+      "the world arrives once, as it stands",
+    );
     assert.deepEqual(hostInputs(), [60], "the held input arrives, and no stale one");
   } finally {
     observer?.close(1000);
@@ -1049,12 +1211,18 @@ test("malformed and oversized state patches are dropped without harming the room
       await waitFor(() => admitted(guest), "guest admitted");
       assert.equal(guest.hostId, rawHost.id, "raw sender owns shared state");
 
-      rawHost.send({ data: { ["__proto__"]: { polluted: true } }, type: "state_patch" });
-      rawHost.send({ data: "not-an-object", type: "state_patch" });
-      rawHost.send({ data: { blob: "x".repeat(1_100_000) }, type: "state_patch" });
-      // Fence: same sender, so the server processed (and dropped) all three
-      // rejects before this valid patch.
-      rawHost.send({ data: { ok: 1 }, type: "state_patch" });
+      rawHost.send({ data: [[["__proto__", "polluted"], true]], type: "state_patch" });
+      rawHost.send({
+        data: [[["safe"], { ["__proto__"]: { polluted: true } }]],
+        type: "state_patch",
+      });
+      rawHost.send({ data: "not-ops", type: "state_patch" });
+      rawHost.send({ data: { record: "not ops" }, type: "state_patch" });
+      rawHost.send({ data: [[[], ["a", "b"]]], type: "state_patch" });
+      rawHost.send({ data: [[["blob"], "x".repeat(1_100_000)]], type: "state_patch" });
+      // Fence: same sender, so the server processed (and dropped) every
+      // reject before this valid patch.
+      rawHost.send({ data: [[["ok"], 1]], type: "state_patch" });
 
       await waitFor(() => guest.sharedState.ok === 1, "valid patch after rejects still lands");
       assert.equal(
@@ -1062,6 +1230,8 @@ test("malformed and oversized state patches are dropped without harming the room
         false,
         "prototype-polluting key never reached the guest",
       );
+      assert.equal(guest.sharedState.safe, undefined, "a prototype key inside a value was refused");
+      assert.equal(guest.sharedState.record, undefined, "a record is not a patch");
       assert.equal(guest.sharedState.blob, undefined, "oversized frame was refused");
       assert.equal(
         Object.keys(guest.sharedState).some((key) => /^\d+$/u.test(key)),

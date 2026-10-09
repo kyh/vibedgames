@@ -12,6 +12,7 @@ import type {
   TickSync,
 } from "@vibedgames/multiplayer";
 import {
+  applyPatch,
   EVICTION_TIMEOUT_MS,
   findStructuralIssue,
   HOST_LIVENESS_TIMEOUT_MS,
@@ -25,6 +26,7 @@ import {
   MAX_TICK_RATE,
   PING_INTERVAL_MS,
   RECONNECT_GRACE_MS,
+  readPatch,
   RECONNECT_TOKEN_QUERY_PARAM,
   RESERVED_CLAIM_KEYS,
   ROOM_CAP_QUERY_PARAM,
@@ -677,9 +679,8 @@ export class VgServer extends Server {
   }
 
   /**
-   * Structural guard for an untrusted patch payload: the typed patch when it
-   * passes, or null to drop the message. Shared by both patch handlers so the
-   * check and its logging can't drift apart.
+   * Structural guard for an untrusted player-state patch: the typed patch
+   * when it passes, or null to drop the message.
    */
   private static parsePatch(
     sender: Connection<Presence>,
@@ -917,40 +918,7 @@ export class VgServer extends Server {
           break;
         }
         case "state_patch": {
-          // Shared state is host-authoritative: only the elected host can write.
-          // Non-host writes get a `state` echo back so the client can rewind its
-          // local mirror, and we drop the patch instead of relaying. Also a hot
-          // path (host streams ~30×/s), so no attachment write here either.
-          if (sender.id !== this.hostId) {
-            const echo: ServerMessage = {
-              data: this.shared,
-              type: "state_patch",
-            };
-            sender.send(JSON.stringify(echo));
-            break;
-          }
-          // The merge below spreads `data` into shared state, so a non-object
-          // root (string/array) would scatter index keys into every room's
-          // state; depth/forbidden-key checks bound what untrusted games store.
-          const patch = VgServer.parsePatch(sender, message.data, "state_patch");
-          if (patch === null) {
-            break;
-          }
-          this.shared = {
-            ...this.shared,
-            ...patch,
-          };
-          const broadcastMessage: ServerMessage = {
-            data: patch,
-            type: "state_patch",
-          };
-          // Not echoed to the host: it applied this patch locally before
-          // sending, so the echo is pure downlink — a whole-world snapshot
-          // streamed at 30 Hz comes straight back at it — and an echo that
-          // lands after a newer local write rolls the host's mirror back,
-          // which then also hides the next real change from the SDK's diff.
-          this.broadcast(JSON.stringify(broadcastMessage), [sender.id]);
-          this.markRoomDirty();
+          this.handleStatePatch(sender, message.data);
           break;
         }
         case "heartbeat": {
@@ -1002,6 +970,39 @@ export class VgServer extends Server {
     } catch (error) {
       console.error("Error handling message", error);
     }
+  }
+
+  /**
+   * Shared state is host-authoritative: only the elected host can write. A
+   * non-host write gets the whole state back as one op, so the client can
+   * rewind its local mirror, and we drop the patch instead of relaying. Also
+   * a hot path (host streams ~30×/s), so no attachment write here either.
+   */
+  private handleStatePatch(sender: Connection<Presence>, data: JsonValue | undefined): void {
+    if (sender.id !== this.hostId) {
+      const echo: ServerMessage = { data: [[[], this.shared]], type: "state_patch" };
+      sender.send(JSON.stringify(echo));
+      return;
+    }
+    // Path ops, applied copy-on-write. Paths are keys and indices with no
+    // prototype keys, and nothing an op writes nests deeper than a whole
+    // state may, which bounds what untrusted games store.
+    const ops = readPatch(data ?? null);
+    if (!Array.isArray(ops)) {
+      console.warn(`Dropping state_patch from ${sender.id}: ${ops}`);
+      return;
+    }
+    if (ops.length === 0) {
+      return;
+    }
+    this.shared = applyPatch(this.shared, ops);
+    const relayed: ServerMessage = { data: ops, type: "state_patch" };
+    // Not echoed to the host: it applied these ops locally before sending,
+    // so the echo is pure downlink, and an echo that lands after a newer
+    // local write rolls the host's mirror back, which then also hides the
+    // next real change from the SDK's diff.
+    this.broadcast(JSON.stringify(relayed), [sender.id]);
+    this.markRoomDirty();
   }
 
   /** Relay a game event: to everyone (sender included) or to the `to` list, minus `except`. */

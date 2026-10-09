@@ -37,6 +37,27 @@ Room features — game-agnostic services the party server now runs for every roo
   and (as host) world once, from `sync`. What it wrote while away is no longer
   queued and replayed to every peer; events and claims still queue.
 
+Shared state:
+
+- Shared state travels as path ops — the leaves that changed — instead of whole
+  top-level keys. The client diffs each write against its copy of the room's
+  state; the server reads (`readPatch`), applies (`applyPatch`, copy-on-write)
+  and relays the ops, and every untouched subtree keeps its identity on the
+  receiving end. Arrays diff by index while their length holds and are
+  replaced otherwise, so keep growing collections in objects keyed by id.
+- The function form of `updateSharedState` deletes the keys it leaves out, for
+  everyone: before, only the writer lost them. A key set to `undefined` is
+  deleted too.
+- A guest's refused shared write rewinds completely: the server answers with
+  the whole state as one op, so a key the room never had disappears as well.
+- A write the server would refuse (too big, too deep, a prototype key) is
+  caught client-side: it stays unsent, warns once, and goes again whole the
+  next time its key is written.
+- Shared writes made before admission wait for `sync`, then go out; the host
+  of an empty room seeds them along with `initialState`.
+- `applyPatch`, `diffState`, `readPatch`, `PatchOp` and `PatchSegment` are
+  exported.
+
 Connection lifecycle:
 
 - `connectionStatus` is `"connecting" | "connected" | "reconnecting" | "offline"`.

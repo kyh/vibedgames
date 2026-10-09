@@ -1,3 +1,5 @@
+import type { PatchOp } from "./patch.js";
+
 /** A JSON-parseable wire value — everything a multiplayer message can carry. */
 export type JsonValue =
   | string
@@ -247,7 +249,8 @@ export interface SendEventOptions {
 }
 
 export type ClientMessage =
-  | { type: "state_patch"; data: JsonRecord }
+  // The shared state's changes since the last patch, as path ops (patch.ts).
+  | { type: "state_patch"; data: PatchOp[] }
   | { type: "player_state_patch"; data: JsonRecord }
   | { type: "emit"; data: { event: string; payload: JsonValue; to?: string[]; except?: string[] } }
   // Liveness ping sent on an interval so the server can detect a host that has
@@ -307,7 +310,9 @@ export type ServerMessage =
   | { type: "player_joined"; data: Player }
   | { type: "player_left"; data: { id: string } }
   | { type: "host"; data: { id: string } }
-  | { type: "state_patch"; data: JsonRecord }
+  // The host's ops, relayed; or, to a client whose write was refused, the
+  // whole state as one op (`[[], state]`).
+  | { type: "state_patch"; data: PatchOp[] }
   // A keyed delta of the player's state — or the whole state when the player
   // has just come back into this client's interest radius.
   | { type: "player_state"; data: { id: string; state: JsonRecord } }

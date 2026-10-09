@@ -172,7 +172,9 @@ restores them, and a host that kept the role re-sends anything newer.
 
 ## Shared state
 
-One object synced to everyone. Patches shallow-merge by key.
+One object synced to everyone. The object form replaces each key it names and
+keeps the rest; the function form returns the whole next state, so a key it
+leaves out is deleted for everyone. A key set to `undefined` is deleted too.
 
 ```tsx
 const room = useMultiplayerRoom({ host, party, room, initialState: { started: false } });
@@ -180,6 +182,24 @@ const [game, setGame] = useMultiplayerState(room);
 
 if (isHost) setGame({ started: true });
 ```
+
+Only what changed travels, down to the leaf. The client diffs each write
+against its copy of the room's state and sends path ops, so a host that moves
+one unit of two hundred sends that unit's `x`, not the map. Applying ops copies
+only the objects along each changed path: every untouched subtree keeps its
+identity, so a memoized view of it skips the update. Two consequences for how
+you shape state:
+
+- Keep a collection that grows and shrinks in an object keyed by id
+  (`units: { u7: { x, y } }`). An array diffs element by element only while its
+  length holds; any other change re-sends it whole.
+- Mutating in place still syncs (the client diffs against a private copy), but
+  a new object per change is what keeps identities meaningful for views.
+
+The server refuses a write that would nest deeper than `MAX_STATE_DEPTH`, holds
+a prototype key, or exceeds `MAX_MESSAGE_BYTES`. The client checks first: such
+a write stays unsent, warns once, and goes again whole the next time that key
+is written.
 
 `initialState` is applied once, by the first host of a still-empty room, and is
 never re-applied on host migration — so a host leaving mid-game cannot reset the

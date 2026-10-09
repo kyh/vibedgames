@@ -93,8 +93,8 @@ export const useMultiplayerRoom = <TShared extends JsonRecord = JsonRecord>(
         // so the stored JsonRecord is the TShared the game last produced.
         client.updateSharedState((prev) => (updater as (p: TShared) => TShared)(prev as TShared));
       } else {
-        // SAFETY: a Partial<TShared> patch is shallow-merged into the current
-        // TShared; `undefined` values are dropped key-wise by JSON on send.
+        // SAFETY: a Partial<TShared> patch replaces the keys it names in the
+        // current TShared, and a key it sets to `undefined` is deleted.
         client.updateSharedState(updater as TShared);
       }
     },

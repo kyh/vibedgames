@@ -1,10 +1,12 @@
 /**
  * 32-player worst-case bandwidth audit.
  *
- * Both wires are measured the way the SDK sends them: a key whose value is a
- * primitive equal to the last one sent stays off the wire, an object or array
- * key goes whole every time it is written. Every byte count includes the
- * envelope the party server forwards (`state_patch`, `player_state`, `event`).
+ * Both wires are measured the way the SDK sends them. Player state goes by
+ * key: a primitive equal to the last one sent stays off the wire, an object or
+ * array key goes whole every time it is written. Shared state goes as path
+ * ops, the leaves that changed (the SDK's own `diffState`). Every byte count
+ * includes the envelope the party server forwards (`state_patch`,
+ * `player_state`, `event`).
  *
  * V6 (before): the host wrote every non-empty world array every share (all
  * of them are always "moving"), and each client wrote its whole state at
@@ -27,6 +29,8 @@
  *
  * Run: node_modules/.bin/tsx scripts/wire-audit.ts
  */
+
+import { applyPatch, diffState } from "@vibedgames/multiplayer";
 
 import { FIRE_BASE, encodeFire } from "../src/net/fire-wire";
 import type { WireRecord } from "../src/net/wire-read";
@@ -92,7 +96,7 @@ const diffKeys = (prev: WireRecord, next: WireRecord): WireRecord => {
   }
   return out;
 };
-const statePatchMsg = (data: WireRecord): number => bytes({ data, type: "state_patch" });
+const statePatchMsg = <T>(data: T): number => bytes({ data, type: "state_patch" });
 const playerStateMsg = (state: WireRecord): number =>
   bytes({ data: { id: PEER_ID, state }, type: "player_state" });
 const eventMsg = (event: string, payload: WireRecord): number =>
@@ -402,15 +406,17 @@ const perFamily = new Map<string, number>();
 const v7Patch = (now: number, tally: boolean): number => {
   // The audit's sim clock doubles as server time: both are epoch ms.
   const patch = encoder.encode(world7, now, Math.round(now));
-  const delta = diffKeys(shared7, patch);
-  shared7 = { ...shared7, ...patch };
+  const ops = diffState(shared7, { ...shared7, ...patch }, Object.keys(patch));
+  // The SDK diffs against a private copy of the room's state, never the
+  // objects the game wrote.
+  shared7 = applyPatch(shared7, structuredClone(ops));
   if (tally) {
-    for (const [key, value] of Object.entries(delta)) {
-      const family = key.replace(/\d+$/u, "");
-      perFamily.set(family, (perFamily.get(family) ?? 0) + bytes(value) + key.length + 4);
+    for (const op of ops) {
+      const family = String(op[0][0]).replace(/\d+$/u, "");
+      perFamily.set(family, (perFamily.get(family) ?? 0) + bytes(op) + 1);
     }
   }
-  return statePatchMsg(delta);
+  return statePatchMsg(ops);
 };
 const firstShare = v7Patch(EPOCH, false);
 let worldTotal = 0;

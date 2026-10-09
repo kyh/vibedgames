@@ -12,7 +12,8 @@ Real-time multiplayer server. Manages rooms, player state, and event broadcastin
 Clients connect via WebSocket. The server handles:
 
 - **Player join/leave** — auto-assigns colors, host migration
-- **Shared state** — `state_patch` messages merged server-side, broadcast to all
+- **Shared state** — `state_patch` messages carry path ops (the leaves that
+  changed), applied server-side and relayed to everyone but the host
 - **Player state** — `player_state_patch` per-player, broadcast to others
 - **Events** — `emit` pass-through for custom game events, optionally addressed
   to (`to`) or excluding (`except`) specific player ids
@@ -31,10 +32,11 @@ Clients connect via WebSocket. The server handles:
   (clamped to a hard ceiling of 64). A join over the cap is redirected to a
   sibling room (`{room}~2`, `~3`, …) and reconnects there; a reconnect reclaim
   is never bounced.
-- **Structural limits** — messages over `MAX_MESSAGE_BYTES` are rejected, and
-  patches are checked for shape (plain objects, bounded depth, no cycles or
-  functions). Game-specific schemas are the client's job — the server never
-  knows a game's shape.
+- **Structural limits** — messages over `MAX_MESSAGE_BYTES` are rejected, player
+  patches are checked for shape (plain objects, bounded depth, no prototype
+  keys), and state ops for their paths (keys and indices, no prototype keys) and
+  for how deep they write. Game-specific schemas are the client's job — the
+  server never knows a game's shape.
 - **Server time** — `time` probes are answered with the server's clock at once;
   the SDK turns them into `serverNow()`, one timebase for every client.
 - **Claims** — `claim`/`release`/`clear_claims`: first come, first served per
@@ -98,6 +100,10 @@ Colyseus is server-authoritative with declarative `@type` schemas over a binary
 protocol. Both halves fight this model: authority lives in a client (the host), and
 the server never knows a game's shape — games are untrusted user code shipped against
 one shared, generic relay. Adopting it would mean per-game server code.
+
+What its schemas buy on the wire we get without one: shared state syncs as deltas,
+JSON path ops naming the leaves that changed, so a host moving one unit of many
+sends that unit's coordinates, not the world.
 
 So we deliberately skip the Colyseus features that only make sense inside that model:
 

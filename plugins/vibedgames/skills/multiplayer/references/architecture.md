@@ -143,8 +143,11 @@ function update(deltaMs: number) {
 
 Keep ticking while the player stands still. Unchanged primitives never ride
 the wire, so an idle tick costs only the `t` key, and the receiver gets a final
-resting sample. Never put a big array or object in a per-tick patch: the SDK
-diffs only primitive keys and re-sends every object or array value whole.
+resting sample. Never put a big array or object in a per-tick `updateMyState`:
+player state diffs only primitive keys and re-sends every object or array value
+whole. Shared state diffs to the leaf — a host writing its whole world each tick
+sends only what changed — except that an array which changes length is re-sent
+whole, so key growing collections by id.
 
 For input intents (`sendEvent`), prefer **send-on-change**: only emit when the
 held-button state flips, never every frame. Address them to the host:

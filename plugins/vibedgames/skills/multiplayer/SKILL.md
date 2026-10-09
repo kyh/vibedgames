@@ -110,7 +110,7 @@ client.updateSharedState({
 });
 ```
 
-Keep a single `emptyState()` factory whose return type matches your `SharedState` exactly (so TS errors when you add a field). The function form `updateSharedState(prev => emptyState())` still goes through the same merge on the wire, so it still needs every field populated.
+Keep a single `emptyState()` factory whose return type matches your `SharedState` exactly (so TS errors when you add a field). The function form replaces the whole state instead: `updateSharedState(() => emptyState())` resets cleanly, and any key it leaves out is deleted for everyone.
 
 ### Don't read player order before the first sync arrives
 
@@ -167,7 +167,7 @@ setSpawn(SPAWNS[idx]);
 - ❌ **Letting the host settle races.** A guest's pickup waits a round trip and the host wins every tie. Use `client.claim(key)`.
 - ❌ **Making a guest wait for the host to move its own character.** That is a full round trip of input lag. Predict locally and correct with `Reconciler` — against where the body _was_, never where it is now.
 - ❌ **`acc = 0` or `frame % n` send throttles.** They drift, alternate gap lengths, or scale with refresh rate. Use `FixedRate`.
-- ❌ **Whole-world snapshots every tick.** The SDK re-sends any object or array key in full on every call. Send small primitive rows per tick, slow-changing state on change, and the full world rarely (for host handover).
+- ❌ **Arrays for collections that grow and shrink.** Shared state diffs to the leaf, so a world written every tick sends only what moved — but an array that changes length is re-sent whole. Key collections by id (`units: { u7: {...} }`). Player state is coarser still: `updateMyState` re-sends any object or array key in full on every call, so keep it to flat primitives.
 - ❌ **Welding multiplayer into Phaser scene `update()`.** Use the adapter pattern. Single-player should still work after `rm -rf net/`.
 - ❌ **No connection-state UI.** A disconnected game looks identical to a frozen one. Render the status.
 - ❌ **Freezing a sim whose timers are raw `Date.now()`.** Resume mass-expires every fuse. Pause via an offset sim clock; online, pause = spectator.
