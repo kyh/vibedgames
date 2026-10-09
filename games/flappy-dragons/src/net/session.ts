@@ -103,6 +103,15 @@ export class NetSession {
     return client.serverClock.synced ? client.serverNow(localNow) : null;
   }
 
+  /**
+   * Hear every change the client sees, between frames too: the scene polls
+   * the room each frame, but a drop and the reconnect after it can both land
+   * while the tab is hidden and runs none. Returns the unsubscribe.
+   */
+  subscribe(listener: () => void): () => void {
+    return this.client.subscribe(listener);
+  }
+
   /** The other player in the room, or null when alone. */
   otherPlayer(): Player | null {
     const me = this.client.playerId;

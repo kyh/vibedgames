@@ -13,12 +13,7 @@ import { courseStart, courseX, followCourse } from "../net/course";
 import { RivalMotion } from "../net/rival-motion";
 import { NetSession, isJsonNumber, isJsonObject } from "../net/session";
 import { publishPlaytestSurface } from "../playtest";
-import type {
-  JsonValue,
-  MultiplayerConnectionStatus,
-  Player,
-  PlayerMap,
-} from "@vibedgames/multiplayer";
+import type { JsonValue, Player, PlayerMap } from "@vibedgames/multiplayer";
 import { FlightFx, prefersReducedMotion } from "./flight-fx";
 import {
   ART_SCALE,
@@ -382,8 +377,8 @@ export class GameScene extends Scene {
   private boardAcc = 0;
   private boardSig = "";
   private lastNetInfo = "";
-  /** Connection status last frame, to see us back in the room after a drop. */
-  private netStatus: MultiplayerConnectionStatus = "connecting";
+  /** Our own connection dropped and the room has not admitted us again yet. */
+  private ownDrop = false;
 
   private hintEl: HTMLElement | null = null;
   private gatesEl: HTMLElement | null = null;
@@ -441,6 +436,9 @@ export class GameScene extends Scene {
       offline: isPlaytestRequested(),
       room: ROOM,
     });
+    // Every notification, not every frame: a drop and the reconnect after it
+    // can both land while the tab is hidden and runs no frames.
+    this.net.subscribe(() => this.watchOwnConnection());
 
     this.bgLayers = BG_FACTORS.map((factor, i) => ({
       factor,
@@ -850,7 +848,6 @@ export class GameScene extends Scene {
       this.handleInput();
     }
     this.rivalIds = this.presentRivals();
-    this.noteReconnect();
     // In a race the dragon steps on real time, keeping pace with a course on
     // the room's clock; a solo run pauses through a stall rather than
     // skipping ahead.
@@ -1467,14 +1464,16 @@ export class GameScene extends Scene {
    * redialled by another route, so every rival's clock measures it afresh,
    * before the first sample to come by it is pushed.
    */
-  private noteReconnect(): void {
+  private watchOwnConnection(): void {
     const status = this.net.connectionStatus;
-    if (status === "connected" && this.netStatus === "reconnecting") {
+    if (status === "reconnecting") {
+      this.ownDrop = true;
+    } else if (status === "connected" && this.ownDrop) {
+      this.ownDrop = false;
       for (const ghost of this.ghosts.values()) {
         ghost.motion.relearn();
       }
     }
-    this.netStatus = status;
   }
 
   private syncGhosts(time: number): void {
