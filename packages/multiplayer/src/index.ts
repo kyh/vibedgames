@@ -13,6 +13,8 @@ export { Reconciler } from "./prediction.js";
 export type { Correction, ReconcilerOptions } from "./prediction.js";
 export { applyPatch, diffState, readPatch } from "./patch.js";
 export type { PatchOp, PatchSegment } from "./patch.js";
+export { isLobbyName, listRooms, quickMatch } from "./lobby.js";
+export type { LobbyOptions } from "./lobby.js";
 
 export type {
   ClaimInfo,
@@ -26,6 +28,8 @@ export type {
   Player,
   PlayerLimit,
   PlayerMap,
+  RoomInfo,
+  RoomListing,
   RoomRules,
   SendEventOptions,
   ServerMessage,
@@ -36,11 +40,14 @@ export {
   EVICTION_TIMEOUT_MS,
   HEARTBEAT_INTERVAL_MS,
   HOST_LIVENESS_TIMEOUT_MS,
+  LOBBY_PARTY,
   MAX_CLAIM_KEY_LENGTH,
   MAX_CLAIM_TTL_MS,
   MAX_CLAIMS,
   MAX_INPUT_BYTES,
   MAX_INPUT_LEAD_TICKS,
+  MAX_ROOM_CAP,
+  MAX_ROOM_META_CHARS,
   MAX_TICK_HISTORY,
   MAX_TICK_RATE,
   OFFLINE_PLAYER_ID,

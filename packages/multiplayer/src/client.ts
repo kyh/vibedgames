@@ -13,6 +13,7 @@ import type {
   MultiplayerOptions,
   Player,
   PlayerMap,
+  RoomInfo,
   RoomRules,
   SendEventOptions,
   ServerMessage,
@@ -108,6 +109,8 @@ export interface MultiplayerSnapshot {
   room: string;
   /** Who holds each claimed key. See `MultiplayerClient.claim`. */
   claims: ClaimMap;
+  /** The room's lock and meta. See `MultiplayerClient.setRoomInfo`. */
+  roomInfo: RoomInfo;
 }
 
 /** A tick room's clock: tick `n` starts at server time `epoch + n * ms`. */
@@ -164,8 +167,14 @@ const roomRules = (options: MultiplayerOptions): RoomRules | null => {
   if (options.limits !== undefined) {
     rules.limits = options.limits;
   }
+  if (options.lobby !== undefined) {
+    rules.lobby = options.lobby;
+  }
   return Object.keys(rules).length > 0 ? rules : null;
 };
+
+/** A room no host has published anything about. */
+const UNPUBLISHED: RoomInfo = { locked: false, meta: {} };
 
 type Listener = () => void;
 
@@ -312,6 +321,7 @@ export class MultiplayerClient {
   private lastProbeAt = Number.NEGATIVE_INFINITY;
   private probeTimers: ReturnType<typeof setTimeout>[] = [];
   private _claims: ClaimMap = {};
+  private _roomInfo: RoomInfo = UNPUBLISHED;
   /** Tick rooms: the tick clock and every player's held input as of tick `n`. */
   private ticks: TickState | null = null;
   /** This player's held input, re-sent after a reconnect (the server clears a dropped player's). */
@@ -533,6 +543,7 @@ export class MultiplayerClient {
     this._playerId = null;
     this._sharedState = this.options.initialState ?? {};
     this._claims = {};
+    this._roomInfo = UNPUBLISHED;
     this.ticks = null;
     this.heldInput = null;
     // Queued for a room that never admitted us — don't leak them into the new one.
@@ -571,6 +582,10 @@ export class MultiplayerClient {
   get room() {
     return this._room;
   }
+  /** The room's lock and meta, as its host last published them. */
+  get roomInfo(): RoomInfo {
+    return this._roomInfo;
+  }
 
   /**
    * A readonly snapshot of the current state: the same object until something
@@ -588,6 +603,7 @@ export class MultiplayerClient {
       last.playerId === this._playerId &&
       last.players === this._players &&
       last.room === this._room &&
+      last.roomInfo === this._roomInfo &&
       last.sharedState === this._sharedState
     ) {
       return last;
@@ -599,6 +615,7 @@ export class MultiplayerClient {
       playerId: this._playerId,
       players: this._players,
       room: this._room,
+      roomInfo: this._roomInfo,
       sharedState: this._sharedState,
     };
     return this.snapshot;
@@ -906,6 +923,27 @@ export class MultiplayerClient {
     }
   }
 
+  /**
+   * Host only — the server ignores anyone else: lock or unlock the room, or
+   * replace its meta. A locked room admits no new players; they go on to an
+   * overflow sibling, as from a full room, while a dropped player still
+   * reclaims its seat. `meta` (at most MAX_ROOM_META_CHARS of JSON) is what
+   * a lobby lists about the room: a mode, a map, a round. Everyone in the
+   * room reads both on `roomInfo` once the server has them.
+   */
+  setRoomInfo(info: Partial<RoomInfo>): void {
+    if (this._connectionStatus === "offline") {
+      this._roomInfo = {
+        locked: info.locked ?? this._roomInfo.locked,
+        meta: info.meta ?? this._roomInfo.meta,
+      };
+      this.notify();
+      return;
+    }
+    this.flushOutbox();
+    this.send({ data: info, type: "room_info" });
+  }
+
   get onEvent(): MultiplayerOptions["onEvent"] {
     return this._onEvent;
   }
@@ -1202,6 +1240,7 @@ export class MultiplayerClient {
     this._players = data.players;
     const claimsBefore = this._claims;
     this._claims = data.claims;
+    this._roomInfo = data.info;
     this.syncTicks(data.tick);
     // Measure the server clock straight away — games stamp with it from the
     // first frame — then settle into the heartbeat's slow cadence.
@@ -1459,6 +1498,10 @@ export class MultiplayerClient {
         // Ticks arrive tens of times a second and carry inputs, not
         // anything a subscriber renders: onTick is their channel.
         return false;
+      }
+      case "room_info": {
+        this._roomInfo = message.data;
+        return true;
       }
       case "room_full": {
         // The room hit its cap before we joined. Reconnect to the overflow

@@ -39,10 +39,18 @@ export interface MultiplayerOptions {
    * is at capacity, additional players overflow into a sibling room
    * (`{room}~2`, `{room}~3`, …) automatically — the SDK transparently
    * reconnects the overflowing client to the next room. Omit for no cap
-   * (unlimited, the historical behaviour). The server clamps this to a hard
-   * ceiling regardless of what the client requests.
+   * (unlimited, the historical behaviour). The server clamps this to
+   * `MAX_ROOM_CAP` regardless of what the client requests.
    */
   maxPlayers?: number;
+  /**
+   * List the room in this lobby: `listRooms` shows it, and `quickMatch` sends
+   * players to it while it has room. A room takes its lobby from its first
+   * admitted client and keeps it until it empties, like its other rules, so
+   * omit it to make a private room, which only its id reaches. Letters,
+   * digits, `-` and `_`, up to 64 (`isLobbyName`).
+   */
+  lobby?: string;
   /**
    * Run the room on a server tick (Hz, clamped to 1–MAX_TICK_RATE): the server
    * stamps every `sendInput` into a numbered tick and broadcasts each tick's
@@ -97,6 +105,26 @@ export interface RoomRules {
   tickRate?: number;
   interest?: InterestRule;
   limits?: Record<string, PlayerLimit>;
+  lobby?: string;
+}
+
+/** What a room's host publishes about it (see `MultiplayerClient.setRoomInfo`). */
+export interface RoomInfo {
+  /** No new players join: they go on to an overflow sibling, as from a full room. */
+  locked: boolean;
+  /** What a lobby should show about the room: a mode, a map, a round. */
+  meta: JsonRecord;
+}
+
+/** A room as its lobby lists it (see `listRooms`). */
+export interface RoomListing {
+  room: string;
+  /** Seats in use, held seats of dropped players included. */
+  players: number;
+  /** The room's player cap, or null for none. */
+  capacity: number | null;
+  locked: boolean;
+  meta: JsonRecord;
 }
 
 /** Who holds each claimed key, and until when (server time, ms) for a claim with a TTL. */
@@ -137,6 +165,12 @@ export interface TickSync {
   log: [number, Record<string, JsonValue>][];
 }
 
+/** Highest player cap a room may have, whatever `maxPlayers` asks for. */
+export const MAX_ROOM_CAP = 64;
+/** Largest room meta (JSON characters): every lobby listing carries it. */
+export const MAX_ROOM_META_CHARS = 1024;
+/** The party that serves lobbies: `/parties/vg-lobby/:lobby`. */
+export const LOBBY_PARTY = "vg-lobby";
 /** Highest tick rate a room may run at. */
 export const MAX_TICK_RATE = 60;
 /** Ticks of input history a room keeps (and sends in `sync`) for replay. */
@@ -269,7 +303,9 @@ export type ClientMessage =
   // Host only: release every key starting with `prefix` ("" = all).
   | { type: "clear_claims"; data: { prefix: string } }
   // Tick rooms: this player's input from tick `n` on (default: the next tick).
-  | { type: "input"; data: { v: JsonValue; n?: number } };
+  | { type: "input"; data: { v: JsonValue; n?: number } }
+  // Host only: lock or unlock the room, or replace its meta.
+  | { type: "room_info"; data: Partial<RoomInfo> };
 
 /** How often the SDK sends a heartbeat (ms). */
 export const HEARTBEAT_INTERVAL_MS = 2000;
@@ -305,6 +341,7 @@ export type ServerMessage =
         tick: TickSync | null;
         /** Server time (ms) when the sync was sent. */
         time: number;
+        info: RoomInfo;
       };
     }
   | { type: "player_joined"; data: Player }
@@ -323,8 +360,11 @@ export type ServerMessage =
   | { type: "player_visibility"; data: { id: string; visible: boolean } }
   | { type: "event"; data: { event: string; payload: JsonValue; from: string } }
   // Sent (then the socket is closed) when a player connects to a room that is
-  // already at capacity. `room` is the sibling room the client should retry.
-  | { type: "room_full"; data: { room: string; capacity: number } }
+  // already at capacity, or locked. `room` is the sibling room the client
+  // should retry; `capacity` is 0 for a locked room without a cap.
+  | { type: "room_full"; data: { room: string; capacity: number; locked?: boolean } }
+  // The host locked or unlocked the room, or set its meta.
+  | { type: "room_info"; data: RoomInfo }
   // Liveness probe; the client answers with `pong`. See EVICTION_TIMEOUT_MS.
   | { type: "ping" }
   // Server-clock probe answer: the client's `c` echoed, and the server's time `s`.

@@ -64,7 +64,30 @@ const client = new MultiplayerClient({
 client.room; // the room you actually landed in — "arena" or an overflow sibling
 ```
 
-`useMultiplayerRoom` takes the same `maxPlayers` option; read the live id off `room.room` for "Room #2"-style UI. Enforced server-side and clamped to a hard ceiling. All clients must pass the **same** `maxPlayers` (ship it in shared config). Overflow rooms are independent worlds (separate host, separate `sharedState`) — no cross-room matchmaking. Omit `maxPlayers` for unlimited.
+`useMultiplayerRoom` takes the same `maxPlayers` option; read the live id off `room.room` for "Room #2"-style UI. Enforced server-side and clamped to `MAX_ROOM_CAP` (64). All clients must pass the **same** `maxPlayers` (ship it in shared config). Overflow rooms are independent worlds (separate host, separate `sharedState`). Omit `maxPlayers` for unlimited.
+
+## Quick match, lobbies, private rooms
+
+For "Play online" without a room code, list rooms in a lobby and quick-match into one:
+
+```ts
+import { MultiplayerClient, quickMatch } from "@vibedgames/multiplayer";
+
+const lobby = "bomberman"; // one per game, or per mode
+const room = await quickMatch({ host: PARTY_HOST, lobby, maxPlayers: 4 });
+const client = new MultiplayerClient({
+  host: PARTY_HOST,
+  party: "vg-server",
+  room,
+  lobby,
+  maxPlayers: 4,
+});
+```
+
+- `quickMatch` returns the fullest unlocked room with a free seat, or a new room id. Players matching at the same moment land together.
+- `listRooms({ host: PARTY_HOST, lobby })` returns `{ room, players, capacity, locked, meta }[]`, fullest first, for a room browser.
+- The host publishes with `client.setRoomInfo({ locked, meta })`; everyone reads `client.roomInfo`. Lock when a round starts, so latecomers get a fresh room instead of joining mid-round, and unlock when it ends. `meta` (≤ `MAX_ROOM_META_CHARS` of JSON) is what a room browser shows; it is host-written, so display it, never trust it.
+- Private room ("play with friends"): omit `lobby` and use an unguessable id (`crypto.randomUUID()`) shared as a link. A room takes its lobby from its first player, so a friend joining with `lobby` set doesn't list it.
 
 ## Host-only writes (important)
 

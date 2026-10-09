@@ -29,9 +29,19 @@ Clients connect via WebSocket. The server handles:
   server elects a new one, rather than waiting out the TCP timeout. A separate
   `ping`/`pong` distinguishes "hidden" from "gone" for eviction.
 - **Capacity + overflow** — a client advertises its cap via `_maxPlayers`
-  (clamped to a hard ceiling of 64). A join over the cap is redirected to a
+  (clamped to `MAX_ROOM_CAP`, 64). A join over the cap is redirected to a
   sibling room (`{room}~2`, `~3`, …) and reconnects there; a reconnect reclaim
   is never bounced.
+- **Locks + meta** — `room_info`, host only: a locked room redirects newcomers
+  to the overflow sibling as a full one does (a reclaim still gets in), and its
+  meta, at most `MAX_ROOM_META_CHARS` of JSON, is broadcast and listed.
+- **Lobbies** — a room whose rules name a `lobby` reports its players, cap,
+  lock and meta to the `VgLobby` Durable Object of that name: on joins, leaves
+  and changes, debounced, and on every 30 s sweep. `GET /parties/vg-lobby/:lobby`
+  lists the rooms fullest first; `POST` matches a player into the fullest
+  unlocked room with a free seat, or names a new room, holding the seat for a
+  few seconds so simultaneous matches fill one room. A room that misses its
+  reports for 75 s drops off. HTTP routes answer cross-origin (`cors: true`).
 - **Structural limits** — messages over `MAX_MESSAGE_BYTES` are rejected, player
   patches are checked for shape (plain objects, bounded depth, no prototype
   keys), and state ops for their paths (keys and indices, no prototype keys) and
@@ -82,9 +92,9 @@ is a reserved game slug).
   game state, since room slugs are guessable and games are untrusted code. Wakes the
   room's Durable Object; with no open connections it sleeps again right after.
 
-There is no global room-listing endpoint: Durable Objects have no "list all
-instances" primitive, and maintaining a registry (KV or a directory DO) isn't
-warranted yet. Inspect rooms by id.
+Durable Objects have no "list all instances" primitive, so there is no global
+room list: rooms list themselves in the lobby they name, and a room without one
+is reachable only by id.
 
 ## Design rationale
 
@@ -101,21 +111,22 @@ protocol. Both halves fight this model: authority lives in a client (the host), 
 the server never knows a game's shape — games are untrusted user code shipped against
 one shared, generic relay. Adopting it would mean per-game server code.
 
-What its schemas buy on the wire we get without one: shared state syncs as deltas,
-JSON path ops naming the leaves that changed, so a host moving one unit of many
-sends that unit's coordinates, not the world.
+Two of its ideas we take without the model. What its schemas buy on the wire: shared
+state syncs as deltas, JSON path ops naming the leaves that changed, so a host moving
+one unit of many sends that unit's coordinates, not the world. And its `joinOrCreate`:
+a lobby lists rooms and matches players into open ones (see Lobbies above).
 
 So we deliberately skip the Colyseus features that only make sense inside that model:
 
 - Declarative `@type` schemas with a binary protocol
 - Server simulation (`setSimulationInterval`) — the tick loop here orders inputs; it simulates nothing
 - Per-field filtered sync (`@filter`) — interest here is one radius rule over player state
-- Server-driven matchmaker — rooms are client-chosen ids
-- Lobby room
+- A matchmaker with filters and ratings — `quickMatch` fills the fullest open room in
+  one lobby; a game wanting modes uses one lobby per mode
 - Redis-backed presence / multi-process scaling — a Durable Object per room gives this for free
 
-Overflow rooms (`{room}~2`, `{room}~3`, …) follow from having no matchmaker: they are
-independent worlds with their own host and `sharedState`, and no cross-room matchmaking.
+Overflow rooms (`{room}~2`, `{room}~3`, …) are independent worlds with their own host
+and `sharedState`; one of a listed room lists itself in the same lobby.
 
 ### Anti-patterns
 

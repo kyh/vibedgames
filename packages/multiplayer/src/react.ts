@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
-import type { JsonRecord, JsonValue, MultiplayerOptions, SendEventOptions } from "./types.js";
+import type {
+  JsonRecord,
+  JsonValue,
+  MultiplayerOptions,
+  RoomInfo,
+  SendEventOptions,
+} from "./types.js";
 import { MultiplayerClient } from "./client.js";
 import type { MultiplayerSnapshot } from "./client.js";
 
@@ -28,6 +34,8 @@ export type MultiplayerRoom<TShared = JsonRecord> = MultiplayerSnapshot & {
   sendToHost: (event: string, payload: JsonValue) => void;
   /** Leave the room and play on alone; see `MultiplayerClient.goOffline`. */
   goOffline: () => void;
+  /** Host only: lock the room or set its meta; see `MultiplayerClient.setRoomInfo`. */
+  setRoomInfo: (info: Partial<RoomInfo>) => void;
 };
 
 export type UseMultiplayerRoomConfig<TShared> = MultiplayerOptions & {
@@ -40,7 +48,7 @@ export const useMultiplayerRoom = <TShared extends JsonRecord = JsonRecord>(
   // Stable client instance — only recreate if connection params change. The
   // swap happens as a render-phase state reset so the rest of this render
   // already sees the new client; the old one is torn down by effect cleanup.
-  const rules = JSON.stringify([config.tickRate, config.interest, config.limits]);
+  const rules = JSON.stringify([config.tickRate, config.interest, config.limits, config.lobby]);
   const key = `${config.host}/${config.party}/${config.room}/${config.maxPlayers ?? ""}/${rules}/${config.offline === true}`;
   const [entry, setEntry] = useState<{ client: MultiplayerClient; key: string } | null>(null);
   let client = entry !== null && entry.key === key ? entry.client : null;
@@ -51,6 +59,7 @@ export const useMultiplayerRoom = <TShared extends JsonRecord = JsonRecord>(
       initialState: config.initialState,
       interest: config.interest,
       limits: config.limits,
+      lobby: config.lobby,
       maxPlayers: config.maxPlayers,
       offline: config.offline,
       onClaim: config.onClaim,
@@ -121,19 +130,22 @@ export const useMultiplayerRoom = <TShared extends JsonRecord = JsonRecord>(
 
   const goOffline = useCallback(() => client.goOffline(), [client]);
 
+  const setRoomInfo = useCallback((info: Partial<RoomInfo>) => client.setRoomInfo(info), [client]);
+
   return useMemo(
     () => ({
       ...snapshot,
       goOffline,
       sendEvent,
       sendToHost,
+      setRoomInfo,
       // SAFETY: same invariant as updateSharedState — the stored JsonRecord is
       // whatever TShared the game seeded and last wrote.
       sharedState: snapshot.sharedState as TShared,
       updateMyState,
       updateSharedState,
     }),
-    [snapshot, updateSharedState, updateMyState, sendEvent, sendToHost, goOffline],
+    [snapshot, updateSharedState, updateMyState, sendEvent, sendToHost, goOffline, setRoomInfo],
   );
 };
 

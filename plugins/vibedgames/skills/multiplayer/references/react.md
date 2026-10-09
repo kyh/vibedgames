@@ -72,6 +72,8 @@ const status = room.connectionStatus; // "connecting" | "connected" | "reconnect
 const players = Object.values(room.players);
 const myId = room.playerId;
 const actualRoom = room.room; // may be an overflow sibling when `maxPlayers` is set
+const { locked, meta } = room.roomInfo; // what the host published
+room.setRoomInfo({ locked: true, meta: { mode: "ffa" } }); // host only
 ```
 
 Each `Player` carries `id`, an auto-assigned `color`/`hue`, its state, and

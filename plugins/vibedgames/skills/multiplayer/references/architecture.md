@@ -380,8 +380,9 @@ everyone. Pick the radius past the edge of the screen, so nobody pops in view.
 patches outside the range. It is a cheap guard against a hacked client writing
 nonsense into its own slot, not a substitute for the host validating intents.
 
-Room rules (`tickRate`, `interest`, `limits`, like `maxPlayers`) come from the
-first client into an empty room, so every client must pass the same ones.
+Room rules (`tickRate`, `interest`, `limits`, `lobby`, like `maxPlayers`) come
+from the first client into an empty room, so every client must pass the same
+ones.
 
 ## Automated two-client check
 

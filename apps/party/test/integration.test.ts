@@ -10,7 +10,14 @@ import type { MiniflareOptions } from "miniflare";
 import { z } from "zod";
 
 import type { MultiplayerClientOptions } from "@vibedgames/multiplayer";
-import { MAX_TICK_HISTORY, MAX_TICK_RATE, MultiplayerClient } from "@vibedgames/multiplayer";
+import {
+  listRooms,
+  MAX_ROOM_META_CHARS,
+  MAX_TICK_HISTORY,
+  MAX_TICK_RATE,
+  MultiplayerClient,
+  quickMatch,
+} from "@vibedgames/multiplayer";
 
 /**
  * Integration tests that drive the real VgServer — Durable Object, partyserver
@@ -49,7 +56,7 @@ before(async () => {
     compatibilityDate: built.compatibilityDate,
     compatibilityFlags: built.compatibilityFlags,
     d1Databases: { DB: "vibedgames" },
-    durableObjects: { VgServer: "VgServer" },
+    durableObjects: { VgLobby: "VgLobby", VgServer: "VgServer" },
     modules: true,
     scriptPath: path.join(OUTPUT, "bundle", built.manifest.mainModule),
   };
@@ -89,7 +96,7 @@ const connect = (
   room: string,
   options?: Pick<
     MultiplayerClientOptions,
-    "interest" | "limits" | "onClaim" | "onEvent" | "onTick" | "tickRate"
+    "interest" | "limits" | "lobby" | "maxPlayers" | "onClaim" | "onEvent" | "onTick" | "tickRate"
   >,
 ): MultiplayerClient =>
   new MultiplayerClient({
@@ -98,6 +105,21 @@ const connect = (
     room,
     ...options,
   });
+
+/** Poll an async check until it holds: a lobby hears from its rooms a moment after they change. */
+const eventually = async (
+  check: () => Promise<boolean>,
+  label: string,
+  timeoutMs = 10_000,
+): Promise<void> => {
+  const deadline = Date.now() + timeoutMs;
+  while (!(await check())) {
+    if (Date.now() > deadline) {
+      throw new Error(`timed out after ${timeoutMs}ms waiting for: ${label}`);
+    }
+    await delay(50);
+  }
+};
 
 /** The room's public HTTP stats. */
 const roomInfo = async (room: string): Promise<{ playerCount: number }> => {
@@ -1351,5 +1373,151 @@ test("when the host leaves, a remaining guest is promoted", async () => {
   } finally {
     clientA.destroy();
     clientB.destroy();
+  }
+});
+
+test("a locked room sends newcomers on to an overflow room, and its meta reaches everyone", async () => {
+  const room = uniqueRoom("lock");
+  const host = connect(room);
+  const clients: MultiplayerClient[] = [host];
+  try {
+    await waitFor(() => admitted(host), "host admitted");
+    const guest = connect(room);
+    clients.push(guest);
+    await waitFor(() => admitted(guest), "guest admitted");
+
+    host.setRoomInfo({ locked: true, meta: { mode: "duel" } });
+    await waitFor(() => guest.roomInfo.locked && host.roomInfo.locked, "both hear the lock");
+    assert.deepEqual(guest.roomInfo, { locked: true, meta: { mode: "duel" } });
+
+    // Neither a guest nor oversized meta moves the room.
+    guest.setRoomInfo({ locked: false });
+    host.setRoomInfo({ meta: { blob: "x".repeat(MAX_ROOM_META_CHARS) } });
+    host.sendEvent("fence", null);
+    await delay(200);
+    assert.deepEqual(host.roomInfo, { locked: true, meta: { mode: "duel" } });
+
+    const late = connect(room);
+    clients.push(late);
+    await waitFor(() => admitted(late), "the newcomer is admitted somewhere");
+    assert.equal(late.room, `${room}~2`, "a locked room sends a newcomer on");
+    assert.equal(Object.keys(host.players).length, 2, "the locked room kept its two");
+
+    host.setRoomInfo({ locked: false });
+    await waitFor(() => !guest.roomInfo.locked, "the unlock reaches the guest");
+    const later = connect(room);
+    clients.push(later);
+    await waitFor(() => admitted(later), "the next newcomer is admitted");
+    assert.equal(later.room, room, "an unlocked room takes newcomers again");
+    assert.deepEqual(later.roomInfo, { locked: false, meta: { mode: "duel" } }, "sync carries it");
+  } finally {
+    for (const client of clients) {
+      client.destroy();
+    }
+  }
+});
+
+test("a dropped player reclaims its seat in a locked room", async () => {
+  const room = uniqueRoom("lock-reclaim");
+  const host = connect(room);
+  let back: RawClient | null = null;
+  try {
+    await waitFor(() => admitted(host), "host admitted");
+    const guest = new RawClient(room, { _pk: `lock-guest-${process.pid}` });
+    await waitFor(() => guest.synced(), "guest admitted");
+    host.setRoomInfo({ locked: true });
+    await waitFor(() => host.roomInfo.locked, "locked");
+
+    guest.close(4000);
+    await waitFor(() => host.players[guest.id]?.connected === false, "the seat is held");
+    const returning = new RawClient(room, { _pk: guest.id });
+    back = returning;
+    await waitFor(() => returning.synced() || returning.closed, "the guest is answered");
+    assert.equal(returning.synced(), true, "a reclaim is not turned away");
+    assert.deepEqual(returning.received("room_full"), []);
+  } finally {
+    back?.close(1000);
+    host.destroy();
+  }
+});
+
+/** Each test gets its own lobby, as it gets its own rooms. */
+const uniqueLobby = (label: string): string => uniqueRoom(`lobby-${label}`).replaceAll("~", "-");
+
+test("a lobby lists its rooms with players, lock and meta; a private room stays off it", async () => {
+  const lobby = uniqueLobby("list");
+  const roomA = uniqueRoom("listed-a");
+  const roomB = uniqueRoom("listed-b");
+  const roomP = uniqueRoom("private");
+  const hostA = connect(roomA, { lobby });
+  const guestA = connect(roomA, { lobby });
+  const hostB = connect(roomB, { lobby, maxPlayers: 4 });
+  const hostP = connect(roomP);
+  const clients = [hostA, guestA, hostB, hostP];
+  const host = { host: worker.origin, lobby };
+  try {
+    await waitFor(() => clients.every(admitted), "everyone admitted");
+    const leaderA = hostA.isHost ? hostA : guestA;
+    leaderA.setRoomInfo({ meta: { mode: "ffa" } });
+    await eventually(async () => {
+      const rooms = await listRooms(host);
+      return rooms.length === 2 && rooms.some((entry) => entry.meta.mode === "ffa");
+    }, "both rooms listed, the meta with them");
+    assert.deepEqual(await listRooms(host), [
+      { capacity: null, locked: false, meta: { mode: "ffa" }, players: 2, room: roomA },
+      { capacity: 4, locked: false, meta: {}, players: 1, room: roomB },
+    ]);
+
+    hostB.destroy();
+    await eventually(async () => {
+      const rooms = await listRooms(host);
+      return rooms.every((entry) => entry.room !== roomB);
+    }, "an emptied room leaves the lobby");
+  } finally {
+    for (const client of clients) {
+      client.destroy();
+    }
+  }
+});
+
+test("quick match fills one room before opening another, and skips a locked one", async () => {
+  const lobby = uniqueLobby("match");
+  const options = { host: worker.origin, lobby, maxPlayers: 2 };
+  const clients: MultiplayerClient[] = [];
+  try {
+    const first = await quickMatch(options);
+    const second = await quickMatch(options);
+    const third = await quickMatch(options);
+    assert.equal(second, first, "a seat is held for each match, so two fill one room");
+    assert.notEqual(third, first, "a full room sends the third to a new one");
+    assert.ok(first.startsWith(`${lobby}-`), "a new room is named after its lobby");
+
+    for (const room of [first, first, third]) {
+      const client = connect(room, { lobby, maxPlayers: 2 });
+      clients.push(client);
+      await waitFor(() => admitted(client), `admitted to ${room}`);
+    }
+    await eventually(async () => {
+      const rooms = await listRooms(options);
+      return (
+        rooms.length === 2 &&
+        rooms.every((entry) => entry.players === (entry.room === first ? 2 : 1))
+      );
+    }, "both rooms listed with their players");
+
+    const lone = clients.at(-1);
+    lone?.setRoomInfo({ locked: true });
+    await eventually(async () => {
+      const rooms = await listRooms(options);
+      return rooms.some((entry) => entry.room === third && entry.locked);
+    }, "the lock is listed");
+    const fourth = await quickMatch(options);
+    assert.ok(fourth !== first && fourth !== third, "neither a full nor a locked room is matched");
+
+    await assert.rejects(quickMatch({ ...options, lobby: "no spaces" }), /not a lobby name/u);
+  } finally {
+    for (const client of clients) {
+      client.destroy();
+    }
   }
 });

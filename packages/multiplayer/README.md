@@ -270,7 +270,44 @@ useMultiplayerRoom({ host, party, room, maxPlayers: 8 });
 At capacity the client is transparently reconnected into a sibling room
 (`{room}~2`, `{room}~3`, …) — an independent world with its own host and shared
 state. Read `room.room` to show players which instance they landed in. Omit
-`maxPlayers` for no cap (the server still clamps to a hard ceiling).
+`maxPlayers` for no cap (the server still clamps to `MAX_ROOM_CAP`).
+
+## Lobbies and quick match
+
+A room created with `lobby` lists itself there; `listRooms` reads the list and
+`quickMatch` picks a room from it.
+
+```ts
+import { listRooms, quickMatch } from "@vibedgames/multiplayer";
+
+const lobby = "my-game"; // one lobby per game, or per mode
+const room = await quickMatch({ host, lobby, maxPlayers: 4 });
+const client = new MultiplayerClient({ host, party, room, lobby, maxPlayers: 4 });
+
+const rooms = await listRooms({ host, lobby }); // fullest first, for a lobby screen
+// [{ room, players: 3, capacity: 4, locked: false, meta: { mode: "ffa" } }, …]
+```
+
+`quickMatch` sends a player to the fullest unlocked room with a free seat, or
+names a new one. The lobby holds each seat it hands out for a few seconds, so
+players matching at once fill one room rather than each opening their own; a
+room that still overfills sends the extra player to an overflow sibling, which
+lists itself too.
+
+The host publishes the room's lock and meta. Locked, the room takes no new
+players (they go on to an overflow sibling, as from a full room) and no quick
+match picks it, while a dropped player still reclaims its seat; meta (at most
+`MAX_ROOM_META_CHARS` of JSON) is what the lobby lists. Meta is whatever a host
+wrote: show it, don't trust it.
+
+```ts
+client.setRoomInfo({ locked: true, meta: { mode: "ffa", round: 2 } }); // host only
+client.roomInfo; // { locked: true, meta: { mode: "ffa", round: 2 } }, for everyone
+```
+
+A room takes its lobby from its first player and keeps it until it empties, like
+`maxPlayers`. Omit `lobby` for a private room: it lists nowhere, so only its id
+reaches it — make that id unguessable (`crypto.randomUUID()`) and share a link.
 
 ## Offline mode
 
@@ -442,8 +479,8 @@ The server enforces game-agnostic structural limits regardless
 Speaks the vibedgames party server's protocol
 ([`apps/party`](https://github.com/kyh/vibedgames/tree/main/apps/party)), which
 handles shared state, player state, events, capacity, reconnection, host
-election, server time, claims, ticks, interest and limits generically — it never
-knows a game's shape.
+election, server time, claims, ticks, interest, limits, locks and lobbies
+generically — it never knows a game's shape.
 
 ## License
 

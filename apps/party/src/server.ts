@@ -1,5 +1,5 @@
 import type { Connection, ConnectionContext } from "partyserver";
-import { routePartykitRequest, Server } from "partyserver";
+import { getServerByName, routePartykitRequest, Server } from "partyserver";
 
 import type {
   ClaimMap,
@@ -7,6 +7,7 @@ import type {
   Player,
   PlayerLimit,
   PlayerMap,
+  RoomInfo,
   RoomRules,
   ServerMessage,
   TickSync,
@@ -16,12 +17,15 @@ import {
   EVICTION_TIMEOUT_MS,
   findStructuralIssue,
   HOST_LIVENESS_TIMEOUT_MS,
+  isLobbyName,
   MAX_CLAIM_KEY_LENGTH,
   MAX_CLAIM_TTL_MS,
   MAX_CLAIMS,
   MAX_INPUT_BYTES,
   MAX_INPUT_LEAD_TICKS,
   MAX_MESSAGE_BYTES,
+  MAX_ROOM_CAP,
+  MAX_ROOM_META_CHARS,
   MAX_TICK_HISTORY,
   MAX_TICK_RATE,
   PING_INTERVAL_MS,
@@ -33,6 +37,9 @@ import {
   ROOM_RULES_QUERY_PARAM,
 } from "@vibedgames/multiplayer";
 import { getColorById } from "./color";
+import type { RoomReport } from "./lobby";
+
+export { VgLobby } from "./lobby";
 
 /**
  * Boundary types for untrusted client JSON. `JSON.parse` gives back `any`;
@@ -81,6 +88,7 @@ type IncomingMessage =
   | { type: "release"; key: string }
   | { type: "clear_claims"; prefix: string }
   | { type: "input"; v: JsonValue; n: number | null }
+  | { type: "room_info"; locked: boolean | null; meta: StateMap | null }
   | { type: "unrecognized" };
 
 // A reserved key would vanish from the plain-object claim map a sync carries,
@@ -91,7 +99,20 @@ const isClaimKey = (value: JsonValue | undefined): value is string =>
   value.length <= MAX_CLAIM_KEY_LENGTH &&
   !RESERVED_CLAIM_KEYS.includes(value);
 
-/** Decode the room-feature messages: server time, claims, tick inputs. */
+/** A host's room info: the lock, and meta bounded like a patch and small, as every lobby listing carries it. */
+const decodeRoomInfo = (data: StateMap): IncomingMessage => {
+  const meta = asStateMap(data.meta) ?? null;
+  if (
+    meta !== null &&
+    (findStructuralIssue(meta) !== null || JSON.stringify(meta).length > MAX_ROOM_META_CHARS)
+  ) {
+    return { type: "unrecognized" };
+  }
+  const { locked } = data;
+  return { locked: locked === true || locked === false ? locked : null, meta, type: "room_info" };
+};
+
+/** Decode the room-feature messages: server time, claims, tick inputs, room info. */
 const decodeRoomMessage = (
   type: JsonValue | undefined,
   data: StateMap | undefined,
@@ -132,6 +153,9 @@ const decodeRoomMessage = (
         type: "input",
         v: data.v ?? null,
       };
+    }
+    case "room_info": {
+      return decodeRoomInfo(data);
     }
     default: {
       return { type: "unrecognized" };
@@ -279,17 +303,11 @@ const applyInputChanges = (
 const HOST_ID_KEY = "hostId";
 const CAP_KEY = "cap";
 const RULES_KEY = "rules";
+const INFO_KEY = "info";
 const ROOM_KEY = "room";
 const GRACE_PREFIX = "grace:";
 
 const graceKey = (token: string): string => `${GRACE_PREFIX}${token}`;
-
-/**
- * Upper bound on a single room's player cap, regardless of what a client
- * requests via the query param. Games are untrusted code, so we never let a
- * client size a room past this ceiling.
- */
-const HARD_ROOM_CAP = 64;
 
 const utf8 = new TextEncoder();
 
@@ -302,6 +320,10 @@ const MAX_TICK_LOG_CHARS = 64_000;
 /** Bounded room rules: at most this many limited keys, keys this long. */
 const MAX_LIMITS = 32;
 const MAX_RULE_KEY_LENGTH = 64;
+/** Joins and leaves come in bursts: a room tells its lobby at most this often. */
+const LOBBY_REPORT_DEBOUNCE_MS = 500;
+/** A room no host has published anything about. */
+const UNPUBLISHED: RoomInfo = { locked: false, meta: {} };
 
 /** Separator for overflow sibling rooms: `home` → `home~2` → `home~3`. */
 const OVERFLOW_SEP = "~";
@@ -350,7 +372,8 @@ const readRoomCap = (ctx: ConnectionContext): number | null => {
   if (!Number.isFinite(parsed) || parsed <= 0) {
     return null;
   }
-  return Math.min(parsed, HARD_ROOM_CAP);
+  // Games are untrusted code: no client sizes a room past the ceiling.
+  return Math.min(parsed, MAX_ROOM_CAP);
 };
 
 /** Read the client's reconnection token. Every SDK client sends one. */
@@ -428,6 +451,10 @@ const readRoomRules = (ctx: ConnectionContext): RoomRules | null => {
   if (limits) {
     rules.limits = limits;
   }
+  const { lobby } = source;
+  if (isJsonString(lobby) && isLobbyName(lobby)) {
+    rules.lobby = lobby;
+  }
   return Object.keys(rules).length > 0 ? rules : null;
 };
 
@@ -477,10 +504,11 @@ export class VgServer extends Server {
    *   persisted debounced (PERSIST_DEBOUNCE_MS) and unconfirmed — never holding
    *   back a message — so a room survives a restart mid-session (a deploy)
    *   with its world intact.
-   * - SESSION (`hostId`, `cap`, `rules`) changes rarely but MUST persist: a
-   *   wiped host makes the real host's `state_patch` get rejected as non-host
-   *   after a wake; a wiped cap lets a post-wake join exceed it. Mirrored in
-   *   memory, written through to storage, rehydrated in `onStart()`.
+   * - SESSION (`hostId`, `cap`, `rules`, `info`) changes rarely but MUST
+   *   persist: a wiped host makes the real host's `state_patch` get rejected
+   *   as non-host after a wake; a wiped cap lets a post-wake join exceed it,
+   *   and a wiped lock lets one into a locked room. Mirrored in memory,
+   *   written through to storage, rehydrated in `onStart()`.
    * - GRACE (held seats for dropped players) also persists: entries are written
    *   only on disconnect/reclaim/expiry (never on the hot path), are bounded by
    *   the room cap, and must survive hibernation or a mid-window wake would
@@ -492,6 +520,8 @@ export class VgServer extends Server {
   private hostId: string | null = null;
   private cap: number | null = null;
   private rules: RoomRules | null = null;
+  /** The lock and meta the host published. */
+  private info: RoomInfo = UNPUBLISHED;
   private grace = new Map<string, GraceEntry>();
   private claims = new Map<string, Claim>();
   /**
@@ -507,12 +537,17 @@ export class VgServer extends Server {
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
   /** Whether storage holds a room snapshot, so an oversized world can drop a stale one. */
   private roomPersisted = false;
+  /** A report to the room's lobby, waiting out LOBBY_REPORT_DEBOUNCE_MS. */
+  private lobbyTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Reports to the lobby, chained so they land in the order they were sent. */
+  private lobbyReports: Promise<void> = Promise.resolve();
 
   /** Rehydrate durable room fields before any handler runs (partyserver awaits this). */
   async onStart() {
     this.hostId = (await this.ctx.storage.get<string | null>(HOST_ID_KEY)) ?? null;
     this.cap = (await this.ctx.storage.get<number | null>(CAP_KEY)) ?? null;
     this.rules = (await this.ctx.storage.get<RoomRules | null>(RULES_KEY)) ?? null;
+    this.info = (await this.ctx.storage.get<RoomInfo>(INFO_KEY)) ?? UNPUBLISHED;
     const room = await this.ctx.storage.get<RoomSnapshot>(ROOM_KEY);
     if (room) {
       this.shared = room.shared;
@@ -545,6 +580,11 @@ export class VgServer extends Server {
   private async setRules(rules: RoomRules | null): Promise<void> {
     this.rules = rules;
     await this.ctx.storage.put(RULES_KEY, rules);
+  }
+
+  private async setInfo(info: RoomInfo): Promise<void> {
+    this.info = info;
+    await this.ctx.storage.put(INFO_KEY, info);
   }
 
   private toPlayer(presence: Presence): Player {
@@ -761,6 +801,26 @@ export class VgServer extends Server {
     this.broadcast(JSON.stringify(hostMessage), []);
   }
 
+  /**
+   * Refuse a newcomer if the room is full or locked: point it at the overflow
+   * sibling and close — the SDK reconnects there, and the sibling inherits
+   * the cap (0 is none). Whether it was turned away.
+   */
+  private turnAway(connection: Connection<Presence>, cap: number | null): boolean {
+    const full = cap !== null && this.playerCount(connection.id) >= cap;
+    if (!full && !this.info.locked) {
+      return false;
+    }
+    const room = nextOverflowRoom(this.name);
+    const message: ServerMessage = {
+      data: full ? { capacity: cap, room } : { capacity: cap ?? 0, locked: true, room },
+      type: "room_full",
+    };
+    connection.send(JSON.stringify(message));
+    connection.close(4001, full ? "room_full" : "room_locked");
+    return true;
+  }
+
   async onConnect(connection: Connection<Presence>, ctx: ConnectionContext) {
     // Every SDK client presents a reconnection token; without one there is no
     // seat to hold across a drop, and nothing else in the room can work.
@@ -786,15 +846,7 @@ export class VgServer extends Server {
     const requestedCap = readRoomCap(ctx);
     const cap = this.cap ?? requestedCap;
 
-    // Enforce the room cap before admitting the player. If full, point the
-    // client at the overflow sibling and close — the SDK reconnects there.
-    if (!reclaimed && cap !== null && this.playerCount(connection.id) >= cap) {
-      const fullMessage: ServerMessage = {
-        data: { capacity: cap, room: nextOverflowRoom(this.name) },
-        type: "room_full",
-      };
-      connection.send(JSON.stringify(fullMessage));
-      connection.close(4001, "room_full");
+    if (!reclaimed && this.turnAway(connection, cap)) {
       return;
     }
 
@@ -861,6 +913,7 @@ export class VgServer extends Server {
       data: {
         claims: this.claimMap(now),
         hostId: this.hostId ?? connection.id,
+        info: this.info,
         players: this.players(),
         state: this.shared,
         tick: this.tickSync(),
@@ -878,6 +931,7 @@ export class VgServer extends Server {
     // The sync and the join carried whole states both ways, so in an interest
     // room every pair with the newcomer starts out visible.
     this.markVisibleBothWays(connection.id);
+    this.listSoon();
   }
 
   async onMessage(sender: Connection<Presence>, rawMessage: string): Promise<void> {
@@ -957,6 +1011,10 @@ export class VgServer extends Server {
           this.handleInput(sender, message.v, message.n);
           break;
         }
+        case "room_info": {
+          await this.handleRoomInfo(sender, message.locked, message.meta);
+          break;
+        }
         case "emit": {
           VgServer.touch(sender, true);
           this.relayEvent(sender, message.data);
@@ -1003,6 +1061,61 @@ export class VgServer extends Server {
     // next real change from the SDK's diff.
     this.broadcast(JSON.stringify(relayed), [sender.id]);
     this.markRoomDirty();
+  }
+
+  /** Host only: lock or unlock the room, or replace its meta. Everyone hears. */
+  private async handleRoomInfo(
+    sender: Connection<Presence>,
+    locked: boolean | null,
+    meta: StateMap | null,
+  ): Promise<void> {
+    if (sender.id !== this.hostId) {
+      return;
+    }
+    await this.setInfo({ locked: locked ?? this.info.locked, meta: meta ?? this.info.meta });
+    const message: ServerMessage = { data: this.info, type: "room_info" };
+    this.broadcast(JSON.stringify(message), []);
+    this.listSoon();
+  }
+
+  // -- Lobby ---------------------------------------------------------------
+
+  /**
+   * Tell the room's lobby, if it has one, how the room stands: after joins,
+   * leaves and changes of lock or meta, and on every sweep so the listing
+   * stays fresh. Debounced, since joins and leaves come in bursts; the
+   * report reads the room as it is when it goes.
+   */
+  private listSoon(): void {
+    if (this.rules?.lobby === undefined || this.lobbyTimer !== null) {
+      return;
+    }
+    this.lobbyTimer = setTimeout(() => {
+      this.lobbyTimer = null;
+      const lobby = this.rules?.lobby;
+      if (lobby !== undefined) {
+        this.tellLobby(lobby, {
+          capacity: this.cap,
+          locked: this.info.locked,
+          meta: this.info.meta,
+          players: this.playerCount(),
+        });
+      }
+    }, LOBBY_REPORT_DEBOUNCE_MS);
+  }
+
+  /** Queue one report to a lobby (null: the room emptied). A lobby out of reach costs the room nothing. */
+  private tellLobby(lobby: string, report: RoomReport | null): void {
+    const previous = this.lobbyReports;
+    this.lobbyReports = (async () => {
+      await previous;
+      try {
+        const stub = await getServerByName(this.env.VgLobby, lobby);
+        await stub.report(this.name, report);
+      } catch (error) {
+        console.warn(`Lobby ${lobby} missed a report from ${this.name}`, error);
+      }
+    })();
   }
 
   /** Relay a game event: to everyone (sender included) or to the `to` list, minus `except`. */
@@ -1548,6 +1661,7 @@ export class VgServer extends Server {
    * Object is free to shut down.
    */
   async onAlarm() {
+    this.listSoon();
     const now = Date.now();
     const pingMessage = JSON.stringify({ type: "ping" } satisfies ServerMessage);
     const stale: Connection<Presence>[] = [];
@@ -1735,8 +1849,17 @@ export class VgServer extends Server {
     // broadcast. A room with seats still held in grace is NOT empty — its
     // dropped players may be seconds from returning.
     if (remainingCount === 0 && this.grace.size === 0) {
+      const lobby = this.rules?.lobby;
+      if (lobby !== undefined) {
+        if (this.lobbyTimer !== null) {
+          clearTimeout(this.lobbyTimer);
+          this.lobbyTimer = null;
+        }
+        this.tellLobby(lobby, null);
+      }
       await this.setCap(null);
       await this.setRules(null);
+      await this.setInfo(UNPUBLISHED);
       this.shared = {};
       this.claims.clear();
       this.positions.clear();
@@ -1748,6 +1871,8 @@ export class VgServer extends Server {
       }
       await this.ctx.storage.delete(ROOM_KEY);
       this.roomPersisted = false;
+    } else {
+      this.listSoon();
     }
   }
 }
@@ -1760,6 +1885,11 @@ export default {
     if (url.pathname === "/health") {
       return Response.json({ ok: true, service: "vibedgames-party" });
     }
-    return (await routePartykitRequest(request, env)) || new Response("Not Found", { status: 404 });
+    // CORS for the HTTP routes: a game's page lists and matches rooms from its
+    // own origin. Lobbies and rooms answer with public counts, never a cookie.
+    return (
+      (await routePartykitRequest(request, env, { cors: true })) ||
+      new Response("Not Found", { status: 404 })
+    );
   },
 } satisfies ExportedHandler<Env>;

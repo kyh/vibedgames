@@ -210,3 +210,18 @@ test("getSnapshot hands out the same object until the state in it changes", () =
     client.destroy();
   }
 });
+
+test("offline, the room's lock and meta are this client's to set", () => {
+  const client = offlineClient();
+  try {
+    const before = client.getSnapshot();
+    assert.deepEqual(client.roomInfo, { locked: false, meta: {} });
+    client.setRoomInfo({ meta: { mode: "solo" } });
+    client.setRoomInfo({ locked: true });
+    assert.deepEqual(client.roomInfo, { locked: true, meta: { mode: "solo" } });
+    assert.notEqual(client.getSnapshot(), before, "a new snapshot carries it");
+    assert.equal(client.getSnapshot().roomInfo, client.roomInfo);
+  } finally {
+    client.destroy();
+  }
+});

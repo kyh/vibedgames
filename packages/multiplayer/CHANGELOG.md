@@ -62,6 +62,23 @@ Shared state:
   a microtask. An event, claim or input sent at once flushes pending writes
   first, and state writes and coalesced events never overtake each other.
 
+Matchmaking:
+
+- Lobbies: a room created with the `lobby` option lists itself there, and
+  `listRooms({ host, lobby })` returns the list, fullest first: each room's id,
+  players, cap, lock and meta. A room without a lobby is private and listed
+  nowhere.
+- `quickMatch({ host, lobby, maxPlayers })` names a room to join: the fullest
+  unlocked one with a free seat, or a new one. The lobby holds each seat it
+  hands out for a few seconds, so players matching at once fill one room.
+- `setRoomInfo({ locked, meta })`, host only, and `roomInfo` for everyone. A
+  locked room sends newcomers to an overflow sibling, as a full one does, and
+  no quick match picks it; a dropped player still reclaims its seat. Meta is up
+  to `MAX_ROOM_META_CHARS` of JSON, and lobbies list it.
+- `MAX_ROOM_CAP` (the ceiling on `maxPlayers`), `LOBBY_PARTY`, `isLobbyName`,
+  `RoomInfo` and `RoomListing` are exported. The party server answers HTTP
+  cross-origin, so a game's page can reach its lobby.
+
 Connection lifecycle:
 
 - `connectionStatus` is `"connecting" | "connected" | "reconnecting" | "offline"`.
