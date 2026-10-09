@@ -2125,5 +2125,6 @@ export const spawnEnemyState = (kind: EnemyKind, x: number, y: number): EnemySta
 
 // ---- offline fallback ---------------------------------------------------------
 
-/** How long to wait for the party server before starting a solo arena. */
+/** How long the party server has to admit this client (rendered frames, the
+ *  SDK's `fallbackMs`) before it goes offline into a solo arena. */
 export const OFFLINE_FALLBACK_MS = 4000;

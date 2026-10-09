@@ -1,5 +1,8 @@
 // Pure-logic checks for the presentation/HUD helpers and the netcode codecs: `pnpm --filter @repo/starfall test`.
 import assert from "node:assert/strict";
+import { setTimeout as sleep } from "node:timers/promises";
+
+import { OFFLINE_PLAYER_ID } from "@vibedgames/multiplayer";
 
 import { BattleBeatDirector, waveBattleBeat } from "../src/render/battle-beat";
 import type { BattleBeatInput } from "../src/render/battle-beat";
@@ -534,13 +537,25 @@ const keysOf = (patch: WireRecord): string[] =>
   assert.equal(readStandings(null).size, 0);
   console.log("PASS the relayed standings decode");
 
+  // Offline, the SDK's room of one: this client hosts, and its own intents
+  // reach the inbox at once.
+  const SOLO = {
+    host: "http://localhost:8787",
+    maxPlayers: 1,
+    offline: true,
+    onUpdate: () => {
+      // Nothing renders here.
+    },
+    room: "smoke",
+  };
   let delivered: IntentBatch | null = null;
   const inboxLink = new Link({
     inbox: (_event, payload) => {
       delivered = readIntents(payload);
     },
   });
-  inboxLink.offline = true;
+  inboxLink.connect(SOLO);
+  assert.ok(inboxLink.offline && inboxLink.live && inboxLink.amHost, "offline hosts a live room");
   const intents = new HostIntents();
   intents.enemyHit("enemy001", 25, 3, -4);
   intents.asteroidHit("rock0001", 1 / 3);
@@ -555,9 +570,10 @@ const keysOf = (patch: WireRecord): string[] =>
     pulls: [{ ms: 800, x: 10, y: 20 }],
     shots: ["shot0001"],
   });
+  inboxLink.destroy();
   console.log("PASS a frame's intents reach the host as one batch");
 
-  // Solo, a claim has no rival: granted to me at once, and nothing is held.
+  // Solo, a claim has no rival: granted to me at once, held until it lapses.
   const grants: [string, string | null][] = [];
   const soloLink = new Link({
     inbox: () => {
@@ -565,9 +581,14 @@ const keysOf = (patch: WireRecord): string[] =>
     },
     onClaim: (key, owner) => grants.push([key, owner]),
   });
-  soloLink.offline = true;
-  soloLink.claim("i:item0001", 5000);
-  assert.deepEqual(grants, [["i:item0001", "solo"]]);
+  soloLink.connect(SOLO);
+  soloLink.claim("i:item0001", 20);
+  assert.deepEqual(grants, [["i:item0001", OFFLINE_PLAYER_ID]]);
+  assert.equal(soloLink.myId, OFFLINE_PLAYER_ID, "the grant is mine");
+  assert.ok(soloLink.claimed("i:item0001"));
+  await sleep(40);
+  assert.deepEqual(grants.at(-1), ["i:item0001", null], "the claim lapses on its TTL");
   assert.equal(soloLink.claimed("i:item0001"), false);
-  console.log("PASS a solo claim is granted at once");
+  soloLink.destroy();
+  console.log("PASS a solo claim is granted at once and lapses");
 }

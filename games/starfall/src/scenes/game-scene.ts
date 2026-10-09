@@ -278,27 +278,25 @@ export class GameScene extends Scene {
     // Explicit offline boot (?offline=1): never dial the party server. A
     // failed WebSocket handshake logs a browser console error the page cannot
     // suppress, so an offline-by-intent run (bot playtest, deliberate solo)
-    // must skip the socket entirely rather than lean on the failure fallback
-    // (Link.poll). The client simply never exists on this path.
+    // must skip the socket entirely rather than lean on the connect fallback:
+    // the client starts as a room of one and never opens one.
     // Trailer mode (?trailer=1) is always a fully offline session: the
     // director stages "multiplayer" with local fake peers, never the network.
     // A playtest (?test=1) is offline by intent as well: a model's staged run
     // must never land in a live room.
-    if (
-      isOfflineRequested() ||
-      isPlaytestRequested() ||
-      new URLSearchParams(location.search).has("trailer")
-    ) {
-      this.link.goOffline();
-      this.sync.ensureSeeded();
-    } else {
-      this.link.connect({
-        host: MULTIPLAYER_HOST,
-        maxPlayers: STARFALL_MAX_PLAYERS,
-        onUpdate: () => this.roster.ingest(performance.now()),
-        room: ROOM,
-      });
-    }
+    this.link.connect({
+      host: MULTIPLAYER_HOST,
+      maxPlayers: STARFALL_MAX_PLAYERS,
+      offline:
+        isOfflineRequested() ||
+        isPlaytestRequested() ||
+        new URLSearchParams(location.search).has("trailer"),
+      onUpdate: () => this.roster.ingest(performance.now()),
+      room: ROOM,
+    });
+    // Offline, this client already hosts its room of one: the solo world is
+    // there before the first frame. Online, update() waits for the room.
+    this.sync.ensureSeeded();
 
     // Desktop steers from the cursor (activePointer); the gamepad below owns
     // the touch path. These two listeners only track that a pointer exists and
@@ -625,9 +623,10 @@ export class GameScene extends Scene {
     }
     this.starfield.update(dt, time);
     this.barrier.update(time, this.world.playW, this.world.playH);
-    if (!this.link.offline) {
-      this.pollLink();
-    }
+    // A first host seeds once the room clock is measured, and the SDK's
+    // offline fallback (no room inside OFFLINE_FALLBACK_MS) gets its solo
+    // world the frame it is noticed here: no message announces either.
+    this.sync.ensureSeeded();
     // Start screen up: run the cosmetic dogfight backdrop behind the overlay.
     // It's purely additive — the live path below still runs (so the host keeps
     // the shared world ticking and real remote players still render/mix in).
@@ -727,20 +726,6 @@ export class GameScene extends Scene {
     this.publishDiag();
   }
 
-  /** Give up on the party server after the grace window and go solo. Called
-   *  every update() tick until the fallback triggers (or forever, online). */
-  private pollLink(): void {
-    const step = this.link.poll();
-    if (step === "readmitted-host") {
-      // Readmitted as the continuing host: patches sent into the drop were
-      // discarded, so the next share carries the whole world.
-      this.host.markWorldDirty();
-    }
-    // A first host seeds once the room clock is measured (no message marks
-    // that); the solo fallback seeds its own world the frame it starts.
-    this.sync.ensureSeeded();
-  }
-
   /** Resize/rotation: re-read the safe-area insets and re-derive camera zoom. */
   private onViewportChange(): void {
     this.layers.safeInset = safeAreaInset();
@@ -827,13 +812,11 @@ export class GameScene extends Scene {
   }
 
   /** Test hook (shared/diag.ts): jump straight into an offline solo run —
-   *  force the fallback that maybeGoOffline would reach after the 4s grace,
-   *  then dismiss the start overlay. Never called during real play. */
+   *  what the SDK's connect fallback reaches after OFFLINE_FALLBACK_MS with
+   *  no room — then dismiss the start overlay. Never called during real play. */
   private forceOfflineSolo(): void {
-    if (!this.link.offline) {
-      this.link.goOffline();
-      this.sync.ensureSeeded();
-    }
+    this.link.goOffline();
+    this.sync.ensureSeeded();
     this.beginPlay();
   }
 
@@ -842,9 +825,7 @@ export class GameScene extends Scene {
    *  clocks, level-1 pilot — so every roll after it comes from the seed. */
   private restartSolo(seed: number): void {
     reseed(seed);
-    if (!this.link.offline) {
-      this.link.goOffline();
-    }
+    this.link.goOffline();
     this.sync.offlineSeeded = false;
     this.sync.ensureSeeded();
     this.host.restart();

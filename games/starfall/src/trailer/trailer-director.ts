@@ -23,6 +23,7 @@
 // the boss runs phase 1 -> 2 -> 3 and DIES on camera.
 
 import type Phaser from "phaser";
+import { OFFLINE_PLAYER_ID } from "@vibedgames/multiplayer";
 import type { Player, PlayerMap } from "@vibedgames/multiplayer";
 
 import { sfx } from "../audio/sfx";
@@ -640,7 +641,8 @@ const direct = (scene: GameScene): void => {
     return peer;
   };
   const installPeers = (): void => {
-    peerMap = { solo: { id: "solo" } };
+    // My own entry, under the id the offline room gives me (link.myId).
+    peerMap = { [OFFLINE_PLAYER_ID]: { id: OFFLINE_PLAYER_ID } };
     staging.peers = peerMap;
   };
   const clearPeers = (): void => {

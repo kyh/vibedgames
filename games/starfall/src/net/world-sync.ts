@@ -197,7 +197,8 @@ export class WorldSync {
    * asteroid field). Guests adopt the host's existing state; a guest promoted
    * to host after a migration keeps the live world — and the epoch — instead
    * of resetting it. Polled every frame: an online seed waits for the room
-   * clock (Link.connected), and no socket message announces that.
+   * clock (Link.connected), and a solo seed for the SDK's offline fallback,
+   * and no socket message announces either.
    */
   ensureSeeded(): void {
     // Seed the opening asteroid field within the play bounds for the current
