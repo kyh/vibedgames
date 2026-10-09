@@ -89,17 +89,26 @@ re-seeds:
 ```ts
 const client = new MultiplayerClient({ host, party, room /* no initialState */ });
 
-const emptyWorld = () => ({ grid: newGrid(), scores: {}, winner: null, startedAt: Date.now() });
+const emptyWorld = () => ({
+  grid: newGrid(),
+  scores: {},
+  winner: null,
+  startedAt: client.serverNow(),
+});
 const seeded = (s) => Array.isArray(s.grid); // any reliable "is populated" check
 
-client.subscribe(() => {
-  // First host seeds. A guest promoted later already holds the live state,
-  // so `seeded` is true and the round survives the migration.
-  if (client.isHost && client.connectionStatus === "connected" && !seeded(client.sharedState)) {
+const onChange = () => {
+  // First host seeds — an offline client too, as it hosts its room of one. A
+  // guest promoted later already holds the live state, so `seeded` is true
+  // and the round survives the migration. No client is host before `sync`
+  // has delivered the room's state, so a host never seeds over it.
+  if (client.isHost && !seeded(client.sharedState)) {
     client.updateSharedState(emptyWorld());
   }
   render();
-});
+};
+client.subscribe(onChange);
+onChange(); // a client created offline has nothing to notify about yet
 ```
 
 ## Offline ≠ solo
