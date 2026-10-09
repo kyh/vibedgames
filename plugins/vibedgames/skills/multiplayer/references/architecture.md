@@ -399,17 +399,17 @@ by Playwright. The traps, in the order they bite:
 - **Heavy games need a real GPU and no throttling:**
   `--use-angle=metal --ignore-gpu-blocklist` (SwiftShader runs at ~4 fps) plus
   `--disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding`.
-- **Closing a context is a transport drop, not a leave.** No close frame is
-  sent, so the seat is parked for `RECONNECT_GRACE_MS` (30 s) and reaped at
-  `EVICTION_TIMEOUT_MS` (75 s) — both exported from `@vibedgames/multiplayer`.
-  Wait for those, or call `client.destroy()` before closing to leave cleanly.
+- **Closing a page or a context is a leave.** The browser closes its sockets
+  with 1001, which the server takes as a leave, as when a player closes the
+  tab: the seat frees and a new host is elected at once. To test a drop that
+  holds the seat (`RECONNECT_GRACE_MS`, 30 s), blip the socket instead.
 - **A "blip" is `socket.close(4000)` then `socket.reconnect()`** on the
   underlying PartySocket (expose a dev hook from your `net/` layer — the
   client keeps its socket private). Close codes `1000` (`destroy()`) and `1001`
   (a page unloading) are leaves and elect a new host immediately.
 - **Playwright does not throttle background tabs.** To test host migration,
-  silence the host explicitly (kill its heartbeat via the blip hook, or close
-  the context and wait out the grace window).
+  silence the host explicitly: blip it and keep it away past the 6 s liveness
+  window, or close its page, which leaves at once.
 - **Concurrent QA agents join each other's rooms.** Use a unique room id per
   run (`arena-${Date.now()}`).
 - **`--virtual-time-budget` fast-forwards `performance.now()`**, so the
