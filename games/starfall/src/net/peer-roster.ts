@@ -68,8 +68,8 @@ export class PeerRoster {
    *  message lands, so each update's arrival time is exact — the sender's
    *  clock learns its relay from it — and two patches arriving within one
    *  frame both reach the buffer. Cheap: a state object only changes when a
-   *  patch lands. A peer out of interest range is skipped: what it holds is
-   *  stale. A peer back from its own drop is relearned here too, so the
+   *  patch lands. A peer out of interest range is not parsed: what it holds
+   *  is stale. A peer back from its own drop is relearned here too, so the
    *  drop is seen even while this tab is hidden. */
   ingest(perfNow: number): void {
     const { peers, myId, offline } = this.link;
@@ -77,10 +77,14 @@ export class PeerRoster {
       return;
     }
     for (const [id, player] of Object.entries(peers)) {
-      if (id === myId || player.visible === false) {
+      if (id === myId) {
         continue;
       }
-      const entry = this.entryFor(id);
+      const hidden = player.visible === false;
+      const entry = hidden ? this.entries.get(id) : this.entryFor(id);
+      if (!entry) {
+        continue;
+      }
       if (player.connected === false) {
         entry.away = true;
       } else if (entry.away) {
@@ -91,7 +95,7 @@ export class PeerRoster {
         entry.away = false;
         entry.clock.relearn();
       }
-      if (player.state !== entry.raw) {
+      if (!hidden && player.state !== entry.raw) {
         entry.raw = player.state;
         parseInto(entry, readNetState(player), perfNow);
       }
@@ -113,11 +117,17 @@ export class PeerRoster {
         continue;
       }
       // Out of interest range (past the edge of any screen): its state
-      // stopped updating, so it is absent here too. Its pose buffer goes:
-      // coming back, the ship appears where it is instead of gliding in
-      // from where it left.
+      // stopped updating, so it is absent here too. Its poses go: coming
+      // back, the ship appears where it is instead of gliding in from where
+      // it left. Its clock stays: the route is the same, and a new clock
+      // starts its hold from nothing, so for seconds after every return
+      // (a ship at the edge of range flickers out and back) the ship would
+      // be drawn short of the delay its stream needs.
       if (player.visible === false) {
-        this.entries.delete(id);
+        const entry = this.entries.get(id);
+        if (entry && entry.raw !== undefined) {
+          forget(entry);
+        }
         link.peerStates.set(id, null);
         continue;
       }
@@ -207,6 +217,16 @@ export class PeerRoster {
     return entry;
   }
 }
+
+/** A peer out of interest range: drop its poses and parsed state, keep its
+ *  clock. Its next state is parsed afresh, as a re-entry. */
+const forget = (entry: PeerEntry): void => {
+  entry.interp.clear();
+  entry.raw = undefined;
+  entry.net = null;
+  entry.latest = null;
+  entry.live = false;
+};
 
 /** Take in a peer's newly parsed state: buffer its pose for interpolation,
  *  restarting the buffer when the ship (re)appears — a respawn or re-entry
