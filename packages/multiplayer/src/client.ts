@@ -817,8 +817,11 @@ export class MultiplayerClient {
    * leaves out is deleted. Either way only what changed rides the wire, down
    * to the leaf: the client diffs the result against the room's copy and
    * sends path ops (see patch.ts), once per task however many writes it
-   * made. Nothing is sent while the connection is down: a host's reconnect
-   * re-sends whatever the server holds differently.
+   * made. The write is read when that batch leaves, and what you pass is kept
+   * as the shared state: never pass an object you go on mutating (a live
+   * world), or it leaves as it stands then. Nothing is sent while the
+   * connection is down: a host's reconnect re-sends whatever the server holds
+   * differently.
    */
   updateSharedState(updater: JsonRecord | StateUpdater): void {
     const prev = this._sharedState;

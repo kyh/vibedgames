@@ -233,6 +233,13 @@ state as one merged patch, on a microtask. Batching never reorders: an event, a
 claim or an input sent at once flushes pending writes first, and a coalesced
 event never overtakes a state write, nor a state write a coalesced event.
 
+A write is read when the batch leaves, not when you call it, and the client
+keeps what you passed as its shared state. So never hand it an object you go on
+changing: a world your sim steps after the write leaves as it stands after the
+step, under the stamp you wrote before it, and a host back from a drop re-sends
+it as it stands then. Write a copy of a live world (`structuredClone`), or
+build fresh objects each time.
+
 ## Events
 
 Fire-and-forget messages. Handled by the `onEvent` callback in the room config.

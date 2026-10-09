@@ -60,7 +60,9 @@ Shared state:
 - Writes batch per task: every `updateSharedState` call in one task leaves as
   one `state_patch`, every `updateMyState` call as one `player_state_patch`, on
   a microtask. An event, claim or input sent at once flushes pending writes
-  first, and state writes and coalesced events never overtake each other.
+  first, and state writes and coalesced events never overtake each other. A
+  write is read when its batch leaves, so an object the game goes on mutating
+  after writing it (a live world) leaves as it stands then: write a copy.
 
 Matchmaking:
 

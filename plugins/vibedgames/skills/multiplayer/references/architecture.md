@@ -125,8 +125,14 @@ on `offline` gives a connected solo host no bots and an offline player a
 
 Calls batch per frame: however many `updateMyState` / `updateSharedState` calls
 one task makes, each kind leaves as one message, so write state where the code
-changes it. What costs is the rate. Don't send state every frame. 20–30 Hz is plenty, on a clock that ignores the
-frame rate. `frame % 3` sends 48 times a second on a 144 Hz monitor. The other
+changes it. A write is read when the batch leaves, not at the call: never write
+an object your sim goes on mutating that frame (a live world, an encoder view
+over the sim's own objects). It would leave as it stands after the mutation,
+under the stamp written before it. Write `structuredClone(world)` or freshly
+built objects.
+
+What costs is the rate. Don't send state every frame. 20–30 Hz is plenty, on a
+clock that ignores the frame rate. `frame % 3` sends 48 times a second on a 144 Hz monitor. The other
 usual throttle, `acc += dt; if (acc >= 1 / 20) { acc = 0; send(); }`, throws away
 the remainder: at 60 fps it fires every 4th frame (~15 Hz) with uneven gaps, and
 receivers see the unevenness as stutter. `FixedRate` keeps the remainder:
