@@ -100,9 +100,11 @@ Netcode (`src/net/`):
   of 32 headings, at most 30 a second, plus attack, super and evade. A guest moves
   its own body by exactly what it sent, so both copies run the same input.
 - **The host publishes 30 snapshots a second** (`FixedRate`): one integer row per
-  brawler with trailing zeros dropped, about 0.5 KB for eight. The roster, loot
-  boxes, cubes and broken walls go out only when they change; bullets and bombs
-  travel as spawn rows in the fx batch and every client flies them itself.
+  brawler with trailing zeros dropped, about 0.5 KB for eight, of which only the
+  leaves that changed travel (under 0.3 KB a tick in a busy brawl). The roster,
+  loot boxes, cubes and broken walls ride the same write and so cost nothing
+  until they change; bullets and bombs travel as spawn rows in the fx batch and
+  every client flies them itself.
 - **A guest predicts its own body** with the host's movement code, from the frame
   a key goes down, and draws its own shots, swings, rolls and leaps at once. Each
   row carries the newest intent the host applied to that body and for how long, so

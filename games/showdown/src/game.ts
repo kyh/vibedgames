@@ -715,7 +715,7 @@ export class Game {
       this.startMatch(this.onlineKit);
     }
     this.netRate.reset();
-    this.broadcast(true);
+    this.broadcast();
   }
 
   private becomeGuest(): void {
@@ -1028,12 +1028,11 @@ export class Game {
   }
 
   /**
-   * Publish one tick: the frame always, the slower keys when they changed (or
-   * `everything`). Frames are stamped with the room's server time, measured
-   * within a round trip of joining; a first host publishes nothing until then,
-   * and its first publish carries every key anyway.
+   * Publish one tick: the frame and the slower keys, which leave only when they
+   * change. Frames are stamped with the room's server time, measured within a
+   * round trip of joining; a first host publishes nothing until then.
    */
-  private broadcast(everything = false): void {
+  private broadcast(): void {
     const { session } = this;
     const now = session?.serverTime() ?? null;
     if (!session || now === null) {
@@ -1056,7 +1055,7 @@ export class Game {
     );
     const boxes = encodeBoxes(world.boxSpots, this.combat.boxes);
     const cubes = encodeCubes(this.combat.cubes);
-    session.publish({ boxes, broken: world.broken, cubes, frame, match }, this.netFx, everything);
+    session.publish({ boxes, broken: world.broken, cubes, frame, match }, this.netFx);
     this.netFx = [];
   }
 

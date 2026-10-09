@@ -7,12 +7,13 @@
 // with 1001, which the server takes as a leave.
 //
 // Intents go to the host alone (`join` excepted: every client keeps the picks a
-// future host will need). The host publishes a frame every tick, stamped with
-// the room's server time, and the slower keys only when they change. A guest
-// collects each frame the moment its message lands, with that arrival time and
-// the host it came from: interpolation needs to know when every frame arrived,
-// and reading the merged state once per render frame would lose frames that
-// land together.
+// future host will need). The host writes its world every tick, the frame
+// stamped with the room's server time; the client sends only the leaves that
+// changed, so the slower keys cost nothing until they change. A guest collects
+// each frame the moment its message lands, with that arrival time and the host
+// it came from: interpolation needs to know when every frame arrived, and
+// reading the merged state once per render frame would lose frames that land
+// together.
 import { MultiplayerClient } from "@vibedgames/multiplayer";
 import type { MultiplayerConnectionStatus, PlayerMap } from "@vibedgames/multiplayer";
 import type { JsonObject, JsonValue } from "../json";
@@ -89,7 +90,7 @@ export interface Publication {
 export interface NetStats {
   /** Frames sent (host) or received (guest) per second. */
   snapshotHz: number;
-  /** Mean size of one frame on the wire (JSON bytes). */
+  /** Mean size of one whole frame (JSON bytes): the most a tick's frame costs, as only changed leaves travel. */
   snapshotBytes: number;
   /** Intents sent per second. */
   intentsHz: number;
@@ -106,15 +107,11 @@ const JOIN_RESEND_MS = 3000;
 const MAX_QUEUED_INTENTS = 512;
 /** Arrivals waiting for a frame beyond this are folded together (a backgrounded tab). */
 const MAX_ARRIVALS = 64;
-/** Keys besides the frame, published only when they change. */
-const SLOW_KEYS = ["m", "bx", "cu", "br"] as const;
-
-type SlowKey = (typeof SLOW_KEYS)[number];
 
 const sharedCounter = (value: JsonValue | undefined): number =>
   isJsonNumber(value) && Number.isSafeInteger(value) && value >= 0 ? value : 0;
 
-/** The shared-state values a guest last folded in, compared by identity: every patch replaces its keys. */
+/** The shared-state values a guest last folded in, compared by identity: a patch copies only what it changed. */
 interface Seen {
   f: JsonValue | undefined;
   m: JsonValue | undefined;
@@ -153,7 +150,6 @@ export class Session {
     fs: null,
     m: undefined,
   };
-  private readonly published = new Map<SlowKey, string>();
   private lastJoinAt = Number.NEGATIVE_INFINITY;
   private fxSeqOut = 0;
   private readonly frames = new Meter();
@@ -316,27 +312,23 @@ export class Session {
     return arrivals;
   }
 
-  /** Host side: publish this tick's frame, the slow keys that changed, and the fx since the last tick. */
-  publish(world: Publication, fx: FxRecord[], everything = false): void {
+  /**
+   * Host side: publish this tick's world and the fx since the last tick. The
+   * client diffs it against the room's copy, so only what changed goes out.
+   */
+  publish(world: Publication, fx: FxRecord[]): void {
     // Out of the room the client keeps writes local and on `sync` re-sends whatever the server
     // holds differently, which would replay the drop's last fx batch on every guest. Publish in the room.
     if (this.playerId === null) {
       return;
     }
-    const patch: JsonObject = { f: world.frame };
-    const slow: Record<SlowKey, JsonValue> = {
+    const patch: JsonObject = {
       br: world.broken,
       bx: world.boxes,
       cu: world.cubes,
+      f: world.frame,
       m: world.match,
     };
-    for (const key of SLOW_KEYS) {
-      const encoded = JSON.stringify(slow[key]);
-      if (everything || this.published.get(key) !== encoded) {
-        this.published.set(key, encoded);
-        patch[key] = slow[key];
-      }
-    }
     if (fx.length > 0) {
       this.fxSeqOut = Math.max(this.fxSeqOut, sharedCounter(this.client.sharedState["fs"])) + 1;
       patch["fx"] = fx;

@@ -45,7 +45,7 @@ export interface DiagnosticsSource {
 export interface NetDiagnostics {
   /** Snapshots sent (host) or received (guest) per second. */
   snapshotHz: number;
-  /** Mean size of one snapshot frame on the wire, bytes. */
+  /** Mean size of one whole snapshot frame, bytes: the most a tick's frame costs, as only changed leaves travel. */
   snapshotBytes: number;
   /** Intents this client sent per second. */
   intentsHz: number;
