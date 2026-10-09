@@ -270,6 +270,8 @@ export const TRAFFIC = {
 // (v2: poses stamped with the server clock).
 export const MP_ROOM = "crazy-waymo-v2";
 export const MP_MAX_PLAYERS = 64;
+/** Play solo when no room admits us within this long of rendered frames,
+ *  counted from joining — when the city turns playable (net/session.ts). */
 export const OFFLINE_FALLBACK_MS = 8000;
 /** Car-transform broadcast rate. Remote cars are drawn 100 ms behind their
  *  owner's fastest relay through the server (net/remote-cars.ts), which covers

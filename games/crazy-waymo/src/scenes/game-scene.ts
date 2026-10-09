@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { createTouchControls, notifyGameStarted, watchControlContext } from "@repo/embed";
 import { isPlaytestRequested } from "@vibedgames/playtest";
 import { FixedRate } from "@vibedgames/multiplayer";
-import type { PlayerMap } from "@vibedgames/multiplayer";
+import type { MultiplayerClient, PlayerMap } from "@vibedgames/multiplayer";
 
 import { ModelCache } from "../assets/loader";
 import { bannerControls } from "../controls";
@@ -38,8 +38,8 @@ import type { ParkedCars } from "../game/parked-cars";
 import { Traffic } from "../game/traffic";
 import type { TrafficCar } from "../game/traffic-car";
 import { InputState } from "../input/keyboard";
-import { NetSession } from "../net/session";
-import type { RemoteCars } from "../net/remote-cars";
+import { connectRoom, showRoomStatus } from "../net/session";
+import { RemoteCars } from "../net/remote-cars";
 import type { PhysicsWorld } from "../physics/physics-world";
 import type { PlaytestView } from "../playtest/navigator";
 import { installAerialFog } from "../render/aerial-fog";
@@ -57,12 +57,9 @@ import {
   CAMERA,
   CAR,
   FARE,
-  MP_INTEREST,
-  MP_MAX_PLAYERS,
   MP_ROOM,
   MPH_FACTOR,
   NET_TICK_HZ,
-  OFFLINE_FALLBACK_MS,
   WORLD_H,
   WORLD_HALF_X,
   WORLD_HALF_Z,
@@ -394,11 +391,11 @@ export class GameScene {
   private sfx = new Sfx();
   private state = new GameState();
 
-  // Multiplayer: free-roam presence over the shared (fixed-seed) city. Connects
-  // as soon as the scene exists; falls back to solo if the party server is
-  // unreachable. Only the local car transform is broadcast — no shared scoring.
-  // Assigned in the constructor (trailer boots force it offline).
-  private net: NetSession;
+  // Multiplayer: free-roam presence over the shared (fixed-seed) city. Joined
+  // once the city is playable (joinRoom) and played solo when no room admits
+  // us in time. Only the local car transform is broadcast — no shared scoring.
+  // Null until then, like the remote cars that render the room.
+  private net: MultiplayerClient | null = null;
   private remoteCars: RemoteCars | null = null;
   private bubbles = new SpeechBubbles();
   private heckleCooldown = 0;
@@ -617,18 +614,6 @@ export class GameScene {
   constructor(aspect: number, trailerMode = false) {
     this.trailerMode = trailerMode;
     this.rig = new ChaseCamera(aspect);
-    const localTrailerPeers =
-      import.meta.env.DEV &&
-      trailerMode &&
-      new URLSearchParams(window.location.search).has("trailer-online");
-    this.net = new NetSession({
-      fallbackMs: OFFLINE_FALLBACK_MS,
-      // A playtest stages its own run; that must never reach a live room.
-      forceOffline: (this.trailerMode && !localTrailerPeers) || isPlaytestRequested(),
-      interest: MP_INTEREST,
-      maxPlayers: MP_MAX_PLAYERS,
-      room: localTrailerPeers ? "crazy-waymo-trailer-local" : MP_ROOM,
-    });
 
     // Plugging in / unplugging a pad changes which control hints apply — the
     // title banner is the only live instruction surface, so redraw it.
@@ -678,6 +663,8 @@ export class GameScene {
     // a child of it.
     this.scene.add(this.landmarkSilhouettes.object);
     this.scene.add(this.vehicleLights.group);
+    // Chat (this driver's and the room's) and NPC heckles.
+    this.scene.add(this.bubbles.group);
 
     // Draw-distance fog: the map is far larger than the view, so haze the
     // horizon well inside the camera far plane (2000). Doubles as the visual cue
@@ -1202,7 +1189,6 @@ vec3 ocGerstner(vec2 p, float t) {
       },
       hideLoading: () => this.hud.hideLoading(),
       lampGlowBudget: this.mobileUi ? LAMP_GLOW_BUDGET : null,
-      netClock: this.net.serverClock,
       onAmbient: (ambient, city) => {
         this.ambient = ambient;
         this.attachNightAndLife(city);
@@ -1226,15 +1212,10 @@ vec3 ocGerstner(vec2 p, float t) {
         this.physics = physics;
       },
       onPlayable: () => this.markLoadDone(),
-      onRemoteCars: (remoteCars) => {
-        this.remoteCars = remoteCars;
-        this.scene.add(this.bubbles.group);
-      },
       onTraffic: (traffic) => {
         this.traffic = traffic;
         this.rebuildSignalLights();
       },
-      remoteSay: (anchor, text) => this.bubbles.say(anchor, text, { lift: 3 }),
       scene: this.scene,
       sceneFog: this.sceneFog,
       setLoading: (progress, label) => {
@@ -1336,10 +1317,38 @@ vec3 ocGerstner(vec2 p, float t) {
 
   private markLoadDone(): void {
     this.loadDone = true;
+    this.joinRoom();
     if (this.pendingStart) {
       this.pendingStart = false;
       this.start();
     }
+  }
+
+  /**
+   * Join the room and draw its taxis — once, when the city turns playable
+   * (connectRoom says why not at boot). Trailer captures stay offline except
+   * an explicit local DEV presence take; a playtest stages its own run, which
+   * must never reach a live room.
+   */
+  private joinRoom(): void {
+    const { city } = this;
+    if (this.net || !city) {
+      return;
+    }
+    const localTrailerPeers =
+      import.meta.env.DEV &&
+      this.trailerMode &&
+      new URLSearchParams(window.location.search).has("trailer-online");
+    const net = connectRoom({
+      offline: (this.trailerMode && !localTrailerPeers) || isPlaytestRequested(),
+      room: localTrailerPeers ? "crazy-waymo-trailer-local" : MP_ROOM,
+    });
+    const remoteCars = new RemoteCars(this.cache, city, net.serverClock, (anchor, text) => {
+      this.bubbles.say(anchor, text, { lift: 3 });
+    });
+    this.scene.add(remoteCars.group);
+    this.net = net;
+    this.remoteCars = remoteCars;
   }
 
   resize(aspect: number, scalePx: number): void {
@@ -1987,8 +1996,9 @@ vec3 ocGerstner(vec2 p, float t) {
       heading: car.heading,
       nearestTraffic,
       network: {
-        players: Object.keys(this.net.players).length,
-        status: this.net.connectionStatus,
+        players: this.net ? Object.keys(this.net.players).length : 0,
+        // The room is joined once the city is playable (joinRoom).
+        status: this.net?.connectionStatus ?? "loading",
         visible: this.remoteCars?.count() ?? 0,
       },
       objective: obj ? { u: obj.pos.x / WORLD_W + 0.5, v: obj.pos.z / WORLD_H + 0.5 } : null,
@@ -2002,10 +2012,10 @@ vec3 ocGerstner(vec2 p, float t) {
   }
 
   /** While paused the frame pacer stops advancing the game (main.ts), but the
-   *  room still sees this taxi: the session keeps ticking and the pose keeps
-   *  going out flagged as paused, so peers neither freeze it nor drop it. */
+   *  room still sees this taxi: the pose keeps going out flagged as paused, so
+   *  peers neither freeze it nor drop it. */
   updatePaused(): void {
-    if (this.paused && this.mode.kind !== "loading") {
+    if (this.paused) {
       this.updateNet();
     }
   }
@@ -2074,12 +2084,7 @@ vec3 ocGerstner(vec2 p, float t) {
     // in gameplay and freecam alike) so distant tiles stop drawing.
     this.city?.updateStreaming(this.rig.camera, this.editorLighting);
 
-    // Don't start the net session (or its offline-fallback grace clock) until
-    // the scene has loaded — asset + physics load can otherwise outlast the
-    // grace window and drop us to solo before the socket ever connects.
-    if (this.mode.kind !== "loading") {
-      this.updateNet();
-    }
+    this.updateNet();
   }
 
   private pollInput(): void {
@@ -2143,18 +2148,14 @@ vec3 ocGerstner(vec2 p, float t) {
   }
 
   /** Broadcast the local taxi and render the other players' taxis. Runs in
-   *  every mode so you see the city populated even on the title screen. */
+   *  every mode once the room is joined (joinRoom, when the city turns
+   *  playable), so you see the city populated even on the title screen. */
   private updateNet(): void {
-    const { car } = this;
+    const { car, net } = this;
     const remote = this.remoteCars;
-    // Don't tick the net before assets are in: the offline-fallback grace
-    // window starts on the first tick, and this game's GLB + wasm load can
-    // eat the whole window on a slow link — wrongly dropping us to solo
-    // while the socket never got a chance.
-    if (!car || !remote) {
+    if (!car || !net || !remote) {
       return;
     }
-    this.net.tick();
     // Wall time, not the clamped sim dt: below 30 fps that dt runs slow, and
     // neither the send cadence nor the arrival times peers are drawn by may.
     const now = performance.now();
@@ -2168,17 +2169,18 @@ vec3 ocGerstner(vec2 p, float t) {
     // changed keys), and the stamp is how peers know the taxi is still here.
     // It is the room's server clock, which every peer shares, so it says when
     // the pose was true to all of them alike. Nothing goes out until that clock
-    // is measured, a round trip after joining (offline, never): a stamp off the
-    // local clock would read as decades stale.
+    // is measured, a round trip after joining: a stamp off the local clock
+    // would read as decades stale. (Offline the room is this client alone, and
+    // its clock is the local one — the pose is kept locally, never sent.)
     const driving = this.mode.kind === "countdown" || this.mode.kind === "playing";
-    if (this.netRate.due(elapsed) && driving && this.net.clockSynced) {
-      this.net.updateMyState({
+    if (this.netRate.due(elapsed) && driving && net.serverClock.synced) {
+      net.updateMyState({
         h: roundNet(car.heading),
         msg: this.chatText,
         msgAt: this.chatAt,
         p: this.paused ? 1 : 0,
         skin: this.skinId,
-        t: Math.round(this.net.serverNow()),
+        t: Math.round(net.serverNow()),
         vx: this.paused ? 0 : roundVel(car.velX),
         vz: this.paused ? 0 : roundVel(car.velZ),
         x: roundNet(car.position.x),
@@ -2190,16 +2192,14 @@ vec3 ocGerstner(vec2 p, float t) {
     // TRAILER: the director can substitute a fake player map (staged remote
     // robotaxis); null in every normal boot.
     const staged = this.trailerFakes !== null;
-    remote.sync(this.trailerFakes ?? this.net.players, this.net.playerId, { now, staged });
+    remote.sync(this.trailerFakes ?? net.players, net.playerId, { now, staged });
     // Nothing draws under the pause overlay; placing taxis can wait for resume.
     if (!this.paused) {
       remote.update(car.position, now);
     }
 
     if (this.netInfoEl) {
-      const others = Math.max(0, Object.keys(this.net.players).length - 1);
-      this.netInfoEl.textContent =
-        !this.net.live || this.net.offline || others === 0 ? "" : `${others} ONLINE`;
+      showRoomStatus(this.netInfoEl, net);
     }
   }
 

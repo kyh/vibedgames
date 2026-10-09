@@ -1095,6 +1095,18 @@
       #netinfo:empty {
         display: none;
       }
+      /* Connecting, or this client's own drop: the label breathes until a
+         room admits it (net/session.ts showRoomStatus). */
+      @media (prefers-reduced-motion: no-preference) {
+        #netinfo.wait {
+          animation: netwait 1.1s ease-in-out infinite alternate;
+        }
+      }
+      @keyframes netwait {
+        to {
+          opacity: 0.3;
+        }
+      }
       /* Below the shared pause button; must follow the base rule to win. */
       @media (pointer: coarse) {
         #netinfo {

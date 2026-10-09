@@ -1,5 +1,4 @@
 import type * as THREE from "three";
-import type { SenderClock } from "@vibedgames/multiplayer";
 
 import type { ModelCache } from "../assets/loader";
 import { earlyModelUrls, lateModelUrls } from "../assets/manifest";
@@ -14,7 +13,6 @@ import { DriftTrails } from "../fx/trails";
 import { FareManager } from "../game/fares";
 import { ParkedCars } from "../game/parked-cars";
 import { Traffic } from "../game/traffic";
-import { RemoteCars } from "../net/remote-cars";
 import { PhysicsWorld } from "../physics/physics-world";
 import { Rng } from "../shared/rng";
 import { Car, skinById, skinModelUrl } from "../vehicle/car";
@@ -98,15 +96,11 @@ interface WorldLoaderDeps {
   readonly computeSpawn: (city: CityModel) => WorldSpawn;
   readonly snapToCar: (car: Car) => void;
   readonly setupGarages: (city: CityModel) => void;
-  readonly remoteSay: (anchor: THREE.Object3D, text: string) => void;
-  /** The room's server clock, which remote taxis are stamped and drawn by. */
-  readonly netClock: SenderClock;
   readonly getRenderer: () => THREE.WebGLRenderer | null;
   readonly getCamera: () => THREE.Camera;
   /** Mobile sun: warm its shadowless floor tier too. Null keeps one pass. */
   readonly shadowlessWarmup: THREE.DirectionalLight | null;
   readonly onCoreSystems: (systems: WorldCoreSystems) => void;
-  readonly onRemoteCars: (remoteCars: RemoteCars) => void;
   readonly onPhysics: (physics: PhysicsWorld) => void;
   readonly onTraffic: (traffic: Traffic) => void;
   readonly onParked: (parked: ParkedCars) => void;
@@ -421,13 +415,8 @@ const finishLoad = async (
       t = now;
     };
   })();
-  const remoteCars = new RemoteCars(deps.cache, city, deps.netClock, (anchor, text) => {
-    deps.remoteSay(anchor, text);
-  });
-  deps.scene.add(remoteCars.group);
-  deps.onRemoteCars(remoteCars);
   deps.setupGarages(city);
-  lap("remoteCars");
+  lap("garages");
   await paint();
 
   const physics = await PhysicsWorld.create();
