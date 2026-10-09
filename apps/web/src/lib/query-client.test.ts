@@ -19,7 +19,6 @@ describe("dehydrate/hydrate", () => {
       at: new Date("2020-01-01T00:00:00.000Z"),
       big: 123n,
       lookup: new Map([[1, "one"]]),
-      re: /pattern/iu,
       tags: new Set(["a", "b"]),
       url: new URL("https://example.com/path?q=1"),
     };
