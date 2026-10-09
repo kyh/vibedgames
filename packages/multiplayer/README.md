@@ -116,21 +116,21 @@ of the last five seconds). The `Interpolator` renders at the larger of that and
 `delayMs`, and the buffer grows on a jittery route, or on a device busy enough
 to read its messages a frame late, instead of running dry. Changes slew, the
 first measurement included, so playback slows or speeds a little rather than
-jumping. Draw anything else from
-that sender (its shots, its effects) at `interp.renderTime()`, so it stays on
-the same timeline, and keep their stamps out of the clock: it sizes the buffer
-from the gaps between the stamps it sees, so a shot stamped between two poses
-reads as one more pose and shrinks it. Entities from one sender (a host's world snapshot) share one
-clock: `new Interpolator({ clock: hostClock, lerp })`, and
-`hostClock.relearn()` when the host changes: the new host's route differs, while
-its stamps carry straight on, so the clock eases onto the new route instead of
-jumping. Relearn every clock you keep when your own connection comes back
-(`connectionStatus` from `reconnecting` to `connected`) too: every sender's
-route to you is new, and a clock timed by the old, quicker one runs remotes past
-their newest update until its window forgets it, about 2 s of freeze on a route
-400 ms slower.
-Stamps in server time stay continuous across reloads and host changes and mean
-the same instant to every client.
+jumping. Draw anything else from that sender (its shots, its effects) at
+`interp.renderTime()`, so it stays on the same timeline, and keep their stamps
+out of the clock: it sizes the buffer from the gaps between the stamps it sees,
+so a shot stamped between two poses reads as one more pose and shrinks it.
+Entities from one sender (a host's world snapshot) share one clock:
+`new Interpolator({ clock: hostClock, lerp })`, and `hostClock.relearn()` when
+the host changes: the new host's route differs, while its stamps carry straight
+on, so the clock eases onto the new route instead of jumping (a route over
+250 ms slower or faster is taken at once: easing onto one much slower would
+freeze remotes for seconds). Relearn every clock you keep when your own connection
+comes back (`connectionStatus` from `reconnecting` to `connected`) too: every
+sender's route to you is new, and a clock timed by the old, quicker one runs
+remotes past their newest update until its window forgets it, about 2 s of
+freeze on a route 400 ms slower. Stamps in server time stay continuous across
+reloads and host changes and mean the same instant to every client.
 
 Don't render on `client.serverClock` directly: a stamp reaches you a whole relay
 (sender → server → you, often 100–200 ms) after it was taken, so ~100 ms behind

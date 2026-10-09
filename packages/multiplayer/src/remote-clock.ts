@@ -5,7 +5,7 @@
 
 const now = (): number => performance.now();
 
-/** A new estimate this far from the applied one is a different clock (host migration, sender reload), adopted at once. */
+/** A new estimate this far from the applied one is adopted at once rather than eased onto: a sender's restarted clock, or a route much slower or faster (see `relearn`). */
 const RESYNC_MS = 250;
 /** Smaller revisions bend playback speed by at most this fraction instead of jumping. */
 const SLEW = 0.1;
@@ -223,9 +223,12 @@ export class RemoteClock implements SenderClock {
   /**
    * The updates now take a different route on the same timebase — a new host
    * relaying server-time stamps, a reconnect: forget the old route's arrivals
-   * and measure afresh. The applied offset stays and eases onto the new one,
-   * so nothing rendered jumps, and a slower route takes over at once instead
-   * of after the window.
+   * and measure afresh, so the new route takes over from its first arrival
+   * instead of after the window. The applied offset stays and eases onto the
+   * new one, so a change of up to RESYNC_MS never jumps what is rendered. A
+   * bigger one is taken at once: easing onto a route that much slower would
+   * draw remotes past their newest update for seconds, where taking it moves
+   * them back at most the delay, as they stood at their newest update anyway.
    */
   relearn(): void {
     this.buckets.length = 0;
