@@ -6,7 +6,7 @@
 // a timeline breaks; nothing else about the match depends on who hosts, so a
 // host migration changes nothing and the match plays on.
 
-import type { JsonValue, TickInfo } from "@vibedgames/multiplayer";
+import type { JsonValue, MultiplayerConnectionStatus, TickInfo } from "@vibedgames/multiplayer";
 
 import { MP_MAX_PLAYERS, OFFLINE_FALLBACK_MS, TICK_RATE } from "../shared/constants";
 import type { SlotInput } from "../shared/input";
@@ -51,6 +51,8 @@ export class MatchControl {
   private resyncAsked = -1;
   /** Host: a seated player asked for a re-base of this record id. */
   private rebaseWanted = -1;
+  /** The connection's status last frame, to notice this client back from a drop. */
+  private lastStatus: MultiplayerConnectionStatus;
 
   constructor(room: string, held: SlotInput) {
     this.net = new NetSession({
@@ -63,6 +65,7 @@ export class MatchControl {
     });
     this.scopeName = this.nextSoloScope();
     this.current = new LocalDriver(soloOpening(0, held), 0);
+    this.lastStatus = this.net.connectionStatus;
   }
 
   get driver(): Driver {
@@ -100,6 +103,11 @@ export class MatchControl {
     this.hostDuties();
     this.syncMatch();
     const { current } = this;
+    const status = this.net.connectionStatus;
+    if (current.kind === "tick" && status === "connected" && this.lastStatus === "reconnecting") {
+      current.relearn();
+    }
+    this.lastStatus = status;
     const horizon =
       current.kind === "tick" ? current.frame(input) : current.frame(input, dtMs, running);
     this.shownTick = Math.floor(horizon);

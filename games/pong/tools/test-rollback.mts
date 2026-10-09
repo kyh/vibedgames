@@ -222,6 +222,8 @@ const createClient = (clock: Clock, server: Server, roll: () => number, opts: Cl
   let driver: TickDriver | null = null;
   /** Checksum of the confirmed state after each tick this client confirmed. */
   const confirmed = new Map<number, number>();
+  /** The rival's paddle as each frame drew it, with the tick it stood at. */
+  const rivalDrawn: { at: number; newest: number; x: number }[] = [];
   let connected = true;
 
   const record = (): void => {
@@ -247,7 +249,7 @@ const createClient = (clock: Clock, server: Server, roll: () => number, opts: Cl
     if (Object.keys(changes).length > 0) {
       log.push([tick, changes]);
     }
-    driver?.onTick(tick, Object.fromEntries(held));
+    driver?.onTick(tick, Object.fromEntries(held), clock.now());
     record();
   };
 
@@ -274,6 +276,8 @@ const createClient = (clock: Clock, server: Server, roll: () => number, opts: Cl
         for (let tick = n + 1; tick <= message.n; tick += 1) {
           applyTick(tick, missed.get(tick) ?? {});
         }
+        // As MatchControl, back from a drop.
+        driver?.relearn();
       }
       if (heldInput !== null) {
         uplink.send({ from: opts.id, input: heldInput, kind: "input", n: undefined });
@@ -334,6 +338,11 @@ const createClient = (clock: Clock, server: Server, roll: () => number, opts: Cl
         if (driver !== null) {
           const view = driver.engine.stateAt(Math.floor(horizon)) ?? driver.engine.confirmed;
           horizon = driver.frame(pilot(view, clock.now()));
+          const x = driver.rival.sample(clock.now());
+          if (x !== undefined) {
+            const at = driver.rivalTick(clock.now());
+            rivalDrawn.push({ at, newest: driver.engine.confirmedTick, x });
+          }
         }
         clock.at(clock.now() + 1000 / opts.fps + (roll() - 0.5) * 2, frame);
       };
@@ -351,6 +360,7 @@ const createClient = (clock: Clock, server: Server, roll: () => number, opts: Cl
         queued = [];
       });
     },
+    rivalDrawn,
     seat: (match: MatchRecord, slot: Slot): void => {
       driver = new TickDriver(room, match, slot);
       record();
@@ -423,16 +433,19 @@ const reference = (server: Server, last: number) => {
   const sums = new Map<number, number>();
   const events: SimEvent[] = [];
   const absentB: number[] = [];
+  /** Slot A's and slot B's paddle x after each tick. */
+  const paddles = new Map<number, [number, number]>();
   for (let tick = MATCH.start; tick <= last; tick += 1) {
     const held = server.stream.get(tick) ?? new Map<string, JsonValue>();
     stepSim(state, readInput(held.get(MATCH.a)), readInput(held.get(MATCH.b)));
     sums.set(tick, simChecksum(state));
     events.push(...state.events);
+    paddles.set(tick, [state.a.x, state.b.x]);
     if (!state.b.human) {
       absentB.push(tick);
     }
   }
-  return { absentB, events, sums };
+  return { absentB, events, paddles, sums };
 };
 
 type Client = ReturnType<typeof createClient>;
@@ -526,6 +539,39 @@ test("the rival's paddle was mispredicted throughout, and rollback repaired ever
     assert.ok(stats.mispredicted > 500, `mispredicted ${stats.mispredicted}`);
     assert.ok(stats.resimulated > 2000, `resimulated ${stats.resimulated}`);
     assert.ok(stats.deepest >= 6, `deepest ${stats.deepest}`);
+  }
+});
+
+test("the rival's paddle is drawn from confirmed ticks, where the lockstep result has it", (t) => {
+  const { paddles } = reference(run.server, run.last);
+  for (const [client, rival] of [
+    [run.a, 1],
+    [run.b, 0],
+  ] as const) {
+    let exact = 0;
+    /** How far behind the newest confirmed tick each frame drew (ticks). */
+    const behind: number[] = [];
+    for (const { at, newest, x } of client.rivalDrawn) {
+      const tick = Math.floor(at);
+      const now = paddles.get(tick)?.[rival];
+      const before = paddles.get(tick - 1)?.[rival];
+      if (now === undefined || before === undefined) {
+        continue;
+      }
+      // The scene's convention: fractional tick t blends the states after t − 1 and t.
+      if (Math.abs(x - (before + (now - before) * (at - tick))) < 1e-9) {
+        exact += 1;
+      }
+      behind.push(newest + 1 - at);
+    }
+    behind.sort((p, q) => p - q);
+    const medianMs = (behind[Math.floor(behind.length / 2)] ?? 0) * TICK_MS;
+    t.diagnostic(
+      `${exact} of ${behind.length} frames exact, drawn ${Math.round(medianMs)} ms behind the newest tick (median)`,
+    );
+    // Exact but for the frames past a late tick (or B's drop), which extrapolate.
+    assert.ok(exact > behind.length * 0.9, `${exact} of ${behind.length} exact`);
+    assert.ok(medianMs > 0 && medianMs < 100, `median ${medianMs} ms behind`);
   }
 });
 

@@ -298,14 +298,14 @@ export class GameScene {
   private readonly fired = new Map<string, number>();
   private firedScope = "";
   private scanFrom = 0;
-  // The ball and the rival's paddle as the timeline has them, and as drawn:
-  // a rollback moves the timeline at once, the ease takes the jump out of
-  // the picture instead.
+  // The ball as the timeline has it, and as drawn: a rollback moves the
+  // timeline at once, the ease takes the jump out of the picture instead.
   private readonly simBall = new THREE.Vector2();
   private readonly ballEase = new THREE.Vector2();
   private readonly drawnBall = new THREE.Vector2();
-  private simRival = 0;
-  private rivalEase = 0;
+  /** The rival's paddle as drawn: in a tick match from confirmed ticks only
+   *  (TickDriver.rival), so never a guess the next tick takes back. */
+  private rivalX = 0;
   /** Balls this client's paddle has returned, for the playtest's score. */
   private returns = 0;
   private powerShots = 0;
@@ -804,9 +804,10 @@ export class GameScene {
 
   /**
    * Bring the picture to fractional tick `horizon`. When a rollback rewrote
-   * the ticks drawn last frame, the ball and the rival's paddle keep their
-   * drawn place and the correction eases out over BALL_EASE_S instead of
-   * jumping — the timeline itself is never smoothed.
+   * the ticks drawn last frame, the ball keeps its drawn place and the
+   * correction eases out over BALL_EASE_S instead of jumping — the timeline
+   * itself is never smoothed. A tick match draws the rival's paddle through
+   * the driver's interpolator instead, from confirmed ticks alone.
    */
   private present(horizon: number, dt: number): void {
     const { driver } = this.control;
@@ -826,7 +827,6 @@ export class GameScene {
       // Another match entirely: nothing to ease.
       this.shownEngine = engine;
       this.ballEase.set(0, 0);
-      this.rivalEase = 0;
       this.scanFrom = engine.confirmedTick;
     }
     const at = clamp(horizon, engine.confirmedTick - SCAN_TICKS, engine.predictedTick + 0.999);
@@ -838,14 +838,12 @@ export class GameScene {
       y: this.shown.ball.y,
     };
     this.simBall.set(now.x, now.y);
-    this.simRival = now.rival;
-    const keep = Math.exp(-dt / BALL_EASE_S);
-    this.ballEase.multiplyScalar(keep);
-    this.rivalEase *= keep;
+    this.ballEase.multiplyScalar(Math.exp(-dt / BALL_EASE_S));
     this.drawnBall.set(now.x + this.ballEase.x, now.y + this.ballEase.y);
+    this.rivalX = (driver.kind === "tick" ? driver.rival.sample() : undefined) ?? now.rival;
   }
 
-  /** The timeline moved under the drawn picture: fold the jump into the eases. */
+  /** The timeline moved under the drawn ball: fold the jump into its ease. */
   private absorbCorrection(again: Sample): void {
     const dx = this.simBall.x - again.x;
     const dy = this.simBall.y - again.y;
@@ -855,13 +853,6 @@ export class GameScene {
     } else {
       this.ballEase.set(0, 0);
     }
-    const drx = this.simRival - again.rival;
-    this.rivalEase = Math.abs(drx) < BALL_SNAP ? this.rivalEase + drx : 0;
-  }
-
-  /** The rival's paddle as drawn. */
-  private get rivalX(): number {
-    return this.simRival + this.rivalEase;
   }
 
   /**
