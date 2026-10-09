@@ -3,11 +3,12 @@
 // (`client.serverNow()`). A stamp reaches us after the whole relay — sender to
 // server to us — which differs per rival, so each track keeps its own clock
 // (the Interpolator's private RemoteClock): it learns that rival's fastest
-// recent transit from arrivals, and the rival is drawn RIVAL_DELAY_MS behind
-// it, blending the two reports either side of that moment. Reports that arrive
-// bunched or late still play back as the sender's steady motion, on a slow
-// route as on a fast one. A respawn, or any jump further than the neighbouring
-// cell, snaps instead of gliding through walls.
+// recent transit from arrivals and how much later than that its reports land,
+// and the rival is drawn RIVAL_DELAY_MS behind it, or as far as that lateness
+// needs, blending the two reports either side of that moment. Reports that
+// arrive bunched or late still play back as the sender's steady motion, on a
+// slow route as on a fast one. A respawn, or any jump further than the
+// neighbouring cell, snaps instead of gliding through walls.
 
 import { Interpolator, lerp } from "@vibedgames/multiplayer";
 import type { Player } from "@vibedgames/multiplayer";

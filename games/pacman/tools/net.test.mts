@@ -263,7 +263,10 @@ const playWalk = (transit: (i: number) => number): Playback => {
   const playback: Playback = { lags: [], steps: [] };
   let next = 0;
   let prev: number | null = null;
-  const settled = landed(0) + 300;
+  // Judged from a second in: by then the track's clock has measured how late
+  // this stream's reports land (it takes that first measure whole, about a
+  // dozen reports in) and the buffer covers it.
+  const settled = landed(0) + 1000;
   const end = landed(79) - 300;
   for (let at = landed(0); at < end; at += FRAME_MS) {
     while (next < reports.length && landed(next) <= at) {
@@ -305,17 +308,29 @@ test("each rival's clock learns its own route: a slow one walks as steadily, onl
   // Two 125–175 ms trips: past any fixed delay a shared server clock could use for both.
   const slow = playWalk((i) => 250 + noise(i) * 100);
   assertSteady(slow.steps);
-  // Each is drawn its own fastest transit plus RIVAL_DELAY_MS behind the sender.
-  for (const [route, floor] of [
-    [fast, 50],
-    [slow, 250],
-  ] as const) {
-    for (const lag of route.lags) {
-      assert.ok(
-        Math.abs(lag - (floor + RIVAL_DELAY_MS)) < 1,
-        `lag ${lag} on the ${floor} ms route`,
-      );
-    }
+  // The same stream 200 ms slower is drawn exactly 200 ms later, frame for frame.
+  assert.equal(slow.lags.length, fast.lags.length);
+  for (const [i, lag] of slow.lags.entries()) {
+    const fastLag = fast.lags[i] ?? Number.NaN;
+    assert.ok(Math.abs(lag - fastLag - 200) < 1, `frame ${i}: ${lag} vs ${fastLag}`);
+  }
+});
+
+test("a calm route draws a rival RIVAL_DELAY_MS behind; a jittery one only as far as it needs", () => {
+  // Relays of 40–60 ms: the least delay covers them.
+  const calm = playWalk((i) => 40 + noise(i) * 20);
+  assertSteady(calm.steps);
+  for (const lag of calm.lags) {
+    // Past the fastest transit, plus the part of a frame that report waited to be read.
+    const behind = lag - 40 - RIVAL_DELAY_MS;
+    assert.ok(behind > -1 && behind < FRAME_MS + 1, `lag ${lag} on the calm route`);
+  }
+  // Relays wandering 50–150 ms: the delay grows to cover the wander (the walk
+  // above stays steady on them), and no further than one send interval plus
+  // it, plus that frame.
+  for (const lag of playWalk(relay).lags) {
+    const delay = lag - 50;
+    assert.ok(delay > RIVAL_DELAY_MS - 1 && delay < 50 + 100 + FRAME_MS + 1, `delay ${delay}`);
   }
 });
 
