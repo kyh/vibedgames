@@ -131,11 +131,9 @@ export class HostDirector {
   /** What guests already hold, so a share carries only what changed. */
   private readonly encoder = new WorldEncoder();
 
-  /** Standings relay cadence, and the board last relayed (an unchanged
-   *  board stays off the wire). */
+  /** Standings relay cadence. An unchanged board costs nothing: the SDK
+   *  sends only what differs from the room's copy. */
   private readonly standingsRate = new FixedRate(STANDINGS_RELAY_HZ);
-
-  private standingsSent = "";
 
   lastAsteroidSpawnAt = 0;
 
@@ -190,7 +188,6 @@ export class HostDirector {
     this.shareRate.reset();
     this.encoder.reset();
     this.standingsRate.reset();
-    this.standingsSent = "";
     this.wasHost = false;
     this.lastBreatherDespawnAt = 0;
     this.debuted = new Set();
@@ -319,11 +316,9 @@ export class HostDirector {
     this.hostMagnetItems(now);
   }
 
-  /** Next share sends the whole world (bounds and boss marker included),
-   *  and the next relay the whole board. */
+  /** Next share sends the whole world (bounds and boss marker included). */
   markWorldDirty(): void {
     this.encoder.reset();
-    this.standingsSent = "";
   }
 
   /** Every present player's sector score, for guests to rank the players
@@ -339,11 +334,7 @@ export class HostDirector {
         board.push(id, Math.round(st.sectorScore));
       }
     }
-    const sig = board.join(",");
-    if (sig !== this.standingsSent) {
-      this.standingsSent = sig;
-      this.link.patchShared({ [STANDINGS_KEY]: board });
-    }
+    this.link.patchShared({ [STANDINGS_KEY]: board });
   }
 
   /** Boss down: free the arena-wide slot and arm the spawn cooldown. */
