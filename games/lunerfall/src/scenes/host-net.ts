@@ -188,8 +188,13 @@ export class HostNet {
     }
     // A peer parked in the reconnect grace window is listed but not playing:
     // treated as present it would hold a seat and freeze a duel against a
-    // ghost until the server reaps it.
-    const live = (id: string | null): boolean => sess.players[id ?? ""]?.connected !== false;
+    // ghost until the server reaps it. One who left (a closed tab leaves at
+    // once) is not listed at all, and its seat is free too: a checkpoint
+    // seating a player it does not carry is refused by every reader.
+    const live = (id: string | null): boolean => {
+      const p = id === null ? undefined : sess.players[id];
+      return p !== undefined && p.connected !== false;
+    };
     const other = sess.otherPlayer();
     if (this.seat.seats.host && !live(this.seat.seats.host)) {
       this.seat.seats.host = null;
