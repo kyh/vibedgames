@@ -111,7 +111,9 @@ An `Interpolator` reads stamps through a `RemoteClock`, which learns from
 arrivals how long one sender's updates take to reach you — sender to server to
 you — so the delay only has to cover jitter. Entities from one sender (a host's
 world snapshot) share one: `new Interpolator({ clock: hostClock, lerp })`, and
-`hostClock.reset()` when the host changes, because the new host's route differs.
+`hostClock.relearn()` when the host changes: the new host's route differs, while
+its stamps carry straight on, so the clock eases onto the new route instead of
+jumping.
 Stamps in server time stay continuous across reloads and host changes and mean
 the same instant to every client.
 

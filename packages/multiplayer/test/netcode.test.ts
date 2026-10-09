@@ -72,6 +72,28 @@ test("RemoteClock estimates the offset from the fastest arrival and slews revisi
   assert.equal(clock.now(10_400), 5000);
 });
 
+test("RemoteClock relearns a new route by easing onto it, not riding the old one", () => {
+  // Server-time stamps reach us 10 s + the trip later on our clock. Host A's route: 40 ms.
+  const relearned = new RemoteClock();
+  const stale = new RemoteClock();
+  for (const clock of [relearned, stale]) {
+    clock.observe(0, 10_040);
+    clock.observe(50, 10_090);
+    assert.equal(clock.now(10_100), 60);
+  }
+  // Host B takes over the same timebase by a route 50 ms slower.
+  relearned.relearn();
+  for (const clock of [relearned, stale]) {
+    clock.observe(100, 10_190);
+  }
+  // Eased, not jumped: 100 ms on, 10 ms of the 50 has applied…
+  assert.equal(relearned.now(10_200), 150);
+  // …and by half a second it runs on B's route, while the stale clock still
+  // reads the old route's 40 ms and draws every frame from B 50 ms early.
+  assert.equal(relearned.now(10_700), 610);
+  assert.equal(stale.now(10_700), 660);
+});
+
 test("ServerClock reads the offset off the fastest probe and keeps it", () => {
   const clock = new ServerClock();
   assert.equal(clock.synced, false);

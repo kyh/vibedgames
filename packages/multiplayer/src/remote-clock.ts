@@ -49,8 +49,8 @@ export interface RemoteClockOptions {
  * jumping it.
  *
  * One clock per sender: share it across every entity that sender reports (a
- * host's world snapshot), and `reset()` it when the sender changes (a new
- * host has a different clock).
+ * host's world snapshot). Stamps in server time carry straight on through a
+ * host change, so `relearn()` the clock then; the new host's route differs.
  */
 export class RemoteClock implements SenderClock {
   private readonly windowMs: number;
@@ -111,7 +111,18 @@ export class RemoteClock implements SenderClock {
     return localNow - this.applied;
   }
 
-  /** Forget everything — call when the sender's clock changes (host migration). */
+  /**
+   * The updates now take a different route on the same timebase — a new host
+   * relaying server-time stamps, a reconnect: forget the old route's arrivals
+   * and measure afresh. The applied offset stays and eases onto the new one,
+   * so nothing rendered jumps, and a slower route takes over at once instead
+   * of after the window.
+   */
+  relearn(): void {
+    this.buckets.length = 0;
+  }
+
+  /** Forget everything — call when the sender's clock itself changes (a sender stamping its own clock reloaded). */
   reset(): void {
     this.buckets.length = 0;
     this.target = null;

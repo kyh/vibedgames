@@ -41,8 +41,10 @@ Netcode helpers:
   after a stall instead of bursting.
 - `Interpolator` (+ `RemoteClock`, `SenderClock`): snapshot interpolation for
   remote entities from stamped updates. Renders a fixed delay behind the clock,
-  with bounded extrapolation and idle-gap bridging. `RemoteClock` estimates one
-  sender's clock (sliding-window minimum, slewed) for stamps not in server time.
+  with bounded extrapolation and idle-gap bridging. `RemoteClock` learns how
+  late one sender's (or one host stream's) updates arrive — sliding-window
+  minimum, slewed — so the delay covers jitter, not the relay; `relearn()`
+  measures a new route (a host change) without jumping.
 - `Reconciler`: client-side prediction correction for a guest's own body. It
   compares the host's copy with the predicted trajectory at the matching time
   (from an acked input `seq` plus how long the host has applied it), or with the

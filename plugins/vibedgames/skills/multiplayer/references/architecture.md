@@ -264,8 +264,9 @@ const pose = interp.sample(); // undefined until the first update
   relay (sender → server → you, often 100–200 ms) after it was taken.
 - **Host snapshots.** The host stamps each snapshot with `client.serverNow()`
   too; the units in it share one `RemoteClock`
-  (`new Interpolator({ clock: hostClock, lerp })`). `reset()` it when `hostId`
-  changes: the new host's route differs, while its stamps carry straight on.
+  (`new Interpolator({ clock: hostClock, lerp })`). `relearn()` it when `hostId`
+  changes: the new host's route differs, while its stamps carry straight on, so
+  the clock eases onto the new route instead of jumping.
 - **Grid or step movers.** Stamp each step when it starts, like any other
   update. Never stamp a future arrival time: the clock reads every stamp as send
   time, so a shifted stamp skews every entity from that sender. Set `delayMs` to
