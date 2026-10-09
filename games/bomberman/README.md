@@ -28,7 +28,7 @@ pnpm --filter @repo/bomberman preview    # vite preview
 
 Sound starts muted (procedural WebAudio, no asset files); the preference persists in localStorage.
 
-Multiplayer: all players auto-join the shared `bomberman-v4` room (the suffix is bumped with every incompatible wire change, so tabs on an older bundle never share a match); offline it degrades to solo play.
+Multiplayer: all players auto-join the shared `bomberman-v4` room (the suffix is bumped with every incompatible wire change, so tabs on an older bundle never share a match); offline it degrades to solo play. A room seats four, one per corner (`MAX_PLAYERS`): the fifth player lands in `bomberman-v4~2`, a match of its own, and so on. A newcomer joins the round in progress, in the corner a bot held.
 
 ## Netcode
 

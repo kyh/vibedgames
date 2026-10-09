@@ -180,6 +180,14 @@ export const SPAWN_POINTS: readonly [Spawn, Spawn, Spawn, Spawn] = [
   { col: 1, row: GRID_ROWS - 2 },
 ];
 
+/**
+ * A room seats one player per corner. The next is sent on to a sibling room
+ * (`bomberman-v4~2`, …), a match of its own with bots in the empty corners,
+ * instead of spawning on the first player. Room rules come from the first
+ * client in, so every client ships this same cap.
+ */
+export const MAX_PLAYERS = SPAWN_POINTS.length;
+
 /** True for the 2x2 corner pockets kept crate-free so players can break out. */
 const isSafeCorner = (c: number, r: number): boolean =>
   (c <= 2 && r <= 2) ||
