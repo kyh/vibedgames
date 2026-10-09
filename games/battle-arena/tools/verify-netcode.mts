@@ -77,6 +77,8 @@ const match = (opts: MatchOptions = {}) => {
   const guestRoom = sharedCopy();
   let snapshots = 0;
   let snapshotBytes = 0;
+  // what the snapshots cost on the wire: the ops, the leaves that changed
+  let snapshotOpsBytes = 0;
   // every snapshot the host wrote, beside a copy taken as it wrote it: the
   // SDK reads a write when the task ends and keeps it as the room's state
   const written: { snap: Snapshot; copy: Snapshot }[] = [];
@@ -93,7 +95,9 @@ const match = (opts: MatchOptions = {}) => {
       snapshots += 1;
       snapshotBytes = JSON.stringify(snap).length;
       written.push({ copy: structuredClone(snap), snap });
-      toGuest.send(now, { kind: "state", ops: hostRoom.write({ snap, snapT: t }) });
+      const ops = hostRoom.write({ snap, snapT: t });
+      snapshotOpsBytes += JSON.stringify(ops).length;
+      toGuest.send(now, { kind: "state", ops });
     },
     sendFrame: (frame) => {
       frames.push(frame);
@@ -205,6 +209,9 @@ const match = (opts: MatchOptions = {}) => {
     run,
     get snapshotBytes() {
       return snapshotBytes;
+    },
+    get snapshotOpsBytes() {
+      return snapshotOpsBytes;
     },
     get snapshots() {
       return snapshots;
@@ -421,12 +428,15 @@ test("a host below 30 fps keeps real time; payload stays small", () => {
   const avg = sizes.reduce((sum, n) => sum + n, 0) / sizes.length;
   const p99 = sizes[Math.floor(sizes.length * 0.99)] ?? 0;
   const perSecond = m.toGuest.bytes / 30;
+  // ~1 Hz, as the leaves that changed since the one before
+  const snapOps = m.snapshotOpsBytes / m.snapshots;
   console.log(
-    `  payload: old snapshot ${oldBytes} B × 15 Hz; frame avg ${Math.round(avg)} B, p99 ${p99} B × 30 Hz; full snapshot ${m.snapshotBytes} B × 1 Hz; ${Math.round(perSecond / 1024)} KB/s per guest`,
+    `  payload: old snapshot ${oldBytes} B × 15 Hz; frame avg ${Math.round(avg)} B, p99 ${p99} B × 30 Hz; full snapshot ${m.snapshotBytes} B, its ops avg ${Math.round(snapOps)} B × 1 Hz; ${Math.round(perSecond / 1024)} KB/s per guest`,
   );
   assert.ok(avg < 1000, `frames average under 1 KB (${avg})`);
   assert.ok(p99 < 3000, `frames stay under 3 KB (p99 ${p99})`);
   assert.ok(m.snapshotBytes < oldBytes / 2, "the full snapshot is compact too");
+  assert.ok(snapOps < m.snapshotBytes / 3, `a snapshot's ops are a fraction of it (${snapOps})`);
   assert.ok(perSecond < (oldBytes * 15) / 20, "at least 20× less traffic than before");
   assert.ok(m.snapshots >= 29 && m.snapshots <= 32, `~1 Hz full snapshots (${m.snapshots})`);
 });
