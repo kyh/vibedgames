@@ -22,6 +22,10 @@ interface ConnectOptions {
   /** Offline by intent (?offline=1, a playtest, the trailer): never dial. */
   offline: boolean;
   onUpdate: () => void;
+  /** Back in the room after a drop (reconnecting → connected): every
+   *  sender's route to this client is new. Seen in the subscribe listener,
+   *  so a drop and its reconnect inside a hidden tab are not missed. */
+  onReadmitted?: () => void;
   room: string;
 }
 
@@ -75,7 +79,7 @@ export class Link {
    *  Until then a refused handshake (cold server, wifi blip) is only
    *  retried; once admitted, a drop reconnects and never falls back. */
   connect(options: ConnectOptions): void {
-    this.client = new MultiplayerClient({
+    const client = new MultiplayerClient({
       fallbackMs: OFFLINE_FALLBACK_MS,
       host: options.host,
       interest: { radius: INTEREST_RADIUS },
@@ -86,7 +90,16 @@ export class Link {
       party: "vg-server",
       room: options.room,
     });
-    this.client.subscribe(options.onUpdate);
+    this.client = client;
+    let status = client.connectionStatus;
+    client.subscribe(() => {
+      const was = status;
+      status = client.connectionStatus;
+      if (was === "reconnecting" && status === "connected") {
+        options.onReadmitted?.();
+      }
+      options.onUpdate();
+    });
   }
 
   /** Leave the room for a solo arena (refresh to go online again). */

@@ -291,6 +291,8 @@ export class GameScene extends Scene {
         isOfflineRequested() ||
         isPlaytestRequested() ||
         new URLSearchParams(location.search).has("trailer"),
+      // Back from my own drop: every peer reaches me by a new route.
+      onReadmitted: () => this.roster.relearn(),
       onUpdate: () => this.roster.ingest(performance.now()),
       room: ROOM,
     });

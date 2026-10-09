@@ -1,4 +1,4 @@
-import { Interpolator, lerp, lerpAngle } from "@vibedgames/multiplayer";
+import { Interpolator, RemoteClock, lerp, lerpAngle } from "@vibedgames/multiplayer";
 import { REMOTE_RENDER_DELAY_MS } from "../shared/constants";
 import type { PlayerNetState, Vec } from "../shared/constants";
 import type { Link } from "../state/link";
@@ -29,6 +29,8 @@ interface PeerEntry {
   /** The SDK state object this entry last parsed — a new one means a patch. */
   raw: WireRecord | undefined;
   net: PlayerNetState | null;
+  /** The clock this peer's stream is read through, held to relearn it. */
+  clock: RemoteClock;
   interp: Interpolator<Pose>;
   /** Alive and in the arena at the last parse: a respawn or re-entry is a
    *  teleport, so the interpolator restarts instead of gliding across it. */
@@ -42,13 +44,13 @@ interface PeerEntry {
  * every remote ship's pose interpolated at least ~100 ms behind the moment
  * its updates arrive (the Interpolator buffers the stamped updates and blends
  * the pair around that moment). Each sender's stream reads its server-time
- * stamps through its own clock — the Interpolator's RemoteClock — which
- * learns from arrivals how long that sender's updates take to get here
- * (sender → server → here), so the delay only has to cover jitter, and
- * measures that jitter, so the delay grows when the stream needs more; the
- * sender's shots play at the same render time (sys/remote-fire.ts). Fills
- * `link.peerStates` each frame with the pose folded in, so hit tests, homing,
- * the minimap and the hull all agree on where a ship is.
+ * stamps through its own RemoteClock, which learns from arrivals how long
+ * that sender's updates take to get here (sender → server → here), so the
+ * delay only has to cover jitter, and measures that jitter, so the delay
+ * grows when the stream needs more; the sender's shots play at the same
+ * render time (sys/remote-fire.ts). Fills `link.peerStates` each frame with
+ * the pose folded in, so hit tests, homing, the minimap and the hull all
+ * agree on where a ship is.
  */
 export class PeerRoster {
   private readonly entries = new Map<string, PeerEntry>();
@@ -139,10 +141,20 @@ export class PeerRoster {
    *  stamp. */
   renderTime(id: string, perfNow: number): number | null {
     const entry = this.entries.get(id);
-    if (!entry || !entry.interp.clock.synced) {
+    if (!entry || !entry.clock.synced) {
       return null;
     }
     return entry.interp.renderTime(perfNow);
+  }
+
+  /** My own connection came back: every peer's updates now reach me by a new
+   *  route. A clock still timed by the old, quicker one would run their ships
+   *  past the newest update until its window forgot it, so each measures its
+   *  route afresh, easing onto it without a jump. */
+  relearn(): void {
+    for (const entry of this.entries.values()) {
+      entry.clock.relearn();
+    }
   }
 
   /** Host targeting: a guest's newest pose led toward the present along its
@@ -166,8 +178,10 @@ export class PeerRoster {
   private entryFor(id: string): PeerEntry {
     let entry = this.entries.get(id);
     if (!entry) {
+      const clock = new RemoteClock();
       entry = {
-        interp: new Interpolator<Pose>({ delayMs: REMOTE_RENDER_DELAY_MS, lerp: blendPose }),
+        clock,
+        interp: new Interpolator<Pose>({ clock, delayMs: REMOTE_RENDER_DELAY_MS, lerp: blendPose }),
         latest: null,
         live: false,
         net: null,
