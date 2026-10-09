@@ -1,7 +1,8 @@
 // A guest's copy of the host's world. Frames and ~1 Hz snapshots are applied
 // the moment they arrive, in arrival order — except the motion of remote
-// bodies, which renders INTERP_DELAY_MS behind the newest arrival, blended
-// between the two frames that bracket that moment, so everyone else moves as
+// bodies, which renders behind the newest arrival (INTERP_DELAY_MS, or as far
+// as the route's jitter needs: the SDK's RemoteClock.hold), blended between
+// the two frames that bracket that moment, so everyone else moves as
 // smoothly as the host simulated them whatever the arrival jitter. Projectiles
 // are the exception the other way: their hits land as fx on arrival, so they
 // fly in the present, extrapolated along their velocity. The guest's own hero
@@ -49,8 +50,12 @@ const MAX_SHOT_AHEAD_MS = 150;
 
 /** `clock` for a reader that must not teach it: an Interpolator learns from
  *  every stamp pushed to it, and a body is pushed the snapshot found on
- *  joining too, whose stamp is as old as that snapshot, not one trip. */
-const readOnly = (clock: SenderClock): SenderClock => ({
+ *  joining too, whose stamp is as old as that snapshot, not one trip. It
+ *  still reads how far back the stream needs drawing (`hold`, which the
+ *  frames teach), so a jittery route draws bodies further back rather than
+ *  past the newest frame. */
+const readOnly = (clock: RemoteClock): SenderClock => ({
+  hold: (localNow) => clock.hold(localNow),
   now: (localNow) => clock.now(localNow),
   get synced() {
     return clock.synced;

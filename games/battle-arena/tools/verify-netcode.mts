@@ -5,6 +5,7 @@
 // HostNet over the real sim.
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { netStats } from "@vibedgames/multiplayer";
 import { isJsonNumber, isJsonObject } from "../src/data/json.ts";
 import { SPAWNS, CAMPS } from "../src/data/map.ts";
 import { HostNet } from "../src/net/host-net.ts";
@@ -361,6 +362,24 @@ test("remote bodies move smoothly through jitter; nothing is lost", () => {
   assert.equal(m.guestHero.swingCount, swings + 1, "one click, one swing");
   m.run(500);
   assert.equal(m.fxReceived, m.fxSent, "every fx the host sent arrived");
+});
+
+test("a jittery route draws remote bodies further back instead of running them dry", () => {
+  // frames land up to 150 ms after the fastest: past what INTERP_DELAY_MS covers
+  const m = match({ jitterMs: 150, oneWayMs: 80 });
+  settle(m);
+  // the clock measures what the stream needs
+  m.run(5000);
+  const before = netStats();
+  m.run(10_000);
+  const after = netStats();
+  const frames = after.frames - before.frames;
+  const starved = (after.starved - before.starved) / frames;
+  assert.ok(frames >= 590, `the host's hero drawn every frame (${frames})`);
+  assert.ok(
+    starved < 0.03,
+    `drawn past the newest frame ${(starved * 100).toFixed(1)}% of the time`,
+  );
 });
 
 test("a host below 30 fps keeps real time; payload stays small", () => {
