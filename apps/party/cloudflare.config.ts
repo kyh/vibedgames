@@ -36,6 +36,9 @@ export default defineConfig(({ isPreview }) => ({
     exports: isPreview
       ? { VgServer: exports.durableObject({ storage: "sqlite" }) }
       : worker.exports,
+    // Previews are served at <alias>-vibedgames-party.<subdomain>.workers.dev. A production deploy
+    // with a route and no workers.dev turns Preview URLs off unless this keeps them on.
+    previewUrls: true,
     // party.vibedgames.com is the host games connect to. It is more specific than the games
     // Worker's *.vibedgames.com/* route, so it wins; "party" is a reserved slug, so no game can
     // claim it. A Preview must not claim the production hostname.
