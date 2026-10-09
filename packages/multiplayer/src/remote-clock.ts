@@ -95,7 +95,12 @@ export class RemoteClock implements SenderClock {
     return this.target !== null;
   }
 
-  /** Record one arrival: the sender's stamp and when it reached us. */
+  /**
+   * Record one arrival: the sender's stamp and when it reached us. Feed it the
+   * stream the `Interpolator` draws and nothing else: `hold()` sizes the buffer
+   * from the gaps between the stamps it sees, so an event stamped between two
+   * updates (a shot between two poses) reads as one more update and shrinks it.
+   */
   observe(sentAt: number, receivedAt: number = now()): void {
     const offset = receivedAt - sentAt;
     const head = this.buckets.at(-1);

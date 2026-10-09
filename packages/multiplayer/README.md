@@ -117,7 +117,9 @@ of the last five seconds). The `Interpolator` renders at the larger of that and
 to read its messages a frame late, instead of running dry. Changes slew, so
 playback slows or speeds a little rather than jumping. Draw anything else from
 that sender (its shots, its effects) at `interp.renderTime()`, so it stays on
-the same timeline. Entities from one sender (a host's world snapshot) share one
+the same timeline, and keep their stamps out of the clock: it sizes the buffer
+from the gaps between the stamps it sees, so a shot stamped between two poses
+reads as one more pose and shrinks it. Entities from one sender (a host's world snapshot) share one
 clock: `new Interpolator({ clock: hostClock, lerp })`, and
 `hostClock.relearn()` when the host changes: the new host's route differs, while
 its stamps carry straight on, so the clock eases onto the new route instead of
