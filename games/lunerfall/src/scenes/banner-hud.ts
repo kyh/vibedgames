@@ -72,9 +72,12 @@ export class BannerHud {
 
   // One active cue and one replaceable objective. Nothing queues combat or
   // input: only the still-useful exit instruction can wait behind a payoff.
+  // A death or last stand silences the cues, not the connection: a drop
+  // freezes those screens as much as any other.
   show(text: string, ms: number, kind: BannerKind) {
     if (
       kind !== "critical" &&
+      kind !== "connecting" &&
       (this.run.state === "dead" || this.run.downed || this.run.downedNet)
     ) {
       return;
@@ -142,5 +145,13 @@ export class BannerHud {
     this.active = null;
     this.pending = null;
     this.text.setAlpha(0).setScale(this.hooks.pinScale());
+  }
+
+  // Take `text` down if it is the cue showing: what it announced is over.
+  dismiss(text: string) {
+    if (this.active?.text === text) {
+      this.active = null;
+      this.text.setAlpha(0).setScale(this.hooks.pinScale());
+    }
   }
 }

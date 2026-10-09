@@ -27,6 +27,8 @@ import type { RoomBuilder } from "./room-builder";
 import type { SceneChrome, SceneHooks } from "./scene-hooks";
 import type { VersusFlow } from "./versus-flow";
 
+const RECONNECTING = "RECONNECTING…";
+
 export interface OnlineFlowDeps {
   scene: Scene;
   run: RunState;
@@ -109,13 +111,12 @@ export class OnlineFlow {
     });
   }
 
-  // Online: tick the socket, drain this frame's input and resolve authority.
-  // Returns false when the frame must stop here (room full, session not ready).
+  // Online: drain this frame's input and resolve authority. Returns false
+  // when the frame must stop here (room full, session not ready).
   updateSession(): boolean {
     if (!this.seat.session) {
       return true;
     }
-    this.seat.session.tick();
     if (this.seat.session.roomFull) {
       this.scene.scene.start("select", { roomFull: true });
       return false;
@@ -206,9 +207,15 @@ export class OnlineFlow {
         this.seat.neutralOnAdmission = true;
       }
       this.wasConnected = false;
+      // The room holds the seat while the socket redials; the frame freezes
+      // until it is back, so say why.
+      if (sess.connectionStatus === "reconnecting") {
+        this.banners.show(RECONNECTING, 100_000, "connecting");
+      }
       return false;
     }
     this.wasConnected = true;
+    this.banners.dismiss(RECONNECTING);
     if (sess.offline) {
       if (this.run.state === "connecting") {
         this.beginExpedition();
