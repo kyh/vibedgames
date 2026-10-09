@@ -1783,8 +1783,8 @@ export type EnemyState = {
   /** Facing; for a winding-up/charging LANCER this is the locked charge vector. */
   angle: number;
   hp: number;
-  // sim-clock deadlines (each client's own; the wire carries them relative to
-  // a share's stamp); clients render telegraphs/blinks from these
+  // sim-clock deadlines (each client's own; the wire carries them as ms since
+  // the arena epoch); clients render telegraphs/blinks from these
   /** 0 = none. While now < this: wind-up visuals. */
   telegraphUntil: number;
   /** LANCER only: locked-vector charge window. */
@@ -1836,9 +1836,9 @@ export type ShardState = {
 
 /**
  * Host-owned world: the host's working copy, and each guest's dead-reckoned
- * copy of it. On the wire it travels as stamped row buckets that change only
- * when an entity spawns, dies or turns (net/world-wire.ts); host deadlines in
- * a guest's copy are already converted to the guest's own clock.
+ * copy of it. On the wire every entity is a row keyed by id that changes only
+ * when the entity spawns, dies, turns or changes (net/world-wire.ts); host
+ * deadlines in a guest's copy are already converted to the guest's own clock.
  */
 export type SharedState = {
   asteroids: AsteroidState[];

@@ -90,16 +90,16 @@ const MULTIPLAYER_HOST = import.meta.env.DEV
   ? "http://localhost:8787"
   : "https://party.vibedgames.com";
 
-// Fresh room name per wire-format change (v8: every stamp — player state,
-// `fire` events, world shares — is server time): old deployed clients can't
-// pollute this build's world.
-const ROOM_DEFAULT = "starfall-arena-v8";
+// Fresh room name per wire-format change (v9: the world travels as rows keyed
+// by id, every time in it as ms since the arena epoch): old deployed clients
+// can't pollute this build's world.
+const ROOM_DEFAULT = "starfall-arena-v9";
 /** DEV-only room override (?room=): the multiplayer e2e harness isolates each
  *  run in a fresh arena so a stale room's world can't leak into assertions. */
 const ROOM =
   (import.meta.env.DEV && new URLSearchParams(location.search).get("room")) || ROOM_DEFAULT;
 /** Per-arena cap. The party server clamps to its own hard ceiling and overflows
- *  player #33+ into a sibling arena (starfall-arena-v8~2, …) automatically. */
+ *  player #33+ into a sibling arena (starfall-arena-v9~2, …) automatically. */
 const STARFALL_MAX_PLAYERS = 32;
 
 /** Black mask thickness past the world edge (covers any screen half-width). */
@@ -160,7 +160,7 @@ export class GameScene extends Scene {
   /**
    * Local working copy of the shared world. The host owns it (intents mutate
    * it, hostTick shares what changed); guests dead-reckon it every frame and
-   * fold in each changed snapshot bucket, aged to now, with the residual
+   * fold in each changed row of the room's world, aged to now, with the residual
    * error bled in over ~0.1 s — that's what keeps motion smooth at 60fps
    * despite the 20Hz wire rate. One record for the whole session: adoption
    * replaces its fields in place (adoptShared).

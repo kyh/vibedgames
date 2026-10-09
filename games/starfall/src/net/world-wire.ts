@@ -1,9 +1,4 @@
-import {
-  ASTEROID_CULL_MARGIN,
-  BOOSTER_KINDS,
-  SHIELD_MOD_KINDS,
-  WEAPONS_SPECIAL,
-} from "../shared/constants";
+import { BOOSTER_KINDS, SHIELD_MOD_KINDS, UFO_SPEED, WEAPONS_SPECIAL } from "../shared/constants";
 import type {
   AsteroidState,
   BeaconState,
@@ -19,71 +14,67 @@ import type {
   Vec,
 } from "../shared/constants";
 import { q1, q2 } from "../shared/wire";
-import { inWorld } from "../sys/geometry";
-import { wireNum, wireStr } from "./wire-read";
+import { asWireRecord, wireNum, wireStr } from "./wire-read";
 import type { WireRecord, WireValue } from "./wire-read";
 
 /**
  * The host's world on the wire.
  *
- * Shared state merges key by key and an object or array key is re-sent whole
- * whenever it is written, so the world is cut into small keys, each written
- * only when something in it changed:
+ * Shared state travels as path ops — the leaves that changed — so the world
+ * is shaped for that: an entity's row is only rewritten when something a
+ * guest cannot extrapolate changed, and the SDK sends just that row, or just
+ * the one field.
  *
- * - `t`: server time (`client.serverNow()`) at the send — the room's one
- *   clock, so a guest reads a row's age straight off its own server clock,
- *   and nothing changes when the host does. Every patch carries it.
- * - Row buckets `[stamp, rows]` (asteroids `as0..3`, enemy shots `es0..15`,
- *   shards `sh0..3`, items `it0`, pulls `pl0`, the UFO `uf0`, the beacon
- *   `bc0`, enemy details `ec0..15`). An entity lives in the bucket its id
- *   hashes to; a bucket is re-sent when one of its entities spawns, turns or
- *   is taken — never for motion a guest can extrapolate, and never for an
- *   expiry or edge cull every client applies by itself. Positions are as of
- *   the stamp and times are relative to it, so a guest ages each row by the
- *   server clock before comparing it with its own copy, and turns each
- *   deadline into its own sim clock (shared/clock.ts).
- * - `en`: every enemy's position, velocity and heading — steering changes
- *   them each tick, so this one row set goes every tick.
- * - `arenaEpoch` (server time), `playW`, `playH`, `sectorBossIdx`:
- *   primitives, which the SDK only sends when they change.
+ * - `arenaEpoch`: server time at the arena's start. Every other time in the
+ *   world rides as arena time, ms since that epoch, so a row never changes by
+ *   itself. The host keeps the epoch where its server clock puts it
+ *   (EPOCH_TRACK_MS), and each client maps arena time onto its own sim clock
+ *   through the epoch as its server clock reads it now: a clock estimate
+ *   revised after the arena began moves the epoch, never the rows.
+ * - Movers keyed by id — asteroids `as`, enemy shots `es`, shards `sh`, items
+ *   `it` — as `[t, x, y, vx, vy, …]`: the position at arena time `t`, then the
+ *   velocity and what else the row carries. A guest ages each row to its own
+ *   now. The host rewrites a row when the entity turns, changes, or drifts
+ *   from the line the row describes (DRIFT_PX); a spawn adds a key and a
+ *   removal deletes one.
+ * - The UFO `uf` (one row, cruising to its destination), the beacon `bc` (one
+ *   row) and pulls `pl` (keyed) hold their deadlines in arena time.
+ * - `ec`: every enemy's details (kind, hp, telegraphs, lances), keyed, with
+ *   arena-time deadlines: a hit or a telegraph is one leaf.
+ * - `en`: every enemy's motion, `[t, rows]` — steering changes it every tick,
+ *   so the whole set goes each share, as an array (the smallest whole).
+ * - `playW`, `playH`, `sectorBossIdx`: primitives.
  * - `sb`: every present player's sector score, `[id, pts, id, pts, …]`,
  *   relayed a couple of times a second (HostDirector) — only the host sees
  *   every player, and guests rank the ones out of their interest range by
  *   it (render/hud.ts).
  *
- * The server keeps the last value of every key, so a late joiner (and a guest
- * promoted to host) still receives the whole world.
+ * The encoder keeps nothing: what guests hold is the room's state, so each
+ * share compares the host's world with it and reuses every row that still
+ * holds. A promoted host carries on from the rows the old one wrote, and the
+ * server's copy is what a late joiner receives.
  */
 
-export const STAMP_KEY = "t";
+export const EPOCH_KEY = "arenaEpoch";
+export const ASTEROIDS_KEY = "as";
+export const SHOTS_KEY = "es";
+export const SHARDS_KEY = "sh";
+export const ITEMS_KEY = "it";
+export const PULLS_KEY = "pl";
+export const UFO_KEY = "uf";
+export const BEACON_KEY = "bc";
+export const DETAILS_KEY = "ec";
 export const HOT_KEY = "en";
 export const STANDINGS_KEY = "sb";
 
-/** A row bucket family: key prefix and how many buckets its entities hash into. */
-export interface BucketFamily {
-  readonly key: string;
-  readonly buckets: number;
-}
-
-export const ASTEROIDS: BucketFamily = { buckets: 4, key: "as" };
-export const SHOTS: BucketFamily = { buckets: 16, key: "es" };
-export const SHARDS: BucketFamily = { buckets: 4, key: "sh" };
-export const ITEMS: BucketFamily = { buckets: 1, key: "it" };
-export const PULLS: BucketFamily = { buckets: 1, key: "pl" };
-export const UFO: BucketFamily = { buckets: 1, key: "uf" };
-export const BEACON: BucketFamily = { buckets: 1, key: "bc" };
-export const ENEMY_DETAILS: BucketFamily = { buckets: 16, key: "ec" };
-
-/** Straight movers drift from the host after a long frame on either side;
- *  each of their buckets is re-sent on a slow round robin to pull them back. */
-const DRIFTING: readonly BucketFamily[] = [ASTEROIDS, SHOTS, SHARDS, ITEMS, UFO];
-/** One drifting bucket refreshes every this many shares (~2.6 s per cycle). */
-const REFRESH_EVERY = 2;
-/** Past timestamps older than this ride as "none" (recoil and blink read at
- *  most ~0.4 s back). */
-const STALE_MS = 2000;
-/** An entity gone this close to its expiry left on its own. */
-const EXPIRY_SLACK_MS = 150;
+/** A mover whose position strays this far from the line its row describes
+ *  (px) is rewritten: a long frame on the host, or the row's rounding. */
+export const DRIFT_PX = 6;
+/** The room's epoch follows the host's server clock to within this (ms): it
+ *  moves when the clock's estimate is revised, never for rounding. Arena
+ *  times never move with it, so the rows stand and every client re-maps
+ *  them through the epoch it now reads. */
+export const EPOCH_TRACK_MS = 3;
 
 /** Enemy kinds by wire index. */
 const ENEMY_KIND_CODES: readonly EnemyKind[] = [
@@ -98,30 +89,6 @@ const ENEMY_KIND_CODES: readonly EnemyKind[] = [
 ];
 const ITEM_KIND_CODES: readonly ItemState["kind"][] = ["weapon", "shield", "booster"];
 
-export const bucketKey = (family: BucketFamily, bucket: number): string => `${family.key}${bucket}`;
-
-/** Stable bucket for an id (any client computes the same one). */
-export const bucketOf = (id: string, buckets: number): number => {
-  let h = 0;
-  for (let i = 0; i < id.length; i += 1) {
-    h = (h * 31 + (id.codePointAt(i) ?? 0)) % 65_521;
-  }
-  return h % buckets;
-};
-
-/** A host deadline relative to a stamp, for one that may be absent: 0 is
- *  "none", so a deadline landing exactly on the stamp rides as -1. */
-const relOpt = (v: number, t: number): number => {
-  if (v <= 0) {
-    return 0;
-  }
-  const r = Math.round(v - t);
-  if (r < -STALE_MS) {
-    return 0;
-  }
-  return r === 0 ? -1 : r;
-};
-
 const itemDropIdx = (it: ItemDrop): number => {
   if (it.kind === "weapon") {
     return it.weaponIdx;
@@ -129,271 +96,218 @@ const itemDropIdx = (it: ItemDrop): number => {
   return it.kind === "shield" ? it.shieldIdx : it.boosterIdx;
 };
 
-/** What the host last sent for one entity: its signature (what a guest can't
- *  extrapolate) and enough motion to tell an expiry from a removal. */
-interface Sent {
-  sig: string;
-  bucket: number;
-  diesAt: number;
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  t: number;
-}
+/** Advance a UFO up to `step` px toward its destination; it parks there
+ *  (only the host picks the next one). */
+export const stepUfo = (u: Vec & { destX: number; destY: number }, step: number): void => {
+  const dx = u.destX - u.x;
+  const dy = u.destY - u.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist > step) {
+    u.x += (dx / dist) * step;
+    u.y += (dy / dist) * step;
+  } else {
+    u.x = u.destX;
+    u.y = u.destY;
+  }
+};
 
-/** An entity the encoder can track: an id and a position (motion optional). */
-interface Trackable {
-  id: string;
-  x: number;
-  y: number;
-  vx?: number;
-  vy?: number;
-  diesAt?: number;
-}
+// ---- host side: encode ---------------------------------------------------------------
 
-interface Tracking<T extends Trackable> {
-  family: BucketFamily;
+/** A mover family: its key, its entities, and the row fields after the motion. */
+interface MoverFamily<T extends { id: string; x: number; y: number; vx: number; vy: number }> {
+  key: string;
   list: readonly T[];
-  /** Everything a guest cannot extrapolate from the last row. */
-  sig: (e: T) => string;
-  row: (e: T, t: number) => WireValue[];
-  /** Edge cull margin for a removal every client applies itself; Infinity for none. */
-  cullMargin: number;
+  /** Velocity as the row carries it. */
+  qv: (v: number) => number;
+  /** Everything after the motion (radius, expiry, kind): a change rewrites the row. */
+  tail: (e: T) => WireValue[];
 }
 
-/** Host side: turns the working world into this tick's patch. */
-export class WorldEncoder {
-  private readonly sent = new Map<string, Map<string, Sent>>();
-  private readonly dirty = new Set<string>();
-  private shares = 0;
-  private refreshCursor = 0;
-  /** Enemies in the last hot row set (an empty set is sent once). */
-  private hotCount = 0;
-  /** The arena epoch (sim clock) and the server time it went out as:
-   *  converted once per value, so clock jitter never re-sends it. */
-  private epoch = { sim: Number.NaN, wire: 0 };
-
-  /** Forget what guests hold: the next patch carries every bucket. */
-  reset(): void {
-    this.sent.clear();
-    this.hotCount = -1;
-    for (const family of [...DRIFTING, PULLS, BEACON, ENEMY_DETAILS]) {
-      for (let i = 0; i < family.buckets; i += 1) {
-        this.dirty.add(bucketKey(family, i));
-      }
-    }
-  }
-
-  /** This share's patch. `now` is the sim clock the world is kept in;
-   *  `stamp` is server time at that same instant (whole ms). */
-  encode(w: SharedState, now: number, stamp: number): WireRecord {
-    const t = Math.round(now);
-    const share = { now: t, stamp };
-    const patch: WireRecord = {};
-    patch[STAMP_KEY] = stamp;
-    if (w.arenaEpoch !== this.epoch.sim) {
-      this.epoch = { sim: w.arenaEpoch, wire: stamp + Math.round(w.arenaEpoch - t) };
-    }
-    patch["arenaEpoch"] = this.epoch.wire;
-    patch["playW"] = w.playW;
-    patch["playH"] = w.playH;
-    patch["sectorBossIdx"] = w.sectorBossIdx;
-    this.shares += 1;
-    if (this.shares % REFRESH_EVERY === 0) {
-      this.queueRefresh();
-    }
-    this.track(patch, w, share, {
-      cullMargin: ASTEROID_CULL_MARGIN,
-      family: ASTEROIDS,
-      list: w.asteroids,
-      row: (a) => [a.id, Math.round(a.x), Math.round(a.y), q1(a.vx), q1(a.vy), q1(a.radius)],
-      sig: (a) => `${q1(a.vx)},${q1(a.vy)},${q1(a.radius)}`,
-    });
-    this.track(patch, w, share, {
-      cullMargin: 60,
-      family: SHOTS,
-      list: w.enemyShots,
-      row: (s, at) => [
-        s.id,
-        Math.round(s.x),
-        Math.round(s.y),
-        Math.round(s.vx),
-        Math.round(s.vy),
-        Math.round(s.diesAt - at),
-      ],
-      sig: (s) => `${Math.round(s.vx)},${Math.round(s.vy)},${Math.round(s.diesAt)}`,
-    });
-    this.track(patch, w, share, {
-      cullMargin: Infinity,
-      family: SHARDS,
-      list: w.shards,
-      row: (s, at) => [
-        s.id,
-        Math.round(s.x),
-        Math.round(s.y),
-        q1(s.vx),
-        q1(s.vy),
-        Math.round(s.diesAt - at),
-      ],
-      sig: (s) => `${q1(s.vx)},${q1(s.vy)},${Math.round(s.diesAt)}`,
-    });
-    this.track(patch, w, share, {
-      cullMargin: Infinity,
-      family: ITEMS,
-      list: w.items,
-      row: (it, at) => [
-        it.id,
-        Math.round(it.x),
-        Math.round(it.y),
-        q1(it.vx),
-        q1(it.vy),
-        Math.round(it.diesAt - at),
-        ITEM_KIND_CODES.indexOf(it.kind),
-        itemDropIdx(it),
-      ],
-      sig: (it) => `${q1(it.vx)},${q1(it.vy)},${Math.round(it.diesAt)},${it.kind}`,
-    });
-    this.track(patch, w, share, {
-      cullMargin: Infinity,
-      family: PULLS,
-      list: w.pulls.map((p) => ({ ...p, diesAt: p.until })),
-      row: (p, at) => [p.id, Math.round(p.x), Math.round(p.y), Math.round(p.until - at)],
-      sig: (p) => `${Math.round(p.until)}`,
-    });
-    this.track(patch, w, share, {
-      cullMargin: Infinity,
-      family: UFO,
-      list: w.ufo ? [w.ufo] : [],
-      row: (u, at) => [
-        u.id,
-        Math.round(u.x),
-        Math.round(u.y),
-        Math.round(u.destX),
-        Math.round(u.destY),
-        q1(u.hp),
-        relOpt(u.blinkUntil, at),
-      ],
-      sig: (u) => `${Math.round(u.destX)},${Math.round(u.destY)},${q1(u.hp)},${u.blinkUntil}`,
-    });
-    const b = w.beacon;
-    this.track(patch, w, share, {
-      cullMargin: Infinity,
-      family: BEACON,
-      list: b ? [{ ...b, id: "beacon" }] : [],
-      row: (bc, at) => [
-        Math.round(bc.x),
-        Math.round(bc.y),
-        Math.round(bc.activeAt - at),
-        Math.round(bc.diesAt - at),
-        bc.controllerId ?? "",
-        bc.contested ? 1 : 0,
-      ],
-      sig: (bc) =>
-        `${Math.round(bc.x)},${Math.round(bc.y)},${bc.activeAt},${bc.diesAt},${bc.controllerId},${bc.contested}`,
-    });
-    // Details first, so a guest meets a new enemy's kind with its first pose.
-    this.track(patch, w, share, {
-      cullMargin: -1,
-      family: ENEMY_DETAILS,
-      list: w.enemies,
-      row: enemyDetailRow,
-      sig: enemyDetailSig,
-    });
-    if (w.enemies.length > 0 || this.hotCount !== 0) {
-      patch[HOT_KEY] = [stamp, w.enemies.map(enemyHotRow)];
-      this.hotCount = w.enemies.length;
-    }
-    return patch;
-  }
-
-  private queueRefresh(): void {
-    let n = this.refreshCursor;
-    for (const family of DRIFTING) {
-      if (n < family.buckets) {
-        this.dirty.add(bucketKey(family, n));
-        this.refreshCursor += 1;
-        return;
-      }
-      n -= family.buckets;
-    }
-    this.refreshCursor = 0;
-  }
-
-  /** Diff one family against what was sent, then write its dirty buckets:
-   *  rows on the sim clock (`at.now`, deadlines relative to it), each bucket
-   *  stamped with the server time of that instant. */
-  private track<T extends Trackable>(
-    patch: WireRecord,
-    w: SharedState,
-    at: { now: number; stamp: number },
-    spec: Tracking<T>,
-  ): void {
-    const { family } = spec;
-    const t = at.now;
-    let sent = this.sent.get(family.key);
-    if (!sent) {
-      sent = new Map();
-      this.sent.set(family.key, sent);
-    }
-    const live = new Set<string>();
-    for (const e of spec.list) {
-      live.add(e.id);
-      const sig = spec.sig(e);
-      const prev = sent.get(e.id);
-      if (prev && prev.sig === sig) {
-        continue;
-      }
-      const bucket = bucketOf(e.id, family.buckets);
-      this.dirty.add(bucketKey(family, bucket));
-      sent.set(e.id, {
-        bucket,
-        diesAt: e.diesAt ?? 0,
-        sig,
-        t,
-        vx: e.vx ?? 0,
-        vy: e.vy ?? 0,
-        x: e.x,
-        y: e.y,
-      });
-    }
-    for (const [id, prev] of sent) {
-      if (live.has(id)) {
-        continue;
-      }
-      sent.delete(id);
-      // Enemy details never need a removal: `en` names who is alive.
-      if (spec.cullMargin >= 0 && !culledByItself(prev, spec.cullMargin, w, t)) {
-        this.dirty.add(bucketKey(family, prev.bucket));
-      }
-    }
-    for (let i = 0; i < family.buckets; i += 1) {
-      const key = bucketKey(family, i);
-      if (!this.dirty.delete(key)) {
-        continue;
-      }
-      const rows: WireValue[] = [];
-      for (const e of spec.list) {
-        if (family.buckets === 1 || bucketOf(e.id, family.buckets) === i) {
-          rows.push(spec.row(e, t));
-        }
-      }
-      patch[key] = [at.stamp, rows];
-    }
-  }
-}
-
-/** Would every client drop this entity on its own by now — expired, or
- *  flown past the edge cull? Then its removal needs no resend. */
-const culledByItself = (prev: Sent, margin: number, w: SharedState, now: number): boolean => {
-  if (prev.diesAt > 0 && prev.diesAt <= now + EXPIRY_SLACK_MS) {
-    return true;
-  }
-  if (!Number.isFinite(margin)) {
+/** The row in `prev` if it still describes `fresh`: same velocity and tail,
+ *  and its line still passes within DRIFT_PX of where the entity is. */
+const holds = (prev: WireValue | undefined, fresh: WireValue[]): boolean => {
+  if (!Array.isArray(prev) || prev.length !== fresh.length) {
     return false;
   }
-  const dt = (now - prev.t) / 1000;
-  return !inWorld(prev.x + prev.vx * dt, prev.y + prev.vy * dt, margin, w.playW, w.playH);
+  for (let i = 3; i < fresh.length; i += 1) {
+    if (!sameValue(prev[i], fresh[i])) {
+      return false;
+    }
+  }
+  const [t, x, y, vx, vy] = nums(prev, 0, 5) ?? [];
+  const [now, fx, fy] = fresh;
+  if (
+    t === undefined ||
+    x === undefined ||
+    y === undefined ||
+    vx === undefined ||
+    vy === undefined
+  ) {
+    return false;
+  }
+  const dt = (Number(now) - t) / 1000;
+  return (
+    Math.abs(x + vx * dt - Number(fx)) <= DRIFT_PX && Math.abs(y + vy * dt - Number(fy)) <= DRIFT_PX
+  );
+};
+
+/** Equal as JSON leaves: numbers, strings, booleans, null, and flat arrays of them. */
+const sameValue = (a: WireValue | undefined, b: WireValue | undefined): boolean => {
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((v, i) => v === b[i]);
+  }
+  return a === b;
+};
+
+/** The family's rows: each entity's row from the room when it still holds,
+ *  else a fresh one positioned at `at`. */
+const encodeMovers = <T extends { id: string; x: number; y: number; vx: number; vy: number }>(
+  room: WireRecord,
+  at: number,
+  family: MoverFamily<T>,
+): WireRecord => {
+  const held = asWireRecord(room[family.key]);
+  const out: WireRecord = {};
+  for (const e of family.list) {
+    const fresh = [
+      at,
+      Math.round(e.x),
+      Math.round(e.y),
+      family.qv(e.vx),
+      family.qv(e.vy),
+      ...family.tail(e),
+    ];
+    const prev = held?.[e.id];
+    out[e.id] = prev !== undefined && holds(prev, fresh) ? prev : fresh;
+  }
+  return out;
+};
+
+const flatLances = (lances: readonly Vec[]): number[] =>
+  lances.flatMap((p) => [Math.round(p.x), Math.round(p.y)]);
+
+/**
+ * This share's world patch. `now` is the host's sim clock, `stamp` the
+ * server time at that instant, and `room` the room's state as this client
+ * holds it — what every guest holds once this patch lands.
+ */
+export const encodeWorld = (
+  w: SharedState,
+  now: number,
+  stamp: number,
+  room: WireRecord,
+): WireRecord => {
+  // Arena time 0 as server time, by this host's clock as it reads it now;
+  // the room's value stays while it agrees. Every arena time below counts
+  // from it.
+  const fresh = stamp + Math.round(w.arenaEpoch - now);
+  const roomEpoch = wireNum(room[EPOCH_KEY]);
+  const epoch =
+    roomEpoch !== null && Math.abs(roomEpoch - fresh) <= EPOCH_TRACK_MS ? roomEpoch : fresh;
+  /** A sim-clock moment in arena time. */
+  const arena = (simT: number): number => Math.round(simT - w.arenaEpoch);
+  /** An optional deadline: 0 is none. */
+  const arenaOpt = (simT: number): number => (simT <= 0 ? 0 : Math.max(1, arena(simT)));
+  const at = arena(now);
+  const patch: WireRecord = {
+    [EPOCH_KEY]: epoch,
+    playH: w.playH,
+    playW: w.playW,
+    sectorBossIdx: w.sectorBossIdx,
+  };
+  patch[ASTEROIDS_KEY] = encodeMovers(room, at, {
+    key: ASTEROIDS_KEY,
+    list: w.asteroids,
+    qv: q1,
+    tail: (a) => [q1(a.radius)],
+  });
+  patch[SHOTS_KEY] = encodeMovers(room, at, {
+    key: SHOTS_KEY,
+    list: w.enemyShots,
+    qv: Math.round,
+    tail: (s) => [arena(s.diesAt)],
+  });
+  patch[SHARDS_KEY] = encodeMovers(room, at, {
+    key: SHARDS_KEY,
+    list: w.shards,
+    qv: q1,
+    tail: (s) => [arena(s.diesAt)],
+  });
+  patch[ITEMS_KEY] = encodeMovers(room, at, {
+    key: ITEMS_KEY,
+    list: w.items,
+    qv: q1,
+    tail: (it) => [arena(it.diesAt), ITEM_KIND_CODES.indexOf(it.kind), itemDropIdx(it)],
+  });
+  const pulls: WireRecord = {};
+  for (const p of w.pulls) {
+    pulls[p.id] = [Math.round(p.x), Math.round(p.y), arena(p.until)];
+  }
+  patch[PULLS_KEY] = pulls;
+  patch[UFO_KEY] = w.ufo ? encodeUfo(w.ufo, at, arenaOpt(w.ufo.blinkUntil), room[UFO_KEY]) : null;
+  const b = w.beacon;
+  patch[BEACON_KEY] = b
+    ? [
+        Math.round(b.x),
+        Math.round(b.y),
+        arena(b.activeAt),
+        arena(b.diesAt),
+        b.controllerId ?? "",
+        b.contested ? 1 : 0,
+      ]
+    : null;
+  const details: WireRecord = {};
+  for (const e of w.enemies) {
+    details[e.id] = [
+      ENEMY_KIND_CODES.indexOf(e.kind),
+      q1(e.hp),
+      Math.round(e.maxHp),
+      e.shielded ? 1 : 0,
+      arenaOpt(e.telegraphUntil),
+      arenaOpt(e.chargeUntil),
+      arenaOpt(e.attackAt),
+      arenaOpt(e.blinkUntil),
+      arenaOpt(e.graceUntil),
+      flatLances(e.lances),
+    ];
+  }
+  patch[DETAILS_KEY] = details;
+  // An empty set goes once; after that, no enemies costs nothing.
+  const hot = readHot(room[HOT_KEY]);
+  if (w.enemies.length > 0 || hot === null || hot.rows.length > 0) {
+    patch[HOT_KEY] = [at, w.enemies.map(enemyHotRow)];
+  }
+  return patch;
+};
+
+/** The UFO's row: the room's while it still describes the cruise. */
+const encodeUfo = (
+  u: UfoState,
+  at: number,
+  blink: number,
+  prev: WireValue | undefined,
+): WireValue => {
+  const fresh = [
+    u.id,
+    at,
+    Math.round(u.x),
+    Math.round(u.y),
+    Math.round(u.destX),
+    Math.round(u.destY),
+    q1(u.hp),
+    blink,
+  ];
+  const was = readUfoRow(prev, 0);
+  if (!was || !Array.isArray(prev) || was.e.id !== u.id) {
+    return fresh;
+  }
+  for (const i of [4, 5, 6, 7]) {
+    if (prev[i] !== fresh[i]) {
+      return fresh;
+    }
+  }
+  stepUfo(was.e, (UFO_SPEED * (at - was.at)) / 1000);
+  return Math.abs(was.e.x - u.x) <= DRIFT_PX && Math.abs(was.e.y - u.y) <= DRIFT_PX ? prev : fresh;
 };
 
 const enemyHotRow = (e: EnemyState): WireValue[] => [
@@ -405,62 +319,14 @@ const enemyHotRow = (e: EnemyState): WireValue[] => [
   q2(e.angle),
 ];
 
-const flatLances = (lances: readonly Vec[]): number[] =>
-  lances.flatMap((p) => [Math.round(p.x), Math.round(p.y)]);
-
-const enemyDetailSig = (e: EnemyState): string =>
-  [
-    e.kind,
-    q1(e.hp),
-    e.maxHp,
-    e.shielded,
-    Math.round(e.telegraphUntil),
-    Math.round(e.chargeUntil),
-    Math.round(e.attackAt),
-    Math.round(e.blinkUntil),
-    Math.round(e.graceUntil),
-    flatLances(e.lances).join(" "),
-  ].join(",");
-
-const enemyDetailRow = (e: EnemyState, t: number): WireValue[] => [
-  e.id,
-  ENEMY_KIND_CODES.indexOf(e.kind),
-  q1(e.hp),
-  Math.round(e.maxHp),
-  e.shielded ? 1 : 0,
-  relOpt(e.telegraphUntil, t),
-  relOpt(e.chargeUntil, t),
-  relOpt(e.attackAt, t),
-  relOpt(e.blinkUntil, t),
-  relOpt(e.graceUntil, t),
-  flatLances(e.lances),
-];
-
 // ---- guest side: decode ------------------------------------------------------------
 
-/** One decoded bucket: its stamp (server clock) and raw rows. */
-export interface Bucket {
-  t: number;
-  rows: WireValue[][];
+/** A decoded row: the entity, positioned at sim time `at`, with its
+ *  deadlines on the same clock. */
+export interface Aged<T> {
+  at: number;
+  e: T;
 }
-
-export const readBucket = (v: WireValue | undefined): Bucket | null => {
-  if (!Array.isArray(v)) {
-    return null;
-  }
-  const [stamp, rawRows] = v;
-  const t = wireNum(stamp);
-  if (t === null || !Array.isArray(rawRows)) {
-    return null;
-  }
-  const rows: WireValue[][] = [];
-  for (const r of rawRows) {
-    if (Array.isArray(r)) {
-      rows.push(r);
-    }
-  }
-  return { rows, t };
-};
 
 /** The relayed standings (`sb`): player id → sector score. */
 export const readStandings = (v: WireValue | undefined): Map<string, number> => {
@@ -477,16 +343,11 @@ export const readStandings = (v: WireValue | undefined): Map<string, number> => 
   return out;
 };
 
-/** A room that holds a Starfall world (a stamp and an arena epoch). */
-export const isWorld = (s: WireRecord): boolean =>
-  wireNum(s[STAMP_KEY]) !== null && wireNum(s["arenaEpoch"]) !== null;
-
-/** One bucket's times on this client's sim clock: `at(rel)` is the local
- *  deadline of a stamp-relative offset. */
-export type BucketTime = (rel: number) => number;
+/** A room that holds a Starfall world (an arena epoch). */
+export const isWorld = (s: WireRecord): boolean => wireNum(s[EPOCH_KEY]) !== null;
 
 /** One decode's instant on both clocks: the sim clock the world is kept in
- *  (shared/clock.ts) and server time, which every stamp on the wire is in. */
+ *  (shared/clock.ts) and server time, which the arena epoch is in. */
 export interface WireClock {
   now: number;
   serverNow: number;
@@ -495,10 +356,6 @@ export interface WireClock {
 /** A server-time moment on this client's sim clock. */
 export const toSim = (serverT: number, clock: WireClock): number =>
   clock.now + (serverT - clock.serverNow);
-
-/** A relative deadline that may be absent (0 = none). */
-const optTime = (rel: number | null, at: BucketTime): number =>
-  rel === null || rel === 0 ? 0 : at(rel);
 
 const nums = (row: WireValue[], from: number, count: number): number[] | null => {
   const out: number[] = [];
@@ -512,71 +369,111 @@ const nums = (row: WireValue[], from: number, count: number): number[] | null =>
   return out;
 };
 
-export const readAsteroidRow = (row: WireValue[]): AsteroidState | null => {
-  const id = wireStr(row[0]);
-  const [x, y, vx, vy, radius] = nums(row, 1, 5) ?? [];
+/** An optional arena-time deadline on the sim clock (0 = none). */
+const optTime = (rel: number | null, epoch: number): number =>
+  rel === null || rel === 0 ? 0 : epoch + rel;
+
+/** A mover row's motion: `[t, x, y, vx, vy, …]` with `t` mapped through `epoch`. */
+const readMotion = (
+  row: WireValue | undefined,
+  epoch: number,
+): { at: number; x: number; y: number; vx: number; vy: number; rest: WireValue[] } | null => {
+  if (!Array.isArray(row)) {
+    return null;
+  }
+  const [t, x, y, vx, vy] = nums(row, 0, 5) ?? [];
   if (
-    id === null ||
+    t === undefined ||
     x === undefined ||
     y === undefined ||
     vx === undefined ||
-    vy === undefined ||
-    radius === undefined
+    vy === undefined
   ) {
     return null;
   }
-  return { id, radius, rot: 0, vx, vy, x, y };
+  return { at: epoch + t, rest: row.slice(5), vx, vy, x, y };
 };
 
-export const readShotRow = (row: WireValue[], at: BucketTime): EnemyShotState | null => {
-  const id = wireStr(row[0]);
-  const [x, y, vx, vy, ttl] = nums(row, 1, 5) ?? [];
-  if (
-    id === null ||
-    x === undefined ||
-    y === undefined ||
-    vx === undefined ||
-    vy === undefined ||
-    ttl === undefined
-  ) {
+export const readAsteroidRow = (
+  id: string,
+  row: WireValue | undefined,
+  epoch: number,
+): Aged<AsteroidState> | null => {
+  const m = readMotion(row, epoch);
+  const radius = wireNum(m?.rest[0]);
+  if (!m || radius === null) {
     return null;
   }
-  return { diesAt: at(ttl), id, vx, vy, x, y };
+  return { at: m.at, e: { id, radius, rot: 0, vx: m.vx, vy: m.vy, x: m.x, y: m.y } };
 };
 
-export const readShardRow = (row: WireValue[], at: BucketTime): ShardState | null =>
-  readShotRow(row, at);
+export const readShotRow = (
+  id: string,
+  row: WireValue | undefined,
+  epoch: number,
+): Aged<EnemyShotState> | null => {
+  const m = readMotion(row, epoch);
+  const dies = wireNum(m?.rest[0]);
+  if (!m || dies === null) {
+    return null;
+  }
+  return { at: m.at, e: { diesAt: epoch + dies, id, vx: m.vx, vy: m.vy, x: m.x, y: m.y } };
+};
 
-export const readItemRow = (row: WireValue[], at: BucketTime): ItemState | null => {
-  const base = readShotRow(row, at);
+export const readShardRow = (
+  id: string,
+  row: WireValue | undefined,
+  epoch: number,
+): Aged<ShardState> | null => readShotRow(id, row, epoch);
+
+export const readItemRow = (
+  id: string,
+  row: WireValue | undefined,
+  epoch: number,
+): Aged<ItemState> | null => {
+  const shot = readShotRow(id, row, epoch);
+  if (!shot || !Array.isArray(row)) {
+    return null;
+  }
   const kind = ITEM_KIND_CODES[wireNum(row[6]) ?? -1];
   const idx = wireNum(row[7]);
-  if (!base || !kind || idx === null) {
+  if (!kind || idx === null) {
     return null;
   }
+  const base = shot.e;
   if (kind === "weapon") {
-    return WEAPONS_SPECIAL[idx] ? { ...base, kind, weaponIdx: idx } : null;
+    return WEAPONS_SPECIAL[idx] ? { at: shot.at, e: { ...base, kind, weaponIdx: idx } } : null;
   }
   if (kind === "shield") {
-    return SHIELD_MOD_KINDS[idx] ? { ...base, kind, shieldIdx: idx } : null;
+    return SHIELD_MOD_KINDS[idx] ? { at: shot.at, e: { ...base, kind, shieldIdx: idx } } : null;
   }
-  return BOOSTER_KINDS[idx] ? { ...base, boosterIdx: idx, kind } : null;
+  return BOOSTER_KINDS[idx] ? { at: shot.at, e: { ...base, boosterIdx: idx, kind } } : null;
 };
 
-export const readPullRow = (row: WireValue[], at: BucketTime): PullState | null => {
-  const id = wireStr(row[0]);
-  const [x, y, ttl] = nums(row, 1, 3) ?? [];
-  if (id === null || x === undefined || y === undefined || ttl === undefined) {
+export const readPullRow = (
+  id: string,
+  row: WireValue | undefined,
+  epoch: number,
+): PullState | null => {
+  if (!Array.isArray(row)) {
     return null;
   }
-  return { id, until: at(ttl), x, y };
+  const [x, y, until] = nums(row, 0, 3) ?? [];
+  if (x === undefined || y === undefined || until === undefined) {
+    return null;
+  }
+  return { id, until: epoch + until, x, y };
 };
 
-export const readUfoRow = (row: WireValue[], at: BucketTime): UfoState | null => {
+export const readUfoRow = (row: WireValue | undefined, epoch: number): Aged<UfoState> | null => {
+  if (!Array.isArray(row)) {
+    return null;
+  }
   const id = wireStr(row[0]);
-  const [x, y, destX, destY, hp] = nums(row, 1, 5) ?? [];
+  const [t, x, y, destX, destY, hp] = nums(row, 1, 6) ?? [];
   if (
     id === null ||
+    t === undefined ||
     x === undefined ||
     y === undefined ||
     destX === undefined ||
@@ -585,26 +482,42 @@ export const readUfoRow = (row: WireValue[], at: BucketTime): UfoState | null =>
   ) {
     return null;
   }
-  return { blinkUntil: optTime(wireNum(row[6]), at), destX, destY, hp, id, x, y };
+  return {
+    at: epoch + t,
+    e: { blinkUntil: optTime(wireNum(row[7]), epoch), destX, destY, hp, id, x, y },
+  };
 };
 
-export const readBeaconRow = (row: WireValue[], at: BucketTime): BeaconState | null => {
-  const [x, y, activeRel, diesRel] = nums(row, 0, 4) ?? [];
-  if (x === undefined || y === undefined || activeRel === undefined || diesRel === undefined) {
+export const readBeaconRow = (row: WireValue | undefined, epoch: number): BeaconState | null => {
+  if (!Array.isArray(row)) {
+    return null;
+  }
+  const [x, y, activeAt, diesAt] = nums(row, 0, 4) ?? [];
+  if (x === undefined || y === undefined || activeAt === undefined || diesAt === undefined) {
     return null;
   }
   const controller = wireStr(row[4]);
   return {
-    activeAt: at(activeRel),
+    activeAt: epoch + activeAt,
     contested: row[5] === 1,
     controllerId: controller || null,
-    diesAt: at(diesRel),
+    diesAt: epoch + diesAt,
     x,
     y,
   };
 };
 
-/** `en` row: an enemy's motion as of the stamp. */
+/** `en`: every enemy's motion at arena time `t`. */
+export const readHot = (v: WireValue | undefined): { t: number; rows: WireValue[] } | null => {
+  if (!Array.isArray(v)) {
+    return null;
+  }
+  const [stamp, rows] = v;
+  const t = wireNum(stamp);
+  return t === null || !Array.isArray(rows) ? null : { rows, t };
+};
+
+/** `en` row: an enemy's motion as of the set's arena time. */
 export interface EnemyMotion {
   id: string;
   x: number;
@@ -614,7 +527,10 @@ export interface EnemyMotion {
   angle: number;
 }
 
-export const readEnemyMotion = (row: WireValue[]): EnemyMotion | null => {
+export const readEnemyMotion = (row: WireValue): EnemyMotion | null => {
+  if (!Array.isArray(row)) {
+    return null;
+  }
   const id = wireStr(row[0]);
   const [x, y, vx, vy, angle] = nums(row, 1, 5) ?? [];
   if (
@@ -633,16 +549,22 @@ export const readEnemyMotion = (row: WireValue[]): EnemyMotion | null => {
 /** `ec` row: everything about an enemy but its motion. */
 export type EnemyDetail = Omit<EnemyState, "x" | "y" | "vx" | "vy" | "angle">;
 
-export const readEnemyDetail = (row: WireValue[], at: BucketTime): EnemyDetail | null => {
-  const id = wireStr(row[0]);
-  const kind = ENEMY_KIND_CODES[wireNum(row[1]) ?? -1];
-  const hp = wireNum(row[2]);
-  const maxHp = wireNum(row[3]);
-  if (id === null || !kind || hp === null || maxHp === null) {
+export const readEnemyDetail = (
+  id: string,
+  row: WireValue | undefined,
+  epoch: number,
+): EnemyDetail | null => {
+  if (!Array.isArray(row)) {
+    return null;
+  }
+  const kind = ENEMY_KIND_CODES[wireNum(row[0]) ?? -1];
+  const hp = wireNum(row[1]);
+  const maxHp = wireNum(row[2]);
+  if (!kind || hp === null || maxHp === null) {
     return null;
   }
   const lances: Vec[] = [];
-  const rawLances = row.at(10);
+  const rawLances = row.at(9);
   if (Array.isArray(rawLances)) {
     for (let i = 0; i + 1 < rawLances.length; i += 2) {
       const lx = wireNum(rawLances[i]);
@@ -653,16 +575,16 @@ export const readEnemyDetail = (row: WireValue[], at: BucketTime): EnemyDetail |
     }
   }
   return {
-    attackAt: optTime(wireNum(row[7]), at),
-    blinkUntil: optTime(wireNum(row[8]), at),
-    chargeUntil: optTime(wireNum(row[6]), at),
-    graceUntil: optTime(wireNum(row[9]), at),
+    attackAt: optTime(wireNum(row[6]), epoch),
+    blinkUntil: optTime(wireNum(row[7]), epoch),
+    chargeUntil: optTime(wireNum(row[5]), epoch),
+    graceUntil: optTime(wireNum(row[8]), epoch),
     hp,
     id,
     kind,
     lances,
     maxHp,
-    shielded: row[4] === 1,
-    telegraphUntil: optTime(wireNum(row[5]), at),
+    shielded: row[3] === 1,
+    telegraphUntil: optTime(wireNum(row[4]), epoch),
   };
 };

@@ -2,7 +2,8 @@
 import assert from "node:assert/strict";
 import { setTimeout as sleep } from "node:timers/promises";
 
-import { OFFLINE_PLAYER_ID } from "@vibedgames/multiplayer";
+import { OFFLINE_PLAYER_ID, applyPatch, diffState } from "@vibedgames/multiplayer";
+import type { PatchOp } from "@vibedgames/multiplayer";
 
 import { BattleBeatDirector, waveBattleBeat } from "../src/render/battle-beat";
 import type { BattleBeatInput } from "../src/render/battle-beat";
@@ -16,18 +17,17 @@ import {
 import { FIRE_BASE, decodeFire, encodeFire } from "../src/net/fire-wire";
 import { HostIntents, readIntents } from "../src/net/intents";
 import type { IntentBatch } from "../src/net/intents";
-import type { WireRecord } from "../src/net/wire-read";
+import { asWireRecord } from "../src/net/wire-read";
+import type { WireRecord, WireValue } from "../src/net/wire-read";
 import {
-  ASTEROIDS,
-  ENEMY_DETAILS,
+  ASTEROIDS_KEY,
+  DETAILS_KEY,
+  DRIFT_PX,
+  EPOCH_KEY,
   HOT_KEY,
-  SHOTS,
-  STAMP_KEY,
-  WorldEncoder,
-  bucketKey,
-  bucketOf,
+  SHOTS_KEY,
+  encodeWorld,
   readAsteroidRow,
-  readBucket,
   readEnemyDetail,
   readShotRow,
   readStandings,
@@ -378,7 +378,7 @@ for (const end of [
 }
 console.log("PASS weapon mastery windows, generations, stacking and expiry");
 
-// ---- netcode: world rows, server-time stamps, fire events, intents --------------------
+// ---- netcode: world rows, arena time, fire events, intents ----------------------------
 
 const worldAt = (t: number): SharedState => ({
   arenaEpoch: t - 60_000,
@@ -397,70 +397,85 @@ const worldAt = (t: number): SharedState => ({
   shards: [],
   ufo: null,
 });
-const keysOf = (patch: WireRecord): string[] =>
-  Object.keys(patch).filter(
-    (k) => !["t", "arenaEpoch", "playW", "playH", "sectorBossIdx"].includes(k),
-  );
+/** The rows an op touches, `family/id` (or the key alone), the enemies' poses left out. */
+const touched = (ops: PatchOp[]): string[] =>
+  ops
+    .map(([path]) => path.slice(0, 2).join("/"))
+    .filter(
+      (p) =>
+        !p.startsWith(HOT_KEY) && !["arenaEpoch", "playW", "playH", "sectorBossIdx"].includes(p),
+    );
+const rowOf = (room: WireRecord, key: string, id: string): WireValue | undefined =>
+  asWireRecord(room[key])?.[id];
 
 {
-  // The host's sim clock reads T0 at server time S0.
+  // The host's sim clock reads T0 at server time S0; the arena began a minute before.
   const T0 = 5_000_000;
   const S0 = 1_760_000_000_000;
   const host = worldAt(T0);
-  const enc = new WorldEncoder();
-  const first = enc.encode(host, T0, S0);
-  assert.ok(keysOf(first).includes(HOT_KEY), "enemies' motion goes every share");
-  const rockBucket = readBucket(
-    first[bucketKey(ASTEROIDS, bucketOf("rock0001", ASTEROIDS.buckets))],
+  // What every guest holds: the room's state, each share applied as the SDK
+  // sends it — the ops its diff makes against that state.
+  let room: WireRecord = {};
+  const share = (t: number, s: number): PatchOp[] => {
+    const patch = encodeWorld(host, t, s, room);
+    const ops = diffState(room, { ...room, ...patch }, Object.keys(patch));
+    room = applyPatch(room, structuredClone(ops));
+    return ops;
+  };
+  share(T0, S0);
+  assert.equal(room[EPOCH_KEY], S0 - 60_000, "the arena epoch goes out as server time");
+  // Rows read back on the host's own clock: its epoch is T0 − 60 s.
+  const hostEpoch = T0 - 60_000;
+  const rock = readAsteroidRow("rock0001", rowOf(room, ASTEROIDS_KEY, "rock0001"), hostEpoch);
+  assert.equal(rock?.at, T0, "a row's position holds at its arena time");
+  assert.ok(
+    rock && Math.abs(rock.e.x - 1200.4) <= 0.5 && rock.e.vx === 12.3 && rock.e.radius === 41.3,
   );
-  assert.ok(rockBucket, "the first share carries every rock bucket");
-  assert.equal(first[STAMP_KEY], S0, "a share is stamped with server time");
-  assert.equal(rockBucket?.t, S0, "so is every bucket in it");
-  const rock = rockBucket?.rows.map(readAsteroidRow).find((r) => r?.id === "rock0001");
-  assert.ok(rock && Math.abs(rock.x - 1200.4) <= 0.5 && rock.vx === 12.3 && rock.radius === 41.3);
-  const shotKey = bucketKey(SHOTS, bucketOf("shot0001", SHOTS.buckets));
-  const [firstShot] =
-    readBucket(first[shotKey])?.rows.map((r) => readShotRow(r, (rel) => T0 + rel)) ?? [];
-  assert.equal(firstShot?.diesAt, T0 + 3000, "deadlines ride relative to the bucket stamp");
-  const detail = readEnemyDetail(
-    readBucket(first[bucketKey(ENEMY_DETAILS, bucketOf("enemy001", ENEMY_DETAILS.buckets))])
-      ?.rows[0] ?? [],
-    (rel) => T0 + rel,
-  );
+  const firstShot = readShotRow("shot0001", rowOf(room, SHOTS_KEY, "shot0001"), hostEpoch);
+  assert.equal(firstShot?.e.diesAt, T0 + 3000, "deadlines ride as arena time");
+  const detail = readEnemyDetail("enemy001", rowOf(room, DETAILS_KEY, "enemy001"), hostEpoch);
   assert.equal(detail?.kind, "sniper");
-  console.log("PASS world rows round-trip (positions, velocities, stamp-relative deadlines)");
+  console.log("PASS world rows round-trip (positions, velocities, arena-time deadlines)");
 
-  // Pure motion is extrapolated by guests: besides the enemies' poses, only the
-  // slow round-robin refresh goes (every second share, one bucket).
-  for (const drifting of host.asteroids) {
-    drifting.x += drifting.vx * 0.05;
-    drifting.y += drifting.vy * 0.05;
-  }
-  assert.deepEqual(keysOf(enc.encode(host, T0 + 50, S0 + 50)), [bucketKey(ASTEROIDS, 0), HOT_KEY]);
-  // A rock that turns resends its bucket alone.
-  const [hitRock] = host.asteroids;
-  if (hitRock) {
-    hitRock.vx = -20;
-  }
-  const turned = keysOf(enc.encode(host, T0 + 100, S0 + 100)).filter((k) => k !== HOT_KEY);
-  assert.ok(turned.includes(bucketKey(ASTEROIDS, bucketOf("rock0001", ASTEROIDS.buckets))));
-  assert.ok(
-    turned.every((k) => k.startsWith(ASTEROIDS.key)),
-    `only rock buckets: ${turned}`,
-  );
-  // An expired shot leaves on every client by itself; a consumed one is resent.
+  // Pure motion is extrapolated by guests: besides the enemies' poses, nothing goes.
+  const fly = (s: number): void => {
+    for (const m of [...host.asteroids, ...host.enemyShots]) {
+      m.x += m.vx * s;
+      m.y += m.vy * s;
+    }
+  };
+  fly(0.05);
+  assert.deepEqual(touched(share(T0 + 50, S0 + 50)), []);
+  // A rock that turns rewrites its own row, and nothing else.
+  const [hitRock, steadyRock] = host.asteroids;
+  assert.ok(hitRock && steadyRock);
+  hitRock.vx = -20;
+  fly(0.05);
+  assert.deepEqual(touched(share(T0 + 100, S0 + 100)), [`${ASTEROIDS_KEY}/rock0001`]);
+  // One that strays from the line its row describes (a long host frame) too.
+  steadyRock.y += DRIFT_PX + 1;
+  fly(0.05);
+  assert.deepEqual(touched(share(T0 + 150, S0 + 150)), [`${ASTEROIDS_KEY}/rock0002`]);
+  // An entity that leaves deletes its key, whether it expired or was taken.
   host.enemyShots = [];
-  const expired = keysOf(enc.encode(host, T0 + 3100, S0 + 3100));
-  assert.ok(!expired.includes(shotKey), "expiry needs no resend");
-  host.enemyShots = [{ diesAt: T0 + 9000, id: "shot0002", vx: 0, vy: 0, x: 50, y: 50 }];
-  enc.encode(host, T0 + 3150, S0 + 3150);
-  host.enemyShots = [];
-  const eaten = keysOf(enc.encode(host, T0 + 3200, S0 + 3200));
+  fly(2.95);
+  const gone = share(T0 + 3100, S0 + 3100);
   assert.ok(
-    eaten.includes(bucketKey(SHOTS, bucketOf("shot0002", SHOTS.buckets))),
-    "a taken shot is resent",
+    gone.some(
+      ([path, ...value]) => value.length === 0 && path.join("/") === `${SHOTS_KEY}/shot0001`,
+    ),
+    "a removed shot deletes its row",
   );
-  console.log("PASS host patches carry only what a guest cannot extrapolate");
+  // A hit on an enemy is one leaf of its details.
+  const [enemy] = host.enemies;
+  assert.ok(enemy);
+  enemy.hp -= 5;
+  const hit = share(T0 + 3150, S0 + 3150).filter(([path]) => path[0] === DETAILS_KEY);
+  assert.deepEqual(
+    hit.map(([path]) => path.join("/")),
+    [`${DETAILS_KEY}/enemy001/1`],
+  );
+  console.log("PASS host shares carry only the rows a guest cannot extrapolate");
 
   const scatter = WEAPONS_SPECIAL.find((w) => w.name === "SCATTER");
   assert.ok(scatter);
@@ -503,28 +518,28 @@ const keysOf = (patch: WireRecord): string[] =>
   assert.equal(chain?.chain?.length, 2);
   console.log("PASS fire events rebuild the shooter's exact volley");
 
-  // The epoch rides as server time, converted once per value: a share whose
-  // stamp jitters by a millisecond against the sim clock leaves it alone.
-  const epochHost = worldAt(T0);
-  const epochEnc = new WorldEncoder();
-  const epochWire = epochEnc.encode(epochHost, T0, S0)["arenaEpoch"];
-  assert.equal(epochWire, S0 - 60_000, "the arena epoch goes out as server time");
-  assert.equal(epochEnc.encode(epochHost, T0 + 50, S0 + 51)["arenaEpoch"], epochWire);
-  epochHost.arenaEpoch -= 5000;
-  assert.equal(epochEnc.encode(epochHost, T0 + 100, S0 + 100)["arenaEpoch"], S0 - 65_000);
+  // The epoch stays as the room has it through a millisecond of rounding,
+  // follows the host's server clock when its estimate is revised — every row
+  // staying put — and moves when the arena does.
+  fly(0.1);
+  share(T0 + 3250, S0 + 3251);
+  assert.equal(room[EPOCH_KEY], S0 - 60_000);
+  fly(0.05);
+  const revised = share(T0 + 3300, S0 + 3310);
+  assert.equal(room[EPOCH_KEY], S0 - 59_990, "a revised clock moves the epoch");
+  assert.deepEqual(touched(revised), [], "and no row");
+  host.arenaEpoch -= 5000;
+  share(T0 + 3350, S0 + 3360);
+  assert.equal(room[EPOCH_KEY], S0 - 64_990);
   // A guest's sim clock shares no epoch with the host's: it reads G0 at server
-  // time S0. Decoding 30 ms after the share, a row is 30 ms old and a
-  // deadline lands at the same moment on the guest's own clock.
+  // time S0. Its copy of the epoch lands on its own clock, and so does every
+  // arena time counted from it.
   const G0 = 90_000;
-  const guestClock = { now: G0 + 30, serverNow: S0 + 30 };
-  const shotRows = readBucket(first[shotKey]);
-  assert.ok(shotRows);
-  const [guestShot] = shotRows.rows.map((r) =>
-    readShotRow(r, (rel) => toSim(shotRows.t + rel, guestClock)),
-  );
-  assert.equal(guestShot?.diesAt, G0 + 3000, "a deadline maps onto the guest's sim clock");
-  assert.equal(guestClock.serverNow - shotRows.t, 30, "rows age by server time");
-  console.log("PASS world stamps are server time; deadlines map onto each client's clock");
+  const guestEpoch = toSim(S0 - 60_000, { now: G0, serverNow: S0 });
+  const guestShot = readShotRow("shot0001", [60_000, 900, 900, 250, 0, 63_000], guestEpoch);
+  assert.equal(guestShot?.at, G0, "a row's arena time maps onto the guest's clock");
+  assert.equal(guestShot?.e.diesAt, G0 + 3000, "and so does its deadline");
+  console.log("PASS the epoch is server time; arena times map onto each client's clock");
 
   // The host's standings relay: id/score pairs, malformed pairs skipped.
   assert.deepEqual(

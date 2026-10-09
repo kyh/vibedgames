@@ -73,7 +73,7 @@ import type { Progression } from "../sys/progression";
 import type { HostCombat } from "./host-combat";
 import type { PeerRoster } from "./peer-roster";
 import type { WireValue } from "./wire-read";
-import { STANDINGS_KEY, WorldEncoder } from "./world-wire";
+import { STANDINGS_KEY, encodeWorld } from "./world-wire";
 
 /** Late-built collaborators the director consults. */
 export interface HostDirectorHooks {
@@ -127,9 +127,6 @@ export class HostDirector {
 
   /** Steady world-share cadence (keeps the remainder between ticks). */
   private readonly shareRate = new FixedRate(WORLD_NET_HZ);
-
-  /** What guests already hold, so a share carries only what changed. */
-  private readonly encoder = new WorldEncoder();
 
   /** Standings relay cadence. An unchanged board costs nothing: the SDK
    *  sends only what differs from the room's copy. */
@@ -186,7 +183,6 @@ export class HostDirector {
     this.bossAlive = false;
     this.lastBossKilledAt = 0;
     this.shareRate.reset();
-    this.encoder.reset();
     this.standingsRate.reset();
     this.wasHost = false;
     this.lastBreatherDespawnAt = 0;
@@ -246,17 +242,17 @@ export class HostDirector {
     }
   }
 
-  /** Share the whole world right now (a freshly seeded room). */
+  /** Share the world right now (a freshly seeded room: every row is new). */
   shareNow(now: number): void {
-    this.encoder.reset();
     this.share(now);
   }
 
-  /** One share, stamped with the server time of the instant `now` (sim
-   *  clock) — the clock every guest ages its rows by. */
+  /** One share: the world against the rows the room already holds, with
+   *  the server time of the instant `now` (sim clock) to put the epoch on
+   *  the wire by. */
   private share(now: number): void {
     const stamp = Math.round(this.link.serverAt(now));
-    this.link.patchShared(this.encoder.encode(this.world, now, stamp));
+    this.link.patchShared(encodeWorld(this.world, now, stamp, this.link.sharedState ?? {}));
   }
 
   /** First tick after promotion (or first-ever host): zeroed spawn stamps
@@ -314,11 +310,6 @@ export class HostDirector {
     w.items = w.items.filter((it) => it.diesAt > now && !this.link.claimed(itemClaimKey(it.id)));
     w.shards = w.shards.filter((s) => s.diesAt > now && !this.link.claimed(shardClaimKey(s.id)));
     this.hostMagnetItems(now);
-  }
-
-  /** Next share sends the whole world (bounds and boss marker included). */
-  markWorldDirty(): void {
-    this.encoder.reset();
   }
 
   /** Every present player's sector score, for guests to rank the players
