@@ -15,15 +15,19 @@
  * - board: the board as it is, `clock` on every write. Path ops send each
  *   opened crate as one leaf, and an unchanged clock as nothing.
  *
+ * Then one player's own state, as each other player receives it: a minute at
+ * 60 fps, walking flat out and resting by turns, with the steps alone and
+ * with the PLAYER_BEAT_HZ heartbeat as well.
+ *
  * Run: node --import tsx tools/wire-audit.mts
  */
 
-import { applyPatch, diffState, MultiplayerClient } from "@vibedgames/multiplayer";
+import { applyPatch, diffState, FixedRate, MultiplayerClient } from "@vibedgames/multiplayer";
 import type { JsonRecord } from "@vibedgames/multiplayer";
 
 import { PickupClaims } from "../src/net/pickup-claims";
 import { createArena } from "../src/shared/arena";
-import { GRID_COLS, HOST_STEP_MS } from "../src/shared/constants";
+import { BASE_MOVE_MS, GRID_COLS, HOST_STEP_MS, PLAYER_BEAT_HZ } from "../src/shared/constants";
 import type { Cell, SharedState } from "../src/shared/constants";
 import { hostTick } from "../src/sim/host-sim";
 import { seededRandom } from "../src/util/seeded-random";
@@ -153,4 +157,67 @@ row(
 );
 row("a new round's write", `${roundStart.opened} B`, `${roundStart.board} B`);
 row("largest late-join sync", `${lateJoin.opened} B`, `${lateJoin.board} B`);
+
+// ---- one player's state ---------------------------------------------------------
+
+/** Peer connection ids are UUIDs. */
+const PEER_ID = "00000000-0000-4000-8000-000000007000";
+const EPOCH = 1_760_000_000_000;
+const FRAME_MS = 1000 / 60;
+const PLAY_S = 60;
+
+/** A player's state stream, per second, as one peer receives it. */
+interface Stream {
+  bytes: number;
+  messages: number;
+}
+
+/** The keys of `write` whose value differs from what the room holds: what the SDK sends. */
+const changed = (held: JsonRecord, write: JsonRecord): JsonRecord =>
+  Object.fromEntries(Object.entries(write).filter(([key, value]) => held[key] !== value));
+
+/**
+ * A player stepping back and forth for 2 s, then resting for 2 s, by turns:
+ * every frame's write, cut to the keys whose value changed, in the
+ * `player_state` envelope the server relays to each peer.
+ */
+const playerStream = (beats: boolean): Stream => {
+  const beat = new FixedRate(PLAYER_BEAT_HZ);
+  const held: JsonRecord = {};
+  let sent = 0;
+  let messages = 0;
+  let col = 1;
+  let stepEndsAt = 0;
+  for (let frame = 0; frame < PLAY_S * 60; frame += 1) {
+    const now = frame * FRAME_MS;
+    const write: JsonRecord = {};
+    if (Math.floor(now / 2000) % 2 === 0 && now >= stepEndsAt) {
+      const start = stepEndsAt > now - FRAME_MS ? stepEndsAt : now;
+      col = 3 - col;
+      Object.assign(write, { col, row: 1, s: BASE_MOVE_MS, t: Math.round(EPOCH + start) });
+      stepEndsAt = start + BASE_MOVE_MS;
+    }
+    if (beat.due(FRAME_MS) && beats) {
+      write["h"] = Math.round(EPOCH + now);
+    }
+    const delta = changed(held, write);
+    if (Object.keys(delta).length > 0) {
+      Object.assign(held, delta);
+      sent += bytes({ data: { id: PEER_ID, state: delta }, type: "player_state" });
+      messages += 1;
+    }
+  }
+  return { bytes: sent / PLAY_S, messages: messages / PLAY_S };
+};
+
+const stepsOnly = playerStream(false);
+const withBeats = playerStream(true);
+console.log(`\none player, walking and resting by turns, per peer receiving it:\n`);
+row("", "steps", "steps + beat");
+row(
+  "player_state bytes/s",
+  `${stepsOnly.bytes.toFixed(0)} B/s`,
+  `${withBeats.bytes.toFixed(0)} B/s`,
+);
+row("messages/s", stepsOnly.messages.toFixed(1), withBeats.messages.toFixed(1));
 console.log();

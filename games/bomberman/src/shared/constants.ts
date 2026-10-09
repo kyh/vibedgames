@@ -92,7 +92,9 @@ export type Blast = {
  * authoritative grid position. `t` is when the step onto it began on the
  * room's server clock and `s` how long it takes (0 for a spawn, which
  * receivers place without walking); receivers derive the walk cycle and
- * facing from the steps themselves.
+ * facing from the steps themselves. `h` is the server time, stamped
+ * PLAYER_BEAT_HZ times a second while the body is on the board: receivers
+ * learn this player's route from it, and that a body at rest still stands.
  */
 export interface PlayerState {
   col: number;
@@ -100,7 +102,11 @@ export interface PlayerState {
   colorIdx: number;
   t: number;
   s: number;
+  h: number;
 }
+
+/** The heartbeat's rate: the SDK's 100 ms least delay covers a 20 Hz sender. */
+export const PLAYER_BEAT_HZ = 20;
 
 /**
  * A host-controlled CPU fighter. Lives in shared state (not a real

@@ -7,7 +7,7 @@ import {
 import type { TouchControls } from "@repo/embed";
 import { PhysicalGamepad, attachVirtualGamepad, stickDirection4 } from "@vibedgames/gamepad/phaser";
 import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
-import { MultiplayerClient, RemoteClock } from "@vibedgames/multiplayer";
+import { FixedRate, MultiplayerClient, RemoteClock } from "@vibedgames/multiplayer";
 import {
   isPlaytestRequested,
   publishDiagnostics,
@@ -23,9 +23,11 @@ import { BattleFx } from "../fx/battle-fx";
 import { CharacterAction, VICTORY_ACTION_MS } from "../render/character-action";
 import type { CharacterPose } from "../render/character-action";
 import { blastFrame, fireCells, freshCue } from "../render/blast-frame";
+import { BotStride } from "../render/bot-stride";
 import { RoundHud } from "../render/round-hud";
 import { DirInput, stickDirs } from "../input/dir-input";
 import { BombPrediction, fuseStart } from "../net/bomb-prediction";
+import { TurnTrack } from "../net/bot-track";
 import { PICKUP_CLAIMS, PickupClaims, pickupKey } from "../net/pickup-claims";
 import { StepTrack, WALK_GRACE_MS } from "../net/step-track";
 import type { StepPose } from "../net/step-track";
@@ -57,6 +59,7 @@ import {
   GRID_COLS,
   GRID_ROWS,
   HOST_STEP_MS,
+  PLAYER_BEAT_HZ,
   PLAYER_LIMITS,
   SPAWN_POINTS,
   SPEED_STEP_MS,
@@ -182,8 +185,6 @@ const SOLO_PLAYTEST = isPlaytestRequested() && !new URLSearchParams(location.sea
 const BOMB_BUTTON_INSET = 84;
 const BOMB_BUTTON_RADIUS = 52;
 
-/** Remote movers are drawn this far behind their sender's clock; it covers arrival jitter. */
-const REMOTE_DELAY_MS = 100;
 /** A step that follows straight on from the last starts where that one ended, back at most this far. */
 const MAX_CARRY_MS = 50;
 /** Longest frame the camera and the host's catch-up take into account. */
@@ -328,7 +329,14 @@ const readPlayerState = (player: Player | undefined): PartialPS => {
     const v = s[k];
     return isJsonNumber(v) ? v : undefined;
   };
-  return { col: num("col"), colorIdx: num("colorIdx"), row: num("row"), s: num("s"), t: num("t") };
+  return {
+    col: num("col"),
+    colorIdx: num("colorIdx"),
+    h: num("h"),
+    row: num("row"),
+    s: num("s"),
+    t: num("t"),
+  };
 };
 
 /** The owner's press counter, as an untrusted guest sends it. */
@@ -384,15 +392,17 @@ export class GameScene extends Scene {
 
   /** Remote humans, each drawn on its own sender's clock. */
   private readonly humanTracks = new Map<string, StepTrack>();
-  /** Bots, stepping on the sim clock: drawn on time by the host, on its stream by everyone else. */
-  private readonly botTracks = new Map<string, StepTrack>();
-  /** The host's stream as a guest receives it, learned from the bots' steps. */
-  private readonly hostStream = new RemoteClock();
+  /** Bots, turning on the sim clock: drawn on time by the host, from its turns by everyone else. */
+  private readonly botTracks = new Map<string, BotStride | TurnTrack>();
+  /** Each bot's turns as a guest receives them, learned per bot and kept across rounds. */
+  private readonly botClocks = new Map<string, RemoteClock>();
   /** Last state taken in per mover, so a repeated notify is a no-op. */
   private readonly ingested = new Map<string, string>();
   private ingestRound: number | null = null;
-  /** Who sends the bots' steps: this client ("self") or the host it follows. */
+  /** Who sends the bots' turns: this client ("self") or the host it follows. */
   private botSender: string | null = null;
+  /** The heartbeat's send clock: see PlayerState's `h`. */
+  private readonly beat = new FixedRate(PLAYER_BEAT_HZ);
 
   /** Arrow + WASD key pairs per direction — either key held keeps you moving. */
   private heldKeys!: Record<Dir, [Phaser.Input.Keyboard.Key, Phaser.Input.Keyboard.Key]>;
@@ -792,6 +802,7 @@ export class GameScene extends Scene {
       this.gamepad.update();
       this.applyPadActions();
       this.handleInput(now);
+      this.sendBeat(elapsed, now);
       this.claimUnderfoot();
       // Hold the world (bots, bombs, round end) while the start screen is up, or
       // the round can be decided against a player who is still reading. Only safe
@@ -1083,6 +1094,19 @@ export class GameScene extends Scene {
     // Published on the room's clock, the one every receiver draws against.
     const t = Math.round(this.client.serverNow(now) - (now - start));
     this.client.updateMyState({ col: this.myCol, row: this.myRow, s: stride, t });
+  }
+
+  /**
+   * While the body is on the board, the room's clock on a steady beat — the
+   * only key that changes, so a beat is a few bytes. Each player draws this
+   * body on its own clock of this sender, which learns from the beats how
+   * long they take and how late they run, and the newest beat tells it a body
+   * at rest is still there. A step in the same frame leaves with it.
+   */
+  private sendBeat(elapsed: number, now: number): void {
+    if (this.beat.due(elapsed) && this.ownSpawned && this.roomReady) {
+      this.client.updateMyState({ h: Math.round(this.client.serverNow(now)) });
+    }
   }
 
   /** Held by a key of either set, or the pad's d-pad. */
@@ -1393,26 +1417,32 @@ export class GameScene extends Scene {
   }
 
   /**
-   * Take every remote mover's newest step into its track. Runs per room
-   * message, so two steps that land in one frame are both walked — the
-   * once-a-frame render sync would see only the second and slide straight
-   * through the pillar between them.
+   * Take every remote mover's newest step, beat or turn into its track.
+   * Runs per room message, so two steps that land in one frame are both
+   * walked — the once-a-frame render sync would see only the second and slide
+   * straight through the pillar between them.
    */
   private ingestNet(): void {
     const state = this.shared();
     const botSender = this.amHost ? "self" : this.client.hostId;
     if (botSender !== this.botSender) {
-      // A new sender: learn its relay afresh, and draw its bots on its terms.
+      // A new host's turns come another way: each bot's clock learns the
+      // route afresh, easing over to it. Simulating the bots here, or no
+      // longer, draws them another way altogether.
+      if ((botSender === "self") !== (this.botSender === "self")) {
+        this.dropTracks(this.botTracks);
+      }
       this.botSender = botSender;
-      this.hostStream.reset();
-      this.dropTracks(this.botTracks);
+      for (const clock of this.botClocks.values()) {
+        clock.relearn();
+      }
     }
     const round = state?.startedAt ?? null;
     if (round !== this.ingestRound) {
       // A new round respawns everyone: place them, never walk them there.
       this.ingestRound = round;
-      this.dropTracks(this.humanTracks);
-      this.dropTracks(this.botTracks);
+      this.clearTracks(this.humanTracks);
+      this.clearTracks(this.botTracks);
     }
     for (const [id, player] of Object.entries(this.peers)) {
       if (id !== this.myId) {
@@ -1425,46 +1455,65 @@ export class GameScene extends Scene {
   }
 
   private ingestHuman(id: string, ps: PartialPS): void {
-    const { col, row, t, s } = ps;
-    const key = `${col},${row},${t},${s}`;
-    if (
-      col === undefined ||
-      row === undefined ||
-      t === undefined ||
-      s === undefined ||
-      this.ingested.get(id) === key
-    ) {
-      return;
-    }
-    this.ingested.set(id, key);
     let track = this.humanTracks.get(id);
     if (!track) {
-      track = new StepTrack({ clock: new RemoteClock(), delayMs: REMOTE_DELAY_MS });
+      track = new StepTrack();
       this.humanTracks.set(id, track);
     }
-    track.step({ col, row }, t, s);
+    const { col, row, t, s, h } = ps;
+    const key = `${col},${row},${t},${s}`;
+    if (
+      col !== undefined &&
+      row !== undefined &&
+      t !== undefined &&
+      s !== undefined &&
+      this.ingested.get(id) !== key
+    ) {
+      this.ingested.set(id, key);
+      track.step({ col, row }, t, s);
+    }
+    if (h !== undefined) {
+      track.beat(h);
+    }
   }
 
   private ingestBot(bot: Bot): void {
-    const key = `${bot.col},${bot.row}`;
+    const own = this.botSender === "self";
+    // A guest draws every turn, moved or not; the host only the strides.
+    const key = own ? `${bot.col},${bot.row}` : `${bot.col},${bot.row},${bot.nextMoveAt}`;
     if (this.ingested.get(bot.id) === key) {
       return;
     }
     this.ingested.set(bot.id, key);
-    let track = this.botTracks.get(bot.id);
-    if (!track) {
-      // The host draws its own bots on time; everyone else, behind the host's stream.
-      track =
-        this.botSender === "self"
-          ? new StepTrack({ clock: simClock, delayMs: 0 })
-          : new StepTrack({ clock: this.hostStream, delayMs: REMOTE_DELAY_MS });
-      this.botTracks.set(bot.id, track);
-    }
-    // A bot that moved set off on the step its next turn is a stride after.
-    track.step({ col: bot.col, row: bot.row }, bot.nextMoveAt - BOT_MOVE_MS, BOT_MOVE_MS);
+    // The turn sets the next one a stride after.
+    this.botTrack(bot.id, own).turn(bot, bot.nextMoveAt - BOT_MOVE_MS, bot.dir);
   }
 
-  private dropTracks(tracks: Map<string, StepTrack>): void {
+  /** The host draws its own bots on time; everyone else, from their turns on each bot's clock. */
+  private botTrack(id: string, own: boolean): BotStride | TurnTrack {
+    let track = this.botTracks.get(id);
+    if (!track) {
+      if (own) {
+        track = new BotStride(simClock);
+      } else {
+        const clock = this.botClocks.get(id) ?? new RemoteClock();
+        this.botClocks.set(id, clock);
+        track = new TurnTrack(clock);
+      }
+      this.botTracks.set(id, track);
+    }
+    return track;
+  }
+
+  /** Forget every body's place, to be taken in afresh: the next state places each. */
+  private clearTracks(tracks: Map<string, BotStride | StepTrack | TurnTrack>): void {
+    for (const [id, track] of tracks) {
+      track.clear();
+      this.ingested.delete(id);
+    }
+  }
+
+  private dropTracks(tracks: Map<string, BotStride | StepTrack | TurnTrack>): void {
     for (const id of tracks.keys()) {
       this.ingested.delete(id);
     }
@@ -1849,6 +1898,7 @@ export class GameScene extends Scene {
         this.deathSeen.delete(id);
         this.humanTracks.delete(id);
         this.botTracks.delete(id);
+        this.botClocks.delete(id);
         this.ingested.delete(id);
       }
     }

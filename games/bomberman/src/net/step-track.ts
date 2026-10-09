@@ -1,20 +1,23 @@
-// Remote grid movers, drawn from the sender's own step timing.
+// Remote players, drawn through the SDK's Interpolator from their own steps.
 //
-// A grid mover's state is a run of committed steps: at `startedAt` on the
-// room's server clock it leaves one tile and `strideMs` later it stands on the
-// next. Each step is kept as two waypoints and the body is drawn a fixed delay
-// behind its sender's clock, so it moves on the sender's exact cadence however
-// the packets bunch. That clock is the sender's own `RemoteClock`, which
-// learns from every step's arrival how long the sender's relay takes, so the
-// delay only has to cover jitter, however far the sender is from the server.
-// Consecutive waypoints are at most one tile apart, so a body never cuts a
-// corner, and nothing is extrapolated past the newest tile.
+// A player's state is its newest grid step — at `t` on the room's server
+// clock its body left a tile, and `s` ms later it stands on (col, row) — plus
+// `h`, the server time, stamped PLAYER_BEAT_HZ times a second while the body
+// is on the board. A step becomes two samples: the tile it leaves, at its
+// start, and the tile it reaches, at its end. A step says where it ends the
+// moment it starts, so it is drawn from its start, only as far behind as its
+// arrivals scatter; and every sample sits on a tile centre, so the blends
+// between them walk the grid and turn corners where the sender did. Nothing is
+// extrapolated: a late step holds the body on the tile it is leaving.
 //
-// The package's `Interpolator` can draw grid steps too, but only a whole stride
-// plus jitter behind: a plain pose stream says where a step ends only when the
-// next one starts. A step here carries its own stride, so it is drawn from the
-// moment it starts, just the render delay behind.
+// The Interpolator renders on the sender's RemoteClock, which learns from the
+// stamps that are send times — step starts and heartbeats, never a step's end
+// — how long this sender's messages take to arrive and how late they run
+// (`hold`; the heartbeat keeps it measured, and the body's newest sample
+// fresh, while the body stands still). It draws that far behind the clock,
+// never less than STEP_DELAY_MS.
 
+import { Interpolator, lerp, RemoteClock } from "@vibedgames/multiplayer";
 import type { SenderClock } from "@vibedgames/multiplayer";
 import type { Dir } from "../shared/constants";
 
@@ -35,37 +38,25 @@ export interface StepPose {
   moving: boolean;
 }
 
-interface Waypoint extends GridTile {
-  t: number;
+/** Where a body was at a sample's stamp: on a tile, or part way along a step in a blend. */
+export interface GridSample {
+  x: number;
+  y: number;
   dir: Dir;
-  /** Where a step ends, as opposed to where a rest begins. */
-  arrival: boolean;
-}
-
-export interface StepTrackOptions {
-  /**
-   * The sender's clock as this client reads it: its own `RemoteClock`, shared
-   * by every mover that sender reports, or the sim clock for a host drawing its
-   * own bots.
-   */
-  clock: SenderClock;
-  /** How far behind that clock to draw (ms) — it covers arrival jitter. */
-  delayMs: number;
+  /** When the body last reached a tile by walking: the walk cycle runs on WALK_GRACE_MS past it. */
+  arrived: number;
+  /** True for a blend between two places; a sample on its own stands. */
+  moving: boolean;
 }
 
 /** A rest between steps shorter than this keeps the walk cycle going. */
 export const WALK_GRACE_MS = 80;
-/** Furthest the playhead may trail the render clock before it skips ahead. */
-const MAX_LAG_MS = 600;
-/** A late step replays at up to this much over real time while it catches up... */
-const MAX_CATCH_UP = 0.5;
-/** ...reached when the playhead trails by this much. */
-const CATCH_UP_MS = 400;
-/** No frame drawn for this long (a hidden tab): resume at the render clock, don't replay. */
-const STALE_MS = 500;
-/** Rounded stamps can land a millisecond either side of the previous arrival. */
+/** The least delay behind a player's clock: a heartbeat plus a good connection's jitter. */
+export const STEP_DELAY_MS = 100;
+/** Rounded stamps can land a millisecond either side of the previous step's end. */
 const STAMP_SLACK_MS = 2;
-const CAPACITY = 32;
+
+export const sameTile = (a: GridTile, b: GridTile): boolean => a.col === b.col && a.row === b.row;
 
 export const stepDir = (from: GridTile, to: GridTile): Dir | null => {
   const dc = to.col - from.col;
@@ -79,127 +70,138 @@ export const stepDir = (from: GridTile, to: GridTile): Dir | null => {
   return dr > 0 ? "down" : "up";
 };
 
-export class StepTrack {
-  private readonly clock: SenderClock;
-  private readonly delayMs: number;
-  private readonly points: Waypoint[] = [];
-  /** The moment being drawn, on the stamps' clock. Trails the render clock only while a late step catches up. */
-  private playAt: number | null = null;
-  private sampledAt: number | null = null;
-
-  constructor(options: StepTrackOptions) {
-    this.clock = options.clock;
-    this.delayMs = options.delayMs;
+/**
+ * Blend two samples. Consecutive samples are on one tile or two neighbouring
+ * ones, so a blend that moves runs along a grid line and faces the way it goes.
+ */
+export const blendSamples = (a: GridSample, b: GridSample, k: number): GridSample => {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  if (dx === 0 && dy === 0) {
+    return a;
   }
+  let dir: Dir = dy > 0 ? "down" : "up";
+  if (dx !== 0) {
+    dir = dx > 0 ? "right" : "left";
+  }
+  return { arrived: a.arrived, dir, moving: true, x: lerp(a.x, b.x, k), y: lerp(a.y, b.y, k) };
+};
+
+/** A sample standing on `tile`. */
+export const standing = (tile: GridTile, dir: Dir, arrived: number): GridSample => ({
+  arrived,
+  dir,
+  moving: false,
+  x: tile.col,
+  y: tile.row,
+});
+
+/**
+ * `clock` as an Interpolator reads it: it renders on the clock's time and
+ * measured hold, and never teaches it. The owner teaches it the stamps that
+ * are send times, since a sample stamped where a step ends is not one.
+ */
+export const readThrough = (clock: RemoteClock): SenderClock => ({
+  hold: (localNow) => clock.hold(localNow),
+  now: (localNow) => clock.now(localNow),
+  get synced() {
+    return clock.synced;
+  },
+});
+
+/** The pose of `sample`, drawn at `renderAt` on the stamps' clock. */
+export const poseOf = (sample: GridSample, renderAt: number): StepPose => ({
+  col: Math.round(sample.x),
+  dir: sample.dir,
+  moving: sample.moving || renderAt - sample.arrived < WALK_GRACE_MS,
+  row: Math.round(sample.y),
+  x: sample.x,
+  y: sample.y,
+});
+
+interface Stride {
+  from: GridTile;
+  to: GridTile;
+  /** When the step left `from`, on the sender's clock; it reaches `to` `ms` later. */
+  at: number;
+  ms: number;
+  dir: Dir;
+  /** When the body last reached a tile by walking: this step's end, or -Infinity for a placed body. */
+  arrived: number;
+}
+
+export class StepTrack {
+  private readonly clock = new RemoteClock();
+  private readonly interp = new Interpolator<GridSample>({
+    clock: readThrough(this.clock),
+    delayMs: STEP_DELAY_MS,
+    lerp: blendSamples,
+    maxExtrapolateMs: 0,
+  });
+  /** The newest step reported, or where the body was placed. */
+  private stride: Stride | null = null;
+  private beatAt = Number.NEGATIVE_INFINITY;
 
   /** The newest tile reported, undelayed. */
   get latest(): GridTile | undefined {
-    const last = this.points.at(-1);
-    return last && { col: last.col, row: last.row };
-  }
-
-  /** Stand on `tile` without walking there: first sight, spawn, teleport. */
-  snap(tile: GridTile, dir: Dir = "down"): void {
-    this.points.length = 0;
-    this.points.push({
-      arrival: false,
-      col: tile.col,
-      dir,
-      row: tile.row,
-      t: Number.NEGATIVE_INFINITY,
-    });
-    this.playAt = null;
+    return this.stride?.to;
   }
 
   /**
-   * A step onto `to` that left the newest tile at `startedAt` (the stamps'
+   * A step onto `to` that left the newest tile at `startedAt` (the sender's
    * clock) and lasts `strideMs`, arriving here at local time `receivedAt`.
-   * Anything that does not start from the newest tile — a respawn, a teleport,
-   * a stamp that went backwards — snaps instead.
+   * A spawn (a zero stride), or a step that does not start from the newest
+   * tile — a respawn, a teleport, a stamp that went backwards — places the
+   * body there instead.
    */
   step(to: GridTile, startedAt: number, strideMs: number, receivedAt = performance.now()): void {
-    if (Number.isFinite(startedAt)) {
-      // Every arrival, a snap's included, teaches the sender's clock its relay.
-      this.clock.observe?.(startedAt, receivedAt);
-    }
-    const last = this.points.at(-1);
-    const dir = last ? stepDir(last, to) : null;
-    if (
-      !last ||
-      !dir ||
-      !(strideMs > 0) ||
-      !Number.isFinite(startedAt) ||
-      startedAt < last.t - STAMP_SLACK_MS
-    ) {
-      this.snap(to, dir ?? last?.dir);
+    this.clock.observe(startedAt, receivedAt);
+    const last = this.stride;
+    const dir = last ? stepDir(last.to, to) : null;
+    if (!last || !dir || !(strideMs > 0) || startedAt < last.at + last.ms - STAMP_SLACK_MS) {
+      this.place(to, startedAt, last?.dir ?? "down", receivedAt);
       return;
     }
-    const start = Math.max(startedAt, last.t);
-    if (start > last.t) {
-      this.points.push({ ...last, arrival: false, t: start });
+    const end = startedAt + strideMs;
+    this.stride = { arrived: end, at: startedAt, dir, from: last.to, ms: strideMs, to };
+    // Straight on from the last step, the tile it leaves is that step's end, already in.
+    if (startedAt > last.at + last.ms) {
+      this.interp.push(startedAt, standing(last.to, last.dir, last.arrived), receivedAt);
     }
-    this.points.push({ arrival: true, col: to.col, dir, row: to.row, t: start + strideMs });
-    // A step that set off before the playhead came in late, and the body has
-    // been waiting on the tile it leaves: walk it from the start and catch up,
-    // rather than jump into the middle of it.
-    if (this.playAt !== null && this.playAt > start) {
-      this.playAt = start;
+    this.interp.push(end, standing(to, dir, end), receivedAt);
+  }
+
+  /** A heartbeat stamped `at` on the sender's clock: a body at rest still stands there. */
+  beat(at: number, receivedAt = performance.now()): void {
+    if (at <= this.beatAt) {
+      return;
     }
-    while (this.points.length > CAPACITY) {
-      this.points.shift();
+    this.beatAt = at;
+    this.clock.observe(at, receivedAt);
+    const { stride } = this;
+    // Mid-step, the step's own end is already the newest sample.
+    if (stride && at > stride.at + stride.ms) {
+      this.interp.push(at, standing(stride.to, stride.dir, stride.arrived), receivedAt);
     }
   }
 
-  /** The pose to draw at local time `localNow`; advances the playhead. */
+  /** The pose to draw at local time `localNow`. */
   sample(localNow: number): StepPose | undefined {
-    const target = this.clock.now(localNow) - this.delayMs;
-    const { playAt, sampledAt } = this;
-    if (
-      playAt === null ||
-      sampledAt === null ||
-      localNow - sampledAt > STALE_MS ||
-      playAt - target > MAX_LAG_MS
-    ) {
-      this.playAt = target;
-    } else {
-      const lag = target - playAt;
-      const rate = 1 + Math.min(MAX_CATCH_UP, Math.max(0, lag) / CATCH_UP_MS);
-      const advanced = Math.min(target, playAt + Math.max(0, localNow - sampledAt) * rate);
-      // Never backwards: a clock estimate that slews back holds the body instead.
-      this.playAt = Math.max(playAt, advanced, target - MAX_LAG_MS);
-    }
-    this.sampledAt = localNow;
-    return this.poseAt(this.playAt);
+    const sample = this.interp.sample(localNow);
+    return sample && poseOf(sample, this.interp.renderTime(localNow));
   }
 
-  private poseAt(at: number): StepPose | undefined {
-    const { points } = this;
-    while (points.length > 1 && (points[1]?.t ?? Number.POSITIVE_INFINITY) <= at) {
-      points.shift();
-    }
-    const [a, b] = points;
-    if (!a) {
-      return undefined;
-    }
-    if (!b || at <= a.t || (a.col === b.col && a.row === b.row)) {
-      return {
-        col: a.col,
-        dir: a.dir,
-        moving: a.arrival && at - a.t < WALK_GRACE_MS,
-        row: a.row,
-        x: a.col,
-        y: a.row,
-      };
-    }
-    const k = (at - a.t) / (b.t - a.t);
-    const covered = k < 0.5 ? a : b;
-    return {
-      col: covered.col,
-      dir: b.dir,
-      moving: true,
-      row: covered.row,
-      x: a.col + (b.col - a.col) * k,
-      y: a.row + (b.row - a.row) * k,
-    };
+  /** Forget where the body is: the next step places it (a new round respawns everyone). */
+  clear(): void {
+    this.interp.clear();
+    this.stride = null;
+  }
+
+  /** Stand on `to` without walking there: first sight, spawn, teleport. */
+  private place(to: GridTile, at: number, dir: Dir, receivedAt: number): void {
+    const arrived = Number.NEGATIVE_INFINITY;
+    this.interp.clear();
+    this.stride = { arrived, at, dir, from: to, ms: 0, to };
+    this.interp.push(at, standing(to, dir, arrived), receivedAt);
   }
 }
