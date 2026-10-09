@@ -105,8 +105,8 @@ test("offline claims are granted at once, lapse on their TTL, and release or cle
   }
 });
 
-test("fallbackMs counts rendered frames: no room in time, and the client goes offline", () => {
-  // The frames the client counts, stood in for here and removed after.
+/** Stands in for the browser's frames, which the client counts `fallbackMs` on. */
+const stubFrames = () => {
   const host: {
     requestAnimationFrame?: (draw: (time: number) => void) => number;
     cancelAnimationFrame?: (handle: number) => void;
@@ -121,41 +121,78 @@ test("fallbackMs counts rendered frames: no room in time, and the client goes of
   host.cancelAnimationFrame = (handle) => {
     pending.delete(handle);
   };
-  const frame = (time: number): void => {
-    const draws = [...pending.values()];
-    pending.clear();
-    for (const draw of draws) {
-      draw(time);
+  /** Draw frames at 60 fps from `from` until `to` (ms). */
+  const run = (from: number, to: number): void => {
+    for (let time = from; time <= to; time += 1000 / 60) {
+      const draws = [...pending.values()];
+      pending.clear();
+      for (const draw of draws) {
+        draw(time);
+      }
     }
   };
+  const restore = (): void => {
+    delete host.requestAnimationFrame;
+    delete host.cancelAnimationFrame;
+  };
+  return { pending, restore, run };
+};
 
-  const client = new MultiplayerClient({
+const dialing = (): MultiplayerClient =>
+  new MultiplayerClient({
     fallbackMs: 4000,
     host: UNREACHABLE,
     party: "vg-server",
     room: "fallback-test",
   });
+
+test("fallbackMs counts rendered frames: no room in time, and the client goes offline", () => {
+  const frames = stubFrames();
+  const client = dialing();
   let notified = 0;
   client.subscribe(() => {
     notified += 1;
   });
   try {
     assert.equal(client.connectionStatus, "connecting");
-    // The first frame starts the deadline, whenever it comes: loading, or a
-    // hidden tab, renders no frames and counts for nothing.
-    frame(60_000);
-    frame(63_999);
-    assert.equal(client.connectionStatus, "connecting", "still inside the deadline");
+    // Counting starts at the first frame, whenever it comes.
+    frames.run(60_000, 62_000);
+    // A hidden tab renders nothing; when it shows again, the gap counts as
+    // one frame, not as the minute it was hidden.
+    frames.run(122_000, 123_500);
+    assert.equal(client.connectionStatus, "connecting", "3.6 s of frames: inside the deadline");
     const before = notified;
-    frame(64_000);
-    assert.equal(client.connectionStatus, "offline", "the deadline passed without a room");
+    frames.run(123_500, 124_000);
+    assert.equal(client.connectionStatus, "offline", "4 s of frames without a room");
     assert.ok(notified > before, "subscribers heard it");
     assert.ok(client.isHost);
-    assert.equal(pending.size, 0, "the heartbeat stopped");
+    assert.equal(frames.pending.size, 0, "the heartbeat stopped");
   } finally {
     client.destroy();
-    delete host.requestAnimationFrame;
-    delete host.cancelAnimationFrame;
+    frames.restore();
+  }
+});
+
+test("a client a room admitted never falls back, even redirected to an overflow room", () => {
+  const frames = stubFrames();
+  const client = dialing();
+  try {
+    // No server here: hand the client's message handler what one would send.
+    // oxlint-disable-next-line anti-slop/no-reflect-get -- a test feeding server messages to the SDK's private handler, with no server to send them
+    const deliver: (event: { data: string }) => void = Reflect.get(client, "handleMessage");
+    const sync = { claims: {}, hostId: "host", players: {}, state: {}, tick: null, time: 0 };
+    deliver({ data: JSON.stringify({ data: sync, type: "sync" }) });
+    assert.equal(client.connectionStatus, "connected");
+    // Back from a drop whose seat lapsed, into a room that filled meanwhile.
+    deliver({
+      data: JSON.stringify({ data: { capacity: 2, room: "fallback-test~2" }, type: "room_full" }),
+    });
+    assert.equal(client.connectionStatus, "reconnecting", "admitted before, so not connecting");
+    frames.run(0, 10_000);
+    assert.equal(client.connectionStatus, "reconnecting", "and it never falls back");
+  } finally {
+    client.destroy();
+    frames.restore();
   }
 });
 

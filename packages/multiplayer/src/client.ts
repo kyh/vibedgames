@@ -143,6 +143,10 @@ const applyInputChanges = (
 const TIME_PROBE_BURST_MS = [0, 100, 250, 500];
 /** Probe cadence until the clock has a full window: a boot stall can spoil the burst. */
 const TIME_PROBE_SETTLE_MS = 500;
+/** `fallbackMs` counts a frame for at most this long (ms): a hidden tab or a
+ *  stalled main thread renders nothing, and its gap is not time the client
+ *  spent unable to reach a room. */
+const FALLBACK_FRAME_MS = 100;
 
 /** The room rules this client advertises (query JSON), or null for none. */
 const roomRules = (options: MultiplayerOptions): RoomRules | null => {
@@ -260,8 +264,12 @@ export class MultiplayerClient {
   private heartbeatRaf: number | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private lastHeartbeatAt = 0;
-  /** `fallbackMs`: the first frame's time, from which the deadline counts. */
-  private fallbackFrom: number | null = null;
+  /** True once any room has admitted this client: from then on it is
+   *  reconnecting, never connecting, and never falls back. */
+  private admitted = false;
+  /** `fallbackMs`: rendered time spent unadmitted, and the last frame's time. */
+  private fallbackElapsed = 0;
+  private lastFrameAt: number | null = null;
   private fallbackTimer: ReturnType<typeof setTimeout> | null = null;
   /** Offline claims with a TTL, each lapsing on its own timer. */
   private readonly claimTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -407,21 +415,25 @@ export class MultiplayerClient {
       if (fallbackMs !== undefined) {
         this.fallbackTimer = setTimeout(() => {
           this.fallbackTimer = null;
-          this.checkFallback(Number.POSITIVE_INFINITY);
+          if (!this.admitted) {
+            this.goOffline();
+          }
         }, fallbackMs);
       }
     }
   }
 
-  /** `fallbackMs`: go offline once that long has passed, from the first frame
-   *  at `t`, without a room admitting this client. */
+  /** `fallbackMs`: go offline once that much rendered time has passed, from
+   *  the first frame, without any room admitting this client. */
   private checkFallback(t: number): void {
     const { fallbackMs } = this.options;
-    if (fallbackMs === undefined || this._playerId !== null) {
+    if (fallbackMs === undefined || this.admitted) {
       return;
     }
-    this.fallbackFrom ??= t;
-    if (t - this.fallbackFrom >= fallbackMs) {
+    const last = this.lastFrameAt ?? t;
+    this.lastFrameAt = t;
+    this.fallbackElapsed += Math.min(Math.max(0, t - last), FALLBACK_FRAME_MS);
+    if (this.fallbackElapsed >= fallbackMs) {
       this.goOffline();
     }
   }
@@ -480,12 +492,14 @@ export class MultiplayerClient {
    * rejected us (a client can't open a looser/uncapped shard). The full room
    * never admitted us, so reset to the caller-provided defaults; a fresh room
    * must not inherit optimistic writes, and we re-seed as host if we land
-   * there first.
+   * there first. A client a room admitted before (back from a drop whose
+   * seat lapsed, into a room that filled meanwhile) is still reconnecting,
+   * not connecting, and never falls back.
    */
   private redirectTo(room: string, capacity: number): void {
     this._room = room;
     this.cap = capacity > 0 ? capacity : this.cap;
-    this._connectionStatus = "connecting";
+    this._connectionStatus = this.admitted ? "reconnecting" : "connecting";
     this.initialStateApplied = false;
     this.remoteStateSeen = false;
     this._players = {};
@@ -498,8 +512,7 @@ export class MultiplayerClient {
     // Queued for a room that never admitted us — don't leak them into the new one.
     this.pendingCoalesced.clear();
 
-    // The close reconnect() dispatches for the old connection reads as
-    // "connecting" too: this client has never been admitted.
+    // The close reconnect() dispatches for the old connection reads the same.
     this.socket?.updateProperties({ query: this.connectionQuery(), room });
     this.socket?.reconnect();
 
@@ -1038,7 +1051,7 @@ export class MultiplayerClient {
    * player id is withheld until `sync` confirms we're actually in the room.
    */
   private handleTransport = (): void => {
-    this._connectionStatus = this._playerId === null ? "connecting" : "reconnecting";
+    this._connectionStatus = this.admitted ? "reconnecting" : "connecting";
     this.notify();
   };
 
@@ -1068,6 +1081,7 @@ export class MultiplayerClient {
   private applySync(data: Extract<ServerMessage, { type: "sync" }>["data"]): void {
     const wasHost = this._hostId !== null && this._hostId === this._playerId;
     this._connectionStatus = "connected";
+    this.admitted = true;
     this._playerId = this.socket?.id ?? null;
     this._hostId = data.hostId;
     this._players = data.players;

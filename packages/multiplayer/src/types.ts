@@ -25,10 +25,11 @@ export interface MultiplayerOptions {
   offline?: boolean;
   /**
    * Go offline when no room has admitted this client within this long (ms),
-   * so a game still plays when the server is out of reach. Counted on
-   * rendered frames from the first one after the client is created, so time
-   * the page spends loading or hidden doesn't count. Once admitted, a drop is
-   * a reconnect, never a fallback. Omit to keep trying for good.
+   * so a game still plays when the server is out of reach. Counted in
+   * rendered frames from the first one after the client is created, each
+   * worth at most 100 ms, so time the page spends loading, hidden or stalled
+   * doesn't count. Once a room has admitted the client, a drop is a
+   * reconnect, never a fallback. Omit to keep trying for good.
    */
   fallbackMs?: number;
   /**
@@ -186,11 +187,12 @@ export const RECONNECT_GRACE_MS = 30_000;
 
 /**
  * Where this client stands with its room:
- * - `connecting`: not yet admitted to a room (the first dial, retries, an
- *   overflow redirect).
+ * - `connecting`: no room has admitted this client yet (the first dial,
+ *   retries, an overflow redirect).
  * - `connected`: in the room.
- * - `reconnecting`: was in the room, and the transport dropped. The seat is
- *   held (`RECONNECT_GRACE_MS`) while the client redials on its own.
+ * - `reconnecting`: a room admitted this client before, and it is out of it
+ *   now: the transport dropped, and the client redials on its own. The seat
+ *   is held (`RECONNECT_GRACE_MS`); past that, it rejoins as a new player.
  * - `offline`: a local room of one (`offline`, `fallbackMs`, `goOffline`).
  */
 export type MultiplayerConnectionStatus = "connecting" | "connected" | "reconnecting" | "offline";

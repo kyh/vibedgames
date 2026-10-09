@@ -263,8 +263,9 @@ apply locally, events and host intents loop back to `onEvent` (honouring
 locally.
 
 `fallbackMs` counts rendered frames from the first one after the client is
-created, so loading time and a hidden tab don't count against it. Once a room
-has admitted the client, a drop is `"reconnecting"`, never a fallback.
+created, each worth at most 100 ms, so loading time, a hidden tab and a stalled
+main thread don't count against it. Once a room has admitted the client, a drop
+is `"reconnecting"`, never a fallback.
 `goOffline()` leaves deliberately, so the room frees the seat at once; shared
 state and this player's state carry over. A new client is the way back online.
 

@@ -191,9 +191,10 @@ the local clock. Don't write stand-ins for an offline game: the client is one.
 The example games use 4–8 s.
 
 - **The deadline counts rendered frames**, from the first one after the client
-  is created. Loading time and a hidden tab don't count, so a slow boot isn't
-  dropped to solo before its socket ever connects. Still, create the client
-  when the game can play, not before a long load.
+  is created, each worth at most 100 ms. Loading time, a hidden tab and a
+  stalled main thread don't count, so a slow boot isn't dropped to solo before
+  its socket ever connects. Still, create the client when the game can play,
+  not before a long load.
 - **Once admitted, a drop is `"reconnecting"`, never a fallback.** The seat is
   held for `RECONNECT_GRACE_MS` while the socket redials; show the overlay.
 - **Offline by intent** (`?offline=1`, a trailer): `offline: true` never dials.
