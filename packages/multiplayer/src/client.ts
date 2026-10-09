@@ -828,6 +828,23 @@ export class MultiplayerClient {
     this.send({ data: emitData(event, payload, to, except), type: "emit" });
   }
 
+  /**
+   * An intent for the host alone. The host — an offline client too — hands it
+   * to its own `onEvent` at once instead of bouncing it off the server; a
+   * guest sends it to the host. Dropped while no host is known.
+   */
+  sendToHost(event: string, payload: JsonValue): void {
+    const me = this._playerId;
+    if (me !== null && this._hostId === me) {
+      this._onEvent?.(event, payload, me);
+      return;
+    }
+    const host = this._hostId;
+    if (host !== null) {
+      this.sendEvent(event, payload, { to: host });
+    }
+  }
+
   get onEvent(): MultiplayerOptions["onEvent"] {
     return this._onEvent;
   }

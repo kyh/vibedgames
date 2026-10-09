@@ -48,6 +48,8 @@ Connection lifecycle:
   the same API: it hosts, writes apply locally, events loop back, claims are
   granted at once, and `serverNow()` reads the local clock. `OFFLINE_PLAYER_ID`
   is its player id.
+- `sendToHost(event, payload)`: an intent for the host alone. The host handles
+  its own at once instead of a server round trip.
 - `JsonValue` and `JsonRecord` are exported.
 
 Netcode helpers:

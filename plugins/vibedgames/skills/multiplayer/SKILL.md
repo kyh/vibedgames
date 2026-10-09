@@ -74,15 +74,16 @@ client.room; // the room you actually landed in — "arena" or an overflow sibli
 // Wrong — non-host's mutation gets reverted, the UI flickers.
 client.updateSharedState({ score: client.sharedState.score + 10 });
 
-// Right — gate the mutation; non-hosts request the change instead.
-if (client.isHost) {
-  client.updateSharedState({ score: client.sharedState.score + 10 });
-} else {
-  client.sendEvent("score_request", { delta: 10 });
+// Right — every player, the host included, asks; the host's onEvent applies it.
+client.sendToHost("score_request", { delta: 10 });
+
+// in the client's onEvent:
+if (event === "score_request" && client.isHost) {
+  client.updateSharedState({ score: client.sharedState.score + payload.delta });
 }
 ```
 
-The pattern: **intents go up via `sendEvent`, state comes down via `sharedState` patches**. Host listens for intent events, validates, and writes the result.
+The pattern: **intents go up via `sendToHost`, state comes down via `sharedState` patches**. The host validates each intent and writes the result. A guest's intent reaches the host alone; the host's own is handled at once, without a server round trip.
 
 `updateMyState` is _not_ host-gated — players always own their own slot. **The corollary bites: the host cannot use `updateMyState` to mark _other_ players dead/disabled either, because that call only ever writes the caller's own slot.** Cross-player flags (deaths, scores, banned-from-round) belong in `sharedState`.
 

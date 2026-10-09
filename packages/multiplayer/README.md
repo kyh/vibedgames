@@ -205,6 +205,7 @@ Fire-and-forget messages. Handled by the `onEvent` callback in the room config.
 
 ```ts
 room.sendEvent("explosion", { x: 100, y: 200 });
+client.sendToHost("move", { dir: "left" }); // an intent: the host's onEvent applies it
 
 room.sendEvent("hit", dmg, { to: victimId }); // one player
 room.sendEvent("spawn", data, { except: room.playerId }); // everyone else
@@ -215,6 +216,11 @@ room.sendEvent("cursor", pos, { coalesce: true }); // latest-wins, flushed per m
 rapid same-type events into one wire message without reordering them against
 state patches. Events are not buffered — a player who is away misses them, so
 anything that must survive a reconnect belongs in state.
+
+`sendToHost` is how a player asks the host to change shared state. A guest's
+intent goes to the host alone; the host's own is handed to its `onEvent` at
+once rather than bounced off the server. So one `onEvent` branch validates and
+applies every player's intents, the host's included.
 
 ## Room metadata
 
@@ -251,7 +257,7 @@ client.goOffline(); // leave the room and play on alone ("play solo")
 Offline, the client is a local room of one with the same API, so a game runs
 one code path for online and solo play. `connectionStatus` is `"offline"` and
 the player id is `OFFLINE_PLAYER_ID`; this client is the host. State updates
-apply locally, events loop back to `onEvent` (honouring
+apply locally, events and host intents loop back to `onEvent` (honouring
 `to`/`except`), claims are granted at once and lapse on their TTL, and
 `serverNow()` reads the local clock. Tick rooms don't tick offline: run the sim
 locally.

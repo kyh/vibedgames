@@ -52,7 +52,7 @@ test("an offline client is a room of one: it hosts, and its state applies locall
   }
 });
 
-test("offline, events reach their own audience at once", () => {
+test("offline, events reach their own audience at once, and host intents are handled here", () => {
   const heard: [string, JsonValue, string][] = [];
   const client = offlineClient(heard);
   try {
@@ -61,10 +61,12 @@ test("offline, events reach their own audience at once", () => {
     client.sendEvent("aimed-elsewhere", 3, { to: ["someone"] });
     client.sendEvent("excluding-me", 4, { except: [OFFLINE_PLAYER_ID] });
     client.sendEvent("coalesced", 5, { coalesce: true });
+    client.sendToHost("intent", { move: "left" });
     assert.deepEqual(heard, [
       ["broadcast", 1, OFFLINE_PLAYER_ID],
       ["aimed-here", 2, OFFLINE_PLAYER_ID],
       ["coalesced", 5, OFFLINE_PLAYER_ID],
+      ["intent", { move: "left" }, OFFLINE_PLAYER_ID],
     ]);
   } finally {
     client.destroy();

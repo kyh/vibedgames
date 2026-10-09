@@ -383,6 +383,37 @@ test("targeted events reach exactly their audience", async () => {
   }
 });
 
+test("sendToHost reaches the host alone, and the host handles its own at once", async () => {
+  const room = uniqueRoom("to-host");
+  const heardA: [string, string][] = [];
+  const heardB: [string, string][] = [];
+  const heardC: [string, string][] = [];
+  const clientA = connect(room, { onEvent: (event, _payload, from) => heardA.push([event, from]) });
+  await waitFor(() => admitted(clientA), "A admitted first, so A hosts");
+  const clientB = connect(room, { onEvent: (event, _payload, from) => heardB.push([event, from]) });
+  const clientC = connect(room, { onEvent: (event, _payload, from) => heardC.push([event, from]) });
+  try {
+    await waitFor(() => admitted(clientB) && admitted(clientC), "guests admitted");
+    const hostId = clientA.playerId;
+    const guestId = clientB.playerId;
+    assert.ok(hostId !== null && guestId !== null);
+    assert.equal(clientB.hostId, hostId);
+
+    clientA.sendToHost("host-intent", 1);
+    assert.deepEqual(heardA, [["host-intent", hostId]], "handled before sendToHost returns");
+    clientB.sendToHost("guest-intent", 2);
+    await waitFor(() => heardA.length === 2, "the host hears the guest's intent");
+    assert.deepEqual(heardA[1], ["guest-intent", guestId]);
+    await delay(200);
+    assert.deepEqual(heardB, [], "the sending guest doesn't hear its own intent");
+    assert.deepEqual(heardC, [], "another guest hears neither");
+  } finally {
+    clientA.destroy();
+    clientB.destroy();
+    clientC.destroy();
+  }
+});
+
 test("coalesced events collapse to the latest payload and never trail the state they precede", async () => {
   const room = uniqueRoom("coalesce");
   const clientA = connect(room);

@@ -31,6 +31,7 @@ export const client = new MultiplayerClient({
   host: PARTY_HOST,
   // Offline by intent: never dial.
   offline: new URLSearchParams(location.search).has("offline"),
+  onEvent: (event, payload, from) => applyIntent(event, payload, from),
   party: "vg-server",
   room: "my-game-room",
 });
@@ -52,10 +53,11 @@ export const session = {
     return client.sharedState as { score: number; phase: string };
   },
 
-  // Host-only writes wrapped — non-host calls become intent events.
+  // Host-owned writes go through the host: it applies its own intents at
+  // once, and a guest's reach it alone. `applyIntent` (the client's onEvent)
+  // validates each one and writes the result.
   setScore(score: number) {
-    if (client.isHost) client.updateSharedState({ score });
-    else client.sendEvent("set_score", { score });
+    client.sendToHost("set_score", { score });
   },
 
   // Player-owned writes pass straight through.
@@ -174,8 +176,8 @@ out on reconnect, so never stream per-frame state as events.
 
 Pass `fallbackMs` and the SDK plays solo when no server answers. If no room
 admits the client within that long, it goes offline: a local room of one with
-the same API. It is the host, writes apply locally, events loop back to
-`onEvent`, claims are granted at once, and `serverNow()` reads
+the same API. It is the host, writes apply locally, events and `sendToHost`
+loop back to `onEvent`, claims are granted at once, and `serverNow()` reads
 the local clock. Don't write stand-ins for an offline game: the client is one.
 The example games use 4–8 s.
 
