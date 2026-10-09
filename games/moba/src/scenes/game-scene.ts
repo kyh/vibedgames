@@ -445,9 +445,7 @@ export class GameScene extends Scene {
       room: roomFromLocation(),
     });
     this.net = net;
-    // Every host stamps with the room's server clock, so the mirror renders
-    // on it and keeps it through a host migration.
-    this.mirror = new GuestMirror(this.world, net.serverClock);
+    this.mirror = new GuestMirror(this.world);
     this.predictor = new HeroPredictor();
     net.subscribe(() => this.onNetChange(net));
   }

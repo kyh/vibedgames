@@ -4,20 +4,20 @@
 //   as of its newest step, exact but for 0.1 px rounding. Prediction reads it
 //   (freshest statuses, targets) and a promoted guest resumes from it.
 // - the view (the scene's world): the same ticks replayed INTERP_DELAY_MS
-//   behind the newest the stream can deliver, on the room's server clock, with
-//   every remote body placed by interpolating its stamped positions. Hits,
-//   deaths, projectiles landing and the bodies they concern all play on that
-//   one timeline, so a spark never fires before the arrow arrives; the local
-//   hero alone is drawn ahead, predicted.
+//   behind the newest the stream can deliver, with every remote body placed
+//   by interpolating its stamped positions. Hits, deaths, projectiles landing
+//   and the bodies they concern all play on that one timeline, so a spark
+//   never fires before the arrow arrives; the local hero alone is drawn
+//   ahead, predicted.
 //
 // Every host stamps its steps with server time, so a stamp means the same
 // moment whoever sent it. When the host changes, the old host's last ticks, the
 // new host's opening keyframe and its ticks queue on that one timeline and play
-// straight through: nothing is re-learned and no body is dropped. Only the
-// replica waits, for the new host's keyframe: its stream's baseline.
+// straight through: no body is dropped, and the clock measures the new host's
+// route afresh, easing onto it. Only the replica waits, for the new host's
+// keyframe: its stream's baseline.
 
 import { Interpolator, RemoteClock, lerp } from "@vibedgames/multiplayer";
-import type { SenderClock } from "@vibedgames/multiplayer";
 
 import { SIM_DT } from "../data/config";
 import type { Vec2 } from "../sim/math";
@@ -32,38 +32,6 @@ import { applyTick } from "./stream";
 export const INTERP_DELAY_MS = 100;
 
 const STEP_MS = SIM_DT * 1000;
-
-/** The clock the view and its bodies render on; `synced` once a tick has
- *  arrived on a measured server clock. */
-interface StreamClock extends SenderClock {
-  /** One tick stamped `sentAt` (server time) landed at local `receivedAt`. */
-  measure: (sentAt: number, receivedAt: number) => void;
-}
-
-/**
- * The newest moment the stream can be shown at: the room's server clock, less
- * the trip a tick makes to get here (host → server → us, 100 ms and more over
- * a real network). A fixed delay behind server time would leave every tick
- * late on a slow route, so the fastest recent trip is measured off the ticks
- * themselves. Stamps share the server's timebase whichever host sent them, so
- * the measurement simply carries on through a host migration.
- */
-const streamClock = (server: SenderClock): StreamClock => {
-  // Fed server time on both sides, so its offset is the trip itself.
-  const trip = new RemoteClock();
-  return {
-    measure: (sentAt, receivedAt) => {
-      // Until the first time probe returns, "server time" is the local clock.
-      if (server.synced) {
-        trip.observe(sentAt, server.now(receivedAt));
-      }
-    },
-    now: (localNow) => trip.now(server.now(localNow)),
-    get synced() {
-      return server.synced && trip.synced;
-    },
-  };
-};
 
 interface Pending {
   t: number;
@@ -93,7 +61,14 @@ export const placeFollowers = (view: World): void => {
 export class GuestMirror {
   /** Local time (performance.now) the newest host tick arrived; 0 before any. */
   lastTickAt = 0;
-  private readonly clock: StreamClock;
+  /**
+   * The newest moment the stream can be shown at: the stamp a tick landing
+   * now would carry, had it made the fastest recent trip here (host → server
+   * → us, 100 ms and more over a real network). A fixed delay behind server
+   * time would leave every tick late on a slow route, so it is read off the
+   * ticks' own arrivals: each stamp against the local time it landed.
+   */
+  private readonly clock = new RemoteClock();
   private readonly view: World;
   private readonly bodies = new Map<string, Interpolator<Vec2>>();
   private readonly pending: Pending[] = [];
@@ -107,11 +82,8 @@ export class GuestMirror {
   private shownG = 0;
   private viewNow = 0;
 
-  /** `server` is the room's server clock (`client.serverClock`), which every
-   *  host stamps its ticks and keyframes with. */
-  constructor(view: World, server: SenderClock) {
+  constructor(view: World) {
     this.view = view;
-    this.clock = streamClock(server);
   }
 
   /** The host's world as of its newest tick, or null before any keyframe
@@ -149,10 +121,12 @@ export class GuestMirror {
     return rematch;
   }
 
-  /** One host tick, the moment it arrives. */
+  /** One host tick, the moment it arrives (`receivedAt`, local time). */
   tick(tick: Tick, receivedAt: number): void {
     this.lastTickAt = receivedAt;
-    this.clock.measure(tick.t, receivedAt);
+    // Every tick is timed, the ones the replica cannot take yet too; the
+    // bodies' pushes below report the same arrival to the clock they share.
+    this.clock.observe(tick.t, receivedAt);
     const { replica } = this;
     if (!replica || !this.based) {
       return;
@@ -164,19 +138,19 @@ export class GuestMirror {
     // must say so, or interpolation would carry it on past where it stood.
     for (const u of replica.units.values()) {
       if (u.kind !== "structure") {
-        this.body(u.id).push(tick.t, { x: u.x, y: u.y });
+        this.body(u.id).push(tick.t, { x: u.x, y: u.y }, receivedAt);
       }
     }
     for (const p of replica.projectiles.values()) {
-      this.body(p.id).push(tick.t, { x: p.x, y: p.y });
+      this.body(p.id).push(tick.t, { x: p.x, y: p.y }, receivedAt);
     }
   }
 
   /**
    * Bring the view up to render time: replay the ticks it has reached, then
    * place every remote body (all but `ownId`, which prediction draws) where
-   * it was at that moment on the host. Until the stream's clock is known —
-   * a round trip after joining — each tick shows as it lands, bodies with it.
+   * it was at that moment on the host. Until the first tick lands there is
+   * nothing to time the stream by, and a keyframe shows as it lands.
    */
   frame(localNow: number, ownId: string): void {
     const { clock, view } = this;
@@ -220,15 +194,19 @@ export class GuestMirror {
    * The host changed. Its ticks are deltas against its own opening keyframe,
    * so the replica rests until that arrives (prediction holds still meanwhile,
    * as the world does between hosts). The view's queue and every body's
-   * history are stamped on the room's clock: they play on.
+   * history are stamped on the room's clock: they play on. The new host's
+   * ticks reach us by another route, which the clock measures afresh and
+   * eases onto; timed by the old route's faster trips, they would be drawn
+   * early for seconds.
    */
   hostChanged(): void {
     this.based = false;
+    this.clock.relearn();
   }
 
   /** Forget the stream — the connection dropped, or this client took over as
-   *  host. Ticks are ignored until the next keyframe. The clock is the room's
-   *  and stays. */
+   *  host. Ticks are ignored until the next keyframe. The clock keeps what it
+   *  has measured of the route. */
   reset(): void {
     this.bodies.clear();
     this.pending.length = 0;
