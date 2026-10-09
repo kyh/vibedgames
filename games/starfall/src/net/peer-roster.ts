@@ -145,11 +145,6 @@ export class PeerRoster {
     return entry.interp.renderTime(perfNow);
   }
 
-  /** Feed a peer's clock from a stamped event (a shot can beat the first state). */
-  observe(id: string, t: number, perfNow: number): void {
-    this.entryFor(id).interp.clock.observe?.(t, perfNow);
-  }
-
   /** Host targeting: a guest's newest pose led toward the present along its
    *  velocity (capped), not where the guest is drawn 100 ms in the past. */
   lead(id: string, perfNow: number): Vec | null {

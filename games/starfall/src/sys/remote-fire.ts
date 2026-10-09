@@ -77,10 +77,13 @@ export class RemoteFire {
   }
 
   /** A `fire` event (socket listener): decode and queue — the work happens
-   *  in the frame loop. Its arrival also teaches the shooter's clock. Events
-   *  are not interest-filtered: a shooter out of range fires from past the
-   *  edge of the screen, so its shots are dropped here, like the hull. */
-  receive(from: string, payload: WireValue, perfNow: number): void {
+   *  in the frame loop. Its stamp does not teach the shooter's clock: that
+   *  clock sizes the hull's pose buffer from how long each pose stays the
+   *  newest, and a shot landing between two poses would read as a pose. A
+   *  shot from a shooter with no state yet never plays anyway. Events are
+   *  not interest-filtered: a shooter out of range fires from past the edge
+   *  of the screen, so its shots are dropped here, like the hull. */
+  receive(from: string, payload: WireValue): void {
     if (from === this.link.myId || this.link.peers[from]?.visible === false) {
       return;
     }
@@ -88,7 +91,6 @@ export class RemoteFire {
     if (!spec) {
       return;
     }
-    this.roster.observe(from, spec.t, perfNow);
     const { queue } = this.shooterFor(from);
     queue.push(spec);
     if (queue.length > QUEUE_CAP) {
