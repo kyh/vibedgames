@@ -42,9 +42,10 @@ export interface SenderClock {
   reset?: () => void;
   /**
    * How far behind this clock to render for the sender's stream to never run
-   * dry, as measured (ms); 0 until measured. See `RemoteClock.hold`.
+   * dry, as measured (ms); 0 until measured. `floor` is the least delay the
+   * reader draws at. See `RemoteClock.hold`.
    */
-  hold?: (localNow?: number) => number;
+  hold?: (localNow?: number, floor?: number) => number;
 }
 
 export interface RemoteClockOptions {
@@ -133,20 +134,21 @@ export class RemoteClock implements SenderClock {
    * seconds' updates (a rarer late one extrapolates), ignores idle silences,
    * and moves at most 10% of elapsed time per read, so a change slows or
    * speeds playback a little instead of jumping it. 0 until enough updates
-   * have arrived; the first estimate then eases in from 0 the same way. An
-   * `Interpolator` renders at the larger of this and its `delayMs`.
+   * have arrived. `floor` is the least delay the reader draws at, the one it
+   * takes the larger of this and: the first estimate eases in from there the
+   * same way, so a stream that needs more slows into it from where it was
+   * drawn, never back. An `Interpolator` passes its `delayMs`.
    */
-  hold(localNow: number = now()): number {
+  hold(localNow: number = now(), floor = 0): number {
     const target = this.holdTarget;
     if (target === null) {
       return 0;
     }
     if (this.holdApplied === null) {
-      // The first estimate eases in from nothing, like any later change: until
-      // now the stream was drawn at its consumer's own floor (an
-      // Interpolator's delayMs), and a larger hold adopted at once would step
-      // render time back.
-      this.holdApplied = 0;
+      // The first estimate eases in like any later change: until now the
+      // stream was drawn at its reader's floor, and a larger hold adopted at
+      // once would step render time back.
+      this.holdApplied = Math.min(target, floor);
     } else {
       const step = Math.max(0, localNow - this.holdRead) * SLEW;
       this.holdApplied += Math.max(-step, Math.min(step, target - this.holdApplied));

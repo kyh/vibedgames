@@ -258,6 +258,25 @@ test("RemoteClock measures the delay a stream needs: its interval plus how late 
   assert.ok(hold > 110 && hold < 132, `hold ${hold}`);
 });
 
+test("RemoteClock eases a new stream's hold in from its reader's floor", () => {
+  const clock = new RemoteClock();
+  for (const { at, t } of stream(20, 5, 80)) {
+    clock.observe(t, at);
+  }
+  // The stream needs more than the reader's 100 ms: it starts there, not at 0,
+  // and grows by at most a tenth of the time since.
+  assert.equal(clock.hold(12_100, 100), 100);
+  const next = clock.hold(12_200, 100);
+  assert.ok(next > 100 && next <= 110 + 1e-9, `hold ${next}`);
+  assert.ok(clock.hold(14_100, 100) > 110, "and gets there");
+  // Below the floor there is nothing to ease: the reader draws at its floor.
+  const steady = new RemoteClock();
+  for (const { at, t } of stream(20, 5, 0)) {
+    steady.observe(t, at);
+  }
+  assert.ok(Math.abs(steady.hold(12_100, 100) - 50) < 1, "an even stream needs one interval");
+});
+
 test("RemoteClock's hold ignores idle silences and other entities' copies of a stamp", () => {
   const clock = new RemoteClock();
   const arrivals = stream(20, 3, 0);

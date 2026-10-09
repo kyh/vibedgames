@@ -208,7 +208,10 @@ export class Interpolator<T> {
    * effects) at this time too, so they line up with what it is attached to.
    */
   renderTime(localNow: number = now()): number {
-    return this.clock.now(localNow) - Math.max(this.delayMs, this.clock.hold?.(localNow) ?? 0);
+    return (
+      this.clock.now(localNow) -
+      Math.max(this.delayMs, this.clock.hold?.(localNow, this.delayMs) ?? 0)
+    );
   }
 
   /** Drop the history so the next push shows at once — a teleport, respawn or new round. */

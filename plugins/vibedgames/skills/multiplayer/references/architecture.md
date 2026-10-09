@@ -302,7 +302,9 @@ const pose = interp.sample(); // undefined until the first update
 - **One timeline per sender.** Anything else you draw from a sender — its
   shots, its effects, a hit flash — goes at `interp.renderTime()`, never at
   `clock.now() - DELAY`: the delay grows with the stream, and a hand-computed
-  one drifts off the bodies it belongs to. Keep those events' stamps out of
+  one drifts off the bodies it belongs to. With no Interpolator to ask, use
+  `clock.now(t) - Math.max(DELAY, clock.hold(t, DELAY))`: passing your floor
+  lets a new stream's first estimate ease in from where you draw it. Keep those events' stamps out of
   the clock (`observe`): it sizes the buffer from the gaps between the stamps
   it sees, and a shot stamped between two poses reads as one more pose, so the
   buffer comes out too small.
