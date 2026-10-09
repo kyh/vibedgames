@@ -414,7 +414,7 @@ const run = (sc: Scenario): Outcome => {
       // less the time still owed
       guest.tickAt = guestTime.local(now) - guest.acc;
     }
-    const msg = prediction.flush(1, Math.round(guestTime.clock.now(guest.tickAt)));
+    const msg = prediction.flush(1, Math.floor(guestTime.clock.now(guest.tickAt)));
     if (msg) {
       up.send(now, msg);
     }

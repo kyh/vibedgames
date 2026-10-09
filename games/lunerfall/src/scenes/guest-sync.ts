@@ -657,7 +657,7 @@ export class GuestSync {
   private flushInput(sess: NetSession, force = false) {
     const msg = this.prediction.flush(
       this.room.seq,
-      Math.round(sess.serverNow(this.tickAt)),
+      Math.floor(sess.serverNow(this.tickAt)),
       force,
     );
     if (msg) {
