@@ -40,7 +40,10 @@
  * turns every WebGL draw call and clear in both pages into a no-op: the
  * game's own code, its sockets and its Interpolators run as on a real device,
  * so the verdict reads the netcode. The pages show nothing, so take
- * screenshots without it. A canvas-2D game doesn't need it.
+ * screenshots without it. A canvas-2D game doesn't need it. A scene whose
+ * renderer spends the frame in its own JavaScript (thousands of meshes) stays
+ * slow even so: there the renderer's render() itself has to be skipped, from a
+ * dev-only hook the game exposes.
  *
  * The game must join the room named by `?<room-param>=` on load (a fresh id
  * per run, so concurrent checks never meet) and render remotes through
