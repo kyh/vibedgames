@@ -117,7 +117,8 @@ Netcode (`src/net/`):
   could have arrived by now (`Interpolator` on a `RemoteClock` read off the
   frames' arrivals, so the relay's latency is learned): motion is even however
   frames arrive, a muzzle flash leaves the muzzle it belongs to, and a change of
-  host keeps the timeline — only the new host's route is timed afresh.
+  host keeps the timeline — the clock relearns the new host's route and eases
+  onto it.
 - **Loot stays the host's.** Power cubes go to whichever body the host's sim
   walks over them first, bots and guests' copies alike, and boxes break on the
   host's damage. The room's first-come claims would only settle the rare race a

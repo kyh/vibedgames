@@ -6,8 +6,8 @@
 // the socket are stand-ins. Checks the feel the netcode exists for: the guest's
 // body answers on the frame its key goes down, running straight never draws a
 // correction, a dodge cannot lock, knockback is felt once, remote bodies move
-// evenly and are never guessed at — over a slow relay, through a change of
-// host — and a frame stays small.
+// evenly and are never guessed at over a slow relay, a change of host eases
+// them onto the new route without a jump, and a frame stays small.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { FixedRate } from "@vibedgames/multiplayer";
@@ -315,14 +315,15 @@ const zigzag = (at: number): number => (Math.floor(at / 400) % 2 === 0 ? 1 : -1)
 /**
  * A runner on the hosts' sim, sending 30 Hz frames through the server to a
  * guest that reads them on a FrameClock, as they arrive, and draws the runner
- * as a puppet. While nobody hosts the runner stands still, as a
- * promoted host resumes from the last frame. `steer` is the runner's input at
- * each host step; at `hurtAt` the runner takes a hit. Returns each drawn step,
- * how far the puppet trailed the runner, when each sender's first frame
- * landed, and for every frame drawn once a frame was in hand: when, how far
- * render time was past the newest frame (above zero the puppet is being
- * extrapolated, not interpolated), how far the puppet was drawn past anywhere
- * the runner had been, and the health it showed.
+ * as a puppet until 3 s after the last sender takes over. While nobody hosts
+ * the runner stands still, as a promoted host resumes from the last frame.
+ * `steer` is the runner's input at each host step; at `hurtAt` the runner
+ * takes a hit. Returns each drawn step, how far the puppet trailed the runner,
+ * when each sender's first frame landed, and for every frame drawn once a
+ * frame was in hand: when, the render time it was drawn at and how far that
+ * was past the newest frame (above zero the puppet is being extrapolated, not
+ * interpolated), how far the puppet was drawn past anywhere the runner had
+ * been, and the health it showed.
  */
 const watchRunner = (
   senders: readonly Sender[],
@@ -330,6 +331,7 @@ const watchRunner = (
   steer: (at: number) => number = () => 1,
   hurtAt = Number.POSITIVE_INFINITY,
 ) => {
+  const until = Math.max(...senders.map((sender) => sender.from)) + 3000;
   const host = stubGame("host");
   const guest = stubGame("guest");
   const runner = body(host, { name: "Runner", netId: "bot:0", x: -10, z: 0 }, "nyx");
@@ -340,7 +342,7 @@ const watchRunner = (
     { drive: "puppet", name: "Runner", netId: "bot:0", x: -10, z: 0 },
     "nyx",
   );
-  // One timeline for the guest, whoever hosts; a new host's route is timed afresh.
+  // One timeline for the guest, whoever hosts, eased onto each new host's route.
   const clock = new FrameClock();
   const track = new PuppetTrack(clock);
   // Up the hosting sender's link, down the guest's.
@@ -354,10 +356,10 @@ const watchRunner = (
   let seq = 0;
   const steps: { dt: number; dx: number }[] = [];
   const trails: number[] = [];
-  const drawn: { ahead: number; at: number; hp: number; past: number }[] = [];
+  const drawn: { ahead: number; at: number; hp: number; past: number; render: number }[] = [];
   const went = { max: runner.x, min: runner.x };
   let newest = Number.NEGATIVE_INFINITY;
-  while (guestAt < 3000) {
+  while (guestAt < until) {
     if (hostAt <= guestAt) {
       const sender = senderAt(senders, hostAt);
       host.elapsed += HOST_FRAME_MS / 1000;
@@ -397,7 +399,7 @@ const watchRunner = (
     track.pose(puppet, local, renderAt, openWorld);
     if (Number.isFinite(newest)) {
       const past = Math.max(puppet.x - went.max, went.min - puppet.x);
-      drawn.push({ ahead: renderAt - newest, at: guestAt, hp: puppet.hp, past });
+      drawn.push({ ahead: renderAt - newest, at: guestAt, hp: puppet.hp, past, render: renderAt });
     }
     const frameMs = 12 + frameRng() * 10;
     if (guestAt > 600) {
@@ -432,6 +434,28 @@ const overshoot = (drawn: readonly { past: number }[]): number =>
 /** The furthest render time ran past the newest frame in hand: above zero is a guess. */
 const extrapolated = (drawn: readonly { ahead: number }[]): number =>
   Math.max(...drawn.map((frame) => frame.ahead));
+
+/** The most the frame clock bends render time's pace while it eases onto a new route (the SDK's slew). */
+const EASE = 0.1;
+
+/**
+ * Render time never jumps: over each drawn frame it keeps the pace of the
+ * guest's own clock to within EASE, where a jump moves it a whole route's
+ * difference at once. (Render times are server times, ~1.8e12 ms, whose float
+ * rounding shows in a pace's fifth decimal.)
+ */
+const assertEased = (drawn: readonly { at: number; render: number }[]): void => {
+  for (let i = 1; i < drawn.length; i += 1) {
+    const prev = drawn[i - 1];
+    const frame = drawn[i];
+    assert.ok(prev && frame);
+    const pace = (frame.render - prev.render) / (frame.at - prev.at);
+    assert.ok(
+      Math.abs(pace - 1) <= EASE + 1e-4,
+      `render time ran at ${pace.toFixed(3)}× at ${frame.at.toFixed(0)} ms`,
+    );
+  }
+};
 
 test("a remote body renders evenly from jittery 30 Hz frames, about the delay behind", () => {
   const host = { from: 0, id: "host", link: peer(21, -4321.5, 25, 12), until: Infinity };
@@ -468,20 +492,62 @@ test("through a 100–150 ms relay a turning body is never drawn past where it w
   );
 });
 
-test("a new host on a slower route is timed afresh: remotes stay interpolated", () => {
-  // The first host leaves at 1.5 s; after a 150 ms election the second picks
-  // up from the last frame, with its own local clock, its own reading of the
-  // server clock and a route to the server 120 ms slower: another continent.
-  // Timed against the first host's route, its frames would land after render
-  // time all along.
-  const first = { from: 0, id: "first", link: peer(21, -4321.5, 25, 12), until: 1500 };
-  const second = { from: 1650, id: "second", link: peer(41, -55_555.75, 145, 12), until: Infinity };
+/**
+ * The first host leaves at 1.5 s; after a 150 ms election the second picks up
+ * from the last frame, with its own local clock, its own reading of the server
+ * clock and its own route to the server: `firstMs` and `secondMs` one way.
+ */
+const handover = (firstMs: number, secondMs: number) => {
+  const first = { from: 0, id: "first", link: peer(21, -4321.5, firstMs, 12), until: 1500 };
+  const second = {
+    from: 1650,
+    id: "second",
+    link: peer(41, -55_555.75, secondMs, 12),
+    until: Infinity,
+  };
   const { drawn, firstLanded } = watchRunner([first, second], peer(31, -98_765.25, 25, 12), zigzag);
-  const settled = (firstLanded.get("second") ?? Infinity) + INTERP_DELAY_MS + 1000 / SNAPSHOT_HZ;
+  return { drawn, landed: firstLanded.get("second") ?? Infinity };
+};
+
+test("a new host on a slower route is timed afresh: eased onto without a jump, then remotes stay interpolated", () => {
+  // A route 120 ms slower: another continent. Timed against the first host's
+  // route, its frames would land after render time until that route's
+  // arrivals aged out of the clock's window, seconds later. The clock learns
+  // the new route from the second host's first frame and eases onto it rather
+  // than snapping every remote body 120 ms back along its path…
+  const { drawn, landed } = handover(25, 145);
+  assertEased(drawn);
+  // …at a tenth of real time: 1.2 s. Until then the new frames can land a
+  // little after render time, remotes carried on along their last motion;
+  // from then on they stay interpolated.
+  const settled = landed + 120 / EASE + INTERP_DELAY_MS + 1000 / SNAPSHOT_HZ;
   const after = drawn.filter((frame) => frame.at >= settled);
   assert.ok(after.length > 30, `the second host's frames were drawn (${after.length})`);
   assert.ok(extrapolated(after) <= 0, `render time ran ${extrapolated(after).toFixed(1)} ms past`);
   assert.ok(overshoot(after) < 0.005, `drawn ${overshoot(after).toFixed(3)} past the host's body`);
+});
+
+test("a host change onto a route a few tens of ms off never jumps render time, and remotes stay interpolated", () => {
+  // 40 ms slower, then 40 ms faster: the render delay covers what the clock
+  // has still to ease, so the new host's frames are in time from the first.
+  for (const [firstMs, secondMs] of [
+    [25, 65],
+    [65, 25],
+  ] as const) {
+    const { drawn, landed } = handover(firstMs, secondMs);
+    assertEased(drawn);
+    const settled = landed + INTERP_DELAY_MS + 1000 / SNAPSHOT_HZ;
+    const after = drawn.filter((frame) => frame.at >= settled);
+    assert.ok(after.length > 30, `the second host's frames were drawn (${after.length})`);
+    assert.ok(
+      extrapolated(after) <= 0,
+      `render time ran ${extrapolated(after).toFixed(1)} ms past`,
+    );
+    assert.ok(
+      overshoot(after) < 0.005,
+      `drawn ${overshoot(after).toFixed(3)} past the host's body`,
+    );
+  }
 });
 
 test("the stamps run on through a quick host change: what the old host queued still plays", () => {

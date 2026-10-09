@@ -4,9 +4,11 @@
 // (`RemoteClock`) rather than off this guest's own server clock, which a stall
 // while booting can leave far out until its next clean probe; the fastest recent
 // arrival also carries the relay's latency, so INTERP_DELAY_MS covers only
-// jitter. A new host reaches the server by its own route, so its frames are
-// timed afresh — tagged per arrival, as the old host's last frames can land
-// after the host-change notice is handled.
+// jitter. A new host reaches the server by its own route: from that host's
+// first frame the clock relearns the route and eases onto it, rather than
+// jumping what is drawn. Each arrival is tagged with the host whose route it
+// came by, as the old host's last frames can land after the host-change notice
+// is handled.
 import { RemoteClock } from "@vibedgames/multiplayer";
 
 /** Server time as the host's frames carry it, read off their arrivals. */
@@ -17,7 +19,7 @@ export class FrameClock extends RemoteClock {
   arrived(sentAt: number, receivedAt: number, host: string | null): void {
     if (host !== this.host) {
       this.host = host;
-      this.reset();
+      this.relearn();
     }
     this.observe(sentAt, receivedAt);
   }

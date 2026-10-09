@@ -248,7 +248,8 @@ export class GuestView implements GhostSink {
    * The host changed: new acknowledgments, and our input must reach it at
    * once. Its frames are stamped on the same server clock as the last host's,
    * so the timeline — remote bodies, queued rows and events — runs straight
-   * on; the frame clock times the new host's route from its first frame.
+   * on; the frame clock relearns the new host's route from its first frame and
+   * eases onto it.
    */
   hostChanged(): void {
     this.prediction.reset(this.own);
