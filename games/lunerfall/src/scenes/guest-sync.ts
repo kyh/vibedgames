@@ -319,11 +319,8 @@ export class GuestSync {
     this.lastStand.applyNet(status.over ? null : s.lastStand, downed, status.hearts);
     this.applyEnemies(s, cast, receivedAt);
     this.applyBoss(s, status.biome, receivedAt);
-    this.applyPayoffEdges(s, status.cleared);
+    this.applyClear(s, status.cleared);
     this.applyProj(s, receivedAt);
-    for (const d of this.room.doors) {
-      d.setActive(status.cleared);
-    }
     this.hooks.updateHud();
     // Hearts hit 0 while a last stand is live → downed, not dead (yet).
     if (status.over || (this.run.hearts <= 0 && !this.run.downedNet)) {
@@ -412,26 +409,33 @@ export class GuestSync {
     return true;
   }
 
-  /** Fresh same-room snapshots only. Initial cleared/dead states are quiet. */
-  private applyPayoffEdges(s: Snapshot, cleared: boolean) {
-    const boss = s.boss ? decodeBoss(s.boss) : null;
+  /** The doors open with the room. A room that clears while this guest is in
+   * it does so at the kill that cleared it: its doors and cue wait for render
+   * time to reach this snapshot (renderClear). Initially cleared is quiet. */
+  private applyClear(s: Snapshot, cleared: boolean) {
     const prev = this.room.guest.payoff;
-    if (prev && prev.room === s.room) {
-      if (prev.bossAlive && boss?.state === "dead") {
-        this.progress.bossDefeatFx(boss.x, boss.y, this.expedition.biome);
-        sfx.boom("essential");
-        this.hooks.shake(420, 0.02);
-        this.banners.show(`${bossKind(this.expedition.biome).name} SLAIN`, 1800, "payoff");
-      }
-      if (!prev.cleared && cleared) {
-        this.progress.roomClearFx(this.expedition.type, this.expedition.biome);
-      }
+    let clearAt: number | null = null;
+    if (prev !== null && prev.room === s.room) {
+      clearAt = !prev.cleared && cleared ? s.t : prev.clearAt;
     }
-    this.room.guest.payoff = {
-      bossAlive: boss !== null && boss.state !== "dead",
-      cleared,
-      room: s.room,
-    };
+    this.room.guest.payoff = { clearAt, cleared, room: s.room };
+    for (const d of this.room.doors) {
+      d.setActive(cleared && clearAt === null);
+    }
+  }
+
+  private renderClear(now: number) {
+    const { payoff } = this.room.guest;
+    // Every puppet shares the relay clock and INTERP_MS, so the remote's
+    // render time is the moment this guest draws the host's whole world at.
+    if (!payoff || payoff.clearAt === null || this.remote.renderTime(now) < payoff.clearAt) {
+      return;
+    }
+    payoff.clearAt = null;
+    for (const d of this.room.doors) {
+      d.setActive(true);
+    }
+    this.progress.roomClearFx(this.expedition.type, this.expedition.biome);
   }
 
   private applyEnemies(s: Snapshot, cast: NetCast, receivedAt: number) {
@@ -659,6 +663,7 @@ export class GuestSync {
     this.renderEnemies(now);
     this.renderBoss(now);
     this.renderProj(now);
+    this.renderClear(now);
   }
 
   private renderRemote(now: number) {
@@ -747,7 +752,13 @@ export class GuestSync {
     if (!p || !pose) {
       return;
     }
-    if (p.prev && pose.flash && !p.prev.flash && now > p.hushUntil) {
+    const { prev } = p;
+    if (prev && prev.state !== "dead" && pose.state === "dead") {
+      this.progress.bossDefeatFx(pose.x, pose.y, this.expedition.biome);
+      sfx.boom("essential");
+      this.hooks.shake(420, 0.02);
+      this.banners.show(`${bossKind(this.expedition.biome).name} SLAIN`, 1800, "payoff");
+    } else if (prev && pose.flash && !prev.flash && now > p.hushUntil) {
       sfx.hit();
     }
     p.prev = pose;

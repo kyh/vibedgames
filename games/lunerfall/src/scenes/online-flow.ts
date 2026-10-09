@@ -326,11 +326,7 @@ export class OnlineFlow {
     // Snapshots older than the adopted checkpoint describe a world it replaced;
     // the one it rode with is the first to apply.
     this.room.guest.snapT = c.t - 1;
-    this.room.guest.payoff = {
-      bossAlive: c.boss !== null && !c.boss.dead,
-      cleared: c.cleared,
-      room: c.room,
-    };
+    this.room.guest.payoff = { clearAt: null, cleared: c.cleared, room: c.room };
     this.run.downedNet = c.lastStand
       ? { bleed: c.lastStand.bleed, rev: c.lastStand.revive / REVIVE_HOLD }
       : null;
