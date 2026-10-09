@@ -323,7 +323,9 @@ const pose = interp.sample(); // undefined until the first update
   every route to you is new. A clock timed by the old, quicker route runs
   remotes past their newest update until its window forgets it (pacman froze
   rivals about 2 s on a route 400 ms slower). Give each `Interpolator` an
-  explicit `RemoteClock` so you hold a reference to relearn. Watch the status in
+  explicit `RemoteClock` so you hold a reference to relearn (the
+  `Interpolator` never resets a clock it was handed: stamp with
+  `serverNow()`, which never jumps back). Watch the status in
   a `subscribe` listener rather than the frame loop: a drop and its reconnect
   can both land while the tab is hidden.
 - **Grid or step movers.** Stamp each step when it starts, like any other

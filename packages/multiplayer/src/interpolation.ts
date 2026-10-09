@@ -76,7 +76,10 @@ export interface InterpolatorOptions<T> {
    * learns from arrivals how long this sender's updates take to reach you, so
    * `delayMs` only has to cover jitter. Share one across every entity from the
    * same sender. A clock with no arrival model, like the client's
-   * `serverClock`, needs `delayMs` to cover the whole relay as well.
+   * `serverClock`, needs `delayMs` to cover the whole relay as well. Only a
+   * private clock is reset when a sender's stamps jump back (it restarted its
+   * own clock); `serverNow()` stamps never do, so stamp with them, or
+   * `reset()` a clock you pass in yourself.
    */
   clock?: SenderClock;
 }
