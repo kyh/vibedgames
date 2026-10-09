@@ -578,7 +578,8 @@ export class MultiplayerClient {
   /**
    * Tick rooms: this player's input from tick `n` on (default: the server's
    * next tick; a past tick is moved to the next). It stays held until the next
-   * `sendInput`, so send on change.
+   * `sendInput`, so send on change. While the connection is down it is only
+   * held, and the reconnect sends it.
    */
   sendInput(input: JsonValue, n?: number): void {
     if (JSON.stringify(input).length > MAX_INPUT_BYTES) {
@@ -587,7 +588,9 @@ export class MultiplayerClient {
     }
     this.heldInput = { value: input };
     this.flushCoalescedEvents();
-    this.send({ data: n === undefined ? { v: input } : { n, v: input }, type: "input" });
+    if (!this.dropped) {
+      this.send({ data: n === undefined ? { v: input } : { n, v: input }, type: "input" });
+    }
   }
 
   /** Subscribe to state changes. Returns an unsubscribe function. */
@@ -598,7 +601,11 @@ export class MultiplayerClient {
     };
   }
 
-  /** Update shared state (merged with current). Only changed keys ride the wire. */
+  /**
+   * Update shared state (merged with current). Only changed keys ride the
+   * wire, and nothing while the connection is down: a host's reconnect
+   * re-sends whatever the server holds differently.
+   */
   updateSharedState(updater: JsonRecord | StateUpdater): void {
     const prev = this._sharedState;
     const next = isUpdaterFn(updater) ? updater(prev) : { ...prev, ...updater };
@@ -613,13 +620,17 @@ export class MultiplayerClient {
     // the object form the game already named the keys it means to write; for
     // the function form, diff the returned state against the previous one.
     const delta = changedKeys(prev, isUpdaterFn(updater) ? next : updater);
-    if (delta) {
+    if (delta && !this.dropped) {
       this.send({ data: delta, type: "state_patch" });
     }
     this.notify();
   }
 
-  /** Update this player's state (merged with current). Only changed keys ride the wire. */
+  /**
+   * Update this player's state (merged with current). Only changed keys ride
+   * the wire, and nothing while the connection is down: the reconnect
+   * re-sends the whole state.
+   */
   updateMyState(updater: JsonRecord | StateUpdater): void {
     if (!this._playerId) {
       return;
@@ -639,7 +650,7 @@ export class MultiplayerClient {
 
     this.flushCoalescedEvents();
     const delta = changedKeys(current, isUpdaterFn(updater) ? next : updater);
-    if (delta) {
+    if (delta && !this.dropped) {
       this.send({ data: delta, type: "player_state_patch" });
     }
     this.notify();
@@ -736,6 +747,19 @@ export class MultiplayerClient {
 
   private send(message: ClientMessage): void {
     this.socket.send(JSON.stringify(message));
+  }
+
+  /**
+   * Admitted before, but out of the room now: the transport dropped, or it is
+   * back and `sync` has not readmitted us yet. State patches and inputs are
+   * streams, and PartySocket would queue every frame of them to replay on
+   * reconnect, each to every peer (a 20 Hz stream queues 600 in a 30 s drop).
+   * So they are not sent meanwhile: `sync` sends the latest — this player's
+   * state, a host's world, the held input. Events and claims still queue, as
+   * nothing re-sends those.
+   */
+  private get dropped(): boolean {
+    return this._playerId !== null && this._connectionStatus !== "connected";
   }
 
   /** One server-clock probe; the answer comes back as a `time` message. */

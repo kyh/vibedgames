@@ -33,6 +33,9 @@ Room features — game-agnostic services the party server now runs for every roo
   blocking a message), so a room survives a restart mid-session. A host back
   from a dropped transport re-sends every shared-state key the server holds
   differently, so nothing written in the last second before a restart is lost.
+- A client back from a drop sends the latest of its player state, held input
+  and (as host) world once, from `sync`. What it wrote while away is no longer
+  queued and replayed to every peer; events and claims still queue.
 
 Netcode helpers:
 

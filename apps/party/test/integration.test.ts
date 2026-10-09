@@ -720,6 +720,70 @@ test("a client back from a transport blip replays the ticks it missed, and its i
   }
 });
 
+test("a client back from a drop sends the latest of each stream once, not every frame it made away", async () => {
+  const room = uniqueRoom("drop-streams");
+  const host = connect(room, { tickRate: 30 });
+  let observer: RawClient | null = null;
+  try {
+    // The SDK client joins first, so it hosts.
+    await waitFor(() => admitted(host), "host admitted");
+    const hostId = host.playerId;
+    assert.ok(hostId !== null);
+    assert.equal(host.hostId, hostId, "the SDK client hosts");
+    const watching = new RawClient(room, { _pk: `drop-obs-${process.pid}` });
+    observer = watching;
+    await waitFor(() => watching.synced(), "observer synced");
+
+    // oxlint-disable-next-line anti-slop/no-reflect-get -- a test simulating a network blip on the SDK's private socket
+    const socket: { close: (code: number) => void; reconnect: () => void } = Reflect.get(
+      host,
+      "socket",
+    );
+    socket.close(4000);
+    await waitFor(() => host.connectionStatus === "disconnected", "transport down");
+    // Two seconds of a 30 Hz game loop, all while away.
+    for (let frame = 1; frame <= 60; frame += 1) {
+      host.updateMyState({ frame });
+      host.updateSharedState({ frame });
+      host.sendInput(frame);
+    }
+    const from = watching.messages.length;
+    socket.reconnect();
+
+    const since = (type: string): JsonRecord[] =>
+      watching.messages
+        .slice(from)
+        .filter((message) => message.type === type)
+        .map((message) => toRecord(message.data));
+    // The host's inputs on the observer's ticks, less the server's own null
+    // clearing them when the transport dropped.
+    const hostInputs = (): JsonValue[] =>
+      since("tick").flatMap((data) => {
+        const input = toRecord(data.i)[hostId];
+        return input === undefined || input === null ? [] : [input];
+      });
+    await waitFor(
+      () =>
+        since("player_state").length > 0 &&
+        since("state_patch").length > 0 &&
+        hostInputs().length > 0,
+      "the observer hears the host's state, world and input again",
+    );
+    // Let anything still queued land before counting.
+    await delay(300);
+    assert.deepEqual(
+      since("player_state").map((data) => data.state),
+      [{ frame: 60 }],
+      "the player's state arrives once, as it stands",
+    );
+    assert.deepEqual(since("state_patch"), [{ frame: 60 }], "the world arrives once, as it stands");
+    assert.deepEqual(hostInputs(), [60], "the held input arrives, and no stale one");
+  } finally {
+    observer?.close(1000);
+    host.destroy();
+  }
+});
+
 test("a quiet tick room's history still ends MAX_TICK_HISTORY ticks back", async () => {
   const room = uniqueRoom("tick-quiet");
   const client = connect(room, { tickRate: MAX_TICK_RATE });

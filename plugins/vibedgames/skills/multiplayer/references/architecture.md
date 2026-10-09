@@ -162,6 +162,12 @@ survive. A deliberate `client.destroy()` leaves immediately, no grace window,
 and so does a tab that closes or reloads (the browser closes its socket with
 1001): the token died with the page, so the seat is freed at once.
 
+**Your own drop:** keep the game loop running. While the socket is down the
+SDK sends no state patches or inputs; on reconnect it sends this player's
+latest state and held input, and a host re-sends whatever of its world the
+server holds differently. Events and claims made while away do queue and go
+out on reconnect, so never stream per-frame state as events.
+
 ### Offline fallback that doesn't strand players
 
 A game that plays solo when no server answers needs two guards, or a transient

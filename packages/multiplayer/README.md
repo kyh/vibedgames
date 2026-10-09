@@ -248,6 +248,12 @@ pause rather than a leave + rejoin. A deliberate `destroy()` skips the grace
 window and leaves immediately, and so does closing or reloading the page: the
 token lives in the page's memory, so the server frees the seat at once.
 
+While the connection is down, state updates and inputs apply locally but are
+not queued: on reconnect the client sends its latest player state and held
+input, and a host re-sends whatever of its world the server holds differently.
+Peers never get a burst of stale frames. Events and claims do queue, and go out
+on reconnect.
+
 ## Server time
 
 ```ts
