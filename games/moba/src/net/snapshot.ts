@@ -25,9 +25,8 @@ export type Snapshot = {
 };
 
 /** A view, not a copy: units/projectiles/mines/grounds are the World's own
- *  objects. The SDK serialises the patch synchronously on send, and every
- *  consumer that keeps a snapshot copies it (restoreHostState, the guest
- *  mirror), so the host's local mirror aliasing its live world costs nothing. */
+ *  objects, so whatever keeps a snapshot copies it — the keyframe the host
+ *  publishes, restoreHostState, the guest mirror. */
 export const encodeWorld = (w: World): Snapshot => ({
   campRespawnAt: w.campRespawnAt,
   gameTime: w.gameTime,

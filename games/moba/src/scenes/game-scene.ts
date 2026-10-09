@@ -1706,9 +1706,14 @@ export class GameScene extends Scene {
   }
 
   /** Host: rewrite the full world in shared state — what a late joiner starts
-   *  from and a promoted guest falls back to — and count it as streamed. */
+   *  from and a promoted guest falls back to — and count it as streamed. It
+   *  goes as a copy: the SDK diffs a write when it flushes, at the end of the
+   *  task or ahead of the next tick, and the sim may step on before then. */
   private publishKeyframe(net: MultiplayerClient): void {
-    net.updateSharedState({ snap: encodeWorld(this.world), snapAt: this.lastStamp });
+    net.updateSharedState({
+      snap: structuredClone(encodeWorld(this.world)),
+      snapAt: this.lastStamp,
+    });
     this.keyframeStamp = this.lastStamp;
     this.keyframeAt = performance.now();
     this.keyframePhase = this.world.phase;
