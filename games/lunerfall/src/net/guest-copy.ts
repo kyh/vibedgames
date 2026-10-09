@@ -127,7 +127,7 @@ export class GuestCopy {
   step(body: PlayerBody, frozen: boolean, now: number): boolean {
     body.journal ??= [];
     this.steps += 1;
-    const playAt = this.clock.now(now) - Math.max(DELAY_MS, this.clock.hold(now));
+    const playAt = this.clock.now(now) - Math.max(DELAY_MS, this.clock.hold(now, DELAY_MS));
     let due = 0;
     while ((this.waiting[due]?.at ?? Number.POSITIVE_INFINITY) <= playAt) {
       due += 1;
