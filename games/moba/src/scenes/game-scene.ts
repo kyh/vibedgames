@@ -472,6 +472,9 @@ export class GameScene extends Scene {
     const net = new MultiplayerClient({
       fallbackMs: ONLINE_FALLBACK_MS,
       host: multiplayerHost(),
+      // A full 3v3 sends the next player on to a sibling room (`…~2`) and a
+      // match of its own, rather than onto a fourth seat of a team.
+      maxPlayers: TEAM_SIZE * TEAMS.length,
       onEvent: (event, payload, from) => this.onNetEvent(event, payload, from),
       party: PARTY,
       room: roomFromLocation(),
