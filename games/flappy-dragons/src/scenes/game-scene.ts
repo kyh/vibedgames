@@ -87,6 +87,8 @@ interface Ghost {
   motion: RivalMotion;
   /** Liveness last drawn, so the tint is only rewritten when it flips. */
   live: boolean | null;
+  /** Its connection dropped and the room is holding its seat (see markAway). */
+  away: boolean;
   /** Frame it was last listed as a rival; anything older has left. */
   seen: number;
 }
@@ -182,6 +184,27 @@ const destroyPipe = (pipe: Pipe): void => {
   pipe.glint?.destroy();
 };
 
+/**
+ * A rival whose connection dropped is still in the race: the room holds its
+ * seat while it redials. Its stream has stopped, so its dragon waits faded
+ * where it was last drawn, and the board says it is reconnecting: it neither
+ * vanishes as if it had left nor hangs there like a stalled race. Back, its
+ * samples may come by another route, so its clock measures that afresh.
+ */
+const markAway = (ghost: Ghost, away: boolean): void => {
+  if (away === ghost.away) {
+    return;
+  }
+  ghost.away = away;
+  // Back, the next pose drawn restyles it.
+  ghost.live = null;
+  if (away) {
+    ghost.sprite.setAlpha(0.16).setTint(0x90_99_b0);
+  } else {
+    ghost.motion.relearn();
+  }
+};
+
 const randomSeed = (): number =>
   // 1..2^31 (never 0 — 0 marks "unseeded").
   1 + Math.floor(Math.random() * 0x7f_ff_ff_ff);
@@ -270,16 +293,26 @@ interface BoardRow {
   score: number;
   live: boolean;
   me: boolean;
+  /** Its connection dropped; the room holds its seat while it redials. */
+  away: boolean;
 }
+
+/** A row's mark: flying, crashed, or reconnecting. */
+const rowMark = (r: BoardRow): string => {
+  if (r.away) {
+    return "📡";
+  }
+  return r.live ? "🐉" : "💀";
+};
 
 /** The top-8 leaderboard rows as one fragment. */
 const renderStandings = (rows: readonly BoardRow[]): DocumentFragment => {
   const frag = document.createDocumentFragment();
   for (const r of rows.slice(0, 8)) {
     const row = document.createElement("div");
-    row.className = `row${r.me ? " me" : ""}${r.live ? "" : " dead"}`;
+    row.className = `row${r.me ? " me" : ""}${r.live ? "" : " dead"}${r.away ? " away" : ""}`;
     const name = document.createElement("span");
-    name.textContent = `${r.live ? "🐉" : "💀"} ${r.me ? "you" : r.id.slice(0, 4)}`;
+    name.textContent = `${rowMark(r)} ${r.me ? "you" : r.id.slice(0, 4)}${r.away ? " reconnecting…" : ""}`;
     const sc = document.createElement("span");
     sc.className = "sc";
     sc.textContent = String(r.score);
@@ -318,9 +351,9 @@ export class GameScene extends Scene {
 
   private pipes = new Map<number, Pipe>();
   private ghosts = new Map<string, Ghost>();
-  /** Other players present this frame, sorted so every client agrees on lane
-   *  order. A seat the server holds for a reconnect is not a rival: its last
-   *  state would hang a frozen ghost in your lane for the whole grace window. */
+  /** Other players this frame, sorted so every client agrees on lane order.
+   *  One whose connection dropped is still racing while the server holds its
+   *  seat for the reconnect (see markAway). */
   private rivalIds: string[] = [];
   /** The player map `rivalIds` was derived from; the SDK swaps it on every change. */
   private rivalSource: PlayerMap | null = null;
@@ -794,9 +827,10 @@ export class GameScene extends Scene {
     return this.racing || this.worldX > 0;
   }
   /**
-   * The course is not ours to restart: a race, or a guest whose only rival is
-   * the host's seat held for a reconnect (so not `racing`). It scrolls on the
-   * room's clock, a crash respawns, and only the host writes it.
+   * The course is not ours to restart: a race, or any guest's, alone or not
+   * (still joining, or its host just left and the room has yet to promote
+   * it). It scrolls on the room's clock, a crash respawns, and only the host
+   * writes it.
    */
   private get sharedCourse(): boolean {
     return this.racing || !this.net.isHost;
@@ -889,7 +923,7 @@ export class GameScene extends Scene {
     this.checkDeath();
   }
 
-  /** Other present players, re-derived only when the SDK hands over a new player map. */
+  /** Other seated players, re-derived only when the SDK hands over a new player map. */
   private presentRivals(): string[] {
     const { players } = this.net;
     if (players === this.rivalSource) {
@@ -897,9 +931,8 @@ export class GameScene extends Scene {
     }
     this.rivalSource = players;
     const me = this.net.playerId;
-    return Object.entries(players)
-      .filter(([id, p]) => id !== me && p.connected !== false)
-      .map(([id]) => id)
+    return Object.keys(players)
+      .filter((id) => id !== me)
       .toSorted();
   }
 
@@ -1039,8 +1072,8 @@ export class GameScene extends Scene {
     }
     // On a shared course the respawn timer owns the comeback — a tap on the
     // gameover screen must not restart(), which reseeds and rewinds the course
-    // to zero. A guest never may: alone beside a held host seat it would
-    // rewind its own scroll, which becomes the room's if it is promoted.
+    // to zero. A guest never may: alone, it would rewind its own scroll,
+    // which becomes the room's if it is promoted.
     if (this.sharedCourse) {
       return;
     }
@@ -1465,6 +1498,11 @@ export class GameScene extends Scene {
       }
       ghost.seen = frame;
       laneX += ghost.gap;
+      if (ghost.away) {
+        // Its stream has stopped: it waits in its lane where it was last drawn.
+        ghost.sprite.x = laneX;
+        continue;
+      }
       // Drawn 100 ms or more behind the moment the rival's samples land, as
       // far as its stream needs, blending the two around it: as smooth as its
       // flight on its own screen, however unevenly the packets arrive.
@@ -1495,8 +1533,15 @@ export class GameScene extends Scene {
 
   /** A rival's ghost with its newest sample pushed, or null until it has sent one. */
   private feedGhost(id: string, time: number): Ghost | null {
-    const state = this.net.players[id]?.state;
+    const player = this.net.players[id];
+    const away = player?.connected === false;
     const known = this.ghosts.get(id);
+    // Ahead of the push, so a rival back from a drop has relearned its clock
+    // before the first sample to come by its new route.
+    if (known) {
+      markAway(known, away);
+    }
+    const state = player?.state;
     // The state is polled every frame; only a new stamp is a new sample.
     if (known && state?.["t"] === known.motion.stamp) {
       return known;
@@ -1507,14 +1552,16 @@ export class GameScene extends Scene {
     }
     let ghost = known;
     if (!ghost) {
+      // At its own height, for one first met mid-drop that is never sampled.
       const sprite = this.add
-        .sprite(0, 0, `dragon-${peer.skin}-1`)
+        .sprite(0, peer.y + DRAGON_SPRITE_OFFSET_Y, `dragon-${peer.skin}-1`)
         .setDepth(8)
         .setScale(
           ART_SCALE * (GHOST_SCALE_MIN + hashId(id, 3) * (GHOST_SCALE_MAX - GHOST_SCALE_MIN)),
         );
       sprite.play(`fly-${peer.skin}`);
       ghost = {
+        away: false,
         gap: GHOST_GAP_MIN + hashId(id, 1) * (GHOST_GAP_MAX - GHOST_GAP_MIN),
         live: null,
         motion: new RivalMotion(),
@@ -1523,6 +1570,7 @@ export class GameScene extends Scene {
         sprite,
       };
       this.ghosts.set(id, ghost);
+      markAway(ghost, away);
     } else if (ghost.skin !== peer.skin) {
       ghost.skin = peer.skin;
       ghost.sprite.play(`fly-${peer.skin}`);
@@ -1807,7 +1855,7 @@ export class GameScene extends Scene {
 
     // Standings change a few times a second at most — skip the 60 Hz DOM
     // rebuild while nothing moved.
-    const sig = rows.map((r) => `${r.id}:${r.score}:${r.live ? 1 : 0}`).join("|");
+    const sig = rows.map((r) => `${r.id}:${r.score}:${r.live ? 1 : 0}:${r.away ? 1 : 0}`).join("|");
     if (sig === this.boardSig) {
       return;
     }
@@ -1818,10 +1866,19 @@ export class GameScene extends Scene {
   /** Best-first standings: mine live-local, every rival from its last wire state. */
   private standings(): BoardRow[] {
     const me = this.net.playerId ?? SOLO_ROW_ID;
-    const rows: BoardRow[] = [{ id: me, live: this.alive, me: true, score: this.score }];
+    const rows: BoardRow[] = [
+      { away: false, id: me, live: this.alive, me: true, score: this.score },
+    ];
     for (const id of this.rivalIds) {
-      const ps = readPeer(this.net.players[id]?.state);
-      rows.push({ id, live: ps?.live ?? false, me: false, score: ps?.score ?? 0 });
+      const player = this.net.players[id];
+      const ps = readPeer(player?.state);
+      rows.push({
+        away: player?.connected === false,
+        id,
+        live: ps?.live ?? false,
+        me: false,
+        score: ps?.score ?? 0,
+      });
     }
     rows.sort((a, b) => b.score - a.score);
     return rows;
