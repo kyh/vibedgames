@@ -14,8 +14,10 @@ For online play, use **Copy link** to invite a friend. The link selects the room
 pnpm dev:lunerfall                        # http://localhost:5192
 pnpm --filter @repo/lunerfall typecheck
 pnpm --filter @repo/lunerfall build
-pnpm --filter @repo/lunerfall test        # headless sim harness (tools/sim.mts)
+pnpm --filter @repo/lunerfall test        # headless sim + netcode harnesses (tools/*.mts)
 ```
+
+For the multiplayer skill's lag check, `?hero=` boots straight into a run and `?party=` names the room (`?room=` is the debug room type), so point net-check at the party param: `node <multiplayer skill>/scripts/net-check.mjs "http://localhost:5192/?hero=axion" --room-param party`. It judges the guest, which draws the host's world through `Interpolator`; the host draws the guest from its own sim, played from the guest's input ticks, and `tools/netcode.mts` holds that copy to one tick a step under the same lag.
 
 ## Routes
 
