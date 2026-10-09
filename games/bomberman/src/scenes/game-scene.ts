@@ -26,7 +26,6 @@ import { blastFrame, fireCells, freshCue } from "../render/blast-frame";
 import { RoundHud } from "../render/round-hud";
 import { DirInput, stickDirs } from "../input/dir-input";
 import { BombPrediction, fuseStart } from "../net/bomb-prediction";
-import { applyOpened, encodeOpened } from "../net/grid-wire";
 import { PICKUP_CLAIMS, PickupClaims, pickupKey } from "../net/pickup-claims";
 import { StepTrack, WALK_GRACE_MS } from "../net/step-track";
 import type { StepPose } from "../net/step-track";
@@ -87,7 +86,6 @@ import {
   pauseClock,
   readClock,
   resumeClock,
-  sameStamp,
   setClockBase,
   simClock,
 } from "../util/clock";
@@ -177,7 +175,7 @@ const MULTIPLAYER_HOST = import.meta.env.DEV
 
 /** `?room=<code>` isolates a match (test harness, private lobby); everyone else shares one
  *  room, versioned with the wire format so a tab on an older bundle never shares a match. */
-const ROOM = new URLSearchParams(location.search).get("room") || "bomberman-v3";
+const ROOM = new URLSearchParams(location.search).get("room") || "bomberman-v4";
 /** A playtest reseeds and restarts the round at will, so without a `?room` of
  *  its own it plays solo rather than dial the room everyone else shares. */
 const SOLO_PLAYTEST = isPlaytestRequested() && !new URLSearchParams(location.search).has("room");
@@ -299,7 +297,6 @@ const emptyShared = (
   bots: {},
   deaths: {},
   grid: createArena(arena, random),
-  opened: "",
   powerups: {},
   // A whole millisecond: the round names its power-up claims.
   startedAt: Math.round(simNow()),
@@ -397,10 +394,6 @@ export class GameScene extends Scene {
   /** Who sends the bots' steps: this client ("self") or the host it follows. */
   private botSender: string | null = null;
 
-  /** `shared()` decodes the wire state once per change. */
-  private sharedFrom: MultiplayerClient["sharedState"] | null = null;
-  private sharedView: SharedState | null = null;
-  private gridCache: { base: Cell[][]; opened: string | undefined; grid: Cell[][] } | null = null;
   /** Arrow + WASD key pairs per direction — either key held keeps you moving. */
   private heldKeys!: Record<Dir, [Phaser.Input.Keyboard.Key, Phaser.Input.Keyboard.Key]>;
   /** Touch controls: a floating move-joystick (snapped to 4 directions) plus a
@@ -578,30 +571,16 @@ export class GameScene extends Scene {
     return present;
   }
 
-  /** The host's write to the world: the board as the crates opened, the sim clock when it changed. */
+  /**
+   * The host's write to the world, with the sim clock. Only the leaves that
+   * changed go out: an opened crate is one cell of the board, and a clock
+   * that held still since the last write is nothing at all.
+   */
   private netPatchShared(patch: Partial<SharedState>): void {
     this.netDirty = true;
     if (this.amHost) {
-      this.client.updateSharedState({ ...this.gridToWire(patch), ...this.clockToWire() });
+      this.client.updateSharedState({ ...patch, clock: clockStamp() });
     }
-  }
-
-  /** The sim clock rides the wire only when it changes: a pause or a resume. */
-  private clockToWire(): Partial<SharedState> {
-    const stamp = clockStamp();
-    const wire = this.client.sharedState;
-    return isShared(wire) && sameStamp(wire.clock, stamp) ? {} : { clock: stamp };
-  }
-
-  /** A changed board goes out as the crates opened since the round's layout,
-   *  not as the 4.8 KB grid (see net/grid-wire). */
-  private gridToWire(patch: Partial<SharedState>): Partial<SharedState> {
-    const { grid, ...rest } = patch;
-    const wire = this.client.sharedState;
-    if (!grid || !isShared(wire)) {
-      return patch;
-    }
-    return { ...rest, opened: encodeOpened(wire.grid, grid) };
   }
 
   /** The room goes live once its clock is measured, and no room message says when. */
@@ -1407,27 +1386,10 @@ export class GameScene extends Scene {
 
   // ---- shared-state rendering ----------------------------------------------
 
+  /** The world, once the first host has seeded it. */
   private shared(): SharedState | null {
-    // The wire carries the round's layout plus the crates opened since;
-    // decode once per change, not per read.
-    const wire = this.client.sharedState;
-    if (wire !== this.sharedFrom) {
-      this.sharedFrom = wire;
-      this.sharedView = isShared(wire)
-        ? { ...wire, grid: this.boardOf(wire.grid, wire.opened) }
-        : null;
-    }
-    return this.sharedView;
-  }
-
-  private boardOf(base: Cell[][], opened: string | undefined): Cell[][] {
-    const cached = this.gridCache;
-    if (cached?.base === base && cached.opened === opened) {
-      return cached.grid;
-    }
-    const grid = applyOpened(base, opened);
-    this.gridCache = { base, grid, opened };
-    return grid;
+    const state = this.client.sharedState;
+    return isShared(state) ? state : null;
   }
 
   /**
@@ -2300,12 +2262,11 @@ export class GameScene extends Scene {
     return !s.deaths[id];
   }
 
-  /** A whole round: the layout goes out in full, with nothing opened yet. Last
-   *  round's power-up claims go: their keys name the round, but a room holds only so many. */
+  /** A whole round, every field written. Last round's power-up claims go:
+   *  their keys name the round, but a room holds only so many. */
   private writeShared(next: SharedState): void {
-    this.netDirty = true;
+    this.netPatchShared(next);
     if (this.amHost) {
-      this.client.updateSharedState({ ...next, clock: clockStamp() });
       this.client.clearClaims(PICKUP_CLAIMS);
     }
   }

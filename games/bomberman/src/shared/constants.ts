@@ -118,19 +118,16 @@ export type Bot = {
 };
 
 /**
- * The single shared world. The multiplayer client shallow-merges patches
- * (`{...prev, ...patch}`), so the host always rewrites each nested object
- * wholesale — every field that can reset MUST be present in `emptyShared()`.
+ * The single shared world. A write replaces each top-level field it names,
+ * and only the leaves that changed travel (an opened crate is one cell of
+ * `grid`), so every field that can reset MUST be present in `emptyShared()`.
  */
 export type SharedState = {
   /** Missing only in legacy rooms; read through readArena at the boundary. */
   arena?: Arena;
-  /** Wire only: the sim clock (see util/clock), written with each round and whenever it changes. */
+  /** The sim clock (see util/clock): on every host write, on the wire only when it changed. */
   clock?: ClockStamp;
-  /** On the wire, the layout the round began with; in memory, the current board. */
   grid: Cell[][];
-  /** Wire only: the crates opened since `grid` was written (see net/grid-wire). */
-  opened?: string;
   bombs: Record<string, Bomb>;
   blasts: Record<string, Blast>;
   powerups: Record<string, Powerup>;

@@ -9,11 +9,11 @@
 //
 // Pausing a solo arena freezes it: `now()` holds still, and on resume the
 // paused span joins the offset, so a bomb with 2 s of fuse left before a pause
-// still has ~2 s after. The host publishes its stamp (the offset, or the frozen
-// time) whenever it changes, and every other client adopts it as is: nothing
-// is estimated from when it arrived. Only sim timing reads `now()`; net
-// heartbeats, connection deadlines and logging stay on real `Date.now()`,
-// because pausing those would break reconnection.
+// still has ~2 s after. The host writes its stamp (the offset, or the frozen
+// time) with the world, which sends it only when it changed, and every other
+// client adopts it as is: nothing is estimated from when it arrived. Only sim
+// timing reads `now()`; net heartbeats, connection deadlines and logging stay
+// on real `Date.now()`, because pausing those would break reconnection.
 
 import type { SenderClock } from "@vibedgames/multiplayer";
 
@@ -57,14 +57,6 @@ export const simClock: SenderClock = {
 };
 
 export const clockStamp = (): ClockStamp => clock;
-
-/** True when two stamps say the same thing: the host sends its stamp only when it changes. */
-export const sameStamp = (a: ClockStamp | undefined, b: ClockStamp): boolean => {
-  if (a?.kind === "paused" && b.kind === "paused") {
-    return a.now === b.now;
-  }
-  return a?.kind === "running" && b.kind === "running" && a.offset === b.offset;
-};
 
 /** Follow the room's stamp. Every client shares the base, so it applies as is. */
 export const adoptClock = (stamp: ClockStamp | null): void => {

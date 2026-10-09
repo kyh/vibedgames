@@ -65,6 +65,7 @@ const snapshot = () => {
     bots,
     clock: shared.clock?.kind ?? null,
     controlsPaused: scene.controlsPaused,
+    crates: (shared.grid ?? []).flat().filter((cell) => cell.kind === "crate").length,
     deaths: Object.keys(shared.deaths ?? {}),
     frozen: scene.simulationFrozen,
     hostId: client.hostId,
@@ -152,6 +153,21 @@ const assertMoving = async (client, label) => {
   await client.until(label, (s) => botsMoved(before.bots, s.bots), 3000);
 };
 
+/** Both clients' boards agree: bots may open a crate meanwhile, so poll both together. */
+const assertSameBoard = async (a, b, label) => {
+  const deadline = Date.now() + 4000;
+  for (;;) {
+    const [x, y] = await Promise.all([a.snap(), b.snap()]);
+    if (x.crates === y.crates) {
+      return;
+    }
+    if (Date.now() > deadline) {
+      throw new Error(`${label}: ${a.name} has ${x.crates} crates, ${b.name} ${y.crates}`);
+    }
+    await wait(100);
+  }
+};
+
 const assertClocksAligned = (a, b, label) => {
   // Snapshots are sequential; measure each side's sim time against this process's clock.
   const drift = Math.abs(a.simNow - a.at - (b.simNow - b.at));
@@ -220,6 +236,7 @@ try {
     await guest.until("blast on guest", (s) => s.blasts > 0 && !s.bombs.includes(g.id), 4000);
     await host.until("guest died on host", (h) => h.deaths.includes(g.id), 4000);
     await guest.until("guest sees own death", (s) => s.deaths.includes(g.id));
+    await assertSameBoard(host, guest, "after the guest's blast");
   });
   await step("guest pause does not freeze the host's live match", async () => {
     await guest.escape();
@@ -300,6 +317,7 @@ try {
     const g = await guest.snap();
     const l = await late.until("late synced", (s) => s.players.length === 2 && s.round === g.round);
     assert.equal(l.arena, g.arena);
+    await assertSameBoard(guest, late, "late join");
     assert.equal(l.hostId, g.id);
     assertClocksAligned(await guest.snap(), await late.snap(), "late join");
     await late.play();

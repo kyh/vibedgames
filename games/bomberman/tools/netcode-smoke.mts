@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { StickState } from "@vibedgames/gamepad";
-import { RemoteClock } from "@vibedgames/multiplayer";
+import { diffState, RemoteClock } from "@vibedgames/multiplayer";
 import type { SenderClock } from "@vibedgames/multiplayer";
 import { DirInput, stickDirs } from "../src/input/dir-input";
 import {
@@ -10,7 +10,6 @@ import {
   MAX_PRESS_AGE_MS,
   PREDICTION_TIMEOUT_MS,
 } from "../src/net/bomb-prediction";
-import { applyOpened, encodeOpened } from "../src/net/grid-wire";
 import { StepTrack, WALK_GRACE_MS } from "../src/net/step-track";
 import type { GridTile, StepPose } from "../src/net/step-track";
 import { createArena } from "../src/shared/arena";
@@ -523,25 +522,27 @@ test("a prediction the host refuses comes off the board after the timeout", () =
 
 // ---- wire -------------------------------------------------------------------
 
-test("grid wire: each opened crate rides as two characters and decodes to the same board", () => {
-  const base = createArena("classic", seededRandom(3));
-  const current = base.map((cells) => [...cells]);
-  let opened = 0;
-  for (const [row, cells] of current.entries()) {
+test("the board on the wire: each opened crate is one cell, an unchanged clock nothing", () => {
+  const clock = { kind: "running", offset: 0 } as const;
+  const before = { clock, grid: createArena("classic", seededRandom(3)) };
+  const grid = before.grid.map((cells) => [...cells]);
+  const opened: [row: number, col: number][] = [];
+  for (const [row, cells] of grid.entries()) {
     for (const [col, cell] of cells.entries()) {
       if (cell.kind === "crate" && (row + col) % 3 === 0) {
         cells[col] = { kind: "empty" };
-        opened += 1;
+        opened.push([row, col]);
       }
     }
   }
-  const wire = encodeOpened(base, current);
-  assert.ok(opened > 10);
-  assert.equal(wire.length, opened * 2);
-  assert.deepEqual(applyOpened(base, wire), current);
-  assert.equal(applyOpened(base, ""), base, "nothing opened: the round's own layout");
-  assert.ok(JSON.stringify(base).length > 4000, "what every crate break used to resend");
-  assert.deepEqual(applyOpened(base, `${wire}zz!`), current, "junk codes open nothing");
+  assert.ok(opened.length > 10);
+  // The host writes the whole board and its clock; the SDK sends the leaves that changed.
+  const ops = diffState(before, { clock: { ...clock }, grid }, ["clock", "grid"]);
+  assert.deepEqual(
+    ops,
+    opened.map(([row, col]) => [["grid", row, col, "kind"], "empty"]),
+  );
+  assert.ok(JSON.stringify(before.grid).length > 4000, "what a whole board would resend");
 });
 
 /** Whether the party server would pass a player-state patch under the game's limits. */
