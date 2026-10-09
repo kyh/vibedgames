@@ -246,7 +246,9 @@ export class GameScene extends Scene {
   // The SDK keeps its shared-state mirror across a transport drop and, on
   // reconnect, only overlays what the server still holds. A snapshot object
   // that survives the round trip is therefore our pre-drop copy, not the
-  // room's — never re-adopt it as authority.
+  // room's — never re-adopt it as authority. (A host the room still names on
+  // its return keeps its world over the server's; takeover resumes the world
+  // itself, see prepareOnlineHost.)
   private staleSnap: Snapshot | null = null;
   // render interpolation: every body's position before the latest sim step
   private readonly prevPos = new Map<string, Vec2>();
@@ -742,15 +744,16 @@ export class GameScene extends Scene {
 
   /** Take over the simulation, from the freshest world on hand: our own if
    *  the room's last keyframe is ours and we ran on past it; else a guest's
-   *  replica, which saw the old host's every step; else the room's keyframe. */
+   *  replica, which saw the old host's every step; else the room's keyframe.
+   *  A host back from a dropped transport and still elected is the first
+   *  case: the SDK keeps its world over the server's, so the keyframe it
+   *  finds is the very one it wrote — stale by object, current by stamp. */
   private prepareOnlineHost(net: MultiplayerClient): void {
     if (this.adoptedHost || !this.amHost) {
       return;
     }
-    const room = this.roomSnapshot(net);
     const ours =
       this.worldIsSim &&
-      room !== null &&
       this.keyframeStamp !== null &&
       sharedSnapAt(net.sharedState) === this.keyframeStamp;
     const replica = this.mirror?.resumable ?? null;
@@ -758,7 +761,7 @@ export class GameScene extends Scene {
     const held = this.predictor?.order ?? null;
     const restored = ours
       ? seatsOf(this.world)
-      : restoreHostState(this.world, replica ? encodeWorld(replica) : room);
+      : restoreHostState(this.world, replica ? encodeWorld(replica) : this.roomSnapshot(net));
     const me = this.player;
     if (held && me) {
       issueOrder(this.world, me, held);
