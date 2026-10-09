@@ -6,7 +6,7 @@
 // answers at once and lands on the same tick everywhere; the rival's
 // inputs, a lead plus a trip behind, are predicted and rolled back.
 
-import type { TickClock } from "@vibedgames/multiplayer";
+import type { JsonValue, TickClock } from "@vibedgames/multiplayer";
 
 import { encodeInput, readInput, sameInput } from "../shared/input";
 import type { SlotInput } from "../shared/input";
@@ -15,7 +15,6 @@ import type { Slot } from "../shared/sim";
 import type { MatchRecord } from "./match-record";
 import { Rollback } from "./rollback";
 import type { SlotInputs } from "./rollback";
-import type { JsonValue } from "./session";
 
 /** What a match needs from the tick room: NetSession in the game, a simulated room in the tests. */
 export interface TickRoom {

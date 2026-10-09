@@ -5,7 +5,8 @@
 // smoothed into one locally — and two press counters turn button presses
 // into edges the held stream cannot lose.
 
-import type { JsonValue } from "../net/session";
+import type { JsonValue } from "@vibedgames/multiplayer";
+
 import { PADDLE_X_MAX } from "./constants";
 
 /** Paddle targets ride the wire in 1/PADDLE_STEPS of a world unit. A power of

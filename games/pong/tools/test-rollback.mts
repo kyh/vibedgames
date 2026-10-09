@@ -13,12 +13,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { MAX_INPUT_LEAD_TICKS } from "@vibedgames/multiplayer";
-import type { TickClock } from "@vibedgames/multiplayer";
+import type { JsonValue, TickClock } from "@vibedgames/multiplayer";
 
 import type { MatchRecord } from "../src/net/match-record.ts";
 import { TickDriver } from "../src/net/tick-driver.ts";
 import type { TickRoom } from "../src/net/tick-driver.ts";
-import type { JsonValue } from "../src/net/session.ts";
 import { TICK_MS } from "../src/shared/constants.ts";
 import { bump, paddleStep, readInput } from "../src/shared/input.ts";
 import type { SlotInput } from "../src/shared/input.ts";

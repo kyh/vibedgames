@@ -4,9 +4,10 @@
 // client needs to build the opening state on its own — the match itself then
 // runs on the tick stream, the same on every client, whoever is host.
 
+import type { JsonRecord, JsonValue } from "@vibedgames/multiplayer";
+
 import type { Slot } from "../shared/sim";
 import { isJsonNumber, isJsonObject, isJsonString } from "./session";
-import type { JsonObject, JsonValue } from "./session";
 
 export const RECORD_KEY = "match";
 
@@ -30,8 +31,8 @@ const isWhole = (v: JsonValue | undefined): v is number =>
   isJsonNumber(v) && Number.isSafeInteger(v);
 
 /** The room's record, or null when there is none (or it is not one). */
-export const readRecord = (shared: JsonObject | null): MatchRecord | null => {
-  const raw = shared?.[RECORD_KEY];
+export const readRecord = (shared: JsonRecord): MatchRecord | null => {
+  const raw = shared[RECORD_KEY];
   if (!isJsonObject(raw)) {
     return null;
   }
@@ -48,7 +49,7 @@ export const readRecord = (shared: JsonObject | null): MatchRecord | null => {
   return { a, b, epoch, id, scoreA, scoreB, seed, start };
 };
 
-export const recordJson = (record: MatchRecord): JsonObject => ({
+export const recordJson = (record: MatchRecord): JsonRecord => ({
   a: record.a,
   b: record.b,
   epoch: record.epoch,

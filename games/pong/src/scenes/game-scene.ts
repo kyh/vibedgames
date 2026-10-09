@@ -674,11 +674,12 @@ export class GameScene {
     if (this.pause !== "none") {
       return;
     }
-    // Still handshaking. A tap here is intent, not noise: rather than swallow
-    // it and leave the player staring at "connecting" for the rest of the
-    // fallback window, take it as "play now" and serve solo. Not once a room
-    // has been joined: a tap during a reconnect would abandon the match.
-    if (this.control.session.handshaking) {
+    // Still handshaking: the room has not admitted this client yet. A tap
+    // here is intent, not noise: rather than swallow it and leave the player
+    // staring at "connecting" for the rest of the fallback window, take it as
+    // "play now" and serve solo. Not once a room has been joined: a tap during
+    // a reconnect would abandon the match.
+    if (this.control.session.connectionStatus === "connecting") {
       this.playSolo();
     }
     this.presses = bump(this.presses);
