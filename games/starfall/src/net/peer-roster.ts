@@ -39,15 +39,16 @@ interface PeerEntry {
 
 /**
  * Every peer's state, parsed once per patch instead of once per frame, and
- * every remote ship's pose interpolated ~100 ms behind the moment its
- * updates arrive (the Interpolator buffers the stamped updates and blends the
- * pair around that moment). Each sender's stream reads its server-time stamps
- * through its own clock — the Interpolator's RemoteClock — which learns from
- * arrivals how long that sender's updates take to get here (sender → server →
- * here), so the delay only has to cover jitter; the sender's shots play on
- * the same clock (sys/remote-fire.ts). Fills `link.peerStates` each frame
- * with the pose folded in, so hit tests, homing, the minimap and the hull all
- * agree on where a ship is.
+ * every remote ship's pose interpolated at least ~100 ms behind the moment
+ * its updates arrive (the Interpolator buffers the stamped updates and blends
+ * the pair around that moment). Each sender's stream reads its server-time
+ * stamps through its own clock — the Interpolator's RemoteClock — which
+ * learns from arrivals how long that sender's updates take to get here
+ * (sender → server → here), so the delay only has to cover jitter, and
+ * measures that jitter, so the delay grows when the stream needs more; the
+ * sender's shots play at the same render time (sys/remote-fire.ts). Fills
+ * `link.peerStates` each frame with the pose folded in, so hit tests, homing,
+ * the minimap and the hull all agree on where a ship is.
  */
 export class PeerRoster {
   private readonly entries = new Map<string, PeerEntry>();
@@ -132,13 +133,16 @@ export class PeerRoster {
   }
 
   /** The moment (server time) this peer is drawn at — its shots play on the
-   *  same timeline as its hull (sys/remote-fire.ts). Null before any stamp. */
+   *  same timeline as its hull (sys/remote-fire.ts). The Interpolator's own
+   *  render time: its delay grows past REMOTE_RENDER_DELAY_MS when the stream
+   *  needs it, so a fixed offset would drift off the hull. Null before any
+   *  stamp. */
   renderTime(id: string, perfNow: number): number | null {
     const entry = this.entries.get(id);
     if (!entry || !entry.interp.clock.synced) {
       return null;
     }
-    return entry.interp.clock.now(perfNow) - entry.interp.delayMs;
+    return entry.interp.renderTime(perfNow);
   }
 
   /** Feed a peer's clock from a stamped event (a shot can beat the first state). */

@@ -49,11 +49,11 @@ export interface RemoteFireDeps {
 /**
  * Every other player's shots, rebuilt from their `fire` events and flown
  * here with the same beam code as mine (sys/beam-sim.ts). A shot is stamped
- * with server time, like its shooter's pose, and plays on the clock that
- * shooter's ship is drawn on (net/peer-roster.ts) — REMOTE_RENDER_DELAY_MS
- * behind the moment its updates arrive — so it leaves the hull where you see
- * it. Victims hit-test these copies (sys/shield.ts): what drains you is what
- * you saw.
+ * with server time, like its shooter's pose, and plays at the moment that
+ * shooter's ship is drawn at (net/peer-roster.ts renderTime) — at least
+ * REMOTE_RENDER_DELAY_MS behind the moment its updates arrive, more when its
+ * stream needs it — so it leaves the hull where you see it. Victims hit-test
+ * these copies (sys/shield.ts): what drains you is what you saw.
  */
 export class RemoteFire {
   private readonly shooters = new Map<string, Shooter>();
