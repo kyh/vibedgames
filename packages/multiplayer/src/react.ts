@@ -24,6 +24,10 @@ export type MultiplayerRoom<TShared = JsonRecord> = MultiplayerSnapshot & {
   updateSharedState: (updater: Partial<TShared> | SharedUpdaterFn<TShared>) => void;
   updateMyState: (updater: JsonRecord | ((previous: JsonRecord) => JsonRecord)) => void;
   sendEvent: (event: string, payload: JsonValue, options?: SendEventOptions) => void;
+  /** An intent for the host alone; see `MultiplayerClient.sendToHost`. */
+  sendToHost: (event: string, payload: JsonValue) => void;
+  /** Leave the room and play on alone; see `MultiplayerClient.goOffline`. */
+  goOffline: () => void;
 };
 
 export type UseMultiplayerRoomConfig<TShared> = MultiplayerOptions & {
@@ -110,17 +114,26 @@ export const useMultiplayerRoom = <TShared extends JsonRecord = JsonRecord>(
     [client],
   );
 
+  const sendToHost = useCallback(
+    (event: string, payload: JsonValue) => client.sendToHost(event, payload),
+    [client],
+  );
+
+  const goOffline = useCallback(() => client.goOffline(), [client]);
+
   return useMemo(
     () => ({
       ...snapshot,
+      goOffline,
       sendEvent,
+      sendToHost,
       // SAFETY: same invariant as updateSharedState — the stored JsonRecord is
       // whatever TShared the game seeded and last wrote.
       sharedState: snapshot.sharedState as TShared,
       updateMyState,
       updateSharedState,
     }),
-    [snapshot, updateSharedState, updateMyState, sendEvent],
+    [snapshot, updateSharedState, updateMyState, sendEvent, sendToHost, goOffline],
   );
 };
 

@@ -25,6 +25,9 @@ const isHost = useIsHost(room);
 
 ```tsx
 if (isHost) setWorld({ score: world.score + 10 });
+
+// Any player asks; the host applies it in onEvent (its own at once, no round trip).
+room.sendToHost("score_request", { delta: 10 });
 ```
 
 ## Player state
@@ -65,7 +68,7 @@ const room = useMultiplayerRoom({
 ## Room metadata
 
 ```tsx
-const isConnected = room.connectionStatus === "connected";
+const status = room.connectionStatus; // "connecting" | "connected" | "reconnecting" | "offline"
 const players = Object.values(room.players);
 const myId = room.playerId;
 const actualRoom = room.room; // may be an overflow sibling when `maxPlayers` is set
@@ -74,3 +77,15 @@ const actualRoom = room.room; // may be an overflow sibling when `maxPlayers` is
 Each `Player` carries `id`, an auto-assigned `color`/`hue`, its state, and
 `connected` — `false` while a dropped player's seat is being held. Render that
 as "reconnecting…", not as a leave.
+
+## Offline
+
+```tsx
+const room = useMultiplayerRoom({ host, party, room: "arena", fallbackMs: 6000 });
+room.goOffline(); // a "play solo" button: leave, and play on alone
+```
+
+With `fallbackMs`, a room that doesn't admit the client in time turns it into
+a local room of one: `connectionStatus` is `"offline"`, this player hosts, and
+state, events and `sendToHost` all work locally. `offline: true` never dials.
+See [architecture.md](architecture.md) → Offline fallback.
