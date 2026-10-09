@@ -76,7 +76,7 @@ export class TickDriver {
   private readonly ticks = new RemoteClock();
   /** The stream skipped ticks this match cannot replay: it needs a re-base. */
   private brokenTimeline = false;
-  /** The fractional tick this client shows and predicts to. */
+  /** The fractional tick this client predicts to, where its own input lands. */
   private horizon: number;
   /** How far ahead of the server's clock this client runs (ms). */
   private leadMs: number;
@@ -136,8 +136,12 @@ export class TickDriver {
     }
   }
 
-  /** The fractional tick the rival's paddle is drawn at, local time `localNow`. */
+  /** The fractional tick the rival's paddle is drawn at, local time
+   *  `localNow`: the horizon until the stream has been heard from. */
   rivalTick(localNow?: number): number {
+    if (!this.ticks.synced) {
+      return this.horizon;
+    }
     // The state after tick n stands at the end of tick n, a tick after the room sent it.
     return (this.rival.renderTime(localNow) - this.record.epoch) / TICK_MS + 1;
   }
@@ -151,7 +155,7 @@ export class TickDriver {
   /**
    * Each frame: move the horizon with the server's clock, send this player's
    * input for the newest tick when it changed, and predict up to it. Returns
-   * the fractional tick to show.
+   * the horizon.
    */
   frame(input: SlotInput): number {
     const clock = this.room.tickClock;

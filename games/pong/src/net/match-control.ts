@@ -46,6 +46,7 @@ export class MatchControl {
   /** Names a match's effects: a new record or a fresh solo game opens a new scope. */
   private scopeName: string;
   private soloGames = 0;
+  /** The tick on screen (see show). */
   private shownTick = 0;
   /** The record id this client last asked the host to re-base. */
   private resyncAsked = -1;
@@ -98,7 +99,8 @@ export class MatchControl {
     return net.otherPlayer() === null ? "open" : "live";
   }
 
-  /** Each frame: settle which match runs, then run it. Returns the fractional tick to show. */
+  /** Each frame: settle which match runs, then run it. Returns the horizon:
+   *  the fractional tick this player's input lands at. */
   frame(input: SlotInput, dtMs: number, running: boolean): number {
     this.hostDuties();
     this.syncMatch();
@@ -108,10 +110,13 @@ export class MatchControl {
       current.relearn();
     }
     this.lastStatus = status;
-    const horizon =
-      current.kind === "tick" ? current.frame(input) : current.frame(input, dtMs, running);
-    this.shownTick = Math.floor(horizon);
-    return horizon;
+    return current.kind === "tick" ? current.frame(input) : current.frame(input, dtMs, running);
+  }
+
+  /** The scene draws the match at tick `tick` — behind the horizon while the
+   *  ball is on the rival's half. A match the rival leaves carries on from it. */
+  show(tick: number): void {
+    this.shownTick = tick;
   }
 
   /** Leave the room for a solo game against the AI — from `base`, or a fresh
