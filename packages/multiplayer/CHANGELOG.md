@@ -37,6 +37,19 @@ Room features — game-agnostic services the party server now runs for every roo
   and (as host) world once, from `sync`. What it wrote while away is no longer
   queued and replayed to every peer; events and claims still queue.
 
+Connection lifecycle:
+
+- `connectionStatus` is `"connecting" | "connected" | "reconnecting" | "offline"`.
+  `"disconnected"` and `"error"` are gone: the socket redials by itself, so a
+  client not yet admitted is connecting, and one that was is reconnecting.
+- Offline mode: `offline` (never dial), `fallbackMs` (go offline when no room
+  admits the client within that many ms of rendered frames) and `goOffline()`
+  (leave and play on alone). Offline the client is a local room of one with
+  the same API: it hosts, writes apply locally, events loop back, claims are
+  granted at once, and `serverNow()` reads the local clock. `OFFLINE_PLAYER_ID`
+  is its player id.
+- `JsonValue` and `JsonRecord` are exported.
+
 Netcode helpers:
 
 - `FixedRate`: a send clock for variable frame loops that keeps its remainder

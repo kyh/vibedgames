@@ -20,6 +20,7 @@ import {
   HEARTBEAT_INTERVAL_MS,
   MAX_INPUT_BYTES,
   MAX_TICK_HISTORY,
+  OFFLINE_PLAYER_ID,
   RECONNECT_TOKEN_QUERY_PARAM,
   RESERVED_CLAIM_KEYS,
   ROOM_CAP_QUERY_PARAM,
@@ -236,7 +237,8 @@ const isUpdaterFn = (updater: JsonRecord | StateUpdater): updater is StateUpdate
  * Use directly in Phaser, Three.js, vanilla JS, or wrap with framework bindings.
  */
 export class MultiplayerClient {
-  private socket: PartySocket;
+  /** The room's socket; null offline, and once destroyed. */
+  private socket: PartySocket | null = null;
   private listeners = new Set<Listener>();
   private initialStateApplied = false;
   /** True once authoritative shared state has been observed from the server —
@@ -247,8 +249,6 @@ export class MultiplayerClient {
    *  re-seeds a room that already has live state (issue #240). */
   private remoteStateSeen = false;
   private options: MultiplayerClientOptions;
-  /** True while we reconnect to an overflow room, to mask the interim close. */
-  private redirecting = false;
   /** Effective player cap advertised to the server (server-authoritative on overflow). */
   private cap: number | null;
   /** Reconnection secret for this client instance — see generateReconnectToken. */
@@ -260,6 +260,11 @@ export class MultiplayerClient {
   private heartbeatRaf: number | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private lastHeartbeatAt = 0;
+  /** `fallbackMs`: the first frame's time, from which the deadline counts. */
+  private fallbackFrom: number | null = null;
+  private fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Offline claims with a TTL, each lapsing on its own timer. */
+  private readonly claimTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /** Coalesced events awaiting the microtask flush — latest payload per
    *  event + target signature. Flushed before any other outgoing game message
    *  so coalescing can delay an event but never reorder it relative to state
@@ -310,22 +315,12 @@ export class MultiplayerClient {
       this.passesSchema("sharedState", "outgoing", options.initialState);
     }
 
-    this.socket = new PartySocket({
-      host: options.host,
-      party: options.party,
-      query: this.connectionQuery(),
-      room: options.room,
-    });
-
-    // Listeners are registered once and survive PartySocket's reconnects,
-    // including the room switch we trigger on overflow (updateProperties +
-    // reconnect). No need to re-attach them per connection.
-    this.socket.addEventListener("open", this.handleOpen);
-    this.socket.addEventListener("message", this.handleMessage);
-    this.socket.addEventListener("close", this.handleClose);
-    this.socket.addEventListener("error", this.handleError);
-
-    this.startHeartbeat();
+    if (options.offline) {
+      this.enterOffline();
+    } else {
+      this.socket = this.dial();
+      this.startHeartbeat();
+    }
     this.untrack = trackClient({
       netInfo: () => ({
         isHost: this._playerId !== null && this._hostId === this._playerId,
@@ -337,10 +332,47 @@ export class MultiplayerClient {
     });
   }
 
+  /** Open the room's socket. Its listeners are registered once and survive
+   *  PartySocket's reconnects, including the room switch an overflow makes
+   *  (updateProperties + reconnect). */
+  private dial(): PartySocket {
+    const socket = new PartySocket({
+      host: this.options.host,
+      party: this.options.party,
+      query: this.connectionQuery(),
+      room: this.options.room,
+    });
+    socket.addEventListener("open", this.handleTransport);
+    socket.addEventListener("message", this.handleMessage);
+    socket.addEventListener("close", this.handleTransport);
+    socket.addEventListener("error", this.handleTransport);
+    return socket;
+  }
+
+  /** Close the room's socket for good: a deliberate leave, which the server
+   *  answers by freeing the seat at once. */
+  private hangUp(): void {
+    const { socket } = this;
+    if (!socket) {
+      return;
+    }
+    this.socket = null;
+    socket.removeEventListener("open", this.handleTransport);
+    socket.removeEventListener("message", this.handleMessage);
+    socket.removeEventListener("close", this.handleTransport);
+    socket.removeEventListener("error", this.handleTransport);
+    socket.close();
+  }
+
   /** Drive the heartbeat off rAF so a hidden/asleep tab stops pinging (its rAF is
-   *  paused), and the server promptly migrates host away from it. */
+   *  paused), and the server promptly migrates host away from it. The same
+   *  frames count down `fallbackMs`. */
   private startHeartbeat(): void {
     const ping = (t: number): void => {
+      this.checkFallback(t);
+      if (this._connectionStatus === "offline") {
+        return;
+      }
       if (t - this.lastHeartbeatAt >= HEARTBEAT_INTERVAL_MS) {
         this.lastHeartbeatAt = t;
         if (this._connectionStatus === "connected") {
@@ -368,7 +400,60 @@ export class MultiplayerClient {
           this.send({ type: "heartbeat" });
         }
       }, HEARTBEAT_INTERVAL_MS);
+      // With no frames to count, the deadline runs on wall time.
+      const { fallbackMs } = this.options;
+      if (fallbackMs !== undefined) {
+        this.fallbackTimer = setTimeout(() => {
+          this.fallbackTimer = null;
+          this.checkFallback(Number.POSITIVE_INFINITY);
+        }, fallbackMs);
+      }
     }
+  }
+
+  /** `fallbackMs`: go offline once that long has passed, from the first frame
+   *  at `t`, without a room admitting this client. */
+  private checkFallback(t: number): void {
+    const { fallbackMs } = this.options;
+    if (fallbackMs === undefined || this._playerId !== null) {
+      return;
+    }
+    this.fallbackFrom ??= t;
+    if (t - this.fallbackFrom >= fallbackMs) {
+      this.goOffline();
+    }
+  }
+
+  /** Stop the heartbeat, the time probes and the fallback deadline. */
+  private stopTimers(): void {
+    for (const timer of this.probeTimers) {
+      clearTimeout(timer);
+    }
+    this.probeTimers = [];
+    if (this.heartbeatRaf !== null) {
+      rafHost.cancelAnimationFrame?.(this.heartbeatRaf);
+      this.heartbeatRaf = null;
+    }
+    if (this.heartbeatTimer !== null) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+    if (this.fallbackTimer !== null) {
+      clearTimeout(this.fallbackTimer);
+      this.fallbackTimer = null;
+    }
+  }
+
+  /** This client as a room of one: the only player, and the host. */
+  private enterOffline(): void {
+    this._connectionStatus = "offline";
+    this._playerId = OFFLINE_PLAYER_ID;
+    this._hostId = OFFLINE_PLAYER_ID;
+    this._players = {
+      [OFFLINE_PLAYER_ID]: { connected: true, id: OFFLINE_PLAYER_ID, state: this._myState },
+    };
+    this.ticks = null;
+    this.clock.adoptLocal();
   }
 
   /** Query params sent on every (re)connect: reconnect token, the effective
@@ -411,15 +496,10 @@ export class MultiplayerClient {
     // Queued for a room that never admitted us — don't leak them into the new one.
     this.pendingCoalesced.clear();
 
-    // Mask only the one synchronous close that reconnect() dispatches for the
-    // old connection. The server's async close(4001) never reaches
-    // handleClose — reconnect()'s internal disconnect removes the old socket's
-    // listeners first — so clearing synchronously is safe and lets genuine
-    // overflow-connection failures still surface as error/disconnected.
-    this.redirecting = true;
-    this.socket.updateProperties({ query: this.connectionQuery(), room });
-    this.socket.reconnect();
-    this.redirecting = false;
+    // The close reconnect() dispatches for the old connection reads as
+    // "connecting" too: this client has never been admitted.
+    this.socket?.updateProperties({ query: this.connectionQuery(), room });
+    this.socket?.reconnect();
 
     this.notify();
   }
@@ -507,6 +587,7 @@ export class MultiplayerClient {
    * `onClaim(key, owner)` and `claims`; a refused claimer alone hears the
    * current owner. Act on the claim optimistically and undo it if `onClaim`
    * names someone else. `ttlMs` (positive) releases it automatically.
+   * Offline, nobody races: the claim is granted before this returns.
    */
   claim(key: string, options?: { ttlMs?: number }): void {
     if (RESERVED_CLAIM_KEYS.includes(key)) {
@@ -520,20 +601,65 @@ export class MultiplayerClient {
       );
       return;
     }
+    if (this._connectionStatus === "offline") {
+      this.clearClaimTimer(key);
+      if (ttl !== undefined) {
+        this.claimTimers.set(
+          key,
+          setTimeout(() => {
+            this.release(key);
+          }, ttl),
+        );
+      }
+      this.applyClaim(
+        key,
+        OFFLINE_PLAYER_ID,
+        ttl === undefined ? undefined : this.serverNow() + ttl,
+      );
+      this.notify();
+      return;
+    }
     this.flushCoalescedEvents();
     this.send({ data: ttl === undefined ? { key } : { key, ttl }, type: "claim" });
   }
 
   /** Give `key` back. Its owner may; the host may release any key. */
   release(key: string): void {
+    if (this._connectionStatus === "offline") {
+      this.clearClaimTimer(key);
+      if (key in this._claims) {
+        this.applyClaim(key, null);
+        this.notify();
+      }
+      return;
+    }
     this.flushCoalescedEvents();
     this.send({ data: { key }, type: "release" });
   }
 
   /** Host only: release every key starting with `prefix` ("" clears them all) — a new round. */
   clearClaims(prefix = ""): void {
+    if (this._connectionStatus === "offline") {
+      for (const key of this.claimTimers.keys()) {
+        if (key.startsWith(prefix)) {
+          this.clearClaimTimer(key);
+        }
+      }
+      this.applyClaimsCleared(prefix);
+      this.notify();
+      return;
+    }
     this.flushCoalescedEvents();
     this.send({ data: { prefix }, type: "clear_claims" });
+  }
+
+  /** Offline: stop `key`'s TTL timer, if it has one. */
+  private clearClaimTimer(key: string): void {
+    const timer = this.claimTimers.get(key);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      this.claimTimers.delete(key);
+    }
   }
 
   // -- Ticks ---------------------------------------------------------------
@@ -673,6 +799,16 @@ export class MultiplayerClient {
   sendEvent(event: string, payload: JsonValue, options?: SendEventOptions): void {
     const to = normalizeIds(options?.to);
     const except = normalizeIds(options?.except);
+    if (this._connectionStatus === "offline") {
+      // The room is this client: an event it is in the audience of arrives at once.
+      if (
+        (to === undefined || to.includes(OFFLINE_PLAYER_ID)) &&
+        !except?.includes(OFFLINE_PLAYER_ID)
+      ) {
+        this._onEvent?.(event, payload, OFFLINE_PLAYER_ID);
+      }
+      return;
+    }
     if (options?.coalesce) {
       // Keyed by event + target signature: two "damage" events aimed at
       // different victims must not collapse into one (the survivor's payload
@@ -719,47 +855,63 @@ export class MultiplayerClient {
     this._onTick = fn;
   }
 
+  /**
+   * Leave the room, if in one, and carry on as a local room of one — what
+   * `fallbackMs` does when no room answers, and what a "play solo" button
+   * wants. This client becomes the only player and the host, state updates
+   * apply locally, events and host intents loop back to `onEvent`, claims are
+   * granted at once, and `serverNow()` keeps the timebase it had (the local
+   * clock, if it never measured the server's). Shared state and this
+   * player's state carry over; claims held in the room are released, and
+   * tick rooms stop ticking. The leave is deliberate, so the room frees the
+   * seat at once. A new client is the only way back online.
+   */
+  goOffline(): void {
+    if (this._connectionStatus === "offline") {
+      return;
+    }
+    this.hangUp();
+    this.stopTimers();
+    // Queued for the room just left.
+    this.pendingCoalesced.clear();
+    const claimsBefore = this._claims;
+    this._claims = {};
+    this.enterOffline();
+    this.reportClaimChanges(claimsBefore);
+    this.notify();
+  }
+
   /** Disconnect and clean up. */
   destroy(): void {
     this.untrack();
     this.flushCoalescedEvents();
-    for (const timer of this.probeTimers) {
+    this.stopTimers();
+    for (const timer of this.claimTimers.values()) {
       clearTimeout(timer);
     }
-    this.probeTimers = [];
-    if (this.heartbeatRaf !== null) {
-      rafHost.cancelAnimationFrame?.(this.heartbeatRaf);
-      this.heartbeatRaf = null;
-    }
-    if (this.heartbeatTimer !== null) {
-      clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = null;
-    }
-    this.socket.removeEventListener("open", this.handleOpen);
-    this.socket.removeEventListener("message", this.handleMessage);
-    this.socket.removeEventListener("close", this.handleClose);
-    this.socket.removeEventListener("error", this.handleError);
-    this.socket.close();
+    this.claimTimers.clear();
+    this.hangUp();
     this.listeners.clear();
   }
 
   // -- Internal ------------------------------------------------------------
 
+  /** Offline, and once destroyed, there is no socket: nothing is sent. */
   private send(message: ClientMessage): void {
-    this.socket.send(JSON.stringify(message));
+    this.socket?.send(JSON.stringify(message));
   }
 
   /**
-   * Admitted before, but out of the room now: the transport dropped, or it is
-   * back and `sync` has not readmitted us yet. State patches and inputs are
-   * streams, and PartySocket would queue every frame of them to replay on
-   * reconnect, each to every peer (a 20 Hz stream queues 600 in a 30 s drop).
-   * So they are not sent meanwhile: `sync` sends the latest — this player's
-   * state, a host's world, the held input. Events and claims still queue, as
-   * nothing re-sends those.
+   * Reconnecting: admitted before, but out of the room now — the transport
+   * dropped, or it is back and `sync` has not readmitted us yet. State patches
+   * and inputs are streams, and PartySocket would queue every frame of them to
+   * replay on reconnect, each to every peer (a 20 Hz stream queues 600 in a
+   * 30 s drop). So they are not sent meanwhile: `sync` sends the latest — this
+   * player's state, a host's world, the held input. Events and claims still
+   * queue, as nothing re-sends those.
    */
   private get dropped(): boolean {
-    return this._playerId !== null && this._connectionStatus !== "connected";
+    return this._connectionStatus === "reconnecting";
   }
 
   /** One server-clock probe; the answer comes back as a `time` message. */
@@ -840,30 +992,15 @@ export class MultiplayerClient {
     }
   }
 
-  private handleOpen = (): void => {
-    // A live socket isn't admission: a full room replies `room_full` and
-    // closes without ever sending `sync`. Stay "connecting" and withhold
-    // playerId until `sync` confirms we're actually in the room.
-    this._connectionStatus = "connecting";
-    this.notify();
-  };
-
-  private handleClose = (): void => {
-    // While redirecting to an overflow room, mask the interim close(s) — both
-    // the synchronous one from reconnect() and the server's async close(4001)
-    // — until `sync` admits us to the new room (which clears `redirecting`).
-    if (this.redirecting) {
-      return;
-    }
-    this._connectionStatus = "disconnected";
-    this.notify();
-  };
-
-  private handleError = (): void => {
-    // Not masked during redirect: redirecting is cleared synchronously after
-    // reconnect(), so any error here is a genuine failure of the overflow
-    // connection and should surface rather than hang at "connecting".
-    this._connectionStatus = "error";
+  /**
+   * The socket opened, closed or failed. None of these is admission — a full
+   * room replies `room_full` and closes without ever sending `sync` — and
+   * PartySocket redials by itself after a close, so until `sync` this client
+   * is connecting, or reconnecting if a room has admitted it before. The
+   * player id is withheld until `sync` confirms we're actually in the room.
+   */
+  private handleTransport = (): void => {
+    this._connectionStatus = this._playerId === null ? "connecting" : "reconnecting";
     this.notify();
   };
 
@@ -876,7 +1013,7 @@ export class MultiplayerClient {
    */
   private maybeSeedInitialState(hostId: string): void {
     if (
-      hostId === this.socket.id &&
+      hostId === this.socket?.id &&
       this.options.initialState &&
       !this.initialStateApplied &&
       !this.remoteStateSeen
@@ -893,7 +1030,7 @@ export class MultiplayerClient {
   private applySync(data: Extract<ServerMessage, { type: "sync" }>["data"]): void {
     const wasHost = this._hostId !== null && this._hostId === this._playerId;
     this._connectionStatus = "connected";
-    this._playerId = this.socket.id ?? null;
+    this._playerId = this.socket?.id ?? null;
     this._hostId = data.hostId;
     this._players = data.players;
     const claimsBefore = this._claims;

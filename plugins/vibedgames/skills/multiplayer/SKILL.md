@@ -87,7 +87,7 @@ The pattern: **intents go up via `sendEvent`, state comes down via `sharedState`
 `updateMyState` is _not_ host-gated — players always own their own slot. **The corollary bites: the host cannot use `updateMyState` to mark _other_ players dead/disabled either, because that call only ever writes the caller's own slot.** Cross-player flags (deaths, scores, banned-from-round) belong in `sharedState`.
 
 - **The host sim owes wall-clock time.** Phaser clamps `update()`'s `delta` when the tab is unfocused; a host that integrates `delta` crawls for every guest. Step the host sim from real elapsed time (a fixed-step loop over `performance.now()` deltas), not the engine's delta.
-- **`offline` (no server) ≠ solo.** A connected host alone in a room is `offline === false`; gate bots and start-screen holds on `Object.keys(client.players).length <= 1`, never on `offline`.
+- **Offline (no server) ≠ solo.** A connected host alone in a room is not `connectionStatus === "offline"`; gate bots and start-screen holds on `Object.keys(client.players).length <= 1`, never on being offline.
 
 ### `updateSharedState` merges — your "reset" patch must include every field
 

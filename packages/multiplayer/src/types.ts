@@ -17,6 +17,21 @@ export interface MultiplayerOptions {
   party: string;
   room: string;
   /**
+   * Start offline: never dial, and play a local room of one (see
+   * `MultiplayerClient.goOffline`). For a game offline by intent, such as a
+   * `?offline=1` link, a trailer or a single-player mode, running the same
+   * code paths as online play.
+   */
+  offline?: boolean;
+  /**
+   * Go offline when no room has admitted this client within this long (ms),
+   * so a game still plays when the server is out of reach. Counted on
+   * rendered frames from the first one after the client is created, so time
+   * the page spends loading or hidden doesn't count. Once admitted, a drop is
+   * a reconnect, never a fallback. Omit to keep trying for good.
+   */
+  fallbackMs?: number;
+  /**
    * Maximum number of players allowed in a single room instance. When a room
    * is at capacity, additional players overflow into a sibling room
    * (`{room}~2`, `{room}~3`, …) automatically — the SDK transparently
@@ -169,7 +184,19 @@ export const RECONNECT_TOKEN_QUERY_PARAM = "_reconnectToken";
  */
 export const RECONNECT_GRACE_MS = 30_000;
 
-export type MultiplayerConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
+/**
+ * Where this client stands with its room:
+ * - `connecting`: not yet admitted to a room (the first dial, retries, an
+ *   overflow redirect).
+ * - `connected`: in the room.
+ * - `reconnecting`: was in the room, and the transport dropped. The seat is
+ *   held (`RECONNECT_GRACE_MS`) while the client redials on its own.
+ * - `offline`: a local room of one (`offline`, `fallbackMs`, `goOffline`).
+ */
+export type MultiplayerConnectionStatus = "connecting" | "connected" | "reconnecting" | "offline";
+
+/** This client's player id, and the host's, in an offline room. */
+export const OFFLINE_PLAYER_ID = "solo";
 
 export type PlayerState<T = JsonRecord> = T;
 

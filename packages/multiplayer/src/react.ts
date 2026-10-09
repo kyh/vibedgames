@@ -37,16 +37,18 @@ export const useMultiplayerRoom = <TShared extends JsonRecord = JsonRecord>(
   // swap happens as a render-phase state reset so the rest of this render
   // already sees the new client; the old one is torn down by effect cleanup.
   const rules = JSON.stringify([config.tickRate, config.interest, config.limits]);
-  const key = `${config.host}/${config.party}/${config.room}/${config.maxPlayers ?? ""}/${rules}`;
+  const key = `${config.host}/${config.party}/${config.room}/${config.maxPlayers ?? ""}/${rules}/${config.offline === true}`;
   const [entry, setEntry] = useState<{ client: MultiplayerClient; key: string } | null>(null);
   let client = entry !== null && entry.key === key ? entry.client : null;
   if (client === null) {
     client = new MultiplayerClient({
+      fallbackMs: config.fallbackMs,
       host: config.host,
       initialState: config.initialState,
       interest: config.interest,
       limits: config.limits,
       maxPlayers: config.maxPlayers,
+      offline: config.offline,
       onClaim: config.onClaim,
       onEvent: config.onEvent,
       onTick: config.onTick,

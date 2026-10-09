@@ -704,7 +704,7 @@ test("a client back from a transport blip replays the ticks it missed, and its i
       "socket",
     );
     socket.close(4000);
-    await waitFor(() => client.connectionStatus === "disconnected", "transport down");
+    await waitFor(() => client.connectionStatus === "reconnecting", "transport down");
     const away = seen.length;
     await delay(400);
     assert.equal(seen.length, away, "no ticks while away");
@@ -740,7 +740,7 @@ test("a client back from a drop sends the latest of each stream once, not every 
       "socket",
     );
     socket.close(4000);
-    await waitFor(() => host.connectionStatus === "disconnected", "transport down");
+    await waitFor(() => host.connectionStatus === "reconnecting", "transport down");
     // Two seconds of a 30 Hz game loop, all while away.
     for (let frame = 1; frame <= 60; frame += 1) {
       host.updateMyState({ frame });
@@ -822,7 +822,7 @@ test("a room's world and claims survive a server restart, and its host re-sends 
   const guest = connect(room);
   let drops = 0;
   const unsubscribe = guest.subscribe(() => {
-    if (guest.connectionStatus === "disconnected") {
+    if (guest.connectionStatus === "reconnecting") {
       drops += 1;
     }
   });
@@ -1043,6 +1043,38 @@ test("malformed and oversized state patches are dropped without harming the room
     }
   } finally {
     rawHost.close(1000);
+  }
+});
+
+test("goOffline leaves the room at once and plays on alone from the room's world", async () => {
+  const room = uniqueRoom("go-offline");
+  const host = connect(room);
+  await waitFor(() => admitted(host), "host admitted first");
+  const heard: string[] = [];
+  const guest = connect(room, { onEvent: (event) => heard.push(event) });
+  try {
+    assert.equal(guest.connectionStatus, "connecting", "not admitted yet");
+    await waitFor(() => admitted(guest), "guest admitted");
+    const guestId = guest.playerId;
+    assert.ok(guestId !== null);
+    host.updateSharedState({ level: 2 });
+    await waitFor(() => guest.sharedState.level === 2, "guest sees the world");
+
+    guest.goOffline();
+    assert.equal(guest.connectionStatus, "offline");
+    assert.ok(guest.isHost, "alone, it hosts");
+    assert.equal(guest.sharedState.level, 2, "the room's world carries over");
+    // Well inside the 30 s grace window: waitFor's 10 s timeout is the proof.
+    await waitFor(() => !(guestId in host.players), "the room frees the seat at once");
+
+    guest.updateSharedState({ level: 3 });
+    guest.sendEvent("ping", 1);
+    assert.deepEqual(heard, ["ping"], "its own events loop back");
+    await delay(200);
+    assert.equal(host.sharedState.level, 2, "nothing it writes offline reaches the room");
+  } finally {
+    host.destroy();
+    guest.destroy();
   }
 });
 

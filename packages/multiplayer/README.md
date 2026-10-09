@@ -219,7 +219,7 @@ anything that must survive a reconnect belongs in state.
 ## Room metadata
 
 ```tsx
-const isConnected = room.connectionStatus === "connected";
+const status = room.connectionStatus; // "connecting" | "connected" | "reconnecting" | "offline"
 const players = Object.values(room.players);
 const myId = room.playerId;
 const actualRoom = room.room; // may be an overflow sibling — see below
@@ -240,6 +240,28 @@ At capacity the client is transparently reconnected into a sibling room
 state. Read `room.room` to show players which instance they landed in. Omit
 `maxPlayers` for no cap (the server still clamps to a hard ceiling).
 
+## Offline mode
+
+```ts
+new MultiplayerClient({ host, party, room, fallbackMs: 6000 }); // no room in 6 s → offline
+new MultiplayerClient({ host, party, room, offline: true }); // never dial (?offline=1, trailers)
+client.goOffline(); // leave the room and play on alone ("play solo")
+```
+
+Offline, the client is a local room of one with the same API, so a game runs
+one code path for online and solo play. `connectionStatus` is `"offline"` and
+the player id is `OFFLINE_PLAYER_ID`; this client is the host. State updates
+apply locally, events loop back to `onEvent` (honouring
+`to`/`except`), claims are granted at once and lapse on their TTL, and
+`serverNow()` reads the local clock. Tick rooms don't tick offline: run the sim
+locally.
+
+`fallbackMs` counts rendered frames from the first one after the client is
+created, so loading time and a hidden tab don't count against it. Once a room
+has admitted the client, a drop is `"reconnecting"`, never a fallback.
+`goOffline()` leaves deliberately, so the room frees the seat at once; shared
+state and this player's state carry over. A new client is the way back online.
+
 ## Reconnection
 
 A dropped connection holds the player's seat, identity and state for 30s
@@ -248,8 +270,8 @@ pause rather than a leave + rejoin. A deliberate `destroy()` skips the grace
 window and leaves immediately, and so does closing or reloading the page: the
 token lives in the page's memory, so the server frees the seat at once.
 
-While the connection is down, state updates and inputs apply locally but are
-not queued: on reconnect the client sends its latest player state and held
+While the connection is down (`"reconnecting"`), state updates and inputs apply
+locally but are not queued: on reconnect the client sends its latest player state and held
 input, and a host re-sends whatever of its world the server holds differently.
 Peers never get a burst of stale frames. Events and claims do queue, and go out
 on reconnect.

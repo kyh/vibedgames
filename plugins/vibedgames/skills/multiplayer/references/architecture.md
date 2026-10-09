@@ -26,7 +26,11 @@ import { MultiplayerClient } from "@vibedgames/multiplayer";
 export const PARTY_HOST = "https://party.vibedgames.com";
 
 export const client = new MultiplayerClient({
+  // No room within 6 s of play: a local room of one (see Offline fallback).
+  fallbackMs: 6000,
   host: PARTY_HOST,
+  // Offline by intent: never dial.
+  offline: new URLSearchParams(location.search).has("offline"),
   party: "vg-server",
   room: "my-game-room",
 });
@@ -57,10 +61,6 @@ export const session = {
   // Player-owned writes pass straight through.
   setPosition(x: number, y: number) {
     client.updateMyState({ x, y });
-  },
-
-  onIntent(handler: (event: string, payload: unknown, from: string) => void) {
-    return client.subscribe(() => {}); // wire onEvent in the client config
   },
 };
 ```
@@ -102,8 +102,9 @@ client.subscribe(() => {
 
 ## Offline ≠ solo
 
-"Offline" means no server reachable (the connect fallback below fired) — a
-connected player alone in a room is **online, solo**. Bots, start-screen holds,
+Offline (`connectionStatus === "offline"`) means a local room of one, with no
+server: the connect fallback below fired, or the game asked for it. A connected
+player alone in a room is **online, solo**. Bots, start-screen holds,
 "waiting for players" copy and any solo-only rule must gate on the human count,
 `Object.keys(client.players).length <= 1`, never on an `offline` flag. Gating
 on `offline` gives a connected solo host no bots and an offline player a
@@ -146,8 +147,9 @@ no overlay reads as a bug:
 
 ```ts
 client.subscribe(() => {
-  const status = client.connectionStatus; // "connecting" | "connected" | "disconnected" | "error"
-  showOverlay(status !== "connected");
+  // "connecting" (first dial) | "connected" | "reconnecting" (seat held) | "offline"
+  const status = client.connectionStatus;
+  showOverlay(status === "connecting" || status === "reconnecting", status);
 });
 ```
 
@@ -168,24 +170,27 @@ latest state and held input, and a host re-sends whatever of its world the
 server holds differently. Events and claims made while away do queue and go
 out on reconnect, so never stream per-frame state as events.
 
-### Offline fallback that doesn't strand players
+### Offline fallback
 
-A game that plays solo when no server answers needs two guards, or a transient
-failure drops a live room into single-player for good:
+Pass `fallbackMs` and the SDK plays solo when no server answers. If no room
+admits the client within that long, it goes offline: a local room of one with
+the same API. It is the host, writes apply locally, events loop back to
+`onEvent`, claims are granted at once, and `serverNow()` reads
+the local clock. Don't write stand-ins for an offline game: the client is one.
+The example games use 4–8 s.
 
-- **A connect deadline, started on the first `update()` tick** (`bootedAt`),
-  not at `create()` — load time counted against the deadline drops a
-  slow-booting client to solo before its socket ever connects. The example
-  games use 4–8 s (`OFFLINE_FALLBACK_MS`). Pre-connect errors and closes are
-  **not** instant failures: the socket retries by itself, so the deadline is
-  the only fallback trigger.
-- **`everConnected`**: once `connectionStatus` has been `"connected"`, never
-  fall back. A later drop is transient — let the socket reconnect (the seat is
-  held for `RECONNECT_GRACE_MS`) and show the status overlay instead.
+- **The deadline counts rendered frames**, from the first one after the client
+  is created. Loading time and a hidden tab don't count, so a slow boot isn't
+  dropped to solo before its socket ever connects. Still, create the client
+  when the game can play, not before a long load.
+- **Once admitted, a drop is `"reconnecting"`, never a fallback.** The seat is
+  held for `RECONNECT_GRACE_MS` while the socket redials; show the overlay.
+- **Offline by intent** (`?offline=1`, a trailer): `offline: true` never dials.
+- **"Play solo"**: `client.goOffline()` leaves the room (the seat frees at once)
+  and plays on from the room's world. Subscribers see `"offline"`.
 
-Going offline is `client.destroy()` plus a local stand-in for `client.players`
-(a synthesized self entry, so every `id === myId` render path still works).
-Refresh to go back online.
+A new client is the way back online (a page refresh). Tick rooms don't tick
+offline: run the sim locally.
 
 ### Stale host
 
