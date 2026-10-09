@@ -326,7 +326,8 @@ const run = (sc: Scenario): Outcome => {
     if (!relay.synced || !pose || now < SETTLE_MS) {
       return;
     }
-    const renderAt = relay.now(local) - INTERP_MS;
+    // the moment the puppet was drawn at: as far behind the relay as it needs
+    const renderAt = puppet.renderTime(local);
     const truth = ownAt(renderAt - EPOCH);
     if (truth === null) {
       return;
@@ -461,7 +462,7 @@ const hopBackAndForth = (t: number): Partial<BodyInput> => {
   check("hit-stop on the host never pulls the guest back", o.pullBack < 0.5 && o.corrections === 0);
   check("…and the guest ends where the host's copy is", o.endError < 0.05);
   // Server-time stamps run on while the host stands still, so the guest draws
-  // the host's world standing still too, a relay and INTERP_MS later.
+  // the host's world standing still too, a relay and a render delay later.
   check(
     "the guest draws the host's hero on server time, never running dry",
     o.drawn > 0 && o.dry === 0,

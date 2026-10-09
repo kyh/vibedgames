@@ -1,5 +1,5 @@
-// Blends for the guest's puppets: each remote actor renders INTERP_MS behind
-// the relay clock, between the two snapshots that bracket that moment
+// Blends for the guest's puppets: each remote actor renders at least INTERP_MS
+// behind the relay clock, between the two snapshots that bracket that moment
 // (Interpolator). Positions blend; discrete state (clip-driving flags, ids,
 // the FSM state) steps over at the midpoint; an FSM state's age blends while
 // the state holds, so posed attack frames advance every rendered frame rather
@@ -12,17 +12,21 @@
 // proxy — so INTERP_MS behind server time alone would sit past the newest
 // snapshot and extrapolate every frame. The clock reads server time less the
 // fastest recent relay, measured at arrival on this tab's own clock, so this
-// guest's server-clock estimate never enters it. Hit-stop and a slow host move
-// the stamps with real time, so there is nothing to reset; a new host or a
-// reconnect carries them straight on by another route, which the clock
-// relearns (GuestSync.admit).
+// guest's server-clock estimate never enters it. The clock also measures how
+// late snapshots land (RemoteClock.hold), and the render delay grows past
+// INTERP_MS to cover it on a jittery route or a busy tab; anything else drawn
+// on the host's timeline goes at the Interpolator's renderTime. Hit-stop and a
+// slow host move the stamps with real time, so there is nothing to reset; a
+// new host or a reconnect carries them straight on by another route, which
+// the clock relearns (GuestSync.admit).
 
 import { lerp } from "@vibedgames/multiplayer";
 
 import type { BossPose, EnemyPose, PlayerPose } from "./snapshot";
 
-/** Render delay behind the relay clock (ms): a 30 Hz snapshot interval plus
- * arrival jitter, so the bracketing snapshot has almost always landed. */
+/** The least render delay behind the relay clock (ms): a 30 Hz snapshot
+ * interval plus a quiet route's jitter, so the bracketing snapshot has almost
+ * always landed. The Interpolator renders further back when the stream needs it. */
 export const INTERP_MS = 100;
 // px between consecutive snapshots that no movement covers in 33 ms — a
 // respawn or a blink. Hold the old pose until the new one's stamp, then step.

@@ -70,8 +70,8 @@ export interface Point {
 }
 
 // One remote actor on a guest: its view, the host-stamped poses it renders
-// INTERP_MS behind the relay clock (net/interp.ts), the pose drawn last frame
-// (cue edges), and when the host stopped reporting it.
+// behind the relay clock (net/interp.ts), the pose drawn last frame (cue
+// edges), and when the host stopped reporting it.
 export interface Puppet<V, P> {
   view: V;
   interp: Interpolator<P>;

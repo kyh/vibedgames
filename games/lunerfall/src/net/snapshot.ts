@@ -14,11 +14,11 @@
 // Guest → host, an event to the host alone:
 //   in          the guest's input, one entry per 60 Hz sim tick, two per send
 //
-// A guest draws everyone else from the stamps, 100 ms of buffer behind the
-// relay's own latency (net/interp.ts), and predicts its own body, replaying
-// the host's edges into its history and reconciling against its row at the
-// acked tick (net/predict.ts). Rows are tuples: a snapshot is a couple of
-// dozen of them, thirty times a second.
+// A guest draws everyone else from the stamps, at least 100 ms of buffer
+// behind the relay's own latency (net/interp.ts), and predicts its own body,
+// replaying the host's edges into its history and reconciling against its row
+// at the acked tick (net/predict.ts). Rows are tuples: a snapshot is a couple
+// of dozen of them, thirty times a second.
 
 import type { BossState } from "../entities/boss-body";
 import type { EnemyState } from "../entities/enemy-body";

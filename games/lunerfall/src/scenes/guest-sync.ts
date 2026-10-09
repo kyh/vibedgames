@@ -97,8 +97,9 @@ export interface GuestSyncDeps {
 //             shipped to the host; host edges replayed into it, drift
 //             reconciled at the acked tick (net/predict.ts)
 //   puppet  — everyone else, projectiles too: drawn between the two
-//             snapshots that bracket render time — INTERP_MS behind the
-//             relay clock (net/interp.ts), on the room's server time
+//             snapshots that bracket render time — at least INTERP_MS
+//             behind the relay clock, more when the stream needs it
+//             (net/interp.ts), on the room's server time
 // Rooms change when a snapshot names the next one and its layout is in hand;
 // checkpoints only dress the room (merchant stock, features) and the relic
 // list, so a missing or rejected one never stops the guest.
@@ -646,18 +647,18 @@ export class GuestSync {
     }
   }
 
-  // Puppets render INTERP_MS behind the relay clock; their cues fire off the
-  // drawn pose, so a sound lands with the animation it belongs to.
+  // Puppets render behind the relay clock, as far as the stream needs; their
+  // cues fire off the drawn pose, so a sound lands with the animation it
+  // belongs to, and they show and vanish at the render time that draws them.
   private renderViews() {
     if (!this.clock.synced) {
       return;
     }
     const now = performance.now();
-    const renderAt = this.clock.now(now) - INTERP_MS;
     this.renderRemote(now);
-    this.renderEnemies(now, renderAt);
+    this.renderEnemies(now);
     this.renderBoss(now);
-    this.renderProj(now, renderAt);
+    this.renderProj(now);
   }
 
   private renderRemote(now: number) {
@@ -715,8 +716,9 @@ export class GuestSync {
     }
   }
 
-  private renderEnemies(now: number, renderAt: number) {
+  private renderEnemies(now: number) {
     for (const [id, p] of this.room.guest.enemyPuppets) {
+      const renderAt = p.interp.renderTime(now);
       if (p.gone !== null && renderAt > p.gone) {
         p.view.destroy();
         this.room.guest.enemyPuppets.delete(id);
@@ -755,8 +757,9 @@ export class GuestSync {
     }
   }
 
-  private renderProj(now: number, renderAt: number) {
+  private renderProj(now: number) {
     for (const [id, p] of this.room.guest.proj) {
+      const renderAt = p.interp.renderTime(now);
       if (p.gone !== null && renderAt > p.gone) {
         p.spr.destroy();
         this.room.guest.proj.delete(id);
