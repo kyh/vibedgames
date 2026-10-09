@@ -51,6 +51,9 @@ const PROBE_BURST = [0, 100, 250, 500];
 // Ms of each run before the host's world is held to account: the host's
 // server clock and the relay have to have been measured.
 const SETTLE_MS = 1000;
+// …and before the host's copy of the guest is: its clock's hold eases in from
+// nothing over the stream's first second or so, at the copy's 2-tick floor.
+const COPY_SETTLE_MS = 2000;
 
 let pass = 0;
 let fail = 0;
@@ -270,7 +273,7 @@ const run = (sc: Scenario): Outcome => {
     const t = host.step / 60;
     const before = copy.ack;
     copy.step(hostBody, holding(t), endsAt);
-    if (now >= SETTLE_MS) {
+    if (now >= COPY_SETTLE_MS) {
       const applied = copy.ack - before;
       out.copySteps += 1;
       out.copyIdle += applied === 0 ? 1 : 0;
