@@ -355,8 +355,19 @@ first client into an empty room, so every client must pass the same ones.
 
 ## Automated two-client check
 
-Two headless browsers in one room, driven by Playwright. The traps, in the
-order they bite:
+For lag, start with `scripts/net-check.mjs` (SKILL.md → Local dev loop): it
+already runs two clients in a fresh room with lag on the party socket
+(Playwright WebSocket routing, frames delayed but never reordered), drives both
+from your playtest moves, and judges each by `window.__VG_NET__` — the SDK's
+count of `Interpolator` frames drawn past the newest update (starved) or frozen
+(stalled). It reports each page's frame rate and calls a page under 20 fps "too
+slow" rather than blaming the netcode; run it with a real GPU when you can.
+`--set-state <name>` calls a `__GAME_TEST_HOOKS__` state first, for a game whose
+menu stands between load and the room (`active-play` usually starts a solo run,
+so it isn't the default).
+
+For everything else, write a harness: two headless browsers in one room, driven
+by Playwright. The traps, in the order they bite:
 
 - **Run suites one at a time.** Two headless Chromes starve each other's rAF —
   the host looks frozen and every timing assertion lies.

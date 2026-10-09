@@ -144,7 +144,18 @@ setSpawn(SPAWNS[idx]);
 1. Run the game's dev server, open it in **two browser tabs** with the same room id (use an incognito window for tab 2 if the game reads per-browser storage). Tab 1 is host.
 2. Smoke both directions: move in tab 2, confirm tab 1 renders it; trigger a host write in tab 1, confirm tab 2 receives the patch.
 3. **Host migration:** close tab 1. Tab 2 must promote to host and the round must survive (if the world resets here, you're re-seeding on promotion — see Seeding host-side).
-4. **Latency pass:** in one tab, DevTools → Network → custom throttling profile with ~200ms latency (DevTools throttling applies to WebSockets). Play for a minute. Movement jitter, rubber-banding, and event/state races only show up here — localhost's ~0ms RTT hides all of them.
+4. **Latency pass:** run the net check against the dev server. It opens two headless clients in a fresh room with 80 ms ± 40 ms one-way lag on the party socket, moves both, and reports how often each drew the other past the newest update (`starved`) or froze (`stalled`):
+
+   ```bash
+   SKILL="${CLAUDE_SKILL_DIR}"
+   [ -d "$SKILL" ] || for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
+     [ -d "$d/multiplayer" ] && SKILL=$d/multiplayer && break
+   done
+   node "$SKILL/scripts/net-check.mjs" http://localhost:5173 --json
+   ```
+
+   Exit 0 is smooth; 1 is choppy, stalling or never connected; 3 means it couldn't judge (remotes not drawn through `Interpolator`, or the machine ran a page under 20 fps). It needs `playwright` in the game project, a `?room=` query param (rename with `--room-param`), and keys from your `window.__GAME_PLAYTEST__` moves (else arrows + WASD). By hand, the same pass is DevTools → Network → a custom ~200 ms latency profile (it applies to WebSockets) in one of two tabs. Localhost's ~0 ms round trip hides jitter, rubber-banding and event/state races; this is where they show.
+
 5. **Automated two-client check:** a Playwright harness with two headless contexts in one room — run one suite at a time, unique room id per run, `client.destroy()` before closing a context, assert on both clients' state. The full trap list — GPU flags, grace/eviction timing, blips vs leaves, virtual time — is in [references/architecture.md](references/architecture.md) → Automated two-client check.
 
 ## Anti-patterns
